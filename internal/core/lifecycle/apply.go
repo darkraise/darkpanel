@@ -104,6 +104,14 @@ func (e *Engine) begin(ctx context.Context, p core.Principal, planID string, opt
 	if err != nil {
 		return nil, nil, fmt.Errorf("lifecycle: open plan input: %w", err)
 	}
+	// Checked before recheck and the snapshot: a plan made while another change
+	// held the lock describes the host with that change applied, and if the
+	// holder were reverted after the snapshot, reverting this change would
+	// re-apply it. Only applies take locks and they hold applyMu, so a key
+	// found free here stays free until takeLocks.
+	if err := locksFree(ctx, db.Read(), def.Spec.LockKeys); err != nil {
+		return nil, nil, err
+	}
 	env := e.env(p)
 	if err := recheck(ctx, env, def, pl, input); err != nil {
 		return nil, nil, err
@@ -205,6 +213,22 @@ func recheck(ctx context.Context, env core.Env, def core.ActionDef, pl planRecor
 				fmt.Sprintf("guard %s passed when the plan was made and fails now; plan again", g.ID))
 		default:
 			return errcode.New(errcode.PlanGuardFailed, fmt.Sprintf("guard %s failed: %s", g.ID, g.Message))
+		}
+	}
+	return nil
+}
+
+// locksFree fails with lock.held when a change holds one of keys.
+func locksFree(ctx context.Context, db *sql.DB, keys []string) error {
+	for _, key := range keys {
+		var held string
+		err := db.QueryRowContext(ctx, "SELECT owner FROM core_locks WHERE key = ?", key).Scan(&held)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+		case err != nil:
+			return fmt.Errorf("lifecycle: read lock %s: %w", key, err)
+		default:
+			return errcode.New(errcode.LockHeld, fmt.Sprintf("lock %s is held by change %s", key, held))
 		}
 	}
 	return nil

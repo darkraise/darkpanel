@@ -44,6 +44,8 @@ type fixHost struct {
 	items   map[string]string
 	blocked bool // the not-blocked guard fails while set
 	applies int
+	// onSnapshot, when set, runs at the start of Snapshot without mu held.
+	onSnapshot func()
 }
 
 type itemIn struct {
@@ -121,6 +123,9 @@ func (x itemHandler) Verify(_ context.Context, _ core.Env, in itemIn, _ itemOut)
 }
 
 func (x itemHandler) Snapshot(_ context.Context, _ core.Env, in itemIn) ([]byte, error) {
+	if x.h.onSnapshot != nil {
+		x.h.onSnapshot()
+	}
 	x.h.mu.Lock()
 	defer x.h.mu.Unlock()
 	v, ok := x.h.items[in.Name]

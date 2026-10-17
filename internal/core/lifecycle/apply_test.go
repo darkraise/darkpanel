@@ -277,6 +277,42 @@ func TestApplyLockHeld(t *testing.T) {
 	}
 }
 
+// A plan made while another change holds its lock describes the state with
+// that change applied, so its snapshot must not be taken until the lock is
+// known to be free: if the holder were reverted between the snapshot and the
+// lock, reverting this change would re-apply the reverted one.
+func TestApplyLockHeldRefusedBeforeSnapshot(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	holder := f.apply(alice, f.plan(alice, refSet, `{"name":"a","value":"1"}`).PlanID, core.ApplyOptions{})
+	pl := f.plan(alice, refSet, `{"name":"b","value":"2"}`)
+
+	entered, release := make(chan struct{}), make(chan struct{})
+	f.host.onSnapshot = func() {
+		close(entered)
+		<-release
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := f.eng.Apply(ctx, alice, pl.PlanID, core.ApplyOptions{})
+		done <- err
+	}()
+	var err error
+	select {
+	case <-entered:
+		if _, rerr := f.eng.Revert(ctx, alice, holder.ID); rerr != nil {
+			t.Errorf("Revert holder: %v", rerr)
+		}
+		close(release)
+		err = <-done
+	case err = <-done:
+	}
+	wantCode(t, err, errcode.LockHeld)
+	if n := f.count("SELECT count(*) FROM core_changes WHERE id != ?", holder.ID); n != 0 {
+		t.Errorf("changes besides the lock holder = %d, want 0", n)
+	}
+}
+
 func TestApplySamePlanConcurrentlyActsOnce(t *testing.T) {
 	f := newFixture(t)
 	pl := f.plan(alice, refAdd, `{"name":"a","value":"1"}`)
