@@ -39,10 +39,11 @@ type planRecord struct {
 
 // intent is a change whose intent is persisted; its mutation comes next.
 type intent struct {
-	id       string
-	def      core.ActionDef
-	input    json.RawMessage
-	deadline time.Time // revertible only
+	id         string
+	def        core.ActionDef
+	input      json.RawMessage
+	deadline   time.Time // revertible only
+	confirmNow bool
 }
 
 // Apply executes a stored plan with ADR 0004's ordering. A plan that already
@@ -108,7 +109,7 @@ func (e *Engine) begin(ctx context.Context, p core.Principal, planID string, opt
 		return nil, nil, err
 	}
 
-	it := &intent{id: e.newID(), def: def, input: input}
+	it := &intent{id: e.newID(), def: def, input: input, confirmNow: opts.ConfirmNow}
 	var snapshot []byte
 	var deadline any
 	if def.Spec.Class == core.ClassRevertible {
@@ -250,6 +251,14 @@ func (e *Engine) run(ctx context.Context, p core.Principal, it *intent) (core.Ch
 	})
 	if err != nil {
 		return v, err
+	}
+	if revertible {
+		e.armTimer(it.id, it.deadline.Sub(e.cfg.Base.Clock.Now()))
+		if it.confirmNow {
+			if v, err = e.Confirm(ctx, p, it.id); err != nil {
+				return v, err
+			}
+		}
 	}
 	v.Output = out
 	return v, nil
