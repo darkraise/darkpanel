@@ -24,6 +24,25 @@ the real UI shell, `serve` and `/healthz` on top of this; none of that is here.
 - The plan pushes `main` to `github.com/darkraise/darkpanel` (public, empty
   today) so GitHub Actions runs; everything pushed is public.
 - Go and golangci-lint are installed system-wide on the development host.
+- Planning found that the Go linker drops an `embed.FS` no reachable code
+  reads, so binaries built from this spec as first written carried no UI. The
+  owner chose to have `darkpanel version --json` report `"ui"`, which reads
+  `web.Dist`, and to have `verify-build` check each binary for the UI.
+
+## Plan-time rulings (2026-10-17)
+
+- The generated `SidebarLayout` throws without a router adapter
+  (`useRouterAdapter must be used inside a <RouterAdapterProvider>`), so
+  `src/app.tsx` wraps it in a `RouterAdapterProvider` fed by the kit's
+  fallback adapter until the walking skeleton adds a router.
+- pnpm 11 refuses an install that leaves a dependency build script
+  undecided, and applies a one-day minimum release age. `web/pnpm-workspace.yaml`
+  sets `allowBuilds: '@swc/core': false` (its postinstall only checks for the
+  native binary, which is installed as an optional dependency) and keeps any
+  `minimumReleaseAgeExclude` entry pnpm writes for a pin younger than a day.
+- Private vulnerability reporting is off on `darkraise/darkpanel`, and
+  `SECURITY.md` sends reporters there, so the push step turns it on before the
+  first push.
 
 ## Versions
 
@@ -71,7 +90,9 @@ exact (no ranges) in `go.mod` and `web/package.json`.
   `version` subcommand. `darkpanel version` prints
   `darkpanel <version> (commit <commit>, <go version>, <GOOS>/<GOARCH>)`;
   `darkpanel version --json` prints
-  `{"version":…,"commit":…,"go":…,"os":…,"arch":…}`. `version` and `commit` are
+  `{"version":…,"commit":…,"go":…,"os":…,"arch":…,"ui":…}`, where `ui` is
+  `true` when `web.Dist` holds `dist/index.html`. Reading `web.Dist` there is
+  what keeps the UI in the binary. `version` and `commit` are
   package `main` variables defaulting to `dev` and `unknown`, set by the build
   with `-ldflags "-X main.version=… -X main.commit=…"`.
 - **`web/embed.go`:** package `web` declares `//go:embed all:dist` and exports
@@ -86,7 +107,7 @@ exact (no ranges) in `go.mod` and `web/package.json`.
   |---|---|
   | `web` | `pnpm -C web install --frozen-lockfile` then `pnpm -C web build` |
   | `build` | `web`, then for `amd64` and `arm64`: `CGO_ENABLED=0 GOOS=linux GOARCH=<arch> go build -trimpath -ldflags "-s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT)" -o bin/darkpanel-linux-<arch> ./cmd/darkpanel` |
-  | `verify-build` | `file` reports both binaries as statically linked ELF for the right architecture; `DARKPANEL_REQUIRE_UI=1 go test ./web/` passes |
+  | `verify-build` | `file` reports both binaries as statically linked ELF for the right architecture; each binary contains `<title>Darkpanel</title>` from the built `index.html`; `DARKPANEL_REQUIRE_UI=1 go test ./web/` passes |
   | `lint-go` | `golangci-lint run` and `go vet ./...` |
   | `lint-web` | `pnpm -C web lint` and `pnpm -C web typecheck` |
   | `lint` | `lint-go lint-web` |
@@ -108,7 +129,8 @@ exact (no ranges) in `go.mod` and `web/package.json`.
   newline; tabs for Go and the Makefile, two spaces elsewhere.
 - **Tests:** `cmd/darkpanel/version_test.go` runs the root command with
   `version` and `version --json` and checks the default `dev` output and the
-  JSON keys. `web/embed_test.go` checks that `Dist` contains `dist/index.html`
+  JSON keys, `ui` as a boolean; a table test covers the `ui` check with and
+  without `dist/index.html`. `web/embed_test.go` checks that `Dist` contains `dist/index.html`
   when `DARKPANEL_REQUIRE_UI=1`, and skips otherwise. The race detector is not
   used yet: it needs CGO and there is no concurrent code; it arrives with the
   agent runtime.
@@ -126,7 +148,8 @@ exact (no ranges) in `go.mod` and `web/package.json`.
     `engines.node: ">=24"`, exact pins from the Versions table, scripts
     `dev` (`vite`), `build` (`tsc --noEmit && vite build && touch dist/.gitkeep`),
     `typecheck` (`tsc --noEmit`), `lint` (`eslint .`), `test` (`vitest run`).
-    `pnpm-lock.yaml` is committed.
+    `pnpm-lock.yaml` and `pnpm-workspace.yaml` (see Plan-time rulings) are
+    committed.
   - `index.html`: title `Darkpanel`; the Google Fonts links and the
     `/vite.svg` icon link are removed, so the embedded UI loads nothing from
     the internet. Self-hosted fonts are the walking skeleton's job.
@@ -134,7 +157,9 @@ exact (no ranges) in `go.mod` and `web/package.json`.
     The owner's direction A names a zinc surface, which the template does not
     offer; the walking skeleton decides it.
   - `src/app.tsx`: the placeholder text reads `Darkpanel` and
-    `The walking skeleton replaces this page.`
+    `The walking skeleton replaces this page.`; the layout sits inside a
+    `RouterAdapterProvider` fed by `useOptionalRouterAdapter()` (see Plan-time
+    rulings).
   - New `eslint.config.js` (flat config): `@eslint/js` recommended,
     `typescript-eslint` recommended, `react-hooks` recommended,
     `react-refresh` `only-export-components` as a warning, browser globals,
@@ -199,9 +224,11 @@ Each gate carries `Green`, `Evidence` and `Why` fields.
 
 ### 6. Push
 
-After the last wave merges into `main`, `main` is pushed to `origin` and the CI
-run for the pushed commit must conclude `success` (gate 6). That run is the
-evidence for M1's exit criterion "CI and gates green".
+After the last wave merges, the branch the plan runs on is pushed to `origin`
+and the CI run for the pushed commit must conclude `success` (gate 6). When
+that branch is not `main`, finishing the branch merges it into `main` and
+pushes `main`, and gate 6 is checked again for that commit. The run on `main`
+is the evidence for M1's exit criterion "CI and gates green".
 
 ## Parallel decomposition
 
