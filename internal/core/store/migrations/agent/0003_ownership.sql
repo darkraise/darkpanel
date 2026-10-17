@@ -8,6 +8,6 @@ CREATE TABLE core_owned_files (
     kind       TEXT NOT NULL CHECK (kind IN ('file', 'block')),
     block_id   TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
-    PRIMARY KEY (path, block_id),
+    PRIMARY KEY (path, module, block_id),
     CHECK ((kind = 'file') = (block_id = ''))
 ) STRICT;

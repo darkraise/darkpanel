@@ -41,7 +41,10 @@ func TestOwnershipRecordListForget(t *testing.T) {
 	at := time.Date(2026, 10, 17, 1, 2, 3, 0, time.UTC)
 	file := core.OwnedEntry{Path: "/etc/darkpanel/a.conf", Module: "demo", Kind: "file", CreatedAt: at}
 	block := core.OwnedEntry{Path: "/etc/hosts", Module: "demo", Kind: "block", BlockID: "names", CreatedAt: at}
-	for _, e := range []core.OwnedEntry{block, file, file} {
+	// The markers name the module, so another module's "names" block in the
+	// same file is a different block on disk and needs a row of its own.
+	otherBlock := core.OwnedEntry{Path: "/etc/hosts", Module: "other", Kind: "block", BlockID: "names", CreatedAt: at}
+	for _, e := range []core.OwnedEntry{block, otherBlock, file, file} {
 		if err := o.Record(ctx, e); err != nil {
 			t.Fatalf("Record(%+v): %v", e, err)
 		}
@@ -55,8 +58,8 @@ func TestOwnershipRecordListForget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []core.OwnedEntry{file, block}; !reflect.DeepEqual(got, want) {
-		t.Errorf("List = %+v, want %+v (sorted by path, first record kept)", got, want)
+	if want := []core.OwnedEntry{file, block, otherBlock}; !reflect.DeepEqual(got, want) {
+		t.Errorf("List = %+v, want %+v (sorted by path, block id and module, first record kept)", got, want)
 	}
 	if err := o.Forget(ctx, "demo", "/etc/hosts", "names"); err != nil {
 		t.Fatal(err)
@@ -68,8 +71,8 @@ func TestOwnershipRecordListForget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []core.OwnedEntry{file}; !reflect.DeepEqual(got, want) {
-		t.Errorf("after Forget: %+v, want %+v (another module cannot forget demo's file)", got, want)
+	if want := []core.OwnedEntry{file, otherBlock}; !reflect.DeepEqual(got, want) {
+		t.Errorf("after Forget: %+v, want %+v (a module forgets only its own entries)", got, want)
 	}
 }
 

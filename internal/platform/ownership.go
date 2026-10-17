@@ -20,12 +20,13 @@ var _ core.Ownership = (*Ownership)(nil)
 // NewOwnership returns the ownership manifest stored in the agent database.
 func NewOwnership(db *store.DB) *Ownership { return &Ownership{db: db} }
 
-// Record adds e. Recording a path and block id that are already recorded
-// changes nothing, so the first write's time is kept.
+// Record adds e. Recording a module's path and block id that are already
+// recorded changes nothing, so the first write's time is kept. Two modules'
+// blocks of the same id in one file are separate rows, as their markers are.
 func (o *Ownership) Record(ctx context.Context, e core.OwnedEntry) error {
 	return o.db.Write(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `INSERT INTO core_owned_files (path, module, kind, block_id, created_at)
-			VALUES (?, ?, ?, ?, ?) ON CONFLICT (path, block_id) DO NOTHING`,
+			VALUES (?, ?, ?, ?, ?) ON CONFLICT (path, module, block_id) DO NOTHING`,
 			e.Path, e.Module, e.Kind, e.BlockID, e.CreatedAt.UTC().Format(time.RFC3339))
 		if err != nil {
 			return fmt.Errorf("platform: record %s %s: %w", e.Path, e.BlockID, err)
@@ -47,10 +48,10 @@ func (o *Ownership) Forget(ctx context.Context, module, path, blockID string) er
 	})
 }
 
-// List returns every entry, sorted by path and block id.
+// List returns every entry, sorted by path, block id and module.
 func (o *Ownership) List(ctx context.Context) ([]core.OwnedEntry, error) {
 	rows, err := o.db.Read().QueryContext(ctx,
-		`SELECT path, module, kind, block_id, created_at FROM core_owned_files ORDER BY path, block_id`)
+		`SELECT path, module, kind, block_id, created_at FROM core_owned_files ORDER BY path, block_id, module`)
 	if err != nil {
 		return nil, fmt.Errorf("platform: list owned files: %w", err)
 	}
