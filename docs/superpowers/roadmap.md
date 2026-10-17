@@ -2,7 +2,7 @@
 
 **Product:** An MIT-licensed, single-binary VPS and self-hosted fleet manager (CLI and web UI) for owners of unmanaged Linux servers, starting with a Docker-aware UFW firewall, Docker, Tailscale and DERP, reverse-proxy exposure and safe self-update.
 **Spec:** docs/superpowers/specs/2026-10-17-darkpanel-design.md
-**Non-goals:** web hosting stacks, PaaS deploys and app store, Kubernetes and Swarm, Headscale, RHEL and firewalld, non-systemd hosts, Docker nftables backend, roles beyond admin and SSO, web terminal and file manager, metrics history and alerting, telemetry
+**Non-goals:** web hosting stacks, PaaS deploys and app store, Kubernetes and Swarm, Headscale, RHEL and firewalld, non-systemd hosts, Windows or macOS hosts, Docker nftables backend, roles beyond admin, per-host permissions and SSO, web terminal and file manager, metrics history and alerting, telemetry
 
 | M | Name | Exit criteria | Register | State | Note |
 |---|---|---|---|---|---|

@@ -1,7 +1,7 @@
 # Darkpanel — product design
 
 **Date:** 2026-10-17
-**Status:** draft, awaiting owner approval
+**Status:** approved by the owner 2026-10-17
 **License:** MIT
 
 ## 1. Problem
@@ -222,10 +222,12 @@ Each requirement belongs to exactly one epic (section 8).
   the systemd unit for the chosen role (controller or agent), and refuses
   unsupported operating systems with a clear message.
 - **R30** `darkpanel uninstall` removes everything in the ownership manifest and
-  removes its marked blocks, with a choice to keep or revert firewall rules.
-- **R31** Break-glass commands run on the host without the controller:
-  `darkpanel firewall rollback`, `darkpanel update rollback`,
-  `darkpanel user reset-totp`.
+  removes its marked blocks; each module contributes its own uninstall step
+  (the firewall module, from M3, offers to keep or revert its rules).
+- **R31** Break-glass commands run on the host without the controller,
+  through the local agent socket: `darkpanel update rollback`,
+  `darkpanel user reset-totp`, and any module action marked break-glass
+  (`darkpanel firewall rollback` arrives with R42 in M3).
 
 ### Self-update
 
@@ -376,8 +378,9 @@ Each requirement belongs to exactly one epic (section 8).
 
 - **R80** A tagged release produces signed artifacts, a changelog and an SBOM;
   the semantic-versioning and compatibility policy is documented.
-- **R81** v1.0 runs on the owner's production VPS plus at least one agent,
-  with a runbook for lockout, failed update and lost controller.
+- **R81** A v1.0 release candidate runs on the owner's production VPS plus at
+  least one agent for 14 days with no manual repair (S7) before v1.0 is
+  declared, with a runbook for lockout, failed update and lost controller.
 
 ## 8. Epics
 
@@ -392,7 +395,7 @@ Each requirement belongs to exactly one epic (section 8).
 | Walking skeleton | M1 | R13, R14 |
 | Identity, sessions and audit | M1 | R15–R20 |
 | Integration test harness | M1 | R21 |
-| Controller–agent fleet | M2 | R22–R28 |
+| Controller-agent fleet | M2 | R22–R28 |
 | Install, service and uninstall | M2 | R29–R31 |
 | Self-update | M2 | R32–R36 |
 | UFW management | M3 | R37, R38 |
@@ -474,8 +477,15 @@ A module is a Go package with two halves sharing one manifest:
 
 The core supplies the change lifecycle (R10), audit (R18), secrets (R12),
 migrations (R8), API and CLI exposure (R7) and capability negotiation (R24).
-New features are new modules or new action versions; nothing existing is edited
-in place.
+New features are new modules, new actions or new action versions; a published
+action version only ever changes additively (R6).
+
+### Agent half before M2
+
+In M1 there is no remote agent yet. The controller runs the agent half
+in-process through the same handler interface the local agent uses (R26), so
+the host-information module works end to end in M1 and M2 only moves the agent
+half behind the mTLS transport.
 
 ### Compatibility rules (what keeps production safe)
 
