@@ -95,3 +95,43 @@ func TestBackupRefusesExistingDirectory(t *testing.T) {
 		t.Fatal("second backup with the same name succeeded, want an error")
 	}
 }
+
+func TestBackupFailureLeavesNoDirectory(t *testing.T) {
+	db := openTemp(t)
+	root := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := Backup(ctx, db, root, "a", "b", time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC), 5); err == nil {
+		t.Fatal("Backup succeeded with a cancelled context")
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil || len(entries) != 0 {
+		t.Errorf("entries after a failed backup = %v, %v; want none", entries, err)
+	}
+}
+
+func TestBackupKeepsNewDirectoryWhenClockGoesBack(t *testing.T) {
+	db := openTemp(t)
+	ctx := context.Background()
+	root := t.TempDir()
+	later := time.Date(2026, 10, 18, 0, 0, 0, 0, time.UTC)
+	for i := range 5 {
+		if _, err := Backup(ctx, db, root, "a", "b", later.Add(time.Duration(i)*time.Minute), 5); err != nil {
+			t.Fatalf("Backup %d: %v", i, err)
+		}
+	}
+	dir, err := Backup(ctx, db, root, "a", "b", later.Add(-time.Hour), 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "test.db")); err != nil {
+		t.Errorf("new backup: %v", err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil || len(entries) != 5 {
+		t.Errorf("entries = %v, %v; want 5", entries, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "a-b-20261018T000000Z")); !os.IsNotExist(err) {
+		t.Errorf("oldest of the later backups survived: %v", err)
+	}
+}

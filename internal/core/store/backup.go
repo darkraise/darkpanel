@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,8 +20,9 @@ var (
 )
 
 // Backup copies db with VACUUM INTO to root/<from>-<to>-<UTC time>/<db file
-// name> (directory 0700, file 0600) and then deletes all but the newest keep
-// backup directories under root. Characters other than letters, digits, dot
+// name> (directory 0700, file 0600) and then deletes backup directories under
+// root beyond keep, counting the new one first whatever its timestamp. A failed
+// copy removes its directory. Characters other than letters, digits, dot
 // and underscore in from and to become underscores, so the name always parses.
 // It returns the new backup's directory. Backups are for disaster recovery
 // only; nothing restores them automatically (ADR 0005).
@@ -41,20 +43,21 @@ func Backup(ctx context.Context, db *DB, root, from, to string, now time.Time, k
 	}
 	target := filepath.Join(dir, filepath.Base(db.Path()))
 	if _, err := db.Writer().ExecContext(ctx, "VACUUM INTO ?", target); err != nil {
-		return "", fmt.Errorf("store: VACUUM INTO %s: %w", target, err)
+		// A failed copy must not leave a directory that retention counts as a backup.
+		return "", errors.Join(fmt.Errorf("store: VACUUM INTO %s: %w", target, err), os.RemoveAll(dir))
 	}
 	if err := os.Chmod(target, 0o600); err != nil {
-		return "", fmt.Errorf("store: backup mode: %w", err)
+		return "", errors.Join(fmt.Errorf("store: backup mode: %w", err), os.RemoveAll(dir))
 	}
-	if err := pruneBackups(root, keep); err != nil {
+	if err := pruneBackups(root, name, keep); err != nil {
 		return "", err
 	}
 	return dir, nil
 }
 
-// pruneBackups deletes the oldest backup directories beyond keep. It only
-// considers directories whose names Backup produces.
-func pruneBackups(root string, keep int) error {
+// pruneBackups deletes the oldest backup directories beyond keep, never the
+// one named current. It only considers directories whose names Backup produces.
+func pruneBackups(root, current string, keep int) error {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return fmt.Errorf("store: list backups: %w", err)
@@ -63,7 +66,8 @@ func pruneBackups(root string, keep int) error {
 	var backups []backup
 	for _, e := range entries {
 		m := backupDirName.FindStringSubmatch(e.Name())
-		if !e.IsDir() || m == nil {
+		// current is excluded so a clock set back cannot rank it among the oldest.
+		if !e.IsDir() || m == nil || e.Name() == current {
 			continue
 		}
 		backups = append(backups, backup{e.Name(), m[1]})
@@ -74,10 +78,12 @@ func pruneBackups(root string, keep int) error {
 		}
 		return strings.Compare(backups[i].name, backups[j].name) > 0
 	})
-	for _, b := range backups[min(keep, len(backups)):] {
+	var errs []error
+	for _, b := range backups[min(keep-1, len(backups)):] {
 		if err := os.RemoveAll(filepath.Join(root, b.name)); err != nil {
-			return fmt.Errorf("store: prune backup %s: %w", b.name, err)
+			// Keep going: stopping here would let every retried run add a copy.
+			errs = append(errs, fmt.Errorf("store: prune backup %s: %w", b.name, err))
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
