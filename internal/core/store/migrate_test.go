@@ -94,6 +94,32 @@ func TestMigrateBacksUpOnlyWhenPending(t *testing.T) {
 	}
 }
 
+func TestMigrateRecordsVersionWhenNothingPending(t *testing.T) {
+	db := openTemp(t)
+	ctx := context.Background()
+	core := MigrationSet{"core", sqlFS(map[string]string{"0001_core.sql": metaSQL})}
+	opts := migrateOpts(t, "v1", time.Date(2026, 10, 17, 1, 0, 0, 0, time.UTC))
+	if _, err := Migrate(ctx, db, opts, core, nil); err != nil {
+		t.Fatal(err)
+	}
+	opts.BinaryVersion = "v2"
+	if res, err := Migrate(ctx, db, opts, core, nil); err != nil || res.BackupDir != "" {
+		t.Fatalf("v2 run = %+v, %v; want success and no backup", res, err)
+	}
+	core.FS = sqlFS(map[string]string{
+		"0001_core.sql":  metaSQL,
+		"0002_hosts.sql": "CREATE TABLE core_hosts (id TEXT PRIMARY KEY);",
+	})
+	opts.BinaryVersion = "v3"
+	res, err := Migrate(ctx, db, opts, core, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(opts.BackupRoot, "v2-v3-20261017T010000Z"); res.BackupDir != want {
+		t.Errorf("backup dir = %q, want %q", res.BackupDir, want)
+	}
+}
+
 func TestMigrateSkipsBackupForSameVersion(t *testing.T) {
 	db := openTemp(t)
 	ctx := context.Background()
@@ -202,6 +228,36 @@ func TestMigrateCoreFailureStops(t *testing.T) {
 	}
 	if tableExists(t, db, "good_a") {
 		t.Error("module migrated after core failed")
+	}
+}
+
+func TestMigrateRunsWholeFileAtomically(t *testing.T) {
+	db := openTemp(t)
+	core := MigrationSet{"core", sqlFS(map[string]string{"0001_core.sql": metaSQL})}
+	mods := []MigrationSet{
+		{"multi", sqlFS(map[string]string{
+			"0001_init.sql": "CREATE TABLE multi_a (id TEXT);\nCREATE TABLE multi_b (id TEXT);",
+		})},
+		{"partial", sqlFS(map[string]string{
+			"0001_init.sql": "CREATE TABLE partial_a (id TEXT);\nNOT SQL;",
+		})},
+	}
+	res, err := Migrate(context.Background(), db, migrateOpts(t, "v1", time.Now()), core, mods)
+	if err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	if !tableExists(t, db, "multi_a") || !tableExists(t, db, "multi_b") {
+		t.Error("multi: want every statement of 0001 applied")
+	}
+	if len(res.Failed) != 1 || res.Failed[0].Module != "partial" {
+		t.Errorf("failures = %+v, want partial", res.Failed)
+	}
+	if tableExists(t, db, "partial_a") {
+		t.Error("partial: the failed migration's first statement was kept")
+	}
+	var n int
+	if err := db.Read().QueryRow("SELECT count(*) FROM core_migrations WHERE module = 'partial'").Scan(&n); err != nil || n != 0 {
+		t.Errorf("partial rows = %d, %v; want 0", n, err)
 	}
 }
 

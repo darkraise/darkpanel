@@ -77,7 +77,8 @@ const createMigrationsTable = `CREATE TABLE IF NOT EXISTS core_migrations (
 // order, each migration in its own transaction (ADR 0005). Before applying
 // anything it takes a Backup named from core_meta's binary_version ("none" on
 // a new database) unless that already equals opts.BinaryVersion; a run with
-// nothing pending takes none. A changed checksum or failure in core returns an error and must stop
+// nothing pending takes none but still records opts.BinaryVersion. A changed
+// checksum or failure in core returns an error and must stop
 // startup; the same in a module is reported in Result.Failed and that module's
 // remaining migrations are skipped. Recorded migrations numbered above the
 // highest embedded one are ignored, so an older binary runs on a newer schema.
@@ -112,7 +113,7 @@ func Migrate(ctx context.Context, db *DB, opts MigrateOptions, core MigrationSet
 		anyPending = anyPending || len(p) > 0
 	}
 	if !anyPending {
-		return res, nil
+		return res, setBinaryVersion(ctx, db, opts.BinaryVersion)
 	}
 
 	from, err := binaryVersion(ctx, db)
@@ -282,8 +283,9 @@ func binaryVersion(ctx context.Context, db *DB) (string, error) {
 	}
 }
 
-// setBinaryVersion records the running binary after a successful run; it is a
-// no-op until the core migration that creates core_meta has run.
+// setBinaryVersion records the running binary at the end of every run, and
+// after a failed core migration so a restart loop keeps the pre-upgrade backup;
+// it is a no-op until the core migration that creates core_meta has run.
 func setBinaryVersion(ctx context.Context, db *DB, version string) error {
 	err := db.Write(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx,
