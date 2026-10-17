@@ -8,7 +8,7 @@ Proposed
 
 ## Context
 
-The DarkPanel binary is static and built with CGO disabled, so the storage
+The Darkpanel binary is static and built with CGO disabled, so the storage
 layer cannot depend on a C library. Updates must never break a production host
 (S5), which puts hard demands on how the schema changes and how data is kept
 across an update and a rollback.
