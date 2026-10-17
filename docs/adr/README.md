@@ -60,3 +60,41 @@ Every ADR uses these definitions and does not redefine them.
 - How `cloudflared` runs: M6 Cloudflare Tunnel epic.
 - How the install script verifies a download (it must not trust TLS alone):
   M2 install epic.
+
+## Traceability
+
+Product-spec requirements that depend on these decisions, with the part of
+each ADR's Decision section that serves them. `none` means the requirement is
+decided by its own epic, not by an ADR.
+
+| Requirement | ADRs (Decision part) |
+|---|---|
+| R1 | 0002 (module contract), 0003 (protocol), 0004 (change lifecycle), 0005 (storage and migrations), 0006 (API versioning), 0007 (release signing) |
+| R5 | 0002 (manifest interface, compiled-in modules) |
+| R6 | 0002 (compatibility rules) |
+| R7 | 0002 (action declaration), 0006 (REST, CLI) |
+| R8 | 0005 (migrations) |
+| R9 | 0002 (enablement and preflight) |
+| R10 | 0004 (plan, apply ordering, compensable and irreversible actions) |
+| R11 | 0009 (commands, files) |
+| R12 | 0005 (secrets), 0006 (authentication boundary) |
+| R15, R16, R17 | 0006 (authentication boundary) |
+| R18 | 0003 (journal delivery), 0004 (journal) |
+| R19 | none: a stored role field, decided by the identity epic |
+| R20 | 0006 (listeners) |
+| R21 | 0008 (harness) |
+| R22 | 0003 (identity, transport) |
+| R23 | 0003 (enrollment, certificates and revocation) |
+| R24 | 0002 (schema hashes), 0003 (hello) |
+| R25 | 0003 (hello) |
+| R26 | 0001 (process model) |
+| R27 | 0003 (hello, liveness) |
+| R28 | 0003 (journal delivery), 0004 (startup recovery), 0006 (local access) |
+| R29 | 0007 (release hosting; method deferred to the M2 install epic) |
+| R30 | 0009 (files) |
+| R31 | 0006 (local access), 0007 (rollback unit) |
+| R32 | 0007 (signing, keys) |
+| R33 | 0007 (update transaction) |
+| R34 | 0005 (expand then contract, backups), 0007 (update transaction) |
+| R35 | 0007 (trusted comment carries the channel; scheduling is decided by the self-update epic) |
+| R36 | 0007 (rollouts) |
