@@ -165,13 +165,15 @@ Each requirement belongs to exactly one epic (section 8).
   inside system files are confined to marked `BEGIN/END DARKPANEL` blocks;
   external programs run with argument vectors, never through a shell.
 - **R12** Third-party credentials (Tailscale, Cloudflare, Nginx Proxy Manager)
-  are encrypted at rest with a key readable only by root, and never returned by
-  the API after being saved.
+  are encrypted at rest with a per-role key file, mode 0600, readable only by
+  the service that uses it (root for the agent, the `darkpanel` service user
+  for the controller), and never returned by the API after being saved.
 
 ### Walking skeleton
 
 - **R13** `darkpanel serve` runs the controller with the embedded web UI,
-  `/healthz` (version, schema version), and a host-information module visible
+  `/healthz` (status for anyone; version and schema version for an
+  authenticated caller), and a host-information module visible
   end to end in the UI, the API and the CLI.
 - **R14** The web UI registers each module's pages through a route registry, so
   adding a module's pages touches no other module.
@@ -240,8 +242,11 @@ Each requirement belongs to exactly one epic (section 8).
   swaps it atomically while keeping the previous one, restarts through systemd,
   health-checks, and rolls back to the previous binary automatically if the
   health check fails within its time limit.
-- **R34** Database migrations during an update run after a database backup; a
-  rollback restores the backup.
+- **R34** Database migrations during an update run after a database backup that
+  is kept for disaster recovery. Every release's migrations keep the schema
+  usable by the previous minor release's binary (expand, then contract), so a
+  rollback runs the previous binary on the migrated schema; the backup is not
+  restored automatically.
 - **R35** Hosts follow a release channel (stable or beta); updates run on
   demand or on an optional per-host schedule.
 - **R36** The controller rolls an update out to selected agents one host at a
@@ -496,7 +501,7 @@ half behind the mTLS transport.
 | Action names and schemas | Additive changes only within a version; new version for breaking changes; old version kept until next major |
 | REST API | `/api/v1` frozen under the same additive rule; generated from action schemas |
 | Agent protocol | Version and capability handshake; unknown fields ignored; controller supports agents N and N-1 minor |
-| Database | Forward-only, per-module migrations; backup before migrate; restore on update rollback |
+| Database | Forward-only, per-module migrations; backup before migrate; expand-then-contract so the previous minor's binary runs on the new schema; no automatic restore on rollback |
 | Files on disk | Only manifest-listed files and marked blocks; uninstall reverses them |
 | Binary | Signed releases, atomic swap, health-checked restart, automatic rollback |
 
