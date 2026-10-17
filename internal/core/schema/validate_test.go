@@ -3,6 +3,7 @@ package schema
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -77,6 +78,34 @@ func TestValidateNeverQuotesValues(t *testing.T) {
 	for _, text := range append([]string{coded.Error()}, fieldTexts(coded.Fields)...) {
 		if strings.Contains(text, "S3cr3t") || strings.Contains(text, "hunter2") {
 			t.Errorf("error text quotes the submitted value: %s", text)
+		}
+	}
+}
+
+type formatInput struct {
+	Addr string `json:"addr" jsonschema:"format=ipv4"`
+	At   string `json:"at" jsonschema:"format=date-time"`
+}
+
+func TestValidateAssertsFormat(t *testing.T) {
+	v := NewValidator()
+	def := core.DefineRead(core.ActionSpec{Name: "demo.format.get", Version: 1, Side: core.SideAgent},
+		fixtureHandler[formatInput, fixtureStatus]{})
+	if err := v.ValidateInput(def, json.RawMessage(`{"addr":"192.0.2.1","at":"2026-10-17T12:00:00Z"}`)); err != nil {
+		t.Fatalf("valid formats: %v", err)
+	}
+	err := v.ValidateInput(def, json.RawMessage(`{"addr":"192.0.2.300","at":"yesterday"}`))
+	var coded *errcode.Error
+	if !errors.As(err, &coded) || coded.Code != errcode.InvalidInput {
+		t.Fatalf("err = %v, want %s", err, errcode.InvalidInput)
+	}
+	want := []errcode.FieldError{
+		{Path: "/addr", Message: `value fails the "format" constraint`},
+		{Path: "/at", Message: `value fails the "format" constraint`},
+	}
+	for _, w := range want {
+		if !slices.Contains(coded.Fields, w) {
+			t.Errorf("fields = %+v, want %+v", coded.Fields, w)
 		}
 	}
 }

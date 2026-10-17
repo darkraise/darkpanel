@@ -78,6 +78,8 @@ func (v *Validator) compiled(def core.ActionDef) (*jsonschema.Schema, error) {
 	}
 	url := "urn:darkpanel:input:" + ref.String()
 	c := jsonschema.NewCompiler()
+	// Under draft 2020-12 "format" is only an annotation unless asserted.
+	c.AssertFormat()
 	if err := c.AddResource(url, doc); err != nil {
 		return nil, fmt.Errorf("schema: %s: %w", ref, err)
 	}
