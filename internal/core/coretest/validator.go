@@ -3,6 +3,8 @@ package coretest
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 	"reflect"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -33,7 +35,8 @@ func (Validator) ValidateInput(def core.ActionDef, raw json.RawMessage) error {
 	if err := dec.Decode(reflect.New(def.InputType).Interface()); err != nil {
 		return invalid("input does not match the action's input type")
 	}
-	if dec.More() {
+	// More reports false before a stray '}' or ']', so only io.EOF proves the input ended.
+	if !errors.Is(dec.Decode(new(json.RawMessage)), io.EOF) {
 		return invalid("trailing data after the JSON value")
 	}
 	return nil

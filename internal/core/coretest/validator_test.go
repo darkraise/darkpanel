@@ -19,7 +19,7 @@ func TestValidator(t *testing.T) {
 	if err := (Validator{}).ValidateInput(def, []byte(`{"name":"a","count":1}`)); err != nil {
 		t.Errorf("valid input: %v", err)
 	}
-	for _, raw := range []string{``, `{"name":"a","extra":1}`, `{"count":"one"}`, `{} {}`} {
+	for _, raw := range []string{``, `{"name":"a","extra":1}`, `{"count":"one"}`, `{} {}`, `{}}`, `{} ]`} {
 		err := (Validator{}).ValidateInput(def, []byte(raw))
 		var coded *errcode.Error
 		if !errors.As(err, &coded) || coded.Code != errcode.InvalidInput || len(coded.Fields) != 1 {
