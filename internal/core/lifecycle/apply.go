@@ -311,10 +311,11 @@ func (e *Engine) failApply(ctx context.Context, p core.Principal, it *intent, ca
 // cause is logged instead.
 func (e *Engine) changeError(ref core.ActionRef, err error) *core.ChangeError {
 	c := errcode.From(err)
+	msg := c.Detail
 	if c.Code == errcode.Internal {
 		e.cfg.Base.Log.Error("lifecycle: action failed", "action", ref.String(), "error", err)
+		msg = ""
 	}
-	msg := c.Detail
 	if msg == "" {
 		msg = c.Code.Title()
 	}

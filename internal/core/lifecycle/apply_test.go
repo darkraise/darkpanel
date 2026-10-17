@@ -200,10 +200,14 @@ func TestApplyFailures(t *testing.T) {
 }
 
 func TestApplyErrorMessageHidesInternalCauses(t *testing.T) {
-	f := newFixture(t)
-	v := f.apply(alice, f.plan(alice, refAdd, `{"name":"a","value":"1","failApply":true}`).PlanID, core.ApplyOptions{})
-	if v.Error == nil || v.Error.Message != "Internal error" {
-		t.Errorf("error = %+v, want the internal title without the cause", v.Error)
+	// failApply returns a plain error; failVerify an internal errcode error
+	// with a detail.
+	for _, flag := range []string{"failApply", "failVerify"} {
+		f := newFixture(t)
+		v := f.apply(alice, f.plan(alice, refAdd, `{"name":"a","value":"1","`+flag+`":true}`).PlanID, core.ApplyOptions{})
+		if v.Error == nil || v.Error.Message != "Internal error" {
+			t.Errorf("%s: error = %+v, want the internal title only", flag, v.Error)
+		}
 	}
 }
 
