@@ -6,7 +6,7 @@
 
 | M | Name | Exit criteria | Register | State | Note |
 |---|---|---|---|---|---|
-| M0 | Discovery | brief, requirements and non-goals approved by the owner | docs/superpowers/registers/2026-10-17-m0-discovery.md | open | - |
+| M0 | Discovery | brief, requirements and non-goals approved by the owner | docs/superpowers/registers/2026-10-17-m0-discovery.md | closed | audit 2026-10-17 7a91299: 4 MET, 0 deferred |
 | M1 | Foundations | ADRs recorded; one binary serves the host-info module through UI, API and CLI behind TOTP login; CI and gates green; harness boots all four OS VMs | docs/superpowers/registers/2026-10-17-m1-foundations.md | open | - |
 | M2 | Fleet and lifecycle | controller manages itself and one enrolled agent over mTLS; signed update and automatic rollback demonstrated in the harness | docs/superpowers/registers/2026-10-17-m2-fleet-lifecycle.md | open | - |
 | M3 | Firewall | UFW, safe apply, Docker integration and exposure view pass S1-S3 in the harness on all four OS | docs/superpowers/registers/2026-10-17-m3-firewall.md | open | - |
