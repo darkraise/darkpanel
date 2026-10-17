@@ -4,7 +4,7 @@
 **Status:** design approved by the owner 2026-10-17
 **Product spec:** docs/superpowers/specs/2026-10-17-darkpanel-design.md
 **Requirement:** R1
-**Execution strategy:** sequential — the epic writes documents only, as one chain.
+**Execution strategy:** parallel — the eight ADRs are independent files that share nothing but the index, which a foundation part writes first (owner ruling 2026-10-17: favour parallel to reach v1 sooner).
 
 ## Goal
 
@@ -168,6 +168,25 @@ docs/adr/                 decision records
 - The development host cannot run these VMs (it is an LXC container without
   `/dev/kvm`); local runs need a KVM-capable machine. The harness design is the
   integration test harness epic's job.
+
+## Parallel decomposition
+
+| Part | Wave | Owns | Consumes |
+|---|---|---|---|
+| Foundation | 0 | `docs/adr/README.md` (index of all eight ADRs with final numbers and titles, ADR template, supersession rule) | this spec |
+| ADR 0001 | 1 | `docs/adr/0001-stack-and-layout.md` | README template |
+| ADR 0002 | 1 | `docs/adr/0002-module-contract.md` | README template |
+| ADR 0003 | 1 | `docs/adr/0003-agent-protocol.md` | README template |
+| ADR 0004 | 1 | `docs/adr/0004-change-lifecycle.md` | README template |
+| ADR 0005 | 1 | `docs/adr/0005-storage-and-secrets.md` | README template |
+| ADR 0006 | 1 | `docs/adr/0006-api-and-cli.md` | README template |
+| ADR 0007 | 1 | `docs/adr/0007-release-signing.md` | README template |
+| ADR 0008 | 1 | `docs/adr/0008-test-harness.md` | README template |
+
+All wave-1 parts may run together. ADRs refer to each other only by the
+number and title fixed in the README, never by content written in the same
+wave. No part edits another part's file; the index is not touched in wave 1.
+There are no tests, ports or shared runtime state.
 
 ## Verification
 
