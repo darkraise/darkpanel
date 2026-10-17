@@ -358,6 +358,58 @@ func TestRemove(t *testing.T) {
 	}
 }
 
+func TestRemoveWithParentGone(t *testing.T) {
+	dir := t.TempDir()
+	gone := filepath.Join(dir, "gone")
+	file, hosts := filepath.Join(gone, "app.conf"), filepath.Join(gone, "hosts")
+	own := &fakeOwnership{}
+	f := NewFiles(FilesConfig{
+		Owned: map[string][]core.OwnedPath{"demo": {
+			{Path: file, Kind: "file"},
+			{Path: hosts, Kind: "block", BlockIDs: []string{"names"}},
+		}},
+		Ownership: own, Clock: coretest.NewFakeClock(filesNow), TestMode: true,
+	})
+	ctx := context.Background()
+	if err := os.Mkdir(gone, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.WriteFile(ctx, "demo", file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.ReplaceBlock(ctx, "demo", hosts, "names", []byte("y\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(gone); err != nil {
+		t.Fatal(err)
+	}
+	// A symlink in place of the directory is refused, not taken for missing.
+	if err := os.Symlink(t.TempDir(), gone); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Remove(ctx, "demo", file); err == nil {
+		t.Error("Remove through a symlinked parent succeeded")
+	}
+	if err := f.RemoveBlock(ctx, "demo", hosts, "names"); err == nil {
+		t.Error("RemoveBlock through a symlinked parent succeeded")
+	}
+	if got, _ := own.List(ctx); len(got) != 2 {
+		t.Fatalf("ownership after refusals = %+v, want both entries kept", got)
+	}
+	if err := os.Remove(gone); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Remove(ctx, "demo", file); err != nil {
+		t.Errorf("Remove with the parent gone: %v", err)
+	}
+	if err := f.RemoveBlock(ctx, "demo", hosts, "names"); err != nil {
+		t.Errorf("RemoveBlock with the parent gone: %v", err)
+	}
+	if got, _ := own.List(ctx); len(got) != 0 {
+		t.Errorf("ownership = %+v, want none", got)
+	}
+}
+
 func TestOwnedPaths(t *testing.T) {
 	a := core.OwnedPath{Path: "/etc/a", Kind: "file"}
 	got := OwnedPaths([]core.Manifest{{ID: "one", OwnedPaths: []core.OwnedPath{a}}, {ID: "two"}})

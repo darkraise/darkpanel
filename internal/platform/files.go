@@ -246,8 +246,8 @@ func (f *Files) ReplaceBlock(ctx context.Context, module, path, blockID string, 
 	})
 }
 
-// RemoveBlock deletes block blockID from path and forgets it; a missing file
-// or block is not an error.
+// RemoveBlock deletes block blockID from path and forgets it; a missing file,
+// block or parent directory is not an error.
 func (f *Files) RemoveBlock(ctx context.Context, module, path, blockID string) error {
 	op, err := f.declared(module, path, kindBlock, blockID)
 	if err != nil {
@@ -257,7 +257,12 @@ func (f *Files) RemoveBlock(ctx context.Context, module, path, blockID string) e
 		return err
 	}
 	p, err := f.openParent(path)
-	if err != nil {
+	switch {
+	case errors.Is(err, unix.ENOENT):
+		// Without its directory the file is gone too; only the record is left.
+		// A symlinked parent fails with ELOOP and stays an error.
+		return f.cfg.Ownership.Forget(ctx, module, path, blockID)
+	case err != nil:
 		return err
 	}
 	defer p.close()
@@ -279,8 +284,9 @@ func (f *Files) RemoveBlock(ctx context.Context, module, path, blockID string) e
 	return f.cfg.Ownership.Forget(ctx, module, path, blockID)
 }
 
-// Remove deletes the file path and forgets it; a missing file is not an
-// error. A symlink at path is removed itself, never followed.
+// Remove deletes the file path and forgets it; a missing file or parent
+// directory is not an error. A symlink at path is removed itself, never
+// followed.
 func (f *Files) Remove(ctx context.Context, module, path string) error {
 	if _, err := f.declared(module, path, kindFile, ""); err != nil {
 		return err
@@ -289,7 +295,12 @@ func (f *Files) Remove(ctx context.Context, module, path string) error {
 		return err
 	}
 	p, err := f.openParent(path)
-	if err != nil {
+	switch {
+	case errors.Is(err, unix.ENOENT):
+		// Without its directory the file is gone too; only the record is left.
+		// A symlinked parent fails with ELOOP and stays an error.
+		return f.cfg.Ownership.Forget(ctx, module, path, "")
+	case err != nil:
 		return err
 	}
 	defer p.close()
