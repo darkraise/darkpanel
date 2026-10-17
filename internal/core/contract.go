@@ -146,6 +146,9 @@ type Reader[In, Out any] interface {
 type Mutator[In, Out any] interface {
 	Plan(ctx context.Context, env Env, in In) (PlanOutcome, error)
 	Apply(ctx context.Context, env Env, in In) (Out, error)
+	// Verify checks that Apply took effect. Startup recovery also calls it
+	// for a change cut off during Apply, with out the zero value because no
+	// output was recorded, so Verify must check the host from in alone.
 	Verify(ctx context.Context, env Env, in In, out Out) error
 }
 
