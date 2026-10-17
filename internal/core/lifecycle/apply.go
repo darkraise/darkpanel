@@ -297,7 +297,7 @@ func (e *Engine) failApply(ctx context.Context, p core.Principal, it *intent, ca
 	}
 	if it.def.Spec.Class == core.ClassRevertible {
 		if err := e.runRevert(ctx, p, it.id); err != nil {
-			e.cfg.Base.Log.Error("lifecycle: revert after a failed apply", "change", it.id, "error", err)
+			e.cfg.Base.Log.Error("lifecycle: revert after a failed apply", "change", it.id, "error", err, "cause", cause)
 			tr.err, tr.phase = revertFailed(), phaseRevert
 		} else {
 			tr.to = core.StateReverted
