@@ -52,6 +52,10 @@ type Engine struct {
 	idMu    sync.Mutex
 	entropy *ulid.MonotonicEntropy
 
+	// applyMu is held from apply's checks until its intent is persisted, so no
+	// other apply takes a lock or the same plan in between.
+	applyMu sync.Mutex
+
 	timerMu sync.Mutex
 	timers  map[string]core.Timer // armed revert timers by change id
 	closed  bool
