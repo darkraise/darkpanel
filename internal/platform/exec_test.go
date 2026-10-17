@@ -5,7 +5,10 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -13,12 +16,26 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 )
 
-const helperArg = "darkpanel-exec-helper"
+const (
+	helperArg     = "darkpanel-exec-helper"
+	helperForkArg = "darkpanel-exec-helper-fork"
+)
 
 // TestExecHelperProcess is not a test: Run starts the test binary with
 // helperArg so a program can write more than 4 MiB to stderr, which no
-// standard program does without a shell.
+// standard program does without a shell, or with helperForkArg so a program
+// leaves a descendant running and prints its PID.
 func TestExecHelperProcess(*testing.T) {
+	if os.Args[len(os.Args)-1] == helperForkArg {
+		child := exec.Command("/usr/bin/sleep", "30")
+		child.Stdout = os.Stdout
+		if err := child.Start(); err != nil {
+			os.Exit(2)
+		}
+		_, _ = os.Stdout.WriteString(strconv.Itoa(child.Process.Pid) + "\n")
+		time.Sleep(30 * time.Second)
+		os.Exit(0)
+	}
 	if os.Args[len(os.Args)-1] != helperArg {
 		return
 	}
@@ -107,6 +124,48 @@ func TestRunTimesOut(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Errorf("timeouts took %v", elapsed)
 	}
+}
+
+func TestRunStopsDescendants(t *testing.T) {
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := NewRunner([]string{self})
+	r.defaultTimeout = 500 * time.Millisecond
+	start := time.Now()
+	res, err := r.Run(context.Background(), core.Cmd{Path: self, Args: []string{"-test.run=^TestExecHelperProcess$", "--", helperForkArg}})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("err = %v, want the default timeout", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("Run took %v", elapsed)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(res.Stdout)))
+	if err != nil {
+		t.Fatalf("helper printed %q, want the descendant's PID", res.Stdout)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if descendantGone(pid) {
+			return
+		}
+	}
+	t.Errorf("descendant %d still runs after Run returned", pid)
+}
+
+// descendantGone reports whether pid no longer runs. A killed descendant
+// whose parent died first may stay a zombie when nothing reaps orphans.
+func descendantGone(pid int) bool {
+	if errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) {
+		return true
+	}
+	stat, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return false
+	}
+	s := string(stat)
+	return strings.HasPrefix(s[strings.LastIndex(s, ")")+1:], " Z")
 }
 
 func TestRunCapsOutput(t *testing.T) {

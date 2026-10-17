@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"syscall"
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -91,8 +92,12 @@ func (r *Runner) Run(ctx context.Context, cmd core.Cmd) (core.CmdResult, error) 
 	stdout := &cappedBuffer{limit: maxOutput, cancel: cancel}
 	stderr := &cappedBuffer{limit: maxOutput, cancel: cancel}
 	c.Stdout, c.Stderr = stdout, stderr
-	// A child that inherits the output pipes would otherwise keep Run waiting
-	// after the program itself was killed.
+	// The program leads its own process group so that the timeout and the
+	// output cap stop every process it started, not only the program itself.
+	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	c.Cancel = func() error { return syscall.Kill(-c.Process.Pid, syscall.SIGKILL) }
+	// A descendant that left the group and still holds the output pipes would
+	// otherwise keep Run waiting after the group was killed.
 	c.WaitDelay = time.Second
 
 	err := c.Run()
@@ -105,12 +110,14 @@ func (r *Runner) Run(ctx context.Context, cmd core.Cmd) (core.CmdResult, error) 
 	}
 	var exitErr *exec.ExitError
 	switch {
+	case err == nil:
+		return res, nil
+	// A program killed by the context also ends in an ExitError; the context
+	// must win so the timeout is not hidden behind exit code -1.
 	case ctx.Err() != nil:
 		return res, fmt.Errorf("platform: %s: %w", cmd.Path, context.Cause(ctx))
 	case errors.As(err, &exitErr):
 		return res, nil
-	case err != nil:
-		return res, fmt.Errorf("platform: run %s: %w", cmd.Path, err)
 	}
-	return res, nil
+	return res, fmt.Errorf("platform: run %s: %w", cmd.Path, err)
 }
