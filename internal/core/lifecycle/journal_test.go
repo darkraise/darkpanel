@@ -116,13 +116,21 @@ func TestJournalEntriesAndAck(t *testing.T) {
 	if g := got[2]; g.Seq != 3 || g.Input != nil || g.Result != "error" || g.ErrorCode != "internal" {
 		t.Errorf("entry 3 = %+v, want seq 3, no input, error internal", g)
 	}
-	if after, _ := j.Entries(ctx, 1, 1); len(after) != 1 || after[0].Seq != 2 {
+	after, err := j.Entries(ctx, 1, 1)
+	if err != nil {
+		t.Fatalf("Entries(1, 1): %v", err)
+	}
+	if len(after) != 1 || after[0].Seq != 2 {
 		t.Errorf("Entries(1, 1) = %+v, want only seq 2", after)
 	}
 	if err := j.Ack(ctx, 2); err != nil {
 		t.Fatal(err)
 	}
-	if left, _ := j.Entries(ctx, 0, 10); len(left) != 1 || left[0].Seq != 3 {
+	left, err := j.Entries(ctx, 0, 10)
+	if err != nil {
+		t.Fatalf("Entries after Ack: %v", err)
+	}
+	if len(left) != 1 || left[0].Seq != 3 {
 		t.Errorf("after Ack(2) = %+v, want only seq 3", left)
 	}
 }
@@ -141,7 +149,11 @@ func TestJournalAppendRollsBackWithTransaction(t *testing.T) {
 	if !errors.Is(err, boom) {
 		t.Fatalf("Write = %v, want boom", err)
 	}
-	if got, _ := j.Entries(ctx, 0, 10); len(got) != 0 {
+	got, err := j.Entries(ctx, 0, 10)
+	if err != nil {
+		t.Fatalf("Entries after rollback: %v", err)
+	}
+	if len(got) != 0 {
 		t.Errorf("entries after rollback = %+v, want none", got)
 	}
 }
