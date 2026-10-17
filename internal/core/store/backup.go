@@ -23,17 +23,15 @@ var (
 // name> (directory 0700, file 0600) and then deletes backup directories under
 // root beyond keep, counting the new one first whatever its timestamp. A failed
 // copy removes its directory. Characters other than letters, digits, dot
-// and underscore in from and to become underscores, so the name always parses.
-// It returns the new backup's directory. Backups are for disaster recovery
-// only; nothing restores them automatically (ADR 0005).
+// and underscore in from and to become underscores, and an empty one becomes
+// "unknown", so retention always recognizes the name. It returns the new
+// backup's directory. Backups are for disaster recovery only; nothing restores
+// them automatically (ADR 0005).
 func Backup(ctx context.Context, db *DB, root, from, to string, now time.Time, keep int) (string, error) {
 	if keep < 1 {
 		return "", fmt.Errorf("store: backup keep = %d, want at least 1", keep)
 	}
-	name := fmt.Sprintf("%s-%s-%s",
-		unsafeVersionChars.ReplaceAllString(from, "_"),
-		unsafeVersionChars.ReplaceAllString(to, "_"),
-		now.UTC().Format(backupTimeLayout))
+	name := fmt.Sprintf("%s-%s-%s", versionLabel(from), versionLabel(to), now.UTC().Format(backupTimeLayout))
 	dir := filepath.Join(root, name)
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return "", fmt.Errorf("store: backup root: %w", err)
@@ -53,6 +51,13 @@ func Backup(ctx context.Context, db *DB, root, from, to string, now time.Time, k
 		return "", err
 	}
 	return dir, nil
+}
+
+func versionLabel(v string) string {
+	if v == "" {
+		return "unknown"
+	}
+	return unsafeVersionChars.ReplaceAllString(v, "_")
 }
 
 // pruneBackups deletes the oldest backup directories beyond keep, never the

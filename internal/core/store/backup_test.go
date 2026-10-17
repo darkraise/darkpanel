@@ -84,6 +84,26 @@ func TestBackupKeepsNewest(t *testing.T) {
 	}
 }
 
+func TestBackupPrunesEmptyVersions(t *testing.T) {
+	db := openTemp(t)
+	ctx := context.Background()
+	root := t.TempDir()
+	start := time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC)
+	for i := range 7 {
+		dir, err := Backup(ctx, db, root, "", "", start.Add(time.Duration(i)*time.Minute), 5)
+		if err != nil {
+			t.Fatalf("Backup %d: %v", i, err)
+		}
+		if i == 0 && filepath.Base(dir) != "unknown-unknown-20261017T000000Z" {
+			t.Errorf("backup dir = %s, want unknown-unknown-20261017T000000Z", filepath.Base(dir))
+		}
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil || len(entries) != 5 {
+		t.Errorf("entries = %v, %v; want 5", entries, err)
+	}
+}
+
 func TestBackupRefusesExistingDirectory(t *testing.T) {
 	db := openTemp(t)
 	root := t.TempDir()
