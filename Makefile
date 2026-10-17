@@ -14,7 +14,7 @@ UI_MARKER := <title>Darkpanel</title>
 # ADR 0001: build only with the toolchain go.mod pins, never a downloaded one.
 export GOTOOLCHAIN := local
 
-.PHONY: web-deps web build verify-build lint-go lint-web lint test-go test-web test-adr test vuln check clean
+.PHONY: web-deps web build verify-build lint-go lint-web lint test-go test-web test-adr test schemas vuln check clean
 
 web-deps:
 	pnpm -C web install --frozen-lockfile
@@ -56,6 +56,9 @@ test-adr:
 	bash scripts/check-adrs.sh --complete
 
 test: test-go test-web test-adr
+
+schemas:
+	go run ./internal/core/schema/schemagen -out schemas
 
 vuln:
 	go run $(GOVULNCHECK) ./...
