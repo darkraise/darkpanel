@@ -146,9 +146,11 @@ func TestErasedHandlers(t *testing.T) {
 	if !errors.As(err, &coded) || coded.Code != errcode.InvalidInput {
 		t.Errorf("unknown field: err = %v, want %s", err, errcode.InvalidInput)
 	}
-	_, err = read.Handler.Read(ctx, Env{}, json.RawMessage(`{"name":"a"} {}`))
-	if !errors.As(err, &coded) || coded.Code != errcode.InvalidInput {
-		t.Errorf("trailing data: err = %v, want %s", err, errcode.InvalidInput)
+	for _, raw := range []string{`{"name":"a"} {}`, `{"name":"a"}}`, `{"name":"a"}]`} {
+		_, err = read.Handler.Read(ctx, Env{}, json.RawMessage(raw))
+		if !errors.As(err, &coded) || coded.Code != errcode.InvalidInput {
+			t.Errorf("trailing data %q: err = %v, want %s", raw, err, errcode.InvalidInput)
+		}
 	}
 
 	rev := revertible("demo.rule.set", SideAgent)

@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"reflect"
 
 	"github.com/darkraise/darkpanel/internal/core/errcode"
@@ -25,7 +27,8 @@ func decode[T any](raw json.RawMessage) (T, error) {
 		// field, so the cause stays out of the client-visible detail.
 		return v, errcode.Wrap(errcode.InvalidInput, err, "input does not match the action's input type")
 	}
-	if dec.More() {
+	// More reports false before a stray '}' or ']', so only io.EOF proves the input ended.
+	if !errors.Is(dec.Decode(new(json.RawMessage)), io.EOF) {
 		return v, errcode.New(errcode.InvalidInput, "trailing data after the JSON value")
 	}
 	return v, nil
