@@ -17,6 +17,8 @@ func TestScopeAllows(t *testing.T) {
 		{ScopeAdmin, ScopeOperate, true},
 		{Scope(""), ScopeRead, false},
 		{Scope("root"), ScopeRead, false},
+		{ScopeAdmin, Scope(""), false},
+		{ScopeRead, Scope("root"), false},
 	}
 	for _, tt := range tests {
 		if got := tt.have.Allows(tt.need); got != tt.want {

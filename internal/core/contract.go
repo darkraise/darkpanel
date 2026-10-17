@@ -55,7 +55,8 @@ const (
 // Allows reports whether s includes need.
 func (s Scope) Allows(need Scope) bool {
 	rank := map[Scope]int{ScopeRead: 1, ScopeOperate: 2, ScopeAdmin: 3}
-	return rank[s] > 0 && rank[s] >= rank[need]
+	// An unknown scope on either side denies: a mistyped required scope must fail closed.
+	return rank[s] > 0 && rank[need] > 0 && rank[s] >= rank[need]
 }
 
 // ActionRef names one version of an action.
