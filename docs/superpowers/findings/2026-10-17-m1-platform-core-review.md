@@ -4,7 +4,7 @@
 **Reviewed:** docs/superpowers/specs/2026-10-17-m1-platform-core-design.md at dc5ac8e
 **Reviewer:** Fable 5.1 (`dr-superpowers:judge-fable`), requested by the owner
 **Verdict:** ready after fixes. The design conforms to the ADRs in substance and every pinned version resolves; the shared foundation interfaces and core tables are named but not defined, which is where parallel waves would diverge.
-**Outcome:** pending the owner's decision on the recommendations below.
+**Outcome:** the owner accepted every recommendation on 2026-10-17; applied to the spec in the revision that follows dc5ac8e.
 
 ## Recommendations
 

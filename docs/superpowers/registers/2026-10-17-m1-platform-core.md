@@ -30,3 +30,4 @@
 | 23 | Agent socket and agent break-glass commands (R31) | - | - | deferred | M2 Install, service and uninstall |
 | 24 | Separate darkpanel and root service users and directories | - | - | deferred | M2 Install, service and uninstall |
 | 25 | User management and self-service password change in the UI | - | - | deferred | M9 roles candidate; break-glass commands cover M1 |
+| 26 | Guard overrides on apply (R40) | - | - | deferred | M3 Firewall safe apply |
