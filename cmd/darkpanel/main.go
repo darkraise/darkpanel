@@ -3,6 +3,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -11,13 +12,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/darkraise/darkpanel/internal/buildinfo"
 	"github.com/darkraise/darkpanel/web"
-)
-
-// Set by the build with -ldflags "-X main.version=... -X main.commit=...".
-var (
-	version = "dev"
-	commit  = "unknown"
 )
 
 type versionInfo struct {
@@ -31,8 +27,8 @@ type versionInfo struct {
 
 func currentVersion() versionInfo {
 	return versionInfo{
-		Version: version,
-		Commit:  commit,
+		Version: buildinfo.Version,
+		Commit:  buildinfo.Commit,
 		Go:      runtime.Version(),
 		OS:      runtime.GOOS,
 		Arch:    runtime.GOARCH,
@@ -54,7 +50,7 @@ func newRootCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(newVersionCmd())
+	root.AddCommand(newVersionCmd(), newServeCmd())
 	return root
 }
 
@@ -69,6 +65,25 @@ func newVersionCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print the version as a JSON object")
+	return cmd
+}
+
+func newServeCmd() *cobra.Command {
+	var (
+		dev    bool
+		listen []string
+	)
+	cmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Run the controller and the local agent",
+		Args:  cobra.NoArgs,
+		RunE: func(*cobra.Command, []string) error {
+			return errors.New("serve: the controller is not assembled yet")
+		},
+	}
+	cmd.Flags().BoolVar(&dev, "dev", false, "use per-user development paths under $XDG_STATE_HOME/darkpanel-dev")
+	cmd.Flags().StringArrayVar(&listen, "listen", nil,
+		"listener to open instead of the defaults (repeatable): loopback, tailscale, https://<ip>:<port> or http://<loopback ip>:<port>")
 	return cmd
 }
 
