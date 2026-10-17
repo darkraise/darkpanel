@@ -14,6 +14,10 @@ Constraints). The controller manages its own host through the same agent path
 as every other host (R26). Reviewers flagged two points as undecided: which
 user the controller runs as, and how the Go toolchain version is pinned.
 
+The shared contracts (names, schemas, action classes, errors, actors, version
+skew) are defined in the index (`docs/adr/README.md`) and are not restated
+here.
+
 Every later epic places files and code according to the decisions here, so the
 stack, the process model and the directory layout need to be fixed before any
 module work starts.
