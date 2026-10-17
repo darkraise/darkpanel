@@ -71,5 +71,6 @@ Review findings 2, 12, 19, 20 and 33 shaped this decision:
   destructive schema changes wait a release.
 - The `secret` tag drives encryption and redaction everywhere (see the shared
   contracts in the index).
-- `darkpanel controller backup` and `restore` are M2 deliverables.
+- `darkpanel controller backup` and `restore` have no owning epic yet; the
+  runbook (R81) depends on them.
 - Losing `controller.key` without a backup means re-enrolling every host.

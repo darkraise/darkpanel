@@ -71,6 +71,7 @@ docs/adr/                 decision records
 - Each controller host runs two systemd units.
 - The agent is the only long-running root service. Root CLI invocations reach
   it through its local socket (ADR 0006).
-- Host-touching code lives only in agent parts and `internal/platform`.
+- Host-touching code lives only in agent parts, which reach the host through
+  `internal/platform` (ADR 0009).
 - Every later epic places its files according to the layout above.
 - CI must set `GOTOOLCHAIN=local` on the exact toolchain version.

@@ -2,7 +2,7 @@
 
 Decisions every Darkpanel epic builds on. Source design:
 `docs/superpowers/specs/2026-10-17-m1-architecture-decisions-design.md`.
-Check the files with `bash scripts/check-adrs.sh`.
+Check the files with `bash scripts/check-adrs.sh --complete`.
 
 ## Index
 
@@ -79,7 +79,7 @@ decided by its own epic, not by an ADR.
 | R11 | 0009 (commands, files) |
 | R12 | 0005 (secrets), 0006 (authentication boundary) |
 | R15, R16, R17 | 0006 (authentication boundary) |
-| R18 | 0003 (journal delivery), 0004 (journal) |
+| R18 | 0003 (journal delivery), 0004 (apply ordering, compensable and irreversible actions, controller-side actions) |
 | R19 | none: a stored role field, decided by the identity epic |
 | R20 | 0006 (listeners) |
 | R21 | 0008 (harness) |
