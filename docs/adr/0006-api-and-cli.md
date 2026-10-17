@@ -51,9 +51,9 @@ Review findings 7, 17, 18, 22, 25, 28 and 32 shape this decision:
   `agent`, `update`, `user`, `controller`, `change`, `uninstall`, `version`
   are reserved.
 - **Local access.** The agent serves its handler on `/run/darkpanel/agent.sock`
-  (root, 0600) for every agent action, checked with `SO_PEERCRED` uid 0, with
-  actor `local:root@<host id>`; entries are journaled and reach the audit log when
-  the controller is reachable (R28). The controller serves
+  (root, 0600) for every agent action, checked with `SO_PEERCRED` uid 0,
+  with actor `local:root@<host id>`; entries are journaled and reach the audit
+  log when the controller is reachable (R28). The controller serves
   `/run/darkpanel/controller.sock` (0600, `darkpanel`, root allowed via
   `SO_PEERCRED`) for controller break-glass commands such as
   `darkpanel user reset-totp`. `darkpanel update rollback` needs neither
