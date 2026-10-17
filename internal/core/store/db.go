@@ -89,7 +89,10 @@ func (d *DB) Read() *sql.DB { return d.r }
 func (d *DB) Writer() *sql.DB { return d.w }
 
 // Write runs fn in an immediate transaction and commits it when fn returns
-// nil; otherwise it rolls back and returns fn's error.
+// nil; otherwise it rolls back and returns fn's error. It is not re-entrant:
+// the writer has one connection, so calling Write or Writer inside fn
+// deadlocks, and a query on Read inside fn does not see fn's uncommitted
+// writes; use tx for everything inside fn.
 func (d *DB) Write(ctx context.Context, fn func(*sql.Tx) error) error {
 	tx, err := d.w.BeginTx(ctx, nil)
 	if err != nil {
