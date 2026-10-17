@@ -28,9 +28,9 @@ check_adr() {
         last = pos[h]
         if (!filled[h]) print "empty section " q h q
       }
-      if (status != "Proposed" && status != "Accepted" && status !~ /^Superseded by ADR [0-9][0-9][0-9][0-9]/)
+      if (status != "Proposed" && status != "Accepted" && status !~ /^Superseded by ADR [0-9][0-9][0-9][0-9]$/)
         print "status must be Proposed, Accepted or " q "Superseded by ADR NNNN" q ", got " q status q
-    }' "$f")
+    }' "$f" 2>&1)
 }
 
 # Prints "R<n> <NNNN>" for every requirement/ADR pair in README's Traceability table.
