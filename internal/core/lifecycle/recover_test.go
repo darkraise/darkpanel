@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
@@ -214,4 +215,34 @@ func TestPurgeDeletesExpiredPlansWithoutAChange(t *testing.T) {
 	}
 	_, err := f.eng.Apply(ctx, alice, unused.PlanID, core.ApplyOptions{})
 	wantCode(t, err, errcode.PlanNotFound)
+}
+
+// A plan that expires while its apply runs the handlers must survive a purge
+// in that window, or the intent insert fails its foreign key.
+func TestPurgeWaitsForARunningApply(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	pl := f.plan(alice, refSet, `{"name":"a","value":"1"}`)
+	f.clock.Advance(PlanTTL - time.Second)
+	purged := make(chan error, 1)
+	f.host.onSnapshot = func() {
+		f.clock.Advance(time.Second)
+		go func() { purged <- f.eng.Purge(ctx) }()
+		// Purge must wait for the apply; give one that does not the time to
+		// delete the plan before the intent is inserted.
+		select {
+		case err := <-purged:
+			purged <- err
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	if _, err := f.eng.Apply(ctx, alice, pl.PlanID, core.ApplyOptions{}); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if err := <-purged; err != nil {
+		t.Fatalf("Purge: %v", err)
+	}
+	if n := f.count("SELECT count(*) FROM core_plans WHERE id = ?", pl.PlanID); n != 1 {
+		t.Errorf("plan rows = %d, want 1", n)
+	}
 }

@@ -53,7 +53,8 @@ type Engine struct {
 	entropy *ulid.MonotonicEntropy
 
 	// applyMu is held from apply's checks until its intent is persisted, so no
-	// other apply takes a lock or the same plan in between.
+	// other apply takes a lock or the same plan in between and Purge deletes no
+	// plan.
 	applyMu sync.Mutex
 
 	timerMu  sync.Mutex

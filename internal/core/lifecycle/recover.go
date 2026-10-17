@@ -106,6 +106,10 @@ func (e *Engine) verifyStored(ctx context.Context, changeID string) string {
 // Purge deletes expired plans that never became a change. A plan with a change
 // is kept, so a repeated apply still returns that change (spec section 3).
 func (e *Engine) Purge(ctx context.Context) error {
+	// An apply that loaded a plan before it expired inserts its change later;
+	// deleting the plan in between would fail that insert's foreign key.
+	e.applyMu.Lock()
+	defer e.applyMu.Unlock()
 	now := formatTime(e.cfg.Base.Clock.Now())
 	err := e.cfg.Base.DB.Write(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx,
