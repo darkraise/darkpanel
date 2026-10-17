@@ -62,6 +62,23 @@ func revertible(name string, side Side) ActionDef {
 	return DefineRevertible[echoIn, echoOut](ActionSpec{Name: name, Version: 1, Side: side}, echo{})
 }
 
+func resource(name string) ResourceDef {
+	return DefineResource(name, func(context.Context, Env) (echoOut, error) { return echoOut{"hi"}, nil })
+}
+
+// A resource <m>.<r> is `darkpanel <m> <r> get`, so it may share its noun
+// with actions whose verbs differ (spec section 15).
+func TestNewRegistryAcceptsResourceBesideActionNoun(t *testing.T) {
+	mod := testModule{
+		ID: "demo", Version: 1,
+		Actions:   []ActionDef{revertible("demo.rule.set", SideAgent)},
+		Resources: []ResourceDef{resource("demo.rule")},
+	}
+	if _, err := NewRegistry(mod); err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+}
+
 func TestNewRegistryAccepts(t *testing.T) {
 	mod := testModule{
 		ID: "demo", Version: 1,
@@ -123,6 +140,14 @@ func TestNewRegistryRules(t *testing.T) {
 		{"unknown class", []Module{testModule{ID: "demo", Version: 1, Actions: []ActionDef{mutating("demo.item.add", Class("magic"), SideAgent, "")}}}, "unknown class"},
 		{"bad resource name", []Module{testModule{ID: "demo", Version: 1, Resources: []ResourceDef{{Name: "other.summary", Read: func(context.Context, Env) (json.RawMessage, error) { return nil, nil }}}}}, "start with"},
 		{"migrations side", []Module{testModule{ID: "demo", Version: 1, Migrations: map[Side]fs.FS{"browser": nil}}}, "unknown side"},
+		{"action and resource share a CLI command", []Module{testModule{ID: "demo", Version: 1,
+			Actions: []ActionDef{readAction("demo.item.get")}, Resources: []ResourceDef{resource("demo.item")}}}, "same CLI command"},
+		{"core action and resource share a CLI command", []Module{testModule{ID: "core", Version: 1,
+			Actions: []ActionDef{readAction("core.thing.get")}, Resources: []ResourceDef{resource("core.thing")}}}, "same CLI command"},
+		{"core action noun is a module id", []Module{testModule{ID: "core", Version: 1, Actions: []ActionDef{readAction("core.demo.list")}},
+			testModule{ID: "demo", Version: 1}}, "top-level CLI name"},
+		{"core resource is a module id", []Module{testModule{ID: "demo", Version: 1},
+			testModule{ID: "core", Version: 1, Resources: []ResourceDef{resource("core.demo")}}}, "top-level CLI name"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

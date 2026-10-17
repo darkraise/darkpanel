@@ -92,10 +92,40 @@ func NewRegistry(mods ...Module) (*Registry, error) {
 			fail("action %s: compensating action %q is not registered", a.Ref(), a.Spec.CompensatedBy)
 		}
 	}
+	errs = append(errs, r.checkCLINames(ids)...)
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
 	}
 	return r, nil
+}
+
+// checkCLINames refuses names whose CLI commands (spec section 15) would
+// clash: an action <m>.<noun>.<verb> is `<m> <noun> <verb>`, a resource
+// <m>.<r> is `<m> <r> get`, and the core drops its module segment, so a core
+// noun or resource must not be a module id.
+func (r *Registry) checkCLINames(moduleIDs map[string]bool) []error {
+	var errs []error
+	owners := map[string]string{}
+	claim := func(owner string, words []string) {
+		if words[0] == ModuleIDCore {
+			words = words[1:]
+			if moduleIDs[words[0]] {
+				errs = append(errs, fmt.Errorf("%s takes the top-level CLI name %q of module %s", owner, words[0], words[0]))
+			}
+		}
+		cmd := strings.Join(words, " ")
+		if other, ok := owners[cmd]; ok && other != owner {
+			errs = append(errs, fmt.Errorf("%s and %s map to the same CLI command", other, owner))
+		}
+		owners[cmd] = owner
+	}
+	for _, a := range r.Actions() {
+		claim(a.Spec.Name, strings.Split(a.Spec.Name, "."))
+	}
+	for _, res := range r.Resources() {
+		claim(res.Name, append(strings.Split(res.Name, "."), "get"))
+	}
+	return errs
 }
 
 func checkAction(moduleID string, a ActionDef) error {
