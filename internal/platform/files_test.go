@@ -29,7 +29,10 @@ type fakeOwnership struct {
 func (o *fakeOwnership) Record(_ context.Context, e core.OwnedEntry) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if !slices.ContainsFunc(o.entries, func(x core.OwnedEntry) bool { return x.Path == e.Path && x.BlockID == e.BlockID }) {
+	recorded := slices.ContainsFunc(o.entries, func(x core.OwnedEntry) bool {
+		return x.Path == e.Path && x.Module == e.Module && x.BlockID == e.BlockID
+	})
+	if !recorded {
 		o.entries = append(o.entries, e)
 	}
 	return nil
@@ -323,9 +326,10 @@ func TestConcurrentBlocksInOneFile(t *testing.T) {
 	dir := t.TempDir()
 	hosts := filepath.Join(dir, "hosts")
 	decl := []core.OwnedPath{{Path: hosts, Kind: "block", BlockIDs: []string{"names"}}}
+	own := &fakeOwnership{}
 	f := NewFiles(FilesConfig{
 		Owned:     map[string][]core.OwnedPath{"demo": decl, "other": decl},
-		Ownership: &fakeOwnership{}, Clock: coretest.NewFakeClock(filesNow), TestMode: true,
+		Ownership: own, Clock: coretest.NewFakeClock(filesNow), TestMode: true,
 	})
 	ctx := context.Background()
 	modules := []string{"demo", "other"}
@@ -347,6 +351,18 @@ func TestConcurrentBlocksInOneFile(t *testing.T) {
 				t.Fatalf("round %d: %s's block lost: %q", round, module, got)
 			}
 		}
+	}
+	entries, err := own.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var recorded []string
+	for _, e := range entries {
+		recorded = append(recorded, e.Module)
+	}
+	slices.Sort(recorded)
+	if !slices.Equal(recorded, modules) {
+		t.Errorf("ownership modules = %v, want %v", recorded, modules)
 	}
 }
 
