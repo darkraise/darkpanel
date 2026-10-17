@@ -27,8 +27,9 @@ shared contracts in the index (`docs/adr/README.md`) and are not restated here.
 - Modules are compiled in and listed once in `internal/modules`; no runtime
   plugins in v1.
 - An action declares name, version, typed input and output, class (shared
-  contracts), where it runs (controller or agent), whether it is break-glass,
-  and the lock keys it takes (ADR 0004).
+  contracts), where it runs (controller or agent), whether it is break-glass
+  (a controller-side action that the controller's local socket also serves,
+  ADR 0006), and the lock keys it takes (ADR 0004).
 - A module never changes another module's resources directly; it calls the
   owning module's actions (for example DERP opens ports through
   `firewall.rule.add`), so locking, snapshots and audit stay with the owner.
@@ -36,7 +37,8 @@ shared contracts in the index (`docs/adr/README.md`) and are not restated here.
   `core_module_state`. A disabled module, or one whose migration or preflight
   fails, is marked unavailable with the reason; the rest of the system starts.
 - Compatibility rules, enforced by a test against the schema snapshots of every
-  released tag (snapshots are immutable once released):
+  released tag, which the release job copies to `schemas/released/<tag>/`
+  (immutable once released):
   - Allowed in a published version: new optional input fields, new output
     fields, new output enum values (clients must accept unknown values).
   - Forbidden: removing or renaming a field, changing a type, a default or a
@@ -62,7 +64,8 @@ shared contracts in the index (`docs/adr/README.md`) and are not restated here.
 ## Consequences
 
 - Adding a module touches the core in one registration line.
-- Every action needs a committed schema snapshot.
+- Every action needs a committed schema snapshot; the release job freezes them
+  under `schemas/released/<tag>/`.
 - The compatibility test runs in CI from M1.
 - The controller must keep per-agent schema hashes from `hello` (ADR 0003).
 - Cross-module effects go through the owning module's actions; M3, M5 and M6

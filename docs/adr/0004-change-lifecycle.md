@@ -23,13 +23,19 @@ The review findings 3, 8, 9, 10 and 24 showed these gaps:
 
 ## Decision
 
-- **Plan** records host, action and version, principal, canonical input hash,
+- **Plan** records host, action and version, principal, the canonical input
+  (secret fields encrypted at rest, see the shared contracts) and its hash,
   guard results (for example the lockout check), a diff, and a hash of the
-  state the action's lock keys cover. It expires after 10 minutes. Apply takes
-  the plan id only, never new input; the caller is re-authorized on apply and
-  confirm.
+  state the action's lock keys cover. It is stored in the database of the side
+  that executes it (agent or controller) and expires after 10 minutes. Apply
+  takes the plan id only and executes the stored input; the hash is what the
+  API and audit expose, so a client can check the plan matches what it
+  submitted. The controller re-authorizes the caller on apply and confirm; the
+  agent trusts the controller and the local root actor.
 - **Locks** are taken by key (for example `firewall`), declared per action, held
-  from apply until the change is confirmed, reverted or completed.
+  from apply until the change is confirmed, reverted or completed. They are
+  rows in the executing side's database, keyed by lock key and owned by a
+  change id or an update transaction id (ADR 0007), so they survive a restart.
 - **Apply ordering**, for revertible actions:
   1. Re-check guards and the state hash; refuse on mismatch.
   2. Persist snapshot, intent and revert deadline to the agent database
@@ -37,19 +43,31 @@ The review findings 3, 8, 9, 10 and 24 showed these gaps:
   3. Mutate; run verify. If verify fails, revert immediately.
   4. Record the result against the plan id. A repeated apply with the same
      plan id returns the stored result instead of acting twice.
+- **Apply ordering**, for compensable and irreversible actions: persist intent
+  (fsync); mutate; run verify; persist the result.
 - **Confirm and revert** are arbitrated in one transaction; whichever commits
-  first wins. Deadlines use the monotonic clock while running and wall-clock
-  deadlines on restart.
-- **Startup recovery.** On start the agent first processes incomplete changes:
-  an intent without a result is reverted from its snapshot; an overdue
-  unconfirmed change is reverted; then it accepts requests.
-- **Compensable and irreversible actions** record intent and result but arm no
-  timer; compensable actions name their compensating action.
+  first wins. Deadlines use the monotonic clock while running. After a restart
+  every unconfirmed revertible change is reverted whatever its deadline, so
+  recovery never depends on the wall clock of a freshly booted host.
+- **Startup recovery.** On start the agent first processes incomplete changes,
+  then it accepts requests:
+  - A revertible intent without a result, and every unconfirmed revertible
+    change, is reverted from its snapshot.
+  - A compensable or irreversible intent without a result is marked
+    `interrupted` with the action's verify output and journaled; the agent never
+    retries or compensates on its own. For a compensable action the UI and CLI
+    offer the named compensating action. A repeated apply with an interrupted
+    plan id returns the interrupted result.
+  - Locks whose owner has a result are released.
+- **Compensable and irreversible actions** arm no timer; compensable actions
+  name their compensating action.
 - **Controller-side actions** (cloud APIs such as the tailnet policy) follow the
   same plan, apply and journal steps in the controller database, with
   snapshots where the remote API allows, and no revert timer.
-- Snapshot and journal records carry a format version; new binaries read all
-  formats written by the previous minor release.
+- Plan, snapshot, journal and update transaction records carry a format
+  version and change only additively within a major version; every binary of a
+  major version reads every format written in that major, so an older binary
+  that takes over in a rollback reads what a newer one wrote.
 
 ## Alternatives considered
 
@@ -63,7 +81,9 @@ The review findings 3, 8, 9, 10 and 24 showed these gaps:
 ## Consequences
 
 - Every mutating action declares a class and its lock keys.
-- Agents must fsync before mutating.
+- Agents must fsync before mutating, and locks live in the database.
+- A crash during a compensable or irreversible action is reported, never
+  guessed at; an operator decides the next step.
 - Agent startup runs recovery before serving requests.
 - The M3 lockout guard plugs into plan guards.
 - Controller-side actions need snapshots where the remote API allows.

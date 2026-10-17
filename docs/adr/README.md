@@ -8,7 +8,8 @@ Check the files with `bash scripts/check-adrs.sh --complete`.
 
 - [ADR 0001: Stack, layout and process model](0001-stack-and-layout.md)
 - [ADR 0002: Module contract and compatibility](0002-module-contract.md)
-- [ADR 0003: Controller–agent protocol, identity and enrollment](0003-agent-protocol.md)
+- [ADR 0003: Controller–agent protocol, identity and
+  enrollment](0003-agent-protocol.md)
 - [ADR 0004: Change lifecycle, locking and recovery](0004-change-lifecycle.md)
 - [ADR 0005: Storage, migrations, secrets and keys](0005-storage-and-secrets.md)
 - [ADR 0006: API, listeners, authentication and CLI](0006-api-and-cli.md)
@@ -38,8 +39,9 @@ Every ADR uses these definitions and does not redefine them.
   Host ids and change ids are ULIDs. JSON fields are camelCase.
 - **Schemas.** JSON Schema draft 2020-12, generated from Go types with
   `github.com/invopop/jsonschema`. The struct tag `secret:"true"` marks a field
-  that is encrypted at rest, write-only through the API, and redacted from
-  logs, audit, snapshots, diffs, events and errors.
+  that is encrypted at rest wherever it is stored, including inside plan
+  records and snapshots, is write-only through the API, and is redacted from
+  logs, audit, diffs, events and errors.
 - **Action classes.** Every action is exactly one of:
   - `read`: changes nothing.
   - `revertible`: stores a snapshot and arms a confirm-or-revert timer.
@@ -60,6 +62,8 @@ Every ADR uses these definitions and does not redefine them.
 - How `cloudflared` runs: M6 Cloudflare Tunnel epic.
 - How the install script verifies a download (it must not trust TLS alone):
   M2 install epic.
+- `darkpanel controller backup` and `restore` (ADR 0005) are built by the M8
+  Production rollout and runbook epic.
 
 ## Traceability
 
@@ -87,14 +91,14 @@ decided by its own epic, not by an ADR.
 | R23 | 0003 (enrollment, certificates and revocation) |
 | R24 | 0002 (schema hashes), 0003 (hello) |
 | R25 | 0003 (hello) |
-| R26 | 0001 (process model) |
+| R26 | 0001 (process model), 0003 (transport), 0007 (update action) |
 | R27 | 0003 (hello, liveness) |
 | R28 | 0003 (journal delivery), 0004 (startup recovery), 0006 (local access) |
 | R29 | 0007 (release hosting; method deferred to the M2 install epic) |
 | R30 | 0009 (files) |
-| R31 | 0006 (local access), 0007 (rollback unit) |
+| R31 | 0006 (local access), 0007 (rollback) |
 | R32 | 0007 (signing, keys) |
-| R33 | 0007 (update transaction) |
-| R34 | 0005 (expand then contract, backups), 0007 (update transaction) |
+| R33 | 0007 (update action, update transaction, rollback) |
+| R34 | 0005 (migrations, expand then contract, backups), 0007 (update transaction, stepping) |
 | R35 | 0007 (trusted comment carries the channel; scheduling is decided by the self-update epic) |
-| R36 | 0007 (rollouts) |
+| R36 | 0007 (order and rollouts) |

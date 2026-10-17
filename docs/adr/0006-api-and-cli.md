@@ -23,14 +23,21 @@ Review findings 7, 17, 18, 22, 25, 28 and 32 shape this decision:
 
 ## Decision
 
-- **Listeners.** Web and API: 127.0.0.1 and the Tailscale interface by default,
-  HTTPS with a `tailscale cert` certificate when the tailnet has HTTPS enabled,
-  otherwise a certificate from the internal authority; plain HTTP only on
+- **Listeners.** Web and API: 127.0.0.1 and the Tailscale interface by default.
+  A Tailscale bind uses `IP_FREEBIND`/`IPV6_FREEBIND`, so the listener exists
+  before the address does; the service watches for address changes and
+  rebinds, and with no Tailscale address configured the listener is loopback
+  only and the UI says so. HTTPS with a `tailscale cert` certificate when the
+  tailnet has HTTPS enabled, obtained by the local agent (root) and handed to
+  the controller over the agent protocol; otherwise a certificate from the
+  internal authority carrying the host's DNS name and Tailscale addresses as
+  SANs, separate from the agent-listener certificate. Plain HTTP only on
   127.0.0.1. Agent listener: ADR 0003, no web routes. Local sockets: below.
 - **Authentication boundary.** One middleware wraps every route on every
-  listener and denies unless the route is in an explicit public list (login,
-  health). It applies to every HTTP method. Sessions use Secure, HttpOnly,
-  SameSite=Strict cookies with CSRF tokens; API tokens are scoped
+  listener and denies unless the route is in an explicit public list (login, and
+  `/healthz`, which returns status only; its version and schema version require
+  a session or token). It applies to every HTTP method. Sessions use Secure,
+  HttpOnly, SameSite=Strict cookies with CSRF tokens; API tokens are scoped
   (read, operate, admin) and expire. Behind Nginx Proxy Manager or a tunnel,
   forwarded headers are trusted only from configured proxy addresses.
 - **REST** under `/api/v1`: hosts; resources; actions at
@@ -50,14 +57,17 @@ Review findings 7, 17, 18, 22, 25, 28 and 32 shape this decision:
   `--confirm` or by `darkpanel change confirm <id>`. Top-level names `serve`,
   `agent`, `update`, `user`, `controller`, `change`, `uninstall`, `version`
   are reserved.
-- **Local access.** The agent serves its handler on `/run/darkpanel/agent.sock`
-  (root, 0600) for every agent action, checked with `SO_PEERCRED` uid 0,
-  with actor `local:root@<host id>`; entries are journaled and reach the audit
-  log when the controller is reachable (R28). The controller serves
-  `/run/darkpanel/controller.sock` (0600, `darkpanel`, root allowed via
-  `SO_PEERCRED`) for controller break-glass commands such as
-  `darkpanel user reset-totp`. `darkpanel update rollback` needs neither
-  service (ADR 0007).
+- **Local access.** Each service gets its own runtime directory through systemd
+  `RuntimeDirectory=`. The agent serves its handler on
+  `/run/darkpanel-agent/agent.sock` (root, 0600) for every agent action, checked
+  with `SO_PEERCRED` uid 0, with actor `local:root@<host id>`; entries are
+  journaled and reach the audit log when the controller is reachable (R28). The
+  controller serves `/run/darkpanel-controller/controller.sock` (0600,
+  `darkpanel`, root allowed via `SO_PEERCRED`) for its version, schema version
+  and health (used by the update health check, ADR 0007) and for the break-glass
+  actions (ADR 0002): `darkpanel user create`, which creates the first admin
+  (R15), and `darkpanel user reset-totp`. `darkpanel update rollback` needs
+  neither service; run by root it re-executes `darkpanel.prev` (ADR 0007).
 
 ## Alternatives considered
 
@@ -74,6 +84,8 @@ Review findings 7, 17, 18, 22, 25, 28 and 32 shape this decision:
 
 - Every route on every listener sits behind the one authentication middleware,
   so a new handler is denied unless it is added to the explicit public list.
-- The controller needs a certificate source (tailnet or internal authority).
+- The controller gets its web certificate from the local agent (tailnet) or
+  from the internal authority, so it never needs Tailscale operator rights.
+- The listeners start even when Tailscale is missing or starts later.
 - Trusted proxy addresses are configuration that M6 panel exposure sets.
 - Reserved top-level names constrain module ids.

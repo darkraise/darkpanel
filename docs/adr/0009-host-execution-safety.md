@@ -31,9 +31,17 @@ schemas and errors.
   values with patterns (ports, names, CIDRs, comments) before they reach a
   provider.
 - **Files.** The file provider writes only paths and marked blocks declared in
-  the module manifest; it refuses symlinks (`O_NOFOLLOW`), writes atomically via
-  a temporary file and rename, and records ownership in the ownership manifest
-  that `darkpanel uninstall` reverses (R30).
+  the module manifest. It opens the parent directory with
+  `openat2(RESOLVE_NO_SYMLINKS)`, which fails if any path component is a
+  symlink, and requires that directory to be owned by root and not writable by
+  others. It then creates a temporary file and renames it over the target
+  relative to that directory descriptor, preserving the target's mode and
+  owner. A file with duplicated, nested or unterminated `BEGIN/END DARKPANEL`
+  markers is refused, never repaired by guessing. Ownership is recorded in the
+  ownership manifest that `darkpanel uninstall` reverses (R30). Declared paths
+  are fixed, so this defends against a symlink planted by an unprivileged
+  process, not against root. `openat2` needs Linux 5.6; every supported host
+  ships 5.15 or later.
 - Prefer APIs over tools: Docker Engine API, Tailscale local API, systemd over
   D-Bus.
 
@@ -46,6 +54,8 @@ schemas and errors.
   API.
 - Unrestricted file writes from module code: rejected. Uninstall could not
   reverse them, and a symlink could redirect a root write.
+- `O_NOFOLLOW` alone: rejected. It refuses a symlink only as the last path
+  component and follows a symlinked parent directory.
 
 ## Consequences
 

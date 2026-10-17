@@ -35,7 +35,9 @@ module work starts.
   directly). `darkpanel-agent` runs as root on every managed host, including
   the controller's host, where it connects over loopback like any other agent.
   In M1, before the transport exists, the controller calls the agent handler
-  in-process.
+  in-process, and in development mode both roles use the invoking user's
+  paths; the separate users and directories (ADR 0005) apply from the M2
+  install.
 - Layout:
 
 ```
@@ -48,6 +50,7 @@ internal/platform/        providers: exec, files, systemd, OS detection (ADR 000
 internal/update/          updater, transaction, recovery
 internal/modules/<id>/    manifest, controller part, agent part, migrations
 schemas/<action>/v<n>.json committed action schema snapshots
+schemas/released/<tag>/   frozen snapshots per release (ADR 0002)
 web/src/modules/<id>/     module UI pages
 docs/adr/                 decision records
 ```

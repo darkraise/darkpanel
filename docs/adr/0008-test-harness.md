@@ -29,7 +29,8 @@ detect exposure. IPv6 and fault injection were missing.
   (198.18.0.0/15 and an IPv6 documentation prefix), so ufw-docker private-range
   exemptions cannot mask exposure; IPv4 and IPv6 are both tested.
 - Fault injection: kill the agent mid-apply, reboot during an unconfirmed
-  change, and ship a deliberately broken binary to the updater.
+  change, reboot during an update's health-check window, and ship a
+  deliberately broken binary to the updater.
 - Tailscale tests use a dedicated test tailnet with ephemeral auth keys stored
   as CI secrets (needed from M5).
 - arm64 is covered by builds and unit tests in v1; arm64 VM tests are Unknown

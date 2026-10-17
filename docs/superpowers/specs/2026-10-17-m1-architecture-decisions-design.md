@@ -1,7 +1,7 @@
 # M1 epic: architecture decision records
 
 **Date:** 2026-10-17
-**Status:** design approved by the owner 2026-10-17; revised after the Fable and Codex review (docs/superpowers/findings/2026-10-17-m1-adr-spec-review.md)
+**Status:** design approved by the owner 2026-10-17; revised after the Fable and Codex review (docs/superpowers/findings/2026-10-17-m1-adr-spec-review.md); revised again after the owner accepted the Fable review of the ADRs on 2026-10-17 (docs/superpowers/findings/2026-10-17-m1-adr-review.md)
 **Product spec:** docs/superpowers/specs/2026-10-17-darkpanel-design.md
 **Requirement:** R1
 **Execution strategy:** parallel — the ADRs are separate files; shared contracts are fixed first in wave 0 and reconciled in wave 2 (owner ruling 2026-10-17: favour parallel to reach v1 sooner).
@@ -40,8 +40,9 @@ Every ADR uses these; no ADR redefines them.
   and change ids are ULIDs. JSON fields are camelCase.
 - **Schemas.** JSON Schema draft 2020-12, generated from Go types with
   `github.com/invopop/jsonschema`. A `secret:"true"` struct tag marks fields
-  that are encrypted at rest, write-only through the API, and redacted from
-  logs, audit, snapshots, diffs, events and errors.
+  that are encrypted at rest wherever they are stored, including inside plan
+  records and snapshots, are write-only through the API, and are redacted from
+  logs, audit, diffs, events and errors.
 - **Action classes.** `read`; `revertible` (snapshot plus confirm-or-revert
   timer); `compensable` (can be undone by a defined compensating action, no
   timer); `irreversible` (cannot be undone, for example pruning volumes;
@@ -69,7 +70,9 @@ Every ADR uses these; no ADR redefines them.
   directly). `darkpanel-agent` runs as root on every managed host, including
   the controller's host, where it connects over loopback like any other agent.
   In M1, before the transport exists, the controller calls the agent handler
-  in-process.
+  in-process, and in development mode both roles use the invoking user's
+  paths; the separate users and directories (ADR 0005) apply from the M2
+  install.
 - Layout:
 
 ```
@@ -82,6 +85,7 @@ internal/platform/        providers: exec, files, systemd, OS detection (ADR 000
 internal/update/          updater, transaction, recovery
 internal/modules/<id>/    manifest, controller part, agent part, migrations
 schemas/<action>/v<n>.json committed action schema snapshots
+schemas/released/<tag>/   frozen snapshots per release (ADR 0002)
 web/src/modules/<id>/     module UI pages
 docs/adr/                 decision records
 ```
@@ -96,8 +100,9 @@ docs/adr/                 decision records
 - Modules are compiled in and listed once in `internal/modules`; no runtime
   plugins in v1.
 - An action declares name, version, typed input and output, class (shared
-  contracts), where it runs (controller or agent), whether it is break-glass,
-  and the lock keys it takes (ADR 0004).
+  contracts), where it runs (controller or agent), whether it is break-glass
+  (a controller-side action that the controller's local socket also serves,
+  ADR 0006), and the lock keys it takes (ADR 0004).
 - A module never changes another module's resources directly; it calls the
   owning module's actions (for example DERP opens ports through
   `firewall.rule.add`), so locking, snapshots and audit stay with the owner.
@@ -105,7 +110,8 @@ docs/adr/                 decision records
   `core_module_state`. A disabled module, or one whose migration or preflight
   fails, is marked unavailable with the reason; the rest of the system starts.
 - Compatibility rules, enforced by a test against the schema snapshots of every
-  released tag (snapshots are immutable once released):
+  released tag, which the release job copies to `schemas/released/<tag>/`
+  (immutable once released):
   - Allowed in a published version: new optional input fields, new output
     fields, new output enum values (clients must accept unknown values).
   - Forbidden: removing or renaming a field, changing a type, a default or a
@@ -125,46 +131,68 @@ docs/adr/                 decision records
   certificates carry only `clientAuth` and `darkpanel://host/<host id>`. Agents
   verify the chain and require the controller SAN they pinned at enrollment;
   the controller requires a host SAN, a known host and an unrevoked serial.
+  The controller certificate lasts one year and the controller renews it from
+  its own authority after two thirds of its life; agents pin the SAN, not the
+  certificate, so a renewal needs no change on the agents.
 - **Transport.** The agent dials the controller's agent listener (default port
-  7443, bound to the Tailscale interface by default; any other bind is
-  explicit). TLS 1.3, ALPN `darkpanel-agent/1` requires a client certificate;
-  ALPN `darkpanel-enroll/1` accepts none and serves only enrollment. The
-  connection carries a yamux session with stream limits and deadlines; the
-  controller sends HTTP/1.1 requests to the agent handler over streams it
-  opens, and the agent pushes events over streams it opens.
-- **Agent endpoints.** `GET /agent/v1/hello`; `POST /agent/v1/actions/{name}/{version}/{plan|apply|confirm|revert}`;
-  `GET /agent/v1/resources/{module}/{resource}`; `POST /agent/v1/journal/ack`.
+  7443). The listener binds 127.0.0.1 and the Tailscale interface by default,
+  with the same Tailscale bind rule as the web listener (ADR 0006); any other
+  bind address is explicit configuration, and it never binds all interfaces by
+  default. The agent on the controller's host dials 127.0.0.1. TLS 1.3, ALPN
+  `darkpanel-agent/1` requires a client certificate; ALPN `darkpanel-enroll/1`
+  accepts none and serves only enrollment. The connection carries a yamux
+  session with stream limits and deadlines; the controller sends HTTP/1.1
+  requests to the agent handler over streams it opens, and the agent pushes
+  events over streams it opens.
+- **Agent endpoints.** `GET /agent/v1/hello`; `POST
+  /agent/v1/actions/{name}/{version}/{plan|apply|confirm|revert}`; `GET
+  /agent/v1/resources/{module}/{resource}`; `POST /agent/v1/journal/ack`.
 - **Hello** is exchanged both ways: protocol version, binary version, OS, and
   for the agent its modules, action versions and schema hashes. A protocol or
   version outside the supported window is shown on the host (R27) and only
-  updates are dispatched.
+  updates are dispatched. `GET /agent/v1/hello`, the actions `core.update.apply`
+  and `core.update.rollback` (ADR 0007) and the yamux framing are frozen for
+  protocol version 1; changing any of them makes a new protocol version, and a
+  controller keeps supporting the previous protocol version for update dispatch
+  only.
 - **Liveness.** Heartbeat every 15 s; a host is offline after 45 s without one,
   and actions to it fail immediately.
 - **Enrollment.** The admin creates a host record; the controller issues a
   single-use token bound to that host id: 128-bit random, stored hashed,
   valid one hour, compared in constant time, consumed atomically, rate
-  limited. The token carries the authority fingerprint and controller SAN. The
+  limited. The token carries the controller's address and port, the authority
+  fingerprint and the controller SAN, so the operator copies one value. The
   agent verifies the controller against them before sending the token, then
   sends a certificate signing request; the controller ignores any identity in
   the request and issues a certificate for the bound host id.
-- **Certificates and revocation.** Agent certificates last one year and are
-  renewed after two thirds of their life; renewal revokes the previous serial.
-  Revocation is by serial, checked at every handshake, and closes the host's
-  live session. An agent with an expired certificate re-enrolls with a new
-  token.
+- **Certificates and revocation.** Agent certificates last one year. After two
+  thirds of their life the agent requests renewal over its existing session;
+  the controller issues a new certificate and keeps both serials valid. The
+  agent stores the new key and certificate atomically (temporary file, fsync,
+  rename) before using them. The controller revokes the previous serial when
+  the agent first completes a handshake with the new certificate, or when the
+  previous certificate expires, whichever comes first. Revocation is by serial,
+  checked at every handshake, and closes the host's live session. An agent
+  whose certificate has expired re-enrolls with a new token.
 - **Journal delivery.** The agent journal is forwarded in sequence order; the
   controller acknowledges by sequence and deduplicates; acknowledged entries
   are pruned, unacknowledged ones are kept up to a size cap.
 
 ### 0004 Change lifecycle, locking and recovery
 
-- **Plan** records host, action and version, principal, canonical input hash,
+- **Plan** records host, action and version, principal, the canonical input
+  (secret fields encrypted at rest, see the shared contracts) and its hash,
   guard results (for example the lockout check), a diff, and a hash of the
-  state the action's lock keys cover. It expires after 10 minutes. Apply takes
-  the plan id only, never new input; the caller is re-authorized on apply and
-  confirm.
+  state the action's lock keys cover. It is stored in the database of the side
+  that executes it (agent or controller) and expires after 10 minutes. Apply
+  takes the plan id only and executes the stored input; the hash is what the
+  API and audit expose, so a client can check the plan matches what it
+  submitted. The controller re-authorizes the caller on apply and confirm; the
+  agent trusts the controller and the local root actor.
 - **Locks** are taken by key (for example `firewall`), declared per action, held
-  from apply until the change is confirmed, reverted or completed.
+  from apply until the change is confirmed, reverted or completed. They are
+  rows in the executing side's database, keyed by lock key and owned by a
+  change id or an update transaction id (ADR 0007), so they survive a restart.
 - **Apply ordering**, for revertible actions:
   1. Re-check guards and the state hash; refuse on mismatch.
   2. Persist snapshot, intent and revert deadline to the agent database
@@ -172,62 +200,92 @@ docs/adr/                 decision records
   3. Mutate; run verify. If verify fails, revert immediately.
   4. Record the result against the plan id. A repeated apply with the same
      plan id returns the stored result instead of acting twice.
+- **Apply ordering**, for compensable and irreversible actions: persist intent
+  (fsync); mutate; run verify; persist the result.
 - **Confirm and revert** are arbitrated in one transaction; whichever commits
-  first wins. Deadlines use the monotonic clock while running and wall-clock
-  deadlines on restart.
-- **Startup recovery.** On start the agent first processes incomplete changes:
-  an intent without a result is reverted from its snapshot; an overdue
-  unconfirmed change is reverted; then it accepts requests.
-- **Compensable and irreversible actions** record intent and result but arm no
-  timer; compensable actions name their compensating action.
+  first wins. Deadlines use the monotonic clock while running. After a restart
+  every unconfirmed revertible change is reverted whatever its deadline, so
+  recovery never depends on the wall clock of a freshly booted host.
+- **Startup recovery.** On start the agent first processes incomplete changes,
+  then it accepts requests:
+  - A revertible intent without a result, and every unconfirmed revertible
+    change, is reverted from its snapshot.
+  - A compensable or irreversible intent without a result is marked
+    `interrupted` with the action's verify output and journaled; the agent never
+    retries or compensates on its own. For a compensable action the UI and CLI
+    offer the named compensating action. A repeated apply with an interrupted
+    plan id returns the interrupted result.
+  - Locks whose owner has a result are released.
+- **Compensable and irreversible actions** arm no timer; compensable actions
+  name their compensating action.
 - **Controller-side actions** (cloud APIs such as the tailnet policy) follow the
   same plan, apply and journal steps in the controller database, with
   snapshots where the remote API allows, and no revert timer.
-- Snapshot and journal records carry a format version; new binaries read all
-  formats written by the previous minor release.
+- Plan, snapshot, journal and update transaction records carry a format
+  version and change only additively within a major version; every binary of a
+  major version reads every format written in that major, so an older binary
+  that takes over in a rollback reads what a newer one wrote.
 
 ### 0005 Storage, migrations, secrets and keys
 
 - SQLite through `modernc.org/sqlite` (exact versions pinned, including
   `modernc.org/libc`), write-ahead-log mode, pragmas set in the connection
-  string, one writer connection: `/var/lib/darkpanel/controller.db` (owned by
-  `darkpanel`) and `/var/lib/darkpanel/agent.db` (root).
+  string, one writer connection. Each role has its own directory, because the
+  write-ahead log creates files next to the database:
+  `/var/lib/darkpanel/controller/controller.db` (directory and file owned by
+  `darkpanel`) and `/var/lib/darkpanel/agent/agent.db` (root).
 - Core tables use the prefix `core_`; each module uses `<module id>_`.
 - Migrations: embedded SQL per module and role, numbered, forward-only, each in
-  a transaction, recorded in `core_migrations` with a checksum. A changed
-  checksum or failed core migration stops startup; a failed module migration
-  marks only that module unavailable (ADR 0002).
+  a transaction, recorded in `core_migrations` with a checksum. Each role runs
+  its migrations when its service starts, before serving. A binary ignores
+  `core_migrations` rows numbered above its own highest migration and verifies
+  checksums only for the migrations it embeds. A changed checksum or failed
+  core migration stops startup, which the update health check catches
+  (ADR 0007); a failed module migration marks only that module unavailable
+  (ADR 0002).
 - **Expand, then contract.** A release's migrations must leave the schema usable
   by the previous minor release's binary. Destructive changes (drop, rename)
-  ship only in a later release, after nothing reads the old shape. A binary
-  rollback therefore runs the old binary on the new schema without restoring
-  data.
-- Before migrating, the database is copied with `VACUUM INTO` to
-  `/var/lib/darkpanel/backups/<update id>/` (mode 0600, last five kept), for
-  disaster recovery only. The agent's journal and revert records are never
-  restored from a backup.
+  ship only in a later release, after nothing reads the old shape. New columns
+  are nullable or have defaults, so an older binary's inserts still succeed. A
+  binary rollback therefore runs the old binary on the new schema without
+  restoring data; updates step one minor release at a time (ADR 0007), so the
+  old binary is never more than one minor behind the schema.
+- Before migrating, each role copies its database with `VACUUM INTO` into its
+  own directory, `backups/<from>-<to>-<timestamp>/` (mode 0600, last five
+  kept), for disaster recovery only. No backup is restored automatically, and
+  the agent's journal and revert records are never restored from one.
 - **Secrets.** XChaCha20-Poly1305 with a random 24-byte nonce and associated
-  data `<table>.<column>.<row id>`; ciphertexts carry a key id so rotation can
-  be added. Each role has its own key, created atomically at install
+  data `<table>.<column>.<row id>`, where the row id is the table's declared
+  primary key (a ULID), never the implicit SQLite rowid, which `VACUUM` may
+  renumber; ciphertexts carry a key id so rotation can be added. Secret fields
+  inside plan records and snapshots are encrypted the same way (ADR 0004). Each
+  role has its own key, created atomically at install
   (`/etc/darkpanel/controller.key` owned by `darkpanel`,
   `/etc/darkpanel/agent.key` owned by root, both 0600). Agents hold only the
-  secrets their own modules use (for example Nginx Proxy Manager credentials
-  on its host).
+  secrets their own modules use (for example Nginx Proxy Manager credentials on
+  its host).
 - **Certificate authority key** is stored encrypted in `controller.db`.
   `darkpanel controller backup` exports the database and the controller key
-  into one encrypted archive; `restore` is the lost-controller path in the
-  runbook (R81).
+  into one archive encrypted with a key derived from an operator passphrase
+  with argon2id; `restore` is the lost-controller path in the runbook (R81).
 
 ### 0006 API, listeners, authentication and CLI
 
-- **Listeners.** Web and API: 127.0.0.1 and the Tailscale interface by default,
-  HTTPS with a `tailscale cert` certificate when the tailnet has HTTPS enabled,
-  otherwise a certificate from the internal authority; plain HTTP only on
+- **Listeners.** Web and API: 127.0.0.1 and the Tailscale interface by default.
+  A Tailscale bind uses `IP_FREEBIND`/`IPV6_FREEBIND`, so the listener exists
+  before the address does; the service watches for address changes and
+  rebinds, and with no Tailscale address configured the listener is loopback
+  only and the UI says so. HTTPS with a `tailscale cert` certificate when the
+  tailnet has HTTPS enabled, obtained by the local agent (root) and handed to
+  the controller over the agent protocol; otherwise a certificate from the
+  internal authority carrying the host's DNS name and Tailscale addresses as
+  SANs, separate from the agent-listener certificate. Plain HTTP only on
   127.0.0.1. Agent listener: ADR 0003, no web routes. Local sockets: below.
 - **Authentication boundary.** One middleware wraps every route on every
-  listener and denies unless the route is in an explicit public list (login,
-  health). It applies to every HTTP method. Sessions use Secure, HttpOnly,
-  SameSite=Strict cookies with CSRF tokens; API tokens are scoped
+  listener and denies unless the route is in an explicit public list (login, and
+  `/healthz`, which returns status only; its version and schema version require
+  a session or token). It applies to every HTTP method. Sessions use Secure,
+  HttpOnly, SameSite=Strict cookies with CSRF tokens; API tokens are scoped
   (read, operate, admin) and expire. Behind Nginx Proxy Manager or a tunnel,
   forwarded headers are trusted only from configured proxy addresses.
 - **REST** under `/api/v1`: hosts; resources; actions at
@@ -247,14 +305,17 @@ docs/adr/                 decision records
   `--confirm` or by `darkpanel change confirm <id>`. Top-level names `serve`,
   `agent`, `update`, `user`, `controller`, `change`, `uninstall`, `version`
   are reserved.
-- **Local access.** The agent serves its handler on `/run/darkpanel/agent.sock`
-  (root, 0600) for every agent action, checked with `SO_PEERCRED` uid 0,
-  with actor `local:root@<host id>`; entries are journaled and reach the audit
-  log when the controller is reachable (R28). The controller serves
-  `/run/darkpanel/controller.sock` (0600, `darkpanel`, root allowed via
-  `SO_PEERCRED`) for controller break-glass commands such as
-  `darkpanel user reset-totp`. `darkpanel update rollback` needs neither
-  service (ADR 0007).
+- **Local access.** Each service gets its own runtime directory through systemd
+  `RuntimeDirectory=`. The agent serves its handler on
+  `/run/darkpanel-agent/agent.sock` (root, 0600) for every agent action, checked
+  with `SO_PEERCRED` uid 0, with actor `local:root@<host id>`; entries are
+  journaled and reach the audit log when the controller is reachable (R28). The
+  controller serves `/run/darkpanel-controller/controller.sock` (0600,
+  `darkpanel`, root allowed via `SO_PEERCRED`) for its version, schema version
+  and health (used by the update health check, ADR 0007) and for the break-glass
+  actions (ADR 0002): `darkpanel user create`, which creates the first admin
+  (R15), and `darkpanel user reset-totp`. `darkpanel update rollback` needs
+  neither service; run by root it re-executes `darkpanel.prev` (ADR 0007).
 
 ### 0007 Release, signing, update and rollback
 
@@ -271,22 +332,61 @@ docs/adr/                 decision records
   both the old and the new key for at least two minor releases; a host that
   skips past the window updates through the last dual-signed release first.
   Emergency revocation of a key is a release signed by the remaining key.
-- **Update transaction.** Run by the currently installed (old) binary as a
-  transient systemd unit, independent of the services:
-  1. Refuse while any revertible change is unconfirmed on the host; take all
-     lock keys for the duration.
-  2. Download, verify signature, trusted comment (refuse downgrades unless
-     forced) and checksum; run the new binary's self-test.
-  3. Write a transaction record, keep the current binary as `darkpanel.prev`,
-     swap atomically, restart the services.
-  4. Health-check within the limit (S5: two minutes); on failure, swap back and
-     restart.
-- The service units set `OnFailure=darkpanel-rollback.service`, which runs
-  `darkpanel.prev update rollback`, so a new binary that cannot start is rolled
-  back even after a reboot.
-- On the controller's host the controller updates first, then its agent;
-  fleet rollouts go one host at a time and stop at the first failure, with
-  progress stored so an interrupted rollout resumes.
+- **Update action.** An update is the agent action `core.update.apply` (class
+  `compensable`, compensating action `core.update.rollback`), reachable over the
+  agent protocol and over the agent's local socket. The agent starts the
+  transaction as a root transient systemd unit through systemd's D-Bus
+  `StartTransientUnit`, running the currently installed binary as `darkpanel
+  update run <transaction id>`, independent of the services. The controller
+  never swaps binaries; on its own host it updates through its local agent
+  (R26).
+- **Transaction record.** `/var/lib/darkpanel/update/<transaction id>.json`,
+  written by the old binary with fsync at each state change: `staged`,
+  `swapped` (with a deadline), `committed`, `rolled-back`. It follows the
+  record format rule in ADR 0004.
+- **Update transaction:**
+  1. Refuse while any revertible change is unconfirmed on the host; take every
+     lock key for the duration (locks survive the restart, ADR 0004).
+  2. Download, verify signature, trusted comment and checksum; run the new
+     binary's self-test. Downgrades are refused unless forced; a forced
+     downgrade goes back at most one minor release.
+  3. Record `swapped`, keep the current binary as `darkpanel.prev`, swap
+     atomically, restart `darkpanel-controller` if present, then
+     `darkpanel-agent`. Each service runs its migrations as it starts
+     (ADR 0005).
+  4. Health check within two minutes (S5): the controller reports the new
+     version and schema version on its local socket; the agent reports the new
+     version on its local socket and, when enrolled, a connected controller
+     session. On the controller's host both must pass. On a pass, record
+     `committed` and release the locks; on a failure or at the deadline, roll
+     back.
+- **Rollback** of a `swapped` transaction runs at most once: it swaps
+  `darkpanel.prev` back, keeps the failed binary as `darkpanel.failed`,
+  records `rolled-back` and restarts the services. For a `committed` or
+  `rolled-back` record the automatic path does nothing. Both service units set
+  `Restart=on-failure` with a `StartLimitBurst` that is exhausted well inside
+  the two-minute window, and `OnFailure=darkpanel-rollback.service`. That unit,
+  and `darkpanel-update-recover.service` (ordered before both services and run
+  on every boot), execute `darkpanel.prev update rollback --pending`, so a
+  reboot during the window always ends in a rollback and the operator re-runs
+  the update.
+- **Manual rollback.** `darkpanel update rollback`, typed by root, re-executes
+  `darkpanel.prev` when it exists, so the binary that wrote the record reads
+  it. After a commit it goes back one step, with the same refusal as step 1.
+  On the controller's host it is refused while any enrolled agent reports a
+  newer version, unless forced; a forced rollback marks those hosts outside the
+  supported window until they are downgraded.
+- **Stepping.** An update never crosses more than one minor release. From 1.2
+  to 1.5 the agent runs three transactions (the latest patch of 1.3, then 1.4,
+  then 1.5), each committed before the next; a failure leaves the host on the
+  last committed minor. This keeps every step inside the schema window
+  (ADR 0005) and the key-rotation window above.
+- **Order.** On the controller's host one swap serves both roles: "the
+  controller first" is the restart and health-check order, and if either role
+  fails its check both roll back together. A fleet rollout is the controller
+  issuing `core.update.apply` to one host at a time, its own host first; it
+  stops at the first failure and stores progress so an interrupted rollout
+  resumes.
 - Releases are published on GitHub Releases of `github.com/Darkraise/darkpanel`.
   The install script embeds the trusted keys and verifies before installing;
   its exact method is decided in the M2 install epic.
@@ -303,7 +403,8 @@ docs/adr/                 decision records
   (198.18.0.0/15 and an IPv6 documentation prefix), so ufw-docker private-range
   exemptions cannot mask exposure; IPv4 and IPv6 are both tested.
 - Fault injection: kill the agent mid-apply, reboot during an unconfirmed
-  change, and ship a deliberately broken binary to the updater.
+  change, reboot during an update's health-check window, and ship a
+  deliberately broken binary to the updater.
 - Tailscale tests use a dedicated test tailnet with ephemeral auth keys stored
   as CI secrets (needed from M5).
 - arm64 is covered by builds and unit tests in v1; arm64 VM tests are Unknown
@@ -320,15 +421,23 @@ docs/adr/                 decision records
   values with patterns (ports, names, CIDRs, comments) before they reach a
   provider.
 - **Files.** The file provider writes only paths and marked blocks declared in
-  the module manifest; it refuses symlinks (`O_NOFOLLOW`), writes atomically via
-  a temporary file and rename, and records ownership in the ownership manifest
-  that `darkpanel uninstall` reverses (R30).
+  the module manifest. It opens the parent directory with
+  `openat2(RESOLVE_NO_SYMLINKS)`, which fails if any path component is a
+  symlink, and requires that directory to be owned by root and not writable by
+  others. It then creates a temporary file and renames it over the target
+  relative to that directory descriptor, preserving the target's mode and
+  owner. A file with duplicated, nested or unterminated `BEGIN/END DARKPANEL`
+  markers is refused, never repaired by guessing. Ownership is recorded in the
+  ownership manifest that `darkpanel uninstall` reverses (R30). Declared paths
+  are fixed, so this defends against a symlink planted by an unprivileged
+  process, not against root. `openat2` needs Linux 5.6; every supported host
+  ships 5.15 or later.
 - Prefer APIs over tools: Docker Engine API, Tailscale local API, systemd over
   D-Bus.
 
 ## Product spec amendments
 
-This design changes two approved requirements; both edits are made with this
+This design changes five approved requirements; every edit is made with this
 spec:
 
 - **R10** now reads: mutating actions follow one change lifecycle; revertible
@@ -337,6 +446,15 @@ spec:
   typed confirmation.
 - **R31** now names the controller's local socket for controller break-glass
   commands, and `update rollback` as needing neither service.
+- **R12** now reads: each role's key file is readable only by the service that
+  uses it (root for the agent, `darkpanel` for the controller); ADR 0005
+  records why a root-only key is unbuildable with an unprivileged controller.
+- **R13** now says `/healthz` returns status to anyone and its version and
+  schema version only to an authenticated caller.
+- **R34** now reads: the backup taken before migrating is for disaster recovery;
+  expand-then-contract migrations let the previous binary run on the migrated
+  schema, so a rollback restores nothing. The Database row of the
+  compatibility table says the same.
 
 ## Parallel decomposition
 
@@ -373,4 +491,6 @@ no tests, ports or runtime state to isolate.
 ## Out of scope
 
 Implementing any decision, and decisions owned by later epics: how DERP and
-`cloudflared` run (M5, M6) and the install script's verification method (M2).
+`cloudflared` run (M5, M6), the install script's verification method (M2), and
+building `darkpanel controller backup` and `restore` (M8 Production rollout and
+runbook).
