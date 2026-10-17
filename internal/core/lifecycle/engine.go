@@ -56,9 +56,10 @@ type Engine struct {
 	// other apply takes a lock or the same plan in between.
 	applyMu sync.Mutex
 
-	timerMu sync.Mutex
-	timers  map[string]core.Timer // armed revert timers by change id
-	closed  bool
+	timerMu  sync.Mutex
+	timers   map[string]core.Timer // armed revert timers by change id
+	closed   bool
+	inflight sync.WaitGroup // timer reverts that are running
 }
 
 // New returns an engine for cfg. Run Recover before serving requests.
@@ -89,14 +90,17 @@ func New(cfg Config) (*Engine, error) {
 
 // Close stops every armed revert timer and arms no new one. A change whose
 // timer was stopped stays pending until the next start's Recover reverts it.
+// Close also waits for a timer revert that is already running to finish.
 func (e *Engine) Close() {
 	e.timerMu.Lock()
-	defer e.timerMu.Unlock()
 	e.closed = true
 	for id, t := range e.timers {
 		t.Stop()
 		delete(e.timers, id)
 	}
+	// Unlock before waiting: a running revert takes timerMu in stopTimer.
+	e.timerMu.Unlock()
+	e.inflight.Wait()
 }
 
 // newID returns a ULID stamped with the engine's clock; ids made by one

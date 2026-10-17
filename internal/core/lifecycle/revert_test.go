@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/coretest"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 )
 
@@ -197,5 +198,46 @@ func TestCloseStopsTimers(t *testing.T) {
 	f.clock.Advance(2 * DefaultConfirmTimeout)
 	if s := f.state(v.ID); s != core.StatePending {
 		t.Errorf("state = %s, want pending until recovery", s)
+	}
+}
+
+// captureClock records every AfterFunc callback, so a test can run one the
+// way a timer that fired just before Close stopped it would.
+type captureClock struct {
+	*coretest.FakeClock
+	mu  sync.Mutex
+	fns []func()
+}
+
+func (c *captureClock) AfterFunc(d time.Duration, fn func()) core.Timer {
+	c.mu.Lock()
+	c.fns = append(c.fns, fn)
+	c.mu.Unlock()
+	return c.FakeClock.AfterFunc(d, fn)
+}
+
+func TestCloseStopsAFiringTimer(t *testing.T) {
+	f := newFixture(t)
+	clock := &captureClock{FakeClock: f.clock}
+	cfg := f.config()
+	cfg.Base.Clock = clock
+	eng, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(eng.Close)
+	f.eng = eng
+	f.host.items["a"] = "old"
+	v := f.pending(`{"name":"a","value":"1"}`)
+	if len(clock.fns) != 1 {
+		t.Fatalf("armed timers = %d, want 1", len(clock.fns))
+	}
+	eng.Close()
+	clock.fns[0]()
+	if s := f.state(v.ID); s != core.StatePending {
+		t.Errorf("state = %s, want pending until recovery", s)
+	}
+	if f.host.items["a"] != "1" {
+		t.Errorf("item a = %q, want the applied 1", f.host.items["a"])
 	}
 }

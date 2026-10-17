@@ -65,8 +65,14 @@ func (e *Engine) armTimer(changeID string, d time.Duration) {
 	}
 	e.timers[changeID] = e.cfg.Base.Clock.AfterFunc(d, func() {
 		e.timerMu.Lock()
+		if e.closed {
+			e.timerMu.Unlock()
+			return
+		}
 		delete(e.timers, changeID)
+		e.inflight.Add(1)
 		e.timerMu.Unlock()
+		defer e.inflight.Done()
 		_, err := e.revertPending(context.Background(), timerPrincipal, changeID)
 		var coded *errcode.Error
 		if err != nil && (!errors.As(err, &coded) || coded.Code != errcode.ChangeNotPending) {
