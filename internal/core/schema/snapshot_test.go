@@ -152,3 +152,36 @@ func TestWriteSnapshotsCreatesDirectory(t *testing.T) {
 		t.Errorf("snapshot directory: %v", err)
 	}
 }
+
+func TestWriteSnapshotsRefusesSymlinks(t *testing.T) {
+	for name, link := range map[string]struct{ at, target string }{
+		"directory": {"demo.item.add", "released/v0.1.0/demo.item.add"},
+		"file":      {"demo.item.add/v1.json", "../released/v0.1.0/demo.item.add/v1.json"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			frozen := filepath.Join(dir, "released", "v0.1.0", "demo.item.add", "v1.json")
+			if err := os.MkdirAll(filepath.Dir(frozen), 0o750); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(frozen, []byte("{}\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			at := filepath.Join(dir, link.at)
+			if err := os.MkdirAll(filepath.Dir(at), 0o750); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(link.target, at); err != nil {
+				t.Fatal(err)
+			}
+			files := map[string][]byte{"demo.item.add/v1.json": []byte("{\"changed\": true}\n")}
+			if err := WriteSnapshots(dir, files); err == nil {
+				t.Error("WriteSnapshots wrote through a symlink")
+			}
+			got, err := os.ReadFile(frozen) //nolint:gosec // G304: a path under the test's temporary directory
+			if err != nil || string(got) != "{}\n" {
+				t.Errorf("released snapshot = %q, %v; want it unchanged", got, err)
+			}
+		})
+	}
+}

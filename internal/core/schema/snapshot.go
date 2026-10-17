@@ -2,11 +2,13 @@ package schema
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path"
 	"slices"
+	"strings"
 
 	"github.com/darkraise/darkpanel/internal/core"
 )
@@ -80,10 +82,30 @@ func Snapshots(reg *core.Registry) (map[string][]byte, error) {
 	return files, nil
 }
 
+// refuseSymlink fails when name, or a directory on the way to it, is a
+// symlink. os.Root follows a link that stays inside the root, so a link to
+// released/ would otherwise overwrite a frozen snapshot.
+func refuseSymlink(root *os.Root, name string) error {
+	parts := strings.Split(name, "/")
+	for i := range parts {
+		p := strings.Join(parts[:i+1], "/")
+		info, err := root.Lstat(p)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return nil
+		case err != nil:
+			return fmt.Errorf("schema: %w", err)
+		case info.Mode()&fs.ModeSymlink != 0:
+			return fmt.Errorf("schema: %s is a symlink", p)
+		}
+	}
+	return nil
+}
+
 // WriteSnapshots writes files under dir, creating it when missing, and deletes
 // every other .json file there, and directories left empty, except under
 // dir/released, which holds the frozen snapshots of released tags (ADR 0002).
-// Every operation stays inside dir, even through a symlink.
+// Every operation stays inside dir, and a write through a symlink is refused.
 func WriteSnapshots(dir string, files map[string][]byte) error {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("schema: %w", err)
@@ -94,6 +116,9 @@ func WriteSnapshots(dir string, files map[string][]byte) error {
 	}
 	defer func() { _ = root.Close() }()
 	for name, b := range files {
+		if err := refuseSymlink(root, name); err != nil {
+			return err
+		}
 		if err := root.MkdirAll(path.Dir(name), 0o750); err != nil {
 			return fmt.Errorf("schema: %w", err)
 		}
@@ -106,7 +131,7 @@ func WriteSnapshots(dir string, files map[string][]byte) error {
 		switch {
 		case err != nil:
 			return err
-		case name == "released":
+		case name == "released" && d.IsDir():
 			return fs.SkipDir
 		case d.IsDir():
 			if name != "." {
