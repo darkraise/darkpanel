@@ -1097,6 +1097,22 @@ directory except the migration files assigned to P2, P4, P5 and P11.
   GitHub runners, verified before merge by pushing the work branch and
   dispatching `harness.yml`.
 
+## Plans
+
+The ladder's rules (a risk-3 task runs alone in its wave, at most three tasks
+per wave, Rule S splits, complete code in every task) turn this spec into
+about fifty tasks, too many for one plan. It is planned as six plans, each
+written just before it runs so later plans cite merged code:
+
+1. Foundation: P0.
+2. Framework libraries: P1, P2, P3, P4, P6.
+3. Identity and HTTP API: P5, P9, P10, P12.
+4. Dispatch, CLI and assembly: P11, P13, P14.
+5. Web UI: P7.
+6. Harness: P8.
+
+Plans 5 and 6 share no file with plans 1–4 and may run in parallel sessions.
+
 ## Verification
 
 - Gates 1–6 green on the branch and on `main`; gate 7 (harness) green on
