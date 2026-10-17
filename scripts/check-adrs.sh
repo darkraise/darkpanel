@@ -5,7 +5,7 @@ set -euo pipefail
 
 adr_dir=${ADR_DIR:-docs/adr}
 complete=0
-if [ "${1:-}" = "--complete" ]; then complete=1; shift; fi
+args=(); for a in "$@"; do if [ "$a" = --complete ]; then complete=1; else args+=("$a"); fi; done; set -- "${args[@]+"${args[@]}"}"
 errors=0
 fail() { echo "check-adrs: $1" >&2; errors=$((errors + 1)); }
 
@@ -16,9 +16,11 @@ check_adr() {
     BEGIN { split("## Status|## Context|## Decision|## Alternatives considered|## Consequences", req, "|") }
     NR == 1 && $0 !~ /^# ADR [0-9][0-9][0-9][0-9]: [^ ]/ { print "missing title line " q "# ADR NNNN: <title>" q }
     /^\*\*Requirements:\*\* (R[0-9]|none)/ { reqline = 1 }
-    /^## / { cur = $0; pos[cur] = ++n; filled[cur] = 0; next }
+    /^```/ { fence = !fence }
+    !fence && /^## / { cur = $0; pos[cur] = ++n; filled[cur] = 0; next }
     cur != "" && NF { filled[cur]++; if (cur == "## Status" && status == "") status = $0 }
     END {
+      if (NR == 0) print "missing title line " q "# ADR NNNN: <title>" q
       if (!reqline) print "missing **Requirements:** line"
       last = 0
       for (i = 1; i <= 5; i++) {
@@ -40,7 +42,7 @@ trace_pairs() {
     t && /^\| *R[0-9]/ {
       split($0, cell, "|")
       nr = split(cell[2], rs, /[^A-Za-z0-9]+/)
-      na = split(cell[3], as, /[^0-9]+/)
+      c = cell[3]; gsub(/\([^)]*\)/, "", c); na = split(c, as, /[^0-9]+/)
       for (i = 1; i <= nr; i++) if (rs[i] ~ /^R[0-9]+$/)
         for (j = 1; j <= na; j++) if (as[j] ~ /^[0-9][0-9][0-9][0-9]$/) print rs[i], as[j]
     }' "$1"

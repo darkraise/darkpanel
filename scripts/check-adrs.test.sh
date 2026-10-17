@@ -76,8 +76,32 @@ printf -- '- [ADR 0001: Example](0001-example.md)\n\n## Traceability\n\n| Requir
 expect trace_ok 0 - env ADR_DIR="$d" bash "$checker" --complete
 printf '| R7 | 0001 (Decision) |\n' >> "$d/README.md"
 expect trace_pair_missing 1 "maps R7 to ADR 0001" env ADR_DIR="$d" bash "$checker" --complete
-printf '| R2 | 0004 |\n' >> "$d/README.md"
+
+d=$(mktemp -d); adr "$d/0001-example.md"
+printf -- '- [ADR 0001: Example](0001-example.md)\n\n## Traceability\n\n| Requirement | ADRs |\n|---|---|\n| R1, R2 | 0001 (Decision) |\n| R2 | 0004 |\n' > "$d/README.md"
 expect trace_missing_adr 1 "names missing ADR 0004" env ADR_DIR="$d" bash "$checker" --complete
+
+d=$(mktemp -d); adr "$d/0001-example.md"
+awk '{ if ($0=="Proposed") print "Accepted"; else print }' "$d/0001-example.md" > "$d/x" && mv "$d/x" "$d/0001-example.md"
+expect status_accepted 0 - env ADR_DIR="$d" bash "$checker" "$d/0001-example.md"
+
+d=$(mktemp -d); adr "$d/0001-example.md"
+awk '{ if ($0=="Proposed") print "Superseded by ADR 0002"; else print }' "$d/0001-example.md" > "$d/x" && mv "$d/x" "$d/0001-example.md"
+expect status_superseded 0 - env ADR_DIR="$d" bash "$checker" "$d/0001-example.md"
+
+d=$(mktemp -d); adr "$d/0001-example.md"
+awk '{ if ($0=="Proposed") print "Superseded by ADR 0002 later"; else print }' "$d/0001-example.md" > "$d/x" && mv "$d/x" "$d/0001-example.md"
+expect status_superseded_trailing_text 1 "status must be" env ADR_DIR="$d" bash "$checker" "$d/0001-example.md"
+
+d=$(mktemp -d); : > "$d/0001-example.md"
+expect empty_file 1 "missing title line" env ADR_DIR="$d" bash "$checker" "$d/0001-example.md"
+
+d=$(mktemp -d); adr "$d/0001-example.md"
+awk '!done && $0=="Text." { print "```"; print "## Status"; print "```"; done=1; next } { print }' "$d/0001-example.md" > "$d/x" && mv "$d/x" "$d/0001-example.md"
+expect fenced_heading_ignored 0 - env ADR_DIR="$d" bash "$checker" "$d/0001-example.md"
+
+d=$(mktemp -d); adr "$d/0001-example.md"
+expect complete_after_file 0 - env ADR_DIR="$d" bash "$checker" "$d/0001-example.md" --complete
 
 echo "check-adrs tests: $pass passed, $failures failed"
 [ "$failures" -eq 0 ]
