@@ -87,8 +87,13 @@ exact (no ranges) in `go.mod` and `web/package.json`.
   | `web` | `pnpm -C web install --frozen-lockfile` then `pnpm -C web build` |
   | `build` | `web`, then for `amd64` and `arm64`: `CGO_ENABLED=0 GOOS=linux GOARCH=<arch> go build -trimpath -ldflags "-s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT)" -o bin/darkpanel-linux-<arch> ./cmd/darkpanel` |
   | `verify-build` | `file` reports both binaries as statically linked ELF for the right architecture; `DARKPANEL_REQUIRE_UI=1 go test ./web/` passes |
-  | `lint` | `golangci-lint run`, `pnpm -C web lint`, `pnpm -C web typecheck` |
-  | `test` | `go test ./...`, `pnpm -C web test`, `bash scripts/check-adrs.test.sh`, `bash scripts/check-adrs.sh --complete` |
+  | `lint-go` | `golangci-lint run` and `go vet ./...` |
+  | `lint-web` | `pnpm -C web lint` and `pnpm -C web typecheck` |
+  | `lint` | `lint-go lint-web` |
+  | `test-go` | `go test ./...` |
+  | `test-web` | `pnpm -C web test` |
+  | `test-adr` | `bash scripts/check-adrs.test.sh` and `bash scripts/check-adrs.sh --complete` |
+  | `test` | `test-go test-web test-adr` |
   | `vuln` | govulncheck on `./...` |
   | `check` | `lint test build verify-build vuln` |
   | `clean` | removes `bin/` and everything in `web/dist/` except `.gitkeep` |
@@ -183,12 +188,12 @@ Each gate carries `Green`, `Evidence` and `Why` fields.
   Actions: `actions/checkout`, `actions/setup-go` (`go-version-file: go.mod`,
   env `GOTOOLCHAIN=local`), `pnpm/action-setup` (reads `packageManager`),
   `actions/setup-node` (Node 24, pnpm cache), `golangci/golangci-lint-action`
-  (version v2.15.0), `actions/upload-artifact`.
-- Jobs:
-  - `adr`: the ADR checker and its tests.
-  - `go`: `golangci-lint`, `go vet ./...`, `go test ./...`, `make vuln`.
-  - `web`: `pnpm -C web install --frozen-lockfile`, `make` web lint,
-    typecheck and test (through `pnpm -C web …` as the Makefile does).
+  (version v2.15.0, used only to install the binary; the plan confirms the
+  action's install-only input), `actions/upload-artifact`.
+- Every job runs `make` targets only:
+  - `adr`: `make test-adr`.
+  - `go`: `make lint-go test-go vuln`.
+  - `web`: `pnpm -C web install --frozen-lockfile`, then `make lint-web test-web`.
   - `build`: `make build verify-build`; uploads `bin/darkpanel-linux-*` as the
     artifact `darkpanel-binaries`, kept 7 days.
 
