@@ -8,7 +8,7 @@ export const themeConfig: ThemeConfig = {
     backgroundStyle: "solid",
     backgroundIntensity: "balanced",
     gradientPattern: "blobs",
-    mode: "system",
+    mode: "dark",
     density: "compact",
     elevation: "medium",
     buttonElevation: "flat",
