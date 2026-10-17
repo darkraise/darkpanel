@@ -16,6 +16,9 @@ Check the files with `bash scripts/check-adrs.sh --complete`.
 - [ADR 0007: Release, signing, update and rollback](0007-release-and-update.md)
 - [ADR 0008: Integration test harness](0008-test-harness.md)
 - [ADR 0009: Host execution safety](0009-host-execution-safety.md)
+- [ADR 0010: Web certificate authority](0010-web-certificate-authority.md)
+- [ADR 0011: Actors, reserved CLI names and package
+  layout](0011-actors-cli-names-and-layout.md)
 
 ## Format
 
@@ -51,7 +54,8 @@ Every ADR uses these definitions and does not redefine them.
 - **Errors.** RFC 9457 problem details with a stable `code` field, from the
   registry in `internal/core/errcode`.
 - **Actors.** Audit actors are `user:<id>`, `token:<id>`, `agent:<host id>`,
-  `local:root@<host id>` and `system:<job>`.
+  `local:root@<host id>` and `system:<job>`; ADR 0011 adds `anonymous` and
+  `local:uid-<n>@<host id>`.
 - **Version skew.** The controller is never older than its agents. It supports
   agents of the same and the previous minor version, is updated first, and
   drives agent updates up to its own version.
@@ -76,16 +80,16 @@ decided by its own epic, not by an ADR.
 | R1 | 0002 (module contract), 0003 (protocol), 0004 (change lifecycle), 0005 (storage and migrations), 0006 (API versioning), 0007 (release signing) |
 | R5 | 0002 (manifest interface, compiled-in modules) |
 | R6 | 0002 (compatibility rules) |
-| R7 | 0002 (action declaration), 0006 (REST, CLI) |
+| R7 | 0002 (action declaration), 0006 (REST, CLI), 0011 (reserved CLI names) |
 | R8 | 0005 (migrations) |
 | R9 | 0002 (enablement and preflight) |
 | R10 | 0004 (plan, apply ordering, compensable and irreversible actions) |
 | R11 | 0009 (commands, files) |
 | R12 | 0005 (secrets), 0006 (authentication boundary) |
 | R15, R16, R17 | 0006 (authentication boundary) |
-| R18 | 0003 (journal delivery), 0004 (apply ordering, compensable and irreversible actions, controller-side actions) |
+| R18 | 0003 (journal delivery), 0004 (apply ordering, compensable and irreversible actions, controller-side actions), 0011 (actors) |
 | R19 | none: a stored role field, decided by the identity epic |
-| R20 | 0006 (listeners) |
+| R20 | 0006 (listeners), 0010 (web authority) |
 | R21 | 0008 (harness) |
 | R22 | 0003 (identity, transport) |
 | R23 | 0003 (enrollment, certificates and revocation) |
