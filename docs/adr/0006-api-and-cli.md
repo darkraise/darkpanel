@@ -72,8 +72,8 @@ Review findings 7, 17, 18, 22, 25, 28 and 32 shape this decision:
 
 ## Consequences
 
-Every route on every listener sits behind the one authentication middleware,
-so a new handler is denied unless it is added to the explicit public list. The
-controller needs a certificate source (tailnet or internal authority). Trusted
-proxy addresses are configuration that M6 panel exposure sets. Reserved
-top-level names constrain module ids.
+- Every route on every listener sits behind the one authentication middleware,
+  so a new handler is denied unless it is added to the explicit public list.
+- The controller needs a certificate source (tailnet or internal authority).
+- Trusted proxy addresses are configuration that M6 panel exposure sets.
+- Reserved top-level names constrain module ids.
