@@ -158,8 +158,9 @@ Each requirement belongs to exactly one epic (section 8).
 - **R9** Modules are enabled or disabled per host; a disabled module or one
   failing preflight shows the reason and never blocks other modules.
 - **R10** Mutating actions follow one change lifecycle: plan (dry-run diff),
-  apply, verify, and optionally confirm-or-revert. Each applied change stores a
-  snapshot sufficient to roll it back.
+  apply, verify, and optionally confirm-or-revert. Revertible actions store a
+  snapshot sufficient to roll them back; compensable and irreversible actions
+  are declared as such, and irreversible ones require typed confirmation.
 - **R11** Darkpanel writes only files listed in its ownership manifest; edits
   inside system files are confined to marked `BEGIN/END DARKPANEL` blocks;
   external programs run with argument vectors, never through a shell.
@@ -224,9 +225,10 @@ Each requirement belongs to exactly one epic (section 8).
 - **R30** `darkpanel uninstall` removes everything in the ownership manifest and
   removes its marked blocks; each module contributes its own uninstall step
   (the firewall module, from M3, offers to keep or revert its rules).
-- **R31** Break-glass commands run on the host without the controller,
-  through the local agent socket: `darkpanel update rollback`,
-  `darkpanel user reset-totp`, and any module action marked break-glass
+- **R31** Break-glass commands run on the host through local sockets, without
+  the web UI: agent actions through the agent socket (working without the
+  controller), `darkpanel user reset-totp` through the controller's local
+  socket, and `darkpanel update rollback` without either service
   (`darkpanel firewall rollback` arrives with R42 in M3).
 
 ### Self-update
