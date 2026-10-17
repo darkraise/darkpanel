@@ -30,14 +30,20 @@ func splitLines(content []byte) [][]byte {
 }
 
 // scanMarkers checks every DARKPANEL marker with prefix in lines and returns
-// each block's span. A file with duplicated, nested or unterminated markers
-// is refused, never repaired by guessing (ADR 0009).
+// each block's span. A file with duplicated, nested or unterminated markers,
+// or with a marker line ending in whitespace (a carriage return included,
+// which would otherwise read as a different block id), is refused, never
+// repaired by guessing (ADR 0009).
 func scanMarkers(lines [][]byte, prefix string) (map[string]span, error) {
 	begin, end := prefix+" BEGIN DARKPANEL ", prefix+" END DARKPANEL "
 	spans := map[string]span{}
 	open, openAt := "", -1
 	for i, raw := range lines {
 		line := strings.TrimSuffix(string(raw), "\n")
+		marker := strings.HasPrefix(line, begin) || strings.HasPrefix(line, end)
+		if marker && strings.TrimRight(line, " \t\r") != line {
+			return nil, markersInvalid("line %d: marker line ends in whitespace", i+1)
+		}
 		switch {
 		case strings.HasPrefix(line, begin):
 			id := strings.TrimPrefix(line, begin)

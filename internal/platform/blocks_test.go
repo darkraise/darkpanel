@@ -78,6 +78,20 @@ func TestBodyWithMarkerRefused(t *testing.T) {
 	assertMarkersInvalid(t, err)
 }
 
+func TestMarkerTrailingWhitespaceRefused(t *testing.T) {
+	for name, in := range map[string]string{
+		"carriage return": "# BEGIN DARKPANEL fw/rules\r\nx\r\n# END DARKPANEL fw/rules\r\n",
+		"trailing space":  "# BEGIN DARKPANEL fw/rules \nx\n# END DARKPANEL fw/rules \n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := replaceBlock([]byte(in), "#", "fw", "rules", []byte("x\n"))
+			assertMarkersInvalid(t, err)
+			_, err = removeBlock([]byte(in), "#", "fw", "rules")
+			assertMarkersInvalid(t, err)
+		})
+	}
+}
+
 func assertMarkersInvalid(t *testing.T, err error) {
 	t.Helper()
 	var coded *errcode.Error
