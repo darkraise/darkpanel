@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func writeKeyFile(t *testing.T, path, content string, mode os.FileMode) {
@@ -80,6 +82,37 @@ func TestLoadOrCreateKeyConcurrentCallersAgree(t *testing.T) {
 	}
 }
 
+func TestLoadOrCreateKeyRemovesTemporaryBeforeDirectorySync(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "controller.key")
+	realSync := syncDir
+	t.Cleanup(func() { syncDir = realSync })
+	var names []string
+	syncDir = func(d string) error {
+		entries, err := os.ReadDir(d)
+		if err != nil {
+			return err
+		}
+		names = names[:0]
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		return realSync(d)
+	}
+	check := func(step string, err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("%s: %v", step, err)
+		}
+		if len(names) != 1 || names[0] != "controller.key" {
+			t.Errorf("%s: directory at fsync = %v; want only controller.key", step, names)
+		}
+	}
+	_, err := LoadOrCreateKey(path)
+	check("new key", err)
+	check("existing key", createKey(path))
+}
+
 func TestLoadOrCreateKeyRefusesOpenMode(t *testing.T) {
 	for _, mode := range []os.FileMode{0o640, 0o604, 0o660} {
 		path := filepath.Join(t.TempDir(), "controller.key")
@@ -133,5 +166,25 @@ func TestLoadOrCreateKeyRefusesForeignOwner(t *testing.T) {
 	}
 	if _, err := LoadOrCreateKey(path); err == nil || !strings.Contains(err.Error(), "owner") {
 		t.Errorf("err = %v, want an owner error", err)
+	}
+}
+
+func TestLoadOrCreateKeyRefusesFIFO(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "controller.key")
+	if err := syscall.Mkfifo(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := LoadOrCreateKey(path)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "not a regular file") {
+			t.Errorf("err = %v, want a not-a-regular-file error", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("LoadOrCreateKey blocked opening a FIFO")
 	}
 }

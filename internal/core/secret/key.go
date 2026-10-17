@@ -73,10 +73,17 @@ func createKey(path string) (err error) {
 	if err := os.Link(tmp.Name(), path); err != nil && !errors.Is(err, fs.ErrExist) {
 		return fmt.Errorf("secret: install key: %w", err)
 	}
+	// Unlinked before the directory fsync, so the fsync makes the removal
+	// durable and a crash cannot leave a second link to the key behind.
+	if err := os.Remove(tmp.Name()); err != nil {
+		return fmt.Errorf("secret: remove temporary key: %w", err)
+	}
 	return syncDir(dir)
 }
 
-func syncDir(dir string) error {
+// syncDir is a variable so a test can see what the directory holds when it is
+// fsynced.
+var syncDir = func(dir string) error {
 	d, err := os.Open(dir) //nolint:gosec // G304: the key directory comes from paths.Paths, never from a request
 	if err != nil {
 		return fmt.Errorf("secret: open key directory: %w", err)
@@ -92,7 +99,9 @@ func syncDir(dir string) error {
 }
 
 func loadKey(path string) ([]byte, error) {
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0) //nolint:gosec // G304: the key path comes from paths.Paths, never from a request
+	// O_NONBLOCK keeps the open of a FIFO from waiting for a writer, so the
+	// regular-file check below refuses it; reads of a regular file ignore it.
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC|syscall.O_NONBLOCK, 0) //nolint:gosec // G304: the key path comes from paths.Paths, never from a request
 	if err != nil {
 		return nil, fmt.Errorf("secret: open key %s: %w", path, err)
 	}
