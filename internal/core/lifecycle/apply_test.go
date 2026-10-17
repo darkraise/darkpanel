@@ -2,6 +2,8 @@ package lifecycle
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"reflect"
 	"sync"
 	"testing"
@@ -371,6 +373,48 @@ func TestChangesFilters(t *testing.T) {
 		got, err := f.eng.Changes(ctx, c.f)
 		if err != nil || len(got) != c.want {
 			t.Errorf("Changes(%+v) = %d, %v; want %d", c.f, len(got), err, c.want)
+		}
+	}
+}
+
+func TestChangesLimitDefaultAndCap(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	at := formatTime(f.clock.Now())
+	id := func(i int) string { return fmt.Sprintf("%026d", i) } // sorts like a ULID
+	err := f.db.Write(ctx, func(tx *sql.Tx) error {
+		for i := range maxChangeLimit + 1 {
+			if _, err := tx.ExecContext(ctx,
+				`INSERT INTO core_plans (id, host_id, action, version, actor, input_hash, state_hash,
+				 diff_json, guards_json, confirmation, created_at, expires_at)
+				 VALUES (?, ?, ?, 1, ?, '', '', '[]', '[]', '', ?, ?)`,
+				id(i), testHost, refAdd.Name, alice.Actor, at, at); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx,
+				`INSERT INTO core_changes (id, plan_id, host_id, action, version, class, compensated_by, actor, state,
+				 input_json, created_at, updated_at)
+				 VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, '{}', ?, ?)`,
+				id(i), id(i), testHost, refAdd.Name, string(core.ClassCompensable), refRemove.Name, alice.Actor,
+				core.StateCompleted, at, at); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ limit, want int }{
+		{0, defaultChangeLimit}, {-1, defaultChangeLimit}, {maxChangeLimit + 1, maxChangeLimit}, {maxChangeLimit, maxChangeLimit},
+	} {
+		got, err := f.eng.Changes(ctx, core.ChangeFilter{Limit: c.limit})
+		if err != nil || len(got) != c.want {
+			t.Errorf("Changes(Limit %d) = %d, %v; want %d", c.limit, len(got), err, c.want)
+			continue
+		}
+		if got[0].ID != id(maxChangeLimit) {
+			t.Errorf("Changes(Limit %d) starts at %s, want the newest %s", c.limit, got[0].ID, id(maxChangeLimit))
 		}
 	}
 }
