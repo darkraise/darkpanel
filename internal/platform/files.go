@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync"
 
 	"golang.org/x/sys/unix"
 
@@ -35,10 +36,12 @@ type FilesConfig struct {
 }
 
 // Files is the core.FileWriter of the agent: it writes only the paths and
-// marked blocks a module declares, never through a symlink (ADR 0009).
+// marked blocks a module declares, never through a symlink (ADR 0009). Calls
+// on one path are serialised, so the agent must build exactly one Files.
 type Files struct {
 	cfg       FilesConfig
 	parentUID int
+	locks     map[string]*sync.Mutex // one per declared path; read-only after NewFiles
 }
 
 var _ core.FileWriter = (*Files)(nil)
@@ -49,7 +52,15 @@ func NewFiles(cfg FilesConfig) *Files {
 	if cfg.TestMode {
 		uid = os.Geteuid()
 	}
-	return &Files{cfg: cfg, parentUID: uid}
+	locks := map[string]*sync.Mutex{}
+	for _, paths := range cfg.Owned {
+		for _, op := range paths {
+			if locks[op.Path] == nil {
+				locks[op.Path] = &sync.Mutex{}
+			}
+		}
+	}
+	return &Files{cfg: cfg, parentUID: uid, locks: locks}
 }
 
 // OwnedPaths collects the owned paths of the manifests by module id, for
@@ -81,15 +92,33 @@ func (f *Files) declared(module, path, kind, blockID string) (core.OwnedPath, er
 }
 
 // parent is a target's parent directory, opened without following any
-// symlink and checked for ownership and mode.
+// symlink and checked for ownership and mode. It holds the target's path lock
+// until close.
 type parent struct {
 	fd   int
-	name string // the target's name inside the directory
-	path string // the target's full path, for messages
+	name string      // the target's name inside the directory
+	path string      // the target's full path, for messages
+	mu   *sync.Mutex // the target's lock in Files.locks
 }
 
+// openParent locks path, which the caller has already checked is declared,
+// and opens its parent directory.
 func (f *Files) openParent(path string) (*parent, error) {
+	// Held from the read to the rename: modules editing blocks of one file
+	// under different lock keys (ADR 0004) would otherwise drop each other's
+	// block. A lock in process suffices because the agent is the only writer.
+	mu := f.locks[path]
+	mu.Lock()
 	dir, name := filepath.Split(path)
+	fd, err := f.openDir(dir)
+	if err != nil {
+		mu.Unlock()
+		return nil, err
+	}
+	return &parent{fd: fd, name: name, path: path, mu: mu}, nil
+}
+
+func (f *Files) openDir(dir string) (int, error) {
 	// RESOLVE_NO_SYMLINKS fails if any component of dir is a symlink, which
 	// O_NOFOLLOW alone would not catch (ADR 0009).
 	fd, err := unix.Openat2(unix.AT_FDCWD, dir, &unix.OpenHow{
@@ -97,25 +126,28 @@ func (f *Files) openParent(path string) (*parent, error) {
 		Resolve: unix.RESOLVE_NO_SYMLINKS,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("platform: open directory %s: %w", dir, err)
+		return -1, fmt.Errorf("platform: open directory %s: %w", dir, err)
 	}
 	var st unix.Stat_t
 	if err := unix.Fstat(fd, &st); err != nil {
 		_ = unix.Close(fd)
-		return nil, fmt.Errorf("platform: stat directory %s: %w", dir, err)
+		return -1, fmt.Errorf("platform: stat directory %s: %w", dir, err)
 	}
 	switch {
 	case int(st.Uid) != f.parentUID:
 		_ = unix.Close(fd)
-		return nil, fmt.Errorf("platform: directory %s is owned by uid %d, want %d", dir, st.Uid, f.parentUID)
+		return -1, fmt.Errorf("platform: directory %s is owned by uid %d, want %d", dir, st.Uid, f.parentUID)
 	case st.Mode&0o022 != 0:
 		_ = unix.Close(fd)
-		return nil, fmt.Errorf("platform: directory %s is writable by group or others", dir)
+		return -1, fmt.Errorf("platform: directory %s is writable by group or others", dir)
 	}
-	return &parent{fd: fd, name: name, path: path}, nil
+	return fd, nil
 }
 
-func (p *parent) close() { _ = unix.Close(p.fd) }
+func (p *parent) close() {
+	_ = unix.Close(p.fd)
+	p.mu.Unlock()
+}
 
 // read returns the target's content and status; exists is false when there
 // is no target. A symlink or anything but a regular file is refused.

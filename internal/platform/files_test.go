@@ -3,10 +3,12 @@ package platform
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -314,6 +316,37 @@ func TestBlockCommentPrefix(t *testing.T) {
 	}
 	if got, want := readFile(t, path), "// BEGIN DARKPANEL demo/rules\nx\n// END DARKPANEL demo/rules\n"; got != want {
 		t.Errorf("content = %q, want %q", got, want)
+	}
+}
+
+func TestConcurrentBlocksInOneFile(t *testing.T) {
+	dir := t.TempDir()
+	hosts := filepath.Join(dir, "hosts")
+	decl := []core.OwnedPath{{Path: hosts, Kind: "block", BlockIDs: []string{"names"}}}
+	f := NewFiles(FilesConfig{
+		Owned:     map[string][]core.OwnedPath{"demo": decl, "other": decl},
+		Ownership: &fakeOwnership{}, Clock: coretest.NewFakeClock(filesNow), TestMode: true,
+	})
+	ctx := context.Background()
+	modules := []string{"demo", "other"}
+	for round := range 30 {
+		errs := make([]error, len(modules))
+		var wg sync.WaitGroup
+		for i, module := range modules {
+			wg.Go(func() {
+				errs[i] = f.ReplaceBlock(ctx, module, hosts, "names", fmt.Appendf(nil, "%s %d\n", module, round))
+			})
+		}
+		wg.Wait()
+		if err := errors.Join(errs...); err != nil {
+			t.Fatalf("round %d: %v", round, err)
+		}
+		got := readFile(t, hosts)
+		for _, module := range modules {
+			if !strings.Contains(got, fmt.Sprintf("%s %d\n", module, round)) {
+				t.Fatalf("round %d: %s's block lost: %q", round, module, got)
+			}
+		}
 	}
 }
 
