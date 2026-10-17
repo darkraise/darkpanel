@@ -76,6 +76,7 @@ type getOut struct {
 	Value  string `json:"value"`
 	Actor  string `json:"actor"`
 	HostID string `json:"hostId"`
+	Token  string `json:"token" secret:"true"`
 }
 
 type itemHandler struct{ h *fixHost }
@@ -155,7 +156,7 @@ type getHandler struct{ h *fixHost }
 func (g getHandler) Read(_ context.Context, env core.Env, in getIn) (getOut, error) {
 	g.h.mu.Lock()
 	defer g.h.mu.Unlock()
-	return getOut{Value: g.h.items[in.Name], Actor: env.Principal.Actor, HostID: env.HostID}, nil
+	return getOut{Value: g.h.items[in.Name], Actor: env.Principal.Actor, HostID: env.HostID, Token: "tok-" + in.Name}, nil
 }
 
 type fixModule struct{ host *fixHost }

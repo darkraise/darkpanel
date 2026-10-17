@@ -126,7 +126,9 @@ func (e *Engine) action(ref core.ActionRef) (core.ActionDef, error) {
 	return def, nil
 }
 
-// Read runs a read action. Reads are not journaled; they change nothing.
+// Read runs a read action and returns its output with secret fields redacted:
+// a secret output is returned only by the apply that created it (spec
+// section 5). Reads are not journaled; they change nothing.
 func (e *Engine) Read(ctx context.Context, p core.Principal, ref core.ActionRef, input json.RawMessage) (json.RawMessage, error) {
 	def, err := e.action(ref)
 	if err != nil {
@@ -138,7 +140,11 @@ func (e *Engine) Read(ctx context.Context, p core.Principal, ref core.ActionRef,
 	if err := e.cfg.Validator.ValidateInput(def, input); err != nil {
 		return nil, err
 	}
-	return def.Handler.Read(ctx, e.env(p), input)
+	out, err := def.Handler.Read(ctx, e.env(p), input)
+	if err != nil {
+		return nil, err
+	}
+	return e.cfg.Redact(def.OutputType, out), nil
 }
 
 // Plan validates input, runs the handler's Plan and stores the plan with its

@@ -43,8 +43,8 @@ func TestReadServesReadActionsOfItsSide(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := `{"value":"1","actor":"user:alice","hostId":"host-1"}`; string(out) != want {
-		t.Errorf("Read = %s, want %s", out, want)
+	if want := `{"actor":"user:alice","hostId":"host-1","token":"[redacted]","value":"1"}`; string(out) != want {
+		t.Errorf("Read = %s, want %s with the secret redacted", out, want)
 	}
 	cases := []struct {
 		name  string
