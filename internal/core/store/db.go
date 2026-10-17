@@ -41,8 +41,8 @@ type DB struct {
 // Open opens or creates the database at path. A new file is created with mode
 // 0600 before SQLite opens it, so the database and its WAL files are private.
 func Open(ctx context.Context, path string) (*DB, error) {
-	if strings.ContainsAny(path, "?#") {
-		return nil, fmt.Errorf("store: database path %q must not contain ? or #", path)
+	if strings.ContainsAny(path, "?#%") {
+		return nil, fmt.Errorf("store: database path %q must not contain ?, # or %%", path)
 	}
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // G304: the path comes from paths.Paths, never from a request
 	switch {
@@ -95,6 +95,14 @@ func (d *DB) Write(ctx context.Context, fn func(*sql.Tx) error) error {
 	if err != nil {
 		return fmt.Errorf("store: begin: %w", err)
 	}
+	// net/http recovers handler panics; without this rollback the only writer
+	// connection would stay inside the open transaction and block every Write.
+	defer func() {
+		if p := recover(); p != nil {
+			_ = tx.Rollback()
+			panic(p)
+		}
+	}()
 	if err := fn(tx); err != nil {
 		if rbErr := tx.Rollback(); rbErr != nil {
 			return errors.Join(err, fmt.Errorf("store: rollback: %w", rbErr))

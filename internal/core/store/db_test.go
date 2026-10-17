@@ -76,8 +76,25 @@ func TestWriteCommitsAndRollsBack(t *testing.T) {
 	}
 }
 
+func TestWriteRollsBackOnPanic(t *testing.T) {
+	db := openTemp(t)
+	var p any
+	func() {
+		defer func() { p = recover() }()
+		_ = db.Write(context.Background(), func(*sql.Tx) error { panic("boom") })
+	}()
+	if p == nil {
+		t.Fatal("Write swallowed the panic")
+	}
+	if n := db.Writer().Stats().InUse; n != 0 {
+		t.Errorf("writer connections in use after a panic = %d, want 0", n)
+	}
+}
+
 func TestOpenRefusesURICharacters(t *testing.T) {
-	if _, err := Open(context.Background(), filepath.Join(t.TempDir(), "a?b.db")); err == nil {
-		t.Fatal("Open accepted a path containing '?'")
+	for _, name := range []string{"a?b.db", "a#b.db", "a%41.db"} {
+		if _, err := Open(context.Background(), filepath.Join(t.TempDir(), name)); err == nil {
+			t.Errorf("Open accepted %q", name)
+		}
 	}
 }
