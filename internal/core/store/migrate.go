@@ -82,8 +82,17 @@ const createMigrationsTable = `CREATE TABLE IF NOT EXISTS core_migrations (
 // startup; the same in a module is reported in Result.Failed and that module's
 // remaining migrations are skipped. Recorded migrations numbered above the
 // highest embedded one are ignored, so an older binary runs on a newer schema.
+// Module sets named like the core or like each other are refused before
+// anything runs, because they would share core_migrations rows.
 func Migrate(ctx context.Context, db *DB, opts MigrateOptions, core MigrationSet, modules []MigrationSet) (Result, error) {
 	var res Result
+	seen := map[string]bool{core.Module: true}
+	for _, m := range modules {
+		if seen[m.Module] {
+			return res, fmt.Errorf("store: module set %q is named twice or takes the core's name", m.Module)
+		}
+		seen[m.Module] = true
+	}
 	if err := db.Write(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, createMigrationsTable)
 		return err

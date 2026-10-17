@@ -63,6 +63,30 @@ func TestMigrateFreshDatabase(t *testing.T) {
 	}
 }
 
+func TestMigrateRefusesClashingModuleNames(t *testing.T) {
+	alpha := MigrationSet{"alpha", sqlFS(map[string]string{"0001_init.sql": "CREATE TABLE alpha_items (id TEXT PRIMARY KEY);"})}
+	tests := []struct {
+		name string
+		mods []MigrationSet
+	}{
+		{"module named core", []MigrationSet{{"core", nil}}},
+		{"module named twice", []MigrationSet{alpha, alpha}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := openTemp(t)
+			core := MigrationSet{"core", sqlFS(map[string]string{"0001_core.sql": metaSQL})}
+			opts := migrateOpts(t, "v1", time.Date(2026, 10, 17, 1, 0, 0, 0, time.UTC))
+			if _, err := Migrate(context.Background(), db, opts, core, tt.mods); err == nil || !strings.Contains(err.Error(), "module set") {
+				t.Fatalf("Migrate error = %v, want one naming the module set", err)
+			}
+			if tableExists(t, db, "core_meta") {
+				t.Error("core migrated despite the clashing module sets")
+			}
+		})
+	}
+}
+
 func TestMigrateBacksUpOnlyWhenPending(t *testing.T) {
 	db := openTemp(t)
 	ctx := context.Background()
