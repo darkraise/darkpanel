@@ -172,6 +172,9 @@ func (r redactor) resolve(ref any) (any, bool) {
 // propertySchemas returns the schemas of an object's property key: its
 // properties entry and matching patternProperties, or else
 // additionalProperties when that is a schema object (JSON Schema 2020-12).
+// A patternProperties pattern Go cannot compile (an ECMAScript lookahead, for
+// example) might have matched key with a secret schema, so it leaves key
+// undescribed and redacted whole.
 func propertySchemas(leaves []map[string]any, key string) []any {
 	var out []any
 	for _, s := range leaves {
@@ -184,7 +187,11 @@ func propertySchemas(leaves []map[string]any, key string) []any {
 		}
 		if patterns, ok := s["patternProperties"].(map[string]any); ok {
 			for pattern, p := range patterns {
-				if re, err := regexp.Compile(pattern); err == nil && re.MatchString(key) {
+				re, err := regexp.Compile(pattern)
+				if err != nil {
+					return nil
+				}
+				if re.MatchString(key) {
 					out = append(out, p)
 					matched = true
 				}

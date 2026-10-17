@@ -141,6 +141,12 @@ func TestRedactJSON(t *testing.T) {
 			want:   `{"80":"web","x":"[redacted]"}`,
 		},
 		{
+			name:   "a pattern Go cannot compile redacts the property",
+			raw:    `{"a":"x"}`,
+			schema: `{"type":"object","patternProperties":{"^(?!b)":{"type":"string","x-secret":true}},"additionalProperties":{"type":"string"}}`,
+			want:   `{"a":"[redacted]"}`,
+		},
+		{
 			name:   "numbers keep their text and HTML is not escaped",
 			raw:    `{"big":12345678901234567890,"dec":1.50,"html":"<a&b>"}`,
 			schema: `{"type":"object","properties":{"big":{"type":"integer"},"dec":{"type":"number"},"html":{"type":"string"}}}`,
