@@ -8,9 +8,24 @@ linters:
   default: standard
   enable:
     - errorlint
+    - forbidigo
     - gosec
     - misspell
     - revive
+  settings:
+    forbidigo:
+      analyze-types: true
+      forbid:
+        # Every API refusal goes through writeProblem, which answers RFC 9457
+        # problem details with a registered code; http.Error answers text.
+        - pattern: ^http\.Error$
+          pkg: ^net/http$
+          msg: answer refusals with writeProblem
+  exclusions:
+    rules:
+      - path-except: ^internal/controller/api/
+        linters:
+          - forbidigo
 
 formatters:
   enable:
