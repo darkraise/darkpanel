@@ -271,7 +271,7 @@ func (e *Engine) run(ctx context.Context, p core.Principal, it *intent) (core.Ch
 	}
 	v, err := e.transition(ctx, it.id, transition{
 		from: core.StateApplying, to: to, output: e.cfg.Redact(it.def.OutputType, out),
-		release: !revertible, phase: phaseApply, result: resultOK, actor: p.Actor,
+		release: !revertible, phase: phaseApply, result: resultOK, actor: p.Actor, source: p.Source,
 	})
 	if err != nil {
 		return v, err
@@ -293,7 +293,7 @@ func (e *Engine) run(ctx context.Context, p core.Principal, it *intent) (core.Ch
 func (e *Engine) failApply(ctx context.Context, p core.Principal, it *intent, cause error) (core.ChangeView, error) {
 	tr := transition{
 		from: core.StateApplying, to: core.StateFailed, err: e.changeError(it.def.Ref(), cause),
-		release: true, phase: phaseApply, result: resultError, actor: p.Actor,
+		release: true, phase: phaseApply, result: resultError, actor: p.Actor, source: p.Source,
 	}
 	if it.def.Spec.Class == core.ClassRevertible {
 		if err := e.runRevert(ctx, p, it.id); err != nil {
@@ -353,6 +353,7 @@ type transition struct {
 	phase    string            // journal phase; empty journals nothing
 	result   string
 	actor    string
+	source   string // the acting principal's Source; empty for system actors
 }
 
 // transition commits a state change together with its journal entry in one
@@ -405,7 +406,7 @@ func (e *Engine) transition(ctx context.Context, changeID string, tr transition)
 		}
 		entry := core.JournalEntry{
 			At: now, Actor: tr.actor, Action: v.Action, Version: v.Version, Phase: tr.phase,
-			ChangeID: changeID, Input: json.RawMessage(input), Result: tr.result,
+			ChangeID: changeID, Input: json.RawMessage(input), Result: tr.result, Source: tr.source,
 		}
 		if tr.err != nil {
 			entry.ErrorCode = tr.err.Code

@@ -21,7 +21,7 @@ var timerPrincipal = core.Principal{Actor: ActorRevertTimer, Scope: core.ScopeAd
 func (e *Engine) Confirm(ctx context.Context, p core.Principal, changeID string) (core.ChangeView, error) {
 	v, err := e.transition(ctx, changeID, transition{
 		from: core.StatePending, to: core.StateConfirmed, release: true,
-		phase: phaseConfirm, result: resultOK, actor: p.Actor,
+		phase: phaseConfirm, result: resultOK, actor: p.Actor, source: p.Source,
 	})
 	if err != nil {
 		return v, err
@@ -46,7 +46,7 @@ func (e *Engine) revertPending(ctx context.Context, p core.Principal, changeID s
 	e.stopTimer(changeID)
 	tr := transition{
 		from: core.StateApplying, to: core.StateReverted, release: true,
-		phase: phaseRevert, result: resultOK, actor: p.Actor,
+		phase: phaseRevert, result: resultOK, actor: p.Actor, source: p.Source,
 	}
 	if err := e.runRevert(ctx, p, changeID); err != nil {
 		e.cfg.Base.Log.Error("lifecycle: revert", "change", changeID, "error", err)
