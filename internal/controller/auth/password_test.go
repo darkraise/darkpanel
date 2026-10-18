@@ -175,12 +175,27 @@ func TestHeldVariantsTakeNoSlot(t *testing.T) {
 		calls.Add(1)
 		return inner(password, salt, p)
 	}
-	if ok, err := h.verifyHeld(phc, "a long password"); err != nil || !ok {
-		t.Errorf("verifyHeld = %v, %v; want true", ok, err)
+	held := func(name string, f func() error) {
+		t.Helper()
+		done := make(chan error, 1)
+		go func() { done <- f() }()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Errorf("%s = %v", name, err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s waited for a slot; want it to run on the caller's", name)
+		}
 	}
-	if err := h.verifyDummyHeld("a long password"); err != nil {
-		t.Errorf("verifyDummyHeld = %v", err)
-	}
+	held("verifyHeld", func() error {
+		ok, err := h.verifyHeld(phc, "a long password")
+		if err == nil && !ok {
+			err = errors.New("the password did not match")
+		}
+		return err
+	})
+	held("verifyDummyHeld", func() error { return h.verifyDummyHeld("a long password") })
 	if calls.Load() != 2 {
 		t.Errorf("held verifications ran %d hashes, want 2", calls.Load())
 	}
@@ -230,8 +245,12 @@ func TestCheckPassword(t *testing.T) {
 		}
 		if err != nil {
 			wantField(t, err, "/password")
-			if strings.Contains(err.Error(), tt.password) && tt.password != "" {
-				t.Errorf("error %q quotes the password", err)
+			var e *errcode.Error
+			errors.As(err, &e)
+			for _, s := range []string{err.Error(), e.Fields[0].Message} {
+				if tt.password != "" && strings.Contains(s, tt.password) {
+					t.Errorf("error text %q quotes the password", s)
+				}
 			}
 		}
 	}
