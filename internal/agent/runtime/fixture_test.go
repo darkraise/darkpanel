@@ -1,0 +1,279 @@
+package runtime
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"log/slog"
+	"path/filepath"
+	"sync"
+	"testing"
+	"testing/fstest"
+	"time"
+
+	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/coretest"
+	"github.com/darkraise/darkpanel/internal/core/store"
+	"github.com/darkraise/darkpanel/internal/platform"
+)
+
+// The fixture modules are registered only in these tests:
+//   - kv keeps items in its own agent table kv_items, with a read, a
+//     revertible set and a resource;
+//   - bad has a migration that fails, so it is never usable;
+//   - flaky fails its preflight check until the host is ready;
+//   - boom panics in its preflight check and in its resource.
+
+var t0 = time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+
+const testHost = "h1"
+
+var alice = core.Principal{Actor: "user:alice", UserID: "alice", Scope: core.ScopeOperate, Source: "192.0.2.7"}
+
+// fixHost is what the fixture modules' checks look at.
+type fixHost struct {
+	mu        sync.Mutex
+	ready     bool // flaky's preflight passes
+	badChecks int  // runs of bad's preflight check
+}
+
+func (h *fixHost) isReady() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.ready
+}
+
+type itemIn struct {
+	Name  string `json:"name"`
+	Value string `json:"value,omitempty"`
+}
+
+type itemOut struct {
+	Value    string `json:"value"`
+	Actor    string `json:"actor"`
+	HostID   string `json:"hostId"`
+	HasFiles bool   `json:"hasFiles"`
+	HasExec  bool   `json:"hasExec"`
+}
+
+type status struct {
+	Count int    `json:"count"`
+	Token string `json:"token" secret:"true"`
+}
+
+func readItem(ctx context.Context, env core.Env, name string) (string, bool, error) {
+	var v string
+	err := env.DB.Read().QueryRowContext(ctx, "SELECT value FROM kv_items WHERE name = ?", name).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	return v, err == nil, err
+}
+
+type getItem struct{}
+
+func (getItem) Read(ctx context.Context, env core.Env, in itemIn) (itemOut, error) {
+	v, _, err := readItem(ctx, env, in.Name)
+	return itemOut{Value: v, Actor: env.Principal.Actor, HostID: env.HostID,
+		HasFiles: env.Files != nil, HasExec: env.Exec != nil}, err
+}
+
+type itemSnap struct {
+	Name, Value string
+	Present     bool
+}
+
+type setItem struct{}
+
+func (setItem) Plan(ctx context.Context, env core.Env, in itemIn) (core.PlanOutcome, error) {
+	v, _, err := readItem(ctx, env, in.Name)
+	return core.PlanOutcome{Diff: []core.DiffLine{{Op: "+", Text: in.Name + "=" + in.Value}}, StateHash: v}, err
+}
+
+func (setItem) Apply(ctx context.Context, env core.Env, in itemIn) (itemOut, error) {
+	return itemOut{Value: in.Value}, env.DB.Write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `INSERT INTO kv_items (name, value) VALUES (?, ?)
+			ON CONFLICT (name) DO UPDATE SET value = excluded.value`, in.Name, in.Value)
+		return err
+	})
+}
+
+func (setItem) Verify(ctx context.Context, env core.Env, in itemIn, _ itemOut) error {
+	v, _, err := readItem(ctx, env, in.Name)
+	if err == nil && v != in.Value {
+		err = fmt.Errorf("item %s is %q", in.Name, v)
+	}
+	return err
+}
+
+func (setItem) Snapshot(ctx context.Context, env core.Env, in itemIn) ([]byte, error) {
+	v, ok, err := readItem(ctx, env, in.Name)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(itemSnap{Name: in.Name, Value: v, Present: ok})
+}
+
+func (setItem) Revert(ctx context.Context, env core.Env, snapshot []byte) error {
+	var s itemSnap
+	if err := json.Unmarshal(snapshot, &s); err != nil {
+		return err
+	}
+	return env.DB.Write(ctx, func(tx *sql.Tx) error {
+		if !s.Present {
+			_, err := tx.ExecContext(ctx, "DELETE FROM kv_items WHERE name = ?", s.Name)
+			return err
+		}
+		_, err := tx.ExecContext(ctx, "UPDATE kv_items SET value = ? WHERE name = ?", s.Value, s.Name)
+		return err
+	})
+}
+
+var (
+	refGet = core.ActionRef{Name: "kv.item.get", Version: 1}
+	refSet = core.ActionRef{Name: "kv.item.set", Version: 1}
+)
+
+type kvModule struct{}
+
+func (kvModule) Manifest() core.Manifest {
+	return core.Manifest{
+		ID: "kv", Version: 1, DefaultEnabled: true,
+		Actions: []core.ActionDef{
+			core.DefineRead(core.ActionSpec{Name: refGet.Name, Version: 1, Side: core.SideAgent}, getItem{}),
+			core.DefineRevertible(core.ActionSpec{Name: refSet.Name, Version: 1, Side: core.SideAgent, LockKeys: []string{"kv"}}, setItem{}),
+		},
+		Resources: []core.ResourceDef{core.DefineResource("kv.status", func(ctx context.Context, env core.Env) (status, error) {
+			var n int
+			err := env.DB.Read().QueryRowContext(ctx, "SELECT count(*) FROM kv_items").Scan(&n)
+			return status{Count: n, Token: "kv-secret-token"}, err
+		})},
+		Migrations: map[core.Side]fs.FS{core.SideAgent: fstest.MapFS{
+			"0001_kv.sql": {Data: []byte("CREATE TABLE kv_items (name TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;")},
+		}},
+	}
+}
+
+// echo is the read handler of the modules that only need an action.
+type echo struct{}
+
+func (echo) Read(_ context.Context, _ core.Env, in itemIn) (itemOut, error) {
+	return itemOut{Value: in.Name}, nil
+}
+
+type badModule struct{ host *fixHost }
+
+func (m badModule) Manifest() core.Manifest {
+	return core.Manifest{
+		ID: "bad", Version: 1, DefaultEnabled: true,
+		Actions: []core.ActionDef{core.DefineRead(core.ActionSpec{Name: "bad.item.get", Version: 1, Side: core.SideAgent}, echo{})},
+		Preflight: []core.PreflightCheck{{ID: "counted", Run: func(context.Context, core.Env) error {
+			m.host.mu.Lock()
+			defer m.host.mu.Unlock()
+			m.host.badChecks++
+			return nil
+		}}},
+		Migrations: map[core.Side]fs.FS{core.SideAgent: fstest.MapFS{
+			"0001_bad.sql": {Data: []byte("CREATE TABLE bad_items (")},
+		}},
+	}
+}
+
+type flakyModule struct{ host *fixHost }
+
+func (m flakyModule) Manifest() core.Manifest {
+	return core.Manifest{
+		ID: "flaky", Version: 2,
+		Actions: []core.ActionDef{core.DefineRead(core.ActionSpec{Name: "flaky.item.get", Version: 1, Side: core.SideAgent}, echo{})},
+		Preflight: []core.PreflightCheck{{ID: "ready", Run: func(context.Context, core.Env) error {
+			if !m.host.isReady() {
+				return errors.New("flaky: the host is not ready")
+			}
+			return nil
+		}}},
+	}
+}
+
+type boomModule struct{}
+
+func (boomModule) Manifest() core.Manifest {
+	return core.Manifest{
+		ID: "boom", Version: 1,
+		Resources: []core.ResourceDef{core.DefineResource("boom.status", func(context.Context, core.Env) (status, error) {
+			panic("boom resource")
+		})},
+		Preflight: []core.PreflightCheck{{ID: "explode", Run: func(context.Context, core.Env) error {
+			panic("boom preflight")
+		}}},
+	}
+}
+
+// fixture is a runtime over a temporary agent database.
+type fixture struct {
+	t     *testing.T
+	host  *fixHost
+	clock *coretest.FakeClock
+	reg   *core.Registry
+	dir   string
+	db    *store.DB
+	rt    *Runtime
+}
+
+func newFixture(t *testing.T) *fixture {
+	t.Helper()
+	h := &fixHost{}
+	reg, err := core.NewRegistry(kvModule{}, badModule{h}, flakyModule{h}, boomModule{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &fixture{t: t, host: h, clock: coretest.NewFakeClock(t0), reg: reg, dir: t.TempDir()}
+	f.open()
+	return f
+}
+
+func (f *fixture) config() Config {
+	return Config{
+		DB: f.db, Sealer: coretest.Sealer{}, Clock: f.clock, Log: slog.New(slog.DiscardHandler), Registry: f.reg,
+		HostID: testHost, BinaryVersion: "test", BackupDir: filepath.Join(f.dir, "backups"),
+		Exec: platform.NewRunner(nil), FilesTestMode: true,
+	}
+}
+
+// open opens the database and a runtime over it, as a starting agent does.
+func (f *fixture) open() {
+	f.t.Helper()
+	db, err := store.Open(context.Background(), filepath.Join(f.dir, "agent.db"))
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	f.db = db
+	f.t.Cleanup(func() { _ = db.Close() })
+	rt, err := Open(context.Background(), f.config())
+	if err != nil {
+		f.t.Fatalf("Open: %v", err)
+	}
+	f.rt = rt
+	f.t.Cleanup(rt.Close)
+}
+
+// restart closes the runtime and the database and opens both again.
+func (f *fixture) restart() {
+	f.t.Helper()
+	f.rt.Close()
+	if err := f.db.Close(); err != nil {
+		f.t.Fatal(err)
+	}
+	f.open()
+}
+
+func (f *fixture) count(query string, args ...any) int {
+	f.t.Helper()
+	var n int
+	if err := f.db.Read().QueryRow(query, args...).Scan(&n); err != nil {
+		f.t.Fatal(err)
+	}
+	return n
+}
