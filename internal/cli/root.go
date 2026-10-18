@@ -91,6 +91,7 @@ func NewRoot(opts Options) (*cobra.Command, error) {
 			group(root, e.Path[:len(e.Path)-1]).AddCommand(leaf)
 		}
 	}
+	root.AddCommand(a.changeCommand())
 	markRuns(root)
 	return root, nil
 }
