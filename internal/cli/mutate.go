@@ -192,11 +192,14 @@ func printPlan(w io.Writer, p planWire) {
 // printChange writes a change's state, how to confirm a pending one, and
 // its output with the note on secret outputs.
 func printChange(w io.Writer, ch changeWire, secrets []string) error {
-	_, _ = fmt.Fprintf(w, "Change %s: %s\n", sanitize(ch.ID), sanitize(ch.State))
+	if _, err := fmt.Fprintf(w, "Change %s: %s\n", sanitize(ch.ID), sanitize(ch.State)); err != nil {
+		return err
+	}
 	if ch.State == core.StatePending && ch.RevertDeadline != nil {
-		_, _ = fmt.Fprintf(w, "Confirm it before %s with: darkpanel change confirm %s\n",
-			ch.RevertDeadline.UTC().Format(time.RFC3339), sanitize(ch.ID))
-		_, _ = fmt.Fprintln(w, "Unless confirmed by then, it is reverted.")
+		if _, err := fmt.Fprintf(w, "Confirm it before %s with: darkpanel change confirm %s\nUnless confirmed by then, it is reverted.\n",
+			ch.RevertDeadline.UTC().Format(time.RFC3339), sanitize(ch.ID)); err != nil {
+			return err
+		}
 	}
 	if len(ch.Output) == 0 || string(ch.Output) == "null" {
 		return nil
