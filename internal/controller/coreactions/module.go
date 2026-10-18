@@ -50,6 +50,7 @@ func (m module) Manifest() core.Manifest {
 		m.moduleActions(),
 		m.tokenActions(),
 		m.auditActions(),
+		m.userActions(),
 	} {
 		actions = append(actions, group...)
 	}
