@@ -236,7 +236,7 @@ func runUntilFailure(t *testing.T, opts Options) error {
 		return err
 	case <-time.After(30 * time.Second):
 		cancel()
-		<-done
+		t.Logf("Run after cancel: %v", <-done)
 		t.Fatal("Run did not return after a server stopped serving")
 		return nil
 	}

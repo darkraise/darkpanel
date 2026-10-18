@@ -40,7 +40,7 @@ func TestHungServe(t *testing.T) {
 func TestSecondInterruptKillsServe(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	child := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestHungServe$", "-test.count=1")
+	child := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestHungServe$", "-test.count=1") //nolint:gosec // G204: the test binary runs itself
 	child.Env = append(os.Environ(), hungServeEnv+"=1", "XDG_STATE_HOME="+t.TempDir(), "XDG_RUNTIME_DIR=")
 	stdout, err := child.StdoutPipe()
 	if err != nil {
