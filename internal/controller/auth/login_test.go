@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -23,12 +24,25 @@ func code(t *testing.T, secret string, clock *coretest.FakeClock) string {
 	return c
 }
 
-// wrongCode returns a six-digit code that is not right.
-func wrongCode(right string) string {
-	if right == "000000" {
-		return "111111"
+// wrongCode returns a six-digit code that matches none of the steps
+// matchTOTP accepts for secret at the clock's time.
+func wrongCode(t *testing.T, secret string, clock *coretest.FakeClock) string {
+	t.Helper()
+	var valid []string
+	for _, step := range []time.Duration{-1, 0, 1} {
+		c, err := TOTPCode(secret, clock.Now().Add(step*TOTPPeriod))
+		if err != nil {
+			t.Fatal(err)
+		}
+		valid = append(valid, c)
 	}
-	return "000000"
+	for d := '0'; d <= '9'; d++ {
+		if c := strings.Repeat(string(d), totpDigits); !slices.Contains(valid, c) {
+			return c
+		}
+	}
+	t.Fatal("no wrong code found")
+	return ""
 }
 
 // countHashes makes s count the argon2id computations it runs.
@@ -93,7 +107,7 @@ func TestLoginFailuresAreIdentical(t *testing.T) {
 	}{
 		{"unknown user", LoginRequest{Username: "nobody", Password: testPassword, Code: right}, ActorAnonymous},
 		{"wrong password", LoginRequest{Username: "alice", Password: "wrong horse battery", Code: right}, "user:" + alice.ID},
-		{"wrong code", LoginRequest{Username: "alice", Password: testPassword, Code: wrongCode(right)}, "user:" + alice.ID},
+		{"wrong code", LoginRequest{Username: "alice", Password: testPassword, Code: wrongCode(t, secret, clock)}, "user:" + alice.ID},
 		{"pending user", LoginRequest{Username: "bob", Password: testPassword, Code: code(t, bobSecret, clock)}, "user:" + bob.ID},
 	}
 	var first *errcode.Error

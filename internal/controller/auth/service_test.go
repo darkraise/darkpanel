@@ -172,11 +172,7 @@ func TestActivateUser(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, _ := TOTPCode(secret, clock.Now())
-	wrong := "000000"
-	if code == wrong {
-		wrong = "111111"
-	}
-	_, err = s.ActivateUser(ctx, "alice", wrong)
+	_, err = s.ActivateUser(ctx, "alice", wrongCode(t, secret, clock))
 	wantField(t, err, "/code")
 	if _, err := s.ActivateUser(ctx, "nobody", code); err == nil {
 		t.Error("activated an unknown user")
