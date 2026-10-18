@@ -93,6 +93,8 @@ type Server struct {
 	agentSealer      *secret.Sealer
 	localHostID      string
 
+	services
+
 	mu       sync.Mutex // serialises Shutdown
 	closers  []closer
 	shutdown bool
@@ -112,7 +114,7 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 	if s.log == nil {
 		s.log = slog.New(slog.DiscardHandler)
 	}
-	for _, step := range []func(context.Context) error{s.openStorage} {
+	for _, step := range []func(context.Context) error{s.openStorage, s.startServices} {
 		if err := step(ctx); err != nil {
 			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), ShutdownTimeout)
 			defer cancel()
