@@ -44,7 +44,7 @@ func (d *Dispatcher) owner(ctx context.Context, changeID string) (string, core.A
 }
 
 // find asks every host Hosts knows for changeID and indexes the first that
-// answers with a view of its own host. A host's change.not_found means it
+// answers with a view of that change on its own host. A host's change.not_found means it
 // does not hold the change; any other error fails the lookup.
 func (d *Dispatcher) find(ctx context.Context, changeID string) (string, core.AgentClient, error) {
 	for _, hostID := range d.cfg.Hosts.ids() {
@@ -58,7 +58,7 @@ func (d *Dispatcher) find(ctx context.Context, changeID string) (string, core.Ag
 			continue
 		case err != nil:
 			return "", nil, fmt.Errorf("dispatch: find change %s on host %s: %w", changeID, hostID, err)
-		case v.HostID != hostID:
+		case v.HostID != hostID || v.ID != changeID:
 			continue
 		}
 		d.index(ctx, hostID, v)
@@ -79,8 +79,18 @@ func (h *Hosts) ids() []string {
 	return out
 }
 
-// checkHost refuses a view whose host is not the one the index names, so the
-// caller always authorizes and acts on the same change (register row 69,
+// checkChange refuses a view of another change than changeID, or of another
+// host (checkHost): the API authorizes from the view Change returns and then
+// acts on the id it asked for (register row 69, obligation 2).
+func checkChange(v core.ChangeView, hostID, changeID string) (core.ChangeView, error) {
+	if v.ID != changeID {
+		return core.ChangeView{}, fmt.Errorf("dispatch: change %s of host %s answered as change %s", changeID, hostID, v.ID)
+	}
+	return checkHost(v, hostID)
+}
+
+// checkHost refuses a view whose host is not the one asked, so the caller
+// always authorizes and acts on the same change (register row 69,
 // obligation 2).
 func checkHost(v core.ChangeView, hostID string) (core.ChangeView, error) {
 	if v.HostID != hostID {
@@ -105,7 +115,7 @@ func (d *Dispatcher) Change(ctx context.Context, _ core.Principal, changeID stri
 	if v, err = c.Change(ctx, changeID); err != nil {
 		return v, err
 	}
-	return checkHost(v, hostID)
+	return checkChange(v, hostID, changeID)
 }
 
 // Confirm confirms the change Change returns for changeID, then ingests its
@@ -142,7 +152,7 @@ func (d *Dispatcher) settle(ctx context.Context, changeID string, onController f
 		return v, err
 	}
 	d.ingest(ctx, hostID)
-	return checkHost(v, hostID)
+	return checkChange(v, hostID, changeID)
 }
 
 // Changes lists changes newest first and pages exactly like
@@ -179,6 +189,14 @@ func (d *Dispatcher) Changes(ctx context.Context, _ core.Principal, f core.Chang
 		vs, err := c.Changes(ctx, hf)
 		if err != nil {
 			return nil, err
+		}
+		for _, v := range vs {
+			if _, err := checkHost(v, hostID); err != nil {
+				return nil, err
+			}
+			if f.Before != "" && v.ID >= f.Before {
+				return nil, fmt.Errorf("dispatch: host %s listed change %s at or above cursor %s", hostID, v.ID, f.Before)
+			}
 		}
 		all = append(all, vs...)
 	}

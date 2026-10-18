@@ -271,3 +271,53 @@ func TestChangesFailWhenAHostCannotBeListed(t *testing.T) {
 		t.Errorf("Changes of h1 = %+v, %v; want its one change", vs, err)
 	}
 }
+
+func TestChangesRefuseAHostListingOutsideTheRequest(t *testing.T) {
+	h, d := newDispatcher(t)
+	ctx := context.Background()
+	var listed []core.ChangeView
+	h.hosts.Add(testHost, &coretest.FakeAgent{
+		HelloFunc:   h.rt.Hello,
+		ChangesFunc: func(context.Context, core.ChangeFilter) ([]core.ChangeView, error) { return listed, nil },
+	})
+	for _, tc := range []struct {
+		name string
+		v    core.ChangeView
+		f    core.ChangeFilter
+		want string
+	}{
+		{"another host", core.ChangeView{ID: "01A", HostID: "h2"}, core.ChangeFilter{HostID: testHost}, "answered for host h2"},
+		{"at the cursor", core.ChangeView{ID: "01B", HostID: testHost}, core.ChangeFilter{Before: "01B"}, "at or above cursor 01B"},
+	} {
+		listed = []core.ChangeView{tc.v}
+		_, err := d.Changes(ctx, alice, tc.f)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: Changes = %v, want an error containing %q", tc.name, err, tc.want)
+		}
+	}
+}
+
+func TestChangeRefusesAViewOfAnotherChange(t *testing.T) {
+	h, d := newDispatcher(t)
+	ctx := context.Background()
+	v := h.applyAgent(d, "a", core.ApplyOptions{})
+	h.hosts.Add(testHost, &coretest.FakeAgent{
+		HelloFunc: h.rt.Hello,
+		ChangeFunc: func(context.Context, string) (core.ChangeView, error) {
+			return core.ChangeView{ID: "01OTHER", HostID: testHost, Action: refSet.Name, Version: 1}, nil
+		},
+	})
+	_, err := d.Change(ctx, alice, v.ID)
+	var coded *errcode.Error
+	if err == nil || errors.As(err, &coded) || !strings.Contains(err.Error(), "answered as change 01OTHER") {
+		t.Errorf("Change of an indexed change = %v, want a plain error naming the mismatch", err)
+	}
+	if _, err := h.db.Writer().Exec("DELETE FROM core_change_index"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = d.Change(ctx, alice, v.ID)
+	_ = wantCode(t, err, errcode.ChangeNotFound)
+	if n := h.count("SELECT count(*) FROM core_change_index"); n != 0 {
+		t.Errorf("index rows = %d, want none for a view of another change", n)
+	}
+}
