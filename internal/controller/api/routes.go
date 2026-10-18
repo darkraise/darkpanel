@@ -37,6 +37,9 @@ func (s *Server) networkRoutes() []route {
 		{method: http.MethodGet, path: "/api/v1/changes/{id}", summary: "Show a change", handler: s.handleChange},
 		{method: http.MethodPost, path: "/api/v1/changes/{id}/confirm", summary: "Confirm a pending change", handler: s.changeOp(true)},
 		{method: http.MethodPost, path: "/api/v1/changes/{id}/revert", summary: "Revert a pending change", handler: s.changeOp(false)},
+		{method: http.MethodGet, path: healthzPath, summary: "Health; with credentials also version, commit and schema version",
+			public: true, handler: s.handleHealthz},
+		{method: http.MethodGet, path: "/api/v1/openapi.json", summary: "This OpenAPI document", handler: s.handleOpenAPI},
 	}
 }
 
