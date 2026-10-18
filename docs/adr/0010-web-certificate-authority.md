@@ -10,9 +10,11 @@ Proposed
 
 ADR 0006 has the Tailscale web listener present a certificate from the
 internal authority when `tailscale cert` is not available, and ADR 0003 makes
-that authority Ed25519. Browsers do not accept Ed25519 keys in X.509
-certificate chains, so the two decisions together would make the Tailscale
-web listener unusable in a browser.
+that authority Ed25519. The CA/Browser Forum Baseline Requirements (section
+6.1.5) admit only RSA and ECDSA P-256, P-384 and P-521 keys in publicly
+trusted TLS certificates, so browsers cannot be relied on to verify an Ed25519
+chain, and the two decisions together could leave the Tailscale web listener
+unusable in a browser.
 
 M1 serves the web UI over HTTPS on the Tailscale addresses before the agent
 authority exists (M2) and before `tailscale cert` can be obtained through the
@@ -40,7 +42,7 @@ agent (M5). Accepted ADRs are not edited, so the change is recorded here.
 ## Alternatives considered
 
 - Ed25519 web certificates from the ADR 0003 authority: rejected; browsers
-  reject them.
+  are not required to accept them.
 - One ECDSA authority for web and agent certificates: rejected. It would
   reopen ADR 0003, and a root that operators install in their browsers would
   also vouch for agents.
