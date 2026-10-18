@@ -3,8 +3,10 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -369,9 +371,9 @@ func TestChangeOpsAuthorizeTheChangesAction(t *testing.T) {
 			{"unregistered agent action with operate", "cua", operate, false, 200, ""},
 			{"controller change with operate", "c1", operate, false, 403, errcode.Forbidden},
 			{"controller change with admin", "c1", admin, false, 200, ""},
-			{"break-glass change with admin", "cbg", admin, false, 403, errcode.Forbidden},
-			{"break-glass change with a session", "cbg", "", true, 403, errcode.Forbidden},
-			{"unregistered controller action with admin", "cunk", admin, false, 403, errcode.Forbidden},
+			{"break-glass change with admin", "cbg", admin, false, 404, errcode.ChangeNotFound},
+			{"break-glass change with a session", "cbg", "", true, 404, errcode.ChangeNotFound},
+			{"unregistered controller action with admin", "cunk", admin, false, 404, errcode.ChangeNotFound},
 			{"missing change", "missing", admin, false, 404, errcode.ChangeNotFound},
 		} {
 			last = call{}
@@ -401,4 +403,159 @@ func TestChangeOpsAuthorizeTheChangesAction(t *testing.T) {
 	}
 	noCredentials(t, h, recs, map[string]string{"session id": session, "CSRF token": csrf,
 		"operate token secret": tokenSecret(operate), "admin token secret": tokenSecret(admin)})
+}
+
+// changesOf returns one change per letter of kinds, newest first, with ids
+// that sort like ULIDs: v an agent-side demo.item.add change, a an agent-side
+// change of an unregistered action, b a change of the break-glass
+// demo.secret.reset, u a controller-side change of an unregistered action.
+func changesOf(kinds string) []core.ChangeView {
+	out := make([]core.ChangeView, 0, len(kinds))
+	for i, k := range kinds {
+		v := core.ChangeView{ID: fmt.Sprintf("c%05d", len(kinds)-i), HostID: "h1", Action: "demo.item.add", Version: 1,
+			Class: core.ClassRevertible, State: core.StateCompleted, CreatedAt: changeTime, UpdatedAt: changeTime}
+		switch k {
+		case 'a':
+			v.Action = "other.item.set"
+		case 'b':
+			v.HostID, v.Action, v.Class = "", "demo.secret.reset", core.ClassIrreversible
+			v.Output = json.RawMessage(`{"secret":"[redacted]"}`)
+		case 'u':
+			v.HostID, v.Action, v.Class = "", "demo.gone.away", core.ClassCompensable
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+// changeStore answers Dispatcher.Changes from views as the engine does
+// (newest first, before the cursor, at most the limit) and records each
+// filter.
+func changeStore(views []core.ChangeView, filters *[]core.ChangeFilter) func(context.Context, core.Principal, core.ChangeFilter) ([]core.ChangeView, error) {
+	return func(_ context.Context, _ core.Principal, f core.ChangeFilter) ([]core.ChangeView, error) {
+		*filters = append(*filters, f)
+		out := []core.ChangeView{}
+		for _, v := range views {
+			if f.Before != "" && v.ID >= f.Before {
+				continue
+			}
+			if len(out) == f.Limit {
+				break
+			}
+			out = append(out, v)
+		}
+		return out, nil
+	}
+}
+
+func listedIDs(t *testing.T, rec *httptest.ResponseRecorder) []string {
+	t.Helper()
+	var body struct {
+		Changes []struct {
+			ID string `json:"id"`
+		} `json:"changes"`
+	}
+	if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &body) != nil {
+		t.Fatalf("list: %d %s", rec.Code, rec.Body)
+	}
+	ids := []string{}
+	for _, c := range body.Changes {
+		ids = append(ids, c.ID)
+	}
+	return ids
+}
+
+func TestChangeListHidesBreakGlass(t *testing.T) {
+	h := newHarness(t)
+	var last call
+	h.stubDispatcher(&last)
+	token := h.token(core.ScopeRead)
+	for _, tc := range []struct {
+		name, query, kinds string
+		want               []string
+		filters            []core.ChangeFilter
+	}{
+		{"refilled page", "?limit=3&state=completed&hostId=h1", "vbuavbv", []string{"c00007", "c00004", "c00003"},
+			[]core.ChangeFilter{{State: "completed", HostID: "h1", Limit: 3},
+				{State: "completed", HostID: "h1", Before: "c00005", Limit: maxChangeLimit}}},
+		{"nothing hidden", "?limit=2", "vvvb", []string{"c00004", "c00003"},
+			[]core.ChangeFilter{{Limit: 2}}},
+		{"end of the changes", "?limit=3", "bvbu", []string{"c00003"},
+			[]core.ChangeFilter{{Limit: 3}, {Before: "c00002", Limit: maxChangeLimit}}},
+		{"default limit", "", "v", []string{"c00001"},
+			[]core.ChangeFilter{{Limit: defaultChangeLimit}}},
+	} {
+		var filters []core.ChangeFilter
+		h.disp.ChangesFunc = changeStore(changesOf(tc.kinds), &filters)
+		rec := h.serve(withToken(request("GET", "/api/v1/changes"+tc.query, ""), token))
+		if got := listedIDs(t, rec); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: listed %v, want %v", tc.name, got, tc.want)
+		}
+		if !slices.Equal(filters, tc.filters) {
+			t.Errorf("%s: fetched %+v, want %+v", tc.name, filters, tc.filters)
+		}
+		if strings.Contains(rec.Body.String(), "demo.secret.reset") || strings.Contains(rec.Body.String(), "demo.gone.away") {
+			t.Errorf("%s: a hidden change is listed: %s", tc.name, rec.Body)
+		}
+	}
+
+	// Further fetches are bounded: a run of hidden changes longer than they
+	// cover ends the page short rather than scanning without end.
+	var filters []core.ChangeFilter
+	h.disp.ChangesFunc = changeStore(changesOf(strings.Repeat("b", 1+maxExtraChangeFetches*maxChangeLimit)+"v"), &filters)
+	rec := h.serve(withToken(request("GET", "/api/v1/changes?limit=1", ""), token))
+	if got := listedIDs(t, rec); len(got) != 0 || len(filters) != 1+maxExtraChangeFetches {
+		t.Errorf("bounded refill: listed %v after %d fetches, want none after %d", got, len(filters), 1+maxExtraChangeFetches)
+	}
+
+	h.disp.ChangesFunc = func(context.Context, core.Principal, core.ChangeFilter) ([]core.ChangeView, error) {
+		return nil, errcode.New(errcode.InvalidInput, "bad cursor")
+	}
+	decodeProblem(t, h.serve(withToken(request("GET", "/api/v1/changes", ""), token)), 422, errcode.InvalidInput)
+}
+
+func TestChangeShowHidesBreakGlass(t *testing.T) {
+	h := newHarness(t)
+	var last call
+	h.stubDispatcher(&last)
+	token := h.token(core.ScopeAdmin)
+	for id, visible := range map[string]bool{"c1": true, "c7": true, "cua": true, "cbg": false, "cunk": false} {
+		rec := h.serve(withToken(request("GET", "/api/v1/changes/"+id, ""), token))
+		if visible {
+			if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"id":"`+id+`"`) {
+				t.Errorf("%s: %d %s, want the change", id, rec.Code, rec.Body)
+			}
+			continue
+		}
+		p := decodeProblem(t, rec, 404, errcode.ChangeNotFound)
+		if p.Detail != "no change "+id || strings.Contains(rec.Body.String(), "demo.") {
+			t.Errorf("%s: problem %+v, want the not-found answer of a missing change", id, p)
+		}
+	}
+	p := decodeProblem(t, h.serve(withToken(request("GET", "/api/v1/changes/missing", ""), token)), 404, errcode.ChangeNotFound)
+	if p.Detail != "no change missing" {
+		t.Errorf("missing change: detail %q", p.Detail)
+	}
+}
+
+// TestChangeOpsHideBreakGlass shows that confirm and revert answer a change
+// the network hides exactly as a missing one, and act on nothing.
+func TestChangeOpsHideBreakGlass(t *testing.T) {
+	h := newHarness(t)
+	var last call
+	h.stubDispatcher(&last)
+	token := h.token(core.ScopeAdmin)
+	for _, op := range []string{"confirm", "revert"} {
+		for _, id := range []string{"cbg", "cunk", "missing"} {
+			last = call{}
+			rec := h.serve(withToken(request("POST", "/api/v1/changes/"+id+"/"+op, ""), token))
+			p := decodeProblem(t, rec, 404, errcode.ChangeNotFound)
+			if p.Detail != "no change "+id || strings.Contains(rec.Body.String(), "demo.") {
+				t.Errorf("%s %s: problem %+v, want the not-found answer of a missing change", op, id, p)
+			}
+			if last.method != "Change" || last.changeID != id {
+				t.Errorf("%s %s: last call %+v, want only the change lookup", op, id, last)
+			}
+		}
+	}
 }

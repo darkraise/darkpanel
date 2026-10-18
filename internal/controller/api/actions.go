@@ -22,8 +22,18 @@ const (
 )
 
 // maxChangeLimit is the largest limit of GET /api/v1/changes; the engine
-// lists no more.
-const maxChangeLimit = 500
+// lists no more. defaultChangeLimit is the limit when the query names none,
+// the engine's default.
+const (
+	maxChangeLimit     = 500
+	defaultChangeLimit = 100
+)
+
+// maxExtraChangeFetches bounds the further pages GET /api/v1/changes fetches
+// to fill a page that hidden changes thinned out. Each asks for
+// maxChangeLimit changes, so a page comes back short only after a run of
+// more than 2,000 hidden changes.
+const maxExtraChangeFetches = 4
 
 var changeStates = []string{
 	core.StateApplying, core.StatePending, core.StateConfirmed, core.StateReverted,
@@ -277,14 +287,29 @@ func (s *Server) handleChanges(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, s.log, err)
 		return
 	}
-	views, err := s.cfg.Dispatcher.Changes(r.Context(), c.principal, f)
-	if err != nil {
-		writeProblem(w, s.log, err)
-		return
+	if f.Limit == 0 {
+		f.Limit = defaultChangeLimit
 	}
-	out := changesResponse{Changes: make([]changeResponse, 0, len(views))}
-	for _, v := range views {
-		out.Changes = append(out.Changes, toChange(v))
+	want := f.Limit
+	out := changesResponse{Changes: make([]changeResponse, 0, want)}
+	for range 1 + maxExtraChangeFetches {
+		views, err := s.cfg.Dispatcher.Changes(r.Context(), c.principal, f)
+		if err != nil {
+			writeProblem(w, s.log, err)
+			return
+		}
+		for _, v := range views {
+			if len(out.Changes) == want {
+				break
+			}
+			if s.networkVisible(v) {
+				out.Changes = append(out.Changes, toChange(v))
+			}
+		}
+		if len(out.Changes) == want || len(views) < f.Limit {
+			break
+		}
+		f.Before, f.Limit = views[len(views)-1].ID, maxChangeLimit
 	}
 	writeJSON(w, s.log, http.StatusOK, out)
 }
@@ -295,7 +320,11 @@ func (s *Server) handleChange(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, s.log, err)
 		return
 	}
-	v, err := s.cfg.Dispatcher.Change(r.Context(), c.principal, r.PathValue("id"))
+	id := r.PathValue("id")
+	v, err := s.cfg.Dispatcher.Change(r.Context(), c.principal, id)
+	if err == nil && !s.networkVisible(v) {
+		err = errHiddenChange(id)
+	}
 	if err != nil {
 		writeProblem(w, s.log, err)
 		return
@@ -303,30 +332,41 @@ func (s *Server) handleChange(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, s.log, http.StatusOK, toChange(v))
 }
 
-// authorizeChange applies to a confirm or revert the checks of the change's
-// own action, never of the route: a break-glass change is refused, and the
-// scope is RequiredScope of the action's class and side. A controller-side
-// change whose action is no longer registered is refused, because whether
-// it was break-glass cannot be known.
-func (s *Server) authorizeChange(p core.Principal, v core.ChangeView) error {
-	class, side := v.Class, core.SideController
-	if v.HostID != "" {
-		side = core.SideAgent
-	}
+// networkVisible reports whether the network listeners show change v. They
+// hide changes of break-glass actions, whose inputs and outputs are the
+// controller socket's alone (owner decision), and controller-side changes
+// whose action is no longer registered, because whether it was break-glass
+// cannot be known. Show, confirm and revert answer a hidden change with
+// errHiddenChange.
+func (s *Server) networkVisible(v core.ChangeView) bool {
 	def, ok := s.cfg.Registry.Action(core.ActionRef{Name: v.Action, Version: v.Version})
-	switch {
-	case ok && def.Spec.BreakGlass:
-		return errcode.New(errcode.Forbidden, "changes of break-glass actions are served only on the controller socket")
-	case ok:
+	if ok {
+		return !def.Spec.BreakGlass
+	}
+	return v.HostID != ""
+}
+
+// errHiddenChange is the answer to a change the network hides: the lifecycle
+// engine's own answer for a missing change, so the two cannot be told apart.
+func errHiddenChange(id string) error {
+	return errcode.New(errcode.ChangeNotFound, fmt.Sprintf("no change %s", id))
+}
+
+// authorizeChange applies to a confirm or revert the scope of the change's
+// own action, never of the route: RequiredScope of its class and side. v
+// must be networkVisible, so an unregistered action is agent-side and its
+// stored class decides.
+func (s *Server) authorizeChange(p core.Principal, v core.ChangeView) error {
+	class, side := v.Class, core.SideAgent
+	if def, ok := s.cfg.Registry.Action(core.ActionRef{Name: v.Action, Version: v.Version}); ok {
 		class, side = def.Spec.Class, def.Spec.Side
-	case side == core.SideController:
-		return errcode.New(errcode.Forbidden, fmt.Sprintf("action %s/v%d is not registered", v.Action, v.Version))
 	}
 	return authorize(p, RequiredScope(class, side))
 }
 
 // changeOp serves confirm or revert. It reads the change first, as the
-// caller, and authorizes against the change's action.
+// caller, answers a change the network hides as missing, and authorizes
+// against the change's action.
 func (s *Server) changeOp(confirm bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		c, _ := callerFrom(r.Context())
@@ -335,6 +375,9 @@ func (s *Server) changeOp(confirm bool) http.HandlerFunc {
 		var v core.ChangeView
 		if err == nil {
 			v, err = s.cfg.Dispatcher.Change(r.Context(), c.principal, id)
+		}
+		if err == nil && !s.networkVisible(v) {
+			err = errHiddenChange(id)
 		}
 		if err == nil {
 			err = s.authorizeChange(c.principal, v)
