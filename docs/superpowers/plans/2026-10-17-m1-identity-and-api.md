@@ -12,7 +12,9 @@
 
 **Execution:** subagent — `claude --model sonnet --effort high` — the plan runs parallel waves.
 
-**Parallelism:** waves — 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9-11 | 12 | 13 | 14 | 15 | 16 | 17-18 | 19 | 20 | 21 | 22-23 | 24 | 25 | 26-27 | 28 | 29 | 30
+**Plan review:** 2026-10-18 — dr-superpowers:judge-opus — executability 16 / coherence 12 / coverage 14 / assumptions 15 (round 1)
+
+**Parallelism:** waves — 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9-11 | 12 | 13 | 14 | 15 | 16 | 17-18 | 19 | 20 | 21 | 22-23 | 24 | 25 | 26 | 27 | 28 | 29 | 30
 
 **Integration check:** `timeout 1500 make check`
 
@@ -27,29 +29,29 @@
 - In a waves run every task executes in its own git worktree created by the controller and commits only there; the controller merges a wave's worktrees before starting the next wave.
 - `**Items:**` numbers are row numbers of the register `docs/superpowers/registers/2026-10-17-m1-platform-core.md`.
 - Test isolation (spec "Parallel decomposition"): every Go test uses `t.TempDir()` for databases, keys and files, binds only port `0` on `127.0.0.1` (the one IPv6 loopback bind in the listener tests skips with a reason where the host has none), builds socket paths with `os.MkdirTemp("", "dp")` (Unix socket paths are limited to 108 bytes), writes no fixed path outside its temporary directory, and uses `coretest.FakeClock` for timers, expiry and rate-limit windows. No test in this plan shares a file, port or database with another task's tests.
-- `golangci-lint run` reports `0 issues.` after every task: every exported identifier has a doc comment (revive), files are `gofmt`- and `goimports`-clean, and a `//nolint` carries the rule and a reason, as the code below shows. Tasks of one wave lint at the same time and golangci-lint guards its cache with one lock file, so every `golangci-lint run ./...` a step gives runs as `golangci-lint run --allow-serial-runners ./...` and the step's `timeout 600` stays.
+- `golangci-lint run` reports `0 issues.` after every task: every exported identifier has a doc comment (revive), files are `gofmt`- and `goimports`-clean, and a `//nolint` carries the rule and a reason, as the code below shows. Tasks of one wave lint at the same time and golangci-lint guards its cache with one lock file, so every `golangci-lint run ./...` a step gives runs as `golangci-lint run --allow-serial-runners ./...` and the step's own `timeout` stays.
 - Every build and test command carries an explicit `timeout`.
 - Redaction marker: every redacted secret value is the JSON string `"[redacted]"` (`secret.Redacted`). Handlers never write a secret value (password, TOTP code or secret, session id, CSRF token, API token) into diff lines, guard messages, error details, logs or problem details; the tests of the identity and API tasks scan for the submitted values.
 - Never commit `.superpowers/`.
 - English only. Commits use `<type>(<scope>): <subject>` with type one of feat, fix, docs, style, refactor, test, chore, perf; the whole first line is at most 50 characters, imperative, no trailing period; no AI attribution of any kind.
 - `Makefile` recipe lines begin with a tab character, never spaces. Migration files are SQL, named `NNNN_<name>.sql`, with STRICT tables.
-- `internal/controller/auth` takes every time from `core.Clock` and never calls `time.Now`, so expiry, lockouts and TOTP steps run on `coretest.FakeClock` in tests; ULIDs are stamped from the same clock.
-- Nothing inside a `store.DB.Write` callback calls `Write`, `Writer` or `core.Audit.Record` (one writer connection: it would deadlock).
-- No password, TOTP code, TOTP secret, session id, CSRF token or token secret appears in an error detail, field message, audit input or log line; hashes, codes and CSRF tokens are compared in constant time.
-- Tests build the service with `testParams` (cheap argon2id); only production uses `DefaultParams`.
-- P10 edits only files under `internal/controller/listen/`; it adds no migration and never edits `0001_core.sql`.
-- The web root's private key exists in clear only in memory: stored sealed in `core_ca.key_ct` with associated data `core_ca.key_ct.<row id>`, never logged, never written to a file; the PKCS #8 buffer is cleared after sealing and after opening. The leaf and its key live in memory only.
-- Time comes only from `core.Clock`; tests use `coretest.FakeClock`. The hostname is injected, never read inside the package.
-- Listener tests bind `127.0.0.1` port 0 only, through `fakeBinder`, which maps every endpoint address (Tailscale, IPv6, explicit) to `127.0.0.1:0`; only `TestBindSetsFreeBind/ipv6` binds `[::1]:0`.
-- Package `internal/controller/api` never writes a session id, CSRF token, password, TOTP code or token secret into a log line or a problem detail. Tests assert that the password and the token secret never appear in responses.
-- Every refusal goes through `writeProblem`, and every successful JSON body through `writeJSON`. No handler calls `http.Error`.
-- Every route that is not in spec section 12's public list is wrapped by `requireCaller`, and every route is reached only through `Server.Handler()` (network) or `SocketHandler()` (socket); no other handler is exported.
-- Tests use `request(...)` with `testRemote`, the harness's fake clock, and `os.MkdirTemp("", "dp")` for socket paths. They bind no TCP port.
-- Only `internal/controller/coreactions` changes. `auth`, `registry`, `errcode`, `core` and the migrations are consumed as they are.
-- No handler reads or writes `core_users`, `core_sessions` or `core_tokens` directly; identity goes through `*auth.Service` only (P5's ownership). Handlers write only `core_module_state`, and only inside `core.module.enable`/`disable`'s `Apply` through `Env.DB.Write`.
-- A `Plan` never writes, never calls an agent, and returns `Guards` as a non-nil slice. Its `StateHash` covers every stored value its `Apply` depends on, as the contracts table lists.
-- No diff line, guard message or error detail contains a submitted password or code, a TOTP secret or a token. Test inputs use `testPassword`, `newPassword` and generated codes so the scans are meaningful.
-- Tests run every action through a real `lifecycle.Engine` (`newTestEnv`), so validation, redaction, confirmation phrases and the state-hash recheck are the production ones.
+- P5 (Tasks 1-7, `internal/controller/auth`): the package's non-test code takes every time from `core.Clock` and never calls `time.Now`, so expiry, lockouts and TOTP steps run on `coretest.FakeClock` in tests; ULIDs are stamped from the same clock. Tests may use real time only to poll goroutine synchronisation (as `TestAtMostTwoHashesAtOnce` does).
+- P5: nothing inside a `store.DB.Write` callback calls `Write`, `Writer` or `core.Audit.Record` (one writer connection: it would deadlock).
+- P5: no password, TOTP code, TOTP secret, session id, CSRF token or token secret appears in an error detail, field message, audit input or log line; hashes, codes and CSRF tokens are compared in constant time.
+- P5: tests build the service with `testParams` (cheap argon2id); only production uses `DefaultParams`.
+- P10 (Tasks 8-10, 12-15): edits only files under `internal/controller/listen/`; it adds no migration and never edits `0001_core.sql`.
+- P10: the web root's private key exists in clear only in memory: stored sealed in `core_ca.key_ct` with associated data `core_ca.key_ct.<row id>`, never logged, never written to a file; the PKCS #8 buffer is cleared after sealing and after opening. The leaf and its key live in memory only.
+- P10: time comes only from `core.Clock`; tests use `coretest.FakeClock`. The hostname is injected, never read inside the package.
+- P10: listener tests bind `127.0.0.1` port 0 only; the set and service tests bind through `fakeBinder`, which maps every endpoint address (Tailscale, IPv6, explicit) to `127.0.0.1:0`; only `TestBindSetsFreeBind/ipv6` binds `[::1]:0`.
+- P9 (Tasks 11, 16, 17, 19-22, 25, 27, `internal/controller/api`): the package never writes a session id, CSRF token, password, TOTP code or token secret into a log line or a problem detail. Tests assert that the password and the token secret never appear in responses.
+- P9: every refusal goes through `writeProblem`, and every successful JSON body through `writeJSON`. No handler calls `http.Error`.
+- P9: every route that is not in spec section 12's public list is wrapped by `requireCaller`, and every route is reached only through `Server.Handler()` (network) or `SocketHandler()` (socket); no other handler is exported.
+- P9, Tasks 19 and later: tests use `request(...)` with `testRemote`, the harness's fake clock, and `os.MkdirTemp("", "dp")` for socket paths. They bind no TCP port.
+- P12 (Tasks 18, 23, 24, 26, 28-30, `internal/controller/coreactions`): only `internal/controller/coreactions` changes. `auth`, `registry`, `errcode`, `core` and the migrations are consumed as they are.
+- P12: no handler reads or writes `core_users`, `core_sessions` or `core_tokens` directly; identity goes through `*auth.Service` only (P5's ownership). Handlers write only `core_module_state`, and only inside `core.module.enable`/`disable`'s `Apply` through `Env.DB.Write`.
+- P12: a `Plan` never writes, never calls an agent, and returns `Guards` as a non-nil slice. Its `StateHash` covers every stored value its `Apply` depends on, as the contracts table lists.
+- P12: no diff line, guard message or error detail contains a submitted password or code, a TOTP secret or a token. Test inputs use `testPassword`, `newPassword` and generated codes so the scans are meaningful.
+- P12: tests run every action through a real `lifecycle.Engine` (`newTestEnv`), so validation, redaction, confirmation phrases and the state-hash recheck are the production ones.
 
 ## Contracts
 
@@ -59,7 +61,7 @@ Part P5 adds package `internal/controller/auth` and the controller migration `in
 
 **`internal/controller/auth`** (package `auth`, P5)
 
-- Task 1 (`password.go`, carries the package doc comment): `type Params struct { Memory uint32; Iterations uint32; Parallelism uint8; SaltLen int; KeyLen uint32 }` (argon2id parameters, `Memory` in KiB); `var DefaultParams = Params{Memory: 64 * 1024, Iterations: 3, Parallelism: 1, SaltLen: 16, KeyLen: 32}`; `const MaxConcurrentHashes = 2`; `const MinPasswordLength = 12`, `const MaxPasswordLength = 128` (Unicode characters). Unexported, used by Tasks 4 and 7: `newHasher(p Params) *hasher` (hashes one random password at construction to make the dummy hash); `(*hasher).hash(ctx context.Context, password string) (string, error)` returns the PHC string `$argon2id$v=19$m=<KiB>,t=<iterations>,p=<parallelism>$<salt>$<key>` (salt and key in unpadded standard base64); `(*hasher).verify(ctx, phc, password string) (bool, error)` reads the parameters from `phc`, compares in constant time, and returns an error for a malformed `phc`; `(*hasher).verifyDummy(ctx, password string) error` runs one verification against the dummy hash; the field `compute func(password, salt []byte, p Params) []byte` is the argon2id call, replaced by tests. Every hash and verification waits for one of `MaxConcurrentHashes` slots or for `ctx` to end, then returns `ctx.Err()`. `checkUsername(username string) error` and `checkPassword(password string) error` return `*errcode.Error` with code `request.invalid_input` and one field error at `/username` (pattern `^[a-z0-9][a-z0-9._-]{0,63}$`) or `/password`, and never quote the value. Test helpers in `password_test.go`: `testParams` (cheap argon2id parameters) and `wantField(t, err, path)`.
+- Task 1 (`password.go`, carries the package doc comment): `type Params struct { Memory uint32; Iterations uint32; Parallelism uint8; SaltLen int; KeyLen uint32 }` (argon2id parameters, `Memory` in KiB); `var DefaultParams = Params{Memory: 64 * 1024, Iterations: 3, Parallelism: 1, SaltLen: 16, KeyLen: 32}`; `const MaxConcurrentHashes = 2`; `const MinPasswordLength = 12`, `const MaxPasswordLength = 128` (Unicode characters). Unexported, used by Tasks 4 and 7: `newHasher(p Params) *hasher` (hashes one random password at construction to make the dummy hash); `(*hasher).hash(ctx context.Context, password string) (string, error)` returns the PHC string `$argon2id$v=19$m=<KiB>,t=<iterations>,p=<parallelism>$<salt>$<key>` (salt and key in unpadded standard base64); `(*hasher).verify(ctx, phc, password string) (bool, error)` reads the parameters from `phc`, compares in constant time, and returns an error for a malformed `phc`; `(*hasher).verifyDummy(ctx, password string) error` runs one verification against the dummy hash; `(*hasher).acquire(ctx) error` and `(*hasher).release()` take and return one slot, and `(*hasher).verifyHeld(phc, password string) (bool, error)` and `(*hasher).verifyDummyHeld(password string) error` are `verify` and `verifyDummy` for a caller that already holds a slot (Task 7's `Login`); the field `compute func(password, salt []byte, p Params) []byte` is the argon2id call, replaced by tests. Every hash and verification except the `Held` variants waits for one of `MaxConcurrentHashes` slots or for `ctx` to end, then returns `ctx.Err()`. `checkUsername(username string) error` and `checkPassword(password string) error` return an `error` that is an `*errcode.Error` with code `request.invalid_input` and one field error at `/username` (pattern `^[a-z0-9][a-z0-9._-]{0,63}$`) or `/password`, and never quote the value. Test helpers in `password_test.go`: `testParams` (cheap argon2id parameters) and `wantField(t, err, path)`.
 - Task 2 (`totp.go`): `const TOTPSecretSize = 20`; `const TOTPPeriod = 30 * time.Second`; `func TOTPCode(secret string, t time.Time) (string, error)` returns the six-digit code at `t` for an unpadded base32 secret, the form `CreateUser` and `ResetTOTP` return. P12's tests and P14's end-to-end test use it to compute codes. Unexported: `b32` (`base32.StdEncoding` without padding), `newTOTPSecret() []byte`, `encodeTOTPSecret(key []byte) string`, `totpStep(t time.Time) int64` (Unix seconds / 30), `totpCode(key []byte, step int64) string` (RFC 6238, HMAC-SHA-1, six digits), `matchTOTP(key []byte, code string, now time.Time, lastStep int64) (int64, bool)` (exactly six ASCII digits, checked against the steps `now-1`, `now` and `now+1` that are greater than `lastStep`; returns the matching step). Test helper `rfcKey`.
 - Task 3 (`ratelimit.go`): `const UsernameFailureLimit = 5`, `SourceFailureLimit = 20`, `FailureWindow = 15 * time.Minute`, `LockDuration = 15 * time.Minute`, `MaxLimiterKeys = 10000`; `type RetryAfterError struct { After time.Duration }` with `Error() string` and `Seconds() int` (whole seconds rounded up, at least 1). It is the cause inside every `auth.rate_limited` error: P9 calls `errors.As(err, &ra)` with `var ra *auth.RetryAfterError` and sends `Retry-After: <ra.Seconds()>`. Unexported, used by Tasks 4 and 7: `newLimiter(clock core.Clock) *limiter`, `(*limiter).blocked(username, source string) time.Duration` (0 means evaluate), `(*limiter).fail(username, source string)`. Keys are `u:<username>` and `s:<normalised source>` (`sourceKey`: IPv4 whole, IPv4-mapped IPv6 unmapped to IPv4, other IPv6 collapsed to its `/64`, a port dropped, anything else used as given). A failure prunes keys with no failure inside the window and no running lock. At the cap, a new key evicts the least recently failed unlocked key; when every key is locked, nothing is evicted, and `blocked` refuses an attempt that would need a new key until the shortest lock ends. Test var `t0` (2026-10-17T00:00:00Z).
 - Task 4 (`service.go`, migration): the controller tables `core_users` (id, username unique, role, state `pending`/`active`, password_hash, totp_secret_ct, totp_last_step default 0, created_at, updated_at), `core_sessions` (id_hash primary key, user_id with on-delete cascade, created_at, last_seen_at, expires_at, source_ip, user_agent) and `core_tokens` (id, user_id with on-delete cascade, name, scope `read`/`operate`/`admin`, secret_hash, created_at, expires_at, last_used_at, revoked_at), all STRICT, times fixed-width RFC 3339 UTC text (`2006-01-02T15:04:05.000000000Z`). Only this package reads or writes them. `const RoleAdmin = "admin"`, `StatePending = "pending"`, `StateActive = "active"`. Types (JSON shapes of spec section 12, no `omitempty`, so absent times are `null`):
@@ -140,7 +142,7 @@ Part P5 adds package `internal/controller/auth` and the controller migration `in
 - Task 13 (`leaf.go`): `const LeafValidity = 90 * 24 * time.Hour`, `const LeafRenewAfter = 60 * 24 * time.Hour`; `type Leaf struct`; `func NewLeaf(a *Authority, clock core.Clock, hostname string) *Leaf`; `(*Leaf) Ensure(ips []netip.Addr) (issued bool, err error)` issues a new leaf when none exists, when the normalised IP set differs from the current leaf's, or when `LeafRenewAfter` has passed since it was issued; `(*Leaf) GetCertificate(*tls.ClientHelloInfo) (*tls.Certificate, error)` returns the chain `[leaf, root]` (error before the first `Ensure`); `(*Leaf) TLSConfig() *tls.Config` = `MinVersion: tls.VersionTLS12` plus `GetCertificate`. The leaf: ECDSA P-256, DNS SANs `[<hostname>, localhost]` (only `localhost` when the hostname is empty or `localhost`), IP SANs = the `Ensure` addresses, valid from one hour before issue to `LeafValidity` after, digital-signature key usage, server-auth extended key usage, in memory only.
 - Task 10 (`bind.go`): `type BindFunc func(ctx context.Context, e Endpoint) (net.Listener, error)`; `func Bind(ctx context.Context, e Endpoint) (net.Listener, error)` — `tcp4` or `tcp6` by address family, `IP_FREEBIND`/`IPV6_FREEBIND` set before bind when `e.FreeBind`; errors read `listen: bind <e.URL()>: <cause>` and wrap the `syscall.Errno`.
 - Task 14 (`set.go`): `const ReadHeaderTimeout = 10 * time.Second`, `ReadTimeout = 30 * time.Second`, `WriteTimeout = 60 * time.Second`, `IdleTimeout = 120 * time.Second`; `var ErrClosed`; `type SetConfig struct { Handler http.Handler; TLS *tls.Config; Bind BindFunc; Log *slog.Logger }` (nil `Bind` means `Bind`, nil `Log` discards); `type Bound struct { Endpoint Endpoint; Addr net.Addr }`; `type Set struct`; `func NewSet(cfg SetConfig) *Set`; `(*Set) Update(ctx context.Context, want []Endpoint) error` (stops removed endpoints first, binds missing ones, leaves unchanged ones alone; an `Optional` endpoint failing with `EADDRNOTAVAIL` or `EAFNOSUPPORT` is skipped once with a log line and never retried; other bind failures are returned joined while the rest keep serving); `(*Set) Bound() []Bound` (sorted by endpoint address); `(*Set) Shutdown(ctx context.Context) error` (graceful until `ctx` ends; later `Update` returns `ErrClosed`). HTTPS endpoints terminate TLS inside `http.Server`, so **P9 tells an HTTPS request by `r.TLS != nil`** (session cookie name, HSTS); the plain-HTTP loopback listener has `r.TLS == nil`.
-- Task 15 (`service.go`): `const CheckInterval = 10 * time.Second`; `type Config struct { Specs []Spec; Hostname string; DB *store.DB; Authority *Authority; Clock core.Clock; Handler http.Handler; Log *slog.Logger; Interfaces InterfaceAddrs; Bind BindFunc }` (nil `Log` discards, nil `Interfaces` means `SystemInterfaceAddrs`, nil `Bind` means `Bind`); `type State struct { TailscaleBound bool; Message string; Listeners []Bound }`; `type Service struct`; `func Start(ctx context.Context, cfg Config) (*Service, error)`; `(*Service) State() State` (lock-free copy; the UI footer and `serve`'s log read `TailscaleBound` and `Message`); `(*Service) Shutdown(ctx context.Context) error`. Messages, exactly: `Tailscale listener disabled by --listen.`, `Serving on Tailscale: <url>, <url>.`, `Tailscale addresses found but not bound; see the serve log.`, `No Tailscale address found; serving loopback only.`, `No Tailscale address found; not serving on the tailnet.`, and after Shutdown `The listeners are shut down.`; each change is logged once as `listen: <message>`. Plan 4's server (P14) calls, after migrations: `specs, err := listen.ParseSpecs(<--listen values>)` (a usage error), `auth, err := listen.LoadOrCreateAuthority(ctx, controllerDB, controllerSealer, clock)`, builds the API handler (passing `auth` as the socket's `WebCA` and the service's state to the footer route), then `svc, err := listen.Start(ctx, listen.Config{...Hostname: os.Hostname()...})`, and `svc.Shutdown(ctx)` on exit.
+- Task 15 (`service.go`): `const CheckInterval = 10 * time.Second`; `type Config struct { Specs []Spec; Hostname string; DB *store.DB; Authority *Authority; Clock core.Clock; Handler http.Handler; Log *slog.Logger; Interfaces InterfaceAddrs; Bind BindFunc }` (nil `Log` discards, nil `Interfaces` means `SystemInterfaceAddrs`, nil `Bind` means `Bind`); `type State struct { TailscaleBound bool; Message string; Listeners []Bound }`; `type Service struct`; `func Start(ctx context.Context, cfg Config) (*Service, error)`; `(*Service) State() State` (lock-free copy; the UI footer and `serve`'s log read `TailscaleBound` and `Message`); `(*Service) Shutdown(ctx context.Context) error`. Messages, exactly: `Tailscale listener disabled by --listen.`, `Serving on Tailscale: <url>, <url>.`, `Tailscale addresses found but not bound; see the serve log.`, `No Tailscale address found; serving loopback only.`, `No Tailscale address found; not serving on the tailnet.`, and after Shutdown `The listeners are shut down.`; each change is logged once as `listen: <message>`. Plan 4's server (P14) calls, after migrations: `specs, err := listen.ParseSpecs(<--listen values>)` (a usage error), `auth, err := listen.LoadOrCreateAuthority(ctx, controllerDB, controllerSealer, clock)`, builds the API handler (passing `auth` as the socket's `WebCA`), then `host, err := os.Hostname()` (on error an empty hostname, which gives the SANs `localhost` only), then `svc, err := listen.Start(ctx, listen.Config{...Hostname: host...})`, and `svc.Shutdown(ctx)` on exit. No route in this plan reports `State` to the UI footer: that is obligation 7 under the API contracts.
 - Test helpers shared between tasks: `tailscale_test.go` (Task 9: `openControllerDB(t)`, `openControllerDBAt(t, path)`, `addrs(...string)`), used by Tasks 12, 13 and 15; `authority_test.go` (Task 12: `testStart`, `newSealer(t)`, `rootCert(t, a)`), used by Tasks 13 and 15; `set_test.go` (Task 14: `fakeBinder`, `testTLS`, `schemeHandler`, `newTestSet`, `get`, `boundAddr`, `epHTTP`, `epTS1`, `epTS2`, `epTS3`, `epLoop6`), used by Task 15; `leaf_test.go` (Task 13: `newLeaf`, `current`).
 
 Part P9 adds package `internal/controller/api` only: no migration, no new error code, no dependency. P10 (listeners), P12 (core actions), P13 (CLI), plan 4's dispatch (P11) and assembly (P14) code against the exported names below; the unexported names are listed because later tasks of this part consume them.
@@ -210,6 +212,7 @@ Part P9 adds package `internal/controller/api` only: no migration, no new error 
 4. Plan 4 assembly (P14): the controller socket's runtime directory must not be writable by other users. `ListenSocket` creates the file with the process umask and chmods it to 0600 right after; the `SO_PEERCRED` check on every connection covers that window.
 5. Plan 4 assembly (P14): production passes `UI: api.EmbeddedUI()`. Its assembly test calls `api.CheckOpenAPI` with the real registry and runs the deny-by-default matrix over the assembled network handler (register row 12's end-to-end requirement).
 6. Plan 4 assembly (P14): the service's own non-root uid is accepted on the socket only with `--dev`. A production service running as a dedicated user is reachable on the socket by root alone (see Assumptions).
+7. Plan 4 assembly (P14) and the API: spec section 13's UI footer must report the listener state (`listen.State`'s `TailscaleBound` and `Message`). This plan builds no route for it, because `listen.Start` needs `srv.Handler()` before the `*listen.Service` exists. Plan 4 adds an optional late-bound `ListenerState func() (tailscaleBound bool, message string)` to `api.Config`, set after `Start`, with a read-scope route such as `GET /api/v1/controller/listeners` (added to `Routes()`).
 
 Part P12 takes over the foundation's stub package `internal/controller/coreactions` (`module.go`, `module_test.go`). It adds no migration and no error code, and it edits no package outside `internal/controller/coreactions`.
 
@@ -311,7 +314,7 @@ How each action behaves:
 
 **How the next parts use it, and what plan 4 must add**
 
-- P14 (assembly) builds `registry.BuildWith(coreactions.Module(coreactions.Deps{Auth: authService, Audit: auditLog, Modules: modules.All()}))` once and uses that registry for the controller `lifecycle.Engine` and the dispatcher. The rules for the engine and the services:
+- P14 (assembly) builds `registry.BuildWith(coreactions.Module(coreactions.Deps{Auth: authService, Audit: auditLog, Modules: <the compiled-in modules>}))` once and uses that registry for the controller `lifecycle.Engine` and the dispatcher. The rules for the engine and the services:
   - The engine's `Config.Base` sets `DB` to the controller database that `authService` was built on, and `Agents` to the dispatcher's `core.HostDirectory`.
   - `Config.Validator` is `schema.NewValidator()`.
   - `Config.Redact` is `secret.RedactJSON(raw, schema.Output(t))` (register row 50).
@@ -339,7 +342,7 @@ How each action behaves:
 - Plan-time ruling, handler `Verify` during crash recovery: the engine passes a null output, so the core actions decide from their input and stored state; an interrupted identity or token change is reported as unverified when the recovery principal has no user.
 - Defect found in plan 2's merged `internal/core/schema` while drafting P12 and not fixed here: pointer fields reflect as non-nullable `type: string`, so output schemas, snapshots and OpenAPI never state that a field can be null (`lastUsedAt`, `revokedAt`, `revertDeadline`, `error`). It is a register row for plan 4; the wire shapes in this plan already send `null`.
 - Register rows 50 to 52 (follow-ups recorded when plan 2 merged) bind this plan: the `Config.Redact` adapter, the server's recovery and purge wiring, the panic policy, the CSRF label, `[]` for empty diff and guards, and the identity handlers' secret rule. Plan 4 carries the wiring rows; this plan's tasks carry the handler and middleware rules.
-- Obligations on plan 4 that this plan records and does not meet (each becomes a register row when the plan finishes): the API contracts' numbered list "Obligations on later plans"; the core-action contracts' dispatcher and assembly obligations (a module is usable only when enabled and available; the controller engine's `Base.DB` and `Base.Agents`; `registry.BuildWith(coreactions.New(...))`); the identity service's `Audit.Record` rules (keep a supplied id, accept the actions `core.auth.login` and `core.auth.logout`); and the assembly rules for `listen.Service` (plan 4's server starts it with the API handler) and for the controller socket's runtime directory.
+- Obligations on plan 4 that this plan records and does not meet (each becomes a register row when the plan finishes): the API contracts' numbered list "Obligations on later plans"; the core-action contracts' dispatcher and assembly obligations (a module is usable only when enabled and available; the controller engine's `Base.DB` and `Base.Agents`; `registry.BuildWith(coreactions.Module(coreactions.Deps{Auth: authService, Audit: auditLog, Modules: <the compiled-in modules>}))`); the identity service's `Audit.Record` rules (keep a supplied id, accept the actions `core.auth.login` and `core.auth.logout`); and the assembly rules for `listen.Service` (plan 4's server starts it with the API handler) and for the controller socket's runtime directory.
 - Every task's code below was run on 2026-10-17 in a scratch clone of `main` at `2c0c73c`. After each task these passed, all with `GOTOOLCHAIN=local` and a `timeout`:
   - `go vet ./...`;
   - `go test -count=1 ./...`;
@@ -468,6 +471,11 @@ How each action behaves:
 - Core-contract gap, reported and not fixed here: the schema reflector maps a pointer field such as `*string` to `{"type":"string"}`, without `null`. Output schemas and the OpenAPI document therefore do not say that `TokenInfo.lastUsedAt`, `ModuleState.reason` or `AuditList.nextBefore` can be `null`. Nothing validates outputs, so no request fails, but generated clients may mistype these fields. The schema package (plan 2) or plan 4 must decide.
 - Core-contract gap: recovery's principal has no `UserID`, so a user-scoped action (`core.token.*`) cannot verify an interrupted change. Task 24 reports it as unverified (`auth.forbidden`) rather than guessing.
 - Unverified for plan 4: the spec section 15 test that every mutating action has a generated CLI command is plan 4's. Task 30 checks only that every `Summary` and input description exists.
+- Unverified on the merged tree: `TestCheckOpenAPI` runs `CheckOpenAPI(registry.Build())`, whose core module grows with Tasks 18, 23, 24, 26, 28 and 29; Task 27 was verified only against the stub core module. Task 27 runs in its own wave after Task 26, so its Step 4 checks the real core actions merged so far, and the integration check after each later wave re-runs it. A failure there in Task 28 or 29 is fixed in that task's own action definition (the input or output type the document lifts), never in `internal/controller/api`.
+- Plan-time ruling, spec section 9: logout ends only the presented session; `reset-totp`, `reset-password` and `user delete` end all of the user's sessions.
+- Plan-time ruling: an interrupted `core.user.create` or `core.user.reset-totp` whose recovery `Verify` passes has lost its TOTP secret (recovery shows no output); the operator runs `core.user.reset-totp` to issue a new one.
+- Executor lane: Tasks 17, 18 and 27 became lane-eligible (`codex gpt-6.1-sol / high`) when Codex returned on 2026-10-18, after the plan was assigned with Codex off. They keep their Claude implementers: an `**Executor:**` line would make each run alone in its wave and change waves the drafters verified.
+- Plan review round 1 (2026-10-18, four judge-opus seats, one per part) scored the API part's coherence 12, which is borderline. Decision: proceed. All three causes were fixed in that round: the unlabelled part constraints, the listener-state footer route (now obligation 7), and Task 27's shared wave. No Critical finding remained.
 
 ## Task index
 
@@ -861,14 +869,22 @@ func (h *hasher) hash(ctx context.Context, password string) (string, error) {
 // verify reports whether password matches phc, using the parameters stored in
 // phc. A malformed phc is an error.
 func (h *hasher) verify(ctx context.Context, phc, password string) (bool, error) {
-	p, salt, want, err := parsePHC(phc)
-	if err != nil {
+	if _, _, _, err := parsePHC(phc); err != nil {
 		return false, err
 	}
 	if err := h.acquire(ctx); err != nil {
 		return false, err
 	}
 	defer h.release()
+	return h.verifyHeld(phc, password)
+}
+
+// verifyHeld is verify for a caller that already holds a slot.
+func (h *hasher) verifyHeld(phc, password string) (bool, error) {
+	p, salt, want, err := parsePHC(phc)
+	if err != nil {
+		return false, err
+	}
 	got := h.compute([]byte(password), salt, p)
 	return subtle.ConstantTimeCompare(got, want) == 1, nil
 }
@@ -877,6 +893,12 @@ func (h *hasher) verify(ctx context.Context, phc, password string) (bool, error)
 // login for an unknown username costs what a real one costs.
 func (h *hasher) verifyDummy(ctx context.Context, password string) error {
 	_, err := h.verify(ctx, h.dummy, password)
+	return err
+}
+
+// verifyDummyHeld is verifyDummy for a caller that already holds a slot.
+func (h *hasher) verifyDummyHeld(password string) error {
+	_, err := h.verifyHeld(h.dummy, password)
 	return err
 }
 
@@ -3530,7 +3552,7 @@ git commit -m "feat(auth): add scoped API tokens and purge"
 - Test: `internal/controller/auth/login_test.go`
 
 **Interfaces:**
-- Consumes: `core.AuditEntry`, `core.Audit.Record`, `core.AuditQuery`, `coretest.MemAudit.List` (foundation); Task 1 (`checkUsername`, `verify`, `verifyDummy`, the `compute` hook), Task 2 (`matchTOTP`, `TOTPCode`), Task 3 (`blocked`, `fail`, `RetryAfterError`, the limit constants), Task 4 (`Service`, `loadUser`, `totpAD`, `newID`, `now`, the test helpers), Task 5 (`createSession`, `authenticateSession`, `endSession`, `CSRFToken`, `errAuthRequired`), Task 6 (`authenticateToken`, `CreateToken`).
+- Consumes: `core.AuditEntry`, `core.Audit.Record`, `core.AuditQuery`, `coretest.MemAudit.List` (foundation); Task 1 (`checkUsername`, `acquire`, `release`, `verifyHeld`, `verifyDummyHeld`, the `compute` hook), Task 2 (`matchTOTP`, `TOTPCode`), Task 3 (`blocked`, `fail`, `RetryAfterError`, the limit constants), Task 4 (`Service`, `loadUser`, `totpAD`, `newID`, `now`, the test helpers), Task 5 (`createSession`, `authenticateSession`, `endSession`, `CSRFToken`, `errAuthRequired`), Task 6 (`authenticateToken`, `CreateToken`).
 - Produces: Contracts › Task 7 (`AuditLoginAction`, `AuditLogoutAction`, `ActorAnonymous`, `LoginRequest`, `LoginResult`, `Credentials`, `Login`, `Logout`, `Authenticate`) — the surface P9 codes against.
 
 **Items:** 11, 12, 13, 14
@@ -3540,7 +3562,7 @@ git commit -m "feat(auth): add scoped API tokens and purge"
 **Implementer:** dr-superpowers:impl-opus-high
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 3 = 6
 
-The password is verified outside any transaction (it is slow); the code check, the step update and the session insert then run in one immediate write transaction that re-reads the user, so two logins racing with one code cannot both succeed (`TestConcurrentLoginsWithOneCode`). Every failure returns the same error and costs one argon2id hash, which the test asserts per case. The audit row is written after the commit, never inside it, with a context that ignores cancellation.
+The password is verified outside any transaction (it is slow); the code check, the step update and the session insert then run in one immediate write transaction that re-reads the user, so two logins racing with one code cannot both succeed (`TestConcurrentLoginsWithOneCode`). Every failure returns the same error and costs one argon2id hash, which the test asserts per case. The rate limits are checked again, and a failure is counted, while the login holds a hashing slot, so concurrent attempts for one username cannot all pass the check before any failure is counted (`TestConcurrentLoginsRespectTheLimit`). The audit row is written after the commit, never inside it, with a context that ignores cancellation.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3753,6 +3775,54 @@ func TestConcurrentLoginsWithOneCode(t *testing.T) {
 	}
 }
 
+func TestConcurrentLoginsRespectTheLimit(t *testing.T) {
+	s, clock, _ := newTestService(t)
+	ctx := context.Background()
+	createActive(t, s, clock, "alice")
+	wrong := LoginRequest{Username: "alice", Password: "wrong horse battery", Code: "000000", Source: "10.0.0.9"}
+	for range UsernameFailureLimit - 1 {
+		_, err := s.Login(ctx, wrong)
+		wantCode(t, err, errcode.InvalidCredentials)
+	}
+	var hashes atomic.Int32
+	entered := make(chan struct{}, 16)
+	gate := make(chan struct{})
+	inner := s.hasher.compute
+	s.hasher.compute = func(password, salt []byte, p Params) []byte {
+		hashes.Add(1)
+		entered <- struct{}{}
+		<-gate
+		return inner(password, salt, p)
+	}
+	const attempts = MaxConcurrentHashes + 4
+	errs := make([]error, attempts)
+	var wg sync.WaitGroup
+	for i := range errs {
+		wg.Go(func() { _, errs[i] = s.Login(ctx, wrong) })
+	}
+	for range MaxConcurrentHashes {
+		select {
+		case <-entered:
+		case <-time.After(10 * time.Second):
+			t.Fatal("no login reached the hash")
+		}
+	}
+	close(gate)
+	wg.Wait()
+	limited := 0
+	for _, err := range errs {
+		if errcode.From(err).Code == errcode.RateLimited {
+			limited++
+		} else {
+			wantCode(t, err, errcode.InvalidCredentials)
+		}
+	}
+	if hashes.Load() != MaxConcurrentHashes || limited != attempts-MaxConcurrentHashes {
+		t.Fatalf("%d concurrent attempts ran %d hashes with %d rate limited; want %d hashes and the rest limited",
+			attempts, hashes.Load(), limited, MaxConcurrentHashes)
+	}
+}
+
 func TestLogout(t *testing.T) {
 	s, clock, audit := newTestService(t)
 	ctx := context.Background()
@@ -3900,15 +3970,17 @@ func (s *Service) Login(ctx context.Context, r LoginRequest) (LoginResult, error
 		return LoginResult{}, errInvalidCredentials()
 	}
 	if d := s.limiter.blocked(r.Username, r.Source); d > 0 {
-		return LoginResult{}, errcode.Wrap(errcode.RateLimited, &RetryAfterError{After: d},
-			"too many failed login attempts; try again later")
+		return LoginResult{}, errRateLimited(d)
 	}
-	res, userID, err := s.attempt(ctx, r)
+	if err := s.hasher.acquire(ctx); err != nil {
+		return LoginResult{}, err
+	}
+	res, userID, err := s.evaluate(ctx, r)
+	s.hasher.release()
 	if err != nil {
 		if errcode.From(err).Code != errcode.InvalidCredentials {
 			return LoginResult{}, err
 		}
-		s.limiter.fail(r.Username, r.Source)
 		if aerr := s.recordLogin(ctx, r, userID, errcode.InvalidCredentials); aerr != nil {
 			return LoginResult{}, aerr
 		}
@@ -3920,20 +3992,41 @@ func (s *Service) Login(ctx context.Context, r LoginRequest) (LoginResult, error
 	return res, nil
 }
 
+func errRateLimited(d time.Duration) error {
+	return errcode.Wrap(errcode.RateLimited, &RetryAfterError{After: d},
+		"too many failed login attempts; try again later")
+}
+
+// evaluate runs attempt for a caller holding a hashing slot. The limits are
+// checked again and a failure is counted under the slot: attempts that passed
+// Login's first check while waiting for a slot would otherwise all be
+// evaluated before any of their failures counted.
+func (s *Service) evaluate(ctx context.Context, r LoginRequest) (LoginResult, string, error) {
+	if d := s.limiter.blocked(r.Username, r.Source); d > 0 {
+		return LoginResult{}, "", errRateLimited(d)
+	}
+	res, userID, err := s.attempt(ctx, r)
+	if err != nil && errcode.From(err).Code == errcode.InvalidCredentials {
+		s.limiter.fail(r.Username, r.Source)
+	}
+	return res, userID, err
+}
+
 // attempt evaluates a login and returns the matched user's id ("" when none
-// matched). An unknown username still costs one argon2id hash.
+// matched). An unknown username still costs one argon2id hash. The caller
+// holds a hashing slot.
 func (s *Service) attempt(ctx context.Context, r LoginRequest) (LoginResult, string, error) {
 	rec, err := loadUser(ctx, s.db.Read(), r.Username)
 	if err != nil {
 		if errcode.From(err).Code != errcode.NotFound {
 			return LoginResult{}, "", err
 		}
-		if err := s.hasher.verifyDummy(ctx, r.Password); err != nil {
+		if err := s.hasher.verifyDummyHeld(r.Password); err != nil {
 			return LoginResult{}, "", err
 		}
 		return LoginResult{}, "", errInvalidCredentials()
 	}
-	ok, err := s.hasher.verify(ctx, rec.passwordHash, r.Password)
+	ok, err := s.hasher.verifyHeld(rec.passwordHash, r.Password)
 	if err != nil {
 		return LoginResult{}, rec.ID, err
 	}
@@ -4691,10 +4784,7 @@ func LoadTailscaleAddrs(ctx context.Context, db *store.DB) ([]netip.Addr, error)
 	if err := json.Unmarshal([]byte(raw), &list); err != nil {
 		return nil, fmt.Errorf("listen: core_meta %s: %w", metaTailscaleAddrs, err)
 	}
-	if len(list) == 0 {
-		return nil, nil
-	}
-	return list, nil
+	return TailscaleAddrs(list), nil
 }
 
 // SaveTailscaleAddrs saves addrs in core_meta as a JSON array of address
@@ -6176,7 +6266,7 @@ func TestLeafHandshake(t *testing.T) {
 	if _, err := dial(&tls.Config{ServerName: "other.example"}); !errors.As(err, &unknown) {
 		t.Fatalf("handshake for a name outside the SANs: %v, want a hostname error", err)
 	}
-	if _, err := dial(&tls.Config{MaxVersion: tls.VersionTLS11}); err == nil { //nolint:gosec // G402: an old client must be refused
+	if _, err := dial(&tls.Config{MinVersion: tls.VersionTLS10, MaxVersion: tls.VersionTLS11}); err == nil { //nolint:gosec // G402: an old client must be refused
 		t.Fatal("a TLS 1.1 client completed the handshake")
 	}
 	if cfg := l.TLSConfig(); cfg.MinVersion != tls.VersionTLS12 {
@@ -6569,6 +6659,9 @@ func TestSetUpdateRebindsOnlyTheChange(t *testing.T) {
 	if got := get(t, client, "https://"+boundAddr(t, s, epTS3)+"/"); got != "tls=true" {
 		t.Fatalf("new endpoint answered %q", got)
 	}
+	if gone == boundAddr(t, s, epTS3) {
+		t.Skip("the kernel reused the freed port for the new endpoint")
+	}
 	if _, err := client.Get("https://" + gone + "/"); err == nil {
 		t.Fatal("a removed endpoint still answers")
 	}
@@ -6911,7 +7004,7 @@ git commit -m "feat(listen): serve the handler on a listener set"
 
 **Interfaces:**
 - Consumes: `Spec`, `ParseSpecs`, `HasTailscale`, `Endpoints` (Task 8); `TailscaleInterface`, `TailscaleAddrs`, `InterfaceAddrs`, `SystemInterfaceAddrs`, `LoadTailscaleAddrs`, `SaveTailscaleAddrs` (Task 9); `Authority`, `LoadOrCreateAuthority` (Task 12); `Leaf`, `NewLeaf`, `LeafValidity`, `LeafRenewAfter` (Task 13); `BindFunc` (Task 10); `Set`, `SetConfig`, `Bound`, `NewSet` (Task 14); `core.Clock`, `core.Timer`, `coretest.NewFakeClock`, `store.DB`; the test helpers of Tasks 9, 12 and 14.
-- Produces: Contracts › Task 15 (`CheckInterval`, `Config`, `State`, `Service`, `Start`, `State()`, `Shutdown`, the state messages); plan 4's server starts it and P9's footer route reads `State`.
+- Produces: Contracts › Task 15 (`CheckInterval`, `Config`, `State`, `Service`, `Start`, `State()`, `Shutdown`, the state messages); plan 4's server starts it and logs `State`; the footer route that reports it is obligation 7 for plan 4.
 
 **Items:** 16
 
@@ -6930,6 +7023,7 @@ Create `internal/controller/listen/service_test.go`:
 package listen
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -6946,6 +7040,25 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/coretest"
 	"github.com/darkraise/darkpanel/internal/core/store"
 )
+
+// logBuffer collects the service's log; checks may run on another
+// goroutine during the shutdown test.
+type logBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *logBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *logBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
 
 // fakeInterfaces stands in for SystemInterfaceAddrs.
 type fakeInterfaces struct {
@@ -6984,6 +7097,7 @@ type serviceFixture struct {
 	auth   *Authority
 	ifs    *fakeInterfaces
 	binder *fakeBinder
+	log    *logBuffer
 }
 
 func newServiceFixture(t *testing.T) *serviceFixture {
@@ -6994,7 +7108,7 @@ func newServiceFixture(t *testing.T) *serviceFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &serviceFixture{db: db, clock: clock, auth: a, ifs: &fakeInterfaces{}, binder: &fakeBinder{}}
+	return &serviceFixture{db: db, clock: clock, auth: a, ifs: &fakeInterfaces{}, binder: &fakeBinder{}, log: &logBuffer{}}
 }
 
 func (f *serviceFixture) start(t *testing.T, values ...string) (*Service, error) {
@@ -7005,7 +7119,7 @@ func (f *serviceFixture) start(t *testing.T, values ...string) (*Service, error)
 	}
 	s, err := Start(context.Background(), Config{
 		Specs: specs, Hostname: "panel", DB: f.db, Authority: f.auth, Clock: f.clock,
-		Handler: schemeHandler(), Log: slog.New(slog.DiscardHandler),
+		Handler: schemeHandler(), Log: slog.New(slog.NewTextHandler(f.log, nil)),
 		Interfaces: f.ifs.list, Bind: f.binder.bind,
 	})
 	if err == nil {
@@ -7116,6 +7230,10 @@ func TestServiceFollowsAddressChanges(t *testing.T) {
 	if st.Message != "Serving on Tailscale: https://100.64.0.2:8443, https://[fd7a:115c:a1e0::2]:8443." {
 		t.Fatalf("message = %q", st.Message)
 	}
+	const changed = "listen: Serving on Tailscale: https://100.64.0.2:8443, https://[fd7a:115c:a1e0::2]:8443."
+	if n := strings.Count(f.log.String(), changed); n != 1 {
+		t.Fatalf("the change was logged %d times, want once:\n%s", n, f.log.String())
+	}
 	c, err := s.leaf.GetCertificate(&tls.ClientHelloInfo{})
 	if err != nil || len(c.Leaf.IPAddresses) != 2 || c.Leaf.IPAddresses[0].String() != "100.64.0.2" {
 		t.Fatalf("leaf after the change = %v, %v", c, err)
@@ -7125,6 +7243,9 @@ func TestServiceFollowsAddressChanges(t *testing.T) {
 	f.clock.Advance(CheckInterval)
 	if !s.State().TailscaleBound || savedAddrs(t, f.db) != `["100.64.0.2","fd7a:115c:a1e0::2"]` {
 		t.Fatal("an absent interface dropped the last addresses")
+	}
+	if n := strings.Count(f.log.String(), changed); n != 1 {
+		t.Fatalf("an unchanged state was logged again (%d times)", n)
 	}
 
 	f.ifs.set(true)
@@ -7196,6 +7317,34 @@ func TestServiceShutdownStopsTheChecks(t *testing.T) {
 	f.clock.Advance(time.Minute)
 	if f.ifs.count() != reads || f.clock.Pending() != 0 || len(s.State().Listeners) != 0 {
 		t.Fatal("checks or listeners outlived Shutdown")
+	}
+	if msg := s.State().Message; msg != "The listeners are shut down." {
+		t.Fatalf("message after Shutdown = %q", msg)
+	}
+}
+
+func TestServiceTailscaleOnly(t *testing.T) {
+	f := newServiceFixture(t)
+	s, err := f.start(t, "tailscale")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := s.State()
+	if len(st.Listeners) != 0 || st.TailscaleBound || st.Message != "No Tailscale address found; not serving on the tailnet." {
+		t.Fatalf("state = %v, %v, %q", st.Listeners, st.TailscaleBound, st.Message)
+	}
+
+	f.ifs.set(true, "100.64.0.1")
+	f.binder.mu.Lock()
+	f.binder.fail = map[netip.AddrPort]error{netip.MustParseAddrPort("100.64.0.1:8443"): syscall.EADDRINUSE}
+	f.binder.mu.Unlock()
+	f.clock.Advance(CheckInterval)
+	st = s.State()
+	if st.TailscaleBound || st.Message != "Tailscale addresses found but not bound; see the serve log." {
+		t.Fatalf("state = %v, %q", st.TailscaleBound, st.Message)
+	}
+	if !strings.Contains(f.log.String(), "listen: Tailscale addresses found but not bound; see the serve log.") {
+		t.Fatalf("the refused bind was not logged:\n%s", f.log.String())
 	}
 }
 
@@ -7419,12 +7568,14 @@ func (s *Service) publish(force bool) {
 	bound := s.set.Bound()
 	st := &State{Listeners: bound}
 	var tsURLs []string
-	loopbackOnly := true
+	loopbackOnly, servesLoopback := true, false
 	for _, b := range bound {
 		if slices.Contains(s.addrs, b.Endpoint.Addr.Addr()) {
 			tsURLs = append(tsURLs, b.Endpoint.URL())
 		}
-		if !b.Endpoint.Addr.Addr().IsLoopback() {
+		if b.Endpoint.Addr.Addr().IsLoopback() {
+			servesLoopback = true
+		} else {
 			loopbackOnly = false
 		}
 	}
@@ -7436,7 +7587,7 @@ func (s *Service) publish(force bool) {
 		st.Message = "Serving on Tailscale: " + strings.Join(tsURLs, ", ") + "."
 	case len(s.addrs) > 0:
 		st.Message = "Tailscale addresses found but not bound; see the serve log."
-	case loopbackOnly:
+	case loopbackOnly && servesLoopback:
 		st.Message = "No Tailscale address found; serving loopback only."
 	default:
 		st.Message = "No Tailscale address found; not serving on the tailnet."
@@ -7836,7 +7987,7 @@ git commit -m "feat(api): serve the embedded web UI"
 
 **Items:** 3, 5
 
-**Depends on:** none (Task 7 merged)
+**Depends on:** Task 7
 
 **Implementer:** dr-superpowers:impl-sonnet-medium
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 1 = 4
