@@ -73,9 +73,12 @@ func TestRegistrationRules(t *testing.T) {
 				t.Errorf("action %s of module %s is not in the registry", a.Ref(), m.ID)
 			}
 		}
-		for _, res := range m.Resources {
+		for i, res := range m.Resources {
 			if !resourceRule.MatchString(res.Name) || !strings.HasPrefix(res.Name, m.ID+".") {
 				t.Errorf("resource %s: name must match %s and start with %s.", res.Name, resourceRule, m.ID)
+			}
+			if slices.ContainsFunc(m.Resources[:i], func(r core.ResourceDef) bool { return r.Name == res.Name }) {
+				t.Errorf("resource %s is registered twice", res.Name)
 			}
 			if _, ok := reg.Resource(res.Name); !ok {
 				t.Errorf("resource %s of module %s is not in the registry", res.Name, m.ID)
@@ -253,6 +256,12 @@ func (w *nullWalker) walk(typ reflect.Type, s map[string]any, path string) {
 		case reflect.Map:
 			if values, ok := b["additionalProperties"].(map[string]any); ok {
 				w.walk(typ.Elem(), values, strings.TrimSuffix(path, ".")+"{}.")
+			}
+			patterns, _ := b["patternProperties"].(map[string]any) // integer-keyed maps
+			for _, p := range patterns {
+				if values, ok := p.(map[string]any); ok {
+					w.walk(typ.Elem(), values, strings.TrimSuffix(path, ".")+"{}.")
+				}
 			}
 		case reflect.Struct:
 			if props, ok := b["properties"].(map[string]any); ok {
