@@ -45,6 +45,8 @@ func TestBindSetsFreeBind(t *testing.T) {
 					t.Skip("this host has no IPv6 loopback address")
 				case errors.Is(err, syscall.EPERM):
 					t.Skipf("the kernel refuses the free-bind option to this user: %v", err)
+				case errors.Is(err, syscall.ENOPROTOOPT):
+					t.Skipf("the kernel does not support the free-bind option: %v", err)
 				case err != nil:
 					t.Fatal(err)
 				}
