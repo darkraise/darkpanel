@@ -47,7 +47,7 @@ func (m module) userActions() []core.ActionDef {
 		}, userResetTOTP{m}),
 		core.DefineMutating[UserPasswordInput, auth.User](core.ActionSpec{
 			Name: "core.user.reset-password", Version: 1, Class: core.ClassIrreversible, Side: core.SideController, BreakGlass: true,
-			Summary: "Set a user's password and end its sessions; the confirmation phrase is the username.",
+			Summary: "Set a user's password, end its sessions and revoke its API tokens; the confirmation phrase is the username.",
 		}, userResetPassword{m}),
 		core.DefineMutating[UsernameInput, Empty](core.ActionSpec{
 			Name: "core.user.delete", Version: 1, Class: core.ClassIrreversible, Side: core.SideController, BreakGlass: true,
@@ -163,9 +163,11 @@ func (h userResetPassword) Plan(ctx context.Context, _ core.Env, in UserPassword
 	return core.PlanOutcome{
 		Diff: []core.DiffLine{
 			{Op: "-", Text: fmt.Sprintf("user %s: current password", u.Username)},
-			{Op: "+", Text: fmt.Sprintf("user %s: new password; its sessions end and its API tokens stay", u.Username)},
+			{Op: "+", Text: fmt.Sprintf("user %s: new password; its sessions end and its API tokens are revoked", u.Username)},
 		},
-		Guards:       []core.Guard{},
+		Guards: []core.Guard{},
+		// The diff names no token, so tokens made or revoked after the plan
+		// change nothing it shows: the apply revokes whatever is live then.
 		StateHash:    stateHash(u.ID),
 		Confirmation: u.Username,
 	}, nil
