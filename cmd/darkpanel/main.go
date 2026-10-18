@@ -113,6 +113,9 @@ func newServeCmd() *cobra.Command {
 			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
+			// Releasing the signals once shutdown starts lets a second
+			// interrupt end a shutdown that hangs.
+			context.AfterFunc(ctx, stop)
 			log := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil))
 			return serveRun(ctx, server.Options{Paths: p, Listen: specs, Dev: dev, Log: log})
 		},
