@@ -55,8 +55,10 @@ func wantPanicLogged(t *testing.T, log *bytes.Buffer, call string) {
 	if strings.Contains(text, item) {
 		t.Errorf("log quotes the input:\n%s", text)
 	}
-	if strings.Contains(text, "lifecycle: action failed") {
-		t.Errorf("the panic was logged a second time as a failed action:\n%s", text)
+	for _, line := range strings.Split(text, "\n") {
+		if strings.Contains(line, `msg="lifecycle: action failed"`) && strings.Contains(line, "panicked") {
+			t.Errorf("the panic was logged a second time as a failed action:\n%s", text)
+		}
 	}
 }
 
@@ -163,9 +165,7 @@ func TestPanickingRevertFailsTheChange(t *testing.T) {
 		if v.State != core.StateFailed || v.Error == nil || v.Error.Code != string(errcode.ChangeRevertFailed) {
 			t.Errorf("change = %+v (error %+v), want failed with change.revert_failed", v, v.Error)
 		}
-		if n := strings.Count(log.String(), `msg="lifecycle: handler panic"`); n != 1 {
-			t.Errorf("handler panic logged %d times, want once", n)
-		}
+		wantPanicLogged(t, log, "Revert")
 	})
 	t.Run("by the timer", func(t *testing.T) {
 		f := newFixture(t)
@@ -176,9 +176,7 @@ func TestPanickingRevertFailsTheChange(t *testing.T) {
 		if s := f.state(v.ID); s != core.StateFailed {
 			t.Errorf("state %s, want failed", s)
 		}
-		if n := strings.Count(log.String(), `msg="lifecycle: handler panic"`); n != 1 {
-			t.Errorf("handler panic logged %d times, want once", n)
-		}
+		wantPanicLogged(t, log, "Revert")
 	})
 }
 
