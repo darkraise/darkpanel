@@ -32,7 +32,12 @@ This builds the web UI, then two static Linux binaries with the UI embedded:
 - `bin/darkpanel-linux-arm64`
 
 `bin/darkpanel-linux-amd64 version` prints the version the binary was built
-from.
+from. The commands below call it `darkpanel`; copy the binary for your
+machine's architecture onto your `PATH` under that name:
+
+```sh
+sudo install -m 0755 bin/darkpanel-linux-amd64 /usr/local/bin/darkpanel
+```
 
 ## Run
 
