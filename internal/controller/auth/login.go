@@ -52,6 +52,11 @@ func errInvalidCredentials() *errcode.Error {
 // *RetryAfterError cause, and is not evaluated. Evaluated attempts are
 // audited; a username that fails the pattern is refused before anything
 // else, unaudited.
+//
+// A fault after the password verified (database, sealer or audit write)
+// counts as a failed attempt and is audited with result error and code
+// internal, so an attacker who can provoke faults gains no free guesses at
+// the code. The fault itself is returned, and answers internal.
 func (s *Service) Login(ctx context.Context, r LoginRequest) (LoginResult, error) {
 	if checkUsername(r.Username) != nil {
 		return LoginResult{}, errInvalidCredentials()
@@ -62,18 +67,22 @@ func (s *Service) Login(ctx context.Context, r LoginRequest) (LoginResult, error
 	if err := s.hasher.acquire(ctx); err != nil {
 		return LoginResult{}, err
 	}
-	res, userID, err := s.evaluate(ctx, r)
+	res, userID, verified, err := s.evaluate(ctx, r)
 	s.hasher.release()
 	if err != nil {
-		if errcode.From(err).Code != errcode.InvalidCredentials {
-			return LoginResult{}, err
-		}
-		if aerr := s.recordLogin(ctx, r, userID, errcode.InvalidCredentials); aerr != nil {
-			return LoginResult{}, aerr
+		switch {
+		case errcode.From(err).Code == errcode.InvalidCredentials:
+			if aerr := s.recordLogin(ctx, r, userID, errcode.InvalidCredentials); aerr != nil {
+				return LoginResult{}, aerr
+			}
+		case verified:
+			_ = s.recordLogin(ctx, r, userID, errcode.Internal)
 		}
 		return LoginResult{}, err
 	}
 	if err := s.recordLogin(ctx, r, userID, ""); err != nil {
+		s.limiter.fail(r.Username, r.Source)
+		_ = s.recordLogin(ctx, r, userID, errcode.Internal)
 		return LoginResult{}, err
 	}
 	return res, nil
@@ -87,38 +96,39 @@ func errRateLimited(d time.Duration) error {
 // evaluate runs attempt for a caller holding a hashing slot. The limits are
 // checked again and a failure is counted under the slot: attempts that passed
 // Login's first check while waiting for a slot would otherwise all be
-// evaluated before any of their failures counted.
-func (s *Service) evaluate(ctx context.Context, r LoginRequest) (LoginResult, string, error) {
+// evaluated before any of their failures counted. Invalid credentials and
+// any error after the password verified count as failures.
+func (s *Service) evaluate(ctx context.Context, r LoginRequest) (LoginResult, string, bool, error) {
 	if d := s.limiter.blocked(r.Username, r.Source); d > 0 {
-		return LoginResult{}, "", errRateLimited(d)
+		return LoginResult{}, "", false, errRateLimited(d)
 	}
-	res, userID, err := s.attempt(ctx, r)
-	if err != nil && errcode.From(err).Code == errcode.InvalidCredentials {
+	res, userID, verified, err := s.attempt(ctx, r)
+	if err != nil && (verified || errcode.From(err).Code == errcode.InvalidCredentials) {
 		s.limiter.fail(r.Username, r.Source)
 	}
-	return res, userID, err
+	return res, userID, verified, err
 }
 
 // attempt evaluates a login and returns the matched user's id ("" when none
-// matched). An unknown username still costs one argon2id hash. The caller
-// holds a hashing slot.
-func (s *Service) attempt(ctx context.Context, r LoginRequest) (LoginResult, string, error) {
+// matched) and whether the password verified. An unknown username still
+// costs one argon2id hash. The caller holds a hashing slot.
+func (s *Service) attempt(ctx context.Context, r LoginRequest) (LoginResult, string, bool, error) {
 	rec, err := loadUser(ctx, s.db.Read(), r.Username)
 	if err != nil {
 		if errcode.From(err).Code != errcode.NotFound {
-			return LoginResult{}, "", err
+			return LoginResult{}, "", false, err
 		}
 		if err := s.hasher.verifyDummyHeld(r.Password); err != nil {
-			return LoginResult{}, "", err
+			return LoginResult{}, "", false, err
 		}
-		return LoginResult{}, "", errInvalidCredentials()
+		return LoginResult{}, "", false, errInvalidCredentials()
 	}
 	ok, err := s.hasher.verifyHeld(rec.passwordHash, r.Password)
 	if err != nil {
-		return LoginResult{}, rec.ID, err
+		return LoginResult{}, rec.ID, false, err
 	}
 	if !ok || rec.State != StateActive {
-		return LoginResult{}, rec.ID, errInvalidCredentials()
+		return LoginResult{}, rec.ID, ok, errInvalidCredentials()
 	}
 	var res LoginResult
 	// The code's step is checked and stored in the same write transaction as
@@ -152,7 +162,7 @@ func (s *Service) attempt(ctx context.Context, r LoginRequest) (LoginResult, str
 		res = LoginResult{SessionID: id, CSRFToken: s.CSRFToken(id), ExpiresAt: exp, User: cur.User}
 		return nil
 	})
-	return res, rec.ID, err
+	return res, rec.ID, true, err
 }
 
 // recordLogin audits a login; code is "" for a success. The row is written

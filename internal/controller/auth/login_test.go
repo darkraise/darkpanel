@@ -342,3 +342,103 @@ func TestAuthenticateCredentials(t *testing.T) {
 		}
 	}
 }
+
+var (
+	errSealerDown = errors.New("sealer is down")
+	errAuditDown  = errors.New("audit log is down")
+)
+
+// openFails is a sealer whose Open always fails, so a login with the right
+// password fails inside its write transaction.
+type openFails struct{ coretest.Sealer }
+
+func (openFails) Open(string, []byte) ([]byte, error) { return nil, errSealerDown }
+
+// failingAudit fails its first fail Record calls, then records.
+type failingAudit struct {
+	*coretest.MemAudit
+	fail int
+}
+
+func (a *failingAudit) Record(ctx context.Context, e core.AuditEntry) error {
+	if a.fail > 0 {
+		a.fail--
+		return errAuditDown
+	}
+	return a.MemAudit.Record(ctx, e)
+}
+
+// failures is the number of failures the limiter holds for key.
+func failures(s *Service, key string) int {
+	s.limiter.mu.Lock()
+	defer s.limiter.mu.Unlock()
+	if c, ok := s.limiter.keys[key]; ok {
+		return len(c.failures)
+	}
+	return 0
+}
+
+func TestLoginFaultAfterPasswordCounts(t *testing.T) {
+	s, clock, audit := newTestService(t)
+	ctx := context.Background()
+	u, secret := createActive(t, s, clock, "alice")
+	s.sealer = openFails{}
+	req := LoginRequest{Username: "alice", Password: testPassword, Code: code(t, secret, clock), Source: "10.0.0.1"}
+	for i := range UsernameFailureLimit {
+		_, err := s.Login(ctx, req)
+		if !errors.Is(err, errSealerDown) || errcode.From(err).Code != errcode.Internal {
+			t.Fatalf("attempt %d: error = %v, want the sealer's error, answered internal", i, err)
+		}
+		// The last failure locks the username and clears its count.
+		if n, want := failures(s, usernameKey("alice")), (i+1)%UsernameFailureLimit; n != want {
+			t.Fatalf("attempt %d: %d failures counted for alice, want %d", i, n, want)
+		}
+		entries, _, _ := audit.List(ctx, core.AuditQuery{Limit: 1})
+		e := entries[0]
+		if len(entries) != 1 || e.Actor != "user:"+u.ID || e.Action != AuditLoginAction || e.Phase != "login" ||
+			e.Result != "error" || e.ErrorCode != string(errcode.Internal) || e.Source != "10.0.0.1" ||
+			string(e.Input) != `{"username":"alice"}` {
+			t.Fatalf("attempt %d: audit entry = %+v, want a login error with code internal", i, e)
+		}
+	}
+	_, err := s.Login(ctx, req)
+	wantCode(t, err, errcode.RateLimited)
+
+	_, err = s.Login(ctx, LoginRequest{Username: "bob", Password: testPassword, Code: "000000", Source: "10.0.0.2"})
+	wantCode(t, err, errcode.InvalidCredentials)
+	entries, _, _ := audit.List(ctx, core.AuditQuery{Limit: 1})
+	if entries[0].ErrorCode != string(errcode.InvalidCredentials) {
+		t.Errorf("an unknown user with a failing sealer was audited as %+v, want invalid credentials", entries[0])
+	}
+}
+
+func TestLoginAuditFaultCounts(t *testing.T) {
+	s, clock, _ := newTestService(t)
+	ctx := context.Background()
+	u, secret := createActive(t, s, clock, "alice")
+	audit := &failingAudit{MemAudit: &coretest.MemAudit{}, fail: 1}
+	s.audit = audit
+	_, err := s.Login(ctx, LoginRequest{Username: "alice", Password: testPassword, Code: code(t, secret, clock), Source: "10.0.0.1"})
+	if !errors.Is(err, errAuditDown) || errcode.From(err).Code != errcode.Internal {
+		t.Fatalf("error = %v, want the audit's error, answered internal", err)
+	}
+	if n := failures(s, usernameKey("alice")); n != 1 {
+		t.Errorf("%d failures counted for alice, want 1", n)
+	}
+	entries, _, _ := audit.List(ctx, core.AuditQuery{})
+	if len(entries) != 1 || entries[0].Actor != "user:"+u.ID || entries[0].Result != "error" ||
+		entries[0].ErrorCode != string(errcode.Internal) {
+		t.Errorf("audit = %+v, want one login error with code internal", entries)
+	}
+
+	clock.Advance(TOTPPeriod)
+	s.sealer = openFails{}
+	audit.fail = 1
+	_, err = s.Login(ctx, LoginRequest{Username: "alice", Password: testPassword, Code: code(t, secret, clock), Source: "10.0.0.1"})
+	if !errors.Is(err, errSealerDown) || errors.Is(err, errAuditDown) {
+		t.Errorf("error = %v, want the sealer's error alone when the audit row also fails", err)
+	}
+	if n := failures(s, usernameKey("alice")); n != 2 {
+		t.Errorf("%d failures counted for alice, want 2", n)
+	}
+}
