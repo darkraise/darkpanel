@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"regexp"
@@ -181,6 +182,18 @@ func TestEndToEnd(t *testing.T) {
 	// registry (register row 69, obligation 5).
 	if err := api.CheckOpenAPI(e.s.Registry()); err != nil {
 		t.Fatalf("CheckOpenAPI: %v", err)
+	}
+
+	// The web root serves the embedded UI's index page. Without a built UI
+	// it answers not_found, which is all a checkout without web/dist shows.
+	root := e.do("GET", "/", nil, credentials{})
+	if index, err := fs.ReadFile(api.EmbeddedUI(), "index.html"); err == nil {
+		if root.status != 200 || root.problemCode() == errcode.NotFound || !bytes.Equal(root.body, index) {
+			t.Errorf("GET / = %d %q, want the embedded index.html", root.status, root.body)
+		}
+	} else {
+		t.Logf("the web UI is not built (%v); GET / can only answer not_found", err)
+		e.wantProblem(root, 404, errcode.NotFound)
 	}
 
 	// The first admin is created through the controller socket by the CLI,
