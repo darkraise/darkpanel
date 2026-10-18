@@ -2,9 +2,14 @@
 // line to All and changes nothing else in the core (R5).
 package modules
 
-import "github.com/darkraise/darkpanel/internal/core"
+import (
+	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/modules/hostinfo"
+)
 
 // All returns every compiled-in module in registration order.
 func All() []core.Module {
-	return []core.Module{}
+	return []core.Module{
+		hostinfo.Module(),
+	}
 }

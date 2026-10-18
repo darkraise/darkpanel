@@ -1,0 +1,79 @@
+{
+  "name": "core.user.reset-totp",
+  "version": 1,
+  "class": "irreversible",
+  "side": "controller",
+  "breakGlass": true,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/UsernameInput",
+    "$defs": {
+      "UsernameInput": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+            "description": "The user's name."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "username"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Enrollment",
+    "$defs": {
+      "Enrollment": {
+        "properties": {
+          "user": {
+            "$ref": "#/$defs/User",
+            "description": "The user, pending until core.user.activate confirms a code."
+          },
+          "totpSecret": {
+            "type": "string",
+            "description": "The TOTP secret in unpadded base32, for an authenticator app; shown only once.",
+            "x-secret": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "user",
+          "totpSecret"
+        ]
+      },
+      "User": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "username",
+          "role",
+          "state",
+          "createdAt"
+        ]
+      }
+    }
+  }
+}
