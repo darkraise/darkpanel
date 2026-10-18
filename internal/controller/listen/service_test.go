@@ -299,6 +299,57 @@ func TestServiceShutdownStopsTheChecks(t *testing.T) {
 	if msg := s.State().Message; msg != "The listeners are shut down." {
 		t.Fatalf("message after Shutdown = %q", msg)
 	}
+	const shut = "listen: The listeners are shut down."
+	if n := strings.Count(f.log.String(), shut); n != 1 {
+		t.Fatalf("the shutdown was logged %d times, want once:\n%s", n, f.log.String())
+	}
+	_ = s.Shutdown(context.Background())
+	if n := strings.Count(f.log.String(), shut); n != 1 {
+		t.Fatalf("a second Shutdown logged again (%d times)", n)
+	}
+}
+
+func TestServiceRetriesAFailedSave(t *testing.T) {
+	f := newServiceFixture(t)
+	f.ifs.set(true, "100.64.0.1")
+	s, err := f.start(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := savedAddrs(t, f.db); got != `["100.64.0.1"]` {
+		t.Fatalf("saved = %s", got)
+	}
+	ctx := context.Background()
+	for _, q := range []string{
+		`CREATE TRIGGER dp_refuse_ins BEFORE INSERT ON core_meta BEGIN SELECT RAISE(ABORT, 'refused'); END`,
+		`CREATE TRIGGER dp_refuse_upd BEFORE UPDATE ON core_meta BEGIN SELECT RAISE(ABORT, 'refused'); END`,
+	} {
+		if _, err := f.db.Writer().ExecContext(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	f.ifs.set(true, "100.64.0.2")
+	f.clock.Advance(CheckInterval)
+	if got := savedAddrs(t, f.db); got != `["100.64.0.1"]` {
+		t.Fatalf("saved = %s despite the refusing triggers", got)
+	}
+	if !strings.Contains(f.log.String(), "listen: cannot save the Tailscale addresses") {
+		t.Fatalf("the failed save was not logged:\n%s", f.log.String())
+	}
+	if msg := s.State().Message; msg != "Serving on Tailscale: https://100.64.0.2:8443." {
+		t.Fatalf("message = %q", msg)
+	}
+
+	for _, q := range []string{`DROP TRIGGER dp_refuse_ins`, `DROP TRIGGER dp_refuse_upd`} {
+		if _, err := f.db.Writer().ExecContext(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.clock.Advance(CheckInterval)
+	if got := savedAddrs(t, f.db); got != `["100.64.0.2"]` {
+		t.Fatalf("saved = %s; the failed save was not retried", got)
+	}
 }
 
 func TestServiceTailscaleOnly(t *testing.T) {

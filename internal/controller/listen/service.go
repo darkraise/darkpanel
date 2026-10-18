@@ -54,10 +54,11 @@ type Service struct {
 	set   *Set
 	state atomic.Pointer[State]
 
-	mu     sync.Mutex // serialises checks and Shutdown
-	addrs  []netip.Addr
-	timer  core.Timer
-	closed bool
+	mu      sync.Mutex // serialises checks and Shutdown
+	addrs   []netip.Addr
+	unsaved bool // addrs differ from those saved in core_meta
+	timer   core.Timer
+	closed  bool
 }
 
 // Start binds the listeners and arms the periodic check. With the tailscale
@@ -110,7 +111,10 @@ func (s *Service) Shutdown(ctx context.Context) error {
 	}
 	s.mu.Unlock()
 	err := s.set.Shutdown(ctx)
-	s.state.Store(&State{Message: "The listeners are shut down."})
+	st := &State{Message: "The listeners are shut down."}
+	if prev := s.state.Swap(st); prev == nil || prev.Message != st.Message {
+		s.cfg.Log.Info("listen: " + st.Message)
+	}
 	return err
 }
 
@@ -134,25 +138,24 @@ func (s *Service) check() {
 
 // refresh reads tailscale0. An absent interface means tailscaled is not up,
 // so the last addresses stay bound; a present one replaces them, even with
-// none.
+// none. A failed save is retried at every check.
 func (s *Service) refresh(ctx context.Context) {
 	list, present, err := s.cfg.Interfaces(TailscaleInterface)
 	if err != nil {
 		s.cfg.Log.Warn("listen: cannot read the Tailscale addresses", "err", err)
+	} else if next := TailscaleAddrs(list); present && !slices.Equal(next, s.addrs) {
+		s.cfg.Log.Info("listen: Tailscale addresses changed", "from", s.addrs, "to", next)
+		s.addrs = next
+		s.unsaved = true
+	}
+	if !s.unsaved {
 		return
 	}
-	if !present {
-		return
-	}
-	next := TailscaleAddrs(list)
-	if slices.Equal(next, s.addrs) {
-		return
-	}
-	s.cfg.Log.Info("listen: Tailscale addresses changed", "from", s.addrs, "to", next)
-	s.addrs = next
-	if err := SaveTailscaleAddrs(ctx, s.cfg.DB, next); err != nil {
+	if err := SaveTailscaleAddrs(ctx, s.cfg.DB, s.addrs); err != nil {
 		s.cfg.Log.Warn("listen: cannot save the Tailscale addresses", "err", err)
+		return
 	}
+	s.unsaved = false
 }
 
 func (s *Service) apply(ctx context.Context) error {
