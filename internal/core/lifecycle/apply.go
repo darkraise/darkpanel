@@ -274,7 +274,7 @@ func (e *Engine) run(ctx context.Context, p core.Principal, it *intent) (core.Ch
 		return err
 	})
 	if err == nil {
-		err = e.protect(it.def.Ref(), "Verify", func() error { return h.Verify(ctx, env, it.input, out) })
+		err = e.verify(ctx, it.def, env, it.input, out)
 	}
 	if err != nil {
 		return e.failApply(ctx, p, it, err)

@@ -47,6 +47,8 @@ type fixHost struct {
 	// panicOn names the handler call ("Read", "Plan", "Apply", "Verify",
 	// "Snapshot" or "Revert") that panics while set.
 	panicOn string
+	// onVerify, when set, runs at the start of Verify without mu held.
+	onVerify func(ctx context.Context)
 }
 
 // panicIf panics when call is panicOn. The value quotes the item name, as a
@@ -127,7 +129,10 @@ func (x itemHandler) Apply(_ context.Context, _ core.Env, in itemIn) (itemOut, e
 	return itemOut{Previous: prev, Token: "tok-" + in.Name}, nil
 }
 
-func (x itemHandler) Verify(_ context.Context, _ core.Env, in itemIn, _ itemOut) error {
+func (x itemHandler) Verify(ctx context.Context, _ core.Env, in itemIn, _ itemOut) error {
+	if x.h.onVerify != nil {
+		x.h.onVerify(ctx)
+	}
 	x.h.panicIf("Verify", in.Name)
 	if in.FailVerify {
 		return errcode.New(errcode.Internal, "verify failed")

@@ -47,7 +47,8 @@ type Config struct {
 // Engine runs the change lifecycle of one side over its database. Its methods
 // are safe for concurrent use.
 type Engine struct {
-	cfg Config
+	cfg           Config
+	verifyTimeout time.Duration // VerifyTimeout; tests shorten it
 
 	idMu    sync.Mutex
 	entropy *ulid.MonotonicEntropy
@@ -86,7 +87,10 @@ func New(cfg Config) (*Engine, error) {
 			return nil, fmt.Errorf("lifecycle: Config.%s is required", r.name)
 		}
 	}
-	return &Engine{cfg: cfg, entropy: ulid.Monotonic(rand.Reader, 0), timers: map[string]core.Timer{}}, nil
+	return &Engine{
+		cfg: cfg, verifyTimeout: VerifyTimeout,
+		entropy: ulid.Monotonic(rand.Reader, 0), timers: map[string]core.Timer{},
+	}, nil
 }
 
 // Close stops every armed revert timer and arms no new one. A change whose
