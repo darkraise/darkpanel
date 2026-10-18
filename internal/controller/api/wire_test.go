@@ -256,20 +256,50 @@ func TestSecurityHeaders(t *testing.T) {
 }
 
 func TestRecoverPanics(t *testing.T) {
-	log, logged := testLog()
-	h := recoverPanics(log, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		panic("boom in a handler")
+	cases := []struct {
+		name      string
+		panicWith func()
+		logged    string
+		hidden    string
+	}{
+		{"a value", func() { panic("boom in a handler") }, "panic=string", "boom in a handler"},
+		{"a runtime error", func() {
+			var v any = "boom"
+			_ = v.(int)
+		}, "interface conversion: interface {} is string, not int", ""},
+	}
+	for _, c := range cases {
+		log, logged := testLog()
+		h := recoverPanics(log, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { c.panicWith() }))
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/actions/demo.item.remove/v1/apply", nil))
+		p := decodeProblem(t, rec, 500, errcode.Internal)
+		if strings.Contains(rec.Body.String(), "boom") || strings.Contains(rec.Body.String(), "interface conversion") ||
+			p.Detail != errcode.Internal.Title() {
+			t.Errorf("%s: the panic value reached the client: %s", c.name, rec.Body)
+		}
+		for _, want := range []string{c.logged, "goroutine", "/api/v1/actions/demo.item.remove/v1/apply"} {
+			if !strings.Contains(logged.String(), want) {
+				t.Errorf("%s: log lacks %q: %s", c.name, want, logged)
+			}
+		}
+		if c.hidden != "" && strings.Contains(logged.String(), c.hidden) {
+			t.Errorf("%s: the log carries the panic value", c.name)
+		}
+	}
+}
+
+func TestRecoverPanicsDropsCookies(t *testing.T) {
+	log, _ := testLog()
+	h := recoverPanics(log, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.SetCookie(w, sessionCookie(r, "session-from-a-failed-handler", 0))
+		panic("boom after the cookie")
 	}))
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/actions/demo.item.remove/v1/apply", nil))
-	p := decodeProblem(t, rec, 500, errcode.Internal)
-	if strings.Contains(rec.Body.String(), "boom") || p.Detail != errcode.Internal.Title() {
-		t.Errorf("the panic value reached the client: %s", rec.Body)
-	}
-	for _, want := range []string{"boom in a handler", "goroutine", "/api/v1/actions/demo.item.remove/v1/apply"} {
-		if !strings.Contains(logged.String(), want) {
-			t.Errorf("log lacks %q: %s", want, logged)
-		}
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, loginPath, nil))
+	decodeProblem(t, rec, 500, errcode.Internal)
+	if got := rec.Result().Header.Values("Set-Cookie"); len(got) != 0 {
+		t.Errorf("a panicking handler's cookie was sent: %q", got)
 	}
 }
 
@@ -284,8 +314,8 @@ func TestRecoverPanicsAfterWriteAborts(t *testing.T) {
 		if err, ok := v.(error); !ok || !errors.Is(err, http.ErrAbortHandler) {
 			t.Errorf("recovered %v, want http.ErrAbortHandler", v)
 		}
-		if !strings.Contains(logged.String(), "late boom") {
-			t.Errorf("log lacks the panic: %s", logged)
+		if !strings.Contains(logged.String(), "api: handler panic") || strings.Contains(logged.String(), "late boom") {
+			t.Errorf("log lacks the panic or carries its value: %s", logged)
 		}
 	}()
 	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/v1/changes", nil))

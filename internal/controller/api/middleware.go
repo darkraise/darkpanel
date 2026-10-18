@@ -2,8 +2,10 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"runtime"
 	"runtime/debug"
 	"strings"
 
@@ -65,7 +67,11 @@ func (t *trackingWriter) Unwrap() http.ResponseWriter { return t.ResponseWriter 
 // panic inside the lifecycle engine can leave a change applying until
 // recovery, so it must reach the log. When the response has already started
 // it aborts the connection instead, so the client never takes a truncated
-// answer for a complete one.
+// answer for a complete one. The internal answer drops any Set-Cookie the
+// handler set, so a handler that opened a session and then panicked hands
+// out no session. As in lifecycle.Protect, the panic value is logged only
+// when it is a runtime error; any other value is logged by its type alone,
+// because a handler may have put a credential in it.
 func recoverPanics(log *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tw := &trackingWriter{ResponseWriter: w}
@@ -77,10 +83,15 @@ func recoverPanics(log *slog.Logger, next http.Handler) http.Handler {
 			if err, ok := v.(error); ok && errors.Is(err, http.ErrAbortHandler) {
 				panic(v)
 			}
-			log.Error("api: handler panic", "method", r.Method, "path", r.URL.Path, "panic", v, "stack", string(debug.Stack()))
+			value := fmt.Sprintf("%T", v)
+			if re, ok := v.(runtime.Error); ok {
+				value = re.Error()
+			}
+			log.Error("api: handler panic", "method", r.Method, "path", r.URL.Path, "panic", value, "stack", string(debug.Stack()))
 			if tw.wrote {
 				panic(http.ErrAbortHandler)
 			}
+			w.Header().Del("Set-Cookie")
 			writeProblem(w, log, errcode.New(errcode.Internal, ""))
 		}()
 		next.ServeHTTP(tw, r)
