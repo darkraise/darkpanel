@@ -58,3 +58,14 @@ func (s *Server) handleOpenAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(doc)
 }
+
+// handleListeners answers the listener state for the UI footer (spec section
+// 13) from the source SetListenerState set.
+func (s *Server) handleListeners(w http.ResponseWriter, r *http.Request) {
+	c, _ := callerFrom(r.Context())
+	if err := authorize(c.principal, core.ScopeRead); err != nil {
+		writeProblem(w, s.log, err)
+		return
+	}
+	writeJSON(w, s.log, http.StatusOK, s.listenerState())
+}

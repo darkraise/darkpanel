@@ -76,10 +76,11 @@ func TestOpenAPIRoute(t *testing.T) {
 		t.Fatalf("document: %v %q", err, doc.OpenAPI)
 	}
 	for path, method := range map[string]string{
-		"/healthz":                     "get",
-		"/api/v1/auth/login":           "post",
-		"/api/v1/openapi.json":         "get",
-		"/api/v1/changes/{id}/confirm": "post",
+		"/healthz":                                           "get",
+		"/api/v1/auth/login":                                 "post",
+		"/api/v1/openapi.json":                               "get",
+		"/api/v1/controller/listeners":                       "get",
+		"/api/v1/changes/{id}/confirm":                       "post",
 		"/api/v1/hosts/{host}/actions/demo.item.add/v1/plan": "post",
 		"/api/v1/actions/demo.item.list/v1/read":             "post",
 		"/api/v1/hosts/{host}/resources/demo/status":         "get",
@@ -107,6 +108,7 @@ func TestRoutes(t *testing.T) {
 		{Method: "POST", Path: "/api/v1/changes/{id}/revert"},
 		{Method: "GET", Path: "/healthz", Public: true},
 		{Method: "GET", Path: "/api/v1/openapi.json"},
+		{Method: "GET", Path: "/api/v1/controller/listeners"},
 	}
 	got := Routes()
 	if len(got) != len(want) {
@@ -120,4 +122,46 @@ func TestRoutes(t *testing.T) {
 			t.Errorf("%s %s: Public %v disagrees with routeAccess", r.Method, r.Path, r.Public)
 		}
 	}
+}
+
+func TestListenersRoute(t *testing.T) {
+	h := newHarness(t)
+	session, csrf := h.login()
+	readToken := h.token(core.ScopeRead)
+	const path = "/api/v1/controller/listeners"
+	var recs []*httptest.ResponseRecorder
+
+	rec := h.serve(request("GET", path, ""))
+	recs = append(recs, rec)
+	decodeProblem(t, rec, 401, errcode.AuthRequired)
+
+	rec = h.serve(withToken(request("GET", path, ""), readToken))
+	recs = append(recs, rec)
+	if want := `{"tailscaleBound":false,"message":"The listeners are not started yet."}`; rec.Code != 200 || rec.Body.String() != want ||
+		rec.Header().Get("Cache-Control") != "no-store" {
+		t.Errorf("before the listeners start: %d %s %v, want 200 %s", rec.Code, rec.Body, rec.Header(), want)
+	}
+
+	h.srv.SetListenerState(func() ListenerState {
+		return ListenerState{TailscaleBound: true, Message: "Serving on Tailscale: https://100.64.0.1:8443."}
+	})
+	want := `{"tailscaleBound":true,"message":"Serving on Tailscale: https://100.64.0.1:8443."}`
+	for name, r := range map[string]*http.Request{
+		"read token": withToken(request("GET", path, ""), readToken),
+		"session":    withSession(request("GET", path, ""), session, ""),
+	} {
+		rec := h.serve(r)
+		recs = append(recs, rec)
+		if rec.Code != 200 || rec.Body.String() != want {
+			t.Errorf("%s: %d %s, want 200 %s", name, rec.Code, rec.Body, want)
+		}
+	}
+
+	rec = h.serve(withToken(request("POST", path, ""), readToken))
+	recs = append(recs, rec)
+	decodeProblem(t, rec, http.StatusMethodNotAllowed, errcode.MethodNotAllowed)
+	if rec.Header().Get("Allow") != "GET, HEAD" {
+		t.Errorf("Allow = %q, want GET, HEAD", rec.Header().Get("Allow"))
+	}
+	noCredentials(t, h, recs, map[string]string{"session id": session, "CSRF token": csrf, "read token secret": tokenSecret(readToken)})
 }
