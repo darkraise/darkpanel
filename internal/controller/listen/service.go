@@ -33,6 +33,8 @@ type Config struct {
 	Interfaces InterfaceAddrs
 	// Bind opens the sockets; nil means Bind.
 	Bind BindFunc
+	// OnServeError is SetConfig.OnServeError.
+	OnServeError func(error)
 }
 
 // State is what the UI footer and serve's log report.
@@ -74,7 +76,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		cfg.Interfaces = SystemInterfaceAddrs
 	}
 	s := &Service{cfg: cfg, leaf: NewLeaf(cfg.Authority, cfg.Clock, cfg.Hostname)}
-	s.set = NewSet(SetConfig{Handler: cfg.Handler, TLS: s.leaf.TLSConfig(), Bind: cfg.Bind, Log: cfg.Log})
+	s.set = NewSet(SetConfig{Handler: cfg.Handler, TLS: s.leaf.TLSConfig(), Bind: cfg.Bind, Log: cfg.Log, OnServeError: cfg.OnServeError})
 	if HasTailscale(cfg.Specs) {
 		saved, err := LoadTailscaleAddrs(ctx, cfg.DB)
 		if err != nil {

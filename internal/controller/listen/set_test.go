@@ -255,3 +255,45 @@ func TestSetShutdownIsGraceful(t *testing.T) {
 		t.Fatal("the listener still answers after Shutdown")
 	}
 }
+
+// brokenListener fails every Accept with errBroken.
+type brokenListener struct{ net.Listener }
+
+var errBroken = errors.New("accept is broken")
+
+func (brokenListener) Accept() (net.Conn, error) { return nil, errBroken }
+
+// TestSetReportsAServerThatStopsServing shows that a Serve ending with an
+// error reaches OnServeError, and that a Shutdown does not.
+func TestSetReportsAServerThatStopsServing(t *testing.T) {
+	failed := make(chan error, 2)
+	b := &fakeBinder{}
+	broken := func(ctx context.Context, e Endpoint) (net.Listener, error) {
+		ln, err := b.bind(ctx, e)
+		if err != nil || e != epHTTP {
+			return ln, err
+		}
+		return brokenListener{ln}, nil
+	}
+	cfg, _ := testTLS(t)
+	s := NewSet(SetConfig{Handler: schemeHandler(), TLS: cfg, Bind: broken, OnServeError: func(err error) { failed <- err }})
+	if err := s.Update(context.Background(), []Endpoint{epHTTP, epTS1}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-failed:
+		if !errors.Is(err, errBroken) || !strings.Contains(err.Error(), epHTTP.URL()) {
+			t.Errorf("OnServeError(%v), want the endpoint and the accept error", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("OnServeError was not called")
+	}
+	if err := s.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-failed:
+		t.Errorf("OnServeError(%v) after Shutdown", err)
+	default:
+	}
+}

@@ -34,6 +34,9 @@ type SetConfig struct {
 	Bind BindFunc
 	// Log receives one line per bind, skip and serve failure; nil discards.
 	Log *slog.Logger
+	// OnServeError, when set, receives the error of each server whose Serve
+	// stops other than by a shutdown.
+	OnServeError func(error)
 }
 
 // Bound is one running listener: the endpoint and the address its socket is
@@ -145,6 +148,9 @@ func (s *Set) serve(e Endpoint, ln net.Listener) *running {
 		}
 		if !errors.Is(err, http.ErrServerClosed) {
 			s.cfg.Log.Error("listen: serving stopped", "url", e.URL(), "err", err)
+			if s.cfg.OnServeError != nil {
+				s.cfg.OnServeError(fmt.Errorf("listen: serving %s stopped: %w", e.URL(), err))
+			}
 		}
 	}()
 	return &running{srv: srv, ln: ln}
