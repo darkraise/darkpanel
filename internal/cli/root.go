@@ -92,6 +92,7 @@ func NewRoot(opts Options) (*cobra.Command, error) {
 		}
 	}
 	root.AddCommand(a.changeCommand(), a.controllerCommand())
+	a.wrapEnrollment(root)
 	markRuns(root)
 	return root, nil
 }
