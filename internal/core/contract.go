@@ -308,6 +308,7 @@ type JournalEntry struct {
 	Input     json.RawMessage // already redacted
 	Result    string          // "ok", "error"
 	ErrorCode string
+	Source    string // the acting principal's Source; empty for system actors
 }
 
 // Journal appends lifecycle events inside the change's transaction.

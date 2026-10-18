@@ -185,3 +185,27 @@ func TestJournalOverflowKeepsOneCountingEntry(t *testing.T) {
 		t.Errorf("overflow entry = %+v, want interrupt/error/journal.overflow counting 3 dropped", m)
 	}
 }
+
+func TestJournalKeepsSource(t *testing.T) {
+	ctx := context.Background()
+	db := openDB(t, store.SideAgent)
+	j := NewAgentJournal(db)
+	fromSocket := entry("c1")
+	fromSocket.Source = "socket"
+	appendEntries(t, db, j, fromSocket, entry("c2"))
+
+	got, err := j.Entries(ctx, 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Source != "socket" || got[1].Source != "" {
+		t.Fatalf("entries = %+v, want sources socket and empty", got)
+	}
+	var source string
+	if err := db.Read().QueryRow("SELECT source FROM core_journal WHERE change_id = 'c2'").Scan(&source); err != nil {
+		t.Fatalf("read source column: %v", err)
+	}
+	if source != "" {
+		t.Errorf("stored source of an entry without one = %q, want empty", source)
+	}
+}

@@ -132,9 +132,10 @@ func (j *AgentJournal) overflow(ctx context.Context, tx *sql.Tx, n int, at time.
 
 func insertEntry(ctx context.Context, tx *sql.Tx, e core.JournalEntry) error {
 	_, err := tx.ExecContext(ctx,
-		`INSERT INTO core_journal (at, actor, action, version, phase, change_id, input_json, result, error_code)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		formatTime(e.At), e.Actor, e.Action, e.Version, e.Phase, e.ChangeID, nullJSON(e.Input), e.Result, e.ErrorCode)
+		`INSERT INTO core_journal (at, actor, action, version, phase, change_id, input_json, result, error_code, source)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		formatTime(e.At), e.Actor, e.Action, e.Version, e.Phase, e.ChangeID, nullJSON(e.Input), e.Result, e.ErrorCode,
+		e.Source)
 	if err != nil {
 		return fmt.Errorf("lifecycle: append journal: %w", err)
 	}
@@ -148,7 +149,7 @@ func (j *AgentJournal) Entries(ctx context.Context, afterSeq int64, limit int) (
 		limit = 1000
 	}
 	rows, err := j.db.Read().QueryContext(ctx,
-		`SELECT seq, at, actor, action, version, phase, change_id, input_json, result, error_code
+		`SELECT seq, at, actor, action, version, phase, change_id, input_json, result, error_code, source
 		 FROM core_journal WHERE seq > ? ORDER BY seq LIMIT ?`, afterSeq, limit)
 	if err != nil {
 		return nil, fmt.Errorf("lifecycle: read journal: %w", err)
@@ -160,7 +161,7 @@ func (j *AgentJournal) Entries(ctx context.Context, afterSeq int64, limit int) (
 		var at string
 		var input sql.NullString
 		if err := rows.Scan(&e.Seq, &at, &e.Actor, &e.Action, &e.Version, &e.Phase, &e.ChangeID,
-			&input, &e.Result, &e.ErrorCode); err != nil {
+			&input, &e.Result, &e.ErrorCode, &e.Source); err != nil {
 			return nil, fmt.Errorf("lifecycle: read journal: %w", err)
 		}
 		if e.At, err = parseTime(at); err != nil {
