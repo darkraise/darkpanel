@@ -14,6 +14,9 @@ import (
 type listeners struct {
 	apiServer     *api.Server
 	listenService *listen.Service
+	// serveFailed holds the first error of a listener or of the socket
+	// server that stopped serving on its own.
+	serveFailed chan error
 }
 
 // Listeners are the network listeners currently bound.
@@ -37,6 +40,7 @@ func (s *Server) startListeners(ctx context.Context) error {
 		return err
 	}
 	s.apiServer = srv
+	s.serveFailed = make(chan error, 1)
 
 	specs := s.opts.Listen
 	if specs == nil {
@@ -47,6 +51,7 @@ func (s *Server) startListeners(ctx context.Context) error {
 	svc, err := listen.Start(ctx, listen.Config{
 		Specs: specs, Hostname: s.hostname, DB: s.controllerDB, Authority: authority, Clock: s.clock,
 		Handler: srv.Handler(), Log: s.log, Interfaces: s.opts.Interfaces, Bind: s.opts.Bind,
+		OnServeError: s.serveFailure,
 	})
 	if err != nil {
 		return err
@@ -60,13 +65,24 @@ func (s *Server) startListeners(ctx context.Context) error {
 		return api.ListenerState{TailscaleBound: st.TailscaleBound, Message: st.Message}
 	})
 
-	ln, err := api.ListenSocket(s.opts.Paths.ControllerSocket)
+	listenSocket := s.opts.ListenSocket
+	if listenSocket == nil {
+		listenSocket = api.ListenSocket
+	}
+	ln, err := listenSocket(s.opts.Paths.ControllerSocket)
 	if err != nil {
 		return err
 	}
 	sock := srv.SocketServer()
 	served := make(chan error, 1)
-	go func() { served <- sock.Serve(srv.SocketListener(ln, nil)) }()
+	go func() {
+		err := sock.Serve(srv.SocketListener(ln, nil))
+		if !errors.Is(err, http.ErrServerClosed) {
+			s.log.Error("server: the controller socket stopped serving", "err", err)
+			s.serveFailure(err)
+		}
+		served <- err
+	}()
 	s.onShutdown("controller socket", func(ctx context.Context) error {
 		err := sock.Shutdown(ctx)
 		if serveErr := <-served; !errors.Is(serveErr, http.ErrServerClosed) {
@@ -83,16 +99,38 @@ func (s *Server) startListeners(ctx context.Context) error {
 	return nil
 }
 
-// Run starts a server, serves until ctx ends and then shuts it down, giving
-// the listeners and the socket ShutdownTimeout to finish. It is
-// `darkpanel serve`.
+// serveFailure records err for Run; only the first error is kept.
+func (s *Server) serveFailure(err error) {
+	select {
+	case s.serveFailed <- err:
+	default:
+	}
+}
+
+// Run starts a server, serves until ctx ends or a listener or the socket
+// stops serving on its own, and then shuts it down, giving the listeners and
+// the socket ShutdownTimeout to finish. It returns that serving error joined
+// with Shutdown's. It is `darkpanel serve`.
 func Run(ctx context.Context, opts Options) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	s, err := Start(ctx, opts)
 	if err != nil {
 		return err
 	}
-	<-ctx.Done()
-	stop, cancel := context.WithTimeout(context.WithoutCancel(ctx), ShutdownTimeout)
-	defer cancel()
-	return s.Shutdown(stop)
+	var failed error
+	select {
+	case <-ctx.Done():
+	case failed = <-s.serveFailed:
+		s.log.Error("server: shutting down because a server stopped serving", "err", failed)
+		cancel()
+	}
+	stop, stopCancel := context.WithTimeout(context.WithoutCancel(ctx), ShutdownTimeout)
+	defer stopCancel()
+	err = s.Shutdown(stop)
+	// The socket's shutdown step already reports its serving error.
+	if failed == nil || errors.Is(err, failed) {
+		return err
+	}
+	return errors.Join(failed, err)
 }

@@ -14,7 +14,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/darkraise/darkpanel/internal/controller/api"
 	"github.com/darkraise/darkpanel/internal/controller/auth"
+	"github.com/darkraise/darkpanel/internal/controller/listen"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/coretest"
 )
@@ -212,4 +214,69 @@ func TestDefaultListenValues(t *testing.T) {
 	if !got["http://127.0.0.1:8080"] {
 		t.Errorf("listeners %v, want the loopback default", got)
 	}
+}
+
+// brokenListener fails every Accept with errBroken.
+type brokenListener struct{ net.Listener }
+
+var errBroken = errors.New("accept is broken")
+
+func (brokenListener) Accept() (net.Conn, error) { return nil, errBroken }
+
+// runUntilFailure runs Run with opts and returns its error, failing the test
+// when Run does not return on its own.
+func runUntilFailure(t *testing.T, opts Options) error {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- Run(ctx, opts) }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(30 * time.Second):
+		cancel()
+		<-done
+		t.Fatal("Run did not return after a server stopped serving")
+		return nil
+	}
+}
+
+// TestRunStopsWhenTheSocketFails shows that Run shuts down and returns the
+// error when the controller socket stops serving, and releases the lock.
+func TestRunStopsWhenTheSocketFails(t *testing.T) {
+	opts := testOptions(t)
+	opts.ListenSocket = func(path string) (net.Listener, error) {
+		ln, err := api.ListenSocket(path)
+		if err != nil {
+			return nil, err
+		}
+		return brokenListener{ln}, nil
+	}
+	if err := runUntilFailure(t, opts); !errors.Is(err, errBroken) || !strings.Contains(err.Error(), "controller socket") {
+		t.Fatalf("Run = %v, want the controller socket's accept error", err)
+	}
+	if _, err := os.Stat(opts.Paths.ControllerSocket); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("controller socket after Run: %v, want it removed", err)
+	}
+	opts.ListenSocket = nil
+	start(t, opts)
+}
+
+// TestRunStopsWhenAListenerFails shows that Run shuts down and returns the
+// error when a network listener stops serving.
+func TestRunStopsWhenAListenerFails(t *testing.T) {
+	opts := testOptions(t)
+	opts.Bind = func(ctx context.Context, e listen.Endpoint) (net.Listener, error) {
+		ln, err := localBind(ctx, e)
+		if err != nil {
+			return nil, err
+		}
+		return brokenListener{ln}, nil
+	}
+	if err := runUntilFailure(t, opts); !errors.Is(err, errBroken) || !strings.Contains(err.Error(), "http://127.0.0.1") {
+		t.Fatalf("Run = %v, want the listener's accept error", err)
+	}
+	opts.Bind = localBind
+	start(t, opts)
 }

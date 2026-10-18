@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"sync"
@@ -70,6 +71,8 @@ type Options struct {
 	Bind listen.BindFunc
 	// Interfaces is nil for listen.SystemInterfaceAddrs.
 	Interfaces listen.InterfaceAddrs
+	// ListenSocket is nil for api.ListenSocket.
+	ListenSocket func(path string) (net.Listener, error)
 	// AuthParams is zero for auth.DefaultParams.
 	AuthParams auth.Params
 }
