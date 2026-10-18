@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/coretest"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/core/store"
@@ -243,6 +245,49 @@ func TestResetPassword(t *testing.T) {
 	wantField(t, err, "/password")
 	_, err = s.ResetPassword(ctx, "nobody", next)
 	wantCode(t, err, errcode.NotFound)
+}
+
+func TestResetPasswordRevokesTokens(t *testing.T) {
+	s, clock, _ := newTestService(t)
+	ctx := context.Background()
+	alice, _ := createActive(t, s, clock, "alice")
+	bob, _ := createActive(t, s, clock, "bob")
+	live, liveToken, err := s.CreateToken(ctx, alice.ID, "live", core.ScopeRead, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	early, _, err := s.CreateToken(ctx, alice.ID, "early", core.ScopeRead, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RevokeToken(ctx, alice.ID, early.ID); err != nil {
+		t.Fatal(err)
+	}
+	firstRevoked := clock.Now()
+	bobs, bobsToken, err := s.CreateToken(ctx, bob.ID, "bob", core.ScopeRead, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock.Advance(time.Minute)
+	if _, err := s.ResetPassword(ctx, "alice", "a different long password"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetToken(ctx, alice.ID, live.ID)
+	if err != nil || got.RevokedAt == nil || !got.RevokedAt.Equal(clock.Now()) {
+		t.Errorf("live token after reset = %+v, %v; want revoked at %s", got, err, clock.Now())
+	}
+	got, err = s.GetToken(ctx, alice.ID, early.ID)
+	if err != nil || got.RevokedAt == nil || !got.RevokedAt.Equal(firstRevoked) {
+		t.Errorf("revoked token after reset = %+v, %v; want its first revocation %s kept", got, err, firstRevoked)
+	}
+	_, err = s.Authenticate(ctx, Credentials{Authorization: []string{"Bearer " + liveToken}})
+	wantCode(t, err, errcode.AuthRequired)
+	if got, err := s.GetToken(ctx, bob.ID, bobs.ID); err != nil || got.RevokedAt != nil {
+		t.Errorf("another user's token = %+v, %v; want it untouched", got, err)
+	}
+	if _, err := s.Authenticate(ctx, Credentials{Authorization: []string{"Bearer " + bobsToken}}); err != nil {
+		t.Errorf("another user's token no longer authenticates: %v", err)
+	}
 }
 
 func TestDeleteUser(t *testing.T) {

@@ -270,8 +270,10 @@ func (s *Service) ResetTOTP(ctx context.Context, username string) (User, string,
 	return u, encodeTOTPSecret(key), nil
 }
 
-// ResetPassword sets username's password and ends its sessions. An invalid
-// password is request.invalid_input.
+// ResetPassword sets username's password, ends its sessions and revokes its
+// API tokens, since a token may have leaked with the password (owner
+// decision). A token already revoked keeps its first revocation time. An
+// invalid password is request.invalid_input.
 func (s *Service) ResetPassword(ctx context.Context, username, password string) (User, error) {
 	if err := checkPassword(password); err != nil {
 		return User{}, err
@@ -289,9 +291,14 @@ func (s *Service) ResetPassword(ctx context.Context, username, password string) 
 		if err != nil {
 			return err
 		}
+		now := formatTime(s.now())
 		if _, err := tx.ExecContext(ctx, `UPDATE core_users SET password_hash = ?, updated_at = ? WHERE id = ?`,
-			hash, formatTime(s.now()), r.ID); err != nil {
+			hash, now, r.ID); err != nil {
 			return fmt.Errorf("auth: reset password: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE core_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`,
+			now, r.ID); err != nil {
+			return fmt.Errorf("auth: revoke tokens: %w", err)
 		}
 		u = r.User
 		return endSessions(ctx, tx, r.ID)
