@@ -256,17 +256,28 @@ func withToken(r *http.Request, token string) *http.Request {
 }
 
 // noCredentials fails t when a submitted credential appears in a response
-// body or in the server's log. values maps each credential's role to its
-// value; a failure names the role and never prints the value.
+// body, a response header other than Set-Cookie, or the server's log. values
+// maps each credential's role to its value, which must not be empty; a
+// failure names the role and never prints the value.
 func noCredentials(t *testing.T, h *harness, recs []*httptest.ResponseRecorder, values map[string]string) {
 	t.Helper()
 	for role, v := range values {
 		if v == "" {
+			t.Errorf("the %s to scan for is empty", role)
 			continue
 		}
 		for i, rec := range recs {
 			if strings.Contains(rec.Body.String(), v) {
 				t.Errorf("response %d contains the %s", i, role)
+			}
+			for name, hv := range rec.Header() {
+				// Login sets the session id in its cookie by design.
+				if name == "Set-Cookie" {
+					continue
+				}
+				if strings.Contains(strings.Join(hv, "\n"), v) {
+					t.Errorf("response %d header %s contains the %s", i, name, role)
+				}
 			}
 		}
 		if strings.Contains(h.log.String(), v) {
