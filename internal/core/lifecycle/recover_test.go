@@ -2,7 +2,6 @@ package lifecycle
 
 import (
 	"context"
-	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -23,21 +22,19 @@ func (f *fixture) restart() {
 	f.open()
 }
 
-// crash plans and applies an input whose handler panics in Apply, which
-// stands for the process dying after the intent is persisted and before the
-// result is recorded. It returns the plan and change ids.
+// crash plans and applies an input whose handler stops its goroutine in
+// Apply, which stands for the process dying after the intent is persisted and
+// before the result is recorded. It returns the plan and change ids.
 func (f *fixture) crash(ref core.ActionRef, input string, opts core.ApplyOptions) (planID, changeID string) {
 	f.t.Helper()
 	planID = f.plan(alice, ref, input).PlanID
-	func() {
-		defer func() {
-			r := recover()
-			if err, ok := r.(error); !ok || !errors.Is(err, errCrash) {
-				f.t.Fatalf("recover() = %v, want the simulated crash", r)
-			}
-		}()
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
 		_, _ = f.eng.Apply(context.Background(), alice, planID, opts)
+		f.t.Error("Apply returned; want its goroutine stopped inside the handler")
 	}()
+	<-stopped
 	if err := f.db.Read().QueryRow("SELECT id FROM core_changes WHERE plan_id = ?", planID).Scan(&changeID); err != nil {
 		f.t.Fatal(err)
 	}
@@ -54,7 +51,7 @@ func (f *fixture) recoverAll() {
 func TestRecoverRevertsAnInterruptedRevertibleApply(t *testing.T) {
 	f := newFixture(t)
 	f.host.items["a"] = "old"
-	planID, id := f.crash(refSet, `{"name":"a","value":"1","panicApply":true}`, core.ApplyOptions{})
+	planID, id := f.crash(refSet, `{"name":"a","value":"1","crashApply":true}`, core.ApplyOptions{})
 	if s := f.state(id); s != core.StateApplying || f.count("SELECT count(*) FROM core_locks WHERE owner = ?", id) != 1 {
 		t.Fatalf("after the crash: state %s, want applying with its lock", s)
 	}
@@ -129,7 +126,7 @@ func TestRecoverInterruptsCompensableAndIrreversible(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			f := newFixture(t)
 			ctx := context.Background()
-			planID, id := f.crash(c.ref, `{"name":"a","value":"1","panicApply":true}`, c.opts)
+			planID, id := f.crash(c.ref, `{"name":"a","value":"1","crashApply":true}`, c.opts)
 			if c.mutated {
 				f.host.items["a"] = "1"
 			}

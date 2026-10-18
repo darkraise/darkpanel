@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -20,8 +21,9 @@ import (
 )
 
 // The fixture module "fix" is registered only in these tests. Its host is a
-// map of named items; one handler serves every mutating class, and input
-// flags make it fail, panic or refuse to revert.
+// map of named items; one handler serves every mutating class, input flags
+// make it fail, stop or refuse to revert, and panicOn makes a handler call
+// panic.
 
 const testHost = "host-1"
 
@@ -35,10 +37,6 @@ var (
 	refCtl    = core.ActionRef{Name: "fix.ctl.get", Version: 1}     // controller-side read
 )
 
-// errCrash is what a PanicApply handler panics with: it stands for the
-// process dying between persisting intent and recording the result.
-var errCrash = errors.New("simulated crash")
-
 type fixHost struct {
 	mu      sync.Mutex
 	items   map[string]string
@@ -46,6 +44,20 @@ type fixHost struct {
 	applies int
 	// onSnapshot, when set, runs at the start of Snapshot without mu held.
 	onSnapshot func()
+	// panicOn names the handler call ("Read", "Plan", "Apply", "Verify",
+	// "Snapshot" or "Revert") that panics while set.
+	panicOn string
+}
+
+// panicIf panics when call is panicOn. The value quotes the item name, as a
+// careless handler's panic might quote its input.
+func (h *fixHost) panicIf(call, name string) {
+	h.mu.Lock()
+	on := h.panicOn
+	h.mu.Unlock()
+	if on == call {
+		panic("fixture " + call + " panicked on item " + name)
+	}
 }
 
 type itemIn struct {
@@ -55,7 +67,7 @@ type itemIn struct {
 	FailApply  bool   `json:"failApply,omitempty"`
 	FailVerify bool   `json:"failVerify,omitempty"`
 	FailRevert bool   `json:"failRevert,omitempty"`
-	PanicApply bool   `json:"panicApply,omitempty"`
+	CrashApply bool   `json:"crashApply,omitempty"`
 }
 
 type itemOut struct {
@@ -82,6 +94,7 @@ type getOut struct {
 type itemHandler struct{ h *fixHost }
 
 func (x itemHandler) Plan(_ context.Context, _ core.Env, in itemIn) (core.PlanOutcome, error) {
+	x.h.panicIf("Plan", in.Name)
 	x.h.mu.Lock()
 	defer x.h.mu.Unlock()
 	state, err := json.Marshal(x.h.items)
@@ -97,9 +110,12 @@ func (x itemHandler) Plan(_ context.Context, _ core.Env, in itemIn) (core.PlanOu
 }
 
 func (x itemHandler) Apply(_ context.Context, _ core.Env, in itemIn) (itemOut, error) {
-	if in.PanicApply {
-		panic(errCrash)
+	// CrashApply stops the goroutine without a panic: it stands for the
+	// process dying between persisting intent and recording the result.
+	if in.CrashApply {
+		runtime.Goexit()
 	}
+	x.h.panicIf("Apply", in.Name)
 	if in.FailApply {
 		return itemOut{}, errors.New("apply failed")
 	}
@@ -112,6 +128,7 @@ func (x itemHandler) Apply(_ context.Context, _ core.Env, in itemIn) (itemOut, e
 }
 
 func (x itemHandler) Verify(_ context.Context, _ core.Env, in itemIn, _ itemOut) error {
+	x.h.panicIf("Verify", in.Name)
 	if in.FailVerify {
 		return errcode.New(errcode.Internal, "verify failed")
 	}
@@ -127,6 +144,7 @@ func (x itemHandler) Snapshot(_ context.Context, _ core.Env, in itemIn) ([]byte,
 	if x.h.onSnapshot != nil {
 		x.h.onSnapshot()
 	}
+	x.h.panicIf("Snapshot", in.Name)
 	x.h.mu.Lock()
 	defer x.h.mu.Unlock()
 	v, ok := x.h.items[in.Name]
@@ -138,6 +156,7 @@ func (x itemHandler) Revert(_ context.Context, _ core.Env, snapshot []byte) erro
 	if err := json.Unmarshal(snapshot, &s); err != nil {
 		return err
 	}
+	x.h.panicIf("Revert", s.Name)
 	if s.FailRevert {
 		return errors.New("revert failed")
 	}
@@ -154,6 +173,7 @@ func (x itemHandler) Revert(_ context.Context, _ core.Env, snapshot []byte) erro
 type getHandler struct{ h *fixHost }
 
 func (g getHandler) Read(_ context.Context, env core.Env, in getIn) (getOut, error) {
+	g.h.panicIf("Read", in.Name)
 	g.h.mu.Lock()
 	defer g.h.mu.Unlock()
 	return getOut{Value: g.h.items[in.Name], Actor: env.Principal.Actor, HostID: env.HostID, Token: "tok-" + in.Name}, nil

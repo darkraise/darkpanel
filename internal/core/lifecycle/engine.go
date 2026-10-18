@@ -141,7 +141,12 @@ func (e *Engine) Read(ctx context.Context, p core.Principal, ref core.ActionRef,
 	if err := e.cfg.Validator.ValidateInput(def, input); err != nil {
 		return nil, err
 	}
-	out, err := def.Handler.Read(ctx, e.env(p), input)
+	var out json.RawMessage
+	err = e.protect(ref, "Read", func() error {
+		var err error
+		out, err = def.Handler.Read(ctx, e.env(p), input)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +167,12 @@ func (e *Engine) Plan(ctx context.Context, p core.Principal, ref core.ActionRef,
 	if err != nil {
 		return core.PlanView{}, err
 	}
-	out, err := def.Handler.Plan(ctx, e.env(p), canonical)
+	var out core.PlanOutcome
+	err = e.protect(ref, "Plan", func() error {
+		var err error
+		out, err = def.Handler.Plan(ctx, e.env(p), canonical)
+		return err
+	})
 	if err != nil {
 		return core.PlanView{}, err
 	}

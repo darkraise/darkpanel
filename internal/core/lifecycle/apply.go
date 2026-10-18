@@ -113,7 +113,7 @@ func (e *Engine) begin(ctx context.Context, p core.Principal, planID string, opt
 		return nil, nil, err
 	}
 	env := e.env(p)
-	if err := recheck(ctx, env, def, pl, input); err != nil {
+	if err := e.recheck(ctx, env, def, pl, input); err != nil {
 		return nil, nil, err
 	}
 
@@ -121,7 +121,12 @@ func (e *Engine) begin(ctx context.Context, p core.Principal, planID string, opt
 	var snapshot []byte
 	var deadline any
 	if def.Spec.Class == core.ClassRevertible {
-		raw, err := def.Handler.Snapshot(ctx, env, input)
+		var raw []byte
+		err := e.protect(def.Ref(), "Snapshot", func() error {
+			var err error
+			raw, err = def.Handler.Snapshot(ctx, env, input)
+			return err
+		})
 		if err != nil {
 			return nil, nil, err
 		}
@@ -193,8 +198,13 @@ func confirmTimeout(class core.Class, d time.Duration) (time.Duration, error) {
 // recheck is apply's step 1: the handler plans again from the stored input,
 // and the apply is refused when the state hash changed or a guard that passed
 // now fails (plan.state_changed), or a guard failed (plan.guard_failed).
-func recheck(ctx context.Context, env core.Env, def core.ActionDef, pl planRecord, input json.RawMessage) error {
-	out, err := def.Handler.Plan(ctx, env, input)
+func (e *Engine) recheck(ctx context.Context, env core.Env, def core.ActionDef, pl planRecord, input json.RawMessage) error {
+	var out core.PlanOutcome
+	err := e.protect(def.Ref(), "Plan", func() error {
+		var err error
+		out, err = def.Handler.Plan(ctx, env, input)
+		return err
+	})
 	if err != nil {
 		return err
 	}
@@ -257,9 +267,14 @@ func takeLocks(ctx context.Context, tx *sql.Tx, owner string, keys []string) err
 func (e *Engine) run(ctx context.Context, p core.Principal, it *intent) (core.ChangeView, error) {
 	env := e.env(p)
 	h := it.def.Handler
-	out, err := h.Apply(ctx, env, it.input)
+	var out json.RawMessage
+	err := e.protect(it.def.Ref(), "Apply", func() error {
+		var err error
+		out, err = h.Apply(ctx, env, it.input)
+		return err
+	})
 	if err == nil {
-		err = h.Verify(ctx, env, it.input, out)
+		err = e.protect(it.def.Ref(), "Verify", func() error { return h.Verify(ctx, env, it.input, out) })
 	}
 	if err != nil {
 		return e.failApply(ctx, p, it, err)
@@ -308,12 +323,15 @@ func (e *Engine) failApply(ctx context.Context, p core.Principal, it *intent, ca
 
 // changeError is what a change's error shows: the code and the client-safe
 // detail of an errcode error, and only the title of an internal one, whose
-// cause is logged instead.
+// cause is logged instead (a panic was logged with its stack already).
 func (e *Engine) changeError(ref core.ActionRef, err error) *core.ChangeError {
 	c := errcode.From(err)
 	msg := c.Detail
 	if c.Code == errcode.Internal {
-		e.cfg.Base.Log.Error("lifecycle: action failed", "action", ref.String(), "error", err)
+		var pe *panicError
+		if !errors.As(err, &pe) {
+			e.cfg.Base.Log.Error("lifecycle: action failed", "action", ref.String(), "error", err)
+		}
 		msg = ""
 	}
 	if msg == "" {
@@ -341,7 +359,7 @@ func (e *Engine) runRevert(ctx context.Context, p core.Principal, changeID strin
 	if err != nil {
 		return fmt.Errorf("lifecycle: open snapshot of %s: %w", changeID, err)
 	}
-	return def.Handler.Revert(ctx, e.env(p), snapshot)
+	return e.protect(ref, "Revert", func() error { return def.Handler.Revert(ctx, e.env(p), snapshot) })
 }
 
 // transition is one state change of a change.
