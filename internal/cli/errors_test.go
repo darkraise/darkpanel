@@ -101,6 +101,7 @@ func TestSanitize(t *testing.T) {
 		"evil\u202Etxt.exe":              `evil\u202etxt.exe`,
 		"\u200e\u200f\u202a\u2066\u2069": `\u200e\u200f\u202a\u2066\u2069`,
 		"line\u2028para\u2029":           `line\u2028para\u2029`,
+		"alm\u061cx":                     `alm\u061cx`,
 	}
 	for in, want := range cases {
 		if got := sanitize(in); got != want {

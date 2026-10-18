@@ -151,6 +151,6 @@ func sanitize(s string) string {
 }
 
 func isFormatHazard(r rune) bool {
-	return r == 0x2028 || r == 0x2029 || r == 0x200e || r == 0x200f ||
+	return r == 0x061c || r == 0x2028 || r == 0x2029 || r == 0x200e || r == 0x200f ||
 		(r >= 0x202a && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069)
 }
