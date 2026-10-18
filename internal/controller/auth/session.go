@@ -128,15 +128,22 @@ func (s *Service) authenticateSession(ctx context.Context, id, source string) (I
 		return Identity{}, errAuthRequired()
 	}
 	if now.Sub(seen) >= LastSeenInterval {
+		var touched int64
 		err := s.db.Write(ctx, func(tx *sql.Tx) error {
-			_, err := tx.ExecContext(ctx, `UPDATE core_sessions SET last_seen_at = ? WHERE id_hash = ? AND last_seen_at < ?`,
-				formatTime(now), key, formatTime(now))
+			res, err := tx.ExecContext(ctx, `UPDATE core_sessions SET last_seen_at = ? WHERE id_hash = ? AND last_seen_at <= ?`,
+				formatTime(now), key, formatTime(now.Add(-LastSeenInterval)))
+			if err != nil {
+				return err
+			}
+			touched, err = res.RowsAffected()
 			return err
 		})
 		if err != nil {
 			return Identity{}, fmt.Errorf("auth: touch session: %w", err)
 		}
-		seen = now
+		if touched == 1 {
+			seen = now
+		}
 	}
 	if idle := seen.Add(SessionIdle); idle.Before(exp) {
 		exp = idle
