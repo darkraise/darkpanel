@@ -18,30 +18,43 @@ import (
 // testPassword is a valid password; tests scan outputs and errors for it.
 const testPassword = "correct horse battery staple"
 
-// noSecret fails when any of values, rendered with %+v or as JSON, contains
-// one of secrets.
+// noSecret fails when any of values, rendered with %+v, with Error() or as
+// JSON, contains one of secrets.
 func noSecret(t *testing.T, secrets []string, values ...any) {
 	t.Helper()
-	for _, v := range values {
-		texts := []string{fmt.Sprintf("%+v", v)}
+	if msg := secretLeak(secrets, values...); msg != "" {
+		t.Fatal(msg)
+	}
+}
+
+// secretLeak returns "" when no rendering of values contains one of secrets,
+// else a message naming the first leaking value, its rendering and the
+// secret by position. It never quotes the text, so a failing run does not
+// write the secret into the test log.
+func secretLeak(secrets []string, values ...any) string {
+	for i, v := range values {
+		type rendering struct{ name, text string }
+		texts := []rendering{{"%+v", fmt.Sprintf("%+v", v)}}
+		js := v
 		if err, ok := v.(error); ok {
-			texts = append(texts, err.Error())
+			texts = append(texts, rendering{"Error()", err.Error()})
 			var e *errcode.Error
 			if errors.As(err, &e) {
-				v = e
+				js = e
 			}
 		}
-		if b, err := json.Marshal(v); err == nil {
-			texts = append(texts, string(b))
+		if b, err := json.Marshal(js); err == nil {
+			texts = append(texts, rendering{"JSON", string(b)})
 		}
-		for _, s := range secrets {
-			for _, text := range texts {
-				if s != "" && strings.Contains(text, s) {
-					t.Fatalf("a secret appears in %s", text)
+		for _, r := range texts {
+			for j, s := range secrets {
+				if s != "" && strings.Contains(r.text, s) {
+					return fmt.Sprintf("value %d (%T) rendered as %s contains secret %d", i, v, r.name, j)
 				}
 			}
 		}
 	}
+	return ""
 }
 
 // activeUser creates and activates username through the identity service
@@ -246,4 +259,38 @@ func TestTokenActionsNeedAUser(t *testing.T) {
 	// token change is reported unverified rather than guessed.
 	wantCode(t, e.verify("core.token.create", TokenCreateInput{Name: "ci", Scope: core.ScopeRead}), errcode.Forbidden)
 	wantCode(t, e.verify("core.token.revoke", TokenRevokeInput{ID: "01JZ"}), errcode.Forbidden)
+}
+
+// hidden prints as "hidden" but marshals its value, so only the JSON
+// rendering shows it.
+type hidden struct{ Value string }
+
+func (hidden) String() string { return "hidden" }
+
+func TestSecretLeakNamesPositionsOnly(t *testing.T) {
+	const secret = "s3cret-token-value"
+	type holder struct{ Value string }
+	for _, tc := range []struct {
+		name    string
+		secrets []string
+		values  []any
+		want    string
+	}{
+		{"no leak", []string{"other", secret}, []any{"clean", holder{"clean"}}, ""},
+		{"empty secret ignored", []string{""}, []any{"anything"}, ""},
+		{"struct", []string{"other", secret}, []any{"clean", holder{"x" + secret}},
+			"value 1 (coreactions.holder) rendered as %+v contains secret 1"},
+		{"JSON only", []string{secret}, []any{hidden{secret}},
+			"value 0 (coreactions.hidden) rendered as JSON contains secret 0"},
+		{"error", []string{secret}, []any{errcode.New(errcode.NotFound, "no token "+secret)},
+			"value 0 (*errcode.Error) rendered as %+v contains secret 0"},
+	} {
+		got := secretLeak(tc.secrets, tc.values...)
+		if got != tc.want {
+			t.Errorf("%s: secretLeak = %q, want %q", tc.name, got, tc.want)
+		}
+		if strings.Contains(got, secret) {
+			t.Errorf("%s: the message carries the secret", tc.name)
+		}
+	}
 }
