@@ -233,6 +233,26 @@ func withToken(r *http.Request, token string) *http.Request {
 	return r
 }
 
+// noCredentials fails t when a submitted credential appears in a response
+// body or in the server's log. values maps each credential's role to its
+// value; a failure names the role and never prints the value.
+func noCredentials(t *testing.T, h *harness, recs []*httptest.ResponseRecorder, values map[string]string) {
+	t.Helper()
+	for role, v := range values {
+		if v == "" {
+			continue
+		}
+		for i, rec := range recs {
+			if strings.Contains(rec.Body.String(), v) {
+				t.Errorf("response %d contains the %s", i, role)
+			}
+		}
+		if strings.Contains(h.log.String(), v) {
+			t.Errorf("the log contains the %s", role)
+		}
+	}
+}
+
 // probe records whether it ran and with which caller.
 type probe struct {
 	ran    bool
@@ -353,7 +373,10 @@ func TestCredentialPrecedence(t *testing.T) {
 	session, csrf := h.login()
 	token := h.token(core.ScopeOperate)
 
+	var recs []*httptest.ResponseRecorder
+
 	rec, p := h.through(withSession(withToken(request("GET", "/api/v1/changes", ""), "dpt_bogus"), session, csrf))
+	recs = append(recs, rec)
 	if p.ran {
 		t.Error("an invalid bearer token fell back to the session cookie")
 	}
@@ -363,22 +386,29 @@ func TestCredentialPrecedence(t *testing.T) {
 	r.Header.Add("Authorization", "Bearer "+token)
 	r.Header.Add("Authorization", "Bearer "+token)
 	rec, p = h.through(r)
+	recs = append(recs, rec)
 	if p.ran {
 		t.Error("two Authorization values were accepted")
 	}
 	decodeProblem(t, rec, 401, errcode.AuthRequired)
 
-	_, p = h.through(withSession(withToken(request("GET", "/api/v1/changes", ""), token), "bogus", ""))
+	rec, p = h.through(withSession(withToken(request("GET", "/api/v1/changes", ""), token), "bogus", ""))
+	recs = append(recs, rec)
 	if !p.found || !strings.HasPrefix(p.caller.principal.Actor, "token:") || p.caller.principal.Scope != core.ScopeOperate ||
 		p.caller.identity.FromSession || p.caller.session != "" {
 		t.Errorf("a valid token with a stale cookie: caller %+v, want the token", p.caller)
 	}
+
+	noCredentials(t, h, recs, map[string]string{
+		"session id": session, "CSRF token": csrf, "API token": token, "invalid bearer token": "dpt_bogus"})
 }
 
 func TestCSRF(t *testing.T) {
 	h := newHarness(t)
 	session, csrf := h.login()
 	token := h.token(core.ScopeAdmin)
+	otherCSRF := h.auth.CSRFToken(strings.Repeat("A", 43))
+	var recs []*httptest.ResponseRecorder
 	for _, m := range allMethods {
 		safe := m == "GET" || m == "HEAD" || m == "OPTIONS"
 		for _, tc := range []struct {
@@ -388,11 +418,12 @@ func TestCSRF(t *testing.T) {
 		}{
 			{"session without token", withSession(request(m, "/api/v1/changes", ""), session, ""), safe},
 			{"session with a wrong token", withSession(request(m, "/api/v1/changes", ""), session, csrf+"x"), safe},
-			{"session with another session's token", withSession(request(m, "/api/v1/changes", ""), session, h.auth.CSRFToken(strings.Repeat("A", 43))), safe},
+			{"session with another session's token", withSession(request(m, "/api/v1/changes", ""), session, otherCSRF), safe},
 			{"session with its token", withSession(request(m, "/api/v1/changes", ""), session, csrf), true},
 			{"bearer token without CSRF", withToken(request(m, "/api/v1/changes", ""), token), true},
 		} {
 			rec, p := h.through(tc.r)
+			recs = append(recs, rec)
 			if p.ran != tc.ok {
 				t.Errorf("%s %s: ran %v, want %v (status %d)", m, tc.name, p.ran, tc.ok, rec.Code)
 			}
@@ -404,6 +435,8 @@ func TestCSRF(t *testing.T) {
 			}
 		}
 	}
+	noCredentials(t, h, recs, map[string]string{
+		"session id": session, "CSRF token": csrf, "API token": token, "other session's CSRF token": otherCSRF})
 }
 
 func TestSessionCookiePerListener(t *testing.T) {
