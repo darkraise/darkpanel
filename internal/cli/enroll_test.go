@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/darkraise/darkpanel/internal/controller/auth"
 )
 
@@ -127,7 +129,7 @@ func TestResetTOTPEnrollment(t *testing.T) {
 		t.Errorf("reset-totp: exit %d, out %q, err %q", exit, out, errOut)
 	}
 	_, errOut, exit = cliEnv{stdin: "000000\n"}.run(t, args...)
-	if exit != ExitError || !strings.Contains(errOut, "darkpanel user activate --username ann") {
+	if exit != ExitError || !strings.Contains(errOut, "darkpanel user activate --username ann --socket "+sock) {
 		t.Errorf("wrong code: exit %d, err %q", exit, errOut)
 	}
 }
@@ -144,5 +146,28 @@ func TestResetTOTPRefusesNoncanonicalSecret(t *testing.T) {
 	out, errOut, exit := cliEnv{stdin: "000000\n"}.run(t, "user", "reset-totp", "--username", "ann", "--yes", "--confirmation", "ann", "--socket", sock)
 	if exit == ExitOK || !strings.Contains(errOut, "no valid TOTP secret") || strings.Contains(out, "\r") || strings.Contains(out, "Secret:") {
 		t.Errorf("exit %d, out %q, err %q", exit, out, errOut)
+	}
+}
+
+func TestActivateHintKeepsTheConnectionFlags(t *testing.T) {
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{nil, "darkpanel user activate --username ann"},
+		{[]string{"--dev"}, "darkpanel user activate --username ann --dev"},
+		{[]string{"--socket", "/run/dp.sock"}, "darkpanel user activate --username ann --socket /run/dp.sock"},
+		{[]string{"--dev", "--socket", "/run/dp.sock"}, "darkpanel user activate --username ann --dev --socket /run/dp.sock"},
+		{[]string{"--dev=false"}, "darkpanel user activate --username ann"},
+	}
+	for _, c := range cases {
+		cmd := &cobra.Command{Use: "create"}
+		addConnFlags(cmd, true, false)
+		if err := cmd.ParseFlags(c.args); err != nil {
+			t.Fatal(err)
+		}
+		if got := activateHint(cmd, "ann"); got != c.want {
+			t.Errorf("%v: hint %q, want %q", c.args, got, c.want)
+		}
 	}
 }

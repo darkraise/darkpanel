@@ -106,7 +106,7 @@ func (a *app) runEnrollment(cmd *cobra.Command, def, activate core.ActionDef) er
 	_, _ = fmt.Fprintln(out, "Scan this QR code with an authenticator app, or enter the secret by hand:")
 	qrterminal.GenerateHalfBlock(uri, qrterminal.L, out)
 	_, _ = fmt.Fprintf(out, "URI: %s\nSecret: %s\nThe secret will not be shown again.\n", sanitize(uri), sanitize(en.TOTPSecret))
-	retry := fmt.Sprintf("activate the user with: darkpanel user activate --username %s", username)
+	retry := "activate the user with: " + activateHint(cmd, username)
 	code, err := a.term.secret("Code from the authenticator app: ")
 	if errors.Is(err, io.EOF) {
 		return usagef("no code given; %s", retry)
@@ -124,6 +124,20 @@ func (a *app) runEnrollment(cmd *cobra.Command, def, activate core.ActionDef) er
 	}
 	_, err = fmt.Fprintf(out, "User %s is active and can log in.\n", sanitize(username))
 	return err
+}
+
+// activateHint is the `user activate` command line that finishes the
+// enrollment of username over the same socket as cmd.
+func activateHint(cmd *cobra.Command, username string) string {
+	hint := "darkpanel user activate --username " + username
+	if dev, _ := cmd.Flags().GetBool("dev"); dev && cmd.Flags().Changed("dev") {
+		hint += " --dev"
+	}
+	if cmd.Flags().Changed("socket") {
+		path, _ := cmd.Flags().GetString("socket")
+		hint += " --socket " + path
+	}
+	return hint
 }
 
 // newPassword reads the new user's password: twice on a terminal, without
