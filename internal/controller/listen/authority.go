@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -86,6 +87,9 @@ func LoadOrCreateAuthority(ctx context.Context, db *store.DB, sealer core.Sealer
 			return nil
 		})
 		if err != nil {
+			if !strings.HasPrefix(err.Error(), "listen: web authority") {
+				err = fmt.Errorf("listen: web authority: %w", err)
+			}
 			return nil, err
 		}
 	}

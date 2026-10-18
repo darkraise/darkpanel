@@ -203,3 +203,20 @@ func TestAuthorityRefusesAnotherKeyOrMovedRow(t *testing.T) {
 		t.Fatal("a key sealed for another row id was accepted")
 	}
 }
+
+func TestLoadOrCreateAuthorityWriteErrorPrefixed(t *testing.T) {
+	ctx := context.Background()
+	db := openControllerDB(t)
+	// The reader pool stays open, so the first lookup finds no row and the
+	// failure comes from beginning the write transaction.
+	_ = db.Writer().Close()
+	_, err := LoadOrCreateAuthority(ctx, db, newSealer(t), coretest.NewFakeClock(testStart))
+	if err == nil {
+		t.Fatal("LoadOrCreateAuthority succeeded with a closed writer")
+	}
+	msg := err.Error()
+	if !strings.HasPrefix(msg, "listen: web authority: ") || strings.Count(msg, "listen: web authority") != 1 ||
+		!strings.Contains(msg, "store: begin") {
+		t.Fatalf("error = %q, want one listen: web authority prefix over store: begin", msg)
+	}
+}
