@@ -138,9 +138,13 @@ func TestLogout(t *testing.T) {
 	rec := h.serve(withSession(request("POST", "/api/v1/auth/logout", ""), session, ""))
 	recs = append(recs, rec)
 	decodeProblem(t, rec, 403, errcode.CSRF)
-	if rec := h.serve(withSession(request("GET", "/api/v1/auth/session", ""), session, "")); rec.Code != 200 {
-		t.Fatalf("a refused logout ended the session: %d", rec.Code)
+	// The session route returns the CSRF token, so this response is scanned
+	// without it.
+	sessionRec := h.serve(withSession(request("GET", "/api/v1/auth/session", ""), session, ""))
+	if sessionRec.Code != 200 {
+		t.Fatalf("a refused logout ended the session: %d", sessionRec.Code)
 	}
+	noCredentials(t, h, []*httptest.ResponseRecorder{sessionRec}, map[string]string{"password": testPassword, "session id": session})
 
 	rec = h.serve(withSession(request("POST", "/api/v1/auth/logout", ""), session, csrf))
 	recs = append(recs, rec)
@@ -173,10 +177,13 @@ func TestLogout(t *testing.T) {
 		ck.SameSite != http.SameSiteStrictMode || ck.Path != "/" || ck.Domain != "" || !ck.Expires.IsZero() {
 		t.Errorf("cleared HTTPS cookie %+v", ck)
 	}
-	if rec := h.serve(withToken(request("GET", "/api/v1/auth/session", ""), token)); rec.Code != 200 {
+	rec = h.serve(withToken(request("GET", "/api/v1/auth/session", ""), token))
+	recs = append(recs, rec)
+	if rec.Code != 200 {
 		t.Errorf("logout ended a token: %d", rec.Code)
 	}
-	noCredentials(t, h, recs, map[string]string{"session id": session, "CSRF token": csrf, "token secret": tokenSecret(token)})
+	noCredentials(t, h, recs, map[string]string{"password": testPassword, "session id": session, "CSRF token": csrf,
+		"token secret": tokenSecret(token)})
 }
 
 func TestSessionRoute(t *testing.T) {
@@ -217,15 +224,20 @@ func TestSessionRoute(t *testing.T) {
 func TestAuthRouteMethods(t *testing.T) {
 	h := newHarness(t)
 	token := h.token(core.ScopeRead)
-	decodeProblem(t, h.serve(request("GET", "/api/v1/auth/login", "")), 401, errcode.AuthRequired)
-	rec := h.serve(withToken(request("GET", "/api/v1/auth/login", ""), token))
+	rec := h.serve(request("GET", "/api/v1/auth/login", ""))
+	recs := []*httptest.ResponseRecorder{rec}
+	decodeProblem(t, rec, 401, errcode.AuthRequired)
+	rec = h.serve(withToken(request("GET", "/api/v1/auth/login", ""), token))
+	recs = append(recs, rec)
 	decodeProblem(t, rec, 405, errcode.MethodNotAllowed)
 	if got := rec.Header().Get("Allow"); got != "POST" {
 		t.Errorf("Allow = %q, want POST", got)
 	}
 	rec = h.serve(withToken(request("DELETE", "/api/v1/auth/session", ""), token))
+	recs = append(recs, rec)
 	decodeProblem(t, rec, 405, errcode.MethodNotAllowed)
 	if got := rec.Header().Get("Allow"); got != "GET, HEAD" {
 		t.Errorf("Allow = %q, want GET, HEAD", got)
 	}
+	noCredentials(t, h, recs, map[string]string{"password": testPassword, "token secret": tokenSecret(token)})
 }
