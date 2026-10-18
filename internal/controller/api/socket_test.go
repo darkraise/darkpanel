@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/darkraise/darkpanel/internal/buildinfo"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
@@ -308,6 +310,70 @@ func TestSocketOverUnixSocket(t *testing.T) {
 		if int64(uid) != int64(os.Getuid()) {
 			t.Errorf("peer uids %v, want only %d", seen, os.Getuid())
 		}
+	}
+}
+
+func socketDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "dp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
+func TestListenSocketReplacesStaleSocket(t *testing.T) {
+	path := filepath.Join(socketDir(t), "controller.sock")
+	old, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	old.SetUnlinkOnClose(false)
+	if err := old.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	ln, err := ListenSocket(path)
+	if err != nil {
+		t.Fatalf("ListenSocket over a stale socket: %v", err)
+	}
+	defer func() { _ = ln.Close() }()
+	st, err := os.Stat(path)
+	if err != nil || st.Mode().Perm() != 0o600 {
+		t.Fatalf("socket mode %v, %v; want 0600", st.Mode(), err)
+	}
+}
+
+// A live socket whose backlog is full refuses a probe with EAGAIN, not
+// ECONNREFUSED; ListenSocket must keep it.
+func TestListenSocketKeepsBusySocket(t *testing.T) {
+	path := filepath.Join(socketDir(t), "controller.sock")
+	fd, err := unix.Socket(unix.AF_UNIX, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(fd) })
+	if err := unix.Bind(fd, &unix.SockaddrUnix{Name: path}); err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.Listen(fd, 0); err != nil {
+		t.Fatal(err)
+	}
+	c, err := net.Dial("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+
+	if ln, err := ListenSocket(path); err == nil || !errors.Is(err, unix.EAGAIN) {
+		if ln != nil {
+			_ = ln.Close()
+		}
+		t.Errorf("ListenSocket over a busy socket: %v, want EAGAIN", err)
+	}
+	if st, err := os.Lstat(path); err != nil || st.Mode().Type() != os.ModeSocket {
+		t.Errorf("busy socket after ListenSocket: %v, %v", st, err)
 	}
 }
 

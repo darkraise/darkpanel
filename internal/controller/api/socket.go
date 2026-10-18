@@ -60,16 +60,23 @@ func SocketPeerUID(c net.Conn) (uint32, error) {
 
 // ListenSocket listens on the controller socket at path with mode 0600. It
 // replaces a stale socket file, but refuses a path that is not a socket or
-// that another process still serves. Until the chmod the file has the
-// umask's mode; the peer check on every connection covers that window.
+// that another process still serves. A socket is stale only when connecting
+// to it is refused; any other probe failure, such as a timeout or a full
+// backlog, may come from a live controller, so the file is kept and the
+// error returned. Until the chmod the file has the umask's mode; the peer
+// check on every connection covers that window.
 func ListenSocket(path string) (net.Listener, error) {
 	if st, err := os.Lstat(path); err == nil {
 		if st.Mode().Type() != fs.ModeSocket {
 			return nil, fmt.Errorf("api: %s exists and is not a socket", path)
 		}
-		if c, err := net.DialTimeout("unix", path, time.Second); err == nil {
+		c, err := net.DialTimeout("unix", path, time.Second)
+		if err == nil {
 			_ = c.Close()
 			return nil, fmt.Errorf("api: %s is served by another process", path)
+		}
+		if !errors.Is(err, unix.ECONNREFUSED) {
+			return nil, fmt.Errorf("api: probe %s: %w", path, err)
 		}
 		if err := os.Remove(path); err != nil {
 			return nil, fmt.Errorf("api: remove stale socket: %w", err)
