@@ -16,7 +16,11 @@ type route struct {
 
 // networkRoutes lists the network mux's routes.
 func (s *Server) networkRoutes() []route {
-	return []route{}
+	return []route{
+		{method: http.MethodPost, path: loginPath, summary: "Log in with username, password and TOTP code", public: true, handler: s.handleLogin},
+		{method: http.MethodPost, path: "/api/v1/auth/logout", summary: "Log out and clear the session cookie", handler: s.handleLogout},
+		{method: http.MethodGet, path: "/api/v1/auth/session", summary: "Describe the calling session or token", handler: s.handleSession},
+	}
 }
 
 // Routes returns the hand-written network routes that schema.OpenAPI
