@@ -28,8 +28,8 @@ func (f *fixture) hangVerify() {
 }
 
 func TestVerifyRunsUnderADeadline(t *testing.T) {
-	if VerifyTimeout != 60*time.Second {
-		t.Fatalf("VerifyTimeout = %v, want 60s", VerifyTimeout)
+	if VerifyTimeout != 30*time.Second {
+		t.Fatalf("VerifyTimeout = %v, want 30s", VerifyTimeout)
 	}
 	f := newFixture(t)
 	if f.eng.verifyTimeout != VerifyTimeout {

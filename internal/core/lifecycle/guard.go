@@ -12,8 +12,10 @@ import (
 	"github.com/darkraise/darkpanel/internal/core"
 )
 
-// VerifyTimeout bounds a handler's Verify, in apply and in Recover.
-const VerifyTimeout = 60 * time.Second
+// VerifyTimeout bounds a handler's Verify, in apply and in Recover. It stays
+// below the API servers' 60 s WriteTimeout, so an apply whose Verify hangs
+// can still write its response.
+const VerifyTimeout = 30 * time.Second
 
 // panicError is a recovered handler panic. It carries no errcode, so the API
 // answers internal and a change fails with code internal.
