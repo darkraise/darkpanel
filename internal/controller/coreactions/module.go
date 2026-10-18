@@ -48,6 +48,7 @@ func (m module) Manifest() core.Manifest {
 	for _, group := range [][]core.ActionDef{
 		m.hostActions(),
 		m.moduleActions(),
+		m.tokenActions(),
 	} {
 		actions = append(actions, group...)
 	}
