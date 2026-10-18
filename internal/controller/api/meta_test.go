@@ -53,7 +53,8 @@ func TestHealthz(t *testing.T) {
 	if public.Code != 200 || public.Body.String() != `{"status":"ok"}` {
 		t.Errorf("public health with a failing database: %d %s", public.Code, public.Body)
 	}
-	noCredentials(t, h, recs, map[string]string{"session id": session, "CSRF token": csrf, "read token secret": tokenSecret(readToken)})
+	noCredentials(t, h, recs, map[string]string{"session id": session, "CSRF token": csrf, "read token secret": tokenSecret(readToken),
+		"invalid bearer token": "dpt_bogus", "invalid session id": "bogus"})
 }
 
 func TestOpenAPIRoute(t *testing.T) {
