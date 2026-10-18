@@ -40,8 +40,8 @@ type TokenInfo struct {
 	Scope      core.Scope `json:"scope"`
 	CreatedAt  time.Time  `json:"createdAt"`
 	ExpiresAt  time.Time  `json:"expiresAt"`
-	LastUsedAt *time.Time `json:"lastUsedAt"`
-	RevokedAt  *time.Time `json:"revokedAt"`
+	LastUsedAt *time.Time `json:"lastUsedAt" jsonschema:"nullable"`
+	RevokedAt  *time.Time `json:"revokedAt" jsonschema:"nullable"`
 }
 
 // Identity is the authenticated caller of a request.

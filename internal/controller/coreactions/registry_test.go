@@ -1,6 +1,7 @@
 package coreactions_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"maps"
@@ -9,7 +10,12 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/santhosh-tekuri/jsonschema/v6"
+
+	"github.com/darkraise/darkpanel/internal/controller/auth"
+	"github.com/darkraise/darkpanel/internal/controller/coreactions"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/core/schema"
@@ -142,6 +148,68 @@ func TestCoreActionSecrets(t *testing.T) {
 		}
 		if want := wantOut[a.Spec.Name]; !maps.Equal(out, want) {
 			t.Errorf("%s: secret output fields = %v, want %v", a.Ref(), out, want)
+		}
+	}
+}
+
+// TestCoreNullOutputsMatchSchemas validates outputs whose optional fields are
+// null against the published output schemas, compiled as the production
+// validator compiles input schemas.
+func TestCoreNullOutputsMatchSchemas(t *testing.T) {
+	at := time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC)
+	fresh := auth.TokenInfo{ID: "01TOKEN0000000000000000000", Name: "ci", Scope: core.ScopeRead,
+		CreatedAt: at, ExpiresAt: at.Add(90 * 24 * time.Hour)}
+	revoked := fresh
+	revoked.RevokedAt = &at
+	samples := map[string]any{
+		"core.token.list":   coreactions.TokenList{Tokens: []auth.TokenInfo{fresh}},
+		"core.token.create": coreactions.NewToken{TokenInfo: fresh, Token: "dpt_01TOKEN0000000000000000000_x"}, //nolint:gosec // G101: a test output, not a credential
+		"core.token.revoke": revoked,
+		"core.audit.list": coreactions.AuditList{Entries: []coreactions.AuditEntry{{
+			ID: "00000000000000000000000001", At: at, Actor: "anonymous", Action: "core.auth.login", Version: 1,
+			Phase: "login", Input: coreactions.AuditInput(`{"username":"mallory"}`), Result: "ok",
+		}}},
+		"core.host.list": coreactions.HostList{Hosts: []coreactions.Host{{ID: "h1", Name: "local", IsLocal: true, Online: true,
+			Modules: []coreactions.ModuleState{{ID: "demo", Version: 1}}}}},
+		"core.module.disable": coreactions.ModuleState{ID: "demo", Version: 1},
+	}
+	defs := map[string]core.ActionDef{}
+	for _, a := range coreActions(t) {
+		defs[a.Spec.Name] = a
+	}
+	for name, sample := range samples {
+		def, ok := defs[name]
+		if !ok {
+			t.Fatalf("no core action %s", name)
+		}
+		raw, err := schema.Output(def.OutputType)
+		if err != nil {
+			t.Fatal(err)
+		}
+		doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		url := "urn:darkpanel:output:" + def.Ref().String()
+		c := jsonschema.NewCompiler()
+		c.AssertFormat()
+		if err := c.AddResource(url, doc); err != nil {
+			t.Fatal(err)
+		}
+		sch, err := c.Compile(url)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		out, err := json.Marshal(sample)
+		if err != nil {
+			t.Fatal(err)
+		}
+		inst, err := jsonschema.UnmarshalJSON(bytes.NewReader(out))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := sch.Validate(inst); err != nil {
+			t.Errorf("%s: output %s does not match its schema: %v", name, out, err)
 		}
 	}
 }

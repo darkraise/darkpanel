@@ -28,7 +28,7 @@ type AuditListInput struct {
 // AuditList is the output of core.audit.list/v1.
 type AuditList struct {
 	Entries    []AuditEntry `json:"entries" jsonschema_description:"Matching entries, newest first."`
-	NextBefore *string      `json:"nextBefore" jsonschema_description:"Pass as before to read the next page; null on the last page."`
+	NextBefore *string      `json:"nextBefore" jsonschema:"nullable" jsonschema_description:"Pass as before to read the next page; null on the last page."`
 }
 
 // AuditEntry is one row of the audit log (spec section 12).
@@ -36,15 +36,15 @@ type AuditEntry struct {
 	ID        string     `json:"id" jsonschema_description:"Entry id."`
 	At        time.Time  `json:"at" jsonschema_description:"When the event happened."`
 	Actor     string     `json:"actor" jsonschema_description:"Who acted, such as user:<id>, token:<id>, local:root@<host id>, anonymous or system:recovery."`
-	HostID    *string    `json:"hostId" jsonschema_description:"The host of an agent action; null for controller-side events."`
+	HostID    *string    `json:"hostId" jsonschema:"nullable" jsonschema_description:"The host of an agent action; null for controller-side events."`
 	Action    string     `json:"action" jsonschema_description:"The action, or core.auth.login and core.auth.logout."`
 	Version   int        `json:"version" jsonschema_description:"The action version."`
 	Phase     string     `json:"phase" jsonschema_description:"apply, confirm, revert, recover, interrupt, login or logout."`
-	ChangeID  *string    `json:"changeId" jsonschema_description:"The change; null for logins and logouts."`
+	ChangeID  *string    `json:"changeId" jsonschema:"nullable" jsonschema_description:"The change; null for logins and logouts."`
 	Input     AuditInput `json:"input" jsonschema_description:"The input, with secret fields redacted when it was recorded."`
 	Result    string     `json:"result" jsonschema_description:"ok or error."`
-	ErrorCode *string    `json:"errorCode" jsonschema_description:"The error code of a failed event; null when it succeeded."`
-	Source    *string    `json:"source" jsonschema_description:"The client address, or socket; null when it was not recorded."`
+	ErrorCode *string    `json:"errorCode" jsonschema:"nullable" jsonschema_description:"The error code of a failed event; null when it succeeded."`
+	Source    *string    `json:"source" jsonschema:"nullable" jsonschema_description:"The client address, or socket; null when it was not recorded."`
 }
 
 // AuditInput is an audit entry's input as recorded, already redacted. Its

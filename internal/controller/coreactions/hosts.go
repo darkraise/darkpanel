@@ -22,8 +22,8 @@ type ModuleState struct {
 	Version   int        `json:"version" jsonschema_description:"Module version compiled into this binary."`
 	Enabled   bool       `json:"enabled" jsonschema_description:"Whether an operator enabled the module on the host."`
 	Available bool       `json:"available" jsonschema_description:"Whether the module's migrations and preflight checks passed on the host."`
-	Reason    *string    `json:"reason" jsonschema_description:"Why the module is unavailable; null when it is available."`
-	CheckedAt *time.Time `json:"checkedAt" jsonschema_description:"When availability was last checked; null when it never was."`
+	Reason    *string    `json:"reason" jsonschema:"nullable" jsonschema_description:"Why the module is unavailable; null when it is available."`
+	CheckedAt *time.Time `json:"checkedAt" jsonschema:"nullable" jsonschema_description:"When availability was last checked; null when it never was."`
 }
 
 // Host is a managed host (spec section 12).
