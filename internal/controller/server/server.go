@@ -94,6 +94,7 @@ type Server struct {
 	localHostID      string
 
 	services
+	listeners
 
 	mu       sync.Mutex // serialises Shutdown
 	closers  []closer
@@ -114,7 +115,7 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 	if s.log == nil {
 		s.log = slog.New(slog.DiscardHandler)
 	}
-	for _, step := range []func(context.Context) error{s.openStorage, s.startServices} {
+	for _, step := range []func(context.Context) error{s.openStorage, s.startServices, s.startListeners} {
 		if err := step(ctx); err != nil {
 			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), ShutdownTimeout)
 			defer cancel()
