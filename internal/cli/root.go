@@ -171,7 +171,8 @@ func FindCommand(root *cobra.Command, name string) (*cobra.Command, bool) {
 }
 
 // actionCommand builds the command of an action: its input flags, the
-// connection flags, --host for an agent-side action and --json.
+// connection flags, --host for an agent-side action, --json, and for a
+// mutating action the flags of the mutating flow.
 func (a *app) actionCommand(e entry) (*cobra.Command, error) {
 	def := *e.Action
 	fields, err := inputFields(def.InputType)
@@ -191,9 +192,11 @@ func (a *app) actionCommand(e entry) (*cobra.Command, error) {
 	addInputFlags(cmd, fields)
 	addConnFlags(cmd, def.Spec.BreakGlass, def.Spec.Side == core.SideAgent)
 	cmd.Flags().Bool("json", false, "print the raw JSON output")
-	if def.Spec.Class != core.ClassRead {
-		return nil, nil // no mutating flow yet, so mutating actions get no command
+	if def.Spec.Class == core.ClassRead {
+		cmd.RunE = func(cmd *cobra.Command, _ []string) error { return a.runRead(cmd, def, fields, secrets) }
+		return cmd, nil
 	}
-	cmd.RunE = func(cmd *cobra.Command, _ []string) error { return a.runRead(cmd, def, fields, secrets) }
+	addMutatingFlags(cmd, def.Spec.Class)
+	cmd.RunE = func(cmd *cobra.Command, _ []string) error { return a.runMutating(cmd, def, fields, secrets) }
 	return cmd, nil
 }
