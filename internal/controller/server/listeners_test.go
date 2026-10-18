@@ -21,11 +21,11 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/coretest"
 )
 
-// baseURL is the URL of the server's IPv4 loopback listener.
+// baseURL is the URL of the server's plain HTTP IPv4 loopback listener.
 func baseURL(t *testing.T, s *Server) string {
 	t.Helper()
 	for _, b := range s.Listeners() {
-		if b.Endpoint.Addr.Addr().Is4() {
+		if b.Endpoint.Addr.Addr().Is4() && !b.Endpoint.TLS {
 			return "http://" + b.Addr.String()
 		}
 	}

@@ -8,7 +8,9 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/netip"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -17,6 +19,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/cli"
 	"github.com/darkraise/darkpanel/internal/controller/api"
 	"github.com/darkraise/darkpanel/internal/controller/auth"
+	"github.com/darkraise/darkpanel/internal/controller/listen"
 	"github.com/darkraise/darkpanel/internal/core/coretest"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/core/schema"
@@ -172,6 +175,7 @@ var secretLine = regexp.MustCompile(`(?m)^Secret: ([A-Z2-7]+)$`)
 func TestEndToEnd(t *testing.T) {
 	opts := testOptions(t)
 	opts.Hostname = func() (string, error) { return "e2e-host", nil }
+	opts.Listen = append(opts.Listen, listen.Spec{Kind: listen.KindHTTPS, Addr: netip.MustParseAddrPort("127.0.0.1:0")})
 	e := &e2e{t: t, clock: opts.Clock.(*coretest.FakeClock), home: t.TempDir()}
 	e.s = start(t, opts)
 	e.url = baseURL(t, e.s)
@@ -345,6 +349,58 @@ func TestEndToEnd(t *testing.T) {
 	e.want(e.do("GET", "/healthz", nil, credentials{bearer: token}), 200, &health)
 	if health.Version != "dev" || health.SchemaVersion < 4 {
 		t.Errorf("/healthz with a token = %+v", health)
+	}
+
+	t.Run("https pinned by the CLI", func(t *testing.T) { e.pinnedHTTPS(t, sock, token, summary.Hostname) })
+}
+
+// pinnedHTTPS reads the web CA's fingerprint through the controller socket,
+// pins it in the CLI config file and reads hostinfo.summary with token over
+// the HTTPS listener. Neither an unpinned nor a wrongly pinned CLI connects.
+func (e *e2e) pinnedHTTPS(t *testing.T, sock, token, hostname string) {
+	httpsURL := ""
+	for _, b := range e.s.Listeners() {
+		if b.Endpoint.TLS {
+			httpsURL = "https://" + b.Addr.String()
+		}
+	}
+	if httpsURL == "" {
+		t.Fatalf("no HTTPS listener in %v", e.s.Listeners())
+	}
+	out, errOut, code := e.cli(nil, "", "controller", "web-ca", "--socket", sock, "--json")
+	var ca struct {
+		Fingerprint string `json:"fingerprint"`
+	}
+	if code != cli.ExitOK || json.Unmarshal([]byte(out), &ca) != nil || len(ca.Fingerprint) != 64 {
+		t.Fatalf("darkpanel controller web-ca --json: exit %d\n%s\n%s", code, out, errOut)
+	}
+	dir := filepath.Join(e.home, ".config", "darkpanel")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	config := filepath.Join(dir, "cli.json")
+	defer func() { _ = os.Remove(config) }()
+	pin := func(fingerprint string) {
+		t.Helper()
+		if err := os.WriteFile(config, []byte(`{"caFingerprint":"`+fingerprint+`"}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	env := map[string]string{cli.EnvURL: httpsURL, cli.EnvToken: token}
+	if _, errOut, code := e.cli(env, "", "hostinfo", "summary", "get"); code == cli.ExitOK {
+		t.Errorf("an unpinned CLI connected over HTTPS: %s", errOut)
+	}
+	pin(ca.Fingerprint)
+	out, errOut, code = e.cli(env, "", "hostinfo", "summary", "get", "--json")
+	var got struct {
+		Hostname string `json:"hostname"`
+	}
+	if code != cli.ExitOK || json.Unmarshal([]byte(out), &got) != nil || got.Hostname != hostname {
+		t.Errorf("pinned darkpanel hostinfo summary get --json over %s: exit %d\n%s\n%s", httpsURL, code, out, errOut)
+	}
+	pin(strings.Repeat("0", 64))
+	if _, errOut, code := e.cli(env, "", "hostinfo", "summary", "get"); code == cli.ExitOK || !strings.Contains(errOut, "caFingerprint") {
+		t.Errorf("a wrong pin: exit %d %s, want the fingerprint refused", code, errOut)
 	}
 }
 
