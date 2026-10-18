@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync/atomic"
 
 	"github.com/darkraise/darkpanel/internal/controller/auth"
 	"github.com/darkraise/darkpanel/internal/core"
@@ -66,10 +67,40 @@ type Config struct {
 
 // Server serves the API. Its handlers are safe for concurrent use.
 type Server struct {
-	cfg     Config
-	log     *slog.Logger
-	mux     *http.ServeMux
-	handler http.Handler
+	cfg       Config
+	log       *slog.Logger
+	mux       *http.ServeMux
+	handler   http.Handler
+	listeners atomic.Pointer[func() ListenerState]
+}
+
+// ListenerState is the listener state the UI footer shows (spec section 13):
+// whether a Tailscale listener is bound, and the listener service's message.
+type ListenerState struct {
+	TailscaleBound bool   `json:"tailscaleBound"`
+	Message        string `json:"message"`
+}
+
+const listenersNotStarted = "The listeners are not started yet."
+
+// SetListenerState sets the source of the listener state the API reports.
+// The listener service is started with Handler, so it exists only after New;
+// the source is therefore set late, and may be set while requests are
+// served. A nil source reports that the listeners are not started.
+func (s *Server) SetListenerState(state func() ListenerState) {
+	if state == nil {
+		s.listeners.Store(nil)
+		return
+	}
+	s.listeners.Store(&state)
+}
+
+// listenerState reads the source SetListenerState set.
+func (s *Server) listenerState() ListenerState {
+	if state := s.listeners.Load(); state != nil {
+		return (*state)()
+	}
+	return ListenerState{Message: listenersNotStarted}
 }
 
 // New returns a server for cfg.
