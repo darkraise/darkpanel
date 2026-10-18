@@ -134,14 +134,17 @@ func (l *limiter) allLocked(now time.Time) (time.Duration, bool) {
 	return first, true
 }
 
-// fail records one failed login for username and source.
+// fail records one failed login for username and source. Neither key is
+// evicted to make room for the other: with one free slot they would displace
+// each other on every attempt and neither would count past one failure.
 func (l *limiter) fail(username, source string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.clock.Now()
 	l.prune(now)
-	l.record(usernameKey(username), UsernameFailureLimit, now)
-	l.record(sourceKey(source), SourceFailureLimit, now)
+	u, s := usernameKey(username), sourceKey(source)
+	l.record(u, UsernameFailureLimit, now, s)
+	l.record(s, SourceFailureLimit, now, u)
 }
 
 // prune drops every key left with neither failures inside the window nor a
@@ -173,12 +176,13 @@ func recent(failures []time.Time, now time.Time) []time.Time {
 }
 
 // record counts a failure for key. A new key that finds the table full takes
-// the place of the oldest unlocked key; when every key is locked it is not
-// recorded (blocked refuses such attempts before they are evaluated).
-func (l *limiter) record(key string, limit int, now time.Time) {
+// the place of the oldest unlocked key other than keep; when there is none it
+// is not recorded (when every key is locked, blocked refuses such attempts
+// before they are evaluated).
+func (l *limiter) record(key string, limit int, now time.Time, keep string) {
 	c, ok := l.keys[key]
 	if !ok {
-		if len(l.keys) >= l.max && !l.dropOldestUnlocked(now) {
+		if len(l.keys) >= l.max && !l.dropOldestUnlocked(now, keep) {
 			return
 		}
 		c = &counter{key: key}
@@ -194,9 +198,9 @@ func (l *limiter) record(key string, limit int, now time.Time) {
 	}
 }
 
-func (l *limiter) dropOldestUnlocked(now time.Time) bool {
+func (l *limiter) dropOldestUnlocked(now time.Time, keep string) bool {
 	for e := l.order.Front(); e != nil; e = e.Next() {
-		if c := e.Value.(*counter); !c.locked(now) {
+		if c := e.Value.(*counter); !c.locked(now) && c.key != keep {
 			l.remove(c)
 			return true
 		}

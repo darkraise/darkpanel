@@ -194,6 +194,27 @@ func TestFullOfLockedKeysFailsClosed(t *testing.T) {
 	}
 }
 
+func TestOneFailureKeepsItsOwnKeys(t *testing.T) {
+	clock := coretest.NewFakeClock(t0)
+	l := newLimiter(clock)
+	for range SourceFailureLimit {
+		l.fail("bob", "10.0.0.1") // u:bob and s:10.0.0.1 locked until t0+15m
+	}
+	l.max = 3
+	for i := range UsernameFailureLimit {
+		if d := l.blocked("carol", "10.0.0.9"); d != 0 {
+			t.Fatalf("attempt %d with one free slot: blocked for %s, want allowed", i+1, d)
+		}
+		l.fail("carol", "10.0.0.9")
+	}
+	if d := l.blocked("carol", "10.0.0.9"); d != LockDuration {
+		t.Errorf("after %d failures with one free slot: blocked for %s, want %s", UsernameFailureLimit, d, LockDuration)
+	}
+	if c := l.keys["u:carol"]; c == nil || !c.locked(clock.Now()) {
+		t.Error("the username's counter was evicted by its own failures")
+	}
+}
+
 func TestSourceKey(t *testing.T) {
 	for _, tt := range []struct{ in, want string }{
 		{"10.0.0.1", "s:10.0.0.1"},
