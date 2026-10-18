@@ -3,6 +3,7 @@ package dispatch
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"testing"
 	"time"
@@ -151,6 +152,21 @@ func TestApplyRefusesAModuleDisabledAfterThePlan(t *testing.T) {
 	}
 }
 
+func TestApplyRefusedForAnotherPrincipalKeepsThePlanMarked(t *testing.T) {
+	h, d := newDispatcher(t)
+	ctx := context.Background()
+	pl := h.plan(d, testHost, refSet, `{"name":"a","value":"1"}`)
+	mallory := core.Principal{Actor: "user:mallory", UserID: "mallory", Scope: core.ScopeOperate, Source: "192.0.2.9"}
+	_, err := d.Apply(ctx, mallory, testHost, refSet, pl.PlanID, core.ApplyOptions{})
+	_ = wantCode(t, err, errcode.PlanPrincipalMismatch)
+	if n := h.count("SELECT applied FROM core_plan_index WHERE plan_id = ?", pl.PlanID); n != 1 {
+		t.Errorf("applied after another principal's refusal = %d, want 1", n)
+	}
+	if _, err := d.Apply(ctx, alice, testHost, refSet, pl.PlanID, core.ApplyOptions{}); err != nil {
+		t.Errorf("Apply by the planner: %v", err)
+	}
+}
+
 func TestApplyOfAnExpiredPlanIsExpired(t *testing.T) {
 	h, d := newDispatcher(t)
 	pl := h.plan(d, "", refCtlSet, `{"name":"n","value":"x"}`)
@@ -159,6 +175,40 @@ func TestApplyOfAnExpiredPlanIsExpired(t *testing.T) {
 	_ = wantCode(t, err, errcode.PlanExpired)
 	if n := h.count("SELECT applied FROM core_plan_index WHERE plan_id = ?", pl.PlanID); n != 0 {
 		t.Errorf("applied after a failed apply = %d, want 0", n)
+	}
+}
+
+// lostReply is an agent whose apply commits the change and then loses the
+// reply, as a dropped connection would.
+type lostReply struct{ core.AgentClient }
+
+func (c lostReply) Apply(ctx context.Context, p core.Principal, planID string, opts core.ApplyOptions) (core.ChangeView, error) {
+	if _, err := c.AgentClient.Apply(ctx, p, planID, opts); err != nil {
+		return core.ChangeView{}, err
+	}
+	return core.ChangeView{}, errors.New("connection reset")
+}
+
+func TestApplyKeepsThePlanWhenTheReplyIsLost(t *testing.T) {
+	h, d := newDispatcher(t)
+	ctx := context.Background()
+	pl := h.plan(d, testHost, refSet, `{"name":"a","value":"1"}`)
+	h.hosts.Add(testHost, lostReply{h.rt})
+	if _, err := d.Apply(ctx, alice, testHost, refSet, pl.PlanID, core.ApplyOptions{}); err == nil {
+		t.Fatal("Apply with a lost reply succeeded")
+	}
+	if n := h.count("SELECT applied FROM core_plan_index WHERE plan_id = ?", pl.PlanID); n != 1 {
+		t.Errorf("applied after a lost reply = %d, want 1", n)
+	}
+	h.hosts.Add(testHost, h.rt)
+	h.clock.Advance(lifecycle.PlanTTL + PlanIndexRetention + time.Second)
+	_ = h.plan(d, "", refCtlSet, `{"name":"n","value":"x"}`)
+	v, err := d.Apply(ctx, alice, testHost, refSet, pl.PlanID, core.ApplyOptions{})
+	if err != nil || v.ID == "" {
+		t.Fatalf("repeated apply = %+v, %v; want the committed change", v, err)
+	}
+	if n := h.count("SELECT count(*) FROM core_change_index WHERE change_id = ?", v.ID); n != 1 {
+		t.Errorf("index rows of the change = %d, want 1", n)
 	}
 }
 

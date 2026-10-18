@@ -39,7 +39,7 @@ func (d *Dispatcher) Apply(ctx context.Context, p core.Principal, hostID string,
 		return core.ChangeView{}, err
 	}
 	v, err := apply()
-	if err != nil && v.ID == "" && claimed {
+	if err != nil && v.ID == "" && claimed && noChange(err) {
 		if err := d.unmarkApplied(context.WithoutCancel(ctx), planID); err != nil {
 			d.cfg.Log.Error("dispatch: unmark plan", "plan", planID, "error", err)
 		}
@@ -91,6 +91,15 @@ func (d *Dispatcher) markApplied(ctx context.Context, planID string) (bool, erro
 		return false, fmt.Errorf("dispatch: mark plan %s: %w", planID, err)
 	}
 	return claimed, nil
+}
+
+// noChange reports whether err shows that the apply recorded no change. A lost
+// reply or an internal error may follow a committed change, and
+// plan.principal_mismatch is checked before the plan's change is looked up, so
+// another principal's concurrent apply may hold one.
+func noChange(err error) bool {
+	c := errcode.From(err).Code
+	return c != errcode.Internal && c != errcode.PlanPrincipalMismatch
 }
 
 // unmarkApplied clears the applied flag that markApplied set.
