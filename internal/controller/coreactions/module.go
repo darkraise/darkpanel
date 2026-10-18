@@ -47,6 +47,7 @@ func (m module) Manifest() core.Manifest {
 	var actions []core.ActionDef
 	for _, group := range [][]core.ActionDef{
 		m.hostActions(),
+		m.moduleActions(),
 	} {
 		actions = append(actions, group...)
 	}
