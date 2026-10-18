@@ -12,6 +12,8 @@
 
 **Execution:** subagent — `claude --model sonnet --effort high` — the plan runs parallel waves (31 of its 43 tasks are heavy).
 
+**Plan review:** 2026-10-18 — dr-superpowers:judge-opus — executability 17 / coherence 15 / coverage 15 / assumptions 16 (round 2)
+
 **Parallelism:** waves — 1-3 | 4 | 5 | 6 | 7-9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19-21 | 22 | 23-24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35-36 | 37 | 38 | 39 | 40-42 | 43
 
 **Integration check:** `timeout 1500 make check`
@@ -37,10 +39,10 @@
 - Never commit `.superpowers/`.
 - English only. Commits use `<type>(<scope>): <subject>` with type one of feat, fix, docs, style, refactor, test, chore, perf; the whole first line is at most 50 characters, imperative, no trailing period; no AI attribution of any kind.
 - P11 (Tasks 4, 5, 7, 10, 11, 12, 13, 14, 19, 23, 25, 26 and 27): the part owns `internal/controller/audit/`, `internal/controller/dispatch/`, `internal/agent/runtime/`, `internal/core/schema/redact.go` and `redact_test.go`, and the migrations `internal/core/store/migrations/controller/0004_audit.sql` and `internal/core/store/migrations/agent/0004_journal_source.sql`. Its edits to `internal/core/contract.go` (only `JournalEntry.Source`) and to `internal/core/lifecycle/` (Source propagation, `Protect`, `VerifyTimeout`) are additive: no existing exported signature changes. It edits nothing in `internal/controller/api`, `auth`, `coreactions`, `listen`, `internal/cli`, `cmd/`, `internal/modules/modules.go`, `.golangci.yml`, `Makefile` or `go.mod`.
-- P11: `core_audit` and `core_journal_cursor` are read and written only through `internal/controller/audit`; `core_change_index` only through `internal/controller/dispatch`. The controller never deletes `core_audit` rows. Audit inputs are stored exactly as given: the engine and `auth` hand them over already redacted.
+- P11: `core_audit` and `core_journal_cursor` are read and written only through `internal/controller/audit`; `core_change_index` and `core_plan_index` only through `internal/controller/dispatch`. The controller never deletes `core_audit` rows. Audit inputs are stored exactly as given: the engine and `auth` hand them over already redacted.
 - P11: `dispatch.Hosts` writes `core_module_state` only from an agent's `Hello`: `available`, `reason` and `checked_at` of existing rows, and whole rows (with `enabled` from the module's `DefaultEnabled`) for modules that have none. It never changes `enabled` on an existing row; only `core.module.enable` and `core.module.disable` do.
 - P11: a module is usable on a host only when its `core_module_state` row has `enabled = 1` and `available = 1`. Every agent action and resource of another module answers `module.unavailable`; controller-side actions are never refused as unavailable; `Confirm` and `Revert` are never refused as unavailable (a pending change must stay settleable).
-- P11 (register row 69, obligation 1): `Dispatcher.Apply` runs only a plan id that the same dispatcher's `Plan` indexed for exactly that host and action reference; any other plan id is `plan.not_found`. A later change must not weaken this.
+- P11 (register row 69, obligation 1): `Dispatcher.Apply` runs only a plan id that `Dispatcher.Plan` recorded in `core_plan_index` for exactly that host and action reference; any other plan id is `plan.not_found`. A later change must not weaken this.
 - P11 (register row 69, obligation 2): `Dispatcher.Change`, `Confirm` and `Revert` act on the change that the controller engine holds, else on the change of the host that `core_change_index` names, and a view whose `HostID` differs from that host is refused.
 - P11 (register row 69, obligation 3): every `*errcode.Error` below status 500 that dispatch or the runtime creates carries only module ids, host ids, action references, plan and change ids, the fixed reasons (`ReasonDisabled`, `ReasonMigrationFailed`, `coreactions.ReasonNotReported`) and the module-authored preflight reason. A migration error is logged and never returned. Agent errors that are not `*errcode.Error` pass through as plain errors.
 - P11: every handler call the lifecycle engine makes (Read, Plan, Apply, Verify, Snapshot, Revert) and every resource read and preflight check the runtime makes runs inside `lifecycle.Protect`. A panic is logged once, with the stack, and its value only when it is a `runtime.Error`; it is never logged with the handler's input.
@@ -67,8 +69,8 @@
 - P14 (Tasks 21, 35, 36, 37, 38, 39, 40, 41, 42 and 43, assembly): the part owns `internal/controller/server/` (new), `cmd/darkpanel/`, `internal/modules/modules.go` and `internal/modules/*_test.go`, the generated `schemas/` directory, `README.md`, `CONTRIBUTING.md` and the wording of `docs/adr/0010-web-certificate-authority.md`, and it deletes `internal/deps/`. It edits no other package, adds no migration, no error code and no dependency, and `go.mod`/`go.sum` stay byte-identical (`go mod tidy -diff` prints nothing after Task 36).
 - P14: `server.Start` runs its three steps in this order and only this order: `openStorage` (Task 37: directories, socket-directory check, keys, lock, databases, controller migrations, local host), `startServices` (Task 38: audit store, identity, registry, agent runtime, Hello, controller engine, Recover, purges, ingester, dispatcher), `startListeners` (Task 39: web authority, API, listener service, listener-state source, controller socket). Each acquisition registers its stop with `onShutdown` right after it succeeds, and nothing else stops it.
 - P14 (register row 74): `Shutdown` runs the registered stops in reverse, one at a time, under one mutex; a second call, concurrent or later, waits and returns the first call's result. No code calls `listen.Service.Shutdown`, `http.Server.Shutdown` of the socket, `Engine.Close`, `Runtime.Close`, `Ingester.Stop` or a database's `Close` except through these stops.
-- P14 (register rows 69 obligation 4, 76): the controller socket's directory is checked (a directory, no group or other write bit, owned by the effective uid) before anything is created in it, and an exclusive `flock` on `controller.lock` in the socket's directory and in both data directories (`Paths.ControllerDir`, `Paths.AgentDir`) is taken before either database is opened or the socket is touched, so two serves that share the socket or a database refuse each other. The lock files are never deleted.
-- P14: the server builds exactly one registry, `registry.BuildWith(coreactions.Module(coreactions.Deps{Auth, Audit, Modules: modules.All()}))`, and hands it to the agent runtime, `dispatch.Hosts`, the controller engine, the dispatcher and the API. The CLI, the schema generator and the tests use `registry.Build()`; `TestServerRegistryHasTheSameShape` keeps the two identical.
+- P14 (register rows 69 obligation 4, 76): the controller socket's directory is checked (a directory, no group or other write bit, owned by the effective uid) before anything is created in it, and an exclusive `flock` on `controller.lock` in the socket's directory and in both data directories (`Paths.ControllerDir`, `Paths.AgentDir`) is taken before either database is opened or the socket is touched, so two serves that share the socket or a database refuse each other. The lock files are never deleted. A `Shutdown` whose context ran out after a step failed (a listener or the socket still serving) keeps the locks until the process exits, so no other serve recovers a change that a request still running may be changing.
+- P14: the server builds exactly one registry, `registry.BuildWith(coreactions.Module(coreactions.Deps{Auth, Audit, Modules: modules.All()}))`, and hands it to the agent runtime, `dispatch.Hosts`, the controller engine, the dispatcher and the API. The CLI, the schema generator and the tests use `registry.Build()`; `TestServerRegistryHasTheSameShape` (Task 35) and `TestServerRegistryMatchesBuild` (Task 38, over the started server's `Registry()`) keep the two identical.
 - P14 (register row 52): key, database, backup and socket paths come only from `server.Options.Paths` (`paths.Paths`). Production passes `paths.Resolve(dev)`, a text `slog` logger on standard error as `Log`, and nil or zero for every other override (`Clock`, `Hostname`, `Bind`, `Interfaces`, `AuthParams`). Tests pass `coretest.FakeClock`, `localBind` (every endpoint on `127.0.0.1:0`), a socket under `os.MkdirTemp("", "dp")` and cheap argon2id parameters.
 - P14: `schemas/` changes only through `make schemas`, in the same commit as the type change that causes it; `go test ./internal/modules/` fails while a snapshot is missing, stale or orphaned. `schemas/released/` is never written by the generator.
 - P14 (register row 70): every pointer field of a registered action's or resource's output type carries `jsonschema:"nullable"`; `TestPointerOutputsAreNullable` enforces it for every module a later plan registers.
@@ -104,7 +106,7 @@ The foundation's names (`core`, `store`, `errcode`, `coretest`, `registry`, `pat
 **`internal/controller/audit`** (package `audit`, Tasks 12 and 13)
 
 - Task 12 (`audit.go`, carries the package doc comment; migration `0004_audit.sql`):
-  - Tables: `core_audit (id TEXT PRIMARY KEY, seq INTEGER, at TEXT, actor TEXT, host_id TEXT, action TEXT, version INTEGER, phase TEXT CHECK in apply/confirm/revert/recover/interrupt/login/logout, change_id TEXT, input_json TEXT, result TEXT CHECK ok/error, error_code TEXT, source TEXT)` with `UNIQUE INDEX core_audit_host_seq (host_id, seq)`; `core_journal_cursor (host_id TEXT PRIMARY KEY, acked_seq INTEGER)`; `core_change_index (change_id TEXT PRIMARY KEY, host_id, action, version, created_at)` with index `core_change_index_host`. All STRICT; empty strings, a zero seq and an empty input are stored as NULL.
+  - Tables: `core_audit (id TEXT PRIMARY KEY, seq INTEGER, at TEXT, actor TEXT, host_id TEXT, action TEXT, version INTEGER, phase TEXT CHECK in apply/confirm/revert/recover/interrupt/login/logout, change_id TEXT, input_json TEXT, result TEXT CHECK ok/error, error_code TEXT, source TEXT)` with `UNIQUE INDEX core_audit_host_seq (host_id, seq)`; `core_journal_cursor (host_id TEXT PRIMARY KEY, acked_seq INTEGER)`; `core_change_index (change_id TEXT PRIMARY KEY, host_id, action, version, created_at)` with index `core_change_index_host`; `core_plan_index (plan_id TEXT PRIMARY KEY, host_id TEXT NOT NULL ('' for a controller-side plan), action TEXT NOT NULL, version INTEGER NOT NULL, expires_at TEXT NOT NULL, applied INTEGER NOT NULL DEFAULT 0 CHECK (applied IN (0, 1)))` with index `core_plan_index_expires (expires_at)`, written and read only by `internal/controller/dispatch`; `TestAuditTables` also checks that `core_plan_index` exists and that `applied` defaults to 0. All STRICT; empty strings, a zero seq and an empty input are stored as NULL.
   - `const DefaultListLimit = 100`, `MaxListLimit = 500`.
   - `type Store struct` (safe for concurrent use); `var _ core.Audit = (*Store)(nil)`; `func New(db *store.DB, clock core.Clock) *Store` (`clock` stamps entries whose `At` is zero).
   - `(*Store) Append(ctx, tx *sql.Tx, e core.JournalEntry) error`: the controller engine's `core.Journal`; inserts inside the change's transaction a row with null `host_id` and `seq`, `source` from `e.Source`.
@@ -148,23 +150,24 @@ The foundation's names (`core`, `store`, `errcode`, `coretest`, `registry`, `pat
   - Unexported `(*Hosts).usable(ctx, hostID, moduleID) error`: nil when the row has `enabled = 1` and `available = 1`; otherwise `module.unavailable` with detail `module <m> is unavailable on host <h>: <reason>`, the reason being `ReasonDisabled` (enabled 0, whatever the availability), the row's reason, or `coreactions.ReasonNotReported` without a row.
   - Test helpers in `fixture_test.go`, used by Tasks 25, 26 and 27: modules `kv` (as in the runtime), `bad`, `off` (not `DefaultEnabled`), `flaky` (preflight always fails), `ctl` (controller-side `ctl.note.get` read and `ctl.note.set` compensable by itself); `t0`, `testHost` (`h1`), `refGet`, `refSet`, `refCtlGet`, `refCtlSet`, `harness{t, clock, reg, db, agentDB, rt, hosts}`, `newHarness(t)` (migrated controller database with local host `h1`, a real `runtime.Runtime` over its own database, `Hosts` with `h1` added), `migrated(t, path, side)`, `(*harness).count(...)`, `wantCode(t, err, code) *errcode.Error`.
 - Task 25 (`dispatch.go`):
-  - `const PlanIndexRetention = time.Hour`.
+  - `const PlanIndexRetention = time.Hour`: an unapplied plan is kept that long after it expires; an applied plan is kept for good.
   - `type Ingester interface { IngestHost(ctx context.Context, hostID string) error }` (`*audit.Ingester` satisfies it).
   - `type Config struct { Registry *core.Registry; Engine *lifecycle.Engine; Hosts *Hosts; DB *store.DB; Clock core.Clock; Log *slog.Logger; Ingest Ingester }`; every field but `Ingest` is required (`dispatch: Config.<Name> is required`).
   - `type Dispatcher struct`; `func New(cfg Config) (*Dispatcher, error)`.
   - Routing rule (unexported `(*Dispatcher).action(ref, hostID)`): an unregistered reference, a controller-side action with a host, or an agent action without a host is `action.unknown`. Agent calls go through unexported `(*Dispatcher).agent(ctx, hostID, name)`: `Hosts.Agent` (`not_found` for an unknown host), then `Hosts.usable` of the name's module.
   - `Read(ctx, p, hostID, a, input)`: controller-side → `Engine.Read`; agent → the host's `Read`.
   - `Resource(ctx, p, hostID, name)`: `not_found` (`no resource <name>`) for an unregistered name; then the host's `Resource`.
-  - `Plan(ctx, p, hostID, a, input)`: as `Read`, through `Engine.Plan` or the host's `Plan`; a returned view whose `HostID`, `Action` or `Version` differ from the request is a plain error; then the plan id is indexed with `(hostID, a, ExpiresAt)`, and entries whose `ExpiresAt + PlanIndexRetention` has passed are dropped.
-  - Unexported: `planEntry{hostID, ref, expiresAt}`, `Dispatcher.plans map[string]planEntry` (guarded by `mu`), `moduleOf(name)`, `(*Dispatcher).remember(planID, e)`. Test helpers in `dispatch_test.go`: `alice`, `(*harness).config(journal core.Journal) Config` (a real controller engine with `schema.NewValidator()`, `schema.Redact`, `Base.Agents = hosts`), `newDispatcher(t)`.
+  - `Plan(ctx, p, hostID, a, input)`: as `Read`, through `Engine.Plan` or the host's `Plan`; a returned view whose `HostID`, `Action` or `Version` differ from the request is a plain error; then one write transaction deletes the rows with `applied = 0 AND expires_at <= now − PlanIndexRetention` and inserts `(plan_id, hostID, a.Name, a.Version, ExpiresAt)` into `core_plan_index`; a failed write fails `Plan` with `dispatch: index plan <id>: …`.
+  - Unexported: `moduleOf(name)`, `(*Dispatcher).remember(ctx, hostID, a, v core.PlanView) error`; `Dispatcher` holds only `cfg` (no in-memory plan map). Test helpers in `dispatch_test.go`: `alice`, `(*harness).config(journal core.Journal) Config` (a real controller engine with `schema.NewValidator()`, `schema.Redact`, `Base.Agents = hosts`), `newDispatcher(t)`.
 - Task 26 (`apply.go`):
-  - `Apply(ctx, p, hostID, a, planID, opts)`: the routing rule; then a plan id that is not indexed for exactly `(hostID, a)` is `plan.not_found` with detail `no plan <id> for <ref>` plus ` on host <h>` for an agent action (register row 69, obligation 1); controller-side → `Engine.Apply`; agent → the module gate, the host's `Apply`, and, whenever the returned view has an id, an `INSERT ... ON CONFLICT (change_id) DO NOTHING` into `core_change_index` (a failure is logged, not returned) followed by `Ingest.IngestHost` (an error is logged at warn level).
-  - Unexported: `(*Dispatcher).planFor(planID, hostID, a) error`, `(*Dispatcher).index(ctx, hostID, v)`, `(*Dispatcher).ingest(ctx, hostID)`. Test helpers in `apply_test.go`: `newAudited(t) (*harness, *Dispatcher, *audit.Store)` (controller journal and `Ingest` real), `(*harness).plan(d, hostID, ref, input) core.PlanView`.
+  - `Apply(ctx, p, hostID, a, planID, opts)`: the routing rule; then a plan id that is not indexed for exactly `(hostID, a)` is `plan.not_found` with detail `no plan <id> for <ref>` plus ` on host <h>` for an agent action (register row 69, obligation 1); for an agent action, the module gate; then the dispatcher's own write `applied = 1 WHERE applied = 0` on the plan's row, before the call, so a change committed by a process that stops before the call returns stays reachable; the call (controller-side → `Engine.Apply`; agent → the host's `Apply`), and an error with no change id resets `applied` to 0 only when this call set it (a failed reset is logged), so a refused repeat of an applied plan, such as another principal's `plan.principal_mismatch`, leaves it set; for an agent change, whenever the returned view has an id, an `INSERT ... ON CONFLICT (change_id) DO NOTHING` into `core_change_index` (a failure is logged, not returned) followed by `Ingest.IngestHost` (an error is logged at warn level).
+  - A repeated apply of an applied plan reaches the engine, which returns the plan's change, also after a restart and after `PlanIndexRetention` (`TestApplyRepeatsAfterARestartAndPastTheRetention`, which also has another principal's apply refused before the retention passes); an unapplied plan past its retention is `plan.not_found` (`TestApplyOfAnUnappliedPlanPastItsRetentionIsNotFound`).
+  - Unexported: `(*Dispatcher).planFor(ctx, planID, hostID, a) error`, `(*Dispatcher).markApplied(ctx, planID) (claimed bool, err error)`, `(*Dispatcher).unmarkApplied(ctx, planID) error`, `(*Dispatcher).index(ctx, hostID, v)`, `(*Dispatcher).ingest(ctx, hostID)`. Test helpers in `apply_test.go`: `newAudited(t) (*harness, *Dispatcher, *audit.Store)` (controller journal and `Ingest` real), `(*harness).plan(d, hostID, ref, input) core.PlanView`.
 - Task 27 (`changes.go`): `const DefaultChangeLimit = 100`, `MaxChangeLimit = 500`; `var _ core.Dispatcher = (*Dispatcher)(nil)`.
-  - `Change(ctx, p, id)`: the controller engine's change; on `change.not_found`, the host `core_change_index` names (`change.not_found` without a row) and that host's `Change`; a view whose `HostID` differs from that host is a plain error. The view's `Action`, `Version` and `HostID` are the stored ones (register row 69, obligation 2).
-  - `Confirm(ctx, p, id)`, `Revert(ctx, p, id)`: the controller engine first; on `change.not_found`, the owning host's `Confirm`/`Revert`, then `Ingest.IngestHost` on success, then the same host check. No module gate.
+  - `Change(ctx, p, id)`: the controller engine's change; on `change.not_found`, the host `core_change_index` names and that host's `Change`. With no row, every host `Hosts` holds a client for is asked, in id order, for `Change(ctx, id)`: the first view whose `HostID` is the host asked is accepted and its index row inserted `ON CONFLICT DO NOTHING` (a failed write is logged); a host's `change.not_found`, or a view naming another host, means the host does not hold it; any other host error fails as `dispatch: find change <id> on host <h>: …` (wrapped with `%w`); no host → `change.not_found` `no change <id>`. This repairs an agent change whose index row was never written. A view whose `HostID` differs from the indexed host is a plain error. The view's `Action`, `Version` and `HostID` are the stored ones (register row 69, obligation 2).
+  - `Confirm(ctx, p, id)`, `Revert(ctx, p, id)`: the controller engine first; on `change.not_found`, the same lookup, then the owning host's `Confirm`/`Revert`, then `Ingest.IngestHost` on success, then the same host check. No module gate.
   - `Changes(ctx, p, f)`: pages exactly like `lifecycle.Engine.Changes` (controller ruling 2026-10-18 for the API's refill): `f.Limit` 0 or less means 100 and at most 500; every source is asked for the changes with id below `f.Before` matching `f.State`, at most `f.Limit`; the union is sorted by id descending and cut to `f.Limit`. A page shorter than the limit therefore means nothing more matches. Without `f.HostID`: the controller engine's changes and those of every `core_hosts` host (each asked with its own `HostID`); a host whose client is missing or whose listing fails fails the whole call. With `f.HostID`: only that host's agent. Break-glass changes are not filtered here (the API hides them).
-  - Unexported: `isChangeNotFound(err)`, `(*Dispatcher).owner(ctx, id) (string, core.AgentClient, error)`, `checkHost(v, hostID)`, `(*Dispatcher).settle(ctx, id, onController, onAgent)`, `(*Dispatcher).hostIDs(ctx)`. Test helpers in `changes_test.go`: `bob`, `(*harness).applyAgent`, `(*harness).applyCtl`, `ids`.
+  - Unexported: `isChangeNotFound(err)`, `(*Dispatcher).owner(ctx, id) (string, core.AgentClient, error)`, `(*Dispatcher).find(ctx, id) (string, core.AgentClient, error)`, `(*Hosts).ids() []string` (in `changes.go`), `checkHost(v, hostID)`, `(*Dispatcher).settle(ctx, id, onController, onAgent)`, `(*Dispatcher).hostIDs(ctx)`. Test helpers in `changes_test.go`: `bob`, `(*harness).applyAgent`, `(*harness).applyCtl`, `ids`.
 
 **How the next parts use it** (P14, `internal/controller/server`)
 
@@ -196,10 +199,10 @@ Part P13 adds package `internal/cli` only: no migration, no error code, no depen
 
 - Task 1 (`errors.go`, carries the package doc comment):
   - `const ExitOK = 0`, `ExitError = 1`, `ExitUsage = 2`, `ExitRefused = 3`, `ExitAuth = 4` (spec section 15).
-  - `func ExitCode(err error) int`: 0 for nil; 2 when the chain holds a `*usageError`; 3 for a `*refusedError`; 4 for a `*problemError` whose code starts with `auth.`; 1 for any other error marked by `ranError`; 2 for any unmarked error (cobra's flag, argument and unknown-command errors).
+  - `func ExitCode(err error) int`: 0 for nil; 2 when the chain holds a `*usageError`; 3 for a `*refusedError`, and for a `*problemError` with code `plan.guard_failed` (a guard that failed at apply's recheck); 4 for a `*problemError` whose code starts with `auth.`; 1 for any other error marked by `ranError`; 2 for any unmarked error (cobra's flag, argument and unknown-command errors).
   - `func PrintError(w io.Writer, err error)`: writes `darkpanel: <sanitize(err.Error())>\n`, then for a `*problemError` one line `  <path>: <message>\n` per field error, both sanitized; nil writes nothing.
   - Unexported: `usageError`, `usagef(format string, args ...any) error`; `refusedError`, `refusedf(format string, args ...any) error`; `problemError{Status int; Code errcode.Code; Detail string; Fields []errcode.FieldError}` whose `Error()` is `<detail> (<code>)`; `runError`, `ranError(err error) error` (nil stays nil); `markRuns(root *cobra.Command)` wraps the `RunE` of root and every descendant with `ranError`; `sanitize(s string) string` replaces every `unicode.IsControl` rune, U+2028, U+2029, U+200E, U+200F, U+202A-U+202E and U+2066-U+2069 with `\xNN` (two lowercase hex digits) below U+0080 and `\uNNNN` (four lowercase hex digits) otherwise; `isFormatHazard(r rune) bool`.
-- Task 15 (`pin.go`): `const requestTimeout = 90 * time.Second`; `newHTTPClient(base *url.URL, fingerprint string) (*http.Client, error)`: refuses a non-empty fingerprint that is not 64 hexadecimal digits (`caFingerprint must be 64 hexadecimal digits, ...`); plain HTTP, or HTTPS without a fingerprint, uses Go's defaults (system roots); HTTPS with a fingerprint uses `pinnedTLS(strings.ToLower(fingerprint), base.Hostname())`. `pinnedTLS(fingerprint, host string) *tls.Config`: TLS 1.2 minimum, `InsecureSkipVerify` with a `VerifyConnection` that finds the presented certificate whose SHA-256 equals the fingerprint (`no certificate the server presented matches caFingerprint <fp>`), requires it to be a CA (`... is not a CA`), and verifies the leaf against it alone for `host`. Test helpers in `pin_test.go`: `testCert{cert, key}` with `fingerprint() string`, `newCert`, `newTestCA(t)`, `newTestLeaf(t, ca, ip)`, `serveTLS(t, leaf, ca) *url.URL`, `get(t, u, fingerprint) error`.
+- Task 15 (`pin.go`): `const requestTimeout = 90 * time.Second`; `newHTTPClient(base *url.URL, fingerprint string) (*http.Client, error)`: refuses a non-empty fingerprint that is not 64 hexadecimal digits (`caFingerprint must be 64 hexadecimal digits, ...`); plain HTTP, or HTTPS without a fingerprint, uses Go's defaults (system roots); HTTPS with a fingerprint uses `pinnedTLS(strings.ToLower(fingerprint), base.Hostname())`. `pinnedTLS(fingerprint, host string) *tls.Config`: TLS 1.2 minimum, `InsecureSkipVerify` with a `VerifyConnection` that finds the presented certificate whose SHA-256 equals the fingerprint (`no certificate the server presented matches caFingerprint <fp>`), requires it to be a CA (`... is not a CA`), and verifies the leaf against it alone for `host`. Both clients refuse every redirect through `refuseRedirect(req *http.Request, via []*http.Request) error` (`the server redirected to <url>; darkpanel does not follow redirects, so set the server's own URL`), so no second request, and no token, leaves for another host or scheme. Test helpers in `pin_test.go`: `testCert{cert, key}` with `fingerprint() string`, `newCert`, `newTestCA(t)`, `newTestLeaf(t, ca, ip)`, `serveTLS(t, leaf, ca) *url.URL`, `get(t, u, fingerprint) error`.
 - Task 16 (`config.go`, `client.go`):
   - `const EnvURL = "DARKPANEL_URL"`, `EnvToken = "DARKPANEL_TOKEN"`, `DefaultURL = "http://127.0.0.1:8080"`.
   - Unexported `fileConfig{URL, Token, CAFingerprint}` (JSON `url`, `token`, `caFingerprint`; unknown fields refused); `configPath(getenv, home) (string, error)` (`$XDG_CONFIG_HOME/darkpanel/cli.json`, `~/.config` when unset or relative); `maxConfigBytes = 1 << 20`; `loadConfig(path string) (fileConfig, error)` (absent file → zero value; refused with `the config file <path> <why>; run chmod 600 <path>` when it is a symbolic link, not a regular file, has any group or other permission bit, or is not owned by the effective uid, all checked on the open descriptor); `connectNetwork(flagURL string, getenv func(string) string, home func() (string, error)) (*client, error)` (URL: flag, `DARKPANEL_URL`, config, `DefaultURL`; token: `DARKPANEL_TOKEN`, config; fingerprint: config; a URL that is not `http(s)://<host>` is a usage error); `firstOf(values ...string) string`.
@@ -220,7 +223,7 @@ Part P13 adds package `internal/cli` only: no migration, no error code, no depen
 - Task 22 (`mutate.go`; `root.go` gains the mutating branch of `actionCommand`): `planWire`, `changeWire` (the API's Plan and Change fields the CLI reads); `addMutatingFlags(cmd, class core.Class)` (`--yes`; `--confirmation` on irreversible; `--confirm` on revertible); `(*app).runMutating(cmd, def, fields, secrets) error`; `(*app).planAndApply(cmd *cobra.Command, c *client, def core.ActionDef, host string, input any, agreed bool) (changeWire, json.RawMessage, error)` (plan → print → guards → `Apply? [y/N]` unless `--yes` or `agreed` → phrase → apply with `confirmNow` when `--confirm`); `(*app).confirmation(cmd, want) (string, error)`; `printPlan(w, planWire)`; `printChange(w, changeWire, secrets) error`; `changeOutcome(changeWire) error` (`change <id> <state>: <message> (<code>)` for failed, reverted and interrupted). Test helpers `planJSON(planID, action, host, confirmation, guards string) string`, `changeJSON(id, action, class, state, extra string) string`, `noExtra`.
 - Task 24 (`change.go`; `root.go` adds `change`): `changeColumns`; `(*app).changeCommand()`, `changeListCommand()`, `changeShowCommand()`, `changeOpCommand(op, want, short string)`; `printChanges(cmd, raw) error`.
 - Task 28 (`controller.go`; `root.go` adds `controller`): `(*app).controllerCommand()`, `(*app).runWebCA(cmd, args) error` (prints `<PEM>SHA-256 fingerprint: <lowercase hex>\n`).
-- Task 29 (`enroll.go`; `root.go` calls `wrapEnrollment`): `actionUserCreate`, `actionUserResetTOTP`, `actionUserActivate`; `latestAction(reg, name) (core.ActionDef, bool)`; `(*app).wrapEnrollment(root)`; `(*app).runEnrollment(cmd, def, activate core.ActionDef) error`; `(*app).newPassword() (string, error)`; `enrollmentURI(username, secret string) string`. Test constants `testTOTPSecret`, `testUserPassword`; helpers `enrollmentChange`, `activation`.
+- Task 29 (`enroll.go`; `root.go` calls `wrapEnrollment`): `actionUserCreate`, `actionUserResetTOTP`, `actionUserActivate`; `latestAction(reg, name) (core.ActionDef, bool)`; `(*app).wrapEnrollment(root)`; `(*app).runEnrollment(cmd, def, activate core.ActionDef) error` (refuses `--json` and `--input` as usage errors; `wrapEnrollment` hides the generated `--input` flag, because the flow asks for the password and the code itself); `(*app).newPassword() (string, error)`; `enrollmentURI(username, secret string) string`. Test constants `testTOTPSecret`, `testUserPassword`; helpers `enrollmentChange`, `activation`.
 
 **How the next parts use it**
 
@@ -281,7 +284,7 @@ The names below extend plan 3's Contracts (`docs/superpowers/plans/2026-10-17-m1
 
 **`internal/controller/api`** (package `api`)
 
-- Task 31 (`middleware.go`): `recoverPanics(log, next)` calls `w.Header().Del("Set-Cookie")` before `writeProblem(w, log, errcode.New(errcode.Internal, ""))`. When the response has already started it still re-panics `http.ErrAbortHandler`.
+- Task 31 (`middleware.go`): `recoverPanics(log, next)` calls `w.Header().Del("Set-Cookie")` before `writeProblem(w, log, errcode.New(errcode.Internal, ""))`. When the response has already started it still re-panics `http.ErrAbortHandler`. Its `api: handler panic` log line carries the panic value only when it is a `runtime.Error`, otherwise the value's type (`%T`), as `lifecycle.Protect` does.
 - Task 3 (`.golangci.yml`): linter `forbidigo` enabled, with settings `analyze-types: true` and `forbid: [{pattern: ^http\.Error$, pkg: ^net/http$, msg: answer refusals with writeProblem}]`. `linters.exclusions.rules` has `{path-except: ^internal/controller/api/, linters: [forbidigo]}`. Report text: ``use of `http.Error` forbidden because "answer refusals with writeProblem" (forbidigo)``.
 - Task 32 (`actions.go`):
   - `const defaultChangeLimit = 100` (the engine's default) next to `maxChangeLimit = 500`; `const maxExtraChangeFetches = 4`.
@@ -344,22 +347,22 @@ The names of `main` at `f28be88` and of parts A (dispatch, agent runtime, audit)
   - `type Options struct { Paths paths.Paths; Listen []listen.Spec; Dev bool; Clock core.Clock; Log *slog.Logger; Hostname func() (string, error); Bind listen.BindFunc; Interfaces listen.InterfaceAddrs; AuthParams auth.Params }`: `Paths` is required (`server: Options.Paths is required`); nil `Listen` means `listen.ParseSpecs(nil)` (loopback and tailscale); nil `Clock` means `core.SystemClock{}`; nil `Log` discards; nil `Hostname` means `os.Hostname`; nil `Bind` and `Interfaces` mean listen's defaults; zero `AuthParams` means `auth.DefaultParams`. `Dev` is passed to `api.Config.Dev`.
   - `type Server struct`; `func Start(ctx context.Context, opts Options) (*Server, error)`: runs the steps of the part constraint; on an error it runs `Shutdown` with a `ShutdownTimeout` context detached from `ctx` and returns the step's error joined with any shutdown error.
   - `(*Server) LocalHostID() string`, `(*Server) SocketPath() string` (`opts.Paths.ControllerSocket`).
-  - `(*Server) Shutdown(ctx context.Context) error`: the reverse stops, errors joined as `server: stop <name>: <err>`; idempotent and serialised (part constraint).
-  - `openStorage`, in order: `Paths.MkdirAll()` (0700); `checkPrivateDir(<socket dir>)`, which refuses a non-directory, a group- or other-writable directory (`server: the controller socket directory <dir> is writable by group or other; run chmod 700 <dir>`) and one owned by another uid (`... is owned by uid <n>, not by this process's uid <m>`); `secret.LoadOrCreateKey` + `secret.NewSealer` for `ControllerKey` then `AgentKey`; the lock (`os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW`, 0600, `unix.Flock(LOCK_EX|LOCK_NB)`; held: `server: another darkpanel serve holds <path>; stop it first`); `store.Open` of `ControllerDB()` then `AgentDB()`; `store.Migrate` of the controller database (side controller, `buildinfo.Version`, backups under `ControllerBackups()`, keep 5, the clock's now; core set, then each `modules.All()` module's `Migrations[core.SideController]`; a core failure stops startup as `server: controller migrations: ...`, a module failure is logged at error level as `server: module controller migrations failed` and startup continues); `ensureLocalHost`.
+  - `(*Server) Shutdown(ctx context.Context) error`: the reverse stops, errors joined as `server: stop <name>: <err>`; idempotent and serialised (part constraint). When an earlier step has failed and `ctx` has ended by the time the lock steps (named by the unexported `const lockStep = "lock"`) come up, they are skipped with the warning `server: shutdown ran out of time; the lock is kept until the process exits`, and the locks stay held until the process exits (`TestShutdownOutOfTimeKeepsTheLock`).
+  - `openStorage`, in order: `Paths.MkdirAll()` (0700); `checkPrivateDir(<socket dir>)`, which refuses a non-directory, a group- or other-writable directory (`server: the controller socket directory <dir> is writable by group or other; run chmod 700 <dir>`) and one owned by another uid (`... is owned by uid <n>, not by this process's uid <m>`); `secret.LoadOrCreateKey` + `secret.NewSealer` for `ControllerKey` then `AgentKey`; the locks, `LockName` in the socket's directory, `ControllerDir` and `AgentDir` in that order, each directory once (`unix.Open` with `O_RDWR|O_CREAT|O_NOFOLLOW|O_CLOEXEC`, 0600, a raw descriptor so no `*os.File` finalizer can release a kept lock, then `unix.Flock(LOCK_EX|LOCK_NB)`; held: `server: another darkpanel serve holds <path>; stop it first`); `store.Open` of `ControllerDB()` then `AgentDB()`; `store.Migrate` of the controller database (side controller, `buildinfo.Version`, backups under `ControllerBackups()`, keep 5, the clock's now; core set, then each `modules.All()` module's `Migrations[core.SideController]`; a core failure stops startup as `server: controller migrations: ...`, a module failure is logged at error level as `server: module controller migrations failed` and startup continues); `ensureLocalHost`.
   - `ensureLocalHost`: in one write transaction, reads `core_meta.local_host_id`; when absent inserts `core_hosts (id, name, is_local 1, created_at)` with a ULID id from the clock and `core_meta ('local_host_id', id)`. The name is the hostname, or `localhost` (with a warning) when the lookup fails or is empty; the leaf's hostname is then `""`. A later start reads the id and changes nothing.
   - Unexported: `closer{name; close func(ctx) error}`, `(*Server).onShutdown(name string, stop func(ctx context.Context) error)`, `openStorage`, `checkPrivateDir(dir) error`, `loadSealer(path) (*secret.Sealer, error)`, `(*Server).lock(path) error`, `(*Server).openDB(ctx, name, path) (*store.DB, error)`, `migrateController`, `ensureLocalHost`; fields `opts`, `clock`, `log`, `hostname`, `controllerDB`, `agentDB`, `controllerSealer`, `agentSealer`, `localHostID`, `mu`, `closers`, `shutdown`, `err`.
   - Test helpers in `server_test.go`, used by Tasks 38, 39 and 42: `t0` (2026-10-18T12:00:00Z), `testHostname` (`test-host`), `testParams`, `localBind(ctx, listen.Endpoint) (net.Listener, error)`, `testOptions(t) Options` (temporary paths, socket in its own `os.MkdirTemp("", "dp")` directory, `Listen` = loopback, `Dev` true, a `FakeClock` at `t0`, `localBind`, `testParams`), `start(t, opts) *Server` (shuts down at cleanup), `openDB(t, path)`, `wantMode(t, path, mode)`.
 - Task 38 (`services.go`; `server.go` gains the embedded `services` field and the `startServices` step):
   - `const PurgeInterval = 10 * time.Minute`.
-  - `(*Server) Registry() *core.Registry`: the server's registry.
+  - `(*Server) Registry() *core.Registry`: the server's registry; `TestServerRegistryMatchesBuild` checks that its schema snapshots equal `registry.Build()`'s.
   - `startServices`, in Part A's order (Part A, "How the next parts use it", steps 2-9): `audit.New`; `auth.New(controllerDB, controllerSealer, clock, auditLog, auth.Options{Params: AuthParams})`; `registry.BuildWith(...)` (`server: registry: ...`); `runtime.Open` (agent database, agent sealer, `HostID` the local host, `buildinfo.Version`, `AgentBackups()`, `platform.NewRunner(platform.ProductionAllowlist())`, `FilesTestMode` false) with stop `agent runtime`; `dispatch.NewHosts`, `Add(localHostID, rt)`, `Hello` (`server: hello from the local agent: ...`); `lifecycle.New` on the controller side (`schema.NewValidator()`, `Journal` the audit store, `Redact: schema.Redact`, `Base` = controller database and sealer, clock, log, `Agents` = the `Hosts`) with stop `controller engine`; `Recover` once (`server: recover: ...`); `startPurges`; `audit.NewIngester`, `IngestAll` (an error is logged at warn level), `Start`, stop `audit ingester`; `dispatch.New` with `Ingest` the ingester.
   - `startPurges`: `purge` now (an error stops startup as `server: purge: ...`), then every `PurgeInterval` through `Clock.AfterFunc` (`purgeTick` logs an error at warn level and re-arms); stop `purges` waits for a running purge and disarms the timer. `purge` is `errors.Join(engine.Purge, authService.Purge)`.
   - Unexported: `type services struct { auditLog *audit.Store; authService *auth.Service; registry *core.Registry; runtime *runtime.Runtime; hosts *dispatch.Hosts; engine *lifecycle.Engine; ingester *audit.Ingester; dispatcher *dispatch.Dispatcher; purgeMu sync.Mutex; purgeTimer core.Timer; purgeClosed bool }`, `startServices`, `purge`, `startPurges`, `purgeTick`. Test helpers in `services_test.go`, used by Task 42: `root(hostID) core.Principal` (the socket principal for uid 0), `refDisable`, `count(t, s, query, args...)`, `planDisable(t, s) core.PlanView`.
 - Task 39 (`listeners.go`; `server.go` gains the embedded `listeners` field and the `startListeners` step):
   - `(*Server) Listeners() []listen.Bound`: the bound network listeners (`listen.Service.State().Listeners`).
-  - `func Run(ctx context.Context, opts Options) error`: `Start`, wait for `ctx` to end, then `Shutdown` within `ShutdownTimeout` (a context detached from `ctx`). `serve` calls it.
+  - `func Run(ctx context.Context, opts Options) error`: `Start`, wait for `ctx` to end, then `Shutdown` with a `ShutdownTimeout` context detached from `ctx`. `ShutdownTimeout` bounds the graceful shutdown of the listeners and the controller socket only; the service stops after them (ingester, purges, agent runtime, engine, databases, locks) take no deadline, because the process exits right after and register row 51 accepts that a hung revert holds up `Close`. `serve` calls it.
   - `startListeners`: `listen.LoadOrCreateAuthority`; `api.New(api.Config{Dispatcher, Auth, Registry, WebCA: the authority, SchemaVersion: store.SchemaVersion(ctx, controllerDB, store.SideController), HostID, Dev, UI: api.EmbeddedUI(), Log})`; `listen.Start(listen.Config{Specs, Hostname, DB, Authority, Clock, Handler: srv.Handler(), Log, Interfaces, Bind})` with stop `listeners`; `srv.SetListenerState` over `svc.State()` (kept after shutdown); `api.ListenSocket(SocketPath)`, `srv.SocketServer()`, `Serve(srv.SocketListener(ln, nil))` in a goroutine, stop `controller socket` (`http.Server.Shutdown`, then waits for `Serve` to return; an error other than `http.ErrServerClosed` is joined). It logs `server: serving` with `message`, `listeners` (URLs) and `socket`.
-  - Shutdown order that results: controller socket, listeners, audit ingester, purges, controller engine, agent runtime, agent database, controller database, lock.
+  - Shutdown order that results: controller socket, listeners, audit ingester, purges, controller engine, agent runtime, agent database, controller database, the locks.
   - Unexported: `type listeners struct { apiServer *api.Server; listenService *listen.Service }`, `startListeners`. Test helpers in `listeners_test.go`, used by Task 42: `baseURL(t, s) string` (the IPv4 listener's `http://` URL), `socketClient(path) *http.Client`, `get(t, client, url, token) (int, string)`, `readToken(t, s, clock) string`.
 - Task 42 (`e2e_test.go`): tests only. `adminPassword`, `e2e`, `reply` with `problemCode()`, `credentials`, `(*e2e).do`, `admin`, `want`, `wantProblem`, `change`, `apply`, `cli`, `secretLine`, `denyByDefault`, `checkAudit`.
 
@@ -408,8 +411,15 @@ The parts' obligation lists above were written before the parts were joined. Tho
 
 - The four parts were drafted and verified on 2026-10-18 in separate scratch clones: Parts A, B and C on `main` at `f28be88`, Part D on `897de97` (`f28be88` plus Parts B, C and A). A script then merged them in this plan's task order, renumbered the tasks and rewrote task references outside code blocks; the bullets below are each part's own evidence, with task numbers converted to this plan's. `main` has moved to `c6e2af5` since; `git diff --stat f28be88 c6e2af5` touches only `docs/superpowers/registers/` (checked 2026-10-18), so the code base is the one the parts were verified on.
 - Plan-order replay on 2026-10-18: the 43 verified commits were cherry-picked onto `f28be88` in this plan's task order (each part's internal order is kept; parts interleave). `GOTOOLCHAIN=local timeout 600 go vet ./...` passed after every one of the 43 picks, and the final tree is identical to the verified assembly commit `dd64d4f` (`git diff --stat dd64d4f HEAD` prints nothing). On that tree `timeout 300 pnpm -C web install --frozen-lockfile && timeout 1500 make check` exited 0 (golangci-lint `0 issues.`, every Go package `ok`, govulncheck: no vulnerability in called code).
+- Review fixes (2026-10-18): the replay was rebuilt with the round 1 fixes folded into Tasks 1, 12, 15, 25, 26, 27, 29, 31, 35, 37 and 38, then the round 2 fixes into Tasks 26 (the `applied` claim), 37 (the `ShutdownTimeout` comment and the locks kept by a `Shutdown` out of time) and 39 (the `ShutdownTimeout` comment), each later commit replayed on top without conflict (43 commits on `f28be88`, branch `final4` of the scratch clone of `.superpowers/drafts/m1-dispatch-cli-assembly/review-fix/final-chain.bundle`). On 2026-10-18, on `final4`, with `GOTOOLCHAIN=local`: `go vet ./...` printed nothing and `go test -count=1 ./...` printed only `ok`/`?` lines at every one of the 43 commits; at the last commit `go test -race -count=1 ./internal/...` passed, golangci-lint printed `0 issues.`, `go mod tidy -diff` printed nothing, and `pnpm -C web install --frozen-lockfile && make check` exited 0. Task 25, whose `Depends on` gained Task 12, passed all five checks on `f28be88` plus only Tasks 4, 5, 7, 10, 12, 14, 19, 23 and 25 (run on the round 1 chain; Task 25 did not change after it). On `final4`, Tasks 26, 27, 38, 42 and 43, whose dependency closures hold a changed commit, each passed all five checks on `f28be88` plus only their closure, cherry-picked in task order. Every whole-file block in this plan was regenerated from the `final` commits by script, and a second script applied every replacement and append edit to the task's parent commit and compared the result with the task's commit: all matched. Each changed task's Step 2 was re-run on its parent commit with only that task's test files, and its expected text is that run. The new refusal in `TestApplyRepeatsAfterARestartAndPastTheRetention` fails without the claim (`past the retention: repeated apply … plan.not_found`) and passes with it. The manual run of the bullet in Part D's evidence was repeated on 2026-10-18 with the binary built from `final4`'s last commit: `serve --dev --listen http://127.0.0.1:18080` answered `/healthz` 200; `controller web-ca --dev` printed the fingerprint; a second `serve` exited 1 with `another darkpanel serve holds …/controller.lock; stop it first`; `serve --listen bogus` exited 2; `user create --username admin --dev --yes` with the password and then the TOTP code piped on standard input exited 0 with the user active; the README's API login, plan and apply of `core.token.create` returned a token, and `hostinfo summary get` and `audit list` with `DARKPANEL_URL`/`DARKPANEL_TOKEN` exited 0; SIGTERM ended `serve` with exit 0 and removed the socket. `XDG_RUNTIME_DIR` was a short `/tmp/dp.XXXX` directory, because the scratch path made the socket path longer than the kernel's 108-byte limit (register row 86).
 - Waves: the wave line follows the plan rules mechanically. Tasks 4, 5, 6, 10-18, 22, 26-34 and 37-39 have risk 3 and run alone; the other tasks group into consecutive waves of at most three that share no file and depend only on earlier waves (1-3, 7-9, 19-21, 23-24, 35-36, 40-42). Task 36 deletes `internal/deps/deps.go`, the blank-import pin file, but leaves `go.mod` and `go.sum` byte-identical (Part D's evidence), so it is not a manifest change and may share wave 35-36 with Task 35. Every same-wave pair was built together in the replay above, and each task was also built on its dependency closure alone (per-part bullets below).
 - Register items this plan does not answer are recorded as register rows, not here: rows 49 (M2 uninstall), 75, 77, 78, 80 and 81 are deferred to the M7 security review, and the adjacent findings at the end of Part D's bullets are register rows of their own.
+- Executor lane: Tasks 1, 8, 9, 40 and 42 are lane-eligible (`codex gpt-6.1-sol`, efforts high, high, medium, low, low) since the Codex gate opened on 2026-10-18 (`codex-gate usable=true … lane=true`), after the plan was assigned with Codex off. They keep their Claude implementers, as plan 3's lane-eligible tasks did: an `**Executor:**` line makes a task run alone in its wave and would split waves 1-3, 7-9 and 40-42, which were verified together.
+- Plan review round 1 (2026-10-18, Codex; `.superpowers/sdd/2026-10-18-m1-dispatch-cli-and-assembly/plan-review-round-1.json`, 2 Critical, 13 Important, 3 Minor). Fixed in the code and the text: the plan index is the table `core_plan_index`, so a repeated apply survives a restart and the retention (Critical, Tasks 12, 25 and 26); a change with no `core_change_index` row is found by asking every host and indexed then (Critical, Task 27); `plan.guard_failed` from the server exits 3 (Task 1); both API clients refuse redirects (Task 15); the enrollment commands hide and refuse `--input` instead of ignoring it (Task 29); `recoverPanics` logs a non-`runtime.Error` panic value by type only (Task 31); the module tests look for hostinfo among the modules rather than require it alone, and `TestServerRegistryMatchesBuild` checks the started server's own registry (Tasks 35 and 38); the single-instance lock is also taken in both data directories, so two serves over one database with different socket directories refuse each other (Task 37); and the header wording on test failure messages, the abandoned Verify, the README evidence, the production `Log`, the `web-ca` output and Task 3's probes.
+- Round 1 findings rejected, with reasons. Task 26, apply's module gate before a repeated apply: refusing is fail-safe, and the existing change stays reachable through `change show`, `change list`, confirm and revert, which are not gated. Task 37, gating controller-side actions after a failed module controller migration: no M1 module has controller migrations, so the gate is register row 88 for the first plan that adds one. Task 38, bounding every service's Close by `ShutdownTimeout`: the process exits right after `Shutdown`, which is a crash for any work still running, and the engine's `Recover` at the next start settles it (spec section 3); register row 51 already accepts that a hung revert holds up `Close`. (Task 39's finding on draining socket handlers was rejected in round 1 and settled after round 2; see the next bullets.) Task 35's registry finding was weak (`registry.BuildWith` always appends `modules.All()`), but the server-side `TestServerRegistryMatchesBuild` was added anyway.
+- Plan review round 2 (2026-10-18, `dr-superpowers:judge-opus`, delta review; `.superpowers/sdd/2026-10-18-m1-dispatch-cli-and-assembly/plan-review-round-2.md`): both round 1 Criticals and nine Importants addressed; no Critical. Fixed: a refused repeat apply, such as another principal's, cleared `applied` and so brought back the restart and retention loss; `markApplied` now claims the flag only from 0 and only the claiming call clears it (Task 26). `ShutdownTimeout` is now documented as bounding the listeners and the socket only (Tasks 37 and 39, Contracts › Task 39), the reviewer's own alternative fix for the Task 38 finding. The Interfaces blocks of Tasks 26 and 27 now cite the current Contracts names, and the manual run was repeated on the fixed tree (above). The reviewer repeated two round 1 findings rejected above: the module gate before a repeated apply (Task 26) and draining socket handlers before the locks are released (Task 39).
+- Owner rulings of 2026-10-18 on the two repeated findings. Task 26: apply keeps the module gate before a repeated apply; spec section 2 (a disabled module's actions answer `module.unavailable`) takes precedence over section 3's repeat rule, because refusing never acts twice and the change stays reachable through `change show`, `change list`, confirm and revert. Task 39: when the listeners or the socket do not finish within `ShutdownTimeout`, `Shutdown` keeps the instance locks until the process exits (implemented in Task 37's `Shutdown`, test `TestShutdownOutOfTimeKeepsTheLock`, which fails without it: `Start after a Shutdown out of time: <nil>, want the lock refusal`); the databases still close and the services still stop.
+- Residual risks accepted with the round 1 fixes: an unapplied plan is purged at `expires_at <= now − PlanIndexRetention`, the boundary included; two concurrent applies of one plan can still race on the `applied` reset: when the claiming call fails without a change while the other call's apply commits one, the reset clears the mark of a plan that has a change; a remote agent's transport error after its commit resets `applied` (M2, remote hosts); the fallback lookup says `Hello` to every host, so one failing `Hello` turns an unindexed lookup into a plain error.
 
 **Part A — P11: dispatch, agent runtime and audit**
 
@@ -429,9 +439,9 @@ The parts' obligation lists above were written before the parts were joined. Tho
 - Ruling from the brief (runtime shape): the runtime takes an opened `*store.DB` and resolved values, builds the one `platform.Files` itself from the registry's owned paths (`internal/platform/files.go:40` requires exactly one per agent), and sets `Base.Clock` (`internal/modules/hostinfo/hostinfo.go:154` reads `env.Clock`). Ruling (this part): `Recover` and the first `Purge` failing fail `Open`; preflight runs after `Recover` with a zero principal; a module whose migration failed is gated by the runtime itself (its tables may be missing) with `ReasonMigrationFailed`, and the error, which may quote SQL, is logged only (`store.Migrate` reports it in `Result.Failed`, `internal/core/store/migrate.go:117`, `:159`). Preflight failures and enablement are gated by the dispatcher alone, so a later `core.module.enable` whose preflight passes is not contradicted by a stale agent-side status.
 - Ruling (this part): a preflight reason is the check's error text, as spec section 2a defines (`PreflightCheck` comment in `internal/core/contract.go`); a panicking check's reason is `preflight check <id> of <module> panicked`. Needs a controller decision: hostinfo's check returns `cannot read /proc/meminfo: <cause>` (`internal/modules/hostinfo/hostinfo.go:121`, `checkMeminfo`), and that text reaches the `module.unavailable` detail, which obligation 3 says must carry no path. Settled by the controller ruling of 2026-10-18 in Part D's bullets: module-authored operator text, hostinfo unchanged.
 - Ruling from the brief (Hello): `Hosts` says Hello on the first reach of a host in this process and again after a failure; P14 calls `Hosts.Hello` at startup to seed rows. It writes only modules the registry has, never `core`, refuses a reply for another host id, and never changes `enabled` on an existing row (`TestHelloNeverChangesEnabled`).
-- Ruling from the brief (obligation 1): an in-memory plan index filled by `Plan`. Ruling (this part): entries live until `PlanIndexRetention` (1 h) after the plan expires, so a late apply still gets the engine's `plan.expired` and a repeated apply within the hour returns its change; after that, and after a restart, the plan is `plan.not_found`. The index also checks the agent's returned `PlanView` against the request. No new contract and no table were needed.
+- Ruling from the brief (obligation 1), revised after plan review round 1 (2026-10-18): the plan index is the table `core_plan_index`, filled by `Plan`, because an in-memory index lost the binding at a restart and after its retention, so a repeated apply of a committed change failed with `plan.not_found`. An unapplied plan is kept `PlanIndexRetention` (1 h) after it expires, so a late apply still gets the engine's `plan.expired`; an applied plan is kept for good, so a repeated apply returns its change after a restart or any delay. The dispatcher marks the plan applied before the call. The index also checks the agent's returned `PlanView` against the request.
 - Ruling (this part): a controller-side action with a host, or an agent action without one, is `action.unknown`, matching the API's own side check (`internal/controller/api/actions.go:147`, `lookupAction`). Apply re-checks the module gate, so a module disabled after its plan cannot be applied; `Confirm` and `Revert` are not gated.
-- Ruling (this part): a failed `core_change_index` insert or a failed ingestion after an agent apply is logged, not returned: the change exists and its apply response may carry a secret output shown only once. Without the index row the change can no longer be confirmed through the dispatcher and its revert timer reverts it.
+- Ruling (this part): a failed `core_change_index` insert or a failed ingestion after an agent apply is logged, not returned: the change exists and its apply response may carry a secret output shown only once. Revised after plan review round 1 (2026-10-18): a change with no index row (a failed insert, or a controller that stopped between the agent's commit and the insert) is found by asking every host and is indexed then (Task 27), so it stays reachable through `Change`, `Confirm` and `Revert`.
 - Controller ruling 2026-10-18 (relayed from the API drafter): `Dispatcher.Changes` pages exactly like `lifecycle.Engine.Changes` (`internal/core/lifecycle/engine.go:310`). Each source returns its newest `Limit` matches below `Before`, so the union's newest `Limit` is exact; `TestChangesMergeAndPageLikeTheEngine` interleaves controller and agent changes, pages from a cursor in the middle, and walks every page of 2. Ruling (this part): a host that cannot be listed fails the whole call instead of being skipped, because a silently short page would end the API's refill early.
 - Ruling (this part): `coretest.MemAudit` does not learn `Source` (`internal/core/coretest/audit.go:57`, `fromJournal`): no test outside this part needs it, and this part's tests use the real `audit.Store`.
 - Ruling (this part), Task 10's size: it touches seven files, which this plan counts as two shapes (implementation and test), as the drafting brief directs; the four implementation edits are one decision (wrap every handler call in `protect`), and the three test files are the new tests plus the crash-simulation change the policy forces.
@@ -586,7 +596,7 @@ The parts' obligation lists above were written before the parts were joined. Tho
 **Implementer:** dr-superpowers:impl-sonnet-medium
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 1 = 4
 
-Every later task reports failures through these names, so the exit-code mapping of spec section 15 lives in one place: a usage error is 2, a refused change 3, an API refusal with an `auth.*` code 4, anything a command's run returns 1. Cobra's own flag, argument and unknown-command errors are never marked by `markRuns`, which is how `ExitCode` classifies them as usage errors without parsing their text (register row 30). `sanitize` is the one function every human-readable string passes through, so a server cannot move the cursor, recolour the screen or reorder text with control or bidi characters. The tests pin every exit code, including real cobra failures, the problem-detail printing and the escape forms.
+Every later task reports failures through these names, so the exit-code mapping of spec section 15 lives in one place: a usage error is 2, a refused change 3 (also a server problem with code `plan.guard_failed`, a guard that failed at apply's recheck), an API refusal with an `auth.*` code 4, anything a command's run returns 1. Cobra's own flag, argument and unknown-command errors are never marked by `markRuns`, which is how `ExitCode` classifies them as usage errors without parsing their text (register row 30). `sanitize` is the one function every human-readable string passes through, so a server cannot move the cursor, recolour the screen or reorder text with control or bidi characters. The tests pin every exit code, including real cobra failures, the problem-detail printing and the escape forms.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -620,6 +630,7 @@ func TestExitCode(t *testing.T) {
 		{"refused", refusedf("not applied"), ExitRefused},
 		{"auth.required", ranError(problem(errcode.AuthRequired)), ExitAuth},
 		{"auth.forbidden", ranError(problem(errcode.Forbidden)), ExitAuth},
+		{"guard failed at apply", ranError(problem(errcode.PlanGuardFailed)), ExitRefused},
 		{"other problem", ranError(problem(errcode.NotFound)), ExitError},
 		{"run error", ranError(errors.New("dial tcp: connection refused")), ExitError},
 		{"usage inside a run", ranError(fmt.Errorf("input: %w", usagef("bad --input"))), ExitUsage},
@@ -816,8 +827,9 @@ func markRuns(root *cobra.Command) {
 
 // ExitCode is the process exit code for err, the error of a command tree
 // that NewRoot built: 0 for nil, 2 for a usage error (including every error
-// cobra raises while parsing the command line), 3 for a refused change, 4
-// when the API refused with an auth.* code, and 1 for any other error.
+// cobra raises while parsing the command line), 3 for a refused change or an
+// API refusal with plan.guard_failed, 4 when the API refused with an auth.*
+// code, and 1 for any other error.
 func ExitCode(err error) int {
 	var (
 		usage   *usageError
@@ -831,6 +843,8 @@ func ExitCode(err error) int {
 	case errors.As(err, &usage):
 		return ExitUsage
 	case errors.As(err, &refused):
+		return ExitRefused
+	case errors.As(err, &problem) && problem.Code == errcode.PlanGuardFailed:
 		return ExitRefused
 	case errors.As(err, &problem) && strings.HasPrefix(string(problem.Code), "auth."):
 		return ExitAuth
@@ -4238,7 +4252,7 @@ git commit -m "feat(lifecycle): bound Verify with a deadline"
 **Implementer:** dr-superpowers:impl-opus-high
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 3 = 6
 
-The controller's `core.Audit` over `core_audit` (spec section 11), with the controller migration that also creates the journal cursor and the change index for Tasks 13 and 26. `Append` is the controller engine's journal and writes inside the change's transaction; `Record` keeps the ids `auth` sets; `Ingest` deduplicates by host and sequence through the unique index; `List` pages newest first as `core.audit.list` expects. The tests cover the tables and constraints, the login and logout rows, the rollback of an appended row, deduplication, every filter, paging and the limits.
+The controller's `core.Audit` over `core_audit` (spec section 11), with the controller migration that also creates the journal cursor for Task 13 and the change and plan indexes for Tasks 25-27. `Append` is the controller engine's journal and writes inside the change's transaction; `Record` keeps the ids `auth` sets; `Ingest` deduplicates by host and sequence through the unique index; `List` pages newest first as `core.audit.list` expects. The tests cover the tables and constraints (including `core_plan_index`'s `applied` default), the login and logout rows, the rollback of an appended row, deduplication, every filter, paging and the limits.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -4315,7 +4329,7 @@ func list(t *testing.T, s *Store, q core.AuditQuery) ([]core.AuditEntry, string)
 func TestAuditTables(t *testing.T) {
 	db := openControllerDB(t)
 	ctx := context.Background()
-	for _, table := range []string{"core_audit", "core_journal_cursor", "core_change_index"} {
+	for _, table := range []string{"core_audit", "core_journal_cursor", "core_change_index", "core_plan_index"} {
 		if n := count(t, db, "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?", table); n != 1 {
 			t.Errorf("table %s missing", table)
 		}
@@ -4334,6 +4348,13 @@ func TestAuditTables(t *testing.T) {
 		`INSERT INTO core_audit (id, at, actor, action, version, phase, result)
 		 VALUES ('01F', '2026-10-17T12:00:00.000000000Z', 'user:u1', 'a.b.c', 1, 'delete', 'ok')`); err == nil {
 		t.Error("an unknown phase was accepted")
+	}
+	if _, err := db.Writer().ExecContext(ctx, `INSERT INTO core_plan_index (plan_id, host_id, action, version, expires_at)
+		VALUES ('01P', '', 'a.b.c', 1, '2026-10-17T12:05:00.000000000Z')`); err != nil {
+		t.Fatalf("insert into core_plan_index: %v", err)
+	}
+	if n := count(t, db, "SELECT applied FROM core_plan_index WHERE plan_id = '01P'"); n != 0 {
+		t.Errorf("applied of a new plan = %d, want 0", n)
 	}
 }
 
@@ -4556,9 +4577,9 @@ Expected: FAIL — the build reports `undefined: Store` and `undefined: New`. Th
 internal/controller/audit/audit_test.go:43:35: undefined: Store
 internal/controller/audit/audit_test.go:47:9: undefined: New
 internal/controller/audit/audit_test.go:59:28: undefined: Store
-internal/controller/audit/audit_test.go:273:17: undefined: MaxListLimit
-internal/controller/audit/audit_test.go:279:52: undefined: DefaultListLimit
-internal/controller/audit/audit_test.go:279:104: undefined: MaxListLimit
+internal/controller/audit/audit_test.go:280:17: undefined: MaxListLimit
+internal/controller/audit/audit_test.go:286:52: undefined: DefaultListLimit
+internal/controller/audit/audit_test.go:286:104: undefined: MaxListLimit
 FAIL	github.com/darkraise/darkpanel/internal/controller/audit [build failed]
 ```
 
@@ -4567,10 +4588,10 @@ FAIL	github.com/darkraise/darkpanel/internal/controller/audit [build failed]
 Create `internal/core/store/migrations/controller/0004_audit.sql`:
 
 ```sql
--- Audit tables (spec section 11), read and written only through
--- internal/controller/audit and internal/controller/dispatch. Times are
--- fixed-width RFC 3339 UTC text, so they compare as text. The controller never
--- prunes core_audit in v1.
+-- Audit tables (spec section 11) and the dispatcher's indexes, read and written
+-- only through internal/controller/audit and internal/controller/dispatch. Times
+-- are fixed-width RFC 3339 UTC text, so they compare as text. The controller
+-- never prunes core_audit in v1.
 
 -- One row per login, logout and change event. Controller-side rows have a
 -- null host_id and seq; agent rows carry the agent journal's sequence, and the
@@ -4610,6 +4631,22 @@ CREATE TABLE core_change_index (
 ) STRICT;
 
 CREATE INDEX core_change_index_host ON core_change_index (host_id);
+
+-- Every plan the dispatcher made, so Apply runs a plan only for the host and
+-- action it was made for (register row 69). host_id is '' for a
+-- controller-side plan. Apply sets applied before it runs the plan; an
+-- applied plan is kept, so a repeated apply returns its change after a
+-- restart, and an unapplied one is deleted once its retention has passed.
+CREATE TABLE core_plan_index (
+    plan_id    TEXT PRIMARY KEY,
+    host_id    TEXT NOT NULL,
+    action     TEXT NOT NULL,
+    version    INTEGER NOT NULL,
+    expires_at TEXT NOT NULL,
+    applied    INTEGER NOT NULL DEFAULT 0 CHECK (applied IN (0, 1))
+) STRICT;
+
+CREATE INDEX core_plan_index_expires ON core_plan_index (expires_at);
 ```
 
 Create `internal/controller/audit/audit.go`:
@@ -6193,7 +6230,7 @@ git commit -m "feat(agent): open the agent runtime"
 **Implementer:** dr-superpowers:impl-sonnet-high
 **Evaluation:** files 1 - spec 0 - coupling 1 - risk 3 = 5
 
-Spec section 15: without `caFingerprint` the CLI verifies against the system roots; with it, it trusts only the presented CA certificate whose SHA-256 is the fingerprint, and verifies the leaf against that root for the dialled host or IP, so leaf renewals need no new pin. The check runs in `VerifyConnection`, not `VerifyPeerCertificate`, because only `VerifyConnection` also runs on resumed TLS sessions (gosec G123). The tests make a CA and leaves with `crypto/x509` and serve them with `httptest.NewUnstartedServer` on 127.0.0.1: the right fingerprint (any case) passes; a wrong fingerprint, the fingerprint of the non-CA leaf, a leaf for another IP, and no fingerprint against a private root all fail; a malformed fingerprint is refused before any connection.
+Spec section 15: without `caFingerprint` the CLI verifies against the system roots; with it, it trusts only the presented CA certificate whose SHA-256 is the fingerprint, and verifies the leaf against that root for the dialled host or IP, so leaf renewals need no new pin. Both clients refuse every redirect, because a redirected request would be verified against the original host name and an HTTPS-to-HTTP redirect would skip verification, and the token must never leave for another host. The check runs in `VerifyConnection`, not `VerifyPeerCertificate`, because only `VerifyConnection` also runs on resumed TLS sessions (gosec G123). The tests make a CA and leaves with `crypto/x509` and serve them with `httptest.NewUnstartedServer` on 127.0.0.1: the right fingerprint (any case) passes; a wrong fingerprint, the fingerprint of the non-CA leaf, a leaf for another IP, and no fingerprint against a private root all fail; a malformed fingerprint is refused before any connection; a redirect, from the TLS and the plain client, is refused without a second request reaching the target.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -6219,6 +6256,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -6357,12 +6395,47 @@ func TestNewHTTPClientRefusesBadFingerprint(t *testing.T) {
 		t.Errorf("plain HTTP with a fingerprint: %v", err)
 	}
 }
+
+func TestClientsRefuseRedirects(t *testing.T) {
+	var hits atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
+	t.Cleanup(target.Close)
+	redirect := httptest.NewServer(http.RedirectHandler(target.URL+"/api/v1/x", http.StatusFound))
+	t.Cleanup(redirect.Close)
+	plain, _ := url.Parse("http://127.0.0.1:8080")
+	pinned, _ := url.Parse("https://127.0.0.1:8443")
+	for _, c := range []struct {
+		name        string
+		base        *url.URL
+		fingerprint string
+	}{
+		{"plain", plain, ""},
+		{"pinned", pinned, strings.Repeat("ab", 32)},
+	} {
+		hc, err := newHTTPClient(c.base, c.fingerprint)
+		if err != nil {
+			t.Fatalf("%s: newHTTPClient: %v", c.name, err)
+		}
+		req, _ := http.NewRequest(http.MethodGet, redirect.URL, nil)
+		req.Header.Set("Authorization", "Bearer test")
+		resp, err := hc.Do(req)
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+		if err == nil || !strings.Contains(err.Error(), "does not follow redirects") {
+			t.Errorf("%s: error %v, want a refused redirect", c.name, err)
+		}
+	}
+	if n := hits.Load(); n != 0 {
+		t.Errorf("the redirect target got %d requests, want 0", n)
+	}
+}
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `GOTOOLCHAIN=local timeout 300 go test -count=1 -run '^(TestPinnedCA|TestPinnedCARefusals|TestNewHTTPClientRefusesBadFingerprint)$' ./internal/cli/`
-Expected: FAIL — the build fails: `internal/cli/pin_test.go:97:12: undefined: newHTTPClient` (and the same at lines 149 and 154), then `FAIL github.com/darkraise/darkpanel/internal/cli [build failed]`.
+Run: `GOTOOLCHAIN=local timeout 300 go test -count=1 -run '^(TestPinnedCA|TestPinnedCARefusals|TestNewHTTPClientRefusesBadFingerprint|TestClientsRefuseRedirects)$' ./internal/cli/`
+Expected: FAIL — the build fails: `internal/cli/pin_test.go:98:12: undefined: newHTTPClient` (and the same at lines 150, 155 and 176), then `FAIL github.com/darkraise/darkpanel/internal/cli [build failed]`.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -6391,7 +6464,8 @@ const requestTimeout = 90 * time.Second
 // newHTTPClient returns the client for the server at base. Plain HTTP and
 // HTTPS without a fingerprint use Go's defaults, so HTTPS verifies against
 // the system roots. With a fingerprint, HTTPS trusts only the presented CA
-// certificate whose SHA-256 is that fingerprint (spec section 15).
+// certificate whose SHA-256 is that fingerprint (spec section 15). Neither
+// follows a redirect.
 func newHTTPClient(base *url.URL, fingerprint string) (*http.Client, error) {
 	if fingerprint != "" {
 		if b, err := hex.DecodeString(fingerprint); err != nil || len(b) != sha256.Size {
@@ -6399,7 +6473,7 @@ func newHTTPClient(base *url.URL, fingerprint string) (*http.Client, error) {
 		}
 	}
 	if base.Scheme != "https" || fingerprint == "" {
-		return &http.Client{Timeout: requestTimeout}, nil
+		return &http.Client{Timeout: requestTimeout, CheckRedirect: refuseRedirect}, nil
 	}
 	tr, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
@@ -6407,7 +6481,14 @@ func newHTTPClient(base *url.URL, fingerprint string) (*http.Client, error) {
 	}
 	tr = tr.Clone()
 	tr.TLSClientConfig = pinnedTLS(strings.ToLower(fingerprint), base.Hostname())
-	return &http.Client{Transport: tr, Timeout: requestTimeout}, nil
+	return &http.Client{Transport: tr, Timeout: requestTimeout, CheckRedirect: refuseRedirect}, nil
+}
+
+// refuseRedirect stops the client at a redirect: the pinned TLS check is
+// bound to the configured host, and a redirect could carry the token to
+// another host or downgrade it to plain HTTP.
+func refuseRedirect(req *http.Request, _ []*http.Request) error {
+	return fmt.Errorf("the server redirected to %s; darkpanel does not follow redirects, so set the server's own URL", req.URL.Redacted())
 }
 
 // pinnedTLS replaces Go's verification, which would require a system root,
@@ -6456,7 +6537,7 @@ func pinnedTLS(fingerprint, host string) *tls.Config {
 
 - [ ] **Step 4: Run the tests and checks**
 
-Run: `GOTOOLCHAIN=local timeout 300 go test -count=1 -run '^(TestPinnedCA|TestPinnedCARefusals|TestNewHTTPClientRefusesBadFingerprint)$' ./internal/cli/`
+Run: `GOTOOLCHAIN=local timeout 300 go test -count=1 -run '^(TestPinnedCA|TestPinnedCARefusals|TestNewHTTPClientRefusesBadFingerprint|TestClientsRefuseRedirects)$' ./internal/cli/`
 Expected: PASS (`ok  	github.com/darkraise/darkpanel/internal/cli`).
 
 Then run:
@@ -10866,12 +10947,12 @@ git commit -m "feat(cli): add the change commands"
 
 **Items:** 5, 69
 
-**Depends on:** Task 23
+**Depends on:** Task 12, Task 23
 
 **Implementer:** dr-superpowers:impl-sonnet-high
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 2 = 5
 
-The routing half of `core.Dispatcher`: controller-side actions to the controller engine, agent actions and resources to the host's client once the module is usable, and an index of every plan's host and action that Apply needs for register row 69's obligation 1. The tests cover the config, routing by side, every refusal code (unknown action, wrong side, unknown host, each unusable module), a redacted resource, the plan index and its retention, and a host that answers a plan for another action.
+The routing half of `core.Dispatcher`: controller-side actions to the controller engine, agent actions and resources to the host's client once the module is usable, and the `core_plan_index` row of every plan's host and action that Apply needs for register row 69's obligation 1. The index is a table, not memory, so a repeated apply of a committed change still finds its plan after a restart. The tests cover the config, routing by side, every refusal code (unknown action, wrong side, unknown host, each unusable module), a redacted resource, the plan index rows and the retention purge of unapplied plans, and a host that answers a plan for another action.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -11011,29 +11092,45 @@ func TestPlanRemembersWhereAndWhat(t *testing.T) {
 	if agentPlan.HostID != testHost || ctlPlan.HostID != "" {
 		t.Errorf("plan hosts %q and %q, want h1 and none", agentPlan.HostID, ctlPlan.HostID)
 	}
-	want := map[string]planEntry{
-		agentPlan.PlanID: {hostID: testHost, ref: refSet, expiresAt: agentPlan.ExpiresAt},
-		ctlPlan.PlanID:   {hostID: "", ref: refCtlSet, expiresAt: ctlPlan.ExpiresAt},
+	type row struct {
+		host, action string
+		version      int
+		expires      string
+		applied      int
+	}
+	want := map[string]row{
+		agentPlan.PlanID: {testHost, refSet.Name, 1, agentPlan.ExpiresAt.UTC().Format(timeFormat), 0},
+		ctlPlan.PlanID:   {"", refCtlSet.Name, 1, ctlPlan.ExpiresAt.UTC().Format(timeFormat), 0},
 	}
 	for id, w := range want {
-		if got := d.plans[id]; got != w {
-			t.Errorf("index of %s = %+v, want %+v", id, got, w)
+		var got row
+		if err := h.db.Read().QueryRow(
+			"SELECT host_id, action, version, expires_at, applied FROM core_plan_index WHERE plan_id = ?", id).
+			Scan(&got.host, &got.action, &got.version, &got.expires, &got.applied); err != nil || got != w {
+			t.Errorf("index of %s = %+v, %v; want %+v", id, got, err, w)
 		}
 	}
-	// An entry outlives its plan by PlanIndexRetention, then the next plan drops it.
+	// An unapplied plan outlives its expiry by PlanIndexRetention, then the
+	// next plan deletes it; an applied one is kept.
+	if _, err := h.db.Writer().Exec("UPDATE core_plan_index SET applied = 1 WHERE plan_id = ?", ctlPlan.PlanID); err != nil {
+		t.Fatal(err)
+	}
 	h.clock.Advance(lifecycle.PlanTTL + PlanIndexRetention - time.Second)
 	if _, err := d.Plan(ctx, alice, "", refCtlSet, json.RawMessage(`{"name":"n","value":"y"}`)); err != nil {
 		t.Fatal(err)
 	}
-	if len(d.plans) != 3 {
-		t.Errorf("index holds %d plans, want 3 inside the retention", len(d.plans))
+	if n := h.count("SELECT count(*) FROM core_plan_index"); n != 3 {
+		t.Errorf("index holds %d plans, want 3 inside the retention", n)
 	}
 	h.clock.Advance(time.Second)
 	if _, err := d.Plan(ctx, alice, "", refCtlSet, json.RawMessage(`{"name":"n","value":"z"}`)); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := d.plans[agentPlan.PlanID]; ok || len(d.plans) != 2 {
-		t.Errorf("index = %+v, want the two old plans dropped", d.plans)
+	if n := h.count("SELECT count(*) FROM core_plan_index WHERE plan_id = ?", agentPlan.PlanID); n != 0 {
+		t.Error("the unapplied plan past its retention is still indexed")
+	}
+	if n := h.count("SELECT count(*) FROM core_plan_index"); n != 3 {
+		t.Errorf("index holds %d plans, want the applied plan and the two new ones", n)
 	}
 }
 
@@ -11048,8 +11145,8 @@ func TestPlanRefusesAnUnusableModule(t *testing.T) {
 	}
 	_, err := d.Plan(ctx, alice, testHost, refSet, json.RawMessage(`{"name":"a","value":"1"}`))
 	e := wantCode(t, err, errcode.ModuleUnavailable)
-	if e.Detail != "module kv is unavailable on host h1: kv: broken" || len(d.plans) != 0 {
-		t.Errorf("detail %q, index %+v", e.Detail, d.plans)
+	if n := h.count("SELECT count(*) FROM core_plan_index"); e.Detail != "module kv is unavailable on host h1: kv: broken" || n != 0 {
+		t.Errorf("detail %q, %d plans indexed", e.Detail, n)
 	}
 }
 
@@ -11062,8 +11159,9 @@ func TestPlanChecksTheAgentsAnswer(t *testing.T) {
 		},
 	})
 	_, err := d.Plan(context.Background(), alice, testHost, refSet, json.RawMessage(`{"name":"a","value":"1"}`))
-	if err == nil || !strings.Contains(err.Error(), "answered with a plan for kv.item.get/v1 on h1") || len(d.plans) != 0 {
-		t.Errorf("Plan = %v (index %+v), want the mismatch refused", err, d.plans)
+	if n := h.count("SELECT count(*) FROM core_plan_index"); err == nil ||
+		!strings.Contains(err.Error(), "answered with a plan for kv.item.get/v1 on h1") || n != 0 {
+		t.Errorf("Plan = %v (%d plans indexed), want the mismatch refused", err, n)
 	}
 }
 ```
@@ -11094,11 +11192,11 @@ package dispatch
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -11107,9 +11205,10 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/store"
 )
 
-// PlanIndexRetention is how long the dispatcher remembers a plan after it
-// expired, so a late apply answers plan.expired and a repeated apply returns
-// its change. After that, and after a restart, the plan is plan.not_found.
+// PlanIndexRetention is how long core_plan_index keeps a plan that was never
+// applied after it expired, so a late apply answers plan.expired; after that
+// the plan is plan.not_found. An applied plan is kept, so a repeated apply
+// returns its change, also after a restart.
 const PlanIndexRetention = time.Hour
 
 // Ingester copies a host's agent journal into the audit log;
@@ -11123,7 +11222,7 @@ type Config struct {
 	Registry *core.Registry    // the one registry of the process
 	Engine   *lifecycle.Engine // the controller's engine
 	Hosts    *Hosts            // the controller engine's Base.Agents too
-	DB       *store.DB         // the controller database: core_hosts, core_change_index
+	DB       *store.DB         // the controller database: core_hosts, core_plan_index, core_change_index
 	Clock    core.Clock
 	Log      *slog.Logger
 	// Ingest, when set, runs after every agent apply, confirm and revert.
@@ -11134,18 +11233,6 @@ type Config struct {
 // for concurrent use.
 type Dispatcher struct {
 	cfg Config
-
-	mu    sync.Mutex
-	plans map[string]planEntry // by plan id
-}
-
-// planEntry is where a plan was made and for which action, so Apply can
-// refuse a plan id used with another host or action (register row 69,
-// obligation 1).
-type planEntry struct {
-	hostID    string
-	ref       core.ActionRef
-	expiresAt time.Time
 }
 
 // New returns a dispatcher for cfg; every field but Ingest is required.
@@ -11162,7 +11249,7 @@ func New(cfg Config) (*Dispatcher, error) {
 			return nil, fmt.Errorf("dispatch: Config.%s is required", r.name)
 		}
 	}
-	return &Dispatcher{cfg: cfg, plans: map[string]planEntry{}}, nil
+	return &Dispatcher{cfg: cfg}, nil
 }
 
 // moduleOf is the module id of an action or resource name.
@@ -11227,8 +11314,8 @@ func (d *Dispatcher) Resource(ctx context.Context, p core.Principal, hostID, nam
 	return c.Resource(ctx, p, name)
 }
 
-// Plan plans a mutating action where Read would run it, and remembers the
-// plan's host and action for Apply.
+// Plan plans a mutating action where Read would run it, and records the
+// plan's host and action in core_plan_index for Apply.
 func (d *Dispatcher) Plan(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage) (core.PlanView, error) {
 	def, err := d.action(a, hostID)
 	if err != nil {
@@ -11250,21 +11337,30 @@ func (d *Dispatcher) Plan(ctx context.Context, p core.Principal, hostID string, 
 		return core.PlanView{}, fmt.Errorf("dispatch: %s on %q answered with a plan for %s/v%d on %s",
 			a, hostID, v.Action, v.Version, v.HostID)
 	}
-	d.remember(v.PlanID, planEntry{hostID: hostID, ref: a, expiresAt: v.ExpiresAt})
+	if err := d.remember(ctx, hostID, a, v); err != nil {
+		return core.PlanView{}, err
+	}
 	return v, nil
 }
 
-// remember indexes a plan and drops entries past their retention.
-func (d *Dispatcher) remember(planID string, e planEntry) {
-	now := d.cfg.Clock.Now()
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	for id, old := range d.plans {
-		if !now.Before(old.expiresAt.Add(PlanIndexRetention)) {
-			delete(d.plans, id)
+// remember indexes a plan (register row 69, obligation 1) and deletes the
+// unapplied plans whose retention has passed.
+func (d *Dispatcher) remember(ctx context.Context, hostID string, a core.ActionRef, v core.PlanView) error {
+	cutoff := d.cfg.Clock.Now().Add(-PlanIndexRetention).UTC().Format(timeFormat)
+	err := d.cfg.DB.Write(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx,
+			"DELETE FROM core_plan_index WHERE applied = 0 AND expires_at <= ?", cutoff); err != nil {
+			return err
 		}
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO core_plan_index (plan_id, host_id, action, version, expires_at) VALUES (?, ?, ?, ?, ?)`,
+			v.PlanID, hostID, a.Name, a.Version, v.ExpiresAt.UTC().Format(timeFormat))
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("dispatch: index plan %s: %w", v.PlanID, err)
 	}
-	d.plans[planID] = e
+	return nil
 }
 ```
 
@@ -11301,8 +11397,8 @@ git commit -m "feat(dispatch): route reads, resources and plans"
 - Test: `internal/controller/dispatch/apply_test.go`
 
 **Interfaces:**
-- Consumes: Contracts › Task 25 (`Dispatcher`, `action`, `agent`, `plans`, `newDispatcher`, `alice`, `(*harness).config`) and Task 13 (`audit.New`, `audit.NewIngester`, `IngesterConfig`); `core_change_index` (Task 12)
-- Produces: Contracts › `internal/controller/dispatch` Task 26 (`Apply`, `planFor`, `index`, `ingest`, `newAudited`, `(*harness).plan`)
+- Consumes: Contracts › Task 25 (`Dispatcher`, `action`, `agent`, `PlanIndexRetention`, `newDispatcher`, `alice`, `(*harness).config`) and Task 13 (`audit.New`, `audit.NewIngester`, `IngesterConfig`); `core_change_index` and `core_plan_index` (Task 12)
+- Produces: Contracts › `internal/controller/dispatch` Task 26 (`Apply`, `planFor`, `markApplied`, `unmarkApplied`, `index`, `ingest`, `newAudited`, `(*harness).plan`)
 
 **Items:** 69, 14
 
@@ -11311,7 +11407,7 @@ git commit -m "feat(dispatch): route reads, resources and plans"
 **Implementer:** dr-superpowers:impl-opus-high
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 3 = 6
 
-Register row 69, obligation 1: the API authorizes from the route's action, so Apply must run only a plan made for that same host and action; anything else is `plan.not_found`. An agent apply is recorded in `core_change_index` and its journal is ingested right away. The tests try every mismatch and a plan from before a restart, then check the index row, the ingested audit entry with the caller's source, an acknowledged agent journal, the controller-side audit row, a module disabled after planning, and an expired plan.
+Register row 69, obligation 1: the API authorizes from the route's action, so Apply must run only a plan made for that same host and action; anything else is `plan.not_found`. The plan is marked applied before the call, so its row outlives the retention and a repeated apply returns the change; only the call that marked it may clear the mark, when it fails without a change. An agent apply is recorded in `core_change_index` and its journal is ingested right away. The tests try every mismatch, repeat an applied plan after a restart, after another principal's refused apply and past the retention, refuse an unapplied plan past its retention, then check the index row, the ingested audit entry with the caller's source, an acknowledged agent journal, the controller-side audit row, a module disabled after planning, and an expired plan.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -11325,6 +11421,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/darkraise/darkpanel/internal/controller/audit"
 	"github.com/darkraise/darkpanel/internal/core"
@@ -11381,14 +11478,12 @@ func TestApplyRefusesAPlanOfAnotherHostOrAction(t *testing.T) {
 	if n := h.count("SELECT count(*) FROM core_change_index"); n != 0 {
 		t.Errorf("index rows after refusals = %d, want 0", n)
 	}
-	// A dispatcher started later does not know the plan: the operator plans again.
-	restarted, err := New(d.cfg)
-	if err != nil {
-		t.Fatal(err)
+	if n := h.count("SELECT count(*) FROM core_plan_index WHERE applied = 1"); n != 0 {
+		t.Errorf("plans marked applied after refusals = %d, want 0", n)
 	}
-	_, err = restarted.Apply(ctx, alice, testHost, refSet, agentPlan.PlanID, core.ApplyOptions{})
+	_, err := d.Apply(ctx, alice, testHost, refSet, "01UNKNOWN", core.ApplyOptions{})
 	e := wantCode(t, err, errcode.PlanNotFound)
-	if e.Detail != "no plan "+agentPlan.PlanID+" for kv.item.set/v1 on host h1" {
+	if e.Detail != "no plan 01UNKNOWN for kv.item.set/v1 on host h1" {
 		t.Errorf("detail = %q", e.Detail)
 	}
 	for _, c := range []struct {
@@ -11461,6 +11556,9 @@ func TestApplyRefusesAModuleDisabledAfterThePlan(t *testing.T) {
 	}
 	_, err := d.Apply(ctx, alice, testHost, refSet, pl.PlanID, core.ApplyOptions{})
 	_ = wantCode(t, err, errcode.ModuleUnavailable)
+	if n := h.count("SELECT applied FROM core_plan_index WHERE plan_id = ?", pl.PlanID); n != 0 {
+		t.Errorf("applied after the module refusal = %d, want 0", n)
+	}
 	if _, err := h.db.Writer().Exec("UPDATE core_module_state SET enabled = 1 WHERE module_id = 'kv'"); err != nil {
 		t.Fatal(err)
 	}
@@ -11475,6 +11573,73 @@ func TestApplyOfAnExpiredPlanIsExpired(t *testing.T) {
 	h.clock.Advance(lifecycle.PlanTTL)
 	_, err := d.Apply(context.Background(), alice, "", refCtlSet, pl.PlanID, core.ApplyOptions{})
 	_ = wantCode(t, err, errcode.PlanExpired)
+	if n := h.count("SELECT applied FROM core_plan_index WHERE plan_id = ?", pl.PlanID); n != 0 {
+		t.Errorf("applied after a failed apply = %d, want 0", n)
+	}
+}
+
+func TestApplyRepeatsAfterARestartAndPastTheRetention(t *testing.T) {
+	h, d := newDispatcher(t)
+	ctx := context.Background()
+	type applied struct {
+		host             string
+		ref              core.ActionRef
+		planID, changeID string
+	}
+	done := []applied{
+		{host: testHost, ref: refSet, planID: h.plan(d, testHost, refSet, `{"name":"a","value":"1"}`).PlanID},
+		{host: "", ref: refCtlSet, planID: h.plan(d, "", refCtlSet, `{"name":"n","value":"x"}`).PlanID},
+	}
+	for i, a := range done {
+		v, err := d.Apply(ctx, alice, a.host, a.ref, a.planID, core.ApplyOptions{})
+		if err != nil {
+			t.Fatalf("Apply of %s: %v", a.ref, err)
+		}
+		done[i].changeID = v.ID
+	}
+	if n := h.count("SELECT count(*) FROM core_plan_index WHERE applied = 1"); n != 2 {
+		t.Errorf("plans marked applied = %d, want 2", n)
+	}
+	// A dispatcher started later over the same database and agent.
+	restarted, err := New(d.cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again := func(when string) {
+		t.Helper()
+		for _, a := range done {
+			v, err := restarted.Apply(ctx, alice, a.host, a.ref, a.planID, core.ApplyOptions{})
+			if err != nil || v.ID != a.changeID {
+				t.Errorf("%s: repeated apply of %s = %+v, %v; want change %s", when, a.ref, v, err, a.changeID)
+			}
+		}
+	}
+	again("after a restart")
+	// A refused repeat must not clear the flag, or the purge below would
+	// drop the plans and alice's next repeat would be plan.not_found.
+	mallory := core.Principal{Actor: "user:mallory", UserID: "mallory", Scope: core.ScopeOperate, Source: "192.0.2.9"}
+	for _, a := range done {
+		_, err := restarted.Apply(ctx, mallory, a.host, a.ref, a.planID, core.ApplyOptions{})
+		_ = wantCode(t, err, errcode.PlanPrincipalMismatch)
+	}
+	h.clock.Advance(lifecycle.PlanTTL + PlanIndexRetention + time.Second)
+	_ = h.plan(restarted, "", refCtlSet, `{"name":"n","value":"y"}`)
+	again("past the retention")
+}
+
+func TestApplyOfAnUnappliedPlanPastItsRetentionIsNotFound(t *testing.T) {
+	h, d := newDispatcher(t)
+	pl := h.plan(d, testHost, refSet, `{"name":"a","value":"1"}`)
+	h.clock.Advance(lifecycle.PlanTTL + PlanIndexRetention)
+	_ = h.plan(d, "", refCtlSet, `{"name":"n","value":"x"}`)
+	if n := h.count("SELECT count(*) FROM core_plan_index WHERE plan_id = ?", pl.PlanID); n != 0 {
+		t.Errorf("index rows of the old plan = %d, want 0", n)
+	}
+	_, err := d.Apply(context.Background(), alice, testHost, refSet, pl.PlanID, core.ApplyOptions{})
+	e := wantCode(t, err, errcode.PlanNotFound)
+	if e.Detail != "no plan "+pl.PlanID+" for kv.item.set/v1 on host h1" {
+		t.Errorf("detail = %q", e.Detail)
+	}
 }
 ```
 
@@ -11486,13 +11651,13 @@ Expected: FAIL — the build reports `d.Apply undefined (type *Dispatcher has no
 
 ```text
 # github.com/darkraise/darkpanel/internal/controller/dispatch [github.com/darkraise/darkpanel/internal/controller/dispatch.test]
-internal/controller/dispatch/apply_test.go:57:16: d.Apply undefined (type *Dispatcher has no field or method Apply)
-internal/controller/dispatch/apply_test.go:69:21: restarted.Apply undefined (type *Dispatcher has no field or method Apply)
-internal/controller/dispatch/apply_test.go:79:18: d.Apply undefined (type *Dispatcher has no field or method Apply)
-internal/controller/dispatch/apply_test.go:89:14: d.Apply undefined (type *Dispatcher has no field or method Apply)
-internal/controller/dispatch/apply_test.go:113:18: d.Apply undefined (type *Dispatcher has no field or method Apply)
-internal/controller/dispatch/apply_test.go:122:15: d.Apply undefined (type *Dispatcher has no field or method Apply)
-internal/controller/dispatch/apply_test.go:142:14: d.Apply undefined (type *Dispatcher has no field or method Apply)
+internal/controller/dispatch/apply_test.go:58:16: d.Apply undefined (type *Dispatcher has no field or method Apply)
+internal/controller/dispatch/apply_test.go:68:14: d.Apply undefined (type *Dispatcher has no field or method Apply)
+internal/controller/dispatch/apply_test.go:78:18: d.Apply undefined (type *Dispatcher has no field or method Apply)
+internal/controller/dispatch/apply_test.go:88:14: d.Apply undefined (type *Dispatcher has no field or method Apply)
+internal/controller/dispatch/apply_test.go:112:18: d.Apply undefined (type *Dispatcher has no field or method Apply)
+internal/controller/dispatch/apply_test.go:121:15: d.Apply undefined (type *Dispatcher has no field or method Apply)
+internal/controller/dispatch/apply_test.go:141:14: d.Apply undefined (type *Dispatcher has no field or method Apply)
 ```
 
 - [ ] **Step 3: Write the implementation**
@@ -11512,40 +11677,58 @@ import (
 )
 
 // Apply applies a plan this dispatcher made for exactly hostID and a. A plan
-// id it does not know, one made for another host, action or version, and one
-// made before a restart are plan.not_found (register row 69, obligation 1):
-// the caller authorized a, so a plan of another action must not run. An agent
-// apply also needs a's module to be usable on hostID; its change is recorded
-// in core_change_index and the host's journal is ingested.
+// id core_plan_index does not hold, and one made for another host, action or
+// version, are plan.not_found (register row 69, obligation 1): the caller
+// authorized a, so a plan of another action must not run. An agent apply also
+// needs a's module to be usable on hostID; its change is recorded in
+// core_change_index and the host's journal is ingested.
 func (d *Dispatcher) Apply(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, planID string, opts core.ApplyOptions) (core.ChangeView, error) {
 	def, err := d.action(a, hostID)
 	if err != nil {
 		return core.ChangeView{}, err
 	}
-	if err := d.planFor(planID, hostID, a); err != nil {
+	if err := d.planFor(ctx, planID, hostID, a); err != nil {
 		return core.ChangeView{}, err
 	}
-	if def.Spec.Side == core.SideController {
-		return d.cfg.Engine.Apply(ctx, p, planID, opts)
+	apply := func() (core.ChangeView, error) { return d.cfg.Engine.Apply(ctx, p, planID, opts) }
+	if def.Spec.Side == core.SideAgent {
+		c, err := d.agent(ctx, hostID, a.Name)
+		if err != nil {
+			return core.ChangeView{}, err
+		}
+		apply = func() (core.ChangeView, error) { return c.Apply(ctx, p, planID, opts) }
 	}
-	c, err := d.agent(ctx, hostID, a.Name)
+	// Marked before the call: the change may be committed even when this
+	// process stops before the call returns, and its plan must stay indexed
+	// so a repeated apply returns that change.
+	claimed, err := d.markApplied(ctx, planID)
 	if err != nil {
 		return core.ChangeView{}, err
 	}
-	v, err := c.Apply(ctx, p, planID, opts)
-	if v.ID != "" {
+	v, err := apply()
+	if err != nil && v.ID == "" && claimed {
+		if err := d.unmarkApplied(context.WithoutCancel(ctx), planID); err != nil {
+			d.cfg.Log.Error("dispatch: unmark plan", "plan", planID, "error", err)
+		}
+	}
+	if v.ID != "" && def.Spec.Side == core.SideAgent {
 		d.index(ctx, hostID, v)
 		d.ingest(ctx, hostID)
 	}
 	return v, err
 }
 
-// planFor refuses planID unless Plan indexed it for hostID and a.
-func (d *Dispatcher) planFor(planID, hostID string, a core.ActionRef) error {
-	d.mu.Lock()
-	e, ok := d.plans[planID]
-	d.mu.Unlock()
-	if ok && e.hostID == hostID && e.ref == a {
+// planFor refuses planID unless core_plan_index holds it for hostID and a.
+func (d *Dispatcher) planFor(ctx context.Context, planID, hostID string, a core.ActionRef) error {
+	var found bool
+	err := d.cfg.DB.Read().QueryRowContext(ctx,
+		`SELECT EXISTS (SELECT 1 FROM core_plan_index
+		 WHERE plan_id = ? AND host_id = ? AND action = ? AND version = ?)`,
+		planID, hostID, a.Name, a.Version).Scan(&found)
+	switch {
+	case err != nil:
+		return fmt.Errorf("dispatch: read plan index: %w", err)
+	case found:
 		return nil
 	}
 	detail := fmt.Sprintf("no plan %s for %s", planID, a)
@@ -11553,6 +11736,40 @@ func (d *Dispatcher) planFor(planID, hostID string, a core.ActionRef) error {
 		detail += " on host " + hostID
 	}
 	return errcode.New(errcode.PlanNotFound, detail)
+}
+
+// markApplied sets the applied flag of planID and reports whether this call
+// set it. Only that call may clear it again: a refused repeat of a plan that
+// already has a change, such as another principal's, must leave it set. An
+// applied plan is kept in core_plan_index; an unapplied one is deleted after
+// its retention.
+func (d *Dispatcher) markApplied(ctx context.Context, planID string) (bool, error) {
+	var claimed bool
+	err := d.cfg.DB.Write(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, "UPDATE core_plan_index SET applied = 1 WHERE plan_id = ? AND applied = 0", planID)
+		if err != nil {
+			return err
+		}
+		n, err := res.RowsAffected()
+		claimed = n == 1
+		return err
+	})
+	if err != nil {
+		return false, fmt.Errorf("dispatch: mark plan %s: %w", planID, err)
+	}
+	return claimed, nil
+}
+
+// unmarkApplied clears the applied flag that markApplied set.
+func (d *Dispatcher) unmarkApplied(ctx context.Context, planID string) error {
+	err := d.cfg.DB.Write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, "UPDATE core_plan_index SET applied = 0 WHERE plan_id = ?", planID)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("dispatch: unmark plan %s: %w", planID, err)
+	}
+	return nil
 }
 
 // index records the host of an agent change, so Change, Confirm and Revert
@@ -11617,8 +11834,8 @@ git commit -m "feat(dispatch): apply plans and index changes"
 - Test: `internal/controller/dispatch/changes_test.go`
 
 **Interfaces:**
-- Consumes: Contracts › Task 26 (`Apply`, `ingest`, `newAudited`, `(*harness).plan`) and Task 25; `Engine.Change`, `Confirm`, `Revert`, `Changes`; `core_change_index`
-- Produces: Contracts › `internal/controller/dispatch` Task 27 (`Change`, `Confirm`, `Revert`, `Changes`, `DefaultChangeLimit`, `MaxChangeLimit`; `*Dispatcher` implements `core.Dispatcher`)
+- Consumes: Contracts › Task 26 (`Apply`, `index`, `ingest`, `newAudited`, `(*harness).plan`), Task 25 and Task 23 (`Hosts`, `Hosts.Agent`, the fields `Hosts.mu` and `Hosts.clients`); `Engine.Change`, `Confirm`, `Revert`, `Changes`; `core_change_index`
+- Produces: Contracts › `internal/controller/dispatch` Task 27 (`Change`, `Confirm`, `Revert`, `Changes`, `DefaultChangeLimit`, `MaxChangeLimit`, `find`, `(*Hosts).ids`; `*Dispatcher` implements `core.Dispatcher`)
 
 **Items:** 69
 
@@ -11627,7 +11844,7 @@ git commit -m "feat(dispatch): apply plans and index changes"
 **Implementer:** dr-superpowers:impl-opus-high
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 3 = 6
 
-Register row 69, obligation 2: the API authorizes confirm and revert from the view `Change` returns, so that view must be the real change (action, version, host) and confirm and revert must act on it. `Changes` merges the controller's and every host's changes and pages exactly like the engine (controller ruling 2026-10-18), because the API refills pages by calling it again with the last id. The tests cover both kinds of change, a lost index row, a host answering for another, confirm and revert with their ingested audit rows, interleaved sources with a cursor in the middle and a limit below the total, the filter passed to every source, and a host that cannot be listed.
+Register row 69, obligation 2: the API authorizes confirm and revert from the view `Change` returns, so that view must be the real change (action, version, host) and confirm and revert must act on it. `Changes` merges the controller's and every host's changes and pages exactly like the engine (controller ruling 2026-10-18), because the API refills pages by calling it again with the last id. A change with no index row is looked for on every host and indexed when found, so an agent change whose row was never written stays reachable. The tests cover both kinds of change, a lost index row found again, a lookup that accepts only the host asked, a host answering for another, confirm and revert with their ingested audit rows, interleaved sources with a cursor in the middle and a limit below the total, the filter passed to every source, and a host that cannot be listed.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -11695,6 +11912,67 @@ func TestChangeReturnsTheRealChange(t *testing.T) {
 	}
 	_, err = d.Change(ctx, alice, "01LOST")
 	_ = wantCode(t, err, errcode.ChangeNotFound)
+}
+
+func TestChangeFindsAChangeMissingFromTheIndex(t *testing.T) {
+	h, d, _ := newAudited(t)
+	ctx := context.Background()
+	first := h.applyAgent(d, "a", core.ApplyOptions{})
+	// The controller stopped after the agent committed, before it indexed.
+	unindex := func() {
+		t.Helper()
+		if _, err := h.db.Writer().Exec("DELETE FROM core_change_index"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	indexed := func(id string) {
+		t.Helper()
+		if n := h.count("SELECT count(*) FROM core_change_index WHERE change_id = ? AND host_id = ?", id, testHost); n != 1 {
+			t.Errorf("index rows of %s on h1 = %d, want 1", id, n)
+		}
+	}
+	unindex()
+	got, err := d.Change(ctx, alice, first.ID)
+	if err != nil || got.ID != first.ID || got.HostID != testHost || got.State != core.StatePending {
+		t.Fatalf("Change = %+v, %v; want the pending change on h1", got, err)
+	}
+	indexed(first.ID)
+	unindex()
+	if v, err := d.Confirm(ctx, bob, first.ID); err != nil || v.State != core.StateConfirmed {
+		t.Errorf("Confirm = %+v, %v", v, err)
+	}
+	indexed(first.ID)
+	second := h.applyAgent(d, "b", core.ApplyOptions{})
+	unindex()
+	if v, err := d.Revert(ctx, bob, second.ID); err != nil || v.State != core.StateReverted {
+		t.Errorf("Revert = %+v, %v", v, err)
+	}
+	indexed(second.ID)
+	_, err = d.Change(ctx, alice, "01UNKNOWN")
+	_ = wantCode(t, err, errcode.ChangeNotFound)
+}
+
+func TestChangeLookupAcceptsOnlyTheHostAsked(t *testing.T) {
+	h, d := newDispatcher(t)
+	ctx := context.Background()
+	answer := func(_ context.Context, id string) (core.ChangeView, error) {
+		return core.ChangeView{ID: id, HostID: "h2", Action: refSet.Name, Version: 1}, nil
+	}
+	h.hosts.Add(testHost, &coretest.FakeAgent{HelloFunc: h.rt.Hello,
+		ChangeFunc: func(ctx context.Context, id string) (core.ChangeView, error) { return answer(ctx, id) }})
+	_, err := d.Change(ctx, alice, "01OTHER")
+	_ = wantCode(t, err, errcode.ChangeNotFound)
+	if n := h.count("SELECT count(*) FROM core_change_index"); n != 0 {
+		t.Errorf("index rows = %d, want none for a view of another host", n)
+	}
+	answer = func(context.Context, string) (core.ChangeView, error) {
+		return core.ChangeView{}, errors.New("agent unreachable")
+	}
+	_, err = d.Change(ctx, alice, "01OTHER")
+	var coded *errcode.Error
+	if err == nil || errors.As(err, &coded) || !strings.Contains(err.Error(), "agent unreachable") {
+		t.Errorf("Change = %v, want the host's plain error", err)
+	}
 }
 
 func TestChangeRefusesAHostThatAnswersForAnother(t *testing.T) {
@@ -11860,9 +12138,9 @@ internal/controller/dispatch/changes_test.go:45:16: d.Change undefined (type *Di
 internal/controller/dispatch/changes_test.go:49:15: d.Change undefined (type *Dispatcher has no field or method Change)
 internal/controller/dispatch/changes_test.go:53:13: d.Change undefined (type *Dispatcher has no field or method Change)
 internal/controller/dispatch/changes_test.go:60:13: d.Change undefined (type *Dispatcher has no field or method Change)
-internal/controller/dispatch/changes_test.go:73:14: d.Change undefined (type *Dispatcher has no field or method Change)
-internal/controller/dispatch/changes_test.go:84:14: d.Confirm undefined (type *Dispatcher has no field or method Confirm)
-internal/controller/dispatch/changes_test.go:89:16: d.Revert undefined (type *Dispatcher has no field or method Revert)
+internal/controller/dispatch/changes_test.go:82:16: d.Change undefined (type *Dispatcher has no field or method Change)
+internal/controller/dispatch/changes_test.go:88:17: d.Confirm undefined (type *Dispatcher has no field or method Confirm)
+internal/controller/dispatch/changes_test.go:94:17: d.Revert undefined (type *Dispatcher has no field or method Revert)
 ```
 
 - [ ] **Step 3: Write the implementation**
@@ -11898,19 +12176,57 @@ func isChangeNotFound(err error) bool {
 }
 
 // owner returns the client of the host core_change_index names for an agent
-// change; a change it does not hold is change.not_found.
+// change. A change it does not hold is looked for on every host, because the
+// agent commits a change before the controller indexes it; a change no host
+// holds is change.not_found.
 func (d *Dispatcher) owner(ctx context.Context, changeID string) (string, core.AgentClient, error) {
 	var hostID string
 	err := d.cfg.DB.Read().QueryRowContext(ctx,
 		"SELECT host_id FROM core_change_index WHERE change_id = ?", changeID).Scan(&hostID)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		return "", nil, errcode.New(errcode.ChangeNotFound, fmt.Sprintf("no change %s", changeID))
+		return d.find(ctx, changeID)
 	case err != nil:
 		return "", nil, fmt.Errorf("dispatch: read change index: %w", err)
 	}
 	c, err := d.cfg.Hosts.Agent(ctx, hostID)
 	return hostID, c, err
+}
+
+// find asks every host Hosts knows for changeID and indexes the first that
+// answers with a view of its own host. A host's change.not_found means it
+// does not hold the change; any other error fails the lookup.
+func (d *Dispatcher) find(ctx context.Context, changeID string) (string, core.AgentClient, error) {
+	for _, hostID := range d.cfg.Hosts.ids() {
+		c, err := d.cfg.Hosts.Agent(ctx, hostID)
+		if err != nil {
+			return "", nil, fmt.Errorf("dispatch: find change %s on host %s: %w", changeID, hostID, err)
+		}
+		v, err := c.Change(ctx, changeID)
+		switch {
+		case isChangeNotFound(err):
+			continue
+		case err != nil:
+			return "", nil, fmt.Errorf("dispatch: find change %s on host %s: %w", changeID, hostID, err)
+		case v.HostID != hostID:
+			continue
+		}
+		d.index(ctx, hostID, v)
+		return hostID, c, nil
+	}
+	return "", nil, errcode.New(errcode.ChangeNotFound, fmt.Sprintf("no change %s", changeID))
+}
+
+// ids returns the hosts that have a client, in id order.
+func (h *Hosts) ids() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	out := make([]string, 0, len(h.clients))
+	for id := range h.clients {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // checkHost refuses a view whose host is not the one the index names, so the
@@ -11925,7 +12241,8 @@ func checkHost(v core.ChangeView, hostID string) (core.ChangeView, error) {
 
 // Change returns a change as its engine stores it, with its real action,
 // version and host (empty for a controller-side change): the controller
-// engine's first, else the agent's that core_change_index names.
+// engine's first, else the agent's that core_change_index names or, without
+// a row, the agent's that holds it.
 func (d *Dispatcher) Change(ctx context.Context, _ core.Principal, changeID string) (core.ChangeView, error) {
 	v, err := d.cfg.Engine.Change(ctx, changeID)
 	if !isChangeNotFound(err) {
@@ -12302,7 +12619,7 @@ git commit -m "feat(cli): print the web CA through the socket"
 **Implementer:** dr-superpowers:impl-sonnet-high
 **Evaluation:** files 1 - spec 0 - coupling 1 - risk 3 = 5
 
-Spec sections 8 and 15: `darkpanel user create --username <name>` asks for the password twice without echo, applies `core.user.create` through the mutating flow on the controller socket, renders the `otpauth://totp/Darkpanel:<username>?secret=<base32>&issuer=Darkpanel&algorithm=SHA1&digits=6&period=30` URI as a terminal QR code with the URI and secret below it, asks for a code and applies `core.user.activate`. `user reset-totp` runs the same enrollment after its irreversible reset. The generated commands are wrapped in place, so they keep their flags and annotations and `FindCommand` still reports them. The tests compute codes with `auth.TOTPCode`, and cover the terminal and piped flows, differing passwords, a missing username or password, `--json` refused, and a wrong code ending with the `user activate` hint.
+Spec sections 8 and 15: `darkpanel user create --username <name>` asks for the password twice without echo, applies `core.user.create` through the mutating flow on the controller socket, renders the `otpauth://totp/Darkpanel:<username>?secret=<base32>&issuer=Darkpanel&algorithm=SHA1&digits=6&period=30` URI as a terminal QR code with the URI and secret below it, asks for a code and applies `core.user.activate`. `user reset-totp` runs the same enrollment after its irreversible reset. The generated commands are wrapped in place, so they keep their flags and annotations and `FindCommand` still reports them; the generated `--input` flag is hidden and refused as a usage error, because the flow asks for the password and the code itself. The tests compute codes with `auth.TOTPCode`, and cover the terminal and piped flows, differing passwords, a missing username or password, `--json` and `--input` refused, and a wrong code ending with the `user activate` hint.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -12408,6 +12725,7 @@ func TestUserCreateRefusals(t *testing.T) {
 		{"no username", cliEnv{terminal: true}, nil, "--username"},
 		{"no password", cliEnv{}, []string{"--username", "ann", "--yes"}, "no password"},
 		{"--json", cliEnv{terminal: true}, []string{"--username", "ann", "--json"}, "--json"},
+		{"--input", cliEnv{terminal: true}, []string{"--username", "ann", "--input", "-"}, "takes no --input"},
 	}
 	for _, c := range cases {
 		_, errOut, exit := c.cli.run(t, append(append([]string{"user", "create"}, c.args...), "--socket", sock)...)
@@ -12446,7 +12764,7 @@ func TestResetTOTPEnrollment(t *testing.T) {
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `GOTOOLCHAIN=local timeout 300 go test -count=1 -run '^(TestUserCreateEnrollment|TestUserCreateWithoutTerminal|TestUserCreateRefusals|TestResetTOTPEnrollment)$' ./internal/cli/`
-Expected: FAIL — the tests fail: `stdout lacks "URI: otpauth://totp/Darkpanel:ann?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP&issuer=Darkpanel&algorithm=SHA1&digits=6&period=30\n"` and the same for the secret note, the QR block and the activation, because the generic flow runs instead (`err "password: \nApply? [y/N] "`).
+Expected: FAIL — all four tests fail because the generic flow runs instead of the enrollment: `--- FAIL: TestUserCreateEnrollment` with `enroll_test.go:58: stdout lacks "URI: otpauth://totp/Darkpanel:ann?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP&issuer=Darkpanel&algorithm=SHA1&digits=6&period=30\n"` and the same for the secret note, the QR block and the activation, then `enroll_test.go:62: exit 0, err "password: \nApply? [y/N] "`; `--- FAIL: TestUserCreateWithoutTerminal` with `enroll_test.go:83: exit 0, out "Plan for core.user.create/v1:…`; `--- FAIL: TestUserCreateRefusals` with `enroll_test.go:105` for `passwords differ` (exit 1), `no password`, `--json` and `--input` (exit 2 with the generic flow's messages, for example `--input: exit 2, err "darkpanel: --input -: want a JSON object\n"`); and `--- FAIL: TestResetTOTPEnrollment` with `enroll_test.go:127: reset-totp: exit 0, out "Plan for core.user.reset-totp/v1:…` and `enroll_test.go:131: wrong code: exit 0, err ""`.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -12491,7 +12809,8 @@ func latestAction(reg *core.Registry, name string) (core.ActionDef, bool) {
 
 // wrapEnrollment makes the generated `user create` and `user reset-totp`
 // commands run the enrollment flow. They keep their flags and annotations,
-// so FindCommand still reports them.
+// so FindCommand still reports them; --input is hidden, because the flow
+// asks for the password and the code itself.
 func (a *app) wrapEnrollment(root *cobra.Command) {
 	activate, ok := latestAction(a.opts.Registry, actionUserActivate)
 	if !ok {
@@ -12504,6 +12823,7 @@ func (a *app) wrapEnrollment(root *cobra.Command) {
 			continue
 		}
 		cmd.RunE = func(cmd *cobra.Command, _ []string) error { return a.runEnrollment(cmd, def, activate) }
+		_ = cmd.Flags().MarkHidden("input")
 	}
 }
 
@@ -12514,6 +12834,9 @@ func (a *app) wrapEnrollment(root *cobra.Command) {
 func (a *app) runEnrollment(cmd *cobra.Command, def, activate core.ActionDef) error {
 	if asJSON, _ := cmd.Flags().GetBool("json"); asJSON {
 		return usagef("%s is interactive and has no --json output", cmd.CommandPath())
+	}
+	if in, _ := cmd.Flags().GetString("input"); in != "" {
+		return usagef("%s asks for the password and the code itself and takes no --input", cmd.CommandPath())
 	}
 	username, _ := cmd.Flags().GetString("username")
 	if username == "" {
@@ -13040,24 +13363,68 @@ git commit -m "fix(auth): count and audit faults after password"
 **Implementer:** dr-superpowers:impl-sonnet-medium
 **Evaluation:** files 1 - spec 0 - coupling 0 - risk 3 = 4
 
-`recoverPanics` kept the headers a handler had set before it panicked, so a handler that set a session cookie and then panicked would still hand out the session with its 500 answer. It now deletes `Set-Cookie` before it writes the `internal` problem. The test sets a session cookie through `sessionCookie`, panics, and checks the answer is `internal` with no `Set-Cookie`.
+`recoverPanics` kept the headers a handler had set before it panicked, so a handler that set a session cookie and then panicked would still hand out the session with its 500 answer. It now deletes `Set-Cookie` before it writes the `internal` problem, and its log line carries the panic value only when it is a `runtime.Error` (otherwise its type), as `lifecycle.Protect` does, because a panic value may hold a secret. The tests set a session cookie through `sessionCookie`, panic, and check the answer is `internal` with no `Set-Cookie`; they check that a plain panic value is logged by type only and a runtime error by its text, also after the response started.
 
 - [ ] **Step 1: Write the failing test**
 
-In `internal/controller/api/wire_test.go`, replace this block (it occurs once):
+In `internal/controller/api/wire_test.go`, make these 2 replacements, in order (each block occurs exactly once):
+
+1. Replace this block:
 
 ```go
+func TestRecoverPanics(t *testing.T) {
+	log, logged := testLog()
+	h := recoverPanics(log, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		panic("boom in a handler")
+	}))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/actions/demo.item.remove/v1/apply", nil))
+	p := decodeProblem(t, rec, 500, errcode.Internal)
+	if strings.Contains(rec.Body.String(), "boom") || p.Detail != errcode.Internal.Title() {
+		t.Errorf("the panic value reached the client: %s", rec.Body)
+	}
+	for _, want := range []string{"boom in a handler", "goroutine", "/api/v1/actions/demo.item.remove/v1/apply"} {
+		if !strings.Contains(logged.String(), want) {
+			t.Errorf("log lacks %q: %s", want, logged)
+		}
 	}
 }
-
-func TestRecoverPanicsAfterWriteAborts(t *testing.T) {
-	log, logged := testLog()
-	h := recoverPanics(log, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 ```
 
 with:
 
 ```go
+func TestRecoverPanics(t *testing.T) {
+	cases := []struct {
+		name      string
+		panicWith func()
+		logged    string
+		hidden    string
+	}{
+		{"a value", func() { panic("boom in a handler") }, "panic=string", "boom in a handler"},
+		{"a runtime error", func() {
+			var v any = "boom"
+			_ = v.(int)
+		}, "interface conversion: interface {} is string, not int", ""},
+	}
+	for _, c := range cases {
+		log, logged := testLog()
+		h := recoverPanics(log, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { c.panicWith() }))
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/actions/demo.item.remove/v1/apply", nil))
+		p := decodeProblem(t, rec, 500, errcode.Internal)
+		if strings.Contains(rec.Body.String(), "boom") || strings.Contains(rec.Body.String(), "interface conversion") ||
+			p.Detail != errcode.Internal.Title() {
+			t.Errorf("%s: the panic value reached the client: %s", c.name, rec.Body)
+		}
+		for _, want := range []string{c.logged, "goroutine", "/api/v1/actions/demo.item.remove/v1/apply"} {
+			if !strings.Contains(logged.String(), want) {
+				t.Errorf("%s: log lacks %q: %s", c.name, want, logged)
+			}
+		}
+		if c.hidden != "" && strings.Contains(logged.String(), c.hidden) {
+			t.Errorf("%s: the log carries the panic value", c.name)
+		}
 	}
 }
 
@@ -13074,17 +13441,27 @@ func TestRecoverPanicsDropsCookies(t *testing.T) {
 		t.Errorf("a panicking handler's cookie was sent: %q", got)
 	}
 }
+```
 
-func TestRecoverPanicsAfterWriteAborts(t *testing.T) {
-	log, logged := testLog()
-	h := recoverPanics(log, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+2. Replace this block:
+
+```go
+		if !strings.Contains(logged.String(), "late boom") {
+			t.Errorf("log lacks the panic: %s", logged)
+```
+
+with:
+
+```go
+		if !strings.Contains(logged.String(), "api: handler panic") || strings.Contains(logged.String(), "late boom") {
+			t.Errorf("log lacks the panic or carries its value: %s", logged)
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestRecoverPanics' ./internal/controller/api/`
 
-Expected: FAIL — `--- FAIL: TestRecoverPanicsDropsCookies` with `wire_test.go:286: a panicking handler's cookie was sent: ["darkpanel_session=session-from-a-failed-handler; Path=/; HttpOnly; SameSite=Strict"]`.
+Expected: FAIL — `--- FAIL: TestRecoverPanics` with `wire_test.go:283: a value: log lacks "panic=string"` and `wire_test.go:287: a value: the log carries the panic value`; `--- FAIL: TestRecoverPanicsDropsCookies` with `wire_test.go:302: a panicking handler's cookie was sent: ["darkpanel_session=session-from-a-failed-handler; Path=/; HttpOnly; SameSite=Strict"]`; and `--- FAIL: TestRecoverPanicsAfterWriteAborts` with `wire_test.go:318: log lacks the panic or carries its value: …` (the log line carries `panic="late boom"`). The runtime-error case of `TestRecoverPanics` passes already.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -13095,8 +13472,10 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"runtime"
 	"runtime/debug"
 	"strings"
 
@@ -13160,7 +13539,9 @@ func (t *trackingWriter) Unwrap() http.ResponseWriter { return t.ResponseWriter 
 // it aborts the connection instead, so the client never takes a truncated
 // answer for a complete one. The internal answer drops any Set-Cookie the
 // handler set, so a handler that opened a session and then panicked hands
-// out no session.
+// out no session. As in lifecycle.Protect, the panic value is logged only
+// when it is a runtime error; any other value is logged by its type alone,
+// because a handler may have put a credential in it.
 func recoverPanics(log *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tw := &trackingWriter{ResponseWriter: w}
@@ -13172,7 +13553,11 @@ func recoverPanics(log *slog.Logger, next http.Handler) http.Handler {
 			if err, ok := v.(error); ok && errors.Is(err, http.ErrAbortHandler) {
 				panic(v)
 			}
-			log.Error("api: handler panic", "method", r.Method, "path", r.URL.Path, "panic", v, "stack", string(debug.Stack()))
+			value := fmt.Sprintf("%T", v)
+			if re, ok := v.(runtime.Error); ok {
+				value = re.Error()
+			}
+			log.Error("api: handler panic", "method", r.Method, "path", r.URL.Path, "panic", value, "stack", string(debug.Stack()))
 			if tw.wrote {
 				panic(http.ErrAbortHandler)
 			}
@@ -14276,7 +14661,7 @@ git commit -m "feat(api): serve the listener state for the footer"
 **Implementer:** dr-superpowers:impl-sonnet-high
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 2 = 5
 
-hostinfo joins the registry through its one line in `modules.All` (R5), and the schema snapshots of every action and resource are committed under `schemas/` (spec section 7). The tests prove hostinfo is the registered module, regenerate every snapshot in memory and fail on a missing, stale or orphaned file, run `schema.CheckReleased` over `schemas/released/`, and show that the server's registry (built with real dependencies) has the same snapshots as `registry.Build()`. The snapshot files are generated by `make schemas`, not typed: they are deterministic output of the registry.
+hostinfo joins the registry through its one line in `modules.All` (R5), and the schema snapshots of every action and resource are committed under `schemas/` (spec section 7). The tests prove hostinfo is among the registered modules (a later module's one line must not break them), regenerate every snapshot in memory and fail on a missing, stale or orphaned file, run `schema.CheckReleased` over `schemas/released/`, and show that a registry built with real dependencies has the same snapshots as `registry.Build()`; Task 38 checks the started server's own registry the same way. The snapshot files are generated by `make schemas`, not typed: they are deterministic output of the registry.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -14335,8 +14720,8 @@ func TestAllRegistersHostinfo(t *testing.T) {
 	for _, m := range modules.All() {
 		ids = append(ids, m.Manifest().ID)
 	}
-	if !slices.Equal(ids, []string{"hostinfo"}) {
-		t.Fatalf("modules.All() = %v, want [hostinfo]", ids)
+	if !slices.Contains(ids, "hostinfo") {
+		t.Fatalf("modules.All() = %v, want hostinfo among them", ids)
 	}
 	if _, ok := built(t).Resource("hostinfo.summary"); !ok {
 		t.Error("the registry has no hostinfo.summary resource")
@@ -14421,7 +14806,7 @@ Expected: FAIL:
 
 ```text
 --- FAIL: TestAllRegistersHostinfo (0.00s)
-    modules_test.go:54: modules.All() = [], want [hostinfo]
+    modules_test.go:54: modules.All() = [], want hostinfo among them
 --- FAIL: TestSnapshotsCurrent (0.00s)
     modules_test.go:71: schemas/core.audit.list/v1.json is missing; run make schemas
     modules_test.go:71: schemas/core.host.list/v1.json is missing; run make schemas
@@ -14546,7 +14931,7 @@ git commit -m "chore(deps): remove the dependency pin package"
 **Implementer:** dr-superpowers:impl-opus-high
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 3 = 6
 
-The first step of `serve`'s startup (spec section 1 and the P14 row): create the directories, refuse a controller socket directory another user could write (register row 69, obligation 4), load or create both keys from `paths.Paths` only (row 52), take the single-instance `flock` before any database or the socket is touched (row 76), open both stores, migrate the controller database with its backups, and record the local host on the first start. Every acquisition registers its stop, and `Shutdown` runs them in reverse, once, serialised (row 74). The tests check modes, the backup, the local host row across a restart, the hostname fallback, the lock refusal and its release, the directory refusals (including a directory owned by another uid when run as root), the cleanup of a failed start, and concurrent `Shutdown` calls under the race detector.
+The first step of `serve`'s startup (spec section 1 and the P14 row): create the directories, refuse a controller socket directory another user could write (register row 69, obligation 4), load or create both keys from `paths.Paths` only (row 52), take the single-instance `flock` in the socket's directory and in both data directories before any database or the socket is touched, so two serves sharing either refuse each other (row 76), open both stores, migrate the controller database with its backups, and record the local host on the first start. Every acquisition registers its stop, and `Shutdown` runs them in reverse, once, serialised (row 74); when it runs out of time after a step failed, it keeps the locks until the process exits. The tests check modes, the backup, the local host row across a restart, the hostname fallback, the lock refusal (also for another socket directory over the same databases) and its release, the directory refusals (including a directory owned by another uid when run as root), the cleanup of a failed start, concurrent `Shutdown` calls under the race detector, and the locks kept by a `Shutdown` that ran out of time.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -14733,6 +15118,13 @@ func TestOneServerAtATime(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "another darkpanel serve holds") {
 		t.Fatalf("second Start: %v, want the lock refusal", err)
 	}
+	// Another socket directory over the same databases is refused too.
+	other := opts
+	other.Paths.ControllerSocket = testOptions(t).Paths.ControllerSocket
+	_, err = Start(context.Background(), other)
+	if err == nil || !strings.Contains(err.Error(), "another darkpanel serve holds") {
+		t.Fatalf("Start with another socket directory: %v, want the lock refusal", err)
+	}
 	if err := first.Shutdown(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -14810,6 +15202,33 @@ func TestShutdownOnce(t *testing.T) {
 	}
 }
 
+// TestShutdownOutOfTimeKeepsTheLock: a step that outlives Shutdown's context
+// may leave a request running, so no other serve may start in this process's
+// lifetime.
+func TestShutdownOutOfTimeKeepsTheLock(t *testing.T) {
+	opts := testOptions(t)
+	s, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.onShutdown("stuck requests", func(ctx context.Context) error {
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	if err := s.Shutdown(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Shutdown = %v, want the step's deadline error", err)
+	}
+	if err := s.controllerDB.Read().PingContext(context.Background()); err == nil {
+		t.Error("the controller database is still open after Shutdown")
+	}
+	_, err = Start(context.Background(), opts)
+	if err == nil || !strings.Contains(err.Error(), "another darkpanel serve holds") {
+		t.Fatalf("Start after a Shutdown out of time: %v, want the lock refusal", err)
+	}
+}
+
 func TestStartNeedsPaths(t *testing.T) {
 	if _, err := Start(context.Background(), Options{}); err == nil || !strings.Contains(err.Error(), "Options.Paths") {
 		t.Errorf("Start without paths: %v", err)
@@ -14833,8 +15252,8 @@ internal/controller/server/server_test.go:105:12: undefined: Start
 internal/controller/server/server_test.go:118:62: undefined: LockName
 internal/controller/server/server_test.go:173:16: undefined: Start
 internal/controller/server/server_test.go:177:11: undefined: Start
-internal/controller/server/server_test.go:195:13: undefined: Start
-internal/controller/server/server_test.go:195:13: too many errors
+internal/controller/server/server_test.go:184:11: undefined: Start
+internal/controller/server/server_test.go:184:11: too many errors
 FAIL	github.com/darkraise/darkpanel/internal/controller/server [build failed]
 FAIL
 ```
@@ -14876,16 +15295,22 @@ import (
 	"github.com/darkraise/darkpanel/internal/paths"
 )
 
-// LockName is the single-instance lock file in the controller socket's
-// directory.
+// LockName is the single-instance lock file, taken in the controller
+// socket's directory and in both data directories, so two serves that share
+// either the socket or a database refuse each other.
 const LockName = "controller.lock"
 
 // BackupsKept is how many migration backups the controller database keeps.
 const BackupsKept = 5
 
-// ShutdownTimeout bounds the shutdown of Run, and the cleanup of a failed
-// Start, once their context has ended.
+// ShutdownTimeout bounds the graceful shutdown of the listeners and the
+// controller socket in Run, and in the cleanup of a failed Start. The service
+// stops after them take no deadline: the process exits right after, and a
+// hung revert holds up Close (register row 51).
 const ShutdownTimeout = 30 * time.Second
+
+// lockStep names the Shutdown steps that release the locks.
+const lockStep = "lock"
 
 // timeFormat is the fixed-width RFC 3339 UTC form of every stored time.
 const timeFormat = "2006-01-02T15:04:05.000000000Z"
@@ -14976,8 +15401,11 @@ func (s *Server) onShutdown(name string, stop func(ctx context.Context) error) {
 }
 
 // Shutdown stops everything Start started, in reverse order, one step at a
-// time; listeners let running requests finish until ctx ends. A second call,
-// concurrent or later, waits for the first and returns its result.
+// time; listeners let running requests finish until ctx ends. When a step
+// failed and ctx has ended, the locks are kept until the process exits: a
+// request that did not finish may still change the host, and another serve
+// must not recover its change meanwhile. A second call, concurrent or later,
+// waits for the first and returns its result.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -14987,6 +15415,10 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.shutdown = true
 	var errs []error
 	for i := len(s.closers) - 1; i >= 0; i-- {
+		if s.closers[i].name == lockStep && len(errs) > 0 && ctx.Err() != nil {
+			s.log.Warn("server: shutdown ran out of time; the lock is kept until the process exits")
+			continue
+		}
 		if err := s.closers[i].close(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("server: stop %s: %w", s.closers[i].name, err))
 		}
@@ -14997,7 +15429,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 }
 
 // openStorage creates the directories, checks the socket's directory, loads
-// or creates both keys, takes the single-instance lock, opens both
+// or creates both keys, takes the single-instance locks, opens both
 // databases, migrates the controller database and records the local host.
 func (s *Server) openStorage(ctx context.Context) error {
 	p := s.opts.Paths
@@ -15015,8 +15447,16 @@ func (s *Server) openStorage(ctx context.Context) error {
 	if s.agentSealer, err = loadSealer(p.AgentKey); err != nil {
 		return err
 	}
-	if err := s.lock(filepath.Join(runDir, LockName)); err != nil {
-		return err
+	locked := map[string]bool{}
+	for _, dir := range []string{runDir, p.ControllerDir, p.AgentDir} {
+		// flock refuses a second lock on one file even within a process.
+		if dir = filepath.Clean(dir); locked[dir] {
+			continue
+		}
+		locked[dir] = true
+		if err := s.lock(filepath.Join(dir, LockName)); err != nil {
+			return err
+		}
 	}
 	if s.controllerDB, err = s.openDB(ctx, "controller database", p.ControllerDB()); err != nil {
 		return err
@@ -15062,12 +15502,14 @@ func loadSealer(path string) (*secret.Sealer, error) {
 // serve on the same paths fails before it opens a database or touches the
 // socket (register row 76).
 func (s *Server) lock(path string) error {
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW, 0o600) //nolint:gosec // G304: the path comes from paths.Paths, never from a request
+	// A raw descriptor rather than an *os.File: no finalizer closes a lock
+	// that Shutdown keeps before the process exits.
+	fd, err := unix.Open(path, unix.O_RDWR|unix.O_CREAT|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0o600)
 	if err != nil {
 		return fmt.Errorf("server: open the lock file: %w", err)
 	}
-	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil { //nolint:gosec // G115: a file descriptor fits in an int
-		_ = f.Close()
+	if err := unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		_ = unix.Close(fd)
 		if errors.Is(err, unix.EWOULDBLOCK) {
 			return fmt.Errorf("server: another darkpanel serve holds %s; stop it first", path)
 		}
@@ -15075,7 +15517,7 @@ func (s *Server) lock(path string) error {
 	}
 	// Closing the file releases the lock. The file stays, so a waiting
 	// serve never locks a file that a third one has just replaced.
-	s.onShutdown("lock", func(context.Context) error { return f.Close() })
+	s.onShutdown(lockStep, func(context.Context) error { return unix.Close(fd) })
 	return nil
 }
 
@@ -15188,7 +15630,7 @@ git commit -m "feat(server): open stores and the local host"
 **Implementer:** dr-superpowers:impl-opus-high
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 3 = 6
 
-The second step wires the services over the migrated stores in Part A's order: the audit store, the identity service, the one registry with real dependencies, the agent runtime (its migrations, recovery and purge loop), the host directory whose `Hello` seeds the local host's module rows from `DefaultEnabled`, the controller engine with `schema.Redact` and the audit store as journal, its `Recover` once, the controller purges at start and every 10 minutes (register row 51), the ingester and the dispatcher. The tests read hostinfo and `core.host.list` through the dispatcher, settle a change left `applying` by an earlier run, purge an expired plan at start and plans and idle sessions on the timer, and leave no timer armed after `Shutdown`.
+The second step wires the services over the migrated stores in Part A's order: the audit store, the identity service, the one registry with real dependencies, the agent runtime (its migrations, recovery and purge loop), the host directory whose `Hello` seeds the local host's module rows from `DefaultEnabled`, the controller engine with `schema.Redact` and the audit store as journal, its `Recover` once, the controller purges at start and every 10 minutes (register row 51), the ingester and the dispatcher. The tests read hostinfo and `core.host.list` through the dispatcher, settle a change left `applying` by an earlier run, purge an expired plan at start and plans and idle sessions on the timer, leave no timer armed after `Shutdown`, and compare the started server's `Registry()` snapshots with `registry.Build()`'s. They look for hostinfo among the local host's modules, so a later module does not break them.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -15198,8 +15640,11 @@ Create `internal/controller/server/services_test.go`:
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -15207,6 +15652,8 @@ import (
 	"github.com/darkraise/darkpanel/internal/controller/auth"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/coretest"
+	"github.com/darkraise/darkpanel/internal/core/schema"
+	"github.com/darkraise/darkpanel/internal/registry"
 )
 
 // root is the controller socket's principal for uid 0 on host id.
@@ -15276,8 +15723,14 @@ func TestStartSeedsAndServesModules(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := hosts.Hosts
-	if len(h) != 1 || h[0].ID != id || h[0].Name != testHostname || !h[0].IsLocal || len(h[0].Modules) != 1 ||
-		h[0].Modules[0].ID != "hostinfo" || !h[0].Modules[0].Enabled || !h[0].Modules[0].Available {
+	if len(h) != 1 || h[0].ID != id || h[0].Name != testHostname || !h[0].IsLocal ||
+		!slices.ContainsFunc(h[0].Modules, func(m struct {
+			ID        string
+			Enabled   bool
+			Available bool
+		}) bool {
+			return m.ID == "hostinfo" && m.Enabled && m.Available
+		}) {
 		t.Errorf("core.host.list = %s, want the local host with hostinfo enabled and available", out)
 	}
 	if n := count(t, s, `SELECT count(*) FROM core_module_state WHERE module_id = 'core'`); n != 0 {
@@ -15394,24 +15847,49 @@ func TestShutdownStopsTheTimers(t *testing.T) {
 	}
 	clock.Advance(time.Hour) // nothing runs against the closed databases
 }
+
+// TestServerRegistryMatchesBuild compares the registry the server assembled
+// with its real dependencies against registry.Build(), which the CLI and the
+// schema generator use: the same actions, resources and schemas.
+func TestServerRegistryMatchesBuild(t *testing.T) {
+	s := start(t, testOptions(t))
+	built, err := registry.Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := schema.Snapshots(built)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := schema.Snapshots(s.Registry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !maps.EqualFunc(got, want, bytes.Equal) {
+		t.Errorf("the server's registry snapshots %v differ from registry.Build()'s %v",
+			slices.Sorted(maps.Keys(got)), slices.Sorted(maps.Keys(want)))
+	}
+}
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestStartSeedsAndServesModules|TestRecoverRunsAtStart|TestPurgesRunAtStartAndEveryTenMinutes|TestShutdownStopsTheTimers' ./internal/controller/server/`
+Run: `GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestStartSeedsAndServesModules|TestRecoverRunsAtStart|TestPurgesRunAtStartAndEveryTenMinutes|TestShutdownStopsTheTimers|TestServerRegistryMatchesBuild' ./internal/controller/server/`
 Expected: FAIL (build failure):
 
 ```text
 # github.com/darkraise/darkpanel/internal/controller/server [github.com/darkraise/darkpanel/internal/controller/server.test]
-internal/controller/server/services_test.go:35:14: s.dispatcher undefined (type *Server has no field or method dispatcher)
-internal/controller/server/services_test.go:52:16: s.Registry undefined (type *Server has no field or method Registry)
-internal/controller/server/services_test.go:55:16: s.dispatcher undefined (type *Server has no field or method dispatcher)
-internal/controller/server/services_test.go:63:15: s.dispatcher undefined (type *Server has no field or method dispatcher)
-internal/controller/server/services_test.go:114:14: s.dispatcher undefined (type *Server has no field or method dispatcher)
-internal/controller/server/services_test.go:148:22: s.authService undefined (type *Server has no field or method authService)
-internal/controller/server/services_test.go:156:17: s.authService undefined (type *Server has no field or method authService)
-internal/controller/server/services_test.go:161:17: s.authService undefined (type *Server has no field or method authService)
-internal/controller/server/services_test.go:167:16: undefined: PurgeInterval
+internal/controller/server/services_test.go:40:14: s.dispatcher undefined (type *Server has no field or method dispatcher)
+internal/controller/server/services_test.go:57:16: s.Registry undefined (type *Server has no field or method Registry)
+internal/controller/server/services_test.go:60:16: s.dispatcher undefined (type *Server has no field or method dispatcher)
+internal/controller/server/services_test.go:68:15: s.dispatcher undefined (type *Server has no field or method dispatcher)
+internal/controller/server/services_test.go:125:14: s.dispatcher undefined (type *Server has no field or method dispatcher)
+internal/controller/server/services_test.go:159:22: s.authService undefined (type *Server has no field or method authService)
+internal/controller/server/services_test.go:167:17: s.authService undefined (type *Server has no field or method authService)
+internal/controller/server/services_test.go:172:17: s.authService undefined (type *Server has no field or method authService)
+internal/controller/server/services_test.go:178:16: undefined: PurgeInterval
+internal/controller/server/services_test.go:225:33: s.Registry undefined (type *Server has no field or method Registry)
+internal/controller/server/services_test.go:225:33: too many errors
 FAIL	github.com/darkraise/darkpanel/internal/controller/server [build failed]
 FAIL
 ```
@@ -15969,8 +16447,9 @@ func (s *Server) startListeners(ctx context.Context) error {
 	return nil
 }
 
-// Run starts a server, serves until ctx ends and then shuts it down within
-// ShutdownTimeout. It is `darkpanel serve`.
+// Run starts a server, serves until ctx ends and then shuts it down, giving
+// the listeners and the socket ShutdownTimeout to finish. It is
+// `darkpanel serve`.
 func Run(ctx context.Context, opts Options) error {
 	s, err := Start(ctx, opts)
 	if err != nil {
