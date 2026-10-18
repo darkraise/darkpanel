@@ -274,7 +274,7 @@ func TestRunStopsWhenAListenerFails(t *testing.T) {
 		}
 		return brokenListener{ln}, nil
 	}
-	if err := runUntilFailure(t, opts); !errors.Is(err, errBroken) || !strings.Contains(err.Error(), "http://127.0.0.1") {
+	if err := runUntilFailure(t, opts); !errors.Is(err, errBroken) || !strings.Contains(err.Error(), "listen: serving http://") {
 		t.Fatalf("Run = %v, want the listener's accept error", err)
 	}
 	opts.Bind = localBind
