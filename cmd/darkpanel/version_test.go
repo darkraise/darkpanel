@@ -4,22 +4,18 @@ import (
 	"bytes"
 	"encoding/json"
 	"runtime"
-	"strings"
 	"testing"
 	"testing/fstest"
 
 	"github.com/darkraise/darkpanel/internal/buildinfo"
+	"github.com/darkraise/darkpanel/internal/cli"
 )
 
 func runRoot(t *testing.T, args ...string) string {
 	t.Helper()
 	var out bytes.Buffer
-	cmd := newRootCmd()
-	cmd.SetOut(&out)
-	cmd.SetErr(&out)
-	cmd.SetArgs(args)
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("darkpanel %v: %v", args, err)
+	if code := run(args, cli.Options{Stdout: &out, Stderr: &out}); code != cli.ExitOK {
+		t.Fatalf("darkpanel %v: exit %d: %s", args, code, out.String())
 	}
 	return out.String()
 }
@@ -68,24 +64,6 @@ func TestVersionReadsBuildinfo(t *testing.T) {
 	}
 	if got["version"] != "v9.9.9" || got["commit"] != "abc1234" {
 		t.Errorf("version --json = %v, want version v9.9.9 and commit abc1234 from buildinfo", got)
-	}
-}
-
-func TestServeNotAssembled(t *testing.T) {
-	var out bytes.Buffer
-	cmd := newRootCmd()
-	cmd.SetOut(&out)
-	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"serve", "--dev", "--listen", "loopback", "--listen", "tailscale"})
-	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "not assembled yet") {
-		t.Fatalf("serve error = %v, want the not-assembled error", err)
-	}
-	cmd = newRootCmd()
-	cmd.SetOut(&out)
-	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"serve", "extra"})
-	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "unknown command") {
-		t.Errorf("serve extra: err = %v, want an argument error", err)
 	}
 }
 

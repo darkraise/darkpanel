@@ -2,19 +2,34 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
+	"os/signal"
 	"runtime"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
 	"github.com/darkraise/darkpanel/internal/buildinfo"
+	"github.com/darkraise/darkpanel/internal/cli"
+	"github.com/darkraise/darkpanel/internal/controller/listen"
+	"github.com/darkraise/darkpanel/internal/controller/server"
+	"github.com/darkraise/darkpanel/internal/paths"
+	"github.com/darkraise/darkpanel/internal/registry"
 	"github.com/darkraise/darkpanel/web"
 )
+
+// serveRun runs the server for serve; tests replace it.
+var serveRun = server.Run
+
+// geteuid is the effective uid serve checks; tests replace it.
+var geteuid = os.Geteuid
 
 type versionInfo struct {
 	Version string `json:"version"`
@@ -43,15 +58,16 @@ func uiEmbedded(dist fs.FS) bool {
 	return err == nil
 }
 
-func newRootCmd() *cobra.Command {
-	root := &cobra.Command{
-		Use:           "darkpanel",
-		Short:         "Single-binary fleet manager for unmanaged Linux servers",
-		SilenceUsage:  true,
-		SilenceErrors: true,
+// newRoot returns the command tree: the commands generated from
+// registry.Build() plus the hand-written serve and version.
+func newRoot(opts cli.Options) (*cobra.Command, error) {
+	reg, err := registry.Build()
+	if err != nil {
+		return nil, err
 	}
-	root.AddCommand(newVersionCmd(), newServeCmd())
-	return root
+	opts.Registry = reg
+	opts.Commands = []*cobra.Command{newServeCmd(), newVersionCmd()}
+	return cli.NewRoot(opts)
 }
 
 func newVersionCmd() *cobra.Command {
@@ -70,19 +86,39 @@ func newVersionCmd() *cobra.Command {
 
 func newServeCmd() *cobra.Command {
 	var (
-		dev    bool
-		listen []string
+		dev         bool
+		listenFlags []string
+		specs       []listen.Spec
 	)
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run the controller and the local agent",
 		Args:  cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
-			return errors.New("serve: the controller is not assembled yet")
+		// cli marks only RunE errors as run errors, so these refusals of the
+		// command line exit 2 like cobra's own flag errors.
+		PreRunE: func(*cobra.Command, []string) error {
+			var err error
+			if specs, err = listen.ParseSpecs(listenFlags); err != nil {
+				return err
+			}
+			if !dev && geteuid() != 0 {
+				return errors.New("serve runs as root in production mode; run it with sudo, or add --dev to use per-user development paths")
+			}
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			p, err := paths.Resolve(dev)
+			if err != nil {
+				return err
+			}
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			log := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil))
+			return serveRun(ctx, server.Options{Paths: p, Listen: specs, Dev: dev, Log: log})
 		},
 	}
 	cmd.Flags().BoolVar(&dev, "dev", false, "use per-user development paths under $XDG_STATE_HOME/darkpanel-dev")
-	cmd.Flags().StringArrayVar(&listen, "listen", nil,
+	cmd.Flags().StringArrayVar(&listenFlags, "listen", nil,
 		"listener to open instead of the defaults (repeatable): loopback, tailscale, https://<ip>:<port> or http://<loopback ip>:<port>")
 	return cmd
 }
@@ -95,9 +131,26 @@ func writeVersion(w io.Writer, v versionInfo, asJSON bool) error {
 	return err
 }
 
-func main() {
-	if err := newRootCmd().Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, "darkpanel:", err)
-		os.Exit(1)
+// run executes the command line args and returns the process exit code
+// (spec section 15). Nil fields of opts are the process's own.
+func run(args []string, opts cli.Options) int {
+	stderr := opts.Stderr
+	if stderr == nil {
+		stderr = os.Stderr
 	}
+	root, err := newRoot(opts)
+	if err != nil {
+		cli.PrintError(stderr, err)
+		return cli.ExitError
+	}
+	root.SetArgs(args)
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		cli.PrintError(stderr, err)
+		return cli.ExitCode(err)
+	}
+	return cli.ExitOK
+}
+
+func main() {
+	os.Exit(run(os.Args[1:], cli.Options{}))
 }
