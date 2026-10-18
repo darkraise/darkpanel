@@ -196,6 +196,9 @@ func TestEndToEnd(t *testing.T) {
 			t.Errorf("GET / = %d %q, want the embedded index.html", root.status, root.body)
 		}
 	} else {
+		if os.Getenv("DARKPANEL_REQUIRE_UI") == "1" {
+			t.Fatalf("DARKPANEL_REQUIRE_UI=1 but the web UI is not built: %v", err)
+		}
 		t.Logf("the web UI is not built (%v); GET / can only answer not_found", err)
 		e.wantProblem(root, 404, errcode.NotFound)
 	}
