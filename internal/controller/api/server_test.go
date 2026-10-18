@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -174,6 +175,27 @@ func (h *harness) code() string {
 		h.t.Fatal(err)
 	}
 	return code
+}
+
+// wrongCode returns a six-digit code that matches none of the admin's steps
+// a login accepts at the clock's time, without advancing the clock.
+func (h *harness) wrongCode() string {
+	h.t.Helper()
+	var valid []string
+	for _, step := range []time.Duration{-1, 0, 1} {
+		c, err := auth.TOTPCode(h.secret, h.clock.Now().Add(step*auth.TOTPPeriod))
+		if err != nil {
+			h.t.Fatal(err)
+		}
+		valid = append(valid, c)
+	}
+	for d := '0'; d <= '9'; d++ {
+		if c := strings.Repeat(string(d), 6); !slices.Contains(valid, c) {
+			return c
+		}
+	}
+	h.t.Fatal("no wrong code found")
+	return ""
 }
 
 // login opens a session for the admin and returns its id and CSRF token.

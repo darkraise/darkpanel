@@ -85,7 +85,7 @@ func TestLogin(t *testing.T) {
 
 func TestLoginRefusals(t *testing.T) {
 	h := newHarness(t)
-	wrong := loginBody("admin", testPassword, "000000")
+	wrong := loginBody("admin", testPassword, h.wrongCode())
 	var recs []*httptest.ResponseRecorder
 	for _, tc := range []struct {
 		name        string
