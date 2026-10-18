@@ -131,3 +131,18 @@ func TestResetTOTPEnrollment(t *testing.T) {
 		t.Errorf("wrong code: exit %d, err %q", exit, errOut)
 	}
 }
+
+func TestResetTOTPRefusesNoncanonicalSecret(t *testing.T) {
+	sock := newFakeSocket(t,
+		exchange{method: "POST", path: "/api/v1/actions/core.user.reset-totp/v1/plan", body: `{"input":{"username":"ann"}}`,
+			reply: planJSON("pr", "core.user.reset-totp", "", "ann", `[]`)},
+		exchange{method: "POST", path: "/api/v1/actions/core.user.reset-totp/v1/apply", body: `{"planId":"pr","confirmation":"ann"}`,
+			reply: changeJSON("cr", "core.user.reset-totp", "irreversible", "completed", fmt.Sprintf(`"revertDeadline":null,`+
+				`"output":{"user":{"id":"u1","username":"ann","role":"admin","state":"pending","createdAt":"2026-10-18T12:00:00Z"},`+
+				`"totpSecret":%q},"error":null,"compensatedBy":null`, "JBSWY3DP\rEHPK3PXPJBSWY3DPEHPK3PXP"))},
+	)
+	out, errOut, exit := cliEnv{stdin: "000000\n"}.run(t, "user", "reset-totp", "--username", "ann", "--yes", "--confirmation", "ann", "--socket", sock)
+	if exit == ExitOK || !strings.Contains(errOut, "no valid TOTP secret") || strings.Contains(out, "\r") || strings.Contains(out, "Secret:") {
+		t.Errorf("exit %d, out %q, err %q", exit, out, errOut)
+	}
+}

@@ -96,13 +96,16 @@ func (a *app) runEnrollment(cmd *cobra.Command, def, activate core.ActionDef) er
 	if err := json.Unmarshal(ch.Output, &en); err != nil {
 		return fmt.Errorf("decode the enrollment: %w", err)
 	}
-	if _, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(en.TOTPSecret); err != nil || en.TOTPSecret == "" {
+	// DecodeString skips CR and LF, so only a secret that re-encodes to
+	// itself is free of characters a terminal would act on.
+	b32 := base32.StdEncoding.WithPadding(base32.NoPadding)
+	if raw, err := b32.DecodeString(en.TOTPSecret); err != nil || en.TOTPSecret == "" || b32.EncodeToString(raw) != en.TOTPSecret {
 		return errors.New("the controller answered no valid TOTP secret")
 	}
 	uri := enrollmentURI(username, en.TOTPSecret)
 	_, _ = fmt.Fprintln(out, "Scan this QR code with an authenticator app, or enter the secret by hand:")
 	qrterminal.GenerateHalfBlock(uri, qrterminal.L, out)
-	_, _ = fmt.Fprintf(out, "URI: %s\nSecret: %s\nThe secret will not be shown again.\n", sanitize(uri), en.TOTPSecret)
+	_, _ = fmt.Fprintf(out, "URI: %s\nSecret: %s\nThe secret will not be shown again.\n", sanitize(uri), sanitize(en.TOTPSecret))
 	retry := fmt.Sprintf("activate the user with: darkpanel user activate --username %s", username)
 	code, err := a.term.secret("Code from the authenticator app: ")
 	if errors.Is(err, io.EOF) {
