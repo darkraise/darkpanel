@@ -119,10 +119,15 @@ func TestUserResetPassword(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.auth.ActivateUser(ctx, "alice", code); err != nil {
+	alice, err := e.auth.ActivateUser(ctx, "alice", code)
+	if err != nil {
 		t.Fatal(err)
 	}
 	e.clock.Advance(auth.TOTPPeriod)
+	token, _, err := e.auth.CreateToken(ctx, alice.ID, "ci", core.ScopeRead, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	in := UserPasswordInput{Username: "alice", Password: newPassword}
 	pv, err := e.plan(root, "core.user.reset-password", in)
@@ -131,7 +136,7 @@ func TestUserResetPassword(t *testing.T) {
 	}
 	wantDiff := []core.DiffLine{
 		{Op: "-", Text: "user alice: current password"},
-		{Op: "+", Text: "user alice: new password; its sessions end and its API tokens stay"},
+		{Op: "+", Text: "user alice: new password; its sessions end and its API tokens are revoked"},
 	}
 	if !reflect.DeepEqual(pv.Diff, wantDiff) || pv.Confirmation != "alice" {
 		t.Errorf("plan = %+v, want diff %+v and phrase alice", pv, wantDiff)
@@ -141,6 +146,9 @@ func TestUserResetPassword(t *testing.T) {
 		t.Fatalf("apply = %+v, %v", v, err)
 	}
 	noSecret(t, []string{newPassword, testPassword}, pv, e.change(v.ID), e.auditEntries())
+	if got, err := e.auth.GetToken(ctx, alice.ID, token.ID); err != nil || got.RevokedAt == nil {
+		t.Errorf("token after reset-password = %+v, %v; want it revoked", got, err)
+	}
 	if err := e.verify("core.user.reset-password", in); err != nil {
 		t.Errorf("verify: %v", err)
 	}
