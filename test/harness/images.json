@@ -1,0 +1,145 @@
+{
+  "scanner": "debian-13",
+  "os": [
+    {
+      "id": "ubuntu-22.04",
+      "family": "ubuntu",
+      "versionId": "22.04",
+      "image": {
+        "url": "https://cloud-images.ubuntu.com/releases/jammy/release-20261004/ubuntu-22.04-server-cloudimg-amd64.img",
+        "sha256": "012d81fade7e8ff4428fc35dfeee711d66d1f47d5ea9c5c8ced96a85b959835c"
+      },
+      "packages": [
+        {
+          "name": "docker-ce",
+          "version": "5:29.9.1-1~ubuntu.22.04~jammy",
+          "url": "https://download.docker.com/linux/ubuntu/dists/jammy/pool/stable/amd64/docker-ce_29.9.1-1~ubuntu.22.04~jammy_amd64.deb",
+          "sha256": "8ec2c2ad4b3bbac9bb9e1157911b1499b05377805335ba593874aa2ac15c552e"
+        },
+        {
+          "name": "docker-ce-cli",
+          "version": "5:29.9.1-1~ubuntu.22.04~jammy",
+          "url": "https://download.docker.com/linux/ubuntu/dists/jammy/pool/stable/amd64/docker-ce-cli_29.9.1-1~ubuntu.22.04~jammy_amd64.deb",
+          "sha256": "8cfb11697163f535846e36c0d2905a8c90605ea383af9e8a2c6d7896f2105c86"
+        },
+        {
+          "name": "containerd.io",
+          "version": "2.4.2-2~ubuntu.22.04~jammy",
+          "url": "https://download.docker.com/linux/ubuntu/dists/jammy/pool/stable/amd64/containerd.io_2.4.2-2~ubuntu.22.04~jammy_amd64.deb",
+          "sha256": "d14ab79a27f1e6f376d192ac340fea74efba2bee2e2a228a7aceece86e14a12b"
+        },
+        {
+          "name": "tailscale",
+          "version": "1.104.1",
+          "url": "https://pkgs.tailscale.com/stable/ubuntu/pool/tailscale_1.104.1_amd64.deb",
+          "sha256": "509753a4ff223efc70234e7f539afc51f743b3af043d9e55313960bd7327700f"
+        }
+      ]
+    },
+    {
+      "id": "ubuntu-24.04",
+      "family": "ubuntu",
+      "versionId": "24.04",
+      "image": {
+        "url": "https://cloud-images.ubuntu.com/releases/noble/release-20261017/ubuntu-24.04-server-cloudimg-amd64.img",
+        "sha256": "04e8f2461a16a44e78a370284471f29616cdd9baf1893df25807b71f985b6c94"
+      },
+      "packages": [
+        {
+          "name": "docker-ce",
+          "version": "5:29.9.1-1~ubuntu.24.04~noble",
+          "url": "https://download.docker.com/linux/ubuntu/dists/noble/pool/stable/amd64/docker-ce_29.9.1-1~ubuntu.24.04~noble_amd64.deb",
+          "sha256": "463a666215797c9f9ea7d0ad1751de5b2b3806a1b539a3550e16822ef34ccbfd"
+        },
+        {
+          "name": "docker-ce-cli",
+          "version": "5:29.9.1-1~ubuntu.24.04~noble",
+          "url": "https://download.docker.com/linux/ubuntu/dists/noble/pool/stable/amd64/docker-ce-cli_29.9.1-1~ubuntu.24.04~noble_amd64.deb",
+          "sha256": "961968342af4738eb5fb5fc03f9834106c1e454bd010d574cf1a6feae9905efc"
+        },
+        {
+          "name": "containerd.io",
+          "version": "2.4.2-2~ubuntu.24.04~noble",
+          "url": "https://download.docker.com/linux/ubuntu/dists/noble/pool/stable/amd64/containerd.io_2.4.2-2~ubuntu.24.04~noble_amd64.deb",
+          "sha256": "7327ab23182425e94b46a91567e9ddf0183f9b3a5ed53d5e2489f000dbf9cfe2"
+        },
+        {
+          "name": "tailscale",
+          "version": "1.104.1",
+          "url": "https://pkgs.tailscale.com/stable/ubuntu/pool/tailscale_1.104.1_amd64.deb",
+          "sha256": "509753a4ff223efc70234e7f539afc51f743b3af043d9e55313960bd7327700f"
+        }
+      ]
+    },
+    {
+      "id": "debian-12",
+      "family": "debian",
+      "versionId": "12",
+      "image": {
+        "url": "https://cloud.debian.org/images/cloud/bookworm/20261018-2635/debian-12-genericcloud-amd64-20261018-2635.qcow2",
+        "sha256": "c0a478483fb1a6c098b79edd27e6ec25db63dd359896e87dcf5c91e07b5fd503"
+      },
+      "packages": [
+        {
+          "name": "docker-ce",
+          "version": "5:29.9.1-1~debian.12~bookworm",
+          "url": "https://download.docker.com/linux/debian/dists/bookworm/pool/stable/amd64/docker-ce_29.9.1-1~debian.12~bookworm_amd64.deb",
+          "sha256": "040567cb82687a0439b1f4da0d4e121dcfef237e639ed2aaa3a99da2fb916650"
+        },
+        {
+          "name": "docker-ce-cli",
+          "version": "5:29.9.1-1~debian.12~bookworm",
+          "url": "https://download.docker.com/linux/debian/dists/bookworm/pool/stable/amd64/docker-ce-cli_29.9.1-1~debian.12~bookworm_amd64.deb",
+          "sha256": "e96643506288cde4ce60ecbf84ec5c88d0969e9e717452442c86e33273bbfced"
+        },
+        {
+          "name": "containerd.io",
+          "version": "2.4.2-2~debian.12~bookworm",
+          "url": "https://download.docker.com/linux/debian/dists/bookworm/pool/stable/amd64/containerd.io_2.4.2-2~debian.12~bookworm_amd64.deb",
+          "sha256": "9100b99aad702b120e8bd5286e378f2fb13317745bd7afaf39be6d64f5bbf8b8"
+        },
+        {
+          "name": "tailscale",
+          "version": "1.104.1",
+          "url": "https://pkgs.tailscale.com/stable/debian/pool/tailscale_1.104.1_amd64.deb",
+          "sha256": "509753a4ff223efc70234e7f539afc51f743b3af043d9e55313960bd7327700f"
+        }
+      ]
+    },
+    {
+      "id": "debian-13",
+      "family": "debian",
+      "versionId": "13",
+      "image": {
+        "url": "https://cloud.debian.org/images/cloud/trixie/20261017-2634/debian-13-genericcloud-amd64-20261017-2634.qcow2",
+        "sha256": "87211f082e2983a1c2209a2626f9f6762073a92c6a63a8ce321608ca496c3b02"
+      },
+      "packages": [
+        {
+          "name": "docker-ce",
+          "version": "5:29.9.1-1~debian.13~trixie",
+          "url": "https://download.docker.com/linux/debian/dists/trixie/pool/stable/amd64/docker-ce_29.9.1-1~debian.13~trixie_amd64.deb",
+          "sha256": "b33133205350e2765df0cc382f5a3ee44c2cfd4cdc3dc6ba32eca40839ac3574"
+        },
+        {
+          "name": "docker-ce-cli",
+          "version": "5:29.9.1-1~debian.13~trixie",
+          "url": "https://download.docker.com/linux/debian/dists/trixie/pool/stable/amd64/docker-ce-cli_29.9.1-1~debian.13~trixie_amd64.deb",
+          "sha256": "c89d977d8073de91e7afcd099c82e16cef5506e4d446d006b240e77f78ba4b7d"
+        },
+        {
+          "name": "containerd.io",
+          "version": "2.4.2-2~debian.13~trixie",
+          "url": "https://download.docker.com/linux/debian/dists/trixie/pool/stable/amd64/containerd.io_2.4.2-2~debian.13~trixie_amd64.deb",
+          "sha256": "a3e696cb98baafbb63895dc18b53f143088a2ead95c57820ac90dc5e1d61b05d"
+        },
+        {
+          "name": "tailscale",
+          "version": "1.104.1",
+          "url": "https://pkgs.tailscale.com/stable/debian/pool/tailscale_1.104.1_amd64.deb",
+          "sha256": "509753a4ff223efc70234e7f539afc51f743b3af043d9e55313960bd7327700f"
+        }
+      ]
+    }
+  ]
+}
