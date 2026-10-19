@@ -7,8 +7,13 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": path.resolve(import.meta.dirname, "./src"),
     },
+  },
+  build: {
+    // The CSP allows fonts only from 'self', so no asset may be inlined as a
+    // data: URI.
+    assetsInlineLimit: 0,
   },
   server: {
     host: "localhost",
