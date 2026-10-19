@@ -6,6 +6,7 @@ import "@fontsource-variable/hanken-grotesk"
 import "@fontsource-variable/jetbrains-mono"
 import { ApiError } from "@/api/client"
 import { App } from "@/app"
+import { applyBrand } from "@/brand"
 import { Providers } from "@/providers"
 import "./styles/globals.css"
 
@@ -19,6 +20,8 @@ const client = new QueryClient({
     },
   },
 })
+
+applyBrand()
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

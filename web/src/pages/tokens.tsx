@@ -66,7 +66,7 @@ function TokensBody() {
                 </TableCell>
                 <TableCell>
                   {t.revokedAt === null && (
-                    <Button variant="outline" size="sm" onClick={() => setRevoking(t)}>
+                    <Button variant="outline" size="sm" aria-label={`Revoke token ${t.name}`} onClick={() => setRevoking(t)}>
                       Revoke
                     </Button>
                   )}

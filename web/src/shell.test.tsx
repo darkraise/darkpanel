@@ -1,8 +1,9 @@
-import { screen, waitFor } from "@testing-library/react"
+import { act, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { Route, Routes } from "react-router"
 import { expect, test } from "vitest"
 import type { ListenerState, Session } from "@/api/types"
+import { applyBrand } from "@/brand"
 import { RequireSession, SessionProvider } from "@/session/session"
 import { renderWithProviders, stubFetch, type StubResponse } from "@/test/utils"
 import { Shell } from "./shell"
@@ -53,6 +54,14 @@ async function logOut(user: ReturnType<typeof userEvent.setup>) {
   await user.click(trigger)
   await user.click(await screen.findByRole("menuitem", { name: "Log out" }))
 }
+
+test("the sidebar brand reads Darkpanel", async () => {
+  renderShell({ body: bound })
+  await screen.findByText("Hosts content")
+  expect(screen.queryByText("Darkpanel")).toBeNull()
+  act(() => applyBrand())
+  expect((await screen.findAllByText("Darkpanel")).length).toBeGreaterThan(0)
+})
 
 test("shows the navigation with the current page marked", async () => {
   renderShell({ body: bound }, "/audit")
