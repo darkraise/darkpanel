@@ -19,6 +19,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"aead.dev/minisign"
@@ -179,6 +180,45 @@ func verify(t *testing.T, scriptPath, dir, version string) bool {
 	return err == nil
 }
 
+func TestCheckAddress(t *testing.T) {
+	needTools(t, "sh")
+	p := script(t, []trustedkeys.Key{newSigner(t).key}, "https://example.com")
+	tests := []struct {
+		addr string
+		ok   bool
+	}{
+		{"0.0.0.0:7443", true},
+		{"[::1]:7443", true},
+		{"host.example:7443", true},
+		{"", false},
+		{"0.0.0.0:7443\n--foo bar", false},
+		{"a b:1", false},
+		{"a;b:1", false},
+		{"*:1", false},
+	}
+	for _, sh := range []string{"sh", "dash"} {
+		if _, err := exec.LookPath(sh); err != nil {
+			continue
+		}
+		for _, tt := range tests {
+			t.Run(fmt.Sprintf("%s %q", sh, tt.addr), func(t *testing.T) {
+				cmd := exec.Command(sh, "-c", `. "$1"; check_address "$2"`, sh, p, tt.addr) //nolint:gosec // G204: a shell from a fixed list and a test file
+				cmd.Env = append(os.Environ(), "DARKPANEL_INSTALL_SH_LIB=1")
+				out, err := cmd.CombinedOutput()
+				if tt.ok {
+					if err != nil {
+						t.Errorf("check_address refused %q: %v\n%s", tt.addr, err, out)
+					}
+					return
+				}
+				if err == nil || !strings.Contains(string(out), "is not host:port") {
+					t.Errorf("check_address(%q): err %v, output %q; want a refusal saying \"is not host:port\"", tt.addr, err, out)
+				}
+			})
+		}
+	}
+}
+
 func TestVerifyRelease(t *testing.T) {
 	needTools(t, "sh", "openssl", "base64", "od")
 	const comment = "version=1.4.0 channel=stable purpose=checksums"
@@ -269,7 +309,14 @@ func TestInstallAgentEndToEnd(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /index/releases.json", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(index)) })
 	mux.Handle("GET /v"+version+"/", http.StripPrefix("/v"+version+"/", http.FileServer(http.Dir(release))))
-	srv := httptest.NewServer(mux)
+	var tarballRequests atomic.Int32
+	counted := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".tar.gz") {
+			tarballRequests.Add(1)
+		}
+		mux.ServeHTTP(w, r)
+	})
+	srv := httptest.NewServer(counted)
 	defer srv.Close()
 
 	root := t.TempDir()
@@ -300,6 +347,15 @@ func TestInstallAgentEndToEnd(t *testing.T) {
 	}
 	if got := readFile(t, logBase+".stdin"); got != "dpe1.example-token\n" {
 		t.Errorf("darkpanel read %q on standard input, want the token", got)
+	}
+
+	// A version with a second line is refused before any tarball is fetched.
+	fetched := tarballRequests.Load()
+	if out, err := run("--role", "controller", "--version", "1.0.0\nx", "--base-url", srv.URL); err == nil || !strings.Contains(string(out), "is not a semantic version") {
+		t.Errorf("a multi-line version: err %v, output %s", err, out)
+	}
+	if got := tarballRequests.Load(); got != fetched {
+		t.Errorf("a multi-line version fetched %d tarballs, want none", got-fetched)
 	}
 
 	// With saved credentials and no token file, darkpanel gets an empty
