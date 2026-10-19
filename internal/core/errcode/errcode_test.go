@@ -35,11 +35,50 @@ func TestStatus(t *testing.T) {
 		{LockHeld, 423},
 		{Internal, 500},
 		{ChangeRevertFailed, 500},
+		{HostOffline, 503},
+		{HostVersionUnsupported, 409},
+		{AgentNotEnrolled, 409},
+		{EnrollTokenInvalid, 403},
+		{EnrollRateLimited, 429},
+		{UpdateInProgress, 409},
+		{UpdateUnconfirmedChanges, 409},
+		{UpdateDowngradeRefused, 409},
+		{UpdateNotFound, 404},
+		{UpdateNothingToRollBack, 409},
+		{RolloutInProgress, 409},
+		{UpdateSignatureInvalid, 500},
+		{UpdatePrevMismatch, 500},
+		{UpdateInterrupted, 500},
 		{Code("no.such_code"), 500},
 	}
 	for _, tt := range tests {
 		if got := tt.code.Status(); got != tt.want {
 			t.Errorf("%s.Status() = %d, want %d", tt.code, got, tt.want)
+		}
+	}
+}
+
+// The values are shared contracts: agents, the CLI and the web UI match on
+// them.
+func TestFleetCodeValues(t *testing.T) {
+	for code, want := range map[Code]string{
+		HostOffline:              "host.offline",
+		HostVersionUnsupported:   "host.version_unsupported",
+		AgentNotEnrolled:         "agent.not_enrolled",
+		EnrollTokenInvalid:       "enroll.token_invalid",
+		EnrollRateLimited:        "enroll.rate_limited",
+		UpdateInProgress:         "update.in_progress",
+		UpdateUnconfirmedChanges: "update.unconfirmed_changes",
+		UpdateDowngradeRefused:   "update.downgrade_refused",
+		UpdateNotFound:           "update.not_found",
+		UpdateNothingToRollBack:  "update.nothing_to_roll_back",
+		RolloutInProgress:        "rollout.in_progress",
+		UpdateSignatureInvalid:   "update.signature_invalid",
+		UpdatePrevMismatch:       "update.prev_mismatch",
+		UpdateInterrupted:        "update.interrupted",
+	} {
+		if string(code) != want || !Known(code) {
+			t.Errorf("code %q: want value %q registered", code, want)
 		}
 	}
 }

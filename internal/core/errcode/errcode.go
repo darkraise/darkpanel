@@ -47,6 +47,28 @@ const (
 	JournalOverflow    Code = "journal.overflow"
 )
 
+// Problem codes of the fleet, enrollment, update and rollout.
+const (
+	HostOffline              Code = "host.offline"
+	HostVersionUnsupported   Code = "host.version_unsupported"
+	AgentNotEnrolled         Code = "agent.not_enrolled"
+	EnrollTokenInvalid       Code = "enroll.token_invalid" //nolint:gosec // G101: an error code, not a credential
+	EnrollRateLimited        Code = "enroll.rate_limited"
+	UpdateInProgress         Code = "update.in_progress"
+	UpdateUnconfirmedChanges Code = "update.unconfirmed_changes"
+	UpdateDowngradeRefused   Code = "update.downgrade_refused"
+	UpdateNotFound           Code = "update.not_found"
+	UpdateNothingToRollBack  Code = "update.nothing_to_roll_back"
+	RolloutInProgress        Code = "rollout.in_progress"
+)
+
+// Action-level codes of an update: they appear in an update record's error.
+const (
+	UpdateSignatureInvalid Code = "update.signature_invalid"
+	UpdatePrevMismatch     Code = "update.prev_mismatch"
+	UpdateInterrupted      Code = "update.interrupted"
+)
+
 type info struct {
 	status int
 	title  string
@@ -80,6 +102,22 @@ var registry = map[Code]info{
 	ExecOutputTooLarge:     {http.StatusInternalServerError, "Command output too large"},
 	FilesMarkersBad:        {http.StatusInternalServerError, "Invalid DARKPANEL markers"},
 	JournalOverflow:        {http.StatusInternalServerError, "Journal overflow"},
+
+	// A host whose agent has no live session may answer later unchanged.
+	HostOffline:              {http.StatusServiceUnavailable, "Host offline"},
+	HostVersionUnsupported:   {http.StatusConflict, "Agent version unsupported"},
+	AgentNotEnrolled:         {http.StatusConflict, "Agent not enrolled"},
+	EnrollTokenInvalid:       {http.StatusForbidden, "Invalid enrollment token"},
+	EnrollRateLimited:        {http.StatusTooManyRequests, "Too many enrollment attempts"},
+	UpdateInProgress:         {http.StatusConflict, "Update in progress"},
+	UpdateUnconfirmedChanges: {http.StatusConflict, "Unconfirmed changes"},
+	UpdateDowngradeRefused:   {http.StatusConflict, "Downgrade refused"},
+	UpdateNotFound:           {http.StatusNotFound, "Release not found"},
+	UpdateNothingToRollBack:  {http.StatusConflict, "Nothing to roll back"},
+	RolloutInProgress:        {http.StatusConflict, "Rollout in progress"},
+	UpdateSignatureInvalid:   {http.StatusInternalServerError, "Release signature invalid"},
+	UpdatePrevMismatch:       {http.StatusInternalServerError, "Previous binary does not match"},
+	UpdateInterrupted:        {http.StatusInternalServerError, "Update interrupted"},
 }
 
 // Known reports whether c is in the registry.
