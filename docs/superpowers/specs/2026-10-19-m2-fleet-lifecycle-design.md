@@ -518,7 +518,7 @@ and rollout actions) join the one core manifest; assembly fills it.
 |---|---|---|---|
 | `core.update.apply/v1` | compensable, compensated by `core.update.rollback` | `version` (semantic version pattern), `channel` (`stable`, `beta`), `force` (bool) | `UpdateTransaction` |
 | `core.update.rollback/v1` | irreversible | `force` (bool) | `UpdateTransaction` |
-| `core.update.status/v1` | read | `operationId` (optional) | `{"transactions": [UpdateTransaction]}`: every record of that operation, or the newest 20 operations' records, newest first |
+| `core.update.status/v1` | read | `operationId` or `changeId` (both optional, at most one) | `{"transactions": [UpdateTransaction]}`: every record of that operation (or of the operation that change started), or the newest 20 operations' records, newest first |
 
   `UpdateTransaction` is the record of the next item without its internal
   fields: `id`, `operationId`, `parentId`, `kind` (`update`, `rollback`),
@@ -544,11 +544,14 @@ and rollout actions) join the one core manifest; assembly fills it.
   `store.DB.Write` forbids that) and, in it, checks that no lock row exists
   and no revertible change is unconfirmed, then inserts `core_locks (key,
   owner)`; `lifecycle.Release(ctx, db, owner)` deletes the owner's rows.
+  Reservation owners are written `op:<operation id>`, which no change id
+  can equal, so every sweep below touches only `op:` rows and never a live
+  change's lock.
   `takeLocks` refuses any key while a `*` row exists, so a change whose
   pre-check passed before the reservation still cannot take its lock after
   it. Handlers reach the function through `Env.DB`; the runner and `--direct`
   rollback call it directly. `Env` gains `ChangeID`, set by the engine for
-  Plan, Apply and Verify.
+  Apply and Verify (a plan has no change yet).
 - **Apply returns before the restart.** `core.update.apply` declares no lock
   keys. Its Apply re-checks the version rules; calls `Reserve("*", <operation
   id>)` (a failure answers `update.in_progress` or
@@ -564,14 +567,22 @@ and rollout actions) join the one core manifest; assembly fills it.
   the change is `failed` or `interrupted`, and skips the wait when `changeId`
   is empty. Tests cover a runner faster than Verify and a mutation attempted
   between Plan and Apply.
-- **Rollback action.** `core.update.rollback` mirrors apply: guards (a
-  committed update to roll back, `darkpanel.prev` present, the controller-host
-  rule below), `Reserve`, a record with `kind: rollback` in `pending`, the
-  transient unit `darkpanel-rollback-<tx>.service` running the current binary
-  as `darkpanel update rollback --direct --transaction <tx>` with the same
-  `OnFailure`, then return. Its result is observed through
-  `core.update.status`, never through the change, so the restart it causes
-  never interrupts its own change.
+- **Rollback action.** `core.update.rollback` mirrors apply: guards (the
+  newest operation is a committed update, `darkpanel.prev` is present and
+  matches that update's `prevSha256`, the controller-host rule below),
+  `Reserve`, a record with `kind: rollback` in `pending`, then the transient
+  unit `darkpanel-rollback-<tx>.service` running the current binary as
+  `darkpanel update rollback --direct --transaction <tx>`, and return. Its
+  result is observed through `core.update.status`, never through the change,
+  so the restart it causes never interrupts its own change. A `kind:
+  rollback` record moves `pending → rolling-back → rolled-back | failed`: the
+  runner hard-links `darkpanel.prev` as `darkpanel.recovery` (so a crash
+  mid-rename is finished by `update recover` like any other), claims
+  `rolling-back`, performs the same renames and restarts as an automatic
+  rollback, and records `rolled-back`. There is no health window: a
+  rollback is final, and the operator reinstalls if the previous binary is
+  bad. The manual `--direct` path without an agent writes the same record.
+  The record definitions belong to the update library (P5).
 - **The runner** (`update run`) moves the record through `pending`,
   `downloading`, `staged`, `swapped` (with a deadline), `rolling-back`, then
   `committed`, `rolled-back` or `failed` (any failure before the swap). Under
@@ -594,19 +605,29 @@ and rollout actions) join the one core manifest; assembly fills it.
      `darkpanel.recovery` and release the reservation; for an intermediate
      step keep the reservation and start the next step (Stepping). On a
      failure: roll back.
-- **Health rule.** Probes: the controller's `GET /healthz` on its socket
-  (`status`, `version`, `schemaVersion`) when the controller unit exists, and
-  the agent's `hello` on its socket, whose Hello gains `controllerConnected`
-  (null when not enrolled). A refused connection, a timeout, or a reported
-  version equal to `fromVersion` is "not yet". A pass is every probe reporting
-  `toVersion` with status `ok` and, for an enrolled agent,
-  `controllerConnected: true`. A probe reporting `toVersion` with any other
-  status is an immediate failure. Reaching the deadline is a failure.
+- **Health rule.** A refused connection, a timeout, or a reported version
+  equal to `fromVersion` is "not yet" for either probe. Reaching the deadline
+  is a failure.
+  - Controller (when the controller unit exists): `GET /healthz` on its
+    socket passes when `version` is `toVersion` and `status` is `ok`; a
+    `toVersion` report with any other status is an immediate failure.
+  - Agent: `hello` on its socket passes when `binaryVersion` is `toVersion`
+    and, for an enrolled agent, `controllerConnected` is `true`; Hello has no
+    status field, so the agent probe never fails early.
+
+  The `harnessbroken` build reports `status: degraded` from the controller
+  and never sets `controllerConnected`, so it fails at once on the
+  controller's host and at the deadline on an agent-only host.
 - **Time budget** (S5: rollback within two minutes). Deadline 80 s after the
   swap; timer accuracy 1 s; the recover command bounds its own work to 30 s
   (service stops use the units' `TimeoutStopSec=10s`), so the worst case is
   under 115 s. Both service units set `TimeoutStopSec=10s` and
   `TimeoutStartSec=30s`.
+- **Taking the update lock.** Every recover path takes `UpdateDir/lock` with
+  a 5 s timeout. On timeout it stops the operation's runner unit through
+  D-Bus (`KillUnit` with `SIGKILL`, then `StopUnit`), which releases the
+  `flock` with the process, and takes the lock again. A frozen runner
+  therefore cannot block the deadline rollback.
 - **Rollback** has one implementation, entered by the runner on a failed
   check, by `update recover --deadline <tx>` from the timer, by `update
   recover` from `darkpanel-rollback.service` (`OnFailure=` of either service
@@ -619,7 +640,9 @@ and rollout actions) join the one core manifest; assembly fills it.
   `update.prev_mismatch` and leaves the binaries alone), renames `darkpanel`
   to `darkpanel.failed` and `darkpanel.prev` to `darkpanel`, fsyncs, records
   `rolled-back`, releases the reservation, stops the deadline timer, deletes
-  `darkpanel.recovery`, and restarts the services, except at boot: the boot
+  `darkpanel.recovery`, and restarts the services after `ResetFailedUnit`
+  (a crash-looping unit is in `start-limit-hit` and refuses a plain start),
+  except at boot: the boot
   unit is ordered before the services, so it only performs the renames and
   records, and the services start after it. A record in `rolling-back` found
   later (a crash mid-rollback) is finished from whichever rename is missing,
@@ -629,10 +652,16 @@ and rollout actions) join the one core manifest; assembly fills it.
 - **Pre-swap recovery.** At agent start and in every `update recover`, under
   the update lock: a record in `pending`, `downloading` or `staged` whose
   transient unit is not active becomes `failed` (`update.interrupted`), its
-  `darkpanel.new-<tx>` is deleted and its reservation released. Then a sweep
-  deletes `core_locks` rows whose owner is an operation with no record or
-  whose records are all terminal. A test asserts `core_locks` is empty after
-  every terminal path.
+  `darkpanel.new-<tx>` is deleted and its reservation released. Next, stepping
+  continuation runs (below). Only then, a sweep deletes `op:` rows of
+  `core_locks` whose operation has no record or is finished. An operation is
+  finished when any record is `failed` or `rolled-back`, or when its last
+  record is `committed` with `toVersion` equal to `targetVersion` (for `kind:
+  rollback`, when it is `rolled-back` or `failed`); a committed intermediate
+  step is not finished. A test asserts `core_locks` is empty after every
+  terminal path, and one crashes between an intermediate commit and the next
+  step's record and checks the reservation survives until the target
+  commits.
 - **Manual rollback** (R31). `darkpanel update rollback` is the generated
   command of `core.update.rollback`, adopted by the reserved hand-written
   `update` group (section 5). With `--local` and no agent socket answering, it
@@ -664,12 +693,19 @@ and rollout actions) join the one core manifest; assembly fills it.
   its id is `<date>T<time>`. A scheduler (`internal/controller/rollout`)
   checks once a minute. For a host inside an open window whose `last_window`
   differs, when the index has a newer version in its channel and the host is
-  online, it claims the window in one controller write transaction: insert
-  the one-host rollout rows and set `last_window` and `last_rollout_id`. When
-  a rollout is already active (`rollout.in_progress`), the host is offline, or
-  the controller runs an older version than the target, it claims nothing and
-  retries next minute inside the window. A started rollout consumes the window
-  whatever its outcome; missed windows are not caught up.
+  online, it claims the window in one controller write transaction: it calls
+  the package function `rollout.Create(tx, …)`, which the action's Apply also
+  uses, to insert the one-host rollout rows, sets `last_window` and
+  `last_rollout_id`, and records a `core.Audit` entry with actor
+  `system:update-schedule`. Scheduled rollouts are not changes. When a
+  rollout is already active (`rollout.in_progress`) or the host is offline,
+  or, for a host other than the controller's own, the controller runs an
+  older version than the target, it claims nothing and retries next minute
+  inside the window. The controller's own host is never held back by that
+  rule, so it updates first. A started rollout consumes the window whatever
+  its outcome; missed windows are not caught up. Tests schedule the own host
+  to a newer version, and an agent host before and after the controller
+  moves.
 - **Fleet rollout** (R36). Controller-side actions, defined in
   `internal/controller/rollout/actions.go` and added through
   `coreactions.Deps.Extra`:
@@ -702,10 +738,16 @@ and rollout actions) join the one core manifest; assembly fills it.
   2. apply `plan_id`. After a lost response or a controller restart it applies
      the same `plan_id` again: the engine returns the existing change of a
      plan whatever its state, so it never acts twice
-     (`internal/core/lifecycle/apply.go`). A plan that expired before any
-     apply (`plan.expired`) is cleared and planned again. A completed change's
-     output carries the operation id, stored as `operation_id`; a `failed` or
-     `interrupted` change fails the host;
+     (`internal/core/lifecycle/apply.go`). When the host row has no
+     `operation_id` and the answer is `plan.expired` or `plan.not_found` (an
+     expired plan is purged on the agent and dropped from the controller's
+     plan index), the plan is cleared and planned again. A completed change's
+     output carries the operation id, stored as `operation_id`. For a
+     `failed` or `interrupted` change the driver asks `core.update.status`
+     with that `changeId`: no record means the failure came before any
+     handoff, so the host fails and the rollout becomes `failed` at once; a
+     record means an operation exists, whose id is stored and followed as
+     below;
   3. poll `core.update.status` with that `operationId` every 5 s, treating
      `host.offline` and transport errors as "not yet", until the operation's
      last record is `committed` with `toVersion` equal to the rollout's
@@ -721,8 +763,9 @@ and rollout actions) join the one core manifest; assembly fills it.
   `force: true` marks an active rollout `cancelled` at once, for a host that
   never comes back. A controller restart during its own host's update resumes
   from the rows. Tests cover concurrent submission, stop at the first failure,
-  resume after a restart before and after the stored `planId` was applied, an
-  expired plan, cancellation while a host updates, and a stepped update that
+  resume after a restart before and after the stored `planId` was applied, a
+  restart longer than the plan lifetime (clock past `PlanTTL`, purge run), a
+  failed apply with and without a record, cancellation while a host updates, and a stepped update that
   advances only on the target version.
 
 ### 9. Release pipeline (R80, R32)
@@ -934,7 +977,7 @@ types in `internal/agent/wire`, `internal/update/trustedkeys`,
 
 | Part | Wave | Owns | Consumes |
 |---|---|---|---|
-| P0 Foundation | 0 | `go.mod`, `go.sum`, `internal/deps/`, `internal/core/*.go` (fleet types, Hello fields, `Uninstaller`), `internal/core/lifecycle/` (`Env.ChangeID`, `Reserve`, `Release`, the `*` rule in `takeLocks`), `internal/agent/wire/`, `internal/controller/coreactions/module.go` (the `Deps.Extra` slot), `internal/core/errcode/`, `internal/paths/`, `internal/registry/` and the duplicate-ownership rule, `internal/controller/dispatch/` (`ClientSource`, `StaticClients`), `internal/controller/server/services.go`, `internal/cli/` (the two hooks, reserved names), `internal/platform/systemd.go` (D-Bus: transient services and timers, start, stop, restart, enable, disable, reload, state) and the exec allowlist entries, `internal/update/trustedkeys/`, `schemas/embed.go`, `install.sh.in`, `scripts/gen-install-sh`, `docs/adr/0012-*.md`, `docs/adr/README.md` | this spec |
+| P0 Foundation | 0 | `go.mod`, `go.sum`, `internal/deps/`, `internal/core/*.go` (fleet types, Hello fields, `Uninstaller`), `internal/core/lifecycle/` (`Env.ChangeID`, `Reserve`, `Release`, the `*` rule in `takeLocks`), `internal/agent/wire/`, `internal/controller/coreactions/module.go` (the `Deps.Extra` slot), `internal/core/errcode/`, `internal/paths/`, `internal/registry/` and the duplicate-ownership rule, `internal/controller/dispatch/` (`ClientSource`, `StaticClients`), `internal/controller/server/services.go`, `internal/cli/` (the two hooks, reserved names), `internal/platform/systemd.go` (D-Bus: transient services and timers, start, stop, restart, kill, reset-failed, enable, disable, reload, state) and the exec allowlist entries, `internal/update/trustedkeys/`, `schemas/embed.go`, `install.sh.in`, `scripts/gen-install-sh`, `docs/adr/0012-*.md`, `docs/adr/README.md` | this spec |
 | P1 Agent authority | 1 | `internal/controller/fleet/ca*.go`, `certs*.go`, `tokens*.go`; `migrations/controller/0005_fleet.sql` | P0 |
 | P2 Transport | 1 | `internal/transport/` | P0 |
 | P3 Agent API | 1 | `internal/agent/api/` | P0 |
@@ -1005,14 +1048,19 @@ Plans 2, 3 and 4 run in parallel sessions after plan 1.
     path); reboot after each rollback rename; pre-swap recovery of a dead
     runner; stepping continuation after a crash between commit and the next
     step; the rollback action's transient unit; the health rule's "not yet",
-    pass and failure cases; interruption at every filesystem step;
+    pass and failure cases for each probe; a recover path killing a frozen
+    runner that holds the update lock; `ResetFailedUnit` before restarting a
+    crash-looped unit; the rollback record's states; the sweep sparing
+    change-owned locks; interruption at every filesystem step;
     `core_locks` empty after every terminal path; the migration backup the
     restarted service takes before migrating;
   - rollout: concurrent submission refused; stop at the first failure;
     resume after a restart before and after the stored `planId` was applied;
-    an expired plan; cancellation while a host updates (`draining`) and
+    a restart longer than `PlanTTL` (`plan.not_found`); a failed apply with
+    and without an update record; cancellation while a host updates (`draining`) and
     `force`; a stepped update advancing only on the target version; schedule
-    windows, the atomic window claim and the retry and skip rules;
+    windows, the atomic window claim, the own host scheduled ahead of the
+    controller's version, and the retry and skip rules;
   - wire: every DTO round-trips through its `core` type; field names are
     camelCase;
   - release: `releases.json` regenerated from a release list including betas
@@ -1097,3 +1145,16 @@ Plans 2, 3 and 4 run in parallel sessions after plan 1.
   runner scenario; the epoch acknowledgement key and conflict target;
   Verify and the runner's wait; the ownership CHECK rewrite; D-Bus for every
   systemd operation; the `update` group adopting generated commands.
+- Spec panel round 3, 2026-10-19 (delta, final). Fable: approve with
+  changes; executability 16, coherence 15, coverage 17, assumptions 16; 5
+  findings. Codex gpt-6-astra: rework; executability 16, coherence 15,
+  coverage 18, assumptions 16; 4 new findings and 2 partly fixed. Every
+  finding folded in: the scheduler's own-host exception and scheduled
+  rollouts created by `rollout.Create` outside the lifecycle;
+  `plan.not_found` re-planned like `plan.expired`; failed applies resolved by
+  `changeId`; `op:` reservation owners and a sweep that runs after stepping
+  continuation with a defined finished operation; the rollback record's
+  state machine with no health window; split controller and agent health
+  predicates; recover paths killing a frozen runner that holds the update
+  lock; `ResetFailedUnit` before restarting a crash-looped unit;
+  `Env.ChangeID` for Apply and Verify only.
