@@ -248,6 +248,51 @@ func TestAgentSaysHelloForGenerationZero(t *testing.T) {
 	}
 }
 
+func TestAHungHelloDelaysOnlyItsOwnHost(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	h.addHost("h2")
+	started := make(chan struct{})
+	release := make(chan struct{})
+	h.clients.Add("h2", &coretest.FakeAgent{HelloFunc: func(context.Context) (core.AgentHello, error) {
+		close(started)
+		<-release
+		return core.AgentHello{ProtocolVersion: 1, HostID: "h2"}, nil
+	}})
+	hung := make(chan error, 1)
+	go func() {
+		_, err := h.hosts.Agent(ctx, "h2")
+		hung <- err
+	}()
+	<-started
+	released := false
+	releaseOnce := func() {
+		if !released {
+			released = true
+			close(release)
+		}
+	}
+	defer releaseOnce()
+
+	other := make(chan error, 1)
+	go func() {
+		_, err := h.hosts.Agent(ctx, testHost)
+		other <- err
+	}()
+	select {
+	case err := <-other:
+		if err != nil {
+			t.Fatalf("Agent(%s) while h2's Hello hangs: %v", testHost, err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("Agent(%s) is blocked by the hung Hello of h2", testHost)
+	}
+	releaseOnce()
+	if err := <-hung; err != nil {
+		t.Errorf("Agent(h2) after the Hello returned: %v", err)
+	}
+}
+
 func TestNewHostsRequiresClients(t *testing.T) {
 	defer func() {
 		if r := recover(); r != "dispatch: HostsConfig.Clients is required" {

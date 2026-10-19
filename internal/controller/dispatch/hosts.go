@@ -44,8 +44,9 @@ type HostsConfig struct {
 type Hosts struct {
 	cfg HostsConfig
 
-	mu      sync.Mutex        // also serialises Hello calls
-	greeted map[string]uint64 // the client generation each host last said Hello with
+	mu      sync.Mutex             // guards greeted and locks; never held across I/O
+	greeted map[string]uint64      // the client generation each host last said Hello with
+	locks   map[string]*sync.Mutex // one per host, held across the client lookup and Hello
 }
 
 var _ core.HostDirectory = (*Hosts)(nil)
@@ -57,22 +58,29 @@ func NewHosts(cfg HostsConfig) *Hosts {
 	if cfg.Clients == nil {
 		panic("dispatch: HostsConfig.Clients is required")
 	}
-	return &Hosts{cfg: cfg, greeted: map[string]uint64{}}
+	return &Hosts{cfg: cfg, greeted: map[string]uint64{}, locks: map[string]*sync.Mutex{}}
 }
 
 // Agent returns hostID's client, after the first successful Hello of its
 // current generation. An id with no core_hosts row is not_found; a host
-// without a client answers host.offline.
+// without a client answers host.offline. A Hello that hangs delays only the
+// calls for its own host.
 func (h *Hosts) Agent(ctx context.Context, hostID string) (core.AgentClient, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	c, gen, err := h.client(ctx, hostID)
+	unlock, err := h.lockHost(ctx, hostID)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	c, gen, err := h.cfg.Clients.Client(ctx, hostID)
 	if err != nil {
 		return nil, err
 	}
 	// A source may number its generations from 0, so a missing entry must not
 	// read as a greeted generation 0.
-	if greeted, ok := h.greeted[hostID]; !ok || greeted != gen {
+	h.mu.Lock()
+	greeted, ok := h.greeted[hostID]
+	h.mu.Unlock()
+	if !ok || greeted != gen {
 		if err := h.hello(ctx, hostID, c, gen); err != nil {
 			return nil, err
 		}
@@ -84,31 +92,43 @@ func (h *Hosts) Agent(ctx context.Context, hostID string) (core.AgentClient, err
 // The server calls it for the local host at startup, which seeds the host's
 // module rows.
 func (h *Hosts) Hello(ctx context.Context, hostID string) error {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	c, gen, err := h.client(ctx, hostID)
+	unlock, err := h.lockHost(ctx, hostID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	c, gen, err := h.cfg.Clients.Client(ctx, hostID)
 	if err != nil {
 		return err
 	}
 	return h.hello(ctx, hostID, c, gen)
 }
 
-// client returns hostID's client and generation from the ClientSource once
-// core_hosts has the host, so that a mistyped id stays not_found and only a
-// known host is reported offline.
-func (h *Hosts) client(ctx context.Context, hostID string) (core.AgentClient, uint64, error) {
+// lockHost takes hostID's lock once core_hosts has the host, so that a
+// mistyped id stays not_found without growing the lock table and only a known
+// host is reported offline. Holding the lock across the client lookup and
+// Hello keeps concurrent calls for one host to a single Hello.
+func (h *Hosts) lockHost(ctx context.Context, hostID string) (unlock func(), err error) {
 	var one int
-	err := h.cfg.DB.Read().QueryRowContext(ctx, "SELECT 1 FROM core_hosts WHERE id = ?", hostID).Scan(&one)
+	err = h.cfg.DB.Read().QueryRowContext(ctx, "SELECT 1 FROM core_hosts WHERE id = ?", hostID).Scan(&one)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		return nil, 0, errcode.New(errcode.NotFound, fmt.Sprintf("no host %s", hostID))
+		return nil, errcode.New(errcode.NotFound, fmt.Sprintf("no host %s", hostID))
 	case err != nil:
-		return nil, 0, fmt.Errorf("dispatch: read host %s: %w", hostID, err)
+		return nil, fmt.Errorf("dispatch: read host %s: %w", hostID, err)
 	}
-	return h.cfg.Clients.Client(ctx, hostID)
+	h.mu.Lock()
+	l, ok := h.locks[hostID]
+	if !ok {
+		l = &sync.Mutex{}
+		h.locks[hostID] = l
+	}
+	h.mu.Unlock()
+	l.Lock()
+	return l.Unlock, nil
 }
 
-// hello runs under mu. It writes available, reason and checked_at of every
+// hello runs under hostID's lock. It writes available, reason and checked_at of every
 // module the registry has; a missing row takes enabled from the module's
 // DefaultEnabled, and an existing row keeps its enabled, which only
 // core.module.enable and core.module.disable change. On success it records
@@ -146,7 +166,9 @@ func (h *Hosts) hello(ctx context.Context, hostID string, c core.AgentClient, ge
 	if err != nil {
 		return fmt.Errorf("dispatch: record the modules of %s: %w", hostID, err)
 	}
+	h.mu.Lock()
 	h.greeted[hostID] = gen
+	h.mu.Unlock()
 	h.cfg.Log.Info("dispatch: host said hello", "host", hostID, "protocol", hello.ProtocolVersion,
 		"version", hello.BinaryVersion, "os", hello.OS)
 	return nil
