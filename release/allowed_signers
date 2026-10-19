@@ -1,0 +1,7 @@
+# SSH keys allowed to sign release tags, in ssh-keygen ALLOWED SIGNERS
+# format. The verify job of release.yml reads this file from main and runs
+# git verify-tag against it. The owner adds one line per tag-signing key:
+#
+#   <email> namespaces="git" ssh-ed25519 AAAA...
+#
+# While no key line exists, every release stops at the verify job.

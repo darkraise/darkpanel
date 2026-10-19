@@ -1,0 +1,190 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+# One publication at a time, so a regenerated releases.json never misses a
+# release published beside it.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  GOTOOLCHAIN: local
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+      channel: ${{ steps.tag.outputs.channel }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - id: tag
+        run: go run ./release/releasetool check-tag "$GITHUB_REF_NAME" >>"$GITHUB_OUTPUT"
+      - name: Verify the tag signature
+        run: |
+          # Fetch the annotated tag object itself; a checkout may hold only the commit.
+          git fetch --force --no-tags origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          test "$(git cat-file -t "$GITHUB_REF_NAME")" = tag
+          # Signers come from main, never from the tagged tree, which a forged tag could carry.
+          git show origin/main:release/allowed_signers >"$RUNNER_TEMP/allowed_signers"
+          git -c gpg.ssh.allowedSignersFile="$RUNNER_TEMP/allowed_signers" verify-tag "$GITHUB_REF_NAME"
+      - run: bash release/snapshots.sh check "$GITHUB_REF_NAME"
+
+  build:
+    needs: verify
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          package_json_file: web/package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Install the release tools
+        run: |
+          tools="$RUNNER_TEMP/tools"
+          mkdir -p "$tools"
+          curl -fsSL -o "$tools/cliff.tgz" https://github.com/orhun/git-cliff/releases/download/v2.14.2/git-cliff-2.14.2-x86_64-unknown-linux-gnu.tar.gz
+          curl -fsSL -o "$tools/cdx.tgz" https://github.com/CycloneDX/cyclonedx-gomod/releases/download/v1.12.0/cyclonedx-gomod_1.12.0_linux_amd64.tar.gz
+          printf '%s  %s\n' \
+            24f397c733add5390fdceee3a2088588ab0d5f944ce00d34cb7029b888cf2db4 "$tools/cliff.tgz" \
+            004b9f5cc595b797fb5423e2ae4c97bcf0f18c712ed2faee1640b09e5efd6d15 "$tools/cdx.tgz" | sha256sum --check --strict
+          tar -xzf "$tools/cliff.tgz" -C "$tools" --strip-components=1 git-cliff-2.14.2/git-cliff
+          tar -xzf "$tools/cdx.tgz" -C "$tools" cyclonedx-gomod
+          echo "$tools" >>"$GITHUB_PATH"
+      - run: make release VERSION="$VERSION"
+      - name: Check install.sh is committed and current
+        run: |
+          git ls-files --error-unmatch install.sh
+          make install-sh
+          git diff --exit-code -- install.sh
+          cp install.sh bin/release/
+      - run: git-cliff --current --strip all -o bin/release-notes.md
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: bin/release/*
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-files
+          path: |
+            bin/release/
+            bin/release-notes.md
+          if-no-files-found: error
+
+  sign:
+    needs: [verify, build]
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: read
+      attestations: read
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+      CHANNEL: ${{ needs.verify.outputs.channel }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-files
+          path: dist
+      - name: Verify the build attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for f in dist/release/*; do
+            gh attestation verify "$f" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+              --source-ref "$GITHUB_REF" --source-digest "$GITHUB_SHA" \
+              --deny-self-hosted-runners
+          done
+      - name: Read the release binary's build information
+        run: |
+          tar -xzf "dist/release/darkpanel_${VERSION}_linux_amd64.tar.gz" -C "$RUNNER_TEMP" darkpanel
+          "$RUNNER_TEMP/darkpanel" version --json >"$RUNNER_TEMP/version.json"
+      - run: go install aead.dev/minisign/cmd/minisign@v0.3.0
+      - name: Sign checksums.txt
+        env:
+          MINISIGN_KEY_1: ${{ secrets.MINISIGN_KEY_1 }}
+          MINISIGN_PASSWORD_1: ${{ secrets.MINISIGN_PASSWORD_1 }}
+          MINISIGN_KEY_2: ${{ secrets.MINISIGN_KEY_2 }}
+          MINISIGN_PASSWORD_2: ${{ secrets.MINISIGN_PASSWORD_2 }}
+        run: |
+          MINISIGN="$(go env GOPATH)/bin/minisign" \
+            bash release/sign.sh "$VERSION" "$CHANNEL" dist/release "$RUNNER_TEMP/version.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-signatures
+          path: dist/release/checksums.txt.*.minisig
+          if-no-files-found: error
+
+  publish:
+    needs: [verify, sign]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+      CHANNEL: ${{ needs.verify.outputs.channel }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-files
+          path: dist
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-signatures
+          path: dist/release
+      - name: Publish the release
+        run: |
+          prerelease=()
+          if [ "$CHANNEL" = beta ]; then prerelease=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" dist/release/* --verify-tag \
+            --title "Darkpanel $VERSION" --notes-file dist/release-notes.md "${prerelease[@]}"
+      - name: Regenerate releases.json
+        run: |
+          # Rebuilt from every published release, never appended to an older index.
+          gh release list --exclude-drafts --limit 1000 --json tagName,isDraft >"$RUNNER_TEMP/list.json"
+          go run ./release/releasetool index <"$RUNNER_TEMP/list.json" >"$RUNNER_TEMP/releases.json"
+          if ! gh release view index >/dev/null 2>&1; then
+            gh release create index --prerelease --target "$GITHUB_SHA" --title "Release index" \
+              --notes "releases.json lists every published version and its channel. It selects versions only; trust comes from each release's signatures."
+          fi
+          gh release upload index "$RUNNER_TEMP/releases.json" --clobber
