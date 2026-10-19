@@ -45,3 +45,10 @@ Green: `success`
 Evidence: output
 Applies: once the branch is pushed to origin
 Why: only a clean runner shows that the build does not depend on the development host; the CI run on main is M1's evidence for "CI and gates green"
+
+## 7. Harness green
+Command: `timeout 60 gh run list --workflow harness.yml --branch "$(git branch --show-current)" --commit "$(git rev-parse HEAD)" --json conclusion --jq '.[0].conclusion'`
+Green: `success`
+Evidence: output
+Applies: on `main` once it is pushed to origin, and on any branch whose diff against `main` touches `test/harness/` or `.github/workflows/harness.yml`, once that branch is pushed and `gh workflow run harness.yml --ref "$(git branch --show-current)"` has run to completion (`gh run watch`); the query finds `workflow_dispatch` runs as well as push runs
+Why: only real VMs show that UFW, Docker and tailscaled behave on all four operating systems and that a full scan from outside finds only 22/tcp (R21, ADR 0008); the run on `main` is M1's harness evidence
