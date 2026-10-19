@@ -208,6 +208,108 @@ func TestBootChangedGivesUpOnAHungSession(t *testing.T) {
 	}
 }
 
+// stallConn blocks every Write once stall is set, as a socket whose send
+// buffer is full does, until the connection is closed.
+type stallConn struct {
+	net.Conn
+	stall atomic.Bool
+	gone  chan struct{}
+	once  sync.Once
+}
+
+func (c *stallConn) Write(p []byte) (int, error) {
+	if c.stall.Load() {
+		<-c.gone
+		return 0, net.ErrClosed
+	}
+	return c.Conn.Write(p)
+}
+
+func (c *stallConn) Close() error {
+	c.once.Do(func() { close(c.gone) })
+	return c.Conn.Close()
+}
+
+// TestRunWithAbandonsASessionThatCannotClose: closing a session writes to
+// the socket, which blocks when the connection is stuck; runWith must still
+// return and drop the connection.
+func TestRunWithAbandonsASessionThatCannotClose(t *testing.T) {
+	hostKey, err := NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &ssh.ServerConfig{NoClientAuth: true}
+	srv.AddHostKey(hostKey)
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	raw, err := net.Dial("tcp4", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn := &stallConn{Conn: raw, gone: make(chan struct{})}
+	t.Cleanup(func() { _ = conn.Close() })
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		_, chans, reqs, err := ssh.NewServerConn(c, srv)
+		if err != nil {
+			return
+		}
+		go ssh.DiscardRequests(reqs)
+		for nc := range chans {
+			conn.stall.Store(true)
+			ch, creqs, err := nc.Accept()
+			if err != nil {
+				continue
+			}
+			t.Cleanup(func() { _ = ch.Close() })
+			go func() {
+				for range creqs { // never replies: the exec hangs
+				}
+			}()
+		}
+	}()
+	key, err := NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	conf := &ssh.ClientConfig{User: User, Auth: []ssh.AuthMethod{ssh.PublicKeys(key)}, HostKeyCallback: ssh.FixedHostKey(hostKey.PublicKey())}
+	sc, chans, creqs, err := ssh.NewClientConn(conn, ln.Addr().String(), conf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := probeTimeout
+	probeTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { probeTimeout = old })
+	v := &VM{cfg: Config{Name: "stuck", Key: key}, client: ssh.NewClient(sc, chans, creqs)}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	returned := make(chan error, 1)
+	go func() {
+		_, err := v.runWith(ctx, "sleep 60", nil)
+		returned <- err
+	}()
+	select {
+	case err := <-returned:
+		if err == nil {
+			t.Error("runWith = nil, want the context error")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("runWith still blocked 3s after its context ended; closing the session hangs on the stuck socket")
+	}
+	v.mu.Lock()
+	c := v.client
+	v.mu.Unlock()
+	if c != nil {
+		t.Error("the connection is still in use; a stuck close must drop it")
+	}
+}
+
 // TestRebootGivesUpOnAHungRebootCommand: the reboot command can hang the
 // same way a probe can, and must not use up the whole reboot deadline.
 func TestRebootGivesUpOnAHungRebootCommand(t *testing.T) {

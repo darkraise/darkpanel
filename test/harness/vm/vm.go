@@ -298,7 +298,19 @@ func (v *VM) runWith(ctx context.Context, cmd string, stdin io.Reader) (string, 
 		// The goroutine may still write the buffers, so they are not read.
 		select {
 		case s := <-opened:
-			_ = s.Close() // ends a command that hangs
+			// Closing ends a command that hangs, but writes to the socket, which
+			// blocks when the connection is stuck: the SSH transport holds its
+			// lock across a write with no deadline.
+			closed := make(chan struct{})
+			go func() {
+				_ = s.Close()
+				close(closed)
+			}()
+			select {
+			case <-closed:
+			case <-time.After(probeTimeout):
+				v.closeClient()
+			}
 		default:
 			v.closeClient() // the session never opened: the connection is stuck
 		}
