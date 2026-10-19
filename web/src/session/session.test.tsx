@@ -4,7 +4,8 @@ import { expect, test } from "vitest"
 import { request } from "@/api/client"
 import type { Session } from "@/api/types"
 import { renderWithProviders, stubFetch } from "@/test/utils"
-import { SessionProvider, useSession } from "./session"
+import { SessionProvider } from "./session"
+import { useSession } from "./use-session"
 
 function sessionWith(csrfToken: string): Session {
   return {
