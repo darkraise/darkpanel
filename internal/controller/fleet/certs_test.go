@@ -15,6 +15,7 @@ import (
 	"errors"
 	"net"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -189,6 +190,30 @@ func TestIssueAgentCertRefusesBadCSRs(t *testing.T) {
 			wantCode(t, err, errcode.InvalidInput, tc.name)
 			if n := countCerts(t, db); n != 0 {
 				t.Fatalf("certificate rows = %d after a refused CSR", n)
+			}
+		})
+	}
+}
+
+func TestIssueAgentCertRefusesUnreadableHostIDs(t *testing.T) {
+	a, db, _ := newAuthority(t)
+	for _, id := range []string{strings.Repeat("a", 65), "a/b"} {
+		t.Run(id, func(t *testing.T) {
+			// The host row exists, so only the read-back can stop the insert.
+			addHost(t, db, id, "enrolled")
+			csr, _ := newCSR(t)
+			err := db.Write(context.Background(), func(tx *sql.Tx) error {
+				_, err := a.IssueAgentCert(context.Background(), tx, id, csr)
+				return err
+			})
+			if err == nil {
+				t.Fatalf("host id %q was certified", id)
+			}
+			if errors.As(err, new(*errcode.Error)) {
+				t.Fatalf("error = %v, want a plain error", err)
+			}
+			if n := countCerts(t, db); n != 0 {
+				t.Fatalf("certificate rows = %d after a refused host id", n)
 			}
 		})
 	}
