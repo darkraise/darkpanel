@@ -5,16 +5,25 @@
 
 ## One-time owner setup
 
-Done once by the owner, never by automation. Until all four are done, the
-workflow stops at its `verify` or `sign` job.
+Done once by the owner, never by automation. Until all five are done, the
+workflow stops at its `verify` or `sign` job; `build` also stops while
+`install.sh` is not committed or is stale.
 
 1. Generate the minisign key pair with a password:
    `minisign -G -p darkpanel.pub -s darkpanel.key`.
 2. Create the GitHub environment `release` with the owner as required
-   reviewer, and store in it the secrets `MINISIGN_KEY_1` (the text of
+   reviewer and its deployment branches and tags limited to tags matching
+   `v*`, and store in it the secrets `MINISIGN_KEY_1` (the text of
    `darkpanel.key`) and `MINISIGN_PASSWORD_1`.
-3. Add the public key to `internal/update/trustedkeys`.
-4. Add the tag-signing SSH public key to `release/allowed_signers` on `main`.
+3. Add the public key to `internal/update/trustedkeys`, then run
+   `make install-sh` and commit `install.sh`; `build` fails while the
+   committed file is stale.
+4. Add the tag-signing SSH public key to `release/allowed_signers` on `main`,
+   and set up git to sign tags with it: `git config gpg.format ssh` and
+   `git config user.signingkey <path to the SSH key>`.
+5. Add a tag ruleset on `v*` that lets only the owner create, update or
+   delete those tags. A `v*` tag runs the `release.yml` of its own commit, so
+   anyone who can push one can remove the `verify` job.
 
 ## Cutting a release
 
@@ -22,13 +31,16 @@ workflow stops at its `verify` or `sign` job.
    `schemas/released/vx.y.z/` and rewrites `CHANGELOG.md` (needs git-cliff).
 2. Commit both on `main`, then push a signed tag:
    `git tag -s vx.y.z -m vx.y.z && git push origin main vx.y.z`.
-3. Approve the `sign` job when GitHub asks.
+3. When GitHub asks you to approve the `sign` job, first check the pushed tag
+   locally: `git fetch --force origin tag vx.y.z`, then
+   `git -c gpg.ssh.allowedSignersFile=release/allowed_signers verify-tag vx.y.z`,
+   and compare `git rev-parse vx.y.z^{commit}` with the run's commit.
 
 The workflow:
 
 - `verify` checks the tag is `v` plus a semantic version, its SSH signature
-  against `release/allowed_signers` on `main`, and that
-  `schemas/released/<tag>/` equals the current schemas.
+  against `release/allowed_signers` on `main`, that the tagged commit is on
+  `main`, and that `schemas/released/<tag>/` equals the current schemas.
 - `build` runs `make release` (tarballs, SBOM, `checksums.txt`), checks the
   committed `install.sh` is current, writes the release notes with git-cliff,
   and attests every file.
@@ -55,3 +67,5 @@ and add its public key to `internal/update/trustedkeys`, keeping the old one.
 Releases are then signed by both keys. After at least two minor releases,
 move the new key into the `_1` secrets, delete the `_2` secrets, and remove
 the old public key from `internal/update/trustedkeys` in the same release.
+After each change to `internal/update/trustedkeys`, run `make install-sh`
+and commit `install.sh`, or the `build` job fails.
