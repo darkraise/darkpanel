@@ -176,7 +176,9 @@ check_token_file() {
 
 # read_token prompts for the enrollment token on the terminal without echo.
 read_token() {
-	[ -r /dev/tty ] && [ -w /dev/tty ] || die "no terminal to read the enrollment token from; pass --token-file"
+	if ! { [ -r /dev/tty ] && [ -w /dev/tty ]; }; then
+		die "no terminal to read the enrollment token from; pass --token-file"
+	fi
 	printf 'Enrollment token: ' >/dev/tty
 	stty -echo </dev/tty
 	trap 'stty echo </dev/tty' INT TERM
