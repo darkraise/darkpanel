@@ -1,33 +1,35 @@
-import type { ReactNode } from "react"
-import { ThemeProvider } from "darkraise-ui/theme"
-import { SidebarLayout } from "darkraise-ui/layout"
-import {
-  RouterAdapterProvider,
-  useOptionalRouterAdapter,
-} from "darkraise-ui/router"
-import { themeConfig } from "./theme.config"
+import { Route, Routes } from "react-router"
+import { EmptyState } from "darkraise-ui/components/empty-state"
+import { AuditPage } from "@/pages/audit"
+import { HostPage } from "@/pages/host"
+import { HostsPage } from "@/pages/hosts"
+import { LoginPage } from "@/pages/login"
+import { TokensPage } from "@/pages/tokens"
+import { RequireSession, SessionProvider } from "@/session/session"
+import { Shell } from "@/shell"
 
-// SidebarLayout requires a router adapter. Until the app has a router, provide
-// the kit's fallback adapter, which useOptionalRouterAdapter returns outside a
-// provider and which navigates with window.location.
-function FallbackRouter({ children }: { children: ReactNode }) {
-  const adapter = useOptionalRouterAdapter()
-  return <RouterAdapterProvider value={adapter}>{children}</RouterAdapterProvider>
-}
-
+// The routes of spec section 17. Every route but /login sits behind the
+// session guard.
 export function App() {
   return (
-    <ThemeProvider config={themeConfig}>
-      <FallbackRouter>
-        <SidebarLayout nav={[]} showThemeSwitcher={true}>
-          <div className="flex flex-col items-center justify-center gap-4 py-16">
-            <h1 className="text-4xl font-medium">Darkpanel</h1>
-            <p className="text-muted-foreground">
-              The walking skeleton replaces this page.
-            </p>
-          </div>
-        </SidebarLayout>
-      </FallbackRouter>
-    </ThemeProvider>
+    <SessionProvider>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route
+          element={
+            <RequireSession>
+              <Shell />
+            </RequireSession>
+          }
+        >
+          <Route index element={<HostsPage />} />
+          <Route path="hosts/:hostId" element={<HostPage />} />
+          <Route path="hosts/:hostId/:moduleId/*" element={<HostPage />} />
+          <Route path="audit" element={<AuditPage />} />
+          <Route path="settings/tokens" element={<TokensPage />} />
+          <Route path="*" element={<EmptyState title="Page not found" description="Nothing lives at this address." />} />
+        </Route>
+      </Routes>
+    </SessionProvider>
   )
 }
