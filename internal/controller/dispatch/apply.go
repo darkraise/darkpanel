@@ -41,7 +41,7 @@ func (d *Dispatcher) Apply(ctx context.Context, p core.Principal, hostID string,
 	v, err := func() (core.ChangeView, error) {
 		unlock, err := d.plans.lock(ctx, planID)
 		if err != nil {
-			return core.ChangeView{}, err
+			return core.ChangeView{}, errcode.Wrap(errcode.LockHeld, err, "plan "+planID+" is being applied by another request")
 		}
 		defer unlock()
 		claimed, err := d.markApplied(ctx, planID)
