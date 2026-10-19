@@ -334,8 +334,7 @@ func (v *VM) Reboot(ctx context.Context) error {
 		if err := v.connect(ctx); err != nil {
 			return err
 		}
-		// SSH may answer once more before the old boot stops it.
-		if after, err := v.Run(ctx, "cat /proc/sys/kernel/random/boot_id"); err == nil && after != before {
+		if v.bootChanged(ctx, before) {
 			return nil
 		}
 		v.closeClient()
@@ -345,6 +344,22 @@ func (v *VM) Reboot(ctx context.Context) error {
 		case <-time.After(dialInterval):
 		}
 	}
+}
+
+// probeTimeout bounds one boot_id probe during Reboot. A variable so a test
+// can shorten it.
+var probeTimeout = dialTimeout
+
+// bootChanged reports whether the connected VM has a boot_id other than
+// before. SSH may answer once more before the old boot stops it, and a
+// connection that reached the old boot as it went down can hang without a
+// reset (QEMU's user network keeps the host side open), so each probe gets
+// probeTimeout rather than the rest of the reboot deadline.
+func (v *VM) bootChanged(ctx context.Context, before string) bool {
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	after, err := v.Run(ctx, "cat /proc/sys/kernel/random/boot_id")
+	return err == nil && after != before
 }
 
 // KillProcess sends SIGKILL to every process on the VM whose name is exactly

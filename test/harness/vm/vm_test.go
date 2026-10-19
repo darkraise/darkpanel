@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 )
 
 func TestQemuArgs(t *testing.T) {
@@ -138,5 +140,69 @@ func TestLastLines(t *testing.T) {
 		if got := lastLines(c.in, c.n); got != c.want {
 			t.Errorf("lastLines(%q, %d) = %q, want %q", c.in, c.n, got, c.want)
 		}
+	}
+}
+
+// TestBootChangedGivesUpOnAHungSession: a connection that reached the old
+// boot as it went down can accept SSH and then never answer; the probe must
+// give up within probeTimeout so Reboot can dial the new boot.
+func TestBootChangedGivesUpOnAHungSession(t *testing.T) {
+	hostKey, err := NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &ssh.ServerConfig{NoClientAuth: true}
+	srv.AddHostKey(hostKey)
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				_, chans, reqs, err := ssh.NewServerConn(c, srv)
+				if err != nil {
+					return
+				}
+				go ssh.DiscardRequests(reqs)
+				for nc := range chans {
+					ch, creqs, err := nc.Accept()
+					if err != nil {
+						continue
+					}
+					t.Cleanup(func() { _ = ch.Close() })
+					go func() {
+						for range creqs { // never replies: the exec hangs
+						}
+					}()
+				}
+			}()
+		}
+	}()
+	key, err := NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := probeTimeout
+	probeTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { probeTimeout = old })
+	v := &VM{cfg: Config{Name: "hung", Key: key}, sshAddr: ln.Addr().String(), hostKey: hostKey.PublicKey(), exited: make(chan struct{})}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := v.connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer v.closeClient()
+	start := time.Now()
+	if v.bootChanged(ctx, "old") {
+		t.Error("bootChanged on a hung session = true, want false")
+	}
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Errorf("bootChanged returned after %v; probeTimeout was 200ms", elapsed)
 	}
 }
