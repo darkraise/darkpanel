@@ -20,7 +20,7 @@ const NAV: NavGroup[] = [
 // ListenerNotice says where the controller listens; without a Tailscale
 // address it serves loopback only, and the footer says so (spec section 13).
 function ListenerNotice() {
-  const listeners = useQuery({ queryKey: ["listeners"], queryFn: getListenerState, refetchInterval: 30_000 })
+  const listeners = useQuery({ queryKey: ["listeners"], queryFn: getListenerState, refetchOnWindowFocus: true })
   if (listeners.isPending) return null
   if (listeners.isError) {
     return (

@@ -1,7 +1,7 @@
 import { act, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { Route, Routes } from "react-router"
-import { expect, test } from "vitest"
+import { expect, test, vi } from "vitest"
 import type { ListenerState, Session } from "@/api/types"
 import { applyBrand } from "@/brand"
 import { RequireSession, SessionProvider } from "@/session/session"
@@ -61,6 +61,18 @@ test("the sidebar brand reads Darkpanel", async () => {
   expect(screen.queryByText("Darkpanel")).toBeNull()
   act(() => applyBrand())
   expect((await screen.findAllByText("Darkpanel")).length).toBeGreaterThan(0)
+})
+
+test("the listener state is not polled, only refreshed on window focus", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  try {
+    const calls = renderShell({ body: bound })
+    await screen.findByText("Hosts content")
+    await vi.advanceTimersByTimeAsync(61_000)
+    expect(calls.filter((c) => c.method === "GET" && c.path === "/api/v1/controller/listeners")).toHaveLength(1)
+  } finally {
+    vi.useRealTimers()
+  }
 })
 
 test("shows the navigation with the current page marked", async () => {
