@@ -238,6 +238,26 @@ func TestEnrollRefusals(t *testing.T) {
 	}
 }
 
+func TestEnrollBadCSRKeepsToken(t *testing.T) {
+	a, db, _ := newAuthority(t)
+	ctx := context.Background()
+	addHost(t, db, "H1", "pending")
+	token, _ := issueToken(t, a, db, "H1")
+	_, err := a.Enroll(ctx, token, []byte("not a request"))
+	wantCode(t, err, errcode.EnrollTokenInvalid, "bad CSR")
+	var consumed sql.NullString
+	if err := db.Read().QueryRow(`SELECT consumed_at FROM core_enroll_tokens WHERE host_id = 'H1'`).Scan(&consumed); err != nil || consumed.Valid {
+		t.Fatalf("token consumed by a bad CSR: %v, %v", consumed, err)
+	}
+	csr, _ := newCSR(t)
+	if _, err := a.Enroll(ctx, token, csr); err != nil {
+		t.Fatalf("the token failed after a bad CSR: %v", err)
+	}
+	if state := hostState(t, db, "H1"); state != "enrolled" {
+		t.Fatalf("state %s, want enrolled", state)
+	}
+}
+
 func TestRevokedHostReenrolls(t *testing.T) {
 	a, db, clock := newAuthority(t)
 	ctx := context.Background()
