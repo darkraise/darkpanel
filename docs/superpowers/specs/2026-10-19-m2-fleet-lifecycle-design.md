@@ -88,7 +88,7 @@ JSON fields are camelCase (ADR index, shared contracts). Every new table is
 | `AgentSocket` | `/run/darkpanel-agent/agent.sock` | root, socket 0600, directory 0700 |
 | `AgentTLSDir` | `/etc/darkpanel/agent/` | root, 0700 |
 | `UpdateDir` | `/var/lib/darkpanel/update/` (transaction records, the update lock) | root, 0700 |
-| `BinaryDir` | `/usr/local/lib/darkpanel/` (`darkpanel`, `darkpanel.prev`, `darkpanel.failed`, `darkpanel.new-<tx>`) | root, 0755, binaries 0755 |
+| `BinaryDir` | `/usr/local/lib/darkpanel/` (`darkpanel`, `darkpanel.prev`, `darkpanel.recovery`, `darkpanel.failed`, `darkpanel.new-<tx>`) | root, 0755, binaries 0755 |
 | `BinaryLink` | `/usr/local/bin/darkpanel` → `BinaryDir/darkpanel` | root |
 
   The M1 fields keep their values. `Under(root)` places every new path under
@@ -150,8 +150,10 @@ JSON fields are camelCase (ADR index, shared contracts). Every new table is
   with `request.invalid_input` naming `controllerAddress`.
   `core.host.token` is refused for an enrolled, unrevoked host and replaces
   any earlier token of that host. `core.host.enroll-local` is allowed in every
-  state of the local host: when the local host is enrolled it first revokes
-  its serials, so `system install` can always repair the local agent.
+  state of the local host: in one controller write transaction it revokes the
+  local host's serials, sets its state to `revoked` (a fresh local host is
+  `pending`), and replaces its token, so `system install` can always repair
+  the local agent.
   `core.host.delete` refuses the local host and an enrolled host that is not
   revoked.
 - **Token.** `dpe1.` followed by base64url (no padding) of the JSON object
@@ -193,7 +195,9 @@ JSON fields are camelCase (ADR index, shared contracts). Every new table is
   generation, and exits; the service then dials with ALPN
   `darkpanel-agent/1`.
 - Host states: `pending` (created, never enrolled), `enrolled`, `revoked`.
-  A revoked host re-enrolls with a new token.
+  A revoked host re-enrolls with a new token. The controller inserts its local
+  host row as `pending` at first start (`ensureLocalHost`); the migration sets
+  an existing M1 local row to `pending`.
 
 ### 4. Transport (R22, R24, R25, R27, ADR 0003)
 
@@ -246,8 +250,12 @@ session and the heartbeat. It knows nothing about actions.
 - **Agent API** (`internal/agent/api`): one `http.Handler` over the agent
   runtime, served on transport streams and on the agent socket, and one client
   implementing `core.AgentClient` over any dialer (a yamux session or the Unix
-  socket). Routes, all under `/agent/v1/`; request and response bodies are the
-  JSON of the `core` types the method takes and returns:
+  socket). Routes, all under `/agent/v1/`. Bodies are explicit wire types in
+  `internal/agent/wire` (owned by the foundation), never the untagged `core`
+  structs: camelCase fields, times in RFC 3339 UTC, durations as integer
+  seconds (`confirmTimeoutSeconds`), nullable fields as JSON `null`, with
+  conversion functions to and from the `core` types. The table names each
+  wire type by its `core` counterpart:
 
 | Route | Body | `core.AgentClient` method |
 |---|---|---|
@@ -273,7 +281,8 @@ session and the heartbeat. It knows nothing about actions.
   socket the principal is always `local:root@<host id>`. Bodies are limited to
   4 MiB; errors are RFC 9457 problem details that the client maps back to
   `errcode` codes.
-- **Hello** gains, beside M1's fields: `arch`; `journalEpoch`; and
+- **Hello** gains, beside M1's fields: `arch`; `journalEpoch`;
+  `controllerConnected` (bool, null when not enrolled); and
   `schemaHashes`, a map from `"<name>@<version>"` to `{"input": "<hex>",
   "output": "<hex>"}` for every agent-side action version.
 - **Schema hashes** (row 22, ADR 0002). Snapshots keep M1's layout:
@@ -306,8 +315,10 @@ session and the heartbeat. It knows nothing about actions.
   becomes `(host_id, epoch, seq)`. When Hello reports an epoch different from
   the cursor's, the ingester starts that host's cursor at `(epoch, 0)`. No
   release has shipped, so this migration has no previous binary to keep
-  compatible with. Each host's ingestion runs under a 30 s deadline (row 92's
-  second item).
+  compatible with. The ingester's in-memory acknowledgement map is keyed by
+  `(host, epoch)`, and the audit insert's conflict target becomes `(host_id,
+  epoch, seq)` with the index; the epoch-reset test covers both. Each host's
+  ingestion runs under a 30 s deadline (row 92's second item).
 - **Offline hosts in list paths.** The audit ingester and `dispatch.Changes`
   skip a host whose client answers `host.offline`, logging at debug level.
 - **Agent socket** (row 23, R31). `darkpanel agent run` serves the agent API
@@ -318,7 +329,13 @@ session and the heartbeat. It knows nothing about actions.
   `local:root@unenrolled` and refuses mutations with `agent.not_enrolled`.
 - **CLI.** A global flag `--local` sends a generated agent-side command to the
   agent socket instead of the controller API, and refuses controller-side
-  actions.
+  actions. `update` is already a reserved hand-written top-level name
+  (`internal/core/registry.go`), so the CLI gains two hooks, owned by the
+  foundation: a reserved hand-written group may adopt the generated commands
+  of named actions (the `update` group adopts `core.update.apply`,
+  `core.update.rollback`, `core.update.status`, beside its hand-written
+  `run`, `recover` and the rollout commands), and a per-action local fallback
+  runs when `--local` finds no agent socket (section 8).
 - **Controller unreachable** (R28). The agent keeps its database, last applied
   state, revert timers and socket; nothing in the agent waits on the
   controller except the dial loop.
@@ -344,6 +361,15 @@ The foundation converts M1's `Add` map into `dispatch.StaticClients`, used by
 implementation. `dispatch.Config.Hosts` and `server/services.go` change once,
 in the foundation.
 
+The core module now has agent-side actions (`core.update.*`), which M1's
+dispatcher and runtime refuse: `Hosts.hello` skips the core when seeding
+`core_module_state`, `usable` answers `module.unavailable` without a row, and
+the runtime excludes the core from its modules. Module id `core` is exempt
+from enablement and availability in the dispatcher (P9) and is always loaded
+by the runtime (P10). The foundation gives `coreactions.Deps` an `Extra
+[]core.ActionDef` slot, so actions defined outside `coreactions` (the update
+and rollout actions) join the one core manifest; assembly fills it.
+
 ### 7. Install, service and uninstall (R29, R30, M1 rows 24, 49)
 
 - **`install.sh`** (repository root, generated from `install.sh.in` by
@@ -356,12 +382,12 @@ in the foundation.
      host is <PRETTY_NAME>`; maps `uname -m` `x86_64`→`amd64`,
      `aarch64`→`arm64`, else refuses;
   2. resolves the version (`--version`, else the newest `stable` entry of
-     `releases.json`, section 9) and downloads into a `mktemp -d` directory,
-     with `curl`, else `wget`: `darkpanel_<version>_linux_<arch>.tar.gz`,
-     `checksums.txt` and every `checksums.txt.<keyid>.minisig` whose key id is
-     embedded, from `--base-url` (default
-     `https://github.com/Darkraise/darkpanel/releases/download/v<version>`;
-     `releases.json` from the latest release's assets);
+     `<base>/index/releases.json`, section 8) and downloads into a `mktemp -d`
+     directory, with `curl`, else `wget`, from `<base>/v<version>/`:
+     `darkpanel_<version>_linux_<arch>.tar.gz`, `checksums.txt`, and for each
+     embedded key id `checksums.txt.<keyid>.minisig`, where a missing file is
+     skipped, not fatal. `<base>` is `--base-url`, default
+     `https://github.com/Darkraise/darkpanel/releases/download`;
   3. verifies one signature with OpenSSL 3 only: algorithm `ED` (minisign
      hashed mode) and the embedded key id; `openssl dgst -blake2b512 -binary
      checksums.txt`; the 64-byte signature over that digest with `openssl
@@ -369,7 +395,7 @@ in the foundation.
      over `signature || trusted comment` the same way; the trusted comment
      exactly `version=<version> channel=<stable|beta> purpose=checksums` with
      the version being installed. Any one valid signature from an embedded key
-     suffices. Byte slicing uses `base64 -d`, `head -c`, `tail -c` and `od`;
+     suffices; the script fails only when none verifies. Byte slicing uses `base64 -d`, `head -c`, `tail -c` and `od`;
   4. checks the tarball's line of `checksums.txt` with `sha256sum -c`,
      extracts, copies the binary to `BinaryDir/darkpanel.new-install` (fsync),
      renames it over `BinaryDir/darkpanel`, creates `BinaryLink`, and runs
@@ -388,48 +414,55 @@ in the foundation.
   3. agent.db opened and migrated by the installer itself, and every
      core-owned path recorded in the ownership manifest (re-recording is a
      no-op);
-  4. units and the drop-in written when their content differs,
-     `systemctl daemon-reload`, services enabled;
+  4. units and the drop-in written when their content differs, then
+     `Reload` and `EnableUnitFiles` through the D-Bus provider;
   5. controller role: start the controller and wait for `GET /healthz` on the
      controller socket (60 s);
-  6. enrollment, skipped when `AgentTLSDir/current` exists and verifies
-     against its own `ca.crt`. Controller role: `core.host.enroll-local` over
-     the controller socket, then the enrollment flow with that token, which
-     also repairs a local host whose credentials were lost. Agent role: the
-     token from standard input (the installer refuses to run without one when
-     enrollment is needed); a consumed token without saved credentials is
-     reported with `this host's token was used but no credentials were saved;
-     revoke the host and create a new token`;
+  6. enrollment, skipped when `darkpanel agent check` (one mTLS handshake
+     with the saved credentials; exit 0 accepted, 1 refused, 2 unreachable)
+     exits 0. Controller role: on 1 or 2 (the controller is local and up),
+     `core.host.enroll-local` over the controller socket, then the enrollment
+     flow with that token, which also repairs a revoked or lost local agent.
+     Agent role: on 1, the token from standard input is required; on 2 with
+     saved credentials it warns that the controller is unreachable and keeps
+     them; without credentials it requires a token. A consumed token without
+     saved credentials is reported with `this host's token was used but no
+     credentials were saved; revoke the host and create a new token`;
   7. start the agent; the controller role prints how to create the first admin
      over the controller socket.
 
-  The exec allowlist (ADR 0009) gains `/usr/sbin/useradd`,
-  `/usr/sbin/userdel` and `/usr/bin/systemctl`. Tests rerun the installer
+  The exec allowlist (ADR 0009) gains `/usr/sbin/useradd` and
+  `/usr/sbin/userdel`; every systemd operation goes through D-Bus. Tests rerun the installer
   after each checkpoint and after a completed install.
 - **Units**, embedded templates in `internal/install/units/`:
   - `darkpanel-controller.service`: `User=darkpanel`, `ExecStart=
     /usr/local/lib/darkpanel/darkpanel serve`,
     `RuntimeDirectory=darkpanel-controller`, `Restart=on-failure`,
     `RestartSec=2`, `StartLimitIntervalSec=60`, `StartLimitBurst=5`,
+    `TimeoutStartSec=30s`, `TimeoutStopSec=10s`,
     `OnFailure=darkpanel-rollback.service`, `NoNewPrivileges=yes`,
     `ProtectSystem=strict`, `ReadWritePaths=/var/lib/darkpanel/controller`,
     `PrivateTmp=yes`.
   - `darkpanel-agent.service`: root, `ExecStart=… agent run`,
-    `RuntimeDirectory=darkpanel-agent`, the same restart, start-limit and
-    `OnFailure` lines.
+    `RuntimeDirectory=darkpanel-agent`, the same restart, start-limit,
+    timeout and `OnFailure` lines.
   - `darkpanel-rollback.service` and `darkpanel-update-recover.service`:
-    `Type=oneshot`, `ExecStart=/usr/local/lib/darkpanel/darkpanel.prev update
-    recover`, `ConditionPathExists=/usr/local/lib/darkpanel/darkpanel.prev`;
+    `Type=oneshot`, `ExecStart=/usr/local/lib/darkpanel/darkpanel.recovery
+    update recover`, `TimeoutStartSec=30s`,
+    `ConditionPathExists=/usr/local/lib/darkpanel/darkpanel.recovery`;
     the recover unit adds `Before=darkpanel-controller.service
     darkpanel-agent.service` and `WantedBy=multi-user.target` and runs on
-    every boot (ADR 0007; ADR 0012 records `update recover` as the name of
-    ADR 0007's `update rollback --pending`).
+    every boot, and at boot `update recover` never restarts services
+    (section 8). ADR 0012 records `update recover` and `darkpanel.recovery`
+    as the form of ADR 0007's `darkpanel.prev update rollback --pending`.
 
   Five starts two seconds apart exhaust the start limit in well under 30 s,
   inside S5's two minutes.
 - **Ownership manifest.** The agent migration widens `core_owned_files.kind`
   from `file`, `block` to `file`, `block`, `dir`, `user`, `unit` (a SQLite
-  table rebuild). The core declares its owned paths like a module's
+  table rebuild that also rewrites the CHECK `(kind = 'file') = (block_id =
+  '')` as `(kind = 'block') = (block_id <> '')`). `platform.Files` ignores
+  entries of kinds `dir`, `user` and `unit`. The core declares its owned paths like a module's
   `OwnedPaths`: the four units and the drop-in, `BinaryDir`, `BinaryLink`, the
   key files, the TLS, update, agent and controller directories, and the user
   `darkpanel`.
@@ -449,70 +482,96 @@ in the foundation.
   `/var/lib/darkpanel` (databases, backups, update records), `/etc/darkpanel`
   (role keys, which the databases need, and agent credentials) and the user
   `darkpanel` (the owner of the kept controller files), so a reinstall finds
-  everything. Each step prints one line; a failed step stops with the
+  everything; with `--keep-data` the file step skips every core-owned entry
+  under `/var/lib/darkpanel` and `/etc/darkpanel`. Each step prints one line; a failed step stops with the
   remaining steps listed. Tests cover `--keep-data` followed by a reinstall
-  that reads the kept databases.
+  whose kept keys open the kept databases.
 
 ### 8. Self-update (R32–R36, ADR 0007)
 
 - **Library** (`internal/update`): release index, download, verification,
   staging, self-test, the transaction record, swap, health check, rollback and
   stepping. Verification uses `aead.dev/minisign` against the embedded trusted
-  keys (any one valid signature suffices).
-- **Release index.** Every release publishes `releases.json` (section 9):
-  `{"formatVersion": 1, "releases": [{"version": "1.3.0", "channel":
-  "stable"}, …]}` listing every published version with its signed channel.
-  The updater reads it from the newest release's assets, at most once an hour
-  per process (cached), and never calls the GitHub API, so rate limits do not
-  apply. The index only selects versions; trust comes from each version's own
-  signature. The release base URL is embedded; only a `harnesskeys` build
-  overrides it.
+  keys; any one valid signature from a trusted key suffices, and a signature
+  file that is missing or fails is one unsuccessful candidate, not an error.
+- **Release index** (section 9). One channel-independent URL:
+  `<base>/index/releases.json`, where `<base>` is
+  `https://github.com/Darkraise/darkpanel/releases/download` (the rolling
+  release `index` holds the file) and each version's files are at
+  `<base>/v<version>/`. The file is `{"formatVersion": 1, "releases":
+  [{"version": "1.3.0", "channel": "stable"}, …]}`, listing every published
+  version with its signed channel. The updater reads it at most once an hour
+  per process (cached) and never calls the GitHub API. The index only selects
+  versions; trust comes from each version's own signature. `<base>` is
+  embedded; only a `harnesskeys` build overrides it.
 - **Channels.** A host subscribes to `stable` (only entries whose channel is
   `stable`) or `beta` (every entry). Ordering is semantic-version precedence
   (`1.3.0-beta.1 < 1.3.0`). Verification checks the trusted comment's
   `channel` against **the selected entry's** channel, so a beta host taking a
   stable release accepts its `stable` comment. A host on `beta` is never moved
   back to a lower stable release automatically.
-- **Agent actions** (core module, agent side, types in `internal/core`,
-  handlers in `internal/update/actions.go`):
+- **Agent actions** (core module, agent side; types in `internal/core`,
+  handlers in `internal/update/actions.go`, added to the core manifest through
+  the `coreactions.Deps.Extra` slot, section 6):
 
 | Action | Class | Input | Output |
 |---|---|---|---|
 | `core.update.apply/v1` | compensable, compensated by `core.update.rollback` | `version` (semantic version pattern), `channel` (`stable`, `beta`), `force` (bool) | `UpdateTransaction` |
 | `core.update.rollback/v1` | irreversible | `force` (bool) | `UpdateTransaction` |
-| `core.update.status/v1` | read | none | `{"transactions": [UpdateTransaction]}`, newest first, at most 20 |
+| `core.update.status/v1` | read | `operationId` (optional) | `{"transactions": [UpdateTransaction]}`: every record of that operation, or the newest 20 operations' records, newest first |
 
   `UpdateTransaction` is the record of the next item without its internal
-  fields: `id`, `parentId`, `fromVersion`, `toVersion`, `targetVersion`,
-  `state`, `error` (code and message, or null), `startedAt`, `updatedAt`.
-  The input carries no URL or key: the agent builds every download URL from
-  its embedded base and enforces the downgrade rule (refused unless `force`; a
-  forced downgrade goes back at most one minor) and the one-minor stepping
-  rule itself, so a compromised controller cannot direct a root agent
-  elsewhere.
+  fields: `id`, `operationId`, `parentId`, `kind` (`update`, `rollback`),
+  `fromVersion`, `toVersion`, `targetVersion`, `state`, `error` (`{code,
+  message}` or null), `startedAt`, `updatedAt`. The inputs carry no URL or
+  key: the agent builds every download URL from its embedded base and
+  enforces the downgrade rule (refused unless `force`; a forced downgrade goes
+  back at most one minor) and the one-minor stepping rule itself, so a
+  compromised controller cannot direct a root agent elsewhere.
 - **Transaction record** `UpdateDir/<transaction id>.json` (ADR 0004 record
   format rule): `formatVersion` (1), the `UpdateTransaction` fields,
-  `changeId` (the initiating change), `deadline`, `prevSha256`,
-  `newSha256`. Every mutation of any record, and every rename in
-  `BinaryDir`, happens while holding an exclusive `flock` on
-  `UpdateDir/lock`; a writer re-reads the record under the lock before acting
-  on its state. Records are written to a temporary file, fsynced and renamed.
-- **Reservation** (Fable spec finding 1, Codex 1). The lifecycle gains
-  `Env.Reserve(ctx, key, owner string) error`: inside the change's apply
-  transaction it inserts `core_locks (key, owner)` after checking, in the same
-  transaction, that no lock is held and no revertible change is unconfirmed;
-  the lock survives the change and is released by its owner. A held `*` holds
-  every key, and taking `*` requires that no key is held.
-- **Apply returns before the restart.** `core.update.apply`'s Apply:
-  re-checks the version rules; reserves `*` owned by a new transaction id;
-  writes the record `pending` with `changeId`; starts the transient root unit
-  `darkpanel-update-<tx>.service` through D-Bus `StartTransientUnit` with
-  property `OnFailure=darkpanel-rollback.service`, running the current binary
-  as `darkpanel update run <tx>`; returns. The runner's first step waits (up
-  to 60 s) until `changeId` is `completed` in agent.db, so no restart can
-  interrupt the initiating change; if it never completes, the runner records
-  `failed` and releases the reservation. Tests cover a runner faster than
-  Verify and a mutation attempted between Plan and Apply.
+  `changeId` (the initiating change, empty for a stepping child), `steps` (the
+  ordered versions of the whole operation, written before the first swap),
+  `deadline`, `prevSha256`, `newSha256`. An operation is one requested update
+  or rollback; its id is its first transaction's id, and every step carries
+  it. Every mutation of any record and every rename in `BinaryDir` happens
+  while holding an exclusive `flock` on `UpdateDir/lock`; a writer re-reads
+  the record under the lock before acting on its state. Records are written to
+  a temporary file, fsynced, renamed, and `UpdateDir` is fsynced.
+- **Reservation** (`internal/core/lifecycle`, owned by the foundation). A
+  store-level function `lifecycle.Reserve(ctx, db, key, owner string) error`
+  opens its own write transaction on agent.db (never nested in another write,
+  `store.DB.Write` forbids that) and, in it, checks that no lock row exists
+  and no revertible change is unconfirmed, then inserts `core_locks (key,
+  owner)`; `lifecycle.Release(ctx, db, owner)` deletes the owner's rows.
+  `takeLocks` refuses any key while a `*` row exists, so a change whose
+  pre-check passed before the reservation still cannot take its lock after
+  it. Handlers reach the function through `Env.DB`; the runner and `--direct`
+  rollback call it directly. `Env` gains `ChangeID`, set by the engine for
+  Plan, Apply and Verify.
+- **Apply returns before the restart.** `core.update.apply` declares no lock
+  keys. Its Apply re-checks the version rules; calls `Reserve("*", <operation
+  id>)` (a failure answers `update.in_progress` or
+  `update.unconfirmed_changes`); writes the record `pending` with `changeId =
+  Env.ChangeID`; starts the transient root unit `darkpanel-update-<tx>.service`
+  through D-Bus `StartTransientUnit` with property
+  `OnFailure=darkpanel-rollback.service`, running the current binary as
+  `darkpanel update run <tx>`; and returns. If writing the record or starting
+  the unit fails, Apply records `failed` (when the record exists), releases
+  the reservation and returns the error. Verify: the record exists and is not
+  `failed`. The runner's first step waits up to 60 s for `changeId` to be
+  `completed` in agent.db, stops at once (recording `failed`, releasing) when
+  the change is `failed` or `interrupted`, and skips the wait when `changeId`
+  is empty. Tests cover a runner faster than Verify and a mutation attempted
+  between Plan and Apply.
+- **Rollback action.** `core.update.rollback` mirrors apply: guards (a
+  committed update to roll back, `darkpanel.prev` present, the controller-host
+  rule below), `Reserve`, a record with `kind: rollback` in `pending`, the
+  transient unit `darkpanel-rollback-<tx>.service` running the current binary
+  as `darkpanel update rollback --direct --transaction <tx>` with the same
+  `OnFailure`, then return. Its result is observed through
+  `core.update.status`, never through the change, so the restart it causes
+  never interrupts its own change.
 - **The runner** (`update run`) moves the record through `pending`,
   `downloading`, `staged`, `swapped` (with a deadline), `rolling-back`, then
   `committed`, `rolled-back` or `failed` (any failure before the swap). Under
@@ -521,112 +580,149 @@ in the foundation.
      `BinaryDir/darkpanel.new-<tx>` (same filesystem as `darkpanel`), fsync,
      record `newSha256`; run `darkpanel.new-<tx> selftest`; record `staged`;
   2. copy the current binary to `darkpanel.prev.tmp`, fsync, rename over
-     `darkpanel.prev`, fsync `BinaryDir`, record `prevSha256`;
+     `darkpanel.prev`; hard-link `darkpanel.prev` as `darkpanel.recovery`
+     (replacing any older one); fsync `BinaryDir`; record `prevSha256`;
   3. start the transient timer `darkpanel-update-deadline-<tx>.timer`
-     (`OnActiveSec=90s`, running `darkpanel.prev update recover --deadline
-     <tx>`), then record `swapped` with `deadline` = now + 90 s, then rename
-     `darkpanel.new-<tx>` over `darkpanel`, fsync `BinaryDir`;
+     (`OnActiveSec=80s`, `AccuracySec=1s`, running `darkpanel.recovery update
+     recover --deadline <tx>`), then record `swapped` with `deadline` = now +
+     80 s, then rename `darkpanel.new-<tx>` over `darkpanel`, fsync
+     `BinaryDir`;
   4. restart `darkpanel-controller` when present, then `darkpanel-agent`;
-  5. health check until the deadline: the controller's version and schema
-     version from `GET /healthz` on its socket; the agent's version from
-     `hello` on its socket and, when enrolled, a connected controller session;
-     on the controller's host both must pass;
+  5. health check every 2 s until the deadline (rule below);
   6. on a pass, under the lock and only if the record is still `swapped`:
-     record `committed`, stop the deadline timer, release the reservation.
-     On a failure: roll back (next item).
-
-  The deadline is 90 s after the swap, so swap, restart, check and rollback
-  fit S5's two minutes. Because the timer is independent of the runner, a
-  killed runner still rolls back on time.
+     record `committed`, stop the deadline timer; for a final step delete
+     `darkpanel.recovery` and release the reservation; for an intermediate
+     step keep the reservation and start the next step (Stepping). On a
+     failure: roll back.
+- **Health rule.** Probes: the controller's `GET /healthz` on its socket
+  (`status`, `version`, `schemaVersion`) when the controller unit exists, and
+  the agent's `hello` on its socket, whose Hello gains `controllerConnected`
+  (null when not enrolled). A refused connection, a timeout, or a reported
+  version equal to `fromVersion` is "not yet". A pass is every probe reporting
+  `toVersion` with status `ok` and, for an enrolled agent,
+  `controllerConnected: true`. A probe reporting `toVersion` with any other
+  status is an immediate failure. Reaching the deadline is a failure.
+- **Time budget** (S5: rollback within two minutes). Deadline 80 s after the
+  swap; timer accuracy 1 s; the recover command bounds its own work to 30 s
+  (service stops use the units' `TimeoutStopSec=10s`), so the worst case is
+  under 115 s. Both service units set `TimeoutStopSec=10s` and
+  `TimeoutStartSec=30s`.
 - **Rollback** has one implementation, entered by the runner on a failed
   check, by `update recover --deadline <tx>` from the timer, by `update
   recover` from `darkpanel-rollback.service` (`OnFailure=` of either service
-  or of the runner unit) and from `darkpanel-update-recover.service` at boot.
-  Under the update lock it claims the transition `swapped → rolling-back`;
-  only the claimant continues, every other caller sees a non-`swapped` state
-  and does nothing. The claimant checks `darkpanel.prev` against
-  `prevSha256` (a mismatch records `failed` with `update.prev_mismatch` and
-  leaves the binaries alone), renames `darkpanel` to `darkpanel.failed` and
-  `darkpanel.prev` to `darkpanel`, fsyncs, records `rolled-back`, releases the
-  reservation, stops the deadline timer and restarts the services. A record in
-  `rolling-back` found by a later `recover` (a crash mid-rollback) is
-  finished from whichever rename is missing. Tests race two rollbacks, kill
-  the runner after the swap, and interrupt at every filesystem step.
-- **Lock release on every terminal path.** `committed`, `failed`,
-  `rolled-back` each release `core_locks WHERE owner = <tx>`; at agent start a
-  sweep deletes locks whose owner is a transaction id with no record or a
-  terminal record. A test asserts `core_locks` is empty after each path.
+  or of a runner unit) and from `darkpanel-update-recover.service` at boot.
+  All of them run `darkpanel.recovery`, which exists from step 2 until the
+  operation is terminal. Under the update lock the caller claims `swapped →
+  rolling-back`; only the claimant continues, every other caller sees a
+  non-`swapped` state and does nothing. The claimant checks `darkpanel.prev`
+  against `prevSha256` (a mismatch records `failed` with
+  `update.prev_mismatch` and leaves the binaries alone), renames `darkpanel`
+  to `darkpanel.failed` and `darkpanel.prev` to `darkpanel`, fsyncs, records
+  `rolled-back`, releases the reservation, stops the deadline timer, deletes
+  `darkpanel.recovery`, and restarts the services, except at boot: the boot
+  unit is ordered before the services, so it only performs the renames and
+  records, and the services start after it. A record in `rolling-back` found
+  later (a crash mid-rollback) is finished from whichever rename is missing,
+  using the file hashes to tell which binary is where. Tests race two
+  rollbacks, freeze the runner after the swap, reboot after each rename, and
+  interrupt at every filesystem step.
+- **Pre-swap recovery.** At agent start and in every `update recover`, under
+  the update lock: a record in `pending`, `downloading` or `staged` whose
+  transient unit is not active becomes `failed` (`update.interrupted`), its
+  `darkpanel.new-<tx>` is deleted and its reservation released. Then a sweep
+  deletes `core_locks` rows whose owner is an operation with no record or
+  whose records are all terminal. A test asserts `core_locks` is empty after
+  every terminal path.
 - **Manual rollback** (R31). `darkpanel update rollback` is the generated
-  command of `core.update.rollback`. With `--local` and no agent socket
-  answering, it runs the rollback directly as root: it re-executes
-  `darkpanel.prev update rollback --local --direct` when `darkpanel.prev`
-  exists and the current process is not already `--direct` (no re-exec loop),
-  which goes back one step from a committed record with the apply guards. On
-  the controller's host it reads `core_hosts.agent_version` from
-  `controller.db` directly and refuses while an enrolled agent reports a
-  newer version, unless `--force`. Without `darkpanel.prev` it fails with
-  `update.nothing_to_roll_back`. The CLI gains the two hooks this needs,
-  owned by the foundation: hand-written leaf commands attached inside a
-  generated group (`update run`, `update recover`), and a per-action local
-  fallback used when `--local` finds no agent socket.
-- **Stepping.** From 1.2 to 1.5 the runner runs one transaction per minor (the
-  newest patch of 1.3, then 1.4, then 1.5), every record carrying the same
-  `targetVersion`. After a commit the runner starts the next step's transient
-  unit with the newly installed binary, with `parentId` set. A failure leaves
-  the host on the last committed minor.
-- **Channels and schedule** (R35). Per-host policy on the controller in
-  `core_host_update (host_id TEXT PRIMARY KEY REFERENCES core_hosts (id) ON
-  DELETE CASCADE, channel TEXT NOT NULL, days TEXT, time_utc TEXT,
-  last_window TEXT)`, set by `core.host.update-policy/v1` (compensable,
-  compensated by itself with the previous policy; input `hostId`, `channel`,
-  `schedule`: null, or `{"days": ["mon", …], "time": "HH:MM"}` in UTC; output
-  `UpdatePolicy` = the same fields). A window opens at `time` on each listed
-  day and lasts two hours. A scheduler (`internal/controller/rollout`) checks
-  once a minute: for a host inside an open window whose `last_window` is not
-  this window, when the index has a newer version in its channel, it starts a
-  one-host rollout as actor `system:update-schedule` and records
-  `last_window`. Missed windows are not caught up. An agent host whose target
-  is newer than the controller's version is skipped with a logged reason until
-  the controller runs that version.
+  command of `core.update.rollback`, adopted by the reserved hand-written
+  `update` group (section 5). With `--local` and no agent socket answering, it
+  runs the rollback in-process as root (`--direct`): it re-executes
+  `darkpanel.prev update rollback --direct` when `darkpanel.prev` exists and
+  the current process is not already `--direct` (no re-exec loop). On the
+  controller's host it reads `core_hosts.agent_version` from `controller.db`
+  directly and refuses while an enrolled agent reports a newer version, unless
+  `--force`. Without `darkpanel.prev` it fails with
+  `update.nothing_to_roll_back`.
+- **Stepping.** From 1.2 to 1.5 the operation's `steps` are the newest patch
+  of 1.3, then 1.4, then 1.5, all with the same `targetVersion` and
+  `operationId`. The reservation, owned by the operation id, is held from the
+  first step to the last, so no other update or keyed change runs between
+  steps. After an intermediate commit the runner writes the next step's record
+  `pending` (with `parentId`) and only then starts its transient unit with the
+  newly installed binary. At agent start and in `update recover`, a committed
+  intermediate record whose next step has no record gets one, and the step is
+  started. A failure leaves the host on the last committed minor and releases
+  the reservation.
+- **Channels and schedule** (R35). Per-host policy in `core_host_update
+  (host_id TEXT PRIMARY KEY REFERENCES core_hosts (id) ON DELETE CASCADE,
+  channel TEXT NOT NULL, days TEXT, time_utc TEXT, last_window TEXT,
+  last_rollout_id TEXT)`, created by P1's migration and set by
+  `core.host.update-policy/v1` (compensable, compensated by itself with the
+  previous policy; input `hostId`, `channel`, `schedule`: null, or `{"days":
+  ["mon", …], "time": "HH:MM"}` in UTC; output `UpdatePolicy` = those
+  fields). A window opens at `time` on each listed day and lasts two hours;
+  its id is `<date>T<time>`. A scheduler (`internal/controller/rollout`)
+  checks once a minute. For a host inside an open window whose `last_window`
+  differs, when the index has a newer version in its channel and the host is
+  online, it claims the window in one controller write transaction: insert
+  the one-host rollout rows and set `last_window` and `last_rollout_id`. When
+  a rollout is already active (`rollout.in_progress`), the host is offline, or
+  the controller runs an older version than the target, it claims nothing and
+  retries next minute inside the window. A started rollout consumes the window
+  whatever its outcome; missed windows are not caught up.
 - **Fleet rollout** (R36). Controller-side actions, defined in
-  `internal/controller/rollout/actions.go`:
+  `internal/controller/rollout/actions.go` and added through
+  `coreactions.Deps.Extra`:
 
 | Action | Class | Input | Output |
 |---|---|---|---|
 | `core.update.rollout/v1` | compensable, compensated by `core.update.rollout-cancel` | `hosts` (host ids), `version`, `channel` | `Rollout` |
-| `core.update.rollout-cancel/v1` | irreversible | `rolloutId` | `Rollout` |
+| `core.update.rollout-cancel/v1` | irreversible | `rolloutId`, `force` (bool) | `Rollout` |
 | `core.update.rollouts/v1` | read | `limit` (optional, default 20) | `{"rollouts": [Rollout]}` |
 
-  `Rollout` is `{id, version, channel, state ("running", "succeeded",
-  "failed", "cancelled"), error, createdAt, updatedAt, hosts: [RolloutHost]}`;
-  `RolloutHost` is `{hostId, position, state ("waiting", "updating",
-  "committed", "failed", "skipped"), planId, transactionId, error}`.
-  Tables `core_rollouts (id, version, channel, state, error, created_at,
-  updated_at)` with a partial unique index on `state` where `state =
-  'running'`, so the database itself refuses a second running rollout
-  (`rollout.in_progress`), and `core_rollout_hosts (rollout_id, host_id,
-  position, state, plan_id, transaction_id, error)`. The action's Apply
-  inserts both (own host first when listed; refused when the target is newer
-  than the controller's version and the own host is not listed) and returns.
+  `Rollout` is `{id, version, channel, state, error, createdAt, updatedAt,
+  hosts: [RolloutHost]}` with `state` one of `running`, `draining`
+  (dispatching stopped, a host's operation still active), `succeeded`,
+  `failed`, `cancelled`; `RolloutHost` is `{hostId, position, state, planId,
+  operationId, error}` with `state` one of `waiting`, `updating`,
+  `committed`, `failed`, `skipped` (a host the rollout never reached because
+  it stopped or was cancelled). Tables `core_rollouts (id, version, channel,
+  state, error, created_at, updated_at)` with a partial unique index on a
+  constant expression where `state IN ('running', 'draining')`, so the
+  database itself refuses a second active rollout (`rollout.in_progress`),
+  and `core_rollout_hosts (rollout_id, host_id, position, state, plan_id,
+  operation_id, error)`. The action's Apply inserts both (own host first when
+  listed; refused when the target is newer than the controller's version and
+  the own host is not listed) and returns.
 - **Rollout driver** (`internal/controller/rollout`, actor `system:rollout`),
-  started with the controller, drives each running rollout from its rows, one
-  host at a time:
-  1. if the host row has no `plan_id`: plan `core.update.apply` on the host
-     and store `plan_id` before applying;
-  2. apply that `plan_id`; after a lost response or a controller restart it
-     reads the change of that plan on the agent (`Changes` filtered by plan)
-     instead of applying again, and stores `transaction_id`;
-  3. poll `core.update.status` every 5 s, treating `host.offline` and
-     transport errors as "not yet", until the record chain of
-     `transaction_id` reaches `committed` with `toVersion` equal to the
-     rollout's version (next host), any record in it reaches `rolled-back` or
-     `failed` (the host and the rollout become `failed`; the driver stops), or
-     10 minutes pass (`failed`).
+  started with the controller, drives each active rollout from its rows, one
+  host at a time, and every transition is one controller write transaction:
+  1. a host row without `plan_id`: plan `core.update.apply` on the host and
+     store `plan_id` before applying;
+  2. apply `plan_id`. After a lost response or a controller restart it applies
+     the same `plan_id` again: the engine returns the existing change of a
+     plan whatever its state, so it never acts twice
+     (`internal/core/lifecycle/apply.go`). A plan that expired before any
+     apply (`plan.expired`) is cleared and planned again. A completed change's
+     output carries the operation id, stored as `operation_id`; a `failed` or
+     `interrupted` change fails the host;
+  3. poll `core.update.status` with that `operationId` every 5 s, treating
+     `host.offline` and transport errors as "not yet", until the operation's
+     last record is `committed` with `toVersion` equal to the rollout's
+     version (next host), any record is `rolled-back` or `failed` (the host
+     fails), or 10 minutes pass.
 
-  A controller restart during its own host's update resumes from the rows.
-  `rollout-cancel` marks the rollout `cancelled`; the host being updated
-  finishes its own transaction. Tests cover concurrent rollout submission,
-  stop at first failure, resume after restart, and a stepped update that
+  A failed host, or a 10-minute timeout, moves the rollout to `draining`; it
+  becomes `failed` when the host's operation is terminal, so a second rollout
+  cannot start while a host is still updating. `rollout-cancel` moves a
+  `running` rollout to `draining` (or straight to `cancelled` when no host is
+  `updating`), serialised with dispatch on the same database writer; the
+  driver marks it `cancelled` once the active operation is terminal.
+  `force: true` marks an active rollout `cancelled` at once, for a host that
+  never comes back. A controller restart during its own host's update resumes
+  from the rows. Tests cover concurrent submission, stop at the first failure,
+  resume after a restart before and after the stored `planId` was applied, an
+  expired plan, cancellation while a host updates, and a stepped update that
   advances only on the target version.
 
 ### 9. Release pipeline (R80, R32)
@@ -645,9 +741,7 @@ in the foundation.
   2. `build`: clean checkout, pinned Go toolchain, `-trimpath`, linux/amd64 and
      linux/arm64 tarballs (binary, `LICENSE`, `README.md`), `checksums.txt`, a
      CycloneDX SBOM (`darkpanel_<version>.cdx.json`), release notes from
-     `git-cliff` (`cliff.toml`, conventional commits), `releases.json` (the
-     previous release's index plus this version, channel `beta` when the
-     version has a prerelease part, else `stable`); GitHub artifact
+     `git-cliff` (`cliff.toml`, conventional commits); GitHub artifact
      attestations for every file.
   3. `sign`, in the protected environment `release` (owner approval required):
      `gh attestation verify` for every artifact against this repository and
@@ -657,8 +751,13 @@ in the foundation.
      `checksums.txt.<keyid hex>.minisig` with trusted comment
      `version=<version> channel=<stable|beta> purpose=checksums`.
   4. `publish`: a GitHub Release (marked prerelease for a prerelease version)
-     with the tarballs, `checksums.txt`, every `.minisig`, the SBOM,
-     `releases.json` and `install.sh`.
+     with the tarballs, `checksums.txt`, every `.minisig`, the SBOM and
+     `install.sh`; then it regenerates `releases.json` from the complete list
+     of published `v*` releases (`gh release list`, channel `beta` for a
+     prerelease version, else `stable`; never by appending to an older index)
+     and uploads it with `--clobber` to the rolling prerelease `index`, created
+     on first use. The workflow's `concurrency: release` group serialises
+     publications, so no index loses a release.
 - **Trusted keys.** `internal/update/trustedkeys` is a data-only package owned
   by the foundation: the production key list (ADR 0007: dual signing for at
   least two minor releases across a rotation; verifiers accept any one valid
@@ -701,27 +800,30 @@ New `errcode` codes: `host.offline`, `host.version_unsupported`,
 `agent.not_enrolled`, `enroll.token_invalid`, `enroll.rate_limited`,
 `update.in_progress`, `update.unconfirmed_changes`,
 `update.signature_invalid`, `update.downgrade_refused`, `update.not_found`,
-`update.prev_mismatch`, `update.nothing_to_roll_back`, `rollout.in_progress`.
+`update.prev_mismatch`, `update.nothing_to_roll_back`, `update.interrupted`,
+`rollout.in_progress`.
 New actors: `system:rollout`, `system:update-schedule`,
-`local:root@unenrolled`. New reserved top-level CLI names: `agent`, `system`,
-`uninstall`.
+`local:root@unenrolled`. New reserved top-level CLI name: `system` (`agent`,
+`update` and `uninstall` are reserved already).
 
 ### 12. ADR 0012
 
 ADR 0012 "M2 contract and layout additions" records: the install script's
 verification method (closing the index's deferred decision); the agent route
 table and headers of section 5; the schema-hash definition and dispatch rule;
-the journal epoch; `Env.Reserve` and the lock key `*`; the update action
+the journal epoch; `lifecycle.Reserve`, `Env.ChangeID` and the lock key `*`; the update action
 shapes, the apply-returns-before-restart rule, the update lock and the
-rollback claim; `update recover` as ADR 0007's `update rollback --pending`;
+rollback claim; `update recover` and `darkpanel.recovery` as ADR 0007's
+`darkpanel.prev update rollback --pending`; the health rule;
 per-key signature files and `releases.json`; the new actors and reserved CLI
 names; the accepted MPL-2.0 dependency; and the layout additions
 `internal/transport/`, `internal/agent/api/`, `internal/agent/daemon/`,
 `internal/agent/socket/`, `internal/controller/fleet/`,
 `internal/controller/rollout/`, `internal/install/`, `internal/update/`,
-`internal/update/trustedkeys/`, `internal/platform/systemd.go`,
+`internal/update/trustedkeys/`, `internal/agent/wire/`,
+`internal/platform/systemd.go`,
 `schemas/embed.go`. It is Proposed when written and Accepted when this
-milestone closes, as ADRs 0010 and 0011 were.
+milestone closes, the rule ADRs 0010 and 0011 follow for M1.
 
 ### 13. Integration harness (M2 exit criteria)
 
@@ -741,17 +843,19 @@ milestone closes, as ADRs 0010 and 0011 were.
   `harnesscrash` (passes `selftest`, exits at start under `serve` and
   `agent run`), `N+1.3` good, used for the reboot scenario, and `N+1.4` with
   `harnessmigration` (adds one additive agent and controller migration). A
-  test minisign key signs them; the scanner serves the files and a
-  `releases.json` over plain HTTP on `198.18.0.20:8000`, the base URL of the
-  `harnesskeys` build and of `install.sh --base-url`, with the test key
-  substituted (`make install-sh KEYS=harness`).
+  test minisign key signs them; the scanner serves them over plain HTTP at
+  `http://198.18.0.20:8000` in the production layout (`index/releases.json`,
+  `v<version>/…`), the `<base>` of the `harnesskeys` build and of
+  `install.sh --base-url`, with the test key substituted
+  (`make install-sh KEYS=harness`).
 - **Budget.** Each VM gets 2 GiB of memory. The job timeout rises to 120
   minutes and `go test` to 100 minutes; both are inferences, measured on the
   first run and recorded in `docs/superpowers/gates.md`.
 - **Scenarios**, per OS, each a named subtest, with the version each host runs
   afterwards:
-  1. install `N`: `install.sh --role controller` on the controller,
-     `install.sh --role agent --token-file` on the agent; the harness creates
+  1. install `N`: `install.sh --version N --role controller` on the
+     controller, `install.sh --version N --role agent --token-file` on the
+     agent; the harness creates
      the host through the authenticated API (an admin user created over the
      controller socket and an API token). Both run `N`;
   2. self-management: `hostinfo.summary` of the controller's own host and of
@@ -773,8 +877,10 @@ milestone closes, as ADRs 0010 and 0011 were.
      `N+1.0`;
   8. reboot in window: rollout to `N+1.3`, reboot the controller host during
      the health window; the record ends `rolled-back`. Both run `N+1.0`;
-  9. runner killed: during a rollout to `N+1.3`, kill the runner after
-     `swapped`; the deadline timer rolls back within two minutes;
+  9. runner frozen: during a rollout to `N+1.3`, freeze the runner after
+     `swapped` (`systemctl kill --signal=STOP`) so only the deadline timer
+     can act; it rolls back within two minutes (the runner's `OnFailure`
+     path has a unit test);
   10. migration and rollback: rollout to `N+1.4` with a health failure
       injected after migrations; the backup exists, `N+1.0` runs on the
       migrated databases, rows written by `N+1.4` before the rollback remain;
@@ -797,46 +903,50 @@ sections 3 and 8; the transaction record and update lock (section 8);
 `releases.json` and the signature file names (section 9); the error codes,
 actors and reserved names (section 11); and these shapes and columns:
 
-- `Host` (output of `core.host.list`, `core.host.revoke`, `core.host.delete`;
-  M1's fields plus additions): `{id, name, isLocal, state ("pending",
+- `core.host.list` keeps its envelope `{"hosts": [Host]}` (`HostList`);
+  `core.host.revoke` and `core.host.delete` return one `Host`. `Host` is M1's
+  fields plus additions; `online` comes from the session registry through
+  `Env.Agents` (a host answering `host.offline` is offline): `{id, name, isLocal, state ("pending",
   "enrolled", "revoked"), online, lastSeenAt (or null), agentVersion,
   protocolVersion, os, arch, supported, modules}`; the four version and
   platform fields are null until the first Hello.
-- `core_hosts` gains `state TEXT NOT NULL DEFAULT 'enrolled'`,
+- `core_hosts` gains `state TEXT NOT NULL DEFAULT 'pending'`,
   `enrolled_at`, `last_seen_at`, `agent_version`, `protocol_version`, `os`,
-  `arch` (all nullable except `state`; the M1 local host row becomes
-  `enrolled`).
+  `arch` (all nullable except `state`; an existing M1 local host row stays
+  `pending`).
 - `UpdateTransaction`, `UpdatePolicy`, `Rollout`, `RolloutHost`: section 8.
 - Migrations: controller `0005_fleet.sql` (P1: `core_hosts` columns,
-  `core_agent_certs`, `core_enroll_tokens`), `0006_journal_epoch.sql` (P9),
-  `0007_update.sql` (P11: `core_host_update`, `core_rollouts`,
+  `core_agent_certs`, `core_enroll_tokens`, `core_host_update`),
+  `0006_journal_epoch.sql` (P9), `0007_rollout.sql` (P11: `core_rollouts`,
   `core_rollout_hosts`); agent `0005_ownership_kinds.sql` (P4),
   `0006_journal_epoch.sql` (P10).
 
 The foundation creates the Go types for every action input and output above
 (in `internal/core/fleet.go`), the error codes, actors and reserved names, the
-paths, `ClientSource` and `StaticClients`, the Hello fields, `Env.Reserve`
-and the lock key `*`, the `core.Uninstaller` interface, the duplicate-
-ownership rule, the CLI hooks of section 8, `internal/update/trustedkeys`,
-`schemas/embed.go` and the `install.sh` generator.
+paths, `ClientSource` and `StaticClients`, the Hello fields (including
+`controllerConnected`), `Env.ChangeID`, `lifecycle.Reserve` and `Release` and
+the `*` rule in `takeLocks`, the `core.Uninstaller` interface, the duplicate-
+ownership rule, the CLI hooks of section 5, `coreactions.Deps.Extra`, the wire
+types in `internal/agent/wire`, `internal/update/trustedkeys`,
+`schemas/embed.go`, `install.sh.in` and `scripts/gen-install-sh`.
 
 ## Parallel decomposition
 
 | Part | Wave | Owns | Consumes |
 |---|---|---|---|
-| P0 Foundation | 0 | `go.mod`, `go.sum`, `internal/deps/`, `internal/core/*.go` (fleet types, Hello fields, `Uninstaller`), `internal/core/lifecycle/` (`Env.Reserve`, key `*`), `internal/core/errcode/`, `internal/paths/`, `internal/registry/` and the duplicate-ownership rule, `internal/controller/dispatch/` (`ClientSource`, `StaticClients`), `internal/controller/server/services.go`, `internal/cli/` (the two hooks, reserved names), `internal/platform/systemd.go` (D-Bus: transient services and timers, start, stop, restart, enable, disable, reload, state) and the exec allowlist entries, `internal/update/trustedkeys/`, `schemas/embed.go`, `install.sh.in`, `scripts/gen-install-sh`, `docs/adr/0012-*.md`, `docs/adr/README.md` | this spec |
+| P0 Foundation | 0 | `go.mod`, `go.sum`, `internal/deps/`, `internal/core/*.go` (fleet types, Hello fields, `Uninstaller`), `internal/core/lifecycle/` (`Env.ChangeID`, `Reserve`, `Release`, the `*` rule in `takeLocks`), `internal/agent/wire/`, `internal/controller/coreactions/module.go` (the `Deps.Extra` slot), `internal/core/errcode/`, `internal/paths/`, `internal/registry/` and the duplicate-ownership rule, `internal/controller/dispatch/` (`ClientSource`, `StaticClients`), `internal/controller/server/services.go`, `internal/cli/` (the two hooks, reserved names), `internal/platform/systemd.go` (D-Bus: transient services and timers, start, stop, restart, enable, disable, reload, state) and the exec allowlist entries, `internal/update/trustedkeys/`, `schemas/embed.go`, `install.sh.in`, `scripts/gen-install-sh`, `docs/adr/0012-*.md`, `docs/adr/README.md` | this spec |
 | P1 Agent authority | 1 | `internal/controller/fleet/ca*.go`, `certs*.go`, `tokens*.go`; `migrations/controller/0005_fleet.sql` | P0 |
 | P2 Transport | 1 | `internal/transport/` | P0 |
 | P3 Agent API | 1 | `internal/agent/api/` | P0 |
-| P4 Install | 1 | `internal/install/` (system install, units, uninstall), `internal/platform/ownership.go`, `migrations/agent/0005_ownership_kinds.sql`, the generated `install.sh` and its fixture tests | P0 (`trustedkeys`, generator) |
+| P4 Install | 1 | `internal/install/` (system install, units, uninstall), `internal/platform/ownership.go`, `internal/platform/files.go` (ignore the new kinds), `migrations/agent/0005_ownership_kinds.sql`, the generated `install.sh` and its fixture tests | P0 (`trustedkeys`, generator) |
 | P5 Update library | 1 | `internal/update/` except `actions.go` and `trustedkeys/` | P0 |
-| P6 Release workflow | 1 (may start beside P0) | `.github/workflows/release.yml`, `.github/workflows/ci.yml` (shellcheck step), `cliff.toml`, `release/`, `docs/versioning.md`, `Makefile` (release, release-prep, install-sh targets, VERSION fallback) | the generator path and `trustedkeys` path fixed by this spec |
+| P6 Release workflow | 1 (may start beside P0) | `.github/workflows/release.yml`, `.github/workflows/ci.yml` (a shellcheck step that skips when `install.sh` does not exist yet), `cliff.toml`, `release/`, `docs/versioning.md`, `Makefile` (every M2 target: release, release-prep, install-sh calling `scripts/gen-install-sh`, VERSION fallback; P0 runs the generator directly and touches no Makefile) | the generator and `trustedkeys` paths fixed by this spec |
 | P7 Web hosts | 1 | `web/src/pages/hosts*.tsx`, `host*.tsx`, `rollouts*.tsx`, `web/src/api/types.ts`, `web/src/app.tsx` (the rollouts route), their tests | the Contracts shapes |
 | P8 Fleet service | 2 | `internal/controller/fleet/` except P1's files (listener wiring, session registry, enrollment and renewal endpoints, revocation), `internal/controller/listen/` | P1, P2, P3 |
-| P9 Host actions and dispatch | 2 | `internal/controller/coreactions/` (the `core.host.*` actions including `update-policy`), `internal/controller/dispatch/` (version window, schema negotiation, offline skip), `internal/controller/audit/` (epoch, ingestion deadline), `migrations/controller/0006_journal_epoch.sql` | P0, P3 |
-| P10 Agent daemon | 2 | `internal/agent/daemon/` (dial loop, enrollment client, renewal, credential generations), `internal/agent/socket/`, `internal/agent/runtime/` (epoch, lock sweep), `migrations/agent/0006_journal_epoch.sql` | P2, P3, P5 |
-| P11 Update actions and rollout | 2 | `internal/update/actions.go`, `internal/controller/rollout/` (rollout actions, driver, scheduler), `migrations/controller/0007_update.sql` | P5, P0 |
-| P12 Assembly | 3 | `internal/controller/server/`, `internal/controller/api/` (health detail fields), `cmd/darkpanel/` (`serve` flags, `agent`, `system install`, `uninstall`, `selftest`, `update run`, `update recover`, the `harnessbroken`, `harnesscrash` and `harnessmigration` build-tag files), `internal/cli/` (`--local`, the update local fallback), `internal/modules/modules.go` and registry wiring, `schemas/` snapshots, end-to-end tests over a loopback transport, `README.md`, `CONTRIBUTING.md` | everything |
+| P9 Host actions and dispatch | 2 | `internal/controller/coreactions/` (the `core.host.*` actions including `update-policy`), `internal/controller/dispatch/` (version window, schema negotiation, offline skip, the `core` exemption), `internal/controller/audit/` (epoch, ingestion deadline), `migrations/controller/0006_journal_epoch.sql` | P0, P3 |
+| P10 Agent daemon | 2 | `internal/agent/daemon/` (dial loop, enrollment client, renewal, credential generations, `agent check`), `internal/agent/socket/`, `internal/agent/runtime/` (epoch, `controllerConnected`, the `core` module always loaded, pre-swap recovery and the lock sweep at start), `migrations/agent/0006_journal_epoch.sql` | P2, P3, P5 |
+| P11 Update actions and rollout | 2 | `internal/update/actions.go`, `internal/controller/rollout/` (rollout actions, driver, scheduler), `migrations/controller/0007_rollout.sql` | P5, P0, P1's `core_host_update` table |
+| P12 Assembly | 3 | `internal/controller/server/`, `internal/controller/api/` (health detail fields), `cmd/darkpanel/` (`serve` flags, `agent`, `system install`, `uninstall`, `selftest`, `update run`, `update recover`, the `harnessbroken`, `harnesscrash` and `harnessmigration` build-tag files), `internal/cli/` (`--local`, the update local fallback), `internal/modules/modules.go`, registry wiring and filling `coreactions.Deps.Extra`, `schemas/` snapshots, end-to-end tests over a loopback transport, `README.md`, `CONTRIBUTING.md` | everything |
 | P13 Harness | 3, after P12 | `test/harness/`, `.github/workflows/harness.yml`, `docs/superpowers/gates.md` | P12, P6's Makefile targets |
 
 Migration paths are under `internal/core/store/`.
@@ -848,8 +958,9 @@ Migration paths are under `internal/core/store/`.
   code; where it needs a sibling's behaviour it codes against the P0 interface
   with a fake.
 - Files a later part takes over (`internal/controller/dispatch/` and
-  `internal/cli/` from P0 to P9 and P12, `internal/controller/fleet/` from P1
-  to P8, `Makefile` from P6 to P13) have one owner per wave.
+  `internal/cli/` from P0 to P9 and P12, `internal/controller/coreactions/`
+  from P0 to P9, `internal/controller/fleet/` from P1 to P8, `Makefile` from
+  P6 to P13) have one owner per wave.
 - Risk parts, each its own task with a risk-level review: P0's lifecycle
   change, P1, P2, P4, P5, P8, P10, P11.
 - Test isolation: as M1 — `t.TempDir()` databases, keys and TLS material, port
@@ -890,12 +1001,23 @@ Plans 2, 3 and 4 run in parallel sessions after plan 1.
     rotation (old-only, new-only and overlapping trust lists against the
     published file layout), a replayed older `checksums.txt`, beta-to-stable
     promotion; the runner waiting for its change; two rollbacks racing; the
-    runner killed after the swap; interruption at every filesystem step;
-    `core_locks` empty after every terminal path; migration backup taken
-    during `update run`;
-  - rollout: concurrent submission refused; stop at the first failure; resume
-    after a restart with a stored `planId`; a stepped update advancing only on
-    the target version; schedule windows, `lastWindow` and the skip rule;
+    runner frozen after the swap (timer path) and killed (`OnFailure`
+    path); reboot after each rollback rename; pre-swap recovery of a dead
+    runner; stepping continuation after a crash between commit and the next
+    step; the rollback action's transient unit; the health rule's "not yet",
+    pass and failure cases; interruption at every filesystem step;
+    `core_locks` empty after every terminal path; the migration backup the
+    restarted service takes before migrating;
+  - rollout: concurrent submission refused; stop at the first failure;
+    resume after a restart before and after the stored `planId` was applied;
+    an expired plan; cancellation while a host updates (`draining`) and
+    `force`; a stepped update advancing only on the target version; schedule
+    windows, the atomic window claim and the retry and skip rules;
+  - wire: every DTO round-trips through its `core` type; field names are
+    camelCase;
+  - release: `releases.json` regenerated from a release list including betas
+    after the latest stable; `install.sh` and the updater with a trust list of
+    two keys against single-signed and dual-signed releases;
   - install: reruns after each checkpoint; duplicate ownership refused;
     uninstall order; `--keep-data` then reinstall; `install.sh` keys equal the
     trusted keys; `install.sh` against a local fixture server with the test
@@ -955,3 +1077,23 @@ Plans 2, 3 and 4 run in parallel sessions after plan 1.
   `releases.json`; trusted keys and the generator in the foundation; web and
   CI ownership; `/healthz` reuse; the ingestion deadline; the epoch kept
   across re-enrollment; the verification list.
+- Spec panel round 2, 2026-10-19 (delta). Fable: approve with changes;
+  executability 14, coherence 14, coverage 16, assumptions 15; 13 new
+  findings. Codex gpt-6-astra: rework; executability 14, coherence 14,
+  coverage 18, assumptions 14; 14 new findings. Every finding accepted and
+  folded in: `darkpanel.recovery` as the recovery executable; pre-swap
+  recovery; timer accuracy and the time budget; `lifecycle.Reserve` as its
+  own transaction with the `*` rule in `takeLocks` and `Env.ChangeID`; plan
+  re-apply for rollout reconciliation; the `draining` state and forced
+  cancel; operation-scoped reservations and stepping continuation;
+  `operationId` in `core.update.status`; the rolling `index` release
+  regenerated on every publication; local host `pending` and atomic
+  `enroll-local`; `agent check` for installer reuse; explicit wire types; the
+  `HostList` envelope; the atomic schedule claim; Makefile and policy-table
+  ownership; the baseline `--version N`; missing signature files as
+  candidates; the rollback action's transient unit; the `core` module
+  exemption and `Deps.Extra`; the health rule and `controllerConnected`;
+  `--keep-data` file skipping; boot recovery without restarts; the frozen
+  runner scenario; the epoch acknowledgement key and conflict target;
+  Verify and the runner's wait; the ownership CHECK rewrite; D-Bus for every
+  systemd operation; the `update` group adopting generated commands.
