@@ -218,6 +218,36 @@ func TestAgentSaysHelloAgainForANewGeneration(t *testing.T) {
 	}
 }
 
+// fixedClients is a ClientSource whose generation is chosen by the test.
+type fixedClients struct {
+	client core.AgentClient
+	gen    uint64
+}
+
+func (f fixedClients) Client(context.Context, string) (core.AgentClient, uint64, error) {
+	return f.client, f.gen, nil
+}
+
+func TestAgentSaysHelloForGenerationZero(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	hellos := 0
+	h.addHost("h2")
+	src := fixedClients{gen: 0, client: &coretest.FakeAgent{HelloFunc: func(context.Context) (core.AgentHello, error) {
+		hellos++
+		return core.AgentHello{ProtocolVersion: 1, HostID: "h2"}, nil
+	}}}
+	hosts := NewHosts(HostsConfig{DB: h.db, Registry: h.reg, Clients: src, Clock: h.clock, Log: slog.New(slog.DiscardHandler)})
+	for range 2 {
+		if _, err := hosts.Agent(ctx, "h2"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if hellos != 1 {
+		t.Errorf("Hello calls = %d, want 1: generation 0 is greeted once, not never", hellos)
+	}
+}
+
 func TestNewHostsRequiresClients(t *testing.T) {
 	defer func() {
 		if r := recover(); r != "dispatch: HostsConfig.Clients is required" {

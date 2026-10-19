@@ -46,6 +46,15 @@ func TestStaticClientsGenerations(t *testing.T) {
 	}
 }
 
+func TestStaticClientsAddRefusesNil(t *testing.T) {
+	defer func() {
+		if r := recover(); r != "dispatch: StaticClients.Add requires a client" {
+			t.Errorf("recover() = %v, want the nil-client panic", r)
+		}
+	}()
+	NewStaticClients().Add("h1", nil)
+}
+
 func TestStaticClientsConcurrentUse(t *testing.T) {
 	ctx := context.Background()
 	s := NewStaticClients()

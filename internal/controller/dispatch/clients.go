@@ -44,8 +44,12 @@ func NewStaticClients() *StaticClients {
 }
 
 // Add sets hostID's client. Every call starts a new generation, so Hosts says
-// Hello again, as it does after an agent reconnects.
+// Hello again, as it does after an agent reconnects. A nil client is a wiring
+// mistake, so Add panics rather than handing out nil later.
 func (s *StaticClients) Add(hostID string, c core.AgentClient) {
+	if c == nil {
+		panic("dispatch: StaticClients.Add requires a client")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.clients[hostID] = staticClient{client: c, generation: generations.Add(1)}

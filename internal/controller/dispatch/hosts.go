@@ -70,7 +70,9 @@ func (h *Hosts) Agent(ctx context.Context, hostID string) (core.AgentClient, err
 	if err != nil {
 		return nil, err
 	}
-	if h.greeted[hostID] != gen {
+	// A source may number its generations from 0, so a missing entry must not
+	// read as a greeted generation 0.
+	if greeted, ok := h.greeted[hostID]; !ok || greeted != gen {
 		if err := h.hello(ctx, hostID, c, gen); err != nil {
 			return nil, err
 		}
