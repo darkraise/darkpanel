@@ -160,8 +160,8 @@ func TestConnectNetworkPrecedence(t *testing.T) {
 	}{
 		{"flag first", "http://127.0.0.1:9000/", map[string]string{EnvURL: "http://127.0.0.2:8080", EnvToken: "dpt_env"},
 			"http://127.0.0.1:9000", "dpt_env"},
-		{"environment URL keeps the file token", "", map[string]string{EnvURL: "http://127.0.0.2:8080"}, "http://127.0.0.2:8080", ""},
-		{"flag URL keeps the file token", "http://127.0.0.1:9000", map[string]string{}, "http://127.0.0.1:9000", ""},
+		{"environment URL withholds the file token", "", map[string]string{EnvURL: "http://127.0.0.2:8080"}, "http://127.0.0.2:8080", ""},
+		{"flag URL withholds the file token", "http://127.0.0.1:9000", map[string]string{}, "http://127.0.0.1:9000", ""},
 		{"the file's own URL again", "HTTP://127.0.0.3:8080/", map[string]string{}, "http://127.0.0.3:8080", "dpt_config"},
 		{"config file last", "", map[string]string{}, "http://127.0.0.3:8080", "dpt_config"},
 	}
@@ -190,6 +190,7 @@ func TestConnectNetworkRefusesATokenOverPlainHTTP(t *testing.T) {
 		{"http://panel.example:8080", true},
 		{"https://192.0.2.10:8443", false},
 		{"http://localhost:8080", false},
+		{"http://LOCALHOST:8080", true},
 		{"http://127.0.0.2:8080", false},
 		{"http://[::1]:8080", false},
 	}

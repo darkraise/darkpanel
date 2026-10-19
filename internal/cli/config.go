@@ -141,9 +141,11 @@ func sameServer(u *url.URL, raw string) bool {
 }
 
 // isLoopbackHost reports whether host, a URL host without its port, is
-// localhost or a loopback IP address.
+// localhost or a loopback IP address. Only the lowercase "localhost" counts:
+// Go's proxy exemption for it is case-sensitive, so another spelling may
+// still be sent through HTTP_PROXY.
 func isLoopbackHost(host string) bool {
-	if strings.EqualFold(host, "localhost") {
+	if host == "localhost" {
 		return true
 	}
 	ip := net.ParseIP(host)
