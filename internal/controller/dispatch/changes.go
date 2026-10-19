@@ -25,6 +25,11 @@ func isChangeNotFound(err error) bool {
 	return errors.As(err, &e) && e.Code == errcode.ChangeNotFound
 }
 
+func isHostOffline(err error) bool {
+	var e *errcode.Error
+	return errors.As(err, &e) && e.Code == errcode.HostOffline
+}
+
 // owner returns the client of the host core_change_index names for an agent
 // change. A change it does not hold is looked for on every host, because the
 // agent commits a change before the controller indexes it; a change no host
@@ -43,13 +48,21 @@ func (d *Dispatcher) owner(ctx context.Context, changeID string) (string, core.A
 	return hostID, c, err
 }
 
-// find asks every host Hosts knows for changeID and indexes the first that
-// answers with a view of that change on its own host. A host's change.not_found means it
-// does not hold the change; any other error fails the lookup.
+// find asks every online host for changeID and indexes the first that
+// answers with a view of that change on its own host. A host's
+// change.not_found means it does not hold the change, and an offline host
+// cannot answer, so both are skipped; any other error fails the lookup.
 func (d *Dispatcher) find(ctx context.Context, changeID string) (string, core.AgentClient, error) {
-	for _, hostID := range d.cfg.Hosts.ids() {
+	hosts, err := d.hostIDs(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	for _, hostID := range hosts {
 		c, err := d.cfg.Hosts.Agent(ctx, hostID)
-		if err != nil {
+		switch {
+		case isHostOffline(err):
+			continue
+		case err != nil:
 			return "", nil, fmt.Errorf("dispatch: find change %s on host %s: %w", changeID, hostID, err)
 		}
 		v, err := c.Change(ctx, changeID)
@@ -65,18 +78,6 @@ func (d *Dispatcher) find(ctx context.Context, changeID string) (string, core.Ag
 		return hostID, c, nil
 	}
 	return "", nil, errcode.New(errcode.ChangeNotFound, fmt.Sprintf("no change %s", changeID))
-}
-
-// ids returns the hosts that have a client, in id order.
-func (h *Hosts) ids() []string {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	out := make([]string, 0, len(h.clients))
-	for id := range h.clients {
-		out = append(out, id)
-	}
-	sort.Strings(out)
-	return out
 }
 
 // checkChange refuses a view of another change than changeID, or of another

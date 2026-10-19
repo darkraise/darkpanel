@@ -220,6 +220,7 @@ type harness struct {
 	db      *store.DB // the controller database
 	agentDB *store.DB
 	rt      *runtime.Runtime
+	clients *StaticClients // the agent client of each host
 	hosts   *Hosts
 }
 
@@ -271,8 +272,9 @@ func newHarness(t *testing.T) *harness {
 		t.Fatal(err)
 	}
 	t.Cleanup(h.rt.Close)
-	h.hosts = NewHosts(HostsConfig{DB: h.db, Registry: h.reg, Clock: h.clock, Log: log})
-	h.hosts.Add(testHost, h.rt)
+	h.clients = NewStaticClients()
+	h.clients.Add(testHost, h.rt)
+	h.hosts = NewHosts(HostsConfig{DB: h.db, Registry: h.reg, Clients: h.clients, Clock: h.clock, Log: log})
 	return h
 }
 

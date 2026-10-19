@@ -191,7 +191,7 @@ func TestPlanRefusesAnUnusableModule(t *testing.T) {
 
 func TestPlanChecksTheAgentsAnswer(t *testing.T) {
 	h, d := newDispatcher(t)
-	h.hosts.Add(testHost, &coretest.FakeAgent{
+	h.clients.Add(testHost, &coretest.FakeAgent{
 		HelloFunc: h.rt.Hello,
 		PlanFunc: func(context.Context, core.Principal, core.ActionRef, json.RawMessage) (core.PlanView, error) {
 			return core.PlanView{PlanID: "p1", HostID: testHost, Action: "kv.item.get", Version: 1}, nil

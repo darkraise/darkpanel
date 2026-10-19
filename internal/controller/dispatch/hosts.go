@@ -31,49 +31,47 @@ const timeFormat = "2006-01-02T15:04:05.000000000Z"
 type HostsConfig struct {
 	DB       *store.DB      // the controller database: core_module_state
 	Registry *core.Registry // the one registry of the process
+	Clients  ClientSource   // the agent client of each host
 	Clock    core.Clock
 	Log      *slog.Logger
 }
 
 // Hosts is the controller's core.HostDirectory: the agent client of each
-// host. The first time a host is reached in this process, Hosts calls its
-// Hello and records every module's availability; a failed Hello is tried
-// again on the next reach. Its methods are safe for concurrent use.
+// host, from its ClientSource. Before handing out a client of a generation
+// it has not greeted, Hosts calls its Hello and records every module's
+// availability; a failed Hello is tried again on the next reach. Its methods
+// are safe for concurrent use.
 type Hosts struct {
 	cfg HostsConfig
 
-	mu      sync.Mutex // also serialises Hello calls
-	clients map[string]core.AgentClient
-	greeted map[string]bool
+	mu      sync.Mutex        // also serialises Hello calls
+	greeted map[string]uint64 // the client generation each host last said Hello with
 }
 
 var _ core.HostDirectory = (*Hosts)(nil)
 
-// NewHosts returns an empty directory; Add registers each host's client.
+// NewHosts returns a directory over cfg.Clients. A nil Clients is a wiring
+// mistake in the one place that builds a Hosts, so it panics there rather
+// than failing every later call.
 func NewHosts(cfg HostsConfig) *Hosts {
-	return &Hosts{cfg: cfg, clients: map[string]core.AgentClient{}, greeted: map[string]bool{}}
+	if cfg.Clients == nil {
+		panic("dispatch: HostsConfig.Clients is required")
+	}
+	return &Hosts{cfg: cfg, greeted: map[string]uint64{}}
 }
 
-// Add registers the client of hostID, a row of core_hosts. In M1 the server
-// adds the local host with the in-process agent runtime.
-func (h *Hosts) Add(hostID string, c core.AgentClient) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.clients[hostID] = c
-	delete(h.greeted, hostID)
-}
-
-// Agent returns hostID's client, after its first successful Hello in this
-// process. A host without a client is not_found.
+// Agent returns hostID's client, after the first successful Hello of its
+// current generation. An id with no core_hosts row is not_found; a host
+// without a client answers host.offline.
 func (h *Hosts) Agent(ctx context.Context, hostID string) (core.AgentClient, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	c, ok := h.clients[hostID]
-	if !ok {
-		return nil, errcode.New(errcode.NotFound, fmt.Sprintf("no host %s", hostID))
+	c, gen, err := h.client(ctx, hostID)
+	if err != nil {
+		return nil, err
 	}
-	if !h.greeted[hostID] {
-		if err := h.hello(ctx, hostID, c); err != nil {
+	if h.greeted[hostID] != gen {
+		if err := h.hello(ctx, hostID, c, gen); err != nil {
 			return nil, err
 		}
 	}
@@ -86,18 +84,34 @@ func (h *Hosts) Agent(ctx context.Context, hostID string) (core.AgentClient, err
 func (h *Hosts) Hello(ctx context.Context, hostID string) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	c, ok := h.clients[hostID]
-	if !ok {
-		return errcode.New(errcode.NotFound, fmt.Sprintf("no host %s", hostID))
+	c, gen, err := h.client(ctx, hostID)
+	if err != nil {
+		return err
 	}
-	return h.hello(ctx, hostID, c)
+	return h.hello(ctx, hostID, c, gen)
+}
+
+// client returns hostID's client and generation from the ClientSource once
+// core_hosts has the host, so that a mistyped id stays not_found and only a
+// known host is reported offline.
+func (h *Hosts) client(ctx context.Context, hostID string) (core.AgentClient, uint64, error) {
+	var one int
+	err := h.cfg.DB.Read().QueryRowContext(ctx, "SELECT 1 FROM core_hosts WHERE id = ?", hostID).Scan(&one)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil, 0, errcode.New(errcode.NotFound, fmt.Sprintf("no host %s", hostID))
+	case err != nil:
+		return nil, 0, fmt.Errorf("dispatch: read host %s: %w", hostID, err)
+	}
+	return h.cfg.Clients.Client(ctx, hostID)
 }
 
 // hello runs under mu. It writes available, reason and checked_at of every
 // module the registry has; a missing row takes enabled from the module's
 // DefaultEnabled, and an existing row keeps its enabled, which only
-// core.module.enable and core.module.disable change.
-func (h *Hosts) hello(ctx context.Context, hostID string, c core.AgentClient) error {
+// core.module.enable and core.module.disable change. On success it records
+// gen as greeted.
+func (h *Hosts) hello(ctx context.Context, hostID string, c core.AgentClient, gen uint64) error {
 	hello, err := c.Hello(ctx)
 	if err != nil {
 		return fmt.Errorf("dispatch: hello %s: %w", hostID, err)
@@ -130,7 +144,7 @@ func (h *Hosts) hello(ctx context.Context, hostID string, c core.AgentClient) er
 	if err != nil {
 		return fmt.Errorf("dispatch: record the modules of %s: %w", hostID, err)
 	}
-	h.greeted[hostID] = true
+	h.greeted[hostID] = gen
 	h.cfg.Log.Info("dispatch: host said hello", "host", hostID, "protocol", hello.ProtocolVersion,
 		"version", hello.BinaryVersion, "os", hello.OS)
 	return nil
