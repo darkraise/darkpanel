@@ -34,6 +34,9 @@ not name. Accepted ADRs are not edited, so the additions are recorded here.
   `releases.json`, `{"formatVersion": 1, "releases": [{"version", "channel"},
   …]}`, regenerated from every published release on each publication; it only
   selects versions, and trust comes from each version's own signatures.
+  Readers find a release by the names of its members, not their order or
+  number, and `install.sh` reads it without a JSON parser, so a generator may
+  write the members in any order and add others.
 - **Agent routes.** The agent API is the concrete form of ADR 0003's endpoint
   list. Under `/agent/v1/`: `GET hello`; `POST actions/{name}/{version}/read`;
   `GET resources/{module}/{resource}`; `POST actions/{name}/{version}/plan`;
@@ -69,8 +72,12 @@ not name. Accepted ADRs are not edited, so the additions are recorded here.
 - **Operation reservation.** `lifecycle.Reserve` takes the lock key `*` for
   an owner `op:<operation id>` in its own write transaction, refused while any
   lock is held or a revertible change is unconfirmed; while `*` is held, every
-  other lock is refused. `lifecycle.Release` frees an owner's rows. The engine
-  passes the running change's id to Apply and Verify as `Env.ChangeID`.
+  other lock is refused. The refusal is made when a change takes its lock
+  keys, so it covers only changes whose action declares at least one; the
+  registry does not require one, and a change with no lock keys starts while
+  `*` is held. An action that must not run during an update declares a key.
+  `lifecycle.Release` frees an owner's rows. The engine passes the running
+  change's id to Apply and Verify as `Env.ChangeID`.
 - **Update actions.** `core.update.apply/v1` (compensable, compensated by
   `core.update.rollback`), `core.update.rollback/v1` (irreversible) and
   `core.update.status/v1` (read) are agent-side core actions. Their inputs
@@ -126,6 +133,11 @@ not name. Accepted ADRs are not edited, so the additions are recorded here.
   `system:update-schedule` (scheduled updates) and `local:root@unenrolled`
   (the agent socket before enrollment) join the shared contracts' actors.
   `system` joins the reserved top-level CLI names.
+- **Exec allowlist.** ADR 0009's allowlist gains `/usr/sbin/useradd` and
+  `/usr/sbin/userdel`, which the installer runs for the controller's system
+  user. The allowlist is the one the agent runtime gives every handler as
+  `Env.Exec`, so any agent-side handler can run them, not only the installer;
+  narrowing that needs a separate runner for the installer.
 - **Dependency.** `github.com/hashicorp/yamux` (MPL-2.0, file-level copyleft)
   is accepted, used unmodified, keeping ADR 0003's frozen yamux framing.
 - **Package layout.** Additions to ADR 0001 and ADR 0011:
