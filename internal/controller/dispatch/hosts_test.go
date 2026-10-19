@@ -126,7 +126,8 @@ func TestAgentSaysHelloOnceAndRetriesAFailure(t *testing.T) {
 	ctx := context.Background()
 	hellos := 0
 	fail := true
-	h.hosts.Add("h2", &coretest.FakeAgent{HelloFunc: func(context.Context) (core.AgentHello, error) {
+	h.addHost("h2")
+	h.clients.Add("h2", &coretest.FakeAgent{HelloFunc: func(context.Context) (core.AgentHello, error) {
 		hellos++
 		if fail {
 			return core.AgentHello{}, errors.New("agent offline")
@@ -152,7 +153,8 @@ func TestAgentRefusesUnknownAndMismatchedHosts(t *testing.T) {
 	ctx := context.Background()
 	_, err := h.hosts.Agent(ctx, "h9")
 	_ = wantCode(t, err, errcode.NotFound)
-	h.hosts.Add("h2", &coretest.FakeAgent{HelloFunc: func(context.Context) (core.AgentHello, error) {
+	h.addHost("h2")
+	h.clients.Add("h2", &coretest.FakeAgent{HelloFunc: func(context.Context) (core.AgentHello, error) {
 		return core.AgentHello{ProtocolVersion: 1, HostID: "h3"}, nil
 	}})
 	_, err = h.hosts.Agent(ctx, "h2")
@@ -167,8 +169,9 @@ func TestAgentRefusesUnknownAndMismatchedHosts(t *testing.T) {
 
 func TestHelloSkipsModulesTheRegistryLacks(t *testing.T) {
 	h := newHarness(t)
-	h.hosts = NewHosts(HostsConfig{DB: h.db, Registry: h.reg, Clock: h.clock, Log: slog.New(slog.DiscardHandler)})
-	h.hosts.Add(testHost, &coretest.FakeAgent{HelloFunc: func(context.Context) (core.AgentHello, error) {
+	h.clients = NewStaticClients()
+	h.hosts = NewHosts(HostsConfig{DB: h.db, Registry: h.reg, Clients: h.clients, Clock: h.clock, Log: slog.New(slog.DiscardHandler)})
+	h.clients.Add(testHost, &coretest.FakeAgent{HelloFunc: func(context.Context) (core.AgentHello, error) {
 		return core.AgentHello{ProtocolVersion: 1, HostID: testHost, Modules: []core.ModuleStatus{
 			{ID: "kv", Version: 1, Available: true}, {ID: "ghost", Version: 1, Available: true},
 			{ID: core.ModuleIDCore, Version: 1, Available: true},
@@ -179,5 +182,81 @@ func TestHelloSkipsModulesTheRegistryLacks(t *testing.T) {
 	}
 	if got := h.states(); len(got) != 1 || !got["kv"].Available {
 		t.Errorf("module state = %+v, want only kv", got)
+	}
+}
+
+func TestAgentSaysHelloAgainForANewGeneration(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	hellos := 0
+	agent := func() *coretest.FakeAgent {
+		return &coretest.FakeAgent{HelloFunc: func(context.Context) (core.AgentHello, error) {
+			hellos++
+			return core.AgentHello{ProtocolVersion: 1, HostID: "h2"}, nil
+		}}
+	}
+	first := agent()
+	h.addHost("h2")
+	h.clients.Add("h2", first)
+	for range 2 {
+		c, err := h.hosts.Agent(ctx, "h2")
+		if err != nil || c != first {
+			t.Fatalf("Agent(h2) = %v, %v; want the first client", c, err)
+		}
+	}
+	if hellos != 1 {
+		t.Fatalf("Hello calls = %d, want 1 for one generation", hellos)
+	}
+	second := agent()
+	h.clients.Add("h2", second)
+	c, err := h.hosts.Agent(ctx, "h2")
+	if err != nil || c != second {
+		t.Fatalf("Agent(h2) after a new session = %v, %v; want the second client", c, err)
+	}
+	if hellos != 2 {
+		t.Errorf("Hello calls = %d, want 2: a new generation says Hello again", hellos)
+	}
+}
+
+func TestNewHostsRequiresClients(t *testing.T) {
+	defer func() {
+		if r := recover(); r != "dispatch: HostsConfig.Clients is required" {
+			t.Errorf("recover() = %v, want the missing-Clients panic", r)
+		}
+	}()
+	NewHosts(HostsConfig{})
+}
+
+// addHost inserts a core_hosts row for id, with no client.
+func (h *harness) addHost(id string) {
+	h.t.Helper()
+	if _, err := h.db.Writer().Exec(
+		"INSERT INTO core_hosts (id, name, is_local, created_at) VALUES (?, ?, 0, '2026-10-17T00:00:00Z')", id, id); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
+func TestUnknownAndOfflineHosts(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	h.addHost("h8")
+	tests := []struct {
+		name, host string
+		code       errcode.Code
+		detail     string
+	}{
+		{"no core_hosts row", "h9", errcode.NotFound, "no host h9"},
+		{"a row without a client", "h8", errcode.HostOffline, "host h8 is offline"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := h.hosts.Agent(ctx, tt.host)
+			if e := wantCode(t, err, tt.code); e.Detail != tt.detail {
+				t.Errorf("Agent detail = %q, want %q", e.Detail, tt.detail)
+			}
+			if e := wantCode(t, h.hosts.Hello(ctx, tt.host), tt.code); e.Detail != tt.detail {
+				t.Errorf("Hello detail = %q, want %q", e.Detail, tt.detail)
+			}
+		})
 	}
 }

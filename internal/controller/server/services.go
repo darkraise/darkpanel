@@ -72,8 +72,11 @@ func (s *Server) startServices(ctx context.Context) error {
 
 	// Every core_hosts row needs a client here, or Changes and ingestion
 	// fail on it; the local host is the only one in M1.
-	s.hosts = dispatch.NewHosts(dispatch.HostsConfig{DB: s.controllerDB, Registry: reg, Clock: s.clock, Log: s.log})
-	s.hosts.Add(s.localHostID, rt)
+	clients := dispatch.NewStaticClients()
+	clients.Add(s.localHostID, rt)
+	s.hosts = dispatch.NewHosts(dispatch.HostsConfig{
+		DB: s.controllerDB, Registry: reg, Clients: clients, Clock: s.clock, Log: s.log,
+	})
 	if err := s.hosts.Hello(ctx, s.localHostID); err != nil {
 		return fmt.Errorf("server: hello from the local agent: %w", err)
 	}

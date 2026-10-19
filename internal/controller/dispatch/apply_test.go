@@ -194,14 +194,14 @@ func TestApplyKeepsThePlanWhenTheReplyIsLost(t *testing.T) {
 	h, d := newDispatcher(t)
 	ctx := context.Background()
 	pl := h.plan(d, testHost, refSet, `{"name":"a","value":"1"}`)
-	h.hosts.Add(testHost, lostReply{h.rt})
+	h.clients.Add(testHost, lostReply{h.rt})
 	if _, err := d.Apply(ctx, alice, testHost, refSet, pl.PlanID, core.ApplyOptions{}); err == nil {
 		t.Fatal("Apply with a lost reply succeeded")
 	}
 	if n := h.count("SELECT applied FROM core_plan_index WHERE plan_id = ?", pl.PlanID); n != 1 {
 		t.Errorf("applied after a lost reply = %d, want 1", n)
 	}
-	h.hosts.Add(testHost, h.rt)
+	h.clients.Add(testHost, h.rt)
 	h.clock.Advance(lifecycle.PlanTTL + PlanIndexRetention + time.Second)
 	_ = h.plan(d, "", refCtlSet, `{"name":"n","value":"x"}`)
 	v, err := d.Apply(ctx, alice, testHost, refSet, pl.PlanID, core.ApplyOptions{})
@@ -306,7 +306,7 @@ func TestConcurrentAppliesOfOnePlanKeepItMarked(t *testing.T) {
 	ctx := context.Background()
 	pl := h.plan(d, testHost, refSet, `{"name":"a","value":"1"}`)
 	g := &gatedApply{AgentClient: h.rt, entered: make(chan struct{}), release: make(chan struct{}), committed: make(chan struct{})}
-	h.hosts.Add(testHost, g)
+	h.clients.Add(testHost, g)
 
 	first := make(chan error, 1)
 	go func() {
@@ -406,7 +406,7 @@ func TestApplyPanicUnlocksPlan(t *testing.T) {
 	h, d := newDispatcher(t)
 	ctx := context.Background()
 	pl := h.plan(d, testHost, refSet, `{"name":"a","value":"1"}`)
-	h.hosts.Add(testHost, panicApply{h.rt})
+	h.clients.Add(testHost, panicApply{h.rt})
 	var recovered any
 	func() {
 		defer func() { recovered = recover() }()

@@ -105,7 +105,7 @@ func TestChangeLookupAcceptsOnlyTheHostAsked(t *testing.T) {
 	answer := func(_ context.Context, id string) (core.ChangeView, error) {
 		return core.ChangeView{ID: id, HostID: "h2", Action: refSet.Name, Version: 1}, nil
 	}
-	h.hosts.Add(testHost, &coretest.FakeAgent{HelloFunc: h.rt.Hello,
+	h.clients.Add(testHost, &coretest.FakeAgent{HelloFunc: h.rt.Hello,
 		ChangeFunc: func(ctx context.Context, id string) (core.ChangeView, error) { return answer(ctx, id) }})
 	_, err := d.Change(ctx, alice, "01OTHER")
 	_ = wantCode(t, err, errcode.ChangeNotFound)
@@ -125,7 +125,7 @@ func TestChangeLookupAcceptsOnlyTheHostAsked(t *testing.T) {
 func TestChangeRefusesAHostThatAnswersForAnother(t *testing.T) {
 	h, d := newDispatcher(t)
 	v := h.applyAgent(d, "a", core.ApplyOptions{})
-	h.hosts.Add(testHost, &coretest.FakeAgent{
+	h.clients.Add(testHost, &coretest.FakeAgent{
 		HelloFunc: h.rt.Hello,
 		ChangeFunc: func(_ context.Context, id string) (core.ChangeView, error) {
 			return core.ChangeView{ID: id, HostID: "h2", Action: refSet.Name, Version: 1}, nil
@@ -234,7 +234,7 @@ func TestChangesMergeAndPageLikeTheEngine(t *testing.T) {
 func TestChangesPassTheLimitToEverySource(t *testing.T) {
 	h, d := newDispatcher(t)
 	var seen []core.ChangeFilter
-	h.hosts.Add(testHost, &coretest.FakeAgent{
+	h.clients.Add(testHost, &coretest.FakeAgent{
 		HelloFunc: h.rt.Hello,
 		ChangesFunc: func(_ context.Context, f core.ChangeFilter) ([]core.ChangeView, error) {
 			seen = append(seen, f)
@@ -265,7 +265,7 @@ func TestChangesFailWhenAHostCannotBeListed(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := d.Changes(ctx, alice, core.ChangeFilter{})
-	_ = wantCode(t, err, errcode.NotFound)
+	_ = wantCode(t, err, errcode.HostOffline)
 	vs, err := d.Changes(ctx, alice, core.ChangeFilter{HostID: testHost})
 	if err != nil || len(vs) != 1 {
 		t.Errorf("Changes of h1 = %+v, %v; want its one change", vs, err)
@@ -276,7 +276,7 @@ func TestChangesRefuseAHostListingOutsideTheRequest(t *testing.T) {
 	h, d := newDispatcher(t)
 	ctx := context.Background()
 	var listed []core.ChangeView
-	h.hosts.Add(testHost, &coretest.FakeAgent{
+	h.clients.Add(testHost, &coretest.FakeAgent{
 		HelloFunc:   h.rt.Hello,
 		ChangesFunc: func(context.Context, core.ChangeFilter) ([]core.ChangeView, error) { return listed, nil },
 	})
@@ -301,7 +301,7 @@ func TestChangeRefusesAViewOfAnotherChange(t *testing.T) {
 	h, d := newDispatcher(t)
 	ctx := context.Background()
 	v := h.applyAgent(d, "a", core.ApplyOptions{})
-	h.hosts.Add(testHost, &coretest.FakeAgent{
+	h.clients.Add(testHost, &coretest.FakeAgent{
 		HelloFunc: h.rt.Hello,
 		ChangeFunc: func(context.Context, string) (core.ChangeView, error) {
 			return core.ChangeView{ID: "01OTHER", HostID: testHost, Action: refSet.Name, Version: 1}, nil
@@ -319,5 +319,23 @@ func TestChangeRefusesAViewOfAnotherChange(t *testing.T) {
 	_ = wantCode(t, err, errcode.ChangeNotFound)
 	if n := h.count("SELECT count(*) FROM core_change_index"); n != 0 {
 		t.Errorf("index rows = %d, want none for a view of another change", n)
+	}
+}
+
+func TestChangeLookupSkipsOfflineHosts(t *testing.T) {
+	h, d := newDispatcher(t)
+	ctx := context.Background()
+	v := h.applyAgent(d, "a", core.ApplyOptions{})
+	if _, err := h.db.Writer().Exec("DELETE FROM core_change_index"); err != nil {
+		t.Fatal(err)
+	}
+	// h0 is looked at before h1 and has no client, so it is offline.
+	if _, err := h.db.Writer().Exec(
+		"INSERT INTO core_hosts (id, name, is_local, created_at) VALUES ('h0', 'away', 0, '2026-10-17T00:00:00Z')"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := d.Change(ctx, alice, v.ID)
+	if err != nil || got.ID != v.ID || got.HostID != testHost {
+		t.Errorf("Change = %+v, %v; want the change on h1", got, err)
 	}
 }
