@@ -82,6 +82,9 @@ func (s *Session) Open(ctx context.Context) (net.Conn, error) {
 	st, err := s.mux.OpenStream()
 	if err != nil {
 		<-s.opens
+		if s.mux.IsClosed() {
+			err = net.ErrClosed
+		}
 		return nil, fmt.Errorf("transport: open stream: %w", err)
 	}
 	return &stream{Stream: st, release: func() { <-s.opens }}, nil
@@ -97,15 +100,19 @@ func (s *Session) Accept() (net.Conn, error) {
 	case <-s.mux.CloseChan():
 		return nil, fmt.Errorf("transport: accept stream: %w", net.ErrClosed)
 	}
-	st, err := s.mux.AcceptStream()
-	if err != nil {
-		<-s.accepts
-		if s.mux.IsClosed() {
-			err = net.ErrClosed
+	// AcceptStream also fails when the stream's first window update hits the
+	// write timeout; the session lives on, and the heartbeat decides when it
+	// is dead.
+	for {
+		st, err := s.mux.AcceptStream()
+		if err == nil {
+			return &stream{Stream: st, release: func() { <-s.accepts }}, nil
 		}
-		return nil, fmt.Errorf("transport: accept stream: %w", err)
+		if s.mux.IsClosed() {
+			<-s.accepts
+			return nil, fmt.Errorf("transport: accept stream: %w", net.ErrClosed)
+		}
 	}
-	return &stream{Stream: st, release: func() { <-s.accepts }}, nil
 }
 
 // Addr is the local address of the session's connection.

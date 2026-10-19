@@ -283,8 +283,8 @@ func TestSessionClosed(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if _, err := ctrl.Open(ctx); err == nil {
-		t.Fatal("Open on a closed session succeeded")
+	if _, err := ctrl.Open(ctx); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("Open on a closed session = %v, want net.ErrClosed", err)
 	}
 	if _, err := ctrl.Accept(); !errors.Is(err, net.ErrClosed) {
 		t.Fatalf("Accept on a closed session = %v, want net.ErrClosed", err)
