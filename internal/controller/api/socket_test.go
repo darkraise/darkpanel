@@ -384,3 +384,30 @@ func TestSocketPeerUIDRefusesOtherConns(t *testing.T) {
 		t.Error("SocketPeerUID read credentials of a pipe")
 	}
 }
+
+// TestListenSocketRefusesALongPath is register row 86: a path longer than
+// the kernel's sun_path fails with a message that says so, instead of
+// "bind: invalid argument".
+func TestListenSocketRefusesALongPath(t *testing.T) {
+	dir, err := os.MkdirTemp("", "dp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	if len(dir)+2 > maxSocketPath {
+		t.Skipf("temporary directory %s leaves no room for a socket name", dir)
+	}
+	// sized is a path of exactly n bytes in dir.
+	sized := func(n int) string { return filepath.Join(dir, strings.Repeat("s", n-len(dir)-1)) }
+
+	ln, err := ListenSocket(sized(maxSocketPath))
+	if err != nil {
+		t.Fatalf("ListenSocket at %d bytes: %v", maxSocketPath, err)
+	}
+	_ = ln.Close()
+	long := sized(maxSocketPath + 1)
+	_, err = ListenSocket(long)
+	if err == nil || !strings.Contains(err.Error(), "at most 107 bytes") || !strings.Contains(err.Error(), long) {
+		t.Errorf("ListenSocket at %d bytes: %v, want a refusal naming the path and the 107-byte limit", len(long), err)
+	}
+}

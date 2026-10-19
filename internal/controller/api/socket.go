@@ -58,6 +58,10 @@ func SocketPeerUID(c net.Conn) (uint32, error) {
 	return cred.Uid, nil
 }
 
+// maxSocketPath is the longest socket path Linux accepts: sun_path holds 108
+// bytes including the terminating NUL.
+const maxSocketPath = len(unix.RawSockaddrUnix{}.Path) - 1
+
 // ListenSocket listens on the controller socket at path with mode 0600. It
 // replaces a stale socket file, but refuses a path that is not a socket or
 // that another process still serves. A socket is stale only when connecting
@@ -65,7 +69,12 @@ func SocketPeerUID(c net.Conn) (uint32, error) {
 // backlog, may come from a live controller, so the file is kept and the
 // error returned. Until the chmod the file has the umask's mode; the peer
 // check on every connection covers that window.
+// A path longer than maxSocketPath is refused before anything is touched.
 func ListenSocket(path string) (net.Listener, error) {
+	if len(path) > maxSocketPath {
+		return nil, fmt.Errorf("api: the socket path %s is %d bytes, and a Unix socket path holds at most %d bytes; "+
+			"use a shorter runtime directory (XDG_RUNTIME_DIR with --dev)", path, len(path), maxSocketPath)
+	}
 	if st, err := os.Lstat(path); err == nil {
 		if st.Mode().Type() != fs.ModeSocket {
 			return nil, fmt.Errorf("api: %s exists and is not a socket", path)
