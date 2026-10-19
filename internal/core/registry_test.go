@@ -125,6 +125,7 @@ func TestNewRegistryRules(t *testing.T) {
 	}{
 		{"bad module id", []Module{testModule{ID: "Demo", Version: 1}}, "must match"},
 		{"reserved module id", []Module{testModule{ID: "token", Version: 1}}, "reserved"},
+		{"reserved module id system", []Module{testModule{ID: "system", Version: 1}}, "reserved"},
 		{"duplicate module", []Module{testModule{ID: "demo", Version: 1}, testModule{ID: "demo", Version: 1}}, "registered twice"},
 		{"module version", []Module{testModule{ID: "demo"}}, "version 0"},
 		{"bad action name", []Module{testModule{ID: "demo", Version: 1, Actions: []ActionDef{readAction("demo.get")}}}, "must match"},
@@ -192,5 +193,44 @@ func TestErasedHandlers(t *testing.T) {
 	}
 	if rev.Spec.Class != ClassRevertible {
 		t.Errorf("DefineRevertible class = %s", rev.Spec.Class)
+	}
+}
+
+func TestNewRegistryOwnership(t *testing.T) {
+	file := func(p string) OwnedPath { return OwnedPath{Path: p, Kind: OwnedFile} }
+	block := func(p string, ids ...string) OwnedPath { return OwnedPath{Path: p, Kind: OwnedBlock, BlockIDs: ids} }
+	owner := func(id string, paths ...OwnedPath) Module {
+		return testModule{ID: id, Version: 1, OwnedPaths: paths}
+	}
+	tests := []struct {
+		name string
+		mods []Module
+		want string // "" when the registry is valid
+	}{
+		{"distinct paths", []Module{owner("core", file("/etc/a")), owner("demo", file("/etc/b"))}, ""},
+		{"blocks with distinct ids", []Module{owner("core", block("/etc/ufw/after.rules", "core")),
+			owner("demo", block("/etc/ufw/after.rules", "demo"))}, ""},
+		{"one module declaring a path twice", []Module{owner("demo", file("/etc/a"), file("/etc/a"))}, ""},
+		{"same file", []Module{owner("core", file("/etc/a")), owner("demo", file("/etc/a"))},
+			"owned path /etc/a is declared by modules core and demo"},
+		{"file and block", []Module{owner("core", file("/etc/a")), owner("demo", block("/etc/a", "x"))},
+			"owned path /etc/a is declared by modules core and demo"},
+		{"directory and unit", []Module{owner("core", OwnedPath{Path: "/etc/x", Kind: OwnedDir}),
+			owner("demo", OwnedPath{Path: "/etc/x", Kind: OwnedUnit})}, "owned path /etc/x is declared by modules core and demo"},
+		{"same block", []Module{owner("alpha", block("/etc/a", "x", "y")), owner("demo", block("/etc/a", "y"))},
+			"marked block y of /etc/a is declared by modules alpha and demo"},
+		{"same user", []Module{owner("core", OwnedPath{Path: "darkpanel", Kind: OwnedUser}),
+			owner("demo", OwnedPath{Path: "darkpanel", Kind: OwnedUser})}, "user darkpanel is declared by modules core and demo"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewRegistry(tt.mods...)
+			switch {
+			case tt.want == "" && err != nil:
+				t.Fatalf("NewRegistry: %v", err)
+			case tt.want != "" && (err == nil || !strings.Contains(err.Error(), tt.want)):
+				t.Fatalf("NewRegistry error = %v, want one containing %q", err, tt.want)
+			}
+		})
 	}
 }

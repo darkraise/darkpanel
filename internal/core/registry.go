@@ -13,7 +13,7 @@ import (
 // ADR 0011).
 var ReservedNames = []string{
 	"serve", "agent", "update", "user", "controller", "change", "uninstall", "version",
-	"host", "module", "token", "audit", "help", "completion",
+	"host", "module", "token", "audit", "help", "completion", "system",
 }
 
 var (
@@ -93,6 +93,7 @@ func NewRegistry(mods ...Module) (*Registry, error) {
 		}
 	}
 	errs = append(errs, r.checkCLINames(ids)...)
+	errs = append(errs, checkOwnership(r.modules)...)
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
 	}
@@ -124,6 +125,48 @@ func (r *Registry) checkCLINames(moduleIDs map[string]bool) []error {
 	}
 	for _, res := range r.Resources() {
 		claim(res.Name, append(strings.Split(res.Name, "."), "get"))
+	}
+	return errs
+}
+
+// checkOwnership refuses two modules, the core included, that declare the
+// same owned path, marked block or user: the file writer and uninstall could
+// not tell which module a path or block belongs to. Blocks of one file with
+// distinct ids are how modules share a file, so they are allowed.
+func checkOwnership(mods []Manifest) []error {
+	type declaration struct {
+		module string
+		path   OwnedPath
+	}
+	var decls []declaration
+	for _, m := range mods {
+		for _, op := range m.OwnedPaths {
+			decls = append(decls, declaration{m.ID, op})
+		}
+	}
+	var errs []error
+	for i, a := range decls {
+		for _, b := range decls[i+1:] {
+			if a.module == b.module || a.path.Path != b.path.Path {
+				continue
+			}
+			aUser, bUser := a.path.Kind == OwnedUser, b.path.Kind == OwnedUser
+			switch {
+			case aUser != bUser:
+				// A user name and a file path never name the same thing.
+			case aUser:
+				errs = append(errs, fmt.Errorf("user %s is declared by modules %s and %s", a.path.Path, a.module, b.module))
+			case a.path.Kind == OwnedBlock && b.path.Kind == OwnedBlock:
+				for _, id := range a.path.BlockIDs {
+					if slices.Contains(b.path.BlockIDs, id) {
+						errs = append(errs, fmt.Errorf("marked block %s of %s is declared by modules %s and %s",
+							id, a.path.Path, a.module, b.module))
+					}
+				}
+			default:
+				errs = append(errs, fmt.Errorf("owned path %s is declared by modules %s and %s", a.path.Path, a.module, b.module))
+			}
+		}
 	}
 	return errs
 }
