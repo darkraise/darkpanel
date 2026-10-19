@@ -219,6 +219,42 @@ func TestCheckAddress(t *testing.T) {
 	}
 }
 
+func TestNewestStable(t *testing.T) {
+	needTools(t, "sh")
+	p := script(t, []trustedkeys.Key{newSigner(t).key}, "https://example.com")
+	tests := []struct {
+		name, index, want string
+	}{
+		{"pretty printed", "{\"formatVersion\": 1, \"releases\": [\n  {\"version\": \"1.2.0\", \"channel\": \"stable\"},\n  {\"version\": \"1.10.0\", \"channel\": \"stable\"}\n]}\n", "1.10.0"},
+		{"compact", `{"formatVersion":1,"releases":[{"version":"1.2.0","channel":"stable"},{"version":"1.3.0","channel":"stable"}]}`, "1.3.0"},
+		{"sorted keys", `{"formatVersion":1,"releases":[{"channel":"stable","version":"1.2.0"},{"channel":"beta","version":"1.11.0-beta.1"},{"channel":"stable","version":"1.10.0"}]}`, "1.10.0"},
+		{"extra members", `{"formatVersion":1,"releases":[{"date":"2026-10-01","version":"1.2.0","channel":"stable","notes":"x"},{"version":"1.4.0","size":3,"channel":"stable"}]}`, "1.4.0"},
+		{"betas and prereleases are skipped", `{"formatVersion":1,"releases":[{"version":"1.5.0","channel":"beta"},{"version":"1.3.0-rc.1","channel":"stable"},{"version":"1.2.0","channel":"stable"}]}`, "1.2.0"},
+		{"no stable release", `{"formatVersion":1,"releases":[{"version":"1.5.0","channel":"beta"}]}`, ""},
+		{"empty list", `{"formatVersion":1,"releases":[]}`, ""},
+	}
+	for _, sh := range []string{"sh", "dash"} {
+		if _, err := exec.LookPath(sh); err != nil {
+			continue
+		}
+		for _, tt := range tests {
+			t.Run(sh+" "+tt.name, func(t *testing.T) {
+				index := filepath.Join(t.TempDir(), "releases.json")
+				writeFile(t, index, tt.index)
+				cmd := exec.Command(sh, "-c", `. "$1"; newest_stable "$2"`, sh, p, index) //nolint:gosec // G204: a shell from a fixed list and test files
+				cmd.Env = append(os.Environ(), "DARKPANEL_INSTALL_SH_LIB=1")
+				out, err := cmd.Output()
+				if err != nil {
+					t.Fatalf("newest_stable: %v", err)
+				}
+				if got := strings.TrimSpace(string(out)); got != tt.want {
+					t.Errorf("newest_stable = %q, want %q", got, tt.want)
+				}
+			})
+		}
+	}
+}
+
 func TestVerifyRelease(t *testing.T) {
 	needTools(t, "sh", "openssl", "base64", "od")
 	const comment = "version=1.4.0 channel=stable purpose=checksums"

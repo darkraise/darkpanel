@@ -66,12 +66,15 @@ fetch() {
 }
 
 # newest_stable prints the newest stable version listed in the release index
-# $1. Every release object is {"version": ..., "channel": ...} in that order,
-# so removing whitespace leaves one fixed pattern per release.
+# $1. There is no JSON parser here: once whitespace is removed, cutting the
+# text after every closing brace leaves one line per release object, so a
+# release is found by its members whatever their order.
 newest_stable() {
 	tr -d ' \t\r\n' <"$1" |
-		grep -o '{"version":"[^"]*","channel":"stable"}' |
-		sed 's/^{"version":"\([^"]*\)".*/\1/' |
+		sed 's/}/}\
+/g' |
+		grep '"channel":"stable"' |
+		sed -n 's/.*"version":"\([^"]*\)".*/\1/p' |
 		grep -Ev -- '-' |
 		sort -t . -k 1,1n -k 2,2n -k 3,3n |
 		tail -n 1
