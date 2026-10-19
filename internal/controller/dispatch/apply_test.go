@@ -395,3 +395,33 @@ func TestPlanLocksWaitForTheHolderOrTheContext(t *testing.T) {
 		t.Errorf("locks kept after every unlock: %v", l.held)
 	}
 }
+
+type panicApply struct{ core.AgentClient }
+
+func (panicApply) Apply(context.Context, core.Principal, string, core.ApplyOptions) (core.ChangeView, error) {
+	panic("agent apply panicked")
+}
+
+func TestApplyPanicUnlocksPlan(t *testing.T) {
+	h, d := newDispatcher(t)
+	ctx := context.Background()
+	pl := h.plan(d, testHost, refSet, `{"name":"a","value":"1"}`)
+	h.hosts.Add(testHost, panicApply{h.rt})
+	func() {
+		defer func() { _ = recover() }()
+		_, _ = d.Apply(ctx, alice, testHost, refSet, pl.PlanID, core.ApplyOptions{})
+	}()
+	d.plans.mu.Lock()
+	n := len(d.plans.held)
+	d.plans.mu.Unlock()
+	if n != 0 {
+		t.Errorf("plan locks kept after a panicking apply: %d, want 0", n)
+	}
+	tctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	unlock, err := d.plans.lock(tctx, pl.PlanID)
+	if err != nil {
+		t.Fatalf("lock of the plan after a panicking apply: %v", err)
+	}
+	unlock()
+}

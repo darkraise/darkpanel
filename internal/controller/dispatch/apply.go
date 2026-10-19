@@ -38,22 +38,24 @@ func (d *Dispatcher) Apply(ctx context.Context, p core.Principal, hostID string,
 	// Applies of one plan run one at a time: otherwise a failed apply that
 	// claimed the flag could clear it after a concurrent apply of the same
 	// plan committed (register row 90).
-	unlock, err := d.plans.lock(ctx, planID)
-	if err != nil {
-		return core.ChangeView{}, err
-	}
-	claimed, err := d.markApplied(ctx, planID)
-	if err != nil {
-		unlock()
-		return core.ChangeView{}, err
-	}
-	v, err := apply()
-	if err != nil && v.ID == "" && claimed && noChange(err) {
-		if err := d.unmarkApplied(context.WithoutCancel(ctx), planID); err != nil {
-			d.cfg.Log.Error("dispatch: unmark plan", "plan", planID, "error", err)
+	v, err := func() (core.ChangeView, error) {
+		unlock, err := d.plans.lock(ctx, planID)
+		if err != nil {
+			return core.ChangeView{}, err
 		}
-	}
-	unlock()
+		defer unlock()
+		claimed, err := d.markApplied(ctx, planID)
+		if err != nil {
+			return core.ChangeView{}, err
+		}
+		v, err := apply()
+		if err != nil && v.ID == "" && claimed && noChange(err) {
+			if err := d.unmarkApplied(context.WithoutCancel(ctx), planID); err != nil {
+				d.cfg.Log.Error("dispatch: unmark plan", "plan", planID, "error", err)
+			}
+		}
+		return v, err
+	}()
 	if v.ID != "" && def.Spec.Side == core.SideAgent {
 		d.index(ctx, hostID, v)
 		d.ingest(ctx, hostID)
