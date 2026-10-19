@@ -328,7 +328,11 @@ func (v *VM) Reboot(ctx context.Context) error {
 	}
 	// The connection may drop before the exit status arrives, so the result
 	// says nothing; a reboot that never happens fails the boot_id wait below.
-	_, _ = v.Run(ctx, "sudo systemctl --no-block reboot")
+	// A connection that hangs as the VM goes down gets probeTimeout, not the
+	// rest of the reboot deadline.
+	rctx, rcancel := context.WithTimeout(ctx, probeTimeout)
+	_, _ = v.Run(rctx, "sudo systemctl --no-block reboot")
+	rcancel()
 	v.closeClient()
 	for {
 		if err := v.connect(ctx); err != nil {

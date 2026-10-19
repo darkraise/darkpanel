@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -204,5 +205,81 @@ func TestBootChangedGivesUpOnAHungSession(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 3*time.Second {
 		t.Errorf("bootChanged returned after %v; probeTimeout was 200ms", elapsed)
+	}
+}
+
+// TestRebootGivesUpOnAHungRebootCommand: the reboot command can hang the
+// same way a probe can, and must not use up the whole reboot deadline.
+func TestRebootGivesUpOnAHungRebootCommand(t *testing.T) {
+	hostKey, err := NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &ssh.ServerConfig{NoClientAuth: true}
+	srv.AddHostKey(hostKey)
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	var conns atomic.Int32
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			boot := "old\n"
+			if conns.Add(1) > 1 {
+				boot = "new\n"
+			}
+			go func() {
+				_, chans, reqs, err := ssh.NewServerConn(c, srv)
+				if err != nil {
+					return
+				}
+				go ssh.DiscardRequests(reqs)
+				for nc := range chans {
+					ch, creqs, err := nc.Accept()
+					if err != nil {
+						continue
+					}
+					t.Cleanup(func() { _ = ch.Close() })
+					go func() {
+						for r := range creqs {
+							var req struct{ Command string }
+							if r.Type != "exec" || ssh.Unmarshal(r.Payload, &req) != nil || strings.Contains(req.Command, "reboot") {
+								continue // the reboot command never replies
+							}
+							_ = r.Reply(true, nil)
+							_, _ = ch.Write([]byte(boot))
+							_, _ = ch.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{0}))
+							_ = ch.Close()
+						}
+					}()
+				}
+			}()
+		}
+	}()
+	key, err := NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := probeTimeout
+	probeTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { probeTimeout = old })
+	v := &VM{cfg: Config{Name: "hung", Key: key}, sshAddr: ln.Addr().String(), hostKey: hostKey.PublicKey(), exited: make(chan struct{})}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	if err := v.connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer v.closeClient()
+	start := time.Now()
+	if err := v.Reboot(ctx); err != nil {
+		t.Fatalf("Reboot: %v (after %v)", err, time.Since(start))
+	}
+	if elapsed := time.Since(start); elapsed > 6*time.Second {
+		t.Errorf("Reboot returned after %v; the hung reboot command should end within probeTimeout", elapsed)
 	}
 }
