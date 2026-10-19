@@ -36,6 +36,21 @@ test("lists entries newest first and loads older ones by nextBefore", async () =
   expect(screen.getAllByRole("row")).toHaveLength(3)
 })
 
+test("keeps loaded entries when an older page fails", async () => {
+  stubFetch({
+    [AUDIT]: (call) =>
+      (call.body as { input: { before?: string } }).input.before === undefined
+        ? pages(call)
+        : { status: 500, body: { type: "about:blank", title: "Internal", status: 500, detail: "older page failed", code: "internal" } },
+  })
+  renderWithProviders(<AuditPage />)
+  await screen.findByText("core.token.create/v1")
+  await userEvent.setup().click(screen.getByRole("button", { name: "Load older entries" }))
+  expect((await screen.findByText("older page failed")).textContent).toBe("older page failed")
+  expect(screen.getByText("core.token.create/v1").textContent).toBe("core.token.create/v1")
+  expect(screen.getByRole("button", { name: "Load older entries" }).textContent).toBe("Load older entries")
+})
+
 test("says so when there are no entries", async () => {
   stubFetch({ [AUDIT]: { body: { output: { entries: [], nextBefore: null } } } })
   renderWithProviders(<AuditPage />)

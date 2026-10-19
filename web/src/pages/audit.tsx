@@ -21,7 +21,7 @@ function AuditBody() {
   })
 
   if (audit.isPending) return <Spinner aria-label="Loading the audit log" />
-  if (audit.isError) {
+  if (audit.data === undefined) {
     return (
       <Alert variant="destructive" role="alert">
         <AlertDescription>{errorMessage(audit.error)}</AlertDescription>
@@ -65,6 +65,11 @@ function AuditBody() {
           ))}
         </TableBody>
       </Table>
+      {audit.isError && (
+        <Alert variant="destructive" role="alert">
+          <AlertDescription>{errorMessage(audit.error)}</AlertDescription>
+        </Alert>
+      )}
       {audit.hasNextPage && (
         <Button variant="outline" className="self-start" loading={audit.isFetchingNextPage} onClick={() => void audit.fetchNextPage()}>
           Load older entries
