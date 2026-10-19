@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { Navigate, useLocation } from "react-router"
 import { useQueryClient } from "@tanstack/react-query"
 import { Spinner } from "darkraise-ui/components/spinner"
-import { request, setCsrfToken, setUnauthorizedHandler } from "@/api/client"
+import { request, setCsrfRejectedHandler, setCsrfToken, setUnauthorizedHandler } from "@/api/client"
 import type { Session } from "@/api/types"
 
 interface SessionState {
@@ -31,20 +31,36 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true
+    let probing = false
+    function probe() {
+      probing = true
+      request<Session>("GET", "/api/v1/auth/session")
+        .then(
+          (session) => {
+            if (active) setSession(session)
+          },
+          () => {
+            if (active) setSession(null)
+          },
+        )
+        .finally(() => {
+          probing = false
+        })
+    }
     setUnauthorizedHandler(() => {
       if (active) setSession(null)
     })
-    request<Session>("GET", "/api/v1/auth/session").then(
-      (session) => {
-        if (active) setSession(session)
-      },
-      () => {
-        if (active) setSession(null)
-      },
-    )
+    // Another tab that logs in again replaces the session cookie, so this
+    // tab's CSRF token goes stale and every unsafe request answers auth.csrf.
+    // Probing the session fetches the token that belongs to the cookie.
+    setCsrfRejectedHandler(() => {
+      if (active && !probing) probe()
+    })
+    probe()
     return () => {
       active = false
       setUnauthorizedHandler(null)
+      setCsrfRejectedHandler(null)
     }
   }, [setSession])
 

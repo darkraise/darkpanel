@@ -1,6 +1,6 @@
 import { cleanup } from "@testing-library/react"
 import { afterEach, vi } from "vitest"
-import { setCsrfToken, setUnauthorizedHandler } from "@/api/client"
+import { setCsrfRejectedHandler, setCsrfToken, setUnauthorizedHandler } from "@/api/client"
 
 // jsdom has no matchMedia, and the darkraise-ui theme provider reads it on mount.
 Object.defineProperty(window, "matchMedia", {
@@ -25,4 +25,5 @@ afterEach(() => {
   localStorage.clear()
   setCsrfToken(null)
   setUnauthorizedHandler(null)
+  setCsrfRejectedHandler(null)
 })

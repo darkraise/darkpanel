@@ -7,6 +7,7 @@ import {
   readAction,
   readResource,
   request,
+  setCsrfRejectedHandler,
   setCsrfToken,
   setUnauthorizedHandler,
 } from "./client"
@@ -56,6 +57,7 @@ const plan: Plan = {
 afterEach(() => {
   setCsrfToken(null)
   setUnauthorizedHandler(null)
+  setCsrfRejectedHandler(null)
   vi.unstubAllGlobals()
 })
 
@@ -114,6 +116,19 @@ describe("request", () => {
 
     stub(respond(401, { type: "about:blank", title: "Authentication required", status: 401, detail: "log in", code: "auth.required" }))
     await request("GET", "/api/v1/changes").catch(() => undefined)
+    expect(handler).toHaveBeenCalledTimes(1)
+  })
+
+  test("calls the CSRF-rejected handler only for auth.csrf", async () => {
+    const handler = vi.fn()
+    setCsrfRejectedHandler(handler)
+    stub(respond(403, { type: "about:blank", title: "Forbidden", status: 403, detail: "no", code: "auth.forbidden" }))
+    await request("POST", "/api/v1/auth/logout").catch(() => undefined)
+    expect(handler).not.toHaveBeenCalled()
+
+    stub(respond(403, { type: "about:blank", title: "CSRF", status: 403, detail: "bad csrf token", code: "auth.csrf" }))
+    const err = (await request("POST", "/api/v1/auth/logout").catch((e: unknown) => e)) as ApiError
+    expect(err.code).toBe("auth.csrf")
     expect(handler).toHaveBeenCalledTimes(1)
   })
 

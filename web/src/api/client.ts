@@ -26,6 +26,7 @@ export class ApiError extends Error {
 
 let csrfToken: string | null = null
 let unauthorizedHandler: (() => void) | null = null
+let csrfRejectedHandler: (() => void) | null = null
 
 export function setCsrfToken(token: string | null): void {
   csrfToken = token
@@ -33,6 +34,10 @@ export function setCsrfToken(token: string | null): void {
 
 export function setUnauthorizedHandler(handler: (() => void) | null): void {
   unauthorizedHandler = handler
+}
+
+export function setCsrfRejectedHandler(handler: (() => void) | null): void {
+  csrfRejectedHandler = handler
 }
 
 export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -52,6 +57,7 @@ export async function request<T>(method: string, path: string, body?: unknown): 
   if (!res.ok) {
     const err = await problemFrom(res)
     if (err.code === "auth.required") unauthorizedHandler?.()
+    if (err.code === "auth.csrf") csrfRejectedHandler?.()
     throw err
   }
   if (res.status === 204) return undefined as T
