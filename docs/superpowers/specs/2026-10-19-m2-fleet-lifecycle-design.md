@@ -1,9 +1,9 @@
 # M2 epics: controller-agent fleet, install and uninstall, self-update, release pipeline
 
 **Date:** 2026-10-19
-**Status:** design reviewed by Fable 2026-10-19 (rework; 18 findings accepted
-by the owner); spec panel round 1 by Fable and Codex gpt-6-astra 2026-10-19
-(both rework; every finding folded in, see the review log at the end)
+**Status:** approved by the owner 2026-10-19, after a Fable design review
+and three Fable and Codex gpt-6-astra spec panel rounds (see the review log
+at the end)
 **Product spec:** docs/superpowers/specs/2026-10-17-darkpanel-design.md
 **Requirements:** R22–R36, R80; M1 register rows 22, 23, 24, 49, 92
 **Execution strategy:** parallel — one foundation part fixes every shared
