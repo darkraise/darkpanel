@@ -49,6 +49,15 @@ type fixHost struct {
 	panicOn string
 	// onVerify, when set, runs at the start of Verify without mu held.
 	onVerify func(ctx context.Context)
+	// changeIDs records "<call>=<env.ChangeID>" for every Plan, Apply and
+	// Verify call, in call order.
+	changeIDs []string
+}
+
+func (h *fixHost) sawChangeID(call string, env core.Env) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.changeIDs = append(h.changeIDs, call+"="+env.ChangeID)
 }
 
 // panicIf panics when call is panicOn. The value quotes the item name, as a
@@ -95,7 +104,8 @@ type getOut struct {
 
 type itemHandler struct{ h *fixHost }
 
-func (x itemHandler) Plan(_ context.Context, _ core.Env, in itemIn) (core.PlanOutcome, error) {
+func (x itemHandler) Plan(_ context.Context, env core.Env, in itemIn) (core.PlanOutcome, error) {
+	x.h.sawChangeID("Plan", env)
 	x.h.panicIf("Plan", in.Name)
 	x.h.mu.Lock()
 	defer x.h.mu.Unlock()
@@ -111,7 +121,8 @@ func (x itemHandler) Plan(_ context.Context, _ core.Env, in itemIn) (core.PlanOu
 	}, nil
 }
 
-func (x itemHandler) Apply(_ context.Context, _ core.Env, in itemIn) (itemOut, error) {
+func (x itemHandler) Apply(_ context.Context, env core.Env, in itemIn) (itemOut, error) {
+	x.h.sawChangeID("Apply", env)
 	// CrashApply stops the goroutine without a panic: it stands for the
 	// process dying between persisting intent and recording the result.
 	if in.CrashApply {
@@ -129,10 +140,11 @@ func (x itemHandler) Apply(_ context.Context, _ core.Env, in itemIn) (itemOut, e
 	return itemOut{Previous: prev, Token: "tok-" + in.Name}, nil
 }
 
-func (x itemHandler) Verify(ctx context.Context, _ core.Env, in itemIn, _ itemOut) error {
+func (x itemHandler) Verify(ctx context.Context, env core.Env, in itemIn, _ itemOut) error {
 	if x.h.onVerify != nil {
 		x.h.onVerify(ctx)
 	}
+	x.h.sawChangeID("Verify", env)
 	x.h.panicIf("Verify", in.Name)
 	if in.FailVerify {
 		return errcode.New(errcode.Internal, "verify failed")

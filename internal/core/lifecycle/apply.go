@@ -266,6 +266,7 @@ func takeLocks(ctx context.Context, tx *sql.Tx, owner string, keys []string) err
 // run mutates, verifies and records the result (ADR 0004 steps 3 and 4).
 func (e *Engine) run(ctx context.Context, p core.Principal, it *intent) (core.ChangeView, error) {
 	env := e.env(p)
+	env.ChangeID = it.id
 	h := it.def.Handler
 	var out json.RawMessage
 	err := e.protect(it.def.Ref(), "Apply", func() error {
