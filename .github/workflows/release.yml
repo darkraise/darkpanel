@@ -178,10 +178,15 @@ jobs:
           path: dist/release
       - name: Publish the release
         run: |
-          prerelease=()
-          if [ "$CHANNEL" = beta ]; then prerelease=(--prerelease); fi
-          gh release create "$GITHUB_REF_NAME" dist/release/* --verify-tag \
-            --title "Darkpanel $VERSION" --notes-file dist/release-notes.md "${prerelease[@]}"
+          # A re-run keeps an already published release and its files unchanged.
+          if [ "$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft 2>/dev/null)" = false ]; then
+            echo "Release $GITHUB_REF_NAME is already published; keeping it."
+          else
+            prerelease=()
+            if [ "$CHANNEL" = beta ]; then prerelease=(--prerelease); fi
+            gh release create "$GITHUB_REF_NAME" dist/release/* --verify-tag \
+              --title "Darkpanel $VERSION" --notes-file dist/release-notes.md "${prerelease[@]}"
+          fi
       - name: Regenerate releases.json
         run: |
           # Rebuilt from every published release, never appended to an older index.

@@ -43,6 +43,11 @@ Runs share the concurrency group `release`. GitHub cancels an older pending
 run when a newer one queues behind a running one; re-run a cancelled release
 from the Actions page.
 
+If `publish` fails after the GitHub Release is published, re-run the failed
+jobs: `publish` keeps the published release and its files unchanged and only
+regenerates `releases.json`. An interrupted upload can leave a draft release;
+delete that draft by hand before the re-run.
+
 ## Rotating the signing key
 
 Generate the new key, store it as `MINISIGN_KEY_2` and `MINISIGN_PASSWORD_2`,
