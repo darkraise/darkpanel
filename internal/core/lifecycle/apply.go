@@ -228,8 +228,14 @@ func (e *Engine) recheck(ctx context.Context, env core.Env, def core.ActionDef, 
 	return nil
 }
 
-// locksFree fails with lock.held when a change holds one of keys.
+// locksFree fails with lock.held when a change holds one of keys, or an
+// update operation holds every lock.
 func locksFree(ctx context.Context, db *sql.DB, keys []string) error {
+	if len(keys) > 0 {
+		if err := notReserved(ctx, db, "", keys[0]); err != nil {
+			return err
+		}
+	}
 	for _, key := range keys {
 		var held string
 		err := db.QueryRowContext(ctx, "SELECT owner FROM core_locks WHERE key = ?", key).Scan(&held)
@@ -245,8 +251,14 @@ func locksFree(ctx context.Context, db *sql.DB, keys []string) error {
 }
 
 // takeLocks gives every key to owner, or fails with lock.held when another
-// owner has one. A key listed twice is taken once.
+// owner has one or an update operation holds every lock. A key listed twice
+// is taken once.
 func takeLocks(ctx context.Context, tx *sql.Tx, owner string, keys []string) error {
+	if len(keys) > 0 {
+		if err := notReserved(ctx, tx, owner, keys[0]); err != nil {
+			return err
+		}
+	}
 	for _, key := range keys {
 		if _, err := tx.ExecContext(ctx,
 			"INSERT INTO core_locks (key, owner) VALUES (?, ?) ON CONFLICT (key) DO NOTHING", key, owner); err != nil {
