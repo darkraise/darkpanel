@@ -293,6 +293,9 @@ func (s *Server) migrateController(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("server: controller migrations: %w", err)
 	}
+	if res.BackupDir != "" {
+		s.log.Info("server: controller database backed up before migrating", "dir", res.BackupDir)
+	}
 	for _, f := range res.Failed {
 		s.log.Error("server: module controller migrations failed", "module", f.Module, "error", f.Err)
 	}

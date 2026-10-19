@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -292,5 +293,37 @@ func TestShutdownOutOfTimeKeepsTheLock(t *testing.T) {
 func TestStartNeedsPaths(t *testing.T) {
 	if _, err := Start(context.Background(), Options{}); err == nil || !strings.Contains(err.Error(), "Options.Paths") {
 		t.Errorf("Start without paths: %v", err)
+	}
+}
+
+// lockedBuffer is a log destination the server's goroutines may share.
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
+// TestStartLogsTheControllerBackup is register row 87: the controller
+// migration backup is logged as the agent runtime logs its own.
+func TestStartLogsTheControllerBackup(t *testing.T) {
+	opts := testOptions(t)
+	var logs lockedBuffer
+	opts.Log = slog.New(slog.NewTextHandler(&logs, nil))
+	start(t, opts)
+	out := logs.String()
+	if !strings.Contains(out, `msg="server: controller database backed up before migrating"`) ||
+		!strings.Contains(out, "dir="+opts.Paths.ControllerBackups()+string(filepath.Separator)) {
+		t.Errorf("service log lacks the controller backup naming a directory under %s:\n%s", opts.Paths.ControllerBackups(), out)
 	}
 }
