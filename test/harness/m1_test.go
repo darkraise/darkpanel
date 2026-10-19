@@ -285,16 +285,11 @@ func checkKillProcess(ctx context.Context, t *testing.T, v *vm.VM) {
 		t.Fatal(err)
 	}
 	err := eventually(ctx, 30*time.Second, func(ctx context.Context) error {
-		if state := unitState(ctx, v, serveUnit); state == "active" {
-			return fmt.Errorf("%s is still active", serveUnit)
-		}
-		if _, err := v.Run(ctx, healthz); err == nil {
-			return errors.New("healthz still answers")
-		}
-		return nil
+		_, err := v.Run(ctx, "! systemctl is-active --quiet "+serveUnit+" && ! "+healthz)
+		return err
 	})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("%s not shown stopped after the kill: %v", serveUnit, err)
 	}
 }
 
