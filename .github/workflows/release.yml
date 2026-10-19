@@ -37,6 +37,8 @@ jobs:
           # Fetch the annotated tag object itself; a checkout may hold only the commit.
           git fetch --force --no-tags origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
           test "$(git cat-file -t "$GITHUB_REF_NAME")" = tag
+          # A tag can be re-pointed between the trigger and the fetch; verify the commit this run builds.
+          test "$(git rev-parse "$GITHUB_REF_NAME^{commit}")" = "$GITHUB_SHA"
           # Signers come from main, never from the tagged tree, which a forged tag could carry.
           git show origin/main:release/allowed_signers >"$RUNNER_TEMP/allowed_signers"
           git -c gpg.ssh.allowedSignersFile="$RUNNER_TEMP/allowed_signers" verify-tag "$GITHUB_REF_NAME"
