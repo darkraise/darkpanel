@@ -38,12 +38,17 @@ jobs:
         run: |
           # Fetch the annotated tag object itself; a checkout may hold only the commit.
           git fetch --force --no-tags origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
-          test "$(git cat-file -t "$GITHUB_REF_NAME")" = tag
+          # Full ref names only: git resolves a short name to refs/tags/ first, so a pushed tag could shadow it.
+          test "$(git cat-file -t "refs/tags/$GITHUB_REF_NAME")" = tag
+          # A signed tag object can be pushed again under another name; verify-tag does not compare them.
+          test "$(git for-each-ref --format='%(tag)' "refs/tags/$GITHUB_REF_NAME")" = "$GITHUB_REF_NAME"
           # A tag can be re-pointed between the trigger and the fetch; verify the commit this run builds.
-          test "$(git rev-parse "$GITHUB_REF_NAME^{commit}")" = "$GITHUB_SHA"
+          test "$(git rev-parse "refs/tags/$GITHUB_REF_NAME^{commit}")" = "$GITHUB_SHA"
+          # Releases are prepared on main; fetch-depth 0 fetched every branch into refs/remotes/origin/.
+          git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
           # Signers come from main, never from the tagged tree, which a forged tag could carry.
-          git show origin/main:release/allowed_signers >"$RUNNER_TEMP/allowed_signers"
-          git -c gpg.ssh.allowedSignersFile="$RUNNER_TEMP/allowed_signers" verify-tag "$GITHUB_REF_NAME"
+          git show refs/remotes/origin/main:release/allowed_signers >"$RUNNER_TEMP/allowed_signers"
+          git -c gpg.ssh.allowedSignersFile="$RUNNER_TEMP/allowed_signers" verify-tag "refs/tags/$GITHUB_REF_NAME"
       - run: bash release/snapshots.sh check "$GITHUB_REF_NAME"
 
   build:
