@@ -87,9 +87,12 @@ type Principal struct {
 }
 
 // Env is what a handler may use. HostID is empty for controller-side actions;
-// Agents is nil on the agent side.
+// Agents is nil on the agent side. ChangeID is the change whose Apply or
+// Verify is running and is empty in every other call, because a plan has no
+// change yet.
 type Env struct {
 	HostID    string
+	ChangeID  string
 	Principal Principal
 	DB        *store.DB
 	Exec      Runner
@@ -196,10 +199,22 @@ type PreflightCheck struct {
 	Run func(ctx context.Context, env Env) error
 }
 
-// OwnedPath is a file or marked-block file a module may write (ADR 0009).
+// The kinds of an owned path. Only files and blocks are written through
+// FileWriter; directories, users and units are the installer's, recorded so
+// that uninstall removes them.
+const (
+	OwnedFile  = "file"
+	OwnedBlock = "block"
+	OwnedDir   = "dir"
+	OwnedUser  = "user"
+	OwnedUnit  = "unit"
+)
+
+// OwnedPath is something a module or the core creates on the host and
+// uninstall removes (ADR 0009). For OwnedUser, Path is the user name.
 type OwnedPath struct {
 	Path          string
-	Kind          string // "file" or "block"
+	Kind          string // one of the Owned kinds
 	BlockIDs      []string
 	CommentPrefix string // default "#"
 }
@@ -213,7 +228,6 @@ type Manifest struct {
 	Settings       reflect.Type
 	Preflight      []PreflightCheck
 	OwnedPaths     []OwnedPath
-	Uninstall      func(ctx context.Context, env Env) error
 	Migrations     map[Side]fs.FS
 	DefaultEnabled bool
 }
@@ -221,6 +235,14 @@ type Manifest struct {
 // Module is a compiled-in module.
 type Module interface {
 	Manifest() Manifest
+}
+
+// Uninstaller is the optional agent-side uninstall step of a module, found
+// with a type assertion on the Module. It runs before uninstall removes the
+// module's marked blocks and files; with keepData it leaves the module's data
+// in place for a reinstall.
+type Uninstaller interface {
+	Uninstall(ctx context.Context, env Env, keepData bool) error
 }
 
 // Sealer encrypts and decrypts secrets with associated data (ADR 0005).
@@ -403,8 +425,24 @@ type AgentHello struct {
 	ProtocolVersion int
 	BinaryVersion   string
 	OS              string
+	Arch            string
 	HostID          string
 	Modules         []ModuleStatus
+	// JournalEpoch is a ULID that changes only when the agent's journal is
+	// recreated, so the controller can tell a reset sequence from an old one.
+	JournalEpoch string
+	// ControllerConnected is nil when the agent is not enrolled.
+	ControllerConnected *bool
+	// SchemaHashes are keyed "<action name>@<version>" for every agent-side
+	// action version the agent serves.
+	SchemaHashes map[string]SchemaHash
+}
+
+// SchemaHash identifies the input and output schemas of one action version:
+// each is the lower-case hex SHA-256 of the schema re-encoded by
+// encoding/json (ADR 0012).
+type SchemaHash struct {
+	Input, Output string
 }
 
 // AgentClient is the controller's view of one agent; in M1 the in-process
