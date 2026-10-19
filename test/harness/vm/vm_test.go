@@ -4,6 +4,7 @@ package vm
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"os/exec"
 	"slices"
@@ -383,5 +384,228 @@ func TestRebootGivesUpOnAHungRebootCommand(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 6*time.Second {
 		t.Errorf("Reboot returned after %v; the hung reboot command should end within probeTimeout", elapsed)
+	}
+}
+
+// sshTestServer is an SSH server on 127.0.0.1 with no client authentication.
+type sshTestServer struct {
+	addr    string
+	hostKey ssh.PublicKey
+	opens   chan int32 // the connection number of each session request, as it arrives
+}
+
+// testServer starts an sshTestServer. reply gives the output of each exec
+// request, with n counting connections from 1; ok false leaves the request
+// unanswered, so the command hangs. Unless acceptFirst, the first connection
+// never answers a session request, as a stuck connection does.
+func testServer(t *testing.T, acceptFirst bool, reply func(n int32, cmd string) (out string, ok bool)) *sshTestServer {
+	t.Helper()
+	hostKey, err := NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &ssh.ServerConfig{NoClientAuth: true}
+	srv.AddHostKey(hostKey)
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &sshTestServer{addr: ln.Addr().String(), hostKey: hostKey.PublicKey(), opens: make(chan int32, 16)}
+	var mu sync.Mutex
+	var conns []net.Conn
+	t.Cleanup(func() {
+		_ = ln.Close()
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range conns {
+			_ = c.Close()
+		}
+	})
+	var count atomic.Int32
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			conns = append(conns, c)
+			mu.Unlock()
+			n := count.Add(1)
+			go func() {
+				_, chans, reqs, err := ssh.NewServerConn(c, srv)
+				if err != nil {
+					return
+				}
+				go ssh.DiscardRequests(reqs)
+				for nc := range chans {
+					select {
+					case s.opens <- n:
+					default:
+					}
+					if n == 1 && !acceptFirst {
+						continue // neither accepted nor rejected: NewSession waits
+					}
+					ch, creqs, err := nc.Accept()
+					if err != nil {
+						continue
+					}
+					go func() {
+						for r := range creqs {
+							var req struct{ Command string }
+							if r.Type != "exec" || ssh.Unmarshal(r.Payload, &req) != nil {
+								_ = r.Reply(false, nil)
+								continue
+							}
+							out, ok := reply(n, req.Command)
+							if !ok {
+								continue
+							}
+							_ = r.Reply(true, nil)
+							_, _ = ch.Write([]byte(out))
+							_, _ = ch.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{0}))
+							_ = ch.Close()
+						}
+					}()
+				}
+			}()
+		}
+	}()
+	return s
+}
+
+// vmOf returns a VM that dials s, connected.
+func vmOf(ctx context.Context, t *testing.T, s *sshTestServer, name string) *VM {
+	t.Helper()
+	key, err := NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := &VM{cfg: Config{Name: name, Key: key}, sshAddr: s.addr, hostKey: s.hostKey, exited: make(chan struct{})}
+	if err := v.connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(v.closeClient)
+	return v
+}
+
+// TestRunReconnectsAfterATimedOutRun: a Run whose context ends on a stuck
+// connection drops it, and the next Run must dial a new connection rather
+// than fail with "not connected".
+func TestRunReconnectsAfterATimedOutRun(t *testing.T) {
+	s := testServer(t, false, func(n int32, _ string) (string, bool) { return fmt.Sprintf("conn %d\n", n), true })
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	v := vmOf(ctx, t, s, "flaky")
+	short, cancelShort := context.WithTimeout(ctx, 200*time.Millisecond)
+	_, err := v.Run(short, "true")
+	cancelShort()
+	if err == nil {
+		t.Fatal("Run on a stuck connection = nil, want the context error")
+	}
+	if out, err := v.Run(ctx, "true"); err != nil || out != "conn 2\n" {
+		t.Errorf("Run after a timed-out Run = %q, %v; want the answer of a new connection", out, err)
+	}
+}
+
+// TestTimedOutRunKeepsAReplacement: a Run that times out on a stuck
+// connection must close that connection, not one a concurrent reconnect put
+// in its place.
+func TestTimedOutRunKeepsAReplacement(t *testing.T) {
+	s := testServer(t, false, func(int32, string) (string, bool) { return "ok\n", true })
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	v := vmOf(ctx, t, s, "swap") // connection 1: stuck
+	conf := &ssh.ClientConfig{User: User, Auth: []ssh.AuthMethod{ssh.PublicKeys(v.cfg.Key)}, HostKeyCallback: ssh.FixedHostKey(s.hostKey)}
+	cur, err := v.dial(ctx, conf) // connection 2: answers
+	if err != nil {
+		t.Fatal(err)
+	}
+	short, cancelShort := context.WithTimeout(ctx, 5*time.Second)
+	defer cancelShort()
+	returned := make(chan error, 1)
+	go func() {
+		_, err := v.Run(short, "true")
+		returned <- err
+	}()
+	select {
+	case <-s.opens: // the Run is waiting on the stuck connection's session
+	case <-time.After(3 * time.Second):
+		t.Fatal("the Run never asked the stuck connection for a session")
+	}
+	v.mu.Lock()
+	stuck := v.client
+	v.client = cur
+	v.mu.Unlock()
+	cancelShort()
+	if err := <-returned; err == nil {
+		t.Fatal("Run on a stuck connection = nil, want the context error")
+	}
+	v.mu.Lock()
+	kept := v.client == cur
+	v.mu.Unlock()
+	if !kept {
+		t.Error("the timed-out Run dropped the replacement connection")
+	}
+	closed := make(chan struct{})
+	go func() {
+		_ = stuck.Wait()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(3 * time.Second):
+		t.Error("the stuck connection is still open after its Run timed out")
+	}
+	if out, err := v.Run(ctx, "true"); err != nil || out != "ok\n" {
+		t.Errorf("Run on the replacement = %q, %v", out, err)
+	}
+}
+
+// TestRebootGivesUpOnAHungFirstProbe: the boot_id read before the reboot
+// command gets probeTimeout, not the whole reboot deadline.
+func TestRebootGivesUpOnAHungFirstProbe(t *testing.T) {
+	s := testServer(t, true, func(int32, string) (string, bool) { return "", false })
+	old := probeTimeout
+	probeTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { probeTimeout = old })
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	v := vmOf(ctx, t, s, "hung")
+	start := time.Now()
+	if err := v.Reboot(ctx); err == nil {
+		t.Fatal("Reboot with a hung boot_id read = nil, want an error")
+	}
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Errorf("Reboot returned after %v; the first probe should end within probeTimeout", elapsed)
+	}
+}
+
+// TestKillProcessNameLength: pkill -x matches the kernel's 15-character
+// process name, so a 15-character name is sent and a 16-character one is
+// refused without running anything.
+func TestKillProcessNameLength(t *testing.T) {
+	var mu sync.Mutex
+	var cmds []string
+	s := testServer(t, true, func(_ int32, cmd string) (string, bool) {
+		mu.Lock()
+		cmds = append(cmds, cmd)
+		mu.Unlock()
+		return "", true
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	v := vmOf(ctx, t, s, "target")
+	if err := v.KillProcess(ctx, "abcdefghijklmno"); err != nil {
+		t.Errorf("KillProcess of a 15-character name: %v", err)
+	}
+	err := v.KillProcess(ctx, "abcdefghijklmnop")
+	if err == nil || !strings.Contains(err.Error(), "first 15 characters") {
+		t.Errorf("KillProcess of a 16-character name: %v, want a refusal naming the 15-character limit", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if want := []string{killCommand("abcdefghijklmno")}; !slices.Equal(cmds, want) {
+		t.Errorf("commands run = %q, want %q", cmds, want)
 	}
 }

@@ -407,10 +407,14 @@ func TestApplyPanicUnlocksPlan(t *testing.T) {
 	ctx := context.Background()
 	pl := h.plan(d, testHost, refSet, `{"name":"a","value":"1"}`)
 	h.hosts.Add(testHost, panicApply{h.rt})
+	var recovered any
 	func() {
-		defer func() { _ = recover() }()
+		defer func() { recovered = recover() }()
 		_, _ = d.Apply(ctx, alice, testHost, refSet, pl.PlanID, core.ApplyOptions{})
 	}()
+	if recovered == nil {
+		t.Fatal("Apply with a panicking agent returned normally; want the panic to reach the caller")
+	}
 	d.plans.mu.Lock()
 	n := len(d.plans.held)
 	d.plans.mu.Unlock()
@@ -424,4 +428,47 @@ func TestApplyPanicUnlocksPlan(t *testing.T) {
 		t.Fatalf("lock of the plan after a panicking apply: %v", err)
 	}
 	unlock()
+}
+
+// TestApplyCancelledWhileWaitingForThePlanLock: a request whose context ends
+// while another apply of the plan holds its lock gets a typed refusal, not
+// a bare context error the API would answer as a logged 500.
+func TestApplyCancelledWhileWaitingForThePlanLock(t *testing.T) {
+	h, d := newDispatcher(t)
+	pl := h.plan(d, testHost, refSet, `{"name":"a","value":"1"}`)
+	unlock, err := d.plans.lock(context.Background(), pl.PlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	returned := make(chan error, 1)
+	go func() {
+		_, err := d.Apply(ctx, alice, testHost, refSet, pl.PlanID, core.ApplyOptions{})
+		returned <- err
+	}()
+	waiting := func() bool { // the holder and this Apply share the plan's lock
+		d.plans.mu.Lock()
+		defer d.plans.mu.Unlock()
+		lk := d.plans.held[pl.PlanID]
+		return lk != nil && lk.users == 2
+	}
+	for deadline := time.Now().Add(5 * time.Second); !waiting(); time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("Apply never waited for the plan lock")
+		}
+	}
+	cancel()
+	select {
+	case err = <-returned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Apply did not return after its context was cancelled")
+	}
+	if errcode.From(err).Code != errcode.LockHeld || !errors.Is(err, context.Canceled) {
+		t.Errorf("Apply cancelled while the plan is locked: %v, want lock.held wrapping context.Canceled", err)
+	}
+	if n := h.count("SELECT applied FROM core_plan_index WHERE plan_id = ?", pl.PlanID); n != 0 {
+		t.Errorf("applied after a cancelled lock wait = %d, want 0", n)
+	}
 }

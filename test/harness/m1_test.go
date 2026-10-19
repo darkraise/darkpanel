@@ -283,17 +283,23 @@ func darkpanelListeners(ss string) (all, nonLoopback []string) {
 			continue
 		}
 		all = append(all, fields[3])
-		host, _, err := net.SplitHostPort(fields[3])
-		if err != nil {
-			nonLoopback = append(nonLoopback, fields[3])
-			continue
-		}
-		host, _, _ = strings.Cut(host, "%")
-		if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
+		if ip := net.ParseIP(listenHost(fields[3])); ip == nil || !ip.IsLoopback() {
 			nonLoopback = append(nonLoopback, fields[3])
 		}
 	}
 	return all, nonLoopback
+}
+
+// listenHost is the address of an ss local address: the text before the
+// port, without brackets or a %device suffix. ss prints a device-bound IPv6
+// address as [::1]%lo:8080, which net.SplitHostPort refuses.
+func listenHost(addr string) string {
+	i := strings.LastIndex(addr, ":")
+	if i < 0 {
+		return ""
+	}
+	host, _, _ := strings.Cut(addr[:i], "%")
+	return strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
 }
 
 func TestDarkpanelListeners(t *testing.T) {
@@ -314,6 +320,10 @@ LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=600,fd=3))
 			[]string{"127.0.0.1:8080", "[::1]:8080", "*:8080"}, []string{"*:8080"}},
 		{"zone on a loopback address", `LISTEN 0 4096 127.0.0.1%lo:8080 0.0.0.0:* users:(("darkpanel",pid=1,fd=7))` + "\n",
 			[]string{"127.0.0.1%lo:8080"}, nil},
+		{"device-bound IPv6 loopback", `LISTEN 0 4096 [::1]%lo:8080 [::]:* users:(("darkpanel",pid=1,fd=8))` + "\n",
+			[]string{"[::1]%lo:8080"}, nil},
+		{"IPv6 wildcard in brackets", `LISTEN 0 4096 [::]:8080 [::]:* users:(("darkpanel",pid=1,fd=9))` + "\n",
+			[]string{"[::]:8080"}, []string{"[::]:8080"}},
 		{"no darkpanel line", "LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:((\"sshd\",pid=6,fd=3))\n", nil, nil},
 		{"line without a process column", "LISTEN 0 4096 0.0.0.0:8080 0.0.0.0:*\n", nil, nil},
 	}

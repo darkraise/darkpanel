@@ -8,7 +8,9 @@ package harness
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"slices"
@@ -73,6 +75,9 @@ func LoadPins(path string) (Pins, error) {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&p); err != nil {
 		return Pins{}, fmt.Errorf("harness: %s: %w", path, err)
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return Pins{}, fmt.Errorf("harness: %s: trailing content after the pins object", path)
 	}
 	if err := p.check(); err != nil {
 		return Pins{}, fmt.Errorf("harness: %s: %w", path, err)

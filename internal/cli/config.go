@@ -93,11 +93,12 @@ func loadConfig(path string) (fileConfig, error) {
 // connectNetwork returns the client of the network API. The URL comes from
 // flagURL, then DARKPANEL_URL, then the config file, then DefaultURL; the
 // token from DARKPANEL_TOKEN, then the config file, whose token goes only to
-// the config file's server (its URL, or DefaultURL when it names none); the
-// CA fingerprint from the config file. A token is never sent over plain http
-// to a host that is not loopback (spec section 15, register row 91). The
-// config file is read whenever it exists.
-func connectNetwork(flagURL string, getenv func(string) string, home func() (string, error)) (*client, error) {
+// the config file's server (its URL, or DefaultURL when it names none), and
+// stderr gets one line when it is withheld; the CA fingerprint from the
+// config file. A token is never sent over plain http to a host that is not
+// loopback (spec section 15, register row 91). The config file is read
+// whenever it exists.
+func connectNetwork(flagURL string, getenv func(string) string, home func() (string, error), stderr io.Writer) (*client, error) {
 	var cfg fileConfig
 	if path, err := configPath(getenv, home); err == nil {
 		if cfg, err = loadConfig(path); err != nil {
@@ -110,11 +111,16 @@ func connectNetwork(flagURL string, getenv func(string) string, home func() (str
 		return nil, usagef("server URL %q: want http://<host>:<port> or https://<host>:<port>", raw)
 	}
 	token := getenv(EnvToken)
-	if token == "" && sameServer(u, firstOf(cfg.URL, DefaultURL)) {
-		token = cfg.Token
+	if token == "" && cfg.Token != "" {
+		if fileServer := firstOf(cfg.URL, DefaultURL); sameServer(u, fileServer) {
+			token = cfg.Token
+		} else {
+			_, _ = fmt.Fprintf(stderr, "darkpanel: the config file's token is sent only to %s, not to %s; set %s to send a token there\n",
+				serverOf(fileServer), serverOf(u.String()), EnvToken)
+		}
 	}
 	if token != "" && strings.EqualFold(u.Scheme, "http") && !isLoopbackHost(u.Hostname()) {
-		return nil, usagef("refusing to send the API token over plain http to %s; use https, or http to a loopback address", u.Host)
+		return nil, usagef("refusing to send the API token over plain http to %s; use https, or http to a loopback address (127.0.0.0/8, ::1, or localhost in lowercase)", u.Host)
 	}
 	hc, err := newHTTPClient(u, cfg.CAFingerprint)
 	if err != nil {
@@ -133,11 +139,37 @@ func firstOf(values ...string) string {
 }
 
 // sameServer reports whether u names the server of the URL raw: the same
-// scheme, host and port, and the same path but for a trailing slash.
+// scheme, host and port, with the scheme's default port when none is given,
+// and the same escaped path but for a trailing slash. The escaped path keeps
+// /team%2Fadmin apart from /team/admin.
 func sameServer(u *url.URL, raw string) bool {
 	f, err := url.Parse(raw)
-	return err == nil && strings.EqualFold(u.Scheme, f.Scheme) && strings.EqualFold(u.Host, f.Host) &&
-		strings.TrimSuffix(u.Path, "/") == strings.TrimSuffix(f.Path, "/")
+	return err == nil && strings.EqualFold(u.Scheme, f.Scheme) && strings.EqualFold(hostPort(u), hostPort(f)) &&
+		strings.TrimSuffix(u.EscapedPath(), "/") == strings.TrimSuffix(f.EscapedPath(), "/")
+}
+
+// hostPort is u's host and port, with the port the scheme implies when u
+// names none.
+func hostPort(u *url.URL) string {
+	port := u.Port()
+	if port == "" {
+		port = "80"
+		if strings.EqualFold(u.Scheme, "https") {
+			port = "443"
+		}
+	}
+	return net.JoinHostPort(u.Hostname(), port)
+}
+
+// serverOf names the server of the URL raw in a message: its scheme, host
+// and port only. Userinfo, path and query are left out because any of them
+// can carry a credential.
+func serverOf(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return "the configured URL"
+	}
+	return sanitize(u.Scheme + "://" + u.Host)
 }
 
 // isLoopbackHost reports whether host, a URL host without its port, is

@@ -44,8 +44,9 @@ systemctl enable --now ufw docker tailscaled
 
 // TargetScript provisions the target VM of o: UFW enabled with only 22/tcp
 // allowed and ufw.service started (Debian's package enables the unit on
-// install without starting it, so it would stay inactive until a reboot), and Docker Engine and tailscaled from o's pinned .deb files.
-// tailscaled runs but is not logged in until M5.
+// install without starting it, so it would stay inactive until a reboot),
+// and Docker Engine and tailscaled from o's pinned .deb files. tailscaled
+// runs but is not logged in until M5.
 func TargetScript(o OS) string {
 	var b strings.Builder
 	if err := targetTemplate.Execute(&b, o); err != nil {

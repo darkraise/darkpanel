@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -166,7 +167,7 @@ func TestConnectNetworkPrecedence(t *testing.T) {
 		{"config file last", "", map[string]string{}, "http://127.0.0.3:8080", "dpt_config"},
 	}
 	for _, c := range cases {
-		cl, err := connectNetwork(c.flag, envOf(c.env), homeAt(home))
+		cl, err := connectNetwork(c.flag, envOf(c.env), homeAt(home), io.Discard)
 		if err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
@@ -174,7 +175,7 @@ func TestConnectNetworkPrecedence(t *testing.T) {
 			t.Errorf("%s: base %q token %q, want %q %q", c.name, cl.base, cl.token, c.wantBase, c.wantToken)
 		}
 	}
-	cl, err := connectNetwork("", envOf(nil), homeAt(t.TempDir()))
+	cl, err := connectNetwork("", envOf(nil), homeAt(t.TempDir()), io.Discard)
 	if err != nil || cl.base != DefaultURL || cl.token != "" {
 		t.Errorf("no config: base %q token %q err %v, want %q and no token", cl.base, cl.token, err, DefaultURL)
 	}
@@ -193,9 +194,14 @@ func TestConnectNetworkRefusesATokenOverPlainHTTP(t *testing.T) {
 		{"http://LOCALHOST:8080", true},
 		{"http://127.0.0.2:8080", false},
 		{"http://[::1]:8080", false},
+		{"http://127.0.0.1.nip.io:8080", true},     // a host name that starts with 127., not an address
+		{"http://127.0.0.1@192.0.2.10:8080", true}, // userinfo does not make the host loopback
+		{"http://user@127.0.0.1:8080", false},
+		{"http://192.0.2.10", true}, // the default port
+		{"http://127.0.0.1", false},
 	}
 	for _, c := range cases {
-		_, err := connectNetwork(c.url, withToken, homeAt(t.TempDir()))
+		_, err := connectNetwork(c.url, withToken, homeAt(t.TempDir()), io.Discard)
 		if c.refused {
 			if ExitCode(err) != ExitUsage || !strings.Contains(err.Error(), "plain http") || strings.Contains(err.Error(), "dpt_secret") {
 				t.Errorf("%s with a token: %v, want a usage error about plain http that hides the token", c.url, err)
@@ -204,21 +210,25 @@ func TestConnectNetworkRefusesATokenOverPlainHTTP(t *testing.T) {
 			t.Errorf("%s with a token: %v", c.url, err)
 		}
 	}
-	if _, err := connectNetwork("http://192.0.2.10:8080", envOf(nil), homeAt(t.TempDir())); err != nil {
+	if _, err := connectNetwork("http://LOCALHOST:8080", withToken, homeAt(t.TempDir()), io.Discard); err == nil ||
+		!strings.Contains(err.Error(), "localhost in lowercase") {
+		t.Errorf("http://LOCALHOST:8080 with a token: %v, want a refusal saying only lowercase localhost counts", err)
+	}
+	if _, err := connectNetwork("http://192.0.2.10:8080", envOf(nil), homeAt(t.TempDir()), io.Discard); err != nil {
 		t.Errorf("plain http to another host without a token: %v", err)
 	}
 	home := t.TempDir()
 	writeConfig(t, home, `{"url":"http://192.0.2.10:8080","token":"dpt_config"}`, 0o600)
-	if _, err := connectNetwork("", envOf(nil), homeAt(home)); ExitCode(err) != ExitUsage {
+	if _, err := connectNetwork("", envOf(nil), homeAt(home), io.Discard); ExitCode(err) != ExitUsage {
 		t.Errorf("a config file pairing a token with plain http to another host: %v, want a usage error", err)
 	}
 	home = t.TempDir()
 	writeConfig(t, home, `{"token":"dpt_config"}`, 0o600)
-	cl, err := connectNetwork("", envOf(nil), homeAt(home))
+	cl, err := connectNetwork("", envOf(nil), homeAt(home), io.Discard)
 	if err != nil || cl.base != DefaultURL || cl.token != "dpt_config" {
 		t.Errorf("config file token without a URL: base %q token %q err %v, want the token for %s", cl.base, cl.token, err, DefaultURL)
 	}
-	cl, err = connectNetwork("https://192.0.2.10:8443", envOf(nil), homeAt(home))
+	cl, err = connectNetwork("https://192.0.2.10:8443", envOf(nil), homeAt(home), io.Discard)
 	if err != nil || cl.token != "" {
 		t.Errorf("config file token without a URL, --url elsewhere: token %q err %v, want no token", cl.token, err)
 	}
@@ -244,7 +254,7 @@ func TestConfigPath(t *testing.T) {
 func TestConfigFileRefusals(t *testing.T) {
 	refused := func(name, home, path, want string) {
 		t.Helper()
-		_, err := connectNetwork("", envOf(nil), homeAt(home))
+		_, err := connectNetwork("", envOf(nil), homeAt(home), io.Discard)
 		if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "chmod 600 "+path) ||
 			strings.Contains(err.Error(), "dpt_secret") {
 			t.Errorf("%s: error %v, want a refusal saying %q and naming chmod 600 %s", name, err, want, path)
@@ -275,10 +285,10 @@ func TestConfigFileRefusals(t *testing.T) {
 	}
 	home = t.TempDir()
 	writeConfig(t, home, `{"token":"dpt_secret","fingerprint":"x"}`, 0o600)
-	if _, err := connectNetwork("", envOf(nil), homeAt(home)); err == nil || !strings.Contains(err.Error(), `"fingerprint"`) {
+	if _, err := connectNetwork("", envOf(nil), homeAt(home), io.Discard); err == nil || !strings.Contains(err.Error(), `"fingerprint"`) {
 		t.Errorf("unknown field: error %v", err)
 	}
-	if _, err := connectNetwork("ftp://127.0.0.1", envOf(nil), homeAt(t.TempDir())); ExitCode(err) != ExitUsage {
+	if _, err := connectNetwork("ftp://127.0.0.1", envOf(nil), homeAt(t.TempDir()), io.Discard); ExitCode(err) != ExitUsage {
 		t.Errorf("ftp URL: error %v, want a usage error", err)
 	}
 }
@@ -297,7 +307,7 @@ func TestClientDo(t *testing.T) {
 				`"detail":"authentication required","code":"auth.required"}`},
 		exchange{method: "GET", path: "/api/v1/changes/c1", status: 502},
 	)
-	c, err := connectNetwork(base, envOf(map[string]string{EnvToken: "dpt_t1"}), homeAt(t.TempDir()))
+	c, err := connectNetwork(base, envOf(map[string]string{EnvToken: "dpt_t1"}), homeAt(t.TempDir()), io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,5 +354,75 @@ func TestSocketClient(t *testing.T) {
 	if err := newSocketClient(missing).do(context.Background(), "GET", "/healthz", nil, nil); err == nil ||
 		!strings.Contains(err.Error(), missing) {
 		t.Errorf("missing socket: error %v, want one naming %s", err, missing)
+	}
+}
+
+func TestSameServer(t *testing.T) {
+	cases := []struct {
+		url, file string
+		same      bool
+	}{
+		{"http://127.0.0.1:8080", "http://127.0.0.1:8080/", true},
+		{"HTTP://Panel.Example:8080/team/", "http://panel.example:8080/team", true},
+		{"https://panel.example", "https://panel.example:443", true},
+		{"http://panel.example:80/", "http://panel.example", true},
+		{"http://panel.example:443", "https://panel.example", false},
+		{"https://panel.example:8443", "https://panel.example", false},
+		{"https://panel.example/team%2Fadmin", "https://panel.example/team/admin", false},
+		{"https://panel.example/team", "https://panel.example/team/admin", false},
+	}
+	for _, c := range cases {
+		u, err := url.Parse(c.url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := sameServer(u, c.file); got != c.same {
+			t.Errorf("sameServer(%s, %s) = %v, want %v", c.url, c.file, got, c.same)
+		}
+	}
+}
+
+func TestConnectNetworkSaysWhenItWithholdsTheFileToken(t *testing.T) {
+	home := t.TempDir()
+	writeConfig(t, home, `{"url":"http://127.0.0.3:8080","token":"dpt_config"}`, 0o600)
+	var stderr strings.Builder
+	cl, err := connectNetwork("http://127.0.0.1:9000", envOf(nil), homeAt(home), &stderr)
+	if err != nil || cl.token != "" {
+		t.Fatalf("--url elsewhere: token %q err %v, want no token", cl.token, err)
+	}
+	if got := stderr.String(); strings.Count(got, "\n") != 1 || !strings.Contains(got, "http://127.0.0.3:8080") ||
+		!strings.Contains(got, EnvToken) || strings.Contains(got, "dpt_config") {
+		t.Errorf("stderr = %q, want one line naming the config file's server and %s, without the token", got, EnvToken)
+	}
+	secrets := t.TempDir()
+	writeConfig(t, secrets, `{"url":"https://dpt_user:dpt_pass@panel.example:8443/dpt_path?token=dpt_query","token":"dpt_config"}`, 0o600)
+	stderr.Reset()
+	if _, err := connectNetwork("https://other.example", envOf(nil), homeAt(secrets), &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if got := stderr.String(); !strings.Contains(got, "https://panel.example:8443") || strings.Contains(got, "dpt_") {
+		t.Errorf("stderr = %q, want the config file's scheme, host and port only, with no credential", got)
+	}
+	unparsable := t.TempDir()
+	writeConfig(t, unparsable, `{"url":"http://%zz","token":"dpt_config"}`, 0o600)
+	stderr.Reset()
+	if _, err := connectNetwork("http://127.0.0.1:9000", envOf(nil), homeAt(unparsable), &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if got := stderr.String(); !strings.Contains(got, "the configured URL") || strings.Contains(got, "%zz") {
+		t.Errorf("stderr = %q, want the unparsable URL named generically", got)
+	}
+	for name, env := range map[string]map[string]string{
+		"the file's own server": nil,
+		"an environment token":  {EnvToken: "dpt_env"},
+	} {
+		stderr.Reset()
+		u := "http://127.0.0.1:9000"
+		if env == nil {
+			u = "http://127.0.0.3:8080"
+		}
+		if _, err := connectNetwork(u, envOf(env), homeAt(home), &stderr); err != nil || stderr.Len() != 0 {
+			t.Errorf("%s: stderr %q, err %v; want no hint", name, stderr.String(), err)
+		}
 	}
 }
