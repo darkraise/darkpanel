@@ -97,7 +97,9 @@ func (e *Engine) verifyStored(ctx context.Context, changeID string) string {
 	if err != nil {
 		return "verify not run: the stored input does not open"
 	}
-	if err := e.verify(ctx, def, e.env(recoveryPrincipal), input, json.RawMessage("null")); err != nil {
+	env := e.env(recoveryPrincipal)
+	env.ChangeID = changeID
+	if err := e.verify(ctx, def, env, input, json.RawMessage("null")); err != nil {
 		return "verify failed: " + e.changeError(def.Ref(), err).Message
 	}
 	return "verify passed"
