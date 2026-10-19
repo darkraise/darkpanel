@@ -870,6 +870,13 @@ Package `internal/cli`, generated from `registry.Build()` with cobra:
   file, then `http://127.0.0.1:8080`. Token from `DARKPANEL_TOKEN`, then the
   config file `$XDG_CONFIG_HOME/darkpanel/cli.json`
   (`{url, token, caFingerprint}`, refused if group or other can read it).
+  The config file's token is used only when the chosen URL has the same
+  scheme, host, port and path (ignoring a trailing slash) as the file's URL,
+  or as `http://127.0.0.1:8080` when the file names no URL, so a `--url` or
+  `DARKPANEL_URL` naming another server never receives it. The CLI refuses,
+  with a usage error, to send any token over plain `http` to a host other than
+  `localhost` or a loopback IP address (amended 2026-10-19 by the owner,
+  register row 91).
 - **HTTPS verification.** Without `caFingerprint` the CLI verifies against the
   system roots. With it, the CLI disables default verification and, in
   `VerifyPeerCertificate`, finds the presented certificate whose SHA-256 over
@@ -952,7 +959,11 @@ time against darkraise-ui 6.9.6.
 ### 18. Integration harness (R21)
 
 Under `test/harness/`, in Go behind the build tag `harness`, run with
-`go test -tags harness ./test/harness/... -args -os <id>`:
+`go test -tags harness ./test/harness/ -args -os <id>`. The package path names
+the root package alone because `go test` passes `-args` to every test binary
+its patterns match, and only the root package defines `-os`; without `-args`,
+`go test -tags harness ./test/harness/...` runs the driver's unit tests and
+skips the VM tests (amended 2026-10-19 at plan time):
 
 - **Images.** `images.json` pins Ubuntu 22.04 and 24.04 and Debian 12 and 13
   cloud images by dated release URL and SHA-256 (never a `current` link); the
