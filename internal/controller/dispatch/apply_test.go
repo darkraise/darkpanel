@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -273,5 +274,124 @@ func TestApplyOfAnUnappliedPlanPastItsRetentionIsNotFound(t *testing.T) {
 	e := wantCode(t, err, errcode.PlanNotFound)
 	if e.Detail != "no plan "+pl.PlanID+" for kv.item.set/v1 on host h1" {
 		t.Errorf("detail = %q", e.Detail)
+	}
+}
+
+// gatedApply is an agent whose first apply waits for release and then fails
+// without a change, as a busy lock on the host would; every later apply
+// passes through, and committed is closed after the first of them returns.
+type gatedApply struct {
+	core.AgentClient
+	entered, release, committed chan struct{}
+	calls                       atomic.Int32
+}
+
+func (c *gatedApply) Apply(ctx context.Context, p core.Principal, planID string, opts core.ApplyOptions) (core.ChangeView, error) {
+	switch c.calls.Add(1) {
+	case 1:
+		close(c.entered)
+		<-c.release
+		return core.ChangeView{}, errcode.New(errcode.LockHeld, "kv is locked")
+	case 2:
+		defer close(c.committed)
+	}
+	return c.AgentClient.Apply(ctx, p, planID, opts)
+}
+
+// TestConcurrentAppliesOfOnePlanKeepItMarked is register row 90. The first
+// apply is released only once the second has either committed (no per-plan
+// lock) or queued on the plan's lock, so neither outcome depends on timing.
+func TestConcurrentAppliesOfOnePlanKeepItMarked(t *testing.T) {
+	h, d := newDispatcher(t)
+	ctx := context.Background()
+	pl := h.plan(d, testHost, refSet, `{"name":"a","value":"1"}`)
+	g := &gatedApply{AgentClient: h.rt, entered: make(chan struct{}), release: make(chan struct{}), committed: make(chan struct{})}
+	h.hosts.Add(testHost, g)
+
+	first := make(chan error, 1)
+	go func() {
+		_, err := d.Apply(ctx, alice, testHost, refSet, pl.PlanID, core.ApplyOptions{})
+		first <- err
+	}()
+	select {
+	case <-g.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the first apply never reached the agent")
+	}
+	type result struct {
+		v   core.ChangeView
+		err error
+	}
+	second := make(chan result, 1)
+	go func() {
+		v, err := d.Apply(ctx, alice, testHost, refSet, pl.PlanID, core.ApplyOptions{})
+		second <- result{v, err}
+	}()
+	queued := func() bool {
+		d.plans.mu.Lock()
+		defer d.plans.mu.Unlock()
+		l := d.plans.held[pl.PlanID]
+		return l != nil && l.users == 2
+	}
+	deadline := time.After(5 * time.Second)
+wait:
+	for {
+		select {
+		case <-g.committed:
+			break wait
+		case <-deadline:
+			t.Fatal("the second apply neither committed nor queued on the plan lock")
+		case <-time.After(time.Millisecond):
+			if queued() {
+				break wait
+			}
+		}
+	}
+	close(g.release)
+
+	select {
+	case err := <-first:
+		_ = wantCode(t, err, errcode.LockHeld)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the first apply did not return")
+	}
+	var r result
+	select {
+	case r = <-second:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the second apply did not return")
+	}
+	if r.err != nil || r.v.ID == "" {
+		t.Fatalf("second apply = %+v, %v; want a committed change", r.v, r.err)
+	}
+	if n := h.count("SELECT applied FROM core_plan_index WHERE plan_id = ?", pl.PlanID); n != 1 {
+		t.Errorf("applied after a failed and a committed concurrent apply = %d, want 1", n)
+	}
+}
+
+func TestPlanLocksWaitForTheHolderOrTheContext(t *testing.T) {
+	var l planLocks
+	unlock, err := l.lock(context.Background(), "p1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ended, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := l.lock(ended, "p1"); !errors.Is(err, context.Canceled) {
+		t.Errorf("lock of a held plan with an ended context: %v, want context.Canceled", err)
+	}
+	other, err := l.lock(context.Background(), "p2")
+	if err != nil {
+		t.Fatalf("lock of another plan while p1 is held: %v", err)
+	}
+	other()
+	unlock()
+	again, err := l.lock(context.Background(), "p1")
+	if err != nil {
+		t.Fatalf("lock of p1 after its unlock: %v", err)
+	}
+	again()
+	if len(l.held) != 0 {
+		t.Errorf("locks kept after every unlock: %v", l.held)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sync"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
@@ -34,8 +35,16 @@ func (d *Dispatcher) Apply(ctx context.Context, p core.Principal, hostID string,
 	// Marked before the call: the change may be committed even when this
 	// process stops before the call returns, and its plan must stay indexed
 	// so a repeated apply returns that change.
+	// Applies of one plan run one at a time: otherwise a failed apply that
+	// claimed the flag could clear it after a concurrent apply of the same
+	// plan committed (register row 90).
+	unlock, err := d.plans.lock(ctx, planID)
+	if err != nil {
+		return core.ChangeView{}, err
+	}
 	claimed, err := d.markApplied(ctx, planID)
 	if err != nil {
+		unlock()
 		return core.ChangeView{}, err
 	}
 	v, err := apply()
@@ -44,6 +53,7 @@ func (d *Dispatcher) Apply(ctx context.Context, p core.Principal, hostID string,
 			d.cfg.Log.Error("dispatch: unmark plan", "plan", planID, "error", err)
 		}
 	}
+	unlock()
 	if v.ID != "" && def.Spec.Side == core.SideAgent {
 		d.index(ctx, hostID, v)
 		d.ingest(ctx, hostID)
@@ -139,5 +149,50 @@ func (d *Dispatcher) ingest(ctx context.Context, hostID string) {
 	}
 	if err := d.cfg.Ingest.IngestHost(context.WithoutCancel(ctx), hostID); err != nil {
 		d.cfg.Log.Warn("dispatch: journal ingestion", "host", hostID, "error", err)
+	}
+}
+
+// planLocks are per-plan locks of this process. One process is enough: the
+// controller lock keeps the controller to one instance.
+type planLocks struct {
+	mu   sync.Mutex
+	held map[string]*planLock
+}
+
+type planLock struct {
+	slot  chan struct{} // holds a value while the plan is locked
+	users int           // holders and waiters; guarded by planLocks.mu
+}
+
+// lock locks planID, waiting until it is free or ctx ends, and returns the
+// function that unlocks it.
+func (l *planLocks) lock(ctx context.Context, planID string) (func(), error) {
+	l.mu.Lock()
+	if l.held == nil {
+		l.held = make(map[string]*planLock)
+	}
+	pl := l.held[planID]
+	if pl == nil {
+		pl = &planLock{slot: make(chan struct{}, 1)}
+		l.held[planID] = pl
+	}
+	pl.users++
+	l.mu.Unlock()
+	release := func() {
+		l.mu.Lock()
+		if pl.users--; pl.users == 0 {
+			delete(l.held, planID)
+		}
+		l.mu.Unlock()
+	}
+	select {
+	case pl.slot <- struct{}{}:
+		return func() {
+			<-pl.slot
+			release()
+		}, nil
+	case <-ctx.Done():
+		release()
+		return nil, ctx.Err()
 	}
 }
