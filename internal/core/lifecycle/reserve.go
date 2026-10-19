@@ -11,9 +11,11 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/store"
 )
 
-// ReserveAll is the lock key of an operation that excludes every change:
+// ReserveAll is the lock key of an operation that excludes every keyed change:
 // while a row with this key exists, no change of another owner can take any
-// lock (ADR 0012).
+// lock (ADR 0012). A change whose action declares no lock keys takes no lock
+// and is not stopped, so an action that must not run during an update has to
+// declare a key.
 const ReserveAll = "*"
 
 // ReservationOwner is the lock owner of an update operation. No change id
