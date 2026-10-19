@@ -100,3 +100,64 @@ test("a failed revocation keeps the dialog open with the error", async () => {
   await user.click(within(dialog).getByRole("button", { name: "Revoke" }))
   expect((await within(dialog).findByText("the plan expired; plan again")).textContent).toBe("the plan expired; plan again")
 })
+
+test("an expired plan is replaced by a fresh one and the typed phrase is cleared", async () => {
+  let plans = 0
+  const calls = stubFetch({
+    [LIST]: { body: { output: { tokens } } },
+    [PLAN]: () => {
+      plans++
+      return { body: { ...plan, planId: `p${plans}` } }
+    },
+    [APPLY]: (call) =>
+      (call.body as { planId: string }).planId === "p1"
+        ? { status: 410, body: { type: "about:blank", title: "Plan expired", status: 410, detail: "the plan expired; plan again", code: "plan.expired" } }
+        : { body: revoked },
+  })
+  renderWithProviders(<TokensPage />)
+  const user = userEvent.setup()
+  await screen.findByText("ci")
+  await user.click(within(rowOf("ci")).getByRole("button", { name: "Revoke token ci" }))
+  const dialog = screen.getByRole("dialog")
+  const phrase = await within(dialog).findByLabelText("Type tok1 to confirm")
+  await user.type(phrase, "tok1")
+  await user.click(within(dialog).getByRole("button", { name: "Revoke" }))
+
+  await within(dialog).findByText("the plan expired; plan again")
+  await waitFor(() => expect(plans).toBe(2))
+  await waitFor(() => expect((within(dialog).getByLabelText("Type tok1 to confirm") as HTMLInputElement).value).toBe(""))
+
+  await user.type(within(dialog).getByLabelText("Type tok1 to confirm"), "tok1")
+  await user.click(within(dialog).getByRole("button", { name: "Revoke" }))
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+  expect(calls.filter((c) => c.path.endsWith("/apply")).map((c) => (c.body as { planId: string }).planId)).toEqual(["p1", "p2"])
+})
+
+test("Escape does not close the dialog while a revocation is in flight", async () => {
+  let release: () => void = () => undefined
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  stubFetch({
+    [LIST]: { body: { output: { tokens } } },
+    [PLAN]: { body: plan },
+    [APPLY]: async () => {
+      await gate
+      return { body: revoked }
+    },
+  })
+  renderWithProviders(<TokensPage />)
+  const user = userEvent.setup()
+  await screen.findByText("ci")
+  await user.click(within(rowOf("ci")).getByRole("button", { name: "Revoke token ci" }))
+  const dialog = screen.getByRole("dialog")
+  await user.type(await within(dialog).findByLabelText("Type tok1 to confirm"), "tok1")
+  await user.click(within(dialog).getByRole("button", { name: "Revoke" }))
+
+  await user.keyboard("{Escape}")
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  expect(screen.getByRole("dialog")).toBeTruthy()
+
+  release()
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+})

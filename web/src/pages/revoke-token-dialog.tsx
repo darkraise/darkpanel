@@ -6,10 +6,17 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "darkraise-ui/components/input"
 import { Label } from "darkraise-ui/components/label"
 import { Spinner } from "darkraise-ui/components/spinner"
-import { TOKENS_QUERY_KEY, applyPlan, changeError, errorMessage, planAction } from "@/api/client"
+import { ApiError, TOKENS_QUERY_KEY, applyPlan, changeError, errorMessage, planAction } from "@/api/client"
 import type { TokenInfo } from "@/api/types"
 
-function RevokeForm({ token, onDone }: { token: TokenInfo; onDone: () => void }) {
+interface RevokeFormProps {
+  token: TokenInfo
+  busy: boolean
+  setBusy: (busy: boolean) => void
+  onDone: () => void
+}
+
+function RevokeForm({ token, busy, setBusy, onDone }: RevokeFormProps) {
   const client = useQueryClient()
   // A fresh plan per opening: gcTime 0 drops it when the dialog closes.
   const plan = useQuery({
@@ -19,8 +26,15 @@ function RevokeForm({ token, onDone }: { token: TokenInfo; onDone: () => void })
     gcTime: 0,
   })
   const [typed, setTyped] = useState("")
-  const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // An expired, unknown or already-applied plan is dead, so resending it
+  // fails the same way; a failed change consumed it. Plan again so the next
+  // attempt carries a fresh one.
+  function retryWithFreshPlan() {
+    setTyped("")
+    void plan.refetch()
+  }
 
   async function revoke(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -32,12 +46,14 @@ function RevokeForm({ token, onDone }: { token: TokenInfo; onDone: () => void })
       const failure = changeError(change)
       if (failure !== null) {
         setError(failure)
+        retryWithFreshPlan()
         return
       }
       void client.invalidateQueries({ queryKey: TOKENS_QUERY_KEY })
       onDone()
     } catch (err) {
       setError(errorMessage(err))
+      if (err instanceof ApiError && err.code.startsWith("plan.")) retryWithFreshPlan()
     } finally {
       setBusy(false)
     }
@@ -81,7 +97,7 @@ function RevokeForm({ token, onDone }: { token: TokenInfo; onDone: () => void })
               type="submit"
               variant="destructive"
               loading={busy}
-              disabled={plan.data.confirmation !== null && typed !== plan.data.confirmation}
+              disabled={plan.isFetching || (plan.data.confirmation !== null && typed !== plan.data.confirmation)}
             >
               Revoke
             </Button>
@@ -93,14 +109,20 @@ function RevokeForm({ token, onDone }: { token: TokenInfo; onDone: () => void })
 }
 
 export function RevokeTokenDialog({ token, onClose }: { token: TokenInfo | null; onClose: () => void }) {
+  const [busy, setBusy] = useState(false)
+
+  // While a revocation is in flight the dialog cannot be closed, so its
+  // completion can never close the dialog of a token opened afterwards.
   return (
     <Dialog
       open={token !== null}
       onOpenChange={(open) => {
-        if (!open) onClose()
+        if (!open && !busy) onClose()
       }}
     >
-      <DialogContent>{token !== null && <RevokeForm key={token.id} token={token} onDone={onClose} />}</DialogContent>
+      <DialogContent>
+        {token !== null && <RevokeForm key={token.id} token={token} busy={busy} setBusy={setBusy} onDone={onClose} />}
+      </DialogContent>
     </Dialog>
   )
 }
