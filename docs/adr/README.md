@@ -19,6 +19,8 @@ Check the files with `bash scripts/check-adrs.sh --complete`.
 - [ADR 0010: Web certificate authority](0010-web-certificate-authority.md)
 - [ADR 0011: Actors, reserved CLI names and package
   layout](0011-actors-cli-names-and-layout.md)
+- [ADR 0012: M2 contract and layout
+  additions](0012-m2-contract-and-layout-additions.md)
 
 ## Format
 
@@ -55,7 +57,8 @@ Every ADR uses these definitions and does not redefine them.
   registry in `internal/core/errcode`.
 - **Actors.** Audit actors are `user:<id>`, `token:<id>`, `agent:<host id>`,
   `local:root@<host id>` and `system:<job>`; ADR 0011 adds `anonymous` and
-  `local:uid-<n>@<host id>`.
+  `local:uid-<n>@<host id>`; ADR 0012 adds `system:rollout`,
+  `system:update-schedule` and `local:root@unenrolled`.
 - **Version skew.** The controller is never older than its agents. It supports
   agents of the same and the previous minor version, is updated first, and
   drives agent updates up to its own version.
@@ -64,8 +67,6 @@ Every ADR uses these definitions and does not redefine them.
 
 - How DERP servers run (container or systemd service): M5 DERP epic.
 - How `cloudflared` runs: M6 Cloudflare Tunnel epic.
-- How the install script verifies a download (it must not trust TLS alone):
-  M2 install epic.
 - `darkpanel controller backup` and `restore` (ADR 0005) are built by the M8
   Production rollout and runbook epic.
 
@@ -93,16 +94,17 @@ decided by its own epic, not by an ADR.
 | R21 | 0008 (harness) |
 | R22 | 0003 (identity, transport) |
 | R23 | 0003 (enrollment, certificates and revocation) |
-| R24 | 0002 (schema hashes), 0003 (hello) |
+| R24 | 0002 (schema hashes), 0003 (hello), 0012 (schema hashes, agent routes) |
 | R25 | 0003 (hello) |
 | R26 | 0001 (process model), 0003 (transport), 0007 (update action) |
 | R27 | 0003 (hello, liveness) |
 | R28 | 0003 (journal delivery), 0004 (startup recovery), 0006 (local access) |
-| R29 | 0007 (release hosting; method deferred to the M2 install epic) |
+| R29 | 0007 (release hosting), 0012 (install script verification) |
 | R30 | 0009 (files) |
 | R31 | 0006 (local access), 0007 (rollback) |
 | R32 | 0007 (signing, keys) |
-| R33 | 0007 (update action, update transaction, rollback) |
+| R33 | 0007 (update action, update transaction, rollback), 0012 (update lock, rollback claim, health rule) |
 | R34 | 0005 (migrations, expand then contract, backups), 0007 (update transaction, stepping) |
 | R35 | 0007 (trusted comment carries the channel; scheduling is decided by the self-update epic) |
 | R36 | 0007 (order and rollouts) |
+| R80 | 0012 (signature files, release index) |
