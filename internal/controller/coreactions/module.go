@@ -20,6 +20,14 @@ type Deps struct {
 	// Modules are the compiled-in modules whose enablement the core.module
 	// actions manage, in registration order; the server passes modules.All().
 	Modules []core.Module
+	// Extra are core actions defined outside this package, such as the update
+	// and rollout actions; they join the one core manifest after the built-in
+	// ones.
+	Extra []core.ActionDef
+	// OwnedPaths are the files, directories, units and user the core itself
+	// installs, declared like a module's so that the registry's ownership
+	// rule and uninstall cover them.
+	OwnedPaths []core.OwnedPath
 }
 
 // Module returns the core module.
@@ -55,7 +63,8 @@ func (m module) Manifest() core.Manifest {
 	} {
 		actions = append(actions, group...)
 	}
-	return core.Manifest{ID: core.ModuleIDCore, Version: 1, Actions: actions, DefaultEnabled: true}
+	actions = append(actions, m.d.Extra...)
+	return core.Manifest{ID: core.ModuleIDCore, Version: 1, Actions: actions, OwnedPaths: m.d.OwnedPaths, DefaultEnabled: true}
 }
 
 // NoInput is the input of an action that takes none.
