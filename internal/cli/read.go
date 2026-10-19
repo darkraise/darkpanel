@@ -44,7 +44,7 @@ func (a *app) connect(cmd *cobra.Command) (*client, error) {
 		return newSocketClient(path), nil
 	}
 	u, _ := cmd.Flags().GetString("url")
-	return connectNetwork(u, a.opts.Getenv, a.opts.UserHomeDir)
+	return connectNetwork(u, a.opts.Getenv, a.opts.UserHomeDir, cmd.ErrOrStderr())
 }
 
 // actionPath is the API path of op on def: under the host for an
