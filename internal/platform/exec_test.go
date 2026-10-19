@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -61,9 +62,10 @@ func TestNewRunnerPanicsOnRelativePath(t *testing.T) {
 	NewRunner([]string{"printf"})
 }
 
-func TestProductionAllowlistIsEmpty(t *testing.T) {
-	if got := ProductionAllowlist(); len(got) != 0 {
-		t.Errorf("ProductionAllowlist() = %v, want empty in M1", got)
+func TestProductionAllowlist(t *testing.T) {
+	want := []string{"/usr/sbin/useradd", "/usr/sbin/userdel"}
+	if got := ProductionAllowlist(); !slices.Equal(got, want) {
+		t.Errorf("ProductionAllowlist() = %v, want %v", got, want)
 	}
 }
 

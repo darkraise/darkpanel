@@ -46,9 +46,10 @@ func NewRunner(allowlist []string) *Runner {
 	return r
 }
 
-// ProductionAllowlist is the agent's allowlist. It is empty in M1; later
-// epics add entries such as /usr/sbin/ufw.
-func ProductionAllowlist() []string { return []string{} }
+// ProductionAllowlist is the agent's allowlist. The installer runs
+// useradd and userdel for the controller's system user; every systemd
+// operation goes through D-Bus instead (Systemd).
+func ProductionAllowlist() []string { return []string{"/usr/sbin/useradd", "/usr/sbin/userdel"} }
 
 // cappedBuffer keeps at most limit bytes and cancels the run when a program
 // writes more.
