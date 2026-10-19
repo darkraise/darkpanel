@@ -983,7 +983,12 @@ skips the VM tests (amended 2026-10-19 at plan time):
   enabled with `allow 22/tcp`, Docker Engine from Docker's apt repository and
   tailscaled from Tailscale's stable repository, both pinned to exact versions
   at plan time (tailscaled is installed and running but not logged in until
-  M5); on the scanner, `nmap`. When a pinned package has left its repository,
+  M5); on the scanner, `nmap`. The packages `docker-ce`, `docker-ce-cli`,
+  `containerd.io` and `tailscale` are downloaded as `.deb` files from those
+  repositories' pools by pinned URL, checked against their pinned SHA-256 and
+  installed from the local files; no Docker or Tailscale apt source is
+  configured (amended 2026-10-19 by the owner's ruling to pin packages by URL
+  and SHA-256). When a pinned package has left its repository,
   provisioning fails with `pinned package <name>=<version> missing; update the
   harness pins`, never with a silent upgrade.
 - **Driver API** (`vm` package): `Boot`, `Run` (SSH with a per-run Ed25519
