@@ -13,7 +13,7 @@ Why: the ADRs are the decision record every later epic builds on; the checker ca
 
 ## 2. Lint
 Command: `make lint`
-Green: golangci-lint prints `0 issues.`, ESLint prints no output or a summary reporting `0 errors`, and `tsc --noEmit` prints no findings
+Green: golangci-lint prints `0 issues.`, and ESLint and `tsc --noEmit` print no findings
 Evidence: output
 Applies: always
 Why: CI runs the same lint targets; a finding caught here does not cost a CI round
