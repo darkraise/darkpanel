@@ -38,7 +38,8 @@ type Options struct {
 	// name such as update can hold both hand-written and generated commands.
 	Adopt map[string][]string
 	// LocalFallbacks run an agent-side action in-process when --local finds
-	// no agent socket, keyed by action name.
+	// no agent socket, keyed by action name. NewRoot checks the keys, but
+	// nothing runs a fallback yet: the --local flag that does is not wired.
 	LocalFallbacks map[string]LocalFallback
 	Stdin          io.Reader
 	Stdout         io.Writer
