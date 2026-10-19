@@ -136,7 +136,10 @@ jobs:
         run: |
           tar -xzf "dist/release/darkpanel_${VERSION}_linux_amd64.tar.gz" -C "$RUNNER_TEMP" darkpanel
           "$RUNNER_TEMP/darkpanel" version --json >"$RUNNER_TEMP/version.json"
-      - run: go install aead.dev/minisign/cmd/minisign@v0.3.0
+      - name: Install minisign at its pinned module hash
+        run: |
+          go install aead.dev/minisign/cmd/minisign@v0.3.0
+          go version -m "$(go env GOPATH)/bin/minisign" | grep -E '^[[:space:]]+mod[[:space:]]+aead\.dev/minisign[[:space:]]+v0\.3\.0[[:space:]]+h1:8Xafzy5PEVZqYDNP60yJHARlW1eOQtsKNp/Ph2c0vRA=$'
       - name: Sign checksums.txt
         env:
           MINISIGN_KEY_1: ${{ secrets.MINISIGN_KEY_1 }}
