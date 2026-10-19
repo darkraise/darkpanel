@@ -7,3 +7,4 @@
 - 2026-10-18 `docs/superpowers/plans/2026-10-17-m1-identity-and-api.md` — merged into `main` at 2cbda30
 - 2026-10-19 `docs/superpowers/plans/2026-10-18-m1-dispatch-cli-and-assembly.md` — merged into `main` at a1ac47c
 - 2026-10-19 `docs/superpowers/plans/2026-10-19-m1-web-ui.md` — merged into `main` at 8c24efd
+- 2026-10-19 `docs/superpowers/plans/2026-10-19-m1-harness.md` — merged into `main` at 1e3ce46
