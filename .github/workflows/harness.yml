@@ -2,7 +2,7 @@ name: Harness
 
 on:
   push:
-    branches: [main, "m1-harness"]
+    branches: [main]
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
