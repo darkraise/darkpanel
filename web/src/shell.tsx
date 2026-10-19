@@ -5,7 +5,7 @@ import { History, KeyRound, Server } from "lucide-react"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
 import { SidebarLayout, type NavGroup } from "darkraise-ui/layout"
 import { errorMessage, getListenerState, request } from "@/api/client"
-import { useSession } from "@/session/session"
+import { useSession } from "@/session/use-session"
 
 const NAV: NavGroup[] = [
   {

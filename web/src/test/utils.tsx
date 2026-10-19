@@ -1,9 +1,10 @@
 import type { ReactElement } from "react"
 import { render, type RenderResult } from "@testing-library/react"
 import { QueryClient } from "@tanstack/react-query"
-import { MemoryRouter, useLocation } from "react-router"
+import { MemoryRouter } from "react-router"
 import { vi } from "vitest"
 import { Providers } from "@/providers"
+import { LocationProbe } from "./location-probe"
 
 export interface FetchCall {
   method: string
@@ -54,11 +55,6 @@ export function stubFetch(routes: Record<string, StubHandler>): FetchCall[] {
     }),
   )
   return calls
-}
-
-export function LocationProbe() {
-  const location = useLocation()
-  return <output data-testid="location">{location.pathname + location.search}</output>
 }
 
 export function renderWithProviders(ui: ReactElement, { path = "/" }: { path?: string } = {}): RenderResult & { client: QueryClient } {

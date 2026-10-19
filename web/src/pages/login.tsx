@@ -7,7 +7,9 @@ import { Input } from "darkraise-ui/components/input"
 import { Label } from "darkraise-ui/components/label"
 import { ApiError, request } from "@/api/client"
 import type { Session } from "@/api/types"
-import { SessionSpinner, safeNext, useSession } from "@/session/session"
+import { SessionSpinner } from "@/session/session"
+import { safeNext } from "@/session/safe-next"
+import { useSession } from "@/session/use-session"
 
 const GENERIC_ERROR = "Login failed. Check the username, password and code, then try again."
 
