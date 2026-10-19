@@ -160,7 +160,9 @@ func TestConnectNetworkPrecedence(t *testing.T) {
 	}{
 		{"flag first", "http://127.0.0.1:9000/", map[string]string{EnvURL: "http://127.0.0.2:8080", EnvToken: "dpt_env"},
 			"http://127.0.0.1:9000", "dpt_env"},
-		{"environment next", "", map[string]string{EnvURL: "http://127.0.0.2:8080"}, "http://127.0.0.2:8080", "dpt_config"},
+		{"environment URL keeps the file token", "", map[string]string{EnvURL: "http://127.0.0.2:8080"}, "http://127.0.0.2:8080", ""},
+		{"flag URL keeps the file token", "http://127.0.0.1:9000", map[string]string{}, "http://127.0.0.1:9000", ""},
+		{"the file's own URL again", "HTTP://127.0.0.3:8080/", map[string]string{}, "http://127.0.0.3:8080", "dpt_config"},
 		{"config file last", "", map[string]string{}, "http://127.0.0.3:8080", "dpt_config"},
 	}
 	for _, c := range cases {
@@ -175,6 +177,49 @@ func TestConnectNetworkPrecedence(t *testing.T) {
 	cl, err := connectNetwork("", envOf(nil), homeAt(t.TempDir()))
 	if err != nil || cl.base != DefaultURL || cl.token != "" {
 		t.Errorf("no config: base %q token %q err %v, want %q and no token", cl.base, cl.token, err, DefaultURL)
+	}
+}
+
+func TestConnectNetworkRefusesATokenOverPlainHTTP(t *testing.T) {
+	withToken := envOf(map[string]string{EnvToken: "dpt_secret"})
+	cases := []struct {
+		url     string
+		refused bool
+	}{
+		{"http://192.0.2.10:8080", true},
+		{"http://panel.example:8080", true},
+		{"https://192.0.2.10:8443", false},
+		{"http://localhost:8080", false},
+		{"http://127.0.0.2:8080", false},
+		{"http://[::1]:8080", false},
+	}
+	for _, c := range cases {
+		_, err := connectNetwork(c.url, withToken, homeAt(t.TempDir()))
+		if c.refused {
+			if ExitCode(err) != ExitUsage || !strings.Contains(err.Error(), "plain http") || strings.Contains(err.Error(), "dpt_secret") {
+				t.Errorf("%s with a token: %v, want a usage error about plain http that hides the token", c.url, err)
+			}
+		} else if err != nil {
+			t.Errorf("%s with a token: %v", c.url, err)
+		}
+	}
+	if _, err := connectNetwork("http://192.0.2.10:8080", envOf(nil), homeAt(t.TempDir())); err != nil {
+		t.Errorf("plain http to another host without a token: %v", err)
+	}
+	home := t.TempDir()
+	writeConfig(t, home, `{"url":"http://192.0.2.10:8080","token":"dpt_config"}`, 0o600)
+	if _, err := connectNetwork("", envOf(nil), homeAt(home)); ExitCode(err) != ExitUsage {
+		t.Errorf("a config file pairing a token with plain http to another host: %v, want a usage error", err)
+	}
+	home = t.TempDir()
+	writeConfig(t, home, `{"token":"dpt_config"}`, 0o600)
+	cl, err := connectNetwork("", envOf(nil), homeAt(home))
+	if err != nil || cl.base != DefaultURL || cl.token != "dpt_config" {
+		t.Errorf("config file token without a URL: base %q token %q err %v, want the token for %s", cl.base, cl.token, err, DefaultURL)
+	}
+	cl, err = connectNetwork("https://192.0.2.10:8443", envOf(nil), homeAt(home))
+	if err != nil || cl.token != "" {
+		t.Errorf("config file token without a URL, --url elsewhere: token %q err %v, want no token", cl.token, err)
 	}
 }
 

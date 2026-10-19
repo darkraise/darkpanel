@@ -105,7 +105,10 @@ rm session
 ```
 
 The apply answer's `output.token` is shown only this once. Give it to the CLI
-in `DARKPANEL_TOKEN` or as `"token"` in `cli.json`:
+in `DARKPANEL_TOKEN` or as `"token"` in `cli.json`. A token in `cli.json` is
+sent only to the `"url"` in the same file (or to `http://127.0.0.1:8080` when
+the file names none), and the CLI refuses to send any token over plain `http`
+except to a loopback address:
 
 ```sh
 export DARKPANEL_URL=http://127.0.0.1:8080 DARKPANEL_TOKEN=<token>
