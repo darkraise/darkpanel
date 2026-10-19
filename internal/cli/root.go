@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bufio"
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -30,17 +32,28 @@ type Options struct {
 	Registry *core.Registry
 	// Commands are hand-written commands the assembly adds, such as serve
 	// and version; no generated command may take their names.
-	Commands    []*cobra.Command
-	Stdin       io.Reader
-	Stdout      io.Writer
-	Stderr      io.Writer
-	Getenv      func(string) string
-	UserHomeDir func() (string, error)
+	Commands []*cobra.Command
+	// Adopt maps a hand-written top-level command in Commands to the action
+	// names whose generated commands become its subcommands, so a reserved
+	// name such as update can hold both hand-written and generated commands.
+	Adopt map[string][]string
+	// LocalFallbacks run an agent-side action in-process when --local finds
+	// no agent socket, keyed by action name.
+	LocalFallbacks map[string]LocalFallback
+	Stdin          io.Reader
+	Stdout         io.Writer
+	Stderr         io.Writer
+	Getenv         func(string) string
+	UserHomeDir    func() (string, error)
 	// IsTerminal reports whether standard input is an interactive terminal.
 	IsTerminal func() bool
 	// ReadSecret reads one line from the terminal without echo.
 	ReadSecret func() (string, error)
 }
+
+// LocalFallback runs an agent-side action without the agent: it takes the
+// action's input and returns its output, as the agent socket would.
+type LocalFallback func(ctx context.Context, input json.RawMessage) (json.RawMessage, error)
 
 // app is the state the generated commands share.
 type app struct {
@@ -73,7 +86,10 @@ func NewRoot(opts Options) (*cobra.Command, error) {
 		reserved = append(reserved, c.Name())
 	}
 	root.AddCommand(opts.Commands...)
-	es, err := entries(opts.Registry, reserved)
+	if err := checkHooks(opts); err != nil {
+		return nil, fmt.Errorf("cli: %w", err)
+	}
+	es, err := entries(opts.Registry, reserved, adopted(opts.Adopt))
 	if err != nil {
 		return nil, fmt.Errorf("cli: %w", err)
 	}

@@ -26,7 +26,7 @@ func TestCommandPath(t *testing.T) {
 }
 
 func TestEntries(t *testing.T) {
-	es, err := entries(testRegistry(t), handWritten)
+	es, err := entries(testRegistry(t), handWritten, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestEntriesRefuseHandWrittenNames(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = entries(reg, append(slices.Clone(handWritten), "agent"))
+		_, err = entries(reg, append(slices.Clone(handWritten), "agent"), nil)
 		if err == nil || !strings.Contains(err.Error(), `hand-written command "`+noun+`"`) {
 			t.Errorf("core.%s.list: error %v, want a clash with the hand-written %q", noun, err, noun)
 		}
@@ -94,14 +94,14 @@ func TestCheckEntriesRefusesClashes(t *testing.T) {
 		{Name: "demo.rule.get", Path: CommandPath("demo.rule.get"), Action: &read},
 		{Name: "demo.rule", Path: CommandPath("demo.rule"), Resource: &res},
 	}
-	if err := checkEntries(same, handWritten); err == nil || !strings.Contains(err.Error(), `"darkpanel demo rule get"`) {
+	if err := checkEntries(same, handWritten, nil); err == nil || !strings.Contains(err.Error(), `"darkpanel demo rule get"`) {
 		t.Errorf("same path: error %v", err)
 	}
 	prefix := []entry{
 		{Name: "core.demo.rule", Path: []string{"demo", "rule"}, Action: &read},
 		{Name: "demo.rule.get", Path: CommandPath("demo.rule.get"), Action: &read},
 	}
-	if err := checkEntries(prefix, handWritten); err == nil || !strings.Contains(err.Error(), "is also a command group") {
+	if err := checkEntries(prefix, handWritten, nil); err == nil || !strings.Contains(err.Error(), "is also a command group") {
 		t.Errorf("prefix: error %v", err)
 	}
 }
