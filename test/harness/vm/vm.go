@@ -28,13 +28,15 @@ import (
 // Limits of the VM life cycle. A first boot on a GitHub runner, with package
 // installs, takes several minutes.
 const (
-	bootTimeout   = 25 * time.Minute
-	rebootTimeout = 5 * time.Minute
-	stopTimeout   = 15 * time.Second
-	dialInterval  = 2 * time.Second
-	dialTimeout   = 10 * time.Second
-	diskSize      = "20G"
-	tailLines     = 40 // log lines an error quotes
+	bootTimeout      = 25 * time.Minute
+	rebootTimeout    = 5 * time.Minute
+	stopTimeout      = 15 * time.Second
+	dialInterval     = 2 * time.Second
+	dialTimeout      = 10 * time.Second
+	reconnectTimeout = time.Minute
+	commLen          = 15 // the longest process name Linux keeps (TASK_COMM_LEN - 1)
+	diskSize         = "20G"
+	tailLines        = 40 // log lines an error quotes
 )
 
 // VM is one running virtual machine. Its methods are safe for concurrent use.
@@ -197,8 +199,14 @@ func (v *VM) connect(ctx context.Context) error {
 		c, err := v.dial(ctx, conf)
 		if err == nil {
 			v.mu.Lock()
-			v.client = c
+			extra := v.client != nil
+			if !extra {
+				v.client = c
+			}
 			v.mu.Unlock()
+			if extra {
+				_ = c.Close() // a concurrent Run reconnected first
+			}
 			return nil
 		}
 		select {
@@ -260,17 +268,16 @@ func (v *VM) waitProvisioned(ctx context.Context) error {
 
 // Run runs cmd through User's shell on the VM and returns its standard
 // output. A non-zero exit status is an error that quotes standard error; the
-// standard output is still returned with it.
+// standard output is still returned with it. A Run whose context ends on a
+// stuck connection drops it, and the next Run dials a new one.
 func (v *VM) Run(ctx context.Context, cmd string) (string, error) {
 	return v.runWith(ctx, cmd, nil)
 }
 
 func (v *VM) runWith(ctx context.Context, cmd string, stdin io.Reader) (string, error) {
-	v.mu.Lock()
-	c := v.client
-	v.mu.Unlock()
-	if c == nil {
-		return "", fmt.Errorf("vm %s: not connected", v.cfg.Name)
+	c, err := v.sshClient(ctx)
+	if err != nil {
+		return "", err
 	}
 	var stdout, stderr bytes.Buffer
 	opened := make(chan *ssh.Session, 1)
@@ -309,13 +316,36 @@ func (v *VM) runWith(ctx context.Context, cmd string, stdin io.Reader) (string, 
 			select {
 			case <-closed:
 			case <-time.After(probeTimeout):
-				v.closeClient()
+				v.dropClient(c)
 			}
 		default:
-			v.closeClient() // the session never opened: the connection is stuck
+			v.dropClient(c) // the session never opened: the connection is stuck
 		}
 		return "", fmt.Errorf("vm %s: %s: %w", v.cfg.Name, cmd, ctx.Err())
 	}
+}
+
+// sshClient returns the open SSH connection, dialing a new one when a Run
+// that timed out dropped the last, so one hung step does not fail every
+// later step with "not connected".
+func (v *VM) sshClient(ctx context.Context) (*ssh.Client, error) {
+	v.mu.Lock()
+	c := v.client
+	v.mu.Unlock()
+	if c != nil {
+		return c, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, reconnectTimeout)
+	defer cancel()
+	if err := v.connect(ctx); err != nil {
+		return nil, err
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.client == nil {
+		return nil, fmt.Errorf("vm %s: not connected", v.cfg.Name) // dropped again before this Run got it
+	}
+	return v.client, nil
 }
 
 // CopyFile copies the local file src to dst on the VM as root, with mode.
@@ -334,7 +364,9 @@ func (v *VM) CopyFile(ctx context.Context, src, dst string, mode fs.FileMode) er
 func (v *VM) Reboot(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, rebootTimeout)
 	defer cancel()
-	before, err := v.Run(ctx, "cat /proc/sys/kernel/random/boot_id")
+	pctx, pcancel := context.WithTimeout(ctx, probeTimeout)
+	before, err := v.Run(pctx, "cat /proc/sys/kernel/random/boot_id")
+	pcancel()
 	if err != nil {
 		return err
 	}
@@ -379,8 +411,13 @@ func (v *VM) bootChanged(ctx context.Context, before string) bool {
 }
 
 // KillProcess sends SIGKILL to every process on the VM whose name is exactly
-// name. It is an error when no process matched.
+// name. It is an error when no process matched, and a name longer than
+// commLen is refused: pkill -x compares against the kernel's truncated name,
+// so it would never match.
 func (v *VM) KillProcess(ctx context.Context, name string) error {
+	if len(name) > commLen {
+		return fmt.Errorf("vm %s: kill %s: pkill -x matches only the first %d characters of a process name", v.cfg.Name, name, commLen)
+	}
 	if _, err := v.Run(ctx, killCommand(name)); err != nil {
 		return fmt.Errorf("vm %s: kill %s: %w", v.cfg.Name, name, err)
 	}
@@ -426,6 +463,17 @@ func (v *VM) closeClient() {
 	if c != nil {
 		_ = c.Close()
 	}
+}
+
+// dropClient closes c and forgets it, unless a reconnect has already put
+// another connection in its place.
+func (v *VM) dropClient(c *ssh.Client) {
+	v.mu.Lock()
+	if v.client == c {
+		v.client = nil
+	}
+	v.mu.Unlock()
+	_ = c.Close()
 }
 
 // withConsole adds the end of the console log to err.
