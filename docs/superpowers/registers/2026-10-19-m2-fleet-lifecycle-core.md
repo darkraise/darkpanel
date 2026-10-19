@@ -24,6 +24,6 @@
 | 17 | M1 row 22: schema-hash capability negotiation in hello (ADR 0002, R24) | docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md | section 5 dispatch rule tests | open | - |
 | 18 | M1 row 23: agent socket and agent break-glass commands (R31) | docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md | socket tests; harness scenario 11 | open | - |
 | 19 | M1 row 24: separate darkpanel and root service users and directories | docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md | system install tests; harness scenario 1 | open | - |
-| 20 | M1 row 49: no registration rule refuses two modules declaring the same owned path or block | docs/superpowers/plans/2026-10-19-m2-foundation.md | duplicate ownership registry test | planned | - |
+| 20 | M1 row 49: no registration rule refuses two modules declaring the same owned path or block | docs/superpowers/plans/2026-10-19-m2-foundation.md | duplicate ownership registry test | doing | - |
 | 21 | M1 row 92: agent journal sequence can restart below the stored cursor (silent audit loss); detect the reset with a journal epoch in Hello | docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md | journal epoch reset ingester test | open | - |
-| 22 | ADR 0012 M2 contract and layout additions | docs/superpowers/plans/2026-10-19-m2-foundation.md | check-adrs --complete passes; Status Accepted when M2 closes | planned | - |
+| 22 | ADR 0012 M2 contract and layout additions | docs/superpowers/plans/2026-10-19-m2-foundation.md | check-adrs --complete passes; Status Accepted when M2 closes | doing | - |
