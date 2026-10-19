@@ -3,7 +3,7 @@ import type { ThemeConfig } from "darkraise-ui/theme"
 export const themeConfig: ThemeConfig = {
   defaults: {
     accentColor: "blue",
-    surfaceColor: "slate",
+    surfaceColor: "zinc",
     preset: "default",
     backgroundStyle: "solid",
     backgroundIntensity: "balanced",

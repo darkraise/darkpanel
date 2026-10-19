@@ -1,1 +1,10 @@
 @import "darkraise-ui/styles.css";
+
+/* Direction A fonts, self-hosted by the @fontsource-variable packages that
+   main.tsx imports. darkraise-ui sets these in an @theme inline block, so the
+   override has to be one as well. */
+@theme inline {
+  --font-sans: "Hanken Grotesk Variable", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-heading: "Hanken Grotesk Variable", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
