@@ -51,8 +51,8 @@ func TestTargetScript(t *testing.T) {
 			t.Errorf("%s script names another OS's packages (%s):\n%s", c.os.ID, c.other, s)
 		}
 		allow, enable := strings.Index(s, "ufw allow 22/tcp"), strings.Index(s, "ufw --force enable")
-		if allow < 0 || enable < allow || !strings.Contains(s, "systemctl enable --now docker tailscaled") {
-			t.Errorf("%s script must allow 22/tcp, then enable UFW, Docker and tailscaled:\n%s", c.os.ID, s)
+		if allow < 0 || enable < allow || strings.Index(s, "systemctl enable --now ufw docker tailscaled") < enable {
+			t.Errorf("%s script must allow 22/tcp, enable UFW, then start ufw, Docker and tailscaled under systemd:\n%s", c.os.ID, s)
 		}
 		bashSyntax(t, s)
 	}
