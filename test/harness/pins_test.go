@@ -121,6 +121,8 @@ func TestLoadPins(t *testing.T) {
 		{"malformed.json", []byte("{"), "malformed.json"},
 		{"unknown-field.json", []byte(`{"scanner":"debian-13","os":[],"extra":1}`), "unknown field"},
 		{"invalid.json", encode(Pins{Scanner: "debian-14", OS: []OS{validOS("debian-13")}}), "names no listed OS"},
+		{"trailing-object.json", append(encode(want), []byte(`{}`)...), "trailing content"},
+		{"trailing-text.json", append(encode(want), []byte("x")...), "trailing content"},
 	}
 	for _, r := range refusals {
 		if _, err := LoadPins(write(r.name, r.content)); err == nil || !strings.Contains(err.Error(), r.want) {
