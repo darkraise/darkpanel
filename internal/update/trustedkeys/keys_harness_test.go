@@ -34,6 +34,15 @@ func TestHarnessBuild(t *testing.T) {
 		t.Fatalf("Keys() = %v, want only the harness key", ks)
 	}
 	if got := (Key{ID: fmt.Sprintf("%016X", pub.ID()), PublicKey: pub.String()}); ks[0] != got || got.ID != harnessKeyID {
-		t.Errorf("Keys()[0] = %+v, want the public half of testdata/harness.key %+v", ks[0], got)
+		t.Errorf("Keys()[0] = %+v, want the public key stored in testdata/harness.key %+v", ks[0], got)
+	}
+
+	var trusted minisign.PublicKey
+	if err := trusted.UnmarshalText([]byte(ks[0].PublicKey)); err != nil {
+		t.Fatalf("Keys()[0].PublicKey: %v", err)
+	}
+	msg := []byte("darkpanel harness key check")
+	if !minisign.Verify(trusted, msg, minisign.Sign(priv, msg)) {
+		t.Error("testdata/harness.key does not sign for Keys()[0]")
 	}
 }
