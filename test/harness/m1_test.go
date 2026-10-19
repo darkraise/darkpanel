@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"math/rand/v2"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -256,6 +257,71 @@ func checkServe(ctx context.Context, t *testing.T, v *vm.VM) {
 	if err != nil {
 		journal, _ := v.Run(ctx, "sudo journalctl -u "+serveUnit+" --no-pager -n 50")
 		t.Fatalf("%v\n%s journal:\n%s", err, serveUnit, journal)
+	}
+	// UFW would hide a wildcard bind from the scans, so the bind itself is
+	// checked: the default is 127.0.0.1:8080 and [::1]:8080.
+	out, err := v.Run(ctx, "sudo ss -Htlnp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	listeners, public := darkpanelListeners(out)
+	if len(listeners) == 0 {
+		t.Errorf("no listening socket belongs to darkpanel\n%s", out)
+	}
+	for _, addr := range public {
+		t.Errorf("darkpanel listens on %s, want loopback only", addr)
+	}
+}
+
+// darkpanelListeners returns the local addresses of the listening sockets
+// that `ss -Htlnp` attributes to darkpanel, and those among them that are
+// not loopback addresses.
+func darkpanelListeners(ss string) (all, nonLoopback []string) {
+	for line := range strings.SplitSeq(ss, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 6 || !strings.Contains(line, `"darkpanel"`) {
+			continue
+		}
+		all = append(all, fields[3])
+		host, _, err := net.SplitHostPort(fields[3])
+		if err != nil {
+			nonLoopback = append(nonLoopback, fields[3])
+			continue
+		}
+		host, _, _ = strings.Cut(host, "%")
+		if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
+			nonLoopback = append(nonLoopback, fields[3])
+		}
+	}
+	return all, nonLoopback
+}
+
+func TestDarkpanelListeners(t *testing.T) {
+	const ss = `LISTEN 0 4096 127.0.0.1:8080 0.0.0.0:* users:(("darkpanel",pid=812,fd=7))
+LISTEN 0 4096 [::1]:8080 [::]:* users:(("darkpanel",pid=812,fd=8))
+LISTEN 0 4096 127.0.0.53%lo:53 0.0.0.0:* users:(("systemd-resolve",pid=500,fd=14))
+LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=600,fd=3))
+`
+	cases := []struct {
+		name, ss       string
+		all, nonLoopbk []string
+	}{
+		{"loopback only", ss,
+			[]string{"127.0.0.1:8080", "[::1]:8080"}, nil},
+		{"wildcard IPv4", ss + `LISTEN 0 4096 0.0.0.0:8080 0.0.0.0:* users:(("darkpanel",pid=812,fd=9))` + "\n",
+			[]string{"127.0.0.1:8080", "[::1]:8080", "0.0.0.0:8080"}, []string{"0.0.0.0:8080"}},
+		{"wildcard IPv6", ss + `LISTEN 0 4096 *:8080 *:* users:(("darkpanel",pid=812,fd=9))` + "\n",
+			[]string{"127.0.0.1:8080", "[::1]:8080", "*:8080"}, []string{"*:8080"}},
+		{"zone on a loopback address", `LISTEN 0 4096 127.0.0.1%lo:8080 0.0.0.0:* users:(("darkpanel",pid=1,fd=7))` + "\n",
+			[]string{"127.0.0.1%lo:8080"}, nil},
+		{"no darkpanel line", "LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:((\"sshd\",pid=6,fd=3))\n", nil, nil},
+		{"line without a process column", "LISTEN 0 4096 0.0.0.0:8080 0.0.0.0:*\n", nil, nil},
+	}
+	for _, c := range cases {
+		all, public := darkpanelListeners(c.ss)
+		if !slices.Equal(all, c.all) || !slices.Equal(public, c.nonLoopbk) {
+			t.Errorf("%s: listeners %v, non-loopback %v, want %v and %v", c.name, all, public, c.all, c.nonLoopbk)
+		}
 	}
 }
 
