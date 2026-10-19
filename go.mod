@@ -5,6 +5,9 @@ go 1.27
 toolchain go1.27.2
 
 require (
+	aead.dev/minisign v0.3.0
+	github.com/godbus/dbus/v5 v5.2.4
+	github.com/hashicorp/yamux v0.1.2
 	github.com/invopop/jsonschema v0.14.0
 	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/oklog/ulid/v2 v2.1.2
