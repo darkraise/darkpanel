@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -319,6 +320,8 @@ func (v *VM) CopyFile(ctx context.Context, src, dst string, mode fs.FileMode) er
 
 // Reboot reboots the VM and waits until SSH answers from the new boot.
 func (v *VM) Reboot(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, rebootTimeout)
+	defer cancel()
 	before, err := v.Run(ctx, "cat /proc/sys/kernel/random/boot_id")
 	if err != nil {
 		return err
@@ -327,8 +330,6 @@ func (v *VM) Reboot(ctx context.Context) error {
 	// says nothing; a reboot that never happens fails the boot_id wait below.
 	_, _ = v.Run(ctx, "sudo systemctl --no-block reboot")
 	v.closeClient()
-	ctx, cancel := context.WithTimeout(ctx, rebootTimeout)
-	defer cancel()
 	for {
 		if err := v.connect(ctx); err != nil {
 			return err
@@ -349,10 +350,17 @@ func (v *VM) Reboot(ctx context.Context) error {
 // KillProcess sends SIGKILL to every process on the VM whose name is exactly
 // name. It is an error when no process matched.
 func (v *VM) KillProcess(ctx context.Context, name string) error {
-	if _, err := v.Run(ctx, "sudo pkill -KILL -x "+shellQuote(name)); err != nil {
+	if _, err := v.Run(ctx, killCommand(name)); err != nil {
 		return fmt.Errorf("vm %s: kill %s: %w", v.cfg.Name, name, err)
 	}
 	return nil
+}
+
+// killCommand builds the pkill command line. pkill reads its pattern as a
+// regular expression, so QuoteMeta makes name literal; -- keeps a name that
+// starts with a dash from being read as an option.
+func killCommand(name string) string {
+	return "sudo pkill -KILL -x -- " + shellQuote(regexp.QuoteMeta(name))
 }
 
 // ConsoleLog returns the VM's serial console output so far.

@@ -112,6 +112,18 @@ func TestShellQuote(t *testing.T) {
 	}
 }
 
+func TestKillCommand(t *testing.T) {
+	cases := map[string]string{
+		"darkpanel": "sudo pkill -KILL -x -- 'darkpanel'",
+		"worker.1":  "sudo pkill -KILL -x -- 'worker\\.1'",
+	}
+	for name, want := range cases {
+		if got := killCommand(name); got != want {
+			t.Errorf("killCommand(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
 func TestLastLines(t *testing.T) {
 	cases := []struct {
 		in   string
