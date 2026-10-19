@@ -101,18 +101,18 @@ func (s *Session) Accept() (net.Conn, error) {
 		return nil, fmt.Errorf("transport: accept stream: %w", net.ErrClosed)
 	}
 	// AcceptStream also fails when the stream's first window update hits the
-	// write timeout; the session lives on, and the heartbeat decides when it
-	// is dead.
-	for {
-		st, err := s.mux.AcceptStream()
-		if err == nil {
-			return &stream{Stream: st, release: func() { <-s.accepts }}, nil
+	// write timeout; yamux keeps that stream open but never hands it over, so
+	// the session is closed rather than let such streams build up outside the
+	// accept limit.
+	st, err := s.mux.AcceptStream()
+	if err != nil {
+		<-s.accepts
+		if !s.mux.IsClosed() {
+			_ = s.mux.Close()
 		}
-		if s.mux.IsClosed() {
-			<-s.accepts
-			return nil, fmt.Errorf("transport: accept stream: %w", net.ErrClosed)
-		}
+		return nil, fmt.Errorf("transport: accept stream: %w", net.ErrClosed)
 	}
+	return &stream{Stream: st, release: func() { <-s.accepts }}, nil
 }
 
 // Addr is the local address of the session's connection.
