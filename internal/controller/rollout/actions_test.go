@@ -214,6 +214,7 @@ func TestRolloutActionRefusals(t *testing.T) {
 }
 
 func TestRolloutCancel(t *testing.T) {
+	sentAt := testStart.Format(timeLayout)
 	tests := []struct {
 		name        string
 		setup       []string // statements run on rollout ? with hosts OWN, A, B
@@ -235,10 +236,29 @@ func TestRolloutCancel(t *testing.T) {
 			hosts: []string{"OWN=skipped", "A=skipped", "B=skipped"},
 		},
 		{
-			name: "a host updating with a plan",
+			name: "a host updating with a plan never sent",
 			setup: []string{
 				"UPDATE core_rollout_hosts SET state = 'committed' WHERE rollout_id = ? AND host_id = 'OWN'",
 				"UPDATE core_rollout_hosts SET state = 'updating', plan_id = 'P1' WHERE rollout_id = ? AND host_id = 'A'",
+			},
+			state: core.RolloutCancelled, outcome: core.RolloutCancelled,
+			hosts: []string{"OWN=committed", "A=skipped", "B=skipped"},
+		},
+		{
+			name: "with force, a host updating with a plan never sent",
+			setup: []string{
+				"UPDATE core_rollout_hosts SET state = 'updating', plan_id = 'P1' WHERE rollout_id = ? AND host_id = 'OWN'",
+			},
+			force: true,
+			state: core.RolloutCancelled, outcome: core.RolloutCancelled,
+			hosts: []string{"OWN=skipped", "A=skipped", "B=skipped"},
+		},
+		{
+			name: "a host updating with a plan sent",
+			setup: []string{
+				"UPDATE core_rollout_hosts SET state = 'committed' WHERE rollout_id = ? AND host_id = 'OWN'",
+				"UPDATE core_rollout_hosts SET state = 'updating', plan_id = 'P1', apply_sent_at = '" + sentAt +
+					"' WHERE rollout_id = ? AND host_id = 'A'",
 			},
 			state: core.RolloutDraining, outcome: core.RolloutCancelled,
 			hosts: []string{"OWN=committed", "A=updating", "B=skipped"},
@@ -255,7 +275,8 @@ func TestRolloutCancel(t *testing.T) {
 		{
 			name: "a draining rollout",
 			setup: []string{
-				"UPDATE core_rollout_hosts SET state = 'updating', plan_id = 'P1' WHERE rollout_id = ? AND host_id = 'OWN'",
+				"UPDATE core_rollout_hosts SET state = 'updating', plan_id = 'P1', apply_sent_at = '" + sentAt +
+					"' WHERE rollout_id = ? AND host_id = 'OWN'",
 				"UPDATE core_rollout_hosts SET state = 'skipped' WHERE rollout_id = ? AND host_id <> 'OWN'",
 				"UPDATE core_rollouts SET state = 'draining', outcome = 'failed' WHERE id = ?",
 			},

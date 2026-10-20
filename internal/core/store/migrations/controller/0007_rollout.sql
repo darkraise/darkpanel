@@ -28,6 +28,10 @@ CREATE UNIQUE INDEX core_rollouts_one_active ON core_rollouts ((1))
 CREATE INDEX core_rollouts_created ON core_rollouts (created_at);
 
 -- The hosts of a rollout, updated one at a time in position order.
+-- apply_sent_at is when the driver committed to applying plan_id, just
+-- before the first apply: from then the host may be updating, so a cancel
+-- without force drains, while a host with a plan and no apply_sent_at was
+-- never sent its update and a cancel ends the rollout at once.
 -- followed_at is when the driver stored the host's update operation and
 -- began polling it, for the ten-minute limit.
 -- host_id has no foreign key, so a finished rollout keeps naming a host
@@ -39,6 +43,7 @@ CREATE TABLE core_rollout_hosts (
     state         TEXT NOT NULL
         CHECK (state IN ('waiting', 'updating', 'committed', 'failed', 'skipped')),
     plan_id       TEXT,
+    apply_sent_at TEXT,
     operation_id  TEXT,
     error_code    TEXT,
     error_message TEXT,

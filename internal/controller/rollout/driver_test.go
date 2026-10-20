@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"sync"
@@ -637,6 +638,9 @@ func TestDriverYieldsToACancelDuringACall(t *testing.T) {
 	e.fleet.applyErr["OWN"] = errcode.New(errcode.UpdateInProgress, "update operation OP0 is not finished")
 	e.fleet.onApply = func() {
 		e.fleet.onApply = nil
+		if h := mustLoad(t, e.db, r.ID).Hosts[0]; h.ApplySentAt.IsZero() {
+			t.Errorf("host = %+v at its first apply, want the apply marked as sent", h)
+		}
 		if _, err := planApply(eng, ActionRolloutCancel, `{"rolloutId":"`+r.ID+`","force":false}`, r.ID); err != nil {
 			t.Error(err)
 		}
@@ -646,6 +650,129 @@ func TestDriverYieldsToACancelDuringACall(t *testing.T) {
 	got := e.want(t, r.ID, core.RolloutCancelled, "OWN=failed", "A=skipped")
 	if got.Error != nil || got.Hosts[0].Error == nil || got.Hosts[0].Error.Code != string(errcode.UpdateInProgress) {
 		t.Errorf("rollout error %+v, host error %+v; want the cancel's outcome and the host's refusal", got.Error, got.Hosts[0].Error)
+	}
+}
+
+// TestDriverNeverAppliesAfterACancel covers a host whose plan was stored but
+// never sent: a cancel without force ends the rollout at once, and a
+// draining rollout skips such a host, so no apply reaches it.
+func TestDriverNeverAppliesAfterACancel(t *testing.T) {
+	storePlan := func(t *testing.T, e *driverEnv, id string) {
+		t.Helper()
+		plan, err := e.fleet.Plan(context.Background(), core.Principal{Actor: core.ActorRollout}, "OWN",
+			core.ActionRef{Name: update.ActionApply, Version: 1}, json.RawMessage(`{"version":"1.3.0","channel":"stable","force":false}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		exec(t, e.db, "UPDATE core_rollout_hosts SET state = 'updating', plan_id = ? WHERE rollout_id = ? AND host_id = 'OWN'",
+			plan.PlanID, id)
+	}
+	t.Run("a cancel without force", func(t *testing.T) {
+		e := newDriverEnv(t)
+		r := mustCreate(t, e.db, "1.3.0", "1.2.0", "OWN", "A")
+		storePlan(t, e, r.ID)
+		eng := newEngine(t, e.db, e.clock, "1.2.0")
+		if _, err := planApply(eng, ActionRolloutCancel, `{"rolloutId":"`+r.ID+`","force":false}`, r.ID); err != nil {
+			t.Fatal(err)
+		}
+		e.want(t, r.ID, core.RolloutCancelled, "OWN=skipped", "A=skipped")
+		e.start(t)
+		e.passes(3)
+		if calls := e.fleet.callsOf("OWN"); !slices.Equal(calls, []string{"plan OWN"}) {
+			t.Errorf("calls to OWN = %v, want only the plan", calls)
+		}
+	})
+	t.Run("a draining rollout", func(t *testing.T) {
+		e := newDriverEnv(t)
+		r := mustCreate(t, e.db, "1.3.0", "1.2.0", "OWN", "A")
+		storePlan(t, e, r.ID)
+		exec(t, e.db, "UPDATE core_rollout_hosts SET state = 'skipped' WHERE rollout_id = ? AND host_id = 'A'", r.ID)
+		exec(t, e.db, "UPDATE core_rollouts SET state = 'draining', outcome = 'cancelled' WHERE id = ?", r.ID)
+		e.start(t)
+		e.passes(1)
+		e.want(t, r.ID, core.RolloutCancelled, "OWN=skipped", "A=skipped")
+		if calls := e.fleet.callsOf("OWN"); !slices.Equal(calls, []string{"plan OWN"}) {
+			t.Errorf("calls to OWN = %v, want only the plan", calls)
+		}
+	})
+}
+
+func TestDriverFailsAHostNoLongerEnrolled(t *testing.T) {
+	tests := []struct {
+		name   string
+		change string
+		code   errcode.Code
+	}{
+		{"revoked", "UPDATE core_hosts SET state = 'revoked' WHERE id = 'A'", errcode.InvalidInput},
+		{"deleted", "DELETE FROM core_hosts WHERE id = 'A'", errcode.NotFound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newDriverEnv(t)
+			r := mustCreate(t, e.db, "1.2.0", "1.2.0", "A", "B")
+			exec(t, e.db, tt.change)
+			e.start(t)
+			e.passes(1)
+			got := e.want(t, r.ID, core.RolloutFailed, "A=failed", "B=skipped")
+			if h := got.Hosts[0]; h.Error == nil || h.Error.Code != string(tt.code) {
+				t.Errorf("host A error = %+v, want %s", h.Error, tt.code)
+			}
+			if calls := e.fleet.callsOf("A"); len(calls) != 0 {
+				t.Errorf("calls to A = %v, want none", calls)
+			}
+		})
+	}
+}
+
+// lockedBuffer is a log destination safe for the driver's timer goroutine.
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
+func (l *lockedBuffer) count(s string) int { return strings.Count(l.String(), s) }
+
+func TestDriverWarnsOfAStuckDrainingRollout(t *testing.T) {
+	e := newDriverEnv(t)
+	r := mustCreate(t, e.db, "1.3.0", "1.2.0", "OWN", "A")
+	var logs lockedBuffer
+	d, err := NewDriver(DriverConfig{DB: e.db, Dispatcher: e.fleet, Clock: e.clock,
+		Log: slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn}))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.Start()
+	t.Cleanup(d.Stop)
+	const warning = "a draining rollout is still waiting"
+	e.passes(int(HostTimeout / PollInterval))
+	e.want(t, r.ID, core.RolloutRunning, "OWN=updating", "A=waiting")
+	if n := logs.count(warning); n != 0 {
+		t.Fatalf("%d warnings while the rollout still runs, want none", n)
+	}
+	e.passes(1)
+	e.want(t, r.ID, core.RolloutDraining, "OWN=updating", "A=skipped")
+	e.passes(int(HostTimeout/PollInterval) - 1)
+	if n := logs.count(warning); n != 1 {
+		t.Fatalf("%d warnings in the first HostTimeout of draining, want 1", n)
+	}
+	e.passes(1)
+	if n := logs.count(warning); n != 2 {
+		t.Fatalf("%d warnings after another HostTimeout, want 2", n)
+	}
+	if n := logs.count("level=WARN"); n != 2 {
+		t.Errorf("%d warnings in all, want 2:\n%s", n, logs.String())
 	}
 }
 

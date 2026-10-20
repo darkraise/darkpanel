@@ -152,10 +152,11 @@ func olderThan(current, target string) bool {
 	return c.Compare(t) < 0
 }
 
-// hostRecord is a rollout host with the column the API does not show.
+// hostRecord is a rollout host with the columns the API does not show.
 type hostRecord struct {
 	core.RolloutHost
-	FollowedAt time.Time // when the host's update operation was stored; zero before
+	ApplySentAt time.Time // when the driver committed to applying the plan; zero before
+	FollowedAt  time.Time // when the host's update operation was stored; zero before
 }
 
 // record is a rollout with the columns the API does not show.
@@ -214,6 +215,14 @@ func errorDetail(code, message sql.NullString) *core.ErrorDetail {
 	return &core.ErrorDetail{Code: code.String, Message: message.String}
 }
 
+// optionalTime parses a nullable time column; NULL is the zero time.
+func optionalTime(s sql.NullString) (time.Time, error) {
+	if !s.Valid {
+		return time.Time{}, nil
+	}
+	return time.Parse(timeLayout, s.String)
+}
+
 // load reads rollout id with its hosts; a missing rollout is not_found.
 func load(ctx context.Context, q querier, id string) (record, error) {
 	r, err := scanRollout(q.QueryRowContext(ctx, "SELECT "+rolloutColumns+" FROM core_rollouts WHERE id = ?", id))
@@ -242,7 +251,7 @@ func active(ctx context.Context, q querier) (record, bool, error) {
 // loadHosts reads r's hosts in position order.
 func loadHosts(ctx context.Context, q querier, r *record) error {
 	rows, err := q.QueryContext(ctx,
-		`SELECT host_id, position, state, plan_id, operation_id, error_code, error_message, followed_at
+		`SELECT host_id, position, state, plan_id, apply_sent_at, operation_id, error_code, error_message, followed_at
 		 FROM core_rollout_hosts WHERE rollout_id = ? ORDER BY position`, r.ID)
 	if err != nil {
 		return fmt.Errorf("rollout: read the hosts of %s: %w", r.ID, err)
@@ -250,8 +259,8 @@ func loadHosts(ctx context.Context, q querier, r *record) error {
 	r.Hosts = nil
 	for rows.Next() {
 		var h hostRecord
-		var plan, op, code, message, followed sql.NullString
-		if err := rows.Scan(&h.HostID, &h.Position, &h.State, &plan, &op, &code, &message, &followed); err != nil {
+		var plan, sent, op, code, message, followed sql.NullString
+		if err := rows.Scan(&h.HostID, &h.Position, &h.State, &plan, &sent, &op, &code, &message, &followed); err != nil {
 			_ = rows.Close()
 			return fmt.Errorf("rollout: read the hosts of %s: %w", r.ID, err)
 		}
@@ -262,11 +271,12 @@ func loadHosts(ctx context.Context, q querier, r *record) error {
 			h.OperationID = &op.String
 		}
 		h.Error = errorDetail(code, message)
-		if followed.Valid {
-			if h.FollowedAt, err = time.Parse(timeLayout, followed.String); err != nil {
-				_ = rows.Close()
-				return fmt.Errorf("rollout: host %s of %s: %w", h.HostID, r.ID, err)
-			}
+		if h.ApplySentAt, err = optionalTime(sent); err == nil {
+			h.FollowedAt, err = optionalTime(followed)
+		}
+		if err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("rollout: host %s of %s: %w", h.HostID, r.ID, err)
 		}
 		r.Hosts = append(r.Hosts, h)
 	}

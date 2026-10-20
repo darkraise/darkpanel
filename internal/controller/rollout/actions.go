@@ -90,11 +90,12 @@ func (r record) updating() *hostRecord {
 	return nil
 }
 
-// handedOff reports whether h was given its update: from the moment its
-// plan id is stored, the host may be applying it, so stopping the rollout
-// waits for the host's outcome.
+// handedOff reports whether h was given its update: from the moment the
+// driver commits to sending its apply, the host may be applying the plan, so
+// stopping the rollout waits for the host's outcome. A stored plan that was
+// never sent starts nothing on the host.
 func handedOff(h *hostRecord) bool {
-	return h.PlanID != nil || h.OperationID != nil
+	return !h.ApplySentAt.IsZero() || h.OperationID != nil
 }
 
 // setRollout sets rollout id's state, outcome and error; an empty outcome and
@@ -250,13 +251,16 @@ func (cancelAction) Plan(ctx context.Context, env core.Env, in core.RolloutCance
 		diff = append(diff,
 			core.DiffLine{Op: "+", Text: fmt.Sprintf("rollout %s: cancelled; hosts not yet updated are skipped", r.ID)})
 	}
-	planID := ""
+	planID, sent := "", ""
 	if cur != nil && cur.PlanID != nil {
 		planID = *cur.PlanID
 	}
+	if cur != nil && !cur.ApplySentAt.IsZero() {
+		sent = cur.ApplySentAt.UTC().Format(timeLayout)
+	}
 	return core.PlanOutcome{
 		Diff: diff, Guards: []core.Guard{},
-		StateHash:    stateHash(r.ID, r.State, r.Outcome, hostID, planID),
+		StateHash:    stateHash(r.ID, r.State, r.Outcome, hostID, planID, sent),
 		Confirmation: r.ID,
 	}, nil
 }

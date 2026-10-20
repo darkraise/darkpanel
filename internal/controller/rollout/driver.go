@@ -71,6 +71,9 @@ type Driver struct {
 	timer   core.Timer
 	started bool
 	stopped bool
+	// stuckWarned is when follow last warned of a draining rollout whose
+	// host's update outlived HostTimeout; guarded by mu.
+	stuckWarned time.Time
 }
 
 // NewDriver returns a driver for cfg; DB, Dispatcher and Clock are required.
@@ -226,11 +229,23 @@ func detailOf(err error) *core.ErrorDetail {
 // after a lost answer or a restart the same plan is applied again and the
 // engine returns its one change. A change's update operation is stored for
 // follow.
+//
+// apply_sent_at is committed between storing the plan and the first apply.
+// A draining rollout applies only a plan that was already sent, to learn its
+// outcome, and skips a host it never sent one, so a cancel that commits
+// before the marker starts no update.
 func (d *Driver) handOff(ctx context.Context, r record, h *hostRecord) (bool, error) {
+	if r.State == core.RolloutDraining && !handedOff(h) {
+		return d.endHost(ctx, r, h, core.RolloutHostSkipped, nil)
+	}
+	gone, err := d.unenrolled(ctx, h.HostID)
+	if err != nil {
+		return false, err
+	}
+	if gone != nil {
+		return d.failHost(ctx, r, h, gone)
+	}
 	if h.PlanID == nil {
-		if r.State == core.RolloutDraining {
-			return d.endHost(ctx, r, h, core.RolloutHostSkipped, nil)
-		}
 		input, err := json.Marshal(core.UpdateApplyInput{Version: r.Version, Channel: r.Channel})
 		if err != nil {
 			return false, fmt.Errorf("rollout: encode the apply input: %w", err)
@@ -243,6 +258,17 @@ func (d *Driver) handOff(ctx context.Context, r record, h *hostRecord) (bool, er
 		}
 		return d.write(ctx, r, func(tx *sql.Tx, _ time.Time) error {
 			return d.setPlan(ctx, tx, r.ID, h.HostID, plan.PlanID)
+		})
+	}
+	if h.ApplySentAt.IsZero() {
+		return d.write(ctx, r, func(tx *sql.Tx, now time.Time) error {
+			_, err := tx.ExecContext(ctx,
+				"UPDATE core_rollout_hosts SET apply_sent_at = ? WHERE rollout_id = ? AND host_id = ?",
+				now.Format(timeLayout), r.ID, h.HostID)
+			if err != nil {
+				return fmt.Errorf("rollout: mark the apply of host %s: %w", h.HostID, err)
+			}
+			return nil
 		})
 	}
 	cctx, cancel := context.WithTimeout(ctx, callTimeout)
@@ -302,13 +328,34 @@ func (d *Driver) refused(ctx context.Context, r record, h *hostRecord, err error
 	return d.failHost(ctx, r, h, detailOf(err))
 }
 
-// setPlan stores or, with an empty planID, clears the plan of a host.
+// unenrolled returns the error a host fails with when it was revoked or
+// deleted since the rollout was created, and nil while it is enrolled. Such
+// a host never answers again, so waiting for it would hold this rollout, and
+// with it every later one, without a limit.
+func (d *Driver) unenrolled(ctx context.Context, hostID string) (*core.ErrorDetail, error) {
+	var state string
+	err := d.cfg.DB.Read().QueryRowContext(ctx, "SELECT state FROM core_hosts WHERE id = ?", hostID).Scan(&state)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return &core.ErrorDetail{Code: string(errcode.NotFound), Message: "the host was deleted"}, nil
+	case err != nil:
+		return nil, fmt.Errorf("rollout: read host %s: %w", hostID, err)
+	case state != core.HostEnrolled:
+		return &core.ErrorDetail{Code: string(errcode.InvalidInput),
+			Message: fmt.Sprintf("the host is %s; only an enrolled host can be updated", state)}, nil
+	}
+	return nil, nil
+}
+
+// setPlan stores or, with an empty planID, clears the plan of a host; either
+// way the new plan has not been sent.
 func (d *Driver) setPlan(ctx context.Context, tx *sql.Tx, id, hostID, planID string) error {
 	var plan any
 	if planID != "" {
 		plan = planID
 	}
-	_, err := tx.ExecContext(ctx, "UPDATE core_rollout_hosts SET plan_id = ? WHERE rollout_id = ? AND host_id = ?",
+	_, err := tx.ExecContext(ctx,
+		"UPDATE core_rollout_hosts SET plan_id = ?, apply_sent_at = NULL WHERE rollout_id = ? AND host_id = ?",
 		plan, id, hostID)
 	if err != nil {
 		return fmt.Errorf("rollout: store the plan of host %s: %w", hostID, err)
@@ -355,7 +402,7 @@ func (d *Driver) status(ctx context.Context, hostID string, in core.UpdateStatus
 // error of the status read is "not yet", a refusal included: the operation
 // may still be running, and the host fails only once it is over. While a
 // running rollout's host is not done HostTimeout after its operation was
-// stored, the rollout drains.
+// stored, the rollout drains; a draining one keeps waiting, with a warning.
 func (d *Driver) follow(ctx context.Context, r record, h *hostRecord) (bool, error) {
 	st, err := d.status(ctx, h.HostID, core.UpdateStatusInput{OperationID: *h.OperationID})
 	if err == nil {
@@ -369,7 +416,20 @@ func (d *Driver) follow(ctx context.Context, r record, h *hostRecord) (bool, err
 	} else {
 		d.cfg.Log.Debug("rollout: operation status unavailable", "rollout", r.ID, "host", h.HostID, "error", err)
 	}
-	if r.State != core.RolloutRunning || d.cfg.Clock.Now().Sub(h.FollowedAt) < HostTimeout {
+	now := d.cfg.Clock.Now()
+	if now.Sub(h.FollowedAt) < HostTimeout {
+		return false, nil
+	}
+	if r.State != core.RolloutRunning {
+		// A draining rollout waits for its host without a limit and, while
+		// it waits, refuses every new rollout and holds the update windows,
+		// so say so above debug level, at most once per HostTimeout.
+		if now.Sub(d.stuckWarned) >= HostTimeout {
+			d.stuckWarned = now
+			d.cfg.Log.Warn("rollout: a draining rollout is still waiting for its host's update; "+
+				"core.update.rollout-cancel with force ends it if the host never comes back",
+				"rollout", r.ID, "host", h.HostID, "operation", *h.OperationID, "since", h.FollowedAt)
+		}
 		return false, nil
 	}
 	e := &core.ErrorDetail{Code: string(errcode.UpdateInterrupted),
