@@ -80,6 +80,7 @@ func (m module) Manifest() core.Manifest {
 		m.userActions(),
 		m.enrollActions(),
 		m.hostRevokeActions(),
+		m.hostEnrollActions(),
 	} {
 		actions = append(actions, group...)
 	}

@@ -32,6 +32,9 @@ type declaration struct {
 var declarations = map[string]declaration{
 	"core.host.list":           {class: core.ClassRead},
 	"core.host.revoke":         {class: core.ClassIrreversible},
+	"core.host.create":         {class: core.ClassCompensable, compensatedBy: "core.host.delete"},
+	"core.host.token":          {class: core.ClassIrreversible},
+	"core.host.enroll-local":   {class: core.ClassIrreversible, breakGlass: true},
 	"core.host.delete":         {class: core.ClassIrreversible},
 	"core.module.list":         {class: core.ClassRead},
 	"core.module.enable":       {class: core.ClassCompensable, lockKeys: []string{"core.module"}, compensatedBy: "core.module.disable"},
@@ -131,9 +134,12 @@ func TestCoreActionSecrets(t *testing.T) {
 		"core.user.activate":       {"code": true},
 	}
 	wantOut := map[string]map[string]bool{
-		"core.token.create":    {"token": false},
-		"core.user.create":     {"totpSecret": false},
-		"core.user.reset-totp": {"totpSecret": false},
+		"core.token.create":      {"token": false},
+		"core.host.create":       {"token": false},
+		"core.host.token":        {"token": false},
+		"core.host.enroll-local": {"token": false},
+		"core.user.create":       {"totpSecret": false},
+		"core.user.reset-totp":   {"totpSecret": false},
 	}
 	for _, a := range coreActions(t) {
 		snap, err := schema.ActionSnapshot(a)
@@ -258,6 +264,9 @@ func TestZeroDepsFailClosed(t *testing.T) {
 		"core.user.reset-totp":     `{"username":"alice"}`,
 		"core.user.reset-password": `{"username":"alice","password":"correct horse battery"}`,
 		"core.user.delete":         `{"username":"alice"}`,
+		"core.host.create":         `{"name":"web1"}`,
+		"core.host.token":          `{"hostId":"h1"}`,
+		"core.host.enroll-local":   `{}`,
 	} {
 		calls[name] = func() error { _, err := defs[name].Handler.Plan(ctx, env, json.RawMessage(input)); return err }
 	}
