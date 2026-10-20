@@ -13,3 +13,4 @@
 - 2026-10-19 `docs/superpowers/plans/2026-10-19-m2-release-workflow.md` — merged into `main` at 8a88a23
 - 2026-10-20 `docs/superpowers/plans/2026-10-19-m2-security-libraries.md` — merged into `main` at db7bf34
 - 2026-10-20 `docs/superpowers/plans/2026-10-20-m2-agent-api-and-install.md` — merged into `main` at ba8e8b0
+- 2026-10-20 `docs/superpowers/plans/2026-10-20-m2-services.md` — merged into `main` at 8fa8073
