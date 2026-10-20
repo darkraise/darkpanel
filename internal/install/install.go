@@ -290,7 +290,7 @@ func (in *installer) ensureUser(ctx context.Context) error {
 
 // keys creates each role key that is absent. An existing key is never
 // replaced, because the database it seals is readable only with it; it only
-// gets its owner again.
+// gets its owner and mode 0600 again.
 func (in *installer) keys(context.Context) (string, error) {
 	p := in.cfg.Layout.Paths
 	created := 0
@@ -316,6 +316,12 @@ func (in *installer) keys(context.Context) (string, error) {
 			return "", err
 		case !st.Mode().IsRegular():
 			return "", fmt.Errorf("%s is not a regular file", k.path)
+		default:
+			// The key loader refuses any group or other access, so a loosened
+			// mode would stop the daemon that reads this key.
+			if err := os.Chmod(k.path, 0o600); err != nil {
+				return "", err
+			}
 		}
 		if err := in.chown(k.path, k.service); err != nil {
 			return "", err

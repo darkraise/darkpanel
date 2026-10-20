@@ -351,6 +351,35 @@ func TestInstallResetsAFailedUnit(t *testing.T) {
 	}
 }
 
+func TestInstallRepairsAKeyMode(t *testing.T) {
+	h := newTestHost(t)
+	ctx := context.Background()
+	if err := Install(ctx, h.config(RoleController)); err != nil {
+		t.Fatal(err)
+	}
+	p := h.layout.Paths
+	keys := map[string]string{}
+	for _, k := range []string{p.AgentKey, p.ControllerKey} {
+		keys[k] = string(readBytes(t, k))
+		if err := os.Chmod(k, 0o644); err != nil { //nolint:gosec // G302: the test loosens the key on purpose
+			t.Fatal(err)
+		}
+	}
+	h.out.Reset()
+	if err := Install(ctx, h.config(RoleController)); err != nil {
+		t.Fatalf("rerun: %v\n%s", err, h.out)
+	}
+	for k, content := range keys {
+		wantMode(t, k, 0o600)
+		if string(readBytes(t, k)) != content {
+			t.Errorf("the rerun replaced %s", k)
+		}
+	}
+	if !strings.Contains(h.out.String(), "keys: 0 created, 2 kept") {
+		t.Errorf("rerun output lacks the kept keys:\n%s", h.out)
+	}
+}
+
 func TestInstallRefusals(t *testing.T) {
 	h := newTestHost(t)
 	tests := map[string]func(c *Config){
