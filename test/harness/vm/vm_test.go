@@ -807,3 +807,66 @@ func TestKillProcessNameLength(t *testing.T) {
 		t.Errorf("commands run = %q, want %q", cmds, want)
 	}
 }
+
+// TestRunInputSendsStandardInput: RunInput feeds the command's standard input
+// and ends it, as a CLI reading a password from a pipe needs.
+func TestRunInputSendsStandardInput(t *testing.T) {
+	hostKey, err := NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &ssh.ServerConfig{NoClientAuth: true}
+	srv.AddHostKey(hostKey)
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		t.Cleanup(func() { _ = c.Close() })
+		_, chans, reqs, err := ssh.NewServerConn(c, srv)
+		if err != nil {
+			return
+		}
+		go ssh.DiscardRequests(reqs)
+		for nc := range chans {
+			ch, creqs, err := nc.Accept()
+			if err != nil {
+				continue
+			}
+			go func() {
+				for r := range creqs {
+					var req struct{ Command string }
+					if r.Type != "exec" || ssh.Unmarshal(r.Payload, &req) != nil {
+						_ = r.Reply(false, nil)
+						continue
+					}
+					_ = r.Reply(true, nil)
+					in, _ := io.ReadAll(ch) // until the client ends standard input
+					_, _ = fmt.Fprintf(ch, "%s read %q", req.Command, in)
+					_, _ = ch.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{0}))
+					_ = ch.Close()
+				}
+			}()
+		}
+	}()
+	key, err := NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := &VM{cfg: Config{Name: "stdin", Key: key}, sshAddr: ln.Addr().String(), hostKey: hostKey.PublicKey(), exited: make(chan struct{})}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := v.connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer v.closeClient()
+	out, err := v.RunInput(ctx, "cat", strings.NewReader("secret\n"))
+	if want := `cat read "secret\n"`; err != nil || out != want {
+		t.Errorf("RunInput = %q, %v; want %q", out, err, want)
+	}
+}

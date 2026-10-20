@@ -47,8 +47,9 @@ const (
 	// healthz asks the loopback listener inside the VM; --max-time ends a
 	// request that connects and then hangs.
 	healthz = "curl -fsS --max-time 10 http://127.0.0.1:8080/healthz"
-	// testDeadline stays under the workflow's 45-minute go test timeout, so
-	// the cleanups that stop the VMs still run.
+	// testDeadline and TestM2's m2Deadline together stay under the
+	// workflow's 100-minute go test timeout, so the cleanups that stop the
+	// VMs still run.
 	testDeadline = 40 * time.Minute
 )
 
@@ -101,6 +102,40 @@ func TestM1(t *testing.T) {
 // bootPair boots the target of -os and the scanner on one multicast link.
 func bootPair(ctx context.Context, t *testing.T) pair {
 	t.Helper()
+	o, targetImg, scannerImg := harnessImages(ctx, t)
+	dir := *workdirFlag
+	if dir == "" {
+		dir = t.TempDir()
+	}
+	key, err := vm.NewKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Each matrix job has a runner of its own; the random port keeps two runs
+	// on one machine off each other's link.
+	port := 20000 + rand.IntN(20000) //nolint:gosec // G404: a link port, not a secret
+	t.Logf("%s: run directory %s, multicast link %s:%d", o.ID, dir, vm.McastGroup, port)
+	vms := bootVMs(ctx, t, dir, []vm.Config{
+		{
+			Name: "target", Dir: dir, Image: targetImg, MemoryMiB: 2048, CPUs: 2,
+			MgmtMAC: "52:54:00:d0:01:10", InetMAC: "52:54:00:d0:00:10",
+			InetAddrs: []string{targetIPv4 + "/15", targetIPv6 + "/64"},
+			McastPort: port, Provision: TargetScript(o), Key: key,
+		},
+		{
+			Name: "scanner", Dir: dir, Image: scannerImg, MemoryMiB: 1024, CPUs: 1,
+			MgmtMAC: "52:54:00:d0:01:20", InetMAC: "52:54:00:d0:00:20",
+			InetAddrs: []string{scannerIPv4 + "/15", scannerIPv6 + "/64"},
+			McastPort: port, Provision: ScannerScript(), Key: key,
+		},
+	})
+	return pair{os: o, target: vms[0], scanner: vms[1]}
+}
+
+// harnessImages returns the OS of -os with its verified target image, and
+// the scanner's verified image.
+func harnessImages(ctx context.Context, t *testing.T) (OS, string, string) {
+	t.Helper()
 	pins, err := LoadPins(PinsFile)
 	if err != nil {
 		t.Fatal(err)
@@ -121,10 +156,6 @@ func bootPair(ctx context.Context, t *testing.T) pair {
 		}
 		cache = filepath.Join(d, "darkpanel-harness")
 	}
-	dir := *workdirFlag
-	if dir == "" {
-		dir = t.TempDir()
-	}
 	targetImg, err := vm.Fetch(ctx, o.Image.URL, o.Image.SHA256, cache)
 	if err != nil {
 		t.Fatal(err)
@@ -133,28 +164,13 @@ func bootPair(ctx context.Context, t *testing.T) pair {
 	if err != nil {
 		t.Fatal(err)
 	}
-	key, err := vm.NewKey()
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Each matrix job has a runner of its own; the random port keeps two runs
-	// on one machine off each other's link.
-	port := 20000 + rand.IntN(20000) //nolint:gosec // G404: a link port, not a secret
-	t.Logf("%s: run directory %s, multicast link %s:%d", o.ID, dir, vm.McastGroup, port)
-	cfgs := []vm.Config{
-		{
-			Name: "target", Dir: dir, Image: targetImg, MemoryMiB: 2048, CPUs: 2,
-			MgmtMAC: "52:54:00:d0:01:10", InetMAC: "52:54:00:d0:00:10",
-			InetAddrs: []string{targetIPv4 + "/15", targetIPv6 + "/64"},
-			McastPort: port, Provision: TargetScript(o), Key: key,
-		},
-		{
-			Name: "scanner", Dir: dir, Image: scannerImg, MemoryMiB: 1024, CPUs: 1,
-			MgmtMAC: "52:54:00:d0:01:20", InetMAC: "52:54:00:d0:00:20",
-			InetAddrs: []string{scannerIPv4 + "/15", scannerIPv6 + "/64"},
-			McastPort: port, Provision: ScannerScript(), Key: key,
-		},
-	}
+	return o, targetImg, scannerImg
+}
+
+// bootVMs boots cfgs in parallel and stops each VM when the test ends. Any
+// failed boot fails the test, naming dir, where the logs stay.
+func bootVMs(ctx context.Context, t *testing.T, dir string, cfgs []vm.Config) []*vm.VM {
+	t.Helper()
 	vms := make([]*vm.VM, len(cfgs))
 	errs := make([]error, len(cfgs))
 	var wg sync.WaitGroup
@@ -170,7 +186,7 @@ func bootPair(ctx context.Context, t *testing.T) pair {
 	if err := errors.Join(errs...); err != nil {
 		t.Fatalf("boot: %v\nlogs in %s", err, dir)
 	}
-	return pair{os: o, target: vms[0], scanner: vms[1]}
+	return vms
 }
 
 func checkOSRelease(ctx context.Context, t *testing.T, p pair) {

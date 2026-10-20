@@ -285,6 +285,13 @@ func (v *VM) Run(ctx context.Context, cmd string) (string, error) {
 	return v.runWith(ctx, cmd, nil)
 }
 
+// RunInput is Run with stdin as the command's standard input, which ends
+// when stdin does. A secret goes this way rather than into cmd, which errors
+// quote.
+func (v *VM) RunInput(ctx context.Context, cmd string, stdin io.Reader) (string, error) {
+	return v.runWith(ctx, cmd, stdin)
+}
+
 func (v *VM) runWith(ctx context.Context, cmd string, stdin io.Reader) (string, error) {
 	c, err := v.sshClient(ctx)
 	if err != nil {
