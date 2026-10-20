@@ -303,6 +303,38 @@ func TestUninstallKeepDataThenReinstall(t *testing.T) {
 	}
 }
 
+func TestUninstallKeepDataKeepsModuleData(t *testing.T) {
+	h, m := installHost(t, RoleController)
+	ctx := context.Background()
+	db, err := store.Open(ctx, h.layout.Paths.AgentDB())
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = platform.NewOwnership(db).Record(ctx, core.OwnedEntry{
+		Path: filepath.Join(h.layout.DataDir, "demo"), Module: "demo", Kind: core.OwnedDir, CreatedAt: installTime,
+	})
+	if cerr := db.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept := filepath.Join(h.layout.DataDir, "demo", "sub")
+	if err := os.MkdirAll(kept, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := runUninstall(t, h.uninstallConfig(m, true)); err != nil {
+		t.Fatalf("Run: %v\n%s", err, out)
+	}
+	if !exists(t, kept) {
+		t.Errorf("--keep-data removed the module's %s", kept)
+	}
+	conf, _, _, _ := m.paths()
+	if exists(t, filepath.Clean(conf)) {
+		t.Errorf("--keep-data kept the module's %s, which is outside the data directory", filepath.Clean(conf))
+	}
+}
+
 func TestUninstallRefusesARunningAgent(t *testing.T) {
 	h, m := installHost(t, RoleController)
 	lock := filepath.Join(h.layout.Paths.AgentDir, AgentLockName)

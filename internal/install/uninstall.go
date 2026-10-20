@@ -176,10 +176,11 @@ func (u *Uninstall) owned() map[string][]core.OwnedPath {
 // within reports whether path is dir or lies under it.
 func within(path, dir string) bool { return path == dir || strings.HasPrefix(path, dir+"/") }
 
-// kept reports whether --keep-data keeps e.
+// kept reports whether --keep-data keeps e: everything under the data and
+// configuration directories, whichever module owns it.
 func (u *Uninstall) kept(e core.OwnedEntry) bool {
 	l := u.cfg.Layout
-	return u.cfg.KeepData && e.Module == core.ModuleIDCore && (within(e.Path, l.DataDir) || within(e.Path, l.ConfigDir))
+	return u.cfg.KeepData && (within(e.Path, l.DataDir) || within(e.Path, l.ConfigDir))
 }
 
 // selectEntries returns the entries for which keep is true.
@@ -208,12 +209,12 @@ func describe(entries []core.OwnedEntry) []string {
 func (u *Uninstall) plan() []uninstallStep {
 	l := u.cfg.Layout
 	isCore := func(e core.OwnedEntry) bool { return e.Module == core.ModuleIDCore }
-	blocks := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedBlock })
+	blocks := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedBlock && !u.kept(e) })
 	files := u.selectEntries(func(e core.OwnedEntry) bool {
 		return e.Kind == core.OwnedFile && (!isCore(e) || e.Path != l.Paths.BinaryLink) && !u.kept(e)
 	})
 	dirs := u.selectEntries(func(e core.OwnedEntry) bool {
-		return e.Kind == core.OwnedDir && !isCore(e) && !within(e.Path, l.UnitDir)
+		return e.Kind == core.OwnedDir && !isCore(e) && !within(e.Path, l.UnitDir) && !u.kept(e)
 	})
 	units := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedUnit })
 	unitDirs := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedDir && within(e.Path, l.UnitDir) })
