@@ -143,6 +143,13 @@ func addDirectRollback(root *cobra.Command) error {
 	cmd.Flags().BoolVar(&direct, "direct", false,
 		"roll back in this process, without the agent; the break-glass path when no agent answers (root)")
 	cmd.Flags().StringVar(&tx, "transaction", "", "with --direct, run this rollback transaction; the rollback's transient unit passes it")
+	// --direct asks nothing: the rollback unit and the --local fallback,
+	// which has already asked, call it. People are steered to --local --yes.
+	for _, name := range []string{"direct", "transaction"} {
+		if err := cmd.Flags().MarkHidden(name); err != nil {
+			return err
+		}
+	}
 	generated := cmd.RunE
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		if !direct {

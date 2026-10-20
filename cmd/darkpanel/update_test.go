@@ -186,9 +186,16 @@ func TestUpdateHelp(t *testing.T) {
 		}
 	}
 	out = runRoot(t, "update", "rollback", "--help")
-	for _, flag := range []string{"--direct", "--transaction string", "--force", "--local"} {
+	for _, flag := range []string{"--force", "--local"} {
 		if !strings.Contains(out, flag) {
 			t.Errorf("darkpanel update rollback --help does not list %s", flag)
+		}
+	}
+	// The machine path stays out of the help, so people use --local --yes,
+	// which asks before it rolls back.
+	for _, flag := range []string{"--direct", "--transaction"} {
+		if strings.Contains(out, flag) {
+			t.Errorf("darkpanel update rollback --help lists %s", flag)
 		}
 	}
 }
