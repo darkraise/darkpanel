@@ -11,6 +11,7 @@ import (
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/schemas"
 )
 
 func wantCode(t *testing.T, err error, code errcode.Code) *errcode.Error {
@@ -28,12 +29,25 @@ func TestHelloReportsTheHostAndItsModules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	hashes := map[string]core.SchemaHash{}
+	for _, def := range f.reg.Actions() {
+		if def.Spec.Side != core.SideAgent {
+			continue
+		}
+		if hashes[schemas.HashKey(def.Ref())], err = schemas.ActionHash(def); err != nil {
+			t.Fatal(err)
+		}
+	}
 	want := core.AgentHello{
 		ProtocolVersion: ProtocolVersion, BinaryVersion: "test", OS: goruntime.GOOS, HostID: testHost,
-		Modules: f.rt.statuses(),
+		Modules: f.rt.statuses(), SchemaHashes: hashes,
 	}
-	if !reflect.DeepEqual(h, want) || len(h.Modules) != 4 {
+	if !reflect.DeepEqual(h, want) || len(h.Modules) != 4 || len(h.SchemaHashes) < 2 {
 		t.Errorf("Hello = %+v, want %+v", h, want)
+	}
+	h.SchemaHashes["kv.item.get@1"] = core.SchemaHash{}
+	if again, _ := f.rt.Hello(context.Background()); again.SchemaHashes["kv.item.get@1"] != hashes["kv.item.get@1"] {
+		t.Error("changing one Hello's hashes changed the next Hello's")
 	}
 }
 
