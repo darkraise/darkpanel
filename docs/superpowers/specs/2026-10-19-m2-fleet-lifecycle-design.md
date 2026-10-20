@@ -59,21 +59,26 @@ JSON fields are camelCase (ADR index, shared contracts). Every new table is
 ### 1. Processes, users, paths and settings (R26, M1 row 24)
 
 - `darkpanel serve` is the controller only. It runs as the system user
-  `darkpanel` (ADR 0005) and no longer opens `agent.db` or the agent key.
+  `darkpanel` (ADR 0005), refuses to run as root without `--dev` (it would
+  create root-owned files the unit could not open), and no longer opens
+  `agent.db` or the agent key or creates the agent's directories.
 - `darkpanel agent run` is the agent daemon, as root. On the controller's host
   it dials `127.0.0.1:7443` like any remote agent, so every host goes through
   the same transport and handler (R26).
 - `serve --dev` keeps development paths and allows a non-root user, as in M1.
   The M1 in-process agent stays behind a separate flag, `--embedded-agent`,
-  valid only with `--dev`, so development and the existing end-to-end tests
-  keep working. `darkpanel agent run --dev` runs the real daemon against the
-  development layout. Production units never pass either flag.
+  valid only with `--dev` and refused with `--agent-listen` (it opens no agent
+  listener), so development and the existing end-to-end tests keep working.
+  `darkpanel agent run --dev` runs the real daemon against the development
+  layout, with an updater that never manages systemd units, so its update
+  actions fail. Production units never pass either flag.
 - **Settings are flags**, as M1's `--listen` is; there is still no
   configuration file. `serve` gains:
   - `--agent-listen <addr:port>` (repeatable): extra agent-listener binds,
     **added** to the always-bound `127.0.0.1:7443` and the Tailscale address
     (section 4). Unlike the web `--listen`, it never replaces loopback,
-    because the controller's own agent dials it.
+    because the controller's own agent dials it, and it refuses an
+    unspecified address.
   - `--agent-advertise <host:port>`: the address enrollment tokens carry when
     the request names none. No default.
 
@@ -119,7 +124,11 @@ JSON fields are camelCase (ADR index, shared contracts). Every new table is
   `AgentTLSDir`). The previous generation is kept until the first successful
   handshake with the new one, then deleted. Every reader resolves `current`
   once and reads all four files from that one directory, so a crash at any
-  point leaves a complete old or a complete new generation.
+  point leaves a complete old or a complete new generation. Writers of a
+  generation (`agent enroll` and the daemon's renewal) hold an exclusive
+  `flock` on `AgentTLSDir/save.lock` from reading `current` to the final
+  fsync; a renewal whose session generation is no longer current writes
+  nothing.
 - Table `core_agent_certs (serial TEXT PRIMARY KEY, host_id TEXT NOT NULL
   REFERENCES core_hosts (id) ON DELETE CASCADE, not_before, not_after,
   revoked_at, created_at)`. Serials are 128-bit random.
@@ -139,8 +148,8 @@ JSON fields are camelCase (ADR index, shared contracts). Every new table is
 | Action | Class | Surface | Input | Output |
 |---|---|---|---|---|
 | `core.host.create/v1` | compensable, compensated by `core.host.delete` | network | `name` (pattern `^[a-z0-9][a-z0-9.-]{0,62}$`), `controllerAddress` (optional `host:port`) | `EnrollmentGrant` |
-| `core.host.token/v1` | irreversible | network | `hostId`, `controllerAddress` (optional) | `EnrollmentGrant` |
-| `core.host.enroll-local/v1` | irreversible | controller socket (break-glass) | none | `EnrollmentGrant` for the local host, address `127.0.0.1:7443` |
+| `core.host.token/v1` | irreversible, typed confirmation (the host name) | network | `hostId`, `controllerAddress` (optional) | `EnrollmentGrant` |
+| `core.host.enroll-local/v1` | irreversible, typed confirmation (the host name) | controller socket (break-glass) | none | `EnrollmentGrant` for the local host, address `127.0.0.1:7443` |
 | `core.host.revoke/v1` | irreversible, typed confirmation | network | `hostId` | `Host` |
 | `core.host.delete/v1` | irreversible, typed confirmation | network | `hostId` | `Host` |
 
@@ -148,8 +157,9 @@ JSON fields are camelCase (ADR index, shared contracts). Every new table is
   "<time>"}` with `token` marked `secret:"true"`, shown once. A request
   without `controllerAddress` uses `--agent-advertise`; with neither it fails
   with `request.invalid_input` naming `controllerAddress`.
-  `core.host.token` is refused for an enrolled, unrevoked host and replaces
-  any earlier token of that host. `core.host.enroll-local` is allowed in every
+  Host names are unique. `core.host.token` is refused for the local host and
+  for an enrolled, unrevoked host, and replaces any earlier token of that
+  host. `core.host.enroll-local` is allowed in every
   state of the local host: in one controller write transaction it revokes the
   local host's serials, sets its state to `revoked` (a fresh local host is
   `pending`), and replaces its token, so `system install` can always repair
@@ -205,9 +215,9 @@ Package `internal/transport` owns TLS policies, peer verification, the yamux
 session and the heartbeat. It knows nothing about actions.
 
 - **Agent listener.** Port 7443 on `127.0.0.1` always, plus the Tailscale
-  interface by the same rule and watcher as the web listener (ADR 0006,
-  `internal/controller/listen`), plus every `--agent-listen` address. It never
-  binds all interfaces by default.
+  interface by the same rule as the web listener and a watcher of its own
+  (ADR 0006, `internal/controller/listen`), whatever the web `--listen` says,
+  plus every `--agent-listen` address. It never binds all interfaces.
 - **Controller TLS.** TLS 1.3 only. `GetConfigForClient` selects the policy by
   the client's offered ALPN; a client offering both or neither protocol is
   refused:
@@ -299,8 +309,8 @@ session and the heartbeat. It knows nothing about actions.
     validate the input against that older schema with unknown properties
     refused, and answer `request.invalid_input` naming the first field the
     agent's schema lacks; otherwise dispatch;
-  - an unknown hash: the action version is unavailable on that host with the
-    reason `agent schema unknown`.
+  - an unknown or missing hash: the action version answers
+    `module.unavailable` on that host with the reason `agent schema unknown`.
 - **Version window** (R24, R25). An agent is supported when its protocol is 1,
   its major equals the controller's, and its minor equals the controller's or
   is one lower. An agent outside the window, older or newer (a newer agent
@@ -308,8 +318,10 @@ session and the heartbeat. It knows nothing about actions.
   false` and receives only `core.update.*` actions; every other action
   answers `host.version_unsupported`.
 - **Journal epoch** (row 92). The agent stores a ULID in its `core_meta` under
-  `journal_epoch`, created with agent.db and replaced only when agent.db or
-  its journal table is recreated; re-enrollment keeps it, so unacknowledged
+  `journal_epoch`, created by the runtime when it opens agent.db and finds
+  none (a migration that rebuilds `core_journal` would delete such a row, so
+  no agent migration creates it), and replaced only when agent.db or its
+  journal table is recreated; re-enrollment keeps it, so unacknowledged
   entries are not ingested twice. The controller's `core_journal_cursor` and
   `core_audit` gain an `epoch` column; the unique index on `core_audit`
   becomes `(host_id, epoch, seq)`. When Hello reports an epoch different from
@@ -335,7 +347,13 @@ session and the heartbeat. It knows nothing about actions.
   of named actions (the `update` group adopts `core.update.apply`,
   `core.update.rollback`, `core.update.status`, beside its hand-written
   `run`, `recover` and the rollout commands), and a per-action local fallback
-  runs when `--local` finds no agent socket (section 8).
+  runs when `--local` finds no agent socket (section 8). `--local` dials the
+  socket once before reading or planning; only a missing socket or a refused
+  connection runs the fallback, which asks `Apply? [y/N]` for a mutating
+  action unless `--yes` and needs no confirmation phrase, because without the
+  agent there is no plan. `--host` and `--url` are refused with `--local`.
+  The controller sends the actor `system:controller` as `Darkpanel-Principal`
+  on its own calls (hello, change reads, preflight, the journal).
 - **Controller unreachable** (R28). The agent keeps its database, last applied
   state, revert timers and socket; nothing in the agent waits on the
   controller except the dial loop.
@@ -423,6 +441,9 @@ and rollout actions) join the one core manifest; assembly fills it.
      exits 0. Controller role: on 1 or 2 (the controller is local and up),
      `core.host.enroll-local` over the controller socket, then the enrollment
      flow with that token, which also repairs a revoked or lost local agent.
+     When the agent socket's `hello` reports `controllerConnected: true`, the
+     credentials count as accepted and no handshake runs: a check is a
+     session, and it would replace the running daemon's for a moment.
      Agent role: on 1, the token from standard input is required; on 2 with
      saved credentials it warns that the controller is unreachable and keeps
      them; without credentials it requires a token. A consumed token without
@@ -448,7 +469,7 @@ and rollout actions) join the one core manifest; assembly fills it.
     timeout and `OnFailure` lines.
   - `darkpanel-rollback.service` and `darkpanel-update-recover.service`:
     `Type=oneshot`, `ExecStart=/usr/local/lib/darkpanel/darkpanel.recovery
-    update recover`, `TimeoutStartSec=30s`,
+    update recover` (the boot unit adds `--boot`), `TimeoutStartSec=30s`,
     `ConditionPathExists=/usr/local/lib/darkpanel/darkpanel.recovery`;
     the recover unit adds `Before=darkpanel-controller.service
     darkpanel-agent.service` and `WantedBy=multi-user.target` and runs on
@@ -549,7 +570,9 @@ and rollout actions) join the one core manifest; assembly fills it.
   change's lock.
   `takeLocks` refuses any key while a `*` row exists, so a change whose
   pre-check passed before the reservation still cannot take its lock after
-  it. Handlers reach the function through `Env.DB`; the runner and `--direct`
+  it. The registry refuses an agent-side revertible action that declares no
+  lock key, so no revertible change can start, and stay unconfirmed, while
+  an update holds `*`; a keyless compensable or irreversible change may. Handlers reach the function through `Env.DB`; the runner and `--direct`
   rollback call it directly. `Env` gains `ChangeID`, set by the engine for
   Apply and Verify (a plan has no change yet).
 - **Apply returns before the restart.** `core.update.apply` declares no lock
@@ -757,11 +780,16 @@ and rollout actions) join the one core manifest; assembly fills it.
   A failed host, or a 10-minute timeout, moves the rollout to `draining`; it
   becomes `failed` when the host's operation is terminal, so a second rollout
   cannot start while a host is still updating. `rollout-cancel` moves a
-  `running` rollout to `draining` (or straight to `cancelled` when no host is
-  `updating`), serialised with dispatch on the same database writer; the
+  `running` rollout to `draining` (or straight to `cancelled` when no host was
+  sent its update), serialised with dispatch on the same database writer; the
   driver marks it `cancelled` once the active operation is terminal.
   `force: true` marks an active rollout `cancelled` at once, for a host that
-  never comes back. A controller restart during its own host's update resumes
+  never comes back. `core_rollouts` also stores `outcome` (the end state of a
+  draining rollout), `change_id`, `error_code` and `error_message`, and
+  `core_rollout_hosts` stores `apply_sent_at` (from then on the host may be
+  updating) and `followed_at` (the start of the ten-minute limit). The update
+  actions of a process without an updater, the controller's, answer
+  `unavailable`, which fails the host. A controller restart during its own host's update resumes
   from the rows. Tests cover concurrent submission, stop at the first failure,
   resume after a restart before and after the stored `planId` was applied, a
   restart longer than the plan lifetime (clock past `PlanTTL`, purge run), a
@@ -844,9 +872,11 @@ New `errcode` codes: `host.offline`, `host.version_unsupported`,
 `update.in_progress`, `update.unconfirmed_changes`,
 `update.signature_invalid`, `update.downgrade_refused`, `update.not_found`,
 `update.prev_mismatch`, `update.nothing_to_roll_back`, `update.interrupted`,
-`rollout.in_progress`.
+`rollout.in_progress`, `unavailable` (503: a service that is shutting down or
+that this process does not run).
 New actors: `system:rollout`, `system:update-schedule`,
-`local:root@unenrolled`. New reserved top-level CLI name: `system` (`agent`,
+`local:root@unenrolled`, `system:controller` (the controller's own agent API
+calls). New reserved top-level CLI name: `system` (`agent`,
 `update` and `uninstall` are reserved already).
 
 ### 12. ADR 0012
@@ -961,8 +991,8 @@ actors and reserved names (section 11); and these shapes and columns:
 - Migrations: controller `0005_fleet.sql` (P1: `core_hosts` columns,
   `core_agent_certs`, `core_enroll_tokens`, `core_host_update`),
   `0006_journal_epoch.sql` (P9), `0007_rollout.sql` (P11: `core_rollouts`,
-  `core_rollout_hosts`); agent `0005_ownership_kinds.sql` (P4),
-  `0006_journal_epoch.sql` (P10).
+  `core_rollout_hosts`); agent `0005_ownership_kinds.sql` (P4); the agent's
+  journal epoch is created by the runtime (section 5), not a migration.
 
 The foundation creates the Go types for every action input and output above
 (in `internal/core/fleet.go`), the error codes, actors and reserved names, the
@@ -1012,6 +1042,14 @@ Migration paths are under `internal/core/store/`.
   interfaces or temporary directories in unit tests and exercised for real
   only in the harness. Harness changes are verified before merge by pushing
   the work branch and dispatching `harness.yml`.
+- Ownership as built: P9 committed the `schemas/core.host.*` snapshots and
+  the host line of `internal/cli/names_test.go` (the snapshot test fails as
+  soon as an action changes without its snapshot); P12 also changed
+  `internal/core/registry.go` (the lock-key rule), `internal/core/errcode/`
+  (`unavailable`), `internal/agent/daemon/` (the save lock, the harnessbroken
+  hook), `internal/update/actions.go` (`unavailable` without an updater) and
+  `internal/controller/fleet/server.go`; the `harnessmigration` files live in
+  `internal/core/store/`, which owns the embedded migrations.
 
 ## Plans
 

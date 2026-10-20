@@ -73,9 +73,11 @@ not name. Accepted ADRs are not edited, so the additions are recorded here.
   an owner `op:<operation id>` in its own write transaction, refused while any
   lock is held or a revertible change is unconfirmed; while `*` is held, every
   other lock is refused. The refusal is made when a change takes its lock
-  keys, so it covers only changes whose action declares at least one; the
-  registry does not require one, and a change with no lock keys starts while
-  `*` is held. An action that must not run during an update declares a key.
+  keys, so it covers only changes whose action declares at least one. The
+  registry refuses an agent-side revertible action without a lock key, so no
+  revertible change can start, and stay unconfirmed, while `*` is held; a
+  keyless compensable or irreversible change may. Any other action that must
+  not run during an update declares a key.
   `lifecycle.Release` frees an owner's rows. The engine passes the running
   change's id to Apply and Verify as `Env.ChangeID`.
 - **Update actions.** `core.update.apply/v1` (compensable, compensated by
@@ -121,8 +123,10 @@ not name. Accepted ADRs are not edited, so the additions are recorded here.
   --pending` takes the form `darkpanel.recovery update recover`:
   `darkpanel.recovery` is a hard link to the previous binary, made before the
   swap and removed when the operation is terminal, so a crash at any point
-  leaves a binary that can finish the rollback. The rollback and boot
-  recovery units run it.
+  leaves a binary that can finish the rollback. The rollback unit runs
+  `update recover`, which restarts the services after a rollback; the boot
+  recovery unit runs `update recover --boot`, ordered before the services,
+  which restarts nothing.
 - **Health rule.** After a swap the runner polls every 2 s until an 80 s
   deadline. The controller passes when `/healthz` on its socket reports the
   new version with status `ok`, and fails at once on the new version with any
@@ -130,8 +134,10 @@ not name. Accepted ADRs are not edited, so the additions are recorded here.
   when enrolled, a live controller connection. A refused connection, a timeout
   or the old version is "not yet"; the deadline is a failure.
 - **Actors and reserved names.** `system:rollout` (the rollout driver),
-  `system:update-schedule` (scheduled updates) and `local:root@unenrolled`
-  (the agent socket before enrollment) join the shared contracts' actors.
+  `system:update-schedule` (scheduled updates), `local:root@unenrolled`
+  (the agent socket before enrollment) and `system:controller` (the
+  controller's own agent API calls: hello, change reads, preflight and the
+  journal) join the shared contracts' actors.
   `system` joins the reserved top-level CLI names.
 - **Exec allowlist.** ADR 0009's allowlist gains `/usr/sbin/useradd` and
   `/usr/sbin/userdel`, which the installer runs for the controller's system
