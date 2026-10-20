@@ -193,9 +193,9 @@ read_token() {
 		die "no terminal to read the enrollment token from; pass --token-file"
 	fi
 	printf 'Enrollment token: ' >/dev/tty
-	stty -echo </dev/tty
 	trap 'stty echo </dev/tty; exit 130' INT
 	trap 'stty echo </dev/tty; exit 143' TERM
+	stty -echo </dev/tty
 	IFS= read -r token </dev/tty || token=
 	stty echo </dev/tty
 	trap 'exit 130' INT
