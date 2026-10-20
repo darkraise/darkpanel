@@ -65,7 +65,7 @@ func runHealthWait(t *testing.T, p Probes) (int, error) {
 	clock := coretest.NewFakeClock(time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC))
 	deadline := clock.Now().Add(HealthDeadline)
 	done := make(chan error, 1)
-	go func() { done <- p.Wait(context.Background(), clock, "1.2.0", "1.3.0", deadline) }()
+	go func() { done <- p.Wait(context.Background(), clock, "1.2.0", "1.3.0", deadline, nil) }()
 	advances := 0
 	for {
 		select {
@@ -138,19 +138,44 @@ func TestProbesWait(t *testing.T) {
 
 func TestProbesWaitStops(t *testing.T) {
 	clock := coretest.NewFakeClock(time.Unix(0, 0))
-	if err := (Probes{}).Wait(context.Background(), clock, "1.2.0", "1.3.0", clock.Now().Add(time.Minute)); err == nil {
+	if err := (Probes{}).Wait(context.Background(), clock, "1.2.0", "1.3.0", clock.Now().Add(time.Minute), nil); err == nil {
 		t.Error("Wait without an agent probe passed")
 	}
 	p := Probes{Agent: (&healthAnswers[core.AgentHello]{answers: []healthAnswer[core.AgentHello]{healthHello("1.2.0", nil)}}).probe}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- p.Wait(ctx, clock, "1.2.0", "1.3.0", clock.Now().Add(time.Minute)) }()
+	go func() { done <- p.Wait(ctx, clock, "1.2.0", "1.3.0", clock.Now().Add(time.Minute), nil) }()
 	for clock.Pending() == 0 {
 		time.Sleep(time.Millisecond)
 	}
 	cancel()
 	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Errorf("Wait after cancel = %v, want context.Canceled", err)
+	}
+}
+
+func TestProbesWaitStopsWhenMoved(t *testing.T) {
+	clock := coretest.NewFakeClock(time.Unix(0, 0))
+	agent := &healthAnswers[core.AgentHello]{answers: []healthAnswer[core.AgentHello]{healthHello("1.2.0", nil)}}
+	p := Probes{Agent: agent.probe}
+	asked := 0
+	moved := func() bool {
+		asked++
+		return asked > 1
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- p.Wait(context.Background(), clock, "1.2.0", "1.3.0", clock.Now().Add(time.Minute), moved)
+	}()
+	for clock.Pending() == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	clock.Advance(HealthInterval)
+	if err := <-done; !errors.Is(err, errMoved) {
+		t.Errorf("Wait once the record moved = %v, want errMoved", err)
+	}
+	if asked != 2 {
+		t.Errorf("moved was asked %d times, want 2: before each round of probes", asked)
 	}
 }
 

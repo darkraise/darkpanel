@@ -69,7 +69,13 @@ func (u *Updater) Run(ctx context.Context, tx string) error {
 	}
 	health := u.restartServices(ctx)
 	if health == nil {
-		health = u.probes(ctx).Wait(ctx, u.cfg.Clock, r.FromVersion, r.ToVersion, deadline)
+		// A recover pass may roll the update back while the runner waits;
+		// records are replaced by rename, so reading without the lock is safe.
+		moved := func() bool {
+			cur, err := ReadRecord(u.cfg.Paths, tx)
+			return err == nil && cur.State != core.UpdateSwapped
+		}
+		health = u.probes(ctx).Wait(ctx, u.cfg.Clock, r.FromVersion, r.ToVersion, deadline, moved)
 	}
 	l, err := u.lock(ctx)
 	if err != nil {

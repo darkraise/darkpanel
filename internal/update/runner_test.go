@@ -427,6 +427,50 @@ func TestRunLeavesAMovedRecordAlone(t *testing.T) {
 	}
 }
 
+func TestRunStopsWaitingOnceRolledBack(t *testing.T) {
+	ctx := context.Background()
+	e := newUpdaterEnv(t, "1.2.0")
+	tx := startUpdate(t, e, "1.2.0", "1.3.1")
+	// A recover pass rolls the update back during the first probe; the
+	// agent then reports the restored version, which is never healthy. The
+	// hook reads the binary after the rollback: the installed argument was
+	// read before it and would still name the new version.
+	probes := 0
+	e.agentHello = func(string) (core.AgentHello, error) {
+		probes++
+		if probes == 1 {
+			if err := e.updater(t, "1.2.0").RollBack(ctx, tx, false); err != nil {
+				t.Error(err)
+			}
+		}
+		return core.AgentHello{BinaryVersion: installedVersion(e.p.Binary())}, nil
+	}
+	// The clock moves only while the runner sleeps on it, so the deadline
+	// stays forty health intervals ahead however long the rollback takes.
+	u := e.updater(t, "1.2.0")
+	done := make(chan error, 1)
+	go func() { done <- u.Run(ctx, tx) }()
+	var err error
+	for waiting := true; waiting; {
+		select {
+		case err = <-done:
+			waiting = false
+		case <-time.After(time.Millisecond):
+			if e.clock.Pending() > 0 {
+				e.clock.Advance(HealthInterval)
+			}
+		}
+	}
+	if err != nil {
+		t.Fatalf("Run = %v, want nil: another process finished the record", err)
+	}
+	wantRolledBack(t, e, tx, "1.2.0", "1.3.1")
+	// Without the check the runner probes until the deadline, about forty times.
+	if probes != 1 {
+		t.Errorf("the runner probed %d times, want 1: it must stop once the record left swapped", probes)
+	}
+}
+
 func TestRunNextStepStartFailure(t *testing.T) {
 	e := newUpdaterEnv(t, "1.2.0")
 	tx := startUpdate(t, e, "1.2.0", "1.4.0")
