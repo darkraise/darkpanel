@@ -98,9 +98,9 @@ clean:
 release-check:
 	go run ./release/releasetool check-version $(VERSION)
 
-# make release VERSION=x.y.z writes the tarballs, the SBOM and checksums.txt
-# to bin/release. One SBOM serves both architectures: the module graph is the
-# same for every GOARCH of this pure-Go build.
+# make release VERSION=x.y.z writes the tarballs, the SBOM, install.sh and
+# checksums.txt to bin/release. One SBOM serves both architectures: the module
+# graph is the same for every GOARCH of this pure-Go build.
 release: release-check verify-build
 	rm -rf $(RELEASE_DIR)
 	mkdir -p $(RELEASE_DIR)

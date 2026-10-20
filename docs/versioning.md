@@ -29,13 +29,14 @@ Each release publishes, under
 - `darkpanel_<version>_linux_amd64.tar.gz` and
   `darkpanel_<version>_linux_arm64.tar.gz` (the binary, `LICENSE`,
   `README.md`);
-- `checksums.txt`, the SHA-256 of every file above and of the SBOM;
+- `checksums.txt`, the SHA-256 of every file above and of the SBOM and
+  `install.sh`;
 - `checksums.txt.<key id>.minisig`, a minisign signature of `checksums.txt`
   for each release key. Its trusted comment names the version, the channel
   and the file's purpose, so an older signed file cannot be replayed as a
   newer release;
 - `darkpanel_<version>.cdx.json`, a CycloneDX software bill of materials;
-- `install.sh`.
+- `install.sh`, the one-line installer, which embeds the trusted keys.
 
 `install.sh` and the updater accept a release when any one signature from a
 key built into them verifies. The list of releases,

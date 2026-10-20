@@ -54,13 +54,23 @@ curl -fsSL https://github.com/Darkraise/darkpanel/releases/latest/download/insta
 sudo sh install.sh --role controller --agent-advertise <address agents reach>:7443
 ```
 
-`install.sh` itself is not in the signed `checksums.txt`; the release workflow
-attests its build instead. Check that attestation with the GitHub CLI before
-running the script as root:
+`install.sh` is listed in the release's signed `checksums.txt`, like the
+tarballs. To check it before running it as root, verify the signature with
+[minisign](https://jedisct1.github.io/minisign/), using a release public key
+and its key id from `internal/update/trustedkeys/production.go`, then the
+checksum:
 
 ```sh
-gh attestation verify install.sh --repo darkraise/darkpanel
+base=https://github.com/Darkraise/darkpanel/releases/latest/download
+curl -fsSLO "$base/checksums.txt"
+curl -fsSLO "$base/checksums.txt.<key id>.minisig"
+minisign -V -P <public key> -m checksums.txt -x checksums.txt.<key id>.minisig
+sha256sum --check --ignore-missing checksums.txt
 ```
+
+The trusted comment minisign prints names the version and channel. The
+release workflow also attests every file, so `gh attestation verify install.sh
+--repo darkraise/darkpanel` is a second check.
 
 `system install` creates the `darkpanel` user and the directories, keys and
 systemd units, starts `darkpanel-controller.service`, enrolls the host's own

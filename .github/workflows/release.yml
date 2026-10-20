@@ -91,13 +91,12 @@ jobs:
           tar -xzf "$tools/cliff.tgz" -C "$tools" --strip-components=1 git-cliff-2.14.2/git-cliff
           tar -xzf "$tools/cdx.tgz" -C "$tools" cyclonedx-gomod
           echo "$tools" >>"$GITHUB_PATH"
-      - run: make release VERSION="$VERSION"
       - name: Check install.sh is committed and current
         run: |
           git ls-files --error-unmatch install.sh
           make install-sh
           git diff --exit-code -- install.sh
-          cp install.sh bin/release/
+      - run: make release VERSION="$VERSION"
       - name: Write the release notes
         run: |
           # Stable notes cover every commit since the previous stable release,

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Packages the release tarballs and writes checksums.txt over every file in
-# the output directory (spec section 9).
+# Packages the release tarballs, copies install.sh and writes checksums.txt
+# over every file in the output directory (spec section 9).
 #
 #   package.sh <version> <bin dir> <out dir>
 #
@@ -33,6 +33,10 @@ for arch in amd64 arm64; do
     -C "$dir" -cf - darkpanel LICENSE README.md |
     gzip -n -9 >"$outdir/darkpanel_${version}_linux_${arch}.tar.gz"
 done
+
+# install.sh embeds the trusted keys and runs as root, so the signature over
+# checksums.txt must cover it like the binaries.
+install -m 0644 "$root/install.sh" "$outdir/install.sh"
 
 cd "$outdir"
 files=()
