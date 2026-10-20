@@ -10,19 +10,37 @@ import (
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
 )
 
 // IngestInterval is how often a started Ingester reads every host's journal
 // (spec section 20).
 const IngestInterval = 5 * time.Second
 
+// IngestTimeout bounds one host's ingestion, so an agent that stops
+// answering holds up neither the other hosts nor the loop.
+const IngestTimeout = 30 * time.Second
+
 // journalPage is how many journal entries one Journal call asks for.
 const journalPage = 500
+
+// errIngestTimeout ends a host's ingestion that IngestTimeout cut short.
+var errIngestTimeout = fmt.Errorf("audit: ingestion exceeded %s", IngestTimeout)
+
+// Epochs reports the journal epoch each host's agent said its last Hello
+// with; *dispatch.Hosts implements it. With a directory that does not, every
+// journal is in the empty epoch.
+type Epochs interface {
+	JournalEpoch(hostID string) string
+}
+
+// ackKey names one journal: a host's sequence starts again in a new epoch.
+type ackKey struct{ host, epoch string }
 
 // IngesterConfig wires an Ingester.
 type IngesterConfig struct {
 	Store  *Store             // the controller's audit log, whose database lists the hosts
-	Agents core.HostDirectory // the agents whose journals are read
+	Agents core.HostDirectory // the agents whose journals are read; see Epochs
 	Clock  core.Clock
 	Log    *slog.Logger
 }
@@ -30,15 +48,18 @@ type IngesterConfig struct {
 // Ingester copies agent journals into core_audit (ADR 0003, spec section
 // 11): it reads the entries after the host's core_journal_cursor, stores them
 // with the cursor in one transaction, and then acknowledges the cursor so the
-// agent deletes them. Its methods are safe for concurrent use; ingestion runs
-// one at a time.
+// agent deletes them. When the agent reports a journal epoch other than the
+// cursor's, the cursor starts again at (epoch, 0). A host that answers
+// host.offline is skipped, and each host's ingestion ends after
+// IngestTimeout on the configured clock. Its methods are safe for concurrent
+// use; ingestion runs one at a time.
 type Ingester struct {
 	cfg IngesterConfig
 
 	// mu is held for a whole ingestion run, so runs never overlap and Stop
 	// waits for a running one.
 	mu      sync.Mutex
-	acked   map[string]int64 // the last sequence acknowledged per host by this process
+	acked   map[ackKey]int64 // the last sequence acknowledged per journal by this process
 	timer   core.Timer
 	started bool
 	stopped bool
@@ -47,7 +68,7 @@ type Ingester struct {
 // NewIngester returns an ingester for cfg. Call Start to ingest every
 // IngestInterval.
 func NewIngester(cfg IngesterConfig) *Ingester {
-	return &Ingester{cfg: cfg, acked: map[string]int64{}}
+	return &Ingester{cfg: cfg, acked: map[ackKey]int64{}}
 }
 
 // IngestHost ingests hostID's journal now; the dispatcher calls it after each
@@ -134,15 +155,42 @@ func (in *Ingester) ingestAll(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-// ingestHost runs under mu.
+// ingestHost runs under mu. The deadline runs on the configured clock, so
+// tests reach it without waiting.
 func (in *Ingester) ingestHost(ctx context.Context, hostID string) error {
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	timer := in.cfg.Clock.AfterFunc(IngestTimeout, func() { cancel(errIngestTimeout) })
+	defer timer.Stop()
+	err := in.ingest(ctx, hostID)
+	if cause := context.Cause(ctx); err != nil && errors.Is(cause, errIngestTimeout) {
+		return fmt.Errorf("audit: ingest host %s: %w", hostID, cause)
+	}
+	return err
+}
+
+func (in *Ingester) ingest(ctx context.Context, hostID string) error {
 	agent, err := in.cfg.Agents.Agent(ctx, hostID)
+	if errcode.From(err).Code == errcode.HostOffline {
+		in.cfg.Log.Debug("audit: offline host skipped", "host", hostID)
+		return nil
+	}
 	if err != nil {
 		return err
 	}
-	cursor, err := in.cfg.Store.cursor(ctx, hostID)
+	epoch := ""
+	if e, ok := in.cfg.Agents.(Epochs); ok {
+		epoch = e.JournalEpoch(hostID)
+	}
+	stored, cursor, err := in.cfg.Store.cursor(ctx, hostID)
 	if err != nil {
 		return err
+	}
+	if stored != epoch {
+		if err := in.cfg.Store.restart(ctx, hostID, epoch); err != nil {
+			return err
+		}
+		cursor = 0
 	}
 	for {
 		entries, err := agent.Journal(ctx, cursor, journalPage)
@@ -159,7 +207,7 @@ func (in *Ingester) ingestHost(ctx context.Context, hostID string) error {
 			}
 			prev = e.Seq
 		}
-		if err := in.cfg.Store.advance(ctx, hostID, entries, prev); err != nil {
+		if err := in.cfg.Store.advance(ctx, hostID, epoch, entries, prev); err != nil {
 			return err
 		}
 		cursor = prev
@@ -169,40 +217,59 @@ func (in *Ingester) ingestHost(ctx context.Context, hostID string) error {
 	}
 	// A previous process may have stored entries and stopped before its Ack,
 	// so the first run of this process acknowledges the stored cursor too.
-	if cursor > in.acked[hostID] {
+	key := ackKey{host: hostID, epoch: epoch}
+	if cursor > in.acked[key] {
 		if err := agent.Ack(ctx, cursor); err != nil {
 			return fmt.Errorf("audit: acknowledge the journal of %s: %w", hostID, err)
 		}
-		in.acked[hostID] = cursor
+		in.acked[key] = cursor
 	}
 	return nil
 }
 
-// cursor is the highest journal sequence of hostID stored in core_audit, or
-// 0 before the first ingestion.
-func (s *Store) cursor(ctx context.Context, hostID string) (int64, error) {
+// cursor is the journal epoch and highest sequence of hostID stored in
+// core_audit, or the empty epoch and 0 before the first ingestion.
+func (s *Store) cursor(ctx context.Context, hostID string) (string, int64, error) {
+	var epoch string
 	var seq int64
 	err := s.db.Read().QueryRowContext(ctx,
-		"SELECT acked_seq FROM core_journal_cursor WHERE host_id = ?", hostID).Scan(&seq)
+		"SELECT epoch, acked_seq FROM core_journal_cursor WHERE host_id = ?", hostID).Scan(&epoch, &seq)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		return 0, nil
+		return "", 0, nil
 	case err != nil:
-		return 0, fmt.Errorf("audit: read the journal cursor of %s: %w", hostID, err)
+		return "", 0, fmt.Errorf("audit: read the journal cursor of %s: %w", hostID, err)
 	}
-	return seq, nil
+	return epoch, seq, nil
 }
 
-// advance stores entries of hostID and moves its cursor to seq in one
-// transaction, so a crash between the two can neither lose nor repeat rows.
-func (s *Store) advance(ctx context.Context, hostID string, entries []core.JournalEntry, seq int64) error {
+// restart moves hostID's cursor to the start of the journal epoch epoch.
+func (s *Store) restart(ctx context.Context, hostID, epoch string) error {
+	err := s.db.Write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO core_journal_cursor (host_id, epoch, acked_seq) VALUES (?, ?, 0)
+			 ON CONFLICT (host_id) DO UPDATE SET epoch = excluded.epoch, acked_seq = 0`, hostID, epoch)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("audit: restart the journal cursor of %s: %w", hostID, err)
+	}
+	return nil
+}
+
+// advance stores entries of hostID's journal epoch epoch and moves its
+// cursor to (epoch, seq) in one transaction, so a crash between the two can
+// neither lose nor repeat rows.
+func (s *Store) advance(ctx context.Context, hostID, epoch string, entries []core.JournalEntry, seq int64) error {
 	return s.db.Write(ctx, func(tx *sql.Tx) error {
-		if err := s.ingest(ctx, tx, hostID, entries); err != nil {
+		if err := s.ingest(ctx, tx, hostID, epoch, entries); err != nil {
 			return err
 		}
 		_, err := tx.ExecContext(ctx,
-			`INSERT INTO core_journal_cursor (host_id, acked_seq) VALUES (?, ?)
-			 ON CONFLICT (host_id) DO UPDATE SET acked_seq = max(acked_seq, excluded.acked_seq)`, hostID, seq)
+			`INSERT INTO core_journal_cursor (host_id, epoch, acked_seq) VALUES (?, ?, ?)
+			 ON CONFLICT (host_id) DO UPDATE SET
+			   acked_seq = CASE WHEN epoch = excluded.epoch THEN max(acked_seq, excluded.acked_seq) ELSE excluded.acked_seq END,
+			   epoch = excluded.epoch`, hostID, epoch, seq)
 		if err != nil {
 			return fmt.Errorf("audit: advance the journal cursor of %s: %w", hostID, err)
 		}

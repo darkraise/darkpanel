@@ -178,7 +178,7 @@ func TestIngestAcksTheStoredCursorAfterARestart(t *testing.T) {
 	m.mu.Lock()
 	entries := append([]core.JournalEntry(nil), m.entries...)
 	m.mu.Unlock()
-	if err := e.store.advance(ctx, "h1", entries, 5); err != nil {
+	if err := e.store.advance(ctx, "h1", "", entries, 5); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.newIngester().IngestHost(ctx, "h1"); err != nil {

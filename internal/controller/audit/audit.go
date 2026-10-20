@@ -59,9 +59,10 @@ func (s *Store) newID(at time.Time) (string, error) {
 	return id.String(), nil
 }
 
-// insert writes e inside tx. Empty strings, a zero seq and an empty input are
-// stored as NULL; with skipDuplicate an agent row already stored is skipped.
-func (s *Store) insert(ctx context.Context, tx *sql.Tx, e core.AuditEntry, skipDuplicate bool) error {
+// insert writes e of journal epoch epoch inside tx. Empty strings, a zero
+// seq and an empty input are stored as NULL; with skipDuplicate an agent row
+// already stored is skipped.
+func (s *Store) insert(ctx context.Context, tx *sql.Tx, e core.AuditEntry, epoch string, skipDuplicate bool) error {
 	if e.At.IsZero() {
 		e.At = s.clock.Now()
 	}
@@ -72,10 +73,10 @@ func (s *Store) insert(ctx context.Context, tx *sql.Tx, e core.AuditEntry, skipD
 		}
 		e.ID = id
 	}
-	query := `INSERT INTO core_audit (id, seq, at, actor, host_id, action, version, phase, change_id, input_json,
-		result, error_code, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	query := `INSERT INTO core_audit (id, seq, epoch, at, actor, host_id, action, version, phase, change_id, input_json,
+		result, error_code, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	if skipDuplicate {
-		query += " ON CONFLICT (host_id, seq) DO NOTHING"
+		query += " ON CONFLICT (host_id, epoch, seq) DO NOTHING"
 	}
 	var seq any
 	if e.Seq != 0 {
@@ -85,7 +86,7 @@ func (s *Store) insert(ctx context.Context, tx *sql.Tx, e core.AuditEntry, skipD
 	if len(e.Input) > 0 {
 		input = string(e.Input)
 	}
-	_, err := tx.ExecContext(ctx, query, e.ID, seq, e.At.UTC().Format(timeFormat), e.Actor, null(e.HostID),
+	_, err := tx.ExecContext(ctx, query, e.ID, seq, epoch, e.At.UTC().Format(timeFormat), e.Actor, null(e.HostID),
 		e.Action, e.Version, e.Phase, null(e.ChangeID), input, e.Result, null(e.ErrorCode), null(e.Source))
 	if err != nil {
 		return fmt.Errorf("audit: insert entry: %w", err)
@@ -116,24 +117,30 @@ func fromJournal(hostID string, e core.JournalEntry) core.AuditEntry {
 // as given: the engine redacted it.
 func (s *Store) Append(ctx context.Context, tx *sql.Tx, e core.JournalEntry) error {
 	e.Seq = 0
-	return s.insert(ctx, tx, fromJournal("", e), false)
+	return s.insert(ctx, tx, fromJournal("", e), "", false)
 }
 
 // Record stores a login or logout (or any event without a change), keeping a
 // supplied ID; an entry without one gets a ULID.
 func (s *Store) Record(ctx context.Context, e core.AuditEntry) error {
-	return s.db.Write(ctx, func(tx *sql.Tx) error { return s.insert(ctx, tx, e, false) })
+	return s.db.Write(ctx, func(tx *sql.Tx) error { return s.insert(ctx, tx, e, "", false) })
 }
 
-// Ingest stores agent journal entries of hostID in one transaction, skipping
-// any host and sequence pair already stored.
+// Ingest stores agent journal entries of hostID in the empty journal epoch,
+// as IngestEpoch does.
 func (s *Store) Ingest(ctx context.Context, hostID string, entries []core.JournalEntry) error {
-	return s.db.Write(ctx, func(tx *sql.Tx) error { return s.ingest(ctx, tx, hostID, entries) })
+	return s.IngestEpoch(ctx, hostID, "", entries)
 }
 
-func (s *Store) ingest(ctx context.Context, tx *sql.Tx, hostID string, entries []core.JournalEntry) error {
+// IngestEpoch stores agent journal entries of hostID's journal epoch epoch in
+// one transaction, skipping any host, epoch and sequence already stored.
+func (s *Store) IngestEpoch(ctx context.Context, hostID, epoch string, entries []core.JournalEntry) error {
+	return s.db.Write(ctx, func(tx *sql.Tx) error { return s.ingest(ctx, tx, hostID, epoch, entries) })
+}
+
+func (s *Store) ingest(ctx context.Context, tx *sql.Tx, hostID, epoch string, entries []core.JournalEntry) error {
 	for _, e := range entries {
-		if err := s.insert(ctx, tx, fromJournal(hostID, e), true); err != nil {
+		if err := s.insert(ctx, tx, fromJournal(hostID, e), epoch, true); err != nil {
 			return err
 		}
 	}
