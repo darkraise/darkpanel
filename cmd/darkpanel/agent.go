@@ -352,12 +352,18 @@ func newAgentCheckCmd() *cobra.Command {
 		Long: "Check that the controller accepts this agent's credentials with one handshake. The controller " +
 			"treats the check as this host's session, so it replaces a running agent's session for a moment " +
 			"and the agent reconnects.\n\n" +
-			"Exit status: 0 accepted, 1 refused (enroll again with a new token), 2 unreachable.",
-		Args: cobra.NoArgs,
+			"Exit status: 0 accepted, 1 refused (enroll again with a new token), 2 unreachable, " +
+			"3 the check could not run.",
+		Args: func(cmd *cobra.Command, args []string) error {
+			return checkFailed(cobra.NoArgs(cmd, args))
+		},
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return checkFailed(requireRoot("check", &dev)(cmd, args))
+		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			p, err := resolvePaths(dev)
 			if err != nil {
-				return err
+				return checkFailed(err)
 			}
 			res, err := daemonCheck(cmd.Context(), p.AgentTLSDir)
 			if _, werr := fmt.Fprintln(cmd.OutOrStdout(), checkWords(res)); werr != nil && err == nil {
@@ -366,8 +372,18 @@ func newAgentCheckCmd() *cobra.Command {
 			return cli.ExitWith(int(res), err)
 		},
 	}
+	cmd.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return checkFailed(err) })
 	addDevFlag(cmd, &dev)
 	return cmd
+}
+
+// checkFailed gives a failure of agent check that is not a handshake outcome
+// its own exit status, so a script never reads it as refused or unreachable.
+func checkFailed(err error) error {
+	if err == nil {
+		return nil
+	}
+	return cli.ExitWith(int(install.CheckFailed), err)
 }
 
 func checkWords(res install.CheckResult) string {

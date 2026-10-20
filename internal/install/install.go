@@ -45,11 +45,13 @@ type Controller interface {
 // credentials, the exit status of darkpanel agent check.
 type CheckResult int
 
-// The outcomes of Agent.Check.
+// The outcomes of Agent.Check, and CheckFailed for an agent check that could
+// not try a handshake.
 const (
 	CheckAccepted    CheckResult = iota // the controller accepted the credentials
 	CheckRefused                        // the controller refused them
 	CheckUnreachable                    // no handshake completed
+	CheckFailed                         // the check did not run: a usage error, no root, unresolvable paths
 )
 
 // Agent is this host's agent credentials.

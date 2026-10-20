@@ -300,4 +300,33 @@ func TestAgentCheckExit(t *testing.T) {
 	if code != cli.ExitOK || !strings.Contains(out, "replaces a running agent's session for a moment") {
 		t.Errorf("agent check --help: exit %d, output %q; want the warning about the running agent's session", code, out)
 	}
+	refusals := []struct {
+		euid int
+		args []string
+		out  string
+	}{
+		{1000, []string{"agent", "check"}, "agent check runs as root in production mode; run it with sudo, or add --dev"},
+		{1000, []string{"agent", "check", "--dev", "extra"}, `unknown command "extra"`},
+		{0, []string{"agent", "check", "--nope"}, "unknown flag: --nope"},
+	}
+	for _, tt := range refusals {
+		s := fakeAgent(t, tt.euid)
+		s.checkRes = install.CheckAccepted
+		stdout, stderr, code := runStdin(strings.NewReader(""), tt.args...)
+		if code != int(install.CheckFailed) || stdout != "" || !strings.Contains(stderr, tt.out) {
+			t.Errorf("darkpanel %s: exit %d, stdout %q, stderr %q; want exit %d, no outcome and %q",
+				strings.Join(tt.args, " "), code, stdout, stderr, install.CheckFailed, tt.out)
+		}
+	}
+	s := fakeAgent(t, 0)
+	s.checkRes = install.CheckAccepted
+	resolvePaths = func(bool) (paths.Paths, error) { return paths.Paths{}, errors.New("no state directory") }
+	if stdout, stderr, code := runStdin(strings.NewReader(""), "agent", "check"); code != int(install.CheckFailed) ||
+		stdout != "" || !strings.Contains(stderr, "no state directory") {
+		t.Errorf("agent check with unresolvable paths: exit %d, stdout %q, stderr %q; want exit %d and the error",
+			code, stdout, stderr, install.CheckFailed)
+	}
+	if out, _ := runArgs("agent", "check", "--help"); !strings.Contains(out, "3 the check could not run") {
+		t.Errorf("agent check --help = %q, want exit status 3 documented", out)
+	}
 }
