@@ -47,7 +47,8 @@ type ServerConfig struct {
 // Server serves the agent listener's connections (spec section 4): each one
 // is a TLS handshake whose ALPN picks the protocol. An agent connection
 // becomes the host's session in the registry and serves the agent's
-// certificate renewals. Its methods are safe for concurrent use.
+// certificate renewals; an enrollment connection serves one enrollment
+// request and closes. Its methods are safe for concurrent use.
 type Server struct {
 	cfg    ServerConfig
 	tls    transport.ServerConfig
@@ -162,6 +163,8 @@ func (s *Server) handle(raw net.Conn) {
 	switch peer.Protocol {
 	case transport.ALPNAgent:
 		s.serveAgent(peer)
+	case transport.ALPNEnroll:
+		s.serveEnroll(peer)
 	}
 }
 
