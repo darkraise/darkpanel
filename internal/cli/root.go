@@ -15,6 +15,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/paths"
 )
 
 // Annotations on generated commands, naming the action or resource each
@@ -38,14 +39,16 @@ type Options struct {
 	// name such as update can hold both hand-written and generated commands.
 	Adopt map[string][]string
 	// LocalFallbacks run an agent-side action in-process when --local finds
-	// no agent socket, keyed by action name. NewRoot checks the keys, but
-	// nothing runs a fallback yet: the --local flag that does is not wired.
+	// no agent socket, keyed by action name. NewRoot checks the keys.
 	LocalFallbacks map[string]LocalFallback
-	Stdin          io.Reader
-	Stdout         io.Writer
-	Stderr         io.Writer
-	Getenv         func(string) string
-	UserHomeDir    func() (string, error)
+	// AgentSocket is the agent socket --local dials; empty means the
+	// production path.
+	AgentSocket string
+	Stdin       io.Reader
+	Stdout      io.Writer
+	Stderr      io.Writer
+	Getenv      func(string) string
+	UserHomeDir func() (string, error)
 	// IsTerminal reports whether standard input is an interactive terminal.
 	IsTerminal func() bool
 	// ReadSecret reads one line from the terminal without echo.
@@ -82,6 +85,7 @@ func NewRoot(opts Options) (*cobra.Command, error) {
 	root.SetIn(opts.Stdin)
 	root.SetOut(opts.Stdout)
 	root.SetErr(opts.Stderr)
+	root.PersistentFlags().Bool("local", false, "send an agent-side command to this host's agent socket instead of the controller API")
 	reserved := slices.Clone(handWritten)
 	for _, c := range opts.Commands {
 		reserved = append(reserved, c.Name())
@@ -111,6 +115,7 @@ func NewRoot(opts Options) (*cobra.Command, error) {
 	root.AddCommand(a.changeCommand(), a.controllerCommand())
 	a.wrapEnrollment(root)
 	markRuns(root)
+	guardLocal(root)
 	return root, nil
 }
 
@@ -129,6 +134,9 @@ func withDefaults(o Options) Options {
 	}
 	if o.UserHomeDir == nil {
 		o.UserHomeDir = os.UserHomeDir
+	}
+	if o.AgentSocket == "" {
+		o.AgentSocket = paths.Production().AgentSocket
 	}
 	stdin, isFile := o.Stdin.(*os.File)
 	if o.IsTerminal == nil {
@@ -207,6 +215,9 @@ func (a *app) actionCommand(e entry) (*cobra.Command, error) {
 		Short:       def.Spec.Summary,
 		Args:        cobra.NoArgs,
 		Annotations: map[string]string{AnnotationAction: e.Name},
+	}
+	if def.Spec.Side == core.SideAgent {
+		cmd.Annotations[annotationLocal] = "true"
 	}
 	addInputFlags(cmd, fields)
 	addConnFlags(cmd, def.Spec.BreakGlass, def.Spec.Side == core.SideAgent)
