@@ -104,6 +104,8 @@ func (demoModule) Manifest() core.Manifest {
 	}
 	add := agent("demo.item.add", 1, core.ClassCompensable)
 	add.CompensatedBy = "demo.item.remove"
+	rule := agent("demo.rule.set", 1, core.ClassRevertible)
+	rule.LockKeys = []string{"demo.rule"}
 	return core.Manifest{
 		ID: "demo", Version: 1, DefaultEnabled: true,
 		Actions: []core.ActionDef{
@@ -112,7 +114,7 @@ func (demoModule) Manifest() core.Manifest {
 			core.DefineRead(agent("demo.item.list", 1, core.ClassRead), fixtureHandler[demoNoInput, demoItems]{}),
 			core.DefineMutating(add, fixtureHandler[demoAddInput, demoAdded]{}),
 			core.DefineMutating(agent("demo.item.remove", 1, core.ClassIrreversible), fixtureHandler[demoIDInput, demoNoInput]{}),
-			core.DefineRevertible(agent("demo.rule.set", 1, core.ClassRevertible), fixtureHandler[demoRuleInput, demoRule]{}),
+			core.DefineRevertible(rule, fixtureHandler[demoRuleInput, demoRule]{}),
 		},
 		Resources: []core.ResourceDef{
 			core.DefineResource("demo.rule", func(context.Context, core.Env) (demoRule, error) { return demoRule{}, nil }),

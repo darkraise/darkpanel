@@ -59,7 +59,7 @@ func mutating(name string, class Class, side Side, compensatedBy string) ActionD
 }
 
 func revertible(name string, side Side) ActionDef {
-	return DefineRevertible[echoIn, echoOut](ActionSpec{Name: name, Version: 1, Side: side}, echo{})
+	return DefineRevertible[echoIn, echoOut](ActionSpec{Name: name, Version: 1, Side: side, LockKeys: []string{name}}, echo{})
 }
 
 func resource(name string) ResourceDef {
@@ -118,6 +118,8 @@ func TestNewRegistryRules(t *testing.T) {
 	locked.Spec.LockKeys = []string{"demo"}
 	noVerify := mutating("demo.item.add", ClassIrreversible, SideAgent, "")
 	noVerify.Handler.Verify = nil
+	keyless := revertible("demo.rule.set", SideAgent)
+	keyless.Spec.LockKeys = nil
 	tests := []struct {
 		name string
 		mods []Module
@@ -133,6 +135,7 @@ func TestNewRegistryRules(t *testing.T) {
 		{"duplicate action", []Module{testModule{ID: "demo", Version: 1, Actions: []ActionDef{readAction("demo.item.get"), readAction("demo.item.get")}}}, "registered twice"},
 		{"break-glass on agent", []Module{testModule{ID: "core", Version: 1, Actions: []ActionDef{bg}}}, "break-glass"},
 		{"revertible on controller", []Module{testModule{ID: "demo", Version: 1, Actions: []ActionDef{revertible("demo.rule.set", SideController)}}}, "revertible actions are agent-side"},
+		{"revertible without a lock key", []Module{testModule{ID: "demo", Version: 1, Actions: []ActionDef{keyless}}}, "a revertible agent action declares at least one lock key"},
 		{"compensable without compensation", []Module{testModule{ID: "demo", Version: 1, Actions: []ActionDef{mutating("demo.item.add", ClassCompensable, SideAgent, "")}}}, "name a compensating action"},
 		{"unknown compensation", []Module{testModule{ID: "demo", Version: 1, Actions: []ActionDef{mutating("demo.item.add", ClassCompensable, SideAgent, "demo.item.gone")}}}, "not registered"},
 		{"compensation on irreversible", []Module{testModule{ID: "demo", Version: 1, Actions: []ActionDef{mutating("demo.item.add", ClassIrreversible, SideAgent, "demo.item.add")}}}, "only compensable"},

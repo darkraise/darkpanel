@@ -15,7 +15,8 @@ import (
 // while a row with this key exists, no change of another owner can take any
 // lock (ADR 0012). A change whose action declares no lock keys takes no lock
 // and is not stopped, so an action that must not run during an update has to
-// declare a key.
+// declare a key; core.NewRegistry enforces that for revertible agent actions,
+// which could otherwise stay unconfirmed across an update's restart.
 const ReserveAll = "*"
 
 // ReservationOwner is the lock owner of an update operation. No change id
