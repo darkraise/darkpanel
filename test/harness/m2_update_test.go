@@ -120,18 +120,19 @@ func scenarioCrashLoop(ctx context.Context, t *testing.T, f *fleet) {
 }
 
 // scenarioRebootInWindow is scenario 8: the controller's host reboots inside
-// the health window, after the swap, and the record ends rolled-back.
+// the health window, after the swap, and the boot-time recovery rolls the
+// record back. The runner is frozen first: the reboot goes over SSH and the
+// shutdown takes seconds, enough for a free runner to pass its health check
+// and commit before the host goes down.
 func scenarioRebootInWindow(ctx context.Context, t *testing.T, f *fleet) {
 	rec := failedUpdate(ctx, t, f, versionReboot, func() {
-		tx := watchSwap(ctx, t, f.controller, "")
+		tx := watchSwap(ctx, t, f.controller, "systemctl kill --signal=STOP "+update.RunnerUnit("$tx"))
 		t.Logf("rebooting the controller's host in the health window of %s", tx)
 		if err := f.controller.Reboot(ctx); err != nil {
 			t.Fatal(err)
 		}
 	})
-	if rec.Error != nil {
-		t.Logf("rolled back for %s: %s", rec.Error.Code, rec.Error.Message)
-	}
+	requireRolledBackFor(t, rec, "the host restarted before the update was committed")
 	for _, unit := range []string{update.ControllerUnit, update.AgentUnit} {
 		if state := unitState(ctx, f.controller, unit); state != "active" {
 			t.Errorf("%s is %q after the reboot", unit, state)
