@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	goruntime "runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -208,7 +209,9 @@ func runGroup(cmd *cobra.Command, args []string) error {
 }
 
 // requireRoot is the PreRunE of the agent commands that change the agent's
-// root-owned state; cli exits 2 for it, like a flag error.
+// root-owned state. It returns a plain error, which cli exits 2 for like a
+// flag error; a caller whose exit statuses mean something else, as agent
+// check's do, wraps the error to choose its own.
 func requireRoot(name string, dev *bool) func(*cobra.Command, []string) error {
 	return func(*cobra.Command, []string) error {
 		if !*dev && geteuid() != 0 {
@@ -354,6 +357,7 @@ func newAgentCheckCmd() *cobra.Command {
 			"and the agent reconnects.\n\n" +
 			"Exit status: 0 accepted, 1 refused (enroll again with a new token), 2 unreachable, " +
 			"3 the check could not run.",
+		Annotations: map[string]string{cli.AnnotationRefusalStatus: strconv.Itoa(int(install.CheckFailed))},
 		Args: func(cmd *cobra.Command, args []string) error {
 			return checkFailed(cobra.NoArgs(cmd, args))
 		},

@@ -308,6 +308,7 @@ func TestAgentCheckExit(t *testing.T) {
 		{1000, []string{"agent", "check"}, "agent check runs as root in production mode; run it with sudo, or add --dev"},
 		{1000, []string{"agent", "check", "--dev", "extra"}, `unknown command "extra"`},
 		{0, []string{"agent", "check", "--nope"}, "unknown flag: --nope"},
+		{0, []string{"agent", "check", "--dev", "--local"}, "--local reaches only this host's agent"},
 	}
 	for _, tt := range refusals {
 		s := fakeAgent(t, tt.euid)

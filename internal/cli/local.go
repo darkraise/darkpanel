@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -18,6 +19,12 @@ import (
 // annotationLocal marks the generated agent-side commands, the only ones
 // --local serves.
 const annotationLocal = "darkpanel.local"
+
+// AnnotationRefusalStatus gives a hand-written command the exit status of
+// its --local refusal. The refusal runs in the root's pre-run hook, outside
+// the command's own argument and flag error handling, so a command whose exit
+// statuses carry meaning of their own has to name the status here.
+const AnnotationRefusalStatus = "darkpanel.refusal-status"
 
 // guardLocal makes every command but the generated agent-side ones refuse
 // --local. The check runs as root's persistent pre-run hook; cobra runs
@@ -51,7 +58,11 @@ func refuseLocal(cmd *cobra.Command) error {
 	if local, _ := cmd.Flags().GetBool("local"); !local || cmd.Annotations[annotationLocal] != "" {
 		return nil
 	}
-	return usagef("--local reaches only this host's agent; %s is not an agent-side command", cmd.CommandPath())
+	err := usagef("--local reaches only this host's agent; %s is not an agent-side command", cmd.CommandPath())
+	if code, convErr := strconv.Atoi(cmd.Annotations[AnnotationRefusalStatus]); convErr == nil {
+		return ExitWith(code, err)
+	}
+	return err
 }
 
 // useLocal reports whether an agent-side command runs with --local, which
