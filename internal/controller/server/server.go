@@ -26,6 +26,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/buildinfo"
 	"github.com/darkraise/darkpanel/internal/controller/auth"
 	"github.com/darkraise/darkpanel/internal/controller/listen"
+	"github.com/darkraise/darkpanel/internal/controller/rollout"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/secret"
 	"github.com/darkraise/darkpanel/internal/core/store"
@@ -92,6 +93,9 @@ type Options struct {
 	AgentBind listen.BindFunc
 	// HealthStatus is the status /healthz reports; empty means ok.
 	HealthStatus string
+	// ReleaseIndex is the release index the update scheduler reads; nil
+	// means the published index under trustedkeys.BaseURL().
+	ReleaseIndex rollout.ReleaseSource
 }
 
 // closer is one thing Shutdown stops, in reverse order of acquisition.

@@ -23,8 +23,9 @@ const (
 // Actions returns core.update.apply/v1, core.update.rollback/v1 and
 // core.update.status/v1 over u, for coreactions.Deps.Extra. Every process
 // registers the one core manifest, but only the agent runs updates: the
-// controller process passes nil, and every handler then fails with an
-// internal error.
+// controller process and the embedded agent pass nil, and every handler then
+// fails with unavailable, which the rollout driver treats as a failed host
+// rather than one to wait for.
 func Actions(u *Updater) []core.ActionDef {
 	a := updateActions{u: u}
 	return []core.ActionDef{
@@ -50,7 +51,7 @@ type updateActions struct{ u *Updater }
 
 func (a updateActions) updater() (*Updater, error) {
 	if a.u == nil {
-		return nil, errors.New("update: this process has no updater; update actions run on the agent")
+		return nil, errcode.New(errcode.Unavailable, "the update actions run only in darkpanel agent run")
 	}
 	return a.u, nil
 }

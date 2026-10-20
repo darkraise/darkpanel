@@ -110,17 +110,17 @@ func TestActionsRegisterWithoutAnUpdater(t *testing.T) {
 	ctx := context.Background()
 	apply := actionDef(t, defs, ActionApply)
 	_, err = apply.Handler.Plan(ctx, core.Env{}, json.RawMessage(`{"version":"1.3.0","channel":"stable","force":false}`))
-	wantInternal(t, err)
+	wantCode(t, err, errcode.Unavailable)
 	_, err = apply.Handler.Apply(ctx, core.Env{}, json.RawMessage(`{"version":"1.3.0","channel":"stable","force":false}`))
-	wantInternal(t, err)
+	wantCode(t, err, errcode.Unavailable)
 	err = apply.Handler.Verify(ctx, core.Env{}, json.RawMessage(`{"version":"1.3.0","channel":"stable","force":false}`),
 		json.RawMessage(`{}`))
-	wantInternal(t, err)
+	wantCode(t, err, errcode.Unavailable)
 	rollback := actionDef(t, defs, ActionRollback)
 	_, err = rollback.Handler.Plan(ctx, core.Env{}, json.RawMessage(`{"force":false}`))
-	wantInternal(t, err)
+	wantCode(t, err, errcode.Unavailable)
 	_, err = actionDef(t, defs, ActionStatus).Handler.Read(ctx, core.Env{}, json.RawMessage(`{}`))
-	wantInternal(t, err)
+	wantCode(t, err, errcode.Unavailable)
 }
 
 func TestApplyAction(t *testing.T) {

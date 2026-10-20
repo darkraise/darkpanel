@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/controller/dispatch"
 	"github.com/darkraise/darkpanel/internal/controller/fleet"
 	"github.com/darkraise/darkpanel/internal/controller/listen"
+	"github.com/darkraise/darkpanel/internal/controller/rollout"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/lifecycle"
 	"github.com/darkraise/darkpanel/internal/core/schema"
@@ -22,11 +24,17 @@ import (
 	"github.com/darkraise/darkpanel/internal/modules"
 	"github.com/darkraise/darkpanel/internal/platform"
 	"github.com/darkraise/darkpanel/internal/registry"
+	"github.com/darkraise/darkpanel/internal/update"
+	"github.com/darkraise/darkpanel/internal/update/trustedkeys"
 )
 
 // PurgeInterval is how often the controller purges expired plans, sessions
 // and tokens (spec section 20). The agent runtime runs its own purge.
 const PurgeInterval = 10 * time.Minute
+
+// indexTimeout bounds one read of the release index. The index is one small
+// file, so its client may bound the whole request.
+const indexTimeout = 30 * time.Second
 
 // services are the controller's services, with the embedded agent's runtime
 // or the agent listener's.
@@ -145,6 +153,33 @@ func (s *Server) startServices(ctx context.Context) error {
 			return err
 		}
 	}
+	return s.startRollouts(clients)
+}
+
+// startRollouts starts the rollout driver over the dispatcher and the update
+// scheduler over clients, which tell it the online hosts. Shutdown stops the
+// scheduler, then the driver, before the agent sessions and the dispatcher's
+// services; each waits for a running pass.
+func (s *Server) startRollouts(clients dispatch.ClientSource) error {
+	index := s.opts.ReleaseIndex
+	if index == nil {
+		index = update.NewIndexSource(trustedkeys.BaseURL(), &http.Client{Timeout: indexTimeout}, s.clock)
+	}
+	driver, err := rollout.NewDriver(rollout.DriverConfig{DB: s.controllerDB, Dispatcher: s.dispatcher, Clock: s.clock, Log: s.log})
+	if err != nil {
+		return fmt.Errorf("server: %w", err)
+	}
+	scheduler, err := rollout.NewScheduler(rollout.SchedulerConfig{
+		DB: s.controllerDB, Clients: clients, Index: index, Audit: s.auditLog, Clock: s.clock, Log: s.log,
+		Version: buildinfo.Version,
+	})
+	if err != nil {
+		return fmt.Errorf("server: %w", err)
+	}
+	driver.Start()
+	s.onShutdown("rollout driver", func(context.Context) error { driver.Stop(); return nil })
+	scheduler.Start()
+	s.onShutdown("update scheduler", func(context.Context) error { scheduler.Stop(); return nil })
 	return nil
 }
 

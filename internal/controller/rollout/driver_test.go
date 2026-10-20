@@ -355,6 +355,7 @@ func TestDriverRefusalsFailTheHost(t *testing.T) {
 		{"a refused plan", errcode.New(errcode.UpdateNotFound, "no release 1.3.0 in channel stable"), nil, errcode.UpdateNotFound},
 		{"a plan answered internal", agentInternal, nil, errcode.Internal},
 		{"an apply answered internal", nil, agentInternal, errcode.Internal},
+		{"a plan where no updater runs", errcode.New(errcode.Unavailable, "the update actions run only in darkpanel agent run"), nil, errcode.Unavailable},
 		{"an uncoded plan error", errors.New("transport: connection reset"), nil, ""},
 		{"an uncoded apply error", nil, errors.New("transport: connection reset"), ""},
 	}
