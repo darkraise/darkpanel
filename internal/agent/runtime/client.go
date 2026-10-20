@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	goruntime "runtime"
 	"strings"
 
@@ -15,12 +16,13 @@ import (
 
 var _ core.AgentClient = (*Runtime)(nil)
 
-// Hello reports the agent and every module's availability as of its last
-// check (migrations and preflight at Open, or a later Preflight).
+// Hello reports the agent, every module's availability as of its last check
+// (migrations and preflight at Open, or a later Preflight) and the schema
+// hashes of every agent-side action version.
 func (r *Runtime) Hello(context.Context) (core.AgentHello, error) {
 	return core.AgentHello{
 		ProtocolVersion: ProtocolVersion, BinaryVersion: r.cfg.BinaryVersion, OS: goruntime.GOOS,
-		HostID: r.cfg.HostID, Modules: r.statuses(),
+		HostID: r.cfg.HostID, Modules: r.statuses(), SchemaHashes: maps.Clone(r.hashes),
 	}, nil
 }
 

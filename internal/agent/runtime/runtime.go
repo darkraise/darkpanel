@@ -16,6 +16,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/schema"
 	"github.com/darkraise/darkpanel/internal/core/store"
 	"github.com/darkraise/darkpanel/internal/platform"
+	"github.com/darkraise/darkpanel/schemas"
 )
 
 // ProtocolVersion is the agent protocol Hello reports.
@@ -69,6 +70,7 @@ type Runtime struct {
 	base    core.Env
 	engine  *lifecycle.Engine
 	journal *lifecycle.AgentJournal
+	hashes  map[string]core.SchemaHash // every agent-side action version's schema hashes, fixed at Open
 
 	statusMu sync.Mutex
 	status   map[string]core.ModuleStatus
@@ -91,6 +93,11 @@ func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 		return nil, err
 	}
 	r := &Runtime{cfg: cfg, status: map[string]core.ModuleStatus{}, broken: map[string]bool{}}
+	hashes, err := schemas.ActionHashes(cfg.Registry, core.SideAgent)
+	if err != nil {
+		return nil, fmt.Errorf("runtime: %w", err)
+	}
+	r.hashes = hashes
 	if err := r.migrate(ctx); err != nil {
 		return nil, err
 	}
