@@ -16,6 +16,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/lifecycle"
 	"github.com/darkraise/darkpanel/internal/core/schema"
+	"github.com/darkraise/darkpanel/internal/install"
 	"github.com/darkraise/darkpanel/internal/modules"
 	"github.com/darkraise/darkpanel/internal/platform"
 	"github.com/darkraise/darkpanel/internal/registry"
@@ -53,6 +54,7 @@ func (s *Server) startServices(ctx context.Context) error {
 	s.authService = auth.New(s.controllerDB, s.controllerSealer, s.clock, s.auditLog, auth.Options{Params: s.opts.AuthParams})
 	reg, err := registry.BuildWith(coreactions.Module(coreactions.Deps{
 		Auth: s.authService, Audit: s.auditLog, Modules: modules.All(),
+		Extra: registry.CoreActions(nil, buildinfo.Version), OwnedPaths: install.CoreOwnedPaths(),
 	}))
 	if err != nil {
 		return fmt.Errorf("server: registry: %w", err)

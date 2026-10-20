@@ -27,6 +27,7 @@ type declaration struct {
 	breakGlass    bool
 	lockKeys      []string
 	compensatedBy string
+	agent         bool
 }
 
 var declarations = map[string]declaration{
@@ -50,6 +51,13 @@ var declarations = map[string]declaration{
 	"core.user.reset-totp":     {class: core.ClassIrreversible, breakGlass: true},
 	"core.user.reset-password": {class: core.ClassIrreversible, breakGlass: true},
 	"core.user.delete":         {class: core.ClassIrreversible, breakGlass: true},
+
+	"core.update.apply":          {class: core.ClassCompensable, compensatedBy: "core.update.rollback", agent: true},
+	"core.update.rollback":       {class: core.ClassIrreversible, agent: true},
+	"core.update.status":         {class: core.ClassRead, agent: true},
+	"core.update.rollout":        {class: core.ClassCompensable, compensatedBy: "core.update.rollout-cancel"},
+	"core.update.rollout-cancel": {class: core.ClassIrreversible},
+	"core.update.rollouts":       {class: core.ClassRead},
 }
 
 func coreActions(t *testing.T) []core.ActionDef {
@@ -78,12 +86,13 @@ func TestCoreActionDeclarations(t *testing.T) {
 			continue
 		}
 		s := a.Spec
-		got := declaration{class: s.Class, breakGlass: s.BreakGlass, lockKeys: s.LockKeys, compensatedBy: s.CompensatedBy}
+		got := declaration{class: s.Class, breakGlass: s.BreakGlass, lockKeys: s.LockKeys, compensatedBy: s.CompensatedBy,
+			agent: s.Side == core.SideAgent}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("%s: %+v, want %+v", a.Ref(), got, want)
 		}
-		if s.Version != 1 || s.Side != core.SideController || s.Summary == "" {
-			t.Errorf("%s: version %d, side %s, summary %q; want version 1, controller side, a summary", a.Ref(), s.Version, s.Side, s.Summary)
+		if s.Version != 1 || (s.Side != core.SideController && s.Side != core.SideAgent) || s.Summary == "" {
+			t.Errorf("%s: version %d, side %s, summary %q; want version 1, a known side, a summary", a.Ref(), s.Version, s.Side, s.Summary)
 		}
 	}
 	if len(names) != len(declarations) {

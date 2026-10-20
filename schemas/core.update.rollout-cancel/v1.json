@@ -1,0 +1,190 @@
+{
+  "name": "core.update.rollout-cancel",
+  "version": 1,
+  "class": "irreversible",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/RolloutCancelInput",
+    "$defs": {
+      "RolloutCancelInput": {
+        "properties": {
+          "rolloutId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Rollout id."
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Mark the rollout cancelled at once, without waiting for a host's update to finish."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "rolloutId",
+          "force"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Rollout",
+    "$defs": {
+      "ErrorDetail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Stable error code, such as update.signature_invalid."
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable explanation."
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ]
+      },
+      "Rollout": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Rollout id."
+          },
+          "version": {
+            "type": "string",
+            "description": "Version being rolled out."
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "stable",
+              "beta"
+            ],
+            "description": "Channel the version is signed for."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "running",
+              "draining",
+              "succeeded",
+              "failed",
+              "cancelled"
+            ],
+            "description": "Rollout state; draining means dispatch stopped while a host's update is still running."
+          },
+          "error": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/ErrorDetail",
+                "description": "Why the rollout failed; null otherwise."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the rollout was created."
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the rollout last changed."
+          },
+          "hosts": {
+            "items": {
+              "$ref": "#/$defs/RolloutHost"
+            },
+            "type": "array",
+            "description": "The rollout's hosts in order."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "version",
+          "channel",
+          "state",
+          "error",
+          "createdAt",
+          "updatedAt",
+          "hosts"
+        ]
+      },
+      "RolloutHost": {
+        "properties": {
+          "hostId": {
+            "type": "string",
+            "description": "Host id."
+          },
+          "position": {
+            "type": "integer",
+            "description": "Order in which the host is updated, from 0."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "waiting",
+              "updating",
+              "committed",
+              "failed",
+              "skipped"
+            ],
+            "description": "Host state within the rollout."
+          },
+          "planId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "Plan of the host's core.update.apply; null before it is planned."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operationId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "The host's update operation; null before it starts."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/ErrorDetail",
+                "description": "Why the host failed; null otherwise."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "hostId",
+          "position",
+          "state",
+          "planId",
+          "operationId",
+          "error"
+        ]
+      }
+    }
+  }
+}
