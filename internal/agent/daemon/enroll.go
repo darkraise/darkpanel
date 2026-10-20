@@ -85,7 +85,7 @@ func Enroll(ctx context.Context, dir, token string) (*Credentials, error) {
 		return nil, err
 	}
 	c := &Credentials{Key: key, Cert: cert, CA: ca, Controller: Endpoint{Address: tok.Address, SAN: tok.ControllerSAN}}
-	if _, err := SaveGeneration(dir, c); err != nil {
+	if _, err := SaveGeneration(dir, c, AnyCurrent); err != nil {
 		return nil, err
 	}
 	return c, nil

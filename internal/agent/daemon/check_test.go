@@ -65,7 +65,7 @@ func resave(t *testing.T, dir string, e Endpoint) {
 		t.Fatal(err)
 	}
 	c.Controller = e
-	if _, err := SaveGeneration(dir, c); err != nil {
+	if _, err := SaveGeneration(dir, c, AnyCurrent); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -19,10 +19,6 @@ const RenewRetry = time.Hour
 // RenewTimeout bounds one renewal request.
 const RenewTimeout = 30 * time.Second
 
-// errSuperseded is renew's answer when a newer generation became current
-// during the session, written by darkpanel agent enroll beside the daemon.
-var errSuperseded = errors.New("daemon: a newer credential generation is current")
-
 // renewAt is when a certificate is renewed: after two thirds of its life
 // (spec section 2).
 func renewAt(cert *x509.Certificate) time.Time {
@@ -46,7 +42,7 @@ func (d *daemon) renewLoop(ctx context.Context, sess *transport.Session, c *Cred
 		rctx, cancel := context.WithTimeout(ctx, RenewTimeout)
 		next, err := renew(rctx, d.cfg.Paths.AgentTLSDir, sess, c)
 		cancel()
-		if errors.Is(err, errSuperseded) {
+		if errors.Is(err, ErrSuperseded) {
 			d.log.Info("daemon: a newer credential generation is current; reconnecting", "session generation", c.Generation)
 			close(renewed)
 			return
@@ -66,7 +62,8 @@ func (d *daemon) renewLoop(ctx context.Context, sess *transport.Session, c *Cred
 
 // renew sends a certificate request for a new key over an agent-opened
 // stream of sess (POST transport.RenewPath), requires the answer to name the
-// same host and chain to the same root, and saves it as a new generation.
+// same host and chain to the same root, and saves it as a new generation
+// while c's generation is still current, else it answers ErrSuperseded.
 func renew(ctx context.Context, dir string, sess *transport.Session, c *Credentials) (*Credentials, error) {
 	_, key, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -85,14 +82,7 @@ func renew(ctx context.Context, dir string, sess *transport.Session, c *Credenti
 		return nil, err
 	}
 	next := &Credentials{Key: key, Cert: cert, CA: c.CA, Controller: c.Controller}
-	cur, err := LoadCredentials(dir)
-	if err != nil {
-		return nil, err
-	}
-	if cur.Generation != c.Generation {
-		return nil, errSuperseded
-	}
-	if _, err := SaveGeneration(dir, next); err != nil {
+	if _, err := SaveGeneration(dir, next, c.Generation); err != nil {
 		return nil, err
 	}
 	return next, nil

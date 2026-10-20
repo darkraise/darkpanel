@@ -22,6 +22,8 @@ import (
 	"strconv"
 	"strings"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/darkraise/darkpanel/internal/transport"
 )
 
@@ -33,11 +35,21 @@ const (
 	controllerFile = "controller.json"
 	currentLink    = "current"
 	currentTemp    = "current.tmp"
+	saveLock       = "save.lock"
 )
 
 // ErrNotEnrolled is LoadCredentials' answer when AgentTLSDir has no current
 // generation.
 var ErrNotEnrolled = errors.New("daemon: this agent is not enrolled")
+
+// AnyCurrent is SaveGeneration's expect for an enrollment, which replaces
+// whatever generation is current.
+const AnyCurrent = -1
+
+// ErrSuperseded is SaveGeneration's answer when current is not the
+// generation the caller expects: darkpanel agent enroll saved a newer one
+// beside the daemon, or the credentials were removed.
+var ErrSuperseded = errors.New("daemon: a newer credential generation is current")
 
 var generationPattern = regexp.MustCompile(`^gen-([1-9][0-9]{0,8})$`)
 
@@ -104,19 +116,11 @@ func (c *Credentials) check() error {
 // a concurrent SaveGeneration never mixes two generations. Without current it
 // answers ErrNotEnrolled.
 func LoadCredentials(dir string) (*Credentials, error) {
-	target, err := os.Readlink(filepath.Join(dir, currentLink))
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, ErrNotEnrolled
-	}
+	n, err := currentGeneration(dir)
 	if err != nil {
-		return nil, fmt.Errorf("daemon: read the current credentials: %w", err)
+		return nil, err
 	}
-	m := generationPattern.FindStringSubmatch(target)
-	if m == nil {
-		return nil, fmt.Errorf("daemon: %s points to %q, not to a generation", filepath.Join(dir, currentLink), target)
-	}
-	n, _ := strconv.Atoi(m[1])
-	gen := filepath.Join(dir, target)
+	gen := filepath.Join(dir, generationName(n))
 	read := func(name string) []byte {
 		if err != nil {
 			return nil
@@ -148,6 +152,24 @@ func LoadCredentials(dir string) (*Credentials, error) {
 		return nil, fmt.Errorf("daemon: generation %d: %w", n, err)
 	}
 	return c, nil
+}
+
+// currentGeneration is the number of the generation current names, or
+// ErrNotEnrolled without current.
+func currentGeneration(dir string) (int, error) {
+	target, err := os.Readlink(filepath.Join(dir, currentLink))
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, ErrNotEnrolled
+	}
+	if err != nil {
+		return 0, fmt.Errorf("daemon: read the current credentials: %w", err)
+	}
+	m := generationPattern.FindStringSubmatch(target)
+	if m == nil {
+		return 0, fmt.Errorf("daemon: %s points to %q, not to a generation", filepath.Join(dir, currentLink), target)
+	}
+	n, _ := strconv.Atoi(m[1])
+	return n, nil
 }
 
 func parseKey(data []byte) (ed25519.PrivateKey, error) {
@@ -199,11 +221,19 @@ var generationSteps = []string{
 // new generation; a partly written one is never current and is removed by
 // PruneGenerations. It returns the new generation's number, which is
 // greater than every generation in dir, complete or not.
-func SaveGeneration(dir string, c *Credentials) (int, error) {
-	return saveGeneration(dir, c, func(string) error { return nil })
+//
+// darkpanel agent enroll saves beside the running daemon's renewal, so every
+// writer holds an exclusive flock on dir/save.lock from reading current to
+// the fsync of dir; under it one current.tmp serves every writer. expect is
+// AnyCurrent for an enrollment, or the generation that must still be
+// current, the renewal's session generation: when current names another
+// generation or none, SaveGeneration writes nothing and answers
+// ErrSuperseded.
+func SaveGeneration(dir string, c *Credentials, expect int) (int, error) {
+	return saveGeneration(dir, c, expect, func(string) error { return nil })
 }
 
-func saveGeneration(dir string, c *Credentials, before func(step string) error) (int, error) {
+func saveGeneration(dir string, c *Credentials, expect int, before func(step string) error) (int, error) {
 	if err := c.check(); err != nil {
 		return 0, err
 	}
@@ -217,6 +247,20 @@ func saveGeneration(dir string, c *Credentials, before func(step string) error) 
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return 0, fmt.Errorf("daemon: create %s: %w", dir, err)
+	}
+	unlock, err := lockSave(dir)
+	if err != nil {
+		return 0, err
+	}
+	defer unlock()
+	if expect != AnyCurrent {
+		n, err := currentGeneration(dir)
+		if errors.Is(err, ErrNotEnrolled) || err == nil && n != expect {
+			return 0, ErrSuperseded
+		}
+		if err != nil {
+			return 0, err
+		}
 	}
 	gens, err := listGenerations(dir)
 	if err != nil {
@@ -264,6 +308,22 @@ func saveGeneration(dir string, c *Credentials, before func(step string) error) 
 	}
 	c.Generation = n
 	return n, nil
+}
+
+// lockSave waits for the exclusive lock on dir/save.lock and returns its
+// release. A writer holds it for one save, a few fsyncs, so it blocks rather
+// than failing.
+func lockSave(dir string) (func(), error) {
+	path := filepath.Join(dir, saveLock)
+	fd, err := unix.Open(path, unix.O_RDWR|unix.O_CREAT|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("daemon: open %s: %w", path, err)
+	}
+	if err := unix.Flock(fd, unix.LOCK_EX); err != nil {
+		_ = unix.Close(fd)
+		return nil, fmt.Errorf("daemon: lock %s: %w", path, err)
+	}
+	return func() { _ = unix.Close(fd) }, nil
 }
 
 // PruneGenerations deletes every generation of dir numbered below keep. The

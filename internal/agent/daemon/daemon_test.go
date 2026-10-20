@@ -461,7 +461,7 @@ func TestRunDeletesTheOldGenerationAfterAHandshake(t *testing.T) {
 		t.Fatal(err)
 	}
 	next := &Credentials{Key: key, Cert: cert, CA: old.CA, Controller: old.Controller}
-	if _, err := SaveGeneration(dir, next); err != nil {
+	if _, err := SaveGeneration(dir, next, old.Generation); err != nil {
 		t.Fatal(err)
 	}
 	if gens := generations(t, dir); !slices.Equal(gens, []string{"gen-1", "gen-2"}) {

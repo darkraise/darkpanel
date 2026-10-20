@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -93,7 +94,7 @@ func sameCredentials(got, want *Credentials) bool {
 		got.Controller == want.Controller
 }
 
-// generations lists the gen-<n> entries of dir.
+// generations lists the entries of dir other than current and save.lock.
 func generations(t *testing.T, dir string) []string {
 	t.Helper()
 	entries, err := os.ReadDir(dir)
@@ -102,7 +103,7 @@ func generations(t *testing.T, dir string) []string {
 	}
 	var out []string
 	for _, e := range entries {
-		if e.Name() != currentLink {
+		if e.Name() != currentLink && e.Name() != saveLock {
 			out = append(out, e.Name())
 		}
 	}
@@ -116,7 +117,7 @@ func TestCredentialsRoundTrip(t *testing.T) {
 	}
 	ca := newTestAuthority(t)
 	first := ca.credentials(t, "H1")
-	n, err := SaveGeneration(dir, first)
+	n, err := SaveGeneration(dir, first, AnyCurrent)
 	if err != nil || n != 1 {
 		t.Fatalf("SaveGeneration = %d, %v; want generation 1", n, err)
 	}
@@ -130,14 +131,14 @@ func TestCredentialsRoundTrip(t *testing.T) {
 	for path, mode := range map[string]os.FileMode{
 		dir: 0o700, filepath.Join(dir, "gen-1"): 0o700, filepath.Join(dir, "gen-1", keyFile): 0o600,
 		filepath.Join(dir, "gen-1", certFile): 0o600, filepath.Join(dir, "gen-1", caFile): 0o600,
-		filepath.Join(dir, "gen-1", controllerFile): 0o600,
+		filepath.Join(dir, "gen-1", controllerFile): 0o600, filepath.Join(dir, saveLock): 0o600,
 	} {
 		if st, err := os.Stat(path); err != nil || st.Mode().Perm() != mode {
 			t.Errorf("%s: %v, %v; want mode %v", path, st.Mode(), err, mode)
 		}
 	}
 	second := ca.credentials(t, "H1")
-	if n, err := SaveGeneration(dir, second); err != nil || n != 2 {
+	if n, err := SaveGeneration(dir, second, AnyCurrent); err != nil || n != 2 {
 		t.Fatalf("second SaveGeneration = %d, %v", n, err)
 	}
 	if got, err := LoadCredentials(dir); err != nil || !sameCredentials(got, second) || got.Generation != 2 {
@@ -150,7 +151,7 @@ func TestCredentialsRoundTrip(t *testing.T) {
 	// An enrollment beside the running daemon may already have written a
 	// newer generation; a handshake with generation 2 must not delete it.
 	third := ca.credentials(t, "H1")
-	if n, err := SaveGeneration(dir, third); err != nil || n != 3 {
+	if n, err := SaveGeneration(dir, third, AnyCurrent); err != nil || n != 3 {
 		t.Fatalf("third SaveGeneration = %d, %v", n, err)
 	}
 	if err := PruneGenerations(dir, 2); err != nil {
@@ -190,7 +191,7 @@ func TestSaveGenerationRefusesBadCredentials(t *testing.T) {
 		dir := t.TempDir()
 		c := ca.credentials(t, "H1")
 		spoil(c)
-		if _, err := SaveGeneration(dir, c); err == nil {
+		if _, err := SaveGeneration(dir, c, AnyCurrent); err == nil {
 			t.Errorf("%s: SaveGeneration accepted it", name)
 		}
 		if _, err := LoadCredentials(dir); !errors.Is(err, ErrNotEnrolled) {
@@ -202,7 +203,7 @@ func TestSaveGenerationRefusesBadCredentials(t *testing.T) {
 func TestLoadCredentialsRefusesAForeignCurrent(t *testing.T) {
 	dir := t.TempDir()
 	ca := newTestAuthority(t)
-	if _, err := SaveGeneration(dir, ca.credentials(t, "H1")); err != nil {
+	if _, err := SaveGeneration(dir, ca.credentials(t, "H1"), AnyCurrent); err != nil {
 		t.Fatal(err)
 	}
 	for _, target := range []string{"../gen-1", "/etc", "gen-x"} {
@@ -232,12 +233,12 @@ func TestSaveGenerationInterrupted(t *testing.T) {
 			var old *Credentials
 			if renewal {
 				old = ca.credentials(t, "H1")
-				if _, err := SaveGeneration(dir, old); err != nil {
+				if _, err := SaveGeneration(dir, old, AnyCurrent); err != nil {
 					t.Fatal(err)
 				}
 			}
 			next := ca.credentials(t, "H1")
-			_, err := saveGeneration(dir, next, func(s string) error {
+			_, err := saveGeneration(dir, next, AnyCurrent, func(s string) error {
 				if s == step {
 					return crash
 				}
@@ -265,7 +266,7 @@ func TestSaveGenerationInterrupted(t *testing.T) {
 			// It enrolls or renews again, and the first handshake with the
 			// result prunes everything else.
 			again := ca.credentials(t, "H1")
-			n, err := SaveGeneration(dir, again)
+			n, err := SaveGeneration(dir, again, AnyCurrent)
 			if err != nil {
 				t.Fatalf("renewal %v, crash at %s: SaveGeneration after the restart: %v", renewal, step, err)
 			}
@@ -277,6 +278,138 @@ func TestSaveGenerationInterrupted(t *testing.T) {
 			}
 			if gens := generations(t, dir); !slices.Equal(gens, []string{generationName(n)}) {
 				t.Errorf("renewal %v, crash at %s: left %v after pruning", renewal, step, gens)
+			}
+		}
+	}
+}
+
+// A renewal saves only while current is still its session's generation; an
+// enrollment saves whatever is current. A refused save writes nothing.
+func TestSaveGenerationExpect(t *testing.T) {
+	ca := newTestAuthority(t)
+	cases := []struct {
+		name    string
+		current int // the generation current names; 0 removes current
+		expect  int
+		want    int // the saved generation; 0 wants ErrSuperseded
+	}{
+		{"the expected generation", 2, 2, 3},
+		{"a newer generation", 2, 1, 0},
+		{"an older generation", 1, 2, 0},
+		{"no current", 0, 1, 0},
+		{"any current", 1, AnyCurrent, 3},
+		{"any current without current", 0, AnyCurrent, 3},
+	}
+	for _, tc := range cases {
+		dir := filepath.Join(t.TempDir(), "agent")
+		for range 2 {
+			if _, err := SaveGeneration(dir, ca.credentials(t, "H1"), AnyCurrent); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.Remove(filepath.Join(dir, currentLink)); err != nil {
+			t.Fatal(err)
+		}
+		if tc.current != 0 {
+			if err := os.Symlink(generationName(tc.current), filepath.Join(dir, currentLink)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		state := func() string {
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			target, _ := os.Readlink(filepath.Join(dir, currentLink))
+			out := "current -> " + target
+			for _, e := range entries {
+				out += " " + e.Name()
+			}
+			return out
+		}
+		before := state()
+		next := ca.credentials(t, "H1")
+		n, err := SaveGeneration(dir, next, tc.expect)
+		if tc.want == 0 {
+			if !errors.Is(err, ErrSuperseded) || n != 0 || next.Generation != 0 {
+				t.Errorf("%s: SaveGeneration = %d, %v, generation %d; want ErrSuperseded", tc.name, n, err, next.Generation)
+			}
+			if after := state(); after != before {
+				t.Errorf("%s: a superseded save changed %s to %s", tc.name, before, after)
+			}
+			continue
+		}
+		if err != nil || n != tc.want {
+			t.Errorf("%s: SaveGeneration = %d, %v; want generation %d", tc.name, n, err, tc.want)
+			continue
+		}
+		if got, err := LoadCredentials(dir); err != nil || !sameCredentials(got, next) || got.Generation != tc.want {
+			t.Errorf("%s: LoadCredentials = %+v, %v; want the saved generation", tc.name, got, err)
+		}
+	}
+}
+
+// darkpanel agent enroll and the daemon's renewal save beside each other. Whatever the interleaving, current names a complete
+// generation that its writer reported, and a writer that finished after
+// another succeeded only if it expected any current.
+func TestSaveGenerationConcurrentWriters(t *testing.T) {
+	ca := newTestAuthority(t)
+	for _, tc := range []struct {
+		name    string
+		renewal [2]bool // whether each writer expects the generation current at the start
+	}{
+		{"a renewal and an enrollment", [2]bool{true, false}},
+		{"two renewals", [2]bool{true, true}},
+		{"two enrollments", [2]bool{false, false}},
+	} {
+		dir := filepath.Join(t.TempDir(), "agent")
+		start, err := SaveGeneration(dir, ca.credentials(t, "H1"), AnyCurrent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for round := range 20 {
+			var creds [2]*Credentials
+			var gens [2]int
+			var errs [2]error
+			var wg sync.WaitGroup
+			ready := make(chan struct{})
+			for i := range 2 {
+				creds[i] = ca.credentials(t, "H1")
+				expect := AnyCurrent
+				if tc.renewal[i] {
+					expect = start
+				}
+				wg.Go(func() {
+					<-ready
+					gens[i], errs[i] = SaveGeneration(dir, creds[i], expect)
+				})
+			}
+			close(ready)
+			wg.Wait()
+			winner, won := 0, false
+			for i := range 2 {
+				switch {
+				case errs[i] == nil && (!won || gens[i] > gens[winner]):
+					winner, won = i, true
+				case errs[i] == nil:
+				case !tc.renewal[i] || !errors.Is(errs[i], ErrSuperseded):
+					t.Fatalf("%s, round %d: writer %d: %v", tc.name, round, i, errs[i])
+				}
+			}
+			if !won {
+				t.Fatalf("%s, round %d: both writers were superseded", tc.name, round)
+			}
+			if loser := 1 - winner; errs[loser] == nil && tc.renewal[winner] {
+				t.Fatalf("%s, round %d: renewal %d of generation %d saved after generation %d",
+					tc.name, round, gens[winner], start, gens[loser])
+			}
+			got, err := LoadCredentials(dir)
+			if err != nil || !sameCredentials(got, creds[winner]) || got.Generation != gens[winner] {
+				t.Fatalf("%s, round %d: current is %+v, %v; want the winner's generation %d", tc.name, round, got, err, gens[winner])
+			}
+			start = gens[winner]
+			if err := PruneGenerations(dir, start); err != nil {
+				t.Fatal(err)
 			}
 		}
 	}
