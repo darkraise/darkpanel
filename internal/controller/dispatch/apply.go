@@ -30,6 +30,9 @@ func (d *Dispatcher) Apply(ctx context.Context, p core.Principal, hostID string,
 		if err != nil {
 			return core.ChangeView{}, err
 		}
+		if err := d.negotiate(hostID, def, nil); err != nil {
+			return core.ChangeView{}, err
+		}
 		apply = func() (core.ChangeView, error) { return c.Apply(ctx, p, planID, opts) }
 	}
 	// Marked before the call: the change may be committed even when this

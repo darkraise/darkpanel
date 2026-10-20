@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"reflect"
 	"slices"
 	"sync"
@@ -16,6 +17,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/coretest"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/schemas"
 )
 
 // logRecords is a slog.Handler that keeps each record as
@@ -130,8 +132,17 @@ func TestCoreModuleSkipsEnablement(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.hosts = NewHosts(HostsConfig{DB: h.db, Registry: h.reg, Clients: h.clients, Clock: h.clock, Log: slog.New(slog.DiscardHandler)})
+	hash, err := schemas.ActionHash(echoAction)
+	if err != nil {
+		t.Fatal(err)
+	}
 	h.clients.Add(testHost, &coretest.FakeAgent{
-		HelloFunc: h.rt.Hello,
+		HelloFunc: func(ctx context.Context) (core.AgentHello, error) {
+			hello, err := h.rt.Hello(ctx)
+			hello.SchemaHashes = maps.Clone(hello.SchemaHashes)
+			hello.SchemaHashes[schemas.HashKey(refCoreEcho)] = hash
+			return hello, err
+		},
 		ReadFunc: func(_ context.Context, _ core.Principal, a core.ActionRef, _ json.RawMessage) (json.RawMessage, error) {
 			return json.RawMessage(`{"value":"` + a.Name + `"}`), nil
 		},

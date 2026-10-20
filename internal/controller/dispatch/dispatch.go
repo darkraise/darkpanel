@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/core/lifecycle"
 	"github.com/darkraise/darkpanel/internal/core/store"
+	"github.com/darkraise/darkpanel/schemas"
 )
 
 // PlanIndexRetention is how long core_plan_index keeps a plan that was never
@@ -41,17 +43,21 @@ type Config struct {
 	// Version is the controller's version, the reference of the agent support
 	// window; empty leaves every agent inside it.
 	Version string
+	// Snapshots hold the released schema snapshots an older agent's schema
+	// hashes are looked up in; nil means the embedded schemas.FS.
+	Snapshots fs.FS
 }
 
 // Dispatcher is the core.Dispatcher of the controller. Its methods are safe
 // for concurrent use.
 type Dispatcher struct {
 	cfg   Config
+	neg   negotiation
 	plans planLocks
 }
 
-// New returns a dispatcher for cfg; every field but Ingest and Version is
-// required.
+// New returns a dispatcher for cfg; every field but Ingest, Version and
+// Snapshots is required.
 func New(cfg Config) (*Dispatcher, error) {
 	required := []struct {
 		name string
@@ -65,7 +71,14 @@ func New(cfg Config) (*Dispatcher, error) {
 			return nil, fmt.Errorf("dispatch: Config.%s is required", r.name)
 		}
 	}
-	return &Dispatcher{cfg: cfg}, nil
+	if cfg.Snapshots == nil {
+		cfg.Snapshots = schemas.FS
+	}
+	neg, err := newNegotiation(cfg.Registry, cfg.Snapshots)
+	if err != nil {
+		return nil, err
+	}
+	return &Dispatcher{cfg: cfg, neg: neg}, nil
 }
 
 // moduleOf is the module id of an action or resource name.
@@ -146,6 +159,9 @@ func (d *Dispatcher) Read(ctx context.Context, p core.Principal, hostID string, 
 	if err != nil {
 		return nil, err
 	}
+	if err := d.negotiate(hostID, def, input); err != nil {
+		return nil, err
+	}
 	return c.Read(ctx, p, a, input)
 }
 
@@ -174,7 +190,9 @@ func (d *Dispatcher) Plan(ctx context.Context, p core.Principal, hostID string, 
 	} else {
 		var c core.AgentClient
 		if c, err = d.agent(ctx, hostID, a.Name); err == nil {
-			v, err = c.Plan(ctx, p, a, input)
+			if err = d.negotiate(hostID, def, input); err == nil {
+				v, err = c.Plan(ctx, p, a, input)
+			}
 		}
 	}
 	if err != nil {

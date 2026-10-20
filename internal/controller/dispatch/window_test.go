@@ -3,6 +3,7 @@ package dispatch
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"strings"
 	"testing"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/coretest"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/schemas"
 )
 
 var refUpdateStatus = core.ActionRef{Name: "core.update.status", Version: 1}
@@ -37,12 +39,20 @@ func newWindowHarness(t *testing.T, version string) (*harness, *Dispatcher) {
 
 // agentAt gives h1 a new session whose agent is the runtime reporting
 // version and protocol; it answers core.update.status itself, which the
-// fixture runtime does not have.
+// fixture runtime does not have, and reports that action's schema hash.
 func (h *harness) agentAt(version string, protocol int) {
+	h.t.Helper()
+	def, _ := h.reg.Action(refUpdateStatus)
+	hash, err := schemas.ActionHash(def)
+	if err != nil {
+		h.t.Fatal(err)
+	}
 	h.clients.Add(testHost, &coretest.FakeAgent{
 		HelloFunc: func(ctx context.Context) (core.AgentHello, error) {
 			hello, err := h.rt.Hello(ctx)
 			hello.BinaryVersion, hello.ProtocolVersion = version, protocol
+			hello.SchemaHashes = maps.Clone(hello.SchemaHashes)
+			hello.SchemaHashes[schemas.HashKey(refUpdateStatus)] = hash
 			return hello, err
 		},
 		ReadFunc: func(ctx context.Context, p core.Principal, a core.ActionRef, input json.RawMessage) (json.RawMessage, error) {
