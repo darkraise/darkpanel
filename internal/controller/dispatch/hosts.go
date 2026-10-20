@@ -38,15 +38,22 @@ type HostsConfig struct {
 
 // Hosts is the controller's core.HostDirectory: the agent client of each
 // host, from its ClientSource. Before handing out a client of a generation
-// it has not greeted, Hosts calls its Hello and records every module's
-// availability; a failed Hello is tried again on the next reach. Its methods
-// are safe for concurrent use.
+// it has not greeted, Hosts calls its Hello and records the agent's version,
+// platform and every module's availability; a failed Hello is tried again on
+// the next reach. Its methods are safe for concurrent use.
 type Hosts struct {
 	cfg HostsConfig
 
 	mu      sync.Mutex             // guards greeted and locks; never held across I/O
-	greeted map[string]uint64      // the client generation each host last said Hello with
+	greeted map[string]greeting    // each host's last successful Hello
 	locks   map[string]*sync.Mutex // one per host, held across the client lookup and Hello
+}
+
+// greeting is a host's last successful Hello and the client generation that
+// answered it.
+type greeting struct {
+	gen   uint64
+	hello core.AgentHello
 }
 
 var _ core.HostDirectory = (*Hosts)(nil)
@@ -58,7 +65,7 @@ func NewHosts(cfg HostsConfig) *Hosts {
 	if cfg.Clients == nil {
 		panic("dispatch: HostsConfig.Clients is required")
 	}
-	return &Hosts{cfg: cfg, greeted: map[string]uint64{}, locks: map[string]*sync.Mutex{}}
+	return &Hosts{cfg: cfg, greeted: map[string]greeting{}, locks: map[string]*sync.Mutex{}}
 }
 
 // Agent returns hostID's client, after the first successful Hello of its
@@ -80,7 +87,7 @@ func (h *Hosts) Agent(ctx context.Context, hostID string) (core.AgentClient, err
 	h.mu.Lock()
 	greeted, ok := h.greeted[hostID]
 	h.mu.Unlock()
-	if !ok || greeted != gen {
+	if !ok || greeted.gen != gen {
 		if err := h.hello(ctx, hostID, c, gen); err != nil {
 			return nil, err
 		}
@@ -128,11 +135,28 @@ func (h *Hosts) lockHost(ctx context.Context, hostID string) (unlock func(), err
 	return l.Unlock, nil
 }
 
-// hello runs under hostID's lock. It writes available, reason and checked_at of every
-// module the registry has; a missing row takes enabled from the module's
-// DefaultEnabled, and an existing row keeps its enabled, which only
-// core.module.enable and core.module.disable change. On success it records
-// gen as greeted.
+// greetingOf returns hostID's last successful Hello in this process.
+func (h *Hosts) greetingOf(hostID string) (core.AgentHello, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	g, ok := h.greeted[hostID]
+	return g.hello, ok
+}
+
+// JournalEpoch is the journal epoch hostID's agent reported in its last
+// successful Hello: empty before one, or from an agent that reports none.
+// The audit ingester reads it right after Agent, which says Hello first.
+func (h *Hosts) JournalEpoch(hostID string) string {
+	hello, _ := h.greetingOf(hostID)
+	return hello.JournalEpoch
+}
+
+// hello runs under hostID's lock. It writes the agent's version, protocol,
+// platform and last_seen_at to core_hosts, and available, reason and
+// checked_at of every module the registry has; a missing row takes enabled
+// from the module's DefaultEnabled, and an existing row keeps its enabled,
+// which only core.module.enable and core.module.disable change. On success
+// it records the Hello as gen's.
 func (h *Hosts) hello(ctx context.Context, hostID string, c core.AgentClient, gen uint64) error {
 	hello, err := c.Hello(ctx)
 	if err != nil {
@@ -143,6 +167,11 @@ func (h *Hosts) hello(ctx context.Context, hostID string, c core.AgentClient, ge
 	}
 	now := h.cfg.Clock.Now().UTC().Format(timeFormat)
 	err = h.cfg.DB.Write(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE core_hosts SET agent_version = ?, protocol_version = ?, os = ?, arch = ?, last_seen_at = ? WHERE id = ?`,
+			nullText(hello.BinaryVersion), hello.ProtocolVersion, nullText(hello.OS), nullText(hello.Arch), now, hostID); err != nil {
+			return err
+		}
 		for _, st := range hello.Modules {
 			m, ok := h.cfg.Registry.Module(st.ID)
 			if !ok || m.ID == core.ModuleIDCore {
@@ -164,14 +193,22 @@ func (h *Hosts) hello(ctx context.Context, hostID string, c core.AgentClient, ge
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("dispatch: record the modules of %s: %w", hostID, err)
+		return fmt.Errorf("dispatch: record the hello of %s: %w", hostID, err)
 	}
 	h.mu.Lock()
-	h.greeted[hostID] = gen
+	h.greeted[hostID] = greeting{gen: gen, hello: hello}
 	h.mu.Unlock()
 	h.cfg.Log.Info("dispatch: host said hello", "host", hostID, "protocol", hello.ProtocolVersion,
-		"version", hello.BinaryVersion, "os", hello.OS)
+		"version", hello.BinaryVersion, "os", hello.OS, "arch", hello.Arch, "journalEpoch", hello.JournalEpoch)
 	return nil
+}
+
+// nullText stores an empty string as NULL, which reads as "not reported".
+func nullText(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 // usable answers module.unavailable unless moduleID is enabled and available

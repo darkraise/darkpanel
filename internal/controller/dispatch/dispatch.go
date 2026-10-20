@@ -85,13 +85,16 @@ func (d *Dispatcher) action(ref core.ActionRef, hostID string) (core.ActionDef, 
 }
 
 // agent returns hostID's client once the module of name is usable there.
+// The core module is exempt: it is always loaded and has no enablement.
 func (d *Dispatcher) agent(ctx context.Context, hostID, name string) (core.AgentClient, error) {
 	c, err := d.cfg.Hosts.Agent(ctx, hostID)
 	if err != nil {
 		return nil, err
 	}
-	if err := d.cfg.Hosts.usable(ctx, hostID, moduleOf(name)); err != nil {
-		return nil, err
+	if module := moduleOf(name); module != core.ModuleIDCore {
+		if err := d.cfg.Hosts.usable(ctx, hostID, module); err != nil {
+			return nil, err
+		}
 	}
 	return c, nil
 }

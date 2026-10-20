@@ -61,6 +61,7 @@ func (d *Dispatcher) find(ctx context.Context, changeID string) (string, core.Ag
 		c, err := d.cfg.Hosts.Agent(ctx, hostID)
 		switch {
 		case isHostOffline(err):
+			d.cfg.Log.Debug("dispatch: offline host skipped", "host", hostID, "change", changeID)
 			continue
 		case err != nil:
 			return "", nil, fmt.Errorf("dispatch: find change %s on host %s: %w", changeID, hostID, err)
@@ -160,9 +161,11 @@ func (d *Dispatcher) settle(ctx context.Context, changeID string, onController f
 // lifecycle.Engine.Changes: only changes with an id below f.Before, at most
 // f.Limit (100 when 0 or less, 500 at most), and fewer than the limit only
 // when nothing more matches. Without f.HostID it merges the controller
-// engine's changes with those of every host in core_hosts; a host that cannot
-// be listed fails the call, because a silently short page would end a
-// caller's paging early. With f.HostID only that host's agent is listed.
+// engine's changes with those of every host in core_hosts. A host that
+// answers host.offline is skipped and logged at debug level, so one stopped
+// agent does not hide every other change; any other failure fails the call,
+// because a silently short page would end a caller's paging early. With
+// f.HostID only that host's agent is listed, and an offline host fails.
 func (d *Dispatcher) Changes(ctx context.Context, _ core.Principal, f core.ChangeFilter) ([]core.ChangeView, error) {
 	if f.Limit <= 0 {
 		f.Limit = DefaultChangeLimit
@@ -182,7 +185,11 @@ func (d *Dispatcher) Changes(ctx context.Context, _ core.Principal, f core.Chang
 	}
 	for _, hostID := range hosts {
 		c, err := d.cfg.Hosts.Agent(ctx, hostID)
-		if err != nil {
+		switch {
+		case isHostOffline(err) && f.HostID == "":
+			d.cfg.Log.Debug("dispatch: offline host skipped", "host", hostID)
+			continue
+		case err != nil:
 			return nil, err
 		}
 		hf := f
