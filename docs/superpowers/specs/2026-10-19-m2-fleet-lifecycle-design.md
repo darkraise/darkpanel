@@ -436,19 +436,20 @@ and rollout actions) join the one core manifest; assembly fills it.
      `Reload` and `EnableUnitFiles` through the D-Bus provider;
   5. controller role: start the controller and wait for `GET /healthz` on the
      controller socket (60 s);
-  6. enrollment, skipped when `darkpanel agent check` (one mTLS handshake
-     with the saved credentials; exit 0 accepted, 1 refused, 2 unreachable,
-     3 the check could not run) exits 0. Controller role: on 1 or 2 (the controller is local and up),
-     `core.host.enroll-local` over the controller socket, then the enrollment
-     flow with that token, which also repairs a revoked or lost local agent.
-     When the agent socket's `hello` reports `controllerConnected: true`, the
-     credentials count as accepted and no handshake runs: a check is a
-     session, and it would replace the running daemon's for a moment.
-     Agent role: on 1, the token from standard input is required; on 2 with
-     saved credentials it warns that the controller is unreachable and keeps
-     them; without credentials it requires a token. A consumed token without
-     saved credentials is reported with `this host's token was used but no
-     credentials were saved; revoke the host and create a new token`;
+  6. enrollment, skipped when `darkpanel agent check` (one mTLS handshake with
+     the saved credentials; exit 0 accepted, 1 refused, 2 unreachable, 3 the
+     check could not run) exits 0. Controller role: on 1 or 2 (the controller
+     is local and up), `core.host.enroll-local` over the controller socket,
+     then the enrollment flow with that token, which also repairs a revoked or
+     lost local agent. When the agent socket's `hello` reports
+     `controllerConnected: true`, the credentials count as accepted and no
+     handshake runs: a check is a session, and it would replace the running
+     daemon's for a moment. Agent role: on 1, the token from standard input is
+     required; on 2 with saved credentials it warns that the controller is
+     unreachable and keeps them; without credentials it requires a token. A
+     consumed token without saved credentials is reported with `this host's
+     token was used but no credentials were saved; revoke the host and create
+     a new token`;
   7. start the agent; the controller role prints how to create the first admin
      over the controller socket.
 
