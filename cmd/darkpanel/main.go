@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"net/netip"
 	"os"
 	"os/signal"
 	"runtime"
@@ -20,6 +21,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/cli"
 	"github.com/darkraise/darkpanel/internal/controller/listen"
 	"github.com/darkraise/darkpanel/internal/controller/server"
+	"github.com/darkraise/darkpanel/internal/install"
 	"github.com/darkraise/darkpanel/internal/paths"
 	"github.com/darkraise/darkpanel/internal/registry"
 	"github.com/darkraise/darkpanel/internal/update/trustedkeys"
@@ -101,13 +103,17 @@ func newVersionCmd() *cobra.Command {
 
 func newServeCmd() *cobra.Command {
 	var (
-		dev         bool
-		listenFlags []string
-		specs       []listen.Spec
+		dev            bool
+		embeddedAgent  bool
+		listenFlags    []string
+		agentFlags     []string
+		agentAdvertise string
+		specs          []listen.Spec
+		agentListen    []netip.AddrPort
 	)
 	cmd := &cobra.Command{
 		Use:   "serve",
-		Short: "Run the controller and the local agent",
+		Short: "Run the controller",
 		Args:  cobra.NoArgs,
 		// cli marks only RunE errors as run errors, so these refusals of the
 		// command line exit 2 like cobra's own flag errors.
@@ -116,8 +122,24 @@ func newServeCmd() *cobra.Command {
 			if specs, err = listen.ParseSpecs(listenFlags); err != nil {
 				return err
 			}
-			if !dev && geteuid() != 0 {
-				return errors.New("serve runs as root in production mode; run it with sudo, or add --dev to use per-user development paths")
+			if agentListen, err = listen.ParseAgentListen(agentFlags); err != nil {
+				return err
+			}
+			if agentAdvertise != "" {
+				if err := install.CheckAgentAddress(agentAdvertise); err != nil {
+					return err
+				}
+			}
+			if embeddedAgent && !dev {
+				return errors.New("--embedded-agent runs the M1 in-process agent and needs --dev")
+			}
+			if embeddedAgent && len(agentListen) > 0 {
+				return errors.New("--agent-listen does not apply with --embedded-agent, which opens no agent listener")
+			}
+			// Run as root, serve would create controller files that the
+			// darkpanel user's unit could not open afterwards.
+			if !dev && geteuid() == 0 {
+				return errors.New("serve runs as the darkpanel user in production; start it with systemctl start darkpanel-controller, or add --dev to use per-user development paths")
 			}
 			return nil
 		},
@@ -132,12 +154,21 @@ func newServeCmd() *cobra.Command {
 			// interrupt end a shutdown that hangs.
 			context.AfterFunc(ctx, stop)
 			log := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil))
-			return serveRun(ctx, server.Options{Paths: p, Listen: specs, Dev: dev, Log: log})
+			return serveRun(ctx, server.Options{
+				Paths: p, Listen: specs, Dev: dev, Log: log,
+				EmbeddedAgent: embeddedAgent, AgentListen: agentListen, AgentAdvertise: agentAdvertise,
+			})
 		},
 	}
 	cmd.Flags().BoolVar(&dev, "dev", false, "use per-user development paths under $XDG_STATE_HOME/darkpanel-dev")
 	cmd.Flags().StringArrayVar(&listenFlags, "listen", nil,
 		"listener to open instead of the defaults (repeatable): loopback, tailscale, https://<ip>:<port> or http://<loopback ip>:<port>")
+	cmd.Flags().StringArrayVar(&agentFlags, "agent-listen", nil,
+		"extra address of this host for the agent listener, <ip>:<port> (repeatable); 127.0.0.1:7443 and the Tailscale addresses are always bound")
+	cmd.Flags().StringVar(&agentAdvertise, "agent-advertise", "",
+		"<host>:<port> that enrollment tokens tell agents to connect to when the request names none")
+	cmd.Flags().BoolVar(&embeddedAgent, "embedded-agent", false,
+		"run the M1 in-process agent over this user's agent database instead of the agent listener (needs --dev)")
 	return cmd
 }
 

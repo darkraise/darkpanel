@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net/netip"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -40,7 +41,7 @@ func runArgs(args ...string) (string, int) {
 
 // TestExitCodes is register row 30: usage errors exit 2, failed runs 1.
 func TestExitCodes(t *testing.T) {
-	served := fakeServe(t, 1000, errors.New("the controller database is locked"))
+	served := fakeServe(t, 0, errors.New("the controller database is locked"))
 	tests := []struct {
 		args []string
 		code int
@@ -52,7 +53,12 @@ func TestExitCodes(t *testing.T) {
 		{[]string{"serve", "--nope"}, cli.ExitUsage, "unknown flag: --nope"},
 		{[]string{"serve", "--dev", "--listen", "http://192.0.2.1:80"}, cli.ExitUsage, "plain HTTP is allowed only on a loopback address"},
 		{[]string{"serve", "--dev", "--listen", "ftp://127.0.0.1:21"}, cli.ExitUsage, "is not loopback, tailscale"},
-		{[]string{"serve"}, cli.ExitUsage, "serve runs as root in production mode; run it with sudo, or add --dev"},
+		{[]string{"serve"}, cli.ExitUsage, "serve runs as the darkpanel user in production; start it with systemctl start darkpanel-controller, or add --dev"},
+		{[]string{"serve", "--embedded-agent"}, cli.ExitUsage, "--embedded-agent runs the M1 in-process agent and needs --dev"},
+		{[]string{"serve", "--dev", "--agent-listen", "0.0.0.0:7443"}, cli.ExitUsage, "the address must be a specific address of this host"},
+		{[]string{"serve", "--dev", "--agent-listen", "panel.example:7443"}, cli.ExitUsage, `--agent-listen "panel.example:7443" is not <ip>:<port>`},
+		{[]string{"serve", "--dev", "--agent-advertise", "panel.example"}, cli.ExitUsage, `agent address "panel.example" is not host:port`},
+		{[]string{"serve", "--dev", "--embedded-agent", "--agent-listen", "192.0.2.7:7443"}, cli.ExitUsage, "--agent-listen does not apply with --embedded-agent, which opens no agent listener"},
 		{[]string{"serve", "--dev"}, cli.ExitError, "darkpanel: the controller database is locked"},
 		{[]string{"token", "list", "--help"}, cli.ExitOK, "List"},
 		{[]string{"hostinfo", "summary", "get", "--help"}, cli.ExitOK, "--host"},
@@ -72,12 +78,15 @@ func TestServeDevOptions(t *testing.T) {
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
 	t.Setenv("XDG_RUNTIME_DIR", "")
-	served := fakeServe(t, 1000, nil)
+	served := fakeServe(t, 0, nil)
 	if out, code := runArgs("serve", "--dev", "--listen", "loopback", "--listen", "https://127.0.0.1:9443"); code != cli.ExitOK {
 		t.Fatalf("serve --dev: exit %d: %s", code, out)
 	}
-	if len(*served) != 1 {
-		t.Fatalf("serve ran %d times, want once", len(*served))
+	if out, code := runArgs("serve", "--dev", "--embedded-agent"); code != cli.ExitOK {
+		t.Fatalf("serve --dev --embedded-agent: exit %d: %s", code, out)
+	}
+	if len(*served) != 2 {
+		t.Fatalf("serve ran %d times, want twice", len(*served))
 	}
 	opts := (*served)[0]
 	var listens []string
@@ -85,22 +94,32 @@ func TestServeDevOptions(t *testing.T) {
 		listens = append(listens, s.String())
 	}
 	if opts.Paths != paths.Under(filepath.Join(state, "darkpanel-dev")) || !opts.Dev || opts.Log == nil ||
-		!slices.Equal(listens, []string{"loopback", "https://127.0.0.1:9443"}) {
-		t.Errorf("serve --dev passed %+v, want the dev paths, Dev, a logger and both listen values", opts)
+		!slices.Equal(listens, []string{"loopback", "https://127.0.0.1:9443"}) || opts.EmbeddedAgent {
+		t.Errorf("serve --dev passed %+v, want the dev paths, Dev, a logger, both listen values and no embedded agent", opts)
+	}
+	if embedded := (*served)[1]; !embedded.EmbeddedAgent || !embedded.Dev {
+		t.Errorf("serve --dev --embedded-agent passed %+v, want EmbeddedAgent and Dev", embedded)
 	}
 }
 
+// TestServeProductionOptions runs serve with the arguments of the
+// controller unit's agent listener drop-in, as the darkpanel user.
 func TestServeProductionOptions(t *testing.T) {
-	served := fakeServe(t, 0, nil)
-	if out, code := runArgs("serve"); code != cli.ExitOK {
-		t.Fatalf("serve as root: exit %d: %s", code, out)
+	served := fakeServe(t, 998, nil)
+	args := []string{"serve", "--agent-listen", "192.0.2.7:7443", "--agent-listen", "[2001:db8::7]:7443",
+		"--agent-listen", "192.0.2.7:7443", "--agent-advertise", "panel.example:7443"}
+	if out, code := runArgs(args...); code != cli.ExitOK {
+		t.Fatalf("serve as the darkpanel user: exit %d: %s", code, out)
 	}
 	opts := (*served)[0]
 	var listens []string
 	for _, s := range opts.Listen {
 		listens = append(listens, s.String())
 	}
-	if opts.Paths != paths.Production() || opts.Dev || !slices.Equal(listens, []string{"loopback", "tailscale"}) {
-		t.Errorf("serve passed %+v, want the production paths and the default listeners", opts)
+	wantAgent := []netip.AddrPort{netip.MustParseAddrPort("192.0.2.7:7443"), netip.MustParseAddrPort("[2001:db8::7]:7443")}
+	if opts.Paths != paths.Production() || opts.Dev || !slices.Equal(listens, []string{"loopback", "tailscale"}) ||
+		!slices.Equal(opts.AgentListen, wantAgent) || opts.AgentAdvertise != "panel.example:7443" ||
+		opts.EmbeddedAgent || opts.HealthStatus != "" {
+		t.Errorf("serve passed %+v, want the production paths, the default listeners, agent listen %v and the advertised address", opts, wantAgent)
 	}
 }
