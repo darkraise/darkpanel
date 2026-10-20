@@ -93,7 +93,13 @@ hex() {
 verify_release() {
 	vdir=$1
 	vversion=$2
-	vtmp=$(mktemp -d) || die "cannot create a temporary directory"
+	# Under $tmp the EXIT trap removes it when a signal stops the script.
+	if [ -n "${tmp:-}" ]; then
+		vtmp="$tmp/verify"
+		mkdir "$vtmp" || die "cannot create a temporary directory"
+	else
+		vtmp=$(mktemp -d) || die "cannot create a temporary directory"
+	fi
 	verified=1
 	openssl dgst -blake2b512 -binary "$vdir/checksums.txt" >"$vtmp/digest"
 	for key in $KEYS; do

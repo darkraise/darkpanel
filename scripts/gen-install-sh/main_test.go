@@ -359,6 +359,23 @@ func TestVerifyReleaseWithoutATemporaryDirectory(t *testing.T) {
 	}
 }
 
+func TestVerifyReleaseWorksUnderTheScriptTemporaryDirectory(t *testing.T) {
+	needTools(t, "sh", "openssl", "base64", "od")
+	s := newSigner(t)
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "checksums.txt"), "abc  darkpanel_1.4.0_linux_amd64.tar.gz\n")
+	s.sign(t, dir, "version=1.4.0 channel=stable purpose=checksums")
+	// With TMPDIR missing, only a directory under $tmp can hold the files.
+	cmd := exec.Command("sh", "-c", `. "$1"; tmp=$2; verify_release "$2" "$3"`, "sh", script(t, []trustedkeys.Key{s.key}, "https://example.com"), dir, "1.4.0") //nolint:gosec // G204: a fixed command over test files
+	cmd.Env = append(os.Environ(), "DARKPANEL_INSTALL_SH_LIB=1", "TMPDIR="+filepath.Join(t.TempDir(), "missing"))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Errorf("verify_release with $tmp set: %v, output %q", err, out)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "verify")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("verify_release left %s: %v", filepath.Join(dir, "verify"), err)
+	}
+}
+
 func oneKey(a, _ signer) []trustedkeys.Key  { return []trustedkeys.Key{a.key} }
 func twoKeys(a, b signer) []trustedkeys.Key { return []trustedkeys.Key{a.key, b.key} }
 func noKeys(signer, signer) []trustedkeys.Key {
