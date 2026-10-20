@@ -120,6 +120,8 @@ func TestM2(t *testing.T) {
 		{"reboot-in-window", false, func(t *testing.T) { scenarioRebootInWindow(ctx, t, f) }},
 		{"runner-frozen", false, func(t *testing.T) { scenarioRunnerFrozen(ctx, t, f) }},
 		{"migration-rollback", false, func(t *testing.T) { scenarioMigrationRollback(ctx, t, f) }},
+		{"break-glass", false, func(t *testing.T) { scenarioBreakGlass(ctx, t, f) }},
+		{"uninstall", false, func(t *testing.T) { scenarioUninstall(ctx, t, f) }},
 	}
 	for _, s := range steps {
 		if !t.Run(s.name, s.run) && s.gate {
