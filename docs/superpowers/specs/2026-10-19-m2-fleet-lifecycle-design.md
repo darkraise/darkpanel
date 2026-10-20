@@ -437,8 +437,8 @@ and rollout actions) join the one core manifest; assembly fills it.
   5. controller role: start the controller and wait for `GET /healthz` on the
      controller socket (60 s);
   6. enrollment, skipped when `darkpanel agent check` (one mTLS handshake
-     with the saved credentials; exit 0 accepted, 1 refused, 2 unreachable)
-     exits 0. Controller role: on 1 or 2 (the controller is local and up),
+     with the saved credentials; exit 0 accepted, 1 refused, 2 unreachable,
+     3 the check could not run) exits 0. Controller role: on 1 or 2 (the controller is local and up),
      `core.host.enroll-local` over the controller socket, then the enrollment
      flow with that token, which also repairs a revoked or lost local agent.
      When the agent socket's `hello` reports `controllerConnected: true`, the
