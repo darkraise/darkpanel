@@ -405,10 +405,12 @@ func TestServerCloseWaitsForHandlers(t *testing.T) {
 
 	called := false
 	late := f.srv.counted(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }))
-	late.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, transport.RenewPath, nil))
+	rec := httptest.NewRecorder()
+	late.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, transport.RenewPath, nil))
 	if called {
 		t.Fatal("a handler ran after Close")
 	}
+	wantProblemBody(t, rec.Code, rec.Body.Bytes(), http.StatusServiceUnavailable, errcode.HostOffline, errcode.HostOffline.Title())
 }
 
 func TestNewServerRefusesBadConfig(t *testing.T) {
