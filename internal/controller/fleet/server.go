@@ -201,15 +201,15 @@ func (s *Server) serveAgent(peer *transport.Peer) {
 
 // counted makes Close wait for h's requests: http.Server.Close does not wait
 // for its handlers. The Add happens under s.mu while closed is false, so it
-// cannot race Close's Wait. A request after Close is answered 503, because
-// an empty answer would read as 200 and the agent could not tell it from a
-// broken one. host.offline is the only code that answers 503.
+// cannot race Close's Wait. A request after Close is answered 503
+// unavailable, because an empty answer would read as 200 and the agent could
+// not tell it from a broken one.
 func (s *Server) counted(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		if s.closed {
 			s.mu.Unlock()
-			writeProblem(w, s.cfg.Log, errcode.New(errcode.HostOffline, "the controller is shutting down"))
+			writeProblem(w, s.cfg.Log, errcode.New(errcode.Unavailable, "the controller is shutting down"))
 			return
 		}
 		s.wg.Add(1)
