@@ -5,6 +5,7 @@ package harness
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -48,9 +49,12 @@ func scenarioBreakGlass(ctx context.Context, t *testing.T, f *fleet) {
 	// an agent there is no plan to name one, so --yes is all it takes.
 	const notice = "/var/tmp/rollback-notice"
 	out, err = f.agent.Run(ctx, "sudo darkpanel update rollback --local --yes --json 2>"+notice)
-	stderr, _ := f.agent.Run(ctx, "cat "+notice)
+	stderr, readErr := f.agent.Run(ctx, "cat "+notice)
 	if err != nil {
-		t.Fatalf("%v\n%s", err, stderr)
+		t.Fatalf("%v\n%s", errors.Join(err, readErr), stderr)
+	}
+	if readErr != nil {
+		t.Fatalf("read the rollback's standard error from %s: %v", notice, readErr)
 	}
 	want := "darkpanel: the agent socket " + paths.Production().AgentSocket + " does not answer; running core.update.rollback in this process"
 	if !strings.Contains(stderr, want) {

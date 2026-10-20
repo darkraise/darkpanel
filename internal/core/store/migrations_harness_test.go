@@ -61,7 +61,8 @@ func TestHarnessMigrationWalks(t *testing.T) {
 
 func TestHarnessMigrationRefusesAShadowedName(t *testing.T) {
 	core := sqlFS(map[string]string{"0001_core.sql": metaSQL})
-	if _, err := fs.ReadDir(unionFS{core, core}, "."); err == nil {
-		t.Error("the union read a migration that is in both sets")
+	_, err := fs.ReadDir(unionFS{core, core}, ".")
+	if want := "store: migration 0001_core.sql is in both the core and the harness migrations"; err == nil || err.Error() != want {
+		t.Errorf("the union read a migration that is in both sets: %v, want %q", err, want)
 	}
 }

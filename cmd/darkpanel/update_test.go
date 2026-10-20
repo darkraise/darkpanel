@@ -334,7 +334,12 @@ func TestOpenAgentNewerAgents(t *testing.T) {
 		}
 		cfg := s.updates[len(s.updates)-1]
 		if got := cfg.NewerAgents != nil; got != withController {
-			t.Errorf("controller.db present %v: NewerAgents set %v", withController, got)
+			t.Fatalf("controller.db present %v: NewerAgents set %v", withController, got)
+		}
+		if withController {
+			if got, err := cfg.NewerAgents(context.Background(), "0.3.0"); err != nil || !slices.Equal(got, []string{"web1"}) {
+				t.Errorf("NewerAgents(0.3.0) = %q, %v; want web1 from the host's controller.db", got, err)
+			}
 		}
 	}
 }

@@ -35,6 +35,7 @@ func (f *fakePlan) Close() error {
 }
 
 func TestUninstall(t *testing.T) {
+	const described, removed = "will remove the units\n", "removed the units\n"
 	tests := []struct {
 		name     string
 		args     []string
@@ -46,12 +47,12 @@ func TestUninstall(t *testing.T) {
 		stdout   string
 		stderr   string
 	}{
-		{"yes", []string{"--yes"}, 0, false, "", cli.ExitOK, []string{"describe", "run"}, "will remove the units\nremoved the units\n", ""},
-		{"keep data", []string{"--yes", "--keep-data"}, 0, false, "", cli.ExitOK, []string{"describe", "run"}, "", ""},
-		{"no terminal without yes", nil, 0, false, "y\n", cli.ExitRefused, []string{"describe", "close"}, "will remove the units\n",
+		{"yes", []string{"--yes"}, 0, false, "", cli.ExitOK, []string{"describe", "run"}, described + removed, ""},
+		{"keep data", []string{"--yes", "--keep-data"}, 0, false, "", cli.ExitOK, []string{"describe", "run"}, described + removed, ""},
+		{"no terminal without yes", nil, 0, false, "y\n", cli.ExitRefused, []string{"describe", "close"}, described,
 			"darkpanel: uninstall needs --yes when standard input is not a terminal\n"},
-		{"confirmed on the terminal", nil, 0, true, "y\n", cli.ExitOK, []string{"describe", "run"}, "", "Proceed? [y/N] "},
-		{"declined on the terminal", nil, 0, true, "\n", cli.ExitRefused, []string{"describe", "close"}, "", "Proceed? [y/N] darkpanel: uninstall declined\n"},
+		{"confirmed on the terminal", nil, 0, true, "y\n", cli.ExitOK, []string{"describe", "run"}, described + removed, "Proceed? [y/N] "},
+		{"declined on the terminal", nil, 0, true, "\n", cli.ExitRefused, []string{"describe", "close"}, described, "Proceed? [y/N] darkpanel: uninstall declined\n"},
 		{"not root", []string{"--yes"}, 1000, false, "", cli.ExitUsage, nil, "", "darkpanel: uninstall runs as root; run it with sudo\n"},
 	}
 	for _, tt := range tests {
@@ -67,7 +68,7 @@ func TestUninstall(t *testing.T) {
 			}
 			stdinTerminal = func(io.Reader) bool { return tt.terminal }
 			stdout, stderr, code := runStdin(strings.NewReader(tt.stdin), append([]string{"uninstall"}, tt.args...)...)
-			if code != tt.code || !slices.Equal(plan.calls, tt.calls) || !strings.Contains(stdout, tt.stdout) || !strings.HasSuffix(stderr, tt.stderr) {
+			if code != tt.code || !slices.Equal(plan.calls, tt.calls) || stdout != tt.stdout || stderr != tt.stderr {
 				t.Errorf("exit %d, calls %q, stdout %q, stderr %q; want exit %d, calls %q, %q and %q",
 					code, plan.calls, stdout, stderr, tt.code, tt.calls, tt.stdout, tt.stderr)
 			}
