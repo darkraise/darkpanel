@@ -41,7 +41,7 @@ func TestHelloReportsTheHostAndItsModules(t *testing.T) {
 		}
 	}
 	want := core.AgentHello{
-		ProtocolVersion: ProtocolVersion, BinaryVersion: "test", OS: goruntime.GOOS, HostID: testHost,
+		ProtocolVersion: ProtocolVersion, BinaryVersion: "test", OS: goruntime.GOOS, Arch: goruntime.GOARCH, HostID: testHost,
 		Modules: f.rt.statuses(), SchemaHashes: hashes, JournalEpoch: journalEpochOf(t, f),
 	}
 	if !reflect.DeepEqual(h, want) || len(h.Modules) != 4 || len(h.SchemaHashes) < 2 {
@@ -112,6 +112,75 @@ func TestJournalEpoch(t *testing.T) {
 	}
 }
 
+func TestHelloReportsArchAndController(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	h, err := f.rt.Hello(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.Arch != goruntime.GOARCH || h.ControllerConnected != nil {
+		t.Errorf("Hello without a callback: arch %q, controllerConnected %v; want %q and nil", h.Arch, h.ControllerConnected, goruntime.GOARCH)
+	}
+	var state *bool
+	f.rt.Close()
+	c := f.config()
+	c.ControllerConnected = func() *bool { return state }
+	rt, err := Open(ctx, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(rt.Close)
+	yes, no := true, false
+	for _, want := range []*bool{nil, &yes, &no} {
+		state = want
+		h, err := rt.Hello(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if (h.ControllerConnected == nil) != (want == nil) || (want != nil && *h.ControllerConnected != *want) {
+			t.Errorf("controllerConnected = %v, want %v", h.ControllerConnected, want)
+		}
+	}
+}
+
+// coreProbe is a core module with an agent-side action, as the update
+// actions make it.
+type coreProbe struct{}
+
+func (coreProbe) Manifest() core.Manifest {
+	return core.Manifest{
+		ID: core.ModuleIDCore, Version: 1, DefaultEnabled: true,
+		Actions: []core.ActionDef{core.DefineRead(core.ActionSpec{Name: "core.probe.get", Version: 1, Side: core.SideAgent}, echo{})},
+	}
+}
+
+func TestCoreModuleIsAlwaysLoaded(t *testing.T) {
+	f := newFixture(t)
+	reg, err := core.NewRegistry(coreProbe{}, kvModule{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.reg = reg
+	f.restart()
+	ctx := context.Background()
+	coreStatus := core.ModuleStatus{ID: core.ModuleIDCore, Version: 1, Available: true}
+	h, err := f.rt.Hello(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(h.Modules) != 2 || h.Modules[0] != coreStatus {
+		t.Errorf("Hello modules = %+v, want the core available first", h.Modules)
+	}
+	if st, err := f.rt.Preflight(ctx, core.ModuleIDCore); err != nil || st != coreStatus {
+		t.Errorf("Preflight(core) = %+v, %v; want available", st, err)
+	}
+	out, err := f.rt.Read(ctx, alice, core.ActionRef{Name: "core.probe.get", Version: 1}, json.RawMessage(`{"name":"x"}`))
+	if err != nil || !strings.Contains(string(out), `"value":"x"`) {
+		t.Errorf("Read(core.probe.get) = %s, %v", out, err)
+	}
+}
+
 func TestPreflightChecksAgain(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
@@ -133,10 +202,8 @@ func TestPreflightChecksAgain(t *testing.T) {
 	if err != nil || st.Available || st.Reason != ReasonMigrationFailed || f.host.badChecks != 0 {
 		t.Errorf("Preflight(bad) = %+v, %v (checks %d); want the migration failure without a check", st, err, f.host.badChecks)
 	}
-	for _, id := range []string{"core", "nope"} {
-		_, err := f.rt.Preflight(ctx, id)
-		_ = wantCode(t, err, errcode.NotFound)
-	}
+	_, err = f.rt.Preflight(ctx, "nope")
+	_ = wantCode(t, err, errcode.NotFound)
 }
 
 func TestReadsRefuseABrokenModule(t *testing.T) {

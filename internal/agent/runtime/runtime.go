@@ -49,6 +49,10 @@ type Config struct {
 	BackupDir     string         // paths.AgentBackups()
 	Exec          core.Runner    // platform.NewRunner(platform.ProductionAllowlist()) in production
 	FilesTestMode bool           // platform.FilesConfig.TestMode; false in production
+	// ControllerConnected is Hello's controllerConnected: nil while the
+	// agent is not enrolled, else whether a controller session is live. A
+	// nil function reports nil, as an agent without a transport does.
+	ControllerConnected func() *bool
 }
 
 func (c Config) check() error {
@@ -168,16 +172,11 @@ func (r *Runtime) purge() {
 	r.timer = r.cfg.Clock.AfterFunc(PurgeInterval, r.purge)
 }
 
-// modules returns the registered modules except the core, which has no agent
-// half, in registration order.
+// modules returns the registered modules in registration order. The core is
+// one of them: its agent-side actions run like any module's, and it has no
+// preflight checks, so it is always available.
 func (r *Runtime) modules() []core.Manifest {
-	var out []core.Manifest
-	for _, m := range r.cfg.Registry.Modules() {
-		if m.ID != core.ModuleIDCore {
-			out = append(out, m)
-		}
-	}
-	return out
+	return r.cfg.Registry.Modules()
 }
 
 func (r *Runtime) migrate(ctx context.Context) error {
@@ -187,7 +186,8 @@ func (r *Runtime) migrate(ctx context.Context) error {
 	}
 	var sets []store.MigrationSet
 	for _, m := range r.modules() {
-		if fsys := m.Migrations[core.SideAgent]; fsys != nil {
+		// The core's tables come from coreSet, never from its manifest.
+		if fsys := m.Migrations[core.SideAgent]; fsys != nil && m.ID != core.ModuleIDCore {
 			sets = append(sets, store.MigrationSet{Module: m.ID, FS: fsys})
 		}
 	}
