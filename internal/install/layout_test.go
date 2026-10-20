@@ -66,6 +66,27 @@ func TestRootedLayout(t *testing.T) {
 	}
 }
 
+// TestRootedCoversEveryPath catches a field added to paths.Paths that Rooted
+// does not move under the root, which would point tests at the real host.
+func TestRootedCoversEveryPath(t *testing.T) {
+	root := t.TempDir()
+	l := Rooted(root)
+	check := func(name, p string) {
+		if !strings.HasPrefix(p, root+"/") {
+			t.Errorf("%s = %s, not under %s", name, p, root)
+		}
+	}
+	v := reflect.ValueOf(l.Paths)
+	for i := range v.NumField() {
+		if f := v.Type().Field(i); f.Type.Kind() == reflect.String {
+			check("Paths."+f.Name, v.Field(i).String())
+		}
+	}
+	check("DataDir", l.DataDir)
+	check("ConfigDir", l.ConfigDir)
+	check("UnitDir", l.UnitDir)
+}
+
 func TestOwnedPaths(t *testing.T) {
 	l := Production()
 	agent := OwnedPaths(l, RoleAgent)
