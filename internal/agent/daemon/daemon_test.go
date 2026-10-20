@@ -293,8 +293,8 @@ func TestRunHoldsTheAgentLock(t *testing.T) {
 	}
 }
 
-// Spec S-C20: the start recovery runs before the socket serves, and
-// update.in_progress is logged without stopping the start.
+// The start recovery runs before the socket serves, and update.in_progress
+// is logged without stopping the start.
 func TestRunRecoversBeforeServing(t *testing.T) {
 	h := newAgentHost(t)
 	h.rec.err = errcode.New(errcode.UpdateInProgress, "a runner holds the update lock")

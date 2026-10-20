@@ -30,8 +30,9 @@ func renewAt(cert *x509.Certificate) time.Time {
 }
 
 // renewLoop renews c's certificate over sess once it is due, retrying every
-// RenewRetry, and closes renewed after the new generation is saved. It ends
-// with ctx, which ends with the session.
+// RenewRetry. It closes renewed once the session should reconnect: after the
+// new generation is saved, or when a newer generation is already current. It
+// ends with ctx, which ends with the session.
 func (d *daemon) renewLoop(ctx context.Context, sess *transport.Session, c *Credentials, renewed chan<- struct{}) {
 	at := renewAt(c.Cert)
 	for {
