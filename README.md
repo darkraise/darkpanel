@@ -7,11 +7,13 @@ and safe self-update.
 
 ## Status
 
-Pre-release, in milestone M1 (Foundations). `darkpanel serve` runs the
-controller and the local agent, serves the REST API with TOTP login and the
-host-information module, and the CLI drives it. The web UI's pages are not
-built yet, and nothing installs the service; do not use it on a server you
-care about.
+Pre-release, in milestone M2 (Fleet and lifecycle). `darkpanel serve` runs the
+controller: the REST API with TOTP login, the web UI, the audit log and the
+agent listener. `darkpanel agent run` runs the agent on every host, the
+controller's own included, over mutual TLS. `install.sh` and
+`darkpanel system install` install either role, and hosts update themselves
+from signed releases with automatic rollback. No release has been published
+yet; do not use it on a server you care about.
 
 ## Prerequisites
 
@@ -39,26 +41,85 @@ machine's architecture onto your `PATH` under that name:
 sudo install -m 0755 bin/darkpanel-linux-amd64 /usr/local/bin/darkpanel
 ```
 
-## Run
+## Install
 
-In M1 the service runs as root:
+`install.sh` installs a release on Ubuntu 22.04 or 24.04 or Debian 12 or 13. It
+verifies the release's minisign signature with OpenSSL against the keys it
+embeds, checks the tarball's checksum, installs the binary under
+`/usr/local/lib/darkpanel/` with `/usr/local/bin/darkpanel` pointing at it, and
+runs `darkpanel system install` for the role. On the controller's host:
 
 ```sh
-sudo darkpanel serve
+curl -fsSL https://github.com/Darkraise/darkpanel/releases/latest/download/install.sh -o install.sh
+sudo sh install.sh --role controller --agent-advertise <address agents reach>:7443
 ```
 
-It keeps its databases under `/var/lib/darkpanel/`, its keys under
-`/etc/darkpanel/` and its controller socket under `/run/darkpanel-controller/`,
-and serves HTTP on `127.0.0.1:8080` and `[::1]:8080` and HTTPS on port 8443 of
-each Tailscale address. `--listen` replaces those listeners and may be
-repeated: `loopback`, `tailscale`, `https://<ip>:<port>` or
-`http://<loopback ip>:<port>`. Reach the loopback listener from another
-machine through SSH port forwarding: `ssh -L 8080:127.0.0.1:8080 <host>`.
+`system install` creates the `darkpanel` user and the directories, keys and
+systemd units, starts `darkpanel-controller.service`, enrolls the host's own
+agent and starts `darkpanel-agent.service`. Rerunning it finishes or repairs an
+install. The controller runs as `darkpanel`, the agent as root. The agent
+listener is always bound on `127.0.0.1:7443` and on port 7443 of each
+Tailscale address; `--agent-listen <ip>:<port>` adds a bind, and
+`--agent-advertise` is the address enrollment tokens carry when the request
+names none. Both are written to
+`/etc/systemd/system/darkpanel-controller.service.d/10-agent.conf`.
+
+The controller keeps its database under `/var/lib/darkpanel/controller/`, the
+agent under `/var/lib/darkpanel/agent/`, the keys and the agent's credentials
+under `/etc/darkpanel/`, and serves HTTP on `127.0.0.1:8080` and `[::1]:8080`
+and HTTPS on port 8443 of each Tailscale address. `--listen` in a drop-in
+replaces those web listeners and may be repeated: `loopback`, `tailscale`,
+`https://<ip>:<port>` or `http://<loopback ip>:<port>`. Reach the loopback
+listener from another machine through SSH port forwarding:
+`ssh -L 8080:127.0.0.1:8080 <host>`.
+
+### Add a host
+
+Create the host on the web UI's Hosts page ("Add host"), or with
+`darkpanel host create --name <name>`. The answer shows a one-hour, single-use
+enrollment token once. On the new host:
+
+```sh
+curl -fsSL https://github.com/Darkraise/darkpanel/releases/latest/download/install.sh -o install.sh
+sudo sh install.sh --role agent
+```
+
+It asks for the token on the terminal (or reads it from `--token-file`, a
+root-owned file with mode 0600). The agent connects out to the controller; it
+opens no listening port. `darkpanel host revoke` closes a host's session and
+refuses its certificate; `darkpanel host token` issues a revoked host a new
+token, and `sudo darkpanel agent enroll` on the host takes it.
+
+### Updates
+
+A host updates to a signed release with `darkpanel update rollout --hosts <id>
+--version <version> --channel stable`, one host at a time, the controller's own host first,
+stopping at the first failure; `darkpanel host update-policy` sets a host's
+channel (`stable` or `beta`) and an optional weekly update window. Each update
+takes a database backup before migrating, keeps the previous binary as
+`darkpanel.prev`, and rolls back by itself when the new version is not healthy
+within 80 seconds. [docs/versioning.md](docs/versioning.md) explains the
+version and compatibility rules.
+
+### Break-glass
+
+On a host whose controller cannot be reached, `sudo darkpanel --local
+<command>` sends an agent-side command to the local agent's socket instead,
+for example `sudo darkpanel hostinfo summary get --local`. With the agent
+stopped too, `sudo darkpanel update rollback --local --yes` puts the previous
+binary back.
+
+### Uninstall
+
+`sudo darkpanel uninstall` stops and removes the services, units, binary,
+users, data and keys listed in the host's ownership manifest, after printing
+the plan. `--keep-data` keeps the databases, backups, keys and credentials, so
+a later install finds them.
 
 ### The first admin
 
 There is no default account and no setup page. Create the first admin on the
-host itself, through the controller socket:
+controller's host itself, through the controller socket:
 
 ```sh
 sudo darkpanel user create --username admin
