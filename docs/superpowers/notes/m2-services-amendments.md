@@ -194,3 +194,22 @@ Cost if wrong: P12 documents a looser pickup time than it could, with no behavio
 ````text
 - `darkpanel agent enroll [--token-file <path>]`: the token from `daemon.ReadTokenFile(path, 0)` (`os.Getuid()` under `--dev`), else the hidden prompt or standard input (P12's), then `daemon.Enroll(ctx, p.AgentTLSDir, token)`. No unit restart is needed: a running daemon without a live session takes the new generation up on its next attempt (within `CredentialPoll` while unenrolled, after its backoff wait otherwise); a daemon with a live session takes it up only after that session ends. Revoke and `core.host.enroll-local` end the session, and `core.host.token` is refused for an enrolled host, so P12 must not promise or test a pickup bound for a daemon with a live session.
 ````
+
+## After completion
+
+Recorded with M2 plan 6, which closed register row 91; the plan file itself is
+not rewritten.
+
+- P11-C2, P11-C4, P11-C5 and the decisions about handed-off hosts describe the
+  first rule: a host counts as handed its update once its plan id is stored.
+  The merged code uses `apply_sent_at`, written just before the first apply: a
+  host with a plan and no `apply_sent_at` was never sent its update, so a
+  cancel without `force` ends the rollout at once and a draining rollout
+  skips that host. The unenrolled check still fails a revoked or deleted host
+  whatever its marker says (register row 90, deferred).
+- P9-C1 gave two reasons for `coreactions.ProtocolVersion` beside the agent's
+  `runtime.ProtocolVersion`; neither held once `coreactions` imported the agent
+  runtime through `fleet`. Plan 6 removed the constant and
+  `TestProtocolVersionMatchesTheAgent`.
+- A renewal arriving after `fleet.Server.Close` answered `503 host.offline`;
+  plan 6 added the code `unavailable` and answers that instead.
