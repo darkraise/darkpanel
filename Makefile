@@ -42,7 +42,7 @@ verify-build: build
 	file bin/darkpanel-linux-arm64 | grep -F 'ELF 64-bit LSB executable, ARM aarch64' | grep -qF 'statically linked'
 	for arch in $(ARCHES); do grep -qaF '$(UI_MARKER)' bin/darkpanel-linux-$$arch; done
 	DARKPANEL_REQUIRE_UI=1 go test -count=1 ./web/
-	DARKPANEL_REQUIRE_UI=1 go test -count=1 -run '^TestEndToEnd$$' ./internal/controller/server/
+	DARKPANEL_REQUIRE_UI=1 go test -count=1 -run '^(TestEndToEnd|TestFleetEndToEnd)$$' ./internal/controller/server/
 	bin/darkpanel-linux-$$(go env GOARCH) version --json | grep -qF '"commit":"$(COMMIT)"'
 
 lint-go:
