@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oklog/ulid/v2"
+
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/schemas"
@@ -40,7 +42,7 @@ func TestHelloReportsTheHostAndItsModules(t *testing.T) {
 	}
 	want := core.AgentHello{
 		ProtocolVersion: ProtocolVersion, BinaryVersion: "test", OS: goruntime.GOOS, HostID: testHost,
-		Modules: f.rt.statuses(), SchemaHashes: hashes,
+		Modules: f.rt.statuses(), SchemaHashes: hashes, JournalEpoch: journalEpochOf(t, f),
 	}
 	if !reflect.DeepEqual(h, want) || len(h.Modules) != 4 || len(h.SchemaHashes) < 2 {
 		t.Errorf("Hello = %+v, want %+v", h, want)
@@ -48,6 +50,65 @@ func TestHelloReportsTheHostAndItsModules(t *testing.T) {
 	h.SchemaHashes["kv.item.get@1"] = core.SchemaHash{}
 	if again, _ := f.rt.Hello(context.Background()); again.SchemaHashes["kv.item.get@1"] != hashes["kv.item.get@1"] {
 		t.Error("changing one Hello's hashes changed the next Hello's")
+	}
+}
+
+// journalEpochOf reads the journal epoch agent.db stores.
+func journalEpochOf(t *testing.T, f *fixture) string {
+	t.Helper()
+	var v string
+	if err := f.db.Read().QueryRow("SELECT value FROM core_meta WHERE key = 'journal_epoch'").Scan(&v); err != nil {
+		t.Fatalf("journal_epoch: %v", err)
+	}
+	return v
+}
+
+func TestJournalEpoch(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	hello := func() string {
+		t.Helper()
+		h, err := f.rt.Hello(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return h.JournalEpoch
+	}
+	first := journalEpochOf(t, f)
+	if _, err := ulid.ParseStrict(first); err != nil || hello() != first {
+		t.Fatalf("epoch %q (%v), Hello %q; want one ULID", first, err, hello())
+	}
+	// A restart keeps the epoch, also under another host id, as after a
+	// re-enrollment.
+	f.restart()
+	if got := hello(); got != first {
+		t.Errorf("after a restart the epoch is %q, want %q", got, first)
+	}
+	f.rt.Close()
+	c := f.config()
+	c.HostID = "h2"
+	rt, err := Open(ctx, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(rt.Close)
+	f.rt = rt
+	if got := hello(); got != first {
+		t.Errorf("under another host id the epoch is %q, want %q", got, first)
+	}
+	// A migration that recreates core_journal deletes the row, and the next
+	// start creates a new epoch.
+	if _, err := f.db.Writer().ExecContext(ctx, "DELETE FROM core_meta WHERE key = 'journal_epoch'"); err != nil {
+		t.Fatal(err)
+	}
+	f.restart()
+	renewed := hello()
+	if _, err := ulid.ParseStrict(renewed); err != nil || renewed == first || journalEpochOf(t, f) != renewed {
+		t.Errorf("after the row was deleted the epoch is %q, want a new ULID", renewed)
+	}
+	// Another agent.db has an epoch of its own.
+	if other := newFixture(t); journalEpochOf(t, other) == renewed {
+		t.Error("two agent databases share an epoch")
 	}
 }
 

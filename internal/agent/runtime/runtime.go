@@ -6,10 +6,15 @@ package runtime
 
 import (
 	"context"
+	"crypto/rand"
+	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/oklog/ulid/v2"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/lifecycle"
@@ -71,6 +76,7 @@ type Runtime struct {
 	engine  *lifecycle.Engine
 	journal *lifecycle.AgentJournal
 	hashes  map[string]core.SchemaHash // every agent-side action version's schema hashes, fixed at Open
+	epoch   string                     // the journal epoch, fixed at Open
 
 	statusMu sync.Mutex
 	status   map[string]core.ModuleStatus
@@ -99,6 +105,9 @@ func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 	r.hashes = hashes
 	if err := r.migrate(ctx); err != nil {
+		return nil, err
+	}
+	if r.epoch, err = journalEpoch(ctx, cfg.DB, cfg.Clock.Now()); err != nil {
 		return nil, err
 	}
 	files := platform.NewFiles(platform.FilesConfig{
@@ -197,6 +206,33 @@ func (r *Runtime) migrate(ctx context.Context) error {
 		r.broken[f.Module] = true
 	}
 	return nil
+}
+
+// journalEpochKey is the core_meta key of the journal epoch (spec section
+// 5): a ULID created with agent.db and kept across restarts and
+// re-enrollments, so the controller never ingests an acknowledged entry
+// twice. A migration that recreates core_journal must delete this row in the
+// same file: the next Open then creates a new epoch, and the controller
+// restarts its cursor instead of skipping the new journal's first entries.
+const journalEpochKey = "journal_epoch"
+
+// journalEpoch returns agent.db's journal epoch, creating it when the
+// database has none.
+func journalEpoch(ctx context.Context, db *store.DB, now time.Time) (string, error) {
+	var epoch string
+	err := db.Write(ctx, func(tx *sql.Tx) error {
+		err := tx.QueryRowContext(ctx, "SELECT value FROM core_meta WHERE key = ?", journalEpochKey).Scan(&epoch)
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		epoch = ulid.MustNew(ulid.Timestamp(now), rand.Reader).String()
+		_, err = tx.ExecContext(ctx, "INSERT INTO core_meta (key, value) VALUES (?, ?)", journalEpochKey, epoch)
+		return err
+	})
+	if err != nil {
+		return "", fmt.Errorf("runtime: journal epoch: %w", err)
+	}
+	return epoch, nil
 }
 
 // check runs m's preflight checks in order; the first failure's error text is
