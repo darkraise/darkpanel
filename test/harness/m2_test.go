@@ -114,6 +114,12 @@ func TestM2(t *testing.T) {
 		{"self-management", true, func(t *testing.T) { scenarioSelfManagement(ctx, t, f) }},
 		{"offline", false, func(t *testing.T) { scenarioOffline(ctx, t, f) }},
 		{"revoke", true, func(t *testing.T) { scenarioRevoke(ctx, t, f) }},
+		{"update-good", true, func(t *testing.T) { scenarioUpdateGood(ctx, t, f) }},
+		{"health-failure", false, func(t *testing.T) { scenarioHealthFailure(ctx, t, f) }},
+		{"crash-loop", false, func(t *testing.T) { scenarioCrashLoop(ctx, t, f) }},
+		{"reboot-in-window", false, func(t *testing.T) { scenarioRebootInWindow(ctx, t, f) }},
+		{"runner-frozen", false, func(t *testing.T) { scenarioRunnerFrozen(ctx, t, f) }},
+		{"migration-rollback", false, func(t *testing.T) { scenarioMigrationRollback(ctx, t, f) }},
 	}
 	for _, s := range steps {
 		if !t.Run(s.name, s.run) && s.gate {
@@ -403,6 +409,9 @@ func scenarioOffline(ctx context.Context, t *testing.T, f *fleet) {
 	if _, err := f.agent.Run(ctx, "sudo systemctl stop "+update.AgentUnit); err != nil {
 		t.Fatal(err)
 	}
+	// A failure before the start below would leave the agent stopped and fail
+	// the later steps that need it online.
+	t.Cleanup(func() { _, _ = f.agent.Run(ctx, "sudo systemctl start "+update.AgentUnit) })
 	waitHosts(ctx, t, f, time.Minute, func(hosts []core.Host) error {
 		if h, ok := findHost(hosts, f.agentID); !ok || h.Online {
 			return fmt.Errorf("host %s is listed %v, online %v", f.agentID, ok, h.Online)
