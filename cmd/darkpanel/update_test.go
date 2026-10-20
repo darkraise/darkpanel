@@ -91,6 +91,10 @@ func TestUpdateCommands(t *testing.T) {
 		{[]string{"update", "rollback", "--direct", "--transaction", "01HZY6RB"}, 0, cli.ExitOK, []string{"run-rollback 01HZY6RB"}, ""},
 		{[]string{"update", "rollback", "--transaction", "01HZY6RB"}, 0, cli.ExitUsage, nil, "--transaction needs --direct"},
 		{[]string{"update", "rollback", "--direct", "--host", "web1"}, 0, cli.ExitUsage, nil, "--host does not apply with --direct"},
+		{[]string{"update", "rollback", "--direct", "--local"}, 0, cli.ExitUsage, nil, "--local does not apply with --direct"},
+		{[]string{"update", "rollback", "--direct", "--yes"}, 0, cli.ExitUsage, nil, "--yes does not apply with --direct"},
+		{[]string{"update", "rollback", "--direct", "--confirmation", "0.2.0"}, 0, cli.ExitUsage, nil, "--confirmation does not apply with --direct"},
+		{[]string{"update", "rollback", "--direct", "--input", "-"}, 0, cli.ExitUsage, nil, "--input does not apply with --direct"},
 		{[]string{"update", "rollback", "--direct"}, 1000, cli.ExitUsage, nil, "update rollback acts on the installed binary and runs as root"},
 		{[]string{"update", "nope"}, 0, cli.ExitUsage, nil, `unknown command "nope" for "darkpanel update"`},
 	}

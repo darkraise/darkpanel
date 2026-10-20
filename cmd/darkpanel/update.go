@@ -156,6 +156,11 @@ func addDirectRollback(root *cobra.Command) error {
 				return cli.ExitWith(cli.ExitUsage, fmt.Errorf("--%s does not apply with --direct, which rolls back this host", name))
 			}
 		}
+		for _, name := range []string{"local", "yes", "confirmation", "input"} {
+			if cmd.Flags().Changed(name) {
+				return cli.ExitWith(cli.ExitUsage, fmt.Errorf("--%s does not apply with --direct, which rolls back in this process without a plan", name))
+			}
+		}
 		if err := rootRefusal(cmd); err != nil {
 			return cli.ExitWith(cli.ExitUsage, err)
 		}
