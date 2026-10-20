@@ -180,6 +180,44 @@ func TestUndeclaredWritesRefused(t *testing.T) {
 	}
 }
 
+// Directories, users and units are uninstall's to remove: Files neither
+// writes nor removes them, and holds no lock for them.
+func TestOtherKindsIgnored(t *testing.T) {
+	dir := t.TempDir()
+	own := &fakeOwnership{}
+	data, unit := filepath.Join(dir, "data"), filepath.Join(dir, "demo.service")
+	f := NewFiles(FilesConfig{
+		Owned: map[string][]core.OwnedPath{"demo": {
+			{Path: data, Kind: core.OwnedDir},
+			{Path: "demo-user", Kind: core.OwnedUser},
+			{Path: unit, Kind: core.OwnedUnit},
+		}},
+		Ownership: own,
+		Clock:     coretest.NewFakeClock(filesNow),
+		TestMode:  true,
+	})
+	ctx := context.Background()
+	attempts := map[string]error{
+		"write a directory": f.WriteFile(ctx, "demo", data, []byte("x"), 0o644),
+		"write a unit":      f.WriteFile(ctx, "demo", unit, []byte("x"), 0o644),
+		"remove a unit":     f.Remove(ctx, "demo", unit),
+	}
+	for name, err := range attempts {
+		if err == nil {
+			t.Errorf("%s: succeeded, want a refusal", name)
+		}
+	}
+	if len(f.locks) != 0 {
+		t.Errorf("Files holds %d path locks, want none", len(f.locks))
+	}
+	if names := dirNames(t, dir); len(names) != 0 {
+		t.Errorf("directory holds %v, want nothing written", names)
+	}
+	if got, _ := own.List(ctx); len(got) != 0 {
+		t.Errorf("ownership = %+v, want nothing recorded", got)
+	}
+}
+
 func TestSymlinkedParentRefused(t *testing.T) {
 	dir := t.TempDir()
 	realDir := filepath.Join(dir, "real")
