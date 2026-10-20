@@ -48,7 +48,7 @@ func planDisable(t *testing.T, s *Server) core.PlanView {
 // from DefaultEnabled by the agent's Hello, and a resource and a core action
 // read through the dispatcher with the server's own registry.
 func TestStartSeedsAndServesModules(t *testing.T) {
-	s := start(t, testOptions(t))
+	s := start(t, embeddedOptions(t))
 	ctx := context.Background()
 	id := s.LocalHostID()
 	if n := count(t, s, `SELECT count(*) FROM core_module_state WHERE host_id = ? AND module_id = 'hostinfo' AND enabled = 1 AND available = 1`, id); n != 1 {
@@ -188,25 +188,63 @@ func TestPurgesRunAtStartAndEveryTenMinutes(t *testing.T) {
 	}
 }
 
-// TestShutdownStopsTheTimers shows that after Shutdown no purge, ingestion
-// or revert timer of the server is left armed.
+// TestShutdownStopsTheTimers shows that after Shutdown no purge, ingestion,
+// revert or listener timer of the server is left armed, with and without
+// the embedded agent.
 func TestShutdownStopsTheTimers(t *testing.T) {
-	opts := testOptions(t)
-	clock := opts.Clock.(*coretest.FakeClock)
-	s, err := Start(context.Background(), opts)
-	if err != nil {
+	for name, opts := range map[string]Options{"controller only": testOptions(t), "embedded agent": embeddedOptions(t)} {
+		t.Run(name, func(t *testing.T) {
+			clock := opts.Clock.(*coretest.FakeClock)
+			s, err := Start(context.Background(), opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if clock.Pending() == 0 {
+				t.Fatal("no timer is armed while the server runs")
+			}
+			if err := s.Shutdown(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if n := clock.Pending(); n != 0 {
+				t.Errorf("%d timers armed after Shutdown, want 0", n)
+			}
+			clock.Advance(time.Hour) // nothing runs against the closed databases
+		})
+	}
+}
+
+// TestHostListAppliesTheSupportWindow shows the controller's version wired
+// into the host actions: the embedded agent of the same development build is
+// supported, and an agent reporting a release this build cannot compare
+// with is not.
+func TestHostListAppliesTheSupportWindow(t *testing.T) {
+	s := start(t, embeddedOptions(t))
+	supported := func() bool {
+		t.Helper()
+		out, err := s.dispatcher.Read(context.Background(), root(s.LocalHostID()), "", core.ActionRef{Name: "core.host.list", Version: 1}, json.RawMessage(`{}`))
+		if err != nil {
+			t.Fatalf("core.host.list: %v", err)
+		}
+		var list struct {
+			Hosts []struct {
+				Supported bool `json:"supported"`
+			} `json:"hosts"`
+		}
+		if err := json.Unmarshal(out, &list); err != nil || len(list.Hosts) != 1 {
+			t.Fatalf("core.host.list = %s (%v), want one host", out, err)
+		}
+		return list.Hosts[0].Supported
+	}
+	if !supported() {
+		t.Error("the embedded agent of the same build is outside the support window")
+	}
+	if _, err := s.controllerDB.Writer().ExecContext(context.Background(),
+		`UPDATE core_hosts SET agent_version = '0.1.0' WHERE id = ?`, s.LocalHostID()); err != nil {
 		t.Fatal(err)
 	}
-	if clock.Pending() == 0 {
-		t.Fatal("no timer is armed while the server runs")
+	if supported() {
+		t.Error("an agent at 0.1.0 is inside a dev controller's support window")
 	}
-	if err := s.Shutdown(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if n := clock.Pending(); n != 0 {
-		t.Errorf("%d timers armed after Shutdown, want 0", n)
-	}
-	clock.Advance(time.Hour) // nothing runs against the closed databases
 }
 
 // TestServerRegistryMatchesBuild compares the registry the server assembled

@@ -173,7 +173,7 @@ var secretLine = regexp.MustCompile(`(?m)^Secret: ([A-Z2-7]+)$`)
 // TestEndToEnd is the end-to-end test of spec section "Verification" over
 // one assembled server.
 func TestEndToEnd(t *testing.T) {
-	opts := testOptions(t)
+	opts := embeddedOptions(t)
 	opts.Hostname = func() (string, error) { return "e2e-host", nil }
 	opts.Listen = append(opts.Listen, listen.Spec{Kind: listen.KindHTTPS, Addr: netip.MustParseAddrPort("127.0.0.1:0")})
 	e := &e2e{t: t, clock: opts.Clock.(*coretest.FakeClock), home: t.TempDir()}

@@ -1,5 +1,6 @@
-// Package server assembles `darkpanel serve` (spec section 1, part P14): the
-// controller and, in M1, the agent half in one process. Start opens the
+// Package server assembles `darkpanel serve` (spec section 1): the controller
+// with its agent listener, or, with the development-only embedded agent, the
+// controller and the M1 in-process agent in one process. Start opens the
 // stores and starts the services and listeners in the order the spec sets;
 // Shutdown stops them in reverse.
 package server
@@ -12,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sync"
@@ -32,8 +34,9 @@ import (
 )
 
 // LockName is the single-instance lock file, taken in the controller
-// socket's directory and in both data directories, so two serves that share
-// either the socket or a database refuse each other.
+// socket's directory and in the controller's data directory, and in the
+// agent's with the embedded agent, so two serves that share either the
+// socket or a database refuse each other.
 const LockName = "controller.lock"
 
 // BackupsKept is how many migration backups the controller database keeps.
@@ -52,8 +55,9 @@ const lockStep = "lock"
 const timeFormat = "2006-01-02T15:04:05.000000000Z"
 
 // Options configure Start. Paths is required. Production passes
-// paths.Resolve(dev), the parsed --listen values and nil or zero for every
-// other field; tests override the rest.
+// paths.Resolve(dev), the parsed --listen and --agent-listen values, the
+// --agent-advertise address and nil or zero for every other field; tests
+// override the rest.
 type Options struct {
 	Paths paths.Paths
 	// Listen are the listeners to serve, from listen.ParseSpecs; nil means
@@ -75,6 +79,19 @@ type Options struct {
 	ListenSocket func(path string) (net.Listener, error)
 	// AuthParams is zero for auth.DefaultParams.
 	AuthParams auth.Params
+	// EmbeddedAgent runs the M1 in-process agent over agent.db and the agent
+	// key instead of the agent listener; only --dev may set it.
+	EmbeddedAgent bool
+	// AgentListen are the agent listener's extra binds, from
+	// listen.ParseAgentListen.
+	AgentListen []netip.AddrPort
+	// AgentAdvertise is the address an enrollment token carries when the
+	// request names none; empty means there is none.
+	AgentAdvertise string
+	// AgentBind is nil for listen.Bind.
+	AgentBind listen.BindFunc
+	// HealthStatus is the status /healthz reports; empty means ok.
+	HealthStatus string
 }
 
 // closer is one thing Shutdown stops, in reverse order of acquisition.
@@ -83,7 +100,8 @@ type closer struct {
 	close func(ctx context.Context) error
 }
 
-// Server is one running controller with its local agent.
+// Server is one running controller, with its agent listener or its embedded
+// agent.
 type Server struct {
 	opts     Options
 	clock    core.Clock
@@ -170,14 +188,26 @@ func (s *Server) Shutdown(ctx context.Context) error {
 }
 
 // openStorage creates the directories, checks the socket's directory, loads
-// or creates both keys, takes the single-instance locks, opens both
-// databases, migrates the controller database and records the local host.
+// or creates the keys, takes the single-instance locks, opens the databases,
+// migrates the controller database and records the local host. Only the
+// embedded agent opens agent.db and the agent key: the controller alone
+// leaves the agent's files to the agent, which runs as another user.
 func (s *Server) openStorage(ctx context.Context) error {
 	p := s.opts.Paths
-	if err := p.MkdirAll(); err != nil {
-		return err
-	}
 	runDir := filepath.Dir(p.ControllerSocket)
+	dirs := []string{runDir, p.ControllerDir}
+	if s.opts.EmbeddedAgent {
+		dirs = append(dirs, p.AgentDir)
+		if err := p.MkdirAll(); err != nil {
+			return err
+		}
+	} else {
+		for _, d := range []string{p.ControllerDir, filepath.Dir(p.ControllerKey), runDir} {
+			if err := os.MkdirAll(d, 0o700); err != nil {
+				return fmt.Errorf("server: create %s: %w", d, err)
+			}
+		}
+	}
 	if err := checkPrivateDir(runDir); err != nil {
 		return err
 	}
@@ -185,11 +215,13 @@ func (s *Server) openStorage(ctx context.Context) error {
 	if s.controllerSealer, err = loadSealer(p.ControllerKey); err != nil {
 		return err
 	}
-	if s.agentSealer, err = loadSealer(p.AgentKey); err != nil {
-		return err
+	if s.opts.EmbeddedAgent {
+		if s.agentSealer, err = loadSealer(p.AgentKey); err != nil {
+			return err
+		}
 	}
 	locked := map[string]bool{}
-	for _, dir := range []string{runDir, p.ControllerDir, p.AgentDir} {
+	for _, dir := range dirs {
 		// flock refuses a second lock on one file even within a process.
 		if dir = filepath.Clean(dir); locked[dir] {
 			continue
@@ -202,8 +234,10 @@ func (s *Server) openStorage(ctx context.Context) error {
 	if s.controllerDB, err = s.openDB(ctx, "controller database", p.ControllerDB()); err != nil {
 		return err
 	}
-	if s.agentDB, err = s.openDB(ctx, "agent database", p.AgentDB()); err != nil {
-		return err
+	if s.opts.EmbeddedAgent {
+		if s.agentDB, err = s.openDB(ctx, "agent database", p.AgentDB()); err != nil {
+			return err
+		}
 	}
 	if err := s.migrateController(ctx); err != nil {
 		return err

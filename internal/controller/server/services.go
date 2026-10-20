@@ -13,6 +13,8 @@ import (
 	"github.com/darkraise/darkpanel/internal/controller/auth"
 	"github.com/darkraise/darkpanel/internal/controller/coreactions"
 	"github.com/darkraise/darkpanel/internal/controller/dispatch"
+	"github.com/darkraise/darkpanel/internal/controller/fleet"
+	"github.com/darkraise/darkpanel/internal/controller/listen"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/lifecycle"
 	"github.com/darkraise/darkpanel/internal/core/schema"
@@ -26,12 +28,16 @@ import (
 // and tokens (spec section 20). The agent runtime runs its own purge.
 const PurgeInterval = 10 * time.Minute
 
-// services are the controller's and the local agent's services.
+// services are the controller's services, with the embedded agent's runtime
+// or the agent listener's.
 type services struct {
 	auditLog    *audit.Store
 	authService *auth.Service
+	authority   *fleet.Authority
 	registry    *core.Registry
-	runtime     *runtime.Runtime
+	runtime     *runtime.Runtime // with EmbeddedAgent only
+	sessions    *fleet.Registry  // without EmbeddedAgent only
+	agentListen *listen.AgentService
 	hosts       *dispatch.Hosts
 	engine      *lifecycle.Engine
 	ingester    *audit.Ingester
@@ -46,41 +52,59 @@ type services struct {
 func (s *Server) Registry() *core.Registry { return s.registry }
 
 // startServices builds the services over the migrated stores, in the order
-// that the controller's foreign keys and recovery need: the agent half says
-// Hello (seeding the local host's module rows from DefaultEnabled) before
-// the controller engine recovers, and nothing is served until both have.
+// that the controller's foreign keys and recovery need: the embedded agent
+// says Hello (seeding the local host's module rows from DefaultEnabled)
+// before the controller engine recovers, and nothing is served until both
+// have. Without the embedded agent every host is offline until its agent
+// connects to the agent listener, which starts once the dispatcher exists.
+//
+// The agent authority is loaded in both modes, so the host actions work
+// alike and a development database keeps one controller id across modes.
 func (s *Server) startServices(ctx context.Context) error {
 	s.auditLog = audit.New(s.controllerDB, s.clock)
 	s.authService = auth.New(s.controllerDB, s.controllerSealer, s.clock, s.auditLog, auth.Options{Params: s.opts.AuthParams})
-	reg, err := registry.BuildWith(coreactions.Module(coreactions.Deps{
+	var err error
+	if s.authority, err = fleet.LoadOrCreateAuthority(ctx, s.controllerDB, s.controllerSealer, s.clock); err != nil {
+		return err
+	}
+	deps := coreactions.Deps{
 		Auth: s.authService, Audit: s.auditLog, Modules: modules.All(),
 		Extra: registry.CoreActions(nil, buildinfo.Version), OwnedPaths: install.CoreOwnedPaths(),
-	}))
+		Authority: s.authority, AgentAdvertise: s.opts.AgentAdvertise, Version: buildinfo.Version,
+	}
+	if !s.opts.EmbeddedAgent {
+		s.sessions, err = fleet.NewRegistry(fleet.RegistryConfig{
+			DB: s.controllerDB, Clock: s.clock, CheckPeer: s.authority.CheckPeer,
+			Version: buildinfo.Version, ControllerID: s.authority.ControllerID(), Log: s.log,
+		})
+		if err != nil {
+			return fmt.Errorf("server: %w", err)
+		}
+		// Assigned only when set: a nil *fleet.Registry in the interface
+		// would not read as "no sessions".
+		deps.Sessions = s.sessions
+	}
+	reg, err := registry.BuildWith(coreactions.Module(deps))
 	if err != nil {
 		return fmt.Errorf("server: registry: %w", err)
 	}
 	s.registry = reg
 
-	rt, err := runtime.Open(ctx, runtime.Config{
-		DB: s.agentDB, Sealer: s.agentSealer, Clock: s.clock, Log: s.log, Registry: reg,
-		HostID: s.localHostID, BinaryVersion: buildinfo.Version, BackupDir: s.opts.Paths.AgentBackups(),
-		Exec: platform.NewRunner(platform.ProductionAllowlist()),
-	})
-	if err != nil {
-		return err
+	var clients dispatch.ClientSource
+	if s.opts.EmbeddedAgent {
+		if clients, err = s.startEmbeddedAgent(ctx); err != nil {
+			return err
+		}
+	} else {
+		clients = s.sessions
 	}
-	s.runtime = rt
-	s.onShutdown("agent runtime", func(context.Context) error { rt.Close(); return nil })
-
-	// Every core_hosts row needs a client here, or Changes and ingestion
-	// fail on it; the local host is the only one in M1.
-	clients := dispatch.NewStaticClients()
-	clients.Add(s.localHostID, rt)
 	s.hosts = dispatch.NewHosts(dispatch.HostsConfig{
 		DB: s.controllerDB, Registry: reg, Clients: clients, Clock: s.clock, Log: s.log,
 	})
-	if err := s.hosts.Hello(ctx, s.localHostID); err != nil {
-		return fmt.Errorf("server: hello from the local agent: %w", err)
+	if s.opts.EmbeddedAgent {
+		if err := s.hosts.Hello(ctx, s.localHostID); err != nil {
+			return fmt.Errorf("server: hello from the local agent: %w", err)
+		}
 	}
 
 	eng, err := lifecycle.New(lifecycle.Config{
@@ -111,10 +135,68 @@ func (s *Server) startServices(ctx context.Context) error {
 
 	s.dispatcher, err = dispatch.New(dispatch.Config{
 		Registry: reg, Engine: eng, Hosts: s.hosts, DB: s.controllerDB, Clock: s.clock, Log: s.log, Ingest: s.ingester,
+		Version: buildinfo.Version,
 	})
 	if err != nil {
 		return fmt.Errorf("server: %w", err)
 	}
+	if !s.opts.EmbeddedAgent {
+		if err := s.startAgentListener(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// startEmbeddedAgent opens the M1 in-process agent runtime over agent.db and
+// returns the client source that holds it as the local host's agent.
+func (s *Server) startEmbeddedAgent(ctx context.Context) (dispatch.ClientSource, error) {
+	rt, err := runtime.Open(ctx, runtime.Config{
+		DB: s.agentDB, Sealer: s.agentSealer, Clock: s.clock, Log: s.log, Registry: s.registry,
+		HostID: s.localHostID, BinaryVersion: buildinfo.Version, BackupDir: s.opts.Paths.AgentBackups(),
+		Exec: platform.NewRunner(platform.ProductionAllowlist()),
+	})
+	if err != nil {
+		return nil, err
+	}
+	s.runtime = rt
+	s.onShutdown("agent runtime", func(context.Context) error { rt.Close(); return nil })
+
+	// Every core_hosts row needs a client here, or Changes and ingestion
+	// fail on it; the local host is the only one the embedded agent serves.
+	clients := dispatch.NewStaticClients()
+	clients.Add(s.localHostID, rt)
+	return clients, nil
+}
+
+// startAgentListener binds the agent listener and serves its connections
+// with the fleet server, whose agent sessions join the session registry.
+// Shutdown runs these steps in reverse: the listener stops accepting, the
+// fleet server closes the connections, and the registry ends the sessions,
+// all before the dispatcher's services stop.
+func (s *Server) startAgentListener(ctx context.Context) error {
+	s.onShutdown("agent sessions", func(context.Context) error { s.sessions.Close(); return nil })
+	srv, err := fleet.NewServer(fleet.ServerConfig{
+		Authority: s.authority, Registry: s.sessions, Limiter: fleet.NewEnrollLimiter(s.clock), Log: s.log,
+	})
+	if err != nil {
+		return fmt.Errorf("server: %w", err)
+	}
+	s.onShutdown("agent connections", func(context.Context) error { srv.Close(); return nil })
+	svc, err := listen.StartAgent(ctx, listen.AgentConfig{
+		Extra: s.opts.AgentListen, DB: s.controllerDB, Clock: s.clock, Serve: srv.Serve, Log: s.log,
+		Interfaces: s.opts.Interfaces, Bind: s.opts.AgentBind,
+	})
+	if err != nil {
+		return err
+	}
+	s.agentListen = svc
+	s.onShutdown("agent listener", svc.Shutdown)
+	addrs := make([]string, 0, len(svc.Bound()))
+	for _, b := range svc.Bound() {
+		addrs = append(addrs, b.Addr.String())
+	}
+	s.log.Info("server: serving agents", "addrs", addrs)
 	return nil
 }
 

@@ -2,12 +2,16 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"log/slog"
 	"net"
+	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -15,7 +19,9 @@ import (
 
 	"github.com/darkraise/darkpanel/internal/controller/auth"
 	"github.com/darkraise/darkpanel/internal/controller/listen"
+	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/coretest"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/core/store"
 	"github.com/darkraise/darkpanel/internal/paths"
 )
@@ -37,8 +43,13 @@ func localBind(ctx context.Context, _ listen.Endpoint) (net.Listener, error) {
 	return lc.Listen(ctx, "tcp4", "127.0.0.1:0")
 }
 
+// noTailscale reports no Tailscale interface, so the agent listener binds
+// only its loopback endpoint and the extra ones.
+func noTailscale(string) ([]netip.Addr, bool, error) { return nil, false, nil }
+
 // testOptions are options over temporary paths, with the socket in a short
-// directory of its own (Unix socket paths are limited to 108 bytes).
+// directory of its own (Unix socket paths are limited to 108 bytes). They
+// start the controller alone, as production does.
 func testOptions(t *testing.T) Options {
 	t.Helper()
 	run, err := os.MkdirTemp("", "dp")
@@ -59,8 +70,19 @@ func testOptions(t *testing.T) Options {
 		Clock:      coretest.NewFakeClock(t0),
 		Hostname:   func() (string, error) { return testHostname, nil },
 		Bind:       localBind,
+		AgentBind:  localBind,
+		Interfaces: noTailscale,
 		AuthParams: testParams,
 	}
+}
+
+// embeddedOptions are testOptions with the in-process agent of
+// --embedded-agent, for the tests that need the local host's agent.
+func embeddedOptions(t *testing.T) Options {
+	t.Helper()
+	opts := testOptions(t)
+	opts.EmbeddedAgent = true
+	return opts
 }
 
 // start starts a server and shuts it down when the test ends.
@@ -101,13 +123,16 @@ func wantMode(t *testing.T, path string, want fs.FileMode) {
 }
 
 func TestStartPreparesStorage(t *testing.T) {
-	opts := testOptions(t)
+	opts := embeddedOptions(t)
 	p := opts.Paths
 	s, err := Start(context.Background(), opts)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	id := s.LocalHostID()
+	if got := s.AgentListeners(); len(got) != 0 {
+		t.Errorf("the embedded agent's serve binds the agent listener %v, want none", got)
+	}
 	if err := s.Shutdown(context.Background()); err != nil {
 		t.Fatalf("Shutdown: %v", err)
 	}
@@ -325,5 +350,99 @@ func TestStartLogsTheControllerBackup(t *testing.T) {
 	if !strings.Contains(out, `msg="server: controller database backed up before migrating"`) ||
 		!strings.Contains(out, "dir="+opts.Paths.ControllerBackups()+string(filepath.Separator)) {
 		t.Errorf("service log lacks the controller backup naming a directory under %s:\n%s", opts.Paths.ControllerBackups(), out)
+	}
+}
+
+// TestControllerOnly is serve without the embedded agent: no agent state on
+// disk, the agent listener bound and logged, every host offline until its
+// agent connects, and nothing serving agents after Shutdown.
+func TestControllerOnly(t *testing.T) {
+	opts := testOptions(t)
+	extra := netip.MustParseAddrPort("192.0.2.1:7444")
+	opts.AgentListen = []netip.AddrPort{extra}
+	var logs lockedBuffer
+	opts.Log = slog.New(slog.NewTextHandler(&logs, nil))
+	p := opts.Paths
+	s, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	for _, path := range []string{p.AgentDir, p.AgentKey, p.AgentDB()} {
+		if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("%s: %v, want no agent state from a controller-only serve", path, err)
+		}
+	}
+	for _, dir := range []string{filepath.Dir(p.ControllerSocket), p.ControllerDir} {
+		wantMode(t, filepath.Join(dir, LockName), 0o600)
+	}
+
+	bound := s.AgentListeners()
+	var endpoints []netip.AddrPort
+	for _, b := range bound {
+		endpoints = append(endpoints, b.Endpoint.Addr)
+		if !b.Endpoint.TLS || !strings.HasPrefix(b.Addr.String(), "127.0.0.1:") {
+			t.Errorf("agent listener %+v, want TLS bound by AgentBind on 127.0.0.1", b)
+		}
+		if !strings.Contains(logs.String(), b.Addr.String()) {
+			t.Errorf("the service log does not name the agent listener's address %s:\n%s", b.Addr, logs.String())
+		}
+	}
+	if want := []netip.AddrPort{netip.MustParseAddrPort("127.0.0.1:7443"), extra}; !slices.Equal(endpoints, want) {
+		t.Errorf("agent listener endpoints %v, want %v", endpoints, want)
+	}
+
+	for _, name := range []string{"core.update.apply", "core.update.rollout"} {
+		if _, ok := s.Registry().Action(core.ActionRef{Name: name, Version: 1}); !ok {
+			t.Errorf("the core module has no %s", name)
+		}
+	}
+	id := s.LocalHostID()
+	if _, err := s.dispatcher.Resource(context.Background(), root(id), id, "hostinfo.summary"); errcode.From(err).Code != errcode.HostOffline {
+		t.Errorf("hostinfo.summary of the local host without its agent: %v, want host.offline", err)
+	}
+
+	if err := s.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+	for _, b := range bound {
+		var d net.Dialer
+		if c, err := d.DialContext(context.Background(), "tcp", b.Addr.String()); err == nil {
+			_ = c.Close()
+			t.Errorf("the agent listener %s still accepts connections after Shutdown", b.Addr)
+		}
+	}
+	if got := s.AgentListeners(); len(got) != 0 {
+		t.Errorf("agent listeners after Shutdown: %v, want none", got)
+	}
+}
+
+// TestEnrollmentTokensCarryTheAdvertisedAddress shows the agent authority
+// and --agent-advertise wired into the host actions in both modes: a host
+// created without a controller address gets a token for the advertised one.
+func TestEnrollmentTokensCarryTheAdvertisedAddress(t *testing.T) {
+	for name, opts := range map[string]Options{"controller only": testOptions(t), "embedded agent": embeddedOptions(t)} {
+		t.Run(name, func(t *testing.T) {
+			opts.AgentAdvertise = "panel.example:7443"
+			s := start(t, opts)
+			v, err := s.dispatcher.Plan(context.Background(), root(s.LocalHostID()), "",
+				core.ActionRef{Name: "core.host.create", Version: 1}, json.RawMessage(`{"name":"web1"}`))
+			if err != nil {
+				t.Fatalf("plan core.host.create: %v", err)
+			}
+			if !slices.ContainsFunc(v.Diff, func(l core.DiffLine) bool { return strings.Contains(l.Text, "token for panel.example:7443") }) {
+				t.Errorf("plan diff %+v, want a token for the advertised address", v.Diff)
+			}
+		})
+	}
+}
+
+// TestHealthStatusPassesThrough shows Options.HealthStatus reaching
+// /healthz.
+func TestHealthStatusPassesThrough(t *testing.T) {
+	opts := testOptions(t)
+	opts.HealthStatus = "degraded"
+	s := start(t, opts)
+	if code, body := get(t, http.DefaultClient, baseURL(t, s)+"/healthz", ""); code != 200 || strings.TrimSpace(body) != `{"status":"degraded"}` {
+		t.Errorf("GET /healthz = %d %s, want 200 with status degraded", code, body)
 	}
 }

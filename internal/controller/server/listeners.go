@@ -22,6 +22,15 @@ type listeners struct {
 // Listeners are the network listeners currently bound.
 func (s *Server) Listeners() []listen.Bound { return s.listenService.State().Listeners }
 
+// AgentListeners are the agent listener's bound sockets: none with the
+// embedded agent, and none after Shutdown.
+func (s *Server) AgentListeners() []listen.Bound {
+	if s.agentListen == nil {
+		return nil
+	}
+	return s.agentListen.Bound()
+}
+
 // startListeners loads or creates the web authority, builds the API, starts
 // the network listeners with it and serves the controller socket.
 func (s *Server) startListeners(ctx context.Context) error {
@@ -34,7 +43,7 @@ func (s *Server) startListeners(ctx context.Context) error {
 		SchemaVersion: func(ctx context.Context) (int, error) {
 			return store.SchemaVersion(ctx, s.controllerDB, store.SideController)
 		},
-		HostID: s.localHostID, Dev: s.opts.Dev, UI: api.EmbeddedUI(), Log: s.log,
+		HostID: s.localHostID, Dev: s.opts.Dev, UI: api.EmbeddedUI(), Log: s.log, HealthStatus: s.opts.HealthStatus,
 	})
 	if err != nil {
 		return err
