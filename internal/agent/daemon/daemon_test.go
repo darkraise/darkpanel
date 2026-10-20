@@ -405,6 +405,29 @@ func TestRunConnectsAndRedials(t *testing.T) {
 	}
 }
 
+// TestRunNeverConnected: with NeverConnected an enrolled agent with a live
+// session reports no controller session, on its socket and to the
+// controller alike.
+func TestRunNeverConnected(t *testing.T) {
+	ctrl := newTestController(t, time.Now().UTC().Truncate(time.Second))
+	ctrl.addHost("H1", "pending")
+	h := newAgentHost(t)
+	if err := (Agent{TLSDir: h.layout.Paths.AgentTLSDir}).Enroll(context.Background(), ctrl.token("H1")); err != nil {
+		t.Fatal(err)
+	}
+	cfg := h.config()
+	cfg.NeverConnected = true
+	h.start(cfg)
+	waitFor(t, "a session", func() bool { return len(ctrl.agentSessions()) == 1 })
+	hello, err := sessionClient(ctrl, ctrl.agentSessions()[0]).Hello(context.Background())
+	if err != nil || hello.HostID != "H1" || connected(hello) != "false" {
+		t.Errorf("Hello over the session = %+v, %v; want host H1 reporting false", hello, err)
+	}
+	if hello := h.hello(); hello.HostID != "H1" || connected(hello) != "false" {
+		t.Errorf("Hello over the socket = %+v; want host H1 reporting false", hello)
+	}
+}
+
 func TestRunTakesUpAnEnrollment(t *testing.T) {
 	ctrl := newTestController(t, time.Now().UTC().Truncate(time.Second))
 	ctrl.addHost("H1", "pending")

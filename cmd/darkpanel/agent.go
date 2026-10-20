@@ -230,6 +230,9 @@ func newAgentRunCmd() *cobra.Command {
 		Args:    cobra.NoArgs,
 		PreRunE: requireRoot("run", &dev),
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if crashAtStart {
+				return errCrashAtStart
+			}
 			p, err := resolvePaths(dev)
 			if err != nil {
 				return err
@@ -251,7 +254,8 @@ func newAgentRunCmd() *cobra.Command {
 					BinaryVersion: buildinfo.Version, BackupDir: p.AgentBackups(),
 					Exec: platform.NewRunner(platform.ProductionAllowlist()),
 				},
-				Updater: host.Updater,
+				Updater:        host.Updater,
+				NeverConnected: neverConnected,
 			}
 			if dev {
 				// The development agent runs as the invoking user, whose own

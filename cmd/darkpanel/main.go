@@ -39,6 +39,17 @@ var geteuid = os.Geteuid
 // replace it.
 var trustedKeys = trustedkeys.Keys
 
+// The harness's faulty builds set these in init (harness_broken.go,
+// harness_crash.go); they are zero in every other build.
+var (
+	healthStatus   string // serve's /healthz status; empty is ok
+	neverConnected bool   // agent run's Hello never reports a live session
+	crashAtStart   bool   // serve and agent run exit at once
+)
+
+// errCrashAtStart is how a harnesscrash build's services exit.
+var errCrashAtStart = errors.New("harnesscrash: exiting at start")
+
 type versionInfo struct {
 	Version string `json:"version"`
 	Commit  string `json:"commit"`
@@ -162,6 +173,9 @@ func newServeCmd() *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if crashAtStart {
+				return errCrashAtStart
+			}
 			p, err := paths.Resolve(dev)
 			if err != nil {
 				return err
@@ -175,6 +189,7 @@ func newServeCmd() *cobra.Command {
 			return serveRun(ctx, server.Options{
 				Paths: p, Listen: specs, Dev: dev, Log: log,
 				EmbeddedAgent: embeddedAgent, AgentListen: agentListen, AgentAdvertise: agentAdvertise,
+				HealthStatus: healthStatus,
 			})
 		},
 	}

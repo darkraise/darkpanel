@@ -22,6 +22,7 @@ func fakeServe(t *testing.T, euid int, result error) *[]server.Options {
 	var got []server.Options
 	oldRun, oldEUID := serveRun, geteuid
 	t.Cleanup(func() { serveRun, geteuid = oldRun, oldEUID })
+	withoutHarness(t)
 	serveRun = func(ctx context.Context, opts server.Options) error {
 		if ctx.Err() != nil {
 			t.Error("serve passed a context that has already ended")
@@ -31,6 +32,15 @@ func fakeServe(t *testing.T, euid int, result error) *[]server.Options {
 	}
 	geteuid = func() int { return euid }
 	return &got
+}
+
+// withoutHarness clears a harness build's settings for one test, so the
+// tests check the production behaviour in every build.
+func withoutHarness(t *testing.T) {
+	t.Helper()
+	oldStatus, oldNever, oldCrash := healthStatus, neverConnected, crashAtStart
+	t.Cleanup(func() { healthStatus, neverConnected, crashAtStart = oldStatus, oldNever, oldCrash })
+	healthStatus, neverConnected, crashAtStart = "", false, false
 }
 
 func runArgs(args ...string) (string, int) {

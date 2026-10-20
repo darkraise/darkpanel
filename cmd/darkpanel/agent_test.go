@@ -69,6 +69,7 @@ func fakeAgent(t *testing.T, euid int) *agentSeams {
 		geteuid, daemonRun, daemonEnroll, daemonCheck = oldEUID, oldRun, oldEnroll, oldCheck
 		newSystemd, newUpdater, resolvePaths, installLayout = oldSystemd, oldUpdater, oldResolve, oldLayout
 	})
+	withoutHarness(t)
 	geteuid = func() int { return euid }
 	installLayout = func() install.Layout { return s.layout }
 	resolvePaths = func(dev bool) (paths.Paths, error) {
@@ -148,6 +149,9 @@ func TestAgentRunDev(t *testing.T) {
 	if cfg.Paths != s.dev || cfg.Runtime.DB == nil || cfg.Runtime.Sealer == nil || cfg.Runtime.Registry == nil ||
 		cfg.Runtime.BackupDir != s.dev.AgentBackups() || cfg.Runtime.Exec == nil || cfg.Updater == nil {
 		t.Errorf("agent run --dev passed %+v, want the dev paths and an opened runtime", cfg)
+	}
+	if cfg.NeverConnected {
+		t.Error("agent run set NeverConnected outside a harnessbroken build")
 	}
 	if cfg.AllowPeer == nil || !cfg.AllowPeer(uint32(os.Getuid())) || !cfg.AllowPeer(0) || cfg.AllowPeer(uint32(os.Getuid())+4242) { //nolint:gosec // G115: a uid fits in 32 bits
 		t.Error("agent run --dev must admit root and the invoking user on the agent socket, and no one else")

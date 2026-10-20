@@ -25,6 +25,7 @@ func TestHungServe(t *testing.T) {
 		t.Skip("runs only as the child of TestSecondInterruptKillsServe")
 	}
 	geteuid = func() int { return 1000 }
+	crashAtStart = false
 	serveRun = func(ctx context.Context, _ server.Options) error {
 		fmt.Println("ready")
 		<-ctx.Done()

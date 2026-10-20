@@ -50,6 +50,10 @@ type Config struct {
 	// Heartbeat paces the agent's pings of the controller; the zero value is
 	// transport's defaults.
 	Heartbeat transport.HeartbeatConfig
+	// NeverConnected makes Hello report no live controller session while
+	// enrolled, whatever the session's state, for a build that must fail an
+	// update's health check; false in production.
+	NeverConnected bool
 }
 
 func (c Config) check() error {
@@ -184,7 +188,7 @@ func (d *daemon) open(ctx context.Context, id identity) error {
 		if !id.enrolled {
 			return nil
 		}
-		v := d.connected.Load()
+		v := d.connected.Load() && !d.cfg.NeverConnected
 		return &v
 	}
 	rt, err := runtime.Open(ctx, rc)

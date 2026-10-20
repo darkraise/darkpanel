@@ -21,5 +21,9 @@ func CoreMigrations(side string) (MigrationSet, error) {
 	if err != nil {
 		return MigrationSet{}, fmt.Errorf("store: core migrations: %w", err)
 	}
-	return MigrationSet{Module: "core", FS: sub}, nil
+	set, err := withHarnessMigrations(side, sub)
+	if err != nil {
+		return MigrationSet{}, err
+	}
+	return MigrationSet{Module: "core", FS: set}, nil
 }
