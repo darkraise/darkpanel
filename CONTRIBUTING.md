@@ -28,7 +28,7 @@
 | `make vuln` | govulncheck v1.9.0 on every Go package |
 | `make check` | `lint`, `test`, `build`, `verify-build` and `vuln` |
 | `make install-sh` | regenerates `install.sh` from `install.sh.in` with the trusted release keys |
-| `make release VERSION=x.y.z` | the release tarballs, SBOM and `checksums.txt` in `bin/release/` |
+| `make release VERSION=x.y.z` | the release tarballs, SBOM, `install.sh` and `checksums.txt` in `bin/release/` |
 | `make release-prep VERSION=x.y.z` | freezes the schema snapshots and rewrites `CHANGELOG.md` before a release tag |
 | `make harness-builds` | the harness's test releases and `install.sh` with the harness key, in `bin/harness/` |
 | `make clean` | removes `bin/` and the built UI |

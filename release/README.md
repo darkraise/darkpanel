@@ -41,10 +41,11 @@ The workflow:
 - `verify` checks the tag is `v` plus a semantic version, its SSH signature
   against `release/allowed_signers` on `main`, that the tagged commit is on
   `main`, and that `schemas/released/<tag>/` equals the current schemas.
-- `build` runs `make release` (tarballs, SBOM, `checksums.txt`), checks the
-  committed `install.sh` is current, writes the release notes with git-cliff
-  (a stable release's notes cover every commit since the previous stable
-  release, a beta's since the previous tag), and attests every file.
+- `build` checks the committed `install.sh` is current, runs `make release`
+  (tarballs, SBOM, `install.sh` and a `checksums.txt` over all of them),
+  writes the release notes with git-cliff (a stable release's notes cover
+  every commit since the previous stable release, a beta's since the
+  previous tag), and attests every file.
 - `sign` (environment `release`) verifies the attestations against this
   repository and the tag's commit, checks every file against `checksums.txt`,
   checks the amd64 binary reports the tag's version, is not a test build and

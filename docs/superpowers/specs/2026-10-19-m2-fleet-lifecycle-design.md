@@ -810,10 +810,11 @@ and rollout actions) join the one core manifest; assembly fills it.
      snapshots (the same file set `release-prep` copies); the tag is valid
      semantic versioning.
   2. `build`: clean checkout, pinned Go toolchain, `-trimpath`, linux/amd64 and
-     linux/arm64 tarballs (binary, `LICENSE`, `README.md`), `checksums.txt`, a
-     CycloneDX SBOM (`darkpanel_<version>.cdx.json`), release notes from
-     `git-cliff` (`cliff.toml`, conventional commits); GitHub artifact
-     attestations for every file.
+     linux/arm64 tarballs (binary, `LICENSE`, `README.md`), a CycloneDX SBOM
+     (`darkpanel_<version>.cdx.json`), the committed `install.sh`,
+     `checksums.txt` over all of them, release notes from `git-cliff`
+     (`cliff.toml`, conventional commits); GitHub artifact attestations for
+     every file.
   3. `sign`, in the protected environment `release` (owner approval required):
      `gh attestation verify` for every artifact against this repository and
      the tag's commit; `darkpanel version --json` of the amd64 binary reports

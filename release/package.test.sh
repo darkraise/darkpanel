@@ -32,7 +32,7 @@ for out in out1 out2; do
   printf '{"bomFormat":"CycloneDX"}' >"$work/$out/darkpanel_1.2.3.cdx.json"
 done
 amd64="$work/out1/darkpanel_1.2.3_linux_amd64.tar.gz"
-names="darkpanel_1.2.3.cdx.json darkpanel_1.2.3_linux_amd64.tar.gz darkpanel_1.2.3_linux_arm64.tar.gz "
+names="darkpanel_1.2.3.cdx.json darkpanel_1.2.3_linux_amd64.tar.gz darkpanel_1.2.3_linux_arm64.tar.gz install.sh "
 
 expect usage 2 bash "$script" 1.2.3 "$work/bin"
 expect package 0 bash "$script" 1.2.3 "$work/bin" "$work/out1"
@@ -44,6 +44,8 @@ expect owner_root 0 test "$(tar -tvzf "$amd64" 2>/dev/null | awk '{print $2}' | 
 expect arm64_tarball 0 test -f "$work/out1/darkpanel_1.2.3_linux_arm64.tar.gz"
 expect checksums_names 0 test "$(awk '{print $2}' "$work/out1/checksums.txt" 2>/dev/null | tr '\n' ' ')" = "$names"
 expect checksums_verify 0 verify_checksums "$work/out1"
+expect install_sh_content 0 cmp "$(dirname "$script")/../install.sh" "$work/out1/install.sh"
+expect install_sh_mode 0 test "$(stat -c %a "$work/out1/install.sh" 2>/dev/null)" = 644
 expect rerun 0 bash "$script" 1.2.3 "$work/bin" "$work/out1"
 expect rerun_excludes_checksums 0 test "$(awk '{print $2}' "$work/out1/checksums.txt" 2>/dev/null | tr '\n' ' ')" = "$names"
 expect package_again 0 bash "$script" 1.2.3 "$work/bin" "$work/out2"
