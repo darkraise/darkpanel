@@ -93,7 +93,7 @@ hex() {
 verify_release() {
 	vdir=$1
 	vversion=$2
-	vtmp=$(mktemp -d)
+	vtmp=$(mktemp -d) || die "cannot create a temporary directory"
 	verified=1
 	openssl dgst -blake2b512 -binary "$vdir/checksums.txt" >"$vtmp/digest"
 	for key in $KEYS; do
@@ -157,11 +157,19 @@ install_binary() {
 	ln -sfn "$bindir/darkpanel" "$ROOT/usr/local/bin/darkpanel"
 }
 
-# check_token_file refuses a token file other users could read or replace.
-check_token_file() {
-	[ -f "$1" ] || die "token file $1 does not exist"
-	owner=$(stat -c %u "$1")
-	mode=$(stat -c %a "$1")
+# read_token_file reads the enrollment token from $1, refusing a file other
+# users could read or replace. The owner and mode checks and the read go
+# through one open descriptor, so a file swapped in after the checks is never
+# read. A failed redirection of exec ends the shell with a raw error that no
+# || catches, so the path is tested before it is opened.
+read_token_file() {
+	if ! { [ -f "$1" ] && [ -r "$1" ]; }; then
+		die "token file $1 does not exist or cannot be read"
+	fi
+	exec 3<"$1"
+	[ -f /dev/fd/3 ] || die "token file $1 is not a regular file"
+	owner=$(stat -L -c %u /dev/fd/3)
+	mode=$(stat -L -c %a /dev/fd/3)
 	if [ -z "$ROOT" ]; then
 		[ "$owner" = 0 ] || die "token file $1 must be owned by root (uid 0), not uid $owner"
 	else
@@ -172,19 +180,26 @@ check_token_file() {
 	600 | 400) ;;
 	*) die "token file $1 must have mode 0600 or 0400, not 0$mode" ;;
 	esac
+	token=$(cat <&3)
+	exec 3<&-
+	[ -n "$token" ] || die "token file $1 is empty"
 }
 
 # read_token prompts for the enrollment token on the terminal without echo.
+# /dev/tty exists without a controlling terminal too, so only opening it
+# tells whether there is one.
 read_token() {
-	if ! { [ -r /dev/tty ] && [ -w /dev/tty ]; }; then
+	if ! (: </dev/tty) 2>/dev/null; then
 		die "no terminal to read the enrollment token from; pass --token-file"
 	fi
 	printf 'Enrollment token: ' >/dev/tty
 	stty -echo </dev/tty
-	trap 'stty echo </dev/tty' INT TERM
+	trap 'stty echo </dev/tty; exit 130' INT
+	trap 'stty echo </dev/tty; exit 143' TERM
 	IFS= read -r token </dev/tty || token=
 	stty echo </dev/tty
-	trap - INT TERM
+	trap 'exit 130' INT
+	trap 'exit 143' TERM
 	printf '\n' >/dev/tty
 	[ -n "$token" ] || die "no enrollment token entered"
 }
@@ -232,8 +247,9 @@ main() {
 	*) usage ;;
 	esac
 	[ -n "$ROOT" ] || [ "$(id -u)" = 0 ] || die "run as root: sudo sh install.sh ..."
-	# Checked before anything is downloaded, so a bad token file costs nothing.
-	[ -z "$token_file" ] || check_token_file "$token_file"
+	# Read before anything is downloaded, so a bad token file costs nothing.
+	token=''
+	[ -z "$token_file" ] || read_token_file "$token_file"
 	[ -n "$KEYS" ] || die "this install.sh embeds no trusted release keys and cannot verify a release"
 	check_os
 	arch=$(detect_arch)
@@ -249,8 +265,12 @@ main() {
 	*) die "--base-url must start with https:// or http://" ;;
 	esac
 
-	tmp=$(mktemp -d)
+	tmp=$(mktemp -d) || die "cannot create a temporary directory"
+	# A shell killed by a signal skips the EXIT trap; exiting from the
+	# signal's own trap runs it.
 	trap 'rm -rf "$tmp"' EXIT
+	trap 'exit 130' INT
+	trap 'exit 143' TERM
 	if [ -z "$version" ]; then
 		fetch "$base/index/releases.json" "$tmp/releases.json" || die "cannot download $base/index/releases.json"
 		version=$(newest_stable "$tmp/releases.json")
@@ -280,8 +300,8 @@ main() {
 		# shellcheck disable=SC2086 # listen_args holds checked words
 		"$bin" system install --role controller $listen_args </dev/null
 		set +f
-	elif [ -n "$token_file" ]; then
-		"$bin" system install --role agent <"$token_file"
+	elif [ -n "$token" ]; then
+		printf '%s\n' "$token" | "$bin" system install --role agent
 	elif [ -e "$ROOT/etc/darkpanel/agent/current" ]; then
 		echo "Saved agent credentials found; installing without an enrollment token."
 		echo "If this agent was revoked, rerun install.sh with --token-file."
