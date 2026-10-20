@@ -22,6 +22,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/controller/server"
 	"github.com/darkraise/darkpanel/internal/paths"
 	"github.com/darkraise/darkpanel/internal/registry"
+	"github.com/darkraise/darkpanel/internal/update/trustedkeys"
 	"github.com/darkraise/darkpanel/web"
 )
 
@@ -31,6 +32,10 @@ var serveRun = server.Run
 // geteuid is the effective uid serve checks; tests replace it.
 var geteuid = os.Geteuid
 
+// trustedKeys lists the release keys version and selftest report; tests
+// replace it.
+var trustedKeys = trustedkeys.Keys
+
 type versionInfo struct {
 	Version string `json:"version"`
 	Commit  string `json:"commit"`
@@ -38,9 +43,17 @@ type versionInfo struct {
 	OS      string `json:"os"`
 	Arch    string `json:"arch"`
 	UI      bool   `json:"ui"`
+	// TestBuild and TrustedKeys are what the release workflow checks before
+	// it publishes a binary.
+	TestBuild   bool     `json:"testBuild"`
+	TrustedKeys []string `json:"trustedKeys"`
 }
 
 func currentVersion() versionInfo {
+	ids := []string{}
+	for _, k := range trustedKeys() {
+		ids = append(ids, k.ID)
+	}
 	return versionInfo{
 		Version: buildinfo.Version,
 		Commit:  buildinfo.Commit,
@@ -49,7 +62,9 @@ func currentVersion() versionInfo {
 		Arch:    runtime.GOARCH,
 		// Reading web.Dist here is what keeps the UI in the binary: the linker
 		// drops an embed.FS that no reachable code reads.
-		UI: uiEmbedded(web.Dist),
+		UI:          uiEmbedded(web.Dist),
+		TestBuild:   trustedkeys.TestBuild(),
+		TrustedKeys: ids,
 	}
 }
 
@@ -59,14 +74,14 @@ func uiEmbedded(dist fs.FS) bool {
 }
 
 // newRoot returns the command tree: the commands generated from
-// registry.Build() plus the hand-written serve and version.
+// registry.Build() plus the hand-written serve, version and selftest.
 func newRoot(opts cli.Options) (*cobra.Command, error) {
 	reg, err := registry.Build()
 	if err != nil {
 		return nil, err
 	}
 	opts.Registry = reg
-	opts.Commands = []*cobra.Command{newServeCmd(), newVersionCmd()}
+	opts.Commands = []*cobra.Command{newServeCmd(), newVersionCmd(), newSelftestCmd()}
 	return cli.NewRoot(opts)
 }
 
