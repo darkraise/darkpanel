@@ -54,6 +54,14 @@ curl -fsSL https://github.com/Darkraise/darkpanel/releases/latest/download/insta
 sudo sh install.sh --role controller --agent-advertise <address agents reach>:7443
 ```
 
+`install.sh` itself is not in the signed `checksums.txt`; the release workflow
+attests its build instead. Check that attestation with the GitHub CLI before
+running the script as root:
+
+```sh
+gh attestation verify install.sh --repo darkraise/darkpanel
+```
+
 `system install` creates the `darkpanel` user and the directories, keys and
 systemd units, starts `darkpanel-controller.service`, enrolls the host's own
 agent and starts `darkpanel-agent.service`. Rerunning it finishes or repairs an
