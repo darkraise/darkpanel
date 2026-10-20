@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -89,6 +90,8 @@ func TestUpdateCommands(t *testing.T) {
 		{[]string{"update", "rollback", "--direct"}, 0, cli.ExitOK, []string{"direct-rollback force=false"}, "rollback 01HZY6TX from 0.3.0 to 0.2.0: rolled-back\n"},
 		{[]string{"update", "rollback", "--direct", "--force", "--json"}, 0, cli.ExitOK, []string{"direct-rollback force=true"}, `"state":"rolled-back"`},
 		{[]string{"update", "rollback", "--direct", "--transaction", "01HZY6RB"}, 0, cli.ExitOK, []string{"run-rollback 01HZY6RB"}, ""},
+		{[]string{"update", "rollback", "--direct", "--transaction", "01HZY6RB", "--force"}, 0, cli.ExitUsage, nil, "--force does not apply with --transaction"},
+		{[]string{"update", "rollback", "--direct", "--transaction", "01HZY6RB", "--json"}, 0, cli.ExitUsage, nil, "--json does not apply with --transaction"},
 		{[]string{"update", "rollback", "--transaction", "01HZY6RB"}, 0, cli.ExitUsage, nil, "--transaction needs --direct"},
 		{[]string{"update", "rollback", "--direct", "--host", "web1"}, 0, cli.ExitUsage, nil, "--host does not apply with --direct"},
 		{[]string{"update", "rollback", "--direct", "--local"}, 0, cli.ExitUsage, nil, "--local does not apply with --direct"},
@@ -175,6 +178,48 @@ func TestUpdateRollbackFallback(t *testing.T) {
 				t.Errorf("the previous binary ran with %q (%v), want %q", got, err, tt.argv)
 			}
 		})
+	}
+}
+
+// writeSignallingPrevBinary installs a previous binary that interrupts and
+// hangs up on the process that started it, as a terminal's Ctrl+C or a
+// closed SSH session would, records whether it leads its own process group,
+// and only then prints its rollback transaction.
+func writeSignallingPrevBinary(t *testing.T, p paths.Paths) {
+	t.Helper()
+	if err := os.MkdirAll(p.BinaryDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	script := `#!/bin/sh
+read -r stat < /proc/$$/stat
+set -- $stat
+echo "$5" > "$0.pgrp"
+kill -INT $PPID
+kill -HUP $PPID
+sleep 0.2
+printf '{"id":"01HZY6RB","operationId":"01HZY6RB","parentId":null,"kind":"rollback","fromVersion":"0.3.0","toVersion":"0.2.0","targetVersion":"0.2.0","state":"rolled-back","error":null,"startedAt":"2026-10-20T00:00:00Z","updatedAt":"2026-10-20T00:00:01Z"}\n'
+`
+	if err := os.WriteFile(p.PrevBinary(), []byte(script), 0o700); err != nil { //nolint:gosec // G306: the fake binary must be executable
+		t.Fatal(err)
+	}
+}
+
+func TestUpdateRollbackFallbackSurvivesSignals(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "agent.sock")
+	_, layout := fakeUpdate(t, 0)
+	writeSignallingPrevBinary(t, layout.Paths)
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"update", "rollback", "--local", "--yes", "--json"},
+		cli.Options{AgentSocket: missing, Stdin: strings.NewReader(""), Stdout: &stdout, Stderr: &stderr})
+	if code != cli.ExitOK || !strings.Contains(stdout.String(), `"state":"rolled-back"`) {
+		t.Fatalf("exit %d, stdout %q, stderr %q; want the rollback's transaction", code, stdout.String(), stderr.String())
+	}
+	pgrp, err := os.ReadFile(layout.Paths.PrevBinary() + ".pgrp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(pgrp)); got == strconv.Itoa(syscall.Getpgrp()) {
+		t.Errorf("the previous binary ran in this process group (%s); a terminal's signals would reach it", got)
 	}
 }
 

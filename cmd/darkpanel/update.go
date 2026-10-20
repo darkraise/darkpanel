@@ -12,8 +12,10 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"os/signal"
 	"slices"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -168,6 +170,14 @@ func addDirectRollback(root *cobra.Command) error {
 				return cli.ExitWith(cli.ExitUsage, fmt.Errorf("--%s does not apply with --direct, which rolls back in this process without a plan", name))
 			}
 		}
+		if tx != "" {
+			if cmd.Flags().Changed("force") {
+				return cli.ExitWith(cli.ExitUsage, errors.New("--force does not apply with --transaction: the guards ran when the rollback started"))
+			}
+			if cmd.Flags().Changed("json") {
+				return cli.ExitWith(cli.ExitUsage, errors.New("--json does not apply with --transaction, which prints no result"))
+			}
+		}
 		if err := rootRefusal(cmd); err != nil {
 			return cli.ExitWith(cli.ExitUsage, err)
 		}
@@ -234,6 +244,14 @@ func rollbackFallback(stderr io.Writer) cli.LocalFallback {
 		var out bytes.Buffer
 		run := exec.CommandContext(ctx, prev, args...) //nolint:gosec // G204: the installed previous binary, never a path from a request
 		run.Stdout, run.Stderr = &out, stderr
+		// A rollback cut short leaves the services stopped. The previous
+		// binary may predate this code, so it is protected from here: in its
+		// own process group a terminal's Ctrl+C and hang-up never reach it,
+		// and this process holds both until it has finished and reported.
+		run.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		held := make(chan os.Signal, 1)
+		signal.Notify(held, os.Interrupt, syscall.SIGHUP)
+		defer signal.Stop(held)
 		if err := run.Run(); err != nil {
 			return nil, fmt.Errorf("%s %s: %w", prev, strings.Join(args, " "), err)
 		}
