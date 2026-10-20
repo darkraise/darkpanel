@@ -366,12 +366,41 @@ func TestUninstallStopsAtAFailedStepAndResumes(t *testing.T) {
 	if !exists(t, h.layout.Paths.Binary()) || !exists(t, h.layout.Paths.AgentDB()) {
 		t.Fatal("the steps after the failure ran")
 	}
+	if !exists(t, h.layout.Paths.AgentKey) {
+		t.Fatal("the failed run removed the agent key, which the resumed module steps need")
+	}
 	h.systemd.failOn("Reload", nil)
 	if out, err := runUninstall(t, h.uninstallConfig(m, false)); err != nil {
 		t.Fatalf("second Run: %v\n%s", err, out)
 	}
 	if exists(t, h.layout.DataDir) || exists(t, h.layout.Paths.BinaryDir) {
 		t.Error("the second run left data or the binary")
+	}
+	want := []string{"uninstall keepData=false block present=yes env=complete", "uninstall keepData=false block present=no env=complete"}
+	if !reflect.DeepEqual(m.calls, want) {
+		t.Errorf("module steps %v, want %v", m.calls, want)
+	}
+}
+
+func TestUninstallResumeWithoutAgentKeySkipsModules(t *testing.T) {
+	h, m := installHost(t, RoleController)
+	h.systemd.failOn("Reload", errors.New("bus gone"))
+	if _, err := runUninstall(t, h.uninstallConfig(m, false)); err == nil {
+		t.Fatal("the first Run succeeded")
+	}
+	if err := os.Remove(h.layout.Paths.AgentKey); err != nil {
+		t.Fatal(err)
+	}
+	h.systemd.failOn("Reload", nil)
+	out, err := runUninstall(t, h.uninstallConfig(m, false))
+	if err != nil {
+		t.Fatalf("second Run: %v\n%s", err, out)
+	}
+	if want := []string{"uninstall keepData=false block present=yes env=complete"}; !reflect.DeepEqual(m.calls, want) {
+		t.Errorf("module steps %v, want %v: without the agent key no module step runs", m.calls, want)
+	}
+	if !strings.Contains(out, "modules: no agent key") {
+		t.Errorf("output %s does not say the module steps were skipped", out)
 	}
 }
 

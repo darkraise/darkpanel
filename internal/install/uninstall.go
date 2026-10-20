@@ -176,11 +176,13 @@ func (u *Uninstall) owned() map[string][]core.OwnedPath {
 // within reports whether path is dir or lies under it.
 func within(path, dir string) bool { return path == dir || strings.HasPrefix(path, dir+"/") }
 
-// kept reports whether --keep-data keeps e: everything under the data and
-// configuration directories, whichever module owns it.
+// kept reports whether the files step leaves e: --keep-data keeps everything
+// under the data and configuration directories, and otherwise the core's
+// entries there go with the data step, so the agent key outlives every step
+// that can fail before it.
 func (u *Uninstall) kept(e core.OwnedEntry) bool {
 	l := u.cfg.Layout
-	return u.cfg.KeepData && (within(e.Path, l.DataDir) || within(e.Path, l.ConfigDir))
+	return (u.cfg.KeepData || e.Module == core.ModuleIDCore) && (within(e.Path, l.DataDir) || within(e.Path, l.ConfigDir))
 }
 
 // selectEntries returns the entries for which keep is true.
@@ -391,6 +393,9 @@ func (u *Uninstall) runModules(ctx context.Context) (string, error) {
 	if u.db == nil {
 		return "no agent database; no module installed anything", nil
 	}
+	if u.sealer == nil {
+		return "no agent key; an earlier run already ran the module steps", nil
+	}
 	env := core.Env{DB: u.db, Exec: u.cfg.Exec, Files: u.files, Sealer: u.sealer, Clock: u.cfg.Clock, Log: u.cfg.Log}
 	var ran []string
 	for _, m := range u.cfg.Modules {
@@ -493,14 +498,12 @@ func (u *Uninstall) removeBinary(ctx context.Context) (string, error) {
 	return "removed " + p.BinaryDir + " and " + p.BinaryLink, nil
 }
 
-// removeData removes the configuration directory, the users and the data
-// directory. agent.db, which holds the manifest, goes last, so a run that
-// stops early can be planned again.
+// removeData removes the users, the data directory except agent.db, then the
+// configuration directory with the agent key, and agent.db last, so a run
+// that stops early can be planned again and still has the key unless the
+// module steps already ran.
 func (u *Uninstall) removeData(ctx context.Context, users []core.OwnedEntry) (string, error) {
 	l, p := u.cfg.Layout, u.cfg.Layout.Paths
-	if err := removeTree(l.ConfigDir); err != nil {
-		return "", err
-	}
 	var removed []string
 	for _, e := range users {
 		_, _, found, err := u.cfg.Users.Lookup(e.Path)
@@ -524,6 +527,9 @@ func (u *Uninstall) removeData(ctx context.Context, users []core.OwnedEntry) (st
 		keep[p.AgentDB()+suffix] = true
 	}
 	if err := clearExcept(l.DataDir, keep); err != nil {
+		return "", err
+	}
+	if err := removeTree(l.ConfigDir); err != nil {
 		return "", err
 	}
 	// The agent lock stays held through the removal (Linux unlinks a locked

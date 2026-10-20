@@ -240,7 +240,9 @@ type Module interface {
 // Uninstaller is the optional agent-side uninstall step of a module, found
 // with a type assertion on the Module. It runs before uninstall removes the
 // module's marked blocks and files; with keepData it leaves the module's data
-// in place for a reinstall.
+// in place for a reinstall. Uninstall runs again when an uninstall that
+// stopped at a later step is run anew, so it must succeed on a host where it
+// already ran.
 type Uninstaller interface {
 	Uninstall(ctx context.Context, env Env, keepData bool) error
 }
