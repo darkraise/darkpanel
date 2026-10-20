@@ -63,6 +63,9 @@ func TestDownloadRefuses(t *testing.T) {
 		{"signature file missing", Release{Version: "1.3.0", Channel: "stable"}, func(_ *testing.T, srv *releaseServer) {
 			srv.remove("v1.3.0/checksums.txt." + signer.Key.ID + ".minisig")
 		}, errcode.UpdateSignatureInvalid, ""},
+		{"signature file over its limit", Release{Version: "1.3.0", Channel: "stable"}, func(_ *testing.T, srv *releaseServer) {
+			srv.put("v1.3.0/checksums.txt."+signer.Key.ID+".minisig", []byte(strings.Repeat("x", 4<<10+1)))
+		}, "", "bytes"},
 		{"older checksums.txt replayed", Release{Version: "1.3.0", Channel: "stable"}, func(_ *testing.T, srv *releaseServer) {
 			srv.put("v1.3.0/checksums.txt", srv.get("v1.2.0/checksums.txt"))
 			srv.put("v1.3.0/checksums.txt."+signer.Key.ID+".minisig", srv.get("v1.2.0/checksums.txt."+signer.Key.ID+".minisig"))

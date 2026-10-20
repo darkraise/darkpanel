@@ -45,9 +45,10 @@ func TarballName(version, arch string) string {
 
 // Download fetches rel for arch from <baseURL>/v<version>/ into dir, which
 // must be empty: checksums.txt, one signature file per trusted key (a missing
-// one is skipped), and the tarball. It verifies the signature against
-// rel.Channel, the channel of the selected index entry, and the tarball
-// against its checksums.txt line, then extracts the archive root's darkpanel
+// one is skipped), and the tarball. A signature file that cannot be fetched
+// is reported only when no other signature verifies. It verifies the
+// signature against rel.Channel, the channel of the selected index entry, and
+// the tarball against its checksums.txt line, then extracts the archive root's darkpanel
 // to dir/darkpanel with mode 0755 and returns that path. Every URL is built
 // here from baseURL, so a caller can name a version but never a location.
 func Download(ctx context.Context, client *http.Client, baseURL string, keys []trustedkeys.Key, rel Release, arch, dir string) (string, error) {
@@ -66,9 +67,14 @@ func Download(ctx context.Context, client *http.Client, baseURL string, keys []t
 		return "", err
 	}
 	sigs := map[string][]byte{}
+	var fetchErr error
 	for _, k := range keys {
-		if sig, err := fetchBytes(ctx, client, base+"checksums.txt."+k.ID+".minisig", maxSignatureBytes); err == nil {
+		sig, err := fetchBytes(ctx, client, base+"checksums.txt."+k.ID+".minisig", maxSignatureBytes)
+		switch {
+		case err == nil:
 			sigs[k.ID] = sig
+		case !errors.Is(err, errNotServed) && fetchErr == nil:
+			fetchErr = err
 		}
 	}
 	// A cancelled download must not be reported as a bad signature.
@@ -76,6 +82,9 @@ func Download(ctx context.Context, client *http.Client, baseURL string, keys []t
 		return "", err
 	}
 	if err := VerifyChecksums(checksums, sigs, keys, rel.Version, rel.Channel); err != nil {
+		if fetchErr != nil {
+			return "", fetchErr
+		}
 		return "", err
 	}
 	name := TarballName(rel.Version, arch)
