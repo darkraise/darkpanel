@@ -56,11 +56,10 @@ type Service struct {
 	set   *Set
 	state atomic.Pointer[State]
 
-	mu      sync.Mutex // serialises checks and Shutdown
-	addrs   []netip.Addr
-	unsaved bool // addrs differ from those saved in core_meta
-	timer   core.Timer
-	closed  bool
+	mu     sync.Mutex        // serialises checks and Shutdown
+	ts     *TailscaleWatcher // nil without the tailscale listener
+	timer  core.Timer
+	closed bool
 }
 
 // Start binds the listeners and arms the periodic check. With the tailscale
@@ -72,18 +71,14 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	if cfg.Log == nil {
 		cfg.Log = slog.New(slog.DiscardHandler)
 	}
-	if cfg.Interfaces == nil {
-		cfg.Interfaces = SystemInterfaceAddrs
-	}
 	s := &Service{cfg: cfg, leaf: NewLeaf(cfg.Authority, cfg.Clock, cfg.Hostname)}
 	s.set = NewSet(SetConfig{Handler: cfg.Handler, TLS: s.leaf.TLSConfig(), Bind: cfg.Bind, Log: cfg.Log, OnServeError: cfg.OnServeError})
 	if HasTailscale(cfg.Specs) {
-		saved, err := LoadTailscaleAddrs(ctx, cfg.DB)
+		ts, err := NewTailscaleWatcher(ctx, cfg.DB, cfg.Interfaces, cfg.Log)
 		if err != nil {
 			return nil, err
 		}
-		s.addrs = saved
-		s.refresh(ctx)
+		s.ts = ts
 	}
 	if err := s.apply(ctx); err != nil {
 		_ = s.set.Shutdown(ctx)
@@ -128,8 +123,8 @@ func (s *Service) check() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), CheckInterval)
 	defer cancel()
-	if HasTailscale(s.cfg.Specs) {
-		s.refresh(ctx)
+	if s.ts != nil {
+		s.ts.Refresh(ctx)
 	}
 	if err := s.apply(ctx); err != nil {
 		s.cfg.Log.Warn("listen: not every listener is bound; retrying at the next check", "err", err)
@@ -138,30 +133,17 @@ func (s *Service) check() {
 	s.timer = s.cfg.Clock.AfterFunc(CheckInterval, s.check)
 }
 
-// refresh reads tailscale0. An absent interface means tailscaled is not up,
-// so the last addresses stay bound; a present one replaces them, even with
-// none. A failed save is retried at every check.
-func (s *Service) refresh(ctx context.Context) {
-	list, present, err := s.cfg.Interfaces(TailscaleInterface)
-	if err != nil {
-		s.cfg.Log.Warn("listen: cannot read the Tailscale addresses", "err", err)
-	} else if next := TailscaleAddrs(list); present && !slices.Equal(next, s.addrs) {
-		s.cfg.Log.Info("listen: Tailscale addresses changed", "from", s.addrs, "to", next)
-		s.addrs = next
-		s.unsaved = true
+// tailscale returns the Tailscale addresses to serve, none without the
+// tailscale listener.
+func (s *Service) tailscale() []netip.Addr {
+	if s.ts == nil {
+		return nil
 	}
-	if !s.unsaved {
-		return
-	}
-	if err := SaveTailscaleAddrs(ctx, s.cfg.DB, s.addrs); err != nil {
-		s.cfg.Log.Warn("listen: cannot save the Tailscale addresses", "err", err)
-		return
-	}
-	s.unsaved = false
+	return s.ts.Addrs()
 }
 
 func (s *Service) apply(ctx context.Context) error {
-	eps := Endpoints(s.cfg.Specs, s.addrs)
+	eps := Endpoints(s.cfg.Specs, s.tailscale())
 	var ips []netip.Addr
 	for _, e := range eps {
 		if e.TLS {
@@ -185,11 +167,12 @@ func (s *Service) apply(ctx context.Context) error {
 // or always when force is set.
 func (s *Service) publish(force bool) {
 	bound := s.set.Bound()
+	addrs := s.tailscale()
 	st := &State{Listeners: bound}
 	var tsURLs []string
 	loopbackOnly, servesLoopback := true, false
 	for _, b := range bound {
-		if slices.Contains(s.addrs, b.Endpoint.Addr.Addr()) {
+		if slices.Contains(addrs, b.Endpoint.Addr.Addr()) {
 			tsURLs = append(tsURLs, b.Endpoint.URL())
 		}
 		if b.Endpoint.Addr.Addr().IsLoopback() {
@@ -204,7 +187,7 @@ func (s *Service) publish(force bool) {
 		st.Message = "Tailscale listener disabled by --listen."
 	case st.TailscaleBound:
 		st.Message = "Serving on Tailscale: " + strings.Join(tsURLs, ", ") + "."
-	case len(s.addrs) > 0:
+	case len(addrs) > 0:
 		st.Message = "Tailscale addresses found but not bound; see the serve log."
 	case loopbackOnly && servesLoopback:
 		st.Message = "No Tailscale address found; serving loopback only."
