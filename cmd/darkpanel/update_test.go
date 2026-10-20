@@ -249,6 +249,23 @@ func TestNewerAgents(t *testing.T) {
 	}
 }
 
+// TestNewerAgentsMissingDB shows that a controller.db removed after the
+// agent started is reported, not created empty and owned by root.
+func TestNewerAgentsMissingDB(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "controller.db")
+	if got, err := newerAgents(path)(context.Background(), "0.3.0"); err == nil {
+		t.Errorf("newerAgents on a missing controller.db = %q, want an error", got)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		t.Errorf("newerAgents created %s", e.Name())
+	}
+}
+
 // TestNewerAgentsKeepsOwner shows that reading controller.db as root leaves
 // every file of it with the controller user's ownership.
 func TestNewerAgentsKeepsOwner(t *testing.T) {

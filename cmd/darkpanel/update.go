@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,7 +21,6 @@ import (
 	"github.com/darkraise/darkpanel/internal/controller/rollout"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
-	"github.com/darkraise/darkpanel/internal/core/store"
 	"github.com/darkraise/darkpanel/internal/paths"
 	"github.com/darkraise/darkpanel/internal/update"
 )
@@ -236,19 +236,21 @@ func rollbackFallback(stderr io.Writer) cli.LocalFallback {
 // names of the enrolled hosts whose agent reports a version newer than
 // version, read from controller.db. It only reads; run as root, SQLite gives
 // any -wal or -shm file it creates the database file's owner, so the
-// controller can still open them.
+// controller can still open them. The open is read-only because the agent
+// checked for controller.db when it started, possibly long before: one
+// removed since must not come back empty and owned by root.
 func newerAgents(controllerDB string) func(ctx context.Context, version string) ([]string, error) {
 	return func(ctx context.Context, version string) ([]string, error) {
 		v, err := update.ParseVersion(version)
 		if err != nil {
 			return nil, err
 		}
-		db, err := store.Open(ctx, controllerDB)
+		db, err := sql.Open("sqlite", "file:"+controllerDB+"?mode=ro&_pragma=busy_timeout(5000)&_pragma=query_only(1)")
 		if err != nil {
 			return nil, err
 		}
 		defer func() { _ = db.Close() }()
-		rows, err := db.Read().QueryContext(ctx,
+		rows, err := db.QueryContext(ctx,
 			`SELECT name, agent_version FROM core_hosts WHERE state = 'enrolled' AND agent_version IS NOT NULL`)
 		if err != nil {
 			return nil, err
