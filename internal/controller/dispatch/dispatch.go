@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/darkraise/darkpanel/internal/controller/coreactions"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/core/lifecycle"
@@ -37,6 +38,9 @@ type Config struct {
 	Log      *slog.Logger
 	// Ingest, when set, runs after every agent apply, confirm and revert.
 	Ingest Ingester
+	// Version is the controller's version, the reference of the agent support
+	// window; empty leaves every agent inside it.
+	Version string
 }
 
 // Dispatcher is the core.Dispatcher of the controller. Its methods are safe
@@ -46,7 +50,8 @@ type Dispatcher struct {
 	plans planLocks
 }
 
-// New returns a dispatcher for cfg; every field but Ingest is required.
+// New returns a dispatcher for cfg; every field but Ingest and Version is
+// required.
 func New(cfg Config) (*Dispatcher, error) {
 	required := []struct {
 		name string
@@ -84,11 +89,16 @@ func (d *Dispatcher) action(ref core.ActionRef, hostID string) (core.ActionDef, 
 	return def, nil
 }
 
-// agent returns hostID's client once the module of name is usable there.
-// The core module is exempt: it is always loaded and has no enablement.
+// agent returns hostID's client once name may run there: the agent is
+// inside the support window, unless name is a core.update action, and the
+// module of name is usable there. The core module is exempt from
+// enablement: it is always loaded.
 func (d *Dispatcher) agent(ctx context.Context, hostID, name string) (core.AgentClient, error) {
 	c, err := d.cfg.Hosts.Agent(ctx, hostID)
 	if err != nil {
+		return nil, err
+	}
+	if err := d.inWindow(hostID, name); err != nil {
 		return nil, err
 	}
 	if module := moduleOf(name); module != core.ModuleIDCore {
@@ -97,6 +107,29 @@ func (d *Dispatcher) agent(ctx context.Context, hostID, name string) (core.Agent
 		}
 	}
 	return c, nil
+}
+
+// updatePrefix starts the names of the only actions an agent outside the
+// support window receives, so that it can be updated back into it.
+const updatePrefix = core.ModuleIDCore + ".update."
+
+// inWindow answers host.version_unsupported for name when hostID's agent,
+// as its last Hello describes it, is outside the controller's support
+// window (spec section 5).
+func (d *Dispatcher) inWindow(hostID, name string) error {
+	if d.cfg.Version == "" || strings.HasPrefix(name, updatePrefix) {
+		return nil
+	}
+	hello, ok := d.cfg.Hosts.greetingOf(hostID)
+	if !ok {
+		return fmt.Errorf("dispatch: host %s has not said hello", hostID)
+	}
+	if coreactions.Supported(d.cfg.Version, hello.BinaryVersion, hello.ProtocolVersion) {
+		return nil
+	}
+	return errcode.New(errcode.HostVersionUnsupported, fmt.Sprintf(
+		"host %s runs agent %s (protocol %d), outside the support window of controller %s; only core.update actions run there",
+		hostID, hello.BinaryVersion, hello.ProtocolVersion, d.cfg.Version))
 }
 
 // Read runs a read action: a controller-side one on the controller engine
