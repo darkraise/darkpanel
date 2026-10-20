@@ -78,15 +78,15 @@ func (SystemUsers) Lookup(name string) (int, int, bool, error) {
 		return 0, 0, false, nil
 	}
 	if err != nil {
-		return 0, 0, false, fmt.Errorf("install: look up user %s: %w", name, err)
+		return 0, 0, false, fmt.Errorf("look up user %s: %w", name, err)
 	}
 	uid, err := strconv.Atoi(u.Uid)
 	if err != nil {
-		return 0, 0, false, fmt.Errorf("install: user %s has uid %q", name, u.Uid)
+		return 0, 0, false, fmt.Errorf("user %s has uid %q", name, u.Uid)
 	}
 	gid, err := strconv.Atoi(u.Gid)
 	if err != nil {
-		return 0, 0, false, fmt.Errorf("install: user %s has gid %q", name, u.Gid)
+		return 0, 0, false, fmt.Errorf("user %s has gid %q", name, u.Gid)
 	}
 	return uid, gid, true, nil
 }

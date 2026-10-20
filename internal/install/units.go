@@ -125,15 +125,15 @@ func writeIfChanged(path string, data []byte) (bool, error) {
 	case err == nil && bytes.Equal(old, data):
 		return false, nil
 	case err != nil && !errors.Is(err, fs.ErrNotExist):
-		return false, fmt.Errorf("install: read %s: %w", path, err)
+		return false, fmt.Errorf("read %s: %w", path, err)
 	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // G301: unit directories are world-readable
-		return false, fmt.Errorf("install: create %s: %w", dir, err)
+		return false, fmt.Errorf("create %s: %w", dir, err)
 	}
 	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp*")
 	if err != nil {
-		return false, fmt.Errorf("install: write %s: %w", path, err)
+		return false, fmt.Errorf("write %s: %w", path, err)
 	}
 	defer func() { _ = os.Remove(tmp.Name()) }()
 	_, err = tmp.Write(data)
@@ -153,7 +153,7 @@ func writeIfChanged(path string, data []byte) (bool, error) {
 		err = syncDir(dir)
 	}
 	if err != nil {
-		return false, fmt.Errorf("install: write %s: %w", path, err)
+		return false, fmt.Errorf("write %s: %w", path, err)
 	}
 	return true, nil
 }

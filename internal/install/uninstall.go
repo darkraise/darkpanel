@@ -120,7 +120,7 @@ func (u *Uninstall) load(ctx context.Context) error {
 			return err
 		}
 	} else if !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("install: %w", err)
+		return err
 	}
 	for _, op := range OwnedPaths(u.cfg.Layout, RoleController) {
 		e := core.OwnedEntry{Path: op.Path, Module: core.ModuleIDCore, Kind: op.Kind}
