@@ -5,6 +5,7 @@ package coreactions
 
 import (
 	"github.com/darkraise/darkpanel/internal/controller/auth"
+	"github.com/darkraise/darkpanel/internal/controller/fleet"
 	"github.com/darkraise/darkpanel/internal/core"
 )
 
@@ -28,6 +29,24 @@ type Deps struct {
 	// installs, declared like a module's so that the registry's ownership
 	// rule and uninstall cover them.
 	OwnedPaths []core.OwnedPath
+	// Authority issues enrollment tokens and revokes agent certificates.
+	Authority *fleet.Authority
+	// AgentAdvertise is the address an enrollment token carries when the
+	// request names none: serve's --agent-advertise.
+	AgentAdvertise string
+	// Sessions closes the live agent session of a revoked or deleted host;
+	// without it no session is closed.
+	Sessions Sessions
+	// Version is the controller's own version, the reference of the agent
+	// support window; empty leaves every reporting agent supported.
+	Version string
+}
+
+// Sessions closes a host's live agent session when the host is revoked or
+// deleted.
+type Sessions interface {
+	// Disconnect closes hostID's live session, if it has one.
+	Disconnect(hostID string)
 }
 
 // Module returns the core module.
