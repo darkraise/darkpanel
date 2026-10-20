@@ -1,9 +1,13 @@
 package update
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"log/slog"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -292,6 +296,35 @@ func TestRecoveryLockStopsAFrozenRunner(t *testing.T) {
 	}
 	if stops := e.sd.unitsOf("Stop"); len(stops) == 0 || stops[0] != RunnerUnit("01TX") {
 		t.Errorf("stops = %v, want the runner unit first", stops)
+	}
+}
+
+func TestStopTimerWarnsWhenTheTimerStaysLoaded(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		loaded, warn bool
+	}{
+		{"timer still loaded", true, true},
+		{"timer never started", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newUpdaterEnv(t, "1.2.0")
+			var buf bytes.Buffer
+			cfg := e.config("1.2.0")
+			cfg.Log = slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+			u, err := New(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.loaded {
+				e.sd.setState(DeadlineTimer("01TX"), "active")
+			}
+			e.sd.failCall("Stop", DeadlineTimer("01TX"), errors.New("no bus"))
+			u.stopTimer(context.Background(), "01TX")
+			if got := strings.Contains(buf.String(), "level=WARN"); got != tc.warn {
+				t.Errorf("log = %q, want a warning: %v", buf.String(), tc.warn)
+			}
+		})
 	}
 }
 

@@ -149,9 +149,18 @@ func (u *Updater) failKeepingBinaries(ctx context.Context, r *Record, cause *cor
 // stopTimer stops tx's deadline timer. A timer that already fired, or never
 // existed, has nothing to stop.
 func (u *Updater) stopTimer(ctx context.Context, tx string) {
-	if err := u.cfg.Systemd.Stop(ctx, DeadlineTimer(tx)); err != nil {
-		u.cfg.Log.Debug("update: stop the deadline timer", "timer", DeadlineTimer(tx), "error", err)
+	timer := DeadlineTimer(tx)
+	err := u.cfg.Systemd.Stop(ctx, timer)
+	if err == nil {
+		return
 	}
+	// Stopping a unit that is not loaded fails, and every pre-swap failure,
+	// rollback-kind record and rollback after a reboot has no timer loaded.
+	if st, serr := u.cfg.Systemd.State(ctx, timer); serr == nil && st.LoadState == "not-found" {
+		u.cfg.Log.Debug("update: stop the deadline timer", "timer", timer, "error", err)
+		return
+	}
+	u.cfg.Log.Warn("update: stop the deadline timer", "timer", timer, "error", err)
 }
 
 // restartServices restarts the controller unit when the host has one, then
