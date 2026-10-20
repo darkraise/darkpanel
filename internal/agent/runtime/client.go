@@ -17,12 +17,12 @@ import (
 var _ core.AgentClient = (*Runtime)(nil)
 
 // Hello reports the agent, every module's availability as of its last check
-// (migrations and preflight at Open, or a later Preflight) and the schema
-// hashes of every agent-side action version.
+// (migrations and preflight at Open, or a later Preflight), the schema
+// hashes of every agent-side action version and the journal epoch.
 func (r *Runtime) Hello(context.Context) (core.AgentHello, error) {
 	return core.AgentHello{
 		ProtocolVersion: ProtocolVersion, BinaryVersion: r.cfg.BinaryVersion, OS: goruntime.GOOS,
-		HostID: r.cfg.HostID, Modules: r.statuses(), SchemaHashes: maps.Clone(r.hashes),
+		HostID: r.cfg.HostID, Modules: r.statuses(), SchemaHashes: maps.Clone(r.hashes), JournalEpoch: r.epoch,
 	}, nil
 }
 
