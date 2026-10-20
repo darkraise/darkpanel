@@ -18,20 +18,25 @@ var _ core.AgentClient = (*Runtime)(nil)
 
 // Hello reports the agent, every module's availability as of its last check
 // (migrations and preflight at Open, or a later Preflight), the schema
-// hashes of every agent-side action version and the journal epoch.
+// hashes of every agent-side action version, the journal epoch and whether
+// a controller session is live.
 func (r *Runtime) Hello(context.Context) (core.AgentHello, error) {
-	return core.AgentHello{
-		ProtocolVersion: ProtocolVersion, BinaryVersion: r.cfg.BinaryVersion, OS: goruntime.GOOS,
+	h := core.AgentHello{
+		ProtocolVersion: ProtocolVersion, BinaryVersion: r.cfg.BinaryVersion, OS: goruntime.GOOS, Arch: goruntime.GOARCH,
 		HostID: r.cfg.HostID, Modules: r.statuses(), SchemaHashes: maps.Clone(r.hashes), JournalEpoch: r.epoch,
-	}, nil
+	}
+	if r.cfg.ControllerConnected != nil {
+		h.ControllerConnected = r.cfg.ControllerConnected()
+	}
+	return h, nil
 }
 
 // Preflight runs moduleID's preflight checks again and keeps the result for
 // Hello. A module whose migrations failed is not checked and stays
-// unavailable. A module the registry lacks, and the core, are not_found.
+// unavailable. A module the registry lacks is not_found.
 func (r *Runtime) Preflight(ctx context.Context, moduleID string) (core.ModuleStatus, error) {
 	m, ok := r.cfg.Registry.Module(moduleID)
-	if !ok || moduleID == core.ModuleIDCore {
+	if !ok {
 		return core.ModuleStatus{}, errcode.New(errcode.NotFound, fmt.Sprintf("no module %s", moduleID))
 	}
 	st := r.check(ctx, m)
