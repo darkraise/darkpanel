@@ -3,8 +3,11 @@ package update
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -341,6 +344,61 @@ func TestRunPreSwapFailures(t *testing.T) {
 			wantNoLocks(t, e.db)
 		})
 	}
+}
+
+func TestRunStalledDownloadFails(t *testing.T) {
+	e := newUpdaterEnv(t, "1.2.0")
+	tx := startUpdate(t, e, "1.2.0", "1.3.1")
+	tarball := "v1.3.1/" + TarballName("1.3.1", "amd64")
+	release := make(chan struct{})
+	// The mirror sends half the tarball, then stalls until the client gives up.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.URL.Path, "/")
+		body := e.rel.get(name)
+		if body == nil {
+			http.NotFound(w, r)
+			return
+		}
+		if name != tarball {
+			_, _ = w.Write(body)
+			return
+		}
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		_, _ = w.Write(body[:len(body)/2])
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	}))
+	t.Cleanup(srv.Close)
+	t.Cleanup(func() { close(release) })
+	u := e.updater(t, "1.2.0")
+	u.cfg.BaseURL, u.cfg.HTTP = srv.URL, srv.Client()
+	u.downloadTimeout = 100 * time.Millisecond
+	done := make(chan error, 1)
+	go func() { done <- u.Run(context.Background(), tx) }()
+	var err error
+	select {
+	case err = <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Run is still waiting for the stalled download")
+	}
+	wantCode(t, err, errcode.UpdateInterrupted)
+	r := mustRecord(t, e.p, tx)
+	if r.State != core.UpdateFailed || r.Error == nil || r.Error.Code != string(errcode.UpdateInterrupted) ||
+		!strings.Contains(r.Error.Message, "did not finish") {
+		t.Errorf("record = %s %+v", r.State, r.Error)
+	}
+	if got := binaryContent(t, e.p.Binary()); got != binaryOf("1.2.0") {
+		t.Errorf("darkpanel = %q", got)
+	}
+	if _, err := os.Stat(u.downloadDir(tx)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("download directory left behind: %v", err)
+	}
+	wantNoLocks(t, e.db)
 }
 
 func TestRunLeavesAMovedRecordAlone(t *testing.T) {

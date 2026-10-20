@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"os/exec"
 	"slices"
@@ -43,6 +44,11 @@ const (
 
 // selfTestTimeout bounds a staged binary's self-test.
 const selfTestTimeout = 30 * time.Second
+
+// downloadTimeout bounds one release download. The runner holds every lock
+// of the host while it downloads, and no recover pass stops a live runner
+// before the swap, so a stalled mirror must fail the step.
+const downloadTimeout = 15 * time.Minute
 
 // statusOperations is how many operations core.update.status reports when no
 // operation or change is named.
@@ -86,6 +92,8 @@ type Updater struct {
 	cfg Config
 	// lockTimeout is LockTimeout; tests shorten it.
 	lockTimeout time.Duration
+	// downloadTimeout is downloadTimeout; tests shorten it.
+	downloadTimeout time.Duration
 
 	idMu    sync.Mutex // guards entropy
 	entropy io.Reader
@@ -112,9 +120,27 @@ func New(cfg Config) (*Updater, error) {
 		cfg.SelfTest = runSelfTest
 	}
 	if cfg.HTTP == nil {
-		cfg.HTTP = http.DefaultClient
+		cfg.HTTP = defaultHTTPClient()
 	}
-	return &Updater{cfg: cfg, lockTimeout: LockTimeout, entropy: ulid.Monotonic(rand.Reader, 0)}, nil
+	return &Updater{
+		cfg: cfg, lockTimeout: LockTimeout, downloadTimeout: downloadTimeout,
+		entropy: ulid.Monotonic(rand.Reader, 0),
+	}, nil
+}
+
+// defaultHTTPClient bounds connecting and waiting for an answer but sets no
+// total Timeout: that would also cut off reading a tarball of up to 256 MiB.
+// stage bounds the whole download with downloadTimeout.
+func defaultHTTPClient() *http.Client {
+	return &http.Client{Transport: &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		ForceAttemptHTTP2:     true,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+		IdleConnTimeout:       90 * time.Second,
+		MaxIdleConns:          10,
+	}}
 }
 
 // newID returns a transaction id. Ids made by one process within one

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -252,6 +253,26 @@ func TestNewRequiresItsDependencies(t *testing.T) {
 	}
 	if _, err := New(full); err != nil {
 		t.Fatalf("New: %v", err)
+	}
+}
+
+func TestNewDefaultHTTPClient(t *testing.T) {
+	e := newUpdaterEnv(t, "1.2.0")
+	cfg := e.config("1.2.0")
+	supplied := cfg.HTTP
+	if u, err := New(cfg); err != nil || u.cfg.HTTP != supplied {
+		t.Fatalf("New replaced the supplied client: %v", err)
+	}
+	cfg.HTTP = nil
+	u, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := u.cfg.HTTP
+	tr, ok := c.Transport.(*http.Transport)
+	// A total Timeout would also cut off a large tarball's body.
+	if c == http.DefaultClient || c.Timeout != 0 || !ok || tr.TLSHandshakeTimeout == 0 || tr.ResponseHeaderTimeout == 0 {
+		t.Errorf("default client = %+v, transport %+v", c, c.Transport)
 	}
 }
 

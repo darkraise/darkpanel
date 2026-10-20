@@ -158,7 +158,14 @@ func (u *Updater) stage(ctx context.Context, r Record) error {
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 	u.cfg.Log.Info("update: downloading", "transaction", r.ID, "version", r.ToVersion)
-	binary, err := Download(ctx, u.cfg.HTTP, u.cfg.BaseURL, u.cfg.Keys, r.Steps[i], u.cfg.Arch, dir)
+	dctx, cancel := context.WithTimeout(ctx, u.downloadTimeout)
+	binary, err := Download(dctx, u.cfg.HTTP, u.cfg.BaseURL, u.cfg.Keys, r.Steps[i], u.cfg.Arch, dir)
+	timedOut := errors.Is(dctx.Err(), context.DeadlineExceeded) && ctx.Err() == nil
+	cancel()
+	if err != nil && timedOut {
+		return errcode.Wrap(errcode.UpdateInterrupted, err,
+			fmt.Sprintf("the download of %s did not finish within %s", r.ToVersion, u.downloadTimeout))
+	}
 	if err != nil {
 		return err
 	}
