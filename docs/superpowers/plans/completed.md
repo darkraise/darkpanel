@@ -15,3 +15,4 @@
 - 2026-10-20 `docs/superpowers/plans/2026-10-20-m2-agent-api-and-install.md` — merged into `main` at ba8e8b0
 - 2026-10-20 `docs/superpowers/plans/2026-10-20-m2-services.md` — merged into `main` at 8fa8073
 - 2026-10-21 `docs/superpowers/plans/2026-10-20-m2-assembly-and-harness.md` — merged into `main` at d98a1b3
+- 2026-10-21 `docs/superpowers/plans/2026-10-21-m2-release-and-break-glass-fixes.md` — merged into `main` at d9b90d5
