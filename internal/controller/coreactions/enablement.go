@@ -25,12 +25,12 @@ type ModuleInput struct {
 
 func (m module) moduleActions() []core.ActionDef {
 	return []core.ActionDef{
-		core.DefineMutating[ModuleInput, ModuleState](core.ActionSpec{
+		core.DefineMutating[ModuleInput, core.ModuleState](core.ActionSpec{
 			Name: "core.module.enable", Version: 1, Class: core.ClassCompensable, Side: core.SideController,
 			LockKeys: []string{LockModule}, CompensatedBy: "core.module.disable",
 			Summary: "Enable a module on a host; its preflight checks run there again and set its availability.",
 		}, enableModule{m}),
-		core.DefineMutating[ModuleInput, ModuleState](core.ActionSpec{
+		core.DefineMutating[ModuleInput, core.ModuleState](core.ActionSpec{
 			Name: "core.module.disable", Version: 1, Class: core.ClassCompensable, Side: core.SideController,
 			LockKeys: []string{LockModule}, CompensatedBy: "core.module.enable",
 			Summary: "Disable a module on a host; its actions and resources answer module.unavailable.",
@@ -99,17 +99,17 @@ func (m module) target(ctx context.Context, q querier, in ModuleInput) (string, 
 }
 
 // state returns one module's state on one host.
-func (m module) state(ctx context.Context, q querier, hostID, moduleID string) (ModuleState, error) {
+func (m module) state(ctx context.Context, q querier, hostID, moduleID string) (core.ModuleState, error) {
 	states, err := m.moduleStates(ctx, q, hostID)
 	if err != nil {
-		return ModuleState{}, err
+		return core.ModuleState{}, err
 	}
 	for _, s := range states {
 		if s.ID == moduleID {
 			return s, nil
 		}
 	}
-	return ModuleState{}, errcode.New(errcode.NotFound, fmt.Sprintf("no module %s in this binary", moduleID))
+	return core.ModuleState{}, errcode.New(errcode.NotFound, fmt.Sprintf("no module %s in this binary", moduleID))
 }
 
 // wantEnabled is Verify of both actions: it decides from the stored row
@@ -149,17 +149,17 @@ func (h enableModule) Plan(ctx context.Context, env core.Env, in ModuleInput) (c
 	return core.PlanOutcome{Diff: diff, Guards: []core.Guard{}, StateHash: stateHash(in.HostID, in.ModuleID, cur)}, nil
 }
 
-func (h enableModule) Apply(ctx context.Context, env core.Env, in ModuleInput) (ModuleState, error) {
+func (h enableModule) Apply(ctx context.Context, env core.Env, in ModuleInput) (core.ModuleState, error) {
 	if env.Agents == nil {
-		return ModuleState{}, errUnset("Env.Agents")
+		return core.ModuleState{}, errUnset("Env.Agents")
 	}
 	agent, err := env.Agents.Agent(ctx, in.HostID)
 	if err != nil {
-		return ModuleState{}, err
+		return core.ModuleState{}, err
 	}
 	status, err := agent.Preflight(ctx, in.ModuleID)
 	if err != nil {
-		return ModuleState{}, err
+		return core.ModuleState{}, err
 	}
 	var reason any
 	if !status.Available {
@@ -174,12 +174,12 @@ func (h enableModule) Apply(ctx context.Context, env core.Env, in ModuleInput) (
 		return err
 	})
 	if err != nil {
-		return ModuleState{}, fmt.Errorf("coreactions: enable module: %w", err)
+		return core.ModuleState{}, fmt.Errorf("coreactions: enable module: %w", err)
 	}
 	return h.m.state(ctx, env.DB.Read(), in.HostID, in.ModuleID)
 }
 
-func (h enableModule) Verify(ctx context.Context, env core.Env, in ModuleInput, _ ModuleState) error {
+func (h enableModule) Verify(ctx context.Context, env core.Env, in ModuleInput, _ core.ModuleState) error {
 	return wantEnabled(ctx, env, in, true)
 }
 
@@ -203,7 +203,7 @@ func (h disableModule) Plan(ctx context.Context, env core.Env, in ModuleInput) (
 	return core.PlanOutcome{Diff: diff, Guards: []core.Guard{}, StateHash: stateHash(in.HostID, in.ModuleID, cur)}, nil
 }
 
-func (h disableModule) Apply(ctx context.Context, env core.Env, in ModuleInput) (ModuleState, error) {
+func (h disableModule) Apply(ctx context.Context, env core.Env, in ModuleInput) (core.ModuleState, error) {
 	err := env.DB.Write(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `INSERT INTO core_module_state (host_id, module_id, enabled, available, reason, checked_at)
 			VALUES (?, ?, 0, 0, ?, ?)
@@ -212,11 +212,11 @@ func (h disableModule) Apply(ctx context.Context, env core.Env, in ModuleInput) 
 		return err
 	})
 	if err != nil {
-		return ModuleState{}, fmt.Errorf("coreactions: disable module: %w", err)
+		return core.ModuleState{}, fmt.Errorf("coreactions: disable module: %w", err)
 	}
 	return h.m.state(ctx, env.DB.Read(), in.HostID, in.ModuleID)
 }
 
-func (h disableModule) Verify(ctx context.Context, env core.Env, in ModuleInput, _ ModuleState) error {
+func (h disableModule) Verify(ctx context.Context, env core.Env, in ModuleInput, _ core.ModuleState) error {
 	return wantEnabled(ctx, env, in, false)
 }

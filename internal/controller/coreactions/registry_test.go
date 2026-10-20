@@ -169,9 +169,9 @@ func TestCoreNullOutputsMatchSchemas(t *testing.T) {
 			ID: "00000000000000000000000001", At: at, Actor: "anonymous", Action: "core.auth.login", Version: 1,
 			Phase: "login", Input: coreactions.AuditInput(`{"username":"mallory"}`), Result: "ok",
 		}}},
-		"core.host.list": coreactions.HostList{Hosts: []coreactions.Host{{ID: "h1", Name: "local", IsLocal: true, Online: true,
-			Modules: []coreactions.ModuleState{{ID: "demo", Version: 1}}}}},
-		"core.module.disable": coreactions.ModuleState{ID: "demo", Version: 1},
+		"core.host.list": core.HostList{Hosts: []core.Host{{ID: "h1", Name: "local", IsLocal: true, State: core.HostPending,
+			Online: true, Modules: []core.ModuleState{{ID: "demo", Version: 1}}}}},
+		"core.module.disable": core.ModuleState{ID: "demo", Version: 1},
 	}
 	defs := map[string]core.ActionDef{}
 	for _, a := range coreActions(t) {

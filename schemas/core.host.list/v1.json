@@ -33,9 +33,78 @@
             "type": "boolean",
             "description": "Whether the host runs this controller."
           },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "enrolled",
+              "revoked"
+            ],
+            "description": "Enrollment state: pending until the agent enrolls, revoked after core.host.revoke."
+          },
           "online": {
             "type": "boolean",
-            "description": "Whether the host's agent is reachable; always true for the local host in M1."
+            "description": "Whether the host's agent has a live session with the controller."
+          },
+          "lastSeenAt": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "When the agent last answered; null when it never has."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "agentVersion": {
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "Version of the agent's binary; null until its first Hello."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "protocolVersion": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "description": "Agent protocol version; null until its first Hello."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "os": {
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "Operating system the agent reports; null until its first Hello."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "arch": {
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "CPU architecture the agent reports; null until its first Hello."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "supported": {
+            "type": "boolean",
+            "description": "Whether the agent's version is inside the controller's support window; an unsupported agent accepts only update actions."
           },
           "modules": {
             "items": {
@@ -50,7 +119,14 @@
           "id",
           "name",
           "isLocal",
+          "state",
           "online",
+          "lastSeenAt",
+          "agentVersion",
+          "protocolVersion",
+          "os",
+          "arch",
+          "supported",
           "modules"
         ]
       },

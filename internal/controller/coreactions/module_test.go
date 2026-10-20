@@ -50,6 +50,13 @@ var root = core.Principal{Actor: "local:root@h1", Scope: core.ScopeAdmin, Source
 
 func newTestEnv(t *testing.T, mods ...core.Module) *testEnv {
 	t.Helper()
+	return newTestEnvWith(t, nil, mods...)
+}
+
+// newTestEnvWith is newTestEnv with adjust, when not nil, changing the core
+// module's dependencies once the database, clock and services exist.
+func newTestEnvWith(t *testing.T, adjust func(e *testEnv, d *Deps), mods ...core.Module) *testEnv {
+	t.Helper()
 	ctx := context.Background()
 	dir := t.TempDir()
 	db, err := store.Open(ctx, filepath.Join(dir, "controller.db"))
@@ -69,7 +76,11 @@ func newTestEnv(t *testing.T, mods ...core.Module) *testEnv {
 	e := &testEnv{t: t, db: db, clock: coretest.NewFakeClock(t0), audit: &coretest.MemAudit{}, hosts: coretest.MapHosts{}}
 	params := auth.Params{Memory: 8, Iterations: 1, Parallelism: 1, SaltLen: 16, KeyLen: 32}
 	e.auth = auth.New(db, coretest.Sealer{}, e.clock, e.audit, auth.Options{Params: params})
-	coreModule := Module(Deps{Auth: e.auth, Audit: e.audit, Modules: mods})
+	d := Deps{Auth: e.auth, Audit: e.audit, Modules: mods}
+	if adjust != nil {
+		adjust(e, &d)
+	}
+	coreModule := Module(d)
 	if e.reg, err = core.NewRegistry(append([]core.Module{coreModule}, mods...)...); err != nil {
 		t.Fatal(err)
 	}
@@ -184,20 +195,21 @@ func TestHostList(t *testing.T) {
 	e := newTestEnv(t, fakeModule{"demo", 3}, fakeModule{"extra", 2})
 	e.addHost("h2", "beta", false)
 	e.addHost("h1", "alpha", true)
+	e.hosts["h1"] = &coretest.FakeAgent{}
 	e.setModuleState("h1", "demo", true, true, "")
 	e.setModuleState("h1", "extra", true, false, "tool missing")
 	e.setModuleState("h1", "gone", true, true, "")
 
-	var got HostList
+	var got core.HostList
 	if err := e.read(root, "core.host.list", NoInput{}, &got); err != nil {
 		t.Fatal(err)
 	}
-	want := HostList{Hosts: []Host{
-		{ID: "h1", Name: "alpha", IsLocal: true, Online: true, Modules: []ModuleState{
+	want := core.HostList{Hosts: []core.Host{
+		{ID: "h1", Name: "alpha", IsLocal: true, State: core.HostPending, Online: true, Modules: []core.ModuleState{
 			{ID: "demo", Version: 3, Enabled: true, Available: true, CheckedAt: ptr(t0)},
 			{ID: "extra", Version: 2, Enabled: true, Reason: ptr("tool missing"), CheckedAt: ptr(t0)},
 		}},
-		{ID: "h2", Name: "beta", Modules: []ModuleState{
+		{ID: "h2", Name: "beta", State: core.HostPending, Modules: []core.ModuleState{
 			{ID: "demo", Version: 3, Reason: ptr(ReasonNotReported)},
 			{ID: "extra", Version: 2, Reason: ptr(ReasonNotReported)},
 		}},
@@ -207,15 +219,54 @@ func TestHostList(t *testing.T) {
 	}
 }
 
+// TestHostListReportsAgents covers the fields the agents' Hello and sessions
+// supply: a host is online only while the directory hands out its client,
+// and supported only when its last Hello is inside the window.
+func TestHostListReportsAgents(t *testing.T) {
+	e := newTestEnvWith(t, func(_ *testEnv, d *Deps) { d.Version = "1.3.0" })
+	e.addHost("h1", "alpha", true)
+	e.addHost("h2", "beta", false)
+	e.addHost("h3", "gamma", false)
+	e.addHost("h4", "delta", false)
+	seen := t0.Add(time.Minute)
+	report := `UPDATE core_hosts SET state = ?, last_seen_at = ?, agent_version = ?, protocol_version = ?, os = 'linux', arch = ?
+		WHERE id = ?`
+	e.exec(report, core.HostEnrolled, formatTime(seen), "1.3.0", 1, "amd64", "h1")
+	e.exec(report, core.HostEnrolled, formatTime(seen), "1.2.4", 1, "arm64", "h2")
+	e.exec(report, core.HostRevoked, formatTime(seen), "1.4.0", 1, "amd64", "h3")
+	e.hosts["h1"] = &coretest.FakeAgent{}
+
+	var got core.HostList
+	if err := e.read(root, "core.host.list", NoInput{}, &got); err != nil {
+		t.Fatal(err)
+	}
+	reported := func(id, name, state, version, arch string, local, online, supported bool) core.Host {
+		return core.Host{ID: id, Name: name, IsLocal: local, State: state, Online: online, LastSeenAt: ptr(seen),
+			AgentVersion: ptr(version), ProtocolVersion: ptr(1), OS: ptr("linux"), Arch: ptr(arch),
+			Supported: supported, Modules: []core.ModuleState{}}
+	}
+	want := []core.Host{
+		reported("h1", "alpha", core.HostEnrolled, "1.3.0", "amd64", true, true, true),
+		reported("h2", "beta", core.HostEnrolled, "1.2.4", "arm64", false, false, true),
+		{ID: "h4", Name: "delta", State: core.HostPending, Modules: []core.ModuleState{}},
+		reported("h3", "gamma", core.HostRevoked, "1.4.0", "amd64", false, false, false),
+	}
+	if !reflect.DeepEqual(got.Hosts, want) {
+		t.Errorf("hosts = %+v\nwant    %+v", got.Hosts, want)
+	}
+}
+
 func TestHostListJSON(t *testing.T) {
 	e := newTestEnv(t, fakeModule{"demo", 1})
 	e.addHost("h1", "alpha", true)
+	e.hosts["h1"] = &coretest.FakeAgent{}
 	e.setModuleState("h1", "demo", true, true, "")
 	raw, err := e.engine.Read(context.Background(), root, ref("core.host.list"), json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"hosts":[{"id":"h1","name":"alpha","isLocal":true,"online":true,"modules":[` +
+	want := `{"hosts":[{"id":"h1","name":"alpha","isLocal":true,"state":"pending","online":true,"lastSeenAt":null,` +
+		`"agentVersion":null,"protocolVersion":null,"os":null,"arch":null,"supported":false,"modules":[` +
 		`{"id":"demo","version":1,"enabled":true,"available":true,"reason":null,"checkedAt":"2026-10-17T00:00:00Z"}]}]}`
 	if !jsonEqual(t, raw, want) {
 		t.Errorf("output = %s\nwant     %s", raw, want)
@@ -237,7 +288,7 @@ func TestModuleList(t *testing.T) {
 	if err := e.read(root, "core.module.list", ModuleListInput{HostID: "h1"}, &got); err != nil {
 		t.Fatal(err)
 	}
-	want := ModuleList{Modules: []ModuleState{{ID: "demo", Version: 3, Available: true, CheckedAt: ptr(t0)}}}
+	want := ModuleList{Modules: []core.ModuleState{{ID: "demo", Version: 3, Available: true, CheckedAt: ptr(t0)}}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("modules = %+v, want %+v", got, want)
 	}
