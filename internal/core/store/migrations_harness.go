@@ -44,6 +44,16 @@ func (u unionFS) Open(name string) (fs.File, error) {
 	return f, err
 }
 
+// Stat answers for the directory too, which fs.WalkDir stats before it
+// reads it through ReadDir.
+func (u unionFS) Stat(name string) (fs.FileInfo, error) {
+	info, err := fs.Stat(u[0], name)
+	if name != "." && errors.Is(err, fs.ErrNotExist) {
+		return fs.Stat(u[1], name)
+	}
+	return info, err
+}
+
 func (u unionFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	if name != "." {
 		return nil, &fs.PathError{Op: "readdir", Path: name, Err: fs.ErrNotExist}

@@ -5,6 +5,7 @@ package store
 import (
 	"context"
 	"io/fs"
+	"slices"
 	"testing"
 	"time"
 )
@@ -34,6 +35,27 @@ func TestHarnessMigration(t *testing.T) {
 				t.Errorf("SchemaVersion = %d, %v; want 9000", v, err)
 			}
 		})
+	}
+}
+
+func TestHarnessMigrationWalks(t *testing.T) {
+	set, err := CoreMigrations(SideAgent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := fs.Glob(set.FS, "*.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	err = fs.WalkDir(set.FS, ".", func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			got = append(got, p)
+		}
+		return err
+	})
+	if err != nil || !slices.Equal(got, want) {
+		t.Errorf("fs.WalkDir = %q, %v; want %q", got, err, want)
 	}
 }
 
