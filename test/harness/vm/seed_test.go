@@ -27,6 +27,7 @@ func TestSeedFiles(t *testing.T) {
 	cfg := Config{
 		Name: "target", MgmtMAC: "52:54:00:d0:01:10", InetMAC: "52:54:00:d0:00:10",
 		InetAddrs: []string{"198.18.0.10/15", "2001:db8:d0::10/64"},
+		PrivMAC:   "52:54:00:d0:02:10", PrivAddrs: []string{"10.77.0.10/24"}, PrivMcastPort: 23457,
 		Provision: "#!/bin/bash\necho '<ok>' && true\n", Key: key,
 	}
 	s, err := seedFiles(cfg, hostKey)
@@ -87,18 +88,21 @@ func TestSeedFiles(t *testing.T) {
 	if err := json.Unmarshal(s.NetworkConfig, &network); err != nil {
 		t.Fatal(err)
 	}
-	mgmt, inet := network.Ethernets["dpmgmt"], network.Ethernets["dpinet"]
-	if network.Version != 2 || len(network.Ethernets) != 2 ||
+	mgmt, inet, priv := network.Ethernets["dpmgmt"], network.Ethernets["dpinet"], network.Ethernets["dppriv"]
+	if network.Version != 2 || len(network.Ethernets) != 3 ||
 		mgmt.Match.MAC != cfg.MgmtMAC || mgmt.SetName != "dpmgmt" || !mgmt.DHCP4 || len(mgmt.Addresses) != 0 ||
 		inet.Match.MAC != cfg.InetMAC || inet.SetName != "dpinet" || inet.DHCP4 || inet.DHCP6 || inet.AcceptRA ||
-		!slices.Equal(inet.Addresses, cfg.InetAddrs) {
+		!slices.Equal(inet.Addresses, cfg.InetAddrs) ||
+		priv.Match.MAC != cfg.PrivMAC || priv.SetName != "dppriv" || priv.DHCP4 || priv.DHCP6 || priv.AcceptRA ||
+		!slices.Equal(priv.Addresses, cfg.PrivAddrs) {
 		t.Errorf("network-config = %s", s.NetworkConfig)
 	}
 }
 
 // TestSeedFilesKeyNames decodes the seed into generic values, so a wrong
 // JSON tag on the seed types, which TestSeedFiles decodes back unchanged,
-// shows as a key cloud-init or netplan does not read.
+// shows as a key cloud-init or netplan does not read. Without a private link
+// port the network config has no dppriv.
 func TestSeedFilesKeyNames(t *testing.T) {
 	key, err := NewKey()
 	if err != nil {
@@ -108,31 +112,48 @@ func TestSeedFilesKeyNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := Config{
-		Name: "target", MgmtMAC: "52:54:00:d0:01:10", InetMAC: "52:54:00:d0:00:10",
-		InetAddrs: []string{"198.18.0.10/15"}, Provision: "#!/bin/bash\n", Key: key,
+	cases := []struct {
+		name   string
+		priv   bool
+		static []string // the NICs with static addresses, besides dpmgmt
+	}{
+		{"internet only", false, []string{"dpinet"}},
+		{"private link", true, []string{"dpinet", "dppriv"}},
 	}
-	s, err := seedFiles(cfg, hostKey)
-	if err != nil {
-		t.Fatal(err)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			cfg := Config{
+				Name: "target", MgmtMAC: "52:54:00:d0:01:10", InetMAC: "52:54:00:d0:00:10",
+				InetAddrs: []string{"198.18.0.10/15"}, Provision: "#!/bin/bash\n", Key: key,
+			}
+			if c.priv {
+				cfg.PrivMAC, cfg.PrivAddrs, cfg.PrivMcastPort = "52:54:00:d0:02:10", []string{"10.77.0.10/24"}, 23457
+			}
+			s, err := seedFiles(cfg, hostKey)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var user, network any
+			if err := json.Unmarshal(bytes.TrimPrefix(s.UserData, []byte("#cloud-config\n")), &user); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(s.NetworkConfig, &network); err != nil {
+				t.Fatal(err)
+			}
+			u := wantKeys(t, "user-data", user, "hostname", "users", "ssh_pwauth", "ssh_deletekeys", "ssh_keys", "write_files", "runcmd")
+			wantKeys(t, "users[0]", first(t, "users", u["users"]), "name", "sudo", "shell", "lock_passwd", "ssh_authorized_keys")
+			wantKeys(t, "ssh_keys", u["ssh_keys"], "ed25519_private", "ed25519_public")
+			wantKeys(t, "write_files[0]", first(t, "write_files", u["write_files"]), "path", "permissions", "content")
+			n := wantKeys(t, "network-config", network, "version", "ethernets")
+			eth := wantKeys(t, "ethernets", n["ethernets"], append([]string{"dpmgmt"}, c.static...)...)
+			mgmt := wantKeys(t, "dpmgmt", eth["dpmgmt"], "match", "set-name", "dhcp4", "dhcp6", "accept-ra")
+			wantKeys(t, "dpmgmt match", mgmt["match"], "macaddress")
+			for _, name := range c.static {
+				nic := wantKeys(t, name, eth[name], "match", "set-name", "dhcp4", "dhcp6", "accept-ra", "addresses")
+				wantKeys(t, name+" match", nic["match"], "macaddress")
+			}
+		})
 	}
-	var user, network any
-	if err := json.Unmarshal(bytes.TrimPrefix(s.UserData, []byte("#cloud-config\n")), &user); err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(s.NetworkConfig, &network); err != nil {
-		t.Fatal(err)
-	}
-	u := wantKeys(t, "user-data", user, "hostname", "users", "ssh_pwauth", "ssh_deletekeys", "ssh_keys", "write_files", "runcmd")
-	wantKeys(t, "users[0]", first(t, "users", u["users"]), "name", "sudo", "shell", "lock_passwd", "ssh_authorized_keys")
-	wantKeys(t, "ssh_keys", u["ssh_keys"], "ed25519_private", "ed25519_public")
-	wantKeys(t, "write_files[0]", first(t, "write_files", u["write_files"]), "path", "permissions", "content")
-	n := wantKeys(t, "network-config", network, "version", "ethernets")
-	eth := wantKeys(t, "ethernets", n["ethernets"], "dpmgmt", "dpinet")
-	mgmt := wantKeys(t, "dpmgmt", eth["dpmgmt"], "match", "set-name", "dhcp4", "dhcp6", "accept-ra")
-	inet := wantKeys(t, "dpinet", eth["dpinet"], "match", "set-name", "dhcp4", "dhcp6", "accept-ra", "addresses")
-	wantKeys(t, "dpmgmt match", mgmt["match"], "macaddress")
-	wantKeys(t, "dpinet match", inet["match"], "macaddress")
 }
 
 // wantKeys checks that v is a JSON object with exactly keys and returns it.

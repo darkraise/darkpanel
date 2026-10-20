@@ -35,6 +35,7 @@ const (
 const (
 	mgmtIface = "dpmgmt"
 	inetIface = "dpinet"
+	privIface = "dppriv"
 )
 
 // Config describes one VM of a run.
@@ -53,6 +54,12 @@ type Config struct {
 	// McastPort is the UDP port of the run's multicast link, the same for
 	// every VM of the run.
 	McastPort int
+	// PrivMcastPort, when not zero, adds a private NIC with PrivMAC on a
+	// second multicast link of McastGroup, which stands in for the tailnet;
+	// the guest names it dppriv and gives it PrivAddrs, in CIDR form.
+	PrivMAC       string
+	PrivAddrs     []string
+	PrivMcastPort int
 	// Provision is a bash script cloud-init runs once as root; Boot fails
 	// unless it exits 0.
 	Provision string
@@ -152,10 +159,14 @@ func seedFiles(cfg Config, hostKey ed25519.PrivateKey) (seed, error) {
 	if err != nil {
 		return seed{}, err
 	}
-	network, err := marshal(netConfig{Version: 2, Ethernets: map[string]netEthernet{
+	ethernets := map[string]netEthernet{
 		mgmtIface: {Match: netMatch{MAC: cfg.MgmtMAC}, SetName: mgmtIface, DHCP4: true},
 		inetIface: {Match: netMatch{MAC: cfg.InetMAC}, SetName: inetIface, Addresses: cfg.InetAddrs},
-	}})
+	}
+	if cfg.PrivMcastPort != 0 {
+		ethernets[privIface] = netEthernet{Match: netMatch{MAC: cfg.PrivMAC}, SetName: privIface, Addresses: cfg.PrivAddrs}
+	}
+	network, err := marshal(netConfig{Version: 2, Ethernets: ethernets})
 	if err != nil {
 		return seed{}, err
 	}
