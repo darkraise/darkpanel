@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Signs checksums.txt with every minisign key in the environment, then
-# refuses the release unless the release binary is not a test build and
+# Checks every file checksums.txt lists against it, signs checksums.txt with
+# every minisign key in the environment, then refuses the release unless the
+# release binary reports the version being signed, is not a test build and
 # trusts exactly those keys (spec section 9, ADR 0007). The sign job of
 # release.yml runs it in the owner-approved release environment.
 #
@@ -35,6 +36,13 @@ stable | beta) ;;
   ;;
 esac
 
+# A signature vouches for every file checksums.txt names, so no key signs
+# until the files in the release directory match it.
+if ! (cd "$dir" && sha256sum --check --strict --quiet checksums.txt) >&2; then
+  echo "sign: the files in $dir do not match checksums.txt" >&2
+  exit 1
+fi
+
 comment="version=$version channel=$channel purpose=checksums"
 # Signatures stay in $work until every key has signed and the build check
 # passed, so a failure never leaves a partial set in the release directory.
@@ -58,6 +66,6 @@ if [ "${#ids[@]}" -eq 0 ]; then
   echo "sign: no signing key in the environment; the owner sets MINISIGN_KEY_1 in the release environment" >&2
   exit 1
 fi
-"$work/releasetool" check-build "$(IFS=,; echo "${ids[*]}")" <"$info"
+"$work/releasetool" check-build "$version" "$(IFS=,; echo "${ids[*]}")" <"$info"
 mv "$work"/sigs/*.minisig "$dir/"
 echo "sign: checksums.txt signed by ${ids[*]}"

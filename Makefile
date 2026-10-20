@@ -3,7 +3,8 @@ SHELL := bash
 .DEFAULT_GOAL := build
 
 # Outside a git checkout (a source tarball) git fails and both fall back.
-VERSION ?= $(or $(shell git describe --tags --always --dirty 2>/dev/null),dev)
+# Only release tags name a version; the rolling index release's tag does not.
+VERSION ?= $(or $(shell git describe --tags --match 'v*' --always --dirty 2>/dev/null),dev)
 COMMIT ?= $(or $(shell git rev-parse --short HEAD 2>/dev/null),unknown)
 ARCHES := amd64 arm64
 BUILDINFO := github.com/darkraise/darkpanel/internal/buildinfo
@@ -101,7 +102,9 @@ release: release-check verify-build
 
 # make release-prep VERSION=x.y.z freezes the schema snapshots and rewrites
 # CHANGELOG.md; the owner commits both, then pushes a signed tag vx.y.z.
+# Released snapshots are immutable, so git-cliff is checked before they are frozen.
 release-prep: release-check
+	@command -v $(GIT_CLIFF) >/dev/null || { echo "release-prep: $(GIT_CLIFF) not found; install git-cliff 2.14.2 or set GIT_CLIFF" >&2; exit 1; }
 	bash release/snapshots.sh copy v$(VERSION)
 	$(GIT_CLIFF) --tag v$(VERSION) -o CHANGELOG.md
 

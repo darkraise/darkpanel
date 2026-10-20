@@ -135,3 +135,26 @@ func buildIndex(list []ghRelease) releaseIndex {
 	}
 	return idx
 }
+
+// isLatest reports whether the release of v becomes the repository's Latest
+// release on GitHub: a stable version that no published stable release
+// outranks. GitHub marks each new publication Latest unless told otherwise,
+// so a patch on an older line would otherwise displace the newest line.
+func isLatest(list []ghRelease, v version) bool {
+	if v.channel() != "stable" {
+		return false
+	}
+	for _, r := range list {
+		if r.IsDraft {
+			continue
+		}
+		p, err := parseTag(r.TagName)
+		if err != nil || p.channel() != "stable" {
+			continue
+		}
+		if compare(p, v) >= 0 {
+			return false
+		}
+	}
+	return true
+}

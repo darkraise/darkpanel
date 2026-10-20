@@ -62,57 +62,79 @@ unset MINISIGN_KEY_1 MINISIGN_PASSWORD_1 MINISIGN_KEY_2 MINISIGN_PASSWORD_2
 key1="KEYID=0123456789ABCDEF"
 key2="KEYID=00000000000000FF"
 
-# trusts ID...: writes a version.json for a production build trusting ID...
+# trusts VERSION ID...: writes a version.json for a production build of
+# VERSION trusting ID...
 trusts() {
-  local ids
+  local version=$1 ids
+  shift
   ids=$(printf '"%s",' "$@")
-  printf '{"version":"1.2.3","testBuild":false,"trustedKeys":[%s]}\n' "${ids%,}" >"$work/version.json"
+  printf '{"version":"%s","testBuild":false,"trustedKeys":[%s]}\n' "$version" "${ids%,}" >"$work/version.json"
 }
 
-# fresh: an empty release directory holding only checksums.txt, and no log.
+# fresh: a release directory holding one tarball and its checksums.txt, and
+# no log.
 fresh() {
   rm -rf "$work/rel" "$work/log"
   mkdir -p "$work/rel"
-  echo "0000  darkpanel_1.2.3_linux_amd64.tar.gz" >"$work/rel/checksums.txt"
+  printf 'amd64 tarball' >"$work/rel/darkpanel_1.2.3_linux_amd64.tar.gz"
+  (cd "$work/rel" && sha256sum darkpanel_1.2.3_linux_amd64.tar.gz >checksums.txt)
 }
 
 sigs() { (cd "$work/rel" && find . -name '*.minisig' | LC_ALL=C sort | tr '\n' ' '); }
 
 fresh
-trusts 0123456789ABCDEF
+trusts 1.2.3 0123456789ABCDEF
 expect one_key 0 env MINISIGN_KEY_1="$key1" MINISIGN_PASSWORD_1=pw1 bash "$script" 1.2.3 stable "$work/rel" "$work/version.json"
 expect one_key_file 0 test "$(sigs)" = "./checksums.txt.0123456789ABCDEF.minisig "
 expect one_key_log 0 test "$(cat "$work/log" 2>/dev/null)" = "$work/rel/checksums.txt|version=1.2.3 channel=stable purpose=checksums|pw1"
 
 fresh
-trusts 0123456789ABCDEF 00000000000000FF
+trusts 1.3.0-beta.1 0123456789ABCDEF 00000000000000FF
 expect two_keys 0 env MINISIGN_KEY_1="$key1" MINISIGN_PASSWORD_1=pw1 MINISIGN_KEY_2="$key2" MINISIGN_PASSWORD_2=pw2 \
   bash "$script" 1.3.0-beta.1 beta "$work/rel" "$work/version.json"
 expect two_keys_files 0 test "$(sigs)" = "./checksums.txt.00000000000000FF.minisig ./checksums.txt.0123456789ABCDEF.minisig "
 expect two_keys_log 0 grep -qx ".*|version=1.3.0-beta.1 channel=beta purpose=checksums|pw2" "$work/log"
 
 fresh
-trusts 0123456789ABCDEF
+trusts 1.2.3 0123456789ABCDEF
 expect no_key 1 bash "$script" 1.2.3 stable "$work/rel" "$work/version.json"
 expect no_key_no_files 0 test -z "$(sigs)"
 
 fresh
-trusts 0123456789ABCDEF
+trusts 1.2.3 0123456789ABCDEF
 expect trust_mismatch 1 env MINISIGN_KEY_1="$key1" MINISIGN_KEY_2="$key2" bash "$script" 1.2.3 stable "$work/rel" "$work/version.json"
 expect trust_mismatch_no_files 0 test -z "$(sigs)"
 
 fresh
-trusts 0123456789ABCDEF 00000000000000FF
+trusts 1.2.3 0123456789ABCDEF 00000000000000FF
 expect second_key_fails 1 env MINISIGN_KEY_1="$key1" MINISIGN_KEY_2="$key2"$'\nFAIL' bash "$script" 1.2.3 stable "$work/rel" "$work/version.json"
 expect second_key_fails_no_files 0 test -z "$(sigs)"
 
 fresh
-printf '{"testBuild":true,"trustedKeys":["0123456789ABCDEF"]}\n' >"$work/version.json"
+printf '{"version":"1.2.3","testBuild":true,"trustedKeys":["0123456789ABCDEF"]}\n' >"$work/version.json"
 expect test_build 1 env MINISIGN_KEY_1="$key1" bash "$script" 1.2.3 stable "$work/rel" "$work/version.json"
 expect test_build_no_files 0 test -z "$(sigs)"
 
 fresh
-trusts 0123456789ABCDEF
+trusts 1.2.4 0123456789ABCDEF
+expect other_version 1 env MINISIGN_KEY_1="$key1" bash "$script" 1.2.3 stable "$work/rel" "$work/version.json"
+expect other_version_no_files 0 test -z "$(sigs)"
+
+fresh
+trusts 1.2.3 0123456789ABCDEF
+printf 'changed after packaging' >"$work/rel/darkpanel_1.2.3_linux_amd64.tar.gz"
+expect checksum_mismatch 1 env MINISIGN_KEY_1="$key1" bash "$script" 1.2.3 stable "$work/rel" "$work/version.json"
+expect checksum_mismatch_no_files 0 test -z "$(sigs)"
+expect checksum_mismatch_not_signed 0 test ! -e "$work/log"
+
+fresh
+trusts 1.2.3 0123456789ABCDEF
+rm "$work/rel/darkpanel_1.2.3_linux_amd64.tar.gz"
+expect checksum_file_missing 1 env MINISIGN_KEY_1="$key1" bash "$script" 1.2.3 stable "$work/rel" "$work/version.json"
+expect checksum_file_missing_not_signed 0 test ! -e "$work/log"
+
+fresh
+trusts 1.2.3 0123456789ABCDEF
 expect usage 2 bash "$script" 1.2.3 stable "$work/rel"
 expect bad_version 1 env MINISIGN_KEY_1="$key1" bash "$script" 1.2 stable "$work/rel" "$work/version.json"
 expect bad_channel 1 env MINISIGN_KEY_1="$key1" bash "$script" 1.2.3 nightly "$work/rel" "$work/version.json"

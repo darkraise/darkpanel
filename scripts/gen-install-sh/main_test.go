@@ -690,7 +690,11 @@ func TestSignedReleaseVerifies(t *testing.T) {
 	key := trustedkeys.Key{ID: fmt.Sprintf("%016X", pub.ID()), PublicKey: pub.String()}
 	const version = "1.4.0"
 	rel := filepath.Join(work, "rel")
-	writeFile(t, filepath.Join(rel, "checksums.txt"), "abc  darkpanel_"+version+"_linux_amd64.tar.gz\n")
+	// sign.sh checks every file checksums.txt lists before it signs.
+	tarball := "darkpanel_" + version + "_linux_amd64.tar.gz"
+	writeFile(t, filepath.Join(rel, tarball), "tarball\n")
+	sum := sha256.Sum256([]byte("tarball\n"))
+	writeFile(t, filepath.Join(rel, "checksums.txt"), hex.EncodeToString(sum[:])+"  "+tarball+"\n")
 	info := filepath.Join(work, "version.json")
 	writeFile(t, info, `{"version":"`+version+`","testBuild":false,"trustedKeys":["`+key.ID+`"]}`+"\n")
 

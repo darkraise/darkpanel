@@ -42,13 +42,16 @@ The workflow:
   against `release/allowed_signers` on `main`, that the tagged commit is on
   `main`, and that `schemas/released/<tag>/` equals the current schemas.
 - `build` runs `make release` (tarballs, SBOM, `checksums.txt`), checks the
-  committed `install.sh` is current, writes the release notes with git-cliff,
-  and attests every file.
+  committed `install.sh` is current, writes the release notes with git-cliff
+  (a stable release's notes cover every commit since the previous stable
+  release, a beta's since the previous tag), and attests every file.
 - `sign` (environment `release`) verifies the attestations against this
-  repository and the tag's commit, checks the amd64 binary is not a test build
-  and trusts exactly the signing keys, and signs `checksums.txt` with each key
-  as `checksums.txt.<key id>.minisig`.
-- `publish` creates the GitHub Release (a prerelease for a beta version) and
+  repository and the tag's commit, checks every file against `checksums.txt`,
+  checks the amd64 binary reports the tag's version, is not a test build and
+  trusts exactly the signing keys, and signs `checksums.txt` with each key as
+  `checksums.txt.<key id>.minisig`.
+- `publish` creates the GitHub Release (a prerelease for a beta version; not
+  marked Latest when a higher stable release is already published) and
   regenerates `releases.json` on the rolling `index` release.
 
 Runs share the concurrency group `release`. GitHub cancels an older pending
@@ -59,6 +62,11 @@ If `publish` fails after the GitHub Release is published, re-run the failed
 jobs: `publish` keeps the published release and its files unchanged and only
 regenerates `releases.json`. An interrupted upload can leave a draft release;
 delete that draft by hand before the re-run.
+
+Leave GitHub's immutable releases setting off for this repository: every
+`publish` replaces `releases.json` on the published `index` release with
+`gh release upload --clobber`, and an immutable release's files can be
+neither replaced nor deleted.
 
 ## Rotating the signing key
 

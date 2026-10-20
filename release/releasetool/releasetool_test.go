@@ -201,39 +201,88 @@ func TestRunKeyID(t *testing.T) {
 func TestCheckBuild(t *testing.T) {
 	const a, b = "A000000000000000", "B000000000000000"
 	tests := []struct {
-		name string
-		info string
-		keys []string
-		ok   bool
+		name    string
+		info    string
+		version string
+		keys    []string
+		ok      bool
 	}{
-		{"one key", `{"testBuild":false,"trustedKeys":["A000000000000000"]}`, []string{a}, true},
-		{"rotation in any order", `{"testBuild":false,"trustedKeys":["B000000000000000","A000000000000000"]}`, []string{a, b}, true},
-		{"test build", `{"testBuild":true,"trustedKeys":["A000000000000000"]}`, []string{a}, false},
-		{"no testBuild field", `{"trustedKeys":["A000000000000000"]}`, []string{a}, false},
-		{"binary trusts an extra key", `{"testBuild":false,"trustedKeys":["A000000000000000","B000000000000000"]}`, []string{a}, false},
-		{"signing key not trusted", `{"testBuild":false,"trustedKeys":["A000000000000000"]}`, []string{a, b}, false},
-		{"no signing keys", `{"testBuild":false,"trustedKeys":[]}`, nil, false},
-		{"not JSON", `darkpanel dev`, []string{a}, false},
+		{"one key", `{"version":"1.2.3","testBuild":false,"trustedKeys":["A000000000000000"]}`, "1.2.3", []string{a}, true},
+		{"rotation in any order", `{"version":"1.2.3","testBuild":false,"trustedKeys":["B000000000000000","A000000000000000"]}`, "1.2.3", []string{a, b}, true},
+		{"test build", `{"version":"1.2.3","testBuild":true,"trustedKeys":["A000000000000000"]}`, "1.2.3", []string{a}, false},
+		{"no testBuild field", `{"version":"1.2.3","trustedKeys":["A000000000000000"]}`, "1.2.3", []string{a}, false},
+		{"binary of another version", `{"version":"1.2.4","testBuild":false,"trustedKeys":["A000000000000000"]}`, "1.2.3", []string{a}, false},
+		{"binary of the tag name", `{"version":"v1.2.3","testBuild":false,"trustedKeys":["A000000000000000"]}`, "1.2.3", []string{a}, false},
+		{"no version field", `{"testBuild":false,"trustedKeys":["A000000000000000"]}`, "1.2.3", []string{a}, false},
+		{"binary trusts an extra key", `{"version":"1.2.3","testBuild":false,"trustedKeys":["A000000000000000","B000000000000000"]}`, "1.2.3", []string{a}, false},
+		{"signing key not trusted", `{"version":"1.2.3","testBuild":false,"trustedKeys":["A000000000000000"]}`, "1.2.3", []string{a, b}, false},
+		{"no signing keys", `{"version":"1.2.3","testBuild":false,"trustedKeys":[]}`, "1.2.3", nil, false},
+		{"not JSON", `darkpanel dev`, "1.2.3", []string{a}, false},
 	}
 	for _, tt := range tests {
-		if err := checkBuild([]byte(tt.info), tt.keys); (err == nil) != tt.ok {
+		if err := checkBuild([]byte(tt.info), tt.version, tt.keys); (err == nil) != tt.ok {
 			t.Errorf("%s: checkBuild = %v, want ok %v", tt.name, err, tt.ok)
 		}
 	}
 }
 
 func TestRunCheckBuild(t *testing.T) {
-	info := `{"testBuild":false,"trustedKeys":["A000000000000000","B000000000000000"]}`
-	if err := run([]string{"check-build", "A000000000000000,B000000000000000"}, strings.NewReader(info), &bytes.Buffer{}); err != nil {
+	info := `{"version":"1.2.3","testBuild":false,"trustedKeys":["A000000000000000","B000000000000000"]}`
+	if err := run([]string{"check-build", "1.2.3", "A000000000000000,B000000000000000"}, strings.NewReader(info), &bytes.Buffer{}); err != nil {
 		t.Errorf("check-build of both keys = %v, want nil", err)
 	}
-	if err := run([]string{"check-build", ""}, strings.NewReader(info), &bytes.Buffer{}); err == nil {
+	if err := run([]string{"check-build", "1.2.3", ""}, strings.NewReader(info), &bytes.Buffer{}); err == nil {
 		t.Error("check-build of no keys = nil, want an error")
+	}
+	if err := run([]string{"check-build", "1.2.4", "A000000000000000,B000000000000000"}, strings.NewReader(info), &bytes.Buffer{}); err == nil {
+		t.Error("check-build of another version = nil, want an error")
+	}
+}
+
+func TestRunLatest(t *testing.T) {
+	// gh release list order: the rolling index release, a draft of a newer
+	// line, and betas of the next minor version.
+	list := `[
+  {"tagName": "index", "isDraft": false},
+  {"tagName": "v1.5.0", "isDraft": true},
+  {"tagName": "v1.4.0-beta.1", "isDraft": false},
+  {"tagName": "v1.3.1", "isDraft": false},
+  {"tagName": "v1.3.0", "isDraft": false},
+  {"tagName": "v1.2.4", "isDraft": false}
+]`
+	tests := []struct {
+		version string
+		want    string
+	}{
+		{"1.3.2", "true\n"},
+		{"1.4.0", "true\n"},
+		{"2.0.0", "true\n"},
+		{"1.2.5", "false\n"},
+		{"1.3.1", "false\n"},
+		{"1.4.0-beta.2", "false\n"},
+		{"1.6.0-beta.1", "false\n"},
+	}
+	for _, tt := range tests {
+		var out bytes.Buffer
+		if err := run([]string{"latest", tt.version}, strings.NewReader(list), &out); err != nil || out.String() != tt.want {
+			t.Errorf("latest %s = %q, %v; want %q", tt.version, out.String(), err, tt.want)
+		}
+	}
+
+	var out bytes.Buffer
+	if err := run([]string{"latest", "0.1.0"}, strings.NewReader("[]"), &out); err != nil || out.String() != "true\n" {
+		t.Errorf("latest of the first release = %q, %v; want %q", out.String(), err, "true\n")
+	}
+	if err := run([]string{"latest", "v1.3.2"}, strings.NewReader(list), &bytes.Buffer{}); err == nil {
+		t.Error("latest of a tag name = nil, want an error")
+	}
+	if err := run([]string{"latest", "1.3.2"}, strings.NewReader("not json"), &bytes.Buffer{}); err == nil {
+		t.Error("latest of invalid JSON = nil, want an error")
 	}
 }
 
 func TestRunUsage(t *testing.T) {
-	for _, args := range [][]string{nil, {"publish"}, {"check-tag"}, {"index", "extra"}} {
+	for _, args := range [][]string{nil, {"publish"}, {"check-tag"}, {"index", "extra"}, {"check-build", "A000000000000000"}, {"latest"}} {
 		if err := run(args, strings.NewReader(""), &bytes.Buffer{}); err == nil || !strings.HasPrefix(err.Error(), "usage:") {
 			t.Errorf("run(%q) = %v, want the usage error", args, err)
 		}
