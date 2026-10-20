@@ -1,0 +1,9 @@
+# Written by darkpanel system install; rerun it rather than editing this file.
+[Unit]
+Description=Darkpanel update rollback after a failed service or runner
+ConditionPathExists={{.Recovery}}
+
+[Service]
+Type=oneshot
+ExecStart={{.Recovery}} update recover
+TimeoutStartSec=30s
