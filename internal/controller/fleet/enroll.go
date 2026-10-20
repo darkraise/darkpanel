@@ -25,13 +25,16 @@ func (s *Server) serveEnroll(peer *transport.Peer) {
 	conn := peer.Conn
 	source := enrollSource(conn.RemoteAddr())
 	log := s.cfg.Log.With("source", source)
-	_ = conn.SetDeadline(time.Now().Add(s.cfg.EnrollTimeout))
+	// One deadline bounds both the connection and Authority.Enroll, so an
+	// enrollment cannot commit after its answer can no longer be sent.
+	deadline := time.Now().Add(s.cfg.EnrollTimeout)
+	_ = conn.SetDeadline(deadline)
 	req, err := http.ReadRequest(bufio.NewReader(io.LimitReader(conn, maxEnrollRequest)))
 	if err != nil {
 		log.Debug("fleet: unreadable enrollment request", "err", err)
 		return
 	}
-	ctx, cancel := context.WithTimeout(s.ctx, s.cfg.EnrollTimeout)
+	ctx, cancel := context.WithDeadline(s.ctx, deadline)
 	defer cancel()
 	answer := &enrollAnswer{header: http.Header{}}
 	s.enroll(answer, req.WithContext(ctx), source)
