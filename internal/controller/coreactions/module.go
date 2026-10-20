@@ -79,6 +79,7 @@ func (m module) Manifest() core.Manifest {
 		m.auditActions(),
 		m.userActions(),
 		m.enrollActions(),
+		m.hostRevokeActions(),
 	} {
 		actions = append(actions, group...)
 	}

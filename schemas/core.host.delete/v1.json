@@ -1,0 +1,196 @@
+{
+  "name": "core.host.delete",
+  "version": 1,
+  "class": "irreversible",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/HostIDInput",
+    "$defs": {
+      "HostIDInput": {
+        "properties": {
+          "hostId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Host id."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "hostId"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Host",
+    "$defs": {
+      "Host": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Host id."
+          },
+          "name": {
+            "type": "string",
+            "description": "Host name."
+          },
+          "isLocal": {
+            "type": "boolean",
+            "description": "Whether the host runs this controller."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "enrolled",
+              "revoked"
+            ],
+            "description": "Enrollment state: pending until the agent enrolls, revoked after core.host.revoke."
+          },
+          "online": {
+            "type": "boolean",
+            "description": "Whether the host's agent has a live session with the controller."
+          },
+          "lastSeenAt": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "When the agent last answered; null when it never has."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "agentVersion": {
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "Version of the agent's binary; null until its first Hello."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "protocolVersion": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "description": "Agent protocol version; null until its first Hello."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "os": {
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "Operating system the agent reports; null until its first Hello."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "arch": {
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "CPU architecture the agent reports; null until its first Hello."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "supported": {
+            "type": "boolean",
+            "description": "Whether the agent's version is inside the controller's support window; an unsupported agent accepts only update actions."
+          },
+          "modules": {
+            "items": {
+              "$ref": "#/$defs/ModuleState"
+            },
+            "type": "array",
+            "description": "Every compiled-in module's state on the host."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "isLocal",
+          "state",
+          "online",
+          "lastSeenAt",
+          "agentVersion",
+          "protocolVersion",
+          "os",
+          "arch",
+          "supported",
+          "modules"
+        ]
+      },
+      "ModuleState": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Module id."
+          },
+          "version": {
+            "type": "integer",
+            "description": "Module version compiled into this binary."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether an operator enabled the module on the host."
+          },
+          "available": {
+            "type": "boolean",
+            "description": "Whether the module's migrations and preflight checks passed on the host."
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "Why the module is unavailable; null when it is available."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "checkedAt": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "When availability was last checked; null when it never was."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "version",
+          "enabled",
+          "available",
+          "reason",
+          "checkedAt"
+        ]
+      }
+    }
+  }
+}

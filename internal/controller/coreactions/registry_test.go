@@ -31,6 +31,8 @@ type declaration struct {
 
 var declarations = map[string]declaration{
 	"core.host.list":           {class: core.ClassRead},
+	"core.host.revoke":         {class: core.ClassIrreversible},
+	"core.host.delete":         {class: core.ClassIrreversible},
 	"core.module.list":         {class: core.ClassRead},
 	"core.module.enable":       {class: core.ClassCompensable, lockKeys: []string{"core.module"}, compensatedBy: "core.module.disable"},
 	"core.module.disable":      {class: core.ClassCompensable, lockKeys: []string{"core.module"}, compensatedBy: "core.module.enable"},

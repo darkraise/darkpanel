@@ -41,7 +41,7 @@ func TestEntries(t *testing.T) {
 		"audit list",
 		"demo item add", "demo item get", "demo item list", "demo item remove",
 		"demo rule get", "demo rule set", "demo status get",
-		"host list",
+		"host delete", "host list", "host revoke",
 		"module disable", "module enable", "module list",
 		"token create", "token list", "token revoke",
 		"user activate", "user create", "user delete", "user list", "user reset-password", "user reset-totp",
