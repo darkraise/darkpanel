@@ -242,8 +242,9 @@ func (d *daemon) dialLoop(ctx context.Context) error {
 }
 
 // session connects with c and serves the agent API on the session until it
-// ends. A session the controller accepted resets the backoff and deletes
-// the credential generations older than c's.
+// ends, or until the certificate was renewed over it. A session the
+// controller accepted resets the backoff and deletes the credential
+// generations older than c's.
 func (d *daemon) session(ctx context.Context, c *Credentials, b *transport.Backoff) error {
 	dialCtx, cancel := context.WithTimeout(ctx, DialTimeout)
 	sess, err := connect(dialCtx, c)
@@ -266,8 +267,13 @@ func (d *daemon) session(ctx context.Context, c *Credentials, b *transport.Backo
 		ReadHeaderTimeout: 10 * time.Second,
 		ErrorLog:          slog.NewLogLogger(d.log.Handler(), slog.LevelWarn),
 	}
+	renewed := make(chan struct{})
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		d.renewLoop(sctx, sess, c, renewed)
+	}()
 	go func() {
 		defer wg.Done()
 		_ = srv.Serve(sess)
@@ -284,6 +290,11 @@ func (d *daemon) session(ctx context.Context, c *Credentials, b *transport.Backo
 	select {
 	case <-sess.Done():
 	case <-ctx.Done():
+	case <-renewed:
+		// Reconnecting proves the new generation now, while the previous
+		// one is still on disk, and lets the controller revoke the old
+		// serial at the first handshake with the new one.
+		d.log.Info("daemon: reconnecting with the renewed certificate")
 	}
 	stop()
 	_ = srv.Close()
