@@ -132,6 +132,10 @@ func (a *Authority) Enroll(ctx context.Context, token string, csrPEM []byte) (En
 			return errTokenInvalid
 		}
 		if cert, err = a.IssueAgentCert(ctx, tx, t.HostID, csrPEM); err != nil {
+			var coded *errcode.Error
+			if errors.As(err, &coded) && coded.Code == errcode.InvalidInput {
+				return fmt.Errorf("%w: %w", errTokenInvalid, err)
+			}
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE core_hosts SET state = ?, enrolled_at = ? WHERE id = ?`,
@@ -140,9 +144,8 @@ func (a *Authority) Enroll(ctx context.Context, token string, csrPEM []byte) (En
 		}
 		return nil
 	})
-	var coded *errcode.Error
 	switch {
-	case errors.Is(err, errTokenInvalid) || errors.As(err, &coded):
+	case errors.Is(err, errTokenInvalid):
 		return refused(err)
 	case err != nil:
 		return Enrollment{}, err
