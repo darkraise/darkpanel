@@ -73,12 +73,17 @@ type Probes struct {
 // clock until both probes pass, which returns nil. A refused connection, a
 // timeout or a report of version from is "not yet". A controller reporting
 // version to with a status other than ok fails at once; still not passing at
-// deadline fails too.
-func (p Probes) Wait(ctx context.Context, clock core.Clock, from, to string, deadline time.Time) error {
+// deadline fails too. moved, when not nil, is asked before each round of
+// probes: once another process has finished the record, nobody acts on the
+// answer, so Wait returns errMoved instead of polling to the deadline.
+func (p Probes) Wait(ctx context.Context, clock core.Clock, from, to string, deadline time.Time, moved func() bool) error {
 	if p.Agent == nil {
 		return errors.New("update: health check: no agent probe")
 	}
 	for {
+		if moved != nil && moved() {
+			return errMoved
+		}
 		passed, err := p.check(ctx, to)
 		if err != nil {
 			return err
