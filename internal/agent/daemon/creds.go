@@ -328,9 +328,10 @@ func lockSave(dir string) (func(), error) {
 
 // PruneGenerations deletes every generation of dir numbered below keep. The
 // daemon calls it after the first successful handshake with generation keep.
-// Newer generations and current.tmp stay: darkpanel agent enroll writes them
-// without the agent lock while the daemon runs, and SaveGeneration already
-// replaces a leftover current.tmp and numbers past every leftover generation.
+// Newer generations and current.tmp stay: darkpanel agent enroll may be
+// writing them while the daemon runs, under save.lock, which the prune does
+// not take, and SaveGeneration already replaces a leftover current.tmp and
+// numbers past every leftover generation.
 func PruneGenerations(dir string, keep int) error {
 	gens, err := listGenerations(dir)
 	if err != nil {
