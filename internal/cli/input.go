@@ -20,7 +20,7 @@ import (
 
 // reservedFlags are the flags the CLI defines itself; no input field may
 // take one (generation fails instead).
-var reservedFlags = []string{"url", "socket", "dev", "help", "json", "host", "input", "yes", "confirmation", "confirm"}
+var reservedFlags = []string{"url", "socket", "dev", "help", "json", "host", "local", "input", "yes", "confirmation", "confirm"}
 
 // terminal reads the operator's answers: from a terminal with prompts, or
 // line by line from standard input otherwise.

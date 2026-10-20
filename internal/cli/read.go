@@ -117,11 +117,19 @@ func hostFor(cmd *cobra.Command, c *client, side core.Side) (string, error) {
 	return resolveHost(cmd.Context(), c, want)
 }
 
-// runRead runs a read action and shows its output.
+// runRead runs a read action and shows its output; with --local the agent
+// socket runs it.
 func (a *app) runRead(cmd *cobra.Command, def core.ActionDef, fields []inputField, secrets []string) error {
+	local, err := useLocal(cmd)
+	if err != nil {
+		return err
+	}
 	input, err := collectInput(cmd, fields, a.term)
 	if err != nil {
 		return err
+	}
+	if local {
+		return a.localRead(cmd, def, input, secrets)
 	}
 	c, err := a.connect(cmd)
 	if err != nil {
@@ -151,11 +159,18 @@ func (a *app) resourceCommand(e entry) (*cobra.Command, error) {
 		Use:         "get",
 		Short:       "Read the " + res.Name + " resource of a host",
 		Args:        cobra.NoArgs,
-		Annotations: map[string]string{AnnotationResource: e.Name},
+		Annotations: map[string]string{AnnotationResource: e.Name, annotationLocal: "true"},
 	}
 	addConnFlags(cmd, false, true)
 	cmd.Flags().Bool("json", false, "print the raw JSON output")
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		local, err := useLocal(cmd)
+		if err != nil {
+			return err
+		}
+		if local {
+			return a.localResource(cmd, res.Name, secrets)
+		}
 		c, err := a.connect(cmd)
 		if err != nil {
 			return err

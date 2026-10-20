@@ -31,6 +31,9 @@ func TestExitCode(t *testing.T) {
 		{"usage inside a run", ranError(fmt.Errorf("input: %w", usagef("bad --input"))), ExitUsage},
 		{"refusal inside a run", ranError(refusedf("a guard failed")), ExitRefused},
 		{"unmarked error from cobra", errors.New(`unknown flag: --bogus`), ExitUsage},
+		{"ExitWith", ExitWith(ExitUsage, errors.New("not enrolled")), ExitUsage},
+		{"ExitWith inside a run", ranError(fmt.Errorf("check: %w", ExitWith(ExitRefused, nil))), ExitRefused},
+		{"ExitWith over a usage error", ExitWith(ExitError, usagef("bad flag")), ExitError},
 	}
 	for _, c := range cases {
 		if got := ExitCode(c.err); got != c.want {
@@ -89,6 +92,15 @@ func TestPrintError(t *testing.T) {
 	PrintError(&b, nil)
 	if b.Len() != 0 {
 		t.Errorf("nil error printed %q", b.String())
+	}
+	PrintError(&b, ranError(ExitWith(ExitUsage, errors.New("the agent is not enrolled"))))
+	if want := "darkpanel: the agent is not enrolled\n"; b.String() != want {
+		t.Errorf("ExitWith(2, err) printed as %q, want %q", b.String(), want)
+	}
+	b.Reset()
+	PrintError(&b, ranError(ExitWith(ExitError, nil)))
+	if b.Len() != 0 {
+		t.Errorf("ExitWith(1, nil) printed %q", b.String())
 	}
 }
 

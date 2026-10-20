@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,21 +26,27 @@ type planWire struct {
 	Confirmation *string         `json:"confirmation"`
 }
 
-// changeWire is the part of the API's Change the CLI reads.
+// changeWire is the API's Change. A change from the agent socket is
+// converted to it, so --json prints the same object either way.
 type changeWire struct {
-	ID             string          `json:"id"`
-	HostID         *string         `json:"hostId"`
-	Action         string          `json:"action"`
-	Version        int             `json:"version"`
-	Class          core.Class      `json:"class"`
-	State          string          `json:"state"`
-	RevertDeadline *time.Time      `json:"revertDeadline"`
-	Output         json.RawMessage `json:"output"`
-	Error          *struct {
-		Code    string `json:"code"`
-		Message string `json:"message"`
-	} `json:"error"`
-	CompensatedBy *string `json:"compensatedBy"`
+	ID             string           `json:"id"`
+	HostID         *string          `json:"hostId"`
+	Action         string           `json:"action"`
+	Version        int              `json:"version"`
+	Class          core.Class       `json:"class"`
+	State          string           `json:"state"`
+	Actor          string           `json:"actor"`
+	CreatedAt      time.Time        `json:"createdAt"`
+	UpdatedAt      time.Time        `json:"updatedAt"`
+	RevertDeadline *time.Time       `json:"revertDeadline"`
+	Output         json.RawMessage  `json:"output"`
+	Error          *changeErrorWire `json:"error"`
+	CompensatedBy  *string          `json:"compensatedBy"`
+}
+
+type changeErrorWire struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
 // addMutatingFlags adds --yes, and --confirmation for an irreversible
@@ -54,13 +61,19 @@ func addMutatingFlags(cmd *cobra.Command, class core.Class) {
 	}
 }
 
-// runMutating runs the mutating flow of one action (spec section 15) and
-// shows the change: with --json its raw JSON on standard output, else its
-// state and output for people.
+// runMutating runs the mutating flow of one action (spec section 15), on
+// the agent socket with --local.
 func (a *app) runMutating(cmd *cobra.Command, def core.ActionDef, fields []inputField, secrets []string) error {
+	local, err := useLocal(cmd)
+	if err != nil {
+		return err
+	}
 	input, err := collectInput(cmd, fields, a.term)
 	if err != nil {
 		return err
+	}
+	if local {
+		return a.localMutating(cmd, def, input, secrets)
 	}
 	c, err := a.connect(cmd)
 	if err != nil {
@@ -70,7 +83,14 @@ func (a *app) runMutating(cmd *cobra.Command, def core.ActionDef, fields []input
 	if err != nil {
 		return err
 	}
-	ch, raw, err := a.planAndApply(cmd, c, def, host, input, false)
+	return a.applyAndShow(cmd, apiCalls(c, def, host), input, secrets)
+}
+
+// applyAndShow runs the mutating flow over calls and shows the change: with
+// --json its raw JSON on standard output, else its state and output for
+// people.
+func (a *app) applyAndShow(cmd *cobra.Command, calls actionCalls, input any, secrets []string) error {
+	ch, raw, err := a.planAndApply(cmd, calls, input, false)
 	if err != nil {
 		return err
 	}
@@ -85,21 +105,57 @@ func (a *app) runMutating(cmd *cobra.Command, def core.ActionDef, fields []input
 	return changeOutcome(ch)
 }
 
-// planAndApply plans def with input, shows the plan, asks, and applies. A
+// actionCalls are the plan and apply of one action, on the controller API
+// or on the agent socket. apply returns the change and its JSON.
+type actionCalls struct {
+	plan  func(ctx context.Context, input any) (planWire, error)
+	apply func(ctx context.Context, planID, confirmation string, confirmNow bool) (changeWire, json.RawMessage, error)
+}
+
+// apiCalls are def's plan and apply on the API c reaches, under host for an
+// agent-side action.
+func apiCalls(c *client, def core.ActionDef, host string) actionCalls {
+	return actionCalls{
+		plan: func(ctx context.Context, input any) (planWire, error) {
+			var plan planWire
+			err := c.do(ctx, http.MethodPost, actionPath(def, host, "plan"), map[string]any{"input": input}, &plan)
+			return plan, err
+		},
+		apply: func(ctx context.Context, planID, confirmation string, confirmNow bool) (changeWire, json.RawMessage, error) {
+			body := map[string]any{"planId": planID}
+			if confirmation != "" {
+				body["confirmation"] = confirmation
+			}
+			if confirmNow {
+				body["confirmNow"] = true
+			}
+			var raw json.RawMessage
+			if err := c.do(ctx, http.MethodPost, actionPath(def, host, "apply"), body, &raw); err != nil {
+				return changeWire{}, nil, err
+			}
+			var ch changeWire
+			if err := json.Unmarshal(raw, &ch); err != nil {
+				return changeWire{}, nil, fmt.Errorf("decode the change: %w", err)
+			}
+			return ch, raw, nil
+		},
+	}
+}
+
+// planAndApply plans with input, shows the plan, asks, and applies. A
 // failing guard, a declined question or a wrong phrase refuses before
 // anything is applied. The plan goes to standard output, or to standard
 // error with --json. agreed skips the Apply? [y/N] question, as --yes
 // does, for a step of a flow the operator already agreed to; it never
 // skips the confirmation phrase.
-func (a *app) planAndApply(cmd *cobra.Command, c *client, def core.ActionDef, host string, input any,
-	agreed bool) (changeWire, json.RawMessage, error) {
+func (a *app) planAndApply(cmd *cobra.Command, calls actionCalls, input any, agreed bool) (changeWire, json.RawMessage, error) {
 	ctx := cmd.Context()
 	info := cmd.OutOrStdout()
 	if asJSON, _ := cmd.Flags().GetBool("json"); asJSON {
 		info = cmd.ErrOrStderr()
 	}
-	var plan planWire
-	if err := c.do(ctx, http.MethodPost, actionPath(def, host, "plan"), map[string]any{"input": input}, &plan); err != nil {
+	plan, err := calls.plan(ctx, input)
+	if err != nil {
 		return changeWire{}, nil, err
 	}
 	printPlan(info, plan)
@@ -108,38 +164,36 @@ func (a *app) planAndApply(cmd *cobra.Command, c *client, def core.ActionDef, ho
 			return changeWire{}, nil, refusedf("guard %s failed: %s; nothing was applied", g.ID, g.Message)
 		}
 	}
-	if yes, _ := cmd.Flags().GetBool("yes"); !yes && !agreed {
-		if !a.term.isTerm {
-			return changeWire{}, nil, refusedf("standard input is not a terminal; pass --yes to apply")
-		}
-		answer, err := a.term.line("Apply? [y/N] ")
-		if err != nil && !errors.Is(err, io.EOF) {
-			return changeWire{}, nil, err
-		}
-		if ans := strings.ToLower(strings.TrimSpace(answer)); ans != "y" && ans != "yes" {
-			return changeWire{}, nil, refusedf("not applied")
-		}
-	}
-	body := map[string]any{"planId": plan.PlanID}
-	if plan.Confirmation != nil && *plan.Confirmation != "" {
-		phrase, err := a.confirmation(cmd, *plan.Confirmation)
-		if err != nil {
-			return changeWire{}, nil, err
-		}
-		body["confirmation"] = phrase
-	}
-	if now, _ := cmd.Flags().GetBool("confirm"); now {
-		body["confirmNow"] = true
-	}
-	var raw json.RawMessage
-	if err := c.do(ctx, http.MethodPost, actionPath(def, host, "apply"), body, &raw); err != nil {
+	if err := a.askApply(cmd, agreed); err != nil {
 		return changeWire{}, nil, err
 	}
-	var ch changeWire
-	if err := json.Unmarshal(raw, &ch); err != nil {
-		return changeWire{}, nil, fmt.Errorf("decode the change: %w", err)
+	var phrase string
+	if plan.Confirmation != nil && *plan.Confirmation != "" {
+		if phrase, err = a.confirmation(cmd, *plan.Confirmation); err != nil {
+			return changeWire{}, nil, err
+		}
 	}
-	return ch, raw, nil
+	now, _ := cmd.Flags().GetBool("confirm")
+	return calls.apply(ctx, plan.PlanID, phrase, now)
+}
+
+// askApply asks Apply? [y/N] unless --yes or agreed; without a terminal it
+// refuses, because only --yes can answer.
+func (a *app) askApply(cmd *cobra.Command, agreed bool) error {
+	if yes, _ := cmd.Flags().GetBool("yes"); yes || agreed {
+		return nil
+	}
+	if !a.term.isTerm {
+		return refusedf("standard input is not a terminal; pass --yes to apply")
+	}
+	answer, err := a.term.line("Apply? [y/N] ")
+	if err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	if ans := strings.ToLower(strings.TrimSpace(answer)); ans != "y" && ans != "yes" {
+		return refusedf("not applied")
+	}
+	return nil
 }
 
 // confirmation returns the phrase an irreversible plan needs: from

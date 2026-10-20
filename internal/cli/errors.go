@@ -83,13 +83,36 @@ func markRuns(root *cobra.Command) {
 	}
 }
 
+// exitError is an error with the exit code a hand-written command chose.
+type exitError struct {
+	code int
+	err  error
+}
+
+func (e *exitError) Error() string {
+	if e.err == nil {
+		return ""
+	}
+	return e.err.Error()
+}
+
+func (e *exitError) Unwrap() error { return e.err }
+
+// ExitWith returns an error that makes ExitCode answer code, also when it is
+// wrapped; PrintError prints err, and nothing when err is nil, for a command
+// whose exit status is its answer.
+func ExitWith(code int, err error) error {
+	return &exitError{code: code, err: err}
+}
+
 // ExitCode is the process exit code for err, the error of a command tree
-// that NewRoot built: 0 for nil, 2 for a usage error (including every error
-// cobra raises while parsing the command line), 3 for a refused change or an
-// API refusal with plan.guard_failed, 4 when the API refused with an auth.*
-// code, and 1 for any other error.
+// that NewRoot built: 0 for nil, the code of an ExitWith error, 2 for a
+// usage error (including every error cobra raises while parsing the command
+// line), 3 for a refused change or an API refusal with plan.guard_failed, 4
+// when the API refused with an auth.* code, and 1 for any other error.
 func ExitCode(err error) int {
 	var (
+		exit    *exitError
 		usage   *usageError
 		refused *refusedError
 		problem *problemError
@@ -98,6 +121,8 @@ func ExitCode(err error) int {
 	switch {
 	case err == nil:
 		return ExitOK
+	case errors.As(err, &exit):
+		return exit.code
 	case errors.As(err, &usage):
 		return ExitUsage
 	case errors.As(err, &refused):
@@ -114,10 +139,11 @@ func ExitCode(err error) int {
 }
 
 // PrintError writes err as "darkpanel: <message>", followed by one indented
-// line per field error of an API refusal, all sanitized. A nil err prints
-// nothing.
+// line per field error of an API refusal, all sanitized. A nil err, or an
+// ExitWith error without one, prints nothing.
 func PrintError(w io.Writer, err error) {
-	if err == nil {
+	var exit *exitError
+	if err == nil || errors.As(err, &exit) && exit.err == nil {
 		return
 	}
 	_, _ = fmt.Fprintf(w, "darkpanel: %s\n", sanitize(err.Error()))

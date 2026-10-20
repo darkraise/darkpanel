@@ -82,7 +82,7 @@ func (a *app) runEnrollment(cmd *cobra.Command, def, activate core.ActionDef) er
 		return err
 	}
 	out := cmd.OutOrStdout()
-	ch, _, err := a.planAndApply(cmd, c, def, "", input, false)
+	ch, _, err := a.planAndApply(cmd, apiCalls(c, def, ""), input, false)
 	if err != nil {
 		return err
 	}
@@ -114,7 +114,7 @@ func (a *app) runEnrollment(cmd *cobra.Command, def, activate core.ActionDef) er
 	if err != nil {
 		return err
 	}
-	act, _, err := a.planAndApply(cmd, c, activate, "", map[string]any{"username": username, "code": code}, true)
+	act, _, err := a.planAndApply(cmd, apiCalls(c, activate, ""), map[string]any{"username": username, "code": code}, true)
 	if err != nil {
 		return fmt.Errorf("%w; %s", err, retry)
 	}

@@ -22,6 +22,10 @@ type cliEnv struct {
 	terminal bool
 	secrets  []string
 	commands []*cobra.Command
+	// agentSocket is the socket --local dials; fallbacks are its
+	// LocalFallbacks.
+	agentSocket string
+	fallbacks   map[string]LocalFallback
 }
 
 func (c cliEnv) run(t *testing.T, args ...string) (stdout, stderr string, code int) {
@@ -33,7 +37,7 @@ func (c cliEnv) run(t *testing.T, args ...string) (stdout, stderr string, code i
 	secrets := slices.Clone(c.secrets)
 	var out, errb bytes.Buffer
 	root, err := NewRoot(Options{
-		Registry: reg, Commands: c.commands,
+		Registry: reg, Commands: c.commands, AgentSocket: c.agentSocket, LocalFallbacks: c.fallbacks,
 		Stdin: strings.NewReader(c.stdin), Stdout: &out, Stderr: &errb,
 		Getenv: envOf(c.env), UserHomeDir: homeAt(t.TempDir()),
 		IsTerminal: func() bool { return c.terminal },
