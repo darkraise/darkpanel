@@ -36,6 +36,7 @@ var declarations = map[string]declaration{
 	"core.host.token":          {class: core.ClassIrreversible},
 	"core.host.enroll-local":   {class: core.ClassIrreversible, breakGlass: true},
 	"core.host.delete":         {class: core.ClassIrreversible},
+	"core.host.update-policy":  {class: core.ClassCompensable, compensatedBy: "core.host.update-policy"},
 	"core.module.list":         {class: core.ClassRead},
 	"core.module.enable":       {class: core.ClassCompensable, lockKeys: []string{"core.module"}, compensatedBy: "core.module.disable"},
 	"core.module.disable":      {class: core.ClassCompensable, lockKeys: []string{"core.module"}, compensatedBy: "core.module.enable"},
@@ -179,7 +180,8 @@ func TestCoreNullOutputsMatchSchemas(t *testing.T) {
 		}}},
 		"core.host.list": core.HostList{Hosts: []core.Host{{ID: "h1", Name: "local", IsLocal: true, State: core.HostPending,
 			Online: true, Modules: []core.ModuleState{{ID: "demo", Version: 1}}}}},
-		"core.module.disable": core.ModuleState{ID: "demo", Version: 1},
+		"core.module.disable":     core.ModuleState{ID: "demo", Version: 1},
+		"core.host.update-policy": core.UpdatePolicy{HostID: "h1", Channel: core.ChannelStable},
 	}
 	defs := map[string]core.ActionDef{}
 	for _, a := range coreActions(t) {
@@ -233,11 +235,28 @@ func TestCoreInputFieldsAreDocumented(t *testing.T) {
 		obj, _ := schemaOf(t, raw)
 		props, _ := obj["properties"].(map[string]any)
 		for name, p := range props {
-			if prop, _ := p.(map[string]any); prop["description"] == nil || prop["description"] == "" {
+			if prop, _ := p.(map[string]any); !documented(prop) {
 				t.Errorf("%s: input field %s has no description", a.Ref(), name)
 			}
 		}
 	}
+}
+
+// documented reports whether prop has a description. The reflector writes a
+// nullable reference's description on its reference branch of oneOf; such
+// a field is nested, so the CLI takes it from --input rather than a flag.
+func documented(prop map[string]any) bool {
+	if d, _ := prop["description"].(string); d != "" {
+		return true
+	}
+	branches, _ := prop["oneOf"].([]any)
+	for _, b := range branches {
+		if branch, _ := b.(map[string]any); branch["$ref"] != nil {
+			d, _ := branch["description"].(string)
+			return d != ""
+		}
+	}
+	return false
 }
 
 // TestZeroDepsFailClosed calls the handlers of the registry.Build() core
