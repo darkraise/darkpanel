@@ -2,12 +2,22 @@ package registry
 
 import (
 	"context"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/install"
 	"github.com/darkraise/darkpanel/internal/modules"
 )
+
+// coreActionNames are the update and rollout actions every process's core
+// manifest holds, in registration order.
+var coreActionNames = []string{
+	"core.update.apply", "core.update.rollback", "core.update.status",
+	"core.update.rollout", "core.update.rollout-cancel", "core.update.rollouts",
+}
 
 type hostList struct{}
 
@@ -30,7 +40,29 @@ func TestBuild(t *testing.T) {
 	}
 	mods := r.Modules()
 	if len(mods) != 1+len(modules.All()) || mods[0].ID != core.ModuleIDCore {
-		t.Errorf("modules = %d, first %q; want core first, then modules.All()", len(mods), mods[0].ID)
+		t.Fatalf("modules = %d, first %q; want core first, then modules.All()", len(mods), mods[0].ID)
+	}
+	var names []string
+	for _, a := range mods[0].Actions {
+		if slices.Contains(coreActionNames, a.Spec.Name) {
+			names = append(names, a.Spec.Name)
+		}
+	}
+	if !slices.Equal(names, coreActionNames) {
+		t.Errorf("core update and rollout actions = %q, want %q", names, coreActionNames)
+	}
+	if !reflect.DeepEqual(mods[0].OwnedPaths, install.CoreOwnedPaths()) {
+		t.Errorf("core owned paths = %v, want install.CoreOwnedPaths()", mods[0].OwnedPaths)
+	}
+}
+
+func TestCoreActions(t *testing.T) {
+	var names []string
+	for _, a := range CoreActions(nil, "") {
+		names = append(names, a.Spec.Name)
+	}
+	if !slices.Equal(names, coreActionNames) {
+		t.Errorf("CoreActions = %q, want %q", names, coreActionNames)
 	}
 }
 

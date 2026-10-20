@@ -10,11 +10,13 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/darkraise/darkpanel/internal/buildinfo"
 	"github.com/darkraise/darkpanel/internal/controller/auth"
 	"github.com/darkraise/darkpanel/internal/controller/coreactions"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/coretest"
 	"github.com/darkraise/darkpanel/internal/core/schema"
+	"github.com/darkraise/darkpanel/internal/install"
 	"github.com/darkraise/darkpanel/internal/modules"
 	"github.com/darkraise/darkpanel/internal/registry"
 )
@@ -113,6 +115,7 @@ func TestReleasedSnapshotsCompatible(t *testing.T) {
 func TestServerRegistryHasTheSameShape(t *testing.T) {
 	server, err := registry.BuildWith(coreactions.Module(coreactions.Deps{
 		Auth: new(auth.Service), Audit: &coretest.MemAudit{}, Modules: modules.All(),
+		Extra: registry.CoreActions(nil, buildinfo.Version), OwnedPaths: install.CoreOwnedPaths(),
 	}))
 	if err != nil {
 		t.Fatalf("registry.BuildWith: %v", err)
