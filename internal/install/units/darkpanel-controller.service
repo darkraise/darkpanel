@@ -1,0 +1,25 @@
+# Written by darkpanel system install; rerun it rather than editing this file.
+[Unit]
+Description=Darkpanel controller
+Documentation=https://github.com/Darkraise/darkpanel
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+OnFailure=darkpanel-rollback.service
+
+[Service]
+User=darkpanel
+ExecStart={{.Binary}} serve
+RuntimeDirectory=darkpanel-controller
+Restart=on-failure
+RestartSec=2
+TimeoutStartSec=30s
+TimeoutStopSec=10s
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths={{.ControllerDir}}
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

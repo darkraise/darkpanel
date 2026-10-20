@@ -1,0 +1,13 @@
+# Written by darkpanel system install; rerun it rather than editing this file.
+[Unit]
+Description=Darkpanel update recovery at boot
+ConditionPathExists={{.Recovery}}
+Before=darkpanel-controller.service darkpanel-agent.service
+
+[Service]
+Type=oneshot
+ExecStart={{.Recovery}} update recover --boot
+TimeoutStartSec=30s
+
+[Install]
+WantedBy=multi-user.target
