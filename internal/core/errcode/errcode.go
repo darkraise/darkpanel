@@ -36,6 +36,7 @@ const (
 	ChangeNotPending       Code = "change.not_pending"
 	LockHeld               Code = "lock.held"
 	Internal               Code = "internal"
+	Unavailable            Code = "unavailable"
 )
 
 // Action-level codes: they appear in a change's error or in the audit log,
@@ -98,6 +99,7 @@ var registry = map[Code]info{
 	ChangeNotPending:       {http.StatusConflict, "Change is not pending"},
 	LockHeld:               {http.StatusLocked, "Resource locked by another change"},
 	Internal:               {http.StatusInternalServerError, "Internal error"},
+	Unavailable:            {http.StatusServiceUnavailable, "Unavailable"},
 	ChangeRevertFailed:     {http.StatusInternalServerError, "Revert failed"},
 	ExecOutputTooLarge:     {http.StatusInternalServerError, "Command output too large"},
 	FilesMarkersBad:        {http.StatusInternalServerError, "Invalid DARKPANEL markers"},

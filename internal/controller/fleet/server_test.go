@@ -410,7 +410,7 @@ func TestServerCloseWaitsForHandlers(t *testing.T) {
 	if called {
 		t.Fatal("a handler ran after Close")
 	}
-	wantProblemBody(t, rec.Code, rec.Body.Bytes(), http.StatusServiceUnavailable, errcode.HostOffline, errcode.HostOffline.Title())
+	wantProblemBody(t, rec.Code, rec.Body.Bytes(), http.StatusServiceUnavailable, errcode.Unavailable, "Unavailable")
 }
 
 func TestNewServerRefusesBadConfig(t *testing.T) {

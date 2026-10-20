@@ -1,10 +1,6 @@
 package coreactions
 
-import (
-	"testing"
-
-	agentruntime "github.com/darkraise/darkpanel/internal/agent/runtime"
-)
+import "testing"
 
 func TestSupported(t *testing.T) {
 	cases := []struct {
@@ -35,12 +31,5 @@ func TestSupported(t *testing.T) {
 		if got := Supported(c.controller, c.agent, c.protocol); got != c.want {
 			t.Errorf("Supported(%q, %q, %d) = %t, want %t", c.controller, c.agent, c.protocol, got, c.want)
 		}
-	}
-}
-
-// The agent reports the runtime's protocol and coreactions may not import the runtime outside tests, so this test keeps the two equal.
-func TestProtocolVersionMatchesTheAgent(t *testing.T) {
-	if ProtocolVersion != agentruntime.ProtocolVersion {
-		t.Errorf("ProtocolVersion = %d, the agent runtime reports %d", ProtocolVersion, agentruntime.ProtocolVersion)
 	}
 }

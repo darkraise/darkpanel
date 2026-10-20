@@ -1,9 +1,9 @@
 package coreactions
 
-import "github.com/darkraise/darkpanel/internal/update"
-
-// ProtocolVersion is the agent protocol this controller speaks (ADR 0003).
-const ProtocolVersion = 1
+import (
+	agentruntime "github.com/darkraise/darkpanel/internal/agent/runtime"
+	"github.com/darkraise/darkpanel/internal/update"
+)
 
 // Supported reports whether an agent running agentVersion over protocol is
 // inside the support window of a controller running controllerVersion (spec
@@ -12,7 +12,7 @@ const ProtocolVersion = 1
 // accepts only the core.update actions. A version that does not parse, such
 // as a development build's "dev", is equal only to the same string.
 func Supported(controllerVersion, agentVersion string, protocol int) bool {
-	if protocol != ProtocolVersion {
+	if protocol != agentruntime.ProtocolVersion {
 		return false
 	}
 	if agentVersion == controllerVersion {

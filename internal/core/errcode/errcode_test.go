@@ -34,6 +34,7 @@ func TestStatus(t *testing.T) {
 		{ChangeNotPending, 409},
 		{LockHeld, 423},
 		{Internal, 500},
+		{Unavailable, 503},
 		{ChangeRevertFailed, 500},
 		{HostOffline, 503},
 		{HostVersionUnsupported, 409},
@@ -62,6 +63,7 @@ func TestStatus(t *testing.T) {
 // them.
 func TestFleetCodeValues(t *testing.T) {
 	for code, want := range map[Code]string{
+		Unavailable:              "unavailable",
 		HostOffline:              "host.offline",
 		HostVersionUnsupported:   "host.version_unsupported",
 		AgentNotEnrolled:         "agent.not_enrolled",
