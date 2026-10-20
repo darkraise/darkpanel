@@ -77,15 +77,18 @@ func uiEmbedded(dist fs.FS) bool {
 }
 
 // newRoot returns the command tree: the commands generated from
-// registry.Build() plus the hand-written serve, version, selftest, agent and
-// update, the last adopting the generated update and rollout commands.
+// registry.Build() plus the hand-written serve, version, selftest, agent,
+// update, system and uninstall; update adopts the generated update and
+// rollout commands.
 func newRoot(opts cli.Options) (*cobra.Command, error) {
 	reg, err := registry.Build()
 	if err != nil {
 		return nil, err
 	}
 	opts.Registry = reg
-	opts.Commands = []*cobra.Command{newServeCmd(), newVersionCmd(), newSelftestCmd(), newAgentCmd(), newUpdateCmd()}
+	opts.Commands = []*cobra.Command{
+		newServeCmd(), newVersionCmd(), newSelftestCmd(), newAgentCmd(), newUpdateCmd(), newSystemCmd(), newUninstallCmd(),
+	}
 	opts.Adopt = map[string][]string{"update": updateActions}
 	stderr := opts.Stderr
 	if stderr == nil {
