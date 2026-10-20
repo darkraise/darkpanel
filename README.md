@@ -115,7 +115,10 @@ On a host whose controller cannot be reached, `sudo darkpanel --local
 <command>` sends an agent-side command to the local agent's socket instead,
 for example `sudo darkpanel hostinfo summary get --local`. With the agent
 stopped too, `sudo darkpanel update rollback --local --yes` puts the previous
-binary back.
+binary back. If that rollback is interrupted, for example with Ctrl+C, the
+services can stay stopped until the next boot; `sudo darkpanel update recover`
+finishes a rollback that had started replacing the binary and restarts the
+services, or ends one that had not, so it can be run again.
 
 ### Uninstall
 
