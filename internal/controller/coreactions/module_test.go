@@ -256,6 +256,41 @@ func TestHostListReportsAgents(t *testing.T) {
 	}
 }
 
+// deadlineDirectory answers every host as hung, recording the deadline each
+// call carried; it returns at once so the test need not wait it out.
+type deadlineDirectory struct{ deadlines map[string]time.Duration }
+
+func (d deadlineDirectory) Agent(ctx context.Context, hostID string) (core.AgentClient, error) {
+	dl, ok := ctx.Deadline()
+	if !ok {
+		return nil, errors.New("no deadline")
+	}
+	d.deadlines[hostID] = time.Until(dl)
+	return nil, context.DeadlineExceeded
+}
+
+// TestHostListBoundsEachHost checks that each host's online check carries its
+// own deadline, so one agent whose Hello hangs cannot hold the list.
+func TestHostListBoundsEachHost(t *testing.T) {
+	e := newTestEnv(t)
+	e.addHost("h1", "alpha", true)
+	e.addHost("h2", "beta", false)
+	dir := deadlineDirectory{deadlines: map[string]time.Duration{}}
+	got, err := hostList{}.Read(context.Background(), core.Env{DB: e.db, Agents: dir}, NoInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, host := range got.Hosts {
+		if host.Online {
+			t.Errorf("host %s is online behind a hung Hello", host.ID)
+		}
+		left, ok := dir.deadlines[host.ID]
+		if !ok || left <= 0 || left > onlineTimeout {
+			t.Errorf("host %s: online check had %v left (recorded %v), want at most %v", host.ID, left, ok, onlineTimeout)
+		}
+	}
+}
+
 func TestHostListJSON(t *testing.T) {
 	e := newTestEnv(t, fakeModule{"demo", 1})
 	e.addHost("h1", "alpha", true)

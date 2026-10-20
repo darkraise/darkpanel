@@ -110,6 +110,11 @@ func (m module) complete(ctx context.Context, env core.Env, q querier, h *core.H
 	return err
 }
 
+// onlineTimeout bounds one host's online check. The check greets an agent
+// not yet greeted on its session, and an agent whose heartbeat answers but
+// whose Hello hangs would otherwise hold the host list for every caller.
+const onlineTimeout = 5 * time.Second
+
 // online reports whether hostID's agent has a live session. A host that
 // answers host.offline is offline; so is one that fails in any other way,
 // which is logged, because one broken agent must not fail a list of hosts.
@@ -117,6 +122,8 @@ func online(ctx context.Context, env core.Env, hostID string) bool {
 	if env.Agents == nil {
 		return false
 	}
+	ctx, cancel := context.WithTimeout(ctx, onlineTimeout)
+	defer cancel()
 	_, err := env.Agents.Agent(ctx, hostID)
 	if err != nil && errcode.From(err).Code != errcode.HostOffline && env.Log != nil {
 		env.Log.Warn("coreactions: host unreachable", "host", hostID, "error", err)
