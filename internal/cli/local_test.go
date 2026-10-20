@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -330,6 +331,30 @@ func TestLocalLeavesHelpAndCompletion(t *testing.T) {
 	out, _, _ := cliEnv{}.run(t, "help", "demo", "item", "get")
 	if !strings.Contains(out, "--local") {
 		t.Errorf("demo item get's help does not show --local:\n%s", out)
+	}
+}
+
+func TestLocalApplyTimeout(t *testing.T) {
+	saved := localTimeout
+	localTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { localTimeout = saved })
+	release := make(chan struct{})
+	agent := &coretest.FakeAgent{
+		PlanFunc: func(context.Context, core.Principal, core.ActionRef, json.RawMessage) (core.PlanView, error) {
+			return core.PlanView{PlanID: "p1", HostID: "h1", Action: "demo.item.remove", Version: 1, InputHash: "ih"}, nil
+		},
+		ApplyFunc: func(context.Context, core.Principal, string, core.ApplyOptions) (core.ChangeView, error) {
+			<-release
+			return core.ChangeView{}, errors.New("released")
+		},
+	}
+	sock := agentSocket(t, agent)
+	t.Cleanup(func() { close(release) })
+	_, errOut, code := cliEnv{agentSocket: sock}.run(t, "demo", "item", "remove", "--id", "i1", "--yes", "--local")
+	want := "darkpanel: the agent socket " + sock + " did not answer the apply of plan p1 within 200ms, so whether it was applied " +
+		"is unknown; run darkpanel change list --host h1 before applying it again\n"
+	if code != ExitError || errOut != want {
+		t.Errorf("exit %d, err %q; want exit %d, err %q", code, errOut, ExitError, want)
 	}
 }
 

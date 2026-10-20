@@ -186,15 +186,16 @@ func (a *app) localResource(cmd *cobra.Command, name string, secrets []string) e
 
 func (a *app) localMutating(cmd *cobra.Command, def core.ActionDef, input json.RawMessage, secrets []string) error {
 	return a.withAgent(cmd, &def, input, secrets, func(c *api.Client) error {
-		return a.applyAndShow(cmd, localCalls(c, def), input, secrets)
+		return a.applyAndShow(cmd, localCalls(c, def, a.opts.AgentSocket), input, secrets)
 	})
 }
 
 // localCalls are def's plan and apply on the agent socket. They convert the
 // agent's plan and change to the API's shapes, so the plan, the change and
 // --json print as they do through the controller API.
-func localCalls(c *api.Client, def core.ActionDef) actionCalls {
+func localCalls(c *api.Client, def core.ActionDef, socket string) actionCalls {
 	ref := core.ActionRef{Name: def.Spec.Name, Version: def.Spec.Version}
+	var hostID string
 	return actionCalls{
 		plan: func(ctx context.Context, input any) (planWire, error) {
 			raw, err := json.Marshal(input)
@@ -207,13 +208,20 @@ func localCalls(c *api.Client, def core.ActionDef) actionCalls {
 			if err != nil {
 				return planWire{}, localError(err)
 			}
+			hostID = v.HostID
 			return planWire{PlanID: v.PlanID, HostID: optional(v.HostID), Action: v.Action, Version: v.Version,
 				Diff: v.Diff, Guards: v.Guards, Confirmation: optional(v.Confirmation)}, nil
 		},
 		apply: func(ctx context.Context, planID, confirmation string, confirmNow bool) (changeWire, json.RawMessage, error) {
-			ctx, cancel := context.WithTimeout(ctx, localTimeout)
+			actx, cancel := context.WithTimeout(ctx, localTimeout)
 			defer cancel()
-			v, err := c.Apply(ctx, core.Principal{}, planID, core.ApplyOptions{Confirmation: confirmation, ConfirmNow: confirmNow})
+			v, err := c.Apply(actx, core.Principal{}, planID, core.ApplyOptions{Confirmation: confirmation, ConfirmNow: confirmNow})
+			// The agent may still finish an apply the CLI stopped waiting for,
+			// so running the command again could apply the change twice.
+			if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+				return changeWire{}, nil, fmt.Errorf("the agent socket %s did not answer the apply of plan %s within %s, so whether it was "+
+					"applied is unknown; run darkpanel change list --host %s before applying it again", socket, planID, localTimeout, hostID)
+			}
 			if err != nil {
 				return changeWire{}, nil, localError(err)
 			}
