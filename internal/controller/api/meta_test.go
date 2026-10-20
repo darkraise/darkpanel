@@ -57,6 +57,34 @@ func TestHealthz(t *testing.T) {
 		"invalid bearer token": "dpt_bogus", "invalid session id": "bogus"})
 }
 
+// An unhealthy controller still answers 200, because the update's health
+// probe reads any other status as "not yet" and would wait out its deadline
+// instead of failing at once.
+func TestHealthzStatus(t *testing.T) {
+	h := newHarness(t)
+	readToken := h.token(core.ScopeRead)
+	for _, tc := range []struct{ config, want string }{
+		{"", "ok"},
+		{"degraded", "degraded"},
+	} {
+		h.srv.cfg.HealthStatus = tc.config
+		detail := fmt.Sprintf(`{"status":%q,"version":%q,"commit":%q,"schemaVersion":3}`, tc.want, buildinfo.Version, buildinfo.Commit)
+		for _, answer := range []struct {
+			name string
+			rec  *httptest.ResponseRecorder
+			body string
+		}{
+			{"bare", h.serve(request("GET", "/healthz", "")), fmt.Sprintf(`{"status":%q}`, tc.want)},
+			{"detail", h.serve(withToken(request("GET", "/healthz", ""), readToken)), detail},
+			{"socket", h.socketRequest(request("GET", "/healthz", ""), 0), detail},
+		} {
+			if answer.rec.Code != http.StatusOK || answer.rec.Body.String() != answer.body {
+				t.Errorf("HealthStatus %q, %s answer: %d %s, want 200 %s", tc.config, answer.name, answer.rec.Code, answer.rec.Body, answer.body)
+			}
+		}
+	}
+}
+
 func TestOpenAPIRoute(t *testing.T) {
 	h := newHarness(t)
 	unauthenticated := h.serve(request("GET", "/api/v1/openapi.json", ""))
