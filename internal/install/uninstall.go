@@ -525,7 +525,10 @@ func (u *Uninstall) removeData(ctx context.Context, users []core.OwnedEntry) (st
 	if err := clearExcept(l.DataDir, keep); err != nil {
 		return "", err
 	}
-	if err := u.Close(); err != nil {
+	// The agent lock stays held through the removal (Linux unlinks a locked
+	// file); Run's deferred Close releases it, so no agent starts against a
+	// half-removed data directory.
+	if err := u.closeDB(); err != nil {
 		return "", err
 	}
 	if err := removeTree(l.DataDir); err != nil {
