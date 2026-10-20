@@ -68,9 +68,11 @@ minisign -V -P <public key> -m checksums.txt -x checksums.txt.<key id>.minisig
 sha256sum --check --ignore-missing checksums.txt
 ```
 
-The trusted comment minisign prints names the version and channel. The
-release workflow also attests every file, so `gh attestation verify install.sh
---repo darkraise/darkpanel` is a second check.
+The trusted comment minisign prints names the version and channel. Check that
+they are the release you meant to install: an older release's `checksums.txt`
+is signed too, and verifies together with that release's older `install.sh`.
+The release workflow also attests every file, so `gh attestation verify
+install.sh --repo darkraise/darkpanel` is a second check.
 
 `system install` creates the `darkpanel` user and the directories, keys and
 systemd units, starts `darkpanel-controller.service`, enrolls the host's own
