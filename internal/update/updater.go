@@ -50,6 +50,16 @@ const selfTestTimeout = 30 * time.Second
 // before the swap, so a stalled mirror must fail the step.
 const downloadTimeout = 15 * time.Minute
 
+// runnerStartWait bounds how long a starter, holding the update lock, waits
+// for a new runner unit to start, state queries included. It stays well under
+// LockTimeout: a recover pass that waits LockTimeout for the lock takes the
+// holder for a frozen runner and kills every active record's runner, the one
+// just started too.
+const runnerStartWait = 2 * time.Second
+
+// runnerStartPoll is how often the starter asks systemd for the runner's state.
+const runnerStartPoll = 50 * time.Millisecond
+
 // statusOperations is how many operations core.update.status reports when no
 // operation or change is named.
 const statusOperations = 20
@@ -94,6 +104,8 @@ type Updater struct {
 	lockTimeout time.Duration
 	// downloadTimeout is downloadTimeout; tests shorten it.
 	downloadTimeout time.Duration
+	// runnerStartWait is runnerStartWait; tests shorten it.
+	runnerStartWait time.Duration
 
 	idMu    sync.Mutex // guards entropy
 	entropy io.Reader
@@ -123,7 +135,7 @@ func New(cfg Config) (*Updater, error) {
 		cfg.HTTP = defaultHTTPClient()
 	}
 	return &Updater{
-		cfg: cfg, lockTimeout: LockTimeout, downloadTimeout: downloadTimeout,
+		cfg: cfg, lockTimeout: LockTimeout, downloadTimeout: downloadTimeout, runnerStartWait: runnerStartWait,
 		entropy: ulid.Monotonic(rand.Reader, 0),
 	}, nil
 }
@@ -250,22 +262,26 @@ func (u *Updater) startRunner(ctx context.Context, unit string, argv []string) e
 	if err != nil {
 		return fmt.Errorf("update: start %s: %w", unit, err)
 	}
-	for range 100 {
-		st, err := u.cfg.Systemd.State(ctx, unit)
-		if err != nil {
+	wctx, cancel := context.WithTimeout(ctx, u.runnerStartWait)
+	defer cancel()
+	for {
+		st, err := u.cfg.Systemd.State(wctx, unit)
+		switch {
+		case err == nil && (st.ActiveState != "inactive" || st.LoadState == "not-found"):
+			return nil
+		case err != nil && wctx.Err() == nil:
 			return fmt.Errorf("update: start %s: %w", unit, err)
 		}
-		if st.ActiveState != "inactive" || st.LoadState == "not-found" {
-			return nil
-		}
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(50 * time.Millisecond):
+		case <-wctx.Done():
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			u.cfg.Log.Warn("update: the runner unit has not started yet", "unit", unit)
+			return nil
+		case <-time.After(runnerStartPoll):
 		}
 	}
-	u.cfg.Log.Warn("update: the runner unit has not started yet", "unit", unit)
-	return nil
 }
 
 // CheckApply applies the update rules of in without side effects: the

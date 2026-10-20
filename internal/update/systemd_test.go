@@ -28,6 +28,9 @@ type fakeSystemd struct {
 	// onKill runs, outside the lock, after Kill recorded its call; a test
 	// stops a frozen runner's work from it.
 	onKill func(unit string)
+	// onState, when set, runs outside the lock before State answers; an
+	// error it returns is State's answer.
+	onState func(ctx context.Context, unit string) error
 }
 
 var _ platform.Systemd = (*fakeSystemd)(nil)
@@ -155,7 +158,15 @@ func (f *fakeSystemd) Reload(context.Context) error {
 	return f.record(systemdCall{Method: "Reload"}, "")
 }
 
-func (f *fakeSystemd) State(_ context.Context, unit string) (platform.UnitState, error) {
+func (f *fakeSystemd) State(ctx context.Context, unit string) (platform.UnitState, error) {
+	f.mu.Lock()
+	hook := f.onState
+	f.mu.Unlock()
+	if hook != nil {
+		if err := hook(ctx, unit); err != nil {
+			return platform.UnitState{}, err
+		}
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.errs["State "+unit]; err != nil {

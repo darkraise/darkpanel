@@ -380,6 +380,49 @@ func TestStartUpdateUnitFailure(t *testing.T) {
 	wantNoLocks(t, e.db)
 }
 
+func TestStartRunnerWaitsWithinItsBudget(t *testing.T) {
+	if runnerStartWait > LockTimeout/2 {
+		t.Fatalf("runnerStartWait %s leaves too little of LockTimeout %s", runnerStartWait, LockTimeout)
+	}
+	type hook = func(ctx context.Context, unit string) error
+	for name, onState := range map[string]func(e *updaterEnv) hook{
+		"state queries hang": func(*updaterEnv) hook {
+			return func(ctx context.Context, _ string) error { <-ctx.Done(); return ctx.Err() }
+		},
+		"the unit stays inactive": func(e *updaterEnv) hook {
+			return func(_ context.Context, unit string) error { e.sd.setState(unit, "inactive"); return nil }
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newUpdaterEnv(t, "1.2.0")
+			u := e.updater(t, "1.2.0")
+			u.runnerStartWait = 100 * time.Millisecond
+			e.sd.onState = onState(e)
+			start := time.Now()
+			done := make(chan error, 1)
+			go func() {
+				_, err := u.StartUpdate(context.Background(), "01CHANGE",
+					core.UpdateApplyInput{Version: "1.3.1", Channel: core.ChannelStable})
+				done <- err
+			}()
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatal("StartUpdate is still waiting for the runner unit")
+			}
+			if d := time.Since(start); d > time.Second {
+				t.Errorf("StartUpdate held the update lock for %s", d)
+			}
+			if recs, err := ListRecords(e.p); err != nil || len(recs) != 1 || recs[0].State != core.UpdatePending {
+				t.Errorf("records = %+v, %v", recs, err)
+			}
+		})
+	}
+}
+
 func TestCheckApplyHasNoSideEffects(t *testing.T) {
 	e := newUpdaterEnv(t, "1.2.0")
 	steps, err := e.updater(t, "1.2.0").CheckApply(context.Background(),
