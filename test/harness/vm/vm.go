@@ -57,6 +57,9 @@ type VM struct {
 // On an error the VM is stopped, and the error quotes the end of its console
 // log, which stays in cfg.Dir.
 func Boot(ctx context.Context, cfg Config) (*VM, error) {
+	if cfg.PrivMcastPort != 0 && cfg.PrivMcastPort == cfg.McastPort {
+		return nil, fmt.Errorf("vm %s: the private link has the internet link's multicast port %d; two links on one group would be one link", cfg.Name, cfg.McastPort)
+	}
 	if err := os.MkdirAll(cfg.Dir, 0o700); err != nil {
 		return nil, fmt.Errorf("vm %s: %w", cfg.Name, err)
 	}
@@ -123,10 +126,11 @@ func Boot(ctx context.Context, cfg Config) (*VM, error) {
 
 // qemuArgs are the QEMU arguments of cfg: KVM, the overlay and the seed as
 // virtio disks, the serial console to a file, a user-mode management NIC
-// forwarding sshPort on 127.0.0.1 to the VM's port 22, and the "internet"
-// NIC on the run's multicast link, which needs no bridge, tap device or root.
+// forwarding sshPort on 127.0.0.1 to the VM's port 22, the "internet" NIC on
+// the run's multicast link, which needs no bridge, tap device or root, and
+// the private NIC on a second multicast link when cfg has one.
 func qemuArgs(cfg Config, overlay, seed string, sshPort int) []string {
-	return []string{
+	args := []string{
 		"-name", cfg.Name,
 		"-machine", "q35,accel=kvm",
 		"-cpu", "host",
@@ -142,6 +146,13 @@ func qemuArgs(cfg Config, overlay, seed string, sshPort int) []string {
 		"-netdev", fmt.Sprintf("socket,id=inet,mcast=%s:%d", McastGroup, cfg.McastPort),
 		"-device", "virtio-net-pci,netdev=inet,mac=" + cfg.InetMAC,
 	}
+	if cfg.PrivMcastPort != 0 {
+		args = append(args,
+			"-netdev", fmt.Sprintf("socket,id=priv,mcast=%s:%d", McastGroup, cfg.PrivMcastPort),
+			"-device", "virtio-net-pci,netdev=priv,mac="+cfg.PrivMAC,
+		)
+	}
+	return args
 }
 
 func consolePath(cfg Config) string { return filepath.Join(cfg.Dir, cfg.Name+"-console.log") }
@@ -346,6 +357,27 @@ func (v *VM) sshClient(ctx context.Context) (*ssh.Client, error) {
 		return nil, fmt.Errorf("vm %s: not connected", v.cfg.Name) // dropped again before this Run got it
 	}
 	return v.client, nil
+}
+
+// DialContext connects to addr as the VM sees it, through a direct-tcpip
+// channel of the SSH connection, so a client on this host reaches listeners
+// bound to the guest's loopback interface, such as the controller's
+// 127.0.0.1:8080. A dial whose context ends before the channel opens drops
+// the connection, as a timed-out Run does, and the next call dials a new one;
+// a target that refuses leaves it open.
+func (v *VM) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	c, err := v.sshClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+	conn, err := c.DialContext(ctx, network, addr)
+	if err != nil {
+		if ctx.Err() != nil {
+			v.dropClient(c)
+		}
+		return nil, fmt.Errorf("vm %s: dial %s %s: %w", v.cfg.Name, network, addr, err)
+	}
+	return conn, nil
 }
 
 // CopyFile copies the local file src to dst on the VM as root, with mode.
