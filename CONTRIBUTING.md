@@ -17,14 +17,20 @@
 | `make verify-build` | checks that both binaries are static ELF for the right architecture and embed the UI |
 | `make lint-go` | `golangci-lint run` and `go vet ./...` |
 | `make lint-web` | ESLint and the TypeScript type check |
-| `make lint` | `lint-go` and `lint-web` |
+| `make lint-sh` | shellcheck of the release scripts and `install.sh` |
+| `make lint` | `lint-go`, `lint-web` and `lint-sh` |
 | `make test-go` | `go test ./...` |
 | `make test-web` | the Vitest suite |
 | `make test-adr` | the ADR checker's tests and the ADR structural check |
-| `make test` | `test-go`, `test-web` and `test-adr` |
+| `make test-release` | the release scripts' tests |
+| `make test` | `test-go`, `test-web`, `test-adr` and `test-release` |
 | `make schemas` | regenerates the action and resource schema snapshots in `schemas/` |
 | `make vuln` | govulncheck v1.9.0 on every Go package |
 | `make check` | `lint`, `test`, `build`, `verify-build` and `vuln` |
+| `make install-sh` | regenerates `install.sh` from `install.sh.in` with the trusted release keys |
+| `make release VERSION=x.y.z` | the release tarballs, SBOM and `checksums.txt` in `bin/release/` |
+| `make release-prep VERSION=x.y.z` | freezes the schema snapshots and rewrites `CHANGELOG.md` before a release tag |
+| `make harness-builds` | the harness's test releases and `install.sh` with the harness key, in `bin/harness/` |
 | `make clean` | removes `bin/` and the built UI |
 
 `make build` is the one build command. CI runs these same targets.
@@ -33,16 +39,29 @@
 
 `--dev` keeps everything under your own user: the databases and keys in
 `$XDG_STATE_HOME/darkpanel-dev/` (`~/.local/state/darkpanel-dev/` by default)
-and the controller socket in `$XDG_RUNTIME_DIR/darkpanel-dev/`. In `--dev` the
-socket also accepts your own uid, so the break-glass commands need no `sudo`.
+and the sockets in `$XDG_RUNTIME_DIR/darkpanel-dev/`. In `--dev` the sockets
+also accept your own uid, so the break-glass commands need no `sudo`.
 
 ```sh
 make web    # once, so the binary embeds the UI
 go run ./cmd/darkpanel serve --dev --listen loopback
 ```
 
-In another terminal, create the first admin through the socket and print the
-web root:
+`serve` runs the controller alone; its own host stays offline until an agent
+connects. Add `--embedded-agent` to run the agent half in the same process
+instead, as M1 did. To run a real agent beside it, enroll it with a token for
+the local host and start it, each in another terminal:
+
+```sh
+go run ./cmd/darkpanel host enroll-local --dev
+go run ./cmd/darkpanel agent enroll --dev
+go run ./cmd/darkpanel agent run --dev
+```
+
+`agent enroll` asks for the token the first command printed. A development
+agent never touches systemd, so its update actions fail.
+
+Create the first admin through the socket and print the web root:
 
 ```sh
 go run ./cmd/darkpanel user create --username admin --dev
