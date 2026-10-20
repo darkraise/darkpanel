@@ -149,7 +149,10 @@ func (in *Ingester) ingestAll(ctx context.Context) error {
 	var errs []error
 	for _, id := range hosts {
 		if err := in.ingestHost(ctx, id); err != nil {
-			errs = append(errs, fmt.Errorf("audit: ingest host %s: %w", id, err))
+			if !errors.Is(err, errIngestTimeout) {
+				err = fmt.Errorf("audit: ingest host %s: %w", id, err)
+			}
+			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)

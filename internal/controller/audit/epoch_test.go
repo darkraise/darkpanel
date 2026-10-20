@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"reflect"
 	"slices"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -238,7 +237,7 @@ func TestIngestDeadline(t *testing.T) {
 	e.clock.Advance(time.Second)
 	select {
 	case err := <-done:
-		if err == nil || !strings.Contains(err.Error(), "host h1") || !strings.Contains(err.Error(), "30s") {
+		if err == nil || err.Error() != "audit: ingest host h1: audit: ingestion exceeded 30s" {
 			t.Errorf("IngestAll = %v, want h1's deadline error", err)
 		}
 	case <-time.After(5 * time.Second):
