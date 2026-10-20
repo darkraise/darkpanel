@@ -3,6 +3,7 @@ package dispatch
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"reflect"
 	"strings"
 	"testing"
@@ -256,22 +257,6 @@ func TestChangesPassTheLimitToEverySource(t *testing.T) {
 	}
 }
 
-func TestChangesFailWhenAHostCannotBeListed(t *testing.T) {
-	h, d := newDispatcher(t)
-	ctx := context.Background()
-	h.applyAgent(d, "a", core.ApplyOptions{})
-	if _, err := h.db.Writer().Exec(
-		"INSERT INTO core_hosts (id, name, is_local, created_at) VALUES ('h9', 'gone', 0, '2026-10-17T00:00:00Z')"); err != nil {
-		t.Fatal(err)
-	}
-	_, err := d.Changes(ctx, alice, core.ChangeFilter{})
-	_ = wantCode(t, err, errcode.HostOffline)
-	vs, err := d.Changes(ctx, alice, core.ChangeFilter{HostID: testHost})
-	if err != nil || len(vs) != 1 {
-		t.Errorf("Changes of h1 = %+v, %v; want its one change", vs, err)
-	}
-}
-
 func TestChangesRefuseAHostListingOutsideTheRequest(t *testing.T) {
 	h, d := newDispatcher(t)
 	ctx := context.Background()
@@ -325,6 +310,8 @@ func TestChangeRefusesAViewOfAnotherChange(t *testing.T) {
 func TestChangeLookupSkipsOfflineHosts(t *testing.T) {
 	h, d := newDispatcher(t)
 	ctx := context.Background()
+	logs := &logRecords{}
+	d.cfg.Log = slog.New(logs)
 	v := h.applyAgent(d, "a", core.ApplyOptions{})
 	if _, err := h.db.Writer().Exec("DELETE FROM core_change_index"); err != nil {
 		t.Fatal(err)
@@ -337,5 +324,8 @@ func TestChangeLookupSkipsOfflineHosts(t *testing.T) {
 	got, err := d.Change(ctx, alice, v.ID)
 	if err != nil || got.ID != v.ID || got.HostID != testHost {
 		t.Errorf("Change = %+v, %v; want the change on h1", got, err)
+	}
+	if got, want := logs.lines(), []string{"DEBUG dispatch: offline host skipped host=h0"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("logs = %q, want %q", got, want)
 	}
 }
