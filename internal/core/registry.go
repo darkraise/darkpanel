@@ -185,6 +185,8 @@ func checkAction(moduleID string, a ActionDef) error {
 		return fmt.Errorf("action %s: break-glass actions are controller-side", ref)
 	case s.Class == ClassRevertible && s.Side != SideAgent:
 		return fmt.Errorf("action %s: revertible actions are agent-side; controller-side actions have no revert timer", ref)
+	case s.Class == ClassRevertible && s.Side == SideAgent && len(s.LockKeys) == 0:
+		return fmt.Errorf("action %s: a revertible agent action declares at least one lock key, so an update's reservation holds it off", ref)
 	case s.Class == ClassCompensable && s.CompensatedBy == "":
 		return fmt.Errorf("action %s: compensable actions name a compensating action", ref)
 	case s.Class != ClassCompensable && s.CompensatedBy != "":
