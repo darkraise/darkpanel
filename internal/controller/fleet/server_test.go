@@ -15,6 +15,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -373,6 +374,40 @@ func TestServerClose(t *testing.T) {
 	if conn, err := dialAgent(t, f, cert); err == nil {
 		_ = conn.Close()
 		t.Fatal("a closed server completed a handshake")
+	}
+}
+
+func TestServerCloseWaitsForHandlers(t *testing.T) {
+	f := startServer(t, nil)
+	started, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	h := f.srv.counted(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		close(started)
+		<-release
+	}))
+	go h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, transport.RenewPath, nil))
+	<-started
+
+	go func() {
+		f.srv.Close()
+		close(done)
+	}()
+	select {
+	case <-done:
+		t.Fatal("Close returned while a handler was still running")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close did not return after the handler ended")
+	}
+
+	called := false
+	late := f.srv.counted(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }))
+	late.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, transport.RenewPath, nil))
+	if called {
+		t.Fatal("a handler ran after Close")
 	}
 }
 

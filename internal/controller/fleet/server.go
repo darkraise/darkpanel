@@ -183,7 +183,7 @@ func (s *Server) serveAgent(peer *transport.Peer) {
 		return
 	}
 	srv := &http.Server{
-		Handler:           s.renewHandler(peer.HostID, log),
+		Handler:           s.counted(s.renewHandler(peer.HostID, log)),
 		ReadHeaderTimeout: streamHeaderTimeout,
 		ReadTimeout:       streamReadTimeout,
 		WriteTimeout:      streamWriteTimeout,
@@ -194,6 +194,23 @@ func (s *Server) serveAgent(peer *transport.Peer) {
 	// Serve returns once the session ends, whoever ended it.
 	_ = srv.Serve(session)
 	_ = srv.Close()
+}
+
+// counted makes Close wait for h's requests: http.Server.Close does not wait
+// for its handlers. The Add happens under s.mu while closed is false, so it
+// cannot race Close's Wait.
+func (s *Server) counted(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.mu.Lock()
+		if s.closed {
+			s.mu.Unlock()
+			return
+		}
+		s.wg.Add(1)
+		s.mu.Unlock()
+		defer s.wg.Done()
+		h.ServeHTTP(w, r)
+	})
 }
 
 // renewHandler serves POST transport.RenewPath for hostID, the host the
