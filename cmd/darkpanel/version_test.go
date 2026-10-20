@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"runtime"
+	"strings"
 	"testing"
 	"testing/fstest"
 
 	"github.com/darkraise/darkpanel/internal/buildinfo"
 	"github.com/darkraise/darkpanel/internal/cli"
+	"github.com/darkraise/darkpanel/internal/update/trustedkeys"
 )
 
 func runRoot(t *testing.T, args ...string) string {
@@ -49,8 +51,41 @@ func TestVersionJSON(t *testing.T) {
 	if _, ok := got["ui"].(bool); !ok {
 		t.Errorf("version --json \"ui\" = %v, want a boolean", got["ui"])
 	}
-	if len(got) != len(want)+1 {
-		t.Errorf("version --json has keys %v, want exactly version, commit, go, os, arch, ui", got)
+	if got["testBuild"] != trustedkeys.TestBuild() {
+		t.Errorf("version --json \"testBuild\" = %v, want %v", got["testBuild"], trustedkeys.TestBuild())
+	}
+	if _, ok := got["trustedKeys"].([]any); !ok {
+		t.Errorf("version --json \"trustedKeys\" = %v, want a list", got["trustedKeys"])
+	}
+	if len(got) != len(want)+3 {
+		t.Errorf("version --json has keys %v, want exactly version, commit, go, os, arch, ui, testBuild, trustedKeys", got)
+	}
+}
+
+// withTrustedKeys makes the build trust keys for one test.
+func withTrustedKeys(t *testing.T, keys []trustedkeys.Key) {
+	t.Helper()
+	old := trustedKeys
+	t.Cleanup(func() { trustedKeys = old })
+	trustedKeys = func() []trustedkeys.Key { return keys }
+}
+
+func TestVersionTrustedKeys(t *testing.T) {
+	tests := []struct {
+		name string
+		keys []trustedkeys.Key
+		want string
+	}{
+		{"none", nil, `"trustedKeys":[]`},
+		{"in order", []trustedkeys.Key{{ID: "00000000000000B2"}, {ID: "00000000000000A1"}}, `"trustedKeys":["00000000000000B2","00000000000000A1"]`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			withTrustedKeys(t, tt.keys)
+			if got := runRoot(t, "version", "--json"); !strings.Contains(got, tt.want) {
+				t.Errorf("version --json = %s, want it to contain %s", got, tt.want)
+			}
+		})
 	}
 }
 
