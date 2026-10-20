@@ -98,6 +98,10 @@ func (e *socketError) absent() bool {
 	return errors.Is(e.err, syscall.ENOENT) || errors.Is(e.err, syscall.ECONNREFUSED)
 }
 
+// localTimeout bounds one request to the agent socket. It is a variable so
+// tests can shorten it.
+var localTimeout = requestTimeout
+
 func (a *app) dialAgent(ctx context.Context) (net.Conn, error) {
 	var d net.Dialer
 	c, err := d.DialContext(ctx, "unix", a.opts.AgentSocket)
@@ -126,7 +130,14 @@ func (a *app) withAgent(cmd *cobra.Command, def *core.ActionDef, input json.RawM
 	if err := conn.Close(); err != nil {
 		return err
 	}
-	return run(api.NewClient(api.ClientConfig{Dial: a.dialAgent}))
+	err = run(api.NewClient(api.ClientConfig{Dial: a.dialAgent}))
+	// A hung agent still accepts the connection, so its request ends at
+	// localTimeout with the transport's message, which names neither the
+	// socket nor the limit.
+	if errors.Is(err, context.DeadlineExceeded) && cmd.Context().Err() == nil {
+		return fmt.Errorf("the agent socket %s did not answer within %s", a.opts.AgentSocket, localTimeout)
+	}
+	return err
 }
 
 // runFallback runs def in this process, after the same Apply? [y/N]
@@ -151,7 +162,7 @@ func (a *app) runFallback(cmd *cobra.Command, def core.ActionDef, fallback Local
 
 func (a *app) localRead(cmd *cobra.Command, def core.ActionDef, input json.RawMessage, secrets []string) error {
 	return a.withAgent(cmd, &def, input, secrets, func(c *api.Client) error {
-		ctx, cancel := context.WithTimeout(cmd.Context(), requestTimeout)
+		ctx, cancel := context.WithTimeout(cmd.Context(), localTimeout)
 		defer cancel()
 		out, err := c.Read(ctx, core.Principal{}, core.ActionRef{Name: def.Spec.Name, Version: def.Spec.Version}, input)
 		if err != nil {
@@ -163,7 +174,7 @@ func (a *app) localRead(cmd *cobra.Command, def core.ActionDef, input json.RawMe
 
 func (a *app) localResource(cmd *cobra.Command, name string, secrets []string) error {
 	return a.withAgent(cmd, nil, nil, secrets, func(c *api.Client) error {
-		ctx, cancel := context.WithTimeout(cmd.Context(), requestTimeout)
+		ctx, cancel := context.WithTimeout(cmd.Context(), localTimeout)
 		defer cancel()
 		out, err := c.Resource(ctx, core.Principal{}, name)
 		if err != nil {
@@ -190,7 +201,7 @@ func localCalls(c *api.Client, def core.ActionDef) actionCalls {
 			if err != nil {
 				return planWire{}, fmt.Errorf("encode the input: %w", err)
 			}
-			ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+			ctx, cancel := context.WithTimeout(ctx, localTimeout)
 			defer cancel()
 			v, err := c.Plan(ctx, core.Principal{}, ref, raw)
 			if err != nil {
@@ -200,7 +211,7 @@ func localCalls(c *api.Client, def core.ActionDef) actionCalls {
 				Diff: v.Diff, Guards: v.Guards, Confirmation: optional(v.Confirmation)}, nil
 		},
 		apply: func(ctx context.Context, planID, confirmation string, confirmNow bool) (changeWire, json.RawMessage, error) {
-			ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+			ctx, cancel := context.WithTimeout(ctx, localTimeout)
 			defer cancel()
 			v, err := c.Apply(ctx, core.Principal{}, planID, core.ApplyOptions{Confirmation: confirmation, ConfirmNow: confirmNow})
 			if err != nil {

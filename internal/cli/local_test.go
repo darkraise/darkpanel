@@ -122,6 +122,20 @@ func fullSocket(t *testing.T, dir string) string {
 	return path
 }
 
+// frozenSocket is a socket in dir whose listener never accepts: a dial is
+// queued in its backlog and succeeds, but no request is ever answered, as
+// with an agent that hangs.
+func frozenSocket(t *testing.T, dir string) string {
+	t.Helper()
+	path := filepath.Join(dir, "frozen.sock")
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	return path
+}
+
 func TestLocalReadAndResource(t *testing.T) {
 	rec := &agentCalls{}
 	agent := &coretest.FakeAgent{
@@ -324,6 +338,10 @@ func TestLocalFallback(t *testing.T) {
 	missing := filepath.Join(dir, "missing")
 	stale := staleSocket(t, dir)
 	full := fullSocket(t, dir)
+	frozen := frozenSocket(t, dir)
+	saved := localTimeout
+	localTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { localTimeout = saved })
 	tooLong := filepath.Join(dir, strings.Repeat("s", 120))
 	notice := func(path, action string) string {
 		return "darkpanel: the agent socket " + path + " does not answer; running " + action + " in this process\n"
@@ -362,6 +380,11 @@ func TestLocalFallback(t *testing.T) {
 			code: ExitError, errOut: "darkpanel: the agent socket " + tooLong + " does not answer: "},
 		{name: "a full backlog fails at once and runs no fallback", sock: full, args: []string{"demo", "item", "remove", "--id", "i1", "--yes"},
 			code: ExitError, errOut: "darkpanel: the agent socket " + full + " does not answer: dial unix " + full + ": connect: resource temporarily unavailable\n"},
+		{name: "a frozen agent's read ends at the limit", sock: frozen, args: []string{"demo", "item", "list"}, code: ExitError,
+			errOut: "darkpanel: the agent socket " + frozen + " did not answer within 200ms\n"},
+		{name: "a frozen agent's plan ends at the limit and runs no fallback", sock: frozen,
+			args: []string{"demo", "item", "remove", "--id", "i1", "--yes"}, code: ExitError,
+			errOut: "darkpanel: the agent socket " + frozen + " did not answer within 200ms\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
