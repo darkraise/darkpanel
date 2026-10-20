@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -93,6 +94,31 @@ func staleSocket(t *testing.T, dir string) string {
 	if err := ln.Close(); err != nil {
 		t.Fatal(err)
 	}
+	return path
+}
+
+// fullSocket is a socket in dir whose listener never accepts and whose
+// backlog is already full, so a dial cannot even be queued.
+func fullSocket(t *testing.T, dir string) string {
+	t.Helper()
+	path := filepath.Join(dir, "full.sock")
+	fd, err := syscall.Socket(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = syscall.Close(fd) })
+	if err := syscall.Bind(fd, &syscall.SockaddrUnix{Name: path}); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Listen(fd, 0); err != nil {
+		t.Fatal(err)
+	}
+	// A backlog of 0 still queues one connection; this one fills it.
+	c, err := net.Dial("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
 	return path
 }
 
@@ -297,6 +323,7 @@ func TestLocalFallback(t *testing.T) {
 	dir := socketDir(t)
 	missing := filepath.Join(dir, "missing")
 	stale := staleSocket(t, dir)
+	full := fullSocket(t, dir)
 	tooLong := filepath.Join(dir, strings.Repeat("s", 120))
 	notice := func(path, action string) string {
 		return "darkpanel: the agent socket " + path + " does not answer; running " + action + " in this process\n"
@@ -333,6 +360,8 @@ func TestLocalFallback(t *testing.T) {
 			errOut: "darkpanel: the agent socket " + missing + " does not answer: "},
 		{name: "another dial error runs no fallback", sock: tooLong, args: []string{"demo", "item", "remove", "--id", "i1", "--yes"},
 			code: ExitError, errOut: "darkpanel: the agent socket " + tooLong + " does not answer: "},
+		{name: "a full backlog fails at once and runs no fallback", sock: full, args: []string{"demo", "item", "remove", "--id", "i1", "--yes"},
+			code: ExitError, errOut: "darkpanel: the agent socket " + full + " does not answer: dial unix " + full + ": connect: resource temporarily unavailable\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
