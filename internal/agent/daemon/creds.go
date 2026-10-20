@@ -266,9 +266,11 @@ func saveGeneration(dir string, c *Credentials, before func(step string) error) 
 	return n, nil
 }
 
-// PruneGenerations deletes every generation of dir except keep, and a
-// leftover current.tmp. The daemon calls it after the first successful
-// handshake with generation keep.
+// PruneGenerations deletes every generation of dir numbered below keep. The
+// daemon calls it after the first successful handshake with generation keep.
+// Newer generations and current.tmp stay: darkpanel agent enroll writes them
+// without the agent lock while the daemon runs, and SaveGeneration already
+// replaces a leftover current.tmp and numbers past every leftover generation.
 func PruneGenerations(dir string, keep int) error {
 	gens, err := listGenerations(dir)
 	if err != nil {
@@ -276,12 +278,9 @@ func PruneGenerations(dir string, keep int) error {
 	}
 	var errs []error
 	for _, n := range gens {
-		if n != keep {
+		if n < keep {
 			errs = append(errs, os.RemoveAll(filepath.Join(dir, generationName(n))))
 		}
-	}
-	if err := os.Remove(filepath.Join(dir, currentTemp)); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		errs = append(errs, err)
 	}
 	if err := errors.Join(errs...); err != nil {
 		return fmt.Errorf("daemon: prune credential generations: %w", err)

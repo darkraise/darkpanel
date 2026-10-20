@@ -147,11 +147,26 @@ func TestCredentialsRoundTrip(t *testing.T) {
 	if gens := generations(t, dir); !slices.Equal(gens, []string{"gen-1", "gen-2"}) {
 		t.Errorf("generations = %v, want both", gens)
 	}
+	// An enrollment beside the running daemon may already have written a
+	// newer generation; a handshake with generation 2 must not delete it.
+	third := ca.credentials(t, "H1")
+	if n, err := SaveGeneration(dir, third); err != nil || n != 3 {
+		t.Fatalf("third SaveGeneration = %d, %v", n, err)
+	}
 	if err := PruneGenerations(dir, 2); err != nil {
 		t.Fatal(err)
 	}
-	if gens := generations(t, dir); !slices.Equal(gens, []string{"gen-2"}) {
-		t.Errorf("generations after pruning = %v, want gen-2 alone", gens)
+	if gens := generations(t, dir); !slices.Equal(gens, []string{"gen-2", "gen-3"}) {
+		t.Errorf("generations after pruning = %v, want gen-2 and gen-3", gens)
+	}
+	if got, err := LoadCredentials(dir); err != nil || !sameCredentials(got, third) {
+		t.Errorf("LoadCredentials after pruning = %+v, %v; want the third generation", got, err)
+	}
+	if err := PruneGenerations(dir, 3); err != nil {
+		t.Fatal(err)
+	}
+	if gens := generations(t, dir); !slices.Equal(gens, []string{"gen-3"}) {
+		t.Errorf("generations after the second pruning = %v, want gen-3 alone", gens)
 	}
 }
 
