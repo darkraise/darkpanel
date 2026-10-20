@@ -50,9 +50,15 @@ func TestTargetScript(t *testing.T) {
 		if strings.Contains(s, c.other) {
 			t.Errorf("%s script names another OS's packages (%s):\n%s", c.os.ID, c.other, s)
 		}
+		if !strings.Contains(s, "apt_get install --no-install-recommends ca-certificates curl sqlite3 ufw\n") {
+			t.Errorf("%s script does not install sqlite3 beside curl and ufw:\n%s", c.os.ID, s)
+		}
 		allow, enable := strings.Index(s, "ufw allow 22/tcp"), strings.Index(s, "ufw --force enable")
 		if allow < 0 || enable < allow || strings.Index(s, "systemctl enable --now ufw docker tailscaled") < enable {
 			t.Errorf("%s script must allow 22/tcp, enable UFW, then start ufw, Docker and tailscaled under systemd:\n%s", c.os.ID, s)
+		}
+		if agent := strings.Index(s, "ufw allow in on dppriv to any port 7443 proto tcp\n"); agent < allow || agent > enable {
+			t.Errorf("%s script must allow 7443/tcp in on dppriv only, before UFW is enabled:\n%s", c.os.ID, s)
 		}
 		bashSyntax(t, s)
 	}

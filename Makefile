@@ -8,7 +8,9 @@ VERSION ?= $(or $(shell git describe --tags --match 'v*' --always --dirty 2>/dev
 COMMIT ?= $(or $(shell git rev-parse --short HEAD 2>/dev/null),unknown)
 ARCHES := amd64 arm64
 BUILDINFO := github.com/darkraise/darkpanel/internal/buildinfo
-LDFLAGS := -s -w -X $(BUILDINFO).Version=$(VERSION) -X $(BUILDINFO).Commit=$(COMMIT)
+# ldflags takes the version, so harness-builds can stamp each build its own.
+ldflags = -s -w -X $(BUILDINFO).Version=$(1) -X $(BUILDINFO).Commit=$(COMMIT)
+LDFLAGS := $(call ldflags,$(VERSION))
 GOVULNCHECK := golang.org/x/vuln/cmd/govulncheck@v1.9.0
 RELEASE_DIR := bin/release
 CYCLONEDX ?= cyclonedx-gomod
@@ -16,6 +18,12 @@ GIT_CLIFF ?= git-cliff
 # install-sh embeds the production trusted keys; KEYS=harness embeds the
 # harness test key and base URL instead.
 KEYS ?= production
+# The harness's signed test releases (spec section 13), as version:tags.
+# Every one trusts only the harness key; the scenarios use no UI, so none
+# embeds it.
+HARNESS_DIR := bin/harness
+HARNESS_BUILDS := 0.2.0:harnesskeys 0.3.0:harnesskeys 0.3.1:harnesskeys,harnessbroken \
+	0.3.2:harnesskeys,harnesscrash 0.3.3:harnesskeys 0.3.4:harnesskeys,harnessmigration,harnessbroken
 # A string from web/index.html; finding it in a binary proves the UI is embedded.
 UI_MARKER := <title>Darkpanel</title>
 
@@ -23,7 +31,7 @@ UI_MARKER := <title>Darkpanel</title>
 export GOTOOLCHAIN := local
 
 # release is phony on purpose: the release/ directory would otherwise satisfy it.
-.PHONY: web-deps web build verify-build lint-go lint-web lint-sh lint test-go test-web test-adr test-release test schemas vuln check clean release-check release release-prep install-sh
+.PHONY: web-deps web build verify-build lint-go lint-web lint-sh lint test-go test-web test-adr test-release test schemas vuln check clean release-check release release-prep install-sh harness-builds
 
 web-deps:
 	pnpm -C web install --frozen-lockfile
@@ -110,3 +118,15 @@ release-prep: release-check
 
 install-sh:
 	go run $(if $(filter harness,$(KEYS)),-tags harnesskeys,) ./scripts/gen-install-sh -out install.sh
+
+# harness-builds writes bin/harness/darkpanel-<version> for every harness
+# release and the install.sh that trusts the harness key; the harness test's
+# -m2 flag names the directory.
+harness-builds:
+	mkdir -p $(HARNESS_DIR)
+	for build in $(HARNESS_BUILDS); do \
+		version=$${build%%:*}; \
+		CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -tags "$${build#*:}" \
+			-ldflags "$(call ldflags,$$version)" -o $(HARNESS_DIR)/darkpanel-$$version ./cmd/darkpanel; \
+	done
+	go run -tags harnesskeys ./scripts/gen-install-sh -out $(HARNESS_DIR)/install.sh
