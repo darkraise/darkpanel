@@ -104,3 +104,53 @@ func TestRunRetriesAFailedRenewal(t *testing.T) {
 		t.Errorf("generations after failed renewals = %v, want gen-1 alone", gens)
 	}
 }
+
+// An enrollment written beside the running daemon wins over a renewal of the
+// session's generation: the renewal saves nothing and the daemon reconnects
+// with the enrolled generation.
+func TestRunRenewalYieldsToANewerEnrollment(t *testing.T) {
+	ctrl, h, old := renewalHost(t)
+	dir := h.layout.Paths.AgentTLSDir
+	ctrl.mu.Lock()
+	ctrl.renewErr = errcode.New(errcode.Forbidden, "no renewal today")
+	ctrl.mu.Unlock()
+	renewals := func() int {
+		ctrl.mu.Lock()
+		defer ctrl.mu.Unlock()
+		return ctrl.renewals
+	}
+	h.start(h.config())
+	waitFor(t, "a renewal attempt", func() bool { return renewals() == 1 })
+
+	ctrl.addHost("H2", "pending")
+	next, err := Enroll(context.Background(), dir, ctrl.token("H2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctrl.mu.Lock()
+	ctrl.renewErr = nil
+	ctrl.mu.Unlock()
+	h.clock.Advance(RenewRetry)
+	waitFor(t, "a second attempt", func() bool { return renewals() == 2 })
+
+	oldSerial, nextSerial := transport.SerialText(old.Cert.SerialNumber), transport.SerialText(next.Cert.SerialNumber)
+	h.waitClock("a session with the enrolled certificate", func() bool {
+		return slices.ContainsFunc(ctrl.agentSessions(), func(s *agentSession) bool { return s.serial == nextSerial })
+	})
+	current, err := LoadCredentials(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Generation != 2 || current.HostID() != "H2" {
+		t.Errorf("current is generation %d of %s, want generation 2 of H2", current.Generation, current.HostID())
+	}
+	waitFor(t, "the session's generation to go", func() bool { return slices.Equal(generations(t, dir), []string{"gen-2"}) })
+	if !strings.Contains(h.logs.String(), "a newer credential generation is current") {
+		t.Error("the superseded renewal is not logged")
+	}
+	for _, s := range ctrl.agentSessions() {
+		if s.serial != oldSerial && s.serial != nextSerial {
+			t.Errorf("a session used serial %s of host %s, neither the first nor the enrolled certificate", s.serial, s.hostID)
+		}
+	}
+}

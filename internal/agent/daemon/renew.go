@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"time"
 
@@ -17,6 +18,10 @@ const RenewRetry = time.Hour
 
 // RenewTimeout bounds one renewal request.
 const RenewTimeout = 30 * time.Second
+
+// errSuperseded is renew's answer when a newer generation became current
+// during the session, written by darkpanel agent enroll beside the daemon.
+var errSuperseded = errors.New("daemon: a newer credential generation is current")
 
 // renewAt is when a certificate is renewed: after two thirds of its life
 // (spec section 2).
@@ -40,6 +45,11 @@ func (d *daemon) renewLoop(ctx context.Context, sess *transport.Session, c *Cred
 		rctx, cancel := context.WithTimeout(ctx, RenewTimeout)
 		next, err := renew(rctx, d.cfg.Paths.AgentTLSDir, sess, c)
 		cancel()
+		if errors.Is(err, errSuperseded) {
+			d.log.Info("daemon: a newer credential generation is current; reconnecting", "session generation", c.Generation)
+			close(renewed)
+			return
+		}
 		if err == nil {
 			d.log.Info("daemon: renewed the agent certificate", "generation", next.Generation, "notAfter", next.Cert.NotAfter)
 			close(renewed)
@@ -74,6 +84,13 @@ func renew(ctx context.Context, dir string, sess *transport.Session, c *Credenti
 		return nil, err
 	}
 	next := &Credentials{Key: key, Cert: cert, CA: c.CA, Controller: c.Controller}
+	cur, err := LoadCredentials(dir)
+	if err != nil {
+		return nil, err
+	}
+	if cur.Generation != c.Generation {
+		return nil, errSuperseded
+	}
 	if _, err := SaveGeneration(dir, next); err != nil {
 		return nil, err
 	}
