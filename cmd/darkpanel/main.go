@@ -24,6 +24,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/install"
 	"github.com/darkraise/darkpanel/internal/paths"
 	"github.com/darkraise/darkpanel/internal/registry"
+	"github.com/darkraise/darkpanel/internal/update"
 	"github.com/darkraise/darkpanel/internal/update/trustedkeys"
 	"github.com/darkraise/darkpanel/web"
 )
@@ -76,15 +77,29 @@ func uiEmbedded(dist fs.FS) bool {
 }
 
 // newRoot returns the command tree: the commands generated from
-// registry.Build() plus the hand-written serve, version, selftest and agent.
+// registry.Build() plus the hand-written serve, version, selftest, agent and
+// update, the last adopting the generated update and rollout commands.
 func newRoot(opts cli.Options) (*cobra.Command, error) {
 	reg, err := registry.Build()
 	if err != nil {
 		return nil, err
 	}
 	opts.Registry = reg
-	opts.Commands = []*cobra.Command{newServeCmd(), newVersionCmd(), newSelftestCmd(), newAgentCmd()}
-	return cli.NewRoot(opts)
+	opts.Commands = []*cobra.Command{newServeCmd(), newVersionCmd(), newSelftestCmd(), newAgentCmd(), newUpdateCmd()}
+	opts.Adopt = map[string][]string{"update": updateActions}
+	stderr := opts.Stderr
+	if stderr == nil {
+		stderr = os.Stderr
+	}
+	opts.LocalFallbacks = map[string]cli.LocalFallback{update.ActionRollback: rollbackFallback(stderr)}
+	root, err := cli.NewRoot(opts)
+	if err != nil {
+		return nil, err
+	}
+	if err := addDirectRollback(root); err != nil {
+		return nil, err
+	}
+	return root, nil
 }
 
 func newVersionCmd() *cobra.Command {

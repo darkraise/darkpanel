@@ -160,13 +160,19 @@ func openAgent(ctx context.Context, p paths.Paths, log *slog.Logger) (*agentHost
 			probes.Controller = update.ControllerProbe(p.ControllerSocket)
 		}
 	}
-	upd, err := newUpdater(update.Config{
+	cfg := update.Config{
 		Paths: p, DB: db, Systemd: sd, Clock: core.SystemClock{}, Log: log,
 		Version: buildinfo.Version, Arch: goruntime.GOARCH,
 		BaseURL: trustedkeys.BaseURL(), Keys: trustedKeys(),
 		Index:  update.NewIndexSource(trustedkeys.BaseURL(), &http.Client{Timeout: 30 * time.Second}, core.SystemClock{}),
 		Probes: probes,
-	})
+	}
+	// A rollback on the controller's host must not leave enrolled agents
+	// newer than the controller it returns to.
+	if _, err := os.Stat(p.ControllerDB()); err == nil {
+		cfg.NewerAgents = newerAgents(p.ControllerDB())
+	}
+	upd, err := newUpdater(cfg)
 	if err != nil {
 		_ = closeAll()
 		return nil, err
