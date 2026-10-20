@@ -25,7 +25,7 @@ type healthDetail struct {
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	c, ok := callerFrom(r.Context())
 	if !ok || authorize(c.principal, core.ScopeRead) != nil {
-		writeJSON(w, s.log, http.StatusOK, healthStatus{Status: "ok"})
+		writeJSON(w, s.log, http.StatusOK, healthStatus{Status: s.health()})
 		return
 	}
 	s.writeHealthDetail(w, r)
@@ -39,7 +39,15 @@ func (s *Server) writeHealthDetail(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, s.log, err)
 		return
 	}
-	writeJSON(w, s.log, http.StatusOK, healthDetail{Status: "ok", Version: buildinfo.Version, Commit: buildinfo.Commit, SchemaVersion: n})
+	writeJSON(w, s.log, http.StatusOK, healthDetail{Status: s.health(), Version: buildinfo.Version, Commit: buildinfo.Commit, SchemaVersion: n})
+}
+
+// health is the status /healthz reports.
+func (s *Server) health() string {
+	if s.cfg.HealthStatus == "" {
+		return "ok"
+	}
+	return s.cfg.HealthStatus
 }
 
 // handleOpenAPI answers the OpenAPI document (spec section 7), built from

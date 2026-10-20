@@ -61,6 +61,9 @@ type Config struct {
 	Dev bool
 	// UI is the web UI served at /; nil serves none.
 	UI fs.FS
+	// HealthStatus is the status GET /healthz reports, always with HTTP 200;
+	// empty means "ok".
+	HealthStatus string
 	// Log receives internal errors and panics; nil discards.
 	Log *slog.Logger
 }
