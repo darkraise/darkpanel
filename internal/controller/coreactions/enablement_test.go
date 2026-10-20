@@ -104,11 +104,11 @@ func TestModuleEnable(t *testing.T) {
 	if v.CompensatedBy != "core.module.disable" || calls != 1 {
 		t.Errorf("compensated by %q, preflight calls %d; want core.module.disable, 1", v.CompensatedBy, calls)
 	}
-	var got ModuleState
+	var got core.ModuleState
 	if err := json.Unmarshal(v.Output, &got); err != nil {
 		t.Fatal(err)
 	}
-	want := ModuleState{ID: "demo", Version: 3, Enabled: true, Available: true, CheckedAt: ptr(t0.Add(time.Minute))}
+	want := core.ModuleState{ID: "demo", Version: 3, Enabled: true, Available: true, CheckedAt: ptr(t0.Add(time.Minute))}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("output = %+v, want %+v", got, want)
 	}
@@ -140,7 +140,7 @@ func TestModuleEnableRecordsFailedPreflight(t *testing.T) {
 	if err := e.read(operator, "core.module.list", ModuleListInput{HostID: "h1"}, &got); err != nil {
 		t.Fatal(err)
 	}
-	want := []ModuleState{{ID: "demo", Version: 3, Enabled: true, Reason: ptr("ufw is not installed"), CheckedAt: ptr(t0)}}
+	want := []core.ModuleState{{ID: "demo", Version: 3, Enabled: true, Reason: ptr("ufw is not installed"), CheckedAt: ptr(t0)}}
 	if !reflect.DeepEqual(got.Modules, want) {
 		t.Errorf("modules = %+v, want %+v", got.Modules, want)
 	}
@@ -212,11 +212,11 @@ func TestModuleDisable(t *testing.T) {
 	if err != nil || v.State != core.StateCompleted || v.CompensatedBy != "core.module.enable" {
 		t.Fatalf("apply = %+v, %v", v, err)
 	}
-	var got ModuleState
+	var got core.ModuleState
 	if err := json.Unmarshal(v.Output, &got); err != nil {
 		t.Fatal(err)
 	}
-	want := ModuleState{ID: "demo", Version: 3, Available: true, CheckedAt: ptr(t0)}
+	want := core.ModuleState{ID: "demo", Version: 3, Available: true, CheckedAt: ptr(t0)}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("output = %+v, want %+v (availability kept)", got, want)
 	}
@@ -226,7 +226,7 @@ func TestModuleDisable(t *testing.T) {
 
 	calls := 0
 	e.hosts["h1"] = preflight(core.ModuleStatus{Version: 3, Available: true}, &calls)
-	var back ModuleState
+	var back core.ModuleState
 	e.run(operator, "core.module.enable", in, &back)
 	if !back.Enabled || calls != 1 {
 		t.Errorf("compensating enable = %+v after %d preflight calls", back, calls)
@@ -235,9 +235,9 @@ func TestModuleDisable(t *testing.T) {
 
 func TestModuleDisableNotReported(t *testing.T) {
 	e := newModuleEnv(t)
-	var got ModuleState
+	var got core.ModuleState
 	e.run(operator, "core.module.disable", ModuleInput{HostID: "h1", ModuleID: "demo"}, &got)
-	want := ModuleState{ID: "demo", Version: 3, Reason: ptr(ReasonNotReported), CheckedAt: ptr(t0)}
+	want := core.ModuleState{ID: "demo", Version: 3, Reason: ptr(ReasonNotReported), CheckedAt: ptr(t0)}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("output = %+v, want %+v", got, want)
 	}
