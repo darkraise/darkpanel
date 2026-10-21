@@ -45,7 +45,7 @@ type Hosts struct {
 	cfg HostsConfig
 
 	mu      sync.Mutex             // guards greeted and locks; never held across I/O
-	greeted map[string]greeting    // each host's last successful Hello
+	greeted map[string]greeting    // each host's last Hello, while no later one has failed
 	locks   map[string]*sync.Mutex // one per host, held across the client lookup and Hello
 }
 
@@ -97,7 +97,8 @@ func (h *Hosts) Agent(ctx context.Context, hostID string) (core.AgentClient, err
 
 // Hello calls hostID's Hello now and records every module's availability.
 // The server calls it for the local host at startup, which seeds the host's
-// module rows.
+// module rows. A failure, the client lookup's included, forgets the host's
+// last Hello, so the next reach says Hello again.
 func (h *Hosts) Hello(ctx context.Context, hostID string) error {
 	unlock, err := h.lockHost(ctx, hostID)
 	if err != nil {
@@ -106,6 +107,7 @@ func (h *Hosts) Hello(ctx context.Context, hostID string) error {
 	defer unlock()
 	c, gen, err := h.cfg.Clients.Client(ctx, hostID)
 	if err != nil {
+		h.forget(hostID)
 		return err
 	}
 	return h.hello(ctx, hostID, c, gen)
@@ -135,6 +137,14 @@ func (h *Hosts) lockHost(ctx context.Context, hostID string) (unlock func(), err
 	return l.Unlock, nil
 }
 
+// forget drops hostID's last Hello: one that failed since no longer
+// vouches for the agent.
+func (h *Hosts) forget(hostID string) {
+	h.mu.Lock()
+	delete(h.greeted, hostID)
+	h.mu.Unlock()
+}
+
 // greetingOf returns hostID's last successful Hello in this process.
 func (h *Hosts) greetingOf(hostID string) (core.AgentHello, bool) {
 	h.mu.Lock()
@@ -156,8 +166,14 @@ func (h *Hosts) JournalEpoch(hostID string) string {
 // checked_at of every module the registry has; a missing row takes enabled
 // from the module's DefaultEnabled, and an existing row keeps its enabled,
 // which only core.module.enable and core.module.disable change. On success
-// it records the Hello as gen's.
-func (h *Hosts) hello(ctx context.Context, hostID string, c core.AgentClient, gen uint64) error {
+// it records the Hello as gen's; on any failure it forgets the host's last
+// Hello.
+func (h *Hosts) hello(ctx context.Context, hostID string, c core.AgentClient, gen uint64) (err error) {
+	defer func() {
+		if err != nil {
+			h.forget(hostID)
+		}
+	}()
 	hello, err := c.Hello(ctx)
 	if err != nil {
 		return fmt.Errorf("dispatch: hello %s: %w", hostID, err)

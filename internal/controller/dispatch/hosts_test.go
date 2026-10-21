@@ -148,6 +148,73 @@ func TestAgentSaysHelloOnceAndRetriesAFailure(t *testing.T) {
 	}
 }
 
+// switchedClients is a ClientSource of one client at generation 1 whose
+// lookup fails with err while err is set.
+type switchedClients struct {
+	client core.AgentClient
+	err    error
+}
+
+func (s *switchedClients) Client(context.Context, string) (core.AgentClient, uint64, error) {
+	if s.err != nil {
+		return nil, 0, s.err
+	}
+	return s.client, 1, nil
+}
+
+// TestAFailedHelloForgetsTheGreeting: after a successful Hello, an explicit
+// Hello that fails leaves no greeting behind, so the host's journal epoch is
+// no longer reported and the next reach says Hello again on the same
+// generation.
+func TestAFailedHelloForgetsTheGreeting(t *testing.T) {
+	cases := []struct {
+		name   string
+		answer func() (core.AgentHello, error) // the failing Hello; nil when the lookup fails
+		lookup error
+		hellos int // Hello calls over the first reach, the failure and the next reach
+	}{
+		{"Hello fails", func() (core.AgentHello, error) { return core.AgentHello{}, errors.New("agent offline") }, nil, 3},
+		{"another host answers", func() (core.AgentHello, error) {
+			return core.AgentHello{ProtocolVersion: 1, HostID: "h3"}, nil
+		}, nil, 3},
+		{"the client lookup fails", nil, errcode.New(errcode.HostOffline, "host h2 is offline"), 2},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			h := newHarness(t)
+			ctx := context.Background()
+			h.addHost("h2")
+			hellos := 0
+			var failing func() (core.AgentHello, error)
+			src := &switchedClients{client: &coretest.FakeAgent{HelloFunc: func(context.Context) (core.AgentHello, error) {
+				hellos++
+				if failing != nil {
+					return failing()
+				}
+				return core.AgentHello{ProtocolVersion: 1, HostID: "h2", JournalEpoch: "01EPOCHA"}, nil
+			}}}
+			hosts := NewHosts(HostsConfig{DB: h.db, Registry: h.reg, Clients: src, Clock: h.clock, Log: slog.New(slog.DiscardHandler)})
+			if _, err := hosts.Agent(ctx, "h2"); err != nil {
+				t.Fatal(err)
+			}
+			failing, src.err = c.answer, c.lookup
+			if err := hosts.Hello(ctx, "h2"); err == nil {
+				t.Fatal("Hello succeeded; want the failure")
+			}
+			if got := hosts.JournalEpoch("h2"); got != "" {
+				t.Errorf("epoch after a failed Hello = %q, want empty", got)
+			}
+			failing, src.err = nil, nil
+			if _, err := hosts.Agent(ctx, "h2"); err != nil {
+				t.Fatal(err)
+			}
+			if hellos != c.hellos {
+				t.Errorf("Hello calls = %d, want %d: the reach after a failed Hello says Hello again", hellos, c.hellos)
+			}
+		})
+	}
+}
+
 func TestAgentRefusesUnknownAndMismatchedHosts(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
