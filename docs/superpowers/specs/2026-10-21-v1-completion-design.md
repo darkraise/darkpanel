@@ -74,12 +74,12 @@ checklist (section 12). M9 post-v1 candidates are out of scope.
 - After round 4 the owner split wave 6 into two alone waves (6a, 6b): NPM's
   destructive upgrade and both exposure implementations are exposure and
   data-loss work, which runs alone.
-- After revision 8 the owner chose to plan wave 0 as three sequential
-  plans (`w0a`, `w0b`, `w0c`; see Plans) instead of one, because of its size.
 - After the wave-0 checks of revisions 5 and 6 the owner chose to simplify
   the lifecycle core (revision 7): each revision of the effects journal,
   undo, composite repair and recovery added mechanism, and each check found
   about as many problems in it.
+- After revision 8 the owner chose to plan wave 0 as three sequential
+  plans (`w0a`, `w0b`, `w0c`; see Plans) instead of one, because of its size.
 
 ## Versions
 
