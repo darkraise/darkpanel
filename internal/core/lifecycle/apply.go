@@ -383,12 +383,16 @@ func (e *Engine) failApply(ctx context.Context, p core.Principal, it *intent, ca
 	if err := e.settle(hctx, e.changeEnv(p, it.def, it.id, it.call), it.def, it.id); err != nil {
 		return core.ChangeView{}, err
 	}
-	tr, err := e.failure(ctx, it.id, it.def, cause, false)
+	// The observations may have spent ctx's budget; the recording
+	// transaction gets its own.
+	tctx, cancelTx := context.WithTimeout(context.WithoutCancel(ctx), CleanupTxTimeout)
+	defer cancelTx()
+	tr, err := e.failure(tctx, it.id, it.def, cause, false)
 	if err != nil {
 		return core.ChangeView{}, err
 	}
 	tr.phase, tr.result, tr.actor, tr.source = phaseApply, resultError, p.Actor, p.Source
-	return e.transition(ctx, it.id, tr)
+	return e.transition(tctx, it.id, tr)
 }
 
 // changeError is what a change's error shows: the code and the client-safe

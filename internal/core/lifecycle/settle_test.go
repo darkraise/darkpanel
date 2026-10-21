@@ -112,3 +112,19 @@ func TestSettleOnlyTouchesIntendedEffects(t *testing.T) {
 		t.Errorf("effects = %v after %d observations, want 1:made untouched", got, len(f.store.calls("Observe")))
 	}
 }
+
+func TestASlowObservationStillRecordsTheSettlement(t *testing.T) {
+	f := newJFixture(t, jfxOptions{applyTimeout: 100 * time.Millisecond})
+	f.store.put("a", "0")
+	v := f.apply(alice, f.plan(alice, refJModify, `{"name":"a","value":"1","local":true,"failAfterCall":true,"hangObserve":true}`).PlanID,
+		core.ApplyOptions{})
+	if v.State != core.StateNeedsRepair || v.Error == nil || v.Error.Code != string(errcode.NeedsRepair) || v.Error.Cause != "internal" {
+		t.Errorf("change = %s, error %+v; want needs_repair caused by internal", v.State, v.Error)
+	}
+	if got := f.effectStates(v.ID); !reflect.DeepEqual(got, []string{"1:unresolved/uncertain"}) {
+		t.Errorf("effects = %v, want the effect uncertain", got)
+	}
+	if n := f.count("SELECT count(*) FROM core_locks WHERE owner = ?", v.ID); n != 1 {
+		t.Errorf("locks held = %d, want 1", n)
+	}
+}

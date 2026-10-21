@@ -14,7 +14,8 @@ import (
 // returned an error or was cut off (spec 1.2, settle): a call that is not
 // Local may still commit, so its effect is unresolved; a Local call is over,
 // so an observation tells whether it was made. Each decision is its own
-// committed write.
+// committed write, bounded by CleanupTxTimeout rather than ctx: the
+// observations may spend ctx's budget, and a decision must still be recorded.
 func (e *Engine) settle(ctx context.Context, env core.Env, def core.ActionDef, changeID string) error {
 	effects, err := loadEffects(ctx, e.cfg.Base.DB.Read(), changeID)
 	if err != nil {
@@ -25,9 +26,11 @@ func (e *Engine) settle(ctx context.Context, env core.Env, def core.ActionDef, c
 			continue
 		}
 		u := e.settled(ctx, env, def, eff)
-		err := e.cfg.Base.DB.Write(ctx, func(tx *sql.Tx) error {
-			return setEffect(ctx, tx, e.cfg.Base.Clock.Now(), changeID, eff.Seq, []core.EffectState{core.EffectIntended}, u)
+		wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), CleanupTxTimeout)
+		err := e.cfg.Base.DB.Write(wctx, func(tx *sql.Tx) error {
+			return setEffect(wctx, tx, e.cfg.Base.Clock.Now(), changeID, eff.Seq, []core.EffectState{core.EffectIntended}, u)
 		})
+		cancel()
 		if err != nil {
 			return fmt.Errorf("lifecycle: settle effect %d of change %s: %w", eff.Seq, changeID, err)
 		}

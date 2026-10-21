@@ -54,6 +54,8 @@ type jIn struct {
 	HangVerify bool `json:"hangVerify,omitempty"`
 	// ObserveErr makes every observation of the item fail.
 	ObserveErr bool `json:"observeErr,omitempty"`
+	// HangObserve blocks every observation of the item until ctx is done.
+	HangObserve bool `json:"hangObserve,omitempty"`
 	// InverseFail and InverseDefinite make the inverse fail without writing,
 	// the second with a Definite error. InverseCreates makes the undo of a
 	// deletion recreate the item under the new identity "<name>~r".
@@ -210,7 +212,7 @@ func jName(resource string) string {
 // jObserver observes jstore items for every jfx action.
 type jObserver struct{ s *jstore }
 
-func (o jObserver) Observe(_ context.Context, env core.Env, e core.Effect) (core.Observation, error) {
+func (o jObserver) Observe(ctx context.Context, env core.Env, e core.Effect) (core.Observation, error) {
 	o.s.record("Observe", env)
 	name := jName(e.Resource)
 	if e.State == core.EffectUndoing || e.State == core.EffectUndone {
@@ -224,6 +226,10 @@ func (o jObserver) Observe(_ context.Context, env core.Env, e core.Effect) (core
 	flags := o.s.flagsOf(name)
 	if flags.ObserveErr {
 		return core.Observation{}, errors.New("observe failed")
+	}
+	if flags.HangObserve {
+		<-ctx.Done()
+		return core.Observation{}, ctx.Err()
 	}
 	o.s.mu.Lock()
 	defer o.s.mu.Unlock()
