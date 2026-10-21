@@ -21,6 +21,7 @@ Check the files with `bash scripts/check-adrs.sh --complete`.
   layout](0011-actors-cli-names-and-layout.md)
 - [ADR 0012: M2 contract and layout
   additions](0012-m2-contract-and-layout-additions.md)
+- [ADR 0013: Go toolchain patch version](0013-go-toolchain-patch-version.md)
 
 ## Format
 
