@@ -676,6 +676,12 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
   listeners) and its established agent sessions' peers, so a `--local`
   change on the controller's host still protects the panel and the agent
   links.
+- **Retired paths.** A composite that removes an exposure may, once the
+  step revoking its listener has committed, record that exposure as
+  retired in its step log; the guard context it passes to its later
+  children then omits that exposure's `Via` path (protected flow 3, 2.3)
+  and nothing else. Only the parent composite of that removal can retire a
+  path (8).
 - **Overrides.** Guarded actions have an input field `overrides: []string`
   (guard ids). `core.Guard` gains the additive fields `Overridable` and
   `Overridden`; an overridden guard reports `OK: true, Overridden: true`, and
@@ -745,10 +751,11 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
   | `/usr/sbin/iptables`, `/usr/sbin/ip6tables` | `--version` | — |
   | `/usr/sbin/{iptables,ip6tables}-save`, `-legacy-save`, `-nft-save` | `-t` | — |
   | `/usr/sbin/{iptables,ip6tables}-restore`, `-legacy-restore`, `-nft-restore` | `-n` (input on stdin) | — |
-  | `/usr/bin/apt-get` | `update`, `install`, `remove` (options follow the verb, which apt-get accepts: `apt-get <verb> -o DPkg::Lock::Timeout=120 -o Dir::Etc::sourcelist=<file> -o Dir::Etc::sourceparts=- -y [--allow-downgrades] [--download-only] <package>[=<version>]`, or for `install` a `.deb` path inside the module's managed directory, 4.1) | `DEBIAN_FRONTEND=noninteractive` |
+  | `/usr/bin/apt-get` | `update`, `install`, `remove` (options follow the verb, which apt-get accepts: `apt-get <verb> -o DPkg::Lock::Timeout=120 -o Dir::Etc::sourcelist=<file> -o Dir::Etc::sourceparts=- -y [--allow-downgrades] [--download-only] [--reinstall] <package>[=<version>]`, or for `install` a `.deb` path inside the module's managed directory, 4.1) | `DEBIAN_FRONTEND=noninteractive` |
   | `/usr/bin/apt-mark` | `hold`, `unhold`, `showhold` | — |
   | `/usr/bin/dpkg` | `--configure` (exactly `--configure -a`; used only by module recovery handlers after an interrupted install) | `DEBIAN_FRONTEND=noninteractive` |
-  | `/usr/bin/docker` | `compose` | `DOCKER_CONFIG`, `HOME` (3) |
+  | `/usr/sbin/nft` | `list` (exactly `list tables` or `list table <family> <name>`; read-only, 2.1) | — |
+  | `/usr/bin/docker` | `compose` | `DOCKER_CONFIG`, `HOME`, and always `COMPOSE_EXPERIMENTAL_GIT_REMOTE=false`, `COMPOSE_EXPERIMENTAL_OCI_REMOTE=false` (3) |
 
   The runner gains stdin input for the restore tools. `ufw` has no `--`
   separator, so every value passed to it is constrained by schema patterns
@@ -2720,7 +2727,10 @@ a spec change.
   `panel.already_exposed`, `panel.wrong_host`, `panel.not_exposed`,
   `core.child_failed`, `core.needs_repair`, `core.recovering`,
   `core.stream_limit`, `core.undo_conflict`, `core.quarantined`,
-  `core.change_busy`, `core.deadline_exceeded`, `cloud.cleanup_pending`. Guard
+  `core.change_busy`, `core.deadline_exceeded`, `cloud.cleanup_pending`,
+  `npm.reserved`, `npm.unsupported_target`, `cloudflare.reserved`,
+  `cloudflare.unsupported_target`, `cloudflare.connector_missing`,
+  `derp.no_fallback`. Guard
   failures use the existing `plan.guard_failed`; `module.unavailable` and
   `request.invalid_input` already exist (wave 0 checks each name against
   `internal/core/errcode` and adds only the missing ones).
