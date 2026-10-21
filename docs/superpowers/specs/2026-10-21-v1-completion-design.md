@@ -651,7 +651,7 @@ changes of other modules' actions on one or more hosts.
 - **Preview.** The plan dry-runs every step without an output reference
   (its guards are the composite's; the state hash covers the input and
   their state hashes) and shows each other step as "planned after step
-  `<id>`" with its input template. Dry-run plans are not kept.
+  `<id>`" with its input template. Dry-run plans are stored like any plan, never applied, and expire after 10 minutes.
 - **Step log and cursor.** At apply, in the intent transaction, the
   controller writes one row per step to `core_composite_steps` (composite
   change id, step id, ordinal, host, action ref, input template, state
@@ -1236,7 +1236,7 @@ changes of other modules' actions on one or more hosts.
   | `GET /api/v1/changes/{id}/steps` | — | `200` `{"steps": [StepView]}` |
   | agent `GET /agent/v1/plans/{plan id}` | query `private=1` | `200` `PlanLookup` |
   | agent `POST /agent/v1/plans/{plan id}/retire` | empty | `200` `PlanLookup` |
-  | agent `POST /agent/v1/changes/{id}/private-output/ack` | empty | `204` |
+  | agent `POST /agent/v1/changes/{id}/private-output/ack` | empty, or `{"final":true}` when the composite reached a terminal state (also clears the step's sealed effect secrets, 1.2) | `204` |
 
   `EffectView` is `{changeId, seq, kind, resource, local, inverseLocal,
   commitBy, state, reason, before, after, post, undoTo, undoResource,
