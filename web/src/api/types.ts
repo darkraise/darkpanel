@@ -6,7 +6,7 @@ export interface NewToken extends TokenInfo { token: string }
 export interface TokenList { tokens: TokenInfo[] }
 export interface Session { user: User; csrfToken: string | null; expiresAt: string | null; token: TokenInfo | null }
 export interface ModuleState { id: string; version: number; enabled: boolean; available: boolean; reason: string | null; checkedAt: string | null }
-export interface Host { id: string; name: string; isLocal: boolean; online: boolean; modules: ModuleState[] }
+export interface Host { id: string; name: string; isLocal: boolean; online: boolean; modules: ModuleState[]; ingestion: { ok: boolean; since: string; error: string | null } | null }
 export interface HostList { hosts: Host[] }
 export interface DiffLine { op: string; text: string }
 export interface Guard { id: string; ok: boolean; message: string }

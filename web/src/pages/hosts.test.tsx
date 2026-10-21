@@ -14,8 +14,9 @@ const hosts: Host[] = [
       { id: "docker", version: 1, enabled: true, available: false, reason: "docker is not installed", checkedAt: null },
       { id: "ufw", version: 1, enabled: false, available: true, reason: null, checkedAt: null },
     ],
+    ingestion: { ok: true, since: "2026-10-21T08:00:00Z", error: null },
   },
-  { id: "h2", name: "db-1", isLocal: false, online: false, modules: [] },
+  { id: "h2", name: "db-1", isLocal: false, online: false, modules: [], ingestion: null },
 ]
 
 test("lists hosts with the local marker and module states", async () => {
@@ -38,6 +39,20 @@ test("lists hosts with the local marker and module states", async () => {
   expect(within(other).getByText("Offline").textContent).toBe("Offline")
   expect(within(other).queryByText("This controller")).toBeNull()
   expect(calls[0]?.body).toEqual({ input: {} })
+})
+
+test("marks only a host whose journal ingestion fails, with the error beside it", async () => {
+  const failing: Host = {
+    id: "h3", name: "cache-1", isLocal: false, online: true, modules: [],
+    ingestion: { ok: false, since: "2026-10-21T08:05:00Z", error: "audit: ingest host h3: agent unreachable" },
+  }
+  stubFetch({ [HOSTS]: { body: { output: { hosts: [...hosts, failing] } } } })
+  renderWithProviders(<HostsPage />)
+  const row = (await screen.findByRole("link", { name: "cache-1" })).closest("tr")
+  if (row === null) throw new Error("no row")
+  within(row).getByText("Journal ingestion failing")
+  within(row).getByText("audit: ingest host h3: agent unreachable")
+  expect(screen.getAllByText("Journal ingestion failing")).toHaveLength(1)
 })
 
 test("says so when there are no hosts", async () => {
