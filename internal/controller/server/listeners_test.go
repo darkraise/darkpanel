@@ -33,6 +33,9 @@ func baseURL(t *testing.T, s *Server) string {
 	return ""
 }
 
+// plainClient is an HTTP client for the plain network listener.
+var plainClient = &http.Client{Timeout: 10 * time.Second}
+
 // socketClient is an HTTP client that dials the controller socket.
 func socketClient(path string) *http.Client {
 	return &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{
@@ -95,14 +98,14 @@ func TestServesTheNetworkAndTheSocket(t *testing.T) {
 	opts := testOptions(t)
 	s := start(t, opts)
 	url := baseURL(t, s)
-	if code, body := get(t, http.DefaultClient, url+"/healthz", ""); code != 200 || strings.TrimSpace(body) != `{"status":"ok"}` {
+	if code, body := get(t, plainClient, url+"/healthz", ""); code != 200 || strings.TrimSpace(body) != `{"status":"ok"}` {
 		t.Errorf("GET /healthz = %d %s", code, body)
 	}
-	if code, _ := get(t, http.DefaultClient, url+"/api/v1/controller/listeners", ""); code != 401 {
+	if code, _ := get(t, plainClient, url+"/api/v1/controller/listeners", ""); code != 401 {
 		t.Errorf("GET /api/v1/controller/listeners without credentials = %d, want 401", code)
 	}
 	token := readToken(t, s, opts.Clock.(*coretest.FakeClock))
-	code, body := get(t, http.DefaultClient, url+"/api/v1/controller/listeners", token)
+	code, body := get(t, plainClient, url+"/api/v1/controller/listeners", token)
 	if code != 200 || strings.TrimSpace(body) != `{"tailscaleBound":false,"message":"Tailscale listener disabled by --listen."}` {
 		t.Errorf("GET /api/v1/controller/listeners = %d %s, want the listener service's state", code, body)
 	}
@@ -135,11 +138,16 @@ func TestShutdownClosesTheListeners(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = s.Shutdown(context.Background()) })
 	url := baseURL(t, s)
 	if err := s.Shutdown(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if resp, err := http.Get(url + "/healthz"); err == nil {
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url+"/healthz", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp, err := plainClient.Do(req); err == nil {
 		_ = resp.Body.Close()
 		t.Error("the network listener still answers after Shutdown")
 	}
@@ -157,6 +165,7 @@ func TestStartRefusesALiveSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = other.Close() })
 	if _, err := Start(context.Background(), opts); err == nil || !strings.Contains(err.Error(), "served by another process") {
 		t.Fatalf("Start beside a live socket: %v", err)
 	}
@@ -171,6 +180,7 @@ func TestStartRefusesALiveSocket(t *testing.T) {
 func TestRunStopsWhenTheContextEnds(t *testing.T) {
 	opts := testOptions(t)
 	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 	done := make(chan error, 1)
 	go func() { done <- Run(ctx, opts) }()
 	sock := socketClient(opts.Paths.ControllerSocket)

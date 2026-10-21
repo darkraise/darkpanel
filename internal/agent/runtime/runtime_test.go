@@ -30,7 +30,11 @@ func TestOpenRequiresItsConfig(t *testing.T) {
 	for name, brk := range breaks {
 		c := f.config()
 		brk(&c)
-		if _, err := Open(context.Background(), c); err == nil || !strings.Contains(err.Error(), "Config."+name) {
+		rt, err := Open(context.Background(), c)
+		if err == nil {
+			rt.Close()
+		}
+		if err == nil || !strings.Contains(err.Error(), "Config."+name) {
 			t.Errorf("%s: Open = %v, want an error naming Config.%s", name, err, name)
 		}
 	}

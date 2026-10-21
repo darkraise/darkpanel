@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"log/slog"
 	"net"
-	"net/http"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -200,6 +199,7 @@ func TestOneServerAtATime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = first.Shutdown(context.Background()) })
 	_, err = Start(context.Background(), opts)
 	if err == nil || !strings.Contains(err.Error(), "another darkpanel serve holds") {
 		t.Fatalf("second Start: %v, want the lock refusal", err)
@@ -277,7 +277,13 @@ func TestShutdownOnce(t *testing.T) {
 	for i := range errs {
 		wg.Go(func() { errs[i] = s.Shutdown(context.Background()) })
 	}
-	wg.Wait()
+	waited := make(chan struct{})
+	go func() { wg.Wait(); close(waited) }()
+	select {
+	case <-waited:
+	case <-time.After(10 * time.Second):
+		t.Fatal("concurrent Shutdown calls did not all return")
+	}
 	for i, err := range errs {
 		if err != nil {
 			t.Errorf("Shutdown %d: %v", i, err)
@@ -391,6 +397,7 @@ func TestControllerOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
+	t.Cleanup(func() { _ = s.Shutdown(context.Background()) })
 	for _, path := range []string{p.AgentDir, p.AgentKey, p.AgentDB()} {
 		if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
 			t.Errorf("%s: %v, want no agent state from a controller-only serve", path, err)
@@ -466,7 +473,7 @@ func TestHealthStatusPassesThrough(t *testing.T) {
 	opts := testOptions(t)
 	opts.HealthStatus = "degraded"
 	s := start(t, opts)
-	if code, body := get(t, http.DefaultClient, baseURL(t, s)+"/healthz", ""); code != 200 || strings.TrimSpace(body) != `{"status":"degraded"}` {
+	if code, body := get(t, plainClient, baseURL(t, s)+"/healthz", ""); code != 200 || strings.TrimSpace(body) != `{"status":"degraded"}` {
 		t.Errorf("GET /healthz = %d %s, want 200 with status degraded", code, body)
 	}
 }
