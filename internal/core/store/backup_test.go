@@ -276,3 +276,26 @@ func TestBackupFailedChmodLeavesNoDirectory(t *testing.T) {
 		t.Errorf("entries after a failed chmod = %v, want none", got)
 	}
 }
+
+func TestPruneProtectsKeepToWithUnsafeCharacters(t *testing.T) {
+	db := openTemp(t)
+	ctx := context.Background()
+	root := t.TempDir()
+	start := time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC)
+	upgrade, err := Backup(ctx, db, root, "v0", "v1.0.0-rc1+dirty", start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= 2; i++ {
+		if _, err := Backup(ctx, db, root, "a", "v0", start.Add(time.Duration(i)*time.Minute)); err != nil {
+			t.Fatalf("Backup %d: %v", i, err)
+		}
+	}
+	if err := pruneBackups(root, "test.db", "", "v1.0.0-rc1+dirty", 1); err != nil {
+		t.Fatalf("pruneBackups: %v", err)
+	}
+	want := []string{filepath.Base(upgrade)}
+	if got := entryNames(t, root); fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("entries = %v, want %v", got, want)
+	}
+}

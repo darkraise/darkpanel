@@ -105,7 +105,7 @@ func pruneBackups(root, dbName, current, keepTo string, keep int) error {
 		protected[current] = true
 	}
 	for _, b := range backups {
-		if keepTo != "" && b.to == keepTo {
+		if keepTo != "" && b.to == versionLabel(keepTo) {
 			protected[b.name] = true
 			break
 		}
