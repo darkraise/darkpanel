@@ -1540,7 +1540,10 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
   `PlanOptions{}` and leave `ApplyOptions.Call` nil; the dispatcher sets
   `GuardRefresh` itself on every agent apply, and only the composite
   runner sets the other fields. The agent client (`internal/agent/api`)
-  encodes `Call` as the request's `call` object. `AgentClient.Undo` and
+  encodes `Call` as the JSON `call` object carried in the request header
+  `Darkpanel-Call` (base64url, no padding), because the protocol-1 plan
+  body is the action's raw input and stays unchanged; the agent refuses
+  the header on any session other than the controller's. `AgentClient.Undo` and
   `AgentClient.Release` take a `call *CallContext` too (1.3's wire
   contract): the composite runner passes one whose `parent` names the
   composite when `system:recovery` undoes or releases a step (1.2, 1.3);
@@ -4633,7 +4636,8 @@ a spec change.
   `POST /agent/v1/reveal/{name}/{version}` (1.14; with the request header
   `Darkpanel-Internal: 1` it serves `Internal` reads, 1.7); DTOs in 1.3's wire
   contract and 1.4–1.14. The plan and apply requests gain the core-level
-  `call` object (1.5; its `guardRefresh` is read at apply only), accepted
+  `call` object in the `Darkpanel-Call` header (1.5; its `guardRefresh` is
+  read at apply only), accepted
   only on the controller session; the apply request, for long-running and
   task actions, returns once the intent is persisted. The repair target is
   taken only from the repair route's path (stored in `core_plans.repairs`);
