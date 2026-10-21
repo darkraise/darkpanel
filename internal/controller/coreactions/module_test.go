@@ -265,7 +265,7 @@ func TestHostListReportsIngestion(t *testing.T) {
 	e.addHost("h3", "gamma", false)
 	failedAt := t0.Add(time.Minute)
 	e.exec(`INSERT INTO core_ingest_status (host_id, since, error) VALUES ('h2', ?, NULL), ('h3', ?, ?)`,
-		formatTime(t0), formatTime(failedAt), "audit: ingest host h3: agent unreachable")
+		formatTime(t0), formatTime(failedAt), "agent unreachable")
 
 	var got core.HostList
 	if err := e.read(root, "core.host.list", NoInput{}, &got); err != nil {
@@ -274,7 +274,7 @@ func TestHostListReportsIngestion(t *testing.T) {
 	want := map[string]*core.IngestionStatus{
 		"h1": nil,
 		"h2": {OK: true, Since: t0},
-		"h3": {Since: failedAt, Error: ptr("audit: ingest host h3: agent unreachable")},
+		"h3": {Since: failedAt, Error: ptr("agent unreachable")},
 	}
 	if len(got.Hosts) != len(want) {
 		t.Fatalf("hosts = %+v, want %d", got.Hosts, len(want))

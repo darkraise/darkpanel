@@ -14,6 +14,7 @@ import (
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/coretest"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/core/store"
 )
 
@@ -225,7 +226,7 @@ func TestIngestAllContinuesPastAFailingHost(t *testing.T) {
 	if err := e.ingester.IngestAll(context.Background()); err != nil {
 		t.Fatalf("IngestAll = %v, want each host's failure reported, not returned", err)
 	}
-	if got, want := ingestStatus(t, e.db, "h1"), "2026-10-17T12:00:00.000000000Z audit: ingest host h1: not_found: host h1 not found"; got != want {
+	if got, want := ingestStatus(t, e.db, "h1"), "2026-10-17T12:00:00.000000000Z host h1 not found"; got != want {
 		t.Errorf("h1 status = %q, want %q", got, want)
 	}
 	if got, want := ingestStatus(t, e.db, "h2"), "2026-10-17T12:00:00.000000000Z <null>"; got != want {
@@ -258,7 +259,8 @@ func ingestStatus(t *testing.T, db *store.DB, hostID string) string {
 // TestIngestReportsEachStateChange: a host's ingestion state is stored and
 // logged when it changes, whether the loop or the dispatcher ran the
 // ingestion; a repeated failure is logged at debug and keeps the row and its
-// since.
+// since. The row shows a client error's detail, and an internal error only as
+// a pointer to the log, so two internal errors log twice but keep one since.
 func TestIngestReportsEachStateChange(t *testing.T) {
 	e := newIngestEnv(t)
 	addHost(t, e.db, "h1")
@@ -270,8 +272,8 @@ func TestIngestReportsEachStateChange(t *testing.T) {
 	in := NewIngester(IngesterConfig{Store: e.store, Agents: e.hosts, Clock: e.clock, Log: slog.New(logs)})
 	scheduled := func(ctx context.Context) error { return in.IngestAll(ctx) }
 	dispatched := func(ctx context.Context) error { return in.IngestHost(ctx, "h1") }
-	unreachable, refused := errors.New("agent unreachable"), errors.New("agent refused")
-	const failed = "audit: ingest host h1: audit: read the journal of h1: "
+	unreachable, refused := errcode.New(errcode.NotFound, "agent unreachable"), errcode.New(errcode.NotFound, "agent refused")
+	locked, noTable := errors.New("open /var/lib/darkpanel/controller.db: database is locked"), errors.New("sql: no such table")
 	steps := []struct {
 		name   string
 		run    func(context.Context) error
@@ -281,14 +283,18 @@ func TestIngestReportsEachStateChange(t *testing.T) {
 	}{
 		{"first success", scheduled, nil, nil, "2026-10-17T12:00:01.000000000Z <null>"},
 		{"first failure", dispatched, unreachable, []string{"WARN audit: journal ingestion failing host=h1"},
-			"2026-10-17T12:00:02.000000000Z " + failed + "agent unreachable"},
+			"2026-10-17T12:00:02.000000000Z agent unreachable"},
 		{"the same failure", scheduled, unreachable, []string{"DEBUG audit: journal ingestion still failing host=h1"},
-			"2026-10-17T12:00:02.000000000Z " + failed + "agent unreachable"},
+			"2026-10-17T12:00:02.000000000Z agent unreachable"},
 		{"another failure", dispatched, refused, []string{"WARN audit: journal ingestion failing host=h1"},
-			"2026-10-17T12:00:04.000000000Z " + failed + "agent refused"},
+			"2026-10-17T12:00:04.000000000Z agent refused"},
+		{"an internal failure", scheduled, locked, []string{"WARN audit: journal ingestion failing host=h1"},
+			"2026-10-17T12:00:05.000000000Z internal error; see the controller log"},
+		{"another internal failure", dispatched, noTable, []string{"WARN audit: journal ingestion failing host=h1"},
+			"2026-10-17T12:00:05.000000000Z internal error; see the controller log"},
 		{"recovery", scheduled, nil, []string{"INFO audit: journal ingestion recovered host=h1"},
-			"2026-10-17T12:00:05.000000000Z <null>"},
-		{"another success", dispatched, nil, nil, "2026-10-17T12:00:05.000000000Z <null>"},
+			"2026-10-17T12:00:07.000000000Z <null>"},
+		{"another success", dispatched, nil, nil, "2026-10-17T12:00:07.000000000Z <null>"},
 	}
 	for _, s := range steps {
 		e.clock.Advance(time.Second)

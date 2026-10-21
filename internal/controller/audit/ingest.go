@@ -24,8 +24,13 @@ const IngestTimeout = 30 * time.Second
 // journalPage is how many journal entries one Journal call asks for.
 const journalPage = 500
 
+// ingestFailure is a failure whose text is safe for any read-scope client.
+type ingestFailure struct{ msg string }
+
+func (f *ingestFailure) Error() string { return f.msg }
+
 // errIngestTimeout ends a host's ingestion that IngestTimeout cut short.
-var errIngestTimeout = fmt.Errorf("audit: ingestion exceeded %s", IngestTimeout)
+var errIngestTimeout = &ingestFailure{"audit: ingestion exceeded " + IngestTimeout.String()}
 
 // errOffline ends the ingestion of a host that answered host.offline: it is
 // skipped, and its ingestion state stays as it was.
@@ -42,10 +47,28 @@ type Epochs interface {
 type ackKey struct{ host, epoch string }
 
 // ingestState is the result of a host's last ingestion: failing with
-// message, or succeeding.
+// message, or succeeding. cause is the full error text, which the log shows
+// and core_ingest_status does not.
 type ingestState struct {
 	failing bool
+	cause   string
 	message string
+}
+
+// clientMessage is the text of err that core_ingest_status shows to any
+// read-scope client: an ingestFailure's text, the detail of a client error,
+// or a pointer to the log, since the cause of an internal error can name
+// paths and queries.
+func clientMessage(err error) string {
+	var f *ingestFailure
+	if errors.As(err, &f) {
+		return f.msg
+	}
+	var coded *errcode.Error
+	if errors.As(err, &coded) && coded.Code.Status() < 500 && coded.Detail != "" {
+		return coded.Detail
+	}
+	return "internal error; see the controller log"
 }
 
 // IngesterConfig wires an Ingester.
@@ -195,7 +218,7 @@ func (in *Ingester) ingestHost(ctx context.Context, hostID string) {
 func (in *Ingester) report(ctx context.Context, hostID string, err error) {
 	next := ingestState{}
 	if err != nil {
-		next = ingestState{failing: true, message: err.Error()}
+		next = ingestState{failing: true, cause: err.Error(), message: clientMessage(err)}
 	}
 	prev, seen := in.states[hostID]
 	switch {
@@ -250,7 +273,7 @@ func (in *Ingester) ingest(ctx context.Context, hostID string) error {
 		prev := cursor
 		for _, e := range entries {
 			if e.Seq <= prev {
-				return fmt.Errorf("audit: the journal of %s returned sequence %d after %d", hostID, e.Seq, prev)
+				return &ingestFailure{fmt.Sprintf("audit: the journal of %s returned sequence %d after %d", hostID, e.Seq, prev)}
 			}
 			prev = e.Seq
 		}
