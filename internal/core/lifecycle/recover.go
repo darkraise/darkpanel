@@ -21,8 +21,13 @@ var recoveryPrincipal = core.Principal{Actor: ActorRecovery, Scope: core.ScopeAd
 // before the engine serves requests. Every unconfirmed revertible change is
 // reverted from its snapshot whatever its deadline; a compensable or
 // irreversible change cut off during apply is marked interrupted with what its
-// verify reports, and is never retried or compensated.
+// verify reports, and is never retried or compensated. Recover first seeds the
+// engine's ids from the stored ones, so new ids sort after them even when the
+// clock stepped back across the restart.
 func (e *Engine) Recover(ctx context.Context) error {
+	if err := e.seedIDs(ctx); err != nil {
+		return err
+	}
 	type unfinished struct{ id, class, state string }
 	rows, err := e.cfg.Base.DB.Read().QueryContext(ctx,
 		"SELECT id, class, state FROM core_changes WHERE state IN (?, ?) ORDER BY id",
