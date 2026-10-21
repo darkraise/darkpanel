@@ -4820,7 +4820,9 @@ the previous one merges and wave 0 still running alone: `w0a` the
 lifecycle core (1.1–1.3c), `w0b` platform and surfaces (1.4–1.8, 1.11,
 1.13, 1.14) and `w0c` the extension package, cloud plumbing, listeners,
 web extension points, harness helpers, error codes and ADR 0014 (1.9,
-1.10, 1.12, 11, Contracts). Wave 0's file-ownership row covers all three. Every plan ends with the gates in
+1.10, 1.12, 11, Contracts), which also builds 1.3's web UI for undo, repair,
+release and per-effect resolution, because it owns the change dialog.
+Wave 0's file-ownership row covers all three. Every plan ends with the gates in
 `docs/superpowers/gates.md`, including the harness gate when it touches the
 harness, a module's host behaviour or the paths gate 7 lists (waves 0, 4, 7
 and 9d touch `test/harness/`, `install.sh.in` or `internal/install/`).
