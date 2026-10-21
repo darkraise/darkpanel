@@ -64,3 +64,14 @@ test("shows the server's reason when the read fails", async () => {
   renderWithProviders(<AuditPage />)
   expect((await screen.findByText("this request needs the read scope")).textContent).toBe("this request needs the read scope")
 })
+
+test("never renders an entry's input, so a token in it stays hidden", async () => {
+  const secret = "dpt_0123456789abcdef0123456789abcdef"
+  stubFetch({
+    [AUDIT]: { body: { output: { entries: [entry("a3", "demo.set", { hostId: "h1", input: { token: secret } })], nextBefore: null } } },
+  })
+  const { container } = renderWithProviders(<AuditPage />)
+  await screen.findByText("demo.set/v1")
+  expect(container.textContent).not.toContain("dpt_")
+  expect(container.innerHTML).not.toContain(secret)
+})
