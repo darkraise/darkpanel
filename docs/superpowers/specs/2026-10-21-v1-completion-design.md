@@ -113,78 +113,75 @@ so step lists and DTOs carry it as one string.
 
 #### 1.2 Effects journal and undo
 
+Four rules shape the lifecycle core: **uncertainty stops automation** (an
+effect not proven settled is `unresolved`; its change goes to
+`needs_repair`, keeps its locks, and only the operator resolves it);
+**undo is a short-window convenience** (only while no later change took
+any of its lock keys, and never over an unresolved effect); **repair has
+depth 1** (a repair change is never repaired itself); **one owner** (one
+mechanism at a time acts on an unfinished change, and no timeout ends
+that).
+
 ADR 0004's `compensable` class keeps its meaning (no timer; undone by a
 compensating step). Every compensable action declares exactly one of: an
-**undo handler** on the action itself (`Undoer`, below); a compensating
-action (`CompensatedBy`, operator-invoked, as today; `core.update.apply` →
-`core.update.rollback` is unchanged); or `ForwardOnly: true` for an action
-whose effect is monotonic and is never reversed (`panel.listener.revoke`,
-8). A `ForwardOnly` action's apply converges when run again after a partial
-apply, and its plan reports an empty diff when its effect is already
-present (it then applies as a no-op).
+**undo handler** (`Undoer`, below); a compensating action (`CompensatedBy`,
+operator-invoked, as today; `core.update.apply` → `core.update.rollback` is
+unchanged); or `ForwardOnly: true`, for an action whose effect is
+monotonic and never reversed (`panel.listener.revoke`, 8).
 
-**Declarations.** `core.ActionSpec` gains these fields (1.5 and 1.7 add
-`Guards`, `MinScope`, `Available` and `Internal`):
+**Declarations.** `core.ActionSpec` gains these fields (1.5, 1.7 and 1.14
+add `Guards`, `MinScope`, `Available`, `Internal` and `Reveal`):
 
 ```go
 type ActionSpec struct {
     // existing: Name, Summary, Version, Class, Side, BreakGlass, LockKeys, CompensatedBy
-    ForwardOnly  bool          // compensable only (1.2)
+    ForwardOnly  bool          // compensable: never reversed; requires Converges
+    Converges    bool          // apply run again with the same input, after a partial or complete apply, ends in the same state and plans an empty diff when the effect is present
     RepairedBy   string        // revertible only, required: an action of the same module (1.3)
-    ApplyTimeout time.Duration // 0 means 30 s; composites: computed at plan (1.3)
+    ApplyTimeout time.Duration // one budget for apply and verify; 0 means 30 s; composites: computed at plan (1.3)
     LongRunning  bool          // apply answers once the intent is persisted (1.3)
-    Task         bool          // the host sequence runs in a transient unit (1.3c); set by DefineTask
+    Task         bool          // the host sequences run in transient units (1.3c); set by DefineTask
     Unwind       Unwind        // composite only (1.3)
 }
 ```
 
-**The effects journal.** Every change of a mutating action has an effects
+**The effects journal.** A change of a mutating action has an effects
 journal on its executing side (agent or controller database, table
-`core_effects`). An action with an undo handler, and a revertible action
-that reconciles (2.5), records each effect **before** making it, and every
-journal write commits (fsync) before it returns. `core.Env` gains
-`Effects EffectJournal`; the engine sets it whenever it sets `Env.ChangeID`:
-in Apply, Verify, Revert, Undo, Reconcile, Recover and Task. Revert also
+`core_effects`). An action that journals records each effect **before**
+making it; every journal write commits (fsync) before it returns.
+`core.Env` gains `Effects EffectJournal`, set whenever `Env.ChangeID` is
+set: in Apply, Verify, Revert, Observe, Inverse, Recover and Task. Revert
 receives `Env.ChangeID` from wave 0 on (today `runRevert` passes neither).
 
 ```go
-// EffectKind is what an effect does to its resource.
-type EffectKind string
+type EffectKind string // "create" | "modify" | "delete"
 
-const (
-    EffectCreate EffectKind = "create"
-    EffectModify EffectKind = "modify"
-    EffectDelete EffectKind = "delete"
-)
-
-// EffectState is an effect's state (table below).
 type EffectState string
 
 const (
-    EffectIntended  EffectState = "intended"
-    EffectMade      EffectState = "made"
-    EffectSkipped   EffectState = "skipped"
-    EffectAmbiguous EffectState = "ambiguous"
-    EffectUndoing   EffectState = "undoing"
-    EffectUndone    EffectState = "undone"
-    EffectConflict  EffectState = "conflict"
-    EffectAccepted  EffectState = "accepted"
-    EffectAbandoned EffectState = "abandoned"
+    EffectIntended   EffectState = "intended"
+    EffectMade       EffectState = "made"
+    EffectSkipped    EffectState = "skipped"
+    EffectUnresolved EffectState = "unresolved"
+    EffectUndoing    EffectState = "undoing"
+    EffectUndone     EffectState = "undone"
+    EffectAccepted   EffectState = "accepted"
+    EffectAbandoned  EffectState = "abandoned"
 )
 
 // StateDoc is the comparable form of a resource's state. State holds the
 // fields an action sets and its inverse restores; Version holds the fields
 // that change on every write or restart (a start time, an endpoint id, an
-// ETag, modified_on). A StateDoc never holds a secret value; it is shown in
-// effect views. State "null" means the resource does not exist. Each module
-// section lists, per effect kind, which fields go in State and which in
-// Version (2.5, 3, 4, 6, 7).
+// ETag, modified_on) and every State field an inverse cannot restore. It
+// never holds a secret. State "null" means the resource does not exist.
+// Each module section lists, per effect kind, which fields go where
+// (2.5, 3, 4, 6, 7).
 type StateDoc struct {
     State   json.RawMessage `json:"state"`
     Version json.RawMessage `json:"version,omitempty"`
 }
 
-// RecoveryID is how recovery finds exactly the object a creation made.
+// RecoveryID is how an observation finds exactly the object a creation made.
 type RecoveryID struct {
     Kind  string `json:"kind"`  // "name" | "marker" | "idempotency"
     Value string `json:"value"`
@@ -192,233 +189,255 @@ type RecoveryID struct {
 
 // Effect is one row of core_effects.
 type Effect struct {
-    ChangeID    string
-    Seq         int         // 1, 2, ... in the order intended
-    Kind        EffectKind
-    Resource    string      // "<module>.<noun>:<identity>"; for a creation, "<module>.<noun>:?<recovery value>" until Made names the object
-    Recovery    *RecoveryID // creations only
-    Before      StateDoc    // the state the call expects to find
-    After       *StateDoc   // the state the call leaves; nil when it cannot be computed before the call (the action's section says so)
-    Post        *StateDoc   // recorded by Made: the state undo must still find
-    UndoTo      *StateDoc   // recorded by UndoIntent: the state the inverse leaves
-    Current     *StateDoc   // recorded with ambiguous, conflict and accepted: what was found
-    State       EffectState
-    Resolution  string      // the last resolution applied (below), with ResolvedBy and ResolvedAt
-    ResolvedBy  string
-    ResolvedAt  time.Time
+    ChangeID   string
+    Seq        int         // 1, 2, ... in the order intended
+    Kind       EffectKind
+    Resource   string      // "<module>.<noun>:<identity>"; a creation: "<module>.<noun>:?<recovery value>" until made
+    Recovery   *RecoveryID // creations only
+    Local      bool        // the call ends with the process that makes it (below)
+    CommitBy   time.Time   // not Local: no resolution before this time (below)
+    Before     StateDoc    // the state the call expects to find
+    After      *StateDoc   // the state the call leaves; nil when it cannot be known before the call
+    Post       *StateDoc   // made: the state an undo must still find
+    UndoTo     *StateDoc   // undoing: the state the inverse leaves
+    Current    *StateDoc   // unresolved and accepted: what was observed
+    State      EffectState
+    Reason     string      // unresolved: "uncertain" | "ambiguous" | "conflict"
+    Resolution string      // the last resolution, with ResolvedBy and ResolvedAt
+    ResolvedBy string
+    ResolvedAt time.Time
 }
 
-// EffectJournal is a change's effects journal. Every method commits before
-// it returns; a method that would make an illegal transition (table below)
-// returns an error and writes nothing.
+// EffectJournal is the handler's view of its change's journal. Every
+// method commits before it returns; an illegal transition is an error that
+// writes nothing.
 type EffectJournal interface {
-    // Intend records an effect in state intended and returns its seq. In the
-    // same transaction it records the supersession rows of the effect
-    // (below).
+    // Intend records e as intended and returns its seq. secret, if any, is
+    // sealed with associated data "core_effects.secret_ct.<change id>.<seq>".
     Intend(ctx context.Context, e Effect, secret []byte) (seq int, err error)
+    // Made records that the call succeeded; resource names the object
+    // (a creation's server-assigned id) and post its state now.
     Made(ctx context.Context, seq int, resource string, post StateDoc) error
+    // Skipped records that the call was not made, or was refused with an
+    // answer that guarantees nothing committed (a Definite error, below).
     Skipped(ctx context.Context, seq int) error
-    Ambiguous(ctx context.Context, seq int, current StateDoc) error
-    UndoIntent(ctx context.Context, seq int, undoTo StateDoc) error
-    Undone(ctx context.Context, seq int) error
-    Conflict(ctx context.Context, seq int, current StateDoc) error
     List(ctx context.Context) ([]Effect, error)
-    // Secret opens the effect's sealed secret (associated data
-    // "core_effects.secret_ct.<change id>.<seq>"), for example a created
-    // key's id and value that an undo or cleanup needs.
     Secret(ctx context.Context, seq int) ([]byte, error)
+}
+
+// Definite marks err as a refusal that guarantees the call committed
+// nothing (a provider's 4xx validation answer, a precondition the module
+// checked before calling). IsDefinite reports it.
+func Definite(err error) error
+func IsDefinite(err error) bool
+```
+
+**Local and remote calls.** An effect is `Local` when its call ends with
+the process that makes it: a program the runner starts (its process group
+is killed with the agent, as today), a `FileWriter` write, or any call made
+by a task unit's program once that unit is seen inactive (1.3c). Calls to
+the Docker Engine, the Tailscale local API, systemd jobs over D-Bus and
+every cloud provider are not `Local`: the other side may still commit them
+after Darkpanel stops waiting. For those the action sets `CommitBy` to the
+call's start plus the time its section gives (cloud calls 10 min, local
+daemons 2 min); it is a waiting period before the operator may resolve the
+effect, not proof.
+
+Effect states (the engine writes every transition not marked "handler"):
+
+| From | To | When |
+|---|---|---|
+| — | `intended` | handler: `Intend`, before the call |
+| `intended` | `made` | handler: `Made`, the call succeeded |
+| `intended` | `skipped` | handler: `Skipped` |
+| `intended` | `made`, `skipped` or `unresolved` | **settle** (below), once the handler has returned or was cut off |
+| `made` | `unresolved` (`conflict`) | undo: the observation before the inverse differs from `Post` |
+| `made` | `undoing` | undo: immediately before the inverse, `UndoTo` recorded |
+| `undoing` | `undone` | the inverse returned and the observed State equals `UndoTo`'s |
+| `undoing` | `made` | a `Local` inverse that failed or was cut off, observed equal to `Post`: nothing happened |
+| `undoing` | `unresolved` | any other outcome of an inverse |
+| `unresolved` | `accepted`, `made` or `skipped` | the operator's resolution (below) |
+| any non-terminal | `abandoned` | release (1.3) |
+
+`skipped`, `undone`, `accepted` and `abandoned` are terminal.
+
+**Observing.** An action that journals implements `Observer`; `Intend`
+fails for an action without one.
+
+```go
+type Observation struct {
+    Current  StateDoc
+    Resource string // a creation: the matched object's identity when Matches is 1
+    Matches  int    // a creation: objects its RecoveryID finds; 1 for modify and delete
+}
+
+// Observer reads the resource of one effect. It only reads.
+type Observer interface {
+    Observe(ctx context.Context, env Env, e Effect) (Observation, error)
 }
 ```
 
-Effect states:
+Two `StateDoc` values are compared as canonical JSON (object keys sorted,
+no insignificant whitespace, numbers as `encoding/json` writes them).
+"Equal" means State and Version equal; "State-equal" compares State only.
 
-| From | To | Written by | When |
+**Settle** (the engine, for each effect still `intended` after the
+handler returned an error or was cut off; for a task action after its unit
+is inactive, 1.3c):
+
+- not `Local` → `unresolved` (`uncertain`);
+- `Local`, observed: a creation with no match → `skipped`; a creation with
+  one match, State-equal to `After` (any State when `After` is nil) →
+  `made` with that resource and `Post` the observation; a modify or delete
+  equal to `Before` → `skipped`; a modify or delete with `After` set and
+  State-equal to it → `made`, `Post` the observation; anything else →
+  `unresolved` (`ambiguous`). An observation that fails → `unresolved`.
+
+**Recovery identity (creations).** Recorded with `Intend`, chosen per
+endpoint in the action's section: `name` (a fixed name such as
+`darkpanel-npm`, checked free at plan and again at apply just before the
+call; a change-id-derived name, checked at apply), `marker` (Docker label
+`darkpanel.change=<change id>`, DNS record comment `darkpanel:<change id>`,
+the Tailscale key namespaces of 1.9) or `idempotency` (a provider key).
+Module tables are the authority over this text (Docker: the comparator
+table of 3; Nginx Proxy Manager: the tables of 6). Darkpanel never deletes
+an object its identity cannot tell apart from others.
+
+**Undo handlers.**
+
+```go
+// Undoer is the undo handler of a compensable action. Inverse makes the
+// inverse call of one made effect, leaving e.Resource in e.UndoTo, and
+// touches no other resource. A Definite error means it changed nothing.
+type Undoer interface {
+    Observer
+    Inverse(ctx context.Context, env Env, e Effect) error
+}
+```
+
+`DefineMutating`, `DefineRevertible` and `DefineTask` find `Observer`,
+`Undoer` and `Recoverer` (1.3b) by type assertions on the handler (the
+`Uninstaller` idiom) and fill the new `ErasedHandler` fields `Observe`,
+`Inverse` and `Recover` (JSON forms). `UndoTo` is `Before` with `Version`
+cleared (a creation: `{"state": null}`); because the check after an
+inverse compares State only, a field an inverse cannot restore belongs in
+`Version`.
+
+**Undo of a change** (`Engine.Undo(ctx, p, changeID)`).
+
+- **Eligible:** a compensable change of an action with an undo handler, in
+  `completed`, `failed` or `interrupted` (its locks were released), or in
+  `needs_repair` (it still holds them, and undo is its repair, 1.3); with
+  no `unresolved` effect (else `core.needs_repair`, "resolve its effects
+  first"); not owned (else `core.change_busy`); not a step of a composite
+  (only its composite undoes it: `core.change_busy` naming the composite);
+  not a repair change (`core.change_busy` naming its target). Any other
+  state: `change.not_pending`; `reverted`: answered with the change
+  (idempotent).
+- **Window.** Table `core_lock_epochs (key, epoch)`: `takeLocks`
+  increments the epoch of every key it takes and records the values in
+  `core_changes.lock_epochs`. A change whose locks were released is
+  undoable only while every one of its keys still has the recorded epoch;
+  otherwise `core.undo_conflict` ("lock `<key>` was taken by a later
+  change"). This replaces any per-resource dependency tracking.
+- **Claim.** Under the engine's `applyMu` (the same serialization as apply
+  and repair, `internal/core/lifecycle/apply.go`), in one write
+  transaction: the checks above, `takeLocks` for the change's keys
+  (`lock.held` naming the holder), state `undoing`, `recovery_owner =
+  undo`, journal phase `undo`.
+- **Run** (in a task unit for a task action, 1.3c; in process otherwise),
+  newest effect first, stopping at the first effect that does not end
+  `undone` or `skipped`, so an earlier effect is never undone while a later
+  one is in doubt:
+  - an effect found `undoing` (a crash): `Local` → observe: State-equal to
+    `UndoTo` → `undone`; equal to `Post` → `made` and continue below;
+    anything else → `unresolved`; not `Local` → `unresolved`;
+  - a `made` effect: observe; not equal to `Post` → `unresolved`
+    (`conflict`); else record `undoing` with `UndoTo`, call `Inverse`,
+    observe: State-equal to `UndoTo` → `undone`; on an error, a `Definite`
+    one → `made`, a `Local` one observed equal to `Post` → `made`,
+    anything else → `unresolved`.
+- **Settle** (one transaction, owner cleared): every effect `undone` or
+  `skipped` → `reverted`, locks released; every effect terminal with at
+  least one `accepted` → **`kept`** (terminal: the accepted state stays;
+  never treated as reverted), locks released; otherwise `needs_repair`,
+  locks kept.
+
+Authorization: the action's scope (1.7) for a user; composite unwind runs
+as `system:recovery`, which the principal checks accept for undo, lookup
+and revert of changes it recovers.
+
+**Resolving an unresolved effect.** `darkpanel change resolve <id>
+--effect <seq> accept|retry` (`POST /api/v1/changes/{id}/effects/{seq}/resolve`,
+relayed to `POST /agent/v1/changes/{id}/effects/{seq}/resolve`), scope
+`admin`, journaled as phase `resolve`. Allowed when the effect is
+`unresolved`, its change is `needs_repair` (or is a `failed` repair change
+whose target is `needs_repair`, 1.3), no mechanism owns either, and
+`CommitBy` has passed (else `core.change_busy`, "the call may still commit
+until <time>"). The engine calls `Observe`, then records:
+
+| Resolution | Result |
+|---|---|
+| `accept` | `accepted`, the observation in `Current`: the current state is kept as the end state |
+| `retry` | observation State-equal to `UndoTo` (computed as above) → `skipped`; a creation with more than one match → refused, `request.invalid_input` ("the identity matches N objects"); otherwise `made` with `Post` the observation (and the matched resource), so the next undo or repair runs the inverse from what is there now |
+
+A resolution never runs an inverse or any write. The change's locks are
+held throughout (it is `needs_repair`), so no other Darkpanel change
+touches the resource between the observation and the record.
+
+**Failure of a compensable or irreversible change** (the engine settles
+`intended` effects first):
+
+| Outcome | Effects after settle | Change | Locks |
 |---|---|---|---|
-| — | `intended` | `Intend` | before the call |
-| `intended` | `made` | `Made` | the call succeeded, or recovery found the expected after-state |
-| `intended` | `skipped` | `Skipped` | the call changed nothing, or recovery found the before-state |
-| `intended` | `ambiguous` | `Ambiguous` | recovery found neither expected state, or a creation's identity matches more than one object |
-| `made` | `undoing` | `UndoIntent` | immediately before the inverse |
-| `undoing` | `undone` | `Undone` | the resource re-read equals `UndoTo` |
-| `undoing` | `undoing` | `UndoIntent` again | the resource still equals `Post` (`ClassifyUndoing` returns `made`): the inverse did not run and runs again |
-| `made`, `undoing` | `conflict` | `Conflict` | the resource equals neither `Post` nor `UndoTo` |
-| `conflict` | `made` | resolution `retry` | the next undo compares again |
-| `conflict`, `ambiguous` | `accepted` | resolution `accept` | the current state is kept as the end state |
-| `ambiguous` | `made` | resolution `made` | the operator states the effect happened; the current state is recorded as `Post` |
-| `ambiguous` | `skipped` | resolution `skipped` | the operator states nothing happened |
-| `intended`, `made`, `undoing`, `ambiguous`, `conflict` | `abandoned` | release (1.3) | the change is given up |
+| Apply and Verify succeed | — | `completed` | released |
+| Apply or Verify returns an error (including `core.deadline_exceeded`) | none `unresolved` | `failed` | released |
+| the same | an `unresolved` effect | `needs_repair`, error `core.needs_repair` listing them (the cause is in the journal entry) | kept |
+| cut off (startup recovery, 1.3) | none `unresolved` | `interrupted`, with the verify message as today | released |
+| cut off | an `unresolved` effect | `needs_repair` | kept |
 
-`skipped`, `undone`, `accepted` and `abandoned` are terminal. An effect is
-**unresolved** while it is `intended` after recovery has run, `ambiguous`
-or `conflict`; a change with an unresolved effect is never treated as if
-the effect had not happened (1.3).
+**Failure of a revertible change.** `Reverter.Revert` changes to
 
-- **Comparison.** Two `StateDoc` values are compared as canonical JSON
-  (object keys sorted, no insignificant whitespace, numbers as
-  `encoding/json` writes them). Core provides the helpers every handler
-  uses, so the rules are the same everywhere:
+```go
+// RevertOutcome is what a revert did. Override is true only for a
+// revertible action's connectivity exception (2.5): the snapshot was
+// restored whole over unresolved effects because the lockout guard failed.
+type RevertOutcome struct {
+    Override bool
+    Detail   json.RawMessage // Override: what was overwritten, shown to the operator
+}
 
-  ```go
-  // ClassifyIntended settles an intended effect from the resource's current
-  // state. matches is how many objects the recovery identity finds (1 for a
-  // modify or delete); uncertain is true when the provider may still commit
-  // the call (1.9). It returns EffectSkipped, EffectMade, EffectAmbiguous,
-  // or EffectIntended when uncertain is true and nothing was found.
-  func ClassifyIntended(e Effect, current StateDoc, matches int, uncertain bool) EffectState
-  // CheckPost reports whether current equals e.Post, State and Version.
-  func CheckPost(e Effect, current StateDoc) bool
-  // ClassifyUndoing settles an undoing effect: State equal to e.UndoTo's →
-  // EffectUndone; equal to e.Post (State and Version) → EffectMade; anything
-  // else → EffectConflict.
-  func ClassifyUndoing(e Effect, current StateDoc) EffectState
-  ```
+Revert(ctx context.Context, env Env, snapshot []byte) (RevertOutcome, error)
+```
 
-  `ClassifyIntended`: for a creation, no match → `skipped` (or `intended`
-  when uncertain), one match whose State equals `After.State` (any State
-  when `After` is nil) → `made`, more than one match or one with another
-  State → `ambiguous`; for a modify or delete, current equal to `Before`
-  (State and Version) → `skipped`, `After` set and current State equal to
-  `After.State` → `made`, anything else → `ambiguous`. The check before an
-  inverse uses State **and** Version (a manual restart changes a start time
-  and so blocks the undo); the check after an inverse uses State only (the
-  inverse itself assigns a new start time, endpoint id or ETag).
-- **Expected inverse outcome.** Before each inverse the handler computes
-  `UndoTo` from `Before` (normally `Before` with Version cleared; for a
-  creation `{"state": null}`) and records it with `UndoIntent`, so a crash
-  between the inverse and `Undone` is settled by `ClassifyUndoing`.
-- **Recovery identity (creations).** Every effect that creates something
-  records its `RecoveryID` with `Intend`, before the call, chosen per
-  endpoint and named in each action's section:
-  - `name`, a deterministic exclusive name: a fixed name (`darkpanel-npm`)
-    is checked free at plan and again at apply, immediately before the call;
-    a name derived from the change id (`darkpanel-<change id>` for a tunnel)
-    cannot exist before the change and is checked at apply, before the call;
-  - `marker`, a marker the object carries (Docker label
-    `darkpanel.change=<change id>`, DNS record comment
-    `darkpanel:<change id>`; the Tailscale key description namespaces of
-    1.9);
-  - `idempotency`, a provider idempotency key where the provider offers one.
+and `ErasedHandler.Revert` to the same result. A `Revert` that finds an
+`unresolved` effect in `env.Effects` restores nothing and returns an error,
+except under the connectivity exception, the only case in Darkpanel where
+an unresolved effect is overwritten: the action's lockout guard, evaluated
+on the state the change left, fails for a protected flow, and `Revert`
+restores the snapshot whole and returns `Override`. Undo, unwind, release,
+resolution and recovery handlers never overwrite an unresolved effect.
 
-  Each module section that creates objects states its identity per
-  endpoint and its settlement when the identity finds more than one object
-  or may still find one later; where a section gives tables they are the
-  authority over this general text (Docker: the comparator table of 3;
-  Nginx Proxy Manager: the identity and settlement tables of 6). Darkpanel
-  never deletes an object its identity cannot tell apart from others.
-- **Precedence: ambiguity is never overwritten by default.** An effect
-  that is unresolved is never settled by restoring a whole snapshot, by an
-  inverse, by deleting anything, or by releasing locks while work may still
-  run. The one exception is a revertible action's **connectivity
-  exception** (2.5): its `Revert`, and only its `Revert`, may restore its
-  snapshot whole when the action's lockout guard, evaluated at that moment
-  on the state the revert would otherwise leave, fails for a protected
-  flow. The engine records that revert with journal result `override`; the
-  unresolved effects keep their state with the overwritten state recorded
-  in `Current`, and the change goes to `needs_repair` all the same, so the
-  operator still sees and resolves them. Undo, unwind, release and module
-  recovery never take the exception.
-- **Supersession.** When `Intend` records an effect on a `Resource` that an
-  effect of another change touched and that effect is not `skipped`,
-  `undone` or `abandoned`, the journal writes a row
-  `core_effect_deps (change_id, seq, later_change_id, later_seq, created_at)`
-  for each such earlier effect, in the same transaction. Undo of an earlier
-  effect with a dependency row is refused with `core.undo_conflict` naming
-  the later change ("undo it first"). A dependency row is deleted when its
-  later effect becomes `skipped` or `undone` (the later change left nothing
-  behind on the resource). A later effect that ends `accepted` or
-  `abandoned` keeps the row, so the earlier effect can then only be
-  resolved with `accept` (its undo would reverse a state the operator
-  kept). Locks are released when a compensable change completes (ADR
-  0004); supersession is what keeps an earlier undo from reversing a later
-  operation, and undo reacquires the locks (below) so no Darkpanel
-  operation runs between its check and its inverse.
-- **Undo handlers.**
+| Trigger | `Revert` returns | Change | Locks |
+|---|---|---|---|
+| failed apply or verify, timer, operator revert, startup recovery | no error, no `Override` | `reverted` | released |
+| the same | no error, `Override` | `needs_repair`, journal result `override`, `Detail` stored as `core_changes.override_json`; the effects keep their state | kept |
+| the same | an error | `needs_repair`, error `change.revert_failed` | kept |
 
-  ```go
-  // Reconciler settles a change's intended effects after a crash by reading
-  // each resource and calling Made, Skipped or Ambiguous through
-  // env.Effects (using ClassifyIntended), or leaving an effect intended
-  // when the provider may still commit it. It never makes a change.
-  type Reconciler interface {
-      Reconcile(ctx context.Context, env Env, effects []Effect) error
-  }
+**Verify.** Verify runs under the change's deadline (1.3) and is never
+abandoned: a Verify that does not return keeps the change `applying` and
+its locks held until it returns or the process restarts (startup recovery
+then settles it). Wave 0 deletes the engine's `VerifyTimeout` abandonment
+(`internal/core/lifecycle/guard.go`) and rewrites the `Mutator.Verify`
+comment in `contract.go` accordingly.
 
-  // Undoer is the undo handler of a compensable action. Undo receives the
-  // change's effects in state made or undoing, newest first. For each it
-  // reads the resource; an undoing effect is settled with ClassifyUndoing
-  // first; a made effect whose resource fails CheckPost is recorded with
-  // Conflict and left alone; otherwise it calls UndoIntent, runs the
-  // inverse, re-reads the resource and calls Undone or Conflict. It must
-  // touch no resource the journal does not name. A returned error leaves
-  // the remaining effects as they are.
-  type Undoer interface {
-      Reconciler
-      Undo(ctx context.Context, env Env, effects []Effect) error
-  }
-  ```
+**Sealed input.** The plan's sealed input (`core_plans.input_ct`) is kept
+until the change reaches `completed`, `confirmed`, `reverted`, `failed`,
+`kept`, `repaired` or `abandoned`, and for `interrupted` only when the
+action has `Converges` (its repair re-plans it, 1.3); recovery handlers and
+task units read it while the change is unfinished.
 
-  `DefineMutating` finds `Undoer` by a type assertion on its handler (the
-  `Uninstaller` idiom) and `DefineRevertible` finds `Reconciler`; they fill
-  the new `ErasedHandler` fields `Undo` and `Reconcile`.
-- **Undo of a change** (`Engine.Undo(ctx, p, changeID)`): allowed on a
-  compensable change with an undo handler in `completed`, `failed`,
-  `interrupted` or `needs_repair` (undo state not `running`, no repair in
-  progress); refused otherwise with `core.change_busy` (a mechanism owns it)
-  or `change.not_pending` (another state).
-  1. **Claim** (one write transaction): the change is not owned
-     (`recovery_owner` empty); every effect not yet terminal has no
-     dependency row (else `core.undo_conflict`); the change takes its lock
-     keys again with `takeLocks` as their owner (`lock.held` naming the
-     holder when another change has one, `update.in_progress` during an
-     update reservation); then state `undoing`, `undo_state = running`,
-     `recovery_owner = undo`, journal phase `undo`.
-  2. **Reconcile**: the `intended` effects go to `Reconcile`.
-  3. **Undo**: the `made` and `undoing` effects go to `Undo`.
-  4. **Settle** (one write transaction, `recovery_owner` cleared):
-
-     | Effects after steps 2–3 | Undo state | Change state | Locks |
-     |---|---|---|---|
-     | all `skipped`, `undone` or `accepted` | `done` | `reverted` | released |
-     | any `intended`, `ambiguous` or `conflict` | `blocked` | `needs_repair` (error `core.needs_repair`, listing them) | kept |
-     | `Undo` or `Reconcile` returned an error with effects still `made` or `undoing` | `failed` | `needs_repair` (the error) | kept |
-
-  An undo request on a `reverted` change returns it (idempotent). An undo
-  of a change in `needs_repair` is how a compensable change is repaired
-  (1.3). Authorization: the action's scope (1.7) for user requests;
-  startup recovery and composite unwind run as `system:recovery`, which the
-  principal checks accept for undo, lookup and resolve. The undo state is
-  the column `core_changes.undo_state` (`none`, `running`, `done`,
-  `blocked`, `failed`).
-- **Resolving effects.** `darkpanel change resolve <id> --effect <seq>
-  <resolution>` (`POST /api/v1/changes/{id}/effects/{seq}/resolve`, relayed
-  to the executing agent as
-  `POST /agent/v1/changes/{id}/effects/{seq}/resolve`), scope `admin`,
-  journaled as phase `resolve`, allowed only while the change is
-  `needs_repair` and not owned:
-
-  | Resolution | From | Evidence recorded | To |
-  |---|---|---|---|
-  | `retry` | `conflict` | the actor; the operator put the resource back | `made` (the next undo compares again) |
-  | `accept` | `conflict`, `ambiguous` | the resource re-read now, into `Current` | `accepted` |
-  | `made` | `ambiguous` | the resource re-read now, into `Post` | `made` |
-  | `skipped` | `ambiguous` | the actor's statement | `skipped` |
-
-  An `intended` effect left unresolved because the provider may still
-  commit it is not resolvable: 1.9 settles it, or release abandons it. A
-  resolution never runs an inverse; the next undo or repair does. A
-  repeated identical resolution returns the effect unchanged.
-- **Undo** reads the journal, not the action's output, so it works after a
-  failed apply, a failed verify, a crash mid-apply and a lost response.
-- **Failed apply with effects.** When Apply or Verify of an action that
-  journals effects fails (including `core.deadline_exceeded`), the engine
-  runs `Reconcile` on its `intended` effects under the cleanup context
-  (1.3) before recording the result: no unresolved effect → `failed` with
-  locks released, as today; an unresolved effect → `needs_repair`, locks
-  kept, so no other change touches a resource whose state is unknown.
-- **Automatic unwind** of a composite (1.3) uses only undo handlers and
-  never an `irreversible` action. Operator-invoked compensation through
-  `CompensatedBy` keeps today's rules.
-- Each action's section states what its undo restores and what it cannot.
+Each action's section states what its undo restores and what it cannot.
 
 #### 1.3 Composite operations
 
@@ -430,13 +449,7 @@ changes of other modules' actions on one or more hosts.
   ```go
   const ClassComposite Class = "composite"
 
-  // Unwind is a composite's failure direction.
-  type Unwind string
-
-  const (
-      UnwindReverse Unwind = "reverse"
-      UnwindForward Unwind = "forward"
-  )
+  type Unwind string // "reverse" | "forward"
 
   // Step is one step of a composite.
   type Step struct {
@@ -453,443 +466,385 @@ changes of other modules' actions on one or more hosts.
       // database, never a host.
       Steps(ctx context.Context, env Env, in In) ([]Step, error)
       // Output builds the composite's output from its steps' redacted
-      // outputs, keyed by step id; a read step's result is not among them.
+      // outputs, keyed by step id; read steps are not among them.
       Output(ctx context.Context, env Env, in In, steps map[string]json.RawMessage) (Out, error)
   }
 
   // DefineComposite declares a composite: Class composite, Side controller,
-  // LockKeys ["composite:<module>"].
+  // LockKeys ["composite:<module>"], spec.Unwind set.
   func DefineComposite[In, Out any](spec ActionSpec, h Composer[In, Out]) ActionDef
   ```
 
-  `ErasedHandler` gains `Steps` and `Output` (JSON forms of the two
-  methods). The engine, not the module, plans, applies, verifies and
-  recovers a composite.
-- **Steps are data.** For example:
-
-  ```json
-  [{"id": "net",   "host": "h1", "action": "npm.network.attach/v1",
-    "input": {"network": "${input.network}"}},
-   {"id": "cert",  "host": "h1", "action": "npm.certificate.request/v1",
-    "input": {"domains": ["${input.hostname}"]}, "after": ["net"]},
-   {"id": "proxy", "host": "h1", "action": "npm.proxyhost.add/v1",
-    "input": {"certificateId": "${steps.cert.output.id}"}, "after": ["cert"]}]
-  ```
-
-  **References.** `${input.<path>}` and `${steps.<id>.output.<path>}` are the
-  only references; `<path>` is a dot-separated list of object keys and
-  array indexes. A JSON string that is exactly one reference is replaced by
-  the referenced value with its JSON type; a reference inside a longer
-  string is replaced by the value's text, allowed only for strings and
-  numbers; `$${` is a literal `${`. An `${input...}` reference is resolved
-  at plan time and a missing path fails the plan with
-  `request.invalid_input`; a `${steps...}` reference is resolved when its
-  step is planned, against the referenced step's unredacted output (the
-  sealed step row, below), and a missing path fails the step with
-  `core.child_failed`. A step may reference only steps it follows through
-  `after`, directly or not. The resolved input is validated against the
-  child action's schema before the child is planned. The step list is
-  stored, sealed, with the composite's plan.
-- **Rules.** Checked by the registry where they concern the composite's
-  declaration, and by the engine on every `Steps` result at plan time (a
-  violation is a module bug: `internal`):
-  - a step is never a composite (no nesting) and never `irreversible`;
-  - a step may be a read action (for example `cloudflare.tunnel.token`, an
-    `Internal` read); it is not a child change (read steps, below);
+  `ErasedHandler` gains `Steps` and `Output`. The engine, not the module,
+  plans, applies and recovers a composite. Steps run in list order; `After`
+  constrains references and is checked against that order.
+- **References.** `${input.<path>}` and `${steps.<id>.output.<path>}` are
+  the only references; `<path>` is dot-separated object keys and array
+  indexes. A string that is exactly one reference becomes the referenced
+  value with its JSON type; a reference inside a longer string is replaced
+  by the value's text (strings and numbers only); `$${` is a literal `${`.
+  `${input...}` is resolved at plan time (a missing path: `request.invalid_input`);
+  `${steps...}` when its step is planned, against the referenced step's
+  unredacted output (sealed in the step row), a missing path failing the
+  step with `core.child_failed`. A step may reference only steps it follows
+  through `After`, directly or not. The resolved input is validated against
+  the child action's schema before the child is planned.
+- **Registry rules** (and the engine's check of every `Steps` result at
+  plan time; a violation is a module bug, `internal`):
+  - a step is never a composite and never `irreversible`; a step may be a
+    read action (a read step, below);
   - at most one **revertible** step, and it is the last step;
   - `reverse` (every adding composite: deploys, exposes, joins): every
     compensable step has an undo handler;
   - `forward` (every removal composite: `panel.exposure.remove`,
     `npm.expose.remove`, `npm.admin.unexpose`, `cloudflare.expose.remove`,
-    `derp.server.remove`): every compensable step has an undo handler, is
-    `ForwardOnly`, or is compensated by an action (`CompensatedBy`) whose
-    apply converges when run again; each such action's section says so;
-  - step ids are unique, `after` names earlier steps only, and every
-    `${steps.<id>...}` reference is reachable through `after`;
-  - the composite holds `composite:<module>` for its whole life; children
-    take their own keys, and no other action declares a `composite:*` key.
-- **Scope.** Composites are controller-side, and under the kept rules every
-  controller mutation needs `admin` (1.7), so every composite is `admin`.
-- **Preview.** The plan dry-runs every step with no `after` and no output
-  reference, and describes each other step as "planned after step `<id>`",
-  with its input template. Guards of pre-planned steps are the composite's
-  guards. The composite's state hash is the hash of its input and its
-  pre-planned steps' state hashes. The dry-run plans are not kept.
-- **Durable step log.** Controller table `core_composite_steps` (composite
-  change id, step id, ordinal, host, action ref, resolved input with secret
-  fields sealed, current attempt, child plan id and child change id of the
-  current attempt (both null for a read step), sealed unredacted output
-  (`output_ct`, associated data
-  `core_composite_steps.output_ct.<composite id>.<step id>`), state,
-  error). The row is written and fsynced before the child is planned,
-  before it is applied, and before a confirmation is sent. Step states:
-  `pending → planned → applying → applied → confirming → confirmed`; on
-  unwinding `undoing → undone | undo_failed`; read steps `pending → read`;
-  and `released` (below). Every committed step state is published as a
-  `composite.step` event (1.6). Table `core_composite_attempts` (composite change
-  id, step id, attempt number from 1, child plan id, child change id,
-  principal, started at, outcome) keeps every attempt's lineage. Secrets
-  produced by a step reach later steps' inputs on the controller only;
-  never in preview, audit or API.
-- **Child results, including secrets.** A child change whose
-  `parent_change_id` is set and whose output type has secret fields stores
-  its unredacted output sealed in `core_changes.private_output_ct`
-  (associated data `core_changes.private_output_ct.<change id>`), in the
-  transaction that records its result, on its executing side. The
-  composite obtains it from the apply response or, after a lost response
-  or a restart, from the lookup with `private=1` (below); it seals it into
-  the step row, then acknowledges it
-  (`POST /agent/v1/changes/{id}/private-output/ack`, or the controller's
-  own delete for a controller-side child), which clears the column. An
-  unacknowledged private output is cleared after 24 hours. A step whose
-  child completed but whose private output is gone and was never sealed
-  into the step row is **output-lost**: a reverse composite unwinds (the
-  child is undone, so an auth key is deleted, not orphaned) and fails with
-  `core.child_failed`; the composite is never resumed with a redacted
-  value.
-- **Read steps.** A read step is executed by the controller's read dispatch
-  (for an `Internal` read, the controller-only path of 1.7) once the steps
-  it follows are done; it creates no plan and no change. Its result is
-  sealed into the step row and is never part of the composite's output, the
-  lookup's response, audit or the API. Reads have no effects: at repair a
-  read step not yet `read` is read again; a `read` step's sealed result is
-  reused by the steps that reference it. Unwind discards it.
-- **Asynchronous apply.** Every composite, and every action marked
-  `LongRunning` (section 5 marks them `L`: package installs and updates,
-  image and Compose pulls, Compose operations, ACME issuance, the NPM
-  bootstrap and upgrade, derper install and update), applies
-  asynchronously:
-  - the API's apply returns `202` as soon as the change and its intent are
-    persisted, with the change in state `applying`;
-  - progress and the result come from `GET /api/v1/changes/{id}` and the
-    change events of the SSE endpoint wave 0 builds (1.6); `--confirm`, the
-    CLI's wait and the UI countdown attach to the returned id;
-  - the controller-to-agent apply of a long-running agent action likewise
-    returns once the agent has persisted the intent; the controller follows
-    it through the read-only lookup (below) and the agent's journal events.
-  Synchronous actions keep today's behaviour.
-- **Execution deadlines.** `ActionSpec.ApplyTimeout` (0 means 30 s, the
-  runner's default) bounds an action's apply and verify; the engine runs
-  them under a context with that deadline, and the runner keeps its own 30 s
-  default only for a context without one (`internal/platform/exec.go`), so
-  a long command is no longer cut at 30 s. Long-running actions declare
-  theirs: package installs, updates and pins 15 min; image pulls and Compose
+    `derp.server.remove`): every non-read step's action has `Converges`,
+    because repair repeats it; a forward composite never unwinds, so its
+    steps' compensation does not matter to it;
+  - the composite holds `composite:<module>` for its whole life; no other
+    action declares a `composite:*` key;
+  - other rules checked on every action: a compensable action has exactly
+    one of an undo handler, `CompensatedBy` or `ForwardOnly`;
+    `ForwardOnly` requires `Converges`; an undo handler only on a
+    compensable action; a revertible action has `RepairedBy`, an action of
+    the same module whose lock keys are a subset of its own and whose input
+    accepts `{}`; a task action is compensable or irreversible, agent-side,
+    with lock keys and an `ApplyTimeout`.
+- **Scope.** Every controller mutation needs `admin` (1.7), so every
+  composite is `admin`.
+- **Preview.** The plan dry-runs every step without an output reference
+  (its guards are the composite's; the state hash covers the input and
+  their state hashes) and shows each other step as "planned after step
+  `<id>`" with its input template. Dry-run plans are not kept.
+- **Step log and cursor.** At apply, in the intent transaction, the
+  controller writes one row per step to `core_composite_steps` (composite
+  change id, step id, ordinal, host, action ref, input template, state
+  `pending`, attempt 0, child plan id, child change id, earlier attempts'
+  child change ids, sealed resolved input, sealed unredacted output
+  `output_ct` with associated data
+  `core_composite_steps.output_ct.<composite id>.<step id>`, error) and a
+  row to `core_composites` (change id, direction `forward` or `unwind`,
+  cursor = the ordinal being worked on, steps deadline). Step states:
+  `pending → applying → applied` (`→ confirming → confirmed` for the
+  revertible last step), read steps `pending → read`, on unwind
+  `undoing → undone`, and `released`. A step row is written and fsynced
+  before its child is planned (`applying` with the child plan id), before
+  the apply is sent and before a confirmation is sent; the cursor advances
+  in the transaction that marks a step final. Every committed step state
+  is published as a `composite.step` event (1.6).
+- **Child results, including secrets.** A child change whose output type
+  has secret fields stores its unredacted output sealed in
+  `core_changes.private_output_ct` (associated data
+  `core_changes.private_output_ct.<change id>`), on its executing side, in
+  the transaction that records its result. The composite takes it from the
+  apply response or, after a lost response, from the lookup with
+  `private=1`; it seals it into the step row, then acknowledges it
+  (`POST /agent/v1/changes/{id}/private-output/ack`, or a delete for a
+  controller-side child), which clears the column; an unacknowledged
+  private output is cleared after 24 hours. A completed step whose private
+  output is gone before it was sealed is **output-lost**: the reverse
+  composite unwinds (the child is undone, so an auth key is deleted, not
+  orphaned) and ends with `core.child_failed`; a composite never continues
+  with a redacted value.
+- **Read steps.** Executed by the controller's read dispatch (for an
+  `Internal` read, 1.7's controller-only path) when the cursor reaches
+  them; no plan, no change, no effects. The result is sealed into the step
+  row and never appears in the composite's output, the lookup, audit or
+  the API. A read step that is not yet `read` is read again when the
+  cursor reaches it; unwind skips read steps.
+- **Asynchronous apply.** Every composite and every `LongRunning` action
+  (section 5 marks them `L`) answers `202` once the change and its intent
+  are persisted (state `applying`); progress comes from the change, the
+  step view and the SSE events (1.6), to which `--confirm`, the CLI's wait
+  and the UI countdown attach. The controller-to-agent apply of such an
+  agent action likewise answers once the intent is persisted, and the
+  controller follows the lookup and the agent's journal. A synchronous
+  action answers within 50 s: whatever is still running then, the API
+  answers `202` with the change.
+- **Deadlines.** `ApplyTimeout` (0 means 30 s) is one budget for apply and
+  verify; the engine runs both under that deadline, and the runner's own
+  30 s default applies only to a context without one
+  (`internal/platform/exec.go`). Long-running actions declare theirs:
+  package installs, updates and pins 15 min; image pulls and Compose
   operations 30 min; ACME issuance 10 min; the NPM bootstrap and upgrade
   20 min; derper install and update 15 min. A passed deadline cancels the
   command (process group killed, as today) and fails the change with
-  `core.deadline_exceeded`. **Cleanup never runs on the expired context:**
-  the revert, reconcile or undo that follows, and the transition that
-  records the result, run under a fresh context derived from
-  `context.WithoutCancel` with a timeout of the action's `ApplyTimeout`
-  (handler calls) and 30 s (the database transaction). A change's locks
-  are released only by a transition recorded after every handler call of
-  the change has returned and, for a task action, after its unit is
-  inactive (1.3c). Undo, revert, reconcile and module recovery are each
-  bounded by the action's `ApplyTimeout`.
-  **Composite deadlines.** A composite's steps phase is bounded by a
-  deadline computed at plan time: the sum of its steps' `ApplyTimeout`
-  values plus 5 min, stored with the plan. The parent never cancels a
-  child: at the deadline it starts no further step, waits for the current
-  child to settle under the child's own deadline, then unwinds (reverse)
-  or goes `needs_repair` (forward) with `core.deadline_exceeded`. The
-  confirmation window is not part of it: it is the revertible child's own
-  deadline (at most 15 min, ADR 0004). Unwind and repair have no parent
-  deadline; each child call is bounded by its own action's timeout.
-  Tests run a real subprocess longer than 30 s inside a long-running
-  action, an HTTP apply longer than the 60 s write timeout, and a deadline
-  passing during a revert.
-- **Agent shutdown.** On SIGTERM the agent stops accepting requests and
-  cancels the contexts of in-process applies: only process shutdown does
-  this; a cancelled request still never cancels a change (`Apply` runs
-  under `context.WithoutCancel`, `apply.go`). Their changes are settled at
-  the next start (recovery, below). Task units (1.3c) keep running.
-- **Read-only lookup.** `GET /agent/v1/plans/{plan id}` (and the same
-  function in-process for controller-side children) never applies
-  anything and returns:
+  `core.deadline_exceeded`. Cleanup (settle, revert, the recording
+  transaction) runs under `context.WithoutCancel` with the action's
+  `ApplyTimeout` for handler calls and 30 s for the transaction, never on
+  the expired context. A handler that ignores its context keeps its change
+  owned and locked until it returns or the process restarts. A
+  composite's steps phase is bounded at plan by the sum of its steps'
+  `ApplyTimeout` plus 5 min: then it starts no further step, waits for the
+  current child under the child's deadline, and unwinds (reverse) or goes
+  `needs_repair` (forward) with `core.deadline_exceeded`; the confirmation
+  window (the revertible child's deadline, at most 15 min) is not part of
+  it, and unwind and repair have none. Only process shutdown (SIGTERM)
+  cancels an in-process apply; a cancelled request never does (`Apply`
+  runs under `context.WithoutCancel`). Task units keep running (1.3c).
+- **Lookup and retire.** Two agent routes (and the same functions
+  in-process for controller-side children), accepted only on the
+  controller's session:
+  - `GET /agent/v1/plans/{plan id}` returns `PlanLookup` and never changes
+    anything;
+  - `POST /agent/v1/plans/{plan id}/retire`: in one transaction, when no
+    change exists for the plan, marks the plan retired, so a later apply of
+    it is refused with `plan.not_found`, and answers status `retired`;
+    otherwise answers the lookup. The composite retires a child plan whose
+    lookup says `absent` before it treats the step as never applied, so a
+    delayed apply request can never create the child afterwards.
 
   ```go
   type PlanLookup struct {
-      Status         string           `json:"status"` // "absent" | "running" | "recovering" | "terminal"
-      ChangeID       string           `json:"changeId,omitempty"`
-      State          string           `json:"state,omitempty"`     // the change state
-      UndoState      string           `json:"undoState,omitempty"`
-      Owner          string           `json:"owner,omitempty"`     // recovery_owner
-      Made           int              `json:"made"`                // effects in made, undoing or conflict
-      Unresolved     int              `json:"unresolved"`          // effects unresolved (1.2)
-      RepairedBy     string           `json:"repairedBy,omitempty"`
-      RepairOutcome  string           `json:"repairOutcome,omitempty"`
-      Output         json.RawMessage  `json:"output,omitempty"`    // redacted
-      Private        json.RawMessage  `json:"private,omitempty"`   // only with ?private=1, below
-      Error          *ChangeError     `json:"error,omitempty"`
+      Status        string          `json:"status"` // "absent" | "retired" | "running" | "recovering" | "terminal"
+      ChangeID      string          `json:"changeId,omitempty"`
+      State         string          `json:"state,omitempty"`
+      Owner         string          `json:"owner,omitempty"`      // recovery_owner
+      Deadline      *time.Time      `json:"deadline,omitempty"`   // a pending revertible child's revert deadline
+      Made          int             `json:"made"`                 // effects made or undoing
+      Unresolved    int             `json:"unresolved"`
+      RepairOutcome string          `json:"repairOutcome,omitempty"`
+      Output        json.RawMessage `json:"output,omitempty"`     // redacted
+      Private       json.RawMessage `json:"private,omitempty"`    // only with ?private=1 while private_output_ct is set
+      Error         *ChangeError    `json:"error,omitempty"`
   }
   ```
 
-  `absent`: no change exists for the plan. `running`: the change is
-  `applying` or `undoing` and owned by the engine or undo. `recovering`: a
-  module recovery handler owns it. `terminal`: every other state.
-  `private=1` is honoured only on a request that arrives over the
-  controller's session (never the local socket) and only while
-  `private_output_ct` is set.
-- **Engine integration.** ADR 0014 adds class `composite` to the shared
-  contracts (`read`, `revertible`, `compensable`, `irreversible`,
-  `composite`) and the additive change states `awaiting_confirmation`,
-  `undoing`, `needs_repair`, `recovering`, `repaired`, `abandoned` and
-  `quarantined` (`applying` exists already, `core.StateApplying`). A
-  composite's terminal states are the existing `completed` (success),
-  `reverted` (unwound, with error `core.child_failed` or
-  `core.deadline_exceeded` naming the step) and `failed` (a reverse
-  composite whose first non-read step failed with nothing to unwind), plus
-  `abandoned`. `Dispatcher.Confirm` and `Revert` on a composite id act on
-  its one revertible child. The CLI and UI treat a composite with a
-  revertible step like a revertible action and one without like a
-  compensable action.
-- **Ownership of an unfinished change.** Column
-  `core_changes.recovery_owner` names the one mechanism that may act on a
-  change: empty (none), `engine` (an in-process apply), `composite` (the
-  composite runner, controller), `undo` (an undo in progress) or `module`
-  (a module recovery handler, 1.3b). Every claim is one conditional
-  update, `UPDATE core_changes SET recovery_owner = ?, state = ? WHERE
-  id = ? AND recovery_owner = ? AND state = ?`, and a claim that matches no
-  row fails with `core.change_busy`; ownership is cleared in the same
-  transaction that records the mechanism's outcome. The undo, repair,
-  release and resolve routes refuse an owned change with
-  `core.change_busy`.
-- **Single changes in `needs_repair`.** A revertible change whose revert
-  could not complete (2.5), a compensable change whose undo ended `blocked`
-  or `failed`, a compensable change left with unresolved effects by
-  recovery, and a change whose module recovery handler failed go to
-  `needs_repair` with error `core.needs_repair` (or the handler's error)
-  and **keep their lock rows**. **Repair is by capability**, through
-  `darkpanel change repair <id>` (`POST /api/v1/changes/{id}/repair`):
+  `running`: owned by `engine`, `undo` or `repair`. `recovering`: owned by
+  `module`. `terminal`: no mechanism owns it (`State` says which state).
+- **States.** ADR 0014 adds class `composite` to the shared contracts and
+  the change states `awaiting_confirmation`, `undoing`, `needs_repair`,
+  `recovering`, `repaired`, `kept`, `abandoned`, `quarantined` and, for
+  composites only, `releasing` (`applying` exists already). A composite is
+  `applying`, `awaiting_confirmation`, `undoing` (unwinding), `recovering`
+  (an agent it waits on is unreachable), `needs_repair`, `releasing`, or
+  terminal: `completed`, `reverted` (unwound; error `core.child_failed` or
+  `core.deadline_exceeded` naming the step), `failed` (a reverse composite
+  whose first non-read step failed with nothing to unwind) or `abandoned`.
+  `Dispatcher.Confirm` and `Revert` on a composite act on its revertible
+  child. The CLI and UI treat a composite with a revertible step like a
+  revertible action and one without like a compensable action.
+- **Ownership.** Column `core_changes.recovery_owner`: empty, `engine` (an
+  in-process apply, verify or revert), `composite`, `undo`, `module` (a
+  recovery handler, 1.3b) or `repair` (a repair change runs under this
+  change's locks). Every claim is one conditional update (`UPDATE
+  core_changes SET recovery_owner = ?, state = ? WHERE id = ? AND
+  recovery_owner = ? AND state = ?`), failing with `core.change_busy` when
+  it matches no row. Ownership ends only in the transaction recording the
+  owner's outcome, after its handler returned and, for a task unit, after
+  the unit was seen inactive (1.3c); a process restart ends in-process
+  ownership and startup recovery re-claims the change. The undo, repair,
+  release and resolve routes refuse an owned change (`core.change_busy`).
+- **Repair of a single change** in `needs_repair`
+  (`darkpanel change repair <id>`, `POST /api/v1/changes/{id}/repair`,
+  relayed to `POST /agent/v1/changes/{id}/repair`; the agent decides, so
+  the repair target never travels as client input). The first row that
+  applies decides:
 
-  | The change | Repair does | Answer |
+  | The change | Repair | Answer |
   |---|---|---|
-  | compensable with an undo handler | undo (1.2), after its `conflict` and `ambiguous` effects are resolved | `202` with the change |
-  | failed module recovery (`recovery_retry` set) | runs the module's `Recover` again (agent route `POST /agent/v1/changes/{id}/repair`) | `202` with the change |
-  | revertible | plans its `RepairedBy` action with the core-level field `repairs: <id>` | `200` with the plan; the client applies it through the action's ordinary apply route |
-  | `ForwardOnly`, `interrupted` | plans the same action with the stored input and `repairs: <id>` | `200` with the plan |
+  | `recovery_retry` set (its recovery handler ended with an error, 1.3b) | runs the recovery handler again, owner `module`; nothing else is admissible until it records an outcome without `recovery_retry` | `202` change |
+  | an `unresolved` effect on it or on a `failed` repair change of it | refused, `core.needs_repair` ("resolve its effects first") | — |
+  | compensable with an undo handler | undo (1.2) | `202` change |
+  | revertible | the agent plans its `RepairedBy` action with input `{}` and the core-level plan field `repairs: <id>` | `200` plan; the client applies it through the ordinary apply route |
+  | compensable with `Converges` and no undo handler | the agent plans the same action with its stored input and `repairs: <id>` | `200` plan |
+  | anything else | none, `change.not_pending`; release still applies | — |
 
-  Any other change has no repair (`change.not_pending`); release (below)
-  still applies to it in `needs_repair`. `repairs` is set only by the
-  repair route: a plan request that supplies it is refused with
-  `request.invalid_input`, and it is stored in `core_plans.repairs`.
-  - **Repair under the repaired change's locks.** Apply of a plan whose
-    `repairs` names change R accepts R's lock keys as free when R owns
-    them, and in the same transaction that persists the repair change P's
-    intent it moves R's lock rows to P, sets `R.repaired_by = P`, and so
-    the keys are never free in between. While `R.repaired_by` is set, R
-    refuses undo, repair and release (`core.change_busy`). The
-    `RepairedBy` action's output carries `repairOutcome`: `restored` (the
-    host is back in R's before-change state) or `kept` (the host is in R's
-    intended state).
+  `repairs` is set only by this route: a plan request that supplies it is
+  refused with `request.invalid_input`. It is stored in
+  `core_plans.repairs`, and the engine derives `Env.Call.RepairOf` (1.5)
+  from it. A `Converges` re-apply is also how an `interrupted` change of
+  such an action is finished: the operator runs the action again (8).
+- **Repair change P of R** (depth 1). Apply of a plan with `repairs: R`
+  runs under `applyMu`; in the intent transaction R must be `needs_repair`,
+  unowned and without `unresolved` effects; R's lock rows move to P (P's
+  lock keys are a subset of R's), R gets `recovery_owner = repair` and
+  `repaired_by = P`, so the keys are never free in between. The
+  `RepairedBy` action's output carries `repairOutcome`: `restored` (the
+  host is back in R's before-change state) or `kept` (in R's intended
+  state); a `Converges` re-apply always reports `kept`. P is never
+  repaired, undone or released (`core.change_busy` naming R):
 
-    | P reaches | R becomes | Lock rows |
-    |---|---|---|
-    | `completed` or `confirmed` | `repaired`, with P's `repairOutcome` and a link to P | P's normal release (completion or confirmation) |
-    | `failed` or `reverted` (P left nothing behind: P's own revert or undo succeeded) | stays `needs_repair`, `repaired_by` cleared | moved back from P to R in P's terminal transaction |
-    | `needs_repair` | stays `needs_repair`, `repaired_by` = P | stay with P; repairing P (P2 with `repairs: P`) continues the lineage |
+  | P reaches | R becomes | Locks |
+  |---|---|---|
+  | `completed` or `confirmed` | `repaired` with P's `repairOutcome`, owner cleared | released with P |
+  | `failed` or `reverted` with no `unresolved` effect and no override | `needs_repair`, owner cleared | moved back to R in P's terminal transaction |
+  | any outcome that would leave P `needs_repair` (a failed or overriding revert, an `unresolved` effect, a recovery handler's `needs_repair`) | P is recorded `failed` with error `core.needs_repair` instead; R stays `needs_repair`, owner cleared; R's effects view lists P's `unresolved` effects, which are resolved on P | moved back to R |
 
-    When a change becomes `repaired` and it was itself repairing R, R
-    becomes `repaired` too, with the outcome of the last link, recursively
-    up the lineage. Release of a change that is repairing another is
-    refused (`core.change_busy`); releasing the first change of the
-    lineage releases every link.
-  - **Release.** `darkpanel change release <id>`
-    (`POST /api/v1/changes/{id}/release`, body `{"reason": "<1–500
-    characters>"}`), scope `admin`, journaled as phase `release`: allowed
-    only on a change in `needs_repair` that no mechanism owns and that has
-    no live task unit (1.3c); refused otherwise with `core.change_busy`. In
-    one transaction it marks every effect that is not terminal
-    `abandoned`, moves the change (and every link of its repair lineage) to
-    `abandoned` (terminal) and releases its locks. The answer (`200`) lists
-    each abandoned effect with its states. On a composite it does the same
-    for the composite and its `needs_repair` children; step rows go
-    `released`. A repeated release of an `abandoned` change returns it.
-  - **Locks across restarts and update reservations.** `Engine.Recover`
-    (below) keeps the locks of changes in `applying`, `pending`,
-    `awaiting_confirmation`, `undoing`, `needs_repair` and `recovering`.
-    Update reservations are refused while any lock is held (ADR 0012), so
-    a host with such a change refuses self-updates. `Reserve`
-    (`internal/core/lifecycle/reserve.go`) keeps its codes:
-    `update.in_progress` only while another operation holds `*`, and
-    `update.unconfirmed_changes` while a change holds a lock or a
-    revertible change is unconfirmed; wave 0 extends that refusal's detail
-    to name the first held key, its owning change and the change's state
-    (`lock firewall is held by change <id> (needs_repair)`), and the update
-    scheduler shows that detail.
-- **Confirmation (R41).** When the last step is revertible and its child
-  is `pending`, the composite is `awaiting_confirmation`.
-  1. Confirm writes the step row `confirming` (fsync), then sends the
-     child's confirm.
-  2. On the child's answer `confirmed`, or on a repeated confirm answered
-     `change.not_pending` while a lookup shows the child `confirmed`, the
-     step becomes `confirmed` and the composite `completed`.
-  3. A lost answer is settled by the lookup, never by a deadline: a child
-     found `confirmed` completes the composite whatever the time; a child
-     found `reverted` is handled by the transition table below.
-- **Child watcher.** While a composite is `awaiting_confirmation`, has a
-  step `confirming`, has a child in `needs_repair` or `recovering`, or is
-  itself `recovering`, the controller watches the child: the agent's
-  journal entries of phases `apply`, `interrupt`, `revert`, `recover`,
-  `undo`, `resolve` and `release` reach it through the existing audit
-  ingester and wake the watcher, and the watcher also polls the lookup
-  every 15 s. Each observation goes through the transition table. When the
-  agent is unreachable, the watcher waits until the child's deadline (if
-  any) plus 60 s, then marks the composite `recovering` and keeps polling
-  every 30 s; it acts only on a child state the lookup has shown.
-- **Parent and child transitions.** The composite's state is one of
-  `applying`, `awaiting_confirmation`, `undoing`, `recovering`,
-  `needs_repair` or a terminal state. Every observation of the current
-  step's child, live or at recovery, is applied through this table (the
-  child's view is the lookup's `Status`, `State`, `Made` and
-  `Unresolved`):
+  A further repair of R is a new P, never a repair of P.
+- **Release** (`darkpanel change release <id>`,
+  `POST /api/v1/changes/{id}/release`, body `{"reason": "<1–500
+  characters>"}`, scope `admin`, journaled as phase `release`) gives up a
+  change in `needs_repair`. It is refused (`core.change_busy`) for a repair
+  change (release its target), for a step of a composite (release the
+  composite), and while the change or any of its repair changes is owned
+  or has a live task unit.
+  - A single change: one transaction on its executing side marks every
+    non-terminal effect of the change and of its `failed` repair changes
+    `abandoned`, moves the change to `abandoned` and releases its locks;
+    the answer lists the abandoned effects.
+  - A composite: the composite goes `releasing` (owner `composite`, its
+    `composite:<module>` lock kept). The runner sends release to every
+    child in `needs_repair`, retrying through the watcher until each
+    executing side answers `abandoned` or `terminal`; a child answering
+    `core.change_busy` is retried. Repair of the composite's children is
+    refused while it is `releasing`. When every child has answered, step
+    rows go `released` and the composite `abandoned`, releasing its lock.
+  - A repeated release of an `abandoned` change answers it.
+- **Locks across restarts and updates.** Startup recovery keeps the locks
+  of changes in `applying`, `pending`, `awaiting_confirmation`,
+  `undoing`, `needs_repair`, `recovering`, `releasing` and `quarantined`,
+  and of every owned change. Update reservations are refused while any
+  lock is held (ADR 0012), so a host with such a change refuses
+  self-updates; `Reserve` keeps its codes (`update.in_progress` only while
+  another operation holds `*`; `update.unconfirmed_changes` while a change
+  holds a lock or a revertible change is unconfirmed) and wave 0 extends
+  that refusal's detail to name the first held key, its owning change and
+  that change's state; the update scheduler shows the detail.
+- **Confirmation (R41).** When the last step is revertible and its child is
+  `pending`, the composite is `awaiting_confirmation`. Confirm writes the
+  step row `confirming` (fsync), then sends the child's confirm. The child
+  `confirmed` (or a repeated confirm answered `change.not_pending` while
+  the lookup shows `confirmed`) makes the step `confirmed` and the
+  composite `completed`. A lost answer is settled by the lookup, never by
+  a deadline.
+- **Child watcher.** While a composite is `awaiting_confirmation`,
+  `recovering`, `releasing`, has a step `confirming` or a child in
+  `needs_repair` or `recovering`, the controller follows the child: the
+  agent's journal entries of phases `apply`, `interrupt`, `revert`,
+  `recover`, `undo`, `resolve` and `release` wake it through the existing
+  audit ingester, and it polls the lookup every 15 s. When the agent is
+  unreachable it waits until the child's deadline (if any) plus 60 s, then
+  marks the composite `recovering` and polls every 30 s; it acts only on a
+  state the lookup has shown.
+- **Transitions.** Every observation of the cursor step's child, live or
+  at recovery, is applied through this table. Recovery never creates a new
+  attempt; new attempts come only from an operator's repair of a forward
+  composite.
 
   | Child observed | Reverse composite | Forward composite |
   |---|---|---|
-  | `absent` (the apply never reached the executing side) | step back to `pending`; live: apply a new attempt (re-planned); at recovery: unwind | step back to `pending`; live: new attempt; at recovery: `needs_repair` at this step |
-  | `running` | wait | wait |
-  | `recovering` | wait for the module outcome, then this table again | same |
-  | `completed` (compensable) | step `applied`; next step, or `completed` when it was the last | same |
-  | `pending` (revertible, the last step) | step `applied`; `awaiting_confirmation` | same |
-  | `confirmed` | step `confirmed`; `completed` | same |
-  | `reverted` (a revertible child by timer, operator or restart; a compensable child undone or rolled back by its module) | unwind the steps before it | `needs_repair` at this step; completed steps stay done; repair makes a new attempt |
-  | `failed` or `interrupted`, `Made` 0, `Unresolved` 0 | unwind the steps before it (`failed` when there are none) | `needs_repair` at this step |
-  | `failed` or `interrupted`, `Made` > 0, `Unresolved` 0 | unwind, starting with this step | `needs_repair` at this step; repair settles the child by capability (below) |
-  | any state with `Unresolved` > 0 | `needs_repair`; nothing is unwound past this step and no new attempt is made until the child's effects are resolved | same |
-  | `needs_repair` | `needs_repair`; unwind waits at this step | `needs_repair` at this step |
-  | `repaired`, `repairOutcome: restored` | as `reverted` | as `reverted` |
-  | `repaired`, `repairOutcome: kept` | as `completed` or `confirmed` (by class) | same |
-  | `abandoned` (released on its own) | `needs_repair`; `darkpanel change repair <composite id> --step <id> --as reverted\|applied` (admin, audited) is the only way on | same |
-  | completed, but its private output is lost (above) | unwind, starting with this step; `core.child_failed` | — (removals have no secret outputs) |
-  | unreachable | wait; after the deadline plus 60 s, `recovering` | same |
+  | `absent` | retire the plan; on `retired`: unwind from the step before (`failed` when there is none); otherwise this table with the lookup the retire returned | retire; on `retired`: `needs_repair` at this step |
+  | `running` or `recovering` | wait | wait |
+  | `completed` (compensable), `confirmed`, or `repaired` with `kept` | step final; advance the cursor (live only: plan the next step); the last step: `completed` | same |
+  | `pending` (the revertible last step) | step `applied`; `awaiting_confirmation` | same |
+  | `reverted`, or `repaired` with `restored` | unwind from the step before | `needs_repair` at this step |
+  | `failed` or `interrupted`, `Unresolved` 0 | unwind, starting with this step | `needs_repair` at this step |
+  | `needs_repair`, or any state with `Unresolved` > 0 | `needs_repair` at this step | same |
+  | `kept` or `abandoned` | `needs_repair`; only an operator's step decision (below) moves on | same |
+  | `completed`, private output lost | unwind, starting with this step; `core.child_failed` | — (removals have no secret outputs) |
 
-  During unwind, a step's undo observed `failed` or `blocked` leaves the
-  step `undo_failed` and the composite `needs_repair`. A composite in
-  `needs_repair` or `recovering` keeps `composite:<module>`; its children
-  keep the locks their own states keep.
-- **Unwind** (reverse composites) settles steps from the current one
-  backwards, each by its class:
+  At recovery, a cursor step still `pending` (its child never planned)
+  means the controller stopped between steps: reverse → unwind from the
+  step before (`failed` when none was applied); forward → `needs_repair`.
+  A cursor step that is a read step not yet `read` is treated the same
+  way. Every step final and no revertible step → `completed`; the last
+  step `applied` with its child `pending` → `awaiting_confirmation`, and
+  the watcher resumes; a step `confirming` → look the child up
+  (`confirmed` → `completed`; `pending` → resend the confirm; otherwise
+  the table).
+- **Unwind** (reverse composites only, owner `composite`, direction
+  `unwind`). It starts only when every applied step's child can be undone
+  cleanly: the lookups show no `unresolved` effect, no child in
+  `needs_repair`, `kept` or `abandoned`, and no child owned; otherwise the
+  composite goes `needs_repair` before anything is undone. Then, from the
+  cursor backwards:
   - read step: nothing;
-  - revertible step (always the last): settled **first**, through the
-    confirm/revert arbitration: a `pending` child is sent `Revert` and the
-    unwind waits until the lookup shows it `reverted`; a child found
+  - the revertible last step, first: a `pending` child is sent `Revert` and
+    the unwind waits for the lookup to show `reverted`; a child found
     `confirmed` stops the unwind and the composite is `completed`
     (confirmation won); an unreachable agent leaves the child to its own
     timer and the composite `recovering`; a child in `needs_repair` stops
-    the unwind. Prerequisites are undone only after the revertible child is
-    `reverted`, `repaired` with outcome `restored`, or `absent`;
-  - compensable step: undone through the undo route (1.2), including a
-    child the agent marked `interrupted`; a step whose lookup says
-    `running` or `recovering` is waited for first; a step whose lookup says
-    `absent` was never applied; a child with unresolved effects stops the
-    unwind (`needs_repair`), since its undo would end `blocked`.
+    the unwind (`needs_repair`);
+  - a compensable step: undone through the undo route as
+    `system:recovery`; the child `reverted` → step `undone`; `absent`
+    (retired) → `undone`; any other outcome (`needs_repair`, `kept`,
+    `core.undo_conflict`) stops the unwind (`needs_repair`).
 
-  When every step is settled the composite is `reverted`. `darkpanel change
-  repair <composite id>` resumes a stopped unwind once its blocking child is
-  settled.
+  When every step is settled the composite is `reverted`. This refines ADR
+  0004 for composites only: the controller unwinds automatically because
+  every undo acts only on journaled effects and checks them first.
 - **Repair of a composite** (`darkpanel change repair <composite id>`,
-  scope `admin`; the composite is claimed with owner `composite`). The
-  current step's last attempt is settled first through the lookup, by the
-  child's capability:
-  - `running` or `recovering`: wait;
-  - `completed`, `pending`, `confirmed`, or `repaired`: as in the table;
-  - `failed` or `interrupted` with `Made` > 0: a child with an undo handler
-    is undone (a blocked undo keeps the composite `needs_repair`); a
-    `ForwardOnly` or `CompensatedBy` child is not undone: its Verify is run
-    (read-only) and, if it passes, the step is `applied`, else a new
-    attempt re-applies it (such actions converge, rules above); a child
-    with a module recovery handler was settled by that handler before
-    repair could claim it;
-  - `absent`, or `failed` with `Made` 0: nothing to settle.
+  scope `admin`, claimed with owner `composite`) depends on its direction:
+  - **reverse**: resumes the unwind from the cursor, with the same start
+    check; it never applies anything;
+  - **forward**: continues forward from the cursor step. Its child is
+    looked up: `completed`, `confirmed` or `repaired` with `kept` → advance;
+    `absent` (retired), `reverted`, `repaired` with `restored`, or
+    `failed`/`interrupted` with `Unresolved` 0 → a **new attempt**: the
+    input is resolved again from the step log, planned afresh by the
+    repairing principal and applied as a new child (the step's `Converges`
+    action ends in the same state whatever the earlier attempt did); the
+    attempt number and the earlier child change id are recorded in the
+    step row; `needs_repair`, `Unresolved` > 0, `kept` or `abandoned` →
+    refused with `core.needs_repair` naming the child (repair it first, or
+    decide the step).
+  - **Step decision** for a child in `kept` or `abandoned`, or (reverse)
+    a child `repaired` with `kept` met during unwind:
+    `darkpanel change repair <composite id> --step <id> --as
+    reverted|applied` (admin, audited). `reverted` counts the step as
+    undone (reverse) or not done (forward: the next repair makes a new
+    attempt); `applied` counts it as done (forward only).
 
-  Then a **new attempt**: the step's input is resolved again from the step
-  log, the step is planned afresh by the repairing principal and applied
-  as a new child change; the attempt is recorded in
-  `core_composite_attempts` and the step row points at it. A stored child
-  plan is never applied after a restart or by another principal (plans
-  expire after 10 minutes and are bound to their principal,
-  `internal/core/lifecycle/apply.go`); stored plan ids serve only the
-  lookup. A child change's actor is the principal that planned its attempt
-  (the composite's principal for the first), with `parent_change_id` set.
-  Recovery never makes a new attempt on its own: new attempts come from a
-  live run (an `absent` child after a lost apply request) or from an
-  operator's repair.
-- **Composite recovery** (controller start, 1.3a), for every composite not
-  in a terminal state, claimed with owner `composite`, by its step log and
-  the lookup:
-
-  | Persisted state | Action |
-  |---|---|
-  | current step `pending` (child never planned) | reverse: unwind the steps before it (`failed` when none were applied); forward: `needs_repair` |
-  | current step `planned` or `applying` | look the child up and apply the transition table "at recovery" |
-  | current read step `pending` | reverse: unwind; forward: `needs_repair` |
-  | every step `applied` or `read`, no revertible step | `completed` (reverse and forward) |
-  | every step `applied`, the last revertible with its child `pending` | `awaiting_confirmation`; resume the watcher |
-  | `awaiting_confirmation` | resume the watcher; never unwind on the deadline alone |
-  | step `confirming` | look the child up: `confirmed` → `completed`; `pending` → resend confirm; otherwise the table |
-  | `undoing` | resume the unwind from the step rows; each undo resumes through the undo route |
-  | `recovering` | resume polling the current child |
-  | `needs_repair` | leave for the operator; the watcher keeps following children in `needs_repair` or `recovering` |
-
-  This refines ADR 0004 for composites only: the controller unwinds
-  automatically because every undo acts only on journaled effects and
-  checks post-state first.
+  A stored child plan is never applied after a restart or by another
+  principal (plans expire after 10 minutes and are bound to their
+  principal); stored plan ids serve only the lookup and retire. A child
+  change's actor is the principal that planned its attempt (the
+  composite's principal for the first), with `parent_change_id` set.
 - **Change recovery at start** (`Engine.Recover`, both sides; ADR 0004's
-  pass, extended). Run once before anything else is served:
+  pass, extended), before anything is served:
   1. Seed ids, as today.
   2. For every change in `applying` or `pending`:
-     - class `composite`: skipped; composite recovery owns it (1.3a);
-     - the action has a recovery handler (1.3b; every task action has
-       one): claim it with state `recovering`, owner `module`; its locks
-       stay;
-     - revertible: `Reconcile` its `intended` effects if it reconciles,
-       then revert from its snapshot as today (`Revert` decides per 2.5);
-       a revert that succeeds → `reverted`, locks released; a revert that
-       fails → `needs_repair` (no longer `failed`), locks kept;
-     - compensable with an undo handler: `Reconcile` its `intended`
-       effects; no unresolved effect → `interrupted` with the verify message
-       as today, locks released; otherwise `needs_repair`, locks kept;
-     - every other compensable or irreversible change: `interrupted`, as
-       today.
-  3. Every change in `recovering` with owner `module` (a handler cut off by
-     the restart) stays claimed; every change in `needs_repair` with
-     `recovery_retry` set is claimed again (state `recovering`, owner
-     `module`).
-  4. The lock sweep deletes the locks of every change not in `applying`,
-     `pending`, `awaiting_confirmation`, `undoing`, `needs_repair` or
-     `recovering`; reservations (`op:` owners) are untouched, as today.
+     - class `composite`: skipped (composite recovery, 1.3a);
+     - a task action, or an action with a recovery handler: claimed with
+       state `recovering`, owner `module` (1.3b, 1.3c);
+     - revertible: settle its `intended` effects, then handle a `pending`
+       change as today (re-arm its timer, or revert at once when its
+       deadline has passed) and revert an `applying` one; the revert's
+       outcome follows 1.2's table;
+     - compensable or irreversible: settle its `intended` effects, then
+       1.2's failure table (`interrupted` or `needs_repair`).
+  3. Every change in `undoing` (owner `undo`) is resumed by a background
+     undo pass; every change in `recovering` (owner `module`), and every
+     `needs_repair` change with `recovery_retry` set, is re-claimed by its
+     recovery handler.
+  4. The lock sweep deletes only the locks of changes in none of the
+     states 1.3 keeps ("Locks across restarts"); reservations (`op:`
+     owners) are untouched, as today. Changes in `quarantined` keep their
+     locks and are not otherwise touched (10).
 
   Then **admission**: the agent serves its socket and dials the
-  controller, so reads, `hello`, the lookup, journal sync and streams work,
-  while plan, apply, undo, repair, release and resolve answer
-  `core.recovering` until the background pass has resumed every undo in
-  `undoing` (owner `undo`) and started every module recovery handler. A
-  handler that takes long (a task unit still running) does not hold
-  admission closed: its change keeps its locks, so conflicting work is
-  refused with `lock.held`. This order lets a task unit's health check,
-  which needs the agent's controller session (4.1), complete while its
-  change is still recovering. The controller follows the same pattern
-  (1.3a).
+  controller, so reads, `hello`, the lookup, journal sync and streams
+  work, while plan, apply, undo, repair, release and resolve answer
+  `core.recovering` until the background pass has started every undo and
+  recovery handler. A handler that takes long does not hold admission
+  closed: its change keeps its owner and locks, so conflicting work is
+  refused with `lock.held` or `core.change_busy`. A task unit's health
+  check, which needs the agent's controller session (4.1), can therefore
+  complete while its change is still recovering.
 - **1.3a Controller start order.** The controller runs `Engine.Recover`,
   then opens its agent listener and serves agent traffic and reads, then
-  runs composite recovery in the background; user and token mutations are
-  refused with `core.recovering` until composite recovery has finished or
-  has left only `recovering` and `awaiting_confirmation` composites, which
-  it keeps following. A controller that started in **restore quarantine**
-  (10) performs no recovery action and starts no automatic mutation source
+  runs composite recovery in the background (for every non-terminal
+  composite, claimed with owner `composite`, by its step log, cursor and
+  the transition table); user and token mutations answer `core.recovering`
+  until composite recovery has finished or left only `recovering`,
+  `awaiting_confirmation` and `releasing` composites, which it keeps
+  following. A controller in **restore quarantine** (10) runs
+  `Engine.Recover` (whose sweep keeps quarantined records' locks) but
+  performs no composite recovery and starts no automatic mutation source
   until the operator releases it.
-- **1.3b Module recovery handlers.** Some actions keep a durable transaction
-  of their own and must finish or roll back automatically after a crash:
+- **1.3b Recovery handlers.** Some actions keep a durable transaction of
+  their own and must finish or roll back after a crash:
   `npm.instance.upgrade` (6), `derp.binary.update` (4.3),
   `tailscale.package.pin` (4.1), Cloudflare hostname changes (7.3), and
-  every task action (1.3c). Such an action's handler implements
+  every task action (1.3c).
 
   ```go
   // RecoveryOutcome is a recovery handler's verdict on its change.
   type RecoveryOutcome struct {
       State  string          // "completed" | "failed" | "rolled_back" | "needs_repair"
       Output json.RawMessage // completed: the action's output
-      Reason string          // failed, needs_repair: what happened, shown to the operator
+      Reason string          // failed, needs_repair: shown to the operator
   }
 
   // Recoverer finishes or rolls back an action's own transaction after a
@@ -899,164 +854,198 @@ changes of other modules' actions on one or more hosts.
   }
   ```
 
-  found by a type assertion in `DefineMutating`, `DefineRevertible` and
-  `DefineTask` (`ErasedHandler.Recover`). Contract:
   - **Ownership.** The handler runs only on a change claimed with owner
-    `module` (recovery step 2 or 3, or repair); undo recovery skips such
-    changes; the routes refuse them with `core.change_busy`; the lookup
-    reports `recovering`.
-  - **Locks.** The handler runs as the change's lock owner; it takes no
-    lock; the change keeps its lock rows until the engine records the
-    outcome.
-  - **Outcome.** The engine, not the handler, records the transition and
-    clears the owner, in one transaction: `completed` → `completed` with
-    the output stored (redacted as usual, private output as above);
-    `failed` → `failed` (the handler found nothing made; locks released);
-    `rolled_back` → `reverted` (every effect `undone` or `skipped`; locks
-    released); `needs_repair` → `needs_repair` with the reason, locks kept.
-    A returned error, or a handler still running when its `ApplyTimeout`
-    passes, is recorded as `needs_repair` with `recovery_retry` set, locks
-    kept, and is claimed again at the next start or by `change repair`.
-    Before recording `completed` or `failed` the engine checks that no
-    effect is unresolved; if one is, it records `needs_repair` instead.
-  - It is idempotent; it reads only its own transaction table and effects
-    journal; a failing handler does not stop other handlers or startup.
+    `module`; it runs as the change's lock owner and takes no lock. For a
+    task action it runs inside a task unit with op `recover` (1.3c).
+  - **Outcome.** The engine records it and clears the owner in one
+    transaction, after settling any `intended` effect: `completed` →
+    `completed` (output stored, private output as above); `failed` →
+    `failed`, locks released; `rolled_back` → `reverted`, locks released;
+    `needs_repair` → `needs_repair`, locks kept. An outcome other than
+    `needs_repair` with an `unresolved` effect left is recorded as
+    `needs_repair`. A returned error is recorded as `needs_repair` with
+    `recovery_retry` set, locks kept.
+  - **Timeouts.** The handler's context is cancelled at its action's
+    `ApplyTimeout`; the engine keeps waiting for it to return (for a task
+    unit, for the unit to be inactive) and only then records the outcome.
+    Ownership never lapses.
+  - It is idempotent, reads only its own transaction table and journal,
+    and a failing handler stops neither other handlers nor startup.
 
-  ADR 0014 records this as the one exception to ADR 0004's "never retried on
-  its own" for compensable and irreversible actions. Verify stays
-  read-only; no recovery runs inside Verify.
-- **1.3c Task units.** The apt, dpkg and binary-swap sequences of
-  `tailscale.package.install`, `package.update`, `package.pin`,
-  `package.unpin`, `derp.server.install` and `derp.binary.update` must not
-  be cut by an agent restart, including one the action itself causes, so
-  they run in a **transient systemd unit** outside the agent's cgroup.
+  ADR 0014 records this as the one exception to ADR 0004's "never retried
+  on its own" for compensable and irreversible actions. Verify stays
+  read-only.
+- **1.3c Task units.** The host sequences of `tailscale.package.install`,
+  `package.update`, `package.pin`, `package.unpin`, `derp.server.install`
+  and `derp.binary.update` (apt, dpkg, binary swaps, service restarts) can
+  disconnect or restart the agent, so all of their host sequences, forward,
+  undo and recovery, run in a **transient systemd unit** outside the
+  agent's cgroup, under one protocol.
   - **Declaration.**
 
     ```go
-    // TaskMutator is the handler of a task action: Task runs inside the
-    // unit, in a separate process, and records each phase in the module's
-    // transaction table; Plan and Verify run in the agent as for any
-    // mutating action.
+    // TaskMutator is the handler of a task action. Task runs inside the
+    // unit; Plan, Verify and Observe run in the agent.
     type TaskMutator[In, Out any] interface {
         Plan(ctx context.Context, env Env, in In) (PlanOutcome, error)
         Task(ctx context.Context, env Env, in In) (Out, error)
         Verify(ctx context.Context, env Env, in In, out Out) error
     }
 
-    // DefineTask declares a task action: spec.Class compensable or
-    // irreversible, Side agent, LockKeys non-empty, ApplyTimeout set; it
-    // sets Task and LongRunning. Its recovery handler is the handler's own
-    // Recoverer, or core.TaskRecover when it has none.
+    // DefineTask declares a task action (registry rules, 1.3) and sets
+    // Task and LongRunning. Its recovery handler is the handler's own
+    // Recoverer or, when it has none, a default built by DefineTask over
+    // the handler's Verify: wait for the apply unit, then a `succeeded`
+    // row and a passing Verify → completed with the stored output;
+    // anything else → settle the effects → failed or needs_repair.
     func DefineTask[In, Out any](spec ActionSpec, h TaskMutator[In, Out]) ActionDef
-
-    // TaskRecover waits for the change's unit and records its result row
-    // as the outcome (completed after a passing Verify; failed when nothing
-    // was made; needs_repair otherwise).
-    func TaskRecover(ctx context.Context, env Env) (RecoveryOutcome, error)
     ```
 
-    `ErasedHandler` gains `Task` (the JSON form); a task action's
-    `ErasedHandler.Apply` is nil and the registry checks `Task` is set
-    instead. A task action with an undo handler implements `Undoer` as
-    well.
-  - **Unit.** Name `darkpanel-task-<change id>.service`, the only name a
-    task unit has (4.1 and 4.3 use it). Started with
-    `platform.Systemd.StartTransientService` over D-Bus (mode `fail`, so a
-    second start of the same name fails), `ExecStart` `{{.Binary}} agent
-    task <change id>`, `KillMode` the default, no `OnFailure`, and
-    `RuntimeMaxSec` the action's `ApplyTimeout` (wave 0 adds
-    `RuntimeMax time.Duration` to `platform.TransientService`).
-  - **The `agent task` subcommand** (hidden): opens the agent database
-    (WAL with `busy_timeout`, `internal/core/store/db.go`, so it runs
-    beside the agent), the agent's sealer from the agent's key files, the
-    production runner with the same exec allowlist, the file writer with
-    the registry's owned paths, the system clock and a journald logger. It
-    reads the change: if it is not `applying` or `recovering`, or its
-    `core_task_runs` row is not `starting`, it exits without doing anything.
-    It builds `Env{HostID, ChangeID, Principal: {Actor: <the change's
-    actor>, Scope: admin}, DB, Exec, Files, Sealer, Clock, Log, Effects}`
-    (`Agents` nil), opens the plan's sealed input (still present while the
-    change is unfinished), marks the row `running` with its PID, calls
-    `Task`, and records the result in the row: `succeeded` with the
-    output sealed (associated data `core_task_runs.output_ct.<change id>`)
-    or `failed` with the error's code and client-safe message. It never
-    changes the change's state; it exits 0 once the row is recorded and
-    non-zero only when it could not record it.
-  - **Results table** `core_task_runs` (change id, state `starting |
-    running | succeeded | failed`, output_ct, error code, error message,
-    PID, started at, finished at), agent side.
-  - **Apply side.** The intent transaction also inserts the row
-    `starting`. The engine then starts the unit; a start error fails the
-    change (the row goes `failed`, nothing ran). It then waits, under the
-    same rules as any long-running apply: every 2 s it reads the row and
-    `Systemd.State` of the unit. A `succeeded` row → Verify → the change
-    completes with the stored output. A `failed` row → the effects are
-    reconciled → `failed`, or `needs_repair` when an effect is unresolved.
-    A unit that is `inactive`, `failed` or `not-found` while the row is
-    still `starting` or `running` → the same as `failed`, with
-    `internal` "the task ended without recording a result". The unit's
-    `RuntimeMaxSec` enforces the deadline; the engine records
-    `core.deadline_exceeded` only after it has seen the unit inactive.
+    `ErasedHandler` gains `Task`; a task action's `Apply` is nil and the
+    registry checks `Task` is set instead. A task action with an undo
+    handler implements `Undoer` too.
+  - **Unit.** Name `darkpanel-task-<change id>-<op>.service`, op `apply`,
+    `undo` or `recover`, the only names a task unit has (4.1 and 4.3 use
+    them). Started with `StartTransientService` over D-Bus (mode `fail`),
+    `ExecStart` `{{.Binary}} agent task <change id> <op>`, `KillMode` the
+    default, no `OnFailure`, `RuntimeMaxSec` the action's `ApplyTimeout`
+    and `CollectMode=inactive-or-failed` (wave 0 adds `RuntimeMax` and
+    `CollectMode` to `platform.TransientService`, and the pending job to
+    `UnitState`).
+  - **Results table** `core_task_runs` (change id, op, state `starting |
+    running | succeeded | failed | cancelled`, output_ct, error code, error
+    message, PID, started at, finished at), agent side, key (change id, op).
+  - **Start and fence.** The engine inserts the row `starting` (in the
+    intent transaction for `apply`, in the claim transaction for `undo` and
+    `recover`), then starts the unit. The `agent task` program's first act
+    is the conditional update `starting → running` (with its PID); when it
+    matches no row it exits without doing anything. A start call that
+    errors proves nothing: the engine treats the unit as never run only
+    when the row is still `starting` and the unit is `not-found`, or
+    `inactive` or `failed` with no pending job, on two observations 10 s
+    apart, and then sets the row `cancelled` with the conditional update
+    `starting → cancelled`, which fences any later start of the program.
+    Until then it keeps the change owned and waits.
+  - **The `agent task` subcommand** (hidden) opens the agent database (WAL
+    with `busy_timeout`, `internal/core/store/db.go`), the agent's sealer
+    from its key files, the production runner and exec allowlist, the file
+    writer with the registry's owned paths, the constrained unit client
+    (1.8), the system clock and a journald logger. It builds
+    `Env{HostID, ChangeID, Principal: {Actor: <the change's actor>, Scope:
+    admin}, Call, DB, Exec, Files, Units, Sealer, Clock, Log, Effects}`
+    (`Agents` nil), reads the plan's sealed input (kept while the change is
+    unfinished, 1.2), runs the op (`apply`: `Task`; `undo`: the engine's
+    undo run of 1.2; `recover`: the action's `Recover`), and records the
+    result in the row: `succeeded` with the output sealed (associated data
+    `core_task_runs.output_ct.<change id>.<op>`) or `failed` with the
+    error's code and client-safe message. It never changes the change's
+    state. Effects of calls it makes are `Local` once the unit is seen
+    inactive.
+  - **Waiting.** The engine (the apply, the undo claimant or the recovery
+    claimant) reads the row and the unit's state every 2 s. A `succeeded`
+    or `failed` row with the unit inactive settles the op: `apply` →
+    Verify and 1.2's tables; `undo` → the undo settle; `recover` → the
+    recorded `RecoveryOutcome`. A unit inactive while the row is `running`
+    → the op failed: `core.deadline_exceeded` when the deadline had passed
+    (`RuntimeMaxSec` stopped it), `internal` ("the task ended without
+    recording a result") otherwise; effects are then settled.
   - **Agent restart.** The waiter dies with the agent; the unit keeps
-    running. At the next start the change is claimed by its recovery
-    handler (recovery step 2), which waits for the unit with the same loop.
-    The agent serves its session meanwhile (admission, above).
-  - **Liveness gates.** A task change's locks are released only by a
-    transition recorded after its unit was seen inactive or not found.
-    Every task action declares lock keys, so an update reservation is
-    refused while its change is unfinished. Uninstall (1.11) refuses with
-    `core.change_busy`, naming the changes, while any change is `applying`,
-    `recovering` or `undoing` or any `darkpanel-task-*.service` unit is
-    active; `darkpanel uninstall --stop-tasks` first stops each such unit
-    through D-Bus, waits until it is inactive, records each change as its
-    recovery handler decides, and only then proceeds.
-- **Records.** Each non-read step's attempt is an ordinary change with
-  `parent_change_id` set.
+    running. Startup recovery re-claims the change (`recovering` for an
+    apply or recover op, `undoing` for an undo op) and waits on the same
+    row and unit; admission lets the session run meanwhile.
+  - **Liveness gates.** A task change's owner is cleared and its locks
+    released only after its unit was seen inactive or the row `cancelled`.
+    Every task action has lock keys, so update reservations are refused
+    while its change is unfinished. Uninstall (1.11) refuses with
+    `core.change_busy`, naming the changes, while any change is owned or
+    any `darkpanel-task-*.service` unit is active; `darkpanel uninstall
+    --stop-tasks` first stops each such unit through D-Bus, waits until it
+    is inactive, lets each owner record its outcome, and only then
+    proceeds.
 - **Wire contract.** All routes are non-frozen and use ADR 0006's error
-  mapping; every answer that carries a change uses `ChangeView`, which
-  gains `ParentChangeID`, `UndoState`, `Owner` and `RepairedBy`.
+  mapping; an answer carrying a change uses `ChangeView`, which gains
+  `ParentChangeID`, `Owner`, `RepairedBy`, `RepairOutcome` and
+  `Override json.RawMessage`.
 
   | Route | Request | Answer |
   |---|---|---|
-  | `POST /api/v1/changes/{id}/undo`, agent `POST /agent/v1/changes/{id}/undo` | empty | `202` change (`undoing`), `200` when already `reverted` |
-  | `POST /api/v1/changes/{id}/repair` | `{}`, or for a composite step decision `{"step": "<id>", "as": "reverted" \| "applied"}` | by capability (table above): `202` change or `200` plan |
-  | agent `POST /agent/v1/changes/{id}/repair` | empty | `202` change: reruns the module recovery handler |
+  | `POST /api/v1/changes/{id}/undo`, agent `POST /agent/v1/changes/{id}/undo` | empty | `202` change (`undoing`); `200` when already `reverted` |
+  | `POST /api/v1/changes/{id}/repair`, agent `POST /agent/v1/changes/{id}/repair` | `{}`, or for a composite `{"step": "<id>", "as": "reverted" \| "applied"}` | `202` change or `200` `{"plan": PlanView}` (repair table) |
   | `POST /api/v1/changes/{id}/release`, agent `POST /agent/v1/changes/{id}/release` | `{"reason": string}` | `200` `{"change": ChangeView, "abandoned": [EffectView]}` |
-  | `GET /api/v1/changes/{id}/effects`, agent `GET /agent/v1/changes/{id}/effects` | — | `200` `{"effects": [EffectView]}` |
-  | `POST /api/v1/changes/{id}/effects/{seq}/resolve`, agent `POST /agent/v1/changes/{id}/effects/{seq}/resolve` | `{"resolution": "retry" \| "accept" \| "made" \| "skipped"}` | `200` EffectView |
-  | agent `GET /agent/v1/plans/{plan id}` | query `private=1` (controller session only) | `200` `PlanLookup` |
+  | `GET /api/v1/changes/{id}/effects`, agent `GET /agent/v1/changes/{id}/effects` | — | `200` `{"effects": [EffectView]}` (with a repaired change's repair changes' effects) |
+  | `POST /api/v1/changes/{id}/effects/{seq}/resolve`, agent the same path | `{"resolution": "accept" \| "retry"}` | `200` `EffectView` |
+  | `GET /api/v1/changes/{id}/steps` | — | `200` `{"steps": [StepView]}` |
+  | agent `GET /agent/v1/plans/{plan id}` | query `private=1` | `200` `PlanLookup` |
+  | agent `POST /agent/v1/plans/{plan id}/retire` | empty | `200` `PlanLookup` |
   | agent `POST /agent/v1/changes/{id}/private-output/ack` | empty | `204` |
 
-  `EffectView` is `{seq, kind, resource, state, before, after, post,
-  undoTo, current, resolution, resolvedBy, resolvedAt}`: the `Effect`
-  fields without the change id and never the secret. Scopes: undo and
-  repair need the action's scope (composites `admin`); release and resolve
-  need `admin`; the effects list needs `read`. The CLI gains `darkpanel
-  change undo|repair|release|resolve|effects <id>`; the UI offers Undo on
-  interrupted, failed and completed compensable changes with an undo
-  handler, and Repair, Release and per-effect resolution on
+  `EffectView` is `{changeId, seq, kind, resource, local, commitBy, state,
+  reason, before, after, post, undoTo, current, resolution, resolvedBy,
+  resolvedAt}`, never the secret. `StepView` is `{id, ordinal, host,
+  action, state, attempt, childChangeId, earlierChildChangeIds,
+  childDeadline, error}`, never inputs or outputs; the composite's step
+  view and the `composite.step` events (1.6) are how the UI shows progress
+  after a reload. Scopes: undo and repair need the action's scope
+  (composites `admin`); release and resolve need `admin`; effects and steps
+  need `read`. The CLI gains `darkpanel change
+  undo|repair|release|resolve|effects|steps <id>`; the UI offers Undo on
+  undoable changes and Repair, Release and per-effect resolution on
   `needs_repair` changes.
-- **Error codes** returned by this section: `core.undo_conflict`
-  (supersession), `core.change_busy` (an owned change, a repair in
-  progress, a live task unit), `core.needs_repair` (the error recorded on a
-  change entering `needs_repair`), `core.child_failed` (the error of a
-  composite that unwound or failed because of a step, naming the step),
-  `core.recovering` (admission closed at start), `core.deadline_exceeded`.
-- **Tests.** Fault injection at every state transition: controller killed
-  before and after each step's apply, before and after a confirmation is
-  sent and committed, agent unreachable during unwind and confirmation, undo
-  failure and conflict, a crash between an inverse and its `undone` record,
-  a crash inside each creation and modification effect (before the call,
-  after the call before the result is recorded), a forward composite whose
-  revertible step reverts, a composite whose every step applied before the
-  crash (completed, not unwound), a child in `needs_repair` under a
-  composite, a repair whose own revert fails, a released child under a
-  composite, repair by a different admin after the plan TTL, a module
-  recovery handler racing an undo request, release refused while a task
-  unit runs, a lost child response carrying a secret output, a task unit
-  outliving an agent restart and its deadline, deadline passing while the
-  controller is down, and the long-running path across the 60 s write
-  timeout.
+
+  Go additions (the in-process `coretest` fakes implement them):
+
+  ```go
+  // AgentClient gains:
+  Undo(ctx context.Context, p Principal, changeID string) (ChangeView, error)
+  Repair(ctx context.Context, p Principal, changeID string) (RepairResult, error)
+  Release(ctx context.Context, p Principal, changeID, reason string) (ReleaseResult, error)
+  Effects(ctx context.Context, p Principal, changeID string) ([]EffectView, error)
+  Resolve(ctx context.Context, p Principal, changeID string, seq int, resolution string) (EffectView, error)
+  Lookup(ctx context.Context, planID string, private bool) (PlanLookup, error)
+  Retire(ctx context.Context, planID string) (PlanLookup, error)
+  AckPrivate(ctx context.Context, changeID string) error
+
+  // Dispatcher gains:
+  Undo(ctx context.Context, p Principal, changeID string) (ChangeView, error)
+  Repair(ctx context.Context, p Principal, changeID string, req RepairRequest) (RepairResult, error)
+  Release(ctx context.Context, p Principal, changeID, reason string) (ReleaseResult, error)
+  Effects(ctx context.Context, p Principal, changeID string) ([]EffectView, error)
+  Resolve(ctx context.Context, p Principal, changeID string, seq int, resolution string) (EffectView, error)
+  Steps(ctx context.Context, p Principal, changeID string) ([]StepView, error)
+
+  type RepairRequest struct{ Step, As string }        // composite step decision; empty otherwise
+  type RepairResult struct {
+      Change *ChangeView `json:"change,omitempty"`
+      Plan   *PlanView   `json:"plan,omitempty"`
+  }
+  type ReleaseResult struct {
+      Change    ChangeView   `json:"change"`
+      Abandoned []EffectView `json:"abandoned"`
+  }
+  ```
+
+  The methods of 1.4, 1.6, 1.7 and 1.14 are listed there.
+- **Error codes** of this section: `core.undo_conflict` (the undo window
+  has closed), `core.change_busy` (an owned change, a repair change, a
+  composite step, a live task unit, a call that may still commit),
+  `core.needs_repair` (the error of a change entering `needs_repair`, and
+  the refusal of undo or repair while an effect is `unresolved`),
+  `core.child_failed` (a composite that unwound or failed because of a
+  step, naming it), `core.recovering` (admission closed at start),
+  `core.deadline_exceeded`; existing: `lock.held`, `change.not_pending`,
+  `change.revert_failed`, `plan.not_found` (a retired plan).
+- **Tests.** Fault injection at every transition: the controller killed
+  around each step's plan, apply and confirmation; an apply delayed past
+  its retire; an agent unreachable during unwind and confirmation; a crash
+  around each journaled call (`Local` and remote) and each inverse; undo
+  after a later change took a key; undo stopping at a conflict; resolution
+  before and after `CommitBy`; a revert over an unresolved effect, with and
+  without a failing lockout guard; a failing repair change; composite
+  release with an unreachable agent; a Verify and a recovery handler that
+  ignore their context; a task unit whose start call errors after it
+  started, one with a queued job, one outliving an agent restart and its
+  deadline; quarantined records across a restart; and both apply paths
+  across the 60 s write timeout.
 
 #### 1.4 Agent background tasks and module enablement
 
@@ -3888,10 +3877,10 @@ a spec change.
   unchanged.
 - **Actors:** `system:firewall.reconcile`, `system:tailnet.keysweep` and
   `system:cloudflare.hostnames` (1.9), `system:recovery` (startup
-  recovery, composite recovery and unwind, undo recovery, module recovery
-  handlers; accepted by the principal checks for undo, lookup, resolve,
+  recovery, composite recovery and unwind, resumed undos, recovery
+  handlers; accepted by the principal checks for undo, lookup, retire,
   revert and confirm of changes it recovers; it never plans or applies a
-  new attempt, 1.3).
+  new attempt and never resolves an effect, 1.3).
 - **Dependencies** (wave 0 adds all): `github.com/tailscale/hujson`;
   `golang.org/x/crypto` (argon2, chacha20poly1305); `golang.org/x/sys/unix`
   for hand-written netlink (already present); `vitest-axe` and Playwright as
