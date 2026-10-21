@@ -95,7 +95,7 @@ func TestSnapshots(t *testing.T) {
 	}
 	want := []string{
 		"demo.item.add/v1.json", "demo.item.get/v1.json", "demo.item.purge/v1.json",
-		"demo.item.remove/v1.json", "demo.secret.reset/v1.json", "demo.status/v1.json",
+		"demo.item.remove/v1.json", "demo.item.repair/v1.json", "demo.secret.reset/v1.json", "demo.status/v1.json",
 	}
 	if got := slices.Sorted(maps.Keys(files)); !slices.Equal(got, want) {
 		t.Errorf("paths = %v, want %v", got, want)

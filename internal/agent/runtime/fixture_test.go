@@ -137,6 +137,22 @@ var (
 	refSet = core.ActionRef{Name: "kv.item.set", Version: 1}
 )
 
+// repairIn is empty: a repair request may send no input at all.
+type repairIn struct{}
+
+// repairItem is kv.item.set's repair action; it changes nothing.
+type repairItem struct{}
+
+func (repairItem) Plan(context.Context, core.Env, repairIn) (core.PlanOutcome, error) {
+	return core.PlanOutcome{StateHash: "repair"}, nil
+}
+
+func (repairItem) Apply(context.Context, core.Env, repairIn) (repairIn, error) {
+	return repairIn{}, nil
+}
+
+func (repairItem) Verify(context.Context, core.Env, repairIn, repairIn) error { return nil }
+
 type kvModule struct{}
 
 func (kvModule) Manifest() core.Manifest {
@@ -144,7 +160,13 @@ func (kvModule) Manifest() core.Manifest {
 		ID: "kv", Version: 1, DefaultEnabled: true,
 		Actions: []core.ActionDef{
 			core.DefineRead(core.ActionSpec{Name: refGet.Name, Version: 1, Side: core.SideAgent}, getItem{}),
-			core.DefineRevertible(core.ActionSpec{Name: refSet.Name, Version: 1, Side: core.SideAgent, LockKeys: []string{"kv"}}, setItem{}),
+			core.DefineRevertible(core.ActionSpec{
+				Name: refSet.Name, Version: 1, Side: core.SideAgent, LockKeys: []string{"kv"}, RepairedBy: "kv.item.repair",
+			}, setItem{}),
+			core.DefineMutating(core.ActionSpec{
+				Name: "kv.item.repair", Version: 1, Class: core.ClassCompensable, Side: core.SideAgent,
+				LockKeys: []string{"kv"}, ForwardOnly: true, Converges: true,
+			}, repairItem{}),
 		},
 		Resources: []core.ResourceDef{core.DefineResource("kv.status", func(ctx context.Context, env core.Env) (status, error) {
 			var n int

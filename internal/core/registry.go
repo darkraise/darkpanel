@@ -3,10 +3,12 @@ package core
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"regexp"
 	"slices"
 	"sort"
 	"strings"
+	"time"
 )
 
 // ReservedNames are top-level CLI names no module id may take (ADR 0006 and
@@ -19,7 +21,7 @@ var ReservedNames = []string{
 var (
 	moduleIDPattern     = regexp.MustCompile(`^[a-z][a-z0-9]*$`)
 	actionNamePattern   = regexp.MustCompile(`^[a-z][a-z0-9]*\.[a-z][a-z0-9]*\.[a-z][a-z0-9-]*$`)
-	resourceNamePattern = regexp.MustCompile(`^[a-z][a-z0-9]*\.[a-z][a-z0-9-]*$`)
+	resourceNamePattern = regexp.MustCompile(`^[a-z][a-z0-9]*\.[a-z][a-z0-9]*$`)
 )
 
 // Registry holds every module, action and resource, validated once.
@@ -88,8 +90,11 @@ func NewRegistry(mods ...Module) (*Registry, error) {
 		r.modules = append(r.modules, m)
 	}
 	for _, a := range r.actions {
-		if a.Spec.Class == ClassCompensable && !r.names[a.Spec.CompensatedBy] {
+		if a.Spec.CompensatedBy != "" && !r.names[a.Spec.CompensatedBy] {
 			fail("action %s: compensating action %q is not registered", a.Ref(), a.Spec.CompensatedBy)
+		}
+		if a.Spec.Class == ClassRevertible {
+			errs = append(errs, r.checkRepairedBy(a)...)
 		}
 	}
 	errs = append(errs, r.checkCLINames(ids)...)
@@ -171,6 +176,122 @@ func checkOwnership(mods []Manifest) []error {
 	return errs
 }
 
+// maxSyncApplyTimeout is the longest ApplyTimeout an action may declare
+// without LongRunning: a synchronous apply must answer before the API
+// servers' 60 s write timeout.
+const maxSyncApplyTimeout = 45 * time.Second
+
+// checkRepairedBy checks a revertible action's repair action (spec 1.3): every
+// registered version of it belongs to the same module and side, is a mutating
+// action that is neither a task action nor has a recovery handler, and locks
+// no key the revertible action does not hold, because its repair change runs
+// under the revertible change's locks.
+func (r *Registry) checkRepairedBy(a ActionDef) []error {
+	ref, name := a.Ref(), a.Spec.RepairedBy
+	module, _, _ := strings.Cut(a.Spec.Name, ".")
+	if !r.names[name] {
+		return []error{fmt.Errorf("action %s: repair action %q is not registered", ref, name)}
+	}
+	if !strings.HasPrefix(name, module+".") {
+		return []error{fmt.Errorf("action %s: repair action %s is not of module %s", ref, name, module)}
+	}
+	var errs []error
+	for _, rep := range r.actions {
+		if rep.Spec.Name != name {
+			continue
+		}
+		switch {
+		case rep.Spec.Side != a.Spec.Side:
+			errs = append(errs, fmt.Errorf("action %s: repair action %s runs on side %s, not %s", ref, rep.Ref(), rep.Spec.Side, a.Spec.Side))
+		case rep.Spec.Class != ClassCompensable && rep.Spec.Class != ClassIrreversible:
+			errs = append(errs, fmt.Errorf("action %s: repair action %s is %s, want compensable or irreversible", ref, rep.Ref(), rep.Spec.Class))
+		case rep.Spec.Task:
+			errs = append(errs, fmt.Errorf("action %s: repair action %s is a task action", ref, rep.Ref()))
+		case rep.Handler.Recover != nil:
+			errs = append(errs, fmt.Errorf("action %s: repair action %s has a recovery handler", ref, rep.Ref()))
+		}
+		for _, key := range rep.Spec.LockKeys {
+			if !slices.Contains(a.Spec.LockKeys, key) {
+				errs = append(errs, fmt.Errorf("action %s: repair action %s takes lock %s, which %s does not hold", ref, rep.Ref(), key, ref))
+			}
+		}
+	}
+	return errs
+}
+
+// hasSecretField reports whether t, or a type it contains, has a field
+// tagged secret:"true".
+func hasSecretField(t reflect.Type, seen map[reflect.Type]bool) bool {
+	if seen[t] {
+		return false
+	}
+	seen[t] = true
+	switch t.Kind() {
+	case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Map:
+		return hasSecretField(t.Elem(), seen)
+	case reflect.Struct:
+		for i := range t.NumField() {
+			f := t.Field(i)
+			if f.Tag.Get("secret") == "true" || hasSecretField(f.Type, seen) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// checkLifecycle applies the lifecycle declaration rules of spec 1.3 that
+// one action can be checked against alone.
+func checkLifecycle(moduleID string, a ActionDef) error {
+	s, h := a.Spec, a.Handler
+	ref := a.Ref()
+	compositeKey := "composite:" + moduleID
+	undoes := h.Inverse != nil
+	compensations := 0
+	for _, set := range []bool{undoes, s.CompensatedBy != "", s.ForwardOnly} {
+		if set {
+			compensations++
+		}
+	}
+	switch {
+	case s.Class == ClassComposite && s.Side != SideController:
+		return fmt.Errorf("action %s: composite actions are controller-side", ref)
+	case s.Class == ClassComposite && (h.Steps == nil || h.Output == nil):
+		return fmt.Errorf("action %s: a composite action has Steps and Output handlers", ref)
+	case s.Class == ClassComposite && s.Unwind != UnwindReverse && s.Unwind != UnwindForward:
+		return fmt.Errorf("action %s: a composite action declares Unwind reverse or forward", ref)
+	case s.Class == ClassComposite && !slices.Equal(s.LockKeys, []string{compositeKey}):
+		return fmt.Errorf("action %s: a composite action holds exactly the lock key %s", ref, compositeKey)
+	case s.Class == ClassComposite && hasSecretField(a.InputType, map[reflect.Type]bool{}):
+		return fmt.Errorf("action %s: a composite action's input has no secret field", ref)
+	case s.Class != ClassComposite && slices.ContainsFunc(s.LockKeys, func(k string) bool { return strings.HasPrefix(k, "composite:") }):
+		return fmt.Errorf("action %s: only composite actions declare a composite:* lock key", ref)
+	case s.Class == ClassCompensable && compensations != 1:
+		return fmt.Errorf("action %s: a compensable action declares exactly one of an undo handler, CompensatedBy or ForwardOnly", ref)
+	case s.ForwardOnly && !s.Converges:
+		return fmt.Errorf("action %s: a ForwardOnly action must declare Converges", ref)
+	case undoes && (s.Class != ClassCompensable || len(s.LockKeys) == 0):
+		return fmt.Errorf("action %s: an undo handler needs a compensable action with at least one lock key", ref)
+	case s.ApplyTimeout > maxSyncApplyTimeout && !s.LongRunning:
+		return fmt.Errorf("action %s: an ApplyTimeout above %s requires LongRunning", ref, maxSyncApplyTimeout)
+	case s.Task && s.Class != ClassCompensable && s.Class != ClassIrreversible:
+		return fmt.Errorf("action %s: a task action is compensable or irreversible", ref)
+	case s.Class == ClassRevertible && s.RepairedBy == "":
+		return fmt.Errorf("action %s: a revertible action names its repair action in RepairedBy", ref)
+	case s.Class != ClassRevertible && s.RepairedBy != "":
+		return fmt.Errorf("action %s: only revertible actions name a repair action", ref)
+	case s.Task && (s.Side != SideAgent || len(s.LockKeys) == 0 || s.ApplyTimeout <= 0):
+		return fmt.Errorf("action %s: a task action is agent-side with lock keys and an ApplyTimeout", ref)
+	case s.Task && (h.Apply != nil || h.Task == nil):
+		return fmt.Errorf("action %s: a task action has a Task handler and no Apply", ref)
+	case !s.Task && h.Task != nil:
+		return fmt.Errorf("action %s: only task actions have a Task handler", ref)
+	case s.Class != ClassComposite && (h.Steps != nil || h.Output != nil):
+		return fmt.Errorf("action %s: only composite actions have Steps and Output handlers", ref)
+	}
+	return nil
+}
+
 func checkAction(moduleID string, a ActionDef) error {
 	s, h := a.Spec, a.Handler
 	ref := a.Ref()
@@ -187,12 +308,13 @@ func checkAction(moduleID string, a ActionDef) error {
 		return fmt.Errorf("action %s: revertible actions are agent-side; controller-side actions have no revert timer", ref)
 	case s.Class == ClassRevertible && s.Side == SideAgent && len(s.LockKeys) == 0:
 		return fmt.Errorf("action %s: a revertible agent action declares at least one lock key, so an update's reservation holds it off", ref)
-	case s.Class == ClassCompensable && s.CompensatedBy == "":
-		return fmt.Errorf("action %s: compensable actions name a compensating action", ref)
 	case s.Class != ClassCompensable && s.CompensatedBy != "":
 		return fmt.Errorf("action %s: only compensable actions name a compensating action", ref)
 	case s.Class == ClassRead && len(s.LockKeys) > 0:
 		return fmt.Errorf("action %s: read actions take no locks", ref)
+	}
+	if err := checkLifecycle(moduleID, a); err != nil {
+		return err
 	}
 	switch s.Class {
 	case ClassRead:
@@ -200,12 +322,17 @@ func checkAction(moduleID string, a ActionDef) error {
 			return fmt.Errorf("action %s: a read action has only a Read handler", ref)
 		}
 	case ClassCompensable, ClassIrreversible:
-		if h.Read != nil || h.Plan == nil || h.Apply == nil || h.Verify == nil || h.Snapshot != nil || h.Revert != nil {
+		// checkLifecycle already required Task instead of Apply for a task action.
+		if h.Read != nil || h.Plan == nil || (h.Apply == nil && h.Task == nil) || h.Verify == nil || h.Snapshot != nil || h.Revert != nil {
 			return fmt.Errorf("action %s: a %s action has Plan, Apply and Verify handlers only", ref, s.Class)
 		}
 	case ClassRevertible:
 		if h.Read != nil || h.Plan == nil || h.Apply == nil || h.Verify == nil || h.Snapshot == nil || h.Revert == nil {
 			return fmt.Errorf("action %s: a revertible action has Plan, Apply, Verify, Snapshot and Revert handlers", ref)
+		}
+	case ClassComposite:
+		if h.Read != nil || h.Plan != nil || h.Apply != nil || h.Verify != nil || h.Snapshot != nil || h.Revert != nil {
+			return fmt.Errorf("action %s: a composite action has Steps and Output handlers only", ref)
 		}
 	default:
 		return fmt.Errorf("action %s: unknown class %q", ref, s.Class)

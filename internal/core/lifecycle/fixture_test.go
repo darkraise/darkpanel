@@ -203,7 +203,13 @@ func (m fixModule) Manifest() core.Manifest {
 	h := itemHandler{m.host}
 	return core.Manifest{ID: "fix", Version: 1, Actions: []core.ActionDef{
 		core.DefineRead(core.ActionSpec{Name: refGet.Name, Version: 1, Side: core.SideAgent}, getHandler{m.host}),
-		core.DefineRevertible(core.ActionSpec{Name: refSet.Name, Version: 1, Side: core.SideAgent, LockKeys: []string{"fix"}}, h),
+		core.DefineRevertible(core.ActionSpec{
+			Name: refSet.Name, Version: 1, Side: core.SideAgent, LockKeys: []string{"fix"}, RepairedBy: "fix.item.repair",
+		}, h),
+		core.DefineMutating(core.ActionSpec{
+			Name: "fix.item.repair", Version: 1, Class: core.ClassCompensable, Side: core.SideAgent,
+			LockKeys: []string{"fix"}, CompensatedBy: refRemove.Name,
+		}, h),
 		core.DefineMutating(core.ActionSpec{
 			Name: refAdd.Name, Version: 1, Class: core.ClassCompensable, Side: core.SideAgent,
 			LockKeys: []string{"fix"}, CompensatedBy: refRemove.Name,
