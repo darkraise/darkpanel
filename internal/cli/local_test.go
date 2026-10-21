@@ -208,7 +208,7 @@ func TestLocalMutatingPrintsLikeTheAPI(t *testing.T) {
 			t.Errorf("%q: --local exit %d, out %q, err %q\nAPI exit %d, out %q, err %q", extra, code, out, errOut, apiCode, apiOut, apiErr)
 		}
 	}
-	want := []string{"plan demo.item.add/v1", "apply p1 {ConfirmTimeout:0s Confirmation: ConfirmNow:false}"}
+	want := []string{"plan demo.item.add/v1", "apply p1 {ConfirmTimeout:0s Confirmation: ConfirmNow:false Call:<nil>}"}
 	if got := rec.list(); !slices.Equal(got, slices.Concat(want, want)) {
 		t.Errorf("the agent saw %q", got)
 	}
