@@ -2,9 +2,9 @@
 
 **Date:** 2026-10-21
 **Status:** design approved by the owner section by section on 2026-10-21;
-revision 6 after the wave-0-scoped Fable and Codex gpt-6-astra check of
-revision 5 (see the review log). The written spec awaits the owner's
-review.
+revision 7 after the final wave-0 check of revision 6 and the owner's
+choice to simplify the lifecycle core (see the review log). The written
+spec awaits a wave-0 check and the owner's review.
 **Product spec:** docs/superpowers/specs/2026-10-17-darkpanel-design.md
 **Requirements:** R37–R81; M2 register rows 11, 16 and 35
 (docs/superpowers/registers/2026-10-19-m2-fleet-lifecycle-core.md); the
@@ -75,6 +75,10 @@ checklist (section 12). M9 post-v1 candidates are out of scope.
 - After round 4 the owner split wave 6 into two alone waves (6a, 6b): NPM's
   destructive upgrade and both exposure implementations are exposure and
   data-loss work, which runs alone.
+- After the wave-0 checks of revisions 5 and 6 the owner chose to simplify
+  the lifecycle core (revision 7): each revision of the effects journal,
+  undo, composite repair and recovery added mechanism, and each check found
+  about as many problems in it.
 
 ## Versions
 
@@ -1143,6 +1147,22 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
   action away from an agent without guard support. Plan refuses an
   `overrides` entry that is not an `Overridable` guard id of the action
   (`request.invalid_input`).
+- **Address types in schemas.** The schema generator
+  (`internal/core/schema/reflect.go`) runs `invopop/jsonschema` v0.14.0's
+  `Reflector` with only `Anonymous` and `AllowAdditionalProperties` set and
+  no type mapper. `netip.Addr`, `netip.AddrPort` and `netip.Prefix` are
+  structs with unexported fields and no `JSONSchema` method, so (inference
+  from the reflector's struct handling, not yet run) it would describe them
+  as objects with no properties, and an input schema with
+  `additionalProperties: false` would then refuse their JSON form, a
+  string. Wave 0 sets `Reflector.Mapper` to map the three types to
+  `{"type": "string", "format": "ip-address" | "ip-address-port" |
+  "ip-prefix"}` (custom formats registered on the validator's compiler in
+  `validate.go`, which already asserts formats, and checked with
+  `netip.ParseAddr`, `ParseAddrPort`, `ParsePrefix`),
+  and adds a schema test that builds the input schema of a type embedding
+  `Guarded` and validates a filled `GuardContext` against it, both IPv4 and
+  IPv6.
 - **Plan.** The dispatcher fills `guard`; the API and the local socket
   reject a request that supplies `guard` (`request.invalid_input`); the
   local socket's break-glass plans run with `guard` empty.
@@ -1274,11 +1294,15 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
 - **Controller events.** The controller has no event endpoint today; wave 0
   builds one, which asynchronous apply (1.3) and the web client use:
   - `internal/controller/events`: `type Bus`, with
-    `Publish(e Event)` (never blocks; drops to a slow subscriber, which then
-    gets a `reset` event) and `Subscribe(ctx context.Context) (<-chan Event,
-    lastID uint64)`; `Event{ID uint64; Type string; Data json.RawMessage}`,
-    IDs increasing per process start. A ring buffer keeps the last 1,024
-    events.
+    `Publish(eventType string, data any)` (the `ext.Publisher` signature,
+    1.12: the bus marshals `data` to JSON, assigns the next sequence number
+    and never blocks; a slow subscriber is dropped and then gets a `reset`
+    event) and `Subscribe(ctx context.Context) (<-chan Event, lastSeq
+    uint64)`; `Event{Seq uint64; Type string; Data json.RawMessage}`. The
+    bus draws a random 64-bit **epoch** at process start; the SSE id of an
+    event is `<epoch hex>-<seq>`, `seq` increasing from 1 within the epoch.
+    A ring buffer keeps the last 1,024 events. A marshal error is logged
+    and the event dropped (publishers pass plain structs).
   - Types: `change` `{hostId, changeId, action, state, updatedAt}` on every
     change state the controller records or ingests (controller changes,
     composite parents, agent changes as the audit ingester sees them);
@@ -1287,10 +1311,12 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
     `reset` `{}` (refetch everything).
   - `GET /api/v1/events`, scope `read`, SSE with the same write deadline,
     idle timeout, hard limit and heartbeat as the stream relay, at most 4
-    connections per principal (`core.stream_limit`). `Last-Event-ID` within
-    the ring buffer replays the missed events; older, or after a restart, a
-    `reset` comes first. Events carry ids and states, never action input or
-    output.
+    connections per principal (`core.stream_limit`). A `Last-Event-ID`
+    whose epoch is the current one and whose sequence is still in the ring
+    buffer replays the missed events; any other value (another epoch, so a
+    restart; a sequence older than the buffer; a malformed id) gets a
+    `reset` first, then live events. Events carry ids and states, never
+    action input or output.
   - The web client opens one connection per tab (`web/src/api/events.ts`)
     and refetches the queries an event names; the CLI waits for an
     asynchronous apply by polling `GET /api/v1/changes/{id}` every second.
@@ -1329,7 +1355,20 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
   and the secret's identity, never the value. `Internal` actions are the one
   exception to 1.1's rule that every agent action is reachable with
   `--local`: the CLI generates no command for them and the local socket
-  answers `action.unknown`.
+  answers `action.unknown`. Reveal actions are the other exception (1.14).
+- **Internal read audit identity.** `ext.Dispatcher.ReadInternal` takes the
+  calling principal (`p core.Principal`, 1.12); the controller sends it in
+  the existing `Darkpanel-Principal` header (`internal/agent/api/client.go`),
+  which the agent's handler already parses, and the agent's audit entry
+  names that actor. The handler of an `Internal` read returns
+  `(Revealed[Out], error)` like a reveal (1.14), built with
+  `DefineInternalRead`, so the `Identity` the audit records comes from the
+  module ("tailscale certificate for <MagicDNS name>"). Callers and their
+  principals: a composite reading a child step's internal output uses the
+  composite's principal; the certificate source (1.12) uses
+  `core.Principal{Actor: "system:listen.cert", Scope: core.ScopeAdmin}`;
+  the Cloudflare connector's `tunnel.token` read uses the principal of the
+  `cloudflare.connector.deploy` change that asks for it.
 
 #### 1.8 Host clients (`internal/platform`)
 
@@ -1359,11 +1398,28 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
   | `/usr/sbin/iptables`, `/usr/sbin/ip6tables` | exactly `--version` | — |
   | `/usr/sbin/{iptables,ip6tables}-save`, `-legacy-save`, `-nft-save` | exactly `-t <table>`, `<table>` one of `filter`, `nat`, `raw`, `mangle`, `security` | — |
   | `/usr/sbin/{iptables,ip6tables}-restore`, `-legacy-restore`, `-nft-restore` | exactly `-n`, input on stdin (the runner's existing `Cmd.Stdin`) | — |
-  | `/usr/bin/apt-get` | `<verb> -o DPkg::Lock::Timeout=120 [-o Dir::Etc::sourcelist=<file> -o Dir::Etc::sourceparts=-] -y [--allow-downgrades] [--download-only] [--reinstall] <target>`, `<verb>` one of `update` (no `<target>`), `install`, `remove`; `<file>` a path inside a module's `managed-dir`; `<target>` `tailscale` or `tailscale=<version>` (`<version>` matching `^[0-9][0-9A-Za-z.+~-]{0,63}$`), or for `install` a `.deb` path inside a module's `managed-dir` (4.1) | `DEBIAN_FRONTEND=noninteractive` |
+  | `/usr/bin/apt-get` | exactly one of the vectors `APT-1`–`APT-6` below | `DEBIAN_FRONTEND=noninteractive` |
   | `/usr/bin/apt-mark` | exactly `hold tailscale`, `unhold tailscale` or `showhold` | — |
   | `/usr/bin/dpkg` | exactly `--configure -a` | `DEBIAN_FRONTEND=noninteractive` |
   | `/usr/sbin/nft` | exactly `list tables` or `list table <family> <name>`, `<family>` one of `ip`, `ip6`, `inet`, `arp`, `bridge`, `netdev`, `<name>` matching `^[A-Za-z0-9_.-]{1,64}$` (read-only, 2.1) | — |
   | `/usr/bin/docker` | `compose --project-directory <dir> -p <name> (-f <file>)+ (--env-file <f>)* (--profile <p>)* <verb>`, `<verb>` exactly one of `up -d --no-build`, `down`, `pull`, `restart`, `config --format json` (3); `<dir>`, `<file>` and `<f>` absolute paths | `DOCKER_CONFIG=/var/lib/darkpanel/agent/docker-config`, `HOME=/var/lib/darkpanel/agent/docker-config`, `COMPOSE_EXPERIMENTAL_GIT_REMOTE=false`, `COMPOSE_EXPERIMENTAL_OCI_REMOTE=false` |
+
+  **apt-get vectors.** These are the only `apt-get` argument vectors, in
+  this order, word for word; 4.1 and 4.3 use them by name and the
+  allowlist test runs each one and a reordering of each:
+
+  | Name | Vector | Used for |
+  |---|---|---|
+  | `APT-1` | `update -o DPkg::Lock::Timeout=120 -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/tailscale.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0` | refresh the Tailscale repository only (no `-y`: `update` asks nothing). `List-Cleanup=0` stops apt from deleting the downloaded lists of every other repository, which it would otherwise treat as unused under the narrowed source list |
+  | `APT-2` | `install -o DPkg::Lock::Timeout=120 -y tailscale` | install or update to the repository's current version |
+  | `APT-3` | `install -o DPkg::Lock::Timeout=120 -y --allow-downgrades tailscale=<version>` | install an exact version (pin, DERP host) |
+  | `APT-4` | `install -o DPkg::Lock::Timeout=120 -y --allow-downgrades --download-only --reinstall tailscale=<version>` | stage a version's `.deb` in `/var/cache/apt/archives/` without installing it |
+  | `APT-5` | `install -o DPkg::Lock::Timeout=120 -y --allow-downgrades <deb>` | install a staged file; `<deb>` is an absolute path inside the `tailscale` module's `managed-dir` ending in `.deb` |
+  | `APT-6` | `remove -o DPkg::Lock::Timeout=120 -y tailscale` | uninstall |
+
+  `<version>` matches `^[0-9][0-9A-Za-z.+~-]{0,63}$`. The source list is
+  always the fixed path `/etc/apt/sources.list.d/tailscale.list` (4.1 writes
+  it, or finds an identical one); no other source-list path is accepted.
 
   Which caller may run a vector is a code rule, not a runner rule: only the
   `tailscale` and `derp` modules' recovery handlers call `dpkg --configure
@@ -1372,15 +1428,78 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
   timeout for a context without a deadline; an action that runs a longer
   program passes a context whose deadline is its `ApplyTimeout` (1.3).
   `systemctl` is not allowed; systemd stays on D-Bus (ADR 0012).
-- **Units.** `Env` gains `Units core.Units`, the existing D-Bus systemd
-  client (`platform.DBusSystemd`) behind an interface declared in
-  `internal/core` with the same methods and types as `platform.Systemd`
-  (`StartTransientService`, `StartTransientTimer`, `Start`, `Stop`,
-  `Restart`, `Kill`, `ResetFailed`, `Enable`, `Disable`, `Reload`,
-  `State`); `platform.Systemd` becomes an alias of it. A module may act
-  only on units it declares as owned paths of kind `unit` (its unit files,
-  below) and on `darkpanel-task-<change id>.service` units (1.3); the
-  wrapper given to modules refuses other names.
+- **Units.** `internal/platform` imports `internal/core`, so the systemd
+  contract moves into `internal/core` (new file `internal/core/units.go`)
+  and `platform` keeps aliases: `type Systemd = core.Units`,
+  `type TransientService = core.TransientService`,
+  `type TransientTimer = core.TransientTimer`,
+  `type UnitState = core.UnitState`; `platform.DBusSystemd` implements
+  `core.Units`. The contract gains a main PID and a pattern listing:
+
+  ```go
+  // internal/core/units.go
+  type Units interface {
+      StartTransientService(ctx context.Context, name string, svc TransientService) error
+      StartTransientTimer(ctx context.Context, name string, t TransientTimer) error
+      Start(ctx context.Context, unit string) error
+      Stop(ctx context.Context, unit string) error
+      Restart(ctx context.Context, unit string) error
+      Kill(ctx context.Context, unit string, sig syscall.Signal) error
+      ResetFailed(ctx context.Context, unit string) error
+      Enable(ctx context.Context, unitFiles ...string) error
+      Disable(ctx context.Context, unitFiles ...string) error
+      Reload(ctx context.Context) error
+      State(ctx context.Context, unit string) (UnitState, error)
+      // List returns the loaded units whose names match one glob pattern
+      // (systemd's ListUnitsByPatterns), states as State reports them.
+      List(ctx context.Context, pattern string) ([]UnitStatus, error)
+  }
+  type TransientService struct {
+      Description string
+      ExecStart   []string      // ExecStart[0] is an absolute path
+      OnFailure   []string      // unit names
+      RuntimeMax  time.Duration // RuntimeMaxSec; zero sets none (1.3c)
+  }
+  type TransientTimer struct {
+      Description string
+      OnActive    time.Duration
+      Accuracy    time.Duration
+      Service     TransientService
+  }
+  // UnitState is a unit's state; a unit that does not exist has LoadState
+  // "not-found". MainPID is the Service interface's MainPID property (0 for
+  // a unit that is not a running service).
+  type UnitState struct {
+      LoadState, ActiveState, SubState string
+      MainPID                          uint32
+  }
+  type UnitStatus struct {
+      Name string
+      UnitState
+  }
+  ```
+
+  `Env` gains `Units core.Units`. Agent core code (the task runtime of
+  1.3c, uninstall and update admission, the guard's search for a
+  `darkpanel-controller` process, 1.5) uses the unrestricted client. A
+  module gets a **scoped wrapper** that refuses every other unit name with
+  an error naming the unit:
+  - units it declares as owned paths of kind `unit` (its unit files,
+    below): every method;
+  - `darkpanel-task-<change id>.service` units (1.3c): `State` only (the
+    task runtime starts and stops them);
+  - **external units** it declares in `Manifest.ExternalUnits
+    []ExternalUnit{Name string; Ops []string}`, `Ops` a subset of
+    `state`, `start`, `stop`, `restart`: v1 declares one,
+    `tailscale`'s `{Name: "tailscaled.service", Ops: ["state",
+    "restart"]}` (4.1's rollback restarts tailscaled; the DERP module
+    restarts it through a `tailscale` action, never directly);
+  - `List` is refused (core only).
+
+  The `Env` that the `agent task` subcommand builds for a task process
+  (1.3c) carries the same scoped wrapper for the task's module, so a
+  task (for example `derp.server.install`, 4.3) can enable and start its
+  own unit.
 - **Docker Engine client** (`internal/platform/dockerapi`, wave 0b): HTTP
   over `/var/run/docker.sock`, API 1.44 or later, typed calls for the
   endpoints sections 2–8 use, streaming for logs, stats, pull and events.
@@ -1436,6 +1555,11 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
   EnsureServiceDir(ctx context.Context, module, dir string) error
   RenameIn(ctx context.Context, module, dir, from, to string) error
   RemoveIn(ctx context.Context, module, dir, name string) error
+  RemoveServiceDir(ctx context.Context, module, dir string) error
+  // Owns reports whether the ownership store records path (any kind) as
+  // module's, so a plan can refuse to take over a pre-existing file,
+  // unit file or directory.
+  Owns(ctx context.Context, module, path string) (bool, error)
   type RestoreEntry struct {
       Path     string
       Present  bool
@@ -1470,14 +1594,24 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
   `^[a-z0-9][a-z0-9._-]{0,63}$`), through `WriteManaged` and
   `RemoveManaged`; uninstall removes the directory and its contents. Used
   for tunnel token files (`<tunnel id>.token`, 7.2), NPM backup archives (6)
-  and staged `.deb` files and apt source lists (4.1). Restore staging is
+  and staged `.deb` files (4.1; the apt source list is the fixed path of
+  `APT-1`, a kind `file` path). Restore staging is
   not a managed directory: the root restore CLI writes it itself, with the
   services stopped (10).
 - **Binaries, unit files and swaps.** `WriteFile` accepts paths of kind
   `file` and, new, kind `unit`: a unit file under `/etc/systemd/system/`
   named `darkpanel-*.service`, after which the module calls
-  `Units.Reload`, `Enable` and `Start` (4.3); uninstall disables, stops and
-  removes it. A binary (`/usr/local/lib/darkpanel/derper`) is a kind `file`
+  `Units.Reload`, `Enable` and `Start` (4.3). `Remove` (today kind `file`
+  only, `files.go`) also accepts kind `unit`: it unlinks the file without
+  following a symlink, fsyncs the directory and forgets the record; a
+  missing file is not an error, so a re-run converges. The module calls
+  `Units.Stop` and `Disable` before it and `Reload` after it; uninstall
+  does the same. A unit file that exists but `Owns` does not report is
+  **pre-existing**: the installing action's plan refuses with
+  `module.unavailable` and the reason "unit file <path> exists and is not
+  Darkpanel's", so Darkpanel never removes a unit it did not create
+  (`Owns` reads the ownership store through a new method
+  `core.Ownership.Owns(ctx, module, path) (bool, error)`). A binary (`/usr/local/lib/darkpanel/derper`) is a kind `file`
   path written with mode 0755 (temporary file, fsync, rename). `Rename`
   renames one declared `file` path to another declared `file` path **in
   the same directory** (`derper`, `derper.new` and `derper.prev`
@@ -1496,8 +1630,20 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
   IPv6 address fits), opened with `openat2(RESOLVE_BENEATH |
   RESOLVE_NO_SYMLINKS)` from the directory's descriptor, refusing a file
   not owned by `User`; a rename is followed by a directory fsync. Darkpanel
-  never writes file contents into a `service-dir` (the service does);
-  uninstall removes it and its contents.
+  never writes file contents into a `service-dir` (the service does).
+  `EnsureServiceDir` records the directory in the ownership store before
+  creating it, and refuses a directory that exists but `Owns` does not
+  report (pre-existing; the plan refuses first). `RemoveServiceDir` removes
+  the directory, used by the module's removing action, its undo, and
+  uninstall: opened from its root-owned parent with
+  `openat2(RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS)`, it unlinks every
+  non-directory entry in each declared subdirectory and in the directory
+  itself (a symlink is unlinked, never followed), removes the declared
+  subdirectories and then the directory with `unlinkat(AT_REMOVEDIR)`,
+  fsyncs the parent and forgets the record. A subdirectory that is not
+  declared fails the call with an error naming it, before anything is
+  removed, so the operator decides; a missing directory is not an error
+  (a re-run converges).
 - **Darkpanel-owned Docker objects.** Containers, networks and volumes a
   module creates carry the label `darkpanel.module=<id>`. They are that
   module's resources (ADR 0002), driven through `dockerapi` by the module's
@@ -1514,7 +1660,7 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
 
   | Write | Procedure |
   |---|---|
-  | Tailscale auth key create | no immediate retry (the provider gives no guarantee that a request which timed out cannot still commit, so "none found" proves nothing). Every key Darkpanel creates is first recorded in `tailnet_keys` (description, kind `change` or `enroll`, owner id, request time, requested expiry, key id once known, state `requested`, `live`, `uncertain`, `used`, `retired` or `deleted`). Descriptions use two disjoint namespaces: `darkpanel-<change id>` (a 26-character ULID) for keys an action creates, and `darkpanel-enroll-<host id>` for join keys (4.2). On an uncertain create the effect stays `intended`, the step fails with `cloud.uncertain_outcome`, and the row becomes `uncertain`. A sweep lists keys (by id, fetching each when the list omits descriptions, 4.2a) and deletes each whose description is that of an `uncertain` or `retired` row (a key's secret cannot be recovered): every 5 minutes until the request time plus the requested expiry plus 24 hours, then once a day while the account is connected. Independently, a daily orphan sweep deletes any key whose description is in either namespace and has no row in state `live` or `used`, so a key committed however late is removed while the account stays connected, and a live join key is never mistaken for an orphan. A retry is a new change with a new description |
+  | Tailscale auth key create | no immediate retry (the provider gives no guarantee that a request which timed out cannot still commit, so "none found" proves nothing). Every key Darkpanel creates is first recorded in `tailnet_keys` (description, kind `change` or `enroll`, owner id, request time, requested expiry, key id once known, state `requested`, `live`, `uncertain`, `used`, `retired` or `deleted`). Descriptions use two disjoint namespaces: `darkpanel-<change id>` (a 26-character ULID) for keys an action creates, and `darkpanel-enroll-<host id>` for join keys (4.2). On an uncertain create the effect stays `intended`, the step fails with `cloud.uncertain_outcome`, and the row becomes `uncertain`. A sweep lists keys (by id, fetching each when the list omits descriptions, 4.2a) and deletes each whose description is that of an `uncertain` or `retired` row (a key's secret cannot be recovered): every 5 minutes until the request time plus the requested expiry plus 24 hours, then once a day while the account is connected. Independently, a daily orphan sweep deletes a key whose description is in either namespace when it has no row, or its row is `uncertain`, `retired` or `deleted`; a row in `requested` is skipped while it is younger than the request timeout (15 s) plus 5 minutes (its create may still be answered) and is first moved to `uncertain` when older, so the sweep never deletes a key whose create is still in flight. A key committed however late is removed while the account stays connected, and a `live` or `used` key is never mistaken for an orphan. A retry is a new change with a new description |
   | Tailscale policy `POST` (always sent with `If-Match: <ETag read at plan>`) | re-`GET` with HuJSON: equal to the new text → `made`; neither the old nor the new text → `cloud.conflict`; equal to the old text and ETag → still uncertain, because the timed-out write may commit later, but only while the old ETag is current. Darkpanel settles it by **retiring the old ETag**: it writes the old text with one trailing comment line `// darkpanel-settled: <change id>` (replacing any earlier such line) with `If-Match: <old ETag>`. Success makes the delayed write impossible (its `If-Match` can no longer match) → `skipped`; a 412 means another write (possibly the delayed one) won → re-`GET` and compare again; a timeout of the settling write is settled the same way. Until settled, the effect stays `intended`, the change fails with `cloud.uncertain_outcome`, and no step before it is unwound |
   | Tailscale device writes | re-read the device and compare |
   | Cloudflare tunnel create | look up by name `darkpanel-<change id>` |
@@ -1651,12 +1797,15 @@ stub (returning nothing), and the owning wave replaces the stub's body.
   // hostID is empty for controller-side actions.
   type Dispatcher interface {
       Read(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage) (json.RawMessage, error)
-      ReadInternal(ctx context.Context, hostID string, a core.ActionRef, input json.RawMessage) (json.RawMessage, error) // 1.7
+      ReadInternal(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage) (json.RawMessage, error) // 1.7: p is audited
       Plan(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage) (core.PlanView, error)
       Apply(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, planID string, opts core.ApplyOptions) (core.ChangeView, error)
   }
 
-  type Publisher interface{ Publish(eventType string, data any) } // 1.6
+  // Publisher is the event bus as contributions see it (1.6): the bus
+  // encodes data as JSON and assigns the id. events.Bus implements it
+  // directly; there is no adapter.
+  type Publisher interface{ Publish(eventType string, data any) }
 
   // Controller is a module's optional controller-side contribution, found
   // on a core.Module by type assertion.
@@ -1728,7 +1877,9 @@ stub (returning nothing), and the owning wave replaces the stub's body.
   ```
 
   `Leaf.GetCertificate` asks the sources in order; `Leaf.Ensure` adds
-  `extraNames` to the CA leaf's names. Wave 0's stub
+  `extraNames` to the CA leaf's names. A source's internal reads run as
+  `core.Principal{Actor: "system:listen.cert", Scope: core.ScopeAdmin}`
+  (1.7), which `SourceDeps` does not carry because it is fixed. Wave 0's stub
   `tailscale_cert.go` defines `tailscaleCertSource` (returns a source that
   always falls through) and `tailscaleNames` (returns none); wave 4 fills
   them (4.1).
@@ -1840,7 +1991,7 @@ stub (returning nothing), and the owning wave replaces the stub's body.
 **Frozen files.** After wave 0 merges, no later wave edits these; a wave
 that finds a missing code, dependency, allowlist rule or extension point
 stops, and the integrator adds it on `main` before the wave continues:
-`internal/core/contract.go`, `internal/core/define.go`,
+`internal/core/contract.go`, `internal/core/units.go`, `internal/core/define.go`,
 `internal/core/registry.go`, `internal/core/ext/**`,
 `internal/core/errcode/errcode.go`, `internal/core/lifecycle/**`, the core
 migrations under `internal/core/store/migrations/**`,
@@ -1891,12 +2042,33 @@ only. v1 has two: `npm.admin.reveal-password` (6) and
   with
 
   ```go
-  type Revealed struct {
-      Identity string          // what is revealed, for the audit ("npm admin password, host h1")
-      Value    json.RawMessage // the output, unredacted
+  // Revealed is a reveal handler's result; Out is the action's output type,
+  // whose schema is the output schema of the action's snapshot.
+  type Revealed[Out any] struct {
+      Identity string // what is revealed, for the audit ("npm admin password, host h1")
+      Value    Out    // the output, never redacted
   }
-  func DefineReveal[In any](spec ActionSpec, reveal func(ctx context.Context, env Env, in In) (Revealed, error)) ActionDef
+  func DefineReveal[In, Out any](spec ActionSpec, reveal func(ctx context.Context, env Env, in In) (Revealed[Out], error)) ActionDef
+  // added to ErasedHandler; set only by DefineReveal, which leaves Read nil
+  Reveal func(ctx context.Context, env Env, in json.RawMessage) (identity string, value json.RawMessage, err error)
   ```
+
+  `DefineReveal` sets `InputType` and `OutputType` from `In` and `Out`, so
+  the existing schema snapshot (`internal/core/schema/snapshot.go`, which
+  needs `OutputType`) covers a reveal action unchanged; secret fields of
+  `Out` keep their `secret:"true"` tag, which marks them `x-secret` in the
+  schema but is not applied to the value. `Internal` reads (1.7) use the
+  same handler field through
+
+  ```go
+  func DefineInternalRead[In, Out any](spec ActionSpec, read func(ctx context.Context, env Env, in In) (Revealed[Out], error)) ActionDef
+  ```
+
+  **Registry rule** (`registry.go`): a read action has `Handler.Reveal`
+  set exactly when `Spec.Reveal` or `Spec.Internal` is true, and then
+  `Handler.Read` is nil; `Spec.Reveal` and `Spec.Internal` are never both
+  true; a reveal action has `MinScope: admin`; every other read action
+  keeps the existing rule (only `Handler.Read` set).
 
 - **Dispatch.** A reveal action is not served by the read route or
   `Engine.Read` (which redact and do not audit): `Engine.Read` refuses it
@@ -1912,6 +2084,14 @@ only. v1 has two: `npm.admin.reveal-password` (6) and
   **before** returning, then returns `Value`. CLI: `darkpanel <module>
   <action>` prints the value once to standard output. The value is never
   journaled, cached, relayed through SSE, or stored in a change.
+- **No `--local`.** Reveal actions are the second exception to 1.1's rule
+  that every agent action is reachable with `--local` (the first is
+  `Internal`, 1.7): the agent's local socket answers `action.unknown` for
+  them and the CLI generates no `--local` form, because a reveal must be
+  authorized by an `admin` principal of the controller and audited there.
+  A root operator on the host without the controller recovers NPM's
+  password with NPM's own reset procedure (the runbook, 9), not through
+  Darkpanel.
 
 ### 2. Firewall (R37–R49)
 
@@ -2776,7 +2956,16 @@ empty list or map as equal, addresses in canonical `netip` form.
   `advertiseRoutes`, `exitNode`, `advertiseExitNode`, `acceptRoutes`,
   `shieldsUp`, `runSSH`. It patches only the fields given (masked prefs); the
   snapshot holds the previous values of exactly those fields, and revert
-  patches them back.
+  patches them back. It declares `RepairedBy: tailscale.prefs.repair`.
+- **`tailscale.prefs.repair`** (revertible, `RepairedBy` itself, lock
+  `tailscale`, guard `tailscale.link`): the repair action for a
+  `prefs.set` whose revert failed (1.3). Input: the core-level `repairs`
+  field and `outcome: restore | keep`. `restore` plans a masked patch from
+  the current prefs to the repaired change's snapshot values (the fields it
+  set, nothing else); `keep` plans an empty patch and accepts the current
+  prefs. Its own snapshot is the current values of those fields, so an
+  unconfirmed repair reverts like any `prefs.set`. Output `repairOutcome`:
+  `restored` or `kept`.
 - **Guard `tailscale.link` (overridable).** The agent classifies each
   protected flow of 2.3 by whether it depends on Tailscale: it arrives on or
   leaves through `tailscale0`, or its route uses a subnet route or exit node
@@ -2820,9 +3009,8 @@ empty list or map as equal, addresses in canonical `netip` form.
        `tailscale.unavailable`; a DERP host is on the tailnet already);
     2. `unheld`: `apt-mark unhold tailscale` (apt aborts with `-y` on any
        change to a held package, so every apt step below runs unheld);
-    3. `staged`: `apt-get install --download-only --reinstall -o
-       DPkg::Lock::Timeout=120 -y tailscale=<prior version>` and the same for
-       the target version, which leave the `.deb` files in
+    3. `staged`: `APT-4` (1.8) with `tailscale=<prior version>` and again
+       with the target version, which leave the `.deb` files in
        `/var/cache/apt/archives/`; the prior one is copied with
        `FileWriter.WriteManaged` into the managed directory
        `/var/lib/darkpanel/agent/tailscale-debs/` (flat name
@@ -2831,8 +3019,7 @@ empty list or map as equal, addresses in canonical `netip` form.
        version can no longer be downloaded, the pin stops here with
        `tailscale.pin_failed` after restoring the prior hold state; nothing
        was installed;
-    4. `installed`: `apt-get install -o DPkg::Lock::Timeout=120 -y
-       --allow-downgrades tailscale=<version>`;
+    4. `installed`: `APT-3` with `tailscale=<version>`;
     5. `held`: `apt-mark hold tailscale`;
     6. `checking`: for up to 120 s, tailscaled answers on its socket, the
        node is back in its prior backend state, and the agent's session to
@@ -2844,9 +3031,8 @@ empty list or map as equal, addresses in canonical `netip` form.
     running, for example after a reboot), each step journaled:
     `apt-mark unhold tailscale` if it is held; `dpkg --configure -a` when
     phase 4 was interrupted (dpkg refuses further installs until the
-    interrupted one is configured); `apt-get install -o
-    DPkg::Lock::Timeout=120 -y --allow-downgrades <staged file>` after
-    checking the file's SHA-256; restore the prior hold state; restart
+    interrupted one is configured); `APT-5` with the staged file after
+    checking its SHA-256; restore the prior hold state; restart
     tailscaled; verify the prior version and backend state; mark the change
     failed. The controller learns the result through the lookup and the
     journal when the link returns. An agent that starts while the unit is
@@ -2866,12 +3052,11 @@ empty list or map as equal, addresses in canonical `netip` form.
     exists and is not byte-identical to what Darkpanel would write, install
     refuses with `tailscale.repo_conflict`; if identical, it is used but not
     recorded as owned, so uninstall leaves it.
-  - `apt-get` runs with the verb first and options after it (1.8):
-    `update -o DPkg::Lock::Timeout=120 -o Dir::Etc::sourcelist=<tailscale.list>
-    -o Dir::Etc::sourceparts=-`, then `install -o DPkg::Lock::Timeout=120 -y
-    tailscale` (the pin adds `--allow-downgrades` and the exact version, and
-    `--download-only --reinstall` for staging; wave 0's allowlist carries
-    these options and `/usr/bin/dpkg --configure -a`, 1.8). The
+  - `apt-get` runs only as the vectors `APT-1`–`APT-6` of 1.8:
+    `package.install` and `package.update` run `APT-1` then `APT-2`; a DERP
+    host's install (4.3) runs `APT-1` then `APT-3`; the pin uses `APT-1`,
+    `APT-4`, `APT-3` and, for rollback, `APT-5`; uninstall runs `APT-6`.
+    The source list `APT-1` names is the file below. The
     repository line uses the OS codename and the `stable` track; unsupported
     OS or architecture refuses. Package installs and updates are
     long-running (1.3).
@@ -3141,7 +3326,7 @@ Scopes follow 1.7 (existing rules kept; raised where noted).
 | firewall | `state.enable`, `state.disable`, `state.repair`, `defaults.set`, `logging.set`, `rules.apply`, `rule.add`, `rule.delete`, `snapshot.restore`, `docker.enable`, `docker.disable`, `docker.repair`, `docker.sources.set`, `container.allow`, `container.deny`, `container.remove`, `containers.apply` (each `RepairedBy: state.repair`, 2.5) | R | A | `firewall` |
 | firewall | `snapshot.compare` | Rd | A | — |
 | docker | the table in 3 (`compose.*` admin and L; `image.pull` L) | — | A | `docker` |
-| tailscale | `prefs.set` | R | A | `tailscale` |
+| tailscale | `prefs.set`, `prefs.repair` (each `RepairedBy: prefs.repair`, 4.1) | R | A | `tailscale` |
 | tailscale | `node.login` (undo), `package.install` (undo, L), `package.pin` (self-rolling-back, recovery handler, L), `package.unpin` (undo: re-hold, L) | C | A | `tailscale` |
 | tailscale | `node.logout`, `package.update` (L) | I | A | `tailscale` |
 | tailscale | `cert.get` (`Internal`) | Rd | A | — |
@@ -3158,7 +3343,7 @@ Scopes follow 1.7 (existing rules kept; raised where noted).
 | npm | `admin.reveal-password` (admin, secret delivery) | Rd | A | — |
 | npm | `instance.deploy-public` (deploy, ports when the integration is on), `expose.container` (network, cert, proxy), `admin.expose` (cert, proxy) | X rev | C | — |
 | npm | `expose.remove` (proxy remove, network detach), `admin.unexpose` (proxy remove) | X fwd | C | — |
-| cloudflare | `account.connect` (undo: delete the created row), `tunnel.create` (undo), `tunnel.adopt` (undo: restore the stored hash), `hostname.add` (undo), `hostname.remove` (by `hostname.add`) | C | C | `cloudflare` |
+| cloudflare | `account.connect` (undo: delete the created row), `tunnel.create` (undo), `tunnel.adopt` (undo: restore the stored hash), `hostname.add` (undo only), `hostname.remove` (by `hostname.add` only) | C | C | `cloudflare` |
 | cloudflare | `account.disconnect`, `tunnel.delete` | I | C | `cloudflare` |
 | cloudflare | `tunnel.list`; `tunnel.token` (`Internal`) | Rd | C | — |
 | cloudflare | `connector.run` (undo), `connector.stop` (by `connector.run`), `network.attach`, `network.detach` (claims, as for NPM) | C | A | `cloudflare` |
@@ -3416,7 +3601,10 @@ a spec change.
 #### 7.3 Public hostnames (R71)
 
 - `cloudflare.hostname.add` and `cloudflare.hostname.remove` (controller,
-  compensable, each other's compensation, lock `cloudflare`): durable
+  compensable, lock `cloudflare`; `hostname.add` declares an `Undo` and no
+  `CompensatedBy`, `hostname.remove` declares `CompensatedBy:
+  cloudflare.hostname.add` and no `Undo`, so each has exactly one
+  compensation mechanism, 1.2): durable
   two-step operations in `cloudflare_hostnames` (hostname, tunnel, service,
   DNS record id, phase). Add checks drift (7.1), reads the configuration,
   inserts the rule before the catch-all (a catch-all `http_status:404` is
@@ -3870,10 +4058,10 @@ a spec change.
   | `panel.wrong_host` | problem | 422 | Not the controller's host |
   | `panel.not_exposed` | problem | 404 | Panel not exposed |
   | `core.child_failed` | action | 500 | A composite step failed |
-  | `core.needs_repair` | problem | 409 | Change needs repair |
-  | `core.recovering` | problem | 409 | Change is being recovered |
+  | `core.needs_repair` | action | 409 | Change needs repair |
+  | `core.recovering` | problem | 409 | Recovery in progress |
   | `core.stream_limit` | problem | 429 | Too many streams |
-  | `core.undo_conflict` | action | 409 | Undo found a later change |
+  | `core.undo_conflict` | problem | 409 | Undo found a later change |
   | `core.quarantined` | problem | 409 | Controller in restore quarantine |
   | `core.change_busy` | problem | 409 | Change busy |
   | `core.deadline_exceeded` | action | 504 | Action deadline exceeded |
@@ -3973,16 +4161,27 @@ a spec change.
   helpers `ClassifyIntended`, `CheckPost`, `ClassifyUndoing`; supersession;
   `PlanLookup`, `EffectView`; the core-level `repairs` input field and the
   `repairOutcome` output field of `RepairedBy` actions;
-  `platform.TransientService.RuntimeMax`; `core.Guard.Overridable`,
+  `core.TransientService.RuntimeMax` (aliased by `platform`, 1.8);
+  `core.Guard.Overridable`,
   `Overridden`; `ActionSpec.Guards` with `GuardSpec`, the embedded
-  `core.Guarded`, `Env.Call` with `CallContext` (1.5); `ActionSpec.Reveal`,
-  `Revealed`, `DefineReveal` and `Engine.Reveal` (1.14); `StreamDef`,
-  `Streamer` and `DefineStream` (1.6); the reshaped `BackgroundTask` and
-  `TaskContext` (1.4); the `internal/core/ext` package, `core.Listeners`,
-  `core.Units` on `Env` (1.10, 1.12); owned-path kinds `restore`,
-  `managed-dir`, `sysctl` and `service-dir`, the writable kind `unit`, the
-  `OwnedPath` fields `Pattern`, `User` and `Subdirs`, and the new
-  `FileWriter` methods (1.8); `ExecRule` and `ProductionRules` (1.8); the
+  `core.Guarded`, `Env.Call` with `CallContext` (1.5); the schema
+  reflector's `netip` mapper and formats (1.5); `ActionSpec.Reveal`,
+  `Revealed[Out]`, `DefineReveal`, `DefineInternalRead`,
+  `ErasedHandler.Reveal` and `Engine.Reveal` (1.7, 1.14);
+  `ext.Dispatcher.ReadInternal` with the calling principal (1.7, 1.12);
+  `StreamDef`, `Streamer` and `DefineStream`, the event bus's
+  `Publish(eventType, data)` and epoch-qualified SSE ids (1.6); the
+  reshaped `BackgroundTask` and `TaskContext` (1.4); the
+  `internal/core/ext` package, `core.Listeners` (1.10, 1.12); `core.Units`
+  on `Env` with `TransientService` (including `RuntimeMax`),
+  `TransientTimer`, `UnitState` (including `MainPID`), `UnitStatus` and
+  `List`, moved into `internal/core/units.go` with `platform` aliases, the
+  scoped module wrapper and `Manifest.ExternalUnits` (1.8); owned-path
+  kinds `restore`, `managed-dir`, `sysctl` and `service-dir`, the writable
+  kind `unit`, the `OwnedPath` fields `Pattern`, `User` and `Subdirs`, the
+  new `FileWriter` methods including `RemoveServiceDir` and `Owns`,
+  `Remove` on kind `unit`, and `core.Ownership.Owns` (1.8); `ExecRule`,
+  `ProductionRules` and the `apt-get` vectors `APT-1`–`APT-6` (1.8); the
   route and service registration hooks (1.12); task units
   `darkpanel-task-<change id>.service` running `{{.Binary}} agent task
   <change id>` (1.3c).
@@ -4044,7 +4243,7 @@ a spec change.
 | 7 | Controller backup and restore | `internal/controller/backup/**` (its routes through `backup.Contribute`, 1.12; it sets the quarantine flag that wave 0's gate reads), `internal/cli/controller_backup*.go`, `internal/cli/controller_quarantine*.go`, the controller unit template in `internal/install`, `test/harness/restore_test.go` | 0 | alone |
 | 8 | Panel exposure | `internal/modules/panel/**`, `web/src/modules/panel/**`, `test/harness/m6_panel_test.go` | 2, 6a, 6b | alone |
 | 9a | Fuzz inventory and targets | `docs/security/parsers.md`, `*_fuzz_test.go`, `testdata/fuzz/**`, `scripts/fuzz.sh`, `.github/workflows/fuzz.yml` | 0–8 | parallel |
-| 9b | Accessibility | `web/src/**` (fixes and `.a11y.test.tsx`), `docs/accessibility.md` | 0–8 | parallel |
+| 9b | Accessibility | `web/src/**` except the frozen `web/src/app.tsx`, `web/src/modules/registry.ts` and `web/src/modules/types.ts` (1.12; a fix they need goes through the integrator) (fixes and `.a11y.test.tsx`), `docs/accessibility.md` | 0–8 | parallel |
 | 9c | Docs and API reference | `docs/user/**`, `docs/dev/**`, `docs/api/**`, the `api-docs` target in `Makefile`, `.github/workflows/ci.yml` | 0–8 | parallel |
 | 9d | Upgrade matrix and footprint | `test/harness/upgrade_matrix_test.go`, `footprint_test.go`, the `harness` build-tag files `cmd/darkpanel/paths_harness.go` (the wave 0 path-selection hook, 1.12) and any in `internal/agent/`, `.github/workflows/harness.yml` | 0–8 | parallel |
 | 10 | Security review, fixes, runbook, RC readiness | `docs/security/threat-model.md`, `docs/runbook.md`, `CHANGELOG.md`, `docs/versioning.md`; fixes anywhere | 0–9 | alone |
@@ -4301,3 +4500,26 @@ controller; editing Darkpanel-managed tunnels outside Darkpanel.
   integration pass aligned the cross-references between 1.1–1.3 and the
   rest (Contracts, actors, 2.5, 5, 8, 1.11, forward-composite
   convergence).
+- **Final wave-0 check (2026-10-21)** on revision 6 (commit 846488a):
+  Fable 18 findings (34 of the 41 rows resolved, 7 partly; three blocking),
+  Codex 31 (29 blocking, two for later waves), both "not ready for the wave
+  0 plan"; about two thirds were again in the lifecycle core. The owner
+  chose to **simplify the lifecycle core** rather than revise it further
+  (Owner decisions). Revision 7 outside 1.1–1.3c: the systemd contract
+  moved into `internal/core` with platform aliases, `UnitState.MainPID`,
+  `Units.List`, a scoped module wrapper with declared external units
+  (`tailscaled.service`: state, restart) and the task environment's unit
+  client (1.8); unit-file removal through `Remove`, `RemoveServiceDir`,
+  `Owns` and refusal of pre-existing unit files and directories (1.8); one
+  canonical set of `apt-get` vectors (`APT-1`–`APT-6`, with
+  `APT::Get::List-Cleanup=0`) and one source-list path, used by 4.1 (1.8);
+  typed reveal output, `ErasedHandler.Reveal`, `DefineInternalRead`, the
+  registry rule and reveal's exclusion from `--local` (1.7, 1.14); internal
+  reads carry the calling principal for their audit, with
+  `system:listen.cert` for the certificate source (1.7, 1.12); the event
+  bus implements `ext.Publisher` directly and its SSE ids carry a process
+  epoch (1.6); `netip` types in schemas through a reflector mapper and a
+  schema test (1.5); `tailscale.prefs.repair` (4.1, 5); one compensation
+  mechanism each for the Cloudflare hostname actions (7.3, 5); the auth-key
+  orphan sweep skips in-flight creates (1.9); status-table kinds (11); 9b's
+  row excludes the frozen web files.
