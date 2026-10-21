@@ -202,7 +202,16 @@ func TestConcurrentLoginsWithOneCode(t *testing.T) {
 			})
 		}
 		close(start)
-		wg.Wait()
+		finished := make(chan struct{})
+		go func() {
+			wg.Wait()
+			close(finished)
+		}()
+		select {
+		case <-finished:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("round %d: the two concurrent logins did not finish", round)
+		}
 		ok := 0
 		for _, err := range errs {
 			if err == nil {
