@@ -24,7 +24,7 @@ module work starts.
 
 ## Decision
 
-- Go 1.27 with `go 1.27` and `toolchain go1.27.2` in `go.mod`; CI sets
+- Go 1.27 with `go 1.27` and `toolchain go1.27.3` in `go.mod`; CI sets
   `GOTOOLCHAIN=local` on the exact version. CGO disabled; `-trimpath`; one
   binary for `linux/amd64` and `linux/arm64`.
 - HTTP with the standard library router; CLI with `github.com/spf13/cobra`.

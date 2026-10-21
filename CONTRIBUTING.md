@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Go 1.27.2. The build sets `GOTOOLCHAIN=local`, so it never downloads another
+- Go 1.27.3. The build sets `GOTOOLCHAIN=local`, so it never downloads another
   Go toolchain.
 - golangci-lint v2.15.0
 - Node 24 and pnpm 11.17.0
