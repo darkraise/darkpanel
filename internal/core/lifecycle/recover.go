@@ -50,8 +50,10 @@ func (e *Engine) Recover(ctx context.Context) error {
 
 	var errs []error
 	for _, u := range todo {
+		// A restart ends in-process ownership (spec 1.3), so every recorded
+		// outcome clears the owner the previous process left.
 		tr := transition{
-			from: u.state, to: core.StateReverted, release: true,
+			from: u.state, to: core.StateReverted, release: true, owner: newOwner(""),
 			phase: phaseRecover, result: resultOK, actor: ActorRecovery,
 		}
 		if core.Class(u.class) == core.ClassRevertible {

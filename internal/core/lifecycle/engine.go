@@ -353,7 +353,8 @@ func (e *Engine) inputHash(def core.ActionDef, canonical json.RawMessage) string
 func planInputAD(planID string) string { return "core_plans.input_ct." + planID }
 
 const changeColumns = `id, host_id, action, version, class, compensated_by, actor, state,
-	revert_deadline, output_json, error_code, error_message, created_at, updated_at`
+	revert_deadline, output_json, error_code, error_message, created_at, updated_at,
+	parent_change_id, recovery_owner, repaired_by, repair_outcome, override_json, error_cause`
 
 type scanner interface {
 	Scan(dest ...any) error
@@ -362,10 +363,15 @@ type scanner interface {
 func scanChange(s scanner) (core.ChangeView, error) {
 	var v core.ChangeView
 	var class, created, updated string
-	var deadline, output, code, msg sql.NullString
+	var deadline, output, code, msg, parent, repairedBy, outcome, override, cause sql.NullString
 	if err := s.Scan(&v.ID, &v.HostID, &v.Action, &v.Version, &class, &v.CompensatedBy, &v.Actor, &v.State,
-		&deadline, &output, &code, &msg, &created, &updated); err != nil {
+		&deadline, &output, &code, &msg, &created, &updated,
+		&parent, &v.Owner, &repairedBy, &outcome, &override, &cause); err != nil {
 		return v, err
+	}
+	v.ParentChangeID, v.RepairedBy, v.RepairOutcome = parent.String, repairedBy.String, outcome.String
+	if override.Valid {
+		v.Override = json.RawMessage(override.String)
 	}
 	v.Class = core.Class(class)
 	var err error
@@ -386,7 +392,7 @@ func scanChange(s scanner) (core.ChangeView, error) {
 		v.Output = json.RawMessage(output.String)
 	}
 	if code.Valid {
-		v.Error = &core.ChangeError{Code: code.String, Message: msg.String}
+		v.Error = &core.ChangeError{Code: code.String, Message: msg.String, Cause: cause.String}
 	}
 	return v, nil
 }

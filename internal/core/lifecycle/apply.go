@@ -184,10 +184,10 @@ func (e *Engine) begin(ctx context.Context, p core.Principal, planID string, opt
 		}
 		_, err = tx.ExecContext(ctx,
 			`INSERT INTO core_changes (id, plan_id, host_id, action, version, class, compensated_by, actor, state,
-			 input_json, snapshot_ct, revert_deadline, lock_epochs, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			 recovery_owner, input_json, snapshot_ct, revert_deadline, lock_epochs, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			it.id, pl.id, e.cfg.Base.HostID, def.Spec.Name, def.Spec.Version, string(def.Spec.Class),
-			def.Spec.CompensatedBy, p.Actor, core.StateApplying, string(e.cfg.Redact(def.InputType, input)),
+			def.Spec.CompensatedBy, p.Actor, core.StateApplying, core.OwnerEngine, string(e.cfg.Redact(def.InputType, input)),
 			snapshot, deadline, string(recorded), created, created)
 		return err
 	})
@@ -322,7 +322,7 @@ func (e *Engine) run(ctx context.Context, p core.Principal, it *intent) (core.Ch
 		to = core.StatePending
 	}
 	v, err := e.transition(ctx, it.id, transition{
-		from: core.StateApplying, to: to, output: e.cfg.Redact(it.def.OutputType, out),
+		from: core.StateApplying, to: to, output: e.cfg.Redact(it.def.OutputType, out), owner: newOwner(""),
 		release: !revertible, phase: phaseApply, result: resultOK, actor: p.Actor, source: p.Source,
 	})
 	if err != nil {
@@ -344,7 +344,7 @@ func (e *Engine) run(ctx context.Context, p core.Principal, it *intent) (core.Ch
 // reverted from its snapshot first.
 func (e *Engine) failApply(ctx context.Context, p core.Principal, it *intent, cause error) (core.ChangeView, error) {
 	tr := transition{
-		from: core.StateApplying, to: core.StateFailed, err: e.changeError(it.def.Ref(), cause),
+		from: core.StateApplying, to: core.StateFailed, err: e.changeError(it.def.Ref(), cause), owner: newOwner(""),
 		release: true, phase: phaseApply, result: resultError, actor: p.Actor, source: p.Source,
 	}
 	if it.def.Spec.Class == core.ClassRevertible {
@@ -426,17 +426,54 @@ func sealedInputDone(state string) bool {
 	return false
 }
 
+// claim is the one conditional update of spec 1.3, ownership: changeID moves
+// from fromState owned by fromOwner ("" is unowned) to toState owned by
+// toOwner. When no row matches it answers core.change_busy naming the change's
+// state and owner, or change.not_found.
+func claim(ctx context.Context, tx *sql.Tx, now time.Time, changeID, fromOwner, toOwner, fromState, toState string) error {
+	res, err := tx.ExecContext(ctx,
+		`UPDATE core_changes SET recovery_owner = ?, state = ?, updated_at = ?
+		 WHERE id = ? AND recovery_owner = ? AND state = ?`,
+		toOwner, toState, formatTime(now), changeID, fromOwner, fromState)
+	if err != nil {
+		return fmt.Errorf("lifecycle: claim change %s: %w", changeID, err)
+	}
+	if n, err := res.RowsAffected(); err != nil || n == 1 {
+		return err
+	}
+	var state, owner string
+	err = tx.QueryRowContext(ctx, "SELECT state, recovery_owner FROM core_changes WHERE id = ?", changeID).Scan(&state, &owner)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return errcode.New(errcode.ChangeNotFound, fmt.Sprintf("no change %s", changeID))
+	case err != nil:
+		return fmt.Errorf("lifecycle: claim change %s: %w", changeID, err)
+	case owner == "":
+		return errcode.New(errcode.ChangeBusy, fmt.Sprintf("change %s is %s", changeID, state))
+	}
+	return errcode.New(errcode.ChangeBusy, fmt.Sprintf("change %s is %s and owned by %s", changeID, state, owner))
+}
+
+// newOwner is a transition's owner: owner, or "" to clear it.
+func newOwner(owner string) *string { return &owner }
+
 // transition is one state change of a change.
 type transition struct {
-	from, to string
-	output   json.RawMessage   // stored when set
-	err      *core.ChangeError // stored when set
-	release  bool              // release the change's locks
-	giveBack bool              // give the change's lock epochs back (giveBackEpochs)
-	phase    string            // journal phase; empty journals nothing
-	result   string
-	actor    string
-	source   string // the acting principal's Source; empty for system actors
+	from, to      string
+	output        json.RawMessage   // stored when set
+	err           *core.ChangeError // stored when set, with cause
+	cause         string            // the stored error's ChangeError.Cause
+	owner         *string           // the new recovery_owner; nil keeps it
+	release       bool              // release the change's locks
+	keepLocks     bool              // the change keeps its locks (needs_repair); contradicts release
+	giveBack      bool              // give the change's lock epochs back (giveBackEpochs)
+	override      json.RawMessage   // stored in override_json when set
+	retry         *bool             // the new recovery_retry; nil keeps it
+	repairOutcome string            // stored when set
+	phase         string            // journal phase; empty journals nothing
+	result        string
+	actor         string
+	source        string // the acting principal's Source; empty for system actors
 }
 
 // transition commits a state change together with its journal entry in one
@@ -444,6 +481,9 @@ type transition struct {
 // change.not_pending, so of two racing transitions the first to commit wins.
 func (e *Engine) transition(ctx context.Context, changeID string, tr transition) (core.ChangeView, error) {
 	var v core.ChangeView
+	if tr.release && tr.keepLocks {
+		return v, fmt.Errorf("lifecycle: change %s: a transition both releases and keeps its locks", changeID)
+	}
 	err := e.cfg.Base.DB.Write(ctx, func(tx *sql.Tx) error {
 		var state, input string
 		err := tx.QueryRowContext(ctx, "SELECT state, input_json FROM core_changes WHERE id = ?", changeID).Scan(&state, &input)
@@ -456,15 +496,31 @@ func (e *Engine) transition(ctx context.Context, changeID string, tr transition)
 			return errcode.New(errcode.ChangeNotPending, fmt.Sprintf("change %s is %s", changeID, state))
 		}
 		now := e.cfg.Base.Clock.Now()
-		var code, msg any
+		var code, msg, cause, owner, retry, outcome any
 		if tr.err != nil {
 			code, msg = tr.err.Code, tr.err.Message
+			if tr.cause != "" {
+				cause = tr.cause
+			}
+		}
+		if tr.owner != nil {
+			owner = *tr.owner
+		}
+		if tr.retry != nil {
+			retry = *tr.retry
+		}
+		if tr.repairOutcome != "" {
+			outcome = tr.repairOutcome
 		}
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE core_changes SET state = ?, output_json = coalesce(?, output_json),
-			 error_code = coalesce(?, error_code), error_message = coalesce(?, error_message), updated_at = ?
-			 WHERE id = ?`,
-			tr.to, nullJSON(tr.output), code, msg, formatTime(now), changeID); err != nil {
+			 error_code = coalesce(?, error_code), error_message = coalesce(?, error_message),
+			 error_cause = CASE WHEN ? THEN ? ELSE error_cause END,
+			 recovery_owner = coalesce(?, recovery_owner), override_json = coalesce(?, override_json),
+			 recovery_retry = coalesce(?, recovery_retry), repair_outcome = coalesce(?, repair_outcome),
+			 updated_at = ? WHERE id = ?`,
+			tr.to, nullJSON(tr.output), code, msg, tr.err != nil, cause, owner, nullJSON(tr.override), retry, outcome,
+			formatTime(now), changeID); err != nil {
 			return err
 		}
 		if tr.release {
