@@ -75,9 +75,14 @@ function HostsBody() {
               <div className="flex flex-col items-start gap-1">
                 <span>{h.online ? "Online" : "Offline"}</span>
                 {h.ingestion !== null && !h.ingestion.ok && (
-                  <Badge variant="destructive" size="sm" title={h.ingestion.error ?? undefined}>
-                    Journal ingestion failing
-                  </Badge>
+                  <>
+                    <Badge variant="destructive" size="sm">
+                      Journal ingestion failing
+                    </Badge>
+                    {h.ingestion.error !== null && (
+                      <p className="text-xs text-muted-foreground">{h.ingestion.error}</p>
+                    )}
+                  </>
                 )}
               </div>
             </TableCell>

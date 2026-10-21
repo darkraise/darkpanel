@@ -41,7 +41,7 @@ test("lists hosts with the local marker and module states", async () => {
   expect(calls[0]?.body).toEqual({ input: {} })
 })
 
-test("marks only a host whose journal ingestion fails, with the error as the title", async () => {
+test("marks only a host whose journal ingestion fails, with the error beside it", async () => {
   const failing: Host = {
     id: "h3", name: "cache-1", isLocal: false, online: true, modules: [],
     ingestion: { ok: false, since: "2026-10-21T08:05:00Z", error: "audit: ingest host h3: agent unreachable" },
@@ -50,8 +50,8 @@ test("marks only a host whose journal ingestion fails, with the error as the tit
   renderWithProviders(<HostsPage />)
   const row = (await screen.findByRole("link", { name: "cache-1" })).closest("tr")
   if (row === null) throw new Error("no row")
-  const status = within(row).getByText("Journal ingestion failing")
-  expect(status.getAttribute("title")).toBe("audit: ingest host h3: agent unreachable")
+  within(row).getByText("Journal ingestion failing")
+  within(row).getByText("audit: ingest host h3: agent unreachable")
   expect(screen.getAllByText("Journal ingestion failing")).toHaveLength(1)
 })
 
