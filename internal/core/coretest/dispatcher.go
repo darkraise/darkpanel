@@ -12,7 +12,7 @@ import (
 type FakeDispatcher struct {
 	ReadFunc     func(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage) (json.RawMessage, error)
 	ResourceFunc func(ctx context.Context, p core.Principal, hostID, name string) (json.RawMessage, error)
-	PlanFunc     func(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage) (core.PlanView, error)
+	PlanFunc     func(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage, opts core.PlanOptions) (core.PlanView, error)
 	ApplyFunc    func(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, planID string, opts core.ApplyOptions) (core.ChangeView, error)
 	ConfirmFunc  func(ctx context.Context, p core.Principal, changeID string) (core.ChangeView, error)
 	RevertFunc   func(ctx context.Context, p core.Principal, changeID string) (core.ChangeView, error)
@@ -39,11 +39,11 @@ func (f *FakeDispatcher) Resource(ctx context.Context, p core.Principal, hostID,
 }
 
 // Plan calls PlanFunc.
-func (f *FakeDispatcher) Plan(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage) (core.PlanView, error) {
+func (f *FakeDispatcher) Plan(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage, opts core.PlanOptions) (core.PlanView, error) {
 	if f.PlanFunc == nil {
 		return core.PlanView{}, notConfigured("FakeDispatcher", "Plan")
 	}
-	return f.PlanFunc(ctx, p, hostID, a, input)
+	return f.PlanFunc(ctx, p, hostID, a, input, opts)
 }
 
 // Apply calls ApplyFunc.

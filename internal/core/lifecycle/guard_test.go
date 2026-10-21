@@ -83,7 +83,7 @@ func TestPanicsBeforeAChangeAreErrors(t *testing.T) {
 			return err
 		}},
 		{"Plan", func(f *fixture) error {
-			_, err := f.eng.Plan(context.Background(), alice, refSet, json.RawMessage(input))
+			_, err := f.eng.Plan(context.Background(), alice, refSet, json.RawMessage(input), core.PlanOptions{})
 			return err
 		}},
 	}

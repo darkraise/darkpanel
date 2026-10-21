@@ -230,7 +230,7 @@ func (s *Server) runAction(w http.ResponseWriter, r *http.Request, p core.Princi
 		writeJSON(w, s.log, http.StatusOK, readResponse{Output: orNull(out)})
 		return
 	}
-	v, err := s.cfg.Dispatcher.Plan(ctx, p, hostID, def.Ref(), in.Input)
+	v, err := s.cfg.Dispatcher.Plan(ctx, p, hostID, def.Ref(), in.Input, core.PlanOptions{})
 	if err != nil {
 		writeProblem(w, s.log, err)
 		return

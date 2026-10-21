@@ -179,19 +179,19 @@ func (d *Dispatcher) Resource(ctx context.Context, p core.Principal, hostID, nam
 
 // Plan plans a mutating action where Read would run it, and records the
 // plan's host and action in core_plan_index for Apply.
-func (d *Dispatcher) Plan(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage) (core.PlanView, error) {
+func (d *Dispatcher) Plan(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage, opts core.PlanOptions) (core.PlanView, error) {
 	def, err := d.action(a, hostID)
 	if err != nil {
 		return core.PlanView{}, err
 	}
 	var v core.PlanView
 	if def.Spec.Side == core.SideController {
-		v, err = d.cfg.Engine.Plan(ctx, p, a, input)
+		v, err = d.cfg.Engine.Plan(ctx, p, a, input, opts)
 	} else {
 		var c core.AgentClient
 		if c, err = d.agent(ctx, hostID, a.Name); err == nil {
 			if err = d.negotiate(hostID, def, input); err == nil {
-				v, err = c.Plan(ctx, p, a, input)
+				v, err = c.Plan(ctx, p, a, input, opts)
 			}
 		}
 	}

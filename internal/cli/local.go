@@ -204,7 +204,7 @@ func localCalls(c *api.Client, def core.ActionDef, socket string) actionCalls {
 			}
 			ctx, cancel := context.WithTimeout(ctx, localTimeout)
 			defer cancel()
-			v, err := c.Plan(ctx, core.Principal{}, ref, raw)
+			v, err := c.Plan(ctx, core.Principal{}, ref, raw, core.PlanOptions{})
 			if err != nil {
 				return planWire{}, localError(err)
 			}

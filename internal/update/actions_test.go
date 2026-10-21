@@ -128,7 +128,7 @@ func TestApplyAction(t *testing.T) {
 	e := newUpdaterEnv(t, "1.2.0")
 	eng := newActionEngine(t, e, e.updater(t, "1.2.0"))
 	plan, err := eng.Plan(ctx, actionPrincipal, core.ActionRef{Name: ActionApply, Version: 1},
-		json.RawMessage(`{"version":"1.4.0","channel":"stable","force":false}`))
+		json.RawMessage(`{"version":"1.4.0","channel":"stable","force":false}`), core.PlanOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ func TestApplyActionRefusals(t *testing.T) {
 		{`{"version":"v1.3.0","channel":"stable","force":false}`, errcode.InvalidInput},
 	}
 	for _, tt := range tests {
-		_, err := eng.Plan(ctx, actionPrincipal, ref, json.RawMessage(tt.input))
+		_, err := eng.Plan(ctx, actionPrincipal, ref, json.RawMessage(tt.input), core.PlanOptions{})
 		wantCode(t, err, tt.code)
 	}
 	if n := len(e.sd.unitsOf("StartTransientService")); n != 0 {
@@ -246,7 +246,7 @@ func TestRollbackAction(t *testing.T) {
 	committedUpdate(t, e, "01UP", "1.2.0", "1.3.0")
 	eng := newActionEngine(t, e, e.updater(t, "1.3.0"))
 	plan, err := eng.Plan(ctx, actionPrincipal, core.ActionRef{Name: ActionRollback, Version: 1},
-		json.RawMessage(`{"force":false}`))
+		json.RawMessage(`{"force":false}`), core.PlanOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,7 +284,7 @@ func TestRollbackActionRefusesWithoutAnUpdate(t *testing.T) {
 	e := newUpdaterEnv(t, "1.2.0")
 	eng := newActionEngine(t, e, e.updater(t, "1.2.0"))
 	_, err := eng.Plan(context.Background(), actionPrincipal, core.ActionRef{Name: ActionRollback, Version: 1},
-		json.RawMessage(`{"force":false}`))
+		json.RawMessage(`{"force":false}`), core.PlanOptions{})
 	wantCode(t, err, errcode.UpdateNothingToRollBack)
 }
 

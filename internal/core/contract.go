@@ -916,7 +916,7 @@ type AgentClient interface {
 	Hello(ctx context.Context) (AgentHello, error)
 	Read(ctx context.Context, p Principal, a ActionRef, input json.RawMessage) (json.RawMessage, error)
 	Resource(ctx context.Context, p Principal, name string) (json.RawMessage, error)
-	Plan(ctx context.Context, p Principal, a ActionRef, input json.RawMessage) (PlanView, error)
+	Plan(ctx context.Context, p Principal, a ActionRef, input json.RawMessage, opts PlanOptions) (PlanView, error)
 	Apply(ctx context.Context, p Principal, planID string, opts ApplyOptions) (ChangeView, error)
 	Confirm(ctx context.Context, p Principal, changeID string) (ChangeView, error)
 	Revert(ctx context.Context, p Principal, changeID string) (ChangeView, error)
@@ -932,7 +932,7 @@ type AgentClient interface {
 type Dispatcher interface {
 	Read(ctx context.Context, p Principal, hostID string, a ActionRef, input json.RawMessage) (json.RawMessage, error)
 	Resource(ctx context.Context, p Principal, hostID, name string) (json.RawMessage, error)
-	Plan(ctx context.Context, p Principal, hostID string, a ActionRef, input json.RawMessage) (PlanView, error)
+	Plan(ctx context.Context, p Principal, hostID string, a ActionRef, input json.RawMessage, opts PlanOptions) (PlanView, error)
 	Apply(ctx context.Context, p Principal, hostID string, a ActionRef, planID string, opts ApplyOptions) (ChangeView, error)
 	Confirm(ctx context.Context, p Principal, changeID string) (ChangeView, error)
 	Revert(ctx context.Context, p Principal, changeID string) (ChangeView, error)

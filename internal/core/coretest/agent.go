@@ -19,7 +19,7 @@ type FakeAgent struct {
 	HelloFunc     func(ctx context.Context) (core.AgentHello, error)
 	ReadFunc      func(ctx context.Context, p core.Principal, a core.ActionRef, input json.RawMessage) (json.RawMessage, error)
 	ResourceFunc  func(ctx context.Context, p core.Principal, name string) (json.RawMessage, error)
-	PlanFunc      func(ctx context.Context, p core.Principal, a core.ActionRef, input json.RawMessage) (core.PlanView, error)
+	PlanFunc      func(ctx context.Context, p core.Principal, a core.ActionRef, input json.RawMessage, opts core.PlanOptions) (core.PlanView, error)
 	ApplyFunc     func(ctx context.Context, p core.Principal, planID string, opts core.ApplyOptions) (core.ChangeView, error)
 	ConfirmFunc   func(ctx context.Context, p core.Principal, changeID string) (core.ChangeView, error)
 	RevertFunc    func(ctx context.Context, p core.Principal, changeID string) (core.ChangeView, error)
@@ -57,11 +57,11 @@ func (f *FakeAgent) Resource(ctx context.Context, p core.Principal, name string)
 }
 
 // Plan calls PlanFunc.
-func (f *FakeAgent) Plan(ctx context.Context, p core.Principal, a core.ActionRef, input json.RawMessage) (core.PlanView, error) {
+func (f *FakeAgent) Plan(ctx context.Context, p core.Principal, a core.ActionRef, input json.RawMessage, opts core.PlanOptions) (core.PlanView, error) {
 	if f.PlanFunc == nil {
 		return core.PlanView{}, notConfigured("FakeAgent", "Plan")
 	}
-	return f.PlanFunc(ctx, p, a, input)
+	return f.PlanFunc(ctx, p, a, input, opts)
 }
 
 // Apply calls ApplyFunc.

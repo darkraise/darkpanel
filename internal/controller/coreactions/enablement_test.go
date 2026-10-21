@@ -17,7 +17,7 @@ import (
 var operator = core.Principal{Actor: "user:u1", UserID: "u1", Scope: core.ScopeAdmin, Source: "127.0.0.1"}
 
 func (e *testEnv) plan(p core.Principal, name string, in any) (core.PlanView, error) {
-	return e.engine.Plan(context.Background(), p, ref(name), encodeInput(e.t, in))
+	return e.engine.Plan(context.Background(), p, ref(name), encodeInput(e.t, in), core.PlanOptions{})
 }
 
 func (e *testEnv) apply(p core.Principal, planID, confirmation string) (core.ChangeView, error) {

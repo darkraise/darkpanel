@@ -89,11 +89,11 @@ func (r *Runtime) Resource(ctx context.Context, p core.Principal, name string) (
 }
 
 // Plan plans an agent action.
-func (r *Runtime) Plan(ctx context.Context, p core.Principal, a core.ActionRef, input json.RawMessage) (core.PlanView, error) {
+func (r *Runtime) Plan(ctx context.Context, p core.Principal, a core.ActionRef, input json.RawMessage, opts core.PlanOptions) (core.PlanView, error) {
 	if err := r.usable(a.Name); err != nil {
 		return core.PlanView{}, err
 	}
-	return r.engine.Plan(ctx, p, a, input)
+	return r.engine.Plan(ctx, p, a, input, opts)
 }
 
 // Apply applies a plan made by Plan.

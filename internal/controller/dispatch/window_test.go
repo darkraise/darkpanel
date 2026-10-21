@@ -95,7 +95,7 @@ func TestVersionWindow(t *testing.T) {
 			},
 			"resource": func() error { _, err := d.Resource(ctx, alice, testHost, "kv.status"); return err },
 			"plan": func() error {
-				_, err := d.Plan(ctx, alice, testHost, refSet, json.RawMessage(`{"name":"a","value":"1"}`))
+				_, err := d.Plan(ctx, alice, testHost, refSet, json.RawMessage(`{"name":"a","value":"1"}`), core.PlanOptions{})
 				return err
 			},
 		}

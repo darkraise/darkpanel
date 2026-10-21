@@ -214,7 +214,7 @@ func (h *handler) handlePlan(w http.ResponseWriter, r *http.Request) {
 	}
 	var v core.PlanView
 	if err == nil {
-		v, err = h.cfg.Agent.Plan(r.Context(), p, ref, input)
+		v, err = h.cfg.Agent.Plan(r.Context(), p, ref, input, core.PlanOptions{})
 	}
 	if err != nil {
 		h.writeProblem(w, err)

@@ -287,7 +287,7 @@ func (f *fixture) open() {
 
 func (f *fixture) plan(p core.Principal, ref core.ActionRef, input string) core.PlanView {
 	f.t.Helper()
-	v, err := f.eng.Plan(context.Background(), p, ref, json.RawMessage(input))
+	v, err := f.eng.Plan(context.Background(), p, ref, json.RawMessage(input), core.PlanOptions{})
 	if err != nil {
 		f.t.Fatalf("Plan %s: %v", ref, err)
 	}

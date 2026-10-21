@@ -187,7 +187,7 @@ func (e *Engine) Read(ctx context.Context, p core.Principal, ref core.ActionRef,
 
 // Plan validates input, runs the handler's Plan and stores the plan with its
 // canonical input sealed (spec section 3). The plan expires after PlanTTL.
-func (e *Engine) Plan(ctx context.Context, p core.Principal, ref core.ActionRef, input json.RawMessage) (core.PlanView, error) {
+func (e *Engine) Plan(ctx context.Context, p core.Principal, ref core.ActionRef, input json.RawMessage, _ core.PlanOptions) (core.PlanView, error) {
 	def, err := e.action(ref)
 	if err != nil {
 		return core.PlanView{}, err

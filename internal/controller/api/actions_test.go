@@ -42,7 +42,7 @@ func (h *harness) stubDispatcher(last *call) {
 		*last = call{method: "Resource", principal: p, hostID: hostID, name: name}
 		return json.RawMessage(`{"healthy": true}`), nil
 	}
-	d.PlanFunc = func(_ context.Context, p core.Principal, hostID string, a core.ActionRef, in json.RawMessage) (core.PlanView, error) {
+	d.PlanFunc = func(_ context.Context, p core.Principal, hostID string, a core.ActionRef, in json.RawMessage, _ core.PlanOptions) (core.PlanView, error) {
 		*last = call{method: "Plan", principal: p, hostID: hostID, ref: a, input: string(in)}
 		return core.PlanView{PlanID: "plan1", HostID: hostID, Action: a.Name, Version: a.Version, InputHash: "h",
 			ExpiresAt: changeTime.Add(10 * time.Minute)}, nil
@@ -150,7 +150,7 @@ func TestActionRouteRefusals(t *testing.T) {
 	h := newHarness(t)
 	var last call
 	h.stubDispatcher(&last)
-	h.disp.PlanFunc = func(context.Context, core.Principal, string, core.ActionRef, json.RawMessage) (core.PlanView, error) {
+	h.disp.PlanFunc = func(context.Context, core.Principal, string, core.ActionRef, json.RawMessage, core.PlanOptions) (core.PlanView, error) {
 		return core.PlanView{}, errcode.New(errcode.ModuleUnavailable, "module demo is disabled")
 	}
 	token := h.token(core.ScopeAdmin)

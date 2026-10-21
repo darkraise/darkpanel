@@ -49,7 +49,7 @@ func newEngine(t *testing.T, db *store.DB, clock core.Clock, version string) *li
 // planApply plans name/v1 with input and applies the plan.
 func planApply(eng *lifecycle.Engine, name, input, confirmation string) (core.ChangeView, error) {
 	ctx := context.Background()
-	plan, err := eng.Plan(ctx, admin, core.ActionRef{Name: name, Version: 1}, json.RawMessage(input))
+	plan, err := eng.Plan(ctx, admin, core.ActionRef{Name: name, Version: 1}, json.RawMessage(input), core.PlanOptions{})
 	if err != nil {
 		return core.ChangeView{}, err
 	}
@@ -136,7 +136,7 @@ func TestRolloutAction(t *testing.T) {
 	clock := coretest.NewFakeClock(testStart)
 	eng := newEngine(t, db, clock, "1.2.0")
 	plan, err := eng.Plan(context.Background(), admin, core.ActionRef{Name: ActionRollout, Version: 1},
-		json.RawMessage(`{"hosts":["A","OWN"],"version":"1.3.0","channel":"stable"}`))
+		json.RawMessage(`{"hosts":["A","OWN"],"version":"1.3.0","channel":"stable"}`), core.PlanOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,11 +196,11 @@ func TestRolloutActionRefusals(t *testing.T) {
 
 	ctx := context.Background()
 	ref := core.ActionRef{Name: ActionRollout, Version: 1}
-	first, err := eng.Plan(ctx, admin, ref, json.RawMessage(`{"hosts":["OWN"],"version":"1.3.0","channel":"stable"}`))
+	first, err := eng.Plan(ctx, admin, ref, json.RawMessage(`{"hosts":["OWN"],"version":"1.3.0","channel":"stable"}`), core.PlanOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := eng.Plan(ctx, admin, ref, json.RawMessage(`{"hosts":["A"],"version":"1.2.0","channel":"stable"}`))
+	second, err := eng.Plan(ctx, admin, ref, json.RawMessage(`{"hosts":["A"],"version":"1.2.0","channel":"stable"}`), core.PlanOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestRolloutActionRefusals(t *testing.T) {
 	}
 	_, err = eng.Apply(ctx, admin, second.PlanID, core.ApplyOptions{})
 	wantCode(t, err, errcode.RolloutInProgress)
-	_, err = eng.Plan(ctx, admin, ref, json.RawMessage(`{"hosts":["A"],"version":"1.2.0","channel":"stable"}`))
+	_, err = eng.Plan(ctx, admin, ref, json.RawMessage(`{"hosts":["A"],"version":"1.2.0","channel":"stable"}`), core.PlanOptions{})
 	wantCode(t, err, errcode.RolloutInProgress)
 }
 

@@ -199,7 +199,7 @@ func (c *Client) Resource(ctx context.Context, p core.Principal, name string) (j
 }
 
 // Plan plans an agent action.
-func (c *Client) Plan(ctx context.Context, p core.Principal, a core.ActionRef, input json.RawMessage) (core.PlanView, error) {
+func (c *Client) Plan(ctx context.Context, p core.Principal, a core.ActionRef, input json.RawMessage, _ core.PlanOptions) (core.PlanView, error) {
 	var v wire.PlanView
 	if err := c.do(ctx, request{method: http.MethodPost, path: actionPath(a, opPlan), principal: &p, body: input}, &v); err != nil {
 		return core.PlanView{}, err

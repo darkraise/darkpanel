@@ -181,7 +181,7 @@ func TestLocalMutatingPrintsLikeTheAPI(t *testing.T) {
 	base := newFakeAPI(t, testToken, hostList("h1:web"), plan, apply, hostList("h1:web"), plan, apply)
 	rec := &agentCalls{}
 	agent := &coretest.FakeAgent{
-		PlanFunc: func(_ context.Context, _ core.Principal, a core.ActionRef, input json.RawMessage) (core.PlanView, error) {
+		PlanFunc: func(_ context.Context, _ core.Principal, a core.ActionRef, input json.RawMessage, _ core.PlanOptions) (core.PlanView, error) {
 			if !jsonEqual(input, []byte(`{"name":"n1","apiKey":"key-1","passphrase":"pass-1"}`)) {
 				t.Errorf("plan input %s", input)
 			}
@@ -221,7 +221,7 @@ func TestLocalConfirmations(t *testing.T) {
 	}
 	rec := &agentCalls{}
 	agent := &coretest.FakeAgent{
-		PlanFunc: func(_ context.Context, _ core.Principal, a core.ActionRef, input json.RawMessage) (core.PlanView, error) {
+		PlanFunc: func(_ context.Context, _ core.Principal, a core.ActionRef, input json.RawMessage, _ core.PlanOptions) (core.PlanView, error) {
 			var in struct{ ID string }
 			_ = json.Unmarshal(input, &in)
 			// demo.item.remove is irreversible: its plan names the item id
@@ -340,7 +340,7 @@ func TestLocalApplyTimeout(t *testing.T) {
 	t.Cleanup(func() { localTimeout = saved })
 	release := make(chan struct{})
 	agent := &coretest.FakeAgent{
-		PlanFunc: func(context.Context, core.Principal, core.ActionRef, json.RawMessage) (core.PlanView, error) {
+		PlanFunc: func(context.Context, core.Principal, core.ActionRef, json.RawMessage, core.PlanOptions) (core.PlanView, error) {
 			return core.PlanView{PlanID: "p1", HostID: "h1", Action: "demo.item.remove", Version: 1, InputHash: "ih"}, nil
 		},
 		ApplyFunc: func(context.Context, core.Principal, string, core.ApplyOptions) (core.ChangeView, error) {

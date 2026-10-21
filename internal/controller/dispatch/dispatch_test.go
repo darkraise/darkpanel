@@ -120,11 +120,11 @@ func TestResource(t *testing.T) {
 func TestPlanRemembersWhereAndWhat(t *testing.T) {
 	h, d := newDispatcher(t)
 	ctx := context.Background()
-	agentPlan, err := d.Plan(ctx, alice, testHost, refSet, json.RawMessage(`{"name":"a","value":"1"}`))
+	agentPlan, err := d.Plan(ctx, alice, testHost, refSet, json.RawMessage(`{"name":"a","value":"1"}`), core.PlanOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctlPlan, err := d.Plan(ctx, alice, "", refCtlSet, json.RawMessage(`{"name":"n","value":"x"}`))
+	ctlPlan, err := d.Plan(ctx, alice, "", refCtlSet, json.RawMessage(`{"name":"n","value":"x"}`), core.PlanOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,14 +155,14 @@ func TestPlanRemembersWhereAndWhat(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.clock.Advance(lifecycle.PlanTTL + PlanIndexRetention - time.Second)
-	if _, err := d.Plan(ctx, alice, "", refCtlSet, json.RawMessage(`{"name":"n","value":"y"}`)); err != nil {
+	if _, err := d.Plan(ctx, alice, "", refCtlSet, json.RawMessage(`{"name":"n","value":"y"}`), core.PlanOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if n := h.count("SELECT count(*) FROM core_plan_index"); n != 3 {
 		t.Errorf("index holds %d plans, want 3 inside the retention", n)
 	}
 	h.clock.Advance(time.Second)
-	if _, err := d.Plan(ctx, alice, "", refCtlSet, json.RawMessage(`{"name":"n","value":"z"}`)); err != nil {
+	if _, err := d.Plan(ctx, alice, "", refCtlSet, json.RawMessage(`{"name":"n","value":"z"}`), core.PlanOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if n := h.count("SELECT count(*) FROM core_plan_index WHERE plan_id = ?", agentPlan.PlanID); n != 0 {
@@ -182,7 +182,7 @@ func TestPlanRefusesAnUnusableModule(t *testing.T) {
 	if _, err := h.db.Writer().Exec("UPDATE core_module_state SET available = 0, reason = 'kv: broken' WHERE module_id = 'kv'"); err != nil {
 		t.Fatal(err)
 	}
-	_, err := d.Plan(ctx, alice, testHost, refSet, json.RawMessage(`{"name":"a","value":"1"}`))
+	_, err := d.Plan(ctx, alice, testHost, refSet, json.RawMessage(`{"name":"a","value":"1"}`), core.PlanOptions{})
 	e := wantCode(t, err, errcode.ModuleUnavailable)
 	if n := h.count("SELECT count(*) FROM core_plan_index"); e.Detail != "module kv is unavailable on host h1: kv: broken" || n != 0 {
 		t.Errorf("detail %q, %d plans indexed", e.Detail, n)
@@ -193,13 +193,33 @@ func TestPlanChecksTheAgentsAnswer(t *testing.T) {
 	h, d := newDispatcher(t)
 	h.clients.Add(testHost, &coretest.FakeAgent{
 		HelloFunc: h.rt.Hello,
-		PlanFunc: func(context.Context, core.Principal, core.ActionRef, json.RawMessage) (core.PlanView, error) {
+		PlanFunc: func(context.Context, core.Principal, core.ActionRef, json.RawMessage, core.PlanOptions) (core.PlanView, error) {
 			return core.PlanView{PlanID: "p1", HostID: testHost, Action: "kv.item.get", Version: 1}, nil
 		},
 	})
-	_, err := d.Plan(context.Background(), alice, testHost, refSet, json.RawMessage(`{"name":"a","value":"1"}`))
+	_, err := d.Plan(context.Background(), alice, testHost, refSet, json.RawMessage(`{"name":"a","value":"1"}`), core.PlanOptions{})
 	if n := h.count("SELECT count(*) FROM core_plan_index"); err == nil ||
 		!strings.Contains(err.Error(), "answered with a plan for kv.item.get/v1 on h1") || n != 0 {
 		t.Errorf("Plan = %v (%d plans indexed), want the mismatch refused", err, n)
+	}
+}
+
+func TestPlanForwardsItsOptionsToTheAgent(t *testing.T) {
+	h, d := newDispatcher(t)
+	var seen core.PlanOptions
+	h.clients.Add(testHost, &coretest.FakeAgent{
+		HelloFunc: h.rt.Hello,
+		PlanFunc: func(ctx context.Context, p core.Principal, a core.ActionRef, in json.RawMessage, opts core.PlanOptions) (core.PlanView, error) {
+			seen = opts
+			return h.rt.Plan(ctx, p, a, in, opts)
+		},
+	})
+	call := &core.CallContext{ParentChangeID: "c-parent", ParentAction: "kv.stack.deploy", StepID: "set"}
+	_, err := d.Plan(context.Background(), alice, testHost, refSet, json.RawMessage(`{"name":"a","value":"1"}`), core.PlanOptions{Call: call})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seen.Call != call {
+		t.Errorf("the agent saw options %+v, want the call %+v", seen, call)
 	}
 }

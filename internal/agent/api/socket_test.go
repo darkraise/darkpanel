@@ -34,7 +34,7 @@ func newSocketFake() *socketFake {
 		record(p)
 		return json.RawMessage(`{}`), nil
 	}
-	f.PlanFunc = func(_ context.Context, p core.Principal, _ core.ActionRef, _ json.RawMessage) (core.PlanView, error) {
+	f.PlanFunc = func(_ context.Context, p core.Principal, _ core.ActionRef, _ json.RawMessage, _ core.PlanOptions) (core.PlanView, error) {
 		record(p)
 		return testPlan, nil
 	}

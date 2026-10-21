@@ -92,12 +92,15 @@ func TestSchemaNegotiationWithAPreviousMinor(t *testing.T) {
 	if out, err := d.Read(ctx, alice, testHost, refGet, json.RawMessage(`{"name":"a"}`)); err != nil {
 		t.Errorf("Read within the older schema = %s, %v; want it dispatched", out, err)
 	}
-	if _, err := d.Plan(ctx, alice, testHost, refSet, json.RawMessage(`{"name":"a"}`)); err != nil {
+	if _, err := d.Plan(ctx, alice, testHost, refSet, json.RawMessage(`{"name":"a"}`), core.PlanOptions{}); err != nil {
 		t.Errorf("Plan within the older schema: %v; want it dispatched", err)
 	}
 	for name, call := range map[string]func() error{
 		"read": func() error { _, err := d.Read(ctx, alice, testHost, refGet, withValue); return err },
-		"plan": func() error { _, err := d.Plan(ctx, alice, testHost, refSet, withValue); return err },
+		"plan": func() error {
+			_, err := d.Plan(ctx, alice, testHost, refSet, withValue, core.PlanOptions{})
+			return err
+		},
 	} {
 		e := wantCode(t, call(), errcode.InvalidInput)
 		if len(e.Fields) != 1 || e.Fields[0].Path != "/value" || !strings.Contains(e.Detail, "no field /value") {

@@ -153,7 +153,7 @@ func TestPlanRefusals(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			_, err := f.eng.Plan(context.Background(), alice, c.ref, json.RawMessage(c.input))
+			_, err := f.eng.Plan(context.Background(), alice, c.ref, json.RawMessage(c.input), core.PlanOptions{})
 			wantCode(t, err, c.code)
 		})
 	}
@@ -212,7 +212,7 @@ func TestIDsFollowCreationOrderWhenTheClockStepsBack(t *testing.T) {
 func TestPlanRefusesAnIrreversiblePlanWithoutAPhrase(t *testing.T) {
 	f := newFixture(t)
 	// The fixture's phrase is the item name, so an empty name gives none.
-	_, err := f.eng.Plan(context.Background(), alice, refRemove, json.RawMessage(`{"name":""}`))
+	_, err := f.eng.Plan(context.Background(), alice, refRemove, json.RawMessage(`{"name":""}`), core.PlanOptions{})
 	if err == nil || !strings.Contains(err.Error(), "returned no confirmation phrase") {
 		t.Fatalf("Plan = %v, want the missing confirmation phrase refused", err)
 	}

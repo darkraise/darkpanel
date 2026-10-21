@@ -247,7 +247,7 @@ func TestChangesThroughTheClient(t *testing.T) {
 	bob := core.Principal{Actor: "user:bob", UserID: "bob", Scope: core.ScopeOperate, Source: "192.0.2.8"}
 	plan := func(input string) core.PlanView {
 		t.Helper()
-		v, err := f.rt.Plan(ctx, alice, refSet, json.RawMessage(input))
+		v, err := f.rt.Plan(ctx, alice, refSet, json.RawMessage(input), core.PlanOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}

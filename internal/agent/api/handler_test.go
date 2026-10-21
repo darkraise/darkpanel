@@ -99,7 +99,7 @@ func TestHandlerActionRoutes(t *testing.T) {
 			got = append(got, p, name)
 			return nil, nil
 		},
-		PlanFunc: func(_ context.Context, p core.Principal, a core.ActionRef, in json.RawMessage) (core.PlanView, error) {
+		PlanFunc: func(_ context.Context, p core.Principal, a core.ActionRef, in json.RawMessage, _ core.PlanOptions) (core.PlanView, error) {
 			got = append(got, p, a, string(in))
 			return testPlan, nil
 		},

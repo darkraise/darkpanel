@@ -43,7 +43,7 @@ var (
 // *dispatch.Dispatcher implements it.
 type Dispatcher interface {
 	Read(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage) (json.RawMessage, error)
-	Plan(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage) (core.PlanView, error)
+	Plan(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage, opts core.PlanOptions) (core.PlanView, error)
 	Apply(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, planID string, opts core.ApplyOptions) (core.ChangeView, error)
 }
 
@@ -251,7 +251,7 @@ func (d *Driver) handOff(ctx context.Context, r record, h *hostRecord) (bool, er
 			return false, fmt.Errorf("rollout: encode the apply input: %w", err)
 		}
 		cctx, cancel := context.WithTimeout(ctx, callTimeout)
-		plan, err := d.cfg.Dispatcher.Plan(cctx, driverPrincipal, h.HostID, applyRef, input)
+		plan, err := d.cfg.Dispatcher.Plan(cctx, driverPrincipal, h.HostID, applyRef, input, core.PlanOptions{})
 		cancel()
 		if err != nil {
 			return d.refused(ctx, r, h, err)

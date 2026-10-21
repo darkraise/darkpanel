@@ -156,7 +156,7 @@ func TestTokenCreateDefaultsAndRefusals(t *testing.T) {
 		`{"name":"ci","scope":"read","expiresInDays":0}`,
 		`{"name":"ci"}`,
 	} {
-		_, err := e.engine.Plan(context.Background(), alice, ref("core.token.create"), json.RawMessage(raw))
+		_, err := e.engine.Plan(context.Background(), alice, ref("core.token.create"), json.RawMessage(raw), core.PlanOptions{})
 		var ce *errcode.Error
 		if !errors.As(err, &ce) || ce.Code != errcode.InvalidInput {
 			t.Errorf("plan %s: err = %v, want request.invalid_input", raw, err)

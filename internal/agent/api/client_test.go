@@ -54,7 +54,7 @@ func TestClientRoundTrip(t *testing.T) {
 			got = append(got, "resource", p, name)
 			return nil, nil
 		},
-		PlanFunc: func(_ context.Context, p core.Principal, a core.ActionRef, in json.RawMessage) (core.PlanView, error) {
+		PlanFunc: func(_ context.Context, p core.Principal, a core.ActionRef, in json.RawMessage, _ core.PlanOptions) (core.PlanView, error) {
 			got = append(got, "plan", p, a, string(in))
 			return testPlan, nil
 		},
@@ -118,7 +118,7 @@ func TestClientRoundTrip(t *testing.T) {
 	if out, err := c.Resource(ctx, testPrincipal, "hostinfo.status"); err != nil || out != nil {
 		t.Errorf("Resource = %s, %v; want no output", out, err)
 	}
-	if v, err := c.Plan(ctx, testPrincipal, ref, nil); err != nil || !reflect.DeepEqual(v, testPlan) {
+	if v, err := c.Plan(ctx, testPrincipal, ref, nil, core.PlanOptions{}); err != nil || !reflect.DeepEqual(v, testPlan) {
 		t.Errorf("Plan = %+v, %v", v, err)
 	}
 	for name, call := range map[string]func() (core.ChangeView, error){

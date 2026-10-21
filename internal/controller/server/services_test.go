@@ -37,7 +37,7 @@ func count(t *testing.T, s *Server, query string, args ...any) int {
 func planDisable(t *testing.T, s *Server) core.PlanView {
 	t.Helper()
 	in := json.RawMessage(`{"hostId":"` + s.LocalHostID() + `","moduleId":"hostinfo"}`)
-	v, err := s.dispatcher.Plan(context.Background(), root(s.LocalHostID()), "", refDisable, in)
+	v, err := s.dispatcher.Plan(context.Background(), root(s.LocalHostID()), "", refDisable, in, core.PlanOptions{})
 	if err != nil {
 		t.Fatalf("plan core.module.disable: %v", err)
 	}
