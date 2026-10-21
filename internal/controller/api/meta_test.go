@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/darkraise/darkpanel/internal/buildinfo"
 	"github.com/darkraise/darkpanel/internal/core"
@@ -192,4 +194,33 @@ func TestListenersRoute(t *testing.T) {
 		t.Errorf("Allow = %q, want GET, HEAD", rec.Header().Get("Allow"))
 	}
 	noCredentials(t, h, recs, map[string]string{"session id": session, "CSRF token": csrf, "read token secret": tokenSecret(readToken)})
+}
+
+// TestListenersRouteAnswersHEAD runs on a real server, because a
+// ResponseRecorder keeps the body net/http drops from a HEAD response.
+func TestListenersRouteAnswersHEAD(t *testing.T) {
+	h := newHarness(t)
+	srv := httptest.NewServer(h.srv.Handler())
+	t.Cleanup(srv.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, srv.URL+"/api/v1/controller/listeners", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+h.token(core.ScopeRead))
+	client := &http.Client{Timeout: 10 * time.Second}
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusOK || len(body) != 0 || res.Header.Get("Cache-Control") != "no-store" {
+		t.Errorf("HEAD = %d with %d body bytes and Cache-Control %q; want 200, no body, no-store",
+			res.StatusCode, len(body), res.Header.Get("Cache-Control"))
+	}
 }
