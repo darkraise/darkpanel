@@ -65,3 +65,7 @@
 | 58 | Core: uninstall module options (spec 1.11) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
 | 59 | Core: CLI confirmation semantics kept and per-guard overrides (spec 1.13) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
 | 60 | Tailscale web certificate and MagicDNS name in the web root certificate (ADR 0010, spec 4.1) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
+| 61 | Owner decision D2: NPM admin UI exposed over HTTPS on an owner-chosen hostname by explicit action, with an audited password reveal (spec 6, 1.14) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
+| 62 | Core: agent-side module enablement route PUT /agent/v1/modules/{id}/enabled (spec 1.4) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
+| 63 | Core: effects journal and undo route POST /agent/v1/changes/{id}/undo with change repair (spec 1.2) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
+| 64 | Core: managed-dir owned-path kind and restore entries (spec 1.8) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
