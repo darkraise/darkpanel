@@ -22,27 +22,18 @@ func (f *fixture) restart() {
 	f.open()
 }
 
-// crash plans and applies an input whose handler stops its goroutine in
+// crash plans and applies an input whose handler stops the run's goroutine in
 // Apply, which stands for the process dying after the intent is persisted and
-// before the result is recorded. It returns the plan and change ids.
+// before the result is recorded: Apply answers the change still applying. It
+// returns the plan and change ids.
 func (f *fixture) crash(ref core.ActionRef, input string, opts core.ApplyOptions) (planID, changeID string) {
 	f.t.Helper()
 	planID = f.plan(alice, ref, input).PlanID
-	stopped := make(chan struct{})
-	go func() {
-		defer close(stopped)
-		_, _ = f.eng.Apply(context.Background(), alice, planID, opts)
-		f.t.Error("Apply returned; want its goroutine stopped inside the handler")
-	}()
-	select {
-	case <-stopped:
-	case <-time.After(10 * time.Second):
-		f.t.Fatal("the apply goroutine did not stop inside the handler")
+	v, err := f.eng.Apply(context.Background(), alice, planID, opts)
+	if err != nil || v.State != core.StateApplying {
+		f.t.Fatalf("Apply = %+v, %v; want the change left applying", v, err)
 	}
-	if err := f.db.Read().QueryRow("SELECT id FROM core_changes WHERE plan_id = ?", planID).Scan(&changeID); err != nil {
-		f.t.Fatal(err)
-	}
-	return planID, changeID
+	return planID, v.ID
 }
 
 func (f *fixture) recoverAll() {

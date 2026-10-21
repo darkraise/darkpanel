@@ -42,13 +42,36 @@ type Config struct {
 	// replaced by "[redacted]".
 	Redact func(t reflect.Type, raw json.RawMessage) json.RawMessage
 	Base   core.Env
+	// SyncAnswer is how long Apply waits for a synchronous action before it
+	// answers the applying change; zero means SyncAnswer.
+	SyncAnswer time.Duration
 }
+
+// Deadlines of spec 1.3.
+const (
+	// DefaultApplyTimeout is the budget of an action that declares no
+	// ApplyTimeout, shared by its Apply and Verify.
+	DefaultApplyTimeout = 30 * time.Second
+	// SyncAnswer is how long Apply waits for a synchronous action. It stays
+	// below the API servers' 60 s write timeout, so the answer always fits.
+	SyncAnswer = 50 * time.Second
+	// CleanupTxTimeout bounds a recording transaction that runs after the
+	// action's own deadline.
+	CleanupTxTimeout = 30 * time.Second
+	// RecoveryVerifyBound is how long startup recovery waits for a Verify.
+	RecoveryVerifyBound = 30 * time.Second
+)
 
 // Engine runs the change lifecycle of one side over its database. Its methods
 // are safe for concurrent use.
 type Engine struct {
-	cfg           Config
-	verifyTimeout time.Duration // VerifyTimeout; tests shorten it
+	cfg Config
+
+	// runCtx is the context of every in-process apply; Close cancels it, so
+	// only shutdown cancels a running handler, never a client's request.
+	runCtx  context.Context
+	stopRun context.CancelFunc
+	runs    sync.WaitGroup // goRun goroutines
 
 	idMu    sync.Mutex
 	entropy *ulid.MonotonicEntropy
@@ -61,8 +84,8 @@ type Engine struct {
 
 	timerMu  sync.Mutex
 	timers   map[string]core.Timer // armed revert timers by change id
-	closed   bool
-	inflight sync.WaitGroup // timer reverts that are running
+	closed   bool                  // Close ran: no timer is armed and goRun runs nothing in the background
+	inflight sync.WaitGroup        // timer reverts that are running
 }
 
 // New returns an engine for cfg. Run Recover before serving requests.
@@ -88,15 +111,20 @@ func New(cfg Config) (*Engine, error) {
 			return nil, fmt.Errorf("lifecycle: Config.%s is required", r.name)
 		}
 	}
+	if cfg.SyncAnswer == 0 {
+		cfg.SyncAnswer = SyncAnswer
+	}
+	runCtx, stopRun := context.WithCancel(context.Background())
 	return &Engine{
-		cfg: cfg, verifyTimeout: VerifyTimeout,
+		cfg: cfg, runCtx: runCtx, stopRun: stopRun,
 		entropy: ulid.Monotonic(rand.Reader, 0), timers: map[string]core.Timer{},
 	}, nil
 }
 
 // Close stops every armed revert timer and arms no new one. A change whose
 // timer was stopped stays pending until the next start's Recover reverts it.
-// Close also waits for a timer revert that is already running to finish.
+// Close then cancels every in-process apply, as process shutdown does, and
+// waits for each to record its result and for a running timer revert.
 func (e *Engine) Close() {
 	e.timerMu.Lock()
 	e.closed = true
@@ -106,7 +134,47 @@ func (e *Engine) Close() {
 	}
 	// Unlock before waiting: a running revert takes timerMu in stopTimer.
 	e.timerMu.Unlock()
+	e.stopRun()
 	e.inflight.Wait()
+	e.runs.Wait()
+}
+
+// goRun runs f on a goroutine that Close waits for. After Close it runs f on
+// the caller's goroutine instead, where f finds the run context cancelled.
+func (e *Engine) goRun(f func()) {
+	e.timerMu.Lock()
+	if e.closed {
+		e.timerMu.Unlock()
+		f()
+		return
+	}
+	e.runs.Add(1)
+	e.timerMu.Unlock()
+	go func() {
+		defer e.runs.Done()
+		f()
+	}()
+}
+
+// applyTimeout is def's budget for Apply and Verify together.
+func (e *Engine) applyTimeout(def core.ActionDef) time.Duration {
+	if def.Spec.ApplyTimeout > 0 {
+		return def.Spec.ApplyTimeout
+	}
+	return DefaultApplyTimeout
+}
+
+// cleanup is the context of a recording transaction after a handler call: it
+// outlives the run context's cancellation, bounded by CleanupTxTimeout.
+func (e *Engine) cleanup() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(e.runCtx), CleanupTxTimeout)
+}
+
+// cleanupCall is the context of a handler call made after the apply ended,
+// such as a revert: it outlives the run context's cancellation, bounded by
+// def's ApplyTimeout.
+func (e *Engine) cleanupCall(def core.ActionDef) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(e.runCtx), e.applyTimeout(def))
 }
 
 // newID returns a ULID stamped with now, or with the newest id's millisecond

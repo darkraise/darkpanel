@@ -50,6 +50,12 @@ type intent struct {
 // has a change returns that change's current view whatever its state; it never
 // acts twice. The returned Output is the handler's output as is; the stored
 // change, every later view and the journal carry it redacted.
+//
+// Once the intent is persisted the change runs on the engine's run context,
+// which only Close cancels, so a cancelled request never stops it half way
+// (spec 1.3, deadlines). A LongRunning action answers the applying change at
+// once; any other answers its result, or the applying change when the run
+// has not finished within Config.SyncAnswer (spec 1.3, asynchronous apply).
 func (e *Engine) Apply(ctx context.Context, p core.Principal, planID string, opts core.ApplyOptions) (core.ChangeView, error) {
 	e.applyMu.Lock()
 	it, existing, err := e.begin(ctx, p, planID, opts)
@@ -60,9 +66,39 @@ func (e *Engine) Apply(ctx context.Context, p core.Principal, planID string, opt
 	case existing != nil:
 		return *existing, nil
 	}
-	// The intent is persisted: a cancelled request must not stop the change
-	// half way, so the rest runs until its result is recorded.
-	return e.run(context.WithoutCancel(ctx), p, it)
+	ctx = context.WithoutCancel(ctx)
+	accepted, acceptedErr := e.Change(ctx, it.id)
+	type result struct {
+		v   core.ChangeView
+		err error
+	}
+	results := make(chan result, 1)
+	ended := make(chan struct{})
+	answer := make(chan struct{})
+	timer := e.cfg.Base.Clock.AfterFunc(e.cfg.SyncAnswer, func() { close(answer) })
+	defer timer.Stop()
+	e.goRun(func() {
+		defer close(ended)
+		v, err := e.run(e.runCtx, p, it)
+		results <- result{v, err}
+	})
+	if it.def.Spec.LongRunning {
+		return accepted, acceptedErr
+	}
+	select {
+	case r := <-results:
+		return r.v, r.err
+	case <-ended:
+		// The run stopped without a result, as only a stopped goroutine
+		// does; the change stays applying until the next start recovers it.
+		select {
+		case r := <-results:
+			return r.v, r.err
+		default:
+		}
+	case <-answer:
+	}
+	return e.Change(ctx, it.id)
 }
 
 // begin runs apply's checks and persists the intent (ADR 0004 steps 1 and 2).
@@ -276,18 +312,27 @@ func takeLocks(ctx context.Context, tx *sql.Tx, owner string, keys []string) err
 }
 
 // run mutates, verifies and records the result (ADR 0004 steps 3 and 4).
+// Apply and Verify share the action's deadline and are never abandoned: a
+// handler that ignores ctx keeps its change applying until it returns.
 func (e *Engine) run(ctx context.Context, p core.Principal, it *intent) (core.ChangeView, error) {
 	env := e.changeEnv(p, it.def, it.id, core.CallContext{})
-	h := it.def.Handler
+	h, ref, timeout := it.def.Handler, it.def.Ref(), e.applyTimeout(it.def)
+	dctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	var out json.RawMessage
-	err := e.protect(it.def.Ref(), "Apply", func() error {
+	err := e.protect(ref, "Apply", func() error {
 		var err error
-		out, err = h.Apply(ctx, env, it.input)
+		out, err = h.Apply(dctx, env, it.input)
 		return err
 	})
 	if err == nil {
-		err = e.verify(ctx, it.def, env, it.input, out)
+		err = e.protect(ref, "Verify", func() error { return h.Verify(dctx, env, it.input, out) })
 	}
+	if err != nil && errors.Is(dctx.Err(), context.DeadlineExceeded) {
+		err = errcode.Wrap(errcode.DeadlineExceeded, err, fmt.Sprintf("%s did not finish within %s", ref, timeout))
+	}
+	ctx, cancelTx := e.cleanup()
+	defer cancelTx()
 	if err != nil {
 		return e.failApply(ctx, p, it, err)
 	}
@@ -323,7 +368,9 @@ func (e *Engine) failApply(ctx context.Context, p core.Principal, it *intent, ca
 		release: true, phase: phaseApply, result: resultError, actor: p.Actor, source: p.Source,
 	}
 	if it.def.Spec.Class == core.ClassRevertible {
-		if _, err := e.runRevert(ctx, p, it.id); err != nil {
+		hctx, cancel := e.cleanupCall(it.def)
+		defer cancel()
+		if _, err := e.runRevert(hctx, p, it.id); err != nil {
 			e.cfg.Base.Log.Error("lifecycle: revert after a failed apply", "change", it.id, "error", err, "cause", cause)
 			tr.err, tr.phase = revertFailed(), phaseRevert
 		} else {
@@ -382,6 +429,17 @@ func (e *Engine) runRevert(ctx context.Context, p core.Principal, changeID strin
 	return out, err
 }
 
+// sealedInputDone reports whether a change in state no longer needs its
+// plan's sealed input.
+func sealedInputDone(state string) bool {
+	switch state {
+	case core.StateCompleted, core.StateConfirmed, core.StateReverted, core.StateFailed, core.StateInterrupted,
+		core.StateKept, core.StateRepaired, core.StateAbandoned:
+		return true
+	}
+	return false
+}
+
 // transition is one state change of a change.
 type transition struct {
 	from, to string
@@ -427,8 +485,9 @@ func (e *Engine) transition(ctx context.Context, changeID string, tr transition)
 				return err
 			}
 		}
-		if tr.to != core.StateApplying {
-			// Once a plan has a result only its hash is kept (spec section 3).
+		if sealedInputDone(tr.to) {
+			// Once a change is finished only its plan's hash is kept; until
+			// then recovery handlers and task units read the input (spec 1.2).
 			if _, err := tx.ExecContext(ctx,
 				"UPDATE core_plans SET input_ct = NULL WHERE id = (SELECT plan_id FROM core_changes WHERE id = ?)",
 				changeID); err != nil {

@@ -102,12 +102,8 @@ func (e *Engine) verifyStored(ctx context.Context, changeID string) string {
 	if err != nil {
 		return "verify not run: the stored input does not open"
 	}
-	env := e.env(recoveryPrincipal)
-	env.ChangeID = changeID
-	if err := e.verify(ctx, def, env, input, json.RawMessage("null")); err != nil {
-		return "verify failed: " + e.changeError(def.Ref(), err).Message
-	}
-	return "verify passed"
+	env := e.changeEnv(recoveryPrincipal, def, changeID, core.CallContext{})
+	return e.verifyRecovery(ctx, def, env, input, json.RawMessage("null"))
 }
 
 // Purge deletes expired plans that never became a change. A plan with a change

@@ -230,11 +230,12 @@ func TestCloseStopsAFiringTimer(t *testing.T) {
 	f.eng = eng
 	f.host.items["a"] = "old"
 	v := f.pending(`{"name":"a","value":"1"}`)
-	if len(clock.fns) != 1 {
-		t.Fatalf("armed timers = %d, want 1", len(clock.fns))
+	// The apply armed its answer timer, then the change's revert timer.
+	if len(clock.fns) != 2 {
+		t.Fatalf("armed timers = %d, want 2", len(clock.fns))
 	}
 	eng.Close()
-	clock.fns[0]()
+	clock.fns[1]()
 	if s := f.state(v.ID); s != core.StatePending {
 		t.Errorf("state = %s, want pending until recovery", s)
 	}
