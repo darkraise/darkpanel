@@ -2,9 +2,9 @@
 
 **Date:** 2026-10-21
 **Status:** design approved by the owner section by section on 2026-10-21;
-revision 3 after the second Fable and Codex gpt-6-astra panel round (see the
-review log). The written spec awaits the next panel round and the owner's
-review.
+revision 4 after the third Fable and Codex gpt-6-astra panel round (see the
+review log). The written spec awaits the fourth (full) panel round and the
+owner's review.
 **Product spec:** docs/superpowers/specs/2026-10-17-darkpanel-design.md
 **Requirements:** R37–R81; M2 register rows 11, 16 and 35
 (docs/superpowers/registers/2026-10-19-m2-fleet-lifecycle-core.md); the
@@ -55,6 +55,23 @@ checklist (section 12). M9 post-v1 candidates are out of scope.
   warning banner; an audited admin-only action reveals the NPM password
   (6). R65's "localhost and the tailnet only" is read as "the admin port is
   never published; HTTPS exposure only by the owner's explicit action".
+- After round 3 the owner chose: revise every finding, then a full fourth
+  panel round before the wave 0 plan.
+- **Pending owner confirmation (revision 4).** Two resolutions narrow or
+  reword a requirement and are written into this spec as proposed, to be
+  confirmed or changed by the owner:
+  - **P1, S3's wording for proxied bindings.** A published port that
+    `docker-proxy` serves on a family in which the container has no address
+    (IPv6 on an IPv4-only network, Docker's default) never traverses
+    `FORWARD`, so no route rule can govern it; Darkpanel governs it with
+    UFW `INPUT` rules and requires a deny-by-default incoming policy (2.6).
+    S3 ("unreachable unless a Darkpanel route rule allows it") would read
+    "unless a Darkpanel UFW rule allows it".
+  - **P2, unsupported Docker network modes for the integration.** Networks
+    in Docker's routed gateway modes, and networks with a custom bridge name
+    and a non-private subnet for direct-routed (non-DNAT) access, cannot be
+    protected from the moment they are created; they are reported
+    unprotected and listed in Out of scope (2.6).
 
 ## Versions
 
@@ -67,7 +84,7 @@ checklist (section 12). M9 post-v1 candidates are out of scope.
 | Compose plugin | the `docker-compose-plugin` package from Docker's repository, at `/usr/libexec/docker/cli-plugins/docker-compose` | harness pins its version |
 | Tailscale | tailscaled 1.82 or later on managed nodes | local API endpoints in 1.8 |
 | derper | `release/derper.version` (a `tailscale.com` module version, 1.102 or later) | Tailscale publishes no binaries or images; `-verify-clients` needs tailscaled from the same version on the DERP host (4.3) |
-| Nginx Proxy Manager | `jc21/nginx-proxy-manager` 2.13 or later, pinned by digest in `internal/modules/npm/image.go` | 2.13 removed the default admin; `LE_SERVER` (2.12) points certbot at another ACME directory |
+| Nginx Proxy Manager | `jc21/nginx-proxy-manager` 2.13 or later, pinned by digest in `internal/modules/npm/image.go` | 2.13 removed the default admin; `LE_SERVER` (since NPM 2.12) points certbot at another ACME directory |
 | cloudflared | `cloudflare/cloudflared` 2025.4.0 or later, pinned by digest in `internal/modules/cloudflare/image.go` | `tunnel run --token-file`; the image runs as UID 65532 |
 | Pebble | `ghcr.io/letsencrypt/pebble` and `ghcr.io/letsencrypt/pebble-challtestsrv`, pinned in `test/harness/pins.go` | ACME stand-in and its DNS server for harness certificate tests |
 
@@ -99,33 +116,68 @@ itself; exactly one is set, and the registry enforces it.
 - **Effects journal.** An action with an `Undo` handler records its effects
   on the executing side (agent or controller database), each one durably
   (fsync) **before** the effect is made: `{change id, seq, kind, resource
-  identity, before-state, sealed secrets}`. Example: NPM deploy records
-  "create network `darkpanel-npm`" before creating it, then "create volume
-  …", then "create container …", writing the container id into that effect
-  as soon as the Engine API returns it. Table `core_effects` on both sides
-  (additive migration).
+  identity, recovery identity, before-state, post-state, sealed secrets,
+  state}`. Table `core_effects` on both sides (additive migration). Effect
+  states: `intended → made → (undone | conflict)`.
+- **Recovery identity (creations).** Every effect that creates something
+  persists, before the call, an identity by which recovery can find exactly
+  that object and nothing else, chosen per endpoint and named in each
+  action's spec:
+  - a **deterministic exclusive name** (`darkpanel-npm`,
+    `darkpanel-<change id>` for a tunnel), refused at plan time if taken;
+  - a **marker** the object carries (Docker label
+    `darkpanel.change=<change id>`, Tailscale key description
+    `darkpanel-<change id>`, DNS record comment `darkpanel:<change id>`);
+  - or a **provider idempotency key** where the provider offers one.
+
+  After a crash, an `intended` creation effect is resolved by looking the
+  identity up: found → `made` (the server-assigned id is recorded now); not
+  found → nothing was created. If the identity cannot settle it (the
+  provider may still commit, 1.9), the effect stays `intended` and the change
+  needs repair; Darkpanel never guesses a deletion.
+- **Post-state checks before undo.** When an effect is `made`, its post-state
+  (resource version, ETag, config hash, container id and start time, rule
+  tuple) is recorded. Undo of an effect first compares the resource's current
+  state with that post-state; if something else has changed it since, the
+  effect becomes `conflict`, current state is preserved, and the change
+  needs repair with the difference shown. Mechanisms per resource kind:
+  compare-and-swap where the provider has versions (Tailscale policy ETag,
+  Cloudflare record content and comment); a post-state hash (UFW files,
+  tunnel configuration); **attachment claims** with reference counting for
+  shared attachments (a proxy attached to a target's network, 6, 7.3), so an
+  undo or removal detaches only when the last claim is gone and the
+  attachment did not predate every claim; container identity (id plus
+  created time) for Docker objects.
+- **Undo state machine** (per change, on the executing side, durable):
+  `none → pending → running → done | failed`. An undo request on a change in
+  `done` returns the stored result (idempotent). In `failed` or an
+  interrupted `running`, a new request (operator undo, composite repair,
+  startup recovery) resumes: it takes the action's lock keys, skips effects
+  already `undone`, retries `made` ones, and leaves `conflict` effects
+  alone. `failed` is not terminal; `done` is. Authorization: the action's
+  scope (1.7) for user requests; startup recovery and composite unwind run as
+  `system:recovery`, which the principal checks accept for undo and lookup.
+  Agent startup runs undo recovery right after ADR 0004's change recovery and
+  before serving requests.
 - **Undo** reads the journal, not the action's output, so it works after a
   failed apply, a failed verify, a crash mid-apply and a lost response. It
-  reverses effects in reverse order, each only if it occurred (an effect
-  whose resource does not exist, or whose before-state shows it was already
-  so, is a no-op), and records `undone` per effect, so an interrupted undo
-  resumes where it stopped.
+  reverses `made` effects in reverse order, each only if it occurred, and
+  records `undone` per effect.
 
   ```go
   // Undo reverses the change's recorded effects. It must be idempotent per
-  // effect and never touch a resource the journal does not name.
-  Undo func(ctx context.Context, env Env, change string, effects []Effect) error
+  // effect, check each effect's post-state first, and never touch a
+  // resource the journal does not name.
+  Undo func(ctx context.Context, env Env, change string, effects []Effect) ([]EffectResult, error)
   ```
 
-- **Undo wire contract.** New, non-frozen agent route
-  `POST /agent/v1/changes/{id}/undo` and controller-side
-  `POST /api/v1/changes/{id}/undo`. Undo takes the action's lock keys,
-  requires the action's scope, is journaled and audited as phase `undo`, and
-  is idempotent per change id (a repeated call returns the stored result).
-  `darkpanel change undo <id>` and an Undo button offer it on interrupted or
-  failed compensable changes; `darkpanel change repair <id>`
-  (`POST /api/v1/changes/{id}/repair`) retries the `undo_failed` steps of a
-  composite (1.3).
+- **Wire contract.** New, non-frozen agent routes
+  `POST /agent/v1/changes/{id}/undo` (starts or resumes undo; returns the undo
+  state) and `GET /agent/v1/plans/{plan id}` (read-only lookup, 1.3); the
+  controller has `POST /api/v1/changes/{id}/undo` and
+  `POST /api/v1/changes/{id}/repair`. Undo is journaled and audited as phase
+  `undo`. `darkpanel change undo <id>` and an Undo button offer it on
+  interrupted or failed compensable changes.
 - **Automatic unwind** of a composite (1.3) uses only `Undo` handlers and
   never an `irreversible` action. Operator-invoked compensation through
   `CompensatedBy` keeps today's rules.
@@ -149,18 +201,34 @@ changes of other modules' actions on one or more hosts.
 
   `${input.<path>}` and `${steps.<id>.output.<path>}` are the only
   references; `after` declares a state dependency even without an output
-  reference (a firewall allowance for `darkpanel-npm` depends on the step
-  that creates the container). The list is stored with the plan.
-- **Rules (plan time).**
+  reference. The list is stored with the plan.
+- **Rules (registration and plan time).**
+  - A step is never a composite (no nesting).
+  - A step may be a read action (for example `cloudflare.tunnel.token`, an
+    `Internal` read returning the token sealed into the step row); it has no
+    effects and nothing to unwind.
   - At most one **revertible** step per composite, and it is the last step.
-    This keeps confirmation a single child decision (v1 restriction).
   - No step is `irreversible`.
+  - A composite declares `unwind: reverse` or `unwind: forward`.
+    - `reverse` (every adding composite: deploys, exposes, joins): every
+      compensable step has an `Undo` handler; a failed step, a refused guard
+      or a reverted revertible step unwinds the steps already applied, in
+      reverse order.
+    - `forward` (every removal composite: `panel.exposure.remove`,
+      `npm.expose.remove`, `npm.admin.unexpose`, `cloudflare.expose.remove`,
+      `derp.server.remove`): earlier steps are never undone. A failed step
+      stops the composite in `needs_repair`; `darkpanel change repair <id>`
+      retries from the failed step forward. A forward composite's steps may
+      use `CompensatedBy` actions, since nothing unwinds them.
   - Every step is planned just in time, after the steps it follows have
     finished; compensable steps release their locks when they complete
-    (ADR 0004), so later steps never meet a held lock or a stale state hash.
+    (ADR 0004).
   - The composite takes the coordination lock `composite:<module>` for its
-    whole life; each child takes its own resource locks. A composite never
-    takes a resource lock a child needs.
+    whole life; each child takes its own resource locks, which are never
+    `composite:*` keys. With no nesting, a composite never meets its own
+    coordination lock.
+  - **Scope.** A composite requires the highest of its own `MinScope` and
+    every step's (1.7).
 - **Preview.** The plan dry-runs every step with no `after` and no output
   reference, and describes each other step as "planned after step `<id>`",
   with its input template. Guards of pre-planned steps are the composite's
@@ -169,56 +237,117 @@ changes of other modules' actions on one or more hosts.
 - **Durable step log.** Controller table `core_composite_steps` (composite
   change id, step id, ordinal, host, action ref, resolved input with secret
   fields sealed, child plan id, child change id, state, error). The row is
-  written and fsynced before the child is planned and before it is applied.
-  Step states: `pending → planned → applying → applied → confirmed`, and on
-  unwinding `undoing → undone | undo_failed`. Secrets produced by a step
-  (an auth key, a tunnel token) are sealed in the step row and reach the
-  next step's input on the controller only; never in preview, audit or API.
+  written and fsynced before the child is planned, before it is applied, and
+  before a confirmation is sent. Step states: `pending → planned → applying
+  → applied → confirming → confirmed`, and on unwinding `undoing → undone |
+  undo_failed`. Secrets produced by a step (an auth key, a tunnel token) are
+  sealed in the step row and reach the next step's input on the controller
+  only; never in preview, audit or API.
+- **Asynchronous apply.** Every composite, and every action whose spec marks
+  it **long-running** (section 5 marks them `L`: package installs and
+  updates, image and Compose pulls, Compose operations, ACME issuance, the
+  NPM bootstrap and upgrade, derper install and update), applies
+  asynchronously:
+  - the API's apply returns as soon as the change and its intent are
+    persisted, with the change in state `applying` and its id;
+  - progress and the result come from `GET /api/v1/changes/{id}` and the
+    existing SSE events; `--confirm`, the CLI's wait and the UI countdown
+    attach to the returned id;
+  - the controller-to-agent apply of a long-running agent action likewise
+    returns once the agent has persisted the intent; the controller follows
+    it through the read-only lookup (below) and the agent's journal events.
+  Synchronous actions keep today's behaviour.
+- **Read-only lookup.** `GET /agent/v1/plans/{plan id}` (and the
+  controller-side equivalent for controller-side children) returns `absent`
+  (never applied), `running` (apply in progress) or `terminal` with the
+  stored result and change state. It never applies anything.
 - **Engine integration.** ADR 0014 adds class `composite` to the shared
   contracts (`read`, `revertible`, `compensable`, `irreversible`,
-  `composite`) and the additive change states `awaiting_confirmation`,
-  `undoing`, `needs_repair` and `recovering`. `Dispatcher.Confirm` and
-  `Revert` on a composite id go to its one revertible child; the
+  `composite`) and the additive change states `applying`,
+  `awaiting_confirmation`, `undoing`, `needs_repair` and `recovering`.
+  `needs_repair` applies to single changes too: a revertible change whose
+  revert could not complete (2.5) and a compensable change whose undo ended
+  `failed` or `conflict` keep their locks and stay `needs_repair` instead of
+  `failed`, until repair or an explicit operator release
+  (`darkpanel change release <id>`, admin, audited). `Dispatcher.Confirm`
+  and `Revert` on a composite id act on its one revertible child; the
   composite's deadline is that child's. The CLI and UI treat a composite
-  with a revertible step like a revertible action (countdown, confirm,
-  revert) and one without like a compensable action.
-- **Apply.** Steps run in order. A refused guard or a failed step stops the
-  composite and unwinds.
+  with a revertible step like a revertible action and one without like a
+  compensable action.
 - **Confirmation (R41).** After the last step's verify the composite is
-  `awaiting_confirmation` when it has a revertible step. Confirming confirms
-  that child; if the child reverts (deadline, explicit revert, agent
-  restart), the controller unwinds the compensable steps.
-- **Unwind.** In reverse order: the revertible step is reverted (or left to
-  its own timer if the agent is unreachable); each compensable step is undone
-  through the undo route. A failed undo leaves the step `undo_failed` and the
-  composite `needs_repair`; `darkpanel change repair <id>` retries.
+  `awaiting_confirmation` when it has a revertible step.
+  1. Confirm writes the step row `confirming` (fsync), then sends the
+     child's confirm.
+  2. On the child's answer `confirmed`, or on a repeated confirm answered
+     `change.not_pending` while a lookup shows the child `confirmed`, the
+     step becomes `confirmed` and the composite succeeds.
+  3. A lost answer is settled by the lookup, never by a deadline: a child
+     found `confirmed` finalizes the composite whatever the time; a child
+     found `reverted` unwinds it.
+- **Child watcher.** While a composite is `awaiting_confirmation` or
+  `confirming`, the controller watches the child: the agent's journal
+  entries of phases `revert` and `recover` reach it through the existing
+  audit ingester and wake the watcher, and the watcher also polls the
+  lookup every 15 s. When the child is no longer pending: `confirmed` →
+  finalize; `reverted` → unwind (reverse composites). When the agent is
+  unreachable, the watcher waits until the deadline plus 60 s, then marks
+  the composite `recovering` and keeps polling; it unwinds only once the
+  lookup shows the child reverted.
+- **Unwind** (reverse composites). It always begins with the **current**
+  step: its own undo through its effects journal (a no-op when the journal
+  is empty), including a child the agent marked `interrupted`; a step whose
+  lookup says `running` is waited for first; a step whose lookup says
+  `absent` is never applied. Then earlier steps in reverse order: the
+  revertible step is reverted (or left to its own timer if the agent is
+  unreachable); each compensable step is undone through the undo route. A
+  failed or conflicting undo leaves the step `undo_failed` and the composite
+  `needs_repair`; `darkpanel change repair <id>` resumes it.
 - **Recovery.** At controller start (1.3a), for every composite not in a
-  terminal state:
+  terminal state, by the step log and the read-only lookup:
 
   | Persisted state | Action |
   |---|---|
-  | current step `pending` or `planned` | unwind the steps before it |
-  | current step `applying` | ask the agent for the child's result by plan id (idempotent apply returns the stored result); applied → treat as `applied`, then unwind; not applied → unwind; agent unreachable → composite `recovering`, retried every 30 s |
-  | all steps `applied`, composite not yet awaiting confirmation | unwind |
-  | `awaiting_confirmation`, deadline passed | unwind (the agent has reverted or will revert the child) |
-  | `awaiting_confirmation`, within deadline | keep waiting |
+  | current step `pending` or `planned` | reverse: unwind the steps before it (the current step was never applied); forward: `needs_repair` |
+  | current step `applying` | look the child up: `absent` → treat as not applied, then as `planned`; `running` → wait; `terminal` applied → treat as `applied`, then unwind (reverse) or continue (forward); terminal failed or interrupted → unwind starting with that step's undo (reverse) or `needs_repair` (forward); agent unreachable → `recovering`, retried every 30 s |
+  | all steps `applied`, composite not yet awaiting confirmation | reverse: unwind; forward: mark done |
+  | `awaiting_confirmation` | resume the watcher; never unwind on the deadline alone |
+  | step `confirming` | look the child up: `confirmed` → finalize; `pending` → resend confirm; `reverted` → unwind |
   | `undoing` | resume undo per step from the effects journals |
   | `needs_repair` | leave for the operator |
 
   This refines ADR 0004 for composites only: the controller unwinds
-  automatically because every undo acts only on journaled effects. A single
-  compensable action keeps ADR 0004's behaviour (interrupted, operator
-  decides).
+  automatically because every undo acts only on journaled effects and checks
+  post-state first. A single compensable action keeps ADR 0004's behaviour
+  (interrupted, operator decides), except where its action declares a module
+  recovery handler (1.3b).
 - **1.3a Controller start order.** The controller opens its agent listener
   and serves agent traffic and reads first; user and token mutations are
   refused with `core.recovering` until composite recovery has finished or
   has left only `recovering` composites, which it keeps retrying in the
-  background.
+  background. A controller that started in **restore quarantine** (10)
+  performs no recovery action at all until the operator releases it.
+- **1.3b Module recovery handlers.** Some actions keep a durable transaction
+  of their own and must finish or roll back automatically after a crash:
+  `npm.instance.upgrade` (6), `derp.binary.update` (4.3),
+  `tailscale.package.pin` (4.1) and Cloudflare hostname changes (7.3). Such
+  an action declares
+  `Recover func(ctx context.Context, env Env, change string) error`.
+  Contract: it runs at startup after the engine's change recovery and undo
+  recovery and before requests are served; it takes the action's lock keys;
+  it is idempotent; it reads only its own transaction table and effects
+  journal; a failing handler marks only its change `needs_repair` and does
+  not stop other handlers or startup. ADR 0014 records this as the one
+  exception to ADR 0004's "never retried on its own" for compensable
+  actions. Verify stays read-only; no recovery runs inside Verify.
 - **Records.** Each child is an ordinary change with `parent_change_id` set
   (nullable column, additive migration on both sides).
 - **Tests.** Fault injection at every state transition: controller killed
-  before and after each step's apply, agent unreachable during unwind, undo
-  failure, deadline passing while the controller is down.
+  before and after each step's apply, before and after a confirmation is
+  sent and committed, agent unreachable during unwind and confirmation, undo
+  failure and conflict, deadline passing while the controller is down, a
+  crash inside each creation effect (before the call, after the call before
+  the id is recorded), and the long-running path across the 60 s write
+  timeout.
 
 #### 1.4 Agent background tasks and module enablement
 
@@ -248,6 +377,8 @@ changes of other modules' actions on one or more hosts.
   and marked `system`, so rollbacks can skip it (2.5).
 - A task skips its run, without error, while any of its lock keys is held,
   and runs again on the next wake.
+- A task's plans carry no controller guard context; their guards evaluate
+  the agent's own live facts, as break-glass plans do (1.5).
 - Event subscriptions (Docker events) reconnect with the same backoff, and a
   reconnect triggers a full run.
 
@@ -257,7 +388,7 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
 
 - **Plan.** Every action that declares guards has an input field `guard` of
   type `GuardContext`. The dispatcher fills it; the API rejects a request
-  that supplies `guard` (`core.invalid_input`). As an ordinary schema field
+  that supplies `guard` (`request.invalid_input`). As an ordinary schema field
   it is covered by ADR 0002's rule that the controller never sends a field
   the agent's schema lacks, so an agent without guard support cannot receive
   a guarded action.
@@ -286,7 +417,8 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
   SSH sessions, interface addresses, routes). Apply refuses if a flow that
   passed at plan now fails or a new protected flow (a new SSH session, a new
   agent, a new listener) fails.
-- **Local break-glass** plans and applies have only the agent's own facts.
+- **Local break-glass** plans and applies, and plans made by background
+  tasks as `system:*` actors (1.4), have only the agent's own facts.
 - **Overrides.** Guarded actions have an input field `overrides: []string`
   (guard ids). `core.Guard` gains the additive fields `Overridable` and
   `Overridden`; an overridden guard reports `OK: true, Overridden: true`, and
@@ -321,14 +453,29 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
 
 `ActionSpec` gains three additive fields:
 
-- `Available func(ctx, env) error`: dispatch refuses an action whose check
-  fails with `module.unavailable` and the reason, and the UI greys it out.
-  Module preflight stays module-wide.
-- `MinScope`: the scope the caller needs (default: `read` for read actions,
-  `operate` for mutating ones). Compose actions and every `reveal` action
-  need `admin`.
+- `Available func(ctx, env) error`: per-action availability. For agent-side
+  actions it runs on the agent: new, non-frozen route
+  `GET /agent/v1/modules/{id}/availability` returns the module's preflight
+  result and each action's availability with the reason. The controller
+  caches the answer per `hello` and per module enable, re-asks before
+  dispatching an action whose cached answer is older than 60 s, and refuses
+  an unavailable action with `module.unavailable` and the reason; the UI
+  greys it out from the cached answer. Module preflight stays module-wide.
+- `MinScope`: can only **raise** the scope the existing rules require; it
+  never lowers one. Today's rules are kept unchanged: read actions need
+  `read`, agent mutations `operate`, controller-side mutations `admin`
+  (`core.token.create` therefore stays `admin`). Raised in this spec:
+  Compose actions, every `reveal` action, `docker.container.reveal-env`,
+  `npm.admin.*` and `panel.*` need `admin`. A composite needs the highest of
+  its own and every step's scope (1.3). No action's scope is lowered.
 - `Internal`: the action is not exposed through the API or CLI and is
-  dispatched only by the controller itself (`tailscale.cert.get`).
+  dispatched only by the controller itself (`tailscale.cert.get`). Internal
+  reads travel through a controller-only dispatch path that returns the
+  output unredacted: never through `Engine.Read`, the API, the journal or the
+  SSE relay. On the agent, the read handler for an `Internal` action answers
+  only the controller's session (never the local socket) and does not apply
+  `Redact`; each call is audited like secret delivery (1.14): actor, action
+  and the secret's identity, never the value.
 
 #### 1.8 Host clients (`internal/platform`)
 
@@ -341,7 +488,7 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
   | `/usr/sbin/iptables`, `/usr/sbin/ip6tables` | `--version` | — |
   | `/usr/sbin/{iptables,ip6tables}-save`, `-legacy-save`, `-nft-save` | `-t` | — |
   | `/usr/sbin/{iptables,ip6tables}-restore`, `-legacy-restore`, `-nft-restore` | `-n` (input on stdin) | — |
-  | `/usr/bin/apt-get` | `update`, `install`, `remove` | `DEBIAN_FRONTEND=noninteractive` |
+  | `/usr/bin/apt-get` | `update`, `install`, `remove` (options follow the verb, which apt-get accepts: `apt-get <verb> -o DPkg::Lock::Timeout=120 -o Dir::Etc::sourcelist=<file> -o Dir::Etc::sourceparts=- -y [--allow-downgrades] <package>`) | `DEBIAN_FRONTEND=noninteractive` |
   | `/usr/bin/apt-mark` | `hold`, `unhold`, `showhold` | — |
   | `/usr/bin/docker` | `compose` | `DOCKER_CONFIG`, `HOME` (3) |
 
@@ -375,12 +522,17 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
   when `Present` is false, removes it (and fsyncs the directory). Allowed
   only on paths the module declares with the owned-path kind `restore`;
   uninstall never removes a `restore` path.
-- **Managed directories.** New owned-path kind `managed-dir`: the module may
-  create and delete regular files directly inside the directory, with names
-  matching `^[a-z0-9][a-z0-9._-]{0,63}$`, through
+- **Managed directories.** New owned-path kind `managed-dir`: a fixed,
+  root-owned directory in which the module may create and delete **regular
+  files directly inside it** (no subdirectories), with names matching
+  `^[a-z0-9][a-z0-9._-]{0,63}$`, through
   `FileWriter.WriteManaged(module, dir, name, data, mode, uid, gid)` and
-  `RemoveManaged`; uninstall removes the directory and its contents. Used for
-  tunnel token files (7.2), NPM backups (6) and restore staging (10).
+  `RemoveManaged`; the directory itself is opened with the same symlink and
+  ownership checks as every file write (ADR 0009); uninstall removes the
+  directory and its contents. Used for tunnel token files (flat names
+  `<tunnel id>.token`, 7.2) and NPM backup archives (6). Restore staging is
+  not a managed directory: the root restore CLI writes it itself, with the
+  services stopped (10).
 - **Darkpanel-owned Docker objects.** Containers, networks and volumes a
   module creates carry the label `darkpanel.module=<id>`. They are that
   module's resources (ADR 0002), driven through `dockerapi` by the module's
@@ -397,11 +549,11 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
 
   | Write | Procedure |
   |---|---|
-  | Tailscale auth key create | list keys with description `darkpanel-<change id>`; delete each (its secret cannot be recovered); create again |
+  | Tailscale auth key create | no immediate retry (the provider gives no guarantee that a request which timed out cannot still commit, so "none found" proves nothing). The effect stays `intended`, the step fails with `cloud.uncertain_outcome`, and a sweep lists keys with description `darkpanel-<change id>` and deletes each it finds (a key's secret cannot be recovered), every 5 minutes until the key's expiry has passed for every uncertain creation. A retry is a new change with a new description |
   | Tailscale policy `POST` | re-`GET` with HuJSON; equal to the new text → success; equal to the old text and ETag → not applied; anything else → `cloud.conflict` |
   | Tailscale device writes | re-read the device and compare |
   | Cloudflare tunnel create | look up by name `darkpanel-<change id>` |
-  | Cloudflare configuration `PUT` | re-`GET` and compare with the body sent |
+  | Cloudflare configuration `PUT` | re-`GET` and compare with the body sent; equal → applied. This detects only a configuration that differs afterwards: a concurrent write that Darkpanel's `PUT` overwrote is undetectable (7.1) |
   | Cloudflare DNS record create | list records with the name and the comment `darkpanel:<change id>` |
 
   Unresolvable outcomes fail with `cloud.uncertain_outcome` and leave the
@@ -481,6 +633,12 @@ whether it is available on a host (R9). Wave 0 also adds:
   `tailscale cert` source and the MagicDNS name in its own file;
 - a `fuzz` target in the `Makefile` that runs `scripts/fuzz.sh` (the script
   belongs to wave 9a);
+- **command assembly hooks:** a CLI registration hook in `internal/cli`
+  (each module's command files register their commands; `internal/cli/
+  controller.go` registers the controller subcommands added later, such as
+  backup and restore) and a path-selection hook for `paths.Paths` in
+  `cmd/darkpanel`, which harness builds use for `--state-dir` (9); later
+  waves add command files only;
 - harness helpers: per-test VM names, work directories and network ranges
   derived from the test name, a VM concurrency limit, and the Compose
   plugin, Pebble and `pebble-challtestsrv` in `test/harness/pins.go` and
@@ -522,14 +680,27 @@ tools present.
   `/etc/ufw/user.rules` and `user6.rules`; and the framework files
   `before*.rules` and `after*.rules`.
 - **Loaded state** comes from `iptables-save` and `ip6tables-save` (tables
-  `filter`, `nat` and `raw`) of the variant UFW uses.
+  `filter`, `nat`, `raw`, `mangle` and `security`) of the variant UFW uses,
+  plus the live values of the sysctl keys that decide reachability
+  (`net.ipv4.ip_forward`, `net.ipv6.conf.all.forwarding`,
+  `net.ipv4.conf.*.rp_filter`, `net.ipv4.conf.*.accept_source_route`).
+- **Sysctl.** UFW applies `/etc/ufw/sysctl.conf` (the file `IPT_SYSCTL` in
+  `/etc/default/ufw` names) when it starts. The module reads that file and
+  predicts its effect on the keys above; a start that would change any of
+  them is shown in the plan, and when the change would cut a protected flow
+  (for example `ip_forward=0` under a forwarded panel or Docker path) the
+  guard fails. Snapshots record the file and the live values, and revert
+  writes the live values back with the file provider through
+  `/proc/sys` (owned path kind `restore`).
 - `ufw status` output is not parsed for state.
 - **Unsupported configurations.** UFW executes `/etc/ufw/before.init` and
   `after.init` at start when they are executable, and with
   `MANAGE_BUILTINS=yes` it flushes built-in chains; neither can be predicted.
-  On such a host `firewall.status` reports "unsupported configuration" with
-  the reason, every guard verdict is `unknown`, and every mutating action is
-  refused with `firewall.unsupported_configuration` (a hard refusal, not
+  A non-empty chain in the `mangle` or `security` table that the evaluator
+  does not support (2.3) is treated the same way. On such a host
+  `firewall.status` reports "unsupported configuration" with the reason,
+  every guard verdict is `unknown`, and every mutating action is refused
+  with `firewall.unsupported_configuration` (a hard refusal, not
   overridable).
 - Every parser is fuzzed (R74).
 
@@ -540,9 +711,13 @@ tools present.
   (CIDR|any), ToPort, InIface, OutIface, Family (v4|v6|both), Log
   (off|log|log-all), Comment, Origin (darkpanel|manual)}`.
 - **Grammar** (what UFW can represent; anything else fails the plan with
-  `core.invalid_input`):
-  - `FromPort` and `ToPort` are a port, a range `a:b`, or a comma list of up
-    to 15 ports and ranges; a range or list requires `Proto` tcp or udp.
+  `request.invalid_input`):
+  - `FromPort` and `ToPort` are a port, a range `a:b`, or a comma list whose
+    entries use at most 15 multiport slots in total (a port takes one slot,
+    a range two); a range or list requires `Proto` tcp or udp.
+  - `Proto` is `tcp`, `udp`, `any`, or one of the port-less protocols UFW
+    supports (`ah`, `esp`, `gre`, `ipv6`, `igmp`), which take no ports;
+    `ipv6` and `igmp` only with `Family: v4`.
   - `From` and `To` are one address or CIDR; their family must agree with
     `Family` (`both` only when both are `any`).
   - `limit` applies only to `Direction: in`.
@@ -564,6 +739,10 @@ tools present.
   deleting one requires `manual: true` in the input and is shown as such in
   the diff, otherwise the plan fails with `firewall.manual_required`.
 - **Writing** only through `ufw` with argument vectors.
+- **Unrepresentable manual rules.** A manual rule the model cannot express
+  (a protocol or option outside the grammar) is shown read-only with its raw
+  tuple, kept by every operation, and counted by the evaluator from the
+  loaded state.
 
 Resource `firewall.status` (configured and loaded state, rules with origin,
 `active`, `inSync` and `supported` flags). Actions are listed in section 5.
@@ -583,39 +762,67 @@ Resource `firewall.status` (configured and loaded state, rules with origin,
     `INPUT`, `FORWARD` and `OUTPUT`, only `lo` accepted, and every other IPv6
     filter chain removed (Docker's and tailscaled's included). The predicted
     IPv6 state for enable, reload and restore is exactly that table;
-  - for disable: UFW's chains removed and the built-in policies as UFW leaves
-    them; non-UFW chains untouched (Darkpanel's Docker chains are cleaned up
-    separately, 2.6).
+  - for disable: UFW flushes its secondary chains but keeps its empty
+    primary chains and their built-in jumps (to preserve their positions),
+    and sets the built-in policies to `ACCEPT`; a host on which UFW was
+    never started has none of these chains. The prediction distinguishes the
+    two, and non-UFW chains are untouched (Darkpanel's Docker chains are
+    cleaned up separately, 2.6).
+  - **`IPV6=no` refusal.** Because the `IPV6=no` start removes every foreign
+    IPv6 filter chain, which no snapshot can rebuild, any action whose
+    transition starts or reloads UFW with `IPV6=no` is refused
+    (`firewall.unsupported_configuration`, not overridable) while the loaded
+    IPv6 filter table holds any chain or rule UFW did not create (Docker's,
+    tailscaled's or another program's); the plan names them and suggests
+    `IPV6=yes`.
 
   The wave 1 spike records UFW's translation, skeleton and transitions on all
   four OS images as golden files, and the harness re-checks them.
 - **In sync.** At plan time the module also predicts the loaded state from
   the **current** configured state and compares it with the actual loaded
   state. A difference marks the host out of sync: every guard verdict is
-  `unknown` (a hard refusal) and the plan shows the differing chains. Verify
+  `unknown` (a hard refusal) and the plan shows the differing chains. The
+  exception is the **repair path**: `firewall.state.repair` (revertible)
+  and `firewall.docker.repair` plan the transition from the **actual**
+  loaded state to the state the configuration describes, evaluate every
+  protected flow against that target (so the guard applies normally and is
+  overridable), and are allowed on an out-of-sync host when the difference
+  is confined to UFW's and Darkpanel's own chains; a difference in foreign
+  chains keeps the hard refusal. Both are reachable through break-glass
+  (`sudo darkpanel firewall state repair --local`). Verify
   compares the predicted state relevant to every protected flow (UFW
   chains, the built-in policies and every chain those flows traverse) with
   the loaded state after apply; a difference fails verify with
   `firewall.prediction_mismatch`, which reverts.
 - **Evaluation** (`internal/modules/firewall/eval`, wave 1). The evaluator
   walks a predicted or loaded state for a packet tuple `(family, in-interface,
-  out-interface, source, destination, protocol, destination port,
-  conntrack state, original destination)`: `raw PREROUTING` (Docker's
-  localhost-protection drops), `nat PREROUTING` and `OUTPUT` (DNAT, which
-  sets the original destination), then `filter INPUT`, `FORWARD` or `OUTPUT`
-  as routing decides. It supports the matches UFW, Docker and tailscaled
-  generate (`-i`, `-o` with `+` wildcards, `-s`, `-d`, `-p`, `--sport`,
-  `--dport`, `--dports`, `-m conntrack --ctstate` including `DNAT`,
-  `--ctorigdst`, `--ctorigdstport`, `-m addrtype`, `-m comment`, jumps,
-  `RETURN`, `ACCEPT`, `DROP`, `REJECT`, `DNAT`, `LOG` continuing). `limit`,
-  `recent` and any unsupported match make the verdict `unknown`.
+  out-interface, source, source port, destination, protocol, destination
+  port, conntrack state, original destination and port, mark)` through every
+  hook the packet traverses: for incoming packets `raw`, `mangle`, `nat`
+  `PREROUTING` (Docker's localhost-protection drops, DNAT setting the
+  original destination, mark rules), then `mangle`, `filter` and `security`
+  `INPUT` or `FORWARD`, and for forwarded packets `mangle` and `nat`
+  `POSTROUTING`; for locally generated packets `raw`, `mangle`, `nat`,
+  `filter` and `security` `OUTPUT`, then `POSTROUTING`. It supports the
+  matches and targets UFW, Docker and tailscaled generate (`-i`, `-o` with
+  `+` wildcards, `-s`, `-d`, `-p`, `--sport`, `--dport`, `--dports`,
+  `--sports`, `-m conntrack --ctstate` including `DNAT`, `--ctorigdst`,
+  `--ctorigdstport`, `-m addrtype`, `-m comment`, `-m mark`, jumps, `RETURN`,
+  `ACCEPT`, `DROP`, `REJECT`, `DNAT`, `MASQUERADE`, `MARK`, `LOG`
+  continuing). `limit`, `recent`, any other match or target, and any
+  non-empty chain in a hook it does not model make the verdict `unknown`.
 - **tailscaled's chains.** tailscaled inserts `ts-input` and `ts-forward` at
   position 1 of `INPUT` and `FORWARD`, and `ts-input` accepts everything
   arriving on `tailscale0`; the evaluator reproduces that from the loaded
   state, so UFW never governs tailnet traffic.
-- **Protected flows.** Each flow is a tuple whose in-interface is found by a
-  reverse route lookup of the remote address (and out-interface by a forward
-  lookup), not by which interface holds the local address:
+- **Protected flows.** A flow's ingress is not inferred from one route
+  lookup, because routing may be asymmetric or policy-based: the evaluator
+  checks the flow on **every plausible in-interface** (each interface whose
+  routes or policy rules could deliver the source to this host, and, when
+  policy routing rules beyond the defaults exist, every non-loopback
+  interface), and the flow passes only if it passes on all of them. The
+  out-interface comes from a forward lookup including policy rules; a
+  lookup that cannot be resolved is `unknown`. The flows:
   1. each established TCP connection whose local socket is owned by `sshd`:
      a new connection from its remote address to its local address and port;
   2. when the controller runs on this host and the request came directly:
@@ -662,16 +869,33 @@ behaves as in 1.13.
   flag, `pinned` flag, entries, logical state). The engine's per-change
   snapshot is a reference to this row. After every apply the module also
   records the hash of each UFW file as it stands right after the change.
+- **Effects.** Every firewall mutation journals its effects (1.2) before
+  making them, each with its inverse: a rule added (inverse: delete that
+  tuple), a rule deleted (re-add at its position), a default or logging
+  level changed (set the old value), UFW enabled or disabled (the opposite,
+  with the cleanup or block load of 2.6), a file written (the previous
+  entry), a logical row inserted, updated or deleted in
+  `firewall_container_rules` or the settings (the previous row), the
+  integration flag changed, a sysctl value changed. A mid-apply crash
+  therefore leaves an exact list of what was done.
 - **Revert of a change** (timer, explicit revert, startup recovery):
   1. If every UFW file's hash still equals the hash recorded right after the
-     change applied, restore the snapshot (below).
+     change applied (or, after a mid-apply crash, the journal shows no file
+     effect after which the file was edited), restore the snapshot (below).
   2. Otherwise (someone edited UFW during the pending window), apply the
-     change's inverse `ufw` operations (delete the rules it added, re-add the
-     rules it deleted at their positions, restore defaults and logging it
-     changed), which leaves the other edits in place.
-  3. If the inverse cannot be computed (the change's own rules were edited),
-     mark the change `needs_repair` with the diff between now and the
-     snapshot; the lockout guard of the next plan then sees the real state.
+     inverses of the journaled effects in reverse order, which leaves the
+     other edits in place; logical rows are restored in the same transaction
+     as the intent.
+  3. If an inverse conflicts with a manual edit (the change's own rule was
+     edited or removed, a manual rule now occupies the position), the change
+     becomes `needs_repair` (1.3 engine integration) and keeps the `firewall`
+     lock, its snapshot is pinned until the repair ends, the plan of
+     `firewall.state.repair` shows the difference, and **connectivity comes
+     first**: the inverses that do not conflict are still applied, and if the
+     lockout guard evaluated on the resulting loaded state fails for a
+     protected flow, the snapshot is restored whole even though that
+     overwrites the manual edit (the diff of what was overwritten is kept in
+     the change).
 - **Restore** is crash-safe and complete: one database transaction records
   the restore intent and writes the logical rows; then each file is written
   with `FileWriter.Restore`; then the Docker chains are brought in line with
@@ -710,10 +934,24 @@ behaves as in 1.13.
   chain. Anything else, or inconclusive detection, is unsupported with the
   reason (`firewall.unsupported_integration`).
 - **Adoption of `DOCKER-USER`.** Docker reserves `DOCKER-USER` for user
-  rules, and the block replaces it. `firewall.docker.enable` therefore
-  refuses (`firewall.docker_user_in_use`, listing the rules) while
-  `DOCKER-USER` holds anything other than Docker's default `-j RETURN`; the
-  health check reports foreign rules that appear later.
+  rules, and the block replaces it (its declaration flushes the chain on
+  every UFW start and reload). `firewall.docker.enable` therefore refuses
+  (`firewall.docker_user_in_use`, listing the rules) while `DOCKER-USER`
+  holds anything other than Docker's default `-j RETURN` or the block's own
+  rules. Rules that appear later are treated as an out-of-sync condition:
+  health `broken`, and every mutating firewall action, the reconcile task,
+  `firewall.docker.repair` and the cleanup refuse with
+  `firewall.docker_user_in_use` until the operator either removes them or
+  runs `firewall.docker.repair` with `discardForeign: true`, whose diff lists
+  each rule it will discard (needs `manual: true`). No automatic operation
+  ever discards a foreign rule.
+- **Non-Docker forwarding.** `DOCKER-USER` is reached from `FORWARD` for all
+  forwarded traffic, so the block's DNAT gate (below) would also catch other
+  port forwards. `firewall.docker.enable` lists every `nat PREROUTING` DNAT
+  rule that is not Docker's and refuses until each is covered by the setting
+  `forwardExemptions` (a list of `{inInterface?, destination CIDR, proto?,
+  port?}`), which the block renders as `RETURN` lines ahead of the gate.
+  Reconcile reports a new foreign DNAT rule as health `degraded` naming it.
 - **Block (R44).** `firewall.docker.enable` (revertible) writes marked block
   `docker` into `/etc/ufw/after.rules` and `after6.rules` and reloads UFW.
   The block is a self-contained filter section written from Docker's and
@@ -730,11 +968,16 @@ behaves as in 1.13.
   :DOCKER-USER - [0:0]
   :darkpanel-docker-bindings - [0:0]
   :darkpanel-docker-deny - [0:0]
+  :dp-b-<binding id> - [0:0]
   -A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
+  -A DOCKER-USER -i docker0 -j RETURN
+  -A DOCKER-USER -i br-+ -j RETURN
+  -A DOCKER-USER -i <each custom bridge name> -j RETURN
   -A DOCKER-USER -s 10.0.0.0/8 -j RETURN
   -A DOCKER-USER -s 172.16.0.0/12 -j RETURN
   -A DOCKER-USER -s 192.168.0.0/16 -j RETURN
   -A DOCKER-USER -s 100.64.0.0/10 -j RETURN
+  -A DOCKER-USER <each forwardExemption> -j RETURN
   -A DOCKER-USER -m conntrack --ctstate DNAT -j darkpanel-docker-bindings
   -A DOCKER-USER -o docker0 -j darkpanel-docker-deny
   -A DOCKER-USER -o br-+ -j darkpanel-docker-deny
@@ -743,42 +986,69 @@ behaves as in 1.13.
   -A DOCKER-USER -d 172.16.0.0/12 -j darkpanel-docker-deny
   -A DOCKER-USER -d 192.168.0.0/16 -j darkpanel-docker-deny
   -A DOCKER-USER -j RETURN
-  -A darkpanel-docker-bindings -p <proto> -d <container addr> --dport <container port> -m conntrack --ctorigdst <host addr> --ctorigdstport <host port> -j ufw-user-forward
+  -A darkpanel-docker-bindings -p <proto> -d <container addr> --dport <container port> -m conntrack --ctorigdst <host addr> --ctorigdstport <host port> -j dp-b-<binding id>
   -A darkpanel-docker-bindings -j darkpanel-docker-deny
+  -A dp-b-<binding id> -s <each denied source CIDR> -j darkpanel-docker-deny
+  -A dp-b-<binding id> -s <each allowed source CIDR, or 0.0.0.0/0> -j ufw-user-forward
+  -A dp-b-<binding id> -j darkpanel-docker-deny
   -A darkpanel-docker-deny -m limit --limit 3/min -j LOG --log-prefix "[DARKPANEL DOCKER DENY] "
   -A darkpanel-docker-deny -j DROP
   COMMIT
   ```
 
   One `darkpanel-docker-bindings` line per allowed binding and container
-  address; `--ctorigdst` is omitted for a binding on all host addresses.
-  IPv6 is the same in `after6.rules` with `:ufw6-user-forward - [0:0]`,
-  `-j ufw6-user-forward`, private sources `fc00::/7` and `fe80::/10`
+  address, and one chain `dp-b-<binding id>` per binding (the id is the first
+  12 hex digits of a hash of the binding, keeping the name within iptables'
+  28-character limit); `--ctorigdst` is omitted for a binding on all host
+  addresses. IPv6 is the same in `after6.rules` with `:ufw6-user-forward -
+  [0:0]`, `-j ufw6-user-forward`, private sources `fc00::/7` and `fe80::/10`
   (Tailscale's `fd7a:115c:a1e0::/48` is inside `fc00::/7`), and destination
   `fc00::/7`. Custom bridge names come from the networks'
   `com.docker.network.bridge.name` option.
-- **How the block decides.** Established traffic and traffic from the
-  private source ranges (other containers, the LAN, the tailnet) return
-  first, so container-to-container, container outbound and private access
-  keep working (R46). A new connection from anywhere else that Docker
-  DNATed (a published port) reaches UFW's route rules only through a
-  binding line whose original destination matches an allowed binding;
-  otherwise it is denied. A new connection from anywhere else forwarded to a
-  Docker bridge or a private destination without DNAT is denied. Published
-  ports are thus protected on any subnet, including public IPv4 and global
-  IPv6 networks, from the moment the network exists. A network that is not
-  on a bridge (another driver) is reported unprotected and makes the
-  integration's health `degraded`.
+- **How the block decides.**
+  - Established traffic returns first.
+  - Traffic **entering from a Docker bridge** returns: it is
+    container-originated whatever its source address (Docker enables
+    `br_netfilter`, so container-to-container traffic on one bridge also
+    traverses `FORWARD`), and Docker's own isolation chains still govern
+    traffic between networks. Container-to-container and container outbound
+    traffic therefore keep working on private, public IPv4 and global IPv6
+    networks alike (R46).
+  - Traffic from the private source ranges (the LAN, the tailnet) and the
+    declared non-Docker forwards return.
+  - A new connection from anywhere else that was DNATed reaches UFW only
+    through a binding line matching its original host address and port and
+    its translated container address and port, and then only through that
+    binding's own chain, which applies **that binding's** source policy
+    before jumping to `ufw-user-forward`. Two bindings to the same container
+    port therefore never share a source policy: a source allowed on one is
+    denied on the other by the other's chain, whatever route rules UFW
+    holds. A DNATed connection matching no binding is denied. This gate is
+    not limited to known bridges, so published ports on **any** bridge,
+    including one created a moment ago with a custom name, are protected
+    from creation.
+  - A new connection from anywhere else forwarded without DNAT to a Docker
+    bridge with a default name (`docker0`, `br-<id>`) or to a private
+    destination is denied.
+- **Coverage limit.** Direct-routed (non-DNAT) access to a network that has
+  both a custom bridge name and a non-private subnet is covered only once
+  reconcile writes that name into the block; Docker's routed gateway modes
+  (`com.docker.network.bridge.gateway_mode_ipv4|ipv6=routed` or
+  `nat-unprotected`) bypass DNAT altogether. Such networks are reported
+  `unprotected`, set health `degraded`, and are listed in Out of scope as
+  unsupported for the integration (pending owner confirmation, Owner
+  decisions).
 - **Address reuse (D1).** A route rule names a container address; the
   binding line also requires the connection's original host address and
   port. A container that later gets the same address inherits the allowance
   only if it also publishes the same host port to the same container port,
   which the host can bind for one container at a time.
 - **Manual route rules.** Published-port traffic reaches `ufw-user-forward`
-  only through a binding line, so a manual `ufw route` rule to a container
-  takes effect only for a binding Darkpanel allows. `firewall.docker.enable`
-  lists such manual route rules in its diff, and the exposure view marks
-  them "no effect without a Darkpanel binding".
+  only through a binding chain, so a manual `ufw route` rule to a container
+  takes effect only for a binding Darkpanel allows, and only for the sources
+  that binding's chain lets through. `firewall.docker.enable` lists such
+  manual route rules in its diff, and the exposure view marks them "no
+  effect without a Darkpanel binding".
 - **Container policy (R45).** Policy is stored per **published binding**
   `{selector, hostAddr (default all), hostPort, proto}`, where `selector` is a
   container name or a Compose `project/service`, in
@@ -788,22 +1058,40 @@ behaves as in 1.13.
   (removes an allowance or deny) and the batch `firewall.containers.apply`
   (a list of those operations in one change). Each allowance is realised as
   one tagged UFW route rule per container address (every replica, every
-  network, each family with a container address) plus its binding line;
-  denies are inserted before every Darkpanel route allow. A deny whose `from`
-  overlaps a private source range is refused (it could never match). An
-  earlier manual route allow that would beat a requested deny refuses the
-  plan with the conflicting rule. The preview shows the rules and the
-  effective verdict per source partition (2.7).
+  network, each family with a container address), its binding line and its
+  binding chain's source lines; a deny is a line in the binding's chain
+  ahead of its allows, and also a tagged UFW route deny inserted before
+  every Darkpanel route allow (the record R45 asks for). A deny whose `from`
+  overlaps a private source range is refused (it could never match). The
+  preview shows the rules and the effective verdict per source partition
+  (2.7).
 - **Proxied families.** A binding served by `docker-proxy` for a family in
-  which the container has no address (IPv6 published to an IPv4-only bridge)
-  is an `INPUT` flow to the host port, not a forwarded one; its allowance is
-  realised as a tagged `ufw allow in` rule for that family and host port.
+  which the container has no address (IPv6 published to an IPv4-only
+  bridge, the default for `-p 8080:80` on an IPv4-only network) never
+  traverses `FORWARD`: the proxy accepts it on the host. It is therefore
+  governed by UFW's `INPUT` rules like any host service: its allowance is a
+  tagged `ufw allow in` rule for that family and host port (with `from`),
+  and its denies are tagged `ufw deny in` rules inserted before it. Enabling
+  the integration requires `DEFAULT_INPUT_POLICY` to be `DROP` or `REJECT`
+  (refused otherwise), so an unallowed proxied binding is closed; a broad
+  manual `INPUT` allow that covers such a port is the operator's own UFW
+  rule, and the exposure view and the container view show the binding as
+  open "by manual rule <tuple>". This is UFW governing Docker through
+  `INPUT` rather than a route rule (pending owner confirmation of S3's
+  wording, Owner decisions).
+- **Integration flag and `state.disable`/`state.enable`.** The integration
+  flag is configured state and persists across `firewall.state.disable`.
+  `state.disable` with the flag on runs the cleanup (below) and leaves the
+  flag set; `state.enable` with the flag on writes the block (and binding
+  chains) into the files before `ufw enable`, and its prediction includes
+  them.
 - **Reconcile and health.** See 2.8. Health checks, for both families, that
   the block is present in the file; that the loaded `DOCKER-USER`,
   `darkpanel-docker-bindings` and `darkpanel-docker-deny` chains equal the
   block's rules exactly once and in order; that `FORWARD` jumps to
   `DOCKER-USER` before Docker's own accept rules; that no foreign rule is in
-  `DOCKER-USER`; and that every Docker bridge is covered. Anything else sets
+  `DOCKER-USER`; that no foreign DNAT forward lacks an exemption; and that
+  every Docker network is covered. Anything else sets
   health `broken` or `degraded` with the reason; the UI offers
   `firewall.docker.repair` (revertible), which rewrites and reloads.
 - **Cleanup of loaded chains.** Removing the block from the files does not
@@ -812,10 +1100,12 @@ behaves as in 1.13.
   snapshot taken without the integration run an owned-chain cleanup:
   1. record the cleanup intent (fsync);
   2. write the files without the block (`FileWriter`);
-  3. load, with `*-restore -n` of the variant in use, an input that declares
-     `DOCKER-USER` with only `-j RETURN` and flushes and deletes
-     `darkpanel-docker-bindings` and `darkpanel-docker-deny` (the wave 2
-     spike confirms the restore syntax on all four images);
+  3. re-read `DOCKER-USER` and refuse (`firewall.docker_user_in_use`) if it
+     holds a foreign rule; otherwise load, with `*-restore -n` of the
+     variant in use, an input that declares `DOCKER-USER` with only `-j
+     RETURN` and flushes and deletes `darkpanel-docker-bindings`,
+     `darkpanel-docker-deny` and every `dp-b-*` chain (the wave 2 spike
+     confirms the restore syntax on all four images);
   4. `ufw reload` when UFW is active;
   5. verify that no `darkpanel-*` chain is loaded and `DOCKER-USER` holds
      only `-j RETURN`; clear the intent.
@@ -854,8 +1144,10 @@ behaves as in 1.13.
 
 Wakes on Docker events (container start, die, destroy, network connect and
 disconnect, network create and destroy) and every 5 minutes. It recomputes
-route rules, binding lines and bridge lines from `firewall_container_rules`,
-current container addresses and current networks, and checks health (2.6).
+route rules, binding lines, binding chains and bridge lines from
+`firewall_container_rules`, current container addresses and current
+networks, and checks health (2.6). It does nothing while health reports
+foreign `DOCKER-USER` rules (2.6).
 Changes go through `firewall.containers.apply` or `firewall.docker.repair` as
 actor `system:firewall.reconcile` (1.4).
 
@@ -892,15 +1184,15 @@ on effects that occurred.
 | `docker.container.remove` | irreversible (typed name) | — |
 | `docker.container.inspect`, `docker.container.logs` | read | — |
 | `docker.container.reveal-env` | read, admin, secret delivery (1.14) | — |
-| `docker.image.pull` | compensable | nothing: the host is usable either way; a pulled or re-pointed tag is not reverted (documented) |
+| `docker.image.pull` | compensable, long-running | nothing: the host is usable either way; a pulled or re-pointed tag is not reverted (documented) |
 | `docker.image.remove`, `docker.image.prune` | irreversible | — |
 | `docker.network.create`, `docker.volume.create` | compensable | remove the created object if it is unused |
 | `docker.network.remove`, `docker.volume.remove` | irreversible | — |
 | `docker.network.connect` | compensable | disconnect only if this change attached it |
 | `docker.network.disconnect` | compensable | reconnect with the journaled endpoint settings only if this change detached it |
-| `docker.compose.up` | compensable, admin | remove only the containers this change created (journaled ids, through the Engine API); restart containers it stopped for recreation from their journaled configuration where they still exist |
+| `docker.compose.up` | irreversible (typed project name), admin | — (Compose may recreate existing containers, removing their writable layers, which nothing can restore) |
 | `docker.compose.down` | irreversible (typed project name), admin | — (removes containers and their writable layers) |
-| `docker.compose.pull` | compensable, admin | nothing (documented, as for image pull) |
+| `docker.compose.pull` | compensable, admin, long-running | nothing (documented, as for image pull) |
 | `docker.compose.restart` | compensable, admin | start the containers that were running before and are now stopped |
 
 - Resources: `docker.engine`, `docker.containers` (with a stats summary),
@@ -923,7 +1215,7 @@ on effects that occurred.
   - **Trust boundary.** Compose files are operator-authored and trusted like
     any root-run configuration; Darkpanel never writes them. Running them is
     an admin-scope action, and the plan says so ("runs the project's Compose
-    file as root").
+    file as root"). Every Compose action is long-running (1.3).
   - **Discovery.** Projects come from container labels
     (`com.docker.compose.project`, `.project.working_dir`,
     `.project.config_files`, `.project.environment_file`) and are recorded in
@@ -936,10 +1228,22 @@ on effects that occurred.
     and be owned by root or the directory's owner, with no symlink in the
     path; otherwise `docker.compose_unavailable` with the reason. A changed
     config hash since the last run is shown in the plan. A project named
-    `darkpanel*`, or one whose resolved configuration (`docker compose
-    config --format json`) or current containers (read through the Engine
-    API) name an object labelled `darkpanel.module`, is refused with
-    `docker.owned`.
+    `darkpanel*`, or one whose resolved configuration or current containers
+    (read through the Engine API) name an object labelled `darkpanel.module`,
+    is refused with `docker.owned`. A resolved configuration containing a
+    **provider service** (a service with a `provider` key, which makes
+    Compose run a host program) or any other top-level or service key outside
+    the set the pinned Compose version documents for containers, networks,
+    volumes, configs and secrets is refused with
+    `docker.compose_unavailable`; Darkpanel never lets Compose run host
+    programs.
+  - **R54 exception.** Compose has no Engine API, so validation reads the
+    resolved configuration from `docker compose config --format json`. This
+    is the one place Darkpanel parses `docker` CLI output: Compose's own
+    JSON document, not human-readable text, parsed strictly and fuzzed (9).
+    ADR 0014 records it, together with the Compose execution exception to
+    ADR 0009 (an allowlisted binary that reads operator-authored files and
+    starts containers through the daemon).
   - **Running.** `/usr/bin/docker compose --project-directory <dir> -p <name>
     -f <file>... [--env-file <f>]... [--profile <p>]... <verb>` with fixed
     verb flags (`up -d`, `down`, `pull`, `restart`, and `config --format
@@ -973,8 +1277,9 @@ on effects that occurred.
   `tailscale.latency` reports two measurements per region of the DERP map:
   **STUN latency** (labelled as such: STUN binding requests from the agent to
   the region's STUN endpoints, three probes, median; "unavailable" when the
-  region has no STUN endpoint or UDP is blocked) and **relay-path latency**
-  (HTTPS `GET /derp/latency-check` to the region's nodes, median of three;
+  region has no STUN endpoint or UDP is blocked) and **DERP HTTPS probe
+  latency** (HTTPS `GET /derp/latency-check` to the region's nodes, median of
+  three; it measures reaching the server, not a relayed peer path;
   "unavailable" on failure). A small hand-written STUN client; no Tailscale
   library.
 - **Preferences (R57).** `tailscale.prefs.set` (revertible): `wantRunning`,
@@ -1010,19 +1315,47 @@ on effects that occurred.
   - `tailscale.package.update` (irreversible, typed hostname) upgrades to the
     repository's current version; refuses a held package
     (`tailscale.package_held`).
-  - `tailscale.package.pin` (compensable; DERP hosts, 4.3) installs exactly
-    `tailscale=<version>` and holds it with `apt-mark hold`; it journals the
-    prior version and hold state first, and its undo reinstalls the prior
-    version and restores the prior hold state (the step needs repair if the
-    repository no longer has the prior version).
+  - `tailscale.package.pin` (compensable, long-running; DERP hosts, 4.3)
+    installs exactly `tailscale=<version>` and holds it. Changing tailscaled
+    can cut the agent's own link to the controller, so the pin is an
+    **agent-local transaction that rolls itself back**, like the updater
+    (ADR 0007), with a module recovery handler (1.3b). Phases, each journaled
+    before it runs, in `tailscale_pins`:
+    1. `recorded`: the prior version, the prior hold state, and whether the
+       package is installed;
+    2. `staged`: the prior version's `.deb` is fetched into the managed
+       directory `/var/lib/darkpanel/agent/tailscale-debs/` (so rollback does
+       not depend on the repository or the network), and the target version
+       is downloaded (`apt-get install --download-only`);
+    3. `unheld`: `apt-mark unhold tailscale`;
+    4. `installed`: `apt-get install -o ... -y --allow-downgrades
+       tailscale=<version>`;
+    5. `held`: `apt-mark hold tailscale`;
+    6. `checking`: for up to 120 s, tailscaled answers on its socket, the
+       node is back in its prior backend state, and the agent's session to
+       the controller is up (for a host whose link runs over the tailnet);
+    7. `done`.
+
+    A failed check, or an agent restart in phases 3–6, rolls back locally:
+    install the staged prior `.deb` (`apt-get install -y --allow-downgrades
+    <file>`), restore the prior hold state, restart tailscaled, and mark the
+    change failed; the controller learns the result through the lookup and
+    the journal when the link returns. Undo (when the controller asks)
+    performs the same rollback. `tailscale.package.unpin` (compensable, undo:
+    re-hold) restores the hold state recorded by the pin it reverses without
+    changing the installed version.
   - Files: `/usr/share/keyrings/tailscale-archive-keyring.gpg` (fingerprint
     pinned in code) and `/etc/apt/sources.list.d/tailscale.list`. If either
     exists and is not byte-identical to what Darkpanel would write, install
     refuses with `tailscale.repo_conflict`; if identical, it is used but not
     recorded as owned, so uninstall leaves it.
-  - `apt-get` runs with `-o DPkg::Lock::Timeout=120`, `update` limited to
-    that source list, then `install -y`. The repository line uses the OS
-    codename and the `stable` track; unsupported OS or architecture refuses.
+  - `apt-get` runs with the verb first and options after it (1.8):
+    `update -o DPkg::Lock::Timeout=120 -o Dir::Etc::sourcelist=<tailscale.list>
+    -o Dir::Etc::sourceparts=-`, then `install -o DPkg::Lock::Timeout=120 -y
+    tailscale` (the pin adds `--allow-downgrades` and the exact version). The
+    repository line uses the OS codename and the `stable` track; unsupported
+    OS or architecture refuses. Package installs and updates are
+    long-running (1.3).
 - **Module preflight** checks only the OS; `tailscale.status` and every action
   except `package.install` report `tailscale.unavailable` through per-action
   availability when the socket does not answer.
@@ -1080,20 +1413,36 @@ on effects that occurred.
   1. "Add host" in the Hosts dialog (through the host-create extension,
      1.12) and `darkpanel host create --tailnet-join --tags <t>` extend
      `core.host.create` with optional `tailnetJoin` and `tags` (additive
-     input fields). The controller creates a one-use, pre-authorized auth key
-     with those tags and places it, sealed for the host, in an additive field
-     of the enrollment bundle, together with the controller's tailnet
-     address.
-  2. `install.sh --role agent` and `darkpanel system install --role agent`,
-     given such a bundle, install tailscale (the same code as
+     input fields). The controller creates a one-use, pre-authorized,
+     ephemeral-false auth key with those tags and an expiry equal to the
+     enrollment token's (one hour), description `darkpanel-enroll-<host id>`.
+  2. **Bundle v2.** The existing enrollment token (`transport.Token`, five
+     fields) is unchanged. A join adds a **versioned bootstrap bundle**: the
+     string `dpb2.` followed by base64url JSON `{v: 2, token: <the existing
+     token string>, tailnetKey, controllerTailnetAddr}`. The parser accepts
+     either a plain token (as today) or a `dpb2.` bundle; any other version is
+     refused with an explicit error. The bundle is a one-use bearer secret,
+     shown once like the token; the auth key travels in it in clear, because
+     no key shared with the not-yet-enrolled host exists, and its exposure is
+     bounded by its single use, its tags and its one-hour expiry. The
+     controller stores the key sealed for cleanup only.
+  3. **Cleanup.** When the host enrolls, the controller deletes nothing (the
+     key is used up). When the token expires unused or the host is deleted
+     first, a sweep deletes the key by description; an uncertain key
+     creation is swept as in 1.9.
+  4. `install.sh --role agent` and `darkpanel system install --role agent`,
+     given a `dpb2.` bundle, install tailscale (the same code as
      `tailscale.package.install`), log in through the local API with the key,
-     wait up to 60 s for a tailnet address, and then enroll over the tailnet.
-  3. The host page shows the join result. `tailnet.node.join` (composite:
-     `install` when absent, `key`, `login`) remains as the retry path for an
-     already enrolled, reachable host.
+     wait up to 60 s for a tailnet address, and then enroll over the tailnet
+     to `controllerTailnetAddr`. A failure leaves the host un-enrolled and
+     prints the reason; rerunning with a fresh bundle is the retry.
+  5. The host page shows the join result. `tailnet.node.join` (composite,
+     `unwind: reverse`: `install` when absent, `key`, `login`) remains as the
+     retry path for an already enrolled, reachable host.
 
   Wave 4 owns these edits: `core.host.create` and the enrollment bundle in
-  `internal/controller`, `install.sh.in`, the agent install path in
+  `internal/controller`, the bundle parser in `internal/transport/token.go`
+  (and its fuzz seed), `install.sh.in`, the agent install path in
   `internal/install`, the CLI flag, and the Hosts dialog extension.
 - **Web.** `/tailnet` with devices, approvals, auth keys and a policy editor
   with validate and diff.
@@ -1124,7 +1473,7 @@ on effects that occurred.
   `/etc/systemd/system/darkpanel-derper.service` (user `darkpanel-derp`,
   `AmbientCapabilities=CAP_NET_BIND_SERVICE`, `NoNewPrivileges=yes`) and
   `/var/lib/darkpanel/derp/` (0700, owned by `darkpanel-derp`) as owned paths;
-  and starts the unit. The DERP spike confirms that `-verify-clients` works
+  and starts the unit. Install is long-running (1.3). The DERP spike confirms that `-verify-clients` works
   for a non-root user through tailscaled's socket; if it does not, the unit
   runs as root and the spike records why. `derp.server.uninstall`
   (compensable by `derp.server.install`) removes them.
@@ -1140,8 +1489,9 @@ on effects that occurred.
     `CertName: "sha256-raw:<hex SHA-256 of the certificate DER>"`, which
     `derp.server.install` reads back and stores in `derp_servers`. The spike
     confirms whether clients check the expiry of a pinned certificate; if
-    they do, a background task renews it and re-pins it through
-    `derp.region.set` 30 days before expiry.
+    they do, the DERP page warns 30 days before expiry, and the spike adds a
+    dedicated compensable action that issues a new certificate and is
+    followed by `derp.region.set` with the new pin.
 - **Client verification (R62).** `-verify-clients` checks every client's
   node key against the host's own tailscaled and fails closed when tailscaled
   does not answer; no fail-open flag applies to it. Every client must be
@@ -1152,76 +1502,103 @@ on effects that occurred.
   shows a warning.
 - **Ports.** 80/tcp, 443/tcp and 3478/udp; install refuses a host where any
   is already bound (`derp.port_in_use`), for example by Nginx Proxy Manager.
-- **Composites** (controller; coordination lock `composite:derp`):
-  - `derp.server.deploy`: `tailscaled` (`tailscale.package.pin` at the
-    derper version), `install`, `region` (`derp.region.set`, optional),
-    `ports` (`firewall.rules.apply` adding the three rules, labelled `derp`;
-    the one revertible step, last).
-  - `derp.server.upgrade`: `tailscaled` (`tailscale.package.pin` at the new
-    version) and `binary` (`derp.binary.update`); recovery and unwind restore
-    both, from their journals.
-  - `derp.server.remove`: `region` (`derp.region.remove`), `uninstall`, then
-    `ports` (`firewall.rules.apply` deleting the three rules; revertible,
-    last).
-  - `derp.region.set` and `derp.region.remove`: one step each,
-    `tailnet.policy.patch` on the `derpMap` (region id 900–999, refused if
-    taken: `derp.region_taken`; region code and name; the node entry
-    including the `ip` mode's pin; `omitDefaultRegions` only when the input
-    sets it, and removing a region does not touch it unless asked) and the
-    visibility grant.
-- **Binary update.** `derp.binary.update` (compensable, lock `derp`): stage
-  and verify the new binary, journal each phase, keep `derper.prev` (owned),
-  swap, restart, health-check (`/derp/probe`, STUN, and the relay probe
-  below); undo and recovery restore `derper.prev` from the journal.
-- **Probe (R64).** `derp.server.probe` (read): TLS `/derp/probe` and STUN from
-  the controller and chosen agents; a relay probe from two chosen agents
-  through the local API's DERP-region debug endpoint, forced to the region
-  (the spike confirms the endpoint and what it proves); and per-node
-  visibility through the DERP host's `whois`. It distinguishes each node's
-  **preferred** region (status) from **observed** use (peers currently
-  connected via the region). Real traffic between two nodes through the
-  region is a live-step demonstration (12).
+- **Composites** (controller; coordination lock `composite:derp`; no step
+  is itself a composite):
+  - `derp.server.deploy` (`unwind: reverse`): `tailscaled`
+    (`tailscale.package.pin` at the derper version, which rolls itself back
+    if it cuts the link, 4.1), `install` (`derp.server.install`), `ports`
+    (`firewall.rules.apply` adding the three rules, labelled `derp`; the one
+    revertible step, last). It does not publish the region: the owner
+    confirms the ports first.
+  - `derp.region.set` (`unwind: reverse`, one step: `tailnet.policy.patch`
+    on `derpMap` and the visibility grant, the patch computed by the DERP
+    module). Refused (`derp.not_ready`) until the server's deploy is
+    confirmed and `derp.server.probe` reaches `/derp/probe` and STUN from at
+    least two agents. Region id 900–999, refused if taken
+    (`derp.region_taken`); region code and name; the node entry including
+    the `ip` mode's pin. `omitDefaultRegions: true` is accepted only when the
+    resulting map keeps at least one other reachable custom region, or with
+    the typed acknowledgement "nodes will relay only through <region>".
+  - `derp.region.remove` (`unwind: reverse`, one step:
+    `tailnet.policy.patch`). Removing the last custom region while
+    `omitDefaultRegions` is set also clears `omitDefaultRegions`, so nodes
+    always keep a relay.
+  - `derp.server.upgrade` (`unwind: reverse`): `tailscaled`
+    (`tailscale.package.pin` at the new version) and `binary`
+    (`derp.binary.update`); each step rolls itself back locally on a failed
+    health check, and unwind undoes both.
+  - `derp.server.remove` (`unwind: forward`): `region` (`tailnet.policy.patch`
+    removing the region, as `derp.region.remove` would), `uninstall`
+    (`derp.server.uninstall`), `unpin` (`tailscale.package.unpin`: restores
+    the hold state recorded by the deploy's pin, without downgrading
+    tailscaled, so the host returns to ordinary updates), then `ports`
+    (`firewall.rules.apply` deleting the three rules; revertible, last).
+- **Binary update.** `derp.binary.update` (compensable, long-running, lock
+  `derp`, module recovery handler 1.3b): stage and verify the new binary,
+  journal each phase, keep `derper.prev` (owned), swap, restart, and
+  health-check for up to 60 s (the unit active, TLS `/derp/probe`, STUN, and
+  derper's log showing that it reached tailscaled for client verification);
+  a failed check or an interrupted swap restores `derper.prev` from the
+  journal, locally, without the controller.
+- **Probe (R64).** `derp.server.probe` (read): TLS `/derp/probe` and STUN
+  from the controller and chosen agents; the local API's DERP-region debug
+  endpoint from chosen agents, reported as **connectivity diagnostics**
+  only (it uses a throwaway node key and does not relay authenticated
+  traffic between two nodes); and per-node visibility through the DERP
+  host's `whois`. It distinguishes each node's **preferred** region (status)
+  from **observed** use (peers currently connected via the region). No
+  Darkpanel check proves an authenticated two-node relay; that is the M5
+  live-step demonstration (12): two test-tailnet nodes with direct UDP
+  blocked between them, the custom region the only one in the map, and
+  `tailscale ping` traffic shown relayed through it.
 - Controller table `derp_servers` (host, mode, hostname or address, region
   id, derper version, certificate pin). Web: `/derp`.
 
 ### 5. Action catalogue
 
 Classes: R revertible, C compensable (with its undo or compensating
-action), I irreversible (typed confirmation), Rd read, X composite. Side: A
-agent, C controller. Names omit the module prefix. Composites take
-`composite:<module>`; children take their own locks.
+action), I irreversible (typed confirmation), Rd read, X composite with its
+unwind policy (`rev` reverse, `fwd` forward). `L` marks a long-running action
+(asynchronous apply, 1.3). Side: A agent, C controller. Names omit the module
+prefix. Composites take `composite:<module>`; children take their own locks.
+Scopes follow 1.7 (existing rules kept; raised where noted).
 
 | Module | Action | Class | Side | Locks |
 |---|---|---|---|---|
-| firewall | `state.enable`, `state.disable`, `defaults.set`, `logging.set`, `rules.apply`, `rule.add`, `rule.delete`, `snapshot.restore`, `docker.enable`, `docker.disable`, `docker.repair`, `container.allow`, `container.deny`, `container.remove`, `containers.apply` | R | A | `firewall` |
+| firewall | `state.enable`, `state.disable`, `state.repair`, `defaults.set`, `logging.set`, `rules.apply`, `rule.add`, `rule.delete`, `snapshot.restore`, `docker.enable`, `docker.disable`, `docker.repair`, `container.allow`, `container.deny`, `container.remove`, `containers.apply` | R | A | `firewall` |
 | firewall | `snapshot.compare` | Rd | A | — |
-| docker | the table in 3 | — | A | `docker` |
+| docker | the table in 3 (`compose.*` admin and L; `image.pull` L) | — | A | `docker` |
 | tailscale | `prefs.set` | R | A | `tailscale` |
-| tailscale | `node.login`, `package.install`, `package.pin` (undo, 4.1) | C | A | `tailscale` |
-| tailscale | `node.logout`, `package.update` | I | A | `tailscale` |
+| tailscale | `node.login` (undo), `package.install` (undo, L), `package.pin` (self-rolling-back, recovery handler, L), `package.unpin` (undo: re-hold) | C | A | `tailscale` |
+| tailscale | `node.logout`, `package.update` (L) | I | A | `tailscale` |
 | tailscale | `cert.get` (`Internal`) | Rd | A | — |
 | tailnet | `account.connect` (undo: delete the created row), `device.authorize`, `device.set-routes`, `authkey.create`, `policy.set`, `policy.patch` (undo, 4.2) | C | C | `tailnet` |
 | tailnet | `account.disconnect`, `device.expire`, `device.delete` | I | C | `tailnet` |
 | tailnet | `device.list`, `policy.get` | Rd | C | — |
-| tailnet | `node.join` (install, key, login) | X | C | — |
-| derp | `server.install` (undo), `server.uninstall` (by `server.install`), `binary.update` (undo) | C | A | `derp` |
+| tailnet | `node.join` (install, key, login) | X rev | C | — |
+| derp | `server.install` (undo, L), `server.uninstall` (by `server.install`; used only in forward composites and by the operator), `binary.update` (undo, recovery handler, L) | C | A | `derp` |
 | derp | `server.probe` | Rd | C | — |
-| derp | `server.deploy`, `server.upgrade`, `server.remove`, `region.set`, `region.remove` (4.3) | X | C | — |
-| npm | `instance.deploy`, `instance.upgrade`, `network.attach`, `network.detach`, `proxyhost.add`, `proxyhost.update`, `proxyhost.remove`, `accesslist.add`, `accesslist.remove`, `certificate.request` (undo, 6) | C | A | `npm` |
+| derp | `server.deploy` (tailscaled, install, ports), `server.upgrade` (tailscaled, binary), `region.set`, `region.remove` (one `tailnet.policy.patch` step each) | X rev | C | — |
+| derp | `server.remove` (region, uninstall, unpin, ports) | X fwd | C | — |
+| npm | `instance.deploy` (undo, L), `instance.upgrade` (undo, recovery handler, L), `instance.confirm-public` (undo: clear the mark), `network.attach`, `network.detach` (undo: the opposite, only for the claim this change made; 6), `proxyhost.add`, `proxyhost.update`, `proxyhost.remove`, `accesslist.add`, `accesslist.remove` (undo bound to the id), `certificate.request` (undo: delete the created certificate, L) | C | A | `npm` |
 | npm | `instance.remove` (deletes volumes), `certificate.remove` | I | A | `npm` |
 | npm | `admin.reveal-password` (admin, secret delivery) | Rd | A | — |
-| npm | `instance.deploy-public`, `expose.container`, `expose.remove`, `admin.expose`, `admin.unexpose` (6) | X | C | — |
-| cloudflare | `account.connect` (undo: delete the created row), `tunnel.create` (undo), `tunnel.adopt` (undo: restore the stored hash), `hostname.add`, `hostname.remove` (each other) | C | C | `cloudflare` |
+| npm | `instance.deploy-public` (deploy, ports when the integration is on), `expose.container` (network, cert, proxy), `admin.expose` (cert, proxy) | X rev | C | — |
+| npm | `expose.remove` (proxy remove, network detach), `admin.unexpose` (proxy remove) | X fwd | C | — |
+| cloudflare | `account.connect` (undo: delete the created row), `tunnel.create` (undo), `tunnel.adopt` (undo: restore the stored hash), `hostname.add` (undo), `hostname.remove` (by `hostname.add`) | C | C | `cloudflare` |
 | cloudflare | `account.disconnect`, `tunnel.delete` | I | C | `cloudflare` |
-| cloudflare | `tunnel.list` | Rd | C | — |
-| cloudflare | `connector.run`, `connector.stop` (each other), `network.attach`, `network.detach` (undo, as for NPM) | C | A | `cloudflare` |
-| cloudflare | `connector.deploy`, `expose.container`, `expose.remove` (7) | X | C | — |
+| cloudflare | `tunnel.list`; `tunnel.token` (`Internal`) | Rd | C | — |
+| cloudflare | `connector.run` (undo), `connector.stop` (by `connector.run`), `network.attach`, `network.detach` (claims, as for NPM) | C | A | `cloudflare` |
+| cloudflare | `connector.deploy` (tunnel, token, run), `expose.container` (network, hostname) | X rev | C | — |
+| cloudflare | `expose.remove` (hostname remove, network detach) | X fwd | C | — |
 | panel | `network.create` (undo: remove if unused), `network.remove` (by create) | C | A | `panel` |
-| panel | `listener.open` (undo: revoke and close), `listener.revoke` (`BreakGlass`; by `listener.open`) | C | C | `panel` |
-| panel | `exposure.add`, `exposure.remove` (8) | X | C | — |
+| panel | `listener.open` (undo: revoke and close), `listener.revoke` (`BreakGlass`; undo: none, because revocation is monotonic and reopening needs a new `exposure.add`) | C | C | `panel` |
+| panel | `exposure.add` (8) | X rev | C | — |
+| panel | `exposure.remove` (8) | X fwd | C | — |
 
-The wave that builds a module may add read actions and resources; any other
-change to this table is a spec change.
+Every step of a `rev` composite has an `Undo` handler. The wave that builds a
+module may add read actions and resources; any other change to this table is
+a spec change.
 
 ### 6. Exposure: Nginx Proxy Manager (R65–R68) — module `npm`
 
@@ -1255,33 +1632,64 @@ change to this table is a spec change.
   instance (its volumes are fresh) and deploys again. The password is never
   in the container's environment, the agent's logs or the log stream (logs
   of `darkpanel-npm` are filtered for it).
-- **Opening 80 and 443.** NPM's ports are Docker-published bindings. With the
-  integration enabled they are opened by one `firewall.containers.apply`
-  allowing both bindings of `darkpanel-npm`; without the integration they are
-  already reachable and the plan says so. `npm.instance.deploy-public`
-  (composite): `deploy`, then `ports` (the revertible step, last, `after:
-  [deploy]`); the user confirms after checking the ports from outside.
+- **Opening 80 and 443.** NPM's ports are Docker-published bindings.
+  `npm.instance.deploy-public` (composite, `unwind: reverse`): `deploy`, then,
+  only when the host's firewall integration is enabled and supported,
+  `ports` (one `firewall.containers.apply` allowing both bindings of
+  `darkpanel-npm`; the revertible step, last, `after: [deploy]`), which the
+  user confirms after checking the ports from outside. Without the
+  integration the ports are already reachable, the composite has no
+  revertible step, and the instance is marked public by
+  `npm.instance.confirm-public` (compensable; the owner's explicit
+  confirmation, after checking from outside, that 80 and 443 are reachable),
+  which the UI offers right after deploy. A **confirmed public instance** is
+  one with a confirmed `ports` step or a `confirm-public` mark.
 - **Management (R66).** Agent actions call the local API with the stored
   credentials: `npm.proxyhost.add`, `.update`, `.remove`, `npm.accesslist.add`,
   `.remove` (compensable; undo bound to the id and before-state in the
   journal), `npm.certificate.request` (compensable; undo deletes the
   certificate it created; HTTP-01 through NPM's `provider: letsencrypt`),
   `npm.certificate.remove` (irreversible). Read actions list each.
+  `npm.certificate.request` sends `meta.letsencrypt_email` = the stored
+  `acmeEmail` and `meta.letsencrypt_agree: true` (the 6a spike confirms the
+  field names against the pinned image) and is long-running.
+- **Attachment claims.** `npm.network.attach` records a claim
+  `{network, claimant (exposure or composite id), preexisting}` in
+  `npm_attachments`; it attaches only when no claim exists and the
+  attachment is not already there (then `preexisting: true`).
+  `npm.network.detach` removes its claim and detaches only when no claim is
+  left and the attachment was not pre-existing, so removing one exposure
+  never breaks another on the same network.
 - **Expose container (R67).** `npm.expose.container` (composite) requires a
   confirmed public instance (`npm.not_public` otherwise). Steps: `network`
   (`npm.network.attach`: attach `darkpanel-npm` to the target's network),
   `cert` (`npm.certificate.request`), `proxy` (`npm.proxyhost.add`
-  forwarding to `<container>:<port>` with forced SSL and HSTS). No revertible
-  step. `npm.expose.remove`: `proxy` remove, `network` detach.
+  forwarding to `<container>:<port>` with forced SSL and HSTS), `unwind:
+  reverse`. No revertible step. `npm.expose.remove` (`unwind: forward`):
+  `proxy` remove, then `network` detach (claim-based).
 - **Admin UI (D2).** `npm.admin.expose` (composite, off by default; requires
   a confirmed public instance): `cert` (`npm.certificate.request` for the
   owner's hostname), `proxy` (`npm.proxyhost.add` for that hostname
   forwarding to `127.0.0.1:81` inside the NPM container, forced SSL and HSTS,
   optional access list). The host's NPM page and every Darkpanel page show a
-  warning banner while it exists. `npm.admin.unexpose` removes the proxy
-  host (the certificate stays unless the input asks).
+  warning banner while it exists. `npm.admin.unexpose` (`unwind: forward`)
+  removes the proxy host; the certificate stays, and deleting it is the
+  separate, explicitly confirmed `npm.certificate.remove`.
   `npm.admin.reveal-password` returns the admin password through secret
   delivery (1.14).
+- **Client header (1.10, 8).** NPM inserts a proxy host's advanced
+  configuration at `server` scope, while its generated `location /` sets
+  its own `proxy_set_header` lines, and nginx does not inherit server-level
+  `proxy_set_header` into a location that defines any. Darkpanel therefore
+  puts its header policy inside the effective location: it creates the proxy
+  host with a custom `locations` entry for `/` whose `advanced_config` holds
+  the complete header set (`X-Darkpanel-Client $realip_remote_addr`,
+  `X-Forwarded-Proto $scheme`, and every header `proxy.conf` would set). The
+  6a spike renders the configuration from the pinned image, records the
+  exact mechanism here, and the harness tests a missing and a forged
+  `X-Darkpanel-Client` (both must be overwritten or refused). If the pinned
+  image offers no way to set headers in the effective location, the part
+  stops for an owner decision before panel exposure through NPM is built.
 - **Upgrade (R68).** `npm.instance.upgrade` (agent, compensable, lock `npm`)
   is a durable transaction in `npm_upgrades` (phase per step, fsynced), with
   this recovery table:
@@ -1293,6 +1701,9 @@ change to this table is a spec change.
   | `archiving` | delete the partial archive; start the original container |
   | `archived` (archive written and its checksum verified) | start the original container |
   | `recreating`, `waiting` | remove the new container; restore the volumes from the verified archive; recreate the original from its journaled configuration |
+
+  These rows are the action's module recovery handler (1.3b); the upgrade
+  is long-running (1.3).
   | `done` | none |
 
   The new container waits up to 120 s for its API. An archive referenced by
@@ -1331,9 +1742,13 @@ change to this table is a spec change.
   as drift (`cloud.conflict`) and nothing is written until the owner accepts
   the current configuration with `cloudflare.tunnel.adopt` (compensable;
   re-reads the configuration and stores its hash; undo restores the previous
-  hash). A writer racing between Darkpanel's read and its `PUT` cannot be
-  excluded by any client; the re-read after the `PUT` (1.9) detects it and
-  reports drift.
+  hash). Two limits are stated plainly, because the provider offers no
+  conflict protection: a write by another client between Darkpanel's read
+  and its `PUT` is **overwritten without trace** (the re-read after the
+  `PUT`, 1.9, sees only Darkpanel's own configuration); only a write made
+  after Darkpanel's last write is detectable, as drift before the next one.
+  Exclusive management is therefore a requirement on the operator, not a
+  guarantee Darkpanel can enforce.
 
 #### 7.2 Connector (R70)
 
@@ -1342,15 +1757,16 @@ change to this table is a spec change.
   pinned digest, labelled `darkpanel.module=cloudflare`, restart policy
   `unless-stopped`, running `tunnel --no-autoupdate run --token-file
   /run/darkpanel/token`. The token is sealed in the agent database and
-  written to `/var/lib/darkpanel/agent/cloudflare/<tunnel>/token` in the
-  managed directory (1.8): the per-tunnel directory is root-owned 0700, and
-  the file is owned by UID 65532 (the image's user) with mode 0400,
-  bind-mounted read-only at `/run/darkpanel/token`. The token is never in the
+  written to `/var/lib/darkpanel/agent/cloudflare-tokens/<tunnel id>.token`
+  in that managed directory (1.8; root-owned 0700, flat names): the file is
+  owned by UID 65532 (the image's user) with mode 0400 and bind-mounted
+  read-only at `/run/darkpanel/token` (dockerd resolves the bind source as
+  root, so the directory need not be traversable by UID 65532). The token is never in the
   container's environment or command line. The harness checks that the real
   image reads it and that inspect and logs never show it.
-- `cloudflare.connector.deploy` (composite): `tunnel` (optional
-  `cloudflare.tunnel.create`), `token` (fetch the token, sealed in the step
-  row), `run`.
+- `cloudflare.connector.deploy` (composite, `unwind: reverse`): `tunnel`
+  (optional `cloudflare.tunnel.create`), `token` (`cloudflare.tunnel.token`,
+  an `Internal` read whose output is sealed in the step row), `run`.
 
 #### 7.3 Public hostnames (R71)
 
@@ -1364,20 +1780,26 @@ change to this table is a spec change.
   `darkpanel:<change id>` and records its id. Remove deletes only the
   recorded record id, after checking that the record still has that content
   and comment, and only the rule it added. Controller startup recovery
-  finishes or undoes an operation found mid-phase. Unrelated ingress rules
-  are carried over unchanged.
+  finishes or undoes an operation found mid-phase through the actions'
+  module recovery handler (1.3b). Unrelated ingress rules are carried over
+  unchanged. `hostname.add` has an `Undo` (remove the record and rule it
+  created, after the post-state checks); `hostname.remove` is compensated by
+  `hostname.add` and used only in forward composites and by the operator.
 - `cloudflare.expose.container` (composite): `network`
   (`cloudflare.network.attach`, attaching the owned cloudflared container to
   the target's network) and `hostname` (service `http://<container>:<port>`).
-  No inbound port opens. `cloudflare.expose.remove`: `hostname` remove,
-  `network` detach.
+  `unwind: reverse`. No inbound port opens. `cloudflare.expose.remove`
+  (`unwind: forward`): `hostname` remove, then `network` detach.
+  `cloudflare.network.attach` and `detach` use attachment claims in
+  `cloudflare_attachments`, as for NPM (6).
 - Controller tables `cloudflare_accounts`, `cloudflare_tunnels`,
   `cloudflare_hostnames`. Web: `/cloudflare`, and Expose via tunnel in the
   container action slot.
 
 ### 8. Exposure: the panel itself (R72) — module `panel`
 
-- **Expose.** `panel.exposure.add` (controller composite), input
+- **Expose.** `panel.exposure.add` (controller composite, `unwind:
+  reverse`, `MinScope: admin`), input
   `via: npm|tunnel`, the public hostname, and the controller's host (the only
   host allowed: `panel.wrong_host`). Refused with `panel.totp_incomplete`
   while any admin is pending TOTP, with `panel.already_exposed` when an
@@ -1396,10 +1818,9 @@ change to this table is a spec change.
      `.2`, client header per 1.10.
   4. `cert` (NPM only, `npm.certificate.request` for the hostname).
   5. `proxy`: the NPM proxy host (upstream `https://<gateway>:9443`, forced
-     SSL, HSTS, certificate verification of the internal hop off, and
-     advanced configuration `proxy_set_header X-Darkpanel-Client
-     $realip_remote_addr; proxy_set_header X-Forwarded-Proto $scheme;
-     proxy_read_timeout 3600s;`) or the tunnel hostname (service
+     SSL, HSTS, certificate verification of the internal hop off, and the
+     header policy and `proxy_read_timeout 3600s` placed in the effective
+     `location /` as section 6 describes) or the tunnel hostname (service
      `https://<gateway>:9443`, `noTLSVerify`).
   6. `ports`: `firewall.rules.apply` adding `allow in on dp-panel from <proxy>
      to <gateway> port 9443 proto tcp`; the one revertible step, last.
@@ -1411,14 +1832,18 @@ change to this table is a spec change.
   public source, a private source and an attached container, and expect the
   recorded client address to be the true one and plain-HTTP requests to be
   refused.
-- **Remove.** `panel.exposure.remove` (composite): `revoke`
-  (`panel.listener.revoke`: commits the durable `revoked` state, which every
-  request and stream checks, then closes the listener and its tracked
-  connections after the response, 1.10), then `proxy` remove (NPM proxy host
-  or tunnel hostname), `attach` detach, `network` remove, and `ports`
-  (`firewall.rules.apply` deleting the rule; revertible, last). Remote steps
-  that keep failing leave the composite `needs_repair` with the panel already
-  unreachable through the proxy. Break-glass: `sudo darkpanel panel listener
+- **Remove.** `panel.exposure.remove` (composite, `unwind: forward`):
+  `revoke` (`panel.listener.revoke`: commits the durable `revoked` state,
+  which every request and stream checks, then closes the listener and its
+  tracked connections after the response, 1.10), then `proxy` remove (NPM
+  proxy host or tunnel hostname), `attach` detach (claim-based), `network`
+  remove, and `ports` (`firewall.rules.apply` deleting the rule; revertible,
+  last). Revocation is monotonic: no failure, timeout, revert of the
+  `ports` step or restart reopens the listener (the `ports` step's revert
+  restores only the firewall rule, behind a revoked listener); reopening
+  needs a new `panel.exposure.add`. A step that keeps failing leaves the
+  composite `needs_repair` with the panel already unreachable through the
+  proxy, and repair retries forward. Break-glass: `sudo darkpanel panel listener
   revoke --local` over the controller socket runs `panel.listener.revoke`
   alone (`BreakGlass`); `darkpanel change repair` completes the rest later.
   `panel.not_exposed` refuses a removal when no exposure exists.
@@ -1510,32 +1935,63 @@ change to this table is a spec change.
 - **Restore.** `darkpanel controller restore --in <file>`, as root, with both
   services stopped (refused otherwise), on a host after
   `system install --role controller`, under an exclusive lock file
-  `/run/darkpanel-restore.lock`:
-  1. `staged`: decrypt and authenticate the whole file into staging files on
-     each destination's own filesystem — the database into the managed
-     directory `/var/lib/darkpanel/controller/restore/`, the key into the
-     managed directory `/etc/darkpanel/restore/` — each fsynced, with their
-     directories; refuse on any authentication failure or truncation;
+  `/run/darkpanel-restore.lock`. Every restore has a transaction id `<tx>`
+  (a ULID); every file it creates carries it, so recovery acts only on its
+  own transaction's files and never on a previous restore's. The restore
+  command writes all staging files itself (root, temporary file, fsync,
+  rename, directory fsync), not through the agent's file provider; the
+  staging directories are declared in the install layout for uninstall only.
+  Phases, journaled in `/var/lib/darkpanel/controller/restore-<tx>.journal`
+  (each journal write fsynced with its directory), with per-file progress:
+  1. `staged`: decrypt and authenticate the whole file into
+     `controller.db.restore-<tx>` beside the database and
+     `controller.key.restore-<tx>` beside the key (each on its destination's
+     own filesystem); refuse on any authentication failure or truncation;
   2. `validated`: the database passes `PRAGMA integrity_check`, its schema
      is not newer than the binary's, and the key opens a sealed canary value
      in it;
-  3. `journaled`: write the restore journal
-     `/var/lib/darkpanel/controller/restore.journal` (fsync, directory
-     fsync);
-  4. `moved-aside`: rename the current database (with `-wal` and `-shm`) and
-     key to `.pre-restore` (directory fsync each);
-  5. `installed`: rename the staged files into place, set owner and mode
-     (`darkpanel`, 0600), directory fsync each;
-  6. `done`: remove the journal and the staging directories.
+  3. `journaled`: the journal records, for each of `controller.db`,
+     `controller.db-wal`, `controller.db-shm` and `controller.key`, whether
+     it exists now (original presence);
+  4. `moved-aside`: each existing original is renamed to `<name>.pre-<tx>`,
+     one at a time, the journal recording each rename before the next;
+  5. `installed`: each staged file is renamed into place with owner and mode
+     (`darkpanel`, 0600), one at a time, recorded the same way;
+  6. `quarantined`: the restored database is marked `restore_quarantine`
+     (below);
+  7. `done`: the journal is removed; `.pre-<tx>` files are kept until the
+     next successful restore or a manual cleanup command removes them.
 
   Recovery: the controller unit gains `ExecStartPre=+/usr/local/bin/darkpanel
   controller restore --recover`, which runs as root before the controller
-  starts, takes the same lock, and completes a journal in phase
-  `moved-aside` or `installed`, or rolls back from `.pre-restore` a journal
-  in an earlier phase. Tests cover wrong passphrase, truncation, tampering, a
-  large database within the memory bound, and a crash at each phase; the
-  harness restores a controller backup onto a fresh VM and re-enrolls an
-  agent. Wave 7 edits the controller unit template in `internal/install`.
+  starts, takes the same lock, and for each journal found completes it when
+  phase 5 has started (renaming the remaining staged files) or rolls it back
+  otherwise (renaming back exactly the `.pre-<tx>` files its journal
+  recorded, and removing originals that did not exist before), acting only
+  on files named with that journal's `<tx>`. Recovery itself is idempotent.
+- **Restore quarantine (disaster restore mode).** A backup captures the
+  controller as it was, including non-terminal records that are history,
+  not instructions. A restored database therefore starts in quarantine:
+  - non-terminal composites, single changes, cloud operations (Cloudflare
+    hostname phases, uncertain cloud effects) and update rollouts are marked
+    `quarantined` and are neither replayed, resumed nor unwound;
+  - every runtime listener is restored `closed` and every exposure
+    `needs_repair` (its proxy container, bridge and gateway belong to the old
+    host);
+  - user and token mutations are refused with `core.recovering`, as at
+    start (1.3a), until the operator runs `darkpanel controller
+    release-quarantine`, which lists every quarantined record with what it
+    would have done and lets the operator reconcile each against the agents'
+    executing-side state (through the read-only lookup) and the providers
+    (resolve as done, resolve as never done, or keep for repair); records
+    whose agents are not yet re-enrolled stay quarantined.
+- Tests cover wrong passphrase, truncation, tampering, a large database
+  within the memory bound, a crash at each phase and inside each rename,
+  two restores in a row with a crash in the second, a crash during recovery,
+  and a backup taken mid-composite restored onto a fresh VM (the composite
+  stays quarantined and nothing is unwound); the harness restores a
+  controller backup onto a fresh VM and re-enrolls an agent. Wave 7 edits the
+  controller unit template in `internal/install`.
 - **Runbook (R81).** `docs/runbook.md`: lockout (firewall break-glass,
   Tailscale prefs revert, panel listener revoke), failed update (rollback,
   recover), lost controller (restore from backup, re-enroll agents).
@@ -1551,18 +2007,23 @@ change to this table is a spec change.
   `docker.engine_unavailable`, `docker.in_use`, `docker.owned`,
   `docker.compose_unavailable`, `tailscale.unavailable`,
   `tailscale.repo_conflict`, `tailscale.package_present`,
-  `tailscale.package_held`, `tailnet.policy_conflict`,
+  `tailscale.package_held`, `tailscale.pin_failed`, `tailnet.policy_conflict`,
   `tailnet.policy_invalid`, `cloud.not_connected`, `cloud.auth_failed`,
   `cloud.permission_missing`, `cloud.rate_limited`, `cloud.unavailable`,
   `cloud.uncertain_outcome`, `cloud.conflict`, `npm.unhealthy`,
   `npm.not_public`, `npm.setup_failed`, `derp.region_taken`,
-  `derp.port_in_use`, `derp.verify_failed`, `panel.totp_incomplete`,
+  `derp.port_in_use`, `derp.verify_failed`, `derp.not_ready`,
+  `panel.totp_incomplete`,
   `panel.already_exposed`, `panel.wrong_host`, `panel.not_exposed`,
   `core.child_failed`, `core.needs_repair`, `core.recovering`,
-  `core.stream_limit`. Guard failures use the existing `plan.guard_failed`;
-  `module.unavailable` and `core.invalid_input` already exist (wave 0 checks
-  each name against `internal/core/errcode` and adds only the missing ones).
-- **Actors:** `system:firewall.reconcile`.
+  `core.stream_limit`, `core.undo_conflict`, `core.quarantined`. Guard
+  failures use the existing `plan.guard_failed`; `module.unavailable` and
+  `request.invalid_input` already exist (wave 0 checks each name against
+  `internal/core/errcode` and adds only the missing ones).
+- **Actors:** `system:firewall.reconcile`, `system:recovery` (startup
+  recovery, composite unwind and module recovery handlers; accepted by the
+  principal checks for undo, lookup, revert and confirm of changes it
+  recovers).
 - **Dependencies** (wave 0 adds all): `github.com/tailscale/hujson`;
   `golang.org/x/crypto` (argon2, chacha20poly1305); `golang.org/x/sys/unix`
   for hand-written netlink (already present); `vitest-axe` and Playwright as
@@ -1599,19 +2060,28 @@ change to this table is a spec change.
 - Agent protocol: `hello` and the frozen surfaces are unchanged. New,
   non-frozen agent routes: `GET /agent/v1/streams`,
   `GET /agent/v1/streams/{module}/{name}`, `POST /agent/v1/changes/{id}/undo`,
-  `PUT /agent/v1/modules/{id}/enabled`; the apply request gains the
-  core-level `guardRefresh` field.
-- API: `POST /api/v1/changes/{id}/undo` and `/repair`; the SSE stream relay;
-  `core.host.create` gains optional `tailnetJoin` and `tags`; the enrollment
-  bundle gains an optional sealed tailnet key and the controller's tailnet
-  address (additive).
-- Shared contracts: class `composite`; change states
-  `awaiting_confirmation`, `undoing`, `needs_repair`, `recovering`;
-  `ActionSpec.Available`, `MinScope`, `Internal`; `core.Guard.Overridable`,
-  `Overridden`; owned-path kinds `restore` and `managed-dir`.
+  `GET /agent/v1/plans/{plan id}` (read-only lookup),
+  `PUT /agent/v1/modules/{id}/enabled`,
+  `GET /agent/v1/modules/{id}/availability`; the apply request gains the
+  core-level `guardRefresh` field and, for long-running actions, returns once
+  the intent is persisted.
+- API: `POST /api/v1/changes/{id}/undo`, `/repair` and `/release`; the SSE
+  stream relay; asynchronous apply for composites and long-running actions
+  (apply answers with the change in `applying`); `core.host.create` gains
+  optional `tailnetJoin` and `tags`; enrollment gains the versioned `dpb2.`
+  bootstrap bundle beside the unchanged five-field token;
+  `darkpanel controller release-quarantine`.
+- Shared contracts: class `composite` with `unwind: reverse | forward`;
+  change states `applying`, `awaiting_confirmation`, `undoing`,
+  `needs_repair` (composites and single changes), `recovering`,
+  `quarantined`; `ActionSpec.Available`, `MinScope` (raise only), `Internal`,
+  `Undo`, `Recover`, a long-running flag; effect states and recovery
+  identities; `core.Guard.Overridable`, `Overridden`; owned-path kinds
+  `restore` and `managed-dir`.
 - Database: new module tables are prefixed with the module id; core gains
-  `parent_change_id` on changes, `core_composite_steps`, `core_effects` and
-  `core_listeners`; all migrations are expand-only.
+  `parent_change_id` on changes, `core_composite_steps`, `core_effects`
+  (with undo state per change), `core_listeners` and the
+  `restore_quarantine` marker; all migrations are expand-only.
 - Files on disk: every new file, directory, unit and block is in its module's
   owned paths; UFW state files are `restore` paths.
 - ADR 0008 divergence: ADR 0008 planned a test tailnet in CI from M5; this
@@ -1621,6 +2091,8 @@ change to this table is a spec change.
   `RunSSH`-on refusals, and the latency resource against the DERP map. ADR
   0014 records the divergence.
 - ADR 0014 records: 1.1–1.14, the composite refinement of ADR 0004, the
+  module recovery handler exception to ADR 0004 (1.3b), the Compose
+  exceptions to ADR 0009 and R54 (3), the
   owned-path kinds, module-owned Docker objects, DERP as a signed artifact
   under systemd and `cloudflared` as a container (closing the deferred
   decisions in `docs/adr/README.md`), and the new packages
@@ -1633,7 +2105,7 @@ change to this table is a spec change.
 
 | Wave | Part | Owns | Consumes | Runs |
 |---|---|---|---|---|
-| 0 | Core | `internal/core/**`, `internal/agent/**`, `internal/controller/**` except module code, `internal/transport/**`, `internal/cli/**` except module command files, `internal/install/**`, `internal/platform/` existing files and the runner, `internal/modules/modules.go`, module skeleton packages, `web/src/modules/registry.ts`, `web/src/modules/types.ts`, `web/src/modules/*/index.ts` stubs, `web/src/components/change-dialog*`, `web/src/shell.tsx`, `web/src/api/**`, `go.mod`, `go.sum`, `web/package.json`, `web/pnpm-lock.yaml`, `Makefile`, `test/harness/pins.go`, `provision.go`, `images.json` and the harness helpers, `docs/adr/0014-*`, `docs/adr/README.md` | — | alone |
+| 0 | Core | `internal/core/**`, `internal/agent/**`, `internal/controller/**` except module code, `internal/transport/**`, `internal/cli/**` except module command files (including `internal/cli/controller.go` and the registration hook), `cmd/darkpanel/**` (the path-selection hook), `internal/install/**`, `internal/platform/` existing files and the runner, `internal/modules/modules.go`, module skeleton packages, `web/src/modules/registry.ts`, `web/src/modules/types.ts`, `web/src/modules/*/index.ts` stubs, `web/src/components/change-dialog*`, `web/src/shell.tsx`, `web/src/api/**`, `go.mod`, `go.sum`, `web/package.json`, `web/pnpm-lock.yaml`, `Makefile`, `test/harness/pins.go`, `provision.go`, `images.json` and the harness helpers, `docs/adr/0014-*`, `docs/adr/README.md` | — | alone |
 | 0b-1 | Docker Engine client | `internal/platform/dockerapi/**` | 0 | parallel |
 | 0b-2 | Tailscale local client | `internal/platform/tslocal/**` | 0 | parallel |
 | 0b-3 | Sockets and routes | `internal/platform/netstat/**` | 0 | parallel |
@@ -1643,8 +2115,8 @@ change to this table is a spec change.
 | 3a | Docker module | `internal/modules/docker/**`, `web/src/modules/docker/**`, `test/harness/m4_test.go` | 2 | parallel |
 | 3b | Tailnet (contract check: scopes, policy API) | `internal/modules/tailnet/**` except `join*.go`; `web/src/modules/tailnet/**` except the Hosts dialog extension | 0 | parallel |
 | 3c | Cloudflare account, tunnels, hostnames (contract check: permissions, configuration API) | `internal/modules/cloudflare/**` except `connector*.go`, `expose*.go`; `web/src/modules/cloudflare/**` except connector and expose pages | 0 | parallel |
-| 4 | Tailscale node, guard, package, web certificate, tailnet join at install (spike: local API endpoints) | `internal/modules/tailscale/**`, `web/src/modules/tailscale/**`, `internal/modules/tailnet/join*.go`, `internal/controller/listen/tailscale_cert*.go`, the `core.host.create` and enrollment-bundle files in `internal/controller`, `install.sh.in`, `install.sh`, the agent install path in `internal/install`, `internal/cli/host*.go`, the Hosts dialog extension in `web/src/modules/tailnet/`, `test/harness/m5_node_test.go` | 1, 3b | alone |
-| 5 | DERP (spike: derper flags, IP certificate expiry, non-root verification, relay probe, visibility grant) | `internal/modules/derp/**`, `web/src/modules/derp/**`, `release/derper.version`, `.github/workflows/release.yml`, `test/harness/m5_derp_test.go` | 1, 3b, 4 | alone |
+| 4 | Tailscale node, guard, package, web certificate, tailnet join at install (spike: local API endpoints) | `internal/modules/tailscale/**`, `web/src/modules/tailscale/**`, `internal/modules/tailnet/join*.go`, `internal/controller/listen/tailscale_cert*.go`, the `core.host.create` and enrollment-bundle files in `internal/controller`, `install.sh.in`, `install.sh`, the agent install path in `internal/install`, the bundle parser in `internal/transport/token.go`, `internal/cli/host*.go`, the Hosts dialog extension in `web/src/modules/tailnet/`, `test/harness/m5_node_test.go` | 1, 3b | alone |
+| 5 | DERP (spike: derper flags, IP certificate expiry, non-root verification, the DERP-region debug endpoint as diagnostics, visibility grant) | `internal/modules/derp/**`, `web/src/modules/derp/**`, `release/derper.version`, `.github/workflows/release.yml`, `test/harness/m5_derp_test.go` | 1, 3b, 4 | alone |
 | 6a | Nginx Proxy Manager (spike: image digest, `LE_SERVER` and the CA-bundle variable) | `internal/modules/npm/**`, `web/src/modules/npm/**`, `test/harness/m6_npm_test.go` | 2, 3a | parallel |
 | 6b | Cloudflare connector and expose container | `internal/modules/cloudflare/connector*.go`, `expose*.go`, `web/src/modules/cloudflare/connector*`, `expose*`, `test/harness/m6_cloudflare_test.go` | 3a, 3c | parallel |
 | 7 | Controller backup and restore | `internal/controller/backup/**`, `internal/cli/controller_backup*.go`, the controller unit template in `internal/install`, `test/harness/restore_test.go` | 0 | alone |
@@ -1652,7 +2124,7 @@ change to this table is a spec change.
 | 9a | Fuzz inventory and targets | `docs/security/parsers.md`, `*_fuzz_test.go`, `testdata/fuzz/**`, `scripts/fuzz.sh`, `.github/workflows/fuzz.yml` | 0–8 | parallel |
 | 9b | Accessibility | `web/src/**` (fixes and `.a11y.test.tsx`), `docs/accessibility.md` | 0–8 | parallel |
 | 9c | Docs and API reference | `docs/user/**`, `docs/dev/**`, `docs/api/**`, the `api-docs` target in `Makefile`, `.github/workflows/ci.yml` | 0–8 | parallel |
-| 9d | Upgrade matrix and footprint | `test/harness/upgrade_matrix_test.go`, `footprint_test.go`, the `harness` build-tag files in `internal/agent/`, `.github/workflows/harness.yml` | 0–8 | parallel |
+| 9d | Upgrade matrix and footprint | `test/harness/upgrade_matrix_test.go`, `footprint_test.go`, the `harness` build-tag files in `internal/agent/` and `cmd/darkpanel/` (through the wave 0 path-selection hook), `.github/workflows/harness.yml` | 0–8 | parallel |
 | 10 | Security review, fixes, runbook, RC readiness | `docs/security/threat-model.md`, `docs/runbook.md`, `CHANGELOG.md`, `docs/versioning.md`; fixes anywhere | 0–9 | alone |
 
 - Shared files (module list, web registry and types, allowlist, error codes,
@@ -1663,8 +2135,9 @@ change to this table is a spec change.
 - Schema snapshots and the OpenAPI document are regenerated by the integrator
   after each wave merges.
 - Every part with a spike or contract check runs it as its first task; a
-  result that changes this spec is applied to the spec on `main` before the
-  part's plan continues, and one that breaks a requirement goes to the owner.
+  result that changes this spec is applied to the spec on `main` by the
+  integrator (the spec file has no owner inside a wave) before the part's
+  plan continues, and one that breaks a requirement goes to the owner.
 - Test isolation: unit tests use `t.TempDir()`, in-process fakes on random
   ports or temporary Unix sockets and no global state; harness tests derive
   VM names, work directories and network ranges from the test name (wave 0
@@ -1683,7 +2156,7 @@ touch `install.sh.in` or `internal/install/`).
 
 | Exit criterion | Evidence |
 |---|---|
-| M3: S1–S3 on all four OS | harness `TestM3*`: refusal for each protected flow (SSH, direct panel, agent link, outbound controller link, tailscaled egress), an IPv6 SSH session with `IPV6=no` refusing `state.enable`, revert on client disconnect and on reboot, prediction mismatch reverts, a manual `ufw` edit during the pending window survives the revert, an unsupported configuration (executable `before.init`) refused, exposure equals the scan by 2.7's rule for IPv4 and IPv6 (including a `partial` rule and IPv6 published to an IPv4-only bridge), published ports unreachable unless a binding is allowed, a new Docker network protected at creation, containers recreated under continuous scanning (including across an agent restart) never exposing an unallowed binding, foreign `DOCKER-USER` rules refusing enable, and disable leaving no Darkpanel chain loaded |
+| M3: S1–S3 on all four OS | harness `TestM3*`: refusal for each protected flow (SSH, direct panel, agent link, outbound controller link, tailscaled egress), an IPv6 SSH session with `IPV6=no` refusing `state.enable`, revert on client disconnect and on reboot, prediction mismatch reverts, a manual `ufw` edit during the pending window survives the revert, an unsupported configuration (executable `before.init`) refused, exposure equals the scan by 2.7's rule for IPv4 and IPv6 (including a `partial` rule and IPv6 published to an IPv4-only bridge), published ports unreachable unless a binding is allowed, a new Docker network protected at creation, containers recreated under continuous scanning (including across an agent restart) never exposing an unallowed binding, foreign `DOCKER-USER` rules refusing enable and, added later, refusing every mutation, disable leaving no Darkpanel chain loaded, tagged and manual `ufw route` rules surviving `ufw reload` and `disable`/`enable` with the block present, two containers on a public IPv4 and on a global IPv6 network reaching each other with the integration on, two bindings to one container port with disjoint allowed sources each refusing the other's source, an unallowed IPv6 binding proxied to an IPv4-only container closed, a non-Docker DNAT forward refusing enable until exempted and working after, `IPV6=no` with Docker IPv6 rules loaded refusing `state.enable`, and an asymmetric-route SSH session protected |
 | M4: every Docker requirement on a managed agent, including allow and deny from a container view | harness `TestM4` on the enrolled agent VM with the Compose plugin; web tests of the container action slot |
 | M5: node and tailnet management; a Darkpanel DERP region carries traffic between two nodes | unit tests against fakes; harness node tests that need no tailnet (Contracts); the live step for tailnet, join at install and DERP |
 | M6: container exposed through NPM and through a tunnel; panel exposed and reverted | harness: real NPM issuing a certificate from Pebble (`LE_SERVER` pointed at Pebble, `pebble-challtestsrv` as Pebble's DNS resolving the test hostname to the VM, Pebble's root in NPM's CA bundle; set only in harness deployments), real cloudflared reading its token file (it cannot reach a fake edge: the test checks the container, the file, and that inspect and logs never show the token; connector status from the fake API), panel exposure through NPM end to end with the spoofed-header tests; the live step for real certificates, tunnels and DNS |
@@ -1708,7 +2181,16 @@ touch `install.sh.in` or `internal/install/`).
   destination private ranges alone (revision 2): public and global subnets
   were unprotected.
 - Route rules by container address alone (revision 2): a reused address
-  inherited the allowance (owner chose D1).
+  inherited the allowance (owner chose D1). One shared `ufw-user-forward`
+  jump for every binding (revision 3): source policy spilled across bindings
+  to the same container port.
+- Nested composites and a uniform unwind (revision 3): nesting deadlocked on
+  the coordination lock, and unwinding a removal would have reopened the
+  panel.
+- Discovering a child's outcome by re-sending its apply (revision 3): it
+  could perform a step that had never run.
+- `docker.compose.up` as compensable (revision 3): recreation destroys
+  writable layers that no undo restores.
 - Running a change against a scratch copy of UFW's files: UFW has no
   supported alternate root.
 - Writing UFW's `user.rules` directly: UFW owns that file; Darkpanel writes
@@ -1727,7 +2209,10 @@ touch `install.sh.in` or `internal/install/`).
 
 M9 candidates; Docker's nftables backend (detected, reported unsupported);
 Docker before 28.0 for the firewall integration and NPM; non-bridge Docker
-networks for the integration (reported unprotected); UFW with executable
+networks for the integration (reported unprotected); Docker networks in
+routed gateway modes, and direct-routed access to custom-named bridges with
+non-private subnets (P2, reported unprotected); UFW with `IPV6=no` while
+foreign IPv6 rules are loaded; UFW with executable
 `before.init`/`after.init` or `MANAGE_BUILTINS=yes`; private-registry pulls
 through Compose; Headscale; more than one tailnet or Cloudflare account per
 controller; editing Darkpanel-managed tunnels outside Darkpanel.
@@ -1784,3 +2269,33 @@ controller; editing Darkpanel-managed tunnels outside Darkpanel.
   exclusive tunnel management, the UID 65532 token file (7); the panel's
   certificate step, client header, timeouts and bridge name (8); the exact
   backup format and a root pre-start restore recovery (10).
+- **Round 3 (2026-10-21)**, same panel on revision 3 (commit a16f757): Fable
+  23 findings (68 of 72 round-2 rows resolved; blocking set F1, F2, F4–F9),
+  Codex 42 (blocking set C1–C10, C18, C40–C42); 52 rows after deduplication
+  (one critical), all accepted; two resolutions await the owner (P1, P2).
+  Revision 4 changed: existing scopes kept with `MinScope` raising only
+  (1.7); recovery identities, post-state checks, attachment claims and a
+  durable undo state machine (1.2); no nested composites, `unwind: reverse |
+  forward`, asynchronous apply for composites and long-running actions, a
+  read-only plan lookup, persisted confirmation intent, a child watcher,
+  current-step-first unwind, a full recovery table and module recovery
+  handlers (1.3); background-task guard context (1.4); the availability
+  route and unredacted internal reads (1.7); flat managed directories and
+  the apt vector (1.8); no blind auth-key retry (1.9); command assembly hooks
+  (1.12); sysctl and `mangle`/`security` tables, the protocol grammar,
+  disable and `IPV6=no` transitions, the repair path, the full packet tuple,
+  every plausible ingress (2.1–2.3); journaled inverses for every firewall
+  mutation and single-change `needs_repair` (2.5); bridge in-interface
+  exemptions, per-binding chains, a global DNAT gate with declared
+  exemptions, foreign-rule refusal, proxied bindings under UFW `INPUT`, the
+  integration flag across disable (2.6); irreversible `compose.up`, refusal
+  of Compose provider services and the R54 exception (3); a self-rolling-back
+  `package.pin`, `package.unpin`, the apt sequence, HTTPS probe latency
+  (4.1); the versioned `dpb2.` bundle with key expiry and cleanup (4.2); the
+  DERP order (ports confirmed before the region), relay safety for
+  `omitDefaultRegions`, diagnostics-only probing, unpin on removal (4.3);
+  the catalogue with unwind policies and long-running marks (5);
+  conditional NPM ports and `confirm-public`, attachment claims, the
+  location-level header policy, ACME fields (6); honest limits of tunnel
+  read-back, flat token files (7); a forward, monotonic panel removal (8);
+  transaction-specific restore files and the restore quarantine (10).

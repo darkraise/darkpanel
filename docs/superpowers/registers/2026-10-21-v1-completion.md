@@ -69,3 +69,11 @@
 | 62 | Core: agent-side module enablement route PUT /agent/v1/modules/{id}/enabled (spec 1.4) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
 | 63 | Core: effects journal and undo route POST /agent/v1/changes/{id}/undo with change repair (spec 1.2) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
 | 64 | Core: managed-dir owned-path kind and restore entries (spec 1.8) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
+| 65 | Core: asynchronous apply for composites and long-running actions, read-only plan lookup (spec 1.3) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
+| 66 | Core: module recovery handlers (spec 1.3b) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
+| 67 | Core: recovery identities, post-state checks and the undo state machine (spec 1.2) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
+| 68 | Core: agent availability route and unredacted internal reads (spec 1.7) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
+| 69 | Restore quarantine after a disaster restore (spec 10) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
+| 70 | Enrollment bootstrap bundle dpb2 carrying the tailnet join key (spec 4.2) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
+| 71 | Owner confirmation P1: S3 wording for docker-proxy bindings governed by UFW INPUT rules (spec Owner decisions) | - | - | open | - |
+| 72 | Owner confirmation P2: Docker routed gateway modes and custom-named public bridges unsupported for the integration (spec Owner decisions) | - | - | open | - |
