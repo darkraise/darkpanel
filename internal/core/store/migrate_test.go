@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -375,5 +376,103 @@ func TestSchemaVersion(t *testing.T) {
 	}
 	if v, err := SchemaVersion(ctx, db, SideAgent); err != nil || v != 0 {
 		t.Errorf("agent SchemaVersion = %d, %v; want 0", v, err)
+	}
+}
+
+func TestMigrateRefusesKeepBelowOne(t *testing.T) {
+	db := openTemp(t)
+	core := MigrationSet{"core", sqlFS(map[string]string{"0001_core.sql": metaSQL})}
+	opts := migrateOpts(t, "v1", time.Date(2026, 10, 17, 1, 0, 0, 0, time.UTC))
+	opts.Keep = 0
+	if _, err := Migrate(context.Background(), db, opts, core, nil); err == nil || !strings.Contains(err.Error(), "backups kept") {
+		t.Fatalf("Migrate error = %v, want one naming the backups kept", err)
+	}
+	if tableExists(t, db, "core_meta") {
+		t.Error("core migrated with Keep 0")
+	}
+}
+
+func TestMigratePrunesOnEveryRun(t *testing.T) {
+	db := openTemp(t)
+	ctx := context.Background()
+	core := MigrationSet{"core", sqlFS(map[string]string{"0001_core.sql": metaSQL})}
+	opts := migrateOpts(t, "v1", time.Date(2026, 10, 17, 1, 0, 0, 0, time.UTC))
+	if _, err := Migrate(ctx, db, opts, core, nil); err != nil {
+		t.Fatal(err)
+	}
+	// Older backups that an earlier failed prune left behind.
+	for i := range 6 {
+		makeBackup(t, opts.BackupRoot, fmt.Sprintf("v0-v1-20261016T00000%dZ", i))
+	}
+	res, err := Migrate(ctx, db, opts, core, nil)
+	if err != nil || res.BackupDir != "" || res.PruneErr != nil {
+		t.Fatalf("second run = %+v, %v; want no backup and no prune error", res, err)
+	}
+	want := []string{
+		"none-v1-20261017T010000Z", "v0-v1-20261016T000002Z", "v0-v1-20261016T000003Z",
+		"v0-v1-20261016T000004Z", "v0-v1-20261016T000005Z",
+	}
+	if got := entryNames(t, opts.BackupRoot); fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("backups = %v, want %v", got, want)
+	}
+}
+
+func TestMigrateReportsAFailedPrune(t *testing.T) {
+	db := openTemp(t)
+	ctx := context.Background()
+	core := MigrationSet{"core", sqlFS(map[string]string{"0001_core.sql": metaSQL})}
+	opts := migrateOpts(t, "v1", time.Date(2026, 10, 17, 1, 0, 0, 0, time.UTC))
+	if _, err := Migrate(ctx, db, opts, core, nil); err != nil {
+		t.Fatal(err)
+	}
+	opts.BackupRoot = filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(opts.BackupRoot, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Migrate(ctx, db, opts, core, nil)
+	if err != nil {
+		t.Fatalf("Migrate: %v (a failed prune must not fail the run)", err)
+	}
+	if res.PruneErr == nil || !strings.Contains(res.PruneErr.Error(), "store: list backups") {
+		t.Errorf("PruneErr = %v, want the failure to list the backups", res.PruneErr)
+	}
+}
+
+func TestMigrateKeepsTheUpgradeBackupAfterAClockStepBack(t *testing.T) {
+	db := openTemp(t)
+	ctx := context.Background()
+	core := MigrationSet{"core", sqlFS(map[string]string{"0001_core.sql": metaSQL})}
+	opts := migrateOpts(t, "v1", time.Date(2026, 10, 17, 1, 0, 0, 0, time.UTC))
+	if _, err := Migrate(ctx, db, opts, core, nil); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 5 {
+		makeBackup(t, opts.BackupRoot, fmt.Sprintf("v0-v1-20261018T00000%dZ", i))
+	}
+	// The upgrade brings a new migration and runs while the clock reads a
+	// day before every backup.
+	core.FS = sqlFS(map[string]string{
+		"0001_core.sql":  metaSQL,
+		"0002_hosts.sql": "CREATE TABLE core_hosts (id TEXT PRIMARY KEY);",
+	})
+	opts.BinaryVersion = "v2"
+	opts.Now = time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC)
+	res, err := Migrate(ctx, db, opts, core, nil)
+	if err != nil || res.BackupDir == "" || res.PruneErr != nil {
+		t.Fatalf("upgrade run = %+v, %v; want a backup and no prune error", res, err)
+	}
+	upgrade := filepath.Base(res.BackupDir)
+	// A newer backup ranks the upgrade backup sixth, so only its protection
+	// keeps it on the restart, which has nothing pending.
+	makeBackup(t, opts.BackupRoot, "v0-v1-20261018T000009Z")
+	res, err = Migrate(ctx, db, opts, core, nil)
+	if err != nil || res.BackupDir != "" || res.PruneErr != nil {
+		t.Fatalf("restart = %+v, %v; want no backup and no prune error", res, err)
+	}
+	if _, err := os.Stat(filepath.Join(opts.BackupRoot, upgrade)); err != nil {
+		t.Errorf("the upgrade backup %s did not survive the restart: %v", upgrade, err)
+	}
+	if got := len(entryNames(t, opts.BackupRoot)); got != 5 {
+		t.Errorf("%d backups kept, want 5", got)
 	}
 }

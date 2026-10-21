@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -28,8 +29,8 @@ type MigrationSet struct {
 type MigrateOptions struct {
 	Side          string    // "controller" or "agent"; recorded in core_migrations
 	BinaryVersion string    // the running binary; the backup's "to" and core_meta binary_version
-	BackupRoot    string    // directory for Backup
-	Keep          int       // backups kept, 5 in production
+	BackupRoot    string    // directory for Backup and PruneBackups
+	Keep          int       // backups kept, at least 1; 5 in production
 	Now           time.Time // the backup timestamp
 }
 
@@ -52,6 +53,7 @@ type Result struct {
 	Applied   []Applied
 	BackupDir string // empty when no backup was taken
 	Failed    []ModuleFailure
+	PruneErr  error // a failed prune of old backups; the migration itself succeeded
 }
 
 type migration struct {
@@ -83,9 +85,16 @@ const createMigrationsTable = `CREATE TABLE IF NOT EXISTS core_migrations (
 // remaining migrations are skipped. Recorded migrations numbered above the
 // highest embedded one are ignored, so an older binary runs on a newer schema.
 // Module sets named like the core or like each other are refused before
-// anything runs, because they would share core_migrations rows.
+// anything runs, because they would share core_migrations rows, and so is a
+// Keep below 1. A run that gets as far as deciding on a backup, including one
+// with nothing pending, then prunes the backups beyond opts.Keep and reports
+// a failure in Result.PruneErr without failing the run: a leftover backup
+// costs only disk, and the next start retries the prune.
 func Migrate(ctx context.Context, db *DB, opts MigrateOptions, core MigrationSet, modules []MigrationSet) (Result, error) {
 	var res Result
+	if opts.Keep < 1 {
+		return res, fmt.Errorf("store: backups kept = %d, want at least 1", opts.Keep)
+	}
 	seen := map[string]bool{core.Module: true}
 	for _, m := range modules {
 		if seen[m.Module] {
@@ -121,7 +130,9 @@ func Migrate(ctx context.Context, db *DB, opts MigrateOptions, core MigrationSet
 		modulePending[i] = p
 		anyPending = anyPending || len(p) > 0
 	}
+	dbName := filepath.Base(db.Path())
 	if !anyPending {
+		res.PruneErr = pruneBackups(opts.BackupRoot, dbName, "", opts.BinaryVersion, opts.Keep)
 		return res, setBinaryVersion(ctx, db, opts.BinaryVersion)
 	}
 
@@ -133,13 +144,16 @@ func Migrate(ctx context.Context, db *DB, opts MigrateOptions, core MigrationSet
 	// Backing up on every later start would let the five-backup limit rotate
 	// out the pre-upgrade copy while a failing module migration keeps the
 	// service restarting.
+	current := ""
 	if from != opts.BinaryVersion {
-		dir, err := Backup(ctx, db, opts.BackupRoot, from, opts.BinaryVersion, opts.Now, opts.Keep)
+		dir, err := Backup(ctx, db, opts.BackupRoot, from, opts.BinaryVersion, opts.Now)
 		if err != nil {
 			return res, err
 		}
 		res.BackupDir = dir
+		current = filepath.Base(dir)
 	}
+	res.PruneErr = pruneBackups(opts.BackupRoot, dbName, current, opts.BinaryVersion, opts.Keep)
 
 	for _, m := range corePending {
 		if err := apply(ctx, db, opts.Side, core.Module, m); err != nil {
