@@ -359,6 +359,9 @@ func (in *installer) database(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if res.PruneErr != nil {
+		_, _ = fmt.Fprintf(in.cfg.Out, "warning: old agent database backups could not be pruned: %v\n", res.PruneErr)
+	}
 	for _, f := range res.Failed {
 		_, _ = fmt.Fprintf(in.cfg.Out, "warning: the agent migrations of module %s failed; the agent reports it unavailable\n", f.Module)
 	}

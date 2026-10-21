@@ -174,6 +174,31 @@ func TestInstallRerunChangesNothing(t *testing.T) {
 	}
 }
 
+func TestInstallWarnsWhenBackupsCannotBePruned(t *testing.T) {
+	h := newTestHost(t)
+	cfg := h.config(RoleAgent)
+	cfg.Token = "dpe1.agent"
+	ctx := context.Background()
+	if err := Install(ctx, cfg); err != nil {
+		t.Fatalf("Install: %v\n%s", err, h.out)
+	}
+	backups := h.layout.Paths.AgentBackups()
+	if err := os.RemoveAll(backups); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(backups, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.out.Reset()
+	cfg.Token = ""
+	if err := Install(ctx, cfg); err != nil {
+		t.Fatalf("second Install: %v (a failed prune must not fail it)\n%s", err, h.out)
+	}
+	if !strings.Contains(h.out.String(), "warning: old agent database backups could not be pruned") {
+		t.Errorf("output lacks the prune warning:\n%s", h.out)
+	}
+}
+
 // TestInstallRerunAfterEachCheckpoint fails Install at each step, reruns it
 // without the failure, and expects the state of an install that never
 // failed.

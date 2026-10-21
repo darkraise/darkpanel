@@ -201,6 +201,9 @@ func (r *Runtime) migrate(ctx context.Context) error {
 	if res.BackupDir != "" {
 		r.cfg.Log.Info("runtime: agent database backed up before migrating", "dir", res.BackupDir)
 	}
+	if res.PruneErr != nil {
+		r.cfg.Log.Warn("runtime: old agent database backups could not be pruned", "error", res.PruneErr)
+	}
 	for _, f := range res.Failed {
 		r.cfg.Log.Error("runtime: module migrations failed", "module", f.Module, "error", f.Err)
 		r.broken[f.Module] = true

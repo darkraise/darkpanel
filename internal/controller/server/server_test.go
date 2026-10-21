@@ -353,6 +353,30 @@ func TestStartLogsTheControllerBackup(t *testing.T) {
 	}
 }
 
+func TestStartWarnsWhenBackupsCannotBePruned(t *testing.T) {
+	opts := testOptions(t)
+	first, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := first.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+	backups := opts.Paths.ControllerBackups()
+	if err := os.RemoveAll(backups); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(backups, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var logs lockedBuffer
+	opts.Log = slog.New(slog.NewTextHandler(&logs, nil))
+	start(t, opts)
+	if out := logs.String(); !strings.Contains(out, `level=WARN msg="server: old controller database backups could not be pruned"`) {
+		t.Errorf("service log lacks the prune warning:\n%s", out)
+	}
+}
+
 // TestControllerOnly is serve without the embedded agent: no agent state on
 // disk, the agent listener bound and logged, every host offline until its
 // agent connects, and nothing serving agents after Shutdown.

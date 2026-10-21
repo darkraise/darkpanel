@@ -334,6 +334,9 @@ func (s *Server) migrateController(ctx context.Context) error {
 	if res.BackupDir != "" {
 		s.log.Info("server: controller database backed up before migrating", "dir", res.BackupDir)
 	}
+	if res.PruneErr != nil {
+		s.log.Warn("server: old controller database backups could not be pruned", "error", res.PruneErr)
+	}
 	for _, f := range res.Failed {
 		s.log.Error("server: module controller migrations failed", "module", f.Module, "error", f.Err)
 	}
