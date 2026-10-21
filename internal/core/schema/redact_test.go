@@ -9,6 +9,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/controller/auth"
 	"github.com/darkraise/darkpanel/internal/controller/coreactions"
 	"github.com/darkraise/darkpanel/internal/core/schema"
+	"github.com/darkraise/darkpanel/internal/core/secret"
 )
 
 type redactLeaf struct {
@@ -87,5 +88,22 @@ func TestRedactFailsClosed(t *testing.T) {
 	}
 	if got := schema.Redact(reflect.TypeFor[coreactions.NewToken](), json.RawMessage(`{"token":`)); string(got) != `"[redacted]"` {
 		t.Errorf("Redact(invalid JSON) = %s, want \"[redacted]\"", got)
+	}
+}
+
+// TestRedactReusesTheSchema holds Redact to the cost of redacting over a
+// schema already built: building one reflects the whole type.
+func TestRedactReusesTheSchema(t *testing.T) {
+	typ := reflect.TypeFor[redactTree]()
+	raw := encode(t, redactTree{Label: "l", Inner: redactLeaf{Name: "a", Key: "k1"}, Items: []redactLeaf{{Name: "b", Key: "k2"}}})
+	s, err := schema.Output(typ)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema.Redact(typ, raw)
+	redact := testing.AllocsPerRun(20, func() { schema.Redact(typ, raw) })
+	direct := testing.AllocsPerRun(20, func() { secret.RedactJSON(raw, s) })
+	if redact > direct {
+		t.Errorf("Redact allocates %v times a call, RedactJSON over the built schema %v: Redact rebuilds the schema", redact, direct)
 	}
 }
