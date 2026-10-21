@@ -303,6 +303,35 @@ func TestRecoverPanicsDropsCookies(t *testing.T) {
 	}
 }
 
+// TestRecoverPanicsRestoresTheHeaders: the internal answer carries the
+// headers set before the handler ran and none the handler added, changed or
+// removed.
+func TestRecoverPanicsRestoresTheHeaders(t *testing.T) {
+	log, _ := testLog()
+	h := securityHeaders(recoverPanics(log, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Partial-Result", "half")
+		w.Header().Set("Content-Security-Policy", "default-src *")
+		w.Header().Del("Cache-Control")
+		panic("boom after the headers")
+	})))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/changes", nil))
+	decodeProblem(t, rec, 500, errcode.Internal)
+	got := rec.Result().Header
+	if v := got.Values("X-Partial-Result"); len(v) != 0 {
+		t.Errorf("the panicking handler's header was sent: %q", v)
+	}
+	for name, want := range map[string]string{
+		"Content-Security-Policy": ContentSecurityPolicy,
+		"Cache-Control":           "no-store",
+		"X-Content-Type-Options":  "nosniff",
+	} {
+		if v := got.Get(name); v != want {
+			t.Errorf("%s = %q, want %q", name, v, want)
+		}
+	}
+}
+
 func TestRecoverPanicsAfterWriteAborts(t *testing.T) {
 	log, logged := testLog()
 	h := recoverPanics(log, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
