@@ -117,3 +117,40 @@ test.each<[string, () => StubResponse]>([
   })
   expect(screen.getByTestId("csrf").textContent).toBe("csrf-b")
 })
+
+test("a CSRF rejection after a new login re-probes while a probe from before is still running", async () => {
+  let release: () => void = () => {}
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let probes = 0
+  stubFetch({
+    "GET /api/v1/auth/session": async () => {
+      if (++probes === 1) {
+        await gate
+        return { body: sessionWith("csrf-stale") }
+      }
+      return { body: sessionWith("csrf-new") }
+    },
+    "POST /api/v1/ping": { status: 403, body: { type: "about:blank", title: "CSRF", status: 403, detail: "bad csrf token", code: "auth.csrf" } },
+  })
+  renderWithProviders(
+    <SessionProvider>
+      <Switcher />
+      <Sender />
+    </SessionProvider>,
+  )
+  const user = userEvent.setup()
+  await user.click(screen.getByRole("button", { name: "Log in as A" }))
+  await user.click(screen.getByRole("button", { name: "Log out" }))
+  await user.click(screen.getByRole("button", { name: "Log in as B" }))
+  await user.click(screen.getByRole("button", { name: "Send" }))
+  await waitFor(() => expect(screen.getByTestId("csrf").textContent).toBe("csrf-new"))
+  expect(probes).toBe(2)
+
+  await act(async () => {
+    release()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+  expect(screen.getByTestId("csrf").textContent).toBe("csrf-new")
+})

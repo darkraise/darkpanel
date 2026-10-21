@@ -22,10 +22,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true
-    let probing = false
+    // The generation the running probe started in, or null when none runs.
+    // A probe from an earlier generation has its answer discarded, so it must
+    // not hold off the re-probe that a newer session's CSRF rejection needs.
+    let probingIn: number | null = null
     function probe() {
-      probing = true
       const startedIn = sessionGeneration()
+      probingIn = startedIn
       request<Session>("GET", "/api/v1/auth/session")
         .then(
           (session) => {
@@ -36,7 +39,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           },
         )
         .finally(() => {
-          probing = false
+          if (probingIn === startedIn) probingIn = null
         })
     }
     setUnauthorizedHandler(() => {
@@ -46,7 +49,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // tab's CSRF token goes stale and every unsafe request answers auth.csrf.
     // Probing the session fetches the token that belongs to the cookie.
     setCsrfRejectedHandler(() => {
-      if (active && !probing) probe()
+      if (active && probingIn !== sessionGeneration()) probe()
     })
     probe()
     return () => {
