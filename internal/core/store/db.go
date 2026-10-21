@@ -39,7 +39,9 @@ type DB struct {
 }
 
 // Open opens or creates the database at path. A new file is created with mode
-// 0600 before SQLite opens it, so the database and its WAL files are private.
+// 0600, and an existing database and its -wal and -shm files are set to 0600,
+// before SQLite opens it, so the database and its WAL files are private. A
+// failure to set a mode fails Open.
 func Open(ctx context.Context, path string) (*DB, error) {
 	if strings.ContainsAny(path, "?#%") {
 		return nil, fmt.Errorf("store: database path %q must not contain ?, # or %%", path)
@@ -53,6 +55,13 @@ func Open(ctx context.Context, path string) (*DB, error) {
 	case errors.Is(err, fs.ErrExist):
 	default:
 		return nil, fmt.Errorf("store: create %s: %w", path, err)
+	}
+	// SQLite creates -wal and -shm with the database file's mode, so a database
+	// left with a looser mode would pass it on.
+	for _, p := range []string{path, path + "-wal", path + "-shm"} {
+		if err := os.Chmod(p, 0o600); err != nil && (p == path || !errors.Is(err, fs.ErrNotExist)) {
+			return nil, fmt.Errorf("store: set mode of %s: %w", p, err)
+		}
 	}
 
 	w, err := sql.Open("sqlite", "file:"+path+"?"+writerParams)
@@ -98,11 +107,19 @@ func (d *DB) Write(ctx context.Context, fn func(*sql.Tx) error) error {
 	if err != nil {
 		return fmt.Errorf("store: begin: %w", err)
 	}
-	// net/http recovers handler panics; without this rollback the only writer
-	// connection would stay inside the open transaction and block every Write.
+	// net/http recovers handler panics, and fn may call runtime.Goexit (as
+	// t.FailNow does); without this rollback the only writer connection would
+	// stay inside the open transaction and block every Write. After fn's
+	// error or a failed commit the transaction is already done and this
+	// rollback returns sql.ErrTxDone.
+	committed := false
 	defer func() {
-		if p := recover(); p != nil {
-			_ = tx.Rollback()
+		if committed {
+			return
+		}
+		p := recover()
+		_ = tx.Rollback()
+		if p != nil {
 			panic(p)
 		}
 	}()
@@ -115,6 +132,7 @@ func (d *DB) Write(ctx context.Context, fn func(*sql.Tx) error) error {
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("store: commit: %w", err)
 	}
+	committed = true
 	return nil
 }
 
