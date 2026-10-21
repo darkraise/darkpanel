@@ -1,5 +1,5 @@
 import type { AnchorHTMLAttributes, Ref } from "react"
-import { Link, NavLink, useLocation } from "react-router"
+import { Link, matchPath, useLocation } from "react-router"
 import type { RouterLinkProps } from "darkraise-ui/router"
 import { activeByPrefix } from "./active-prefixes"
 
@@ -8,22 +8,21 @@ import { activeByPrefix } from "./active-prefixes"
 // adapter's own props goes on to the anchor.
 type AdapterLinkProps = RouterLinkProps & AnchorHTMLAttributes<HTMLAnchorElement> & { ref?: Ref<HTMLAnchorElement> }
 
-// NavLink sets aria-current="page" on the active link, which darkraise-ui
-// requires of every router adapter. NavLink always sets aria-current from its
-// own match, so a link active by prefix is a plain Link that sets it itself.
+// "/" is always exact, as in NavLink: a prefix match on it would mark every page.
+function matchesOwnPath(to: string, pathname: string, exact: boolean | undefined): boolean {
+  return matchPath({ path: to, end: exact === true || to === "/" }, pathname) !== null
+}
+
+// Always one Link, never a switch to NavLink: changing the element type
+// remounts the anchor, and a keyboard user activating it would lose focus.
+// darkraise-ui requires aria-current="page" on the active link.
 export function AdapterLink({ to, className, activeClassName, activeExact, children, ...rest }: AdapterLinkProps) {
   const { pathname } = useLocation()
-  const classes = (active: boolean) => [className, active ? activeClassName : undefined].filter(Boolean).join(" ") || undefined
-  if (activeByPrefix(to, pathname)) {
-    return (
-      <Link {...rest} to={to} aria-current="page" className={classes(true)}>
-        {children}
-      </Link>
-    )
-  }
+  const active = matchesOwnPath(to, pathname, activeExact) || activeByPrefix(to, pathname)
+  const classes = [className, active ? activeClassName : undefined].filter(Boolean).join(" ") || undefined
   return (
-    <NavLink {...rest} to={to} end={activeExact} className={({ isActive }) => classes(isActive)}>
+    <Link {...rest} to={to} aria-current={active ? "page" : undefined} className={classes}>
       {children}
-    </NavLink>
+    </Link>
   )
 }

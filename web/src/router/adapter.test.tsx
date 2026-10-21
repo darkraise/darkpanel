@@ -65,6 +65,32 @@ test.each(["/hosts/h1", "/hosts/h1/hostinfo/summary"])("the Hosts link is active
   expect(screen.getByRole("link", { name: "Audit" }).getAttribute("aria-current")).toBeNull()
 })
 
+test.each(["/settings/tokens", "/hosts", "/hostsx/h1", "/auditing"])("no link is active on %s", (path) => {
+  renderAt(path)
+  for (const name of ["Hosts", "Audit"]) {
+    const link = screen.getByRole("link", { name })
+    expect(link.getAttribute("aria-current")).toBeNull()
+    expect(link.className).not.toContain("active")
+  }
+})
+
+test("activating Hosts from a host page keeps the same focused anchor", async () => {
+  renderAt("/hosts/h1")
+  const hosts = screen.getByRole("link", { name: "Hosts" })
+  expect(hosts.getAttribute("aria-current")).toBe("page")
+  const user = userEvent.setup()
+  await user.tab()
+  expect(document.activeElement).toBe(hosts)
+  await user.keyboard("{Enter}")
+  expect(screen.getByTestId("path").textContent).toBe("/")
+  expect(screen.getByRole("link", { name: "Hosts" })).toBe(hosts)
+  expect(hosts.isConnected).toBe(true)
+  expect(document.activeElement).toBe(hosts)
+  expect(hosts.getAttribute("aria-current")).toBe("page")
+  expect(hosts.className).toBe("active")
+  expect(screen.getByRole("link", { name: "Audit" }).getAttribute("aria-current")).toBeNull()
+})
+
 test("useNavigate and usePathname follow the router", async () => {
   renderAt("/")
   await userEvent.setup().click(screen.getByRole("button", { name: "Go" }))
