@@ -57,6 +57,14 @@ test("activeExact matches only the exact path", () => {
   expect(screen.getByRole("link", { name: "Audit" }).getAttribute("aria-current")).toBeNull()
 })
 
+test.each(["/hosts/h1", "/hosts/h1/hostinfo/summary"])("the Hosts link is active on the host page %s", (path) => {
+  renderAt(path)
+  const hosts = screen.getByRole("link", { name: "Hosts" })
+  expect(hosts.getAttribute("aria-current")).toBe("page")
+  expect(hosts.className).toBe("active")
+  expect(screen.getByRole("link", { name: "Audit" }).getAttribute("aria-current")).toBeNull()
+})
+
 test("useNavigate and usePathname follow the router", async () => {
   renderAt("/")
   await userEvent.setup().click(screen.getByRole("button", { name: "Go" }))
