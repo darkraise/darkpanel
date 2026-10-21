@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -392,6 +393,8 @@ func TestConcurrentAppliesOfOnePlanKeepItMarked(t *testing.T) {
 	pl := h.plan(d, testHost, refSet, `{"name":"a","value":"1"}`)
 	g := &gatedApply{AgentClient: h.rt, entered: make(chan struct{}), release: make(chan struct{}), committed: make(chan struct{})}
 	h.clients.Add(testHost, g)
+	var releaseGate sync.Once
+	t.Cleanup(func() { releaseGate.Do(func() { close(g.release) }) })
 
 	first := make(chan error, 1)
 	go func() {
@@ -432,7 +435,7 @@ wait:
 			}
 		}
 	}
-	close(g.release)
+	releaseGate.Do(func() { close(g.release) })
 
 	select {
 	case err := <-first:

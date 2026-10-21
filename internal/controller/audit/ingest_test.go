@@ -310,6 +310,7 @@ func TestIngesterRunsEveryIntervalUntilStopped(t *testing.T) {
 	e := newIngestEnv(t)
 	m := e.host(t, "h1")
 	e.ingester.Start()
+	t.Cleanup(e.ingester.Stop)
 	e.ingester.Start() // a second Start arms nothing more
 	if p := e.clock.Pending(); p != 1 {
 		t.Fatalf("armed timers = %d, want 1", p)
@@ -344,7 +345,11 @@ func TestStopWaitsForARunningIngestion(t *testing.T) {
 	m.entered, m.release = make(chan struct{}), make(chan struct{})
 	e.ingester.Start()
 	go e.clock.Advance(IngestInterval)
-	<-m.entered
+	select {
+	case <-m.entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the ingestion never reached the journal")
+	}
 	stopped := make(chan struct{})
 	go func() {
 		e.ingester.Stop()
@@ -352,7 +357,7 @@ func TestStopWaitsForARunningIngestion(t *testing.T) {
 	}()
 	select {
 	case <-stopped:
-		t.Fatal("Stop returned while an ingestion was running")
+		t.Error("Stop returned while an ingestion was running")
 	case <-time.After(50 * time.Millisecond):
 	}
 	close(m.release)

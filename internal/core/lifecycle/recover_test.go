@@ -34,7 +34,11 @@ func (f *fixture) crash(ref core.ActionRef, input string, opts core.ApplyOptions
 		_, _ = f.eng.Apply(context.Background(), alice, planID, opts)
 		f.t.Error("Apply returned; want its goroutine stopped inside the handler")
 	}()
-	<-stopped
+	select {
+	case <-stopped:
+	case <-time.After(10 * time.Second):
+		f.t.Fatal("the apply goroutine did not stop inside the handler")
+	}
 	if err := f.db.Read().QueryRow("SELECT id FROM core_changes WHERE plan_id = ?", planID).Scan(&changeID); err != nil {
 		f.t.Fatal(err)
 	}
@@ -236,8 +240,13 @@ func TestPurgeWaitsForARunningApply(t *testing.T) {
 	if _, err := f.eng.Apply(ctx, alice, pl.PlanID, core.ApplyOptions{}); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	if err := <-purged; err != nil {
-		t.Fatalf("Purge: %v", err)
+	select {
+	case err := <-purged:
+		if err != nil {
+			t.Fatalf("Purge: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Purge did not return after the apply finished")
 	}
 	if n := f.count("SELECT count(*) FROM core_plans WHERE id = ?", pl.PlanID); n != 1 {
 		t.Errorf("plan rows = %d, want 1", n)

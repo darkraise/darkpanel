@@ -126,6 +126,7 @@ func TestWriteProblemFields(t *testing.T) {
 
 	rec = httptest.NewRecorder()
 	writeProblem(rec, log, errcode.New(errcode.NotFound, "no"))
+	decodeProblem(t, rec, 404, errcode.NotFound)
 	if strings.Contains(rec.Body.String(), `"errors"`) {
 		t.Errorf("a problem without field errors has an errors member: %s", rec.Body)
 	}
@@ -143,6 +144,7 @@ func TestWriteProblemRetryAfter(t *testing.T) {
 
 	rec = httptest.NewRecorder()
 	writeProblem(rec, log, errcode.New(errcode.NotFound, "no"))
+	decodeProblem(t, rec, 404, errcode.NotFound)
 	if got := rec.Header().Get("Retry-After"); got != "" {
 		t.Errorf("Retry-After on not_found = %q", got)
 	}
@@ -269,23 +271,25 @@ func TestRecoverPanics(t *testing.T) {
 		}, "interface conversion: interface {} is string, not int", ""},
 	}
 	for _, c := range cases {
-		log, logged := testLog()
-		h := recoverPanics(log, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { c.panicWith() }))
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/actions/demo.item.remove/v1/apply", nil))
-		p := decodeProblem(t, rec, 500, errcode.Internal)
-		if strings.Contains(rec.Body.String(), "boom") || strings.Contains(rec.Body.String(), "interface conversion") ||
-			p.Detail != errcode.Internal.Title() {
-			t.Errorf("%s: the panic value reached the client: %s", c.name, rec.Body)
-		}
-		for _, want := range []string{c.logged, "goroutine", "/api/v1/actions/demo.item.remove/v1/apply"} {
-			if !strings.Contains(logged.String(), want) {
-				t.Errorf("%s: log lacks %q: %s", c.name, want, logged)
+		t.Run(c.name, func(t *testing.T) {
+			log, logged := testLog()
+			h := recoverPanics(log, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { c.panicWith() }))
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/actions/demo.item.remove/v1/apply", nil))
+			p := decodeProblem(t, rec, 500, errcode.Internal)
+			if strings.Contains(rec.Body.String(), "boom") || strings.Contains(rec.Body.String(), "interface conversion") ||
+				p.Detail != errcode.Internal.Title() {
+				t.Errorf("the panic value reached the client: %s", rec.Body)
 			}
-		}
-		if c.hidden != "" && strings.Contains(logged.String(), c.hidden) {
-			t.Errorf("%s: the log carries the panic value", c.name)
-		}
+			for _, want := range []string{c.logged, "goroutine", "/api/v1/actions/demo.item.remove/v1/apply"} {
+				if !strings.Contains(logged.String(), want) {
+					t.Errorf("log lacks %q: %s", want, logged)
+				}
+			}
+			if c.hidden != "" && strings.Contains(logged.String(), c.hidden) {
+				t.Error("the log carries the panic value")
+			}
+		})
 	}
 }
 

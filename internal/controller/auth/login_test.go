@@ -243,6 +243,8 @@ func TestConcurrentLoginsRespectTheLimit(t *testing.T) {
 	for i := range errs {
 		wg.Go(func() { _, errs[i] = s.Login(ctx, wrong) })
 	}
+	var openGate sync.Once
+	t.Cleanup(func() { openGate.Do(func() { close(gate) }) })
 	for range MaxConcurrentHashes {
 		select {
 		case <-entered:
@@ -250,8 +252,17 @@ func TestConcurrentLoginsRespectTheLimit(t *testing.T) {
 			t.Fatal("no login reached the hash")
 		}
 	}
-	close(gate)
-	wg.Wait()
+	openGate.Do(func() { close(gate) })
+	finished := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(finished)
+	}()
+	select {
+	case <-finished:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the concurrent logins did not finish")
+	}
 	limited := 0
 	for _, err := range errs {
 		if errcode.From(err).Code == errcode.RateLimited {

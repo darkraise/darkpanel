@@ -23,7 +23,11 @@ func (f *fixture) hangVerify() {
 	f.eng.verifyTimeout = 50 * time.Millisecond
 	f.t.Cleanup(func() {
 		close(release)
-		<-returned // the abandoned Verify finishes before the database closes
+		select {
+		case <-returned: // the abandoned Verify finishes before the database closes
+		case <-time.After(10 * time.Second):
+			f.t.Error("the abandoned Verify did not return")
+		}
 	})
 }
 
