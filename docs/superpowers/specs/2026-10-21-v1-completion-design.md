@@ -301,7 +301,9 @@ the effect had not happened (1.3).
 
   Each module section that creates objects states its identity per
   endpoint and its settlement when the identity finds more than one object
-  or may still find one later (Nginx Proxy Manager: section 6). Darkpanel
+  or may still find one later; where a section gives tables they are the
+  authority over this general text (Docker: the comparator table of 3;
+  Nginx Proxy Manager: the identity and settlement tables of 6). Darkpanel
   never deletes an object its identity cannot tell apart from others.
 - **Precedence: ambiguity is never overwritten by default.** An effect
   that is unresolved is never settled by restoring a whole snapshot, by an
@@ -523,7 +525,8 @@ changes of other modules' actions on one or more hosts.
   before it is applied, and before a confirmation is sent. Step states:
   `pending → planned → applying → applied → confirming → confirmed`; on
   unwinding `undoing → undone | undo_failed`; read steps `pending → read`;
-  and `released` (below). Table `core_composite_attempts` (composite change
+  and `released` (below). Every committed step state is published as a
+  `composite.step` event (1.6). Table `core_composite_attempts` (composite change
   id, step id, attempt number from 1, child plan id, child change id,
   principal, started at, outcome) keeps every attempt's lineage. Secrets
   produced by a step reach later steps' inputs on the controller only;
@@ -1584,7 +1587,9 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
 `darkpanel uninstall` gains `--module-option <module>.<key>=<value>`
 (repeatable), passed to the module's `Uninstaller` as a map; the plan lists
 each module's options and their defaults. The firewall uses
-`firewall.rules=remove|keep|baseline` (2.9).
+`firewall.rules=remove|keep|baseline` (2.9). Uninstall is refused while a
+change is unfinished or a task unit is active, and `--stop-tasks` stops
+those units first (liveness gates, 1.3c).
 
 #### 1.12 Module skeletons, extension points and shared files
 
@@ -2203,7 +2208,12 @@ behaves as in 1.13.
   recovery classifies an `intended` effect by comparing current state with
   both: equal to the before-state → not started; equal to the after-state →
   completed (`made`); anything else (partial, or edited since) →
-  **ambiguous**. A mid-apply crash therefore leaves an exact list of what
+  **ambiguous**. Every revertible firewall action's handler implements
+  `Reconciler` (1.2), which does this classification with
+  `ClassifyIntended`; its `Revert` reads the change's journal through
+  `env.Effects` and `env.ChangeID` (1.2). Per effect kind, `State` holds the
+  file hash, the rule tuple, the default or logging value, the `ENABLED`
+  flag, the logical row or the sysctl value; `Version` is empty. A mid-apply crash therefore leaves an exact list of what
   was done, or names the one effect that cannot be settled.
 - **Revert of a change** (timer, explicit revert, startup recovery):
   1. If every UFW file's hash still equals the hash recorded right after the
@@ -2217,12 +2227,16 @@ behaves as in 1.13.
      other edits in place; logical rows are restored in the same transaction
      as the intent.
   3. If an inverse conflicts with a manual edit (the change's own rule was
-     edited or removed, a manual rule now occupies the position), the change
-     becomes `needs_repair` (1.3 engine integration) and keeps the `firewall`
+     edited or removed, a manual rule now occupies the position), or any
+     step of the revert fails, the change becomes `needs_repair` (never
+     `failed`; single changes in `needs_repair`, 1.3) and keeps the `firewall`
      lock, its snapshot is pinned until the repair ends, and every firewall
      action declares `RepairedBy: firewall.state.repair` (1.3): `darkpanel
      change repair <id>` plans that action, which shows the difference, and
-     applies it under the change's own lock ownership; and **connectivity comes
+     applies it under the change's own lock ownership; its output's
+     `repairOutcome` is `restored` when it returns the host to the
+     snapshot and `kept` when it keeps the change's intended state (1.3);
+     and **connectivity comes
      first**: the inverses that do not conflict are still applied, and if the
      lockout guard evaluated on the resulting loaded state fails for a
      protected flow, the snapshot is restored whole even though that
@@ -2234,9 +2248,11 @@ behaves as in 1.13.
      guard fails on the loaded state the revert would otherwise leave, it is
      authorized by that failure alone (R40: connectivity is kept whoever
      started the revert: timer, explicit revert or startup recovery), and
-     afterwards every ambiguous or conflicting effect keeps its state, the
-     change stays `needs_repair` with an `emergencyRestore` record (time,
-     the snapshot id, the diff it overwrote), and repair still runs. In
+     afterwards every ambiguous or conflicting effect keeps its state (with
+     the overwritten state in its `Current`), the engine records the revert
+     with journal result `override` (1.2), the change stays `needs_repair`
+     with an `emergencyRestore` record (time, the snapshot id, the diff it
+     overwrote), and repair still runs. In
      every other case an ambiguous effect leaves the loaded state as it is.
 - **Restore** is crash-safe and complete: one database transaction records
   the restore intent and writes the logical rows; then each file is written
@@ -2998,7 +3014,9 @@ empty list or map as equal, addresses in canonical `netip` form.
   (1.8). Install is long-running (1.3). The DERP spike confirms that `-verify-clients` works
   for a non-root user through tailscaled's socket; if it does not, the unit
   runs as root and the spike records why. `derp.server.uninstall`
-  (compensable by `derp.server.install`) removes them.
+  (compensable by `derp.server.install`) removes them; its apply converges
+  when run again (an already stopped or absent unit, binary, directory or
+  user counts as removed), as forward composites require (1.3).
 - **Flags.** `-c /var/lib/darkpanel/derp/derper.key` (0600, written by
   derper itself inside the service directory; never removed by an
   upgrade), `-a :443 -http-port 80 -stun
@@ -3111,7 +3129,10 @@ empty list or map as equal, addresses in canonical `netip` form.
 Classes: R revertible, C compensable (with its undo or compensating
 action), I irreversible (typed confirmation), Rd read, X composite with its
 unwind policy (`rev` reverse, `fwd` forward). `L` marks a long-running action
-(asynchronous apply, 1.3). Side: A agent, C controller. Names omit the module
+(asynchronous apply, 1.3). The task actions of 1.3c
+(`tailscale.package.install`, `package.update`, `package.pin`,
+`package.unpin`, `derp.server.install`, `derp.binary.update`) are declared
+with `DefineTask` and run in `darkpanel-task-<change id>.service`. Side: A agent, C controller. Names omit the module
 prefix. Composites take `composite:<module>`; children take their own locks.
 Scopes follow 1.7 (existing rules kept; raised where noted).
 
@@ -3121,7 +3142,7 @@ Scopes follow 1.7 (existing rules kept; raised where noted).
 | firewall | `snapshot.compare` | Rd | A | — |
 | docker | the table in 3 (`compose.*` admin and L; `image.pull` L) | — | A | `docker` |
 | tailscale | `prefs.set` | R | A | `tailscale` |
-| tailscale | `node.login` (undo), `package.install` (undo, L), `package.pin` (self-rolling-back, recovery handler, L), `package.unpin` (undo: re-hold) | C | A | `tailscale` |
+| tailscale | `node.login` (undo), `package.install` (undo, L), `package.pin` (self-rolling-back, recovery handler, L), `package.unpin` (undo: re-hold, L) | C | A | `tailscale` |
 | tailscale | `node.logout`, `package.update` (L) | I | A | `tailscale` |
 | tailscale | `cert.get` (`Internal`) | Rd | A | — |
 | tailnet | `account.connect` (undo: delete the created row), `device.authorize`, `device.set-routes`, `authkey.create`, `policy.set`, `policy.patch` (undo, 4.2) | C | C | `tailnet` |
@@ -3420,7 +3441,9 @@ a spec change.
   module recovery handler (1.3b). Unrelated ingress rules are carried over
   unchanged. `hostname.add` has an `Undo` (remove the record and rule it
   created, after the post-state checks); `hostname.remove` is compensated by
-  `hostname.add` and used only in forward composites and by the operator.
+  `hostname.add` and used only in forward composites and by the operator;
+  its apply converges when run again (an ingress rule or DNS record
+  already absent counts as removed).
 - `cloudflare.expose.container` (composite): `network`
   (`cloudflare.network.attach`, attaching the owned cloudflared container to
   the target's network, under the supported-target rule of 6) and
@@ -3477,7 +3500,9 @@ a spec change.
   which every request and stream checks, then closes the listener and its
   tracked connections after the response, 1.10), then `proxy` remove (NPM
   proxy host or tunnel hostname), `attach` detach (claim-based), `network`
-  remove, and `ports` (`firewall.rules.apply` deleting the rule; revertible,
+  remove (`panel.network.remove`, compensated by `panel.network.create`;
+  its apply converges when run again: an absent network counts as
+  removed), and `ports` (`firewall.rules.apply` deleting the rule; revertible,
   last). Revocation is monotonic: no failure, timeout, revert of the
   `ports` step or restart reopens the listener (the `ports` step's revert
   restores only the firewall rule, behind a revoked listener); reopening
@@ -3496,7 +3521,9 @@ a spec change.
   The harness removes the exposure through the exposure itself and expects
   the removal to complete. Break-glass: `sudo darkpanel panel listener
   revoke --local` over the controller socket runs `panel.listener.revoke`
-  alone (`BreakGlass`); `darkpanel change repair` completes the rest later.
+  alone (`BreakGlass`); the operator then runs `panel.exposure.remove`,
+  whose `revoke` step plans an empty diff (the listener is already
+  revoked, `ForwardOnly`, 1.3) and whose later steps complete the removal.
   `panel.not_exposed` refuses a removal when no exposure exists.
 
 ### 9. Hardening (R73–R79)
@@ -3859,7 +3886,8 @@ a spec change.
   An action code's message is stored in the change's `ChangeError` under
   the same rules. The API's existing sanitization of `internal` errors is
   unchanged.
-- **Actors:** `system:firewall.reconcile`, `system:recovery` (startup
+- **Actors:** `system:firewall.reconcile`, `system:tailnet.keysweep` and
+  `system:cloudflare.hostnames` (1.9), `system:recovery` (startup
   recovery, composite recovery and unwind, undo recovery, module recovery
   handlers; accepted by the principal checks for undo, lookup, resolve,
   revert and confirm of changes it recovers; it never plans or applies a
@@ -3905,11 +3933,14 @@ a spec change.
   `GET /agent/v1/changes/{id}/effects`, `GET /agent/v1/plans/{plan id}`
   (`PlanLookup`; `private=1` over the controller session only),
   `PUT /agent/v1/modules/{id}/enabled`,
-  `GET /agent/v1/modules/{id}/availability`; DTOs in 1.3's wire contract.
-  The apply request gains the core-level `guardRefresh` field and, for
-  long-running and task actions, returns once the intent is persisted; a
-  plan request gains the core-level `repairs` field, set only by the
-  controller's repair route. During start-up admission (1.3) mutating
+  `GET /agent/v1/modules/{id}/availability`,
+  `POST /agent/v1/reveal/{name}/{version}` (1.14); DTOs in 1.3's wire
+  contract and 1.4–1.14. The plan and apply requests gain the core-level
+  `call` object (1.5; its `guardRefresh` is read at apply only), accepted
+  only on the controller session; the apply request, for long-running and
+  task actions, returns once the intent is persisted; a plan request gains
+  the core-level `repairs` field, set only by the controller's repair
+  route. During start-up admission (1.3) mutating
   routes answer `core.recovering`.
 - API: `POST /api/v1/changes/{id}/undo`, `/repair`, `/release` and
   `/effects/{seq}/resolve`, `GET /api/v1/changes/{id}/effects` (DTOs, status
@@ -3918,7 +3949,9 @@ a spec change.
   `202` for composites, long-running and task actions; a plan request that
   supplies `repairs` is refused; the controller socket's backup and quarantine
   routes (1.12, 10); the SSE
-  stream relay; asynchronous apply for composites and long-running actions
+  stream relay and the `GET /api/v1/events` publisher (1.6); the reveal
+  routes `POST /api/v1/hosts/{host}/actions/{name}/{version}/reveal` and
+  `POST /api/v1/actions/{name}/{version}/reveal` (1.14); asynchronous apply for composites and long-running actions
   (apply answers with the change in `applying`); `core.host.create` gains
   optional `tailnetJoin` and `tags`; enrollment gains the versioned `dpb2.`
   bootstrap bundle beside the unchanged five-field token;
@@ -3941,7 +3974,15 @@ a spec change.
   `PlanLookup`, `EffectView`; the core-level `repairs` input field and the
   `repairOutcome` output field of `RepairedBy` actions;
   `platform.TransientService.RuntimeMax`; `core.Guard.Overridable`,
-  `Overridden`; owned-path kinds `restore`, `managed-dir` and `sysctl`; the
+  `Overridden`; `ActionSpec.Guards` with `GuardSpec`, the embedded
+  `core.Guarded`, `Env.Call` with `CallContext` (1.5); `ActionSpec.Reveal`,
+  `Revealed`, `DefineReveal` and `Engine.Reveal` (1.14); `StreamDef`,
+  `Streamer` and `DefineStream` (1.6); the reshaped `BackgroundTask` and
+  `TaskContext` (1.4); the `internal/core/ext` package, `core.Listeners`,
+  `core.Units` on `Env` (1.10, 1.12); owned-path kinds `restore`,
+  `managed-dir`, `sysctl` and `service-dir`, the writable kind `unit`, the
+  `OwnedPath` fields `Pattern`, `User` and `Subdirs`, and the new
+  `FileWriter` methods (1.8); `ExecRule` and `ProductionRules` (1.8); the
   route and service registration hooks (1.12); task units
   `darkpanel-task-<change id>.service` running `{{.Binary}} agent task
   <change id>` (1.3c).
@@ -3949,12 +3990,13 @@ a spec change.
   on `core_changes` the columns `parent_change_id`, `recovery_owner`,
   `undo_state`, `repaired_by`, `repair_outcome`, `recovery_retry`,
   `private_output_ct` and `system` (1.4), on `core_plans` the columns
-  `repairs` and `steps_ct` (a composite's sealed step list) with
-  `steps_deadline`; the tables `core_effects` (both sides; one row per
+  `repairs`, `call` (1.5) and `steps_ct` (a composite's sealed step list)
+  with `steps_deadline`; the tables `core_effects` (both sides; one row per
   effect, secret sealed), `core_effect_deps` (both sides),
   `core_composite_steps` and `core_composite_attempts` (controller),
-  `core_task_runs` (agent), `core_listeners` and the `restore_quarantine`
-  marker; all migrations are expand-only.
+  `core_task_runs` (agent), `core_listeners`, the `restore_quarantine`
+  marker with its restore transaction id and `quarantined_from` on
+  quarantined records (10); all migrations are expand-only.
 - Files on disk: every new file, directory, unit, user, kernel parameter
   and block is in its module's owned paths, of the kinds 1.8 lists
   (`file`, `block`, `unit`, `user`, `restore`, `managed-dir`, `sysctl`,
@@ -4246,4 +4288,16 @@ controller; editing Darkpanel-managed tunnels outside Darkpanel.
   settlement tables (6); quarantine marked on the staged database before
   installation and verified before start, lock-row disposition, resolve
   outcomes and route bodies (10); status and title of every new error code
-  (11); the decomposition and Plans aligned with 1.12.
+  (11); the decomposition and Plans aligned with 1.12. Inside 1.1–1.3 it
+  defined the effects journal API (`EffectJournal`, `Effect`, `StateDoc`,
+  effect and undo state tables, resolution, supersession dependencies,
+  expected inverse outcomes), the handler interfaces and `Define*` helpers,
+  canonical composite states with exhaustive parent/child and recovery
+  tables, repair by capability with lineage and lock ownership, recovery
+  owners claimed by conditional update and the start-up order with an
+  admission phase, task units (1.3c), execution and composite deadlines
+  with a fresh cleanup context, sealed private child-result handoff, the
+  `Reserve` refusal detail and the wire contract of the change routes. An
+  integration pass aligned the cross-references between 1.1–1.3 and the
+  rest (Contracts, actors, 2.5, 5, 8, 1.11, forward-composite
+  convergence).
