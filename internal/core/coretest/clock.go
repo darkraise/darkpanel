@@ -10,7 +10,8 @@ import (
 	"github.com/darkraise/darkpanel/internal/core"
 )
 
-// FakeClock is a core.Clock whose time moves only through Advance.
+// FakeClock is a core.Clock whose time moves only through Advance and
+// StepBack.
 type FakeClock struct {
 	mu     sync.Mutex
 	now    time.Time
@@ -74,6 +75,15 @@ func (c *FakeClock) Advance(d time.Duration) {
 		c.mu.Unlock()
 		next.f()
 	}
+}
+
+// StepBack moves the clock back by d, as a wall clock set back does. It runs
+// no timer; armed timers keep their deadlines and fire when Advance reaches
+// them.
+func (c *FakeClock) StepBack(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(-d)
 }
 
 // Pending is the number of armed timers that have neither fired nor been

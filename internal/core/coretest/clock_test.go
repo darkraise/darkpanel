@@ -77,3 +77,21 @@ func TestFakeClockZeroAdvanceFiresDue(t *testing.T) {
 		t.Error("Advance(0) did not fire a timer due now")
 	}
 }
+
+func TestFakeClockStepBack(t *testing.T) {
+	c := NewFakeClock(start)
+	fired := false
+	c.AfterFunc(time.Minute, func() { fired = true })
+	c.StepBack(time.Hour)
+	if !c.Now().Equal(start.Add(-time.Hour)) {
+		t.Errorf("Now = %v, want start-1h", c.Now())
+	}
+	c.Advance(time.Hour)
+	if fired {
+		t.Error("the timer armed for start+1m fired at start")
+	}
+	c.Advance(time.Minute)
+	if !fired {
+		t.Error("the timer did not fire at start+1m")
+	}
+}
