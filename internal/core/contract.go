@@ -152,6 +152,10 @@ type Mutator[In, Out any] interface {
 	// Verify checks that Apply took effect. Startup recovery also calls it
 	// for a change cut off during Apply, with out the zero value because no
 	// output was recorded, so Verify must check the host from in alone.
+	// Verify must only read the host and must return once ctx is done. The
+	// engine stops waiting when its verify timeout ends ctx and may then roll
+	// the change back while an abandoned Verify still runs, so Verify must
+	// also be safe to run alongside that rollback.
 	Verify(ctx context.Context, env Env, in In, out Out) error
 }
 

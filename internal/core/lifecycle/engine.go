@@ -52,6 +52,7 @@ type Engine struct {
 
 	idMu    sync.Mutex
 	entropy *ulid.MonotonicEntropy
+	idMs    uint64 // no id is stamped below this millisecond
 
 	// applyMu is held from apply's checks until its intent is persisted, so no
 	// other apply takes a lock or the same plan in between and Purge deletes no
@@ -108,12 +109,39 @@ func (e *Engine) Close() {
 	e.inflight.Wait()
 }
 
-// newID returns a ULID stamped with the engine's clock; ids made by one
-// engine sort in creation order.
-func (e *Engine) newID() string {
+// newID returns a ULID stamped with now, or with the newest id's millisecond
+// when the clock has stepped back since. Ids made by one engine, and after
+// Recover's seed by every engine on the database, sort in creation order,
+// which Changes pages by.
+func (e *Engine) newID(now time.Time) string {
 	e.idMu.Lock()
 	defer e.idMu.Unlock()
-	return ulid.MustNew(ulid.Timestamp(e.cfg.Base.Clock.Now()), e.entropy).String()
+	e.idMs = max(e.idMs, ulid.Timestamp(now))
+	return ulid.MustNew(e.idMs, e.entropy).String()
+}
+
+// seedIDs makes every id newID returns sort after each stored plan and change
+// id, even when the clock stepped back across a restart: the next id is
+// stamped at least one millisecond after the newest stored one. Ids that are
+// not ULIDs (26 characters) are ignored; the engine never made them.
+func (e *Engine) seedIDs(ctx context.Context) error {
+	var newest sql.NullString
+	err := e.cfg.Base.DB.Read().QueryRowContext(ctx,
+		`SELECT max(id) FROM (
+		 SELECT max(id) AS id FROM core_plans WHERE length(id) = 26
+		 UNION ALL SELECT max(id) FROM core_changes WHERE length(id) = 26)`).Scan(&newest)
+	if err != nil {
+		return fmt.Errorf("lifecycle: read the newest id: %w", err)
+	}
+	if !newest.Valid {
+		return nil
+	}
+	if id, err := ulid.ParseStrict(newest.String); err == nil {
+		e.idMu.Lock()
+		defer e.idMu.Unlock()
+		e.idMs = max(e.idMs, id.Time()+1)
+	}
+	return nil
 }
 
 func (e *Engine) env(p core.Principal) core.Env {
@@ -185,10 +213,13 @@ func (e *Engine) Plan(ctx context.Context, p core.Principal, ref core.ActionRef,
 	} else if out.Confirmation == "" {
 		return core.PlanView{}, fmt.Errorf("lifecycle: %s returned no confirmation phrase", ref)
 	}
+	// One reading: the id may be stamped later than now, but expiry and
+	// created_at stay on the clock.
+	now := e.cfg.Base.Clock.Now()
 	v := core.PlanView{
-		PlanID: e.newID(), HostID: e.cfg.Base.HostID, Action: def.Spec.Name, Version: def.Spec.Version,
+		PlanID: e.newID(now), HostID: e.cfg.Base.HostID, Action: def.Spec.Name, Version: def.Spec.Version,
 		InputHash: e.inputHash(def, canonical), Confirmation: out.Confirmation,
-		Diff: nonNil(out.Diff), Guards: nonNil(out.Guards), ExpiresAt: e.cfg.Base.Clock.Now().Add(PlanTTL),
+		Diff: nonNil(out.Diff), Guards: nonNil(out.Guards), ExpiresAt: now.Add(PlanTTL),
 	}
 	sealed, err := e.cfg.Base.Sealer.Seal(planInputAD(v.PlanID), canonical)
 	if err != nil {
@@ -202,7 +233,7 @@ func (e *Engine) Plan(ctx context.Context, p core.Principal, ref core.ActionRef,
 	if err != nil {
 		return core.PlanView{}, fmt.Errorf("lifecycle: encode guards: %w", err)
 	}
-	created := formatTime(e.cfg.Base.Clock.Now())
+	created := formatTime(now)
 	err = e.cfg.Base.DB.Write(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx,
 			`INSERT INTO core_plans (id, host_id, action, version, actor, input_ct, input_hash, state_hash,

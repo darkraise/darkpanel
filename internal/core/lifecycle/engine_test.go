@@ -7,7 +7,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/coretest"
@@ -167,5 +169,54 @@ func TestChangeNotFound(t *testing.T) {
 	wantCode(t, err, errcode.ChangeNotFound)
 	if cs, err := f.eng.Changes(context.Background(), core.ChangeFilter{}); err != nil || len(cs) != 0 {
 		t.Errorf("Changes = %v, %v; want none", cs, err)
+	}
+}
+
+func TestIDsFollowCreationOrderWhenTheClockStepsBack(t *testing.T) {
+	f := newFixture(t)
+	add := func(name string) (core.PlanView, core.ChangeView) {
+		t.Helper()
+		pl := f.plan(alice, refAdd, `{"name":"`+name+`","value":"1"}`)
+		return pl, f.apply(alice, pl.PlanID, core.ApplyOptions{})
+	}
+	p1, c1 := add("a")
+	f.clock.StepBack(time.Hour)
+	p2, c2 := add("b")
+	// A new engine seeds its ids from the stored ones.
+	f.restart()
+	f.recoverAll()
+	f.clock.StepBack(time.Hour)
+	p3, c3 := add("c")
+	if p1.PlanID >= p2.PlanID || p2.PlanID >= p3.PlanID {
+		t.Errorf("plan ids %s, %s, %s; want them ascending in creation order", p1.PlanID, p2.PlanID, p3.PlanID)
+	}
+	if c1.ID >= c2.ID || c2.ID >= c3.ID {
+		t.Errorf("change ids %s, %s, %s; want them ascending in creation order", c1.ID, c2.ID, c3.ID)
+	}
+	if want := f.clock.Now().Add(PlanTTL); !p3.ExpiresAt.Equal(want) {
+		t.Errorf("plan expires at %v, want %v: expiry follows the clock, not the id", p3.ExpiresAt, want)
+	}
+	page, err := f.eng.Changes(context.Background(), core.ChangeFilter{Before: c3.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, v := range page {
+		got = append(got, v.ID)
+	}
+	if want := []string{c2.ID, c1.ID}; !reflect.DeepEqual(got, want) {
+		t.Errorf("changes before %s = %v, want %v", c3.ID, got, want)
+	}
+}
+
+func TestPlanRefusesAnIrreversiblePlanWithoutAPhrase(t *testing.T) {
+	f := newFixture(t)
+	// The fixture's phrase is the item name, so an empty name gives none.
+	_, err := f.eng.Plan(context.Background(), alice, refRemove, json.RawMessage(`{"name":""}`))
+	if err == nil || !strings.Contains(err.Error(), "returned no confirmation phrase") {
+		t.Fatalf("Plan = %v, want the missing confirmation phrase refused", err)
+	}
+	if n := f.count("SELECT count(*) FROM core_plans"); n != 0 {
+		t.Errorf("plans stored = %d, want 0", n)
 	}
 }

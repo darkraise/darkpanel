@@ -117,7 +117,7 @@ func (e *Engine) begin(ctx context.Context, p core.Principal, planID string, opt
 		return nil, nil, err
 	}
 
-	it := &intent{id: e.newID(), def: def, input: input, confirmNow: opts.ConfirmNow}
+	it := &intent{id: e.newID(e.cfg.Base.Clock.Now()), def: def, input: input, confirmNow: opts.ConfirmNow}
 	var snapshot []byte
 	var deadline any
 	if def.Spec.Class == core.ClassRevertible {
