@@ -312,6 +312,26 @@ func TestIngestReportsEachStateChange(t *testing.T) {
 	}
 }
 
+func TestIngestRestartKeepsTheSinceOfAnUnchangedFailure(t *testing.T) {
+	e := newIngestEnv(t)
+	ctx := context.Background()
+	addHost(t, e.db, "h1") // no agent: the directory answers not_found
+	if err := e.ingester.IngestHost(ctx, "h1"); err != nil {
+		t.Fatal(err)
+	}
+	const want = "2026-10-17T12:00:00.000000000Z host h1 not found"
+	if got := ingestStatus(t, e.db, "h1"); got != want {
+		t.Fatalf("status before the restart = %q, want %q", got, want)
+	}
+	e.clock.Advance(time.Minute)
+	if err := e.newIngester().IngestHost(ctx, "h1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := ingestStatus(t, e.db, "h1"); got != want {
+		t.Errorf("status after the restart = %q, want %q", got, want)
+	}
+}
+
 func TestIngesterRunsEveryIntervalUntilStopped(t *testing.T) {
 	e := newIngestEnv(t)
 	m := e.host(t, "h1")
