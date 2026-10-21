@@ -130,6 +130,42 @@ session, which adds it to the spec section 12 public list and changes
 `specPublic` in `deny_test.go`. **Proposal: (a).** Widening the
 deny-by-default public surface to remove a console line is the wrong trade.
 
+## Review outcome (binding)
+
+Reviewed 2026-10-21 by Fable (judge-fable) and Codex gpt-6-astra against
+981368a. Where they split, the ruling follows the reviewer whose evidence
+addresses the row's own wording. These rulings replace the proposals above.
+
+| Item | Ruling | Raised by |
+|---|---|---|
+| 33a | Fix stands. Correction: callback errors already roll back (`db.go:109`); only `runtime.Goexit` escapes. Keep the existing error joining and panic propagation; the test calls `Goexit` in a spawned goroutine | both |
+| 33c | Hold four reader `sql.Conn` leases at once and check the pragmas, `query_only` included, on each | Codex |
+| 33d | (a). Chmod the database and any existing `-wal`/`-shm` to 0600 before `sql.Open`; a chmod failure fails `Open`; update the doc comment at `db.go:41-42` | both |
+| 38a | Stamp prerequisites also include `web/pnpm-workspace.yaml` | Codex |
+| 38b | The executing checks run with the host's `GOOS`/`GOARCH` (cleared cross-compile overrides), use `GOHOSTARCH`, and skip with a message on a non-Linux host or an arch outside `ARCHES` | both |
+| 45a | (a). Keep the `e.IsDir()` check, and `Lstat` the inner database file so a symlink never qualifies | both |
+| 45b | The chmod-failure test uses a package-level `chmod = os.Chmod` seam | Fable |
+| 45c | (b). `Backup` returns the prune error apart from a copy or chmod failure, which stays fatal; `Result.PruneErr` carries it; the controller server, the agent runtime and the installer each log or print it. Retry: every `Migrate` run attempts the prune even when it takes no backup, so the ADR 0005 "last five kept" rule holds from the next clean start | both; retry rule from Codex's ADR 0005 finding |
+| 59a | (b), strengthened. Read the clock once in `Plan`; clamp each ID's timestamp to at least the last issued; seed at engine start at the largest stored plan or change id's timestamp plus 1 ms, so the first new id exceeds the whole stored id; plan expiry stays on wall time. The test needs a clock that can step back. Check the audit store's ULIDs (`audit/audit.go:69-75`, paged by id) and apply the same fix if it shares the defect | both; audit store from Fable |
+| 59d | Also `Derive`: a zero-value sealer panics with a clear message (it has no error return) instead of deriving from a nil key | Fable |
+| 95b | (a). No grace period. Document in the handler contract (`core/contract.go:152-155`) that Verify must be read-only, honour cancellation and be safe alongside a rollback | both |
+| 95d | (c). Per-host ingestion state: warn on the first failure or a changed message, info on recovery, the per-tick repeat at debug; the same reporting for scheduled and dispatcher-triggered ingestion; an additive host-list field for ingestion health ("not yet checked" distinct from healthy) in `core.Host`, its generated schema and snapshot, the web type and the hosts overview | Codex (surface), Fable (logging detail) |
+| 95g | (a). The allowlist also includes `action.unknown` and `plan.state_changed`; keep the `claimed` and empty-view conditions | both |
+| 95j | (a). Reason: cancellation is client-controlled, which is the "attacker who can provoke faults" case the invariant at `login.go:56-59` covers; a wrong password is counted before any write | both; reason from Fable |
+| 95k | Clear the live header map and copy the snapshot back; the test checks a custom header is gone and the security headers survive | both |
+| 95l | The authenticated HEAD case runs against a real `httptest.Server`, since a `ResponseRecorder` keeps the body | Codex |
+| 95m | A bounded fresh hygiene review of the tests written by Tasks 2-34 of `docs/superpowers/plans/2026-10-18-m1-dispatch-cli-and-assembly.md`, starting from the known categories (missing `t.Cleanup` on failure paths, HTTP clients without a timeout: `server/listeners_test.go:98,101,105`, `server/e2e_test.go:89`, `server/server_test.go:445`, `listen/service_test.go:157`), fixing what it finds | Codex (review), Fable (known sites) |
+| 113 | The generation check also guards the session probe's success and rejection callbacks, not only the unauthorized handler; test a delayed probe across logout and re-login | Codex |
+| 115 | (a) through a prefix table in `web/src/router/` keyed by `to` (`"/"` also matches `/hosts/`), combined with `NavLink`'s `isActive`, so both the active style and `aria-current` follow; no field on `NAV`, which the kit's closed `NavItem` would not forward | both |
+| 116a | Logout is a session transition whose redirect omits `next`; cover a logout answered with `auth.required`; the test records every location and asserts `/audit` then `/login` only | both |
+| 116b | (b) `Role: admin`: the kit renders the email slot unconditionally, so an empty value leaves a blank line | Fable |
+| 117b | (a). Accepted: the endpoint is authenticated by design (`deny_test.go:23`, ADR 0006) | both |
+
+New items found by the review, outside the ten rows, recorded as register
+rows rather than widening this work: the controller's unfiltered `Changes`
+merges hosts by id, so its order across hosts stays wall-clock based
+(`dispatch/changes.go:163-167`).
+
 ## Out of scope
 
 New features beyond the items above. A decision whose outcome is "record a
