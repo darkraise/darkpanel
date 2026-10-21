@@ -86,7 +86,7 @@ func (e *e2e) do(method, path string, body any, c credentials) reply {
 	if c.bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+c.bearer)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := plainClient.Do(req)
 	if err != nil {
 		e.t.Fatalf("%s %s: %v", method, path, err)
 	}
