@@ -100,14 +100,37 @@ func nullable(s sql.NullString) *string {
 }
 
 // complete fills in the half of h that core_hosts does not store: whether
-// its agent is online, whether its version is supported, and its modules.
+// its agent is online, whether its version is supported, its modules and its
+// journal ingestion health.
 func (m module) complete(ctx context.Context, env core.Env, q querier, h *core.Host) error {
 	h.Online = online(ctx, env, h.ID)
 	h.Supported = h.AgentVersion != nil && h.ProtocolVersion != nil &&
 		(m.d.Version == "" || Supported(m.d.Version, *h.AgentVersion, *h.ProtocolVersion))
 	var err error
-	h.Modules, err = m.moduleStates(ctx, q, h.ID)
+	if h.Modules, err = m.moduleStates(ctx, q, h.ID); err != nil {
+		return err
+	}
+	h.Ingestion, err = ingestion(ctx, q, h.ID)
 	return err
+}
+
+// ingestion reads hostID's core_ingest_status row; a host without one has
+// not been ingested yet and has a nil state.
+func ingestion(ctx context.Context, q querier, hostID string) (*core.IngestionStatus, error) {
+	var since string
+	var msg sql.NullString
+	err := q.QueryRowContext(ctx, `SELECT since, error FROM core_ingest_status WHERE host_id = ?`, hostID).Scan(&since, &msg)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil, nil
+	case err != nil:
+		return nil, fmt.Errorf("coreactions: read ingestion status: %w", err)
+	}
+	at, err := parseTime(since)
+	if err != nil {
+		return nil, err
+	}
+	return &core.IngestionStatus{OK: !msg.Valid, Since: at, Error: nullable(msg)}, nil
 }
 
 // onlineTimeout bounds one host's online check. The check greets an agent

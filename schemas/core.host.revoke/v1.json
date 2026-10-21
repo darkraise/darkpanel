@@ -121,6 +121,17 @@
             },
             "type": "array",
             "description": "Every compiled-in module's state on the host."
+          },
+          "ingestion": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/IngestionStatus",
+                "description": "Journal ingestion health; null until the controller first ingests the host's journal."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -136,7 +147,38 @@
           "os",
           "arch",
           "supported",
-          "modules"
+          "modules",
+          "ingestion"
+        ]
+      },
+      "IngestionStatus": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the last ingestion succeeded."
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the current state began."
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "The last ingestion error; null while ingestion succeeds."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "since",
+          "error"
         ]
       },
       "ModuleState": {

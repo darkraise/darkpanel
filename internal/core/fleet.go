@@ -73,18 +73,26 @@ type ModuleState struct {
 // and is never stored; the version and platform fields are null until the
 // host's first Hello.
 type Host struct {
-	ID              string        `json:"id" jsonschema_description:"Host id."`
-	Name            string        `json:"name" jsonschema_description:"Host name."`
-	IsLocal         bool          `json:"isLocal" jsonschema_description:"Whether the host runs this controller."`
-	State           string        `json:"state" jsonschema:"enum=pending,enum=enrolled,enum=revoked" jsonschema_description:"Enrollment state: pending until the agent enrolls, revoked after core.host.revoke."`
-	Online          bool          `json:"online" jsonschema_description:"Whether the host's agent has a live session with the controller."`
-	LastSeenAt      *time.Time    `json:"lastSeenAt" jsonschema:"nullable" jsonschema_description:"When the agent last answered; null when it never has."`
-	AgentVersion    *string       `json:"agentVersion" jsonschema:"nullable" jsonschema_description:"Version of the agent's binary; null until its first Hello."`
-	ProtocolVersion *int          `json:"protocolVersion" jsonschema:"nullable" jsonschema_description:"Agent protocol version; null until its first Hello."`
-	OS              *string       `json:"os" jsonschema:"nullable" jsonschema_description:"Operating system the agent reports; null until its first Hello."`
-	Arch            *string       `json:"arch" jsonschema:"nullable" jsonschema_description:"CPU architecture the agent reports; null until its first Hello."`
-	Supported       bool          `json:"supported" jsonschema_description:"Whether the agent's version is inside the controller's support window; an unsupported agent accepts only update actions."`
-	Modules         []ModuleState `json:"modules" jsonschema_description:"Every compiled-in module's state on the host."`
+	ID              string           `json:"id" jsonschema_description:"Host id."`
+	Name            string           `json:"name" jsonschema_description:"Host name."`
+	IsLocal         bool             `json:"isLocal" jsonschema_description:"Whether the host runs this controller."`
+	State           string           `json:"state" jsonschema:"enum=pending,enum=enrolled,enum=revoked" jsonschema_description:"Enrollment state: pending until the agent enrolls, revoked after core.host.revoke."`
+	Online          bool             `json:"online" jsonschema_description:"Whether the host's agent has a live session with the controller."`
+	LastSeenAt      *time.Time       `json:"lastSeenAt" jsonschema:"nullable" jsonschema_description:"When the agent last answered; null when it never has."`
+	AgentVersion    *string          `json:"agentVersion" jsonschema:"nullable" jsonschema_description:"Version of the agent's binary; null until its first Hello."`
+	ProtocolVersion *int             `json:"protocolVersion" jsonschema:"nullable" jsonschema_description:"Agent protocol version; null until its first Hello."`
+	OS              *string          `json:"os" jsonschema:"nullable" jsonschema_description:"Operating system the agent reports; null until its first Hello."`
+	Arch            *string          `json:"arch" jsonschema:"nullable" jsonschema_description:"CPU architecture the agent reports; null until its first Hello."`
+	Supported       bool             `json:"supported" jsonschema_description:"Whether the agent's version is inside the controller's support window; an unsupported agent accepts only update actions."`
+	Modules         []ModuleState    `json:"modules" jsonschema_description:"Every compiled-in module's state on the host."`
+	Ingestion       *IngestionStatus `json:"ingestion" jsonschema:"nullable" jsonschema_description:"Journal ingestion health; null until the controller first ingests the host's journal."`
+}
+
+// IngestionStatus is a host's journal ingestion health.
+type IngestionStatus struct {
+	OK    bool      `json:"ok" jsonschema_description:"Whether the last ingestion succeeded."`
+	Since time.Time `json:"since" jsonschema_description:"When the current state began."`
+	Error *string   `json:"error" jsonschema:"nullable" jsonschema_description:"The last ingestion error; null while ingestion succeeds."`
 }
 
 // HostList is the output of core.host.list/v1.

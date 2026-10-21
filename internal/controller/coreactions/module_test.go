@@ -256,6 +256,36 @@ func TestHostListReportsAgents(t *testing.T) {
 	}
 }
 
+// TestHostListReportsIngestion: a host the controller has not ingested yet
+// has a null ingestion state, apart from a healthy one and a failing one.
+func TestHostListReportsIngestion(t *testing.T) {
+	e := newTestEnv(t)
+	e.addHost("h1", "alpha", true)
+	e.addHost("h2", "beta", false)
+	e.addHost("h3", "gamma", false)
+	failedAt := t0.Add(time.Minute)
+	e.exec(`INSERT INTO core_ingest_status (host_id, since, error) VALUES ('h2', ?, NULL), ('h3', ?, ?)`,
+		formatTime(t0), formatTime(failedAt), "audit: ingest host h3: agent unreachable")
+
+	var got core.HostList
+	if err := e.read(root, "core.host.list", NoInput{}, &got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]*core.IngestionStatus{
+		"h1": nil,
+		"h2": {OK: true, Since: t0},
+		"h3": {Since: failedAt, Error: ptr("audit: ingest host h3: agent unreachable")},
+	}
+	if len(got.Hosts) != len(want) {
+		t.Fatalf("hosts = %+v, want %d", got.Hosts, len(want))
+	}
+	for _, h := range got.Hosts {
+		if !reflect.DeepEqual(h.Ingestion, want[h.ID]) {
+			t.Errorf("%s ingestion = %+v, want %+v", h.ID, h.Ingestion, want[h.ID])
+		}
+	}
+}
+
 // deadlineDirectory answers every host as hung, recording the deadline each
 // call carried; it returns at once so the test need not wait it out.
 type deadlineDirectory struct{ deadlines map[string]time.Duration }
@@ -302,7 +332,8 @@ func TestHostListJSON(t *testing.T) {
 	}
 	want := `{"hosts":[{"id":"h1","name":"alpha","isLocal":true,"state":"pending","online":true,"lastSeenAt":null,` +
 		`"agentVersion":null,"protocolVersion":null,"os":null,"arch":null,"supported":false,"modules":[` +
-		`{"id":"demo","version":1,"enabled":true,"available":true,"reason":null,"checkedAt":"2026-10-17T00:00:00Z"}]}]}`
+		`{"id":"demo","version":1,"enabled":true,"available":true,"reason":null,"checkedAt":"2026-10-17T00:00:00Z"}],` +
+		`"ingestion":null}]}`
 	if !jsonEqual(t, raw, want) {
 		t.Errorf("output = %s\nwant     %s", raw, want)
 	}
