@@ -140,6 +140,11 @@ func (s *Store) IngestEpoch(ctx context.Context, hostID, epoch string, entries [
 
 func (s *Store) ingest(ctx context.Context, tx *sql.Tx, hostID, epoch string, entries []core.JournalEntry) error {
 	for _, e := range entries {
+		// insert stores a zero sequence as NULL, which the (host_id, epoch,
+		// seq) index never deduplicates.
+		if e.Seq <= 0 {
+			return fmt.Errorf("audit: a journal entry of host %s has sequence %d; sequences start at 1", hostID, e.Seq)
+		}
 		if err := s.insert(ctx, tx, fromJournal(hostID, e), epoch, true); err != nil {
 			return err
 		}

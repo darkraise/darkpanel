@@ -5,8 +5,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -211,6 +213,20 @@ func TestIngestDeduplicatesByHostAndSeq(t *testing.T) {
 	}
 	if len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Errorf("h2 entries = %+v, want %+v", got, want)
+	}
+}
+
+func TestIngestRefusesANonPositiveSequence(t *testing.T) {
+	s, db, _ := newTestStore(t)
+	ctx := context.Background()
+	for _, seq := range []int64{0, -1} {
+		err := s.Ingest(ctx, "h1", []core.JournalEntry{journalEntry(1, t0), journalEntry(seq, t0)})
+		if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("sequence %d", seq)) {
+			t.Errorf("Ingest of sequence %d = %v, want a refusal", seq, err)
+		}
+	}
+	if n := count(t, db, "SELECT count(*) FROM core_audit"); n != 0 {
+		t.Errorf("rows after the refusals = %d, want 0: a refused batch stores nothing", n)
 	}
 }
 
