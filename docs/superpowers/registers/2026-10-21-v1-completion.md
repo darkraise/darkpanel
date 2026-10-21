@@ -49,7 +49,7 @@
 | 42 | R78 User documentation covers install, every module and lockout recovery; a module-developer guide explains how to add a module. | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
 | 43 | R79 An API reference is generated from the action schemas. | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
 | 44 | R81 A v1.0 release candidate runs on the owner's production VPS plus at least one agent for 14 days with no manual repair (S7) before v1.0 is declared, with a runbook for lockout, failed update and lost controller. | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
-| 45 | Core: cross-module calls as composite operations with durable step logs (spec 1.3) | docs/superpowers/plans/2026-10-21-v1-w0a-lifecycle-core.md | composite plan, apply, unwind, confirmation, repair, release and start-up recovery tests pass with fault injection at every transition (spec 1.3) | planned | - |
+| 45 | Core: cross-module calls as composite operations with durable step logs (spec 1.3) | docs/superpowers/plans/2026-10-21-v1-w0a-lifecycle-core.md | composite plan, apply, unwind, confirmation, repair, release and start-up recovery tests pass with fault injection at every transition (spec 1.3) | doing | - |
 | 46 | Core: agent background tasks (spec 1.4) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
 | 47 | Core: agent streams relayed as server-sent events and CLI follow (spec 1.6) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
 | 48 | Core: guard context passed to agent plans (spec 1.5) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
