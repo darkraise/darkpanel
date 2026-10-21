@@ -331,7 +331,6 @@ func TestAHungHelloDelaysOnlyItsOwnHost(t *testing.T) {
 		_, err := h.hosts.Agent(ctx, "h2")
 		hung <- err
 	}()
-	<-started
 	released := false
 	releaseOnce := func() {
 		if !released {
@@ -340,6 +339,11 @@ func TestAHungHelloDelaysOnlyItsOwnHost(t *testing.T) {
 		}
 	}
 	defer releaseOnce()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the Hello of h2 never started")
+	}
 
 	other := make(chan error, 1)
 	go func() {
@@ -355,8 +359,13 @@ func TestAHungHelloDelaysOnlyItsOwnHost(t *testing.T) {
 		t.Fatalf("Agent(%s) is blocked by the hung Hello of h2", testHost)
 	}
 	releaseOnce()
-	if err := <-hung; err != nil {
-		t.Errorf("Agent(h2) after the Hello returned: %v", err)
+	select {
+	case err := <-hung:
+		if err != nil {
+			t.Errorf("Agent(h2) after the Hello returned: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("Agent(h2) did not return after the Hello was released")
 	}
 }
 
