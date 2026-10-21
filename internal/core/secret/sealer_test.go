@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -78,6 +80,48 @@ func TestSealerRefuses(t *testing.T) {
 		if _, err := c.sealer.Open(c.ad, c.ct); err == nil {
 			t.Errorf("%s: Open succeeded", name)
 		}
+	}
+}
+
+// TestSealerOpenChecksTheTag reaches the AEAD check with the wrong key: a
+// sealer of key 2 that carries key 1's id passes the key id check.
+func TestSealerOpenChecksTheTag(t *testing.T) {
+	ct, err := newTestSealer(t, 1).Seal("ad", []byte("x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := newTestSealer(t, 2)
+	other.keyID = newTestSealer(t, 1).keyID
+	if _, err := other.Open("ad", ct); err == nil || !strings.HasPrefix(err.Error(), "secret: open:") {
+		t.Errorf("Open with another key under the same id = %v, want a secret: open error", err)
+	}
+}
+
+func TestUninitialisedSealerRefuses(t *testing.T) {
+	ct, err := newTestSealer(t, 1).Seal("ad", []byte("x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, s := range map[string]*Sealer{"nil": nil, "zero value": {}} {
+		if _, err := s.Seal("ad", []byte("x")); err == nil || err.Error() != "secret: sealer not initialised" {
+			t.Errorf("%s: Seal = %v, want secret: sealer not initialised", name, err)
+		}
+		if _, err := s.Open("ad", ct); err == nil || err.Error() != "secret: sealer not initialised" {
+			t.Errorf("%s: Open = %v, want secret: sealer not initialised", name, err)
+		}
+	}
+}
+
+func TestUninitialisedSealerDeriveFailsLoudly(t *testing.T) {
+	for name, s := range map[string]*Sealer{"nil": nil, "zero value": {}} {
+		func() {
+			defer func() {
+				if p := recover(); fmt.Sprint(p) != "secret: sealer not initialised" {
+					t.Errorf("%s: Derive panicked with %v, want secret: sealer not initialised", name, p)
+				}
+			}()
+			s.Derive(CSRFLabel)
+		}()
 	}
 }
 

@@ -21,6 +21,10 @@ const (
 	headerSize  = 1 + keyIDSize
 )
 
+// errNotInitialised is the error of a nil or zero-value Sealer, which has no
+// key: only NewSealer makes a usable one.
+var errNotInitialised = errors.New("secret: sealer not initialised")
+
 // Sealer encrypts secrets at rest with XChaCha20-Poly1305 (ADR 0005). A
 // ciphertext is the version byte 1, an 8-byte key id (the first 8 bytes of
 // SHA-256 of the key), a random 24-byte nonce and the sealed data. The
@@ -50,6 +54,9 @@ func NewSealer(key []byte) (*Sealer, error) {
 
 // Seal encrypts plaintext bound to the associated data ad.
 func (s *Sealer) Seal(ad string, plaintext []byte) ([]byte, error) {
+	if s == nil || s.aead == nil {
+		return nil, errNotInitialised
+	}
 	out := make([]byte, headerSize+chacha20poly1305.NonceSizeX, headerSize+chacha20poly1305.NonceSizeX+len(plaintext)+s.aead.Overhead())
 	out[0] = sealVersion
 	copy(out[1:headerSize], s.keyID[:])
@@ -63,6 +70,9 @@ func (s *Sealer) Seal(ad string, plaintext []byte) ([]byte, error) {
 // Open decrypts a ciphertext that Seal produced with the same key and ad. It
 // refuses an unknown version, another key's id and any modified byte.
 func (s *Sealer) Open(ad string, ciphertext []byte) ([]byte, error) {
+	if s == nil || s.aead == nil {
+		return nil, errNotInitialised
+	}
 	if len(ciphertext) < headerSize+chacha20poly1305.NonceSizeX+s.aead.Overhead() {
 		return nil, errors.New("secret: ciphertext too short")
 	}
@@ -82,8 +92,13 @@ func (s *Sealer) Open(ad string, ciphertext []byte) ([]byte, error) {
 
 // Derive returns a 32-byte subkey for label: HKDF-SHA256 over the role key
 // with no salt and the label as info. Each use takes its own label, such as
-// CSRFLabel, so no subkey equals another or the role key.
+// CSRFLabel, so no subkey equals another or the role key. A nil or
+// zero-value Sealer panics: deriving from its empty key would return a
+// subkey anyone can compute.
 func (s *Sealer) Derive(label string) []byte {
+	if s == nil || s.key == nil {
+		panic(errNotInitialised)
+	}
 	sub, err := hkdf.Key(sha256.New, s.key, nil, label, 32)
 	if err != nil {
 		// hkdf.Key fails only for an output longer than 255 hash lengths or
