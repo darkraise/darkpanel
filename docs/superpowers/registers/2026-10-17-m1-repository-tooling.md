@@ -19,7 +19,7 @@
 | 12 | web/tsconfig.json include omits vite.config.ts and vitest.config.ts so they are not type-checked | docs/superpowers/specs/2026-10-17-m1-platform-core-design.md | - | done | done through platform-core register row 28 (web UI plan, 2026-10-19) |
 | 13 | Remove stale minimumReleaseAgeExclude eslint@10.13.0 from web/pnpm-workspace.yaml | - | - | deferred | Final review; harmless |
 | 14 | ci.yml hardening: timeout-minutes, persist-credentials false, cancel-in-progress not on main, avoid duplicate push plus pull_request runs; CI shallow checkout has no tags so binaries carry a short SHA | - | - | deferred | Tasks 9 and final review; low stakes |
-| 15 | Add .superpowers/ to .git/info/exclude so a git add -A cannot publish the ledger | - | - | deferred | Final review; local-only setting |
+| 15 | Add .superpowers/ to .git/info/exclude so a git add -A cannot publish the ledger | - | - | done | Final review; local-only setting; added to .git/info/exclude 2026-10-21 |
 | 16 | gates.md: gate 1 duplicates test-adr (gate 3 also runs it); gate 6 prints null or empty while no run exists; use check-ignore --no-index in the .gitignore check | - | - | deferred | Tasks 4 and 8; plan-mandated, fail safe |
 | 17 | Test polish: version_test hard-codes dev/unknown, main() error path untested, app.test.tsx toBeDefined after getByRole, vitest.config.ts separate from vite.config.ts, vitest react-swc notice | - | - | deferred | Tasks 2 and 6; plan-mandated |
 | 18 | Docs polish: README and CONTRIBUTING prerequisites omit file, git and bash; SECURITY.md commits only to a 7-day acknowledgement; .gitignore bin/ is unanchored | - | - | deferred | Tasks 4 and 7; plan-mandated |
