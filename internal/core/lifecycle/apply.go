@@ -360,7 +360,8 @@ func (e *Engine) run(ctx context.Context, p core.Principal, it *intent) (core.Ch
 }
 
 // failApply records a failed mutation or verify; a revertible change is
-// reverted from its snapshot first.
+// reverted from its snapshot first, and a compensable or irreversible change
+// settles its effects and follows the failure table.
 func (e *Engine) failApply(ctx context.Context, p core.Principal, it *intent, cause error) (core.ChangeView, error) {
 	tr := transition{
 		from: core.StateApplying, to: core.StateFailed, err: e.changeError(it.def.Ref(), cause), owner: newOwner(""),
@@ -377,11 +378,16 @@ func (e *Engine) failApply(ctx context.Context, p core.Principal, it *intent, ca
 		}
 		return e.transition(ctx, it.id, tr)
 	}
-	effects, err := loadEffects(ctx, e.cfg.Base.DB.Read(), it.id)
+	hctx, cancel := e.cleanupCall(it.def)
+	defer cancel()
+	if err := e.settle(hctx, e.changeEnv(p, it.def, it.id, it.call), it.def, it.id); err != nil {
+		return core.ChangeView{}, err
+	}
+	tr, err := e.failure(ctx, it.id, it.def, cause, false)
 	if err != nil {
 		return core.ChangeView{}, err
 	}
-	tr.giveBack = nothingLeft(effects)
+	tr.phase, tr.result, tr.actor, tr.source = phaseApply, resultError, p.Actor, p.Source
 	return e.transition(ctx, it.id, tr)
 }
 
