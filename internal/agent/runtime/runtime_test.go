@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -77,6 +79,27 @@ func TestOpenLogsAFailedModuleMigration(t *testing.T) {
 	if text := buf.String(); !strings.Contains(text, "runtime: module migrations failed") ||
 		!strings.Contains(text, "module=bad") || !strings.Contains(text, "0001_bad") {
 		t.Errorf("log does not report bad's migration:\n%s", text)
+	}
+}
+
+func TestOpenWarnsWhenBackupsCannotBePruned(t *testing.T) {
+	f := newFixture(t)
+	f.rt.Close()
+	notDir := filepath.Join(f.dir, "not-a-directory")
+	if err := os.WriteFile(notDir, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	c := f.config()
+	c.BackupDir = notDir
+	c.Log = slog.New(slog.NewTextHandler(&buf, nil))
+	rt, err := Open(context.Background(), c)
+	if err != nil {
+		t.Fatalf("Open: %v (a failed prune must not stop the runtime)", err)
+	}
+	defer rt.Close()
+	if text := buf.String(); !strings.Contains(text, `level=WARN msg="runtime: old agent database backups could not be pruned"`) {
+		t.Errorf("log lacks the prune warning:\n%s", text)
 	}
 }
 
