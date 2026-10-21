@@ -15,7 +15,8 @@ import (
 // version, are plan.not_found (register row 69, obligation 1): the caller
 // authorized a, so a plan of another action must not run. An agent apply also
 // needs a's module to be usable on hostID; its change is recorded in
-// core_change_index and the host's journal is ingested.
+// core_change_index and the host's journal is ingested. A returned view of
+// another host, action or version is refused before it is recorded.
 func (d *Dispatcher) Apply(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, planID string, opts core.ApplyOptions) (core.ChangeView, error) {
 	def, err := d.action(a, hostID)
 	if err != nil {
@@ -59,6 +60,11 @@ func (d *Dispatcher) Apply(ctx context.Context, p core.Principal, hostID string,
 		}
 		return v, err
 	}()
+	if v.ID != "" {
+		if refused := checkApplied(v, hostID, a); refused != nil {
+			return core.ChangeView{}, refused
+		}
+	}
 	if v.ID != "" && def.Spec.Side == core.SideAgent {
 		d.index(ctx, hostID, v)
 		d.ingest(ctx, hostID)
@@ -108,13 +114,32 @@ func (d *Dispatcher) markApplied(ctx context.Context, planID string) (bool, erro
 	return claimed, nil
 }
 
-// noChange reports whether err shows that the apply recorded no change. A lost
-// reply or an internal error may follow a committed change, and
-// plan.principal_mismatch is checked before the plan's change is looked up, so
-// another principal's concurrent apply may hold one.
+// checkApplied refuses the view of an apply that names another host, action
+// or version than the apply was authorized for, as checkChange does for the
+// other change calls.
+func checkApplied(v core.ChangeView, hostID string, a core.ActionRef) error {
+	if v.Action != a.Name || v.Version != a.Version {
+		return fmt.Errorf("dispatch: apply of %s on host %s answered as change %s of %s/v%d",
+			a, hostID, v.ID, v.Action, v.Version)
+	}
+	_, err := checkHost(v, hostID)
+	return err
+}
+
+// noChange reports whether err is a refusal the engines answer before any
+// change is committed, so the plan may be unmarked. Every other error keeps
+// it marked: a lost reply or an internal error may follow a committed
+// change, plan.principal_mismatch is checked before the plan's change is
+// looked up, so another principal's concurrent apply may hold one, and a code
+// not listed here is not known to precede a commit.
 func noChange(err error) bool {
-	c := errcode.From(err).Code
-	return c != errcode.Internal && c != errcode.PlanPrincipalMismatch
+	switch errcode.From(err).Code {
+	case errcode.PlanNotFound, errcode.PlanExpired, errcode.InvalidInput, errcode.PlanConfirmationNeeded,
+		errcode.PlanGuardFailed, errcode.ModuleUnavailable, errcode.LockHeld, errcode.ActionUnknown,
+		errcode.PlanStateChanged:
+		return true
+	}
+	return false
 }
 
 // unmarkApplied clears the applied flag that markApplied set.

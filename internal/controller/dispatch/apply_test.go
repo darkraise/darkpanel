@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -176,6 +178,89 @@ func TestApplyOfAnExpiredPlanIsExpired(t *testing.T) {
 	_ = wantCode(t, err, errcode.PlanExpired)
 	if n := h.count("SELECT applied FROM core_plan_index WHERE plan_id = ?", pl.PlanID); n != 0 {
 		t.Errorf("applied after a failed apply = %d, want 0", n)
+	}
+}
+
+func TestNoChangeOnlyForRefusalsBeforeACommit(t *testing.T) {
+	cases := []struct {
+		err  error
+		want bool
+	}{
+		{errcode.New(errcode.PlanNotFound, "no plan p1"), true},
+		{errcode.New(errcode.PlanExpired, "the plan expired"), true},
+		{errcode.New(errcode.InvalidInput, "bad confirm timeout"), true},
+		{errcode.New(errcode.PlanConfirmationNeeded, "type the phrase"), true},
+		{errcode.New(errcode.PlanGuardFailed, "guard g failed"), true},
+		{errcode.New(errcode.ModuleUnavailable, "module kv is unavailable"), true},
+		{errcode.New(errcode.LockHeld, "lock kv is held"), true},
+		{errcode.New(errcode.ActionUnknown, "unknown action"), true},
+		{errcode.New(errcode.PlanStateChanged, "the state changed"), true},
+		{fmt.Errorf("agent: apply: %w", errcode.New(errcode.PlanExpired, "the plan expired")), true},
+		{errcode.New(errcode.Internal, ""), false},
+		{errcode.New(errcode.PlanPrincipalMismatch, "another principal"), false},
+		{errcode.New(errcode.Unavailable, "shutting down"), false},
+		{errcode.New(errcode.HostOffline, "host h1 is offline"), false},
+		{errcode.New(errcode.ChangeNotPending, "change c1 is confirmed"), false},
+		{errors.New("connection reset"), false},
+	}
+	for _, c := range cases {
+		if got := noChange(c.err); got != c.want {
+			t.Errorf("noChange(%v) = %v, want %v", c.err, got, c.want)
+		}
+	}
+}
+
+// misattributed is an agent whose apply commits the change and answers with
+// its view altered by edit.
+type misattributed struct {
+	core.AgentClient
+	edit func(*core.ChangeView)
+}
+
+func (c misattributed) Apply(ctx context.Context, p core.Principal, planID string, opts core.ApplyOptions) (core.ChangeView, error) {
+	v, err := c.AgentClient.Apply(ctx, p, planID, opts)
+	if err == nil {
+		c.edit(&v)
+	}
+	return v, err
+}
+
+// ingestCalls records the hosts it is asked to ingest.
+type ingestCalls struct{ hosts []string }
+
+func (c *ingestCalls) IngestHost(_ context.Context, hostID string) error {
+	c.hosts = append(c.hosts, hostID)
+	return nil
+}
+
+func TestApplyRefusesAViewOfAnotherHostOrAction(t *testing.T) {
+	cases := []struct {
+		name string
+		edit func(*core.ChangeView)
+		want string
+	}{
+		{"another host", func(v *core.ChangeView) { v.HostID = "h2" }, "answered for host h2"},
+		{"another action", func(v *core.ChangeView) { v.Action = refGet.Name }, "of kv.item.get/v1"},
+		{"another version", func(v *core.ChangeView) { v.Version = 2 }, "of kv.item.set/v2"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			h, d := newDispatcher(t)
+			calls := &ingestCalls{}
+			d.cfg.Ingest = calls
+			pl := h.plan(d, testHost, refSet, `{"name":"a","value":"1"}`)
+			h.clients.Add(testHost, misattributed{AgentClient: h.rt, edit: c.edit})
+			v, err := d.Apply(context.Background(), alice, testHost, refSet, pl.PlanID, core.ApplyOptions{})
+			if err == nil || v.ID != "" || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("Apply = %+v, %v; want a refusal naming %q", v, err, c.want)
+			}
+			if n := h.count("SELECT count(*) FROM core_change_index"); n != 0 {
+				t.Errorf("index rows = %d, want none for a refused view", n)
+			}
+			if len(calls.hosts) != 0 {
+				t.Errorf("ingested %v, want nothing for a refused view", calls.hosts)
+			}
+		})
 	}
 }
 
