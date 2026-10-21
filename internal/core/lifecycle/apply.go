@@ -277,8 +277,7 @@ func takeLocks(ctx context.Context, tx *sql.Tx, owner string, keys []string) err
 
 // run mutates, verifies and records the result (ADR 0004 steps 3 and 4).
 func (e *Engine) run(ctx context.Context, p core.Principal, it *intent) (core.ChangeView, error) {
-	env := e.env(p)
-	env.ChangeID = it.id
+	env := e.changeEnv(p, it.def, it.id, core.CallContext{})
 	h := it.def.Handler
 	var out json.RawMessage
 	err := e.protect(it.def.Ref(), "Apply", func() error {
@@ -373,8 +372,7 @@ func (e *Engine) runRevert(ctx context.Context, p core.Principal, changeID strin
 	if err != nil {
 		return core.RevertOutcome{}, fmt.Errorf("lifecycle: open snapshot of %s: %w", changeID, err)
 	}
-	env := e.env(p)
-	env.ChangeID = changeID
+	env := e.changeEnv(p, def, changeID, core.CallContext{})
 	var out core.RevertOutcome
 	err = e.protect(ref, "Revert", func() error {
 		var err error
