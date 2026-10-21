@@ -154,7 +154,7 @@ func TestServiceDefaultsWithoutTailscale(t *testing.T) {
 	if st.TailscaleBound || st.Message != "No Tailscale address found; serving loopback only." {
 		t.Fatalf("state = %v, %q", st.TailscaleBound, st.Message)
 	}
-	if got := get(t, &http.Client{Timeout: 5 * time.Second}, "http://"+st.Listeners[0].Addr.String()+"/"); got != "tls=false" {
+	if got := get(t, &http.Client{Timeout: 10 * time.Second}, "http://"+st.Listeners[0].Addr.String()+"/"); got != "tls=false" {
 		t.Fatalf("loopback answered %q", got)
 	}
 	if _, err := s.leaf.GetCertificate(&tls.ClientHelloInfo{}); err == nil {

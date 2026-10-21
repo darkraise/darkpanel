@@ -277,7 +277,13 @@ func TestShutdownOnce(t *testing.T) {
 	for i := range errs {
 		wg.Go(func() { errs[i] = s.Shutdown(context.Background()) })
 	}
-	wg.Wait()
+	waited := make(chan struct{})
+	go func() { wg.Wait(); close(waited) }()
+	select {
+	case <-waited:
+	case <-time.After(10 * time.Second):
+		t.Fatal("concurrent Shutdown calls did not all return")
+	}
 	for i, err := range errs {
 		if err != nil {
 			t.Errorf("Shutdown %d: %v", i, err)
