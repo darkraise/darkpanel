@@ -49,14 +49,19 @@
 | 42 | R78 User documentation covers install, every module and lockout recovery; a module-developer guide explains how to add a module. | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
 | 43 | R79 An API reference is generated from the action schemas. | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
 | 44 | R81 A v1.0 release candidate runs on the owner's production VPS plus at least one agent for 14 days with no manual repair (S7) before v1.0 is declared, with a runbook for lockout, failed update and lost controller. | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
-| 45 | Core: cross-module calls as child changes (spec 1.1) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
-| 46 | Core: agent background tasks (spec 1.2) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
-| 47 | Core: agent streams relayed as server-sent events and CLI follow (spec 1.3) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
-| 48 | Core: guard context passed to agent plans (spec 1.4) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
-| 49 | Core: host clients - exec allowlist, Docker Engine API, Tailscale local API, socket table, restore owned-path kind (spec 1.5) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
-| 50 | Core: cloud HTTP client, sealed account credentials and in-process fakes for Tailscale, Cloudflare and NPM (spec 1.6) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
-| 51 | Core: trusted proxies and runtime listeners (spec 1.7) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
-| 52 | Core: module skeletons, registry lines, error codes, dependencies and the web ChangeDialog (spec 1.8, 10, 11) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
-| 53 | ADR 0014 records the core extensions and closes the DERP and cloudflared deferred decisions (spec 1.9) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
-| 54 | darkpanel controller backup and restore with an argon2id passphrase-derived key (ADR 0005, spec 9) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
+| 45 | Core: cross-module calls as composite operations with durable step logs (spec 1.3) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
+| 46 | Core: agent background tasks (spec 1.4) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
+| 47 | Core: agent streams relayed as server-sent events and CLI follow (spec 1.6) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
+| 48 | Core: guard context passed to agent plans (spec 1.5) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
+| 49 | Core: host clients - exec allowlist, Docker Engine API, Tailscale local API, socket table, netfilter reader, restore writes, module-owned Docker objects (spec 1.8) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
+| 50 | Core: cloud HTTP client, sealed account credentials and in-process fakes for Tailscale, Cloudflare and NPM (spec 1.9) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
+| 51 | Core: trusted proxies and runtime listeners (spec 1.10) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
+| 52 | Core: module skeletons, registry lines, error codes, dependencies and the web extension points and ChangeDialog (spec 1.12, 11) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
+| 53 | ADR 0014 records the core extensions and closes the DERP and cloudflared deferred decisions (spec Contracts) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
+| 54 | darkpanel controller backup and restore with an argon2id passphrase-derived key (ADR 0005, spec 10) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
 | 55 | Live demonstrations with owner credentials: tailnet, DERP region traffic, NPM certificate, tunnel and DNS, panel exposed and reverted (spec 12 item 2) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
+| 56 | Core: undo handlers for compensable actions (spec 1.2) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
+| 57 | Core: per-action availability (spec 1.7) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
+| 58 | Core: uninstall module options (spec 1.11) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
+| 59 | Core: CLI confirmation semantics kept and per-guard overrides (spec 1.13) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
+| 60 | Tailscale web certificate and MagicDNS name in the web root certificate (ADR 0010, spec 4.1) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
