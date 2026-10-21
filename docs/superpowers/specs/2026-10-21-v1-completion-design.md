@@ -304,6 +304,15 @@ type Candidate struct {
 type Observer interface {
     Observe(ctx context.Context, env Env, e Effect) (Observation, error)
 }
+
+// Resolver is optional. Resolved runs inside the resolution transaction,
+// after the effect's new state is written and before the commit, so a
+// module can move its own bookkeeping row with the resolution (1.9's
+// tailnet_keys). It writes only the module's own tables; an error rolls
+// the resolution back.
+type Resolver interface {
+    Resolved(ctx context.Context, tx *sql.Tx, e Effect, resolution string) error
+}
 ```
 
 Two `StateDoc` values are compared as canonical JSON (object keys sorted,
@@ -355,9 +364,9 @@ An effect whose inverse creates declares `InverseRecovery` at `Intend`
 so an inverse cut off before it returned can still be observed.
 
 `DefineMutating`, `DefineRevertible` and `DefineTask` find `Observer`,
-`Undoer` and `Recoverer` (1.3b) by type assertions on the handler (the
-`Uninstaller` idiom) and fill the new `ErasedHandler` fields `Observe`,
-`Inverse` and `Recover` (JSON forms). `UndoTo` is `Before` with `Version`
+`Resolver`, `Undoer` and `Recoverer` (1.3b) by type assertions on the
+handler (the `Uninstaller` idiom) and fill the new `ErasedHandler` fields
+`Observe`, `Resolved`, `Inverse` and `Recover` (JSON forms). `UndoTo` is `Before` with `Version`
 cleared (a creation: `{"state": null}`); because the check after an
 inverse compares State only, a field an inverse cannot restore belongs in
 `Version`.
@@ -444,7 +453,8 @@ claims, with one conditional update, `recovery_owner = resolve` on the
 change that holds the locks (the change, or the repair change's target),
 which fails with `core.change_busy` when another mechanism owns it; it
 then calls `Observe` and, in one transaction that re-checks the effect is
-still `unresolved`, records the outcome and clears the owner:
+still `unresolved`, records the outcome, calls the module's `Resolved`
+when it implements `Resolver`, and clears the owner:
 
 | Resolution | Result |
 |---|---|
@@ -512,7 +522,10 @@ governs a revert's writes, in this order:
 2. With no effect unresolved at the start, `Revert` restores each effect;
    an effect whose resource no longer equals its `Post` is left as it is
    and reported `unresolved` (`conflict`), and the others are restored and
-   reported `undone`.
+   reported `undone`. When any effect was left in place, or a write
+   failed, the lockout guard is evaluated again on the state the revert
+   leaves; if it fails for a protected flow, the connectivity exception of
+   rule 1 applies to that state (whole restore, `Override`).
 
 | Trigger | `Revert` returns | Change | Locks |
 |---|---|---|---|
@@ -1525,7 +1538,11 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
   `PlanOptions{}` and leave `ApplyOptions.Call` nil; the dispatcher sets
   `GuardRefresh` itself on every agent apply, and only the composite
   runner sets the other fields. The agent client (`internal/agent/api`)
-  encodes `Call` as the request's `call` object.
+  encodes `Call` as the request's `call` object. `AgentClient.Undo` and
+  `AgentClient.Release` take a `call *CallContext` too (1.3's wire
+  contract): the composite runner passes one whose `parent` names the
+  composite when `system:recovery` undoes or releases a step (1.2, 1.3);
+  every other caller passes nil.
 
 - **Apply.** The apply request's `call.guardRefresh` (same type, not part
   of the action's input) is the controller's topology at apply time. The
@@ -1825,7 +1842,7 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
   an error naming the unit:
   - units it declares as owned paths of kind `unit` (its unit files,
     below): every method;
-  - `darkpanel-task-<change id>-<op>.service` units (1.3c): `State` only
+  - `darkpanel-task-<change id>-<op>-<attempt>.service` units (1.3c): `State` only
     (the task runtime starts and stops them);
   - **external units** it declares in `Manifest.ExternalUnits
     []ExternalUnit{Name string; Ops []string}`, `Ops` a subset of
@@ -1997,16 +2014,16 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
   request that fails with a 5xx or a transport error after it may have
   reached the provider. Cloud calls are not `Local` (1.2): the write's
   effect becomes `unresolved` (`uncertain`) with `CommitBy` the call's
-  start plus 10 minutes, the change goes to `needs_repair` with error
-  `cloud.uncertain_outcome`, and the operator resolves it after `CommitBy`
+  start plus 10 minutes, the change goes to `needs_repair` (stored error `core.needs_repair`
+  with `Cause` `cloud.uncertain_outcome`, 1.2), and the operator resolves it after `CommitBy`
   (1.2). The procedure below is what the module's `Observe` reads; nothing
   settles an uncertain write automatically, and a write is never re-sent
   blindly:
 
   | Write | Procedure |
   |---|---|
-  | Tailscale auth key create | no immediate retry (the provider gives no guarantee that a request which timed out cannot still commit, so "none found" proves nothing). Every key Darkpanel creates is first recorded in `tailnet_keys` (description, kind `change` or `enroll`, owner id, request time, requested expiry, key id once known, state `requested`, `live`, `uncertain`, `used`, `retired` or `deleted`). Descriptions use two disjoint namespaces: `darkpanel-<change id>` (a 26-character ULID) for keys an action creates, and `darkpanel-enroll-<host id>` for join keys (4.2). On an uncertain create the effect becomes `unresolved` (`uncertain`), the change fails into `needs_repair` with `cloud.uncertain_outcome`, and the row becomes `uncertain`. The sweeps below are cleanup of keys Darkpanel owns; they never settle an effect. A sweep lists keys (by id, fetching each when the list omits descriptions, 4.2a) and deletes each whose description is that of an `uncertain` or `retired` row (a key's secret cannot be recovered): every 5 minutes until the request time plus the requested expiry plus 24 hours, then once a day while the account is connected. Independently, a daily orphan sweep deletes a key whose description is in either namespace when it has no row, or its row is `uncertain`, `retired` or `deleted`; a row in `requested` is skipped while it is younger than the request timeout (15 s) plus 5 minutes (its create may still be answered) and is first moved to `uncertain` when older, so the sweep never deletes a key whose create is still in flight. A key committed however late is removed while the account stays connected, and a `live` or `used` key is never mistaken for an orphan. **Resolution moves the row in the same transaction** (1.2): `Observe` lists keys by the row's description; `accept` of an observed key sets the row `live` with its key id (the operator keeps it; its secret is not recoverable, so the plan says so), `accept` of no key sets it `retired` (a late commit is still swept); `retry` recording `made` sets it `live` with the key id (undo then deletes that id), recording `skipped` sets it `retired`. After resolution no sweep treats the key as uncertain. A retry is a new change with a new description |
-  | Tailscale policy `POST` (always sent with `If-Match: <ETag read at plan>`) | `Observe` re-`GET`s with HuJSON (State: the normalized text; Version: the ETag). A timed-out write may still commit while the ETag it was sent with is current, so it is never treated as not made before `CommitBy`: after it, an observation equal to the new text lets the operator `retry` (recorded `made`) or `accept`; equal to the old text, `retry` records `skipped` and the operator's next write uses a fresh ETag; anything else is shown as changed by someone else (`accept` only, or a new policy change). Darkpanel writes no settling change of its own, and no step before it is unwound while the effect is `unresolved` |
+  | Tailscale auth key create | no immediate retry (the provider gives no guarantee that a request which timed out cannot still commit, so "none found" proves nothing). Every key Darkpanel creates is first recorded in `tailnet_keys` (description, kind `change` or `enroll`, owner id, request time, requested expiry, key id once known, state `requested`, `live`, `uncertain`, `used`, `retired` or `deleted`). Descriptions use two disjoint namespaces: `darkpanel-<change id>` (a 26-character ULID) for keys an action creates, and `darkpanel-enroll-<host id>` for join keys (4.2). On an uncertain create the effect becomes `unresolved` (`uncertain`), the change fails into `needs_repair` (stored error `core.needs_repair` with `Cause` `cloud.uncertain_outcome`, 1.2), and the row becomes `uncertain`. The sweeps below are cleanup of keys Darkpanel owns; they never settle an effect. A sweep lists keys (by id, fetching each when the list omits descriptions, 4.2a) and deletes each whose description is that of an `uncertain` or `retired` row (a key's secret cannot be recovered): every 5 minutes until the request time plus the requested expiry plus 24 hours, then once a day while the account is connected. Independently, a daily orphan sweep deletes a key whose description is in either namespace when it has no row, or its row is `uncertain`, `retired` or `deleted`; a row in `requested` is skipped while it is younger than the request timeout (15 s) plus 5 minutes (its create may still be answered) and is first moved to `uncertain` when older, so the sweep never deletes a key whose create is still in flight. A key committed however late is removed while the account stays connected, and a `live` or `used` key is never mistaken for an orphan. **Resolution moves the row in the same transaction** (the module's `Resolved` hook, 1.2): `Observe` lists keys by the row's description; `accept` of an observed key sets the row `live` with its key id (the operator keeps it; its secret is not recoverable, so the plan says so), `accept` of no key sets it `retired` (a late commit is still swept); `reconcile` recording `made` sets it `live` with the key id (undo then deletes that id), recording `skipped` sets it `retired`. After resolution no sweep treats the key as uncertain. A retry is a new change with a new description |
+  | Tailscale policy `POST` (always sent with `If-Match: <ETag read at plan>`) | `Observe` re-`GET`s with HuJSON (State: the normalized text; Version: the ETag). A timed-out write may still commit while the ETag it was sent with is current, so it is never treated as not made before `CommitBy`: after it, an observation equal to the new text lets the operator `reconcile` (recorded `made`) or `accept`; equal to the old text, `reconcile` records `skipped` and the operator's next write uses a fresh ETag; anything else is shown as changed by someone else (`accept` only, or a new policy change). Darkpanel writes no settling change of its own, and no step before it is unwound while the effect is `unresolved` |
   | Tailscale device writes | re-read the device and compare |
   | Cloudflare tunnel create | look up by name `darkpanel-<change id>` |
   | Cloudflare configuration `PUT` | re-`GET` and compare with the body sent; equal → applied. This detects only a configuration that differs afterwards: a concurrent write that Darkpanel's `PUT` overwrote is undetectable (7.1) |
@@ -2114,7 +2131,12 @@ and option: `<module>.<key>=<value> (default <d>; <help>)`. `runModules`
 passes the filled map. The firewall declares `rules` with values `remove`,
 `keep`, `baseline` and default `remove` (2.9). Uninstall is refused while a
 change is unfinished or a task unit is active, and `--stop-tasks` stops
-those units first (liveness gates, 1.3c).
+those units first (liveness gates and the uninstall barrier, 1.3c).
+`darkpanel uninstall --abort` clears the `uninstalling` flag the barrier
+set (one transaction on `core_meta`, audited as `local:root@<host>`) when
+an uninstall stopped before stopping the services, so the agent accepts
+changes again; after the services were stopped there is nothing to abort
+and it reports that.
 
 #### 1.12 Module skeletons, extension points and shared files
 
@@ -2746,8 +2768,11 @@ Resource `firewall.status` (configured and loaded state, rules with origin,
 
 Every mutating firewall action is revertible with the agent's revert timer.
 Setting `revertTimeoutSeconds` (default 60, range 30–600) is the module's
-per-host setting. The UI shows a countdown with Confirm and Revert; the CLI
-behaves as in 1.13.
+per-host setting. The timer is armed in the change's intent transaction,
+so it runs even when Apply or Verify hangs: if it fires while the change is
+still `applying`, the agent exits through the revert watchdog and startup
+recovery reverts the change (1.2). The UI shows a countdown with Confirm and
+Revert; the CLI behaves as in 1.13.
 
 #### 2.5 Logical snapshots and revert (R42)
 
@@ -2790,12 +2815,15 @@ behaves as in 1.13.
   this order before anything is written:
   1. **Check.** `Revert` reads the change's journal (`env.Effects`) and
      observes every `made` effect against its `Post`. If any effect is
-     `unresolved`, or a `made` effect's observation differs from its `Post`
-     (the change's own rule was edited or removed, a manual rule now
-     occupies its position), the revert writes nothing except under the
-     connectivity exception (step 4); the differing effects are reported to
-     the engine as conflicts (1.2 records them `unresolved`, `conflict`).
-  2. **Whole restore.** Otherwise, if every UFW file's hash still equals the
+     already `unresolved`, the revert writes nothing except under the
+     connectivity exception (step 4). A `made` effect whose observation
+     differs from its `Post` (the change's own rule was edited or removed,
+     a manual rule now occupies its position) is a conflict: it is left in
+     place and reported in `RevertOutcome.Effects` as `unresolved`
+     (`conflict`, with the observation in `Current`), and the revert goes on
+     to step 3 for the other effects.
+  2. **Whole restore.** Otherwise, if no effect conflicts and every UFW
+     file's hash still equals the
      hash recorded right after the change applied (after a mid-apply crash:
      the hash expected after the last settled effect), restore the snapshot
      (below). A missing post-apply hash never by itself authorizes a
@@ -2805,10 +2833,10 @@ behaves as in 1.13.
      journaled effects in reverse order, which leaves the other edits in
      place; logical rows are restored in the same transaction as the intent.
      If an inverse fails, the revert stops there.
-  4. **Connectivity first.** Whenever the revert ends without restoring the
-     prior state (step 1 found an unresolved or conflicting effect, or a
-     step 2 or 3 write failed), the lockout guard is evaluated on the loaded
-     state as it now stands. If it fails for a protected flow, the snapshot
+  4. **Connectivity exception.** Whenever the revert ends without restoring
+     the prior state (step 1 found an effect already unresolved, an effect
+     was left in place as a conflict, or a step 2 or 3 write failed), the
+     lockout guard is evaluated on the loaded state as it now stands. If it fails for a protected flow, the snapshot
      is restored whole even though that overwrites unresolved effects and
      manual edits; this is the single exception to 1.2's rule that an
      `unresolved` effect is never overwritten, it is authorized by the guard
@@ -2819,8 +2847,10 @@ behaves as in 1.13.
      restore record (time, snapshot id, the diff it overwrote), which the
      engine stores in `core_changes.override_json` and journals with result
      `override` (1.2). If the guard passes, the loaded state is left as it
-     is and `Revert` returns an error naming the unresolved or conflicting
-     effects or the failed write.
+     is: with an effect already unresolved, or a failed write, `Revert`
+     returns an error naming it (cause `change.revert_failed`); with only
+     conflicts, it returns no error and reports them in `Effects`, each
+     other effect `undone`.
   5. **Outcome.** Steps 2 and 3 completing → `reverted`. Every other ending
      → `needs_repair` (never `failed`; 1.2's revertible failure table), the
      change keeps the `firewall` lock, its snapshot is pinned until the
@@ -3408,10 +3438,10 @@ empty list or map as equal, addresses in canonical `netip` form.
     can cut the agent's own link to the controller, so the pin is an
     **agent-local transaction that rolls itself back**, like the updater
     (ADR 0007), with a module recovery handler (1.3b). The phases run in a
-    root transient systemd unit `darkpanel-task-<change id>-apply.service`
+    root transient systemd unit `darkpanel-task-<change id>-apply-<attempt>.service`
     (the phases and their automatic rollback run in that unit; an undo
-    runs in `darkpanel-task-<change id>-undo.service` and recovery in
-    `darkpanel-task-<change id>-recover.service`, 1.3c)
+    runs in `darkpanel-task-<change id>-undo-<attempt>.service` and recovery in
+    `darkpanel-task-<change id>-recover-<attempt>.service`, 1.3c)
     started through D-Bus (the transient-unit runner for long-running agent
     applies, 1.3), so a restart of `darkpanel-agent`, which the new
     tailscaled can provoke by cutting its link, does not kill `dpkg`
@@ -3752,8 +3782,9 @@ unwind policy (`rev` reverse, `fwd` forward). `L` marks a long-running action
 (asynchronous apply, 1.3). The task actions of 1.3c
 (`tailscale.package.install`, `package.update`, `package.pin`,
 `package.unpin`, `derp.server.install`, `derp.binary.update`) are declared
-with `DefineTask` and run in `darkpanel-task-<change id>-<op>.service`
-(op `apply`, `undo` or `recover`). Every `ForwardOnly` action and the
+with `DefineTask` and run in
+`darkpanel-task-<change id>-<op>-<attempt>.service` (op `apply`, `undo` or
+`recover`). Every `ForwardOnly` action and the
 action of every non-read step of a forward composite (`derp.server.remove`,
 `npm.expose.remove`, `npm.admin.unexpose`, `cloudflare.expose.remove`,
 `panel.exposure.remove`; for example `tailnet.policy.patch` (the region
@@ -3800,7 +3831,9 @@ Scopes follow 1.7 (existing rules kept; raised where noted).
 | panel | `exposure.add` (8) | X rev | C | — |
 | panel | `exposure.remove` (8) | X fwd | C | — |
 
-Every step of a `rev` composite has an `Undo` handler. The wave that builds a
+Every compensable step of a `rev` composite has an undo handler (`Undoer`);
+its read steps have none and its final step may be revertible (1.3). The
+wave that builds a
 module may add read actions and resources; any other change to this table is
 a spec change.
 
@@ -3889,14 +3922,14 @@ a spec change.
 
   | Found | `Observe` returns | Resolution |
   |---|---|---|
-  | exactly one match by an exclusive identity | `Matches: 1`, the object's id | `retry` records it `made`; `accept` keeps it |
-  | exactly one match by the non-exclusive certificate identity | `Matches: 1`, the object's id, and the view marks the match "not exclusive" with the candidate shown | the operator decides: `retry` records it `made` (the next undo deletes it), `accept` keeps it as is |
-  | more than one match | `Matches: N`, every candidate shown | `retry` is refused (1.2); `accept` only |
-  | none | `Matches: 0`, State `null` | `retry` records `skipped`; an object that appears later is shown on the NPM page as "unclaimed Darkpanel object" (its name or domains match a skipped effect) for the operator to remove, never removed automatically |
+  | exactly one match by an exclusive identity | `Matches: 1`, the object's id | `reconcile` records it `made`; `accept` keeps it |
+  | exactly one match by the non-exclusive certificate identity | `Matches: 1`, the object's id, and the view marks the match "not exclusive" with the candidate shown | the operator decides: `reconcile` records it `made` (the next undo deletes it), `accept` keeps it as is |
+  | more than one match | `Matches: N`, every candidate shown | `reconcile` only with `--resource` naming one candidate (`Allowed` includes it, 1.2); otherwise `accept` |
+  | none | `Matches: 0`, State `null` | `reconcile` records `skipped`; an object that appears later is shown on the NPM page as "unclaimed Darkpanel object" (its name or domains match a skipped effect) for the operator to remove, never removed automatically |
 
   Darkpanel never deletes an object it cannot tie to the change by an
   exclusive identity unless the operator has resolved that match with
-  `retry`. The 6a spike confirms against the pinned image that
+  `reconcile`. The 6a spike confirms against the pinned image that
   proxy-host domains are enforced unique, that access-list names are kept
   as given, whether a certificate's `nice_name` is kept as given, and that
   `created_on` is returned; its result is recorded in this table.
@@ -4589,7 +4622,8 @@ a spec change.
   `GET /agent/v1/streams/{module}/{name}`, `POST /agent/v1/changes/{id}/undo`,
   `/repair` (1.3's repair table), `/release`,
   `/effects/{seq}/resolve` and `/private-output/ack`,
-  `GET /agent/v1/changes/{id}/effects`, `GET /agent/v1/plans/{plan id}`
+  `GET /agent/v1/changes/{id}/effects` and `/effects/{seq}/observe`,
+  `GET /agent/v1/plans/{plan id}`
   (`PlanLookup` with `Deadline`; `private=1` over the controller session
   only), `POST /agent/v1/plans/{plan id}/retire`,
   `PUT /agent/v1/modules/{id}/enabled`,
@@ -4599,15 +4633,20 @@ a spec change.
   contract and 1.4–1.14. The plan and apply requests gain the core-level
   `call` object (1.5; its `guardRefresh` is read at apply only), accepted
   only on the controller session; the apply request, for long-running and
-  task actions, returns once the intent is persisted; a plan request gains
-  the core-level `repairs` field, set only by the controller's repair
-  route. During start-up admission (1.3) mutating
+  task actions, returns once the intent is persisted. The repair target is
+  taken only from the repair route's path (stored in `core_plans.repairs`);
+  a plan request that supplies `repairs` is refused. The undo and release
+  requests carry `call` (its `parent` names the composite for
+  `system:recovery`). During start-up admission (1.3) mutating
   routes answer `core.recovering`.
-- API: `POST /api/v1/changes/{id}/undo`, `/repair`, `/release` and
-  `/effects/{seq}/resolve`, `GET /api/v1/changes/{id}/effects` and
-  `/steps` (DTOs, status codes and scopes in 1.3's wire contract;
-  `ChangeView` gains `parentChangeId`, `owner`, `repairedBy`,
-  `repairOutcome` and `override`); apply answers
+- API: `POST /api/v1/changes/{id}/undo`, `/repair` (`RepairRequest` with
+  the optional `input`), `/release` and `/effects/{seq}/resolve`
+  (`ResolveRequest`: `accept` or `reconcile`, optional `resource`),
+  `GET /api/v1/changes/{id}/effects`, `/effects/{seq}/observe`
+  (`ObserveResult`, read-only) and `/steps` (DTOs, status codes and scopes
+  in 1.3's wire contract; `ChangeView` gains `parentChangeId`, `owner`,
+  `repairedBy`, `repairOutcome` and `override`; `ChangeError` gains
+  `Cause`); apply answers
   `202` for composites, long-running and task actions; a plan request that
   supplies `repairs` is refused; the controller socket's backup and quarantine
   routes (1.12, 10); the SSE
@@ -4624,21 +4663,31 @@ a spec change.
   `needs_repair` (composites and single changes), `recovering`, `repaired`,
   `kept`, `abandoned`, `quarantined` and, for composites, `releasing`
   (`applying` exists); owners `engine`, `composite`, `undo`, `module`,
-  `repair`; `ActionSpec.Available`, `MinScope` (raise only), `Internal`,
+  `repair`, `resolve`; composite step states including `planning` and
+  `planned`; `ActionSpec.Available`, `MinScope` (raise only), `Internal`,
   `ForwardOnly`, `Converges`, `RepairedBy`, `ApplyTimeout`, `LongRunning`,
-  `Task`, `Unwind`; the handler interfaces `Observer` (`Observation`),
-  `Undoer` (`Inverse`), `Recoverer` (`RecoveryOutcome`), `Composer`,
-  `TaskMutator` with `DefineComposite` and `DefineTask` (whose default
-  recovery handler is built over the handler's Verify), and the matching
-  `ErasedHandler` fields `Observe`, `Inverse`, `Recover`, `Task`, `Steps`,
-  `Output`; `Revert` returning `RevertOutcome`; `Step` and its reference
-  syntax; `Env.Effects` with `EffectJournal`, `Effect` (`Local`,
-  `CommitBy`, `Reason`), `StateDoc`, `RecoveryID`, the effect states
-  including `EffectUnresolved`, `Definite` and `IsDefinite`; the lock-epoch
-  undo window; `PlanLookup` (with `Deadline`), `EffectView`, `StepView`,
-  `RepairRequest`, `RepairResult`, `ReleaseResult` and the `AgentClient` and
-  `Dispatcher` additions (1.3); the core-level `repairs` plan field and the
-  `repairOutcome` output field of `RepairedBy` actions;
+  `Task`, `Unwind`; the handler interfaces `Observer` (`Observation` with
+  `Candidates`, `Exclusive`, `Allowed`), the optional `Resolver`
+  (`Resolved`), `Undoer` (`Inverse` returning `InverseResult`),
+  `Recoverer` (`RecoveryOutcome`), `Composer`, `TaskMutator` with
+  `DefineComposite` and `DefineTask` (a task action without a module
+  `Recoverer` is recovered by the engine's task sequence, 1.3c), and the
+  matching `ErasedHandler` fields `Observe`, `Resolved`, `Inverse`,
+  `Recover`, `Task`, `Steps`, `Output`; `Revert` returning `RevertOutcome`
+  (with `Effects`, the per-effect `EffectOutcome` the engine journals) and
+  the revert watchdog exit (1.2); `Step` and its reference syntax;
+  `Env.Effects` with `EffectJournal`, `Effect` (`Local`, `InverseLocal`,
+  `CommitBy`, `CommitWait`, `InverseRecovery`, `UndoResource`, `Reason`),
+  `StateDoc`, `RecoveryID`, the effect states including
+  `EffectUnresolved`, `Definite` and `IsDefinite`; the lock-epoch undo
+  window; `PlanLookup` (with `Deadline`), `EffectView`, `ObservationView`,
+  `ObserveResult`, `ResolveRequest`, `StepView`, `RepairRequest` (with
+  `Input`), `RepairResult`, `ReleaseResult`, `ChangeError.Cause` and the
+  `AgentClient` and `Dispatcher` additions (1.3); the repair target taken
+  from the repair route's path and the `repairOutcome` output field of
+  `RepairedBy` actions; the uninstall barrier (`core_meta` key
+  `uninstalling`, `core.uninstalling`, `darkpanel uninstall --abort`,
+  1.3c, 1.11);
   `core.TransientService.RuntimeMax` and `CollectMode` (aliased by
   `platform`, 1.8);
   `core.Guard.Overridable`,
@@ -4674,8 +4723,8 @@ a spec change.
   `Remove` on kind `unit`, and `core.Ownership.Owns` (1.8); `ExecRule`,
   `ProductionRules` and the `apt-get` vectors `APT-1`–`APT-6` (1.8); the
   route and service registration hooks (1.12); task units
-  `darkpanel-task-<change id>-<op>.service` running `{{.Binary}} agent task
-  <change id> <op>` (1.3c).
+  `darkpanel-task-<change id>-<op>-<attempt>.service` running
+  `{{.Binary}} agent task <change id> <op> <attempt>` (1.3c).
 - Database: new module tables are prefixed with the module id; core gains
   on `core_changes` the columns `parent_change_id`, `recovery_owner`,
   `repaired_by`, `repair_outcome`, `recovery_retry`, `private_output_ct`,
@@ -4683,7 +4732,8 @@ a spec change.
   columns `repairs` and `call` (1.5); the tables `core_effects` (both
   sides; one row per effect, secret sealed), `core_lock_epochs` (both
   sides), `core_composite_steps` and `core_composites` (controller),
-  `core_task_runs` (agent, keyed by change id and op), `core_listeners`,
+  `core_task_runs` (agent, keyed by change id, op and attempt), the
+  agent's `core_meta` key `uninstalling` (1.3c), `core_listeners`,
   the `restore_quarantine`
   marker with its restore transaction id and `quarantined_from` on
   quarantined records (10); all migrations are expand-only.
@@ -5040,9 +5090,10 @@ controller; editing Darkpanel-managed tunnels outside Darkpanel.
   findings) and Codex gpt-6-astra (32 findings), all accepted; per the
   owner's choice the wave 0 plan follows without another spec round, and
   the plan review is the next check. Outside 1.1–1.3c: the firewall revert
-  follows 1.2's single precedence rule (check first, writes only when
-  nothing is unresolved or conflicting, the connectivity exception decided
-  last on the state the revert leaves; 2.5); the replaced `Uninstaller`
+  follows 1.2's single precedence rule (an effect already unresolved blocks
+  every write, conflicts are left in place and reported while the other
+  effects are restored, the connectivity exception decided last on the
+  state the revert leaves; 2.5); the replaced `Uninstaller`
   with declared options and defaults (1.11, 2.9); `tailscale.prefs.repair`
   and `firewall.state.repair` take `outcome` through the repair request's
   optional input, defaulting to `restore`, and report `kept` only when
@@ -5057,4 +5108,15 @@ controller; editing Darkpanel-managed tunnels outside Darkpanel.
   with the `Darkpanel-Internal` header (1.7, 1.14); `ext.Deps.Audit`
   (1.12); `PlanOptions`, `ApplyOptions.Call` and the client-method
   additions for enablement, streams, availability and reveal (1.4–1.7,
-  1.14); 4.1's pin unit records its row, never the change state.
+  1.14); 4.1's pin unit records its row, never the change state. Inside
+  1.1–1.3c: per-operation locality, inverse uncertainty, resolution under
+  an owner with a read-only preview and `reconcile` (renamed from
+  `retry`), inverse recovery identities, `RevertOutcome.Effects`, the
+  revert watchdog, recovery handlers only after settlement, task attempts
+  with a closed fence, epochs given back, composite tables by direction,
+  parent-driven child release, the uninstall barrier, `ChangeError.Cause`.
+  An integration pass reconciled both halves: the optional `Resolver`
+  hook run inside the resolution transaction (1.9's key rows), the
+  attempt-qualified unit names, `uninstall --abort` (1.11), the Contracts
+  lists, and 2.5's revert order with 1.2's rule (plus the connectivity
+  re-check after a revert that left effects in place).
