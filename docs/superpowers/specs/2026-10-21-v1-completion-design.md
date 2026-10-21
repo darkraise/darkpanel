@@ -2,9 +2,8 @@
 
 **Date:** 2026-10-21
 **Status:** design approved by the owner section by section on 2026-10-21;
-revision 7 after the final wave-0 check of revision 6 and the owner's
-choice to simplify the lifecycle core (see the review log). The written
-spec awaits a wave-0 check and the owner's review.
+revision 8 after the wave-0 check of revision 7 (see the review log). Per
+the owner's choice the wave 0 plan follows without another spec round.
 **Product spec:** docs/superpowers/specs/2026-10-17-darkpanel-design.md
 **Requirements:** R37–R81; M2 register rows 11, 16 and 35
 (docs/superpowers/registers/2026-10-19-m2-fleet-lifecycle-core.md); the
@@ -1063,7 +1062,11 @@ changes of other modules' actions on one or more hosts.
   controller's `core_module_state` (ADR 0002) stays the authority; the
   agent's key is its pushed copy and is read only by the background-task
   runtime. Actions on the local socket keep their current rule
-  (enablement is not applied there).
+  (enablement is not applied there). `core.AgentClient` gains
+  `SetModuleEnabled(ctx context.Context, moduleID string, enabled bool)
+  error`, which the controller's module-enable path and its `hello`
+  handler call; the dispatcher has no matching method (enablement stays the
+  existing controller API).
 - **Interface** (`internal/core`, found on a `Module` by type assertion,
   like `Uninstaller`):
 
@@ -1207,6 +1210,35 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
   provenance read only `Env.Call`: NPM's and Cloudflare's reserved-resource
   checks (6, 7.3) read `ParentAction`, retirement reads `Retired`.
 
+  In Go the call context travels in the existing interfaces of
+  `contract.go`, which wave 0 changes (no compatibility shim; every caller
+  is in this repository):
+
+  ```go
+  // PlanOptions carries core-level plan request fields.
+  type PlanOptions struct {
+      Call *CallContext // controller only; nil for a top-level change. RepairOf is ignored.
+  }
+  // AgentClient.Plan and Dispatcher.Plan gain the trailing argument.
+  Plan(ctx context.Context, p Principal, a ActionRef, input json.RawMessage, opts PlanOptions) (PlanView, error)                 // AgentClient
+  Plan(ctx context.Context, p Principal, hostID string, a ActionRef, input json.RawMessage, opts PlanOptions) (PlanView, error)  // Dispatcher, ext.Dispatcher
+
+  // ApplyOptions gains Call; its GuardRefresh is set by the dispatcher,
+  // never by an API or socket caller (the API decoder has no such field).
+  type ApplyOptions struct {
+      ConfirmTimeout time.Duration
+      Confirmation   string
+      ConfirmNow     bool
+      Call           *CallContext
+  }
+  ```
+
+  The public API handlers and the controller socket always pass
+  `PlanOptions{}` and leave `ApplyOptions.Call` nil; the dispatcher sets
+  `GuardRefresh` itself on every agent apply, and only the composite
+  runner sets the other fields. The agent client (`internal/agent/api`)
+  encodes `Call` as the request's `call` object.
+
 - **Apply.** The apply request's `call.guardRefresh` (same type, not part
   of the action's input) is the controller's topology at apply time. The
   agent evaluates the union of the plan's `guard`, `guardRefresh`
@@ -1278,6 +1310,15 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
   `event: data` with the event JSON; the stream ends with one `event: end`
   carrying `{"reason": "done" | "overflow" | "expired" | "revoked" |
   "error", "error"?: <problem>}`.
+- **Go methods.** `core.AgentClient` gains `Streams(ctx context.Context)
+  ([]StreamInfo, error)` (the discovery route; a 404 returns an empty list)
+  and `OpenStream(ctx context.Context, p Principal, module, name string,
+  params url.Values) (io.ReadCloser, error)` (the JSON-lines body; closing
+  it ends the yamux stream), with `StreamInfo{Module, Name, SchemaHash
+  string}`. `core.Dispatcher` gains `OpenStream(ctx, p, hostID, module,
+  name string, params url.Values) (io.ReadCloser, error)`, which checks
+  the hash and the limits and is what the relay handler calls. `ext.Dispatcher`
+  does not expose streams.
 - **CLI.** `darkpanel <module> <name> --follow` reads the SSE endpoint with
   its own streaming client.
 - Streams in v1: `docker.logs`, `docker.stats`, `docker.pull`.
@@ -1328,6 +1369,13 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
   dispatching an action whose cached answer is older than 60 s, and refuses
   an unavailable action with `module.unavailable` and the reason; the UI
   greys it out from the cached answer. Module preflight stays module-wide.
+  `core.AgentClient` gains `Availability(ctx context.Context, moduleID
+  string) (ModuleAvailability, error)` with `ModuleAvailability{Module
+  string; Available bool; Reason string; Actions []ActionAvailability}` and
+  `ActionAvailability{Name string; Available bool; Reason string}` (the
+  route's body; `Reason` empty for null); the controller's cache sits in
+  the dispatcher, which checks it inside `Plan`, `Apply` and `Read` and
+  needs no new method. Controller-side actions run `Available` in-process.
 - `MinScope`: can only **raise** the scope the existing rules require; it
   never lowers one. Today's rules are kept unchanged: read actions need
   `read`, agent mutations `operate`, controller-side mutations `admin`
@@ -1337,20 +1385,28 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
   its own and every step's scope (1.3). No action's scope is lowered.
 - `Internal`: the action is not exposed through the API or CLI and is
   dispatched only by the controller itself (`tailscale.cert.get`). Internal
-  reads travel through a controller-only dispatch path that returns the
-  output unredacted: never through `Engine.Read`, the API, the journal or the
-  SSE relay. On the agent, the read handler for an `Internal` action answers
-  only the controller's session (never the local socket) and does not apply
-  `Redact`; each call is audited like secret delivery (1.14): actor, action
-  and the secret's identity, never the value. `Internal` actions are the one
+  reads use the reveal path end to end (1.14), never `Engine.Read`, the
+  public API, the journal or the SSE relay: `ext.Dispatcher.ReadInternal`
+  → for an agent action the agent route `POST
+  /agent/v1/reveal/{name}/{version}` (controller session only) → the
+  executing side's `Engine.Reveal`, which runs `Handler.Reveal` (set by
+  `DefineInternalRead`), applies no `Redact`, and writes the audit entry
+  from `Revealed.Identity` (actor, action, identity, never the value)
+  before returning. `Engine.Reveal` serves an `Internal` action only to a
+  call arriving through `ReadInternal` (on the agent: the controller's
+  session carrying the internal-read flag below); the public reveal API
+  routes refuse it with `action.unknown`. `Internal` actions are the one
   exception to 1.1's rule that every agent action is reachable with
   `--local`: the CLI generates no command for them and the local socket
   answers `action.unknown`. Reveal actions are the other exception (1.14).
 - **Internal read audit identity.** `ext.Dispatcher.ReadInternal` takes the
   calling principal (`p core.Principal`, 1.12); the controller sends it in
   the existing `Darkpanel-Principal` header (`internal/agent/api/client.go`),
-  which the agent's handler already parses, and the agent's audit entry
-  names that actor. The handler of an `Internal` read returns
+  which the agent's handler already parses, plus the header
+  `Darkpanel-Internal: 1`, which only the controller's session may send
+  (the agent accepts an `Internal` action on the reveal route only with
+  it, and refuses a public reveal of an `Internal` action without it), and
+  the agent's audit entry names that actor. The handler of an `Internal` read returns
   `(Revealed[Out], error)` like a reveal (1.14), built with
   `DefineInternalRead`, so the `Identity` the audit records comes from the
   module ("tailscale certificate for <MagicDNS name>"). Callers and their
@@ -1661,7 +1717,7 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
 
   | Write | Procedure |
   |---|---|
-  | Tailscale auth key create | no immediate retry (the provider gives no guarantee that a request which timed out cannot still commit, so "none found" proves nothing). Every key Darkpanel creates is first recorded in `tailnet_keys` (description, kind `change` or `enroll`, owner id, request time, requested expiry, key id once known, state `requested`, `live`, `uncertain`, `used`, `retired` or `deleted`). Descriptions use two disjoint namespaces: `darkpanel-<change id>` (a 26-character ULID) for keys an action creates, and `darkpanel-enroll-<host id>` for join keys (4.2). On an uncertain create the effect becomes `unresolved` (`uncertain`), the change fails into `needs_repair` with `cloud.uncertain_outcome`, and the row becomes `uncertain`. The sweeps below are cleanup of keys Darkpanel owns; they never settle an effect. A sweep lists keys (by id, fetching each when the list omits descriptions, 4.2a) and deletes each whose description is that of an `uncertain` or `retired` row (a key's secret cannot be recovered): every 5 minutes until the request time plus the requested expiry plus 24 hours, then once a day while the account is connected. Independently, a daily orphan sweep deletes a key whose description is in either namespace when it has no row, or its row is `uncertain`, `retired` or `deleted`; a row in `requested` is skipped while it is younger than the request timeout (15 s) plus 5 minutes (its create may still be answered) and is first moved to `uncertain` when older, so the sweep never deletes a key whose create is still in flight. A key committed however late is removed while the account stays connected, and a `live` or `used` key is never mistaken for an orphan. A retry is a new change with a new description |
+  | Tailscale auth key create | no immediate retry (the provider gives no guarantee that a request which timed out cannot still commit, so "none found" proves nothing). Every key Darkpanel creates is first recorded in `tailnet_keys` (description, kind `change` or `enroll`, owner id, request time, requested expiry, key id once known, state `requested`, `live`, `uncertain`, `used`, `retired` or `deleted`). Descriptions use two disjoint namespaces: `darkpanel-<change id>` (a 26-character ULID) for keys an action creates, and `darkpanel-enroll-<host id>` for join keys (4.2). On an uncertain create the effect becomes `unresolved` (`uncertain`), the change fails into `needs_repair` with `cloud.uncertain_outcome`, and the row becomes `uncertain`. The sweeps below are cleanup of keys Darkpanel owns; they never settle an effect. A sweep lists keys (by id, fetching each when the list omits descriptions, 4.2a) and deletes each whose description is that of an `uncertain` or `retired` row (a key's secret cannot be recovered): every 5 minutes until the request time plus the requested expiry plus 24 hours, then once a day while the account is connected. Independently, a daily orphan sweep deletes a key whose description is in either namespace when it has no row, or its row is `uncertain`, `retired` or `deleted`; a row in `requested` is skipped while it is younger than the request timeout (15 s) plus 5 minutes (its create may still be answered) and is first moved to `uncertain` when older, so the sweep never deletes a key whose create is still in flight. A key committed however late is removed while the account stays connected, and a `live` or `used` key is never mistaken for an orphan. **Resolution moves the row in the same transaction** (1.2): `Observe` lists keys by the row's description; `accept` of an observed key sets the row `live` with its key id (the operator keeps it; its secret is not recoverable, so the plan says so), `accept` of no key sets it `retired` (a late commit is still swept); `retry` recording `made` sets it `live` with the key id (undo then deletes that id), recording `skipped` sets it `retired`. After resolution no sweep treats the key as uncertain. A retry is a new change with a new description |
   | Tailscale policy `POST` (always sent with `If-Match: <ETag read at plan>`) | `Observe` re-`GET`s with HuJSON (State: the normalized text; Version: the ETag). A timed-out write may still commit while the ETag it was sent with is current, so it is never treated as not made before `CommitBy`: after it, an observation equal to the new text lets the operator `retry` (recorded `made`) or `accept`; equal to the old text, `retry` records `skipped` and the operator's next write uses a fresh ETag; anything else is shown as changed by someone else (`accept` only, or a new policy change). Darkpanel writes no settling change of its own, and no step before it is unwound while the effect is `unresolved` |
   | Tailscale device writes | re-read the device and compare |
   | Cloudflare tunnel create | look up by name `darkpanel-<change id>` |
@@ -1680,9 +1736,11 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
   module's pending cleanup in the same transaction: an `unresolved` cloud
   effect, a `tailnet_keys` row in `requested`, `uncertain` or `retired`, or a
   sweep still in its 5-minute phase. With cleanup pending, disconnect and
-  release fail with `cloud.cleanup_pending`; an undo or compensation stops with
-  its effect `unresolved` (`conflict`) naming that reason (the change goes
-  to `needs_repair`); only
+  release fail with `cloud.cleanup_pending`; in an undo or compensation the
+  `Inverse` deleting the row returns `Definite(cloud.cleanup_pending)`
+  without writing (1.2), so the effect stays `made`, the undo settles
+  `needs_repair`, and once cleanup has finished the operator repairs the
+  change, which runs the inverse again; only
   `--abandon-cleanup` on disconnect (admin, audited, listing what is
   abandoned) deletes the row anyway. The check lives in one function per
   module, `cleanupPending(ctx, tx) ([]string, error)`, which every such path
@@ -1690,7 +1748,8 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
 - **Services and actors.** The sweeps (`tailnet.keysweep`) and the
   Cloudflare hostname driver (`cloudflare.hostnames`, 7.3) are controller
   services registered through the extension package (1.12); each writes
-  its audit rows and changes as actor `system:<service name>`.
+  its audit rows through `ext.Deps.Audit` and its changes, as actor
+  `system:<service name>`.
 - **Capability probes.** Connecting an account probes read capabilities with
   harmless reads and reports them; write capabilities are reported as
   unverified until the first write succeeds, and a 403 on a write is reported
@@ -1734,9 +1793,38 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
 #### 1.11 Uninstall options
 
 `darkpanel uninstall` gains `--module-option <module>.<key>=<value>`
-(repeatable), passed to the module's `Uninstaller` as a map; the plan lists
-each module's options and their defaults. The firewall uses
-`firewall.rules=remove|keep|baseline` (2.9). Uninstall is refused while a
+(repeatable). Wave 0 replaces `core.Uninstaller` in `contract.go` (no module
+implements it today; only the test module in
+`internal/install/uninstall_test.go` does, and wave 0 migrates it):
+
+```go
+// UninstallOption is one option a module's uninstall step accepts.
+type UninstallOption struct {
+    Key     string   // ^[a-z][a-z0-9_]{0,31}$, unique within the module
+    Values  []string // the allowed values, at least one
+    Default string   // one of Values
+    Help    string   // one line, printed in the plan
+}
+
+// Uninstaller is the optional agent-side uninstall step of a module, found
+// with a type assertion on the Module. Options are the module's declared
+// options with every value filled: the --module-option value or the
+// default. Uninstall must succeed on a host where it already ran.
+type Uninstaller interface {
+    UninstallOptions() []UninstallOption
+    Uninstall(ctx context.Context, env Env, keepData bool, opts map[string]string) error
+}
+```
+
+`install.UninstallConfig` gains `ModuleOptions map[string]map[string]string`
+(module id → key → value, from the flags). `PlanUninstall` validates it
+before anything runs: an option for a module that is not compiled in or has
+no `Uninstaller`, an undeclared key or a value outside `Values` is refused
+with `request.invalid_input`; every declared option without a flag gets its
+`Default`. `Describe` prints, under the `modules` step, one line per module
+and option: `<module>.<key>=<value> (default <d>; <help>)`. `runModules`
+passes the filled map. The firewall declares `rules` with values `remove`,
+`keep`, `baseline` and default `remove` (2.9). Uninstall is refused while a
 change is unfinished or a task unit is active, and `--stop-tasks` stops
 those units first (liveness gates, 1.3c).
 
@@ -1793,6 +1881,7 @@ stub (returning nothing), and the owning wave replaces the stub's body.
       Dispatch    Dispatcher
       Events      Publisher
       Listeners   core.Listeners
+      Audit       core.Audit // services write their audit rows here (actor system:<Service.Name>)
       LocalHostID string
   }
 
@@ -1801,7 +1890,7 @@ stub (returning nothing), and the owning wave replaces the stub's body.
   type Dispatcher interface {
       Read(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage) (json.RawMessage, error)
       ReadInternal(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage) (json.RawMessage, error) // 1.7: p is audited
-      Plan(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage) (core.PlanView, error)
+      Plan(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage, opts core.PlanOptions) (core.PlanView, error)
       Apply(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, planID string, opts core.ApplyOptions) (core.ChangeView, error)
   }
 
@@ -2081,6 +2170,14 @@ only. v1 has two: `npm.admin.reveal-password` (6) and
   scope `admin`, answer `200 {"value": <Value>}` with `Cache-Control:
   no-store`. Agent protocol: new, non-frozen `POST
   /agent/v1/reveal/{name}/{version}`, controller session only.
+  Go methods: `core.AgentClient` gains `Reveal(ctx context.Context, p
+  Principal, a ActionRef, input json.RawMessage, internal bool)
+  (json.RawMessage, error)` (`internal` sets the `Darkpanel-Internal`
+  header, 1.7; only `ReadInternal` passes true); `core.Dispatcher` gains
+  `Reveal(ctx context.Context, p Principal, hostID string, a ActionRef,
+  input json.RawMessage) (json.RawMessage, error)`, which the API handlers
+  call and which refuses an `Internal` action; `ext.Dispatcher.ReadInternal`
+  calls `AgentClient.Reveal(..., true)` or the controller engine's `Reveal`.
   `Engine.Reveal(ctx, p, ref, input)` validates the input, writes the audit
   entry (actor, action, `Identity`, never the value: on the controller in
   `core_audit`, on the agent as a journal event the controller ingests)
@@ -2400,47 +2497,55 @@ behaves as in 1.13.
   file hash, the rule tuple, the default or logging value, the `ENABLED`
   flag, the logical row or the sysctl value; `Version` is empty. A mid-apply crash therefore leaves an exact list of what
   was done, or names the one effect that cannot be settled.
-- **Revert of a change** (timer, explicit revert, startup recovery):
-  1. If every UFW file's hash still equals the hash recorded right after the
-     change applied, or, after a mid-apply crash, the hash expected after
-     the last settled effect (no effect `unresolved`), restore the snapshot
+- **Revert of a change** (timer, explicit revert, startup recovery,
+  failed apply or verify) follows 1.2's single precedence rule, decided in
+  this order before anything is written:
+  1. **Check.** `Revert` reads the change's journal (`env.Effects`) and
+     observes every `made` effect against its `Post`. If any effect is
+     `unresolved`, or a `made` effect's observation differs from its `Post`
+     (the change's own rule was edited or removed, a manual rule now
+     occupies its position), the revert writes nothing except under the
+     connectivity exception (step 4); the differing effects are reported to
+     the engine as conflicts (1.2 records them `unresolved`, `conflict`).
+  2. **Whole restore.** Otherwise, if every UFW file's hash still equals the
+     hash recorded right after the change applied (after a mid-apply crash:
+     the hash expected after the last settled effect), restore the snapshot
      (below). A missing post-apply hash never by itself authorizes a
-     whole-snapshot restore; an `unresolved` effect sends the change to
-     step 3 with that effect named.
-  2. Otherwise (someone edited UFW during the pending window), apply the
-     inverses of the journaled effects in reverse order, which leaves the
-     other edits in place; logical rows are restored in the same transaction
-     as the intent.
-  3. If an inverse conflicts with a manual edit (the change's own rule was
-     edited or removed, a manual rule now occupies the position), or any
-     step of the revert fails, the change becomes `needs_repair` (never
-     `failed`; single changes in `needs_repair`, 1.3) and keeps the `firewall`
-     lock, its snapshot is pinned until the repair ends, and every firewall
-     action declares `RepairedBy: firewall.state.repair` (1.3): `darkpanel
-     change repair <id>` plans that action, which shows the difference, and
-     applies it under the change's own lock ownership; its output's
-     `repairOutcome` is `restored` when it returns the host to the
-     snapshot and `kept` when it keeps the change's intended state (1.3);
-     and **connectivity comes
-     first**: the inverses that do not conflict are still applied, and if the
-     lockout guard evaluated on the resulting loaded state fails for a
-     protected flow, the snapshot is restored whole even though that
-     overwrites the manual edit (the diff of what was overwritten is kept in
-     the change).
-     **Precedence.** This emergency restore is the single exception to
-     1.2's rule that an `unresolved` effect is never settled by a whole-snapshot
-     restore, and it does not settle anything: it runs only when the lockout
-     guard fails on the loaded state the revert would otherwise leave, it is
-     authorized by that failure alone (R40: connectivity is kept whoever
-     started the revert: timer, explicit revert or startup recovery), and
-     afterwards every `unresolved` effect keeps its state (with
-     the overwritten state in its `Current`), `Revert` returns
+     whole-snapshot restore.
+  3. **Inverses.** Otherwise (someone edited UFW during the pending window
+     without touching the change's own effects), apply the inverses of the
+     journaled effects in reverse order, which leaves the other edits in
+     place; logical rows are restored in the same transaction as the intent.
+     If an inverse fails, the revert stops there.
+  4. **Connectivity first.** Whenever the revert ends without restoring the
+     prior state (step 1 found an unresolved or conflicting effect, or a
+     step 2 or 3 write failed), the lockout guard is evaluated on the loaded
+     state as it now stands. If it fails for a protected flow, the snapshot
+     is restored whole even though that overwrites unresolved effects and
+     manual edits; this is the single exception to 1.2's rule that an
+     `unresolved` effect is never overwritten, it is authorized by the guard
+     failure alone (R40: connectivity is kept whoever started the revert),
+     and it settles nothing: every `unresolved` effect keeps its state (with
+     the overwritten state in its `Current`), and `Revert` returns
      `RevertOutcome{Override: true, Detail}` with `Detail` the emergency
-     restore record (time, the snapshot id, the diff it overwrote), which
-     the engine stores in `core_changes.override_json` and journals with
-     result `override` (1.2); the change stays `needs_repair` and repair
-     still runs. In every other case an `unresolved` effect leaves the
-     loaded state as it is.
+     restore record (time, snapshot id, the diff it overwrote), which the
+     engine stores in `core_changes.override_json` and journals with result
+     `override` (1.2). If the guard passes, the loaded state is left as it
+     is and `Revert` returns an error naming the unresolved or conflicting
+     effects or the failed write.
+  5. **Outcome.** Steps 2 and 3 completing → `reverted`. Every other ending
+     → `needs_repair` (never `failed`; 1.2's revertible failure table), the
+     change keeps the `firewall` lock, its snapshot is pinned until the
+     repair ends, and every firewall action declares `RepairedBy:
+     firewall.state.repair` (1.3): `darkpanel change repair <id>` plans
+     that action, which shows the difference, and applies it under the
+     change's own lock ownership. The repair request's optional `input`
+     (1.3) chooses `outcome: restore` (the default: return the host to the
+     snapshot) or `outcome: keep` (bring the host to the state the change
+     intended); the action's output `repairOutcome` is `restored` or
+     `kept` accordingly, and `kept` is reported only when the loaded state
+     verifies equal to the change's intended state (the post-apply hashes
+     and rule tuples), else the repair fails.
 - **Restore** is crash-safe and complete: one database transaction records
   the restore intent and writes the logical rows; then each file is written
   with `FileWriter.Restore`; then the Docker chains are brought in line with
@@ -2794,7 +2899,8 @@ actor `system:firewall.reconcile` (1.4).
 
 #### 2.9 Uninstall (R30)
 
-The firewall `Uninstaller` takes `firewall.rules`:
+The firewall `Uninstaller` declares the option `rules` (1.11), set with
+`--module-option firewall.rules=<value>`:
 
 - `remove` (default): delete every Darkpanel-tagged rule; manual rules stay;
 - `keep`: leave every rule; tags stay;
@@ -2968,13 +3074,19 @@ empty list or map as equal, addresses in canonical `netip` form.
   patches them back. It declares `RepairedBy: tailscale.prefs.repair`.
 - **`tailscale.prefs.repair`** (revertible, `RepairedBy` itself, lock
   `tailscale`, guard `tailscale.link`): the repair action for a
-  `prefs.set` whose revert failed (1.3). Input: the core-level `repairs`
-  field and `outcome: restore | keep`. `restore` plans a masked patch from
-  the current prefs to the repaired change's snapshot values (the fields it
-  set, nothing else); `keep` plans an empty patch and accepts the current
-  prefs. Its own snapshot is the current values of those fields, so an
-  unconfirmed repair reverts like any `prefs.set`. Output `repairOutcome`:
-  `restored` or `kept`.
+  `prefs.set` whose revert failed (1.3). Input: `outcome: restore | keep`,
+  optional with default `restore`, so the plan from `{}` the registry
+  requires (1.3) is valid; the operator sets it through the repair
+  request's optional `input` (1.3). The repaired change comes from the
+  core-level `repairs` field, never from input. `restore` plans a masked
+  patch from the current prefs to the repaired change's snapshot values
+  (the fields it set, nothing else); `keep` plans a masked patch from the
+  current prefs to the values the repaired change set (its input). Both
+  leave every other field alone. Its own snapshot is the current values of
+  those fields, so an unconfirmed repair reverts like any `prefs.set`.
+  Verify reads the prefs back and requires them equal to the target;
+  output `repairOutcome` is `restored` or `kept` only after that check, so
+  `kept` always means the repaired change's intended prefs hold.
 - **Guard `tailscale.link` (overridable).** The agent classifies each
   protected flow of 2.3 by whether it depends on Tailscale: it arrives on or
   leaves through `tailscale0`, or its route uses a subnet route or exit node
@@ -3045,8 +3157,10 @@ empty list or map as equal, addresses in canonical `netip` form.
     phase 4 was interrupted (dpkg refuses further installs until the
     interrupted one is configured); `APT-5` with the staged file after
     checking its SHA-256; restore the prior hold state; restart
-    tailscaled; verify the prior version and backend state; mark the change
-    failed. The controller learns the result through the lookup and the
+    tailscaled; verify the prior version and backend state; record the
+    unit's `core_task_runs` row `failed` with the rollback's result (the unit
+    never changes the change's state; the agent's engine settles it, 1.3c).
+    The controller learns the result through the lookup and the
     journal when the link returns. An agent that starts while the unit is
     still running waits for it rather than rolling back. Undo (when the
     controller asks) performs the same rollback. The harness fails the
@@ -3129,9 +3243,28 @@ empty list or map as equal, addresses in canonical `netip` form.
   undo fails with `tailnet.policy_conflict` and the change needs repair, so
   later edits are never erased.
 - **Structural edits.** Other modules edit the policy through
-  `tailnet.policy.patch` (compensable, same ETag rules): a list of JSON Patch
-  operations applied with `github.com/tailscale/hujson`, so comments and
-  unrelated content are preserved.
+  `tailnet.policy.patch` (compensable, same ETag rules, `Converges`): a list
+  of typed edits applied with `github.com/tailscale/hujson`, so comments and
+  unrelated content are preserved. Raw JSON Patch is not accepted, because
+  positional array operations do not converge (a repeated append adds a
+  second entry, a repeated indexed removal removes another element). The
+  four edit kinds, each addressed by a JSON Pointer to an object member or
+  an array, all converge:
+  - `set {path, value}`: set an object member; equal value → no change;
+  - `delete {path}`: remove an object member; absent → no change;
+  - `addItem {path, value}`: append `value` to the array unless an element
+    equal to it (by canonical JSON, comments ignored) is already present;
+  - `removeItem {path, value}`: remove every element equal to `value`;
+    none → no change.
+
+  A path through an array index, and the JSON Patch kinds `move`, `copy`,
+  `replace` on array elements and `test`, are refused at plan with
+  `request.invalid_input`. Run again with the same input after a partial
+  or complete apply, the patch plans an empty diff when its edits are
+  already present, which is what forward composites rely on (1.3, 5).
+  The DERP module's region step is `set` and `delete` on
+  `/derpMap/Regions/<id>` and on `/derpMap/OmitDefaultRegions`, and
+  `addItem`/`removeItem` on `/grants` for the visibility grant (4.3).
 - **Join (R60), before enrollment.** A new host reaches the controller's
   agent listener only over loopback or the tailnet by default (ADR 0003), so
   it joins the tailnet first:
@@ -3240,7 +3373,9 @@ empty list or map as equal, addresses in canonical `netip` form.
     `RenameIn` (1.8), restarts
     derper so it generates a new one-year certificate, reads back the new
     pin; undo moves the `.prev` files back and restarts), then `region`
-    (`tailnet.policy.patch` replacing the node's `CertName`). Between the
+    (`tailnet.policy.patch`: one `set` of the whole region object at
+    `/derpMap/Regions/<id>` with the new node `CertName`, since a path into
+    the `Nodes` array is refused, 4.2). Between the
     two steps, clients holding the old pin cannot use the region, so
     rotation has the same precondition as `derp.server.upgrade` (another
     reachable region, below), and its plan states the window.
@@ -3333,8 +3468,9 @@ with `DefineTask` and run in `darkpanel-task-<change id>-<op>.service`
 (op `apply`, `undo` or `recover`). Every `ForwardOnly` action and the
 action of every non-read step of a forward composite (`derp.server.remove`,
 `npm.expose.remove`, `npm.admin.unexpose`, `cloudflare.expose.remove`,
-`panel.exposure.remove`; for example `derp.server.uninstall`,
-`tailscale.package.unpin`, `npm.proxyhost.remove`,
+`panel.exposure.remove`; for example `tailnet.policy.patch` (the region
+step of `derp.server.remove`, convergent by its edit kinds, 4.2),
+`derp.server.uninstall`, `tailscale.package.unpin`, `npm.proxyhost.remove`,
 `cloudflare.hostname.remove`, `panel.network.remove` and the
 `firewall.rules.apply` that deletes the ports) declares `Converges` (1.2,
 1.3): run again with the same input it plans an empty diff when its effect
@@ -3407,9 +3543,19 @@ a spec change.
   3. requires `setup: true` and a successful `POST /api/tokens` with those
      credentials.
 
-  A lost response to step 2 cannot be resolved safely, so the step fails
-  with `npm.setup_failed` and the change needs repair; repair removes the
-  instance (its volumes are fresh) and deploys again. The password is never
+  A lost response to step 2 cannot be resolved safely (an admin may or may
+  not exist with the sealed password), and it does not need to be: the
+  admin exists only inside the `darkpanel-npm-data` volume, whose creation
+  is already a journaled effect, so the admin request is not an effect of
+  its own. Apply fails with `npm.setup_failed`; the network, volume and
+  container effects are settled as usual (1.2), so the change ends
+  `failed` with them `made` (or `needs_repair` if one of them is itself
+  `unresolved`, resolved first as 1.2 describes). The operator sequence
+  has nothing specific to NPM: (1) `darkpanel change undo <id>`, which runs
+  the inverses newest first and removes the container, both volumes (and
+  with them any admin) and the network; (2) a new `npm.instance.deploy`,
+  which starts from fresh volumes. Repair never redeploys by itself. The
+  password is never
   in the container's environment, the agent's logs or the log stream (logs
   of `darkpanel-npm` are filtered for it).
 - **Opening 80 and 443.** NPM's ports are Docker-published bindings.
@@ -4157,7 +4303,8 @@ a spec change.
   only), `POST /agent/v1/plans/{plan id}/retire`,
   `PUT /agent/v1/modules/{id}/enabled`,
   `GET /agent/v1/modules/{id}/availability`,
-  `POST /agent/v1/reveal/{name}/{version}` (1.14); DTOs in 1.3's wire
+  `POST /agent/v1/reveal/{name}/{version}` (1.14; with the request header
+  `Darkpanel-Internal: 1` it serves `Internal` reads, 1.7); DTOs in 1.3's wire
   contract and 1.4–1.14. The plan and apply requests gain the core-level
   `call` object (1.5; its `guardRefresh` is read at apply only), accepted
   only on the controller session; the apply request, for long-running and
@@ -4209,7 +4356,19 @@ a spec change.
   reflector's `netip` mapper and formats (1.5); `ActionSpec.Reveal`,
   `Revealed[Out]`, `DefineReveal`, `DefineInternalRead`,
   `ErasedHandler.Reveal` and `Engine.Reveal` (1.7, 1.14);
-  `ext.Dispatcher.ReadInternal` with the calling principal (1.7, 1.12);
+  `ext.Dispatcher.ReadInternal` with the calling principal (1.7, 1.12),
+  served end to end by the reveal path;
+  `core.PlanOptions` (the trailing argument of `AgentClient.Plan`,
+  `Dispatcher.Plan` and `ext.Dispatcher.Plan`) and `ApplyOptions.Call`
+  (1.5); the `AgentClient` additions `SetModuleEnabled` (1.4), `Streams`
+  and `OpenStream` with `StreamInfo` (1.6), `Availability` with
+  `ModuleAvailability` and `ActionAvailability` (1.7) and `Reveal` (1.14),
+  and the `Dispatcher` additions `OpenStream` (1.6) and `Reveal` (1.14);
+  `ext.Deps.Audit` (1.12); the replaced `core.Uninstaller` with
+  `UninstallOptions() []UninstallOption` and the options map, and
+  `install.UninstallConfig.ModuleOptions` (1.11); the convergent edit
+  kinds of `tailnet.policy.patch` (`set`, `delete`, `addItem`,
+  `removeItem`; 4.2), which every module that edits the policy uses;
   `StreamDef`, `Streamer` and `DefineStream`, the event bus's
   `Publish(eventType, data)` and epoch-qualified SSE ids (1.6); the
   reshaped `BackgroundTask` and `TaskContext` (1.4); the
@@ -4586,3 +4745,25 @@ controller; editing Darkpanel-managed tunnels outside Darkpanel.
   `RevertOutcome`), 3's `CommitBy`, 6's NPM settlement through `Observe`
   and operator resolution, `Converges` in 5 and 8, restore clearing
   copied owners (10), the Contracts lists, actors and status table (11).
+- **Check of revision 7 (2026-10-21)** (commit 2dc40cb), giving revision 8: Fable (27
+  findings) and Codex gpt-6-astra (32 findings), all accepted; per the
+  owner's choice the wave 0 plan follows without another spec round, and
+  the plan review is the next check. Outside 1.1–1.3c: the firewall revert
+  follows 1.2's single precedence rule (check first, writes only when
+  nothing is unresolved or conflicting, the connectivity exception decided
+  last on the state the revert leaves; 2.5); the replaced `Uninstaller`
+  with declared options and defaults (1.11, 2.9); `tailscale.prefs.repair`
+  and `firewall.state.repair` take `outcome` through the repair request's
+  optional input, defaulting to `restore`, and report `kept` only when
+  the repaired change's intended state verifies (2.5, 4.1);
+  `tailnet.policy.patch` accepts only the convergent edit kinds `set`,
+  `delete`, `addItem` and `removeItem` and declares `Converges` (4.2, 4.3,
+  5); resolving an uncertain auth key moves its `tailnet_keys` row so the
+  sweeps stop treating it as uncertain (1.9); credential deletion blocked
+  by pending cleanup returns `Definite(cloud.cleanup_pending)` from the
+  inverse (1.9); NPM bootstrap's lost response is handled by the ordinary
+  undo and a new deploy (6); internal reads use the reveal path end to end
+  with the `Darkpanel-Internal` header (1.7, 1.14); `ext.Deps.Audit`
+  (1.12); `PlanOptions`, `ApplyOptions.Call` and the client-method
+  additions for enablement, streams, availability and reveal (1.4–1.7,
+  1.14); 4.1's pin unit records its row, never the change state.
