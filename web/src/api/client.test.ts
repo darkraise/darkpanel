@@ -119,6 +119,22 @@ describe("request", () => {
     expect(handler).toHaveBeenCalledTimes(1)
   })
 
+  test("ignores auth.required for a request begun before the session changed", async () => {
+    const handler = vi.fn()
+    setUnauthorizedHandler(handler)
+    setCsrfToken("csrf-old")
+    let answer: (res: Response) => void = () => {}
+    stub(() => new Promise<Response>((resolve) => {
+      answer = resolve
+    }))
+    const pending = request("GET", "/api/v1/changes").catch((e: unknown) => e)
+    setCsrfToken(null)
+    setCsrfToken("csrf-new")
+    answer(respond(401, { type: "about:blank", title: "Authentication required", status: 401, detail: "log in", code: "auth.required" }))
+    expect(((await pending) as ApiError).code).toBe("auth.required")
+    expect(handler).not.toHaveBeenCalled()
+  })
+
   test("calls the CSRF-rejected handler only for auth.csrf", async () => {
     const handler = vi.fn()
     setCsrfRejectedHandler(handler)

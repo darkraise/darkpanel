@@ -25,11 +25,20 @@ export class ApiError extends Error {
 }
 
 let csrfToken: string | null = null
+let generation = 0
 let unauthorizedHandler: (() => void) | null = null
 let csrfRejectedHandler: (() => void) | null = null
 
+// Every login and logout sets the CSRF token and so starts a new session
+// generation. An auth.required answer to a request begun in an earlier
+// generation must not end the current session.
 export function setCsrfToken(token: string | null): void {
   csrfToken = token
+  generation++
+}
+
+export function sessionGeneration(): number {
+  return generation
 }
 
 export function setUnauthorizedHandler(handler: (() => void) | null): void {
@@ -41,6 +50,7 @@ export function setCsrfRejectedHandler(handler: (() => void) | null): void {
 }
 
 export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const startedIn = generation
   const headers: Record<string, string> = { Accept: "application/json", "Content-Type": "application/json" }
   if (UNSAFE_METHODS.has(method) && csrfToken !== null) headers[CSRF_HEADER] = csrfToken
   let res: Response
@@ -56,7 +66,7 @@ export async function request<T>(method: string, path: string, body?: unknown): 
   }
   if (!res.ok) {
     const err = await problemFrom(res)
-    if (err.code === "auth.required") unauthorizedHandler?.()
+    if (err.code === "auth.required" && startedIn === generation) unauthorizedHandler?.()
     if (err.code === "auth.csrf") csrfRejectedHandler?.()
     throw err
   }

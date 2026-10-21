@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { Navigate, useLocation } from "react-router"
 import { useQueryClient } from "@tanstack/react-query"
 import { Spinner } from "darkraise-ui/components/spinner"
-import { request, setCsrfRejectedHandler, setCsrfToken, setUnauthorizedHandler } from "@/api/client"
+import { request, sessionGeneration, setCsrfRejectedHandler, setCsrfToken, setUnauthorizedHandler } from "@/api/client"
 import type { Session } from "@/api/types"
 import { SessionContext, type SessionState } from "./session-context"
 import { useSession } from "./use-session"
@@ -25,13 +25,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     let probing = false
     function probe() {
       probing = true
+      const startedIn = sessionGeneration()
       request<Session>("GET", "/api/v1/auth/session")
         .then(
           (session) => {
-            if (active) setSession(session)
+            if (active && startedIn === sessionGeneration()) setSession(session)
           },
           () => {
-            if (active) setSession(null)
+            if (active && startedIn === sessionGeneration()) setSession(null)
           },
         )
         .finally(() => {

@@ -1,9 +1,9 @@
-import { screen, waitFor } from "@testing-library/react"
+import { act, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { expect, test } from "vitest"
 import { request } from "@/api/client"
 import type { Session } from "@/api/types"
-import { renderWithProviders, stubFetch } from "@/test/utils"
+import { renderWithProviders, stubFetch, type StubResponse } from "@/test/utils"
 import { SessionProvider } from "./session"
 import { useSession } from "./use-session"
 
@@ -69,4 +69,51 @@ test("a failing re-probe ends the session", async () => {
   await userEvent.setup().click(await screen.findByRole("button", { name: "Send" }))
   await screen.findByText("signed out")
   expect(probes).toBe(2)
+})
+
+function Switcher() {
+  const { session, setSession } = useSession()
+  return (
+    <>
+      <p data-testid="csrf">{session?.csrfToken ?? "signed out"}</p>
+      <button onClick={() => setSession(sessionWith("csrf-a"))}>Log in as A</button>
+      <button onClick={() => setSession(null)}>Log out</button>
+      <button onClick={() => setSession(sessionWith("csrf-b"))}>Log in as B</button>
+    </>
+  )
+}
+
+test.each<[string, () => StubResponse]>([
+  ["answers with the old session", () => ({ body: sessionWith("csrf-stale") })],
+  ["answers auth.required", () => ({ status: 401, body: { type: "about:blank", title: "Auth", status: 401, detail: "log in", code: "auth.required" } })],
+  ["cannot reach the controller", () => {
+    throw new TypeError("Failed to fetch")
+  }],
+])("a session probe that %s after a logout and a new login leaves the new session", async (_, answer) => {
+  let release: () => void = () => {}
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  stubFetch({
+    "GET /api/v1/auth/session": async () => {
+      await gate
+      return answer()
+    },
+  })
+  renderWithProviders(
+    <SessionProvider>
+      <Switcher />
+    </SessionProvider>,
+  )
+  const user = userEvent.setup()
+  await user.click(screen.getByRole("button", { name: "Log in as A" }))
+  await user.click(screen.getByRole("button", { name: "Log out" }))
+  await user.click(screen.getByRole("button", { name: "Log in as B" }))
+  expect(screen.getByTestId("csrf").textContent).toBe("csrf-b")
+
+  await act(async () => {
+    release()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+  expect(screen.getByTestId("csrf").textContent).toBe("csrf-b")
 })
