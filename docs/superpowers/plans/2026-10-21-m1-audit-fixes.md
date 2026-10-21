@@ -12,6 +12,8 @@
 
 **Execution:** subagent — `claude --model sonnet --effort high` — the plan runs parallel waves
 
+**Plan review:** 2026-10-21 — dr-superpowers:judge-opus — executability 16 / coherence 18 / coverage 18 / assumptions 15 (round 1)
+
 **Parallelism:** waves — 1 | 2 | 3 | 4-6 | 7-9 | 10-12 | 13 | 14-16 | 17-19 | 20 | 21
 
 **Integration check:** `timeout 2400 make lint test build verify-build`
@@ -62,7 +64,7 @@
 - The drafted code of every task was applied to a scratch copy of HEAD 60f10bb on 2026-10-21; each new test failed as its step says (or passed, where the step says coverage only), and with all tasks applied `go test ./...`, golangci-lint (`0 issues.`), vitest, `tsc --noEmit` and ESLint passed.
 - The audit store's ids are stamped from each entry's own `At` (`internal/controller/audit/audit.go:69-75`), so they follow event time by design; no clamp is applied there (a clamp would list a late-ingested agent entry above newer ones).
 - react-router 8.4.0's `NavLink` sets `aria-current` from its own match and never matches below `/` (read in `web/node_modules/react-router`, 2026-10-21); Task 16 therefore renders a plain `Link` for a prefix-table match.
-- SQLite's unix VFS gives `-wal` and `-shm` the database file's mode when it creates them, so Task 1's chmod before `sql.Open` covers files created later.
+- SQLite's unix VFS gives `-wal` and `-shm` the database file's mode when it creates them (`findCreateFileMode` in SQLite's `os_unix.c` copies the database file's mode), so Task 1's chmod before `sql.Open` covers files created later; Task 1's extended `TestOpenSetsPragmasAndMode` checks both files are 0600 after a write.
 - No executor lane: `codex-gate` printed `lane=false reason=plugin-not-enabled` on 2026-10-21.
 
 ## Task index
@@ -603,7 +605,7 @@ git commit -m "fix(secret): refuse an uninitialised sealer"
 Design notes from drafting, binding for this task:
 
 - This task removes `Backup`'s `keep` parameter. The Contracts entry keeps `Backup`'s `(string, error)` result, but once pruning moves to `PruneBackups` the parameter has no use (revive would flag it), and `Backup` has no caller outside `internal/core/store`.
-- This task has `Migrate` call an unexported `pruneBackups(root, dbName, current, keep)` on runs that take a backup, with `current` set to the new backup's name. The exported `PruneBackups(root, dbName, keep)` from the Contracts entry is that same function with no `current`; `Migrate` calls it on runs that take no backup. The contract signature has no way to protect a new backup from a clock set back, which `TestBackupKeepsNewDirectoryWhenClockGoesBack` pins today. Because every run now prunes, a backup named under a clock set back is protected only on the run that made it; the next start ranks it by the older time in its name and may delete it. That follows from the every-run retry rule and is recorded here, not worked around.
+- This task has `Migrate` call an unexported `pruneBackups(root, dbName, current, keepTo, keep)`: `current` is the backup this run took (empty when it took none) and `keepTo` is the running binary version. Both the backup named `current` and the newest backup whose name's second label equals `keepTo` are never deleted and count first toward `keep`, so the pre-upgrade backup survives a clock set back on the run that made it and on every restart after it. The exported `PruneBackups(root, dbName, keep)` from the Contracts entry protects neither.
 - This task makes `Migrate` refuse `Keep < 1` up front as a fatal error, before anything runs. Today `Backup` refuses it before copying; without the up-front check a bad `Keep` would only ever surface as a `PruneErr` warning.
 
 - [ ] **Step 1: Write the failing store tests for the new pruning shape**
@@ -822,7 +824,7 @@ func TestPruneKeepsNewDirectoryWhenClockGoesBack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := pruneBackups(root, "test.db", filepath.Base(dir), 5); err != nil {
+	if err := pruneBackups(root, "test.db", filepath.Base(dir), "", 5); err != nil {
 		t.Fatalf("pruneBackups: %v", err)
 	}
 ```
@@ -976,12 +978,43 @@ func TestMigrateReportsAFailedPrune(t *testing.T) {
 		t.Errorf("PruneErr = %v, want the failure to list the backups", res.PruneErr)
 	}
 }
+
+func TestMigrateKeepsTheUpgradeBackupAfterAClockStepBack(t *testing.T) {
+	db := openTemp(t)
+	ctx := context.Background()
+	core := MigrationSet{"core", sqlFS(map[string]string{"0001_core.sql": metaSQL})}
+	opts := migrateOpts(t, "v1", time.Date(2026, 10, 17, 1, 0, 0, 0, time.UTC))
+	if _, err := Migrate(ctx, db, opts, core, nil); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 5 {
+		makeBackup(t, opts.BackupRoot, fmt.Sprintf("v0-v1-20261018T00000%dZ", i))
+	}
+	// The upgrade runs while the clock reads a day before every backup.
+	opts.BinaryVersion = "v2"
+	opts.Now = time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC)
+	res, err := Migrate(ctx, db, opts, core, nil)
+	if err != nil || res.BackupDir == "" || res.PruneErr != nil {
+		t.Fatalf("upgrade run = %+v, %v; want a backup and no prune error", res, err)
+	}
+	upgrade := filepath.Base(res.BackupDir)
+	res, err = Migrate(ctx, db, opts, core, nil)
+	if err != nil || res.BackupDir != "" || res.PruneErr != nil {
+		t.Fatalf("restart = %+v, %v; want no backup and no prune error", res, err)
+	}
+	if _, err := os.Stat(filepath.Join(opts.BackupRoot, upgrade)); err != nil {
+		t.Errorf("the upgrade backup %s did not survive the restart: %v", upgrade, err)
+	}
+	if got := len(entryNames(t, opts.BackupRoot)); got != 5 {
+		t.Errorf("%d backups kept, want 5", got)
+	}
+}
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `timeout 300 go test ./internal/core/store/ -count=1`
-Expected: FAIL (build failed) with `too many arguments in call to Backup`, `undefined: PruneBackups`, `undefined: pruneBackups` and `res.PruneErr undefined`
+Expected: FAIL (build failed) with `too many arguments in call to Backup`, `undefined: PruneBackups`, `not enough arguments in call to pruneBackups` and `res.PruneErr undefined`
 
 - [ ] **Step 3: Write the implementation**
 
@@ -1051,13 +1084,15 @@ func versionLabel(v string) string {
 // A root that does not exist holds no backups. A directory that cannot be
 // deleted does not stop the others; every failure is returned.
 func PruneBackups(root, dbName string, keep int) error {
-	return pruneBackups(root, dbName, "", keep)
+	return pruneBackups(root, dbName, "", "", keep)
 }
 
-// pruneBackups is PruneBackups that counts the backup named current first and
-// never deletes it, so a clock set back cannot rank a new backup among the
-// oldest. An empty current names no backup.
-func pruneBackups(root, dbName, current string, keep int) error {
+// pruneBackups is PruneBackups that never deletes the backup named current
+// or the newest backup made for version keepTo, and counts them first. A
+// clock set back would otherwise rank the backup taken before an upgrade
+// among the oldest, on the run that took it or on any restart after it. An
+// empty current or keepTo protects nothing.
+func pruneBackups(root, dbName, current, keepTo string, keep int) error {
 	if keep < 1 {
 		return fmt.Errorf("store: backups kept = %d, want at least 1", keep)
 	}
@@ -1068,19 +1103,16 @@ func pruneBackups(root, dbName, current string, keep int) error {
 	if err != nil {
 		return fmt.Errorf("store: list backups: %w", err)
 	}
-	type backup struct{ name, stamp string }
+	type backup struct{ name, to, stamp string }
 	var backups []backup
-	others := keep
 	for _, e := range entries {
 		m := backupDirName.FindStringSubmatch(e.Name())
 		if !e.IsDir() || m == nil || !holdsDatabase(filepath.Join(root, e.Name()), dbName) {
 			continue
 		}
-		if e.Name() == current {
-			others = keep - 1
-			continue
-		}
-		backups = append(backups, backup{e.Name(), m[1]})
+		// Version labels hold no '-', so a backup name splits into exactly
+		// from, to and the time.
+		backups = append(backups, backup{e.Name(), strings.Split(e.Name(), "-")[1], m[1]})
 	}
 	sort.Slice(backups, func(i, j int) bool {
 		if backups[i].stamp != backups[j].stamp {
@@ -1088,8 +1120,31 @@ func pruneBackups(root, dbName, current string, keep int) error {
 		}
 		return strings.Compare(backups[i].name, backups[j].name) > 0
 	})
+	protected := map[string]bool{}
+	if current != "" {
+		protected[current] = true
+	}
+	for _, b := range backups {
+		if keepTo != "" && b.to == keepTo {
+			protected[b.name] = true
+			break
+		}
+	}
+	kept := 0
+	for _, b := range backups {
+		if protected[b.name] {
+			kept++
+		}
+	}
 	var errs []error
-	for _, b := range backups[min(others, len(backups)):] {
+	for _, b := range backups {
+		if protected[b.name] {
+			continue
+		}
+		if kept < keep {
+			kept++
+			continue
+		}
 		if err := os.RemoveAll(filepath.Join(root, b.name)); err != nil {
 			// Keep going: stopping here would let every retried run add a copy.
 			errs = append(errs, fmt.Errorf("store: prune backup %s: %w", b.name, err))
@@ -1225,7 +1280,7 @@ New:
 		res.BackupDir = dir
 		current = filepath.Base(dir)
 	}
-	res.PruneErr = pruneBackups(opts.BackupRoot, dbName, current, opts.Keep)
+	res.PruneErr = pruneBackups(opts.BackupRoot, dbName, current, opts.BinaryVersion, opts.Keep)
 ```
 
 - [ ] **Step 4: Run the tests to verify they pass**
@@ -1585,7 +1640,7 @@ with
 ```make
 # The stamp reruns the install only when the manifest, the lockfile or the
 # install policy changes.
-WEB_STAMP := web/node_modules/.darkpanel-install-stamp
+WEB_STAMP := web/node_modules/.stamp
 
 web-deps: $(WEB_STAMP)
 
@@ -1631,9 +1686,6 @@ Expected: pnpm runs again (its summary line).
 
 Run: `GOARCH=arm64 timeout 1200 make verify-build && timeout 1200 make verify-build`
 Expected: exit 0; both runs end with the `ok  	github.com/darkraise/darkpanel/internal/controller/server` test line and no error (the version run prints nothing on success).
-
-Run: `timeout 900 make lint-go lint-sh 2>&1 | rg '0 issues|error' | head -3`
-Expected: `0 issues.`
 
 - [ ] **Step 5: Commit**
 
@@ -4146,7 +4198,7 @@ Expected: PASS. If anything fails before you edit, stop and report it.
 
 - [ ] **Step 2: Review every listed file against the checklist**
 
-Read each file top to bottom. Write each finding as `<file>:<line> <check number> <what>` into `.superpowers/sdd/hygiene-15.txt` (git-ignored scratch; create the directory if needed), and `<file> clean` for a file with none.
+Read each file top to bottom. Write each finding as `<file>:<line> <check number> <what>` into `.superpowers/sdd/hygiene-18.txt` (untracked scratch that is never committed; create the directory if needed), and `<file> clean` for a file with none.
 
 - [ ] **Step 3: Fix each finding**
 
@@ -4162,7 +4214,7 @@ Expected: PASS
 
 - [ ] **Step 5: Commit**
 
-Add each modified test file by name. The commit body lists the findings from `.superpowers/sdd/hygiene-15.txt`, one per line, wrapped at 72 characters.
+Add each modified test file by name. The commit body lists the findings from `.superpowers/sdd/hygiene-18.txt`, one per line, wrapped at 72 characters.
 
 ```bash
 git add <each modified _test.go file>
@@ -4222,7 +4274,7 @@ Expected: PASS. If anything fails before you edit, stop and report it.
 
 - [ ] **Step 2: Review every listed file against the checklist**
 
-Read each file top to bottom. Write each finding as `<file>:<line> <check number> <what>` into `.superpowers/sdd/hygiene-16.txt` (git-ignored scratch; create the directory if needed), and `<file> clean` for a file with none.
+Read each file top to bottom. Write each finding as `<file>:<line> <check number> <what>` into `.superpowers/sdd/hygiene-19.txt` (untracked scratch that is never committed; create the directory if needed), and `<file> clean` for a file with none.
 
 - [ ] **Step 3: Fix each finding**
 
@@ -4238,7 +4290,7 @@ Expected: PASS
 
 - [ ] **Step 5: Commit**
 
-Add each modified test file by name. The commit body lists the findings from `.superpowers/sdd/hygiene-16.txt`, one per line, wrapped at 72 characters.
+Add each modified test file by name. The commit body lists the findings from `.superpowers/sdd/hygiene-19.txt`, one per line, wrapped at 72 characters.
 
 ```bash
 git add <each modified _test.go file>
@@ -4255,7 +4307,7 @@ git commit -m "test(cli): fix test hygiene gaps" -m "<findings>"
 
 **Interfaces:**
 - Consumes: none
-- Produces: `sessionGeneration()` in `web/src/api/client.ts` (see Contracts)
+- Produces: Contracts "sessionGeneration"
 
 **Items:** 113
 
@@ -4499,7 +4551,6 @@ git commit -m "fix(web): ignore session answers from before re-login"
 - Modify: `web/src/session/session-context.ts` (`SessionState`, `SessionContextValue`)
 - Modify: `web/src/shell.tsx` (`Shell`)
 - Modify: `web/src/test/location-probe.tsx` (`LocationProbe`)
-- Test: `web/src/session/session.test.tsx`
 - Test: `web/src/shell.test.tsx`
 
 **Interfaces:**
@@ -4821,6 +4872,6 @@ Expected: PASS (`Test Files  14 passed (14)`), typecheck and lint exit 0 with no
 - [ ] **Step 9: Commit**
 
 ```bash
-git add web/src/session/session.tsx web/src/session/session-context.ts web/src/session/session.test.tsx web/src/shell.tsx web/src/shell.test.tsx web/src/test/location-probe.tsx
+git add web/src/session/session.tsx web/src/session/session-context.ts web/src/shell.tsx web/src/shell.test.tsx web/src/test/location-probe.tsx
 git commit -m "fix(web): log out without a next page; show role"
 ```

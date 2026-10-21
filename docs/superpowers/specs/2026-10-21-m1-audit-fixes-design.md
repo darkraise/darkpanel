@@ -156,10 +156,12 @@ addresses the row's own wording. These rulings replace the proposals above.
 | 95l | The authenticated HEAD case runs against a real `httptest.Server`, since a `ResponseRecorder` keeps the body | Codex |
 | 95m | A bounded fresh hygiene review of the tests written by Tasks 2-34 of `docs/superpowers/plans/2026-10-18-m1-dispatch-cli-and-assembly.md`, starting from the known categories (missing `t.Cleanup` on failure paths, HTTP clients without a timeout: `server/listeners_test.go:98,101,105`, `server/e2e_test.go:89`, `server/server_test.go:445`, `listen/service_test.go:157`), fixing what it finds | Codex (review), Fable (known sites) |
 | 113 | The generation check also guards the session probe's success and rejection callbacks, not only the unauthorized handler; test a delayed probe across logout and re-login | Codex |
-| 115 | (a) through a prefix table in `web/src/router/` keyed by `to` (`"/"` also matches `/hosts/`), combined with `NavLink`'s `isActive`, so both the active style and `aria-current` follow; no field on `NAV`, which the kit's closed `NavItem` would not forward | both |
+| 115 | (a) through a prefix table in `web/src/router/` keyed by `to` (`"/"` also matches `/hosts/`), combined with `NavLink`'s `isActive`, so both the active style and `aria-current` follow; no field on `NAV`, which the kit's closed `NavItem` would not forward. Planning found that react-router 8.4.0's `NavLink` overrides `aria-current` and never matches below `/`, so a prefix match renders a plain `Link` carrying the active class and `aria-current="page"`, and `NavLink` decides every other case | both |
 | 116a | Logout is a session transition whose redirect omits `next`; cover a logout answered with `auth.required`; the test records every location and asserts `/audit` then `/login` only | both |
 | 116b | (b) `Role: admin`: the kit renders the email slot unconditionally, so an empty value leaves a blank line | Fable |
 | 117b | (a). Accepted: the endpoint is authenticated by design (`deny_test.go:23`, ADR 0006) | both |
+
+Planning added one ruling to 45c: the prune never deletes the newest backup made for the running version, so the pre-upgrade backup survives a clock set back on later starts too (plan review, 2026-10-21).
 
 New items found by the review, outside the ten rows, recorded as register
 rows rather than widening this work: the controller's unfiltered `Changes`
