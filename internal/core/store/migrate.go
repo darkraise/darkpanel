@@ -53,7 +53,7 @@ type Result struct {
 	Applied   []Applied
 	BackupDir string // empty when no backup was taken
 	Failed    []ModuleFailure
-	PruneErr  error // a failed prune of old backups; the migration itself succeeded
+	PruneErr  error // a failed prune of old backups; it runs before any migration, so it can accompany a migration error
 }
 
 type migration struct {
