@@ -81,7 +81,7 @@ checklist (section 12). M9 post-v1 candidates are out of scope.
 |---|---|---|
 | Docker Engine API | 1.44 minimum (Docker 25) for the `docker` module | preflight refuses older |
 | Docker for the firewall integration and NPM | Docker 28.0 or later, with the `raw`-table localhost protection loaded | earlier releases, or a daemon run with `DOCKER_INSECURE_NO_IPTABLES_RAW=1`, let hosts on the same L2 reach localhost-published ports |
-| Docker `FirewallBackend` | `/info` field, API 1.49 (Docker 28.1) or later, object `{Driver, Info}`; `Driver` is `iptables`, `nftables`, `iptables+firewalld` or `nftables+firewalld`; `Info` is not stable and is not read | absent field (Docker 28.0, or a client below 1.49): the daemon uses its iptables backend |
+| Docker `FirewallBackend` | `/info` field, API 1.49 (Docker 28.1) or later, object `{Driver, Info}`; `Driver` is `iptables`, `nftables`, `iptables+firewalld` or `nftables+firewalld`; `Info` is not stable and is not read | absent field (Docker 28.0, or a client below 1.49): the daemon uses its iptables backend; the `nftables` drivers exist only from Docker 29.0 (experimental), so 28.x always reports an iptables driver |
 | UFW | as shipped by each supported OS (0.36.1 on Ubuntu 22.04 to 0.36.2 on Debian 13) | rule comments need 0.35 |
 | Compose plugin | the `docker-compose-plugin` package from Docker's repository, at `/usr/libexec/docker/cli-plugins/docker-compose` | harness pins its version |
 | Tailscale | tailscaled 1.82 or later on managed nodes | local API endpoints in 1.8 |
@@ -980,17 +980,45 @@ tools present.
   `before*.rules` and `after*.rules`.
 - **Loaded state** comes from `iptables-save` and `ip6tables-save` (tables
   `filter`, `nat`, `raw`, `mangle` and `security`) of the variant UFW uses,
-  plus the live values of the sysctl keys that decide reachability
-  (`net.ipv4.ip_forward`, `net.ipv6.conf.all.forwarding`,
-  `net.ipv4.conf.*.rp_filter`, `net.ipv4.conf.*.accept_source_route`).
+  plus the live values of the supported sysctl keys (below).
+- **Foreign netfilter hooks.** The evaluator sees only what it reads, so the
+  module also reads the other iptables variant's `*-save` output and, when
+  the kernel's `nf_tables` module is loaded (`/sys/module/nf_tables`
+  exists), `nft list tables` and `nft list table <family> <name>` for every
+  table iptables-nft did not create (`/usr/sbin/nft`, read-only verbs,
+  allowlisted in wave 0, 1.8). A rule in the other variant's `filter`,
+  `nat`, `raw`, `mangle` or `security` tables, or a native nftables base
+  chain that has any rule or a policy other than `accept`, is an
+  unsupported configuration (below) naming the table; an empty native base
+  chain with policy `accept` is ignored (it decides nothing). With
+  `nf_tables` loaded and no `nft` binary, the host is unsupported with the
+  reason "install the nftables package so Darkpanel can read every rule".
 - **Sysctl.** UFW applies `/etc/ufw/sysctl.conf` (the file `IPT_SYSCTL` in
-  `/etc/default/ufw` names) when it starts. The module reads that file and
-  predicts its effect on the keys above; a start that would change any of
-  them is shown in the plan, and when the change would cut a protected flow
-  (for example `ip_forward=0` under a forwarded panel or Docker path) the
-  guard fails. Snapshots record the file and the live values, and revert
-  writes the live values back with the file provider through
-  `/proc/sys` (owned path kind `restore`).
+  `/etc/default/ufw` names) when it starts. The **supported keys** are
+  `net.ipv4.ip_forward`, `net.ipv6.conf.{all,default,<iface>}.forwarding`,
+  `net.ipv6.conf.{all,default,<iface>}.accept_ra`,
+  `net.ipv4.conf.{all,default,<iface>}.rp_filter` and
+  `net.ipv4.conf.{all,default,<iface>}.accept_source_route`; the file
+  setting any other key that affects forwarding or filtering
+  (`net.ipv4.conf.*.forwarding`, `*.route_localnet`,
+  `net.bridge.bridge-nf-call-*`) is an unsupported configuration. The module
+  predicts the file's effect on the supported keys including the kernel's
+  side effects: writing `net.ipv4.ip_forward` resets the IPv4 per-interface
+  configuration to the host or router defaults, writing
+  `net.ipv6.conf.all.forwarding` sets every interface's `forwarding`, and an
+  IPv6 interface with `accept_ra=1` stops accepting router advertisements
+  while it forwards. A start that would change any supported value is shown
+  in the plan; when the change would cut a protected flow (for example
+  `ip_forward=0` under a forwarded panel or Docker path) the guard fails,
+  and a change to IPv6 forwarding on a host whose default IPv6 route was
+  learned from router advertisements fails the guard as `unknown`.
+  Snapshots record the file (a `RestoreEntry`) and every supported key's
+  live value, global and per interface. Revert writes the live values back
+  with `FileWriter.WriteSysctl` (owned-path kind `sysctl`, 1.8), after UFW's
+  own transition has applied the file, global keys first and per-interface
+  keys second (so a global write's resets are overwritten), and reads every
+  value back; a value that does not read back fails the revert into
+  `needs_repair`.
 - `ufw status` output is not parsed for state.
 - **Unsupported configurations.** UFW executes `/etc/ufw/before.init` and
   `after.init` at start when they are executable, and with
@@ -1006,7 +1034,8 @@ tools present.
 #### 2.2 Rule model and management (R37, R38)
 
 - **Model.** `Rule{ID, Action (allow|deny|limit|reject), Direction
-  (in|out|route), Proto (tcp|udp|any), From (CIDR|any), FromPort, To
+  (in|out|route), Proto (tcp|udp|any|ah|esp|gre|ipv6|igmp), From
+  (CIDR|any), FromPort, To
   (CIDR|any), ToPort, InIface, OutIface, Family (v4|v6|both), Log
   (off|log|log-all), Comment, Origin (darkpanel|manual)}`.
 - **Grammar** (what UFW can represent; anything else fails the plan with
@@ -1016,7 +1045,8 @@ tools present.
     a range two); a range or list requires `Proto` tcp or udp.
   - `Proto` is `tcp`, `udp`, `any`, or one of the port-less protocols UFW
     supports (`ah`, `esp`, `gre`, `ipv6`, `igmp`), which take no ports;
-    `ipv6` and `igmp` only with `Family: v4`.
+    `ipv6` and `igmp` only with `Family: v4`. The model, the generated JSON
+    Schema and the parser use this one enumeration.
   - `From` and `To` are one address or CIDR; their family must agree with
     `Family` (`both` only when both are `any`).
   - `limit` applies only to `Direction: in`.
@@ -1088,7 +1118,21 @@ Resource `firewall.status` (configured and loaded state, rules with origin,
   overridable), and are allowed on an out-of-sync host when the difference
   is confined to UFW's and Darkpanel's own chains; a difference in foreign
   chains keeps the hard refusal. Both are reachable through break-glass
-  (`sudo darkpanel firewall state repair --local`). Verify
+  (`sudo darkpanel firewall state repair --local`). Because a repair's
+  starting point is the loaded state, not the files, its snapshot also holds
+  a **loaded-state before-image**: the `*-save` lines, for both families, of
+  every UFW chain (`ufw-*`, `ufw6-*`), every Darkpanel chain
+  (`DOCKER-USER`, `darkpanel-*`, `dp-b-*`), and the built-in `INPUT`,
+  `FORWARD` and `OUTPUT` chains with their policies. Reverting an
+  unconfirmed repair restores the files (unchanged by a repair, so normally
+  a no-op) and then loads the before-image with `*-restore -n`, which
+  flushes and refills exactly the chains it declares; the built-in chains
+  are included only if their current non-UFW, non-Darkpanel lines equal the
+  image's (otherwise the revert leaves the built-in chains as they are, so
+  no foreign rule is overwritten, and the change becomes `needs_repair`
+  naming the difference). Verify then compares the
+  loaded chains with the image. Repair is the only action with a
+  before-image; every other action starts from an in-sync host. Verify
   compares the predicted state relevant to every protected flow (UFW
   chains, the built-in policies and every chain those flows traverse) with
   the loaded state after apply; a difference fails verify with
@@ -1105,21 +1149,43 @@ Resource `firewall.status` (configured and loaded state, rules with origin,
   `filter` and `security` `OUTPUT`, then `POSTROUTING`. It supports the
   matches and targets UFW, Docker and tailscaled generate (`-i`, `-o` with
   `+` wildcards, `-s`, `-d`, `-p`, `--sport`, `--dport`, `--dports`,
-  `--sports`, `-m conntrack --ctstate` including `DNAT`, `--ctorigdst`,
-  `--ctorigdstport`, `-m addrtype`, `-m comment`, `-m mark`, jumps, `RETURN`,
-  `ACCEPT`, `DROP`, `REJECT`, `DNAT`, `MASQUERADE`, `MARK`, `LOG`
-  continuing). `limit`, `recent`, any other match or target, and any
-  non-empty chain in a hook it does not model make the verdict `unknown`.
+  `--sports`, `--tcp-flags`, `!` negation of `-i`, `-o`, `-s`, `-d`,
+  `--ctstate` and `--mark`, `-m conntrack --ctstate` including `DNAT`,
+  `--ctorigdst`, `--ctorigdstport`, `-m addrtype`, `-m comment`, `-m mark`
+  and `-m connmark` with masks, jumps, `RETURN`, `ACCEPT`, `DROP`, `REJECT`,
+  `DNAT`, `SNAT`, `MASQUERADE`, `MARK --set-xmark`, `CONNMARK --save-mark`
+  and `--restore-mark` with `--nfmask`/`--ctmask`, and `LOG` and `TCPMSS`
+  continuing). This list is the set the pinned UFW, Docker 28 and tailscaled
+  1.82–1.102 generate (tailscaled's `util/linuxfw` runner: `ts-input`,
+  `ts-forward`, `ts-postrouting`, the connmark save and restore rules in
+  `mangle`, its DNAT and SNAT rules), and the 0b netfilter parser's contract
+  covers the same five tables and the same matches and targets (1.8).
+  A packet's mark and connection mark start at 0 for a new connection and
+  change only through the `MARK` and `CONNMARK` rules on its path; a match
+  on a mark that only a non-netfilter source (a socket option, `tc`) could
+  set makes the verdict `unknown`. `limit`, `recent` and `statistic` on a
+  rule whose target decides (not `LOG`, which UFW's logging chains and the
+  block pair with `limit`), any other match or target, and any non-empty
+  chain in a hook it does not model make the verdict `unknown`. Golden fixtures include tailscaled's chains with
+  subnet routing, exit-node advertisement and stateful filtering on.
 - **tailscaled's chains.** tailscaled inserts `ts-input` and `ts-forward` at
   position 1 of `INPUT` and `FORWARD`, and `ts-input` accepts everything
   arriving on `tailscale0`; the evaluator reproduces that from the loaded
   state, so UFW never governs tailnet traffic.
-- **Protected flows.** A flow's ingress is not inferred from one route
-  lookup, because routing may be asymmetric or policy-based: the evaluator
-  checks the flow on **every plausible in-interface** (each interface whose
-  routes or policy rules could deliver the source to this host, and, when
-  policy routing rules beyond the defaults exist, every non-loopback
-  interface), and the flow passes only if it passes on all of them. The
+- **Protected flows.** A flow's ingress is not inferred from a route
+  lookup, because routing may be asymmetric even with only the main table,
+  and the kernel does not record a TCP socket's ingress interface. The
+  evaluator checks the flow on **every eligible in-interface** and the flow
+  passes only if it passes on all of them. Every non-loopback interface
+  that is up is eligible, except that for IPv4 an interface whose effective
+  `rp_filter` (the maximum of `all` and the interface's value) is 1
+  (strict) is eligible only when the route back to the source (a lookup of
+  the source as destination from the flow's local address, policy rules
+  included, read through the 0b routes client) leaves through that
+  interface, since
+  strict reverse-path filtering drops anything else before `INPUT`. Loose
+  mode (2) and 0 exclude nothing. IPv6 has no `rp_filter`, so every up
+  interface is eligible. The
   out-interface comes from a forward lookup including policy rules; a
   lookup that cannot be resolved is `unknown`. The flows:
   1. each established TCP connection whose local socket is owned by `sshd`:
@@ -1175,12 +1241,22 @@ behaves as in 1.13.
   with the cleanup or block load of 2.6), a file written (the previous
   entry), a logical row inserted, updated or deleted in
   `firewall_container_rules` or the settings (the previous row), the
-  integration flag changed, a sysctl value changed. A mid-apply crash
-  therefore leaves an exact list of what was done.
+  integration flag changed, a sysctl value changed. Each effect that edits
+  a file or the loaded state records, before the call, the expected
+  before-state and the expected after-state (file hashes from the wave 1
+  golden translation; the value or rule tuple for the rest). Startup
+  recovery classifies an `intended` effect by comparing current state with
+  both: equal to the before-state → not started; equal to the after-state →
+  completed (`made`); anything else (partial, or edited since) →
+  **ambiguous**. A mid-apply crash therefore leaves an exact list of what
+  was done, or names the one effect that cannot be settled.
 - **Revert of a change** (timer, explicit revert, startup recovery):
   1. If every UFW file's hash still equals the hash recorded right after the
-     change applied (or, after a mid-apply crash, the journal shows no file
-     effect after which the file was edited), restore the snapshot (below).
+     change applied, or, after a mid-apply crash, the hash expected after
+     the last settled effect (no effect ambiguous), restore the snapshot
+     (below). A missing post-apply hash never by itself authorizes a
+     whole-snapshot restore; an ambiguous effect sends the change to step 3
+     with that effect named.
   2. Otherwise (someone edited UFW during the pending window), apply the
      inverses of the journaled effects in reverse order, which leaves the
      other edits in place; logical rows are restored in the same transaction
@@ -1188,8 +1264,10 @@ behaves as in 1.13.
   3. If an inverse conflicts with a manual edit (the change's own rule was
      edited or removed, a manual rule now occupies the position), the change
      becomes `needs_repair` (1.3 engine integration) and keeps the `firewall`
-     lock, its snapshot is pinned until the repair ends, the plan of
-     `firewall.state.repair` shows the difference, and **connectivity comes
+     lock, its snapshot is pinned until the repair ends, and every firewall
+     action declares `RepairedBy: firewall.state.repair` (1.3): `darkpanel
+     change repair <id>` plans that action, which shows the difference, and
+     applies it under the change's own lock ownership; and **connectivity comes
      first**: the inverses that do not conflict are still applied, and if the
      lockout guard evaluated on the resulting loaded state fails for a
      protected flow, the snapshot is restored whole even though that
@@ -1198,14 +1276,30 @@ behaves as in 1.13.
 - **Restore** is crash-safe and complete: one database transaction records
   the restore intent and writes the logical rows; then each file is written
   with `FileWriter.Restore`; then the Docker chains are brought in line with
-  the restored integration flag (2.6 cleanup or block load); then `ufw
-  reload` (or `ufw disable` when the snapshot was inactive); then the intent
-  is cleared. Container rules are rendered against current container
-  identities, never replayed from old addresses. Startup recovery finishes an
-  intent it finds by restoring the same snapshot again (idempotent).
-- **Retention.** The last 50 unpinned snapshots, plus any referenced by an
-  unconfirmed change, plus pinned ones. The first mutation on a host pins a
-  `baseline` snapshot taken before it, which is never pruned.
+  the restored integration flag (2.6 cleanup or block load, preserving
+  foreign `DOCKER-USER` rules as 2.6 describes); then the UFW transition the
+  snapshot requires, predicted with 2.3's transitions before the restore
+  starts:
+  - snapshot active, UFW active: `ufw reload`;
+  - snapshot active, UFW inactive (for example reverting `state.disable`):
+    `ufw --force enable` (`--force` skips UFW's interactive SSH prompt);
+  - snapshot inactive, UFW active: `ufw disable`;
+  - both inactive: none;
+
+  then the snapshot's sysctl values (2.1); then verify that `ENABLED`, the
+  loaded UFW and Darkpanel chains and the sysctl values match the
+  snapshot's prediction; then the intent is cleared. `ufw reload` on an
+  inactive firewall only prints "Firewall not enabled (skipping reload)",
+  which is why the transition is chosen, never assumed. Container rules are
+  rendered against current container identities, never replayed from old
+  addresses. Startup recovery finishes an intent it finds by restoring the
+  same snapshot again (idempotent).
+- **Retention.** The last 50 unpinned snapshots of non-system changes and
+  the last 10 of system changes (the reconcile task's, 2.8, kept separately
+  so a busy Docker host does not prune the operator's history), plus any
+  referenced by an unconfirmed or `needs_repair` change, plus pinned ones.
+  The first mutation on a host pins a `baseline` snapshot taken before it,
+  which is never pruned.
 - **Actions.** Resource `firewall.snapshots`; `firewall.snapshot.compare`
   (read) diffs two snapshots or one against now; `firewall.snapshot.restore`
   (revertible) restores one, and its diff lists every manual rule it would
@@ -1244,13 +1338,44 @@ behaves as in 1.13.
   runs `firewall.docker.repair` with `discardForeign: true`, whose diff lists
   each rule it will discard (needs `manual: true`). No automatic operation
   ever discards a foreign rule.
+- **Foreign rules and revert.** A revert (timer, explicit, startup
+  recovery, break-glass) is never refused for foreign `DOCKER-USER` rules,
+  because refusing it could keep a lockout in place. Before its UFW
+  transition, the revert reads `DOCKER-USER` and records every foreign rule
+  with its position relative to the block's lines in the change. After the
+  transition (whose declaration of `DOCKER-USER` flushed the chain), it
+  reloads `DOCKER-USER` with `*-restore -n`: the block's lines (or, when the
+  restored state has the integration off, `-j RETURN` only) with the
+  recorded foreign rules re-inserted where they were, all before the
+  block's first line or all after its last. Foreign rules interleaved
+  between block lines cannot be placed faithfully: they are re-inserted
+  before the block's first line, the change becomes `needs_repair` with the
+  original order shown, and health stays `broken` until the operator
+  resolves it. The owned-chain cleanup run inside a revert preserves foreign
+  rules the same way instead of refusing. The harness adds a foreign rule
+  during a confirmation window and during an interrupted cleanup and
+  checks that the revert completes and the rule is still loaded.
 - **Non-Docker forwarding.** `DOCKER-USER` is reached from `FORWARD` for all
   forwarded traffic, so the block's DNAT gate (below) would also catch other
   port forwards. `firewall.docker.enable` lists every `nat PREROUTING` DNAT
   rule that is not Docker's and refuses until each is covered by the setting
-  `forwardExemptions` (a list of `{inInterface?, destination CIDR, proto?,
-  port?}`), which the block renders as `RETURN` lines ahead of the gate.
-  Reconcile reports a new foreign DNAT rule as health `degraded` naming it.
+  `forwardExemptions`. An exemption names one foreign forward exactly:
+  `{inInterface?, origDestination (address), origPort?, destination
+  (address), proto (tcp|udp), port?}`, where `origDestination` and
+  `origPort` are the pre-DNAT host address and port the foreign rule
+  matches and `destination` and `port` are its `--to-destination` (the
+  translated address, which is what `FORWARD` sees). Enable proposes one
+  exemption per foreign DNAT rule from its match and target. The block
+  renders each as `-A DOCKER-USER [-i <inInterface>] -m conntrack --ctstate
+  DNAT --ctorigdst <origDestination> [--ctorigdstport <origPort>] -p <proto>
+  -d <destination> [--dport <port>] -j RETURN` ahead of the gate, so it
+  returns only connections that the foreign rule itself translated. A
+  `destination` inside any Docker network's subnet is refused
+  (`firewall.unsupported_integration`, naming the network), and a Docker
+  network created later whose subnet contains an exemption's `destination`
+  sets health `broken` and is reported unprotected until the exemption is
+  removed. Reconcile reports a new foreign DNAT rule as health `degraded`
+  naming it.
 - **Block (R44).** `firewall.docker.enable` (revertible) writes marked block
   `docker` into `/etc/ufw/after.rules` and `after6.rules` and reloads UFW.
   The block is a self-contained filter section written from Docker's and
@@ -1272,10 +1397,7 @@ behaves as in 1.13.
   -A DOCKER-USER -i docker0 -j RETURN
   -A DOCKER-USER -i br-+ -j RETURN
   -A DOCKER-USER -i <each custom bridge name> -j RETURN
-  -A DOCKER-USER -s 10.0.0.0/8 -j RETURN
-  -A DOCKER-USER -s 172.16.0.0/12 -j RETURN
-  -A DOCKER-USER -s 192.168.0.0/16 -j RETURN
-  -A DOCKER-USER -s 100.64.0.0/10 -j RETURN
+  -A DOCKER-USER -s <each privateSources entry> -j RETURN
   -A DOCKER-USER <each forwardExemption> -j RETURN
   -A DOCKER-USER -m conntrack --ctstate DNAT -j darkpanel-docker-bindings
   -A DOCKER-USER -o docker0 -j darkpanel-docker-deny
@@ -1300,10 +1422,32 @@ behaves as in 1.13.
   12 hex digits of a hash of the binding, keeping the name within iptables'
   28-character limit); `--ctorigdst` is omitted for a binding on all host
   addresses. IPv6 is the same in `after6.rules` with `:ufw6-user-forward -
-  [0:0]`, `-j ufw6-user-forward`, private sources `fc00::/7` and `fe80::/10`
-  (Tailscale's `fd7a:115c:a1e0::/48` is inside `fc00::/7`), and destination
-  `fc00::/7`. Custom bridge names come from the networks'
+  [0:0]`, `-j ufw6-user-forward`, the IPv6 `privateSources` entries, and
+  destination `fc00::/7`. Custom bridge names come from the networks'
   `com.docker.network.bridge.name` option.
+- **Private sources (R46).** `privateSources` is a per-host firewall
+  setting listing the source ranges whose traffic the block returns
+  unexamined (the LAN, the tailnet, a provider's private network). Default:
+  `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`,
+  `fc00::/7` (which contains Tailscale's `fd7a:115c:a1e0::/48`) and
+  `fe80::/10`. Each entry is a CIDR parsed by `netip`, at most 32 entries,
+  and no entry may be shorter than /8 (IPv4) or /7 (IPv6), so `0.0.0.0/0`
+  and `::/0` are refused. It and `forwardExemptions` are changed with
+  `firewall.docker.sources.set` (revertible, lock `firewall`; input either
+  list or both), rendered into the block, and recorded in
+  snapshots with the module's settings. The destination lines (`-d
+  10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`; IPv6 `fc00::/7`) are not
+  configurable: they deny new non-DNAT forwards to private container
+  addresses. Every source in a `privateSources` range reaches every
+  published port whatever the bindings allow; the exposure view shows that
+  as its own class (2.7), and the container view warns on each binding that
+  a private range reaches only through this exemption.
+- **Non-Docker `br-*` interfaces.** `br-+` also matches bridges Docker did
+  not create (for example `br-lan`). Detection lists every `br-*` interface
+  that is not a Docker network's bridge in `firewall.docker` and sets health
+  `degraded` naming it, because traffic entering from it is exempt from the
+  gate. The wildcard stays: it is what protects a Docker bridge created
+  between two reconciles.
 - **How the block decides.**
   - Established traffic returns first.
   - Traffic **entering from a Docker bridge** returns: it is
@@ -1313,7 +1457,7 @@ behaves as in 1.13.
     traffic between networks. Container-to-container and container outbound
     traffic therefore keep working on private, public IPv4 and global IPv6
     networks alike (R46).
-  - Traffic from the private source ranges (the LAN, the tailnet) and the
+  - Traffic from the `privateSources` ranges (the LAN, the tailnet) and the
     declared non-Docker forwards return.
   - A new connection from anywhere else that was DNATed reaches UFW only
     through a binding line matching its original host address and port and
@@ -1335,8 +1479,8 @@ behaves as in 1.13.
   (`com.docker.network.bridge.gateway_mode_ipv4|ipv6=routed` or
   `nat-unprotected`) bypass DNAT altogether. Such networks are reported
   `unprotected`, set health `degraded`, and are listed in Out of scope as
-  unsupported for the integration (pending owner confirmation, Owner
-  decisions).
+  unsupported for the integration (P2, confirmed by the owner on
+  2026-10-21, Owner decisions).
 - **Address reuse (D1).** A route rule names a container address; the
   binding line also requires the connection's original host address and
   port. A container that later gets the same address inherits the allowance
@@ -1359,9 +1503,16 @@ behaves as in 1.13.
   one tagged UFW route rule per container address (every replica, every
   network, each family with a container address), its binding line and its
   binding chain's source lines; a deny is a line in the binding's chain
-  ahead of its allows, and also a tagged UFW route deny inserted before
-  every Darkpanel route allow (the record R45 asks for). A deny whose `from`
-  overlaps a private source range is refused (it could never match). The
+  ahead of its allows, which is where it is enforced, and also a tagged UFW
+  route deny (the record R45 asks for). A UFW route rule names the container
+  address and port but cannot name the host port, so it would apply to
+  every binding of that container port; the route deny is therefore placed
+  **after** every Darkpanel route allow for the same container address and
+  port. A source a binding's chain lets through always meets its own
+  binding's route allow first, so one binding's deny never removes another
+  binding's allowance, and a source a binding denies never reaches
+  `ufw-user-forward` through that binding. A deny whose `from` lies inside
+  a `privateSources` range is refused (it could never match). The
   preview shows the rules and the effective verdict per source partition
   (2.7).
 - **Proxied families.** A binding served by `docker-proxy` for a family in
@@ -1372,12 +1523,20 @@ behaves as in 1.13.
   tagged `ufw allow in` rule for that family and host port (with `from`),
   and its denies are tagged `ufw deny in` rules inserted before it. Enabling
   the integration requires `DEFAULT_INPUT_POLICY` to be `DROP` or `REJECT`
-  (refused otherwise), so an unallowed proxied binding is closed; a broad
+  (refused otherwise), so an unallowed proxied binding is closed. This is an
+  **invariant while the integration flag is on**, not an enable-time check:
+  `firewall.defaults.set`, `firewall.state.enable`, `firewall.state.repair`
+  and `firewall.snapshot.restore` refuse (`firewall.unsupported_integration`,
+  a hard refusal) when their resulting configured incoming policy is
+  `ALLOW`; health (below) checks it; and when the policy is found `ALLOW`
+  anyway (an edit of `/etc/default/ufw`), health is `broken` and the
+  exposure and container views show every proxied binding as open "by
+  default incoming policy". A broad
   manual `INPUT` allow that covers such a port is the operator's own UFW
   rule, and the exposure view and the container view show the binding as
   open "by manual rule <tuple>". This is UFW governing Docker through
-  `INPUT` rather than a route rule (pending owner confirmation of S3's
-  wording, Owner decisions).
+  `INPUT` rather than a route rule (P1, S3's wording confirmed by the owner
+  on 2026-10-21, Owner decisions).
 - **Integration flag and `state.disable`/`state.enable`.** The integration
   flag is configured state and persists across `firewall.state.disable`.
   `state.disable` with the flag on runs the cleanup (below) and leaves the
@@ -1389,8 +1548,10 @@ behaves as in 1.13.
   `darkpanel-docker-bindings` and `darkpanel-docker-deny` chains equal the
   block's rules exactly once and in order; that `FORWARD` jumps to
   `DOCKER-USER` before Docker's own accept rules; that no foreign rule is in
-  `DOCKER-USER`; that no foreign DNAT forward lacks an exemption; and that
-  every Docker network is covered. Anything else sets
+  `DOCKER-USER`; that no foreign DNAT forward lacks an exemption and no
+  exemption's destination lies in a Docker subnet; that the configured and
+  loaded incoming policy is `DROP` or `REJECT`; that no non-Docker `br-*`
+  interface exists; and that every Docker network is covered. Anything else sets
   health `broken` or `degraded` with the reason; the UI offers
   `firewall.docker.repair` (revertible), which rewrites and reloads.
 - **Cleanup of loaded chains.** Removing the block from the files does not
@@ -1421,12 +1582,23 @@ behaves as in 1.13.
   binding it belongs to (a `docker-proxy` socket is shown as its container's
   binding).
 - **Verdicts by source partition.** For each row the evaluator collects the
-  source predicates of every rule on the row's path (addresses, CIDRs,
-  interfaces), partitions the source space by them, and evaluates one
-  representative per partition. Source classes: `internet` (addresses
-  outside every private range, arriving on any non-loopback, non-Tailscale
-  interface), `tailnet` (100.64.0.0/10 and fd7a:115c:a1e0::/48 on
-  `tailscale0`), `localhost`. A class's verdict is `open`, `closed`,
+  predicates of every rule on the row's path that depend on the client
+  (source addresses and CIDRs, in-interfaces, source ports and port ranges,
+  and the mark states 2.3 derives), partitions the space of (source address,
+  in-interface, source port) by them, and evaluates one representative per
+  partition; source ports split into the intervals the rules name and the
+  rest. A predicate the evaluator cannot bound (a mark set outside
+  netfilter, an unsupported match) makes the affected partitions `unknown`.
+  Source classes: `internet` (addresses outside every `privateSources`
+  range, arriving on any non-loopback, non-Tailscale interface), `private`
+  (one class per `privateSources` range, on non-Tailscale interfaces),
+  `tailnet` (100.64.0.0/10 and fd7a:115c:a1e0::/48 on `tailscale0`),
+  `localhost`. The `tailnet` verdict is the host firewall's: tailnet policy
+  (ACL grants) can block traffic before it reaches the host and is not
+  evaluated in v1, so the row says "host firewall; tailnet policy not
+  evaluated", except that when the host's tailscaled has shields-up on, the
+  `tailnet` class is `closed` with `decidedBy` "Tailscale shields-up". A
+  class's verdict is `open`, `closed`,
   `filtered`, `partial` (with the allowed source sets and the rule that
   decides each) or `unknown`; `decidedBy` names the rule (UFW tuple and tag,
   a framework file line, a Docker or tailscaled chain, a block or binding
@@ -1434,8 +1606,10 @@ behaves as in 1.13.
 - **Published ports** follow the real path through `raw`, `nat` and
   `FORWARD` (2.3); there is no shortcut for the integration being off.
 - **Harness check (R49).** The scanner probes every row's address and port
-  from the internet network for both families, and `partial` rows from an
-  address in an allowed set and one outside it. TCP must match exactly; for
+  from the internet network for both families, `partial` rows from an
+  address in an allowed set and one outside it, and rows whose partitions
+  split by source port from a source port in each interval (the scanner's
+  fixed-source-port option). TCP must match exactly; for
   UDP an `open` verdict must not be scanned `closed`, and a `closed` or
   `filtered` verdict must not get a UDP response.
 
@@ -1467,13 +1641,22 @@ In every case the Docker integration's owned-chain cleanup runs (2.6).
 "unsupported configuration" banners), rules table with origin badges, add and
 delete through `ChangeDialog`, snapshots (list, compare, restore), Docker
 integration (detection, enable, health, repair) and the exposure table with
-filters. The container action slot gets Allow and Deny.
+filters. The Docker integration panel also edits `privateSources` and
+`forwardExemptions`. The container action slot gets Allow and Deny.
 
 ### 3. Docker management (R50–R55)
 
 Module `docker`; agent side; lock key `docker`; preflight: socket present,
 API 1.44 or later. Every undo reads the effects journal (1.2) and acts only
-on effects that occurred.
+on effects that occurred. Container identity (id and created time) only
+says the object is the same one; the post-state each undo compares (1.2)
+also covers what the action changed: for start, stop and restart,
+`State.Running` and `State.StartedAt` as they were right after the action
+(a container started, stopped or restarted again since is a `conflict`, so
+an older undo never reverses a later operation); for network connect and
+disconnect, the container's endpoint on that network (present or absent,
+and its endpoint id); for a created network or volume, its id plus "no
+container uses it".
 
 | Action | Class | Undo |
 |---|---|---|
@@ -1536,6 +1719,21 @@ on effects that occurred.
     volumes, configs and secrets is refused with
     `docker.compose_unavailable`; Darkpanel never lets Compose run host
     programs.
+  - **Remote configuration and builds.** Compose resolves `include` and
+    `extends` from Git and OCI remotes before any validation can see the
+    result, and its Git loader runs the `git` program (and through it
+    `ssh`); both loaders are on unless disabled (Compose's
+    `pkg/remote/git.go` and `oci.go`: `COMPOSE_EXPERIMENTAL_GIT_REMOTE` and
+    `COMPOSE_EXPERIMENTAL_OCI_REMOTE`, parsed as booleans, default true).
+    Every Compose run, `config` included, therefore sets both to `false`,
+    so a remote reference fails the run with Compose's own error, which the
+    plan reports as `docker.compose_unavailable`. A service with a `build`
+    section could make Compose start a build through the buildx plugin, a
+    host program, so `up` always runs with `--no-build` and a resolved
+    configuration whose service has `build` but no image present locally is
+    refused at plan time. The wave 3a harness test runs a project whose
+    `include` names a Git URL and one with a `build` section and checks that
+    no `git`, `ssh` or `docker-buildx` process ran.
   - **R54 exception.** Compose has no Engine API, so validation reads the
     resolved configuration from `docker compose config --format json`. This
     is the one place Darkpanel parses `docker` CLI output: Compose's own
@@ -1545,11 +1743,15 @@ on effects that occurred.
     starts containers through the daemon).
   - **Running.** `/usr/bin/docker compose --project-directory <dir> -p <name>
     -f <file>... [--env-file <f>]... [--profile <p>]... <verb>` with fixed
-    verb flags (`up -d`, `down`, `pull`, `restart`, and `config --format
-    json` for validation). The environment is only `DOCKER_CONFIG` and `HOME`,
-    both `/var/lib/darkpanel/agent/docker-config` (a Darkpanel-owned
-    directory whose `config.json` holds no credential helpers and which has no
-    plugin directory), so the CLI finds the Compose plugin only in the system
+    verb flags (`up -d --no-build`, `down`, `pull`, `restart`, and `config
+    --format json` for validation). The environment is only `DOCKER_CONFIG`
+    and `HOME`, both `/var/lib/darkpanel/agent/docker-config`, plus
+    `COMPOSE_EXPERIMENTAL_GIT_REMOTE=false` and
+    `COMPOSE_EXPERIMENTAL_OCI_REMOTE=false`; the wave 0 allowlist entry for
+    Compose fixes this environment (1.8). `docker-config` is a
+    Darkpanel-owned directory whose `config.json` holds no credential
+    helpers and which has no plugin directory, so the CLI finds the Compose
+    plugin only in the system
     plugin path, which is checked to be root-owned and not writable by
     others. Pulls from private registries through Compose are out of scope in
     v1 (documented). Success is the exit code; the result is read back from
@@ -1618,31 +1820,58 @@ on effects that occurred.
     installs exactly `tailscale=<version>` and holds it. Changing tailscaled
     can cut the agent's own link to the controller, so the pin is an
     **agent-local transaction that rolls itself back**, like the updater
-    (ADR 0007), with a module recovery handler (1.3b). Phases, each journaled
-    before it runs, in `tailscale_pins`:
-    1. `recorded`: the prior version, the prior hold state, and whether the
-       package is installed;
-    2. `staged`: the prior version's `.deb` is fetched into the managed
-       directory `/var/lib/darkpanel/agent/tailscale-debs/` (so rollback does
-       not depend on the repository or the network), and the target version
-       is downloaded (`apt-get install --download-only`);
-    3. `unheld`: `apt-mark unhold tailscale`;
-    4. `installed`: `apt-get install -o ... -y --allow-downgrades
-       tailscale=<version>`;
+    (ADR 0007), with a module recovery handler (1.3b). The phases run in a
+    root transient systemd unit `darkpanel-tailscale-pin-<change id>`
+    started through D-Bus (the transient-unit runner for long-running agent
+    applies, 1.3), so a restart of `darkpanel-agent`, which the new
+    tailscaled can provoke by cutting its link, does not kill `dpkg`
+    mid-install. Phases, each journaled before it runs, in `tailscale_pins`:
+    1. `recorded`: the prior version and the prior hold state (the pin
+       requires the package installed and refuses otherwise with
+       `tailscale.unavailable`; a DERP host is on the tailnet already);
+    2. `unheld`: `apt-mark unhold tailscale` (apt aborts with `-y` on any
+       change to a held package, so every apt step below runs unheld);
+    3. `staged`: `apt-get install --download-only --reinstall -o
+       DPkg::Lock::Timeout=120 -y tailscale=<prior version>` and the same for
+       the target version, which leave the `.deb` files in
+       `/var/cache/apt/archives/`; the prior one is copied with
+       `FileWriter.WriteManaged` into the managed directory
+       `/var/lib/darkpanel/agent/tailscale-debs/` (flat name
+       `tailscale_<version>_<arch>.deb`, its SHA-256 journaled), so rollback
+       depends on neither the repository nor the network. If the prior
+       version can no longer be downloaded, the pin stops here with
+       `tailscale.pin_failed` after restoring the prior hold state; nothing
+       was installed;
+    4. `installed`: `apt-get install -o DPkg::Lock::Timeout=120 -y
+       --allow-downgrades tailscale=<version>`;
     5. `held`: `apt-mark hold tailscale`;
     6. `checking`: for up to 120 s, tailscaled answers on its socket, the
        node is back in its prior backend state, and the agent's session to
        the controller is up (for a host whose link runs over the tailnet);
     7. `done`.
 
-    A failed check, or an agent restart in phases 3–6, rolls back locally:
-    install the staged prior `.deb` (`apt-get install -y --allow-downgrades
-    <file>`), restore the prior hold state, restart tailscaled, and mark the
-    change failed; the controller learns the result through the lookup and
-    the journal when the link returns. Undo (when the controller asks)
-    performs the same rollback. `tailscale.package.unpin` (compensable, undo:
-    re-hold) restores the hold state recorded by the pin it reverses without
-    changing the installed version.
+    **Rollback** (a failed check, a failed phase 4 or 5, or the recovery
+    handler finding the transaction in phases 2–6 with its unit no longer
+    running, for example after a reboot), each step journaled:
+    `apt-mark unhold tailscale` if it is held; `dpkg --configure -a` when
+    phase 4 was interrupted (dpkg refuses further installs until the
+    interrupted one is configured); `apt-get install -o
+    DPkg::Lock::Timeout=120 -y --allow-downgrades <staged file>` after
+    checking the file's SHA-256; restore the prior hold state; restart
+    tailscaled; verify the prior version and backend state; mark the change
+    failed. The controller learns the result through the lookup and the
+    journal when the link returns. An agent that starts while the unit is
+    still running waits for it rather than rolling back. Undo (when the
+    controller asks) performs the same rollback. The harness fails the
+    check after phase 5 with the controller link blocked and expects the
+    prior version, held state and link back without the controller.
+    `tailscale.package.unpin` (compensable, undo: re-hold) restores the
+    hold state recorded by the pin it reverses without changing the
+    installed version.
+  - **Version mapping.** `<version>` for a DERP host is
+    `release/derper.version` without its leading `v` (`v1.102.0` →
+    `1.102.0`); the DERP spike confirms that Tailscale's apt versions use
+    that form on all four OS images.
   - Files: `/usr/share/keyrings/tailscale-archive-keyring.gpg` (fingerprint
     pinned in code) and `/etc/apt/sources.list.d/tailscale.list`. If either
     exists and is not byte-identical to what Darkpanel would write, install
@@ -1651,7 +1880,9 @@ on effects that occurred.
   - `apt-get` runs with the verb first and options after it (1.8):
     `update -o DPkg::Lock::Timeout=120 -o Dir::Etc::sourcelist=<tailscale.list>
     -o Dir::Etc::sourceparts=-`, then `install -o DPkg::Lock::Timeout=120 -y
-    tailscale` (the pin adds `--allow-downgrades` and the exact version). The
+    tailscale` (the pin adds `--allow-downgrades` and the exact version, and
+    `--download-only --reinstall` for staging; wave 0's allowlist carries
+    these options and `/usr/bin/dpkg --configure -a`, 1.8). The
     repository line uses the OS codename and the `stable` track; unsupported
     OS or architecture refuses. Package installs and updates are
     long-running (1.3).
@@ -1684,6 +1915,15 @@ on effects that occurred.
   tags, and keys it creates must carry those tags or tags they own through
   `tagOwners`. Tokens come from `POST /api/v2/oauth/token` and last one hour;
   the client caches one and renews it at 50 minutes.
+  **Contract check (3b, first task)** settles, against Tailscale's API
+  documentation and the fake's recorded responses, and writes into this
+  section: the scope set and the dependencies stated above (Tailscale's
+  OAuth page now defers its scope table to its "trust credentials" topic);
+  whether `GET /api/v2/tailnet/{t}/keys` returns each key's description or
+  only ids (the auth-key sweep, 1.9, is written to work from ids alone,
+  fetching each key with `GET /api/v2/tailnet/{t}/keys/{id}`); and the
+  response of `POST .../acl/validate` for a valid policy (an empty 200 body
+  is the assumption above).
 - **Devices.** Read `tailnet.device.list`, `tailnet.policy.get`.
   Compensable: `tailnet.device.authorize` (undo: de-authorize, if this change
   authorized it); `tailnet.device.set-routes` (approve routes and exit node;
@@ -1757,8 +1997,14 @@ on effects that occurred.
   belongs to, verified through that release's signature and manifest. The
   harness builds them with test keys and caches the build keyed by
   `release/derper.version`.
-- **Version coupling and its cost.** Upstream requires derper and tailscaled
-  from the same version for `-verify-clients`. A DERP host's tailscaled is
+- **Version coupling and its cost.** This spec assumes that `-verify-clients`
+  needs derper and tailscaled from the same version; the assumption is not
+  yet backed by a cited upstream statement. The DERP spike either cites one
+  (Tailscale's custom-DERP documentation or the derper source) and records
+  it here, or shows `-verify-clients` working across adjacent versions, in
+  which case the pin is relaxed to "tailscaled not older than derper" and
+  the hold is dropped (an owner-visible spec change, applied by the
+  integrator). Until then, a DERP host's tailscaled is
   therefore pinned and held at the derper version (`tailscale.package.pin`)
   and refuses ordinary updates. Consequence, recorded here, in the threat
   model and in the owner checklist: the DERP host receives a Tailscale
@@ -1786,11 +2032,24 @@ on effects that occurred.
     creates a self-signed certificate for the address on first start (valid
     one year); clients pin it: the DERP map node gets `HostName: "<ip>"` and
     `CertName: "sha256-raw:<hex SHA-256 of the certificate DER>"`, which
-    `derp.server.install` reads back and stores in `derp_servers`. The spike
-    confirms whether clients check the expiry of a pinned certificate; if
-    they do, the DERP page warns 30 days before expiry, and the spike adds a
-    dedicated compensable action that issues a new certificate and is
-    followed by `derp.region.set` with the new pin.
+    `derp.server.install` reads back and stores in `derp_servers` with the
+    certificate's `NotAfter`. Clients check the expiry of a pinned
+    certificate (tailscale `net/tlsdial`, `SetConfigExpectedCertHash`, at
+    v1.102.0: the hash comparison is followed by `NotAfter` and `NotBefore`
+    checks), and derper generates the self-signed certificate only when its
+    files (`<certdir>/<ip>.crt` and `.key`) are absent and reads them only
+    at start (`cmd/derper/cert.go` at v1.102.0). Without rotation the
+    region therefore stops working one year after install. The DERP page
+    and health warn (`degraded`) 30 days before `NotAfter` and report
+    `broken` after it. **Rotation** is the composite `derp.cert.rotate`
+    (`unwind: reverse`): `cert` (`derp.cert.renew`, agent, compensable,
+    lock `derp`: moves the two files to `.prev` names (owned), restarts
+    derper so it generates a new one-year certificate, reads back the new
+    pin; undo moves the `.prev` files back and restarts), then `region`
+    (`tailnet.policy.patch` replacing the node's `CertName`). Between the
+    two steps, clients holding the old pin cannot use the region, so
+    rotation has the same precondition as `derp.server.upgrade` (another
+    reachable region, below), and its plan states the window.
 - **Client verification (R62).** `-verify-clients` checks every client's
   node key against the host's own tailscaled and fails closed when tailscaled
   does not answer; no fail-open flag applies to it. Every client must be
@@ -1812,8 +2071,11 @@ on effects that occurred.
   - `derp.region.set` (`unwind: reverse`, one step: `tailnet.policy.patch`
     on `derpMap` and the visibility grant, the patch computed by the DERP
     module). Refused (`derp.not_ready`) until the server's deploy is
-    confirmed and `derp.server.probe` reaches `/derp/probe` and STUN from at
-    least two agents. Region id 900–999, refused if taken
+    confirmed and `derp.server.probe` reaches `/derp/probe` and STUN from
+    the controller and from at least one agent that is not the DERP host
+    (a probe from the DERP host to itself proves nothing); on a fleet with
+    no such agent, from the controller alone, with a warning in the plan.
+    Region id 900–999, refused if taken
     (`derp.region_taken`); region code and name; the node entry including
     the `ip` mode's pin. `omitDefaultRegions: true` is accepted only when the
     resulting map keeps at least one other reachable custom region, or with
@@ -1825,7 +2087,17 @@ on effects that occurred.
   - `derp.server.upgrade` (`unwind: reverse`): `tailscaled`
     (`tailscale.package.pin` at the new version) and `binary`
     (`derp.binary.update`); each step rolls itself back locally on a failed
-    health check, and unwind undoes both.
+    health check, and unwind undoes both. Between the two steps derper and
+    tailscaled differ in version, so client verification may refuse
+    clients and the region may not relay; the steps run back to back and
+    the plan states the window. Because the DERP host's own agent link may
+    depend on relaying, the upgrade (and `derp.cert.rotate`) is refused
+    with `derp.no_fallback` unless the host has a management path that does
+    not use this region: its agent link does not run over the tailnet, or
+    the tailnet's DERP map keeps another reachable region (default regions
+    not omitted, or another custom region whose probe passes). With
+    `omitDefaultRegions` set and this the only region, the owner must first
+    add a second region or clear `omitDefaultRegions`.
   - `derp.server.remove` (`unwind: forward`): `region` (`tailnet.policy.patch`
     removing the region, as `derp.region.remove` would), `uninstall`
     (`derp.server.uninstall`), `unpin` (`tailscale.package.unpin`: restores
@@ -1864,7 +2136,7 @@ Scopes follow 1.7 (existing rules kept; raised where noted).
 
 | Module | Action | Class | Side | Locks |
 |---|---|---|---|---|
-| firewall | `state.enable`, `state.disable`, `state.repair`, `defaults.set`, `logging.set`, `rules.apply`, `rule.add`, `rule.delete`, `snapshot.restore`, `docker.enable`, `docker.disable`, `docker.repair`, `container.allow`, `container.deny`, `container.remove`, `containers.apply` | R | A | `firewall` |
+| firewall | `state.enable`, `state.disable`, `state.repair`, `defaults.set`, `logging.set`, `rules.apply`, `rule.add`, `rule.delete`, `snapshot.restore`, `docker.enable`, `docker.disable`, `docker.repair`, `docker.sources.set`, `container.allow`, `container.deny`, `container.remove`, `containers.apply` (each `RepairedBy: state.repair`, 2.5) | R | A | `firewall` |
 | firewall | `snapshot.compare` | Rd | A | — |
 | docker | the table in 3 (`compose.*` admin and L; `image.pull` L) | — | A | `docker` |
 | tailscale | `prefs.set` | R | A | `tailscale` |
@@ -1875,9 +2147,9 @@ Scopes follow 1.7 (existing rules kept; raised where noted).
 | tailnet | `account.disconnect`, `device.expire`, `device.delete` | I | C | `tailnet` |
 | tailnet | `device.list`, `policy.get` | Rd | C | — |
 | tailnet | `node.join` (install, key, login) | X rev | C | — |
-| derp | `server.install` (undo, L), `server.uninstall` (by `server.install`; used only in forward composites and by the operator), `binary.update` (undo, recovery handler, L) | C | A | `derp` |
+| derp | `server.install` (undo, L), `server.uninstall` (by `server.install`; used only in forward composites and by the operator), `binary.update` (undo, recovery handler, L), `cert.renew` (undo: restore the `.prev` certificate) | C | A | `derp` |
 | derp | `server.probe` | Rd | C | — |
-| derp | `server.deploy` (tailscaled, install, ports), `server.upgrade` (tailscaled, binary), `region.set`, `region.remove` (one `tailnet.policy.patch` step each) | X rev | C | — |
+| derp | `server.deploy` (tailscaled, install, ports), `server.upgrade` (tailscaled, binary), `cert.rotate` (cert, region), `region.set`, `region.remove` (one `tailnet.policy.patch` step each) | X rev | C | — |
 | derp | `server.remove` (region, uninstall, unpin, ports) | X fwd | C | — |
 | npm | `instance.deploy` (undo, L), `instance.upgrade` (undo, recovery handler, L), `instance.confirm-public` (undo: clear the mark), `network.attach`, `network.detach` (undo: the opposite, only for the claim this change made; 6), `proxyhost.add`, `proxyhost.update`, `proxyhost.remove`, `accesslist.add`, `accesslist.remove` (undo bound to the id), `certificate.request` (undo: delete the created certificate, L) | C | A | `npm` |
 | npm | `instance.remove` (deletes volumes), `certificate.remove` | I | A | `npm` |
@@ -1952,6 +2224,37 @@ a spec change.
   `npm.certificate.request` sends `meta.letsencrypt_email` = the stored
   `acmeEmail` and `meta.letsencrypt_agree: true` (the 6a spike confirms the
   field names against the pinned image) and is long-running.
+- **Recovery identities (1.2).** NPM assigns ids on creation and has no
+  idempotency key, so each create persists, before the call, an identity
+  recovery can look up:
+  - a proxy host: its exact `domain_names` set, which NPM keeps unique
+    across proxy hosts (a create naming a domain another host uses is
+    refused);
+  - an access list: the name `darkpanel-<change id>-<step id>`;
+  - a certificate: its exact `domain_names` set plus "created after the
+    intent was journaled" (NPM derives a Let's Encrypt certificate's
+    `nice_name` from its domains, so no marker can be attached).
+
+  Recovery lists the objects and settles the effect: exactly one match →
+  `made` with its id; none → not created; more than one (possible only for
+  certificates or for an access list renamed by hand) → the effect stays
+  `intended` and the change needs repair with the candidates shown;
+  Darkpanel never deletes an object it cannot tie to the change. The 6a
+  spike confirms against the pinned image that proxy-host domains are
+  enforced unique, that access-list names are kept as given, and how a
+  certificate's `nice_name` is set.
+- **Reserved resources.** Proxy hosts, access lists and certificates
+  created by `npm.admin.expose` or `panel.exposure.add` are recorded in
+  `npm_reserved` (object id, owning exposure). `npm.proxyhost.add` and
+  `.update` refuse (`npm.reserved`) an upstream of `127.0.0.1`, `localhost`
+  or the NPM container's own addresses on port 81, and any upstream on the
+  `darkpanel-panel` network or the panel gateway address, unless the
+  change is a child of `npm.admin.expose` or `panel.exposure.add`
+  (`parent_change_id`, 1.3) respectively; `.update`, `.remove`,
+  `npm.accesslist.remove` and `npm.certificate.remove` refuse a reserved
+  object unless the change is a child of the owning exposure's removal.
+  The checks run in the actions' own plan handlers, so no lower-scope path
+  around the composites' authorization exists.
 - **Attachment claims.** `npm.network.attach` records a claim
   `{network, claimant (exposure or composite id), preexisting}` in
   `npm_attachments`; it attaches only when no claim exists and the
@@ -1959,6 +2262,19 @@ a spec change.
   `npm.network.detach` removes its claim and detaches only when no claim is
   left and the attachment was not pre-existing, so removing one exposure
   never breaks another on the same network.
+- **Supported targets (6, 7.3).** The proxy reaches the target by its
+  container name through Docker's embedded DNS, which exists only on
+  user-defined networks (Docker's bridge driver documentation: "On the
+  default bridge network, containers can't resolve each other by name").
+  A target is supported when it is attached to at least one user-defined
+  bridge network; the exposure attaches the proxy to that network (the
+  first in name order when there are several, or the one the input names).
+  A target only on the default `bridge`, on `host`, `none`, or a
+  non-bridge driver is refused in the preview with `npm.unsupported_target`
+  (`cloudflare.unsupported_target` for a tunnel exposure) and the reason "connect the container to a user-defined network". The 6a
+  spike checks that a container with a Docker-generated name resolves by
+  that name on a user-defined network; if it does not, such targets are
+  refused the same way.
 - **Expose container (R67).** `npm.expose.container` (composite) requires a
   confirmed public instance (`npm.not_public` otherwise). Steps: `network`
   (`npm.network.attach`: attach `darkpanel-npm` to the target's network),
@@ -1980,15 +2296,31 @@ a spec change.
   configuration at `server` scope, while its generated `location /` sets
   its own `proxy_set_header` lines, and nginx does not inherit server-level
   `proxy_set_header` into a location that defines any. Darkpanel therefore
-  puts its header policy inside the effective location: it creates the proxy
-  host with a custom `locations` entry for `/` whose `advanced_config` holds
-  the complete header set (`X-Darkpanel-Client $realip_remote_addr`,
-  `X-Forwarded-Proto $scheme`, and every header `proxy.conf` would set). The
-  6a spike renders the configuration from the pinned image, records the
-  exact mechanism here, and the harness tests a missing and a forged
-  `X-Darkpanel-Client` (both must be overwritten or refused). If the pinned
-  image offers no way to set headers in the effective location, the part
-  stops for an owner decision before panel exposure through NPM is built.
+  puts its header line inside the effective location, through NPM's own
+  mechanism, verified in NPM's v2.13.5 source:
+  - The proxy host gets a custom `locations` entry with path `/`; NPM then
+    sets `use_default_location` to false (`backend/internal/nginx.js`), so
+    no generated `location /` duplicates it.
+  - The custom location is rendered from `backend/templates/_location.conf`,
+    which already emits `proxy_set_header` for `Host`,
+    `X-Forwarded-Scheme`, `X-Forwarded-Proto` (`$scheme`),
+    `X-Forwarded-For` and `X-Real-IP`, the `proxy_pass`, and (with
+    websockets on) `Upgrade`, `Connection` and `proxy_http_version 1.1`. The
+    location's `advanced_config` is rendered as the first line inside that
+    block.
+  - Darkpanel's `advanced_config` therefore adds only what the template
+    lacks: `proxy_set_header X-Darkpanel-Client $realip_remote_addr;` and,
+    for the panel, `proxy_read_timeout 3600s;`. It never repeats a header
+    the template sets, so no request carries two `Host` headers (which Go's
+    server rejects). A client-sent `X-Darkpanel-Client` is replaced, because
+    a `proxy_set_header` for a field redefines it.
+
+  The 6a spike renders the configuration from the pinned digest and checks
+  the result against this list (a template change in a later image fails
+  the spike, and the list is updated here); the harness sends an ordinary
+  request that must succeed with exactly one `Host` header, and requests
+  with a missing and a forged `X-Darkpanel-Client`, which must arrive
+  overwritten.
 - **Upgrade (R68).** `npm.instance.upgrade` (agent, compensable, lock `npm`)
   is a durable transaction in `npm_upgrades` (phase per step, fsynced), with
   this recovery table:
@@ -2000,12 +2332,10 @@ a spec change.
   | `archiving` | delete the partial archive; start the original container |
   | `archived` (archive written and its checksum verified) | start the original container |
   | `recreating`, `waiting` | remove the new container; restore the volumes from the verified archive; recreate the original from its journaled configuration |
-
-  These rows are the action's module recovery handler (1.3b); the upgrade
-  is long-running (1.3).
   | `done` | none |
 
-  The new container waits up to 120 s for its API. An archive referenced by
+  These rows are the action's module recovery handler (1.3b); the upgrade
+  is long-running (1.3). The new container waits up to 120 s for its API. An archive referenced by
   a non-terminal transaction is never pruned; otherwise the last three
   archives are kept, in the managed directory
   `/var/lib/darkpanel/agent/npm-backups/` (1.8).
@@ -2022,7 +2352,12 @@ a spec change.
   probes read capabilities (list tunnels on the account, list zones) and
   reports write capabilities as unverified (1.9). Required permissions:
   "Cloudflare Tunnel Write" on the account (shown as Cloudflare Tunnel Edit in
-  the dashboard), "Zone Read" and "DNS Write" on the zones used.
+  the dashboard), "Zone Read" and "DNS Write" on the zones used (shown as
+  "DNS: Edit"). The **3c contract check** (first task) settles against
+  Cloudflare's API documentation whether creating a tunnel and reading its
+  token need any further permission (for example "Account Settings:
+  Read"), and records the final list here and in the connect dialog's
+  help text.
   `cloudflare.account.disconnect` is irreversible.
 - **Tunnels.** `cloudflare.tunnel.create` (compensable; undo: delete the
   created tunnel; name `darkpanel-<change id>`) creates a remotely managed
@@ -2078,7 +2413,19 @@ a spec change.
   creates the proxied CNAME to `<tunnel id>.cfargotunnel.com` with the comment
   `darkpanel:<change id>` and records its id. Remove deletes only the
   recorded record id, after checking that the record still has that content
-  and comment, and only the rule it added. Controller startup recovery
+  and comment, and only the rule it added. These are **read-then-write
+  checks, not compare-and-swap**: Cloudflare's DNS record delete takes only
+  the record id and no version or condition, and the tunnel configuration
+  `PUT` carries none either, so a change another client makes between
+  Darkpanel's read and its delete or `PUT` is not detected and may be
+  overwritten or removed. The window is one API round trip; the plan and
+  the documentation state it, and exclusive management (7.1) is the
+  operator's side of the contract. A **reserved hostname** is one whose
+  service is the panel gateway (8): `cloudflare.hostname.add` refuses
+  (`cloudflare.reserved`) a service naming the panel gateway address unless
+  the change is a child of `panel.exposure.add`, and
+  `cloudflare.hostname.remove` refuses a reserved hostname unless it is a
+  child of `panel.exposure.remove`. Controller startup recovery
   finishes or undoes an operation found mid-phase through the actions'
   module recovery handler (1.3b). Unrelated ingress rules are carried over
   unchanged. `hostname.add` has an `Undo` (remove the record and rule it
@@ -2086,7 +2433,8 @@ a spec change.
   `hostname.add` and used only in forward composites and by the operator.
 - `cloudflare.expose.container` (composite): `network`
   (`cloudflare.network.attach`, attaching the owned cloudflared container to
-  the target's network) and `hostname` (service `http://<container>:<port>`).
+  the target's network, under the supported-target rule of 6) and
+  `hostname` (service `http://<container>:<port>`).
   `unwind: reverse`. No inbound port opens. `cloudflare.expose.remove`
   (`unwind: forward`): `hostname` remove, then `network` detach.
   `cloudflare.network.attach` and `detach` use attachment claims in
@@ -2099,8 +2447,11 @@ a spec change.
 
 - **Expose.** `panel.exposure.add` (controller composite, `unwind:
   reverse`, `MinScope: admin`), input
-  `via: npm|tunnel`, the public hostname, and the controller's host (the only
-  host allowed: `panel.wrong_host`). Refused with `panel.totp_incomplete`
+  `via: npm|tunnel`, the public hostname, the controller's host (the only
+  host allowed: `panel.wrong_host`), and for `via: tunnel` the `tunnel`
+  (required; refused with `cloudflare.connector_missing` unless a
+  `darkpanel-cloudflared-<tunnel>` container runs on that host, since a host
+  can run several connectors). Refused with `panel.totp_incomplete`
   while any admin is pending TOTP, with `panel.already_exposed` when an
   exposure exists, and for `via: npm` with `npm.not_public` unless a public
   NPM instance is confirmed on that host.
@@ -2140,9 +2491,20 @@ a spec change.
   last). Revocation is monotonic: no failure, timeout, revert of the
   `ports` step or restart reopens the listener (the `ports` step's revert
   restores only the firewall rule, behind a revoked listener); reopening
-  needs a new `panel.exposure.add`. A step that keeps failing leaves the
-  composite `needs_repair` with the panel already unreachable through the
-  proxy, and repair retries forward. Break-glass: `sudo darkpanel panel listener
+  needs a new `panel.exposure.add`. A step that keeps failing, or a revert
+  of the `ports` step by its timer, leaves the composite `needs_repair`
+  (1.3) with the panel already unreachable through the proxy, and repair
+  re-plans and re-applies forward.
+  **Retiring the removed path.** A removal requested through the exposure
+  itself carries a guard context (1.5) whose `Via` is the path being
+  removed; after `revoke` that path no longer exists, so the final `ports`
+  step's lockout guard would refuse it. Once the `revoke` step has
+  committed, the composite records the exposure as **retired** in its step
+  log, and the guard context passed to its later children omits protected
+  flow 3 for that exposure only (the parent authorizes this; no other
+  change can retire a path). Every other protected flow is still checked.
+  The harness removes the exposure through the exposure itself and expects
+  the removal to complete. Break-glass: `sudo darkpanel panel listener
   revoke --local` over the controller socket runs `panel.listener.revoke`
   alone (`BreakGlass`); `darkpanel change repair` completes the rest later.
   `panel.not_exposed` refuses a removal when no exposure exists.
@@ -2510,10 +2872,10 @@ touch `install.sh.in` or `internal/install/`).
 
 | Exit criterion | Evidence |
 |---|---|
-| M3: S1–S3 on all four OS | harness `TestM3*`: refusal for each protected flow (SSH, direct panel, agent link, outbound controller link, tailscaled egress), an IPv6 SSH session with `IPV6=no` refusing `state.enable`, revert on client disconnect and on reboot, prediction mismatch reverts, a manual `ufw` edit during the pending window survives the revert, an unsupported configuration (executable `before.init`) refused, exposure equals the scan by 2.7's rule for IPv4 and IPv6 (including a `partial` rule and IPv6 published to an IPv4-only bridge), published ports unreachable unless a binding is allowed, a new Docker network protected at creation, containers recreated under continuous scanning (including across an agent restart) never exposing an unallowed binding, foreign `DOCKER-USER` rules refusing enable and, added later, refusing every mutation, disable leaving no Darkpanel chain loaded, tagged and manual `ufw route` rules surviving `ufw reload` and `disable`/`enable` with the block present, two containers on a public IPv4 and on a global IPv6 network reaching each other with the integration on, two bindings to one container port with disjoint allowed sources each refusing the other's source, an unallowed IPv6 binding proxied to an IPv4-only container closed, a non-Docker DNAT forward refusing enable until exempted and working after, `IPV6=no` with Docker IPv6 rules loaded refusing `state.enable`, and an asymmetric-route SSH session protected |
-| M4: every Docker requirement on a managed agent, including allow and deny from a container view | harness `TestM4` on the enrolled agent VM with the Compose plugin; web tests of the container action slot |
-| M5: node and tailnet management; a Darkpanel DERP region carries traffic between two nodes | unit tests against fakes; harness node tests that need no tailnet (Contracts); the live step for tailnet, join at install and DERP |
-| M6: container exposed through NPM and through a tunnel; panel exposed and reverted | harness: real NPM issuing a certificate from Pebble (`LE_SERVER` pointed at Pebble, `pebble-challtestsrv` as Pebble's DNS resolving the test hostname to the VM, Pebble's root in NPM's CA bundle; set only in harness deployments), real cloudflared reading its token file (it cannot reach a fake edge: the test checks the container, the file, and that inspect and logs never show the token; connector status from the fake API), panel exposure through NPM end to end with the spoofed-header tests; the live step for real certificates, tunnels and DNS |
+| M3: S1–S3 on all four OS | harness `TestM3*`: refusal for each protected flow (SSH, direct panel, agent link, outbound controller link, tailscaled egress), an IPv6 SSH session with `IPV6=no` refusing `state.enable`, revert on client disconnect and on reboot, prediction mismatch reverts, a manual `ufw` edit during the pending window survives the revert, an unsupported configuration (executable `before.init`) refused, exposure equals the scan by 2.7's rule for IPv4 and IPv6 (including a `partial` rule and IPv6 published to an IPv4-only bridge), published ports unreachable unless a binding is allowed, a new Docker network protected at creation, containers recreated under continuous scanning (including across an agent restart) never exposing an unallowed binding, foreign `DOCKER-USER` rules refusing enable and, added later, refusing every mutation, disable leaving no Darkpanel chain loaded, tagged and manual `ufw route` rules surviving `ufw reload` and `disable`/`enable` with the block present, two containers on a public IPv4 and on a global IPv6 network reaching each other with the integration on, two bindings to one container port with disjoint allowed sources each refusing the other's source, an unallowed IPv6 binding proxied to an IPv4-only container closed, a non-Docker DNAT forward refusing enable until exempted and working after, `IPV6=no` with Docker IPv6 rules loaded refusing `state.enable`, an asymmetric-route SSH session protected with only the main routing table and loose `rp_filter`, an unconfirmed `state.disable` reverting to an active firewall, an unconfirmed `state.repair` from a deliberately out-of-sync loaded state reverting to that state (timer and reboot), a sysctl change by UFW's `sysctl.conf` reverted with every value read back, a foreign `DOCKER-USER` rule added during a confirmation window and during an interrupted cleanup surviving the revert, an explicit deny on one binding not removing another binding's allowance of the same source to the same container port, `firewall.defaults.set` to allow incoming refused while the integration is on, a forward exemption overlapping a Docker subnet refused, a source in a configured `privateSources` range shown as the `private` class and reaching a published port, a rule restricted by source port scanned from a source port inside and outside its range, and a native nftables base chain with a rule reported as an unsupported configuration |
+| M4: every Docker requirement on a managed agent, including allow and deny from a container view | harness `TestM4` on the enrolled agent VM with the Compose plugin (including a project with a Git `include` and one with a `build` section refused without any `git`, `ssh` or buildx process running, and an undo of `container.start` refused as a conflict after the container was restarted by hand); web tests of the container action slot |
+| M5: node and tailnet management; a Darkpanel DERP region carries traffic between two nodes | unit tests against fakes (pin rollback in every phase, including an interrupted `dpkg`; `derp.cert.rotate` and its undo; upgrade and rotation refused without a fallback region); harness node tests that need no tailnet (Contracts), including a pin whose check fails after the `held` phase with the controller link blocked; the live step for tailnet, join at install and DERP |
+| M6: container exposed through NPM and through a tunnel; panel exposed and reverted | harness: real NPM issuing a certificate from Pebble (`LE_SERVER` pointed at Pebble, `pebble-challtestsrv` as Pebble's DNS resolving the test hostname to the VM, Pebble's root in NPM's CA bundle; set only in harness deployments), an ordinary request through the custom location arriving with one `Host` header, real cloudflared reading its token file (it cannot reach a fake edge: the test checks the container, the file, and that inspect and logs never show the token; connector status from the fake API), a default-bridge-only target refused in preview, `npm.proxyhost.add` to `127.0.0.1:81` and to the panel gateway refused outside their composites, panel exposure through NPM end to end with the spoofed-header tests, and the panel exposure removed through the exposure itself; the live step for real certificates, tunnels and DNS |
 | M7: no open critical or high findings; matrix, footprint, accessibility, docs | security register; `TestUpgradeMatrix`, `TestFootprint`; `docs/accessibility.md` with automated and manual evidence; docs CI check |
 | M8: v1.0 tagged and signed, production plus one agent, runbook | owner checklist items 1, 3–5; `docs/runbook.md`; harness restore test |
 
@@ -2579,8 +2941,12 @@ networks for the integration (reported unprotected); Docker networks in
 routed gateway modes, and direct-routed access to custom-named bridges with
 non-private subnets (P2, reported unprotected); UFW with `IPV6=no` while
 foreign IPv6 rules are loaded; UFW with executable
-`before.init`/`after.init` or `MANAGE_BUILTINS=yes`; private-registry pulls
-through Compose; Headscale; more than one tailnet or Cloudflare account per
+`before.init`/`after.init` or `MANAGE_BUILTINS=yes`; hosts with rules in
+the other iptables variant or in native nftables base chains (reported as
+an unsupported configuration); evaluating tailnet policy (ACL grants) in
+the exposure view; private-registry pulls, remote `include`/`extends` and
+image builds through Compose; exposing containers that are only on the
+default `bridge` network; Headscale; more than one tailnet or Cloudflare account per
 controller; editing Darkpanel-managed tunnels outside Darkpanel.
 
 ## Review log
