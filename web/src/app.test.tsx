@@ -15,6 +15,7 @@ const session: Session = {
 const host: Host = {
   id: "h1", name: "web-1", isLocal: true, online: true,
   modules: [{ id: "hostinfo", version: 1, enabled: true, available: true, reason: null, checkedAt: null }],
+  ingestion: null,
 }
 
 function stubServer(sessionResponse: StubResponse) {
