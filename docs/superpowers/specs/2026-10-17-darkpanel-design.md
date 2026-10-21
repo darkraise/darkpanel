@@ -81,7 +81,7 @@ Top tasks:
 |---|---|---|
 | S1 | No firewall change can lock the owner out | Integration tests: every change that would cut the current SSH session, the panel path or the agent link is refused; an unconfirmed change reverts within its timeout, including when the client disconnects |
 | S2 | Exposure view is truthful | In the integration harness, the computed exposure for each host equals an external port scan, IPv4 and IPv6, zero ports reported closed that are open |
-| S3 | UFW governs Docker | A container's published port is unreachable from the external scanner unless a Darkpanel route rule allows it, on every supported OS |
+| S3 | UFW governs Docker | A container's published port is unreachable from the external scanner unless a Darkpanel UFW rule allows it, on every supported OS |
 | S4 | One UI for the fleet, CLI parity | A test enumerates the action registry and fails if any mutating action lacks a CLI command |
 | S5 | Upgrades never break | Automated: upgrade from every prior v1.x release succeeds; a deliberately broken release rolls back automatically within 2 minutes; an agent one minor version behind works with the newest controller |
 | S6 | Small footprint | Agent idle resident memory ≤ 40 MB; controller ≤ 150 MB managing 10 hosts (proposed budget, owner may adjust) |

@@ -75,5 +75,5 @@
 | 68 | Core: agent availability route and unredacted internal reads (spec 1.7) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
 | 69 | Restore quarantine after a disaster restore (spec 10) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
 | 70 | Enrollment bootstrap bundle dpb2 carrying the tailnet join key (spec 4.2) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | - | open | - |
-| 71 | Owner confirmation P1: S3 wording for docker-proxy bindings governed by UFW INPUT rules (spec Owner decisions) | - | - | open | - |
-| 72 | Owner confirmation P2: Docker routed gateway modes and custom-named public bridges unsupported for the integration (spec Owner decisions) | - | - | open | - |
+| 71 | Owner confirmation P1: S3 wording for docker-proxy bindings governed by UFW INPUT rules (spec Owner decisions) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | S3 reads "unless a Darkpanel UFW rule allows it" in the product spec | done | owner confirmed 2026-10-21; product spec S3 updated |
+| 72 | Owner confirmation P2: Docker routed gateway modes and custom-named public bridges unsupported for the integration (spec Owner decisions) | docs/superpowers/specs/2026-10-21-v1-completion-design.md | listed in the spec's Out of scope and reported unprotected | done | owner confirmed 2026-10-21 |
