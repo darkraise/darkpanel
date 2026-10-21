@@ -22,13 +22,6 @@ const (
 // snapshotAD is the associated data of a change's sealed snapshot (ADR 0005).
 func snapshotAD(changeID string) string { return "core_changes.snapshot_ct." + changeID }
 
-func revertFailed() *core.ChangeError {
-	return &core.ChangeError{
-		Code:    string(errcode.ChangeRevertFailed),
-		Message: "the revert failed; the host may still be in the applied state",
-	}
-}
-
 type planRecord struct {
 	id, action, actor, stateHash, confirmation string
 	version                                    int
@@ -213,6 +206,11 @@ func (e *Engine) begin(ctx context.Context, p core.Principal, planID string, opt
 	case err != nil:
 		return nil, nil, fmt.Errorf("lifecycle: persist intent: %w", err)
 	}
+	if def.Spec.Class == core.ClassRevertible {
+		// Armed now, not after Verify: a hung Apply or Verify must still be
+		// reverted on time (spec 1.2, the revert watchdog).
+		e.armTimer(it.id, it.deadline.Sub(now))
+	}
 	return it, nil, nil
 }
 
@@ -348,7 +346,6 @@ func (e *Engine) run(ctx context.Context, p core.Principal, it *intent) (core.Ch
 		return v, err
 	}
 	if revertible {
-		e.armTimer(it.id, it.deadline.Sub(e.cfg.Base.Clock.Now()))
 		if it.confirmNow {
 			if v, err = e.Confirm(ctx, p, it.id); err != nil {
 				return v, err
@@ -363,28 +360,25 @@ func (e *Engine) run(ctx context.Context, p core.Principal, it *intent) (core.Ch
 // reverted from its snapshot first, and a compensable or irreversible change
 // settles its effects and follows the failure table.
 func (e *Engine) failApply(ctx context.Context, p core.Principal, it *intent, cause error) (core.ChangeView, error) {
-	tr := transition{
-		from: core.StateApplying, to: core.StateFailed, err: e.changeError(it.def.Ref(), cause), owner: newOwner(""),
-		release: true, phase: phaseApply, result: resultError, actor: p.Actor, source: p.Source,
-	}
-	if it.def.Spec.Class == core.ClassRevertible {
-		hctx, cancel := e.cleanupCall(it.def)
-		defer cancel()
-		if _, err := e.runRevert(hctx, p, it.id); err != nil {
-			e.cfg.Base.Log.Error("lifecycle: revert after a failed apply", "change", it.id, "error", err, "cause", cause)
-			tr.err, tr.phase = revertFailed(), phaseRevert
-		} else {
-			tr.to, tr.giveBack = core.StateReverted, true
-		}
-		return e.transition(ctx, it.id, tr)
-	}
 	hctx, cancel := e.cleanupCall(it.def)
 	defer cancel()
+	if it.def.Spec.Class == core.ClassRevertible {
+		e.stopTimer(it.id)
+	}
 	if err := e.settle(hctx, e.changeEnv(p, it.def, it.id, it.call), it.def, it.id); err != nil {
 		return core.ChangeView{}, err
 	}
-	// The observations may have spent ctx's budget; the recording
-	// transaction gets its own.
+	if it.def.Spec.Class == core.ClassRevertible {
+		out, err := e.runRevert(hctx, p, it.id)
+		// The settle and revert calls may have spent ctx's budget; the
+		// recording transaction gets its own.
+		tctx, cancelTx := context.WithTimeout(context.WithoutCancel(ctx), CleanupTxTimeout)
+		defer cancelTx()
+		return e.recordRevert(tctx, p, it.id, out, err, transition{
+			from: core.StateApplying, to: core.StateReverted, err: e.changeError(it.def.Ref(), cause), owner: newOwner(""),
+			release: true, giveBack: true, phase: phaseApply, result: resultError, actor: p.Actor, source: p.Source,
+		})
+	}
 	tctx, cancelTx := context.WithTimeout(context.WithoutCancel(ctx), CleanupTxTimeout)
 	defer cancelTx()
 	tr, err := e.failure(tctx, it.id, it.def, cause, false)
@@ -514,82 +508,10 @@ type transition struct {
 // change.not_pending, so of two racing transitions the first to commit wins.
 func (e *Engine) transition(ctx context.Context, changeID string, tr transition) (core.ChangeView, error) {
 	var v core.ChangeView
-	if tr.release && tr.keepLocks {
-		return v, fmt.Errorf("lifecycle: change %s: a transition both releases and keeps its locks", changeID)
-	}
 	err := e.cfg.Base.DB.Write(ctx, func(tx *sql.Tx) error {
-		var state, input string
-		err := tx.QueryRowContext(ctx, "SELECT state, input_json FROM core_changes WHERE id = ?", changeID).Scan(&state, &input)
-		switch {
-		case errors.Is(err, sql.ErrNoRows):
-			return errcode.New(errcode.ChangeNotFound, fmt.Sprintf("no change %s", changeID))
-		case err != nil:
-			return err
-		case state != tr.from:
-			return errcode.New(errcode.ChangeNotPending, fmt.Sprintf("change %s is %s", changeID, state))
-		}
-		now := e.cfg.Base.Clock.Now()
-		var code, msg, cause, owner, retry, outcome any
-		if tr.err != nil {
-			code, msg = tr.err.Code, tr.err.Message
-			if tr.cause != "" {
-				cause = tr.cause
-			}
-		}
-		if tr.owner != nil {
-			owner = *tr.owner
-		}
-		if tr.retry != nil {
-			retry = *tr.retry
-		}
-		if tr.repairOutcome != "" {
-			outcome = tr.repairOutcome
-		}
-		if _, err := tx.ExecContext(ctx,
-			`UPDATE core_changes SET state = ?, output_json = coalesce(?, output_json),
-			 error_code = coalesce(?, error_code), error_message = coalesce(?, error_message),
-			 error_cause = CASE WHEN ? THEN ? ELSE error_cause END,
-			 recovery_owner = coalesce(?, recovery_owner), override_json = coalesce(?, override_json),
-			 recovery_retry = coalesce(?, recovery_retry), repair_outcome = coalesce(?, repair_outcome),
-			 updated_at = ? WHERE id = ?`,
-			tr.to, nullJSON(tr.output), code, msg, tr.err != nil, cause, owner, nullJSON(tr.override), retry, outcome,
-			formatTime(now), changeID); err != nil {
-			return err
-		}
-		if tr.release {
-			if _, err := tx.ExecContext(ctx, "DELETE FROM core_locks WHERE owner = ?", changeID); err != nil {
-				return err
-			}
-		}
-		if tr.giveBack {
-			if err := giveBackEpochs(ctx, tx, changeID); err != nil {
-				return err
-			}
-		}
-		if sealedInputDone(tr.to) {
-			// Once a change is finished only its plan's hash is kept; until
-			// then recovery handlers and task units read the input (spec 1.2).
-			if _, err := tx.ExecContext(ctx,
-				"UPDATE core_plans SET input_ct = NULL WHERE id = (SELECT plan_id FROM core_changes WHERE id = ?)",
-				changeID); err != nil {
-				return err
-			}
-		}
-		if v, err = scanChange(tx.QueryRowContext(ctx,
-			"SELECT "+changeColumns+" FROM core_changes WHERE id = ?", changeID)); err != nil {
-			return err
-		}
-		if tr.phase == "" {
-			return nil
-		}
-		entry := core.JournalEntry{
-			At: now, Actor: tr.actor, Action: v.Action, Version: v.Version, Phase: tr.phase,
-			ChangeID: changeID, Input: json.RawMessage(input), Result: tr.result, Source: tr.source,
-		}
-		if tr.err != nil {
-			entry.ErrorCode = tr.err.Code
-		}
-		return e.cfg.Journal.Append(ctx, tx, entry)
+		var err error
+		v, err = e.transitionTx(ctx, tx, changeID, tr)
+		return err
 	})
 	var coded *errcode.Error
 	switch {
@@ -599,4 +521,85 @@ func (e *Engine) transition(ctx context.Context, changeID string, tr transition)
 		return v, fmt.Errorf("lifecycle: record change %s: %w", changeID, err)
 	}
 	return v, nil
+}
+
+// transitionTx is transition inside tx, for a caller that records more in
+// the same transaction.
+func (e *Engine) transitionTx(ctx context.Context, tx *sql.Tx, changeID string, tr transition) (core.ChangeView, error) {
+	var v core.ChangeView
+	if tr.release && tr.keepLocks {
+		return v, fmt.Errorf("lifecycle: change %s: a transition both releases and keeps its locks", changeID)
+	}
+	var state, input string
+	err := tx.QueryRowContext(ctx, "SELECT state, input_json FROM core_changes WHERE id = ?", changeID).Scan(&state, &input)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return v, errcode.New(errcode.ChangeNotFound, fmt.Sprintf("no change %s", changeID))
+	case err != nil:
+		return v, err
+	case state != tr.from:
+		return v, errcode.New(errcode.ChangeNotPending, fmt.Sprintf("change %s is %s", changeID, state))
+	}
+	now := e.cfg.Base.Clock.Now()
+	var code, msg, cause, owner, retry, outcome any
+	if tr.err != nil {
+		code, msg = tr.err.Code, tr.err.Message
+		if tr.cause != "" {
+			cause = tr.cause
+		}
+	}
+	if tr.owner != nil {
+		owner = *tr.owner
+	}
+	if tr.retry != nil {
+		retry = *tr.retry
+	}
+	if tr.repairOutcome != "" {
+		outcome = tr.repairOutcome
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE core_changes SET state = ?, output_json = coalesce(?, output_json),
+		 error_code = coalesce(?, error_code), error_message = coalesce(?, error_message),
+		 error_cause = CASE WHEN ? THEN ? ELSE error_cause END,
+		 recovery_owner = coalesce(?, recovery_owner), override_json = coalesce(?, override_json),
+		 recovery_retry = coalesce(?, recovery_retry), repair_outcome = coalesce(?, repair_outcome),
+		 updated_at = ? WHERE id = ?`,
+		tr.to, nullJSON(tr.output), code, msg, tr.err != nil, cause, owner, nullJSON(tr.override), retry, outcome,
+		formatTime(now), changeID); err != nil {
+		return v, err
+	}
+	if tr.release {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM core_locks WHERE owner = ?", changeID); err != nil {
+			return v, err
+		}
+	}
+	if tr.giveBack {
+		if err := giveBackEpochs(ctx, tx, changeID); err != nil {
+			return v, err
+		}
+	}
+	if sealedInputDone(tr.to) {
+		// Once a change is finished only its plan's hash is kept; until
+		// then recovery handlers and task units read the input (spec 1.2).
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE core_plans SET input_ct = NULL WHERE id = (SELECT plan_id FROM core_changes WHERE id = ?)",
+			changeID); err != nil {
+			return v, err
+		}
+	}
+	if v, err = scanChange(tx.QueryRowContext(ctx,
+		"SELECT "+changeColumns+" FROM core_changes WHERE id = ?", changeID)); err != nil {
+		return v, err
+	}
+	if tr.phase == "" {
+		return v, nil
+	}
+	entry := core.JournalEntry{
+		At: now, Actor: tr.actor, Action: v.Action, Version: v.Version, Phase: tr.phase,
+		ChangeID: changeID, Input: json.RawMessage(input), Result: tr.result, Source: tr.source,
+	}
+	if tr.err != nil {
+		entry.ErrorCode = tr.err.Code
+	}
+	return v, e.cfg.Journal.Append(ctx, tx, entry)
 }

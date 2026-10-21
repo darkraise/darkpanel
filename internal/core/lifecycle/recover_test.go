@@ -85,7 +85,7 @@ func TestRecoverRevertsPendingChangesWhateverTheDeadline(t *testing.T) {
 	}
 }
 
-func TestRecoverRecordsAFailedRevert(t *testing.T) {
+func TestRecoverRecordsAFailedRevertAsNeedingRepair(t *testing.T) {
 	f := newFixture(t)
 	v := f.pending(`{"name":"a","value":"1","failRevert":true}`)
 	f.restart()
@@ -94,14 +94,15 @@ func TestRecoverRecordsAFailedRevert(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.State != core.StateFailed || c.Error == nil || c.Error.Code != string(errcode.ChangeRevertFailed) {
-		t.Errorf("change = %+v (error %+v), want failed with change.revert_failed", c, c.Error)
+	if c.State != core.StateNeedsRepair || c.Error == nil || c.Error.Code != string(errcode.NeedsRepair) ||
+		c.Error.Cause != string(errcode.ChangeRevertFailed) || c.Owner != "" {
+		t.Errorf("change = %+v (error %+v), want unowned needs_repair caused by change.revert_failed", c, c.Error)
 	}
-	if got := f.phases(); !reflect.DeepEqual(got, []string{"apply/ok", "recover/error/change.revert_failed"}) {
+	if got := f.phases(); !reflect.DeepEqual(got, []string{"apply/ok", "recover/error/core.needs_repair"}) {
 		t.Errorf("journal = %v", got)
 	}
-	if f.count("SELECT count(*) FROM core_locks") != 0 {
-		t.Error("recovery kept the lock of a failed change")
+	if f.count("SELECT count(*) FROM core_locks WHERE owner = ?", v.ID) != 1 {
+		t.Error("recovery released the lock of a change that needs repair")
 	}
 }
 

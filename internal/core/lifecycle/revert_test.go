@@ -90,21 +90,22 @@ func TestRevertRestoresTheSnapshot(t *testing.T) {
 	}
 }
 
-func TestRevertFailureFailsTheChange(t *testing.T) {
+func TestAFailedRevertNeedsRepair(t *testing.T) {
 	f := newFixture(t)
 	v := f.pending(`{"name":"a","value":"1","failRevert":true}`)
 	r, err := f.eng.Revert(context.Background(), alice, v.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.State != core.StateFailed || r.Error == nil || r.Error.Code != string(errcode.ChangeRevertFailed) {
-		t.Errorf("change = %+v (error %+v), want failed with change.revert_failed", r, r.Error)
+	if r.State != core.StateNeedsRepair || r.Error == nil || r.Error.Code != string(errcode.NeedsRepair) ||
+		r.Error.Cause != string(errcode.ChangeRevertFailed) {
+		t.Errorf("change = %+v (error %+v), want needs_repair caused by change.revert_failed", r, r.Error)
 	}
-	if got := f.phases(); !reflect.DeepEqual(got, []string{"apply/ok", "revert/error/change.revert_failed"}) {
+	if got := f.phases(); !reflect.DeepEqual(got, []string{"apply/ok", "revert/error/core.needs_repair"}) {
 		t.Errorf("journal = %v", got)
 	}
-	if f.count("SELECT count(*) FROM core_locks") != 0 {
-		t.Error("a failed revert kept its locks")
+	if f.count("SELECT count(*) FROM core_locks WHERE owner = ?", v.ID) != 1 {
+		t.Error("a failed revert released its locks")
 	}
 }
 
@@ -230,12 +231,13 @@ func TestCloseStopsAFiringTimer(t *testing.T) {
 	f.eng = eng
 	f.host.items["a"] = "old"
 	v := f.pending(`{"name":"a","value":"1"}`)
-	// The apply armed its answer timer, then the change's revert timer.
+	// The intent armed the change's revert timer, then the apply its answer
+	// timer.
 	if len(clock.fns) != 2 {
 		t.Fatalf("armed timers = %d, want 2", len(clock.fns))
 	}
 	eng.Close()
-	clock.fns[1]()
+	clock.fns[0]()
 	if s := f.state(v.ID); s != core.StatePending {
 		t.Errorf("state = %s, want pending until recovery", s)
 	}

@@ -46,6 +46,9 @@ type Config struct {
 	// SyncAnswer is how long Apply waits for a synchronous action before it
 	// answers the applying change; zero means SyncAnswer.
 	SyncAnswer time.Duration
+	// Exit ends the process when the revert watchdog fires; nil means
+	// os.Exit. Tests record the code instead.
+	Exit func(code int)
 }
 
 // Deadlines of spec 1.3.
@@ -84,9 +87,9 @@ type Engine struct {
 	applyMu sync.Mutex
 
 	timerMu  sync.Mutex
-	timers   map[string]core.Timer // armed revert timers by change id
-	closed   bool                  // Close ran: no timer is armed and goRun runs nothing in the background
-	inflight sync.WaitGroup        // timer reverts that are running
+	timers   map[string]*armedTimer // armed revert timers by change id
+	closed   bool                   // Close ran: no timer is armed and goRun runs nothing in the background
+	inflight sync.WaitGroup         // timer reverts that are running
 }
 
 // New returns an engine for cfg. Run Recover before serving requests.
@@ -118,7 +121,7 @@ func New(cfg Config) (*Engine, error) {
 	runCtx, stopRun := context.WithCancel(context.Background())
 	return &Engine{
 		cfg: cfg, runCtx: runCtx, stopRun: stopRun,
-		entropy: ulid.Monotonic(rand.Reader, 0), timers: map[string]core.Timer{},
+		entropy: ulid.Monotonic(rand.Reader, 0), timers: map[string]*armedTimer{},
 	}, nil
 }
 

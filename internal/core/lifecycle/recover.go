@@ -52,37 +52,58 @@ func (e *Engine) Recover(ctx context.Context) error {
 	for _, u := range todo {
 		// A restart ends in-process ownership (spec 1.3), so every recorded
 		// outcome clears the owner the previous process left.
-		tr := transition{
-			from: u.state, to: core.StateReverted, release: true, owner: newOwner(""),
-			phase: phaseRecover, result: resultOK, actor: ActorRecovery,
-		}
+		var err error
 		if core.Class(u.class) == core.ClassRevertible {
-			tr.giveBack = true
-			if _, err := e.runRevert(ctx, recoveryPrincipal, u.id); err != nil {
-				e.cfg.Base.Log.Error("lifecycle: recovery revert", "change", u.id, "error", err)
-				tr.to, tr.err, tr.result, tr.giveBack = core.StateFailed, revertFailed(), resultError, false
-			}
+			_, err = e.revertAtStart(ctx, u.id, transition{
+				from: u.state, to: core.StateReverted, release: true, giveBack: true, owner: newOwner(""),
+				phase: phaseRecover, result: resultOK, actor: ActorRecovery,
+			})
 		} else {
-			tr.to, tr.phase, tr.result = core.StateInterrupted, phaseInterrupt, resultError
-			tr.err = &core.ChangeError{
-				Code:    string(errcode.Internal),
-				Message: "interrupted by a restart during apply; " + e.verifyStored(ctx, u.id),
-			}
+			_, err = e.transition(ctx, u.id, transition{
+				from: u.state, to: core.StateInterrupted, release: true, owner: newOwner(""),
+				phase: phaseInterrupt, result: resultError, actor: ActorRecovery,
+				err: &core.ChangeError{
+					Code:    string(errcode.Internal),
+					Message: "interrupted by a restart during apply; " + e.verifyStored(ctx, u.id),
+				},
+			})
 		}
-		if _, err := e.transition(ctx, u.id, tr); err != nil {
+		if err != nil {
 			errs = append(errs, err)
 		}
 	}
 	err = e.cfg.Base.DB.Write(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx,
-			"DELETE FROM core_locks WHERE owner IN (SELECT id FROM core_changes WHERE state NOT IN (?, ?))",
-			core.StateApplying, core.StatePending)
+			`DELETE FROM core_locks WHERE owner IN (SELECT id FROM core_changes WHERE state NOT IN (?, ?, ?, ?, ?, ?, ?, ?))`,
+			core.StateApplying, core.StatePending, core.StateAwaitingConfirmation, core.StateUndoing,
+			core.StateNeedsRepair, core.StateRecovering, core.StateReleasing, core.StateQuarantined)
 		return err
 	})
 	if err != nil {
 		errs = append(errs, fmt.Errorf("lifecycle: release finished locks: %w", err))
 	}
 	return errors.Join(errs...)
+}
+
+// revertAtStart settles a revertible change cut off by the restart, reverts
+// it from its snapshot and records the outcome through recordRevert; tr is
+// the transition of a complete revert.
+func (e *Engine) revertAtStart(ctx context.Context, changeID string, tr transition) (core.ChangeView, error) {
+	def, err := e.changeDef(ctx, changeID)
+	if err != nil {
+		return core.ChangeView{}, err
+	}
+	call, err := changeCall(ctx, e.cfg.Base.DB.Read(), changeID)
+	if err != nil {
+		return core.ChangeView{}, err
+	}
+	hctx, cancel := e.cleanupCall(def)
+	defer cancel()
+	if err := e.settle(hctx, e.changeEnv(recoveryPrincipal, def, changeID, call), def, changeID); err != nil {
+		return core.ChangeView{}, err
+	}
+	out, revertErr := e.runRevert(hctx, recoveryPrincipal, changeID)
+	return e.recordRevert(ctx, recoveryPrincipal, changeID, out, revertErr, tr)
 }
 
 // verifyStored runs the action's Verify against the plan's stored input, so
