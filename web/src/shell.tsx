@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query"
 import { History, KeyRound, Server } from "lucide-react"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
 import { SidebarLayout, type NavGroup } from "darkraise-ui/layout"
-import { errorMessage, getListenerState, request } from "@/api/client"
+import { errorMessage, getListenerState } from "@/api/client"
 import { useSession } from "@/session/use-session"
 
 const NAV: NavGroup[] = [
@@ -37,19 +37,13 @@ function ListenerNotice() {
 }
 
 export function Shell() {
-  const { session, setSession } = useSession()
+  const { session, logout } = useSession()
   const [logoutError, setLogoutError] = useState<string | null>(null)
 
-  // Only a logout the server confirmed ends the local session: the session
-  // cookie is HttpOnly, so after a failure the browser would still be logged
-  // in on reload. An auth.required answer ends it through the client's
-  // unauthorized handler. Either way the guard then sends the page to the
-  // login page.
-  async function logout() {
+  async function logOut() {
     setLogoutError(null)
     try {
-      await request<void>("POST", "/api/v1/auth/logout")
-      setSession(null)
+      await logout()
     } catch (err) {
       setLogoutError(`Logout failed: ${errorMessage(err)}`)
     }
@@ -61,8 +55,8 @@ export function Shell() {
       showThemeSwitcher
       showLayoutSwitcher={false}
       notificationSlot={null}
-      user={session === null ? undefined : { name: session.user.username, email: session.user.role }}
-      onLogout={() => void logout()}
+      user={session === null ? undefined : { name: session.user.username, email: `Role: ${session.user.role}` }}
+      onLogout={() => void logOut()}
       navFooter={<ListenerNotice />}
     >
       {logoutError !== null && (

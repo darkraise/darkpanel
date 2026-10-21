@@ -48,10 +48,14 @@ function renderShell(
 }
 
 // The user menu's trigger shows the user's initials, so "admin" is "A".
-async function logOut(user: ReturnType<typeof userEvent.setup>) {
+async function openUserMenu(user: ReturnType<typeof userEvent.setup>) {
   const trigger = screen.getAllByRole("button", { name: "A" })[0]
   if (trigger === undefined) throw new Error("no user menu")
   await user.click(trigger)
+}
+
+async function logOut(user: ReturnType<typeof userEvent.setup>) {
+  await openUserMenu(user)
   await user.click(await screen.findByRole("menuitem", { name: "Log out" }))
 }
 
@@ -100,6 +104,13 @@ test("the footer reports a failed listener request", async () => {
   expect((await screen.findAllByText("Listener state unavailable: this request needs the read scope")).length).toBeGreaterThan(0)
 })
 
+test("the user menu names the user and their role", async () => {
+  renderShell({ body: bound })
+  await screen.findByText("Hosts content")
+  await openUserMenu(userEvent.setup())
+  expect((await screen.findByText("Role: admin")).textContent).toBe("Role: admin")
+})
+
 test("logging out ends the session and returns to the login page", async () => {
   const calls = renderShell({ body: bound })
   await screen.findByText("Hosts content")
@@ -108,6 +119,17 @@ test("logging out ends the session and returns to the login page", async () => {
   const logout = calls.find((c) => c.path === "/api/v1/auth/logout")
   expect(logout?.method).toBe("POST")
   expect(logout?.headers.get("X-CSRF-Token")).toBe("csrf-1")
+})
+
+test.each([
+  ["confirmed", { status: 204 }],
+  ["answered with auth.required", problem(401, "auth.required", "log in")],
+])("a logout %s goes from the page straight to the login page", async (_, answer) => {
+  renderShell({ body: bound }, "/audit", answer)
+  await screen.findByText("Audit content")
+  await logOut(userEvent.setup())
+  await screen.findByText("Login page")
+  expect(screen.getByTestId("locations").textContent).toBe("/audit /login")
 })
 
 test("a failed logout keeps the session and says why", async () => {

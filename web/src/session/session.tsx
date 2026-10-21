@@ -1,24 +1,43 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { Navigate, useLocation } from "react-router"
 import { useQueryClient } from "@tanstack/react-query"
 import { Spinner } from "darkraise-ui/components/spinner"
-import { request, sessionGeneration, setCsrfRejectedHandler, setCsrfToken, setUnauthorizedHandler } from "@/api/client"
+import { ApiError, request, sessionGeneration, setCsrfRejectedHandler, setCsrfToken, setUnauthorizedHandler } from "@/api/client"
 import type { Session } from "@/api/types"
 import { SessionContext, type SessionState } from "./session-context"
 import { useSession } from "./use-session"
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const client = useQueryClient()
-  const [state, setState] = useState<SessionState>({ status: "loading", session: null })
+  const [state, setState] = useState<SessionState>({ status: "loading", session: null, loggedOut: false })
+  const loggingOut = useRef(false)
 
-  const setSession = useCallback(
-    (session: Session | null) => {
+  const replaceSession = useCallback(
+    (session: Session | null, loggedOut: boolean) => {
       setCsrfToken(session?.csrfToken ?? null)
       if (session === null) client.clear()
-      setState({ status: "ready", session })
+      setState({ status: "ready", session, loggedOut })
     },
     [client],
   )
+
+  const setSession = useCallback((session: Session | null) => replaceSession(session, false), [replaceSession])
+
+  // Only a logout the server confirmed ends the local session: the session
+  // cookie is HttpOnly, so after a failure the browser would still be logged
+  // in on reload. An auth.required answer means the session had already
+  // ended; the unauthorized handler ends it here too, as a logout.
+  const logout = useCallback(async () => {
+    loggingOut.current = true
+    try {
+      await request<void>("POST", "/api/v1/auth/logout")
+      replaceSession(null, true)
+    } catch (err) {
+      if (!(err instanceof ApiError && err.code === "auth.required")) throw err
+    } finally {
+      loggingOut.current = false
+    }
+  }, [replaceSession])
 
   useEffect(() => {
     let active = true
@@ -43,7 +62,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         })
     }
     setUnauthorizedHandler(() => {
-      if (active) setSession(null)
+      if (active) replaceSession(null, loggingOut.current)
     })
     // Another tab that logs in again replaces the session cookie, so this
     // tab's CSRF token goes stale and every unsafe request answers auth.csrf.
@@ -57,9 +76,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setUnauthorizedHandler(null)
       setCsrfRejectedHandler(null)
     }
-  }, [setSession])
+  }, [setSession, replaceSession])
 
-  const value = useMemo(() => ({ ...state, setSession }), [state, setSession])
+  const value = useMemo(() => ({ ...state, setSession, logout }), [state, setSession, logout])
   return <SessionContext value={value}>{children}</SessionContext>
 }
 
@@ -72,12 +91,12 @@ export function SessionSpinner() {
 }
 
 export function RequireSession({ children }: { children: ReactNode }) {
-  const { status, session } = useSession()
+  const { status, session, loggedOut } = useSession()
   const location = useLocation()
   if (status === "loading") return <SessionSpinner />
   if (session === null) {
     const next = location.pathname + location.search
-    return <Navigate to={next === "/" ? "/login" : `/login?next=${encodeURIComponent(next)}`} replace />
+    return <Navigate to={loggedOut || next === "/" ? "/login" : `/login?next=${encodeURIComponent(next)}`} replace />
   }
   return <>{children}</>
 }
