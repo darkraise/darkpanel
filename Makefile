@@ -33,8 +33,15 @@ export GOTOOLCHAIN := local
 # release is phony on purpose: the release/ directory would otherwise satisfy it.
 .PHONY: web-deps web build verify-build lint-go lint-web lint-sh lint test-go test-web test-adr test-release test schemas vuln check clean release-check release release-prep install-sh harness-builds
 
-web-deps:
+# The stamp reruns the install only when the manifest, the lockfile or the
+# install policy changes.
+WEB_STAMP := web/node_modules/.stamp
+
+web-deps: $(WEB_STAMP)
+
+$(WEB_STAMP): web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml
 	pnpm -C web install --frozen-lockfile
+	touch $@
 
 web: web-deps
 	pnpm -C web build
@@ -49,9 +56,14 @@ verify-build: build
 	file bin/darkpanel-linux-amd64 | grep -F 'ELF 64-bit LSB executable, x86-64' | grep -qF 'statically linked'
 	file bin/darkpanel-linux-arm64 | grep -F 'ELF 64-bit LSB executable, ARM aarch64' | grep -qF 'statically linked'
 	for arch in $(ARCHES); do grep -qaF '$(UI_MARKER)' bin/darkpanel-linux-$$arch; done
-	DARKPANEL_REQUIRE_UI=1 go test -count=1 ./web/
-	DARKPANEL_REQUIRE_UI=1 go test -count=1 -run '^(TestEndToEnd|TestFleetEndToEnd)$$' ./internal/controller/server/
-	bin/darkpanel-linux-$$(go env GOARCH) version --json | grep -qF '"commit":"$(COMMIT)"'
+	DARKPANEL_REQUIRE_UI=1 env -u GOOS -u GOARCH go test -count=1 ./web/
+	DARKPANEL_REQUIRE_UI=1 env -u GOOS -u GOARCH go test -count=1 -run '^(TestEndToEnd|TestFleetEndToEnd)$$' ./internal/controller/server/
+	hostos=$$(go env GOHOSTOS); hostarch=$$(go env GOHOSTARCH); \
+	if [ "$$hostos" = linux ] && [[ " $(ARCHES) " == *" $$hostarch "* ]]; then \
+		bin/darkpanel-linux-$$hostarch version --json | grep -qF '"commit":"$(COMMIT)"'; \
+	else \
+		echo "verify-build: skipped the version run: a $$hostos/$$hostarch host cannot run the linux binaries"; \
+	fi
 
 lint-go:
 	golangci-lint run
