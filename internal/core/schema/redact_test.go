@@ -103,7 +103,8 @@ func TestRedactReusesTheSchema(t *testing.T) {
 	schema.Redact(typ, raw)
 	redact := testing.AllocsPerRun(20, func() { schema.Redact(typ, raw) })
 	direct := testing.AllocsPerRun(20, func() { secret.RedactJSON(raw, s) })
-	if redact > direct {
-		t.Errorf("Redact allocates %v times a call, RedactJSON over the built schema %v: Redact rebuilds the schema", redact, direct)
+	build := testing.AllocsPerRun(20, func() { _, _ = schema.Output(typ) })
+	if redact > direct+build/2 {
+		t.Errorf("Redact allocates %v times a call, RedactJSON over the built schema %v, building the schema %v: Redact rebuilds the schema", redact, direct, build)
 	}
 }
