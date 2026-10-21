@@ -324,7 +324,7 @@ func (e *Engine) failApply(ctx context.Context, p core.Principal, it *intent, ca
 		release: true, phase: phaseApply, result: resultError, actor: p.Actor, source: p.Source,
 	}
 	if it.def.Spec.Class == core.ClassRevertible {
-		if err := e.runRevert(ctx, p, it.id); err != nil {
+		if _, err := e.runRevert(ctx, p, it.id); err != nil {
 			e.cfg.Base.Log.Error("lifecycle: revert after a failed apply", "change", it.id, "error", err, "cause", cause)
 			tr.err, tr.phase = revertFailed(), phaseRevert
 		} else {
@@ -353,26 +353,35 @@ func (e *Engine) changeError(ref core.ActionRef, err error) *core.ChangeError {
 	return &core.ChangeError{Code: string(c.Code), Message: msg}
 }
 
-// runRevert runs the action's Revert with the change's stored snapshot.
-func (e *Engine) runRevert(ctx context.Context, p core.Principal, changeID string) error {
+// runRevert runs the action's Revert with the change's stored snapshot and
+// returns what the revert reports it did.
+func (e *Engine) runRevert(ctx context.Context, p core.Principal, changeID string) (core.RevertOutcome, error) {
 	var action string
 	var version int
 	var ct []byte
 	if err := e.cfg.Base.DB.Read().QueryRowContext(ctx,
 		"SELECT action, version, snapshot_ct FROM core_changes WHERE id = ?", changeID).
 		Scan(&action, &version, &ct); err != nil {
-		return fmt.Errorf("lifecycle: read snapshot of %s: %w", changeID, err)
+		return core.RevertOutcome{}, fmt.Errorf("lifecycle: read snapshot of %s: %w", changeID, err)
 	}
 	ref := core.ActionRef{Name: action, Version: version}
 	def, ok := e.cfg.Registry.Action(ref)
 	if !ok {
-		return fmt.Errorf("lifecycle: action %s is not registered", ref)
+		return core.RevertOutcome{}, fmt.Errorf("lifecycle: action %s is not registered", ref)
 	}
 	snapshot, err := e.cfg.Base.Sealer.Open(snapshotAD(changeID), ct)
 	if err != nil {
-		return fmt.Errorf("lifecycle: open snapshot of %s: %w", changeID, err)
+		return core.RevertOutcome{}, fmt.Errorf("lifecycle: open snapshot of %s: %w", changeID, err)
 	}
-	return e.protect(ref, "Revert", func() error { return def.Handler.Revert(ctx, e.env(p), snapshot) })
+	env := e.env(p)
+	env.ChangeID = changeID
+	var out core.RevertOutcome
+	err = e.protect(ref, "Revert", func() error {
+		var err error
+		out, err = def.Handler.Revert(ctx, env, snapshot)
+		return err
+	})
+	return out, err
 }
 
 // transition is one state change of a change.

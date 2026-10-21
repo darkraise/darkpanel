@@ -32,7 +32,9 @@ func (fixtureHandler[In, Out]) Snapshot(context.Context, core.Env, In) ([]byte, 
 	return nil, nil
 }
 
-func (fixtureHandler[In, Out]) Revert(context.Context, core.Env, []byte) error { return nil }
+func (fixtureHandler[In, Out]) Revert(context.Context, core.Env, []byte) (core.RevertOutcome, error) {
+	return core.RevertOutcome{}, nil
+}
 
 type demoNoInput struct{}
 

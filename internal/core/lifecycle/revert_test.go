@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -239,5 +240,52 @@ func TestCloseStopsAFiringTimer(t *testing.T) {
 	}
 	if f.host.items["a"] != "1" {
 		t.Errorf("item a = %q, want the applied 1", f.host.items["a"])
+	}
+}
+
+func TestRevertSeesTheChangeID(t *testing.T) {
+	tests := []struct {
+		name   string
+		revert func(f *fixture) string // reverts a change of fix.item.set and returns its id
+	}{
+		{"operator revert", func(f *fixture) string {
+			v := f.pending(`{"name":"a","value":"1"}`)
+			if _, err := f.eng.Revert(context.Background(), alice, v.ID); err != nil {
+				f.t.Fatal(err)
+			}
+			return v.ID
+		}},
+		{"timer", func(f *fixture) string {
+			v := f.pending(`{"name":"a","value":"1"}`)
+			f.clock.Advance(DefaultConfirmTimeout)
+			return v.ID
+		}},
+		{"failed verify", func(f *fixture) string {
+			return f.apply(alice, f.plan(alice, refSet, `{"name":"a","value":"1","failVerify":true}`).PlanID, core.ApplyOptions{}).ID
+		}},
+		{"startup recovery", func(f *fixture) string {
+			_, id := f.crash(refSet, `{"name":"a","value":"1","crashApply":true}`, core.ApplyOptions{})
+			f.restart()
+			f.recoverAll()
+			return id
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			id := tt.revert(f)
+			if s := f.state(id); s != core.StateReverted {
+				t.Fatalf("state = %s, want reverted", s)
+			}
+			var reverts []string
+			for _, seen := range f.host.changeIDs {
+				if strings.HasPrefix(seen, "Revert=") {
+					reverts = append(reverts, seen)
+				}
+			}
+			if want := []string{"Revert=" + id}; !reflect.DeepEqual(reverts, want) {
+				t.Errorf("Revert calls saw %v, want %v", reverts, want)
+			}
+		})
 	}
 }

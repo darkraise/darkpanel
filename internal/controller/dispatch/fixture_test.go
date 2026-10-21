@@ -107,12 +107,12 @@ func (setItem) Snapshot(ctx context.Context, env core.Env, in itemIn) ([]byte, e
 	return json.Marshal(itemSnap{Name: in.Name, Value: v, Present: ok})
 }
 
-func (setItem) Revert(ctx context.Context, env core.Env, snapshot []byte) error {
+func (setItem) Revert(ctx context.Context, env core.Env, snapshot []byte) (core.RevertOutcome, error) {
 	var s itemSnap
 	if err := json.Unmarshal(snapshot, &s); err != nil {
-		return err
+		return core.RevertOutcome{}, err
 	}
-	return env.DB.Write(ctx, func(tx *sql.Tx) error {
+	return core.RevertOutcome{}, env.DB.Write(ctx, func(tx *sql.Tx) error {
 		if !s.Present {
 			_, err := tx.ExecContext(ctx, "DELETE FROM kv_items WHERE name = ?", s.Name)
 			return err

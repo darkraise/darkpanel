@@ -55,7 +55,7 @@ func (e *Engine) Recover(ctx context.Context) error {
 			phase: phaseRecover, result: resultOK, actor: ActorRecovery,
 		}
 		if core.Class(u.class) == core.ClassRevertible {
-			if err := e.runRevert(ctx, recoveryPrincipal, u.id); err != nil {
+			if _, err := e.runRevert(ctx, recoveryPrincipal, u.id); err != nil {
 				e.cfg.Base.Log.Error("lifecycle: recovery revert", "change", u.id, "error", err)
 				tr.to, tr.err, tr.result = core.StateFailed, revertFailed(), resultError
 			}

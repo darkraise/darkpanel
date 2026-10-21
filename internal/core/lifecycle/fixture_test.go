@@ -49,8 +49,8 @@ type fixHost struct {
 	panicOn string
 	// onVerify, when set, runs at the start of Verify without mu held.
 	onVerify func(ctx context.Context)
-	// changeIDs records "<call>=<env.ChangeID>" for every Plan, Apply and
-	// Verify call, in call order.
+	// changeIDs records "<call>=<env.ChangeID>" for every Plan, Apply,
+	// Verify and Revert call, in call order.
 	changeIDs []string
 }
 
@@ -168,14 +168,15 @@ func (x itemHandler) Snapshot(_ context.Context, _ core.Env, in itemIn) ([]byte,
 	return json.Marshal(itemSnap{Name: in.Name, Value: v, Present: ok, FailRevert: in.FailRevert})
 }
 
-func (x itemHandler) Revert(_ context.Context, _ core.Env, snapshot []byte) error {
+func (x itemHandler) Revert(_ context.Context, env core.Env, snapshot []byte) (core.RevertOutcome, error) {
+	x.h.sawChangeID("Revert", env)
 	var s itemSnap
 	if err := json.Unmarshal(snapshot, &s); err != nil {
-		return err
+		return core.RevertOutcome{}, err
 	}
 	x.h.panicIf("Revert", s.Name)
 	if s.FailRevert {
-		return errors.New("revert failed")
+		return core.RevertOutcome{}, errors.New("revert failed")
 	}
 	x.h.mu.Lock()
 	defer x.h.mu.Unlock()
@@ -184,7 +185,7 @@ func (x itemHandler) Revert(_ context.Context, _ core.Env, snapshot []byte) erro
 	} else {
 		delete(x.h.items, s.Name)
 	}
-	return nil
+	return core.RevertOutcome{}, nil
 }
 
 type getHandler struct{ h *fixHost }

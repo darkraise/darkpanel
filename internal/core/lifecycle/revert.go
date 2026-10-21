@@ -48,7 +48,7 @@ func (e *Engine) revertPending(ctx context.Context, p core.Principal, changeID s
 		from: core.StateApplying, to: core.StateReverted, release: true,
 		phase: phaseRevert, result: resultOK, actor: p.Actor, source: p.Source,
 	}
-	if err := e.runRevert(ctx, p, changeID); err != nil {
+	if _, err := e.runRevert(ctx, p, changeID); err != nil {
 		e.cfg.Base.Log.Error("lifecycle: revert", "change", changeID, "error", err)
 		tr.to, tr.err, tr.result = core.StateFailed, revertFailed(), resultError
 	}

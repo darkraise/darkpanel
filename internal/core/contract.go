@@ -240,11 +240,12 @@ type Mutator[In, Out any] interface {
 	Verify(ctx context.Context, env Env, in In, out Out) error
 }
 
-// Reverter is the handler of a revertible action.
+// Reverter is the handler of a revertible action. Revert reports what it did
+// to each effect; it never writes the journal itself.
 type Reverter[In, Out any] interface {
 	Mutator[In, Out]
 	Snapshot(ctx context.Context, env Env, in In) ([]byte, error)
-	Revert(ctx context.Context, env Env, snapshot []byte) error
+	Revert(ctx context.Context, env Env, snapshot []byte) (RevertOutcome, error)
 }
 
 // RevertOutcome is what a revert did. The engine, not the handler, writes
@@ -461,7 +462,7 @@ type ErasedHandler struct {
 	Apply    func(ctx context.Context, env Env, in json.RawMessage) (json.RawMessage, error)
 	Verify   func(ctx context.Context, env Env, in, out json.RawMessage) error
 	Snapshot func(ctx context.Context, env Env, in json.RawMessage) ([]byte, error)
-	Revert   func(ctx context.Context, env Env, snapshot []byte) error
+	Revert   func(ctx context.Context, env Env, snapshot []byte) (RevertOutcome, error)
 	Observe  func(ctx context.Context, env Env, e Effect) (Observation, error)
 	Resolved func(ctx context.Context, tx *sql.Tx, e Effect, resolution string) error
 	Inverse  func(ctx context.Context, env Env, e Effect) (InverseResult, error)

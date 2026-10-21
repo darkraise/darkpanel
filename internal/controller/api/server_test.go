@@ -65,7 +65,9 @@ func (demoHandler[In, Out]) Verify(context.Context, core.Env, In, Out) error { r
 
 func (demoHandler[In, Out]) Snapshot(context.Context, core.Env, In) ([]byte, error) { return nil, nil }
 
-func (demoHandler[In, Out]) Revert(context.Context, core.Env, []byte) error { return nil }
+func (demoHandler[In, Out]) Revert(context.Context, core.Env, []byte) (core.RevertOutcome, error) {
+	return core.RevertOutcome{}, nil
+}
 
 // demoModule has an agent-side read, revertible and irreversible action, a
 // controller-side read and compensable action, two break-glass actions and

@@ -44,7 +44,7 @@ func (echo) Snapshot(_ context.Context, _ Env, in echoIn) ([]byte, error) {
 	return []byte(in.Name), nil
 }
 
-func (echo) Revert(context.Context, Env, []byte) error { return nil }
+func (echo) Revert(context.Context, Env, []byte) (RevertOutcome, error) { return RevertOutcome{}, nil }
 
 type testModule Manifest
 
