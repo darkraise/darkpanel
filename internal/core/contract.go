@@ -8,6 +8,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -79,6 +80,21 @@ type ActionRef struct {
 // String renders the reference as "<name>/v<version>".
 func (r ActionRef) String() string { return fmt.Sprintf("%s/v%d", r.Name, r.Version) }
 
+// MarshalText renders the reference as String does, so step lists and DTOs
+// carry it as one string.
+func (r ActionRef) MarshalText() ([]byte, error) { return []byte(r.String()), nil }
+
+// UnmarshalText parses "<name>/v<version>", splitting at the last slash.
+func (r *ActionRef) UnmarshalText(text []byte) error {
+	i := strings.LastIndex(string(text), "/")
+	version, err := ParseVersion(string(text[i+1:]))
+	if i <= 0 || err != nil {
+		return fmt.Errorf("core: action reference %q: want <name>/v<version>, such as core.update.apply/v1", text)
+	}
+	*r = ActionRef{Name: string(text[:i]), Version: version}
+	return nil
+}
+
 // ParseVersion parses a path segment such as "v1" into 1.
 func ParseVersion(s string) (int, error) {
 	n, err := strconv.Atoi(strings.TrimPrefix(s, "v"))
@@ -134,6 +150,31 @@ type CallContext struct {
 // rejects it.
 type PlanOptions struct {
 	Call *CallContext // controller only; nil for a top-level change. RepairOf is ignored.
+}
+
+// definiteError marks a refusal that guarantees nothing committed.
+type definiteError struct{ err error }
+
+func (e *definiteError) Error() string { return e.err.Error() }
+
+func (e *definiteError) Unwrap() error { return e.err }
+
+// Definite marks err as a refusal that guarantees the call committed
+// nothing (a provider's 4xx validation answer, a precondition the module
+// checked before calling). nil stays nil, and errors.Is, errors.As and
+// errcode.From still see err through the mark.
+func Definite(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &definiteError{err: err}
+}
+
+// IsDefinite reports whether err, or an error it wraps, was marked by
+// Definite.
+func IsDefinite(err error) bool {
+	var d *definiteError
+	return errors.As(err, &d)
 }
 
 // HostDirectory finds the agent of a host; dispatch implements it.

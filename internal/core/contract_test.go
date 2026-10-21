@@ -1,8 +1,14 @@
 package core
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/darkraise/darkpanel/internal/core/errcode"
 )
 
 func TestScopeAllows(t *testing.T) {
@@ -62,5 +68,72 @@ func TestSystemClock(t *testing.T) {
 	stopped := c.AfterFunc(time.Hour, func() { t.Error("stopped timer fired") })
 	if !stopped.Stop() {
 		t.Error("Stop() = false for a pending timer")
+	}
+}
+
+func TestActionRefText(t *testing.T) {
+	for _, ref := range []ActionRef{{"core.update.apply", 1}, {"tailnet.device.set-routes", 12}} {
+		text, err := ref.MarshalText()
+		if err != nil || string(text) != ref.String() {
+			t.Errorf("%v.MarshalText() = %q, %v; want %q", ref, text, err, ref.String())
+		}
+		var got ActionRef
+		if err := got.UnmarshalText(text); err != nil || got != ref {
+			t.Errorf("UnmarshalText(%q) = %v, %v; want %v", text, got, err, ref)
+		}
+	}
+	for _, text := range []string{"x", "x/v0", "x/1", "/v1", "a/b/vx", ""} {
+		var got ActionRef
+		err := got.UnmarshalText([]byte(text))
+		if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("%q", text)) {
+			t.Errorf("UnmarshalText(%q) = %v, %v; want an error naming the text", text, got, err)
+		}
+	}
+}
+
+func TestStepCarriesTheActionAsOneString(t *testing.T) {
+	step := Step{ID: "join", Host: "h1", Action: ActionRef{"tailscale.node.join", 3}, Input: json.RawMessage(`{}`)}
+	b, err := json.Marshal(step)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"id":"join","host":"h1","action":"tailscale.node.join/v3","input":{}}`; string(b) != want {
+		t.Errorf("json.Marshal(step) = %s, want %s", b, want)
+	}
+	var back Step
+	if err := json.Unmarshal(b, &back); err != nil || back.Action != step.Action {
+		t.Errorf("json.Unmarshal = %+v, %v; want action %v", back, err, step.Action)
+	}
+	if err := json.Unmarshal([]byte(`{"action":"tailscale.node.join"}`), &back); err == nil {
+		t.Error("json.Unmarshal accepted an action without a version")
+	}
+}
+
+func TestDefinite(t *testing.T) {
+	plain := errors.New("409 conflict")
+	if Definite(nil) != nil {
+		t.Error("Definite(nil) is not nil")
+	}
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"plain", plain, false},
+		{"marked", Definite(plain), true},
+		{"wrapped after marking", fmt.Errorf("create: %w", Definite(plain)), true},
+	}
+	for _, tt := range tests {
+		if got := IsDefinite(tt.err); got != tt.want {
+			t.Errorf("%s: IsDefinite = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+	if marked := Definite(plain); !errors.Is(marked, plain) || marked.Error() != plain.Error() {
+		t.Errorf("Definite(err) = %v; want it to read as and wrap err", marked)
+	}
+	coded := errcode.New(errcode.InvalidInput, "the name is taken")
+	if got := errcode.From(Definite(coded)); got != coded || got.Code != errcode.InvalidInput {
+		t.Errorf("errcode.From(Definite(coded)) = %v, want the original %s error", got, errcode.InvalidInput)
 	}
 }
