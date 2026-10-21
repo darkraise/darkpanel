@@ -45,12 +45,12 @@ func (e *Engine) revertPending(ctx context.Context, p core.Principal, changeID s
 	}
 	e.stopTimer(changeID)
 	tr := transition{
-		from: core.StateApplying, to: core.StateReverted, release: true,
+		from: core.StateApplying, to: core.StateReverted, release: true, giveBack: true,
 		phase: phaseRevert, result: resultOK, actor: p.Actor, source: p.Source,
 	}
 	if _, err := e.runRevert(ctx, p, changeID); err != nil {
 		e.cfg.Base.Log.Error("lifecycle: revert", "change", changeID, "error", err)
-		tr.to, tr.err, tr.result = core.StateFailed, revertFailed(), resultError
+		tr.to, tr.err, tr.result, tr.giveBack = core.StateFailed, revertFailed(), resultError, false
 	}
 	return e.transition(ctx, changeID, tr)
 }

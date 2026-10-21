@@ -174,16 +174,21 @@ func (e *Engine) begin(ctx context.Context, p core.Principal, planID string, opt
 	}
 	created := formatTime(now)
 	err = db.Write(ctx, func(tx *sql.Tx) error {
-		if err := takeLocks(ctx, tx, it.id, def.Spec.LockKeys); err != nil {
+		epochs, err := takeLocks(ctx, tx, it.id, def.Spec.LockKeys, true)
+		if err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx,
+		recorded, err := json.Marshal(epochs)
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx,
 			`INSERT INTO core_changes (id, plan_id, host_id, action, version, class, compensated_by, actor, state,
-			 input_json, snapshot_ct, revert_deadline, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			 input_json, snapshot_ct, revert_deadline, lock_epochs, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			it.id, pl.id, e.cfg.Base.HostID, def.Spec.Name, def.Spec.Version, string(def.Spec.Class),
 			def.Spec.CompensatedBy, p.Actor, core.StateApplying, string(e.cfg.Redact(def.InputType, input)),
-			snapshot, deadline, created, created)
+			snapshot, deadline, string(recorded), created, created)
 		return err
 	})
 	var coded *errcode.Error
@@ -286,31 +291,6 @@ func locksFree(ctx context.Context, db *sql.DB, keys []string) error {
 	return nil
 }
 
-// takeLocks gives every key to owner, or fails with lock.held when another
-// owner has one or an update operation holds every lock. A key listed twice
-// is taken once.
-func takeLocks(ctx context.Context, tx *sql.Tx, owner string, keys []string) error {
-	if len(keys) > 0 {
-		if err := notReserved(ctx, tx, owner, keys[0]); err != nil {
-			return err
-		}
-	}
-	for _, key := range keys {
-		if _, err := tx.ExecContext(ctx,
-			"INSERT INTO core_locks (key, owner) VALUES (?, ?) ON CONFLICT (key) DO NOTHING", key, owner); err != nil {
-			return err
-		}
-		var held string
-		if err := tx.QueryRowContext(ctx, "SELECT owner FROM core_locks WHERE key = ?", key).Scan(&held); err != nil {
-			return err
-		}
-		if held != owner {
-			return errcode.New(errcode.LockHeld, fmt.Sprintf("lock %s is held by change %s", key, held))
-		}
-	}
-	return nil
-}
-
 // run mutates, verifies and records the result (ADR 0004 steps 3 and 4).
 // Apply and Verify share the action's deadline and are never abandoned: a
 // handler that ignores ctx keeps its change applying until it returns.
@@ -374,9 +354,15 @@ func (e *Engine) failApply(ctx context.Context, p core.Principal, it *intent, ca
 			e.cfg.Base.Log.Error("lifecycle: revert after a failed apply", "change", it.id, "error", err, "cause", cause)
 			tr.err, tr.phase = revertFailed(), phaseRevert
 		} else {
-			tr.to = core.StateReverted
+			tr.to, tr.giveBack = core.StateReverted, true
 		}
+		return e.transition(ctx, it.id, tr)
 	}
+	effects, err := loadEffects(ctx, e.cfg.Base.DB.Read(), it.id)
+	if err != nil {
+		return core.ChangeView{}, err
+	}
+	tr.giveBack = nothingLeft(effects)
 	return e.transition(ctx, it.id, tr)
 }
 
@@ -446,6 +432,7 @@ type transition struct {
 	output   json.RawMessage   // stored when set
 	err      *core.ChangeError // stored when set
 	release  bool              // release the change's locks
+	giveBack bool              // give the change's lock epochs back (giveBackEpochs)
 	phase    string            // journal phase; empty journals nothing
 	result   string
 	actor    string
@@ -482,6 +469,11 @@ func (e *Engine) transition(ctx context.Context, changeID string, tr transition)
 		}
 		if tr.release {
 			if _, err := tx.ExecContext(ctx, "DELETE FROM core_locks WHERE owner = ?", changeID); err != nil {
+				return err
+			}
+		}
+		if tr.giveBack {
+			if err := giveBackEpochs(ctx, tx, changeID); err != nil {
 				return err
 			}
 		}
