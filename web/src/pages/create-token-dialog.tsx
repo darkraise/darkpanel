@@ -15,8 +15,8 @@ import {
 import { Input } from "darkraise-ui/components/input"
 import { Label } from "darkraise-ui/components/label"
 import { RadioGroup, RadioGroupItem } from "darkraise-ui/components/radio-group"
-import { TOKENS_QUERY_KEY, applyPlan, changeError, errorMessage, planAction } from "@/api/client"
-import type { NewToken, Scope } from "@/api/types"
+import { ApiError, TOKENS_QUERY_KEY, applyPlan, changeError, errorMessage, planAction } from "@/api/client"
+import type { FieldError, NewToken, Scope } from "@/api/types"
 
 const SCOPES: Array<{ value: Scope; label: string; description: string }> = [
   { value: "read", label: "Read", description: "Reads hosts, resources, changes and the audit log." },
@@ -24,12 +24,17 @@ const SCOPES: Array<{ value: Scope; label: string; description: string }> = [
   { value: "admin", label: "Admin", description: "Also manages tokens and module enablement." },
 ]
 
+interface Failure {
+  message: string
+  fields: FieldError[]
+}
+
 export function CreateTokenDialog() {
   const client = useQueryClient()
   const [open, setOpen] = useState(false)
   const [scope, setScope] = useState<Scope>("read")
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<Failure | null>(null)
   const [created, setCreated] = useState<NewToken | null>(null)
 
   // Closing forgets the token, so it is shown exactly once. While a creation
@@ -49,24 +54,29 @@ export function CreateTokenDialog() {
     event.preventDefault()
     if (busy) return
     const form = new FormData(event.currentTarget)
+    const name = String(form.get("name") ?? "").trim()
+    if (name === "") {
+      setError({ message: "Enter a name for the token.", fields: [] })
+      return
+    }
     setBusy(true)
     setError(null)
     try {
       const plan = await planAction("core.token.create", 1, {
-        name: String(form.get("name") ?? "").trim(),
+        name,
         scope,
         expiresInDays: Number(form.get("expiresInDays")),
       })
       const change = await applyPlan<NewToken>(plan)
       const failure = changeError(change)
       if (failure !== null || change.output === null) {
-        setError(failure ?? "The controller returned no token.")
+        setError({ message: failure ?? "The controller returned no token.", fields: [] })
         return
       }
       setCreated(change.output)
       void client.invalidateQueries({ queryKey: TOKENS_QUERY_KEY })
     } catch (err) {
-      setError(errorMessage(err))
+      setError({ message: errorMessage(err), fields: err instanceof ApiError ? err.fields : [] })
     } finally {
       setBusy(false)
     }
@@ -114,7 +124,16 @@ export function CreateTokenDialog() {
             </div>
             {error !== null && (
               <Alert variant="destructive" role="alert">
-                <AlertDescription>{error}</AlertDescription>
+                <AlertDescription>
+                  <p>{error.message}</p>
+                  {error.fields.length > 0 && (
+                    <ul className="mt-1 list-disc pl-5">
+                      {error.fields.map((field, i) => (
+                        <li key={i}>{`${field.path}: ${field.message}`}</li>
+                      ))}
+                    </ul>
+                  )}
+                </AlertDescription>
               </Alert>
             )}
             <DialogFooter>

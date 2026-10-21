@@ -103,3 +103,37 @@ test("shows a refusal from the plan", async () => {
   const dialog = await fillAndCreate(userEvent.setup())
   expect((await within(dialog).findByText("this request needs the admin scope")).textContent).toBe("this request needs the admin scope")
 })
+
+test("lists the field errors of an invalid input", async () => {
+  stubFetch({
+    [PLAN]: {
+      status: 422,
+      body: {
+        type: "about:blank", title: "Invalid input", status: 422, detail: "invalid request", code: "request.invalid_input",
+        errors: [
+          { path: "/name", message: "must not contain control characters" },
+          { path: "/expiresInDays", message: "must be at most 365" },
+        ],
+      },
+    },
+  })
+  renderWithProviders(<CreateTokenDialog />)
+  const dialog = await fillAndCreate(userEvent.setup())
+  expect((await within(dialog).findByText("invalid request")).textContent).toBe("invalid request")
+  expect(within(dialog).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+    "/name: must not contain control characters",
+    "/expiresInDays: must be at most 365",
+  ])
+})
+
+test("asks for a name when the name is blank and sends nothing", async () => {
+  const calls = stubFetch({ [PLAN]: { body: plan } })
+  renderWithProviders(<CreateTokenDialog />)
+  const user = userEvent.setup()
+  await user.click(screen.getByRole("button", { name: "Create token" }))
+  const dialog = screen.getByRole("dialog")
+  await user.type(within(dialog).getByLabelText("Name"), "   ")
+  await user.click(within(dialog).getByRole("button", { name: "Create" }))
+  expect((await within(dialog).findByRole("alert")).textContent).toBe("Enter a name for the token.")
+  expect(calls).toHaveLength(0)
+})
