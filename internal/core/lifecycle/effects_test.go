@@ -337,6 +337,8 @@ func TestStateDocComparisons(t *testing.T) {
 		{"state differs", doc(`{"v":1}`, `{"r":1}`), doc(`{"v":2}`, `{"r":1}`), false, false},
 		{"no version and null version", doc(`null`, ``), doc(`null`, `null`), true, true},
 		{"invalid JSON", doc(`{`, ``), doc(`{`, ``), false, false},
+		{"large versions differ", doc(`{"v":1}`, `{"r":1700000000000000001}`), doc(`{"v":1}`, `{"r":1700000000000000002}`), false, true},
+		{"large version spelled two ways", doc(`{"v":1}`, `{"r":1700000000000000001}`), doc(`{"v":1}`, `{"r":1.700000000000000001e18}`), true, true},
 	}
 	for _, c := range cases {
 		if got := docEqual(c.a, c.b); got != c.equal {

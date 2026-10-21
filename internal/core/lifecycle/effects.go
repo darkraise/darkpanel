@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"math/big"
 	"regexp"
 	"slices"
 	"strings"
@@ -372,14 +374,25 @@ func scanEffect(s scanner) (core.Effect, error) {
 }
 
 // canonicalJSON re-encodes raw with object keys sorted, no insignificant
-// whitespace and numbers as encoding/json writes a float64, so two documents
-// that mean the same compare equal as bytes. Empty input is null.
+// whitespace and each number in one exact form, so two documents that mean
+// the same compare equal as bytes. Numbers are not decoded through float64:
+// a revision counter or nanosecond time above 2^53 would lose its low digits
+// and two different versions would compare equal. Empty input is null.
 func canonicalJSON(raw json.RawMessage) ([]byte, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return []byte("null"), nil
 	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
 	var v any
-	if err := json.Unmarshal(raw, &v); err != nil {
+	if err := dec.Decode(&v); err != nil {
+		return nil, fmt.Errorf("lifecycle: canonical JSON: %w", err)
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return nil, errors.New("lifecycle: canonical JSON: data after the value")
+	}
+	v, err := canonicalNumbers(v)
+	if err != nil {
 		return nil, fmt.Errorf("lifecycle: canonical JSON: %w", err)
 	}
 	b, err := json.Marshal(v)
@@ -387,6 +400,36 @@ func canonicalJSON(raw json.RawMessage) ([]byte, error) {
 		return nil, fmt.Errorf("lifecycle: canonical JSON: %w", err)
 	}
 	return b, nil
+}
+
+// canonicalNumbers rewrites every number in v as the shortest decimal of its
+// 512-bit value, so 1, 1.0 and 1e0 meet and integers stay exact.
+func canonicalNumbers(v any) (any, error) {
+	switch t := v.(type) {
+	case json.Number:
+		f, _, err := big.ParseFloat(t.String(), 10, 512, big.ToNearestEven)
+		if err != nil {
+			return nil, err
+		}
+		return json.Number(f.Text('g', -1)), nil
+	case []any:
+		for i := range t {
+			n, err := canonicalNumbers(t[i])
+			if err != nil {
+				return nil, err
+			}
+			t[i] = n
+		}
+	case map[string]any:
+		for k := range t {
+			n, err := canonicalNumbers(t[k])
+			if err != nil {
+				return nil, err
+			}
+			t[k] = n
+		}
+	}
+	return v, nil
 }
 
 // jsonEqual compares two JSON values canonically; a value that is not JSON
