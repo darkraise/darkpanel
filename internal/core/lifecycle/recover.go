@@ -105,7 +105,11 @@ func (e *Engine) verifyStored(ctx context.Context, changeID string) string {
 	if err != nil {
 		return "verify not run: the stored input does not open"
 	}
-	env := e.changeEnv(recoveryPrincipal, def, changeID, core.CallContext{})
+	call, err := changeCall(ctx, e.cfg.Base.DB.Read(), changeID)
+	if err != nil {
+		return "verify not run: the stored call context is unreadable"
+	}
+	env := e.changeEnv(recoveryPrincipal, def, changeID, call)
 	return e.verifyRecovery(ctx, def, env, input, json.RawMessage("null"))
 }
 

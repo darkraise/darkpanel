@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"sync"
 	"time"
 
@@ -255,7 +256,7 @@ func (e *Engine) Read(ctx context.Context, p core.Principal, ref core.ActionRef,
 
 // Plan validates input, runs the handler's Plan and stores the plan with its
 // canonical input sealed (spec section 3). The plan expires after PlanTTL.
-func (e *Engine) Plan(ctx context.Context, p core.Principal, ref core.ActionRef, input json.RawMessage, _ core.PlanOptions) (core.PlanView, error) {
+func (e *Engine) Plan(ctx context.Context, p core.Principal, ref core.ActionRef, input json.RawMessage, opts core.PlanOptions) (core.PlanView, error) {
 	def, err := e.action(ref)
 	if err != nil {
 		return core.PlanView{}, err
@@ -267,10 +268,28 @@ func (e *Engine) Plan(ctx context.Context, p core.Principal, ref core.ActionRef,
 	if err != nil {
 		return core.PlanView{}, err
 	}
+	env := e.env(p)
+	if opts.Call != nil {
+		env.Call = *opts.Call
+		env.Call.RepairOf = ""
+		env.Call.Retired = slices.Clone(opts.Call.Retired)
+	}
+	call, err := encodeCall(opts.Call)
+	if err != nil {
+		return core.PlanView{}, err
+	}
+	return e.makePlan(ctx, p, def, canonical, env, call, "")
+}
+
+// makePlan runs def's Plan under env and stores the plan with its canonical
+// input sealed. call is the core_plans.call value (NULL when nil), and
+// repairs, when set, the change a repair plan repairs (core_plans.repairs).
+func (e *Engine) makePlan(ctx context.Context, p core.Principal, def core.ActionDef, canonical json.RawMessage, env core.Env, call any, repairs string) (core.PlanView, error) {
+	ref := def.Ref()
 	var out core.PlanOutcome
-	err = e.protect(ref, "Plan", func() error {
+	err := e.protect(ref, "Plan", func() error {
 		var err error
-		out, err = def.Handler.Plan(ctx, e.env(p), canonical)
+		out, err = def.Handler.Plan(ctx, env, canonical)
 		return err
 	})
 	if err != nil {
@@ -301,20 +320,73 @@ func (e *Engine) Plan(ctx context.Context, p core.Principal, ref core.ActionRef,
 	if err != nil {
 		return core.PlanView{}, fmt.Errorf("lifecycle: encode guards: %w", err)
 	}
+	var repairsCol any
+	if repairs != "" {
+		repairsCol = repairs
+	}
 	created := formatTime(now)
 	err = e.cfg.Base.DB.Write(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx,
 			`INSERT INTO core_plans (id, host_id, action, version, actor, input_ct, input_hash, state_hash,
-			 diff_json, guards_json, confirmation, created_at, expires_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			 diff_json, guards_json, confirmation, call, repairs, created_at, expires_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			v.PlanID, v.HostID, v.Action, v.Version, p.Actor, sealed, v.InputHash, out.StateHash,
-			string(diff), string(guards), v.Confirmation, created, formatTime(v.ExpiresAt))
+			string(diff), string(guards), v.Confirmation, call, repairsCol, created, formatTime(v.ExpiresAt))
 		return err
 	})
 	if err != nil {
 		return core.PlanView{}, fmt.Errorf("lifecycle: store plan: %w", err)
 	}
 	return v, nil
+}
+
+// storedCall is a plan's call context as core_plans.call keeps it: the agent
+// protocol's call object, without repairOf, which the engine derives.
+type storedCall struct {
+	ParentChangeID string   `json:"parentChangeId,omitempty"`
+	ParentAction   string   `json:"parentAction,omitempty"`
+	StepID         string   `json:"stepId,omitempty"`
+	Retired        []string `json:"retired,omitempty"`
+}
+
+// encodeCall is the core_plans.call value of a plan's call context; a plan
+// without one stores NULL.
+func encodeCall(call *core.CallContext) (any, error) {
+	if call == nil {
+		return nil, nil
+	}
+	b, err := json.Marshal(storedCall{call.ParentChangeID, call.ParentAction, call.StepID, call.Retired})
+	if err != nil {
+		return nil, fmt.Errorf("lifecycle: encode call context: %w", err)
+	}
+	return string(b), nil
+}
+
+// decodeCall reads a stored call context; NULL is the zero context. RepairOf
+// is never stored in it: it is the plan's core_plans.repairs.
+func decodeCall(raw, repairs sql.NullString) (core.CallContext, error) {
+	var s storedCall
+	if raw.Valid {
+		if err := json.Unmarshal([]byte(raw.String), &s); err != nil {
+			return core.CallContext{}, fmt.Errorf("lifecycle: read call context: %w", err)
+		}
+	}
+	return core.CallContext{ParentChangeID: s.ParentChangeID, ParentAction: s.ParentAction, StepID: s.StepID,
+		RepairOf: repairs.String, Retired: s.Retired}, nil
+}
+
+// changeCall is the call context a change's plan stored, with RepairOf
+// derived from the plan's repairs, which every handler call of the change
+// after the plan receives.
+func changeCall(ctx context.Context, q queryer, changeID string) (core.CallContext, error) {
+	var raw, repairs sql.NullString
+	err := q.QueryRowContext(ctx,
+		"SELECT p.call, p.repairs FROM core_changes c JOIN core_plans p ON p.id = c.plan_id WHERE c.id = ?", changeID).
+		Scan(&raw, &repairs)
+	if err != nil {
+		return core.CallContext{}, fmt.Errorf("lifecycle: read call context of %s: %w", changeID, err)
+	}
+	return decodeCall(raw, repairs)
 }
 
 func nonNil[T any](s []T) []T {

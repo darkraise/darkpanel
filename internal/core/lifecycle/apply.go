@@ -35,6 +35,7 @@ type planRecord struct {
 	inputCT                                    []byte
 	guards                                     []core.Guard
 	expiresAt                                  time.Time
+	call                                       core.CallContext
 }
 
 // intent is a change whose intent is persisted; its mutation comes next.
@@ -44,6 +45,7 @@ type intent struct {
 	input      json.RawMessage
 	deadline   time.Time // revertible only
 	confirmNow bool
+	call       core.CallContext // the plan's
 }
 
 // Apply executes a stored plan with ADR 0004's ordering. A plan that already
@@ -132,6 +134,14 @@ func (e *Engine) begin(ctx context.Context, p core.Principal, planID string, opt
 	if err != nil {
 		return nil, nil, err
 	}
+	var call core.CallContext
+	if opts.Call != nil {
+		call = *opts.Call
+	}
+	if call.ParentChangeID != pl.call.ParentChangeID || call.StepID != pl.call.StepID {
+		return nil, nil, errcode.New(errcode.PlanStateChanged,
+			"the apply names another parent change or step than the plan; plan again")
+	}
 	if def.Spec.Class == core.ClassIrreversible && opts.Confirmation != pl.confirmation {
 		return nil, nil, errcode.New(errcode.PlanConfirmationNeeded,
 			fmt.Sprintf("type the confirmation phrase %q to apply", pl.confirmation))
@@ -149,11 +159,16 @@ func (e *Engine) begin(ctx context.Context, p core.Principal, planID string, opt
 		return nil, nil, err
 	}
 	env := e.env(p)
+	env.Call = pl.call
 	if err := e.recheck(ctx, env, def, pl, input); err != nil {
 		return nil, nil, err
 	}
 
-	it := &intent{id: e.newID(e.cfg.Base.Clock.Now()), def: def, input: input, confirmNow: opts.ConfirmNow}
+	it := &intent{id: e.newID(e.cfg.Base.Clock.Now()), def: def, input: input, confirmNow: opts.ConfirmNow, call: pl.call}
+	var parent any
+	if pl.call.ParentChangeID != "" {
+		parent = pl.call.ParentChangeID
+	}
 	var snapshot []byte
 	var deadline any
 	if def.Spec.Class == core.ClassRevertible {
@@ -184,11 +199,11 @@ func (e *Engine) begin(ctx context.Context, p core.Principal, planID string, opt
 		}
 		_, err = tx.ExecContext(ctx,
 			`INSERT INTO core_changes (id, plan_id, host_id, action, version, class, compensated_by, actor, state,
-			 recovery_owner, input_json, snapshot_ct, revert_deadline, lock_epochs, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			 recovery_owner, input_json, snapshot_ct, revert_deadline, lock_epochs, parent_change_id, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			it.id, pl.id, e.cfg.Base.HostID, def.Spec.Name, def.Spec.Version, string(def.Spec.Class),
 			def.Spec.CompensatedBy, p.Actor, core.StateApplying, core.OwnerEngine, string(e.cfg.Redact(def.InputType, input)),
-			snapshot, deadline, string(recorded), created, created)
+			snapshot, deadline, string(recorded), parent, created, created)
 		return err
 	})
 	var coded *errcode.Error
@@ -204,10 +219,11 @@ func (e *Engine) begin(ctx context.Context, p core.Principal, planID string, opt
 func (e *Engine) loadPlan(ctx context.Context, planID string) (planRecord, error) {
 	pl := planRecord{id: planID}
 	var guards, expires string
+	var call, repairs sql.NullString
 	err := e.cfg.Base.DB.Read().QueryRowContext(ctx,
-		`SELECT action, version, actor, input_ct, state_hash, guards_json, confirmation, expires_at
+		`SELECT action, version, actor, input_ct, state_hash, guards_json, confirmation, expires_at, call, repairs
 		 FROM core_plans WHERE id = ?`, planID).
-		Scan(&pl.action, &pl.version, &pl.actor, &pl.inputCT, &pl.stateHash, &guards, &pl.confirmation, &expires)
+		Scan(&pl.action, &pl.version, &pl.actor, &pl.inputCT, &pl.stateHash, &guards, &pl.confirmation, &expires, &call, &repairs)
 	if errors.Is(err, sql.ErrNoRows) {
 		return pl, errcode.New(errcode.PlanNotFound, fmt.Sprintf("no plan %s", planID))
 	}
@@ -216,6 +232,9 @@ func (e *Engine) loadPlan(ctx context.Context, planID string) (planRecord, error
 	}
 	if err := json.Unmarshal([]byte(guards), &pl.guards); err != nil {
 		return pl, fmt.Errorf("lifecycle: read plan guards: %w", err)
+	}
+	if pl.call, err = decodeCall(call, repairs); err != nil {
+		return pl, err
 	}
 	pl.expiresAt, err = parseTime(expires)
 	return pl, err
@@ -295,7 +314,7 @@ func locksFree(ctx context.Context, db *sql.DB, keys []string) error {
 // Apply and Verify share the action's deadline and are never abandoned: a
 // handler that ignores ctx keeps its change applying until it returns.
 func (e *Engine) run(ctx context.Context, p core.Principal, it *intent) (core.ChangeView, error) {
-	env := e.changeEnv(p, it.def, it.id, core.CallContext{})
+	env := e.changeEnv(p, it.def, it.id, it.call)
 	h, ref, timeout := it.def.Handler, it.def.Ref(), e.applyTimeout(it.def)
 	dctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -405,7 +424,11 @@ func (e *Engine) runRevert(ctx context.Context, p core.Principal, changeID strin
 	if err != nil {
 		return core.RevertOutcome{}, fmt.Errorf("lifecycle: open snapshot of %s: %w", changeID, err)
 	}
-	env := e.changeEnv(p, def, changeID, core.CallContext{})
+	call, err := changeCall(ctx, e.cfg.Base.DB.Read(), changeID)
+	if err != nil {
+		return core.RevertOutcome{}, err
+	}
+	env := e.changeEnv(p, def, changeID, call)
 	var out core.RevertOutcome
 	err = e.protect(ref, "Revert", func() error {
 		var err error
