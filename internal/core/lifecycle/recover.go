@@ -103,7 +103,11 @@ func (e *Engine) revertAtStart(ctx context.Context, changeID string, tr transiti
 		return core.ChangeView{}, err
 	}
 	out, revertErr := e.runRevert(hctx, recoveryPrincipal, changeID)
-	return e.recordRevert(ctx, recoveryPrincipal, changeID, out, revertErr, tr)
+	// Recorded even when Recover's ctx ends after the revert: the host is
+	// restored, and an unrecorded revert would run again at the next start.
+	tctx, cancelTx := context.WithTimeout(context.WithoutCancel(ctx), CleanupTxTimeout)
+	defer cancelTx()
+	return e.recordRevert(tctx, recoveryPrincipal, changeID, out, revertErr, tr)
 }
 
 // verifyStored runs the action's Verify against the plan's stored input, so

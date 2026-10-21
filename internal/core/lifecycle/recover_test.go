@@ -106,6 +106,25 @@ func TestRecoverRecordsAFailedRevertAsNeedingRepair(t *testing.T) {
 	}
 }
 
+func TestRecoverRecordsARevertWhoseContextEnded(t *testing.T) {
+	f := newFixture(t)
+	f.host.items["a"] = "old"
+	v := f.pending(`{"name":"a","value":"1"}`)
+	f.restart()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.host.onRevert = cancel
+	// The lock sweep after the revert meets the cancelled context; only the
+	// revert's record matters here.
+	_ = f.eng.Recover(ctx)
+	if s := f.state(v.ID); s != core.StateReverted || f.host.items["a"] != "old" {
+		t.Errorf("state %s, item a %q; want the revert recorded and item a old", s, f.host.items["a"])
+	}
+	if f.count("SELECT count(*) FROM core_locks WHERE owner = ?", v.ID) != 0 {
+		t.Error("the recorded revert kept its lock")
+	}
+}
+
 func TestRecoverInterruptsCompensableAndIrreversible(t *testing.T) {
 	cases := []struct {
 		name    string

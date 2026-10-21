@@ -109,6 +109,18 @@ func TestAFailedRevertNeedsRepair(t *testing.T) {
 	}
 }
 
+func TestAFailedRevertKeepsTheFailedApplysError(t *testing.T) {
+	f := newFixture(t)
+	v := f.apply(alice, f.plan(alice, refSet, `{"name":"a","value":"1","failApply":true,"failRevert":true}`).PlanID, core.ApplyOptions{})
+	if v.State != core.StateNeedsRepair || v.Error == nil || v.Error.Code != string(errcode.NeedsRepair) ||
+		v.Error.Cause != string(errcode.ChangeRevertFailed) {
+		t.Fatalf("change = %+v (error %+v), want needs_repair caused by change.revert_failed", v, v.Error)
+	}
+	if want := "the apply had failed first (" + string(errcode.Internal) + ": "; !strings.Contains(v.Error.Message, want) {
+		t.Errorf("message = %q, want it to contain %q", v.Error.Message, want)
+	}
+}
+
 func TestTimerRevertsAtTheDeadline(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()

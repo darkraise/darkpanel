@@ -82,7 +82,11 @@ func (e *Engine) revertPending(ctx context.Context, p core.Principal, changeID s
 	hctx, cancel := e.cleanupCall(def)
 	out, revertErr := e.runRevert(hctx, p, changeID)
 	cancel()
-	return e.recordRevert(ctx, p, changeID, out, revertErr, transition{
+	// The recording transaction has a bound of its own (spec 1.3,
+	// deadlines); an operator's or the timer's ctx carries none.
+	tctx, cancelTx := context.WithTimeout(context.WithoutCancel(ctx), CleanupTxTimeout)
+	defer cancelTx()
+	return e.recordRevert(tctx, p, changeID, out, revertErr, transition{
 		from: core.StateApplying, to: core.StateReverted, owner: newOwner(""), release: true, giveBack: true,
 		phase: phaseRevert, result: resultOK, actor: p.Actor, source: p.Source,
 	})
@@ -146,9 +150,14 @@ func (e *Engine) recordRevert(ctx context.Context, p core.Principal, changeID st
 			}
 		}
 		repair := func(msg, cause string) {
-			// The failed revert of a failed apply is journaled as a revert.
+			// The failed revert of a failed apply is journaled as a revert,
+			// and the apply's error, which the repair error replaces, stays in
+			// the message: nothing else records why the apply failed.
 			if tr.phase == phaseApply {
 				tr.phase = phaseRevert
+			}
+			if tr.err != nil {
+				msg += fmt.Sprintf("; the apply had failed first (%s: %s)", tr.err.Code, tr.err.Message)
 			}
 			tr.to, tr.release, tr.keepLocks, tr.giveBack, tr.result = core.StateNeedsRepair, false, true, false, resultError
 			tr.err, tr.cause = &core.ChangeError{Code: string(errcode.NeedsRepair), Message: msg}, cause

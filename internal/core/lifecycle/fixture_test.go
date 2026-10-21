@@ -44,6 +44,8 @@ type fixHost struct {
 	applies int
 	// onSnapshot, when set, runs at the start of Snapshot without mu held.
 	onSnapshot func()
+	// onRevert, when set, runs at the start of Revert without mu held.
+	onRevert func()
 	// panicOn names the handler call ("Read", "Plan", "Apply", "Verify",
 	// "Snapshot" or "Revert") that panics while set.
 	panicOn string
@@ -174,6 +176,9 @@ func (x itemHandler) Snapshot(_ context.Context, _ core.Env, in itemIn) ([]byte,
 }
 
 func (x itemHandler) Revert(_ context.Context, env core.Env, snapshot []byte) (core.RevertOutcome, error) {
+	if x.h.onRevert != nil {
+		x.h.onRevert()
+	}
 	x.h.sawChangeID("Revert", env)
 	var s itemSnap
 	if err := json.Unmarshal(snapshot, &s); err != nil {
