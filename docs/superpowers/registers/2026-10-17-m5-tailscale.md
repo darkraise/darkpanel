@@ -5,6 +5,6 @@
 
 | # | Item | Assigned | Acceptance | State | Note |
 |---|---|---|---|---|---|
-| 1 | Tailscale node management | Tailscale node management | R56, R57 | open | - |
-| 2 | Tailnet management | Tailnet management | R58-R60 | open | - |
-| 3 | DERP server management | DERP server management | R61-R64 | open | - |
+| 1 | Tailscale node management | docs/superpowers/specs/2026-10-21-v1-completion-design.md | R56, R57 | doing | - |
+| 2 | Tailnet management | docs/superpowers/specs/2026-10-21-v1-completion-design.md | R58-R60 | doing | - |
+| 3 | DERP server management | docs/superpowers/specs/2026-10-21-v1-completion-design.md | R61-R64 | doing | - |
