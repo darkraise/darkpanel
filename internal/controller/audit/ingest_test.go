@@ -2,8 +2,11 @@ package audit
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"log/slog"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -206,9 +209,11 @@ func TestIngestRefusesASequenceThatDoesNotAdvance(t *testing.T) {
 	if err := e.ingester.IngestHost(ctx, "h1"); err != nil {
 		t.Fatal(err)
 	}
-	err := e.ingester.IngestHost(ctx, "h1")
-	if err == nil || !strings.Contains(err.Error(), "sequence 1 after 1") {
-		t.Errorf("IngestHost = %v, want a refused sequence", err)
+	if err := e.ingester.IngestHost(ctx, "h1"); err != nil {
+		t.Fatalf("IngestHost = %v, want the failure reported, not returned", err)
+	}
+	if got := ingestStatus(t, e.db, "h1"); !strings.Contains(got, "sequence 1 after 1") {
+		t.Errorf("ingestion status = %q, want a refused sequence", got)
 	}
 }
 
@@ -217,12 +222,87 @@ func TestIngestAllContinuesPastAFailingHost(t *testing.T) {
 	addHost(t, e.db, "h1") // no agent: the directory answers not_found
 	m := e.host(t, "h2")
 	m.add(2)
-	err := e.ingester.IngestAll(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "host h1") {
-		t.Errorf("IngestAll = %v, want the error of h1", err)
+	if err := e.ingester.IngestAll(context.Background()); err != nil {
+		t.Fatalf("IngestAll = %v, want each host's failure reported, not returned", err)
+	}
+	if got, want := ingestStatus(t, e.db, "h1"), "2026-10-17T12:00:00.000000000Z audit: ingest host h1: not_found: host h1 not found"; got != want {
+		t.Errorf("h1 status = %q, want %q", got, want)
+	}
+	if got, want := ingestStatus(t, e.db, "h2"), "2026-10-17T12:00:00.000000000Z <null>"; got != want {
+		t.Errorf("h2 status = %q, want %q", got, want)
 	}
 	if n := count(t, e.db, "SELECT count(*) FROM core_audit WHERE host_id = 'h2'"); n != 2 {
 		t.Errorf("h2 rows = %d, want 2", n)
+	}
+}
+
+// ingestStatus is hostID's core_ingest_status row as "<since> <error>", with
+// <null> for a NULL error, or "<none>" when the host has no row.
+func ingestStatus(t *testing.T, db *store.DB, hostID string) string {
+	t.Helper()
+	var since string
+	var msg sql.NullString
+	err := db.Read().QueryRow("SELECT since, error FROM core_ingest_status WHERE host_id = ?", hostID).Scan(&since, &msg)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return "<none>"
+	case err != nil:
+		t.Fatalf("ingestion status of %s: %v", hostID, err)
+	}
+	if !msg.Valid {
+		return since + " <null>"
+	}
+	return since + " " + msg.String
+}
+
+// TestIngestReportsEachStateChange: a host's ingestion state is stored and
+// logged when it changes, whether the loop or the dispatcher ran the
+// ingestion; a repeated failure is logged at debug and keeps the row and its
+// since.
+func TestIngestReportsEachStateChange(t *testing.T) {
+	e := newIngestEnv(t)
+	addHost(t, e.db, "h1")
+	var fail error
+	e.hosts["h1"] = &coretest.FakeAgent{JournalFunc: func(context.Context, int64, int) ([]core.JournalEntry, error) {
+		return nil, fail
+	}}
+	logs := &logRecords{}
+	in := NewIngester(IngesterConfig{Store: e.store, Agents: e.hosts, Clock: e.clock, Log: slog.New(logs)})
+	scheduled := func(ctx context.Context) error { return in.IngestAll(ctx) }
+	dispatched := func(ctx context.Context) error { return in.IngestHost(ctx, "h1") }
+	unreachable, refused := errors.New("agent unreachable"), errors.New("agent refused")
+	const failed = "audit: ingest host h1: audit: read the journal of h1: "
+	steps := []struct {
+		name   string
+		run    func(context.Context) error
+		fail   error
+		logs   []string
+		status string
+	}{
+		{"first success", scheduled, nil, nil, "2026-10-17T12:00:01.000000000Z <null>"},
+		{"first failure", dispatched, unreachable, []string{"WARN audit: journal ingestion failing host=h1"},
+			"2026-10-17T12:00:02.000000000Z " + failed + "agent unreachable"},
+		{"the same failure", scheduled, unreachable, []string{"DEBUG audit: journal ingestion still failing host=h1"},
+			"2026-10-17T12:00:02.000000000Z " + failed + "agent unreachable"},
+		{"another failure", dispatched, refused, []string{"WARN audit: journal ingestion failing host=h1"},
+			"2026-10-17T12:00:04.000000000Z " + failed + "agent refused"},
+		{"recovery", scheduled, nil, []string{"INFO audit: journal ingestion recovered host=h1"},
+			"2026-10-17T12:00:05.000000000Z <null>"},
+		{"another success", dispatched, nil, nil, "2026-10-17T12:00:05.000000000Z <null>"},
+	}
+	for _, s := range steps {
+		e.clock.Advance(time.Second)
+		fail = s.fail
+		before := len(logs.lines())
+		if err := s.run(context.Background()); err != nil {
+			t.Fatalf("%s: %v, want the result reported, not returned", s.name, err)
+		}
+		if got := logs.lines()[before:]; !slices.Equal(got, s.logs) {
+			t.Errorf("%s: logs = %q, want %q", s.name, got, s.logs)
+		}
+		if got := ingestStatus(t, e.db, "h1"); got != s.status {
+			t.Errorf("%s: status = %q, want %q", s.name, got, s.status)
+		}
 	}
 }
 

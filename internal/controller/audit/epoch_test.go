@@ -237,11 +237,14 @@ func TestIngestDeadline(t *testing.T) {
 	e.clock.Advance(time.Second)
 	select {
 	case err := <-done:
-		if err == nil || err.Error() != "audit: ingest host h1: audit: ingestion exceeded 30s" {
-			t.Errorf("IngestAll = %v, want h1's deadline error", err)
+		if err != nil {
+			t.Errorf("IngestAll = %v, want h1's deadline reported, not returned", err)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("IngestAll did not return after the deadline")
+	}
+	if got, want := ingestStatus(t, e.db, "h1"), "2026-10-17T12:00:30.000000000Z audit: ingest host h1: audit: ingestion exceeded 30s"; got != want {
+		t.Errorf("h1 status = %q, want %q", got, want)
 	}
 	if n := count(t, e.db, "SELECT count(*) FROM core_audit WHERE host_id = 'h2'"); n != 1 {
 		t.Errorf("h2 rows = %d, want 1", n)
