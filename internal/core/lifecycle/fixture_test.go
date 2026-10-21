@@ -52,6 +52,8 @@ type fixHost struct {
 	// changeIDs records "<call>=<env.ChangeID>" for every Plan, Apply,
 	// Verify and Revert call, in call order.
 	changeIDs []string
+	// verifyCalls records env.Call of every Verify call, in call order.
+	verifyCalls []core.CallContext
 }
 
 func (h *fixHost) sawChangeID(call string, env core.Env) {
@@ -145,6 +147,9 @@ func (x itemHandler) Verify(ctx context.Context, env core.Env, in itemIn, _ item
 		x.h.onVerify(ctx)
 	}
 	x.h.sawChangeID("Verify", env)
+	x.h.mu.Lock()
+	x.h.verifyCalls = append(x.h.verifyCalls, env.Call)
+	x.h.mu.Unlock()
 	x.h.panicIf("Verify", in.Name)
 	if in.FailVerify {
 		return errcode.New(errcode.Internal, "verify failed")

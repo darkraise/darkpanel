@@ -98,3 +98,24 @@ func TestATopLevelChangeHasNoCall(t *testing.T) {
 		}
 	}
 }
+
+func TestRecoveryVerifySeesTheStoredCall(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	pl, err := f.eng.Plan(ctx, alice, refAdd, json.RawMessage(`{"name":"a","value":"1","crashApply":true}`), core.PlanOptions{
+		Call: &core.CallContext{ParentChangeID: "comp1", ParentAction: "cfx.deploy.add", StepID: "s1", Retired: []string{"e1"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := f.eng.Apply(ctx, alice, pl.PlanID, core.ApplyOptions{Call: &core.CallContext{ParentChangeID: "comp1", StepID: "s1"}})
+	if err != nil || v.State != core.StateApplying {
+		t.Fatalf("Apply = %+v, %v; want the change left applying", v, err)
+	}
+	f.restart()
+	f.host.verifyCalls = nil
+	f.recoverAll()
+	want := []core.CallContext{{ParentChangeID: "comp1", ParentAction: "cfx.deploy.add", StepID: "s1", Retired: []string{"e1"}}}
+	if !reflect.DeepEqual(f.host.verifyCalls, want) {
+		t.Errorf("recovery's Verify saw %+v, want %+v", f.host.verifyCalls, want)
+	}
+}
