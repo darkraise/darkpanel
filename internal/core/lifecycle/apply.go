@@ -52,6 +52,9 @@ type intent struct {
 // once; any other answers its result, or the applying change when the run
 // has not finished within Config.SyncAnswer (spec 1.3, asynchronous apply).
 func (e *Engine) Apply(ctx context.Context, p core.Principal, planID string, opts core.ApplyOptions) (core.ChangeView, error) {
+	if def, ok := e.planDef(ctx, planID); ok && def.Spec.Class == core.ClassComposite {
+		return e.applyComposite(ctx, p, planID, opts)
+	}
 	e.applyMu.Lock()
 	it, existing, err := e.begin(ctx, p, planID, opts)
 	e.applyMu.Unlock()
@@ -272,8 +275,7 @@ func confirmTimeout(class core.Class, d time.Duration) (time.Duration, error) {
 }
 
 // recheck is apply's step 1: the handler plans again from the stored input,
-// and the apply is refused when the state hash changed or a guard that passed
-// now fails (plan.state_changed), or a guard failed (plan.guard_failed).
+// and checkReplan compares the outcome with the plan.
 func (e *Engine) recheck(ctx context.Context, env core.Env, def core.ActionDef, pl planRecord, input json.RawMessage) error {
 	var out core.PlanOutcome
 	err := e.protect(def.Ref(), "Plan", func() error {
@@ -284,6 +286,13 @@ func (e *Engine) recheck(ctx context.Context, env core.Env, def core.ActionDef, 
 	if err != nil {
 		return err
 	}
+	return checkReplan(pl, out)
+}
+
+// checkReplan is the comparison of apply's step 1: the apply is refused when
+// the state hash changed or a guard that passed now fails
+// (plan.state_changed), or a guard failed (plan.guard_failed).
+func checkReplan(pl planRecord, out core.PlanOutcome) error {
 	if out.StateHash != pl.stateHash {
 		return errcode.New(errcode.PlanStateChanged, "the state changed since the plan was made; plan again")
 	}

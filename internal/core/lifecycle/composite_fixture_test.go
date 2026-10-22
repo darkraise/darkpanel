@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -610,6 +611,7 @@ type cfxFixture struct {
 	ctrlDB, agentDB       *store.DB
 	ctrl, agent           *Engine
 	kids                  *inprocChildren
+	events                *cfxEvents
 }
 
 func newCfxFixture(t *testing.T) *cfxFixture {
@@ -624,7 +626,7 @@ func newCfxFixture(t *testing.T) *cfxFixture {
 		t: t, host: host, bad: bad, reg: reg,
 		ctrlClock: coretest.NewFakeClock(start), agentClock: coretest.NewFakeClock(start),
 		ctrlPath: filepath.Join(t.TempDir(), "controller.db"), agentPath: filepath.Join(t.TempDir(), "agent.db"),
-		kids: &inprocChildren{lose: map[string]bool{}},
+		kids: &inprocChildren{lose: map[string]bool{}}, events: &cfxEvents{},
 	}
 	f.openAgent()
 	f.openCtrl()
@@ -656,7 +658,8 @@ func (f *cfxFixture) openAgent() {
 func (f *cfxFixture) ctrlConfig() Config {
 	return Config{
 		Side: core.SideController, Registry: f.reg, Validator: coretest.Validator{}, Journal: &coretest.MemJournal{},
-		Redact: testRedact,
+		Redact:  testRedact,
+		Publish: f.events.publish,
 		Base: core.Env{
 			DB: f.ctrlDB, Sealer: coretest.Sealer{}, Clock: f.ctrlClock, Log: slog.New(slog.DiscardHandler),
 		},
@@ -684,4 +687,134 @@ func (f *cfxFixture) openCtrl() {
 // planC plans a composite (or any controller action) as cfxRoot.
 func (f *cfxFixture) planC(ref core.ActionRef, input string) (core.PlanView, error) {
 	return f.ctrl.Plan(context.Background(), cfxRoot, ref, json.RawMessage(input), core.PlanOptions{})
+}
+
+func (h *cstHost) failNext(name string, n int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.failures[name] = n
+}
+
+// setHooks sets functions that run at the start of cst.item.add's Plan and
+// of every cst Apply, without mu held; nil removes one.
+func (h *cstHost) setHooks(onPlan, onApply func(name string)) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.onPlan, h.onApply = onPlan, onApply
+}
+
+func (c *inprocChildren) callLog() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.calls)
+}
+
+// cfxEvents records the controller engine's composite.step events. onEvent,
+// when set, runs for each one on the publishing goroutine.
+type cfxEvents struct {
+	mu      sync.Mutex
+	list    []StepEvent
+	onEvent func(StepEvent)
+}
+
+func (r *cfxEvents) publish(eventType string, data any) {
+	ev, ok := data.(StepEvent)
+	if eventType != EventCompositeStep || !ok {
+		return
+	}
+	r.mu.Lock()
+	r.list = append(r.list, ev)
+	on := r.onEvent
+	r.mu.Unlock()
+	if on != nil {
+		on(ev)
+	}
+}
+
+func (r *cfxEvents) of(changeID string) []StepEvent {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []StepEvent
+	for _, ev := range r.list {
+		if ev.ChangeID == changeID {
+			out = append(out, ev)
+		}
+	}
+	return out
+}
+
+func (r *cfxEvents) setOnEvent(f func(StepEvent)) { //nolint:unused // shared helper for the composite step tests in this package
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.onEvent = f
+}
+
+// applyC plans and applies a composite as cfxRoot.
+func (f *cfxFixture) applyC(ref core.ActionRef, input string, opts core.ApplyOptions) core.ChangeView {
+	f.t.Helper()
+	pl, err := f.planC(ref, input)
+	if err != nil {
+		f.t.Fatalf("Plan %s: %v", ref, err)
+	}
+	v, err := f.ctrl.Apply(context.Background(), cfxRoot, pl.PlanID, opts)
+	if err != nil {
+		f.t.Fatalf("Apply %s: %v", ref, err)
+	}
+	return v
+}
+
+// await advances the controller clock by ChildPoll until change id is in
+// one of states, and fails the test after ten seconds.
+func (f *cfxFixture) await(id string, states ...string) core.ChangeView {
+	f.t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		v, err := f.ctrl.Change(context.Background(), id)
+		if err != nil {
+			f.t.Fatal(err)
+		}
+		if slices.Contains(states, v.State) {
+			return v
+		}
+		if time.Now().After(deadline) {
+			f.t.Fatalf("change %s is %s, want one of %v", id, v.State, states)
+		}
+		if f.ctrlClock.Pending() > 0 {
+			f.ctrlClock.Advance(ChildPoll)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// stepsOf reads the step log of composite id by step id.
+func (f *cfxFixture) stepsOf(id string) map[string]stepRow {
+	f.t.Helper()
+	_, steps, err := loadComposite(context.Background(), f.ctrlDB.Read(), id)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	out := map[string]stepRow{}
+	for _, s := range steps {
+		out[s.ID] = s
+	}
+	return out
+}
+
+func (f *cfxFixture) agentChange(id string) core.ChangeView {
+	f.t.Helper()
+	v, err := f.agent.Change(context.Background(), id)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	return v
+}
+
+func (f *cfxFixture) lockOwner(key string) string {
+	f.t.Helper()
+	var owner string
+	err := f.ctrlDB.Read().QueryRow("SELECT owner FROM core_locks WHERE key = ?", key).Scan(&owner)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		f.t.Fatal(err)
+	}
+	return owner
 }

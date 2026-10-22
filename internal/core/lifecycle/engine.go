@@ -49,6 +49,9 @@ type Config struct {
 	// Exit ends the process when the revert watchdog fires; nil means
 	// os.Exit. Tests record the code instead.
 	Exit func(code int)
+	// Publish receives every committed composite step state as a
+	// composite.step event (EventCompositeStep, StepEvent); nil drops them.
+	Publish func(eventType string, data any)
 }
 
 // Deadlines of spec 1.3.
@@ -92,8 +95,10 @@ type Engine struct {
 	inflight sync.WaitGroup         // timer reverts that are running
 
 	// compMu guards children and the composite runner's maps.
-	compMu   sync.Mutex
-	children Children // set by SetChildren; nil refuses composites
+	compMu    sync.Mutex
+	children  Children              // set by SetChildren; nil refuses composites
+	compLocks map[string]*compLock  // one per composite while it is locked or awaited, guarded by compMu
+	compWake  map[string]*compWaker // one per composite with a runner, guarded by compMu
 }
 
 // New returns an engine for cfg. Run Recover before serving requests.
