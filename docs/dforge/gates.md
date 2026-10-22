@@ -1,7 +1,7 @@
 # Gates
 
 What proves a change to Darkpanel works, in the order it must run. The
-dr-superpowers running-gates skill reads this file. Every gate's command must
+dforge running-gates skill reads this file. Every gate's command must
 also exit 0.
 
 ## 1. ADR records

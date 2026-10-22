@@ -4225,7 +4225,7 @@ a spec change.
   exposure, the DERP host's pinned tailscaled), threats, mitigations and
   residual risk.
 - **Security review (R73).** The owner's two-reviewer panel
-  (`dr-superpowers:judge-fable` and Codex `gpt-6-astra`, one shared brief).
+  (`dforge:judge-fable` and Codex `gpt-6-astra`, one shared brief).
   Findings go into `docs/dforge/registers/<date>-v1-security-review.md`;
   every critical and high finding is fixed and re-reviewed; medium and low
   are fixed or deferred by the owner.
@@ -4612,7 +4612,7 @@ a spec change.
    green).
 4. Reinstall the production VPS from `v1.0.0-rc.1` (0.x does not upgrade to
    1.0), add one agent, and run them for 14 days with no manual repair (S7).
-5. Tag `v1.0.0`; milestones close through `dr-superpowers:closing-a-milestone`.
+5. Tag `v1.0.0`; milestones close through `dforge:closing-a-milestone`.
 6. Standing: after each Tailscale security release, a Darkpanel release that
    bumps `release/derper.version`, because DERP hosts hold tailscaled at the
    derper version (4.3).
