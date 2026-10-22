@@ -116,13 +116,14 @@ func TestRecoverRecordsARevertWhoseContextEnded(t *testing.T) {
 	f.host.items["a"] = "old"
 	v := f.pending(`{"name":"a","value":"1"}`)
 	f.restart()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	f.host.onRevert = cancel
-	// The background pass runs on the engine's context, so cancelling
-	// Recover's own does not stop it; only the revert's record matters here.
-	_ = f.eng.Recover(ctx)
+	f.host.onRevert = f.eng.stopRun
+	// The pass runs on the engine's run context; cancelling it mid-revert
+	// must still record the outcome.
+	_ = f.eng.Recover(context.Background())
 	f.eng.recoveryPass.Wait()
+	if f.host.revertCtxErr != nil {
+		t.Errorf("the revert handler saw its context end: %v", f.host.revertCtxErr)
+	}
 	if s := f.state(v.ID); s != core.StateReverted || f.host.items["a"] != "old" {
 		t.Errorf("state %s, item a %q; want the revert recorded and item a old", s, f.host.items["a"])
 	}
