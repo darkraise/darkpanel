@@ -228,3 +228,25 @@ func TestTruncate(t *testing.T) {
 		t.Error("truncate changed a short value")
 	}
 }
+
+// TestPassiveAuthenticationLeavesTheIdleClock shows a passive check leaving
+// last_seen_at, so the session still ends one idle limit after its last
+// active use.
+func TestPassiveAuthenticationLeavesTheIdleClock(t *testing.T) {
+	s, clock, _ := newTestService(t)
+	ctx := context.Background()
+	u, _ := createActive(t, s, clock, "alice")
+	id, _ := newSession(t, s, u.ID)
+	created := clock.Now()
+	clock.Advance(2 * LastSeenInterval)
+	got, err := s.Authenticate(ctx, Credentials{Session: id, Passive: true})
+	if err != nil || got.Principal.Actor != "user:"+u.ID || !got.ExpiresAt.Equal(created.Add(SessionIdle)) {
+		t.Fatalf("passive check = %+v, %v; want alice's session ending at %s", got, err, created.Add(SessionIdle))
+	}
+	if seen := lastSeen(t, s, id); !seen.Equal(created) {
+		t.Fatalf("last_seen_at = %s after a passive check, want unchanged %s", seen, created)
+	}
+	clock.Advance(SessionIdle - 2*LastSeenInterval)
+	_, err = s.Authenticate(ctx, Credentials{Session: id, Passive: true})
+	wantCode(t, err, errcode.AuthRequired)
+}

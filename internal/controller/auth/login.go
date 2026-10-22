@@ -40,6 +40,12 @@ type Credentials struct {
 	Authorization []string
 	Session       string
 	Source        string
+	// Passive authenticates without moving a session's last_seen_at, so the
+	// request does not extend the session's idle limit (spec section 9).
+	// Stream routes set it: an open tab's event stream must not keep an idle
+	// session alive. A token has no idle limit; its last_used_at is still
+	// recorded.
+	Passive bool
 }
 
 func errInvalidCredentials() *errcode.Error {
@@ -219,5 +225,5 @@ func (s *Service) Authenticate(ctx context.Context, c Credentials) (Identity, er
 	if c.Session == "" {
 		return Identity{}, errAuthRequired()
 	}
-	return s.authenticateSession(ctx, c.Session, c.Source)
+	return s.checkSession(ctx, c.Session, c.Source, !c.Passive)
 }
