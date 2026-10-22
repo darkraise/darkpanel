@@ -354,3 +354,102 @@ func (e *Engine) taskVerify(def core.ActionDef, env core.Env, changeID string, o
 	}
 	return e.protect(def.Ref(), "Verify", func() error { return def.Handler.Verify(ctx, env, input, out) })
 }
+
+// taskNewest is the attempt a re-claimed task change resumes: the newest
+// undo attempt of an undoing change, else the newest recover attempt, else
+// apply's.
+func (e *Engine) taskNewest(ctx context.Context, changeID, state string) (op string, attempt int, err error) {
+	ops := []string{core.TaskOpRecover, core.TaskOpApply}
+	if state == core.StateUndoing {
+		ops = []string{core.TaskOpUndo}
+	}
+	for _, op := range ops {
+		var n sql.NullInt64
+		if err := e.cfg.Base.DB.Read().QueryRowContext(ctx,
+			"SELECT max(attempt) FROM core_task_runs WHERE change_id = ? AND op = ?", changeID, op).Scan(&n); err != nil {
+			return "", 0, fmt.Errorf("lifecycle: read the task runs of %s: %w", changeID, err)
+		}
+		if n.Valid {
+			return op, int(n.Int64), nil
+		}
+	}
+	return "", 0, fmt.Errorf("lifecycle: change %s has no task run to resume", changeID)
+}
+
+// taskUndoCheck refuses the undo of a task change while this engine has no
+// unit client, or while the unit of the change's last undo attempt is not
+// inactive: a new attempt follows only an inactive unit (1.3c, results
+// table). Changes of other actions pass.
+func (e *Engine) taskUndoCheck(ctx context.Context, changeID string) error {
+	f, err := loadFacts(ctx, e.cfg.Base.DB.Read(), changeID)
+	if err != nil {
+		return err
+	}
+	def, err := e.action(f.ref())
+	if err != nil || !def.Spec.Task {
+		return nil
+	}
+	if e.cfg.Units == nil {
+		return errcode.New(errcode.Internal, fmt.Sprintf("%s runs in a task unit, and this engine has no unit client", def.Ref()))
+	}
+	var n sql.NullInt64
+	if err := e.cfg.Base.DB.Read().QueryRowContext(ctx,
+		"SELECT max(attempt) FROM core_task_runs WHERE change_id = ? AND op = ?", changeID, core.TaskOpUndo).Scan(&n); err != nil {
+		return fmt.Errorf("lifecycle: read the undo runs of %s: %w", changeID, err)
+	}
+	if !n.Valid {
+		return nil
+	}
+	name := TaskUnitName(changeID, core.TaskOpUndo, int(n.Int64))
+	st, err := e.cfg.Units.State(ctx, name)
+	if err != nil {
+		return fmt.Errorf("lifecycle: read task unit %s: %w", name, err)
+	}
+	if !taskInactive(st) {
+		return errcode.New(errcode.ChangeBusy, fmt.Sprintf("task unit %s is still active", name))
+	}
+	return nil
+}
+
+// taskUndo runs a claimed undo of a task change in a unit: the newest undo
+// attempt's unit runs the undo run from the journal, and once it has ended
+// the engine records the undo settle. The engine closing leaves the change
+// undoing; the next start resumes it.
+func (e *Engine) taskUndo(ctx context.Context, p core.Principal, def core.ActionDef, changeID string) (core.ChangeView, error) {
+	_, attempt, err := e.taskNewest(ctx, changeID, core.StateUndoing)
+	if err != nil {
+		return core.ChangeView{}, err
+	}
+	if _, err := e.taskAttempt(ctx, def, changeID, core.TaskOpUndo, attempt); err != nil {
+		return core.ChangeView{}, err
+	}
+	sctx, cancel := e.cleanup()
+	defer cancel()
+	return e.undoSettle(sctx, p, changeID)
+}
+
+// taskRecover runs a task change's module recovery handler in its newest
+// recover attempt's unit (1.3b, ownership). It answers the outcome the
+// unit recorded, or, as herr, the error any other end carries; stop is set
+// only when the engine closed, and the change then stays owned.
+func (e *Engine) taskRecover(ctx context.Context, def core.ActionDef, changeID string) (out core.RecoveryOutcome, herr, stop error) {
+	var n sql.NullInt64
+	if err := e.cfg.Base.DB.Read().QueryRowContext(ctx,
+		"SELECT max(attempt) FROM core_task_runs WHERE change_id = ? AND op = ?", changeID, core.TaskOpRecover).Scan(&n); err != nil {
+		return out, nil, fmt.Errorf("lifecycle: read the recover runs of %s: %w", changeID, err)
+	}
+	if !n.Valid {
+		return out, nil, fmt.Errorf("lifecycle: change %s has no recover attempt", changeID)
+	}
+	end, err := e.taskAttempt(ctx, def, changeID, core.TaskOpRecover, int(n.Int64))
+	if err != nil {
+		return out, nil, err
+	}
+	if end.Row != taskRowSucceeded {
+		return out, errcode.New(errcode.Code(end.Err.Code), end.Err.Message), nil
+	}
+	if err := json.Unmarshal(end.Output, &out); err != nil {
+		return out, fmt.Errorf("lifecycle: decode the recovery outcome of %s: %w", changeID, err), nil
+	}
+	return out, nil, nil
+}

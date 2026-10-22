@@ -128,6 +128,9 @@ func (e *Engine) Undo(ctx context.Context, p core.Principal, changeID string, ca
 	if err := e.admit(ctx); err != nil {
 		return core.ChangeView{}, err
 	}
+	if err := e.taskUndoCheck(ctx, changeID); err != nil {
+		return core.ChangeView{}, err
+	}
 	e.applyMu.Lock()
 	v, def, started, err := e.claimUndo(ctx, p, changeID, call)
 	e.applyMu.Unlock()
@@ -171,6 +174,11 @@ func (e *Engine) claimUndo(ctx context.Context, p core.Principal, changeID strin
 			now := e.cfg.Base.Clock.Now()
 			if err := claim(ctx, tx, now, changeID, "", core.OwnerUndo, f.state, core.StateUndoing); err != nil {
 				return err
+			}
+			if def.Spec.Task {
+				if _, err := e.startTask(ctx, tx, changeID, core.TaskOpUndo); err != nil {
+					return err
+				}
 			}
 			if err := e.journalChange(ctx, tx, now, changeID, p, phaseUndo, resultOK, "", nil); err != nil {
 				return err
@@ -225,6 +233,12 @@ func undoRefusal(ctx context.Context, q queryer, f changeFacts, def core.ActionD
 // cancels the run leaves the change undoing, and the next start resumes
 // it from the journal.
 func (e *Engine) finishUndo(p core.Principal, def core.ActionDef, changeID string) {
+	if def.Spec.Task {
+		if _, err := e.taskUndo(e.runCtx, p, def, changeID); err != nil {
+			e.cfg.Base.Log.Error("lifecycle: task undo", "change", changeID, "error", err)
+		}
+		return
+	}
 	ctx := e.runCtx
 	call, err := changeCall(ctx, e.cfg.Base.DB.Read(), changeID)
 	if err != nil {

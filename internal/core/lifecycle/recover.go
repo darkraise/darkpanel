@@ -155,7 +155,14 @@ func (e *Engine) recoverClaimOne(ctx context.Context, c recoverCandidate) (*reco
 	err = e.cfg.Base.DB.Write(ctx, func(tx *sql.Tx) error {
 		now := e.cfg.Base.Clock.Now()
 		if ok {
-			return claim(ctx, tx, now, c.id, c.owner, owner, c.state, to)
+			if err := claim(ctx, tx, now, c.id, c.owner, owner, c.state, to); err != nil {
+				return err
+			}
+			if kind == recoverRetry && def.Spec.Task {
+				_, err := e.startTask(ctx, tx, c.id, core.TaskOpRecover)
+				return err
+			}
+			return nil
 		}
 		if c.owner == "" || c.owner == core.OwnerRepair {
 			return nil
@@ -263,8 +270,31 @@ func (e *Engine) recoverOne(ctx context.Context, c recoverClaim) error {
 	case recoverRetry:
 		_, err := e.runRecoverer(ctx, c.id)
 		return err
+	case recoverTask:
+		return e.recoverTask(ctx, c)
 	}
 	return nil
+}
+
+// recoverTask resumes a re-claimed task change's unit sequence on its
+// newest attempt (1.3c, agent restart): a recover attempt's end is decided
+// by the recovery handler's recorded outcome, and an apply attempt's as at
+// apply.
+func (e *Engine) recoverTask(ctx context.Context, c recoverClaim) error {
+	op, attempt, err := e.taskNewest(ctx, c.id, c.state)
+	if err != nil {
+		return err
+	}
+	if op == core.TaskOpRecover {
+		_, err := e.runRecoverer(ctx, c.id)
+		return err
+	}
+	end, err := e.taskAttempt(ctx, c.def, c.id, op, attempt)
+	if err != nil {
+		return err
+	}
+	_, err = e.taskApplyEnd(ctx, recoveryPrincipal, c.def, c.id, end)
+	return err
 }
 
 // recoverEnv is the Env of a claimed change's handler calls: the recovery
@@ -306,7 +336,7 @@ func (e *Engine) recoverSettle(ctx context.Context, c recoverClaim) error {
 	}
 	recoverable := c.def.Handler.Recover != nil && !c.repair
 	if recoverable && n == 0 {
-		if err := e.recovererClaim(ctx, recoveryPrincipal, c.id, nil); err != nil {
+		if err := e.recovererClaim(ctx, recoveryPrincipal, c.def, c.id, nil); err != nil {
 			return err
 		}
 		_, err := e.runRecoverer(ctx, c.id)
@@ -335,6 +365,10 @@ func (e *Engine) recoverSettle(ctx context.Context, c recoverClaim) error {
 // its journal alone, and records the undo settle. A shutdown that stops the
 // run leaves the change undoing for the next start.
 func (e *Engine) recoverUndo(ctx context.Context, c recoverClaim) error {
+	if c.def.Spec.Task {
+		_, err := e.taskUndo(ctx, recoveryPrincipal, c.def, c.id)
+		return err
+	}
 	env, err := e.recoverEnv(ctx, c)
 	if err != nil {
 		return err

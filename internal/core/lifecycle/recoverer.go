@@ -26,7 +26,7 @@ func (e *Engine) failSettled(ctx context.Context, p core.Principal, changeID str
 			return core.ChangeView{}, err
 		}
 		if n == 0 {
-			if err := e.recovererClaim(ctx, p, changeID, e.changeError(def.Ref(), cause)); err != nil {
+			if err := e.recovererClaim(ctx, p, def, changeID, e.changeError(def.Ref(), cause)); err != nil {
 				return core.ChangeView{}, err
 			}
 			return e.runRecoverer(ctx, changeID)
@@ -52,8 +52,9 @@ func (e *Engine) failSettled(ctx context.Context, p core.Principal, changeID str
 // to state recovering with owner module, in one conditional update. cause,
 // when set, is the live failure that led here: it is journaled as the
 // apply's error and kept as the change's error cause, which the handler's
-// outcome reports.
-func (e *Engine) recovererClaim(ctx context.Context, p core.Principal, changeID string, cause *core.ChangeError) error {
+// outcome reports. A task action's handler runs in a recover attempt's
+// unit, whose starting row this transaction inserts.
+func (e *Engine) recovererClaim(ctx context.Context, p core.Principal, def core.ActionDef, changeID string, cause *core.ChangeError) error {
 	err := e.cfg.Base.DB.Write(ctx, func(tx *sql.Tx) error {
 		var state, owner string
 		err := tx.QueryRowContext(ctx, "SELECT state, recovery_owner FROM core_changes WHERE id = ?", changeID).
@@ -69,6 +70,11 @@ func (e *Engine) recovererClaim(ctx context.Context, p core.Principal, changeID 
 		now := e.cfg.Base.Clock.Now()
 		if err := claim(ctx, tx, now, changeID, owner, core.OwnerModule, state, core.StateRecovering); err != nil {
 			return err
+		}
+		if def.Spec.Task {
+			if _, err := e.startTask(ctx, tx, changeID, core.TaskOpRecover); err != nil {
+				return err
+			}
 		}
 		if cause == nil {
 			return nil
@@ -122,7 +128,16 @@ func (e *Engine) runRecoverer(ctx context.Context, changeID string) (core.Change
 		return core.ChangeView{}, err
 	}
 	env := e.changeEnv(core.Principal{Actor: actor, Scope: core.ScopeAdmin}, def, changeID, call)
-	out, herr := e.recovererCall(def, env)
+	var out core.RecoveryOutcome
+	var herr error
+	if def.Spec.Task {
+		var stop error
+		if out, herr, stop = e.taskRecover(ctx, def, changeID); stop != nil {
+			return core.ChangeView{}, stop
+		}
+	} else {
+		out, herr = e.recovererCall(def, env)
+	}
 	sctx, scancel := context.WithTimeout(context.WithoutCancel(e.runCtx), e.applyTimeout(def))
 	if err := e.settle(sctx, env, def, changeID); err != nil && herr == nil {
 		herr = err
@@ -210,7 +225,19 @@ func (e *Engine) recovererRepair(ctx context.Context, changeID string) (*core.Re
 		if retry = f.retry; !retry {
 			return nil
 		}
-		return claim(ctx, tx, e.cfg.Base.Clock.Now(), changeID, "", core.OwnerModule, core.StateNeedsRepair, core.StateRecovering)
+		if err := claim(ctx, tx, e.cfg.Base.Clock.Now(), changeID, "", core.OwnerModule,
+			core.StateNeedsRepair, core.StateRecovering); err != nil {
+			return err
+		}
+		def, err := e.action(f.ref())
+		if err != nil || !def.Spec.Task {
+			return err
+		}
+		if e.cfg.Units == nil {
+			return errcode.New(errcode.Internal, fmt.Sprintf("%s runs in a task unit, and this engine has no unit client", def.Ref()))
+		}
+		_, err = e.startTask(ctx, tx, changeID, core.TaskOpRecover)
+		return err
 	})
 	e.applyMu.Unlock()
 	var coded *errcode.Error
