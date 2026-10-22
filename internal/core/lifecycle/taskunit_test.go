@@ -477,6 +477,27 @@ func TestTaskApplyFails(t *testing.T) {
 	}
 }
 
+func TestTaskApplyWhoseVerifyFails(t *testing.T) {
+	f := newTaskFixture(t)
+	v := f.taskApplyStart(refTskInstall, `{"name":"a","value":"1"}`)
+	name := TaskUnitName(v.ID, core.TaskOpApply, 1)
+	f.taskPoll(func() {
+		f.units.set(name, true)
+		f.taskRowTo(v.ID, core.TaskOpApply, 1, taskRowRunning, "", "", "")
+	})
+	f.taskPoll(func() {
+		f.taskRowTo(v.ID, core.TaskOpApply, 1, taskRowSucceeded, `{"value":"1","token":"tok-a"}`, "", "")
+		f.units.set(name, false)
+	})
+	done := f.taskUntil(v.ID, core.StateFailed)
+	if done.Owner != "" || done.Error == nil || done.Error.Code != string(errcode.Internal) {
+		t.Errorf("failed change = %+v (error %+v), want unowned with Verify's internal error", done, done.Error)
+	}
+	if n := f.count("SELECT count(*) FROM core_locks WHERE owner = ?", v.ID); n != 0 {
+		t.Errorf("locks = %d, want 0", n)
+	}
+}
+
 func TestTaskVerifyCutOffByCloseLeavesTheChangeOwned(t *testing.T) {
 	f := newTaskFixture(t)
 	ctx := context.Background()
