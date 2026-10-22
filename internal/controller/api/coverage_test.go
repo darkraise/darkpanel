@@ -36,11 +36,11 @@ func TestCheckOpenAPIFindsGaps(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	missing := strings.Replace(string(doc), `"/api/v1/changes/{id}/revert"`, `"/api/v1/changes/{id}/undo"`, 1)
+	missing := strings.Replace(string(doc), `"/api/v1/changes/{id}/revert"`, `"/api/v1/changes/{id}/rewind"`, 1)
 	err = checkOpenAPI(reg, routes, []byte(missing))
 	for _, want := range []string{
 		"route POST /api/v1/changes/{id}/revert: the document lacks",
-		"document operation POST /api/v1/changes/{id}/undo: no network route serves it",
+		"document operation POST /api/v1/changes/{id}/rewind: no network route serves it",
 	} {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("renamed route: error %v, want %q", err, want)

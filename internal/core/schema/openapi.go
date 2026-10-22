@@ -39,14 +39,15 @@ type (
 	changeErrorWire struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
+		Cause   string `json:"cause,omitempty"`
 	}
 	changeWire struct {
 		ID             string           `json:"id"`
 		HostID         *string          `json:"hostId" jsonschema:"nullable"`
 		Action         string           `json:"action"`
 		Version        int              `json:"version"`
-		Class          string           `json:"class" jsonschema:"enum=revertible,enum=compensable,enum=irreversible"`
-		State          string           `json:"state" jsonschema:"enum=applying,enum=pending,enum=confirmed,enum=reverted,enum=completed,enum=failed,enum=interrupted"`
+		Class          string           `json:"class" jsonschema:"enum=revertible,enum=compensable,enum=irreversible,enum=composite"`
+		State          string           `json:"state" jsonschema:"enum=applying,enum=pending,enum=confirmed,enum=reverted,enum=completed,enum=failed,enum=interrupted,enum=awaiting_confirmation,enum=undoing,enum=needs_repair,enum=recovering,enum=repaired,enum=kept,enum=abandoned,enum=quarantined,enum=releasing"`
 		Actor          string           `json:"actor"`
 		CreatedAt      time.Time        `json:"createdAt"`
 		UpdatedAt      time.Time        `json:"updatedAt"`
@@ -54,6 +55,11 @@ type (
 		Output         json.RawMessage  `json:"output"`
 		Error          *changeErrorWire `json:"error" jsonschema:"nullable"`
 		CompensatedBy  *string          `json:"compensatedBy" jsonschema:"nullable"`
+		ParentChangeID *string          `json:"parentChangeId" jsonschema:"nullable"`
+		Owner          *string          `json:"owner" jsonschema:"nullable"`
+		RepairedBy     *string          `json:"repairedBy" jsonschema:"nullable"`
+		RepairOutcome  *string          `json:"repairOutcome" jsonschema:"nullable"`
+		Override       json.RawMessage  `json:"override"`
 	}
 	applyWire struct {
 		PlanID                string `json:"planId"`

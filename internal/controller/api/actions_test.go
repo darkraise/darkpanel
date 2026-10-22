@@ -115,11 +115,11 @@ func TestActionRoutesDispatch(t *testing.T) {
 		{"/api/v1/hosts/h1/actions/demo.item.add/v1/apply", `{"planId":"plan1","confirmTimeoutSeconds":30,"confirmNow":true}`,
 			call{method: "Apply", hostID: "h1", ref: core.ActionRef{Name: "demo.item.add", Version: 1}, planID: "plan1",
 				opts: core.ApplyOptions{ConfirmTimeout: 30 * time.Second, ConfirmNow: true}},
-			`{"id":"change1","hostId":"h1","action":"demo.item.add","version":1,"class":"revertible","state":"failed","actor":"ACTOR","createdAt":"2026-10-17T12:05:00Z","updatedAt":"2026-10-17T12:05:00Z","revertDeadline":null,"output":null,"error":{"code":"files.markers_invalid","message":"markers out of order"},"compensatedBy":null}`},
+			`{"id":"change1","hostId":"h1","action":"demo.item.add","version":1,"class":"revertible","state":"failed","actor":"ACTOR","createdAt":"2026-10-17T12:05:00Z","updatedAt":"2026-10-17T12:05:00Z","revertDeadline":null,"output":null,"error":{"code":"files.markers_invalid","message":"markers out of order"},"compensatedBy":null,"parentChangeId":null,"owner":null,"repairedBy":null,"repairOutcome":null,"override":null}`},
 		{"/api/v1/hosts/h1/actions/demo.item.purge/v1/apply", `{"planId":"plan2","confirmation":"purge it"}`,
 			call{method: "Apply", hostID: "h1", ref: core.ActionRef{Name: "demo.item.purge", Version: 1}, planID: "plan2",
 				opts: core.ApplyOptions{Confirmation: "purge it"}},
-			`{"id":"change1","hostId":"h1","action":"demo.item.purge","version":1,"class":"revertible","state":"failed","actor":"ACTOR","createdAt":"2026-10-17T12:05:00Z","updatedAt":"2026-10-17T12:05:00Z","revertDeadline":null,"output":null,"error":{"code":"files.markers_invalid","message":"markers out of order"},"compensatedBy":null}`},
+			`{"id":"change1","hostId":"h1","action":"demo.item.purge","version":1,"class":"revertible","state":"failed","actor":"ACTOR","createdAt":"2026-10-17T12:05:00Z","updatedAt":"2026-10-17T12:05:00Z","revertDeadline":null,"output":null,"error":{"code":"files.markers_invalid","message":"markers out of order"},"compensatedBy":null,"parentChangeId":null,"owner":null,"repairedBy":null,"repairOutcome":null,"override":null}`},
 	} {
 		last = call{}
 		rec := h.serve(withToken(request("POST", tc.path, tc.body), token))
@@ -313,7 +313,7 @@ func TestChangeRoutes(t *testing.T) {
 
 	rec = h.serve(withToken(request("GET", "/api/v1/changes/c1", ""), token))
 	recs = append(recs, rec)
-	want := `{"id":"c1","hostId":null,"action":"demo.item.remove","version":1,"class":"compensable","state":"completed","actor":"user:u1","createdAt":"2026-10-17T12:05:00Z","updatedAt":"2026-10-17T12:05:00Z","revertDeadline":null,"output":null,"error":null,"compensatedBy":null}`
+	want := `{"id":"c1","hostId":null,"action":"demo.item.remove","version":1,"class":"compensable","state":"completed","actor":"user:u1","createdAt":"2026-10-17T12:05:00Z","updatedAt":"2026-10-17T12:05:00Z","revertDeadline":null,"output":null,"error":null,"compensatedBy":null,"parentChangeId":null,"owner":null,"repairedBy":null,"repairOutcome":null,"override":null}`
 	if rec.Code != 200 || rec.Body.String() != want || last.method != "Change" || last.changeID != "c1" {
 		t.Errorf("get: %d %s (dispatched %+v)", rec.Code, rec.Body, last)
 	}
