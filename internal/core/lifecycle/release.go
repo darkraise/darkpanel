@@ -31,6 +31,9 @@ type releaseEntry struct {
 // of a composite is released only by that composite, as system:recovery
 // with call naming it.
 func (e *Engine) Release(ctx context.Context, p core.Principal, changeID, reason string, call *core.CallContext) (core.ReleaseResult, error) {
+	if err := e.admitRecovery(); err != nil {
+		return core.ReleaseResult{}, err
+	}
 	composite, err := e.isComposite(ctx, changeID)
 	if err != nil {
 		return core.ReleaseResult{}, err

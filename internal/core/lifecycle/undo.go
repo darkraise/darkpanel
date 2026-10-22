@@ -125,6 +125,9 @@ func (e *Engine) inverseCall(ctx context.Context, env core.Env, def core.ActionD
 // change already reverted is answered as it is. call is set only when a
 // composite undoes its own step.
 func (e *Engine) Undo(ctx context.Context, p core.Principal, changeID string, call *core.CallContext) (core.ChangeView, error) {
+	if err := e.admit(ctx); err != nil {
+		return core.ChangeView{}, err
+	}
 	e.applyMu.Lock()
 	v, def, started, err := e.claimUndo(ctx, p, changeID, call)
 	e.applyMu.Unlock()

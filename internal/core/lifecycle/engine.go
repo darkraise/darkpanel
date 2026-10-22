@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -88,6 +89,11 @@ type Engine struct {
 	// other apply takes a lock or the same plan in between and Purge deletes no
 	// plan.
 	applyMu sync.Mutex
+
+	// recovering is set while Recover has not yet started its pass; the
+	// mutating entry points answer core.recovering meanwhile (1.3,
+	// admission).
+	recovering atomic.Bool
 
 	timerMu  sync.Mutex
 	timers   map[string]*armedTimer // armed revert timers by change id
@@ -232,6 +238,22 @@ func (e *Engine) seedIDs(ctx context.Context) error {
 	return nil
 }
 
+// admit refuses a mutating call while startup recovery has not started its
+// pass over the changes it claimed (1.3, admission). Reads, lookups and the
+// journal stay open.
+func (e *Engine) admit(_ context.Context) error {
+	return e.admitRecovery()
+}
+
+// admitRecovery is admit's recovery gate alone; release takes only this
+// one, because the uninstall barrier never refuses a release.
+func (e *Engine) admitRecovery() error {
+	if e.recovering.Load() {
+		return errcode.New(errcode.Recovering, "startup recovery has not started its pass yet; try again in a moment")
+	}
+	return nil
+}
+
 func (e *Engine) env(p core.Principal) core.Env {
 	env := e.cfg.Base
 	env.Principal = p
@@ -276,6 +298,9 @@ func (e *Engine) Read(ctx context.Context, p core.Principal, ref core.ActionRef,
 // Plan validates input, runs the handler's Plan and stores the plan with its
 // canonical input sealed (spec section 3). The plan expires after PlanTTL.
 func (e *Engine) Plan(ctx context.Context, p core.Principal, ref core.ActionRef, input json.RawMessage, opts core.PlanOptions) (core.PlanView, error) {
+	if err := e.admit(ctx); err != nil {
+		return core.PlanView{}, err
+	}
 	def, err := e.action(ref)
 	if err != nil {
 		return core.PlanView{}, err

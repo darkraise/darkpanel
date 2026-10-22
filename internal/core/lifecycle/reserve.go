@@ -31,8 +31,9 @@ type rowQuerier interface {
 // Reserve gives key to owner in a write transaction of its own, so it must
 // not run inside another Write. It succeeds without change when owner already
 // holds key and nothing else is locked. It fails with update.in_progress
-// while another owner holds ReserveAll, and with update.unconfirmed_changes
-// while any other lock is held or a revertible change is applying or pending.
+// while another owner holds ReserveAll, and with update.unconfirmed_changes,
+// naming the first held lock, its owner and that owner's state, while any
+// other lock is held or a revertible change is applying or pending.
 func Reserve(ctx context.Context, db *store.DB, key, owner string) error {
 	err := db.Write(ctx, func(tx *sql.Tx) error {
 		var holder string
@@ -52,7 +53,11 @@ func Reserve(ctx context.Context, db *store.DB, key, owner string) error {
 		}
 		switch {
 		case others > 0:
-			return errcode.New(errcode.UpdateUnconfirmedChanges, "a change holds a lock; wait for it to finish")
+			detail, err := heldLock(ctx, tx, key, owner)
+			if err != nil {
+				return err
+			}
+			return errcode.New(errcode.UpdateUnconfirmedChanges, detail)
 		case mine > 0:
 			return nil
 		}
@@ -77,6 +82,25 @@ func Reserve(ctx context.Context, db *store.DB, key, owner string) error {
 		return fmt.Errorf("lifecycle: reserve %s for %s: %w", key, owner, err)
 	}
 	return nil
+}
+
+// heldLock names the first lock, by key, that another owner than owner of
+// key holds, with its owning change and that change's state, for
+// Reserve's refusal (1.3, locks across restarts and updates).
+func heldLock(ctx context.Context, tx *sql.Tx, key, owner string) (string, error) {
+	var held, holder, state string
+	err := tx.QueryRowContext(ctx,
+		`SELECT l.key, l.owner, coalesce(c.state, '') FROM core_locks l
+		 LEFT JOIN core_changes c ON c.id = l.owner
+		 WHERE NOT (l.key = ? AND l.owner = ?) ORDER BY l.key, l.owner LIMIT 1`, key, owner).
+		Scan(&held, &holder, &state)
+	if err != nil {
+		return "", err
+	}
+	if state == "" {
+		return fmt.Sprintf("lock %s is held by %s; wait for it to finish", held, holder), nil
+	}
+	return fmt.Sprintf("lock %s is held by change %s, which is %s; wait for it to finish", held, holder, state), nil
 }
 
 // Release deletes every lock row of owner.

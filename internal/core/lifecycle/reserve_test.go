@@ -217,3 +217,34 @@ func TestReserveRacesAnApply(t *testing.T) {
 		}
 	}
 }
+
+func TestReserveNamesTheFirstHeldLock(t *testing.T) {
+	cases := []struct {
+		name  string
+		setup func(f *fixture) string // returns the detail Reserve must give
+	}{
+		{"a change holds it", func(f *fixture) string {
+			id := f.recoverSeed("", refAdd, core.ClassCompensable, core.StateNeedsRepair, "")
+			f.recoverExec("INSERT INTO core_locks (key, owner) VALUES ('zz', ?), ('fix', ?)", id, id)
+			return "lock fix is held by change " + id + ", which is needs_repair; wait for it to finish"
+		}},
+		{"an owner that is not a change", func(f *fixture) string {
+			f.recoverExec("INSERT INTO core_locks (key, owner) VALUES ('fix', '01CHANGE')")
+			return "lock fix is held by 01CHANGE; wait for it to finish"
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFixture(t)
+			want := c.setup(f)
+			err := f.reserve(opA)
+			wantCode(t, err, errcode.UpdateUnconfirmedChanges)
+			// core.update.apply fails with this error, and the rollout
+			// scheduler shows the failed change's error message as the
+			// host's error.
+			if got := f.eng.changeError(refAdd, err).Message; got != want {
+				t.Errorf("the message a refused update shows = %q, want %q", got, want)
+			}
+		})
+	}
+}

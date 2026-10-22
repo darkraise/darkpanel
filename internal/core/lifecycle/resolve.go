@@ -82,6 +82,9 @@ func (e *Engine) Observe(ctx context.Context, p core.Principal, changeID string,
 // end of the claim in one transaction. A resolution never writes to the
 // host.
 func (e *Engine) Resolve(ctx context.Context, p core.Principal, changeID string, seq int, req core.ResolveRequest) (core.EffectView, error) {
+	if err := e.admit(ctx); err != nil {
+		return core.EffectView{}, err
+	}
 	if req.Resolution != core.ResolutionAccept && req.Resolution != core.ResolutionReconcile {
 		return core.EffectView{}, &errcode.Error{
 			Code: errcode.InvalidInput, Detail: "a resolution is accept or reconcile",
