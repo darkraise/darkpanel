@@ -192,7 +192,7 @@ func TestUninstallRemovesEverything(t *testing.T) {
 	if got := h.systemd.recorded(); !reflect.DeepEqual(got, want) {
 		t.Errorf("systemd calls\n got %v\nwant %v", got, want)
 	}
-	for _, step := range []string{"services:", "agent lock:", "modules:", "marked blocks:", "files:", "units:", "binary:", "data:"} {
+	for _, step := range []string{"barrier:", "services:", "agent lock:", "modules:", "marked blocks:", "files:", "units:", "binary:", "data:"} {
 		if !strings.Contains(out, "\n"+step) && !strings.HasPrefix(out, step) {
 			t.Errorf("output lacks the step %s:\n%s", step, out)
 		}
@@ -469,7 +469,7 @@ func TestDescribeUninstall(t *testing.T) {
 	u.Describe(&out)
 	conf, hosts, _, _ := m.paths()
 	for _, want := range []string{
-		"1. services", "8. data", "keep " + h.layout.DataDir, "file " + filepath.Clean(conf) + ", of module demo",
+		"1. barrier", "2. services", "9. data", "keep " + h.layout.DataDir, "file " + filepath.Clean(conf) + ", of module demo",
 		"block " + filepath.Clean(hosts) + " (block names), of module demo", "unit " + h.layout.DropInPath() + ", of module core",
 	} {
 		if !strings.Contains(out.String(), want) {

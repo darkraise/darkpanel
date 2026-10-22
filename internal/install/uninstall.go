@@ -2,6 +2,7 @@ package install
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +18,8 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/core/lifecycle"
 	"github.com/darkraise/darkpanel/internal/core/secret"
 	"github.com/darkraise/darkpanel/internal/core/store"
 	"github.com/darkraise/darkpanel/internal/platform"
@@ -27,6 +30,9 @@ import (
 // units stop within their TimeoutStopSec of 10 s.
 const StopTimeout = 30 * time.Second
 
+// taskUnits matches the transient units a change's task runs in (spec 1.3c).
+const taskUnits = "darkpanel-task-*.service"
+
 // UninstallConfig is what darkpanel uninstall needs.
 type UninstallConfig struct {
 	Layout Layout
@@ -34,6 +40,12 @@ type UninstallConfig struct {
 	// databases, backups, update records, role keys and agent credentials,
 	// and every user, so that a later install finds them.
 	KeepData bool
+	// StopTasks is --stop-tasks: the barrier step stops the active task
+	// units instead of refusing while one runs.
+	StopTasks bool
+	// Actor is the audit actor of AbortUninstall: local:root@<host id>, or
+	// core.ActorUnenrolled before the agent enrolled.
+	Actor string
 	// Modules are the compiled-in modules; each that implements
 	// core.Uninstaller runs its step.
 	Modules []core.Module
@@ -243,7 +255,13 @@ func (u *Uninstall) plan() []uninstallStep {
 		servicePlan = append(servicePlan, "stop and disable "+line)
 	}
 
+	barrier := "refuse new changes (the uninstall barrier); refuse to go on while a change is unfinished or a " +
+		taskUnits + " unit is active"
+	if u.cfg.StopTasks {
+		barrier = "refuse new changes (the uninstall barrier), then stop every active " + taskUnits + " unit"
+	}
 	steps := []uninstallStep{
+		{name: "barrier", plan: []string{barrier}, run: u.setBarrier},
 		{name: "services", plan: servicePlan,
 			run: func(ctx context.Context) (string, error) {
 				line, err := u.stopServices(ctx, services)
@@ -277,8 +295,11 @@ func (u *Uninstall) plan() []uninstallStep {
 	}
 	if u.cfg.KeepData {
 		steps = append(steps, uninstallStep{name: "data",
-			plan: []string{"keep " + l.DataDir + ", " + l.ConfigDir + " and every user"},
-			run: func(context.Context) (string, error) {
+			plan: []string{"keep " + l.DataDir + ", " + l.ConfigDir + " and every user", "clear the uninstall barrier, so a later install accepts changes"},
+			run: func(ctx context.Context) (string, error) {
+				if err := u.clearBarrier(ctx); err != nil {
+					return "", err
+				}
 				return "kept " + l.DataDir + ", " + l.ConfigDir + " and every user", u.closeDB()
 			}})
 	} else {
@@ -350,6 +371,116 @@ func (u *Uninstall) forget(ctx context.Context, e core.OwnedEntry) error {
 		return nil
 	}
 	return u.own.Forget(ctx, e.Module, e.Path, e.BlockID)
+}
+
+// setBarrier sets the uninstall barrier, so the agent accepts no new change
+// and starts no task while the uninstall runs (spec 1.3c and 1.11). Without
+// --stop-tasks it refuses, before setting the barrier, while a task unit is
+// active or a change is unfinished. With --stop-tasks it sets the barrier
+// first, so no task starts after its unit was stopped, then stops every
+// active task unit and waits for each to stop.
+func (u *Uninstall) setBarrier(ctx context.Context) (string, error) {
+	if u.db == nil {
+		return "no agent database; no change can be running", nil
+	}
+	if !u.cfg.StopTasks {
+		active, err := u.activeTaskUnits(ctx)
+		if err != nil {
+			return "", err
+		}
+		if len(active) > 0 {
+			return "", errcode.New(errcode.ChangeBusy, "the task units "+strings.Join(active, ", ")+
+				" are active; wait for them to finish, or uninstall with --stop-tasks")
+		}
+		if err := lifecycle.BeginUninstall(ctx, u.db, false); err != nil {
+			return "", err
+		}
+		return "set the uninstall barrier; no change is unfinished", nil
+	}
+	if err := lifecycle.BeginUninstall(ctx, u.db, true); err != nil {
+		return "", err
+	}
+	active, err := u.activeTaskUnits(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, unit := range active {
+		if err := u.cfg.Systemd.Stop(ctx, unit); err != nil {
+			return "", err
+		}
+	}
+	for _, unit := range active {
+		if err := u.waitStopped(ctx, unit); err != nil {
+			return "", err
+		}
+	}
+	if len(active) == 0 {
+		return "set the uninstall barrier; no task unit was active", nil
+	}
+	return "set the uninstall barrier and stopped " + strings.Join(active, ", "), nil
+}
+
+// activeTaskUnits names the task units that are neither inactive nor
+// failed, as waitStopped counts a stopped unit.
+func (u *Uninstall) activeTaskUnits(ctx context.Context) ([]string, error) {
+	units, err := u.cfg.Systemd.List(ctx, taskUnits)
+	if err != nil {
+		return nil, err
+	}
+	var active []string
+	for _, st := range units {
+		if st.ActiveState != "inactive" && st.ActiveState != "failed" {
+			active = append(active, st.Name)
+		}
+	}
+	return active, nil
+}
+
+// clearBarrier removes the uninstall barrier from the agent database
+// --keep-data keeps: the uninstall finished, and a later install must
+// accept changes.
+func (u *Uninstall) clearBarrier(ctx context.Context) error {
+	if u.db == nil {
+		return nil
+	}
+	return u.db.Write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, "DELETE FROM core_meta WHERE key = ?", lifecycle.MetaUninstalling)
+		return err
+	})
+}
+
+// AbortUninstall clears the uninstall barrier an uninstall set before it
+// stopped the services, so the agent accepts changes again (spec 1.11), and
+// audits it as cfg.Actor in the agent journal. It acts only while the agent
+// service is active: once the services were stopped, running the uninstall
+// again is the only way on, and AbortUninstall reports that it changed
+// nothing. It uses cfg's Layout, Systemd and Actor.
+func AbortUninstall(ctx context.Context, cfg UninstallConfig) (string, error) {
+	switch {
+	case cfg.Systemd == nil:
+		return "", errors.New("install: UninstallConfig.Systemd is required")
+	case cfg.Actor == "":
+		return "", errors.New("install: UninstallConfig.Actor is required")
+	}
+	st, err := cfg.Systemd.State(ctx, update.AgentUnit)
+	if err != nil {
+		return "", err
+	}
+	if st.ActiveState != "active" {
+		return "the services were stopped; there is nothing to abort", nil
+	}
+	db, err := store.Open(ctx, cfg.Layout.Paths.AgentDB())
+	if err != nil {
+		return "", fmt.Errorf("install: abort uninstall: %w", err)
+	}
+	err = lifecycle.AbortUninstall(ctx, db, cfg.Actor)
+	if cerr := db.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return "", err
+	}
+	return "the uninstall barrier is cleared; the agent accepts changes again", nil
 }
 
 // stopServices stops the services that exist, waits until they are down,
