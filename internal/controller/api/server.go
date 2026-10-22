@@ -8,9 +8,11 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/darkraise/darkpanel/internal/controller/auth"
+	"github.com/darkraise/darkpanel/internal/controller/events"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 )
@@ -66,6 +68,11 @@ type Config struct {
 	HealthStatus string
 	// Log receives internal errors and panics; nil discards.
 	Log *slog.Logger
+	// Events is the bus GET /api/v1/events streams; nil answers that route
+	// with not_found.
+	Events *events.Bus
+	// Clock times the event streams; nil means core.SystemClock{}.
+	Clock core.Clock
 }
 
 // Server serves the API. Its handlers are safe for concurrent use.
@@ -75,6 +82,11 @@ type Server struct {
 	mux       *http.ServeMux
 	handler   http.Handler
 	listeners atomic.Pointer[func() ListenerState]
+
+	eventsMu     sync.Mutex
+	eventStreams map[string]int // open GET /api/v1/events streams per Principal.Actor
+	streamsDone  chan struct{}  // closed by CloseStreams
+	closeStreams sync.Once
 }
 
 // ListenerState is the listener state the UI footer shows (spec section 13):
@@ -115,7 +127,10 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Log == nil {
 		cfg.Log = slog.New(slog.DiscardHandler)
 	}
-	s := &Server{cfg: cfg, log: cfg.Log, mux: http.NewServeMux()}
+	if cfg.Clock == nil {
+		cfg.Clock = core.SystemClock{}
+	}
+	s := &Server{cfg: cfg, log: cfg.Log, mux: http.NewServeMux(), eventStreams: map[string]int{}, streamsDone: make(chan struct{})}
 	for _, rt := range s.networkRoutes() {
 		h := rt.handler
 		if !rt.public {
@@ -193,12 +208,29 @@ func routeAccess(method, path string) access {
 	}
 }
 
+// streamRoute reports whether r asks for a stream: GET or HEAD of
+// /api/v1/events or of a relay, /api/v1/hosts/{host}/streams/{module}/{name}.
+// Its credentials are checked passively, so a stream never extends its
+// session's idle limit.
+func streamRoute(r *http.Request) bool {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+	if r.URL.Path == "/api/v1/events" {
+		return true
+	}
+	seg := strings.Split(r.URL.Path, "/")
+	return len(seg) == 8 && seg[0] == "" && seg[1] == "api" && seg[2] == "v1" && seg[3] == "hosts" && seg[4] != "" &&
+		seg[5] == "streams" && seg[6] != "" && seg[7] != ""
+}
+
 func safeMethod(method string) bool {
 	return method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions
 }
 
 // identify authenticates r. When an Authorization header is present only
-// its bearer token counts and the cookie is never read (spec section 9).
+// its bearer token counts and the cookie is never read (spec section 9). A
+// stream request is authenticated passively (streamRoute).
 func (s *Server) identify(r *http.Request) (caller, error) {
 	var session string
 	if ck, err := r.Cookie(sessionCookieName(r)); err == nil {
@@ -208,6 +240,7 @@ func (s *Server) identify(r *http.Request) (caller, error) {
 		Authorization: r.Header.Values("Authorization"),
 		Session:       session,
 		Source:        clientAddr(r),
+		Passive:       streamRoute(r),
 	})
 	if err != nil {
 		return caller{}, err
