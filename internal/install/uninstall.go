@@ -158,8 +158,9 @@ func (u *Uninstall) load(ctx context.Context) error {
 	return nil
 }
 
-// owned is every module's declaration plus every file and block of the
-// manifest, so an entry whose module no longer declares it is still removed.
+// owned is every module's declaration plus every file, block, unit file and
+// service directory of the manifest, so an entry whose module no longer
+// declares it is still removed.
 func (u *Uninstall) owned() map[string][]core.OwnedPath {
 	var mans []core.Manifest
 	for _, m := range u.cfg.Modules {
@@ -170,7 +171,7 @@ func (u *Uninstall) owned() map[string][]core.OwnedPath {
 		ops := owned[e.Module]
 		i := slices.IndexFunc(ops, func(op core.OwnedPath) bool { return op.Path == e.Path && op.Kind == e.Kind })
 		switch {
-		case e.Kind != core.OwnedFile && e.Kind != core.OwnedBlock:
+		case e.Kind != core.OwnedFile && e.Kind != core.OwnedBlock && e.Kind != core.OwnedUnit && e.Kind != core.OwnedServiceDir:
 		case i < 0:
 			op := core.OwnedPath{Path: e.Path, Kind: e.Kind}
 			if e.BlockID != "" {
@@ -229,6 +230,8 @@ func (u *Uninstall) plan() []uninstallStep {
 	dirs := u.selectEntries(func(e core.OwnedEntry) bool {
 		return e.Kind == core.OwnedDir && !isCore(e) && !within(e.Path, l.UnitDir) && !u.kept(e)
 	})
+	managed := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedManagedDir && !u.kept(e) })
+	serviceDirs := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedServiceDir && !u.kept(e) })
 	units := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedUnit })
 	unitDirs := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedDir && within(e.Path, l.UnitDir) })
 	users := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedUser })
@@ -241,8 +244,10 @@ func (u *Uninstall) plan() []uninstallStep {
 			run: u.takeAgentLock},
 		{name: "modules", plan: append([]string{"run each module's uninstall step"}, u.optionLines...), run: u.runModules},
 		{name: "marked blocks", plan: describe(blocks), run: func(ctx context.Context) (string, error) { return u.removeBlocks(ctx, blocks) }},
-		{name: "files", plan: describe(append(slices.Clone(files), dirs...)),
-			run: func(ctx context.Context) (string, error) { return u.removeFiles(ctx, files, dirs) }},
+		{name: "files", plan: describe(slices.Concat(files, managed, serviceDirs, dirs)),
+			run: func(ctx context.Context) (string, error) {
+				return u.removeFiles(ctx, files, managed, serviceDirs, dirs)
+			}},
 		{name: "units", plan: describe(append(slices.Clone(units), unitDirs...)),
 			run: func(ctx context.Context) (string, error) { return u.removeUnits(ctx, units, unitDirs) }},
 		{name: "binary", plan: []string{"remove " + l.Paths.BinaryDir + " and " + l.Paths.BinaryLink}, run: u.removeBinary},
@@ -435,7 +440,10 @@ func (u *Uninstall) removeBlocks(ctx context.Context, blocks []core.OwnedEntry) 
 	return fmt.Sprintf("removed %d marked blocks", len(blocks)), nil
 }
 
-func (u *Uninstall) removeFiles(ctx context.Context, files, dirs []core.OwnedEntry) (string, error) {
+// removeFiles removes the files, the managed directories with their
+// contents, the service directories through RemoveServiceDir, which stops at
+// a directory the module does not declare, and then the other directories.
+func (u *Uninstall) removeFiles(ctx context.Context, files, managed, serviceDirs, dirs []core.OwnedEntry) (string, error) {
 	for _, e := range files {
 		var err error
 		if u.files != nil {
@@ -447,6 +455,20 @@ func (u *Uninstall) removeFiles(ctx context.Context, files, dirs []core.OwnedEnt
 			return "", err
 		}
 	}
+	for _, e := range managed {
+		if err := removeManagedDir(e.Path); err != nil {
+			return "", err
+		}
+		if err := u.forget(ctx, e); err != nil {
+			return "", err
+		}
+	}
+	for _, e := range serviceDirs {
+		// Service directories come from agent.db, so u.files exists.
+		if err := u.files.RemoveServiceDir(ctx, e.Module, e.Path); err != nil {
+			return "", err
+		}
+	}
 	for _, e := range dirs {
 		if err := removeTree(e.Path); err != nil {
 			return "", err
@@ -455,13 +477,47 @@ func (u *Uninstall) removeFiles(ctx context.Context, files, dirs []core.OwnedEnt
 			return "", err
 		}
 	}
-	return fmt.Sprintf("removed %d files and %d directories", len(files), len(dirs)), nil
+	return fmt.Sprintf("removed %d files and %d directories", len(files), len(managed)+len(serviceDirs)+len(dirs)), nil
 }
 
-// removeUnits removes the unit files, then their drop-in directories when
-// nothing else is left in them, and reloads systemd.
+// removeManagedDir removes a managed directory with everything in it. A
+// symlink in any component of the path is refused, never followed (ADR 0009);
+// removeTree then removes a symlink inside the directory itself.
+func removeManagedDir(path string) error {
+	fd, err := unix.Openat2(unix.AT_FDCWD, path, &unix.OpenHow{
+		Flags:   unix.O_PATH | unix.O_CLOEXEC,
+		Resolve: unix.RESOLVE_NO_SYMLINKS,
+	})
+	switch {
+	case errors.Is(err, unix.ENOENT):
+		return nil
+	case err != nil:
+		return fmt.Errorf("install: open managed directory %s: %w", path, err)
+	}
+	_ = unix.Close(fd)
+	return removeTree(path)
+}
+
+// removeUnits stops and disables the modules' units, removes the unit files,
+// then their drop-in directories when nothing else is left in them, and
+// reloads systemd. The core's units were stopped and disabled by the services
+// step, and their files go as before.
 func (u *Uninstall) removeUnits(ctx context.Context, units, dirs []core.OwnedEntry) (string, error) {
 	for _, e := range units {
+		if e.Module == core.ModuleIDCore {
+			continue
+		}
+		if err := u.stopUnit(ctx, filepath.Base(e.Path)); err != nil {
+			return "", err
+		}
+	}
+	for _, e := range units {
+		if e.Module != core.ModuleIDCore && u.files != nil {
+			if err := u.files.Remove(ctx, e.Module, e.Path); err != nil {
+				return "", err
+			}
+			continue
+		}
 		if err := os.Remove(e.Path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return "", err
 		}
@@ -490,6 +546,25 @@ func (u *Uninstall) removeUnits(ctx context.Context, units, dirs []core.OwnedEnt
 		line += "; kept " + strings.Join(left, ", ") + ", which holds files Darkpanel did not write"
 	}
 	return line, nil
+}
+
+// stopUnit stops a module's unit, waits until it is down and disables it; a
+// unit systemd does not know is left to the file removal.
+func (u *Uninstall) stopUnit(ctx context.Context, unit string) error {
+	st, err := u.cfg.Systemd.State(ctx, unit)
+	if err != nil {
+		return err
+	}
+	if st.LoadState == "not-found" {
+		return nil
+	}
+	if err := u.cfg.Systemd.Stop(ctx, unit); err != nil {
+		return err
+	}
+	if err := u.waitStopped(ctx, unit); err != nil {
+		return err
+	}
+	return u.cfg.Systemd.Disable(ctx, unit)
 }
 
 func (u *Uninstall) removeBinary(ctx context.Context) (string, error) {

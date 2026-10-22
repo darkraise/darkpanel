@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -185,7 +186,8 @@ func TestUninstallRemovesEverything(t *testing.T) {
 	}
 	want := []string{
 		"Stop darkpanel-controller.service", "Stop darkpanel-agent.service",
-		"Disable darkpanel-controller.service darkpanel-agent.service darkpanel-update-recover.service", "Reload",
+		"Disable darkpanel-controller.service darkpanel-agent.service darkpanel-update-recover.service",
+		"Stop demo.service", "Disable demo.service", "Reload",
 	}
 	if got := h.systemd.recorded(); !reflect.DeepEqual(got, want) {
 		t.Errorf("systemd calls\n got %v\nwant %v", got, want)
@@ -476,5 +478,222 @@ func TestDescribeUninstall(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "file "+h.layout.Paths.AgentKey) {
 		t.Errorf("the --keep-data plan removes the agent key:\n%s", out.String())
+	}
+}
+
+// kindsModule declares a managed directory outside the data directory and one
+// inside it, a service directory with the subdirectory certs, a unit, a
+// restore file and a kernel parameter.
+type kindsModule struct{ l Layout }
+
+func (m kindsModule) paths() (outside, inside, svc, unit, restore string) {
+	etc := filepath.Dir(m.l.ConfigDir)
+	return filepath.Join(etc, "kinds-debs"), filepath.Join(m.l.DataDir, "kinds-tokens"), filepath.Join(etc, "kinds-svc"),
+		m.l.UnitPath("darkpanel-kinds.service"), filepath.Join(etc, "kinds.rules")
+}
+
+func (m kindsModule) Manifest() core.Manifest {
+	outside, inside, svc, unit, restore := m.paths()
+	return core.Manifest{ID: "kinds", Version: 1, OwnedPaths: []core.OwnedPath{
+		{Path: outside, Kind: core.OwnedManagedDir},
+		{Path: inside, Kind: core.OwnedManagedDir},
+		{Path: svc, Kind: core.OwnedServiceDir, User: "kinds", Subdirs: []string{"certs"}},
+		{Path: unit, Kind: core.OwnedUnit},
+		{Path: restore, Kind: core.OwnedRestore},
+		{Path: "net/ipv4/ip_forward", Kind: core.OwnedSysctl, Pattern: `^[01]$`},
+	}}
+}
+
+// kindsInstall lets kindsModule write its paths on h, as its actions would:
+// two files in each managed directory, the service directory with a
+// certificate, the unit file and the restore file.
+func kindsInstall(t *testing.T, h *testHost) kindsModule {
+	t.Helper()
+	ctx := context.Background()
+	m := kindsModule{l: h.layout}
+	outside, inside, svc, unit, restore := m.paths()
+	db, err := store.Open(ctx, h.layout.Paths.AgentDB())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	uid, gid := os.Geteuid(), os.Getegid()
+	files := platform.NewFiles(platform.FilesConfig{
+		Owned: platform.OwnedPaths([]core.Manifest{m.Manifest()}), Ownership: platform.NewOwnership(db), Clock: h.clock,
+		TestMode: true, LookupUser: func(string) (int, int, error) { return uid, gid, nil },
+	})
+	for _, dir := range []string{outside, inside} {
+		for _, name := range []string{"a.token", "b.token"} {
+			if err := files.WriteManaged(ctx, "kinds", dir, name, []byte(name), 0o600, uid, gid); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := files.EnsureServiceDir(ctx, "kinds", svc); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(svc, "certs", "a.crt"), []byte("cert"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := files.WriteFile(ctx, "kinds", unit, []byte("[Unit]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(restore, []byte("rules\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+// kindsConfig is h's uninstall with the demo module and kindsModule.
+func kindsConfig(h *testHost, m *demoModule, km kindsModule, keepData bool) UninstallConfig {
+	cfg := h.uninstallConfig(m, keepData)
+	cfg.Modules = append(cfg.Modules, km)
+	return cfg
+}
+
+func TestUninstallRemovesManagedDirs(t *testing.T) {
+	h, m := installHost(t, RoleController)
+	km := kindsInstall(t, h)
+	outside, inside, _, _, _ := km.paths()
+	u, err := PlanUninstall(context.Background(), kindsConfig(h, m, km, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var plan bytes.Buffer
+	u.Describe(&plan)
+	_ = u.Close()
+	for _, dir := range []string{outside, inside} {
+		if want := "managed-dir " + dir + ", of module kinds"; !strings.Contains(plan.String(), want) {
+			t.Errorf("plan lacks %q:\n%s", want, plan.String())
+		}
+	}
+	if out, err := runUninstall(t, kindsConfig(h, m, km, false)); err != nil {
+		t.Fatalf("Run: %v\n%s", err, out)
+	}
+	for _, dir := range []string{outside, inside} {
+		if exists(t, dir) {
+			t.Errorf("%s is left", dir)
+		}
+	}
+
+	h, m = installHost(t, RoleController)
+	km = kindsInstall(t, h)
+	outside, inside, _, _, _ = km.paths()
+	if out, err := runUninstall(t, kindsConfig(h, m, km, true)); err != nil {
+		t.Fatalf("Run with --keep-data: %v\n%s", err, out)
+	}
+	if exists(t, outside) {
+		t.Errorf("--keep-data kept %s, which is outside the data directory", outside)
+	}
+	for _, name := range []string{"a.token", "b.token"} {
+		if !exists(t, filepath.Join(inside, name)) {
+			t.Errorf("--keep-data removed %s from %s", name, inside)
+		}
+	}
+	got := manifest(t, h.layout)
+	if !slices.Contains(got, "managed-dir "+inside+" (module kinds)") || slices.Contains(got, "managed-dir "+outside+" (module kinds)") {
+		t.Errorf("manifest %v: want the kept directory recorded and the removed one forgotten", got)
+	}
+}
+
+func TestUninstallRefusesSymlinkedManagedDir(t *testing.T) {
+	h, m := installHost(t, RoleController)
+	km := kindsInstall(t, h)
+	outside, _, _, _, _ := km.paths()
+	if err := os.Rename(outside, outside+".real"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Base(outside)+".real", outside); err != nil {
+		t.Fatal(err)
+	}
+	_, err := runUninstall(t, kindsConfig(h, m, km, false))
+	if err == nil || !strings.Contains(err.Error(), "files: install: open managed directory "+outside) {
+		t.Fatalf("Run = %v, want the files step to refuse the symlinked %s", err, outside)
+	}
+	if !exists(t, filepath.Join(outside+".real", "a.token")) {
+		t.Error("the symlink's target directory lost its files")
+	}
+}
+
+func TestUninstallRemovesServiceDirs(t *testing.T) {
+	h, m := installHost(t, RoleController)
+	km := kindsInstall(t, h)
+	_, _, svc, _, _ := km.paths()
+	extra := filepath.Join(svc, "extra")
+	if err := os.Mkdir(extra, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, err := runUninstall(t, kindsConfig(h, m, km, true))
+	if err == nil || !strings.Contains(err.Error(), "files: ") || !strings.Contains(err.Error(), "extra") {
+		t.Fatalf("Run = %v, want the files step to stop at the undeclared extra", err)
+	}
+	if !exists(t, filepath.Join(svc, "certs", "a.crt")) {
+		t.Fatal("the refused removal removed part of the service directory")
+	}
+	if err := os.Remove(extra); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := runUninstall(t, kindsConfig(h, m, km, true)); err != nil {
+		t.Fatalf("second Run: %v\n%s", err, out)
+	}
+	if exists(t, svc) {
+		t.Errorf("%s is left", svc)
+	}
+	if got := manifest(t, h.layout); slices.Contains(got, "service-dir "+svc+" (module kinds)") {
+		t.Errorf("manifest %v still records %s", got, svc)
+	}
+}
+
+func TestUninstallStopsModuleUnits(t *testing.T) {
+	h, m := installHost(t, RoleController)
+	km := kindsInstall(t, h)
+	_, _, _, unit, _ := km.paths()
+	h.systemd.failOn("Disable darkpanel-kinds.service", errors.New("refused"))
+	_, err := runUninstall(t, kindsConfig(h, m, km, false))
+	if err == nil || !strings.Contains(err.Error(), "units: refused") {
+		t.Fatalf("Run = %v, want the units step to fail at Disable", err)
+	}
+	if !exists(t, unit) {
+		t.Fatal("the unit file was removed before the unit was disabled")
+	}
+	h.systemd.failOn("Disable darkpanel-kinds.service", nil)
+	h.systemd.calls = nil
+	if out, err := runUninstall(t, kindsConfig(h, m, km, false)); err != nil {
+		t.Fatalf("second Run: %v\n%s", err, out)
+	}
+	if exists(t, unit) {
+		t.Errorf("%s is left", unit)
+	}
+	want := []string{
+		"Stop darkpanel-controller.service", "Stop darkpanel-agent.service",
+		"Disable darkpanel-controller.service darkpanel-agent.service darkpanel-update-recover.service",
+		"Stop darkpanel-kinds.service", "Disable darkpanel-kinds.service", "Stop demo.service", "Disable demo.service", "Reload",
+	}
+	if got := h.systemd.recorded(); !reflect.DeepEqual(got, want) {
+		t.Errorf("systemd calls\n got %v\nwant %v", got, want)
+	}
+}
+
+func TestUninstallLeavesRestoreAndSysctl(t *testing.T) {
+	h, m := installHost(t, RoleController)
+	km := kindsInstall(t, h)
+	_, _, _, _, restore := km.paths()
+	u, err := PlanUninstall(context.Background(), kindsConfig(h, m, km, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var plan bytes.Buffer
+	u.Describe(&plan)
+	_ = u.Close()
+	for _, s := range []string{restore, "ip_forward"} {
+		if strings.Contains(plan.String(), s) {
+			t.Errorf("the plan names %s:\n%s", s, plan.String())
+		}
+	}
+	if out, err := runUninstall(t, kindsConfig(h, m, km, false)); err != nil {
+		t.Fatalf("Run: %v\n%s", err, out)
+	}
+	if got := string(readBytes(t, restore)); got != "rules\n" {
+		t.Errorf("the restore file holds %q, want it untouched", got)
 	}
 }
