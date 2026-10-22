@@ -237,7 +237,7 @@ func (s *Server) socketAction(op string) http.HandlerFunc {
 			err = errcode.New(errcode.Forbidden, "the controller socket serves only break-glass actions")
 		}
 		if err == nil {
-			err = authorize(c.principal, RequiredScope(def.Spec.Class, def.Spec.Side))
+			err = authorize(c.principal, core.RequiredScope(def.Spec))
 		}
 		if err != nil {
 			writeProblem(w, s.log, err)

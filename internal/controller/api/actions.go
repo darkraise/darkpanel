@@ -191,7 +191,7 @@ func (s *Server) actionHandler(side core.Side, op string) http.HandlerFunc {
 			err = errcode.New(errcode.Forbidden, "break-glass actions are served only on the controller socket")
 		}
 		if err == nil {
-			err = authorize(c.principal, RequiredScope(def.Spec.Class, def.Spec.Side))
+			err = authorize(c.principal, core.RequiredScope(def.Spec))
 		}
 		if err != nil {
 			writeProblem(w, s.log, err)
@@ -391,16 +391,15 @@ func errHiddenChange(id string) error {
 	return errcode.New(errcode.ChangeNotFound, fmt.Sprintf("no change %s", id))
 }
 
-// authorizeChange applies to a confirm or revert the scope of the change's
-// own action, never of the route: RequiredScope of its class and side. v
-// must be networkVisible, so an unregistered action is agent-side and its
-// stored class decides.
+// authorizeChange applies to an operation on a change the scope of the
+// change's own action, never of the route: core.RequiredScope of its spec,
+// MinScope included. v must be networkVisible, so an unregistered action is
+// agent-side and its stored class decides.
 func (s *Server) authorizeChange(p core.Principal, v core.ChangeView) error {
-	class, side := v.Class, core.SideAgent
 	if def, ok := s.cfg.Registry.Action(core.ActionRef{Name: v.Action, Version: v.Version}); ok {
-		class, side = def.Spec.Class, def.Spec.Side
+		return authorize(p, core.RequiredScope(def.Spec))
 	}
-	return authorize(p, RequiredScope(class, side))
+	return authorize(p, RequiredScope(v.Class, core.SideAgent))
 }
 
 // changeOp serves confirm or revert. It reads the change first, as the

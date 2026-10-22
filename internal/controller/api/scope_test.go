@@ -1,7 +1,10 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -52,5 +55,118 @@ func TestRequiredScope(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// mscComposite is the handler of msc.stack.deploy; no test runs it.
+type mscComposite struct{}
+
+func (mscComposite) Steps(context.Context, core.Env, demoInput) ([]core.Step, error) { return nil, nil }
+
+func (mscComposite) Output(context.Context, core.Env, demoInput, map[string]json.RawMessage) (demoOutput, error) {
+	return demoOutput{}, nil
+}
+
+// mscModule raises two agent actions to admin with MinScope and leaves a
+// third at its default scope.
+type mscModule struct{}
+
+func (mscModule) Manifest() core.Manifest {
+	h := demoHandler[demoInput, demoOutput]{}
+	return core.Manifest{ID: "msc", Version: 1, Actions: []core.ActionDef{
+		core.DefineRead(core.ActionSpec{Name: "msc.secret.list", Version: 1, Side: core.SideAgent, MinScope: core.ScopeAdmin}, h),
+		core.DefineMutating(core.ActionSpec{Name: "msc.key.rotate", Version: 1, Class: core.ClassCompensable, Side: core.SideAgent,
+			ForwardOnly: true, Converges: true, MinScope: core.ScopeAdmin}, h),
+		core.DefineMutating(core.ActionSpec{Name: "msc.item.add", Version: 1, Class: core.ClassCompensable, Side: core.SideAgent,
+			ForwardOnly: true, Converges: true}, h),
+		core.DefineComposite(core.ActionSpec{Name: "msc.stack.deploy", Version: 1, Unwind: core.UnwindReverse}, mscComposite{}),
+	}}
+}
+
+// mscReached records the dispatcher calls that passed authorization.
+func mscReached(h *harness) *[]string {
+	var reached []string
+	h.disp.ReadFunc = func(_ context.Context, _ core.Principal, _ string, a core.ActionRef, _ json.RawMessage) (json.RawMessage, error) {
+		reached = append(reached, "read "+a.Name)
+		return json.RawMessage(`{}`), nil
+	}
+	h.disp.PlanFunc = func(_ context.Context, _ core.Principal, hostID string, a core.ActionRef, _ json.RawMessage, _ core.PlanOptions) (core.PlanView, error) {
+		reached = append(reached, "plan "+a.Name)
+		return core.PlanView{PlanID: "p1", HostID: hostID, Action: a.Name, Version: a.Version}, nil
+	}
+	return &reached
+}
+
+func TestMinScopeOnActionRoutes(t *testing.T) {
+	h := newHarnessWith(t, mscModule{})
+	reached := mscReached(h)
+	operate, admin := h.token(core.ScopeOperate), h.token(core.ScopeAdmin)
+	const host = "/api/v1/hosts/h1/actions/"
+	body := `{"input":{"name":"x"}}`
+	for _, tc := range []struct {
+		path, token string
+		need        core.Scope // "" when the call is authorized
+	}{
+		{host + "msc.secret.list/v1/read", operate, core.ScopeAdmin},
+		{host + "msc.secret.list/v1/read", admin, ""},
+		{host + "msc.key.rotate/v1/plan", operate, core.ScopeAdmin},
+		{host + "msc.key.rotate/v1/plan", admin, ""},
+		{host + "msc.item.add/v1/plan", operate, ""},
+		{"/api/v1/actions/msc.stack.deploy/v1/plan", operate, core.ScopeAdmin},
+		{"/api/v1/actions/msc.stack.deploy/v1/plan", admin, ""},
+	} {
+		rec := h.serve(withToken(request("POST", tc.path, body), tc.token))
+		if tc.need == "" {
+			if rec.Code != 200 {
+				t.Errorf("%s: %d %s, want it dispatched", tc.path, rec.Code, rec.Body)
+			}
+			continue
+		}
+		p := decodeProblem(t, rec, 403, errcode.Forbidden)
+		if p.Detail != "this request needs the "+string(tc.need)+" scope" {
+			t.Errorf("%s: detail %q, want it to name %s", tc.path, p.Detail, tc.need)
+		}
+	}
+	want := []string{"read msc.secret.list", "plan msc.key.rotate", "plan msc.item.add", "plan msc.stack.deploy"}
+	if !slices.Equal(*reached, want) {
+		t.Errorf("the dispatcher saw %v, want %v", *reached, want)
+	}
+}
+
+func TestMinScopeOnChanges(t *testing.T) {
+	h := newHarnessWith(t, mscModule{})
+	changes := map[string]core.ChangeView{
+		"c-raised": {ID: "c-raised", HostID: "h1", Action: "msc.key.rotate", Version: 1, Class: core.ClassCompensable,
+			State: core.StateCompleted},
+		"c-gone": {ID: "c-gone", HostID: "h1", Action: "gone.thing.set", Version: 1, Class: core.ClassCompensable,
+			State: core.StateCompleted},
+	}
+	var reached []string
+	h.disp.ChangeFunc = func(_ context.Context, _ core.Principal, id string) (core.ChangeView, error) {
+		return changes[id], nil
+	}
+	answer := func(op string) func(context.Context, core.Principal, string) (core.ChangeView, error) {
+		return func(_ context.Context, _ core.Principal, id string) (core.ChangeView, error) {
+			reached = append(reached, op+" "+id)
+			return changes[id], nil
+		}
+	}
+	h.disp.ConfirmFunc, h.disp.RevertFunc, h.disp.UndoFunc = answer("confirm"), answer("revert"), answer("undo")
+	operate, admin := h.token(core.ScopeOperate), h.token(core.ScopeAdmin)
+	for _, op := range []string{"confirm", "revert", "undo"} {
+		rec := h.serve(withToken(request("POST", "/api/v1/changes/c-raised/"+op, ""), operate))
+		if p := decodeProblem(t, rec, 403, errcode.Forbidden); p.Detail != "this request needs the admin scope" {
+			t.Errorf("%s by operate: detail %q", op, p.Detail)
+		}
+		if rec := h.serve(withToken(request("POST", "/api/v1/changes/c-raised/"+op, ""), admin)); rec.Code != 200 {
+			t.Errorf("%s by admin: %d %s", op, rec.Code, rec.Body)
+		}
+		if rec := h.serve(withToken(request("POST", "/api/v1/changes/c-gone/"+op, ""), operate)); rec.Code != 200 {
+			t.Errorf("%s of an unregistered action by operate: %d %s", op, rec.Code, rec.Body)
+		}
+	}
+	want := []string{"confirm c-raised", "confirm c-gone", "revert c-raised", "revert c-gone", "undo c-raised", "undo c-gone"}
+	if !slices.Equal(reached, want) {
+		t.Errorf("the dispatcher saw %v, want %v", reached, want)
 	}
 }
