@@ -30,8 +30,8 @@ type planWire struct {
 
 // changeWire is the API's Change. A change from the agent socket is
 // converted to it, so --json prints the same object either way. The
-// lifecycle fields of spec 1.3 are left out when unset: the agent socket's
-// change has none of them, and its --json stays as it was.
+// lifecycle fields of spec 1.3 are left out when unset, so a change without
+// them prints as it did before they existed.
 type changeWire struct {
 	ID             string           `json:"id"`
 	HostID         *string          `json:"hostId"`

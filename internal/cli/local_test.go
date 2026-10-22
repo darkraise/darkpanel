@@ -214,6 +214,37 @@ func TestLocalMutatingPrintsLikeTheAPI(t *testing.T) {
 	}
 }
 
+func TestLocalApplyWaitsForAnApplyingChange(t *testing.T) {
+	saved := changePoll
+	changePoll = time.Millisecond
+	t.Cleanup(func() { changePoll = saved })
+	view := func(state string) core.ChangeView {
+		return core.ChangeView{ID: "c1", HostID: "h1", Action: "demo.item.add", Actor: "token:t1", Version: 1,
+			Class: core.ClassCompensable, State: state}
+	}
+	reads := 0
+	agent := &coretest.FakeAgent{
+		PlanFunc: func(_ context.Context, _ core.Principal, a core.ActionRef, _ json.RawMessage, _ core.PlanOptions) (core.PlanView, error) {
+			return core.PlanView{PlanID: "p1", HostID: "h1", Action: a.Name, Version: a.Version}, nil
+		},
+		ApplyFunc: func(context.Context, core.Principal, string, core.ApplyOptions) (core.ChangeView, error) {
+			return view(core.StateApplying), nil
+		},
+		ChangeFunc: func(_ context.Context, id string) (core.ChangeView, error) {
+			reads++
+			if id != "c1" {
+				t.Errorf("read change %q", id)
+			}
+			return view("applied"), nil
+		},
+	}
+	out, errOut, code := cliEnv{stdin: "key-1\npass-1\n", agentSocket: agentSocket(t, agent)}.run(t,
+		"demo", "item", "add", "--name", "n1", "--yes", "--local")
+	if code != 0 || !strings.Contains(out, "Change c1: applied\n") || strings.Contains(out, "applying") || reads != 1 {
+		t.Errorf("exit %d, out %q, err %q, reads %d; want the final state after one read", code, out, errOut, reads)
+	}
+}
+
 func TestLocalConfirmations(t *testing.T) {
 	limits := filepath.Join(t.TempDir(), "limits.json")
 	if err := os.WriteFile(limits, []byte(`{"limits":{"max":10}}`), 0o600); err != nil {
