@@ -148,7 +148,17 @@ func (e *Engine) begin(ctx context.Context, p core.Principal, planID string, opt
 	// holder were reverted after the snapshot, reverting this change would
 	// re-apply it. Only applies take locks and they hold applyMu, so a key
 	// found free here stays free until takeLocks.
-	if err := locksFree(ctx, db.Read(), def.Spec.LockKeys); err != nil {
+	repairs, err := planRepairs(ctx, db.Read(), planID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if repairs == "" {
+		if err := locksFree(ctx, db.Read(), def.Spec.LockKeys); err != nil {
+			return nil, nil, err
+		}
+	} else if err := repairTargetReady(ctx, db.Read(), repairs); err != nil {
+		// A repair plan's keys are held by its target, which hands them over
+		// in the intent transaction.
 		return nil, nil, err
 	}
 	env := e.env(p)
@@ -182,6 +192,11 @@ func (e *Engine) begin(ctx context.Context, p core.Principal, planID string, opt
 	}
 	created := formatTime(now)
 	err = db.Write(ctx, func(tx *sql.Tx) error {
+		if repairs != "" {
+			if err := takeRepairTarget(ctx, tx, now, repairs, it.id); err != nil {
+				return err
+			}
+		}
 		epochs, err := takeLocks(ctx, tx, it.id, def.Spec.LockKeys, true)
 		if err != nil {
 			return err
@@ -541,6 +556,9 @@ func (e *Engine) transitionTx(ctx context.Context, tx *sql.Tx, changeID string, 
 		return v, errcode.New(errcode.ChangeNotPending, fmt.Sprintf("change %s is %s", changeID, state))
 	}
 	now := e.cfg.Base.Clock.Now()
+	if err := e.repairTransition(ctx, tx, now, changeID, &tr); err != nil {
+		return v, err
+	}
 	var code, msg, cause, owner, retry, outcome any
 	if tr.err != nil {
 		code, msg = tr.err.Code, tr.err.Message

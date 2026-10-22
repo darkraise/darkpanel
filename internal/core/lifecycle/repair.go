@@ -3,8 +3,11 @@ package lifecycle
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
@@ -193,4 +196,154 @@ func (e *Engine) planRepair(ctx context.Context, p core.Principal, def core.Acti
 	env := e.env(p)
 	env.Call = core.CallContext{RepairOf: repairs}
 	return e.makePlan(ctx, p, def, canonical, env, nil, repairs)
+}
+
+// planRepairs returns the change a plan repairs, or "" for an ordinary
+// plan.
+func planRepairs(ctx context.Context, q queryer, planID string) (string, error) {
+	var repairs sql.NullString
+	err := q.QueryRowContext(ctx, "SELECT repairs FROM core_plans WHERE id = ?", planID).Scan(&repairs)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("lifecycle: read plan %s: %w", planID, err)
+	}
+	return repairs.String, nil
+}
+
+// repairTargetReady is the re-check of spec 1.3, Repair change P of R: R
+// is needs_repair, unowned and without recovery_retry, and neither R nor a
+// failed repair change of R has an unresolved effect. A second plan made
+// before an earlier attempt failed is caught here.
+func repairTargetReady(ctx context.Context, q queryer, target string) error {
+	f, err := loadFacts(ctx, q, target)
+	if err != nil {
+		return err
+	}
+	switch {
+	case f.owner != "":
+		return errcode.New(errcode.ChangeBusy, fmt.Sprintf("change %s is owned by %s", target, f.owner))
+	case f.state != core.StateNeedsRepair:
+		return errcode.New(errcode.ChangeBusy,
+			fmt.Sprintf("change %s is %s; this repair plan no longer applies", target, f.state))
+	case f.retry:
+		return errcode.New(errcode.NeedsRepair,
+			fmt.Sprintf("change %s: repair it: its recovery handler has not finished", target))
+	}
+	n, err := unresolvedCount(ctx, q, target, true)
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		return errcode.New(errcode.NeedsRepair,
+			fmt.Sprintf("change %s has an unresolved effect: resolve its effects first", target))
+	}
+	return nil
+}
+
+// takeRepairTarget runs in the intent transaction of the repair change p.
+// It re-checks the target, gives it owner repair and repaired_by p, and
+// moves every lock row of the target to p, so the keys are never free in
+// between; p's own takeLocks then finds its keys held by p and increments
+// their epochs.
+func takeRepairTarget(ctx context.Context, tx *sql.Tx, now time.Time, target, p string) error {
+	if err := repairTargetReady(ctx, tx, target); err != nil {
+		return err
+	}
+	if err := claim(ctx, tx, now, target, "", core.OwnerRepair, core.StateNeedsRepair, core.StateNeedsRepair); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE core_changes SET repaired_by = ? WHERE id = ?", p, target); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, "UPDATE core_locks SET owner = ? WHERE owner = ?", p, target)
+	return err
+}
+
+// repairTransition applies the table of spec 1.3, Repair change P of R,
+// when changeID is a repair change whose transition tr ends its run. It
+// runs inside tr's transaction before the change's row is written: it
+// marks the target repaired when P completed or was confirmed, gives the
+// locks back to the target when P failed or was reverted, and records as
+// failed an outcome that would leave P in needs_repair, because a repair
+// change is never repaired itself.
+func (e *Engine) repairTransition(ctx context.Context, tx *sql.Tx, now time.Time, changeID string, tr *transition) error {
+	var target, action, output sql.NullString
+	if err := tx.QueryRowContext(ctx,
+		`SELECT p.repairs, c.action, c.output_json FROM core_changes c JOIN core_plans p ON p.id = c.plan_id
+		 WHERE c.id = ?`, changeID).Scan(&target, &action, &output); err != nil {
+		return err
+	}
+	if target.String == "" {
+		return nil
+	}
+	switch tr.to {
+	case core.StateCompleted, core.StateConfirmed:
+		out := tr.output
+		if len(out) == 0 {
+			out = json.RawMessage(output.String)
+		}
+		outcome, err := e.repairOutcomeOf(ctx, tx, changeID, action.String, target.String, out)
+		if err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx,
+			`UPDATE core_changes SET state = ?, repair_outcome = ?, recovery_owner = '', updated_at = ?
+			 WHERE id = ? AND state = ? AND recovery_owner = ?`,
+			core.StateRepaired, outcome, formatTime(now), target.String, core.StateNeedsRepair, core.OwnerRepair)
+		if err != nil {
+			return err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n != 1 {
+			return fmt.Errorf("lifecycle: change %s is no longer held by its repair change %s", target.String, changeID)
+		}
+		// A repaired change is terminal, so its plan keeps only the hash.
+		_, err = tx.ExecContext(ctx,
+			"UPDATE core_plans SET input_ct = NULL WHERE id = (SELECT plan_id FROM core_changes WHERE id = ?)",
+			target.String)
+		return err
+	case core.StateNeedsRepair:
+		tr.to, tr.release, tr.keepLocks, tr.giveBack = core.StateFailed, true, false, false
+		return returnRepairTarget(ctx, tx, now, changeID, target.String)
+	case core.StateFailed, core.StateReverted, core.StateInterrupted:
+		return returnRepairTarget(ctx, tx, now, changeID, target.String)
+	}
+	return nil
+}
+
+// returnRepairTarget moves the locks of the repair change p back to its
+// target and ends the target's repair ownership.
+func returnRepairTarget(ctx context.Context, tx *sql.Tx, now time.Time, p, target string) error {
+	if _, err := tx.ExecContext(ctx, "UPDATE core_locks SET owner = ? WHERE owner = ?", target, p); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx,
+		"UPDATE core_changes SET recovery_owner = '', updated_at = ? WHERE id = ? AND recovery_owner = ?",
+		formatTime(now), target, core.OwnerRepair)
+	return err
+}
+
+// repairOutcomeOf is the repairOutcome a completed repair change reports
+// relative to its target: a re-apply of the target's own action leaves the
+// host in the target's intended state, so it is always kept; a RepairedBy
+// action reports it in its output field repairOutcome. A missing or unknown
+// value is stored as NULL and logged.
+func (e *Engine) repairOutcomeOf(ctx context.Context, tx *sql.Tx, p, pAction, target string, out json.RawMessage) (any, error) {
+	var rAction string
+	if err := tx.QueryRowContext(ctx, "SELECT action FROM core_changes WHERE id = ?", target).Scan(&rAction); err != nil {
+		return nil, err
+	}
+	if pAction == rAction {
+		return core.RepairKept, nil
+	}
+	var o struct {
+		RepairOutcome string `json:"repairOutcome"`
+	}
+	if json.Unmarshal(out, &o) == nil && (o.RepairOutcome == core.RepairRestored || o.RepairOutcome == core.RepairKept) {
+		return o.RepairOutcome, nil
+	}
+	e.cfg.Base.Log.Warn("lifecycle: a repair change reported no repairOutcome", "change", p, "target", target)
+	return nil, nil
 }
