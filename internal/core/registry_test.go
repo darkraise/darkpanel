@@ -553,3 +553,81 @@ func TestRegistryExternalUnits(t *testing.T) {
 		})
 	}
 }
+
+// scpGuardedIn is an input that embeds Guarded.
+type scpGuardedIn struct {
+	Guarded
+	Name string `json:"name"`
+}
+
+// scpMutator is a forward-only handler over input In.
+type scpMutator[In any] struct{}
+
+func (scpMutator[In]) Plan(context.Context, Env, In) (PlanOutcome, error) { return PlanOutcome{}, nil }
+
+func (scpMutator[In]) Apply(context.Context, Env, In) (echoOut, error) { return echoOut{}, nil }
+
+func (scpMutator[In]) Verify(context.Context, Env, In, echoOut) error { return nil }
+
+// scpAction is the forward-only compensable agent action scp.rule.add over
+// input In, with spec's Guards and MinScope.
+func scpAction[In any](spec ActionSpec) ActionDef {
+	spec.Name, spec.Version, spec.Class, spec.Side = "scp.rule.add", 1, ClassCompensable, SideAgent
+	spec.ForwardOnly, spec.Converges = true, true
+	return DefineMutating[In, echoOut](spec, scpMutator[In]{})
+}
+
+func TestRegistryGuards(t *testing.T) {
+	lockout := GuardSpec{ID: "scp.lockout", Overridable: true}
+	tests := []struct {
+		name string
+		def  ActionDef
+		want string // "" when the registry is valid
+	}{
+		{"guards with Guarded", scpAction[scpGuardedIn](ActionSpec{Guards: []GuardSpec{lockout, {ID: "scp.quota"}}}), ""},
+		{"guards without Guarded", scpAction[echoIn](ActionSpec{Guards: []GuardSpec{lockout}}),
+			"action scp.rule.add/v1: an action with Guards has an input type that embeds core.Guarded"},
+		{"Guarded without guards", scpAction[scpGuardedIn](ActionSpec{}),
+			"action scp.rule.add/v1: an input type that embeds core.Guarded belongs to an action with Guards"},
+		{"guard without an ID", scpAction[scpGuardedIn](ActionSpec{Guards: []GuardSpec{{Overridable: true}}}),
+			"action scp.rule.add/v1: a guard has an empty ID"},
+		{"guard declared twice", scpAction[scpGuardedIn](ActionSpec{Guards: []GuardSpec{lockout, {ID: "scp.lockout"}}}),
+			"action scp.rule.add/v1: guard scp.lockout is declared twice"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewRegistry(testModule{ID: "scp", Version: 1, Actions: []ActionDef{tt.def}})
+			switch {
+			case tt.want == "" && err != nil:
+				t.Fatalf("NewRegistry: %v", err)
+			case tt.want != "" && (err == nil || !strings.Contains(err.Error(), tt.want)):
+				t.Fatalf("NewRegistry error = %v, want one containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestRegistryMinScope(t *testing.T) {
+	tests := []struct {
+		name  string
+		scope Scope
+		want  string // "" when the registry is valid
+	}{
+		{"unknown scope", "root", `action scp.rule.add/v1: unknown MinScope "root"`},
+		{"below the default", ScopeRead, "action scp.rule.add/v1: MinScope read is below the operate scope the action needs; MinScope only raises"},
+		{"equal to the default", ScopeOperate, ""},
+		{"raised", ScopeAdmin, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			def := scpAction[echoIn](ActionSpec{MinScope: tt.scope})
+			_, err := NewRegistry(testModule{ID: "scp", Version: 1, Actions: []ActionDef{def}})
+			switch {
+			case tt.want == "" && err != nil:
+				t.Fatalf("NewRegistry: %v", err)
+			case tt.want != "" && (err == nil || !strings.Contains(err.Error(), tt.want)):
+				t.Fatalf("NewRegistry error = %v, want one containing %q", err, tt.want)
+			}
+		})
+	}
+}
