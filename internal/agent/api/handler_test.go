@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -286,4 +288,99 @@ func TestHandlerAgentErrors(t *testing.T) {
 
 	fail = &errcode.Error{Code: "newer.code", Detail: "from the future"}
 	wantProblem(t, call(t, h, "GET", "/agent/v1/changes/c1", nil, nil), 500, errcode.Internal)
+}
+
+func TestCallHeader(t *testing.T) {
+	ctx := context.Background()
+	var plans []core.PlanOptions
+	var applies []core.ApplyOptions
+	fake := &coretest.FakeAgent{
+		PlanFunc: func(_ context.Context, _ core.Principal, _ core.ActionRef, _ json.RawMessage, opts core.PlanOptions) (core.PlanView, error) {
+			plans = append(plans, opts)
+			return testPlan, nil
+		},
+		ApplyFunc: func(_ context.Context, _ core.Principal, _ string, opts core.ApplyOptions) (core.ChangeView, error) {
+			applies = append(applies, opts)
+			return testChange, nil
+		},
+	}
+	h := NewHandler(Config{Agent: fake, Log: discardLog()})
+	c := tcpClient(t, h, nil)
+	ref := core.ActionRef{Name: "demo.item.set", Version: 1}
+	// RepairOf is never sent: the agent derives it from the repair plan.
+	sent := &core.CallContext{ParentChangeID: "01COMP", ParentAction: "cfx.deploy.add", StepID: "db", RepairOf: "01OLD",
+		Retired: []string{"x1"}}
+	want := &core.CallContext{ParentChangeID: "01COMP", ParentAction: "cfx.deploy.add", StepID: "db", Retired: []string{"x1"}}
+
+	if _, err := c.Plan(ctx, testPrincipal, ref, json.RawMessage(`{}`), core.PlanOptions{Call: sent}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Plan(ctx, testPrincipal, ref, json.RawMessage(`{}`), core.PlanOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Apply(ctx, testPrincipal, "p1", core.ApplyOptions{ConfirmNow: true, Call: sent}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Apply(ctx, testPrincipal, "p1", core.ApplyOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if wantPlans := []core.PlanOptions{{Call: want}, {}}; !reflect.DeepEqual(plans, wantPlans) {
+		t.Errorf("plan options %+v, want %+v", plans, wantPlans)
+	}
+	if wantApplies := []core.ApplyOptions{{ConfirmNow: true, Call: want}, {}}; !reflect.DeepEqual(applies, wantApplies) {
+		t.Errorf("apply options %+v, want %+v", applies, wantApplies)
+	}
+
+	// On the wire the header is the JSON in base64url without padding.
+	enc := func(s string) string { return base64.RawURLEncoding.EncodeToString([]byte(s)) }
+	principal := principalHeader(t, testPrincipal)
+	hdr := http.Header{wire.HeaderPrincipal: {principal},
+		wire.HeaderCall: {enc(`{"parentChangeId":"01COMP","parentAction":"cfx.deploy.add","stepId":"db"}`)}}
+	if rec := call(t, h, "POST", "/agent/v1/actions/demo.item.set/v1/plan", hdr, []byte(`{}`)); rec.Code != http.StatusOK {
+		t.Fatalf("plan with an encoded call: %d %s, want 200", rec.Code, rec.Body)
+	}
+	wantWire := &core.CallContext{ParentChangeID: "01COMP", ParentAction: "cfx.deploy.add", StepID: "db"}
+	if got := plans[len(plans)-1].Call; !reflect.DeepEqual(got, wantWire) {
+		t.Errorf("call from the wire = %+v, want %+v", got, wantWire)
+	}
+
+	for name, raw := range map[string]string{
+		"repairOf":          enc(`{"parentChangeId":"01COMP","repairOf":"01OLD"}`),
+		"not JSON":          enc(`parent 01COMP`),
+		"wrong type":        enc(`{"stepId":7}`),
+		"two values":        enc(`{} {}`),
+		"plain JSON":        `{"stepId":"db"}`,
+		"padded":            base64.URLEncoding.EncodeToString([]byte(`{}`)),
+		"standard alphabet": base64.RawStdEncoding.EncodeToString([]byte(`{"stepId":"??>"}`)),
+		"empty":             "",
+	} {
+		for _, path := range []string{"/agent/v1/actions/demo.item.set/v1/plan", "/agent/v1/plans/p1/apply"} {
+			hdr := http.Header{wire.HeaderPrincipal: {principal}, wire.HeaderCall: {raw}}
+			rec := call(t, h, "POST", path, hdr, []byte(`{}`))
+			if rec.Code != 422 {
+				t.Errorf("%s on %s: %d %s, want 422", name, path, rec.Code, rec.Body)
+				continue
+			}
+			wantProblem(t, rec, 422, errcode.InvalidInput)
+		}
+	}
+	if len(plans) != 3 || len(applies) != 2 {
+		t.Errorf("a refused call context reached the agent: %d plans, %d applies", len(plans), len(applies))
+	}
+
+	// The agent socket refuses the header on every route.
+	var enrolled atomic.Bool
+	enrolled.Store(true)
+	sock := socketHandler(newSocketFake(), &enrolled)
+	for _, tc := range []struct {
+		method, path string
+		body         []byte
+	}{
+		{"POST", "/agent/v1/actions/hostinfo.summary/v1/plan", []byte(`{}`)},
+		{"POST", "/agent/v1/plans/p1/apply", []byte(`{}`)},
+		{"GET", "/agent/v1/changes/c1", nil},
+	} {
+		hdr := http.Header{wire.HeaderCall: {enc(`{"stepId":"db"}`)}}
+		wantProblem(t, call(t, sock, tc.method, tc.path, hdr, tc.body), 422, errcode.InvalidInput)
+	}
 }

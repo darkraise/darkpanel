@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -63,7 +64,8 @@ type request struct {
 	method, path string
 	query        url.Values
 	principal    *core.Principal
-	body         any // nil sends none; a json.RawMessage is sent as it is
+	call         *core.CallContext // sent as Darkpanel-Call when set
+	body         any               // nil sends none; a json.RawMessage is sent as it is
 	hello        bool
 }
 
@@ -108,6 +110,13 @@ func (c *Client) do(ctx context.Context, req request, out any) error {
 			return fmt.Errorf("api: %s: encode the principal: %w", what, err)
 		}
 		hr.Header.Set(wire.HeaderPrincipal, string(b))
+	}
+	if req.call != nil {
+		b, err := json.Marshal(wire.FromCall(*req.call))
+		if err != nil {
+			return fmt.Errorf("api: %s: encode the call: %w", what, err)
+		}
+		hr.Header.Set(wire.HeaderCall, base64.RawURLEncoding.EncodeToString(b))
 	}
 	if req.hello && c.cfg.Controller != nil {
 		hr.Header.Set(wire.HeaderProtocol, strconv.Itoa(agentruntime.ProtocolVersion))
@@ -198,19 +207,21 @@ func (c *Client) Resource(ctx context.Context, p core.Principal, name string) (j
 	return rawOutput(out), nil
 }
 
-// Plan plans an agent action.
-func (c *Client) Plan(ctx context.Context, p core.Principal, a core.ActionRef, input json.RawMessage, _ core.PlanOptions) (core.PlanView, error) {
+// Plan plans an agent action; opts.Call, when set, travels as
+// Darkpanel-Call.
+func (c *Client) Plan(ctx context.Context, p core.Principal, a core.ActionRef, input json.RawMessage, opts core.PlanOptions) (core.PlanView, error) {
 	var v wire.PlanView
-	if err := c.do(ctx, request{method: http.MethodPost, path: actionPath(a, opPlan), principal: &p, body: input}, &v); err != nil {
+	req := request{method: http.MethodPost, path: actionPath(a, opPlan), principal: &p, body: input, call: opts.Call}
+	if err := c.do(ctx, req, &v); err != nil {
 		return core.PlanView{}, err
 	}
 	return v.Core(), nil
 }
 
-// Apply applies a plan.
+// Apply applies a plan; opts.Call, when set, travels as Darkpanel-Call.
 func (c *Client) Apply(ctx context.Context, p core.Principal, planID string, opts core.ApplyOptions) (core.ChangeView, error) {
 	return c.change(ctx, request{method: http.MethodPost, path: "plans/" + url.PathEscape(planID) + "/apply", principal: &p,
-		body: wire.FromApplyOptions(opts)})
+		body: wire.FromApplyOptions(opts), call: opts.Call})
 }
 
 // Confirm confirms a pending change.

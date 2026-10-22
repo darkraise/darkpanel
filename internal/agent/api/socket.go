@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/darkraise/darkpanel/internal/agent/wire"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 )
@@ -27,13 +28,25 @@ type SocketConfig struct {
 // hello and reads are served. Enablement is the controller's rule and is not
 // applied, but a module whose preflight checks fail is refused. The journal
 // routes are absent: the controller alone collects and acknowledges the
-// journal.
+// journal. A request carrying a call context is refused: only the
+// controller sends one.
 func NewSocketHandler(cfg Config, sock SocketConfig) http.Handler {
 	h := &handler{cfg: cfg}
 	h.principal = func(*http.Request) (core.Principal, error) { return socketPrincipal(sock.Identity()), nil }
+	// The handler returned below refuses every request with the header, so
+	// none that reaches a route carries a call.
+	h.call = func(*http.Request) (*core.CallContext, error) { return nil, nil }
 	h.allow = func(ctx context.Context, op, name string) error { return h.socketAllow(ctx, sock, op, name) }
 	h.hello = func(*http.Request) error { return nil }
-	return h.routes(false)
+	mux := h.routes(false)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if len(r.Header.Values(wire.HeaderCall)) > 0 {
+			h.writeProblem(w, errcode.New(errcode.InvalidInput,
+				"the "+wire.HeaderCall+" header is accepted only from the controller"))
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
 }
 
 // socketPrincipal is the local root user, named after the host once the
