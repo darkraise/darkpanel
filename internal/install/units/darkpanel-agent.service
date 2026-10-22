@@ -14,6 +14,9 @@ RuntimeDirectory=darkpanel-agent
 RuntimeDirectoryMode=0700
 Restart=on-failure
 RestartSec=2
+RestartMode=direct
+SuccessExitStatus=70
+RestartForceExitStatus=70
 TimeoutStartSec=30s
 TimeoutStopSec=10s
 

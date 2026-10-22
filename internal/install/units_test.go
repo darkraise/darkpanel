@@ -4,8 +4,12 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/darkraise/darkpanel/internal/core/lifecycle"
 )
 
 // unitsByPath renders the units of role for the production layout.
@@ -39,6 +43,30 @@ func wantLines(t *testing.T, unit, text string, lines ...string) {
 	}
 }
 
+// wdUnitLines are the lines that let a service restart after a revert
+// watchdog exit without failing the unit, and that make OnFailure= wait for
+// the start limit on systemd 254 and later.
+func wdUnitLines() []string {
+	code := strconv.Itoa(lifecycle.WatchdogExitCode)
+	return []string{"SuccessExitStatus=" + code, "RestartForceExitStatus=" + code, "RestartMode=direct"}
+}
+
+// wdUnitValue returns the value of the one line key=value of a unit.
+func wdUnitValue(t *testing.T, unit, text, key string) int {
+	t.Helper()
+	for _, l := range strings.Split(text, "\n") {
+		if v, ok := strings.CutPrefix(l, key+"="); ok {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				t.Fatalf("%s: %s=%q is not a number", unit, key, v)
+			}
+			return n
+		}
+	}
+	t.Fatalf("%s has no %s line", unit, key)
+	return 0
+}
+
 func TestControllerUnits(t *testing.T) {
 	units := unitsByPath(t, RoleController, []string{"10.77.0.10:7443", "[fd7a::1]:7443"}, "10.77.0.10:7443")
 	if len(units) != 5 {
@@ -49,6 +77,8 @@ func TestControllerUnits(t *testing.T) {
 		"Restart=on-failure", "RestartSec=2", "StartLimitIntervalSec=60", "StartLimitBurst=5", "TimeoutStartSec=30s",
 		"TimeoutStopSec=10s", "OnFailure=darkpanel-rollback.service", "NoNewPrivileges=yes", "ProtectSystem=strict",
 		"ReadWritePaths=/var/lib/darkpanel/controller", "PrivateTmp=yes", "WantedBy=multi-user.target")
+	wantLines(t, "controller", units["/etc/systemd/system/darkpanel-controller.service"], wdUnitLines()...)
+	wantLines(t, "agent", units["/etc/systemd/system/darkpanel-agent.service"], wdUnitLines()...)
 	wantLines(t, "agent", units["/etc/systemd/system/darkpanel-agent.service"],
 		"ExecStart=/usr/local/lib/darkpanel/darkpanel agent run", "RuntimeDirectory=darkpanel-agent", "RuntimeDirectoryMode=0700",
 		"Restart=on-failure", "RestartSec=2", "StartLimitIntervalSec=60", "StartLimitBurst=5", "TimeoutStartSec=30s",
@@ -91,11 +121,30 @@ func TestAgentRoleUnits(t *testing.T) {
 	if len(units) != 3 {
 		t.Errorf("the agent role writes %v, want three units", got)
 	}
+	wantLines(t, "agent", units["/etc/systemd/system/darkpanel-agent.service"], wdUnitLines()...)
 	if _, err := Units(Production(), RoleAgent, []string{"10.0.0.1:7443"}, ""); err == nil {
 		t.Error("the agent role accepted --agent-listen")
 	}
 	if _, err := Units(Production(), RoleAgent, nil, "10.0.0.1:7443"); err == nil {
 		t.Error("the agent role accepted --agent-advertise")
+	}
+}
+
+// TestWatchdogExitsStayInsideTheStartLimit checks that revert watchdog exits
+// alone never exhaust a service's start limit: each one needs a new
+// revertible change whose deadline is at least MinConfirmTimeout after its
+// apply, and then RestartSec, so burst of them take at least the interval,
+// and more, since starting and applying take time too.
+func TestWatchdogExitsStayInsideTheStartLimit(t *testing.T) {
+	units := unitsByPath(t, RoleController, nil, "")
+	for _, name := range []string{"darkpanel-controller.service", "darkpanel-agent.service"} {
+		text := units["/etc/systemd/system/"+name]
+		interval := time.Duration(wdUnitValue(t, name, text, "StartLimitIntervalSec")) * time.Second
+		burst := wdUnitValue(t, name, text, "StartLimitBurst")
+		cycle := lifecycle.MinConfirmTimeout + time.Duration(wdUnitValue(t, name, text, "RestartSec"))*time.Second
+		if time.Duration(burst)*cycle < interval {
+			t.Errorf("%s: %d watchdog exits %v apart fit into the start limit's %v", name, burst, cycle, interval)
+		}
 	}
 }
 
