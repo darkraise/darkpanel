@@ -68,11 +68,32 @@ type recoverCandidate struct {
 // owner the previous process left is void: a claim replaces it, and an
 // owned change nothing claims is released from it, except a target a
 // repair change still runs under (owner repair) and a composite, which
-// composite recovery claims.
+// composite recovery claims. While the host is being uninstalled it claims
+// nothing and voids no owner; it logs each change it skips, records its id
+// and arms the uninstall poll, so the change is claimed without a restart
+// once the barrier is cleared.
 func (e *Engine) recoverClaims(ctx context.Context) ([]recoverClaim, error) {
 	cands, err := e.recoverCandidates(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if err := uninstallingErr(ctx, e.cfg.Base.DB.Read()); err != nil {
+		var coded *errcode.Error
+		if !errors.As(err, &coded) {
+			return nil, err
+		}
+		skipped := make([]string, 0, len(cands))
+		for _, c := range cands {
+			e.cfg.Base.Log.Warn("lifecycle: recovery claim skipped: the host is being uninstalled", "change", c.id)
+			skipped = append(skipped, c.id)
+		}
+		e.uninstallMu.Lock()
+		e.uninstallSkipped = skipped
+		e.uninstallMu.Unlock()
+		if len(skipped) > 0 {
+			e.armUninstallPoll()
+		}
+		return nil, nil
 	}
 	var claims []recoverClaim
 	var errs []error

@@ -22,7 +22,7 @@ func (e *Engine) RunTask(ctx context.Context, changeID, op string, attempt int) 
 		return err
 	}
 	if !claimed {
-		e.cfg.Base.Log.Info("lifecycle: task attempt not run: its row is not starting",
+		e.cfg.Base.Log.Info("lifecycle: task attempt not run: its row is not starting, or the host is being uninstalled",
 			"unit", TaskUnitName(changeID, op, attempt))
 		return nil
 	}
@@ -30,11 +30,13 @@ func (e *Engine) RunTask(ctx context.Context, changeID, op string, attempt int) 
 	return e.taskResult(changeID, op, attempt, ref, out, runErr)
 }
 
-// taskClaim is the start fence of the agent task process.
+// taskClaim is the start fence of the agent task process. It also refuses
+// while the host is being uninstalled.
 func (e *Engine) taskClaim(ctx context.Context, changeID, op string, attempt int) (bool, error) {
 	return e.taskRowUpdate(ctx,
-		"UPDATE core_task_runs SET state = ?, pid = ? WHERE change_id = ? AND op = ? AND attempt = ? AND state = ?",
-		taskRowRunning, os.Getpid(), changeID, op, attempt, taskRowStarting)
+		`UPDATE core_task_runs SET state = ?, pid = ? WHERE change_id = ? AND op = ? AND attempt = ? AND state = ?
+		 AND NOT EXISTS (SELECT 1 FROM core_meta WHERE key = ?)`,
+		taskRowRunning, os.Getpid(), changeID, op, attempt, taskRowStarting, MetaUninstalling)
 }
 
 // taskOp runs op of the change under its action's ApplyTimeout with 1.3c's

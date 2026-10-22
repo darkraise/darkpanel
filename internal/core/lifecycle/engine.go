@@ -99,6 +99,15 @@ type Engine struct {
 	// mutating entry points answer core.recovering meanwhile (1.3,
 	// admission).
 	recovering atomic.Bool
+	// uninstallSkipped holds the ids recoverClaims skipped because the
+	// uninstall barrier was set at start; Engine.AbortUninstall claims
+	// them. uninstallMu guards it.
+	uninstallMu      sync.Mutex
+	uninstallSkipped []string
+	// uninstallTimer is the armed poll (uninstallPoll) that notices the
+	// barrier was cleared from outside the process; timerMu guards it and
+	// Close stops it.
+	uninstallTimer core.Timer
 
 	// recoveryPass counts the background pass's goroutines that are still
 	// running.
@@ -166,6 +175,10 @@ func (e *Engine) Close() {
 	for id, t := range e.timers {
 		t.Stop()
 		delete(e.timers, id)
+	}
+	if e.uninstallTimer != nil {
+		e.uninstallTimer.Stop()
+		e.uninstallTimer = nil
 	}
 	// Unlock before waiting: a running revert takes timerMu in stopTimer.
 	e.timerMu.Unlock()
@@ -248,10 +261,23 @@ func (e *Engine) seedIDs(ctx context.Context) error {
 }
 
 // admit refuses a mutating call while startup recovery has not started its
-// pass over the changes it claimed (1.3, admission). Reads, lookups and the
-// journal stay open.
-func (e *Engine) admit(_ context.Context) error {
-	return e.admitRecovery()
+// pass over the changes it claimed (1.3, admission), and while the host is
+// being uninstalled (1.3c, uninstall barrier). Reads, lookups and the
+// journal stay open. Once the barrier the engine started under is gone, the
+// first admitted call recovers what the start skipped (resumeSkipped); it
+// runs on the run context, so a cancelled request never cuts the claims
+// short, and its failure is logged, not answered.
+func (e *Engine) admit(ctx context.Context) error {
+	if err := e.admitRecovery(); err != nil {
+		return err
+	}
+	if err := uninstallingErr(ctx, e.cfg.Base.DB.Read()); err != nil {
+		return err
+	}
+	if err := e.resumeSkipped(e.runCtx); err != nil {
+		e.cfg.Base.Log.Error("lifecycle: recover the changes skipped during the uninstall", "error", err)
+	}
+	return nil
 }
 
 // admitRecovery is admit's recovery gate alone; release takes only this
