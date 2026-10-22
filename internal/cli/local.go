@@ -8,6 +8,7 @@ import (
 	"net"
 	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -225,11 +226,22 @@ func localCalls(c *api.Client, def core.ActionDef, socket string) actionCalls {
 			if err != nil {
 				return changeWire{}, nil, localError(err)
 			}
-			ch := changeWire{ID: v.ID, HostID: optional(v.HostID), Action: v.Action, Version: v.Version, Class: v.Class,
-				State: v.State, Actor: v.Actor, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt, RevertDeadline: v.RevertDeadline,
-				Output: nullOutput(v.Output), CompensatedBy: optional(v.CompensatedBy)}
-			if v.Error != nil {
-				ch.Error = &changeErrorWire{Code: v.Error.Code, Message: v.Error.Message}
+			ch := localChange(v)
+			for ch.State == core.StateApplying {
+				t := time.NewTimer(changePoll)
+				select {
+				case <-ctx.Done():
+					t.Stop()
+					return changeWire{}, nil, ctx.Err()
+				case <-t.C:
+				}
+				cctx, cancel := context.WithTimeout(ctx, localTimeout)
+				next, err := c.Change(cctx, ch.ID)
+				cancel()
+				if err != nil {
+					return changeWire{}, nil, localError(err)
+				}
+				ch = localChange(next)
 			}
 			raw, err := json.Marshal(ch)
 			if err != nil {
@@ -238,6 +250,21 @@ func localCalls(c *api.Client, def core.ActionDef, socket string) actionCalls {
 			return ch, raw, nil
 		},
 	}
+}
+
+// localChange converts a change of the agent socket to the API's Change.
+func localChange(v core.ChangeView) changeWire {
+	ch := changeWire{ID: v.ID, HostID: optional(v.HostID), Action: v.Action, Version: v.Version, Class: v.Class,
+		State: v.State, Actor: v.Actor, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt, RevertDeadline: v.RevertDeadline,
+		Output: nullOutput(v.Output), CompensatedBy: optional(v.CompensatedBy), ParentChangeID: optional(v.ParentChangeID),
+		Owner: optional(v.Owner), RepairedBy: optional(v.RepairedBy), RepairOutcome: optional(v.RepairOutcome)}
+	if len(v.Override) > 0 {
+		ch.Override = v.Override
+	}
+	if v.Error != nil {
+		ch.Error = &changeErrorWire{Code: v.Error.Code, Message: v.Error.Message, Cause: v.Error.Cause}
+	}
+	return ch
 }
 
 // localError makes a coded error of the agent socket or of a fallback read
