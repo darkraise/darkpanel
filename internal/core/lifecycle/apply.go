@@ -104,6 +104,9 @@ func (e *Engine) begin(ctx context.Context, p core.Principal, planID string, opt
 	if err != nil {
 		return nil, nil, err
 	}
+	if err := refuseRetired(ctx, db.Read(), planID); err != nil {
+		return nil, nil, err
+	}
 	if p.Actor != pl.actor {
 		return nil, nil, errcode.New(errcode.PlanPrincipalMismatch, "the plan was made by another principal")
 	}
