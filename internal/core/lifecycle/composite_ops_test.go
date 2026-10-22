@@ -298,6 +298,46 @@ func TestCompositeIntentsAdmittedBeforeTheBarrierAreRefused(t *testing.T) {
 	}
 }
 
+func TestCompositeRunnerFailingEveryPassNeedsRepair(t *testing.T) {
+	f := newCfxFixture(t)
+	v, _ := awaitingGate(t, f)
+	// A step state the runner has no rule for at the cursor fails every pass.
+	if _, err := f.ctrlDB.Writer().Exec("UPDATE core_composite_steps SET state = ? WHERE change_id = ? AND step_id = 'g'",
+		core.StepRead, v.ID); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	state := func() core.ChangeView {
+		t.Helper()
+		got, err := f.ctrl.Change(ctx, v.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	polls, deadline := 0, time.Now().Add(10*time.Second)
+	for got := state(); got.State != core.StateNeedsRepair; got = state() {
+		if polls > 2*compositeFailLimit || time.Now().After(deadline) {
+			t.Fatalf("composite = %s after %d polls of a runner that fails every pass, want needs_repair", got.State, polls)
+		}
+		if f.ctrlClock.Pending() == 0 {
+			time.Sleep(time.Millisecond)
+			continue
+		}
+		f.ctrlClock.Advance(ChildPoll)
+		polls++
+	}
+	got := state()
+	if got.Owner != "" || got.Error == nil || got.Error.Cause != string(errcode.Internal) ||
+		!strings.Contains(got.Error.Message, "failed 10 times in a row") || f.lockOwner("composite:cfx") != v.ID {
+		t.Errorf("composite = %s owned by %q with %+v, lock %q; want needs_repair, unowned, the runner's failures, locked",
+			got.State, got.Owner, got.Error, f.lockOwner("composite:cfx"))
+	}
+	if polls < compositeFailLimit-1 {
+		t.Errorf("needs_repair after %d polls, want %d failed passes first", polls, compositeFailLimit)
+	}
+}
+
 func TestForwardCompositeStepDecisions(t *testing.T) {
 	t.Run("applied counts the step done", func(t *testing.T) {
 		f := newCfxFixture(t)

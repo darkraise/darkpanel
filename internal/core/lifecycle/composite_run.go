@@ -19,6 +19,10 @@ import (
 // Child watcher).
 const ChildPoll = 15 * time.Second
 
+// compositeFailLimit is how many runner passes in a row may fail with an
+// error the runner has no rule for before the composite needs repair.
+const compositeFailLimit = 10
+
 // EventCompositeStep is the event type of every committed composite step
 // state (1.6).
 const EventCompositeStep = "composite.step"
@@ -387,20 +391,48 @@ func (e *Engine) runComposite(id string, run *compositeRun) {
 	ctx := e.runCtx
 	wake, done := e.compositeWaker(id)
 	defer done()
+	failures := 0
 	for ctx.Err() == nil {
 		err := e.compositeStep(ctx, id, run)
 		var wait *compositeWait
 		switch {
 		case err == nil:
+			failures = 0
 		case errors.Is(err, errCompositeDone):
 			return
 		case errors.As(err, &wait):
+			failures = 0
 			e.compositeSleep(ctx, wake, wait.d)
 		default:
 			e.cfg.Base.Log.Error("lifecycle: composite runner", "change", id, "error", err)
+			if failures++; failures >= compositeFailLimit && ctx.Err() == nil {
+				err := e.compositeGiveUp(ctx, id, failures)
+				if errors.Is(err, errCompositeDone) {
+					return
+				}
+				e.cfg.Base.Log.Error("lifecycle: composite runner: record needs_repair", "change", id, "error", err)
+			}
 			e.compositeSleep(ctx, wake, ChildPoll)
 		}
 	}
+}
+
+// compositeGiveUp stops a runner whose passes keep failing: the composite
+// goes needs_repair at its cursor step, so an operator can repair or
+// release it. The errors themselves are only logged.
+func (e *Engine) compositeGiveUp(ctx context.Context, id string, failures int) error {
+	unlock := e.compositeLock(id)
+	defer unlock()
+	c, steps, err := loadComposite(ctx, e.cfg.Base.DB.Read(), id)
+	if err != nil {
+		return err
+	}
+	if c.Owner != core.OwnerComposite {
+		return errCompositeDone
+	}
+	s := steps[max(0, min(c.Cursor, len(steps)-1))]
+	return e.compositeNeedsRepair(ctx, c, s, &core.ChangeError{Code: string(errcode.Internal), Message: fmt.Sprintf(
+		"step %s: the composite runner failed %d times in a row; the controller log has each error", s.ID, failures)})
 }
 
 // compositeStep is one pass of the runner, under the composite's lock.
