@@ -60,6 +60,26 @@ func TestFakeDispatcher(t *testing.T) {
 	}
 }
 
+func TestFakeDispatcherChangeOps(t *testing.T) {
+	ctx := context.Background()
+	fake := &FakeDispatcher{
+		StepsFunc: func(_ context.Context, _ core.Principal, id string) ([]core.StepView, error) {
+			return []core.StepView{{ID: "db", ChildChangeID: id + "-child"}}, nil
+		},
+	}
+	var d core.Dispatcher = fake
+	steps, err := d.Steps(ctx, core.Principal{}, "01C")
+	if err != nil || len(steps) != 1 || steps[0].ChildChangeID != "01C-child" {
+		t.Errorf("Steps = %+v, %v", steps, err)
+	}
+	if _, err := d.Undo(ctx, core.Principal{}, "01C"); err == nil || !strings.Contains(err.Error(), "Undo is not configured") {
+		t.Errorf("unconfigured Undo error = %v", err)
+	}
+	if _, err := d.Release(ctx, core.Principal{}, "01C", "gone"); err == nil || !strings.Contains(err.Error(), "Release is not configured") {
+		t.Errorf("unconfigured Release error = %v", err)
+	}
+}
+
 func TestMapHosts(t *testing.T) {
 	agent := &FakeAgent{}
 	hosts := MapHosts{"H1": agent}

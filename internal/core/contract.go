@@ -931,7 +931,8 @@ type AgentClient interface {
 }
 
 // Dispatcher is what the HTTP API and the controller socket call. hostID is
-// empty for controller-side actions.
+// empty for controller-side actions. The change operations of spec 1.3 are
+// DispatcherChangeOps.
 type Dispatcher interface {
 	Read(ctx context.Context, p Principal, hostID string, a ActionRef, input json.RawMessage) (json.RawMessage, error)
 	Resource(ctx context.Context, p Principal, hostID, name string) (json.RawMessage, error)
@@ -941,6 +942,7 @@ type Dispatcher interface {
 	Revert(ctx context.Context, p Principal, changeID string) (ChangeView, error)
 	Change(ctx context.Context, p Principal, changeID string) (ChangeView, error)
 	Changes(ctx context.Context, p Principal, f ChangeFilter) ([]ChangeView, error)
+	DispatcherChangeOps
 }
 
 // AgentChangeOps are the agent half of the change operations: undo, repair,
