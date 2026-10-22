@@ -27,3 +27,18 @@ type StreamInfo struct {
 	Name       string `json:"name"`
 	SchemaHash string `json:"schemaHash"`
 }
+
+// DefineStream builds a StreamDef from typed parameters and events. Run
+// decodes the parameters like an action input, refusing unknown members.
+func DefineStream[P, E any](name string, run func(ctx context.Context, env Env, p P, emit func(E) error) error) StreamDef {
+	return StreamDef{
+		Name: name, ParamsType: typeOf[P](), EventType: typeOf[E](),
+		Run: func(ctx context.Context, env Env, params json.RawMessage, emit func(event any) error) error {
+			p, err := decode[P](params)
+			if err != nil {
+				return err
+			}
+			return run(ctx, env, p, func(e E) error { return emit(e) })
+		},
+	}
+}

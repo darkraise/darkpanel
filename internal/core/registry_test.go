@@ -675,3 +675,68 @@ func TestRegistryRevealRules(t *testing.T) {
 		})
 	}
 }
+
+// strmModule is a module id with streams and, for the CLI clash cases,
+// actions and resources.
+type strmModule struct {
+	id        string
+	streams   []StreamDef
+	actions   []ActionDef
+	resources []ResourceDef
+}
+
+func (m strmModule) Manifest() Manifest {
+	return Manifest{ID: m.id, Version: 1, Actions: m.actions, Resources: m.resources}
+}
+
+func (m strmModule) Streams() []StreamDef { return m.streams }
+
+func TestRegistryStreams(t *testing.T) {
+	logs := DefineStream("logs", strmLogs)
+	r, err := NewRegistry(
+		strmModule{id: "strm", streams: []StreamDef{DefineStream("stats", strmLogs), logs}, actions: []ActionDef{readAction("strm.item.get")}},
+		strmModule{id: "alpha", streams: []StreamDef{DefineStream("pull", strmLogs)}},
+		testModule{ID: "plain", Version: 1},
+	)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	var got []string
+	for _, st := range r.Streams() {
+		got = append(got, st.Module+"."+st.Def.Name)
+	}
+	if want := []string{"alpha.pull", "strm.logs", "strm.stats"}; !slices.Equal(got, want) {
+		t.Errorf("Streams() = %v, want %v", got, want)
+	}
+	if def, ok := r.Stream("strm", "logs"); !ok || def.Name != "logs" || def.EventType != logs.EventType {
+		t.Errorf("Stream(strm, logs) = %+v, %v", def, ok)
+	}
+	if _, ok := r.Stream("strm", "pull"); ok {
+		t.Error("Stream(strm, pull) found alpha's stream")
+	}
+
+	noRun, noEvent := logs, logs
+	noRun.Run, noEvent.EventType = nil, nil
+	tests := []struct {
+		name string
+		mod  strmModule
+		want string
+	}{
+		{"name with a capital", strmModule{id: "strm", streams: []StreamDef{DefineStream("Logs", strmLogs)}}, `module strm: stream "Logs" must match`},
+		{"name repeated", strmModule{id: "strm", streams: []StreamDef{logs, logs}}, "stream strm.logs registered twice"},
+		{"no Run", strmModule{id: "strm", streams: []StreamDef{noRun}}, "stream strm.logs needs Run, ParamsType and EventType"},
+		{"no EventType", strmModule{id: "strm", streams: []StreamDef{noEvent}}, "stream strm.logs needs Run, ParamsType and EventType"},
+		{"command of a resource", strmModule{id: "strm", streams: []StreamDef{DefineStream("list", strmLogs)}, resources: []ResourceDef{resource("strm.list")}},
+			`stream strm.list: the CLI command "strm list" clashes with strm.list`},
+		{"group of an action", strmModule{id: "strm", streams: []StreamDef{DefineStream("list", strmLogs)}, actions: []ActionDef{readAction("strm.list.get")}},
+			`stream strm.list: the CLI command "strm list" clashes with strm.list.get`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewRegistry(tt.mod)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("NewRegistry error = %v, want one containing %q", err, tt.want)
+			}
+		})
+	}
+}

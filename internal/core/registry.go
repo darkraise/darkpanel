@@ -27,18 +27,26 @@ var (
 	sysctlSegment       = regexp.MustCompile(`^[a-z0-9_.-]+$`)
 	subdirPattern       = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 	externalUnitPattern = regexp.MustCompile(`^[A-Za-z0-9@._-]+\.service$`)
+	streamNamePattern   = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 )
 
 // sysctlIface is the one segment of a sysctl key that stands for a network
 // interface name.
 const sysctlIface = "<iface>"
 
-// Registry holds every module, action and resource, validated once.
+// Registry holds every module, action, resource and stream, validated once.
 type Registry struct {
 	modules   []Manifest
 	actions   map[ActionRef]ActionDef
 	resources map[string]ResourceDef
-	names     map[string]bool // action names, any version
+	streams   map[string]ModuleStream // by "<module>.<name>"
+	names     map[string]bool         // action names, any version
+}
+
+// ModuleStream is one stream and the module that serves it.
+type ModuleStream struct {
+	Module string
+	Def    StreamDef
 }
 
 // NewRegistry validates the modules against the registration rules (spec
@@ -47,6 +55,7 @@ func NewRegistry(mods ...Module) (*Registry, error) {
 	r := &Registry{
 		actions:   map[ActionRef]ActionDef{},
 		resources: map[string]ResourceDef{},
+		streams:   map[string]ModuleStream{},
 		names:     map[string]bool{},
 	}
 	var errs []error
@@ -98,6 +107,9 @@ func NewRegistry(mods ...Module) (*Registry, error) {
 				r.resources[res.Name] = res
 			}
 		}
+		if st, ok := mod.(Streamer); ok {
+			errs = append(errs, r.addStreams(m.ID, st.Streams())...)
+		}
 		r.modules = append(r.modules, m)
 	}
 	for _, a := range r.actions {
@@ -116,10 +128,31 @@ func NewRegistry(mods ...Module) (*Registry, error) {
 	return r, nil
 }
 
+// addStreams checks and indexes module's streams.
+func (r *Registry) addStreams(module string, defs []StreamDef) []error {
+	var errs []error
+	for _, d := range defs {
+		key := module + "." + d.Name
+		switch {
+		case !streamNamePattern.MatchString(d.Name):
+			errs = append(errs, fmt.Errorf("module %s: stream %q must match %s", module, d.Name, streamNamePattern))
+		case d.Run == nil || d.ParamsType == nil || d.EventType == nil:
+			errs = append(errs, fmt.Errorf("stream %s needs Run, ParamsType and EventType", key))
+		case r.streams[key].Module != "":
+			errs = append(errs, fmt.Errorf("stream %s registered twice", key))
+		default:
+			r.streams[key] = ModuleStream{Module: module, Def: d}
+		}
+	}
+	return errs
+}
+
 // checkCLINames refuses names whose CLI commands (spec section 15) would
 // clash: an action <m>.<noun>.<verb> is `<m> <noun> <verb>`, a resource
 // <m>.<r> is `<m> <r> get`, and the core drops its module segment, so a core
-// noun or resource must not be a module id.
+// noun or resource must not be a module id. A stream <m>.<n> is the command
+// `<m> <n> --follow`, which can be neither another command nor the group of
+// one.
 func (r *Registry) checkCLINames(moduleIDs map[string]bool) []error {
 	var errs []error
 	owners := map[string]string{}
@@ -141,6 +174,19 @@ func (r *Registry) checkCLINames(moduleIDs map[string]bool) []error {
 	}
 	for _, res := range r.Resources() {
 		claim(res.Name, append(strings.Split(res.Name, "."), "get"))
+	}
+	for _, st := range r.Streams() {
+		cmd := st.Module + " " + st.Def.Name
+		var clashes []string
+		for other, owner := range owners {
+			if other == cmd || strings.HasPrefix(other, cmd+" ") {
+				clashes = append(clashes, owner)
+			}
+		}
+		slices.Sort(clashes)
+		for _, owner := range slices.Compact(clashes) {
+			errs = append(errs, fmt.Errorf("stream %s.%s: the CLI command %q clashes with %s", st.Module, st.Def.Name, cmd, owner))
+		}
 	}
 	return errs
 }
@@ -590,6 +636,27 @@ func (r *Registry) Resources() []ResourceDef {
 		out = append(out, res)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// Stream returns one stream of module.
+func (r *Registry) Stream(module, name string) (StreamDef, bool) {
+	st, ok := r.streams[module+"."+name]
+	return st.Def, ok
+}
+
+// Streams returns every stream, sorted by module and then name.
+func (r *Registry) Streams() []ModuleStream {
+	out := make([]ModuleStream, 0, len(r.streams))
+	for _, st := range r.streams {
+		out = append(out, st)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Module != out[j].Module {
+			return out[i].Module < out[j].Module
+		}
+		return out[i].Def.Name < out[j].Def.Name
+	})
 	return out
 }
 
