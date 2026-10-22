@@ -14,6 +14,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/controller/auth"
 	"github.com/darkraise/darkpanel/internal/controller/coreactions"
 	"github.com/darkraise/darkpanel/internal/controller/dispatch"
+	"github.com/darkraise/darkpanel/internal/controller/events"
 	"github.com/darkraise/darkpanel/internal/controller/fleet"
 	"github.com/darkraise/darkpanel/internal/controller/listen"
 	"github.com/darkraise/darkpanel/internal/controller/rollout"
@@ -50,6 +51,7 @@ type services struct {
 	engine      *lifecycle.Engine
 	ingester    *audit.Ingester
 	dispatcher  *dispatch.Dispatcher
+	events      *events.Bus
 
 	purgeMu     sync.Mutex // held while a purge runs, so Shutdown waits for it
 	purgeTimer  core.Timer
@@ -69,6 +71,7 @@ func (s *Server) Registry() *core.Registry { return s.registry }
 // The agent authority is loaded in both modes, so the host actions work
 // alike and a development database keeps one controller id across modes.
 func (s *Server) startServices(ctx context.Context) error {
+	s.events = events.NewBus(s.log)
 	s.auditLog = audit.New(s.controllerDB, s.clock)
 	s.authService = auth.New(s.controllerDB, s.controllerSealer, s.clock, s.auditLog, auth.Options{Params: s.opts.AuthParams})
 	var err error
