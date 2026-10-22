@@ -176,6 +176,46 @@ func TestTaskUndoRefusedWhileTheLastUndoUnitRuns(t *testing.T) {
 	}
 }
 
+func TestTaskRecoverRefusedWhileTheLastRecoverUnitRuns(t *testing.T) {
+	f := newTaskFixture(t)
+	ctx := context.Background()
+	v := f.taskApplyStart(refTskPin, `{"name":"a","value":"1"}`)
+	apply1, recover1 := TaskUnitName(v.ID, core.TaskOpApply, 1), TaskUnitName(v.ID, core.TaskOpRecover, 1)
+	f.taskPoll(func() {
+		f.units.set(apply1, true)
+		f.taskRowTo(v.ID, core.TaskOpApply, 1, taskRowRunning, "", "", "")
+	})
+	f.taskPoll(func() {
+		f.units.mu.Lock()
+		f.units.startErr = errors.New("the bus connection dropped")
+		f.units.mu.Unlock()
+		f.taskRowTo(v.ID, core.TaskOpApply, 1, taskRowFailed, "", string(errcode.Unavailable), "the package mirror is unreachable")
+		f.units.set(apply1, false)
+	})
+	after := f.taskUntil(v.ID, core.StateNeedsRepair)
+	if got := f.taskRowState(v.ID, core.TaskOpRecover, 1); got != taskRowCancelled || after.Owner != "" {
+		t.Fatalf("after the fenced recover: row %s, change %+v; want cancelled, needs_repair, unowned", got, after)
+	}
+	// The unit of the cancelled attempt starts after all; its process finds
+	// the row fenced and exits, but until then the unit is active.
+	f.units.set(recover1, true)
+	_, err := f.eng.Repair(ctx, alice, v.ID, core.RepairRequest{})
+	wantCode(t, err, errcode.ChangeBusy)
+	if n := f.count("SELECT count(*) FROM core_task_runs WHERE change_id = ? AND op = ?", v.ID, core.TaskOpRecover); n != 1 {
+		t.Errorf("recover rows after Repair = %d, want 1", n)
+	}
+	f.restartTask()
+	if err := f.eng.Recover(ctx); err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+	if c, err := f.eng.Change(ctx, v.ID); err != nil || c.State != core.StateNeedsRepair || c.Owner != "" {
+		t.Errorf("after the restart: %+v, %v; want needs_repair, unowned", c, err)
+	}
+	if n := f.count("SELECT count(*) FROM core_task_runs WHERE change_id = ? AND op = ?", v.ID, core.TaskOpRecover); n != 1 {
+		t.Errorf("recover rows after Recover = %d, want 1", n)
+	}
+}
+
 func TestTaskRecoverAttemptAfterAFailedApply(t *testing.T) {
 	f := newTaskFixture(t)
 	ctx := context.Background()

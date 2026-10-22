@@ -389,18 +389,26 @@ func (e *Engine) taskUndoCheck(ctx context.Context, changeID string) error {
 	if err != nil || !def.Spec.Task {
 		return nil
 	}
+	return e.taskLastInactive(ctx, changeID, core.TaskOpUndo)
+}
+
+// taskLastInactive refuses a new op attempt of a task change while this
+// engine has no unit client, or while the unit of the change's newest op
+// attempt is not inactive (1.3c, results table). A change with no op
+// attempt passes.
+func (e *Engine) taskLastInactive(ctx context.Context, changeID, op string) error {
 	if e.cfg.Units == nil {
-		return errcode.New(errcode.Internal, fmt.Sprintf("%s runs in a task unit, and this engine has no unit client", def.Ref()))
+		return errcode.New(errcode.Internal, fmt.Sprintf("change %s runs in a task unit, and this engine has no unit client", changeID))
 	}
 	var n sql.NullInt64
 	if err := e.cfg.Base.DB.Read().QueryRowContext(ctx,
-		"SELECT max(attempt) FROM core_task_runs WHERE change_id = ? AND op = ?", changeID, core.TaskOpUndo).Scan(&n); err != nil {
-		return fmt.Errorf("lifecycle: read the undo runs of %s: %w", changeID, err)
+		"SELECT max(attempt) FROM core_task_runs WHERE change_id = ? AND op = ?", changeID, op).Scan(&n); err != nil {
+		return fmt.Errorf("lifecycle: read the %s runs of %s: %w", op, changeID, err)
 	}
 	if !n.Valid {
 		return nil
 	}
-	name := TaskUnitName(changeID, core.TaskOpUndo, int(n.Int64))
+	name := TaskUnitName(changeID, op, int(n.Int64))
 	st, err := e.cfg.Units.State(ctx, name)
 	if err != nil {
 		return fmt.Errorf("lifecycle: read task unit %s: %w", name, err)
@@ -413,8 +421,10 @@ func (e *Engine) taskUndoCheck(ctx context.Context, changeID string) error {
 
 // taskUndo runs a claimed undo of a task change in a unit: the newest undo
 // attempt's unit runs the undo run from the journal, and once it has ended
-// the engine records the undo settle. The engine closing leaves the change
-// undoing; the next start resumes it.
+// the engine records the undo settle. Any error before the attempt ends,
+// the engine closing included, leaves the change undoing and owned, since
+// its unit may still be running (1.3c, liveness gates); the next start
+// resumes it.
 func (e *Engine) taskUndo(ctx context.Context, p core.Principal, def core.ActionDef, changeID string) (core.ChangeView, error) {
 	_, attempt, err := e.taskNewest(ctx, changeID, core.StateUndoing)
 	if err != nil {
@@ -430,8 +440,10 @@ func (e *Engine) taskUndo(ctx context.Context, p core.Principal, def core.Action
 
 // taskRecover runs a task change's module recovery handler in its newest
 // recover attempt's unit (1.3b, ownership). It answers the outcome the
-// unit recorded, or, as herr, the error any other end carries; stop is set
-// only when the engine closed, and the change then stays owned.
+// unit recorded, or, as herr, the error any other end carries. Any error
+// before the attempt ends, the engine closing included, is stop: the
+// change then stays owned, since its unit may still be running (1.3c,
+// liveness gates), and the next start resumes it.
 func (e *Engine) taskRecover(ctx context.Context, def core.ActionDef, changeID string) (out core.RecoveryOutcome, herr, stop error) {
 	var n sql.NullInt64
 	if err := e.cfg.Base.DB.Read().QueryRowContext(ctx,

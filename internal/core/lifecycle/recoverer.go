@@ -215,9 +215,18 @@ func (e *Engine) recovererOutcome(def core.ActionDef, cause string, out core.Rec
 // in the background, answering the claimed change. It answers nil when
 // recovery_retry is not set, so the next row of the table decides.
 func (e *Engine) recovererRepair(ctx context.Context, changeID string) (*core.RepairResult, error) {
+	f, err := loadFacts(ctx, e.cfg.Base.DB.Read(), changeID)
+	if err != nil {
+		return nil, err
+	}
+	if def, err := e.action(f.ref()); f.retry && err == nil && def.Spec.Task {
+		if err := e.taskLastInactive(ctx, changeID, core.TaskOpRecover); err != nil {
+			return nil, err
+		}
+	}
 	retry := false
 	e.applyMu.Lock()
-	err := e.cfg.Base.DB.Write(ctx, func(tx *sql.Tx) error {
+	err = e.cfg.Base.DB.Write(ctx, func(tx *sql.Tx) error {
 		f, err := loadFacts(ctx, tx, changeID)
 		if err != nil {
 			return err

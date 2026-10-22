@@ -152,6 +152,13 @@ func (e *Engine) recoverClaimOne(ctx context.Context, c recoverCandidate) (*reco
 		return nil, e.recoverUnregistered(ctx, c, ref)
 	}
 	kind, owner, to, ok := recoverDecide(c, def)
+	if kind == recoverRetry && def.Spec.Task {
+		if err := e.taskLastInactive(ctx, c.id, core.TaskOpRecover); err != nil {
+			e.cfg.Base.Log.Warn("lifecycle: recovery leaves a change whose last recover unit is active",
+				"change", c.id, "error", err)
+			return nil, nil
+		}
+	}
 	err = e.cfg.Base.DB.Write(ctx, func(tx *sql.Tx) error {
 		now := e.cfg.Base.Clock.Now()
 		if ok {
