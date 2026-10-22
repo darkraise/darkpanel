@@ -16,13 +16,18 @@ import (
 // authorized a, so a plan of another action must not run. An agent apply also
 // needs a's module to be usable on hostID; its change is recorded in
 // core_change_index and the host's journal is ingested. A returned view of
-// another host, action or version is refused before it is recorded.
+// another host, action or version is refused before it is recorded. A repair
+// plan whose target is a step of a composite being released is
+// core.change_busy.
 func (d *Dispatcher) Apply(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, planID string, opts core.ApplyOptions) (core.ChangeView, error) {
 	def, err := d.action(a, hostID)
 	if err != nil {
 		return core.ChangeView{}, err
 	}
 	if err := d.planFor(ctx, planID, hostID, a); err != nil {
+		return core.ChangeView{}, err
+	}
+	if err := d.refuseReleasingRepair(ctx, planID); err != nil {
 		return core.ChangeView{}, err
 	}
 	apply := func() (core.ChangeView, error) { return d.cfg.Engine.Apply(ctx, p, planID, opts) }
