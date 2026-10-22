@@ -3,6 +3,7 @@ package core
 import (
 	"errors"
 	"fmt"
+	"path"
 	"reflect"
 	"regexp"
 	"slices"
@@ -22,7 +23,15 @@ var (
 	moduleIDPattern     = regexp.MustCompile(`^[a-z][a-z0-9]*$`)
 	actionNamePattern   = regexp.MustCompile(`^[a-z][a-z0-9]*\.[a-z][a-z0-9]*\.[a-z][a-z0-9-]*$`)
 	resourceNamePattern = regexp.MustCompile(`^[a-z][a-z0-9]*\.[a-z][a-z0-9]*$`)
+	moduleUnitPattern   = regexp.MustCompile(`^/etc/systemd/system/darkpanel-[a-z0-9-]+\.service$`)
+	sysctlSegment       = regexp.MustCompile(`^[a-z0-9_.-]+$`)
+	subdirPattern       = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+	externalUnitPattern = regexp.MustCompile(`^[A-Za-z0-9@._-]+\.service$`)
 )
+
+// sysctlIface is the one segment of a sysctl key that stands for a network
+// interface name.
+const sysctlIface = "<iface>"
 
 // Registry holds every module, action and resource, validated once.
 type Registry struct {
@@ -63,6 +72,8 @@ func NewRegistry(mods ...Module) (*Registry, error) {
 				fail("module %s: migrations for unknown side %q", m.ID, side)
 			}
 		}
+		errs = append(errs, checkOwnedPaths(m)...)
+		errs = append(errs, checkExternalUnits(m)...)
 		for _, a := range m.Actions {
 			if err := checkAction(m.ID, a); err != nil {
 				errs = append(errs, err)
@@ -171,6 +182,127 @@ func checkOwnership(mods []Manifest) []error {
 			default:
 				errs = append(errs, fmt.Errorf("owned path %s is declared by modules %s and %s", a.path.Path, a.module, b.module))
 			}
+		}
+	}
+	return errs
+}
+
+// checkOwnedPaths applies the rules of each owned-path kind to one module's
+// declarations (spec 1.8). Only the core writes unit files outside
+// /etc/systemd/system/darkpanel-*.service, and a sysctl key never leaves
+// /proc/sys.
+func checkOwnedPaths(m Manifest) []error {
+	var errs []error
+	fail := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
+	users := map[string]bool{}
+	for _, op := range m.OwnedPaths {
+		if op.Kind == OwnedUser {
+			users[op.Path] = true
+		}
+	}
+	for _, op := range m.OwnedPaths {
+		p := op.Path
+		switch op.Kind {
+		case OwnedFile, OwnedBlock, OwnedDir, OwnedUser:
+		case OwnedUnit:
+			if m.ID != ModuleIDCore && !moduleUnitPattern.MatchString(p) {
+				fail("module %s: unit path %s must match %s", m.ID, p, moduleUnitPattern)
+			}
+		case OwnedRestore, OwnedManagedDir, OwnedServiceDir:
+			if !path.IsAbs(p) || path.Clean(p) != p {
+				fail("module %s: %s path %q is not absolute and clean", m.ID, op.Kind, p)
+			}
+		case OwnedSysctl:
+			if problem := sysctlKeyProblem(p); problem != "" {
+				fail("module %s: sysctl key %q %s", m.ID, p, problem)
+			}
+			if op.Pattern == "" {
+				fail("module %s: sysctl key %q has no value Pattern", m.ID, p)
+			}
+		default:
+			fail("module %s: owned path %q has unknown kind %q", m.ID, p, op.Kind)
+		}
+		if op.Pattern != "" {
+			if _, err := regexp.Compile(op.Pattern); err != nil {
+				fail("module %s: owned path %s: Pattern does not compile: %v", m.ID, p, err)
+			}
+			if op.Kind != OwnedSysctl && op.Kind != OwnedManagedDir && op.Kind != OwnedServiceDir {
+				fail("module %s: owned path %s: Pattern is for kinds sysctl, managed-dir and service-dir only", m.ID, p)
+			}
+		}
+		switch {
+		case op.Kind == OwnedServiceDir && (op.User == "" || !users[op.User]):
+			fail("module %s: service-dir %s: User %q is not an owned user of the module", m.ID, p, op.User)
+		case op.Kind != OwnedServiceDir && op.User != "":
+			fail("module %s: owned path %s: User is for kind service-dir only", m.ID, p)
+		}
+		if len(op.Subdirs) > 0 && op.Kind != OwnedServiceDir {
+			fail("module %s: owned path %s: Subdirs is for kind service-dir only", m.ID, p)
+		}
+		seen := map[string]bool{}
+		for _, d := range op.Subdirs {
+			switch {
+			case !subdirPattern.MatchString(d):
+				fail("module %s: service-dir %s: subdirectory %q must match %s", m.ID, p, d, subdirPattern)
+			case seen[d]:
+				fail("module %s: service-dir %s: subdirectory %s listed twice", m.ID, p, d)
+			}
+			seen[d] = true
+		}
+	}
+	return errs
+}
+
+// sysctlKeyProblem says what is wrong with a sysctl key, or "" when nothing
+// is: a key is relative to /proc/sys, its segments match sysctlSegment and
+// are not . or .., and at most one is sysctlIface.
+func sysctlKeyProblem(key string) string {
+	if strings.HasPrefix(key, "/") {
+		return "is absolute; want the key relative to /proc/sys"
+	}
+	ifaces := 0
+	for _, seg := range strings.Split(key, "/") {
+		switch {
+		case seg == "":
+			return "has an empty segment"
+		case seg == sysctlIface:
+			ifaces++
+		case seg == "." || seg == ".." || !sysctlSegment.MatchString(seg):
+			return fmt.Sprintf("has a segment %q outside %s", seg, sysctlSegment)
+		}
+	}
+	if ifaces > 1 {
+		return "has more than one " + sysctlIface + " segment"
+	}
+	return ""
+}
+
+// checkExternalUnits checks the units a module drives without owning them.
+func checkExternalUnits(m Manifest) []error {
+	var errs []error
+	fail := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
+	known := []string{UnitOpState, UnitOpStart, UnitOpStop, UnitOpRestart}
+	names := map[string]bool{}
+	for _, u := range m.ExternalUnits {
+		if !externalUnitPattern.MatchString(u.Name) {
+			fail("module %s: external unit %q must match %s", m.ID, u.Name, externalUnitPattern)
+		}
+		if names[u.Name] {
+			fail("module %s: external unit %s listed twice", m.ID, u.Name)
+		}
+		names[u.Name] = true
+		if len(u.Ops) == 0 {
+			fail("module %s: external unit %s has no Ops", m.ID, u.Name)
+		}
+		ops := map[string]bool{}
+		for _, op := range u.Ops {
+			switch {
+			case !slices.Contains(known, op):
+				fail("module %s: external unit %s: op %q is not one of %s", m.ID, u.Name, op, strings.Join(known, ", "))
+			case ops[op]:
+				fail("module %s: external unit %s: op %s listed twice", m.ID, u.Name, op)
+			}
+			ops[op] = true
 		}
 	}
 	return errs

@@ -445,3 +445,109 @@ func TestNewRegistryOwnership(t *testing.T) {
 		})
 	}
 }
+
+// ownModule is a module id declaring paths.
+func ownModule(id string, paths ...OwnedPath) Module {
+	return testModule{ID: id, Version: 1, OwnedPaths: paths}
+}
+
+func TestRegistryOwnedPathKinds(t *testing.T) {
+	user := OwnedPath{Path: "own", Kind: OwnedUser}
+	sysctl := func(key, pattern string) OwnedPath { return OwnedPath{Path: key, Kind: OwnedSysctl, Pattern: pattern} }
+	serviceDir := func(user string, subdirs ...string) OwnedPath {
+		return OwnedPath{Path: "/var/lib/own", Kind: OwnedServiceDir, User: user, Subdirs: subdirs}
+	}
+	tokens := OwnedPath{Path: "/var/lib/darkpanel/agent/own-tokens", Kind: OwnedManagedDir}
+	tests := []struct {
+		name string
+		mod  Module
+		want string // "" when the registry is valid
+	}{
+		{"sysctl key", ownModule("own", sysctl("net/ipv4/ip_forward", "^[01]$")), ""},
+		{"sysctl key with an interface", ownModule("own", sysctl("net/ipv6/conf/<iface>/forwarding", "^[01]$")), ""},
+		{"managed-dir without a pattern", ownModule("own", tokens), ""},
+		{"managed-dir with a pattern", ownModule("own",
+			OwnedPath{Path: "/var/lib/darkpanel/agent/own-debs", Kind: OwnedManagedDir, Pattern: `^[a-z0-9._-]+\.deb$`}), ""},
+		{"service-dir", ownModule("own", user, serviceDir("own", "certs")), ""},
+		{"module unit file", ownModule("own", OwnedPath{Path: "/etc/systemd/system/darkpanel-own.service", Kind: OwnedUnit}), ""},
+		{"restore file", ownModule("own", OwnedPath{Path: "/etc/ufw/user.rules", Kind: OwnedRestore}), ""},
+		{"core unit files anywhere", ownModule(ModuleIDCore,
+			OwnedPath{Path: "/etc/systemd/system/darkpanel-agent.service", Kind: OwnedUnit},
+			OwnedPath{Path: "/etc/systemd/system/darkpanel-controller.service.d/darkpanel.conf", Kind: OwnedUnit},
+			OwnedPath{Path: "/srv/test-root/units/demo.service", Kind: OwnedUnit}), ""},
+
+		{"unknown kind", ownModule("own", OwnedPath{Path: "/run/own.sock", Kind: "socket"}),
+			`module own: owned path "/run/own.sock" has unknown kind "socket"`},
+		{"sysctl without a pattern", ownModule("own", sysctl("net/ipv4/ip_forward", "")),
+			`module own: sysctl key "net/ipv4/ip_forward" has no value Pattern`},
+		{"absolute sysctl key", ownModule("own", sysctl("/proc/sys/net/x", "^1$")),
+			`module own: sysctl key "/proc/sys/net/x" is absolute`},
+		{"two interface segments", ownModule("own", sysctl("net/<iface>/conf/<iface>/x", "^1$")),
+			`sysctl key "net/<iface>/conf/<iface>/x" has more than one <iface> segment`},
+		{"sysctl segment outside the pattern", ownModule("own", sysctl("net/IPv4/x", "^1$")), `has a segment "IPv4" outside`},
+		{"sysctl dot-dot segment", ownModule("own", sysctl("net/../kernel/x", "^1$")), `has a segment ".." outside`},
+		{"sysctl empty segment", ownModule("own", sysctl("net//x", "^1$")), `sysctl key "net//x" has an empty segment`},
+		{"pattern that does not compile", ownModule("own", OwnedPath{Path: tokens.Path, Kind: OwnedManagedDir, Pattern: "("}),
+			"module own: owned path /var/lib/darkpanel/agent/own-tokens: Pattern does not compile"},
+		{"pattern on a file", ownModule("own", OwnedPath{Path: "/etc/own.conf", Kind: OwnedFile, Pattern: "^x$"}),
+			"module own: owned path /etc/own.conf: Pattern is for kinds sysctl, managed-dir and service-dir only"},
+		{"service-dir user not declared", ownModule("own", user, serviceDir("nobody")),
+			`module own: service-dir /var/lib/own: User "nobody" is not an owned user of the module`},
+		{"service-dir without a user", ownModule("own", user, serviceDir("")), `service-dir /var/lib/own: User "" is not an owned user`},
+		{"user on a managed-dir", ownModule("own", user, OwnedPath{Path: tokens.Path, Kind: OwnedManagedDir, User: "own"}),
+			"module own: owned path /var/lib/darkpanel/agent/own-tokens: User is for kind service-dir only"},
+		{"nested subdirectory", ownModule("own", user, serviceDir("own", "a/b")), `module own: service-dir /var/lib/own: subdirectory "a/b" must match`},
+		{"dot-dot subdirectory", ownModule("own", user, serviceDir("own", "..")), `subdirectory ".." must match`},
+		{"repeated subdirectory", ownModule("own", user, serviceDir("own", "x", "x")), "service-dir /var/lib/own: subdirectory x listed twice"},
+		{"subdirs on a dir", ownModule("own", OwnedPath{Path: "/var/lib/own", Kind: OwnedDir, Subdirs: []string{"certs"}}),
+			"module own: owned path /var/lib/own: Subdirs is for kind service-dir only"},
+		{"foreign unit file", ownModule("own", OwnedPath{Path: "/etc/systemd/system/nginx.service", Kind: OwnedUnit}),
+			"module own: unit path /etc/systemd/system/nginx.service must match"},
+		{"relative managed-dir", ownModule("own", OwnedPath{Path: "relative/dir", Kind: OwnedManagedDir}),
+			`module own: managed-dir path "relative/dir" is not absolute and clean`},
+		{"unclean restore path", ownModule("own", OwnedPath{Path: "/etc/ufw/../ufw/user.rules", Kind: OwnedRestore}),
+			`module own: restore path "/etc/ufw/../ufw/user.rules" is not absolute and clean`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewRegistry(tt.mod)
+			switch {
+			case tt.want == "" && err != nil:
+				t.Fatalf("NewRegistry: %v", err)
+			case tt.want != "" && (err == nil || !strings.Contains(err.Error(), tt.want)):
+				t.Fatalf("NewRegistry error = %v, want one containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestRegistryExternalUnits(t *testing.T) {
+	ext := func(units ...ExternalUnit) Module { return testModule{ID: "own", Version: 1, ExternalUnits: units} }
+	tailscaled := func(ops ...string) ExternalUnit { return ExternalUnit{Name: "tailscaled.service", Ops: ops} }
+	tests := []struct {
+		name string
+		mod  Module
+		want string // "" when the registry is valid
+	}{
+		{"state and restart", ext(tailscaled(UnitOpState, UnitOpRestart)), ""},
+		{"every op of a template instance", ext(ExternalUnit{Name: "getty@tty1.service",
+			Ops: []string{UnitOpState, UnitOpStart, UnitOpStop, UnitOpRestart}}), ""},
+		{"no ops", ext(tailscaled()), "module own: external unit tailscaled.service has no Ops"},
+		{"unknown op", ext(tailscaled("reload")),
+			`module own: external unit tailscaled.service: op "reload" is not one of state, start, stop, restart`},
+		{"repeated op", ext(tailscaled(UnitOpState, UnitOpState)), "module own: external unit tailscaled.service: op state listed twice"},
+		{"not a service", ext(ExternalUnit{Name: "tailscaled", Ops: []string{UnitOpState}}), `module own: external unit "tailscaled" must match`},
+		{"listed twice", ext(tailscaled(UnitOpState), tailscaled(UnitOpRestart)), "module own: external unit tailscaled.service listed twice"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewRegistry(tt.mod)
+			switch {
+			case tt.want == "" && err != nil:
+				t.Fatalf("NewRegistry: %v", err)
+			case tt.want != "" && (err == nil || !strings.Contains(err.Error(), tt.want)):
+				t.Fatalf("NewRegistry error = %v, want one containing %q", err, tt.want)
+			}
+		})
+	}
+}
