@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -377,4 +379,78 @@ func TestNewRegistryRefusesBadConfig(t *testing.T) {
 		t.Fatalf("NewRegistry refused the zero heartbeat: %v", err)
 	}
 	r.Close()
+}
+
+// honLog records the OnOnline calls as "<host> <online>".
+type honLog struct {
+	mu    sync.Mutex
+	calls []string
+}
+
+func (l *honLog) add(hostID string, online bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.calls = append(l.calls, fmt.Sprintf("%s %v", hostID, online))
+}
+
+func (l *honLog) all() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]string(nil), l.calls...)
+}
+
+// want fails unless the calls so far are exactly calls.
+func (l *honLog) want(t *testing.T, calls ...string) {
+	t.Helper()
+	if got := l.all(); !slices.Equal(got, calls) {
+		t.Fatalf("OnOnline calls = %q, want %q", got, calls)
+	}
+}
+
+// honRegistry is newRegistry with its OnOnline calls recorded.
+func honRegistry(t *testing.T) (*registryEnv, *honLog) {
+	t.Helper()
+	a, db, clock := newAuthority(t)
+	addHost(t, db, "H1", core.HostEnrolled)
+	serial := transport.SerialText(issue(t, a, db, "H1").SerialNumber)
+	l := &honLog{}
+	r, err := NewRegistry(RegistryConfig{
+		DB: db, Clock: clock, CheckPeer: a.CheckPeer, Version: "1.2.3", ControllerID: "C1",
+		Heartbeat: transport.HeartbeatConfig{Interval: time.Hour}, Log: quietLog, OnOnline: l.add,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(r.Close)
+	return &registryEnv{r: r, a: a, db: db, clock: clock, serial: serial}, l
+}
+
+func TestRegistryOnOnline(t *testing.T) {
+	e, l := honRegistry(t)
+	session := func() (ctrl, agent *transport.Session) {
+		ctrl, agent = livePair(t)
+		serveAgent(t, agent, helloAgent("H1", "v"))
+		e.register(t, ctrl)
+		return ctrl, agent
+	}
+
+	_, agent1 := session()
+	l.want(t, "H1 true")
+	_, agent2 := session()
+	eventually(t, "the replaced session to end", func() bool { return ended(agent1) })
+	time.Sleep(20 * time.Millisecond) // the replaced session's watcher has run
+	l.want(t, "H1 true")
+	_ = agent2.Close()
+	eventually(t, "the ended session to go offline", func() bool { return len(l.all()) == 2 })
+	l.want(t, "H1 true", "H1 false")
+
+	_, agent3 := session()
+	e.r.Disconnect("H1")
+	eventually(t, "the disconnected session to end", func() bool { return ended(agent3) })
+	time.Sleep(20 * time.Millisecond)
+	l.want(t, "H1 true", "H1 false", "H1 true", "H1 false")
+
+	session()
+	e.r.Close()
+	l.want(t, "H1 true", "H1 false", "H1 true", "H1 false", "H1 true", "H1 false")
 }

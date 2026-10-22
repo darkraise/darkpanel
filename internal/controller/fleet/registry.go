@@ -38,6 +38,12 @@ type RegistryConfig struct {
 	Heartbeat transport.HeartbeatConfig
 	// Log receives sessions starting and ending; nil discards.
 	Log *slog.Logger
+	// OnOnline receives true when a host gets its first live session and
+	// false when the host's live session ends; a session replaced by a newer
+	// one reports nothing. It runs under the registry's lock, so the calls
+	// of one host arrive in order; it must return at once and must not call
+	// the registry. Nil drops them.
+	OnOnline func(hostID string, online bool)
 }
 
 // Registry holds the live agent session of each host and is the
@@ -79,6 +85,9 @@ func NewRegistry(cfg RegistryConfig) (*Registry, error) {
 	}
 	if cfg.Log == nil {
 		cfg.Log = slog.New(slog.DiscardHandler)
+	}
+	if cfg.OnOnline == nil {
+		cfg.OnOnline = func(string, bool) {}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Registry{
@@ -123,6 +132,9 @@ func (r *Registry) Register(ctx context.Context, hostID, serial string, s *trans
 	})
 	old := r.live[hostID]
 	r.live[hostID] = ls
+	if old == nil {
+		r.cfg.OnOnline(hostID, true)
+	}
 	r.wg.Add(2)
 	r.mu.Unlock()
 
@@ -155,6 +167,7 @@ func (r *Registry) watch(ls *liveSession) {
 	current := r.live[ls.hostID] == ls
 	if current {
 		delete(r.live, ls.hostID)
+		r.cfg.OnOnline(ls.hostID, false)
 	}
 	r.mu.Unlock()
 	if current {
@@ -183,6 +196,9 @@ func (r *Registry) Disconnect(hostID string) {
 	r.mu.Lock()
 	ls := r.live[hostID]
 	delete(r.live, hostID)
+	if ls != nil {
+		r.cfg.OnOnline(hostID, false)
+	}
 	r.mu.Unlock()
 	if ls != nil {
 		_ = ls.session.Close()
@@ -197,6 +213,9 @@ func (r *Registry) Close() {
 	r.closed = true
 	live := r.live
 	r.live = map[string]*liveSession{}
+	for hostID := range live {
+		r.cfg.OnOnline(hostID, false)
+	}
 	r.mu.Unlock()
 	r.cancel()
 	for _, ls := range live {
