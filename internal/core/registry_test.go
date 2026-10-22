@@ -631,3 +631,47 @@ func TestRegistryMinScope(t *testing.T) {
 		})
 	}
 }
+
+func TestRegistryRevealRules(t *testing.T) {
+	admin := ActionSpec{Name: "demo.admin.reveal-password", Version: 1, Side: SideAgent, MinScope: ScopeAdmin}
+	with := func(def ActionDef, edit func(*ActionDef)) ActionDef {
+		edit(&def)
+		return def
+	}
+	forward := regCompensable("demo.item.pin", ActionSpec{ForwardOnly: true, Converges: true}, echo{})
+	tests := []struct {
+		name string
+		def  ActionDef
+		want string // "" when the registry is valid
+	}{
+		{"reveal with MinScope admin", DefineReveal(admin, rvlReveal), ""},
+		{"internal read without MinScope", DefineInternalRead(ActionSpec{Name: "demo.cert.get", Version: 1, Side: SideAgent}, rvlReveal), ""},
+		{"internal read on the controller", DefineInternalRead(ActionSpec{Name: "demo.token.get", Version: 1, Side: SideController}, rvlReveal), ""},
+
+		{"reveal without MinScope admin", DefineReveal(ActionSpec{Name: "demo.admin.reveal-password", Version: 1, Side: SideAgent}, rvlReveal),
+			"action demo.admin.reveal-password/v1: a reveal action declares MinScope admin"},
+		{"Reveal on a DefineRead action", with(readAction("demo.admin.get"), func(d *ActionDef) { d.Spec.Reveal, d.Spec.MinScope = true, ScopeAdmin }),
+			"action demo.admin.get/v1: a reveal action or internal read has a Reveal handler and no Read handler"},
+		{"Reveal handler without a flag", with(DefineReveal(admin, rvlReveal), func(d *ActionDef) { d.Spec.Reveal = false }),
+			"action demo.admin.reveal-password/v1: only reveal actions and internal reads have a Reveal handler"},
+		{"both flags", with(DefineReveal(admin, rvlReveal), func(d *ActionDef) { d.Spec.Internal = true }),
+			"action demo.admin.reveal-password/v1: an action is a reveal action or an internal read, not both"},
+		{"Internal on a compensable action", with(forward, func(d *ActionDef) { d.Spec.Internal = true }),
+			"action demo.item.pin/v1: reveal actions and internal reads are read actions"},
+		{"Reveal handler on a compensable action", with(forward, func(d *ActionDef) { d.Handler.Reveal = DefineReveal(admin, rvlReveal).Handler.Reveal }),
+			"action demo.item.pin/v1: only reveal actions and internal reads have a Reveal handler"},
+		{"reveal with a Read handler", with(DefineReveal(admin, rvlReveal), func(d *ActionDef) { d.Handler.Read = readAction("demo.admin.get").Handler.Read }),
+			"action demo.admin.reveal-password/v1: a reveal action or internal read has a Reveal handler and no Read handler"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewRegistry(testModule{ID: "demo", Version: 1, Actions: []ActionDef{tt.def}})
+			switch {
+			case tt.want == "" && err != nil:
+				t.Fatalf("NewRegistry: %v", err)
+			case tt.want != "" && (err == nil || !strings.Contains(err.Error(), tt.want)):
+				t.Fatalf("NewRegistry error = %v, want one containing %q", err, tt.want)
+			}
+		})
+	}
+}

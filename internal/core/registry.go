@@ -454,10 +454,14 @@ func checkAction(moduleID string, a ActionDef) error {
 	if err := checkGuardsAndScope(a); err != nil {
 		return err
 	}
+	if err := checkReveal(a); err != nil {
+		return err
+	}
 	switch s.Class {
 	case ClassRead:
-		if h.Read == nil || h.Plan != nil || h.Apply != nil {
-			return fmt.Errorf("action %s: a read action has only a Read handler", ref)
+		// checkReveal let exactly one of Read and Reveal through.
+		if (h.Read == nil && h.Reveal == nil) || h.Plan != nil || h.Apply != nil {
+			return fmt.Errorf("action %s: a read action has only a Read handler, or a Reveal handler when it reveals", ref)
 		}
 	case ClassCompensable, ClassIrreversible:
 		// checkLifecycle already required Task instead of Apply for a task action.
@@ -525,6 +529,29 @@ func checkGuardsAndScope(a ActionDef) error {
 		return fmt.Errorf("action %s: unknown MinScope %q", ref, s.MinScope)
 	case !s.MinScope.Allows(need):
 		return fmt.Errorf("action %s: MinScope %s is below the %s scope the action needs; MinScope only raises", ref, s.MinScope, need)
+	}
+	return nil
+}
+
+// checkReveal applies the rules of reveal actions and Internal reads (spec
+// 1.7, 1.14): both are read actions whose only handler is Reveal, never both
+// at once, and a reveal action needs admin. Every other action has no Reveal
+// handler.
+func checkReveal(a ActionDef) error {
+	s, h := a.Spec, a.Handler
+	ref := a.Ref()
+	flagged := s.Reveal || s.Internal
+	switch {
+	case s.Reveal && s.Internal:
+		return fmt.Errorf("action %s: an action is a reveal action or an internal read, not both", ref)
+	case flagged && s.Class != ClassRead:
+		return fmt.Errorf("action %s: reveal actions and internal reads are read actions", ref)
+	case flagged && (h.Reveal == nil || h.Read != nil):
+		return fmt.Errorf("action %s: a reveal action or internal read has a Reveal handler and no Read handler", ref)
+	case !flagged && h.Reveal != nil:
+		return fmt.Errorf("action %s: only reveal actions and internal reads have a Reveal handler", ref)
+	case s.Reveal && s.MinScope != ScopeAdmin:
+		return fmt.Errorf("action %s: a reveal action declares MinScope admin", ref)
 	}
 	return nil
 }
