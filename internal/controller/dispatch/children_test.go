@@ -103,6 +103,8 @@ func TestChildrenRouteAgentChangeOperations(t *testing.T) {
 			return nil
 		},
 	})
+	calls := &ingestCalls{}
+	d.cfg.Ingest = calls
 	kids := d.Children()
 	call := &core.CallContext{ParentChangeID: "01COMPOSITE", StepID: "a"}
 	sys := core.Principal{Actor: "system:recovery", Scope: core.ScopeAdmin}
@@ -130,6 +132,9 @@ func TestChildrenRouteAgentChangeOperations(t *testing.T) {
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("agent calls = %q, want %q", got, want)
+	}
+	if want := []string{testHost, testHost}; !slices.Equal(calls.hosts, want) {
+		t.Errorf("ingested %v, want h1 after undo and release", calls.hosts)
 	}
 }
 

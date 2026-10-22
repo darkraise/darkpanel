@@ -17,8 +17,9 @@ import (
 // for view; Repair answers plan when it is set, else view undoing.
 type opsAgent struct {
 	core.AgentClient
-	view core.ChangeView
-	plan *core.PlanView
+	view   core.ChangeView
+	plan   *core.PlanView
+	repair *core.RepairResult // when set, Repair answers it as is
 
 	mu    sync.Mutex
 	calls []string
@@ -45,6 +46,9 @@ func (a *opsAgent) Undo(_ context.Context, p core.Principal, changeID string, ca
 
 func (a *opsAgent) Repair(_ context.Context, p core.Principal, changeID string, req core.RepairRequest) (core.RepairResult, error) {
 	a.record("repair %s by %s, input %s, step %q as %q", changeID, p.Actor, string(req.Input), req.Step, req.As)
+	if a.repair != nil {
+		return *a.repair, nil
+	}
 	if a.plan != nil {
 		pl := *a.plan
 		return core.RepairResult{Plan: &pl}, nil
@@ -152,13 +156,23 @@ func TestChangeOpsRouteBySide(t *testing.T) {
 	if steps, err := d.Steps(ctx, alice, ctlChange.ID); err != nil || len(steps) != 0 {
 		t.Errorf("Steps of a controller change = %+v, %v; want none", steps, err)
 	}
-	if _, err := d.Undo(ctx, alice, ctlChange.ID); err == nil {
-		t.Error("Undo of ctl.note.set, which has no undo handler, succeeded")
-	}
+	_, err := d.Undo(ctx, alice, ctlChange.ID)
+	_ = wantCode(t, err, errcode.ChangeNotPending)
+	_, err = d.Release(ctx, alice, ctlChange.ID, "host rebuilt")
+	_ = wantCode(t, err, errcode.ChangeNotPending)
+	_, err = d.Repair(ctx, alice, ctlChange.ID, core.RepairRequest{})
+	_ = wantCode(t, err, errcode.ChangeNotPending)
+	_, err = d.Observe(ctx, alice, ctlChange.ID, 1)
+	_ = wantCode(t, err, errcode.NotFound)
+	_, err = d.Resolve(ctx, alice, ctlChange.ID, 1, core.ResolveRequest{Resolution: core.ResolutionAccept})
+	_ = wantCode(t, err, errcode.NotFound)
 	if got := agent.recorded(); len(got) != len(want) {
 		t.Errorf("a controller change reached the agent: %q", got[len(want):])
 	}
-	_, err := d.Effects(ctx, alice, "01UNKNOWN")
+	if want := []string{testHost, testHost, testHost}; !slices.Equal(calls.hosts, want) {
+		t.Errorf("ingested %v after the controller change's calls, want no more", calls.hosts)
+	}
+	_, err = d.Effects(ctx, alice, "01UNKNOWN")
 	_ = wantCode(t, err, errcode.ChangeNotFound)
 }
 
@@ -203,6 +217,38 @@ func TestRepairRelaysAPlan(t *testing.T) {
 	}
 	if got := agent.recorded(); !slices.Equal(got, want) {
 		t.Errorf("agent calls\n got %q\nwant %q", got, want)
+	}
+}
+
+func TestRepairRefusesAMalformedAnswer(t *testing.T) {
+	h, d := newDispatcher(t)
+	ctx := context.Background()
+	target := h.applyAgent(d, "a", core.ApplyOptions{ConfirmNow: true})
+	pl, err := h.rt.Plan(ctx, alice, refSet, json.RawMessage(`{"name":"b","value":"2"}`), core.PlanOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	elsewhere := pl
+	elsewhere.HostID = "h2"
+	v := target
+	cases := []struct {
+		name   string
+		answer core.RepairResult
+		want   string
+	}{
+		{"a plan on another host", core.RepairResult{Plan: &elsewhere}, `answered with a plan on "h2"`},
+		{"neither", core.RepairResult{}, "neither a change nor a plan"},
+		{"both", core.RepairResult{Change: &v, Plan: &pl}, "neither a change nor a plan, or both"},
+	}
+	for _, c := range cases {
+		h.clients.Add(testHost, &opsAgent{AgentClient: h.rt, view: target, repair: &c.answer})
+		res, err := d.Repair(ctx, alice, target.ID, core.RepairRequest{})
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: Repair = %+v, %v; want an error containing %q", c.name, res, err, c.want)
+		}
+	}
+	if n := h.count("SELECT count(*) FROM core_plan_index WHERE plan_id = ?", pl.PlanID); n != 0 {
+		t.Errorf("plan index rows = %d, want a refused answer's plan not indexed", n)
 	}
 }
 
