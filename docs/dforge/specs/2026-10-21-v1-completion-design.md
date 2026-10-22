@@ -269,7 +269,7 @@ Effect states (the engine writes every transition not marked "handler"):
 | `made` | `unresolved` (`conflict`) | undo: the observation before the inverse differs from `Post` |
 | `made` | `undoing` | undo: immediately before the inverse, `UndoTo` recorded and, for an inverse that is not `InverseLocal`, `CommitBy` reset to now plus `CommitWait` |
 | `undoing` | `undone` | the inverse returned no error and the observed State equals `UndoTo`'s |
-| `undoing` | `made` | the inverse returned a `Definite` error, or an `InverseLocal` inverse that failed or was cut off is observed equal to `Post`: nothing happened |
+| `undoing` | `made` | the inverse returned a `Definite` error, or an `InverseLocal` inverse that failed or was cut off is observed State-equal to `Post`: nothing happened |
 | `undoing` | `unresolved` | any other outcome of an inverse; an inverse that is not `InverseLocal` and did not return (an error that is not `Definite`, a cut-off) is `unresolved` (`uncertain`) whatever the observation shows |
 | `unresolved` | `accepted`, `made` or `skipped` | the operator's resolution (below) |
 | any non-terminal | `abandoned` | release (1.3) |
@@ -415,14 +415,14 @@ inverse compares State only, a field an inverse cannot restore belongs in
   one is in doubt or kept. An `accepted` effect stops the run like an
   `unresolved` one; the effects before it stay `made`.
   - an effect found `undoing` (a crash): `InverseLocal` → observe:
-    State-equal to `UndoTo` → `undone`; equal to `Post` → `made` and
-    continue below; anything else → `unresolved`; not `InverseLocal` →
+    State-equal to `UndoTo` → `undone`; State-equal to `Post` → `made`
+    and continue below; anything else → `unresolved`; not `InverseLocal` →
     `unresolved` (`uncertain`);
-  - a `made` effect: observe; not equal to `Post` → `unresolved`
+  - a `made` effect: observe; not State-equal to `Post` → `unresolved`
     (`conflict`); else record `undoing` with `UndoTo`, call `Inverse`;
     no error → observe: State-equal to `UndoTo` → `undone`, else
     `unresolved` (`conflict`); a `Definite` error → `made`; any other
-    error: `InverseLocal` and observed equal to `Post` → `made`, otherwise
+    error: `InverseLocal` and observed State-equal to `Post` → `made`, otherwise
     `unresolved` (`uncertain` when not `InverseLocal`).
 - **Settle** (one transaction, owner cleared): every effect `undone` or
   `skipped` → `reverted`, locks released, epochs given back as above; the
