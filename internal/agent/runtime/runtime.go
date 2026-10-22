@@ -49,6 +49,10 @@ type Config struct {
 	BackupDir     string         // paths.AgentBackups()
 	Exec          core.Runner    // platform.NewRunner(platform.ProductionAllowlist()) in production
 	FilesTestMode bool           // platform.FilesConfig.TestMode; false in production
+	// Units starts and reads task units (1.3c); nil refuses task actions.
+	Units core.Units
+	// TaskBinary is the darkpanel binary a task unit runs, paths.Binary().
+	TaskBinary string
 	// ControllerConnected is Hello's controllerConnected: nil while the
 	// agent is not enrolled, else whether a controller session is live. A
 	// nil function reports nil, as an agent without a transport does.
@@ -126,7 +130,7 @@ func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 	r.journal = lifecycle.NewAgentJournal(cfg.DB)
 	eng, err := lifecycle.New(lifecycle.Config{
 		Side: core.SideAgent, Registry: cfg.Registry, Validator: schema.NewValidator(), Journal: r.journal,
-		Redact: schema.Redact, Base: r.base,
+		Redact: schema.Redact, Base: r.base, Units: cfg.Units, TaskBinary: cfg.TaskBinary,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("runtime: %w", err)

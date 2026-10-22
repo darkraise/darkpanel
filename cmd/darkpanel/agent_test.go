@@ -125,6 +125,9 @@ func TestAgentRefusals(t *testing.T) {
 		{[]string{"agent", "enroll"}, cli.ExitUsage, "agent enroll runs as root in production mode; run it with sudo, or add --dev"},
 		{[]string{"agent", "run", "extra"}, cli.ExitUsage, `unknown command "extra"`},
 		{[]string{"agent", "nope"}, cli.ExitUsage, `unknown command "nope"`},
+		{[]string{"agent", "task", "01J", "apply", "1"}, cli.ExitUsage, "agent task runs as root in production mode; run it with sudo, or add --dev"},
+		{[]string{"agent", "task", "--dev", "01J", "fix", "1"}, cli.ExitUsage, `op "fix"`},
+		{[]string{"agent", "task", "--dev", "01J", "apply", "0"}, cli.ExitUsage, `attempt "0"`},
 	}
 	for _, tt := range tests {
 		out, code := runArgs(tt.args...)
@@ -209,6 +212,10 @@ func TestAgentRunProduction(t *testing.T) {
 		}
 		if got := upd.Probes.Controller != nil; got != withController {
 			t.Errorf("controller unit installed %v: the updater probes the controller %v", withController, got)
+		}
+		if cfg.Runtime.Units != core.Units(s.systemd) || cfg.Runtime.TaskBinary != s.layout.Paths.Binary() {
+			t.Errorf("agent run passed units %v and task binary %q, want the systemd connection and %s",
+				cfg.Runtime.Units, cfg.Runtime.TaskBinary, s.layout.Paths.Binary())
 		}
 	}
 }
