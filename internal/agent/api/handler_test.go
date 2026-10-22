@@ -11,7 +11,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -382,5 +384,213 @@ func TestCallHeader(t *testing.T) {
 	} {
 		hdr := http.Header{wire.HeaderCall: {enc(`{"stepId":"db"}`)}}
 		wantProblem(t, call(t, sock, tc.method, tc.path, hdr, tc.body), 422, errcode.InvalidInput)
+	}
+}
+
+// routeOpsCalls records the agent calls the change-operation routes make.
+type routeOpsCalls struct {
+	mu   sync.Mutex
+	list []any
+}
+
+func (c *routeOpsCalls) add(v ...any) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.list = append(c.list, v...)
+}
+
+func (c *routeOpsCalls) all() []any {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.list)
+}
+
+func TestHandlerChangeOpRoutes(t *testing.T) {
+	ctx := context.Background()
+	rec := &routeOpsCalls{}
+	effect := core.EffectView{ChangeID: "c1", Seq: 2, Kind: core.EffectModify, Resource: "demo.item:i1", Local: true,
+		State: core.EffectUnresolved, Reason: core.ReasonUncertain, Before: core.StateDoc{State: json.RawMessage(`{"n":1}`)}}
+	undoing := testChange
+	undoing.State = core.StateUndoing
+	reverted := testChange
+	reverted.State = core.StateReverted
+	lookup := core.PlanLookup{Status: core.LookupRunning, ChangeID: "c1", State: core.StateApplying, Owner: core.OwnerEngine}
+	fake := &coretest.FakeAgent{
+		UndoFunc: func(_ context.Context, p core.Principal, id string, call *core.CallContext) (core.ChangeView, error) {
+			rec.add("undo", p, id, call)
+			if id == "c3" {
+				return reverted, nil
+			}
+			return undoing, nil
+		},
+		RepairFunc: func(_ context.Context, p core.Principal, id string, req core.RepairRequest) (core.RepairResult, error) {
+			rec.add("repair", p, id, string(req.Input), req.Step, req.As)
+			if id == "c1" {
+				return core.RepairResult{Plan: &testPlan}, nil
+			}
+			return core.RepairResult{Change: &undoing}, nil
+		},
+		ReleaseFunc: func(_ context.Context, p core.Principal, id, reason string, call *core.CallContext) (core.ReleaseResult, error) {
+			rec.add("release", p, id, reason, call)
+			return core.ReleaseResult{Change: testChange, Abandoned: []core.EffectView{effect}}, nil
+		},
+		EffectsFunc: func(_ context.Context, p core.Principal, id string) ([]core.EffectView, error) {
+			rec.add("effects", p, id)
+			if id == "c2" {
+				return nil, nil
+			}
+			return []core.EffectView{effect}, nil
+		},
+		ObserveFunc: func(_ context.Context, p core.Principal, id string, seq int) (core.ObserveResult, error) {
+			rec.add("observe", p, id, seq)
+			return core.ObserveResult{Effect: effect, Allowed: []string{core.ResolutionAccept}}, nil
+		},
+		ResolveFunc: func(_ context.Context, p core.Principal, id string, seq int, req core.ResolveRequest) (core.EffectView, error) {
+			rec.add("resolve", p, id, seq, req)
+			return effect, nil
+		},
+		LookupFunc: func(_ context.Context, id string, private bool) (core.PlanLookup, error) {
+			rec.add("lookup", id, private)
+			return lookup, nil
+		},
+		RetireFunc: func(_ context.Context, id string) (core.PlanLookup, error) {
+			rec.add("retire", id)
+			return core.PlanLookup{Status: core.LookupRetired}, nil
+		},
+		AckPrivateFunc: func(_ context.Context, id string, final bool) error {
+			rec.add("ack-private", id, final)
+			return nil
+		},
+	}
+	h := NewHandler(Config{Agent: fake, Log: discardLog()})
+	c := tcpClient(t, h, nil)
+	step := &core.CallContext{ParentChangeID: "01COMP", ParentAction: "cfx.deploy.add", StepID: "db"}
+
+	if v, err := c.Undo(ctx, testPrincipal, "c1", step); err != nil || v.State != core.StateUndoing {
+		t.Errorf("Undo = %+v, %v", v, err)
+	}
+	if res, err := c.Repair(ctx, testPrincipal, "c1", core.RepairRequest{Input: json.RawMessage(`{"outcome":"keep"}`)}); err != nil ||
+		res.Plan == nil || !reflect.DeepEqual(*res.Plan, testPlan) || res.Change != nil {
+		t.Errorf("Repair with a plan = %+v, %v", res, err)
+	}
+	if res, err := c.Repair(ctx, testPrincipal, "c2", core.RepairRequest{Step: "db", As: "applied"}); err != nil ||
+		res.Change == nil || res.Change.State != core.StateUndoing || res.Plan != nil {
+		t.Errorf("Repair with a change = %+v, %v", res, err)
+	}
+	want := core.ReleaseResult{Change: testChange, Abandoned: []core.EffectView{effect}}
+	if rel, err := c.Release(ctx, testPrincipal, "c1", "host rebuilt", step); err != nil || !reflect.DeepEqual(rel, want) {
+		t.Errorf("Release = %+v, %v", rel, err)
+	}
+	if es, err := c.Effects(ctx, testPrincipal, "c1"); err != nil || !reflect.DeepEqual(es, []core.EffectView{effect}) {
+		t.Errorf("Effects = %+v, %v", es, err)
+	}
+	if o, err := c.Observe(ctx, testPrincipal, "c1", 2); err != nil || !reflect.DeepEqual(o.Effect, effect) {
+		t.Errorf("Observe = %+v, %v", o, err)
+	}
+	if e, err := c.Resolve(ctx, testPrincipal, "c1", 2, core.ResolveRequest{Resolution: core.ResolutionAccept}); err != nil ||
+		!reflect.DeepEqual(e, effect) {
+		t.Errorf("Resolve = %+v, %v", e, err)
+	}
+	if lk, err := c.Lookup(ctx, "p1", true); err != nil || !reflect.DeepEqual(lk, lookup) {
+		t.Errorf("Lookup = %+v, %v", lk, err)
+	}
+	if lk, err := c.Retire(ctx, "p1"); err != nil || lk.Status != core.LookupRetired {
+		t.Errorf("Retire = %+v, %v", lk, err)
+	}
+	if err := c.AckPrivate(ctx, "c1", false); err != nil {
+		t.Errorf("AckPrivate: %v", err)
+	}
+	if err := c.AckPrivate(ctx, "c1", true); err != nil {
+		t.Errorf("final AckPrivate: %v", err)
+	}
+	wantCalls := []any{
+		"undo", testPrincipal, "c1", step,
+		"repair", testPrincipal, "c1", `{"outcome":"keep"}`, "", "",
+		"repair", testPrincipal, "c2", "", "db", "applied",
+		"release", testPrincipal, "c1", "host rebuilt", step,
+		"effects", testPrincipal, "c1",
+		"observe", testPrincipal, "c1", 2,
+		"resolve", testPrincipal, "c1", 2, core.ResolveRequest{Resolution: core.ResolutionAccept},
+		"lookup", "p1", true,
+		"retire", "p1",
+		"ack-private", "c1", false,
+		"ack-private", "c1", true,
+	}
+	if got := rec.all(); !reflect.DeepEqual(got, wantCalls) {
+		t.Errorf("agent calls\n got %v\nwant %v", got, wantCalls)
+	}
+
+	hdr := http.Header{wire.HeaderPrincipal: {principalHeader(t, testPrincipal)}}
+	for _, tc := range []struct {
+		method, path string
+		body         []byte
+		status       int
+		contains     string
+	}{
+		{"POST", "/agent/v1/changes/c1/undo", nil, http.StatusAccepted, `"state":"undoing"`},
+		{"POST", "/agent/v1/changes/c3/undo", nil, http.StatusOK, `"state":"reverted"`},
+		{"POST", "/agent/v1/changes/c1/repair", []byte(`{}`), http.StatusOK, `{"plan":{"planId":"p1"`},
+		{"POST", "/agent/v1/changes/c2/repair", []byte(`{}`), http.StatusAccepted, `{"change":{"id":"c1"`},
+		{"GET", "/agent/v1/changes/c2/effects", nil, http.StatusOK, `{"effects":[]}`},
+		{"POST", "/agent/v1/changes/c1/private-output/ack", nil, http.StatusNoContent, ""},
+	} {
+		got := call(t, h, tc.method, tc.path, hdr, tc.body)
+		if got.Code != tc.status || !strings.Contains(got.Body.String(), tc.contains) {
+			t.Errorf("%s %s: %d %s, want %d with %s", tc.method, tc.path, got.Code, got.Body, tc.status, tc.contains)
+		}
+	}
+	for _, tc := range []struct {
+		method, path string
+		body         []byte
+	}{
+		{"GET", "/agent/v1/changes/c1/effects/0/observe", nil},
+		{"GET", "/agent/v1/changes/c1/effects/x/observe", nil},
+		{"POST", "/agent/v1/changes/c1/effects/-1/resolve", []byte(`{"resolution":"accept"}`)},
+		{"GET", "/agent/v1/plans/p1?private=yes", nil},
+		{"GET", "/agent/v1/plans/p1?other=1", nil},
+		{"GET", "/agent/v1/plans/p1?private=1&private=1", nil},
+	} {
+		wantProblem(t, call(t, h, tc.method, tc.path, hdr, tc.body), 422, errcode.InvalidInput)
+	}
+}
+
+func TestSocketServesNoChangeOps(t *testing.T) {
+	var enrolled atomic.Bool
+	enrolled.Store(true)
+	sock := socketHandler(newSocketFake(), &enrolled)
+	for _, tc := range []struct {
+		method, path string
+		body         []byte
+	}{
+		{"POST", "/agent/v1/changes/c1/undo", nil},
+		{"POST", "/agent/v1/changes/c1/repair", []byte(`{}`)},
+		{"POST", "/agent/v1/changes/c1/release", []byte(`{"reason":"r"}`)},
+		{"GET", "/agent/v1/changes/c1/effects", nil},
+		{"GET", "/agent/v1/changes/c1/effects/1/observe", nil},
+		{"POST", "/agent/v1/changes/c1/effects/1/resolve", []byte(`{"resolution":"accept"}`)},
+		{"GET", "/agent/v1/plans/p1", nil},
+		{"POST", "/agent/v1/plans/p1/retire", nil},
+		{"POST", "/agent/v1/changes/c1/private-output/ack", nil},
+	} {
+		wantProblem(t, call(t, sock, tc.method, tc.path, nil, tc.body), 404, errcode.NotFound)
+	}
+}
+
+func TestHandlerApplyAnswersAccepted(t *testing.T) {
+	applying := testChange
+	applying.State = core.StateApplying
+	fake := &coretest.FakeAgent{
+		ApplyFunc: func(context.Context, core.Principal, string, core.ApplyOptions) (core.ChangeView, error) {
+			return applying, nil
+		},
+	}
+	h := NewHandler(Config{Agent: fake, Log: discardLog()})
+	hdr := http.Header{wire.HeaderPrincipal: {principalHeader(t, testPrincipal)}}
+	if rec := call(t, h, "POST", "/agent/v1/plans/p1/apply", hdr, []byte(`{}`)); rec.Code != http.StatusAccepted {
+		t.Errorf("apply of an applying change answered %d %s, want 202", rec.Code, rec.Body)
+	}
+	c := tcpClient(t, h, nil)
+	if v, err := c.Apply(context.Background(), testPrincipal, "p1", core.ApplyOptions{}); err != nil || v.State != core.StateApplying {
+		t.Errorf("Apply = %+v, %v; want the applying change", v, err)
 	}
 }

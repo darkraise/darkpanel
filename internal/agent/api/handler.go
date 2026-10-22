@@ -30,18 +30,27 @@ const problemContentType = "application/problem+json"
 
 // The operations of the agent API, one per route.
 const (
-	opHello     = "hello"
-	opRead      = "read"
-	opResource  = "resource"
-	opPlan      = "plan"
-	opApply     = "apply"
-	opConfirm   = "confirm"
-	opRevert    = "revert"
-	opChange    = "change"
-	opChanges   = "changes"
-	opPreflight = "preflight"
-	opJournal   = "journal"
-	opAck       = "ack"
+	opHello      = "hello"
+	opRead       = "read"
+	opResource   = "resource"
+	opPlan       = "plan"
+	opApply      = "apply"
+	opConfirm    = "confirm"
+	opRevert     = "revert"
+	opChange     = "change"
+	opChanges    = "changes"
+	opPreflight  = "preflight"
+	opJournal    = "journal"
+	opAck        = "ack"
+	opUndo       = "undo"
+	opRepair     = "repair"
+	opRelease    = "release"
+	opEffects    = "effects"
+	opObserve    = "observe"
+	opResolve    = "resolve"
+	opLookup     = "lookup"
+	opRetire     = "retire"
+	opAckPrivate = "ack-private"
 )
 
 // ControllerHello is the controller's half of a hello, sent in the headers
@@ -89,8 +98,11 @@ func NewHandler(cfg Config) http.Handler {
 	return h.routes(true)
 }
 
-// routes maps every route; the journal routes only when journal is set.
-func (h *handler) routes(journal bool) *http.ServeMux {
+// routes maps every route. The journal routes and the change operations of
+// spec 1.3 only serve the controller's session: the agent socket serves none
+// of them, so every undo, repair, release and resolution goes through the
+// controller's admission checks.
+func (h *handler) routes(controller bool) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+prefix+"hello", h.handleHello)
 	mux.HandleFunc("POST "+prefix+"actions/{name}/{version}/read", h.handleRead)
@@ -102,9 +114,18 @@ func (h *handler) routes(journal bool) *http.ServeMux {
 	mux.HandleFunc("GET "+prefix+"changes/{id}", h.handleChange)
 	mux.HandleFunc("GET "+prefix+"changes", h.handleChanges)
 	mux.HandleFunc("GET "+prefix+"modules/{id}/preflight", h.handlePreflight)
-	if journal {
+	if controller {
 		mux.HandleFunc("GET "+prefix+"journal", h.handleJournal)
 		mux.HandleFunc("POST "+prefix+"journal/ack", h.handleAck)
+		mux.HandleFunc("POST "+prefix+"changes/{id}/undo", h.handleUndo)
+		mux.HandleFunc("POST "+prefix+"changes/{id}/repair", h.handleRepair)
+		mux.HandleFunc("POST "+prefix+"changes/{id}/release", h.handleRelease)
+		mux.HandleFunc("GET "+prefix+"changes/{id}/effects", h.handleEffects)
+		mux.HandleFunc("GET "+prefix+"changes/{id}/effects/{seq}/observe", h.handleObserve)
+		mux.HandleFunc("POST "+prefix+"changes/{id}/effects/{seq}/resolve", h.handleResolve)
+		mux.HandleFunc("POST "+prefix+"changes/{id}/private-output/ack", h.handleAckPrivate)
+		mux.HandleFunc("GET "+prefix+"plans/{id}", h.handleLookup)
+		mux.HandleFunc("POST "+prefix+"plans/{id}/retire", h.handleRetire)
 	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		h.writeProblem(w, errcode.New(errcode.NotFound, fmt.Sprintf("no agent API route %s %s", r.Method, r.URL.Path)))
@@ -261,6 +282,8 @@ func (h *handler) handlePlan(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, wire.FromPlanView(v))
 }
 
+// handleApply answers 202 while the change is still applying (spec 1.3
+// Asynchronous apply), 200 otherwise.
 func (h *handler) handleApply(w http.ResponseWriter, r *http.Request) {
 	p, err := h.actor(r, opApply, "")
 	var call *core.CallContext
@@ -281,7 +304,11 @@ func (h *handler) handleApply(w http.ResponseWriter, r *http.Request) {
 		h.writeProblem(w, err)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, wire.FromChangeView(v))
+	status := http.StatusOK
+	if v.State == core.StateApplying {
+		status = http.StatusAccepted
+	}
+	h.writeJSON(w, status, wire.FromChangeView(v))
 }
 
 // handleChangeOp serves confirm and revert, which take no body.
@@ -410,6 +437,206 @@ func (h *handler) handleAck(w http.ResponseWriter, r *http.Request) {
 	}
 	if err == nil {
 		err = h.cfg.Agent.Ack(r.Context(), ack.Seq)
+	}
+	if err != nil {
+		h.writeProblem(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleUndo answers 202 with the change undoing, or 200 when it was
+// already reverted.
+func (h *handler) handleUndo(w http.ResponseWriter, r *http.Request) {
+	p, err := h.actor(r, opUndo, "")
+	var call *core.CallContext
+	if err == nil {
+		call, err = h.call(r)
+	}
+	var v core.ChangeView
+	if err == nil {
+		v, err = h.cfg.Agent.Undo(r.Context(), p, r.PathValue("id"), call)
+	}
+	if err != nil {
+		h.writeProblem(w, err)
+		return
+	}
+	status := http.StatusAccepted
+	if v.State == core.StateReverted {
+		status = http.StatusOK
+	}
+	h.writeJSON(w, status, wire.FromChangeView(v))
+}
+
+// handleRepair answers 202 with the change a repair started, or 200 with the
+// plan it made.
+func (h *handler) handleRepair(w http.ResponseWriter, r *http.Request) {
+	p, err := h.actor(r, opRepair, "")
+	var req core.RepairRequest
+	if err == nil {
+		err = decodeJSON(w, r, &req)
+	}
+	var res core.RepairResult
+	if err == nil {
+		res, err = h.cfg.Agent.Repair(r.Context(), p, r.PathValue("id"), req)
+	}
+	if err == nil && (res.Change == nil) == (res.Plan == nil) {
+		err = errors.New("api: a repair answered neither a change nor a plan, or both")
+	}
+	if err != nil {
+		h.writeProblem(w, err)
+		return
+	}
+	status := http.StatusOK
+	if res.Change != nil {
+		status = http.StatusAccepted
+	}
+	h.writeJSON(w, status, wire.FromRepairResult(res))
+}
+
+// handleRelease passes the reason on unchecked: the engine validates it.
+func (h *handler) handleRelease(w http.ResponseWriter, r *http.Request) {
+	p, err := h.actor(r, opRelease, "")
+	var call *core.CallContext
+	if err == nil {
+		call, err = h.call(r)
+	}
+	var body wire.Release
+	if err == nil {
+		err = decodeJSON(w, r, &body)
+	}
+	var res core.ReleaseResult
+	if err == nil {
+		res, err = h.cfg.Agent.Release(r.Context(), p, r.PathValue("id"), body.Reason, call)
+	}
+	if err != nil {
+		h.writeProblem(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, wire.FromReleaseResult(res))
+}
+
+func (h *handler) handleEffects(w http.ResponseWriter, r *http.Request) {
+	p, err := h.actor(r, opEffects, "")
+	var effects []core.EffectView
+	if err == nil {
+		effects, err = h.cfg.Agent.Effects(r.Context(), p, r.PathValue("id"))
+	}
+	if err != nil {
+		h.writeProblem(w, err)
+		return
+	}
+	if effects == nil {
+		effects = []core.EffectView{}
+	}
+	h.writeJSON(w, http.StatusOK, wire.Effects{Effects: effects})
+}
+
+// effectSeq reads an effect route's {seq}, a positive integer.
+func effectSeq(r *http.Request) (int, error) {
+	seq, err := strconv.Atoi(r.PathValue("seq"))
+	if err != nil || seq < 1 {
+		return 0, &errcode.Error{Code: errcode.InvalidInput, Detail: "seq must be a positive integer",
+			Fields: []errcode.FieldError{{Path: "/seq", Message: "must be a positive integer"}}}
+	}
+	return seq, nil
+}
+
+func (h *handler) handleObserve(w http.ResponseWriter, r *http.Request) {
+	p, err := h.actor(r, opObserve, "")
+	var seq int
+	if err == nil {
+		seq, err = effectSeq(r)
+	}
+	var res core.ObserveResult
+	if err == nil {
+		res, err = h.cfg.Agent.Observe(r.Context(), p, r.PathValue("id"), seq)
+	}
+	if err != nil {
+		h.writeProblem(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, res)
+}
+
+func (h *handler) handleResolve(w http.ResponseWriter, r *http.Request) {
+	p, err := h.actor(r, opResolve, "")
+	var seq int
+	if err == nil {
+		seq, err = effectSeq(r)
+	}
+	var req core.ResolveRequest
+	if err == nil {
+		err = decodeJSON(w, r, &req)
+	}
+	var v core.EffectView
+	if err == nil {
+		v, err = h.cfg.Agent.Resolve(r.Context(), p, r.PathValue("id"), seq, req)
+	}
+	if err != nil {
+		h.writeProblem(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, v)
+}
+
+// lookupPrivate reads GET plans/{id}'s one parameter: private=1 asks for a
+// child change's unredacted output.
+func lookupPrivate(r *http.Request) (bool, error) {
+	q := r.URL.Query()
+	for _, k := range slices.Sorted(maps.Keys(q)) {
+		if k != "private" || len(q[k]) > 1 {
+			return false, invalidQuery(k, "unknown or repeated parameter")
+		}
+	}
+	if !q.Has("private") {
+		return false, nil
+	}
+	if q.Get("private") != "1" {
+		return false, invalidQuery("private", "must be 1")
+	}
+	return true, nil
+}
+
+func (h *handler) handleLookup(w http.ResponseWriter, r *http.Request) {
+	private, err := lookupPrivate(r)
+	if err == nil {
+		err = h.allow(r.Context(), opLookup, "")
+	}
+	var lk core.PlanLookup
+	if err == nil {
+		lk, err = h.cfg.Agent.Lookup(r.Context(), r.PathValue("id"), private)
+	}
+	if err != nil {
+		h.writeProblem(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, lk)
+}
+
+func (h *handler) handleRetire(w http.ResponseWriter, r *http.Request) {
+	err := h.allow(r.Context(), opRetire, "")
+	var lk core.PlanLookup
+	if err == nil {
+		lk, err = h.cfg.Agent.Retire(r.Context(), r.PathValue("id"))
+	}
+	if err != nil {
+		h.writeProblem(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, lk)
+}
+
+// handleAckPrivate reads an empty body as an acknowledgement that is not
+// final.
+func (h *handler) handleAckPrivate(w http.ResponseWriter, r *http.Request) {
+	err := h.allow(r.Context(), opAckPrivate, "")
+	var ack wire.AckPrivate
+	if err == nil && r.ContentLength != 0 {
+		err = decodeJSON(w, r, &ack)
+	}
+	if err == nil {
+		err = h.cfg.Agent.AckPrivate(r.Context(), r.PathValue("id"), ack.Final)
 	}
 	if err != nil {
 		h.writeProblem(w, err)
