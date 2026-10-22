@@ -212,9 +212,10 @@ func (e *Engine) recoverClaimOne(ctx context.Context, c recoverCandidate) (*reco
 // recoverUnregistered handles a change whose action is no longer registered.
 // A compensable or irreversible change cut off during apply is marked
 // interrupted and its locks are released, without a handler; any other
-// change only loses the owner the previous process left. It never fails
-// start-up for the missing action, so the agent still starts and can be
-// updated.
+// unfinished change goes to needs_repair with its locks kept, so an operator
+// can release it; a change in needs_repair only loses the owner the
+// previous process left. It never fails start-up for the missing action, so
+// the agent still starts and can be updated.
 func (e *Engine) recoverUnregistered(ctx context.Context, c recoverCandidate, ref core.ActionRef) error {
 	e.cfg.Base.Log.Error("lifecycle: recovery skips a change of an unregistered action",
 		"change", c.id, "action", ref.String(), "state", c.state)
@@ -230,6 +231,21 @@ func (e *Engine) recoverUnregistered(ctx context.Context, c recoverCandidate, re
 		})
 		if err != nil {
 			return fmt.Errorf("lifecycle: interrupt change %s at start: %w", c.id, err)
+		}
+		return nil
+	}
+	switch c.state {
+	case core.StateApplying, core.StatePending, core.StateRecovering, core.StateUndoing:
+		_, err := e.transition(ctx, c.id, transition{
+			from: c.state, to: core.StateNeedsRepair, keepLocks: true, owner: recovererOwner(""),
+			phase: phaseInterrupt, result: resultError, actor: ActorRecovery,
+			err: &core.ChangeError{
+				Code:    string(errcode.ActionUnknown),
+				Message: fmt.Sprintf("action %s is not registered, so no handler can finish this change; release it", ref),
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("lifecycle: move change %s to needs_repair at start: %w", c.id, err)
 		}
 		return nil
 	}

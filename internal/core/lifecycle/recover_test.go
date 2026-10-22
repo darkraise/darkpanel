@@ -517,6 +517,11 @@ func TestRecoverInterruptsAChangeOfAnUnregisteredAction(t *testing.T) {
 	applying := f.recoverSeed("", gone, core.ClassCompensable, core.StateApplying, core.OwnerEngine)
 	f.recoverExec("INSERT INTO core_locks (key, owner) VALUES ('gone', ?)", applying)
 	undoing := f.recoverSeed("", gone, core.ClassCompensable, core.StateUndoing, core.OwnerUndo)
+	f.recoverExec("INSERT INTO core_locks (key, owner) VALUES ('gone-undo', ?)", undoing)
+	pending := f.recoverSeed("", gone, core.ClassRevertible, core.StatePending, "")
+	f.recoverExec("INSERT INTO core_locks (key, owner) VALUES ('gone-pending', ?)", pending)
+	revertible := f.recoverSeed("", gone, core.ClassRevertible, core.StateApplying, core.OwnerEngine)
+	recovering := f.recoverSeed("", gone, core.ClassCompensable, core.StateRecovering, core.OwnerModule)
 	f.recoverAll()
 	row := func(id string) (state, owner, msg string) {
 		t.Helper()
@@ -539,7 +544,20 @@ func TestRecoverInterruptsAChangeOfAnUnregisteredAction(t *testing.T) {
 	if n := f.count("SELECT count(*) FROM core_locks WHERE owner = ?", applying); n != 0 {
 		t.Errorf("interrupted change holds %d locks, want 0", n)
 	}
-	if state, owner, _ := row(undoing); state != core.StateUndoing || owner != "" {
-		t.Errorf("undoing change after Recover = %s owned by %q, want undoing, unowned", state, owner)
+	for name, id := range map[string]string{
+		"undoing": undoing, "pending": pending, "applying revertible": revertible, "recovering": recovering,
+	} {
+		if state, owner, msg := row(id); state != core.StateNeedsRepair || owner != "" || !strings.Contains(msg, gone.String()) {
+			t.Errorf("%s change after Recover = %s owned by %q with %q, want needs_repair, unowned, naming %s",
+				name, state, owner, msg, gone)
+		}
+	}
+	for id, key := range map[string]string{undoing: "gone-undo", pending: "gone-pending"} {
+		if n := f.count("SELECT count(*) FROM core_locks WHERE owner = ? AND key = ?", id, key); n != 1 {
+			t.Errorf("change %s holds %d locks %s, want it kept", id, n, key)
+		}
+	}
+	if _, err := f.eng.Release(context.Background(), alice, pending, "the module is gone", nil); err != nil {
+		t.Errorf("Release of a change of an unregistered action: %v", err)
 	}
 }
