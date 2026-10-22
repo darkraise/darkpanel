@@ -414,6 +414,9 @@ func (e *Engine) compositeStep(ctx context.Context, id string, run *compositeRun
 	if c.Owner != core.OwnerComposite {
 		return errCompositeDone
 	}
+	if c.State == core.StateRecovering {
+		return e.probeChild(ctx, c, steps)
+	}
 	if c.Direction == dirUnwind {
 		return e.unwindStep(ctx, c, steps)
 	}
@@ -698,13 +701,28 @@ func retireChild(ctx context.Context, kids Children, s stepRow) (core.PlanLookup
 	return lk, err
 }
 
-// childUnreachable is what a failed child call means for the runner: an
-// unreachable host is waited for, and any other error is returned.
-func (e *Engine) childUnreachable(_ context.Context, _ compositeRow, _ stepRow, err error) error {
-	if errcode.From(err).Code == errcode.HostOffline {
+// childUnreachable is what a failed child call means for the runner (1.3
+// Child watcher). An unreachable host is waited for until the step's child
+// deadline (if any) plus UnreachableGrace; then the composite is recovering
+// and polls every UnreachablePoll. A releasing composite only retries, so it
+// stays releasing. Any other error, and any error met on a composite the
+// runner does not own (a repair's checks), is returned.
+func (e *Engine) childUnreachable(ctx context.Context, c compositeRow, s stepRow, err error) error {
+	if errcode.From(err).Code != errcode.HostOffline || c.Owner != core.OwnerComposite {
+		return err
+	}
+	switch {
+	case c.State == core.StateRecovering:
+		return waitChild(UnreachablePoll)
+	case c.State == core.StateReleasing:
+		return waitChild(ChildPoll)
+	case s.ChildDeadline != nil && e.cfg.Base.Clock.Now().Before(s.ChildDeadline.Add(UnreachableGrace)):
 		return waitChild(ChildPoll)
 	}
-	return err
+	if _, terr := e.transition(ctx, c.ID, transition{from: c.State, to: core.StateRecovering}); terr != nil {
+		return terr
+	}
+	return waitChild(UnreachablePoll)
 }
 
 // observeChild applies 1.3's transition tables, chosen by the persisted

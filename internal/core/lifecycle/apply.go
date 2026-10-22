@@ -52,8 +52,13 @@ type intent struct {
 // once; any other answers its result, or the applying change when the run
 // has not finished within Config.SyncAnswer (spec 1.3, asynchronous apply).
 func (e *Engine) Apply(ctx context.Context, p core.Principal, planID string, opts core.ApplyOptions) (core.ChangeView, error) {
-	if def, ok := e.planDef(ctx, planID); ok && def.Spec.Class == core.ClassComposite {
-		return e.applyComposite(ctx, p, planID, opts)
+	if def, ok := e.planDef(ctx, planID); ok {
+		if def.Spec.Class == core.ClassComposite {
+			return e.applyComposite(ctx, p, planID, opts)
+		}
+		if err := e.compositeGate(def.Ref()); err != nil {
+			return core.ChangeView{}, err
+		}
 	}
 	e.applyMu.Lock()
 	it, existing, err := e.begin(ctx, p, planID, opts)

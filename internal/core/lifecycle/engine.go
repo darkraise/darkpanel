@@ -99,6 +99,10 @@ type Engine struct {
 	children  Children              // set by SetChildren; nil refuses composites
 	compLocks map[string]*compLock  // one per composite while it is locked or awaited, guarded by compMu
 	compWake  map[string]*compWaker // one per composite with a runner, guarded by compMu
+
+	compRecoverStarted bool     // RecoverComposites ran; guarded by compMu
+	compRecovered      bool     // latched once every claimed composite settled; guarded by compMu
+	compClaimed        []string // the composites RecoverComposites claimed; guarded by compMu
 }
 
 // New returns an engine for cfg. Run Recover before serving requests.
@@ -274,6 +278,9 @@ func (e *Engine) Read(ctx context.Context, p core.Principal, ref core.ActionRef,
 func (e *Engine) Plan(ctx context.Context, p core.Principal, ref core.ActionRef, input json.RawMessage, opts core.PlanOptions) (core.PlanView, error) {
 	def, err := e.action(ref)
 	if err != nil {
+		return core.PlanView{}, err
+	}
+	if err := e.compositeGate(ref); err != nil {
 		return core.PlanView{}, err
 	}
 	if def.Spec.Class == core.ClassRead {

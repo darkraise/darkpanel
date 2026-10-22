@@ -50,6 +50,11 @@ func (e *Engine) Recover(ctx context.Context) error {
 
 	var errs []error
 	for _, u := range todo {
+		if core.Class(u.class) == core.ClassComposite {
+			// RecoverComposites claims it, and its runner follows the
+			// children it already applied.
+			continue
+		}
 		// A restart ends in-process ownership (spec 1.3), so every recorded
 		// outcome clears the owner the previous process left.
 		var err error
