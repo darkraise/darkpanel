@@ -169,11 +169,7 @@ func (e *Engine) abandon(ctx context.Context, tx *sql.Tx, p core.Principal, f ch
 // abandonable reports whether a release abandons an effect in state s: every
 // state but the terminal ones (spec 1.2).
 func abandonable(s core.EffectState) bool {
-	switch s {
-	case core.EffectSkipped, core.EffectUndone, core.EffectAccepted, core.EffectAbandoned:
-		return false
-	}
-	return true
+	return !effectTerminal(s)
 }
 
 // repairChanges lists the ids of target's repair changes, oldest first; a
