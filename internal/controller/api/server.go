@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -183,6 +184,16 @@ func clientAddr(r *http.Request) string {
 	return host
 }
 
+// clientPeer is the transport's peer of r, an IPv4-mapped address unmapped.
+// A request without an IP peer, such as one on a Unix socket, has none.
+func clientPeer(r *http.Request) (core.Peer, bool) {
+	ap, err := netip.ParseAddrPort(r.RemoteAddr)
+	if err != nil {
+		return core.Peer{}, false
+	}
+	return core.Peer{Addr: ap.Addr().Unmap(), Port: ap.Port()}, true
+}
+
 type access int
 
 const (
@@ -255,9 +266,13 @@ func (s *Server) identify(r *http.Request) (caller, error) {
 // authenticate is the one authentication middleware of the network
 // listeners: it denies every request whose route is not public unless it
 // carries valid credentials, and a session request with an unsafe method
-// unless its CSRF token matches.
+// unless its CSRF token matches. It records the request's peer for the guard
+// context (spec 1.5).
 func (s *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if peer, ok := clientPeer(r); ok {
+			r = r.WithContext(core.WithClientPeer(r.Context(), peer))
+		}
 		switch routeAccess(r.Method, r.URL.Path) {
 		case accessPublic:
 			next.ServeHTTP(w, r)
