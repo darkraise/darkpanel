@@ -112,6 +112,58 @@ type ModuleEnabled struct {
 	Enabled bool `json:"enabled"`
 }
 
+// ModuleAvailability is core.ModuleAvailability, the body of GET
+// modules/{id}/availability (spec 1.7); an empty reason is null.
+type ModuleAvailability struct {
+	Module    string               `json:"module"`
+	Available bool                 `json:"available"`
+	Reason    *string              `json:"reason"`
+	Actions   []ActionAvailability `json:"actions"`
+}
+
+// ActionAvailability is core.ActionAvailability; an empty reason is null.
+type ActionAvailability struct {
+	Name      string  `json:"name"`
+	Available bool    `json:"available"`
+	Reason    *string `json:"reason"`
+}
+
+// FromModuleAvailability converts m; its actions are [] rather than null.
+func FromModuleAvailability(m core.ModuleAvailability) ModuleAvailability {
+	out := ModuleAvailability{Module: m.Module, Available: m.Available, Reason: nullReason(m.Reason),
+		Actions: make([]ActionAvailability, len(m.Actions))}
+	for i, a := range m.Actions {
+		out.Actions[i] = ActionAvailability{Name: a.Name, Available: a.Available, Reason: nullReason(a.Reason)}
+	}
+	return out
+}
+
+// Core converts m back.
+func (m ModuleAvailability) Core() core.ModuleAvailability {
+	out := core.ModuleAvailability{Module: m.Module, Available: m.Available, Reason: reasonText(m.Reason),
+		Actions: make([]core.ActionAvailability, len(m.Actions))}
+	for i, a := range m.Actions {
+		out.Actions[i] = core.ActionAvailability{Name: a.Name, Available: a.Available, Reason: reasonText(a.Reason)}
+	}
+	return out
+}
+
+// nullReason is a reason as the API sends it: null when there is none.
+func nullReason(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// reasonText reads a reason the API sent; null is none.
+func reasonText(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
 // Hello is core.AgentHello. ControllerConnected is null for an agent that
 // is not enrolled.
 type Hello struct {

@@ -532,3 +532,40 @@ func TestClientSetModuleEnabled(t *testing.T) {
 		t.Errorf("requests = %+v\nwant %+v", got, want)
 	}
 }
+
+func TestClientAvailability(t *testing.T) {
+	var asked []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked = append(asked, r.Method+" "+r.URL.Path)
+		if r.URL.Path != "/agent/v1/modules/demo/availability" {
+			w.Header().Set("Content-Type", problemContentType)
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"status":404,"code":"not_found","detail":"no agent API route"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"module":"demo","available":false,"reason":"no docker","actions":[` +
+			`{"name":"demo.set","available":false,"reason":"no docker"},{"name":"demo.get","available":true,"reason":null}]}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := NewClient(ClientConfig{Dial: func(ctx context.Context) (net.Conn, error) {
+		var d net.Dialer
+		return d.DialContext(ctx, "tcp", srv.Listener.Addr().String())
+	}})
+	ctx := context.Background()
+	got, err := c.Availability(ctx, "demo")
+	want := core.ModuleAvailability{Module: "demo", Reason: "no docker", Actions: []core.ActionAvailability{
+		{Name: "demo.set", Reason: "no docker"}, {Name: "demo.get", Available: true},
+	}}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("Availability = %+v, %v; want %+v", got, err, want)
+	}
+	_, err = c.Availability(ctx, "nope")
+	var e *errcode.Error
+	if !errors.As(err, &e) || e.Code != errcode.NotFound {
+		t.Errorf("Availability of an agent without the route = %v, want not_found", err)
+	}
+	if len(asked) != 2 || asked[0] != "GET /agent/v1/modules/demo/availability" {
+		t.Errorf("requests %v", asked)
+	}
+}

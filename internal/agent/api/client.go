@@ -44,9 +44,10 @@ type Client struct {
 }
 
 var (
-	_ core.AgentClient     = (*Client)(nil)
-	_ core.AgentChangeOps  = (*Client)(nil)
-	_ core.AgentEnablement = (*Client)(nil)
+	_ core.AgentClient       = (*Client)(nil)
+	_ core.AgentChangeOps    = (*Client)(nil)
+	_ core.AgentEnablement   = (*Client)(nil)
+	_ core.AgentAvailability = (*Client)(nil)
 )
 
 // NewClient returns a client for cfg. Requests end with their context; the
@@ -279,6 +280,17 @@ func (c *Client) SetModuleEnabled(ctx context.Context, moduleID string, enabled 
 	req := request{method: http.MethodPut, path: "modules/" + url.PathEscape(moduleID) + "/enabled",
 		body: wire.ModuleEnabled{Enabled: enabled}}
 	return c.do(ctx, req, nil)
+}
+
+// Availability asks which actions of a module are available. An agent
+// without the route answers not_found, as for an unknown module.
+func (c *Client) Availability(ctx context.Context, moduleID string) (core.ModuleAvailability, error) {
+	var m wire.ModuleAvailability
+	path := "modules/" + url.PathEscape(moduleID) + "/availability"
+	if err := c.do(ctx, request{method: http.MethodGet, path: path}, &m); err != nil {
+		return core.ModuleAvailability{}, err
+	}
+	return m.Core(), nil
 }
 
 // Journal returns up to limit journal entries after afterSeq; a limit of 0
