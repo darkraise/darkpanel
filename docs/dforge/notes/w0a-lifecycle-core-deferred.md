@@ -1,0 +1,282 @@
+# w0a lifecycle core: deferred and parked findings
+
+Carried out of the execution ledger, which is deleted when the branch is merged. Plan: docs/dforge/plans/2026-10-21-v1-w0a-lifecycle-core.md. Each bullet is one ledger line, with the task it came from. Open owner question: S1 in the register row for this note.
+
+## Minor (deferred)
+- Task 1: minor (deferred): full-suite evidence summarized rather than quoted in task-1-report.md (controller ran go build ./... and go vet on core and cli: clean)
+- Task 1: minor (deferred): new doc comments (contract.go:96-100, 116-118, 127-129) describe guarantees later tasks build; final review to confirm they hold
+- Task 4: minor (deferred): task-4-report.md quotes no RED/GREEN output lines and omits lint, vet and tidy; the wave integration check covers them (verification score 13, borderline)
+- Task 3: minor (deferred): systemd.go:183-184 a positive RuntimeMax below 1µs truncates to RuntimeMaxUSec 0
+- Task 3: minor (deferred): systemd_test.go:412 negative-runtime refusal test asserts only that an error returned, not which or that no bus call was made
+- Task 3: minor (deferred): systemd.go:174 new error string lacks the platform: prefix (brief-mandated text)
+- Task 3: minor (deferred): live systemd test (DARKPANEL_SYSTEMD_LIVE=1) not run; the UnknownObject error name and RuntimeMaxUSec/CollectMode acceptance are unverified against real systemd
+- Task 5: minor (deferred): migrations_test.go refusal cases assert only err != nil, not which constraint refused
+- Task 5: minor (deferred): private_output_ct/private_output_at and core_plan_index.repairs not checked on a migrated row; no accepted case for core_composites.direction 'unwind'
+- Task 5: minor (deferred): brief Step 2 says the STRICT test fails with 'no such table'; it fails with 'sql: no rows in result set' (brief wording only)
+- Task 1: minor (deferred): contract.go:628 JournalEntry.Phase comment still lists five phases; widen it with the four new phases (seat, Task 5 cv-5-a; Task 31 or final review)
+- Task 6: minor (deferred): TestPlanForwardsItsOptionsToTheAgent covers only the agent branch of Dispatcher.Plan (dispatch.go:194); add a controller-side forwarding assertion when Task 14 makes the value observable
+- Task 7: minor (deferred): runRevert's returned RevertOutcome is never asserted non-empty (all fixtures return zero value); Task 16 should assert a non-zero outcome propagates
+- Task 7: minor (deferred): gate results summarized, not quoted, in task-7-report.md
+- Task 8: minor (deferred): DefineComposite Output/Steps closures repeat erasedRun's decode step (brief-mandated, small)
+- Task 8: minor (deferred): erasedVerify error 'decode output for verify: %w' lacks the core: prefix (moved verbatim)
+- Task 8: minor (deferred): DefineComposite lock key for a name without a dot becomes composite:<name>; relies on Task 9 name validation
+- Task 8: minor (deferred): task-8-report.md does not show TMPDIR on its go commands
+- Task 9: minor (deferred): registry.go hasSecretField has no nil guard for a hand-built composite with nil InputType
+- Task 9: minor (deferred): hasSecretField scans map values but not map key types despite its doc comment
+- Task 9: minor (deferred): registry_test.go lacks a repair-action wrong-side rejection row and a 45s boundary accept row
+- Task 9: minor (deferred): registry_test.go selects the task action by index len(Actions)-2 (brief-mandated, fragile)
+- Task 9: minor (deferred): new registry error strings lack the core: prefix (brief-mandated; matches registry.go's existing fail closure) — whole-branch review to decide
+- Task 9: minor (deferred): repairItem fixture duplicated in dispatch and runtime fixture_test.go (brief-mandated, same as kvModule)
+- Task 10: minor (deferred): effects.go Made validates only the resource's shape, so a modify/delete can replace the resource recorded at Intend (coalesce(?, resource)); it should refuse a different module.noun prefix or identity
+- Task 10: minor (deferred): effects.go Made does not check post against the effect kind (non-null post accepted for a deletion)
+- Task 10: minor (deferred): effects_test.go TestIntentIsDurableBeforeTheCall goroutine may call t.Error after test completion; wait on a done channel (plan-mandated)
+- Task 10: minor (deferred): canonicalJSON trailing-data rejection and nested numbers in arrays and objects have no test; big.ParseFloat on a huge exponent (1e999999999) may be slow (inference, not run)
+- Task 11: minor (deferred): guard.go verifyRecovery's Verify goroutine that misses RecoveryVerifyBound outlives Close untracked (plan-mandated); document the exception or track it
+- Task 11: minor (deferred): engine.go goRun after Close runs the handler inline with a cancelled context; a handler ignoring its context still acts and the change is recorded failed/internal (plan-mandated); check ctx.Err() before h.Apply
+- Task 11: minor (deferred): apply.go reads e.Change on every apply though only the LongRunning path uses it
+- Task 11: minor (deferred): deadline_test.go and verify_test.go wait in real time (50ms negative check, 300ms sleep) (brief-mandated)
+- Task 11: minor (deferred): operator and timer reverts have no deadline (outside this diff)
+- Task 12: minor (deferred): apply.go failApply reads effects outside the transition's transaction (no live race today)
+- Task 12: minor (deferred): locks_test.go has no test for Recover's revertible give-back, for revert-failed keeping its epoch, or for a NULL lock_epochs row reading as an open window
+- Task 12: minor (deferred): locks.go epoch numbers are reused after a give-back, so windowOpen on a reverted change can report open; Tasks 15 and 16 must check change state before relying on windowOpen
+- Task 12: minor (deferred): TestTakeLocksWithoutBumpLeavesEpochs failure message omits the lock count
+- Task 13: minor (deferred): apply.go transition silently drops a cause set without err (could be refused like release with keepLocks)
+- Task 13: minor (deferred): owner_test.go does not exercise the unowned busy message, override/retry keeping stored values, or a lost claim leaving the row unchanged
+- Task 13: minor (deferred): owner_test.go background goroutine calls t.Error without a join (safe today)
+- Task 14: minor (deferred): an empty non-nil Retired list reaches Plan handlers non-nil but later handlers nil (omitempty); normalise to nil in Plan (w0a never sets Retired)
+- Task 14: minor (deferred): encodeCall returns an error json.Marshal of storedCall can never produce (plan-mandated, harmless)
+- Task 14: minor (deferred): call_test.go TestRecoveryVerifySeesTheStoredCall reads f.host.verifyCalls without the mutex (safe, Recover is synchronous)
+- Task 15: minor (deferred): failure assumes settle ran; an effect still intended is not counted unresolved (only caller settles first; Task 41 failSettled inherits the assumption)
+- Task 15: minor (deferred): changeError logs 'lifecycle: action failed' twice for an internal error on compensable or irreversible changes (plan-mandated; initial tr built before the revertible branch)
+- Task 15: minor (deferred): settle_test.go deadline test does not assert Current.State is 'other'
+- Task 16: minor (deferred): override whose effects all ended undone still goes to needs_repair with an empty unresolved list in the message
+- Task 16: minor (deferred): watchdog runs outside inflight so Close does not wait for its journal write and Exit(70) can fire during shutdown; Close and line 139 comments stale
+- Task 16: minor (deferred): timerFired reads state with QueryRow (no context) while holding timerMu
+- Task 16: minor (deferred): revertPending resolves changeDef after the claim; a failure leaves the change applying with its timer stopped
+- Task 16: minor (deferred): settle and runRevert share one cleanupCall budget in failApply and recovery
+- Task 16: minor (deferred): no test for an operator Revert racing the timer, for a made effect the handler did not report; revert_outcome_test.go indexes phases[len-1] unguarded
+- Task 16: minor (deferred): revertEffect reloads every effect once per outcome (O(n^2) inside the write transaction)
+- Task 17: minor (deferred): finishUndo only logs when changeCall or undoSettle's transition fails, leaving the change in undoing owned by undo until a restart (undo.go finishUndo)
+- Task 17: minor (deferred): no test for an effect left in intended/other states stopping the run (undo.go effect-state switch)
+- Task 17: minor (deferred): spec 1.2 Run still defines Equal as State and Version; runInverse, resumeInverse and afterInverse now compare State only (A21, pc-17-a), so the spec text needs a matching edit by a human
+- Task 18: minor (deferred): an action with no Observe handler surfaces as a plain uncoded error from observeCall (undo.go:94) through Observe and Resolve instead of a typed refusal
+- Task 18: minor (deferred): endResolveClaim only logs when the claim release fails, leaving the change owned by resolve until recovery clears it
+- Task 18: minor (deferred): Observe previews an effect in any state and offers resolutions that Resolve would refuse as change.not_pending
+- Task 18: minor (deferred): no test for a resource not among the candidates when the identity matches several objects, or a modify or delete effect that matches several objects (resolve.go:252-262)
+- Task 19: minor (deferred): release.go:165-167 the n != 1 check after the claim is unreachable and would return an untyped error instead of core.change_busy
+- Task 19: minor (deferred): no test releases a change on the controller side, where the task-unit check is skipped (release.go:109)
+- Task 20: minor (deferred): TestRepairPlansAConvergingReapply does not check the new plan was made with the change's stored input (repair_test.go:338-358)
+- Task 20: minor (deferred): storedRepairInput's sealed-input-gone and open-input error paths have no tests (repair.go:214-227)
+- Task 20: minor (deferred): repair_test.go:547,577 read r.rh.calls without holding r.rh.mu; Task 21's concurrent onApply use makes a locked snapshot() accessor worth adding
+- Task 20: minor (deferred): the //nolint:unused on putEffect in undo_fixture_test.go is stale now that Task 20 uses it
+- Task 21: minor (deferred): no committed test isolates the in-transaction re-check in takeRepairTarget (the early check in begin catches every test case first), so the sec-20-a ruling is unprotected against regression; add a direct takeRepairTarget test with recovery_retry set and with an unresolved effect (repair.go:184, repair_change_test.go:485-520)
+- Task 21: minor (deferred): the kept comment in begin says a key found free stays free until takeLocks, but repair plans skip locksFree (apply.go)
+- Task 21: minor (deferred): the unknown repairOutcome path stores repaired with a NULL outcome and has no test (repair.go:280-284)
+- Task 22: minor (deferred): TestRetireRacesApply almost always lets Retire win (Apply won 1 of 100 rounds), so the Apply-wins branch and applyMu-removal regressions are rarely exercised; force alternating order or assert each branch ran (lookup_test.go:188-232)
+- Task 22: minor (deferred): refuseRetired repeats the retired_at query that lookup and loadPlan already read (lookup.go:97-103)
+- Task 22: minor (deferred): a retired plan applied by a different principal now gets plan.not_found, not plan.principal_mismatch (apply.go:105)
+- Task 23: minor (deferred): a step's successful apply is lost (step stays applying) if sealing its private output fails, and no test or comment pins that intent (apply.go:74-76, lookup.go:229-246)
+- Task 23: minor (deferred): the Purge error message still says "lifecycle: purge plans" though it now also clears private outputs and effect secrets (recover.go:515)
+- Task 23: minor (deferred): purgeEffectSecrets runs one windowOpen per lock key for every change with a made effect secret while holding applyMu, so the scan grows with history (recover.go:524-556)
+- Task 23: minor (deferred): a final acknowledgement clears only made effects, so an undoing or unresolved effect of a step keeps its sealed secret (lookup.go:273)
+- Task 24: minor (deferred): Undo, Observe and Resolve call module handlers without the module-usable check that Repair performs, as Apply already does; whether a module whose migration failed should accept them is a whole-branch policy question (client.go:56,85,91)
+- Task 24: minor (deferred): Observe and Resolve are not exercised through the runtime in client_test.go (276-306)
+- Task 24: minor (deferred): undoNoteWait polls wall-clock time with a 10 s deadline (client_test.go:258-274)
+- Task 25: minor (deferred): a repeated Darkpanel-Call header is silently reduced to its first value (handler.go:216-219); refuse len(Values) > 1
+- Task 25: minor (deferred): a call header of {} or null decodes to a non-nil all-empty CallContext, so the agent gets PlanOptions{Call: &CallContext{}} instead of nil (handler.go:226-236)
+- Task 25: minor (deferred): no header size limit specific to Darkpanel-Call; the retired list is unbounded (controller-only sender)
+- Task 25: minor (deferred): changed internal/agent/api/client.go outside its Files
+- Task 25: minor (deferred): changed internal/agent/api/handler.go outside its Files
+- Task 25: minor (deferred): changed internal/agent/api/socket.go outside its Files
+- Task 26: minor (deferred): Effects returns nil or an empty slice depending on whether the agent answers null or [] (client.go:140-146); FromReleaseResult normalises, Effects does not
+- Task 26: minor (deferred): Release is only tested with a nil call context, so Darkpanel-Call on release is untested (client_test.go:317)
+- Task 26: minor (deferred): the Lookup(..., false) result is never checked (client_test.go:333-335)
+- Task 26: minor (deferred): undo's 200 answer for an already reverted change is not exercised (client.go:111-115)
+- Task 27: minor (deferred): TestFakeAgentChangeOps covers three of the nine new methods (agent_test.go:21-39); the brief asked for exactly this test
+- Task 27: minor (deferred): the commit subject was shortened from the brief's "add change operations to AgentClient" (48 characters, within the limit) on a wrong count
+- Task 28: minor (deferred): the undo route answers 202 for every state but reverted, so a change already needs_repair or failed gets 202 although W1 defines 202 only for undoing; answer 202 only when State == undoing (handler.go undo status)
+- Task 28: minor (deferred): handleAckPrivate's ContentLength != 0 check refuses a chunked empty body instead of reading it as final=false; the repo's own client sends no body
+- Task 28: minor (deferred): handleLookup validates the query before the allow check, the reverse of the other routes
+- Task 28: minor (deferred): no test for the repair neither-or-both guard or handleRelease's raw HTTP status, and the 422 table has no malformed resolve body
+- Task 29: minor (deferred): the controller-side Repair path returns the engine's view without the consistency check the agent path gets (ops.go:71-73)
+- Task 29: minor (deferred): ops_test.go:158-160 slices got[len(want):] and panics if the agent recorded fewer calls than expected
+- Task 30: minor (deferred): TestFakeDispatcherChangeOps exercises three of the seven new methods (agent_test.go:66-84); the brief mandates it as written
+- Task 31: minor (deferred): no scope test row pins undo or repair on a composite-class change needing admin (changes_test.go:613-654)
+- Task 31: minor (deferred): the observe handler returns ObserveResult unchanged, so a nil Allowed answers "allowed":null unlike the other list answers (changes.go:422-437)
+- Task 32: minor (deferred): waitChange decodes each poll into the previous changeWire, so a member absent from a later answer keeps its old value; decode into a fresh changeWire (mutate.go waitChange)
+- Task 32: minor (deferred): release repeats the --json print block that printRaw and showChange hold, and render(w, res.Abandoned) fails if abandoned is absent (change.go release)
+- Task 32: minor (deferred): a transient GET failure while polling aborts the command without naming the change id (mutate.go waitChange)
+- Task 32: minor (deferred): repairBody tests --input, --step and --as by string value, so an explicit empty flag is treated as not given (change.go repairBody)
+- Task 32: minor (deferred): no tests for poll cancellation or a failing poll GET, a repair waiting through applying, --json on undo or repair printing the polled raw JSON, or the Owner and Repaired by lines of printChange
+- Task 33: minor (deferred): no test pins a substituted input value that already contains $${ through both passes (refs.go); stepRefs rebuilds a template copy through refsWalk only to discard it (refs.go:559-570)
+- Task 32: minor (deferred): changed internal/cli/local.go outside its Files (authorized by the cv-32-a ruling)
+- Task 32: minor (deferred): changed internal/cli/local_test.go outside its Files (authorized by the cv-32-a ruling)
+- Task 34: minor (deferred): composite_fixture_test.go has no comment saying why the agent and controller databases need separate t.TempDir() (openDBAt derives the backup root from the database directory with a fixed clock)
+- Task 34: minor (deferred): fixture handler types are now converted as cstAdd(m), cstDel(m), cstGet(m), cstGate(m); later briefs that quote cstAdd{m.h} as an edit anchor must use the new text
+- Task 34: minor (deferred): the "literal secret" refusal case asserts only the word "secret"; pin "holds a literal value"
+- Task 34: minor (deferred): the planned-after-step preview line shows $${ escapes raw
+- Task 34: minor (deferred): any other fixture opening two databases in one directory through openDBAt hits the backup-path collision (journal_test.go:30-31)
+- Task 35: minor (deferred): confirmationWon (composite_unwind.go) sets core_changes.state to applying without a WHERE state guard, without transition and without a journal or audit row, and does not check the step's state; untested in Task 35
+- Task 35: minor (deferred): host.offline while planning a step (startStep through stepNotApplied) fails the composite, whereas lookups wait for an unreachable host; the spec should say which is intended
+- Task 35: minor (deferred): compositeSleep can leave a stale token in the one-slot wake channel and cause one extra pass
+- Task 35: minor (deferred): two //nolint:unused markers (wakeComposite in composite_run.go, cfxEvents.setOnEvent in composite_fixture_test.go) must come off when Task 37 and later tests use them
+- Task 35: minor (deferred): commitComposite runs refuseRetired before the expiry check, so a plan purged during the unlocked recheck returns the uncoded error "lifecycle: read plan X: sql: no rows in result set" instead of plan.expired (composite_run.go commitComposite, lookup.go:122-126); move the expiry check first or map sql.ErrNoRows
+- Task 35: minor (deferred): the applyMu comment at engine.go:87-89 and the Purge comment at recover.go:149-150 no longer match the composite apply path
+- Task 35: minor (deferred): locksFree now runs after the composite recheck, so a held composite lock refuses an apply after the child dry runs instead of before them
+- Task 36: minor (deferred): the //nolint:unused directive on wakeComposite is stale now that it has two callers
+- Task 36: minor (deferred): revertComposite records the "reverted by" cause before unwindFrom, so a failing unwindFrom leaves an awaiting_confirmation composite carrying a revert cause that a later Confirm completes with
+- Task 36: minor (deferred): a resent confirm after a lost answer goes out as system:recovery instead of the confirming principal (stepAwaiting)
+- Task 36: minor (deferred): compositeFinal contacts every child under one CleanupTxTimeout, so early unreachable hosts can starve later children; the purge is the fallback
+- Task 36: minor (deferred): no direct test of compositeSecretType for pointer, slice, map or recursive types
+- Task 36: minor (deferred): the brief placed the transition hook in revert.go; transition lives in apply.go, which Task 36 changed outside its Files
+- Task 37: minor (deferred): no test of the 60 s UnreachableGrace path (an offline host with a future deadline moves to recovering only after deadline plus grace) or of a releasing composite staying releasing
+- Task 37: minor (deferred): CompositesRecovered reports false without logging when it cannot read a claimed composite's state
+- Task 37: minor (deferred): the //nolint:unused on wakeComposite is stale (three callers now; also noted at Task 36)
+- Task 38: minor (deferred): releaseStep logs a release refusal that never clears only at Debug, so a releasing composite can retry forever with no visible cause (composite_ops.go:398, :411)
+- Task 38: minor (deferred): the doc comments on Engine.Release (release.go:24-30) and Engine.Repair (repair.go:13-18) describe only the single-change behaviour
+- Task 38: minor (deferred): the release tests assert "still releasing" after three clock advances and 5 ms sleeps, which also passes if the runner never ran a pass; wait on a counted Lookup or Release call instead
+- Task 38: minor (deferred): no test of a reverse decision on a kept or abandoned child, a forward applied decision on a kept child, or a forward repair past a step with a secret output
+- Task 38: minor (deferred): TestForwardCompositeRepairAdvancesAKeptChild seeds the agent database (a failed child written straight to repaired/kept) because no fixture action yields a kept child for a forward step; it passes on the base code too, so it checks the runner's advance matches the old inline one but cannot open the offline window; its closing web-b check is weak
+- Task 39: minor (deferred): no test of Release's checkChange refusal or of a view answering for a different host (checkHost through checkChange); deleting Release's checkChange call would pass the suite
+- Task 39: minor (deferred): no test asserts the agent journal is re-read after Undo and Release, including on the error path (children.go ingest calls)
+- Task 39: minor (deferred): the engine-or-agent routing branch appears five times in children.go and Undo and Release mirror ops.go apart from the call argument (brief-mandated)
+- Task 40: minor (deferred): no test closes the engine while a runner started by RecoverComposites is waiting (for example recovering with the agent unreachable)
+- Task 40: minor (deferred): wakeComposites passes duplicate change ids to Engine.Wake, which runs one query per id under the ingestion lock; collect the ids in a set first
+- Task 40: minor (deferred): TestCompositeRecoveryRunsAtStart polls every 1 ms with a 5 s deadline
+- Task 41: minor (deferred): a settle failure after a successful handler is reported as "the recovery handler failed" and sent to repair as a handler failure (recoverer.go, herr)
+- Task 41: minor (deferred): recovererClaim writes error_cause and the completed and reverted outcomes do not clear it, so a successful terminal change keeps the live failure's code in error_cause (nothing reads it today)
+- Task 41: minor (deferred): an unowned change is refused with the message `change <id> is owned by ""`
+- Task 41: minor (deferred): failSettled in the plan text lacked tr.result = resultError; the committed code restores it (checked: Tasks 44 and 45 only call failSettled)
+- Task 41: minor (deferred): the noRepairInput doc comment (repair.go) does not mention the retry-handler row
+- Task 41: minor (deferred): Repair reads f.retry before recovererRepair re-reads recovery_retry under the lock, so a concurrent change setting the flag in the gap would drop the input silently
+- Task 42: minor (deferred): the comments on the recovering field and on Recover say mutations are refused "until the pass has started", while the flag is cleared when the synchronous pass has finished
+- Task 42: minor (deferred): admit takes a context it does not use (brief-mandated)
+- Task 42: minor (deferred): TestRecoverRefusesMutationsUntilThePassStarts sets the flag by hand, so moving or dropping e.recovering.Store(true) in Recover fails no test
+- Task 42: minor (deferred): a revertible change of an unregistered action, or one in applying or pending that is neither compensable nor irreversible, loses only its stale owner and keeps its locks (the old Recover made start-up fatal for it); the final review should check what an operator can do with it
+- Task 42: minor (deferred): Recover sets the recovering flag before seedIDs and returns early with it set (parked as fail-closed, pc-42-b)
+- Task 43: minor (deferred): the doc comment of TestRecoverRunsAtStart (services_test.go) still says the change is settled before the server serves
+- Task 43: minor (deferred): runtime_test.go has a second hand-written polling loop (30 s wall clock) beside the shared eventually helper
+- Task 43: minor (deferred): Task 43 changed four tests outside its Files (verify_test.go, runtime_test.go, services_test.go, recover_test.go) because Recover now returns before the pass finishes
+- Task 43: minor (deferred): the revertCtxErr assertion was not mutation-tested on its own (the record mutation was)
+- Task 44: minor (deferred): Close during Verify records the task change failed instead of leaving it owned for the next start (taskVerify runs on e.runCtx); the taskApply comment says otherwise; the non-task run path behaves the same
+- Task 44: minor (deferred): taskApplyEnd builds the change error from the row's error code without a fallback, so a task process writing failed without a code yields an empty error code; fall back to errcode.Internal
+- Task 44: minor (deferred): TestTaskApplyFails has an unused running field
+- Task 44: minor (deferred): the task deadline is measured from the intent's insert time (started_at), so a queued start job counts toward DeadlineExceeded; add a comment
+- Task 44: minor (deferred): a synchronous apply that outlives SyncAnswer also drops its error (since Task 11; no task action reaches it)
+- Task 45: minor (deferred): taskUndo drops the unit's own failure message (undoSettle decides from the journal only)
+- Task 45: minor (deferred): the task-undo path logs a shutdown at error level where the in-agent path logs Info (undo.go finishUndo)
+- Task 45: minor (deferred): taskUndoCheck reads the unit state before applyMu, outside the claim transaction
+- Task 45: minor (deferred): no tests for the recover branch of recoverTask, recoverRetry for task changes, the task branch of recovererRepair; TestTaskUndoRefusedWhileTheLastUndoUnitRuns does not assert needs_repair
+- Task 45: minor (deferred): TestTaskRecoverAttemptAfterAFailedApply busy-waits on the wall clock (10 s deadline)
+- Task 45: minor (deferred): the recover retry Warn message in recoverClaimOne says "last recover unit is active" but also logs no-unit-client and read errors; taskLastInactive's Internal error now names the change ID, not the action
+- Task 46: minor (deferred): no end-to-end test of the `agent task --dev <id> apply 1` success path (agent.go)
+- Task 46: minor (deferred): taskResult discards the "matched a row" result of taskRowUpdate, so a dropped result leaves no log line (taskproc.go)
+- Task 46: minor (deferred): openAgent opens a systemd connection and builds the updater for every task attempt, unused by the task process (plan-mandated, agent.go)
+- Task 47: minor (deferred): the recovering flag is one boolean shared by start-up Recover and the uninstall poll; a poll firing during a sweep longer than 10 s reopens admission early
+- Task 47: minor (deferred): no test that Close stops an armed uninstall poll
+- Task 47: minor (deferred): the fenced RunTask log merges the stale-row and barrier causes at Info
+- Task 47: minor (deferred): the intent test's claimUndo half is weak (refAdd has no undo handler, so without the check claimUndo fails with change.not_pending); a stronger fixture exists (refUfx, undo_fixture_test.go); no test covers the barrier checks in claimResolve or recovererRepair
+- Task 47: minor (deferred): a permanently failing skipped claim retries on every poll (10 s) and every admitted mutating call with no backoff, and each retry sets recovering
+- Final review: minor (deferred): recover.go:238 moves an unregistered action's recovering or undoing task change to needs_repair without a taskLastInactive check, so Release could free locks under a live unit (pc-45-a)
+- Final review: minor (deferred): every non-clearing child error counts toward the composite runner's 10-failure bound, so about 2.5 minutes of uncoded transport errors send an unwinding composite to needs_repair
+- Final review: minor (deferred): composite_unwind.go confirmationWon writes state with no guard; repair.go stale error_cause; shared recovering flag; effects.go Made may replace the intent resource; contract.go:628 Phase comment; live systemd unverified (Task 3); wave "Merge Task N" commits break the commit convention
+
+## Parked
+- Task 1: parked — doc comments describe guarantees later tasks build (cv-1-a) — Ruling: PARK — each guarantee has an owner: Task 10 sets Env.Effects, Tasks 14/16/20 set Env.Call, Task 25 refuses the header on the agent socket, Task 6 keeps the public API from supplying a call — low cost if wrong; Task 31's review would catch an overstated comment
+- Task 1: parked — ChangeView fields not carried through agent wire (cv-1-b) — Ruling: PARK — Task 26 adds them to wire.ChangeView and both conversions with a round-trip test; Task 31 carries the controller JSON view — none
+- Task 2: parked — Step json tags the test depends on (cv-2-a) — Ruling: PARK — Step in contract.go:237 has id, host, action, input, after(omitempty) in order and the test passes — none
+- Task 3: parked — callers compile through the aliases (cv-3-a) — Ruling: PARK — the wave integration check builds the whole tree; no positional literals of UnitState or TransientService exist — low; a failure shows at that check
+- Task 3: parked — live systemd test not run (cv-3-b) — Ruling: PARK — the plan forbids real systemd; the first later-wave harness task run on a VM owns it; the deferred minor stays open for the final review — a rejected RuntimeMaxUSec or CollectMode fails every task-unit start loudly in that harness run
+- Task 4: parked — lint, vet, tidy not quoted (cv-4-a) — Ruling: PARK — the wave integration check owns them; quote 0 issues, empty tidy diff and clean vet before the wave is integrated — low
+- Task 5: parked — every core_audit writer stays within the widened phase and result lists (cv-5-a) — Ruling: PARK — all plan writers use apply/confirm/revert/recover/interrupt plus undo, resolve, release, revert-watchdog and results ok/error/override; Task 40's ingest tests and Task 5's migration test cover it; only resolve has no runtime-writer test — low; a stray phase fails its writer's test loudly
+- Task 5: parked — previous binary still reads the new values (cv-5-b) — Ruling: PARK — audit.go:210-211 reads phase and result as plain strings, new columns are nullable or NOT NULL DEFAULT, rebuild keeps 14 columns, rows and the index; no cross-binary test needed — moderate; a rollback listing could fail on new phases, no data lost
+- Task 6: parked — implementer's gate results unconfirmed (cv-6-a) — Ruling: PARK — controller re-ran build, vet, test (36 ok), golangci-lint (0 issues) and tidy on 38f45d6, exit 0; report's '34 files' is a miscount of 33 — low; vet and lint rerun at every later task
+- Task 7: parked — Env.Effects not set at the three ChangeID sites (cv-7-a) — Ruling: PARK — Task 10 changeEnv covers run and runRevert in apply.go, Task 11 covers recover.go verifyStored; also credit Task 11 for the Task 1 cv-1-a Env.Effects guarantee — low; a missed site fails as a nil Effects in a journaling Verify test
+- Task 8: parked — nothing past C9 adds a rule for define.go (cv-8-a) — Ruling: PARK — brief searched for Define/findHandlers/ErasedHandler and the handler interfaces; all define.go rules sit in C3 — low
+- Task 8: parked — handler signatures match the findHandlers method values (cv-8-b) — Ruling: PARK — contract.go:409/417/427/453 match ErasedHandler fields 466-469; compilation confirms — none
+- Task 8: parked — erasedVerify fails on an empty raw output (cv-8-c) — Ruling: PARK — every planned Verify caller passes null (Task 11, recovery) or marshalled JSON; no Define function yields an empty output; optional one-line hardening (treat len(bytes.TrimSpace(rawOut))==0 as zero Out) for the final review — low; Task 44 tests would fail loudly
+- Task 9: parked — production modules satisfy the new registry rules (cv-9-a) — Ruling: PARK — controller re-ran go test on internal/modules and internal/core at ebf7805 (exit 0); every internal/modules test builds the registry through core.NewRegistry; no production DefineRevertible, every ClassCompensable names CompensatedBy — low; registry.Build would fail at every binary start
+- Task 9: parked — fix.item.repair input vs Task 20's repair-input rule (cv-9-b) — Ruling: PARK — Task 20 checkRepairedBy validates {} with coretest.Validator, which only decodes strictly, so the fixture passes; leave the itemIn.Name omitempty mismatch with plan line 1033 for the whole-branch review — low; one-line fixture fix if a schema validator is later used
+- Task 10: parked — start-up recovery Verify builds its Env without Effects (cv-10-a) — Ruling: PARK — Task 11 Step 3 replaces verifyStored with e.changeEnv(...) (recover.go:105-106); implementer and reviewer named Task 43 wrongly; cv-7-a credit to Task 11 stands — low; first journaling recovery test would fail with a nil Effects
+- Task 11: parked — sealedInputDone leaves six non-terminal states out (cv-11-a) — Ruling: PARK — it lists exactly the eight states spec 1.2 names; later tasks reuse the function; Task 15 tests pin needs_repair keeps the input — low
+- Task 11: parked — operator and timer reverts have no deadline (cv-11-b) — Ruling: PARK — Task 16 routes Engine.Revert and the timer through revertPending under cleanupCall; close the deferred Task 11 minor when Task 16 lands — moderate; a hung revert holds its change and locks until Task 16
+- Task 11: parked — errors import in apply.go (cv-11-c) — Ruling: PARK — apply.go imports errors at line 7 — none
+- Task 12: parked — failApply read error leaves the change applying with locks held (pc-12-a) — Ruling: PARK — startup recovery settles applying changes (spec 1.2 'cut off' row); moving loadEffects into the transaction still fails it, and a blind transition to failed could release locks over an unresolved effect (breaks 'uncertainty stops automation'); Task 15 keeps the same early return — low; after a SQLite read failure the lock keys answer lock.held until the next process start
+- Task 12: parked — nothingLeft(nil) true gives the epoch back for non-journaling actions (cv-12-a) — Ruling: PARK — spec 1.2 Window gives epochs back when failed with no effect left made or unresolved; undo observes and compares before each inverse, so a non-journaling partial mutation yields needs_repair, not a silent overwrite — low; undo reports needs_repair instead of core.undo_conflict
+- Task 13: parked — ChangeView fields and Error.Cause on the agent wire and controller JSON view (cv-13-a) — Ruling: PARK — Task 26 replaces wire.ChangeError (Cause), wire.ChangeView and both conversions with a round-trip test; Task 31 carries changeError.Cause and the nullable fields; extends cv-1-b — low; Task 26's round-trip test catches a dropped field
+- Task 13: parked — pending revert runs unowned until Task 16 (cv-13-b) — Ruling: PARK — Task 16 revertPending claims the change with owner engine (pending -> applying) and recordRevert clears it with newOwner(""); nothing in Tasks 14-15 reads the owner — low; recovery (Tasks 42-43) lands after Task 16
+- Task 15: parked — a deletion effect with nil After settles ambiguous (cv-15-a) — Ruling: PARK — spec makes After optional and settles an observed-gone delete with nil After as ambiguous; each handler sets After where it can; jfx sets it — a nil-After delete failure becomes needs_repair, visible and conservative
+- Task 16: parked — watchdog armed at intent plus the confirm window can exit the daemon on a healthy slow apply (pc-16-a) — Ruling: PARK — spec 1.2 defines the deadline as intent time plus the confirmation timeout and accepts that the exit interrupts every other in-process apply; arming later or refusing a short window would contradict the spec; a guard belongs in the spec first — an operator picking a 10 s window on a longer action restarts the agent; the change ends reverted either way
+- Task 16: parked — revert deadline covering the apply budget (cv-16-a) — Ruling: PARK — spec 1.2 does not require it; see pc-16-a — as pc-16-a
+- Task 17: parked — restart does not resume an undoing change (cv-17-a) — Ruling: PARK — Task 42 claims an undoing change with owner undo and Task 43 adds recoverUndo (TestRecoverPassResumesAnUndo); until then a cut-off undo is refused as change_busy on this branch
+- Task 18: parked — Observe and Resolve have no admission gate (cv-18-a) — Ruling: PARK — Task 42 adds e.admit as the first statement of Engine.Resolve and Task 47 extends it; Observe is a read and stays ungated per spec
+- Task 18: parked — states written by Resolve and a change left owned by resolve (cv-18-b) — Ruling: PARK — Tasks 17, 19 and 20 consume accepted, skipped and made; Task 42 clears a stale resolve owner at start-up
+- Task 19: parked — release admission gate (cv-19-a) — Ruling: PARK — Task 42 adds e.admitRecovery as the first statement of Engine.Release
+- Task 19: parked — an abandoned effect loses its unresolved reason (cv-19-b) — Ruling: PARK — spec 1.2 defines Reason only for unresolved effects; the release journal entry records the operator's reason
+- Task 20: parked — repair target not re-checked at apply time, TOCTOU between plan and apply (sec-20-a, automated security review, medium) — Ruling: PARK — Task 21 Step 4 calls repairTargetReady and takeRepairTarget inside the intent write transaction (claim as owner repair, set repaired_by, move the locks), so two repair plans cannot both apply; Task 21's review must confirm takeRepairTarget runs inside the transaction, not only before it; marking the target at plan time would wrongly block a fresh plan after a failed attempt
+- Task 20: parked — RepairOf at repair Apply and Verify not tested here (cv-20-a) — Ruling: PARK — amendment A6 records Verify in the Task 20 host and A7 gives Task 21 the loop asserting repair Apply and repair Verify repairOf=<target>; Task 21's review must confirm the loop is present
+- Task 21: parked — every path that ends a repair change must go through transitionTx (cv-21-a) — Ruling: PARK — apply, revert, undoSettle and recovery all use transition or transitionTx, abandon never reaches a repair change, and Task 43's test "a repair change cut off mid-apply ends failed and unowned" fails if recovery bypasses it
+- Task 21: parked — Undo, Resolve and Release taking a repair-owned target (cv-21-b) — Ruling: PARK — undoRefusal, claimResolve and releaseRefusal all refuse an owned target (change_busy); only Release and Repair have a repair-specific test
+- Task 22: parked — the lookup private parameter in Contracts L2 (cv-22-a) — Ruling: PARK — Task 23's code block adds private to lookup and updates Lookup and Retire, so the final code matches L2
+- Task 22: parked — admission gates on Lookup and Retire (cv-22-b) — Ruling: PARK — spec 1.3 lists only plan, apply, undo, repair, release and resolve as refused; Lookup stays open and Retire is deliberately ungated (it marks a change-less plan); if the spec owner wants it refused the fix is one line in Retire ahead of applyMu.Lock(): if err := e.admit(ctx); err != nil { return core.PlanLookup{}, err }
+- Task 23: parked — the composite receiving a step's unredacted output and sending AckPrivate (cv-23-a) — Ruling: PARK — Task 36's stepDone always takes the output from Lookup(private=true), fails the step as output-lost if missing, and acks; compositeFinal sends AckPrivate(final); two Task 36 tests cover it
+- Task 23: parked — Task 41's recovery completed transition setting private (cv-23-b) — Ruling: PARK — recovererOutcome (plan ~27342) sets tr.output, tr.private for RecoveryCompleted
+- Task 23: parked — Contracts L2 names private.go though the code lives in lookup.go (cv-23-c) — Ruling: PARK — no task creates or edits private.go; a Header amendment would need a second seat and is not worth it for a stale file label
+- Task 24: parked — engine method signatures versus Runtime calls (cv-24-a) — Ruling: PARK — every call matches the committed engine methods and core.AgentChangeOps matches C6; the compile-time assertion and a clean build cover it
+- Task 25: parked — an all-empty CallContext versus nil on the agent (cv-25-a) — Ruling: PARK — plan, apply, parent_change_id and the private-output rule behave identically; only core_plans.call stores '{}' instead of NULL, and decodeCall reads both the same; if a later reader tests call IS NULL, store NULL in encodeCall when every field is empty
+- Task 26: parked — Task 28's agent handlers versus Task 26's client routes, codes and bodies (cv-26-a) — Ruling: PARK — Task 28 matches on every route, status code and body, an empty ack body reads as final=false, and TestHandlerChangeOpRoutes runs this client against the real handler
+- Task 26: parked — AgentClient embedding AgentChangeOps (cv-26-b) — Ruling: PARK — Task 27 step 3a adds it and 3b extends coretest.FakeAgent; only three implementations exist and Task 27 follows immediately
+- Task 28: parked — Darkpanel-Call ignored rather than refused on repair, resolve, effects, observe, lookup, retire and ack-private (cv-28-a) — Ruling: PARK — undo and release read it like plan and apply; spec 1.5 restricts the header by session, not by route, the socket already refuses it everywhere, and the other routes already ignore it; if refusal is wanted, add a shared check for non-empty Darkpanel-Call on routes other than plan, apply, undo and release plus one test
+- Task 29: parked — release reason length 1-500 (cv-29-a) — Ruling: PARK — Engine.Release refuses a reason outside 1-500 runes (release.go 103-107) and the agent path reaches the same Engine.Release; busy and repairs refusals run first
+- Task 29: parked — a composite entering releasing between the controller's check and the agent's repair call (cv-29-b) — Ruling: PARK — an applied repair owns the target and Release answers change_busy for it, an unapplied plan is refused by refuseReleasingRepair or by the intent transaction's target re-check; the busy retry loop belongs to Tasks 33/34/36, whose reviews check it against spec line 854
+- Task 31: parked — handleUndo answers 202 only for undoing and 200 otherwise, a deviation from the brief's 202-unless-reverted (pc-31-a) — Ruling: PARK — spec 1.3 wire table ties 202 to undoing and 200 to already reverted; the forms differ only for states Engine.Undo never returns, the Task 32 CLI keys on state and the Task 26 client accepts any 2xx; the Task 28 agent route stays as committed (deferred minor)
+- Task 31: parked — OpenAPI schemas for the seven new routes (cv-31-a) — Ruling: PARK — schema.Route carries only method, path, summary and public, every hand-written route is documented path-only, and the spec puts the DTOs in the 1.3 wire contract; the Change component fields are what Task 31 requires
+- Task 32: parked — TestLocalMutatingPrintsLikeTheAPI keeps passing (cv-32-b) — Ruling: PARK — the package-level ok of an uncached go test ./internal/cli/ runs every test in it; the changeWire comment saying the socket's change has none of the new fields is stale after the fix and is reworded to "left out when unset"
+- Task 33: parked — callers of resolveInputRefs passing empty or nil input (cv-33-a) — Ruling: PARK — only Task 34's compositeSteps and Task 35's apply call it, both with the canonical sealed input, and Engine.canonical never yields empty bytes ({} or null decode)
+- Task 33: parked — the outputs convention of resolveStepRefs and stepRefs (cv-33-b) — Ruling: PARK — Task 34 passes nil when a step has no references and Task 35's stepInput keys outputs by referenced step id; Tasks 36-39 do not call them
+- Task 34: parked — Engine.Apply's recheck still calls def.Handler.Plan for a composite (cv-34-a) — Ruling: PARK — Task 35 Step 5 routes a composite to applyComposite before the recheck, and no merged caller applies a composite (SetChildren is called only by the fixture until Task 40)
+- Task 34: parked — secretRefsOnly refuses a composite's ${input...} in a child's secret field (cv-34-b) — Ruling: PARK — spec 1.3 forbids secret composite input fields and literals in child secret fields, so the refusal is required
+- Task 34: parked — automated security review: step template shown in the preview diff (sec-34-a) — Ruling: PARK — spec 1.3 says templates are stored and previewed in clear; composite inputs hold no secret fields and a child's secret field takes only a ${steps...} reference
+- Task 34: parked — automated security review: StateHash covers the raw canonical input (sec-34-b) — Ruling: PARK — spec 1.3 Preview fixes the hash material as the input and the dry-run state hashes, and the input has no secret fields
+- Task 35: parked — the await helper advances the controller clock only while a controller timer is armed (cv-35-a) — Ruling: PARK — no later task needs the brief's unconditional advance; Tasks 35 and 38 advance the clock directly where no runner timer exists
+- Task 35: parked — zero-step composites reaching completeComposite (cv-35-b) — Ruling: PARK — compositeSteps refuses a composite with no steps at plan time
+- Task 36: parked — the busy retry of a child's release on a releasing composite (cv-36-a) — Ruling: PARK — Task 38 Step 4's releaseStep sends the child release as system:recovery and retries at the next poll on core.change_busy; the earlier cv-29-b note naming Tasks 33/34/36 reads as Task 38, whose review checks releaseStep against spec lines 852-856
+- Task 36: parked — no runtime test of compositeFinal after reverted, failed or abandoned (cv-36-b) — Ruling: PARK — the transition hook covers every composite terminal state and the hourly purge from Task 23 still clears the secret, so the spec requires no such test
+- Task 37: parked — the admission gate stays closed until RecoverComposites runs (cv-37-a) — Ruling: PARK — Task 40 Step 5 calls SetChildren after dispatch.New and RecoverComposites before startRollouts, and TestCompositeRecoveryRunsAtStart checks CompositesRecovered after a start
+- Task 37: parked — Recover skips composites, so a cut-off composite keeps its locks until RecoverComposites (cv-37-b) — Ruling: PARK — Task 40's start-up order is Recover, SetChildren, RecoverComposites with nothing in between that takes a composite's locks
+- Task 38: parked — a reverse composite whose unwind start check is blocked below the cursor can only be released, not decided (cv-38-a) — Ruling: PARK — the spec gives no path for a completed step child to reach needs_repair, kept, abandoned or unresolved, so the dead end is unreachable and the refusal text stays; it becomes Important if any wave adds such a path, and the fix is then for decideStep to accept the step unwindBlocker returns from the cursor, mark it undone and leave the cursor
+- Task 39: parked — who installs Engine.SetChildren(d.Children()) at assembly (cv-39-a) — Ruling: PARK — already ruled by the seat at Task 37 (cv-37-a): Task 40 Step 5.2 adds eng.SetChildren(s.dispatcher.Children()) after dispatch.New and Step 5.3 calls RecoverComposites; no new dispatch made
+- Task 40: parked — Engine.Close waiting for the runners RecoverComposites starts (cv-40-a) — Ruling: PARK — goRun tracks every runner on e.runs before launching it, Close cancels the run context and waits on inflight and runs, and runComposite exits on cancellation; no test closes the engine while a recovered runner is still waiting
+- Task 41: parked — Task 42/43 reclaim of a change recovering and owned by module after a shutdown mid-handler (cv-41-b) — Ruling: PARK — Task 42 Step 3 recoverDecide claims it as recoverSettle with owner engine and Task 43 Step 3 recoverSettle runs the handler again; Task 43's TestRecoverPassRunsTheRecoveryHandler seeds exactly that state
+- Task 42: parked — seedIDs failure leaves the recovering flag set (pc-42-b) — Ruling: PARK — the flag staying set is the fail-closed state, a retried Recover clears it, both callers treat the error as fatal, and clearing it would admit mutations over an engine that did not recover
+- Task 42: parked — claim kinds recoverTask, recoverUndo, recoverRetry and a recovering recoverSettle keep their owner until their runners (cv-42-a) — Ruling: PARK — Task 43 runs recoverRevert, recoverSettle, recoverUndo and recoverRetry, Task 45 adds recoverTask; recoverTask stays owned between Task 43 and Task 45
+- Task 42: parked — agent Plan and Apply answer core.recovering during start-up (cv-42-b) — Ruling: PARK — the spec does not make core.recovering retryable for the dispatcher, rollout driver or composite runner, and the agent finishes Recover before it serves; only Task 47's short windows are flagged while serving
+- Task 44: parked — Task 45 calling restartTask and removing the //nolint:unused directive (cv-44-a) — Ruling: PARK — Task 45 Step 1 calls f.restartTask() twice, its Files list omits taskunit_test.go so the directive stays, and nolintlint is not enabled in .golangci.yml so a stale directive fails nothing
+- Task 47: parked — task poll behaviour when taskClaim refuses under the barrier (cv-47-a) — Ruling: PARK — followTask fences the starting row after two observations FenceGap apart, the change settles through the failure table and ends unowned; same as TestTaskStartFence; w0b's --stop-tasks wait should allow about two fence gaps per task change
+
+## Discovered during tasks (complete lines whose discovered field is not none)
+- Task 5: discovered: brief Step 2 expected-failure wording ('no such table' vs 'no rows in result set'); assumptions: none
+- Task 10: discovered: recover.go Verify has no Effects until Task 11; assumptions: runRevert keeps Task 7's doc comment
+- Task 11: discovered: recovery Verify past its bound outlives Close, goRun after Close runs the handler inline (both plan-mandated, deferred); assumptions: none
+- Task 13: discovered: revertPending runs unowned until Task 16 (parked); assumptions: none
+- Task 15: discovered: changeError logged twice for compensable and irreversible internal errors (plan-mandated, deferred); assumptions: none
+- Task 16: discovered: watchdog branch of timerFired runs outside inflight, no watchdog covers a revert once its timer is stopped (both deferred); assumptions: none
+- Task 17: discovered: spec 1.2 Equal wording vs State-only checks; assumptions: none
+- Task 18: discovered: no Observe handler gives an uncoded error (Task 17 observeCall); assumptions: none
+- Task 20: discovered: stale nolint:unused on putEffect; assumptions: rfxSetHandler(m) and rfxRepairHandler(m) conversions instead of the brief's struct literals (lint S1016), commit subject shortened to 50 characters
+- Task 21: discovered: no test isolates the in-transaction re-check (deferred minor); assumptions: commit subject shortened to 50 characters
+- Task 22: discovered: TestRetireRacesApply rarely lets Apply win (deferred minor); assumptions: none
+- Task 23: discovered: a failed seal leaves the step applying (deferred minor); assumptions: privateOutputAD and storePrivate live in lookup.go per Step 3
+- Task 25: discovered: repeated header and empty call edge cases (deferred minors); assumptions: none
+- Task 32: discovered: local apply path gap (fixed in round 1); assumptions: none
+- Task 34: discovered: the brief's fixture put both databases in one t.TempDir and every composite test failed with "file exists" (fixed with a directory per database); assumptions: none
+- Task 35: discovered: await in the brief's fixture advanced the controller clock while the runner was working and failed 7 of 8 tests (fixed to advance only while a controller timer is armed), startStep fails the composite on host.offline at plan time (spec question), beginComposite skipped refuseRetired (fixed); assumptions: none
+- Task 36: discovered: transition is in apply.go, not revert.go as the brief says; assumptions: none
+- Task 37: discovered: the admission gate stays closed until RecoverComposites runs, so Task 40 must call it after SetChildren; assumptions: none
+- Task 38: discovered: TestCompositeReleaseRefusalsAndRepeat passed before the change; the secret-output kept-repair dead end above; assumptions: none
+- Task 40: discovered: a plain git commit in this worktree sweeps in the staged docs renames (the implementer undid it); assumptions: none
+- Task 41: discovered: the brief's failSettled dropped tr.result = resultError and broke 13 existing tests (restored; A28 fixes the same line in Task 43's recoverSettle), recovererRepair ignoring input (fixed), stale error_cause after a successful recovery (deferred); assumptions: none
+- Task 42: discovered: Engine.Plan is gated too (the brief's test requires it), the unregistered-action regression (fixed); assumptions: none
+- Task 43: discovered: Recover now returns before the work is done, so four existing tests outside the brief's Files needed a wait (verify_test.go, runtime_test.go, services_test.go, recover_test.go); assumptions: none
+- Task 44: discovered: restartTask needs //nolint:unused until Task 45 uses it; follower errors were dropped (fixed with a log line); Close during Verify records the change failed (deferred); assumptions: none
+- Task 47: discovered: composite write transactions lack the barrier re-check; assumptions: two test sketches adapted (spare plan after apply; recoverAll after logged)
