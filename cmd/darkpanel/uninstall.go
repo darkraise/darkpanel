@@ -36,15 +36,21 @@ var planUninstall = func(ctx context.Context, cfg install.UninstallConfig) (plan
 
 func newUninstallCmd() *cobra.Command {
 	var keepData, yes bool
+	var optionFlags []string
+	var options map[string]map[string]string
 	cmd := &cobra.Command{
 		Use:   "uninstall",
 		Short: "Remove Darkpanel from this host: services, units, users, binary and, unless --keep-data, its data",
 		Args:  cobra.NoArgs,
+		// cli marks only RunE errors as run errors, so a malformed
+		// --module-option exits 2 like cobra's own flag errors.
 		PreRunE: func(*cobra.Command, []string) error {
 			if geteuid() != 0 {
 				return errors.New("uninstall runs as root; run it with sudo")
 			}
-			return nil
+			var err error
+			options, err = parseModuleOptions(optionFlags)
+			return err
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			sd, err := newSystemd(cmd.Context())
@@ -52,7 +58,7 @@ func newUninstallCmd() *cobra.Command {
 				return err
 			}
 			plan, err := planUninstall(cmd.Context(), install.UninstallConfig{
-				Layout: installLayout(), KeepData: keepData, Modules: modules.All(),
+				Layout: installLayout(), KeepData: keepData, Modules: modules.All(), ModuleOptions: options,
 				Systemd: sd, Exec: platform.NewRunner(platform.ProductionRules()), Users: install.SystemUsers{},
 				Clock: core.SystemClock{}, Log: slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil)),
 			})
@@ -69,7 +75,34 @@ func newUninstallCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&keepData, "keep-data", false,
 		"keep the databases, backups, update records, keys, agent credentials and users, so a later install finds them")
 	cmd.Flags().BoolVar(&yes, "yes", false, "uninstall without asking Proceed? [y/N]")
+	cmd.Flags().StringArrayVar(&optionFlags, "module-option", nil,
+		"<module>.<key>=<value>: an option of a module's uninstall step (repeatable); the plan lists every option with its default")
 	return cmd
+}
+
+// parseModuleOptions reads --module-option values, each
+// <module>.<key>=<value>, by module id and key. The key ends at the first
+// "=", so a value may hold one.
+func parseModuleOptions(values []string) (map[string]map[string]string, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	out := map[string]map[string]string{}
+	for _, v := range values {
+		module, rest, dot := strings.Cut(v, ".")
+		key, value, eq := strings.Cut(rest, "=")
+		if !dot || !eq || module == "" || key == "" {
+			return nil, fmt.Errorf("--module-option %q is not <module>.<key>=<value>", v)
+		}
+		if _, dup := out[module][key]; dup {
+			return nil, fmt.Errorf("--module-option %s.%s is given twice", module, key)
+		}
+		if out[module] == nil {
+			out[module] = map[string]string{}
+		}
+		out[module][key] = value
+	}
+	return out, nil
 }
 
 // confirmUninstall asks Proceed? [y/N] on the terminal unless yes; without a
