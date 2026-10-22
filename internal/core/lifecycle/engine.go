@@ -327,6 +327,11 @@ func (e *Engine) Read(ctx context.Context, p core.Principal, ref core.ActionRef,
 	if def.Spec.Class != core.ClassRead {
 		return nil, errcode.New(errcode.ActionUnknown, fmt.Sprintf("%s is not a read action", ref))
 	}
+	// A reveal or an internal read must be audited and never redacted, which
+	// only Reveal and ReadInternal do.
+	if def.Spec.Reveal || def.Spec.Internal {
+		return nil, errcode.New(errcode.ActionUnknown, fmt.Sprintf("%s has no read operation", ref))
+	}
 	if err := e.cfg.Validator.ValidateInput(def, input); err != nil {
 		return nil, err
 	}
