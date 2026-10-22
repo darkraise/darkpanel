@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"maps"
+	"slices"
 	"strings"
 	"testing"
 
@@ -131,5 +132,146 @@ func TestApplyChecksTheWindowAgain(t *testing.T) {
 	h.agentAt("1.2.0", 1)
 	if v, err := d.Apply(ctx, alice, testHost, refSet, pv.PlanID, core.ApplyOptions{}); err != nil || v.State != core.StatePending {
 		t.Errorf("Apply from a previous-minor agent = %+v, %v; want the pending change", v, err)
+	}
+}
+
+// windowOps gives h1 a new session whose agent reports version, answers its
+// change operations for view as opsAgent does and confirms view.
+func (h *harness) windowOps(version string, view core.ChangeView) *opsAgent {
+	h.t.Helper()
+	h.agentAt(version, 1)
+	c, _, err := h.clients.Client(context.Background(), testHost)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	agent := &opsAgent{AgentClient: c, view: view}
+	c.(*coretest.FakeAgent).ConfirmFunc = func(_ context.Context, p core.Principal, changeID string) (core.ChangeView, error) {
+		agent.record("confirm %s by %s", changeID, p.Actor)
+		return view, nil
+	}
+	h.clients.Add(testHost, agent)
+	return agent
+}
+
+func TestChangeOpsCheckTheWindow(t *testing.T) {
+	ctx := context.Background()
+	h, d := newWindowHarness(t, "1.3.0")
+	h.agentAt("1.3.0", 1)
+	kv := h.applyAgent(d, "a", core.ApplyOptions{ConfirmNow: true})
+	update := core.ChangeView{ID: "01UPDATECHANGE", HostID: testHost, Action: "core.update.apply", Version: 1}
+	if _, err := h.db.Writer().Exec(`INSERT INTO core_change_index (change_id, host_id, action, version, created_at)
+		VALUES (?, ?, ?, 1, '2026-10-17T12:00:00.000000000Z')`, update.ID, testHost, update.Action); err != nil {
+		t.Fatal(err)
+	}
+	ops := []struct {
+		name string
+		run  func(id string) error
+	}{
+		{"undo", func(id string) error { _, err := d.Undo(ctx, alice, id); return err }},
+		{"repair", func(id string) error { _, err := d.Repair(ctx, alice, id, core.RepairRequest{}); return err }},
+		{"repair with input", func(id string) error {
+			_, err := d.Repair(ctx, alice, id, core.RepairRequest{Input: json.RawMessage(`{"outcome":"keep"}`)})
+			return err
+		}},
+		{"resolve", func(id string) error {
+			_, err := d.Resolve(ctx, alice, id, 1, core.ResolveRequest{Resolution: core.ResolutionAccept})
+			return err
+		}},
+	}
+	for _, tc := range []struct {
+		name, agent string
+		view        core.ChangeView
+		refused     bool
+	}{
+		{"a module change inside the window", "1.3.0", kv, false},
+		{"a module change outside the window", "1.4.0", kv, true},
+		{"a core.update change outside the window", "1.4.0", update, false},
+	} {
+		for _, op := range ops {
+			agent := h.windowOps(tc.agent, tc.view)
+			err := op.run(tc.view.ID)
+			calls := agent.recorded()
+			if !tc.refused {
+				if err != nil || len(calls) != 1 {
+					t.Errorf("%s: %s = %v, agent calls %q; want it dispatched", tc.name, op.name, err, calls)
+				}
+				continue
+			}
+			e := wantCode(t, err, errcode.HostVersionUnsupported)
+			if !strings.Contains(e.Detail, "host h1 runs agent 1.4.0") {
+				t.Errorf("%s: %s detail %q does not name the agent's version", tc.name, op.name, e.Detail)
+			}
+			if len(calls) != 0 {
+				t.Errorf("%s: %s reached the agent: %q", tc.name, op.name, calls)
+			}
+		}
+	}
+}
+
+// TestChangeOpsSkipEnablement: undo and resolve of a change of a disabled
+// module still reach the agent, and release and confirm still reach an agent
+// outside the support window.
+func TestChangeOpsSkipEnablement(t *testing.T) {
+	ctx := context.Background()
+	h, d := newWindowHarness(t, "1.3.0")
+	h.agentAt("1.3.0", 1)
+	kv := h.applyAgent(d, "a", core.ApplyOptions{ConfirmNow: true})
+
+	agent := h.windowOps("1.3.0", kv)
+	if _, err := h.db.Writer().Exec(
+		"UPDATE core_module_state SET enabled = 0 WHERE host_id = ? AND module_id = 'kv'", testHost); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Undo(ctx, alice, kv.ID); err != nil {
+		t.Errorf("Undo of a disabled module's change = %v, want it dispatched", err)
+	}
+	if _, err := d.Resolve(ctx, alice, kv.ID, 1, core.ResolveRequest{Resolution: core.ResolutionAccept}); err != nil {
+		t.Errorf("Resolve of a disabled module's change = %v, want it dispatched", err)
+	}
+	if got := agent.recorded(); len(got) != 2 {
+		t.Errorf("agent calls %q, want the undo and the resolve", got)
+	}
+
+	agent = h.windowOps("1.4.0", kv)
+	if _, err := d.Release(ctx, alice, kv.ID, "host rebuilt"); err != nil {
+		t.Errorf("Release outside the window = %v, want it dispatched", err)
+	}
+	if _, err := d.Confirm(ctx, alice, kv.ID); err != nil {
+		t.Errorf("Confirm outside the window = %v, want it dispatched", err)
+	}
+	want := []string{"release " + kv.ID + " by user:alice: host rebuilt, call <nil>", "confirm " + kv.ID + " by user:alice"}
+	if got := agent.recorded(); !slices.Equal(got, want) {
+		t.Errorf("agent calls\n got %q\nwant %q", got, want)
+	}
+}
+
+// TestChangeActionWithoutAnIndexRow: a change missing from core_change_index
+// takes its action from the agent's view, which must be of that change.
+func TestChangeActionWithoutAnIndexRow(t *testing.T) {
+	ctx := context.Background()
+	h, d := newWindowHarness(t, "1.3.0")
+	h.agentAt("1.3.0", 1)
+	kv := h.applyAgent(d, "a", core.ApplyOptions{ConfirmNow: true})
+	if _, err := h.db.Writer().Exec("DELETE FROM core_change_index WHERE change_id = ?", kv.ID); err != nil {
+		t.Fatal(err)
+	}
+	other := kv
+	other.ID = "01OTHER"
+	for _, tc := range []struct {
+		name   string
+		answer core.ChangeView
+		want   string // "" expects an error
+	}{
+		{"the change", kv, refSet.Name},
+		{"another change", other, ""},
+	} {
+		agent := &coretest.FakeAgent{ChangeFunc: func(context.Context, string) (core.ChangeView, error) { return tc.answer, nil }}
+		action, err := d.changeAction(ctx, testHost, kv.ID, agent)
+		switch {
+		case tc.want == "" && err == nil:
+			t.Errorf("%s: changeAction = %q, want an error", tc.name, action)
+		case tc.want != "" && (err != nil || action != tc.want):
+			t.Errorf("%s: changeAction = %q, %v; want %q", tc.name, action, err, tc.want)
+		}
 	}
 }
