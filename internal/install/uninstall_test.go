@@ -650,8 +650,8 @@ func TestUninstallStopsModuleUnits(t *testing.T) {
 	_, _, _, unit, _ := km.paths()
 	h.systemd.failOn("Disable darkpanel-kinds.service", errors.New("refused"))
 	_, err := runUninstall(t, kindsConfig(h, m, km, false))
-	if err == nil || !strings.Contains(err.Error(), "units: refused") {
-		t.Fatalf("Run = %v, want the units step to fail at Disable", err)
+	if err == nil || !strings.Contains(err.Error(), "services: refused") {
+		t.Fatalf("Run = %v, want the services step to fail at Disable", err)
 	}
 	if !exists(t, unit) {
 		t.Fatal("the unit file was removed before the unit was disabled")

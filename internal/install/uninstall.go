@@ -233,13 +233,36 @@ func (u *Uninstall) plan() []uninstallStep {
 	managed := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedManagedDir && !u.kept(e) })
 	serviceDirs := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedServiceDir && !u.kept(e) })
 	units := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedUnit })
+	modUnits := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedUnit && !isCore(e) })
 	unitDirs := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedDir && within(e.Path, l.UnitDir) })
 	users := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedUser })
 	services := []string{update.ControllerUnit, update.AgentUnit, RecoverUnit}
 
+	servicePlan := []string{"stop and disable " + strings.Join(services, ", ")}
+	for _, line := range describe(modUnits) {
+		servicePlan = append(servicePlan, "stop and disable "+line)
+	}
+
 	steps := []uninstallStep{
-		{name: "services", plan: []string{"stop and disable " + strings.Join(services, ", ")},
-			run: func(ctx context.Context) (string, error) { return u.stopServices(ctx, services) }},
+		{name: "services", plan: servicePlan,
+			run: func(ctx context.Context) (string, error) {
+				line, err := u.stopServices(ctx, services)
+				if err != nil {
+					return "", err
+				}
+				var names []string
+				for _, e := range modUnits {
+					unit := filepath.Base(e.Path)
+					if err := u.stopUnit(ctx, unit); err != nil {
+						return "", err
+					}
+					names = append(names, unit)
+				}
+				if len(names) > 0 {
+					line += "; stopped and disabled module units " + strings.Join(names, ", ")
+				}
+				return line, nil
+			}},
 		{name: "agent lock", plan: []string{"make sure no agent runs (" + filepath.Join(l.Paths.AgentDir, AgentLockName) + ")"},
 			run: u.takeAgentLock},
 		{name: "modules", plan: append([]string{"run each module's uninstall step"}, u.optionLines...), run: u.runModules},
@@ -498,19 +521,10 @@ func removeManagedDir(path string) error {
 	return removeTree(path)
 }
 
-// removeUnits stops and disables the modules' units, removes the unit files,
-// then their drop-in directories when nothing else is left in them, and
-// reloads systemd. The core's units were stopped and disabled by the services
-// step, and their files go as before.
+// removeUnits removes the unit files, then their drop-in directories when
+// nothing else is left in them, and reloads systemd. The services step
+// stopped and disabled every unit before any file went.
 func (u *Uninstall) removeUnits(ctx context.Context, units, dirs []core.OwnedEntry) (string, error) {
-	for _, e := range units {
-		if e.Module == core.ModuleIDCore {
-			continue
-		}
-		if err := u.stopUnit(ctx, filepath.Base(e.Path)); err != nil {
-			return "", err
-		}
-	}
 	for _, e := range units {
 		if e.Module != core.ModuleIDCore && u.files != nil {
 			if err := u.files.Remove(ctx, e.Module, e.Path); err != nil {
