@@ -350,7 +350,31 @@ func TestSystemdLive(t *testing.T) {
 	if err := s.StartTransientService(ctx, stopped, bounded); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(stopped, func(st UnitState) bool { return st.ActiveState == "active" })
+	if st := waitFor(stopped, func(st UnitState) bool { return st.ActiveState == "active" }); st.PendingJob != "" {
+		t.Errorf("an active unit reports the pending job %q, want none", st.PendingJob)
+	}
+	body, err := s.manager(ctx, "load "+stopped, "LoadUnit", stopped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var unitPath dbus.ObjectPath
+	if err := dbus.Store(body, &unitPath); err != nil {
+		t.Fatal(err)
+	}
+	var runtimeMax uint64
+	if err := s.property(ctx, unitPath, "org.freedesktop.systemd1.Service", "RuntimeMaxUSec", &runtimeMax); err != nil || runtimeMax != 60_000_000 {
+		t.Errorf("RuntimeMaxUSec = %d, %v; want 60000000", runtimeMax, err)
+	}
+	var collect string
+	if err := s.property(ctx, unitPath, unitInterface, "CollectMode", &collect); err != nil || collect != "inactive-or-failed" {
+		t.Errorf("CollectMode = %q, %v; want inactive-or-failed", collect, err)
+	}
+	var jobType string
+	err = s.property(ctx, "/org/freedesktop/systemd1/job/4294967295", jobInterface, "JobType", &jobType)
+	var dbusErr dbus.Error
+	if !errors.As(err, &dbusErr) || dbusErr.Name != unknownObject {
+		t.Errorf("JobType of a job that does not exist: %#v; want a D-Bus error named %s", err, unknownObject)
+	}
 	if err := s.Stop(ctx, stopped); err != nil {
 		t.Fatal(err)
 	}
