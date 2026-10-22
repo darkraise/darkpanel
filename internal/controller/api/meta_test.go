@@ -146,6 +146,7 @@ func TestRoutes(t *testing.T) {
 		{Method: "GET", Path: "/healthz", Public: true},
 		{Method: "GET", Path: "/api/v1/openapi.json"},
 		{Method: "GET", Path: "/api/v1/controller/listeners"},
+		{Method: "GET", Path: "/api/v1/events"},
 	}
 	got := Routes()
 	if len(got) != len(want) {

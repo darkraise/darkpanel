@@ -56,6 +56,8 @@ func (s *Server) networkRoutes() []route {
 		{method: http.MethodGet, path: "/api/v1/openapi.json", summary: "This OpenAPI document", handler: s.handleOpenAPI},
 		{method: http.MethodGet, path: "/api/v1/controller/listeners", summary: "Listener state for the UI footer: Tailscale bound, and a message",
 			handler: s.handleListeners},
+		{method: http.MethodGet, path: "/api/v1/events", summary: "Stream the controller's change, step, host and module events (server-sent events)",
+			handler: s.handleEvents},
 	}
 }
 
