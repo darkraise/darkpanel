@@ -266,12 +266,17 @@ type fixture struct {
 	db      *store.DB
 	journal *AgentJournal
 	eng     *Engine
+	// moduleUnits is the engine's Config.ModuleUnits from the next open on.
+	moduleUnits func(module string) core.Units
 }
 
-func newFixture(t *testing.T) *fixture {
+func newFixture(t *testing.T) *fixture { return newFixtureWith(t) }
+
+// newFixtureWith is newFixture with mods registered after the fix module.
+func newFixtureWith(t *testing.T, mods ...core.Module) *fixture {
 	t.Helper()
 	h := &fixHost{items: map[string]string{}}
-	reg, err := core.NewRegistry(fixModule{h})
+	reg, err := core.NewRegistry(append([]core.Module{fixModule{h}}, mods...)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,6 +295,7 @@ func (f *fixture) config() Config {
 			HostID: testHost, DB: f.db, Sealer: coretest.Sealer{}, Clock: f.clock,
 			Log: slog.New(slog.DiscardHandler),
 		},
+		ModuleUnits: f.moduleUnits,
 	}
 }
 

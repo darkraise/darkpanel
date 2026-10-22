@@ -53,7 +53,7 @@ func effectSecretAD(changeID string, seq int) string {
 // the caller, the change and its call context, and the change's effects
 // journal.
 func (e *Engine) changeEnv(p core.Principal, def core.ActionDef, changeID string, call core.CallContext) core.Env {
-	env := e.env(p)
+	env := e.env(p, def)
 	env.ChangeID = changeID
 	env.Call = call
 	env.Effects = &effectJournal{e: e, def: def, changeID: changeID}

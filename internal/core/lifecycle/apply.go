@@ -184,7 +184,7 @@ func (e *Engine) begin(ctx context.Context, p core.Principal, planID string, opt
 		// in the intent transaction.
 		return nil, nil, err
 	}
-	env := e.env(p)
+	env := e.env(p, def)
 	env.Call = pl.call
 	if err := e.recheck(ctx, env, def, pl, input); err != nil {
 		return nil, nil, err

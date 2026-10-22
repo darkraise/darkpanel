@@ -214,7 +214,7 @@ func (e *Engine) planRepair(ctx context.Context, p core.Principal, def core.Acti
 	if err != nil {
 		return core.PlanView{}, err
 	}
-	env := e.env(p)
+	env := e.env(p, def)
 	env.Call = core.CallContext{RepairOf: repairs}
 	return e.makePlan(ctx, p, def, canonical, env, nil, repairs)
 }
