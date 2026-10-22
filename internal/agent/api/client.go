@@ -44,8 +44,9 @@ type Client struct {
 }
 
 var (
-	_ core.AgentClient    = (*Client)(nil)
-	_ core.AgentChangeOps = (*Client)(nil)
+	_ core.AgentClient     = (*Client)(nil)
+	_ core.AgentChangeOps  = (*Client)(nil)
+	_ core.AgentEnablement = (*Client)(nil)
 )
 
 // NewClient returns a client for cfg. Requests end with their context; the
@@ -271,6 +272,13 @@ func (c *Client) Preflight(ctx context.Context, moduleID string) (core.ModuleSta
 		return core.ModuleStatus{}, err
 	}
 	return st.Core(), nil
+}
+
+// SetModuleEnabled pushes the controller's enabled flag of a module.
+func (c *Client) SetModuleEnabled(ctx context.Context, moduleID string, enabled bool) error {
+	req := request{method: http.MethodPut, path: "modules/" + url.PathEscape(moduleID) + "/enabled",
+		body: wire.ModuleEnabled{Enabled: enabled}}
+	return c.do(ctx, req, nil)
 }
 
 // Journal returns up to limit journal entries after afterSeq; a limit of 0

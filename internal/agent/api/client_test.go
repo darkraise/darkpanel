@@ -490,3 +490,45 @@ func TestClientChangeOps(t *testing.T) {
 		t.Errorf("requests\n got %+v\nwant %+v", got, want)
 	}
 }
+
+func TestClientSetModuleEnabled(t *testing.T) {
+	type seen struct{ method, path, contentType, principal, body string }
+	var mu sync.Mutex
+	var got []seen
+	c := tcpClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		got = append(got, seen{r.Method, r.URL.Path, r.Header.Get("Content-Type"), r.Header.Get(wire.HeaderPrincipal), string(body)})
+		mu.Unlock()
+		if r.URL.Path != "/agent/v1/modules/demo/enabled" {
+			w.Header().Set("Content-Type", problemContentType)
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"status":404,"code":"not_found","detail":"no module nope"}`))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}), &ControllerHello{Version: "0.2.1", ControllerID: "C1"})
+	ctx := context.Background()
+
+	if err := c.SetModuleEnabled(ctx, "demo", false); err != nil {
+		t.Errorf("SetModuleEnabled(demo, false) = %v", err)
+	}
+	if err := c.SetModuleEnabled(ctx, "demo", true); err != nil {
+		t.Errorf("SetModuleEnabled(demo, true) = %v", err)
+	}
+	var e *errcode.Error
+	if err := c.SetModuleEnabled(ctx, "nope", true); !errors.As(err, &e) || e.Code != errcode.NotFound || e.Detail != "no module nope" {
+		t.Errorf("SetModuleEnabled(nope) = %v, want not_found with the agent's detail", err)
+	}
+	principal := principalHeader(t, controllerPrincipal)
+	want := []seen{
+		{"PUT", "/agent/v1/modules/demo/enabled", "application/json", principal, `{"enabled":false}`},
+		{"PUT", "/agent/v1/modules/demo/enabled", "application/json", principal, `{"enabled":true}`},
+		{"PUT", "/agent/v1/modules/nope/enabled", "application/json", principal, `{"enabled":true}`},
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("requests = %+v\nwant %+v", got, want)
+	}
+}

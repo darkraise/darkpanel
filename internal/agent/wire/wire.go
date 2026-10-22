@@ -106,6 +106,12 @@ func (s ModuleStatus) Core() core.ModuleStatus {
 	return core.ModuleStatus{ID: s.ID, Version: s.Version, Available: s.Available, Reason: s.Reason}
 }
 
+// ModuleEnabled is the body of PUT modules/{id}/enabled: the controller's
+// enabled flag of the module on this host.
+type ModuleEnabled struct {
+	Enabled bool `json:"enabled"`
+}
+
 // Hello is core.AgentHello. ControllerConnected is null for an agent that
 // is not enrolled.
 type Hello struct {
