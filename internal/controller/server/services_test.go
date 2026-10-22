@@ -123,7 +123,12 @@ func TestRecoverRunsAtStart(t *testing.T) {
 	}
 
 	s = start(t, opts)
-	v, err := s.dispatcher.Change(context.Background(), root(s.LocalHostID()), "01CRASHED0000000000000000")
+	// Recovery settles the change on a background goroutine after Start returns.
+	var v core.ChangeView
+	eventually(t, "the crashed change settled by recovery", nil, func() bool {
+		v, err = s.dispatcher.Change(context.Background(), root(s.LocalHostID()), "01CRASHED0000000000000000")
+		return err != nil || v.State != core.StateApplying
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

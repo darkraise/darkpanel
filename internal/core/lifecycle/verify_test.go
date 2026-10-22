@@ -56,13 +56,12 @@ func TestRecoveryBoundsVerify(t *testing.T) {
 		<-release
 	}
 	t.Cleanup(func() { close(release) })
-	recovered := make(chan error, 1)
-	go func() { recovered <- f.eng.Recover(context.Background()) }()
-	<-entered
-	f.clock.Advance(RecoveryVerifyBound)
-	if err := <-recovered; err != nil {
+	if err := f.eng.Recover(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	<-entered
+	f.clock.Advance(RecoveryVerifyBound)
+	f.eng.recoveryPass.Wait()
 	v, err := f.eng.Change(context.Background(), id)
 	if err != nil {
 		t.Fatal(err)

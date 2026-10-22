@@ -38,11 +38,14 @@ func (f *fixture) crash(ref core.ActionRef, input string, opts core.ApplyOptions
 	return planID, v.ID
 }
 
+// recoverAll runs Recover and waits until its background pass has
+// finished every claimed change.
 func (f *fixture) recoverAll() {
 	f.t.Helper()
 	if err := f.eng.Recover(context.Background()); err != nil {
 		f.t.Fatalf("Recover: %v", err)
 	}
+	f.eng.recoveryPass.Wait()
 }
 
 func TestRecoverRevertsAnInterruptedRevertibleApply(t *testing.T) {
@@ -116,9 +119,10 @@ func TestRecoverRecordsARevertWhoseContextEnded(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	f.host.onRevert = cancel
-	// The lock sweep after the revert meets the cancelled context; only the
-	// revert's record matters here.
+	// The background pass runs on the engine's context, so cancelling
+	// Recover's own does not stop it; only the revert's record matters here.
 	_ = f.eng.Recover(ctx)
+	f.eng.recoveryPass.Wait()
 	if s := f.state(v.ID); s != core.StateReverted || f.host.items["a"] != "old" {
 		t.Errorf("state %s, item a %q; want the revert recorded and item a old", s, f.host.items["a"])
 	}

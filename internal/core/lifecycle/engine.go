@@ -95,6 +95,10 @@ type Engine struct {
 	// admission).
 	recovering atomic.Bool
 
+	// recoveryPass counts the background pass's goroutines that are still
+	// running.
+	recoveryPass sync.WaitGroup
+
 	timerMu  sync.Mutex
 	timers   map[string]*armedTimer // armed revert timers by change id
 	closed   bool                   // Close ran: no timer is armed and goRun runs nothing in the background

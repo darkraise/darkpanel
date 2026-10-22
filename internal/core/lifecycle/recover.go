@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
@@ -19,10 +20,12 @@ var recoveryPrincipal = core.Principal{Actor: ActorRecovery, Scope: core.ScopeAd
 // Recover settles every change a previous process left unfinished (1.3,
 // change recovery at start). It seeds the engine's ids, claims each
 // unfinished change in a transaction of its own, voiding the owners the
-// previous process left, sweeps the locks of finished changes, and runs
-// the recovery pass over the claims. Plan, Apply, Undo, Repair, Release and
-// Resolve answer core.recovering until the pass has started. Run it once,
-// before the engine serves requests.
+// previous process left, sweeps the locks of finished changes, and starts
+// the background pass, one goroutine per claimed change, before it
+// returns. Its own part calls no handler, so a handler that hangs never
+// keeps the process from serving. Plan, Apply, Undo, Repair, Release and
+// Resolve answer core.recovering until every claimed change's work has
+// started. Run it once, before the engine serves requests.
 func (e *Engine) Recover(ctx context.Context) error {
 	e.recovering.Store(true)
 	if err := e.seedIDs(ctx); err != nil {
@@ -30,9 +33,9 @@ func (e *Engine) Recover(ctx context.Context) error {
 	}
 	claims, claimErr := e.recoverClaims(ctx)
 	sweepErr := e.recoverSweep(ctx)
-	passErr := e.recoverPass(ctx, claims)
+	e.recoverPass(claims)
 	e.recovering.Store(false)
-	return errors.Join(claimErr, sweepErr, passErr)
+	return errors.Join(claimErr, sweepErr)
 }
 
 // recoverKind is the work startup recovery claimed a change for.
@@ -229,33 +232,123 @@ func (e *Engine) recoverSweep(ctx context.Context) error {
 	return nil
 }
 
-// recoverPass runs the claimed work one change after another: the revert of
-// a revertible change and the interrupt record of a cut-off apply. Every
-// other claim keeps its owner until the background pass takes it over.
-func (e *Engine) recoverPass(ctx context.Context, claims []recoverClaim) error {
-	var errs []error
+// recoverPass starts the background pass: one goroutine per claimed change
+// on the engine's run context, so a handler that hangs keeps only its own
+// change owned and locked, and a failing one stops no other. It returns
+// once every goroutine has started.
+func (e *Engine) recoverPass(claims []recoverClaim) {
+	var started sync.WaitGroup
+	started.Add(len(claims))
+	e.recoveryPass.Add(len(claims))
 	for _, c := range claims {
-		if err := e.recoverOne(ctx, c); err != nil {
-			errs = append(errs, err)
-		}
+		e.goRun(func() {
+			defer e.recoveryPass.Done()
+			started.Done()
+			if err := e.recoverOne(e.runCtx, c); err != nil {
+				e.cfg.Base.Log.Error("lifecycle: recovery", "change", c.id, "error", err)
+			}
+		})
 	}
-	return errors.Join(errs...)
+	started.Wait()
 }
 
 func (e *Engine) recoverOne(ctx context.Context, c recoverClaim) error {
-	switch {
-	case c.kind == recoverRevert:
+	switch c.kind {
+	case recoverRevert:
 		return e.recoverRevert(ctx, c)
-	case c.kind == recoverSettle && c.state == core.StateApplying:
-		msg := "interrupted by a restart during apply; " + e.verifyStored(ctx, c.id)
-		_, err := e.transition(ctx, c.id, transition{
-			from: core.StateApplying, to: core.StateInterrupted, release: true, owner: recovererOwner(""),
-			phase: phaseInterrupt, result: resultError, actor: ActorRecovery,
-			err: &core.ChangeError{Code: string(errcode.Internal), Message: msg},
-		})
+	case recoverSettle:
+		return e.recoverSettle(ctx, c)
+	case recoverUndo:
+		return e.recoverUndo(ctx, c)
+	case recoverRetry:
+		_, err := e.runRecoverer(ctx, c.id)
 		return err
 	}
 	return nil
+}
+
+// recoverEnv is the Env of a claimed change's handler calls: the recovery
+// principal, the change and its plan's call.
+func (e *Engine) recoverEnv(ctx context.Context, c recoverClaim) (core.Env, error) {
+	call, err := changeCall(ctx, e.cfg.Base.DB.Read(), c.id)
+	if err != nil {
+		return core.Env{}, err
+	}
+	return e.changeEnv(recoveryPrincipal, c.def, c.id, call), nil
+}
+
+// recoverSettleIntended settles a claimed change's intended effects, its
+// observations bounded by the action's ApplyTimeout.
+func (e *Engine) recoverSettleIntended(ctx context.Context, c recoverClaim, env core.Env) error {
+	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), e.applyTimeout(c.def))
+	defer cancel()
+	return e.settle(sctx, env, c.def, c.id)
+}
+
+// recoverSettle finishes a change cut off during its apply or its recovery
+// handler. Its intended effects are settled; then an action with a module
+// recovery handler runs it when no effect is unresolved, and every other
+// change follows 1.2's failure table with interrupted in place of failed
+// and Verify's report in its message. A repair change is recorded failed
+// instead of interrupted, so its target's repair table applies as for a
+// live failure.
+func (e *Engine) recoverSettle(ctx context.Context, c recoverClaim) error {
+	env, err := e.recoverEnv(ctx, c)
+	if err != nil {
+		return err
+	}
+	if err := e.recoverSettleIntended(ctx, c, env); err != nil {
+		return err
+	}
+	n, err := unresolvedCount(ctx, e.cfg.Base.DB.Read(), c.id, false)
+	if err != nil {
+		return err
+	}
+	recoverable := c.def.Handler.Recover != nil && !c.repair
+	if recoverable && n == 0 {
+		if err := e.recovererClaim(ctx, recoveryPrincipal, c.id, nil); err != nil {
+			return err
+		}
+		_, err := e.runRecoverer(ctx, c.id)
+		return err
+	}
+	msg := "interrupted by a restart during apply; " + e.verifyStored(ctx, c.id)
+	tr, err := e.failure(ctx, c.id, c.def, errcode.New(errcode.Internal, msg), !c.repair)
+	if err != nil {
+		return err
+	}
+	tr.from, tr.owner = c.state, recovererOwner("")
+	tr.phase, tr.result, tr.actor, tr.source = phaseInterrupt, resultError, ActorRecovery, ""
+	switch tr.to {
+	case core.StateInterrupted, core.StateFailed:
+		tr.err = &core.ChangeError{Code: string(errcode.Internal), Message: msg}
+	case core.StateNeedsRepair:
+		tr.retry = recovererFlag(recoverable)
+	}
+	rctx, cancel := e.cleanup()
+	defer cancel()
+	_, err = e.transition(rctx, c.id, tr)
+	return err
+}
+
+// recoverUndo resumes the undo run of a change cut off while undoing, from
+// its journal alone, and records the undo settle. A shutdown that stops the
+// run leaves the change undoing for the next start.
+func (e *Engine) recoverUndo(ctx context.Context, c recoverClaim) error {
+	env, err := e.recoverEnv(ctx, c)
+	if err != nil {
+		return err
+	}
+	if err := e.undoRun(ctx, env, c.def, c.id); err != nil {
+		if ctx.Err() != nil {
+			return err
+		}
+		e.cfg.Base.Log.Error("lifecycle: resumed undo run", "change", c.id, "error", err)
+	}
+	rctx, cancel := e.cleanup()
+	defer cancel()
+	_, err = e.undoSettle(rctx, recoveryPrincipal, c.id)
+	return err
 }
 
 // recoverRevert settles a claimed revertible change, reverts it from its

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/lifecycle"
@@ -141,7 +142,13 @@ func TestOpenRecoversAndPurges(t *testing.T) {
 	f.clock.Advance(lifecycle.PlanTTL)
 	f.restart()
 
-	got, err := f.rt.engine.Change(ctx, v.ID)
+	// Recovery settles the change on a background goroutine after Open returns.
+	var got core.ChangeView
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if got, err = f.rt.engine.Change(ctx, v.ID); err != nil || got.State == core.StateReverted || time.Now().After(deadline) {
+			break
+		}
+	}
 	if err != nil || got.State != core.StateReverted {
 		t.Errorf("change after restart = %+v, %v; want reverted by recovery", got, err)
 	}
