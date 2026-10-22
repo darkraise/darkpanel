@@ -87,6 +87,7 @@ func (s *Server) startServices(ctx context.Context) error {
 		s.sessions, err = fleet.NewRegistry(fleet.RegistryConfig{
 			DB: s.controllerDB, Clock: s.clock, CheckPeer: s.authority.CheckPeer,
 			Version: buildinfo.Version, ControllerID: s.authority.ControllerID(), Log: s.log,
+			OnOnline: hostOnline(s.events),
 		})
 		if err != nil {
 			return fmt.Errorf("server: %w", err)
@@ -118,13 +119,7 @@ func (s *Server) startServices(ctx context.Context) error {
 		}
 	}
 
-	eng, err := lifecycle.New(lifecycle.Config{
-		Side: core.SideController, Registry: reg, Validator: schema.NewValidator(), Journal: s.auditLog,
-		Redact: schema.Redact,
-		Base: core.Env{
-			DB: s.controllerDB, Sealer: s.controllerSealer, Clock: s.clock, Log: s.log, Agents: s.hosts,
-		},
-	})
+	eng, err := lifecycle.New(s.engineConfig(reg))
 	if err != nil {
 		return fmt.Errorf("server: %w", err)
 	}
@@ -136,9 +131,11 @@ func (s *Server) startServices(ctx context.Context) error {
 	if err := s.startPurges(ctx); err != nil {
 		return err
 	}
+	stopWatchers := events.StartWatchers(s.controllerDB, s.clock, s.events, s.log)
+	s.onShutdown("event watchers", func(context.Context) error { stopWatchers(); return nil })
 
 	s.ingester = audit.NewIngester(audit.IngesterConfig{
-		Store: s.auditLog, Agents: s.hosts, Clock: s.clock, Log: s.log, OnEntries: wakeComposites(eng.Wake),
+		Store: s.auditLog, Agents: s.hosts, Clock: s.clock, Log: s.log, OnEntries: s.ingestedEntries(eng.Wake, s.agentChange),
 	})
 	if err := s.ingester.IngestAll(ctx); err != nil {
 		s.log.Warn("server: audit ingestion", "error", err)
@@ -167,19 +164,63 @@ func (s *Server) startServices(ctx context.Context) error {
 	return s.startRollouts(clients)
 }
 
+// hostOnline publishes the session registry's online changes as host
+// events.
+func hostOnline(bus *events.Bus) func(hostID string, online bool) {
+	return func(hostID string, online bool) {
+		bus.Publish(events.TypeHost, events.HostEvent{HostID: hostID, Online: online})
+	}
+}
+
+// engineConfig is the controller engine's configuration. Its Publish hands
+// the composite.step events to the event bus.
+func (s *Server) engineConfig(reg *core.Registry) lifecycle.Config {
+	return lifecycle.Config{
+		Side: core.SideController, Registry: reg, Validator: schema.NewValidator(), Journal: s.auditLog,
+		Redact: schema.Redact, Publish: s.events.Publish,
+		Base: core.Env{
+			DB: s.controllerDB, Sealer: s.controllerSealer, Clock: s.clock, Log: s.log, Agents: s.hosts,
+		},
+	}
+}
+
+// ingestedEntries is the audit ingester's OnEntries: it wakes the
+// composites following the stored entries' changes and publishes those
+// changes, read through change, as change events.
+func (s *Server) ingestedEntries(wake func(changeIDs ...string),
+	change func(ctx context.Context, hostID, changeID string) (core.ChangeView, error)) func(hostID string, entries []core.JournalEntry) {
+	wakeFn, publish := wakeComposites(wake), events.AgentChanges(s.events, change, s.log)
+	return func(hostID string, entries []core.JournalEntry) {
+		wakeFn(hostID, entries)
+		publish(hostID, entries)
+	}
+}
+
+// agentChange reads changeID from hostID's agent.
+func (s *Server) agentChange(ctx context.Context, hostID, changeID string) (core.ChangeView, error) {
+	agent, err := s.hosts.Agent(ctx, hostID)
+	if err != nil {
+		return core.ChangeView{}, err
+	}
+	return agent.Change(ctx, changeID)
+}
+
 // wakePhases are the agent journal phases after which a composite following
 // the change looks its child up at once (1.3 Child watcher).
 var wakePhases = map[string]bool{
 	"apply": true, "interrupt": true, "revert": true, "recover": true, "undo": true, "resolve": true, "release": true,
 }
 
-// wakeComposites is the audit ingester's OnEntries: it wakes the composites
-// following the changes of the stored entries in wakePhases.
+// wakeComposites wakes the composites following the changes of the stored
+// entries in wakePhases, each change once: Wake runs a query per id under
+// the ingestion lock.
 func wakeComposites(wake func(changeIDs ...string)) func(hostID string, entries []core.JournalEntry) {
 	return func(_ string, entries []core.JournalEntry) {
 		var ids []string
+		seen := map[string]bool{}
 		for _, e := range entries {
-			if wakePhases[e.Phase] && e.ChangeID != "" {
+			if wakePhases[e.Phase] && e.ChangeID != "" && !seen[e.ChangeID] {
+				seen[e.ChangeID] = true
 				ids = append(ids, e.ChangeID)
 			}
 		}

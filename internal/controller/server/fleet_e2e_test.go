@@ -22,6 +22,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/controller/api"
 	"github.com/darkraise/darkpanel/internal/controller/auth"
 	"github.com/darkraise/darkpanel/internal/controller/coreactions"
+	"github.com/darkraise/darkpanel/internal/controller/events"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/coretest"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
@@ -262,10 +263,12 @@ func TestFleetEndToEnd(t *testing.T) {
 	offline := func() bool { return !e.host(hostID).Online }
 
 	// Enrollment and the first session (R22, R23, R27).
+	hostEvents, _ := e.s.events.Subscribe(t.Context())
 	agent := newFleetAgent(t, buildinfo.Version)
 	agent.enroll(grant.Token)
 	agent.run()
 	eventually(t, "the enrolled agent online", agent.skipWaits, online)
+	pubWant(t, hostEvents, events.TypeHost, events.HostEvent{HostID: hostID, Online: true})
 	h := e.host(hostID)
 	if h.State != core.HostEnrolled || h.AgentVersion == nil || *h.AgentVersion != buildinfo.Version ||
 		h.ProtocolVersion == nil || *h.ProtocolVersion != runtime.ProtocolVersion || h.OS == nil || *h.OS == "" || h.Arch == nil || *h.Arch == "" ||

@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/controller/auth"
+	"github.com/darkraise/darkpanel/internal/controller/events"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/coretest"
+	"github.com/darkraise/darkpanel/internal/core/lifecycle"
 	"github.com/darkraise/darkpanel/internal/core/schema"
 	"github.com/darkraise/darkpanel/internal/registry"
 )
@@ -283,6 +285,7 @@ func TestWakeCompositesPassesTheFollowedPhases(t *testing.T) {
 		{Phase: "apply", ChangeID: "c1"}, {Phase: "confirm", ChangeID: "c2"}, {Phase: "interrupt", ChangeID: "c3"},
 		{Phase: "revert", ChangeID: "c4"}, {Phase: "recover", ChangeID: "c5"}, {Phase: "undo", ChangeID: "c6"},
 		{Phase: "resolve", ChangeID: "c7"}, {Phase: "release", ChangeID: "c8"}, {Phase: "apply", ChangeID: ""},
+		{Phase: "undo", ChangeID: "c1"},
 	})
 	wake("h1", []core.JournalEntry{{Phase: "confirm", ChangeID: "c9"}})
 	want := [][]string{{"c1", "c3", "c4", "c5", "c6", "c7", "c8"}}
@@ -365,4 +368,86 @@ func TestControllerReleaseJournalsToTheAuditLog(t *testing.T) {
 	if n := count(t, s, "SELECT count(*) FROM core_audit WHERE change_id = ? AND phase = 'release' AND result = 'ok'", id); n != 1 {
 		t.Errorf("release audit rows = %d, want 1", n)
 	}
+}
+
+// pubWant reads ch until an event of eventType arrives, within five
+// seconds, and checks that its data marshals like want.
+func pubWant(t *testing.T, ch <-chan events.Event, eventType string, want any) {
+	t.Helper()
+	b, err := json.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case ev := <-ch:
+			if ev.Type != eventType {
+				continue
+			}
+			if string(ev.Data) != string(b) {
+				t.Fatalf("%s event = %s, want %s", eventType, ev.Data, b)
+			}
+			return
+		case <-deadline:
+			t.Fatalf("no %s event", eventType)
+		}
+	}
+}
+
+// TestServerEventWiring shows the event bus fed by the controller engine's
+// composite.step events, the change and module watchers over the
+// controller database, and the ingester's agent changes next to its
+// composite wake-ups.
+func TestServerEventWiring(t *testing.T) {
+	opts := embeddedOptions(t)
+	clock := opts.Clock.(*coretest.FakeClock)
+	s := start(t, opts)
+	ctx := context.Background()
+	ch, _ := s.events.Subscribe(t.Context())
+
+	step := lifecycle.StepEvent{ChangeID: "C1", StepID: "s1", State: core.StepConfirmed, ChildChangeID: "K1"}
+	s.engineConfig(s.registry).Publish(lifecycle.EventCompositeStep, step)
+	pubWant(t, ch, events.TypeCompositeStep, step)
+
+	plan := planDisable(t, s)
+	const id = "01WIRED000000000000000000X"
+	if _, err := s.controllerDB.Writer().ExecContext(ctx,
+		`INSERT INTO core_changes (id, plan_id, host_id, action, version, class, compensated_by, actor, state,
+		 input_json, created_at, updated_at)
+		 VALUES (?, ?, '', 'core.module.disable', 1, 'compensable', 'core.module.enable', 'local:root@h', 'completed', '{}', ?, ?)`,
+		id, plan.PlanID, clock.Now().Format(timeFormat), clock.Now().Format(timeFormat)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.controllerDB.Writer().ExecContext(ctx,
+		"UPDATE core_module_state SET enabled = 0 WHERE host_id = ? AND module_id = 'hostinfo'", s.LocalHostID()); err != nil {
+		t.Fatal(err)
+	}
+	clock.Advance(events.PollInterval)
+	pubWant(t, ch, events.TypeChange, events.ChangeEvent{ChangeID: id, Action: "core.module.disable", State: core.StateCompleted,
+		UpdatedAt: clock.Now().Add(-events.PollInterval)})
+	pubWant(t, ch, events.TypeModule, events.ModuleEvent{HostID: s.LocalHostID(), ModuleID: "hostinfo", Available: true})
+
+	var woken []string
+	onEntries := s.ingestedEntries(func(ids ...string) { woken = append(woken, ids...) },
+		func(_ context.Context, hostID, changeID string) (core.ChangeView, error) {
+			return core.ChangeView{ID: changeID, HostID: hostID, Action: "demo.item.add", State: core.StateCompleted, UpdatedAt: t0}, nil
+		})
+	onEntries("h1", []core.JournalEntry{{Phase: "apply", ChangeID: "A1"}, {Phase: "plan"}})
+	if !slices.Equal(woken, []string{"A1"}) {
+		t.Errorf("woken composites' changes = %v, want [A1]", woken)
+	}
+	pubWant(t, ch, events.TypeChange, events.ChangeEvent{HostID: "h1", ChangeID: "A1", Action: "demo.item.add",
+		State: core.StateCompleted, UpdatedAt: t0})
+}
+
+// TestServerPublishesHostEvents shows the session registry's OnOnline
+// function of the server.
+func TestServerPublishesHostEvents(t *testing.T) {
+	bus := events.NewBus(nil)
+	ch, _ := bus.Subscribe(t.Context())
+	hostOnline(bus)("h1", true)
+	pubWant(t, ch, events.TypeHost, events.HostEvent{HostID: "h1", Online: true})
+	hostOnline(bus)("h1", false)
+	pubWant(t, ch, events.TypeHost, events.HostEvent{HostID: "h1"})
 }
