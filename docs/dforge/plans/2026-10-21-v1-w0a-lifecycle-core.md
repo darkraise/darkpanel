@@ -1,6 +1,6 @@
 # v1 Wave 0a: Lifecycle Core Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: the skill the **Execution:** line names — dr-superpowers:subagent-driven-development for `subagent`, dr-superpowers:executing-plans for `inline`. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: the skill the **Execution:** line names — dforge:subagent-driven-development for `subagent`, dforge:executing-plans for `inline`. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the v1 lifecycle core of spec sections 1.1–1.3c: action-name text form, the effects journal with settle and undo, operator resolution, release and single-change repair, plan lookup and retire, composite operations with durable step logs, module recovery handlers, start-up recovery with admission, and task units, exposed through the agent protocol, the controller API and the CLI.
 
@@ -12,7 +12,7 @@
 
 **Execution:** subagent — `claude --model sonnet --effort high` — the plan runs parallel waves, and each task's **Implementer:** line chooses its implementer
 
-**Plan review:** 2026-10-22 — dr-superpowers:judge-opus — executability 16 / coherence 14 / coverage 16 / assumptions 16 (round 2)
+**Plan review:** 2026-10-22 — dforge:judge-opus — executability 16 / coherence 14 / coverage 16 / assumptions 16 (round 2)
 
 **Parallelism:** waves — 1 | 2-4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24-25 | 26 | 27 | 28 | 29 | 30 | 31 | 32-33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47
 
@@ -1098,7 +1098,7 @@ Every apply that answers `202` is followed by polling `GET /api/v1/changes/{id}`
 
 **Depends on:** none
 
-**Implementer:** dr-superpowers:impl-sonnet-medium
+**Implementer:** dforge:impl-sonnet-medium
 **Evaluation:** files 0 - spec 0 - coupling 3 - risk 1 = 4
 
 Declarations only. The engine, the wire and every caller keep their behaviour; later tasks fill the declarations in. One existing test prints `core.ApplyOptions` with `%+v`, so it is the failing test that the new `Call` field makes pass.
@@ -1872,7 +1872,7 @@ git commit -m "feat(core): declare the lifecycle contract"
 
 **Depends on:** Task 1
 
-**Implementer:** dr-superpowers:impl-sonnet-medium
+**Implementer:** dforge:impl-sonnet-medium
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 1 = 4
 
 - [ ] **Step 1: Write the failing test**
@@ -2114,7 +2114,7 @@ git commit -m "feat(core): add ActionRef text and definite errors"
 
 **Depends on:** Task 1
 
-**Implementer:** dr-superpowers:impl-sonnet-high
+**Implementer:** dforge:impl-sonnet-high
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 2 = 5
 
 The tests drive `DBusSystemd` through the existing `fakeBus`. A `(uo)` property arrives from a real bus as a `[]any`, so the fake answers `Job` that way, and `State` decodes it into a two-field struct. `State` treats `org.freedesktop.DBus.Error.UnknownObject` on the job object as "no job": the job finished between the two reads. The opt-in live test (`DARKPANEL_SYSTEMD_LIVE=1`, as root) also starts one unit with `RuntimeMax` and `CollectMode`, so a live run proves systemd accepts both properties.
@@ -2696,7 +2696,7 @@ git commit -m "refactor(core): move systemd contract into core"
 
 **Depends on:** Task 1
 
-**Implementer:** dr-superpowers:impl-sonnet-medium
+**Implementer:** dforge:impl-sonnet-medium
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 0 = 3
 
 - [ ] **Step 1: Write the failing test**
@@ -2855,7 +2855,7 @@ git commit -m "feat(errcode): add the lifecycle error codes"
 
 **Depends on:** none
 
-**Implementer:** dr-superpowers:impl-opus-high
+**Implementer:** dforge:impl-opus-high
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 3 = 6
 
 The test helper `controllerSetUpTo` becomes `coreSetUpTo(t, side, last)`, and `migratedController` delegates to a new `migratedCore(t, side)`, so the agent side gets the same "database as an older release left it" setup. The helpers this task adds are `coreSetUpTo`, `migratedCore` and `lifecycleRows`. The database opens with `foreign_keys(1)`, so the constraint test inserts a real plan and change first.
@@ -3629,7 +3629,7 @@ git commit -m "feat(store): add the lifecycle core migrations"
 
 **Depends on:** Task 1
 
-**Implementer:** dr-superpowers:impl-sonnet-medium
+**Implementer:** dforge:impl-sonnet-medium
 **Evaluation:** files 0 - spec 0 - coupling 3 - risk 0 = 3
 
 No behaviour changes, except that the dispatcher and the runtime now forward the caller's `opts`. `Engine.Plan` and `api.Client.Plan` take the parameter as `_` (revive's `unused-parameter` rule is on): Task 14 stores it in the engine, and Task 25 sends it as the `Darkpanel-Call` header. The API handlers, the agent handler, the CLI's local path and the rollout driver pass `core.PlanOptions{}`.
@@ -4413,7 +4413,7 @@ git commit -m "refactor(core): pass plan options to every plan"
 
 **Depends on:** Task 6
 
-**Implementer:** dr-superpowers:impl-sonnet-medium
+**Implementer:** dforge:impl-sonnet-medium
 **Evaluation:** files 0 - spec 0 - coupling 3 - risk 1 = 4
 
 `define.go` needs no edit: `DefineRevertible`'s `eh.Revert = h.Revert` compiles unchanged once both signatures change together. The test covers all four triggers of a revert (operator, timer, failed verify, startup recovery), because each reaches `runRevert` on its own path.
@@ -4927,7 +4927,7 @@ git commit -m "feat(core): return a RevertOutcome from Revert"
 
 **Depends on:** Task 7
 
-**Implementer:** dr-superpowers:impl-sonnet-medium
+**Implementer:** dforge:impl-sonnet-medium
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 1 = 4
 
 The three erasing closures every definer repeated (decode the input, call, encode the output or decode it for Verify) become the generic helpers `erasedPlan`, `erasedRun` and `erasedVerify`, so `DefineTask` reuses them for `Plan`, `Task` and `Verify`. `findHandlers` holds the four type assertions. Both are private to `define.go`. The test types live in `define_test.go` under the `define` prefix, so they cannot collide with `registry_test.go`, which Task 9 extends.
@@ -5423,7 +5423,7 @@ git commit -m "feat(core): add DefineComposite and DefineTask"
 
 **Depends on:** Task 8
 
-**Implementer:** dr-superpowers:impl-sonnet-medium
+**Implementer:** dforge:impl-sonnet-medium
 **Evaluation:** files 1 - spec 0 - coupling 1 - risk 2 = 4
 
 - [ ] **Step 1: Write the failing tests**
@@ -6091,7 +6091,7 @@ git commit -m "feat(core): enforce lifecycle registry rules"
 
 **Depends on:** Task 9
 
-**Implementer:** dr-superpowers:impl-opus-high
+**Implementer:** dforge:impl-opus-high
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 3 = 6
 
 The `jfx` fixture carries everything Tasks 11–16 test with (their Files lists do not include it): the journaling compensable actions with an undo handler, the revertible `jfx.item.set` whose `Revert` follows 1.2's precedence rule with `jstore.guardFails` as its lockout guard, the `LongRunning` `jfx.item.slow`, the repair action `jfx.item.repair`, hang gates, and the helpers `waitState` and `changeOf`.
@@ -7650,7 +7650,7 @@ git commit -m "feat(lifecycle): add the effects journal"
 
 **Depends on:** Task 10
 
-**Implementer:** dr-superpowers:impl-opus-high
+**Implementer:** dforge:impl-opus-high
 **Evaluation:** files 2 - spec 0 - coupling 1 - risk 3 = 6
 
 Decisions this task fixes:
@@ -8324,7 +8324,7 @@ git commit -m "feat(lifecycle): add deadlines and async apply"
 
 **Depends on:** Task 11
 
-**Implementer:** dr-superpowers:impl-sonnet-high
+**Implementer:** dforge:impl-sonnet-high
 **Evaluation:** files 1 - spec 0 - coupling 1 - risk 3 = 5
 
 Decisions this task fixes: `takeLocks` returns the new epochs only with `bump` (nil otherwise); `lock_epochs` stores `{}` for an action without lock keys; a change whose `lock_epochs` is NULL (recorded before this migration) has no keys, so its window is open, and none of them can be undone because no action had an undo handler then. `nothingLeft(effects)` (no effect `intended`, `made`, `undoing` or `unresolved`) is the shared test for "failed with nothing left"; Tasks 15 and 16 reuse it.
@@ -8836,7 +8836,7 @@ git commit -m "feat(lifecycle): track lock epochs for undo"
 
 **Depends on:** Task 12
 
-**Implementer:** dr-superpowers:impl-opus-high
+**Implementer:** dforge:impl-opus-high
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 3 = 6
 
 Decisions this task fixes:
@@ -9252,7 +9252,7 @@ git commit -m "feat(lifecycle): add ownership claims"
 
 **Depends on:** Task 13
 
-**Implementer:** dr-superpowers:impl-sonnet-high
+**Implementer:** dforge:impl-sonnet-high
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 2 = 5
 
 Decisions this task fixes:
@@ -9795,7 +9795,7 @@ git commit -m "feat(lifecycle): store the call context of plans"
 
 **Depends on:** Task 14
 
-**Implementer:** dr-superpowers:impl-sonnet-high
+**Implementer:** dforge:impl-sonnet-high
 **Evaluation:** files 1 - spec 0 - coupling 1 - risk 3 = 5
 
 Decisions this task fixes:
@@ -10107,7 +10107,7 @@ git commit -m "feat(lifecycle): settle effects of failed applies"
 
 **Depends on:** Task 15
 
-**Implementer:** dr-superpowers:impl-opus-high
+**Implementer:** dforge:impl-opus-high
 **Evaluation:** files 2 - spec 0 - coupling 1 - risk 3 = 6
 
 Decisions this task fixes:
@@ -11316,7 +11316,7 @@ git commit -m "feat(lifecycle): add revert outcomes and watchdog"
 
 **Depends on:** Task 16
 
-**Implementer:** dr-superpowers:impl-opus-high
+**Implementer:** dforge:impl-opus-high
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 3 = 6
 
 This task also produces the shared helpers `changeFacts`, `loadFacts`, `unresolvedCount`, `journalChange`, `observeCall` and `inverseCall` (Contracts L2, Task 17), which Tasks 18–23 call, and the test module `ufx` with its fixture helpers (`undo_fixture_test.go`), which the tests of Tasks 18, 19, 20 and 23 use. It consumes `e.runCtx`, `goRun` and `cleanup` (Task 11) and the package function `changeCall` (Task 14).
@@ -12596,7 +12596,7 @@ rm -rf /root/.cache/w0a-tmp/17
 
 **Depends on:** Task 17
 
-**Implementer:** dr-superpowers:impl-opus-high
+**Implementer:** dforge:impl-opus-high
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 3 = 6
 
 It also consumes Task 17's `loadFacts`, `observeCall` and `journalChange`, the `ufx` test module and its helpers (`undo_fixture_test.go`), and the package function `changeCall` (Task 14).
@@ -13211,7 +13211,7 @@ rm -rf /root/.cache/w0a-tmp/18
 
 **Depends on:** Task 18
 
-**Implementer:** dr-superpowers:impl-opus-high
+**Implementer:** dforge:impl-opus-high
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 3 = 6
 
 It also consumes Task 17's `loadFacts` and `journalChange`, Task 2's `ActionRef.UnmarshalText`, the `ufx` test module, and Task 18's test helpers `unresolvedChange` and `lastEntry` (`resolve_test.go`). It produces `repairChanges` and `scanStepView` (Contracts L2, Task 19).
@@ -13881,7 +13881,7 @@ rm -rf /root/.cache/w0a-tmp/19
 
 **Depends on:** Task 19
 
-**Implementer:** dr-superpowers:impl-opus-high
+**Implementer:** dforge:impl-opus-high
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 3 = 6
 
 It also consumes Task 17's `loadFacts` and `unresolvedCount`, the `ufx` test module and helpers, and the engine's existing `canonical`, `env`, `planInputAD` and Task 14's `makePlan`. `planRepair` sets `Env.Call.RepairOf` for the plan call and stores the plan through `makePlan` with `repairs` set; every later call of the repair change gets `RepairOf` from `changeCall` and `loadPlan` (the intent's call), which derive it from `core_plans.repairs` (Contracts L2, Task 14). The test module `rfx` declared here is also used by Task 21's tests.
@@ -14578,7 +14578,7 @@ rm -rf /root/.cache/w0a-tmp/20
 
 **Depends on:** Task 20
 
-**Implementer:** dr-superpowers:impl-sonnet-high
+**Implementer:** dforge:impl-sonnet-high
 **Evaluation:** files 1 - spec 0 - coupling 1 - risk 3 = 5
 
 It also consumes Task 17's `loadFacts` and `unresolvedCount`, Task 19's `Engine.Effects` and `Engine.Release`, the `rfx` test module of Task 20 (`repair_test.go`), and Task 14's derivation of `Env.Call.RepairOf` for a repair change's Apply (Contracts L2, Task 14). The outcome table hooks into `transitionTx` (Task 16), so every mechanism that records a repair change's end (apply, confirm, revert, the failure table, and startup recovery in Task 43) applies it in the same transaction.
@@ -15057,7 +15057,7 @@ rm -rf /root/.cache/w0a-tmp/21
 
 **Depends on:** Task 21
 
-**Implementer:** dr-superpowers:impl-opus-high
+**Implementer:** dforge:impl-opus-high
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 3 = 6
 
 It also consumes Task 17's `putEffect` and `sqlExec` test helpers (`undo_fixture_test.go`). It produces the unexported `lookup` (Contracts L2, Task 22), which Task 23 extends with the private output.
@@ -15444,7 +15444,7 @@ rm -rf /root/.cache/w0a-tmp/22
 
 **Depends on:** Task 22
 
-**Implementer:** dr-superpowers:impl-opus-high
+**Implementer:** dforge:impl-opus-high
 **Evaluation:** files 2 - spec 0 - coupling 1 - risk 3 = 6
 
 It also consumes L2 `canonicalJSON` and `windowOpen`, the `ufx` test module and helpers, and `PlanOptions`/`ApplyOptions.Call` (Tasks 6 and 14). It produces the `transition` field `private` (Contracts L2, Task 23): any later transition that records a change's result (Task 41's recovery handler outcome `completed`) sets it to the unredacted output.
@@ -15987,7 +15987,7 @@ rm -rf /root/.cache/w0a-tmp/23
 
 **Depends on:** Task 23
 
-**Implementer:** dr-superpowers:impl-sonnet-medium
+**Implementer:** dforge:impl-sonnet-medium
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 1 = 4
 
 - [ ] **Step 1: Write the failing test**
@@ -16347,7 +16347,7 @@ git commit -m "feat(runtime): serve the change operations"
 
 **Depends on:** Task 23
 
-**Implementer:** dr-superpowers:impl-sonnet-high
+**Implementer:** dforge:impl-sonnet-high
 **Evaluation:** files 2 - spec 0 - coupling 1 - risk 2 = 5
 
 - [ ] **Step 1: Write the failing test**
@@ -16750,7 +16750,7 @@ git commit -m "feat(agent): carry the call context in a header"
 
 **Depends on:** Task 25
 
-**Implementer:** dr-superpowers:impl-sonnet-medium
+**Implementer:** dforge:impl-sonnet-medium
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 1 = 4
 
 - [ ] **Step 1: Write the failing test**
@@ -17216,7 +17216,7 @@ git commit -m "feat(agent): add client change operations"
 
 **Depends on:** Task 26
 
-**Implementer:** dr-superpowers:impl-sonnet-medium
+**Implementer:** dforge:impl-sonnet-medium
 **Evaluation:** files 0 - spec 0 - coupling 3 - risk 1 = 4
 
 - [ ] **Step 1: Write the failing test**
@@ -17412,7 +17412,7 @@ git commit -m "feat(core): add change operations to AgentClient"
 
 **Depends on:** Task 27
 
-**Implementer:** dr-superpowers:impl-sonnet-medium
+**Implementer:** dforge:impl-sonnet-medium
 **Evaluation:** files 1 - spec 0 - coupling 1 - risk 2 = 4
 
 - [ ] **Step 1: Write the failing test**
@@ -18001,7 +18001,7 @@ git commit -m "feat(agent): serve the change operation routes"
 
 **Depends on:** Task 28
 
-**Implementer:** dr-superpowers:impl-sonnet-high
+**Implementer:** dforge:impl-sonnet-high
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 2 = 5
 
 - [ ] **Step 1: Write the failing test**
@@ -18531,7 +18531,7 @@ git commit -m "feat(dispatch): route the change operations"
 
 **Depends on:** Task 29
 
-**Implementer:** dr-superpowers:impl-sonnet-medium
+**Implementer:** dforge:impl-sonnet-medium
 **Evaluation:** files 0 - spec 0 - coupling 3 - risk 1 = 4
 
 - [ ] **Step 1: Write the failing test**
@@ -18710,7 +18710,7 @@ git commit -m "feat(core): add change operations to Dispatcher"
 
 **Depends on:** Task 30
 
-**Implementer:** dr-superpowers:impl-sonnet-high
+**Implementer:** dforge:impl-sonnet-high
 **Evaluation:** files 2 - spec 0 - coupling 1 - risk 2 = 5
 
 - [ ] **Step 1: Write the failing test**
@@ -19521,7 +19521,7 @@ git commit -m "feat(api): add change routes and 202 answers"
 
 **Depends on:** Task 31
 
-**Implementer:** dr-superpowers:impl-sonnet-medium
+**Implementer:** dforge:impl-sonnet-medium
 **Evaluation:** files 1 - spec 0 - coupling 1 - risk 1 = 3
 
 `internal/cli/names_test.go` lists only the generated per-action commands, not the hand-written `change` group, so it needs no new entries.
@@ -20297,7 +20297,7 @@ git commit -m "feat(cli): add change commands and apply wait"
 
 **Depends on:** Task 4
 
-**Implementer:** dr-superpowers:impl-sonnet-low
+**Implementer:** dforge:impl-sonnet-low
 **Evaluation:** files 1 - spec 0 - coupling 0 - risk 1 = 2
 
 Two passes keep a value from ever becoming a reference. `resolveInputRefs` returns a template still: `${steps…}` references stay, `$${` stays escaped, and every `${` inside a substituted input value is escaped as `$${`. `resolveStepRefs` then resolves the step references and decodes `$${` to `${`, and nothing it substitutes is read again. The final input of every step is therefore `resolveStepRefs(resolveInputRefs(template, input), outputs)`, with `outputs` nil for a step without references (Tasks 34 and 35 call it so). A literal `$` directly before a `${steps…}` reference cannot be told from an escape, so `resolveInputRefs` refuses it.
@@ -20891,7 +20891,7 @@ git commit -m "feat(lifecycle): resolve composite references"
 
 **Depends on:** Task 33
 
-**Implementer:** dr-superpowers:impl-sonnet-high
+**Implementer:** dforge:impl-sonnet-high
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 2 = 5
 
 This task also produces the package-private names listed in Contracts L2 under Task 34 (`plannedStep`, `compositePlan`, `compositeTimeout`, `kids`, the `Engine` fields `compMu` and `children`). It relies on Task 33's reference functions behaving as follows: `resolveInputRefs` resolves only `${input…}` and leaves every `${steps…}` reference and every `$${` escape as written; `resolveStepRefs` resolves `${steps…}` against the outputs it is given and turns `$${` into `${`, so `resolveStepRefs(tmpl, nil)` of a template without step references is that template's final input.
@@ -22183,7 +22183,7 @@ rm -rf /root/.cache/w0a-tmp/34
 
 **Depends on:** Task 34
 
-**Implementer:** dr-superpowers:impl-opus-high
+**Implementer:** dforge:impl-opus-high
 **Evaluation:** files 2 - spec 0 - coupling 1 - risk 3 = 6
 
 The runner is one state machine over the persisted step log. Each pass takes the composite's lock, reads its row, its direction, its cursor and the cursor step, and does exactly one thing: commit a boundary, make one child call, or apply one row of 1.3's transition tables to a lookup. The same machine serves the live run (`run` set: it plans and applies steps) and start-up recovery (`run` nil: it never plans a step and applies the "Between steps" rules), so this task implements both columns of the tables; Task 37 only adds what starts and wakes it. Its L2 declaration is `runComposite(id string, run *compositeRun)`, and it declares `ChildPoll` (Contracts L1), because the live run already waits for asynchronous children.
@@ -23914,7 +23914,7 @@ rm -rf /root/.cache/w0a-tmp/35
 
 **Depends on:** Task 35
 
-**Implementer:** dr-superpowers:impl-sonnet-high
+**Implementer:** dforge:impl-sonnet-high
 **Evaluation:** files 1 - spec 0 - coupling 1 - risk 3 = 5
 
 The rows of the unwind table for the revertible step (a `pending` child is sent `Revert`, a `confirmed` child stops the unwind) are already in Task 35's `unwindObserve`, `sendRevert` and `confirmationWon`; this task adds the entry points that reach them and tests them. It uses Task 35's names listed in Contracts L2 and produces `isComposite` and `compositeSecretType` for later tasks.
@@ -24571,7 +24571,7 @@ rm -rf /root/.cache/w0a-tmp/36
 
 **Depends on:** Task 36
 
-**Implementer:** dr-superpowers:impl-opus-high
+**Implementer:** dforge:impl-opus-high
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 3 = 6
 
 `ChildPoll` is already declared by Task 35. The watcher is the runner of Task 35: it keeps running while a composite is `applying`, `undoing`, `awaiting_confirmation`, `recovering` or `releasing` and polls the cursor step's child every `ChildPoll`, so this task adds what it lacks: `Wake`, the unreachable-agent rule, recovery at start (which starts the runner with a nil `*compositeRun`, so Task 35's recovery column and "Between steps" rules apply) and admission. A composite in `needs_repair` is unowned and has no runner; nothing about it changes until an operator acts, so the watcher does not poll its children.
@@ -25175,7 +25175,7 @@ rm -rf /root/.cache/w0a-tmp/37
 
 **Depends on:** Task 37
 
-**Implementer:** dr-superpowers:impl-opus-high
+**Implementer:** dforge:impl-opus-high
 **Evaluation:** files 2 - spec 0 - coupling 1 - risk 3 = 6
 
 The step decision is journaled with phase `resolve` (Task 18's `phaseResolve`) and input `{"as": …, "step": …}`, because the journal has no repair phase and a decision, like a resolution, records the operator's judgement without touching a host. A decision only records; the operator's next `repair` moves the composite on. A forward repair has no steps deadline (1.3 Deadlines: "unwind and repair have none"), so its claim sets `steps_deadline` to the far future. A reverse repair ends `reverted` with `core.child_failed` (or `core.deadline_exceeded`) as the code, keeping the needs_repair message, which names the step.
@@ -26061,7 +26061,7 @@ rm -rf /root/.cache/w0a-tmp/38
 
 **Depends on:** Task 38
 
-**Implementer:** dr-superpowers:impl-sonnet-high
+**Implementer:** dforge:impl-sonnet-high
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 2 = 5
 
 Undo and release do not go through the dispatcher's `Undo` and `Release` (Task 29), because those pass a nil call and the composite's runner must pass `call.ParentChangeID`. Like the dispatcher's confirm and revert, they do not refuse an unusable module: a child must stay undoable and releasable. A view an agent answers for another change or host is refused with `checkChange`, as the dispatcher's other change calls do (register row 69, obligation 2).
@@ -26398,7 +26398,7 @@ rm -rf /root/.cache/w0a-tmp/39
 
 **Depends on:** Task 39
 
-**Implementer:** dr-superpowers:impl-sonnet-medium
+**Implementer:** dforge:impl-sonnet-medium
 **Evaluation:** files 1 - spec 0 - coupling 1 - risk 2 = 4
 
 `RecoverComposites` (Task 37) returns once its claims are committed and the runners are started on the engine's tracked goroutines, so `startServices` calls it in line, after the agent listener opens (in embedded-agent mode, where there is no listener, after the dispatcher exists); the engine's `Close`, already a shutdown step, waits for the runners. The production registry has no composite yet, so the recovery test inserts a composite row that is already unwound (direction `unwind`, cursor -1, no step): its runner only records it `reverted`, which needs no registered action.
@@ -26699,7 +26699,7 @@ rm -rf /root/.cache/w0a-tmp/40
 
 **Depends on:** Task 40
 
-**Implementer:** dr-superpowers:impl-opus-high
+**Implementer:** dforge:impl-opus-high
 **Evaluation:** files 2 - spec 0 - coupling 1 - risk 3 = 6
 
 This task also produces the package-private helpers `failSettled`, `recovererClaim`, `recovererRepair`, `recovererState`, `recovererOwner` and `recovererFlag` (`recoverer.go`), which Tasks 43–45 call, and the test module `rcv` with `newRecoveryFixture`, `newRcvFixture`, `rcvDoc` and `(*fixture).recoveryAwait` (`recoverer_test.go`), which the tests of Tasks 42–47 use. It consumes `e.runCtx` (Task 11), `changeCall` (Task 14), `transition.private` (Task 23), and Task 17's `loadFacts`, `unresolvedCount` and `journalChange`.
@@ -27520,7 +27520,7 @@ rm -rf /root/.cache/w0a-tmp/41
 
 **Depends on:** Task 41
 
-**Implementer:** dr-superpowers:impl-opus-high
+**Implementer:** dforge:impl-opus-high
 **Evaluation:** files 2 - spec 0 - coupling 1 - risk 3 = 6
 
 This task also produces the package-private names `recoverKind` (`recoverRevert`, `recoverSettle`, `recoverUndo`, `recoverRetry`, `recoverTask`), `recoverClaim`, `recoverClaims`, `recoverSweep`, `recoverPass`, `recoverOne`, `recoverRevert`, `admitRecovery` and the `Engine` field `recovering` (`recover.go`, `engine.go`), which Tasks 43, 45 and 47 change, and the test helpers `recoverSeed` and `recoverExec` (`recover_test.go`), which the tests of Tasks 43 and 47 use. It consumes Task 41's `newRecoveryFixture`, `rcvModule` and `recovererOwner`.
@@ -28155,7 +28155,7 @@ rm -rf /root/.cache/w0a-tmp/42
 
 **Depends on:** Task 42
 
-**Implementer:** dr-superpowers:impl-sonnet-high
+**Implementer:** dforge:impl-sonnet-high
 **Evaluation:** files 1 - spec 0 - coupling 1 - risk 3 = 5
 
 This task also produces the `Engine` field `recoveryPass` and the package-private helpers `recoverEnv`, `recoverSettleIntended`, `recoverSettle` and `recoverUndo` (`recover.go`), which Task 45 changes. Task 42's `recoverRevert`, which settles and reverts through Task 16's `revertAtStart`, stays as it is. It consumes Task 42's claims, Task 41's `failSettled` helpers (`recovererClaim`, `runRecoverer`, `recovererOwner`, `recovererFlag`) and test module `rcv`, Task 17's `undoRun`, `undoSettle` and `unresolvedCount`, Task 14's `changeCall`, and Task 21's repair-change table, which `transition` applies when it records a change whose plan repairs another.
@@ -28646,7 +28646,7 @@ rm -rf /root/.cache/w0a-tmp/43
 
 **Depends on:** Task 43
 
-**Implementer:** dr-superpowers:impl-opus-high
+**Implementer:** dforge:impl-opus-high
 **Evaluation:** files 1 - spec 0 - coupling 2 - risk 3 = 6
 
 This task also produces the package-private helpers `taskOutputAD`, `taskAttempt`, `launchTask`, `readTaskRow`, `taskRowUpdate`, `taskInput`, `taskApply`, `taskApplyEnd` and the row-state constants `taskRowStarting` … `taskRowCancelled` (`taskunit.go`), which Tasks 45–47 call, and the test module `tsk` with `taskUnits`, `newTaskFixture`, `(*taskFixture).taskPoll`, `taskArmed`, `taskUntil`, `taskRowTo` and `taskRowState` (`taskunit_test.go`), which the tests of Tasks 45–47 use. It consumes Task 41's `failSettled`, `recovererState`, `recovererOwner` and `rcvDoc`, `e.runCtx` (Task 11), `changeCall` (Task 14) and `transition.private` (Task 23).
@@ -29704,7 +29704,7 @@ rm -rf /root/.cache/w0a-tmp/44
 
 **Depends on:** Task 44
 
-**Implementer:** dr-superpowers:impl-opus-high
+**Implementer:** dforge:impl-opus-high
 **Evaluation:** files 2 - spec 0 - coupling 1 - risk 3 = 6
 
 This task also produces the package-private helpers `taskNewest`, `taskUndoCheck`, `taskUndo`, `taskRecover` (`taskunit.go`) and `recoverTask` (`recover.go`), which Tasks 46 and 47 rely on. It changes Task 41's `recovererClaim` (a `def` parameter) and `runRecoverer`, Task 43's `recoverOne` and `recoverUndo`, Task 42's `recoverClaimOne`, and Task 17's `Undo`, `claimUndo` and `finishUndo`. Its tests use Task 44's `tsk` module and helpers.
@@ -30250,7 +30250,7 @@ rm -rf /root/.cache/w0a-tmp/45
 
 **Depends on:** Task 45
 
-**Implementer:** dr-superpowers:impl-opus-high
+**Implementer:** dforge:impl-opus-high
 **Evaluation:** files 2 - spec 0 - coupling 1 - risk 3 = 6
 
 This task also produces the package-private helpers `taskClaim`, `taskOp` and `taskResult` (`taskproc.go`); Task 47 changes `taskClaim`. It consumes Task 44's `taskRowUpdate`, `taskInput`, `taskOutputAD`, row states and `tsk` test module, Task 17's `undoRun`, `changeCall` (Task 14) and `e.cleanup` (Task 11).
@@ -30722,7 +30722,7 @@ rm -rf /root/.cache/w0a-tmp/46
 
 **Depends on:** Task 46
 
-**Implementer:** dr-superpowers:impl-opus-high
+**Implementer:** dforge:impl-opus-high
 **Evaluation:** files 2 - spec 0 - coupling 1 - risk 3 = 6
 
 This task also produces the package-private helpers `uninstallBusy`, `uninstallingErr`, `resumeSkipped`, `recoverSkipped`, `armUninstallPoll` and `uninstallPollFired` and the constant `uninstallPoll` (`uninstall.go`), the method `(*Engine).AbortUninstall`, and the `Engine` fields `uninstallMu`, `uninstallSkipped` and `uninstallTimer` (`engine.go`). It changes Task 11's `Close`, Task 42's `admit` and `recoverClaims`, and Task 46's `taskClaim`. When the agent restarts while the barrier is set, `recoverClaims` claims nothing, records the ids it skipped and arms a 10 s poll. `darkpanel uninstall --abort` (w0b) clears the `core_meta` row with the package function `AbortUninstall(ctx, db)` in one transaction (spec 1.11), which cannot reach the running engine, so the engine notices on its own: `admit`, which already reads the barrier before each mutating call, and the poll both call `resumeSkipped`. When the barrier is gone and skipped ids are recorded, `resumeSkipped` runs `recoverSkipped` once: the claims of exactly those ids, the lock sweep and the background pass, the same work `(*Engine).AbortUninstall` runs after clearing the row, and it clears the recorded ids. An aborted uninstall therefore needs no second restart. The poll reuses Task 11's timer machinery: a `Clock.AfterFunc` timer armed under `timerMu` unless `closed`, its run counted in `runs`, and stopped by `Close`. It re-arms only while ids remain. The poll never deletes the row itself, so a barrier set again after the abort is never cleared by the engine. Only the recorded ids are claimed because an owner set after the start belongs to this process: `BeginUninstall` with `stopTasks` sets the barrier even while this engine has work in flight. `(*Engine).AbortUninstall` stays the in-process entry, which clears the row and recovers at once. Release is not gated: 1.3c lists plan, apply, undo, repair, resolve and the recovery claims, and Task 42 already gives `Release` only the recovery gate (`admitRecovery`). Its tests use Task 44's `tsk` module and helpers, Task 42's `recoverExec`, and `logged` (`guard_test.go`).
