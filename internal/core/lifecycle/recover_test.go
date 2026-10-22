@@ -505,3 +505,36 @@ func TestRecoverRefusesMutationsUntilThePassStarts(t *testing.T) {
 		t.Errorf("Plan after Recover = %v, want it admitted", err)
 	}
 }
+
+func TestRecoverInterruptsAChangeOfAnUnregisteredAction(t *testing.T) {
+	f := newFixture(t)
+	gone := core.ActionRef{Name: "gone.item.put", Version: 1}
+	applying := f.recoverSeed("", gone, core.ClassCompensable, core.StateApplying, core.OwnerEngine)
+	f.recoverExec("INSERT INTO core_locks (key, owner) VALUES ('gone', ?)", applying)
+	undoing := f.recoverSeed("", gone, core.ClassCompensable, core.StateUndoing, core.OwnerUndo)
+	f.recoverAll()
+	row := func(id string) (state, owner, msg string) {
+		t.Helper()
+		var m *string
+		if err := f.db.Read().QueryRow("SELECT state, recovery_owner, error_message FROM core_changes WHERE id = ?", id).
+			Scan(&state, &owner, &m); err != nil {
+			t.Fatal(err)
+		}
+		if m != nil {
+			msg = *m
+		}
+		return state, owner, msg
+	}
+	state, owner, msg := row(applying)
+	if state != core.StateInterrupted || owner != "" ||
+		!strings.Contains(msg, "verify not run: the action is not registered") {
+		t.Errorf("applying change after Recover = %s owned by %q with %q, want interrupted, unowned, verify not run",
+			state, owner, msg)
+	}
+	if n := f.count("SELECT count(*) FROM core_locks WHERE owner = ?", applying); n != 0 {
+		t.Errorf("interrupted change holds %d locks, want 0", n)
+	}
+	if state, owner, _ := row(undoing); state != core.StateUndoing || owner != "" {
+		t.Errorf("undoing change after Recover = %s owned by %q, want undoing, unowned", state, owner)
+	}
+}

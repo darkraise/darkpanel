@@ -136,8 +136,9 @@ func recoverDecide(c recoverCandidate, def core.ActionDef) (kind recoverKind, ow
 }
 
 // recoverClaimOne claims one change in a transaction of its own, or voids
-// the owner a previous process left on it. It skips composites, and a
-// change whose action is no longer registered, which no handler can settle.
+// the owner a previous process left on it. It skips composites. A change
+// whose action is no longer registered, which no handler can settle, goes to
+// recoverUnregistered.
 func (e *Engine) recoverClaimOne(ctx context.Context, c recoverCandidate) (*recoverClaim, error) {
 	if core.Class(c.class) == core.ClassComposite {
 		return nil, nil
@@ -145,9 +146,7 @@ func (e *Engine) recoverClaimOne(ctx context.Context, c recoverCandidate) (*reco
 	ref := core.ActionRef{Name: c.action, Version: c.version}
 	def, err := e.action(ref)
 	if err != nil {
-		e.cfg.Base.Log.Error("lifecycle: recovery skips a change of an unregistered action",
-			"change", c.id, "action", ref.String())
-		return nil, nil
+		return nil, e.recoverUnregistered(ctx, c, ref)
 	}
 	kind, owner, to, ok := recoverDecide(c, def)
 	err = e.cfg.Base.DB.Write(ctx, func(tx *sql.Tx) error {
@@ -170,6 +169,45 @@ func (e *Engine) recoverClaimOne(ctx context.Context, c recoverCandidate) (*reco
 		return nil, nil
 	}
 	return &recoverClaim{id: c.id, def: def, kind: kind, state: to, repair: c.repair}, nil
+}
+
+// recoverUnregistered handles a change whose action is no longer registered.
+// A compensable or irreversible change cut off during apply is marked
+// interrupted and its locks are released, without a handler; any other
+// change only loses the owner the previous process left. It never fails
+// start-up for the missing action, so the agent still starts and can be
+// updated.
+func (e *Engine) recoverUnregistered(ctx context.Context, c recoverCandidate, ref core.ActionRef) error {
+	e.cfg.Base.Log.Error("lifecycle: recovery skips a change of an unregistered action",
+		"change", c.id, "action", ref.String(), "state", c.state)
+	class := core.Class(c.class)
+	if c.state == core.StateApplying && (class == core.ClassCompensable || class == core.ClassIrreversible) {
+		_, err := e.transition(ctx, c.id, transition{
+			from: core.StateApplying, to: core.StateInterrupted, release: true, owner: recovererOwner(""),
+			phase: phaseInterrupt, result: resultError, actor: ActorRecovery,
+			err: &core.ChangeError{
+				Code:    string(errcode.Internal),
+				Message: "interrupted by a restart during apply; " + e.verifyStored(ctx, c.id),
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("lifecycle: interrupt change %s at start: %w", c.id, err)
+		}
+		return nil
+	}
+	if c.owner == "" || c.owner == core.OwnerRepair {
+		return nil
+	}
+	err := e.cfg.Base.DB.Write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx,
+			"UPDATE core_changes SET recovery_owner = '', updated_at = ? WHERE id = ? AND recovery_owner = ?",
+			formatTime(e.cfg.Base.Clock.Now()), c.id, c.owner)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("lifecycle: claim change %s at start: %w", c.id, err)
+	}
+	return nil
 }
 
 // recoverSweep deletes the locks of every change that is in none of the
