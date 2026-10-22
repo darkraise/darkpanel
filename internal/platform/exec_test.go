@@ -44,8 +44,17 @@ func TestExecHelperProcess(*testing.T) {
 	os.Exit(0)
 }
 
+// execAny allows every argument vector of each path.
+func execAny(paths ...string) []ExecRule {
+	rules := make([]ExecRule, 0, len(paths))
+	for _, p := range paths {
+		rules = append(rules, ExecRule{Path: p, Match: func([]string) error { return nil }})
+	}
+	return rules
+}
+
 func TestRunRefusesUnlistedPrograms(t *testing.T) {
-	r := NewRunner([]string{"/usr/bin/printf"})
+	r := NewRunner(execAny("/usr/bin/printf"))
 	for _, path := range []string{"/usr/bin/env", "printf", "/usr/bin/../bin/printf"} {
 		if _, err := r.Run(context.Background(), core.Cmd{Path: path}); err == nil {
 			t.Errorf("Run(%q) succeeded, want a refusal", path)
@@ -53,36 +62,109 @@ func TestRunRefusesUnlistedPrograms(t *testing.T) {
 	}
 }
 
-func TestNewRunnerPanicsOnRelativePath(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Error("NewRunner accepted a relative path")
-		}
-	}()
-	NewRunner([]string{"printf"})
+func TestNewRunnerPanicsOnBadRules(t *testing.T) {
+	for name, rule := range map[string]ExecRule{
+		"relative path": {Path: "printf", Match: func([]string) error { return nil }},
+		"unclean path":  {Path: "/usr/bin/../bin/printf", Match: func([]string) error { return nil }},
+		"no Match":      {Path: "/usr/bin/printf"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Error("NewRunner accepted the rule")
+				}
+			}()
+			NewRunner([]ExecRule{rule})
+		})
+	}
 }
 
 func TestProductionAllowlist(t *testing.T) {
-	want := []string{"/usr/sbin/useradd", "/usr/sbin/userdel"}
-	if got := ProductionAllowlist(); !slices.Equal(got, want) {
-		t.Errorf("ProductionAllowlist() = %v, want %v", got, want)
+	var got []string
+	for _, rule := range ProductionAllowlist() {
+		got = append(got, rule.Path)
+	}
+	if want := []string{"/usr/sbin/useradd", "/usr/sbin/userdel"}; !slices.Equal(got, want) {
+		t.Errorf("ProductionAllowlist() paths = %v, want %v", got, want)
 	}
 }
 
-func TestRunUsesFixedEnvironment(t *testing.T) {
-	t.Setenv("DARKPANEL_LEAK", "1")
-	res, err := NewRunner([]string{"/usr/bin/env"}).Run(context.Background(), core.Cmd{Path: "/usr/bin/env"})
-	if err != nil {
-		t.Fatal(err)
+func TestRunnerAppliesRules(t *testing.T) {
+	matched := 0
+	r := NewRunner([]ExecRule{
+		{Path: "/usr/bin/printf", Match: func(args []string) error {
+			matched++
+			if len(args) == 2 && args[0] == "%s" {
+				return nil
+			}
+			return errors.New("not a %s vector")
+		}},
+		{Path: "/usr/bin/printf", Match: func(args []string) error {
+			if slices.Equal(args, []string{"two"}) {
+				return nil
+			}
+			return errors.New("not the second rule's vector")
+		}},
+	})
+	tests := []struct {
+		name    string
+		args    []string
+		out     string
+		wantErr string
+		matches bool // Match ran
+	}{
+		{"an allowed vector", []string{"%s", "hello"}, "hello", "", true},
+		{"an argument of 4096 bytes", []string{"%s", strings.Repeat("a", 4096)}, strings.Repeat("a", 4096), "", true},
+		{"a second rule of the path", []string{"two"}, "two", "", true},
+		{"a refused vector", []string{"%s|", "s3cret-arg"}, "", "platform: /usr/bin/printf: argument vector not allowed", true},
+		{"an argument of 4097 bytes", []string{"%s", strings.Repeat("a", 4097)}, "",
+			"platform: /usr/bin/printf: argument 1 is longer than 4096 bytes", false},
+		{"a NUL", []string{"%s", "s3cret\x00arg"}, "", "platform: /usr/bin/printf: argument 1 contains a control character", false},
+		{"a newline", []string{"%s", "s3cret\narg"}, "", "platform: /usr/bin/printf: argument 1 contains a control character", false},
 	}
-	want := "PATH=/usr/sbin:/usr/bin:/sbin:/bin\nLANG=C.UTF-8\nLC_ALL=C.UTF-8\n"
-	if string(res.Stdout) != want {
-		t.Errorf("environment = %q, want %q", res.Stdout, want)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			matched = 0
+			res, err := r.Run(context.Background(), core.Cmd{Path: "/usr/bin/printf", Args: tt.args})
+			if tt.wantErr == "" {
+				if err != nil || string(res.Stdout) != tt.out {
+					t.Fatalf("Run = %q, %v; want %q", res.Stdout, err, tt.out)
+				}
+			} else if err == nil || err.Error() != tt.wantErr {
+				t.Fatalf("Run error %v, want %q", err, tt.wantErr)
+			}
+			if (matched > 0) != tt.matches {
+				t.Errorf("Match ran %d times, want it to run: %v", matched, tt.matches)
+			}
+		})
+	}
+}
+
+func TestRunnerEnvironment(t *testing.T) {
+	t.Setenv("DARKPANEL_LEAK", "1")
+	t.Setenv("HOME", "/root/darkpanel-leak")
+	base := "PATH=/usr/sbin:/usr/bin:/sbin:/bin\nLANG=C.UTF-8\nLC_ALL=C.UTF-8\n"
+	tests := []struct {
+		name string
+		env  []string
+		want string
+	}{
+		{"the base environment", nil, base},
+		{"a rule's environment", []string{"A=1"}, base + "A=1\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := NewRunner([]ExecRule{{Path: "/usr/bin/env", Match: func([]string) error { return nil }, Env: tt.env}})
+			res, err := r.Run(context.Background(), core.Cmd{Path: "/usr/bin/env"})
+			if err != nil || string(res.Stdout) != tt.want {
+				t.Errorf("environment = %q, %v; want %q", res.Stdout, err, tt.want)
+			}
+		})
 	}
 }
 
 func TestRunPassesArgumentsAndStdin(t *testing.T) {
-	r := NewRunner([]string{"/usr/bin/printf", "/usr/bin/cat"})
+	r := NewRunner(execAny("/usr/bin/printf", "/usr/bin/cat"))
 	res, err := r.Run(context.Background(), core.Cmd{Path: "/usr/bin/printf", Args: []string{"%s|", "a b", "--x", "$(id)"}})
 	if err != nil {
 		t.Fatal(err)
@@ -97,7 +179,7 @@ func TestRunPassesArgumentsAndStdin(t *testing.T) {
 }
 
 func TestRunReportsExitCodeAndStderr(t *testing.T) {
-	r := NewRunner([]string{"/usr/bin/false", "/usr/bin/cat"})
+	r := NewRunner(execAny("/usr/bin/false", "/usr/bin/cat"))
 	res, err := r.Run(context.Background(), core.Cmd{Path: "/usr/bin/false"})
 	if err != nil || res.ExitCode != 1 {
 		t.Errorf("false = exit %d, %v; want exit 1 and no error", res.ExitCode, err)
@@ -109,7 +191,7 @@ func TestRunReportsExitCodeAndStderr(t *testing.T) {
 }
 
 func TestRunTimesOut(t *testing.T) {
-	r := NewRunner([]string{"/usr/bin/sleep"})
+	r := NewRunner(execAny("/usr/bin/sleep"))
 	r.defaultTimeout = 100 * time.Millisecond
 	start := time.Now()
 	_, err := r.Run(context.Background(), core.Cmd{Path: "/usr/bin/sleep", Args: []string{"10"}})
@@ -133,7 +215,7 @@ func TestRunStopsDescendants(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := NewRunner([]string{self})
+	r := NewRunner(execAny(self))
 	r.defaultTimeout = 500 * time.Millisecond
 	start := time.Now()
 	res, err := r.Run(context.Background(), core.Cmd{Path: self, Args: []string{"-test.run=^TestExecHelperProcess$", "--", helperForkArg}})
@@ -175,7 +257,7 @@ func TestRunCapsOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := NewRunner([]string{"/usr/bin/cat", "/usr/bin/yes", self})
+	r := NewRunner(execAny("/usr/bin/cat", "/usr/bin/yes", self))
 	ctx := context.Background()
 	res, err := r.Run(ctx, core.Cmd{Path: "/usr/bin/cat", Stdin: bytes.Repeat([]byte("x"), maxOutput)})
 	if err != nil || len(res.Stdout) != maxOutput {
