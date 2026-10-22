@@ -127,6 +127,18 @@ func TestWatchChanges(t *testing.T) {
 	e.none()
 }
 
+func TestWatchSkipsUnparsableTime(t *testing.T) {
+	e := newPubEnv(t)
+	e.start()
+	e.insertChange("BAD", "", "applying", e.clock.Now())
+	e.exec("UPDATE core_changes SET updated_at = ? WHERE id = 'BAD'", pubAt(e.clock.Now())+"x")
+	e.insertChange("C1", "", "applying", e.clock.Now())
+	e.clock.Advance(PollInterval)
+	e.want(TypeChange, `{"hostId":"","changeId":"C1","action":"demo.item.add","state":"applying","updatedAt":"2026-10-22T12:00:00Z"}`)
+	e.clock.Advance(PollInterval)
+	e.none()
+}
+
 func TestWatchModules(t *testing.T) {
 	e := newPubEnv(t)
 	for _, h := range []string{"h1", "h2"} {

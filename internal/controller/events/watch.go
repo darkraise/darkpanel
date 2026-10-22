@@ -108,6 +108,7 @@ func (w *watcher) pollChanges(from time.Time, publish bool) error {
 	}
 	defer func() { _ = rows.Close() }()
 	var out []ChangeEvent
+	read := map[string]changeSeen{}
 	for rows.Next() {
 		var ev ChangeEvent
 		var at string
@@ -118,14 +119,18 @@ func (w *watcher) pollChanges(from time.Time, publish bool) error {
 		if w.changes[ev.ChangeID] == seen {
 			continue
 		}
+		read[ev.ChangeID] = seen
 		if ev.UpdatedAt, err = time.Parse(timeFormat, at); err != nil {
-			return err
+			w.log.Warn("events: a change's updated_at does not parse; its event is skipped", "change", ev.ChangeID, "updatedAt", at, "err", err)
+			continue
 		}
-		w.changes[ev.ChangeID] = seen
 		out = append(out, ev)
 	}
 	if err := rows.Err(); err != nil {
 		return err
+	}
+	for id, seen := range read {
+		w.changes[id] = seen
 	}
 	for id, seen := range w.changes {
 		if seen.at < cutoff {
