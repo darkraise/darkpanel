@@ -86,6 +86,9 @@ func (e *Engine) Apply(ctx context.Context, p core.Principal, planID string, opt
 	e.goRun(func() {
 		defer close(ended)
 		v, err := e.run(e.runCtx, p, it)
+		if err != nil && it.def.Spec.LongRunning && e.runCtx.Err() == nil {
+			e.cfg.Base.Log.Error("lifecycle: apply run", "change", it.id, "error", err)
+		}
 		results <- result{v, err}
 	})
 	if it.def.Spec.LongRunning {

@@ -1,9 +1,11 @@
 package lifecycle
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -562,6 +564,91 @@ func TestTaskStartFence(t *testing.T) {
 		f.taskUntil(v.ID, core.StateCompleted)
 		if got := f.units.startedUnits(); !reflect.DeepEqual(got, []string{name}) {
 			t.Errorf("started units = %v, want only %s", got, name)
+		}
+	})
+}
+
+// taskLog is a log the run goroutine writes while the test reads it.
+type taskLog struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (l *taskLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.Write(p)
+}
+
+func (l *taskLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.String()
+}
+
+// taskLogged replaces the fixture's engine with one that has the fake units
+// and logs to the returned log.
+func (f *taskFixture) taskLogged() *taskLog {
+	f.t.Helper()
+	f.eng.Close()
+	log := &taskLog{}
+	cfg := f.config()
+	cfg.Units, cfg.TaskBinary = f.units, tskBinary
+	cfg.Base.Log = slog.New(slog.NewTextHandler(log, nil))
+	eng, err := New(cfg)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	f.eng = eng
+	f.t.Cleanup(eng.Close)
+	return log
+}
+
+func TestTaskApplyRunErrorIsLogged(t *testing.T) {
+	t.Run("a failed run is logged and its change stays applying", func(t *testing.T) {
+		f := newTaskFixture(t)
+		log := f.taskLogged()
+		v := f.taskApplyStart(refTskInstall, `{"name":"a","value":"1"}`)
+		name := TaskUnitName(v.ID, core.TaskOpApply, 1)
+		f.taskPoll(func() {
+			f.units.set(name, true)
+			f.taskRowTo(v.ID, core.TaskOpApply, 1, taskRowRunning, "", "", "")
+		})
+		f.taskPoll(func() {
+			ct, err := coretest.Sealer{}.Seal("wrong-ad", []byte(`{}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.recoverExec(`UPDATE core_task_runs SET state = ?, output_ct = ?, finished_at = ?
+				WHERE change_id = ? AND op = ? AND attempt = 1`,
+				taskRowSucceeded, ct, formatTime(f.clock.Now()), v.ID, core.TaskOpApply)
+			f.units.set(name, false)
+		})
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			text := log.String()
+			if strings.Contains(text, "lifecycle: apply run") && strings.Contains(text, v.ID) {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("no apply run error was logged for %s:\n%s", v.ID, text)
+			}
+			time.Sleep(time.Millisecond)
+		}
+		c, err := f.eng.Change(context.Background(), v.ID)
+		if err != nil || c.State != core.StateApplying || c.Owner != core.OwnerEngine ||
+			f.count("SELECT count(*) FROM core_locks WHERE owner = ?", v.ID) != 1 {
+			t.Errorf("after the failed run: %+v, %v; want applying, owned by engine, locked", c, err)
+		}
+	})
+	t.Run("a close is not logged", func(t *testing.T) {
+		f := newTaskFixture(t)
+		log := f.taskLogged()
+		f.taskApplyStart(refTskInstall, `{"name":"a","value":"1"}`)
+		f.taskArmed()
+		f.eng.Close()
+		if text := log.String(); strings.Contains(text, "lifecycle: apply run") {
+			t.Errorf("Close was logged as a failed apply run:\n%s", text)
 		}
 	})
 }
