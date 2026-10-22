@@ -4,6 +4,7 @@ export class EvtSource extends EventTarget {
   static instances: EvtSource[] = []
   readonly url: string
   closed = false
+  readyState = 0
 
   constructor(url: string | URL) {
     super()
@@ -13,6 +14,12 @@ export class EvtSource extends EventTarget {
 
   close(): void {
     this.closed = true
+  }
+
+  // fail ends the stream the way a refused reconnect does: closed for good.
+  fail(): void {
+    this.readyState = 2
+    this.dispatchEvent(new Event("error"))
   }
 
   // emit dispatches one server-sent event of type with data as its JSON.

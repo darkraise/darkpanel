@@ -1,5 +1,5 @@
 import { QueryClient, type QueryKey } from "@tanstack/react-query"
-import { describe, expect, test } from "vitest"
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { EvtSource } from "@/test/evt-source"
 import { connectEvents } from "./events"
 
@@ -14,7 +14,10 @@ const cached: QueryKey[] = [
   ["resource", "h1", "hostinfo.summary"],
   ["resource", "h2", "hostinfo.summary"],
   ["tokens"],
+  ["plan", "core.token.revoke", "t1"],
 ]
+
+const refetched = cached.filter((key) => key[0] !== "plan")
 
 // evtConnect connects a client whose cache holds every key of cached, and
 // returns it with the fake stream it opened.
@@ -36,6 +39,13 @@ function evtInvalidated(client: QueryClient): QueryKey[] {
 }
 
 describe("connectEvents", () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   test("opens one stream at /api/v1/events and closes it", () => {
     const { source, close } = evtConnect()
     expect(EvtSource.instances).toEqual([source])
@@ -58,7 +68,7 @@ describe("connectEvents", () => {
       { hostId: "h1", moduleId: "hostinfo", enabled: false, available: true },
       [["hosts"], ["resource", "h1", "hostinfo.summary"]],
     ],
-    ["reset", {}, cached],
+    ["reset", {}, refetched],
   ])("a %s event invalidates the queries it names", (type, data, want) => {
     const { client, source } = evtConnect()
     source.emit(type, data)
@@ -76,5 +86,37 @@ describe("connectEvents", () => {
     expect(EvtSource.instances.map((s) => s.url)).toEqual(["/api/v1/events"])
     close()
     expect(EvtSource.instances[0]?.closed).toBe(true)
+  })
+
+  test("a reset leaves plan queries alone", () => {
+    const { client, source } = evtConnect()
+    source.emit("reset", {})
+    expect(client.getQueryState(["plan", "core.token.revoke", "t1"])?.isInvalidated).toBe(false)
+    expect(evtInvalidated(client)).toEqual(refetched)
+  })
+
+  test("reopens a stream the browser closed after one second", () => {
+    const { source } = evtConnect()
+    source.fail()
+    expect(EvtSource.instances).toHaveLength(1)
+    vi.advanceTimersByTime(1000)
+    expect(EvtSource.instances).toHaveLength(2)
+    expect(EvtSource.instances[1]?.url).toBe("/api/v1/events")
+  })
+
+  test("a reopened stream refetches when it opens", () => {
+    const { client, source } = evtConnect()
+    source.fail()
+    vi.advanceTimersByTime(1000)
+    EvtSource.instances[1]?.emit("open", {})
+    expect(evtInvalidated(client)).toEqual(refetched)
+  })
+
+  test("closing before the reopen timer fires opens nothing more", () => {
+    const { source, close } = evtConnect()
+    source.fail()
+    close()
+    vi.runAllTimers()
+    expect(EvtSource.instances).toHaveLength(1)
   })
 })
