@@ -64,6 +64,8 @@ var (
 		b, err := term.ReadPassword(int(f.Fd())) //nolint:gosec // G115: a file descriptor fits in an int
 		return string(b), err
 	}
+	// newTaskEngine builds the engine of the agent task process.
+	newTaskEngine = lifecycle.New
 )
 
 // systemdConn is the systemd provider and its connection's Close.
@@ -421,9 +423,10 @@ func newAgentTaskCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			eng, err := lifecycle.New(lifecycle.Config{
+			eng, err := newTaskEngine(lifecycle.Config{
 				Side: core.SideAgent, Registry: host.Registry, Validator: schema.NewValidator(),
 				Journal: lifecycle.NewAgentJournal(host.DB), Redact: schema.Redact,
+				ModuleUnits: platform.ModuleUnits(host.Systemd, host.Registry),
 				Base: core.Env{
 					DB:   host.DB,
 					Exec: platform.NewRunner(platform.ProductionRules()),
