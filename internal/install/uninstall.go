@@ -404,7 +404,7 @@ func (u *Uninstall) runModules(ctx context.Context) (string, error) {
 			continue
 		}
 		id := m.Manifest().ID
-		if err := un.Uninstall(ctx, env, u.cfg.KeepData); err != nil {
+		if err := un.Uninstall(ctx, env, u.cfg.KeepData, map[string]string{}); err != nil {
 			return "", fmt.Errorf("module %s: %w", id, err)
 		}
 		ran = append(ran, id)

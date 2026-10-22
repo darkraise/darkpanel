@@ -43,9 +43,17 @@ type TransientTimer struct {
 }
 
 // UnitState is a unit's state as systemd reports it. A unit that does not
-// exist has LoadState "not-found". PendingJob is the type of the job queued
-// for the unit ("start", "stop", ...), "" when none.
+// exist has LoadState "not-found". MainPID is the Service interface's MainPID
+// property, 0 for a unit that is not a running service. PendingJob is the
+// type of the job queued for the unit ("start", "stop", ...), "" when none.
 type UnitState struct {
 	LoadState, ActiveState, SubState string
+	MainPID                          uint32
 	PendingJob                       string
+}
+
+// UnitStatus is one unit List found.
+type UnitStatus struct {
+	Name string
+	UnitState
 }

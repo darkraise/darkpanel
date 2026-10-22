@@ -10,8 +10,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
+	"net/url"
 	"reflect"
 	"strconv"
 	"strings"
@@ -132,17 +134,19 @@ type Env struct {
 	Clock     Clock
 	Log       *slog.Logger
 	Agents    HostDirectory
+	Units     Units // the action's module's unit client; nil on the controller
 }
 
 // CallContext is why a change runs. It comes from the controller, never from
 // input: the API and the agent socket refuse it, and handlers that depend on
 // provenance read only Env.Call.
 type CallContext struct {
-	ParentChangeID string   // the composite running this as a step; "" for a top-level change
-	ParentAction   string   // that composite's action name
-	StepID         string   // the step id within the parent
-	RepairOf       string   // the change this one repairs; derived by the engine from the stored plan, never sent
-	Retired        []string // exposure ids the parent has retired
+	ParentChangeID string        // the composite running this as a step; "" for a top-level change
+	ParentAction   string        // that composite's action name
+	StepID         string        // the step id within the parent
+	RepairOf       string        // the change this one repairs; derived by the engine from the stored plan, never sent
+	Retired        []string      // exposure ids the parent has retired
+	GuardRefresh   *GuardContext // apply only: the controller's topology at apply time; never stored with the plan
 }
 
 // PlanOptions are the core-level fields of a plan request. Call is set only
@@ -188,11 +192,13 @@ type DiffLine struct {
 	Text string `json:"text"`
 }
 
-// Guard is one safety check a plan ran.
+// Guard is one safety check a plan ran. An overridden guard reports OK true.
 type Guard struct {
-	ID      string `json:"id"`
-	OK      bool   `json:"ok"`
-	Message string `json:"message"`
+	ID          string `json:"id"`
+	OK          bool   `json:"ok"`
+	Message     string `json:"message"`
+	Overridable bool   `json:"overridable"` // the engine copies it from the action's GuardSpec
+	Overridden  bool   `json:"overridden"`  // the plan's input listed this Overridable guard in overrides
 }
 
 // PlanOutcome is what a handler's Plan returns.
@@ -219,6 +225,13 @@ type ActionSpec struct {
 	LongRunning   bool          // apply answers once the intent is persisted
 	Task          bool          // the host sequences run in transient units; set by DefineTask
 	Unwind        Unwind        // composite only
+	Guards        []GuardSpec   // the guards the action's plan may report; the input type then embeds Guarded
+	// Available is the action's own availability check; the error text is
+	// the reason. nil means available whenever the module is.
+	Available func(ctx context.Context, env Env) error
+	MinScope  Scope // raises the scope the class and side require; "" keeps it
+	Internal  bool  // dispatched only by the controller itself; read actions only
+	Reveal    bool  // returns one stored secret once; read actions only, with MinScope admin
 }
 
 // Reader is the handler of a read action.
@@ -470,6 +483,15 @@ type ErasedHandler struct {
 	Task     func(ctx context.Context, env Env, in json.RawMessage) (json.RawMessage, error)
 	Steps    func(ctx context.Context, env Env, in json.RawMessage) ([]Step, error)
 	Output   func(ctx context.Context, env Env, in json.RawMessage, steps map[string]json.RawMessage) (json.RawMessage, error)
+	// Reveal is set only by DefineReveal and DefineInternalRead: value is
+	// the output encoded without redaction, identity names it for the audit.
+	Reveal func(ctx context.Context, env Env, in json.RawMessage) (identity string, value json.RawMessage, err error)
+}
+
+// Revealed is a reveal handler's result; Out is the action's output type.
+type Revealed[Out any] struct {
+	Identity string // what is revealed, for the audit ("npm admin password, host h1")
+	Value    Out    // the output, never redacted
 }
 
 // ActionDef is a type-erased action as the registry stores it.
@@ -498,25 +520,47 @@ type PreflightCheck struct {
 	Run func(ctx context.Context, env Env) error
 }
 
-// The kinds of an owned path. Only files and blocks are written through
-// FileWriter; directories, users and units are the installer's, recorded so
-// that uninstall removes them.
+// The kinds of an owned path. Directories and users are the installer's,
+// recorded so that uninstall removes them; the other kinds are written
+// through FileWriter.
 const (
-	OwnedFile  = "file"
-	OwnedBlock = "block"
-	OwnedDir   = "dir"
-	OwnedUser  = "user"
-	OwnedUnit  = "unit"
+	OwnedFile       = "file"
+	OwnedBlock      = "block"
+	OwnedDir        = "dir"
+	OwnedUser       = "user"
+	OwnedUnit       = "unit"
+	OwnedRestore    = "restore"     // a regular file a snapshot may rewrite or remove
+	OwnedManagedDir = "managed-dir" // a root-owned directory of flat module files
+	OwnedSysctl     = "sysctl"      // a kernel parameter under /proc/sys
+	OwnedServiceDir = "service-dir" // a directory owned by a module's service user
 )
 
 // OwnedPath is something a module or the core creates on the host and
-// uninstall removes (ADR 0009). For OwnedUser, Path is the user name.
+// uninstall removes (ADR 0009). For OwnedUser, Path is the user name; for
+// OwnedSysctl, the key under /proc/sys ("net/ipv4/ip_forward"), which
+// uninstall never touches.
 type OwnedPath struct {
 	Path          string
 	Kind          string // one of the Owned kinds
 	BlockIDs      []string
-	CommentPrefix string // default "#"
+	CommentPrefix string   // default "#"
+	Pattern       string   // sysctl: the value pattern; managed-dir, service-dir: the file-name pattern
+	User          string   // service-dir: the owning system user (an OwnedUser of the same module)
+	Subdirs       []string // service-dir: the only subdirectories, one level, created with it
 }
+
+// RestoreEntry is one file a snapshot restores. Present false removes it.
+type RestoreEntry struct {
+	Path     string
+	Present  bool
+	Mode     fs.FileMode
+	UID, GID int
+	Data     []byte
+}
+
+// LabelModule labels the containers, networks and volumes a module creates;
+// its value is the module id.
+const LabelModule = "darkpanel.module"
 
 // Manifest is everything a module declares (R5).
 type Manifest struct {
@@ -529,21 +573,46 @@ type Manifest struct {
 	OwnedPaths     []OwnedPath
 	Migrations     map[Side]fs.FS
 	DefaultEnabled bool
+	ExternalUnits  []ExternalUnit // units the module drives but does not own
 }
+
+// ExternalUnit is a unit a module may drive without owning it.
+type ExternalUnit struct {
+	Name string   // "tailscaled.service"
+	Ops  []string // a subset of UnitOpState, UnitOpStart, UnitOpStop, UnitOpRestart
+}
+
+// The operations of ExternalUnit.Ops.
+const (
+	UnitOpState   = "state"
+	UnitOpStart   = "start"
+	UnitOpStop    = "stop"
+	UnitOpRestart = "restart"
+)
 
 // Module is a compiled-in module.
 type Module interface {
 	Manifest() Manifest
 }
 
+// UninstallOption is one option a module's uninstall step accepts.
+type UninstallOption struct {
+	Key     string   // ^[a-z][a-z0-9_]{0,31}$, unique within the module
+	Values  []string // the allowed values, at least one
+	Default string   // one of Values
+	Help    string   // one line, printed in the plan
+}
+
 // Uninstaller is the optional agent-side uninstall step of a module, found
 // with a type assertion on the Module. It runs before uninstall removes the
 // module's marked blocks and files; with keepData it leaves the module's data
-// in place for a reinstall. Uninstall runs again when an uninstall that
-// stopped at a later step is run anew, so it must succeed on a host where it
-// already ran.
+// in place for a reinstall. opts holds every declared option with its value
+// filled: the --module-option value or the default. Uninstall runs again when
+// an uninstall that stopped at a later step is run anew, so it must succeed
+// on a host where it already ran.
 type Uninstaller interface {
-	Uninstall(ctx context.Context, env Env, keepData bool) error
+	UninstallOptions() []UninstallOption
+	Uninstall(ctx context.Context, env Env, keepData bool, opts map[string]string) error
 }
 
 // Sealer encrypts and decrypts secrets with associated data (ADR 0005).
@@ -886,6 +955,21 @@ type ModuleStatus struct {
 	Reason    string
 }
 
+// ModuleAvailability is one module's availability on a host, per action.
+type ModuleAvailability struct {
+	Module    string
+	Available bool
+	Reason    string // "" when available
+	Actions   []ActionAvailability
+}
+
+// ActionAvailability is one action's availability; Reason is "" when available.
+type ActionAvailability struct {
+	Name      string
+	Available bool
+	Reason    string
+}
+
 // AgentHello is what an agent reports about itself (ADR 0003).
 type AgentHello struct {
 	ProtocolVersion int
@@ -972,4 +1056,35 @@ type DispatcherChangeOps interface {
 	Observe(ctx context.Context, p Principal, changeID string, seq int) (ObserveResult, error)
 	Resolve(ctx context.Context, p Principal, changeID string, seq int, req ResolveRequest) (EffectView, error)
 	Steps(ctx context.Context, p Principal, changeID string) ([]StepView, error)
+}
+
+// AgentEnablement pushes the controller's module enablement to the agent.
+type AgentEnablement interface {
+	SetModuleEnabled(ctx context.Context, moduleID string, enabled bool) error
+}
+
+// AgentAvailability asks the agent which actions of a module are available.
+type AgentAvailability interface {
+	Availability(ctx context.Context, moduleID string) (ModuleAvailability, error)
+}
+
+// AgentReveal runs a reveal action, or with internal an Internal read.
+type AgentReveal interface {
+	Reveal(ctx context.Context, p Principal, a ActionRef, input json.RawMessage, internal bool) (json.RawMessage, error)
+}
+
+// AgentStreams lists and opens module streams.
+type AgentStreams interface {
+	Streams(ctx context.Context) ([]StreamInfo, error)
+	OpenStream(ctx context.Context, p Principal, module, name string, params url.Values) (io.ReadCloser, error)
+}
+
+// DispatcherReveal is the reveal path the API calls; it refuses Internal actions.
+type DispatcherReveal interface {
+	Reveal(ctx context.Context, p Principal, hostID string, a ActionRef, input json.RawMessage) (json.RawMessage, error)
+}
+
+// DispatcherStreams opens a module stream for the relay.
+type DispatcherStreams interface {
+	OpenStream(ctx context.Context, p Principal, hostID, module, name string, params url.Values) (io.ReadCloser, error)
 }

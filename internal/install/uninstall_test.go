@@ -25,10 +25,11 @@ import (
 )
 
 // demoModule owns a file, a block of a shared file, a directory, a unit and
-// a user, and has an uninstall step that records what it saw.
+// a user, and has an uninstall step without options that records what it saw.
 type demoModule struct {
 	l     Layout
 	calls []string
+	opts  []map[string]string
 }
 
 func (m *demoModule) paths() (conf, hosts, data, unit string) {
@@ -47,7 +48,10 @@ func (m *demoModule) Manifest() core.Manifest {
 	}}
 }
 
-func (m *demoModule) Uninstall(_ context.Context, env core.Env, keepData bool) error {
+func (m *demoModule) UninstallOptions() []core.UninstallOption { return nil }
+
+func (m *demoModule) Uninstall(_ context.Context, env core.Env, keepData bool, opts map[string]string) error {
+	m.opts = append(m.opts, opts)
 	_, hosts, _, _ := m.paths()
 	b, err := os.ReadFile(filepath.Clean(hosts))
 	if err != nil {
@@ -379,6 +383,16 @@ func TestUninstallStopsAtAFailedStepAndResumes(t *testing.T) {
 	want := []string{"uninstall keepData=false block present=yes env=complete", "uninstall keepData=false block present=no env=complete"}
 	if !reflect.DeepEqual(m.calls, want) {
 		t.Errorf("module steps %v, want %v", m.calls, want)
+	}
+}
+
+func TestUninstallPassesOptionsMap(t *testing.T) {
+	h, m := installHost(t, RoleController)
+	if out, err := runUninstall(t, h.uninstallConfig(m, false)); err != nil {
+		t.Fatalf("Run: %v\n%s", err, out)
+	}
+	if len(m.opts) != 1 || m.opts[0] == nil || len(m.opts[0]) != 0 {
+		t.Errorf("the module step got options %v, want one empty, non-nil map", m.opts)
 	}
 }
 
