@@ -21,6 +21,8 @@ const secretKeyword = "x-secret"
 
 // The formats of the netip types. Their JSON form is the string their
 // MarshalText writes; the validator checks it with the matching parser.
+// The zero value marshals as "", which the parsers refuse, so an optional
+// field of these types is tagged omitzero, not omitempty.
 const (
 	formatAddr     = "ip-address"
 	formatAddrPort = "ip-address-port"

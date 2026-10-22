@@ -3,6 +3,7 @@ package schema
 import (
 	"encoding/json"
 	"errors"
+	"net/netip"
 	"slices"
 	"strings"
 	"sync"
@@ -180,5 +181,21 @@ func TestValidatorChecksAddressFormats(t *testing.T) {
 				t.Errorf("fields = %+v, want %+v", coded.Fields, want)
 			}
 		})
+	}
+}
+
+func TestValidatorAcceptsUnsetAddressFields(t *testing.T) {
+	v := NewValidator()
+	def := core.DefineRead(core.ActionSpec{Name: "demo.addr.get", Version: 1, Side: core.SideAgent},
+		fixtureHandler[addrFields, fixtureStatus]{})
+	raw, err := json.Marshal(addrFields{A: netip.MustParseAddr("192.0.2.1")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != `{"a":"192.0.2.1"}` {
+		t.Errorf("Marshal = %s, want only a", raw)
+	}
+	if err := v.ValidateInput(def, raw); err != nil {
+		t.Errorf("ValidateInput(%s) = %v, want nil", raw, err)
 	}
 }

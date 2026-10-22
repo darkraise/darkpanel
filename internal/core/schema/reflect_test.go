@@ -148,11 +148,13 @@ func TestSchemaNilType(t *testing.T) {
 }
 
 // addrFields has one field of each netip type, each optional so that a
-// validation case can send one alone.
+// validation case can send one alone. A netip zero value marshals as "", which
+// the formats refuse, and omitempty never omits a struct, so the optional
+// netip fields are omitzero.
 type addrFields struct {
-	A netip.Addr       `json:"a,omitempty"`
-	P netip.AddrPort   `json:"p,omitempty"`
-	N netip.Prefix     `json:"n,omitempty"`
+	A netip.Addr       `json:"a,omitzero"`
+	P netip.AddrPort   `json:"p,omitzero"`
+	N netip.Prefix     `json:"n,omitzero"`
 	L []netip.AddrPort `json:"l,omitempty"`
 }
 
