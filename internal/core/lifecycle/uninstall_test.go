@@ -238,3 +238,62 @@ func TestAdmissionNoticesTheBarrierCleared(t *testing.T) {
 		t.Errorf("after the first admitted call: %+v, %v; want interrupted and unowned before any poll", got, err)
 	}
 }
+
+func TestUninstallingRefusesAnIntentAdmittedBeforeTheBarrier(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	done := f.apply(alice, f.plan(alice, refAdd, `{"name":"a","value":"1"}`).PlanID, core.ApplyOptions{})
+	spare := f.plan(alice, refAdd, `{"name":"b","value":"1"}`)
+	// Both calls passed admit before uninstall set the barrier.
+	if err := BeginUninstall(ctx, f.db, false); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := f.eng.begin(ctx, alice, spare.PlanID, core.ApplyOptions{})
+	wantCode(t, err, errcode.Uninstalling)
+	_, _, _, err = f.eng.claimUndo(ctx, alice, done.ID, nil)
+	wantCode(t, err, errcode.Uninstalling)
+	if n := f.count("SELECT count(*) FROM core_changes WHERE recovery_owner <> ''"); n != 0 {
+		t.Errorf("%d changes owned after their intents were refused under the barrier, want 0", n)
+	}
+}
+
+func TestEngineNoticesTheBarrierClearedAfterAFailedClaim(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	id := f.skippedAtStart()
+	f.recoverExec(`CREATE TRIGGER fail_claim BEFORE UPDATE OF recovery_owner ON core_changes
+		BEGIN SELECT RAISE(ABORT, 'injected claim failure'); END`)
+	// logged replaces the engine; recovering again under the barrier gives
+	// the logging engine the skipped id and the poll.
+	log := f.logged()
+	f.recoverAll()
+	if err := AbortUninstall(ctx, f.db); err != nil {
+		t.Fatal(err)
+	}
+	f.clock.Advance(uninstallPoll)
+	if got, err := f.eng.Change(ctx, id); err != nil || got.State != core.StateApplying || got.Owner != core.OwnerEngine {
+		t.Fatalf("after a failed claim: %+v, %v; want the change left as it was", got, err)
+	}
+	if out := log.String(); !strings.Contains(out, "injected claim failure") {
+		t.Errorf("log = %q, want the failed claim", out)
+	}
+	f.eng.uninstallMu.Lock()
+	kept := false
+	for _, s := range f.eng.uninstallSkipped {
+		kept = kept || s == id
+	}
+	f.eng.uninstallMu.Unlock()
+	f.eng.timerMu.Lock()
+	armed := f.eng.uninstallTimer != nil
+	f.eng.timerMu.Unlock()
+	if !kept || !armed {
+		t.Fatalf("after a failed claim: id kept %v, poll armed %v; want both", kept, armed)
+	}
+	f.recoverExec("DROP TRIGGER fail_claim")
+	f.clock.Advance(uninstallPoll)
+	f.eng.recoveryPass.Wait()
+	got, err := f.eng.Change(ctx, id)
+	if err != nil || got.State != core.StateInterrupted || got.Owner != "" {
+		t.Errorf("a poll after the failed claim: %+v, %v; want interrupted and unowned without a restart", got, err)
+	}
+}

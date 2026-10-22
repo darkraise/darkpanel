@@ -117,8 +117,9 @@ func (e *Engine) resumeSkipped(ctx context.Context) error {
 // pass the engine's start skipped, over exactly the changes it skipped, and
 // forgets their ids, so the changes a stopped process left owned are
 // recovered without another restart. A failed read of the candidates keeps
-// the ids for the next attempt. The caller holds uninstallMu and has set
-// recovering.
+// the ids, and a failed claim keeps its change's id, for the next poll or
+// admitted call, as a failed claim at start fails Recover. The caller holds
+// uninstallMu and has set recovering.
 func (e *Engine) recoverSkipped(ctx context.Context) error {
 	cands, err := e.recoverCandidates(ctx)
 	if err != nil {
@@ -139,12 +140,16 @@ func (e *Engine) recoverSkipped(ctx context.Context) error {
 		switch {
 		case err != nil:
 			errs = append(errs, err)
+			e.uninstallSkipped = append(e.uninstallSkipped, c.id)
 		case cl != nil:
 			claims = append(claims, *cl)
 		}
 	}
 	errs = append(errs, e.recoverSweep(ctx))
 	e.recoverPass(claims)
+	if len(e.uninstallSkipped) > 0 {
+		e.armUninstallPoll()
+	}
 	return errors.Join(errs...)
 }
 

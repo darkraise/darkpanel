@@ -227,6 +227,9 @@ func (e *Engine) recovererRepair(ctx context.Context, changeID string) (*core.Re
 	retry := false
 	e.applyMu.Lock()
 	err = e.cfg.Base.DB.Write(ctx, func(tx *sql.Tx) error {
+		if err := uninstallingErr(ctx, tx); err != nil {
+			return err
+		}
 		f, err := loadFacts(ctx, tx, changeID)
 		if err != nil {
 			return err

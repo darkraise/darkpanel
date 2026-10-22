@@ -213,6 +213,9 @@ func (e *Engine) begin(ctx context.Context, p core.Principal, planID string, opt
 	}
 	created := formatTime(now)
 	err = db.Write(ctx, func(tx *sql.Tx) error {
+		if err := uninstallingErr(ctx, tx); err != nil {
+			return err
+		}
 		if repairs != "" {
 			if err := takeRepairTarget(ctx, tx, now, repairs, it.id); err != nil {
 				return err
