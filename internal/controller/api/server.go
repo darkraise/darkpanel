@@ -67,6 +67,9 @@ type Config struct {
 	// HealthStatus is the status GET /healthz reports, always with HTTP 200;
 	// empty means "ok".
 	HealthStatus string
+	// Availability is a host's cached answer about a module's actions
+	// (dispatch.Dispatcher.Availability); nil answers its route not_found.
+	Availability func(ctx context.Context, hostID, moduleID string) (core.ModuleAvailability, error)
 	// Log receives internal errors and panics; nil discards.
 	Log *slog.Logger
 	// Events is the bus GET /api/v1/events streams; nil answers that route

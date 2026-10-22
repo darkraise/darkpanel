@@ -114,6 +114,7 @@ func TestOpenAPIRoute(t *testing.T) {
 		"/api/v1/hosts/{host}/actions/demo.item.add/v1/plan": "post",
 		"/api/v1/actions/demo.item.list/v1/read":             "post",
 		"/api/v1/hosts/{host}/resources/demo/status":         "get",
+		"/api/v1/hosts/{host}/modules/{module}/availability": "get",
 	} {
 		if _, ok := doc.Paths[path][method]; !ok {
 			t.Errorf("document lacks %s %s", method, path)
@@ -132,6 +133,7 @@ func TestRoutes(t *testing.T) {
 		{Method: "POST", Path: "/api/v1/auth/login", Public: true},
 		{Method: "POST", Path: "/api/v1/auth/logout"},
 		{Method: "GET", Path: "/api/v1/auth/session"},
+		{Method: "GET", Path: "/api/v1/hosts/{host}/modules/{module}/availability"},
 		{Method: "GET", Path: "/api/v1/changes"},
 		{Method: "GET", Path: "/api/v1/changes/{id}"},
 		{Method: "POST", Path: "/api/v1/changes/{id}/confirm"},

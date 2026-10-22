@@ -27,6 +27,8 @@ func (s *Server) networkRoutes() []route {
 		{method: http.MethodPost, path: "/api/v1/auth/logout", summary: "Log out and clear the session cookie", handler: s.handleLogout},
 		{method: http.MethodGet, path: "/api/v1/auth/session", summary: "Describe the calling session or token", handler: s.handleSession},
 		{method: http.MethodGet, path: "/api/v1/hosts/{host}/resources/{module}/{resource}", perAction: true, handler: s.handleResource},
+		{method: http.MethodGet, path: "/api/v1/hosts/{host}/modules/{module}/availability",
+			summary: "Which actions of a module are available on a host", handler: s.handleAvailability},
 		{method: http.MethodPost, path: hostActions + opPlan, perAction: true, handler: s.actionHandler(core.SideAgent, opPlan)},
 		{method: http.MethodPost, path: hostActions + opApply, perAction: true, handler: s.actionHandler(core.SideAgent, opApply)},
 		{method: http.MethodPost, path: hostActions + opRead, perAction: true, handler: s.actionHandler(core.SideAgent, opRead)},
