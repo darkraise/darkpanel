@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -82,6 +83,50 @@ func TestUninstall(t *testing.T) {
 			}
 			if s.systemd.closed != 1 {
 				t.Errorf("systemd closed %d times, want once", s.systemd.closed)
+			}
+		})
+	}
+}
+
+func TestUninstallModuleOptionFlag(t *testing.T) {
+	tests := []struct {
+		name   string
+		args   []string
+		code   int
+		want   map[string]map[string]string
+		stderr string
+	}{
+		{"none", nil, cli.ExitOK, nil, ""},
+		{"repeated", []string{"--module-option", "opt.rules=keep", "--module-option", "opt.x=y", "--module-option", "fw.mode=a=b"},
+			cli.ExitOK, map[string]map[string]string{"opt": {"rules": "keep", "x": "y"}, "fw": {"mode": "a=b"}}, ""},
+		{"no key", []string{"--module-option", "opt=keep"}, cli.ExitUsage, nil, `"opt=keep" is not <module>.<key>=<value>`},
+		{"no value", []string{"--module-option", "opt.rules"}, cli.ExitUsage, nil, `"opt.rules" is not <module>.<key>=<value>`},
+		{"no module", []string{"--module-option", ".rules=keep"}, cli.ExitUsage, nil, `".rules=keep" is not <module>.<key>=<value>`},
+		{"twice", []string{"--module-option", "opt.rules=keep", "--module-option", "opt.rules=remove"}, cli.ExitUsage, nil,
+			"--module-option opt.rules is given twice"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fakeAgent(t, 0)
+			var cfgs []install.UninstallConfig
+			old := planUninstall
+			t.Cleanup(func() { planUninstall = old })
+			planUninstall = func(_ context.Context, cfg install.UninstallConfig) (plannedUninstall, error) {
+				cfgs = append(cfgs, cfg)
+				return &fakePlan{}, nil
+			}
+			_, stderr, code := runStdin(strings.NewReader(""), append([]string{"uninstall", "--yes"}, tt.args...)...)
+			if code != tt.code || !strings.Contains(stderr, tt.stderr) {
+				t.Fatalf("exit %d, stderr %q; want exit %d and %q", code, stderr, tt.code, tt.stderr)
+			}
+			if tt.code != cli.ExitOK {
+				if len(cfgs) != 0 {
+					t.Error("a malformed --module-option planned an uninstall")
+				}
+				return
+			}
+			if len(cfgs) != 1 || !reflect.DeepEqual(cfgs[0].ModuleOptions, tt.want) {
+				t.Errorf("ModuleOptions = %v, want %v", cfgs, tt.want)
 			}
 		})
 	}
