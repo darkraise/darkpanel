@@ -40,11 +40,11 @@ type FilesConfig struct {
 	LookupUser func(name string) (uid, gid int, err error)
 }
 
-// Files is the core.FileWriter of the agent: it writes only the paths and
-// marked blocks a module declares, never through a symlink (ADR 0009).
-// Declarations of the other kinds (directories, users, units) are uninstall's
-// to remove and are ignored here. Calls on one path are serialised, so the
-// agent must build exactly one Files.
+// Files is the core.FileWriter of the agent: it writes only the paths,
+// marked blocks, kernel parameters and directories a module declares, never
+// through a symlink (ADR 0009). Declarations of kind dir and user are
+// uninstall's to remove and are ignored here. Calls on one path are
+// serialised, so the agent must build exactly one Files.
 type Files struct {
 	cfg       FilesConfig
 	parentUID int
@@ -62,7 +62,7 @@ func NewFiles(cfg FilesConfig) *Files {
 	locks := map[string]*sync.Mutex{}
 	for _, paths := range cfg.Owned {
 		for _, op := range paths {
-			if op.Kind != kindFile && op.Kind != kindBlock {
+			if op.Kind == core.OwnedDir || op.Kind == core.OwnedUser {
 				continue
 			}
 			if locks[op.Path] == nil {
@@ -99,6 +99,36 @@ func (f *Files) declared(module, path, kind, blockID string) (core.OwnedPath, er
 		return core.OwnedPath{}, fmt.Errorf("platform: module %s does not declare block %s of %s", module, blockID, path)
 	}
 	return core.OwnedPath{}, fmt.Errorf("platform: module %s does not declare file %s", module, path)
+}
+
+// declaredKind returns module's declaration of the absolute, clean path as
+// kind. A sysctl key is matched by sysctlDeclared instead.
+func (f *Files) declaredKind(module, path, kind string) (core.OwnedPath, error) {
+	if filepath.IsAbs(path) && filepath.Clean(path) == path && path != "/" {
+		for _, op := range f.cfg.Owned[module] {
+			if op.Path == path && op.Kind == kind {
+				return op, nil
+			}
+		}
+	}
+	return core.OwnedPath{}, fmt.Errorf("platform: module %s does not declare %s %s", module, kind, path)
+}
+
+// declaredFile returns module's declaration of path as a unit file, or else
+// as a file.
+func (f *Files) declaredFile(module, path string) (core.OwnedPath, error) {
+	if op, err := f.declaredKind(module, path, core.OwnedUnit); err == nil {
+		return op, nil
+	}
+	return f.declared(module, path, kindFile, "")
+}
+
+// lock takes path's lock and returns its release. path must be a declared
+// path of a kind NewFiles makes a lock for.
+func (f *Files) lock(path string) func() {
+	mu := f.locks[path]
+	mu.Lock()
+	return mu.Unlock
 }
 
 // parent is a target's parent directory, opened without following any
@@ -154,6 +184,23 @@ func (f *Files) openDir(dir string) (int, error) {
 	return fd, nil
 }
 
+// openBeneath opens name below dirfd with openat2, refusing a symlink in any
+// component, name included, and any path that leaves dirfd (ADR 0009). The
+// error is the bare errno, for the caller to test and wrap.
+func openBeneath(dirfd int, name string, flags uint64, mode uint64) (int, error) {
+	how := &unix.OpenHow{Flags: flags | unix.O_CLOEXEC, Mode: mode, Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS}
+	var err error
+	for range 8 {
+		var fd int
+		// RESOLVE_BENEATH fails with EAGAIN when a rename elsewhere raced the
+		// lookup; repeating the lookup is safe.
+		if fd, err = unix.Openat2(dirfd, name, how); !errors.Is(err, unix.EAGAIN) {
+			return fd, err
+		}
+	}
+	return -1, err
+}
+
 func (p *parent) close() {
 	_ = unix.Close(p.fd)
 	p.mu.Unlock()
@@ -190,23 +237,51 @@ func (p *parent) read() (data []byte, st unix.Stat_t, exists bool, err error) {
 // it, so readers see the old or the new content and never a mix. An existing
 // target's mode and owner are kept; a new one gets mode.
 func (p *parent) write(data []byte, mode uint32, existing *unix.Stat_t) error {
+	uid, gid := -1, -1
+	if existing != nil {
+		mode, uid, gid = existing.Mode&0o7777, int(existing.Uid), int(existing.Gid)
+	}
+	return replaceAt(p.fd, p.name, p.path, data, mode, uid, gid)
+}
+
+// writeFileAt replaces the regular file name in dirfd with data, mode's
+// permission bits and the owner uid:gid, refusing a symlink or anything but a
+// regular file at name. path names the file in messages.
+func writeFileAt(dirfd int, name, path string, data []byte, mode fs.FileMode, uid, gid int) error {
+	var st unix.Stat_t
+	err := unix.Fstatat(dirfd, name, &st, unix.AT_SYMLINK_NOFOLLOW)
+	switch {
+	case errors.Is(err, unix.ENOENT):
+	case err != nil:
+		return fmt.Errorf("platform: stat %s: %w", path, err)
+	case st.Mode&unix.S_IFMT == unix.S_IFLNK:
+		return fmt.Errorf("platform: %s is a symlink", path)
+	case st.Mode&unix.S_IFMT != unix.S_IFREG:
+		return fmt.Errorf("platform: %s is not a regular file", path)
+	}
+	return replaceAt(dirfd, name, path, data, uint32(mode.Perm()), uid, gid)
+}
+
+// replaceAt writes data to a temporary file in dirfd with mode and, unless
+// uid and gid are both -1, that owner, syncs it, renames it over name and
+// syncs the directory. The rename replaces a symlink at name, never follows it.
+func replaceAt(dirfd int, name, path string, data []byte, mode uint32, uid, gid int) error {
 	var rnd [8]byte
 	if _, err := rand.Read(rnd[:]); err != nil {
 		return fmt.Errorf("platform: temporary name: %w", err)
 	}
-	tmp := fmt.Sprintf(".%s.darkpanel-%x", p.name, rnd)
-	fd, err := unix.Openat(p.fd, tmp, unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0o600)
+	tmp := fmt.Sprintf(".%s.darkpanel-%x", name, rnd)
+	fd, err := unix.Openat(dirfd, tmp, unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0o600)
 	if err != nil {
-		return fmt.Errorf("platform: create temporary file for %s: %w", p.path, err)
+		return fmt.Errorf("platform: create temporary file for %s: %w", path, err)
 	}
 	file := os.NewFile(uintptr(fd), tmp)
 	err = func() error {
 		if _, err := file.Write(data); err != nil {
 			return err
 		}
-		if existing != nil {
-			mode = existing.Mode & 0o7777
-			if err := unix.Fchown(fd, int(existing.Uid), int(existing.Gid)); err != nil {
+		if uid != -1 || gid != -1 {
+			if err := unix.Fchown(fd, uid, gid); err != nil {
 				return err
 			}
 		}
@@ -218,21 +293,21 @@ func (p *parent) write(data []byte, mode uint32, existing *unix.Stat_t) error {
 	}()
 	err = errors.Join(err, file.Close())
 	if err == nil {
-		err = unix.Renameat(p.fd, tmp, p.fd, p.name)
+		err = unix.Renameat(dirfd, tmp, dirfd, name)
 	}
 	if err != nil {
-		_ = unix.Unlinkat(p.fd, tmp, 0)
-		return fmt.Errorf("platform: write %s: %w", p.path, err)
+		_ = unix.Unlinkat(dirfd, tmp, 0)
+		return fmt.Errorf("platform: write %s: %w", path, err)
 	}
-	if err := unix.Fsync(p.fd); err != nil {
-		return fmt.Errorf("platform: sync directory of %s: %w", p.path, err)
+	if err := unix.Fsync(dirfd); err != nil {
+		return fmt.Errorf("platform: sync directory of %s: %w", path, err)
 	}
 	return nil
 }
 
 // edit rewrites path with change applied to its current content (empty when
-// it does not exist), recording ownership first.
-func (f *Files) edit(ctx context.Context, module, path, blockID string, mode uint32, change func(old []byte) ([]byte, error)) error {
+// it does not exist), recording ownership as kind first.
+func (f *Files) edit(ctx context.Context, module, path, kind, blockID string, mode uint32, change func(old []byte) ([]byte, error)) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -249,9 +324,14 @@ func (f *Files) edit(ctx context.Context, module, path, blockID string, mode uin
 	if err != nil {
 		return err
 	}
-	kind := kindFile
-	if blockID != "" {
-		kind = kindBlock
+	if kind == core.OwnedUnit && exists {
+		owned, err := f.cfg.Ownership.Owns(ctx, module, path)
+		if err != nil {
+			return err
+		}
+		if !owned {
+			return fmt.Errorf("platform: unit file %s exists and is not Darkpanel's", path)
+		}
 	}
 	// Recorded before the host is touched, so a crash after the write still
 	// leaves the path for uninstall to find.
@@ -267,12 +347,15 @@ func (f *Files) edit(ctx context.Context, module, path, blockID string, mode uin
 }
 
 // WriteFile replaces the whole file path, which module must declare as a
-// file; a new file gets mode's permission bits.
+// file or a unit file; a new file gets mode's permission bits. An existing
+// unit file the ownership store does not record as module's is refused, so
+// Darkpanel never takes over a unit it did not create.
 func (f *Files) WriteFile(ctx context.Context, module, path string, data []byte, mode fs.FileMode) error {
-	if _, err := f.declared(module, path, kindFile, ""); err != nil {
+	op, err := f.declaredFile(module, path)
+	if err != nil {
 		return err
 	}
-	return f.edit(ctx, module, path, "", uint32(mode.Perm()), func([]byte) ([]byte, error) { return data, nil })
+	return f.edit(ctx, module, path, op.Kind, "", uint32(mode.Perm()), func([]byte) ([]byte, error) { return data, nil })
 }
 
 // ReplaceBlock sets the content of block blockID in path, appending the block
@@ -283,7 +366,7 @@ func (f *Files) ReplaceBlock(ctx context.Context, module, path, blockID string, 
 		return err
 	}
 	prefix := commentPrefix(op)
-	return f.edit(ctx, module, path, blockID, newBlockFileMode, func(old []byte) ([]byte, error) {
+	return f.edit(ctx, module, path, kindBlock, blockID, newBlockFileMode, func(old []byte) ([]byte, error) {
 		return replaceBlock(old, prefix, module, blockID, content)
 	})
 }
@@ -326,11 +409,11 @@ func (f *Files) RemoveBlock(ctx context.Context, module, path, blockID string) e
 	return f.cfg.Ownership.Forget(ctx, module, path, blockID)
 }
 
-// Remove deletes the file path and forgets it; a missing file or parent
-// directory is not an error. A symlink at path is removed itself, never
-// followed.
+// Remove deletes the file or unit file path and forgets it; a missing file
+// or parent directory is not an error. A symlink at path is removed itself,
+// never followed.
 func (f *Files) Remove(ctx context.Context, module, path string) error {
-	if _, err := f.declared(module, path, kindFile, ""); err != nil {
+	if _, err := f.declaredFile(module, path); err != nil {
 		return err
 	}
 	if err := ctx.Err(); err != nil {
@@ -355,9 +438,54 @@ func (f *Files) Remove(ctx context.Context, module, path string) error {
 	return f.cfg.Ownership.Forget(ctx, module, path, "")
 }
 
-// Rename renames a declared file to another declared file in its directory.
-func (f *Files) Rename(context.Context, string, string, string) error {
-	return fmt.Errorf("platform: %s is not built yet", "Rename")
+// Rename renames the declared file from to the declared file to in the same
+// directory, replacing to, so a binary swap is one atomic, durable step. It
+// records to before the rename and forgets from after it.
+func (f *Files) Rename(ctx context.Context, module, from, to string) error {
+	if _, err := f.declared(module, from, kindFile, ""); err != nil {
+		return err
+	}
+	if _, err := f.declared(module, to, kindFile, ""); err != nil {
+		return err
+	}
+	dir, fromName := filepath.Split(from)
+	toDir, toName := filepath.Split(to)
+	switch {
+	case dir != toDir:
+		return fmt.Errorf("platform: rename %s to %s: not in the same directory", from, to)
+	case from == to:
+		return fmt.Errorf("platform: rename %s onto itself", from)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// In path order, so two renames of the same pair cannot deadlock.
+	first, second := min(from, to), max(from, to)
+	defer f.lock(first)()
+	defer f.lock(second)()
+	fd, err := f.openDir(dir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = unix.Close(fd) }()
+	var st unix.Stat_t
+	if err := unix.Fstatat(fd, fromName, &st, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+		return fmt.Errorf("platform: rename %s: %w", from, err)
+	}
+	if st.Mode&unix.S_IFMT != unix.S_IFREG {
+		return fmt.Errorf("platform: rename %s: not a regular file", from)
+	}
+	entry := core.OwnedEntry{Path: to, Module: module, Kind: kindFile, CreatedAt: f.cfg.Clock.Now().UTC()}
+	if err := f.cfg.Ownership.Record(ctx, entry); err != nil {
+		return err
+	}
+	if err := unix.Renameat(fd, fromName, fd, toName); err != nil {
+		return fmt.Errorf("platform: rename %s to %s: %w", from, to, err)
+	}
+	if err := unix.Fsync(fd); err != nil {
+		return fmt.Errorf("platform: sync directory of %s: %w", to, err)
+	}
+	return f.cfg.Ownership.Forget(ctx, module, from, "")
 }
 
 // Owns reports whether the ownership store records path as module's, of any
