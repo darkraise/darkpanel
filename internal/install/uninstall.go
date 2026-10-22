@@ -37,11 +37,14 @@ type UninstallConfig struct {
 	// Modules are the compiled-in modules; each that implements
 	// core.Uninstaller runs its step.
 	Modules []core.Module
-	Systemd platform.Systemd
-	Exec    core.Runner
-	Users   Users
-	Clock   core.Clock
-	Log     *slog.Logger
+	// ModuleOptions are the --module-option values, by module id and
+	// option key; PlanUninstall checks them against the declared options.
+	ModuleOptions map[string]map[string]string
+	Systemd       platform.Systemd
+	Exec          core.Runner
+	Users         Users
+	Clock         core.Clock
+	Log           *slog.Logger
 	// FilesTestMode is platform.FilesConfig.TestMode: false in production.
 	FilesTestMode bool
 	// PollInterval and StopTimeout pace the wait for stopped services; zero
@@ -77,6 +80,10 @@ type Uninstall struct {
 	entries []core.OwnedEntry
 	steps   []uninstallStep
 	lockFD  int // the agent lock, -1 until taken
+	// options are each Uninstaller's options with every value filled, and
+	// optionLines their lines in the plan.
+	options     map[string]map[string]string
+	optionLines []string
 }
 
 type uninstallStep struct {
@@ -98,7 +105,11 @@ func PlanUninstall(ctx context.Context, cfg UninstallConfig) (*Uninstall, error)
 	if cfg.StopTimeout == 0 {
 		cfg.StopTimeout = StopTimeout
 	}
-	u := &Uninstall{cfg: cfg, lockFD: -1}
+	options, lines, err := moduleOptions(cfg.Modules, cfg.ModuleOptions)
+	if err != nil {
+		return nil, err
+	}
+	u := &Uninstall{cfg: cfg, lockFD: -1, options: options, optionLines: lines}
 	if err := u.load(ctx); err != nil {
 		_ = u.Close()
 		return nil, fmt.Errorf("install: plan uninstall: %w", err)
@@ -228,7 +239,7 @@ func (u *Uninstall) plan() []uninstallStep {
 			run: func(ctx context.Context) (string, error) { return u.stopServices(ctx, services) }},
 		{name: "agent lock", plan: []string{"make sure no agent runs (" + filepath.Join(l.Paths.AgentDir, AgentLockName) + ")"},
 			run: u.takeAgentLock},
-		{name: "modules", plan: []string{"run each module's uninstall step"}, run: u.runModules},
+		{name: "modules", plan: append([]string{"run each module's uninstall step"}, u.optionLines...), run: u.runModules},
 		{name: "marked blocks", plan: describe(blocks), run: func(ctx context.Context) (string, error) { return u.removeBlocks(ctx, blocks) }},
 		{name: "files", plan: describe(append(slices.Clone(files), dirs...)),
 			run: func(ctx context.Context) (string, error) { return u.removeFiles(ctx, files, dirs) }},
@@ -404,7 +415,7 @@ func (u *Uninstall) runModules(ctx context.Context) (string, error) {
 			continue
 		}
 		id := m.Manifest().ID
-		if err := un.Uninstall(ctx, env, u.cfg.KeepData, map[string]string{}); err != nil {
+		if err := un.Uninstall(ctx, env, u.cfg.KeepData, u.options[id]); err != nil {
 			return "", fmt.Errorf("module %s: %w", id, err)
 		}
 		ran = append(ran, id)
