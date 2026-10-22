@@ -115,6 +115,9 @@ func New(cfg Config) (*Engine, error) {
 			return nil, fmt.Errorf("lifecycle: Config.%s is required", r.name)
 		}
 	}
+	if err := checkRepairedBy(cfg); err != nil {
+		return nil, err
+	}
 	if cfg.SyncAnswer == 0 {
 		cfg.SyncAnswer = SyncAnswer
 	}
