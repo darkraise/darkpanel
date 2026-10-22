@@ -21,6 +21,7 @@ import (
 type Validator struct {
 	mu      sync.Mutex
 	schemas map[core.ActionRef]*jsonschema.Schema
+	types   typeNames // ValidateType's keys of bare types in schemas
 }
 
 // NewValidator returns an empty validator; schemas compile on first use.
