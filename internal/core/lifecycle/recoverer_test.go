@@ -392,6 +392,30 @@ func TestRecovererRepairRunsItAgain(t *testing.T) {
 	}
 }
 
+func TestRecovererRepairRefusesAnInput(t *testing.T) {
+	f, h := newRcvFixture(t)
+	ctx := context.Background()
+	h.script(core.RecoveryOutcome{}, errcode.New(errcode.Unavailable, "the package database is locked"))
+	v := f.rcvApply(refRcvFix, `{"name":"a","value":"1","failBefore":true}`)
+	if retry, _, _ := f.rcvFlags(v.ID); v.State != core.StateNeedsRepair || retry != 1 {
+		t.Fatalf("change = %s with recovery_retry %d, want needs_repair with it set", v.State, retry)
+	}
+	_, err := f.eng.Repair(ctx, alice, v.ID, core.RepairRequest{Input: json.RawMessage(`{"outcome":"keep"}`)})
+	if err == nil || errcode.From(err).Code != errcode.InvalidInput {
+		t.Fatalf("Repair with an input = %v, want %s", err, errcode.InvalidInput)
+	}
+	after, err := f.eng.Change(ctx, v.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retry, _, _ := f.rcvFlags(v.ID)
+	calls, _, _ := h.recovered()
+	if after.State != core.StateNeedsRepair || after.Owner != "" || retry != 1 || calls != 1 {
+		t.Errorf("after the refusal: %s owned by %q, recovery_retry %d, Recover calls %d; want needs_repair, unowned, 1, 1",
+			after.State, after.Owner, retry, calls)
+	}
+}
+
 func TestRecovererIgnoringItsContextKeepsTheChangeOwned(t *testing.T) {
 	f, h := newRcvFixture(t)
 	ctx := context.Background()
