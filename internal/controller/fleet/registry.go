@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/netip"
+	"slices"
 	"sync"
 	"time"
 
@@ -186,6 +188,22 @@ func (r *Registry) Client(_ context.Context, hostID string) (core.AgentClient, u
 		return nil, 0, errcode.New(errcode.HostOffline, fmt.Sprintf("host %s is offline", hostID))
 	}
 	return ls.client, ls.generation, nil
+}
+
+// Peers returns the source addresses of the live sessions, deduplicated and
+// sorted, IPv4-mapped addresses unmapped. A session whose connection has no
+// IP address has none.
+func (r *Registry) Peers() []netip.Addr {
+	r.mu.Lock()
+	var out []netip.Addr
+	for _, ls := range r.live {
+		if ap, err := netip.ParseAddrPort(ls.session.RemoteAddr().String()); err == nil {
+			out = append(out, ap.Addr().Unmap())
+		}
+	}
+	r.mu.Unlock()
+	slices.SortFunc(out, netip.Addr.Compare)
+	return slices.Compact(out)
 }
 
 // Disconnect closes hostID's live session, if any. A revoked or deleted

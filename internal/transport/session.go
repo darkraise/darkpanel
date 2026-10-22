@@ -118,6 +118,9 @@ func (s *Session) Accept() (net.Conn, error) {
 // Addr is the local address of the session's connection.
 func (s *Session) Addr() net.Addr { return s.mux.Addr() }
 
+// RemoteAddr is the peer's address of the session's connection.
+func (s *Session) RemoteAddr() net.Addr { return s.mux.RemoteAddr() }
+
 // Close ends the session, its streams and its connection.
 func (s *Session) Close() error { return s.mux.Close() }
 

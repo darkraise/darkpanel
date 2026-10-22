@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"slices"
 	"sync"
 	"testing"
@@ -453,4 +454,66 @@ func TestRegistryOnOnline(t *testing.T) {
 	session()
 	e.r.Close()
 	l.want(t, "H1 true", "H1 false", "H1 true", "H1 false", "H1 true", "H1 false")
+}
+
+// peerTCPPair returns the two ends of one session over a TCP connection on
+// 127.0.0.1, closed at the end of the test.
+func peerTCPPair(t *testing.T) (ctrl, agent *transport.Session) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	dialed, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := ln.Accept()
+	if err != nil {
+		_ = dialed.Close()
+		t.Fatal(err)
+	}
+	if ctrl, err = transport.ControllerSession(conn); err != nil {
+		t.Fatal(err)
+	}
+	if agent, err = transport.AgentSession(dialed); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = ctrl.Close()
+		_ = agent.Close()
+	})
+	return ctrl, agent
+}
+
+// peerRegister enrolls hostID with a certificate and registers s as its
+// session.
+func (e *registryEnv) peerRegister(t *testing.T, hostID string, s *transport.Session) {
+	t.Helper()
+	addHost(t, e.db, hostID, core.HostEnrolled)
+	serial := transport.SerialText(issue(t, e.a, e.db, hostID).SerialNumber)
+	if err := e.r.Register(context.Background(), hostID, serial, s); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRegistryPeers(t *testing.T) {
+	e := newRegistry(t, transport.HeartbeatConfig{Interval: time.Hour})
+	if got := e.r.Peers(); len(got) != 0 {
+		t.Fatalf("Peers without a session = %v, want none", got)
+	}
+	ctrl1, agent1 := peerTCPPair(t)
+	ctrl2, agent2 := peerTCPPair(t)
+	pipe, pipeAgent := livePair(t)
+	e.register(t, ctrl1)
+	e.peerRegister(t, "H2", ctrl2)
+	e.peerRegister(t, "H3", pipe)
+	if got, want := e.r.Peers(), []netip.Addr{netip.MustParseAddr("127.0.0.1")}; !slices.Equal(got, want) {
+		t.Errorf("Peers = %v, want %v: the two TCP sessions once and no address for the pipe", got, want)
+	}
+	for _, s := range []*transport.Session{agent1, agent2, pipeAgent} {
+		_ = s.Close()
+	}
+	eventually(t, "the ended sessions to leave the registry", func() bool { return len(e.r.Peers()) == 0 })
 }

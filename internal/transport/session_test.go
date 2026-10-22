@@ -295,3 +295,28 @@ func TestSessionClosed(t *testing.T) {
 		t.Fatal("the peer did not see the session close")
 	}
 }
+
+func TestSessionRemoteAddr(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	dialed, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = dialed.Close() })
+	conn, err := ln.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctrl, err := ControllerSession(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ctrl.Close() })
+	if got, want := ctrl.RemoteAddr().String(), dialed.LocalAddr().String(); got != want {
+		t.Errorf("RemoteAddr = %s, want the agent end's address %s", got, want)
+	}
+}
