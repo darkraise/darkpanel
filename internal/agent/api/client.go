@@ -43,7 +43,10 @@ type Client struct {
 	http *http.Client
 }
 
-var _ core.AgentClient = (*Client)(nil)
+var (
+	_ core.AgentClient    = (*Client)(nil)
+	_ core.AgentChangeOps = (*Client)(nil)
+)
 
 // NewClient returns a client for cfg. Requests end with their context; the
 // client sets no timeout of its own.
@@ -69,9 +72,10 @@ type request struct {
 	hello        bool
 }
 
-// do sends req and decodes a 2xx answer into out (nil discards it). An
-// answer in problem details becomes an *errcode.Error with the agent's code,
-// detail and field errors.
+// do sends req and decodes a 2xx answer into out (nil discards it); 202 is
+// an answer like 200, and 204 has nothing to decode. An answer in problem
+// details becomes an *errcode.Error with the agent's code, detail and field
+// errors.
 func (c *Client) do(ctx context.Context, req request, out any) error {
 	what := req.method + " " + req.path
 	var body io.Reader
@@ -138,7 +142,7 @@ func (c *Client) do(ctx context.Context, req request, out any) error {
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return answerError(what, resp, data)
 	}
-	if out == nil {
+	if out == nil || resp.StatusCode == http.StatusNoContent {
 		return nil
 	}
 	if err := json.Unmarshal(data, out); err != nil {
@@ -290,4 +294,99 @@ func (c *Client) Journal(ctx context.Context, afterSeq int64, limit int) ([]core
 // Ack tells the agent the controller stored the journal up to seq.
 func (c *Client) Ack(ctx context.Context, seq int64) error {
 	return c.do(ctx, request{method: http.MethodPost, path: "journal/ack", body: wire.Ack{Seq: seq}}, nil)
+}
+
+// changeOpPath is the route of op on change changeID.
+func changeOpPath(changeID, op string) string {
+	return "changes/" + url.PathEscape(changeID) + "/" + op
+}
+
+// Undo undoes a change; call, when set, travels as Darkpanel-Call. The agent
+// answers 202 with the change undoing, or 200 when it is already reverted.
+func (c *Client) Undo(ctx context.Context, p core.Principal, changeID string, call *core.CallContext) (core.ChangeView, error) {
+	return c.change(ctx, request{method: http.MethodPost, path: changeOpPath(changeID, "undo"), principal: &p, call: call})
+}
+
+// Repair repairs a change in needs_repair: the answer holds the change the
+// repair started or the plan it made.
+func (c *Client) Repair(ctx context.Context, p core.Principal, changeID string, req core.RepairRequest) (core.RepairResult, error) {
+	var res wire.RepairResult
+	if err := c.do(ctx, request{method: http.MethodPost, path: changeOpPath(changeID, "repair"), principal: &p, body: req}, &res); err != nil {
+		return core.RepairResult{}, err
+	}
+	return res.Core(), nil
+}
+
+// Release gives up a change in needs_repair; call, when set, travels as
+// Darkpanel-Call.
+func (c *Client) Release(ctx context.Context, p core.Principal, changeID, reason string, call *core.CallContext) (core.ReleaseResult, error) {
+	var res wire.ReleaseResult
+	req := request{method: http.MethodPost, path: changeOpPath(changeID, "release"), principal: &p, call: call,
+		body: wire.Release{Reason: reason}}
+	if err := c.do(ctx, req, &res); err != nil {
+		return core.ReleaseResult{}, err
+	}
+	return res.Core(), nil
+}
+
+// Effects lists a change's effects.
+func (c *Client) Effects(ctx context.Context, p core.Principal, changeID string) ([]core.EffectView, error) {
+	var res wire.Effects
+	if err := c.do(ctx, request{method: http.MethodGet, path: changeOpPath(changeID, "effects"), principal: &p}, &res); err != nil {
+		return nil, err
+	}
+	return res.Effects, nil
+}
+
+// Observe reads one effect's resource now.
+func (c *Client) Observe(ctx context.Context, p core.Principal, changeID string, seq int) (core.ObserveResult, error) {
+	var res core.ObserveResult
+	path := changeOpPath(changeID, "effects/"+strconv.Itoa(seq)+"/observe")
+	if err := c.do(ctx, request{method: http.MethodGet, path: path, principal: &p}, &res); err != nil {
+		return core.ObserveResult{}, err
+	}
+	return res, nil
+}
+
+// Resolve resolves an unresolved effect.
+func (c *Client) Resolve(ctx context.Context, p core.Principal, changeID string, seq int, req core.ResolveRequest) (core.EffectView, error) {
+	var res core.EffectView
+	path := changeOpPath(changeID, "effects/"+strconv.Itoa(seq)+"/resolve")
+	if err := c.do(ctx, request{method: http.MethodPost, path: path, principal: &p, body: req}, &res); err != nil {
+		return core.EffectView{}, err
+	}
+	return res, nil
+}
+
+// Lookup reports what became of a plan; private asks for a child change's
+// unredacted output too.
+func (c *Client) Lookup(ctx context.Context, planID string, private bool) (core.PlanLookup, error) {
+	var q url.Values
+	if private {
+		q = url.Values{"private": {"1"}}
+	}
+	var res core.PlanLookup
+	if err := c.do(ctx, request{method: http.MethodGet, path: "plans/" + url.PathEscape(planID), query: q}, &res); err != nil {
+		return core.PlanLookup{}, err
+	}
+	return res, nil
+}
+
+// Retire marks a plan without a change as never to be applied.
+func (c *Client) Retire(ctx context.Context, planID string) (core.PlanLookup, error) {
+	var res core.PlanLookup
+	if err := c.do(ctx, request{method: http.MethodPost, path: "plans/" + url.PathEscape(planID) + "/retire"}, &res); err != nil {
+		return core.PlanLookup{}, err
+	}
+	return res, nil
+}
+
+// AckPrivate tells the agent the composite sealed a change's private output;
+// final says the composite is terminal.
+func (c *Client) AckPrivate(ctx context.Context, changeID string, final bool) error {
+	req := request{method: http.MethodPost, path: changeOpPath(changeID, "private-output/ack")}
+	if final {
+		req.body = wire.AckPrivate{Final: true}
+	}
+	return c.do(ctx, req, nil)
 }

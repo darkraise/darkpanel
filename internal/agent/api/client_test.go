@@ -2,8 +2,10 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -344,5 +346,147 @@ func TestClientOverSession(t *testing.T) {
 	close(errs)
 	for err := range errs {
 		t.Errorf("concurrent hello: %v", err)
+	}
+}
+
+func TestClientChangeOps(t *testing.T) {
+	ctx := context.Background()
+	deadline := testTime.Add(2 * time.Minute)
+	change := core.ChangeView{ID: "c1", HostID: "h1", Action: "demo.set", Version: 1, Actor: "user:u1",
+		Class: core.ClassCompensable, State: core.StateNeedsRepair, CreatedAt: testTime, UpdatedAt: testTime,
+		ParentChangeID: "01COMP", Owner: core.OwnerRepair, RepairedBy: "c2", RepairOutcome: core.RepairKept,
+		Override: json.RawMessage(`{"guard":"firewall.lockout"}`),
+		Error:    &core.ChangeError{Code: "core.needs_repair", Message: "effect 2 is unresolved", Cause: "change.revert_failed"}}
+	effect := core.EffectView{ChangeID: "c1", Seq: 2, Kind: core.EffectCreate, Resource: "demo.item:i1", Local: true,
+		CommitBy: &deadline, State: core.EffectUnresolved, Reason: core.ReasonAmbiguous,
+		Before:  core.StateDoc{State: json.RawMessage(`null`)},
+		After:   &core.StateDoc{State: json.RawMessage(`{"n":1}`)},
+		Current: &core.StateDoc{State: json.RawMessage(`{"n":2}`), Version: json.RawMessage(`{"etag":"e2"}`)}}
+	observed := core.ObserveResult{Effect: effect, Allowed: []string{core.ResolutionReconcile},
+		Observation: core.ObservationView{Current: core.StateDoc{State: json.RawMessage(`{"n":2}`)}, Matches: 2,
+			Candidates: []core.Candidate{
+				{Resource: "demo.item:i2", State: core.StateDoc{State: json.RawMessage(`{"n":2}`)}},
+				{Resource: "demo.item:i3", State: core.StateDoc{State: json.RawMessage(`{"n":3}`)}},
+			}}}
+	lookup := core.PlanLookup{Status: core.LookupTerminal, ChangeID: "c1", State: core.StateCompleted, Deadline: &deadline,
+		Made: 1, RepairOutcome: core.RepairRestored, Output: json.RawMessage(`{"id":"i1"}`),
+		Private: json.RawMessage(`{"token":"s3"}`), Error: &core.ChangeError{Code: "core.child_failed", Message: "step db failed"}}
+	release := core.ReleaseResult{Change: change, Abandoned: []core.EffectView{effect}}
+	call := &core.CallContext{ParentChangeID: "01COMP", ParentAction: "cfx.deploy.add", StepID: "db"}
+
+	// The agent side is a mux written here, so this test checks the client
+	// and the wire views alone.
+	type seen struct{ route, query, body, call, principal string }
+	var mu sync.Mutex
+	var got []seen
+	mux := http.NewServeMux()
+	answer := func(pattern string, status int, v any) {
+		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Error(err)
+			}
+			mu.Lock()
+			got = append(got, seen{route: r.Method + " " + r.URL.Path, query: r.URL.RawQuery, body: string(body),
+				call: r.Header.Get(wire.HeaderCall), principal: r.Header.Get(wire.HeaderPrincipal)})
+			mu.Unlock()
+			if v == nil {
+				w.WriteHeader(status)
+				return
+			}
+			b, err := json.Marshal(v)
+			if err != nil {
+				t.Error(err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(status)
+			_, _ = w.Write(b)
+		})
+	}
+	answer("POST /agent/v1/changes/c1/undo", http.StatusAccepted, wire.FromChangeView(change))
+	answer("POST /agent/v1/changes/c1/repair", http.StatusOK, wire.FromRepairResult(core.RepairResult{Plan: &testPlan}))
+	answer("POST /agent/v1/changes/c2/repair", http.StatusAccepted, wire.FromRepairResult(core.RepairResult{Change: &change}))
+	answer("POST /agent/v1/changes/c1/release", http.StatusOK, wire.FromReleaseResult(release))
+	answer("GET /agent/v1/changes/c1/effects", http.StatusOK, wire.Effects{Effects: []core.EffectView{effect}})
+	answer("GET /agent/v1/changes/c1/effects/2/observe", http.StatusOK, observed)
+	answer("POST /agent/v1/changes/c1/effects/2/resolve", http.StatusOK, effect)
+	answer("GET /agent/v1/plans/p1", http.StatusOK, lookup)
+	answer("POST /agent/v1/plans/p1/retire", http.StatusOK, core.PlanLookup{Status: core.LookupRetired})
+	answer("POST /agent/v1/changes/c1/private-output/ack", http.StatusNoContent, nil)
+	mux.HandleFunc("POST /agent/v1/plans/gone/retire", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", problemContentType)
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"type":"about:blank","title":"Plan not found","status":404,"detail":"no plan gone","code":"plan.not_found"}`))
+	})
+	c := tcpClient(t, mux, nil)
+
+	if v, err := c.Undo(ctx, testPrincipal, "c1", call); err != nil || !reflect.DeepEqual(v, change) {
+		t.Errorf("Undo = %+v, %v", v, err)
+	}
+	res, err := c.Repair(ctx, testPrincipal, "c1", core.RepairRequest{Input: json.RawMessage(`{"outcome":"keep"}`)})
+	if err != nil || res.Change != nil || res.Plan == nil || !reflect.DeepEqual(*res.Plan, testPlan) {
+		t.Errorf("Repair answered with a plan = %+v, %v", res, err)
+	}
+	res, err = c.Repair(ctx, testPrincipal, "c2", core.RepairRequest{Step: "db", As: "reverted"})
+	if err != nil || res.Plan != nil || res.Change == nil || !reflect.DeepEqual(*res.Change, change) {
+		t.Errorf("Repair answered with a change = %+v, %v", res, err)
+	}
+	if rel, err := c.Release(ctx, testPrincipal, "c1", "host rebuilt", nil); err != nil || !reflect.DeepEqual(rel, release) {
+		t.Errorf("Release = %+v, %v", rel, err)
+	}
+	if es, err := c.Effects(ctx, testPrincipal, "c1"); err != nil || !reflect.DeepEqual(es, []core.EffectView{effect}) {
+		t.Errorf("Effects = %+v, %v", es, err)
+	}
+	if o, err := c.Observe(ctx, testPrincipal, "c1", 2); err != nil || !reflect.DeepEqual(o, observed) {
+		t.Errorf("Observe = %+v, %v", o, err)
+	}
+	resolved, err := c.Resolve(ctx, testPrincipal, "c1", 2, core.ResolveRequest{Resolution: core.ResolutionReconcile, Resource: "demo.item:i2"})
+	if err != nil || !reflect.DeepEqual(resolved, effect) {
+		t.Errorf("Resolve = %+v, %v", resolved, err)
+	}
+	if lk, err := c.Lookup(ctx, "p1", true); err != nil || !reflect.DeepEqual(lk, lookup) {
+		t.Errorf("Lookup = %+v, %v", lk, err)
+	}
+	if _, err := c.Lookup(ctx, "p1", false); err != nil {
+		t.Errorf("Lookup without private: %v", err)
+	}
+	if lk, err := c.Retire(ctx, "p1"); err != nil || lk.Status != core.LookupRetired {
+		t.Errorf("Retire = %+v, %v", lk, err)
+	}
+	if err := c.AckPrivate(ctx, "c1", false); err != nil {
+		t.Errorf("AckPrivate: %v", err)
+	}
+	if err := c.AckPrivate(ctx, "c1", true); err != nil {
+		t.Errorf("final AckPrivate: %v", err)
+	}
+	_, err = c.Retire(ctx, "gone")
+	var e *errcode.Error
+	if !errors.As(err, &e) || e.Code != errcode.PlanNotFound || e.Detail != "no plan gone" {
+		t.Errorf("Retire of an unknown plan = %v, want plan.not_found with its detail", err)
+	}
+
+	principal := principalHeader(t, testPrincipal)
+	// The header is the call's JSON in base64url without padding (spec 1.5).
+	callHeader := base64.RawURLEncoding.EncodeToString(
+		[]byte(`{"parentChangeId":"01COMP","parentAction":"cfx.deploy.add","stepId":"db","retired":null}`))
+	want := []seen{
+		{route: "POST /agent/v1/changes/c1/undo", call: callHeader, principal: principal},
+		{route: "POST /agent/v1/changes/c1/repair", body: `{"input":{"outcome":"keep"}}`, principal: principal},
+		{route: "POST /agent/v1/changes/c2/repair", body: `{"step":"db","as":"reverted"}`, principal: principal},
+		{route: "POST /agent/v1/changes/c1/release", body: `{"reason":"host rebuilt"}`, principal: principal},
+		{route: "GET /agent/v1/changes/c1/effects", principal: principal},
+		{route: "GET /agent/v1/changes/c1/effects/2/observe", principal: principal},
+		{route: "POST /agent/v1/changes/c1/effects/2/resolve", body: `{"resolution":"reconcile","resource":"demo.item:i2"}`,
+			principal: principal},
+		{route: "GET /agent/v1/plans/p1", query: "private=1"},
+		{route: "GET /agent/v1/plans/p1"},
+		{route: "POST /agent/v1/plans/p1/retire"},
+		{route: "POST /agent/v1/changes/c1/private-output/ack"},
+		{route: "POST /agent/v1/changes/c1/private-output/ack", body: `{"final":true}`},
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("requests\n got %+v\nwant %+v", got, want)
 	}
 }
