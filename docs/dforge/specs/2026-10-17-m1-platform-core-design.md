@@ -2,9 +2,9 @@
 
 **Date:** 2026-10-17
 **Status:** design approved by the owner 2026-10-17; revised for the Fable
-review (docs/superpowers/findings/2026-10-17-m1-platform-core-review.md),
+review (docs/dforge/findings/2026-10-17-m1-platform-core-review.md),
 whose recommendations the owner accepted on 2026-10-17
-**Product spec:** docs/superpowers/specs/2026-10-17-darkpanel-design.md
+**Product spec:** docs/dforge/specs/2026-10-17-darkpanel-design.md
 **Requirements:** R5–R21
 **Execution strategy:** parallel — one foundation part fixes every shared
 type, interface, dependency and file layout first; then the secrets, platform,
@@ -1014,7 +1014,7 @@ skips the VM tests (amended 2026-10-19 at plan time):
   `go vet -tags harness ./test/...` and the tests with a 45-minute timeout, and
   uploads console logs on failure. Third-party actions are pinned by commit SHA
   as in `ci.yml`.
-- **Gate.** `docs/superpowers/gates.md` gains gate 7, "Harness green", the same
+- **Gate.** `docs/dforge/gates.md` gains gate 7, "Harness green", the same
   shape as gate 6 for `harness.yml` (its `gh run list --branch --commit`
   query finds `workflow_dispatch` runs as well as push runs), applying on
   `main` and on any branch whose diff touches `test/harness/` or
@@ -1082,7 +1082,7 @@ their traceability rows:
 | P5 Identity | 1 | `internal/controller/auth/`, `migrations/controller/0003_identity.sql` | P0 |
 | P6 Host-info | 1 | `internal/modules/hostinfo/` | P0 |
 | P7 Web UI | 1 | everything under `web/` except `embed.go`, `embed_test.go`, `dist/.gitkeep` | section 12 |
-| P8 Harness | 1 | `test/harness/`, `.github/workflows/harness.yml`, `docs/superpowers/gates.md` | `Makefile` build targets |
+| P8 Harness | 1 | `test/harness/`, `.github/workflows/harness.yml`, `docs/dforge/gates.md` | `Makefile` build targets |
 | P9 HTTP API | 2 | `internal/controller/api/` (routes, authentication middleware, problem details, headers, static UI, controller socket) | P3, P5, P0 `Dispatcher` and `Audit` (fakes in tests) |
 | P10 Listeners | 2 | `internal/controller/listen/` (listener set, Tailscale watcher, web authority and leaf) | P1, P0 store |
 | P11 Dispatch | 2 | `internal/controller/dispatch/`, `internal/agent/`, `internal/controller/audit/` (audit store, controller `Journal`, ingester), `migrations/controller/0004_audit.sql` | P1, P3, P4 |

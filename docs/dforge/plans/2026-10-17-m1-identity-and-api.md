@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go 1.27.2, modernc.org/sqlite v1.60.1, github.com/oklog/ulid/v2 v2.1.2, golang.org/x/crypto v0.58.0 (argon2id), golang.org/x/sys v0.49.0 (`SO_PEERCRED`, `IP_FREEBIND`), the standard library (`net/http`, `crypto/ecdsa`, `crypto/tls`, `crypto/x509`), golangci-lint v2.15.0, GNU make.
 
-**Spec:** docs/superpowers/specs/2026-10-17-m1-platform-core-design.md
+**Spec:** docs/dforge/specs/2026-10-17-m1-platform-core-design.md
 
 **Execution:** subagent — `claude --model sonnet --effort high` — the plan runs parallel waves.
 
@@ -27,7 +27,7 @@
 - Every `go` command runs with `GOTOOLCHAIN=local` (ADR 0001). The `Makefile` exports it; a `go` command typed outside `make` is prefixed with it, as every step here does.
 - A task edits only the files in its own `**Files:**` block.
 - In a waves run every task executes in its own git worktree created by the controller and commits only there; the controller merges a wave's worktrees before starting the next wave.
-- `**Items:**` numbers are row numbers of the register `docs/superpowers/registers/2026-10-17-m1-platform-core.md`.
+- `**Items:**` numbers are row numbers of the register `docs/dforge/registers/2026-10-17-m1-platform-core.md`.
 - Test isolation (spec "Parallel decomposition"): every Go test uses `t.TempDir()` for databases, keys and files, binds only port `0` on `127.0.0.1` (the one IPv6 loopback bind in the listener tests skips with a reason where the host has none), builds socket paths with `os.MkdirTemp("", "dp")` (Unix socket paths are limited to 108 bytes), writes no fixed path outside its temporary directory, and uses `coretest.FakeClock` for timers, expiry and rate-limit windows. No test in this plan shares a file, port or database with another task's tests.
 - `golangci-lint run` reports `0 issues.` after every task: every exported identifier has a doc comment (revive), files are `gofmt`- and `goimports`-clean, and a `//nolint` carries the rule and a reason, as the code below shows. Tasks of one wave lint at the same time and golangci-lint guards its cache with one lock file, so every `golangci-lint run ./...` a step gives runs as `golangci-lint run --allow-serial-runners ./...` and the step's own `timeout` stays.
 - Every build and test command carries an explicit `timeout`.
@@ -55,7 +55,7 @@
 
 ## Contracts
 
-The foundation's names (`core`, `store`, `errcode`, `coretest`, `buildinfo`, `registry`, `paths`) are those of `docs/superpowers/plans/2026-10-17-m1-platform-foundation.md` › Contracts, and plan 2's (`secret`, `platform`, `schema`, `lifecycle`, `hostinfo`) those of `docs/superpowers/plans/2026-10-17-m1-framework-libraries.md` › Contracts, both as merged on `main`; where a document and the merged code differ, the code wins. This plan adds the following; plan 4 codes against them. Part labels P5 (identity), P10 (listeners), P9 (HTTP API) and P12 (core actions) are the spec's "Parallel decomposition" parts.
+The foundation's names (`core`, `store`, `errcode`, `coretest`, `buildinfo`, `registry`, `paths`) are those of `docs/dforge/plans/2026-10-17-m1-platform-foundation.md` › Contracts, and plan 2's (`secret`, `platform`, `schema`, `lifecycle`, `hostinfo`) those of `docs/dforge/plans/2026-10-17-m1-framework-libraries.md` › Contracts, both as merged on `main`; where a document and the merged code differ, the code wins. This plan adds the following; plan 4 codes against them. Part labels P5 (identity), P10 (listeners), P9 (HTTP API) and P12 (core actions) are the spec's "Parallel decomposition" parts.
 
 Part P5 adds package `internal/controller/auth` and the controller migration `internal/core/store/migrations/controller/0003_identity.sql`. P9 (HTTP API), P12 (core actions) and P14 (assembly) code against the exported names below; the unexported names are listed because later tasks of this part consume them.
 

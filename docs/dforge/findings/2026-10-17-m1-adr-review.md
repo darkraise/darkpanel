@@ -1,17 +1,17 @@
 # Review of the M1 ADRs and open design questions
 
 **Date:** 2026-10-17
-**Reviewed:** docs/adr/ at f11e813, with register rows 12-14 of docs/superpowers/registers/2026-10-17-m1-adr.md
+**Reviewed:** docs/adr/ at f11e813, with register rows 12-14 of docs/dforge/registers/2026-10-17-m1-adr.md
 **Reviewer:** Fable 5.1 (`dr-superpowers:judge-fable`)
 **Outcome:** the owner accepted every recommendation on 2026-10-17; applied on branch docs/adr-review-fixes.
 
 **Outcome:** every Part A gap is real except none; four of them (D3, D4, D8, D12) are one problem and get one combined resolution. No ADR needs rejecting; 0003, 0004, 0005, 0006, 0007, 0009 and the README need named fixes before acceptance. Part B adds one Critical finding (an old binary cannot start on a migrated database as the ADRs are written, which defeats rollback) and several Important ones that M2 install and self-update need.
 
 Path labels used below (all under `/root/repositories/darkpanel/`):
-- `spec` = `docs/superpowers/specs/2026-10-17-darkpanel-design.md`
-- `adrspec` = `docs/superpowers/specs/2026-10-17-m1-architecture-decisions-design.md`
+- `spec` = `docs/dforge/specs/2026-10-17-darkpanel-design.md`
+- `adrspec` = `docs/dforge/specs/2026-10-17-m1-architecture-decisions-design.md`
 - `README` = `docs/adr/README.md`; `0001`..`0009` = `docs/adr/000N-*.md`
-- `register` = `docs/superpowers/registers/2026-10-17-m1-adr.md`
+- `register` = `docs/dforge/registers/2026-10-17-m1-adr.md`
 
 ---
 

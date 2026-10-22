@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go 1.27.3 (standard library, `modernc.org/sqlite`, `github.com/oklog/ulid/v2`), React 19 with react-router, TanStack Query and darkraise-ui, vitest and Testing Library, GNU make.
 
-**Spec:** docs/superpowers/specs/2026-10-21-m1-audit-fixes-design.md
+**Spec:** docs/dforge/specs/2026-10-21-m1-audit-fixes-design.md
 
 **Execution:** subagent — `claude --model sonnet --effort high` — the plan runs parallel waves
 
@@ -4179,7 +4179,7 @@ git commit -m "feat(web): show journal ingestion health"
 **Implementer:** dr-superpowers:impl-sonnet-medium
 **Evaluation:** files 1 - spec 2 - coupling 0 - risk 0 = 3
 
-Plan `docs/superpowers/plans/2026-10-18-m1-dispatch-cli-and-assembly.md` (Tasks 2-34) wrote these test files. Its review ledger listed test-hygiene gaps and was never committed, so this task re-derives them with the checklist below. Earlier tasks of this plan edited some of these files; work on them as they are on your branch.
+Plan `docs/dforge/plans/2026-10-18-m1-dispatch-cli-and-assembly.md` (Tasks 2-34) wrote these test files. Its review ledger listed test-hygiene gaps and was never committed, so this task re-derives them with the checklist below. Earlier tasks of this plan edited some of these files; work on them as they are on your branch.
 
 **Checklist.** Fix each finding in the test file itself; this task changes no production code.
 
@@ -4255,7 +4255,7 @@ git commit -m "test(core): fix test hygiene gaps" -m "<findings>"
 **Implementer:** dr-superpowers:impl-sonnet-medium
 **Evaluation:** files 1 - spec 2 - coupling 0 - risk 0 = 3
 
-Plan `docs/superpowers/plans/2026-10-18-m1-dispatch-cli-and-assembly.md` (Tasks 2-34) wrote the `cli` and `agent/runtime` test files. Its review ledger listed test-hygiene gaps and was never committed, so this task re-derives them with the checklist below. The four `server` and `listen` files carry known findings for check 1: `internal/controller/server/listeners_test.go:98,101,105` (`http.DefaultClient`), `internal/controller/server/e2e_test.go:89`, `internal/controller/server/server_test.go:445` and `internal/controller/listen/service_test.go:157`. Review those four files fully too. Line numbers may have moved; find the sites by their content.
+Plan `docs/dforge/plans/2026-10-18-m1-dispatch-cli-and-assembly.md` (Tasks 2-34) wrote the `cli` and `agent/runtime` test files. Its review ledger listed test-hygiene gaps and was never committed, so this task re-derives them with the checklist below. The four `server` and `listen` files carry known findings for check 1: `internal/controller/server/listeners_test.go:98,101,105` (`http.DefaultClient`), `internal/controller/server/e2e_test.go:89`, `internal/controller/server/server_test.go:445` and `internal/controller/listen/service_test.go:157`. Review those four files fully too. Line numbers may have moved; find the sites by their content.
 
 **Checklist.** Fix each finding in the test file itself; this task changes no production code.
 

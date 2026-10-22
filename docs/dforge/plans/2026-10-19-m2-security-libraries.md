@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go 1.27 (`GOTOOLCHAIN=local`), `crypto/tls` (TLS 1.3 only), `crypto/ed25519`, `crypto/x509`, `github.com/hashicorp/yamux` v0.1.2, `aead.dev/minisign` v0.3.0, `modernc.org/sqlite` through `internal/core/store`, `golang.org/x/sys/unix` (flock), `github.com/oklog/ulid/v2`.
 
-**Spec:** docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md
+**Spec:** docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md
 
 **Execution:** subagent — `claude --model sonnet --effort high` — the plan runs parallel waves
 
@@ -38,7 +38,7 @@
 
 ## Contracts
 
-Every name below is produced by exactly one task and consumed as written. Later M2 parts (P8 fleet service, P9 host actions, P10 agent daemon, P11 update actions and rollout, P12 assembly) consume them too. Foundation contracts are cited as F-C<n> (`docs/superpowers/plans/2026-10-19-m2-foundation.md`, Contracts).
+Every name below is produced by exactly one task and consumed as written. Later M2 parts (P8 fleet service, P9 host actions, P10 agent daemon, P11 update actions and rollout, P12 assembly) consume them too. Foundation contracts are cited as F-C<n> (`docs/dforge/plans/2026-10-19-m2-foundation.md`, Contracts).
 
 **C1. Fleet migration (Task 10), `internal/core/store/migrations/controller/0005_fleet.sql`.**
 
@@ -628,7 +628,7 @@ func (u *Updater) Recover(ctx context.Context, mode RecoverMode, tx string) erro
 - The token format and the enrollment and renewal bodies live in `internal/transport` (C2) rather than in `internal/controller/fleet`, because the agent daemon (P10) parses tokens and sends the bodies and must not import a controller package; the spec assigns the format to section 3 and no file owner.
 - The enrollment rate limiter (C10) is in `internal/controller/fleet/tokens_limit.go`: spec section 3 states the limits beside token consumption, and the file matches P1's `tokens*.go` ownership. The enrollment endpoint (P8) calls `Allow`.
 - A record's `steps` holds each step's version with its index entry's channel (C14), not versions alone, because each step's signature must be checked against its selected entry's channel (spec section 8, Channels) and the runner of a later step has no index entry otherwise.
-- The M2 core register's rows 1-15, 17, 18 and 21 (`docs/superpowers/registers/2026-10-19-m2-fleet-lifecycle-core.md`) are each discharged across several parts and their acceptance includes harness scenarios, so they stay assigned to the spec and close with the assembly and harness plan; no task here carries an `**Items:**` line, which is the one plan-lint warning about registers.
+- The M2 core register's rows 1-15, 17, 18 and 21 (`docs/dforge/registers/2026-10-19-m2-fleet-lifecycle-core.md`) are each discharged across several parts and their acceptance includes harness scenarios, so they stay assigned to the spec and close with the assembly and harness plan; no task here carries an `**Items:**` line, which is the one plan-lint warning about registers.
 - Codex is off this session (`codex-gate usable=false reason=plugin-not-enabled`, 2026-10-19), so no task carries an `**Executor:**` line and plan review runs on `dr-superpowers:judge-opus`.
 - Every task's code was dry-run before it was written into this plan: implemented in a scratch worktree from `65ae6b9`, with its tests, `go vet`, `golangci-lint` and `go mod tidy -diff` passing, on 2026-10-19. Each part's bullets below record what the dry run settled.
 

@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-17
 **Status:** design approved by the owner 2026-10-17
-**Product spec:** docs/superpowers/specs/2026-10-17-darkpanel-design.md
+**Product spec:** docs/dforge/specs/2026-10-17-darkpanel-design.md
 **Requirements:** R2, R3, R4
 **Execution strategy:** parallel — the Go foundation and the web scaffold each own a dependency manifest and run alone; the repository documents, the gates manifest and the CI workflow share no files and run together (owner ruling 2026-10-17: favour parallel to reach v1 sooner).
 
@@ -189,7 +189,7 @@ exact (no ranges) in `go.mod` and `web/package.json`.
 
 ### 4. Gates manifest
 
-`docs/superpowers/gates.md`, in the format of dr-superpowers running-gates:
+`docs/dforge/gates.md`, in the format of dr-superpowers running-gates:
 
 1. ADR records — `bash scripts/check-adrs.test.sh && bash scripts/check-adrs.sh --complete`
 2. Lint — `make lint`
@@ -237,7 +237,7 @@ is the evidence for M1's exit criterion "CI and gates green".
 | Go foundation | 1 | `go.mod`, `go.sum`, `cmd/darkpanel/`, `web/embed.go`, `web/embed_test.go`, `web/dist/.gitkeep`, `Makefile`, `.golangci.yml`, `.gitignore`, `.editorconfig`; host toolchain install | this spec |
 | Web scaffold | 2 | every other file under `web/` | the `Makefile` targets and `.gitignore` from wave 1 |
 | Repository documents | 3 | `LICENSE`, `README.md`, `CONTRIBUTING.md`, `SECURITY.md` | Makefile target names |
-| Gates manifest | 3 | `docs/superpowers/gates.md` | Makefile target names |
+| Gates manifest | 3 | `docs/dforge/gates.md` | Makefile target names |
 | CI workflow | 3 | `.github/workflows/ci.yml` | Makefile target names, `web/package.json` |
 | Push | after wave 3 | nothing new | everything |
 
@@ -255,7 +255,7 @@ Tests use no ports, databases or fixed paths outside each worktree; Vitest and
 - `bin/darkpanel-linux-amd64 version` prints the `git describe` version.
 - The CI run on the pushed `main` commit concludes `success` with all four
   jobs.
-- `docs/superpowers/gates.md` follows the running-gates format and every gate's
+- `docs/dforge/gates.md` follows the running-gates format and every gate's
   command passes.
 
 ## Rejected alternatives

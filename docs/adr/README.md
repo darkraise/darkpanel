@@ -1,7 +1,7 @@
 # Architecture decision records
 
 Decisions every Darkpanel epic builds on. Source design:
-`docs/superpowers/specs/2026-10-17-m1-architecture-decisions-design.md`.
+`docs/dforge/specs/2026-10-17-m1-architecture-decisions-design.md`.
 Check the files with `bash scripts/check-adrs.sh --complete`.
 
 ## Index

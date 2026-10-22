@@ -1,7 +1,7 @@
 # Review of the M1 architecture decisions spec
 
 **Date:** 2026-10-17
-**Reviewed:** docs/superpowers/specs/2026-10-17-m1-architecture-decisions-design.md at 2e5a914
+**Reviewed:** docs/dforge/specs/2026-10-17-m1-architecture-decisions-design.md at 2e5a914
 **Reviewers:** Fable 5.1 (`dr-superpowers:judge-fable`), Codex `gpt-6-astra` high, same brief
 **Raw counts:** Fable 2 critical, 6 high, 10 medium, 6 low/nit; Codex 16 high, 6 medium, 2 low.
 

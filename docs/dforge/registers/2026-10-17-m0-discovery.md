@@ -1,7 +1,7 @@
 # Darkpanel M0 register
 
 **Source:** roadmap
-**Covers:** docs/superpowers/specs/2026-10-17-darkpanel-design.md
+**Covers:** docs/dforge/specs/2026-10-17-darkpanel-design.md
 
 | # | Item | Assigned | Acceptance | State | Note |
 |---|---|---|---|---|---|

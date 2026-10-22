@@ -4,7 +4,7 @@
 **Status:** approved by the owner 2026-10-19, after a Fable design review
 and three Fable and Codex gpt-6-astra spec panel rounds (see the review log
 at the end)
-**Product spec:** docs/superpowers/specs/2026-10-17-darkpanel-design.md
+**Product spec:** docs/dforge/specs/2026-10-17-darkpanel-design.md
 **Requirements:** R22–R36, R80; M1 register rows 22, 23, 24, 49, 92
 **Execution strategy:** parallel — one foundation part fixes every shared
 type, interface, dependency, error code, path, data package and migration
@@ -925,7 +925,7 @@ milestone closes, the rule ADRs 0010 and 0011 follow for M1.
   (`make install-sh KEYS=harness`).
 - **Budget.** Each VM gets 2 GiB of memory. The job timeout rises to 120
   minutes and `go test` to 100 minutes; both are inferences, measured on the
-  first run and recorded in `docs/superpowers/gates.md`.
+  first run and recorded in `docs/dforge/gates.md`.
 - **Scenarios**, per OS, each a named subtest, with the version each host runs
   afterwards:
   1. install `N`: `install.sh --version N --role controller` on the
@@ -1022,7 +1022,7 @@ types in `internal/agent/wire`, `internal/update/trustedkeys`,
 | P10 Agent daemon | 2 | `internal/agent/daemon/` (dial loop, enrollment client, renewal, credential generations, `agent check`), `internal/agent/socket/`, `internal/agent/runtime/` (epoch, `controllerConnected`, the `core` module always loaded, pre-swap recovery and the lock sweep at start) | P2, P3, P5 |
 | P11 Update actions and rollout | 2 | `internal/update/actions.go`, `internal/controller/rollout/` (rollout actions, driver, scheduler), `migrations/controller/0007_rollout.sql` | P5, P0, P1's `core_host_update` table |
 | P12 Assembly | 3 | `internal/controller/server/`, `internal/controller/api/` (health detail fields), `cmd/darkpanel/` (`serve` flags, `agent`, `system install`, `uninstall`, `selftest`, `update run`, `update recover`, the `harnessbroken`, `harnesscrash` and `harnessmigration` build-tag files), `internal/cli/` (`--local`, the update local fallback), `internal/modules/modules.go`, registry wiring and filling `coreactions.Deps.Extra`, `schemas/` snapshots, end-to-end tests over a loopback transport, `README.md`, `CONTRIBUTING.md` | everything |
-| P13 Harness | 3, after P12 | `test/harness/`, `.github/workflows/harness.yml`, `docs/superpowers/gates.md` | P12, P6's Makefile targets |
+| P13 Harness | 3, after P12 | `test/harness/`, `.github/workflows/harness.yml`, `docs/dforge/gates.md` | P12, P6's Makefile targets |
 
 Migration paths are under `internal/core/store/`.
 

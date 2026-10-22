@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go 1.27.2, cobra v1.10.2, modernc.org/sqlite v1.60.1 (modernc.org/libc v1.77.1), golangci-lint v2.15.0, GNU make.
 
-**Spec:** docs/superpowers/specs/2026-10-17-m1-platform-core-design.md
+**Spec:** docs/dforge/specs/2026-10-17-m1-platform-core-design.md
 
 **Execution:** subagent — `claude --model sonnet --effort high` — the plan runs parallel waves.
 
@@ -27,7 +27,7 @@
 - Every `go` command runs with `GOTOOLCHAIN=local` (ADR 0001). The `Makefile` exports it; a `go` command typed outside `make` is prefixed with it, as every step here does.
 - A task edits only the files in its own `**Files:**` block. The one regenerated file is `go.sum`, written by `go mod tidy` in Task 1.
 - In a waves run every task executes in its own git worktree created by the controller and commits only there; the controller merges a wave's worktrees before starting the next wave.
-- `**Items:**` numbers are row numbers of the register `docs/superpowers/registers/2026-10-17-m1-platform-core.md`.
+- `**Items:**` numbers are row numbers of the register `docs/dforge/registers/2026-10-17-m1-platform-core.md`.
 - Test isolation (spec "Parallel decomposition"): every Go test uses `t.TempDir()` for databases, keys and directories, opens no port, writes no fixed path, and uses `coretest.FakeClock` for timers. No test in this plan shares a file, port or database with another task's tests.
 - `golangci-lint run` reports `0 issues.` after every task: every exported identifier has a doc comment (revive), files are `gofmt`- and `goimports`-clean, and a `//nolint` carries the rule and a reason, as the code below shows.
 - Every network, build and test command carries an explicit `timeout`.
@@ -2052,7 +2052,7 @@ Proposed
 ## Context
 
 The M1 platform core design
-(`docs/superpowers/specs/2026-10-17-m1-platform-core-design.md`) needs two
+(`docs/dforge/specs/2026-10-17-m1-platform-core-design.md`) needs two
 audit actors that the shared contracts do not define, top-level CLI commands
 for core actions that ADR 0006's reserved names do not cover, and packages
 that ADR 0001's layout does not name. Accepted ADRs are not edited, so the

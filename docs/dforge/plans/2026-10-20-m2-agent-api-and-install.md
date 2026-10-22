@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go 1.27 (`GOTOOLCHAIN=local`), `net/http` (`ServeMux` method patterns), `text/template` and `embed`, `golang.org/x/sys/unix` (flock), `modernc.org/sqlite` through `internal/core/store`, POSIX `sh` with OpenSSL 3, `aead.dev/minisign` v0.3.0 (tests only).
 
-**Spec:** docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md
+**Spec:** docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md
 
 **Execution:** subagent — `claude --model sonnet --effort high` — the plan runs parallel waves
 
@@ -265,7 +265,7 @@ The plan is the union of agent.db's manifest and `OwnedPaths(l, RoleController)`
 - Ownership: the spec's decomposition gives `install.sh.in` and `scripts/gen-install-sh` to P0 and P4 only "the generated `install.sh` and its fixture tests". With P0 merged, Task 7 takes over `install.sh.in` and the generator's tests, as register row 28 asks; no other part of plans 3 and 4 touches them.
 - Waves 5, 6 and 7 share no package but stay one task per wave: each has risk 3, and a risk-3 task always runs alone in its wave.
 - Codex is off this session (`codex-gate usable=false reason=plugin-not-enabled source=probe`, 2026-10-20), so no task carries an `**Executor:**` line and plan review runs on `dr-superpowers:judge-opus`.
-- The M2 core register's rows 1-15 and 17-21 (`docs/superpowers/registers/2026-10-19-m2-fleet-lifecycle-core.md`) are each discharged across several parts and their acceptance includes harness scenarios, so they stay assigned to the spec and close with the assembly and harness plan. This plan schedules rows 28 and 37, both on Task 7, and records the duties it hands to P10 and P12 as rows 67 and 68.
+- The M2 core register's rows 1-15 and 17-21 (`docs/dforge/registers/2026-10-19-m2-fleet-lifecycle-core.md`) are each discharged across several parts and their acceptance includes harness scenarios, so they stay assigned to the spec and close with the assembly and harness plan. This plan schedules rows 28 and 37, both on Task 7, and records the duties it hands to P10 and P12 as rows 67 and 68.
 - Row 34 asks for the committed `install.sh` in mode 100755 matching `make install-sh`; Task 7 delivers that half (C7), and the row stays with the spec for the `version --json` fields P12 adds. Until the owner adds the production key (row 35) the committed script embeds no key and refuses every release with `this install.sh embeds no trusted release keys`.
 - Row 25 (the release index is unsigned, so the automatic newest-stable lookup can be steered to an older signed release) stays deferred: the ruling seat parked it because spec sections 7 and 8 accept that trust model. An automated security review flagged the same lines again on 2026-10-20; nothing here changes them.
 

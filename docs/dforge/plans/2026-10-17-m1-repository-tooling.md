@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go 1.27.2, cobra v1.10.2, golangci-lint v2.15.0, govulncheck v1.9.0, GNU make; Node 24, pnpm 11.17.0, Vite 8, React 19, darkraise-ui 6.9.6, TypeScript 6.0.3, ESLint 10, Vitest 5; GitHub Actions.
 
-**Spec:** docs/superpowers/specs/2026-10-17-m1-repository-tooling-design.md
+**Spec:** docs/dforge/specs/2026-10-17-m1-repository-tooling-design.md
 
 **Execution:** subagent — `claude --model sonnet --effort high` — the plan runs parallel waves.
 
@@ -28,7 +28,7 @@
 - The embedded UI loads nothing from the internet: no font, icon or script URL outside the app.
 - A task edits only the files in its own `**Files:**` block, plus files its tools regenerate as named in its steps (`go.sum`, `web/pnpm-lock.yaml`).
 - In a waves run every task executes in its own git worktree created by the controller and commits only there; the controller merges a wave's worktrees before starting the next wave. No two tasks share a git index. The exception is Task 10, which pushes the plan branch: it runs in the controller's checkout of that branch, after every earlier wave has merged.
-- `**Items:**` numbers are row numbers of the register `docs/superpowers/registers/2026-10-17-m1-repository-tooling.md`.
+- `**Items:**` numbers are row numbers of the register `docs/dforge/registers/2026-10-17-m1-repository-tooling.md`.
 - Tests use no ports and no fixed paths outside the worktree; scratch files go in directories made with `mktemp -d`. The Go build cache and the pnpm store are shared between worktrees; both are safe for concurrent use.
 - Every network, build and test command carries an explicit `timeout`.
 - English only. Commits use `<type>(<scope>): <subject>` with type one of feat, fix, docs, style, refactor, test, chore, perf; the subject is imperative, at most 50 characters, no trailing period; no AI attribution of any kind.
@@ -91,7 +91,7 @@
 
 CI jobs: `adr`, `go`, `web`, `build`; artifact `darkpanel-binaries`, kept 7 days.
 
-**Gates** (Task 8, `docs/superpowers/gates.md`): 1 ADR records, 2 Lint, 3 Tests, 4 Build, 5 Vulnerabilities, 6 CI green.
+**Gates** (Task 8, `docs/dforge/gates.md`): 1 ADR records, 2 Lint, 3 Tests, 4 Build, 5 Vulnerabilities, 6 CI green.
 
 ## Assumptions (evidence)
 
@@ -1235,7 +1235,7 @@ git commit -m "docs(repo): add license, readme and policies"
 ### Task 8: Gates manifest
 
 **Files:**
-- Create: `docs/superpowers/gates.md`
+- Create: `docs/dforge/gates.md`
 
 **Interfaces:**
 - Consumes: the make target names (Contracts, "Make targets").
@@ -1262,12 +1262,12 @@ awk '
     if (n != 6) { print n " gates, want 6"; bad = 1 }
     if (!bad) print "gates-format-ok"
     exit bad
-  }' docs/superpowers/gates.md
+  }' docs/dforge/gates.md
 ```
 
 Expected: FAIL — awk exits non-zero because the file does not exist (its exact message depends on the awk implementation).
 
-- [ ] **Step 2: Write `docs/superpowers/gates.md`**
+- [ ] **Step 2: Write `docs/dforge/gates.md`**
 
 ```markdown
 # Gates
@@ -1327,7 +1327,7 @@ Expected: `gates-format-ok`.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add docs/superpowers/gates.md
+git add docs/dforge/gates.md
 git commit -m "docs(gates): declare project gates"
 ```
 

@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go 1.27 (`GOTOOLCHAIN=local`, standard library only), bash, GNU tar and coreutils, shellcheck, GitHub Actions, `gh`, git-cliff 2.14.2, cyclonedx-gomod 1.12.0, minisign from `aead.dev/minisign/cmd/minisign` v0.3.0, actionlint 1.7.12 (verification only).
 
-**Spec:** docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md
+**Spec:** docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md
 
 **Execution:** subagent — `claude --model sonnet --effort high` — the plan runs parallel waves
 

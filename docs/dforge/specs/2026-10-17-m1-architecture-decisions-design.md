@@ -1,8 +1,8 @@
 # M1 epic: architecture decision records
 
 **Date:** 2026-10-17
-**Status:** design approved by the owner 2026-10-17; revised after the Fable and Codex review (docs/superpowers/findings/2026-10-17-m1-adr-spec-review.md); revised again after the owner accepted the Fable review of the ADRs on 2026-10-17 (docs/superpowers/findings/2026-10-17-m1-adr-review.md)
-**Product spec:** docs/superpowers/specs/2026-10-17-darkpanel-design.md
+**Status:** design approved by the owner 2026-10-17; revised after the Fable and Codex review (docs/dforge/findings/2026-10-17-m1-adr-spec-review.md); revised again after the owner accepted the Fable review of the ADRs on 2026-10-17 (docs/dforge/findings/2026-10-17-m1-adr-review.md)
+**Product spec:** docs/dforge/specs/2026-10-17-darkpanel-design.md
 **Requirement:** R1
 **Execution strategy:** parallel — the ADRs are separate files; shared contracts are fixed first in wave 0 and reconciled in wave 2 (owner ruling 2026-10-17: favour parallel to reach v1 sooner).
 

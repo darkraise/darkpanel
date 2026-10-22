@@ -4,9 +4,9 @@
 **Status:** design approved by the owner section by section on 2026-10-21;
 revision 8 after the wave-0 check of revision 7 (see the review log). Per
 the owner's choice the wave 0 plan follows without another spec round.
-**Product spec:** docs/superpowers/specs/2026-10-17-darkpanel-design.md
+**Product spec:** docs/dforge/specs/2026-10-17-darkpanel-design.md
 **Requirements:** R37–R81; M2 register rows 11, 16 and 35
-(docs/superpowers/registers/2026-10-19-m2-fleet-lifecycle-core.md); the
+(docs/dforge/registers/2026-10-19-m2-fleet-lifecycle-core.md); the
 controller backup and restore deferred by ADR 0005 to M8; the M5 web
 certificate work deferred by ADR 0010
 **Execution strategy:** parallel — rolling wave plans. Wave 0 (core
@@ -2094,7 +2094,7 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
   `revoked` at start is not opened.
 - **TLS.** Runtime listeners share the existing listener code's TLS
   configuration, which already reuses one `tls.Config`; per the constraint in
-  `docs/superpowers/distilled/constraints.md`, wave 0 adds a
+  `docs/dforge/distilled/constraints.md`, wave 0 adds a
   session-resumption test with shared ticket keys.
 - Requests through a runtime listener get `X-Accel-Buffering: no` on SSE
   responses, and the CSRF origin check accepts the exposure's public host
@@ -4226,7 +4226,7 @@ a spec change.
   residual risk.
 - **Security review (R73).** The owner's two-reviewer panel
   (`dr-superpowers:judge-fable` and Codex `gpt-6-astra`, one shared brief).
-  Findings go into `docs/superpowers/registers/<date>-v1-security-review.md`;
+  Findings go into `docs/dforge/registers/<date>-v1-security-review.md`;
   every critical and high finding is fixed and re-reviewed; medium and low
   are fixed or deferred by the owner.
 - **Fuzzing (R74).** Wave 9a starts by writing `docs/security/parsers.md`, an
@@ -4813,7 +4813,7 @@ a spec change.
 
 ## Plans
 
-One plan per wave, named `docs/superpowers/plans/<date>-v1-w<n>-<topic>.md`,
+One plan per wave, named `docs/dforge/plans/<date>-v1-w<n>-<topic>.md`,
 written after the previous wave merges. Wave 0 is the exception (owner,
 2026-10-21): it is planned as three sequential plans, each written after
 the previous one merges and wave 0 still running alone: `w0a` the
@@ -4823,7 +4823,7 @@ web extension points, harness helpers, error codes and ADR 0014 (1.9,
 1.10, 1.12, 11, Contracts), which also builds 1.3's web UI for undo, repair,
 release and per-effect resolution, because it owns the change dialog.
 Wave 0's file-ownership row covers all three. Every plan ends with the gates in
-`docs/superpowers/gates.md`, including the harness gate when it touches the
+`docs/dforge/gates.md`, including the harness gate when it touches the
 harness, a module's host behaviour or the paths gate 7 lists (waves 0, 4, 7
 and 9d touch `test/harness/`, `install.sh.in` or `internal/install/`).
 

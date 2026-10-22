@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go 1.27.2, modernc.org/sqlite v1.60.1, github.com/invopop/jsonschema v0.14.0, github.com/santhosh-tekuri/jsonschema/v6 v6.0.3, golang.org/x/crypto v0.58.0, golang.org/x/sys v0.49.0, github.com/oklog/ulid/v2 v2.1.2, golangci-lint v2.15.0, GNU make.
 
-**Spec:** docs/superpowers/specs/2026-10-17-m1-platform-core-design.md
+**Spec:** docs/dforge/specs/2026-10-17-m1-platform-core-design.md
 
 **Execution:** subagent — `claude --model sonnet --effort high` — the plan runs parallel waves.
 
@@ -27,7 +27,7 @@
 - Every `go` command runs with `GOTOOLCHAIN=local` (ADR 0001). The `Makefile` exports it; a `go` command typed outside `make` is prefixed with it, as every step here does.
 - A task edits only the files in its own `**Files:**` block.
 - In a waves run every task executes in its own git worktree created by the controller and commits only there; the controller merges a wave's worktrees before starting the next wave.
-- `**Items:**` numbers are row numbers of the register `docs/superpowers/registers/2026-10-17-m1-platform-core.md`.
+- `**Items:**` numbers are row numbers of the register `docs/dforge/registers/2026-10-17-m1-platform-core.md`.
 - Test isolation (spec "Parallel decomposition"): every Go test uses `t.TempDir()` for databases, keys and files, opens no network port, writes no fixed path outside its temporary directory, and uses `coretest.FakeClock` for timers and expiry. The exec tests run only standard programs present on every Linux host and CI runner (`/usr/bin/env`, `/usr/bin/printf`, `/usr/bin/cat`, `/usr/bin/sleep`, `/usr/bin/yes`, `/usr/bin/false`) and the test binary itself as a helper process. No test in this plan shares a file, port or database with another task's tests.
 - `golangci-lint run` reports `0 issues.` after every task: every exported identifier has a doc comment (revive), files are `gofmt`- and `goimports`-clean, and a `//nolint` carries the rule and a reason, as the code below shows.
 - Every build and test command carries an explicit `timeout`.
@@ -38,7 +38,7 @@
 
 ## Contracts
 
-The foundation's names (`core`, `store`, `errcode`, `coretest`, `buildinfo`, `registry`) are those of `docs/superpowers/plans/2026-10-17-m1-platform-foundation.md` › Contracts, as merged on `main`. This plan adds the following; plans 3 and 4 code against them.
+The foundation's names (`core`, `store`, `errcode`, `coretest`, `buildinfo`, `registry`) are those of `docs/dforge/plans/2026-10-17-m1-platform-foundation.md` › Contracts, as merged on `main`. This plan adds the following; plans 3 and 4 code against them.
 
 **`internal/core/secret`** (package `secret`, P1)
 

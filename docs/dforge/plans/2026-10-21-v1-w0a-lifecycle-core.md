@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go 1.27 (`GOTOOLCHAIN=local`), `database/sql` over `modernc.org/sqlite` through `internal/core/store` (WAL, `synchronous(FULL)`), `github.com/godbus/dbus/v5` through `internal/platform` (moved behind `core.Units`), `github.com/oklog/ulid/v2`, `net/http`, `github.com/spf13/cobra`. No new dependency.
 
-**Spec:** docs/superpowers/specs/2026-10-21-v1-completion-design.md
+**Spec:** docs/dforge/specs/2026-10-21-v1-completion-design.md
 
 **Execution:** subagent — `claude --model sonnet --effort high` — the plan runs parallel waves, and each task's **Implementer:** line chooses its implementer
 
@@ -71,7 +71,7 @@
 - Lint: `golangci-lint run --allow-serial-runners` and `GOTOOLCHAIN=local go vet ./...` stay clean.
 - Each task of a wave runs in its own worktree from the wave's base, so a package-wide command sees only merged work plus the task's own files.
 - Commits use `<type>(<scope>): <subject>`, subject at most 50 characters, imperative, no period, and carry no attribution lines.
-- The plan ends with the gates in `docs/superpowers/gates.md`. No task touches `test/harness/`, `install.sh.in` or `internal/install/`. Task 6 touches only `internal/update/actions_test.go` (the new `PlanOptions` argument), which still makes gate 7 apply to the branch once it is pushed, as well as on `main`.
+- The plan ends with the gates in `docs/dforge/gates.md`. No task touches `test/harness/`, `install.sh.in` or `internal/install/`. Task 6 touches only `internal/update/actions_test.go` (the new `PlanOptions` argument), which still makes gate 7 apply to the branch once it is pushed, as well as on `main`.
 
 ## Contracts
 

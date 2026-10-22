@@ -8,7 +8,7 @@
 
 **Tech Stack:** Markdown; bash 5 and awk for the checker (no grep, so the script behaves the same with GNU grep and ugrep).
 
-**Spec:** docs/superpowers/specs/2026-10-17-m1-architecture-decisions-design.md
+**Spec:** docs/dforge/specs/2026-10-17-m1-architecture-decisions-design.md
 
 **Execution:** subagent — `claude --model sonnet --effort high` — the plan runs parallel waves.
 
@@ -22,7 +22,7 @@
 
 ## Global Constraints
 
-- The spec `docs/superpowers/specs/2026-10-17-m1-architecture-decisions-design.md` is the source of truth. An ADR's Decision section states every bullet of the spec's matching `### 000N` section, in the same order, with the same values (ports, paths, lifetimes, names). It adds no decision the spec does not contain and contradicts nothing in the spec or in `docs/adr/README.md`.
+- The spec `docs/dforge/specs/2026-10-17-m1-architecture-decisions-design.md` is the source of truth. An ADR's Decision section states every bullet of the spec's matching `### 000N` section, in the same order, with the same values (ports, paths, lifetimes, names). It adds no decision the spec does not contain and contradicts nothing in the spec or in `docs/adr/README.md`.
 - Every ADR uses the template in Contracts exactly: the title line, the `**Requirements:**` line, then the headings `## Status`, `## Context`, `## Decision`, `## Alternatives considered`, `## Consequences` in that order. Status is `Proposed`.
 - The shared contracts (names, schemas, action classes, errors, actors, version skew) are defined only in `docs/adr/README.md`. An ADR refers to them ("see the shared contracts in the index") and never restates them with different wording.
 - ADRs refer to each other as `ADR 000N` with the titles listed in Contracts.
@@ -331,7 +331,7 @@ Create `docs/adr/README.md` with exactly these sections and content (prose may b
 # Architecture decision records
 
 Decisions every Darkpanel epic builds on. Source design:
-`docs/superpowers/specs/2026-10-17-m1-architecture-decisions-design.md`.
+`docs/dforge/specs/2026-10-17-m1-architecture-decisions-design.md`.
 Check the files with `bash scripts/check-adrs.sh`.
 
 ## Index
@@ -1237,7 +1237,7 @@ git commit -m "docs(adr): add requirement traceability table"
 
 - [ ] **Step 1: Compare every ADR with the spec**
 
-For each ADR 0001–0009, read its `## Decision` section beside the spec section with the same number (`### 000N` in `docs/superpowers/specs/2026-10-17-m1-architecture-decisions-design.md`). Record, with file and line, every bullet that is missing, every value that differs, and every decision the ADR adds that the spec does not contain. Also check that `## Alternatives considered` and `## Consequences` contradict neither the ADR's own Decision nor any other ADR.
+For each ADR 0001–0009, read its `## Decision` section beside the spec section with the same number (`### 000N` in `docs/dforge/specs/2026-10-17-m1-architecture-decisions-design.md`). Record, with file and line, every bullet that is missing, every value that differs, and every decision the ADR adds that the spec does not contain. Also check that `## Alternatives considered` and `## Consequences` contradict neither the ADR's own Decision nor any other ADR.
 
 - [ ] **Step 2: Check the cross-ADR facts**
 

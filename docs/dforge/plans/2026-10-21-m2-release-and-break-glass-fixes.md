@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go 1.27 (`GOTOOLCHAIN=local`), `github.com/spf13/cobra`, `os/signal`, `syscall`, bash, GitHub Actions YAML.
 
-**Spec:** docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md
+**Spec:** docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md
 
 **Execution:** subagent — `claude --model sonnet --effort high` — the plan runs parallel waves; each task's **Implementer:** line names the subagent that implements it
 
@@ -79,7 +79,7 @@
 - Modify: `docs/versioning.md:25-38`
 - Modify: `release/README.md:43-47`
 - Modify: `CONTRIBUTING.md:31`
-- Modify: `docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md:812-816` (section 9, the `build` job)
+- Modify: `docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md:812-816` (section 9, the `build` job)
 
 **Interfaces:**
 - Consumes: none
@@ -260,7 +260,7 @@ Expected: the first search finds nothing; the second shows the new text in both 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add release/package.sh release/package.test.sh .github/workflows/release.yml Makefile README.md docs/versioning.md release/README.md CONTRIBUTING.md docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md
+git add release/package.sh release/package.test.sh .github/workflows/release.yml Makefile README.md docs/versioning.md release/README.md CONTRIBUTING.md docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md
 git commit -m "fix(release): sign install.sh through checksums.txt"
 ```
 
@@ -517,7 +517,7 @@ git commit -m "test(cli): pin that a full agent socket fails fast"
 - Modify: `internal/install/install.go:44-53`
 - Modify: `cmd/darkpanel/agent.go` (`newAgentCheckCmd`, lines 346-371)
 - Test: `cmd/darkpanel/agent_test.go` (`TestAgentCheckExit`)
-- Modify: `docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md:439-440`
+- Modify: `docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md:439-440`
 
 **Interfaces:**
 - Consumes: none
@@ -638,7 +638,7 @@ func checkFailed(err error) error {
 }
 ```
 
-In the spec, `docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md` lines 439-440, change "(one mTLS handshake with the saved credentials; exit 0 accepted, 1 refused, 2 unreachable)" to "(one mTLS handshake with the saved credentials; exit 0 accepted, 1 refused, 2 unreachable, 3 the check could not run)", keeping the line wrapping of the surrounding list item.
+In the spec, `docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md` lines 439-440, change "(one mTLS handshake with the saved credentials; exit 0 accepted, 1 refused, 2 unreachable)" to "(one mTLS handshake with the saved credentials; exit 0 accepted, 1 refused, 2 unreachable, 3 the check could not run)", keeping the line wrapping of the surrounding list item.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -648,7 +648,7 @@ Expected: PASS. The `unknown command "extra"` text comes from `cobra.NoArgs`; if
 - [ ] **Step 5: Commit**
 
 ```bash
-git add internal/install/install.go cmd/darkpanel/agent.go cmd/darkpanel/agent_test.go docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md
+git add internal/install/install.go cmd/darkpanel/agent.go cmd/darkpanel/agent_test.go docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md
 git commit -m "fix(agent): exit 3 when agent check cannot run"
 ```
 

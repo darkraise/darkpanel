@@ -138,7 +138,7 @@ Each requirement belongs to exactly one epic (section 8).
 - **R3** CI runs Go and TypeScript lint, type checks, unit tests and both
   builds on every push; the repository carries `LICENSE` (MIT),
   `CONTRIBUTING.md` and `SECURITY.md`.
-- **R4** `docs/superpowers/gates.md` declares the project's gates.
+- **R4** `docs/dforge/gates.md` declares the project's gates.
 
 ### Module framework
 

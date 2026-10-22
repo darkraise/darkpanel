@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go 1.27 (`GOTOOLCHAIN=local`), `github.com/spf13/cobra`, Markdown.
 
-**Spec:** docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md
+**Spec:** docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md
 
 **Execution:** inline — `claude --model sonnet --effort low` — both tasks total 2 or less and none is heavy, so the session implements them itself
 

@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go 1.27 (`GOTOOLCHAIN=local`), `github.com/godbus/dbus/v5` v5.2.4, `aead.dev/minisign` v0.3.0, `github.com/hashicorp/yamux` v0.1.2, `github.com/invopop/jsonschema` (existing), POSIX `sh` with OpenSSL 3 for `install.sh.in`.
 
-**Spec:** docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md
+**Spec:** docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md
 
 **Execution:** subagent — `claude --model sonnet --effort high` — the plan runs parallel waves
 
@@ -5053,7 +5053,7 @@ Proposed
 ## Context
 
 The M2 fleet and lifecycle design
-(`docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md`) makes
+(`docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md`) makes
 concrete several contracts that ADR 0002, ADR 0003, ADR 0004 and ADR 0007
 state in outline, closes the index's deferred decision on how the install
 script verifies a download, and adds packages that ADR 0001 and ADR 0011 do

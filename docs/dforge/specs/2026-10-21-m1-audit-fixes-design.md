@@ -1,7 +1,7 @@
 # M1 audit fixes
 
 **Source:** the M1 milestone audit of 2026-10-21 at 46b4233 reopened
-`docs/superpowers/registers/2026-10-17-m1-platform-core.md` rows 33, 38, 45,
+`docs/dforge/registers/2026-10-17-m1-platform-core.md` rows 33, 38, 45,
 59, 95 and 113-117: they were deferred without a recorded reason. The owner
 ruled on 2026-10-21 to fix every item, and to settle each decision below by a
 Fable and Codex astra review whose aggregated recommendation is followed.
@@ -154,7 +154,7 @@ addresses the row's own wording. These rulings replace the proposals above.
 | 95j | (a). Reason: cancellation is client-controlled, which is the "attacker who can provoke faults" case the invariant at `login.go:56-59` covers; a wrong password is counted before any write | both; reason from Fable |
 | 95k | Clear the live header map and copy the snapshot back; the test checks a custom header is gone and the security headers survive | both |
 | 95l | The authenticated HEAD case runs against a real `httptest.Server`, since a `ResponseRecorder` keeps the body | Codex |
-| 95m | A bounded fresh hygiene review of the tests written by Tasks 2-34 of `docs/superpowers/plans/2026-10-18-m1-dispatch-cli-and-assembly.md`, starting from the known categories (missing `t.Cleanup` on failure paths, HTTP clients without a timeout: `server/listeners_test.go:98,101,105`, `server/e2e_test.go:89`, `server/server_test.go:445`, `listen/service_test.go:157`), fixing what it finds | Codex (review), Fable (known sites) |
+| 95m | A bounded fresh hygiene review of the tests written by Tasks 2-34 of `docs/dforge/plans/2026-10-18-m1-dispatch-cli-and-assembly.md`, starting from the known categories (missing `t.Cleanup` on failure paths, HTTP clients without a timeout: `server/listeners_test.go:98,101,105`, `server/e2e_test.go:89`, `server/server_test.go:445`, `listen/service_test.go:157`), fixing what it finds | Codex (review), Fable (known sites) |
 | 113 | The generation check also guards the session probe's success and rejection callbacks, not only the unauthorized handler; test a delayed probe across logout and re-login | Codex |
 | 115 | (a) through a prefix table in `web/src/router/` keyed by `to` (`"/"` also matches `/hosts/`), combined with `NavLink`'s `isActive`, so both the active style and `aria-current` follow; no field on `NAV`, which the kit's closed `NavItem` would not forward. Planning found that react-router 8.4.0's `NavLink` overrides `aria-current` and never matches below `/`, so a prefix match renders a plain `Link` carrying the active class and `aria-current="page"`, and `NavLink` decides every other case | both |
 | 116a | Logout is a session transition whose redirect omits `next`; cover a logout answered with `auth.required`; the test records every location and asserts `/audit` then `/login` only | both |
@@ -175,5 +175,5 @@ reason" is resolved by the register note, not by code.
 
 ## Verification
 
-Gates 1-7 of `docs/superpowers/gates.md` on the merged main, the M1 browser
+Gates 1-7 of `docs/dforge/gates.md` on the merged main, the M1 browser
 check repeated for 113-116, then the M1 audit rerun.

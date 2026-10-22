@@ -9,7 +9,7 @@ Accepted
 ## Context
 
 The M1 platform core design
-(`docs/superpowers/specs/2026-10-17-m1-platform-core-design.md`) needs two
+(`docs/dforge/specs/2026-10-17-m1-platform-core-design.md`) needs two
 audit actors that the shared contracts do not define, top-level CLI commands
 for core actions that ADR 0006's reserved names do not cover, and packages
 that ADR 0001's layout does not name. Accepted ADRs are not edited, so the

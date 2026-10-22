@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go 1.27 (`GOTOOLCHAIN=local`), `github.com/spf13/cobra`, `net/http`, `crypto/tls` (TLS 1.3 only) through `internal/transport`, `modernc.org/sqlite` through `internal/core/store`, `golang.org/x/sys/unix` (flock), `github.com/godbus/dbus/v5` through `internal/platform`, `aead.dev/minisign` v0.3.0, `golang.org/x/crypto/ssh` (harness), QEMU/KVM and cloud-init (harness, GitHub Actions only), GNU make, POSIX shell, git-cliff 2.14.2, GitHub Actions.
 
-**Spec:** docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md
+**Spec:** docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md
 
 **Execution:** subagent — `claude --model sonnet --effort high` — the plan runs parallel waves; each task's **Implementer:** line names the subagent that implements it
 
@@ -36,7 +36,7 @@
 - Tasks that share a Go package declare no top-level identifier, test helpers included, that another task of the plan declares in that package; each task's **Interfaces:** block lists the names it adds.
 - Lint: `golangci-lint run --allow-serial-runners` and `GOTOOLCHAIN=local go vet ./...` stay clean; harness code is also vetted with `go vet -tags harness ./test/...` and linted with `golangci-lint run --allow-serial-runners --build-tags harness ./test/...`.
 - The waves merge into the plan's work branch, `worktree-m2-assembly-and-harness` (the name dr-superpowers:using-git-worktrees gives it, as `worktree-m2-services` was for the previous plan); each task of a wave runs in its own worktree from the wave's base on that branch.
-- Gate 7 (Harness green, `docs/superpowers/gates.md`, which Task 22 rewrites) runs once, after the last wave merges and before the final whole-branch review, through dr-superpowers:running-gates. It needs the owner's go-ahead to push: never push `main` for it. After the go-ahead: `git push -u origin worktree-m2-assembly-and-harness`, then `timeout 60 gh workflow run harness.yml --ref worktree-m2-assembly-and-harness`, then `timeout 9000 gh run watch "$(timeout 60 gh run list --workflow harness.yml --branch worktree-m2-assembly-and-harness --limit 1 --json databaseId --jq '.[0].databaseId')" --exit-status`. Green is the gate's command printing `success`: both vm jobs (Ubuntu 22.04 and Debian 13) passed TestM1 and every TestM2 step. A red run stops execution: download the logs (`gh run download <id> --name` for the job's log artifact), debug it with dr-superpowers:systematic-debugging, fix it in the task that owns the failing code, and run the gate again. After the green run, replace the budget inferences in gate 7's Why line with the measured vm-job and TestM2 durations of both jobs, in one `docs(gates): record the measured harness budget` commit on the work branch.
+- Gate 7 (Harness green, `docs/dforge/gates.md`, which Task 22 rewrites) runs once, after the last wave merges and before the final whole-branch review, through dr-superpowers:running-gates. It needs the owner's go-ahead to push: never push `main` for it. After the go-ahead: `git push -u origin worktree-m2-assembly-and-harness`, then `timeout 60 gh workflow run harness.yml --ref worktree-m2-assembly-and-harness`, then `timeout 9000 gh run watch "$(timeout 60 gh run list --workflow harness.yml --branch worktree-m2-assembly-and-harness --limit 1 --json databaseId --jq '.[0].databaseId')" --exit-status`. Green is the gate's command printing `success`: both vm jobs (Ubuntu 22.04 and Debian 13) passed TestM1 and every TestM2 step. A red run stops execution: download the logs (`gh run download <id> --name` for the job's log artifact), debug it with dr-superpowers:systematic-debugging, fix it in the task that owns the failing code, and run the gate again. After the green run, replace the budget inferences in gate 7's Why line with the measured vm-job and TestM2 durations of both jobs, in one `docs(gates): record the measured harness budget` commit on the work branch.
 - The harness scenarios (Tasks 20-22) need KVM, which this host lacks: locally the harness code of Tasks 19-22 is only compiled (`go vet -tags harness ./test/...`) and its unit tests run (`go test -tags harness -race -count=1 ./test/harness/...`); the scenarios themselves run only in `.github/workflows/harness.yml`, as gate 7 (see the next constraint).
 - Commits use `<type>(<scope>): <subject>`, subject at most 50 characters, imperative, no period, and carry no attribution lines.
 
@@ -80,7 +80,7 @@
 
 **C18. Harness builds (Task 18).** Build tag `harnessbroken`: serve passes `HealthStatus: "degraded"` and agent run sets `daemon.Config.NeverConnected` (new field: Hello never reports a live controller session). `harnesscrash`: `serve` and `agent run` exit 1 at once with `harnesscrash: exiting at start`; `selftest` still passes. `harnessmigration`: `internal/core/store` embeds one more core migration per side, numbered 9000 (`9000_harness_marker.sql`), creating `harness_marker (note TEXT NOT NULL) STRICT` and inserting one row; an older binary ignores it (recorded migrations above its highest embedded one are ignored, `internal/core/store/migrate.go:84`).
 
-**C19. Harness builds and topology (Tasks 19-22).** Task 19: `make harness-builds` writes `bin/harness/darkpanel-<version>` (linux/amd64, `CGO_ENABLED=0`, `-trimpath`, no UI, tag `harnesskeys` plus the variant's tag) for `0.2.0` (good, N), `0.3.0` (good), `0.3.1` (`harnessbroken`), `0.3.2` (`harnesscrash`), `0.3.3` (good), `0.3.4` (`harnessmigration,harnessbroken`), and `bin/harness/install.sh` (the generator with `-tags harnesskeys`); the Makefile's `LDFLAGS` becomes `$(call ldflags,$(VERSION))` with an unchanged expansion; every target VM gets `sqlite3` and the UFW rule `ufw allow in on dppriv to any port 7443 proto tcp`; `harness.yml`'s build job uploads `bin/harness` as the artifact `darkpanel-harness`, and its vm job downloads it, with `timeout-minutes: 120` and go test's `-timeout 100m`. Task 20 defines the harness test flag `-m2 <dir>`, which points at that directory (the workflow passes `-m2 "$GITHUB_WORKSPACE/bin/harness"` and uploads `harness/**/*.log`, because TestM2's VMs log under `<workdir>/m2`); adds `func (v *VM) RunInput(ctx context.Context, cmd string, stdin io.Reader) (string, error)` to package `vm`; splits `bootPair` in `m1_test.go` into `harnessImages` and `bootVMs` (TestM1 unchanged, deadline 40 minutes); and adds `TestM2` (deadline `m2Deadline` = 55 minutes), which runs named steps from one step list: Task 20 `install`, `self-management`, `offline`, `revoke`; Task 21 `update-good`, `health-failure`, `crash-loop`, `reboot-in-window`, `runner-frozen`, `migration-rollback`; Task 22 `break-glass`, `uninstall`. Task 21's `requireSettled` is used by Task 22. Task 22 rewrites gate 7 in `docs/superpowers/gates.md`.
+**C19. Harness builds and topology (Tasks 19-22).** Task 19: `make harness-builds` writes `bin/harness/darkpanel-<version>` (linux/amd64, `CGO_ENABLED=0`, `-trimpath`, no UI, tag `harnesskeys` plus the variant's tag) for `0.2.0` (good, N), `0.3.0` (good), `0.3.1` (`harnessbroken`), `0.3.2` (`harnesscrash`), `0.3.3` (good), `0.3.4` (`harnessmigration,harnessbroken`), and `bin/harness/install.sh` (the generator with `-tags harnesskeys`); the Makefile's `LDFLAGS` becomes `$(call ldflags,$(VERSION))` with an unchanged expansion; every target VM gets `sqlite3` and the UFW rule `ufw allow in on dppriv to any port 7443 proto tcp`; `harness.yml`'s build job uploads `bin/harness` as the artifact `darkpanel-harness`, and its vm job downloads it, with `timeout-minutes: 120` and go test's `-timeout 100m`. Task 20 defines the harness test flag `-m2 <dir>`, which points at that directory (the workflow passes `-m2 "$GITHUB_WORKSPACE/bin/harness"` and uploads `harness/**/*.log`, because TestM2's VMs log under `<workdir>/m2`); adds `func (v *VM) RunInput(ctx context.Context, cmd string, stdin io.Reader) (string, error)` to package `vm`; splits `bootPair` in `m1_test.go` into `harnessImages` and `bootVMs` (TestM1 unchanged, deadline 40 minutes); and adds `TestM2` (deadline `m2Deadline` = 55 minutes), which runs named steps from one step list: Task 20 `install`, `self-management`, `offline`, `revoke`; Task 21 `update-good`, `health-failure`, `crash-loop`, `reboot-in-window`, `runner-frozen`, `migration-rollback`; Task 22 `break-glass`, `uninstall`. Task 21's `requireSettled` is used by Task 22. Task 22 rewrites gate 7 in `docs/dforge/gates.md`.
 
 ## Decisions
 
@@ -107,7 +107,7 @@
 
 ### Scoring
 
-- The **Files** axis counts decisions, as the earlier M2 plans did (`docs/superpowers/plans/2026-10-20-m2-services.md`, every task `files 1`): a unit with its tests, and the call sites that only wire it in, are one shape; Task 18's build-tagged variant pairs are one repeated shape. Task 7 is the one task spanning several unrelated artifacts (a Go tool, a shell script, the workflow, the Makefile, the README), so it scores files 2 and coupling 1. Under that reading no task reaches `files + spec + coupling >= 4`, so none was split. The largest tasks by file count are 6 (10 files), 18 (18 files) and 20 (7 files); their code is complete and replay-checked, which is why spec scores 0 everywhere.
+- The **Files** axis counts decisions, as the earlier M2 plans did (`docs/dforge/plans/2026-10-20-m2-services.md`, every task `files 1`): a unit with its tests, and the call sites that only wire it in, are one shape; Task 18's build-tagged variant pairs are one repeated shape. Task 7 is the one task spanning several unrelated artifacts (a Go tool, a shell script, the workflow, the Makefile, the README), so it scores files 2 and coupling 1. Under that reading no task reaches `files + spec + coupling >= 4`, so none was split. The largest tasks by file count are 6 (10 files), 18 (18 files) and 20 (7 files); their code is complete and replay-checked, which is why spec scores 0 everywhere.
 - Risk 3 marks the tasks touching concurrency, security or data loss: 4 (flock), 7 (release signing), 10 (process privilege split and shutdown order), 15 (the root agent daemon), 16 (binary rollback), 17 (install and uninstall), 18 (the store's migration loading). Each runs alone in its wave.
 
 ### Facts the tasks rely on
@@ -14182,12 +14182,12 @@ git commit -m "test(harness): add the M2 update scenarios"
 **Files:**
 - Create: `test/harness/m2_breakglass_test.go`
 - Modify: `test/harness/m2_test.go`
-- Modify: `docs/superpowers/gates.md`
+- Modify: `docs/dforge/gates.md`
 - Test: `test/harness/m2_breakglass_test.go`
 
 **Interfaces:**
 - Consumes: Task 20 (`fleet`, `versionN`, `versionGood`, `agentAddress`, `installRole`, `login`, `waitHosts`, `hostsAt`, `localHost`, `findHost`, `requireBinaryVersion`, `(*vm.VM).RunInput`, the step list of `TestM2`); Task 21 (`requireSettled`); C6/C16 (`darkpanel hostinfo summary get --local --json`; `darkpanel update rollback --local --yes --json`, whose fallback prints `darkpanel: the agent socket <path> does not answer; running core.update.rollback in this process` to standard error and re-executes `darkpanel.prev update rollback --direct --json`); C17 (`darkpanel uninstall [--keep-data] --yes`); `install.Production().UnitPath`, `install.RecoverUnit`, `install.ServiceUser`; `update.ControllerUnit`, `update.AgentUnit`, `update.RollbackUnit`; `paths.Production` (`AgentSocket`, `AgentDB`, `ControllerDB`, `ControllerKey`, `AgentKey`, `AgentTLSCurrent`, `Binary`); `core.UpdateTransaction`, `core.UpdateKindRollback`, `core.UpdateRolledBack`.
-- Produces: package `harness`, file `m2_breakglass_test.go`: functions `scenarioBreakGlass`, `scenarioUninstall`, `requireUnitsGone`, `readManifest`, `parseManifest`, `remainingScript`; `type ownedEntry struct{ Kind, Module, Block, Path string }`; tests `TestParseManifest`, `TestRemainingScript`. TestM2 gains the steps `break-glass` and `uninstall`. Gate 7 in `docs/superpowers/gates.md` names the M2 scenarios, applies also to `install.sh.in`, `internal/install/` and `internal/update/`, and records the budget (job 120 minutes, go test 100 minutes) as inferences to measure on the first run.
+- Produces: package `harness`, file `m2_breakglass_test.go`: functions `scenarioBreakGlass`, `scenarioUninstall`, `requireUnitsGone`, `readManifest`, `parseManifest`, `remainingScript`; `type ownedEntry struct{ Kind, Module, Block, Path string }`; tests `TestParseManifest`, `TestRemainingScript`. TestM2 gains the steps `break-glass` and `uninstall`. Gate 7 in `docs/dforge/gates.md` names the M2 scenarios, applies also to `install.sh.in`, `internal/install/` and `internal/update/`, and records the budget (job 120 minutes, go test 100 minutes) as inferences to measure on the first run.
 
 **Items:** 7, 9, 10, 18
 **Depends on:** Task 6, Task 16, Task 17, Task 20, Task 21
@@ -14576,7 +14576,7 @@ with:
 		if !t.Run(s.name, s.run) && s.gate {
 ```
 
-In `docs/superpowers/gates.md`, replace:
+In `docs/dforge/gates.md`, replace:
 
 ```markdown
 Command: `timeout 60 gh run list --workflow harness.yml --branch "$(git branch --show-current)" --commit "$(git rev-parse HEAD)" --json conclusion --jq '.[0].conclusion'`
@@ -14625,7 +14625,7 @@ Expected: `check-adrs tests: 21 passed, 0 failed` and no `check-adrs:` error lin
 - [ ] **Step 5: Commit**
 
 ```bash
-git add test/harness/m2_breakglass_test.go test/harness/m2_test.go docs/superpowers/gates.md
+git add test/harness/m2_breakglass_test.go test/harness/m2_test.go docs/dforge/gates.md
 git commit -m "test(harness): add break-glass and uninstall"
 ```
 
@@ -14953,9 +14953,9 @@ git commit -m "docs: describe install, fleet and break-glass use"
 ### Task 24: Spec and ADR amendments
 
 **Files:**
-- Modify: `docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md`
+- Modify: `docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md`
 - Modify: `docs/adr/0012-m2-contract-and-layout-additions.md`
-- Modify: `docs/superpowers/notes/m2-services-amendments.md`
+- Modify: `docs/dforge/notes/m2-services-amendments.md`
 
 **Interfaces:**
 - Consumes: the decisions of this plan's header and the behaviour Tasks 1-18 built (C2, C3, C4, C6, C10, C14, C15, C17, C18).
@@ -14970,7 +14970,7 @@ The spec and ADR 0012 (still Proposed, so it may be edited) are corrected to wha
 
 - [ ] **Step 1: Amend the documents**
 
-In `docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
+In `docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
 
 ```markdown
   `darkpanel` (ADR 0005) and no longer opens `agent.db` or the agent key.
@@ -14984,7 +14984,7 @@ with:
   `agent.db` or the agent key or creates the agent's directories.
 ```
 
-In `docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
+In `docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
 
 ```markdown
   valid only with `--dev`, so development and the existing end-to-end tests
@@ -15002,7 +15002,7 @@ with:
   actions fail. Production units never pass either flag.
 ```
 
-In `docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
+In `docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
 
 ```markdown
     because the controller's own agent dials it.
@@ -15015,7 +15015,7 @@ with:
     unspecified address.
 ```
 
-In `docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
+In `docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
 
 ```markdown
   point leaves a complete old or a complete new generation.
@@ -15031,7 +15031,7 @@ with:
   nothing.
 ```
 
-In `docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
+In `docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
 
 ```markdown
 | `core.host.token/v1` | irreversible | network | `hostId`, `controllerAddress` (optional) | `EnrollmentGrant` |
@@ -15045,7 +15045,7 @@ with:
 | `core.host.enroll-local/v1` | irreversible, typed confirmation (the host name) | controller socket (break-glass) | none | `EnrollmentGrant` for the local host, address `127.0.0.1:7443` |
 ```
 
-In `docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
+In `docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
 
 ```markdown
   `core.host.token` is refused for an enrolled, unrevoked host and replaces
@@ -15060,7 +15060,7 @@ with:
   host. `core.host.enroll-local` is allowed in every
 ```
 
-In `docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
+In `docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
 
 ```markdown
   interface by the same rule and watcher as the web listener (ADR 0006,
@@ -15076,7 +15076,7 @@ with:
   plus every `--agent-listen` address. It never binds all interfaces.
 ```
 
-In `docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
+In `docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
 
 ```markdown
   - an unknown hash: the action version is unavailable on that host with the
@@ -15090,7 +15090,7 @@ with:
     `module.unavailable` on that host with the reason `agent schema unknown`.
 ```
 
-In `docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
+In `docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
 
 ```markdown
   `journal_epoch`, created with agent.db and replaced only when agent.db or
@@ -15106,7 +15106,7 @@ with:
   journal table is recreated; re-enrollment keeps it, so unacknowledged
 ```
 
-In `docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
+In `docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
 
 ```markdown
   runs when `--local` finds no agent socket (section 8).
@@ -15124,7 +15124,7 @@ with:
   on its own calls (hello, change reads, preflight, the journal).
 ```
 
-In `docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
+In `docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
 
 ```markdown
      flow with that token, which also repairs a revoked or lost local agent.
@@ -15141,7 +15141,7 @@ with:
      Agent role: on 1, the token from standard input is required; on 2 with
 ```
 
-In `docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
+In `docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
 
 ```markdown
     update recover`, `TimeoutStartSec=30s`,
@@ -15153,7 +15153,7 @@ with:
     update recover` (the boot unit adds `--boot`), `TimeoutStartSec=30s`,
 ```
 
-In `docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
+In `docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
 
 ```markdown
   it. Handlers reach the function through `Env.DB`; the runner and `--direct`
@@ -15167,7 +15167,7 @@ with:
   an update holds `*`; a keyless compensable or irreversible change may. Handlers reach the function through `Env.DB`; the runner and `--direct`
 ```
 
-In `docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
+In `docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
 
 ```markdown
   `running` rollout to `draining` (or straight to `cancelled` when no host is
@@ -15181,7 +15181,7 @@ with:
   sent its update), serialised with dispatch on the same database writer; the
 ```
 
-In `docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
+In `docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
 
 ```markdown
   never comes back. A controller restart during its own host's update resumes
@@ -15198,7 +15198,7 @@ with:
   `unavailable`, which fails the host. A controller restart during its own host's update resumes
 ```
 
-In `docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
+In `docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
 
 ```markdown
 `rollout.in_progress`.
@@ -15211,7 +15211,7 @@ with:
 that this process does not run).
 ```
 
-In `docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
+In `docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
 
 ```markdown
 `local:root@unenrolled`. New reserved top-level CLI name: `system` (`agent`,
@@ -15224,7 +15224,7 @@ with:
 calls). New reserved top-level CLI name: `system` (`agent`,
 ```
 
-In `docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
+In `docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
 
 ```markdown
   `core_rollout_hosts`); agent `0005_ownership_kinds.sql` (P4),
@@ -15238,7 +15238,7 @@ with:
   journal epoch is created by the runtime (section 5), not a migration.
 ```
 
-In `docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
+In `docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md`, replace:
 
 ```markdown
   the work branch and dispatching `harness.yml`.
@@ -15310,7 +15310,7 @@ with:
   journal) join the shared contracts' actors.
 ```
 
-In `docs/superpowers/notes/m2-services-amendments.md`, replace:
+In `docs/dforge/notes/m2-services-amendments.md`, replace:
 
 `````markdown
 - `darkpanel agent enroll [--token-file <path>]`: the token from `daemon.ReadTokenFile(path, 0)` (`os.Getuid()` under `--dev`), else the hidden prompt or standard input (P12's), then `daemon.Enroll(ctx, p.AgentTLSDir, token)`. No unit restart is needed: a running daemon without a live session takes the new generation up on its next attempt (within `CredentialPoll` while unenrolled, after its backoff wait otherwise); a daemon with a live session takes it up only after that session ends. Revoke and `core.host.enroll-local` end the session, and `core.host.token` is refused for an enrolled host, so P12 must not promise or test a pickup bound for a daemon with a live session.
@@ -15352,6 +15352,6 @@ Expected: `check-adrs tests: 21 passed, 0 failed` and no `check-adrs:` error lin
 - [ ] **Step 3: Commit**
 
 ```bash
-git add docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md docs/adr/0012-m2-contract-and-layout-additions.md docs/superpowers/notes/m2-services-amendments.md
+git add docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md docs/adr/0012-m2-contract-and-layout-additions.md docs/dforge/notes/m2-services-amendments.md
 git commit -m "docs(spec): record the assembly amendments"
 ```

@@ -9,7 +9,7 @@ Proposed
 ## Context
 
 The M2 fleet and lifecycle design
-(`docs/superpowers/specs/2026-10-19-m2-fleet-lifecycle-design.md`) makes
+(`docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md`) makes
 concrete several contracts that ADR 0002, ADR 0003, ADR 0004 and ADR 0007
 state in outline, closes the index's deferred decision on how the install
 script verifies a download, and adds packages that ADR 0001 and ADR 0011 do
