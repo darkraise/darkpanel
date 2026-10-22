@@ -57,6 +57,12 @@ func (e *Engine) Repair(ctx context.Context, p core.Principal, changeID string, 
 		return core.RepairResult{}, errcode.New(errcode.NeedsRepair,
 			fmt.Sprintf("change %s has an unresolved effect: resolve its effects first", changeID))
 	}
+	if res, err := e.recovererRepair(ctx, changeID); err != nil || res != nil {
+		if err != nil {
+			return core.RepairResult{}, err
+		}
+		return *res, nil
+	}
 	h, s := def.Handler, def.Spec
 	switch {
 	case s.Class == core.ClassCompensable && h.Inverse != nil:

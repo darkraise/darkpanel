@@ -413,12 +413,7 @@ func (e *Engine) failApply(ctx context.Context, p core.Principal, it *intent, ca
 	}
 	tctx, cancelTx := context.WithTimeout(context.WithoutCancel(ctx), CleanupTxTimeout)
 	defer cancelTx()
-	tr, err := e.failure(tctx, it.id, it.def, cause, false)
-	if err != nil {
-		return core.ChangeView{}, err
-	}
-	tr.phase, tr.result, tr.actor, tr.source = phaseApply, resultError, p.Actor, p.Source
-	return e.transition(tctx, it.id, tr)
+	return e.failSettled(tctx, p, it.id, it.def, cause)
 }
 
 // changeError is what a change's error shows: the code and the client-safe
