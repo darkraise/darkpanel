@@ -212,6 +212,9 @@ func checkOwnedPaths(m Manifest) []error {
 			if !path.IsAbs(p) || path.Clean(p) != p {
 				fail("module %s: %s path %q is not absolute and clean", m.ID, op.Kind, p)
 			}
+			if p == "/" {
+				fail("module %s: %s path %q is the root directory", m.ID, op.Kind, p)
+			}
 		case OwnedSysctl:
 			if problem := sysctlKeyProblem(p); problem != "" {
 				fail("module %s: sysctl key %q %s", m.ID, p, problem)

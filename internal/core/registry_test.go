@@ -503,6 +503,8 @@ func TestRegistryOwnedPathKinds(t *testing.T) {
 			"module own: owned path /var/lib/own: Subdirs is for kind service-dir only"},
 		{"foreign unit file", ownModule("own", OwnedPath{Path: "/etc/systemd/system/nginx.service", Kind: OwnedUnit}),
 			"module own: unit path /etc/systemd/system/nginx.service must match"},
+		{"root as managed-dir", ownModule("own", OwnedPath{Path: "/", Kind: OwnedManagedDir}),
+			`module own: managed-dir path "/" is the root directory`},
 		{"relative managed-dir", ownModule("own", OwnedPath{Path: "relative/dir", Kind: OwnedManagedDir}),
 			`module own: managed-dir path "relative/dir" is not absolute and clean`},
 		{"unclean restore path", ownModule("own", OwnedPath{Path: "/etc/ufw/../ufw/user.rules", Kind: OwnedRestore}),
