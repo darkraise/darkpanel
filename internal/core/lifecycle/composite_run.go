@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"sync"
 	"time"
@@ -524,7 +525,7 @@ func (e *Engine) startStep(ctx context.Context, c compositeRow, steps []stepRow,
 		u.Err = e.stepError(s, applyErr)
 	case v.ID != "":
 		u.ChildID = &v.ID
-		if len(v.Output) > 0 {
+		if len(v.Output) > 0 && !compositeSecretType(def.OutputType) {
 			sealed, err := e.cfg.Base.Sealer.Seal(stepOutputAD(c.ID, s.ID), v.Output)
 			if err != nil {
 				return fmt.Errorf("lifecycle: seal the output of step %s of %s: %w", s.ID, c.ID, err)
@@ -771,16 +772,40 @@ func (e *Engine) forwardObserve(ctx context.Context, c compositeRow, s stepRow, 
 	return e.compositeNeedsRepair(ctx, c, s, childFailure(s, lk))
 }
 
-// stepDone makes step s final and moves the cursor past it, sealing the
-// child's output first when the apply answer did not carry it. An error a
-// lost apply answer left on the step is cleared.
+// stepDone makes step s final and moves the cursor past it. When the apply
+// answer did not carry the child's output, it is taken from the lookup or,
+// for an output type with secret fields, from the private output (1.3 Child
+// results); a private output gone before it was sealed is output-lost, and
+// the composite never continues with a redacted value. The private output is
+// acknowledged once sealed. An error a lost apply answer left on the step is
+// cleared.
 func (e *Engine) stepDone(ctx context.Context, c compositeRow, s stepRow, lk core.PlanLookup) error {
+	sdef, ok := e.cfg.Registry.Action(s.Action)
+	if !ok {
+		return fmt.Errorf("lifecycle: composite %s: step %s: action %s is not registered", c.ID, s.ID, s.Action)
+	}
+	kids, err := e.kids()
+	if err != nil {
+		return err
+	}
+	secret := compositeSecretType(sdef.OutputType)
 	u := stepUpdate{State: core.StepApplied, Cursor: stepCursor(s.Ordinal + 1), ClearErr: true}
 	if lk.State == core.StateConfirmed {
 		u.State = core.StepConfirmed
 	}
 	if len(s.OutputCT) == 0 {
 		raw := lk.Output
+		if secret {
+			priv, err := kids.Lookup(ctx, s.Host, s.PlanID, true)
+			if err != nil {
+				return e.childUnreachable(ctx, c, s, err)
+			}
+			if len(priv.Private) == 0 {
+				return e.stepFailed(ctx, c, s, s.Ordinal,
+					stepFailure(s, fmt.Sprintf("the output of child %s was lost before it was sealed", lk.ChangeID)))
+			}
+			raw = priv.Private
+		}
 		if len(raw) == 0 {
 			raw = json.RawMessage("null")
 		}
@@ -790,13 +815,40 @@ func (e *Engine) stepDone(ctx context.Context, c compositeRow, s stepRow, lk cor
 		}
 		u.OutputCT = sealed
 	}
-	return e.setStep(ctx, c.ID, s.ID, []string{core.StepApplying, core.StepConfirming, core.StepApplied}, u)
+	if err := e.setStep(ctx, c.ID, s.ID, []string{core.StepApplying, core.StepConfirming, core.StepApplied}, u); err != nil {
+		return err
+	}
+	if secret {
+		// An unacknowledged private output is cleared after PrivateOutputTTL
+		// anyway, so a failed acknowledgement is only logged.
+		if err := kids.AckPrivate(ctx, s.Host, s.ChildID, false); err != nil {
+			e.cfg.Base.Log.Warn("lifecycle: acknowledge a child's private output",
+				"change", c.ID, "step", s.ID, "child", s.ChildID, "error", err)
+		}
+	}
+	return nil
 }
 
 // stepAwaiting is the revertible last step's child pending: the step is
 // applied and the composite awaits confirmation (1.3 Confirmation), while
-// the runner keeps looking the child up.
+// the runner keeps looking the child up. A step confirming had its confirm
+// sent, and the answer was lost or the confirm never arrived: it is sent
+// again.
 func (e *Engine) stepAwaiting(ctx context.Context, c compositeRow, s stepRow, lk core.PlanLookup) error {
+	if s.State == core.StepConfirming {
+		kids, err := e.kids()
+		if err != nil {
+			return err
+		}
+		_, err = kids.Confirm(ctx, recoveryPrincipal, s.ChildID)
+		switch {
+		case err == nil:
+			return nil
+		case errcode.From(err).Code == errcode.HostOffline:
+			return e.childUnreachable(ctx, c, s, err)
+		}
+		return waitChild(ChildPoll)
+	}
 	if s.State == core.StepApplying {
 		if err := e.setStep(ctx, c.ID, s.ID, []string{core.StepApplying},
 			stepUpdate{State: core.StepApplied, ChildDeadline: lk.Deadline}); err != nil {
@@ -1053,4 +1105,180 @@ func (e *Engine) commitComposite(ctx context.Context, p core.Principal, pl planR
 		return "", nil, fmt.Errorf("lifecycle: persist the composite intent: %w", err)
 	}
 	return id, nil, nil
+}
+
+// isComposite reports whether changeID is a composite of this engine; an
+// unknown change is not, and its own path answers change.not_found.
+func (e *Engine) isComposite(ctx context.Context, changeID string) (bool, error) {
+	var class string
+	err := e.cfg.Base.DB.Read().QueryRowContext(ctx, "SELECT class FROM core_changes WHERE id = ?", changeID).Scan(&class)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("lifecycle: read change %s: %w", changeID, err)
+	}
+	return core.Class(class) == core.ClassComposite, nil
+}
+
+// compositeSecretType reports whether values of t carry a field tagged
+// secret:"true" at any depth.
+func compositeSecretType(t reflect.Type) bool {
+	return compositeSecretIn(t, map[reflect.Type]bool{})
+}
+
+func compositeSecretIn(t reflect.Type, seen map[reflect.Type]bool) bool {
+	for t != nil && (t.Kind() == reflect.Pointer || t.Kind() == reflect.Slice || t.Kind() == reflect.Array || t.Kind() == reflect.Map) {
+		t = t.Elem()
+	}
+	if t == nil || t.Kind() != reflect.Struct || seen[t] {
+		return false
+	}
+	seen[t] = true
+	for i := range t.NumField() {
+		f := t.Field(i)
+		if f.Tag.Get("secret") == "true" || compositeSecretIn(f.Type, seen) {
+			return true
+		}
+	}
+	return false
+}
+
+// confirmComposite confirms a composite awaiting confirmation through its
+// revertible child (1.3 Confirmation): the step is confirming, committed,
+// before the confirm is sent, and the lookup, never a deadline, settles an
+// answer that was lost.
+func (e *Engine) confirmComposite(ctx context.Context, p core.Principal, id string) (core.ChangeView, error) {
+	ctx = context.WithoutCancel(ctx)
+	unlock := e.compositeLock(id)
+	defer unlock()
+	c, steps, err := loadComposite(ctx, e.cfg.Base.DB.Read(), id)
+	if err != nil {
+		return core.ChangeView{}, err
+	}
+	if c.State != core.StateAwaitingConfirmation || c.Cursor < 0 || c.Cursor >= len(steps) {
+		return core.ChangeView{}, errcode.New(errcode.ChangeNotPending, fmt.Sprintf("change %s is %s", id, c.State))
+	}
+	s := steps[c.Cursor]
+	if s.State == core.StepApplied {
+		if err := e.setStep(ctx, id, s.ID, []string{core.StepApplied}, stepUpdate{State: core.StepConfirming}); err != nil {
+			return core.ChangeView{}, err
+		}
+	}
+	kids, err := e.kids()
+	if err != nil {
+		return core.ChangeView{}, err
+	}
+	if _, err := kids.Confirm(ctx, p, s.ChildID); err != nil {
+		e.cfg.Base.Log.Warn("lifecycle: confirm a composite's child", "change", id, "child", s.ChildID, "error", err)
+	}
+	if err := e.settleComposite(ctx, id, &compositeRun{P: p}); err != nil {
+		return core.ChangeView{}, err
+	}
+	e.wakeComposite(id)
+	return e.Change(ctx, id)
+}
+
+// settleComposite looks the cursor step's child up and applies the tables
+// once, completing the composite when its last step became final. A child
+// that cannot be looked up now is left to the runner.
+func (e *Engine) settleComposite(ctx context.Context, id string, run *compositeRun) error {
+	c, steps, err := loadComposite(ctx, e.cfg.Base.DB.Read(), id)
+	if err != nil {
+		return err
+	}
+	kids, err := e.kids()
+	if err != nil {
+		return err
+	}
+	lk, err := lookupChild(ctx, kids, steps[c.Cursor])
+	if err != nil {
+		return nil
+	}
+	err = e.observeChild(ctx, id, lk)
+	var wait *compositeWait
+	switch {
+	case errors.As(err, &wait), errors.Is(err, errCompositeDone):
+		return nil
+	case err != nil:
+		return err
+	}
+	if c, steps, err = loadComposite(ctx, e.cfg.Base.DB.Read(), id); err != nil {
+		return err
+	}
+	if c.Owner == core.OwnerComposite && c.Direction == dirForward && c.Cursor >= len(steps) {
+		if err := e.completeComposite(ctx, c, steps, run); err != nil && !errors.Is(err, errCompositeDone) {
+			return err
+		}
+	}
+	return nil
+}
+
+// revertComposite reverts a composite awaiting confirmation (1.3 States):
+// its unwind starts at the revertible step, whose child p reverts now; the
+// runner undoes the steps before it.
+func (e *Engine) revertComposite(ctx context.Context, p core.Principal, id string) (core.ChangeView, error) {
+	ctx = context.WithoutCancel(ctx)
+	unlock := e.compositeLock(id)
+	defer unlock()
+	c, steps, err := loadComposite(ctx, e.cfg.Base.DB.Read(), id)
+	if err != nil {
+		return core.ChangeView{}, err
+	}
+	if c.State != core.StateAwaitingConfirmation || c.Cursor < 0 || c.Cursor >= len(steps) {
+		return core.ChangeView{}, errcode.New(errcode.ChangeNotPending, fmt.Sprintf("change %s is %s", id, c.State))
+	}
+	s := steps[c.Cursor]
+	if err := e.compositeCause(ctx, id, stepFailure(s, "reverted by "+p.Actor)); err != nil {
+		return core.ChangeView{}, err
+	}
+	var wait *compositeWait
+	if err := e.unwindFrom(ctx, id, s.Ordinal); err != nil && !errors.Is(err, errCompositeDone) && !errors.As(err, &wait) {
+		return core.ChangeView{}, err
+	}
+	if c, steps, err = loadComposite(ctx, e.cfg.Base.DB.Read(), id); err != nil {
+		return core.ChangeView{}, err
+	}
+	if c.State == core.StateUndoing && c.Cursor == s.Ordinal {
+		s = steps[c.Cursor]
+		if err := e.setStep(ctx, id, s.ID, []string{s.State}, stepUpdate{State: core.StepUndoing}); err != nil {
+			return core.ChangeView{}, err
+		}
+		if err := e.sendRevert(ctx, c, s, p); err != nil && !errors.Is(err, errCompositeDone) && !errors.As(err, &wait) {
+			return core.ChangeView{}, err
+		}
+	}
+	e.wakeComposite(id)
+	return e.Change(ctx, id)
+}
+
+// compositeFinal tells the executing side of every child of composite id,
+// now terminal, that its composite is terminal: a final AckPrivate, after
+// which the child's made effects drop their sealed secrets (spec 1.2). A
+// child that cannot be told keeps its secrets until its undo window closes
+// and Purge clears them, so a failure is only logged.
+func (e *Engine) compositeFinal(id string) {
+	ctx, cancel := context.WithTimeout(e.runCtx, CleanupTxTimeout)
+	defer cancel()
+	kids, err := e.kids()
+	if err != nil {
+		e.cfg.Base.Log.Warn("lifecycle: tell a terminal composite's children", "change", id, "error", err)
+		return
+	}
+	_, steps, err := loadComposite(ctx, e.cfg.Base.DB.Read(), id)
+	if err != nil {
+		e.cfg.Base.Log.Warn("lifecycle: tell a terminal composite's children", "change", id, "error", err)
+		return
+	}
+	for _, s := range steps {
+		for _, child := range append([]string{s.ChildID}, s.Earlier...) {
+			if child == "" {
+				continue
+			}
+			if err := kids.AckPrivate(ctx, s.Host, child, true); err != nil {
+				e.cfg.Base.Log.Warn("lifecycle: tell a child its composite is terminal",
+					"change", id, "step", s.ID, "child", child, "error", err)
+			}
+		}
+	}
 }

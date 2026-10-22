@@ -39,8 +39,16 @@ type armedTimer struct{ core.Timer }
 // Confirm keeps a pending revertible change and releases its locks. Any
 // principal may confirm; the caller authorizes it. Confirm and revert race in
 // one transaction each, and the one that commits second gets
-// change.not_pending.
+// change.not_pending. On a composite it confirms the revertible child (1.3
+// Confirmation).
 func (e *Engine) Confirm(ctx context.Context, p core.Principal, changeID string) (core.ChangeView, error) {
+	composite, err := e.isComposite(ctx, changeID)
+	if err != nil {
+		return core.ChangeView{}, err
+	}
+	if composite {
+		return e.confirmComposite(ctx, p, changeID)
+	}
 	v, err := e.transition(ctx, changeID, transition{
 		from: core.StatePending, to: core.StateConfirmed, release: true,
 		phase: phaseConfirm, result: resultOK, actor: p.Actor, source: p.Source,
@@ -53,8 +61,16 @@ func (e *Engine) Confirm(ctx context.Context, p core.Principal, changeID string)
 }
 
 // Revert reverts a pending revertible change from its snapshot. Any principal
-// may revert; the caller authorizes it.
+// may revert; the caller authorizes it. On a composite it reverts the
+// revertible child and unwinds the steps before it.
 func (e *Engine) Revert(ctx context.Context, p core.Principal, changeID string) (core.ChangeView, error) {
+	composite, err := e.isComposite(ctx, changeID)
+	if err != nil {
+		return core.ChangeView{}, err
+	}
+	if composite {
+		return e.revertComposite(ctx, p, changeID)
+	}
 	return e.revertPending(context.WithoutCancel(ctx), p, changeID)
 }
 

@@ -548,6 +548,11 @@ func (e *Engine) transition(ctx context.Context, changeID string, tr transition)
 	case err != nil:
 		return v, fmt.Errorf("lifecycle: record change %s: %w", changeID, err)
 	}
+	// The children are told after the commit, outside the transaction,
+	// because telling them is a network call per child.
+	if v.Class == core.ClassComposite && sealedInputDone(v.State) {
+		e.goRun(func() { e.compositeFinal(changeID) })
+	}
 	return v, nil
 }
 
