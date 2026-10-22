@@ -205,6 +205,11 @@ func (e *Engine) compositeSteps(ctx context.Context, p core.Principal, def core.
 		if def.Spec.Unwind == core.UnwindForward && cdef.Spec.Class != core.ClassRead && !cdef.Spec.Converges {
 			return nil, bug("step %s: %s does not converge, and a forward composite repeats its steps", st.ID, st.Action)
 		}
+		// A repaired child's secret output is never kept for its composite,
+		// so a forward composite could not advance past a kept step.
+		if def.Spec.Unwind == core.UnwindForward && compositeSecretType(cdef.OutputType) {
+			return nil, bug("step %s: %s has a secret output, which a forward composite's steps never have", st.ID, st.Action)
+		}
 		tmpl, err := resolveInputRefs(st.Input, input)
 		if err != nil {
 			return nil, err

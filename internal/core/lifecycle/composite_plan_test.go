@@ -162,6 +162,8 @@ func TestCompositePlanRefusals(t *testing.T) {
 			errcode.Internal, "no undo handler"},
 		{"no convergence in forward", refCfxDrop, []core.Step{cstStep("a", refCstGate, `{"name":"x"}`)},
 			errcode.Internal, "does not converge"},
+		{"secret output in forward", refCfxDrop, []core.Step{add("a", `{"name":"x"}`)},
+			errcode.Internal, "secret output"},
 		{"controller action with a host", refCfxBad, []core.Step{cstStep("a", refCstNote, `{"name":"x"}`)},
 			errcode.Internal, "takes no host"},
 		{"agent action without a host", refCfxBad,

@@ -71,8 +71,8 @@ func conflicted(t *testing.T, f *cfxFixture) (core.ChangeView, core.ChangeView) 
 func stuckForward(t *testing.T, f *cfxFixture) (core.ChangeView, stepRow) {
 	t.Helper()
 	f.bad.set(
-		cstStep("a", refCstAdd, `{"name":"z1","value":"1"}`),
-		cstStep("b", refCstAdd, `{"name":"z2","value":"2","remote":true}`, "a"),
+		cstStep("a", refCstPut, `{"name":"z1","value":"1"}`),
+		cstStep("b", refCstPut, `{"name":"z2","value":"2","remote":true}`, "a"),
 	)
 	f.host.failNext("z2", 1)
 	v := f.applyC(refCfxDrop, `{"name":"z"}`, core.ApplyOptions{})
@@ -225,6 +225,42 @@ func TestForwardCompositeRepairAdvancesAKeptChild(t *testing.T) {
 	}
 	if _, ok := f.host.item("web-b"); ok {
 		t.Error("item web-b is back")
+	}
+}
+
+func TestForwardCompositeRepairTakesTheRepairOutput(t *testing.T) {
+	f := newCfxFixture(t)
+	ctx := context.Background()
+	v, b := stuckForward(t, f)
+	f.agentClock.Advance(time.Hour)
+	if _, err := f.agent.Resolve(ctx, cfxRoot, b.ChildID, 1, core.ResolveRequest{Resolution: core.ResolutionAccept}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := f.agent.Repair(ctx, cfxRoot, b.ChildID, core.RepairRequest{})
+	if err != nil || res.Plan == nil {
+		t.Fatalf("child Repair = %+v, %v; want a re-apply plan", res, err)
+	}
+	p, err := f.agent.Apply(ctx, cfxRoot, res.Plan.PlanID, core.ApplyOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.awaitAgent(p.ID, core.StateCompleted)
+	if child := f.agentChange(b.ChildID); child.State != core.StateRepaired || child.RepairOutcome != core.RepairKept {
+		t.Fatalf("child of b = %s with outcome %q, want repaired and kept", child.State, child.RepairOutcome)
+	}
+	if _, err := repairC(f, cfxRoot, v.ID, core.RepairRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	done := f.await(v.ID, core.StateCompleted, core.StateNeedsRepair)
+	if done.State != core.StateCompleted {
+		t.Fatalf("composite = %s (%+v), want completed", done.State, done.Error)
+	}
+	var out cfxOut
+	if err := json.Unmarshal(done.Output, &out); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(out.Steps["b"]); got != `{"name":"z2","value":"2"}` {
+		t.Errorf("output of step b = %s, want the repair change's output", got)
 	}
 }
 

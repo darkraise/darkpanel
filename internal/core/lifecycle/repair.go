@@ -288,9 +288,10 @@ func takeRepairTarget(ctx context.Context, tx *sql.Tx, now time.Time, target, p 
 // change is never repaired itself.
 func (e *Engine) repairTransition(ctx context.Context, tx *sql.Tx, now time.Time, changeID string, tr *transition) error {
 	var target, action, output sql.NullString
+	var version int
 	if err := tx.QueryRowContext(ctx,
-		`SELECT p.repairs, c.action, c.output_json FROM core_changes c JOIN core_plans p ON p.id = c.plan_id
-		 WHERE c.id = ?`, changeID).Scan(&target, &action, &output); err != nil {
+		`SELECT p.repairs, c.action, c.version, c.output_json FROM core_changes c JOIN core_plans p ON p.id = c.plan_id
+		 WHERE c.id = ?`, changeID).Scan(&target, &action, &version, &output); err != nil {
 		return err
 	}
 	if target.String == "" {
@@ -306,10 +307,15 @@ func (e *Engine) repairTransition(ctx context.Context, tx *sql.Tx, now time.Time
 		if err != nil {
 			return err
 		}
+		// A re-apply of the target's own action produced the output the
+		// target failed to give, and a forward composite advances past a
+		// kept step with it; a RepairedBy action's output has another type.
 		res, err := tx.ExecContext(ctx,
-			`UPDATE core_changes SET state = ?, repair_outcome = ?, recovery_owner = '', updated_at = ?
+			`UPDATE core_changes SET state = ?, repair_outcome = ?, recovery_owner = '', updated_at = ?,
+			 output_json = CASE WHEN action = ? AND version = ? THEN coalesce(?, output_json) ELSE output_json END
 			 WHERE id = ? AND state = ? AND recovery_owner = ?`,
-			core.StateRepaired, outcome, formatTime(now), target.String, core.StateNeedsRepair, core.OwnerRepair)
+			core.StateRepaired, outcome, formatTime(now), action.String, version, nullJSON(out),
+			target.String, core.StateNeedsRepair, core.OwnerRepair)
 		if err != nil {
 			return err
 		}

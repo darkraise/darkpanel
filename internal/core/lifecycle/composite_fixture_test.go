@@ -28,6 +28,7 @@ import (
 var (
 	refCstAdd  = core.ActionRef{Name: "cst.item.add", Version: 1}  // compensable, undo handler, converges
 	refCstDel  = core.ActionRef{Name: "cst.item.del", Version: 1}  // compensable, forward only, converges
+	refCstPut  = core.ActionRef{Name: "cst.item.put", Version: 1}  // cst.item.add forward only, no secret output
 	refCstGet  = core.ActionRef{Name: "cst.item.get", Version: 1}  // read
 	refCstWipe = core.ActionRef{Name: "cst.item.wipe", Version: 1} // irreversible
 	refCstGate = core.ActionRef{Name: "cst.gate.set", Version: 1}  // revertible
@@ -250,6 +251,27 @@ func (x cstDel) Verify(_ context.Context, _ core.Env, in cstIn, _ cstView) error
 	return nil
 }
 
+// cstPut is cstAdd without its undo handler and its secret output: a
+// forward composite's step, repaired by applying it again.
+type cstPut struct{ h *cstHost }
+
+func (x cstPut) Plan(ctx context.Context, env core.Env, in cstIn) (core.PlanOutcome, error) {
+	return cstAdd(x).Plan(ctx, env, in)
+}
+
+func (x cstPut) Apply(ctx context.Context, env core.Env, in cstIn) (cstView, error) {
+	out, err := cstAdd(x).Apply(ctx, env, in)
+	return cstView{Name: out.Name, Value: out.Value}, err
+}
+
+func (x cstPut) Verify(ctx context.Context, env core.Env, in cstIn, _ cstView) error {
+	return cstAdd(x).Verify(ctx, env, in, cstOut{})
+}
+
+func (x cstPut) Observe(ctx context.Context, env core.Env, e core.Effect) (core.Observation, error) {
+	return cstAdd(x).Observe(ctx, env, e)
+}
+
 type cstGet struct{ h *cstHost }
 
 func (x cstGet) Read(_ context.Context, _ core.Env, in cstIn) (cstView, error) {
@@ -341,6 +363,10 @@ func (m cstModule) Manifest() core.Manifest {
 			Name: refCstDel.Name, Version: 1, Class: core.ClassCompensable, Side: core.SideAgent,
 			LockKeys: []string{"cst"}, ForwardOnly: true, Converges: true,
 		}, cstDel(m)),
+		core.DefineMutating(core.ActionSpec{
+			Name: refCstPut.Name, Version: 1, Class: core.ClassCompensable, Side: core.SideAgent,
+			LockKeys: []string{"cst"}, ForwardOnly: true, Converges: true,
+		}, cstPut(m)),
 		core.DefineRead(core.ActionSpec{Name: refCstGet.Name, Version: 1, Side: core.SideAgent}, cstGet(m)),
 		core.DefineMutating(core.ActionSpec{
 			Name: refCstWipe.Name, Version: 1, Class: core.ClassIrreversible, Side: core.SideAgent, LockKeys: []string{"cst"},
