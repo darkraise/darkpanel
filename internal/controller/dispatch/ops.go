@@ -199,19 +199,5 @@ func (d *Dispatcher) refuseReleasingRepair(ctx context.Context, planID string) e
 // rememberRepair indexes a repair plan as remember indexes any plan, with the
 // change it repairs.
 func (d *Dispatcher) rememberRepair(ctx context.Context, hostID string, v core.PlanView, target string) error {
-	cutoff := d.cfg.Clock.Now().Add(-PlanIndexRetention).UTC().Format(timeFormat)
-	err := d.cfg.DB.Write(ctx, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx,
-			"DELETE FROM core_plan_index WHERE applied = 0 AND expires_at <= ?", cutoff); err != nil {
-			return err
-		}
-		_, err := tx.ExecContext(ctx,
-			`INSERT INTO core_plan_index (plan_id, host_id, action, version, expires_at, repairs) VALUES (?, ?, ?, ?, ?, ?)`,
-			v.PlanID, hostID, v.Action, v.Version, v.ExpiresAt.UTC().Format(timeFormat), target)
-		return err
-	})
-	if err != nil {
-		return fmt.Errorf("dispatch: index repair plan %s: %w", v.PlanID, err)
-	}
-	return nil
+	return d.remember(ctx, hostID, core.ActionRef{Name: v.Action, Version: v.Version}, v, target)
 }
