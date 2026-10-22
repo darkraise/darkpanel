@@ -1,9 +1,12 @@
 package lifecycle
 
 import (
+	"context"
 	"encoding/json"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -213,5 +216,105 @@ func TestCompositeStepReferenceToAMissingPath(t *testing.T) {
 	}
 	if _, ok := f.host.item("x-a"); ok {
 		t.Error("item x-a is still there after the unwind")
+	}
+}
+
+func TestReverseCompositeResumesAnUnwindWhoseStartCheckWaited(t *testing.T) {
+	f := newCfxFixture(t)
+	f.events.setOnEvent(func(ev StepEvent) {
+		if ev.StepID == "b" && ev.State == core.StepPlanning {
+			f.kids.mu.Lock()
+			f.kids.unreachable = true
+			f.kids.mu.Unlock()
+		}
+	})
+	v := f.applyC(refCfxAdd, `{"name":"web"}`, core.ApplyOptions{})
+	var plansB atomic.Int32
+	f.host.setHooks(func(name string) {
+		if name == "web-b" {
+			plansB.Add(1)
+		}
+	}, nil)
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		c, err := f.ctrl.Change(context.Background(), v.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.Error != nil && f.ctrlClock.Pending() > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("composite = %s (%+v), want its cause recorded and its runner waiting", c.State, c.Error)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	f.events.setOnEvent(nil)
+	f.kids.mu.Lock()
+	f.kids.unreachable = false
+	f.kids.mu.Unlock()
+	done := f.await(v.ID, core.StateReverted, core.StateFailed, core.StateNeedsRepair, core.StateCompleted)
+	if done.State != core.StateReverted || done.Error == nil || done.Error.Code != string(errcode.ChildFailed) ||
+		!strings.Contains(done.Error.Message, "step b ") {
+		t.Fatalf("composite = %s (%+v), want reverted with core.child_failed naming step b", done.State, done.Error)
+	}
+	if a := f.stepsOf(v.ID)["a"]; a.State != core.StepUndone {
+		t.Errorf("step a = %s, want undone", a.State)
+	}
+	if _, ok := f.host.item("web-a"); ok {
+		t.Error("item web-a is still there after the unwind")
+	}
+	if n := plansB.Load(); n != 0 {
+		t.Errorf("step b was planned %d times after it failed, want 0", n)
+	}
+}
+
+func TestCompositeRecheckDoesNotHoldApplyMu(t *testing.T) {
+	f := newCfxFixture(t)
+	pl, err := f.planC(refCfxAdd, `{"name":"web"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	f.host.setHooks(func(string) {
+		once.Do(func() {
+			close(entered)
+			<-release
+		})
+	}, nil)
+	type result struct {
+		v   core.ChangeView
+		err error
+	}
+	applied := make(chan result, 1)
+	go func() {
+		v, err := f.ctrl.Apply(context.Background(), cfxRoot, pl.PlanID, core.ApplyOptions{})
+		applied <- result{v, err}
+	}()
+	select {
+	case <-entered:
+	case r := <-applied:
+		t.Fatalf("Apply = %s, %v before its recheck planned a step", r.v.State, r.err)
+	}
+	retired := make(chan struct{})
+	go func() {
+		_, _ = f.ctrl.Retire(context.Background(), "01UNKNOWNPLAN")
+		close(retired)
+	}()
+	select {
+	case <-retired:
+	case <-time.After(2 * time.Second):
+		t.Error("Retire waited for the composite apply's recheck")
+	}
+	close(release)
+	f.host.setHooks(nil, nil)
+	r := <-applied
+	if r.err != nil {
+		t.Fatalf("Apply: %v", r.err)
+	}
+	done := f.await(r.v.ID, core.StateCompleted, core.StateReverted, core.StateFailed, core.StateNeedsRepair)
+	if done.State != core.StateCompleted {
+		t.Fatalf("composite = %s (%+v), want completed", done.State, done.Error)
 	}
 }

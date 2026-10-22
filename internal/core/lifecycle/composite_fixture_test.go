@@ -743,7 +743,7 @@ func (r *cfxEvents) of(changeID string) []StepEvent {
 	return out
 }
 
-func (r *cfxEvents) setOnEvent(f func(StepEvent)) { //nolint:unused // shared helper for the composite step tests in this package
+func (r *cfxEvents) setOnEvent(f func(StepEvent)) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.onEvent = f

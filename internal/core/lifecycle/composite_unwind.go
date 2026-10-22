@@ -197,6 +197,8 @@ func (e *Engine) sendUndo(ctx context.Context, c compositeRow, s stepRow) error 
 	case code == errcode.HostOffline:
 		return e.childUnreachable(ctx, c, s, err)
 	}
+	e.cfg.Base.Log.Warn("lifecycle: composite undo of a child failed; the next lookup decides",
+		"change", c.ID, "step", s.ID, "child", s.ChildID, "error", err)
 	return waitChild(ChildPoll)
 }
 
@@ -214,6 +216,10 @@ func (e *Engine) sendRevert(ctx context.Context, c compositeRow, s stepRow, p co
 		return e.setStep(ctx, c.ID, s.ID, []string{core.StepUndoing}, stepUpdate{State: core.StepUndone, Cursor: &prev})
 	case errcode.From(err).Code == errcode.HostOffline:
 		return e.childUnreachable(ctx, c, s, err)
+	}
+	if err != nil {
+		e.cfg.Base.Log.Warn("lifecycle: composite revert of a child failed; the next lookup decides",
+			"change", c.ID, "step", s.ID, "child", s.ChildID, "error", err)
 	}
 	return waitChild(ChildPoll)
 }

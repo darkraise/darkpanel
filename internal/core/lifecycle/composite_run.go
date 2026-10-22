@@ -426,6 +426,17 @@ func (e *Engine) forwardStep(ctx context.Context, c compositeRow, steps []stepRo
 	s := steps[c.Cursor]
 	switch s.State {
 	case core.StepPending, core.StepPlanning, core.StepPlanned:
+		if s.Err != nil {
+			def, err := e.compositeDef(c)
+			if err != nil {
+				return err
+			}
+			if def.Spec.Unwind == core.UnwindReverse {
+				// The unwind was decided when this error was recorded; its start
+				// check waited for a host, so resume it rather than retry the step.
+				return e.unwindFrom(ctx, c.ID, s.Ordinal-1)
+			}
+		}
 		switch {
 		case run == nil:
 			return e.betweenSteps(ctx, c, s)
@@ -892,13 +903,19 @@ func (e *Engine) planDef(ctx context.Context, planID string) (core.ActionDef, bo
 }
 
 // applyComposite is Apply for a composite (1.3 Step log and cursor). Its
-// intent writes the change (owner composite, its composite lock), every
-// step row and the cursor in one transaction; the runner continues on the
+// checks and recheck run without applyMu; applyMu is held only while the
+// checks a concurrent apply or retire could change are repeated and the
+// intent writes the change (owner composite, its composite lock), every step
+// row and the cursor in one transaction. The runner continues on the
 // engine's run context, so the answer is the applying change.
 func (e *Engine) applyComposite(ctx context.Context, p core.Principal, planID string, opts core.ApplyOptions) (core.ChangeView, error) {
-	e.applyMu.Lock()
-	id, existing, err := e.beginComposite(ctx, p, planID)
-	e.applyMu.Unlock()
+	pl, def, input, out, steps, existing, err := e.prepareComposite(ctx, p, planID)
+	var id string
+	if err == nil && existing == nil {
+		e.applyMu.Lock()
+		id, existing, err = e.commitComposite(ctx, p, pl, def, input, out, steps)
+		e.applyMu.Unlock()
+	}
 	switch {
 	case err != nil:
 		return core.ChangeView{}, err
@@ -914,42 +931,74 @@ func (e *Engine) applyComposite(ctx context.Context, p core.Principal, planID st
 	return v, nil
 }
 
-// beginComposite runs a composite apply's checks, rechecks its plan by
-// planning it again, and persists the intent. It runs under applyMu.
-func (e *Engine) beginComposite(ctx context.Context, p core.Principal, planID string) (string, *core.ChangeView, error) {
-	db := e.cfg.Base.DB
+// existingChange is the change of plan planID, or nil when it has none.
+func existingChange(ctx context.Context, q queryer, planID string) (*core.ChangeView, error) {
+	v, err := scanChange(q.QueryRowContext(ctx, "SELECT "+changeColumns+" FROM core_changes WHERE plan_id = ?", planID))
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil, nil
+	case err != nil:
+		return nil, fmt.Errorf("lifecycle: read change of plan %s: %w", planID, err)
+	}
+	return &v, nil
+}
+
+// prepareComposite runs a composite apply's checks and rechecks its plan by
+// planning it again. It runs without applyMu, so the recheck's child plans do
+// not stall the controller's other applies, lookups and retires; the stored
+// plan and input cannot change, and commitComposite repeats under applyMu the
+// checks that can. A plan that already has a change answers that change.
+func (e *Engine) prepareComposite(ctx context.Context, p core.Principal, planID string) (
+	planRecord, core.ActionDef, json.RawMessage, core.PlanOutcome, []plannedStep, *core.ChangeView, error,
+) {
 	pl, err := e.loadPlan(ctx, planID)
 	if err != nil {
-		return "", nil, err
+		return planRecord{}, core.ActionDef{}, nil, core.PlanOutcome{}, nil, nil, err
 	}
 	if p.Actor != pl.actor {
-		return "", nil, errcode.New(errcode.PlanPrincipalMismatch, "the plan was made by another principal")
+		return pl, core.ActionDef{}, nil, core.PlanOutcome{}, nil, nil,
+			errcode.New(errcode.PlanPrincipalMismatch, "the plan was made by another principal")
 	}
-	existing, err := scanChange(db.Read().QueryRowContext(ctx,
-		"SELECT "+changeColumns+" FROM core_changes WHERE plan_id = ?", planID))
-	switch {
-	case err == nil:
-		return "", &existing, nil
-	case !errors.Is(err, sql.ErrNoRows):
-		return "", nil, fmt.Errorf("lifecycle: read change of plan %s: %w", planID, err)
+	existing, err := existingChange(ctx, e.cfg.Base.DB.Read(), planID)
+	if err != nil || existing != nil {
+		return pl, core.ActionDef{}, nil, core.PlanOutcome{}, nil, existing, err
+	}
+	if !e.cfg.Base.Clock.Now().Before(pl.expiresAt) {
+		return pl, core.ActionDef{}, nil, core.PlanOutcome{}, nil, nil,
+			errcode.New(errcode.PlanExpired, "the plan expired; plan again")
+	}
+	def, err := e.action(core.ActionRef{Name: pl.action, Version: pl.version})
+	if err != nil {
+		return pl, core.ActionDef{}, nil, core.PlanOutcome{}, nil, nil, err
+	}
+	input, err := e.cfg.Base.Sealer.Open(planInputAD(pl.id), pl.inputCT)
+	if err != nil {
+		return pl, def, nil, core.PlanOutcome{}, nil, nil, fmt.Errorf("lifecycle: open plan input: %w", err)
+	}
+	out, steps, err := e.compositePlan(ctx, p, def, input)
+	return pl, def, input, out, steps, nil, err
+}
+
+// commitComposite persists a prepared composite apply's intent. It runs
+// under applyMu and first repeats the checks that a concurrent apply or
+// retire of the plan, a lock taken meanwhile, or the time spent on the
+// recheck could have changed.
+func (e *Engine) commitComposite(ctx context.Context, p core.Principal, pl planRecord, def core.ActionDef,
+	input json.RawMessage, out core.PlanOutcome, steps []plannedStep,
+) (string, *core.ChangeView, error) {
+	db := e.cfg.Base.DB
+	existing, err := existingChange(ctx, db.Read(), pl.id)
+	if err != nil || existing != nil {
+		return "", existing, err
+	}
+	if err := refuseRetired(ctx, db.Read(), pl.id); err != nil {
+		return "", nil, err
 	}
 	now := e.cfg.Base.Clock.Now()
 	if !now.Before(pl.expiresAt) {
 		return "", nil, errcode.New(errcode.PlanExpired, "the plan expired; plan again")
 	}
-	def, err := e.action(core.ActionRef{Name: pl.action, Version: pl.version})
-	if err != nil {
-		return "", nil, err
-	}
-	input, err := e.cfg.Base.Sealer.Open(planInputAD(pl.id), pl.inputCT)
-	if err != nil {
-		return "", nil, fmt.Errorf("lifecycle: open plan input: %w", err)
-	}
 	if err := locksFree(ctx, db.Read(), def.Spec.LockKeys); err != nil {
-		return "", nil, err
-	}
-	out, steps, err := e.compositePlan(ctx, p, def, input)
-	if err != nil {
 		return "", nil, err
 	}
 	if err := checkReplan(pl, out); err != nil {
