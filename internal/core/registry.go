@@ -451,6 +451,9 @@ func checkAction(moduleID string, a ActionDef) error {
 	if err := checkLifecycle(moduleID, a); err != nil {
 		return err
 	}
+	if err := checkGuardsAndScope(a); err != nil {
+		return err
+	}
 	switch s.Class {
 	case ClassRead:
 		if h.Read == nil || h.Plan != nil || h.Apply != nil {
@@ -471,6 +474,57 @@ func checkAction(moduleID string, a ActionDef) error {
 		}
 	default:
 		return fmt.Errorf("action %s: unknown class %q", ref, s.Class)
+	}
+	return nil
+}
+
+// guardedType is the type an action with Guards embeds in its input.
+var guardedType = reflect.TypeFor[Guarded]()
+
+// embedsGuarded reports whether t is a struct with an anonymous field of type
+// Guarded.
+func embedsGuarded(t reflect.Type) bool {
+	if t == nil || t.Kind() != reflect.Struct {
+		return false
+	}
+	for i := range t.NumField() {
+		if f := t.Field(i); f.Anonymous && f.Type == guardedType {
+			return true
+		}
+	}
+	return false
+}
+
+// checkGuardsAndScope applies the guard and scope declaration rules (spec
+// 1.5, 1.7): Guards and an embedded Guarded go together, so the schema
+// carries guard and overrides exactly when a plan may report a guard, and
+// MinScope only raises the scope the class and side require.
+func checkGuardsAndScope(a ActionDef) error {
+	s := a.Spec
+	ref := a.Ref()
+	guarded := embedsGuarded(a.InputType)
+	switch {
+	case len(s.Guards) > 0 && !guarded:
+		return fmt.Errorf("action %s: an action with Guards has an input type that embeds core.Guarded", ref)
+	case len(s.Guards) == 0 && guarded:
+		return fmt.Errorf("action %s: an input type that embeds core.Guarded belongs to an action with Guards", ref)
+	}
+	ids := map[string]bool{}
+	for _, g := range s.Guards {
+		switch {
+		case g.ID == "":
+			return fmt.Errorf("action %s: a guard has an empty ID", ref)
+		case ids[g.ID]:
+			return fmt.Errorf("action %s: guard %s is declared twice", ref, g.ID)
+		}
+		ids[g.ID] = true
+	}
+	switch need := DefaultScope(s.Class, s.Side); {
+	case s.MinScope == "":
+	case s.MinScope != ScopeRead && s.MinScope != ScopeOperate && s.MinScope != ScopeAdmin:
+		return fmt.Errorf("action %s: unknown MinScope %q", ref, s.MinScope)
+	case !s.MinScope.Allows(need):
+		return fmt.Errorf("action %s: MinScope %s is below the %s scope the action needs; MinScope only raises", ref, s.MinScope, need)
 	}
 	return nil
 }
