@@ -371,6 +371,7 @@ func (e *Engine) Plan(ctx context.Context, p core.Principal, ref core.ActionRef,
 	if opts.Call != nil {
 		env.Call = *opts.Call
 		env.Call.RepairOf = ""
+		env.Call.GuardRefresh = nil
 		env.Call.Retired = slices.Clone(opts.Call.Retired)
 	}
 	call, err := encodeCall(opts.Call)

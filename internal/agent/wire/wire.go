@@ -62,24 +62,25 @@ func (p Principal) Core() core.Principal {
 // CallContext is core.CallContext without RepairOf, which the agent derives
 // from a repair plan and never receives (spec 1.5). The agent decodes it
 // with unknown members refused, so a repairOf member is
-// request.invalid_input.
+// request.invalid_input. GuardRefresh is sent with an apply only.
 type CallContext struct {
-	ParentChangeID string   `json:"parentChangeId"`
-	ParentAction   string   `json:"parentAction"`
-	StepID         string   `json:"stepId"`
-	Retired        []string `json:"retired"`
+	ParentChangeID string             `json:"parentChangeId"`
+	ParentAction   string             `json:"parentAction"`
+	StepID         string             `json:"stepId"`
+	Retired        []string           `json:"retired"`
+	GuardRefresh   *core.GuardContext `json:"guardRefresh,omitempty"`
 }
 
 // FromCall converts c, leaving out RepairOf.
 func FromCall(c core.CallContext) CallContext {
 	return CallContext{ParentChangeID: c.ParentChangeID, ParentAction: c.ParentAction, StepID: c.StepID,
-		Retired: slices.Clone(c.Retired)}
+		Retired: slices.Clone(c.Retired), GuardRefresh: c.GuardRefresh}
 }
 
 // Core converts c back; RepairOf stays empty.
 func (c CallContext) Core() core.CallContext {
 	return core.CallContext{ParentChangeID: c.ParentChangeID, ParentAction: c.ParentAction, StepID: c.StepID,
-		Retired: slices.Clone(c.Retired)}
+		Retired: slices.Clone(c.Retired), GuardRefresh: c.GuardRefresh}
 }
 
 // SchemaHash is core.SchemaHash.
