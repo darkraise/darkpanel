@@ -39,6 +39,7 @@ func TestEntries(t *testing.T) {
 	}
 	want := []string{
 		"audit list",
+		"cov rule repair", "cov rule set",
 		"demo item add", "demo item get", "demo item list", "demo item remove",
 		"demo rule get", "demo rule repair", "demo rule set", "demo status get",
 		"host create", "host delete", "host enroll-local", "host list", "host revoke", "host token", "host update-policy",

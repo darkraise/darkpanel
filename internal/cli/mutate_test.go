@@ -234,3 +234,92 @@ func TestMutatingSanitizesThePlan(t *testing.T) {
 		t.Errorf("exit %d, out %q, err %q", code, out, errOut)
 	}
 }
+
+// covPlan is the plan exchange of cov.rule.set on h1 for input, answered
+// with guards.
+func covPlan(planID, input, guards string) exchange {
+	return exchange{method: "POST", path: "/api/v1/hosts/h1/actions/cov.rule.set/v1/plan", body: `{"input":` + input + `}`,
+		reply: planJSON(planID, "cov.rule.set", "h1", "", guards)}
+}
+
+func TestGuardedInputFlags(t *testing.T) {
+	root, err := NewRoot(Options{Registry: testRegistry(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd, ok := FindCommand(root, "cov.rule.set")
+	if !ok {
+		t.Fatal("cov.rule.set has no command")
+	}
+	for _, name := range []string{"guard", "overrides"} {
+		if cmd.Flags().Lookup(name) != nil {
+			t.Errorf("a guarded action has --%s", name)
+		}
+	}
+	override := cmd.Flags().Lookup("override")
+	if override == nil || !strings.Contains(override.Usage, "cov.lockout, cov.other") || strings.Contains(override.Usage, "cov.quota") {
+		t.Errorf("--override %+v, want it listing the overridable guards", override)
+	}
+	if cmd.Flags().Lookup("name") == nil || cmd.Flags().Lookup("input") == nil {
+		t.Error("a guarded action lost its own input flags")
+	}
+	if cmd, _ := FindCommand(root, "demo.item.add"); cmd.Flags().Lookup("override") != nil {
+		t.Error("an action without guards has --override")
+	}
+}
+
+func TestOverrideReplans(t *testing.T) {
+	overridden := `[{"id":"cov.lockout","ok":true,"message":"locks you out","overridable":true,"overridden":true}]`
+	base := newFakeAPI(t, testToken,
+		hostList("h1:web"),
+		covPlan("p1", `{"name":"web","overrides":["cov.lockout","cov.other"]}`, overridden),
+		exchange{method: "POST", path: "/api/v1/hosts/h1/actions/cov.rule.set/v1/apply", body: `{"planId":"p1"}`,
+			reply: changeJSON("c1", "cov.rule.set", "revertible", "pending", noExtra)},
+		hostList("h1:web"),
+		covPlan("p2", `{"name":"web"}`, `[]`),
+		exchange{method: "POST", path: "/api/v1/hosts/h1/actions/cov.rule.set/v1/apply", body: `{"planId":"p2"}`,
+			reply: changeJSON("c2", "cov.rule.set", "revertible", "pending", noExtra)},
+	)
+	cli := cliEnv{env: tokenEnv}
+	args := []string{"cov", "rule", "set", "--name", "web", "--yes", "--url", base}
+	if out, errOut, code := cli.run(t, append(args, "--override", "cov.lockout", "--override", "cov.other")...); code != 0 ||
+		!strings.Contains(out, "Change c1: pending") {
+		t.Errorf("--override: exit %d, out %q, err %q", code, out, errOut)
+	}
+	if out, errOut, code := cli.run(t, args...); code != 0 || !strings.Contains(out, "Change c2: pending") {
+		t.Errorf("without --override: exit %d, out %q, err %q", code, out, errOut)
+	}
+}
+
+func TestFailedOverridableGuardHint(t *testing.T) {
+	for _, tc := range []struct {
+		guards string
+		hint   bool
+	}{
+		{`[{"id":"cov.lockout","ok":false,"message":"locks you out","overridable":true,"overridden":false}]`, true},
+		{`[{"id":"cov.quota","ok":false,"message":"over quota","overridable":false,"overridden":false}]`, false},
+	} {
+		base := newFakeAPI(t, testToken, hostList("h1:web"), covPlan("p1", `{"name":"web"}`, tc.guards))
+		out, errOut, code := cliEnv{env: tokenEnv}.run(t, "cov", "rule", "set", "--name", "web", "--yes", "--url", base)
+		if code != ExitRefused || !strings.Contains(out, "FAILED") || !strings.Contains(errOut, "nothing was applied") {
+			t.Errorf("%s: exit %d, out %q, err %q; want the guard refused", tc.guards, code, out, errOut)
+		}
+		if got := strings.Contains(out, "override it with --override cov.lockout\n"); got != tc.hint {
+			t.Errorf("%s: hint shown %v, want %v; out %q", tc.guards, got, tc.hint, out)
+		}
+	}
+}
+
+func TestConfirmUnchanged(t *testing.T) {
+	base := newFakeAPI(t, testToken,
+		hostList("h1:web"),
+		covPlan("p1", `{"name":"web","overrides":["cov.lockout"]}`, `[]`),
+		exchange{method: "POST", path: "/api/v1/hosts/h1/actions/cov.rule.set/v1/apply", body: `{"planId":"p1","confirmNow":true}`,
+			reply: changeJSON("c1", "cov.rule.set", "revertible", "confirmed", noExtra)},
+	)
+	out, errOut, code := cliEnv{env: tokenEnv}.run(t,
+		"cov", "rule", "set", "--name", "web", "--override", "cov.lockout", "--yes", "--confirm", "--url", base)
+	if code != 0 || !strings.Contains(out, "Change c1: confirmed") || strings.Contains(out, "Confirm it before") {
+		t.Errorf("--confirm with --override: exit %d, out %q, err %q", code, out, errOut)
+	}
+}

@@ -15,12 +15,13 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/schema"
 )
 
 // reservedFlags are the flags the CLI defines itself; no input field may
 // take one (generation fails instead).
-var reservedFlags = []string{"url", "socket", "dev", "help", "json", "host", "local", "input", "yes", "confirmation", "confirm"}
+var reservedFlags = []string{"url", "socket", "dev", "help", "json", "host", "local", "input", "yes", "confirmation", "confirm", "override"}
 
 // terminal reads the operator's answers: from a terminal with prompts, or
 // line by line from standard input otherwise.
@@ -85,7 +86,9 @@ var scalarTypes = []string{"string", "integer", "number", "boolean"}
 // inputFields reads the properties of t's input schema (schema.Input) in
 // schema order. Scalars and arrays of scalars get a flag; anything else is
 // nested and comes from --input; secret fields get no flag and must be
-// strings.
+// strings. The guard and overrides of a type embedding core.Guarded are
+// left out: the controller fills the guard, and --override sets the
+// overrides.
 func inputFields(t reflect.Type) ([]inputField, error) {
 	raw, err := schema.Input(t)
 	if err != nil {
@@ -111,7 +114,11 @@ func inputFields(t reflect.Type) ([]inputField, error) {
 	}
 	var fields []inputField
 	flags := map[string]string{}
+	guarded := embedsGuarded(t)
 	for _, m := range props {
+		if guarded && (m.Key == "guard" || m.Key == "overrides") {
+			continue
+		}
 		var p propSchema
 		if err := json.Unmarshal(m.Value, &p); err != nil {
 			return nil, fmt.Errorf("input schema of %s, property %s: %w", t, m.Key, err)
@@ -150,6 +157,19 @@ func inputFields(t reflect.Type) ([]inputField, error) {
 		fields = append(fields, f)
 	}
 	return fields, nil
+}
+
+// embedsGuarded reports whether the struct type t embeds core.Guarded.
+func embedsGuarded(t reflect.Type) bool {
+	if t.Kind() != reflect.Struct {
+		return false
+	}
+	for i := range t.NumField() {
+		if f := t.Field(i); f.Anonymous && f.Type == reflect.TypeFor[core.Guarded]() {
+			return true
+		}
+	}
+	return false
 }
 
 // kebab turns a JSON name such as expiresInDays into expires-in-days.

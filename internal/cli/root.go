@@ -226,7 +226,7 @@ func (a *app) actionCommand(e entry) (*cobra.Command, error) {
 		cmd.RunE = func(cmd *cobra.Command, _ []string) error { return a.runRead(cmd, def, fields, secrets) }
 		return cmd, nil
 	}
-	addMutatingFlags(cmd, def.Spec.Class)
+	addMutatingFlags(cmd, def.Spec)
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error { return a.runMutating(cmd, def, fields, secrets) }
 	return cmd, nil
 }
