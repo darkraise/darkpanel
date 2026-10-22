@@ -94,6 +94,8 @@ type Runtime struct {
 	status   map[string]core.ModuleStatus
 	broken   map[string]bool // modules whose migrations failed; unusable until a restart
 
+	streams streamSet // the running module streams; Close ends them
+
 	// loopMu is held while a purge runs, so Close waits for it.
 	loopMu sync.Mutex
 	timer  core.Timer
@@ -156,10 +158,12 @@ func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 	return r, nil
 }
 
-// Close stops the purge loop, waiting for a running purge, and closes the
-// engine, which waits for a running timer revert. The caller closes the
+// Close ends every open module stream, waiting until each stream's Run
+// returned, stops the purge loop, waiting for a running purge, and closes
+// the engine, which waits for a running timer revert. The caller closes the
 // database afterwards.
 func (r *Runtime) Close() {
+	r.streams.close()
 	r.loopMu.Lock()
 	r.closed = true
 	if r.timer != nil {
