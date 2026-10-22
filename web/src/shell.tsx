@@ -1,10 +1,11 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Outlet } from "react-router"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { History, KeyRound, Server } from "lucide-react"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
 import { SidebarLayout, type NavGroup } from "darkraise-ui/layout"
 import { errorMessage, getListenerState } from "@/api/client"
+import { connectEvents } from "@/api/events"
 import { useSession } from "@/session/use-session"
 
 const NAV: NavGroup[] = [
@@ -39,6 +40,8 @@ function ListenerNotice() {
 export function Shell() {
   const { session, logout } = useSession()
   const [logoutError, setLogoutError] = useState<string | null>(null)
+  const client = useQueryClient()
+  useEffect(() => connectEvents(client), [client])
 
   async function logOut() {
     setLogoutError(null)
