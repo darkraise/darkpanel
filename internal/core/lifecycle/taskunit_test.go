@@ -202,6 +202,9 @@ func (u *taskUnits) ResetFailed(context.Context, string) error          { return
 func (u *taskUnits) Enable(context.Context, ...string) error            { return errTaskUnitsUnused }
 func (u *taskUnits) Disable(context.Context, ...string) error           { return errTaskUnitsUnused }
 func (u *taskUnits) Reload(context.Context) error                       { return errTaskUnitsUnused }
+func (u *taskUnits) List(context.Context, string) ([]core.UnitStatus, error) {
+	return nil, errTaskUnitsUnused
+}
 
 func (u *taskUnits) State(_ context.Context, name string) (core.UnitState, error) {
 	u.mu.Lock()

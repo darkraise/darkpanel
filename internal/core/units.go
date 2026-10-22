@@ -22,6 +22,9 @@ type Units interface {
 	Disable(ctx context.Context, unitFiles ...string) error
 	Reload(ctx context.Context) error
 	State(ctx context.Context, unit string) (UnitState, error)
+	// List returns the loaded units whose names match one glob pattern
+	// (systemd's ListUnitsByPatterns), states as State reports them.
+	List(ctx context.Context, pattern string) ([]UnitStatus, error)
 }
 
 // TransientService is a service unit that exists until it stops.

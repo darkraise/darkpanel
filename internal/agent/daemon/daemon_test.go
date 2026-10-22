@@ -106,6 +106,7 @@ func (stubSystemd) Reload(context.Context) error                       { return 
 func (stubSystemd) State(context.Context, string) (platform.UnitState, error) {
 	return platform.UnitState{LoadState: "not-found", ActiveState: "inactive", SubState: "dead"}, nil
 }
+func (stubSystemd) List(context.Context, string) ([]platform.UnitStatus, error) { return nil, nil }
 
 // noUsers finds no user.
 type noUsers struct{}

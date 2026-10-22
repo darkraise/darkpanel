@@ -100,6 +100,9 @@ func (devSystemd) Close() error                                       { return n
 func (devSystemd) State(context.Context, string) (platform.UnitState, error) {
 	return platform.UnitState{}, errDevSystemd
 }
+func (devSystemd) List(context.Context, string) ([]platform.UnitStatus, error) {
+	return nil, errDevSystemd
+}
 
 // maxStdinToken is more than any token, as daemon.ReadTokenFile allows.
 const maxStdinToken = 4096
