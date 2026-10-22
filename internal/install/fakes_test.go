@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -17,9 +18,9 @@ import (
 	"github.com/darkraise/darkpanel/internal/platform"
 )
 
-// fakeSystemd is a platform.Systemd that records every call except State as
-// "<Method> <units...>" and keeps unit states. A unit it was never told
-// about is loaded and inactive; one in missing is not-found.
+// fakeSystemd is a platform.Systemd that records every call except State and
+// List as "<Method> <units...>" and keeps unit states. A unit it was never
+// told about is loaded and inactive; one in missing is not-found.
 type fakeSystemd struct {
 	mu      sync.Mutex
 	calls   []string
@@ -27,6 +28,9 @@ type fakeSystemd struct {
 	missing map[string]bool
 	stuck   map[string]bool  // units that stay active when stopped
 	fail    map[string]error // by method name, or by "<Method> <unit>" for one unit
+	// patterns is the pattern of every List call, in order; List records
+	// nothing in calls, so tests that compare calls exactly are unaffected.
+	patterns []string
 }
 
 var _ platform.Systemd = (*fakeSystemd)(nil)
@@ -131,6 +135,24 @@ func (f *fakeSystemd) State(_ context.Context, unit string) (platform.UnitState,
 		return st, nil
 	}
 	return platform.UnitState{LoadState: "loaded", ActiveState: "inactive", SubState: "dead"}, nil
+}
+
+// List appends pattern to patterns and lists, sorted by name, every unit a
+// job or setState made known whose name matches pattern; it records no call.
+func (f *fakeSystemd) List(_ context.Context, pattern string) ([]platform.UnitStatus, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.patterns = append(f.patterns, pattern)
+	var out []platform.UnitStatus
+	for name, st := range f.states {
+		if ok, err := path.Match(pattern, name); err != nil {
+			return nil, err
+		} else if ok && !f.missing[name] {
+			out = append(out, platform.UnitStatus{Name: name, UnitState: st})
+		}
+	}
+	slices.SortFunc(out, func(a, b platform.UnitStatus) int { return strings.Compare(a.Name, b.Name) })
+	return out, nil
 }
 
 // fakeUsers is a user database in memory.

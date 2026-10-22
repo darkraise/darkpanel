@@ -130,6 +130,15 @@ func TestStartTransientService(t *testing.T) {
 			{"RuntimeMaxUSec", dbus.MakeVariant(uint64(900_000_000))},
 			{"CollectMode", dbus.MakeVariant("inactive-or-failed")},
 		}},
+		{"with a runtime bound below a microsecond", TransientService{
+			Description: "Darkpanel update 01J",
+			ExecStart:   []string{"/usr/local/lib/darkpanel/darkpanel", "update", "run", "01J"},
+			RuntimeMax:  1500 * time.Nanosecond,
+		}, []property{
+			{"Description", dbus.MakeVariant("Darkpanel update 01J")},
+			{"ExecStart", exec},
+			{"RuntimeMaxUSec", dbus.MakeVariant(uint64(2))},
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -193,7 +202,8 @@ func TestStartTransientTimer(t *testing.T) {
 }
 
 func TestTransientUnitsRefuseBadInput(t *testing.T) {
-	s := newSystemd(&fakeBus{})
+	bus := &fakeBus{}
+	s := newSystemd(bus)
 	ctx := context.Background()
 	good := TransientService{ExecStart: []string{"/bin/true"}}
 	tests := []struct {
@@ -210,9 +220,12 @@ func TestTransientUnitsRefuseBadInput(t *testing.T) {
 		{"negative runtime bound", s.StartTransientService(ctx, "a.service", TransientService{ExecStart: []string{"/bin/true"}, RuntimeMax: -time.Second})},
 	}
 	for _, tt := range tests {
-		if tt.err == nil {
-			t.Errorf("%s: no error", tt.name)
+		if tt.err == nil || !strings.HasPrefix(tt.err.Error(), "platform: start a.") {
+			t.Errorf("%s: error %v, want one naming the start of the unit", tt.name, tt.err)
 		}
+	}
+	if len(bus.calls) != 0 {
+		t.Errorf("refused starts reached the bus: %#v", bus.calls)
 	}
 }
 
@@ -222,7 +235,7 @@ func TestState(t *testing.T) {
 	// A (uo) arrives from the bus as a []any, which is what the fake answers.
 	noJob := []any{uint32(0), dbus.ObjectPath("/")}
 	startJob := []any{uint32(7), jobPath}
-	unitReads := []string{"LoadState", "ActiveState", "SubState", "Job"}
+	unitReads := []string{"LoadState", "ActiveState", "SubState", "Job", "MainPID"}
 	tests := []struct {
 		name    string
 		unit    map[string]any
@@ -238,7 +251,7 @@ func TestState(t *testing.T) {
 			UnitState{LoadState: "loaded", ActiveState: "inactive", SubState: "dead", PendingJob: "start"},
 			append(slices.Clone(unitReads), "JobType"), ""},
 		{"a unit that does not exist", map[string]any{"LoadState": "not-found", "ActiveState": "inactive", "SubState": "dead", "Job": noJob}, nil,
-			UnitState{LoadState: "not-found", ActiveState: "inactive", SubState: "dead"}, unitReads, ""},
+			UnitState{LoadState: "not-found", ActiveState: "inactive", SubState: "dead"}, unitReads[:4], ""},
 		{"a job that finished between the reads", map[string]any{"LoadState": "loaded", "ActiveState": "active", "SubState": "running", "Job": startJob},
 			func() ([]any, error) {
 				return nil, dbus.Error{Name: "org.freedesktop.DBus.Error.UnknownObject", Body: []any{"Unknown object."}}
@@ -256,6 +269,9 @@ func TestState(t *testing.T) {
 					return []any{unitPath}, nil
 				case c.method == "org.freedesktop.DBus.Properties.Get" && c.path == unitPath && c.args[0] == "org.freedesktop.systemd1.Unit":
 					return []any{dbus.MakeVariant(tt.unit[c.args[1].(string)])}, nil
+				case c.method == "org.freedesktop.DBus.Properties.Get" && c.path == unitPath &&
+					c.args[0] == "org.freedesktop.systemd1.Service" && c.args[1] == "MainPID":
+					return []any{dbus.MakeVariant(uint32(0))}, nil
 				case c.method == "org.freedesktop.DBus.Properties.Get" && c.path == jobPath &&
 					c.args[0] == "org.freedesktop.systemd1.Job" && c.args[1] == "JobType" && tt.jobType != nil:
 					return tt.jobType()
@@ -282,6 +298,90 @@ func TestState(t *testing.T) {
 				t.Errorf("properties read %v, want %v", reads, tt.reads)
 			}
 		})
+	}
+}
+
+func TestSystemdStateMainPID(t *testing.T) {
+	unitPath := dbus.ObjectPath("/org/freedesktop/systemd1/unit/x")
+	noJob := []any{uint32(0), dbus.ObjectPath("/")}
+	tests := []struct {
+		unit      string
+		loadState string
+		want      uint32
+		readsPID  bool
+	}{
+		{"x.service", "loaded", 1234, true},
+		{"x.timer", "loaded", 0, false},
+		{"x.service", "not-found", 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.unit+" "+tt.loadState, func(t *testing.T) {
+			unit := map[string]any{"LoadState": tt.loadState, "ActiveState": "active", "SubState": "running", "Job": noJob}
+			readPID := false
+			bus := &fakeBus{reply: func(c busCall) ([]any, error) {
+				switch {
+				case c.method == "org.freedesktop.systemd1.Manager.LoadUnit":
+					return []any{unitPath}, nil
+				case c.args[0] == "org.freedesktop.systemd1.Service" && c.args[1] == "MainPID":
+					readPID = true
+					return []any{dbus.MakeVariant(uint32(1234))}, nil
+				case c.args[0] == "org.freedesktop.systemd1.Unit":
+					return []any{dbus.MakeVariant(unit[c.args[1].(string)])}, nil
+				}
+				return nil, fmt.Errorf("unexpected %s %v on %s", c.method, c.args, c.path)
+			}}
+			st, err := newSystemd(bus).State(context.Background(), tt.unit)
+			if err != nil || st.MainPID != tt.want || readPID != tt.readsPID {
+				t.Errorf("State = %+v, %v, MainPID read %v; want MainPID %d, read %v", st, err, readPID, tt.want, tt.readsPID)
+			}
+		})
+	}
+}
+
+func TestSystemdList(t *testing.T) {
+	svcPath := dbus.ObjectPath("/org/freedesktop/systemd1/unit/darkpanel_2dtask_2da_2eservice")
+	timerPath := dbus.ObjectPath("/org/freedesktop/systemd1/unit/darkpanel_2dtask_2db_2etimer")
+	bus := &fakeBus{reply: func(c busCall) ([]any, error) {
+		switch {
+		case c.method == "org.freedesktop.systemd1.Manager.ListUnitsByPatterns":
+			// An a(ssssssouso) arrives from the bus as a [][]any.
+			return []any{[][]any{
+				{"darkpanel-task-a.service", "Task a", "loaded", "active", "running", "", svcPath,
+					uint32(9), "stop", dbus.ObjectPath("/org/freedesktop/systemd1/job/9")},
+				{"darkpanel-task-b.timer", "Task b", "loaded", "active", "waiting", "", timerPath,
+					uint32(0), "", dbus.ObjectPath("/")},
+			}}, nil
+		case c.method == "org.freedesktop.DBus.Properties.Get" && c.path == svcPath &&
+			c.args[0] == "org.freedesktop.systemd1.Service" && c.args[1] == "MainPID":
+			return []any{dbus.MakeVariant(uint32(1234))}, nil
+		}
+		return nil, fmt.Errorf("unexpected %s %v on %s", c.method, c.args, c.path)
+	}}
+	got, err := newSystemd(bus).List(context.Background(), "darkpanel-task-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []UnitStatus{
+		{Name: "darkpanel-task-a.service", UnitState: UnitState{LoadState: "loaded", ActiveState: "active", SubState: "running",
+			MainPID: 1234, PendingJob: "stop"}},
+		{Name: "darkpanel-task-b.timer", UnitState: UnitState{LoadState: "loaded", ActiveState: "active", SubState: "waiting"}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("List = %+v\nwant %+v", got, want)
+	}
+	first := busCall{path: "/org/freedesktop/systemd1", method: "org.freedesktop.systemd1.Manager.ListUnitsByPatterns",
+		args: []any{[]string{}, []string{"darkpanel-task-*"}}}
+	if len(bus.calls) != 2 || !reflect.DeepEqual(bus.calls[0], first) {
+		t.Fatalf("calls = %#v\nwant [%#v] and one MainPID read", bus.calls, first)
+	}
+	if got := sig(bus.calls[0].args); got != "asas" {
+		t.Errorf("signature %q, want asas", got)
+	}
+
+	failing := &fakeBus{reply: func(busCall) ([]any, error) { return nil, errors.New("bus closed") }}
+	if _, err := newSystemd(failing).List(context.Background(), "darkpanel-task-*"); err == nil ||
+		!strings.Contains(err.Error(), "platform: list units darkpanel-task-*: bus closed") {
+		t.Errorf("List error %v, want one naming the pattern", err)
 	}
 }
 
@@ -350,8 +450,16 @@ func TestSystemdLive(t *testing.T) {
 	if err := s.StartTransientService(ctx, stopped, bounded); err != nil {
 		t.Fatal(err)
 	}
-	if st := waitFor(stopped, func(st UnitState) bool { return st.ActiveState == "active" }); st.PendingJob != "" {
-		t.Errorf("an active unit reports the pending job %q, want none", st.PendingJob)
+	if st := waitFor(stopped, func(st UnitState) bool { return st.ActiveState == "active" }); st.PendingJob != "" || st.MainPID == 0 {
+		t.Errorf("an active unit reports the pending job %q and the main PID %d, want none and a PID", st.PendingJob, st.MainPID)
+	}
+	listed, err := s.List(ctx, prefix+"-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(listed, func(u UnitStatus) bool { return u.Name == stopped })
+	if i < 0 || listed[i].ActiveState != "active" || listed[i].MainPID == 0 {
+		t.Errorf("List(%s-*) = %+v; want %s active with a main PID", prefix, listed, stopped)
 	}
 	body, err := s.manager(ctx, "load "+stopped, "LoadUnit", stopped)
 	if err != nil {
