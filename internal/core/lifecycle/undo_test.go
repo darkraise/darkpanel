@@ -336,3 +336,65 @@ func TestUndoOfAStep(t *testing.T) {
 		}
 	})
 }
+
+func TestUndoAnEarlierChangeAfterALaterOneWasUndone(t *testing.T) {
+	ctx := context.Background()
+	setup := func(t *testing.T) (*ufxFixture, core.ChangeView) {
+		u := newUfx(t)
+		first := u.change(ufxOp{ID: "a", Value: "1"})
+		second := u.change(ufxOp{ID: "a", Value: "2"})
+		if _, err := u.eng.Undo(ctx, bob, second.ID, nil); err != nil {
+			t.Fatal(err)
+		}
+		if v := u.settled(second.ID); v.State != core.StateReverted {
+			t.Fatalf("second change = %s, want reverted", v.State)
+		}
+		return u, first
+	}
+	t.Run("a local inverse failing before its write", func(t *testing.T) {
+		u, first := setup(t)
+		u.store.inverse["a"] = "fail"
+		if _, err := u.eng.Undo(ctx, bob, first.ID, nil); err != nil {
+			t.Fatal(err)
+		}
+		if v := u.settled(first.ID); v.State != core.StateNeedsRepair {
+			t.Fatalf("first change = %s, want needs_repair", v.State)
+		}
+		if eff := u.journalEffect(first.ID, 1); eff.State != core.EffectMade || eff.Reason != "" {
+			t.Fatalf("effect 1 = %s (%q), want made with no reason", eff.State, eff.Reason)
+		}
+		if got, _ := u.store.get("a"); got != "1" {
+			t.Errorf("object a = %q, want 1", got)
+		}
+		u.store.inverse["a"] = ""
+		if _, err := u.eng.Undo(ctx, bob, first.ID, nil); err != nil {
+			t.Fatalf("the undo run again: %v", err)
+		}
+		if v := u.settled(first.ID); v.State != core.StateReverted {
+			t.Fatalf("first change = %s, want reverted", v.State)
+		}
+		if _, ok := u.store.get("a"); ok {
+			t.Error("object a is still there")
+		}
+	})
+	t.Run("a resumed inverse that had not run", func(t *testing.T) {
+		u, first := setup(t)
+		u.sqlExec(`UPDATE core_effects SET state = ?, undo_to_json = '{"state":null}' WHERE change_id = ? AND seq = 1`,
+			string(core.EffectUndoing), first.ID)
+		u.setNeedsRepair(first.ID, ufxKey)
+		u.restart()
+		u.recoverAll()
+		if _, err := u.eng.Undo(ctx, bob, first.ID, nil); err != nil {
+			t.Fatal(err)
+		}
+		if v := u.settled(first.ID); v.State != core.StateReverted {
+			t.Fatalf("first change = %s, want reverted", v.State)
+		}
+		if eff := u.journalEffect(first.ID, 1); eff.State != core.EffectUndone {
+			t.Errorf("effect 1 = %s (%q), want undone", eff.State, eff.Reason)
+		}
+		if _, ok := u.store.get("a"); ok {
+			t.Error("object a is still there")
+		}
+	})
+}

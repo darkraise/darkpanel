@@ -309,7 +309,8 @@ func (e *Engine) resumeInverse(ctx context.Context, env core.Env, def core.Actio
 	switch {
 	case eff.UndoTo != nil && stateEqual(cur, *eff.UndoTo):
 		return effectUpdate{State: core.EffectUndone}, nil
-	case eff.Post != nil && docEqual(cur, *eff.Post):
+	// State only, as in runInverse: an earlier undo on the object gave it a new Version.
+	case eff.Post != nil && stateEqual(cur, *eff.Post):
 		return effectUpdate{State: core.EffectMade}, nil
 	}
 	return effectUpdate{State: core.EffectUnresolved, Reason: core.ReasonAmbiguous, Current: &cur}, nil
@@ -385,7 +386,8 @@ func (e *Engine) afterInverse(ctx context.Context, env core.Env, def core.Action
 	case invErr == nil:
 		cur := obs.Current
 		next = effectUpdate{State: core.EffectUnresolved, Reason: core.ReasonConflict, Current: &cur}
-	case eff.Post != nil && docEqual(obs.Current, *eff.Post):
+	// State only, as in runInverse: an earlier undo on the object gave it a new Version.
+	case eff.Post != nil && stateEqual(obs.Current, *eff.Post):
 		next = effectUpdate{State: core.EffectMade}
 	default:
 		cur := obs.Current
