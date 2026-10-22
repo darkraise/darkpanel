@@ -20,6 +20,13 @@ import (
 // a plan that applies it again with its stored input. A plan is applied by
 // the client through the ordinary apply route.
 func (e *Engine) Repair(ctx context.Context, p core.Principal, changeID string, req core.RepairRequest) (core.RepairResult, error) {
+	composite, err := e.isComposite(ctx, changeID)
+	if err != nil {
+		return core.RepairResult{}, err
+	}
+	if composite {
+		return e.repairComposite(ctx, p, changeID, req)
+	}
 	q := e.cfg.Base.DB.Read()
 	f, err := loadFacts(ctx, q, changeID)
 	if err != nil {

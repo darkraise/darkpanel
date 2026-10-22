@@ -31,8 +31,15 @@ type releaseEntry struct {
 // of a composite is released only by that composite, as system:recovery
 // with call naming it.
 func (e *Engine) Release(ctx context.Context, p core.Principal, changeID, reason string, call *core.CallContext) (core.ReleaseResult, error) {
+	composite, err := e.isComposite(ctx, changeID)
+	if err != nil {
+		return core.ReleaseResult{}, err
+	}
+	if composite {
+		return e.releaseComposite(ctx, p, changeID, reason)
+	}
 	res := core.ReleaseResult{Abandoned: []core.EffectView{}}
-	err := e.cfg.Base.DB.Write(ctx, func(tx *sql.Tx) error {
+	err = e.cfg.Base.DB.Write(ctx, func(tx *sql.Tx) error {
 		f, err := loadFacts(ctx, tx, changeID)
 		if err != nil {
 			return err

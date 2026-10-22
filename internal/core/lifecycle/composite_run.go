@@ -414,6 +414,9 @@ func (e *Engine) compositeStep(ctx context.Context, id string, run *compositeRun
 	if c.Owner != core.OwnerComposite {
 		return errCompositeDone
 	}
+	if c.State == core.StateReleasing {
+		return e.releaseStep(ctx, c, steps)
+	}
 	if c.State == core.StateRecovering {
 		return e.probeChild(ctx, c, steps)
 	}
