@@ -457,13 +457,30 @@ var errLostAnswer = errors.New("cfx: the answer was lost")
 // inprocChildren is the Children of the controller engine: hostID "" is the
 // controller engine itself, testHost the agent engine. While unreachable,
 // every testHost call answers host.offline; a method named in lose makes
-// its call and then answers errLostAnswer once.
+// its call and then answers errLostAnswer once; Undo and Revert answer the
+// error refuse names for them without calling.
 type inprocChildren struct {
 	mu          sync.Mutex
 	ctrl, agent *Engine
 	unreachable bool
 	lose        map[string]bool
+	refuse      map[string]error
 	calls       []string // "<method> <host>", in call order
+}
+
+func (c *inprocChildren) setRefusal(method string, err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.refuse == nil {
+		c.refuse = map[string]error{}
+	}
+	c.refuse[method] = err
+}
+
+func (c *inprocChildren) refusal(method string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.refuse[method]
 }
 
 func (c *inprocChildren) setEngines(ctrl, agent *Engine) {
@@ -562,6 +579,9 @@ func (c *inprocChildren) Revert(ctx context.Context, p core.Principal, changeID 
 	if err != nil {
 		return core.ChangeView{}, err
 	}
+	if err := c.refusal("Revert"); err != nil {
+		return core.ChangeView{}, err
+	}
 	v, err := e.Revert(ctx, p, changeID)
 	if err = c.answer("Revert", err); err != nil {
 		return core.ChangeView{}, err
@@ -572,6 +592,9 @@ func (c *inprocChildren) Revert(ctx context.Context, p core.Principal, changeID 
 func (c *inprocChildren) Undo(ctx context.Context, p core.Principal, hostID, changeID string, call *core.CallContext) (core.ChangeView, error) {
 	e, err := c.on("Undo", hostID)
 	if err != nil {
+		return core.ChangeView{}, err
+	}
+	if err := c.refusal("Undo"); err != nil {
 		return core.ChangeView{}, err
 	}
 	v, err := e.Undo(ctx, p, changeID, call)

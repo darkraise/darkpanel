@@ -1300,7 +1300,12 @@ func (e *Engine) revertComposite(ctx context.Context, p core.Principal, id strin
 		if err := e.setStep(ctx, id, s.ID, []string{s.State}, stepUpdate{State: core.StepUndoing}); err != nil {
 			return core.ChangeView{}, err
 		}
-		if err := e.sendRevert(ctx, c, s, p); err != nil && !errors.Is(err, errCompositeDone) && !errors.As(err, &wait) {
+		switch err := e.sendRevert(ctx, c, s, p); {
+		case err == nil, errors.Is(err, errCompositeDone), errors.As(err, &wait):
+		case errors.Is(err, errChildRevert):
+			// The unwind is recorded; the runner retries the revert.
+			e.cfg.Base.Log.Warn("lifecycle: composite revert of a child refused", "change", id, "error", err)
+		default:
 			return core.ChangeView{}, err
 		}
 	}

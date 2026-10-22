@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -178,7 +179,9 @@ func (e *Engine) unwindObserve(ctx context.Context, c compositeRow, s stepRow, l
 
 // sendUndo undoes step s's child through the undo route as system:recovery
 // with the composite as its parent. A refusal saying the child cannot be
-// undone stops the unwind; anything else is settled by the next lookup.
+// undone stops the unwind; one that clears by itself is settled by the next
+// lookup, and any other error goes to the runner, which bounds the passes
+// that fail in a row.
 func (e *Engine) sendUndo(ctx context.Context, c compositeRow, s stepRow) error {
 	kids, err := e.kids()
 	if err != nil {
@@ -196,14 +199,33 @@ func (e *Engine) sendUndo(ctx context.Context, c compositeRow, s stepRow) error 
 			Message: fmt.Sprintf("step %s: the undo of child %s was refused: %s", s.ID, s.ChildID, errcode.From(err).Detail)})
 	case code == errcode.HostOffline:
 		return e.childUnreachable(ctx, c, s, err)
+	case !childRefusalClears(code):
+		return fmt.Errorf("lifecycle: composite %s: step %s: undo child %s: %w", c.ID, s.ID, s.ChildID, err)
 	}
 	e.cfg.Base.Log.Warn("lifecycle: composite undo of a child failed; the next lookup decides",
 		"change", c.ID, "step", s.ID, "child", s.ChildID, "error", err)
 	return waitChild(ChildPoll)
 }
 
+// errChildRevert marks sendRevert's error for a revert the child's side did
+// not accept.
+var errChildRevert = errors.New("the child's revert failed")
+
+// childRefusalClears reports whether a child's undo or revert refused with
+// code can succeed later without anyone acting on the composite: an owner
+// finishes, the child moved on and the next lookup shows where, or the
+// child's side ends its recovery or uninstall.
+func childRefusalClears(code errcode.Code) bool {
+	switch code {
+	case errcode.ChangeBusy, errcode.ChangeNotPending, errcode.Recovering, errcode.Uninstalling:
+		return true
+	}
+	return false
+}
+
 // sendRevert reverts the pending child of the revertible last step; the
-// unwind waits for the lookup to show it reverted.
+// unwind waits for the lookup to show it reverted. An error other than a
+// refusal that clears by itself goes to the runner, as in sendUndo.
 func (e *Engine) sendRevert(ctx context.Context, c compositeRow, s stepRow, p core.Principal) error {
 	kids, err := e.kids()
 	if err != nil {
@@ -216,6 +238,8 @@ func (e *Engine) sendRevert(ctx context.Context, c compositeRow, s stepRow, p co
 		return e.setStep(ctx, c.ID, s.ID, []string{core.StepUndoing}, stepUpdate{State: core.StepUndone, Cursor: &prev})
 	case errcode.From(err).Code == errcode.HostOffline:
 		return e.childUnreachable(ctx, c, s, err)
+	case err != nil && !childRefusalClears(errcode.From(err).Code):
+		return fmt.Errorf("lifecycle: composite %s: step %s: %w: %w", c.ID, s.ID, errChildRevert, err)
 	}
 	if err != nil {
 		e.cfg.Base.Log.Warn("lifecycle: composite revert of a child failed; the next lookup decides",

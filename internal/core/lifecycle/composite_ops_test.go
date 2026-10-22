@@ -298,25 +298,22 @@ func TestCompositeIntentsAdmittedBeforeTheBarrierAreRefused(t *testing.T) {
 	}
 }
 
-func TestCompositeRunnerFailingEveryPassNeedsRepair(t *testing.T) {
-	f := newCfxFixture(t)
-	v, _ := awaitingGate(t, f)
-	// A step state the runner has no rule for at the cursor fails every pass.
-	if _, err := f.ctrlDB.Writer().Exec("UPDATE core_composite_steps SET state = ? WHERE change_id = ? AND step_id = 'g'",
-		core.StepRead, v.ID); err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
+// pollUntilNeedsRepair advances the controller's clock a ChildPoll at a
+// time, whenever a runner waits, until composite id needs repair, and
+// returns it with the number of polls it took.
+func pollUntilNeedsRepair(t *testing.T, f *cfxFixture, id string) (core.ChangeView, int) {
+	t.Helper()
 	state := func() core.ChangeView {
 		t.Helper()
-		got, err := f.ctrl.Change(ctx, v.ID)
+		got, err := f.ctrl.Change(context.Background(), id)
 		if err != nil {
 			t.Fatal(err)
 		}
 		return got
 	}
 	polls, deadline := 0, time.Now().Add(10*time.Second)
-	for got := state(); got.State != core.StateNeedsRepair; got = state() {
+	got := state()
+	for ; got.State != core.StateNeedsRepair; got = state() {
 		if polls > 2*compositeFailLimit || time.Now().After(deadline) {
 			t.Fatalf("composite = %s after %d polls of a runner that fails every pass, want needs_repair", got.State, polls)
 		}
@@ -327,7 +324,18 @@ func TestCompositeRunnerFailingEveryPassNeedsRepair(t *testing.T) {
 		f.ctrlClock.Advance(ChildPoll)
 		polls++
 	}
-	got := state()
+	return got, polls
+}
+
+func TestCompositeRunnerFailingEveryPassNeedsRepair(t *testing.T) {
+	f := newCfxFixture(t)
+	v, _ := awaitingGate(t, f)
+	// A step state the runner has no rule for at the cursor fails every pass.
+	if _, err := f.ctrlDB.Writer().Exec("UPDATE core_composite_steps SET state = ? WHERE change_id = ? AND step_id = 'g'",
+		core.StepRead, v.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, polls := pollUntilNeedsRepair(t, f, v.ID)
 	if got.Owner != "" || got.Error == nil || got.Error.Cause != string(errcode.Internal) ||
 		!strings.Contains(got.Error.Message, "failed 10 times in a row") || f.lockOwner("composite:cfx") != v.ID {
 		t.Errorf("composite = %s owned by %q with %+v, lock %q; want needs_repair, unowned, the runner's failures, locked",
@@ -336,6 +344,50 @@ func TestCompositeRunnerFailingEveryPassNeedsRepair(t *testing.T) {
 	if polls < compositeFailLimit-1 {
 		t.Errorf("needs_repair after %d polls, want %d failed passes first", polls, compositeFailLimit)
 	}
+}
+
+func TestCompositeUnwindRefusedForGoodNeedsRepair(t *testing.T) {
+	refused := errcode.New(errcode.ActionUnknown, "unknown action cst.item.add/v1")
+	t.Run("an undo", func(t *testing.T) {
+		f := newCfxFixture(t)
+		f.kids.setRefusal("Undo", refused)
+		f.host.failNext("web-c", 1)
+		v := f.applyC(refCfxAdd, `{"name":"web"}`, core.ApplyOptions{})
+		got, _ := pollUntilNeedsRepair(t, f, v.ID)
+		if got.Error == nil || !strings.Contains(got.Error.Message, "failed 10 times in a row") {
+			t.Errorf("composite = %s with %+v, want needs_repair after the refused undos", got.State, got.Error)
+		}
+		if s := f.stepsOf(v.ID)["b"]; s.State != core.StepUndoing || f.agentChange(s.ChildID).State != core.StateCompleted {
+			t.Errorf("step b = %s with child %s, want undoing with its child completed", s.State, f.agentChange(s.ChildID).State)
+		}
+	})
+	t.Run("a revert", func(t *testing.T) {
+		f := newCfxFixture(t)
+		v, g := awaitingGate(t, f)
+		f.kids.setRefusal("Revert", refused)
+		r, err := f.ctrl.Revert(context.Background(), cfxRoot, v.ID)
+		if err != nil || r.State != core.StateUndoing {
+			t.Fatalf("Revert = %s, %v; want the undoing composite", r.State, err)
+		}
+		got, _ := pollUntilNeedsRepair(t, f, v.ID)
+		if got.Error == nil || !strings.Contains(got.Error.Message, "failed 10 times in a row") {
+			t.Errorf("composite = %s with %+v, want needs_repair after the refused reverts", got.State, got.Error)
+		}
+		if child := f.agentChange(g.ChildID); child.State != core.StatePending {
+			t.Errorf("child of g = %s, want pending", child.State)
+		}
+	})
+	t.Run("a lost revert answer", func(t *testing.T) {
+		f := newCfxFixture(t)
+		v, _ := awaitingGate(t, f)
+		f.kids.loseNext("Revert")
+		if r, err := f.ctrl.Revert(context.Background(), cfxRoot, v.ID); err != nil || r.State != core.StateUndoing {
+			t.Fatalf("Revert = %s, %v; want the undoing composite", r.State, err)
+		}
+		if done := f.await(v.ID, core.StateReverted, core.StateNeedsRepair); done.State != core.StateReverted {
+			t.Errorf("composite = %s (%+v), want reverted once the lookup shows the child reverted", done.State, done.Error)
+		}
+	})
 }
 
 func TestForwardCompositeStepDecisions(t *testing.T) {
