@@ -132,12 +132,14 @@ func TestSessionOverMutualTLS(t *testing.T) {
 func TestSessionOpenLimit(t *testing.T) {
 	ctrl, agent := sessionPair(t)
 	tests := []struct {
-		name             string
-		opener, acceptor *Session
-		limit            int
+		name     string
+		open     func(context.Context) (net.Conn, error)
+		acceptor *Session
+		limit    int
 	}{
-		{"controller", ctrl, agent, MaxControllerStreams},
-		{"agent", agent, ctrl, MaxAgentStreams},
+		{"controller actions", ctrl.Open, agent, MaxActionStreams},
+		{"controller modules", ctrl.OpenModule, agent, MaxModuleStreams},
+		{"agent", agent.Open, ctrl, MaxAgentStreams},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -159,7 +161,7 @@ func TestSessionOpenLimit(t *testing.T) {
 			defer cancel()
 			streams := make([]net.Conn, 0, tt.limit)
 			for range tt.limit {
-				c, err := tt.opener.Open(ctx)
+				c, err := tt.open(ctx)
 				if err != nil {
 					t.Fatalf("Open %d: %v", len(streams), err)
 				}
@@ -167,13 +169,13 @@ func TestSessionOpenLimit(t *testing.T) {
 			}
 			short, cancelShort := context.WithTimeout(ctx, 50*time.Millisecond)
 			defer cancelShort()
-			if c, err := tt.opener.Open(short); !errors.Is(err, context.DeadlineExceeded) {
+			if c, err := tt.open(short); !errors.Is(err, context.DeadlineExceeded) {
 				t.Fatalf("Open beyond the limit = %v, %v; want it to wait until the context ends", c, err)
 			}
 			if err := streams[0].Close(); err != nil {
 				t.Fatal(err)
 			}
-			c, err := tt.opener.Open(ctx)
+			c, err := tt.open(ctx)
 			if err != nil {
 				t.Fatalf("Open after a stream closed: %v", err)
 			}
@@ -182,6 +184,94 @@ func TestSessionOpenLimit(t *testing.T) {
 				_ = c.Close()
 			}
 		})
+	}
+}
+
+func TestStreamBudget(t *testing.T) {
+	if MaxActionStreams+MaxModuleStreams != MaxControllerStreams {
+		t.Fatalf("the controller's shares %d + %d are not its %d streams", MaxActionStreams, MaxModuleStreams, MaxControllerStreams)
+	}
+	ctrl, agent := sessionPair(t)
+	// The agent holds every stream it accepts open, so a slot frees only
+	// when the test closes both halves.
+	accepted := make(chan *stream, MaxControllerStreams+2)
+	go func() {
+		for {
+			c, err := agent.Accept()
+			if err != nil {
+				return
+			}
+			accepted <- c.(*stream)
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	opened := map[string][]*stream{}
+	for _, kind := range []struct {
+		name  string
+		open  func(context.Context) (net.Conn, error)
+		limit int
+	}{{"action", ctrl.Open, MaxActionStreams}, {"module", ctrl.OpenModule, MaxModuleStreams}} {
+		for range kind.limit {
+			c, err := kind.open(ctx)
+			if err != nil {
+				t.Fatalf("%s stream %d: %v", kind.name, len(opened[kind.name]), err)
+			}
+			opened[kind.name] = append(opened[kind.name], c.(*stream))
+		}
+	}
+	peers := map[uint32]*stream{}
+	for range MaxControllerStreams {
+		select {
+		case c := <-accepted:
+			peers[c.StreamID()] = c
+		case <-time.After(5 * time.Second):
+			t.Fatalf("the agent accepted %d streams at once, want %d", len(peers), MaxControllerStreams)
+		}
+	}
+	waits := func(open func(context.Context) (net.Conn, error)) bool {
+		short, cancelShort := context.WithTimeout(ctx, 50*time.Millisecond)
+		defer cancelShort()
+		c, err := open(short)
+		if err == nil {
+			_ = c.Close()
+		}
+		return errors.Is(err, context.DeadlineExceeded)
+	}
+	if !waits(ctrl.Open) || !waits(ctrl.OpenModule) {
+		t.Fatal("an Open or OpenModule beyond its share did not wait")
+	}
+	closeBoth := func(st *stream) {
+		t.Helper()
+		if err := st.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := peers[st.StreamID()].Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	closeBoth(opened["action"][0])
+	if !waits(ctrl.OpenModule) {
+		t.Error("a freed action slot let a module stream open")
+	}
+	c, err := ctrl.Open(ctx)
+	if err != nil {
+		t.Fatalf("Open after an action stream closed: %v", err)
+	}
+	_ = c.Close()
+	closeBoth(opened["module"][0])
+	if c, err = ctrl.OpenModule(ctx); err != nil {
+		t.Fatalf("OpenModule after a module stream closed: %v", err)
+	}
+	_ = c.Close()
+}
+
+func TestOpenModuleOnAgentEnd(t *testing.T) {
+	_, agent := sessionPair(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if c, err := agent.OpenModule(ctx); err == nil || !strings.Contains(err.Error(), "only the controller end") {
+		t.Fatalf("OpenModule on the agent end = %v, %v; want a refusal", c, err)
 	}
 }
 

@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -17,6 +18,14 @@ const (
 	MaxAgentStreams      = 4  // concurrent streams the agent opens on one session
 )
 
+// The controller's share of MaxControllerStreams (spec 1.6): a module stream
+// may stay open for hours, so module streams get their own slots and can
+// never take the ones actions and confirmations need.
+const (
+	MaxActionStreams = 16 // of MaxControllerStreams: actions and confirmations
+	MaxModuleStreams = 16 // of MaxControllerStreams: module streams
+)
+
 // Session is the yamux session over one authenticated agent connection.
 // The controller opens streams to the agent API; the agent opens streams to
 // the controller only to renew its certificate. A stream holds its slot
@@ -26,20 +35,24 @@ const (
 // http.Server.Serve can serve them.
 type Session struct {
 	mux     *yamux.Session
-	opens   chan struct{} // one token per stream this end opened
+	opens   chan struct{} // one token per stream Open opened
+	modules chan struct{} // one token per stream OpenModule opened; nil on the agent end
 	accepts chan struct{} // one token per stream this end accepted
 }
 
 var _ net.Listener = (*Session)(nil)
 
 // ControllerSession is the yamux server end of conn: Open is limited to
-// MaxControllerStreams, Accept to MaxAgentStreams.
+// MaxActionStreams, OpenModule to MaxModuleStreams, Accept to
+// MaxAgentStreams.
 func ControllerSession(conn net.Conn) (*Session, error) {
 	mux, err := yamux.Server(conn, muxConfig())
 	if err != nil {
 		return nil, fmt.Errorf("transport: controller session: %w", err)
 	}
-	return newSession(mux, MaxControllerStreams, MaxAgentStreams), nil
+	s := newSession(mux, MaxActionStreams, MaxAgentStreams)
+	s.modules = make(chan struct{}, MaxModuleStreams)
+	return s, nil
 }
 
 // AgentSession is the yamux client end of conn: Open is limited to
@@ -72,8 +85,22 @@ func muxConfig() *yamux.Config {
 // Open waits for a free slot until ctx ends, then opens a stream; the slot
 // frees when the stream is closed at both ends.
 func (s *Session) Open(ctx context.Context) (net.Conn, error) {
+	return s.open(ctx, s.opens)
+}
+
+// OpenModule is Open for a module stream: on the controller end it waits
+// for one of MaxModuleStreams slots, which Open never takes. The agent end
+// opens no module streams and refuses it.
+func (s *Session) OpenModule(ctx context.Context) (net.Conn, error) {
+	if s.modules == nil {
+		return nil, errors.New("transport: open module stream: only the controller end opens module streams")
+	}
+	return s.open(ctx, s.modules)
+}
+
+func (s *Session) open(ctx context.Context, slots chan struct{}) (net.Conn, error) {
 	select {
-	case s.opens <- struct{}{}:
+	case slots <- struct{}{}:
 	case <-ctx.Done():
 		return nil, fmt.Errorf("transport: open stream: %w", ctx.Err())
 	case <-s.mux.CloseChan():
@@ -81,13 +108,13 @@ func (s *Session) Open(ctx context.Context) (net.Conn, error) {
 	}
 	st, err := s.mux.OpenStream()
 	if err != nil {
-		<-s.opens
+		<-slots
 		if s.mux.IsClosed() {
 			err = net.ErrClosed
 		}
 		return nil, fmt.Errorf("transport: open stream: %w", err)
 	}
-	return &stream{Stream: st, release: func() { <-s.opens }}, nil
+	return &stream{Stream: st, release: func() { <-slots }}, nil
 }
 
 // Accept waits for a free slot, then returns the next stream the peer
