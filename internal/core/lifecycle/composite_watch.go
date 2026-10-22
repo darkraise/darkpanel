@@ -35,13 +35,15 @@ func (e *Engine) Wake(changeIDs ...string) {
 			"SELECT change_id FROM core_composite_steps WHERE child_change_id = ?", child)
 		if err != nil {
 			e.cfg.Base.Log.Error("lifecycle: find the composite of a child", "child", child, "error", err)
-			return
+			continue
 		}
 		for rows.Next() {
 			var id string
-			if err := rows.Scan(&id); err == nil {
-				seen[id] = true
+			if err := rows.Scan(&id); err != nil {
+				e.cfg.Base.Log.Error("lifecycle: find the composite of a child", "child", child, "error", err)
+				continue
 			}
+			seen[id] = true
 		}
 		if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 			e.cfg.Base.Log.Error("lifecycle: find the composite of a child", "child", child, "error", err)
