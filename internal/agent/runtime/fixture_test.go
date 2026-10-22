@@ -242,12 +242,17 @@ type fixture struct {
 	dir   string
 	db    *store.DB
 	rt    *Runtime
+	units core.Units // Config.Units from the next open on
 }
 
-func newFixture(t *testing.T) *fixture {
+func newFixture(t *testing.T) *fixture { return newFixtureWith(t) }
+
+// newFixtureWith is newFixture with mods registered after the fixture
+// modules.
+func newFixtureWith(t *testing.T, mods ...core.Module) *fixture {
 	t.Helper()
 	h := &fixHost{}
-	reg, err := core.NewRegistry(kvModule{}, badModule{h}, flakyModule{h}, boomModule{})
+	reg, err := core.NewRegistry(append([]core.Module{kvModule{}, badModule{h}, flakyModule{h}, boomModule{}}, mods...)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +265,7 @@ func (f *fixture) config() Config {
 	return Config{
 		DB: f.db, Sealer: coretest.Sealer{}, Clock: f.clock, Log: slog.New(slog.DiscardHandler), Registry: f.reg,
 		HostID: testHost, BinaryVersion: "test", BackupDir: filepath.Join(f.dir, "backups"),
-		Exec: platform.NewRunner(nil), FilesTestMode: true,
+		Exec: platform.NewRunner(nil), FilesTestMode: true, Units: f.units,
 	}
 }
 

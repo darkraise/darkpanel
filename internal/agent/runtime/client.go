@@ -77,7 +77,8 @@ func (r *Runtime) Resource(ctx context.Context, p core.Principal, name string) (
 	if err := r.usable(name); err != nil {
 		return nil, err
 	}
-	env := r.base
+	moduleID, _, _ := strings.Cut(name, ".")
+	env := r.moduleEnv(moduleID)
 	env.Principal = p
 	var out json.RawMessage
 	err := lifecycle.Protect(r.cfg.Log, name, "Resource", func() error {
