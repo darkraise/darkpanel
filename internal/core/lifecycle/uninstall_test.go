@@ -257,6 +257,39 @@ func TestUninstallingRefusesAnIntentAdmittedBeforeTheBarrier(t *testing.T) {
 	}
 }
 
+func TestUninstallingRefusesAResolveAndARecoveryRepairAdmittedBeforeTheBarrier(t *testing.T) {
+	ctx := context.Background()
+	u := newUfx(t)
+	c := u.unresolvedChange("a", u.clock.Now())
+	// Both calls passed admit before uninstall set the barrier.
+	if err := BeginUninstall(ctx, u.db, false); err != nil {
+		t.Fatal(err)
+	}
+	_, _, _, err := u.eng.claimResolve(ctx, c.ID, 1)
+	wantCode(t, err, errcode.Uninstalling)
+	if v, err := u.eng.Change(ctx, c.ID); err != nil || v.State != core.StateNeedsRepair || v.Owner != "" {
+		t.Errorf("after the refused resolve claim: %+v, %v; want needs_repair and unowned", v, err)
+	}
+
+	f, h := newRcvFixture(t)
+	h.script(core.RecoveryOutcome{}, errcode.New(errcode.Unavailable, "the package database is locked"))
+	v := f.rcvApply(refRcvFix, `{"name":"a","value":"1","failBefore":true}`)
+	if retry, _, _ := f.rcvFlags(v.ID); v.State != core.StateNeedsRepair || retry != 1 {
+		t.Fatalf("change = %s with recovery_retry %d, want needs_repair with it set", v.State, retry)
+	}
+	if err := BeginUninstall(ctx, f.db, false); err != nil {
+		t.Fatal(err)
+	}
+	_, err = f.eng.recovererRepair(ctx, v.ID)
+	wantCode(t, err, errcode.Uninstalling)
+	if got, err := f.eng.Change(ctx, v.ID); err != nil || got.State != core.StateNeedsRepair || got.Owner != "" {
+		t.Errorf("after the refused recovery repair: %+v, %v; want needs_repair and unowned", got, err)
+	}
+	if calls, _, _ := h.recovered(); calls != 1 {
+		t.Errorf("Recover calls = %d, want only the live failure's", calls)
+	}
+}
+
 func TestEngineNoticesTheBarrierClearedAfterAFailedClaim(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
