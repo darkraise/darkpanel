@@ -269,6 +269,10 @@ func newAgentRunCmd() *cobra.Command {
 				// CLI must reach the socket.
 				uid := uint32(os.Getuid()) //nolint:gosec // G115: a uid fits in 32 bits
 				cfg.AllowPeer = func(peer uint32) bool { return peer == 0 || peer == uid }
+				// devSystemd can neither start a task unit nor read one, so a
+				// task change would wait forever; without units the engine
+				// refuses task actions at apply.
+				cfg.Runtime.Units = nil
 			}
 			return errors.Join(daemonRun(ctx, cfg), host.Close())
 		},

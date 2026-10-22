@@ -162,6 +162,9 @@ func TestAgentRunDev(t *testing.T) {
 	if s.statusErr != nil {
 		t.Errorf("core.update.status on the agent registry: %v, want it to run on the agent's updater", s.statusErr)
 	}
+	if cfg.Runtime.Units != nil {
+		t.Errorf("agent run --dev passed units %v, want none, so the engine refuses task actions", cfg.Runtime.Units)
+	}
 	if upd.Paths != s.dev || upd.HTTP != nil || upd.Index == nil ||
 		upd.Probes.Agent == nil || upd.Probes.Controller != nil || upd.NewerAgents != nil {
 		t.Errorf("the dev updater config is %+v, want the dev paths, no HTTP client, an index, only the agent probe", upd)
