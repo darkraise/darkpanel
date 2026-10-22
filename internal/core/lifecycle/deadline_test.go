@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -72,6 +73,42 @@ func TestSynchronousApplyAnswersAtSyncAnswer(t *testing.T) {
 	}
 	f.store.open("a")
 	f.waitState(v.ID, core.StateCompleted)
+}
+
+func TestSynchronousApplyRunErrorAfterTheAnswerIsLogged(t *testing.T) {
+	f := newJFixture(t, jfxOptions{})
+	f.eng.Close()
+	log := &taskLog{}
+	cfg := f.config()
+	cfg.Base.Log = slog.New(slog.NewTextHandler(log, nil))
+	eng, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.eng = eng
+	t.Cleanup(eng.Close)
+	answer := f.applyInBackground(f.plan(alice, refJModify, `{"name":"a","value":"1","local":true,"hangApply":true}`).PlanID)
+	f.store.waitEntered(t, "a")
+	f.clock.Advance(SyncAnswer)
+	v := <-answer
+	if v.State != core.StateApplying {
+		t.Fatalf("answer = %+v, want the applying change", v)
+	}
+	f.recoverExec(`CREATE TRIGGER fail_record BEFORE UPDATE OF state ON core_changes
+		BEGIN SELECT RAISE(ABORT, 'injected record failure'); END`)
+	f.store.open("a")
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		text := log.String()
+		if strings.Contains(text, "lifecycle: apply run") && strings.Contains(text, v.ID) &&
+			strings.Contains(text, "injected record failure") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no apply run error was logged for %s:\n%s", v.ID, text)
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
 
 func TestSealedInputIsKeptUntilTheChangeIsFinished(t *testing.T) {
