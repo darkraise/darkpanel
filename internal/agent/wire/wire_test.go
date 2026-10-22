@@ -2,6 +2,7 @@ package wire
 
 import (
 	"encoding/json"
+	"net/netip"
 	"net/url"
 	"reflect"
 	"regexp"
@@ -158,7 +159,7 @@ func TestJSONNamesAreCamelCase(t *testing.T) {
 		}
 	}
 	for _, v := range []any{Principal{}, Hello{}, SchemaHash{}, ModuleStatus{}, PlanView{}, ApplyOptions{}, ChangeView{},
-		ChangeError{}, JournalEntry{}, Ack{}} {
+		ChangeError{}, JournalEntry{}, Ack{}, CallContext{}} {
 		walk(reflect.TypeOf(v))
 	}
 }
@@ -192,5 +193,25 @@ func TestParseChangeFilterRefuses(t *testing.T) {
 		if e := errcode.From(err); err == nil || e.Code != errcode.InvalidInput {
 			t.Errorf("ParseChangeFilter(%q) = %v, want request.invalid_input", q, err)
 		}
+	}
+}
+
+func TestCallContextGuardRefresh(t *testing.T) {
+	g := &core.GuardContext{
+		Client:      &core.Peer{Addr: netip.MustParseAddr("192.0.2.7"), Port: 51234},
+		AgentListen: []netip.AddrPort{netip.MustParseAddrPort("[::]:7443")},
+	}
+	c := core.CallContext{ParentChangeID: "01P", ParentAction: "cfx.deploy.add", StepID: "a", Retired: []string{"x1"}, GuardRefresh: g}
+	check(t, "CallContext", roundTrip(t, FromCall(c)).Core(), c)
+	b, err := json.Marshal(FromCall(c))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `"guardRefresh":{"client":{"addr":"192.0.2.7","port":51234},"agentListen":["[::]:7443"]}`; !strings.Contains(string(b), want) {
+		t.Errorf("CallContext JSON %s, want %s", b, want)
+	}
+	c.GuardRefresh = nil
+	if b, err = json.Marshal(FromCall(c)); err != nil || strings.Contains(string(b), "guardRefresh") {
+		t.Errorf("CallContext JSON %s (%v), want no guardRefresh member without one", b, err)
 	}
 }

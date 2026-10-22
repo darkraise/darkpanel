@@ -39,6 +39,9 @@ type intent struct {
 	deadline   time.Time // revertible only
 	confirmNow bool
 	call       core.CallContext // the plan's
+	// guardRefresh is the apply request's topology, given to Apply and
+	// Verify on top of call and never stored (spec 1.5).
+	guardRefresh *core.GuardContext
 }
 
 // Apply executes a stored plan with ADR 0004's ordering. A plan that already
@@ -186,11 +189,13 @@ func (e *Engine) begin(ctx context.Context, p core.Principal, planID string, opt
 	}
 	env := e.env(p, def)
 	env.Call = pl.call
+	env.Call.GuardRefresh = call.GuardRefresh
 	if err := e.recheck(ctx, env, def, pl, input); err != nil {
 		return nil, nil, err
 	}
 
-	it := &intent{id: e.newID(e.cfg.Base.Clock.Now()), def: def, input: input, confirmNow: opts.ConfirmNow, call: pl.call}
+	it := &intent{id: e.newID(e.cfg.Base.Clock.Now()), def: def, input: input, confirmNow: opts.ConfirmNow, call: pl.call,
+		guardRefresh: call.GuardRefresh}
 	var parent any
 	if pl.call.ParentChangeID != "" {
 		parent = pl.call.ParentChangeID
@@ -375,6 +380,7 @@ func (e *Engine) run(ctx context.Context, p core.Principal, it *intent) (core.Ch
 		return e.taskApply(ctx, p, it)
 	}
 	env := e.changeEnv(p, it.def, it.id, it.call)
+	env.Call.GuardRefresh = it.guardRefresh
 	h, ref, timeout := it.def.Handler, it.def.Ref(), e.applyTimeout(it.def)
 	dctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
