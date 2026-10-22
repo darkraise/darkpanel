@@ -912,7 +912,8 @@ type SchemaHash struct {
 }
 
 // AgentClient is the controller's view of one agent; in M1 the in-process
-// client, from M2 the mTLS transport.
+// client, from M2 the mTLS transport. The change operations of spec 1.3 are
+// AgentChangeOps.
 type AgentClient interface {
 	Hello(ctx context.Context) (AgentHello, error)
 	Read(ctx context.Context, p Principal, a ActionRef, input json.RawMessage) (json.RawMessage, error)
@@ -926,6 +927,7 @@ type AgentClient interface {
 	Preflight(ctx context.Context, moduleID string) (ModuleStatus, error)
 	Journal(ctx context.Context, afterSeq int64, limit int) ([]JournalEntry, error)
 	Ack(ctx context.Context, seq int64) error
+	AgentChangeOps
 }
 
 // Dispatcher is what the HTTP API and the controller socket call. hostID is
