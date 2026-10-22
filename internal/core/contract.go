@@ -667,12 +667,28 @@ type Runner interface {
 	Run(ctx context.Context, cmd Cmd) (CmdResult, error)
 }
 
-// FileWriter writes manifest-declared files and marked blocks.
+// FileWriter writes manifest-declared files and marked blocks, and the other
+// owned-path kinds of spec 1.8. Every method refuses a path, key or name the
+// module does not declare with the right kind.
 type FileWriter interface {
 	WriteFile(ctx context.Context, module, path string, data []byte, mode fs.FileMode) error
 	ReplaceBlock(ctx context.Context, module, path, blockID string, content []byte) error
 	RemoveBlock(ctx context.Context, module, path, blockID string) error
 	Remove(ctx context.Context, module, path string) error
+	Restore(ctx context.Context, module string, e RestoreEntry) error
+	ReadSysctl(ctx context.Context, module, key string) (string, error)
+	WriteSysctl(ctx context.Context, module, key, value string) error
+	WriteManaged(ctx context.Context, module, dir, name string, data []byte, mode fs.FileMode, uid, gid int) error
+	RemoveManaged(ctx context.Context, module, dir, name string) error
+	Rename(ctx context.Context, module, from, to string) error
+	EnsureServiceDir(ctx context.Context, module, dir string) error
+	RenameIn(ctx context.Context, module, dir, from, to string) error
+	RemoveIn(ctx context.Context, module, dir, name string) error
+	RemoveServiceDir(ctx context.Context, module, dir string) error
+	// Owns reports whether the ownership store records path (any kind) as
+	// module's, so a plan can refuse to take over a pre-existing file, unit
+	// file or directory.
+	Owns(ctx context.Context, module, path string) (bool, error)
 }
 
 // OwnedEntry is one path or block Darkpanel wrote.
@@ -686,6 +702,8 @@ type Ownership interface {
 	Record(ctx context.Context, e OwnedEntry) error
 	Forget(ctx context.Context, module, path, blockID string) error
 	List(ctx context.Context) ([]OwnedEntry, error)
+	// Owns reports whether module's entry for path exists, of any kind.
+	Owns(ctx context.Context, module, path string) (bool, error)
 }
 
 // JournalEntry is one lifecycle event of a change.

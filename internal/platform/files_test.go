@@ -20,13 +20,19 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// fakeOwnership is a core.Ownership in memory.
+// fakeOwnership is a core.Ownership in memory. onRecord, when set, sees each
+// entry before Record stores it, so a test can check what the host looked like
+// at that moment.
 type fakeOwnership struct {
-	mu      sync.Mutex
-	entries []core.OwnedEntry
+	mu       sync.Mutex
+	entries  []core.OwnedEntry
+	onRecord func(e core.OwnedEntry)
 }
 
 func (o *fakeOwnership) Record(_ context.Context, e core.OwnedEntry) error {
+	if o.onRecord != nil {
+		o.onRecord(e)
+	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	recorded := slices.ContainsFunc(o.entries, func(x core.OwnedEntry) bool {
@@ -53,6 +59,12 @@ func (o *fakeOwnership) List(context.Context) ([]core.OwnedEntry, error) {
 	return slices.Clone(o.entries), nil
 }
 
+func (o *fakeOwnership) Owns(_ context.Context, module, path string) (bool, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return slices.ContainsFunc(o.entries, func(x core.OwnedEntry) bool { return x.Module == module && x.Path == path }), nil
+}
+
 var filesNow = time.Date(2026, 10, 17, 1, 2, 3, 0, time.UTC)
 
 // newTestFiles returns a writer in TestMode for module "demo", which owns
@@ -73,6 +85,20 @@ func newTestFiles(t *testing.T) (*Files, *fakeOwnership, string) {
 		TestMode:  true,
 	})
 	return f, own, dir
+}
+
+// fpFiles returns a writer in TestMode over cfg with a new in-memory
+// ownership store, which it also returns, and the fixed clock unless cfg sets
+// one.
+func fpFiles(t *testing.T, cfg FilesConfig) (*Files, *fakeOwnership) {
+	t.Helper()
+	own := &fakeOwnership{}
+	cfg.Ownership = own
+	if cfg.Clock == nil {
+		cfg.Clock = coretest.NewFakeClock(filesNow)
+	}
+	cfg.TestMode = true
+	return NewFiles(cfg), own
 }
 
 func readFile(t *testing.T, path string) string {
@@ -502,5 +528,26 @@ func TestOwnedPaths(t *testing.T) {
 	got := OwnedPaths([]core.Manifest{{ID: "one", OwnedPaths: []core.OwnedPath{a}}, {ID: "two"}})
 	if want := map[string][]core.OwnedPath{"one": {a}}; !reflect.DeepEqual(got, want) {
 		t.Errorf("OwnedPaths = %+v, want %+v", got, want)
+	}
+}
+
+func TestFilesOwns(t *testing.T) {
+	f, own := fpFiles(t, FilesConfig{})
+	ctx := context.Background()
+	if err := own.Record(ctx, core.OwnedEntry{Path: "/etc/fp.conf", Module: "fp", Kind: core.OwnedFile, CreatedAt: filesNow}); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		module, path string
+		want         bool
+	}{
+		{"fp", "/etc/fp.conf", true},
+		{"other", "/etc/fp.conf", false},
+		{"fp", "/etc/other.conf", false},
+	}
+	for _, c := range cases {
+		if got, err := f.Owns(ctx, c.module, c.path); err != nil || got != c.want {
+			t.Errorf("Owns(%s, %s) = %v, %v; want %v", c.module, c.path, got, err, c.want)
+		}
 	}
 }

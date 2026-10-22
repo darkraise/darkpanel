@@ -33,6 +33,11 @@ type FilesConfig struct {
 	Ownership core.Ownership
 	Clock     core.Clock
 	TestMode  bool // parent directories must be owned by the effective uid instead of root
+	// ProcSys is the sysctl root; "" means /proc/sys, and only then is the
+	// procfs check made, so tests can use a temporary tree.
+	ProcSys string
+	// LookupUser returns a service-dir owner's ids; nil means os/user.Lookup.
+	LookupUser func(name string) (uid, gid int, err error)
 }
 
 // Files is the core.FileWriter of the agent: it writes only the paths and
@@ -348,6 +353,17 @@ func (f *Files) Remove(ctx context.Context, module, path string) error {
 		return fmt.Errorf("platform: sync directory of %s: %w", path, err)
 	}
 	return f.cfg.Ownership.Forget(ctx, module, path, "")
+}
+
+// Rename renames a declared file to another declared file in its directory.
+func (f *Files) Rename(context.Context, string, string, string) error {
+	return fmt.Errorf("platform: %s is not built yet", "Rename")
+}
+
+// Owns reports whether the ownership store records path as module's, of any
+// kind.
+func (f *Files) Owns(ctx context.Context, module, path string) (bool, error) {
+	return f.cfg.Ownership.Owns(ctx, module, path)
 }
 
 func commentPrefix(op core.OwnedPath) string {
