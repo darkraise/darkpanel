@@ -297,6 +297,26 @@ func TestSSEEnds(t *testing.T) {
 	}
 }
 
+func TestSSEHead(t *testing.T) {
+	clock := coretest.NewFakeClock(testStart)
+	a := &sseAuth{}
+	id := sseIdentity(testStart.Add(time.Hour))
+	a.set(id, nil)
+	srv := sseServer(t, a, nil, clock)
+	rec := newSSERecorder()
+	r := request("HEAD", "/api/v1/events", "")
+	r = r.WithContext(withCaller(r.Context(), caller{principal: id.Principal, identity: id}))
+	if reason := srv.sseStream(rec, r, make(chan sseFrame)); reason != "done" {
+		t.Fatalf("end reason = %s, want done", reason)
+	}
+	if rec.status != 200 || rec.header.Get("Content-Type") != "text/event-stream" {
+		t.Fatalf("status %d, headers %v; want 200 text/event-stream", rec.status, rec.header)
+	}
+	if n := clock.Pending(); n != 0 {
+		t.Fatalf("%d timers armed, want 0", n)
+	}
+}
+
 func TestSSEWriteDeadline(t *testing.T) {
 	e := sseStart(t)
 	e.send(sseFrame{Event: "data", Data: []byte(`{}`)})

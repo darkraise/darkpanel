@@ -85,7 +85,8 @@ func (s *Server) CloseStreams() {
 // SSERecheck; it returns the end reason: "done" (src closed), "expired"
 // (idle, hard limit, or session or token expired), "revoked" (session or
 // token revoked) or "error" (a write failed, the client went away or
-// CloseStreams ran).
+// CloseStreams ran). A HEAD request gets the headers alone and ends at once
+// with done.
 func (s *Server) sseStream(w http.ResponseWriter, r *http.Request, src <-chan sseFrame) string {
 	c, _ := callerFrom(r.Context())
 	expires := c.identity.ExpiresAt
@@ -95,6 +96,9 @@ func (s *Server) sseStream(w http.ResponseWriter, r *http.Request, src <-chan ss
 	w.WriteHeader(http.StatusOK)
 	if sseWrite(w, nil) != nil {
 		return "error"
+	}
+	if r.Method == http.MethodHead {
+		return "done"
 	}
 
 	clock := s.cfg.Clock
