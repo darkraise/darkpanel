@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"strings"
 	"sync"
@@ -261,6 +262,39 @@ func TestForwardCompositeRepairTakesTheRepairOutput(t *testing.T) {
 	}
 	if got := string(out.Steps["b"]); got != `{"name":"z2","value":"2"}` {
 		t.Errorf("output of step b = %s, want the repair change's output", got)
+	}
+}
+
+func TestCompositeIntentsAdmittedBeforeTheBarrierAreRefused(t *testing.T) {
+	ctx := context.Background()
+	// Each call passed admit before the barrier was set.
+	barrier := func(f *cfxFixture) {
+		t.Helper()
+		if _, err := f.ctrlDB.Writer().Exec("INSERT INTO core_meta (key, value) VALUES (?, '1')", MetaUninstalling); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	a := newCfxFixture(t)
+	pl, err := a.planC(refCfxAdd, `{"name":"web"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	barrier(a)
+	_, err = a.ctrl.applyComposite(ctx, cfxRoot, pl.PlanID, core.ApplyOptions{})
+	wantCode(t, err, errcode.Uninstalling)
+	var n int
+	if err := a.ctrlDB.Read().QueryRow("SELECT count(*) FROM core_changes WHERE plan_id = ?", pl.PlanID).Scan(&n); err != nil || n != 0 {
+		t.Errorf("changes of the refused plan = %d (%v), want 0", n, err)
+	}
+
+	r := newCfxFixture(t)
+	v, _ := stuckForward(t, r)
+	barrier(r)
+	err = r.ctrl.claimComposite(ctx, v.ID, core.StateApplying, func(*sql.Tx) error { return nil })
+	wantCode(t, err, errcode.Uninstalling)
+	if got, _ := r.ctrl.Change(ctx, v.ID); got.State != core.StateNeedsRepair || got.Owner != "" {
+		t.Errorf("composite = %s owned by %q, want needs_repair and unowned", got.State, got.Owner)
 	}
 }
 

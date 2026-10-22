@@ -39,6 +39,9 @@ func compositeUnowned(c compositeRow) error {
 // state to, and runs more in the same transaction.
 func (e *Engine) claimComposite(ctx context.Context, id, to string, more func(tx *sql.Tx) error) error {
 	err := e.cfg.Base.DB.Write(ctx, func(tx *sql.Tx) error {
+		if err := uninstallingErr(ctx, tx); err != nil {
+			return err
+		}
 		if err := claim(ctx, tx, e.cfg.Base.Clock.Now(), id, "", core.OwnerComposite, core.StateNeedsRepair, to); err != nil {
 			return err
 		}

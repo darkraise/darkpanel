@@ -1081,6 +1081,9 @@ func (e *Engine) commitComposite(ctx context.Context, p core.Principal, pl planR
 	created := formatTime(now)
 	deadline := formatTime(now.Add(e.compositeTimeout(steps)))
 	err = db.Write(ctx, func(tx *sql.Tx) error {
+		if err := uninstallingErr(ctx, tx); err != nil {
+			return err
+		}
 		epochs, err := takeLocks(ctx, tx, id, def.Spec.LockKeys, true)
 		if err != nil {
 			return err
