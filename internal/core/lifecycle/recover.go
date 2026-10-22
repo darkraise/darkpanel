@@ -138,22 +138,73 @@ func (e *Engine) verifyStored(ctx context.Context, changeID string) string {
 	return e.verifyRecovery(ctx, def, env, input, json.RawMessage("null"))
 }
 
-// Purge deletes expired plans that never became a change. A plan with a change
-// is kept, so a repeated apply still returns that change (spec section 3).
+// Purge deletes expired plans that never became a change, clears private
+// outputs no composite acknowledged within PrivateOutputTTL, and clears the
+// sealed secret of every made effect whose undo window has closed (spec
+// 1.2, 1.3); a step whose composite is terminal is cleared by AckPrivate's
+// final acknowledgement instead. It runs every 10 minutes, more often than
+// the hourly purge the spec requires. A plan with a change is kept, so a
+// repeated apply still returns that change (spec section 3).
 func (e *Engine) Purge(ctx context.Context) error {
 	// An apply that loaded a plan before it expired inserts its change later;
 	// deleting the plan in between would fail that insert's foreign key.
 	e.applyMu.Lock()
 	defer e.applyMu.Unlock()
-	now := formatTime(e.cfg.Base.Clock.Now())
+	now := e.cfg.Base.Clock.Now()
 	err := e.cfg.Base.DB.Write(ctx, func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx,
+		if _, err := tx.ExecContext(ctx,
 			`DELETE FROM core_plans WHERE expires_at <= ?
-			 AND NOT EXISTS (SELECT 1 FROM core_changes WHERE plan_id = core_plans.id)`, now)
-		return err
+			 AND NOT EXISTS (SELECT 1 FROM core_changes WHERE plan_id = core_plans.id)`, formatTime(now)); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE core_changes SET private_output_ct = NULL, private_output_at = NULL
+			 WHERE private_output_at IS NOT NULL AND private_output_at <= ?`,
+			formatTime(now.Add(-PrivateOutputTTL))); err != nil {
+			return err
+		}
+		return purgeEffectSecrets(ctx, tx)
 	})
 	if err != nil {
 		return fmt.Errorf("lifecycle: purge plans: %w", err)
+	}
+	return nil
+}
+
+// purgeEffectSecrets clears the sealed secret of every made effect whose
+// change can no longer be undone because a later change took one of its
+// lock keys (spec 1.2). A secret exists only for an inverse, so it has no
+// use once the undo window has closed.
+func purgeEffectSecrets(ctx context.Context, tx *sql.Tx) error {
+	rows, err := tx.QueryContext(ctx,
+		"SELECT DISTINCT change_id FROM core_effects WHERE state = ? AND secret_ct IS NOT NULL", string(core.EffectMade))
+	if err != nil {
+		return err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		key, err := windowOpen(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if key == "" {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE core_effects SET secret_ct = NULL WHERE change_id = ? AND state = ?",
+			id, string(core.EffectMade)); err != nil {
+			return err
+		}
 	}
 	return nil
 }

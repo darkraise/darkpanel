@@ -357,7 +357,7 @@ func (e *Engine) run(ctx context.Context, p core.Principal, it *intent) (core.Ch
 		to = core.StatePending
 	}
 	v, err := e.transition(ctx, it.id, transition{
-		from: core.StateApplying, to: to, output: e.cfg.Redact(it.def.OutputType, out), owner: newOwner(""),
+		from: core.StateApplying, to: to, output: e.cfg.Redact(it.def.OutputType, out), private: out, owner: newOwner(""),
 		release: !revertible, phase: phaseApply, result: resultOK, actor: p.Actor, source: p.Source,
 	})
 	if err != nil {
@@ -506,6 +506,7 @@ func newOwner(owner string) *string { return &owner }
 type transition struct {
 	from, to      string
 	output        json.RawMessage   // stored when set
+	private       json.RawMessage   // the unredacted output, sealed as a step's private output when redaction hid something
 	err           *core.ChangeError // stored when set, with cause
 	cause         string            // the stored error's ChangeError.Cause
 	owner         *string           // the new recovery_owner; nil keeps it
@@ -587,6 +588,9 @@ func (e *Engine) transitionTx(ctx context.Context, tx *sql.Tx, changeID string, 
 		 updated_at = ? WHERE id = ?`,
 		tr.to, nullJSON(tr.output), code, msg, tr.err != nil, cause, owner, nullJSON(tr.override), retry, outcome,
 		formatTime(now), changeID); err != nil {
+		return v, err
+	}
+	if err := e.storePrivate(ctx, tx, now, changeID, tr.output, tr.private); err != nil {
 		return v, err
 	}
 	if tr.release {
