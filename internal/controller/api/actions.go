@@ -393,13 +393,14 @@ func errHiddenChange(id string) error {
 
 // authorizeChange applies to an operation on a change the scope of the
 // change's own action, never of the route: core.RequiredScope of its spec,
-// MinScope included. v must be networkVisible, so an unregistered action is
-// agent-side and its stored class decides.
+// MinScope included. A change whose action the registry no longer has needs
+// admin: its MinScope is unknown and the engine checks nothing further on
+// confirm, revert or undo, so the check fails closed.
 func (s *Server) authorizeChange(p core.Principal, v core.ChangeView) error {
 	if def, ok := s.cfg.Registry.Action(core.ActionRef{Name: v.Action, Version: v.Version}); ok {
 		return authorize(p, core.RequiredScope(def.Spec))
 	}
-	return authorize(p, RequiredScope(v.Class, core.SideAgent))
+	return authorize(p, core.ScopeAdmin)
 }
 
 // changeOp serves confirm or revert. It reads the change first, as the

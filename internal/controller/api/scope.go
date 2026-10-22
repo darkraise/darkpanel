@@ -7,10 +7,10 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 )
 
-// RequiredScope is the scope a principal needs for a change of class on
-// side whose action the registry no longer has: core.DefaultScope, because
-// no MinScope is left to raise it. A registered action needs
-// core.RequiredScope of its spec (spec 1.7).
+// RequiredScope is the default scope of an action of class on side,
+// core.DefaultScope, before any MinScope raises it. No route authorizes
+// with it: a registered action needs core.RequiredScope of its spec (spec
+// 1.7), and a change whose action is unregistered needs admin.
 func RequiredScope(class core.Class, side core.Side) core.Scope {
 	return core.DefaultScope(class, side)
 }

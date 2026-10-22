@@ -368,7 +368,8 @@ func TestChangeOpsAuthorizeTheChangesAction(t *testing.T) {
 			code            errcode.Code
 		}{
 			{"agent change with operate", "c7", operate, false, 200, ""},
-			{"unregistered agent action with operate", "cua", operate, false, 200, ""},
+			{"unregistered agent action with operate", "cua", operate, false, 403, errcode.Forbidden},
+			{"unregistered agent action with admin", "cua", admin, false, 200, ""},
 			{"controller change with operate", "c1", operate, false, 403, errcode.Forbidden},
 			{"controller change with admin", "c1", admin, false, 200, ""},
 			{"break-glass change with admin", "cbg", admin, false, 404, errcode.ChangeNotFound},

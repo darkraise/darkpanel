@@ -161,8 +161,11 @@ func TestMinScopeOnChanges(t *testing.T) {
 		if rec := h.serve(withToken(request("POST", "/api/v1/changes/c-raised/"+op, ""), admin)); rec.Code != 200 {
 			t.Errorf("%s by admin: %d %s", op, rec.Code, rec.Body)
 		}
-		if rec := h.serve(withToken(request("POST", "/api/v1/changes/c-gone/"+op, ""), operate)); rec.Code != 200 {
-			t.Errorf("%s of an unregistered action by operate: %d %s", op, rec.Code, rec.Body)
+		if p := decodeProblem(t, h.serve(withToken(request("POST", "/api/v1/changes/c-gone/"+op, ""), operate)), 403, errcode.Forbidden); p.Detail != "this request needs the admin scope" {
+			t.Errorf("%s of an unregistered action by operate: detail %q", op, p.Detail)
+		}
+		if rec := h.serve(withToken(request("POST", "/api/v1/changes/c-gone/"+op, ""), admin)); rec.Code != 200 {
+			t.Errorf("%s of an unregistered action by admin: %d %s", op, rec.Code, rec.Body)
 		}
 	}
 	want := []string{"confirm c-raised", "confirm c-gone", "revert c-raised", "revert c-gone", "undo c-raised", "undo c-gone"}
