@@ -3,6 +3,7 @@ package schema
 import (
 	"bytes"
 	"encoding/json"
+	"net/netip"
 	"reflect"
 	"slices"
 	"testing"
@@ -143,5 +144,33 @@ func TestSchemaDeterministic(t *testing.T) {
 func TestSchemaNilType(t *testing.T) {
 	if _, err := Input(nil); err == nil {
 		t.Error("Input(nil) succeeded")
+	}
+}
+
+// addrFields has one field of each netip type, each optional so that a
+// validation case can send one alone.
+type addrFields struct {
+	A netip.Addr       `json:"a,omitempty"`
+	P netip.AddrPort   `json:"p,omitempty"`
+	N netip.Prefix     `json:"n,omitempty"`
+	L []netip.AddrPort `json:"l,omitempty"`
+}
+
+func TestAddressSchemas(t *testing.T) {
+	for name, build := range map[string]func(reflect.Type) (json.RawMessage, error){"input": Input, "output": Output} {
+		raw, err := build(reflect.TypeFor[addrFields]())
+		if err != nil {
+			t.Fatal(err)
+		}
+		obj := def(t, decodeSchema(t, raw), "addrFields")
+		for field, format := range map[string]string{"a": "ip-address", "p": "ip-address-port", "n": "ip-prefix"} {
+			if p := prop(t, obj, field); p["type"] != "string" || p["format"] != format || len(p) != 2 {
+				t.Errorf("%s schema of %s = %v, want {type: string, format: %s}", name, field, p, format)
+			}
+		}
+		items, _ := prop(t, obj, "l")["items"].(map[string]any)
+		if items["type"] != "string" || items["format"] != "ip-address-port" {
+			t.Errorf("%s schema of l's items = %v, want {type: string, format: ip-address-port}", name, items)
+		}
 	}
 }

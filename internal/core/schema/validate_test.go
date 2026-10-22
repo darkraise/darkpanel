@@ -139,3 +139,46 @@ func TestValidateCompilesOnce(t *testing.T) {
 		t.Errorf("compiled schemas = %d, want 2", len(v.schemas))
 	}
 }
+
+func TestValidatorChecksAddressFormats(t *testing.T) {
+	v := NewValidator()
+	def := core.DefineRead(core.ActionSpec{Name: "demo.addr.get", Version: 1, Side: core.SideAgent},
+		fixtureHandler[addrFields, fixtureStatus]{})
+	const formatFails = `value fails the "format" constraint`
+	tests := []struct {
+		name, raw     string
+		path, message string // "" when the input is valid
+	}{
+		{"IPv4 address", `{"a":"192.0.2.1"}`, "", ""},
+		{"IPv6 address", `{"a":"2001:db8::1"}`, "", ""},
+		{"IPv6 address and port", `{"p":"[2001:db8::1]:443"}`, "", ""},
+		{"IPv4 address and port", `{"p":"192.0.2.1:22"}`, "", ""},
+		{"IPv4 prefix", `{"n":"10.0.0.0/8"}`, "", ""},
+		{"IPv6 prefix", `{"n":"2001:db8::/32"}`, "", ""},
+		{"list of addresses and ports", `{"l":["192.0.2.1:22","[::1]:80"]}`, "", ""},
+		{"address out of range", `{"a":"300.1.1.1"}`, "/a", formatFails},
+		{"address without a port", `{"p":"192.0.2.1"}`, "/p", formatFails},
+		{"prefix too long", `{"n":"10.0.0.0/33"}`, "/n", formatFails},
+		{"empty address", `{"a":""}`, "/a", formatFails},
+		{"bad list element", `{"l":["192.0.2.1:22","x"]}`, "/l/1", formatFails},
+		{"number for an address", `{"a":7}`, "/a", "got number, want string"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := v.ValidateInput(def, json.RawMessage(tt.raw))
+			if tt.path == "" {
+				if err != nil {
+					t.Fatalf("ValidateInput(%s) = %v, want nil", tt.raw, err)
+				}
+				return
+			}
+			var coded *errcode.Error
+			if !errors.As(err, &coded) || coded.Code != errcode.InvalidInput {
+				t.Fatalf("err = %v, want %s", err, errcode.InvalidInput)
+			}
+			if want := (errcode.FieldError{Path: tt.path, Message: tt.message}); !slices.Contains(coded.Fields, want) {
+				t.Errorf("fields = %+v, want %+v", coded.Fields, want)
+			}
+		})
+	}
+}

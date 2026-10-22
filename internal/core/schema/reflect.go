@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"reflect"
 	"strings"
 
@@ -17,6 +18,14 @@ import (
 // secretKeyword marks a property whose value is a secret (shared contracts:
 // the secret:"true" struct tag).
 const secretKeyword = "x-secret"
+
+// The formats of the netip types. Their JSON form is the string their
+// MarshalText writes; the validator checks it with the matching parser.
+const (
+	formatAddr     = "ip-address"
+	formatAddrPort = "ip-address-port"
+	formatPrefix   = "ip-prefix"
+)
 
 // Input returns the schema of an action's input type: every field is required
 // unless its JSON tag has omitempty, and every object refuses unknown
@@ -33,7 +42,7 @@ func build(t reflect.Type, input bool) (json.RawMessage, error) {
 	if t == nil {
 		return nil, errors.New("schema: nil type")
 	}
-	r := &jsonschema.Reflector{Anonymous: true, AllowAdditionalProperties: !input}
+	r := &jsonschema.Reflector{Anonymous: true, AllowAdditionalProperties: !input, Mapper: addressSchema}
 	s := r.ReflectFromType(t)
 	markSecrets(t, s, s.Definitions, input, map[*jsonschema.Schema]bool{})
 	b, err := json.Marshal(s)
@@ -41,6 +50,21 @@ func build(t reflect.Type, input bool) (json.RawMessage, error) {
 		return nil, fmt.Errorf("schema: marshal %s: %w", t, err)
 	}
 	return b, nil
+}
+
+// addressSchema describes the netip types as strings of their format. Left
+// to the reflector, their structs, which have no exported fields, would be
+// empty objects, and an input schema would refuse their JSON form.
+func addressSchema(t reflect.Type) *jsonschema.Schema {
+	switch t {
+	case reflect.TypeFor[netip.Addr]():
+		return &jsonschema.Schema{Type: "string", Format: formatAddr}
+	case reflect.TypeFor[netip.AddrPort]():
+		return &jsonschema.Schema{Type: "string", Format: formatAddrPort}
+	case reflect.TypeFor[netip.Prefix]():
+		return &jsonschema.Schema{Type: "string", Format: formatPrefix}
+	}
+	return nil
 }
 
 // resolve follows a "#/$defs/<name>" reference.
