@@ -52,8 +52,11 @@ func TestChildrenPlanApplyAndReadGoThroughTheDispatcher(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if applied.Call == nil || !reflect.DeepEqual(*applied.Call, *call) {
-			t.Errorf("the agent's apply got call %+v, want %+v", applied.Call, call)
+		// The dispatcher adds the guard context to every agent apply.
+		wantApplied := *call
+		wantApplied.GuardRefresh = &core.GuardContext{}
+		if applied.Call == nil || !reflect.DeepEqual(*applied.Call, wantApplied) {
+			t.Errorf("the agent's apply got call %+v, want %+v", applied.Call, wantApplied)
 		}
 		if n := h.count("SELECT count(*) FROM core_change_index WHERE change_id = ?", v.ID); n != 1 {
 			t.Errorf("change index rows = %d, want the child change indexed", n)
