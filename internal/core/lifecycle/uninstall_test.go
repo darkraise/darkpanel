@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
@@ -75,7 +77,7 @@ func TestUninstallingGatesTheEngine(t *testing.T) {
 		t.Error("Release answered core.uninstalling; the barrier never refuses a release")
 	}
 	for range 2 {
-		if err := AbortUninstall(ctx, f.db); err != nil {
+		if err := AbortUninstall(ctx, f.db, "local:root@h1"); err != nil {
 			t.Fatalf("AbortUninstall = %v", err)
 		}
 	}
@@ -100,7 +102,7 @@ func TestRunTaskFenceRefusesWhileUninstalling(t *testing.T) {
 	if got := f.taskRowState(v.ID, core.TaskOpApply, 1); got != taskRowStarting || ran != 0 {
 		t.Errorf("row %s, Task ran %d times; want the row starting and no Task", got, ran)
 	}
-	if err := AbortUninstall(ctx, f.db); err != nil {
+	if err := AbortUninstall(ctx, f.db, "local:root@h1"); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.eng.RunTask(ctx, v.ID, core.TaskOpApply, 1); err != nil {
@@ -202,7 +204,7 @@ func TestEngineNoticesTheBarrierClearedOnItsPoll(t *testing.T) {
 	}
 	// darkpanel uninstall --abort clears the row with the package function,
 	// which cannot reach the engine.
-	if err := AbortUninstall(ctx, f.db); err != nil {
+	if err := AbortUninstall(ctx, f.db, "local:root@h1"); err != nil {
 		t.Fatal(err)
 	}
 	f.clock.Advance(uninstallPoll)
@@ -226,7 +228,7 @@ func TestAdmissionNoticesTheBarrierCleared(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	id := f.skippedAtStart()
-	if err := AbortUninstall(ctx, f.db); err != nil {
+	if err := AbortUninstall(ctx, f.db, "local:root@h1"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.eng.Plan(ctx, alice, refAdd, json.RawMessage(`{"name":"b","value":"1"}`), core.PlanOptions{}); err != nil {
@@ -300,7 +302,7 @@ func TestEngineNoticesTheBarrierClearedAfterAFailedClaim(t *testing.T) {
 	// the logging engine the skipped id and the poll.
 	log := f.logged()
 	f.recoverAll()
-	if err := AbortUninstall(ctx, f.db); err != nil {
+	if err := AbortUninstall(ctx, f.db, "local:root@h1"); err != nil {
 		t.Fatal(err)
 	}
 	f.clock.Advance(uninstallPoll)
@@ -328,5 +330,59 @@ func TestEngineNoticesTheBarrierClearedAfterAFailedClaim(t *testing.T) {
 	got, err := f.eng.Change(ctx, id)
 	if err != nil || got.State != core.StateInterrupted || got.Owner != "" {
 		t.Errorf("a poll after the failed claim: %+v, %v; want interrupted and unowned without a restart", got, err)
+	}
+}
+
+func TestAbortUninstallAudited(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	if err := BeginUninstall(ctx, f.db, false); err != nil {
+		t.Fatal(err)
+	}
+	// The second abort finds no barrier, succeeds and is audited too.
+	for range 2 {
+		if err := AbortUninstall(ctx, f.db, "local:root@h1"); err != nil {
+			t.Fatalf("AbortUninstall = %v", err)
+		}
+	}
+	if n := f.uninstalling(); n != 0 {
+		t.Errorf("barrier rows after the abort = %d, want 0", n)
+	}
+	if err := f.eng.AbortUninstall(ctx); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := f.journal.Entries(ctx, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []core.JournalEntry
+	for _, e := range entries {
+		if e.At.IsZero() {
+			t.Errorf("entry %+v has no time", e)
+		}
+		e.Seq, e.At = 0, time.Time{}
+		got = append(got, e)
+	}
+	entry := func(actor string) core.JournalEntry {
+		return core.JournalEntry{Actor: actor, Action: "core.uninstall", Version: 1, Phase: "uninstall-abort",
+			Input: json.RawMessage(`{}`), Result: "ok"}
+	}
+	want := []core.JournalEntry{entry("local:root@h1"), entry("local:root@h1"), entry(ActorRecovery)}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("journal\n got %+v\nwant %+v", got, want)
+	}
+
+	// The row and the entry share one transaction: an entry that cannot be
+	// written keeps the barrier.
+	if err := BeginUninstall(ctx, f.db, false); err != nil {
+		t.Fatal(err)
+	}
+	f.recoverExec(`CREATE TRIGGER fail_journal BEFORE INSERT ON core_journal
+		BEGIN SELECT RAISE(ABORT, 'injected journal failure'); END`)
+	if err := AbortUninstall(ctx, f.db, "local:root@h1"); err == nil || !strings.Contains(err.Error(), "injected journal failure") {
+		t.Fatalf("AbortUninstall with a failing journal = %v", err)
+	}
+	if n := f.uninstalling(); n != 1 {
+		t.Errorf("barrier rows after a failed abort = %d, want 1", n)
 	}
 }
