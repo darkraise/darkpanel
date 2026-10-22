@@ -4,7 +4,9 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -59,13 +61,16 @@ type Config struct {
 	OnHello func(ControllerHello)
 }
 
-// handler serves the agent API. Its three functions are what differs
-// between a transport stream, whose peer is the authenticated controller,
-// and the agent socket.
+// handler serves the agent API. Its functions are what differs between a
+// transport stream, whose peer is the authenticated controller, and the
+// agent socket.
 type handler struct {
 	cfg Config
 	// principal returns the caller of an operation that acts for one.
 	principal func(r *http.Request) (core.Principal, error)
+	// call returns the call context the controller sends with a plan, apply,
+	// undo or release; nil when the request carries none.
+	call func(r *http.Request) (*core.CallContext, error)
 	// allow refuses an operation before it reaches the agent; name is the
 	// action or resource name, empty for the other operations.
 	allow func(ctx context.Context, op, name string) error
@@ -78,6 +83,7 @@ type handler struct {
 func NewHandler(cfg Config) http.Handler {
 	h := &handler{cfg: cfg}
 	h.principal = headerPrincipal
+	h.call = headerCall
 	h.allow = func(context.Context, string, string) error { return nil }
 	h.hello = h.controllerHello
 	return h.routes(true)
@@ -117,6 +123,34 @@ func headerPrincipal(r *http.Request) (core.Principal, error) {
 		return core.Principal{}, errcode.New(errcode.InvalidInput, "the "+wire.HeaderPrincipal+" header is not a principal")
 	}
 	return p.Core(), nil
+}
+
+// headerCall reads the call context the controller sends, base64url without
+// padding over its JSON; a request without the header has none. Unknown
+// members are refused, so a repairOf, which the agent derives itself, is
+// request.invalid_input.
+func headerCall(r *http.Request) (*core.CallContext, error) {
+	if len(r.Header.Values(wire.HeaderCall)) == 0 {
+		return nil, nil
+	}
+	b, err := base64.RawURLEncoding.DecodeString(r.Header.Get(wire.HeaderCall))
+	if err != nil {
+		return nil, errcode.New(errcode.InvalidInput, fmt.Sprintf("the %s header is not base64url without padding: %v", wire.HeaderCall, err))
+	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	var c wire.CallContext
+	err = dec.Decode(&c)
+	if err == nil {
+		if _, tail := dec.Token(); !errors.Is(tail, io.EOF) {
+			err = errors.New("more than one JSON value")
+		}
+	}
+	if err != nil {
+		return nil, errcode.New(errcode.InvalidInput, fmt.Sprintf("the %s header is not a call context: %v", wire.HeaderCall, err))
+	}
+	call := c.Core()
+	return &call, nil
 }
 
 // controllerHello reads the controller's hello headers and hands them to
@@ -208,13 +242,17 @@ func (h *handler) handlePlan(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		p, err = h.actor(r, opPlan, ref.Name)
 	}
+	var call *core.CallContext
+	if err == nil {
+		call, err = h.call(r)
+	}
 	var input json.RawMessage
 	if err == nil {
 		input, err = readJSON(w, r)
 	}
 	var v core.PlanView
 	if err == nil {
-		v, err = h.cfg.Agent.Plan(r.Context(), p, ref, input, core.PlanOptions{})
+		v, err = h.cfg.Agent.Plan(r.Context(), p, ref, input, core.PlanOptions{Call: call})
 	}
 	if err != nil {
 		h.writeProblem(w, err)
@@ -225,13 +263,19 @@ func (h *handler) handlePlan(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) handleApply(w http.ResponseWriter, r *http.Request) {
 	p, err := h.actor(r, opApply, "")
+	var call *core.CallContext
+	if err == nil {
+		call, err = h.call(r)
+	}
 	var opts wire.ApplyOptions
 	if err == nil {
 		err = decodeJSON(w, r, &opts)
 	}
 	var v core.ChangeView
 	if err == nil {
-		v, err = h.cfg.Agent.Apply(r.Context(), p, r.PathValue("id"), opts.Core())
+		o := opts.Core()
+		o.Call = call
+		v, err = h.cfg.Agent.Apply(r.Context(), p, r.PathValue("id"), o)
 	}
 	if err != nil {
 		h.writeProblem(w, err)

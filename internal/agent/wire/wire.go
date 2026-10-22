@@ -27,6 +27,11 @@ const (
 	HeaderProtocol     = "Darkpanel-Protocol"
 	HeaderVersion      = "Darkpanel-Version"
 	HeaderControllerID = "Darkpanel-Controller-Id"
+	// HeaderCall carries the CallContext the controller sends with a plan,
+	// apply, undo or release: its JSON encoded with base64.RawURLEncoding
+	// (spec 1.5). A plan's body is the action input itself, so the call
+	// cannot travel in the body.
+	HeaderCall = "Darkpanel-Call"
 )
 
 // MaxBody is the largest request or response body the agent API accepts.
@@ -49,6 +54,29 @@ func FromPrincipal(p core.Principal) Principal {
 // Core converts p back.
 func (p Principal) Core() core.Principal {
 	return core.Principal{Actor: p.Actor, UserID: p.UserID, TokenID: p.TokenID, Scope: core.Scope(p.Scope), Source: p.Source}
+}
+
+// CallContext is core.CallContext without RepairOf, which the agent derives
+// from a repair plan and never receives (spec 1.5). The agent decodes it
+// with unknown members refused, so a repairOf member is
+// request.invalid_input.
+type CallContext struct {
+	ParentChangeID string   `json:"parentChangeId"`
+	ParentAction   string   `json:"parentAction"`
+	StepID         string   `json:"stepId"`
+	Retired        []string `json:"retired"`
+}
+
+// FromCall converts c, leaving out RepairOf.
+func FromCall(c core.CallContext) CallContext {
+	return CallContext{ParentChangeID: c.ParentChangeID, ParentAction: c.ParentAction, StepID: c.StepID,
+		Retired: slices.Clone(c.Retired)}
+}
+
+// Core converts c back; RepairOf stays empty.
+func (c CallContext) Core() core.CallContext {
+	return core.CallContext{ParentChangeID: c.ParentChangeID, ParentAction: c.ParentAction, StepID: c.StepID,
+		Retired: slices.Clone(c.Retired)}
 }
 
 // SchemaHash is core.SchemaHash.
