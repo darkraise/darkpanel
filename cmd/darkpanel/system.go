@@ -102,7 +102,7 @@ func newSystemInstallCmd() *cobra.Command {
 			cfg := install.Config{
 				Layout: l, Role: role, AgentListen: agentListen, AgentAdvertise: agentAdvertise, Token: token,
 				Modules: manifests(modules.All()), BinaryVersion: buildinfo.Version,
-				Systemd: sd, Exec: platform.NewRunner(platform.ProductionAllowlist()), Users: install.SystemUsers{},
+				Systemd: sd, Exec: platform.NewRunner(platform.ProductionRules()), Users: install.SystemUsers{},
 				Agent: installAgent{socket: l.Paths.AgentSocket, tlsDir: l.Paths.AgentTLSDir},
 				Clock: core.SystemClock{}, Out: cmd.OutOrStdout(),
 			}

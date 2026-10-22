@@ -117,7 +117,7 @@ func (a *fleetAgent) run() {
 		Runtime: runtime.Config{
 			DB: a.db, Sealer: sealer, Clock: a.clock, Log: slog.New(slog.NewTextHandler(a.logs, nil)),
 			Registry: reg, BinaryVersion: a.version, BackupDir: a.paths.AgentBackups(),
-			Exec: platform.NewRunner(platform.ProductionAllowlist()),
+			Exec: platform.NewRunner(platform.ProductionRules()),
 		},
 		Updater:   noRecovery{},
 		AllowPeer: func(peer uint32) bool { return peer == uid },

@@ -53,7 +53,7 @@ func newUninstallCmd() *cobra.Command {
 			}
 			plan, err := planUninstall(cmd.Context(), install.UninstallConfig{
 				Layout: installLayout(), KeepData: keepData, Modules: modules.All(),
-				Systemd: sd, Exec: platform.NewRunner(platform.ProductionAllowlist()), Users: install.SystemUsers{},
+				Systemd: sd, Exec: platform.NewRunner(platform.ProductionRules()), Users: install.SystemUsers{},
 				Clock: core.SystemClock{}, Log: slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil)),
 			})
 			if err != nil {

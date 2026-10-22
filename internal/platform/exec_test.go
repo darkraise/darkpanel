@@ -79,16 +79,6 @@ func TestNewRunnerPanicsOnBadRules(t *testing.T) {
 	}
 }
 
-func TestProductionAllowlist(t *testing.T) {
-	var got []string
-	for _, rule := range ProductionAllowlist() {
-		got = append(got, rule.Path)
-	}
-	if want := []string{"/usr/sbin/useradd", "/usr/sbin/userdel"}; !slices.Equal(got, want) {
-		t.Errorf("ProductionAllowlist() paths = %v, want %v", got, want)
-	}
-}
-
 func TestRunnerAppliesRules(t *testing.T) {
 	matched := 0
 	r := NewRunner([]ExecRule{

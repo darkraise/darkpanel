@@ -219,7 +219,7 @@ func (s *Server) startEmbeddedAgent(ctx context.Context) (dispatch.ClientSource,
 	rt, err := runtime.Open(ctx, runtime.Config{
 		DB: s.agentDB, Sealer: s.agentSealer, Clock: s.clock, Log: s.log, Registry: s.registry,
 		HostID: s.localHostID, BinaryVersion: buildinfo.Version, BackupDir: s.opts.Paths.AgentBackups(),
-		Exec: platform.NewRunner(platform.ProductionAllowlist()),
+		Exec: platform.NewRunner(platform.ProductionRules()),
 	})
 	if err != nil {
 		return nil, err

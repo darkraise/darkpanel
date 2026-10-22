@@ -87,14 +87,6 @@ func (r *Runner) match(path string, args []string) ([]string, error) {
 	return nil, fmt.Errorf("platform: %s: argument vector not allowed", path)
 }
 
-// ProductionAllowlist is the agent's allowlist. The installer runs
-// useradd and userdel for the controller's system user; every systemd
-// operation goes through D-Bus instead (Systemd).
-func ProductionAllowlist() []ExecRule {
-	anyVector := func([]string) error { return nil }
-	return []ExecRule{{Path: "/usr/sbin/useradd", Match: anyVector}, {Path: "/usr/sbin/userdel", Match: anyVector}}
-}
-
 // cappedBuffer keeps at most limit bytes and cancels the run when a program
 // writes more.
 type cappedBuffer struct {

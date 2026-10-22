@@ -47,7 +47,7 @@ type Config struct {
 	HostID        string         // the local host id
 	BinaryVersion string         // buildinfo.Version, for the migration backup
 	BackupDir     string         // paths.AgentBackups()
-	Exec          core.Runner    // platform.NewRunner(platform.ProductionAllowlist()) in production
+	Exec          core.Runner    // platform.NewRunner(platform.ProductionRules()) in production
 	FilesTestMode bool           // platform.FilesConfig.TestMode; false in production
 	// Units starts and reads task units (1.3c); nil refuses task actions.
 	Units core.Units
