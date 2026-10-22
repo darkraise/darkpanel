@@ -85,6 +85,8 @@ type handler struct {
 	allow func(ctx context.Context, op, name string) error
 	// hello checks the controller's half of a hello.
 	hello func(r *http.Request) error
+	// planInput refuses a plan's input before it reaches the agent.
+	planInput func(input json.RawMessage) error
 }
 
 // NewHandler serves the agent API on transport streams: the caller is the
@@ -95,6 +97,7 @@ func NewHandler(cfg Config) http.Handler {
 	h.call = headerCall
 	h.allow = func(context.Context, string, string) error { return nil }
 	h.hello = h.controllerHello
+	h.planInput = func(json.RawMessage) error { return nil }
 	return h.routes(true)
 }
 
@@ -270,6 +273,9 @@ func (h *handler) handlePlan(w http.ResponseWriter, r *http.Request) {
 	var input json.RawMessage
 	if err == nil {
 		input, err = readJSON(w, r)
+	}
+	if err == nil {
+		err = h.planInput(input)
 	}
 	var v core.PlanView
 	if err == nil {

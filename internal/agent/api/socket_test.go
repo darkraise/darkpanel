@@ -163,3 +163,42 @@ func TestSocketServesNoJournal(t *testing.T) {
 		t.Errorf("hello answered %d %s", rec.Code, rec.Body)
 	}
 }
+
+func TestSocketPlanRefusesGuard(t *testing.T) {
+	fake := newSocketFake()
+	var inputs []string
+	fake.PlanFunc = func(_ context.Context, _ core.Principal, _ core.ActionRef, in json.RawMessage, _ core.PlanOptions) (core.PlanView, error) {
+		inputs = append(inputs, string(in))
+		return testPlan, nil
+	}
+	var enrolled atomic.Bool
+	enrolled.Store(true)
+	sock := socketHandler(fake, &enrolled)
+	const path = "/agent/v1/actions/hostinfo.summary/v1/plan"
+	for _, tc := range []struct{ body, field string }{
+		{`{"guard":{"client":null}}`, "/guard"},
+		{`{"name":"x","GUARD":{}}`, "/GUARD"},
+	} {
+		p := wantProblem(t, call(t, sock, "POST", path, nil, []byte(tc.body)), 422, errcode.InvalidInput)
+		if len(p.Errors) != 1 || p.Errors[0].Path != tc.field {
+			t.Errorf("%s: field errors %+v, want %s", tc.body, p.Errors, tc.field)
+		}
+	}
+	if len(inputs) != 0 {
+		t.Fatalf("a refused plan reached the agent: %q", inputs)
+	}
+	for _, body := range []string{`{"name":"x"}`, `[1]`} {
+		if rec := call(t, sock, "POST", path, nil, []byte(body)); rec.Code != 200 {
+			t.Errorf("%s: %d %s, want it planned", body, rec.Code, rec.Body)
+		}
+	}
+	// The controller's session passes the guard the dispatcher filled.
+	ctrl := NewHandler(Config{Agent: fake, Log: discardLog()})
+	hdr := http.Header{wire.HeaderPrincipal: {principalHeader(t, testPrincipal)}}
+	if rec := call(t, ctrl, "POST", path, hdr, []byte(`{"guard":{"client":null}}`)); rec.Code != 200 {
+		t.Errorf("controller plan: %d %s, want it planned", rec.Code, rec.Body)
+	}
+	if want := []string{`{"name":"x"}`, `[1]`, `{"guard":{"client":null}}`}; !reflect.DeepEqual(inputs, want) {
+		t.Errorf("the agent planned %q, want %q", inputs, want)
+	}
+}

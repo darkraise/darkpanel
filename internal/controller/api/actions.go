@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -247,12 +248,33 @@ func (s *Server) runAction(w http.ResponseWriter, r *http.Request, p core.Princi
 		writeJSON(w, s.log, http.StatusOK, readResponse{Output: orNull(out)})
 		return
 	}
+	if key, ok := suppliedGuard(in.Input); ok {
+		writeProblem(w, s.log, invalidField("/input/"+key, "the controller fills the guard context; leave it out"))
+		return
+	}
 	v, err := s.cfg.Dispatcher.Plan(ctx, p, hostID, def.Ref(), in.Input, core.PlanOptions{})
 	if err != nil {
 		writeProblem(w, s.log, err)
 		return
 	}
 	writeJSON(w, s.log, http.StatusOK, toPlan(v))
+}
+
+// suppliedGuard returns the top-level member of a plan input that would be
+// decoded as the guard context, which only the dispatcher fills (spec 1.5).
+// encoding/json matches a member to a field ignoring case, so this does too.
+// An input that is not an object has none; the validator refuses it.
+func suppliedGuard(input json.RawMessage) (string, bool) {
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(input, &obj) != nil {
+		return "", false
+	}
+	for key := range obj {
+		if strings.EqualFold(key, "guard") {
+			return key, true
+		}
+	}
+	return "", false
 }
 
 // handleResource answers a resource's output as it is.
