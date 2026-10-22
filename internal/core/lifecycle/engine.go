@@ -53,6 +53,11 @@ type Config struct {
 	// Publish receives every committed composite step state as a
 	// composite.step event (EventCompositeStep, StepEvent); nil drops them.
 	Publish func(eventType string, data any)
+	// Units starts and reads the transient units of task actions (1.3c),
+	// on the agent; nil refuses task actions.
+	Units core.Units
+	// TaskBinary is the darkpanel binary a task unit runs.
+	TaskBinary string
 }
 
 // Deadlines of spec 1.3.

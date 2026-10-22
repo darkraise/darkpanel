@@ -137,6 +137,10 @@ func (e *Engine) begin(ctx context.Context, p core.Principal, planID string, opt
 	if err != nil {
 		return nil, nil, err
 	}
+	if def.Spec.Task && e.cfg.Units == nil {
+		return nil, nil, errcode.New(errcode.Internal,
+			fmt.Sprintf("%s runs in a task unit, and this engine has no unit client", def.Ref()))
+	}
 	timeout, err := confirmTimeout(def.Spec.Class, opts.ConfirmTimeout)
 	if err != nil {
 		return nil, nil, err
@@ -226,6 +230,10 @@ func (e *Engine) begin(ctx context.Context, p core.Principal, planID string, opt
 			it.id, pl.id, e.cfg.Base.HostID, def.Spec.Name, def.Spec.Version, string(def.Spec.Class),
 			def.Spec.CompensatedBy, p.Actor, core.StateApplying, core.OwnerEngine, string(e.cfg.Redact(def.InputType, input)),
 			snapshot, deadline, string(recorded), parent, created, created)
+		if err != nil || !def.Spec.Task {
+			return err
+		}
+		_, err = e.startTask(ctx, tx, it.id, core.TaskOpApply)
 		return err
 	})
 	var coded *errcode.Error
@@ -347,6 +355,9 @@ func locksFree(ctx context.Context, db *sql.DB, keys []string) error {
 // Apply and Verify share the action's deadline and are never abandoned: a
 // handler that ignores ctx keeps its change applying until it returns.
 func (e *Engine) run(ctx context.Context, p core.Principal, it *intent) (core.ChangeView, error) {
+	if it.def.Spec.Task {
+		return e.taskApply(ctx, p, it)
+	}
 	env := e.changeEnv(p, it.def, it.id, it.call)
 	h, ref, timeout := it.def.Handler, it.def.Ref(), e.applyTimeout(it.def)
 	dctx, cancel := context.WithTimeout(ctx, timeout)
