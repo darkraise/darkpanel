@@ -41,6 +41,7 @@ type tskHost struct {
 	envs     []core.Env // the Env of every Task call
 	recover  core.RecoveryOutcome
 	recovers int
+	verify   func(ctx context.Context) error // runs first in Verify when set
 }
 
 func (h *tskHost) get(name string) string {
@@ -99,7 +100,15 @@ func (x tskBase) Task(ctx context.Context, env core.Env, in tskIn) (tskOut, erro
 	return tskOut{Value: in.Value, Token: "tok-" + in.Name}, nil
 }
 
-func (x tskBase) Verify(_ context.Context, _ core.Env, in tskIn, _ tskOut) error {
+func (x tskBase) Verify(ctx context.Context, _ core.Env, in tskIn, _ tskOut) error {
+	x.h.mu.Lock()
+	hook := x.h.verify
+	x.h.mu.Unlock()
+	if hook != nil {
+		if err := hook(ctx); err != nil {
+			return err
+		}
+	}
 	if got := x.h.get(in.Name); got != in.Value {
 		return errcode.New(errcode.Internal, "item "+in.Name+" is "+got)
 	}
@@ -465,6 +474,45 @@ func TestTaskApplyFails(t *testing.T) {
 				t.Errorf("locks = %d, want 0", n)
 			}
 		})
+	}
+}
+
+func TestTaskVerifyCutOffByCloseLeavesTheChangeOwned(t *testing.T) {
+	f := newTaskFixture(t)
+	ctx := context.Background()
+	entered := make(chan struct{})
+	f.tsk.verify = func(ctx context.Context) error {
+		close(entered)
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	v := f.taskApplyStart(refTskInstall, `{"name":"a","value":"1"}`)
+	name := TaskUnitName(v.ID, core.TaskOpApply, 1)
+	f.taskPoll(func() {
+		f.units.set(name, true)
+		f.taskRowTo(v.ID, core.TaskOpApply, 1, taskRowRunning, "", "", "")
+	})
+	f.taskPoll(func() {
+		f.tsk.set("a", "1")
+		f.taskRowTo(v.ID, core.TaskOpApply, 1, taskRowSucceeded, `{"value":"1","token":"tok-a"}`, "", "")
+		f.units.set(name, false)
+	})
+	<-entered
+	f.eng.Close()
+	if c, err := f.eng.Change(ctx, v.ID); err != nil || c.State != core.StateApplying || c.Owner != core.OwnerEngine ||
+		f.count("SELECT count(*) FROM core_locks WHERE owner = ?", v.ID) != 1 {
+		t.Fatalf("after Close during Verify: %+v, %v; want applying, owned by engine, locked", c, err)
+	}
+	f.tsk.mu.Lock()
+	f.tsk.verify = nil
+	f.tsk.mu.Unlock()
+	f.restartTask()
+	if err := f.eng.Recover(ctx); err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+	done := f.taskUntil(v.ID, core.StateCompleted)
+	if done.Owner != "" || f.count("SELECT count(*) FROM core_locks WHERE owner = ?", v.ID) != 0 {
+		t.Errorf("completed change = %+v, want unowned and unlocked", done)
 	}
 }
 

@@ -317,6 +317,11 @@ func (e *Engine) taskApplyEnd(ctx context.Context, p core.Principal, def core.Ac
 	var cause error
 	if end.Row == taskRowSucceeded {
 		cause = e.taskVerify(def, env, changeID, end.Output)
+		if cause != nil && e.runCtx.Err() != nil {
+			// Close cut Verify off: the change stays owned, and the next
+			// start's recovery runs Verify again.
+			return core.ChangeView{}, cause
+		}
 		if cause == nil {
 			state, err := e.recovererState(ctx, changeID)
 			if err != nil {
