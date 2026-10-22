@@ -306,15 +306,15 @@ func (e *Engine) timerFired(changeID string, armed *armedTimer) {
 		e.inflight.Add(1)
 	}
 	e.timerMu.Unlock()
-	switch {
-	case state == core.StatePending:
+	switch state {
+	case core.StatePending:
 		defer e.inflight.Done()
 		_, err := e.revertPending(context.Background(), timerPrincipal, changeID)
 		var coded *errcode.Error
 		if err != nil && (!errors.As(err, &coded) || coded.Code != errcode.ChangeNotPending) {
 			e.cfg.Base.Log.Error("lifecycle: revert timer", "change", changeID, "error", err)
 		}
-	case state == core.StateApplying:
+	case core.StateApplying:
 		e.watchdog(changeID)
 	}
 }
