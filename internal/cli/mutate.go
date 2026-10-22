@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -27,7 +29,9 @@ type planWire struct {
 }
 
 // changeWire is the API's Change. A change from the agent socket is
-// converted to it, so --json prints the same object either way.
+// converted to it, so --json prints the same object either way. The
+// lifecycle fields of spec 1.3 are left out when unset: the agent socket's
+// change has none of them, and its --json stays as it was.
 type changeWire struct {
 	ID             string           `json:"id"`
 	HostID         *string          `json:"hostId"`
@@ -42,11 +46,44 @@ type changeWire struct {
 	Output         json.RawMessage  `json:"output"`
 	Error          *changeErrorWire `json:"error"`
 	CompensatedBy  *string          `json:"compensatedBy"`
+	ParentChangeID *string          `json:"parentChangeId,omitempty"`
+	Owner          *string          `json:"owner,omitempty"`
+	RepairedBy     *string          `json:"repairedBy,omitempty"`
+	RepairOutcome  *string          `json:"repairOutcome,omitempty"`
+	Override       json.RawMessage  `json:"override,omitempty"`
 }
 
 type changeErrorWire struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	Cause   string `json:"cause,omitempty"`
+}
+
+// changePoll is how often the CLI reads a change it waits for (spec 1.6:
+// every second). It is a variable so tests can shorten it.
+var changePoll = time.Second
+
+// waitChange reads change ch again every changePoll while its state is one
+// of busy, and returns its last view and JSON.
+func waitChange(ctx context.Context, c *client, ch changeWire, raw json.RawMessage, busy ...string) (changeWire, json.RawMessage, error) {
+	for slices.Contains(busy, ch.State) {
+		t := time.NewTimer(changePoll)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return changeWire{}, nil, ctx.Err()
+		case <-t.C:
+		}
+		var next json.RawMessage
+		if err := c.do(ctx, http.MethodGet, "/api/v1/changes/"+url.PathEscape(ch.ID), nil, &next); err != nil {
+			return changeWire{}, nil, err
+		}
+		if err := json.Unmarshal(next, &ch); err != nil {
+			return changeWire{}, nil, fmt.Errorf("decode the change: %w", err)
+		}
+		raw = next
+	}
+	return ch, raw, nil
 }
 
 // addMutatingFlags adds --yes, and --confirmation for an irreversible
@@ -137,7 +174,8 @@ func apiCalls(c *client, def core.ActionDef, host string) actionCalls {
 			if err := json.Unmarshal(raw, &ch); err != nil {
 				return changeWire{}, nil, fmt.Errorf("decode the change: %w", err)
 			}
-			return ch, raw, nil
+			// An apply that answered 202 is still applying (spec 1.3).
+			return waitChange(ctx, c, ch, raw, core.StateApplying)
 		},
 	}
 }
@@ -243,8 +281,9 @@ func printPlan(w io.Writer, p planWire) {
 	}
 }
 
-// printChange writes a change's state, how to confirm a pending one, and
-// its output with the note on secret outputs.
+// printChange writes a change's state, how to confirm a pending one, who
+// owns it, how it was repaired, how to repair one that needs it, and its
+// output with the note on secret outputs.
 func printChange(w io.Writer, ch changeWire, secrets []string) error {
 	if _, err := fmt.Fprintf(w, "Change %s: %s\n", sanitize(ch.ID), sanitize(ch.State)); err != nil {
 		return err
@@ -252,6 +291,36 @@ func printChange(w io.Writer, ch changeWire, secrets []string) error {
 	if ch.State == core.StatePending && ch.RevertDeadline != nil {
 		if _, err := fmt.Fprintf(w, "Confirm it before %s with: darkpanel change confirm %s\nUnless confirmed by then, it is reverted.\n",
 			ch.RevertDeadline.UTC().Format(time.RFC3339), sanitize(ch.ID)); err != nil {
+			return err
+		}
+	}
+	if ch.Owner != nil {
+		if _, err := fmt.Fprintf(w, "Owner: %s\n", sanitize(*ch.Owner)); err != nil {
+			return err
+		}
+	}
+	if ch.RepairedBy != nil {
+		outcome := ""
+		if ch.RepairOutcome != nil {
+			outcome = " (" + *ch.RepairOutcome + ")"
+		}
+		if _, err := fmt.Fprintf(w, "Repaired by change %s%s\n", sanitize(*ch.RepairedBy), sanitize(outcome)); err != nil {
+			return err
+		}
+	}
+	if ch.State == core.StateNeedsRepair {
+		if ch.Error != nil {
+			cause := ""
+			if ch.Error.Cause != "" {
+				cause = ", caused by " + ch.Error.Cause
+			}
+			if _, err := fmt.Fprintf(w, "Needs repair: %s (%s%s)\n",
+				sanitize(ch.Error.Message), sanitize(ch.Error.Code), sanitize(cause)); err != nil {
+				return err
+			}
+		}
+		if _, err := fmt.Fprintf(w, "Repair it with: darkpanel change repair %s\nOr give it up with: darkpanel change release %s --reason <why>\n",
+			sanitize(ch.ID), sanitize(ch.ID)); err != nil {
 			return err
 		}
 	}
