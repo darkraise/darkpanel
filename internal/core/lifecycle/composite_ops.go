@@ -171,24 +171,20 @@ func (e *Engine) repairForward(ctx context.Context, c compositeRow, steps []step
 		return errcode.New(errcode.NeedsRepair, fmt.Sprintf(
 			"child %s of step %s is %s; repair it first, or decide the step", lk.ChangeID, s.ID, lk.State))
 	}
-	if err := claimForward(); err != nil {
-		return err
-	}
 	if advance {
-		c.State, c.Owner = core.StateApplying, core.OwnerComposite
-		if lk.ChangeID != "" {
-			s.ChildID = lk.ChangeID
-		}
-		return e.stepDone(ctx, c, s, lk)
+		return claimForward()
 	}
 	earlier := slices.Clone(s.Earlier)
 	if child := compFirst(lk.ChangeID, s.ChildID); child != "" {
 		earlier = append(earlier, child)
 	}
 	none := ""
-	return e.setStep(ctx, c.ID, s.ID, []string{s.State}, stepUpdate{
+	if err := e.setStep(ctx, c.ID, s.ID, []string{s.State}, stepUpdate{
 		State: core.StepPending, PlanID: &none, ChildID: &none, Earlier: nonNil(earlier), ClearErr: true,
-	})
+	}); err != nil {
+		return err
+	}
+	return claimForward()
 }
 
 // compFirst returns the first of a and b that is not empty.

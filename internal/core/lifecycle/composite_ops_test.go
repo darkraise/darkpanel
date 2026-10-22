@@ -190,6 +190,44 @@ func TestForwardCompositeRepairMakesANewAttempt(t *testing.T) {
 	}
 }
 
+func TestForwardCompositeRepairAdvancesAKeptChild(t *testing.T) {
+	f := newCfxFixture(t)
+	f.host.setItem("web-a", "1")
+	f.host.setItem("web-b", "2")
+	f.host.failNext("web-b", 1)
+	v := f.applyC(refCfxRemove, `{"name":"web"}`, core.ApplyOptions{})
+	f.await(v.ID, core.StateNeedsRepair)
+	y := f.stepsOf(v.ID)["y"]
+	// No fixture action repairs a forward step's child as kept: cst.item.add
+	// is repaired by its undo and cst.item.del never needs repair. So the
+	// host and the child are left as a re-apply repair of the child leaves
+	// them.
+	f.host.mu.Lock()
+	delete(f.host.items, "web-b")
+	f.host.mu.Unlock()
+	if _, err := f.agentDB.Writer().Exec("UPDATE core_changes SET state = ?, repair_outcome = ? WHERE id = ?",
+		core.StateRepaired, core.RepairKept, y.ChildID); err != nil {
+		t.Fatal(err)
+	}
+	if child := f.agentChange(y.ChildID); child.State != core.StateRepaired || child.RepairOutcome != core.RepairKept {
+		t.Fatalf("child of y = %s with outcome %q, want repaired and kept", child.State, child.RepairOutcome)
+	}
+	r, err := repairC(f, cfxRoot, v.ID, core.RepairRequest{})
+	if err != nil || r.Change == nil || r.Change.State != core.StateApplying {
+		t.Fatalf("Repair = %+v, %v; want the composite applying", r, err)
+	}
+	if done := f.await(v.ID, core.StateCompleted, core.StateNeedsRepair); done.State != core.StateCompleted {
+		t.Fatalf("composite = %s (%+v), want completed", done.State, done.Error)
+	}
+	if s := f.stepsOf(v.ID)["y"]; s.State != core.StepApplied || s.ChildID != y.ChildID || s.Attempt != y.Attempt {
+		t.Errorf("step y = %s child %s attempt %d, want applied with child %s at attempt %d",
+			s.State, s.ChildID, s.Attempt, y.ChildID, y.Attempt)
+	}
+	if _, ok := f.host.item("web-b"); ok {
+		t.Error("item web-b is back")
+	}
+}
+
 func TestForwardCompositeStepDecisions(t *testing.T) {
 	t.Run("applied counts the step done", func(t *testing.T) {
 		f := newCfxFixture(t)
