@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"maps"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -267,5 +268,96 @@ func TestServerRegistryMatchesBuild(t *testing.T) {
 	if !maps.EqualFunc(got, want, bytes.Equal) {
 		t.Errorf("the server's registry snapshots %v differ from registry.Build()'s %v",
 			slices.Sorted(maps.Keys(got)), slices.Sorted(maps.Keys(want)))
+	}
+}
+
+func TestWakeCompositesPassesTheFollowedPhases(t *testing.T) {
+	var woken [][]string
+	wake := wakeComposites(func(ids ...string) { woken = append(woken, ids) })
+	wake("h1", []core.JournalEntry{
+		{Phase: "apply", ChangeID: "c1"}, {Phase: "confirm", ChangeID: "c2"}, {Phase: "interrupt", ChangeID: "c3"},
+		{Phase: "revert", ChangeID: "c4"}, {Phase: "recover", ChangeID: "c5"}, {Phase: "undo", ChangeID: "c6"},
+		{Phase: "resolve", ChangeID: "c7"}, {Phase: "release", ChangeID: "c8"}, {Phase: "apply", ChangeID: ""},
+	})
+	wake("h1", []core.JournalEntry{{Phase: "confirm", ChangeID: "c9"}})
+	want := [][]string{{"c1", "c3", "c4", "c5", "c6", "c7", "c8"}}
+	if !reflect.DeepEqual(woken, want) {
+		t.Errorf("woken %v, want %v", woken, want)
+	}
+}
+
+func TestCompositeRecoveryRunsAtStart(t *testing.T) {
+	opts := testOptions(t)
+	s, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.engine.CompositesRecovered() {
+		t.Error("CompositesRecovered is false after a start with no composite")
+	}
+	plan := planDisable(t, s)
+	at := t0.Format(timeFormat)
+	const id = "01COMPOSITE00000000000000X"
+	if _, err := s.controllerDB.Writer().ExecContext(context.Background(),
+		`INSERT INTO core_changes (id, plan_id, host_id, action, version, class, compensated_by, actor, state,
+		 input_json, recovery_owner, created_at, updated_at)
+		 VALUES (?, ?, '', 'cfx.deploy.add', 1, 'composite', '', 'local:root@h', 'undoing', '{}', 'composite', ?, ?)`,
+		id, plan.PlanID, at, at); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.controllerDB.Writer().ExecContext(context.Background(),
+		"INSERT INTO core_composites (change_id, direction, cursor, steps_deadline) VALUES (?, 'unwind', -1, ?)", id, at); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	s = start(t, opts)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		v, err := s.engine.Change(context.Background(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if v.State == core.StateReverted && v.Owner == "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("composite = %s owned by %q, want reverted by composite recovery", v.State, v.Owner)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if !s.engine.CompositesRecovered() {
+		t.Error("CompositesRecovered is false after the recovered composite ended")
+	}
+	if n := count(t, s, "SELECT count(*) FROM core_audit WHERE change_id = ? AND phase = 'apply'", id); n != 1 {
+		t.Errorf("audit rows of the composite's end = %d, want 1", n)
+	}
+}
+
+// A controller-side release journals through the controller engine's
+// journal, the audit.Store, whose phase CHECK now accepts release.
+func TestControllerReleaseJournalsToTheAuditLog(t *testing.T) {
+	s := start(t, testOptions(t))
+	plan := planDisable(t, s)
+	at := t0.Format(timeFormat)
+	const id = "01RELEASE0000000000000000X"
+	if _, err := s.controllerDB.Writer().ExecContext(context.Background(),
+		`INSERT INTO core_changes (id, plan_id, host_id, action, version, class, compensated_by, actor, state,
+		 input_json, created_at, updated_at)
+		 VALUES (?, ?, '', 'cfx.item.add', 1, 'compensable', 'cfx.item.remove', 'local:root@h', 'needs_repair', '{}', ?, ?)`,
+		id, plan.PlanID, at, at); err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.engine.Release(context.Background(), root(s.LocalHostID()), id, "the disk was replaced", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Change.State != core.StateAbandoned {
+		t.Errorf("released change = %s, want abandoned", res.Change.State)
+	}
+	if n := count(t, s, "SELECT count(*) FROM core_audit WHERE change_id = ? AND phase = 'release' AND result = 'ok'", id); n != 1 {
+		t.Errorf("release audit rows = %d, want 1", n)
 	}
 }

@@ -77,6 +77,10 @@ type IngesterConfig struct {
 	Agents core.HostDirectory // the agents whose journals are read; see Epochs
 	Clock  core.Clock
 	Log    *slog.Logger
+	// OnEntries, when set, receives each page of a host's journal entries
+	// once they are stored; it runs under the ingestion lock, so it must
+	// return quickly.
+	OnEntries func(hostID string, entries []core.JournalEntry)
 }
 
 // Ingester copies agent journals into core_audit (ADR 0003, spec section
@@ -279,6 +283,9 @@ func (in *Ingester) ingest(ctx context.Context, hostID string) error {
 		}
 		if err := in.cfg.Store.advance(ctx, hostID, epoch, entries, prev); err != nil {
 			return err
+		}
+		if in.cfg.OnEntries != nil {
+			in.cfg.OnEntries(hostID, entries)
 		}
 		cursor = prev
 		if len(entries) < journalPage {

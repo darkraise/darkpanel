@@ -393,3 +393,65 @@ func TestStopWaitsForARunningIngestion(t *testing.T) {
 		t.Fatal("Stop did not return after the ingestion finished")
 	}
 }
+
+func TestIngestPassesStoredEntriesToOnEntries(t *testing.T) {
+	e := newIngestEnv(t)
+	ctx := context.Background()
+	var seqs []int64
+	var stored []int
+	e.ingester = NewIngester(IngesterConfig{
+		Store: e.store, Agents: e.hosts, Clock: e.clock, Log: slog.New(slog.DiscardHandler),
+		OnEntries: func(hostID string, entries []core.JournalEntry) {
+			if hostID != "h1" {
+				t.Errorf("OnEntries for host %s, want h1", hostID)
+			}
+			stored = append(stored, count(t, e.db, "SELECT count(*) FROM core_audit WHERE host_id = 'h1'"))
+			for _, en := range entries {
+				seqs = append(seqs, en.Seq)
+			}
+		},
+	})
+	m := e.host(t, "h1")
+	m.add(3)
+	if err := e.ingester.IngestHost(ctx, "h1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.ingester.IngestHost(ctx, "h1"); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(seqs, []int64{1, 2, 3}) || !reflect.DeepEqual(stored, []int{3}) {
+		t.Errorf("OnEntries saw seqs %v with %v audit rows stored, want [1 2 3] once, after all 3 were stored", seqs, stored)
+	}
+}
+
+// The lifecycle core's journal values reach core_audit through the real
+// Store: its CHECK lists were widened by controller/0010_audit_phases.sql.
+func TestIngestStoresTheLifecyclePhasesAndResults(t *testing.T) {
+	e := newIngestEnv(t)
+	ctx := context.Background()
+	m := e.host(t, "h1")
+	undo := journalEntry(1, t0.Add(time.Second))
+	undo.Phase = "undo"
+	override := journalEntry(2, t0.Add(2*time.Second))
+	override.Phase, override.Result = "revert", "override"
+	watchdog := journalEntry(3, t0.Add(3*time.Second))
+	watchdog.Phase, watchdog.Result, watchdog.ErrorCode = "revert-watchdog", "error", "core.deadline_exceeded"
+	m.mu.Lock()
+	m.entries = append(m.entries, undo, override, watchdog)
+	m.mu.Unlock()
+	if err := e.ingester.IngestHost(ctx, "h1"); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := e.store.List(ctx, core.AuditQuery{HostID: "h1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := map[string]string{}
+	for _, en := range got {
+		results[en.Phase] = en.Result
+	}
+	want := map[string]string{"undo": "ok", "revert": "override", "revert-watchdog": "error"}
+	if !reflect.DeepEqual(results, want) {
+		t.Errorf("stored phase results = %v, want %v", results, want)
+	}
+}
