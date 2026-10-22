@@ -179,6 +179,10 @@ func (e *Engine) recordResolution(ctx context.Context, p core.Principal, holder 
 		return core.EffectView{}, fmt.Errorf("lifecycle: encode the resolution: %w", err)
 	}
 	var v core.EffectView
+	// The module's Resolved hook runs inside this transaction; the bound
+	// keeps a hook that blocks from holding the writer and the claim.
+	ctx, cancel := context.WithTimeout(ctx, CleanupTxTimeout)
+	defer cancel()
 	err = e.cfg.Base.DB.Write(ctx, func(tx *sql.Tx) error {
 		if err := setEffect(ctx, tx, now, eff.ChangeID, eff.Seq, []core.EffectState{core.EffectUnresolved}, u); err != nil {
 			return err
