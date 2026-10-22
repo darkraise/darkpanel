@@ -38,6 +38,8 @@ const maxExtraChangeFetches = 4
 var changeStates = []string{
 	core.StateApplying, core.StatePending, core.StateConfirmed, core.StateReverted,
 	core.StateCompleted, core.StateFailed, core.StateInterrupted,
+	core.StateAwaitingConfirmation, core.StateUndoing, core.StateNeedsRepair, core.StateRecovering,
+	core.StateRepaired, core.StateKept, core.StateAbandoned, core.StateQuarantined, core.StateReleasing,
 }
 
 // planResponse is the Plan shape of spec section 12.
@@ -56,9 +58,11 @@ type planResponse struct {
 type changeError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	Cause   string `json:"cause,omitempty"`
 }
 
-// changeResponse is the Change shape of spec section 12.
+// changeResponse is the Change shape of spec section 12, with the lifecycle
+// fields of spec 1.3.
 type changeResponse struct {
 	ID             string          `json:"id"`
 	HostID         *string         `json:"hostId"`
@@ -73,6 +77,11 @@ type changeResponse struct {
 	Output         json.RawMessage `json:"output"`
 	Error          *changeError    `json:"error"`
 	CompensatedBy  *string         `json:"compensatedBy"`
+	ParentChangeID *string         `json:"parentChangeId"`
+	Owner          *string         `json:"owner"`
+	RepairedBy     *string         `json:"repairedBy"`
+	RepairOutcome  *string         `json:"repairOutcome"`
+	Override       json.RawMessage `json:"override"`
 }
 
 type changesResponse struct {
@@ -125,9 +134,11 @@ func toPlan(v core.PlanView) planResponse {
 func toChange(v core.ChangeView) changeResponse {
 	c := changeResponse{ID: v.ID, HostID: nullable(v.HostID), Action: v.Action, Version: v.Version, Class: v.Class,
 		State: v.State, Actor: v.Actor, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt, RevertDeadline: v.RevertDeadline,
-		Output: orNull(v.Output), CompensatedBy: nullable(v.CompensatedBy)}
+		Output: orNull(v.Output), CompensatedBy: nullable(v.CompensatedBy), ParentChangeID: nullable(v.ParentChangeID),
+		Owner: nullable(v.Owner), RepairedBy: nullable(v.RepairedBy), RepairOutcome: nullable(v.RepairOutcome),
+		Override: orNull(v.Override)}
 	if v.Error != nil {
-		c.Error = &changeError{Code: v.Error.Code, Message: v.Error.Message}
+		c.Error = &changeError{Code: v.Error.Code, Message: v.Error.Message, Cause: v.Error.Cause}
 	}
 	return c
 }
@@ -189,8 +200,10 @@ func (s *Server) actionHandler(side core.Side, op string) http.HandlerFunc {
 	}
 }
 
-// runAction decodes op's body and dispatches it. Apply answers 200 with the
-// change whatever its outcome (spec section 12).
+// runAction decodes op's body and dispatches it. Apply answers the change
+// with 200 whatever its outcome (spec section 12), or with 202 while it is
+// still applying: an asynchronous action, or a synchronous one still running
+// when the engine answers (spec 1.3).
 func (s *Server) runAction(w http.ResponseWriter, r *http.Request, p core.Principal, hostID string, def core.ActionDef, op string) {
 	ctx := r.Context()
 	if op == opApply {
@@ -209,7 +222,11 @@ func (s *Server) runAction(w http.ResponseWriter, r *http.Request, p core.Princi
 			writeProblem(w, s.log, err)
 			return
 		}
-		writeJSON(w, s.log, http.StatusOK, toChange(v))
+		status := http.StatusOK
+		if v.State == core.StateApplying {
+			status = http.StatusAccepted
+		}
+		writeJSON(w, s.log, status, toChange(v))
 		return
 	}
 	var in inputRequest
@@ -230,7 +247,7 @@ func (s *Server) runAction(w http.ResponseWriter, r *http.Request, p core.Princi
 		writeJSON(w, s.log, http.StatusOK, readResponse{Output: orNull(out)})
 		return
 	}
-	v, err := s.cfg.Dispatcher.Plan(ctx, p, hostID, def.Ref(), in.Input)
+	v, err := s.cfg.Dispatcher.Plan(ctx, p, hostID, def.Ref(), in.Input, core.PlanOptions{})
 	if err != nil {
 		writeProblem(w, s.log, err)
 		return

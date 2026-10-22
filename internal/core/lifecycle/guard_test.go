@@ -83,7 +83,7 @@ func TestPanicsBeforeAChangeAreErrors(t *testing.T) {
 			return err
 		}},
 		{"Plan", func(f *fixture) error {
-			_, err := f.eng.Plan(context.Background(), alice, refSet, json.RawMessage(input))
+			_, err := f.eng.Plan(context.Background(), alice, refSet, json.RawMessage(input), core.PlanOptions{})
 			return err
 		}},
 	}
@@ -155,15 +155,15 @@ func TestPanicsAfterTheIntentFailTheChange(t *testing.T) {
 	}
 }
 
-func TestPanickingRevertFailsTheChange(t *testing.T) {
+func TestAPanickingRevertNeedsRepair(t *testing.T) {
 	t.Run("after a failed apply", func(t *testing.T) {
 		f := newFixture(t)
 		pl := f.plan(alice, refSet, `{"name":"`+item+`","value":"1","failApply":true}`)
 		log := f.logged()
 		f.panicOn("Revert")
 		v := f.apply(alice, pl.PlanID, core.ApplyOptions{})
-		if v.State != core.StateFailed || v.Error == nil || v.Error.Code != string(errcode.ChangeRevertFailed) {
-			t.Errorf("change = %+v (error %+v), want failed with change.revert_failed", v, v.Error)
+		if v.State != core.StateNeedsRepair || v.Error == nil || v.Error.Cause != string(errcode.ChangeRevertFailed) {
+			t.Errorf("change = %+v (error %+v), want needs_repair caused by change.revert_failed", v, v.Error)
 		}
 		wantPanicLogged(t, log, "Revert")
 	})
@@ -173,8 +173,8 @@ func TestPanickingRevertFailsTheChange(t *testing.T) {
 		v := f.pending(`{"name":"` + item + `","value":"1"}`)
 		f.panicOn("Revert")
 		f.clock.Advance(DefaultConfirmTimeout)
-		if s := f.state(v.ID); s != core.StateFailed {
-			t.Errorf("state %s, want failed", s)
+		if s := f.state(v.ID); s != core.StateNeedsRepair {
+			t.Errorf("state %s, want needs_repair", s)
 		}
 		wantPanicLogged(t, log, "Revert")
 	})

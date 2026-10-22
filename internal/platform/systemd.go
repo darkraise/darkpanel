@@ -8,9 +8,10 @@ import (
 	"slices"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/godbus/dbus/v5"
+
+	"github.com/darkraise/darkpanel/internal/core"
 )
 
 const (
@@ -18,46 +19,22 @@ const (
 	systemdPath      = dbus.ObjectPath("/org/freedesktop/systemd1")
 	managerInterface = "org.freedesktop.systemd1.Manager"
 	unitInterface    = "org.freedesktop.systemd1.Unit"
+	jobInterface     = "org.freedesktop.systemd1.Job"
+	unknownObject    = "org.freedesktop.DBus.Error.UnknownObject"
 )
 
-// Systemd manages units through systemd's D-Bus API; Darkpanel never runs
-// systemctl (ADR 0009). Every method queues its job and returns without
-// waiting for it, so a caller that needs the outcome polls State.
-type Systemd interface {
-	StartTransientService(ctx context.Context, name string, svc TransientService) error
-	StartTransientTimer(ctx context.Context, name string, t TransientTimer) error
-	Start(ctx context.Context, unit string) error
-	Stop(ctx context.Context, unit string) error
-	Restart(ctx context.Context, unit string) error
-	Kill(ctx context.Context, unit string, sig syscall.Signal) error
-	ResetFailed(ctx context.Context, unit string) error
-	Enable(ctx context.Context, unitFiles ...string) error
-	Disable(ctx context.Context, unitFiles ...string) error
-	Reload(ctx context.Context) error
-	State(ctx context.Context, unit string) (UnitState, error)
-}
+// Systemd is core.Units, the contract the lifecycle engine starts task units
+// through; DBusSystemd implements it.
+type Systemd = core.Units
 
-// TransientService is a service unit that exists until it stops.
-type TransientService struct {
-	Description string
-	ExecStart   []string // ExecStart[0] is an absolute path
-	OnFailure   []string // unit names
-}
+// TransientService is core.TransientService.
+type TransientService = core.TransientService
 
-// TransientTimer is a timer unit that exists until it is stopped; it starts
-// Service, named like the timer with .service, once OnActive has passed.
-type TransientTimer struct {
-	Description string
-	OnActive    time.Duration
-	Accuracy    time.Duration
-	Service     TransientService
-}
+// TransientTimer is core.TransientTimer.
+type TransientTimer = core.TransientTimer
 
-// UnitState is a unit's state as systemd reports it. A unit that does not
-// exist has LoadState "not-found".
-type UnitState struct {
-	LoadState, ActiveState, SubState string
-}
+// UnitState is core.UnitState.
+type UnitState = core.UnitState
 
 // busCaller calls one method of a systemd object, so tests can stand in for
 // the system bus.
@@ -172,8 +149,11 @@ func (s *DBusSystemd) StartTransientTimer(ctx context.Context, name string, t Tr
 }
 
 func serviceProps(svc TransientService) ([]property, error) {
-	if len(svc.ExecStart) == 0 || !filepath.IsAbs(svc.ExecStart[0]) {
+	switch {
+	case len(svc.ExecStart) == 0 || !filepath.IsAbs(svc.ExecStart[0]):
 		return nil, errors.New("ExecStart must start with an absolute program path")
+	case svc.RuntimeMax < 0:
+		return nil, errors.New("the service's maximum runtime is negative")
 	}
 	props := []property{
 		{"Description", dbus.MakeVariant(svc.Description)},
@@ -181,6 +161,12 @@ func serviceProps(svc TransientService) ([]property, error) {
 	}
 	if len(svc.OnFailure) > 0 {
 		props = append(props, property{"OnFailure", dbus.MakeVariant(slices.Clone(svc.OnFailure))})
+	}
+	if svc.RuntimeMax > 0 {
+		props = append(props, property{"RuntimeMaxUSec", dbus.MakeVariant(uint64(svc.RuntimeMax.Microseconds()))}) //nolint:gosec // G115: positive, checked above
+	}
+	if svc.CollectMode != "" {
+		props = append(props, property{"CollectMode", dbus.MakeVariant(svc.CollectMode)})
 	}
 	return props, nil
 }
@@ -234,9 +220,15 @@ func (s *DBusSystemd) Reload(ctx context.Context) error {
 	return err
 }
 
-// State reports unit's load, active and sub state. LoadUnit, unlike
-// GetUnit, answers for a unit that is not loaded, so a missing unit reports
-// LoadState "not-found" instead of an error.
+// unitJob is a unit's Job property, D-Bus (uo); id 0 means no job is queued.
+type unitJob struct {
+	ID   uint32
+	Path dbus.ObjectPath
+}
+
+// State reports unit's load, active and sub state and its queued job.
+// LoadUnit, unlike GetUnit, answers for a unit that is not loaded, so a
+// missing unit reports LoadState "not-found" instead of an error.
 func (s *DBusSystemd) State(ctx context.Context, unit string) (UnitState, error) {
 	what := "state of " + unit
 	body, err := s.manager(ctx, what, "LoadUnit", unit)
@@ -248,20 +240,39 @@ func (s *DBusSystemd) State(ctx context.Context, unit string) (UnitState, error)
 		return UnitState{}, fmt.Errorf("platform: %s: %w", what, err)
 	}
 	var st UnitState
+	var job unitJob
 	for _, p := range []struct {
 		name string
-		dst  *string
-	}{{"LoadState", &st.LoadState}, {"ActiveState", &st.ActiveState}, {"SubState", &st.SubState}} {
-		body, err := s.bus.call(ctx, path, "org.freedesktop.DBus.Properties.Get", unitInterface, p.name)
-		if err == nil {
-			var v dbus.Variant
-			if err = dbus.Store(body, &v); err == nil {
-				err = v.Store(p.dst)
-			}
-		}
-		if err != nil {
+		dst  any
+	}{{"LoadState", &st.LoadState}, {"ActiveState", &st.ActiveState}, {"SubState", &st.SubState}, {"Job", &job}} {
+		if err := s.property(ctx, path, unitInterface, p.name, p.dst); err != nil {
 			return UnitState{}, fmt.Errorf("platform: %s: read %s: %w", what, p.name, err)
 		}
 	}
+	if job.ID == 0 {
+		return st, nil
+	}
+	err = s.property(ctx, job.Path, jobInterface, "JobType", &st.PendingJob)
+	var dbusErr dbus.Error
+	if errors.As(err, &dbusErr) && dbusErr.Name == unknownObject {
+		// The job finished between the two reads, so none is queued now.
+		return st, nil
+	}
+	if err != nil {
+		return UnitState{}, fmt.Errorf("platform: %s: read the type of job %d: %w", what, job.ID, err)
+	}
 	return st, nil
+}
+
+// property reads one D-Bus property of the object at path into dst.
+func (s *DBusSystemd) property(ctx context.Context, path dbus.ObjectPath, iface, name string, dst any) error {
+	body, err := s.bus.call(ctx, path, "org.freedesktop.DBus.Properties.Get", iface, name)
+	if err != nil {
+		return err
+	}
+	var v dbus.Variant
+	if err := dbus.Store(body, &v); err != nil {
+		return err
+	}
+	return v.Store(dst)
 }

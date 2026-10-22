@@ -44,14 +44,21 @@ type fixHost struct {
 	applies int
 	// onSnapshot, when set, runs at the start of Snapshot without mu held.
 	onSnapshot func()
+	// onRevert, when set, runs at the start of Revert without mu held.
+	onRevert func()
+	// revertCtxErr is the context error the Revert handler saw right after
+	// onRevert ran.
+	revertCtxErr error
 	// panicOn names the handler call ("Read", "Plan", "Apply", "Verify",
 	// "Snapshot" or "Revert") that panics while set.
 	panicOn string
 	// onVerify, when set, runs at the start of Verify without mu held.
 	onVerify func(ctx context.Context)
-	// changeIDs records "<call>=<env.ChangeID>" for every Plan, Apply and
-	// Verify call, in call order.
+	// changeIDs records "<call>=<env.ChangeID>" for every Plan, Apply,
+	// Verify and Revert call, in call order.
 	changeIDs []string
+	// verifyCalls records env.Call of every Verify call, in call order.
+	verifyCalls []core.CallContext
 }
 
 func (h *fixHost) sawChangeID(call string, env core.Env) {
@@ -145,6 +152,9 @@ func (x itemHandler) Verify(ctx context.Context, env core.Env, in itemIn, _ item
 		x.h.onVerify(ctx)
 	}
 	x.h.sawChangeID("Verify", env)
+	x.h.mu.Lock()
+	x.h.verifyCalls = append(x.h.verifyCalls, env.Call)
+	x.h.mu.Unlock()
 	x.h.panicIf("Verify", in.Name)
 	if in.FailVerify {
 		return errcode.New(errcode.Internal, "verify failed")
@@ -168,14 +178,19 @@ func (x itemHandler) Snapshot(_ context.Context, _ core.Env, in itemIn) ([]byte,
 	return json.Marshal(itemSnap{Name: in.Name, Value: v, Present: ok, FailRevert: in.FailRevert})
 }
 
-func (x itemHandler) Revert(_ context.Context, _ core.Env, snapshot []byte) error {
+func (x itemHandler) Revert(ctx context.Context, env core.Env, snapshot []byte) (core.RevertOutcome, error) {
+	if x.h.onRevert != nil {
+		x.h.onRevert()
+	}
+	x.h.revertCtxErr = ctx.Err()
+	x.h.sawChangeID("Revert", env)
 	var s itemSnap
 	if err := json.Unmarshal(snapshot, &s); err != nil {
-		return err
+		return core.RevertOutcome{}, err
 	}
 	x.h.panicIf("Revert", s.Name)
 	if s.FailRevert {
-		return errors.New("revert failed")
+		return core.RevertOutcome{}, errors.New("revert failed")
 	}
 	x.h.mu.Lock()
 	defer x.h.mu.Unlock()
@@ -184,7 +199,7 @@ func (x itemHandler) Revert(_ context.Context, _ core.Env, snapshot []byte) erro
 	} else {
 		delete(x.h.items, s.Name)
 	}
-	return nil
+	return core.RevertOutcome{}, nil
 }
 
 type getHandler struct{ h *fixHost }
@@ -202,7 +217,13 @@ func (m fixModule) Manifest() core.Manifest {
 	h := itemHandler{m.host}
 	return core.Manifest{ID: "fix", Version: 1, Actions: []core.ActionDef{
 		core.DefineRead(core.ActionSpec{Name: refGet.Name, Version: 1, Side: core.SideAgent}, getHandler{m.host}),
-		core.DefineRevertible(core.ActionSpec{Name: refSet.Name, Version: 1, Side: core.SideAgent, LockKeys: []string{"fix"}}, h),
+		core.DefineRevertible(core.ActionSpec{
+			Name: refSet.Name, Version: 1, Side: core.SideAgent, LockKeys: []string{"fix"}, RepairedBy: "fix.item.repair",
+		}, h),
+		core.DefineMutating(core.ActionSpec{
+			Name: "fix.item.repair", Version: 1, Class: core.ClassCompensable, Side: core.SideAgent,
+			LockKeys: []string{"fix"}, CompensatedBy: refRemove.Name,
+		}, h),
 		core.DefineMutating(core.ActionSpec{
 			Name: refAdd.Name, Version: 1, Class: core.ClassCompensable, Side: core.SideAgent,
 			LockKeys: []string{"fix"}, CompensatedBy: refRemove.Name,
@@ -287,7 +308,7 @@ func (f *fixture) open() {
 
 func (f *fixture) plan(p core.Principal, ref core.ActionRef, input string) core.PlanView {
 	f.t.Helper()
-	v, err := f.eng.Plan(context.Background(), p, ref, json.RawMessage(input))
+	v, err := f.eng.Plan(context.Background(), p, ref, json.RawMessage(input), core.PlanOptions{})
 	if err != nil {
 		f.t.Fatalf("Plan %s: %v", ref, err)
 	}

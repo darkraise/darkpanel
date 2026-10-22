@@ -32,7 +32,9 @@ func (fixtureHandler[In, Out]) Snapshot(context.Context, core.Env, In) ([]byte, 
 	return nil, nil
 }
 
-func (fixtureHandler[In, Out]) Revert(context.Context, core.Env, []byte) error { return nil }
+func (fixtureHandler[In, Out]) Revert(context.Context, core.Env, []byte) (core.RevertOutcome, error) {
+	return core.RevertOutcome{}, nil
+}
 
 type demoNoInput struct{}
 
@@ -106,6 +108,9 @@ func (demoModule) Manifest() core.Manifest {
 	add.CompensatedBy = "demo.item.remove"
 	rule := agent("demo.rule.set", 1, core.ClassRevertible)
 	rule.LockKeys = []string{"demo.rule"}
+	rule.RepairedBy = "demo.rule.repair"
+	repair := agent("demo.rule.repair", 1, core.ClassIrreversible)
+	repair.LockKeys = []string{"demo.rule"}
 	return core.Manifest{
 		ID: "demo", Version: 1, DefaultEnabled: true,
 		Actions: []core.ActionDef{
@@ -115,6 +120,7 @@ func (demoModule) Manifest() core.Manifest {
 			core.DefineMutating(add, fixtureHandler[demoAddInput, demoAdded]{}),
 			core.DefineMutating(agent("demo.item.remove", 1, core.ClassIrreversible), fixtureHandler[demoIDInput, demoNoInput]{}),
 			core.DefineRevertible(rule, fixtureHandler[demoRuleInput, demoRule]{}),
+			core.DefineMutating(repair, fixtureHandler[demoNoInput, demoRule]{}),
 		},
 		Resources: []core.ResourceDef{
 			core.DefineResource("demo.rule", func(context.Context, core.Env) (demoRule, error) { return demoRule{}, nil }),

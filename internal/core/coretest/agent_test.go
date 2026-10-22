@@ -25,6 +25,26 @@ func TestFakeAgent(t *testing.T) {
 	}
 }
 
+func TestFakeAgentChangeOps(t *testing.T) {
+	ctx := context.Background()
+	agent := &FakeAgent{
+		UndoFunc: func(_ context.Context, _ core.Principal, id string, call *core.CallContext) (core.ChangeView, error) {
+			return core.ChangeView{ID: id, State: core.StateUndoing, ParentChangeID: call.ParentChangeID}, nil
+		},
+	}
+	var client core.AgentClient = agent
+	v, err := client.Undo(ctx, core.Principal{}, "01C", &core.CallContext{ParentChangeID: "01P"})
+	if err != nil || v.ID != "01C" || v.State != core.StateUndoing || v.ParentChangeID != "01P" {
+		t.Errorf("Undo = %+v, %v", v, err)
+	}
+	if _, err := client.Lookup(ctx, "01PLAN", true); err == nil || !strings.Contains(err.Error(), "Lookup is not configured") {
+		t.Errorf("unconfigured Lookup error = %v", err)
+	}
+	if err := client.AckPrivate(ctx, "01C", false); err == nil || !strings.Contains(err.Error(), "AckPrivate is not configured") {
+		t.Errorf("unconfigured AckPrivate error = %v", err)
+	}
+}
+
 func TestFakeDispatcher(t *testing.T) {
 	ctx := context.Background()
 	d := &FakeDispatcher{
@@ -37,6 +57,26 @@ func TestFakeDispatcher(t *testing.T) {
 	}
 	if _, err := d.Apply(ctx, core.Principal{}, "", core.ActionRef{}, "", core.ApplyOptions{}); err == nil || !strings.Contains(err.Error(), "Apply is not configured") {
 		t.Errorf("unconfigured Apply error = %v", err)
+	}
+}
+
+func TestFakeDispatcherChangeOps(t *testing.T) {
+	ctx := context.Background()
+	fake := &FakeDispatcher{
+		StepsFunc: func(_ context.Context, _ core.Principal, id string) ([]core.StepView, error) {
+			return []core.StepView{{ID: "db", ChildChangeID: id + "-child"}}, nil
+		},
+	}
+	var d core.Dispatcher = fake
+	steps, err := d.Steps(ctx, core.Principal{}, "01C")
+	if err != nil || len(steps) != 1 || steps[0].ChildChangeID != "01C-child" {
+		t.Errorf("Steps = %+v, %v", steps, err)
+	}
+	if _, err := d.Undo(ctx, core.Principal{}, "01C"); err == nil || !strings.Contains(err.Error(), "Undo is not configured") {
+		t.Errorf("unconfigured Undo error = %v", err)
+	}
+	if _, err := d.Release(ctx, core.Principal{}, "01C", "gone"); err == nil || !strings.Contains(err.Error(), "Release is not configured") {
+		t.Errorf("unconfigured Release error = %v", err)
 	}
 }
 

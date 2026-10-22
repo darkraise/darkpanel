@@ -96,7 +96,7 @@ func TestHostUpdatePolicy(t *testing.T) {
 		`{"hostId":"h2","channel":"beta","schedule":{"days":[],"time":"03:00"}}`,
 		`{"hostId":"h2","channel":"beta","schedule":{"days":["mon"],"time":"24:00"}}`,
 	} {
-		_, err := e.engine.Plan(t.Context(), operator, ref("core.host.update-policy"), json.RawMessage(bad))
+		_, err := e.engine.Plan(t.Context(), operator, ref("core.host.update-policy"), json.RawMessage(bad), core.PlanOptions{})
 		wantCode(t, err, errcode.InvalidInput)
 	}
 }

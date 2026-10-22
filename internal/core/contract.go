@@ -8,6 +8,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -34,12 +35,23 @@ const (
 // Class is an action's change class (shared contracts).
 type Class string
 
-// The four action classes.
+// The action classes. A composite is a controller-side action whose apply
+// runs steps: child changes of other modules' actions.
 const (
 	ClassRead         Class = "read"
 	ClassRevertible   Class = "revertible"
 	ClassCompensable  Class = "compensable"
 	ClassIrreversible Class = "irreversible"
+	ClassComposite    Class = "composite"
+)
+
+// Unwind is a composite's failure direction.
+type Unwind string
+
+// The two directions.
+const (
+	UnwindReverse Unwind = "reverse" // adding composites: undo the applied steps
+	UnwindForward Unwind = "forward" // removal composites: never unwind; repair repeats
 )
 
 // Scope is what a principal may do (spec section 10).
@@ -68,6 +80,21 @@ type ActionRef struct {
 // String renders the reference as "<name>/v<version>".
 func (r ActionRef) String() string { return fmt.Sprintf("%s/v%d", r.Name, r.Version) }
 
+// MarshalText renders the reference as String does, so step lists and DTOs
+// carry it as one string.
+func (r ActionRef) MarshalText() ([]byte, error) { return []byte(r.String()), nil }
+
+// UnmarshalText parses "<name>/v<version>", splitting at the last slash.
+func (r *ActionRef) UnmarshalText(text []byte) error {
+	i := strings.LastIndex(string(text), "/")
+	version, err := ParseVersion(string(text[i+1:]))
+	if i <= 0 || err != nil {
+		return fmt.Errorf("core: action reference %q: want <name>/v<version>, such as core.update.apply/v1", text)
+	}
+	*r = ActionRef{Name: string(text[:i]), Version: version}
+	return nil
+}
+
 // ParseVersion parses a path segment such as "v1" into 1.
 func ParseVersion(s string) (int, error) {
 	n, err := strconv.Atoi(strings.TrimPrefix(s, "v"))
@@ -87,13 +114,17 @@ type Principal struct {
 }
 
 // Env is what a handler may use. HostID is empty for controller-side actions;
-// Agents is nil on the agent side. ChangeID is the change whose Apply or
-// Verify is running and is empty in every other call, because a plan has no
-// change yet.
+// Agents is nil on the agent side. ChangeID is the change a call acts on
+// (Apply, Verify, Revert, Observe, Inverse, Recover and Task) and is empty in
+// a plan or a read, because a plan has no change yet. Effects is that
+// change's journal and is set whenever ChangeID is. Call is set at plan and
+// at every later call of the change.
 type Env struct {
 	HostID    string
 	ChangeID  string
 	Principal Principal
+	Call      CallContext
+	Effects   EffectJournal
 	DB        *store.DB
 	Exec      Runner
 	Files     FileWriter
@@ -101,6 +132,49 @@ type Env struct {
 	Clock     Clock
 	Log       *slog.Logger
 	Agents    HostDirectory
+}
+
+// CallContext is why a change runs. It comes from the controller, never from
+// input: the API and the agent socket refuse it, and handlers that depend on
+// provenance read only Env.Call.
+type CallContext struct {
+	ParentChangeID string   // the composite running this as a step; "" for a top-level change
+	ParentAction   string   // that composite's action name
+	StepID         string   // the step id within the parent
+	RepairOf       string   // the change this one repairs; derived by the engine from the stored plan, never sent
+	Retired        []string // exposure ids the parent has retired
+}
+
+// PlanOptions are the core-level fields of a plan request. Call is set only
+// by the controller (dispatcher, composite runner, repair relay); the API
+// rejects it.
+type PlanOptions struct {
+	Call *CallContext // controller only; nil for a top-level change. RepairOf is ignored.
+}
+
+// definiteError marks a refusal that guarantees nothing committed.
+type definiteError struct{ err error }
+
+func (e *definiteError) Error() string { return e.err.Error() }
+
+func (e *definiteError) Unwrap() error { return e.err }
+
+// Definite marks err as a refusal that guarantees the call committed
+// nothing (a provider's 4xx validation answer, a precondition the module
+// checked before calling). nil stays nil, and errors.Is, errors.As and
+// errcode.From still see err through the mark.
+func Definite(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &definiteError{err: err}
+}
+
+// IsDefinite reports whether err, or an error it wraps, was marked by
+// Definite.
+func IsDefinite(err error) bool {
+	var d *definiteError
+	return errors.As(err, &d)
 }
 
 // HostDirectory finds the agent of a host; dispatch implements it.
@@ -137,7 +211,14 @@ type ActionSpec struct {
 	Side          Side
 	BreakGlass    bool
 	LockKeys      []string
-	CompensatedBy string // compensable only, an action name
+	CompensatedBy string        // compensable only, an action name
+	ForwardOnly   bool          // compensable: never reversed; requires Converges
+	Converges     bool          // apply run again with the same input, after a partial or complete apply, ends in the same state and plans an empty diff when the effect is present
+	RepairedBy    string        // revertible only, required: an action of the same module
+	ApplyTimeout  time.Duration // one budget for apply and verify; 0 means 30 s; above 45 s requires LongRunning; composites: computed at plan
+	LongRunning   bool          // apply answers once the intent is persisted
+	Task          bool          // the host sequences run in transient units; set by DefineTask
+	Unwind        Unwind        // composite only
 }
 
 // Reader is the handler of a read action.
@@ -149,32 +230,246 @@ type Reader[In, Out any] interface {
 type Mutator[In, Out any] interface {
 	Plan(ctx context.Context, env Env, in In) (PlanOutcome, error)
 	Apply(ctx context.Context, env Env, in In) (Out, error)
-	// Verify checks that Apply took effect. Startup recovery also calls it
-	// for a change cut off during Apply, with out the zero value because no
-	// output was recorded, so Verify must check the host from in alone.
-	// Verify must only read the host and must return once ctx is done. The
-	// engine stops waiting when its verify timeout ends ctx and may then roll
-	// the change back while an abandoned Verify still runs, so Verify must
-	// also be safe to run alongside that rollback.
+	// Verify checks that Apply took effect. It must only read the host. It
+	// runs under the change's deadline, the action's ApplyTimeout, and is
+	// never abandoned: a Verify that does not return keeps its change
+	// applying and its locks held. Startup recovery also calls it, under a
+	// 30 s bound, for a change cut off during Apply, with out the zero value
+	// because no output was recorded, so Verify must check the host from in
+	// alone.
 	Verify(ctx context.Context, env Env, in In, out Out) error
 }
 
-// Reverter is the handler of a revertible action.
+// Reverter is the handler of a revertible action. Revert reports what it did
+// to each effect; it never writes the journal itself.
 type Reverter[In, Out any] interface {
 	Mutator[In, Out]
 	Snapshot(ctx context.Context, env Env, in In) ([]byte, error)
-	Revert(ctx context.Context, env Env, snapshot []byte) error
+	Revert(ctx context.Context, env Env, snapshot []byte) (RevertOutcome, error)
 }
 
-// ErasedHandler is a handler working on JSON. DefineRead, DefineMutating and
-// DefineRevertible build it; the fields a class does not use are nil.
+// RevertOutcome is what a revert did. The engine, not the handler, writes
+// the journal: it applies Effects in the transaction that records the
+// revert.
+type RevertOutcome struct {
+	Effects  []EffectOutcome // one per effect the revert acted on or left
+	Override bool            // the connectivity exception: the snapshot was restored over unresolved effects
+	Detail   json.RawMessage // Override: what was overwritten, shown to the operator
+}
+
+// EffectOutcome is what a revert did to one effect.
+type EffectOutcome struct {
+	Seq     int
+	State   EffectState // "undone" | "unresolved"
+	Reason  string      // unresolved: "conflict" (the resource differed from Post) or "uncertain"
+	Current *StateDoc   // unresolved: what the revert observed and left in place
+}
+
+// TaskMutator is the handler of a task action. Task runs inside the apply
+// unit; Plan and Verify run in the agent; Observe and Inverse run wherever
+// the settle or undo run that calls them executes (in the agent, or inside
+// an undo unit); a module Recoverer runs inside a recover unit.
+type TaskMutator[In, Out any] interface {
+	Plan(ctx context.Context, env Env, in In) (PlanOutcome, error)
+	Task(ctx context.Context, env Env, in In) (Out, error)
+	Verify(ctx context.Context, env Env, in In, out Out) error
+}
+
+// Step is one step of a composite.
+type Step struct {
+	ID     string          `json:"id"`              // [a-z][a-z0-9]*, unique in the composite
+	Host   string          `json:"host"`            // host id; "" for a controller-side action
+	Action ActionRef       `json:"action"`          // "<name>/v<version>"
+	Input  json.RawMessage `json:"input"`           // the child's input, with ${input...} and ${steps...} references
+	After  []string        `json:"after,omitempty"` // steps this one follows
+}
+
+// Composer is the handler of a composite action. The engine, not the
+// module, plans, applies and recovers a composite.
+type Composer[In, Out any] interface {
+	// Steps returns the steps for in. It reads only in and the controller
+	// database, never a host.
+	Steps(ctx context.Context, env Env, in In) ([]Step, error)
+	// Output builds the composite's output from its steps' redacted
+	// outputs, keyed by step id; read steps are not among them.
+	Output(ctx context.Context, env Env, in In, steps map[string]json.RawMessage) (Out, error)
+}
+
+// EffectKind is what an effect does to its resource.
+type EffectKind string // "create" | "modify" | "delete"
+
+// The effect kinds.
+const (
+	EffectCreate EffectKind = "create"
+	EffectModify EffectKind = "modify"
+	EffectDelete EffectKind = "delete"
+)
+
+// EffectState is where an effect stands in the journal. Skipped, undone,
+// accepted and abandoned are terminal.
+type EffectState string
+
+// The effect states.
+const (
+	EffectIntended   EffectState = "intended"
+	EffectMade       EffectState = "made"
+	EffectSkipped    EffectState = "skipped"
+	EffectUnresolved EffectState = "unresolved"
+	EffectUndoing    EffectState = "undoing"
+	EffectUndone     EffectState = "undone"
+	EffectAccepted   EffectState = "accepted"
+	EffectAbandoned  EffectState = "abandoned"
+)
+
+// Reasons of an unresolved effect.
+const (
+	ReasonUncertain = "uncertain"
+	ReasonAmbiguous = "ambiguous"
+	ReasonConflict  = "conflict"
+)
+
+// StateDoc is the comparable form of a resource's state. State holds the
+// fields an action sets and its inverse restores; Version holds the fields
+// that change on every write or restart (a start time, an endpoint id, an
+// ETag, modified_on) and every State field an inverse cannot restore. It
+// never holds a secret. State "null" means the resource does not exist.
+type StateDoc struct {
+	State   json.RawMessage `json:"state"`
+	Version json.RawMessage `json:"version,omitempty"`
+}
+
+// RecoveryID is how an observation finds exactly the object a creation made.
+type RecoveryID struct {
+	Kind  string `json:"kind"` // "name" | "marker" | "idempotency"
+	Value string `json:"value"`
+}
+
+// Effect is one row of core_effects.
+type Effect struct {
+	ChangeID        string
+	Seq             int // 1, 2, ... in the order intended
+	Kind            EffectKind
+	Resource        string        // "<module>.<noun>:<identity>"; a creation: "<module>.<noun>:?<recovery value>" until made
+	Recovery        *RecoveryID   // creations only
+	Local           bool          // the forward call ends with the process that makes it
+	InverseLocal    bool          // the same for the inverse call
+	CommitWait      time.Duration // a call that is not Local: how long the other side may still commit it
+	CommitBy        time.Time     // no resolution before this time: the forward call's (or, while undoing, the inverse's) start plus CommitWait
+	InverseRecovery *RecoveryID   // an inverse that creates (the undo of a deletion): how an observation finds the recreated object
+	UndoResource    string        // the object the inverse left, as Inverse returned it
+	Before          StateDoc      // the state the call expects to find
+	After           *StateDoc     // the state the call leaves; nil when it cannot be known before the call
+	Post            *StateDoc     // made: the state an undo must still find
+	UndoTo          *StateDoc     // undoing: the state the inverse leaves
+	Current         *StateDoc     // unresolved and accepted: what was observed
+	State           EffectState
+	Reason          string // unresolved: "uncertain" | "ambiguous" | "conflict"
+	Resolution      string // the last resolution ("accept" | "reconcile"), with ResolvedBy and ResolvedAt
+	ResolvedBy      string
+	ResolvedAt      time.Time
+}
+
+// EffectJournal is the handler's view of its change's journal. Every
+// method commits before it returns; an illegal transition is an error that
+// writes nothing.
+type EffectJournal interface {
+	// Intend records e as intended and returns its seq. secret, if any, is
+	// sealed with associated data "core_effects.secret_ct.<change id>.<seq>".
+	Intend(ctx context.Context, e Effect, secret []byte) (seq int, err error)
+	// Made records that the call succeeded; resource names the object
+	// (a creation's server-assigned id) and post its state now.
+	Made(ctx context.Context, seq int, resource string, post StateDoc) error
+	// Skipped records that the call was not made, or was refused with an
+	// answer that guarantees nothing committed (a Definite error).
+	Skipped(ctx context.Context, seq int) error
+	List(ctx context.Context) ([]Effect, error)
+	Secret(ctx context.Context, seq int) ([]byte, error)
+}
+
+// Observation is what an Observer found for one effect.
+type Observation struct {
+	Current    StateDoc
+	Resource   string      // a creation: the matched object's identity when Matches is 1
+	Matches    int         // a creation: objects its RecoveryID finds; 1 for modify and delete
+	Candidates []Candidate // a creation with Matches > 1: every match, for the operator
+	Exclusive  bool        // the identity tells this object apart from every other
+	Allowed    []string    // resolutions the module permits for this effect; nil means both
+}
+
+// Candidate is one object a creation's recovery identity matched.
+type Candidate struct {
+	Resource string   `json:"resource"`
+	State    StateDoc `json:"state"`
+}
+
+// Observer reads the resource of one effect. It only reads. For an effect
+// that is undoing or was undone, it looks for e.UndoResource or, when that
+// is empty, the object e.InverseRecovery finds.
+type Observer interface {
+	Observe(ctx context.Context, env Env, e Effect) (Observation, error)
+}
+
+// Resolver is optional. Resolved runs inside the resolution transaction,
+// after the effect's new state is written and before the commit, so a
+// module can move its own bookkeeping row with the resolution. It writes
+// only the module's own tables; an error rolls the resolution back.
+type Resolver interface {
+	Resolved(ctx context.Context, tx *sql.Tx, e Effect, resolution string) error
+}
+
+// Undoer is the undo handler of a compensable action. Inverse makes the
+// inverse call of one made effect, leaving e.Resource in e.UndoTo, and
+// touches no other resource. A Definite error means it changed nothing.
+// An inverse that creates (the undo of a deletion) returns the new
+// object's identity; the engine records it as e.UndoResource.
+type Undoer interface {
+	Observer
+	Inverse(ctx context.Context, env Env, e Effect) (InverseResult, error)
+}
+
+// InverseResult is what an inverse call left.
+type InverseResult struct {
+	Resource string // an inverse that creates: the recreated object; "" otherwise
+}
+
+// RecoveryOutcome is a recovery handler's verdict on its change.
+type RecoveryOutcome struct {
+	State  string          // "completed" | "failed" | "rolled_back" | "needs_repair"
+	Output json.RawMessage // completed: the action's output
+	Reason string          // failed, needs_repair: shown to the operator
+}
+
+// Values of RecoveryOutcome.State.
+const (
+	RecoveryCompleted   = "completed"
+	RecoveryFailed      = "failed"
+	RecoveryRolledBack  = "rolled_back"
+	RecoveryNeedsRepair = "needs_repair"
+)
+
+// Recoverer finishes or rolls back an action's own transaction after a
+// crash. env.ChangeID is the change; env.Effects its journal.
+type Recoverer interface {
+	Recover(ctx context.Context, env Env) (RecoveryOutcome, error)
+}
+
+// ErasedHandler is a handler working on JSON. DefineRead, DefineMutating,
+// DefineRevertible, DefineComposite and DefineTask build it; the fields a
+// class does not use are nil.
 type ErasedHandler struct {
 	Read     func(ctx context.Context, env Env, in json.RawMessage) (json.RawMessage, error)
 	Plan     func(ctx context.Context, env Env, in json.RawMessage) (PlanOutcome, error)
 	Apply    func(ctx context.Context, env Env, in json.RawMessage) (json.RawMessage, error)
 	Verify   func(ctx context.Context, env Env, in, out json.RawMessage) error
 	Snapshot func(ctx context.Context, env Env, in json.RawMessage) ([]byte, error)
-	Revert   func(ctx context.Context, env Env, snapshot []byte) error
+	Revert   func(ctx context.Context, env Env, snapshot []byte) (RevertOutcome, error)
+	Observe  func(ctx context.Context, env Env, e Effect) (Observation, error)
+	Resolved func(ctx context.Context, tx *sql.Tx, e Effect, resolution string) error
+	Inverse  func(ctx context.Context, env Env, e Effect) (InverseResult, error)
+	Recover  func(ctx context.Context, env Env) (RecoveryOutcome, error)
+	Task     func(ctx context.Context, env Env, in json.RawMessage) (json.RawMessage, error)
+	Steps    func(ctx context.Context, env Env, in json.RawMessage) ([]Step, error)
+	Output   func(ctx context.Context, env Env, in json.RawMessage, steps map[string]json.RawMessage) (json.RawMessage, error)
 }
 
 // ActionDef is a type-erased action as the registry stores it.
@@ -378,7 +673,9 @@ type PlanView struct {
 
 // ChangeError is a failed change's error.
 type ChangeError struct {
-	Code, Message string
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Cause   string `json:"cause,omitempty"` // the code of the error that led to needs_repair
 }
 
 // ChangeView is a change as callers see it.
@@ -392,6 +689,11 @@ type ChangeView struct {
 	RevertDeadline                           *time.Time
 	Output                                   json.RawMessage // secret fields present only in the apply response that created them
 	Error                                    *ChangeError
+	ParentChangeID                           string          // the composite this change is a step of
+	Owner                                    string          // the mechanism acting on the change; "" when none
+	RepairedBy                               string          // the repair change running under this change's locks
+	RepairOutcome                            string          // a repaired change: "restored" or "kept"
+	Override                                 json.RawMessage // what a revert's connectivity exception overwrote
 }
 
 // The change states (spec section 3).
@@ -405,11 +707,169 @@ const (
 	StateInterrupted = "interrupted"
 )
 
+// The change states of undo, repair, recovery and composites. Releasing is a
+// composite's only.
+const (
+	StateAwaitingConfirmation = "awaiting_confirmation"
+	StateUndoing              = "undoing"
+	StateNeedsRepair          = "needs_repair"
+	StateRecovering           = "recovering"
+	StateRepaired             = "repaired"
+	StateKept                 = "kept"
+	StateAbandoned            = "abandoned"
+	StateQuarantined          = "quarantined"
+	StateReleasing            = "releasing"
+)
+
+// Owners of core_changes.recovery_owner; "" is unowned. One mechanism at a
+// time acts on an unfinished change, and only the transaction recording its
+// outcome ends its ownership.
+const (
+	OwnerEngine    = "engine"
+	OwnerComposite = "composite"
+	OwnerUndo      = "undo"
+	OwnerModule    = "module"
+	OwnerRepair    = "repair"
+	OwnerResolve   = "resolve"
+)
+
+// Composite step states.
+const (
+	StepPending    = "pending"
+	StepPlanning   = "planning"
+	StepPlanned    = "planned"
+	StepApplying   = "applying"
+	StepApplied    = "applied"
+	StepConfirming = "confirming"
+	StepConfirmed  = "confirmed"
+	StepRead       = "read"
+	StepUndoing    = "undoing"
+	StepUndone     = "undone"
+	StepReleased   = "released"
+)
+
+// Values of PlanLookup.Status, RepairResult outcomes, resolutions and task
+// unit operations.
+const (
+	LookupAbsent     = "absent"
+	LookupRetired    = "retired"
+	LookupRunning    = "running"
+	LookupRecovering = "recovering"
+	LookupTerminal   = "terminal"
+
+	RepairRestored = "restored"
+	RepairKept     = "kept"
+
+	ResolutionAccept    = "accept"
+	ResolutionReconcile = "reconcile"
+
+	TaskOpApply   = "apply"
+	TaskOpUndo    = "undo"
+	TaskOpRecover = "recover"
+)
+
 // ApplyOptions carry apply's per-class options.
 type ApplyOptions struct {
 	ConfirmTimeout time.Duration
 	Confirmation   string
 	ConfirmNow     bool
+	Call           *CallContext // set only by the controller (dispatcher, composite runner)
+}
+
+// PlanLookup is what became of a plan, for a composite following its child.
+// Running: owned by engine, undo or repair. Recovering: owned by module.
+// Terminal: no mechanism owns it, and State says which state.
+type PlanLookup struct {
+	Status        string          `json:"status"` // "absent" | "retired" | "running" | "recovering" | "terminal"
+	ChangeID      string          `json:"changeId,omitempty"`
+	State         string          `json:"state,omitempty"`
+	Owner         string          `json:"owner,omitempty"`    // recovery_owner
+	Deadline      *time.Time      `json:"deadline,omitempty"` // a pending revertible child's revert deadline
+	Made          int             `json:"made"`               // effects made or undoing
+	Unresolved    int             `json:"unresolved"`
+	RepairOutcome string          `json:"repairOutcome,omitempty"`
+	Output        json.RawMessage `json:"output,omitempty"`  // redacted
+	Private       json.RawMessage `json:"private,omitempty"` // only with ?private=1 while the private output is kept
+	Error         *ChangeError    `json:"error,omitempty"`
+}
+
+// RepairRequest asks for the repair of a change in needs_repair.
+type RepairRequest struct {
+	Input json.RawMessage `json:"input,omitempty"` // RepairedBy plans only; never carries repairs
+	Step  string          `json:"step,omitempty"`  // composite step decision
+	As    string          `json:"as,omitempty"`    // "reverted" | "applied"
+}
+
+// RepairResult is a repair's answer: the change an in-place repair works on,
+// or the plan the client applies through the ordinary apply route.
+type RepairResult struct {
+	Change *ChangeView `json:"change,omitempty"`
+	Plan   *PlanView   `json:"plan,omitempty"`
+}
+
+// ReleaseResult is a release's answer.
+type ReleaseResult struct {
+	Change    ChangeView   `json:"change"`
+	Abandoned []EffectView `json:"abandoned"`
+}
+
+// ResolveRequest is an operator's resolution of an unresolved effect.
+type ResolveRequest struct {
+	Resolution string `json:"resolution"` // "accept" | "reconcile"
+	Resource   string `json:"resource,omitempty"`
+}
+
+// ObserveResult is the read-only preview of a resolution.
+type ObserveResult struct {
+	Effect      EffectView      `json:"effect"`
+	Observation ObservationView `json:"observation"`
+	Allowed     []string        `json:"allowed"`
+}
+
+// EffectView is an effect as callers see it, never its secret.
+type EffectView struct {
+	ChangeID     string      `json:"changeId"`
+	Seq          int         `json:"seq"`
+	Kind         EffectKind  `json:"kind"`
+	Resource     string      `json:"resource"`
+	Local        bool        `json:"local"`
+	InverseLocal bool        `json:"inverseLocal"`
+	CommitBy     *time.Time  `json:"commitBy"`
+	State        EffectState `json:"state"`
+	Reason       string      `json:"reason"`
+	Before       StateDoc    `json:"before"`
+	After        *StateDoc   `json:"after"`
+	Post         *StateDoc   `json:"post"`
+	UndoTo       *StateDoc   `json:"undoTo"`
+	UndoResource string      `json:"undoResource"`
+	Current      *StateDoc   `json:"current"`
+	Resolution   string      `json:"resolution"`
+	ResolvedBy   string      `json:"resolvedBy"`
+	ResolvedAt   *time.Time  `json:"resolvedAt"`
+}
+
+// ObservationView is an Observation as callers see it.
+type ObservationView struct {
+	Current    StateDoc    `json:"current"`
+	Resource   string      `json:"resource"`
+	Matches    int         `json:"matches"`
+	Candidates []Candidate `json:"candidates"`
+	Exclusive  bool        `json:"exclusive"`
+}
+
+// StepView is a composite step as callers see it, never its inputs or
+// outputs.
+type StepView struct {
+	ID                    string       `json:"id"`
+	Ordinal               int          `json:"ordinal"`
+	Host                  string       `json:"host"`
+	Action                ActionRef    `json:"action"`
+	State                 string       `json:"state"`
+	Attempt               int          `json:"attempt"`
+	ChildChangeID         string       `json:"childChangeId"`
+	EarlierChildChangeIDs []string     `json:"earlierChildChangeIds"`
+	ChildDeadline         *time.Time   `json:"childDeadline"`
+	Error                 *ChangeError `json:"error"`
 }
 
 // ChangeFilter filters change listings.
@@ -452,12 +912,13 @@ type SchemaHash struct {
 }
 
 // AgentClient is the controller's view of one agent; in M1 the in-process
-// client, from M2 the mTLS transport.
+// client, from M2 the mTLS transport. The change operations of spec 1.3 are
+// AgentChangeOps.
 type AgentClient interface {
 	Hello(ctx context.Context) (AgentHello, error)
 	Read(ctx context.Context, p Principal, a ActionRef, input json.RawMessage) (json.RawMessage, error)
 	Resource(ctx context.Context, p Principal, name string) (json.RawMessage, error)
-	Plan(ctx context.Context, p Principal, a ActionRef, input json.RawMessage) (PlanView, error)
+	Plan(ctx context.Context, p Principal, a ActionRef, input json.RawMessage, opts PlanOptions) (PlanView, error)
 	Apply(ctx context.Context, p Principal, planID string, opts ApplyOptions) (ChangeView, error)
 	Confirm(ctx context.Context, p Principal, changeID string) (ChangeView, error)
 	Revert(ctx context.Context, p Principal, changeID string) (ChangeView, error)
@@ -466,17 +927,49 @@ type AgentClient interface {
 	Preflight(ctx context.Context, moduleID string) (ModuleStatus, error)
 	Journal(ctx context.Context, afterSeq int64, limit int) ([]JournalEntry, error)
 	Ack(ctx context.Context, seq int64) error
+	AgentChangeOps
 }
 
 // Dispatcher is what the HTTP API and the controller socket call. hostID is
-// empty for controller-side actions.
+// empty for controller-side actions. The change operations of spec 1.3 are
+// DispatcherChangeOps.
 type Dispatcher interface {
 	Read(ctx context.Context, p Principal, hostID string, a ActionRef, input json.RawMessage) (json.RawMessage, error)
 	Resource(ctx context.Context, p Principal, hostID, name string) (json.RawMessage, error)
-	Plan(ctx context.Context, p Principal, hostID string, a ActionRef, input json.RawMessage) (PlanView, error)
+	Plan(ctx context.Context, p Principal, hostID string, a ActionRef, input json.RawMessage, opts PlanOptions) (PlanView, error)
 	Apply(ctx context.Context, p Principal, hostID string, a ActionRef, planID string, opts ApplyOptions) (ChangeView, error)
 	Confirm(ctx context.Context, p Principal, changeID string) (ChangeView, error)
 	Revert(ctx context.Context, p Principal, changeID string) (ChangeView, error)
 	Change(ctx context.Context, p Principal, changeID string) (ChangeView, error)
 	Changes(ctx context.Context, p Principal, f ChangeFilter) ([]ChangeView, error)
+	DispatcherChangeOps
+}
+
+// AgentChangeOps are the agent half of the change operations: undo, repair,
+// release, effects and their resolution, and the plan lookup and retire a
+// composite uses to follow its children. A non-nil call names the composite
+// whose unwind or release acts on one of its steps. AckPrivate with final
+// set also says the change's composite is terminal, so the step can no
+// longer be undone.
+type AgentChangeOps interface {
+	Undo(ctx context.Context, p Principal, changeID string, call *CallContext) (ChangeView, error)
+	Repair(ctx context.Context, p Principal, changeID string, req RepairRequest) (RepairResult, error)
+	Release(ctx context.Context, p Principal, changeID, reason string, call *CallContext) (ReleaseResult, error)
+	Effects(ctx context.Context, p Principal, changeID string) ([]EffectView, error)
+	Observe(ctx context.Context, p Principal, changeID string, seq int) (ObserveResult, error)
+	Resolve(ctx context.Context, p Principal, changeID string, seq int, req ResolveRequest) (EffectView, error)
+	Lookup(ctx context.Context, planID string, private bool) (PlanLookup, error)
+	Retire(ctx context.Context, planID string) (PlanLookup, error)
+	AckPrivate(ctx context.Context, changeID string, final bool) error
+}
+
+// DispatcherChangeOps are the controller half of the change operations.
+type DispatcherChangeOps interface {
+	Undo(ctx context.Context, p Principal, changeID string) (ChangeView, error)
+	Repair(ctx context.Context, p Principal, changeID string, req RepairRequest) (RepairResult, error)
+	Release(ctx context.Context, p Principal, changeID, reason string) (ReleaseResult, error)
+	Effects(ctx context.Context, p Principal, changeID string) ([]EffectView, error)
+	Observe(ctx context.Context, p Principal, changeID string, seq int) (ObserveResult, error)
+	Resolve(ctx context.Context, p Principal, changeID string, seq int, req ResolveRequest) (EffectView, error)
+	Steps(ctx context.Context, p Principal, changeID string) ([]StepView, error)
 }

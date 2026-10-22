@@ -50,6 +50,13 @@ func TestStatus(t *testing.T) {
 		{UpdateSignatureInvalid, 500},
 		{UpdatePrevMismatch, 500},
 		{UpdateInterrupted, 500},
+		{ChildFailed, 500},
+		{NeedsRepair, 409},
+		{Recovering, 409},
+		{UndoConflict, 409},
+		{ChangeBusy, 409},
+		{DeadlineExceeded, 504},
+		{Uninstalling, 409},
 		{Code("no.such_code"), 500},
 	}
 	for _, tt := range tests {
@@ -81,6 +88,29 @@ func TestFleetCodeValues(t *testing.T) {
 	} {
 		if string(code) != want || !Known(code) {
 			t.Errorf("code %q: want value %q registered", code, want)
+		}
+	}
+}
+
+// The lifecycle codes are shared contracts too; the titles are the ones
+// problem details and change errors show.
+func TestLifecycleCodes(t *testing.T) {
+	tests := []struct {
+		code         Code
+		value, title string
+	}{
+		{ChildFailed, "core.child_failed", "A composite step failed"},
+		{NeedsRepair, "core.needs_repair", "Change needs repair"},
+		{Recovering, "core.recovering", "Recovery in progress"},
+		{UndoConflict, "core.undo_conflict", "Undo window closed"},
+		{ChangeBusy, "core.change_busy", "Change busy"},
+		{DeadlineExceeded, "core.deadline_exceeded", "Action deadline exceeded"},
+		{Uninstalling, "core.uninstalling", "Host is being uninstalled"},
+	}
+	for _, tt := range tests {
+		if string(tt.code) != tt.value || !Known(tt.code) || tt.code.Title() != tt.title {
+			t.Errorf("code %q: known %v, title %q; want value %q registered with title %q",
+				tt.code, Known(tt.code), tt.code.Title(), tt.value, tt.title)
 		}
 	}
 }

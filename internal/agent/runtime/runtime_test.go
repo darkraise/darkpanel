@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/lifecycle"
@@ -125,7 +126,7 @@ func TestHandlersGetTheAgentEnv(t *testing.T) {
 func TestOpenRecoversAndPurges(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	pl, err := f.rt.engine.Plan(ctx, alice, refSet, json.RawMessage(`{"name":"a","value":"1"}`))
+	pl, err := f.rt.engine.Plan(ctx, alice, refSet, json.RawMessage(`{"name":"a","value":"1"}`), core.PlanOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +134,7 @@ func TestOpenRecoversAndPurges(t *testing.T) {
 	if err != nil || v.State != core.StatePending {
 		t.Fatalf("Apply = %+v, %v; want pending", v, err)
 	}
-	unused, err := f.rt.engine.Plan(ctx, alice, refSet, json.RawMessage(`{"name":"b","value":"1"}`))
+	unused, err := f.rt.engine.Plan(ctx, alice, refSet, json.RawMessage(`{"name":"b","value":"1"}`), core.PlanOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +142,13 @@ func TestOpenRecoversAndPurges(t *testing.T) {
 	f.clock.Advance(lifecycle.PlanTTL)
 	f.restart()
 
-	got, err := f.rt.engine.Change(ctx, v.ID)
+	// Recovery settles the change on a background goroutine after Open returns.
+	var got core.ChangeView
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if got, err = f.rt.engine.Change(ctx, v.ID); err != nil || got.State == core.StateReverted || time.Now().After(deadline) {
+			break
+		}
+	}
 	if err != nil || got.State != core.StateReverted {
 		t.Errorf("change after restart = %+v, %v; want reverted by recovery", got, err)
 	}
@@ -162,7 +169,7 @@ func TestPurgeRunsEveryIntervalUntilClose(t *testing.T) {
 	if p := f.clock.Pending(); p != 1 {
 		t.Fatalf("armed timers = %d, want the purge timer", p)
 	}
-	pl, err := f.rt.engine.Plan(ctx, alice, refSet, json.RawMessage(`{"name":"a","value":"1"}`))
+	pl, err := f.rt.engine.Plan(ctx, alice, refSet, json.RawMessage(`{"name":"a","value":"1"}`), core.PlanOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

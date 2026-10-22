@@ -181,7 +181,7 @@ func TestLocalMutatingPrintsLikeTheAPI(t *testing.T) {
 	base := newFakeAPI(t, testToken, hostList("h1:web"), plan, apply, hostList("h1:web"), plan, apply)
 	rec := &agentCalls{}
 	agent := &coretest.FakeAgent{
-		PlanFunc: func(_ context.Context, _ core.Principal, a core.ActionRef, input json.RawMessage) (core.PlanView, error) {
+		PlanFunc: func(_ context.Context, _ core.Principal, a core.ActionRef, input json.RawMessage, _ core.PlanOptions) (core.PlanView, error) {
 			if !jsonEqual(input, []byte(`{"name":"n1","apiKey":"key-1","passphrase":"pass-1"}`)) {
 				t.Errorf("plan input %s", input)
 			}
@@ -208,9 +208,40 @@ func TestLocalMutatingPrintsLikeTheAPI(t *testing.T) {
 			t.Errorf("%q: --local exit %d, out %q, err %q\nAPI exit %d, out %q, err %q", extra, code, out, errOut, apiCode, apiOut, apiErr)
 		}
 	}
-	want := []string{"plan demo.item.add/v1", "apply p1 {ConfirmTimeout:0s Confirmation: ConfirmNow:false}"}
+	want := []string{"plan demo.item.add/v1", "apply p1 {ConfirmTimeout:0s Confirmation: ConfirmNow:false Call:<nil>}"}
 	if got := rec.list(); !slices.Equal(got, slices.Concat(want, want)) {
 		t.Errorf("the agent saw %q", got)
+	}
+}
+
+func TestLocalApplyWaitsForAnApplyingChange(t *testing.T) {
+	saved := changePoll
+	changePoll = time.Millisecond
+	t.Cleanup(func() { changePoll = saved })
+	view := func(state string) core.ChangeView {
+		return core.ChangeView{ID: "c1", HostID: "h1", Action: "demo.item.add", Actor: "token:t1", Version: 1,
+			Class: core.ClassCompensable, State: state}
+	}
+	reads := 0
+	agent := &coretest.FakeAgent{
+		PlanFunc: func(_ context.Context, _ core.Principal, a core.ActionRef, _ json.RawMessage, _ core.PlanOptions) (core.PlanView, error) {
+			return core.PlanView{PlanID: "p1", HostID: "h1", Action: a.Name, Version: a.Version}, nil
+		},
+		ApplyFunc: func(context.Context, core.Principal, string, core.ApplyOptions) (core.ChangeView, error) {
+			return view(core.StateApplying), nil
+		},
+		ChangeFunc: func(_ context.Context, id string) (core.ChangeView, error) {
+			reads++
+			if id != "c1" {
+				t.Errorf("read change %q", id)
+			}
+			return view("applied"), nil
+		},
+	}
+	out, errOut, code := cliEnv{stdin: "key-1\npass-1\n", agentSocket: agentSocket(t, agent)}.run(t,
+		"demo", "item", "add", "--name", "n1", "--yes", "--local")
+	if code != 0 || !strings.Contains(out, "Change c1: applied\n") || strings.Contains(out, "applying") || reads != 1 {
+		t.Errorf("exit %d, out %q, err %q, reads %d; want the final state after one read", code, out, errOut, reads)
 	}
 }
 
@@ -221,7 +252,7 @@ func TestLocalConfirmations(t *testing.T) {
 	}
 	rec := &agentCalls{}
 	agent := &coretest.FakeAgent{
-		PlanFunc: func(_ context.Context, _ core.Principal, a core.ActionRef, input json.RawMessage) (core.PlanView, error) {
+		PlanFunc: func(_ context.Context, _ core.Principal, a core.ActionRef, input json.RawMessage, _ core.PlanOptions) (core.PlanView, error) {
 			var in struct{ ID string }
 			_ = json.Unmarshal(input, &in)
 			// demo.item.remove is irreversible: its plan names the item id
@@ -340,7 +371,7 @@ func TestLocalApplyTimeout(t *testing.T) {
 	t.Cleanup(func() { localTimeout = saved })
 	release := make(chan struct{})
 	agent := &coretest.FakeAgent{
-		PlanFunc: func(context.Context, core.Principal, core.ActionRef, json.RawMessage) (core.PlanView, error) {
+		PlanFunc: func(context.Context, core.Principal, core.ActionRef, json.RawMessage, core.PlanOptions) (core.PlanView, error) {
 			return core.PlanView{PlanID: "p1", HostID: "h1", Action: "demo.item.remove", Version: 1, InputHash: "ih"}, nil
 		},
 		ApplyFunc: func(context.Context, core.Principal, string, core.ApplyOptions) (core.ChangeView, error) {

@@ -90,7 +90,7 @@ func offline(host string) error {
 	return errcode.New(errcode.HostOffline, "host "+host+" is offline")
 }
 
-func (f *fakeFleet) Plan(_ context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage) (core.PlanView, error) {
+func (f *fakeFleet) Plan(_ context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage, _ core.PlanOptions) (core.PlanView, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.call("plan %s", hostID)
@@ -408,7 +408,7 @@ func TestDriverResumesAfterARestart(t *testing.T) {
 		e := newDriverEnv(t)
 		r := mustCreate(t, e.db, "1.3.0", "1.2.0", "OWN")
 		plan, err := e.fleet.Plan(context.Background(), core.Principal{Actor: core.ActorRollout}, "OWN",
-			core.ActionRef{Name: update.ActionApply, Version: 1}, json.RawMessage(`{"version":"1.3.0","channel":"stable","force":false}`))
+			core.ActionRef{Name: update.ActionApply, Version: 1}, json.RawMessage(`{"version":"1.3.0","channel":"stable","force":false}`), core.PlanOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -469,7 +469,7 @@ func TestDriverReplansAnExpiredPlan(t *testing.T) {
 			e := newDriverEnv(t)
 			r := mustCreate(t, e.db, "1.3.0", "1.2.0", "OWN")
 			plan, err := e.fleet.Plan(context.Background(), core.Principal{Actor: core.ActorRollout}, "OWN",
-				core.ActionRef{Name: update.ActionApply, Version: 1}, json.RawMessage(`{"version":"1.3.0","channel":"stable","force":false}`))
+				core.ActionRef{Name: update.ActionApply, Version: 1}, json.RawMessage(`{"version":"1.3.0","channel":"stable","force":false}`), core.PlanOptions{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -661,7 +661,7 @@ func TestDriverNeverAppliesAfterACancel(t *testing.T) {
 	storePlan := func(t *testing.T, e *driverEnv, id string) {
 		t.Helper()
 		plan, err := e.fleet.Plan(context.Background(), core.Principal{Actor: core.ActorRollout}, "OWN",
-			core.ActionRef{Name: update.ActionApply, Version: 1}, json.RawMessage(`{"version":"1.3.0","channel":"stable","force":false}`))
+			core.ActionRef{Name: update.ActionApply, Version: 1}, json.RawMessage(`{"version":"1.3.0","channel":"stable","force":false}`), core.PlanOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}

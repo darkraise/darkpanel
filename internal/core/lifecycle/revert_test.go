@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -89,21 +90,34 @@ func TestRevertRestoresTheSnapshot(t *testing.T) {
 	}
 }
 
-func TestRevertFailureFailsTheChange(t *testing.T) {
+func TestAFailedRevertNeedsRepair(t *testing.T) {
 	f := newFixture(t)
 	v := f.pending(`{"name":"a","value":"1","failRevert":true}`)
 	r, err := f.eng.Revert(context.Background(), alice, v.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.State != core.StateFailed || r.Error == nil || r.Error.Code != string(errcode.ChangeRevertFailed) {
-		t.Errorf("change = %+v (error %+v), want failed with change.revert_failed", r, r.Error)
+	if r.State != core.StateNeedsRepair || r.Error == nil || r.Error.Code != string(errcode.NeedsRepair) ||
+		r.Error.Cause != string(errcode.ChangeRevertFailed) {
+		t.Errorf("change = %+v (error %+v), want needs_repair caused by change.revert_failed", r, r.Error)
 	}
-	if got := f.phases(); !reflect.DeepEqual(got, []string{"apply/ok", "revert/error/change.revert_failed"}) {
+	if got := f.phases(); !reflect.DeepEqual(got, []string{"apply/ok", "revert/error/core.needs_repair"}) {
 		t.Errorf("journal = %v", got)
 	}
-	if f.count("SELECT count(*) FROM core_locks") != 0 {
-		t.Error("a failed revert kept its locks")
+	if f.count("SELECT count(*) FROM core_locks WHERE owner = ?", v.ID) != 1 {
+		t.Error("a failed revert released its locks")
+	}
+}
+
+func TestAFailedRevertKeepsTheFailedApplysError(t *testing.T) {
+	f := newFixture(t)
+	v := f.apply(alice, f.plan(alice, refSet, `{"name":"a","value":"1","failApply":true,"failRevert":true}`).PlanID, core.ApplyOptions{})
+	if v.State != core.StateNeedsRepair || v.Error == nil || v.Error.Code != string(errcode.NeedsRepair) ||
+		v.Error.Cause != string(errcode.ChangeRevertFailed) {
+		t.Fatalf("change = %+v (error %+v), want needs_repair caused by change.revert_failed", v, v.Error)
+	}
+	if want := "the apply had failed first (" + string(errcode.Internal) + ": "; !strings.Contains(v.Error.Message, want) {
+		t.Errorf("message = %q, want it to contain %q", v.Error.Message, want)
 	}
 }
 
@@ -125,6 +139,21 @@ func TestTimerRevertsAtTheDeadline(t *testing.T) {
 	entries, err := f.journal.Entries(ctx, 0, 10)
 	if err != nil || len(entries) != 2 || entries[1].Phase != "revert" || entries[1].Actor != ActorRevertTimer {
 		t.Errorf("journal = %+v, %v; want a revert by %s", entries, err, ActorRevertTimer)
+	}
+}
+
+func TestTimerRetriesAStateItCouldNotRead(t *testing.T) {
+	f := newFixture(t)
+	v := f.pending(`{"name":"a","value":"1"}`)
+	f.recoverExec("ALTER TABLE core_changes RENAME TO core_changes_away")
+	f.clock.Advance(DefaultConfirmTimeout)
+	f.recoverExec("ALTER TABLE core_changes_away RENAME TO core_changes")
+	if s := f.state(v.ID); s != core.StatePending {
+		t.Fatalf("state after a failed read at the deadline = %s, want pending", s)
+	}
+	f.clock.Advance(revertTimerRetry)
+	if s := f.state(v.ID); s != core.StateReverted {
+		t.Fatalf("state a retry after the failed read = %s, want reverted", s)
 	}
 }
 
@@ -229,8 +258,10 @@ func TestCloseStopsAFiringTimer(t *testing.T) {
 	f.eng = eng
 	f.host.items["a"] = "old"
 	v := f.pending(`{"name":"a","value":"1"}`)
-	if len(clock.fns) != 1 {
-		t.Fatalf("armed timers = %d, want 1", len(clock.fns))
+	// The intent armed the change's revert timer, then the apply its answer
+	// timer.
+	if len(clock.fns) != 2 {
+		t.Fatalf("armed timers = %d, want 2", len(clock.fns))
 	}
 	eng.Close()
 	clock.fns[0]()
@@ -239,5 +270,52 @@ func TestCloseStopsAFiringTimer(t *testing.T) {
 	}
 	if f.host.items["a"] != "1" {
 		t.Errorf("item a = %q, want the applied 1", f.host.items["a"])
+	}
+}
+
+func TestRevertSeesTheChangeID(t *testing.T) {
+	tests := []struct {
+		name   string
+		revert func(f *fixture) string // reverts a change of fix.item.set and returns its id
+	}{
+		{"operator revert", func(f *fixture) string {
+			v := f.pending(`{"name":"a","value":"1"}`)
+			if _, err := f.eng.Revert(context.Background(), alice, v.ID); err != nil {
+				f.t.Fatal(err)
+			}
+			return v.ID
+		}},
+		{"timer", func(f *fixture) string {
+			v := f.pending(`{"name":"a","value":"1"}`)
+			f.clock.Advance(DefaultConfirmTimeout)
+			return v.ID
+		}},
+		{"failed verify", func(f *fixture) string {
+			return f.apply(alice, f.plan(alice, refSet, `{"name":"a","value":"1","failVerify":true}`).PlanID, core.ApplyOptions{}).ID
+		}},
+		{"startup recovery", func(f *fixture) string {
+			_, id := f.crash(refSet, `{"name":"a","value":"1","crashApply":true}`, core.ApplyOptions{})
+			f.restart()
+			f.recoverAll()
+			return id
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			id := tt.revert(f)
+			if s := f.state(id); s != core.StateReverted {
+				t.Fatalf("state = %s, want reverted", s)
+			}
+			var reverts []string
+			for _, seen := range f.host.changeIDs {
+				if strings.HasPrefix(seen, "Revert=") {
+					reverts = append(reverts, seen)
+				}
+			}
+			if want := []string{"Revert=" + id}; !reflect.DeepEqual(reverts, want) {
+				t.Errorf("Revert calls saw %v, want %v", reverts, want)
+			}
+		})
 	}
 }

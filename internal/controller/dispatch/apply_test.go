@@ -35,7 +35,7 @@ func newAudited(t *testing.T) (*harness, *Dispatcher, *audit.Store) {
 
 func (h *harness) plan(d *Dispatcher, hostID string, ref core.ActionRef, input string) core.PlanView {
 	h.t.Helper()
-	v, err := d.Plan(context.Background(), alice, hostID, ref, json.RawMessage(input))
+	v, err := d.Plan(context.Background(), alice, hostID, ref, json.RawMessage(input), core.PlanOptions{})
 	if err != nil {
 		h.t.Fatalf("Plan %s: %v", ref, err)
 	}

@@ -456,7 +456,7 @@ func TestEnrollmentTokensCarryTheAdvertisedAddress(t *testing.T) {
 			opts.AgentAdvertise = "panel.example:7443"
 			s := start(t, opts)
 			v, err := s.dispatcher.Plan(context.Background(), root(s.LocalHostID()), "",
-				core.ActionRef{Name: "core.host.create", Version: 1}, json.RawMessage(`{"name":"web1"}`))
+				core.ActionRef{Name: "core.host.create", Version: 1}, json.RawMessage(`{"name":"web1"}`), core.PlanOptions{})
 			if err != nil {
 				t.Fatalf("plan core.host.create: %v", err)
 			}

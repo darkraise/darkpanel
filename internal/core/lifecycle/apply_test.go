@@ -174,7 +174,7 @@ func TestApplyFailures(t *testing.T) {
 		{"revertible verify fails and reverts", refSet, `{"name":"a","value":"1","failVerify":true}`, core.ApplyOptions{},
 			core.StateReverted, "internal", []string{"apply/error/internal"}, "old"},
 		{"revertible revert fails", refSet, `{"name":"a","value":"1","failVerify":true,"failRevert":true}`, core.ApplyOptions{},
-			core.StateFailed, "change.revert_failed", []string{"revert/error/change.revert_failed"}, "1"},
+			core.StateNeedsRepair, "core.needs_repair", []string{"revert/error/core.needs_repair"}, "1"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -191,11 +191,13 @@ func TestApplyFailures(t *testing.T) {
 			if f.host.items["a"] != c.item {
 				t.Errorf("item a = %q, want %q", f.host.items["a"], c.item)
 			}
-			if n := f.count("SELECT count(*) FROM core_locks"); n != 0 {
-				t.Errorf("locks = %d, want 0", n)
+			// A change that needs repair keeps its locks and its plan's input.
+			finished := c.state != core.StateNeedsRepair
+			if n := f.count("SELECT count(*) FROM core_locks"); (n == 0) != finished {
+				t.Errorf("locks = %d with the change %s", n, c.state)
 			}
-			if !f.planInputCleared(pl.PlanID) {
-				t.Error("the plan's sealed input was kept after the result")
+			if f.planInputCleared(pl.PlanID) != finished {
+				t.Errorf("sealed input cleared = %v with the change %s", f.planInputCleared(pl.PlanID), c.state)
 			}
 		})
 	}

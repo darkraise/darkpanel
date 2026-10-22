@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/x509"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -12,10 +13,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/darkraise/darkpanel/internal/agent/daemon"
 	"github.com/darkraise/darkpanel/internal/cli"
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/core/store"
 	"github.com/darkraise/darkpanel/internal/install"
 	"github.com/darkraise/darkpanel/internal/paths"
 	"github.com/darkraise/darkpanel/internal/platform"
@@ -125,6 +129,11 @@ func TestAgentRefusals(t *testing.T) {
 		{[]string{"agent", "enroll"}, cli.ExitUsage, "agent enroll runs as root in production mode; run it with sudo, or add --dev"},
 		{[]string{"agent", "run", "extra"}, cli.ExitUsage, `unknown command "extra"`},
 		{[]string{"agent", "nope"}, cli.ExitUsage, `unknown command "nope"`},
+		{[]string{"agent", "task", "01J", "apply", "1"}, cli.ExitUsage, "agent task runs as root in production mode; run it with sudo, or add --dev"},
+		{[]string{"agent", "task", "--dev", "01J", "fix", "1"}, cli.ExitUsage, `op "fix"`},
+		{[]string{"agent", "task", "--dev", "01J", "apply", "0"}, cli.ExitUsage, `attempt "0"`},
+		{[]string{"agent", "task", "--dev", "01J", "apply", "x"}, cli.ExitUsage, `attempt "x"`},
+		{[]string{"agent", "task", "--dev", "01J", "apply"}, cli.ExitUsage, "accepts 3 arg(s), received 2"},
 	}
 	for _, tt := range tests {
 		out, code := runArgs(tt.args...)
@@ -159,6 +168,9 @@ func TestAgentRunDev(t *testing.T) {
 	if s.statusErr != nil {
 		t.Errorf("core.update.status on the agent registry: %v, want it to run on the agent's updater", s.statusErr)
 	}
+	if cfg.Runtime.Units != nil {
+		t.Errorf("agent run --dev passed units %v, want none, so the engine refuses task actions", cfg.Runtime.Units)
+	}
 	if upd.Paths != s.dev || upd.HTTP != nil || upd.Index == nil ||
 		upd.Probes.Agent == nil || upd.Probes.Controller != nil || upd.NewerAgents != nil {
 		t.Errorf("the dev updater config is %+v, want the dev paths, no HTTP client, an index, only the agent probe", upd)
@@ -182,6 +194,84 @@ func TestAgentRunDev(t *testing.T) {
 	}
 	if s.systemd.closed != 0 {
 		t.Errorf("the systemd seam closed %d times, want never", s.systemd.closed)
+	}
+}
+
+// taskAgentDB migrates the development agent's database and seeds change
+// 01JTASK of action tsk.pkg.install, which this binary does not register,
+// with apply attempt 1 starting and attempt 2 fenced.
+func taskAgentDB(t *testing.T, p paths.Paths) {
+	t.Helper()
+	ctx := context.Background()
+	if err := os.MkdirAll(filepath.Dir(p.AgentDB()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(ctx, p.AgentDB())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	set, err := store.CoreMigrations(store.SideAgent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Migrate(ctx, db, store.MigrateOptions{
+		Side: store.SideAgent, BinaryVersion: "0.3.0", BackupRoot: p.AgentBackups(), Keep: 1, Now: time.Now(),
+	}, set, nil); err != nil {
+		t.Fatal(err)
+	}
+	const at = "2026-10-22T12:00:00.000000000Z"
+	for _, q := range []string{
+		`INSERT INTO core_plans (id, host_id, action, version, actor, input_hash, state_hash, diff_json, guards_json,
+			confirmation, created_at, expires_at)
+			VALUES ('01JPLAN', 'h1', 'tsk.pkg.install', 1, 'user:alice', '', '', '[]', '[]', '', '` + at + `', '` + at + `')`,
+		`INSERT INTO core_changes (id, plan_id, host_id, action, version, class, compensated_by, actor, state,
+			input_json, recovery_owner, created_at, updated_at)
+			VALUES ('01JTASK', '01JPLAN', 'h1', 'tsk.pkg.install', 1, 'compensable', '', 'user:alice', 'applying',
+			'{}', 'engine', '` + at + `', '` + at + `')`,
+		`INSERT INTO core_task_runs (change_id, op, attempt, state, started_at)
+			VALUES ('01JTASK', 'apply', 1, 'starting', '` + at + `'), ('01JTASK', 'apply', 2, 'cancelled', '` + at + `')`,
+	} {
+		if _, err := db.Writer().ExecContext(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestAgentTask(t *testing.T) {
+	s := fakeAgent(t, 1000)
+	taskAgentDB(t, s.dev)
+	row := func(attempt int) (state, code string, pid sql.NullInt64) {
+		t.Helper()
+		db, err := store.Open(context.Background(), s.dev.AgentDB())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = db.Close() }()
+		if err := db.Read().QueryRow(
+			"SELECT state, error_code, pid FROM core_task_runs WHERE change_id = '01JTASK' AND op = 'apply' AND attempt = ?",
+			attempt).Scan(&state, &code, &pid); err != nil {
+			t.Fatal(err)
+		}
+		return state, code, pid
+	}
+
+	if out, code := runArgs("agent", "task", "--dev", "01JTASK", "apply", "1"); code != cli.ExitOK {
+		t.Fatalf("agent task on a starting row: exit %d: %s", code, out)
+	}
+	if state, code, pid := row(1); state != "failed" || code != string(errcode.ActionUnknown) || !pid.Valid {
+		t.Errorf("attempt 1 = %s with code %q and pid %v, want claimed (a pid) and failed with %s",
+			state, code, pid, errcode.ActionUnknown)
+	}
+
+	if out, code := runArgs("agent", "task", "--dev", "01JTASK", "apply", "2"); code != cli.ExitOK {
+		t.Fatalf("agent task on a fenced row: exit %d: %s", code, out)
+	}
+	if state, code, pid := row(2); state != "cancelled" || code != "" || pid.Valid {
+		t.Errorf("fenced attempt 2 = %s with code %q and pid %v, want it left cancelled", state, code, pid)
+	}
+	if len(s.runs) != 0 {
+		t.Errorf("agent task ran the daemon %d times, want never", len(s.runs))
 	}
 }
 
@@ -209,6 +299,10 @@ func TestAgentRunProduction(t *testing.T) {
 		}
 		if got := upd.Probes.Controller != nil; got != withController {
 			t.Errorf("controller unit installed %v: the updater probes the controller %v", withController, got)
+		}
+		if cfg.Runtime.Units != core.Units(s.systemd) || cfg.Runtime.TaskBinary != s.layout.Paths.Binary() {
+			t.Errorf("agent run passed units %v and task binary %q, want the systemd connection and %s",
+				cfg.Runtime.Units, cfg.Runtime.TaskBinary, s.layout.Paths.Binary())
 		}
 	}
 }

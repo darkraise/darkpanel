@@ -27,6 +27,8 @@ import (
 	"github.com/darkraise/darkpanel/internal/cli"
 	"github.com/darkraise/darkpanel/internal/controller/coreactions"
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/lifecycle"
+	"github.com/darkraise/darkpanel/internal/core/schema"
 	"github.com/darkraise/darkpanel/internal/core/secret"
 	"github.com/darkraise/darkpanel/internal/core/store"
 	"github.com/darkraise/darkpanel/internal/install"
@@ -110,6 +112,7 @@ type agentHost struct {
 	Sealer   *secret.Sealer
 	Updater  *update.Updater
 	Registry *core.Registry
+	Systemd  systemdConn // the agent's unit client; devSystemd for a development layout
 	Close    func() error
 }
 
@@ -185,7 +188,7 @@ func openAgent(ctx context.Context, p paths.Paths, log *slog.Logger) (*agentHost
 		_ = closeAll()
 		return nil, err
 	}
-	return &agentHost{DB: db, Sealer: sealer, Updater: upd, Registry: reg, Close: closeAll}, nil
+	return &agentHost{DB: db, Sealer: sealer, Updater: upd, Registry: reg, Systemd: sd, Close: closeAll}, nil
 }
 
 func newAgentCmd() *cobra.Command {
@@ -194,7 +197,7 @@ func newAgentCmd() *cobra.Command {
 		Short: "Run, enroll and check this host's agent",
 		RunE:  runGroup,
 	}
-	cmd.AddCommand(newAgentRunCmd(), newAgentEnrollCmd(), newAgentCheckCmd())
+	cmd.AddCommand(newAgentRunCmd(), newAgentEnrollCmd(), newAgentCheckCmd(), newAgentTaskCmd())
 	return cmd
 }
 
@@ -255,7 +258,8 @@ func newAgentRunCmd() *cobra.Command {
 				Runtime: runtime.Config{
 					DB: host.DB, Sealer: host.Sealer, Clock: core.SystemClock{}, Log: log, Registry: host.Registry,
 					BinaryVersion: buildinfo.Version, BackupDir: p.AgentBackups(),
-					Exec: platform.NewRunner(platform.ProductionAllowlist()),
+					Exec:  platform.NewRunner(platform.ProductionAllowlist()),
+					Units: host.Systemd, TaskBinary: p.Binary(),
 				},
 				Updater:        host.Updater,
 				NeverConnected: neverConnected,
@@ -265,6 +269,10 @@ func newAgentRunCmd() *cobra.Command {
 				// CLI must reach the socket.
 				uid := uint32(os.Getuid()) //nolint:gosec // G115: a uid fits in 32 bits
 				cfg.AllowPeer = func(peer uint32) bool { return peer == 0 || peer == uid }
+				// devSystemd can neither start a task unit nor read one, so a
+				// task change would wait forever; without units the engine
+				// refuses task actions at apply.
+				cfg.Runtime.Units = nil
 			}
 			return errors.Join(daemonRun(ctx, cfg), host.Close())
 		},
@@ -377,6 +385,61 @@ func newAgentCheckCmd() *cobra.Command {
 		},
 	}
 	cmd.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return checkFailed(err) })
+	addDevFlag(cmd, &dev)
+	return cmd
+}
+
+// newAgentTaskCmd is the process a task unit runs (spec 1.3c): one attempt
+// of one op of one task change, recorded in its core_task_runs row. The
+// agent starts it; an operator never runs it.
+func newAgentTaskCmd() *cobra.Command {
+	var dev bool
+	cmd := &cobra.Command{
+		Use:     "task <change id> <apply|undo|recover> <attempt>",
+		Short:   "Run one attempt of a task change in its transient unit",
+		Hidden:  true,
+		Args:    cobra.ExactArgs(3),
+		PreRunE: requireRoot("task", &dev),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			changeID, op := args[0], args[1]
+			if op != core.TaskOpApply && op != core.TaskOpUndo && op != core.TaskOpRecover {
+				return cli.ExitWith(cli.ExitUsage, fmt.Errorf("op %q: want apply, undo or recover", op))
+			}
+			attempt, err := strconv.Atoi(args[2])
+			if err != nil || attempt < 1 {
+				return cli.ExitWith(cli.ExitUsage, fmt.Errorf("attempt %q: want a positive integer", args[2]))
+			}
+			p, err := resolvePaths(dev)
+			if err != nil {
+				return err
+			}
+			log := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil))
+			host, err := openAgent(cmd.Context(), p, log)
+			if err != nil {
+				return err
+			}
+			eng, err := lifecycle.New(lifecycle.Config{
+				Side: core.SideAgent, Registry: host.Registry, Validator: schema.NewValidator(),
+				Journal: lifecycle.NewAgentJournal(host.DB), Redact: schema.Redact,
+				Base: core.Env{
+					DB:   host.DB,
+					Exec: platform.NewRunner(platform.ProductionAllowlist()),
+					Files: platform.NewFiles(platform.FilesConfig{
+						Owned:     platform.OwnedPaths(host.Registry.Modules()),
+						Ownership: platform.NewOwnership(host.DB),
+						Clock:     core.SystemClock{},
+					}),
+					Sealer: host.Sealer, Clock: core.SystemClock{}, Log: log,
+				},
+			})
+			if err != nil {
+				return errors.Join(err, host.Close())
+			}
+			runErr := eng.RunTask(cmd.Context(), changeID, op, attempt)
+			eng.Close()
+			return errors.Join(runErr, host.Close())
+		},
+	}
 	addDevFlag(cmd, &dev)
 	return cmd
 }

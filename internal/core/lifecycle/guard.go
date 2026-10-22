@@ -7,15 +7,9 @@ import (
 	"log/slog"
 	"runtime"
 	"runtime/debug"
-	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
 )
-
-// VerifyTimeout bounds a handler's Verify, in apply and in Recover. It stays
-// below the API servers' 60 s WriteTimeout, so an apply whose Verify hangs
-// can still write its response.
-const VerifyTimeout = 30 * time.Second
 
 // panicError is a recovered handler panic. It carries no errcode, so the API
 // answers internal and a change fails with code internal.
@@ -51,27 +45,31 @@ func (e *Engine) protect(ref core.ActionRef, call string, f func() error) error 
 	return Protect(e.cfg.Base.Log, ref.String(), call, f)
 }
 
-// verify runs the handler's Verify with a context that ends after the
-// engine's verify timeout, and returns a plain error at that deadline even
-// when the handler ignores its context. Such a handler keeps running in the
-// background; Verify only reads the host, so the change's outcome is recorded
-// without waiting for it.
-func (e *Engine) verify(ctx context.Context, def core.ActionDef, env core.Env, in, out json.RawMessage) error {
-	ctx, cancel := context.WithTimeout(ctx, e.verifyTimeout)
-	defer cancel()
+// verifyRecovery runs Verify for startup recovery and reports what it found:
+// "verify passed", "verify failed: <message>" or, when Verify has not returned
+// within RecoveryVerifyBound, "verify did not finish". Recovery already
+// decided the change's outcome and Verify only reads, so a Verify that does
+// not finish is left running on its own goroutine with its context cancelled.
+func (e *Engine) verifyRecovery(ctx context.Context, def core.ActionDef, env core.Env, in, out json.RawMessage) string {
+	ctx, cancel := context.WithCancel(ctx)
+	bound := make(chan struct{})
+	timer := e.cfg.Base.Clock.AfterFunc(RecoveryVerifyBound, func() {
+		cancel()
+		close(bound)
+	})
 	done := make(chan error, 1)
 	go func() {
 		done <- e.protect(def.Ref(), "Verify", func() error { return def.Handler.Verify(ctx, env, in, out) })
 	}()
 	select {
 	case err := <-done:
-		return err
-	case <-ctx.Done():
-		select {
-		case err := <-done:
-			return err
-		default:
+		timer.Stop()
+		cancel()
+		if err != nil {
+			return "verify failed: " + e.changeError(def.Ref(), err).Message
 		}
-		return fmt.Errorf("lifecycle: Verify of %s did not finish within %s: %w", def.Ref(), e.verifyTimeout, ctx.Err())
+		return "verify passed"
+	case <-bound:
+		return "verify did not finish"
 	}
 }

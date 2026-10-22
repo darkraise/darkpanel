@@ -37,6 +37,13 @@ const (
 	LockHeld               Code = "lock.held"
 	Internal               Code = "internal"
 	Unavailable            Code = "unavailable"
+	// NeedsRepair is also the error stored on a change that enters
+	// needs_repair, with the code that led there as its cause.
+	NeedsRepair  Code = "core.needs_repair"
+	Recovering   Code = "core.recovering"
+	UndoConflict Code = "core.undo_conflict"
+	ChangeBusy   Code = "core.change_busy"
+	Uninstalling Code = "core.uninstalling"
 )
 
 // Action-level codes: they appear in a change's error or in the audit log,
@@ -46,6 +53,8 @@ const (
 	ExecOutputTooLarge Code = "exec.output_too_large"
 	FilesMarkersBad    Code = "files.markers_invalid"
 	JournalOverflow    Code = "journal.overflow"
+	ChildFailed        Code = "core.child_failed"
+	DeadlineExceeded   Code = "core.deadline_exceeded"
 )
 
 // Problem codes of the fleet, enrollment, update and rollout.
@@ -104,6 +113,13 @@ var registry = map[Code]info{
 	ExecOutputTooLarge:     {http.StatusInternalServerError, "Command output too large"},
 	FilesMarkersBad:        {http.StatusInternalServerError, "Invalid DARKPANEL markers"},
 	JournalOverflow:        {http.StatusInternalServerError, "Journal overflow"},
+	NeedsRepair:            {http.StatusConflict, "Change needs repair"},
+	Recovering:             {http.StatusConflict, "Recovery in progress"},
+	UndoConflict:           {http.StatusConflict, "Undo window closed"},
+	ChangeBusy:             {http.StatusConflict, "Change busy"},
+	Uninstalling:           {http.StatusConflict, "Host is being uninstalled"},
+	ChildFailed:            {http.StatusInternalServerError, "A composite step failed"},
+	DeadlineExceeded:       {http.StatusGatewayTimeout, "Action deadline exceeded"},
 
 	// A host whose agent has no live session may answer later unchanged.
 	HostOffline:              {http.StatusServiceUnavailable, "Host offline"},

@@ -179,19 +179,19 @@ func (d *Dispatcher) Resource(ctx context.Context, p core.Principal, hostID, nam
 
 // Plan plans a mutating action where Read would run it, and records the
 // plan's host and action in core_plan_index for Apply.
-func (d *Dispatcher) Plan(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage) (core.PlanView, error) {
+func (d *Dispatcher) Plan(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage, opts core.PlanOptions) (core.PlanView, error) {
 	def, err := d.action(a, hostID)
 	if err != nil {
 		return core.PlanView{}, err
 	}
 	var v core.PlanView
 	if def.Spec.Side == core.SideController {
-		v, err = d.cfg.Engine.Plan(ctx, p, a, input)
+		v, err = d.cfg.Engine.Plan(ctx, p, a, input, opts)
 	} else {
 		var c core.AgentClient
 		if c, err = d.agent(ctx, hostID, a.Name); err == nil {
 			if err = d.negotiate(hostID, def, input); err == nil {
-				v, err = c.Plan(ctx, p, a, input)
+				v, err = c.Plan(ctx, p, a, input, opts)
 			}
 		}
 	}
@@ -202,15 +202,16 @@ func (d *Dispatcher) Plan(ctx context.Context, p core.Principal, hostID string, 
 		return core.PlanView{}, fmt.Errorf("dispatch: %s on %q answered with a plan for %s/v%d on %s",
 			a, hostID, v.Action, v.Version, v.HostID)
 	}
-	if err := d.remember(ctx, hostID, a, v); err != nil {
+	if err := d.remember(ctx, hostID, a, v, ""); err != nil {
 		return core.PlanView{}, err
 	}
 	return v, nil
 }
 
 // remember indexes a plan (register row 69, obligation 1) and deletes the
-// unapplied plans whose retention has passed.
-func (d *Dispatcher) remember(ctx context.Context, hostID string, a core.ActionRef, v core.PlanView) error {
+// unapplied plans whose retention has passed. repairs names the change a
+// repair plan repairs; "" stores NULL.
+func (d *Dispatcher) remember(ctx context.Context, hostID string, a core.ActionRef, v core.PlanView, repairs string) error {
 	cutoff := d.cfg.Clock.Now().Add(-PlanIndexRetention).UTC().Format(timeFormat)
 	err := d.cfg.DB.Write(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx,
@@ -218,8 +219,9 @@ func (d *Dispatcher) remember(ctx context.Context, hostID string, a core.ActionR
 			return err
 		}
 		_, err := tx.ExecContext(ctx,
-			`INSERT INTO core_plan_index (plan_id, host_id, action, version, expires_at) VALUES (?, ?, ?, ?, ?)`,
-			v.PlanID, hostID, a.Name, a.Version, v.ExpiresAt.UTC().Format(timeFormat))
+			`INSERT INTO core_plan_index (plan_id, host_id, action, version, expires_at, repairs) VALUES (?, ?, ?, ?, ?, ?)`,
+			v.PlanID, hostID, a.Name, a.Version, v.ExpiresAt.UTC().Format(timeFormat),
+			sql.NullString{String: repairs, Valid: repairs != ""})
 		return err
 	})
 	if err != nil {

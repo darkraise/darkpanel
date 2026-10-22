@@ -65,7 +65,9 @@ func (demoHandler[In, Out]) Verify(context.Context, core.Env, In, Out) error { r
 
 func (demoHandler[In, Out]) Snapshot(context.Context, core.Env, In) ([]byte, error) { return nil, nil }
 
-func (demoHandler[In, Out]) Revert(context.Context, core.Env, []byte) error { return nil }
+func (demoHandler[In, Out]) Revert(context.Context, core.Env, []byte) (core.RevertOutcome, error) {
+	return core.RevertOutcome{}, nil
+}
 
 // demoModule has an agent-side read, revertible and irreversible action, a
 // controller-side read and compensable action, two break-glass actions and
@@ -78,7 +80,10 @@ func (demoModule) Manifest() core.Manifest {
 		ID: "demo", Version: 1,
 		Actions: []core.ActionDef{
 			core.DefineRead(core.ActionSpec{Name: "demo.item.get", Version: 1, Side: core.SideAgent}, h),
-			core.DefineRevertible(core.ActionSpec{Name: "demo.item.add", Version: 1, Side: core.SideAgent, LockKeys: []string{"demo"}}, h),
+			core.DefineRevertible(core.ActionSpec{Name: "demo.item.add", Version: 1, Side: core.SideAgent, LockKeys: []string{"demo"},
+				RepairedBy: "demo.item.repair"}, h),
+			core.DefineMutating(core.ActionSpec{Name: "demo.item.repair", Version: 1, Class: core.ClassIrreversible,
+				Side: core.SideAgent, LockKeys: []string{"demo"}}, h),
 			core.DefineMutating(core.ActionSpec{Name: "demo.item.purge", Version: 1, Class: core.ClassIrreversible, Side: core.SideAgent}, h),
 			core.DefineRead(core.ActionSpec{Name: "demo.item.list", Version: 1, Side: core.SideController}, h),
 			core.DefineMutating(core.ActionSpec{Name: "demo.item.remove", Version: 1, Class: core.ClassCompensable,

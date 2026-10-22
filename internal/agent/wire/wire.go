@@ -1,8 +1,11 @@
 // Package wire holds the request and response bodies of the agent API
-// (ADR 0012). The core types carry no JSON tags, so the API never
-// encodes them directly: every body is one of these types, with camelCase
-// fields, times in UTC, durations in whole seconds and absent values as JSON
-// null, and with conversions to and from its core counterpart.
+// (ADR 0012). Most core types carry no JSON tags, so the API never encodes
+// them directly: their bodies are these types, with camelCase fields, times
+// in UTC, durations in whole seconds and absent values as JSON null, and with
+// conversions to and from their core counterparts. The lifecycle views and
+// requests of spec 1.3 (core.EffectView, core.ObserveResult,
+// core.PlanLookup, core.RepairRequest and core.ResolveRequest) carry their
+// own tags and are sent as they are.
 package wire
 
 import (
@@ -27,6 +30,11 @@ const (
 	HeaderProtocol     = "Darkpanel-Protocol"
 	HeaderVersion      = "Darkpanel-Version"
 	HeaderControllerID = "Darkpanel-Controller-Id"
+	// HeaderCall carries the CallContext the controller sends with a plan,
+	// apply, undo or release: its JSON encoded with base64.RawURLEncoding
+	// (spec 1.5). A plan's body is the action input itself, so the call
+	// cannot travel in the body.
+	HeaderCall = "Darkpanel-Call"
 )
 
 // MaxBody is the largest request or response body the agent API accepts.
@@ -49,6 +57,29 @@ func FromPrincipal(p core.Principal) Principal {
 // Core converts p back.
 func (p Principal) Core() core.Principal {
 	return core.Principal{Actor: p.Actor, UserID: p.UserID, TokenID: p.TokenID, Scope: core.Scope(p.Scope), Source: p.Source}
+}
+
+// CallContext is core.CallContext without RepairOf, which the agent derives
+// from a repair plan and never receives (spec 1.5). The agent decodes it
+// with unknown members refused, so a repairOf member is
+// request.invalid_input.
+type CallContext struct {
+	ParentChangeID string   `json:"parentChangeId"`
+	ParentAction   string   `json:"parentAction"`
+	StepID         string   `json:"stepId"`
+	Retired        []string `json:"retired"`
+}
+
+// FromCall converts c, leaving out RepairOf.
+func FromCall(c core.CallContext) CallContext {
+	return CallContext{ParentChangeID: c.ParentChangeID, ParentAction: c.ParentAction, StepID: c.StepID,
+		Retired: slices.Clone(c.Retired)}
+}
+
+// Core converts c back; RepairOf stays empty.
+func (c CallContext) Core() core.CallContext {
+	return core.CallContext{ParentChangeID: c.ParentChangeID, ParentAction: c.ParentAction, StepID: c.StepID,
+		Retired: slices.Clone(c.Retired)}
 }
 
 // SchemaHash is core.SchemaHash.
@@ -186,6 +217,7 @@ func (o ApplyOptions) Core() core.ApplyOptions {
 type ChangeError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	Cause   string `json:"cause"`
 }
 
 // ChangeView is core.ChangeView.
@@ -203,6 +235,11 @@ type ChangeView struct {
 	RevertDeadline *time.Time      `json:"revertDeadline"`
 	Output         json.RawMessage `json:"output"`
 	Error          *ChangeError    `json:"error"`
+	ParentChangeID string          `json:"parentChangeId"`
+	Owner          string          `json:"owner"`
+	RepairedBy     string          `json:"repairedBy"`
+	RepairOutcome  string          `json:"repairOutcome"`
+	Override       json.RawMessage `json:"override"`
 }
 
 // FromChangeView converts v.
@@ -210,10 +247,11 @@ func FromChangeView(v core.ChangeView) ChangeView {
 	out := ChangeView{
 		ID: v.ID, HostID: v.HostID, Action: v.Action, Version: v.Version, Actor: v.Actor, Class: string(v.Class),
 		CompensatedBy: v.CompensatedBy, State: v.State, CreatedAt: v.CreatedAt.UTC(), UpdatedAt: v.UpdatedAt.UTC(),
-		RevertDeadline: utcPtr(v.RevertDeadline), Output: raw(v.Output),
+		RevertDeadline: utcPtr(v.RevertDeadline), Output: raw(v.Output), ParentChangeID: v.ParentChangeID,
+		Owner: v.Owner, RepairedBy: v.RepairedBy, RepairOutcome: v.RepairOutcome, Override: raw(v.Override),
 	}
 	if v.Error != nil {
-		out.Error = &ChangeError{Code: v.Error.Code, Message: v.Error.Message}
+		out.Error = &ChangeError{Code: v.Error.Code, Message: v.Error.Message, Cause: v.Error.Cause}
 	}
 	return out
 }
@@ -223,12 +261,84 @@ func (v ChangeView) Core() core.ChangeView {
 	out := core.ChangeView{
 		ID: v.ID, HostID: v.HostID, Action: v.Action, Version: v.Version, Actor: v.Actor, Class: core.Class(v.Class),
 		CompensatedBy: v.CompensatedBy, State: v.State, CreatedAt: v.CreatedAt.UTC(), UpdatedAt: v.UpdatedAt.UTC(),
-		RevertDeadline: utcPtr(v.RevertDeadline), Output: raw(v.Output),
+		RevertDeadline: utcPtr(v.RevertDeadline), Output: raw(v.Output), ParentChangeID: v.ParentChangeID,
+		Owner: v.Owner, RepairedBy: v.RepairedBy, RepairOutcome: v.RepairOutcome, Override: raw(v.Override),
 	}
 	if v.Error != nil {
-		out.Error = &core.ChangeError{Code: v.Error.Code, Message: v.Error.Message}
+		out.Error = &core.ChangeError{Code: v.Error.Code, Message: v.Error.Message, Cause: v.Error.Cause}
 	}
 	return out
+}
+
+// RepairResult is core.RepairResult: the change a repair started, or the
+// plan it made.
+type RepairResult struct {
+	Change *ChangeView `json:"change,omitempty"`
+	Plan   *PlanView   `json:"plan,omitempty"`
+}
+
+// FromRepairResult converts r.
+func FromRepairResult(r core.RepairResult) RepairResult {
+	var out RepairResult
+	if r.Change != nil {
+		v := FromChangeView(*r.Change)
+		out.Change = &v
+	}
+	if r.Plan != nil {
+		p := FromPlanView(*r.Plan)
+		out.Plan = &p
+	}
+	return out
+}
+
+// Core converts r back.
+func (r RepairResult) Core() core.RepairResult {
+	var out core.RepairResult
+	if r.Change != nil {
+		v := r.Change.Core()
+		out.Change = &v
+	}
+	if r.Plan != nil {
+		p := r.Plan.Core()
+		out.Plan = &p
+	}
+	return out
+}
+
+// Release is the body of POST changes/{id}/release.
+type Release struct {
+	Reason string `json:"reason"`
+}
+
+// ReleaseResult is core.ReleaseResult; Abandoned is [] rather than null.
+type ReleaseResult struct {
+	Change    ChangeView        `json:"change"`
+	Abandoned []core.EffectView `json:"abandoned"`
+}
+
+// FromReleaseResult converts r.
+func FromReleaseResult(r core.ReleaseResult) ReleaseResult {
+	abandoned := slices.Clone(r.Abandoned)
+	if abandoned == nil {
+		abandoned = []core.EffectView{}
+	}
+	return ReleaseResult{Change: FromChangeView(r.Change), Abandoned: abandoned}
+}
+
+// Core converts r back.
+func (r ReleaseResult) Core() core.ReleaseResult {
+	return core.ReleaseResult{Change: r.Change.Core(), Abandoned: slices.Clone(r.Abandoned)}
+}
+
+// Effects is the answer of GET changes/{id}/effects.
+type Effects struct {
+	Effects []core.EffectView `json:"effects"`
+}
+
+// AckPrivate is the optional body of POST changes/{id}/private-output/ack;
+// an empty body is not final.
+type AckPrivate struct {
+	Final bool `json:"final"`
 }
 
 // JournalEntry is core.JournalEntry.

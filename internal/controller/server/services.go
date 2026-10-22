@@ -134,7 +134,9 @@ func (s *Server) startServices(ctx context.Context) error {
 		return err
 	}
 
-	s.ingester = audit.NewIngester(audit.IngesterConfig{Store: s.auditLog, Agents: s.hosts, Clock: s.clock, Log: s.log})
+	s.ingester = audit.NewIngester(audit.IngesterConfig{
+		Store: s.auditLog, Agents: s.hosts, Clock: s.clock, Log: s.log, OnEntries: wakeComposites(eng.Wake),
+	})
 	if err := s.ingester.IngestAll(ctx); err != nil {
 		s.log.Warn("server: audit ingestion", "error", err)
 	}
@@ -148,12 +150,40 @@ func (s *Server) startServices(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("server: %w", err)
 	}
+	eng.SetChildren(s.dispatcher.Children())
 	if !s.opts.EmbeddedAgent {
 		if err := s.startAgentListener(ctx); err != nil {
 			return err
 		}
 	}
+	// After the agent listener (1.3a): composite recovery follows children
+	// on agents that reconnect to it.
+	if err := eng.RecoverComposites(ctx); err != nil {
+		return fmt.Errorf("server: recover composites: %w", err)
+	}
 	return s.startRollouts(clients)
+}
+
+// wakePhases are the agent journal phases after which a composite following
+// the change looks its child up at once (1.3 Child watcher).
+var wakePhases = map[string]bool{
+	"apply": true, "interrupt": true, "revert": true, "recover": true, "undo": true, "resolve": true, "release": true,
+}
+
+// wakeComposites is the audit ingester's OnEntries: it wakes the composites
+// following the changes of the stored entries in wakePhases.
+func wakeComposites(wake func(changeIDs ...string)) func(hostID string, entries []core.JournalEntry) {
+	return func(_ string, entries []core.JournalEntry) {
+		var ids []string
+		for _, e := range entries {
+			if wakePhases[e.Phase] && e.ChangeID != "" {
+				ids = append(ids, e.ChangeID)
+			}
+		}
+		if len(ids) > 0 {
+			wake(ids...)
+		}
+	}
 }
 
 // startRollouts starts the rollout driver over the dispatcher and the update

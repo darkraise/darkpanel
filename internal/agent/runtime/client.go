@@ -14,7 +14,10 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/schema"
 )
 
-var _ core.AgentClient = (*Runtime)(nil)
+var (
+	_ core.AgentClient    = (*Runtime)(nil)
+	_ core.AgentChangeOps = (*Runtime)(nil)
+)
 
 // Hello reports the agent, every module's availability as of its last check
 // (migrations and preflight at Open, or a later Preflight), the schema
@@ -89,11 +92,11 @@ func (r *Runtime) Resource(ctx context.Context, p core.Principal, name string) (
 }
 
 // Plan plans an agent action.
-func (r *Runtime) Plan(ctx context.Context, p core.Principal, a core.ActionRef, input json.RawMessage) (core.PlanView, error) {
+func (r *Runtime) Plan(ctx context.Context, p core.Principal, a core.ActionRef, input json.RawMessage, opts core.PlanOptions) (core.PlanView, error) {
 	if err := r.usable(a.Name); err != nil {
 		return core.PlanView{}, err
 	}
-	return r.engine.Plan(ctx, p, a, input)
+	return r.engine.Plan(ctx, p, a, input, opts)
 }
 
 // Apply applies a plan made by Plan.
@@ -129,4 +132,62 @@ func (r *Runtime) Journal(ctx context.Context, afterSeq int64, limit int) ([]cor
 // Ack deletes the journal entries up to seq, which the controller stored.
 func (r *Runtime) Ack(ctx context.Context, seq int64) error {
 	return r.journal.Ack(ctx, seq)
+}
+
+// Undo undoes a change of this host (spec 1.2). call names the composite
+// whose unwind sends it, and is nil otherwise.
+func (r *Runtime) Undo(ctx context.Context, p core.Principal, changeID string, call *core.CallContext) (core.ChangeView, error) {
+	return r.engine.Undo(ctx, p, changeID, call)
+}
+
+// Repair repairs a change of this host in needs_repair (spec 1.3). A repair
+// may plan an action of the change's module, so, as for Plan, that module
+// must be usable.
+func (r *Runtime) Repair(ctx context.Context, p core.Principal, changeID string, req core.RepairRequest) (core.RepairResult, error) {
+	v, err := r.engine.Change(ctx, changeID)
+	if err != nil {
+		return core.RepairResult{}, err
+	}
+	if err := r.usable(v.Action); err != nil {
+		return core.RepairResult{}, err
+	}
+	return r.engine.Repair(ctx, p, changeID, req)
+}
+
+// Release gives up a change of this host in needs_repair. call names the
+// composite releasing its step, and is nil otherwise.
+func (r *Runtime) Release(ctx context.Context, p core.Principal, changeID, reason string, call *core.CallContext) (core.ReleaseResult, error) {
+	return r.engine.Release(ctx, p, changeID, reason, call)
+}
+
+// Effects lists a change's effects and those of its repair changes.
+func (r *Runtime) Effects(ctx context.Context, _ core.Principal, changeID string) ([]core.EffectView, error) {
+	return r.engine.Effects(ctx, changeID)
+}
+
+// Observe reads the resource of one effect now and changes nothing.
+func (r *Runtime) Observe(ctx context.Context, p core.Principal, changeID string, seq int) (core.ObserveResult, error) {
+	return r.engine.Observe(ctx, p, changeID, seq)
+}
+
+// Resolve records the operator's resolution of an unresolved effect.
+func (r *Runtime) Resolve(ctx context.Context, p core.Principal, changeID string, seq int, req core.ResolveRequest) (core.EffectView, error) {
+	return r.engine.Resolve(ctx, p, changeID, seq, req)
+}
+
+// Lookup reports what became of a plan; private adds a child change's
+// unredacted output while it is kept.
+func (r *Runtime) Lookup(ctx context.Context, planID string, private bool) (core.PlanLookup, error) {
+	return r.engine.Lookup(ctx, planID, private)
+}
+
+// Retire marks a plan that has no change so that it is never applied.
+func (r *Runtime) Retire(ctx context.Context, planID string) (core.PlanLookup, error) {
+	return r.engine.Retire(ctx, planID)
+}
+
+// AckPrivate clears a change's private output once the composite sealed it;
+// final says the composite is terminal.
+func (r *Runtime) AckPrivate(ctx context.Context, changeID string, final bool) error {
+	return r.engine.AckPrivate(ctx, changeID, final)
 }
