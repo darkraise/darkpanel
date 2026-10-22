@@ -151,8 +151,8 @@ func (r *Registry) addStreams(module string, defs []StreamDef) []error {
 // clash: an action <m>.<noun>.<verb> is `<m> <noun> <verb>`, a resource
 // <m>.<r> is `<m> <r> get`, and the core drops its module segment, so a core
 // noun or resource must not be a module id. A stream <m>.<n> is the command
-// `<m> <n> --follow`, which can be neither another command nor the group of
-// one.
+// `<m> <n> --follow`, with the core dropping its module segment here too,
+// which can be neither another command nor the group of one.
 func (r *Registry) checkCLINames(moduleIDs map[string]bool) []error {
 	var errs []error
 	owners := map[string]string{}
@@ -176,7 +176,14 @@ func (r *Registry) checkCLINames(moduleIDs map[string]bool) []error {
 		claim(res.Name, append(strings.Split(res.Name, "."), "get"))
 	}
 	for _, st := range r.Streams() {
-		cmd := st.Module + " " + st.Def.Name
+		words := []string{st.Module, st.Def.Name}
+		if st.Module == ModuleIDCore {
+			words = words[1:]
+			if moduleIDs[words[0]] {
+				errs = append(errs, fmt.Errorf("stream %s.%s takes the top-level CLI name %q of module %s", st.Module, st.Def.Name, words[0], words[0]))
+			}
+		}
+		cmd := strings.Join(words, " ")
 		var clashes []string
 		for other, owner := range owners {
 			if other == cmd || strings.HasPrefix(other, cmd+" ") {

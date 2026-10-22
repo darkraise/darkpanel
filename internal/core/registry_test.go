@@ -730,6 +730,8 @@ func TestRegistryStreams(t *testing.T) {
 			`stream strm.list: the CLI command "strm list" clashes with strm.list`},
 		{"group of an action", strmModule{id: "strm", streams: []StreamDef{DefineStream("list", strmLogs)}, actions: []ActionDef{readAction("strm.list.get")}},
 			`stream strm.list: the CLI command "strm list" clashes with strm.list.get`},
+		{"core stream without the module word", strmModule{id: ModuleIDCore, streams: []StreamDef{DefineStream("item", strmLogs)}, actions: []ActionDef{readAction("core.item.get")}},
+			`stream core.item: the CLI command "item" clashes with core.item.get`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
