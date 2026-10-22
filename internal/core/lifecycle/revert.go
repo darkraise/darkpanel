@@ -274,27 +274,39 @@ func (e *Engine) armTimer(changeID string, d time.Duration) {
 	e.timers[changeID] = armed
 }
 
+// revertTimerRetry is how long a revert timer that could not read its
+// change's state waits before it reads it again.
+const revertTimerRetry = 10 * time.Second
+
 // timerFired reverts a change still pending at its deadline. A change still
 // applying has a handler that has not returned and cannot be reverted around,
 // so the watchdog ends the process instead (spec 1.2). The state is read
 // under timerMu, which revertPending holds while it claims a change, so an
-// operator's revert in progress is never taken for a hung apply.
+// operator's revert in progress is never taken for a hung apply. A state
+// that cannot be read is read again after revertTimerRetry.
 func (e *Engine) timerFired(changeID string, armed *armedTimer) {
 	e.timerMu.Lock()
 	if e.closed || e.timers[changeID] != armed {
 		e.timerMu.Unlock()
 		return
 	}
-	delete(e.timers, changeID)
 	var state string
 	err := e.cfg.Base.DB.Read().QueryRow("SELECT state FROM core_changes WHERE id = ?", changeID).Scan(&state)
-	if err == nil && state == core.StatePending {
+	if err != nil {
+		retry := &armedTimer{}
+		retry.Timer = e.cfg.Base.Clock.AfterFunc(revertTimerRetry, func() { e.timerFired(changeID, retry) })
+		e.timers[changeID] = retry
+		e.timerMu.Unlock()
+		e.cfg.Base.Log.Error("lifecycle: revert timer: read the change; retrying", "change", changeID,
+			"retry", revertTimerRetry, "error", err)
+		return
+	}
+	delete(e.timers, changeID)
+	if state == core.StatePending {
 		e.inflight.Add(1)
 	}
 	e.timerMu.Unlock()
 	switch {
-	case err != nil:
-		e.cfg.Base.Log.Error("lifecycle: revert timer", "change", changeID, "error", err)
 	case state == core.StatePending:
 		defer e.inflight.Done()
 		_, err := e.revertPending(context.Background(), timerPrincipal, changeID)

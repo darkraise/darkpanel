@@ -142,6 +142,21 @@ func TestTimerRevertsAtTheDeadline(t *testing.T) {
 	}
 }
 
+func TestTimerRetriesAStateItCouldNotRead(t *testing.T) {
+	f := newFixture(t)
+	v := f.pending(`{"name":"a","value":"1"}`)
+	f.recoverExec("ALTER TABLE core_changes RENAME TO core_changes_away")
+	f.clock.Advance(DefaultConfirmTimeout)
+	f.recoverExec("ALTER TABLE core_changes_away RENAME TO core_changes")
+	if s := f.state(v.ID); s != core.StatePending {
+		t.Fatalf("state after a failed read at the deadline = %s, want pending", s)
+	}
+	f.clock.Advance(revertTimerRetry)
+	if s := f.state(v.ID); s != core.StateReverted {
+		t.Fatalf("state a retry after the failed read = %s, want reverted", s)
+	}
+}
+
 func TestConfirmNowConfirmsInTheApply(t *testing.T) {
 	f := newFixture(t)
 	pl := f.plan(alice, refSet, `{"name":"a","value":"1"}`)
