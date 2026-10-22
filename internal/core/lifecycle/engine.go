@@ -90,6 +90,10 @@ type Engine struct {
 	timers   map[string]*armedTimer // armed revert timers by change id
 	closed   bool                   // Close ran: no timer is armed and goRun runs nothing in the background
 	inflight sync.WaitGroup         // timer reverts that are running
+
+	// compMu guards children and the composite runner's maps.
+	compMu   sync.Mutex
+	children Children // set by SetChildren; nil refuses composites
 }
 
 // New returns an engine for cfg. Run Recover before serving requests.
@@ -293,11 +297,16 @@ func (e *Engine) Plan(ctx context.Context, p core.Principal, ref core.ActionRef,
 func (e *Engine) makePlan(ctx context.Context, p core.Principal, def core.ActionDef, canonical json.RawMessage, env core.Env, call any, repairs string) (core.PlanView, error) {
 	ref := def.Ref()
 	var out core.PlanOutcome
-	err := e.protect(ref, "Plan", func() error {
-		var err error
-		out, err = def.Handler.Plan(ctx, env, canonical)
-		return err
-	})
+	var err error
+	if def.Spec.Class == core.ClassComposite {
+		out, _, err = e.compositePlan(ctx, p, def, canonical)
+	} else {
+		err = e.protect(ref, "Plan", func() error {
+			var err error
+			out, err = def.Handler.Plan(ctx, env, canonical)
+			return err
+		})
+	}
 	if err != nil {
 		return core.PlanView{}, err
 	}
