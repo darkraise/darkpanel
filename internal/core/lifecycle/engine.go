@@ -380,8 +380,11 @@ func (e *Engine) Plan(ctx context.Context, p core.Principal, ref core.ActionRef,
 // repairs, when set, the change a repair plan repairs (core_plans.repairs).
 func (e *Engine) makePlan(ctx context.Context, p core.Principal, def core.ActionDef, canonical json.RawMessage, env core.Env, call any, repairs string) (core.PlanView, error) {
 	ref := def.Ref()
+	overrides, err := guardOverrides(def, canonical)
+	if err != nil {
+		return core.PlanView{}, err
+	}
 	var out core.PlanOutcome
-	var err error
 	if def.Spec.Class == core.ClassComposite {
 		out, _, err = e.compositePlan(ctx, p, def, canonical)
 	} else {
@@ -392,6 +395,9 @@ func (e *Engine) makePlan(ctx context.Context, p core.Principal, def core.Action
 		})
 	}
 	if err != nil {
+		return core.PlanView{}, err
+	}
+	if err := checkGuards(def, overrides, &out); err != nil {
 		return core.PlanView{}, err
 	}
 	if def.Spec.Class != core.ClassIrreversible {

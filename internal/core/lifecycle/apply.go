@@ -299,15 +299,23 @@ func confirmTimeout(class core.Class, d time.Duration) (time.Duration, error) {
 }
 
 // recheck is apply's step 1: the handler plans again from the stored input,
-// and checkReplan compares the outcome with the plan.
+// its guards are checked against the action's declaration as at plan, and
+// checkReplan compares the outcome with the plan.
 func (e *Engine) recheck(ctx context.Context, env core.Env, def core.ActionDef, pl planRecord, input json.RawMessage) error {
+	overrides, err := guardOverrides(def, input)
+	if err != nil {
+		return err
+	}
 	var out core.PlanOutcome
-	err := e.protect(def.Ref(), "Plan", func() error {
+	err = e.protect(def.Ref(), "Plan", func() error {
 		var err error
 		out, err = def.Handler.Plan(ctx, env, input)
 		return err
 	})
 	if err != nil {
+		return err
+	}
+	if err := checkGuards(def, overrides, &out); err != nil {
 		return err
 	}
 	return checkReplan(pl, out)
