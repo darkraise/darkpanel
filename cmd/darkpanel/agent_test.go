@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/darkraise/darkpanel/internal/agent/daemon"
 	"github.com/darkraise/darkpanel/internal/cli"
 	"github.com/darkraise/darkpanel/internal/core"
@@ -69,15 +71,15 @@ func fakeAgent(t *testing.T, euid int) *agentSeams {
 		systemd: &fakeSystemd{},
 	}
 	oldEUID, oldRun, oldEnroll, oldCheck := geteuid, daemonRun, daemonEnroll, daemonCheck
-	oldSystemd, oldUpdater, oldResolve, oldLayout := newSystemd, newUpdater, resolvePaths, installLayout
+	oldSystemd, oldUpdater, oldResolve, oldLayout := newSystemd, newUpdater, selectPaths, installLayout
 	t.Cleanup(func() {
 		geteuid, daemonRun, daemonEnroll, daemonCheck = oldEUID, oldRun, oldEnroll, oldCheck
-		newSystemd, newUpdater, resolvePaths, installLayout = oldSystemd, oldUpdater, oldResolve, oldLayout
+		newSystemd, newUpdater, selectPaths, installLayout = oldSystemd, oldUpdater, oldResolve, oldLayout
 	})
 	withoutHarness(t)
 	geteuid = func() int { return euid }
 	installLayout = func() install.Layout { return s.layout }
-	resolvePaths = func(dev bool) (paths.Paths, error) {
+	selectPaths = func(_ *cobra.Command, dev bool) (paths.Paths, error) {
 		if dev {
 			return paths.Resolve(true)
 		}
@@ -444,7 +446,9 @@ func TestAgentCheckExit(t *testing.T) {
 	}
 	s := fakeAgent(t, 0)
 	s.checkRes = install.CheckAccepted
-	resolvePaths = func(bool) (paths.Paths, error) { return paths.Paths{}, errors.New("no state directory") }
+	selectPaths = func(*cobra.Command, bool) (paths.Paths, error) {
+		return paths.Paths{}, errors.New("no state directory")
+	}
 	if stdout, stderr, code := runStdin(strings.NewReader(""), "agent", "check"); code != int(install.CheckFailed) ||
 		stdout != "" || !strings.Contains(stderr, "no state directory") {
 		t.Errorf("agent check with unresolvable paths: exit %d, stdout %q, stderr %q; want exit %d and the error",
