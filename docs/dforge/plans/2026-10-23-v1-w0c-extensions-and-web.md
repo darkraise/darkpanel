@@ -4,9 +4,9 @@
 
 **Goal:** Finish wave 0 of the v1 completion spec: the extension package `internal/core/ext` and its frozen call sites (spec 1.12), cloud plumbing (1.9), trusted proxies and runtime listeners (1.10), the web certificate sources, the module skeletons and every error code and dependency of section 11, the CLI and path-selection hooks, the restore-quarantine gate, the harness helpers, the web extension points with the change dialog and 1.3's web UI for undo, repair, release and per-effect resolution, ADR 0014, and register rows 92 and 93.
 
-**Architecture:** Shared types land first in `internal/core` and `internal/core/ext` (Task 2), so every later task consumes fixed names. Runtime listeners are split three ways: the `core_listeners` store in `internal/controller/listen`, the request wrapper in `internal/controller/api` (it owns request semantics: client address, forwarded protocol, origin check, server-sent-event behaviour), and the listener service in `internal/controller/listen`, which takes the wrapper as a handler factory. The restore-quarantine flag is one `core_meta` key read through `internal/controller/quarantine`; the dispatcher, the controller engine, the rollout driver and scheduler and the controller service runner each consult it through a function-valued config field, so no package gains a dependency on another's internals. The controller assembly wires everything last (Tasks 29 and 30). The web side adds the API client calls first, then the change dialog, then the pages that use it.
+**Architecture:** Shared types land first in `internal/core` and `internal/core/ext` (Tasks 2, 3 and 19), so every later task consumes fixed names. Runtime listeners are split three ways: the `core_listeners` store in `internal/controller/listen`, the request wrapper in `internal/controller/api` (it owns request semantics: client address, forwarded protocol, origin check, server-sent-event behaviour), and the listener service in `internal/controller/listen`, which takes the wrapper as a handler factory. The restore-quarantine flag is one `core_meta` key read through `internal/controller/quarantine`; the dispatcher, the controller engine, the rollout driver and scheduler and the controller service runner each consult it through a function-valued config field, so no package gains a dependency on another's internals. The controller assembly wires everything last (Tasks 46 to 48). The web side adds the API client calls first, then the change dialog, then the pages that use it.
 
-**Tech Stack:** Go 1.27 (`GOTOOLCHAIN=local`), `database/sql` over `modernc.org/sqlite` through `internal/core/store`, `net/http`, `net/netip`, `crypto/tls`, `github.com/spf13/cobra`, `github.com/tailscale/hujson` (new, Task 8); web: TypeScript, React 19, `@tanstack/react-query`, `darkraise-ui`, `react-router`, Vitest with jsdom, `vitest-axe` and `@playwright/test` (new development dependencies, Task 7).
+**Tech Stack:** Go 1.27 (`GOTOOLCHAIN=local`), `database/sql` over `modernc.org/sqlite` through `internal/core/store`, `net/http`, `net/netip`, `crypto/tls`, `github.com/spf13/cobra`, `github.com/tailscale/hujson` (new, Task 29); web: TypeScript, React 19, `@tanstack/react-query`, `darkraise-ui`, `react-router`, Vitest with jsdom, `vitest-axe` and `@playwright/test` (new development dependencies, Task 16).
 
 **Spec:** docs/dforge/specs/2026-10-21-v1-completion-design.md
 
@@ -17,6 +17,8 @@
 **Integration check:** `GOTOOLCHAIN=local go build ./... && GOTOOLCHAIN=local go test -count=1 ./... && GOTOOLCHAIN=local go vet ./... && golangci-lint run --allow-serial-runners && GOTOOLCHAIN=local go mod tidy -diff && make lint-web test-web`
 
 **Worktree setup:** `make web-deps`
+
+**Plan review:** 2026-10-23 — dforge:judge-opus — executability 16 / coherence 16 / coverage 17 / assumptions 16 (round 1)
 
 ## Global Constraints
 
@@ -30,7 +32,7 @@
   Where this plan builds part of a later section, it builds exactly the part a task names and nothing more.
 - Build only with the toolchain `go.mod` pins: every `go` command runs with `GOTOOLCHAIN=local` (ADR 0001).
 - `/tmp` on this host is an 8 GiB tmpfs that parallel Go builds fill. Every `go` command, `golangci-lint`, `make` and `pnpm` runs with `TMPDIR=/root/.cache/w0c-tmp/<task number>`, also where a step's command omits it. Create the directory with `mkdir -p` and empty it when the task ends.
-- Dependencies: only Task 7 edits `web/package.json` and `web/pnpm-lock.yaml`, and only Task 8 edits `go.mod` and `go.sum`. After every task `GOTOOLCHAIN=local go mod tidy -diff` prints nothing.
+- Dependencies: only Task 16 edits `web/package.json` and `web/pnpm-lock.yaml`, and only Task 29 edits `go.mod` and `go.sum`. After every task `GOTOOLCHAIN=local go mod tidy -diff` prints nothing.
 - Frozen after this plan (spec 1.12): `internal/core/contract.go`, `internal/core/units.go`, `internal/core/define.go`, `internal/core/registry.go`, `internal/core/ext/**`, `internal/core/errcode/errcode.go`, `internal/core/lifecycle/**`, the core migrations, `internal/platform/exec.go`, `files.go`, `systemd.go`, `internal/modules/modules.go`, `internal/cli/modules.go`, `internal/controller/server/**`, `internal/controller/api/**`, `internal/controller/events/**`, `internal/controller/listen/sources.go`, `cmd/darkpanel/paths.go`, `go.mod`, `go.sum`, `web/package.json`, `web/pnpm-lock.yaml`, `web/src/modules/registry.ts`, `web/src/modules/types.ts`, `web/src/app.tsx`, `test/harness/pins.go`. A later wave cannot add to them, so every name the Contracts below give these files is built in full here.
 - Values copied from the spec, used exactly:
   - Cloud client: a 15 s timeout per request; at most 3 retries, for `GET` and `DELETE` only, with backoff, honouring `Retry-After`; an uncertain write's `CommitWait` is 10 minutes (its `CommitBy` is the call's start plus 10 minutes).
@@ -54,7 +56,7 @@
 - Lint: `golangci-lint run --allow-serial-runners`, `GOTOOLCHAIN=local go vet ./...` and, for a task that edits `web/`, `make lint-web` stay clean.
 - Each task of a wave runs in its own worktree from the wave's base, so a package-wide command sees only merged work plus the task's own files.
 - Commits use `<type>(<scope>): <subject>`, subject at most 50 characters, imperative, no period, and carry no attribution lines.
-- The plan ends with the gates in `docs/dforge/gates.md`. Tasks 14 and 15 touch `test/harness/`, so gate 7 (harness) applies to the branch once it is pushed, as well as on `main`; dispatch `harness.yml` on the branch per the owner's standing authorization. No task creates or pushes a tag.
+- The plan ends with the gates in `docs/dforge/gates.md`. Tasks 14, 15, 17, 22 and 34 touch `test/harness/`, so gate 7 (harness) applies to the branch once it is pushed, as well as on `main`; dispatch `harness.yml` on the branch per the owner's standing authorization. No task creates or pushes a tag.
 
 ## Contracts
 
@@ -62,7 +64,7 @@ Each entry names the task that creates it. A task's Interfaces block cites entri
 
 **C1 — Error codes (Task 1), `internal/core/errcode/errcode.go`.** One constant per section 11 code that the registry lacks, with the status and title of section 11's table, in the problem or action `const` block its Kind names. Constant names: `FirewallManualRequired`, `FirewallUnsupportedIntegration`, `FirewallUnsupportedConfiguration`, `FirewallPredictionMismatch` (action), `FirewallDockerUserInUse`, `DockerEngineUnavailable`, `DockerInUse`, `DockerOwned`, `DockerComposeUnavailable`, `TailscaleUnavailable`, `TailscaleRepoConflict`, `TailscalePackagePresent`, `TailscalePackageHeld`, `TailscalePinFailed` (action), `TailnetPolicyConflict`, `TailnetPolicyInvalid`, `CloudNotConnected`, `CloudAuthFailed`, `CloudPermissionMissing`, `CloudRateLimited`, `CloudUnavailable`, `CloudUncertainOutcome` (action), `CloudConflict`, `CloudCleanupPending`, `NPMUnhealthy`, `NPMNotPublic`, `NPMSetupFailed` (action), `NPMReserved`, `NPMUnsupportedTarget`, `CloudflareReserved`, `CloudflareUnsupportedTarget`, `CloudflareConnectorMissing`, `DERPRegionTaken`, `DERPPortInUse`, `DERPVerifyFailed` (action), `DERPNotReady`, `DERPNoFallback`, `PanelTOTPIncomplete`, `PanelAlreadyExposed`, `PanelWrongHost`, `PanelNotExposed`, `Quarantined` (`core.quarantined`). The eight `core.*` codes already present stay as they are.
 
-**C2 — Extension package (Task 2), `internal/core/ext/ext.go`.** Exactly the declarations of spec 1.12: `Surface` with `SurfaceWeb` and `SurfaceSocket`; `Route{Surface, Method, Path, Summary, Scope, Stream, Handler}`; `Service{Name, Run}`; `Deps{DB, Sealer, Clock, Log, Hosts, Dispatch, Events, Listeners, Audit, LocalHostID}`; `Dispatcher` (`Read`, `ReadInternal`, `Plan`, `Apply` with the signatures of spec 1.12); `Publisher{Publish(eventType string, data any)}`; `Controller{Controller(deps Deps) ([]Route, []Service, error)}`. The package imports only `internal/core`, `internal/core/store` and the standard library.
+**C2 — Extension package (Task 19), `internal/core/ext/ext.go`.** Exactly the declarations of spec 1.12: `Surface` with `SurfaceWeb` and `SurfaceSocket`; `Route{Surface, Method, Path, Summary, Scope, Stream, Handler}`; `Service{Name, Run}`; `Deps{DB, Sealer, Clock, Log, Hosts, Dispatch, Events, Listeners, Audit, LocalHostID}`; `Dispatcher` (`Read`, `ReadInternal`, `Plan`, `Apply` with the signatures of spec 1.12); `Publisher{Publish(eventType string, data any)}`; `Controller{Controller(deps Deps) ([]Route, []Service, error)}`. The package imports only `internal/core`, `internal/core/store` and the standard library.
 
 **C3 — Runtime listener types (Task 2), `internal/core/listeners.go`.** `Listeners` (`Open`, `Revoke`, `Close`, `Get`), `ListenerSpec{Addr netip.AddrPort, AllowedPeer netip.Addr, ClientHeader, PublicHost, ChangeID string}`, `ListenerInfo{ID string, Spec ListenerSpec, State string}` exactly as spec 1.12, plus:
 
@@ -81,9 +83,9 @@ const (
 )
 ```
 
-`Env` (`internal/core/contract.go`) gains `Listeners Listeners // controller-side actions only; nil on the agent`, placed after `Units`.
+`Env` (`internal/core/contract.go`) gains `Listeners Listeners // controller-side actions only; nil on the agent`, placed after `Units` (also Task 2).
 
-**C4 — Proxied requests (Task 2), `internal/core/peer.go`.**
+**C4 — Proxied requests (Task 3), `internal/core/peer.go`.**
 
 ```go
 // Proxied describes a request that reached the controller through a
@@ -106,7 +108,7 @@ func WithProxied(ctx context.Context, p Proxied) context.Context
 func ProxiedFrom(ctx context.Context) (Proxied, bool)
 ```
 
-**C5 — Cloud test scaffolding (Task 3), `internal/controller/cloud/cloudfake`.**
+**C5 — Cloud test scaffolding (Task 4), `internal/controller/cloud/cloudfake`.**
 
 ```go
 // Server is an in-process provider stand-in: an httptest TLS-less server
@@ -146,11 +148,11 @@ type Request struct {
 }
 ```
 
-**C6 — Web development dependencies (Task 7).** `web/package.json` gains the exact devDependencies `vitest-axe` `1.0.0-pre.5` and `@playwright/test` `1.64.0`; `web/src/test/setup.ts` registers `vitest-axe`'s matchers, so any test may `expect(await axe(container)).toHaveNoViolations()` after `import { axe } from "vitest-axe"`.
+**C6 — Web development dependencies (Task 16).** `web/package.json` gains the exact devDependencies `vitest-axe` `1.0.0-pre.5` and `@playwright/test` `1.64.0`; `web/src/test/setup.ts` registers `vitest-axe`'s matchers, so any test may `expect(await axe(container)).toHaveNoViolations()` after `import { axe } from "vitest-axe"`.
 
-**C7 — Module skeletons (Task 8).** Packages `internal/modules/<id>` for the eight ids, each with `func Module() core.Module` returning a module whose manifest has the id, `Version: 1`, a one-line `Summary` where the manifest has one, and nothing else; `internal/modules/modules.go`'s `All` lists them after `hostinfo` in the order firewall, docker, tailscale, tailnet, derp, npm, cloudflare, panel. `internal/modules/tailnet` holds the blank import of `github.com/tailscale/hujson` that keeps the dependency in `go.mod`.
+**C7 — Module skeletons (Task 8; the hujson import Task 29).** Packages `internal/modules/<id>` for the eight ids, each with `const ID` and `func Module() core.Module` returning a module whose manifest is `core.Manifest{ID: ID, Version: 1, DefaultEnabled: true}` and nothing else (the manifest has no `Summary` field); `internal/modules/modules.go`'s `All` lists them after `hostinfo` in the order firewall, docker, tailscale, tailnet, derp, npm, cloudflare, panel. `internal/modules/tailnet/deps.go` holds the blank import of `github.com/tailscale/hujson` that keeps the dependency in `go.mod`.
 
-**C8 — Cloud client (Task 16), `internal/controller/cloud`.**
+**C8 — Cloud client (Task 23; sealing and probes Task 35), `internal/controller/cloud`.**
 
 ```go
 const (
@@ -217,14 +219,22 @@ type Probe struct {
 	Name string
 	Read func(ctx context.Context) error
 }
+// The states of a Capability.
+const (
+	CapabilityOK         = "ok"
+	CapabilityMissing    = "missing"
+	CapabilityUnverified = "unverified"
+)
 // ProbeReads runs every probe and reports each as ok or missing, then
 // appends writes as unverified, in the order given.
 func ProbeReads(ctx context.Context, probes []Probe, writes []string) []Capability
 ```
 
-**C9 — Runtime listener store (Task 21).** Controller core migration `internal/core/store/migrations/controller/0012_listeners.sql` creating `core_listeners` (`id TEXT PRIMARY KEY`, `address TEXT NOT NULL`, `port INTEGER NOT NULL`, `allowed_peer TEXT NOT NULL`, `client_header TEXT NOT NULL` checked against the two C3 headers, `public_host TEXT NOT NULL`, `change_id TEXT NOT NULL`, `state TEXT NOT NULL` checked against the three C3 states, `created_at TEXT NOT NULL`, `updated_at TEXT NOT NULL`). In `internal/controller/listen/runtime_store.go`: `insertListener(ctx, tx *sql.Tx, id string, spec core.ListenerSpec, now time.Time) error`, `setListenerState(ctx, tx *sql.Tx, id, state string, from []string, now time.Time) (bool, error)` (a conditional update that reports whether a row changed), `getListener(ctx, db *store.DB, id string) (core.ListenerInfo, error)` (`errcode.NotFound` when absent) and `listListeners(ctx, db *store.DB, state string) ([]core.ListenerInfo, error)` (by `created_at`, then `id`).
+Further behaviour of `Do`: each attempt is bounded by `Timeout` through its own context, whatever `HTTP` client is passed; retries wait 1 s, 2 s and 4 s, or the provider's `Retry-After` (seconds or an HTTP date), and an unreadable `Retry-After` falls back to the 1/2/4 s delays while one over 60 s ends the retries at once; the default client refuses redirects, and a 3xx answer is `CloudUnavailable`; a response body over 8 MiB is refused; an `Auth` or request-build failure sends nothing and is wrapped with `core.Definite`; an unreadable 2xx JSON body in `JSON` is `CloudUnavailable`.
 
-**C10 — Runtime request wrapper (Task 22), `internal/controller/api/runtime.go`.**
+**C9 — Runtime listener store (migration Task 18, store Task 28).** Controller core migration `internal/core/store/migrations/controller/0012_listeners.sql` creating `core_listeners` (`id TEXT PRIMARY KEY`, `address TEXT NOT NULL`, `port INTEGER NOT NULL`, `allowed_peer TEXT NOT NULL`, `client_header TEXT NOT NULL` checked against the two C3 headers, `public_host TEXT NOT NULL`, `change_id TEXT NOT NULL`, `state TEXT NOT NULL` checked against the three C3 states, `created_at TEXT NOT NULL`, `updated_at TEXT NOT NULL`), a `STRICT` table. In `internal/controller/listen/runtime_store.go`: the constant `listenerTimeFormat` (`"2006-01-02T15:04:05.000000000Z"`, the stored UTC time form), `insertListener(ctx, tx *sql.Tx, id string, spec core.ListenerSpec, now time.Time) error`, `setListenerState(ctx, tx *sql.Tx, id, state string, from []string, now time.Time) (bool, error)` (a conditional update that reports whether a row changed; it refuses an empty `from` and matches it through `json_each`), `getListener(ctx, db *store.DB, id string) (core.ListenerInfo, error)` (`errcode.NotFound` when absent) and `listListeners(ctx, db *store.DB, state string) ([]core.ListenerInfo, error)` (by `created_at`, then `id`).
+
+**C10 — Runtime request wrapper (Task 30), `internal/controller/api/runtime.go`.**
 
 ```go
 // RuntimeHandler serves one runtime listener: it refuses a request on a
@@ -235,13 +245,15 @@ func ProbeReads(ctx context.Context, probes []Probe, writes []string) []Capabili
 func (s *Server) RuntimeHandler(info core.ListenerInfo, revoked <-chan struct{}, isRevoked func(ctx context.Context) (bool, error)) http.Handler
 ```
 
-**C11 — Proxied semantics in the API (Task 23).** For a request carrying `core.Proxied`: the guard context's client peer is `{Addr: Client, Port: 0}`; the principal's and the audit entry's `Source` is `"<Client> via <Transport>"` (both addresses, and the key login rate limiting uses); an unsafe-method request whose `Origin` header is present and is not `https://<PublicHost>` is refused with `auth.csrf`; every SSE response carries `X-Accel-Buffering: no` and ends with an `end` frame of reason `revoked` once `Revoked` closes. Requests on other listeners are unchanged.
+Refusals: a revoked listener answers 404 `not_found`; a durable state that cannot be read answers 503 `unavailable`; a forwarded protocol other than `https`, or a missing or malformed client header (several values, an address with a port, an address with a zone), answers 403 `auth.forbidden`.
 
-**C12 — Proxy path in the guard context (Task 18), `internal/controller/dispatch/guard.go`.** When the plan request's context carries `core.Proxied`, the dispatcher fills `GuardContext.Via` with a copy of its `Path`.
+**C11 — Proxied semantics in the API (Task 31).** For a request carrying `core.Proxied`: the guard context's client peer is `{Addr: Client, Port: 0}`; the principal's and the audit entry's `Source` is `"<Client> via <Transport.Addr()>"` (both addresses, no port; also the key login rate limiting uses); every unsafe-method request through a runtime listener, login included, whose `Origin` header is present and is not `https://<PublicHost>` is refused with `auth.csrf`; every SSE response carries `X-Accel-Buffering: no` and ends with an `end` frame of reason `revoked` once `Revoked` closes. Spec 1.10's durable check "on every stream event" is met through `Revoked`: `Revoke` commits the durable state before it closes the channel, in the same process, and the channel is the only way a running stream learns of it. Requests on other listeners are unchanged.
 
-**C13 — Web certificate sources (Task 17), `internal/controller/listen`.** `sources.go` exactly as spec 1.12 (`CertSource`, `SourceDeps`, `certSources`, `extraNames`); the stub `tailscale_cert.go` with `tailscaleCertSource(d SourceDeps) CertSource` (always falls through) and `tailscaleNames(ctx context.Context, d SourceDeps) ([]string, error)` (returns none). `listen.Config` gains `Sources *SourceDeps` (nil: no source and no extra name); `Leaf.GetCertificate` asks `certSources` in order and falls back to the CA leaf; leaf issuance adds `extraNames`; `(*Service).TLSConfig() *tls.Config` returns the HTTPS listeners' configuration (the one shared `tls.Config`).
+**C12 — Proxy path in the guard context (Task 24), `internal/controller/dispatch/guard.go`.** When the plan request's context carries `core.Proxied`, the dispatcher fills `GuardContext.Via` with a copy of its `Path`.
 
-**C14 — Quarantine flag (Task 19), `internal/controller/quarantine`.**
+**C13 — Web certificate sources (Task 36, Task 42), `internal/controller/listen`.** `sources.go` exactly as spec 1.12 (`CertSource`, `SourceDeps`, `certSources`, `extraNames`). The stub `tailscale_cert.go` has `tailscaleCertSource(d SourceDeps) CertSource` (always falls through) and `tailscaleNames(ctx context.Context, d SourceDeps) ([]string, error)` (returns none). `Leaf.Ensure` becomes `Ensure(ctx context.Context, ips []netip.Addr) (bool, error)`; it reissues when the IPs, the sources' extra names or the renewal age change, and adds the extra names to the CA leaf's DNS SANs (sorted, deduplicated, without the hostname or `localhost`); when the extra names cannot be read the current names are kept and the error logged. `Leaf.GetCertificate` asks `certSources` in order; a source error is logged and skipped; the CA leaf is the fallback. Unexported `(*Leaf).useSources(d SourceDeps)` (Task 36). `(*Leaf).EnsureIssued(ctx context.Context) error` issues a leaf without IP SANs when none exists and never replaces one. `listen.Config.Sources *SourceDeps` (nil: none). `(*Service).TLSConfig() (*tls.Config, error)` calls `EnsureIssued`, then returns the one shared `tls.Config` (Task 42).
+
+**C14 — Quarantine flag (Task 25; the dispatcher gate Task 26), `internal/controller/quarantine`.**
 
 ```go
 const MetaKey = "restore_quarantine"
@@ -261,22 +273,24 @@ func Active(ctx context.Context, db *store.DB) (bool, error)
 func Check(ctx context.Context, db *store.DB) error
 ```
 
-`dispatch.Config` gains `Quarantine func(ctx context.Context) error` (nil: never quarantined), called before every `Apply`, `Undo`, `Repair`, `Release` and `Resolve`; plans, reads, confirm and revert stay admitted.
+`dispatch.Config` gains `Quarantine func(ctx context.Context) error` (nil: never quarantined), called before every `Apply`, `Undo`, `Repair`, `Release` and `Resolve`, and before the composite runner's step `Undo` and `Release`; plans, reads, confirm, revert, `Lookup`, `Retire` and `AckPrivate` stay admitted. The auth module changes users and tokens only inside actions (login's `totp_last_step` and last-seen times excepted), so gating actions is complete.
 
-**C15 — Engine suspension (Task 12), `internal/core/lifecycle`.** `lifecycle.Config` gains `Suspended func(ctx context.Context) (bool, error)` (nil: never suspended). While it answers true, the controller engine's composite recovery, its child watcher and its module recovery handlers do nothing; an error from it counts as suspended and is logged.
+**C15 — Engine suspension (Task 12), `internal/core/lifecycle`.** `lifecycle.Config` gains `Suspended func(ctx context.Context) (bool, error)` (nil: never suspended). While it answers true, the controller engine's composite recovery, its child watcher and its module recovery handlers do nothing, and `Wake` does nothing; an error from it counts as suspended and is logged. A recovery handler run while suspended returns `errRecovererSuspended`, leaving the change `recovering` and owned by its module; `CompositesRecovered` reports true while suspended.
 
 **C16 — Rollout suspension (Task 13), `internal/controller/rollout`.** `DriverConfig` and `SchedulerConfig` gain `Suspended func(ctx context.Context) (bool, error)` (nil: never suspended). A pass that finds it true does nothing; an error counts as suspended and is logged.
 
-**C17 — Controller service runner (Task 24), `internal/controller/server/extservices.go`.**
+**C17 — Controller service runner (Task 39), `internal/controller/server/extservices.go`.**
 
 ```go
 type serviceRunnerConfig struct {
 	Services  []ext.Service
 	Suspended func(ctx context.Context) (bool, error) // nil: never suspended
-	Poll      time.Duration                           // how often a suspended runner re-checks; 0 means 10 s
+	Poll      time.Duration                           // how often a suspended runner re-checks; 0 means serviceDefaultPoll
 	Clock     core.Clock
 	Log       *slog.Logger
 }
+const serviceDefaultPoll = 10 * time.Second
+
 // startServiceRunner starts every service once Suspended answers false, and
 // restarts a service whose Run returned an error after a delay from 1 s
 // doubling to 5 min, reset by a run that lasted 5 min or longer.
@@ -285,42 +299,55 @@ func startServiceRunner(cfg serviceRunnerConfig) *serviceRunner
 func (r *serviceRunner) stop()
 ```
 
-**C18 — API extension routes (Task 28), `internal/controller/api`.** `api.Config` gains `Extensions []ext.Route`. `New` mounts each `SurfaceWeb` route on the network mux behind the existing authentication and CSRF middleware with a scope check (`auth.forbidden` below `Route.Scope`), each `SurfaceSocket` route on the controller socket's mux behind its peer check, and fails with an error naming the pattern when a route clashes with an existing one. A `Stream` route's handler gets a 30 s write deadline renewed on every write. `(*Server).OpenAPIRoutes() []schema.Route` returns `Routes()` followed by the extension routes, and the served OpenAPI document uses it.
+A `Run` that returns nil or panics before shutdown restarts like one that returned an error; a panic is logged by its type unless it is a runtime error; suspension is re-checked before every restart.
 
-**C19 — Runtime listener service (Task 27), `internal/controller/listen/runtime.go`.**
+**C18 — API extension routes (web Task 41; socket and OpenAPI Task 44), `internal/controller/api`.** `api.Config` gains `Extensions []ext.Route`. `New` mounts each `SurfaceWeb` route on the network mux behind the existing authentication and CSRF middleware with a scope check (`auth.forbidden` below `Route.Scope`), each `SurfaceSocket` route on the controller socket's mux behind its peer check, and fails with an error naming the pattern when a route clashes with an existing one. An extension path must lie under `/api/v1/` and not end in `/`; the scope and the path are validated before clashes. `Stream` routes share the built-in stream lifecycle (passive authentication through a stream-pattern mux, `SSERecheck` re-authentication, `SSEHardLimit`, `CloseStreams`, `Proxied.Revoked`, `X-Accel-Buffering: no` behind a runtime listener) plus a 30 s write deadline renewed on every write; no shared stream cap exists. `(*Server).OpenAPIRoutes() []schema.Route` returns `Routes()` followed by the `SurfaceWeb` extension routes only, and the served OpenAPI document uses it.
+
+**C19 — Runtime listener service (Task 40), `internal/controller/listen/runtime.go`.**
 
 ```go
+// RevokeGrace bounds how long a revoked listener lets its running responses
+// finish before it cuts the connections.
+const RevokeGrace = WriteTimeout
+
 type RuntimeConfig struct {
 	DB    *store.DB
 	Clock core.Clock
-	Log   *slog.Logger
-	Bind  BindFunc // nil: Bind
+	Log   *slog.Logger // nil: discards
+	Bind  BindFunc     // nil: Bind
 }
-// Handler builds the handler of one runtime listener (api.Server.RuntimeHandler).
+// RuntimeHandlerFunc builds the handler of one runtime listener (api.Server.RuntimeHandler).
 type RuntimeHandlerFunc func(info core.ListenerInfo, revoked <-chan struct{}, isRevoked func(ctx context.Context) (bool, error)) http.Handler
 
 func NewRuntime(cfg RuntimeConfig) *Runtime
-// Start binds every listener in state open; until Start, Open refuses.
+// Start binds every listener in state open, those Open recorded before Start included.
 func (r *Runtime) Start(ctx context.Context, handler RuntimeHandlerFunc, tlsConfig *tls.Config) error
 func (r *Runtime) Open(ctx context.Context, spec core.ListenerSpec) (string, error)
 func (r *Runtime) Revoke(ctx context.Context, id string) error
 func (r *Runtime) Close(ctx context.Context, id string) error
 func (r *Runtime) Get(ctx context.Context, id string) (core.ListenerInfo, error)
-// Addrs are the bound addresses of the open listeners, for the guard topology.
+// Addrs are the bound addresses of the listeners that still accept, for the guard topology.
 func (r *Runtime) Addrs() []netip.AddrPort
 // Shutdown stops every listener, letting running requests finish until ctx ends.
 func (r *Runtime) Shutdown(ctx context.Context) error
 ```
 
-`*Runtime` implements `core.Listeners`. A listener accepts TCP connections only from `Spec.AllowedPeer` and serves HTTPS only, with `tlsConfig`.
+`*Runtime` implements `core.Listeners`. A listener serves HTTPS only, with a clone of `tlsConfig`. Behaviour:
 
-**C20 — Controller contributions (Task 29).** `internal/controller/backup/contribute.go`: `func Contribute(deps ext.Deps) ([]ext.Route, []ext.Service, error)` returning nothing (wave 7 fills it). `internal/controller/server/extensions.go`: the assembly builds `ext.Deps`, calls `Controller(deps)` on every module of `modules.All()` that implements `ext.Controller` and then `backup.Contribute(deps)`, passes every route to `api.Config.Extensions`, and starts every service through C17 after composite recovery.
+- `Start` binds every open row, never a revoked or closed one; a failed bind is retried every `CheckInterval`; `Start` fails only when the rows cannot be read, and a second `Start` fails.
+- `Open` validates the spec (an address with a port and no zone, an allowed peer without a zone, one of the two C3 headers, a public host and a change id; anything else is `request.invalid_input`; addresses are stored unmapped), records it open in one transaction and binds it once `Start` has run (a failed bind moves the row to closed and returns the error); before `Start` it only records; after `Shutdown` it fails.
+- `Revoke` commits revoked first, closes the revoked channel, stops accepting and closes connections after their current response (cut after `RevokeGrace`); it succeeds on a revoked or closed listener and is `not_found` on a missing id.
+- `Close` moves revoked to closed; it succeeds on closed, is `request.invalid_input` on open and `not_found` on a missing id.
+- `Addrs` are the accepting listeners' addresses, unmapped and sorted. `Shutdown` keeps the rows' states.
+- Connections from any peer but `AllowedPeer` are closed before they are read; every bind re-reads its row under the runtime's lock, so a concurrent revocation wins; `isRevoked` re-reads the row.
 
-**C21 — Web API client (Task 11), `web/src/api/client.ts` and `types.ts`.** Types mirroring the Go wire DTOs field for field (the task reads `internal/controller/api/wire.go` and `internal/core/contract.go`): `Guard` gains `overridable` and `overridden`; `ChangeError` gains `cause?`; `Change` gains `parentChangeId`, `owner`, `repairedBy`, `repairOutcome`, `override`; new `StateDoc`, `Effect`, `Candidate`, `Observation`, `ObserveResult`, `Step`, `RepairResult`, `ReleaseResult`, `ActionAvailability`, `ModuleAvailability`. Functions: `getChange(id)`, `listEffects(id)`, `observeEffect(id, seq)`, `resolveEffect(id, seq, { resolution, resource? })`, `listSteps(id)`, `undoChange(id)`, `repairChange(id, body)`, `releaseChange(id, reason)`, `confirmChange(id)`, `revertChange(id)`, `getAvailability(hostId, module)`; `applyPlan` accepts a `202` answer; query keys `changeQueryKey(id) = ["change", id]`, `stepsQueryKey(id) = ["steps", id]`, `effectsQueryKey(id) = ["effects", id]`, which match what `connectEvents` invalidates.
+**C20 — Controller contributions (Task 38; startup Task 46; listeners Task 47).** `internal/controller/backup/contribute.go`: `func Contribute(deps ext.Deps) ([]ext.Route, []ext.Service, error)` returning nothing (wave 7 fills it). `internal/controller/server/extensions.go`: `(*Server).extDeps() ext.Deps` builds `ext.Deps` and `(*Server).contributions() ([]ext.Route, []ext.Service, error)` calls `Controller(deps)` on every module of `modules.All()` that implements `ext.Controller`, then on every entry of `server.Options.Contributors []ext.Controller` (set by tests only; nil in production), then `backup.Contribute(deps)`, in that order. Task 38 leaves `Deps.Listeners` nil and Task 47 sets it. Contributions are gathered in `startListeners` before `api.New`, every route goes to `api.Config.Extensions`, and services start through C17 after composite recovery and after the socket serves. Shutdown order: services, socket, stream responses, runtime listeners, network listeners. `topologyOf` gains a runtime-addresses parameter after the web addresses.
 
-**C22 — Web module extension points (Task 10).** `web/src/modules/types.ts` exactly as spec 1.12 (`ContainerRef`, `ContainerAction`, `HostCreateExtension`, `GlobalPage`, `ModuleEntry` with optional `routes`); `registry.ts` gains one entry per module with the stub files each module's spec section needs; `enabledModules` and the host page skip entries without `routes`; `app.tsx` mounts `/<global.path>/*` per entry with a `global` page inside the session guard; `shell.tsx` adds the global pages in their own sidebar group. Exported helper `globalPages(entries: ModuleEntry[]): GlobalPage[]` and `hostCreateExtensions(entries: ModuleEntry[], host: Host): HostCreateExtension[]` (entries enabled on `host` that have `hostCreate`) live in `registry.ts`.
+**C21 — Web API client (Task 11), `web/src/api/client.ts` and `types.ts`.** Types mirroring the Go wire DTOs field for field (the task reads `internal/controller/api/wire.go` and `internal/core/contract.go`): `Guard` gains `overridable` and `overridden`; `ChangeError` gains `cause?`; `Change` gains `parentChangeId`, `owner`, `repairedBy`, `repairOutcome`, `override`; new `StateDoc`, `Effect`, `Candidate`, `Observation`, `ObserveResult`, `Step`, `RepairResult`, `ReleaseResult`, `ActionAvailability`, `ModuleAvailability`. Functions: `getChange(id)`, `listEffects(id): Promise<Effect[]>`, `observeEffect(id, seq)`, `resolveEffect(id, seq, { resolution, resource? })`, `listSteps(id): Promise<Step[]>` (both return unwrapped arrays), `undoChange(id)`, `repairChange(id, body = {})`, `releaseChange(id, reason)`, `confirmChange(id)`, `revertChange(id)`, `getAvailability(hostId, module)`, `changeInProgress(change): boolean`; `applyPlan` accepts a `202` answer. Shapes: `changeError` is null for `applying`, `awaiting_confirmation`, `undoing`, `recovering` and `releasing`; `Step.action` is `{ Name, Version }`; `candidates`, `allowed` and `earlierChildChangeIds` may be null; the new `Change` fields are `string | null` and `override` is `unknown`; `ModuleAvailability.reason` is `string | null`; query keys `changeQueryKey(id) = ["change", id]`, `stepsQueryKey(id) = ["steps", id]`, `effectsQueryKey(id) = ["effects", id]`. `connectEvents` (`web/src/api/events.ts:60-61`) invalidates `["change", id]` and `["steps", id]` but never `["effects", id]`, so the change page keys its effects query on the change's `updatedAt` and state as well (Task 43), and every effect mutation invalidates `effectsQueryKey` itself.
 
-**C23 — Change dialog (Task 20), `web/src/components/change-dialog.tsx`.**
+**C22 — Web module extension points (types and helpers Task 10, registry entries Task 21, routes and sidebar Task 33).** `web/src/modules/types.ts` exactly as spec 1.12 (`ContainerRef`, `ContainerAction`, `HostCreateExtension`, `GlobalPage`, `ModuleEntry` with optional `routes`). `registry.ts` exports `HostModuleEntry = ModuleEntry & { routes: NonNullable<ModuleEntry["routes"]> }`; `enabledModules(entries, host): HostModuleEntry[]` and the host page skip entries without `routes`; `globalPages(entries: ModuleEntry[]): GlobalPage[]`; `hostCreateExtensions(entries: ModuleEntry[], host: Host): HostCreateExtension[]` (entries enabled on `host` that have `hostCreate`, enabled-but-unavailable ones kept). Registry entries, in order: `hostinfo`, `firewall`, `docker`, `tailscale`, `tailnet`, `derp`, `npm`, `cloudflare`, `panel`; host pages for firewall, docker, tailscale, npm and panel; global pages tailnet, derp and cloudflare; container actions `firewall.allow`, `firewall.deny`, `npm.expose`, `cloudflare.expose`; the host-create extension `tailnet.join`. `app.tsx` mounts `/<global.path>/*` per entry with a `global` page inside the session guard; `shell.tsx` shows the global pages in a "Network" sidebar group.
+
+**C23 — Change dialog (Task 27), `web/src/components/change-dialog.tsx`.**
 
 ```ts
 export interface ChangeTarget {
@@ -341,20 +368,28 @@ export interface ChangeDialogProps {
 export function ChangeDialog(props: ChangeDialogProps): JSX.Element
 ```
 
-It shows the plan diff, the guard results with an override control for each failed guard marked `overridable` (re-planning with `overrides`), the typed confirmation for a plan with a `confirmation` phrase, the revert countdown with Confirm and Revert for a pending change, composite step progress from `listSteps` under `stepsQueryKey`, a disabled Apply with the reason when the action is unavailable on the host, and a link to `/changes/<id>` once applied.
+It shows the plan diff, the guard results with an override control for each failed guard marked `overridable` (re-planning with `overrides`), the typed confirmation for a plan with a `confirmation` phrase, the revert countdown with Confirm and Revert for a pending change, composite step progress from `listSteps` under `stepsQueryKey`, a disabled Apply with the reason when the action is unavailable on the host, and a link to `/changes/<id>` once applied. It plans through a query keyed `["plan", name, version, hostId, input, overrides]`, which `connectEvents` never refetches.
 
-**C24 — Change page (Task 26).** Route `/changes/:changeId` (`web/src/pages/change.tsx`, exported `ChangePage`) inside the session guard; the audit log links each entry's change id to it.
+**C24 — Change page (Task 43).** Route `/changes/:changeId` (`web/src/pages/change.tsx`, exported `ChangePage`) inside the session guard; the audit log links each entry's change id to it.
+
+**C25 — Harness labs (Task 14; the VM limit Task 17), `test/harness`.** `type Lab struct { Slug, Dir string; Index, McastPort, PrivMcastPort int }`; `NewLab(tb testing.TB) *Lab`; `(*Lab).VMName(role string) string`; `type NIC int` with `NICInet`, `NICMgmt`, `NICPriv`; `(*Lab).MAC(nic NIC, host int) string`; `InetIPv4`, `InetIPv6`, `InetAddrs`, `PrivPrefix`, `PrivAddr`; `(*Lab).Boot(ctx, t, cfgs []vm.Config) []*vm.VM`. Labs use index octets 1 to 254 and multicast ports from 40100. The `-vms` flag (default 3) is applied in `bootVMs`, which `Lab.Boot` uses. No task of this plan consumes them; later waves' harness tests do.
+
+**C26 — Harness pins (Compose Task 15, images Task 22, pull script Task 34), `test/harness`.** `RequiredPackages` gains `docker-compose-plugin` (5.6.0) after `containerd.io`; `var RequiredContainers = []string{"pebble", "pebble-challtestsrv"}`; `type Container struct { Name, Ref string }`; `Pins.Containers []Container`; `func (p Pins) Container(name string) (Container, error)`; `func PullScript(cs ...Container) string`, appended to `TargetScript(o)`, pulls each image on the VM by digest (pebble and pebble-challtestsrv 2.10.1; the digests are in Task 22).
 
 ## Assumptions (evidence)
 
 - The controller's newest core migration is `0011_platform_surfaces.sql`, so the runtime-listener table is `0012` — `ls internal/core/store/migrations/controller/` on 2026-10-23.
-- `*events.Bus` already has `Publish(eventType string, data any)` (`internal/controller/events/bus.go:96`) and `*dispatch.Dispatcher` already has `Read`, `ReadInternal`, `Plan` and `Apply` with the `ext.Dispatcher` signatures (`internal/controller/dispatch/dispatch.go:155`, `:191`, `apply.go:22`, `reveal.go:27`), so both satisfy C2 without adapters; Task 29 adds the compile-time assertions.
+- `*events.Bus` already has `Publish(eventType string, data any)` (`internal/controller/events/bus.go:96`) and `*dispatch.Dispatcher` already has `Read`, `ReadInternal`, `Plan` and `Apply` with the `ext.Dispatcher` signatures (`internal/controller/dispatch/dispatch.go:155`, `:191`, `apply.go:22`, `reveal.go:27`), so both satisfy C2 without adapters; Task 38 adds the compile-time assertions.
 - No `Origin` check exists today (`rg -n Origin internal/controller` on 2026-10-23 finds only `Cross-Origin-Opener-Policy`); C11's origin check, applied to runtime listeners only, is the "CSRF origin check" spec 1.10 refers to.
 - The audit entry has a single `Source` field (`internal/core/contract.go:721`), so C11 keeps both addresses in it as `"<client> via <transport peer>"`.
 - The engine already turns a non-`Local` effect left `intended` into `unresolved`/`uncertain` with `CommitBy` from `CommitWait` (`internal/core/lifecycle/settle.go:43`), so the cloud client only classifies errors (C8) and modules declare `CommitWait: cloud.CommitWait`.
 - `github.com/tailscale/hujson` resolves to `v0.0.0-20260727124030-b80ff77dac4f` (`go list -m github.com/tailscale/hujson@latest` on 2026-10-23); unused, `go mod tidy` would drop it, hence C7's blank import.
-- `vitest-axe` publishes `0.1.0` as latest and `1.0.0-pre.5` (peer `vitest >=1`, released 2025-01-22) as pre-release; `@playwright/test` `1.64.0` was released 2026-10-07 and `1.64.1` on 2026-10-14 (`pnpm view` on 2026-10-23). The plan pins `1.64.0`, past the two-week release age. That `vitest-axe@1.0.0-pre.5` works under `vitest@5.0.5`: unverified — Task 7 verifies it.
+- `vitest-axe` publishes `0.1.0` as latest and `1.0.0-pre.5` (peer `vitest >=1`, released 2025-01-22) as pre-release; `@playwright/test` `1.64.0` was released 2026-10-07 and `1.64.1` on 2026-10-14 (`pnpm view` on 2026-10-23). The plan pins `1.64.0`, past the two-week release age. `vitest-axe@1.0.0-pre.5` works under `vitest@5.0.5` once `web/src/test/setup.ts` imports `vitest-axe/extend-expect` (verified in a scratch worktree on 2026-10-23; Task 16 keeps the check).
+- Docker accepts the reference form `name:tag@sha256:<digest>` and ignores the tag when a digest is given (the grammar of https://github.com/distribution/reference/blob/main/reference.go); no task of this plan runs `docker pull`, so it is first exercised by wave 6a's harness test.
+- Task 32 adds `cli.Options.SelectPaths`; `selectPaths` may be called with a nil command (the update rollback path), so its implementations handle that.
+- Socket-command tests pass `--dev` with temporary XDG directories: without them they dial the live `/run/darkpanel-controller/controller.sock` (an early draft run read its user list, read only, on 2026-10-23).
 - The pinned golangci-lint is `v2.15.0` on both runners (`.github/workflows/ci.yml:99-101`), so register row 94's revive finding on the self-hosted runner comes from the runner's environment, not the repository; it stays out of this plan.
+- Gating actions covers the spec's user and token mutations: outside the action routes the network API's only unsafe routes are login, logout and the change operations (`internal/controller/api/routes.go:26-54`, read on 2026-10-23), and `internal/controller/auth` changes users and tokens only inside the core actions' handlers (Task 26).
 - The rest of each task's assumptions are verified in its first step.
 
 ## Task index
@@ -671,7 +706,7 @@ func TestListenerConstantValues(t *testing.T) {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/2a && TMPDIR=/root/.cache/w0c-tmp/2a GOTOOLCHAIN=local go test ./internal/core/ -run TestListenerConstantValues`
+Run: `mkdir -p /root/.cache/w0c-tmp/2 && TMPDIR=/root/.cache/w0c-tmp/2 GOTOOLCHAIN=local go test ./internal/core/ -run TestListenerConstantValues`
 Expected: FAIL to compile with `undefined: ListenerOpen` (and the other constants).
 
 - [ ] **Step 3: Write the implementation**
@@ -744,7 +779,7 @@ with
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/2a GOTOOLCHAIN=local go build ./... && TMPDIR=/root/.cache/w0c-tmp/2a GOTOOLCHAIN=local go test -count=1 ./internal/core/ && TMPDIR=/root/.cache/w0c-tmp/2a golangci-lint run --allow-serial-runners ./internal/core/`
+Run: `TMPDIR=/root/.cache/w0c-tmp/2 GOTOOLCHAIN=local go build ./... && TMPDIR=/root/.cache/w0c-tmp/2 GOTOOLCHAIN=local go test -count=1 ./internal/core/ && TMPDIR=/root/.cache/w0c-tmp/2 golangci-lint run --allow-serial-runners ./internal/core/`
 Expected: the build succeeds; `ok  	github.com/darkraise/darkpanel/internal/core`; `0 issues.`
 
 - [ ] **Step 5: Commit**
@@ -753,7 +788,7 @@ Expected: the build succeeds; `ok  	github.com/darkraise/darkpanel/internal/core
 gofmt -l internal/core   # prints nothing
 git add internal/core/listeners.go internal/core/listeners_test.go internal/core/contract.go
 git commit -m "feat(core): add the runtime listener types"
-rm -rf /root/.cache/w0c-tmp/2a
+rm -rf /root/.cache/w0c-tmp/2
 ```
 
 ### Task 3: Proxied request context
@@ -807,7 +842,7 @@ func TestProxiedContext(t *testing.T) {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/2c && TMPDIR=/root/.cache/w0c-tmp/2c GOTOOLCHAIN=local go test ./internal/core/ -run TestProxiedContext`
+Run: `mkdir -p /root/.cache/w0c-tmp/3 && TMPDIR=/root/.cache/w0c-tmp/3 GOTOOLCHAIN=local go test ./internal/core/ -run TestProxiedContext`
 Expected: FAIL to compile with `undefined: Proxied`, `undefined: ProxiedFrom` and `undefined: WithProxied`.
 
 - [ ] **Step 3: Write the implementation**
@@ -854,7 +889,7 @@ func ProxiedFrom(ctx context.Context) (Proxied, bool) {
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/2c GOTOOLCHAIN=local go test -count=1 ./internal/core/ && TMPDIR=/root/.cache/w0c-tmp/2c golangci-lint run --allow-serial-runners ./internal/core/`
+Run: `TMPDIR=/root/.cache/w0c-tmp/3 GOTOOLCHAIN=local go test -count=1 ./internal/core/ && TMPDIR=/root/.cache/w0c-tmp/3 golangci-lint run --allow-serial-runners ./internal/core/`
 Expected: `ok  	github.com/darkraise/darkpanel/internal/core`; `0 issues.`
 
 - [ ] **Step 5: Commit**
@@ -863,7 +898,7 @@ Expected: `ok  	github.com/darkraise/darkpanel/internal/core`; `0 issues.`
 gofmt -l internal/core   # prints nothing
 git add internal/core/peer.go internal/core/peer_test.go
 git commit -m "feat(core): carry proxied requests in the context"
-rm -rf /root/.cache/w0c-tmp/2c
+rm -rf /root/.cache/w0c-tmp/3
 ```
 
 ### Task 4: Cloud provider test scaffolding
@@ -1046,7 +1081,7 @@ func TestRequestsReturnsCopies(t *testing.T) {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/3 && export TMPDIR=/root/.cache/w0c-tmp/3 GOTOOLCHAIN=local && go test -count=1 ./internal/controller/cloud/cloudfake/`
+Run: `mkdir -p /root/.cache/w0c-tmp/4 && export TMPDIR=/root/.cache/w0c-tmp/4 GOTOOLCHAIN=local && go test -count=1 ./internal/controller/cloud/cloudfake/`
 Expected: FAIL to build: `undefined: New` (and `undefined: Fault`, `Server`).
 
 - [ ] **Step 3: Write the implementation**
@@ -1204,7 +1239,7 @@ func (s *Server) loseResponse(w http.ResponseWriter, r *http.Request) {
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/3 && export TMPDIR=/root/.cache/w0c-tmp/3 GOTOOLCHAIN=local && go test -count=1 -race ./internal/controller/cloud/cloudfake/ && go vet ./internal/controller/cloud/cloudfake/ && golangci-lint run --allow-serial-runners ./internal/controller/cloud/cloudfake/`
+Run: `mkdir -p /root/.cache/w0c-tmp/4 && export TMPDIR=/root/.cache/w0c-tmp/4 GOTOOLCHAIN=local && go test -count=1 -race ./internal/controller/cloud/cloudfake/ && go vet ./internal/controller/cloud/cloudfake/ && golangci-lint run --allow-serial-runners ./internal/controller/cloud/cloudfake/`
 Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/cloud/cloudfake`, then `0 issues.`
 
 - [ ] **Step 5: Commit**
@@ -1272,15 +1307,15 @@ with
 
 - [ ] **Step 3: Run the test repeatedly to verify it holds**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/4 && TMPDIR=/root/.cache/w0c-tmp/4 GOTOOLCHAIN=local go test -count=50 -run 'TestCompositeConfirmAnswerLost' ./internal/core/lifecycle/`
+Run: `mkdir -p /root/.cache/w0c-tmp/5 && TMPDIR=/root/.cache/w0c-tmp/5 GOTOOLCHAIN=local go test -count=50 -run 'TestCompositeConfirmAnswerLost' ./internal/core/lifecycle/`
 Expected: `ok  	github.com/darkraise/darkpanel/internal/core/lifecycle` (about a minute; 200 repeats took 240 s on 2026-10-23 and all passed).
 
-Then: `TMPDIR=/root/.cache/w0c-tmp/4 GOTOOLCHAIN=local go test -count=1 -race -run 'TestComposite' ./internal/core/lifecycle/`
+Then: `TMPDIR=/root/.cache/w0c-tmp/5 GOTOOLCHAIN=local go test -count=1 -race -run 'TestComposite' ./internal/core/lifecycle/`
 Expected: `ok  	github.com/darkraise/darkpanel/internal/core/lifecycle`
 
 - [ ] **Step 4: Lint**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/4 golangci-lint run --allow-serial-runners ./internal/core/lifecycle/...`
+Run: `TMPDIR=/root/.cache/w0c-tmp/5 golangci-lint run --allow-serial-runners ./internal/core/lifecycle/...`
 Expected: `0 issues.`
 
 - [ ] **Step 5: Commit**
@@ -1288,7 +1323,7 @@ Expected: `0 issues.`
 ```bash
 git add internal/core/lifecycle/composite_confirm_test.go
 git commit -m "test(lifecycle): let the runner settle a lost confirm"
-rm -rf /root/.cache/w0c-tmp/4
+rm -rf /root/.cache/w0c-tmp/5
 ```
 
 ### Task 6: End frame when a stream's re-authentication fails
@@ -1366,7 +1401,7 @@ func TestRelayEndsWhenRecheckFails(t *testing.T) {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/5 && TMPDIR=/root/.cache/w0c-tmp/5 GOTOOLCHAIN=local go test -count=1 -run TestRelayEndsWhenRecheckFails ./internal/controller/api/`
+Run: `mkdir -p /root/.cache/w0c-tmp/6 && TMPDIR=/root/.cache/w0c-tmp/6 GOTOOLCHAIN=local go test -count=1 -run TestRelayEndsWhenRecheckFails ./internal/controller/api/`
 Expected: FAIL with `frames [], want ["end {\"reason\":\"error\",\"error\":{\"code\":\"internal\",\"detail\":\"Internal error\"}}"]`
 
 - [ ] **Step 3: Write the implementation**
@@ -1413,7 +1448,7 @@ Keep `relayWriter.Unwrap` as it is.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/5 GOTOOLCHAIN=local go test -count=1 ./internal/controller/api/ && TMPDIR=/root/.cache/w0c-tmp/5 golangci-lint run --allow-serial-runners ./internal/controller/api/`
+Run: `TMPDIR=/root/.cache/w0c-tmp/6 GOTOOLCHAIN=local go test -count=1 ./internal/controller/api/ && TMPDIR=/root/.cache/w0c-tmp/6 golangci-lint run --allow-serial-runners ./internal/controller/api/`
 Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/api` (every relay test, `TestRelayEndsOnShutdown` included, still passes) and `0 issues.`
 
 - [ ] **Step 5: Commit**
@@ -1421,7 +1456,7 @@ Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/api` (every r
 ```bash
 git add internal/controller/api/streams.go internal/controller/api/streams_test.go
 git commit -m "fix(api): end a relay whose recheck fails"
-rm -rf /root/.cache/w0c-tmp/5
+rm -rf /root/.cache/w0c-tmp/6
 ```
 
 ### Task 7: CLI module command map and stubs
@@ -1479,7 +1514,7 @@ func TestModuleCommandsCoverEveryModule(t *testing.T) {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/6a && TMPDIR=/root/.cache/w0c-tmp/6a GOTOOLCHAIN=local go test -count=1 -run TestModuleCommandsCoverEveryModule ./internal/cli/`
+Run: `mkdir -p /root/.cache/w0c-tmp/7 && TMPDIR=/root/.cache/w0c-tmp/7 GOTOOLCHAIN=local go test -count=1 -run TestModuleCommandsCoverEveryModule ./internal/cli/`
 Expected: FAIL to compile with `undefined: moduleCommands` and `undefined: controllerCommands`.
 
 - [ ] **Step 3: Write the implementation**
@@ -1615,7 +1650,7 @@ The stubs name their parameter `_` because revive's `unused-parameter` rule flag
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/6a GOTOOLCHAIN=local go test -count=1 ./internal/cli/ && TMPDIR=/root/.cache/w0c-tmp/6a golangci-lint run --allow-serial-runners ./internal/cli/...`
+Run: `TMPDIR=/root/.cache/w0c-tmp/7 GOTOOLCHAIN=local go test -count=1 ./internal/cli/ && TMPDIR=/root/.cache/w0c-tmp/7 golangci-lint run --allow-serial-runners ./internal/cli/...`
 Expected: `ok  	github.com/darkraise/darkpanel/internal/cli` and `0 issues.`
 
 - [ ] **Step 5: Commit**
@@ -1625,7 +1660,7 @@ git add internal/cli/modules.go internal/cli/modules_test.go internal/cli/firewa
   internal/cli/tailscale.go internal/cli/tailnet.go internal/cli/derp.go internal/cli/npm.go \
   internal/cli/cloudflare.go internal/cli/panel.go internal/cli/controller_backup.go
 git commit -m "feat(cli): add module command hooks and stubs"
-rm -rf /root/.cache/w0c-tmp/6a
+rm -rf /root/.cache/w0c-tmp/7
 ```
 
 ### Task 8: Module skeletons
@@ -1687,7 +1722,7 @@ func TestAllListsTheModuleSkeletons(t *testing.T) {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/8a && TMPDIR=/root/.cache/w0c-tmp/8a GOTOOLCHAIN=local go test -count=1 -run TestAllListsTheModuleSkeletons ./internal/modules/`
+Run: `mkdir -p /root/.cache/w0c-tmp/8 && TMPDIR=/root/.cache/w0c-tmp/8 GOTOOLCHAIN=local go test -count=1 -run TestAllListsTheModuleSkeletons ./internal/modules/`
 Expected: FAIL with `modules.All() = [hostinfo], want [hostinfo firewall docker tailscale tailnet derp npm cloudflare panel]`.
 
 - [ ] **Step 3: Write the implementation**
@@ -1932,7 +1967,7 @@ C7 mentions a one-line `Summary`; `core.Manifest` has no such field (`internal/c
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/8a GOTOOLCHAIN=local go test -count=1 ./... && TMPDIR=/root/.cache/w0c-tmp/8a GOTOOLCHAIN=local go vet ./... && TMPDIR=/root/.cache/w0c-tmp/8a golangci-lint run --allow-serial-runners ./internal/modules/...`
+Run: `TMPDIR=/root/.cache/w0c-tmp/8 GOTOOLCHAIN=local go test -count=1 ./... && TMPDIR=/root/.cache/w0c-tmp/8 GOTOOLCHAIN=local go vet ./... && TMPDIR=/root/.cache/w0c-tmp/8 golangci-lint run --allow-serial-runners ./internal/modules/...`
 Expected: every package `ok` (including `internal/modules`, whose `TestSnapshotsCurrent` shows that no schema snapshot changed, and `internal/controller/server`), vet silent, `0 issues.`
 
 - [ ] **Step 5: Commit**
@@ -1940,7 +1975,7 @@ Expected: every package `ok` (including `internal/modules`, whose `TestSnapshots
 ```bash
 git add internal/modules
 git commit -m "feat(modules): add the eight v1 module skeletons"
-rm -rf /root/.cache/w0c-tmp/8a
+rm -rf /root/.cache/w0c-tmp/8
 ```
 
 ### Task 9: Path-selection hook
@@ -2121,7 +2156,7 @@ with
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/9a && TMPDIR=/root/.cache/w0c-tmp/9a GOTOOLCHAIN=local go test -count=1 ./cmd/darkpanel/`
+Run: `mkdir -p /root/.cache/w0c-tmp/9 && TMPDIR=/root/.cache/w0c-tmp/9 GOTOOLCHAIN=local go test -count=1 ./cmd/darkpanel/`
 Expected: FAIL to compile with `undefined: selectPaths` and `undefined: addRootFlags`.
 
 - [ ] **Step 3: Write the implementation**
@@ -2197,7 +2232,7 @@ with
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/9a GOTOOLCHAIN=local go test -count=1 ./cmd/darkpanel/ && TMPDIR=/root/.cache/w0c-tmp/9a GOTOOLCHAIN=local go vet -tags harness ./cmd/darkpanel/ && TMPDIR=/root/.cache/w0c-tmp/9a golangci-lint run --allow-serial-runners ./cmd/... && ! rg -n 'resolvePaths|paths\.Resolve\(' cmd/darkpanel --glob '!*_test.go' --glob '!paths.go'`
+Run: `TMPDIR=/root/.cache/w0c-tmp/9 GOTOOLCHAIN=local go test -count=1 ./cmd/darkpanel/ && TMPDIR=/root/.cache/w0c-tmp/9 GOTOOLCHAIN=local go vet -tags harness ./cmd/darkpanel/ && TMPDIR=/root/.cache/w0c-tmp/9 golangci-lint run --allow-serial-runners ./cmd/... && ! rg -n 'resolvePaths|paths\.Resolve\(' cmd/darkpanel --glob '!*_test.go' --glob '!paths.go'`
 Expected: `ok  	github.com/darkraise/darkpanel/cmd/darkpanel`, vet silent, `0 issues.`, and `rg` finds no call outside `paths.go` (the test file `agent_test.go` keeps one `paths.Resolve(true)` inside its fake, which is intended).
 
 - [ ] **Step 5: Commit**
@@ -2206,7 +2241,7 @@ Expected: `ok  	github.com/darkraise/darkpanel/cmd/darkpanel`, vet silent, `0 is
 git add cmd/darkpanel/paths.go cmd/darkpanel/paths_test.go cmd/darkpanel/agent.go cmd/darkpanel/update.go \
   cmd/darkpanel/main.go cmd/darkpanel/agent_test.go cmd/darkpanel/update_test.go
 git commit -m "feat(cmd): route path resolution through selectPaths"
-rm -rf /root/.cache/w0c-tmp/9a
+rm -rf /root/.cache/w0c-tmp/9
 ```
 
 ### Task 10: Web module entry types and registry helpers
@@ -2281,7 +2316,7 @@ and insert these tests inside `describe("registry", ...)`, directly before `test
 
 - [ ] **Step 2: Run them to make sure they fail**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/10a && TMPDIR=/root/.cache/w0c-tmp/10a pnpm -C web vitest run src/pages/host.test.tsx`
+Run: `mkdir -p /root/.cache/w0c-tmp/10 && TMPDIR=/root/.cache/w0c-tmp/10 pnpm -C web vitest run src/pages/host.test.tsx`
 Expected: FAIL — "an entry with only a global page has no host tab" gets `["alpha", "tailnet"]`, and the two helper tests fail with `globalPages is not a function` and `hostCreateExtensions is not a function`.
 
 - [ ] **Step 3: Write the types**
@@ -2400,10 +2435,10 @@ export function hostCreateExtensions(entries: ModuleEntry[], host: Host): HostCr
 
 - [ ] **Step 5: Run the tests and the checks**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/10a pnpm -C web vitest run src/pages/host.test.tsx`
+Run: `TMPDIR=/root/.cache/w0c-tmp/10 pnpm -C web vitest run src/pages/host.test.tsx`
 Expected: PASS, `Tests  17 passed (17)`.
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/10a make lint-web test-web`
+Run: `TMPDIR=/root/.cache/w0c-tmp/10 make lint-web test-web`
 Expected: no ESLint or `tsc` finding (`host.tsx` compiles unchanged because `enabledModules` returns `HostModuleEntry`), and every Vitest test passes.
 
 - [ ] **Step 6: Commit**
@@ -2411,7 +2446,7 @@ Expected: no ESLint or `tsc` finding (`host.tsx` compiles unchanged because `ena
 ```bash
 git add web/src/modules/types.ts web/src/modules/registry.ts web/src/pages/host.test.tsx
 git commit -m "feat(web): add module extension point types"
-rm -rf /root/.cache/w0c-tmp/10a
+rm -rf /root/.cache/w0c-tmp/10
 ```
 
 ### Task 11: Web API client for changes, effects and steps
@@ -3485,10 +3520,10 @@ rm -rf /root/.cache/w0c-tmp/13
 
 ### Task 14: Harness lab names, directories, links and addresses
 
-This task adds `test/harness/lab.go`: a `Lab` per harness test that derives, from the test's name, a VM-name prefix (`Slug`), a run directory, a lab index (1 to 254, distinct among the labs of one process) and from it two multicast ports and the MACs and addresses of its VMs. Today TestM1 and TestM2 hard-code `52:54:00:d0:…` MACs, `198.18.0.x` and `2001:db8:d0::x` internet addresses, `10.77.0.x` private addresses and draw their multicast ports from 20000 to 40001 (`test/harness/m1_test.go:113-131`, `test/harness/m2_test.go:136-174`); labs use index octets 1 to 254 and ports from 40100 upwards, so a lab never meets TestM1's or TestM2's links or addresses, and TestM1 and TestM2 stay as they are. Later waves' harness tests (M3–M6) call `NewLab(t)` and build their `vm.Config` values from it. Every link is a QEMU multicast group of its own port (`test/harness/vm/vm.go:132-156`), so two labs can boot at the same time. The tests' helpers carry the prefix `lab` or `mustIndex` (only `mustIndex` is a test helper; the rest are test functions `TestLab*`). The package has the `harness` build tag; its unit tests run without VMs (TestM1 and TestM2 skip without `-os`).
+This task adds `test/harness/lab_helpers_test.go`: a `Lab` per harness test that derives, from the test's name, a VM-name prefix (`Slug`), a run directory, a lab index (1 to 254, distinct among the labs of one process) and from it two multicast ports and the MACs and addresses of its VMs. Today TestM1 and TestM2 hard-code `52:54:00:d0:…` MACs, `198.18.0.x` and `2001:db8:d0::x` internet addresses, `10.77.0.x` private addresses and draw their multicast ports from 20000 to 40001 (`test/harness/m1_test.go:113-131`, `test/harness/m2_test.go:136-174`); labs use index octets 1 to 254 and ports from 40100 upwards, so a lab never meets TestM1's or TestM2's links or addresses, and TestM1 and TestM2 stay as they are. Later waves' harness tests (M3–M6) call `NewLab(t)` and build their `vm.Config` values from it. Every link is a QEMU multicast group of its own port (`test/harness/vm/vm.go:132-156`), so two labs can boot at the same time. The tests' helpers carry the prefix `lab` or `mustIndex` (only `mustIndex` is a test helper; the rest are test functions `TestLab*`). The package has the `harness` build tag; its unit tests run without VMs (TestM1 and TestM2 skip without `-os`).
 
 **Files:**
-- Create: `test/harness/lab.go`
+- Create: `test/harness/lab_helpers_test.go`
 - Test: `test/harness/lab_test.go`
 
 **Interfaces:**
@@ -3666,12 +3701,12 @@ func TestLabAddresses(t *testing.T) {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/14a && TMPDIR=/root/.cache/w0c-tmp/14a GOTOOLCHAIN=local go test -count=1 -tags harness -run 'TestLab' ./test/harness/`
+Run: `mkdir -p /root/.cache/w0c-tmp/14 && TMPDIR=/root/.cache/w0c-tmp/14 GOTOOLCHAIN=local go test -count=1 -tags harness -run 'TestLab' ./test/harness/`
 Expected: FAIL, the package does not compile: `undefined: labSlug` (and `newLabAllocator`, `Lab`, `NIC`).
 
 - [ ] **Step 3: Write the implementation**
 
-Create `test/harness/lab.go`:
+Create `test/harness/lab_helpers_test.go`:
 
 ```go
 //go:build harness
@@ -3901,22 +3936,22 @@ func (l *Lab) Boot(ctx context.Context, t *testing.T, cfgs []vm.Config) []*vm.VM
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/14a && TMPDIR=/root/.cache/w0c-tmp/14a GOTOOLCHAIN=local go test -count=1 -tags harness -run 'TestLab' -v ./test/harness/`
+Run: `mkdir -p /root/.cache/w0c-tmp/14 && TMPDIR=/root/.cache/w0c-tmp/14 GOTOOLCHAIN=local go test -count=1 -tags harness -run 'TestLab' -v ./test/harness/`
 Expected: PASS for `TestLabSlug`, `TestLabAllocator` and `TestLabAddresses`.
 
 Then the whole package, vet and lint (the repository's `.golangci.yml` already sets the `harness` build tag):
 
-Run: `mkdir -p /root/.cache/w0c-tmp/14a && TMPDIR=/root/.cache/w0c-tmp/14a GOTOOLCHAIN=local go test -count=1 -tags harness  ./test/harness/ && TMPDIR=/root/.cache/w0c-tmp/14a GOTOOLCHAIN=local go vet -tags harness ./test/... && TMPDIR=/root/.cache/w0c-tmp/14a golangci-lint run --allow-serial-runners ./test/harness/...`
+Run: `mkdir -p /root/.cache/w0c-tmp/14 && TMPDIR=/root/.cache/w0c-tmp/14 GOTOOLCHAIN=local go test -count=1 -tags harness  ./test/harness/ && TMPDIR=/root/.cache/w0c-tmp/14 GOTOOLCHAIN=local go vet -tags harness ./test/... && TMPDIR=/root/.cache/w0c-tmp/14 golangci-lint run --allow-serial-runners ./test/harness/...`
 Expected: `ok  	github.com/darkraise/darkpanel/test/harness`, no vet output, `0 issues.`
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add test/harness/lab.go test/harness/lab_test.go
+git add test/harness/lab_helpers_test.go test/harness/lab_test.go
 git commit -m "test(harness): derive per-test lab names and links"
 ```
 
-Empty `/root/.cache/w0c-tmp/14a` when the task ends.
+Empty `/root/.cache/w0c-tmp/14` when the task ends.
 
 ### Task 15: Harness pins for the Compose plugin
 
@@ -3973,7 +4008,7 @@ In `test/harness/provision_test.go`, `TestTargetScript`'s expected install line 
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/15a && TMPDIR=/root/.cache/w0c-tmp/15a GOTOOLCHAIN=local go test -count=1 -tags harness -run 'TestPinChecks|TestTargetScript|TestLoadPins' ./test/harness/`
+Run: `mkdir -p /root/.cache/w0c-tmp/15 && TMPDIR=/root/.cache/w0c-tmp/15 GOTOOLCHAIN=local go test -count=1 -tags harness -run 'TestPinChecks|TestTargetScript|TestLoadPins' ./test/harness/`
 Expected: FAIL: `TestPinChecks` reports `valid: OS debian-13: packages [docker-ce docker-ce-cli containerd.io docker-compose-plugin tailscale], want [docker-ce docker-ce-cli containerd.io tailscale]`, and `TestTargetScript` reports the script lacks the install line with `docker-compose-plugin.deb` (`testPackages` builds its packages from `RequiredPackages`, which does not list the plugin yet).
 
 - [ ] **Step 3: Write the implementation**
@@ -4059,7 +4094,7 @@ The template needs no change: it fetches and installs every entry of `.Packages`
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/15a && TMPDIR=/root/.cache/w0c-tmp/15a GOTOOLCHAIN=local go test -count=1 -tags harness  ./test/harness/ && TMPDIR=/root/.cache/w0c-tmp/15a GOTOOLCHAIN=local go vet -tags harness ./test/... && TMPDIR=/root/.cache/w0c-tmp/15a golangci-lint run --allow-serial-runners ./test/harness/...`
+Run: `mkdir -p /root/.cache/w0c-tmp/15 && TMPDIR=/root/.cache/w0c-tmp/15 GOTOOLCHAIN=local go test -count=1 -tags harness  ./test/harness/ && TMPDIR=/root/.cache/w0c-tmp/15 GOTOOLCHAIN=local go vet -tags harness ./test/... && TMPDIR=/root/.cache/w0c-tmp/15 golangci-lint run --allow-serial-runners ./test/harness/...`
 Expected: `ok  	github.com/darkraise/darkpanel/test/harness` (`TestPinFile` loads the edited `images.json`), no vet output, `0 issues.`
 
 - [ ] **Step 5: Commit**
@@ -4069,7 +4104,7 @@ git add test/harness/pins.go test/harness/images.json test/harness/provision.go 
 git commit -m "test(harness): pin the Docker Compose plugin"
 ```
 
-Gate 7 applies: after the branch is pushed, run `gh workflow run harness.yml --ref "$(git branch --show-current)"` and `gh run watch`; every OS job provisions its targets with the plugin, so TestM1 and TestM2 green on all four OS prove the pins (a moved or changed `.deb` fails provisioning with `pinned package docker-compose-plugin=… missing` or `… has SHA-256 …`). The `actions/cache` key hashes `images.json`, so the first run re-downloads the cloud images. Empty `/root/.cache/w0c-tmp/15a` when the task ends.
+Gate 7 applies: after the branch is pushed, run `gh workflow run harness.yml --ref "$(git branch --show-current)"` and `gh run watch`; every OS job provisions its targets with the plugin, so TestM1 and TestM2 green on all four OS prove the pins (a moved or changed `.deb` fails provisioning with `pinned package docker-compose-plugin=… missing` or `… has SHA-256 …`). The `actions/cache` key hashes `images.json`, so the first run re-downloads the cloud images. Empty `/root/.cache/w0c-tmp/15` when the task ends.
 
 ### Task 16: Web accessibility and browser test dependencies
 
@@ -4125,7 +4160,7 @@ test("axe reports an unlabelled control", async () => {
 
 - [ ] **Step 2: Run it to make sure it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/7 && TMPDIR=/root/.cache/w0c-tmp/7 pnpm -C web vitest run src/test/axe.test.tsx`
+Run: `mkdir -p /root/.cache/w0c-tmp/16 && TMPDIR=/root/.cache/w0c-tmp/16 pnpm -C web vitest run src/test/axe.test.tsx`
 Expected: FAIL — the suite cannot resolve the import `vitest-axe` (`Failed to resolve import "vitest-axe"`).
 
 - [ ] **Step 3: Add the dependencies**
@@ -4133,7 +4168,7 @@ Expected: FAIL — the suite cannot resolve the import `vitest-axe` (`Failed to 
 Run from the repository root:
 
 ```bash
-TMPDIR=/root/.cache/w0c-tmp/7 pnpm -C web add -D --save-exact vitest-axe@1.0.0-pre.5 @playwright/test@1.64.0
+TMPDIR=/root/.cache/w0c-tmp/16 pnpm -C web add -D --save-exact vitest-axe@1.0.0-pre.5 @playwright/test@1.64.0
 ```
 
 Expected output ends with `+ @playwright/test 1.64.0 (1.64.1 is available)` and `+ vitest-axe 1.0.0-pre.5`, and starts with `Lockfile passes supply-chain policies`. `git diff --stat web/` then shows exactly two files: `web/package.json` gains the two lines `"@playwright/test": "1.64.0",` (after `"@eslint/js"`) and `"vitest-axe": "1.0.0-pre.5"` (after `"vitest"`), and `web/pnpm-lock.yaml` gains about 74 lines: the two importer entries plus the packages `@playwright/test@1.64.0`, `playwright@1.64.0`, `playwright-core@1.64.0`, `vitest-axe@1.0.0-pre.5`, `axe-core@4.14.0`, `chalk@5.6.2`, `lodash-es@4.18.1`, `tinyrainbow@2.0.0` and `@vitest/pretty-format@3.2.7`. `web/pnpm-workspace.yaml` does not change: neither package needs a build script, and `@playwright/test` downloads no browser at install (browsers are fetched only by `playwright install`, which nothing runs). If the output differs (another version resolved, a build-script prompt, a supply-chain refusal), stop and report it.
@@ -4155,10 +4190,10 @@ import "vitest-axe/extend-expect"
 
 - [ ] **Step 5: Run the tests and the checks**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/7 pnpm -C web vitest run src/test/axe.test.tsx`
+Run: `TMPDIR=/root/.cache/w0c-tmp/16 pnpm -C web vitest run src/test/axe.test.tsx`
 Expected: PASS, `Tests  2 passed (2)`.
 
-Run: `rm -f web/node_modules/.stamp && TMPDIR=/root/.cache/w0c-tmp/7 make lint-web test-web`
+Run: `rm -f web/node_modules/.stamp && TMPDIR=/root/.cache/w0c-tmp/16 make lint-web test-web`
 Expected: `pnpm -C web install --frozen-lockfile` runs and the stamp is touched, ESLint and both `tsc` runs print no findings, and the Vitest `Tests` line reports every test passed with none failed.
 
 - [ ] **Step 6: Commit**
@@ -4166,7 +4201,7 @@ Expected: `pnpm -C web install --frozen-lockfile` runs and the stamp is touched,
 ```bash
 git add web/package.json web/pnpm-lock.yaml web/src/test/setup.ts web/src/test/axe.test.tsx
 git commit -m "chore(web): add vitest-axe and playwright"
-rm -rf /root/.cache/w0c-tmp/7
+rm -rf /root/.cache/w0c-tmp/16
 ```
 
 ### Task 17: Harness VM concurrency limit
@@ -4251,7 +4286,7 @@ func TestVMLimiter(t *testing.T) {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/14b && TMPDIR=/root/.cache/w0c-tmp/14b GOTOOLCHAIN=local go test -count=1 -tags harness -run TestVMLimiter ./test/harness/`
+Run: `mkdir -p /root/.cache/w0c-tmp/17 && TMPDIR=/root/.cache/w0c-tmp/17 GOTOOLCHAIN=local go test -count=1 -tags harness -run TestVMLimiter ./test/harness/`
 Expected: FAIL, the package does not compile: `undefined: newVMLimiter`.
 
 - [ ] **Step 3: Write the implementation**
@@ -4365,10 +4400,10 @@ The rest of `bootVMs` stays as it is: its `t.Cleanup(v.Shutdown)` calls are regi
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/14b && TMPDIR=/root/.cache/w0c-tmp/14b GOTOOLCHAIN=local go test -count=1 -tags harness -run TestVMLimiter -race -v ./test/harness/`
+Run: `mkdir -p /root/.cache/w0c-tmp/17 && TMPDIR=/root/.cache/w0c-tmp/17 GOTOOLCHAIN=local go test -count=1 -tags harness -run TestVMLimiter -race -v ./test/harness/`
 Expected: PASS for `TestVMLimiter`, no race report.
 
-Run: `mkdir -p /root/.cache/w0c-tmp/14b && TMPDIR=/root/.cache/w0c-tmp/14b GOTOOLCHAIN=local go test -count=1 -tags harness  ./test/harness/ && TMPDIR=/root/.cache/w0c-tmp/14b GOTOOLCHAIN=local go vet -tags harness ./test/... && TMPDIR=/root/.cache/w0c-tmp/14b golangci-lint run --allow-serial-runners ./test/harness/...`
+Run: `mkdir -p /root/.cache/w0c-tmp/17 && TMPDIR=/root/.cache/w0c-tmp/17 GOTOOLCHAIN=local go test -count=1 -tags harness  ./test/harness/ && TMPDIR=/root/.cache/w0c-tmp/17 GOTOOLCHAIN=local go vet -tags harness ./test/... && TMPDIR=/root/.cache/w0c-tmp/17 golangci-lint run --allow-serial-runners ./test/harness/...`
 Expected: `ok  	github.com/darkraise/darkpanel/test/harness`, no vet output, `0 issues.`
 
 - [ ] **Step 5: Commit**
@@ -4378,7 +4413,7 @@ git add test/harness/vmlimit.go test/harness/vmlimit_test.go test/harness/m1_tes
 git commit -m "test(harness): bound how many VMs run at once"
 ```
 
-This task touches `test/harness/`, so gate 7 applies: after the branch is pushed, `gh workflow run harness.yml --ref "$(git branch --show-current)"` and `gh run watch` must end green on all four OS jobs (TestM1 and TestM2 boot through the limiter). Empty `/root/.cache/w0c-tmp/14b` when the task ends.
+This task touches `test/harness/`, so gate 7 applies: after the branch is pushed, `gh workflow run harness.yml --ref "$(git branch --show-current)"` and `gh run watch` must end green on all four OS jobs (TestM1 and TestM2 boot through the limiter). Empty `/root/.cache/w0c-tmp/17` when the task ends.
 
 ### Task 18: Runtime listener migration
 
@@ -4482,7 +4517,7 @@ func TestControllerListenersMigration(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/21a && TMPDIR=/root/.cache/w0c-tmp/21a GOTOOLCHAIN=local go test -count=1 -run 'TestCoreMigrationsApply|TestControllerListenersMigration' ./internal/core/store/`
+Run: `mkdir -p /root/.cache/w0c-tmp/18 && TMPDIR=/root/.cache/w0c-tmp/18 GOTOOLCHAIN=local go test -count=1 -run 'TestCoreMigrationsApply|TestControllerListenersMigration' ./internal/core/store/`
 Expected: FAIL: `table core_listeners missing` and `applied [], want 0012_listeners first`.
 
 - [ ] **Step 3: Write the implementation**
@@ -4512,7 +4547,7 @@ CREATE INDEX core_listeners_state ON core_listeners (state, created_at, id);
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/21a GOTOOLCHAIN=local go test -count=1 ./internal/core/store/ ./internal/controller/... && TMPDIR=/root/.cache/w0c-tmp/21a GOTOOLCHAIN=local go test -count=1 -tags harness ./internal/core/store/`
+Run: `TMPDIR=/root/.cache/w0c-tmp/18 GOTOOLCHAIN=local go test -count=1 ./internal/core/store/ ./internal/controller/... && TMPDIR=/root/.cache/w0c-tmp/18 GOTOOLCHAIN=local go test -count=1 -tags harness ./internal/core/store/`
 Expected: every package `ok` (the harness build adds its `9000` marker after `0012`, which `TestHarnessMigrations` still finds last).
 
 - [ ] **Step 5: Commit**
@@ -4520,12 +4555,12 @@ Expected: every package `ok` (the harness build adds its `9000` marker after `00
 ```bash
 git add internal/core/store/migrations/controller/0012_listeners.sql internal/core/store/migrations_test.go
 git commit -m "feat(store): add the runtime listener table"
-rm -rf /root/.cache/w0c-tmp/21a
+rm -rf /root/.cache/w0c-tmp/18
 ```
 
 ### Task 19: Extension package
 
-This task creates the extension package `internal/core/ext` exactly as spec 1.12 gives it (C2): the route surfaces, `Route`, `Service`, `Deps`, `Dispatcher`, `Publisher` and `Controller`. Nothing contributes or calls it yet: Task 41 mounts its routes in the API and Task 38 calls `Controller` and starts the services. Module packages and `internal/controller/server` both import `ext`, so it must import only `internal/core`, `internal/core/store` and the standard library; `TestExtImportsOnlyCoreStoreAndStandardLibrary` parses the package's imports to hold that. Test names and the one package variable carry the prefix `ext`/`Ext`.
+This task creates the extension package `internal/core/ext` exactly as spec 1.12 gives it (C2): the route surfaces, `Route`, `Service`, `Deps`, `Dispatcher`, `Publisher` and `Controller`. Nothing contributes or calls it yet: Task 41 mounts its routes in the API, Task 38 calls `Controller` and Task 46 starts the services. Module packages and `internal/controller/server` both import `ext`, so it must import only `internal/core`, `internal/core/store` and the standard library; `TestExtImportsOnlyCoreStoreAndStandardLibrary` parses the package's imports to hold that. Test names and the one package variable carry the prefix `ext`/`Ext`.
 
 **Files:**
 - Create: `internal/core/ext/ext.go`
@@ -4612,7 +4647,7 @@ func TestExtSurfaceWebIsTheZeroValue(t *testing.T) {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/2b && TMPDIR=/root/.cache/w0c-tmp/2b GOTOOLCHAIN=local go test ./internal/core/ext/`
+Run: `mkdir -p /root/.cache/w0c-tmp/19 && TMPDIR=/root/.cache/w0c-tmp/19 GOTOOLCHAIN=local go test ./internal/core/ext/`
 Expected: FAIL to compile with `undefined: Route` and `undefined: SurfaceWeb`.
 
 - [ ] **Step 3: Write the implementation**
@@ -4703,7 +4738,7 @@ type Controller interface {
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/2b GOTOOLCHAIN=local go test -count=1 ./internal/core/ext/ && TMPDIR=/root/.cache/w0c-tmp/2b GOTOOLCHAIN=local go vet ./internal/core/ext/ && TMPDIR=/root/.cache/w0c-tmp/2b golangci-lint run --allow-serial-runners ./internal/core/ext/`
+Run: `TMPDIR=/root/.cache/w0c-tmp/19 GOTOOLCHAIN=local go test -count=1 ./internal/core/ext/ && TMPDIR=/root/.cache/w0c-tmp/19 GOTOOLCHAIN=local go vet ./internal/core/ext/ && TMPDIR=/root/.cache/w0c-tmp/19 golangci-lint run --allow-serial-runners ./internal/core/ext/`
 Expected: `ok  	github.com/darkraise/darkpanel/internal/core/ext`; vet prints nothing; `0 issues.`
 
 - [ ] **Step 5: Commit**
@@ -4712,7 +4747,7 @@ Expected: `ok  	github.com/darkraise/darkpanel/internal/core/ext`; vet prints no
 gofmt -l internal/core/ext   # prints nothing
 git add internal/core/ext/ext.go internal/core/ext/ext_test.go
 git commit -m "feat(ext): add the controller extension package"
-rm -rf /root/.cache/w0c-tmp/2b
+rm -rf /root/.cache/w0c-tmp/19
 ```
 
 ### Task 20: CLI hand-written command mounting
@@ -4851,7 +4886,7 @@ func TestModuleCommandsRefuseClashes(t *testing.T) {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/6b && TMPDIR=/root/.cache/w0c-tmp/6b GOTOOLCHAIN=local go test -count=1 -run 'TestModuleCommands' ./internal/cli/`
+Run: `mkdir -p /root/.cache/w0c-tmp/20 && TMPDIR=/root/.cache/w0c-tmp/20 GOTOOLCHAIN=local go test -count=1 -run 'TestModuleCommands' ./internal/cli/`
 Expected: FAIL — each `TestModuleCommandsMountUnderTheirGroup` case reports a non-zero exit with an `unknown command` error (for example `unknown command "extra" for "darkpanel demo"`), and every `TestModuleCommandsRefuseClashes` case reports `NewRoot: error <nil>`; `TestModuleCommandsCoverEveryModule` passes.
 
 - [ ] **Step 3: Write the implementation**
@@ -4940,7 +4975,7 @@ The mount runs before `markRuns` and `guardLocal`, so hand-written commands get 
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/6b GOTOOLCHAIN=local go test -count=1 ./internal/cli/ ./cmd/darkpanel/ && TMPDIR=/root/.cache/w0c-tmp/6b golangci-lint run --allow-serial-runners ./internal/cli/...`
+Run: `TMPDIR=/root/.cache/w0c-tmp/20 GOTOOLCHAIN=local go test -count=1 ./internal/cli/ ./cmd/darkpanel/ && TMPDIR=/root/.cache/w0c-tmp/20 golangci-lint run --allow-serial-runners ./internal/cli/...`
 Expected: `ok` for both packages and `0 issues.`
 
 - [ ] **Step 5: Commit**
@@ -4948,7 +4983,7 @@ Expected: `ok` for both packages and `0 issues.`
 ```bash
 git add internal/cli/modules.go internal/cli/modules_test.go internal/cli/root.go
 git commit -m "feat(cli): mount hand-written module commands"
-rm -rf /root/.cache/w0c-tmp/6b
+rm -rf /root/.cache/w0c-tmp/20
 ```
 
 ### Task 21: Module web stubs and registry entries
@@ -5041,7 +5076,7 @@ describe("module registry", () => {
 
 - [ ] **Step 2: Run it to make sure it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/10b && TMPDIR=/root/.cache/w0c-tmp/10b pnpm -C web vitest run src/modules/registry.test.tsx`
+Run: `mkdir -p /root/.cache/w0c-tmp/21 && TMPDIR=/root/.cache/w0c-tmp/21 pnpm -C web vitest run src/modules/registry.test.tsx`
 Expected: FAIL — "registers the extension points the modules' pages need" expects `["tailnet", "derp", "cloudflare"]` and receives `[]`.
 
 - [ ] **Step 3: Create the stubs**
@@ -5215,10 +5250,10 @@ export const moduleRegistry: ModuleEntry[] = [
 
 - [ ] **Step 5: Run the tests and the checks**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/10b pnpm -C web vitest run src/modules/registry.test.tsx`
+Run: `TMPDIR=/root/.cache/w0c-tmp/21 pnpm -C web vitest run src/modules/registry.test.tsx`
 Expected: PASS, `Tests  2 passed (2)`. To see that the load test guards the imports, change `./derp/global` to `./derp/globalx` in `registry.ts`, rerun and see `Failed to resolve import "./derp/globalx"`, then change it back.
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/10b make lint-web test-web`
+Run: `TMPDIR=/root/.cache/w0c-tmp/21 make lint-web test-web`
 Expected: no ESLint or `tsc` finding, and every Vitest test passes.
 
 - [ ] **Step 6: Commit**
@@ -5226,7 +5261,7 @@ Expected: no ESLint or `tsc` finding, and every Vitest test passes.
 ```bash
 git add web/src/modules
 git commit -m "feat(web): register the module stubs"
-rm -rf /root/.cache/w0c-tmp/10b
+rm -rf /root/.cache/w0c-tmp/21
 ```
 
 ### Task 22: Harness pins for Pebble and its challenge server
@@ -5324,7 +5359,7 @@ func TestContainer(t *testing.T) {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/15b && TMPDIR=/root/.cache/w0c-tmp/15b GOTOOLCHAIN=local go test -count=1 -tags harness -run 'TestPin|TestLoadPins|TestContainer' ./test/harness/`
+Run: `mkdir -p /root/.cache/w0c-tmp/22 && TMPDIR=/root/.cache/w0c-tmp/22 GOTOOLCHAIN=local go test -count=1 -tags harness -run 'TestPin|TestLoadPins|TestContainer' ./test/harness/`
 Expected: FAIL, the package does not compile: `undefined: Container` and `undefined: RequiredContainers`.
 
 - [ ] **Step 3: Write the implementation**
@@ -5438,7 +5473,7 @@ In `test/harness/images.json`, after the closing `]` of the `os` array add a com
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/15b && TMPDIR=/root/.cache/w0c-tmp/15b GOTOOLCHAIN=local go test -count=1 -tags harness  ./test/harness/ && TMPDIR=/root/.cache/w0c-tmp/15b GOTOOLCHAIN=local go vet -tags harness ./test/... && TMPDIR=/root/.cache/w0c-tmp/15b golangci-lint run --allow-serial-runners ./test/harness/...`
+Run: `mkdir -p /root/.cache/w0c-tmp/22 && TMPDIR=/root/.cache/w0c-tmp/22 GOTOOLCHAIN=local go test -count=1 -tags harness  ./test/harness/ && TMPDIR=/root/.cache/w0c-tmp/22 GOTOOLCHAIN=local go vet -tags harness ./test/... && TMPDIR=/root/.cache/w0c-tmp/22 golangci-lint run --allow-serial-runners ./test/harness/...`
 Expected: `ok  	github.com/darkraise/darkpanel/test/harness`, no vet output, `0 issues.`
 
 - [ ] **Step 5: Commit**
@@ -5448,7 +5483,7 @@ git add test/harness/pins.go test/harness/images.json test/harness/pins_test.go
 git commit -m "test(harness): pin Pebble and its challenge server"
 ```
 
-Empty `/root/.cache/w0c-tmp/15b` when the task ends. Nothing boots with these images yet, so this task alone changes no VM.
+Empty `/root/.cache/w0c-tmp/22` when the task ends. Nothing boots with these images yet, so this task alone changes no VM.
 
 ### Task 23: Cloud HTTP client
 
@@ -5883,7 +5918,7 @@ func clEqualDurations(a, b []time.Duration) bool {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/16a && export TMPDIR=/root/.cache/w0c-tmp/16a GOTOOLCHAIN=local && go test -count=1 ./internal/controller/cloud/`
+Run: `mkdir -p /root/.cache/w0c-tmp/23 && export TMPDIR=/root/.cache/w0c-tmp/23 GOTOOLCHAIN=local && go test -count=1 ./internal/controller/cloud/`
 Expected: FAIL to build: `undefined: Config`, `undefined: New`, `undefined: Request`.
 
 - [ ] **Step 3: Write the implementation**
@@ -6219,7 +6254,7 @@ func Status(err error) int {
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/16a && export TMPDIR=/root/.cache/w0c-tmp/16a GOTOOLCHAIN=local && go test -count=3 -race ./internal/controller/cloud/ && go vet ./internal/controller/cloud/ && golangci-lint run --allow-serial-runners ./internal/controller/cloud/`
+Run: `mkdir -p /root/.cache/w0c-tmp/23 && export TMPDIR=/root/.cache/w0c-tmp/23 GOTOOLCHAIN=local && go test -count=3 -race ./internal/controller/cloud/ && go vet ./internal/controller/cloud/ && golangci-lint run --allow-serial-runners ./internal/controller/cloud/`
 Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/cloud`, then `0 issues.`
 
 - [ ] **Step 5: Commit**
@@ -6227,6 +6262,7 @@ Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/cloud`, then 
 ```bash
 git add internal/controller/cloud/client.go internal/controller/cloud/client_test.go
 git commit -m "feat(cloud): add the provider HTTP client"
+rm -rf /root/.cache/w0c-tmp/23
 ```
 
 ### Task 24: Proxy path in the guard context
@@ -6324,7 +6360,7 @@ func TestGuardContextProxyPathIsACopyWithoutZones(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/18 && TMPDIR=/root/.cache/w0c-tmp/18 GOTOOLCHAIN=local go test -count=1 -run 'TestPlanGuardCarriesProxyPath|TestGuardContextProxyPathIsACopyWithoutZones' ./internal/controller/dispatch/`
+Run: `mkdir -p /root/.cache/w0c-tmp/24 && TMPDIR=/root/.cache/w0c-tmp/24 GOTOOLCHAIN=local go test -count=1 -run 'TestPlanGuardCarriesProxyPath|TestGuardContextProxyPathIsACopyWithoutZones' ./internal/controller/dispatch/`
 Expected: FAIL: `TestPlanGuardCarriesProxyPath` reports a guard without `"via"`, and `TestGuardContextProxyPathIsACopyWithoutZones` fails with `no proxy path`.
 
 - [ ] **Step 3: Write the implementation**
@@ -6379,7 +6415,7 @@ with
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/18 GOTOOLCHAIN=local go test -count=1 ./internal/controller/dispatch/ && TMPDIR=/root/.cache/w0c-tmp/18 golangci-lint run --allow-serial-runners ./internal/controller/dispatch/...`
+Run: `TMPDIR=/root/.cache/w0c-tmp/24 GOTOOLCHAIN=local go test -count=1 ./internal/controller/dispatch/ && TMPDIR=/root/.cache/w0c-tmp/24 golangci-lint run --allow-serial-runners ./internal/controller/dispatch/...`
 Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/dispatch` and `0 issues.`
 
 - [ ] **Step 5: Commit**
@@ -6387,7 +6423,7 @@ Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/dispatch` and
 ```bash
 git add internal/controller/dispatch/guard.go internal/controller/dispatch/guard_test.go
 git commit -m "feat(dispatch): carry the proxy path in guard contexts"
-rm -rf /root/.cache/w0c-tmp/18
+rm -rf /root/.cache/w0c-tmp/24
 ```
 
 ### Task 25: Quarantine flag
@@ -6522,7 +6558,7 @@ func TestFailedReadFailsClosed(t *testing.T) {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/19a && TMPDIR=/root/.cache/w0c-tmp/19a GOTOOLCHAIN=local go test -count=1 ./internal/controller/quarantine/`
+Run: `mkdir -p /root/.cache/w0c-tmp/25 && TMPDIR=/root/.cache/w0c-tmp/25 GOTOOLCHAIN=local go test -count=1 ./internal/controller/quarantine/`
 Expected: FAIL to build with `undefined: MetaKey`, `undefined: Read`, `undefined: Active`, `undefined: Check`.
 
 - [ ] **Step 3: Write the implementation**
@@ -6608,7 +6644,7 @@ func value(ctx context.Context, db *store.DB) (string, bool, error) {
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/19a GOTOOLCHAIN=local go test -count=1 ./internal/controller/quarantine/ && TMPDIR=/root/.cache/w0c-tmp/19a golangci-lint run --allow-serial-runners ./internal/controller/quarantine/...`
+Run: `TMPDIR=/root/.cache/w0c-tmp/25 GOTOOLCHAIN=local go test -count=1 ./internal/controller/quarantine/ && TMPDIR=/root/.cache/w0c-tmp/25 golangci-lint run --allow-serial-runners ./internal/controller/quarantine/...`
 Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/quarantine` and `0 issues.`
 
 - [ ] **Step 5: Commit**
@@ -6616,7 +6652,7 @@ Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/quarantine` a
 ```bash
 git add internal/controller/quarantine/quarantine.go internal/controller/quarantine/quarantine_test.go
 git commit -m "feat(controller): read the restore quarantine flag"
-rm -rf /root/.cache/w0c-tmp/19a
+rm -rf /root/.cache/w0c-tmp/25
 ```
 
 ### Task 26: Dispatcher quarantine gate
@@ -6756,7 +6792,7 @@ func TestQuarantineGateRunsFirst(t *testing.T) {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/19b && TMPDIR=/root/.cache/w0c-tmp/19b GOTOOLCHAIN=local go test -count=1 -run Quarantine ./internal/controller/dispatch/`
+Run: `mkdir -p /root/.cache/w0c-tmp/26 && TMPDIR=/root/.cache/w0c-tmp/26 GOTOOLCHAIN=local go test -count=1 -run Quarantine ./internal/controller/dispatch/`
 Expected: FAIL to build with `cfg.Quarantine undefined (type Config has no field or method Quarantine)`.
 
 - [ ] **Step 3: Write the implementation**
@@ -6867,7 +6903,7 @@ The rest of each method stays as it is. `dispatchChildren.Plan`, `Apply`, `Read`
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/19b GOTOOLCHAIN=local go test -count=1 ./internal/controller/dispatch/ && TMPDIR=/root/.cache/w0c-tmp/19b golangci-lint run --allow-serial-runners ./internal/controller/dispatch/...`
+Run: `TMPDIR=/root/.cache/w0c-tmp/26 GOTOOLCHAIN=local go test -count=1 ./internal/controller/dispatch/ && TMPDIR=/root/.cache/w0c-tmp/26 golangci-lint run --allow-serial-runners ./internal/controller/dispatch/...`
 Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/dispatch` and `0 issues.`
 
 - [ ] **Step 5: Commit**
@@ -6875,7 +6911,7 @@ Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/dispatch` and
 ```bash
 git add internal/controller/dispatch/quarantine.go internal/controller/dispatch/quarantine_test.go internal/controller/dispatch/dispatch.go internal/controller/dispatch/apply.go internal/controller/dispatch/ops.go internal/controller/dispatch/children.go
 git commit -m "feat(dispatch): refuse mutations in restore quarantine"
-rm -rf /root/.cache/w0c-tmp/19b
+rm -rf /root/.cache/w0c-tmp/26
 ```
 
 ### Task 27: Change dialog
@@ -7119,7 +7155,7 @@ test("the planned dialog has no accessibility violations", async () => {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/20 && cd web && TMPDIR=/root/.cache/w0c-tmp/20 pnpm exec vitest run src/components/change-dialog.test.tsx`
+Run: `mkdir -p /root/.cache/w0c-tmp/27 && cd web && TMPDIR=/root/.cache/w0c-tmp/27 pnpm exec vitest run src/components/change-dialog.test.tsx`
 Expected: FAIL — `Failed to resolve import "./change-dialog"`.
 
 - [ ] **Step 3: Write the implementation**
@@ -7463,12 +7499,12 @@ export function ChangeDialog({ open, onOpenChange, title, ...body }: ChangeDialo
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/20 && cd web && TMPDIR=/root/.cache/w0c-tmp/20 pnpm exec vitest run src/components/change-dialog.test.tsx`
+Run: `mkdir -p /root/.cache/w0c-tmp/27 && cd web && TMPDIR=/root/.cache/w0c-tmp/27 pnpm exec vitest run src/components/change-dialog.test.tsx`
 Expected: PASS, 12 tests.
 
 - [ ] **Step 5: Check the whole web suite, types and lint**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/20 make lint-web test-web`
+Run: `TMPDIR=/root/.cache/w0c-tmp/27 make lint-web test-web`
 Expected: ESLint prints nothing (it runs with `--max-warnings 0`), `tsc --noEmit` prints nothing, and the Vitest summary reports every test file passed.
 
 - [ ] **Step 6: Commit**
@@ -7476,7 +7512,7 @@ Expected: ESLint prints nothing (it runs with `--max-warnings 0`), `tsc --noEmit
 ```bash
 git add web/src/components/change-dialog.tsx web/src/components/change-dialog.test.tsx
 git commit -m "feat(web): add the change dialog"
-rm -rf /root/.cache/w0c-tmp/20
+rm -rf /root/.cache/w0c-tmp/27
 ```
 
 ### Task 28: Runtime listener store
@@ -7650,7 +7686,7 @@ func TestRuntimeStoreRefusesBadRows(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/21b && TMPDIR=/root/.cache/w0c-tmp/21b GOTOOLCHAIN=local go test -count=1 -run TestRuntimeStore ./internal/controller/listen/`
+Run: `mkdir -p /root/.cache/w0c-tmp/28 && TMPDIR=/root/.cache/w0c-tmp/28 GOTOOLCHAIN=local go test -count=1 -run TestRuntimeStore ./internal/controller/listen/`
 Expected: FAIL to build: `undefined: insertListener`, `undefined: setListenerState`, `undefined: getListener`, `undefined: listListeners`.
 
 - [ ] **Step 3: Write the implementation**
@@ -7778,7 +7814,7 @@ func scanListener(row listenerScanner) (core.ListenerInfo, error) {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/21b GOTOOLCHAIN=local go test -count=1 ./internal/controller/listen/ && TMPDIR=/root/.cache/w0c-tmp/21b golangci-lint run --allow-serial-runners ./internal/controller/listen/...`
+Run: `TMPDIR=/root/.cache/w0c-tmp/28 GOTOOLCHAIN=local go test -count=1 ./internal/controller/listen/ && TMPDIR=/root/.cache/w0c-tmp/28 golangci-lint run --allow-serial-runners ./internal/controller/listen/...`
 Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/listen` and `0 issues.`
 
 - [ ] **Step 5: Commit**
@@ -7786,7 +7822,7 @@ Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/listen` and `
 ```bash
 git add internal/controller/listen/runtime_store.go internal/controller/listen/runtime_store_test.go
 git commit -m "feat(listen): store runtime listeners"
-rm -rf /root/.cache/w0c-tmp/21b
+rm -rf /root/.cache/w0c-tmp/28
 ```
 
 ### Task 29: Tailnet policy parser dependency
@@ -7827,12 +7863,12 @@ The comment sits inside the import block, directly above the blank import: reviv
 
 - [ ] **Step 2: Run the build to verify it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/8b && TMPDIR=/root/.cache/w0c-tmp/8b GOTOOLCHAIN=local go build ./internal/modules/tailnet/`
+Run: `mkdir -p /root/.cache/w0c-tmp/29 && TMPDIR=/root/.cache/w0c-tmp/29 GOTOOLCHAIN=local go build ./internal/modules/tailnet/`
 Expected: FAIL with `no required module provides package github.com/tailscale/hujson`.
 
 - [ ] **Step 3: Add the dependency**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/8b GOTOOLCHAIN=local go get github.com/tailscale/hujson@v0.0.0-20260727124030-b80ff77dac4f && TMPDIR=/root/.cache/w0c-tmp/8b GOTOOLCHAIN=local go mod tidy`
+Run: `TMPDIR=/root/.cache/w0c-tmp/29 GOTOOLCHAIN=local go get github.com/tailscale/hujson@v0.0.0-20260727124030-b80ff77dac4f && TMPDIR=/root/.cache/w0c-tmp/29 GOTOOLCHAIN=local go mod tidy`
 
 Expected result, checked with `git diff go.mod go.sum`: `go.mod` gains, in its first `require` block between `github.com/spf13/cobra v1.10.2` and `golang.org/x/crypto v0.58.0`, the line
 
@@ -7853,7 +7889,7 @@ If `go mod tidy` marks the requirement `// indirect`, the import of Step 1 is mi
 
 - [ ] **Step 4: Run the checks to verify they pass**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/8b GOTOOLCHAIN=local go build ./... && TMPDIR=/root/.cache/w0c-tmp/8b GOTOOLCHAIN=local go mod tidy -diff && TMPDIR=/root/.cache/w0c-tmp/8b GOTOOLCHAIN=local go test -count=1 ./internal/modules/... && TMPDIR=/root/.cache/w0c-tmp/8b golangci-lint run --allow-serial-runners ./internal/modules/... && TMPDIR=/root/.cache/w0c-tmp/8b GOTOOLCHAIN=local make vuln`
+Run: `TMPDIR=/root/.cache/w0c-tmp/29 GOTOOLCHAIN=local go build ./... && TMPDIR=/root/.cache/w0c-tmp/29 GOTOOLCHAIN=local go mod tidy -diff && TMPDIR=/root/.cache/w0c-tmp/29 GOTOOLCHAIN=local go test -count=1 ./internal/modules/... && TMPDIR=/root/.cache/w0c-tmp/29 golangci-lint run --allow-serial-runners ./internal/modules/... && TMPDIR=/root/.cache/w0c-tmp/29 GOTOOLCHAIN=local make vuln`
 Expected: the build succeeds, `go mod tidy -diff` prints nothing, the tests print `ok`, golangci-lint prints `0 issues.`, and govulncheck prints `No vulnerabilities found.`
 
 - [ ] **Step 5: Commit**
@@ -7861,7 +7897,7 @@ Expected: the build succeeds, `go mod tidy -diff` prints nothing, the tests prin
 ```bash
 git add go.mod go.sum internal/modules/tailnet/deps.go
 git commit -m "chore(deps): add hujson for the tailnet policy"
-rm -rf /root/.cache/w0c-tmp/8b
+rm -rf /root/.cache/w0c-tmp/29
 ```
 
 ### Task 30: Runtime listener request wrapper
@@ -8062,7 +8098,7 @@ func TestRuntimeHandlerRefusals(t *testing.T) {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/22 && TMPDIR=/root/.cache/w0c-tmp/22 GOTOOLCHAIN=local go test -count=1 -run TestRuntimeHandler ./internal/controller/api/`
+Run: `mkdir -p /root/.cache/w0c-tmp/30 && TMPDIR=/root/.cache/w0c-tmp/30 GOTOOLCHAIN=local go test -count=1 -run TestRuntimeHandler ./internal/controller/api/`
 Expected: FAIL to build with `h.srv.RuntimeHandler undefined (type *Server has no field or method RuntimeHandler)`
 
 - [ ] **Step 3: Write the implementation**
@@ -8170,7 +8206,7 @@ func runtimeClient(values []string) (netip.Addr, bool) {
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/22 GOTOOLCHAIN=local go test -count=1 ./internal/controller/api/ && TMPDIR=/root/.cache/w0c-tmp/22 golangci-lint run --allow-serial-runners ./internal/controller/api/`
+Run: `TMPDIR=/root/.cache/w0c-tmp/30 GOTOOLCHAIN=local go test -count=1 ./internal/controller/api/ && TMPDIR=/root/.cache/w0c-tmp/30 golangci-lint run --allow-serial-runners ./internal/controller/api/`
 Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/api` and `0 issues.`
 
 - [ ] **Step 5: Commit**
@@ -8178,12 +8214,12 @@ Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/api` and `0 i
 ```bash
 git add internal/controller/api/runtime.go internal/controller/api/runtime_test.go
 git commit -m "feat(api): serve runtime listeners behind a proxy"
-rm -rf /root/.cache/w0c-tmp/22
+rm -rf /root/.cache/w0c-tmp/30
 ```
 
 ### Task 31: Proxied requests in the API
 
-This task gives requests carrying `core.Proxied` (C4, set by Task 30's runtime-listener wrapper) the semantics of C11, all inside `internal/controller/api`. `clientAddr` — the one source of the principal's, the audit entry's and the login rate limiter's `Source` — becomes `"<client> via <proxy address>"`; `clientPeer`, which feeds the guard context, becomes the client the proxy named, with port 0 because the proxy does not pass it on; `authenticate` refuses an unsafe request through a runtime listener whose `Origin` is not `https://<PublicHost>` with `auth.csrf` before anything else (login included: login CSRF is a real attack through a public exposure); and `sseStream`, which every server-sent-event response goes through (the events stream and the module-stream relay), adds `X-Accel-Buffering: no` and ends with a `revoked` end frame when the listener's `Revoked` channel closes. The relay does not write a second end frame because `relayWriter.ended` is then set (Task 6). Requests on other listeners are unchanged. Contract note: C11 says `"<Client> via <Transport>"`; this task writes the transport's address without its port, because the proxy's source port changes per connection and would give every connection its own rate-limit key. Test helpers carry the prefix `px` (`pxProxied`, `pxProbe`, `pxThrough`); the stream test reuses `sseEnv`, `sseAuth`, `sseServer`, `sseWait` and `newSSERecorder` from `sse_test.go`.
+This task gives requests carrying `core.Proxied` (C4, set by Task 30's runtime-listener wrapper) the semantics of C11, all inside `internal/controller/api`. `clientAddr` — the one source of the principal's, the audit entry's and the login rate limiter's `Source` — becomes `"<client> via <proxy address>"`; `clientPeer`, which feeds the guard context, becomes the client the proxy named, with port 0 because the proxy does not pass it on; `authenticate` refuses an unsafe request through a runtime listener whose `Origin` is not `https://<PublicHost>` with `auth.csrf` before anything else (login included: login CSRF is a real attack through a public exposure); and `sseStream`, which every server-sent-event response goes through (the events stream and the module-stream relay), adds `X-Accel-Buffering: no` and ends with a `revoked` end frame when the listener's `Revoked` channel closes. The relay does not write a second end frame because `relayWriter.ended` is then set (Task 6). Requests on other listeners are unchanged. C11's `Source` writes the transport's address without its port, because the proxy's source port changes per connection and would give every connection its own rate-limit key. Test helpers carry the prefix `px` (`pxProxied`, `pxProbe`, `pxThrough`); the stream test reuses `sseEnv`, `sseAuth`, `sseServer`, `sseWait` and `newSSERecorder` from `sse_test.go`.
 
 **Files:**
 - Modify: `internal/controller/api/server.go:180-200` (`clientAddr`, `clientPeer`), `:271-301` (`authenticate`), and a new function `proxiedOrigin` before `requireCaller`
@@ -8399,7 +8435,7 @@ func TestDirectStreamHeaders(t *testing.T) {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/23 && TMPDIR=/root/.cache/w0c-tmp/23 GOTOOLCHAIN=local go test -count=1 -run 'TestProxied|TestDirectStream' ./internal/controller/api/`
+Run: `mkdir -p /root/.cache/w0c-tmp/31 && TMPDIR=/root/.cache/w0c-tmp/31 GOTOOLCHAIN=local go test -count=1 -run 'TestProxied|TestDirectStream' ./internal/controller/api/`
 Expected: FAIL: `TestProxiedSourceAndPeer` (`Source "192.0.2.10", want "203.0.113.7 via 172.31.255.2"` and `guard peer {Addr:192.0.2.10 Port:51234} (true), want {Addr:203.0.113.7 Port:0}`), `TestProxiedLoginSource` (`no login entry with source 203.0.113.7 via 172.31.255.2`), `TestProxiedOrigin` (four rows `answer 204 , want 403`), `TestProxiedStreamRevoked` (`X-Accel-Buffering "", want no` and `the stream did not end`); `TestDirectStreamHeaders` passes.
 
 - [ ] **Step 3: Write the implementation**
@@ -8514,7 +8550,7 @@ In `internal/controller/api/events.go`, replace the last two lines of `handleEve
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/23 GOTOOLCHAIN=local go test -count=1 ./internal/controller/api/ && TMPDIR=/root/.cache/w0c-tmp/23 golangci-lint run --allow-serial-runners ./internal/controller/api/`
+Run: `TMPDIR=/root/.cache/w0c-tmp/31 GOTOOLCHAIN=local go test -count=1 ./internal/controller/api/ && TMPDIR=/root/.cache/w0c-tmp/31 golangci-lint run --allow-serial-runners ./internal/controller/api/`
 Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/api` and `0 issues.`
 
 - [ ] **Step 5: Commit**
@@ -8522,7 +8558,7 @@ Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/api` and `0 i
 ```bash
 git add internal/controller/api/server.go internal/controller/api/sse.go internal/controller/api/events.go internal/controller/api/proxied_test.go
 git commit -m "feat(api): trust a runtime listener's client header"
-rm -rf /root/.cache/w0c-tmp/23
+rm -rf /root/.cache/w0c-tmp/31
 ```
 
 ### Task 32: CLI socket paths and the fuzz target
@@ -8571,7 +8607,7 @@ func TestSocketCommandsResolveThroughSelectPaths(t *testing.T) {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/9b && TMPDIR=/root/.cache/w0c-tmp/9b GOTOOLCHAIN=local go test -count=1 -run TestSocketCommandsResolveThroughSelectPaths ./cmd/darkpanel/`
+Run: `mkdir -p /root/.cache/w0c-tmp/32 && TMPDIR=/root/.cache/w0c-tmp/32 GOTOOLCHAIN=local go test -count=1 -run TestSocketCommandsResolveThroughSelectPaths ./cmd/darkpanel/`
 Expected: FAIL — exit 1 with an error naming the development socket `<temp>/darkpanel-dev/controller.sock` rather than the selected `<temp>/run/controller.sock`, and `selectPaths calls []`.
 
 - [ ] **Step 3: Write the implementation**
@@ -8626,7 +8662,7 @@ fuzz:
 
 - [ ] **Step 4: Run the checks to verify they pass**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/9b GOTOOLCHAIN=local go test -count=1 ./cmd/darkpanel/ ./internal/cli/ && TMPDIR=/root/.cache/w0c-tmp/9b golangci-lint run --allow-serial-runners ./cmd/... ./internal/cli/... && { make fuzz; test $? -eq 2; }`
+Run: `TMPDIR=/root/.cache/w0c-tmp/32 GOTOOLCHAIN=local go test -count=1 ./cmd/darkpanel/ ./internal/cli/ && TMPDIR=/root/.cache/w0c-tmp/32 golangci-lint run --allow-serial-runners ./cmd/... ./internal/cli/... && { make fuzz; test $? -eq 2; }`
 Expected: `ok` for both packages, `0 issues.`, and `make fuzz` prints `fuzz: scripts/fuzz.sh is missing; it lists the fuzz targets to run` and exits 2, so the last check passes.
 
 - [ ] **Step 5: Commit**
@@ -8634,7 +8670,7 @@ Expected: `ok` for both packages, `0 issues.`, and `make fuzz` prints `fuzz: scr
 ```bash
 git add internal/cli/root.go internal/cli/read.go cmd/darkpanel/main.go cmd/darkpanel/paths_test.go Makefile
 git commit -m "feat(cli): select socket paths and add fuzz target"
-rm -rf /root/.cache/w0c-tmp/9b
+rm -rf /root/.cache/w0c-tmp/32
 ```
 
 ### Task 33: Global page routes and sidebar navigation
@@ -8784,7 +8820,7 @@ test("the global pages have their own sidebar group", async () => {
 
 - [ ] **Step 2: Run them to make sure they fail**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/10c && TMPDIR=/root/.cache/w0c-tmp/10c pnpm -C web vitest run src/app.test.tsx src/shell.test.tsx`
+Run: `mkdir -p /root/.cache/w0c-tmp/33 && TMPDIR=/root/.cache/w0c-tmp/33 pnpm -C web vitest run src/app.test.tsx src/shell.test.tsx`
 Expected: FAIL — the three global-page tests (no `Tailnet`, `DERP` or `Cloudflare` link, and "Page not found" shown), "the sidebar lists each host with the pages of its enabled modules" (no `web-1` link) and "the global pages have their own sidebar group" (no "Network" text).
 
 - [ ] **Step 3: Mount the global pages**
@@ -8947,10 +8983,10 @@ export function Shell() {
 
 - [ ] **Step 5: Run the tests and the checks**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/10c pnpm -C web vitest run src/app.test.tsx src/shell.test.tsx`
+Run: `TMPDIR=/root/.cache/w0c-tmp/33 pnpm -C web vitest run src/app.test.tsx src/shell.test.tsx`
 Expected: PASS, `Tests  22 passed (22)`.
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/10c make lint-web test-web`
+Run: `TMPDIR=/root/.cache/w0c-tmp/33 make lint-web test-web`
 Expected: no ESLint finding (`navigation` stays unexported, so react-refresh's only-export-components rule holds) and no `tsc` finding, and every Vitest test passes.
 
 - [ ] **Step 6: Commit**
@@ -8958,7 +8994,7 @@ Expected: no ESLint finding (`navigation` stays unexported, so react-refresh's o
 ```bash
 git add web/src/app.tsx web/src/shell.tsx web/src/app.test.tsx web/src/shell.test.tsx
 git commit -m "feat(web): mount global pages and module navigation"
-rm -rf /root/.cache/w0c-tmp/10c
+rm -rf /root/.cache/w0c-tmp/33
 ```
 
 ### Task 34: Harness script that pulls the pinned images
@@ -9020,7 +9056,7 @@ func TestPullScript(t *testing.T) {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/15c && TMPDIR=/root/.cache/w0c-tmp/15c GOTOOLCHAIN=local go test -count=1 -tags harness -run TestPullScript ./test/harness/`
+Run: `mkdir -p /root/.cache/w0c-tmp/34 && TMPDIR=/root/.cache/w0c-tmp/34 GOTOOLCHAIN=local go test -count=1 -tags harness -run TestPullScript ./test/harness/`
 Expected: FAIL, the package does not compile: `undefined: PullScript`.
 
 - [ ] **Step 3: Write the implementation**
@@ -9065,7 +9101,7 @@ A container's name and reference contain no quote: `Pins.check` admits only `Req
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/15c && TMPDIR=/root/.cache/w0c-tmp/15c GOTOOLCHAIN=local go test -count=1 -tags harness  ./test/harness/ && TMPDIR=/root/.cache/w0c-tmp/15c GOTOOLCHAIN=local go vet -tags harness ./test/... && TMPDIR=/root/.cache/w0c-tmp/15c golangci-lint run --allow-serial-runners ./test/harness/...`
+Run: `mkdir -p /root/.cache/w0c-tmp/34 && TMPDIR=/root/.cache/w0c-tmp/34 GOTOOLCHAIN=local go test -count=1 -tags harness  ./test/harness/ && TMPDIR=/root/.cache/w0c-tmp/34 GOTOOLCHAIN=local go vet -tags harness ./test/... && TMPDIR=/root/.cache/w0c-tmp/34 golangci-lint run --allow-serial-runners ./test/harness/...`
 Expected: `ok  	github.com/darkraise/darkpanel/test/harness`, no vet output, `0 issues.`
 
 - [ ] **Step 5: Commit**
@@ -9075,7 +9111,7 @@ git add test/harness/provision.go test/harness/provision_test.go
 git commit -m "test(harness): pull pinned images on a target"
 ```
 
-Empty `/root/.cache/w0c-tmp/15c` when the task ends.
+Empty `/root/.cache/w0c-tmp/34` when the task ends.
 
 ### Task 35: Cloud credential sealing and capability probes
 
@@ -9199,7 +9235,7 @@ func TestProbeReads(t *testing.T) {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/16b && export TMPDIR=/root/.cache/w0c-tmp/16b GOTOOLCHAIN=local && go test -count=1 ./internal/controller/cloud/`
+Run: `mkdir -p /root/.cache/w0c-tmp/35 && export TMPDIR=/root/.cache/w0c-tmp/35 GOTOOLCHAIN=local && go test -count=1 ./internal/controller/cloud/`
 Expected: FAIL to build: `undefined: SealCredential`, `undefined: OpenCredential`, `undefined: Probe`, `undefined: ProbeReads`.
 
 - [ ] **Step 3: Write the implementation**
@@ -9307,7 +9343,7 @@ func ProbeReads(ctx context.Context, probes []Probe, writes []string) []Capabili
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/16b && export TMPDIR=/root/.cache/w0c-tmp/16b GOTOOLCHAIN=local && go test -count=1 -race ./internal/controller/cloud/... && go vet ./internal/controller/cloud/... && golangci-lint run --allow-serial-runners ./internal/controller/cloud/...`
+Run: `mkdir -p /root/.cache/w0c-tmp/35 && export TMPDIR=/root/.cache/w0c-tmp/35 GOTOOLCHAIN=local && go test -count=1 -race ./internal/controller/cloud/... && go vet ./internal/controller/cloud/... && golangci-lint run --allow-serial-runners ./internal/controller/cloud/...`
 Expected: `ok` for `internal/controller/cloud` and `internal/controller/cloud/cloudfake`, then `0 issues.`
 
 - [ ] **Step 5: Commit**
@@ -9315,6 +9351,7 @@ Expected: `ok` for `internal/controller/cloud` and `internal/controller/cloud/cl
 ```bash
 git add internal/controller/cloud/credentials.go internal/controller/cloud/probe.go internal/controller/cloud/credentials_test.go internal/controller/cloud/probe_test.go
 git commit -m "feat(cloud): seal credentials and probe capabilities"
+rm -rf /root/.cache/w0c-tmp/35
 ```
 
 ### Task 36: Web certificate sources in the leaf
@@ -9481,7 +9518,7 @@ func TestLeafWithStubSources(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/17a && TMPDIR=/root/.cache/w0c-tmp/17a GOTOOLCHAIN=local go test -count=1 -run 'TestLeafAsksSourcesInOrder|TestLeafExtraNames|TestLeafWithStubSources' ./internal/controller/listen/`
+Run: `mkdir -p /root/.cache/w0c-tmp/36 && TMPDIR=/root/.cache/w0c-tmp/36 GOTOOLCHAIN=local go test -count=1 -run 'TestLeafAsksSourcesInOrder|TestLeafExtraNames|TestLeafWithStubSources' ./internal/controller/listen/`
 Expected: FAIL to build, with errors such as `undefined: CertSource`, `l.sources undefined`, `l.names undefined` and `too many arguments in call to l.Ensure`.
 
 - [ ] **Step 3: Write the implementation**
@@ -9758,7 +9795,7 @@ sed -i 's/l\.Ensure(/l.Ensure(context.Background(), /g' internal/controller/list
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/17a GOTOOLCHAIN=local go test -count=1 -race ./internal/controller/listen/ && TMPDIR=/root/.cache/w0c-tmp/17a GOTOOLCHAIN=local go build ./... && TMPDIR=/root/.cache/w0c-tmp/17a golangci-lint run --allow-serial-runners ./internal/controller/listen/...`
+Run: `TMPDIR=/root/.cache/w0c-tmp/36 GOTOOLCHAIN=local go test -count=1 -race ./internal/controller/listen/ && TMPDIR=/root/.cache/w0c-tmp/36 GOTOOLCHAIN=local go build ./... && TMPDIR=/root/.cache/w0c-tmp/36 golangci-lint run --allow-serial-runners ./internal/controller/listen/...`
 Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/listen`, the build succeeds, and golangci-lint prints `0 issues.`
 
 - [ ] **Step 5: Commit**
@@ -9766,7 +9803,7 @@ Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/listen`, the 
 ```bash
 git add internal/controller/listen/sources.go internal/controller/listen/tailscale_cert.go internal/controller/listen/leaf.go internal/controller/listen/service.go internal/controller/listen/leaf_test.go internal/controller/listen/sources_test.go
 git commit -m "feat(listen): ask certificate sources for the web leaf"
-rm -rf /root/.cache/w0c-tmp/17a
+rm -rf /root/.cache/w0c-tmp/36
 ```
 
 ### Task 37: Create host dialog
@@ -9922,7 +9959,7 @@ test("a failed creation stays in the change dialog with its error and shows no t
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/25 && cd web && TMPDIR=/root/.cache/w0c-tmp/25 pnpm exec vitest run src/pages/create-host-dialog.test.tsx`
+Run: `mkdir -p /root/.cache/w0c-tmp/37 && cd web && TMPDIR=/root/.cache/w0c-tmp/37 pnpm exec vitest run src/pages/create-host-dialog.test.tsx`
 Expected: FAIL — `Failed to resolve import "./create-host-dialog"`.
 
 - [ ] **Step 3: Write the implementation**
@@ -10095,12 +10132,12 @@ with
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/25 && cd web && TMPDIR=/root/.cache/w0c-tmp/25 pnpm exec vitest run src/pages/create-host-dialog.test.tsx src/pages/hosts.test.tsx`
+Run: `mkdir -p /root/.cache/w0c-tmp/37 && cd web && TMPDIR=/root/.cache/w0c-tmp/37 pnpm exec vitest run src/pages/create-host-dialog.test.tsx src/pages/hosts.test.tsx`
 Expected: PASS, 4 tests in `create-host-dialog.test.tsx` and the existing tests of `hosts.test.tsx` unchanged.
 
 - [ ] **Step 5: Check the whole web suite, types and lint**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/25 make lint-web test-web`
+Run: `TMPDIR=/root/.cache/w0c-tmp/37 make lint-web test-web`
 Expected: ESLint prints nothing (it runs with `--max-warnings 0`), `tsc --noEmit` prints nothing, and the Vitest summary reports every test file passed.
 
 - [ ] **Step 6: Commit**
@@ -10108,7 +10145,7 @@ Expected: ESLint prints nothing (it runs with `--max-warnings 0`), `tsc --noEmit
 ```bash
 git add web/src/pages/create-host-dialog.tsx web/src/pages/create-host-dialog.test.tsx web/src/pages/hosts.tsx
 git commit -m "feat(web): add hosts from the hosts page"
-rm -rf /root/.cache/w0c-tmp/25
+rm -rf /root/.cache/w0c-tmp/37
 ```
 
 ### Task 38: Controller contributions
@@ -10239,7 +10276,7 @@ func TestControllerFuncIsAController(t *testing.T) {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/29a && TMPDIR=/root/.cache/w0c-tmp/29a GOTOOLCHAIN=local go test -count=1 ./internal/controller/backup/ && TMPDIR=/root/.cache/w0c-tmp/29a GOTOOLCHAIN=local go test -count=1 -run 'Contribution|ControllerFunc' ./internal/controller/server/`
+Run: `mkdir -p /root/.cache/w0c-tmp/38 && TMPDIR=/root/.cache/w0c-tmp/38 GOTOOLCHAIN=local go test -count=1 ./internal/controller/backup/ && TMPDIR=/root/.cache/w0c-tmp/38 GOTOOLCHAIN=local go test -count=1 -run 'Contribution|ControllerFunc' ./internal/controller/server/`
 Expected: FAIL: the backup package has no non-test Go files (`no non-test Go files` or `undefined: Contribute`), and the server package fails to build with `unknown field Contributors in struct literal of type Options`, `s.contributions undefined` and `undefined: controllerFunc`.
 
 - [ ] **Step 3: Write the implementation**
@@ -10352,7 +10389,7 @@ In `internal/controller/server/server.go`, add the import `"github.com/darkraise
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/29a GOTOOLCHAIN=local go test -count=1 ./internal/controller/backup/ ./internal/controller/server/ && TMPDIR=/root/.cache/w0c-tmp/29a golangci-lint run --allow-serial-runners ./internal/controller/backup/... ./internal/controller/server/...`
+Run: `TMPDIR=/root/.cache/w0c-tmp/38 GOTOOLCHAIN=local go test -count=1 ./internal/controller/backup/ ./internal/controller/server/ && TMPDIR=/root/.cache/w0c-tmp/38 golangci-lint run --allow-serial-runners ./internal/controller/backup/... ./internal/controller/server/...`
 Expected: `ok` for both packages and `0 issues.` (`contributions` is used by its tests until Task 46 calls it at startup; the linter counts test use.)
 
 - [ ] **Step 5: Commit**
@@ -10360,7 +10397,7 @@ Expected: `ok` for both packages and `0 issues.` (`contributions` is used by its
 ```bash
 git add internal/controller/backup/contribute.go internal/controller/backup/contribute_test.go internal/controller/server/extensions.go internal/controller/server/extensions_test.go internal/controller/server/server.go
 git commit -m "feat(server): collect controller contributions"
-rm -rf /root/.cache/w0c-tmp/29a
+rm -rf /root/.cache/w0c-tmp/38
 ```
 
 ### Task 39: Controller service runner
@@ -10651,7 +10688,7 @@ func TestServiceRunnerStopsWhileWaiting(t *testing.T) {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/24 && TMPDIR=/root/.cache/w0c-tmp/24 GOTOOLCHAIN=local go test -count=1 -run ServiceRunner ./internal/controller/server/`
+Run: `mkdir -p /root/.cache/w0c-tmp/39 && TMPDIR=/root/.cache/w0c-tmp/39 GOTOOLCHAIN=local go test -count=1 -run ServiceRunner ./internal/controller/server/`
 Expected: FAIL to build with `undefined: startServiceRunner`, `undefined: serviceRunnerConfig` and `undefined: serviceDefaultPoll`.
 
 - [ ] **Step 3: Write the implementation**
@@ -10820,7 +10857,7 @@ func (r *serviceRunner) sleep(d time.Duration) bool {
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/24 GOTOOLCHAIN=local go test -count=20 -race -run ServiceRunner ./internal/controller/server/ && TMPDIR=/root/.cache/w0c-tmp/24 GOTOOLCHAIN=local go test -count=1 ./internal/controller/server/ && TMPDIR=/root/.cache/w0c-tmp/24 golangci-lint run --allow-serial-runners ./internal/controller/server/...`
+Run: `TMPDIR=/root/.cache/w0c-tmp/39 GOTOOLCHAIN=local go test -count=20 -race -run ServiceRunner ./internal/controller/server/ && TMPDIR=/root/.cache/w0c-tmp/39 GOTOOLCHAIN=local go test -count=1 ./internal/controller/server/ && TMPDIR=/root/.cache/w0c-tmp/39 golangci-lint run --allow-serial-runners ./internal/controller/server/...`
 Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/server` twice and `0 issues.` The twenty race-detector repetitions guard against a test that only passes by timing.
 
 - [ ] **Step 5: Commit**
@@ -10828,7 +10865,7 @@ Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/server` twice
 ```bash
 git add internal/controller/server/extservices.go internal/controller/server/extservices_test.go
 git commit -m "feat(server): run controller services with backoff"
-rm -rf /root/.cache/w0c-tmp/24
+rm -rf /root/.cache/w0c-tmp/39
 ```
 
 ### Task 40: Runtime listener service
@@ -11345,7 +11382,7 @@ func TestRuntimeSessionResumption(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/27 && TMPDIR=/root/.cache/w0c-tmp/27 GOTOOLCHAIN=local go test -count=1 -run TestRuntime ./internal/controller/listen/`
+Run: `mkdir -p /root/.cache/w0c-tmp/40 && TMPDIR=/root/.cache/w0c-tmp/40 GOTOOLCHAIN=local go test -count=1 -run TestRuntime ./internal/controller/listen/`
 Expected: FAIL to build: `undefined: Runtime`, `undefined: NewRuntime`, `undefined: RuntimeConfig`, `undefined: errRuntimeShutDown`.
 
 - [ ] **Step 3: Write the implementation**
@@ -11755,7 +11792,7 @@ func (l *peerListener) Accept() (net.Conn, error) {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/27 GOTOOLCHAIN=local go test -count=1 -race ./internal/controller/listen/ && TMPDIR=/root/.cache/w0c-tmp/27 GOTOOLCHAIN=local go test -count=20 -race -run 'TestRuntime' ./internal/controller/listen/ && TMPDIR=/root/.cache/w0c-tmp/27 golangci-lint run --allow-serial-runners ./internal/controller/listen/...`
+Run: `TMPDIR=/root/.cache/w0c-tmp/40 GOTOOLCHAIN=local go test -count=1 -race ./internal/controller/listen/ && TMPDIR=/root/.cache/w0c-tmp/40 GOTOOLCHAIN=local go test -count=20 -race -run 'TestRuntime' ./internal/controller/listen/ && TMPDIR=/root/.cache/w0c-tmp/40 golangci-lint run --allow-serial-runners ./internal/controller/listen/...`
 Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/listen` twice (the second run repeats the listener tests twenty times under the race detector, a few minutes) and `0 issues.`
 
 - [ ] **Step 5: Commit**
@@ -11763,7 +11800,7 @@ Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/listen` twice
 ```bash
 git add internal/controller/listen/runtime.go internal/controller/listen/runtime_test.go
 git commit -m "feat(listen): run runtime listeners"
-rm -rf /root/.cache/w0c-tmp/27
+rm -rf /root/.cache/w0c-tmp/40
 ```
 
 ### Task 41: API extension routes on the web surface
@@ -12101,7 +12138,7 @@ func TestExtensionStreamPassive(t *testing.T) {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/28a && TMPDIR=/root/.cache/w0c-tmp/28a GOTOOLCHAIN=local go test -count=1 -run TestExtension ./internal/controller/api/`
+Run: `mkdir -p /root/.cache/w0c-tmp/41 && TMPDIR=/root/.cache/w0c-tmp/41 GOTOOLCHAIN=local go test -count=1 -run TestExtension ./internal/controller/api/`
 Expected: FAIL to build with `h.cfg.Extensions undefined (type Config has no field or method Extensions)`
 
 - [ ] **Step 3: Write the implementation**
@@ -12349,7 +12386,7 @@ In `internal/controller/api/server.go`:
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/28a GOTOOLCHAIN=local go test -count=1 -race -run 'TestExtension' ./internal/controller/api/ && TMPDIR=/root/.cache/w0c-tmp/28a GOTOOLCHAIN=local go test -count=1 ./internal/controller/api/ && TMPDIR=/root/.cache/w0c-tmp/28a golangci-lint run --allow-serial-runners ./internal/controller/api/`
+Run: `TMPDIR=/root/.cache/w0c-tmp/41 GOTOOLCHAIN=local go test -count=1 -race -run 'TestExtension' ./internal/controller/api/ && TMPDIR=/root/.cache/w0c-tmp/41 GOTOOLCHAIN=local go test -count=1 ./internal/controller/api/ && TMPDIR=/root/.cache/w0c-tmp/41 golangci-lint run --allow-serial-runners ./internal/controller/api/`
 Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/api` twice and `0 issues.`
 
 - [ ] **Step 5: Commit**
@@ -12357,7 +12394,7 @@ Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/api` twice an
 ```bash
 git add internal/controller/api/extensions.go internal/controller/api/extensions_test.go internal/controller/api/server.go
 git commit -m "feat(api): mount contributed web routes"
-rm -rf /root/.cache/w0c-tmp/28a
+rm -rf /root/.cache/w0c-tmp/41
 ```
 
 ### Task 42: Listener service shares its TLS configuration and sources
@@ -12461,7 +12498,7 @@ func TestServiceTLSConfigIssuesALeafForPlainListeners(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/17b && TMPDIR=/root/.cache/w0c-tmp/17b GOTOOLCHAIN=local go test -count=1 -run 'TestServiceSharesOneTLSConfig|TestServiceTLSConfigIssuesALeafForPlainListeners' ./internal/controller/listen/`
+Run: `mkdir -p /root/.cache/w0c-tmp/42 && TMPDIR=/root/.cache/w0c-tmp/42 GOTOOLCHAIN=local go test -count=1 -run 'TestServiceSharesOneTLSConfig|TestServiceTLSConfigIssuesALeafForPlainListeners' ./internal/controller/listen/`
 Expected: FAIL to build: `unknown field Sources in struct literal of type Config` and `s.TLSConfig undefined`.
 
 - [ ] **Step 3: Write the implementation**
@@ -12546,7 +12583,7 @@ func (s *Service) TLSConfig() (*tls.Config, error) {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/17b GOTOOLCHAIN=local go test -count=1 -race ./internal/controller/listen/ && TMPDIR=/root/.cache/w0c-tmp/17b golangci-lint run --allow-serial-runners ./internal/controller/listen/...`
+Run: `TMPDIR=/root/.cache/w0c-tmp/42 GOTOOLCHAIN=local go test -count=1 -race ./internal/controller/listen/ && TMPDIR=/root/.cache/w0c-tmp/42 golangci-lint run --allow-serial-runners ./internal/controller/listen/...`
 Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/listen` and `0 issues.`
 
 - [ ] **Step 5: Commit**
@@ -12554,7 +12591,7 @@ Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/listen` and `
 ```bash
 git add internal/controller/listen/service.go internal/controller/listen/leaf.go internal/controller/listen/service_test.go
 git commit -m "feat(listen): share the web TLS configuration"
-rm -rf /root/.cache/w0c-tmp/17b
+rm -rf /root/.cache/w0c-tmp/42
 ```
 
 ### Task 43: Change page with effects and resolution
@@ -12772,7 +12809,7 @@ and add this row to the `test.each` table of the "%s shows %s" test:
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/26a && cd web && TMPDIR=/root/.cache/w0c-tmp/26a pnpm exec vitest run src/pages/change.test.tsx src/pages/audit.test.tsx src/app.test.tsx`
+Run: `mkdir -p /root/.cache/w0c-tmp/43 && cd web && TMPDIR=/root/.cache/w0c-tmp/43 pnpm exec vitest run src/pages/change.test.tsx src/pages/audit.test.tsx src/app.test.tsx`
 Expected: FAIL — `change.test.tsx` cannot resolve `"./change"`, the audit test finds no link named `core.token.create/v1`, and the `/changes/c1` row shows "Page not found" instead of the heading.
 
 - [ ] **Step 3: Write the implementation**
@@ -13161,12 +13198,12 @@ and after the line `<Route path="audit" element={<AuditPage />} />`
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/26a && cd web && TMPDIR=/root/.cache/w0c-tmp/26a pnpm exec vitest run src/pages/change.test.tsx src/pages/audit.test.tsx src/app.test.tsx`
+Run: `mkdir -p /root/.cache/w0c-tmp/43 && cd web && TMPDIR=/root/.cache/w0c-tmp/43 pnpm exec vitest run src/pages/change.test.tsx src/pages/audit.test.tsx src/app.test.tsx`
 Expected: PASS: 6 tests in `change.test.tsx`, and every test of `audit.test.tsx` and `app.test.tsx`.
 
 - [ ] **Step 5: Check the whole web suite, types and lint**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/26a make lint-web test-web`
+Run: `TMPDIR=/root/.cache/w0c-tmp/43 make lint-web test-web`
 Expected: ESLint prints nothing (it runs with `--max-warnings 0`), `tsc --noEmit` prints nothing, and the Vitest summary reports every test file passed.
 
 - [ ] **Step 6: Commit**
@@ -13174,7 +13211,7 @@ Expected: ESLint prints nothing (it runs with `--max-warnings 0`), `tsc --noEmit
 ```bash
 git add web/src/pages/change.tsx web/src/pages/change.test.tsx web/src/pages/audit.tsx web/src/pages/audit.test.tsx web/src/app.tsx web/src/app.test.tsx
 git commit -m "feat(web): add the change page with effects"
-rm -rf /root/.cache/w0c-tmp/26a
+rm -rf /root/.cache/w0c-tmp/43
 ```
 
 ### Task 44: Socket extension routes and the OpenAPI document
@@ -13190,7 +13227,7 @@ This task completes C18: the `SurfaceSocket` routes of `api.Config.Extensions` j
 
 **Interfaces:**
 - Consumes: Task 41's `checkExtension`, `mount` and `(*Server).extensionStream`; C2 (`ext.SurfaceSocket`).
-- Produces: C18's socket mounting and `func (s *Server) OpenAPIRoutes() []schema.Route` (Routes, then the `SurfaceWeb` extension routes). Contract note: C18 says "followed by the extension routes"; this task lists the web ones only, for the reason above.
+- Produces: C18's socket mounting and `func (s *Server) OpenAPIRoutes() []schema.Route` (Routes, then the `SurfaceWeb` extension routes).
 
 **Items:** 52
 
@@ -13303,7 +13340,7 @@ func TestExtensionSocketStreamEnds(t *testing.T) {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/28b && TMPDIR=/root/.cache/w0c-tmp/28b GOTOOLCHAIN=local go test -count=1 -run 'TestExtensionSocket|TestOpenAPIRoutes' ./internal/controller/api/`
+Run: `mkdir -p /root/.cache/w0c-tmp/44 && TMPDIR=/root/.cache/w0c-tmp/44 GOTOOLCHAIN=local go test -count=1 -run 'TestExtensionSocket|TestOpenAPIRoutes' ./internal/controller/api/`
 Expected: FAIL to build with `h.srv.OpenAPIRoutes undefined (type *Server has no field or method OpenAPIRoutes)`
 
 - [ ] **Step 3: Write the implementation**
@@ -13394,7 +13431,7 @@ In `internal/controller/api/meta.go`, in `handleOpenAPI`, replace `doc, err := s
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/28b GOTOOLCHAIN=local go test -count=1 -race -run 'TestExtension|TestOpenAPI|TestSocket' ./internal/controller/api/ && TMPDIR=/root/.cache/w0c-tmp/28b GOTOOLCHAIN=local go test -count=1 ./internal/controller/... && TMPDIR=/root/.cache/w0c-tmp/28b golangci-lint run --allow-serial-runners ./internal/controller/api/`
+Run: `TMPDIR=/root/.cache/w0c-tmp/44 GOTOOLCHAIN=local go test -count=1 -race -run 'TestExtension|TestOpenAPI|TestSocket' ./internal/controller/api/ && TMPDIR=/root/.cache/w0c-tmp/44 GOTOOLCHAIN=local go test -count=1 ./internal/controller/... && TMPDIR=/root/.cache/w0c-tmp/44 golangci-lint run --allow-serial-runners ./internal/controller/api/`
 Expected: every package `ok` (the socket tests of `socket_test.go` still pass against the one handler) and `0 issues.`
 
 - [ ] **Step 5: Commit**
@@ -13402,7 +13439,7 @@ Expected: every package `ok` (the socket tests of `socket_test.go` still pass ag
 ```bash
 git add internal/controller/api/extensions.go internal/controller/api/extensions_test.go internal/controller/api/socket.go internal/controller/api/server.go internal/controller/api/meta.go
 git commit -m "feat(api): mount contributed socket routes"
-rm -rf /root/.cache/w0c-tmp/28b
+rm -rf /root/.cache/w0c-tmp/44
 ```
 
 ### Task 45: Change actions for undo, repair and release
@@ -13571,7 +13608,7 @@ test("a composite that needs repair decides one step", async () => {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/26b && cd web && TMPDIR=/root/.cache/w0c-tmp/26b pnpm exec vitest run src/pages/change-actions.test.tsx`
+Run: `mkdir -p /root/.cache/w0c-tmp/45 && cd web && TMPDIR=/root/.cache/w0c-tmp/45 pnpm exec vitest run src/pages/change-actions.test.tsx`
 Expected: FAIL — `Failed to resolve import "@/lib/undo"`.
 
 - [ ] **Step 3: Write the implementation**
@@ -13868,12 +13905,12 @@ and in `ChangePage` add the actions right after the summary, so the body reads
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/26b && cd web && TMPDIR=/root/.cache/w0c-tmp/26b pnpm exec vitest run src/pages/change-actions.test.tsx src/pages/change.test.tsx`
+Run: `mkdir -p /root/.cache/w0c-tmp/45 && cd web && TMPDIR=/root/.cache/w0c-tmp/45 pnpm exec vitest run src/pages/change-actions.test.tsx src/pages/change.test.tsx`
 Expected: PASS: 19 tests in `change-actions.test.tsx` (11 rows of the `undoOffered` table and 8 tests) and the 6 of `change.test.tsx`.
 
 - [ ] **Step 5: Check the whole web suite, types and lint**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/26b make lint-web test-web`
+Run: `TMPDIR=/root/.cache/w0c-tmp/45 make lint-web test-web`
 Expected: ESLint prints nothing (it runs with `--max-warnings 0`), `tsc --noEmit` prints nothing, and the Vitest summary reports every test file passed.
 
 - [ ] **Step 6: Commit**
@@ -13881,12 +13918,12 @@ Expected: ESLint prints nothing (it runs with `--max-warnings 0`), `tsc --noEmit
 ```bash
 git add web/src/lib/undo.ts web/src/pages/change-actions.tsx web/src/pages/change-actions.test.tsx web/src/pages/change.tsx
 git commit -m "feat(web): offer undo, repair and release"
-rm -rf /root/.cache/w0c-tmp/26b
+rm -rf /root/.cache/w0c-tmp/45
 ```
 
 ### Task 46: Controller routes and services at startup
 
-This task puts the contributions of Task 38 into the running controller (spec 1.12's frozen call site). `startListeners` gathers them after the web authority is loaded and before `api.New`, so every route reaches `api.Config.Extensions` (C18: web routes behind authentication, CSRF and the route's scope; socket routes behind the peer check; a clashing pattern fails `New` and with it `Start`). Once the network listeners and the controller socket serve, it starts the contributed services through the service runner (C17). Composite recovery has already run in `startServices`, so services start after it, as the spec requires; the runner's stop step is registered last, so at shutdown the services stop first and still see the dispatcher and listeners until each `Run` returns. The quarantine check of the runner is added by Task 47. End-to-end test helpers carry the prefix `xc` (`xcContributor`, `newXcContributor`, `xcText`, `xcWait`); `testOptions`, `start`, `baseURL`, `get`, `plainClient`, `socketClient` and `readToken` are used as written.
+This task puts the contributions of Task 38 into the running controller (spec 1.12's frozen call site). `startListeners` gathers them after the web authority is loaded and before `api.New`, so every route reaches `api.Config.Extensions` (C18: web routes behind authentication, CSRF and the route's scope; socket routes behind the peer check; a clashing pattern fails `New` and with it `Start`). Once the network listeners and the controller socket serve, it starts the contributed services through the service runner (C17). Composite recovery has already run in `startServices`, so services start after it, as the spec requires; the runner's stop step is registered last, so at shutdown the services stop first and still see the dispatcher and listeners until each `Run` returns. The quarantine check of the runner is added by Task 48. End-to-end test helpers carry the prefix `xc` (`xcContributor`, `newXcContributor`, `xcText`, `xcWait`); `testOptions`, `start`, `baseURL`, `get`, `plainClient`, `socketClient` and `readToken` are used as written.
 
 **Files:**
 - Modify: `internal/controller/server/listeners.go:34-60` (`startListeners`: its comment, the contributions before `api.New`, `Extensions`), `:106-110` (the service runner after the socket)
@@ -14047,7 +14084,7 @@ func TestContributedRouteClashFailsStart(t *testing.T) {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/29b && TMPDIR=/root/.cache/w0c-tmp/29b GOTOOLCHAIN=local go test -count=1 -run 'TestContributionsAreServed|TestContributionErrorFailsStart|TestContributedRouteClashFailsStart' ./internal/controller/server/`
+Run: `mkdir -p /root/.cache/w0c-tmp/46 && TMPDIR=/root/.cache/w0c-tmp/46 GOTOOLCHAIN=local go test -count=1 -run 'TestContributionsAreServed|TestContributionErrorFailsStart|TestContributedRouteClashFailsStart' ./internal/controller/server/`
 Expected: FAIL: `TestContributionsAreServed` with `the contribution was not called`, and `TestContributionErrorFailsStart` and `TestContributedRouteClashFailsStart` with `Start = <nil>`.
 
 - [ ] **Step 3: Write the implementation**
@@ -14093,7 +14130,7 @@ Everything else in `startListeners` stays as it is.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/29b GOTOOLCHAIN=local go test -count=1 ./internal/controller/server/ && TMPDIR=/root/.cache/w0c-tmp/29b golangci-lint run --allow-serial-runners ./internal/controller/server/...`
+Run: `TMPDIR=/root/.cache/w0c-tmp/46 GOTOOLCHAIN=local go test -count=1 ./internal/controller/server/ && TMPDIR=/root/.cache/w0c-tmp/46 golangci-lint run --allow-serial-runners ./internal/controller/server/...`
 Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/server` and `0 issues.`
 
 - [ ] **Step 5: Commit**
@@ -14101,7 +14138,7 @@ Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/server` and `
 ```bash
 git add internal/controller/server/listeners.go internal/controller/server/extensions_e2e_test.go
 git commit -m "feat(server): serve contributed routes and services"
-rm -rf /root/.cache/w0c-tmp/29b
+rm -rf /root/.cache/w0c-tmp/46
 ```
 
 ### Task 47: Assembly of runtime listeners and certificate sources
@@ -14340,7 +14377,7 @@ func TestRuntimeListenerReachesTheAPI(t *testing.T) {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/30a && TMPDIR=/root/.cache/w0c-tmp/30a GOTOOLCHAIN=local go test -count=1 -run 'TestTopologyOf|TestRuntimeListenerReachesTheAPI' ./internal/controller/server/`
+Run: `mkdir -p /root/.cache/w0c-tmp/47 && TMPDIR=/root/.cache/w0c-tmp/47 GOTOOLCHAIN=local go test -count=1 -run 'TestTopologyOf|TestRuntimeListenerReachesTheAPI' ./internal/controller/server/`
 Expected: FAIL to build with `too many arguments in call to topologyOf`, `tp.setRuntime undefined` and `s.runtimeListeners undefined`.
 
 - [ ] **Step 3: Write the implementation**
@@ -14526,7 +14563,7 @@ Shutdown therefore runs: controller services, controller socket, stream response
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/30a GOTOOLCHAIN=local go test -count=1 ./internal/controller/server/ && TMPDIR=/root/.cache/w0c-tmp/30a GOTOOLCHAIN=local go test -count=3 -race -run TestRuntimeListenerReachesTheAPI ./internal/controller/server/ && TMPDIR=/root/.cache/w0c-tmp/30a golangci-lint run --allow-serial-runners ./internal/controller/server/...`
+Run: `TMPDIR=/root/.cache/w0c-tmp/47 GOTOOLCHAIN=local go test -count=1 ./internal/controller/server/ && TMPDIR=/root/.cache/w0c-tmp/47 GOTOOLCHAIN=local go test -count=3 -race -run TestRuntimeListenerReachesTheAPI ./internal/controller/server/ && TMPDIR=/root/.cache/w0c-tmp/47 golangci-lint run --allow-serial-runners ./internal/controller/server/...`
 Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/server` twice and `0 issues.`
 
 - [ ] **Step 5: Commit**
@@ -14534,12 +14571,12 @@ Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/server` twice
 ```bash
 git add internal/controller/server/topology.go internal/controller/server/services.go internal/controller/server/extensions.go internal/controller/server/listeners.go internal/controller/server/services_test.go internal/controller/server/assembly_test.go
 git commit -m "feat(server): wire runtime listeners and cert sources"
-rm -rf /root/.cache/w0c-tmp/30a
+rm -rf /root/.cache/w0c-tmp/47
 ```
 
 ### Task 48: Assembly of the restore quarantine
 
-This task points every gate of restore quarantine (spec 10) at the one flag in `controller.db`: the dispatcher's `Quarantine` (C14) answers `core.quarantined` before every apply and change mutation, and `quarantine.Active` suspends the controller engine's composite recovery, child watcher and module recovery handlers (C15), the rollout driver and update scheduler (C16) and the contributed services (C17). The agent's own engine is untouched: agents keep their databases through a restore and nothing on them is assumed stopped. After the Go changes it checks that `make schemas` regenerates nothing: no task of this plan adds an action. Test helpers: the test uses the `xc` helpers of Task 46 (`newXcContributor`, `xcWait`) and the existing `planDisable`, `root`, `refDisable` and `exec`; it declares none of its own.
+This task points every gate of restore quarantine (spec 10) at the one flag in `controller.db`: the dispatcher's `Quarantine` (C14) answers `core.quarantined` before every apply and change mutation, and `quarantine.Active` suspends the controller engine's composite recovery, child watcher and module recovery handlers (C15), the rollout driver and update scheduler (C16) and the contributed services (C17). The agent's own engine is untouched: agents keep their databases through a restore and nothing on them is assumed stopped. After the Go changes it checks that `make schemas` regenerates nothing: no task of this plan adds an action. Test helpers: the tests use the `xc` helpers of Task 46 (`newXcContributor`, `xcWait`) and the existing `planDisable`, `root`, `refDisable`, `exec`, `count`, `t0`, `embeddedOptions` and `fakeIndex` (`rollouts_test.go`); they declare none of their own.
 
 **Files:**
 - Modify: `internal/controller/server/services.go` (imports, the dispatcher's config, `engineConfig`, two new methods after it, `startRollouts`)
@@ -14649,12 +14686,47 @@ func TestQuarantinedControllerHoldsMutations(t *testing.T) {
 	clock.Advance(serviceDefaultPoll)
 	xcWait(t, c.ran, "the contributed service's start after the quarantine")
 }
+
+// TestQuarantineSuspendsSchedulerAndEngine: once the flag is set on a
+// running controller, the update scheduler claims no open window, and the
+// controller engine's configuration answers suspended, so composite
+// recovery, the child watcher and recovery handlers hold.
+func TestQuarantineSuspendsSchedulerAndEngine(t *testing.T) {
+	opts := embeddedOptions(t)
+	opts.ReleaseIndex = fakeIndex{{Version: "0.2.0", Channel: core.ChannelStable}}
+	clock := opts.Clock.(*coretest.FakeClock)
+	s := start(t, opts)
+	ctx := context.Background()
+	id := s.LocalHostID()
+	exec(t, s, `UPDATE core_hosts SET state = 'enrolled', agent_version = '0.1.0' WHERE id = ?`, id)
+	exec(t, s, `INSERT INTO core_host_update (host_id, channel, days, time_utc) VALUES (?, 'stable', 'mon,tue,wed,thu,fri,sat,sun', ?)`,
+		id, t0.Format("15:04"))
+	exec(t, s, `INSERT INTO core_meta (key, value) VALUES (?, ?)`, quarantine.MetaKey,
+		`{"tx":"01RESTORE","restoredAt":"2026-10-18T12:00:00Z","backupCreatedAt":"2026-10-17T12:00:00Z"}`)
+
+	clock.Advance(rollout.ScheduleInterval)
+	if n := count(t, s, `SELECT count(*) FROM core_rollouts`); n != 0 {
+		t.Errorf("rollouts after one ScheduleInterval in quarantine: %d, want 0: the scheduler must not run", n)
+	}
+
+	suspended := s.engineConfig(s.registry).Suspended
+	if suspended == nil {
+		t.Fatal("engineConfig().Suspended is nil; restore quarantine must suspend the controller engine")
+	}
+	if on, err := suspended(ctx); err != nil || !on {
+		t.Errorf("engine Suspended in quarantine = %v, %v; want true, nil", on, err)
+	}
+	exec(t, s, `DELETE FROM core_meta WHERE key = ?`, quarantine.MetaKey)
+	if on, err := suspended(ctx); err != nil || on {
+		t.Errorf("engine Suspended after the quarantine = %v, %v; want false, nil", on, err)
+	}
+}
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w0c-tmp/30b && TMPDIR=/root/.cache/w0c-tmp/30b GOTOOLCHAIN=local go test -count=1 -run TestQuarantinedControllerHoldsMutations ./internal/controller/server/`
-Expected: FAIL with `apply in quarantine = <nil>, want core.quarantined` (or the apply's own outcome in place of `<nil>`), `rollout host in quarantine is updating, want waiting` and `a contributed service started in quarantine`.
+Run: `mkdir -p /root/.cache/w0c-tmp/48 && TMPDIR=/root/.cache/w0c-tmp/48 GOTOOLCHAIN=local go test -count=1 -run 'TestQuarantinedControllerHoldsMutations|TestQuarantineSuspendsSchedulerAndEngine' ./internal/controller/server/`
+Expected: FAIL with `apply in quarantine = <nil>, want core.quarantined` (or the apply's own outcome in place of `<nil>`), `rollout host in quarantine is updating, want waiting`, `a contributed service started in quarantine`, `rollouts after one ScheduleInterval in quarantine: 1, want 0` and `engineConfig().Suspended is nil`.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -14721,12 +14793,12 @@ In `internal/controller/server/listeners.go`, the service runner waits for the f
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/30b GOTOOLCHAIN=local go test -count=1 ./internal/controller/server/ && TMPDIR=/root/.cache/w0c-tmp/30b golangci-lint run --allow-serial-runners ./internal/controller/server/...`
+Run: `TMPDIR=/root/.cache/w0c-tmp/48 GOTOOLCHAIN=local go test -count=1 ./internal/controller/server/ && TMPDIR=/root/.cache/w0c-tmp/48 golangci-lint run --allow-serial-runners ./internal/controller/server/...`
 Expected: `ok  	github.com/darkraise/darkpanel/internal/controller/server` and `0 issues.`
 
 - [ ] **Step 5: Check the schema snapshots**
 
-Run: `TMPDIR=/root/.cache/w0c-tmp/30b GOTOOLCHAIN=local make schemas && git status --porcelain schemas`
+Run: `TMPDIR=/root/.cache/w0c-tmp/48 GOTOOLCHAIN=local make schemas && git status --porcelain schemas`
 Expected: `git status` prints nothing: this plan adds no action, so no snapshot changes. If it prints a path, a task added an action schema without its snapshot; stop and report it rather than committing the regenerated files.
 
 - [ ] **Step 6: Commit**
@@ -14734,7 +14806,7 @@ Expected: `git status` prints nothing: this plan adds no action, so no snapshot 
 ```bash
 git add internal/controller/server/services.go internal/controller/server/listeners.go internal/controller/server/assembly_quarantine_test.go
 git commit -m "feat(server): honour the restore quarantine flag"
-rm -rf /root/.cache/w0c-tmp/30b
+rm -rf /root/.cache/w0c-tmp/48
 ```
 
 ### Task 49: ADR 0014 and the deferred decisions
