@@ -20,6 +20,9 @@ import (
 // action or version is refused before it is recorded. A repair plan whose
 // target is a step of a composite being released is core.change_busy.
 func (d *Dispatcher) Apply(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, planID string, opts core.ApplyOptions) (core.ChangeView, error) {
+	if err := d.admitMutation(ctx); err != nil {
+		return core.ChangeView{}, err
+	}
 	def, err := d.action(a, hostID)
 	if err != nil {
 		return core.ChangeView{}, err

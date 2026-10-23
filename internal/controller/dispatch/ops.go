@@ -72,6 +72,9 @@ func (d *Dispatcher) changeAction(ctx context.Context, hostID, changeID string, 
 // Undo undoes a change where it lives, then ingests its host's journal. The
 // operator's undo carries no call context; only a composite's unwind does.
 func (d *Dispatcher) Undo(ctx context.Context, p core.Principal, changeID string) (core.ChangeView, error) {
+	if err := d.admitMutation(ctx); err != nil {
+		return core.ChangeView{}, err
+	}
 	hostID, c, err := d.changeSideInWindow(ctx, changeID)
 	if err != nil {
 		return core.ChangeView{}, err
@@ -92,6 +95,9 @@ func (d *Dispatcher) Undo(ctx context.Context, p core.Principal, changeID string
 // ordinary apply route. A step of a composite being released is refused:
 // the release decides that step.
 func (d *Dispatcher) Repair(ctx context.Context, p core.Principal, changeID string, req core.RepairRequest) (core.RepairResult, error) {
+	if err := d.admitMutation(ctx); err != nil {
+		return core.RepairResult{}, err
+	}
 	if err := d.refuseReleasingParent(ctx, changeID); err != nil {
 		return core.RepairResult{}, err
 	}
@@ -135,6 +141,9 @@ func (d *Dispatcher) Repair(ctx context.Context, p core.Principal, changeID stri
 
 // Release gives up a change where it lives, then ingests its host's journal.
 func (d *Dispatcher) Release(ctx context.Context, p core.Principal, changeID, reason string) (core.ReleaseResult, error) {
+	if err := d.admitMutation(ctx); err != nil {
+		return core.ReleaseResult{}, err
+	}
 	hostID, c, err := d.changeSide(ctx, changeID)
 	if err != nil {
 		return core.ReleaseResult{}, err
@@ -180,6 +189,9 @@ func (d *Dispatcher) Observe(ctx context.Context, p core.Principal, changeID str
 // Resolve resolves an effect where its change lives, then ingests its
 // host's journal.
 func (d *Dispatcher) Resolve(ctx context.Context, p core.Principal, changeID string, seq int, req core.ResolveRequest) (core.EffectView, error) {
+	if err := d.admitMutation(ctx); err != nil {
+		return core.EffectView{}, err
+	}
 	hostID, c, err := d.changeSideInWindow(ctx, changeID)
 	if err != nil {
 		return core.EffectView{}, err

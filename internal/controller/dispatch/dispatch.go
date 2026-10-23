@@ -49,6 +49,11 @@ type Config struct {
 	// Topology is read on every plan of a guarded action and every agent
 	// apply, for the guard context; nil is an empty topology.
 	Topology func() Topology
+	// Quarantine answers core.quarantined while the controller is in restore
+	// quarantine (spec 10). Apply, Undo, Repair, Release, Resolve and a
+	// composite's undo or release of a step call it first, and any error it
+	// returns refuses the call; nil admits everything.
+	Quarantine func(ctx context.Context) error
 }
 
 // Dispatcher is the core.Dispatcher of the controller. Its methods are safe
@@ -62,7 +67,7 @@ type Dispatcher struct {
 }
 
 // New returns a dispatcher for cfg; every field but Ingest, Version,
-// Snapshots and Topology is required.
+// Snapshots, Topology and Quarantine is required.
 func New(cfg Config) (*Dispatcher, error) {
 	required := []struct {
 		name string
