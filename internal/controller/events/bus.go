@@ -91,12 +91,13 @@ func (b *Bus) Epoch() string { return b.epoch }
 // Publish marshals data and hands the event, with the next sequence number,
 // to every subscriber. It never blocks: a subscriber whose buffer is full
 // loses what it holds and gets one reset event instead, so it refetches
-// everything. A marshal error is logged and the event dropped.
+// everything. A marshal error is logged and the event dropped; a reset takes
+// its place, so subscribers refetch what it would have named.
 func (b *Bus) Publish(eventType string, data any) {
 	raw, err := json.Marshal(data)
 	if err != nil {
 		b.log.Error("events: marshal event; it is dropped", "type", eventType, "err", err)
-		return
+		eventType, raw = TypeReset, resetData
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()

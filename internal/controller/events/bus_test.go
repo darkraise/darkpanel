@@ -177,13 +177,16 @@ func TestBusMarshalError(t *testing.T) {
 	if !strings.Contains(buf.String(), "events: marshal event") || !strings.Contains(buf.String(), "type=change") {
 		t.Fatalf("log = %q, want the marshal error with the type", buf.String())
 	}
+	if ev := busRecv(t, ch); ev.Seq != 1 || ev.Type != TypeReset || string(ev.Data) != `{}` {
+		t.Fatalf("in place of the dropped event: {%d %s %s}, want {1 reset {}}", ev.Seq, ev.Type, ev.Data)
+	}
 	busEmpty(t, ch)
-	if evs, ok := b.Since(0); !ok || len(evs) != 0 {
-		t.Fatalf("Since(0) = %d events, want none", len(evs))
+	if evs, ok := b.Since(0); !ok || len(evs) != 1 || evs[0].Type != TypeReset {
+		t.Fatalf("Since(0) = %+v, want the reset alone", evs)
 	}
 	b.Publish(TypeHost, HostEvent{HostID: "h1"})
-	if ev := busRecv(t, ch); ev.Seq != 1 {
-		t.Fatalf("the next event has seq %d, want 1", ev.Seq)
+	if ev := busRecv(t, ch); ev.Seq != 2 || ev.Type != TypeHost {
+		t.Fatalf("the next event is {%d %s}, want {2 host}", ev.Seq, ev.Type)
 	}
 }
 

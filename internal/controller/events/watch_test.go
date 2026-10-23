@@ -155,6 +155,7 @@ func TestWatchSkipsUnparsableTime(t *testing.T) {
 	e.insertChange("C1", "", "applying", e.clock.Now())
 	e.clock.Advance(PollInterval)
 	e.want(TypeChange, `{"hostId":"","changeId":"C1","action":"demo.item.add","state":"applying","updatedAt":"2026-10-22T12:00:00Z"}`)
+	e.want(TypeReset, `{}`)
 	e.clock.Advance(PollInterval)
 	e.none()
 }
@@ -211,14 +212,15 @@ func TestAgentChanges(t *testing.T) {
 		want    []string
 	}{
 		{"both read", "", "", []string{
-			`{"hostId":"h1","changeId":"A","action":"demo.item.add","state":"confirmed","updatedAt":"2026-10-22T12:00:00Z"}`,
-			`{"hostId":"h1","changeId":"B","action":"demo.item.add","state":"confirmed","updatedAt":"2026-10-22T12:00:00Z"}`,
+			`change {"hostId":"h1","changeId":"A","action":"demo.item.add","state":"confirmed","updatedAt":"2026-10-22T12:00:00Z"}`,
+			`change {"hostId":"h1","changeId":"B","action":"demo.item.add","state":"confirmed","updatedAt":"2026-10-22T12:00:00Z"}`,
 		}},
 		{"A fails", "A", "", []string{
-			`{"hostId":"h1","changeId":"B","action":"demo.item.add","state":"confirmed","updatedAt":"2026-10-22T12:00:00Z"}`,
+			`change {"hostId":"h1","changeId":"B","action":"demo.item.add","state":"confirmed","updatedAt":"2026-10-22T12:00:00Z"}`,
+			`reset {}`,
 		}},
 		{"A hidden", "", "A", []string{
-			`{"hostId":"h1","changeId":"B","action":"demo.item.add","state":"confirmed","updatedAt":"2026-10-22T12:00:00Z"}`,
+			`change {"hostId":"h1","changeId":"B","action":"demo.item.add","state":"confirmed","updatedAt":"2026-10-22T12:00:00Z"}`,
 		}},
 	}
 	for _, tc := range cases {
@@ -243,10 +245,12 @@ func TestAgentChanges(t *testing.T) {
 			}, hideSecret, slog.New(slog.NewTextHandler(&buf, nil)))
 			publish("h1", entries)
 			for _, want := range tc.want {
-				if ev := busRecv(t, ch); ev.Type != TypeChange || string(ev.Data) != want {
-					t.Fatalf("event = %s %s, want change %s", ev.Type, ev.Data, want)
+				if ev := busRecv(t, ch); ev.Type+" "+string(ev.Data) != want {
+					t.Fatalf("event = %s %s, want %s", ev.Type, ev.Data, want)
 				}
 			}
+			// The reads end with the page; a late reset would follow them.
+			time.Sleep(50 * time.Millisecond)
 			busEmpty(t, ch)
 			mu.Lock()
 			defer mu.Unlock()

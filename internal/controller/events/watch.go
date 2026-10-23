@@ -110,6 +110,7 @@ func (w *watcher) pollChanges(from time.Time, publish bool) error {
 	}
 	defer func() { _ = rows.Close() }()
 	var out []ChangeEvent
+	lost := false
 	read := map[string]changeSeen{}
 	for rows.Next() {
 		var ev ChangeEvent
@@ -128,6 +129,7 @@ func (w *watcher) pollChanges(from time.Time, publish bool) error {
 		}
 		if ev.UpdatedAt, err = time.Parse(timeFormat, at); err != nil {
 			w.log.Warn("events: a change's updated_at does not parse; its event is skipped", "change", ev.ChangeID, "updatedAt", at, "err", err)
+			lost = true
 			continue
 		}
 		out = append(out, ev)
@@ -146,6 +148,9 @@ func (w *watcher) pollChanges(from time.Time, publish bool) error {
 	if publish {
 		for _, ev := range out {
 			w.bus.Publish(TypeChange, ev)
+		}
+		if lost {
+			w.bus.Publish(TypeReset, resetData)
 		}
 	}
 	return nil
@@ -185,7 +190,8 @@ func (w *watcher) pollModules(publish bool) error {
 
 // AgentChanges is an audit OnEntries piece: for each distinct change id of a
 // page it reads the change through change and publishes its ChangeEvent
-// when visible accepts it; a failed read is logged and skipped. OnEntries
+// when visible accepts it; a failed read is logged and skipped, and one
+// reset after the page's events tells the subscribers to refetch. OnEntries
 // runs under the ingestion lock and a read is a request to the agent, so the
 // reads run on their own goroutine.
 func AgentChanges(bus *Bus, change func(ctx context.Context, hostID, changeID string) (core.ChangeView, error),
@@ -208,16 +214,21 @@ func AgentChanges(bus *Bus, change func(ctx context.Context, hostID, changeID st
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), agentReadTimeout)
 			defer cancel()
+			lost := false
 			for _, id := range ids {
 				v, err := change(ctx, hostID, id)
 				if err != nil {
 					log.Warn("events: read an ingested change; its event is skipped", "host", hostID, "change", id, "err", err)
+					lost = true
 					continue
 				}
 				if !visible(v) {
 					continue
 				}
 				bus.Publish(TypeChange, ChangeEvent{HostID: hostID, ChangeID: id, Action: v.Action, State: v.State, UpdatedAt: v.UpdatedAt})
+			}
+			if lost {
+				bus.Publish(TypeReset, resetData)
 			}
 		}()
 	}
