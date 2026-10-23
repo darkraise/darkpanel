@@ -200,7 +200,10 @@ func (s *Server) engineConfig(reg *core.Registry) lifecycle.Config {
 }
 
 // quarantined reports whether the controller database is in restore
-// quarantine (spec 10), which suspends every automatic mutation source.
+// quarantine (spec 10), which suspends composite recovery, the child
+// watcher, module recovery handlers, the update scheduler and rollout driver
+// and the controller services. The purge of expired plans, sessions and
+// tokens is not among them and keeps running.
 func (s *Server) quarantined(ctx context.Context) (bool, error) {
 	return quarantine.Active(ctx, s.controllerDB)
 }

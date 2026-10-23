@@ -102,9 +102,11 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 
 // TLSConfig is the configuration the HTTPS listeners serve with. Other
 // listeners that serve the web certificate, such as the runtime listeners,
-// clone it, so every listener presents the same leaf and shares its session
-// ticket keys when they are set. It first issues the leaf when none exists
-// yet: with only plain listeners nothing else issues one.
+// clone it, so every listener presents the same leaf. No session ticket keys
+// are set on it, and http.Server clones it once more when it serves, so each
+// listener generates its own keys: a TLS session resumes only on the listener
+// that issued it. It first issues the leaf when none exists yet: with only
+// plain listeners nothing else issues one.
 func (s *Service) TLSConfig() (*tls.Config, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), CheckInterval)
 	defer cancel()

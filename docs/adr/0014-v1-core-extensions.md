@@ -146,8 +146,9 @@ design's section numbers are cited as "spec 1.n".
   source (composite recovery, the child watcher, controller module recovery
   handlers, the update scheduler and rollout driver, controller services)
   and refuses every action apply, undo, repair, release and resolution with
-  `core.quarantined`. The flag is read through `quarantine.Active`, and a
-  read error counts as quarantined. The agent engine is not gated. Restore
+  `core.quarantined`. The flag is read through `quarantine.Active`; a read
+  error suspends the automatic sources and refuses the action with the read's
+  own error, like quarantine. The agent engine is not gated. Restore
   sets the flag; only `quarantine release` clears it.
 - **DERP as a signed artifact under systemd (spec 4.3).** The release
   workflow builds `derper` from upstream `tailscale.com/cmd/derper` at the
