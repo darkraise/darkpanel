@@ -31,6 +31,7 @@ const revoked: Change = {
   id: "c2", hostId: null, action: "core.token.revoke", version: 1, class: "irreversible", state: "completed", actor: "user:u1",
   createdAt: "2026-10-19T08:00:00Z", updatedAt: "2026-10-19T08:00:00Z", revertDeadline: null,
   output: { ...tokens[0], revokedAt: "2026-10-19T08:00:00Z" }, error: null, compensatedBy: null,
+  parentChangeId: null, owner: null, repairedBy: null, repairOutcome: null, override: null,
 }
 
 function rowOf(name: string): HTMLElement {

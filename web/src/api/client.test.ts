@@ -3,13 +3,25 @@ import {
   ApiError,
   applyPlan,
   changeError,
+  changeInProgress,
+  confirmChange,
   errorMessage,
+  getAvailability,
+  getChange,
+  listEffects,
+  listSteps,
+  observeEffect,
   readAction,
   readResource,
+  releaseChange,
+  repairChange,
   request,
+  resolveEffect,
+  revertChange,
   setCsrfRejectedHandler,
   setCsrfToken,
   setUnauthorizedHandler,
+  undoChange,
 } from "./client"
 import type { Change, Plan } from "./types"
 
@@ -202,6 +214,48 @@ describe("action helpers", () => {
   })
 })
 
+describe("change helpers", () => {
+  test.each([
+    ["getChange", () => getChange("c 1"), "GET", "/api/v1/changes/c%201", undefined],
+    ["confirmChange", () => confirmChange("c1"), "POST", "/api/v1/changes/c1/confirm", undefined],
+    ["revertChange", () => revertChange("c1"), "POST", "/api/v1/changes/c1/revert", undefined],
+    ["undoChange", () => undoChange("c1"), "POST", "/api/v1/changes/c1/undo", undefined],
+    ["repairChange without a body", () => repairChange("c1"), "POST", "/api/v1/changes/c1/repair", {}],
+    ["repairChange with input", () => repairChange("c1", { input: { port: 22 } }), "POST", "/api/v1/changes/c1/repair", { input: { port: 22 } }],
+    ["repairChange of a step", () => repairChange("c1", { step: "ports", as: "reverted" }), "POST", "/api/v1/changes/c1/repair",
+      { step: "ports", as: "reverted" }],
+    ["releaseChange", () => releaseChange("c1", "gone by hand"), "POST", "/api/v1/changes/c1/release", { reason: "gone by hand" }],
+    ["observeEffect", () => observeEffect("c1", 2), "GET", "/api/v1/changes/c1/effects/2/observe", undefined],
+    ["resolveEffect", () => resolveEffect("c1", 2, { resolution: "accept" }), "POST", "/api/v1/changes/c1/effects/2/resolve",
+      { resolution: "accept" }],
+    ["getAvailability", () => getAvailability("h 1", "fire wall"), "GET", "/api/v1/hosts/h%201/modules/fire%20wall/availability", undefined],
+  ])("%s calls its route", async (_, call, method, url, body) => {
+    const fetchMock = stub(respond(200, { ok: true }))
+    await expect(call()).resolves.toEqual({ ok: true })
+    const s = sent(fetchMock)
+    expect([s.method, s.url]).toEqual([method, url])
+    expect(s.body).toEqual(body)
+    if (method === "POST") expect(s.headers.get("Content-Type")).toBe("application/json")
+  })
+
+  test("listEffects and listSteps unwrap their lists", async () => {
+    const fetchMock = stub(respond(200, { effects: [{ seq: 1 }] }))
+    await expect(listEffects("c1")).resolves.toEqual([{ seq: 1 }])
+    expect(sent(fetchMock).url).toBe("/api/v1/changes/c1/effects")
+    const stepsMock = stub(respond(200, { steps: [{ id: "ports" }] }))
+    await expect(listSteps("c1")).resolves.toEqual([{ id: "ports" }])
+    expect(sent(stepsMock).url).toBe("/api/v1/changes/c1/steps")
+  })
+
+  test("applyPlan returns a change still applying from a 202 answer", async () => {
+    stub(respond(202, { id: "c3", state: "applying" }))
+    const change = await applyPlan(plan)
+    expect(change.state).toBe("applying")
+    expect(changeInProgress(change)).toBe(true)
+    expect(changeError(change)).toBeNull()
+  })
+})
+
 describe("messages", () => {
   test("errorMessage shows an ApiError's detail and a generic line otherwise", () => {
     expect(errorMessage(new ApiError(409, "module.unavailable", "the module is unavailable"))).toBe("the module is unavailable")
@@ -214,6 +268,10 @@ describe("messages", () => {
     ["pending", null, null],
     ["failed", { code: "exec.failed", message: "the command failed" }, "the command failed"],
     ["interrupted", null, "The change ended in state interrupted."],
+    ["applying", null, null],
+    ["awaiting_confirmation", null, null],
+    ["undoing", null, null],
+    ["needs_repair", { code: "core.needs_repair", message: "the change needs repair", cause: "cloud.uncertain_outcome" }, "the change needs repair"],
   ])("changeError for state %s", (state, error, want) => {
     const change = { state, error } as Change
     expect(changeError(change)).toBe(want)

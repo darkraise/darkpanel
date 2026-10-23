@@ -22,6 +22,7 @@ function change(state: string, output: NewToken | null, error: Change["error"] =
   return {
     id: "c1", hostId: null, action: "core.token.create", version: 1, class: "compensable", state, actor: "user:u1",
     createdAt: "2026-10-19T08:00:00Z", updatedAt: "2026-10-19T08:00:00Z", revertDeadline: null, output, error, compensatedBy: null,
+    parentChangeId: null, owner: null, repairedBy: null, repairOutcome: null, override: null,
   }
 }
 

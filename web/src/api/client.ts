@@ -1,12 +1,37 @@
-import type { Change, FieldError, HostList, ListenerState, Plan, Problem, TokenList } from "./types"
+import type {
+  Change,
+  Effect,
+  FieldError,
+  HostList,
+  ListenerState,
+  ModuleAvailability,
+  ObserveResult,
+  Plan,
+  Problem,
+  ReleaseResult,
+  RepairBody,
+  RepairResult,
+  Resolution,
+  Step,
+  TokenList,
+} from "./types"
 
 export const CSRF_HEADER = "X-CSRF-Token"
 
 export const HOSTS_QUERY_KEY = ["hosts"] as const
 export const TOKENS_QUERY_KEY = ["tokens"] as const
 
+// The query keys of one change; connectEvents invalidates them on the
+// change and composite.step events.
+export const changeQueryKey = (id: string) => ["change", id] as const
+export const stepsQueryKey = (id: string) => ["steps", id] as const
+export const effectsQueryKey = (id: string) => ["effects", id] as const
+
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"])
 const SUCCESSFUL_STATES = new Set(["completed", "confirmed", "pending"])
+// A change in one of these states has not ended: an asynchronous apply
+// answers with the change applying, and an undo with it undoing.
+const IN_PROGRESS_STATES = new Set(["applying", "awaiting_confirmation", "undoing", "recovering", "releasing"])
 
 export class ApiError extends Error {
   readonly status: number
@@ -107,6 +132,8 @@ export function planAction(name: string, version: number, input: object, hostId?
   return request<Plan>("POST", actionPath(name, version, "plan", hostId), { input })
 }
 
+// applyPlan applies a plan. Composites, long-running and task actions answer
+// 202 with the change still applying; the change events say when it ends.
 export function applyPlan<O>(plan: Plan, confirmation?: string): Promise<Change<O>> {
   const body: { planId: string; confirmation?: string } = { planId: plan.planId }
   if (confirmation !== undefined) body.confirmation = confirmation
@@ -130,11 +157,71 @@ export function getListenerState(): Promise<ListenerState> {
   return request<ListenerState>("GET", "/api/v1/controller/listeners")
 }
 
+function changePath(id: string, tail = ""): string {
+  return `/api/v1/changes/${encodeURIComponent(id)}${tail}`
+}
+
+export function getChange(id: string): Promise<Change> {
+  return request<Change>("GET", changePath(id))
+}
+
+export function confirmChange(id: string): Promise<Change> {
+  return request<Change>("POST", changePath(id, "/confirm"))
+}
+
+export function revertChange(id: string): Promise<Change> {
+  return request<Change>("POST", changePath(id, "/revert"))
+}
+
+export function undoChange(id: string): Promise<Change> {
+  return request<Change>("POST", changePath(id, "/undo"))
+}
+
+// repairChange answers the change a repair started, or a plan that the
+// caller applies with applyPlan.
+export function repairChange(id: string, body: RepairBody = {}): Promise<RepairResult> {
+  return request<RepairResult>("POST", changePath(id, "/repair"), body)
+}
+
+export function releaseChange(id: string, reason: string): Promise<ReleaseResult> {
+  return request<ReleaseResult>("POST", changePath(id, "/release"), { reason })
+}
+
+export async function listEffects(id: string): Promise<Effect[]> {
+  const res = await request<{ effects: Effect[] }>("GET", changePath(id, "/effects"))
+  return res.effects
+}
+
+// observeEffect is the read-only preview of a resolution.
+export function observeEffect(id: string, seq: number): Promise<ObserveResult> {
+  return request<ObserveResult>("GET", changePath(id, `/effects/${seq}/observe`))
+}
+
+export function resolveEffect(id: string, seq: number, body: { resolution: Resolution; resource?: string }): Promise<Effect> {
+  return request<Effect>("POST", changePath(id, `/effects/${seq}/resolve`), body)
+}
+
+export async function listSteps(id: string): Promise<Step[]> {
+  const res = await request<{ steps: Step[] }>("GET", changePath(id, "/steps"))
+  return res.steps
+}
+
+export function getAvailability(hostId: string, module: string): Promise<ModuleAvailability> {
+  return request<ModuleAvailability>("GET", `/api/v1/hosts/${encodeURIComponent(hostId)}/modules/${encodeURIComponent(module)}/availability`)
+}
+
 export function errorMessage(err: unknown): string {
   return err instanceof ApiError ? err.message : "Something went wrong. Try again."
 }
 
+// changeInProgress reports whether a change has not ended yet.
+export function changeInProgress(change: Change): boolean {
+  return IN_PROGRESS_STATES.has(change.state)
+}
+
+// changeError is the failure a change ended with, or null while it
+// succeeded or is still in progress.
 export function changeError(change: Change): string | null {
-  if (SUCCESSFUL_STATES.has(change.state)) return null
+  if (SUCCESSFUL_STATES.has(change.state) || IN_PROGRESS_STATES.has(change.state)) return null
   return change.error?.message ?? `The change ended in state ${change.state}.`
 }
