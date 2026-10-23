@@ -107,7 +107,7 @@ func (t Table) Sockets() ([]Socket, error) {
 func (t Table) readTable(path, proto string, family Family) ([]Socket, error) {
 	f, err := os.Open(path) //nolint:gosec // G304: the proc root joined with a fixed table name
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("netstat: %w", err)
 	}
 	defer func() { _ = f.Close() }()
 	var out []Socket
