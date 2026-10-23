@@ -35,6 +35,8 @@ func (s *Server) networkRoutes() []route {
 		{method: http.MethodPost, path: controllerActions + opPlan, perAction: true, handler: s.actionHandler(core.SideController, opPlan)},
 		{method: http.MethodPost, path: controllerActions + opApply, perAction: true, handler: s.actionHandler(core.SideController, opApply)},
 		{method: http.MethodPost, path: controllerActions + opRead, perAction: true, handler: s.actionHandler(core.SideController, opRead)},
+		{method: http.MethodPost, path: hostActions + opReveal, perAction: true, handler: s.revealHandler(core.SideAgent)},
+		{method: http.MethodPost, path: controllerActions + opReveal, perAction: true, handler: s.revealHandler(core.SideController)},
 		{method: http.MethodGet, path: "/api/v1/changes", summary: "List changes, newest first", handler: s.handleChanges},
 		{method: http.MethodGet, path: "/api/v1/changes/{id}", summary: "Show a change", handler: s.handleChange},
 		{method: http.MethodPost, path: "/api/v1/changes/{id}/confirm", summary: "Confirm a pending change", handler: s.changeOp(true)},

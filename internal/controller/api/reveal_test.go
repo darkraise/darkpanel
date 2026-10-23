@@ -117,3 +117,73 @@ func TestRevealNotOnReadRoute(t *testing.T) {
 		t.Errorf("dispatcher calls %q, want %q", calls.recorded(), want)
 	}
 }
+
+func TestRevealRoutes(t *testing.T) {
+	h, calls := arvHarness(t)
+	admin, operate := h.token(core.ScopeAdmin), h.token(core.ScopeOperate)
+	for _, path := range []string{"/api/v1/hosts/h1/actions/arv.key.reveal/v1/reveal", "/api/v1/actions/arv.ctl.reveal/v1/reveal"} {
+		rec := h.serve(withToken(request("POST", path, `{"input":{"name":"x"}}`), admin))
+		if rec.Code != 200 || rec.Body.String() != `{"value":{"password":"s3cret"}}` || rec.Header().Get("Cache-Control") != "no-store" {
+			t.Errorf("%s answered %d %s, Cache-Control %q", path, rec.Code, rec.Body, rec.Header().Get("Cache-Control"))
+		}
+		p := decodeProblem(t, h.serve(withToken(request("POST", path, `{"input":{"name":"x"}}`), operate)), 403, errcode.Forbidden)
+		if p.Detail != "this request needs the admin scope" {
+			t.Errorf("%s with an operate token: %q", path, p.Detail)
+		}
+		decodeProblem(t, h.serve(withToken(request("POST", path, `{}`), admin)), 422, errcode.InvalidInput)
+		decodeProblem(t, h.serve(withToken(request("POST", path, `{"input":{},"extra":1}`), admin)), 400, errcode.InvalidJSON)
+	}
+	want := []string{`reveal arv.key.reveal/v1 on "h1" by token: {"name":"x"}`, `reveal arv.ctl.reveal/v1 on "" by token: {"name":"x"}`}
+	if got := calls.recorded(); !slices.Equal(got, want) {
+		t.Errorf("dispatcher calls\n got %q\nwant %q", got, want)
+	}
+}
+
+func TestRevealRouteRefusals(t *testing.T) {
+	h, calls := arvHarness(t)
+	admin := h.token(core.ScopeAdmin)
+	for _, path := range []string{
+		"/api/v1/hosts/h1/actions/arv.item.get/v1/reveal",
+		"/api/v1/hosts/h1/actions/arv.cert.get/v1/reveal",
+		"/api/v1/actions/arv.ctl.get/v1/reveal",
+		"/api/v1/hosts/h1/actions/arv.ctl.reveal/v1/reveal",
+		"/api/v1/actions/arv.key.reveal/v1/reveal",
+	} {
+		decodeProblem(t, h.serve(withToken(request("POST", path, `{"input":{"name":"x"}}`), admin)), 404, errcode.ActionUnknown)
+	}
+	if got := calls.recorded(); len(got) != 0 {
+		t.Errorf("the dispatcher was called: %q", got)
+	}
+}
+
+func TestAuthorizeRevealNeedsAdmin(t *testing.T) {
+	// A reveal action without MinScope, which the registry refuses: its own
+	// scope would be read, and the route must still need admin.
+	weak := core.ActionSpec{Name: "arv.weak.reveal", Version: 1, Class: core.ClassRead, Side: core.SideAgent, Reveal: true}
+	if got := core.RequiredScope(weak); got != core.ScopeRead {
+		t.Fatalf("RequiredScope = %s, want read for a reveal action without MinScope", got)
+	}
+	for _, tc := range []struct {
+		scope core.Scope
+		ok    bool
+	}{
+		{core.ScopeRead, false},
+		{core.ScopeOperate, false},
+		{core.ScopeAdmin, true},
+	} {
+		err := authorizeReveal(core.Principal{Actor: "token:t1", Scope: tc.scope}, weak)
+		if tc.ok != (err == nil) || (err != nil && errcode.From(err).Code != errcode.Forbidden) {
+			t.Errorf("%s: authorizeReveal = %v, want allowed %v", tc.scope, err, tc.ok)
+		}
+	}
+}
+
+func TestRevealRoutesCovered(t *testing.T) {
+	reg, err := core.NewRegistry(demoModule{}, arvModule{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckOpenAPI(reg); err != nil {
+		t.Errorf("CheckOpenAPI with reveal and internal actions: %v", err)
+	}
+}
