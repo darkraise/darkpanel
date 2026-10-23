@@ -26,11 +26,24 @@ const PinsFile = "images.json"
 // repository, and tailscaled from Tailscale's stable repository.
 var RequiredPackages = []string{"docker-ce", "docker-ce-cli", "containerd.io", "docker-compose-plugin", "tailscale"}
 
+// RequiredContainers are the container images the pin file lists, in its
+// order: the ACME server Pebble and its DNS and challenge server, which
+// stand in for Let's Encrypt in the certificate tests.
+var RequiredContainers = []string{"pebble", "pebble-challtestsrv"}
+
 // Pins are the pinned images and packages of every operating system the
-// harness tests.
+// harness tests, and the container images its tests run on a target.
 type Pins struct {
-	Scanner string `json:"scanner"` // the OS id whose image the scanner VM boots
-	OS      []OS   `json:"os"`
+	Scanner    string      `json:"scanner"` // the OS id whose image the scanner VM boots
+	OS         []OS        `json:"os"`
+	Containers []Container `json:"containers"` // RequiredContainers, in that order
+}
+
+// Container is one container image, pinned by the digest of its image
+// index; the tag only tells a reader which release it is.
+type Container struct {
+	Name string `json:"name"` // what a test asks Pins.Container for
+	Ref  string `json:"ref"`  // <registry>/<repository>:<tag>@sha256:<digest>
 }
 
 // OS is one pinned operating system.
@@ -62,6 +75,7 @@ var (
 	aptPackage   = regexp.MustCompile(`^[a-z0-9][a-z0-9.+-]*$`)
 	aptVersion   = regexp.MustCompile(`^[0-9A-Za-z.:~+-]+$`)
 	debURL       = regexp.MustCompile(`^https://[0-9A-Za-z./_~:+-]+\.deb$`)
+	containerRef = regexp.MustCompile(`^[a-z0-9.-]+(/[a-z0-9._-]+)+:[0-9A-Za-z][0-9A-Za-z._-]{0,127}@sha256:[0-9a-f]{64}$`)
 )
 
 // LoadPins reads and checks the pin file at path.
@@ -97,8 +111,20 @@ func (p Pins) Find(id string) (OS, error) {
 	return OS{}, fmt.Errorf("harness: unknown OS %q; the pin file lists %s", id, strings.Join(ids, ", "))
 }
 
-// check refuses duplicate ids, a scanner that names no listed OS, and any
-// entry OS.check refuses.
+// Container returns the pinned container image with name.
+func (p Pins) Container(name string) (Container, error) {
+	for _, c := range p.Containers {
+		if c.Name == name {
+			return c, nil
+		}
+	}
+	return Container{}, fmt.Errorf("harness: no pinned container image %q", name)
+}
+
+// check refuses duplicate ids, a scanner that names no listed OS, any entry
+// OS.check refuses, and container images other than RequiredContainers or
+// not pinned by digest: the provisioning script pastes the references into
+// shell commands.
 func (p Pins) check() error {
 	seen := make(map[string]bool)
 	for _, o := range p.OS {
@@ -112,6 +138,16 @@ func (p Pins) check() error {
 	}
 	if !seen[p.Scanner] {
 		return fmt.Errorf("scanner %q names no listed OS", p.Scanner)
+	}
+	names := make([]string, 0, len(p.Containers))
+	for _, c := range p.Containers {
+		if !containerRef.MatchString(c.Ref) {
+			return fmt.Errorf("container %s: ref %q is not <registry>/<repository>:<tag>@sha256:<64 hex digits>", c.Name, c.Ref)
+		}
+		names = append(names, c.Name)
+	}
+	if !slices.Equal(names, RequiredContainers) {
+		return fmt.Errorf("containers %v, want %v", names, RequiredContainers)
 	}
 	return nil
 }
