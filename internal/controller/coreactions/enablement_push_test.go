@@ -12,6 +12,7 @@ import (
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/coretest"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
 )
 
 // pushAgent is h1's agent: its preflight passes, and each SetModuleEnabled
@@ -37,10 +38,19 @@ func (e *testEnv) pushAgent(fail error) *[]string {
 }
 
 // pushRepushes wraps a host directory and records the hosts whose enablement
-// the action asked to have pushed again.
+// the action asked to have pushed again; agentErr, when set, is every
+// Agent's answer.
 type pushRepushes struct {
 	core.HostDirectory
-	hosts []string
+	agentErr error
+	hosts    []string
+}
+
+func (r *pushRepushes) Agent(ctx context.Context, hostID string) (core.AgentClient, error) {
+	if r.agentErr != nil {
+		return nil, r.agentErr
+	}
+	return r.HostDirectory.Agent(ctx, hostID)
 }
 
 func (r *pushRepushes) RepushEnablement(hostID string) { r.hosts = append(r.hosts, hostID) }
@@ -58,20 +68,25 @@ func TestEnableModulePushesFlag(t *testing.T) {
 
 func TestEnablementPushFailureIsLogged(t *testing.T) {
 	gone := errors.New("the agent went away")
+	noRoute := errcode.New(errcode.NotFound, "no agent API route PUT /agent/v1/modules/demo/enabled")
+	offline := errcode.New(errcode.HostOffline, "host h1 is offline")
 	tests := []struct {
 		name, action, logged string
-		offline              bool
+		missing              bool
+		pushErr, agentErr    error
 		repushed             []string
 	}{
-		{"enable, push fails", "core.module.enable", gone.Error(), false, []string{"h1"}},
-		{"disable, push fails", "core.module.disable", gone.Error(), false, []string{"h1"}},
-		{"disable, host offline", "core.module.disable", "host h1 not found", true, nil},
+		{"enable, push fails", "core.module.enable", gone.Error(), false, gone, nil, []string{"h1"}},
+		{"disable, push fails", "core.module.disable", gone.Error(), false, gone, nil, []string{"h1"}},
+		{"disable, host unknown", "core.module.disable", "host h1 not found", true, gone, nil, nil},
+		{"enable, agent without the route", "core.module.enable", "no agent API route", false, noRoute, nil, nil},
+		{"disable, host offline", "core.module.disable", "host h1 is offline", false, gone, offline, nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newModuleEnv(t)
-			e.pushAgent(gone)
-			if tt.offline {
+			e.pushAgent(tt.pushErr)
+			if tt.missing {
 				delete(e.hosts, "h1")
 			}
 			in := ModuleInput{HostID: "h1", ModuleID: "demo"}
@@ -83,7 +98,7 @@ func TestEnablementPushFailureIsLogged(t *testing.T) {
 				t.Fatalf("%s is not registered", tt.action)
 			}
 			var buf bytes.Buffer
-			dir := &pushRepushes{HostDirectory: e.hosts}
+			dir := &pushRepushes{HostDirectory: e.hosts, agentErr: tt.agentErr}
 			env := core.Env{DB: e.db, Clock: e.clock, Log: slog.New(slog.NewTextHandler(&buf, nil)), Agents: dir,
 				Principal: operator}
 			if _, err := def.Handler.Apply(context.Background(), env, encodeInput(t, in)); err != nil {
