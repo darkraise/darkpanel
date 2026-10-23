@@ -10,6 +10,7 @@ import (
 
 	"github.com/darkraise/darkpanel/internal/agent/runtime"
 	"github.com/darkraise/darkpanel/internal/buildinfo"
+	"github.com/darkraise/darkpanel/internal/controller/api"
 	"github.com/darkraise/darkpanel/internal/controller/audit"
 	"github.com/darkraise/darkpanel/internal/controller/auth"
 	"github.com/darkraise/darkpanel/internal/controller/coreactions"
@@ -132,7 +133,7 @@ func (s *Server) startServices(ctx context.Context) error {
 	if err := s.startPurges(ctx); err != nil {
 		return err
 	}
-	stopWatchers := events.StartWatchers(s.controllerDB, s.clock, s.events, s.log)
+	stopWatchers := events.StartWatchers(s.controllerDB, s.clock, s.events, s.networkVisible, s.log)
 	s.onShutdown("event watchers", func(context.Context) error { stopWatchers(); return nil })
 
 	s.ingester = audit.NewIngester(audit.IngesterConfig{
@@ -193,11 +194,17 @@ func (s *Server) engineConfig(reg *core.Registry) lifecycle.Config {
 // changes, read through change, as change events.
 func (s *Server) ingestedEntries(wake func(changeIDs ...string),
 	change func(ctx context.Context, hostID, changeID string) (core.ChangeView, error)) func(hostID string, entries []core.JournalEntry) {
-	wakeFn, publish := wakeComposites(wake), events.AgentChanges(s.events, change, s.log)
+	wakeFn, publish := wakeComposites(wake), events.AgentChanges(s.events, change, s.networkVisible, s.log)
 	return func(hostID string, entries []core.JournalEntry) {
 		wakeFn(hostID, entries)
 		publish(hostID, entries)
 	}
+}
+
+// networkVisible is what the event bus may carry: its only reader is the
+// network event stream, which must hide what the network change routes hide.
+func (s *Server) networkVisible(v core.ChangeView) bool {
+	return api.NetworkVisible(s.registry, v)
 }
 
 // agentChange reads changeID from hostID's agent.

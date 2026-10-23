@@ -394,7 +394,13 @@ func (s *Server) handleChange(w http.ResponseWriter, r *http.Request) {
 // cannot be known. Show, confirm and revert answer a hidden change with
 // errHiddenChange.
 func (s *Server) networkVisible(v core.ChangeView) bool {
-	def, ok := s.cfg.Registry.Action(core.ActionRef{Name: v.Action, Version: v.Version})
+	return NetworkVisible(s.cfg.Registry, v)
+}
+
+// NetworkVisible is the rule of networkVisible over reg, for the publishers
+// of the network event stream.
+func NetworkVisible(reg *core.Registry, v core.ChangeView) bool {
+	def, ok := reg.Action(core.ActionRef{Name: v.Action, Version: v.Version})
 	if ok {
 		return !def.Spec.BreakGlass
 	}

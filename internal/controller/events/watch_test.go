@@ -53,8 +53,13 @@ func newPubEnv(t *testing.T) *pubEnv {
 
 // start starts the watchers and stops them when the test ends.
 func (e *pubEnv) start() {
-	stop := StartWatchers(e.db, e.clock, e.bus, nil)
+	stop := StartWatchers(e.db, e.clock, e.bus, hideSecret, nil)
 	e.t.Cleanup(stop)
+}
+
+// hideSecret hides the changes of demo.secret.reset version 1.
+func hideSecret(v core.ChangeView) bool {
+	return v.Action != "demo.secret.reset" || v.Version != 1
 }
 
 func (e *pubEnv) exec(query string, args ...any) {
@@ -127,6 +132,21 @@ func TestWatchChanges(t *testing.T) {
 	e.none()
 }
 
+func TestWatchHidesInvisibleChanges(t *testing.T) {
+	e := newPubEnv(t)
+	e.start()
+	e.insertChange("HIDDEN", "", "applying", e.clock.Now())
+	e.exec("UPDATE core_changes SET action = 'demo.secret.reset' WHERE id = 'HIDDEN'")
+	e.insertChange("C1", "", "applying", e.clock.Now())
+	e.clock.Advance(PollInterval)
+	e.want(TypeChange, `{"hostId":"","changeId":"C1","action":"demo.item.add","state":"applying","updatedAt":"2026-10-22T12:00:00Z"}`)
+	e.none()
+
+	e.exec("UPDATE core_changes SET state = 'completed', updated_at = ? WHERE id = 'HIDDEN'", pubAt(e.clock.Now()))
+	e.clock.Advance(PollInterval)
+	e.none()
+}
+
 func TestWatchSkipsUnparsableTime(t *testing.T) {
 	e := newPubEnv(t)
 	e.start()
@@ -169,7 +189,7 @@ func TestWatchModules(t *testing.T) {
 
 func TestWatchStop(t *testing.T) {
 	e := newPubEnv(t)
-	stop := StartWatchers(e.db, e.clock, e.bus, nil)
+	stop := StartWatchers(e.db, e.clock, e.bus, hideSecret, nil)
 	stop()
 	if n := e.clock.Pending(); n != 0 {
 		t.Fatalf("%d timers armed after stop, want 0", n)
@@ -187,13 +207,17 @@ func TestAgentChanges(t *testing.T) {
 	cases := []struct {
 		name    string
 		failing string
+		hidden  string
 		want    []string
 	}{
-		{"both read", "", []string{
+		{"both read", "", "", []string{
 			`{"hostId":"h1","changeId":"A","action":"demo.item.add","state":"confirmed","updatedAt":"2026-10-22T12:00:00Z"}`,
 			`{"hostId":"h1","changeId":"B","action":"demo.item.add","state":"confirmed","updatedAt":"2026-10-22T12:00:00Z"}`,
 		}},
-		{"A fails", "A", []string{
+		{"A fails", "A", "", []string{
+			`{"hostId":"h1","changeId":"B","action":"demo.item.add","state":"confirmed","updatedAt":"2026-10-22T12:00:00Z"}`,
+		}},
+		{"A hidden", "", "A", []string{
 			`{"hostId":"h1","changeId":"B","action":"demo.item.add","state":"confirmed","updatedAt":"2026-10-22T12:00:00Z"}`,
 		}},
 	}
@@ -211,8 +235,12 @@ func TestAgentChanges(t *testing.T) {
 				if changeID == tc.failing {
 					return core.ChangeView{}, errors.New("host.offline")
 				}
-				return core.ChangeView{ID: changeID, HostID: hostID, Action: "demo.item.add", State: core.StateConfirmed, UpdatedAt: at}, nil
-			}, slog.New(slog.NewTextHandler(&buf, nil)))
+				action := "demo.item.add"
+				if changeID == tc.hidden {
+					action = "demo.secret.reset"
+				}
+				return core.ChangeView{ID: changeID, HostID: hostID, Action: action, Version: 1, State: core.StateConfirmed, UpdatedAt: at}, nil
+			}, hideSecret, slog.New(slog.NewTextHandler(&buf, nil)))
 			publish("h1", entries)
 			for _, want := range tc.want {
 				if ev := busRecv(t, ch); ev.Type != TypeChange || string(ev.Data) != want {
@@ -233,6 +261,6 @@ func TestAgentChanges(t *testing.T) {
 	publish := AgentChanges(NewBus(nil), func(context.Context, string, string) (core.ChangeView, error) {
 		t.Error("a page without change ids read a change")
 		return core.ChangeView{}, nil
-	}, nil)
+	}, hideSecret, nil)
 	publish("h1", []core.JournalEntry{{Phase: "plan"}})
 }

@@ -34,10 +34,11 @@ type moduleSeen struct{ enabled, available bool }
 
 // watcher polls the controller database for change and module events.
 type watcher struct {
-	db    *store.DB
-	clock core.Clock
-	bus   *Bus
-	log   *slog.Logger
+	db      *store.DB
+	clock   core.Clock
+	bus     *Bus
+	visible func(core.ChangeView) bool
+	log     *slog.Logger
 
 	mu      sync.Mutex
 	stopped bool
@@ -49,14 +50,15 @@ type watcher struct {
 
 // StartWatchers publishes ChangeEvent for every core_changes row whose
 // updated_at passed the last poll (rows older than the start publish
-// nothing) and ModuleEvent for every core_module_state row whose enabled or
-// available differs from the last poll (the first poll only records), every
-// PollInterval on clock; stop waits for a running poll.
-func StartWatchers(db *store.DB, clock core.Clock, bus *Bus, log *slog.Logger) (stop func()) {
+// nothing) and that visible accepts, and ModuleEvent for every
+// core_module_state row whose enabled or available differs from the last
+// poll (the first poll only records), every PollInterval on clock; stop
+// waits for a running poll.
+func StartWatchers(db *store.DB, clock core.Clock, bus *Bus, visible func(core.ChangeView) bool, log *slog.Logger) (stop func()) {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	w := &watcher{db: db, clock: clock, bus: bus, log: log, last: clock.Now(),
+	w := &watcher{db: db, clock: clock, bus: bus, visible: visible, log: log, last: clock.Now(),
 		changes: map[string]changeSeen{}, modules: map[moduleKey]moduleSeen{}}
 	w.mu.Lock()
 	w.poll(false)
@@ -102,7 +104,7 @@ func (w *watcher) poll(publish bool) {
 func (w *watcher) pollChanges(from time.Time, publish bool) error {
 	cutoff := from.UTC().Format(timeFormat)
 	rows, err := w.db.Read().QueryContext(context.Background(),
-		"SELECT id, host_id, action, state, updated_at FROM core_changes WHERE updated_at >= ? ORDER BY updated_at, id", cutoff)
+		"SELECT id, host_id, action, version, state, updated_at FROM core_changes WHERE updated_at >= ? ORDER BY updated_at, id", cutoff)
 	if err != nil {
 		return err
 	}
@@ -111,8 +113,9 @@ func (w *watcher) pollChanges(from time.Time, publish bool) error {
 	read := map[string]changeSeen{}
 	for rows.Next() {
 		var ev ChangeEvent
+		var version int
 		var at string
-		if err := rows.Scan(&ev.ChangeID, &ev.HostID, &ev.Action, &ev.State, &at); err != nil {
+		if err := rows.Scan(&ev.ChangeID, &ev.HostID, &ev.Action, &version, &ev.State, &at); err != nil {
 			return err
 		}
 		seen := changeSeen{at: at, state: ev.State}
@@ -120,6 +123,9 @@ func (w *watcher) pollChanges(from time.Time, publish bool) error {
 			continue
 		}
 		read[ev.ChangeID] = seen
+		if !w.visible(core.ChangeView{ID: ev.ChangeID, HostID: ev.HostID, Action: ev.Action, Version: version, State: ev.State}) {
+			continue
+		}
 		if ev.UpdatedAt, err = time.Parse(timeFormat, at); err != nil {
 			w.log.Warn("events: a change's updated_at does not parse; its event is skipped", "change", ev.ChangeID, "updatedAt", at, "err", err)
 			continue
@@ -178,11 +184,12 @@ func (w *watcher) pollModules(publish bool) error {
 }
 
 // AgentChanges is an audit OnEntries piece: for each distinct change id of a
-// page it reads the change through change and publishes its ChangeEvent; a
-// failed read is logged and skipped. OnEntries runs under the ingestion
-// lock and a read is a request to the agent, so the reads run on their own
-// goroutine.
-func AgentChanges(bus *Bus, change func(ctx context.Context, hostID, changeID string) (core.ChangeView, error), log *slog.Logger) func(hostID string, entries []core.JournalEntry) {
+// page it reads the change through change and publishes its ChangeEvent
+// when visible accepts it; a failed read is logged and skipped. OnEntries
+// runs under the ingestion lock and a read is a request to the agent, so the
+// reads run on their own goroutine.
+func AgentChanges(bus *Bus, change func(ctx context.Context, hostID, changeID string) (core.ChangeView, error),
+	visible func(core.ChangeView) bool, log *slog.Logger) func(hostID string, entries []core.JournalEntry) {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
@@ -205,6 +212,9 @@ func AgentChanges(bus *Bus, change func(ctx context.Context, hostID, changeID st
 				v, err := change(ctx, hostID, id)
 				if err != nil {
 					log.Warn("events: read an ingested change; its event is skipped", "host", hostID, "change", id, "err", err)
+					continue
+				}
+				if !visible(v) {
 					continue
 				}
 				bus.Publish(TypeChange, ChangeEvent{HostID: hostID, ChangeID: id, Action: v.Action, State: v.State, UpdatedAt: v.UpdatedAt})

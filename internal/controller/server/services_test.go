@@ -445,6 +445,46 @@ func TestServerEventWiring(t *testing.T) {
 		State: core.StateCompleted, UpdatedAt: t0})
 }
 
+// TestServerEventsHideBreakGlass: the bus carries no change of a break-glass
+// action, from the controller's watcher or from ingested agent changes, as
+// the network change routes hide them.
+func TestServerEventsHideBreakGlass(t *testing.T) {
+	opts := embeddedOptions(t)
+	clock := opts.Clock.(*coretest.FakeClock)
+	s := start(t, opts)
+	ctx := context.Background()
+	ch, _ := s.events.Subscribe(t.Context())
+
+	at := clock.Now().Format(timeFormat)
+	for _, c := range []struct{ id, action string }{
+		{"01HIDDEN00000000000000000X", "core.user.reset-password"},
+		{"01SHOWN000000000000000000X", "core.module.disable"},
+	} {
+		if _, err := s.controllerDB.Writer().ExecContext(ctx,
+			`INSERT INTO core_changes (id, plan_id, host_id, action, version, class, compensated_by, actor, state,
+			 input_json, created_at, updated_at)
+			 VALUES (?, ?, '', ?, 1, 'irreversible', '', 'local:root@h', 'completed', '{}', ?, ?)`,
+			c.id, planDisable(t, s).PlanID, c.action, at, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	clock.Advance(events.PollInterval)
+	pubWant(t, ch, events.TypeChange, events.ChangeEvent{ChangeID: "01SHOWN000000000000000000X", Action: "core.module.disable",
+		State: core.StateCompleted, UpdatedAt: clock.Now().Add(-events.PollInterval)})
+
+	onEntries := s.ingestedEntries(func(...string) {},
+		func(_ context.Context, hostID, changeID string) (core.ChangeView, error) {
+			action := "demo.item.add"
+			if changeID == "A1" {
+				action = "core.user.reset-password"
+			}
+			return core.ChangeView{ID: changeID, HostID: hostID, Action: action, Version: 1, State: core.StateCompleted, UpdatedAt: t0}, nil
+		})
+	onEntries("h1", []core.JournalEntry{{Phase: "apply", ChangeID: "A1"}, {Phase: "apply", ChangeID: "A2"}})
+	pubWant(t, ch, events.TypeChange, events.ChangeEvent{HostID: "h1", ChangeID: "A2", Action: "demo.item.add",
+		State: core.StateCompleted, UpdatedAt: t0})
+}
+
 // TestServerPublishesHostEvents shows the session registry's OnOnline
 // function of the server.
 func TestServerPublishesHostEvents(t *testing.T) {
