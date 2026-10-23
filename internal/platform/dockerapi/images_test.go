@@ -110,6 +110,10 @@ func TestPullImageStream(t *testing.T) {
 	if err := (PullMessage{Error: "denied"}).Err(); err == nil || err.Error() != "dockerapi: pull: denied" {
 		t.Fatalf("legacy error field = %v", err)
 	}
+	query = "unset"
+	if _, err := c.PullImage(t.Context(), "alpine:"); err == nil || query != "unset" {
+		t.Fatalf("trailing colon: err = %v, query = %s", err, query)
+	}
 }
 
 func TestVolumeCalls(t *testing.T) {

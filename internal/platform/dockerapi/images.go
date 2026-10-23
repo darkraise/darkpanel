@@ -161,9 +161,10 @@ func (c *Client) RemoveImage(ctx context.Context, ref string, opts RemoveImageOp
 
 // checkImageRef refuses a reference that could leave the path segment: the
 // daemon routes image references with their slashes unescaped, so the
-// reference cannot be path-escaped.
+// reference cannot be path-escaped. A trailing colon is refused too: it
+// splits into an empty tag, which the daemon reads as "pull every tag".
 func checkImageRef(ref string) error {
-	if ref == "" || strings.ContainsAny(ref, "?#% \t\r\n") || strings.Contains(ref, "..") {
+	if ref == "" || strings.ContainsAny(ref, "?#% \t\r\n") || strings.Contains(ref, "..") || strings.HasSuffix(ref, ":") {
 		return errors.New("dockerapi: invalid image reference")
 	}
 	return nil
