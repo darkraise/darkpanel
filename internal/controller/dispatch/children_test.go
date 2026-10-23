@@ -174,3 +174,20 @@ func TestChildrenRouteControllerChangeOperations(t *testing.T) {
 	_ = wantCode(t, err, errcode.ChangeNotFound)
 	_ = wantCode(t, kids.AckPrivate(ctx, "", "01MISSING", true), errcode.ChangeNotFound)
 }
+
+func TestChildrenReadInternal(t *testing.T) {
+	ctx := context.Background()
+	_, d, a, _, _ := drvDispatcher(t, "", "", nil)
+	kids := d.Children()
+	out, err := kids.Read(ctx, alice, testHost, refDrvInternal, json.RawMessage(`{"name":"a"}`))
+	if err != nil || string(out) != `{"secret":"s-a-user:alice"}` {
+		t.Fatalf("internal read step = %s, %v", out, err)
+	}
+	out, err = kids.Read(ctx, alice, testHost, refDrvRead, json.RawMessage(`{"name":"b"}`))
+	if err != nil || string(out) != `{"actor":"user:alice","value":"b"}` {
+		t.Fatalf("plain read step = %s, %v", out, err)
+	}
+	if want := []string{`drv.cert.get internal=true as user:alice {"name":"a"}`}; !slices.Equal(a.recorded(), want) {
+		t.Errorf("the agent's reveals %q, want %q: the plain read goes through Read", a.recorded(), want)
+	}
+}
