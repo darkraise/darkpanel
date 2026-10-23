@@ -190,6 +190,36 @@ test("a pending change can be reverted", async () => {
   await user.click(await within(dialog).findByRole("button", { name: "Apply" }))
   await user.click(await within(dialog).findByRole("button", { name: "Revert" }))
   expect((await within(dialog).findByText("reverted")).textContent).toBe("reverted")
+  expect(within(dialog).queryByRole("alert")).toBeNull()
+})
+
+test("the confirm answer is shown even when the change cannot be read again", async () => {
+  const problem = { type: "about:blank", title: "Unavailable", status: 503, detail: "the database is busy", code: "unavailable" }
+  cdxRender({
+    [PLAN]: { body: cdxPlan() },
+    [APPLY]: { body: cdxChange({ state: "pending", revertDeadline: "2099-01-01T00:00:00Z" }) },
+    "GET /api/v1/changes/c1": { status: 503, body: problem },
+    "POST /api/v1/changes/c1/confirm": { body: cdxChange({ state: "confirmed" }) },
+  })
+  const user = userEvent.setup()
+  const dialog = await screen.findByRole("dialog")
+  await user.click(await within(dialog).findByRole("button", { name: "Apply" }))
+  await user.click(await within(dialog).findByRole("button", { name: "Confirm" }))
+  expect((await within(dialog).findByText("confirmed")).textContent).toBe("confirmed")
+  expect(within(dialog).queryByRole("button", { name: "Revert" })).toBeNull()
+  expect(within(dialog).queryByRole("timer")).toBeNull()
+})
+
+test("a secret output reaches onApplied but not the query cache", async () => {
+  const created = cdxChange({ output: { token: "dpe_secret" } })
+  // A failed refetch leaves the cached change as the dialog first stored it.
+  const problem = { type: "about:blank", title: "Unavailable", status: 503, detail: "the database is busy", code: "unavailable" }
+  const { onApplied, client } = cdxRender({ [PLAN]: { body: cdxPlan() }, [APPLY]: { body: created }, "GET /api/v1/changes/c1": { status: 503, body: problem } })
+  const dialog = await screen.findByRole("dialog")
+  await userEvent.setup().click(await within(dialog).findByRole("button", { name: "Apply" }))
+  await within(dialog).findByText("completed")
+  expect(onApplied).toHaveBeenCalledWith(created)
+  expect(JSON.stringify(client.getQueryCache().getAll().map((q) => q.state.data))).not.toContain("dpe_secret")
 })
 
 test("an asynchronous composite apply answers 202 and shows its steps", async () => {
@@ -224,6 +254,41 @@ test("an action unavailable on the host is greyed out with the reason", async ()
   expect((await within(dialog).findByText("ufw is not installed")).textContent).toBe("ufw is not installed")
   await within(dialog).findByLabelText("Planned changes")
   expect(within(dialog).getByRole("button", { name: "Apply" }).hasAttribute("disabled")).toBe(true)
+})
+
+test("Apply waits for the availability check and stays disabled when it fails", async () => {
+  const problem = { type: "about:blank", title: "Offline", status: 503, detail: "host h1 is offline", code: "host.offline" }
+  cdxRender({ [PLAN]: { body: cdxPlan() }, [AVAILABILITY]: { status: 503, body: problem } })
+  const dialog = await screen.findByRole("dialog")
+  expect((await within(dialog).findByText("Availability unknown")).textContent).toBe("Availability unknown")
+  expect(within(dialog).getByText(/host h1 is offline/).textContent).toBe("Whether the action is available could not be checked: host h1 is offline")
+  await within(dialog).findByLabelText("Planned changes")
+  expect(within(dialog).getByRole("button", { name: "Apply" }).hasAttribute("disabled")).toBe(true)
+})
+
+// The last plan kept on screen passes every guard, so only the check that
+// a plan was answered for the overrides now selected keeps Apply disabled.
+test("a stale plan whose guards pass is not applied after a refused replan", async () => {
+  const problem = { type: "about:blank", title: "Locked", status: 423, detail: "lock firewall is held by change c0", code: "lock.held" }
+  let plans = 0
+  const { calls } = cdxRender({
+    [PLAN]: () => {
+      plans++
+      if (plans === 2) return { status: 423, body: problem }
+      return { body: cdxPlan({ guards: [cdxGuard({ ok: true, overridden: true })] }) }
+    },
+    [APPLY]: { body: cdxChange() },
+  })
+  const dialog = await screen.findByRole("dialog")
+  const user = userEvent.setup()
+  await waitFor(() => expect(within(dialog).getByRole("button", { name: "Apply" }).hasAttribute("disabled")).toBe(false))
+  await user.click(within(dialog).getByRole("checkbox", { name: "Override ssh-session" }))
+  expect((await within(dialog).findByRole("alert")).textContent).toBe("lock firewall is held by change c0")
+  expect(within(dialog).getByLabelText("Planned changes")).toBeTruthy()
+  const apply = within(dialog).getByRole("button", { name: "Apply" })
+  expect(apply.hasAttribute("disabled")).toBe(true)
+  await user.click(apply)
+  expect(calls.some((c) => c.path.endsWith("/apply"))).toBe(false)
 })
 
 test("a refused plan and a failed apply are shown", async () => {

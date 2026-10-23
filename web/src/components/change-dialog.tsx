@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { Link } from "react-router"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Alert, AlertDescription, AlertTitle } from "darkraise-ui/components/alert"
 import { Badge, type BadgeVariant } from "darkraise-ui/components/badge"
 import { Button } from "darkraise-ui/components/button"
@@ -130,7 +130,14 @@ function Steps({ changeId }: { changeId: string }) {
 // invalidates its query, so a confirmation, a revert by the timer or a
 // composite's progress shows without a reload.
 function Applied({ applied, onError }: { applied: Change; onError: (message: string | null) => void }) {
-  const change = useQuery({ queryKey: changeQueryKey(applied.id), queryFn: () => getChange(applied.id), initialData: applied })
+  const client = useQueryClient()
+  // The apply answer may carry a secret output, such as an enrollment token,
+  // that onApplied shows once; the shared query cache must not keep it.
+  const change = useQuery({
+    queryKey: changeQueryKey(applied.id),
+    queryFn: () => getChange(applied.id),
+    initialData: { ...applied, output: null },
+  })
   const [busy, setBusy] = useState(false)
   const current = change.data
 
@@ -139,7 +146,7 @@ function Applied({ applied, onError }: { applied: Change; onError: (message: str
     onError(null)
     try {
       const next = await (confirm ? confirmChange(current.id) : revertChange(current.id))
-      change.refetch().catch(() => {})
+      client.setQueryData(changeQueryKey(current.id), { ...next, output: null })
       onError(changeError(next))
     } catch (err) {
       onError(errorMessage(err))
@@ -222,10 +229,11 @@ function ChangeDialogBody({ target, input, plan: given, onApplied, busy, setBusy
     retry: false,
     refetchOnWindowFocus: false,
   })
+  const checksAvailability = target.hostId !== undefined && target.module !== undefined
   const availability = useQuery({
     queryKey: ["availability", target.hostId, target.module],
     queryFn: () => getAvailability(target.hostId ?? "", target.module ?? ""),
-    enabled: target.hostId !== undefined && target.module !== undefined,
+    enabled: checksAvailability,
   })
 
   const plan = given ?? planned.data ?? lastPlan
@@ -245,7 +253,10 @@ function ChangeDialogBody({ target, input, plan: given, onApplied, busy, setBusy
   const confirmed = plan === null || plan.confirmation === null || typed === plan.confirmation
   // Only a plan answered for the overrides now selected may be applied, never the last plan kept on screen.
   const answered = given !== undefined || planned.data !== undefined
-  const canApply = plan !== null && answered && !planned.isFetching && guardsOk && confirmed && unavailable === null && !busy
+  // Until the availability check has answered, nothing says the action may run.
+  const availabilityKnown = !checksAvailability || availability.isSuccess
+  const canApply =
+    plan !== null && answered && !planned.isFetching && guardsOk && confirmed && availabilityKnown && unavailable === null && !busy
 
   async function apply() {
     if (plan === null || !canApply) return
@@ -269,6 +280,12 @@ function ChangeDialogBody({ target, input, plan: given, onApplied, busy, setBusy
         <Alert variant="warning" role="status">
           <AlertTitle>Unavailable</AlertTitle>
           <AlertDescription>{unavailable}</AlertDescription>
+        </Alert>
+      )}
+      {checksAvailability && availability.isError && (
+        <Alert variant="warning" role="status">
+          <AlertTitle>Availability unknown</AlertTitle>
+          <AlertDescription>{`Whether the action is available could not be checked: ${errorMessage(availability.error)}`}</AlertDescription>
         </Alert>
       )}
       {applied !== null ? (
