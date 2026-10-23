@@ -3,14 +3,18 @@ package fleet
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -516,4 +520,60 @@ func TestRegistryPeers(t *testing.T) {
 		_ = s.Close()
 	}
 	eventually(t, "the ended sessions to leave the registry", func() bool { return len(e.r.Peers()) == 0 })
+}
+
+// TestRegistryDialsModuleStreams holds every module stream slot open and
+// then needs every action slot at once: that works only when the client
+// opens streams with OpenModule.
+func TestRegistryDialsModuleStreams(t *testing.T) {
+	e := newRegistry(t, transport.HeartbeatConfig{Interval: time.Hour})
+	ctrl, agent := livePair(t)
+	release := make(chan struct{})
+	var reads atomic.Int32
+	fake := helloAgent("H1", "1.2.0")
+	fake.OpenStreamFunc = func(ctx context.Context, _ core.Principal, _, _ string, _ url.Values) (io.ReadCloser, error) {
+		pr, pw := io.Pipe()
+		go func() {
+			_, _ = io.WriteString(pw, `{"data":{}}`+"\n")
+			<-ctx.Done()
+			_ = pw.CloseWithError(ctx.Err())
+		}()
+		return pr, nil
+	}
+	fake.ReadFunc = func(context.Context, core.Principal, core.ActionRef, json.RawMessage) (json.RawMessage, error) {
+		reads.Add(1)
+		<-release
+		return json.RawMessage(`{}`), nil
+	}
+	serveAgent(t, agent, fake)
+	e.register(t, ctrl)
+	c, _, err := e.r.Client(context.Background(), "H1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for range transport.MaxModuleStreams {
+		body, err := c.OpenStream(ctx, core.Principal{Actor: "user:u1"}, "sm", "logs", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = body.Close() })
+		if _, err := body.Read(make([]byte, 64)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var wg sync.WaitGroup
+	for range transport.MaxActionStreams {
+		wg.Go(func() {
+			if _, err := c.Read(ctx, core.Principal{Actor: "user:u1"}, core.ActionRef{Name: "sm.item.get", Version: 1}, json.RawMessage(`{}`)); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	eventually(t, "every read to reach the agent while the streams are open", func() bool {
+		return reads.Load() == transport.MaxActionStreams
+	})
+	close(release)
+	wg.Wait()
 }

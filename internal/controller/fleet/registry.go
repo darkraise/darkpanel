@@ -128,6 +128,13 @@ func (r *Registry) Register(ctx context.Context, hostID, serial string, s *trans
 			}
 			return &seenConn{Conn: c, seen: func() { r.seen(hostID) }}, nil
 		},
+		DialStream: func(ctx context.Context) (net.Conn, error) {
+			c, err := s.OpenModule(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return &seenConn{Conn: c, seen: func() { r.seen(hostID) }}, nil
+		},
 		Controller: &api.ControllerHello{
 			Protocol: agentruntime.ProtocolVersion, Version: r.cfg.Version, ControllerID: r.cfg.ControllerID,
 		},
