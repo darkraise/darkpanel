@@ -182,10 +182,13 @@ func printEvents(r io.Reader, w io.Writer) error {
 		payload := strings.Join(data, "\n")
 		switch event {
 		case "data":
-			if !json.Valid([]byte(payload)) {
+			// Compacting drops the whitespace between tokens, a CR or LF
+			// among it, which jsonSafe leaves alone.
+			var compact bytes.Buffer
+			if json.Compact(&compact, []byte(payload)) != nil {
 				return errors.New("the stream sent an event that is not JSON")
 			}
-			if _, err := fmt.Fprintln(w, jsonSafe(payload)); err != nil {
+			if _, err := fmt.Fprintln(w, jsonSafe(compact.String())); err != nil {
 				return err
 			}
 		case "end":

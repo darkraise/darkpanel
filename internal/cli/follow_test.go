@@ -144,6 +144,22 @@ func TestPrintEventsEscapesTerminalControls(t *testing.T) {
 	}
 }
 
+// TestPrintEventsDropsWhitespaceBetweenTokens: a CR or LF between an
+// event's tokens, from one data line or from two joined, is not printed.
+func TestPrintEventsDropsWhitespaceBetweenTokens(t *testing.T) {
+	in := "event: data\ndata: {\"line\":\r\"a\",\t\"n\"\n" + "data: :\r1}\n\nevent: end\ndata: {\"reason\":\"done\"}\n\n"
+	var out strings.Builder
+	if err := printEvents(strings.NewReader(in), &out); err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"line":"a","n":1}` + "\n"; out.String() != want {
+		t.Fatalf("printed %q, want %q", out.String(), want)
+	}
+	if strings.ContainsAny(strings.TrimSuffix(out.String(), "\n"), "\r\n\t") {
+		t.Errorf("printed %q, which holds raw whitespace controls", out.String())
+	}
+}
+
 func TestPrintEventsRefusals(t *testing.T) {
 	for _, tc := range []struct{ name, in, want string }{
 		{"data not JSON", "event: data\ndata: {\"line\":\n\n", "the stream sent an event that is not JSON"},
