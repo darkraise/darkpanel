@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, test } from "vitest"
 import type { Host, Session } from "@/api/types"
@@ -55,7 +55,7 @@ describe("app routes", () => {
     stubServer({ body: session })
     renderWithProviders(<App />, { path: "/" })
     expect((await heading("Hosts")).textContent).toBe("Hosts")
-    await userEvent.setup().click(await screen.findByRole("link", { name: "web-1" }))
+    await userEvent.setup().click(within(await screen.findByRole("table")).getByRole("link", { name: "web-1" }))
     expect((await screen.findByText("Ubuntu 22.04.5 LTS")).textContent).toBe("Ubuntu 22.04.5 LTS")
     expect(screen.getByTestId("location").textContent).toBe("/hosts/h1/hostinfo")
   })
@@ -67,6 +67,19 @@ describe("app routes", () => {
     stubServer({ body: session })
     renderWithProviders(<App />, { path })
     expect((await heading(title)).textContent).toBe(title)
+  })
+
+  test.each([
+    ["/tailnet", "Tailnet"],
+    ["/derp/regions", "DERP"],
+    ["/cloudflare", "Cloudflare"],
+  ])("%s mounts the %s global page inside the shell", async (path, label) => {
+    stubServer({ body: session })
+    renderWithProviders(<App />, { path })
+    const link = (await screen.findAllByRole("link", { name: label }))[0]
+    await waitFor(() => expect(screen.queryByLabelText(`Loading ${label}`)).toBeNull())
+    expect(link?.getAttribute("href")).toBe(`/${path.split("/")[1] ?? ""}`)
+    expect(screen.queryByText("Page not found")).toBeNull()
   })
 
   test("an unknown address shows page not found inside the shell", async () => {

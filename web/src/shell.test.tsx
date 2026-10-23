@@ -2,7 +2,7 @@ import { act, cleanup, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { Route, Routes } from "react-router"
 import { expect, test, vi } from "vitest"
-import type { ListenerState, Session } from "@/api/types"
+import type { Host, ListenerState, Session } from "@/api/types"
 import { applyBrand } from "@/brand"
 import { RequireSession, SessionProvider } from "@/session/session"
 import { EvtSource } from "@/test/evt-source"
@@ -27,11 +27,13 @@ function renderShell(
   listeners: StubResponse,
   path = "/",
   logout: StubResponse = { status: 204 },
+  hosts: Host[] = [],
 ) {
   const calls = stubFetch({
     "GET /api/v1/auth/session": { body: session },
     "GET /api/v1/controller/listeners": listeners,
     "POST /api/v1/auth/logout": logout,
+    "POST /api/v1/actions/core.host.list/v1/read": { body: { output: { hosts } } },
   })
   renderWithProviders(
     <SessionProvider>
@@ -40,6 +42,7 @@ function renderShell(
         <Route element={<RequireSession><Shell /></RequireSession>}>
           <Route index element={<p>Hosts content</p>} />
           <Route path="audit" element={<p>Audit content</p>} />
+          <Route path="hosts/:hostId/*" element={<p>Host content</p>} />
         </Route>
       </Routes>
     </SessionProvider>,
@@ -88,6 +91,33 @@ test("shows the navigation with the current page marked", async () => {
   expect(audit?.getAttribute("aria-current")).toBe("page")
   expect(screen.getAllByRole("link", { name: "Hosts" })[0]?.getAttribute("href")).toBe("/")
   expect(screen.getAllByRole("link", { name: "API tokens" })[0]?.getAttribute("href")).toBe("/settings/tokens")
+})
+
+const webHost: Host = {
+  id: "h1", name: "web-1", isLocal: true, online: true, ingestion: null,
+  modules: ["hostinfo", "firewall", "tailnet", "docker"].map((id) => ({
+    id, version: 1, enabled: id !== "docker", available: true, reason: null, checkedAt: null,
+  })),
+}
+
+test("the sidebar lists each host with the pages of its enabled modules", async () => {
+  renderShell({ body: bound }, "/hosts/h1/hostinfo", { status: 204 }, [webHost])
+  await screen.findByText("Host content")
+  const hostLink = (await screen.findAllByRole("link", { name: "web-1" }))[0]
+  expect(hostLink?.getAttribute("href")).toBe("/hosts/h1")
+  expect(screen.getAllByRole("link", { name: "Host information" })[0]?.getAttribute("href")).toBe("/hosts/h1/hostinfo")
+  expect(screen.getAllByRole("link", { name: "Firewall" })[0]?.getAttribute("href")).toBe("/hosts/h1/firewall")
+  expect(screen.queryByRole("link", { name: "Docker" })).toBeNull()
+  expect(screen.getAllByRole("link", { name: "Tailnet" }).map((l) => l.getAttribute("href"))).toEqual(["/tailnet"])
+})
+
+test("the global pages have their own sidebar group", async () => {
+  renderShell({ body: bound })
+  await screen.findByText("Hosts content")
+  expect(screen.getAllByText("Network").length).toBeGreaterThan(0)
+  for (const [name, href] of [["Tailnet", "/tailnet"], ["DERP", "/derp"], ["Cloudflare", "/cloudflare"]] as const) {
+    expect(screen.getAllByRole("link", { name })[0]?.getAttribute("href")).toBe(href)
+  }
 })
 
 test.each([
