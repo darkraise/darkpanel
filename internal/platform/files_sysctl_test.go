@@ -186,6 +186,27 @@ func TestIsProcfs(t *testing.T) {
 	if ok, err := isProcfs(fd); err != nil || ok {
 		t.Errorf("isProcfs(temporary directory) = %v, %v; want false", ok, err)
 	}
+	proc, err := unix.Open(procSys, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = unix.Close(proc) }()
+	if ok, err := isProcfs(proc); err != nil || !ok {
+		t.Errorf("isProcfs(%s) = %v, %v; want true", procSys, ok, err)
+	}
+}
+
+// TestOpenProcSysReal opens the real /proc/sys, which the procfs check must
+// accept.
+func TestOpenProcSysReal(t *testing.T) {
+	root, err := (&Files{}).openProcSys()
+	if err != nil {
+		t.Fatalf("openProcSys of the real %s: %v", procSys, err)
+	}
+	defer func() { _ = unix.Close(root) }()
+	if got, err := readSysctl(root, "kernel/ostype"); err != nil || got != "Linux" {
+		t.Errorf("kernel/ostype = %q, %v; want Linux", got, err)
+	}
 }
 
 // sysUntouched checks that every regular file of the tree still holds the
