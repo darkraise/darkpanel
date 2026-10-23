@@ -303,3 +303,20 @@ func TestExtensionStreamPassive(t *testing.T) {
 		}
 	}
 }
+
+// TestExtensionRouteNotASubtree: a catch-all wildcard or an end anchor is
+// refused like a trailing slash, on either surface.
+func TestExtensionRouteNotASubtree(t *testing.T) {
+	for _, rt := range []ext.Route{
+		{Surface: ext.SurfaceWeb, Method: "GET", Path: "/api/v1/xr/{rest...}", Scope: core.ScopeRead, Handler: xrHandler},
+		{Surface: ext.SurfaceWeb, Method: "GET", Path: "/api/v1/{rest...}", Scope: core.ScopeRead, Handler: xrHandler},
+		{Surface: ext.SurfaceWeb, Method: "GET", Path: "/api/v1/xr/{$}", Scope: core.ScopeRead, Handler: xrHandler},
+		{Surface: ext.SurfaceSocket, Method: "POST", Path: "/api/v1/controller/{rest...}", Handler: xrHandler},
+	} {
+		h := newHarness(t)
+		h.cfg.Extensions = []ext.Route{rt}
+		if _, err := New(h.cfg); err == nil || !strings.Contains(err.Error(), "not a subtree") {
+			t.Errorf("New with %s %s: %v, want an error containing %q", rt.Method, rt.Path, err, "not a subtree")
+		}
+	}
+}

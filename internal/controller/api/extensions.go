@@ -19,7 +19,8 @@ const extensionPrefix = "/api/v1/"
 var extensionMethods = []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete}
 
 // checkExtension refuses a contributed route that New could not mount
-// safely.
+// safely. A catch-all wildcard ({x...}) serves a subtree as a trailing slash
+// does, and an end anchor ({$}) serves the trailing-slash path itself.
 func checkExtension(rt ext.Route) error {
 	pattern := rt.Method + " " + rt.Path
 	switch {
@@ -29,7 +30,8 @@ func checkExtension(rt ext.Route) error {
 		return fmt.Errorf("api: extension route %s: no handler", pattern)
 	case !slices.Contains(extensionMethods, rt.Method):
 		return fmt.Errorf("api: extension route %s: method %q is not one of %s", pattern, rt.Method, strings.Join(extensionMethods, ", "))
-	case !strings.HasPrefix(rt.Path, extensionPrefix) || strings.HasSuffix(rt.Path, "/"):
+	case !strings.HasPrefix(rt.Path, extensionPrefix) || strings.HasSuffix(rt.Path, "/") || strings.HasSuffix(rt.Path, "...}") ||
+		strings.HasSuffix(rt.Path, "{$}"):
 		return fmt.Errorf("api: extension route %s: the path must lie under %s and name one route, not a subtree", pattern, extensionPrefix)
 	case rt.Surface == ext.SurfaceWeb && !slices.Contains([]core.Scope{core.ScopeRead, core.ScopeOperate, core.ScopeAdmin}, rt.Scope):
 		return fmt.Errorf("api: extension route %s: scope %q is not read, operate or admin", pattern, rt.Scope)
