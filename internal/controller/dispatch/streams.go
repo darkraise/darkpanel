@@ -42,6 +42,24 @@ func (d *Dispatcher) OpenStream(ctx context.Context, p core.Principal, hostID, m
 	if err != nil {
 		return nil, fmt.Errorf("dispatch: stream %s.%s: %w", module, name, err)
 	}
+	// The slots are taken before the discovery request, which uses one of
+	// the session's action slots: a principal at its limit must not keep
+	// costing the host's actions one each.
+	release, err := d.streams.take(p.Actor, hostID)
+	if err != nil {
+		return nil, err
+	}
+	body, err := openServed(ctx, c, p, hostID, module, name, hash, params)
+	if err != nil {
+		release()
+		return nil, err
+	}
+	return &heldStream{ReadCloser: body, release: release}, nil
+}
+
+// openServed opens the stream once c serves it with hash.
+func openServed(ctx context.Context, c core.AgentClient, p core.Principal, hostID, module, name, hash string,
+	params url.Values) (io.ReadCloser, error) {
 	served, err := c.Streams(ctx)
 	if err != nil {
 		return nil, err
@@ -50,16 +68,7 @@ func (d *Dispatcher) OpenStream(ctx context.Context, p core.Principal, hostID, m
 		return nil, errcode.New(errcode.ModuleUnavailable,
 			fmt.Sprintf("stream %s.%s on host %s: agent version differs", module, name, hostID))
 	}
-	release, err := d.streams.take(p.Actor, hostID)
-	if err != nil {
-		return nil, err
-	}
-	body, err := c.OpenStream(ctx, p, module, name, params)
-	if err != nil {
-		release()
-		return nil, err
-	}
-	return &heldStream{ReadCloser: body, release: release}, nil
+	return c.OpenStream(ctx, p, module, name, params)
 }
 
 // heldStream gives its slots back when it is closed.

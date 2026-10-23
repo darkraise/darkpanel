@@ -60,9 +60,10 @@ type dstOpen struct {
 // is set.
 type dstAgent struct {
 	coretest.FakeAgent
-	served []core.StreamInfo
-	opens  []dstOpen
-	fail   bool
+	served     []core.StreamInfo
+	discovered int // Streams calls
+	opens      []dstOpen
+	fail       bool
 }
 
 // dstDispatcher is a dispatcher over a harness with dstModule whose
@@ -77,7 +78,10 @@ func dstDispatcher(t *testing.T) (*harness, *Dispatcher, *dstAgent) {
 	}
 	a := &dstAgent{served: []core.StreamInfo{{Module: "dst", Name: "logs", SchemaHash: hash}}}
 	a.HelloFunc = h.rt.Hello
-	a.StreamsFunc = func(context.Context) ([]core.StreamInfo, error) { return a.served, nil }
+	a.StreamsFunc = func(context.Context) ([]core.StreamInfo, error) {
+		a.discovered++
+		return a.served, nil
+	}
 	a.OpenStreamFunc = func(_ context.Context, p core.Principal, module, name string, params url.Values) (io.ReadCloser, error) {
 		if a.fail {
 			return nil, errcode.New(errcode.HostOffline, "host h1 is offline")
@@ -134,6 +138,9 @@ func TestOpenStreamHash(t *testing.T) {
 			if len(a.opens) != 0 {
 				t.Errorf("the agent opened %+v", a.opens)
 			}
+			if n := d.streams.byPrincipal[alice.Actor] + d.streams.byHost[testHost]; n != 0 {
+				t.Errorf("a refused stream holds %d slots", n)
+			}
 		})
 	}
 }
@@ -154,6 +161,7 @@ func TestOpenStreamLimits(t *testing.T) {
 			held[actor] = append(held[actor], body)
 		}
 	}
+	discovered := a.discovered
 	_, err := open("user:a")
 	if e := wantCode(t, err, errcode.StreamLimit); !strings.Contains(e.Detail, "user:a has 4 streams open") {
 		t.Errorf("a principal's fifth stream: detail %q", e.Detail)
@@ -161,6 +169,9 @@ func TestOpenStreamLimits(t *testing.T) {
 	_, err = open("user:e")
 	if e := wantCode(t, err, errcode.StreamLimit); !strings.Contains(e.Detail, "host h1 has 16 streams open") {
 		t.Errorf("the host's seventeenth stream: detail %q", e.Detail)
+	}
+	if a.discovered != discovered {
+		t.Errorf("refusals at the limit asked the agent's streams %d times, want none", a.discovered-discovered)
 	}
 	if err := held["user:a"][0].Close(); err != nil {
 		t.Fatal(err)
