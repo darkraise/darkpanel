@@ -55,7 +55,7 @@ var openUpdater = func(ctx context.Context, p paths.Paths, log *slog.Logger) (ho
 // withUpdater runs fn on the installed agent's updater. These commands act
 // on the installed binary, so they have no --dev.
 func withUpdater(cmd *cobra.Command, fn func(context.Context, hostUpdater) error) error {
-	p, err := resolvePaths(false)
+	p, err := selectPaths(cmd, false)
 	if err != nil {
 		return err
 	}
@@ -226,7 +226,7 @@ func rollbackFallback(stderr io.Writer) cli.LocalFallback {
 		if err := json.Unmarshal(input, &in); err != nil {
 			return nil, err
 		}
-		p, err := resolvePaths(false)
+		p, err := selectPaths(nil, false)
 		if err != nil {
 			return nil, err
 		}

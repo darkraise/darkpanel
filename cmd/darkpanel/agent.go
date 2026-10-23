@@ -46,7 +46,6 @@ var (
 	daemonCheck  = daemon.Check
 	newSystemd   = func(ctx context.Context) (systemdConn, error) { return platform.NewSystemd(ctx) }
 	newUpdater   = update.New
-	resolvePaths = paths.Resolve
 	// installLayout is the installed layout, whose controller unit file
 	// tells an agent that the controller runs on its host.
 	installLayout = install.Production
@@ -244,7 +243,7 @@ func newAgentRunCmd() *cobra.Command {
 			if crashAtStart {
 				return errCrashAtStart
 			}
-			p, err := resolvePaths(dev)
+			p, err := selectPaths(cmd, dev)
 			if err != nil {
 				return err
 			}
@@ -300,7 +299,7 @@ func newAgentEnrollCmd() *cobra.Command {
 		Args:    cobra.NoArgs,
 		PreRunE: requireRoot("enroll", &dev),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			p, err := resolvePaths(dev)
+			p, err := selectPaths(cmd, dev)
 			if err != nil {
 				return err
 			}
@@ -378,7 +377,7 @@ func newAgentCheckCmd() *cobra.Command {
 			return checkFailed(requireRoot("check", &dev)(cmd, args))
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			p, err := resolvePaths(dev)
+			p, err := selectPaths(cmd, dev)
 			if err != nil {
 				return checkFailed(err)
 			}
@@ -414,7 +413,7 @@ func newAgentTaskCmd() *cobra.Command {
 			if err != nil || attempt < 1 {
 				return cli.ExitWith(cli.ExitUsage, fmt.Errorf("attempt %q: want a positive integer", args[2]))
 			}
-			p, err := resolvePaths(dev)
+			p, err := selectPaths(cmd, dev)
 			if err != nil {
 				return err
 			}

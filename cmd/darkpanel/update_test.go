@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/darkraise/darkpanel/internal/cli"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/store"
@@ -55,10 +57,10 @@ func fakeUpdate(t *testing.T, euid int) (*fakeUpdater, install.Layout) {
 	t.Helper()
 	f := &fakeUpdater{}
 	layout := install.Rooted(t.TempDir())
-	oldEUID, oldResolve, oldOpen := geteuid, resolvePaths, openUpdater
-	t.Cleanup(func() { geteuid, resolvePaths, openUpdater = oldEUID, oldResolve, oldOpen })
+	oldEUID, oldResolve, oldOpen := geteuid, selectPaths, openUpdater
+	t.Cleanup(func() { geteuid, selectPaths, openUpdater = oldEUID, oldResolve, oldOpen })
 	geteuid = func() int { return euid }
-	resolvePaths = func(dev bool) (paths.Paths, error) {
+	selectPaths = func(_ *cobra.Command, dev bool) (paths.Paths, error) {
 		if dev {
 			t.Error("an update command resolved the development paths")
 		}

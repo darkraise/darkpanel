@@ -22,7 +22,6 @@ import (
 	"github.com/darkraise/darkpanel/internal/controller/listen"
 	"github.com/darkraise/darkpanel/internal/controller/server"
 	"github.com/darkraise/darkpanel/internal/install"
-	"github.com/darkraise/darkpanel/internal/paths"
 	"github.com/darkraise/darkpanel/internal/registry"
 	"github.com/darkraise/darkpanel/internal/update"
 	"github.com/darkraise/darkpanel/internal/update/trustedkeys"
@@ -110,6 +109,7 @@ func newRoot(opts cli.Options) (*cobra.Command, error) {
 	if err != nil {
 		return nil, err
 	}
+	addRootFlags(root)
 	if err := addDirectRollback(root); err != nil {
 		return nil, err
 	}
@@ -176,7 +176,7 @@ func newServeCmd() *cobra.Command {
 			if crashAtStart {
 				return errCrashAtStart
 			}
-			p, err := paths.Resolve(dev)
+			p, err := selectPaths(cmd, dev)
 			if err != nil {
 				return err
 			}
