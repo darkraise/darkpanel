@@ -18,7 +18,7 @@ func TestCoreMigrationsApply(t *testing.T) {
 	}{
 		{SideController, []string{"core_meta", "core_hosts", "core_module_state", "core_ca",
 			"core_agent_certs", "core_enroll_tokens", "core_host_update",
-			"core_effects", "core_lock_epochs", "core_composites", "core_composite_steps"}},
+			"core_effects", "core_lock_epochs", "core_composites", "core_composite_steps", "core_listeners"}},
 		{SideAgent, []string{"core_meta", "core_effects", "core_lock_epochs", "core_task_runs"}},
 	}
 	for _, tt := range tests {
@@ -694,5 +694,67 @@ func TestControllerPlatformSurfacesMigration(t *testing.T) {
 		if err := exec(r.args...); err == nil {
 			t.Errorf("%s: accepted", r.name)
 		}
+	}
+}
+
+func TestControllerListenersMigration(t *testing.T) {
+	ctx := context.Background()
+	db := openTemp(t)
+	opts := migrateOpts(t, "w0b", time.Now())
+	opts.Side = SideController
+	if _, err := Migrate(ctx, db, opts, coreSetUpTo(t, SideController, 11), nil); err != nil {
+		t.Fatal(err)
+	}
+	set, err := CoreMigrations(SideController)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts = migrateOpts(t, "w0c", time.Now())
+	res, err := Migrate(ctx, db, opts, set, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Applied) == 0 || res.Applied[0].Number != 12 || res.Applied[0].Name != "listeners" {
+		t.Fatalf("applied %+v, want 0012_listeners first", res.Applied)
+	}
+	var tableSQL string
+	if err := db.Read().QueryRowContext(ctx, "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'core_listeners'").
+		Scan(&tableSQL); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(strings.TrimSpace(tableSQL), "STRICT") {
+		t.Errorf("core_listeners is not STRICT: %s", tableSQL)
+	}
+	const at = "2026-10-23T00:00:00.000000000Z"
+	insert := `INSERT INTO core_listeners (id, address, port, allowed_peer, client_header, public_host, change_id, state,
+		created_at, updated_at) VALUES (?, '172.31.255.1', ?, '172.31.255.2', ?, 'panel.example.com', 'C1', ?, ?, ?)`
+	exec := func(id string, port int, header, state string) error {
+		_, err := db.Writer().ExecContext(ctx, insert, id, port, header, state, at, at)
+		return err
+	}
+	for i, a := range []struct{ header, state string }{
+		{"X-Darkpanel-Client", "open"}, {"Cf-Connecting-IP", "revoked"}, {"X-Darkpanel-Client", "closed"},
+	} {
+		if err := exec("L"+strconv.Itoa(i), 9443, a.header, a.state); err != nil {
+			t.Errorf("header %s state %s refused: %v", a.header, a.state, err)
+		}
+	}
+	refused := []struct {
+		name          string
+		port          int
+		header, state string
+	}{
+		{"unknown header", 9443, "X-Forwarded-For", "open"},
+		{"unknown state", 9443, "X-Darkpanel-Client", "paused"},
+		{"port 0", 0, "X-Darkpanel-Client", "open"},
+		{"port 65536", 65536, "X-Darkpanel-Client", "open"},
+	}
+	for i, r := range refused {
+		if err := exec("R"+strconv.Itoa(i), r.port, r.header, r.state); err == nil {
+			t.Errorf("%s: accepted", r.name)
+		}
+	}
+	if err := exec("L0", 9443, "X-Darkpanel-Client", "open"); err == nil {
+		t.Error("a duplicate id was accepted")
 	}
 }
