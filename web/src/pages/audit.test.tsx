@@ -17,7 +17,7 @@ function entry(id: string, action: string, extra: Partial<AuditEntry> = {}): Aud
 function pages(call: FetchCall) {
   const input = (call.body as { input: { before?: string } }).input
   return input.before === undefined
-    ? { body: { output: { entries: [entry("a2", "core.token.create", { hostId: "h1" })], nextBefore: "a2" } } }
+    ? { body: { output: { entries: [entry("a2", "core.token.create", { hostId: "h1", changeId: "c2" })], nextBefore: "a2" } } }
     : { body: { output: { entries: [entry("a1", "core.auth.login", { result: "error", errorCode: "auth.invalid_credentials" })], nextBefore: null } } }
 }
 
@@ -26,6 +26,7 @@ test("lists entries newest first and loads older ones by nextBefore", async () =
   renderWithProviders(<AuditPage />)
   expect((await screen.findByText("core.token.create/v1")).textContent).toBe("core.token.create/v1")
   expect(screen.getByText("h1").textContent).toBe("h1")
+  expect(screen.getByRole("link", { name: "core.token.create/v1" }).getAttribute("href")).toBe("/changes/c2")
   expect(calls[0]?.body).toEqual({ input: { limit: 50 } })
 
   await userEvent.setup().click(screen.getByRole("button", { name: "Load older entries" }))

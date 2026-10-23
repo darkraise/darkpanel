@@ -5,6 +5,7 @@ import { Spinner } from "darkraise-ui/components/spinner"
 import { globalPages, moduleRegistry } from "@/modules/registry"
 import type { GlobalPage } from "@/modules/types"
 import { AuditPage } from "@/pages/audit"
+import { ChangePage } from "@/pages/change"
 import { HostPage } from "@/pages/host"
 import { HostsPage } from "@/pages/hosts"
 import { LoginPage } from "@/pages/login"
@@ -39,6 +40,7 @@ export function App() {
           <Route path="hosts/:hostId" element={<HostPage />} />
           <Route path="hosts/:hostId/:moduleId/*" element={<HostPage />} />
           <Route path="audit" element={<AuditPage />} />
+          <Route path="changes/:changeId" element={<ChangePage />} />
           <Route path="settings/tokens" element={<TokensPage />} />
           {globalPages(moduleRegistry).map((page) => (
             <Route key={page.path} path={`${page.path}/*`} element={<GlobalPageView page={page} />} />

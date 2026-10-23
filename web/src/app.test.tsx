@@ -25,6 +25,14 @@ function stubServer(sessionResponse: StubResponse) {
     "POST /api/v1/actions/core.host.list/v1/read": { body: { output: { hosts: [host] } } },
     "POST /api/v1/actions/core.audit.list/v1/read": { body: { output: { entries: [], nextBefore: null } } },
     "POST /api/v1/actions/core.token.list/v1/read": { body: { output: { tokens: [] } } },
+    "GET /api/v1/changes/c1": {
+      body: {
+        id: "c1", hostId: null, action: "core.token.create", version: 1, class: "compensable", state: "completed", actor: "user:u1",
+        createdAt: "2026-10-19T08:00:00Z", updatedAt: "2026-10-19T08:00:00Z", revertDeadline: null, output: null, error: null,
+        compensatedBy: "core.token.revoke", parentChangeId: null, owner: null, repairedBy: null, repairOutcome: null, override: null,
+      },
+    },
+    "GET /api/v1/changes/c1/effects": { body: { effects: [] } },
     "GET /api/v1/hosts/h1/resources/hostinfo/summary": {
       body: {
         hostname: "web-1", os: { id: "ubuntu", versionId: "22.04", prettyName: "Ubuntu 22.04.5 LTS" }, kernel: "5.15.0",
@@ -63,6 +71,7 @@ describe("app routes", () => {
   test.each([
     ["/audit", "Audit log"],
     ["/settings/tokens", "API tokens"],
+    ["/changes/c1", "core.token.create/v1"],
   ])("%s shows %s", async (path, title) => {
     stubServer({ body: session })
     renderWithProviders(<App />, { path })

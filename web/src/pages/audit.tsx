@@ -1,3 +1,4 @@
+import { Link } from "react-router"
 import { useInfiniteQuery } from "@tanstack/react-query"
 import { PageHeader } from "darkraise-ui/layout"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
@@ -49,7 +50,13 @@ function AuditBody() {
               <TableCell className="font-mono">{e.actor}</TableCell>
               <TableCell className="font-mono">{e.hostId ?? "—"}</TableCell>
               <TableCell>
-                <span className="font-mono">{`${e.action}/v${e.version}`}</span>{" "}
+                {e.changeId === null ? (
+                  <span className="font-mono">{`${e.action}/v${e.version}`}</span>
+                ) : (
+                  <Link to={`/changes/${encodeURIComponent(e.changeId)}`} className="font-mono underline-offset-4 hover:underline">
+                    {`${e.action}/v${e.version}`}
+                  </Link>
+                )}{" "}
                 <span className="text-muted-foreground">{e.phase}</span>
               </TableCell>
               <TableCell>
