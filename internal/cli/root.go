@@ -115,7 +115,11 @@ func NewRoot(opts Options) (*cobra.Command, error) {
 			group(root, e.Path[:len(e.Path)-1]).AddCommand(leaf)
 		}
 	}
-	root.AddCommand(a.changeCommand(), a.controllerCommand())
+	controller := a.controllerCommand()
+	root.AddCommand(a.changeCommand(), controller)
+	if err := a.mountHandWritten(root, controller); err != nil {
+		return nil, fmt.Errorf("cli: %w", err)
+	}
 	a.wrapEnrollment(root)
 	markRuns(root)
 	guardLocal(root)
