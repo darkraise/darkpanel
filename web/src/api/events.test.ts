@@ -112,6 +112,26 @@ describe("connectEvents", () => {
     expect(evtInvalidated(client)).toEqual(refetched)
   })
 
+  test("backs off from one second to thirty, and from one again after an open", () => {
+    const { source } = evtConnect()
+    let current = source
+    const reopen = (wait: number) => {
+      current.fail()
+      const n = EvtSource.instances.length
+      vi.advanceTimersByTime(wait - 1)
+      expect(EvtSource.instances).toHaveLength(n)
+      vi.advanceTimersByTime(1)
+      expect(EvtSource.instances).toHaveLength(n + 1)
+      const next = EvtSource.instances[n]
+      if (next === undefined) throw new Error("no stream was reopened")
+      current = next
+    }
+    for (const wait of [1000, 2000, 4000, 8000, 16_000, 30_000, 30_000]) reopen(wait)
+    current.emit("open", {})
+    reopen(1000)
+    reopen(2000)
+  })
+
   test("closing before the reopen timer fires opens nothing more", () => {
     const { source, close } = evtConnect()
     source.fail()
