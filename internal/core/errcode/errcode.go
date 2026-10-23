@@ -80,6 +80,58 @@ const (
 	UpdateInterrupted      Code = "update.interrupted"
 )
 
+// Problem codes of the v1 modules and of restore quarantine (spec section
+// 11): they answer a request before a change exists.
+const (
+	FirewallManualRequired           Code = "firewall.manual_required"
+	FirewallUnsupportedIntegration   Code = "firewall.unsupported_integration"
+	FirewallUnsupportedConfiguration Code = "firewall.unsupported_configuration"
+	FirewallDockerUserInUse          Code = "firewall.docker_user_in_use"
+	DockerEngineUnavailable          Code = "docker.engine_unavailable"
+	DockerInUse                      Code = "docker.in_use"
+	DockerOwned                      Code = "docker.owned"
+	DockerComposeUnavailable         Code = "docker.compose_unavailable"
+	TailscaleUnavailable             Code = "tailscale.unavailable"
+	TailscaleRepoConflict            Code = "tailscale.repo_conflict"
+	TailscalePackagePresent          Code = "tailscale.package_present"
+	TailscalePackageHeld             Code = "tailscale.package_held"
+	TailnetPolicyConflict            Code = "tailnet.policy_conflict"
+	TailnetPolicyInvalid             Code = "tailnet.policy_invalid"
+	CloudNotConnected                Code = "cloud.not_connected"
+	CloudAuthFailed                  Code = "cloud.auth_failed"
+	CloudPermissionMissing           Code = "cloud.permission_missing"
+	CloudRateLimited                 Code = "cloud.rate_limited"
+	CloudUnavailable                 Code = "cloud.unavailable"
+	CloudConflict                    Code = "cloud.conflict"
+	CloudCleanupPending              Code = "cloud.cleanup_pending"
+	NPMUnhealthy                     Code = "npm.unhealthy"
+	NPMNotPublic                     Code = "npm.not_public"
+	NPMReserved                      Code = "npm.reserved"
+	NPMUnsupportedTarget             Code = "npm.unsupported_target"
+	CloudflareReserved               Code = "cloudflare.reserved"
+	CloudflareUnsupportedTarget      Code = "cloudflare.unsupported_target"
+	CloudflareConnectorMissing       Code = "cloudflare.connector_missing"
+	DERPRegionTaken                  Code = "derp.region_taken"
+	DERPPortInUse                    Code = "derp.port_in_use"
+	DERPNotReady                     Code = "derp.not_ready"
+	DERPNoFallback                   Code = "derp.no_fallback"
+	PanelTOTPIncomplete              Code = "panel.totp_incomplete"
+	PanelAlreadyExposed              Code = "panel.already_exposed"
+	PanelWrongHost                   Code = "panel.wrong_host"
+	PanelNotExposed                  Code = "panel.not_exposed"
+	Quarantined                      Code = "core.quarantined"
+)
+
+// Action-level codes of the v1 modules: they appear in a change's error,
+// and use their status only when an API call returns them synchronously.
+const (
+	FirewallPredictionMismatch Code = "firewall.prediction_mismatch"
+	TailscalePinFailed         Code = "tailscale.pin_failed"
+	CloudUncertainOutcome      Code = "cloud.uncertain_outcome"
+	NPMSetupFailed             Code = "npm.setup_failed"
+	DERPVerifyFailed           Code = "derp.verify_failed"
+)
+
 type info struct {
 	status int
 	title  string
@@ -138,6 +190,49 @@ var registry = map[Code]info{
 	UpdateSignatureInvalid:   {http.StatusInternalServerError, "Release signature invalid"},
 	UpdatePrevMismatch:       {http.StatusInternalServerError, "Previous binary does not match"},
 	UpdateInterrupted:        {http.StatusInternalServerError, "Update interrupted"},
+
+	FirewallManualRequired:           {http.StatusConflict, "Manual action required"},
+	FirewallUnsupportedIntegration:   {http.StatusConflict, "Docker integration unsupported"},
+	FirewallUnsupportedConfiguration: {http.StatusConflict, "Firewall configuration unsupported"},
+	FirewallPredictionMismatch:       {http.StatusInternalServerError, "Firewall state differs from the prediction"},
+	FirewallDockerUserInUse:          {http.StatusConflict, "DOCKER-USER holds foreign rules"},
+	DockerEngineUnavailable:          {http.StatusServiceUnavailable, "Docker Engine unavailable"},
+	DockerInUse:                      {http.StatusConflict, "In use"},
+	DockerOwned:                      {http.StatusConflict, "Owned by a Darkpanel module"},
+	DockerComposeUnavailable:         {http.StatusConflict, "Compose unavailable or project refused"},
+	TailscaleUnavailable:             {http.StatusServiceUnavailable, "Tailscale unavailable"},
+	TailscaleRepoConflict:            {http.StatusConflict, "Conflicting Tailscale repository"},
+	TailscalePackagePresent:          {http.StatusConflict, "Tailscale already installed"},
+	TailscalePackageHeld:             {http.StatusConflict, "Tailscale package held"},
+	TailscalePinFailed:               {http.StatusInternalServerError, "Tailscale pin failed"},
+	TailnetPolicyConflict:            {http.StatusConflict, "Policy changed since the plan"},
+	TailnetPolicyInvalid:             {http.StatusUnprocessableEntity, "Policy invalid"},
+	CloudNotConnected:                {http.StatusConflict, "Account not connected"},
+	CloudAuthFailed:                  {http.StatusBadGateway, "Provider rejected the credentials"},
+	CloudPermissionMissing:           {http.StatusBadGateway, "Provider permission missing"},
+	CloudRateLimited:                 {http.StatusServiceUnavailable, "Provider rate limit"},
+	CloudUnavailable:                 {http.StatusServiceUnavailable, "Provider unavailable"},
+	CloudUncertainOutcome:            {http.StatusGatewayTimeout, "Provider outcome uncertain"},
+	CloudConflict:                    {http.StatusConflict, "Provider state changed"},
+	CloudCleanupPending:              {http.StatusConflict, "Cleanup pending on the account"},
+	NPMUnhealthy:                     {http.StatusServiceUnavailable, "Nginx Proxy Manager unhealthy"},
+	NPMNotPublic:                     {http.StatusConflict, "Host not publicly reachable"},
+	NPMSetupFailed:                   {http.StatusInternalServerError, "Nginx Proxy Manager setup failed"},
+	NPMReserved:                      {http.StatusConflict, "Reserved by an exposure"},
+	NPMUnsupportedTarget:             {http.StatusUnprocessableEntity, "Unsupported proxy target"},
+	CloudflareReserved:               {http.StatusConflict, "Reserved by an exposure"},
+	CloudflareUnsupportedTarget:      {http.StatusUnprocessableEntity, "Unsupported tunnel target"},
+	CloudflareConnectorMissing:       {http.StatusConflict, "No connector for the tunnel on this host"},
+	DERPRegionTaken:                  {http.StatusConflict, "DERP region id taken"},
+	DERPPortInUse:                    {http.StatusConflict, "Port in use"},
+	DERPVerifyFailed:                 {http.StatusInternalServerError, "DERP verification failed"},
+	DERPNotReady:                     {http.StatusConflict, "DERP server not ready"},
+	DERPNoFallback:                   {http.StatusConflict, "No other reachable DERP region"},
+	PanelTOTPIncomplete:              {http.StatusConflict, "TOTP not enrolled for every user"},
+	PanelAlreadyExposed:              {http.StatusConflict, "Panel already exposed"},
+	PanelWrongHost:                   {http.StatusUnprocessableEntity, "Not the controller's host"},
+	PanelNotExposed:                  {http.StatusNotFound, "Panel not exposed"},
+	Quarantined:                      {http.StatusConflict, "Controller in restore quarantine"},
 }
 
 // Known reports whether c is in the registry.
