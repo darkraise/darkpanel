@@ -54,10 +54,11 @@ type Config struct {
 // Dispatcher is the core.Dispatcher of the controller. Its methods are safe
 // for concurrent use.
 type Dispatcher struct {
-	cfg   Config
-	neg   negotiation
-	plans planLocks
-	avail availabilityCache
+	cfg     Config
+	neg     negotiation
+	plans   planLocks
+	avail   availabilityCache
+	streams streamSlots
 }
 
 // New returns a dispatcher for cfg; every field but Ingest, Version,

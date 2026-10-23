@@ -1050,6 +1050,7 @@ type Dispatcher interface {
 	Changes(ctx context.Context, p Principal, f ChangeFilter) ([]ChangeView, error)
 	DispatcherChangeOps
 	DispatcherReveal
+	DispatcherStreams
 }
 
 // AgentChangeOps are the agent half of the change operations: undo, repair,
