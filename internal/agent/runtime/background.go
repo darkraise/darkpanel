@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -18,7 +17,7 @@ import (
 
 // The backoff of a background task whose Run or Watch failed (spec 1.4): it
 // doubles from TaskBackoffMin up to TaskBackoffMax, and a successful pass
-// resets it.
+// resets Run's backoff.
 const (
 	TaskBackoffMin = time.Second
 	TaskBackoffMax = 5 * time.Minute
@@ -47,9 +46,6 @@ type taskRun struct {
 	// wake holds at most one pending wake: wakes that arrive during a pass
 	// coalesce into one further pass.
 	wake chan struct{}
-	// watchFailures counts Watch's consecutive errors for its backoff; a
-	// successful pass resets it.
-	watchFailures atomic.Int64
 }
 
 func (t *taskRun) wakeUp() {
@@ -178,7 +174,6 @@ func (r *Runtime) runTask(ctx context.Context, t *taskRun) {
 			wait = taskBackoff(failures)
 		case !skipped:
 			failures = 0
-			t.watchFailures.Store(0)
 		}
 		wake := t.wake
 		if failures > 0 {
@@ -244,12 +239,22 @@ func (r *Runtime) taskWait(ctx context.Context, d time.Duration, wake <-chan str
 // wakes the task for a full pass.
 func (r *Runtime) watchTask(ctx context.Context, t *taskRun) {
 	env := r.taskEnv(t)
+	var failures int64
+	var wait time.Duration
 	for {
+		started := r.cfg.Clock.Now()
 		err := lifecycle.Protect(r.cfg.Log, t.def.ID, "Watch", func() error { return t.def.Watch(ctx, env, t.wakeUp) })
 		if ctx.Err() != nil {
 			return
 		}
-		wait := taskBackoff(t.watchFailures.Add(1))
+		// Only a Watch that stayed up longer than its last backoff resets the
+		// count, not a pass: a Watch that always fails beside a working Run
+		// would otherwise restart every second.
+		if r.cfg.Clock.Now().Sub(started) > wait {
+			failures = 0
+		}
+		failures++
+		wait = taskBackoff(failures)
 		r.cfg.Log.Warn("runtime: background task watch failed", "task", t.def.ID, "error", err, "retry", wait)
 		if !r.taskWait(ctx, wait, nil) {
 			return

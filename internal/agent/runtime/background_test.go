@@ -385,6 +385,28 @@ func TestBackgroundWatchRestart(t *testing.T) {
 	h.pass(t)
 }
 
+func TestBackgroundWatchBackoff(t *testing.T) {
+	h := bgNewHost()
+	h.watchErrs = 3
+	_, clock := bgOpen(t, h, bgModule{id: "bg", watch: true, h: h})
+	h.pass(t)
+	// The pass after each restart succeeds, and the watch's backoff still
+	// grows.
+	for _, d := range []time.Duration{time.Second, 2 * time.Second, 4 * time.Second} {
+		clock.awaitArmed(t, d, 1)
+		clock.Advance(d)
+		h.pass(t)
+	}
+	select {
+	case <-h.wakes:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the watch did not restart")
+	}
+	if n := clock.armedFor(time.Second); n != 1 {
+		t.Errorf("%d timers of 1 s armed, want the first restart's alone", n)
+	}
+}
+
 func TestDisableStopsTasks(t *testing.T) {
 	h := bgNewHost()
 	h.block = true
