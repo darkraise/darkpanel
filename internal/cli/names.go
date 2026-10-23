@@ -43,7 +43,9 @@ type entry struct {
 
 // entries returns the generated commands of reg sorted by path, or an error
 // when two of them share a path, one's path is a group of another's, or one
-// not in adopted starts with a reserved top-level word.
+// not in adopted starts with a reserved top-level word. An action whose
+// highest version is Internal has no command: only the controller itself
+// dispatches it (spec 1.7).
 func entries(reg *core.Registry, reserved []string, adopted map[string]bool) ([]entry, error) {
 	latest := map[string]core.ActionDef{}
 	for _, a := range reg.Actions() {
@@ -51,6 +53,9 @@ func entries(reg *core.Registry, reserved []string, adopted map[string]bool) ([]
 	}
 	var es []entry
 	for name, a := range latest {
+		if a.Spec.Internal {
+			continue
+		}
 		es = append(es, entry{Name: name, Path: CommandPath(name), Action: &a})
 	}
 	for _, r := range reg.Resources() {

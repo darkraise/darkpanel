@@ -216,12 +216,19 @@ func (a *app) actionCommand(e entry) (*cobra.Command, error) {
 		Args:        cobra.NoArgs,
 		Annotations: map[string]string{AnnotationAction: e.Name},
 	}
-	if def.Spec.Side == core.SideAgent {
+	switch {
+	case def.Spec.Reveal:
+		cmd.Annotations[annotationReveal] = "true"
+	case def.Spec.Side == core.SideAgent:
 		cmd.Annotations[annotationLocal] = "true"
 	}
 	addInputFlags(cmd, fields)
 	addConnFlags(cmd, def.Spec.BreakGlass, def.Spec.Side == core.SideAgent)
 	cmd.Flags().Bool("json", false, "print the raw JSON output")
+	if def.Spec.Reveal {
+		cmd.RunE = func(cmd *cobra.Command, _ []string) error { return a.runReveal(cmd, def, fields) }
+		return cmd, nil
+	}
 	if def.Spec.Class == core.ClassRead {
 		cmd.RunE = func(cmd *cobra.Command, _ []string) error { return a.runRead(cmd, def, fields, secrets) }
 		return cmd, nil
