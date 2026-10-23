@@ -111,11 +111,11 @@ type davFixture struct {
 	asked *atomic.Int32
 }
 
-func newDav(t *testing.T) *davFixture {
+func newDav(t *testing.T, more ...core.Module) *davFixture {
 	t.Helper()
 	f := &davFixture{agent: &davAgent{answer: davAnswer("")}, down: &atomic.Value{}, asked: &atomic.Int32{}}
 	f.down.Store("")
-	f.h = newHarnessWith(t, davModule{noteDown: f.down, asked: f.asked})
+	f.h = newHarnessWith(t, append([]core.Module{davModule{noteDown: f.down, asked: f.asked}}, more...)...)
 	rt := f.h.rt
 	f.h.clients.Add(testHost, &coretest.FakeAgent{
 		HelloFunc: rt.Hello, ReadFunc: rt.Read, PlanFunc: rt.Plan, ApplyFunc: rt.Apply, ChangeFunc: rt.Change,
@@ -173,6 +173,36 @@ func TestDispatchRefusesUnavailableAction(t *testing.T) {
 	if e := wantCode(t, err, errcode.ModuleUnavailable); e.Detail != "action dav.thing.start is unavailable on host h1: no docker" {
 		t.Errorf("a module-wide answer: detail %q", e.Detail)
 	}
+}
+
+// davCoreModule is a core module with one agent read, so the registry knows
+// the module an exempt action belongs to.
+type davCoreModule struct{}
+
+func (davCoreModule) Manifest() core.Manifest {
+	return core.Manifest{ID: core.ModuleIDCore, Version: 1, DefaultEnabled: true, Actions: []core.ActionDef{
+		core.DefineRead(core.ActionSpec{Name: "core.thing.get", Version: 1, Side: core.SideAgent}, davHandler{}),
+	}}
+}
+
+// TestAvailabilityExemptsCore: an agent-side core action is dispatched
+// whatever the agent's availability says, and the agent is not asked.
+func TestAvailabilityExemptsCore(t *testing.T) {
+	f := newDav(t, davCoreModule{})
+	ctx := context.Background()
+	f.agent.set(core.ModuleAvailability{Reason: "everything is down"}, nil)
+	coreDef, ok := f.h.reg.Action(core.ActionRef{Name: "core.thing.get", Version: 1})
+	if !ok {
+		t.Fatal("core.thing.get is not registered")
+	}
+	if err := f.d.available(ctx, testHost, coreDef); err != nil {
+		t.Errorf("a core action: %v, want it dispatched", err)
+	}
+	if n := f.agent.count(); n != 0 {
+		t.Errorf("the agent was asked %d times for a core action, want 0", n)
+	}
+	davDef := core.ActionDef{Spec: core.ActionSpec{Name: refDavStart.Name, Version: 1, Side: core.SideAgent}}
+	_ = wantCode(t, f.d.available(ctx, testHost, davDef), errcode.ModuleUnavailable)
 }
 
 func TestAvailabilityCached(t *testing.T) {
