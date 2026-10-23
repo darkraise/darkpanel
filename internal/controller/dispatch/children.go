@@ -49,6 +49,9 @@ func (c dispatchChildren) Revert(ctx context.Context, p core.Principal, changeID
 // Undo undoes a child with the composite's call, then ingests an agent
 // child's journal.
 func (c dispatchChildren) Undo(ctx context.Context, p core.Principal, hostID, changeID string, call *core.CallContext) (core.ChangeView, error) {
+	if err := c.d.admitMutation(ctx); err != nil {
+		return core.ChangeView{}, err
+	}
 	if hostID == "" {
 		return c.d.cfg.Engine.Undo(ctx, p, changeID, call)
 	}
@@ -67,6 +70,9 @@ func (c dispatchChildren) Undo(ctx context.Context, p core.Principal, hostID, ch
 // Release releases a child with the composite's call, then ingests an agent
 // child's journal.
 func (c dispatchChildren) Release(ctx context.Context, p core.Principal, hostID, changeID, reason string, call *core.CallContext) (core.ReleaseResult, error) {
+	if err := c.d.admitMutation(ctx); err != nil {
+		return core.ReleaseResult{}, err
+	}
 	if hostID == "" {
 		return c.d.cfg.Engine.Release(ctx, p, changeID, reason, call)
 	}
