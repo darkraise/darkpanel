@@ -28,12 +28,13 @@ function renderShell(
   path = "/",
   logout: StubResponse = { status: 204 },
   hosts: Host[] = [],
+  hostList: StubResponse = { body: { output: { hosts } } },
 ) {
   const calls = stubFetch({
     "GET /api/v1/auth/session": { body: session },
     "GET /api/v1/controller/listeners": listeners,
     "POST /api/v1/auth/logout": logout,
-    "POST /api/v1/actions/core.host.list/v1/read": { body: { output: { hosts } } },
+    "POST /api/v1/actions/core.host.list/v1/read": hostList,
   })
   renderWithProviders(
     <SessionProvider>
@@ -133,6 +134,11 @@ test.each([
 test("the footer reports a failed listener request", async () => {
   renderShell(problem(403, "auth.forbidden", "this request needs the read scope"))
   expect((await screen.findAllByText("Listener state unavailable: this request needs the read scope")).length).toBeGreaterThan(0)
+})
+
+test("the footer reports a failed host list", async () => {
+  renderShell({ body: bound }, "/", { status: 204 }, [], problem(503, "unavailable", "the database is busy"))
+  expect((await screen.findAllByText("Host list unavailable: the database is busy")).length).toBeGreaterThan(0)
 })
 
 test("the user menu names the user and their role", async () => {

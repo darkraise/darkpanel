@@ -47,6 +47,7 @@ const chdEntries: ModuleEntry[] = [
 ]
 
 async function chdFill(user: ReturnType<typeof userEvent.setup>, name: string) {
+  await waitFor(() => expect(screen.getByRole("button", { name: "Add host" }).hasAttribute("disabled")).toBe(false))
   await user.click(screen.getByRole("button", { name: "Add host" }))
   const form = screen.getByRole("dialog")
   await user.type(within(form).getByLabelText("Name"), name)
@@ -121,4 +122,30 @@ test("a failed creation stays in the change dialog with its error and shows no t
   await user.click(await within(plan).findByRole("button", { name: "Apply" }))
   expect((await within(plan).findByRole("alert")).textContent).toBe("the authority is not loaded")
   expect(screen.queryByRole("dialog", { name: "Host added" })).toBeNull()
+})
+
+test("a created host whose answer carries no token says so", async () => {
+  stubFetch({
+    [HOSTS]: { body: { output: { hosts: [chdHost([])] } } },
+    [PLAN]: { body: chdPlan },
+    [APPLY]: { body: chdChange({ host: { id: "h2", name: "web-2" } }) },
+  })
+  renderWithProviders(<CreateHostDialog />)
+  const user = userEvent.setup()
+  const form = await chdFill(user, "web-2")
+  await user.click(within(form).getByRole("button", { name: "Continue" }))
+  const plan = await screen.findByRole("dialog", { name: "Add a host" })
+  await user.click(await within(plan).findByRole("button", { name: "Apply" }))
+  const done = await screen.findByRole("dialog", { name: "Host added" })
+  expect(within(done).getByRole("alert").textContent).toBe("The host was created, but the controller did not return its enrollment token.")
+})
+
+test("hosts cannot be added until the host list has loaded", async () => {
+  const problem = { type: "about:blank", title: "Unavailable", status: 503, detail: "the database is busy", code: "unavailable" }
+  const calls = stubFetch({ [HOSTS]: { status: 503, body: problem } })
+  renderWithProviders(<CreateHostDialog entries={chdEntries} />)
+  await waitFor(() => expect(calls.some((c) => c.path.endsWith("core.host.list/v1/read"))).toBe(true))
+  await waitFor(() => expect(screen.getByRole("button", { name: "Add host" }).hasAttribute("disabled")).toBe(true))
+  await userEvent.setup().click(screen.getByRole("button", { name: "Add host" }))
+  expect(screen.queryByRole("dialog")).toBeNull()
 })

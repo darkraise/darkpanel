@@ -1,12 +1,13 @@
 import { Suspense, useState, type FormEvent } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { Alert, AlertDescription } from "darkraise-ui/components/alert"
 import { Button } from "darkraise-ui/components/button"
 import { Clipboard, ClipboardControl, ClipboardInput, ClipboardLabel, ClipboardTrigger } from "darkraise-ui/components/clipboard"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "darkraise-ui/components/dialog"
 import { Input } from "darkraise-ui/components/input"
 import { Label } from "darkraise-ui/components/label"
 import { Spinner } from "darkraise-ui/components/spinner"
-import { HOSTS_QUERY_KEY, changeError, listHosts } from "@/api/client"
+import { HOSTS_QUERY_KEY, changeError, changeInProgress, listHosts } from "@/api/client"
 import type { Change } from "@/api/types"
 import { ChangeDialog } from "@/components/change-dialog"
 import { formatTime } from "@/lib/format"
@@ -40,6 +41,7 @@ export function CreateHostDialog({ entries = moduleRegistry }: { entries?: Modul
   const [values, setValues] = useState<Record<string, Record<string, unknown>>>({})
   const [input, setInput] = useState<Record<string, unknown>>({})
   const [grant, setGrant] = useState<Grant | null>(null)
+  const [grantMissing, setGrantMissing] = useState(false)
 
   const localHost = hosts.data?.hosts.find((h) => h.isLocal)
   const extensions = localHost === undefined ? [] : hostCreateExtensions(entries, localHost)
@@ -49,6 +51,7 @@ export function CreateHostDialog({ entries = moduleRegistry }: { entries?: Modul
     setValues({})
     setInput({})
     setGrant(null)
+    setGrantMissing(false)
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -56,7 +59,7 @@ export function CreateHostDialog({ entries = moduleRegistry }: { entries?: Modul
     const form = new FormData(event.currentTarget)
     const name = String(form.get("name") ?? "").trim()
     const controllerAddress = String(form.get("controllerAddress") ?? "").trim()
-    const merged: Record<string, unknown> = Object.assign({}, ...extensions.map((e) => values[e.id] ?? {}))
+    const merged = extensions.reduce<Record<string, unknown>>((acc, e) => ({ ...acc, ...(values[e.id] ?? {}) }), {})
     merged.name = name
     if (controllerAddress !== "") merged.controllerAddress = controllerAddress
     setInput(merged)
@@ -64,15 +67,21 @@ export function CreateHostDialog({ entries = moduleRegistry }: { entries?: Modul
   }
 
   function applied(change: Change) {
-    if (changeError(change) !== null || !isGrant(change.output)) return
-    setGrant(change.output)
+    if (changeError(change) !== null || changeInProgress(change)) return
+    // The token exists only in this answer, so a host created without one
+    // must say so rather than read as a plain success.
+    if (isGrant(change.output)) setGrant(change.output)
+    else setGrantMissing(true)
     setPhase("grant")
     void client.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
   }
 
   return (
     <>
-      <Button onClick={() => setPhase("form")}>Add host</Button>
+      {/* The module inputs depend on the controller's own host, so the form waits for the host list. */}
+      <Button disabled={!hosts.isSuccess} onClick={() => setPhase("form")}>
+        Add host
+      </Button>
       <Dialog open={phase === "form"} onOpenChange={(next) => (next ? setPhase("form") : reset())}>
         <DialogContent>
           <DialogHeader>
@@ -116,8 +125,20 @@ export function CreateHostDialog({ entries = moduleRegistry }: { entries?: Modul
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Host added</DialogTitle>
-            <DialogDescription>Copy the enrollment token now. It will not be shown again.</DialogDescription>
+            <DialogDescription>
+              {grantMissing ? "The host exists, but it cannot enroll with this answer." : "Copy the enrollment token now. It will not be shown again."}
+            </DialogDescription>
           </DialogHeader>
+          {grantMissing && (
+            <div className="flex flex-col gap-4">
+              <Alert variant="destructive" role="alert">
+                <AlertDescription>The host was created, but the controller did not return its enrollment token.</AlertDescription>
+              </Alert>
+              <DialogFooter>
+                <Button onClick={reset}>Done</Button>
+              </DialogFooter>
+            </div>
+          )}
           {grant !== null && (
             <div className="flex flex-col gap-4">
               <Clipboard value={grant.token}>

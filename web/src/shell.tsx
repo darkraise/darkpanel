@@ -12,7 +12,7 @@ import { useSession } from "@/session/use-session"
 
 // navigation lists each host with its module pages under Hosts, and the
 // pages that belong to no host in their own group. Until the host list has
-// loaded, Hosts has no children.
+// loaded, Hosts has no children; a failed load is said in the footer.
 function navigation(hosts: Host[]): NavGroup[] {
   const hostItems: NavItem[] = hosts.map((host) => {
     const href = `/hosts/${encodeURIComponent(host.id)}`
@@ -80,7 +80,16 @@ export function Shell() {
       notificationSlot={null}
       user={session === null ? undefined : { name: session.user.username, email: `Role: ${session.user.role}` }}
       onLogout={() => void logOut()}
-      navFooter={<ListenerNotice />}
+      navFooter={
+        <>
+          {hosts.isError && (
+            <p role="status" className="px-3 py-2 text-xs text-destructive">
+              {`Host list unavailable: ${errorMessage(hosts.error)}`}
+            </p>
+          )}
+          <ListenerNotice />
+        </>
+      }
     >
       {logoutError !== null && (
         <Alert variant="destructive" role="alert" className="mb-4">
