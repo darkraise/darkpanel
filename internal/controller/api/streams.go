@@ -47,16 +47,31 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	frames := make(chan sseFrame, relayBuffer+1)
 	go relay(body, frames)
 	rw := &relayWriter{ResponseWriter: w}
-	switch reason := s.sseStream(rw, r, frames); reason {
-	case "expired", "revoked":
-		// sseStream may pick an expiry or revocation over the closed source
-		// right after it wrote the relay's end frame; the stream has one.
-		if rw.ended {
-			return
-		}
-		if b, err := sseEncode(endFrame(reason, nil)); err == nil {
-			_ = sseWrite(w, b)
-		}
+	reason := s.sseStream(rw, r, frames)
+	// sseStream may pick an expiry, a revocation or CloseStreams over the
+	// closed source right after it wrote the relay's end frame; the stream
+	// has one.
+	if rw.ended {
+		return
+	}
+	switch {
+	case reason == "expired" || reason == "revoked":
+	case reason == "error" && s.streamsClosed():
+	default:
+		return
+	}
+	if b, err := sseEncode(endFrame(reason, nil)); err == nil {
+		_ = sseWrite(w, b)
+	}
+}
+
+// streamsClosed reports whether CloseStreams ran.
+func (s *Server) streamsClosed() bool {
+	select {
+	case <-s.streamsDone:
+		return true
+	default:
+		return false
 	}
 }
 

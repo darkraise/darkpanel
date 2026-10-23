@@ -43,6 +43,13 @@ type relayOpen struct {
 // body and record the call on opened.
 func relayServer(t *testing.T, h *harness, body io.ReadCloser) (*httptest.Server, chan relayOpen) {
 	t.Helper()
+	ts, opened, _ := relayServerOf(t, h, body)
+	return ts, opened
+}
+
+// relayServerOf is relayServer that also returns the API server.
+func relayServerOf(t *testing.T, h *harness, body io.ReadCloser) (*httptest.Server, chan relayOpen, *Server) {
+	t.Helper()
 	opened := make(chan relayOpen, 1)
 	h.disp.OpenStreamFunc = func(_ context.Context, p core.Principal, hostID, module, name string, params url.Values) (io.ReadCloser, error) {
 		if name == "busy" {
@@ -63,7 +70,7 @@ func relayServer(t *testing.T, h *harness, body io.ReadCloser) (*httptest.Server
 	}
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
-	return ts, opened
+	return ts, opened, srv
 }
 
 // relayGet starts GET path with token and returns the response once its
@@ -232,6 +239,27 @@ func TestRelayEnds(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestRelayEndsOnShutdown: CloseStreams ends a relayed stream with one
+// error end frame.
+func TestRelayEndsOnShutdown(t *testing.T) {
+	h := newHarness(t)
+	pr, pw := io.Pipe()
+	t.Cleanup(func() { _ = pw.Close() })
+	body := &relayBody{Reader: pr}
+	ts, opened, srv := relayServerOf(t, h, body)
+	resp := relayGet(t, ts, "/api/v1/hosts/h1/streams/sm/logs", h.token(core.ScopeRead))
+	<-opened
+	srv.CloseStreams()
+	got := relayFrames(resp.Body)
+	want := []string{`end {"reason":"error","error":{"code":"internal","detail":"Internal error"}}`}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("frames %q, want %q", got, want)
+	}
+	if !body.closed.Load() {
+		t.Error("the dispatcher's reader was not closed")
 	}
 }
 
