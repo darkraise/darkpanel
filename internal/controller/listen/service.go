@@ -2,6 +2,7 @@ package listen
 
 import (
 	"context"
+	"crypto/tls"
 	"log/slog"
 	"net/http"
 	"net/netip"
@@ -35,6 +36,9 @@ type Config struct {
 	Bind BindFunc
 	// OnServeError is SetConfig.OnServeError.
 	OnServeError func(error)
+	// Sources are the certificate sources' dependencies; nil means no
+	// source and no extra name: every handshake gets the Darkpanel CA leaf.
+	Sources *SourceDeps
 }
 
 // State is what the UI footer and serve's log report.
@@ -53,6 +57,7 @@ type State struct {
 type Service struct {
 	cfg   Config
 	leaf  *Leaf
+	tls   *tls.Config // the one configuration every HTTPS listener clones
 	set   *Set
 	state atomic.Pointer[State]
 
@@ -72,7 +77,11 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		cfg.Log = slog.New(slog.DiscardHandler)
 	}
 	s := &Service{cfg: cfg, leaf: NewLeaf(cfg.Authority, cfg.Clock, cfg.Hostname)}
-	s.set = NewSet(SetConfig{Handler: cfg.Handler, TLS: s.leaf.TLSConfig(), Bind: cfg.Bind, Log: cfg.Log, OnServeError: cfg.OnServeError})
+	if cfg.Sources != nil {
+		s.leaf.useSources(*cfg.Sources)
+	}
+	s.tls = s.leaf.TLSConfig()
+	s.set = NewSet(SetConfig{Handler: cfg.Handler, TLS: s.tls, Bind: cfg.Bind, Log: cfg.Log, OnServeError: cfg.OnServeError})
 	if HasTailscale(cfg.Specs) {
 		ts, err := NewTailscaleWatcher(ctx, cfg.DB, cfg.Interfaces, cfg.Log)
 		if err != nil {
@@ -89,6 +98,20 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	s.timer = cfg.Clock.AfterFunc(CheckInterval, s.check)
 	s.mu.Unlock()
 	return s, nil
+}
+
+// TLSConfig is the configuration the HTTPS listeners serve with. Other
+// listeners that serve the web certificate, such as the runtime listeners,
+// clone it, so every listener presents the same leaf and shares its session
+// ticket keys when they are set. It first issues the leaf when none exists
+// yet: with only plain listeners nothing else issues one.
+func (s *Service) TLSConfig() (*tls.Config, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), CheckInterval)
+	defer cancel()
+	if err := s.leaf.EnsureIssued(ctx); err != nil {
+		return nil, err
+	}
+	return s.tls, nil
 }
 
 // State returns the current listener state.

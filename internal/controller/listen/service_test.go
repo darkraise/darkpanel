@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/netip"
 	"reflect"
@@ -403,5 +404,138 @@ func TestServiceShutdownDuringChecks(t *testing.T) {
 	}
 	if f.clock.Pending() != 0 || len(s.State().Listeners) != 0 {
 		t.Fatal("a check re-armed or rebound after Shutdown")
+	}
+}
+
+func TestServiceSharesOneTLSConfig(t *testing.T) {
+	f := newServiceFixture(t)
+	specs, err := ParseSpecs([]string{"tailscale"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.ifs.set(true, "100.64.0.1")
+	s, err := Start(context.Background(), Config{
+		Specs: specs, Hostname: "panel", DB: f.db, Authority: f.auth, Clock: f.clock,
+		Handler: schemeHandler(), Log: slog.New(slog.DiscardHandler), Interfaces: f.ifs.list, Bind: f.binder.bind,
+		Sources: &SourceDeps{LocalHostID: "H1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Shutdown(context.Background()) })
+	issued := s.leaf.cur.Load()
+	cfg, err := s.TLSConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := s.TLSConfig()
+	if err != nil || cfg == nil || cfg != again || cfg != s.set.cfg.TLS {
+		t.Fatal("TLSConfig is not the one configuration the HTTPS listeners clone")
+	}
+	if s.leaf.cur.Load() != issued {
+		t.Error("TLSConfig replaced the leaf the HTTPS listeners issued")
+	}
+	if cfg.MinVersion != tls.VersionTLS12 {
+		t.Errorf("MinVersion = %x, want TLS 1.2", cfg.MinVersion)
+	}
+	if got, err := cfg.GetCertificate(&tls.ClientHelloInfo{}); err != nil || got != issued.cert {
+		t.Fatalf("GetCertificate = %v, %v; want the CA leaf", got, err)
+	}
+}
+
+// With plain listeners only, nothing issues a leaf until TLSConfig does: a
+// leaf without IP SANs, which the next Ensure with addresses replaces.
+func TestServiceTLSConfigIssuesALeafForPlainListeners(t *testing.T) {
+	f := newServiceFixture(t)
+	s, err := f.start(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.leaf.cur.Load() != nil {
+		t.Fatal("plain listeners issued a leaf")
+	}
+	cfg, err := s.TLSConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := cfg.GetCertificate(&tls.ClientHelloInfo{ServerName: "panel"})
+	if err != nil {
+		t.Fatalf("GetCertificate after TLSConfig: %v", err)
+	}
+	leaf, err := x509.ParseCertificate(first.Certificate[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(leaf.DNSNames, []string{"panel", "localhost"}) || len(leaf.IPAddresses) != 0 {
+		t.Fatalf("leaf SANs %v %v, want the hostname and localhost without IP addresses", leaf.DNSNames, leaf.IPAddresses)
+	}
+	if _, err := s.TLSConfig(); err != nil || s.leaf.cur.Load().cert != first {
+		t.Fatalf("a second TLSConfig = %v or replaced the leaf", err)
+	}
+	if issued, err := s.leaf.Ensure(context.Background(), addrs("100.64.0.1")); err != nil || !issued {
+		t.Fatalf("Ensure with an address = %v, %v; want a new leaf with its SAN", issued, err)
+	}
+	if got, err := cfg.GetCertificate(&tls.ClientHelloInfo{}); err != nil || got == first {
+		t.Fatalf("GetCertificate = %v, %v; want the reissued leaf through the same configuration", got, err)
+	}
+}
+
+// Listeners that clone the shared configuration resume each other's TLS 1.3
+// sessions once its ticket keys are set; a fresh configuration per connection
+// never does.
+func TestServiceTLSConfigResumesSessionsAcrossClones(t *testing.T) {
+	f := newServiceFixture(t)
+	s, err := f.start(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared, err := s.TLSConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared.SetSessionTicketKeys([][32]byte{{1}})
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(f.auth.RootPEM()) {
+		t.Fatal("RootPEM did not parse")
+	}
+	handshakes := func(server func() *tls.Config) (resumed []bool) {
+		cache := tls.NewLRUClientSessionCache(2)
+		for range 2 {
+			cc, sc := net.Pipe()
+			done := make(chan error, 1)
+			go func() {
+				defer func() { _ = sc.Close() }()
+				conn := tls.Server(sc, server())
+				if err := conn.Handshake(); err != nil {
+					done <- err
+					return
+				}
+				_, err := conn.Write([]byte{0})
+				done <- err
+			}()
+			cli := tls.Client(cc, &tls.Config{
+				MinVersion: tls.VersionTLS13, RootCAs: pool, ServerName: "localhost", ClientSessionCache: cache,
+			})
+			// The client stores the session ticket when it reads the byte
+			// the server writes after the handshake.
+			if err := cli.Handshake(); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := cli.Read(make([]byte, 1)); err != nil {
+				t.Fatal(err)
+			}
+			if err := <-done; err != nil {
+				t.Fatal(err)
+			}
+			resumed = append(resumed, cli.ConnectionState().DidResume)
+			_ = cc.Close()
+		}
+		return resumed
+	}
+	if got := handshakes(shared.Clone); !reflect.DeepEqual(got, []bool{false, true}) {
+		t.Errorf("handshakes through clones of the shared configuration resumed %v, want [false true]", got)
+	}
+	if got := handshakes(s.leaf.TLSConfig); !reflect.DeepEqual(got, []bool{false, false}) {
+		t.Errorf("handshakes through a fresh configuration each resumed %v, want [false false]", got)
 	}
 }

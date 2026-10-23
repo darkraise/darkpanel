@@ -88,6 +88,26 @@ func (l *Leaf) Ensure(ctx context.Context, ips []netip.Addr) (bool, error) {
 	return true, nil
 }
 
+// EnsureIssued issues a leaf without IP SANs when none exists yet, so a
+// controller whose network listeners are all plain HTTP still has a
+// certificate for its runtime listeners. It never replaces a current leaf;
+// the next Ensure with addresses issues one with their SANs.
+func (l *Leaf) EnsureIssued(ctx context.Context) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.cur.Load() != nil {
+		return nil
+	}
+	names := l.extraNames(ctx, nil)
+	now := l.clock.Now()
+	cert, err := l.auth.issue(l.hostname, names, nil, now)
+	if err != nil {
+		return err
+	}
+	l.cur.Store(&issuedLeaf{cert: cert, ips: []netip.Addr{}, names: names, at: now})
+	return nil
+}
+
 // extraNames reads the sources' extra names, sorted, without duplicates and
 // without the names every leaf carries. On an error it logs and returns the
 // names of cur.
