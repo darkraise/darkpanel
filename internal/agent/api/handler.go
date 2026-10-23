@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/darkraise/darkpanel/internal/agent/wire"
 	"github.com/darkraise/darkpanel/internal/core"
@@ -54,6 +55,8 @@ const (
 	opEnabled      = "enabled"
 	opAvailability = "availability"
 	opReveal       = "reveal"
+	opStreams      = "streams"
+	opStream       = "stream"
 )
 
 // ControllerHello is the controller's half of a hello, sent in the headers
@@ -135,11 +138,21 @@ func (h *handler) routes(controller bool) *http.ServeMux {
 		mux.HandleFunc("POST "+prefix+"plans/{id}/retire", h.handleRetire)
 		mux.HandleFunc("PUT "+prefix+"modules/{id}/enabled", h.handleEnabled)
 		mux.HandleFunc("POST "+prefix+"reveal/{name}/{version}", h.handleReveal)
+		mux.HandleFunc("GET "+prefix+"streams", h.handleStreams)
+		mux.HandleFunc("GET "+prefix+"streams/{module}/{name}", h.handleStream)
 	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		h.writeProblem(w, errcode.New(errcode.NotFound, fmt.Sprintf("no agent API route %s %s", r.Method, r.URL.Path)))
 	})
 	return mux
+}
+
+// OpensStream reports whether r is GET streams/{module}/{name}, which holds
+// its request for as long as the module stream runs.
+func OpensStream(r *http.Request) bool {
+	rest, ok := strings.CutPrefix(r.URL.Path, prefix+"streams/")
+	module, name, two := strings.Cut(rest, "/")
+	return ok && r.Method == http.MethodGet && two && module != "" && name != "" && !strings.Contains(name, "/")
 }
 
 // headerPrincipal reads the principal the controller sends.
@@ -737,6 +750,59 @@ func (h *handler) handleEnabled(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *handler) handleStreams(w http.ResponseWriter, r *http.Request) {
+	err := h.allow(r.Context(), opStreams, "")
+	var list []core.StreamInfo
+	if err == nil {
+		list, err = h.cfg.Agent.Streams(r.Context())
+	}
+	if err != nil {
+		h.writeProblem(w, err)
+		return
+	}
+	if list == nil {
+		list = []core.StreamInfo{}
+	}
+	h.writeJSON(w, http.StatusOK, wire.Streams{Streams: list})
+}
+
+// handleStream answers a module stream's JSON lines and flushes after each
+// read of the stream's body, so every line reaches the controller as soon
+// as the runtime writes it. The stream ends when its body does, or when the
+// controller closes the connection, which ends the request's context and
+// with it the stream's.
+func (h *handler) handleStream(w http.ResponseWriter, r *http.Request) {
+	module, name := r.PathValue("module"), r.PathValue("name")
+	p, err := h.actor(r, opStream, module+"."+name)
+	var body io.ReadCloser
+	if err == nil {
+		body, err = h.cfg.Agent.OpenStream(r.Context(), p, module, name, r.URL.Query())
+	}
+	if err != nil {
+		h.writeProblem(w, err)
+		return
+	}
+	defer func() { _ = body.Close() }()
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.WriteHeader(http.StatusOK)
+	rc := http.NewResponseController(w)
+	if rc.Flush() != nil {
+		return
+	}
+	buf := make([]byte, 32<<10)
+	for {
+		n, err := body.Read(buf)
+		if n > 0 {
+			if _, werr := w.Write(buf[:n]); werr != nil || rc.Flush() != nil {
+				return
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
 }
 
 // readJSON reads a request body of one JSON value, sent as application/json

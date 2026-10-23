@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -10,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"slices"
 	"strings"
@@ -572,6 +574,8 @@ func TestSocketServesNoChangeOps(t *testing.T) {
 		{"POST", "/agent/v1/plans/p1/retire", nil},
 		{"POST", "/agent/v1/changes/c1/private-output/ack", nil},
 		{"PUT", "/agent/v1/modules/demo/enabled", []byte(`{"enabled":false}`)},
+		{"GET", "/agent/v1/streams", nil},
+		{"GET", "/agent/v1/streams/sm/logs", nil},
 	} {
 		wantProblem(t, call(t, sock, tc.method, tc.path, nil, tc.body), 404, errcode.NotFound)
 	}
@@ -718,5 +722,90 @@ func TestRevealRoute(t *testing.T) {
 	want := []revealCall{{testPrincipal, ref, `{"host": "h1"}`, false}, {testPrincipal, ref, `{"host": "h1"}`, true}}
 	if !reflect.DeepEqual(calls, want) {
 		t.Errorf("the agent got\n%+v\nwant\n%+v", calls, want)
+	}
+}
+
+func TestStreamsRoute(t *testing.T) {
+	list := []core.StreamInfo{{Module: "sm", Name: "logs", SchemaHash: "ab"}}
+	fake := &coretest.FakeAgent{StreamsFunc: func(context.Context) ([]core.StreamInfo, error) { return list, nil }}
+	h := NewHandler(Config{Agent: fake, Log: discardLog()})
+	rec := call(t, h, "GET", "/agent/v1/streams", nil, nil)
+	if rec.Code != http.StatusOK || rec.Body.String() != `{"streams":[{"module":"sm","name":"logs","schemaHash":"ab"}]}` {
+		t.Errorf("streams answered %d %s", rec.Code, rec.Body)
+	}
+	list = nil
+	if rec := call(t, h, "GET", "/agent/v1/streams", nil, nil); rec.Body.String() != `{"streams":[]}` {
+		t.Errorf("no streams answered %s, want an empty list", rec.Body)
+	}
+}
+
+func TestStreamRoute(t *testing.T) {
+	type opened struct {
+		p            core.Principal
+		module, name string
+		params       url.Values
+	}
+	got := make(chan opened, 1)
+	pr, pw := io.Pipe()
+	fake := &coretest.FakeAgent{OpenStreamFunc: func(_ context.Context, p core.Principal, module, name string, params url.Values) (io.ReadCloser, error) {
+		if name != "logs" {
+			return nil, errcode.New(errcode.NotFound, "no stream "+module+"."+name)
+		}
+		got <- opened{p, module, name, params}
+		return pr, nil
+	}}
+	h := NewHandler(Config{Agent: fake, Log: discardLog()})
+	hdr := http.Header{wire.HeaderPrincipal: {principalHeader(t, testPrincipal)}}
+	wantProblem(t, call(t, h, "GET", "/agent/v1/streams/sm/nope", hdr, nil), 404, errcode.NotFound)
+	wantProblem(t, call(t, h, "GET", "/agent/v1/streams/sm/logs", nil, nil), 422, errcode.InvalidInput)
+
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	req, err := http.NewRequest("GET", srv.URL+"/agent/v1/streams/sm/logs?tail=2", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header = hdr
+	go func() { _, _ = io.WriteString(pw, `{"data":{"n":1}}`+"\n") }()
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if ct := resp.Header.Get("Content-Type"); resp.StatusCode != http.StatusOK || ct != "application/x-ndjson" {
+		t.Fatalf("answer %d %s, want 200 application/x-ndjson", resp.StatusCode, ct)
+	}
+	if o := <-got; !reflect.DeepEqual(o, opened{testPrincipal, "sm", "logs", url.Values{"tail": {"2"}}}) {
+		t.Errorf("OpenStream got %+v", o)
+	}
+	br := bufio.NewReader(resp.Body)
+	// The stream's body still blocks, so this line arrives only if the
+	// handler flushed it.
+	if line, err := br.ReadString('\n'); err != nil || line != `{"data":{"n":1}}`+"\n" {
+		t.Fatalf("first line %q, %v", line, err)
+	}
+	_ = pw.Close()
+	if rest, err := io.ReadAll(br); err != nil || len(rest) != 0 {
+		t.Errorf("after the stream ended: %q, %v", rest, err)
+	}
+}
+
+func TestOpensStream(t *testing.T) {
+	for _, tc := range []struct {
+		method, path string
+		want         bool
+	}{
+		{"GET", "/agent/v1/streams/sm/logs", true},
+		{"POST", "/agent/v1/streams/sm/logs", false},
+		{"GET", "/agent/v1/streams", false},
+		{"GET", "/agent/v1/streams/sm", false},
+		{"GET", "/agent/v1/streams/sm/", false},
+		{"GET", "/agent/v1/streams//logs", false},
+		{"GET", "/agent/v1/streams/sm/logs/x", false},
+		{"GET", "/agent/v1/hello", false},
+	} {
+		if got := OpensStream(httptest.NewRequest(tc.method, tc.path, nil)); got != tc.want {
+			t.Errorf("OpensStream(%s %s) = %v, want %v", tc.method, tc.path, got, tc.want)
+		}
 	}
 }

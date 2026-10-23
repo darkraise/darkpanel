@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/url"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
@@ -40,6 +42,8 @@ type FakeAgent struct {
 	SetModuleEnabledFunc func(ctx context.Context, moduleID string, enabled bool) error
 	AvailabilityFunc     func(ctx context.Context, moduleID string) (core.ModuleAvailability, error)
 	RevealFunc           func(ctx context.Context, p core.Principal, a core.ActionRef, input json.RawMessage, internal bool) (json.RawMessage, error)
+	StreamsFunc          func(ctx context.Context) ([]core.StreamInfo, error)
+	OpenStreamFunc       func(ctx context.Context, p core.Principal, module, name string, params url.Values) (io.ReadCloser, error)
 }
 
 var _ core.AgentClient = (*FakeAgent)(nil)
@@ -234,6 +238,24 @@ func (f *FakeAgent) Reveal(ctx context.Context, p core.Principal, a core.ActionR
 		return nil, notConfigured("FakeAgent", "Reveal")
 	}
 	return f.RevealFunc(ctx, p, a, input, internal)
+}
+
+var _ core.AgentStreams = (*FakeAgent)(nil)
+
+// Streams calls StreamsFunc.
+func (f *FakeAgent) Streams(ctx context.Context) ([]core.StreamInfo, error) {
+	if f.StreamsFunc == nil {
+		return nil, notConfigured("FakeAgent", "Streams")
+	}
+	return f.StreamsFunc(ctx)
+}
+
+// OpenStream calls OpenStreamFunc.
+func (f *FakeAgent) OpenStream(ctx context.Context, p core.Principal, module, name string, params url.Values) (io.ReadCloser, error) {
+	if f.OpenStreamFunc == nil {
+		return nil, notConfigured("FakeAgent", "OpenStream")
+	}
+	return f.OpenStreamFunc(ctx, p, module, name, params)
 }
 
 // MapHosts is a core.HostDirectory over a map from host id to client.
