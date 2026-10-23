@@ -23,6 +23,7 @@ import {
 } from "@/api/client"
 import type { Change, Effect, StateDoc } from "@/api/types"
 import { formatTime } from "@/lib/format"
+import { ChangeActions } from "./change-actions"
 
 function stateVariant(state: string): BadgeVariant {
   switch (state) {
@@ -331,6 +332,7 @@ export function ChangePage() {
       />
       <div className="flex flex-col gap-6">
         <Summary change={c} />
+        <ChangeActions change={c} />
         {c.class === "composite" && <Steps changeId={c.id} />}
         <Effects change={c} />
       </div>
