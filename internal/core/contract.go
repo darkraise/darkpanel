@@ -1031,6 +1031,7 @@ type AgentClient interface {
 	Ack(ctx context.Context, seq int64) error
 	AgentChangeOps
 	AgentEnablement
+	AgentAvailability
 }
 
 // Dispatcher is what the HTTP API and the controller socket call. hostID is

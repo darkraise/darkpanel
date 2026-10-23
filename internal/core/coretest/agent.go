@@ -38,6 +38,7 @@ type FakeAgent struct {
 	RetireFunc           func(ctx context.Context, planID string) (core.PlanLookup, error)
 	AckPrivateFunc       func(ctx context.Context, changeID string, final bool) error
 	SetModuleEnabledFunc func(ctx context.Context, moduleID string, enabled bool) error
+	AvailabilityFunc     func(ctx context.Context, moduleID string) (core.ModuleAvailability, error)
 }
 
 var _ core.AgentClient = (*FakeAgent)(nil)
@@ -216,6 +217,14 @@ func (f *FakeAgent) SetModuleEnabled(ctx context.Context, moduleID string, enabl
 		return notConfigured("FakeAgent", "SetModuleEnabled")
 	}
 	return f.SetModuleEnabledFunc(ctx, moduleID, enabled)
+}
+
+// Availability calls AvailabilityFunc.
+func (f *FakeAgent) Availability(ctx context.Context, moduleID string) (core.ModuleAvailability, error) {
+	if f.AvailabilityFunc == nil {
+		return core.ModuleAvailability{}, notConfigured("FakeAgent", "Availability")
+	}
+	return f.AvailabilityFunc(ctx, moduleID)
 }
 
 // MapHosts is a core.HostDirectory over a map from host id to client.

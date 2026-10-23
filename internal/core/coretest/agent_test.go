@@ -111,3 +111,18 @@ func TestMapHosts(t *testing.T) {
 		t.Errorf("Agent(H2) error = %v, want %s", err, errcode.NotFound)
 	}
 }
+
+func TestFakeAgentAvailability(t *testing.T) {
+	ctx := context.Background()
+	var client core.AgentClient = &FakeAgent{
+		AvailabilityFunc: func(_ context.Context, id string) (core.ModuleAvailability, error) {
+			return core.ModuleAvailability{Module: id, Available: true}, nil
+		},
+	}
+	if m, err := client.Availability(ctx, "docker"); err != nil || m.Module != "docker" || !m.Available {
+		t.Errorf("Availability = %+v, %v", m, err)
+	}
+	if _, err := (&FakeAgent{}).Availability(ctx, "docker"); err == nil || !strings.Contains(err.Error(), "Availability is not configured") {
+		t.Errorf("unconfigured Availability error = %v", err)
+	}
+}
