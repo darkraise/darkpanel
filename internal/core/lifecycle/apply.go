@@ -238,11 +238,12 @@ func (e *Engine) begin(ctx context.Context, p core.Principal, planID string, opt
 		}
 		_, err = tx.ExecContext(ctx,
 			`INSERT INTO core_changes (id, plan_id, host_id, action, version, class, compensated_by, actor, state,
-			 recovery_owner, input_json, snapshot_ct, revert_deadline, lock_epochs, parent_change_id, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			 recovery_owner, input_json, snapshot_ct, revert_deadline, lock_epochs, parent_change_id, system, created_at,
+			 updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			it.id, pl.id, e.cfg.Base.HostID, def.Spec.Name, def.Spec.Version, string(def.Spec.Class),
 			def.Spec.CompensatedBy, p.Actor, core.StateApplying, core.OwnerEngine, string(e.cfg.Redact(def.InputType, input)),
-			snapshot, deadline, string(recorded), parent, created, created)
+			snapshot, deadline, string(recorded), parent, isSystem(ctx), created, formatTime(e.cfg.Base.Clock.Now()))
 		if err != nil || !def.Spec.Task {
 			return err
 		}
