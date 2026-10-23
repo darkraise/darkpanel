@@ -742,3 +742,62 @@ func TestRegistryStreams(t *testing.T) {
 		})
 	}
 }
+
+// bgRegModule is a testModule with background tasks.
+type bgRegModule struct {
+	testModule
+	tasks []BackgroundTask
+}
+
+func (m bgRegModule) BackgroundTasks() []BackgroundTask { return m.tasks }
+
+func TestRegistryBackgroundTasks(t *testing.T) {
+	run := func(context.Context, TaskContext) error { return nil }
+	syncTask := BackgroundTask{ID: "demo.sync", Every: time.Minute, LockKeys: []string{"demo"}, Run: run}
+	watch := BackgroundTask{ID: "demo.re-watch", Run: run,
+		Watch: func(context.Context, Env, func()) error { return nil }}
+	reg, err := NewRegistry(
+		bgRegModule{testModule{ID: "demo", Version: 1}, []BackgroundTask{syncTask, watch}},
+		testModule{ID: "plain", Version: 1},
+		bgRegModule{testModule{ID: "dem", Version: 1}, []BackgroundTask{{ID: "dem.sync", Run: run}}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := func(tasks []BackgroundTask) []string {
+		var out []string
+		for _, task := range tasks {
+			out = append(out, task.ID)
+		}
+		return out
+	}
+	for _, tc := range []struct {
+		module string
+		want   []string
+	}{{"demo", []string{"demo.sync", "demo.re-watch"}}, {"dem", []string{"dem.sync"}}, {"plain", nil}, {"nope", nil}} {
+		if got := ids(reg.BackgroundTasks(tc.module)); !slices.Equal(got, tc.want) {
+			t.Errorf("BackgroundTasks(%s) = %v, want %v", tc.module, got, tc.want)
+		}
+	}
+
+	tests := []struct {
+		name string
+		task BackgroundTask
+		want string
+	}{
+		{"id of another module", BackgroundTask{ID: "other.sync", Run: run}, `must match`},
+		{"id without a name", BackgroundTask{ID: "demo", Run: run}, `must match`},
+		{"upper-case id", BackgroundTask{ID: "demo.Sync", Run: run}, `must match`},
+		{"repeated id", syncTask, "background task demo.sync registered twice"},
+		{"no Run", BackgroundTask{ID: "demo.idle"}, "background task demo.idle has no Run"},
+		{"negative Every", BackgroundTask{ID: "demo.back", Every: -time.Second, Run: run}, "background task demo.back: Every -1s is negative"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewRegistry(bgRegModule{testModule{ID: "demo", Version: 1}, []BackgroundTask{syncTask, tt.task}})
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("NewRegistry error = %v, want one containing %q", err, tt.want)
+			}
+		})
+	}
+}

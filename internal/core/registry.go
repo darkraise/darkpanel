@@ -37,6 +37,7 @@ const sysctlIface = "<iface>"
 // Registry holds every module, action, resource and stream, validated once.
 type Registry struct {
 	modules   []Manifest
+	tasks     []BackgroundTask // of every Background module, in registration order
 	actions   map[ActionRef]ActionDef
 	resources map[string]ResourceDef
 	streams   map[string]ModuleStream // by "<module>.<name>"
@@ -109,6 +110,11 @@ func NewRegistry(mods ...Module) (*Registry, error) {
 		}
 		if st, ok := mod.(Streamer); ok {
 			errs = append(errs, r.addStreams(m.ID, st.Streams())...)
+		}
+		if bg, ok := mod.(Background); ok {
+			tasks := bg.BackgroundTasks()
+			errs = append(errs, checkBackgroundTasks(m.ID, tasks)...)
+			r.tasks = append(r.tasks, tasks...)
 		}
 		r.modules = append(r.modules, m)
 	}
@@ -607,6 +613,42 @@ func checkReveal(a ActionDef) error {
 		return fmt.Errorf("action %s: a reveal action declares MinScope admin", ref)
 	}
 	return nil
+}
+
+var taskIDPattern = regexp.MustCompile(`^[a-z][a-z0-9]*\.[a-z][a-z0-9-]*$`)
+
+// checkBackgroundTasks applies the rules of spec 1.4 to one module's tasks:
+// an id is <module>.<name> and unique, since it names the task's audit actor
+// system:<id>, and every task has a Run.
+func checkBackgroundTasks(moduleID string, tasks []BackgroundTask) []error {
+	var errs []error
+	seen := map[string]bool{}
+	for _, t := range tasks {
+		switch {
+		case !taskIDPattern.MatchString(t.ID) || !strings.HasPrefix(t.ID, moduleID+"."):
+			errs = append(errs, fmt.Errorf("background task %q must match %s and start with %q", t.ID, taskIDPattern, moduleID+"."))
+		case seen[t.ID]:
+			errs = append(errs, fmt.Errorf("background task %s registered twice", t.ID))
+		case t.Run == nil:
+			errs = append(errs, fmt.Errorf("background task %s has no Run", t.ID))
+		case t.Every < 0:
+			errs = append(errs, fmt.Errorf("background task %s: Every %s is negative", t.ID, t.Every))
+		}
+		seen[t.ID] = true
+	}
+	return errs
+}
+
+// BackgroundTasks returns module id's background tasks in the order its
+// Background implementation lists them; nil for a module without any.
+func (r *Registry) BackgroundTasks(id string) []BackgroundTask {
+	var out []BackgroundTask
+	for _, t := range r.tasks {
+		if strings.HasPrefix(t.ID, id+".") {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // Action returns one action version.
