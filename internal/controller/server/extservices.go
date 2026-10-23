@@ -16,9 +16,9 @@ import (
 // The restart delays of a controller service (spec 1.12) and how often a
 // suspended runner checks again.
 const (
-	serviceRestartMin  = time.Second
-	serviceRestartMax  = 5 * time.Minute
-	serviceDefaultPoll = 10 * time.Second
+	serviceRestartFirst = time.Second
+	serviceRestartMax   = 5 * time.Minute
+	serviceDefaultPoll  = 10 * time.Second
 )
 
 // serviceRunnerConfig configures startServiceRunner.
@@ -73,7 +73,7 @@ func (r *serviceRunner) stop() {
 
 func (r *serviceRunner) run(svc ext.Service) {
 	defer r.wg.Done()
-	delay := serviceRestartMin
+	delay := serviceRestartFirst
 	for {
 		if !r.waitReleased(svc.Name) {
 			return
@@ -87,7 +87,7 @@ func (r *serviceRunner) run(svc ext.Service) {
 			return
 		}
 		if r.cfg.Clock.Now().Sub(started) >= serviceRestartMax {
-			delay = serviceRestartMin
+			delay = serviceRestartFirst
 		}
 		if err == nil {
 			err = errors.New("server: the service returned before shutdown")
