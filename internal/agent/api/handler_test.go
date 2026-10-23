@@ -571,6 +571,7 @@ func TestSocketServesNoChangeOps(t *testing.T) {
 		{"GET", "/agent/v1/plans/p1", nil},
 		{"POST", "/agent/v1/plans/p1/retire", nil},
 		{"POST", "/agent/v1/changes/c1/private-output/ack", nil},
+		{"PUT", "/agent/v1/modules/demo/enabled", []byte(`{"enabled":false}`)},
 	} {
 		wantProblem(t, call(t, sock, tc.method, tc.path, nil, tc.body), 404, errcode.NotFound)
 	}
@@ -592,5 +593,53 @@ func TestHandlerApplyAnswersAccepted(t *testing.T) {
 	c := tcpClient(t, h, nil)
 	if v, err := c.Apply(context.Background(), testPrincipal, "p1", core.ApplyOptions{}); err != nil || v.State != core.StateApplying {
 		t.Errorf("Apply = %+v, %v; want the applying change", v, err)
+	}
+}
+
+func TestEnablementRoute(t *testing.T) {
+	var got []any
+	fake := &coretest.FakeAgent{SetModuleEnabledFunc: func(_ context.Context, id string, enabled bool) error {
+		if id == "nope" {
+			return errcode.New(errcode.NotFound, "no module nope")
+		}
+		got = append(got, id, enabled)
+		return nil
+	}}
+	h := NewHandler(Config{Agent: fake, Log: discardLog()})
+	for _, tc := range []struct {
+		body    string
+		enabled bool
+	}{
+		{`{"enabled":false}`, false},
+		// A member this agent does not know is ignored, as on every route.
+		{`{"enabled":true,"reason":"later"}`, true},
+	} {
+		got = nil
+		rec := call(t, h, "PUT", "/agent/v1/modules/demo/enabled", nil, []byte(tc.body))
+		if rec.Code != http.StatusNoContent || rec.Body.Len() != 0 {
+			t.Errorf("PUT %s answered %d %s, want 204 and no body", tc.body, rec.Code, rec.Body)
+		}
+		if want := []any{"demo", tc.enabled}; !reflect.DeepEqual(got, want) {
+			t.Errorf("PUT %s: the agent got %v, want %v", tc.body, got, want)
+		}
+	}
+	got = nil
+	wantProblem(t, call(t, h, "PUT", "/agent/v1/modules/nope/enabled", nil, []byte(`{"enabled":true}`)), 404, errcode.NotFound)
+	for _, tc := range []struct {
+		body   string
+		status int
+		code   errcode.Code
+	}{
+		{`{}`, 422, errcode.InvalidInput},
+		{`{"enabled":null}`, 422, errcode.InvalidInput},
+		{`{"enabled":"yes"}`, 400, errcode.InvalidJSON},
+	} {
+		p := wantProblem(t, call(t, h, "PUT", "/agent/v1/modules/demo/enabled", nil, []byte(tc.body)), tc.status, tc.code)
+		if tc.code == errcode.InvalidInput && (len(p.Errors) != 1 || p.Errors[0].Path != "/enabled") {
+			t.Errorf("PUT %s: field errors %+v, want one at /enabled", tc.body, p.Errors)
+		}
+	}
+	if got != nil {
+		t.Errorf("refused requests reached the agent: %v", got)
 	}
 }

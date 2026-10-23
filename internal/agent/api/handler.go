@@ -51,6 +51,7 @@ const (
 	opLookup     = "lookup"
 	opRetire     = "retire"
 	opAckPrivate = "ack-private"
+	opEnabled    = "enabled"
 )
 
 // ControllerHello is the controller's half of a hello, sent in the headers
@@ -129,6 +130,7 @@ func (h *handler) routes(controller bool) *http.ServeMux {
 		mux.HandleFunc("POST "+prefix+"changes/{id}/private-output/ack", h.handleAckPrivate)
 		mux.HandleFunc("GET "+prefix+"plans/{id}", h.handleLookup)
 		mux.HandleFunc("POST "+prefix+"plans/{id}/retire", h.handleRetire)
+		mux.HandleFunc("PUT "+prefix+"modules/{id}/enabled", h.handleEnabled)
 	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		h.writeProblem(w, errcode.New(errcode.NotFound, fmt.Sprintf("no agent API route %s %s", r.Method, r.URL.Path)))
@@ -643,6 +645,30 @@ func (h *handler) handleAckPrivate(w http.ResponseWriter, r *http.Request) {
 	}
 	if err == nil {
 		err = h.cfg.Agent.AckPrivate(r.Context(), r.PathValue("id"), ack.Final)
+	}
+	if err != nil {
+		h.writeProblem(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleEnabled stores the controller's enabled flag of a module (spec 1.4).
+// A body without enabled is refused rather than read as a disable.
+func (h *handler) handleEnabled(w http.ResponseWriter, r *http.Request) {
+	err := h.allow(r.Context(), opEnabled, "")
+	var body struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if err == nil {
+		err = decodeJSON(w, r, &body)
+	}
+	if err == nil && body.Enabled == nil {
+		err = &errcode.Error{Code: errcode.InvalidInput, Detail: "enabled is required",
+			Fields: []errcode.FieldError{{Path: "/enabled", Message: "required, true or false"}}}
+	}
+	if err == nil {
+		err = h.cfg.Agent.SetModuleEnabled(r.Context(), r.PathValue("id"), *body.Enabled)
 	}
 	if err != nil {
 		h.writeProblem(w, err)
