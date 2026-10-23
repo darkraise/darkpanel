@@ -28,6 +28,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/controller/listen"
 	"github.com/darkraise/darkpanel/internal/controller/rollout"
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/ext"
 	"github.com/darkraise/darkpanel/internal/core/secret"
 	"github.com/darkraise/darkpanel/internal/core/store"
 	"github.com/darkraise/darkpanel/internal/modules"
@@ -96,6 +97,9 @@ type Options struct {
 	// ReleaseIndex is the release index the update scheduler reads; nil
 	// means the published index under trustedkeys.BaseURL().
 	ReleaseIndex rollout.ReleaseSource
+	// Contributors are controller contributions beside the compiled-in
+	// modules' and the backup package's (spec 1.12); production passes nil.
+	Contributors []ext.Controller
 }
 
 // closer is one thing Shutdown stops, in reverse order of acquisition.
