@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"maps"
+	"net"
+	"net/netip"
 	"reflect"
 	"slices"
 	"strings"
@@ -12,7 +14,9 @@ import (
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/controller/auth"
+	"github.com/darkraise/darkpanel/internal/controller/dispatch"
 	"github.com/darkraise/darkpanel/internal/controller/events"
+	"github.com/darkraise/darkpanel/internal/controller/listen"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/coretest"
 	"github.com/darkraise/darkpanel/internal/core/lifecycle"
@@ -450,4 +454,44 @@ func TestServerPublishesHostEvents(t *testing.T) {
 	pubWant(t, ch, events.TypeHost, events.HostEvent{HostID: "h1", Online: true})
 	hostOnline(bus)("h1", false)
 	pubWant(t, ch, events.TypeHost, events.HostEvent{HostID: "h1"})
+}
+
+func TestTopologyOf(t *testing.T) {
+	web := []listen.Bound{{Addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8443}}}
+	agent := []listen.Bound{
+		{Addr: &net.TCPAddr{IP: net.IPv6unspecified, Port: 7443}},
+		{Addr: &net.UnixAddr{Name: "/run/darkpanel/agent.sock", Net: "unix"}},
+	}
+	peers := []netip.Addr{netip.MustParseAddr("192.0.2.30")}
+	want := dispatch.Topology{
+		PanelListen: []netip.AddrPort{netip.MustParseAddrPort("127.0.0.1:8443")},
+		AgentListen: []netip.AddrPort{netip.MustParseAddrPort("[::]:7443")},
+		AgentPeers:  peers,
+	}
+	if got := topologyOf(web, agent, peers); !reflect.DeepEqual(got, want) {
+		t.Errorf("topologyOf = %+v, want %+v", got, want)
+	}
+
+	// The sources count once they are registered.
+	var tp topology
+	if got := tp.read(); !reflect.DeepEqual(got, dispatch.Topology{}) {
+		t.Errorf("an empty topology reads %+v", got)
+	}
+	tp.setWeb(func() []listen.Bound { return web })
+	tp.setAgent(func() []listen.Bound { return agent })
+	tp.setPeers(func() []netip.Addr { return peers })
+	if got := tp.read(); !reflect.DeepEqual(got, want) {
+		t.Errorf("the registered topology reads %+v, want %+v", got, want)
+	}
+}
+
+// TestServerTopology: a started server's dispatcher sees its web listeners;
+// the embedded agent has no agent listener and no sessions.
+func TestServerTopology(t *testing.T) {
+	s := start(t, embeddedOptions(t))
+	got := s.topo.read()
+	if len(got.PanelListen) == 0 || !reflect.DeepEqual(got.PanelListen, boundAddrs(s.Listeners())) ||
+		len(got.AgentListen) != 0 || len(got.AgentPeers) != 0 {
+		t.Errorf("topology %+v, want the web listeners %v only", got, s.Listeners())
+	}
 }

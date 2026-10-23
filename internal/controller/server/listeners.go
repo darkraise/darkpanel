@@ -67,6 +67,7 @@ func (s *Server) startListeners(ctx context.Context) error {
 		return err
 	}
 	s.listenService = svc
+	s.topo.setWeb(func() []listen.Bound { return svc.State().Listeners })
 	s.onShutdown("listeners", svc.Shutdown)
 	// Registered after the listeners, so it runs before their shutdown,
 	// which waits for running requests.

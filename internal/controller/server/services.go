@@ -51,6 +51,7 @@ type services struct {
 	engine      *lifecycle.Engine
 	ingester    *audit.Ingester
 	dispatcher  *dispatch.Dispatcher
+	topo        topology // the dispatcher's guard topology
 	events      *events.Bus
 
 	purgeMu     sync.Mutex // held while a purge runs, so Shutdown waits for it
@@ -143,9 +144,12 @@ func (s *Server) startServices(ctx context.Context) error {
 	s.ingester.Start()
 	s.onShutdown("audit ingester", func(context.Context) error { s.ingester.Stop(); return nil })
 
+	if s.sessions != nil {
+		s.topo.setPeers(s.sessions.Peers)
+	}
 	s.dispatcher, err = dispatch.New(dispatch.Config{
 		Registry: reg, Engine: eng, Hosts: s.hosts, DB: s.controllerDB, Clock: s.clock, Log: s.log, Ingest: s.ingester,
-		Version: buildinfo.Version,
+		Version: buildinfo.Version, Topology: s.topo.read,
 	})
 	if err != nil {
 		return fmt.Errorf("server: %w", err)
@@ -300,6 +304,7 @@ func (s *Server) startAgentListener(ctx context.Context) error {
 		return err
 	}
 	s.agentListen = svc
+	s.topo.setAgent(svc.Bound)
 	s.onShutdown("agent listener", svc.Shutdown)
 	addrs := make([]string, 0, len(svc.Bound()))
 	for _, b := range svc.Bound() {
