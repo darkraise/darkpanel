@@ -57,6 +57,7 @@ type Dispatcher struct {
 	cfg   Config
 	neg   negotiation
 	plans planLocks
+	avail availabilityCache
 }
 
 // New returns a dispatcher for cfg; every field but Ingest, Version,
@@ -155,6 +156,9 @@ func (d *Dispatcher) Read(ctx context.Context, p core.Principal, hostID string, 
 	if err != nil {
 		return nil, err
 	}
+	if err := d.available(ctx, hostID, def); err != nil {
+		return nil, err
+	}
 	if def.Spec.Side == core.SideController {
 		return d.cfg.Engine.Read(ctx, p, a, input)
 	}
@@ -186,6 +190,9 @@ func (d *Dispatcher) Resource(ctx context.Context, p core.Principal, hostID, nam
 func (d *Dispatcher) Plan(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage, opts core.PlanOptions) (core.PlanView, error) {
 	def, err := d.action(a, hostID)
 	if err != nil {
+		return core.PlanView{}, err
+	}
+	if err := d.available(ctx, hostID, def); err != nil {
 		return core.PlanView{}, err
 	}
 	if len(def.Spec.Guards) > 0 {

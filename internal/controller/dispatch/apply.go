@@ -30,6 +30,9 @@ func (d *Dispatcher) Apply(ctx context.Context, p core.Principal, hostID string,
 	if err := d.refuseReleasingRepair(ctx, planID); err != nil {
 		return core.ChangeView{}, err
 	}
+	if err := d.available(ctx, hostID, def); err != nil {
+		return core.ChangeView{}, err
+	}
 	apply := func() (core.ChangeView, error) { return d.cfg.Engine.Apply(ctx, p, planID, opts) }
 	if def.Spec.Side == core.SideAgent {
 		c, err := d.agent(ctx, hostID, a.Name)
