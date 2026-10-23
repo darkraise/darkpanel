@@ -145,3 +145,20 @@ func TestFakeAgentReveal(t *testing.T) {
 		t.Errorf("unconfigured Reveal error = %v", err)
 	}
 }
+
+func TestFakeDispatcherReveal(t *testing.T) {
+	ctx := context.Background()
+	var d core.Dispatcher = &FakeDispatcher{
+		RevealFunc: func(_ context.Context, _ core.Principal, hostID string, a core.ActionRef, _ json.RawMessage) (json.RawMessage, error) {
+			return json.RawMessage(fmt.Sprintf(`{"host":%q,"action":%q}`, hostID, a.Name)), nil
+		},
+	}
+	out, err := d.Reveal(ctx, core.Principal{}, "h1", core.ActionRef{Name: "x.key.reveal", Version: 1}, nil)
+	if err != nil || string(out) != `{"host":"h1","action":"x.key.reveal"}` {
+		t.Errorf("Reveal = %s, %v", out, err)
+	}
+	if _, err := (&FakeDispatcher{}).Reveal(ctx, core.Principal{}, "", core.ActionRef{}, nil); err == nil ||
+		!strings.Contains(err.Error(), "Reveal is not configured") {
+		t.Errorf("unconfigured Reveal error = %v", err)
+	}
+}

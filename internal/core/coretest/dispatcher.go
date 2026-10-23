@@ -25,6 +25,7 @@ type FakeDispatcher struct {
 	ObserveFunc  func(ctx context.Context, p core.Principal, changeID string, seq int) (core.ObserveResult, error)
 	ResolveFunc  func(ctx context.Context, p core.Principal, changeID string, seq int, req core.ResolveRequest) (core.EffectView, error)
 	StepsFunc    func(ctx context.Context, p core.Principal, changeID string) ([]core.StepView, error)
+	RevealFunc   func(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage) (json.RawMessage, error)
 }
 
 var _ core.Dispatcher = (*FakeDispatcher)(nil)
@@ -139,6 +140,14 @@ func (f *FakeDispatcher) Resolve(ctx context.Context, p core.Principal, changeID
 		return core.EffectView{}, notConfigured("FakeDispatcher", "Resolve")
 	}
 	return f.ResolveFunc(ctx, p, changeID, seq, req)
+}
+
+// Reveal calls RevealFunc.
+func (f *FakeDispatcher) Reveal(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage) (json.RawMessage, error) {
+	if f.RevealFunc == nil {
+		return nil, notConfigured("FakeDispatcher", "Reveal")
+	}
+	return f.RevealFunc(ctx, p, hostID, a, input)
 }
 
 // Steps calls StepsFunc.
