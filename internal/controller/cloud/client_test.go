@@ -403,3 +403,77 @@ func clEqualDurations(a, b []time.Duration) bool {
 	}
 	return true
 }
+
+func TestSuppliedClientDoesNotFollowRedirects(t *testing.T) {
+	fake := cloudfake.New(t)
+	fake.Handle(http.MethodGet, "/api/x", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/elsewhere", http.StatusFound)
+	})
+	fake.Handle(http.MethodGet, "/elsewhere", clOK)
+	hc := fake.Client()
+	c, _ := clClient(t, fake, func(cfg *Config) { cfg.HTTP = hc })
+	_, err := c.Do(t.Context(), Request{Method: http.MethodGet, Path: "/x"})
+	if Status(err) != http.StatusFound || errcode.From(err).Code != errcode.CloudUnavailable || len(fake.Requests()) != 1 {
+		t.Fatalf("err = %v after %d requests, want the 302 itself as cloud.unavailable", err, len(fake.Requests()))
+	}
+	if hc.CheckRedirect != nil {
+		t.Error("New changed the supplied client")
+	}
+}
+
+func TestDoRefusesPathsThatLeaveTheirPath(t *testing.T) {
+	fake := cloudfake.New(t)
+	fake.Handle(http.MethodGet, "/api/items/{id}", clOK)
+	c, _ := clClient(t, fake, nil)
+	for _, path := range []string{"", "items", "/items?x=1", "/items#f", "//evil.example/items", "/items//a",
+		"/items/../keys", "/items/./a", "/items/%2e%2e/keys", "/items/%zz"} {
+		_, err := c.Do(t.Context(), Request{Method: http.MethodGet, Path: path})
+		if err == nil || !core.IsDefinite(err) {
+			t.Errorf("Do(%q) = %v, want a definite refusal", path, err)
+		}
+	}
+	if n := len(fake.Requests()); n != 0 {
+		t.Fatalf("%d requests sent for refused paths", n)
+	}
+	if _, err := c.Do(t.Context(), Request{Method: http.MethodGet, Path: "/items/a%2Fb"}); err != nil {
+		t.Fatalf("an escaped id was refused: %v", err)
+	}
+}
+
+func TestOversizedAnswer(t *testing.T) {
+	fake := cloudfake.New(t)
+	big := func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(make([]byte, maxBody+1))
+	}
+	fake.Handle(http.MethodGet, "/api/x", big)
+	fake.Handle(http.MethodPost, "/api/x", big)
+	c, sleeps := clClient(t, fake, nil)
+	_, err := c.Do(t.Context(), Request{Method: http.MethodGet, Path: "/x"})
+	if errcode.From(err).Code != errcode.CloudUnavailable || len(fake.Requests()) != 1 || len(sleeps.got()) != 0 {
+		t.Fatalf("GET: err = %v after %d requests and %d sleeps, want cloud.unavailable without a retry",
+			err, len(fake.Requests()), len(sleeps.got()))
+	}
+	_, err = c.Do(t.Context(), Request{Method: http.MethodPost, Path: "/x", Body: []byte(`{}`)})
+	if errcode.From(err).Code != errcode.CloudUncertainOutcome || core.IsDefinite(err) {
+		t.Fatalf("POST: err = %v, want an uncertain outcome for an accepted write whose answer is too large", err)
+	}
+}
+
+func TestJSONRefusesAnUnreadableBody(t *testing.T) {
+	fake := cloudfake.New(t)
+	fake.Handle(http.MethodGet, "/api/bad", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, `{"id":`) })
+	fake.Handle(http.MethodGet, "/api/empty", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	fake.Handle(http.MethodGet, "/api/none", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	c, _ := clClient(t, fake, nil)
+	for _, path := range []string{"/bad", "/empty"} {
+		var out struct{ ID string }
+		if _, err := c.JSON(t.Context(), http.MethodGet, path, nil, &out); errcode.From(err).Code != errcode.CloudUnavailable {
+			t.Errorf("JSON %s = %v, want cloud.unavailable", path, err)
+		}
+	}
+	out := struct{ ID string }{ID: "kept"}
+	if res, err := c.JSON(t.Context(), http.MethodGet, "/none", nil, &out); err != nil || res.Status != http.StatusNoContent || out.ID != "kept" {
+		t.Errorf("JSON on 204 = %d, %v, out %+v; want success with out untouched", res.Status, err, out)
+	}
+}

@@ -80,12 +80,15 @@ func New(cfg Config) (*Client, error) {
 		u.RawQuery != "" || u.Fragment != "" || strings.HasSuffix(cfg.BaseURL, "/") {
 		return nil, fmt.Errorf("cloud: base URL %q must be scheme://host[:port][/prefix] without a trailing slash", cfg.BaseURL)
 	}
+	// A redirect would carry the credentials to another URL, so a supplied
+	// client is copied with redirects refused as well.
+	refuseRedirect := func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	if cfg.HTTP == nil {
-		cfg.HTTP = &http.Client{
-			Timeout: Timeout,
-			// A redirect would carry the credentials to another URL.
-			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-		}
+		cfg.HTTP = &http.Client{Timeout: Timeout, CheckRedirect: refuseRedirect}
+	} else {
+		hc := *cfg.HTTP
+		hc.CheckRedirect = refuseRedirect
+		cfg.HTTP = &hc
 	}
 	if cfg.Clock == nil {
 		cfg.Clock = core.SystemClock{}
@@ -118,8 +121,8 @@ func retried(method string) bool {
 // Every 4xx answer to a method other than GET and DELETE is wrapped with
 // core.Definite: the provider refused it, so nothing committed.
 func (c *Client) Do(ctx context.Context, req Request) (Response, error) {
-	if req.Path == "" || req.Path[0] != '/' {
-		return Response{}, core.Definite(fmt.Errorf("cloud: request path %q must start with /", req.Path))
+	if err := checkPath(req.Path); err != nil {
+		return Response{}, core.Definite(err)
 	}
 	attempts := 1
 	if retried(req.Method) {
@@ -149,6 +152,25 @@ func (c *Client) Do(ctx context.Context, req Request) (Response, error) {
 	return Response{}, err
 }
 
+// checkPath refuses a request path that could leave the path it names once
+// joined to the base URL: modules build paths from provider ids, and a query,
+// a fragment, an empty segment or a dot segment in one would retarget an
+// authenticated request.
+func checkPath(path string) error {
+	bad := path == "" || path[0] != '/' || strings.ContainsAny(path, "?#") || strings.Contains(path, "//")
+	if unescaped, err := url.PathUnescape(path); err != nil {
+		bad = true
+	} else {
+		for _, seg := range append(strings.Split(path, "/"), strings.Split(unescaped, "/")...) {
+			bad = bad || seg == "." || seg == ".."
+		}
+	}
+	if bad {
+		return fmt.Errorf("cloud: request path %q must start with / and hold no query, fragment, empty or dot segment", path)
+	}
+	return nil
+}
+
 // attempt sends req once. On failure wait says what may follow: -1 means
 // no retry, 0 the default backoff, and a positive value the provider's
 // Retry-After.
@@ -168,6 +190,9 @@ func (c *Client) attempt(ctx context.Context, req Request) (Response, time.Durat
 	switch {
 	case err != nil:
 		return Response{}, 0, c.transportError(req.Method, err)
+	case len(body) > maxBody && res.StatusCode >= 200 && res.StatusCode < 300 && !retried(req.Method):
+		return Response{}, -1, errcode.New(errcode.CloudUncertainOutcome,
+			fmt.Sprintf("%s accepted the request but answered more than %d bytes; it may have committed", c.cfg.Provider, maxBody))
 	case len(body) > maxBody:
 		return Response{}, -1, errcode.New(errcode.CloudUnavailable, fmt.Sprintf("%s answered more than %d bytes", c.cfg.Provider, maxBody))
 	}
@@ -293,7 +318,9 @@ func (c *Client) sleep(ctx context.Context, d time.Duration) error {
 }
 
 // JSON encodes in (nil sends no body), calls Do with Content-Type
-// application/json, and decodes a 2xx body into out (nil skips decoding).
+// application/json, and decodes a 2xx body into out (nil skips decoding). An
+// empty body is unreadable JSON, except in a 204 answer, which leaves out
+// as it is.
 func (c *Client) JSON(ctx context.Context, method, path string, in, out any) (Response, error) {
 	req := Request{Method: method, Path: path, Header: http.Header{"Accept": {"application/json"}}}
 	if in != nil {
@@ -305,7 +332,7 @@ func (c *Client) JSON(ctx context.Context, method, path string, in, out any) (Re
 		req.Header.Set("Content-Type", "application/json")
 	}
 	res, err := c.Do(ctx, req)
-	if err != nil || out == nil || len(res.Body) == 0 {
+	if err != nil || out == nil || res.Status == http.StatusNoContent {
 		return res, err
 	}
 	if err := json.Unmarshal(res.Body, out); err != nil {
