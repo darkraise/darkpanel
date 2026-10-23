@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -25,6 +26,10 @@ type ClientConfig struct {
 	// Dial opens one connection to the agent API: a transport.Session's
 	// Open, or a dial of the agent socket.
 	Dial func(ctx context.Context) (net.Conn, error)
+	// DialStream opens the connection of one module stream: a
+	// transport.Session's OpenModule, so streams never take the slots of
+	// actions. nil uses Dial.
+	DialStream func(ctx context.Context) (net.Conn, error)
 	// Controller is sent in the headers of GET hello; nil sends none, as a
 	// client of the agent socket does. Its Protocol is ignored: the client
 	// always sends this binary's protocol.
@@ -39,8 +44,9 @@ var controllerPrincipal = core.Principal{Actor: "system:controller", Scope: core
 
 // Client is a core.AgentClient over the agent API.
 type Client struct {
-	cfg  ClientConfig
-	http *http.Client
+	cfg    ClientConfig
+	http   *http.Client
+	stream *http.Client // module streams, over DialStream
 }
 
 var (
@@ -54,15 +60,24 @@ var (
 // NewClient returns a client for cfg. Requests end with their context; the
 // client sets no timeout of its own.
 func NewClient(cfg ClientConfig) *Client {
-	tr := &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return cfg.Dial(ctx) },
+	dialStream := cfg.DialStream
+	if dialStream == nil {
+		dialStream = cfg.Dial
+	}
+	return &Client{cfg: cfg, http: &http.Client{Transport: transportOver(cfg.Dial)},
+		stream: &http.Client{Transport: transportOver(dialStream)}}
+}
+
+// transportOver sends each request on its own connection from dial.
+func transportOver(dial func(ctx context.Context) (net.Conn, error)) *http.Transport {
+	return &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return dial(ctx) },
 		// Each request opens a stream and closes it: an idle pooled stream
 		// would keep one of the session's stream slots.
 		DisableKeepAlives:      true,
 		DisableCompression:     true,
 		MaxResponseHeaderBytes: 64 << 10,
 	}
-	return &Client{cfg: cfg, http: &http.Client{Transport: tr}}
 }
 
 // request is one call of the agent API.
@@ -426,4 +441,61 @@ func (c *Client) AckPrivate(ctx context.Context, changeID string, final bool) er
 		req.body = wire.AckPrivate{Final: true}
 	}
 	return c.do(ctx, req, nil)
+}
+
+var _ core.AgentStreams = (*Client)(nil)
+
+// Streams lists the agent's module streams. An agent without the route
+// answers not_found, which is an agent with no streams (spec 1.6).
+func (c *Client) Streams(ctx context.Context) ([]core.StreamInfo, error) {
+	var res wire.Streams
+	err := c.do(ctx, request{method: http.MethodGet, path: "streams"}, &res)
+	var e *errcode.Error
+	if errors.As(err, &e) && e.Code == errcode.NotFound {
+		return []core.StreamInfo{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if res.Streams == nil {
+		res.Streams = []core.StreamInfo{}
+	}
+	return res.Streams, nil
+}
+
+// OpenStream opens module's stream name with params as p, on a connection
+// of DialStream, and returns its body of JSON lines. The body is not
+// limited to wire.MaxBody: a stream lasts until it ends or the body is
+// closed, and closing it closes the connection, which ends the stream on
+// the agent.
+func (c *Client) OpenStream(ctx context.Context, p core.Principal, module, name string, params url.Values) (io.ReadCloser, error) {
+	path := "streams/" + url.PathEscape(module) + "/" + url.PathEscape(name)
+	what := http.MethodGet + " " + path
+	u := "http://agent" + prefix + path
+	if len(params) > 0 {
+		u += "?" + params.Encode()
+	}
+	hr, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil) //nolint:gosec // G704: the host is the constant "agent"; DialStream chooses the connection
+	if err != nil {
+		return nil, fmt.Errorf("api: %s: %w", what, err)
+	}
+	b, err := json.Marshal(wire.FromPrincipal(p))
+	if err != nil {
+		return nil, fmt.Errorf("api: %s: encode the principal: %w", what, err)
+	}
+	hr.Header.Set(wire.HeaderPrincipal, string(b))
+	hr.Header.Set("Accept", "application/x-ndjson")
+	resp, err := c.stream.Do(hr) //nolint:gosec // G704: as above, the request can only reach the agent DialStream connects to
+	if err != nil {
+		return nil, fmt.Errorf("api: %s: %w", what, err)
+	}
+	if resp.StatusCode == http.StatusOK {
+		return resp.Body, nil
+	}
+	defer func() { _ = resp.Body.Close() }()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, wire.MaxBody))
+	if err != nil {
+		return nil, fmt.Errorf("api: %s: read the answer: %w", what, err)
+	}
+	return nil, answerError(what, resp, data)
 }

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bufio"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"sync"
@@ -613,5 +615,130 @@ func TestClientReveal(t *testing.T) {
 	defer mu.Unlock()
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("requests\n got %q\nwant %q", got, want)
+	}
+}
+
+// streamAgent stands in for an agent with the stream routes: GET streams
+// lists list, GET streams/sm/logs (with no query, or tail=2) sends one line
+// and holds the stream until its request ends, which it reports on
+// stopped, and any other request is answered by other.
+func streamAgent(t *testing.T, list string, other http.Handler, stopped chan<- error) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/agent/v1/streams":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, list)
+		case "/agent/v1/streams/sm/logs":
+			if r.Header.Get(wire.HeaderPrincipal) != principalHeader(t, testPrincipal) {
+				t.Errorf("principal header %q", r.Header.Get(wire.HeaderPrincipal))
+			}
+			if q := r.URL.RawQuery; q != "" && q != "tail=2" {
+				t.Errorf("query %q, want none or tail=2", q)
+			}
+			w.Header().Set("Content-Type", "application/x-ndjson")
+			_, _ = io.WriteString(w, `{"data":{"n":1}}`+"\n")
+			_ = http.NewResponseController(w).Flush()
+			<-r.Context().Done()
+			stopped <- r.Context().Err()
+		default:
+			other.ServeHTTP(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// streamNoRoute answers every request as an agent API without the route does.
+var streamNoRoute = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", problemContentType)
+	w.WriteHeader(http.StatusNotFound)
+	_, _ = io.WriteString(w, `{"type":"about:blank","title":"Not found","status":404,"detail":"no agent API route","code":"not_found"}`)
+})
+
+// streamDial dials srv and counts its dials on n.
+func streamDial(srv *httptest.Server, n *atomic.Int32) func(ctx context.Context) (net.Conn, error) {
+	return func(ctx context.Context) (net.Conn, error) {
+		n.Add(1)
+		var d net.Dialer
+		return d.DialContext(ctx, "tcp", srv.Listener.Addr().String())
+	}
+}
+
+func TestClientStreams(t *testing.T) {
+	ctx := context.Background()
+	srv := streamAgent(t, `{"streams":[{"module":"sm","name":"logs","schemaHash":"ab"},{"module":"sm","name":"stats","schemaHash":"cd"}]}`,
+		streamNoRoute, nil)
+	var n atomic.Int32
+	c := NewClient(ClientConfig{Dial: streamDial(srv, &n)})
+	want := []core.StreamInfo{{Module: "sm", Name: "logs", SchemaHash: "ab"}, {Module: "sm", Name: "stats", SchemaHash: "cd"}}
+	if got, err := c.Streams(ctx); err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("Streams = %+v, %v", got, err)
+	}
+	old := tcpClient(t, streamNoRoute, nil)
+	if got, err := old.Streams(ctx); err != nil || got == nil || len(got) != 0 {
+		t.Errorf("Streams of an agent without the route = %+v, %v; want an empty list", got, err)
+	}
+}
+
+func TestClientOpenStreamUsesDialStream(t *testing.T) {
+	stopped := make(chan error, 1)
+	fake := &coretest.FakeAgent{
+		PlanFunc: func(context.Context, core.Principal, core.ActionRef, json.RawMessage, core.PlanOptions) (core.PlanView, error) {
+			return testPlan, nil
+		},
+	}
+	plans := NewHandler(Config{Agent: fake, Log: discardLog()})
+	srv := streamAgent(t, `{"streams":[]}`, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/plan") {
+			plans.ServeHTTP(w, r)
+			return
+		}
+		streamNoRoute.ServeHTTP(w, r)
+	}), stopped)
+	var dials, streamDials atomic.Int32
+	c := NewClient(ClientConfig{Dial: streamDial(srv, &dials), DialStream: streamDial(srv, &streamDials)})
+	ctx := context.Background()
+	if _, err := c.Plan(ctx, testPrincipal, core.ActionRef{Name: "sm.item.set", Version: 1}, json.RawMessage(`{}`), core.PlanOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	body, err := c.OpenStream(ctx, testPrincipal, "sm", "logs", url.Values{"tail": {"2"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dials.Load() != 1 || streamDials.Load() != 1 {
+		t.Errorf("Plan and OpenStream dialled %d and %d times on Dial and DialStream, want 1 and 1", dials.Load(), streamDials.Load())
+	}
+	line, err := bufio.NewReader(body).ReadString('\n')
+	if err != nil || line != `{"data":{"n":1}}`+"\n" {
+		t.Fatalf("first line %q, %v", line, err)
+	}
+	if err := body.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-stopped:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("the agent's request ended with %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("closing the body did not end the agent's request")
+	}
+	_, err = c.OpenStream(ctx, testPrincipal, "sm", "nope", nil)
+	var coded *errcode.Error
+	if !errors.As(err, &coded) || coded.Code != errcode.NotFound {
+		t.Errorf("OpenStream of an unknown stream = %v, want not_found", err)
+	}
+	// Without DialStream a stream uses Dial.
+	c = NewClient(ClientConfig{Dial: streamDial(srv, &dials)})
+	if body, err = c.OpenStream(ctx, testPrincipal, "sm", "logs", nil); err != nil {
+		t.Fatal(err)
+	}
+	_ = body.Close()
+	if err := <-stopped; !errors.Is(err, context.Canceled) {
+		t.Errorf("the agent's request ended with %v, want context.Canceled", err)
+	}
+	if dials.Load() != 2 {
+		t.Errorf("a client without DialStream dialled Dial %d times, want 2", dials.Load())
 	}
 }

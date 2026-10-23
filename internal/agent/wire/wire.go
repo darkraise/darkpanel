@@ -513,3 +513,9 @@ func raw(m json.RawMessage) json.RawMessage {
 	}
 	return bytes.Clone(m)
 }
+
+// Streams is the answer of GET streams: every module stream the agent
+// serves (spec 1.6).
+type Streams struct {
+	Streams []core.StreamInfo `json:"streams"`
+}
