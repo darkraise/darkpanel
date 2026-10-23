@@ -257,3 +257,70 @@ func TestServiceRunnerStopsWhileWaiting(t *testing.T) {
 	clock.Advance(time.Minute)
 	svNoRun(t, failedSvc)
 }
+
+func TestServiceRunnerRechecksSuspensionBeforeARestart(t *testing.T) {
+	clock := coretest.NewFakeClock(t0)
+	svc := newSvService(clock)
+	var suspended atomic.Bool
+	r := startServiceRunner(serviceRunnerConfig{
+		Services: []ext.Service{svc.service("test.recheck")}, Clock: clock,
+		Suspended: func(context.Context) (bool, error) { return suspended.Load(), nil },
+	})
+	t.Cleanup(r.stop)
+	svNextRun(t, svc)
+
+	suspended.Store(true)
+	svFailAndWait(t, svc, clock)
+	clock.Advance(time.Second)
+	svWaitPending(t, clock, 1)
+	svNoRun(t, svc)
+
+	suspended.Store(false)
+	clock.Advance(serviceDefaultPoll)
+	if at := svNextRun(t, svc); !at.Equal(t0.Add(time.Second + serviceDefaultPoll)) {
+		t.Errorf("restart at %v, want %v", at, t0.Add(time.Second+serviceDefaultPoll))
+	}
+}
+
+// TestServiceRunnerLogsAFailureAtShutdown: an error or a panic from a Run
+// after its context ends is logged, the panic by its type only, while a Run
+// that returns its context's error logs nothing.
+func TestServiceRunnerLogsAFailureAtShutdown(t *testing.T) {
+	clock := coretest.NewFakeClock(t0)
+	quiet := newSvService(clock)
+	started := make(chan struct{}, 2)
+	failing := ext.Service{Name: "test.cleanup", Run: func(ctx context.Context) error {
+		started <- struct{}{}
+		<-ctx.Done()
+		return errSvBoom
+	}}
+	panicking := ext.Service{Name: "test.cleanup-panic", Run: func(ctx context.Context) error {
+		started <- struct{}{}
+		<-ctx.Done()
+		panic("a secret the service held")
+	}}
+	var logs lockedBuffer
+	r := startServiceRunner(serviceRunnerConfig{
+		Services: []ext.Service{failing, panicking, quiet.service("test.quiet")}, Clock: clock,
+		Log: slog.New(slog.NewTextHandler(&logs, nil)),
+	})
+	for range 2 {
+		select {
+		case <-started:
+		case <-time.After(5 * time.Second):
+			t.Fatal("a service did not run")
+		}
+	}
+	svNextRun(t, quiet)
+	r.stop()
+	out := logs.String()
+	if !strings.Contains(out, "failed while stopping") || !strings.Contains(out, "the service failed") {
+		t.Errorf("the log does not report the failure at shutdown:\n%s", out)
+	}
+	if !strings.Contains(out, "panicked with a string") || strings.Contains(out, "a secret the service held") {
+		t.Errorf("the log reports the panic at shutdown as %q, want its type only", out)
+	}
+	if strings.Contains(out, "test.quiet") {
+		t.Errorf("the log reports a clean shutdown:\n%s", out)
+	}
+}

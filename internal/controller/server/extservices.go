@@ -81,6 +81,9 @@ func (r *serviceRunner) run(svc ext.Service) {
 		started := r.cfg.Clock.Now()
 		err := r.call(svc)
 		if r.ctx.Err() != nil {
+			if err != nil && !errors.Is(err, context.Canceled) {
+				r.cfg.Log.Warn("server: controller service failed while stopping", "service", svc.Name, "error", err)
+			}
 			return
 		}
 		if r.cfg.Clock.Now().Sub(started) >= serviceRestartMax {
