@@ -3,12 +3,14 @@ package netfilter
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
 
 // FuzzParse feeds arbitrary input to Parse: it must never panic, and a
-// ruleset it accepts holds only known tables and declared chains.
+// ruleset it accepts holds only known tables, and each rule jumps to a
+// declared chain or a contract target or is opaque (spec 1.8, R74).
 func FuzzParse(f *testing.F) {
 	seeds, err := filepath.Glob(filepath.Join("testdata", "*.save"))
 	if err != nil {
@@ -28,13 +30,16 @@ func FuzzParse(f *testing.F) {
 			return
 		}
 		for _, tb := range rs.Tables {
-			if tb.Name == "" || strings.ContainsAny(tb.Name, " \t") {
+			if !slices.Contains(Tables, tb.Name) {
 				t.Fatalf("table name %q", tb.Name)
 			}
 			for _, c := range tb.Chains {
 				for _, r := range c.Rules {
 					if r.Target.Chain && tb.Chain(r.Target.Name) == nil {
 						t.Fatalf("jump to undeclared chain %q", r.Target.Name)
+					}
+					if _, ok := targets[r.Target.Name]; r.Target.Name != "" && !r.Target.Chain && !ok && !r.Opaque() {
+						t.Fatalf("unknown target %q not opaque", r.Target.Name)
 					}
 				}
 			}
