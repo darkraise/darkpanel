@@ -183,6 +183,20 @@ func TestInstallAbortUninstall(t *testing.T) {
 	if n := barRows(t, h); n != 1 {
 		t.Errorf("barrier rows = %d, want the barrier untouched", n)
 	}
+	h.systemd.setState(update.AgentUnit, "failed")
+	if line, err := AbortUninstall(ctx, cfg); err != nil || line != "the services were stopped; there is nothing to abort" {
+		t.Errorf("AbortUninstall with the agent failed = %q, %v", line, err)
+	}
+	for _, state := range []string{"activating", "reloading", "deactivating"} {
+		h.systemd.setState(update.AgentUnit, state)
+		line, err := AbortUninstall(ctx, cfg)
+		if err == nil || !strings.Contains(err.Error(), "the agent service is "+state) || line != "" {
+			t.Errorf("AbortUninstall with the agent %s = %q, %v; want a refusal naming the state", state, line, err)
+		}
+	}
+	if n := barRows(t, h); n != 1 {
+		t.Errorf("barrier rows = %d, want the barrier untouched", n)
+	}
 	h.systemd.setState(update.AgentUnit, "active")
 	line, err = AbortUninstall(ctx, cfg)
 	if err != nil || line != "the uninstall barrier is cleared; the agent accepts changes again" {

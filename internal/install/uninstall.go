@@ -454,7 +454,9 @@ func (u *Uninstall) clearBarrier(ctx context.Context) error {
 // audits it as cfg.Actor in the agent journal. It acts only while the agent
 // service is active: once the services were stopped, running the uninstall
 // again is the only way on, and AbortUninstall reports that it changed
-// nothing. It uses cfg's Layout, Systemd and Actor.
+// nothing. A service between the two, such as one restarting for an
+// update, is refused, since the barrier would then stay without a sign. It
+// uses cfg's Layout, Systemd and Actor.
 func AbortUninstall(ctx context.Context, cfg UninstallConfig) (string, error) {
 	switch {
 	case cfg.Systemd == nil:
@@ -466,8 +468,13 @@ func AbortUninstall(ctx context.Context, cfg UninstallConfig) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if st.ActiveState != "active" {
+	switch st.ActiveState {
+	case "active":
+	case "inactive", "failed":
 		return "the services were stopped; there is nothing to abort", nil
+	default:
+		return "", fmt.Errorf("install: abort uninstall: the agent service is %s; run it again once the service is active or stopped",
+			st.ActiveState)
 	}
 	db, err := store.Open(ctx, cfg.Layout.Paths.AgentDB())
 	if err != nil {
