@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -472,17 +474,21 @@ func TestTaskContextApply(t *testing.T) {
 	if n := f.count("SELECT count(*) FROM core_changes WHERE id = ? AND system = 1", v.ID); n != 1 {
 		t.Error("the change is not marked system")
 	}
-	if want := []string{"v2 a by system:bg.sync"}; !reflect.DeepEqual(h.applied, want) {
-		t.Errorf("applies = %q, want %q", h.applied, want)
+	h.mu.Lock()
+	applied := slices.Clone(h.applied)
+	h.mu.Unlock()
+	if want := []string{"v2 a by system:bg.sync"}; !reflect.DeepEqual(applied, want) {
+		t.Errorf("applies = %q, want %q", applied, want)
 	}
 
-	if _, err := tc.Apply(ctx, "bgo.item.set", bgItemIn{Name: "b"}); err == nil {
-		t.Error("Apply of another module's action succeeded")
+	_, err = tc.Apply(ctx, "bgo.item.set", bgItemIn{Name: "b"})
+	if err == nil || !strings.Contains(err.Error(), "background task bg.sync may apply only actions of module bg, not bgo.item.set") {
+		t.Errorf("Apply of another module's action = %v, want the module refusal", err)
 	}
 	_ = wantCode(t, func() error { _, err := tc.Apply(ctx, "bg.item.nope", bgItemIn{}); return err }(), errcode.ActionUnknown)
 	_, err = tc.Apply(ctx, "bg.item.set", json.RawMessage(`not json`))
-	if err == nil {
-		t.Error("Apply of an input that does not encode succeeded")
+	if err == nil || !strings.Contains(err.Error(), "background task bg.sync: encode the input of bg.item.set") {
+		t.Errorf("Apply of an input that does not encode = %v, want the encoding refusal", err)
 	}
 	if n := f.count("SELECT count(*) FROM core_changes"); n != 1 {
 		t.Errorf("%d changes, want only the first", n)
