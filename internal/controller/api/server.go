@@ -16,6 +16,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/controller/events"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/core/ext"
 )
 
 // Session cookie names and the CSRF header (spec section 9). HTTPS
@@ -77,6 +78,10 @@ type Config struct {
 	Events *events.Bus
 	// Clock times the event streams; nil means core.SystemClock{}.
 	Clock core.Clock
+	// Extensions are the routes modules and the backup package contribute
+	// (spec 1.12): web routes join the network mux, socket routes the
+	// controller socket's.
+	Extensions []ext.Route
 }
 
 // Server serves the API. Its handlers are safe for concurrent use.
@@ -85,6 +90,7 @@ type Server struct {
 	log       *slog.Logger
 	mux       *http.ServeMux
 	handler   http.Handler
+	streamMux *http.ServeMux // the contributed web stream routes' patterns
 	listeners atomic.Pointer[func() ListenerState]
 
 	eventsMu     sync.Mutex
@@ -122,7 +128,8 @@ func (s *Server) listenerState() ListenerState {
 	return ListenerState{Message: listenersNotStarted}
 }
 
-// New returns a server for cfg.
+// New returns a server for cfg. It fails when a contributed route is
+// malformed or clashes with another route of its surface.
 func New(cfg Config) (*Server, error) {
 	if cfg.Dispatcher == nil || cfg.Auth == nil || cfg.Registry == nil || cfg.WebCA == nil ||
 		cfg.SchemaVersion == nil || cfg.HostID == "" {
@@ -141,6 +148,14 @@ func New(cfg Config) (*Server, error) {
 			h = requireCaller(s.log, h)
 		}
 		s.mux.Handle(rt.method+" "+rt.path, h)
+	}
+	for _, rt := range cfg.Extensions {
+		if err := checkExtension(rt); err != nil {
+			return nil, err
+		}
+	}
+	if err := s.mountWebExtensions(); err != nil {
+		return nil, err
 	}
 	s.mux.HandleFunc("/", s.networkFallback)
 	s.handler = securityHeaders(recoverPanics(s.log, s.authenticate(s.mux)))
@@ -255,7 +270,8 @@ func safeMethod(method string) bool {
 
 // identify authenticates r. When an Authorization header is present only
 // its bearer token counts and the cookie is never read (spec section 9). A
-// stream request is authenticated passively (streamRoute).
+// stream request is authenticated passively (streamRoute, and the
+// contributed stream routes).
 func (s *Server) identify(r *http.Request) (caller, error) {
 	var session string
 	if ck, err := r.Cookie(sessionCookieName(r)); err == nil {
@@ -265,7 +281,7 @@ func (s *Server) identify(r *http.Request) (caller, error) {
 		Authorization: r.Header.Values("Authorization"),
 		Session:       session,
 		Source:        clientAddr(r),
-		Passive:       streamRoute(r),
+		Passive:       streamRoute(r) || s.extensionStreamRoute(r),
 	})
 	if err != nil {
 		return caller{}, err
