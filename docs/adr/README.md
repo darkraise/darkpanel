@@ -22,6 +22,7 @@ Check the files with `bash scripts/check-adrs.sh --complete`.
 - [ADR 0012: M2 contract and layout
   additions](0012-m2-contract-and-layout-additions.md)
 - [ADR 0013: Go toolchain patch version](0013-go-toolchain-patch-version.md)
+- [ADR 0014: v1 core extensions](0014-v1-core-extensions.md)
 
 ## Format
 
@@ -55,19 +56,26 @@ Every ADR uses these definitions and does not redefine them.
   - `irreversible`: cannot be undone (for example pruning volumes); requires
     typed confirmation.
 - **Errors.** RFC 9457 problem details with a stable `code` field, from the
-  registry in `internal/core/errcode`.
+  registry in `internal/core/errcode`. ADR 0014 adds the codes of the v1
+  modules (`firewall.*`, `docker.*`, `tailscale.*`, `tailnet.*`, `cloud.*`,
+  `npm.*`, `cloudflare.*`, `derp.*`, `panel.*`) and the lifecycle codes
+  `core.needs_repair`, `core.recovering`, `core.undo_conflict`,
+  `core.change_busy`, `core.uninstalling`, `core.stream_limit`,
+  `core.child_failed`, `core.deadline_exceeded` and `core.quarantined`.
 - **Actors.** Audit actors are `user:<id>`, `token:<id>`, `agent:<host id>`,
   `local:root@<host id>` and `system:<job>`; ADR 0011 adds `anonymous` and
   `local:uid-<n>@<host id>`; ADR 0012 adds `system:rollout`,
-  `system:update-schedule` and `local:root@unenrolled`.
+  `system:update-schedule` and `local:root@unenrolled`; ADR 0014 adds
+  `system:recovery`, `system:listen.cert`, `system:<task id>` for module
+  background tasks and `system:<service name>` for controller services
+  (`system:firewall.reconcile`, `system:tailnet.keysweep`,
+  `system:cloudflare.hostnames`).
 - **Version skew.** The controller is never older than its agents. It supports
   agents of the same and the previous minor version, is updated first, and
   drives agent updates up to its own version.
 
 ## Deferred decisions
 
-- How DERP servers run (container or systemd service): M5 DERP epic.
-- How `cloudflared` runs: M6 Cloudflare Tunnel epic.
 - `darkpanel controller backup` and `restore` (ADR 0005) are built by the M8
   Production rollout and runbook epic.
 
@@ -80,14 +88,14 @@ decided by its own epic, not by an ADR.
 | Requirement | ADRs (Decision part) |
 |---|---|
 | R1 | 0002 (module contract), 0003 (protocol), 0004 (change lifecycle), 0005 (storage and migrations), 0006 (API versioning), 0007 (release signing) |
-| R5 | 0002 (manifest interface, compiled-in modules) |
+| R5 | 0002 (manifest interface, compiled-in modules), 0014 (extension package and frozen call sites) |
 | R6 | 0002 (compatibility rules) |
 | R7 | 0002 (action declaration), 0006 (REST, CLI), 0011 (reserved CLI names) |
 | R8 | 0005 (migrations) |
 | R9 | 0002 (enablement and preflight) |
-| R10 | 0004 (plan, apply ordering, compensable and irreversible actions) |
-| R11 | 0009 (commands, files) |
-| R12 | 0005 (secrets), 0006 (authentication boundary) |
+| R10 | 0004 (plan, apply ordering, compensable and irreversible actions), 0014 (effects journal and undo, composites, repair and release, module recovery handlers) |
+| R11 | 0009 (commands, files), 0014 (host clients, owned paths and exec rules) |
+| R12 | 0005 (secrets), 0006 (authentication boundary), 0014 (secret delivery) |
 | R15, R16, R17 | 0006 (authentication boundary) |
 | R18 | 0003 (journal delivery), 0004 (apply ordering, compensable and irreversible actions, controller-side actions), 0011 (actors) |
 | R19 | none: a stored role field, decided by the identity epic |
@@ -108,4 +116,10 @@ decided by its own epic, not by an ADR.
 | R34 | 0005 (migrations, expand then contract, backups), 0007 (update transaction, stepping) |
 | R35 | 0007 (trusted comment carries the channel; scheduling is decided by the self-update epic) |
 | R36 | 0007 (order and rollouts) |
+| R54 | 0014 (Compose exceptions) |
+| R58 | 0014 (cloud plumbing) |
+| R61 | 0014 (DERP as a signed artifact under systemd) |
+| R69 | 0014 (cloud plumbing) |
+| R70 | 0014 (`cloudflared` as a container) |
+| R72 | 0014 (runtime listeners and trusted proxies) |
 | R80 | 0012 (signature files, release index) |
