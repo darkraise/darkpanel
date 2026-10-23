@@ -1032,6 +1032,7 @@ type AgentClient interface {
 	AgentChangeOps
 	AgentEnablement
 	AgentAvailability
+	AgentReveal
 }
 
 // Dispatcher is what the HTTP API and the controller socket call. hostID is

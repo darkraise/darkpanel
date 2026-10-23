@@ -39,6 +39,7 @@ type FakeAgent struct {
 	AckPrivateFunc       func(ctx context.Context, changeID string, final bool) error
 	SetModuleEnabledFunc func(ctx context.Context, moduleID string, enabled bool) error
 	AvailabilityFunc     func(ctx context.Context, moduleID string) (core.ModuleAvailability, error)
+	RevealFunc           func(ctx context.Context, p core.Principal, a core.ActionRef, input json.RawMessage, internal bool) (json.RawMessage, error)
 }
 
 var _ core.AgentClient = (*FakeAgent)(nil)
@@ -225,6 +226,14 @@ func (f *FakeAgent) Availability(ctx context.Context, moduleID string) (core.Mod
 		return core.ModuleAvailability{}, notConfigured("FakeAgent", "Availability")
 	}
 	return f.AvailabilityFunc(ctx, moduleID)
+}
+
+// Reveal calls RevealFunc.
+func (f *FakeAgent) Reveal(ctx context.Context, p core.Principal, a core.ActionRef, input json.RawMessage, internal bool) (json.RawMessage, error) {
+	if f.RevealFunc == nil {
+		return nil, notConfigured("FakeAgent", "Reveal")
+	}
+	return f.RevealFunc(ctx, p, a, input, internal)
 }
 
 // MapHosts is a core.HostDirectory over a map from host id to client.
