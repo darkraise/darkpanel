@@ -20,20 +20,45 @@ type Topology struct {
 
 // guardContext is the guard context of a call now: the client peer the API
 // stored in ctx and the configured topology. A composite's children run on
-// the engine's context and so carry no client peer. The client's IPv6 zone
-// names an interface of the controller and has no meaning on the agent's
-// host, and AgentPeers carry none, so it is dropped to let the two compare.
+// the engine's context and so carry no client peer. Every address loses its
+// IPv6 zone: a zone names an interface of the controller, so it means nothing
+// on the agent's host and two addresses that differ only by zone must compare
+// equal. The topology's slices are copied, never changed.
 func (d *Dispatcher) guardContext(ctx context.Context) core.GuardContext {
 	var g core.GuardContext
 	if d.cfg.Topology != nil {
 		t := d.cfg.Topology()
-		g.PanelListen, g.AgentListen, g.AgentPeers = t.PanelListen, t.AgentListen, t.AgentPeers
+		g.PanelListen = withoutPortZones(t.PanelListen)
+		g.AgentListen = withoutPortZones(t.AgentListen)
+		g.AgentPeers = withoutZones(t.AgentPeers)
 	}
 	if p, ok := core.ClientPeer(ctx); ok {
 		p.Addr = p.Addr.WithZone("")
 		g.Client = &p
 	}
 	return g
+}
+
+func withoutZones(addrs []netip.Addr) []netip.Addr {
+	if addrs == nil {
+		return nil
+	}
+	out := make([]netip.Addr, len(addrs))
+	for i, a := range addrs {
+		out[i] = a.WithZone("")
+	}
+	return out
+}
+
+func withoutPortZones(addrs []netip.AddrPort) []netip.AddrPort {
+	if addrs == nil {
+		return nil
+	}
+	out := make([]netip.AddrPort, len(addrs))
+	for i, a := range addrs {
+		out[i] = netip.AddrPortFrom(a.Addr().WithZone(""), a.Port())
+	}
+	return out
 }
 
 // withGuard returns input with its top-level guard member set to g. Members

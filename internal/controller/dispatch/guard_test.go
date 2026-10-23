@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/netip"
+	"slices"
 	"sync"
 	"testing"
 
@@ -208,11 +209,35 @@ func TestPlanGuardWithoutPeer(t *testing.T) {
 }
 
 func TestGuardContextDropsZone(t *testing.T) {
-	d, _, _ := newDg(t, func() Topology { return dgTopology })
+	zoned := Topology{
+		PanelListen: []netip.AddrPort{netip.MustParseAddrPort("[fe80::1%eth0]:8443"), netip.MustParseAddrPort("127.0.0.1:8443")},
+		AgentListen: []netip.AddrPort{netip.MustParseAddrPort("[fe80::1%eth0]:7443")},
+		AgentPeers:  []netip.Addr{netip.MustParseAddr("fe80::7%eth0"), netip.MustParseAddr("192.0.2.30")},
+	}
+	d, _, _ := newDg(t, func() Topology { return zoned })
 	peer := core.Peer{Addr: netip.MustParseAddr("fe80::7%eth0"), Port: 51234}
 	g := d.guardContext(core.WithClientPeer(context.Background(), peer))
-	if g.Client == nil || g.Client.Addr != netip.MustParseAddr("fe80::7") || g.Client.Port != peer.Port {
-		t.Errorf("client %+v, want fe80::7 port %d without a zone", g.Client, peer.Port)
+
+	want := core.GuardContext{
+		Client:      &core.Peer{Addr: netip.MustParseAddr("fe80::7"), Port: 51234},
+		PanelListen: []netip.AddrPort{netip.MustParseAddrPort("[fe80::1]:8443"), netip.MustParseAddrPort("127.0.0.1:8443")},
+		AgentListen: []netip.AddrPort{netip.MustParseAddrPort("[fe80::1]:7443")},
+		AgentPeers:  []netip.Addr{netip.MustParseAddr("fe80::7"), netip.MustParseAddr("192.0.2.30")},
+	}
+	if g.Client == nil || *g.Client != *want.Client {
+		t.Errorf("client %+v, want %+v", g.Client, want.Client)
+	}
+	if !slices.Equal(g.PanelListen, want.PanelListen) || !slices.Equal(g.AgentListen, want.AgentListen) ||
+		!slices.Equal(g.AgentPeers, want.AgentPeers) {
+		t.Errorf("topology %s, want %s", dgJSON(t, g), dgJSON(t, want))
+	}
+	if g.Client != nil && *g.Client == peer {
+		t.Error("the client kept its zone")
+	}
+
+	if zoned.AgentPeers[0].Zone() != "eth0" || zoned.PanelListen[0].Addr().Zone() != "eth0" ||
+		zoned.AgentListen[0].Addr().Zone() != "eth0" || peer.Addr.Zone() != "eth0" {
+		t.Error("the topology or the stored peer was changed")
 	}
 }
 
