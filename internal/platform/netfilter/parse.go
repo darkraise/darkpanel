@@ -252,6 +252,7 @@ func (p *parser) addRule(line string) error {
 	if rule.Target.Name != "" && p.table.Chain(rule.Target.Name) != nil {
 		rule.Target.Chain = true
 	}
+	classify(&rule)
 	c.Rules = append(c.Rules, rule)
 	return nil
 }
