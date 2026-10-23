@@ -127,7 +127,7 @@ func (s *Server) startListeners(ctx context.Context) error {
 
 	// Registered last, so the services stop first and see the dispatcher and
 	// the listeners until they have returned.
-	runner := startServiceRunner(serviceRunnerConfig{Services: services, Clock: s.clock, Log: s.log})
+	runner := startServiceRunner(serviceRunnerConfig{Services: services, Suspended: s.quarantined, Clock: s.clock, Log: s.log})
 	s.onShutdown("controller services", func(context.Context) error { runner.stop(); return nil })
 
 	urls := make([]string, 0, len(svc.State().Listeners))

@@ -18,6 +18,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/controller/events"
 	"github.com/darkraise/darkpanel/internal/controller/fleet"
 	"github.com/darkraise/darkpanel/internal/controller/listen"
+	"github.com/darkraise/darkpanel/internal/controller/quarantine"
 	"github.com/darkraise/darkpanel/internal/controller/rollout"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/lifecycle"
@@ -156,7 +157,7 @@ func (s *Server) startServices(ctx context.Context) error {
 	}
 	s.dispatcher, err = dispatch.New(dispatch.Config{
 		Registry: reg, Engine: eng, Hosts: s.hosts, DB: s.controllerDB, Clock: s.clock, Log: s.log, Ingest: s.ingester,
-		Version: buildinfo.Version, Topology: s.topo.read,
+		Version: buildinfo.Version, Topology: s.topo.read, Quarantine: s.refuseQuarantined,
 	})
 	if err != nil {
 		return fmt.Errorf("server: %w", err)
@@ -184,16 +185,30 @@ func hostOnline(bus *events.Bus) func(hostID string, online bool) {
 }
 
 // engineConfig is the controller engine's configuration. Its Publish hands
-// the composite.step events to the event bus.
+// the composite.step events to the event bus, and restore quarantine
+// suspends its composite recovery, child watcher and module recovery
+// handlers.
 func (s *Server) engineConfig(reg *core.Registry) lifecycle.Config {
 	return lifecycle.Config{
 		Side: core.SideController, Registry: reg, Validator: schema.NewValidator(), Journal: s.auditLog,
-		Redact: schema.Redact, Publish: s.events.Publish,
+		Redact: schema.Redact, Publish: s.events.Publish, Suspended: s.quarantined,
 		Base: core.Env{
 			DB: s.controllerDB, Sealer: s.controllerSealer, Clock: s.clock, Log: s.log, Agents: s.hosts,
 			Listeners: s.runtimeListeners,
 		},
 	}
+}
+
+// quarantined reports whether the controller database is in restore
+// quarantine (spec 10), which suspends every automatic mutation source.
+func (s *Server) quarantined(ctx context.Context) (bool, error) {
+	return quarantine.Active(ctx, s.controllerDB)
+}
+
+// refuseQuarantined is the dispatcher's gate: core.quarantined while the
+// controller is in restore quarantine.
+func (s *Server) refuseQuarantined(ctx context.Context) error {
+	return quarantine.Check(ctx, s.controllerDB)
 }
 
 // ingestedEntries is the audit ingester's OnEntries: it wakes the
@@ -257,13 +272,15 @@ func (s *Server) startRollouts(clients dispatch.ClientSource) error {
 	if index == nil {
 		index = update.NewIndexSource(trustedkeys.BaseURL(), &http.Client{Timeout: indexTimeout}, s.clock)
 	}
-	driver, err := rollout.NewDriver(rollout.DriverConfig{DB: s.controllerDB, Dispatcher: s.dispatcher, Clock: s.clock, Log: s.log})
+	driver, err := rollout.NewDriver(rollout.DriverConfig{
+		DB: s.controllerDB, Dispatcher: s.dispatcher, Clock: s.clock, Log: s.log, Suspended: s.quarantined,
+	})
 	if err != nil {
 		return fmt.Errorf("server: %w", err)
 	}
 	scheduler, err := rollout.NewScheduler(rollout.SchedulerConfig{
 		DB: s.controllerDB, Clients: clients, Index: index, Audit: s.auditLog, Clock: s.clock, Log: s.log,
-		Version: buildinfo.Version,
+		Version: buildinfo.Version, Suspended: s.quarantined,
 	})
 	if err != nil {
 		return fmt.Errorf("server: %w", err)
