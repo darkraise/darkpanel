@@ -1,5 +1,5 @@
 import { lazy } from "react"
-import { Info } from "lucide-react"
+import { BrickWall, Cloud, Container, ExternalLink, Globe, Info, Network, RadioTower, Waypoints } from "lucide-react"
 import type { Host } from "@/api/types"
 import type { GlobalPage, HostCreateExtension, ModuleEntry } from "./types"
 
@@ -7,6 +7,49 @@ import type { GlobalPage, HostCreateExtension, ModuleEntry } from "./types"
 // folder modules/<id>/; no other module's files change.
 export const moduleRegistry: ModuleEntry[] = [
   { id: "hostinfo", label: "Host information", icon: Info, routes: lazy(() => import("./hostinfo/routes")) },
+  {
+    id: "firewall",
+    label: "Firewall",
+    icon: BrickWall,
+    routes: lazy(() => import("./firewall/routes")),
+    containerActions: [
+      { id: "firewall.allow", label: "Allow", render: lazy(() => import("./firewall/container-actions").then((m) => ({ default: m.AllowAction }))) },
+      { id: "firewall.deny", label: "Deny", render: lazy(() => import("./firewall/container-actions").then((m) => ({ default: m.DenyAction }))) },
+    ],
+  },
+  { id: "docker", label: "Docker", icon: Container, routes: lazy(() => import("./docker/routes")) },
+  { id: "tailscale", label: "Tailscale", icon: Network, routes: lazy(() => import("./tailscale/routes")) },
+  {
+    id: "tailnet",
+    label: "Tailnet",
+    icon: Waypoints,
+    hostCreate: { id: "tailnet.join", render: lazy(() => import("./tailnet/host-create")) },
+    global: { path: "tailnet", label: "Tailnet", routes: lazy(() => import("./tailnet/global")) },
+  },
+  { id: "derp", label: "DERP", icon: RadioTower, global: { path: "derp", label: "DERP", routes: lazy(() => import("./derp/global")) } },
+  {
+    id: "npm",
+    label: "Nginx Proxy Manager",
+    icon: Globe,
+    routes: lazy(() => import("./npm/routes")),
+    containerActions: [
+      { id: "npm.expose", label: "Expose", render: lazy(() => import("./npm/container-actions").then((m) => ({ default: m.ExposeAction }))) },
+    ],
+  },
+  {
+    id: "cloudflare",
+    label: "Cloudflare",
+    icon: Cloud,
+    containerActions: [
+      {
+        id: "cloudflare.expose",
+        label: "Expose via tunnel",
+        render: lazy(() => import("./cloudflare/container-actions").then((m) => ({ default: m.ExposeAction }))),
+      },
+    ],
+    global: { path: "cloudflare", label: "Cloudflare", routes: lazy(() => import("./cloudflare/global")) },
+  },
+  { id: "panel", label: "Panel exposure", icon: ExternalLink, routes: lazy(() => import("./panel/routes")) },
 ]
 
 // HostModuleEntry is an entry that has host pages.
