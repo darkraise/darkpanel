@@ -15,14 +15,47 @@ env:
   GOTOOLCHAIN: local
 
 jobs:
-  adr:
+  # GitHub has no fallback for an unavailable self-hosted runner: a job whose
+  # runner is offline queues instead of moving to a hosted one. This job always
+  # runs on a hosted runner and picks the labels the other jobs use. Pull
+  # requests from forks never reach the self-hosted runner.
+  runner:
     runs-on: ubuntu-24.04
+    outputs:
+      labels: ${{ steps.pick.outputs.labels }}
+    steps:
+      - id: pick
+        env:
+          GH_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
+          LABEL: ${{ vars.SELF_HOSTED_RUNNER_LABEL }}
+          TRUSTED: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          labels='["ubuntu-24.04"]'
+          if [ "$TRUSTED" != true ] || [ -z "$GH_TOKEN" ] || [ -z "$LABEL" ]; then
+            echo "::notice::GitHub-hosted runner: self-hosted runner not configured or not allowed for this event"
+          else
+            idle=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runners?per_page=100" \
+              --jq '.runners[] | select(.status == "online" and .busy == false and any(.labels[]; .name == $ENV.LABEL)) | .name' \
+              | wc -l) || idle=0
+            if [ "$idle" -gt 0 ]; then
+              labels=$(jq -cn --arg l "$LABEL" '["self-hosted", $l]')
+              echo "::notice::Self-hosted runner: $idle idle runner(s) labelled $LABEL"
+            else
+              echo "::notice::GitHub-hosted runner: no idle online runner labelled $LABEL"
+            fi
+          fi
+          echo "labels=$labels" >> "$GITHUB_OUTPUT"
+
+  adr:
+    needs: runner
+    runs-on: ${{ fromJSON(needs.runner.outputs.labels) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: make test-adr
 
   release-scripts:
-    runs-on: ubuntu-24.04
+    needs: runner
+    runs-on: ${{ fromJSON(needs.runner.outputs.labels) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -33,7 +66,8 @@ jobs:
       - run: make lint-sh test-release
 
   go:
-    runs-on: ubuntu-24.04
+    needs: runner
+    runs-on: ${{ fromJSON(needs.runner.outputs.labels) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -47,7 +81,8 @@ jobs:
       - run: make lint-go test-go vuln
 
   web:
-    runs-on: ubuntu-24.04
+    needs: runner
+    runs-on: ${{ fromJSON(needs.runner.outputs.labels) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -62,7 +97,8 @@ jobs:
       - run: make lint-web test-web
 
   build:
-    runs-on: ubuntu-24.04
+    needs: runner
+    runs-on: ${{ fromJSON(needs.runner.outputs.labels) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
