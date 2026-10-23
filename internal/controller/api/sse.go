@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 )
 
@@ -84,15 +85,23 @@ func (s *Server) CloseStreams() {
 // sending ": ping" every SSEHeartbeat, re-identifying the request every
 // SSERecheck; it returns the end reason: "done" (src closed), "expired"
 // (idle, hard limit, or session or token expired), "revoked" (session or
-// token revoked) or "error" (a write failed, the client went away or
-// CloseStreams ran). A HEAD request gets the headers alone and ends at once
-// with done.
+// token revoked, or the runtime listener the request came through revoked,
+// after an end frame saying so) or "error" (a write failed, the client went
+// away or CloseStreams ran). A HEAD request gets the headers alone and ends
+// at once with done.
 func (s *Server) sseStream(w http.ResponseWriter, r *http.Request, src <-chan sseFrame) string {
 	c, _ := callerFrom(r.Context())
 	expires := c.identity.ExpiresAt
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")
 	h.Set("Cache-Control", "no-store")
+	// A stream through a runtime listener ends when the listener is
+	// revoked, and its proxy must pass each event on at once.
+	var revoked <-chan struct{}
+	if p, ok := core.ProxiedFrom(r.Context()); ok {
+		revoked = p.Revoked
+		h.Set("X-Accel-Buffering", "no")
+	}
 	w.WriteHeader(http.StatusOK)
 	if sseWrite(w, nil) != nil {
 		return "error"
@@ -147,6 +156,11 @@ func (s *Server) sseStream(w http.ResponseWriter, r *http.Request, src <-chan ss
 			idleT = clock.AfterFunc(left, sseSignal(idle))
 		case <-hard:
 			return "expired"
+		case <-revoked:
+			if b, err := sseEncode(endFrame("revoked", nil)); err == nil {
+				_ = sseWrite(w, b)
+			}
+			return "revoked"
 		case <-r.Context().Done():
 			return "error"
 		case <-s.streamsDone:

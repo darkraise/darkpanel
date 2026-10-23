@@ -178,8 +178,14 @@ func sessionCookieName(r *http.Request) string {
 }
 
 // clientAddr is the host part of the peer address. Forwarded headers are
-// ignored: no proxy is trusted in M1.
+// ignored; only a runtime listener names the client, from the one header
+// its proxy sets (spec 1.10), and then the address keeps both ends as
+// "<client> via <proxy>": the audit log records both, and login rate
+// limiting keys on it without the proxy's changing source port.
 func clientAddr(r *http.Request) string {
+	if p, ok := core.ProxiedFrom(r.Context()); ok {
+		return p.Client.String() + " via " + p.Transport.Addr().String()
+	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
@@ -187,9 +193,14 @@ func clientAddr(r *http.Request) string {
 	return host
 }
 
-// clientPeer is the transport's peer of r, an IPv4-mapped address unmapped.
-// A request without an IP peer, such as one on a Unix socket, has none.
+// clientPeer is the transport's peer of r, an IPv4-mapped address unmapped,
+// or for a request through a runtime listener the client its proxy named,
+// whose port the proxy does not pass on. A request without an IP peer, such
+// as one on a Unix socket, has none.
 func clientPeer(r *http.Request) (core.Peer, bool) {
+	if p, ok := core.ProxiedFrom(r.Context()); ok {
+		return core.Peer{Addr: p.Client}, true
+	}
 	ap, err := netip.ParseAddrPort(r.RemoteAddr)
 	if err != nil {
 		return core.Peer{}, false
@@ -276,6 +287,10 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 		if peer, ok := clientPeer(r); ok {
 			r = r.WithContext(core.WithClientPeer(r.Context(), peer))
 		}
+		if err := proxiedOrigin(r); err != nil {
+			writeProblem(w, s.log, err)
+			return
+		}
 		switch routeAccess(r.Method, r.URL.Path) {
 		case accessPublic:
 			next.ServeHTTP(w, r)
@@ -298,6 +313,23 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r.WithContext(withCaller(r.Context(), c)))
 	})
+}
+
+// proxiedOrigin refuses an unsafe request through a runtime listener whose
+// Origin names another site than the exposure's public host. Browsers send
+// Origin on every cross-site unsafe request, and a request from the panel's
+// own pages names the public host; requests on other listeners keep the
+// CSRF token alone.
+func proxiedOrigin(r *http.Request) error {
+	p, ok := core.ProxiedFrom(r.Context())
+	if !ok || safeMethod(r.Method) {
+		return nil
+	}
+	origin := r.Header.Values("Origin")
+	if len(origin) == 0 || (len(origin) == 1 && origin[0] == "https://"+p.PublicHost) {
+		return nil
+	}
+	return errcode.New(errcode.CSRF, "the request's Origin is not https://"+p.PublicHost)
 }
 
 // requireCaller refuses a request that reached a protected handler without

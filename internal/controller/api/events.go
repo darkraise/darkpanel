@@ -12,8 +12,9 @@ import (
 
 // handleEvents serves GET /api/v1/events (spec 1.6): the controller's
 // events as server-sent events, after the events a Last-Event-ID missed or
-// a reset. The stream ends without an end frame; the browser reconnects
-// with the last id it saw.
+// a reset. The stream ends without an end frame, the browser reconnecting
+// with the last id it saw, unless the runtime listener it came through was
+// revoked: then it ends with one of reason revoked.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	c, _ := callerFrom(r.Context())
 	if err := authorize(c.principal, core.ScopeRead); err != nil {
