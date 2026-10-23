@@ -368,7 +368,8 @@ func TestChangeOpsAuthorizeTheChangesAction(t *testing.T) {
 			code            errcode.Code
 		}{
 			{"agent change with operate", "c7", operate, false, 200, ""},
-			{"unregistered agent action with operate", "cua", operate, false, 200, ""},
+			{"unregistered agent action with operate", "cua", operate, false, 403, errcode.Forbidden},
+			{"unregistered agent action with admin", "cua", admin, false, 200, ""},
 			{"controller change with operate", "c1", operate, false, 403, errcode.Forbidden},
 			{"controller change with admin", "c1", admin, false, 200, ""},
 			{"break-glass change with admin", "cbg", admin, false, 404, errcode.ChangeNotFound},
@@ -556,6 +557,49 @@ func TestChangeOpsHideBreakGlass(t *testing.T) {
 			if last.method != "Change" || last.changeID != id {
 				t.Errorf("%s %s: last call %+v, want only the change lookup", op, id, last)
 			}
+		}
+	}
+}
+
+func TestPlanRefusesSuppliedGuard(t *testing.T) {
+	h := newHarness(t)
+	var last call
+	h.stubDispatcher(&last)
+	token := h.token(core.ScopeAdmin)
+	const agentPlan = "/api/v1/hosts/h1/actions/demo.item.add/v1/plan"
+	for _, tc := range []struct {
+		name, path, input string
+		socket            bool
+		field             string // the refused field; "" when the plan is dispatched
+	}{
+		{"a guard", agentPlan, `{"guard":{},"name":"x"}`, false, "/input/guard"},
+		{"a guard spelled in another case", agentPlan, `{"name":"x","Guard":null}`, false, "/input/Guard"},
+		{"a controller-side plan", "/api/v1/actions/demo.item.remove/v1/plan", `{"guard":{"agentPeers":[]}}`, false, "/input/guard"},
+		{"a break-glass plan on the socket", "/api/v1/actions/demo.secret.reset/v1/plan", `{"guard":{},"name":"x"}`, true, "/input/guard"},
+		{"no guard", agentPlan, `{"name":"x"}`, false, ""},
+		{"a nested guard member", agentPlan, `{"name":{"guard":1}}`, false, ""},
+		{"an input that is not an object", agentPlan, `["guard"]`, false, ""},
+	} {
+		last = call{}
+		r := request("POST", tc.path, `{"input":`+tc.input+`}`)
+		var rec *httptest.ResponseRecorder
+		if tc.socket {
+			rec = h.socketRequest(r, 0)
+		} else {
+			rec = h.serve(withToken(r, token))
+		}
+		if tc.field == "" {
+			if rec.Code != http.StatusOK || last.method != "Plan" || last.input != tc.input {
+				t.Errorf("%s: %d %s, dispatched %+v; want the input passed on unchanged", tc.name, rec.Code, rec.Body, last)
+			}
+			continue
+		}
+		p := decodeProblem(t, rec, http.StatusUnprocessableEntity, errcode.InvalidInput)
+		if len(p.Errors) != 1 || p.Errors[0].Path != tc.field {
+			t.Errorf("%s: field errors %+v, want %s", tc.name, p.Errors, tc.field)
+		}
+		if last.method != "" {
+			t.Errorf("%s: the refused plan reached the dispatcher: %+v", tc.name, last)
 		}
 	}
 }

@@ -1,10 +1,11 @@
-import { act, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { Route, Routes } from "react-router"
 import { expect, test, vi } from "vitest"
 import type { ListenerState, Session } from "@/api/types"
 import { applyBrand } from "@/brand"
 import { RequireSession, SessionProvider } from "@/session/session"
+import { EvtSource } from "@/test/evt-source"
 import { renderWithProviders, stubFetch, type StubResponse } from "@/test/utils"
 import { Shell } from "./shell"
 
@@ -139,4 +140,13 @@ test("a failed logout keeps the session and says why", async () => {
   expect((await screen.findByText("Logout failed: Internal error")).textContent).toBe("Logout failed: Internal error")
   expect(screen.getByText("Hosts content").textContent).toBe("Hosts content")
   expect(screen.getByTestId("location").textContent).toBe("/")
+})
+
+test("the signed-in shell keeps one event stream open while it is mounted", async () => {
+  renderShell({ body: bound })
+  await screen.findByText("Hosts content")
+  expect(EvtSource.instances.map((s) => s.url)).toEqual(["/api/v1/events"])
+  expect(EvtSource.instances[0]?.closed).toBe(false)
+  cleanup()
+  expect(EvtSource.instances[0]?.closed).toBe(true)
 })

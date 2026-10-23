@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -16,9 +17,10 @@ import (
 
 // The operations of an action route, its last path segment.
 const (
-	opPlan  = "plan"
-	opApply = "apply"
-	opRead  = "read"
+	opPlan   = "plan"
+	opApply  = "apply"
+	opRead   = "read"
+	opReveal = "reveal"
 )
 
 // maxChangeLimit is the largest limit of GET /api/v1/changes; the engine
@@ -163,8 +165,7 @@ func (a applyRequest) options() (core.ApplyOptions, error) {
 }
 
 // lookupAction resolves an action route's {name} and {version} to an action
-// that side serves with op: a read action has only read, a mutating action
-// only plan and apply.
+// that side serves with op (servesOp).
 func (s *Server) lookupAction(name, version string, side core.Side, op string) (core.ActionDef, error) {
 	unknown := errcode.New(errcode.ActionUnknown, fmt.Sprintf("no action %s/%s with a %s operation at this route", name, version, op))
 	v, err := core.ParseVersion(version)
@@ -172,10 +173,26 @@ func (s *Server) lookupAction(name, version string, side core.Side, op string) (
 		return core.ActionDef{}, unknown
 	}
 	def, ok := s.cfg.Registry.Action(core.ActionRef{Name: name, Version: v})
-	if !ok || def.Spec.Side != side || (op == opRead) != (def.Spec.Class == core.ClassRead) {
+	if !ok || def.Spec.Side != side || !servesOp(def.Spec, op) {
 		return core.ActionDef{}, unknown
 	}
 	return def, nil
+}
+
+// servesOp reports whether an action route's op serves the action of s: a
+// reveal action has only reveal, any other read action only read, a
+// mutating action only plan and apply, and an Internal action no route at
+// all, because only the controller itself dispatches it (spec 1.7).
+func servesOp(s core.ActionSpec, op string) bool {
+	switch {
+	case s.Internal:
+		return false
+	case s.Reveal:
+		return op == opReveal
+	case s.Class == core.ClassRead:
+		return op == opRead
+	}
+	return op == opPlan || op == opApply
 }
 
 // actionHandler serves op of the network's action routes: agent-side
@@ -190,7 +207,7 @@ func (s *Server) actionHandler(side core.Side, op string) http.HandlerFunc {
 			err = errcode.New(errcode.Forbidden, "break-glass actions are served only on the controller socket")
 		}
 		if err == nil {
-			err = authorize(c.principal, RequiredScope(def.Spec.Class, def.Spec.Side))
+			err = authorize(c.principal, core.RequiredScope(def.Spec))
 		}
 		if err != nil {
 			writeProblem(w, s.log, err)
@@ -247,12 +264,33 @@ func (s *Server) runAction(w http.ResponseWriter, r *http.Request, p core.Princi
 		writeJSON(w, s.log, http.StatusOK, readResponse{Output: orNull(out)})
 		return
 	}
+	if key, ok := suppliedGuard(in.Input); ok {
+		writeProblem(w, s.log, invalidField("/input/"+key, "the controller fills the guard context; leave it out"))
+		return
+	}
 	v, err := s.cfg.Dispatcher.Plan(ctx, p, hostID, def.Ref(), in.Input, core.PlanOptions{})
 	if err != nil {
 		writeProblem(w, s.log, err)
 		return
 	}
 	writeJSON(w, s.log, http.StatusOK, toPlan(v))
+}
+
+// suppliedGuard returns the top-level member of a plan input that would be
+// decoded as the guard context, which only the dispatcher fills (spec 1.5).
+// encoding/json matches a member to a field ignoring case, so this does too.
+// An input that is not an object has none; the validator refuses it.
+func suppliedGuard(input json.RawMessage) (string, bool) {
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(input, &obj) != nil {
+		return "", false
+	}
+	for key := range obj {
+		if strings.EqualFold(key, "guard") {
+			return key, true
+		}
+	}
+	return "", false
 }
 
 // handleResource answers a resource's output as it is.
@@ -356,7 +394,13 @@ func (s *Server) handleChange(w http.ResponseWriter, r *http.Request) {
 // cannot be known. Show, confirm and revert answer a hidden change with
 // errHiddenChange.
 func (s *Server) networkVisible(v core.ChangeView) bool {
-	def, ok := s.cfg.Registry.Action(core.ActionRef{Name: v.Action, Version: v.Version})
+	return NetworkVisible(s.cfg.Registry, v)
+}
+
+// NetworkVisible is the rule of networkVisible over reg, for the publishers
+// of the network event stream.
+func NetworkVisible(reg *core.Registry, v core.ChangeView) bool {
+	def, ok := reg.Action(core.ActionRef{Name: v.Action, Version: v.Version})
 	if ok {
 		return !def.Spec.BreakGlass
 	}
@@ -369,16 +413,16 @@ func errHiddenChange(id string) error {
 	return errcode.New(errcode.ChangeNotFound, fmt.Sprintf("no change %s", id))
 }
 
-// authorizeChange applies to a confirm or revert the scope of the change's
-// own action, never of the route: RequiredScope of its class and side. v
-// must be networkVisible, so an unregistered action is agent-side and its
-// stored class decides.
+// authorizeChange applies to an operation on a change the scope of the
+// change's own action, never of the route: core.RequiredScope of its spec,
+// MinScope included. A change whose action the registry no longer has needs
+// admin: its MinScope is unknown and the engine checks nothing further on
+// confirm, revert or undo, so the check fails closed.
 func (s *Server) authorizeChange(p core.Principal, v core.ChangeView) error {
-	class, side := v.Class, core.SideAgent
 	if def, ok := s.cfg.Registry.Action(core.ActionRef{Name: v.Action, Version: v.Version}); ok {
-		class, side = def.Spec.Class, def.Spec.Side
+		return authorize(p, core.RequiredScope(def.Spec))
 	}
-	return authorize(p, RequiredScope(class, side))
+	return authorize(p, core.ScopeAdmin)
 }
 
 // changeOp serves confirm or revert. It reads the change first, as the

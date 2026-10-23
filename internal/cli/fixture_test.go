@@ -129,11 +129,38 @@ func (demoModule) Manifest() core.Manifest {
 	}
 }
 
+// covInput is cov.rule.set's input, which embeds core.Guarded.
+type covInput struct {
+	core.Guarded
+	Name string `json:"name" jsonschema_description:"Rule name."`
+}
+
+// covModule is module "cov": a revertible agent-side action with two
+// overridable guards and one that is not, and its repair action.
+type covModule struct{}
+
+func (covModule) Manifest() core.Manifest {
+	return core.Manifest{
+		ID: "cov", Version: 1, DefaultEnabled: true,
+		Actions: []core.ActionDef{
+			core.DefineRevertible(core.ActionSpec{
+				Name: "cov.rule.set", Version: 1, Side: core.SideAgent, Summary: "Set a cov rule.",
+				LockKeys: []string{"cov"}, RepairedBy: "cov.rule.repair",
+				Guards: []core.GuardSpec{{ID: "cov.lockout", Overridable: true}, {ID: "cov.other", Overridable: true}, {ID: "cov.quota"}},
+			}, fixtureHandler[covInput, demoRule]{}),
+			core.DefineMutating(core.ActionSpec{
+				Name: "cov.rule.repair", Version: 1, Class: core.ClassIrreversible, Side: core.SideAgent,
+				Summary: "Repair a cov rule.", LockKeys: []string{"cov"},
+			}, fixtureHandler[demoNoInput, demoRule]{}),
+		},
+	}
+}
+
 // testRegistry is the real core module, built as registry.Build builds it,
-// plus demoModule.
+// plus demoModule and covModule.
 func testRegistry(t *testing.T) *core.Registry {
 	t.Helper()
-	reg, err := core.NewRegistry(coreactions.Module(coreactions.Deps{}), demoModule{})
+	reg, err := core.NewRegistry(coreactions.Module(coreactions.Deps{}), demoModule{}, covModule{}, cflModule{})
 	if err != nil {
 		t.Fatal(err)
 	}

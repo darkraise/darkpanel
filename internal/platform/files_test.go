@@ -20,13 +20,19 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// fakeOwnership is a core.Ownership in memory.
+// fakeOwnership is a core.Ownership in memory. onRecord, when set, sees each
+// entry before Record stores it, so a test can check what the host looked like
+// at that moment.
 type fakeOwnership struct {
-	mu      sync.Mutex
-	entries []core.OwnedEntry
+	mu       sync.Mutex
+	entries  []core.OwnedEntry
+	onRecord func(e core.OwnedEntry)
 }
 
 func (o *fakeOwnership) Record(_ context.Context, e core.OwnedEntry) error {
+	if o.onRecord != nil {
+		o.onRecord(e)
+	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	recorded := slices.ContainsFunc(o.entries, func(x core.OwnedEntry) bool {
@@ -53,6 +59,12 @@ func (o *fakeOwnership) List(context.Context) ([]core.OwnedEntry, error) {
 	return slices.Clone(o.entries), nil
 }
 
+func (o *fakeOwnership) Owns(_ context.Context, module, path string) (bool, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return slices.ContainsFunc(o.entries, func(x core.OwnedEntry) bool { return x.Module == module && x.Path == path }), nil
+}
+
 var filesNow = time.Date(2026, 10, 17, 1, 2, 3, 0, time.UTC)
 
 // newTestFiles returns a writer in TestMode for module "demo", which owns
@@ -73,6 +85,20 @@ func newTestFiles(t *testing.T) (*Files, *fakeOwnership, string) {
 		TestMode:  true,
 	})
 	return f, own, dir
+}
+
+// fpFiles returns a writer in TestMode over cfg with a new in-memory
+// ownership store, which it also returns, and the fixed clock unless cfg sets
+// one.
+func fpFiles(t *testing.T, cfg FilesConfig) (*Files, *fakeOwnership) {
+	t.Helper()
+	own := &fakeOwnership{}
+	cfg.Ownership = own
+	if cfg.Clock == nil {
+		cfg.Clock = coretest.NewFakeClock(filesNow)
+	}
+	cfg.TestMode = true
+	return NewFiles(cfg), own
 }
 
 func readFile(t *testing.T, path string) string {
@@ -180,17 +206,16 @@ func TestUndeclaredWritesRefused(t *testing.T) {
 	}
 }
 
-// Directories, users and units are uninstall's to remove: Files neither
-// writes nor removes them, and holds no lock for them.
+// Directories and users are uninstall's to remove: Files neither writes nor
+// removes them, and holds no lock for them.
 func TestOtherKindsIgnored(t *testing.T) {
 	dir := t.TempDir()
 	own := &fakeOwnership{}
-	data, unit := filepath.Join(dir, "data"), filepath.Join(dir, "demo.service")
+	data := filepath.Join(dir, "data")
 	f := NewFiles(FilesConfig{
 		Owned: map[string][]core.OwnedPath{"demo": {
 			{Path: data, Kind: core.OwnedDir},
 			{Path: "demo-user", Kind: core.OwnedUser},
-			{Path: unit, Kind: core.OwnedUnit},
 		}},
 		Ownership: own,
 		Clock:     coretest.NewFakeClock(filesNow),
@@ -198,9 +223,9 @@ func TestOtherKindsIgnored(t *testing.T) {
 	})
 	ctx := context.Background()
 	attempts := map[string]error{
-		"write a directory": f.WriteFile(ctx, "demo", data, []byte("x"), 0o644),
-		"write a unit":      f.WriteFile(ctx, "demo", unit, []byte("x"), 0o644),
-		"remove a unit":     f.Remove(ctx, "demo", unit),
+		"write a directory":  f.WriteFile(ctx, "demo", data, []byte("x"), 0o644),
+		"remove a directory": f.Remove(ctx, "demo", data),
+		"write a user":       f.WriteFile(ctx, "demo", "demo-user", []byte("x"), 0o644),
 	}
 	for name, err := range attempts {
 		if err == nil {
@@ -502,5 +527,266 @@ func TestOwnedPaths(t *testing.T) {
 	got := OwnedPaths([]core.Manifest{{ID: "one", OwnedPaths: []core.OwnedPath{a}}, {ID: "two"}})
 	if want := map[string][]core.OwnedPath{"one": {a}}; !reflect.DeepEqual(got, want) {
 		t.Errorf("OwnedPaths = %+v, want %+v", got, want)
+	}
+}
+
+func TestFilesOwns(t *testing.T) {
+	f, own := fpFiles(t, FilesConfig{})
+	ctx := context.Background()
+	if err := own.Record(ctx, core.OwnedEntry{Path: "/etc/fp.conf", Module: "fp", Kind: core.OwnedFile, CreatedAt: filesNow}); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		module, path string
+		want         bool
+	}{
+		{"fp", "/etc/fp.conf", true},
+		{"other", "/etc/fp.conf", false},
+		{"fp", "/etc/other.conf", false},
+	}
+	for _, c := range cases {
+		if got, err := f.Owns(ctx, c.module, c.path); err != nil || got != c.want {
+			t.Errorf("Owns(%s, %s) = %v, %v; want %v", c.module, c.path, got, err, c.want)
+		}
+	}
+}
+
+func TestWriteFileUnitKind(t *testing.T) {
+	dir := t.TempDir()
+	unit, pre, conf := filepath.Join(dir, "darkpanel-fp.service"), filepath.Join(dir, "darkpanel-pre.service"), filepath.Join(dir, "fp.conf")
+	f, own := fpFiles(t, FilesConfig{Owned: map[string][]core.OwnedPath{"fp": {
+		{Path: unit, Kind: core.OwnedUnit},
+		{Path: pre, Kind: core.OwnedUnit},
+		{Path: conf, Kind: core.OwnedFile},
+	}}})
+	ctx := context.Background()
+	if err := f.WriteFile(ctx, "fp", unit, []byte("[Unit]\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(unit): %v", err)
+	}
+	if got := readFile(t, unit); got != "[Unit]\n" {
+		t.Errorf("unit content = %q", got)
+	}
+	info, err := os.Stat(unit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Errorf("unit mode = %o, want 644", info.Mode().Perm())
+	}
+	if err := f.WriteFile(ctx, "fp", unit, []byte("[Unit]\nDescription=x\n"), 0o644); err != nil {
+		t.Errorf("rewriting the recorded unit: %v", err)
+	}
+	if err := f.WriteFile(ctx, "fp", conf, []byte("a=1\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(file): %v", err)
+	}
+	if err := os.WriteFile(pre, []byte("[Unit]\nDescription=not ours\n"), 0o644); err != nil { //nolint:gosec // G306: a unit file's usual mode
+		t.Fatal(err)
+	}
+	err = f.WriteFile(ctx, "fp", pre, []byte("x"), 0o644)
+	if err == nil || !strings.Contains(err.Error(), pre) {
+		t.Errorf("WriteFile over a unit file Darkpanel did not write = %v, want a refusal naming it", err)
+	}
+	if got := readFile(t, pre); got != "[Unit]\nDescription=not ours\n" {
+		t.Errorf("the pre-existing unit file changed to %q", got)
+	}
+	if err := f.WriteFile(ctx, "fp", filepath.Join(dir, "darkpanel-other.service"), []byte("x"), 0o644); err == nil {
+		t.Error("WriteFile of an undeclared unit succeeded")
+	}
+	want := []core.OwnedEntry{
+		{Path: unit, Module: "fp", Kind: core.OwnedUnit, CreatedAt: filesNow},
+		{Path: conf, Module: "fp", Kind: core.OwnedFile, CreatedAt: filesNow},
+	}
+	if got, _ := own.List(ctx); !reflect.DeepEqual(got, want) {
+		t.Errorf("ownership = %+v, want %+v", got, want)
+	}
+}
+
+func TestRemoveUnitKind(t *testing.T) {
+	dir := t.TempDir()
+	unit := filepath.Join(dir, "darkpanel-fp.service")
+	f, own := fpFiles(t, FilesConfig{Owned: map[string][]core.OwnedPath{"fp": {{Path: unit, Kind: core.OwnedUnit}}}})
+	ctx := context.Background()
+	if err := f.WriteFile(ctx, "fp", unit, []byte("[Unit]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Remove(ctx, "fp", unit); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if _, err := os.Lstat(unit); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("unit file still present: %v", err)
+	}
+	if got, _ := own.List(ctx); len(got) != 0 {
+		t.Errorf("ownership = %+v, want none", got)
+	}
+	if err := f.Remove(ctx, "fp", unit); err != nil {
+		t.Errorf("Remove of a missing unit file: %v", err)
+	}
+	victim := filepath.Join(dir, "victim")
+	if err := os.WriteFile(victim, []byte("keep\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, unit); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Remove(ctx, "fp", unit); err != nil {
+		t.Fatalf("Remove of a symlink: %v", err)
+	}
+	if _, err := os.Lstat(unit); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("symlink still present: %v", err)
+	}
+	if got := readFile(t, victim); got != "keep\n" {
+		t.Errorf("symlink target changed to %q", got)
+	}
+}
+
+func TestRename(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub")
+	if err := os.Mkdir(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	bin, next, prev, other := filepath.Join(dir, "derper"), filepath.Join(dir, "derper.new"), filepath.Join(dir, "derper.prev"), filepath.Join(sub, "derper")
+	undeclared := filepath.Join(dir, "undeclared")
+	f, own := fpFiles(t, FilesConfig{Owned: map[string][]core.OwnedPath{"fp": {
+		{Path: bin, Kind: core.OwnedFile}, {Path: next, Kind: core.OwnedFile},
+		{Path: prev, Kind: core.OwnedFile}, {Path: other, Kind: core.OwnedFile},
+	}}})
+	ctx := context.Background()
+	if err := f.WriteFile(ctx, "fp", bin, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.WriteFile(ctx, "fp", next, []byte("new"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(undeclared, []byte("u"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(undeclared, prev); err != nil {
+		t.Fatal(err)
+	}
+	refused := []struct {
+		name, from, to, names string
+	}{
+		{"another directory", bin, other, other},
+		{"undeclared source", undeclared, bin, undeclared},
+		{"undeclared target", bin, undeclared, undeclared},
+		{"symlinked source", prev, bin, prev},
+		{"onto itself", bin, bin, bin},
+	}
+	for _, c := range refused {
+		err := f.Rename(ctx, "fp", c.from, c.to)
+		if err == nil || !strings.Contains(err.Error(), c.names) {
+			t.Errorf("%s: Rename = %v, want a refusal naming %s", c.name, err, c.names)
+		}
+	}
+	if err := os.Remove(prev); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Rename(ctx, "fp", prev, bin); err == nil || !strings.Contains(err.Error(), prev) {
+		t.Errorf("missing source: Rename = %v, want a refusal naming %s", err, prev)
+	}
+	if got := readFile(t, bin); got != "old" {
+		t.Fatalf("a refused rename changed %s to %q", bin, got)
+	}
+	if err := f.Rename(ctx, "fp", next, bin); err != nil {
+		t.Fatalf("Rename: %v", err)
+	}
+	if got := readFile(t, bin); got != "new" {
+		t.Errorf("%s = %q, want the renamed content", bin, got)
+	}
+	if names := dirNames(t, dir); !reflect.DeepEqual(names, []string{"derper", "sub", "undeclared"}) {
+		t.Errorf("directory holds %v", names)
+	}
+	want := []core.OwnedEntry{{Path: bin, Module: "fp", Kind: core.OwnedFile, CreatedAt: filesNow}}
+	if got, _ := own.List(ctx); !reflect.DeepEqual(got, want) {
+		t.Errorf("ownership = %+v, want %+v (the target recorded, the source forgotten)", got, want)
+	}
+}
+
+func TestWriteFileAt(t *testing.T) {
+	dir := t.TempDir()
+	fd, err := unix.Open(dir, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = unix.Close(fd) }()
+	uid, gid := os.Geteuid(), os.Getegid()
+	if uid == 0 {
+		uid, gid = 12345, 12346
+	}
+	path := filepath.Join(dir, "a")
+	if err := writeFileAt(fd, "a", path, []byte("data"), 0o640, uid, gid); err != nil {
+		t.Fatalf("writeFileAt: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := info.Sys().(*syscall.Stat_t)
+	if readFile(t, path) != "data" || info.Mode().Perm() != 0o640 || int(st.Uid) != uid || int(st.Gid) != gid {
+		t.Errorf("wrote %q mode %o owner %d:%d, want data, 640, %d:%d", readFile(t, path), info.Mode().Perm(), st.Uid, st.Gid, uid, gid)
+	}
+	victim := filepath.Join(dir, "victim")
+	if err := os.WriteFile(victim, []byte("keep\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFileAt(fd, "link", filepath.Join(dir, "link"), []byte("x"), 0o600, uid, gid); err == nil {
+		t.Error("writeFileAt over a symlink succeeded")
+	}
+	if got := readFile(t, victim); got != "keep\n" {
+		t.Errorf("symlink target changed to %q", got)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFileAt(fd, "sub", filepath.Join(dir, "sub"), []byte("x"), 0o600, uid, gid); err == nil {
+		t.Error("writeFileAt over a directory succeeded")
+	}
+	if names := dirNames(t, dir); !reflect.DeepEqual(names, []string{"a", "link", "sub", "victim"}) {
+		t.Errorf("directory holds %v, want no temporary file left", names)
+	}
+}
+
+func TestOpenBeneath(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "real"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "real", "g"), []byte("g"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("real", filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("g", filepath.Join(dir, "real", "h")); err != nil {
+		t.Fatal(err)
+	}
+	fd, err := unix.Open(dir, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = unix.Close(fd) }()
+	cases := []struct {
+		name string
+		want error // nil: the open succeeds
+	}{
+		{"real/g", nil},
+		{"link/g", unix.ELOOP},
+		{"real/h", unix.ELOOP},
+		{"../" + filepath.Base(dir), unix.EXDEV},
+		{"/etc", unix.EXDEV},
+		{"real/missing", unix.ENOENT},
+	}
+	for _, c := range cases {
+		got, err := openBeneath(fd, c.name, unix.O_RDONLY, 0)
+		if err == nil {
+			_ = unix.Close(got)
+		}
+		if !errors.Is(err, c.want) {
+			t.Errorf("openBeneath(%s) = %v, want %v", c.name, err, c.want)
+		}
 	}
 }

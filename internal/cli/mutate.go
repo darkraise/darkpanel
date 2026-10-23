@@ -86,16 +86,50 @@ func waitChange(ctx context.Context, c *client, ch changeWire, raw json.RawMessa
 	return ch, raw, nil
 }
 
-// addMutatingFlags adds --yes, and --confirmation for an irreversible
-// action or --confirm for a revertible one.
-func addMutatingFlags(cmd *cobra.Command, class core.Class) {
+// addMutatingFlags adds --yes, --confirmation for an irreversible action or
+// --confirm for a revertible one, and --override for an action with Guards.
+func addMutatingFlags(cmd *cobra.Command, spec core.ActionSpec) {
 	cmd.Flags().Bool("yes", false, "apply without asking Apply? [y/N]; an irreversible action still needs its confirmation phrase")
-	switch class {
+	switch spec.Class {
 	case core.ClassIrreversible:
 		cmd.Flags().String("confirmation", "", "the confirmation phrase the plan names, instead of typing it")
 	case core.ClassRevertible:
 		cmd.Flags().Bool("confirm", false, "confirm the change at once instead of leaving it pending until its revert deadline")
 	}
+	if len(spec.Guards) == 0 {
+		return
+	}
+	var ids []string
+	for _, g := range spec.Guards {
+		if g.Overridable {
+			ids = append(ids, g.ID)
+		}
+	}
+	usage := "plan again with this failing guard overridden (repeatable)"
+	if len(ids) > 0 {
+		usage += "; overridable: " + strings.Join(ids, ", ")
+	}
+	cmd.Flags().StringArray("override", nil, usage)
+}
+
+// withOverrides sets the input's overrides to the --override ids when the
+// flag was given.
+func withOverrides(cmd *cobra.Command, input json.RawMessage) (json.RawMessage, error) {
+	if !cmd.Flags().Changed("override") {
+		return input, nil
+	}
+	ids, err := cmd.Flags().GetStringArray("override")
+	if err != nil {
+		return nil, err
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(input, &obj); err != nil {
+		return nil, fmt.Errorf("cli: read the input: %w", err)
+	}
+	if obj["overrides"], err = json.Marshal(ids); err != nil {
+		return nil, err
+	}
+	return json.Marshal(obj)
 }
 
 // runMutating runs the mutating flow of one action (spec section 15), on
@@ -107,6 +141,9 @@ func (a *app) runMutating(cmd *cobra.Command, def core.ActionDef, fields []input
 	}
 	input, err := collectInput(cmd, fields, a.term)
 	if err != nil {
+		return err
+	}
+	if input, err = withOverrides(cmd, input); err != nil {
 		return err
 	}
 	if local {
@@ -199,6 +236,9 @@ func (a *app) planAndApply(cmd *cobra.Command, calls actionCalls, input any, agr
 	printPlan(info, plan)
 	for _, g := range plan.Guards {
 		if !g.OK {
+			if g.Overridable {
+				_, _ = fmt.Fprintf(info, "override it with --override %s\n", sanitize(g.ID))
+			}
 			return changeWire{}, nil, refusedf("guard %s failed: %s; nothing was applied", g.ID, g.Message)
 		}
 	}

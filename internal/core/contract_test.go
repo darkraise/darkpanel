@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -135,5 +137,79 @@ func TestDefinite(t *testing.T) {
 	coded := errcode.New(errcode.InvalidInput, "the name is taken")
 	if got := errcode.From(Definite(coded)); got != coded || got.Code != errcode.InvalidInput {
 		t.Errorf("errcode.From(Definite(coded)) = %v, want the original %s error", got, errcode.InvalidInput)
+	}
+}
+
+// declGuardedInput is an action input with guard support.
+type declGuardedInput struct {
+	Guarded
+	Name string `json:"name"`
+}
+
+func TestGuardedJSON(t *testing.T) {
+	tests := []struct {
+		name string
+		in   declGuardedInput
+		want string
+	}{
+		{"filled", declGuardedInput{
+			Guarded: Guarded{
+				Guard:     &GuardContext{Client: &Peer{Addr: netip.MustParseAddr("192.0.2.1"), Port: 50000}},
+				Overrides: []string{"x.lockout"},
+			},
+			Name: "n",
+		}, `{"guard":{"client":{"addr":"192.0.2.1","port":50000}},"overrides":["x.lockout"],"name":"n"}`},
+		{"zero", declGuardedInput{Name: "n"}, `{"name":"n"}`},
+	}
+	for _, tt := range tests {
+		b, err := json.Marshal(tt.in)
+		if err != nil || string(b) != tt.want {
+			t.Errorf("%s: json.Marshal = %s, %v; want %s", tt.name, b, err, tt.want)
+		}
+	}
+}
+
+func TestGuardContextJSONNames(t *testing.T) {
+	g := GuardContext{
+		Client: &Peer{Addr: netip.MustParseAddr("2001:db8::7"), Port: 41000},
+		Via: &ProxyPath{
+			ExposureID:   "e1",
+			Kind:         "npm",
+			ProxyAddr:    netip.MustParseAddr("172.18.0.2"),
+			ListenerAddr: netip.MustParseAddrPort("172.18.0.1:8443"),
+			Public:       []netip.AddrPort{netip.MustParseAddrPort("203.0.113.5:443"), netip.MustParseAddrPort("[2001:db8::1]:443")},
+		},
+		PanelListen: []netip.AddrPort{netip.MustParseAddrPort("0.0.0.0:8443")},
+		AgentListen: []netip.AddrPort{netip.MustParseAddrPort("[::]:7443")},
+		AgentPeers:  []netip.Addr{netip.MustParseAddr("198.51.100.4"), netip.MustParseAddr("2001:db8::2")},
+	}
+	b, err := json.Marshal(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"client":{"addr":"2001:db8::7","port":41000},` +
+		`"via":{"exposureId":"e1","kind":"npm","proxyAddr":"172.18.0.2","listenerAddr":"172.18.0.1:8443",` +
+		`"public":["203.0.113.5:443","[2001:db8::1]:443"]},` +
+		`"panelListen":["0.0.0.0:8443"],"agentListen":["[::]:7443"],"agentPeers":["198.51.100.4","2001:db8::2"]}`
+	if string(b) != want {
+		t.Errorf("json.Marshal = %s\nwant %s", b, want)
+	}
+	var back GuardContext
+	if err := json.Unmarshal(b, &back); err != nil || !reflect.DeepEqual(back, g) {
+		t.Errorf("json.Unmarshal = %+v, %v; want %+v", back, err, g)
+	}
+}
+
+func TestStreamInfoJSON(t *testing.T) {
+	b, err := json.Marshal(StreamInfo{Module: "docker", Name: "logs", SchemaHash: "ab"})
+	if want := `{"module":"docker","name":"logs","schemaHash":"ab"}`; err != nil || string(b) != want {
+		t.Errorf("json.Marshal = %s, %v; want %s", b, err, want)
+	}
+}
+
+func TestGuardSerialisesOverrideFields(t *testing.T) {
+	b, err := json.Marshal(Guard{ID: "a", OK: true, Overridable: true, Overridden: true})
+	if want := `{"id":"a","ok":true,"message":"","overridable":true,"overridden":true}`; err != nil || string(b) != want {
+		t.Errorf("json.Marshal = %s, %v; want %s", b, err, want)
 	}
 }

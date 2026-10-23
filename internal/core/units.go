@@ -22,6 +22,9 @@ type Units interface {
 	Disable(ctx context.Context, unitFiles ...string) error
 	Reload(ctx context.Context) error
 	State(ctx context.Context, unit string) (UnitState, error)
+	// List returns the loaded units whose names match one glob pattern
+	// (systemd's ListUnitsByPatterns), states as State reports them.
+	List(ctx context.Context, pattern string) ([]UnitStatus, error)
 }
 
 // TransientService is a service unit that exists until it stops.
@@ -43,9 +46,17 @@ type TransientTimer struct {
 }
 
 // UnitState is a unit's state as systemd reports it. A unit that does not
-// exist has LoadState "not-found". PendingJob is the type of the job queued
-// for the unit ("start", "stop", ...), "" when none.
+// exist has LoadState "not-found". MainPID is the Service interface's MainPID
+// property, 0 for a unit that is not a running service. PendingJob is the
+// type of the job queued for the unit ("start", "stop", ...), "" when none.
 type UnitState struct {
 	LoadState, ActiveState, SubState string
+	MainPID                          uint32
 	PendingJob                       string
+}
+
+// UnitStatus is one unit List found.
+type UnitStatus struct {
+	Name string
+	UnitState
 }

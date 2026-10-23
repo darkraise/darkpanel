@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -58,6 +59,9 @@ type Config struct {
 	Units core.Units
 	// TaskBinary is the darkpanel binary a task unit runs.
 	TaskBinary string
+	// ModuleUnits returns the Env.Units of a handler of module; nil leaves
+	// Env.Units nil.
+	ModuleUnits func(module string) core.Units
 }
 
 // Deadlines of spec 1.3.
@@ -289,9 +293,17 @@ func (e *Engine) admitRecovery() error {
 	return nil
 }
 
-func (e *Engine) env(p core.Principal) core.Env {
+// env is the Env of a handler call of def as p. Env.Units comes from
+// ModuleUnits alone, never from Base, so a module reaches only the units its
+// own client allows.
+func (e *Engine) env(p core.Principal, def core.ActionDef) core.Env {
 	env := e.cfg.Base
 	env.Principal = p
+	env.Units = nil
+	if e.cfg.ModuleUnits != nil {
+		module, _, _ := strings.Cut(def.Spec.Name, ".")
+		env.Units = e.cfg.ModuleUnits(module)
+	}
 	return env
 }
 
@@ -315,13 +327,18 @@ func (e *Engine) Read(ctx context.Context, p core.Principal, ref core.ActionRef,
 	if def.Spec.Class != core.ClassRead {
 		return nil, errcode.New(errcode.ActionUnknown, fmt.Sprintf("%s is not a read action", ref))
 	}
+	// A reveal or an internal read must be audited and never redacted, which
+	// only Reveal and ReadInternal do.
+	if def.Spec.Reveal || def.Spec.Internal {
+		return nil, errcode.New(errcode.ActionUnknown, fmt.Sprintf("%s has no read operation", ref))
+	}
 	if err := e.cfg.Validator.ValidateInput(def, input); err != nil {
 		return nil, err
 	}
 	var out json.RawMessage
 	err = e.protect(ref, "Read", func() error {
 		var err error
-		out, err = def.Handler.Read(ctx, e.env(p), input)
+		out, err = def.Handler.Read(ctx, e.env(p, def), input)
 		return err
 	})
 	if err != nil {
@@ -350,10 +367,11 @@ func (e *Engine) Plan(ctx context.Context, p core.Principal, ref core.ActionRef,
 	if err != nil {
 		return core.PlanView{}, err
 	}
-	env := e.env(p)
+	env := e.env(p, def)
 	if opts.Call != nil {
 		env.Call = *opts.Call
 		env.Call.RepairOf = ""
+		env.Call.GuardRefresh = nil
 		env.Call.Retired = slices.Clone(opts.Call.Retired)
 	}
 	call, err := encodeCall(opts.Call)
@@ -368,8 +386,11 @@ func (e *Engine) Plan(ctx context.Context, p core.Principal, ref core.ActionRef,
 // repairs, when set, the change a repair plan repairs (core_plans.repairs).
 func (e *Engine) makePlan(ctx context.Context, p core.Principal, def core.ActionDef, canonical json.RawMessage, env core.Env, call any, repairs string) (core.PlanView, error) {
 	ref := def.Ref()
+	overrides, err := guardOverrides(def, canonical)
+	if err != nil {
+		return core.PlanView{}, err
+	}
 	var out core.PlanOutcome
-	var err error
 	if def.Spec.Class == core.ClassComposite {
 		out, _, err = e.compositePlan(ctx, p, def, canonical)
 	} else {
@@ -380,6 +401,9 @@ func (e *Engine) makePlan(ctx context.Context, p core.Principal, def core.Action
 		})
 	}
 	if err != nil {
+		return core.PlanView{}, err
+	}
+	if err := checkGuards(def, overrides, &out); err != nil {
 		return core.PlanView{}, err
 	}
 	if def.Spec.Class != core.ClassIrreversible {

@@ -261,6 +261,21 @@ func TestEndToEnd(t *testing.T) {
 		t.Errorf("hostinfo.summary = %+v", summary)
 	}
 
+	// The module availability the UI greys actions out from, through the
+	// dispatcher's cache and the embedded agent.
+	var avail struct {
+		Module    string `json:"module"`
+		Available bool   `json:"available"`
+		Actions   []struct {
+			Name      string `json:"name"`
+			Available bool   `json:"available"`
+		} `json:"actions"`
+	}
+	e.want(e.do("GET", "/api/v1/hosts/"+hostID+"/modules/core/availability", nil, e.admin()), 200, &avail)
+	if avail.Module != "core" || !avail.Available || len(avail.Actions) == 0 || !avail.Actions[0].Available {
+		t.Errorf("core availability = %+v, want the module and its actions available", avail)
+	}
+
 	// A token: its secret is in the apply response only (register row 8).
 	created := e.apply("core.token.create", map[string]any{"name": "cli", "scope": "read"})
 	var newToken struct {

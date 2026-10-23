@@ -120,9 +120,18 @@ type harness struct {
 	user   auth.User
 	secret string
 	log    *bytes.Buffer
+	// cfg is srv's configuration, for a test that serves one with a field
+	// changed.
+	cfg Config
 }
 
 func newHarness(t *testing.T) *harness {
+	t.Helper()
+	return newHarnessWith(t)
+}
+
+// newHarnessWith is newHarness with mods registered after demoModule.
+func newHarnessWith(t *testing.T, mods ...core.Module) *harness {
 	t.Helper()
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -148,13 +157,13 @@ func newHarness(t *testing.T) *harness {
 	if h.user, err = h.auth.ActivateUser(ctx, "admin", h.code()); err != nil {
 		t.Fatal(err)
 	}
-	reg, err := core.NewRegistry(demoModule{})
+	reg, err := core.NewRegistry(append([]core.Module{demoModule{}}, mods...)...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	log, buf := testLog()
 	h.log = buf
-	h.srv, err = New(Config{
+	h.cfg = Config{
 		Dispatcher:    h.disp,
 		Auth:          h.auth,
 		Registry:      reg,
@@ -163,7 +172,8 @@ func newHarness(t *testing.T) *harness {
 		HostID:        testHostID,
 		UI:            testUI,
 		Log:           log,
-	})
+	}
+	h.srv, err = New(h.cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/darkraise/darkpanel/internal/agent/wire"
 	"github.com/darkraise/darkpanel/internal/core"
@@ -30,27 +31,32 @@ const problemContentType = "application/problem+json"
 
 // The operations of the agent API, one per route.
 const (
-	opHello      = "hello"
-	opRead       = "read"
-	opResource   = "resource"
-	opPlan       = "plan"
-	opApply      = "apply"
-	opConfirm    = "confirm"
-	opRevert     = "revert"
-	opChange     = "change"
-	opChanges    = "changes"
-	opPreflight  = "preflight"
-	opJournal    = "journal"
-	opAck        = "ack"
-	opUndo       = "undo"
-	opRepair     = "repair"
-	opRelease    = "release"
-	opEffects    = "effects"
-	opObserve    = "observe"
-	opResolve    = "resolve"
-	opLookup     = "lookup"
-	opRetire     = "retire"
-	opAckPrivate = "ack-private"
+	opHello        = "hello"
+	opRead         = "read"
+	opResource     = "resource"
+	opPlan         = "plan"
+	opApply        = "apply"
+	opConfirm      = "confirm"
+	opRevert       = "revert"
+	opChange       = "change"
+	opChanges      = "changes"
+	opPreflight    = "preflight"
+	opJournal      = "journal"
+	opAck          = "ack"
+	opUndo         = "undo"
+	opRepair       = "repair"
+	opRelease      = "release"
+	opEffects      = "effects"
+	opObserve      = "observe"
+	opResolve      = "resolve"
+	opLookup       = "lookup"
+	opRetire       = "retire"
+	opAckPrivate   = "ack-private"
+	opEnabled      = "enabled"
+	opAvailability = "availability"
+	opReveal       = "reveal"
+	opStreams      = "streams"
+	opStream       = "stream"
 )
 
 // ControllerHello is the controller's half of a hello, sent in the headers
@@ -85,6 +91,8 @@ type handler struct {
 	allow func(ctx context.Context, op, name string) error
 	// hello checks the controller's half of a hello.
 	hello func(r *http.Request) error
+	// planInput refuses a plan's input before it reaches the agent.
+	planInput func(input json.RawMessage) error
 }
 
 // NewHandler serves the agent API on transport streams: the caller is the
@@ -95,6 +103,7 @@ func NewHandler(cfg Config) http.Handler {
 	h.call = headerCall
 	h.allow = func(context.Context, string, string) error { return nil }
 	h.hello = h.controllerHello
+	h.planInput = func(json.RawMessage) error { return nil }
 	return h.routes(true)
 }
 
@@ -122,15 +131,28 @@ func (h *handler) routes(controller bool) *http.ServeMux {
 		mux.HandleFunc("POST "+prefix+"changes/{id}/release", h.handleRelease)
 		mux.HandleFunc("GET "+prefix+"changes/{id}/effects", h.handleEffects)
 		mux.HandleFunc("GET "+prefix+"changes/{id}/effects/{seq}/observe", h.handleObserve)
+		mux.HandleFunc("GET "+prefix+"modules/{id}/availability", h.handleAvailability)
 		mux.HandleFunc("POST "+prefix+"changes/{id}/effects/{seq}/resolve", h.handleResolve)
 		mux.HandleFunc("POST "+prefix+"changes/{id}/private-output/ack", h.handleAckPrivate)
 		mux.HandleFunc("GET "+prefix+"plans/{id}", h.handleLookup)
 		mux.HandleFunc("POST "+prefix+"plans/{id}/retire", h.handleRetire)
+		mux.HandleFunc("PUT "+prefix+"modules/{id}/enabled", h.handleEnabled)
+		mux.HandleFunc("POST "+prefix+"reveal/{name}/{version}", h.handleReveal)
+		mux.HandleFunc("GET "+prefix+"streams", h.handleStreams)
+		mux.HandleFunc("GET "+prefix+"streams/{module}/{name}", h.handleStream)
 	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		h.writeProblem(w, errcode.New(errcode.NotFound, fmt.Sprintf("no agent API route %s %s", r.Method, r.URL.Path)))
 	})
 	return mux
+}
+
+// OpensStream reports whether r is GET streams/{module}/{name}, which holds
+// its request for as long as the module stream runs.
+func OpensStream(r *http.Request) bool {
+	rest, ok := strings.CutPrefix(r.URL.Path, prefix+"streams/")
+	module, name, two := strings.Cut(rest, "/")
+	return ok && r.Method == http.MethodGet && two && module != "" && name != "" && !strings.Contains(name, "/")
 }
 
 // headerPrincipal reads the principal the controller sends.
@@ -243,6 +265,49 @@ func (h *handler) handleRead(w http.ResponseWriter, r *http.Request) {
 	h.writeRaw(w, out)
 }
 
+// handleReveal runs a reveal action, or with Darkpanel-Internal: 1 an
+// Internal read, and answers the value as it is (spec 1.7 and 1.14). Only
+// the controller's session serves the route, so every reveal is authorized
+// and audited by the controller; the agent socket has no form of it.
+func (h *handler) handleReveal(w http.ResponseWriter, r *http.Request) {
+	ref, err := actionRef(r)
+	var p core.Principal
+	if err == nil {
+		p, err = h.actor(r, opReveal, ref.Name)
+	}
+	var internal bool
+	if err == nil {
+		internal, err = internalHeader(r)
+	}
+	var input json.RawMessage
+	if err == nil {
+		input, err = readJSON(w, r)
+	}
+	var out json.RawMessage
+	if err == nil {
+		out, err = h.cfg.Agent.Reveal(r.Context(), p, ref, input, internal)
+	}
+	if err != nil {
+		h.writeProblem(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	h.writeRaw(w, out)
+}
+
+// internalHeader reads Darkpanel-Internal: absent asks for a reveal, "1"
+// for an Internal read. Any other value is refused, so that a malformed
+// header never selects the other kind of call.
+func internalHeader(r *http.Request) (bool, error) {
+	switch vs := r.Header.Values(wire.HeaderInternal); {
+	case len(vs) == 0:
+		return false, nil
+	case len(vs) == 1 && vs[0] == "1":
+		return true, nil
+	}
+	return false, errcode.New(errcode.InvalidInput, fmt.Sprintf("the %s header accepts only the value 1", wire.HeaderInternal))
+}
+
 func (h *handler) handleResource(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("module") + "." + r.PathValue("resource")
 	p, err := h.actor(r, opResource, name)
@@ -270,6 +335,9 @@ func (h *handler) handlePlan(w http.ResponseWriter, r *http.Request) {
 	var input json.RawMessage
 	if err == nil {
 		input, err = readJSON(w, r)
+	}
+	if err == nil {
+		err = h.planInput(input)
 	}
 	var v core.PlanView
 	if err == nil {
@@ -376,6 +444,21 @@ func (h *handler) handlePreflight(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.writeJSON(w, http.StatusOK, wire.FromModuleStatus(st))
+}
+
+// handleAvailability answers which actions of a module are available (spec
+// 1.7); it serves only the controller's session.
+func (h *handler) handleAvailability(w http.ResponseWriter, r *http.Request) {
+	err := h.allow(r.Context(), opAvailability, "")
+	var m core.ModuleAvailability
+	if err == nil {
+		m, err = h.cfg.Agent.Availability(r.Context(), r.PathValue("id"))
+	}
+	if err != nil {
+		h.writeProblem(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, wire.FromModuleAvailability(m))
 }
 
 // journalQuery reads after (a sequence, 0 when absent) and limit (a
@@ -643,6 +726,90 @@ func (h *handler) handleAckPrivate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleEnabled stores the controller's enabled flag of a module (spec 1.4).
+// A body without enabled is refused rather than read as a disable.
+func (h *handler) handleEnabled(w http.ResponseWriter, r *http.Request) {
+	err := h.allow(r.Context(), opEnabled, "")
+	var body struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if err == nil {
+		err = decodeJSON(w, r, &body)
+	}
+	if err == nil && body.Enabled == nil {
+		err = &errcode.Error{Code: errcode.InvalidInput, Detail: "enabled is required",
+			Fields: []errcode.FieldError{{Path: "/enabled", Message: "required, true or false"}}}
+	}
+	if err == nil {
+		err = h.cfg.Agent.SetModuleEnabled(r.Context(), r.PathValue("id"), *body.Enabled)
+	}
+	if err != nil {
+		h.writeProblem(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *handler) handleStreams(w http.ResponseWriter, r *http.Request) {
+	err := h.allow(r.Context(), opStreams, "")
+	var list []core.StreamInfo
+	if err == nil {
+		list, err = h.cfg.Agent.Streams(r.Context())
+	}
+	if err != nil {
+		h.writeProblem(w, err)
+		return
+	}
+	if list == nil {
+		list = []core.StreamInfo{}
+	}
+	h.writeJSON(w, http.StatusOK, wire.Streams{Streams: list})
+}
+
+// handleStream answers a module stream's JSON lines and flushes after each
+// read of the stream's body, so every line reaches the controller as soon
+// as the runtime writes it. The stream ends when its body does, or when the
+// controller closes the connection, which ends the request's context and
+// with it the stream's.
+func (h *handler) handleStream(w http.ResponseWriter, r *http.Request) {
+	// ServeMux routes HEAD here too; OpensStream does not count it, so the
+	// daemon's guard would hold its lock for the stream's whole life.
+	if r.Method == http.MethodHead {
+		w.Header().Set("Allow", http.MethodGet)
+		h.writeProblem(w, errcode.New(errcode.MethodNotAllowed, "a module stream opens with GET"))
+		return
+	}
+	module, name := r.PathValue("module"), r.PathValue("name")
+	p, err := h.actor(r, opStream, module+"."+name)
+	var body io.ReadCloser
+	if err == nil {
+		body, err = h.cfg.Agent.OpenStream(r.Context(), p, module, name, r.URL.Query())
+	}
+	if err != nil {
+		h.writeProblem(w, err)
+		return
+	}
+	defer func() { _ = body.Close() }()
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.WriteHeader(http.StatusOK)
+	rc := http.NewResponseController(w)
+	if rc.Flush() != nil {
+		return
+	}
+	buf := make([]byte, 32<<10)
+	for {
+		n, err := body.Read(buf)
+		if n > 0 {
+			if _, werr := w.Write(buf[:n]); werr != nil || rc.Flush() != nil {
+				return
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
 }
 
 // readJSON reads a request body of one JSON value, sent as application/json

@@ -1,11 +1,16 @@
 package schemas_test
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
+	"reflect"
+	"regexp"
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/schema"
 	"github.com/darkraise/darkpanel/internal/registry"
 	"github.com/darkraise/darkpanel/schemas"
 )
@@ -51,5 +56,51 @@ func TestActionHashesMatchTheEmbeddedSnapshots(t *testing.T) {
 		if len(hashes) != n || side == core.SideController && n == 0 {
 			t.Errorf("side %s: %d hashes for %d actions", side, len(hashes), n)
 		}
+	}
+}
+
+type strmParams struct {
+	Container string `json:"container"`
+}
+
+type strmEvent struct {
+	Line string `json:"line"`
+}
+
+type strmEventPlus struct {
+	Line   string `json:"line"`
+	Stream string `json:"stream"`
+}
+
+func TestStreamHash(t *testing.T) {
+	logs := core.DefineStream("logs", func(context.Context, core.Env, strmParams, func(strmEvent) error) error { return nil })
+	hash, err := schemas.StreamHash(logs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(hash) {
+		t.Errorf("StreamHash = %q, want 64 lower-case hex digits", hash)
+	}
+	params, err := schema.Input(reflect.TypeFor[strmParams]())
+	if err != nil {
+		t.Fatal(err)
+	}
+	event, err := schema.Output(reflect.TypeFor[strmEvent]())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := schemas.Hash(json.RawMessage(`{"params":` + string(params) + `,"event":` + string(event) + `}`))
+	if err != nil || hash != want {
+		t.Errorf("StreamHash = %s, %v; want the hash of {params, event}, %s", hash, err, want)
+	}
+	if again, err := schemas.StreamHash(logs); err != nil || again != hash {
+		t.Errorf("StreamHash again = %s, %v; want %s", again, err, hash)
+	}
+	wider := core.DefineStream("logs", func(context.Context, core.Env, strmParams, func(strmEventPlus) error) error { return nil })
+	if other, err := schemas.StreamHash(wider); err != nil || other == hash {
+		t.Errorf("StreamHash of an event with one more field = %s, %v; want a different hash", other, err)
+	}
+	if _, err := schemas.StreamHash(core.StreamDef{Name: "broken"}); err == nil {
+		t.Error("StreamHash of a def without types succeeded")
 	}
 }

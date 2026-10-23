@@ -19,6 +19,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/cli"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/core/lifecycle"
 	"github.com/darkraise/darkpanel/internal/core/store"
 	"github.com/darkraise/darkpanel/internal/install"
 	"github.com/darkraise/darkpanel/internal/paths"
@@ -272,6 +273,34 @@ func TestAgentTask(t *testing.T) {
 	}
 	if len(s.runs) != 0 {
 		t.Errorf("agent task ran the daemon %d times, want never", len(s.runs))
+	}
+}
+
+func TestAgentTaskScopesUnits(t *testing.T) {
+	s := fakeAgent(t, 0)
+	taskAgentDB(t, s.layout.Paths)
+	var cfgs []lifecycle.Config
+	old := newTaskEngine
+	t.Cleanup(func() { newTaskEngine = old })
+	newTaskEngine = func(cfg lifecycle.Config) (*lifecycle.Engine, error) {
+		cfgs = append(cfgs, cfg)
+		return lifecycle.New(cfg)
+	}
+	if out, code := runArgs("agent", "task", "01JTASK", "apply", "1"); code != cli.ExitOK {
+		t.Fatalf("agent task: exit %d: %s", code, out)
+	}
+	if len(cfgs) != 1 || cfgs[0].ModuleUnits == nil {
+		t.Fatalf("agent task built %d engines, want one with ModuleUnits", len(cfgs))
+	}
+	units := cfgs[0].ModuleUnits
+	if got := units(core.ModuleIDCore); got != core.Units(s.systemd) {
+		t.Errorf("the core module's units are %T, want the systemd connection", got)
+	}
+	// The systemd seam embeds a nil client, so a call that reached it would
+	// panic; the hostinfo module's client refuses before that.
+	err := units("hostinfo").Start(context.Background(), "nginx.service")
+	if err == nil || err.Error() != "platform: module hostinfo may not Start unit nginx.service" {
+		t.Errorf("hostinfo's Start of nginx.service = %v, want the scoped client's refusal", err)
 	}
 }
 

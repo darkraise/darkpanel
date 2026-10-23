@@ -27,12 +27,16 @@ func (s *Server) networkRoutes() []route {
 		{method: http.MethodPost, path: "/api/v1/auth/logout", summary: "Log out and clear the session cookie", handler: s.handleLogout},
 		{method: http.MethodGet, path: "/api/v1/auth/session", summary: "Describe the calling session or token", handler: s.handleSession},
 		{method: http.MethodGet, path: "/api/v1/hosts/{host}/resources/{module}/{resource}", perAction: true, handler: s.handleResource},
+		{method: http.MethodGet, path: "/api/v1/hosts/{host}/modules/{module}/availability",
+			summary: "Which actions of a module are available on a host", handler: s.handleAvailability},
 		{method: http.MethodPost, path: hostActions + opPlan, perAction: true, handler: s.actionHandler(core.SideAgent, opPlan)},
 		{method: http.MethodPost, path: hostActions + opApply, perAction: true, handler: s.actionHandler(core.SideAgent, opApply)},
 		{method: http.MethodPost, path: hostActions + opRead, perAction: true, handler: s.actionHandler(core.SideAgent, opRead)},
 		{method: http.MethodPost, path: controllerActions + opPlan, perAction: true, handler: s.actionHandler(core.SideController, opPlan)},
 		{method: http.MethodPost, path: controllerActions + opApply, perAction: true, handler: s.actionHandler(core.SideController, opApply)},
 		{method: http.MethodPost, path: controllerActions + opRead, perAction: true, handler: s.actionHandler(core.SideController, opRead)},
+		{method: http.MethodPost, path: hostActions + opReveal, perAction: true, handler: s.revealHandler(core.SideAgent)},
+		{method: http.MethodPost, path: controllerActions + opReveal, perAction: true, handler: s.revealHandler(core.SideController)},
 		{method: http.MethodGet, path: "/api/v1/changes", summary: "List changes, newest first", handler: s.handleChanges},
 		{method: http.MethodGet, path: "/api/v1/changes/{id}", summary: "Show a change", handler: s.handleChange},
 		{method: http.MethodPost, path: "/api/v1/changes/{id}/confirm", summary: "Confirm a pending change", handler: s.changeOp(true)},
@@ -56,6 +60,10 @@ func (s *Server) networkRoutes() []route {
 		{method: http.MethodGet, path: "/api/v1/openapi.json", summary: "This OpenAPI document", handler: s.handleOpenAPI},
 		{method: http.MethodGet, path: "/api/v1/controller/listeners", summary: "Listener state for the UI footer: Tailscale bound, and a message",
 			handler: s.handleListeners},
+		{method: http.MethodGet, path: "/api/v1/events", summary: "Stream the controller's change, step, host and module events (server-sent events)",
+			handler: s.handleEvents},
+		{method: http.MethodGet, path: "/api/v1/hosts/{host}/streams/{module}/{name}",
+			summary: "Follow a module stream of a host as server-sent events", handler: s.handleStream},
 	}
 }
 

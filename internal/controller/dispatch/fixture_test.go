@@ -268,11 +268,17 @@ func migrated(t *testing.T, path, side string) *store.DB {
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
+	return newHarnessWith(t)
+}
+
+// newHarnessWith is newHarness whose registry also has mods.
+func newHarnessWith(t *testing.T, mods ...core.Module) *harness {
+	t.Helper()
 	ctx := context.Background()
 	dir := t.TempDir()
 	h := &harness{t: t, clock: coretest.NewFakeClock(t0)}
 	var err error
-	if h.reg, err = core.NewRegistry(modules()...); err != nil {
+	if h.reg, err = core.NewRegistry(append(modules(), mods...)...); err != nil {
 		t.Fatal(err)
 	}
 	h.db = migrated(t, filepath.Join(dir, "controller.db"), store.SideController)

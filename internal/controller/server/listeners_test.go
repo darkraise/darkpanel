@@ -290,3 +290,42 @@ func TestRunStopsWhenAListenerFails(t *testing.T) {
 	opts.Bind = localBind
 	start(t, opts)
 }
+
+// TestServesTheEventStream shows the server's event bus behind GET
+// /api/v1/events, and that Shutdown ends an open stream instead of waiting
+// for it until its deadline.
+func TestServesTheEventStream(t *testing.T) {
+	opts := testOptions(t)
+	s := start(t, opts)
+	token := readToken(t, s, opts.Clock.(*coretest.FakeClock))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL(t, s)+"/api/v1/events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 200 || resp.Header.Get("Content-Type") != "text/event-stream" {
+		t.Fatalf("GET /api/v1/events = %d %s", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	s.events.Publish("host", map[string]any{"hostId": "h1", "online": true})
+	want := "id: " + s.events.Epoch() + "-1\nevent: host\ndata: {\"hostId\":\"h1\",\"online\":true}\n\n"
+	got := make([]byte, len(want))
+	if _, err := io.ReadFull(resp.Body, got); err != nil || string(got) != want {
+		t.Fatalf("stream = %q (%v), want %q", got, err, want)
+	}
+
+	stop, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer stopCancel()
+	if err := s.Shutdown(stop); err != nil {
+		t.Fatalf("Shutdown with an open event stream: %v", err)
+	}
+	if rest, err := io.ReadAll(resp.Body); err != nil || len(rest) != 0 {
+		t.Fatalf("after Shutdown the stream read %q, %v; want its end", rest, err)
+	}
+}

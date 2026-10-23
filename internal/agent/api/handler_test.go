@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -10,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"slices"
 	"strings"
@@ -571,6 +573,9 @@ func TestSocketServesNoChangeOps(t *testing.T) {
 		{"GET", "/agent/v1/plans/p1", nil},
 		{"POST", "/agent/v1/plans/p1/retire", nil},
 		{"POST", "/agent/v1/changes/c1/private-output/ack", nil},
+		{"PUT", "/agent/v1/modules/demo/enabled", []byte(`{"enabled":false}`)},
+		{"GET", "/agent/v1/streams", nil},
+		{"GET", "/agent/v1/streams/sm/logs", nil},
 	} {
 		wantProblem(t, call(t, sock, tc.method, tc.path, nil, tc.body), 404, errcode.NotFound)
 	}
@@ -592,5 +597,221 @@ func TestHandlerApplyAnswersAccepted(t *testing.T) {
 	c := tcpClient(t, h, nil)
 	if v, err := c.Apply(context.Background(), testPrincipal, "p1", core.ApplyOptions{}); err != nil || v.State != core.StateApplying {
 		t.Errorf("Apply = %+v, %v; want the applying change", v, err)
+	}
+}
+
+func TestEnablementRoute(t *testing.T) {
+	var got []any
+	fake := &coretest.FakeAgent{SetModuleEnabledFunc: func(_ context.Context, id string, enabled bool) error {
+		if id == "nope" {
+			return errcode.New(errcode.NotFound, "no module nope")
+		}
+		got = append(got, id, enabled)
+		return nil
+	}}
+	h := NewHandler(Config{Agent: fake, Log: discardLog()})
+	for _, tc := range []struct {
+		body    string
+		enabled bool
+	}{
+		{`{"enabled":false}`, false},
+		// A member this agent does not know is ignored, as on every route.
+		{`{"enabled":true,"reason":"later"}`, true},
+	} {
+		got = nil
+		rec := call(t, h, "PUT", "/agent/v1/modules/demo/enabled", nil, []byte(tc.body))
+		if rec.Code != http.StatusNoContent || rec.Body.Len() != 0 {
+			t.Errorf("PUT %s answered %d %s, want 204 and no body", tc.body, rec.Code, rec.Body)
+		}
+		if want := []any{"demo", tc.enabled}; !reflect.DeepEqual(got, want) {
+			t.Errorf("PUT %s: the agent got %v, want %v", tc.body, got, want)
+		}
+	}
+	got = nil
+	wantProblem(t, call(t, h, "PUT", "/agent/v1/modules/nope/enabled", nil, []byte(`{"enabled":true}`)), 404, errcode.NotFound)
+	for _, tc := range []struct {
+		body   string
+		status int
+		code   errcode.Code
+	}{
+		{`{}`, 422, errcode.InvalidInput},
+		{`{"enabled":null}`, 422, errcode.InvalidInput},
+		{`{"enabled":"yes"}`, 400, errcode.InvalidJSON},
+	} {
+		p := wantProblem(t, call(t, h, "PUT", "/agent/v1/modules/demo/enabled", nil, []byte(tc.body)), tc.status, tc.code)
+		if tc.code == errcode.InvalidInput && (len(p.Errors) != 1 || p.Errors[0].Path != "/enabled") {
+			t.Errorf("PUT %s: field errors %+v, want one at /enabled", tc.body, p.Errors)
+		}
+	}
+	if got != nil {
+		t.Errorf("refused requests reached the agent: %v", got)
+	}
+}
+
+func TestAvailabilityRoute(t *testing.T) {
+	answer := core.ModuleAvailability{Module: "demo", Available: true, Actions: []core.ActionAvailability{
+		{Name: "demo.set", Reason: "demo is down"}, {Name: "demo.get", Available: true},
+	}}
+	var asked []string
+	fake := &coretest.FakeAgent{AvailabilityFunc: func(_ context.Context, id string) (core.ModuleAvailability, error) {
+		asked = append(asked, id)
+		if id != "demo" {
+			return core.ModuleAvailability{}, errcode.New(errcode.NotFound, "no module "+id)
+		}
+		return answer, nil
+	}}
+	h := NewHandler(Config{Agent: fake, Log: discardLog()})
+	rec := call(t, h, "GET", "/agent/v1/modules/demo/availability", nil, nil)
+	want := `{"module":"demo","available":true,"reason":null,"actions":[` +
+		`{"name":"demo.set","available":false,"reason":"demo is down"},{"name":"demo.get","available":true,"reason":null}]}`
+	if rec.Code != 200 || rec.Header().Get("Content-Type") != "application/json" || rec.Body.String() != want {
+		t.Errorf("answer %d %s %s\nwant 200 %s", rec.Code, rec.Header().Get("Content-Type"), rec.Body, want)
+	}
+	empty := call(t, NewHandler(Config{Agent: &coretest.FakeAgent{
+		AvailabilityFunc: func(_ context.Context, id string) (core.ModuleAvailability, error) {
+			return core.ModuleAvailability{Module: id, Reason: "no docker"}, nil
+		}}, Log: discardLog()}), "GET", "/agent/v1/modules/demo/availability", nil, nil)
+	if empty.Body.String() != `{"module":"demo","available":false,"reason":"no docker","actions":[]}` {
+		t.Errorf("answer %s, want actions [] when there are none", empty.Body)
+	}
+	wantProblem(t, call(t, h, "GET", "/agent/v1/modules/nope/availability", nil, nil), 404, errcode.NotFound)
+	if !slices.Equal(asked, []string{"demo", "nope"}) {
+		t.Errorf("the agent was asked about %v", asked)
+	}
+
+	var enrolled atomic.Bool
+	enrolled.Store(true)
+	sock := socketHandler(newSocketFake(), &enrolled)
+	wantProblem(t, call(t, sock, "GET", "/agent/v1/modules/demo/availability", nil, nil), 404, errcode.NotFound)
+}
+
+func TestRevealRoute(t *testing.T) {
+	type revealCall struct {
+		p        core.Principal
+		ref      core.ActionRef
+		input    string
+		internal bool
+	}
+	var calls []revealCall
+	fake := &coretest.FakeAgent{
+		RevealFunc: func(_ context.Context, p core.Principal, a core.ActionRef, in json.RawMessage, internal bool) (json.RawMessage, error) {
+			calls = append(calls, revealCall{p, a, string(in), internal})
+			return json.RawMessage(`{"password":"s3cret"}`), nil
+		},
+	}
+	h := NewHandler(Config{Agent: fake, Log: discardLog()})
+	const path = "/agent/v1/reveal/npm.admin.reveal-password/v2"
+	header := func(internal ...string) http.Header {
+		hdr := http.Header{wire.HeaderPrincipal: {principalHeader(t, testPrincipal)}}
+		if len(internal) > 0 {
+			hdr[wire.HeaderInternal] = internal
+		}
+		return hdr
+	}
+	for _, hdr := range []http.Header{header(), header("1")} {
+		rec := call(t, h, "POST", path, hdr, []byte(`{"host": "h1"}`))
+		if rec.Code != 200 || rec.Body.String() != `{"password":"s3cret"}` || rec.Header().Get("Cache-Control") != "no-store" {
+			t.Errorf("reveal answered %d %s, Cache-Control %q", rec.Code, rec.Body, rec.Header().Get("Cache-Control"))
+		}
+	}
+	wantProblem(t, call(t, h, "POST", path, header("yes"), []byte(`{}`)), 422, errcode.InvalidInput)
+	wantProblem(t, call(t, h, "POST", path, header("1", "1"), []byte(`{}`)), 422, errcode.InvalidInput)
+	wantProblem(t, call(t, h, "POST", path, nil, []byte(`{}`)), 422, errcode.InvalidInput)
+	wantProblem(t, call(t, h, "POST", "/agent/v1/reveal/npm.admin.reveal-password/2", header(), []byte(`{}`)), 404, errcode.ActionUnknown)
+	ref := core.ActionRef{Name: "npm.admin.reveal-password", Version: 2}
+	want := []revealCall{{testPrincipal, ref, `{"host": "h1"}`, false}, {testPrincipal, ref, `{"host": "h1"}`, true}}
+	if !reflect.DeepEqual(calls, want) {
+		t.Errorf("the agent got\n%+v\nwant\n%+v", calls, want)
+	}
+}
+
+func TestStreamsRoute(t *testing.T) {
+	list := []core.StreamInfo{{Module: "sm", Name: "logs", SchemaHash: "ab"}}
+	fake := &coretest.FakeAgent{StreamsFunc: func(context.Context) ([]core.StreamInfo, error) { return list, nil }}
+	h := NewHandler(Config{Agent: fake, Log: discardLog()})
+	rec := call(t, h, "GET", "/agent/v1/streams", nil, nil)
+	if rec.Code != http.StatusOK || rec.Body.String() != `{"streams":[{"module":"sm","name":"logs","schemaHash":"ab"}]}` {
+		t.Errorf("streams answered %d %s", rec.Code, rec.Body)
+	}
+	list = nil
+	if rec := call(t, h, "GET", "/agent/v1/streams", nil, nil); rec.Body.String() != `{"streams":[]}` {
+		t.Errorf("no streams answered %s, want an empty list", rec.Body)
+	}
+}
+
+func TestStreamRoute(t *testing.T) {
+	type opened struct {
+		p            core.Principal
+		module, name string
+		params       url.Values
+	}
+	got := make(chan opened, 1)
+	pr, pw := io.Pipe()
+	fake := &coretest.FakeAgent{OpenStreamFunc: func(_ context.Context, p core.Principal, module, name string, params url.Values) (io.ReadCloser, error) {
+		if name != "logs" {
+			return nil, errcode.New(errcode.NotFound, "no stream "+module+"."+name)
+		}
+		got <- opened{p, module, name, params}
+		return pr, nil
+	}}
+	h := NewHandler(Config{Agent: fake, Log: discardLog()})
+	hdr := http.Header{wire.HeaderPrincipal: {principalHeader(t, testPrincipal)}}
+	wantProblem(t, call(t, h, "GET", "/agent/v1/streams/sm/nope", hdr, nil), 404, errcode.NotFound)
+	wantProblem(t, call(t, h, "GET", "/agent/v1/streams/sm/logs", nil, nil), 422, errcode.InvalidInput)
+	wantProblem(t, call(t, h, "HEAD", "/agent/v1/streams/sm/logs", hdr, nil), 405, errcode.MethodNotAllowed)
+	select {
+	case o := <-got:
+		t.Fatalf("a HEAD request opened the stream: %+v", o)
+	default:
+	}
+
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	req, err := http.NewRequest("GET", srv.URL+"/agent/v1/streams/sm/logs?tail=2", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header = hdr
+	go func() { _, _ = io.WriteString(pw, `{"data":{"n":1}}`+"\n") }()
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if ct := resp.Header.Get("Content-Type"); resp.StatusCode != http.StatusOK || ct != "application/x-ndjson" {
+		t.Fatalf("answer %d %s, want 200 application/x-ndjson", resp.StatusCode, ct)
+	}
+	if o := <-got; !reflect.DeepEqual(o, opened{testPrincipal, "sm", "logs", url.Values{"tail": {"2"}}}) {
+		t.Errorf("OpenStream got %+v", o)
+	}
+	br := bufio.NewReader(resp.Body)
+	// The stream's body still blocks, so this line arrives only if the
+	// handler flushed it.
+	if line, err := br.ReadString('\n'); err != nil || line != `{"data":{"n":1}}`+"\n" {
+		t.Fatalf("first line %q, %v", line, err)
+	}
+	_ = pw.Close()
+	if rest, err := io.ReadAll(br); err != nil || len(rest) != 0 {
+		t.Errorf("after the stream ended: %q, %v", rest, err)
+	}
+}
+
+func TestOpensStream(t *testing.T) {
+	for _, tc := range []struct {
+		method, path string
+		want         bool
+	}{
+		{"GET", "/agent/v1/streams/sm/logs", true},
+		{"POST", "/agent/v1/streams/sm/logs", false},
+		{"GET", "/agent/v1/streams", false},
+		{"GET", "/agent/v1/streams/sm", false},
+		{"GET", "/agent/v1/streams/sm/", false},
+		{"GET", "/agent/v1/streams//logs", false},
+		{"GET", "/agent/v1/streams/sm/logs/x", false},
+		{"GET", "/agent/v1/hello", false},
+	} {
+		if got := OpensStream(httptest.NewRequest(tc.method, tc.path, nil)); got != tc.want {
+			t.Errorf("OpensStream(%s %s) = %v, want %v", tc.method, tc.path, got, tc.want)
+		}
 	}
 }

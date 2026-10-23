@@ -3,11 +3,18 @@ package fleet
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
+	"net/url"
+	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -377,4 +384,196 @@ func TestNewRegistryRefusesBadConfig(t *testing.T) {
 		t.Fatalf("NewRegistry refused the zero heartbeat: %v", err)
 	}
 	r.Close()
+}
+
+// honLog records the OnOnline calls as "<host> <online>".
+type honLog struct {
+	mu    sync.Mutex
+	calls []string
+}
+
+func (l *honLog) add(hostID string, online bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.calls = append(l.calls, fmt.Sprintf("%s %v", hostID, online))
+}
+
+func (l *honLog) all() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]string(nil), l.calls...)
+}
+
+// want fails unless the calls so far are exactly calls.
+func (l *honLog) want(t *testing.T, calls ...string) {
+	t.Helper()
+	if got := l.all(); !slices.Equal(got, calls) {
+		t.Fatalf("OnOnline calls = %q, want %q", got, calls)
+	}
+}
+
+// honRegistry is newRegistry with its OnOnline calls recorded.
+func honRegistry(t *testing.T) (*registryEnv, *honLog) {
+	t.Helper()
+	a, db, clock := newAuthority(t)
+	addHost(t, db, "H1", core.HostEnrolled)
+	serial := transport.SerialText(issue(t, a, db, "H1").SerialNumber)
+	l := &honLog{}
+	r, err := NewRegistry(RegistryConfig{
+		DB: db, Clock: clock, CheckPeer: a.CheckPeer, Version: "1.2.3", ControllerID: "C1",
+		Heartbeat: transport.HeartbeatConfig{Interval: time.Hour}, Log: quietLog, OnOnline: l.add,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(r.Close)
+	return &registryEnv{r: r, a: a, db: db, clock: clock, serial: serial}, l
+}
+
+func TestRegistryOnOnline(t *testing.T) {
+	e, l := honRegistry(t)
+	session := func() (ctrl, agent *transport.Session) {
+		ctrl, agent = livePair(t)
+		serveAgent(t, agent, helloAgent("H1", "v"))
+		e.register(t, ctrl)
+		return ctrl, agent
+	}
+
+	_, agent1 := session()
+	l.want(t, "H1 true")
+	_, agent2 := session()
+	eventually(t, "the replaced session to end", func() bool { return ended(agent1) })
+	time.Sleep(20 * time.Millisecond) // the replaced session's watcher has run
+	l.want(t, "H1 true")
+	_ = agent2.Close()
+	eventually(t, "the ended session to go offline", func() bool { return len(l.all()) == 2 })
+	l.want(t, "H1 true", "H1 false")
+
+	_, agent3 := session()
+	e.r.Disconnect("H1")
+	eventually(t, "the disconnected session to end", func() bool { return ended(agent3) })
+	time.Sleep(20 * time.Millisecond)
+	l.want(t, "H1 true", "H1 false", "H1 true", "H1 false")
+
+	session()
+	e.r.Close()
+	l.want(t, "H1 true", "H1 false", "H1 true", "H1 false", "H1 true", "H1 false")
+}
+
+// peerTCPPair returns the two ends of one session over a TCP connection on
+// 127.0.0.1, closed at the end of the test.
+func peerTCPPair(t *testing.T) (ctrl, agent *transport.Session) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	dialed, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := ln.Accept()
+	if err != nil {
+		_ = dialed.Close()
+		t.Fatal(err)
+	}
+	if ctrl, err = transport.ControllerSession(conn); err != nil {
+		t.Fatal(err)
+	}
+	if agent, err = transport.AgentSession(dialed); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = ctrl.Close()
+		_ = agent.Close()
+	})
+	return ctrl, agent
+}
+
+// peerRegister enrolls hostID with a certificate and registers s as its
+// session.
+func (e *registryEnv) peerRegister(t *testing.T, hostID string, s *transport.Session) {
+	t.Helper()
+	addHost(t, e.db, hostID, core.HostEnrolled)
+	serial := transport.SerialText(issue(t, e.a, e.db, hostID).SerialNumber)
+	if err := e.r.Register(context.Background(), hostID, serial, s); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRegistryPeers(t *testing.T) {
+	e := newRegistry(t, transport.HeartbeatConfig{Interval: time.Hour})
+	if got := e.r.Peers(); len(got) != 0 {
+		t.Fatalf("Peers without a session = %v, want none", got)
+	}
+	ctrl1, agent1 := peerTCPPair(t)
+	ctrl2, agent2 := peerTCPPair(t)
+	pipe, pipeAgent := livePair(t)
+	e.register(t, ctrl1)
+	e.peerRegister(t, "H2", ctrl2)
+	e.peerRegister(t, "H3", pipe)
+	if got, want := e.r.Peers(), []netip.Addr{netip.MustParseAddr("127.0.0.1")}; !slices.Equal(got, want) {
+		t.Errorf("Peers = %v, want %v: the two TCP sessions once and no address for the pipe", got, want)
+	}
+	for _, s := range []*transport.Session{agent1, agent2, pipeAgent} {
+		_ = s.Close()
+	}
+	eventually(t, "the ended sessions to leave the registry", func() bool { return len(e.r.Peers()) == 0 })
+}
+
+// TestRegistryDialsModuleStreams holds every module stream slot open and
+// then needs every action slot at once: that works only when the client
+// opens streams with OpenModule.
+func TestRegistryDialsModuleStreams(t *testing.T) {
+	e := newRegistry(t, transport.HeartbeatConfig{Interval: time.Hour})
+	ctrl, agent := livePair(t)
+	release := make(chan struct{})
+	var reads atomic.Int32
+	fake := helloAgent("H1", "1.2.0")
+	fake.OpenStreamFunc = func(ctx context.Context, _ core.Principal, _, _ string, _ url.Values) (io.ReadCloser, error) {
+		pr, pw := io.Pipe()
+		go func() {
+			_, _ = io.WriteString(pw, `{"data":{}}`+"\n")
+			<-ctx.Done()
+			_ = pw.CloseWithError(ctx.Err())
+		}()
+		return pr, nil
+	}
+	fake.ReadFunc = func(context.Context, core.Principal, core.ActionRef, json.RawMessage) (json.RawMessage, error) {
+		reads.Add(1)
+		<-release
+		return json.RawMessage(`{}`), nil
+	}
+	serveAgent(t, agent, fake)
+	e.register(t, ctrl)
+	c, _, err := e.r.Client(context.Background(), "H1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for range transport.MaxModuleStreams {
+		body, err := c.OpenStream(ctx, core.Principal{Actor: "user:u1"}, "sm", "logs", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = body.Close() })
+		if _, err := body.Read(make([]byte, 64)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var wg sync.WaitGroup
+	for range transport.MaxActionStreams {
+		wg.Go(func() {
+			if _, err := c.Read(ctx, core.Principal{Actor: "user:u1"}, core.ActionRef{Name: "sm.item.get", Version: 1}, json.RawMessage(`{}`)); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	eventually(t, "every read to reach the agent while the streams are open", func() bool {
+		return reads.Load() == transport.MaxActionStreams
+	})
+	close(release)
+	wg.Wait()
 }

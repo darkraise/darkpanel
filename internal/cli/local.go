@@ -60,6 +60,10 @@ func refuseLocal(cmd *cobra.Command) error {
 		return nil
 	}
 	err := usagef("--local reaches only this host's agent; %s is not an agent-side command", cmd.CommandPath())
+	if cmd.Annotations[annotationReveal] != "" {
+		err = usagef("--local cannot run %s: a reveal runs only through the controller, which authorizes and audits it",
+			cmd.CommandPath())
+	}
 	if code, convErr := strconv.Atoi(cmd.Annotations[AnnotationRefusalStatus]); convErr == nil {
 		return ExitWith(code, err)
 	}

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 
@@ -19,6 +20,7 @@ const (
 	systemdPath      = dbus.ObjectPath("/org/freedesktop/systemd1")
 	managerInterface = "org.freedesktop.systemd1.Manager"
 	unitInterface    = "org.freedesktop.systemd1.Unit"
+	serviceInterface = "org.freedesktop.systemd1.Service"
 	jobInterface     = "org.freedesktop.systemd1.Job"
 	unknownObject    = "org.freedesktop.DBus.Error.UnknownObject"
 )
@@ -35,6 +37,9 @@ type TransientTimer = core.TransientTimer
 
 // UnitState is core.UnitState.
 type UnitState = core.UnitState
+
+// UnitStatus is core.UnitStatus.
+type UnitStatus = core.UnitStatus
 
 // busCaller calls one method of a systemd object, so tests can stand in for
 // the system bus.
@@ -163,7 +168,12 @@ func serviceProps(svc TransientService) ([]property, error) {
 		props = append(props, property{"OnFailure", dbus.MakeVariant(slices.Clone(svc.OnFailure))})
 	}
 	if svc.RuntimeMax > 0 {
-		props = append(props, property{"RuntimeMaxUSec", dbus.MakeVariant(uint64(svc.RuntimeMax.Microseconds()))}) //nolint:gosec // G115: positive, checked above
+		// Rounded up, so a bound below a microsecond stays a bound instead of 0.
+		usec := svc.RuntimeMax.Microseconds()
+		if svc.RuntimeMax%time.Microsecond != 0 {
+			usec++
+		}
+		props = append(props, property{"RuntimeMaxUSec", dbus.MakeVariant(uint64(usec))}) //nolint:gosec // G115: positive, checked above
 	}
 	if svc.CollectMode != "" {
 		props = append(props, property{"CollectMode", dbus.MakeVariant(svc.CollectMode)})
@@ -226,9 +236,10 @@ type unitJob struct {
 	Path dbus.ObjectPath
 }
 
-// State reports unit's load, active and sub state and its queued job.
-// LoadUnit, unlike GetUnit, answers for a unit that is not loaded, so a
-// missing unit reports LoadState "not-found" instead of an error.
+// State reports unit's load, active and sub state, its main process and its
+// queued job. LoadUnit, unlike GetUnit, answers for a unit that is not
+// loaded, so a missing unit reports LoadState "not-found" instead of an
+// error.
 func (s *DBusSystemd) State(ctx context.Context, unit string) (UnitState, error) {
 	what := "state of " + unit
 	body, err := s.manager(ctx, what, "LoadUnit", unit)
@@ -249,6 +260,9 @@ func (s *DBusSystemd) State(ctx context.Context, unit string) (UnitState, error)
 			return UnitState{}, fmt.Errorf("platform: %s: read %s: %w", what, p.name, err)
 		}
 	}
+	if st.MainPID, err = s.mainPID(ctx, path, unit, st.LoadState); err != nil {
+		return UnitState{}, fmt.Errorf("platform: %s: read MainPID: %w", what, err)
+	}
 	if job.ID == 0 {
 		return st, nil
 	}
@@ -262,6 +276,52 @@ func (s *DBusSystemd) State(ctx context.Context, unit string) (UnitState, error)
 		return UnitState{}, fmt.Errorf("platform: %s: read the type of job %d: %w", what, job.ID, err)
 	}
 	return st, nil
+}
+
+// listedUnit is one entry of ListUnitsByPatterns' answer, D-Bus
+// (ssssssouso).
+type listedUnit struct {
+	Name, Description, LoadState, ActiveState, SubState, Following string
+	Path                                                           dbus.ObjectPath
+	JobID                                                          uint32
+	JobType                                                        string
+	JobPath                                                        dbus.ObjectPath
+}
+
+// List returns the loaded units whose names match pattern, with their
+// states as State reports them.
+func (s *DBusSystemd) List(ctx context.Context, pattern string) ([]UnitStatus, error) {
+	what := "list units " + pattern
+	body, err := s.manager(ctx, what, "ListUnitsByPatterns", []string{}, []string{pattern})
+	if err != nil {
+		return nil, err
+	}
+	var units []listedUnit
+	if err := dbus.Store(body, &units); err != nil {
+		return nil, fmt.Errorf("platform: %s: %w", what, err)
+	}
+	out := make([]UnitStatus, 0, len(units))
+	for _, u := range units {
+		st := UnitStatus{Name: u.Name, UnitState: UnitState{
+			LoadState: u.LoadState, ActiveState: u.ActiveState, SubState: u.SubState, PendingJob: u.JobType,
+		}}
+		if st.MainPID, err = s.mainPID(ctx, u.Path, u.Name, u.LoadState); err != nil {
+			return nil, fmt.Errorf("platform: %s: read MainPID of %s: %w", what, u.Name, err)
+		}
+		out = append(out, st)
+	}
+	return out, nil
+}
+
+// mainPID reads the MainPID of a service unit systemd knows; any other unit
+// has none.
+func (s *DBusSystemd) mainPID(ctx context.Context, path dbus.ObjectPath, unit, loadState string) (uint32, error) {
+	if !strings.HasSuffix(unit, ".service") || loadState == "not-found" {
+		return 0, nil
+	}
+	var pid uint32
+	err := s.property(ctx, path, serviceInterface, "MainPID", &pid)
+	return pid, err
 }
 
 // property reads one D-Bus property of the object at path into dst.

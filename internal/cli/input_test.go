@@ -88,7 +88,11 @@ func TestInputFieldsRefuseReservedFlags(t *testing.T) {
 		HostID  string `json:"hostId"`
 		HostID2 string `json:"host-id"`
 	}
-	for _, typ := range []reflect.Type{reflect.TypeFor[hostInput](), reflect.TypeFor[yesInput](), reflect.TypeFor[twiceInput]()} {
+	type overrideInput struct {
+		Override []string `json:"override,omitempty"`
+	}
+	for _, typ := range []reflect.Type{reflect.TypeFor[hostInput](), reflect.TypeFor[yesInput](), reflect.TypeFor[twiceInput](),
+		reflect.TypeFor[overrideInput]()} {
 		if _, err := inputFields(typ); err == nil || !strings.Contains(err.Error(), "flag --") {
 			t.Errorf("%s: error %v", typ, err)
 		}

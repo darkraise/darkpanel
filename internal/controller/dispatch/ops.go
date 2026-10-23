@@ -26,10 +26,53 @@ func (d *Dispatcher) changeSide(ctx context.Context, changeID string) (string, c
 	return d.owner(ctx, changeID)
 }
 
+// changeSideInWindow is changeSide for undo, repair and resolve: an agent
+// change is refused with host.version_unsupported while its agent is outside
+// the support window, unless its action is a core.update action, as plan and
+// apply are. Module enablement is not checked: disabling a module must not
+// strand a pending or failed change.
+func (d *Dispatcher) changeSideInWindow(ctx context.Context, changeID string) (string, core.AgentClient, error) {
+	hostID, c, err := d.changeSide(ctx, changeID)
+	if err != nil || c == nil {
+		return hostID, c, err
+	}
+	action, err := d.changeAction(ctx, hostID, changeID, c)
+	if err != nil {
+		return "", nil, err
+	}
+	if err := d.inWindow(hostID, action); err != nil {
+		return "", nil, err
+	}
+	return hostID, c, nil
+}
+
+// changeAction is the action of hostID's change changeID: core_change_index's
+// row, else the action of the change as the agent reports it, because the
+// index write after an apply may have failed.
+func (d *Dispatcher) changeAction(ctx context.Context, hostID, changeID string, c core.AgentClient) (string, error) {
+	var action string
+	err := d.cfg.DB.Read().QueryRowContext(ctx,
+		"SELECT action FROM core_change_index WHERE change_id = ? AND host_id = ?", changeID, hostID).Scan(&action)
+	switch {
+	case err == nil:
+		return action, nil
+	case !errors.Is(err, sql.ErrNoRows):
+		return "", fmt.Errorf("dispatch: read change index: %w", err)
+	}
+	v, err := c.Change(ctx, changeID)
+	if err != nil {
+		return "", err
+	}
+	if v, err = checkChange(v, hostID, changeID); err != nil {
+		return "", err
+	}
+	return v.Action, nil
+}
+
 // Undo undoes a change where it lives, then ingests its host's journal. The
 // operator's undo carries no call context; only a composite's unwind does.
 func (d *Dispatcher) Undo(ctx context.Context, p core.Principal, changeID string) (core.ChangeView, error) {
-	hostID, c, err := d.changeSide(ctx, changeID)
+	hostID, c, err := d.changeSideInWindow(ctx, changeID)
 	if err != nil {
 		return core.ChangeView{}, err
 	}
@@ -52,7 +95,7 @@ func (d *Dispatcher) Repair(ctx context.Context, p core.Principal, changeID stri
 	if err := d.refuseReleasingParent(ctx, changeID); err != nil {
 		return core.RepairResult{}, err
 	}
-	hostID, c, err := d.changeSide(ctx, changeID)
+	hostID, c, err := d.changeSideInWindow(ctx, changeID)
 	if err != nil {
 		return core.RepairResult{}, err
 	}
@@ -137,7 +180,7 @@ func (d *Dispatcher) Observe(ctx context.Context, p core.Principal, changeID str
 // Resolve resolves an effect where its change lives, then ingests its
 // host's journal.
 func (d *Dispatcher) Resolve(ctx context.Context, p core.Principal, changeID string, seq int, req core.ResolveRequest) (core.EffectView, error) {
-	hostID, c, err := d.changeSide(ctx, changeID)
+	hostID, c, err := d.changeSideInWindow(ctx, changeID)
 	if err != nil {
 		return core.EffectView{}, err
 	}

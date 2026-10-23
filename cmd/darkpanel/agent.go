@@ -64,6 +64,8 @@ var (
 		b, err := term.ReadPassword(int(f.Fd())) //nolint:gosec // G115: a file descriptor fits in an int
 		return string(b), err
 	}
+	// newTaskEngine builds the engine of the agent task process.
+	newTaskEngine = lifecycle.New
 )
 
 // systemdConn is the systemd provider and its connection's Close.
@@ -99,6 +101,9 @@ func (devSystemd) Reload(context.Context) error                       { return e
 func (devSystemd) Close() error                                       { return nil }
 func (devSystemd) State(context.Context, string) (platform.UnitState, error) {
 	return platform.UnitState{}, errDevSystemd
+}
+func (devSystemd) List(context.Context, string) ([]platform.UnitStatus, error) {
+	return nil, errDevSystemd
 }
 
 // maxStdinToken is more than any token, as daemon.ReadTokenFile allows.
@@ -258,7 +263,7 @@ func newAgentRunCmd() *cobra.Command {
 				Runtime: runtime.Config{
 					DB: host.DB, Sealer: host.Sealer, Clock: core.SystemClock{}, Log: log, Registry: host.Registry,
 					BinaryVersion: buildinfo.Version, BackupDir: p.AgentBackups(),
-					Exec:  platform.NewRunner(platform.ProductionAllowlist()),
+					Exec:  platform.NewRunner(platform.ProductionRules()),
 					Units: host.Systemd, TaskBinary: p.Binary(),
 				},
 				Updater:        host.Updater,
@@ -418,12 +423,13 @@ func newAgentTaskCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			eng, err := lifecycle.New(lifecycle.Config{
+			eng, err := newTaskEngine(lifecycle.Config{
 				Side: core.SideAgent, Registry: host.Registry, Validator: schema.NewValidator(),
 				Journal: lifecycle.NewAgentJournal(host.DB), Redact: schema.Redact,
+				ModuleUnits: platform.ModuleUnits(host.Systemd, host.Registry),
 				Base: core.Env{
 					DB:   host.DB,
-					Exec: platform.NewRunner(platform.ProductionAllowlist()),
+					Exec: platform.NewRunner(platform.ProductionRules()),
 					Files: platform.NewFiles(platform.FilesConfig{
 						Owned:     platform.OwnedPaths(host.Registry.Modules()),
 						Ownership: platform.NewOwnership(host.DB),

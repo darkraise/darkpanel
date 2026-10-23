@@ -2,7 +2,9 @@ package coretest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -42,6 +44,23 @@ func TestFakeAgentChangeOps(t *testing.T) {
 	}
 	if err := client.AckPrivate(ctx, "01C", false); err == nil || !strings.Contains(err.Error(), "AckPrivate is not configured") {
 		t.Errorf("unconfigured AckPrivate error = %v", err)
+	}
+}
+
+func TestFakeAgentEnablement(t *testing.T) {
+	ctx := context.Background()
+	var got []any
+	var client core.AgentClient = &FakeAgent{
+		SetModuleEnabledFunc: func(_ context.Context, id string, enabled bool) error {
+			got = append(got, id, enabled)
+			return nil
+		},
+	}
+	if err := client.SetModuleEnabled(ctx, "demo", false); err != nil || len(got) != 2 || got[0] != "demo" || got[1] != false {
+		t.Errorf("SetModuleEnabled = %v, the fake saw %v", err, got)
+	}
+	if err := (&FakeAgent{}).SetModuleEnabled(ctx, "demo", true); err == nil || !strings.Contains(err.Error(), "SetModuleEnabled is not configured") {
+		t.Errorf("unconfigured SetModuleEnabled error = %v", err)
 	}
 }
 
@@ -92,5 +111,54 @@ func TestMapHosts(t *testing.T) {
 	var coded *errcode.Error
 	if !errors.As(err, &coded) || coded.Code != errcode.NotFound {
 		t.Errorf("Agent(H2) error = %v, want %s", err, errcode.NotFound)
+	}
+}
+
+func TestFakeAgentAvailability(t *testing.T) {
+	ctx := context.Background()
+	var client core.AgentClient = &FakeAgent{
+		AvailabilityFunc: func(_ context.Context, id string) (core.ModuleAvailability, error) {
+			return core.ModuleAvailability{Module: id, Available: true}, nil
+		},
+	}
+	if m, err := client.Availability(ctx, "docker"); err != nil || m.Module != "docker" || !m.Available {
+		t.Errorf("Availability = %+v, %v", m, err)
+	}
+	if _, err := (&FakeAgent{}).Availability(ctx, "docker"); err == nil || !strings.Contains(err.Error(), "Availability is not configured") {
+		t.Errorf("unconfigured Availability error = %v", err)
+	}
+}
+
+func TestFakeAgentReveal(t *testing.T) {
+	ctx := context.Background()
+	var client core.AgentClient = &FakeAgent{
+		RevealFunc: func(_ context.Context, _ core.Principal, a core.ActionRef, _ json.RawMessage, internal bool) (json.RawMessage, error) {
+			return json.RawMessage(fmt.Sprintf(`{"action":%q,"internal":%t}`, a.Name, internal)), nil
+		},
+	}
+	out, err := client.Reveal(ctx, core.Principal{}, core.ActionRef{Name: "x.key.reveal", Version: 1}, nil, true)
+	if err != nil || string(out) != `{"action":"x.key.reveal","internal":true}` {
+		t.Errorf("Reveal = %s, %v", out, err)
+	}
+	if _, err := (&FakeAgent{}).Reveal(ctx, core.Principal{}, core.ActionRef{}, nil, false); err == nil ||
+		!strings.Contains(err.Error(), "Reveal is not configured") {
+		t.Errorf("unconfigured Reveal error = %v", err)
+	}
+}
+
+func TestFakeDispatcherReveal(t *testing.T) {
+	ctx := context.Background()
+	var d core.Dispatcher = &FakeDispatcher{
+		RevealFunc: func(_ context.Context, _ core.Principal, hostID string, a core.ActionRef, _ json.RawMessage) (json.RawMessage, error) {
+			return json.RawMessage(fmt.Sprintf(`{"host":%q,"action":%q}`, hostID, a.Name)), nil
+		},
+	}
+	out, err := d.Reveal(ctx, core.Principal{}, "h1", core.ActionRef{Name: "x.key.reveal", Version: 1}, nil)
+	if err != nil || string(out) != `{"host":"h1","action":"x.key.reveal"}` {
+		t.Errorf("Reveal = %s, %v", out, err)
+	}
+	if _, err := (&FakeDispatcher{}).Reveal(ctx, core.Principal{}, "", core.ActionRef{}, nil); err == nil ||
+		!strings.Contains(err.Error(), "Reveal is not configured") {
+		t.Errorf("unconfigured Reveal error = %v", err)
 	}
 }

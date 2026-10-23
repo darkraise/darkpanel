@@ -3,6 +3,7 @@ package core
 import (
 	"errors"
 	"fmt"
+	"path"
 	"reflect"
 	"regexp"
 	"slices"
@@ -22,14 +23,31 @@ var (
 	moduleIDPattern     = regexp.MustCompile(`^[a-z][a-z0-9]*$`)
 	actionNamePattern   = regexp.MustCompile(`^[a-z][a-z0-9]*\.[a-z][a-z0-9]*\.[a-z][a-z0-9-]*$`)
 	resourceNamePattern = regexp.MustCompile(`^[a-z][a-z0-9]*\.[a-z][a-z0-9]*$`)
+	moduleUnitPattern   = regexp.MustCompile(`^/etc/systemd/system/darkpanel-[a-z0-9-]+\.service$`)
+	sysctlSegment       = regexp.MustCompile(`^[a-z0-9_.-]+$`)
+	subdirPattern       = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+	externalUnitPattern = regexp.MustCompile(`^[A-Za-z0-9@._-]+\.service$`)
+	streamNamePattern   = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 )
 
-// Registry holds every module, action and resource, validated once.
+// sysctlIface is the one segment of a sysctl key that stands for a network
+// interface name.
+const sysctlIface = "<iface>"
+
+// Registry holds every module, action, resource and stream, validated once.
 type Registry struct {
 	modules   []Manifest
+	tasks     []BackgroundTask // of every Background module, in registration order
 	actions   map[ActionRef]ActionDef
 	resources map[string]ResourceDef
-	names     map[string]bool // action names, any version
+	streams   map[string]ModuleStream // by "<module>.<name>"
+	names     map[string]bool         // action names, any version
+}
+
+// ModuleStream is one stream and the module that serves it.
+type ModuleStream struct {
+	Module string
+	Def    StreamDef
 }
 
 // NewRegistry validates the modules against the registration rules (spec
@@ -38,6 +56,7 @@ func NewRegistry(mods ...Module) (*Registry, error) {
 	r := &Registry{
 		actions:   map[ActionRef]ActionDef{},
 		resources: map[string]ResourceDef{},
+		streams:   map[string]ModuleStream{},
 		names:     map[string]bool{},
 	}
 	var errs []error
@@ -63,6 +82,8 @@ func NewRegistry(mods ...Module) (*Registry, error) {
 				fail("module %s: migrations for unknown side %q", m.ID, side)
 			}
 		}
+		errs = append(errs, checkOwnedPaths(m)...)
+		errs = append(errs, checkExternalUnits(m)...)
 		for _, a := range m.Actions {
 			if err := checkAction(m.ID, a); err != nil {
 				errs = append(errs, err)
@@ -87,6 +108,14 @@ func NewRegistry(mods ...Module) (*Registry, error) {
 				r.resources[res.Name] = res
 			}
 		}
+		if st, ok := mod.(Streamer); ok {
+			errs = append(errs, r.addStreams(m.ID, st.Streams())...)
+		}
+		if bg, ok := mod.(Background); ok {
+			tasks := bg.BackgroundTasks()
+			errs = append(errs, checkBackgroundTasks(m.ID, tasks)...)
+			r.tasks = append(r.tasks, tasks...)
+		}
 		r.modules = append(r.modules, m)
 	}
 	for _, a := range r.actions {
@@ -105,10 +134,31 @@ func NewRegistry(mods ...Module) (*Registry, error) {
 	return r, nil
 }
 
+// addStreams checks and indexes module's streams.
+func (r *Registry) addStreams(module string, defs []StreamDef) []error {
+	var errs []error
+	for _, d := range defs {
+		key := module + "." + d.Name
+		switch {
+		case !streamNamePattern.MatchString(d.Name):
+			errs = append(errs, fmt.Errorf("module %s: stream %q must match %s", module, d.Name, streamNamePattern))
+		case d.Run == nil || d.ParamsType == nil || d.EventType == nil:
+			errs = append(errs, fmt.Errorf("stream %s needs Run, ParamsType and EventType", key))
+		case r.streams[key].Module != "":
+			errs = append(errs, fmt.Errorf("stream %s registered twice", key))
+		default:
+			r.streams[key] = ModuleStream{Module: module, Def: d}
+		}
+	}
+	return errs
+}
+
 // checkCLINames refuses names whose CLI commands (spec section 15) would
 // clash: an action <m>.<noun>.<verb> is `<m> <noun> <verb>`, a resource
 // <m>.<r> is `<m> <r> get`, and the core drops its module segment, so a core
-// noun or resource must not be a module id.
+// noun or resource must not be a module id. A stream <m>.<n> is the command
+// `<m> <n> --follow`, with the core dropping its module segment here too,
+// which can be neither another command nor the group of one.
 func (r *Registry) checkCLINames(moduleIDs map[string]bool) []error {
 	var errs []error
 	owners := map[string]string{}
@@ -130,6 +180,26 @@ func (r *Registry) checkCLINames(moduleIDs map[string]bool) []error {
 	}
 	for _, res := range r.Resources() {
 		claim(res.Name, append(strings.Split(res.Name, "."), "get"))
+	}
+	for _, st := range r.Streams() {
+		words := []string{st.Module, st.Def.Name}
+		if st.Module == ModuleIDCore {
+			words = words[1:]
+			if moduleIDs[words[0]] {
+				errs = append(errs, fmt.Errorf("stream %s.%s takes the top-level CLI name %q of module %s", st.Module, st.Def.Name, words[0], words[0]))
+			}
+		}
+		cmd := strings.Join(words, " ")
+		var clashes []string
+		for other, owner := range owners {
+			if other == cmd || strings.HasPrefix(other, cmd+" ") {
+				clashes = append(clashes, owner)
+			}
+		}
+		slices.Sort(clashes)
+		for _, owner := range slices.Compact(clashes) {
+			errs = append(errs, fmt.Errorf("stream %s.%s: the CLI command %q clashes with %s", st.Module, st.Def.Name, cmd, owner))
+		}
 	}
 	return errs
 }
@@ -171,6 +241,130 @@ func checkOwnership(mods []Manifest) []error {
 			default:
 				errs = append(errs, fmt.Errorf("owned path %s is declared by modules %s and %s", a.path.Path, a.module, b.module))
 			}
+		}
+	}
+	return errs
+}
+
+// checkOwnedPaths applies the rules of each owned-path kind to one module's
+// declarations (spec 1.8). Only the core writes unit files outside
+// /etc/systemd/system/darkpanel-*.service, and a sysctl key never leaves
+// /proc/sys.
+func checkOwnedPaths(m Manifest) []error {
+	var errs []error
+	fail := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
+	users := map[string]bool{}
+	for _, op := range m.OwnedPaths {
+		if op.Kind == OwnedUser {
+			users[op.Path] = true
+		}
+	}
+	for _, op := range m.OwnedPaths {
+		p := op.Path
+		switch op.Kind {
+		case OwnedFile, OwnedBlock, OwnedDir, OwnedUser:
+		case OwnedUnit:
+			if m.ID != ModuleIDCore && !moduleUnitPattern.MatchString(p) {
+				fail("module %s: unit path %s must match %s", m.ID, p, moduleUnitPattern)
+			}
+		case OwnedRestore, OwnedManagedDir, OwnedServiceDir:
+			if !path.IsAbs(p) || path.Clean(p) != p {
+				fail("module %s: %s path %q is not absolute and clean", m.ID, op.Kind, p)
+			}
+			if p == "/" {
+				fail("module %s: %s path %q is the root directory", m.ID, op.Kind, p)
+			}
+		case OwnedSysctl:
+			if problem := sysctlKeyProblem(p); problem != "" {
+				fail("module %s: sysctl key %q %s", m.ID, p, problem)
+			}
+			if op.Pattern == "" {
+				fail("module %s: sysctl key %q has no value Pattern", m.ID, p)
+			}
+		default:
+			fail("module %s: owned path %q has unknown kind %q", m.ID, p, op.Kind)
+		}
+		if op.Pattern != "" {
+			if _, err := regexp.Compile(op.Pattern); err != nil {
+				fail("module %s: owned path %s: Pattern does not compile: %v", m.ID, p, err)
+			}
+			if op.Kind != OwnedSysctl && op.Kind != OwnedManagedDir && op.Kind != OwnedServiceDir {
+				fail("module %s: owned path %s: Pattern is for kinds sysctl, managed-dir and service-dir only", m.ID, p)
+			}
+		}
+		switch {
+		case op.Kind == OwnedServiceDir && (op.User == "" || !users[op.User]):
+			fail("module %s: service-dir %s: User %q is not an owned user of the module", m.ID, p, op.User)
+		case op.Kind != OwnedServiceDir && op.User != "":
+			fail("module %s: owned path %s: User is for kind service-dir only", m.ID, p)
+		}
+		if len(op.Subdirs) > 0 && op.Kind != OwnedServiceDir {
+			fail("module %s: owned path %s: Subdirs is for kind service-dir only", m.ID, p)
+		}
+		seen := map[string]bool{}
+		for _, d := range op.Subdirs {
+			switch {
+			case !subdirPattern.MatchString(d):
+				fail("module %s: service-dir %s: subdirectory %q must match %s", m.ID, p, d, subdirPattern)
+			case seen[d]:
+				fail("module %s: service-dir %s: subdirectory %s listed twice", m.ID, p, d)
+			}
+			seen[d] = true
+		}
+	}
+	return errs
+}
+
+// sysctlKeyProblem says what is wrong with a sysctl key, or "" when nothing
+// is: a key is relative to /proc/sys, its segments match sysctlSegment and
+// are not . or .., and at most one is sysctlIface.
+func sysctlKeyProblem(key string) string {
+	if strings.HasPrefix(key, "/") {
+		return "is absolute; want the key relative to /proc/sys"
+	}
+	ifaces := 0
+	for _, seg := range strings.Split(key, "/") {
+		switch {
+		case seg == "":
+			return "has an empty segment"
+		case seg == sysctlIface:
+			ifaces++
+		case seg == "." || seg == ".." || !sysctlSegment.MatchString(seg):
+			return fmt.Sprintf("has a segment %q outside %s", seg, sysctlSegment)
+		}
+	}
+	if ifaces > 1 {
+		return "has more than one " + sysctlIface + " segment"
+	}
+	return ""
+}
+
+// checkExternalUnits checks the units a module drives without owning them.
+func checkExternalUnits(m Manifest) []error {
+	var errs []error
+	fail := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
+	known := []string{UnitOpState, UnitOpStart, UnitOpStop, UnitOpRestart}
+	names := map[string]bool{}
+	for _, u := range m.ExternalUnits {
+		if !externalUnitPattern.MatchString(u.Name) {
+			fail("module %s: external unit %q must match %s", m.ID, u.Name, externalUnitPattern)
+		}
+		if names[u.Name] {
+			fail("module %s: external unit %s listed twice", m.ID, u.Name)
+		}
+		names[u.Name] = true
+		if len(u.Ops) == 0 {
+			fail("module %s: external unit %s has no Ops", m.ID, u.Name)
+		}
+		ops := map[string]bool{}
+		for _, op := range u.Ops {
+			switch {
+			case !slices.Contains(known, op):
+				fail("module %s: external unit %s: op %q is not one of %s", m.ID, u.Name, op, strings.Join(known, ", "))
+			case ops[op]:
+				fail("module %s: external unit %s: op %s listed twice", m.ID, u.Name, op)
+			}
+			ops[op] = true
 		}
 	}
 	return errs
@@ -316,10 +510,17 @@ func checkAction(moduleID string, a ActionDef) error {
 	if err := checkLifecycle(moduleID, a); err != nil {
 		return err
 	}
+	if err := checkGuardsAndScope(a); err != nil {
+		return err
+	}
+	if err := checkReveal(a); err != nil {
+		return err
+	}
 	switch s.Class {
 	case ClassRead:
-		if h.Read == nil || h.Plan != nil || h.Apply != nil {
-			return fmt.Errorf("action %s: a read action has only a Read handler", ref)
+		// checkReveal let exactly one of Read and Reveal through.
+		if (h.Read == nil && h.Reveal == nil) || h.Plan != nil || h.Apply != nil {
+			return fmt.Errorf("action %s: a read action has only a Read handler, or a Reveal handler when it reveals", ref)
 		}
 	case ClassCompensable, ClassIrreversible:
 		// checkLifecycle already required Task instead of Apply for a task action.
@@ -338,6 +539,116 @@ func checkAction(moduleID string, a ActionDef) error {
 		return fmt.Errorf("action %s: unknown class %q", ref, s.Class)
 	}
 	return nil
+}
+
+// guardedType is the type an action with Guards embeds in its input.
+var guardedType = reflect.TypeFor[Guarded]()
+
+// embedsGuarded reports whether t is a struct with an anonymous field of type
+// Guarded.
+func embedsGuarded(t reflect.Type) bool {
+	if t == nil || t.Kind() != reflect.Struct {
+		return false
+	}
+	for i := range t.NumField() {
+		if f := t.Field(i); f.Anonymous && f.Type == guardedType {
+			return true
+		}
+	}
+	return false
+}
+
+// checkGuardsAndScope applies the guard and scope declaration rules (spec
+// 1.5, 1.7): Guards and an embedded Guarded go together, so the schema
+// carries guard and overrides exactly when a plan may report a guard, and
+// MinScope only raises the scope the class and side require.
+func checkGuardsAndScope(a ActionDef) error {
+	s := a.Spec
+	ref := a.Ref()
+	guarded := embedsGuarded(a.InputType)
+	switch {
+	case len(s.Guards) > 0 && !guarded:
+		return fmt.Errorf("action %s: an action with Guards has an input type that embeds core.Guarded", ref)
+	case len(s.Guards) == 0 && guarded:
+		return fmt.Errorf("action %s: an input type that embeds core.Guarded belongs to an action with Guards", ref)
+	}
+	ids := map[string]bool{}
+	for _, g := range s.Guards {
+		switch {
+		case g.ID == "":
+			return fmt.Errorf("action %s: a guard has an empty ID", ref)
+		case ids[g.ID]:
+			return fmt.Errorf("action %s: guard %s is declared twice", ref, g.ID)
+		}
+		ids[g.ID] = true
+	}
+	switch need := DefaultScope(s.Class, s.Side); {
+	case s.MinScope == "":
+	case s.MinScope != ScopeRead && s.MinScope != ScopeOperate && s.MinScope != ScopeAdmin:
+		return fmt.Errorf("action %s: unknown MinScope %q", ref, s.MinScope)
+	case !s.MinScope.Allows(need):
+		return fmt.Errorf("action %s: MinScope %s is below the %s scope the action needs; MinScope only raises", ref, s.MinScope, need)
+	}
+	return nil
+}
+
+// checkReveal applies the rules of reveal actions and Internal reads (spec
+// 1.7, 1.14): both are read actions whose only handler is Reveal, never both
+// at once, and a reveal action needs admin. Every other action has no Reveal
+// handler.
+func checkReveal(a ActionDef) error {
+	s, h := a.Spec, a.Handler
+	ref := a.Ref()
+	flagged := s.Reveal || s.Internal
+	switch {
+	case s.Reveal && s.Internal:
+		return fmt.Errorf("action %s: an action is a reveal action or an internal read, not both", ref)
+	case flagged && s.Class != ClassRead:
+		return fmt.Errorf("action %s: reveal actions and internal reads are read actions", ref)
+	case flagged && (h.Reveal == nil || h.Read != nil):
+		return fmt.Errorf("action %s: a reveal action or internal read has a Reveal handler and no Read handler", ref)
+	case !flagged && h.Reveal != nil:
+		return fmt.Errorf("action %s: only reveal actions and internal reads have a Reveal handler", ref)
+	case s.Reveal && s.MinScope != ScopeAdmin:
+		return fmt.Errorf("action %s: a reveal action declares MinScope admin", ref)
+	}
+	return nil
+}
+
+var taskIDPattern = regexp.MustCompile(`^[a-z][a-z0-9]*\.[a-z][a-z0-9-]*$`)
+
+// checkBackgroundTasks applies the rules of spec 1.4 to one module's tasks:
+// an id is <module>.<name> and unique, since it names the task's audit actor
+// system:<id>, and every task has a Run.
+func checkBackgroundTasks(moduleID string, tasks []BackgroundTask) []error {
+	var errs []error
+	seen := map[string]bool{}
+	for _, t := range tasks {
+		switch {
+		case !taskIDPattern.MatchString(t.ID) || !strings.HasPrefix(t.ID, moduleID+"."):
+			errs = append(errs, fmt.Errorf("background task %q must match %s and start with %q", t.ID, taskIDPattern, moduleID+"."))
+		case seen[t.ID]:
+			errs = append(errs, fmt.Errorf("background task %s registered twice", t.ID))
+		case t.Run == nil:
+			errs = append(errs, fmt.Errorf("background task %s has no Run", t.ID))
+		case t.Every < 0:
+			errs = append(errs, fmt.Errorf("background task %s: Every %s is negative", t.ID, t.Every))
+		}
+		seen[t.ID] = true
+	}
+	return errs
+}
+
+// BackgroundTasks returns module id's background tasks in the order its
+// Background implementation lists them; nil for a module without any.
+func (r *Registry) BackgroundTasks(id string) []BackgroundTask {
+	var out []BackgroundTask
+	for _, t := range r.tasks {
+		if strings.HasPrefix(t.ID, id+".") {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // Action returns one action version.
@@ -374,6 +685,27 @@ func (r *Registry) Resources() []ResourceDef {
 		out = append(out, res)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// Stream returns one stream of module.
+func (r *Registry) Stream(module, name string) (StreamDef, bool) {
+	st, ok := r.streams[module+"."+name]
+	return st.Def, ok
+}
+
+// Streams returns every stream, sorted by module and then name.
+func (r *Registry) Streams() []ModuleStream {
+	out := make([]ModuleStream, 0, len(r.streams))
+	for _, st := range r.streams {
+		out = append(out, st)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Module != out[j].Module {
+			return out[i].Module < out[j].Module
+		}
+		return out[i].Def.Name < out[j].Def.Name
+	})
 	return out
 }
 

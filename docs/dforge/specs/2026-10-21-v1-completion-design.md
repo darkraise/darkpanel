@@ -548,10 +548,20 @@ today, intent time plus the confirmation timeout), rather than after
 Verify. When the timer fires and the change is `pending`, it reverts as
 today. When it fires and the change is still `applying`, the handler has
 not returned and cannot be reverted around: the process logs the change
-id, writes the journal entry `revert-watchdog` and exits with status 70;
-the unit's `Restart=on-failure` restarts it 2 s later and startup
-recovery reverts every unfinished revertible change (1.3). The exit also
-interrupts every other in-process apply, which startup recovery settles
+id, writes the journal entry `revert-watchdog` and exits with status 70.
+Both service units declare status 70 a successful exit that forces a
+restart (`SuccessExitStatus=70`, `RestartForceExitStatus=70`), so systemd
+restarts the process 2 s later without failing the unit or starting
+`darkpanel-rollback.service`, and startup recovery reverts every
+unfinished revertible change (1.3). The restarts still count toward
+`StartLimitBurst`, so a binary that exits with 70 at every start is still
+rolled back; but each watchdog exit needs a new revertible change whose
+deadline is at least `MinConfirmTimeout` (10 s) after its apply, so
+watchdog exits alone never make six starts within `StartLimitIntervalSec`
+(60 s). Both units also set `RestartMode=direct` (systemd 254 and later;
+older versions ignore it), so a crashing service starts
+`darkpanel-rollback.service` only once its start limit fails it. The exit
+also interrupts every other in-process apply, which startup recovery settles
 like any cut-off apply; task units keep running. The controller's
 revertible actions follow the same rule.
 

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -28,8 +29,9 @@ type SocketConfig struct {
 // hello and reads are served. Enablement is the controller's rule and is not
 // applied, but a module whose preflight checks fail is refused. The journal
 // routes are absent: the controller alone collects and acknowledges the
-// journal. A request carrying a call context is refused: only the
-// controller sends one.
+// journal. A request carrying a call context is refused, and so is a plan
+// whose input carries a guard context: only the controller sends either, so
+// a break-glass plan runs with the guard context empty (spec 1.5).
 func NewSocketHandler(cfg Config, sock SocketConfig) http.Handler {
 	h := &handler{cfg: cfg}
 	h.principal = func(*http.Request) (core.Principal, error) { return socketPrincipal(sock.Identity()), nil }
@@ -38,6 +40,7 @@ func NewSocketHandler(cfg Config, sock SocketConfig) http.Handler {
 	h.call = func(*http.Request) (*core.CallContext, error) { return nil, nil }
 	h.allow = func(ctx context.Context, op, name string) error { return h.socketAllow(ctx, sock, op, name) }
 	h.hello = func(*http.Request) error { return nil }
+	h.planInput = refuseSuppliedGuard
 	mux := h.routes(false)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if len(r.Header.Values(wire.HeaderCall)) > 0 {
@@ -47,6 +50,24 @@ func NewSocketHandler(cfg Config, sock SocketConfig) http.Handler {
 		}
 		mux.ServeHTTP(w, r)
 	})
+}
+
+// refuseSuppliedGuard refuses a plan input with a top-level member that would
+// be decoded as the guard context. encoding/json matches a member to a field
+// ignoring case, so this does too. An input that is not an object passes; the
+// agent's validator refuses it.
+func refuseSuppliedGuard(input json.RawMessage) error {
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(input, &obj) != nil {
+		return nil
+	}
+	for key := range obj {
+		if strings.EqualFold(key, "guard") {
+			return &errcode.Error{Code: errcode.InvalidInput, Detail: "the guard context is filled by the controller",
+				Fields: []errcode.FieldError{{Path: "/" + key, Message: "the controller fills the guard context; leave it out"}}}
+		}
+	}
+	return nil
 }
 
 // socketPrincipal is the local root user, named after the host once the

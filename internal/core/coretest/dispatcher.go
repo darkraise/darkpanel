@@ -3,6 +3,8 @@ package coretest
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net/url"
 
 	"github.com/darkraise/darkpanel/internal/core"
 )
@@ -10,21 +12,23 @@ import (
 // FakeDispatcher is a core.Dispatcher whose methods call the matching
 // function field; a method whose field is nil returns an error naming it.
 type FakeDispatcher struct {
-	ReadFunc     func(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage) (json.RawMessage, error)
-	ResourceFunc func(ctx context.Context, p core.Principal, hostID, name string) (json.RawMessage, error)
-	PlanFunc     func(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage, opts core.PlanOptions) (core.PlanView, error)
-	ApplyFunc    func(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, planID string, opts core.ApplyOptions) (core.ChangeView, error)
-	ConfirmFunc  func(ctx context.Context, p core.Principal, changeID string) (core.ChangeView, error)
-	RevertFunc   func(ctx context.Context, p core.Principal, changeID string) (core.ChangeView, error)
-	ChangeFunc   func(ctx context.Context, p core.Principal, changeID string) (core.ChangeView, error)
-	ChangesFunc  func(ctx context.Context, p core.Principal, f core.ChangeFilter) ([]core.ChangeView, error)
-	UndoFunc     func(ctx context.Context, p core.Principal, changeID string) (core.ChangeView, error)
-	RepairFunc   func(ctx context.Context, p core.Principal, changeID string, req core.RepairRequest) (core.RepairResult, error)
-	ReleaseFunc  func(ctx context.Context, p core.Principal, changeID, reason string) (core.ReleaseResult, error)
-	EffectsFunc  func(ctx context.Context, p core.Principal, changeID string) ([]core.EffectView, error)
-	ObserveFunc  func(ctx context.Context, p core.Principal, changeID string, seq int) (core.ObserveResult, error)
-	ResolveFunc  func(ctx context.Context, p core.Principal, changeID string, seq int, req core.ResolveRequest) (core.EffectView, error)
-	StepsFunc    func(ctx context.Context, p core.Principal, changeID string) ([]core.StepView, error)
+	ReadFunc       func(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage) (json.RawMessage, error)
+	ResourceFunc   func(ctx context.Context, p core.Principal, hostID, name string) (json.RawMessage, error)
+	PlanFunc       func(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage, opts core.PlanOptions) (core.PlanView, error)
+	ApplyFunc      func(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, planID string, opts core.ApplyOptions) (core.ChangeView, error)
+	ConfirmFunc    func(ctx context.Context, p core.Principal, changeID string) (core.ChangeView, error)
+	RevertFunc     func(ctx context.Context, p core.Principal, changeID string) (core.ChangeView, error)
+	ChangeFunc     func(ctx context.Context, p core.Principal, changeID string) (core.ChangeView, error)
+	ChangesFunc    func(ctx context.Context, p core.Principal, f core.ChangeFilter) ([]core.ChangeView, error)
+	UndoFunc       func(ctx context.Context, p core.Principal, changeID string) (core.ChangeView, error)
+	RepairFunc     func(ctx context.Context, p core.Principal, changeID string, req core.RepairRequest) (core.RepairResult, error)
+	ReleaseFunc    func(ctx context.Context, p core.Principal, changeID, reason string) (core.ReleaseResult, error)
+	EffectsFunc    func(ctx context.Context, p core.Principal, changeID string) ([]core.EffectView, error)
+	ObserveFunc    func(ctx context.Context, p core.Principal, changeID string, seq int) (core.ObserveResult, error)
+	ResolveFunc    func(ctx context.Context, p core.Principal, changeID string, seq int, req core.ResolveRequest) (core.EffectView, error)
+	StepsFunc      func(ctx context.Context, p core.Principal, changeID string) ([]core.StepView, error)
+	RevealFunc     func(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage) (json.RawMessage, error)
+	OpenStreamFunc func(ctx context.Context, p core.Principal, hostID, module, name string, params url.Values) (io.ReadCloser, error)
 }
 
 var _ core.Dispatcher = (*FakeDispatcher)(nil)
@@ -141,10 +145,28 @@ func (f *FakeDispatcher) Resolve(ctx context.Context, p core.Principal, changeID
 	return f.ResolveFunc(ctx, p, changeID, seq, req)
 }
 
+// Reveal calls RevealFunc.
+func (f *FakeDispatcher) Reveal(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage) (json.RawMessage, error) {
+	if f.RevealFunc == nil {
+		return nil, notConfigured("FakeDispatcher", "Reveal")
+	}
+	return f.RevealFunc(ctx, p, hostID, a, input)
+}
+
 // Steps calls StepsFunc.
 func (f *FakeDispatcher) Steps(ctx context.Context, p core.Principal, changeID string) ([]core.StepView, error) {
 	if f.StepsFunc == nil {
 		return nil, notConfigured("FakeDispatcher", "Steps")
 	}
 	return f.StepsFunc(ctx, p, changeID)
+}
+
+var _ core.DispatcherStreams = (*FakeDispatcher)(nil)
+
+// OpenStream calls OpenStreamFunc.
+func (f *FakeDispatcher) OpenStream(ctx context.Context, p core.Principal, hostID, module, name string, params url.Values) (io.ReadCloser, error) {
+	if f.OpenStreamFunc == nil {
+		return nil, notConfigured("FakeDispatcher", "OpenStream")
+	}
+	return f.OpenStreamFunc(ctx, p, hostID, module, name, params)
 }

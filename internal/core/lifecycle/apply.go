@@ -39,6 +39,9 @@ type intent struct {
 	deadline   time.Time // revertible only
 	confirmNow bool
 	call       core.CallContext // the plan's
+	// guardRefresh is the apply request's topology, given to Apply and
+	// Verify on top of call and never stored (spec 1.5).
+	guardRefresh *core.GuardContext
 }
 
 // Apply executes a stored plan with ADR 0004's ordering. A plan that already
@@ -184,13 +187,15 @@ func (e *Engine) begin(ctx context.Context, p core.Principal, planID string, opt
 		// in the intent transaction.
 		return nil, nil, err
 	}
-	env := e.env(p)
+	env := e.env(p, def)
 	env.Call = pl.call
+	env.Call.GuardRefresh = call.GuardRefresh
 	if err := e.recheck(ctx, env, def, pl, input); err != nil {
 		return nil, nil, err
 	}
 
-	it := &intent{id: e.newID(e.cfg.Base.Clock.Now()), def: def, input: input, confirmNow: opts.ConfirmNow, call: pl.call}
+	it := &intent{id: e.newID(e.cfg.Base.Clock.Now()), def: def, input: input, confirmNow: opts.ConfirmNow, call: pl.call,
+		guardRefresh: call.GuardRefresh}
 	var parent any
 	if pl.call.ParentChangeID != "" {
 		parent = pl.call.ParentChangeID
@@ -233,11 +238,12 @@ func (e *Engine) begin(ctx context.Context, p core.Principal, planID string, opt
 		}
 		_, err = tx.ExecContext(ctx,
 			`INSERT INTO core_changes (id, plan_id, host_id, action, version, class, compensated_by, actor, state,
-			 recovery_owner, input_json, snapshot_ct, revert_deadline, lock_epochs, parent_change_id, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			 recovery_owner, input_json, snapshot_ct, revert_deadline, lock_epochs, parent_change_id, system, created_at,
+			 updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			it.id, pl.id, e.cfg.Base.HostID, def.Spec.Name, def.Spec.Version, string(def.Spec.Class),
 			def.Spec.CompensatedBy, p.Actor, core.StateApplying, core.OwnerEngine, string(e.cfg.Redact(def.InputType, input)),
-			snapshot, deadline, string(recorded), parent, created, created)
+			snapshot, deadline, string(recorded), parent, isSystem(ctx), created, formatTime(e.cfg.Base.Clock.Now()))
 		if err != nil || !def.Spec.Task {
 			return err
 		}
@@ -299,15 +305,23 @@ func confirmTimeout(class core.Class, d time.Duration) (time.Duration, error) {
 }
 
 // recheck is apply's step 1: the handler plans again from the stored input,
-// and checkReplan compares the outcome with the plan.
+// its guards are checked against the action's declaration as at plan, and
+// checkReplan compares the outcome with the plan.
 func (e *Engine) recheck(ctx context.Context, env core.Env, def core.ActionDef, pl planRecord, input json.RawMessage) error {
+	overrides, err := guardOverrides(def, input)
+	if err != nil {
+		return err
+	}
 	var out core.PlanOutcome
-	err := e.protect(def.Ref(), "Plan", func() error {
+	err = e.protect(def.Ref(), "Plan", func() error {
 		var err error
 		out, err = def.Handler.Plan(ctx, env, input)
 		return err
 	})
 	if err != nil {
+		return err
+	}
+	if err := checkGuards(def, overrides, &out); err != nil {
 		return err
 	}
 	return checkReplan(pl, out)
@@ -367,6 +381,7 @@ func (e *Engine) run(ctx context.Context, p core.Principal, it *intent) (core.Ch
 		return e.taskApply(ctx, p, it)
 	}
 	env := e.changeEnv(p, it.def, it.id, it.call)
+	env.Call.GuardRefresh = it.guardRefresh
 	h, ref, timeout := it.def.Handler, it.def.Ref(), e.applyTimeout(it.def)
 	dctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()

@@ -8,8 +8,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
@@ -18,38 +20,72 @@ import (
 // maxOutput is the most a program may write to either stream.
 const maxOutput = 4 << 20
 
-// environment is the whole environment of every program; nothing is inherited
-// from the agent's own (ADR 0009).
+// maxExecArg is the longest argument the runner passes on.
+const maxExecArg = 4096
+
+// environment is the base environment of every program; a rule adds its Env
+// and nothing is inherited from the agent's own (ADR 0009).
 var environment = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LANG=C.UTF-8", "LC_ALL=C.UTF-8"}
 
 var errOutputTooLarge = errors.New("output too large")
 
-// Runner is the core.Runner of the agent: it runs only allowlisted programs,
-// by absolute path, with an argument vector and never through a shell.
+// ExecRule allows a program to run with the argument vectors Match accepts.
+type ExecRule struct {
+	Path  string                    // absolute, clean
+	Match func(args []string) error // nil error: the vector is allowed
+	Env   []string                  // KEY=VALUE pairs appended to the base environment; nothing else is inherited
+}
+
+// Runner is the core.Runner of the agent: it runs only programs a rule
+// allows, by absolute path, with an argument vector a rule of that path
+// accepts, and never through a shell.
 type Runner struct {
-	allowed        map[string]bool
+	rules          map[string][]ExecRule
 	defaultTimeout time.Duration // applied when the caller's context has no deadline
 }
 
 var _ core.Runner = (*Runner)(nil)
 
-// NewRunner returns a runner for the given absolute program paths. A relative
-// or unclean path is a programming error and panics.
-func NewRunner(allowlist []string) *Runner {
-	r := &Runner{allowed: map[string]bool{}, defaultTimeout: 30 * time.Second}
-	for _, p := range allowlist {
-		if !filepath.IsAbs(p) || filepath.Clean(p) != p {
-			panic(fmt.Sprintf("platform: allowlist entry %q is not a clean absolute path", p))
+// NewRunner returns a runner for rules; several rules may share a path. A
+// relative or unclean path, or a rule without Match, is a programming error
+// and panics.
+func NewRunner(rules []ExecRule) *Runner {
+	r := &Runner{rules: map[string][]ExecRule{}, defaultTimeout: 30 * time.Second}
+	for _, rule := range rules {
+		if !filepath.IsAbs(rule.Path) || filepath.Clean(rule.Path) != rule.Path {
+			panic(fmt.Sprintf("platform: exec rule path %q is not a clean absolute path", rule.Path))
 		}
-		r.allowed[p] = true
+		if rule.Match == nil {
+			panic(fmt.Sprintf("platform: exec rule for %s has no Match", rule.Path))
+		}
+		r.rules[rule.Path] = append(r.rules[rule.Path], rule)
 	}
 	return r
 }
 
-// ProductionAllowlist is the agent's allowlist. The installer runs
-// useradd and userdel for the controller's system user; every systemd
-// operation goes through D-Bus instead (Systemd).
-func ProductionAllowlist() []string { return []string{"/usr/sbin/useradd", "/usr/sbin/userdel"} }
+// match returns the environment of the first rule of path that allows args.
+// Its errors name the path and an argument's position, never an argument,
+// which may carry a secret.
+func (r *Runner) match(path string, args []string) ([]string, error) {
+	rules, ok := r.rules[path]
+	if !ok {
+		return nil, fmt.Errorf("platform: %s is not in the exec allowlist", path)
+	}
+	for i, a := range args {
+		if len(a) > maxExecArg {
+			return nil, fmt.Errorf("platform: %s: argument %d is longer than %d bytes", path, i, maxExecArg)
+		}
+		if strings.ContainsFunc(a, unicode.IsControl) {
+			return nil, fmt.Errorf("platform: %s: argument %d contains a control character", path, i)
+		}
+	}
+	for _, rule := range rules {
+		if rule.Match(args) == nil {
+			return append(slices.Clone(environment), rule.Env...), nil
+		}
+	}
+	return nil, fmt.Errorf("platform: %s: argument vector not allowed", path)
+}
 
 // cappedBuffer keeps at most limit bytes and cancels the run when a program
 // writes more.
@@ -73,8 +109,9 @@ func (c *cappedBuffer) Write(p []byte) (int, error) {
 // an error; a refused path, a timeout or a failure to start is an error, and
 // more than 4 MiB on either stream fails with exec.output_too_large.
 func (r *Runner) Run(ctx context.Context, cmd core.Cmd) (core.CmdResult, error) {
-	if !r.allowed[cmd.Path] {
-		return core.CmdResult{}, fmt.Errorf("platform: %s is not in the exec allowlist", cmd.Path)
+	env, err := r.match(cmd.Path, cmd.Args)
+	if err != nil {
+		return core.CmdResult{}, err
 	}
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
@@ -85,7 +122,7 @@ func (r *Runner) Run(ctx context.Context, cmd core.Cmd) (core.CmdResult, error) 
 	defer cancel(nil)
 
 	c := exec.CommandContext(ctx, cmd.Path, cmd.Args...) //nolint:gosec // G204: an allowlisted absolute path and an argument vector, never a shell
-	c.Env = slices.Clone(environment)
+	c.Env = env
 	c.Dir = "/"
 	if len(cmd.Stdin) > 0 {
 		c.Stdin = bytes.NewReader(cmd.Stdin)
@@ -101,7 +138,7 @@ func (r *Runner) Run(ctx context.Context, cmd core.Cmd) (core.CmdResult, error) 
 	// otherwise keep Run waiting after the group was killed.
 	c.WaitDelay = time.Second
 
-	err := c.Run()
+	err = c.Run()
 	if stdout.over || stderr.over {
 		return core.CmdResult{}, errcode.New(errcode.ExecOutputTooLarge, cmd.Path+" wrote more than 4 MiB")
 	}

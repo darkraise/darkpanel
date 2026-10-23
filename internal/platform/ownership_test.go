@@ -188,3 +188,34 @@ func TestOwnershipKindsMigrationKeepsEntries(t *testing.T) {
 		t.Errorf("after the migration Record(dir): %v", err)
 	}
 }
+
+func TestOwnershipOwns(t *testing.T) {
+	o := NewOwnership(openAgentDB(t))
+	ctx := context.Background()
+	at := time.Date(2026, 10, 22, 1, 2, 3, 0, time.UTC)
+	unit := "/etc/systemd/system/darkpanel-fp.service"
+	for _, e := range []core.OwnedEntry{
+		{Path: "/etc/fp.conf", Module: "fp", Kind: core.OwnedFile, CreatedAt: at},
+		{Path: "/etc/hosts", Module: "fp", Kind: core.OwnedBlock, BlockID: "names", CreatedAt: at},
+		{Path: unit, Module: "fp", Kind: core.OwnedUnit, CreatedAt: at},
+	} {
+		if err := o.Record(ctx, e); err != nil {
+			t.Fatalf("Record(%+v): %v", e, err)
+		}
+	}
+	cases := []struct {
+		module, path string
+		want         bool
+	}{
+		{"fp", "/etc/fp.conf", true},
+		{"other", "/etc/fp.conf", false},
+		{"fp", "/etc/unrecorded.conf", false},
+		{"fp", "/etc/hosts", true},
+		{"fp", unit, true},
+	}
+	for _, c := range cases {
+		if got, err := o.Owns(ctx, c.module, c.path); err != nil || got != c.want {
+			t.Errorf("Owns(%s, %s) = %v, %v; want %v", c.module, c.path, got, err, c.want)
+		}
+	}
+}

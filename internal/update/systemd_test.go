@@ -158,6 +158,10 @@ func (f *fakeSystemd) Reload(context.Context) error {
 	return f.record(systemdCall{Method: "Reload"}, "")
 }
 
+func (f *fakeSystemd) List(_ context.Context, pattern string) ([]platform.UnitStatus, error) {
+	return nil, f.record(systemdCall{Method: "List", Unit: pattern}, "")
+}
+
 func (f *fakeSystemd) State(ctx context.Context, unit string) (platform.UnitState, error) {
 	f.mu.Lock()
 	hook := f.onState

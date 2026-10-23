@@ -2,6 +2,7 @@ package install
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +18,8 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/core/lifecycle"
 	"github.com/darkraise/darkpanel/internal/core/secret"
 	"github.com/darkraise/darkpanel/internal/core/store"
 	"github.com/darkraise/darkpanel/internal/platform"
@@ -27,6 +30,9 @@ import (
 // units stop within their TimeoutStopSec of 10 s.
 const StopTimeout = 30 * time.Second
 
+// taskUnits matches the transient units a change's task runs in (spec 1.3c).
+const taskUnits = "darkpanel-task-*.service"
+
 // UninstallConfig is what darkpanel uninstall needs.
 type UninstallConfig struct {
 	Layout Layout
@@ -34,14 +40,23 @@ type UninstallConfig struct {
 	// databases, backups, update records, role keys and agent credentials,
 	// and every user, so that a later install finds them.
 	KeepData bool
+	// StopTasks is --stop-tasks: the barrier step stops the active task
+	// units instead of refusing while one runs.
+	StopTasks bool
+	// Actor is the audit actor of AbortUninstall: local:root@<host id>, or
+	// core.ActorUnenrolled before the agent enrolled.
+	Actor string
 	// Modules are the compiled-in modules; each that implements
 	// core.Uninstaller runs its step.
 	Modules []core.Module
-	Systemd platform.Systemd
-	Exec    core.Runner
-	Users   Users
-	Clock   core.Clock
-	Log     *slog.Logger
+	// ModuleOptions are the --module-option values, by module id and
+	// option key; PlanUninstall checks them against the declared options.
+	ModuleOptions map[string]map[string]string
+	Systemd       platform.Systemd
+	Exec          core.Runner
+	Users         Users
+	Clock         core.Clock
+	Log           *slog.Logger
 	// FilesTestMode is platform.FilesConfig.TestMode: false in production.
 	FilesTestMode bool
 	// PollInterval and StopTimeout pace the wait for stopped services; zero
@@ -77,6 +92,10 @@ type Uninstall struct {
 	entries []core.OwnedEntry
 	steps   []uninstallStep
 	lockFD  int // the agent lock, -1 until taken
+	// options are each Uninstaller's options with every value filled, and
+	// optionLines their lines in the plan.
+	options     map[string]map[string]string
+	optionLines []string
 }
 
 type uninstallStep struct {
@@ -98,7 +117,11 @@ func PlanUninstall(ctx context.Context, cfg UninstallConfig) (*Uninstall, error)
 	if cfg.StopTimeout == 0 {
 		cfg.StopTimeout = StopTimeout
 	}
-	u := &Uninstall{cfg: cfg, lockFD: -1}
+	options, lines, err := moduleOptions(cfg.Modules, cfg.ModuleOptions)
+	if err != nil {
+		return nil, err
+	}
+	u := &Uninstall{cfg: cfg, lockFD: -1, options: options, optionLines: lines}
 	if err := u.load(ctx); err != nil {
 		_ = u.Close()
 		return nil, fmt.Errorf("install: plan uninstall: %w", err)
@@ -147,8 +170,9 @@ func (u *Uninstall) load(ctx context.Context) error {
 	return nil
 }
 
-// owned is every module's declaration plus every file and block of the
-// manifest, so an entry whose module no longer declares it is still removed.
+// owned is every module's declaration plus every file, block, unit file and
+// service directory of the manifest, so an entry whose module no longer
+// declares it is still removed.
 func (u *Uninstall) owned() map[string][]core.OwnedPath {
 	var mans []core.Manifest
 	for _, m := range u.cfg.Modules {
@@ -159,7 +183,7 @@ func (u *Uninstall) owned() map[string][]core.OwnedPath {
 		ops := owned[e.Module]
 		i := slices.IndexFunc(ops, func(op core.OwnedPath) bool { return op.Path == e.Path && op.Kind == e.Kind })
 		switch {
-		case e.Kind != core.OwnedFile && e.Kind != core.OwnedBlock:
+		case e.Kind != core.OwnedFile && e.Kind != core.OwnedBlock && e.Kind != core.OwnedUnit && e.Kind != core.OwnedServiceDir:
 		case i < 0:
 			op := core.OwnedPath{Path: e.Path, Kind: e.Kind}
 			if e.BlockID != "" {
@@ -218,28 +242,64 @@ func (u *Uninstall) plan() []uninstallStep {
 	dirs := u.selectEntries(func(e core.OwnedEntry) bool {
 		return e.Kind == core.OwnedDir && !isCore(e) && !within(e.Path, l.UnitDir) && !u.kept(e)
 	})
+	managed := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedManagedDir && !u.kept(e) })
+	serviceDirs := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedServiceDir && !u.kept(e) })
 	units := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedUnit })
+	modUnits := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedUnit && !isCore(e) })
 	unitDirs := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedDir && within(e.Path, l.UnitDir) })
 	users := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedUser })
 	services := []string{update.ControllerUnit, update.AgentUnit, RecoverUnit}
 
+	servicePlan := []string{"stop and disable " + strings.Join(services, ", ")}
+	for _, line := range describe(modUnits) {
+		servicePlan = append(servicePlan, "stop and disable "+line)
+	}
+
+	barrier := "refuse new changes (the uninstall barrier); refuse to go on while a change is unfinished or a " +
+		taskUnits + " unit is active"
+	if u.cfg.StopTasks {
+		barrier = "refuse new changes (the uninstall barrier), then stop every active " + taskUnits + " unit"
+	}
 	steps := []uninstallStep{
-		{name: "services", plan: []string{"stop and disable " + strings.Join(services, ", ")},
-			run: func(ctx context.Context) (string, error) { return u.stopServices(ctx, services) }},
+		{name: "barrier", plan: []string{barrier}, run: u.setBarrier},
+		{name: "services", plan: servicePlan,
+			run: func(ctx context.Context) (string, error) {
+				line, err := u.stopServices(ctx, services)
+				if err != nil {
+					return "", err
+				}
+				var names []string
+				for _, e := range modUnits {
+					unit := filepath.Base(e.Path)
+					if err := u.stopUnit(ctx, unit); err != nil {
+						return "", err
+					}
+					names = append(names, unit)
+				}
+				if len(names) > 0 {
+					line += "; stopped and disabled module units " + strings.Join(names, ", ")
+				}
+				return line, nil
+			}},
 		{name: "agent lock", plan: []string{"make sure no agent runs (" + filepath.Join(l.Paths.AgentDir, AgentLockName) + ")"},
 			run: u.takeAgentLock},
-		{name: "modules", plan: []string{"run each module's uninstall step"}, run: u.runModules},
+		{name: "modules", plan: append([]string{"run each module's uninstall step"}, u.optionLines...), run: u.runModules},
 		{name: "marked blocks", plan: describe(blocks), run: func(ctx context.Context) (string, error) { return u.removeBlocks(ctx, blocks) }},
-		{name: "files", plan: describe(append(slices.Clone(files), dirs...)),
-			run: func(ctx context.Context) (string, error) { return u.removeFiles(ctx, files, dirs) }},
+		{name: "files", plan: describe(slices.Concat(files, managed, serviceDirs, dirs)),
+			run: func(ctx context.Context) (string, error) {
+				return u.removeFiles(ctx, files, managed, serviceDirs, dirs)
+			}},
 		{name: "units", plan: describe(append(slices.Clone(units), unitDirs...)),
 			run: func(ctx context.Context) (string, error) { return u.removeUnits(ctx, units, unitDirs) }},
 		{name: "binary", plan: []string{"remove " + l.Paths.BinaryDir + " and " + l.Paths.BinaryLink}, run: u.removeBinary},
 	}
 	if u.cfg.KeepData {
 		steps = append(steps, uninstallStep{name: "data",
-			plan: []string{"keep " + l.DataDir + ", " + l.ConfigDir + " and every user"},
-			run: func(context.Context) (string, error) {
+			plan: []string{"keep " + l.DataDir + ", " + l.ConfigDir + " and every user", "clear the uninstall barrier, so a later install accepts changes"},
+			run: func(ctx context.Context) (string, error) {
+				if err := u.clearBarrier(ctx); err != nil {
+					return "", err
+				}
 				return "kept " + l.DataDir + ", " + l.ConfigDir + " and every user", u.closeDB()
 			}})
 	} else {
@@ -311,6 +371,123 @@ func (u *Uninstall) forget(ctx context.Context, e core.OwnedEntry) error {
 		return nil
 	}
 	return u.own.Forget(ctx, e.Module, e.Path, e.BlockID)
+}
+
+// setBarrier sets the uninstall barrier, so the agent accepts no new change
+// and starts no task while the uninstall runs (spec 1.3c and 1.11). Without
+// --stop-tasks it refuses, before setting the barrier, while a task unit is
+// active or a change is unfinished. With --stop-tasks it sets the barrier
+// first, so no task starts after its unit was stopped, then stops every
+// active task unit and waits for each to stop.
+func (u *Uninstall) setBarrier(ctx context.Context) (string, error) {
+	if u.db == nil {
+		return "no agent database; no change can be running", nil
+	}
+	if !u.cfg.StopTasks {
+		active, err := u.activeTaskUnits(ctx)
+		if err != nil {
+			return "", err
+		}
+		if len(active) > 0 {
+			return "", errcode.New(errcode.ChangeBusy, "the task units "+strings.Join(active, ", ")+
+				" are active; wait for them to finish, or uninstall with --stop-tasks")
+		}
+		if err := lifecycle.BeginUninstall(ctx, u.db, false); err != nil {
+			return "", err
+		}
+		return "set the uninstall barrier; no change is unfinished", nil
+	}
+	if err := lifecycle.BeginUninstall(ctx, u.db, true); err != nil {
+		return "", err
+	}
+	active, err := u.activeTaskUnits(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, unit := range active {
+		if err := u.cfg.Systemd.Stop(ctx, unit); err != nil {
+			return "", err
+		}
+	}
+	for _, unit := range active {
+		if err := u.waitStopped(ctx, unit); err != nil {
+			return "", err
+		}
+	}
+	if len(active) == 0 {
+		return "set the uninstall barrier; no task unit was active", nil
+	}
+	return "set the uninstall barrier and stopped " + strings.Join(active, ", "), nil
+}
+
+// activeTaskUnits names the task units that are neither inactive nor
+// failed, as waitStopped counts a stopped unit.
+func (u *Uninstall) activeTaskUnits(ctx context.Context) ([]string, error) {
+	units, err := u.cfg.Systemd.List(ctx, taskUnits)
+	if err != nil {
+		return nil, err
+	}
+	var active []string
+	for _, st := range units {
+		if st.ActiveState != "inactive" && st.ActiveState != "failed" {
+			active = append(active, st.Name)
+		}
+	}
+	return active, nil
+}
+
+// clearBarrier removes the uninstall barrier from the agent database
+// --keep-data keeps: the uninstall finished, and a later install must
+// accept changes.
+func (u *Uninstall) clearBarrier(ctx context.Context) error {
+	if u.db == nil {
+		return nil
+	}
+	return u.db.Write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, "DELETE FROM core_meta WHERE key = ?", lifecycle.MetaUninstalling)
+		return err
+	})
+}
+
+// AbortUninstall clears the uninstall barrier an uninstall set before it
+// stopped the services, so the agent accepts changes again (spec 1.11), and
+// audits it as cfg.Actor in the agent journal. It acts only while the agent
+// service is active: once the services were stopped, running the uninstall
+// again is the only way on, and AbortUninstall reports that it changed
+// nothing. A service between the two, such as one restarting for an
+// update, is refused, since the barrier would then stay without a sign. It
+// uses cfg's Layout, Systemd and Actor.
+func AbortUninstall(ctx context.Context, cfg UninstallConfig) (string, error) {
+	switch {
+	case cfg.Systemd == nil:
+		return "", errors.New("install: UninstallConfig.Systemd is required")
+	case cfg.Actor == "":
+		return "", errors.New("install: UninstallConfig.Actor is required")
+	}
+	st, err := cfg.Systemd.State(ctx, update.AgentUnit)
+	if err != nil {
+		return "", err
+	}
+	switch st.ActiveState {
+	case "active":
+	case "inactive", "failed":
+		return "the services were stopped; there is nothing to abort", nil
+	default:
+		return "", fmt.Errorf("install: abort uninstall: the agent service is %s; run it again once the service is active or stopped",
+			st.ActiveState)
+	}
+	db, err := store.Open(ctx, cfg.Layout.Paths.AgentDB())
+	if err != nil {
+		return "", fmt.Errorf("install: abort uninstall: %w", err)
+	}
+	err = lifecycle.AbortUninstall(ctx, db, cfg.Actor)
+	if cerr := db.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return "", err
+	}
+	return "the uninstall barrier is cleared; the agent accepts changes again", nil
 }
 
 // stopServices stops the services that exist, waits until they are down,
@@ -404,7 +581,7 @@ func (u *Uninstall) runModules(ctx context.Context) (string, error) {
 			continue
 		}
 		id := m.Manifest().ID
-		if err := un.Uninstall(ctx, env, u.cfg.KeepData); err != nil {
+		if err := un.Uninstall(ctx, env, u.cfg.KeepData, u.options[id]); err != nil {
 			return "", fmt.Errorf("module %s: %w", id, err)
 		}
 		ran = append(ran, id)
@@ -424,7 +601,10 @@ func (u *Uninstall) removeBlocks(ctx context.Context, blocks []core.OwnedEntry) 
 	return fmt.Sprintf("removed %d marked blocks", len(blocks)), nil
 }
 
-func (u *Uninstall) removeFiles(ctx context.Context, files, dirs []core.OwnedEntry) (string, error) {
+// removeFiles removes the files, the managed directories with their
+// contents, the service directories through RemoveServiceDir, which stops at
+// a directory the module does not declare, and then the other directories.
+func (u *Uninstall) removeFiles(ctx context.Context, files, managed, serviceDirs, dirs []core.OwnedEntry) (string, error) {
 	for _, e := range files {
 		var err error
 		if u.files != nil {
@@ -436,6 +616,20 @@ func (u *Uninstall) removeFiles(ctx context.Context, files, dirs []core.OwnedEnt
 			return "", err
 		}
 	}
+	for _, e := range managed {
+		if err := removeManagedDir(e.Path); err != nil {
+			return "", err
+		}
+		if err := u.forget(ctx, e); err != nil {
+			return "", err
+		}
+	}
+	for _, e := range serviceDirs {
+		// Service directories come from agent.db, so u.files exists.
+		if err := u.files.RemoveServiceDir(ctx, e.Module, e.Path); err != nil {
+			return "", err
+		}
+	}
 	for _, e := range dirs {
 		if err := removeTree(e.Path); err != nil {
 			return "", err
@@ -444,13 +638,38 @@ func (u *Uninstall) removeFiles(ctx context.Context, files, dirs []core.OwnedEnt
 			return "", err
 		}
 	}
-	return fmt.Sprintf("removed %d files and %d directories", len(files), len(dirs)), nil
+	return fmt.Sprintf("removed %d files and %d directories", len(files), len(managed)+len(serviceDirs)+len(dirs)), nil
+}
+
+// removeManagedDir removes a managed directory with everything in it. A
+// symlink in any component of the path is refused, never followed (ADR 0009);
+// removeTree then removes a symlink inside the directory itself.
+func removeManagedDir(path string) error {
+	fd, err := unix.Openat2(unix.AT_FDCWD, path, &unix.OpenHow{
+		Flags:   unix.O_PATH | unix.O_CLOEXEC,
+		Resolve: unix.RESOLVE_NO_SYMLINKS,
+	})
+	switch {
+	case errors.Is(err, unix.ENOENT):
+		return nil
+	case err != nil:
+		return fmt.Errorf("install: open managed directory %s: %w", path, err)
+	}
+	_ = unix.Close(fd)
+	return removeTree(path)
 }
 
 // removeUnits removes the unit files, then their drop-in directories when
-// nothing else is left in them, and reloads systemd.
+// nothing else is left in them, and reloads systemd. The services step
+// stopped and disabled every unit before any file went.
 func (u *Uninstall) removeUnits(ctx context.Context, units, dirs []core.OwnedEntry) (string, error) {
 	for _, e := range units {
+		if e.Module != core.ModuleIDCore && u.files != nil {
+			if err := u.files.Remove(ctx, e.Module, e.Path); err != nil {
+				return "", err
+			}
+			continue
+		}
 		if err := os.Remove(e.Path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return "", err
 		}
@@ -479,6 +698,25 @@ func (u *Uninstall) removeUnits(ctx context.Context, units, dirs []core.OwnedEnt
 		line += "; kept " + strings.Join(left, ", ") + ", which holds files Darkpanel did not write"
 	}
 	return line, nil
+}
+
+// stopUnit stops a module's unit, waits until it is down and disables it; a
+// unit systemd does not know is left to the file removal.
+func (u *Uninstall) stopUnit(ctx context.Context, unit string) error {
+	st, err := u.cfg.Systemd.State(ctx, unit)
+	if err != nil {
+		return err
+	}
+	if st.LoadState == "not-found" {
+		return nil
+	}
+	if err := u.cfg.Systemd.Stop(ctx, unit); err != nil {
+		return err
+	}
+	if err := u.waitStopped(ctx, unit); err != nil {
+		return err
+	}
+	return u.cfg.Systemd.Disable(ctx, unit)
 }
 
 func (u *Uninstall) removeBinary(ctx context.Context) (string, error) {

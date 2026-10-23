@@ -2,11 +2,14 @@ package schema
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
+
+	"github.com/darkraise/darkpanel/internal/core"
 )
 
 var testRoutes = []Route{
@@ -173,5 +176,61 @@ func TestOpenAPIRefusesDuplicateRoutes(t *testing.T) {
 	routes := append([]Route{{Method: "GET", Path: "/healthz"}}, testRoutes...)
 	if _, err := OpenAPI(fixtureRegistry(t), routes); err == nil {
 		t.Error("OpenAPI accepted a route listed twice")
+	}
+}
+
+type orvIn struct {
+	Name string `json:"name"`
+}
+
+type orvOut struct {
+	Password string `json:"password" secret:"true"`
+}
+
+func orvValue(context.Context, core.Env, orvIn) (core.Revealed[orvOut], error) {
+	return core.Revealed[orvOut]{}, nil
+}
+
+// orvModule has an agent reveal action and an Internal read on each side.
+type orvModule struct{}
+
+func (orvModule) Manifest() core.Manifest {
+	return core.Manifest{ID: "orv", Version: 1, Actions: []core.ActionDef{
+		core.DefineReveal(core.ActionSpec{Name: "orv.key.reveal", Version: 1, Side: core.SideAgent, MinScope: core.ScopeAdmin,
+			Summary: "Reveal the key"}, orvValue),
+		core.DefineInternalRead(core.ActionSpec{Name: "orv.cert.get", Version: 1, Side: core.SideAgent}, orvValue),
+		core.DefineInternalRead(core.ActionSpec{Name: "orv.ctl.get", Version: 1, Side: core.SideController}, orvValue),
+	}}
+}
+
+func TestOpenAPIReveal(t *testing.T) {
+	reg, err := core.NewRegistry(orvModule{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := OpenAPI(reg, testRoutes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	op := findOperation(t, doc, "post", "/api/v1/hosts/{host}/actions/orv.key.reveal/v1/reveal")
+	if op["operationId"] != "orv.key.reveal.v1.reveal" || op["summary"] != "Reveal the key" {
+		t.Errorf("reveal operation = %v", op)
+	}
+	ok := op["responses"].(map[string]any)["2XX"].(map[string]any)["content"].(map[string]any)["application/json"].(map[string]any)["schema"].(map[string]any)
+	value := ok["properties"].(map[string]any)["value"].(map[string]any)
+	if value["$ref"] != "#/components/schemas/orv.key.reveal.v1.output" || len(ok["required"].([]any)) != 1 || ok["required"].([]any)[0] != "value" {
+		t.Errorf("reveal answer schema = %v, want {value: the output}", ok)
+	}
+	if _, found := doc["paths"].(map[string]any)["/api/v1/hosts/{host}/actions/orv.key.reveal/v1/read"]; found {
+		t.Error("a reveal action has a read operation")
+	}
+	for _, name := range []string{"orv.cert.get", "orv.ctl.get"} {
+		if bytes.Contains(raw, []byte(name)) {
+			t.Errorf("the internal action %s appears in the document", name)
+		}
 	}
 }

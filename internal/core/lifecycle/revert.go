@@ -18,8 +18,12 @@ import (
 const ActorRevertTimer = "system:revert-timer"
 
 // WatchdogExitCode is the status the process exits with when a revertible
-// change is still applying at its revert deadline (spec 1.2): the unit's
-// Restart=on-failure starts it again and startup recovery reverts the change.
+// change is still applying at its revert deadline (spec 1.2). Both service
+// units declare it a successful exit that forces a restart
+// (SuccessExitStatus, RestartForceExitStatus), so systemd starts the process
+// again without failing the unit or starting darkpanel-rollback.service, and
+// startup recovery reverts the change. The restarts still count toward the
+// start limit, so a binary that exits with it forever is rolled back.
 const WatchdogExitCode = 70
 
 // The journal phase of the revert watchdog and the result of a revert that

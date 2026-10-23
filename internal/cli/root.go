@@ -100,9 +100,12 @@ func NewRoot(opts Options) (*cobra.Command, error) {
 	}
 	for _, e := range es {
 		var leaf *cobra.Command
-		if e.Resource != nil {
+		switch {
+		case e.Resource != nil:
 			leaf, err = a.resourceCommand(e)
-		} else {
+		case e.Stream != nil:
+			leaf, err = a.streamCommand(e)
+		default:
 			leaf, err = a.actionCommand(e)
 		}
 		if err != nil {
@@ -216,17 +219,24 @@ func (a *app) actionCommand(e entry) (*cobra.Command, error) {
 		Args:        cobra.NoArgs,
 		Annotations: map[string]string{AnnotationAction: e.Name},
 	}
-	if def.Spec.Side == core.SideAgent {
+	switch {
+	case def.Spec.Reveal:
+		cmd.Annotations[annotationReveal] = "true"
+	case def.Spec.Side == core.SideAgent:
 		cmd.Annotations[annotationLocal] = "true"
 	}
 	addInputFlags(cmd, fields)
 	addConnFlags(cmd, def.Spec.BreakGlass, def.Spec.Side == core.SideAgent)
 	cmd.Flags().Bool("json", false, "print the raw JSON output")
+	if def.Spec.Reveal {
+		cmd.RunE = func(cmd *cobra.Command, _ []string) error { return a.runReveal(cmd, def, fields) }
+		return cmd, nil
+	}
 	if def.Spec.Class == core.ClassRead {
 		cmd.RunE = func(cmd *cobra.Command, _ []string) error { return a.runRead(cmd, def, fields, secrets) }
 		return cmd, nil
 	}
-	addMutatingFlags(cmd, def.Spec.Class)
+	addMutatingFlags(cmd, def.Spec)
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error { return a.runMutating(cmd, def, fields, secrets) }
 	return cmd, nil
 }

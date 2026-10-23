@@ -445,3 +445,359 @@ func TestNewRegistryOwnership(t *testing.T) {
 		})
 	}
 }
+
+// ownModule is a module id declaring paths.
+func ownModule(id string, paths ...OwnedPath) Module {
+	return testModule{ID: id, Version: 1, OwnedPaths: paths}
+}
+
+func TestRegistryOwnedPathKinds(t *testing.T) {
+	user := OwnedPath{Path: "own", Kind: OwnedUser}
+	sysctl := func(key, pattern string) OwnedPath { return OwnedPath{Path: key, Kind: OwnedSysctl, Pattern: pattern} }
+	serviceDir := func(user string, subdirs ...string) OwnedPath {
+		return OwnedPath{Path: "/var/lib/own", Kind: OwnedServiceDir, User: user, Subdirs: subdirs}
+	}
+	tokens := OwnedPath{Path: "/var/lib/darkpanel/agent/own-tokens", Kind: OwnedManagedDir}
+	tests := []struct {
+		name string
+		mod  Module
+		want string // "" when the registry is valid
+	}{
+		{"sysctl key", ownModule("own", sysctl("net/ipv4/ip_forward", "^[01]$")), ""},
+		{"sysctl key with an interface", ownModule("own", sysctl("net/ipv6/conf/<iface>/forwarding", "^[01]$")), ""},
+		{"managed-dir without a pattern", ownModule("own", tokens), ""},
+		{"managed-dir with a pattern", ownModule("own",
+			OwnedPath{Path: "/var/lib/darkpanel/agent/own-debs", Kind: OwnedManagedDir, Pattern: `^[a-z0-9._-]+\.deb$`}), ""},
+		{"service-dir", ownModule("own", user, serviceDir("own", "certs")), ""},
+		{"module unit file", ownModule("own", OwnedPath{Path: "/etc/systemd/system/darkpanel-own.service", Kind: OwnedUnit}), ""},
+		{"restore file", ownModule("own", OwnedPath{Path: "/etc/ufw/user.rules", Kind: OwnedRestore}), ""},
+		{"core unit files anywhere", ownModule(ModuleIDCore,
+			OwnedPath{Path: "/etc/systemd/system/darkpanel-agent.service", Kind: OwnedUnit},
+			OwnedPath{Path: "/etc/systemd/system/darkpanel-controller.service.d/darkpanel.conf", Kind: OwnedUnit},
+			OwnedPath{Path: "/srv/test-root/units/demo.service", Kind: OwnedUnit}), ""},
+
+		{"unknown kind", ownModule("own", OwnedPath{Path: "/run/own.sock", Kind: "socket"}),
+			`module own: owned path "/run/own.sock" has unknown kind "socket"`},
+		{"sysctl without a pattern", ownModule("own", sysctl("net/ipv4/ip_forward", "")),
+			`module own: sysctl key "net/ipv4/ip_forward" has no value Pattern`},
+		{"absolute sysctl key", ownModule("own", sysctl("/proc/sys/net/x", "^1$")),
+			`module own: sysctl key "/proc/sys/net/x" is absolute`},
+		{"two interface segments", ownModule("own", sysctl("net/<iface>/conf/<iface>/x", "^1$")),
+			`sysctl key "net/<iface>/conf/<iface>/x" has more than one <iface> segment`},
+		{"sysctl segment outside the pattern", ownModule("own", sysctl("net/IPv4/x", "^1$")), `has a segment "IPv4" outside`},
+		{"sysctl dot-dot segment", ownModule("own", sysctl("net/../kernel/x", "^1$")), `has a segment ".." outside`},
+		{"sysctl empty segment", ownModule("own", sysctl("net//x", "^1$")), `sysctl key "net//x" has an empty segment`},
+		{"pattern that does not compile", ownModule("own", OwnedPath{Path: tokens.Path, Kind: OwnedManagedDir, Pattern: "("}),
+			"module own: owned path /var/lib/darkpanel/agent/own-tokens: Pattern does not compile"},
+		{"pattern on a file", ownModule("own", OwnedPath{Path: "/etc/own.conf", Kind: OwnedFile, Pattern: "^x$"}),
+			"module own: owned path /etc/own.conf: Pattern is for kinds sysctl, managed-dir and service-dir only"},
+		{"service-dir user not declared", ownModule("own", user, serviceDir("nobody")),
+			`module own: service-dir /var/lib/own: User "nobody" is not an owned user of the module`},
+		{"service-dir without a user", ownModule("own", user, serviceDir("")), `service-dir /var/lib/own: User "" is not an owned user`},
+		{"user on a managed-dir", ownModule("own", user, OwnedPath{Path: tokens.Path, Kind: OwnedManagedDir, User: "own"}),
+			"module own: owned path /var/lib/darkpanel/agent/own-tokens: User is for kind service-dir only"},
+		{"nested subdirectory", ownModule("own", user, serviceDir("own", "a/b")), `module own: service-dir /var/lib/own: subdirectory "a/b" must match`},
+		{"dot-dot subdirectory", ownModule("own", user, serviceDir("own", "..")), `subdirectory ".." must match`},
+		{"repeated subdirectory", ownModule("own", user, serviceDir("own", "x", "x")), "service-dir /var/lib/own: subdirectory x listed twice"},
+		{"subdirs on a dir", ownModule("own", OwnedPath{Path: "/var/lib/own", Kind: OwnedDir, Subdirs: []string{"certs"}}),
+			"module own: owned path /var/lib/own: Subdirs is for kind service-dir only"},
+		{"foreign unit file", ownModule("own", OwnedPath{Path: "/etc/systemd/system/nginx.service", Kind: OwnedUnit}),
+			"module own: unit path /etc/systemd/system/nginx.service must match"},
+		{"root as managed-dir", ownModule("own", OwnedPath{Path: "/", Kind: OwnedManagedDir}),
+			`module own: managed-dir path "/" is the root directory`},
+		{"relative managed-dir", ownModule("own", OwnedPath{Path: "relative/dir", Kind: OwnedManagedDir}),
+			`module own: managed-dir path "relative/dir" is not absolute and clean`},
+		{"unclean restore path", ownModule("own", OwnedPath{Path: "/etc/ufw/../ufw/user.rules", Kind: OwnedRestore}),
+			`module own: restore path "/etc/ufw/../ufw/user.rules" is not absolute and clean`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewRegistry(tt.mod)
+			switch {
+			case tt.want == "" && err != nil:
+				t.Fatalf("NewRegistry: %v", err)
+			case tt.want != "" && (err == nil || !strings.Contains(err.Error(), tt.want)):
+				t.Fatalf("NewRegistry error = %v, want one containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestRegistryExternalUnits(t *testing.T) {
+	ext := func(units ...ExternalUnit) Module { return testModule{ID: "own", Version: 1, ExternalUnits: units} }
+	tailscaled := func(ops ...string) ExternalUnit { return ExternalUnit{Name: "tailscaled.service", Ops: ops} }
+	tests := []struct {
+		name string
+		mod  Module
+		want string // "" when the registry is valid
+	}{
+		{"state and restart", ext(tailscaled(UnitOpState, UnitOpRestart)), ""},
+		{"every op of a template instance", ext(ExternalUnit{Name: "getty@tty1.service",
+			Ops: []string{UnitOpState, UnitOpStart, UnitOpStop, UnitOpRestart}}), ""},
+		{"no ops", ext(tailscaled()), "module own: external unit tailscaled.service has no Ops"},
+		{"unknown op", ext(tailscaled("reload")),
+			`module own: external unit tailscaled.service: op "reload" is not one of state, start, stop, restart`},
+		{"repeated op", ext(tailscaled(UnitOpState, UnitOpState)), "module own: external unit tailscaled.service: op state listed twice"},
+		{"not a service", ext(ExternalUnit{Name: "tailscaled", Ops: []string{UnitOpState}}), `module own: external unit "tailscaled" must match`},
+		{"listed twice", ext(tailscaled(UnitOpState), tailscaled(UnitOpRestart)), "module own: external unit tailscaled.service listed twice"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewRegistry(tt.mod)
+			switch {
+			case tt.want == "" && err != nil:
+				t.Fatalf("NewRegistry: %v", err)
+			case tt.want != "" && (err == nil || !strings.Contains(err.Error(), tt.want)):
+				t.Fatalf("NewRegistry error = %v, want one containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+// scpGuardedIn is an input that embeds Guarded.
+type scpGuardedIn struct {
+	Guarded
+	Name string `json:"name"`
+}
+
+// scpMutator is a forward-only handler over input In.
+type scpMutator[In any] struct{}
+
+func (scpMutator[In]) Plan(context.Context, Env, In) (PlanOutcome, error) { return PlanOutcome{}, nil }
+
+func (scpMutator[In]) Apply(context.Context, Env, In) (echoOut, error) { return echoOut{}, nil }
+
+func (scpMutator[In]) Verify(context.Context, Env, In, echoOut) error { return nil }
+
+// scpAction is the forward-only compensable agent action scp.rule.add over
+// input In, with spec's Guards and MinScope.
+func scpAction[In any](spec ActionSpec) ActionDef {
+	spec.Name, spec.Version, spec.Class, spec.Side = "scp.rule.add", 1, ClassCompensable, SideAgent
+	spec.ForwardOnly, spec.Converges = true, true
+	return DefineMutating[In, echoOut](spec, scpMutator[In]{})
+}
+
+func TestRegistryGuards(t *testing.T) {
+	lockout := GuardSpec{ID: "scp.lockout", Overridable: true}
+	tests := []struct {
+		name string
+		def  ActionDef
+		want string // "" when the registry is valid
+	}{
+		{"guards with Guarded", scpAction[scpGuardedIn](ActionSpec{Guards: []GuardSpec{lockout, {ID: "scp.quota"}}}), ""},
+		{"guards without Guarded", scpAction[echoIn](ActionSpec{Guards: []GuardSpec{lockout}}),
+			"action scp.rule.add/v1: an action with Guards has an input type that embeds core.Guarded"},
+		{"Guarded without guards", scpAction[scpGuardedIn](ActionSpec{}),
+			"action scp.rule.add/v1: an input type that embeds core.Guarded belongs to an action with Guards"},
+		{"guard without an ID", scpAction[scpGuardedIn](ActionSpec{Guards: []GuardSpec{{Overridable: true}}}),
+			"action scp.rule.add/v1: a guard has an empty ID"},
+		{"guard declared twice", scpAction[scpGuardedIn](ActionSpec{Guards: []GuardSpec{lockout, {ID: "scp.lockout"}}}),
+			"action scp.rule.add/v1: guard scp.lockout is declared twice"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewRegistry(testModule{ID: "scp", Version: 1, Actions: []ActionDef{tt.def}})
+			switch {
+			case tt.want == "" && err != nil:
+				t.Fatalf("NewRegistry: %v", err)
+			case tt.want != "" && (err == nil || !strings.Contains(err.Error(), tt.want)):
+				t.Fatalf("NewRegistry error = %v, want one containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestRegistryMinScope(t *testing.T) {
+	tests := []struct {
+		name  string
+		scope Scope
+		want  string // "" when the registry is valid
+	}{
+		{"unknown scope", "root", `action scp.rule.add/v1: unknown MinScope "root"`},
+		{"below the default", ScopeRead, "action scp.rule.add/v1: MinScope read is below the operate scope the action needs; MinScope only raises"},
+		{"equal to the default", ScopeOperate, ""},
+		{"raised", ScopeAdmin, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			def := scpAction[echoIn](ActionSpec{MinScope: tt.scope})
+			_, err := NewRegistry(testModule{ID: "scp", Version: 1, Actions: []ActionDef{def}})
+			switch {
+			case tt.want == "" && err != nil:
+				t.Fatalf("NewRegistry: %v", err)
+			case tt.want != "" && (err == nil || !strings.Contains(err.Error(), tt.want)):
+				t.Fatalf("NewRegistry error = %v, want one containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestRegistryRevealRules(t *testing.T) {
+	admin := ActionSpec{Name: "demo.admin.reveal-password", Version: 1, Side: SideAgent, MinScope: ScopeAdmin}
+	with := func(def ActionDef, edit func(*ActionDef)) ActionDef {
+		edit(&def)
+		return def
+	}
+	forward := regCompensable("demo.item.pin", ActionSpec{ForwardOnly: true, Converges: true}, echo{})
+	tests := []struct {
+		name string
+		def  ActionDef
+		want string // "" when the registry is valid
+	}{
+		{"reveal with MinScope admin", DefineReveal(admin, rvlReveal), ""},
+		{"internal read without MinScope", DefineInternalRead(ActionSpec{Name: "demo.cert.get", Version: 1, Side: SideAgent}, rvlReveal), ""},
+		{"internal read on the controller", DefineInternalRead(ActionSpec{Name: "demo.token.get", Version: 1, Side: SideController}, rvlReveal), ""},
+
+		{"reveal without MinScope admin", DefineReveal(ActionSpec{Name: "demo.admin.reveal-password", Version: 1, Side: SideAgent}, rvlReveal),
+			"action demo.admin.reveal-password/v1: a reveal action declares MinScope admin"},
+		{"Reveal on a DefineRead action", with(readAction("demo.admin.get"), func(d *ActionDef) { d.Spec.Reveal, d.Spec.MinScope = true, ScopeAdmin }),
+			"action demo.admin.get/v1: a reveal action or internal read has a Reveal handler and no Read handler"},
+		{"Reveal handler without a flag", with(DefineReveal(admin, rvlReveal), func(d *ActionDef) { d.Spec.Reveal = false }),
+			"action demo.admin.reveal-password/v1: only reveal actions and internal reads have a Reveal handler"},
+		{"both flags", with(DefineReveal(admin, rvlReveal), func(d *ActionDef) { d.Spec.Internal = true }),
+			"action demo.admin.reveal-password/v1: an action is a reveal action or an internal read, not both"},
+		{"Internal on a compensable action", with(forward, func(d *ActionDef) { d.Spec.Internal = true }),
+			"action demo.item.pin/v1: reveal actions and internal reads are read actions"},
+		{"Reveal handler on a compensable action", with(forward, func(d *ActionDef) { d.Handler.Reveal = DefineReveal(admin, rvlReveal).Handler.Reveal }),
+			"action demo.item.pin/v1: only reveal actions and internal reads have a Reveal handler"},
+		{"reveal with a Read handler", with(DefineReveal(admin, rvlReveal), func(d *ActionDef) { d.Handler.Read = readAction("demo.admin.get").Handler.Read }),
+			"action demo.admin.reveal-password/v1: a reveal action or internal read has a Reveal handler and no Read handler"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewRegistry(testModule{ID: "demo", Version: 1, Actions: []ActionDef{tt.def}})
+			switch {
+			case tt.want == "" && err != nil:
+				t.Fatalf("NewRegistry: %v", err)
+			case tt.want != "" && (err == nil || !strings.Contains(err.Error(), tt.want)):
+				t.Fatalf("NewRegistry error = %v, want one containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+// strmModule is a module id with streams and, for the CLI clash cases,
+// actions and resources.
+type strmModule struct {
+	id        string
+	streams   []StreamDef
+	actions   []ActionDef
+	resources []ResourceDef
+}
+
+func (m strmModule) Manifest() Manifest {
+	return Manifest{ID: m.id, Version: 1, Actions: m.actions, Resources: m.resources}
+}
+
+func (m strmModule) Streams() []StreamDef { return m.streams }
+
+func TestRegistryStreams(t *testing.T) {
+	logs := DefineStream("logs", strmLogs)
+	r, err := NewRegistry(
+		strmModule{id: "strm", streams: []StreamDef{DefineStream("stats", strmLogs), logs}, actions: []ActionDef{readAction("strm.item.get")}},
+		strmModule{id: "alpha", streams: []StreamDef{DefineStream("pull", strmLogs)}},
+		testModule{ID: "plain", Version: 1},
+	)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	var got []string
+	for _, st := range r.Streams() {
+		got = append(got, st.Module+"."+st.Def.Name)
+	}
+	if want := []string{"alpha.pull", "strm.logs", "strm.stats"}; !slices.Equal(got, want) {
+		t.Errorf("Streams() = %v, want %v", got, want)
+	}
+	if def, ok := r.Stream("strm", "logs"); !ok || def.Name != "logs" || def.EventType != logs.EventType {
+		t.Errorf("Stream(strm, logs) = %+v, %v", def, ok)
+	}
+	if _, ok := r.Stream("strm", "pull"); ok {
+		t.Error("Stream(strm, pull) found alpha's stream")
+	}
+
+	noRun, noEvent := logs, logs
+	noRun.Run, noEvent.EventType = nil, nil
+	tests := []struct {
+		name string
+		mod  strmModule
+		want string
+	}{
+		{"name with a capital", strmModule{id: "strm", streams: []StreamDef{DefineStream("Logs", strmLogs)}}, `module strm: stream "Logs" must match`},
+		{"name repeated", strmModule{id: "strm", streams: []StreamDef{logs, logs}}, "stream strm.logs registered twice"},
+		{"no Run", strmModule{id: "strm", streams: []StreamDef{noRun}}, "stream strm.logs needs Run, ParamsType and EventType"},
+		{"no EventType", strmModule{id: "strm", streams: []StreamDef{noEvent}}, "stream strm.logs needs Run, ParamsType and EventType"},
+		{"command of a resource", strmModule{id: "strm", streams: []StreamDef{DefineStream("list", strmLogs)}, resources: []ResourceDef{resource("strm.list")}},
+			`stream strm.list: the CLI command "strm list" clashes with strm.list`},
+		{"group of an action", strmModule{id: "strm", streams: []StreamDef{DefineStream("list", strmLogs)}, actions: []ActionDef{readAction("strm.list.get")}},
+			`stream strm.list: the CLI command "strm list" clashes with strm.list.get`},
+		{"core stream without the module word", strmModule{id: ModuleIDCore, streams: []StreamDef{DefineStream("item", strmLogs)}, actions: []ActionDef{readAction("core.item.get")}},
+			`stream core.item: the CLI command "item" clashes with core.item.get`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewRegistry(tt.mod)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("NewRegistry error = %v, want one containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+// bgRegModule is a testModule with background tasks.
+type bgRegModule struct {
+	testModule
+	tasks []BackgroundTask
+}
+
+func (m bgRegModule) BackgroundTasks() []BackgroundTask { return m.tasks }
+
+func TestRegistryBackgroundTasks(t *testing.T) {
+	run := func(context.Context, TaskContext) error { return nil }
+	syncTask := BackgroundTask{ID: "demo.sync", Every: time.Minute, LockKeys: []string{"demo"}, Run: run}
+	watch := BackgroundTask{ID: "demo.re-watch", Run: run,
+		Watch: func(context.Context, Env, func()) error { return nil }}
+	reg, err := NewRegistry(
+		bgRegModule{testModule{ID: "demo", Version: 1}, []BackgroundTask{syncTask, watch}},
+		testModule{ID: "plain", Version: 1},
+		bgRegModule{testModule{ID: "dem", Version: 1}, []BackgroundTask{{ID: "dem.sync", Run: run}}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := func(tasks []BackgroundTask) []string {
+		var out []string
+		for _, task := range tasks {
+			out = append(out, task.ID)
+		}
+		return out
+	}
+	for _, tc := range []struct {
+		module string
+		want   []string
+	}{{"demo", []string{"demo.sync", "demo.re-watch"}}, {"dem", []string{"dem.sync"}}, {"plain", nil}, {"nope", nil}} {
+		if got := ids(reg.BackgroundTasks(tc.module)); !slices.Equal(got, tc.want) {
+			t.Errorf("BackgroundTasks(%s) = %v, want %v", tc.module, got, tc.want)
+		}
+	}
+
+	tests := []struct {
+		name string
+		task BackgroundTask
+		want string
+	}{
+		{"id of another module", BackgroundTask{ID: "other.sync", Run: run}, `must match`},
+		{"id without a name", BackgroundTask{ID: "demo", Run: run}, `must match`},
+		{"upper-case id", BackgroundTask{ID: "demo.Sync", Run: run}, `must match`},
+		{"repeated id", syncTask, "background task demo.sync registered twice"},
+		{"no Run", BackgroundTask{ID: "demo.idle"}, "background task demo.idle has no Run"},
+		{"negative Every", BackgroundTask{ID: "demo.back", Every: -time.Second, Run: run}, "background task demo.back: Every -1s is negative"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewRegistry(bgRegModule{testModule{ID: "demo", Version: 1}, []BackgroundTask{syncTask, tt.task}})
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("NewRegistry error = %v, want one containing %q", err, tt.want)
+			}
+		})
+	}
+}

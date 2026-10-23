@@ -44,6 +44,7 @@ const (
 	UndoConflict Code = "core.undo_conflict"
 	ChangeBusy   Code = "core.change_busy"
 	Uninstalling Code = "core.uninstalling"
+	StreamLimit  Code = "core.stream_limit"
 )
 
 // Action-level codes: they appear in a change's error or in the audit log,
@@ -118,6 +119,7 @@ var registry = map[Code]info{
 	UndoConflict:           {http.StatusConflict, "Undo window closed"},
 	ChangeBusy:             {http.StatusConflict, "Change busy"},
 	Uninstalling:           {http.StatusConflict, "Host is being uninstalled"},
+	StreamLimit:            {http.StatusTooManyRequests, "Too many streams"},
 	ChildFailed:            {http.StatusInternalServerError, "A composite step failed"},
 	DeadlineExceeded:       {http.StatusGatewayTimeout, "Action deadline exceeded"},
 

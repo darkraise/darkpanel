@@ -1,14 +1,17 @@
 package api
 
 import (
+	"bufio"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"sync"
@@ -488,5 +491,254 @@ func TestClientChangeOps(t *testing.T) {
 	defer mu.Unlock()
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("requests\n got %+v\nwant %+v", got, want)
+	}
+}
+
+func TestClientSetModuleEnabled(t *testing.T) {
+	type seen struct{ method, path, contentType, principal, body string }
+	var mu sync.Mutex
+	var got []seen
+	c := tcpClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		got = append(got, seen{r.Method, r.URL.Path, r.Header.Get("Content-Type"), r.Header.Get(wire.HeaderPrincipal), string(body)})
+		mu.Unlock()
+		if r.URL.Path != "/agent/v1/modules/demo/enabled" {
+			w.Header().Set("Content-Type", problemContentType)
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"status":404,"code":"not_found","detail":"no module nope"}`))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}), &ControllerHello{Version: "0.2.1", ControllerID: "C1"})
+	ctx := context.Background()
+
+	if err := c.SetModuleEnabled(ctx, "demo", false); err != nil {
+		t.Errorf("SetModuleEnabled(demo, false) = %v", err)
+	}
+	if err := c.SetModuleEnabled(ctx, "demo", true); err != nil {
+		t.Errorf("SetModuleEnabled(demo, true) = %v", err)
+	}
+	var e *errcode.Error
+	if err := c.SetModuleEnabled(ctx, "nope", true); !errors.As(err, &e) || e.Code != errcode.NotFound || e.Detail != "no module nope" {
+		t.Errorf("SetModuleEnabled(nope) = %v, want not_found with the agent's detail", err)
+	}
+	principal := principalHeader(t, controllerPrincipal)
+	want := []seen{
+		{"PUT", "/agent/v1/modules/demo/enabled", "application/json", principal, `{"enabled":false}`},
+		{"PUT", "/agent/v1/modules/demo/enabled", "application/json", principal, `{"enabled":true}`},
+		{"PUT", "/agent/v1/modules/nope/enabled", "application/json", principal, `{"enabled":true}`},
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("requests = %+v\nwant %+v", got, want)
+	}
+}
+
+func TestClientAvailability(t *testing.T) {
+	var asked []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked = append(asked, r.Method+" "+r.URL.Path)
+		if r.URL.Path != "/agent/v1/modules/demo/availability" {
+			w.Header().Set("Content-Type", problemContentType)
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"status":404,"code":"not_found","detail":"no agent API route"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"module":"demo","available":false,"reason":"no docker","actions":[` +
+			`{"name":"demo.set","available":false,"reason":"no docker"},{"name":"demo.get","available":true,"reason":null}]}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := NewClient(ClientConfig{Dial: func(ctx context.Context) (net.Conn, error) {
+		var d net.Dialer
+		return d.DialContext(ctx, "tcp", srv.Listener.Addr().String())
+	}})
+	ctx := context.Background()
+	got, err := c.Availability(ctx, "demo")
+	want := core.ModuleAvailability{Module: "demo", Reason: "no docker", Actions: []core.ActionAvailability{
+		{Name: "demo.set", Reason: "no docker"}, {Name: "demo.get", Available: true},
+	}}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("Availability = %+v, %v; want %+v", got, err, want)
+	}
+	_, err = c.Availability(ctx, "nope")
+	var e *errcode.Error
+	if !errors.As(err, &e) || e.Code != errcode.NotFound {
+		t.Errorf("Availability of an agent without the route = %v, want not_found", err)
+	}
+	if len(asked) != 2 || asked[0] != "GET /agent/v1/modules/demo/availability" {
+		t.Errorf("requests %v", asked)
+	}
+}
+
+func TestClientReveal(t *testing.T) {
+	ctx := context.Background()
+	ref := core.ActionRef{Name: "rvl.key.reveal", Version: 3}
+	var mu sync.Mutex
+	var got []string
+	srv := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		got = append(got, fmt.Sprintf("%s %s internal=%q principal=%s %s", r.Method, r.URL.Path,
+			r.Header.Values(wire.HeaderInternal), r.Header.Get(wire.HeaderPrincipal), body))
+		mu.Unlock()
+		if string(body) == `{"name":"gone"}` {
+			w.Header().Set("Content-Type", problemContentType)
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w, `{"type":"about:blank","title":"Unknown action","status":404,"detail":"unknown action","code":"action.unknown"}`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"key":"k-a"}`)
+	})
+	c := tcpClient(t, srv, &ControllerHello{Version: "0.2.1", ControllerID: "C1"})
+	for _, internal := range []bool{false, true} {
+		out, err := c.Reveal(ctx, testPrincipal, ref, json.RawMessage(`{"name":"a"}`), internal)
+		if err != nil || string(out) != `{"key":"k-a"}` {
+			t.Errorf("Reveal(internal %v) = %s, %v", internal, out, err)
+		}
+	}
+	_, err := c.Reveal(ctx, testPrincipal, ref, json.RawMessage(`{"name":"gone"}`), false)
+	var coded *errcode.Error
+	if !errors.As(err, &coded) || coded.Code != errcode.ActionUnknown {
+		t.Errorf("Reveal answered with problem details = %v, want action.unknown", err)
+	}
+	p := principalHeader(t, testPrincipal)
+	want := []string{
+		`POST /agent/v1/reveal/rvl.key.reveal/v3 internal=[] principal=` + p + ` {"name":"a"}`,
+		`POST /agent/v1/reveal/rvl.key.reveal/v3 internal=["1"] principal=` + p + ` {"name":"a"}`,
+		`POST /agent/v1/reveal/rvl.key.reveal/v3 internal=[] principal=` + p + ` {"name":"gone"}`,
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("requests\n got %q\nwant %q", got, want)
+	}
+}
+
+// streamAgent stands in for an agent with the stream routes: GET streams
+// lists list, GET streams/sm/logs (with no query, or tail=2) sends one line
+// and holds the stream until its request ends, which it reports on
+// stopped, and any other request is answered by other.
+func streamAgent(t *testing.T, list string, other http.Handler, stopped chan<- error) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/agent/v1/streams":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, list)
+		case "/agent/v1/streams/sm/logs":
+			if r.Header.Get(wire.HeaderPrincipal) != principalHeader(t, testPrincipal) {
+				t.Errorf("principal header %q", r.Header.Get(wire.HeaderPrincipal))
+			}
+			if q := r.URL.RawQuery; q != "" && q != "tail=2" {
+				t.Errorf("query %q, want none or tail=2", q)
+			}
+			w.Header().Set("Content-Type", "application/x-ndjson")
+			_, _ = io.WriteString(w, `{"data":{"n":1}}`+"\n")
+			_ = http.NewResponseController(w).Flush()
+			<-r.Context().Done()
+			stopped <- r.Context().Err()
+		default:
+			other.ServeHTTP(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// streamNoRoute answers every request as an agent API without the route does.
+var streamNoRoute = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", problemContentType)
+	w.WriteHeader(http.StatusNotFound)
+	_, _ = io.WriteString(w, `{"type":"about:blank","title":"Not found","status":404,"detail":"no agent API route","code":"not_found"}`)
+})
+
+// streamDial dials srv and counts its dials on n.
+func streamDial(srv *httptest.Server, n *atomic.Int32) func(ctx context.Context) (net.Conn, error) {
+	return func(ctx context.Context) (net.Conn, error) {
+		n.Add(1)
+		var d net.Dialer
+		return d.DialContext(ctx, "tcp", srv.Listener.Addr().String())
+	}
+}
+
+func TestClientStreams(t *testing.T) {
+	ctx := context.Background()
+	srv := streamAgent(t, `{"streams":[{"module":"sm","name":"logs","schemaHash":"ab"},{"module":"sm","name":"stats","schemaHash":"cd"}]}`,
+		streamNoRoute, nil)
+	var n atomic.Int32
+	c := NewClient(ClientConfig{Dial: streamDial(srv, &n)})
+	want := []core.StreamInfo{{Module: "sm", Name: "logs", SchemaHash: "ab"}, {Module: "sm", Name: "stats", SchemaHash: "cd"}}
+	if got, err := c.Streams(ctx); err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("Streams = %+v, %v", got, err)
+	}
+	old := tcpClient(t, streamNoRoute, nil)
+	if got, err := old.Streams(ctx); err != nil || got == nil || len(got) != 0 {
+		t.Errorf("Streams of an agent without the route = %+v, %v; want an empty list", got, err)
+	}
+}
+
+func TestClientOpenStreamUsesDialStream(t *testing.T) {
+	stopped := make(chan error, 1)
+	fake := &coretest.FakeAgent{
+		PlanFunc: func(context.Context, core.Principal, core.ActionRef, json.RawMessage, core.PlanOptions) (core.PlanView, error) {
+			return testPlan, nil
+		},
+	}
+	plans := NewHandler(Config{Agent: fake, Log: discardLog()})
+	srv := streamAgent(t, `{"streams":[]}`, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/plan") {
+			plans.ServeHTTP(w, r)
+			return
+		}
+		streamNoRoute.ServeHTTP(w, r)
+	}), stopped)
+	var dials, streamDials atomic.Int32
+	c := NewClient(ClientConfig{Dial: streamDial(srv, &dials), DialStream: streamDial(srv, &streamDials)})
+	ctx := context.Background()
+	if _, err := c.Plan(ctx, testPrincipal, core.ActionRef{Name: "sm.item.set", Version: 1}, json.RawMessage(`{}`), core.PlanOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	body, err := c.OpenStream(ctx, testPrincipal, "sm", "logs", url.Values{"tail": {"2"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dials.Load() != 1 || streamDials.Load() != 1 {
+		t.Errorf("Plan and OpenStream dialled %d and %d times on Dial and DialStream, want 1 and 1", dials.Load(), streamDials.Load())
+	}
+	line, err := bufio.NewReader(body).ReadString('\n')
+	if err != nil || line != `{"data":{"n":1}}`+"\n" {
+		t.Fatalf("first line %q, %v", line, err)
+	}
+	if err := body.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-stopped:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("the agent's request ended with %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("closing the body did not end the agent's request")
+	}
+	_, err = c.OpenStream(ctx, testPrincipal, "sm", "nope", nil)
+	var coded *errcode.Error
+	if !errors.As(err, &coded) || coded.Code != errcode.NotFound {
+		t.Errorf("OpenStream of an unknown stream = %v, want not_found", err)
+	}
+	// Without DialStream a stream uses Dial.
+	c = NewClient(ClientConfig{Dial: streamDial(srv, &dials)})
+	if body, err = c.OpenStream(ctx, testPrincipal, "sm", "logs", nil); err != nil {
+		t.Fatal(err)
+	}
+	_ = body.Close()
+	if err := <-stopped; !errors.Is(err, context.Canceled) {
+		t.Errorf("the agent's request ended with %v, want context.Canceled", err)
+	}
+	if dials.Load() != 2 {
+		t.Errorf("a client without DialStream dialled Dial %d times, want 2", dials.Load())
 	}
 }

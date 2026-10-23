@@ -63,3 +63,25 @@ func TestCheckOpenAPIFindsGaps(t *testing.T) {
 		t.Error("checkOpenAPI accepted a malformed document")
 	}
 }
+
+func TestCheckOpenAPIFindsInternalActions(t *testing.T) {
+	reg, err := core.NewRegistry(arvModule{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := schema.OpenAPI(reg, Routes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := strings.Replace(string(doc), `"/api/v1/hosts/{host}/actions/arv.item.get/v1/read"`,
+		`"/api/v1/hosts/{host}/actions/arv.cert.get/v1/read"`, 1)
+	err = checkOpenAPI(reg, (&Server{}).networkRoutes(), []byte(listed))
+	for _, want := range []string{
+		"document path /api/v1/hosts/{host}/actions/arv.cert.get/v1/read: internal action arv.cert.get is listed",
+		"the document lacks POST /api/v1/hosts/{host}/actions/arv.item.get/v1/read",
+	} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("listed internal action: error %v, want %q", err, want)
+		}
+	}
+}

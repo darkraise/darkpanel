@@ -35,6 +35,10 @@ const (
 	// (spec 1.5). A plan's body is the action input itself, so the call
 	// cannot travel in the body.
 	HeaderCall = "Darkpanel-Call"
+	// HeaderInternal marks a reveal the controller makes for one of its
+	// own Internal reads (spec 1.7); "1" is its only value. The agent
+	// serves an Internal action on the reveal route only with it.
+	HeaderInternal = "Darkpanel-Internal"
 )
 
 // MaxBody is the largest request or response body the agent API accepts.
@@ -62,24 +66,25 @@ func (p Principal) Core() core.Principal {
 // CallContext is core.CallContext without RepairOf, which the agent derives
 // from a repair plan and never receives (spec 1.5). The agent decodes it
 // with unknown members refused, so a repairOf member is
-// request.invalid_input.
+// request.invalid_input. GuardRefresh is sent with an apply only.
 type CallContext struct {
-	ParentChangeID string   `json:"parentChangeId"`
-	ParentAction   string   `json:"parentAction"`
-	StepID         string   `json:"stepId"`
-	Retired        []string `json:"retired"`
+	ParentChangeID string             `json:"parentChangeId"`
+	ParentAction   string             `json:"parentAction"`
+	StepID         string             `json:"stepId"`
+	Retired        []string           `json:"retired"`
+	GuardRefresh   *core.GuardContext `json:"guardRefresh,omitempty"`
 }
 
 // FromCall converts c, leaving out RepairOf.
 func FromCall(c core.CallContext) CallContext {
 	return CallContext{ParentChangeID: c.ParentChangeID, ParentAction: c.ParentAction, StepID: c.StepID,
-		Retired: slices.Clone(c.Retired)}
+		Retired: slices.Clone(c.Retired), GuardRefresh: c.GuardRefresh}
 }
 
 // Core converts c back; RepairOf stays empty.
 func (c CallContext) Core() core.CallContext {
 	return core.CallContext{ParentChangeID: c.ParentChangeID, ParentAction: c.ParentAction, StepID: c.StepID,
-		Retired: slices.Clone(c.Retired)}
+		Retired: slices.Clone(c.Retired), GuardRefresh: c.GuardRefresh}
 }
 
 // SchemaHash is core.SchemaHash.
@@ -104,6 +109,64 @@ func FromModuleStatus(s core.ModuleStatus) ModuleStatus {
 // Core converts s back.
 func (s ModuleStatus) Core() core.ModuleStatus {
 	return core.ModuleStatus{ID: s.ID, Version: s.Version, Available: s.Available, Reason: s.Reason}
+}
+
+// ModuleEnabled is the body of PUT modules/{id}/enabled: the controller's
+// enabled flag of the module on this host.
+type ModuleEnabled struct {
+	Enabled bool `json:"enabled"`
+}
+
+// ModuleAvailability is core.ModuleAvailability, the body of GET
+// modules/{id}/availability (spec 1.7); an empty reason is null.
+type ModuleAvailability struct {
+	Module    string               `json:"module"`
+	Available bool                 `json:"available"`
+	Reason    *string              `json:"reason"`
+	Actions   []ActionAvailability `json:"actions"`
+}
+
+// ActionAvailability is core.ActionAvailability; an empty reason is null.
+type ActionAvailability struct {
+	Name      string  `json:"name"`
+	Available bool    `json:"available"`
+	Reason    *string `json:"reason"`
+}
+
+// FromModuleAvailability converts m; its actions are [] rather than null.
+func FromModuleAvailability(m core.ModuleAvailability) ModuleAvailability {
+	out := ModuleAvailability{Module: m.Module, Available: m.Available, Reason: nullReason(m.Reason),
+		Actions: make([]ActionAvailability, len(m.Actions))}
+	for i, a := range m.Actions {
+		out.Actions[i] = ActionAvailability{Name: a.Name, Available: a.Available, Reason: nullReason(a.Reason)}
+	}
+	return out
+}
+
+// Core converts m back.
+func (m ModuleAvailability) Core() core.ModuleAvailability {
+	out := core.ModuleAvailability{Module: m.Module, Available: m.Available, Reason: reasonText(m.Reason),
+		Actions: make([]core.ActionAvailability, len(m.Actions))}
+	for i, a := range m.Actions {
+		out.Actions[i] = core.ActionAvailability{Name: a.Name, Available: a.Available, Reason: reasonText(a.Reason)}
+	}
+	return out
+}
+
+// nullReason is a reason as the API sends it: null when there is none.
+func nullReason(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// reasonText reads a reason the API sent; null is none.
+func reasonText(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 // Hello is core.AgentHello. ControllerConnected is null for an agent that
@@ -449,4 +512,10 @@ func raw(m json.RawMessage) json.RawMessage {
 		return nil
 	}
 	return bytes.Clone(m)
+}
+
+// Streams is the answer of GET streams: every module stream the agent
+// serves (spec 1.6).
+type Streams struct {
+	Streams []core.StreamInfo `json:"streams"`
 }

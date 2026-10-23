@@ -185,6 +185,48 @@ func DefineTask[In, Out any](spec ActionSpec, h TaskMutator[In, Out]) ActionDef 
 	return ActionDef{Spec: spec, InputType: typeOf[In](), OutputType: typeOf[Out](), Handler: eh}
 }
 
+func erasedReveal[In, Out any](reveal func(ctx context.Context, env Env, in In) (Revealed[Out], error)) func(context.Context, Env, json.RawMessage) (string, json.RawMessage, error) {
+	return func(ctx context.Context, env Env, raw json.RawMessage) (string, json.RawMessage, error) {
+		in, err := decode[In](raw)
+		if err != nil {
+			return "", nil, err
+		}
+		r, err := reveal(ctx, env, in)
+		if err != nil {
+			return "", nil, err
+		}
+		value, err := encode(r.Value)
+		if err != nil {
+			return "", nil, err
+		}
+		return r.Identity, value, nil
+	}
+}
+
+// DefineReveal declares a reveal action: a read action that returns one
+// stored secret once, served only by the reveal path, which audits
+// Revealed.Identity. The value is encoded without redaction; secret fields of
+// Out keep their tag, which marks them in the schema only. spec.MinScope must
+// be admin.
+func DefineReveal[In, Out any](spec ActionSpec, reveal func(ctx context.Context, env Env, in In) (Revealed[Out], error)) ActionDef {
+	spec.Class, spec.Reveal = ClassRead, true
+	return ActionDef{
+		Spec: spec, InputType: typeOf[In](), OutputType: typeOf[Out](),
+		Handler: ErasedHandler{Reveal: erasedReveal(reveal)},
+	}
+}
+
+// DefineInternalRead declares an Internal read action: the controller
+// dispatches it itself, through the reveal path, and the API and the CLI do
+// not expose it.
+func DefineInternalRead[In, Out any](spec ActionSpec, read func(ctx context.Context, env Env, in In) (Revealed[Out], error)) ActionDef {
+	spec.Class, spec.Internal = ClassRead, true
+	return ActionDef{
+		Spec: spec, InputType: typeOf[In](), OutputType: typeOf[Out](),
+		Handler: ErasedHandler{Reveal: erasedReveal(read)},
+	}
+}
+
 // DefineResource declares a resource named "<module>.<resource>".
 func DefineResource[Out any](name string, read func(ctx context.Context, env Env) (Out, error)) ResourceDef {
 	return ResourceDef{

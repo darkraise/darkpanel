@@ -15,10 +15,10 @@ import (
 // version, are plan.not_found (register row 69, obligation 1): the caller
 // authorized a, so a plan of another action must not run. An agent apply also
 // needs a's module to be usable on hostID; its change is recorded in
-// core_change_index and the host's journal is ingested. A returned view of
-// another host, action or version is refused before it is recorded. A repair
-// plan whose target is a step of a composite being released is
-// core.change_busy.
+// core_change_index and the host's journal is ingested, and its call context
+// carries the guard context now (spec 1.5). A returned view of another host,
+// action or version is refused before it is recorded. A repair plan whose
+// target is a step of a composite being released is core.change_busy.
 func (d *Dispatcher) Apply(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, planID string, opts core.ApplyOptions) (core.ChangeView, error) {
 	def, err := d.action(a, hostID)
 	if err != nil {
@@ -30,6 +30,9 @@ func (d *Dispatcher) Apply(ctx context.Context, p core.Principal, hostID string,
 	if err := d.refuseReleasingRepair(ctx, planID); err != nil {
 		return core.ChangeView{}, err
 	}
+	if err := d.available(ctx, hostID, def); err != nil {
+		return core.ChangeView{}, err
+	}
 	apply := func() (core.ChangeView, error) { return d.cfg.Engine.Apply(ctx, p, planID, opts) }
 	if def.Spec.Side == core.SideAgent {
 		c, err := d.agent(ctx, hostID, a.Name)
@@ -39,7 +42,8 @@ func (d *Dispatcher) Apply(ctx context.Context, p core.Principal, hostID string,
 		if err := d.negotiate(hostID, def, nil); err != nil {
 			return core.ChangeView{}, err
 		}
-		apply = func() (core.ChangeView, error) { return c.Apply(ctx, p, planID, opts) }
+		agentOpts := d.withGuardRefresh(ctx, opts)
+		apply = func() (core.ChangeView, error) { return c.Apply(ctx, p, planID, agentOpts) }
 	}
 	// Marked before the call: the change may be committed even when this
 	// process stops before the call returns, and its plan must stay indexed

@@ -191,3 +191,55 @@ func TestDefinedHandlersRefuseInputOfAnotherType(t *testing.T) {
 		}
 	}
 }
+
+// rvlOut is a reveal action's output with a secret field.
+type rvlOut struct {
+	User     string `json:"user"`
+	Password string `json:"password" secret:"true"`
+}
+
+// rvlReveal reveals the password of in.Name; the name "fail" fails.
+func rvlReveal(_ context.Context, env Env, in defineIn) (Revealed[rvlOut], error) {
+	if in.Name == "fail" {
+		return Revealed[rvlOut]{}, errors.New("no such user")
+	}
+	return Revealed[rvlOut]{Identity: "password of " + in.Name + " on " + env.HostID, Value: rvlOut{User: in.Name, Password: "hunter2"}}, nil
+}
+
+func TestDefineReveal(t *testing.T) {
+	spec := ActionSpec{Name: "demo.admin.reveal-password", Version: 1, Side: SideAgent, MinScope: ScopeAdmin}
+	tests := []struct {
+		name             string
+		def              ActionDef
+		reveal, internal bool
+	}{
+		{"reveal", DefineReveal(spec, rvlReveal), true, false},
+		{"internal read", DefineInternalRead(spec, rvlReveal), false, true},
+	}
+	ctx := context.Background()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, h := tt.def.Spec, tt.def.Handler
+			if s.Class != ClassRead || s.Reveal != tt.reveal || s.Internal != tt.internal || s.MinScope != ScopeAdmin {
+				t.Errorf("spec = %+v, want a read action with Reveal %v and Internal %v", s, tt.reveal, tt.internal)
+			}
+			if tt.def.InputType != reflect.TypeFor[defineIn]() || tt.def.OutputType != reflect.TypeFor[rvlOut]() {
+				t.Errorf("types = %v, %v; want defineIn and rvlOut", tt.def.InputType, tt.def.OutputType)
+			}
+			if h.Reveal == nil || h.Read != nil || h.Plan != nil || h.Apply != nil || h.Verify != nil {
+				t.Fatalf("handler = %+v, want Reveal only", h)
+			}
+			identity, value, err := h.Reveal(ctx, Env{HostID: "h1"}, json.RawMessage(`{"name":"ada"}`))
+			if err != nil || identity != "password of ada on h1" || string(value) != `{"user":"ada","password":"hunter2"}` {
+				t.Errorf("Reveal = %q, %s, %v; want the identity and the unredacted value", identity, value, err)
+			}
+			if _, value, err := h.Reveal(ctx, Env{}, json.RawMessage(`{"name":"fail"}`)); err == nil || err.Error() != "no such user" || value != nil {
+				t.Errorf("failing Reveal = %s, %v; want no value and the handler's error", value, err)
+			}
+			var coded *errcode.Error
+			if _, _, err := h.Reveal(ctx, Env{}, json.RawMessage(`{"name":"ada","extra":1}`)); !errors.As(err, &coded) || coded.Code != errcode.InvalidInput {
+				t.Errorf("unknown field: err = %v, want %s", err, errcode.InvalidInput)
+			}
+		})
+	}
+}

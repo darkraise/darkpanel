@@ -3,11 +3,13 @@ package lifecycle
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/core/store"
 )
@@ -22,6 +24,13 @@ const MetaUninstalling = "uninstalling"
 // under the barrier checks whether the barrier was cleared from outside the
 // process.
 const uninstallPoll = 10 * time.Second
+
+// The audit entry of an aborted uninstall (spec 1.11): action core.uninstall
+// in phase uninstall-abort, which the controller's audit log accepts.
+const (
+	actionUninstall     = "core.uninstall"
+	phaseUninstallAbort = "uninstall-abort"
+)
 
 // BeginUninstall sets the uninstall barrier in the agent database db in one
 // transaction. Without stopTasks it refuses with core.change_busy, naming
@@ -55,14 +64,20 @@ func BeginUninstall(ctx context.Context, db *store.DB, stopTasks bool) error {
 	return nil
 }
 
-// AbortUninstall clears the uninstall barrier in the agent database db in
-// one transaction; clearing an absent one succeeds. darkpanel uninstall
-// --abort calls it whether or not the agent runs: a running engine notices
-// the barrier is gone at its next mutating call or poll (resumeSkipped).
-func AbortUninstall(ctx context.Context, db *store.DB) error {
+// AbortUninstall clears the uninstall barrier in the agent database db and
+// appends actor's uninstall-abort entry to the agent journal, in one
+// transaction; clearing an absent barrier succeeds and is audited too.
+// darkpanel uninstall --abort calls it while the agent runs: the engine
+// notices the barrier is gone at its next mutating call or poll
+// (resumeSkipped).
+func AbortUninstall(ctx context.Context, db *store.DB, actor string) error {
+	journal := NewAgentJournal(db)
 	err := db.Write(ctx, func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, "DELETE FROM core_meta WHERE key = ?", MetaUninstalling)
-		return err
+		if _, err := tx.ExecContext(ctx, "DELETE FROM core_meta WHERE key = ?", MetaUninstalling); err != nil {
+			return err
+		}
+		return journal.Append(ctx, tx, core.JournalEntry{At: time.Now(), Actor: actor, Action: actionUninstall, Version: 1,
+			Phase: phaseUninstallAbort, Input: json.RawMessage(`{}`), Result: resultOK})
 	})
 	if err != nil {
 		return fmt.Errorf("lifecycle: abort uninstall: %w", err)
@@ -80,11 +95,11 @@ func (e *Engine) AbortUninstall(ctx context.Context) error {
 	e.uninstallMu.Lock()
 	defer e.uninstallMu.Unlock()
 	if len(e.uninstallSkipped) == 0 {
-		return AbortUninstall(ctx, e.cfg.Base.DB)
+		return AbortUninstall(ctx, e.cfg.Base.DB, ActorRecovery)
 	}
 	e.recovering.Store(true)
 	defer e.recovering.Store(false)
-	if err := AbortUninstall(ctx, e.cfg.Base.DB); err != nil {
+	if err := AbortUninstall(ctx, e.cfg.Base.DB, ActorRecovery); err != nil {
 		return err
 	}
 	return e.recoverSkipped(ctx)

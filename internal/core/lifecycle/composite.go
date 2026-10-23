@@ -145,7 +145,7 @@ func (e *Engine) compositeSteps(ctx context.Context, p core.Principal, def core.
 	var raw []core.Step
 	err := e.protect(def.Ref(), "Steps", func() error {
 		var err error
-		raw, err = def.Handler.Steps(ctx, e.env(p), input)
+		raw, err = def.Handler.Steps(ctx, e.env(p, def), input)
 		return err
 	})
 	if err != nil {

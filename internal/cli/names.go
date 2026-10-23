@@ -32,18 +32,31 @@ func CommandPath(name string) []string {
 	return words
 }
 
-// entry is one generated command: an action at its highest version, or a
-// resource.
+// StreamPath is the words after "darkpanel" of the command generated for
+// module's stream name: [<module> <name>], without the segment of module
+// "core".
+func StreamPath(module, name string) []string {
+	if module == core.ModuleIDCore {
+		return []string{name}
+	}
+	return []string{module, name}
+}
+
+// entry is one generated command: an action at its highest version, a
+// resource, or a module stream.
 type entry struct {
 	Name     string
 	Path     []string
 	Action   *core.ActionDef
 	Resource *core.ResourceDef
+	Stream   *core.ModuleStream
 }
 
 // entries returns the generated commands of reg sorted by path, or an error
 // when two of them share a path, one's path is a group of another's, or one
-// not in adopted starts with a reserved top-level word.
+// not in adopted starts with a reserved top-level word. An action whose
+// highest version is Internal has no command: only the controller itself
+// dispatches it (spec 1.7).
 func entries(reg *core.Registry, reserved []string, adopted map[string]bool) ([]entry, error) {
 	latest := map[string]core.ActionDef{}
 	for _, a := range reg.Actions() {
@@ -51,10 +64,16 @@ func entries(reg *core.Registry, reserved []string, adopted map[string]bool) ([]
 	}
 	var es []entry
 	for name, a := range latest {
+		if a.Spec.Internal {
+			continue
+		}
 		es = append(es, entry{Name: name, Path: CommandPath(name), Action: &a})
 	}
 	for _, r := range reg.Resources() {
 		es = append(es, entry{Name: r.Name, Path: CommandPath(r.Name), Resource: &r})
+	}
+	for _, st := range reg.Streams() {
+		es = append(es, entry{Name: st.Module + "." + st.Def.Name, Path: StreamPath(st.Module, st.Def.Name), Stream: &st})
 	}
 	slices.SortFunc(es, func(a, b entry) int { return slices.Compare(a.Path, b.Path) })
 	if err := checkEntries(es, reserved, adopted); err != nil {

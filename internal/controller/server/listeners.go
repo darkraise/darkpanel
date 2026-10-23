@@ -40,10 +40,12 @@ func (s *Server) startListeners(ctx context.Context) error {
 	}
 	srv, err := api.New(api.Config{
 		Dispatcher: s.dispatcher, Auth: s.authService, Registry: s.registry, WebCA: authority,
+		Availability: s.dispatcher.Availability,
 		SchemaVersion: func(ctx context.Context) (int, error) {
 			return store.SchemaVersion(ctx, s.controllerDB, store.SideController)
 		},
 		HostID: s.localHostID, Dev: s.opts.Dev, UI: api.EmbeddedUI(), Log: s.log, HealthStatus: s.opts.HealthStatus,
+		Events: s.events, Clock: s.clock,
 	})
 	if err != nil {
 		return err
@@ -66,7 +68,11 @@ func (s *Server) startListeners(ctx context.Context) error {
 		return err
 	}
 	s.listenService = svc
+	s.topo.setWeb(func() []listen.Bound { return svc.State().Listeners })
 	s.onShutdown("listeners", svc.Shutdown)
+	// Registered after the listeners, so it runs before their shutdown,
+	// which waits for running requests.
+	s.onShutdown("stream responses", func(context.Context) error { srv.CloseStreams(); return nil })
 	// The source stays set after Shutdown, so the state then reads that the
 	// listeners are shut down.
 	srv.SetListenerState(func() api.ListenerState {

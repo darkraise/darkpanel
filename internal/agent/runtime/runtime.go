@@ -47,9 +47,10 @@ type Config struct {
 	HostID        string         // the local host id
 	BinaryVersion string         // buildinfo.Version, for the migration backup
 	BackupDir     string         // paths.AgentBackups()
-	Exec          core.Runner    // platform.NewRunner(platform.ProductionAllowlist()) in production
+	Exec          core.Runner    // platform.NewRunner(platform.ProductionRules()) in production
 	FilesTestMode bool           // platform.FilesConfig.TestMode; false in production
 	// Units starts and reads task units (1.3c); nil refuses task actions.
+	// Each module's handlers get it scoped to the module (ModuleUnits).
 	Units core.Units
 	// TaskBinary is the darkpanel binary a task unit runs, paths.Binary().
 	TaskBinary string
@@ -85,10 +86,17 @@ type Runtime struct {
 	journal *lifecycle.AgentJournal
 	hashes  map[string]core.SchemaHash // every agent-side action version's schema hashes, fixed at Open
 	epoch   string                     // the journal epoch, fixed at Open
+	// moduleUnits is platform.ModuleUnits over Config.Units: each module's
+	// unit client, for the engine and for moduleEnv.
+	moduleUnits func(module string) core.Units
 
 	statusMu sync.Mutex
 	status   map[string]core.ModuleStatus
 	broken   map[string]bool // modules whose migrations failed; unusable until a restart
+
+	bg *background // the modules' background tasks, from the end of Open
+
+	streams streamSet // the running module streams; Close ends them
 
 	// loopMu is held while a purge runs, so Close waits for it.
 	loopMu sync.Mutex
@@ -100,8 +108,8 @@ type Runtime struct {
 // failed module migration makes that module unavailable), builds the one
 // platform.Files of the agent from the registry's owned paths, builds the
 // agent lifecycle engine, runs its Recover once, runs every module's
-// preflight checks, purges expired plans and then every PurgeInterval. Call
-// Close on shutdown.
+// preflight checks, purges expired plans and then every PurgeInterval, and
+// starts the modules' background tasks. Call Close on shutdown.
 func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 	if err := cfg.check(); err != nil {
 		return nil, err
@@ -127,10 +135,11 @@ func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 	r.base = core.Env{
 		HostID: cfg.HostID, DB: cfg.DB, Exec: cfg.Exec, Files: files, Sealer: cfg.Sealer, Clock: cfg.Clock, Log: cfg.Log,
 	}
+	r.moduleUnits = platform.ModuleUnits(cfg.Units, cfg.Registry)
 	r.journal = lifecycle.NewAgentJournal(cfg.DB)
 	eng, err := lifecycle.New(lifecycle.Config{
 		Side: core.SideAgent, Registry: cfg.Registry, Validator: schema.NewValidator(), Journal: r.journal,
-		Redact: schema.Redact, Base: r.base, Units: cfg.Units, TaskBinary: cfg.TaskBinary,
+		Redact: schema.Redact, Base: r.base, Units: cfg.Units, TaskBinary: cfg.TaskBinary, ModuleUnits: r.moduleUnits,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("runtime: %w", err)
@@ -147,14 +156,19 @@ func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 		eng.Close()
 		return nil, fmt.Errorf("runtime: %w", err)
 	}
+	r.startBackground(ctx)
 	r.timer = cfg.Clock.AfterFunc(PurgeInterval, r.purge)
 	return r, nil
 }
 
-// Close stops the purge loop, waiting for a running purge, and closes the
-// engine, which waits for a running timer revert. The caller closes the
-// database afterwards.
+// Close stops the background tasks, waiting for each Run and Watch to return,
+// ends every open module stream, waiting until each stream's Run returned,
+// stops the purge loop, waiting for a running purge, and closes the engine,
+// which waits for a running timer revert. The caller closes the database
+// afterwards.
 func (r *Runtime) Close() {
+	r.stopBackground()
+	r.streams.close()
 	r.loopMu.Lock()
 	r.closed = true
 	if r.timer != nil {
@@ -251,7 +265,7 @@ func (r *Runtime) check(ctx context.Context, m core.Manifest) core.ModuleStatus 
 		return st
 	}
 	for _, c := range m.Preflight {
-		err := lifecycle.Protect(r.cfg.Log, m.ID, "preflight check "+c.ID, func() error { return c.Run(ctx, r.base) })
+		err := lifecycle.Protect(r.cfg.Log, m.ID, "preflight check "+c.ID, func() error { return c.Run(ctx, r.moduleEnv(m.ID)) })
 		if err != nil {
 			st.Reason = err.Error()
 			return st
@@ -259,6 +273,14 @@ func (r *Runtime) check(ctx context.Context, m core.Manifest) core.ModuleStatus 
 	}
 	st.Available = true
 	return st
+}
+
+// moduleEnv is the Env of module's preflight checks and resources: the
+// runtime's base with the module's unit client.
+func (r *Runtime) moduleEnv(module string) core.Env {
+	env := r.base
+	env.Units = r.moduleUnits(module)
+	return env
 }
 
 func (r *Runtime) isBroken(moduleID string) bool {

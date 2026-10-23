@@ -498,3 +498,201 @@ func TestAuditMigrationWidensPhasesAndKeepsRows(t *testing.T) {
 		}
 	}
 }
+
+// surfacesRows lists a table's rows, each as one JSON array of columns, in a
+// stable order.
+func surfacesRows(t *testing.T, db *DB, query string) []string {
+	t.Helper()
+	rows, err := db.Read().QueryContext(context.Background(), query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []string
+	for rows.Next() {
+		var row string
+		if err := rows.Scan(&row); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// surfacesMigrate migrates db, built to side's migration previous, to the
+// newest, and checks that 00<number>_platform_surfaces ran first and that
+// core_changes.system reads 0 for lifecycleRows' change C1, accepts 1 and
+// refuses 2.
+func surfacesMigrate(t *testing.T, db *DB, side string, number int) {
+	t.Helper()
+	ctx := context.Background()
+	set, err := CoreMigrations(side)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := migrateOpts(t, "w0b", time.Now())
+	opts.Side = side
+	res, err := Migrate(ctx, db, opts, set, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Applied) == 0 || res.Applied[0].Number != number || res.Applied[0].Name != "platform_surfaces" {
+		t.Fatalf("applied %+v, want %04d_platform_surfaces first", res.Applied, number)
+	}
+	var system int
+	if err := db.Read().QueryRowContext(ctx, "SELECT system FROM core_changes WHERE id = 'C1'").Scan(&system); err != nil || system != 0 {
+		t.Errorf("system of the old change = %d, %v; want 0", system, err)
+	}
+	if _, err := db.Writer().ExecContext(ctx, "UPDATE core_changes SET system = 1 WHERE id = 'C1'"); err != nil {
+		t.Errorf("system = 1 refused: %v", err)
+	}
+	if _, err := db.Writer().ExecContext(ctx, "UPDATE core_changes SET system = 2 WHERE id = 'C1'"); err == nil {
+		t.Error("system = 2 accepted")
+	}
+}
+
+func TestAgentPlatformSurfacesMigration(t *testing.T) {
+	ctx := context.Background()
+	db := openTemp(t)
+	opts := migrateOpts(t, "w0a", time.Now())
+	opts.Side = SideAgent
+	if _, err := Migrate(ctx, db, opts, coreSetUpTo(t, SideAgent, 6), nil); err != nil {
+		t.Fatal(err)
+	}
+	lifecycleRows(t, db)
+	const at = "2026-10-22T00:00:00.000000000Z"
+	insert := "INSERT INTO core_owned_files (path, module, kind, block_id, created_at) VALUES (?, ?, ?, ?, ?)"
+	exec := func(path, kind, blockID string) error {
+		_, err := db.Writer().ExecContext(ctx, insert, path, "demo", kind, blockID, at)
+		return err
+	}
+	for _, r := range []struct{ path, kind, blockID string }{
+		{"/etc/demo.conf", "file", ""}, {"/etc/hosts", "block", "demo-hosts"}, {"/var/lib/demo", "dir", ""},
+		{"darkpanel-demo", "user", ""}, {"/etc/systemd/system/darkpanel-demo.service", "unit", ""},
+	} {
+		if err := exec(r.path, r.kind, r.blockID); err != nil {
+			t.Fatalf("owned %s row: %v", r.kind, err)
+		}
+	}
+	const owned = `SELECT json_array(path, module, kind, block_id, created_at) FROM core_owned_files
+		ORDER BY path, module, block_id`
+	before := surfacesRows(t, db, owned)
+
+	surfacesMigrate(t, db, SideAgent, 7)
+
+	if after := surfacesRows(t, db, owned); !slices.Equal(after, before) {
+		t.Errorf("owned rows after the migration = %v, want %v", after, before)
+	}
+	var tableSQL string
+	if err := db.Read().QueryRowContext(ctx, "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'core_owned_files'").
+		Scan(&tableSQL); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(strings.TrimSpace(tableSQL), "STRICT") {
+		t.Errorf("core_owned_files is not STRICT: %s", tableSQL)
+	}
+	if err := exec("/var/lib/darkpanel/agent/demo-debs", "managed-dir", ""); err != nil {
+		t.Errorf("kind managed-dir refused: %v", err)
+	}
+	if err := exec("/var/lib/darkpanel-demo", "service-dir", ""); err != nil {
+		t.Errorf("kind service-dir refused: %v", err)
+	}
+	refused := []struct{ name, path, kind, blockID string }{
+		{"unknown kind", "/run/demo.sock", "socket", ""},
+		{"block without a block id", "/etc/fstab", "block", ""},
+		{"managed-dir with a block id", "/var/lib/demo-cache", "managed-dir", "x"},
+		{"duplicate path, module and block id", "/etc/demo.conf", "file", ""},
+	}
+	for _, r := range refused {
+		if err := exec(r.path, r.kind, r.blockID); err == nil {
+			t.Errorf("%s: accepted", r.name)
+		}
+	}
+}
+
+func TestControllerPlatformSurfacesMigration(t *testing.T) {
+	ctx := context.Background()
+	db := openTemp(t)
+	opts := migrateOpts(t, "w0a", time.Now())
+	opts.Side = SideController
+	if _, err := Migrate(ctx, db, opts, coreSetUpTo(t, SideController, 10), nil); err != nil {
+		t.Fatal(err)
+	}
+	lifecycleRows(t, db)
+	const at = "2026-10-22T00:00:00.000000000Z"
+	insert := `INSERT INTO core_audit (id, seq, epoch, at, actor, host_id, action, version, phase, change_id, input_json,
+		result, error_code, source) VALUES (?, ?, ?, ?, ?, ?, 'fix.item.add', 1, ?, ?, ?, ?, ?, ?)`
+	exec := func(args ...any) error {
+		_, err := db.Writer().ExecContext(ctx, insert, args...)
+		return err
+	}
+	for _, args := range [][]any{
+		{"A1", nil, "", at, "user:alice", nil, "apply", "C1", `{"name":"a"}`, "ok", nil, "127.0.0.1"},
+		{"A2", 7, "E1", at, "system:recovery", "H1", "interrupt", "C2", nil, "error", "core.interrupted", nil},
+		{"A3", 8, "E1", at, "user:alice", "H1", "undo", "C2", nil, "ok", nil, "192.0.2.7"},
+		{"A4", 9, "E1", at, "user:alice", "H1", "revert", "C2", nil, "override", nil, nil},
+	} {
+		if err := exec(args...); err != nil {
+			t.Fatalf("audit row %v: %v", args[0], err)
+		}
+	}
+	const audit = `SELECT json_array(id, seq, epoch, at, actor, host_id, action, version, phase, change_id, input_json,
+		result, error_code, source) FROM core_audit ORDER BY id`
+	before := surfacesRows(t, db, audit)
+
+	surfacesMigrate(t, db, SideController, 11)
+
+	if after := surfacesRows(t, db, audit); !slices.Equal(after, before) {
+		t.Errorf("audit rows after the migration = %v, want %v", after, before)
+	}
+	var tableSQL, indexSQL string
+	if err := db.Read().QueryRowContext(ctx, "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'core_audit'").
+		Scan(&tableSQL); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(strings.TrimSpace(tableSQL), "STRICT") {
+		t.Errorf("core_audit is not STRICT: %s", tableSQL)
+	}
+	if err := db.Read().QueryRowContext(ctx,
+		"SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'core_audit_host_epoch_seq' AND tbl_name = 'core_audit'").
+		Scan(&indexSQL); err != nil {
+		t.Fatalf("index core_audit_host_epoch_seq: %v", err)
+	}
+	if !strings.Contains(indexSQL, "UNIQUE") {
+		t.Errorf("core_audit_host_epoch_seq is not unique: %s", indexSQL)
+	}
+	// The change watcher's query reads core_changes through the new index.
+	var node, parent, notUsed int
+	var plan string
+	if err := db.Read().QueryRowContext(ctx, "EXPLAIN QUERY PLAN SELECT id FROM core_changes WHERE updated_at > ?", at).
+		Scan(&node, &parent, &notUsed, &plan); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(plan, "USING INDEX core_changes_updated") {
+		t.Errorf("query plan %q, want it to use core_changes_updated", plan)
+	}
+	accepted := []struct{ id, phase, result string }{
+		{"N1", "reveal", "ok"}, {"N2", "uninstall-abort", "ok"}, {"N3", "release", "ok"}, {"N4", "revert-watchdog", "error"},
+	}
+	for i, a := range accepted {
+		if err := exec(a.id, i+1, "E2", at, "user:alice", "H1", a.phase, nil, nil, a.result, nil, nil); err != nil {
+			t.Errorf("phase %s refused: %v", a.phase, err)
+		}
+	}
+	refused := []struct {
+		name string
+		args []any
+	}{
+		{"unknown phase", []any{"R1", nil, "", at, "user:alice", nil, "bogus", nil, nil, "ok", nil, nil}},
+		{"unknown result", []any{"R2", nil, "", at, "user:alice", nil, "reveal", nil, nil, "partial", nil, nil}},
+		{"duplicate host, epoch and seq", []any{"R3", 7, "E1", at, "system:recovery", "H1", "reveal", nil, nil, "ok", nil, nil}},
+	}
+	for _, r := range refused {
+		if err := exec(r.args...); err == nil {
+			t.Errorf("%s: accepted", r.name)
+		}
+	}
+}

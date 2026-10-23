@@ -85,10 +85,11 @@ var (
 const componentRef = "#/components/schemas/"
 
 // OpenAPI returns the OpenAPI 3.1 document served at /api/v1/openapi.json:
-// the hand-written routes, one read operation per read action and one plan
-// and one apply operation per mutating action, and one get operation per
-// resource. Break-glass actions are served only on the controller socket and
-// are left out (spec section 10).
+// the hand-written routes, one reveal operation per reveal action, one read
+// operation per other read action and one plan and one apply operation per
+// mutating action, and one get operation per resource. Break-glass actions
+// are served only on the controller socket (spec section 10) and Internal
+// actions only to the controller itself (spec 1.7); both are left out.
 func OpenAPI(reg *core.Registry, routes []Route) ([]byte, error) {
 	d := &document{paths: map[string]map[string]any{}, schemas: map[string]any{}}
 	shared := []struct {
@@ -183,7 +184,7 @@ func (d *document) add(method, path string, op map[string]any) error {
 
 func (d *document) addAction(def core.ActionDef) error {
 	s := def.Spec
-	if s.BreakGlass {
+	if s.BreakGlass || s.Internal {
 		return nil
 	}
 	id := fmt.Sprintf("%s.v%d", s.Name, s.Version)
@@ -208,6 +209,9 @@ func (d *document) addAction(def core.ActionDef) error {
 		base = fmt.Sprintf("/api/v1/hosts/{host}/actions/%s/v%d/", s.Name, s.Version)
 	}
 	inputBody := wrapper("input", inRef, true)
+	if s.Reveal {
+		return d.add("POST", base+"reveal", operation(s.Summary, id+".reveal", false, inputBody, wrapper("value", outRef, false)))
+	}
 	if s.Class == core.ClassRead {
 		return d.add("POST", base+"read", operation(s.Summary, id+".read", false, inputBody, wrapper("output", outRef, false)))
 	}

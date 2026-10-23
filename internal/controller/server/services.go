@@ -10,10 +10,12 @@ import (
 
 	"github.com/darkraise/darkpanel/internal/agent/runtime"
 	"github.com/darkraise/darkpanel/internal/buildinfo"
+	"github.com/darkraise/darkpanel/internal/controller/api"
 	"github.com/darkraise/darkpanel/internal/controller/audit"
 	"github.com/darkraise/darkpanel/internal/controller/auth"
 	"github.com/darkraise/darkpanel/internal/controller/coreactions"
 	"github.com/darkraise/darkpanel/internal/controller/dispatch"
+	"github.com/darkraise/darkpanel/internal/controller/events"
 	"github.com/darkraise/darkpanel/internal/controller/fleet"
 	"github.com/darkraise/darkpanel/internal/controller/listen"
 	"github.com/darkraise/darkpanel/internal/controller/rollout"
@@ -50,6 +52,8 @@ type services struct {
 	engine      *lifecycle.Engine
 	ingester    *audit.Ingester
 	dispatcher  *dispatch.Dispatcher
+	topo        topology // the dispatcher's guard topology
+	events      *events.Bus
 
 	purgeMu     sync.Mutex // held while a purge runs, so Shutdown waits for it
 	purgeTimer  core.Timer
@@ -69,6 +73,7 @@ func (s *Server) Registry() *core.Registry { return s.registry }
 // The agent authority is loaded in both modes, so the host actions work
 // alike and a development database keeps one controller id across modes.
 func (s *Server) startServices(ctx context.Context) error {
+	s.events = events.NewBus(s.log)
 	s.auditLog = audit.New(s.controllerDB, s.clock)
 	s.authService = auth.New(s.controllerDB, s.controllerSealer, s.clock, s.auditLog, auth.Options{Params: s.opts.AuthParams})
 	var err error
@@ -84,6 +89,7 @@ func (s *Server) startServices(ctx context.Context) error {
 		s.sessions, err = fleet.NewRegistry(fleet.RegistryConfig{
 			DB: s.controllerDB, Clock: s.clock, CheckPeer: s.authority.CheckPeer,
 			Version: buildinfo.Version, ControllerID: s.authority.ControllerID(), Log: s.log,
+			OnOnline: hostOnline(s.events),
 		})
 		if err != nil {
 			return fmt.Errorf("server: %w", err)
@@ -115,13 +121,7 @@ func (s *Server) startServices(ctx context.Context) error {
 		}
 	}
 
-	eng, err := lifecycle.New(lifecycle.Config{
-		Side: core.SideController, Registry: reg, Validator: schema.NewValidator(), Journal: s.auditLog,
-		Redact: schema.Redact,
-		Base: core.Env{
-			DB: s.controllerDB, Sealer: s.controllerSealer, Clock: s.clock, Log: s.log, Agents: s.hosts,
-		},
-	})
+	eng, err := lifecycle.New(s.engineConfig(reg))
 	if err != nil {
 		return fmt.Errorf("server: %w", err)
 	}
@@ -133,9 +133,11 @@ func (s *Server) startServices(ctx context.Context) error {
 	if err := s.startPurges(ctx); err != nil {
 		return err
 	}
+	stopWatchers := events.StartWatchers(s.controllerDB, s.clock, s.events, s.networkVisible, s.log)
+	s.onShutdown("event watchers", func(context.Context) error { stopWatchers(); return nil })
 
 	s.ingester = audit.NewIngester(audit.IngesterConfig{
-		Store: s.auditLog, Agents: s.hosts, Clock: s.clock, Log: s.log, OnEntries: wakeComposites(eng.Wake),
+		Store: s.auditLog, Agents: s.hosts, Clock: s.clock, Log: s.log, OnEntries: s.ingestedEntries(eng.Wake, s.agentChange),
 	})
 	if err := s.ingester.IngestAll(ctx); err != nil {
 		s.log.Warn("server: audit ingestion", "error", err)
@@ -143,9 +145,12 @@ func (s *Server) startServices(ctx context.Context) error {
 	s.ingester.Start()
 	s.onShutdown("audit ingester", func(context.Context) error { s.ingester.Stop(); return nil })
 
+	if s.sessions != nil {
+		s.topo.setPeers(s.sessions.Peers)
+	}
 	s.dispatcher, err = dispatch.New(dispatch.Config{
 		Registry: reg, Engine: eng, Hosts: s.hosts, DB: s.controllerDB, Clock: s.clock, Log: s.log, Ingest: s.ingester,
-		Version: buildinfo.Version,
+		Version: buildinfo.Version, Topology: s.topo.read,
 	})
 	if err != nil {
 		return fmt.Errorf("server: %w", err)
@@ -164,19 +169,69 @@ func (s *Server) startServices(ctx context.Context) error {
 	return s.startRollouts(clients)
 }
 
+// hostOnline publishes the session registry's online changes as host
+// events.
+func hostOnline(bus *events.Bus) func(hostID string, online bool) {
+	return func(hostID string, online bool) {
+		bus.Publish(events.TypeHost, events.HostEvent{HostID: hostID, Online: online})
+	}
+}
+
+// engineConfig is the controller engine's configuration. Its Publish hands
+// the composite.step events to the event bus.
+func (s *Server) engineConfig(reg *core.Registry) lifecycle.Config {
+	return lifecycle.Config{
+		Side: core.SideController, Registry: reg, Validator: schema.NewValidator(), Journal: s.auditLog,
+		Redact: schema.Redact, Publish: s.events.Publish,
+		Base: core.Env{
+			DB: s.controllerDB, Sealer: s.controllerSealer, Clock: s.clock, Log: s.log, Agents: s.hosts,
+		},
+	}
+}
+
+// ingestedEntries is the audit ingester's OnEntries: it wakes the
+// composites following the stored entries' changes and publishes those
+// changes, read through change, as change events.
+func (s *Server) ingestedEntries(wake func(changeIDs ...string),
+	change func(ctx context.Context, hostID, changeID string) (core.ChangeView, error)) func(hostID string, entries []core.JournalEntry) {
+	wakeFn, publish := wakeComposites(wake), events.AgentChanges(s.events, change, s.networkVisible, s.log)
+	return func(hostID string, entries []core.JournalEntry) {
+		wakeFn(hostID, entries)
+		publish(hostID, entries)
+	}
+}
+
+// networkVisible is what the event bus may carry: its only reader is the
+// network event stream, which must hide what the network change routes hide.
+func (s *Server) networkVisible(v core.ChangeView) bool {
+	return api.NetworkVisible(s.registry, v)
+}
+
+// agentChange reads changeID from hostID's agent.
+func (s *Server) agentChange(ctx context.Context, hostID, changeID string) (core.ChangeView, error) {
+	agent, err := s.hosts.Agent(ctx, hostID)
+	if err != nil {
+		return core.ChangeView{}, err
+	}
+	return agent.Change(ctx, changeID)
+}
+
 // wakePhases are the agent journal phases after which a composite following
 // the change looks its child up at once (1.3 Child watcher).
 var wakePhases = map[string]bool{
 	"apply": true, "interrupt": true, "revert": true, "recover": true, "undo": true, "resolve": true, "release": true,
 }
 
-// wakeComposites is the audit ingester's OnEntries: it wakes the composites
-// following the changes of the stored entries in wakePhases.
+// wakeComposites wakes the composites following the changes of the stored
+// entries in wakePhases, each change once: Wake runs a query per id under
+// the ingestion lock.
 func wakeComposites(wake func(changeIDs ...string)) func(hostID string, entries []core.JournalEntry) {
 	return func(_ string, entries []core.JournalEntry) {
 		var ids []string
+		seen := map[string]bool{}
 		for _, e := range entries {
-			if wakePhases[e.Phase] && e.ChangeID != "" {
+			if wakePhases[e.Phase] && e.ChangeID != "" && !seen[e.ChangeID] {
+				seen[e.ChangeID] = true
 				ids = append(ids, e.ChangeID)
 			}
 		}
@@ -219,7 +274,7 @@ func (s *Server) startEmbeddedAgent(ctx context.Context) (dispatch.ClientSource,
 	rt, err := runtime.Open(ctx, runtime.Config{
 		DB: s.agentDB, Sealer: s.agentSealer, Clock: s.clock, Log: s.log, Registry: s.registry,
 		HostID: s.localHostID, BinaryVersion: buildinfo.Version, BackupDir: s.opts.Paths.AgentBackups(),
-		Exec: platform.NewRunner(platform.ProductionAllowlist()),
+		Exec: platform.NewRunner(platform.ProductionRules()),
 	})
 	if err != nil {
 		return nil, err
@@ -256,6 +311,7 @@ func (s *Server) startAgentListener(ctx context.Context) error {
 		return err
 	}
 	s.agentListen = svc
+	s.topo.setAgent(svc.Bound)
 	s.onShutdown("agent listener", svc.Shutdown)
 	addrs := make([]string, 0, len(svc.Bound()))
 	for _, b := range svc.Bound() {

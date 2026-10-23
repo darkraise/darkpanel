@@ -52,8 +52,11 @@ func TestChildrenPlanApplyAndReadGoThroughTheDispatcher(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if applied.Call == nil || !reflect.DeepEqual(*applied.Call, *call) {
-			t.Errorf("the agent's apply got call %+v, want %+v", applied.Call, call)
+		// The dispatcher adds the guard context to every agent apply.
+		wantApplied := *call
+		wantApplied.GuardRefresh = &core.GuardContext{}
+		if applied.Call == nil || !reflect.DeepEqual(*applied.Call, wantApplied) {
+			t.Errorf("the agent's apply got call %+v, want %+v", applied.Call, wantApplied)
 		}
 		if n := h.count("SELECT count(*) FROM core_change_index WHERE change_id = ?", v.ID); n != 1 {
 			t.Errorf("change index rows = %d, want the child change indexed", n)
@@ -170,4 +173,21 @@ func TestChildrenRouteControllerChangeOperations(t *testing.T) {
 	_, err = kids.Release(ctx, alice, "", "01MISSING", "done", nil)
 	_ = wantCode(t, err, errcode.ChangeNotFound)
 	_ = wantCode(t, kids.AckPrivate(ctx, "", "01MISSING", true), errcode.ChangeNotFound)
+}
+
+func TestChildrenReadInternal(t *testing.T) {
+	ctx := context.Background()
+	_, d, a, _, _ := drvDispatcher(t, "", "", nil)
+	kids := d.Children()
+	out, err := kids.Read(ctx, alice, testHost, refDrvInternal, json.RawMessage(`{"name":"a"}`))
+	if err != nil || string(out) != `{"secret":"s-a-user:alice"}` {
+		t.Fatalf("internal read step = %s, %v", out, err)
+	}
+	out, err = kids.Read(ctx, alice, testHost, refDrvRead, json.RawMessage(`{"name":"b"}`))
+	if err != nil || string(out) != `{"actor":"user:alice","value":"b"}` {
+		t.Fatalf("plain read step = %s, %v", out, err)
+	}
+	if want := []string{`drv.cert.get internal=true as user:alice {"name":"a"}`}; !slices.Equal(a.recorded(), want) {
+		t.Errorf("the agent's reveals %q, want %q: the plain read goes through Read", a.recorded(), want)
+	}
 }

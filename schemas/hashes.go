@@ -1,6 +1,7 @@
 package schemas
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -41,4 +42,24 @@ func ActionHashes(reg *core.Registry, side core.Side) (map[string]core.SchemaHas
 		out[HashKey(def.Ref())] = h
 	}
 	return out, nil
+}
+
+// StreamHash is the lower-case hex SHA-256 of {"params": <input schema of
+// ParamsType>, "event": <output schema of EventType>} re-encoded by
+// encoding/json. The controller relays a stream only when the agent reports
+// the hash of its own registry's definition.
+func StreamHash(def core.StreamDef) (string, error) {
+	params, err := schema.Input(def.ParamsType)
+	if err != nil {
+		return "", fmt.Errorf("schemas: stream %s params: %w", def.Name, err)
+	}
+	event, err := schema.Output(def.EventType)
+	if err != nil {
+		return "", fmt.Errorf("schemas: stream %s event: %w", def.Name, err)
+	}
+	doc, err := json.Marshal(map[string]json.RawMessage{"params": params, "event": event})
+	if err != nil {
+		return "", fmt.Errorf("schemas: stream %s: %w", def.Name, err)
+	}
+	return Hash(doc)
 }

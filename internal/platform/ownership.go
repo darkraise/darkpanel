@@ -48,6 +48,17 @@ func (o *Ownership) Forget(ctx context.Context, module, path, blockID string) er
 	})
 }
 
+// Owns reports whether module has an entry for path, of any kind.
+func (o *Ownership) Owns(ctx context.Context, module, path string) (bool, error) {
+	var n int
+	err := o.db.Read().QueryRowContext(ctx,
+		`SELECT count(*) FROM core_owned_files WHERE module = ? AND path = ?`, module, path).Scan(&n)
+	if err != nil {
+		return false, fmt.Errorf("platform: owns %s: %w", path, err)
+	}
+	return n > 0, nil
+}
+
 // List returns every entry, sorted by path, block id and module.
 func (o *Ownership) List(ctx context.Context) ([]core.OwnedEntry, error) {
 	rows, err := o.db.Read().QueryContext(ctx,

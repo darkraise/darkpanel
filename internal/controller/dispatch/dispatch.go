@@ -46,18 +46,23 @@ type Config struct {
 	// Snapshots hold the released schema snapshots an older agent's schema
 	// hashes are looked up in; nil means the embedded schemas.FS.
 	Snapshots fs.FS
+	// Topology is read on every plan of a guarded action and every agent
+	// apply, for the guard context; nil is an empty topology.
+	Topology func() Topology
 }
 
 // Dispatcher is the core.Dispatcher of the controller. Its methods are safe
 // for concurrent use.
 type Dispatcher struct {
-	cfg   Config
-	neg   negotiation
-	plans planLocks
+	cfg     Config
+	neg     negotiation
+	plans   planLocks
+	avail   availabilityCache
+	streams streamSlots
 }
 
-// New returns a dispatcher for cfg; every field but Ingest, Version and
-// Snapshots is required.
+// New returns a dispatcher for cfg; every field but Ingest, Version,
+// Snapshots and Topology is required.
 func New(cfg Config) (*Dispatcher, error) {
 	required := []struct {
 		name string
@@ -152,6 +157,9 @@ func (d *Dispatcher) Read(ctx context.Context, p core.Principal, hostID string, 
 	if err != nil {
 		return nil, err
 	}
+	if err := d.available(ctx, hostID, def); err != nil {
+		return nil, err
+	}
 	if def.Spec.Side == core.SideController {
 		return d.cfg.Engine.Read(ctx, p, a, input)
 	}
@@ -178,11 +186,20 @@ func (d *Dispatcher) Resource(ctx context.Context, p core.Principal, hostID, nam
 }
 
 // Plan plans a mutating action where Read would run it, and records the
-// plan's host and action in core_plan_index for Apply.
+// plan's host and action in core_plan_index for Apply. The input of an
+// action with Guards gets the guard context, replacing any the caller sent.
 func (d *Dispatcher) Plan(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage, opts core.PlanOptions) (core.PlanView, error) {
 	def, err := d.action(a, hostID)
 	if err != nil {
 		return core.PlanView{}, err
+	}
+	if err := d.available(ctx, hostID, def); err != nil {
+		return core.PlanView{}, err
+	}
+	if len(def.Spec.Guards) > 0 {
+		if input, err = withGuard(input, d.guardContext(ctx)); err != nil {
+			return core.PlanView{}, err
+		}
 	}
 	var v core.PlanView
 	if def.Spec.Side == core.SideController {

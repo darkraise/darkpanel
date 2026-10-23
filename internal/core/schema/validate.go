@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"strings"
 	"sync"
 
@@ -20,6 +21,7 @@ import (
 type Validator struct {
 	mu      sync.Mutex
 	schemas map[core.ActionRef]*jsonschema.Schema
+	types   typeNames // ValidateType's keys of bare types in schemas
 }
 
 // NewValidator returns an empty validator; schemas compile on first use.
@@ -80,6 +82,9 @@ func (v *Validator) compiled(def core.ActionDef) (*jsonschema.Schema, error) {
 	c := jsonschema.NewCompiler()
 	// Under draft 2020-12 "format" is only an annotation unless asserted.
 	c.AssertFormat()
+	for _, f := range addressFormats {
+		c.RegisterFormat(f)
+	}
 	if err := c.AddResource(url, doc); err != nil {
 		return nil, fmt.Errorf("schema: %s: %w", ref, err)
 	}
@@ -91,6 +96,25 @@ func (v *Validator) compiled(def core.ActionDef) (*jsonschema.Schema, error) {
 	defer v.mu.Unlock()
 	v.schemas[ref] = sch
 	return sch, nil
+}
+
+// addressFormats check the formats addressSchema emits.
+var addressFormats = []*jsonschema.Format{
+	{Name: formatAddr, Validate: stringFormat(func(s string) error { _, err := netip.ParseAddr(s); return err })},
+	{Name: formatAddrPort, Validate: stringFormat(func(s string) error { _, err := netip.ParseAddrPort(s); return err })},
+	{Name: formatPrefix, Validate: stringFormat(func(s string) error { _, err := netip.ParsePrefix(s); return err })},
+}
+
+// stringFormat applies parse to a string value. Any other value passes, as
+// JSON Schema formats do; the type keyword refuses it.
+func stringFormat(parse func(string) error) func(any) error {
+	return func(v any) error {
+		s, ok := v.(string)
+		if !ok {
+			return nil
+		}
+		return parse(s)
+	}
 }
 
 // leaves turns the failing leaves of a validation error tree into field

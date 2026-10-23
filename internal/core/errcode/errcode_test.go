@@ -57,6 +57,7 @@ func TestStatus(t *testing.T) {
 		{ChangeBusy, 409},
 		{DeadlineExceeded, 504},
 		{Uninstalling, 409},
+		{StreamLimit, 429},
 		{Code("no.such_code"), 500},
 	}
 	for _, tt := range tests {
@@ -106,6 +107,7 @@ func TestLifecycleCodes(t *testing.T) {
 		{ChangeBusy, "core.change_busy", "Change busy"},
 		{DeadlineExceeded, "core.deadline_exceeded", "Action deadline exceeded"},
 		{Uninstalling, "core.uninstalling", "Host is being uninstalled"},
+		{StreamLimit, "core.stream_limit", "Too many streams"},
 	}
 	for _, tt := range tests {
 		if string(tt.code) != tt.value || !Known(tt.code) || tt.code.Title() != tt.title {
