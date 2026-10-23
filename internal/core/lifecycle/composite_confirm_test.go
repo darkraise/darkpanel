@@ -93,19 +93,23 @@ func TestCompositeConfirmAnswerLost(t *testing.T) {
 	})
 	t.Run("the runner settles it", func(t *testing.T) {
 		f := newCfxFixture(t)
+		flag := &susFlag{}
+		susReopenCtrl(f, flag.suspended)
 		v, _ := awaitingGate(t, f)
 		f.kids.loseNext("Confirm")
 		f.kids.loseNext("Lookup")
+		// The runner is held until the step has been read, so Confirm alone
+		// must leave it confirming and only the runner can settle it.
+		flag.held.Store(true)
 		got, err := f.ctrl.Confirm(context.Background(), cfxRoot, v.ID)
 		if err != nil || got.State != core.StateAwaitingConfirmation {
 			t.Fatalf("Confirm = %s, %v; want still awaiting confirmation", got.State, err)
 		}
-		// The background runner may settle the step between Confirm's answer
-		// and this read, so only a state on the way to confirmed is checked
-		// here; the runner's outcome is checked once the composite is done.
-		if s := f.stepsOf(v.ID)["g"]; s.State != core.StepConfirming && s.State != core.StepConfirmed {
-			t.Fatalf("step g = %s, want confirming or confirmed", s.State)
+		susStill(t, f, v.ID, core.StateAwaitingConfirmation)
+		if s := f.stepsOf(v.ID)["g"]; s.State != core.StepConfirming {
+			t.Fatalf("step g = %s, want confirming until the runner settles it", s.State)
 		}
+		flag.held.Store(false)
 		if done := f.await(v.ID, core.StateCompleted, core.StateReverted); done.State != core.StateCompleted {
 			t.Fatalf("composite = %s, want completed", done.State)
 		}
