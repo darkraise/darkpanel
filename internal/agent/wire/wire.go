@@ -35,6 +35,10 @@ const (
 	// (spec 1.5). A plan's body is the action input itself, so the call
 	// cannot travel in the body.
 	HeaderCall = "Darkpanel-Call"
+	// HeaderInternal marks a reveal the controller makes for one of its
+	// own Internal reads (spec 1.7); "1" is its only value. The agent
+	// serves an Internal action on the reveal route only with it.
+	HeaderInternal = "Darkpanel-Internal"
 )
 
 // MaxBody is the largest request or response body the agent API accepts.

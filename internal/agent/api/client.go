@@ -48,6 +48,7 @@ var (
 	_ core.AgentChangeOps    = (*Client)(nil)
 	_ core.AgentEnablement   = (*Client)(nil)
 	_ core.AgentAvailability = (*Client)(nil)
+	_ core.AgentReveal       = (*Client)(nil)
 )
 
 // NewClient returns a client for cfg. Requests end with their context; the
@@ -72,6 +73,7 @@ type request struct {
 	call         *core.CallContext // sent as Darkpanel-Call when set
 	body         any               // nil sends none; a json.RawMessage is sent as it is
 	hello        bool
+	internal     bool // sends Darkpanel-Internal: 1
 }
 
 // do sends req and decodes a 2xx answer into out (nil discards it); 202 is
@@ -123,6 +125,9 @@ func (c *Client) do(ctx context.Context, req request, out any) error {
 			return fmt.Errorf("api: %s: encode the call: %w", what, err)
 		}
 		hr.Header.Set(wire.HeaderCall, base64.RawURLEncoding.EncodeToString(b))
+	}
+	if req.internal {
+		hr.Header.Set(wire.HeaderInternal, "1")
 	}
 	if req.hello && c.cfg.Controller != nil {
 		hr.Header.Set(wire.HeaderProtocol, strconv.Itoa(agentruntime.ProtocolVersion))
@@ -194,6 +199,18 @@ func (c *Client) Read(ctx context.Context, p core.Principal, a core.ActionRef, i
 	var out json.RawMessage
 	err := c.do(ctx, request{method: http.MethodPost, path: actionPath(a, opRead), principal: &p, body: input}, &out)
 	if err != nil {
+		return nil, err
+	}
+	return rawOutput(out), nil
+}
+
+// Reveal runs a reveal action, or with internal an Internal read, which
+// travels with Darkpanel-Internal: 1 (spec 1.7). The value comes back as
+// the agent answered it.
+func (c *Client) Reveal(ctx context.Context, p core.Principal, a core.ActionRef, input json.RawMessage, internal bool) (json.RawMessage, error) {
+	var out json.RawMessage
+	path := "reveal/" + url.PathEscape(a.Name) + "/v" + strconv.Itoa(a.Version)
+	if err := c.do(ctx, request{method: http.MethodPost, path: path, principal: &p, body: input, internal: internal}, &out); err != nil {
 		return nil, err
 	}
 	return rawOutput(out), nil

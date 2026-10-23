@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -567,5 +568,50 @@ func TestClientAvailability(t *testing.T) {
 	}
 	if len(asked) != 2 || asked[0] != "GET /agent/v1/modules/demo/availability" {
 		t.Errorf("requests %v", asked)
+	}
+}
+
+func TestClientReveal(t *testing.T) {
+	ctx := context.Background()
+	ref := core.ActionRef{Name: "rvl.key.reveal", Version: 3}
+	var mu sync.Mutex
+	var got []string
+	srv := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		got = append(got, fmt.Sprintf("%s %s internal=%q principal=%s %s", r.Method, r.URL.Path,
+			r.Header.Values(wire.HeaderInternal), r.Header.Get(wire.HeaderPrincipal), body))
+		mu.Unlock()
+		if string(body) == `{"name":"gone"}` {
+			w.Header().Set("Content-Type", problemContentType)
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w, `{"type":"about:blank","title":"Unknown action","status":404,"detail":"unknown action","code":"action.unknown"}`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"key":"k-a"}`)
+	})
+	c := tcpClient(t, srv, &ControllerHello{Version: "0.2.1", ControllerID: "C1"})
+	for _, internal := range []bool{false, true} {
+		out, err := c.Reveal(ctx, testPrincipal, ref, json.RawMessage(`{"name":"a"}`), internal)
+		if err != nil || string(out) != `{"key":"k-a"}` {
+			t.Errorf("Reveal(internal %v) = %s, %v", internal, out, err)
+		}
+	}
+	_, err := c.Reveal(ctx, testPrincipal, ref, json.RawMessage(`{"name":"gone"}`), false)
+	var coded *errcode.Error
+	if !errors.As(err, &coded) || coded.Code != errcode.ActionUnknown {
+		t.Errorf("Reveal answered with problem details = %v, want action.unknown", err)
+	}
+	p := principalHeader(t, testPrincipal)
+	want := []string{
+		`POST /agent/v1/reveal/rvl.key.reveal/v3 internal=[] principal=` + p + ` {"name":"a"}`,
+		`POST /agent/v1/reveal/rvl.key.reveal/v3 internal=["1"] principal=` + p + ` {"name":"a"}`,
+		`POST /agent/v1/reveal/rvl.key.reveal/v3 internal=[] principal=` + p + ` {"name":"gone"}`,
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("requests\n got %q\nwant %q", got, want)
 	}
 }
