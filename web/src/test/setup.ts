@@ -1,5 +1,6 @@
 import { cleanup } from "@testing-library/react"
 import { afterEach, vi } from "vitest"
+import "vitest-axe/extend-expect"
 import { setCsrfRejectedHandler, setCsrfToken, setUnauthorizedHandler } from "@/api/client"
 import { EvtSource } from "./evt-source"
 
