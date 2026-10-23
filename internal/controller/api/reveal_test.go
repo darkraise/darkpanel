@@ -25,14 +25,16 @@ func arvValue(context.Context, core.Env, arvIn) (core.Revealed[arvOut], error) {
 	return core.Revealed[arvOut]{}, nil
 }
 
-// arvModule has a reveal action and an Internal read on each side, and a
-// plain agent read.
+// arvModule has a reveal action and an Internal read on each side, a
+// break-glass reveal action and a plain agent read.
 type arvModule struct{}
 
 func (arvModule) Manifest() core.Manifest {
 	return core.Manifest{ID: "arv", Version: 1, Actions: []core.ActionDef{
 		core.DefineReveal(core.ActionSpec{Name: "arv.key.reveal", Version: 1, Side: core.SideAgent, MinScope: core.ScopeAdmin}, arvValue),
 		core.DefineReveal(core.ActionSpec{Name: "arv.ctl.reveal", Version: 1, Side: core.SideController, MinScope: core.ScopeAdmin}, arvValue),
+		core.DefineReveal(core.ActionSpec{Name: "arv.vault.reveal", Version: 1, Side: core.SideController, MinScope: core.ScopeAdmin,
+			BreakGlass: true}, arvValue),
 		core.DefineInternalRead(core.ActionSpec{Name: "arv.cert.get", Version: 1, Side: core.SideAgent}, arvValue),
 		core.DefineInternalRead(core.ActionSpec{Name: "arv.ctl.get", Version: 1, Side: core.SideController}, arvValue),
 		core.DefineRead(core.ActionSpec{Name: "arv.item.get", Version: 1, Side: core.SideAgent}, demoHandler[arvIn, arvOut]{}),
@@ -150,6 +152,18 @@ func TestRevealRouteRefusals(t *testing.T) {
 		"/api/v1/actions/arv.key.reveal/v1/reveal",
 	} {
 		decodeProblem(t, h.serve(withToken(request("POST", path, `{"input":{"name":"x"}}`), admin)), 404, errcode.ActionUnknown)
+	}
+	if got := calls.recorded(); len(got) != 0 {
+		t.Errorf("the dispatcher was called: %q", got)
+	}
+}
+
+func TestRevealRefusesBreakGlass(t *testing.T) {
+	h, calls := arvHarness(t)
+	rec := h.serve(withToken(request("POST", "/api/v1/actions/arv.vault.reveal/v1/reveal", `{"input":{"name":"x"}}`), h.token(core.ScopeAdmin)))
+	p := decodeProblem(t, rec, 403, errcode.Forbidden)
+	if p.Detail != "break-glass actions are served only on the controller socket" {
+		t.Errorf("detail %q, want the break-glass refusal", p.Detail)
 	}
 	if got := calls.recorded(); len(got) != 0 {
 		t.Errorf("the dispatcher was called: %q", got)

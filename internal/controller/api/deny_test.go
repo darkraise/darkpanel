@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -109,9 +111,13 @@ func TestUnroutedAfterAuthentication(t *testing.T) {
 // TestBreakGlassRefusedOnTheNetwork checks every break-glass action of the
 // registry with an admin token.
 func TestBreakGlassRefusedOnTheNetwork(t *testing.T) {
-	h := newHarness(t)
+	h := newHarnessWith(t, arvModule{})
 	var last call
 	h.stubDispatcher(&last)
+	h.disp.RevealFunc = func(context.Context, core.Principal, string, core.ActionRef, json.RawMessage) (json.RawMessage, error) {
+		last.method = "Reveal"
+		return nil, nil
+	}
 	token := h.token(core.ScopeAdmin)
 	n := 0
 	for _, def := range h.srv.cfg.Registry.Actions() {
@@ -119,7 +125,10 @@ func TestBreakGlassRefusedOnTheNetwork(t *testing.T) {
 			continue
 		}
 		ops := []string{opPlan, opApply}
-		if def.Spec.Class == core.ClassRead {
+		switch {
+		case def.Spec.Reveal:
+			ops = []string{opReveal}
+		case def.Spec.Class == core.ClassRead:
 			ops = []string{opRead}
 		}
 		for _, op := range ops {
@@ -128,7 +137,7 @@ func TestBreakGlassRefusedOnTheNetwork(t *testing.T) {
 			decodeProblem(t, h.serve(withToken(request("POST", path, `{"input":{},"planId":"p"}`), token)), 403, errcode.Forbidden)
 		}
 	}
-	if n != 3 || last.method != "" {
-		t.Errorf("checked %d break-glass operations, dispatched %q; want 3 and none", n, last.method)
+	if n != 4 || last.method != "" {
+		t.Errorf("checked %d break-glass operations, dispatched %q; want 4 and none", n, last.method)
 	}
 }
