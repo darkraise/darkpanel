@@ -15,14 +15,68 @@ env:
   GOTOOLCHAIN: local
 
 jobs:
-  adr:
+  # GitHub has no fallback for an unavailable self-hosted runner: a job whose
+  # runner is offline queues instead of moving to a hosted one, and a queued job
+  # cannot be cancelled on its own. This job always runs on a hosted runner. It
+  # dispatches runner-probe.yml from the default branch and waits for the probe
+  # to start: the other jobs use the self-hosted runner if it did, and the
+  # hosted one if it did not. Pull requests from forks never dispatch.
+  runner:
     runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+    outputs:
+      labels: ${{ steps.pick.outputs.labels }}
+    steps:
+      - id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          TRUSTED: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          labels='["ubuntu-24.04"]'
+          if [ "$TRUSTED" != true ]; then
+            echo "::notice::GitHub-hosted runner: the self-hosted runner is not used for this event"
+          elif ! gh workflow run runner-probe.yml --ref "$DEFAULT_BRANCH" -f id="$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"; then
+            echo "::notice::GitHub-hosted runner: the probe could not be dispatched"
+          else
+            export TITLE="probe $GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+            picked=false
+            probe=
+            for _ in $(seq 18); do
+              sleep 5
+              row=$(gh run list --workflow runner-probe.yml --event workflow_dispatch --limit 30 \
+                --json databaseId,displayTitle,status \
+                --jq 'map(select(.displayTitle == $ENV.TITLE)) | .[0] // empty | "\(.databaseId) \(.status)"') || row=
+              if [ -n "$row" ]; then
+                probe=${row% *}
+                case "$row" in
+                  *" in_progress" | *" completed") picked=true; break ;;
+                esac
+              fi
+            done
+            if [ "$picked" = true ]; then
+              labels='["self-hosted","darkpanel-linux"]'
+              echo "::notice::Self-hosted runner: the probe started"
+            else
+              if [ -n "$probe" ]; then
+                gh run cancel "$probe" || true
+              fi
+              echo "::notice::GitHub-hosted runner: the self-hosted runner did not pick up the probe within 90 seconds"
+            fi
+          fi
+          echo "labels=$labels" >> "$GITHUB_OUTPUT"
+
+  adr:
+    needs: runner
+    runs-on: ${{ fromJSON(needs.runner.outputs.labels) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: make test-adr
 
   release-scripts:
-    runs-on: ubuntu-24.04
+    needs: runner
+    runs-on: ${{ fromJSON(needs.runner.outputs.labels) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -33,7 +87,8 @@ jobs:
       - run: make lint-sh test-release
 
   go:
-    runs-on: ubuntu-24.04
+    needs: runner
+    runs-on: ${{ fromJSON(needs.runner.outputs.labels) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -47,7 +102,8 @@ jobs:
       - run: make lint-go test-go vuln
 
   web:
-    runs-on: ubuntu-24.04
+    needs: runner
+    runs-on: ${{ fromJSON(needs.runner.outputs.labels) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -62,7 +118,8 @@ jobs:
       - run: make lint-web test-web
 
   build:
-    runs-on: ubuntu-24.04
+    needs: runner
+    runs-on: ${{ fromJSON(needs.runner.outputs.labels) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
