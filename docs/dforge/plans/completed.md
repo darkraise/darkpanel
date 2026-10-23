@@ -19,3 +19,4 @@
 - 2026-10-21 `docs/dforge/plans/2026-10-21-m2-local-timeout-and-readme.md` — merged into `main` at c0ad73c
 - 2026-10-21 `docs/dforge/plans/2026-10-21-m1-audit-fixes.md` — merged into `main` at 5db9c17
 - 2026-10-22 `docs/dforge/plans/2026-10-21-v1-w0a-lifecycle-core.md` — merged into `main` at ac80fc2
+- 2026-10-23 `docs/dforge/plans/2026-10-22-v1-w0b-platform-surfaces.md` — merged into `main` at 07f36fd
