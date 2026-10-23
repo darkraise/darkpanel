@@ -680,3 +680,43 @@ func TestAvailabilityRoute(t *testing.T) {
 	sock := socketHandler(newSocketFake(), &enrolled)
 	wantProblem(t, call(t, sock, "GET", "/agent/v1/modules/demo/availability", nil, nil), 404, errcode.NotFound)
 }
+
+func TestRevealRoute(t *testing.T) {
+	type revealCall struct {
+		p        core.Principal
+		ref      core.ActionRef
+		input    string
+		internal bool
+	}
+	var calls []revealCall
+	fake := &coretest.FakeAgent{
+		RevealFunc: func(_ context.Context, p core.Principal, a core.ActionRef, in json.RawMessage, internal bool) (json.RawMessage, error) {
+			calls = append(calls, revealCall{p, a, string(in), internal})
+			return json.RawMessage(`{"password":"s3cret"}`), nil
+		},
+	}
+	h := NewHandler(Config{Agent: fake, Log: discardLog()})
+	const path = "/agent/v1/reveal/npm.admin.reveal-password/v2"
+	header := func(internal ...string) http.Header {
+		hdr := http.Header{wire.HeaderPrincipal: {principalHeader(t, testPrincipal)}}
+		if len(internal) > 0 {
+			hdr[wire.HeaderInternal] = internal
+		}
+		return hdr
+	}
+	for _, hdr := range []http.Header{header(), header("1")} {
+		rec := call(t, h, "POST", path, hdr, []byte(`{"host": "h1"}`))
+		if rec.Code != 200 || rec.Body.String() != `{"password":"s3cret"}` || rec.Header().Get("Cache-Control") != "no-store" {
+			t.Errorf("reveal answered %d %s, Cache-Control %q", rec.Code, rec.Body, rec.Header().Get("Cache-Control"))
+		}
+	}
+	wantProblem(t, call(t, h, "POST", path, header("yes"), []byte(`{}`)), 422, errcode.InvalidInput)
+	wantProblem(t, call(t, h, "POST", path, header("1", "1"), []byte(`{}`)), 422, errcode.InvalidInput)
+	wantProblem(t, call(t, h, "POST", path, nil, []byte(`{}`)), 422, errcode.InvalidInput)
+	wantProblem(t, call(t, h, "POST", "/agent/v1/reveal/npm.admin.reveal-password/2", header(), []byte(`{}`)), 404, errcode.ActionUnknown)
+	ref := core.ActionRef{Name: "npm.admin.reveal-password", Version: 2}
+	want := []revealCall{{testPrincipal, ref, `{"host": "h1"}`, false}, {testPrincipal, ref, `{"host": "h1"}`, true}}
+	if !reflect.DeepEqual(calls, want) {
+		t.Errorf("the agent got\n%+v\nwant\n%+v", calls, want)
+	}
+}

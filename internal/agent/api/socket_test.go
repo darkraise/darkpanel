@@ -3,15 +3,21 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
+	"path/filepath"
 	"reflect"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	agentruntime "github.com/darkraise/darkpanel/internal/agent/runtime"
 	"github.com/darkraise/darkpanel/internal/agent/wire"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/coretest"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/core/store"
+	"github.com/darkraise/darkpanel/internal/platform"
 )
 
 // socketFake is an agent whose module "ufw" fails its preflight and whose
@@ -201,4 +207,80 @@ func TestSocketPlanRefusesGuard(t *testing.T) {
 	if want := []string{`{"name":"x"}`, `[1]`, `{"guard":{"client":null}}`}; !reflect.DeepEqual(inputs, want) {
 		t.Errorf("the agent planned %q, want %q", inputs, want)
 	}
+}
+
+type rvlIn struct {
+	Name string `json:"name"`
+}
+
+type rvlOut struct {
+	Key string `json:"key" secret:"true"`
+}
+
+func rvlKey(_ context.Context, _ core.Env, in rvlIn) (core.Revealed[rvlOut], error) {
+	return core.Revealed[rvlOut]{Identity: "rvl key " + in.Name, Value: rvlOut{Key: "k-" + in.Name}}, nil
+}
+
+// rvlModule is module rvl: the reveal action rvl.key.reveal and the
+// Internal read rvl.cert.get.
+type rvlModule struct{}
+
+func (rvlModule) Manifest() core.Manifest {
+	return core.Manifest{ID: "rvl", Version: 1, DefaultEnabled: true, Actions: []core.ActionDef{
+		core.DefineReveal(core.ActionSpec{Name: "rvl.key.reveal", Version: 1, Side: core.SideAgent, MinScope: core.ScopeAdmin}, rvlKey),
+		core.DefineInternalRead(core.ActionSpec{Name: "rvl.cert.get", Version: 1, Side: core.SideAgent}, rvlKey),
+	}}
+}
+
+// rvlRuntime is a real agent runtime over a new database, serving rvlModule.
+func rvlRuntime(t *testing.T) *agentruntime.Runtime {
+	t.Helper()
+	ctx := context.Background()
+	dir := t.TempDir()
+	reg, err := core.NewRegistry(rvlModule{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(ctx, filepath.Join(dir, "agent.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	rt, err := agentruntime.Open(ctx, agentruntime.Config{
+		DB: db, Sealer: coretest.Sealer{}, Clock: coretest.NewFakeClock(time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)),
+		Log: slog.New(slog.DiscardHandler), Registry: reg, HostID: "h1", BinaryVersion: "test",
+		BackupDir: filepath.Join(dir, "backups"), Exec: platform.NewRunner(nil), FilesTestMode: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(rt.Close)
+	return rt
+}
+
+func TestSocketHasNoReveal(t *testing.T) {
+	rt := rvlRuntime(t)
+	var enrolled atomic.Bool
+	enrolled.Store(true)
+	sock := NewSocketHandler(Config{Agent: rt, Log: discardLog()}, SocketConfig{Identity: func() (string, bool) { return "h1", enrolled.Load() }})
+	body := []byte(`{"name":"a"}`)
+	for _, hdr := range []http.Header{nil, {wire.HeaderInternal: {"1"}}} {
+		wantProblem(t, call(t, sock, "POST", "/agent/v1/reveal/rvl.key.reveal/v1", hdr, body), 404, errcode.NotFound)
+		wantProblem(t, call(t, sock, "POST", "/agent/v1/reveal/rvl.cert.get/v1", hdr, body), 404, errcode.NotFound)
+	}
+	for _, name := range []string{"rvl.key.reveal", "rvl.cert.get"} {
+		wantProblem(t, call(t, sock, "POST", "/agent/v1/actions/"+name+"/v1/read", nil, body), 404, errcode.ActionUnknown)
+	}
+	// The controller's session serves both, each only on its own path.
+	h := NewHandler(Config{Agent: rt, Log: discardLog()})
+	hdr := http.Header{wire.HeaderPrincipal: {principalHeader(t, testPrincipal)}}
+	if rec := call(t, h, "POST", "/agent/v1/reveal/rvl.key.reveal/v1", hdr, body); rec.Code != 200 || rec.Body.String() != `{"key":"k-a"}` {
+		t.Errorf("the session's reveal answered %d %s", rec.Code, rec.Body)
+	}
+	wantProblem(t, call(t, h, "POST", "/agent/v1/reveal/rvl.cert.get/v1", hdr, body), 404, errcode.ActionUnknown)
+	hdr.Set(wire.HeaderInternal, "1")
+	if rec := call(t, h, "POST", "/agent/v1/reveal/rvl.cert.get/v1", hdr, body); rec.Code != 200 || rec.Body.String() != `{"key":"k-a"}` {
+		t.Errorf("the session's internal read answered %d %s", rec.Code, rec.Body)
+	}
+	wantProblem(t, call(t, h, "POST", "/agent/v1/reveal/rvl.key.reveal/v1", hdr, body), 404, errcode.ActionUnknown)
 }

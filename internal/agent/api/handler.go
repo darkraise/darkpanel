@@ -53,6 +53,7 @@ const (
 	opAckPrivate   = "ack-private"
 	opEnabled      = "enabled"
 	opAvailability = "availability"
+	opReveal       = "reveal"
 )
 
 // ControllerHello is the controller's half of a hello, sent in the headers
@@ -133,6 +134,7 @@ func (h *handler) routes(controller bool) *http.ServeMux {
 		mux.HandleFunc("GET "+prefix+"plans/{id}", h.handleLookup)
 		mux.HandleFunc("POST "+prefix+"plans/{id}/retire", h.handleRetire)
 		mux.HandleFunc("PUT "+prefix+"modules/{id}/enabled", h.handleEnabled)
+		mux.HandleFunc("POST "+prefix+"reveal/{name}/{version}", h.handleReveal)
 	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		h.writeProblem(w, errcode.New(errcode.NotFound, fmt.Sprintf("no agent API route %s %s", r.Method, r.URL.Path)))
@@ -248,6 +250,49 @@ func (h *handler) handleRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.writeRaw(w, out)
+}
+
+// handleReveal runs a reveal action, or with Darkpanel-Internal: 1 an
+// Internal read, and answers the value as it is (spec 1.7 and 1.14). Only
+// the controller's session serves the route, so every reveal is authorized
+// and audited by the controller; the agent socket has no form of it.
+func (h *handler) handleReveal(w http.ResponseWriter, r *http.Request) {
+	ref, err := actionRef(r)
+	var p core.Principal
+	if err == nil {
+		p, err = h.actor(r, opReveal, ref.Name)
+	}
+	var internal bool
+	if err == nil {
+		internal, err = internalHeader(r)
+	}
+	var input json.RawMessage
+	if err == nil {
+		input, err = readJSON(w, r)
+	}
+	var out json.RawMessage
+	if err == nil {
+		out, err = h.cfg.Agent.Reveal(r.Context(), p, ref, input, internal)
+	}
+	if err != nil {
+		h.writeProblem(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	h.writeRaw(w, out)
+}
+
+// internalHeader reads Darkpanel-Internal: absent asks for a reveal, "1"
+// for an Internal read. Any other value is refused, so that a malformed
+// header never selects the other kind of call.
+func internalHeader(r *http.Request) (bool, error) {
+	switch vs := r.Header.Values(wire.HeaderInternal); {
+	case len(vs) == 0:
+		return false, nil
+	case len(vs) == 1 && vs[0] == "1":
+		return true, nil
+	}
+	return false, errcode.New(errcode.InvalidInput, fmt.Sprintf("the %s header accepts only the value 1", wire.HeaderInternal))
 }
 
 func (h *handler) handleResource(w http.ResponseWriter, r *http.Request) {
