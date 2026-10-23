@@ -5,7 +5,7 @@ import { Route, Routes } from "react-router"
 import { describe, expect, test } from "vitest"
 import type { Host, ModuleState } from "@/api/types"
 import type { Summary } from "@/modules/hostinfo/summary-page"
-import { enabledModules, moduleRegistry, moduleView } from "@/modules/registry"
+import { enabledModules, globalPages, hostCreateExtensions, moduleRegistry, moduleView } from "@/modules/registry"
 import type { ModuleEntry } from "@/modules/types"
 import { renderWithProviders, stubFetch } from "@/test/utils"
 import { HostPage } from "./host"
@@ -69,6 +69,38 @@ describe("registry", () => {
     const view = moduleView(entries, h, id)
     expect(view.kind).toBe(kind)
     expect(view.kind === "unavailable" ? view.reason : undefined).toBe(reason)
+  })
+
+  test("an entry with only a global page has no host tab and no host view", () => {
+    const tailnet: ModuleEntry = {
+      id: "tailnet", label: "Tailnet", icon: Server,
+      global: { path: "tailnet", label: "Tailnet", routes: lazy(async () => ({ default: () => null })) },
+    }
+    const h = host([state("alpha", true, true), state("tailnet", true, true)])
+    expect(enabledModules([entry("alpha"), tailnet], h).map((m) => m.id)).toEqual(["alpha"])
+    expect(moduleView([entry("alpha"), tailnet], h, "tailnet").kind).toBe("not-enabled")
+  })
+
+  test("globalPages lists every global page in registry order", () => {
+    const page = (path: string) => ({ path, label: path, routes: lazy(async () => ({ default: () => null })) })
+    const entries: ModuleEntry[] = [
+      { ...entry("alpha"), global: page("alpha") },
+      entry("beta"),
+      { id: "gamma", label: "Gamma", icon: Server, global: page("gamma") },
+    ]
+    expect(globalPages(entries).map((p) => p.path)).toEqual(["alpha", "gamma"])
+  })
+
+  test("hostCreateExtensions lists the extensions of modules enabled on the host", () => {
+    const ext = (id: string) => ({ id, render: lazy(async () => ({ default: () => null })) })
+    const entries: ModuleEntry[] = [
+      { ...entry("alpha"), hostCreate: ext("alpha.join") },
+      { ...entry("beta"), hostCreate: ext("beta.join") },
+      entry("gamma"),
+      { id: "delta", label: "Delta", icon: Server, hostCreate: ext("delta.join") },
+    ]
+    const h = host([state("alpha", true, true), state("beta", false, true), state("gamma", true, true), state("delta", true, false)])
+    expect(hostCreateExtensions(entries, h).map((e) => e.id)).toEqual(["alpha.join", "delta.join"])
   })
 
   test("an unavailable module without a reason gets a default one", () => {
