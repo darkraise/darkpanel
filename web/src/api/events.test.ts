@@ -121,6 +121,20 @@ describe("connectEvents", () => {
     expect(evtInvalidated(client)).toEqual(refetched)
   })
 
+  test("a reopened stream refetches on its first open only", () => {
+    const { client, source } = evtConnect()
+    source.fail()
+    vi.advanceTimersByTime(1000)
+    const reopened = EvtSource.instances[1]
+    if (reopened === undefined) throw new Error("no stream was reopened")
+    reopened.emit("open", {})
+    expect(evtInvalidated(client)).toEqual(refetched)
+    for (const key of cached) client.setQueryData(key, {})
+    // The browser's own reconnect sends the last id, so nothing is missed.
+    reopened.emit("open", {})
+    expect(evtInvalidated(client)).toEqual([])
+  })
+
   test("backs off from one second to thirty, and from one again after an open", () => {
     const { source } = evtConnect()
     let current = source

@@ -29,24 +29,24 @@ function parse<K extends string>(event: MessageEvent, fields: readonly K[]): Rec
 // own it sends the last id it saw, so the controller replays what was missed
 // or sends a reset. A refused reconnect (429, a proxy's 502) leaves the
 // EventSource closed for good, so a closed source is reopened with a growing
-// delay, and a reopened stream refetches like a reset because its first
-// request carries no last id. An event whose data cannot be read names
-// nothing, so it refetches like a reset too. Open queries are refetched, but
-// a plan is not: refetching one posts a new plan. The returned function
-// closes the stream.
+// delay, and a reopened stream refetches like a reset when it first opens,
+// because its first request carries no last id; its own later reconnects
+// carry one. An event whose data cannot be read names nothing, so it
+// refetches like a reset too. Open queries are refetched, but a plan is not:
+// refetching one posts a new plan. The returned function closes the stream.
 export function connectEvents(client: QueryClient, factory: EventSourceFactory = (url) => new EventSource(url)): () => void {
   let source: EventSource
   let timer: ReturnType<typeof setTimeout> | undefined
   let delay = MIN_RETRY_MS
-  let reopened = false
   let stopped = false
 
   function refetchAll() {
     void client.invalidateQueries({ predicate: (query) => query.queryKey[0] !== "plan" })
   }
 
-  function attach(next: EventSource) {
+  function attach(next: EventSource, reopened: boolean) {
     source = next
+    let refetchOnOpen = reopened
     function on<K extends string>(type: string, fields: readonly K[], keys: (data: Record<K, string>) => QueryKey[]) {
       next.addEventListener(type, (event: MessageEvent) => {
         const data = parse(event, fields)
@@ -64,20 +64,22 @@ export function connectEvents(client: QueryClient, factory: EventSourceFactory =
     next.addEventListener("reset", refetchAll)
     next.addEventListener("open", () => {
       delay = MIN_RETRY_MS
-      if (reopened) refetchAll()
+      if (refetchOnOpen) {
+        refetchOnOpen = false
+        refetchAll()
+      }
     })
     next.addEventListener("error", () => {
       if (stopped || next.readyState !== CLOSED) return
       timer = setTimeout(() => {
         timer = undefined
-        reopened = true
-        attach(factory("/api/v1/events"))
+        attach(factory("/api/v1/events"), true)
       }, delay)
       delay = Math.min(delay * 2, MAX_RETRY_MS)
     })
   }
 
-  attach(factory("/api/v1/events"))
+  attach(factory("/api/v1/events"), false)
   return () => {
     stopped = true
     if (timer !== undefined) clearTimeout(timer)
