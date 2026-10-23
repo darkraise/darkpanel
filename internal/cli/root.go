@@ -100,9 +100,12 @@ func NewRoot(opts Options) (*cobra.Command, error) {
 	}
 	for _, e := range es {
 		var leaf *cobra.Command
-		if e.Resource != nil {
+		switch {
+		case e.Resource != nil:
 			leaf, err = a.resourceCommand(e)
-		} else {
+		case e.Stream != nil:
+			leaf, err = a.streamCommand(e)
+		default:
 			leaf, err = a.actionCommand(e)
 		}
 		if err != nil {

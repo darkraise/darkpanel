@@ -160,7 +160,7 @@ func (covModule) Manifest() core.Manifest {
 // plus demoModule and covModule.
 func testRegistry(t *testing.T) *core.Registry {
 	t.Helper()
-	reg, err := core.NewRegistry(coreactions.Module(coreactions.Deps{}), demoModule{}, covModule{})
+	reg, err := core.NewRegistry(coreactions.Module(coreactions.Deps{}), demoModule{}, covModule{}, cflModule{})
 	if err != nil {
 		t.Fatal(err)
 	}
