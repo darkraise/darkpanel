@@ -9,6 +9,7 @@ import (
 	"maps"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -176,4 +177,71 @@ func TestChangesSkipOfflineHosts(t *testing.T) {
 	}
 	_, err = d.Changes(ctx, alice, core.ChangeFilter{HostID: "h9"})
 	_ = wantCode(t, err, errcode.HostOffline)
+}
+
+func TestHelloPushesEnablement(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	var err error
+	if h.reg, err = core.NewRegistry(append(modules(), coreactions.Module(coreactions.Deps{}))...); err != nil {
+		t.Fatal(err)
+	}
+	logs := &logRecords{}
+	h.hosts = NewHosts(HostsConfig{DB: h.db, Registry: h.reg, Clients: h.clients, Clock: h.clock, Log: slog.New(logs)})
+	h.addHost("h2")
+	// An operator disabled kv on h2 and enabled off, which is disabled by
+	// default; flaky has no row yet and takes its DefaultEnabled.
+	for module, enabled := range map[string]bool{"kv": false, "off": true} {
+		if _, err := h.db.Writer().Exec(`INSERT INTO core_module_state (host_id, module_id, enabled, available, reason, checked_at)
+			VALUES ('h2', ?, ?, 1, NULL, '2026-10-17T00:00:00.000000000Z')`, module, enabled); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hello := core.AgentHello{ProtocolVersion: 1, BinaryVersion: "1.2.3", HostID: "h2", JournalEpoch: "01EPOCHA",
+		Modules: []core.ModuleStatus{
+			{ID: "core", Version: 1, Available: true}, {ID: "kv", Version: 1, Available: true},
+			{ID: "off", Version: 1, Available: true}, {ID: "flaky", Version: 1, Reason: "flaky: the host is not ready"},
+		}}
+	var pushed []string
+	refuse := ""
+	agent := &coretest.FakeAgent{
+		HelloFunc: func(context.Context) (core.AgentHello, error) { return hello, nil },
+		SetModuleEnabledFunc: func(_ context.Context, id string, enabled bool) error {
+			pushed = append(pushed, fmt.Sprintf("%s=%t", id, enabled))
+			if id == refuse {
+				return fmt.Errorf("the agent refused %s", id)
+			}
+			return nil
+		},
+	}
+	want := []string{"kv=false", "off=true", "flaky=true"}
+	h.clients.Add("h2", agent)
+	if _, err := h.hosts.Agent(ctx, "h2"); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(pushed, want) {
+		t.Errorf("pushes after the hello = %q, want %q", pushed, want)
+	}
+
+	// A reconnected agent that refuses one push still counts as greeted.
+	pushed, refuse, hello.JournalEpoch = nil, "off", "01EPOCHB"
+	h.clients.Add("h2", agent)
+	if _, err := h.hosts.Agent(ctx, "h2"); err != nil {
+		t.Fatalf("Agent after a refused push = %v, want the client", err)
+	}
+	if !reflect.DeepEqual(pushed, want) {
+		t.Errorf("pushes after the second hello = %q, want %q", pushed, want)
+	}
+	if got := h.hosts.JournalEpoch("h2"); got != "01EPOCHB" {
+		t.Errorf("epoch = %q, want the second hello's 01EPOCHB", got)
+	}
+	var warned []string
+	for _, l := range logs.lines() {
+		if strings.HasPrefix(l, "WARN") {
+			warned = append(warned, l)
+		}
+	}
+	if want := []string{"WARN dispatch: push module enablement host=h2"}; !reflect.DeepEqual(warned, want) {
+		t.Errorf("warnings = %q, want %q", warned, want)
+	}
 }

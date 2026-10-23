@@ -166,8 +166,8 @@ func (h *Hosts) JournalEpoch(hostID string) string {
 // checked_at of every module the registry has; a missing row takes enabled
 // from the module's DefaultEnabled, and an existing row keeps its enabled,
 // which only core.module.enable and core.module.disable change. On success
-// it records the Hello as gen's; on any failure it forgets the host's last
-// Hello.
+// it records the Hello as gen's and pushes each reported module's enabled
+// flag to the agent; on any failure it forgets the host's last Hello.
 func (h *Hosts) hello(ctx context.Context, hostID string, c core.AgentClient, gen uint64) (err error) {
 	defer func() {
 		if err != nil {
@@ -182,6 +182,7 @@ func (h *Hosts) hello(ctx context.Context, hostID string, c core.AgentClient, ge
 		return fmt.Errorf("dispatch: host %s answered Hello as %s", hostID, hello.HostID)
 	}
 	now := h.cfg.Clock.Now().UTC().Format(timeFormat)
+	var flags []moduleFlag
 	err = h.cfg.DB.Write(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE core_hosts SET agent_version = ?, protocol_version = ?, os = ?, arch = ?, last_seen_at = ? WHERE id = ?`,
@@ -197,14 +198,17 @@ func (h *Hosts) hello(ctx context.Context, hostID string, c core.AgentClient, ge
 			if !st.Available {
 				reason = st.Reason
 			}
-			if _, err := tx.ExecContext(ctx,
+			var enabled bool
+			if err := tx.QueryRowContext(ctx,
 				`INSERT INTO core_module_state (host_id, module_id, enabled, available, reason, checked_at)
 				 VALUES (?, ?, ?, ?, ?, ?)
 				 ON CONFLICT (host_id, module_id) DO UPDATE SET available = excluded.available,
-				 reason = excluded.reason, checked_at = excluded.checked_at`,
-				hostID, st.ID, m.DefaultEnabled, st.Available, reason, now); err != nil {
+				 reason = excluded.reason, checked_at = excluded.checked_at
+				 RETURNING enabled`,
+				hostID, st.ID, m.DefaultEnabled, st.Available, reason, now).Scan(&enabled); err != nil {
 				return err
 			}
+			flags = append(flags, moduleFlag{id: st.ID, enabled: enabled})
 		}
 		return nil
 	})
@@ -216,7 +220,26 @@ func (h *Hosts) hello(ctx context.Context, hostID string, c core.AgentClient, ge
 	h.mu.Unlock()
 	h.cfg.Log.Info("dispatch: host said hello", "host", hostID, "protocol", hello.ProtocolVersion,
 		"version", hello.BinaryVersion, "os", hello.OS, "arch", hello.Arch, "journalEpoch", hello.JournalEpoch)
+	h.pushEnablement(ctx, hostID, c, flags)
 	return nil
+}
+
+// moduleFlag is one module's enabled flag in core_module_state.
+type moduleFlag struct {
+	id      string
+	enabled bool
+}
+
+// pushEnablement hands the agent the stored enabled flag of every module its
+// hello reported (spec 1.4): the agent runs a module's background tasks only
+// while the flag is set. A failed push is logged and leaves the hello
+// standing; the next hello pushes every flag again.
+func (h *Hosts) pushEnablement(ctx context.Context, hostID string, c core.AgentClient, flags []moduleFlag) {
+	for _, f := range flags {
+		if err := c.SetModuleEnabled(ctx, f.id, f.enabled); err != nil {
+			h.cfg.Log.Warn("dispatch: push module enablement", "host", hostID, "module", f.id, "error", err)
+		}
+	}
 }
 
 // nullText stores an empty string as NULL, which reads as "not reported".

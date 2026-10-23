@@ -129,6 +129,24 @@ func wantEnabled(ctx context.Context, env core.Env, in ModuleInput, want bool) e
 	return nil
 }
 
+// pushEnabled hands the stored flag to the host's agent, which runs the
+// module's background tasks only while it is set (spec 1.4). The push is best
+// effort: the change stands without it, an offline host included, and the
+// controller pushes every flag again after the host's next hello.
+func pushEnabled(ctx context.Context, env core.Env, in ModuleInput, enabled bool) {
+	err := errUnset("Env.Agents")
+	if env.Agents != nil {
+		var agent core.AgentClient
+		if agent, err = env.Agents.Agent(ctx, in.HostID); err == nil {
+			err = agent.SetModuleEnabled(ctx, in.ModuleID, enabled)
+		}
+	}
+	if err != nil {
+		env.Log.Warn("coreactions: push module enablement", "host", in.HostID, "module", in.ModuleID,
+			"enabled", enabled, "error", err)
+	}
+}
+
 type enableModule struct{ m module }
 
 func (h enableModule) Plan(ctx context.Context, env core.Env, in ModuleInput) (core.PlanOutcome, error) {
@@ -176,6 +194,7 @@ func (h enableModule) Apply(ctx context.Context, env core.Env, in ModuleInput) (
 	if err != nil {
 		return core.ModuleState{}, fmt.Errorf("coreactions: enable module: %w", err)
 	}
+	pushEnabled(ctx, env, in, true)
 	return h.m.state(ctx, env.DB.Read(), in.HostID, in.ModuleID)
 }
 
@@ -214,6 +233,7 @@ func (h disableModule) Apply(ctx context.Context, env core.Env, in ModuleInput) 
 	if err != nil {
 		return core.ModuleState{}, fmt.Errorf("coreactions: disable module: %w", err)
 	}
+	pushEnabled(ctx, env, in, false)
 	return h.m.state(ctx, env.DB.Read(), in.HostID, in.ModuleID)
 }
 
