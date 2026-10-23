@@ -151,7 +151,7 @@ func (s *Service) apply(ctx context.Context) error {
 		}
 	}
 	if len(ips) > 0 {
-		issued, err := s.leaf.Ensure(ips)
+		issued, err := s.leaf.Ensure(ctx, ips)
 		if err != nil {
 			return err
 		}

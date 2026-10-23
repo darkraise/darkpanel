@@ -43,7 +43,7 @@ func TestLeafSANsAndChain(t *testing.T) {
 	if _, err := l.GetCertificate(&tls.ClientHelloInfo{}); err == nil {
 		t.Fatal("GetCertificate before Ensure returned a certificate")
 	}
-	issued, err := l.Ensure(addrs("fd7a:115c:a1e0::1", "192.168.1.5", "100.64.0.1", "192.168.1.5"))
+	issued, err := l.Ensure(context.Background(), addrs("fd7a:115c:a1e0::1", "192.168.1.5", "100.64.0.1", "192.168.1.5"))
 	if err != nil || !issued {
 		t.Fatalf("Ensure = %v, %v; want true, nil", issued, err)
 	}
@@ -87,33 +87,33 @@ func TestLeafSANsAndChain(t *testing.T) {
 func TestLeafRenewal(t *testing.T) {
 	l, _, clock := newLeaf(t)
 	ips := addrs("100.64.0.1")
-	if _, err := l.Ensure(ips); err != nil {
+	if _, err := l.Ensure(context.Background(), ips); err != nil {
 		t.Fatal(err)
 	}
 	first := current(t, l)
 	clock.Advance(LeafRenewAfter - time.Second)
-	if issued, err := l.Ensure(ips); err != nil || issued || current(t, l) != first {
+	if issued, err := l.Ensure(context.Background(), ips); err != nil || issued || current(t, l) != first {
 		t.Fatalf("Ensure before 60 days = %v, %v; want the same leaf", issued, err)
 	}
 	clock.Advance(time.Second)
-	if issued, err := l.Ensure(ips); err != nil || !issued || current(t, l) == first {
+	if issued, err := l.Ensure(context.Background(), ips); err != nil || !issued || current(t, l) == first {
 		t.Fatalf("Ensure at 60 days = %v, %v; want a new leaf", issued, err)
 	}
 	second := current(t, l)
 	if second.Leaf.NotAfter != clock.Now().Add(LeafValidity) {
 		t.Fatalf("renewed leaf expires %v", second.Leaf.NotAfter)
 	}
-	if issued, err := l.Ensure(addrs("100.64.0.2")); err != nil || !issued || current(t, l) == second {
+	if issued, err := l.Ensure(context.Background(), addrs("100.64.0.2")); err != nil || !issued || current(t, l) == second {
 		t.Fatalf("Ensure after an address change = %v, %v; want a new leaf", issued, err)
 	}
-	if issued, err := l.Ensure(addrs("100.64.0.2", "100.64.0.2")); err != nil || issued {
+	if issued, err := l.Ensure(context.Background(), addrs("100.64.0.2", "100.64.0.2")); err != nil || issued {
 		t.Fatalf("Ensure with the same set = %v, %v; want no new leaf", issued, err)
 	}
 }
 
 func TestLeafHandshake(t *testing.T) {
 	l, a, clock := newLeaf(t)
-	if _, err := l.Ensure(addrs("127.0.0.1")); err != nil {
+	if _, err := l.Ensure(context.Background(), addrs("127.0.0.1")); err != nil {
 		t.Fatal(err)
 	}
 	ln, err := tls.Listen("tcp", "127.0.0.1:0", l.TLSConfig())
@@ -167,7 +167,7 @@ func TestLeafHandshake(t *testing.T) {
 
 func TestLeafConcurrentReads(t *testing.T) {
 	l, _, clock := newLeaf(t)
-	if _, err := l.Ensure(addrs("100.64.0.1")); err != nil {
+	if _, err := l.Ensure(context.Background(), addrs("100.64.0.1")); err != nil {
 		t.Fatal(err)
 	}
 	var wg sync.WaitGroup
@@ -189,7 +189,7 @@ func TestLeafConcurrentReads(t *testing.T) {
 	}
 	for i := range 20 {
 		clock.Advance(LeafRenewAfter)
-		if _, err := l.Ensure([]netip.Addr{netip.AddrFrom4([4]byte{100, 64, 0, byte(i)})}); err != nil {
+		if _, err := l.Ensure(context.Background(), []netip.Addr{netip.AddrFrom4([4]byte{100, 64, 0, byte(i)})}); err != nil {
 			t.Error(err)
 		}
 	}
