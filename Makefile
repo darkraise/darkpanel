@@ -31,7 +31,7 @@ UI_MARKER := <title>Darkpanel</title>
 export GOTOOLCHAIN := local
 
 # release is phony on purpose: the release/ directory would otherwise satisfy it.
-.PHONY: web-deps web build verify-build lint-go lint-web lint-sh lint test-go test-web test-adr test-release test schemas vuln check clean release-check release release-prep install-sh harness-builds
+.PHONY: web-deps web build verify-build lint-go lint-web lint-sh lint test-go test-web test-adr test-release test schemas vuln check clean release-check release release-prep install-sh harness-builds fuzz
 
 # The stamp reruns the install only when the manifest, the lockfile or the
 # install policy changes.
@@ -100,6 +100,11 @@ schemas:
 
 vuln:
 	go run $(GOVULNCHECK) ./...
+
+# fuzz runs the fuzz targets that scripts/fuzz.sh lists, each for its budget.
+fuzz:
+	@test -f scripts/fuzz.sh || { echo "fuzz: scripts/fuzz.sh is missing; it lists the fuzz targets to run" >&2; exit 1; }
+	bash scripts/fuzz.sh
 
 check: lint test build verify-build vuln
 

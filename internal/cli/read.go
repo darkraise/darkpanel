@@ -11,7 +11,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/darkraise/darkpanel/internal/core"
-	"github.com/darkraise/darkpanel/internal/paths"
 )
 
 // addConnFlags adds the flags that choose the server: --socket and --dev
@@ -35,7 +34,7 @@ func (a *app) connect(cmd *cobra.Command) (*client, error) {
 		path, _ := cmd.Flags().GetString("socket")
 		if path == "" {
 			dev, _ := cmd.Flags().GetBool("dev")
-			p, err := paths.Resolve(dev)
+			p, err := a.opts.SelectPaths(cmd, dev)
 			if err != nil {
 				return nil, err
 			}

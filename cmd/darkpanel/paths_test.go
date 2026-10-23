@@ -68,3 +68,17 @@ func TestNewRootAddsRootFlags(t *testing.T) {
 		t.Errorf("agent run does not inherit the root flag: %v, %v", cmd, err)
 	}
 }
+
+func TestSocketCommandsResolveThroughSelectPaths(t *testing.T) {
+	// --dev and temporary XDG directories keep a command that ignores
+	// selectPaths away from the controller socket of this host.
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	want := paths.Under(t.TempDir())
+	calls := psSwap(t, want)
+	out, code := runArgs("user", "list", "--dev", "--json")
+	if code == cli.ExitOK || !strings.Contains(out, want.ControllerSocket) || strings.Join(*calls, ",") != "list" {
+		t.Errorf("user list without a controller: exit %d, output %q, selectPaths calls %v; want a failure dialing %s",
+			code, out, *calls, want.ControllerSocket)
+	}
+}

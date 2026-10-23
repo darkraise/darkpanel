@@ -105,6 +105,7 @@ func newRoot(opts cli.Options) (*cobra.Command, error) {
 		stderr = os.Stderr
 	}
 	opts.LocalFallbacks = map[string]cli.LocalFallback{update.ActionRollback: rollbackFallback(stderr)}
+	opts.SelectPaths = selectPaths
 	root, err := cli.NewRoot(opts)
 	if err != nil {
 		return nil, err

@@ -49,6 +49,10 @@ type Options struct {
 	Stderr      io.Writer
 	Getenv      func(string) string
 	UserHomeDir func() (string, error)
+	// SelectPaths resolves the paths of the controller socket a command
+	// dials without --socket; nil means paths.Resolve. cmd is the running
+	// command.
+	SelectPaths func(cmd *cobra.Command, dev bool) (paths.Paths, error)
 	// IsTerminal reports whether standard input is an interactive terminal.
 	IsTerminal func() bool
 	// ReadSecret reads one line from the terminal without echo.
@@ -141,6 +145,9 @@ func withDefaults(o Options) Options {
 	}
 	if o.UserHomeDir == nil {
 		o.UserHomeDir = os.UserHomeDir
+	}
+	if o.SelectPaths == nil {
+		o.SelectPaths = func(_ *cobra.Command, dev bool) (paths.Paths, error) { return paths.Resolve(dev) }
 	}
 	if o.AgentSocket == "" {
 		o.AgentSocket = paths.Production().AgentSocket
