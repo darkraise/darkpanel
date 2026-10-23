@@ -86,6 +86,52 @@ test("a failed overridable guard can be overridden, which plans again with overr
   await waitFor(() => expect(within(dialog).getByRole("button", { name: "Apply" }).hasAttribute("disabled")).toBe(false))
 })
 
+test("the override checkbox stays while the replan is pending and Apply waits for its answer", async () => {
+  let release: () => void = () => {}
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let plans = 0
+  cdxRender({
+    [PLAN]: async () => {
+      plans++
+      if (plans > 1) await gate
+      return { body: cdxPlan({ guards: [cdxGuard({ ok: plans > 1, overridden: plans > 1 })] }) }
+    },
+    [APPLY]: { body: cdxChange() },
+  })
+  const dialog = await screen.findByRole("dialog")
+  const user = userEvent.setup()
+  await user.click(await within(dialog).findByRole("checkbox", { name: "Override ssh-session" }))
+  expect(within(dialog).getByRole("checkbox", { name: "Override ssh-session" })).toBeTruthy()
+  expect(within(dialog).getByLabelText("Planned changes")).toBeTruthy()
+  expect(within(dialog).getByRole("button", { name: "Apply" }).hasAttribute("disabled")).toBe(true)
+  release()
+  await waitFor(() => expect(within(dialog).getByRole("button", { name: "Apply" }).hasAttribute("disabled")).toBe(false))
+})
+
+test("a refused replan keeps the override checkbox so it can be unticked", async () => {
+  const plans: unknown[] = []
+  const problem = { type: "about:blank", title: "Locked", status: 423, detail: "lock firewall is held by change c0", code: "lock.held" }
+  cdxRender({
+    [PLAN]: (call) => {
+      plans.push(call.body)
+      if (plans.length === 2) return { status: 423, body: problem }
+      return { body: cdxPlan({ guards: plans.length === 1 ? [cdxGuard({ ok: false })] : [] }) }
+    },
+  })
+  const dialog = await screen.findByRole("dialog")
+  const user = userEvent.setup()
+  await user.click(await within(dialog).findByRole("checkbox", { name: "Override ssh-session" }))
+  expect((await within(dialog).findByRole("alert")).textContent).toBe("lock firewall is held by change c0")
+  const box = within(dialog).getByRole("checkbox", { name: "Override ssh-session" })
+  expect(within(dialog).getByRole("button", { name: "Apply" }).hasAttribute("disabled")).toBe(true)
+  await user.click(box)
+  await waitFor(() => expect(plans).toEqual([{ input: { port: 443 } }, { input: { port: 443, overrides: ["ssh-session"] } }, { input: { port: 443 } }]))
+  await waitFor(() => expect(within(dialog).getByRole("button", { name: "Apply" }).hasAttribute("disabled")).toBe(false))
+  expect(within(dialog).queryByRole("alert")).toBeNull()
+})
+
 test("a failed guard that is not overridable blocks the apply and offers no override", async () => {
   cdxRender({ [PLAN]: { body: cdxPlan({ guards: [cdxGuard({ overridable: false })] }) } })
   const dialog = await screen.findByRole("dialog")

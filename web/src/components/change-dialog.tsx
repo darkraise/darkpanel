@@ -200,14 +200,21 @@ function ChangeDialogBody({ target, input, plan: given, onApplied, busy, setBusy
   const [typed, setTyped] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [applied, setApplied] = useState<Change | null>(null)
+  // The overrides are part of the plan's query key, so a toggle starts a
+  // query with no data. Showing the last answered plan meanwhile keeps the
+  // override checkbox mounted and focused, and lets it be unticked when the
+  // replan is refused.
+  const [lastPlan, setLastPlan] = useState<Plan | null>(null)
   const inputKey = JSON.stringify(input ?? {})
 
   const planned = useQuery({
     queryKey: planQueryKey(target, inputKey, overrides),
-    queryFn: () => {
+    queryFn: async () => {
       const body = JSON.parse(inputKey) as Record<string, unknown>
       if (overrides.length > 0) body.overrides = overrides
-      return planAction(target.name, target.version, body, target.hostId)
+      const next = await planAction(target.name, target.version, body, target.hostId)
+      setLastPlan(next)
+      return next
     },
     enabled: given === undefined,
     staleTime: Infinity,
@@ -221,7 +228,7 @@ function ChangeDialogBody({ target, input, plan: given, onApplied, busy, setBusy
     enabled: target.hostId !== undefined && target.module !== undefined,
   })
 
-  const plan = given ?? planned.data ?? null
+  const plan = given ?? planned.data ?? lastPlan
   const planError = given === undefined && planned.isError ? errorMessage(planned.error) : null
 
   function toggleOverride(id: string, on: boolean) {
@@ -236,7 +243,9 @@ function ChangeDialogBody({ target, input, plan: given, onApplied, busy, setBusy
   }
   const guardsOk = plan !== null && plan.guards.every((g) => g.ok)
   const confirmed = plan === null || plan.confirmation === null || typed === plan.confirmation
-  const canApply = plan !== null && !planned.isFetching && guardsOk && confirmed && unavailable === null && !busy
+  // Only a plan answered for the overrides now selected may be applied, never the last plan kept on screen.
+  const answered = given !== undefined || planned.data !== undefined
+  const canApply = plan !== null && answered && !planned.isFetching && guardsOk && confirmed && unavailable === null && !busy
 
   async function apply() {
     if (plan === null || !canApply) return
