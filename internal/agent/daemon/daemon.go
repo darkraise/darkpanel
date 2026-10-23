@@ -309,14 +309,42 @@ func (d *daemon) session(ctx context.Context, c *Credentials, b *transport.Backo
 }
 
 // guard holds mu for reading around each request, so the runtime is never
-// replaced under one.
+// replaced under one. A module stream may run for hours, so a stream
+// request holds mu only until its answer starts: by then the runtime has
+// opened the stream, and a replacement's Runtime.Close ends it.
 func (d *daemon) guard(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		d.mu.RLock()
-		defer d.mu.RUnlock()
-		h.ServeHTTP(w, r)
+		if !api.OpensStream(r) {
+			defer d.mu.RUnlock()
+			h.ServeHTTP(w, r)
+			return
+		}
+		sw := &unlockOnAnswer{ResponseWriter: w, unlock: sync.OnceFunc(d.mu.RUnlock)}
+		defer sw.unlock()
+		h.ServeHTTP(sw, r)
 	})
 }
+
+// unlockOnAnswer calls unlock once the answer's header or first byte is
+// written.
+type unlockOnAnswer struct {
+	http.ResponseWriter
+	unlock func()
+}
+
+func (u *unlockOnAnswer) WriteHeader(code int) {
+	u.unlock()
+	u.ResponseWriter.WriteHeader(code)
+}
+
+func (u *unlockOnAnswer) Write(b []byte) (int, error) {
+	u.unlock()
+	return u.ResponseWriter.Write(b)
+}
+
+// Unwrap lets http.ResponseController flush the stream through it.
+func (u *unlockOnAnswer) Unwrap() http.ResponseWriter { return u.ResponseWriter }
 
 func (d *daemon) onHello(h api.ControllerHello) {
 	d.log.Info("daemon: controller hello", "protocol", h.Protocol, "version", h.Version, "controller", h.ControllerID)
