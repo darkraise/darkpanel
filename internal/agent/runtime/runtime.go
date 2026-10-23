@@ -94,6 +94,8 @@ type Runtime struct {
 	status   map[string]core.ModuleStatus
 	broken   map[string]bool // modules whose migrations failed; unusable until a restart
 
+	bg *background // the modules' background tasks, from the end of Open
+
 	streams streamSet // the running module streams; Close ends them
 
 	// loopMu is held while a purge runs, so Close waits for it.
@@ -106,8 +108,8 @@ type Runtime struct {
 // failed module migration makes that module unavailable), builds the one
 // platform.Files of the agent from the registry's owned paths, builds the
 // agent lifecycle engine, runs its Recover once, runs every module's
-// preflight checks, purges expired plans and then every PurgeInterval. Call
-// Close on shutdown.
+// preflight checks, purges expired plans and then every PurgeInterval, and
+// starts the modules' background tasks. Call Close on shutdown.
 func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 	if err := cfg.check(); err != nil {
 		return nil, err
@@ -154,15 +156,18 @@ func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 		eng.Close()
 		return nil, fmt.Errorf("runtime: %w", err)
 	}
+	r.startBackground(ctx)
 	r.timer = cfg.Clock.AfterFunc(PurgeInterval, r.purge)
 	return r, nil
 }
 
-// Close ends every open module stream, waiting until each stream's Run
-// returned, stops the purge loop, waiting for a running purge, and closes
-// the engine, which waits for a running timer revert. The caller closes the
-// database afterwards.
+// Close stops the background tasks, waiting for each Run and Watch to return,
+// ends every open module stream, waiting until each stream's Run returned,
+// stops the purge loop, waiting for a running purge, and closes the engine,
+// which waits for a running timer revert. The caller closes the database
+// afterwards.
 func (r *Runtime) Close() {
+	r.stopBackground()
 	r.streams.close()
 	r.loopMu.Lock()
 	r.closed = true

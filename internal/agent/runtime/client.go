@@ -34,9 +34,10 @@ func (r *Runtime) Hello(context.Context) (core.AgentHello, error) {
 	return h, nil
 }
 
-// Preflight runs moduleID's preflight checks again and keeps the result for
-// Hello. A module whose migrations failed is not checked and stays
-// unavailable. A module the registry lacks is not_found.
+// Preflight runs moduleID's preflight checks again, keeps the result for
+// Hello and starts or stops the module's background tasks to match it. A
+// module whose migrations failed is not checked and stays unavailable. A
+// module the registry lacks is not_found.
 func (r *Runtime) Preflight(ctx context.Context, moduleID string) (core.ModuleStatus, error) {
 	m, ok := r.cfg.Registry.Module(moduleID)
 	if !ok {
@@ -44,6 +45,9 @@ func (r *Runtime) Preflight(ctx context.Context, moduleID string) (core.ModuleSt
 	}
 	st := r.check(ctx, m)
 	r.setStatus(st)
+	if err := r.syncTasks(ctx, moduleID); err != nil {
+		r.cfg.Log.Error("runtime: background tasks after a preflight", "module", moduleID, "error", err)
+	}
 	return st, nil
 }
 

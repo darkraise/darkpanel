@@ -19,7 +19,9 @@ const MetaModuleEnabledPrefix = "module_enabled."
 var _ core.AgentEnablement = (*Runtime)(nil)
 
 // SetModuleEnabled stores moduleID's enabled flag as the controller pushed
-// it. A module the registry lacks is not_found.
+// it, then starts or stops the module's background tasks; when it stops them
+// it returns once their Run and Watch returned. A module the registry lacks
+// is not_found.
 func (r *Runtime) SetModuleEnabled(ctx context.Context, moduleID string, enabled bool) error {
 	if _, ok := r.cfg.Registry.Module(moduleID); !ok {
 		return errcode.New(errcode.NotFound, fmt.Sprintf("no module %s", moduleID))
@@ -36,7 +38,7 @@ func (r *Runtime) SetModuleEnabled(ctx context.Context, moduleID string, enabled
 	if err != nil {
 		return fmt.Errorf("runtime: store the enabled flag of %s: %w", moduleID, err)
 	}
-	return nil
+	return r.syncTasks(ctx, moduleID)
 }
 
 // moduleEnabled reads moduleID's enabled flag; without one the module's
