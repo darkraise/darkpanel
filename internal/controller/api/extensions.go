@@ -217,6 +217,20 @@ func (w *deadlineWriter) Flush() {
 // deadlines.
 func (w *deadlineWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
+// checkWebDocument builds the OpenAPI document once, so a web route at a
+// path the registry also generates (a resource read or an action operation)
+// fails New: ServeMux accepts it as more specific than the built-in route,
+// and the document would otherwise fail every request.
+func (s *Server) checkWebDocument() error {
+	if !slices.ContainsFunc(s.cfg.Extensions, func(rt ext.Route) bool { return rt.Surface == ext.SurfaceWeb }) {
+		return nil
+	}
+	if _, err := schema.OpenAPI(s.cfg.Registry, s.OpenAPIRoutes()); err != nil {
+		return fmt.Errorf("api: extension routes: %w", err)
+	}
+	return nil
+}
+
 // OpenAPIRoutes returns Routes followed by the web surface's contributed
 // routes, which the served OpenAPI document lists. The socket's routes are
 // not part of the network API the document describes.

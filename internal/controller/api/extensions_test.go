@@ -473,3 +473,23 @@ func TestExtensionSocketStreamEnds(t *testing.T) {
 		})
 	}
 }
+
+// TestExtensionRouteRefusedByTheDocument: a web route at a path the
+// registry generates is more specific than the built-in route, so the mux
+// accepts it, but the OpenAPI document would list it twice.
+func TestExtensionRouteRefusedByTheDocument(t *testing.T) {
+	for _, tc := range []struct{ method, path string }{
+		{"GET", "/api/v1/hosts/{host}/resources/demo/status"},
+		{"POST", "/api/v1/actions/demo.item.remove/v1/plan"},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			h := newHarness(t)
+			h.cfg.Extensions = []ext.Route{{Surface: ext.SurfaceWeb, Method: tc.method, Path: tc.path,
+				Scope: core.ScopeRead, Handler: xrHandler}}
+			want := tc.method + " " + tc.path
+			if _, err := New(h.cfg); err == nil || !strings.Contains(err.Error(), want) {
+				t.Errorf("New: %v, want an error containing %q", err, want)
+			}
+		})
+	}
+}

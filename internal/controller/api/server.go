@@ -158,6 +158,9 @@ func New(cfg Config) (*Server, error) {
 	if err := s.mountWebExtensions(); err != nil {
 		return nil, err
 	}
+	if err := s.checkWebDocument(); err != nil {
+		return nil, err
+	}
 	s.mux.HandleFunc("/", s.networkFallback)
 	s.handler = securityHeaders(recoverPanics(s.log, s.authenticate(s.mux)))
 	socket, err := s.buildSocketHandler()
