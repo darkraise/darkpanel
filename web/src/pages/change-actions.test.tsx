@@ -53,12 +53,13 @@ test("undo asks first and stores the answered change", async () => {
   expect(screen.queryByRole("dialog")).toBeNull()
 })
 
-test("a refused undo shows the reason", async () => {
+test("a refused undo stays open with the reason", async () => {
   cacRender(cacChange(), { "POST /api/v1/changes/c1/undo": problem(409, "core.undo_conflict", "lock firewall was taken by a later change") })
   const user = userEvent.setup()
   await user.click(screen.getByRole("button", { name: "Undo" }))
-  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Undo" }))
-  expect((await screen.findByRole("alert")).textContent).toBe("lock firewall was taken by a later change")
+  const dialog = screen.getByRole("dialog", { name: "Undo this change?" })
+  await user.click(within(dialog).getByRole("button", { name: "Undo" }))
+  expect((await within(dialog).findByRole("alert")).textContent).toBe("lock firewall was taken by a later change")
 })
 
 test("a change that needs no repair and cannot be undone offers nothing", () => {
@@ -105,6 +106,39 @@ test("release needs a reason and reports the abandoned effects", async () => {
   expect((await screen.findByText("Released. 1 effect abandoned.")).getAttribute("role")).toBe("status")
   expect(calls.find((c) => c.path.endsWith("/release"))?.body).toEqual({ reason: "the key was deleted by hand" })
   expect(client.getQueryData(changeQueryKey("c1"))).toEqual(released)
+})
+
+test("a blank release reason is refused without a request", async () => {
+  const { calls } = cacRender(cacChange({ state: "needs_repair" }), { "POST /api/v1/changes/c1/release": { body: { change: cacChange(), abandoned: [] } } })
+  const user = userEvent.setup()
+  await user.click(screen.getByRole("button", { name: "Release" }))
+  const dialog = screen.getByRole("dialog", { name: "Release this change?" })
+  await user.type(within(dialog).getByLabelText("Reason"), "   ")
+  await user.click(within(dialog).getByRole("button", { name: "Release" }))
+  expect((await within(dialog).findByRole("alert")).textContent).toBe("Enter why the change is given up.")
+  expect(calls.some((c) => c.path.endsWith("/release"))).toBe(false)
+})
+
+test("a refused repair shows the reason", async () => {
+  cacRender(cacChange({ state: "needs_repair" }), { "POST /api/v1/changes/c1/repair": problem(409, "core.change_busy", "change c1 is being recovered") })
+  await userEvent.setup().click(screen.getByRole("button", { name: "Repair" }))
+  expect((await screen.findByRole("alert")).textContent).toBe("change c1 is being recovered")
+  expect(screen.queryByRole("dialog")).toBeNull()
+})
+
+test("a refused step decision shows the reason", async () => {
+  const steps: Step[] = [
+    { id: "network", ordinal: 1, host: "h1", action: "cdx.net.create/v1", state: "applied", attempt: 1, childChangeId: "k1", earlierChildChangeIds: null, childDeadline: null, error: null },
+  ]
+  cacRender(cacChange({ class: "composite", state: "needs_repair" }), {
+    "GET /api/v1/changes/c1/steps": { body: { steps } },
+    "POST /api/v1/changes/c1/repair": problem(409, "request.invalid_input", "step network is not at the cursor"),
+  })
+  const user = userEvent.setup()
+  const decide = await screen.findByRole("button", { name: "Decide step" })
+  await user.click(screen.getByRole("radio", { name: "network (applied)" }))
+  await user.click(decide)
+  expect((await screen.findByRole("alert")).textContent).toBe("step network is not at the cursor")
 })
 
 test("a refused release stays open with the reason", async () => {

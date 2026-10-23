@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react"
 import { Link, useParams } from "react-router"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query"
 import { PageHeader } from "darkraise-ui/layout"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
 import { Badge, type BadgeVariant } from "darkraise-ui/components/badge"
@@ -170,7 +170,9 @@ function ResolveDialog({ effect, onClose }: { effect: Effect; onClose: () => voi
     setBusy(true)
     setError(null)
     try {
-      await resolveEffect(effect.changeId, effect.seq, resource === "" ? { resolution } : { resolution, resource })
+      // The picked candidate tells reconcile which object to act on; accept
+      // takes the resource as it is, so it sends none.
+      await resolveEffect(effect.changeId, effect.seq, resolution === "reconcile" && resource !== "" ? { resolution, resource } : { resolution })
       void client.invalidateQueries({ queryKey: effectsQueryKey(effect.changeId) })
       void client.invalidateQueries({ queryKey: changeQueryKey(effect.changeId) })
       onClose()
@@ -245,9 +247,12 @@ function ResolveDialog({ effect, onClose }: { effect: Effect; onClose: () => voi
 function Effects({ change }: { change: Change }) {
   // Change events refetch the change, not its effects; keying the effects
   // on the change's last update refetches them whenever the change moved on.
+  // The previous effects stay shown meanwhile, so an open resolve dialog is
+  // not unmounted with its pick.
   const effects = useQuery({
     queryKey: [...effectsQueryKey(change.id), change.updatedAt, change.state],
     queryFn: () => listEffects(change.id),
+    placeholderData: keepPreviousData,
   })
   const [resolving, setResolving] = useState<Effect | null>(null)
 

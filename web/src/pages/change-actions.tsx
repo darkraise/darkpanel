@@ -22,21 +22,21 @@ import { undoOffered } from "@/lib/undo"
 
 const MAX_RELEASE_REASON = 500
 
-function UndoDialog({ change, onClose, onError }: { change: Change; onClose: () => void; onError: (m: string | null) => void }) {
+function UndoDialog({ change, onClose }: { change: Change; onClose: () => void }) {
   const client = useQueryClient()
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   async function undo() {
     setBusy(true)
-    onError(null)
+    setError(null)
     try {
       const next = await undoChange(change.id)
       client.setQueryData(changeQueryKey(change.id), next)
       void client.invalidateQueries({ queryKey: effectsQueryKey(change.id) })
       onClose()
     } catch (err) {
-      onError(errorMessage(err))
-      onClose()
+      setError(errorMessage(err))
     } finally {
       setBusy(false)
     }
@@ -51,6 +51,11 @@ function UndoDialog({ change, onClose, onError }: { change: Change; onClose: () 
             Darkpanel runs the change's inverse. It refuses when a later change has taken the same locks.
           </DialogDescription>
         </DialogHeader>
+        {error !== null && (
+          <Alert variant="destructive" role="alert">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
         <DialogFooter>
           <Button variant="outline" disabled={busy} onClick={onClose}>
             Cancel
@@ -231,7 +236,7 @@ export function ChangeActions({ change }: { change: Change }) {
         </Alert>
       )}
       {notice !== null && <p role="status" className="text-sm">{notice}</p>}
-      {dialog === "undo" && <UndoDialog change={change} onClose={() => setDialog(null)} onError={setError} />}
+      {dialog === "undo" && <UndoDialog change={change} onClose={() => setDialog(null)} />}
       {dialog === "release" && <ReleaseDialog change={change} onClose={() => setDialog(null)} onDone={setNotice} />}
       {repairPlan !== null && (
         <ChangeDialog

@@ -2,6 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { Route, Routes } from "react-router"
 import { expect, test } from "vitest"
+import { changeQueryKey } from "@/api/client"
 import type { Change, Effect, ObserveResult, Step } from "@/api/types"
 import { renderWithProviders, stubFetch, type StubHandler } from "@/test/utils"
 import { ChangePage } from "./change"
@@ -115,6 +116,51 @@ test("several matching objects need a choice before reconcile, and allowed limit
   await user.click(within(dialog).getByRole("radio", { name: "cdx.key:k2" }))
   await user.click(reconcile)
   await waitFor(() => expect(calls.find((c) => c.path.endsWith("/resolve"))?.body).toEqual({ resolution: "reconcile", resource: "cdx.key:k2" }))
+})
+
+// cpgTwoMatches is an observation of a created key that two objects match.
+const cpgTwoMatches = cpgObserve({
+  matches: 2, resource: "", exclusive: false,
+  candidates: [{ resource: "cdx.key:k1", state: { state: {} } }, { resource: "cdx.key:k2", state: { state: {} } }],
+})
+
+test("accept sends no resource even after a candidate was picked", async () => {
+  const calls = cpgRender({
+    "GET /api/v1/changes/c1": { body: cpgChange() },
+    "GET /api/v1/changes/c1/effects": { body: { effects: [cpgEffect()] } },
+    "GET /api/v1/changes/c1/effects/1/observe": { body: cpgTwoMatches },
+    "POST /api/v1/changes/c1/effects/1/resolve": { body: cpgEffect({ state: "accepted", resolution: "accept" }) },
+  })
+  const user = userEvent.setup()
+  await user.click(await screen.findByRole("button", { name: "Preview effect 1" }))
+  const dialog = await screen.findByRole("dialog", { name: "Resolve effect 1" })
+  await user.click(await within(dialog).findByRole("radio", { name: "cdx.key:k2" }))
+  await user.click(within(dialog).getByRole("button", { name: "Accept as it is" }))
+  await waitFor(() => expect(calls.find((c) => c.path.endsWith("/resolve"))?.body).toEqual({ resolution: "accept" }))
+})
+
+test("an update of the change keeps an open resolve dialog and its pick", async () => {
+  let updatedAt = "2026-10-23T08:05:00Z"
+  const calls = stubFetch({
+    "GET /api/v1/changes/c1": () => ({ body: cpgChange({ updatedAt }) }),
+    "GET /api/v1/changes/c1/effects": { body: { effects: [cpgEffect()] } },
+    "GET /api/v1/changes/c1/effects/1/observe": { body: cpgTwoMatches },
+  })
+  const { client } = renderWithProviders(
+    <Routes>
+      <Route path="/changes/:changeId" element={<ChangePage />} />
+    </Routes>,
+    { path: "/changes/c1" },
+  )
+  const user = userEvent.setup()
+  await user.click(await screen.findByRole("button", { name: "Preview effect 1" }))
+  const dialog = await screen.findByRole("dialog", { name: "Resolve effect 1" })
+  await user.click(await within(dialog).findByRole("radio", { name: "cdx.key:k2" }))
+  updatedAt = "2026-10-23T08:06:00Z"
+  await client.invalidateQueries({ queryKey: changeQueryKey("c1") })
+  await waitFor(() => expect(calls.filter((c) => c.path === "/api/v1/changes/c1/effects")).toHaveLength(2))
+  const still = screen.getByRole("dialog", { name: "Resolve effect 1" })
+  expect(within(still).getByRole("radio", { name: "cdx.key:k2" }).getAttribute("aria-checked")).toBe("true")
 })
 
 test("a refused resolution keeps the dialog open with the reason", async () => {
