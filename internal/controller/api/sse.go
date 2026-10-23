@@ -51,7 +51,7 @@ func sseWrite(w http.ResponseWriter, b []byte) error {
 		return err
 	}
 	if len(b) > 0 {
-		if _, err := w.Write(b); err != nil {
+		if _, err := w.Write(b); err != nil { //nolint:gosec // G705: compacted JSON sent as text/event-stream under nosniff, never rendered as HTML
 			return err
 		}
 	}

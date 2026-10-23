@@ -62,6 +62,8 @@ func (s *Server) networkRoutes() []route {
 			handler: s.handleListeners},
 		{method: http.MethodGet, path: "/api/v1/events", summary: "Stream the controller's change, step, host and module events (server-sent events)",
 			handler: s.handleEvents},
+		{method: http.MethodGet, path: "/api/v1/hosts/{host}/streams/{module}/{name}",
+			summary: "Follow a module stream of a host as server-sent events", handler: s.handleStream},
 	}
 }
 
