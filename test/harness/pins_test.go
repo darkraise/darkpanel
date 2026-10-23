@@ -27,6 +27,21 @@ func TestPinFile(t *testing.T) {
 	if p.Scanner != "debian-13" {
 		t.Errorf("scanner = %q, want debian-13", p.Scanner)
 	}
+	var names []string
+	for _, c := range p.Containers {
+		names = append(names, c.Name)
+	}
+	if !slices.Equal(names, RequiredContainers) {
+		t.Errorf("pinned containers = %v, want %v", names, RequiredContainers)
+	}
+}
+
+// validContainers are RequiredContainers with references every check accepts.
+func validContainers() []Container {
+	return []Container{
+		{Name: "pebble", Ref: "ghcr.io/letsencrypt/pebble:2.10.1@sha256:" + strings.Repeat("c", 64)},
+		{Name: "pebble-challtestsrv", Ref: "ghcr.io/letsencrypt/pebble-challtestsrv:2.10.1@sha256:" + strings.Repeat("d", 64)},
+	}
 }
 
 // validOS is an entry every check accepts.
@@ -79,9 +94,21 @@ func TestPinChecks(t *testing.T) {
 		}, "want [docker-ce docker-ce-cli containerd.io docker-compose-plugin tailscale]"},
 		{"duplicate OS", func(p *Pins) { p.OS = append(p.OS, validOS("debian-13")) }, "listed twice"},
 		{"unknown scanner", func(p *Pins) { p.Scanner = "debian-14" }, "names no listed OS"},
+		{"container by tag only", func(p *Pins) { p.Containers[0].Ref = "ghcr.io/letsencrypt/pebble:2.10.1" }, "not <registry>/<repository>:<tag>@sha256"},
+		{"container by digest only", func(p *Pins) {
+			p.Containers[0].Ref = "ghcr.io/letsencrypt/pebble@sha256:" + strings.Repeat("c", 64)
+		}, "not <registry>/<repository>:<tag>@sha256"},
+		{"short container digest", func(p *Pins) { p.Containers[1].Ref = "ghcr.io/letsencrypt/pebble-challtestsrv:2.10.1@sha256:abc" }, "not <registry>/<repository>:<tag>@sha256"},
+		{"quote in a container ref", func(p *Pins) {
+			p.Containers[1].Ref = "ghcr.io/letsencrypt/pebble':2.10.1@sha256:" + strings.Repeat("d", 64)
+		}, "not <registry>/<repository>:<tag>@sha256"},
+		{"missing container", func(p *Pins) { p.Containers = p.Containers[:1] }, "want [pebble pebble-challtestsrv]"},
+		{"containers out of order", func(p *Pins) {
+			p.Containers[0], p.Containers[1] = p.Containers[1], p.Containers[0]
+		}, "want [pebble pebble-challtestsrv]"},
 	}
 	for _, c := range cases {
-		p := Pins{Scanner: "debian-13", OS: []OS{validOS("debian-13")}}
+		p := Pins{Scanner: "debian-13", OS: []OS{validOS("debian-13")}, Containers: validContainers()}
 		c.edit(&p)
 		err := p.check()
 		switch {
@@ -109,7 +136,7 @@ func TestLoadPins(t *testing.T) {
 		}
 		return b
 	}
-	want := Pins{Scanner: "debian-13", OS: []OS{validOS("debian-13")}}
+	want := Pins{Scanner: "debian-13", OS: []OS{validOS("debian-13")}, Containers: validContainers()}
 	got, err := LoadPins(write("valid.json", encode(want)))
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Errorf("LoadPins of a valid file = %+v, %v; want %+v", got, err, want)
@@ -121,7 +148,7 @@ func TestLoadPins(t *testing.T) {
 	}{
 		{"malformed.json", []byte("{"), "malformed.json"},
 		{"unknown-field.json", []byte(`{"scanner":"debian-13","os":[],"extra":1}`), "unknown field"},
-		{"invalid.json", encode(Pins{Scanner: "debian-14", OS: []OS{validOS("debian-13")}}), "names no listed OS"},
+		{"invalid.json", encode(Pins{Scanner: "debian-14", OS: []OS{validOS("debian-13")}, Containers: validContainers()}), "names no listed OS"},
 		{"trailing-object.json", append(encode(want), []byte(`{}`)...), "trailing content"},
 		{"trailing-text.json", append(encode(want), []byte("x")...), "trailing content"},
 	}
@@ -142,5 +169,15 @@ func TestFind(t *testing.T) {
 	}
 	if _, err := p.Find("ubuntu-26.04"); err == nil || !strings.Contains(err.Error(), "debian-12, debian-13") {
 		t.Errorf("Find of an unknown OS: %v, want an error listing the pinned ids", err)
+	}
+}
+
+func TestContainer(t *testing.T) {
+	p := Pins{Containers: validContainers()}
+	if c, err := p.Container("pebble-challtestsrv"); err != nil || c.Ref != validContainers()[1].Ref {
+		t.Errorf("Container(pebble-challtestsrv) = %+v, %v", c, err)
+	}
+	if _, err := p.Container("boulder"); err == nil || !strings.Contains(err.Error(), `"boulder"`) {
+		t.Errorf("Container of an unknown image: %v, want an error naming it", err)
 	}
 }
