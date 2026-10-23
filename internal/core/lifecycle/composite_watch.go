@@ -29,6 +29,9 @@ func (e *Engine) Wake(changeIDs ...string) {
 		return
 	}
 	ctx := context.Background()
+	if e.suspended(ctx, "the child watcher") {
+		return
+	}
 	seen := map[string]bool{}
 	for _, child := range changeIDs {
 		rows, err := e.cfg.Base.DB.Read().QueryContext(ctx,
@@ -60,9 +63,19 @@ func (e *Engine) Wake(changeIDs ...string) {
 // makes a new attempt (1.3a). A composite in needs_repair is unowned and is
 // left alone. Run it once, after Recover and SetChildren; it returns once the
 // runners are started, and CompositesRecovered reports when they settled.
+// While the engine is suspended it claims nothing and starts no runner, and
+// CompositesRecovered reports true: a restored database's unfinished
+// composites are quarantined, and their operator resolves each one.
 func (e *Engine) RecoverComposites(ctx context.Context) error {
 	if _, err := e.kids(); err != nil {
 		return err
+	}
+	if e.suspended(ctx, "composite recovery") {
+		e.cfg.Base.Log.Warn("lifecycle: composite recovery is suspended; no composite is claimed")
+		e.compMu.Lock()
+		e.compRecoverStarted = true
+		e.compMu.Unlock()
+		return nil
 	}
 	type unfinished struct{ id, state string }
 	rows, err := e.cfg.Base.DB.Read().QueryContext(ctx,

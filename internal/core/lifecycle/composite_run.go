@@ -393,6 +393,12 @@ func (e *Engine) runComposite(id string, run *compositeRun) {
 	defer done()
 	failures := 0
 	for ctx.Err() == nil {
+		// A suspended runner leaves the composite as persisted and only
+		// checks again at its next poll.
+		if e.suspended(ctx, "the composite runner") {
+			e.compositeSleep(ctx, wake, ChildPoll)
+			continue
+		}
 		err := e.compositeStep(ctx, id, run)
 		var wait *compositeWait
 		switch {

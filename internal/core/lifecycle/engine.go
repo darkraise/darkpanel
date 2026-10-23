@@ -62,6 +62,10 @@ type Config struct {
 	// ModuleUnits returns the Env.Units of a handler of module; nil leaves
 	// Env.Units nil.
 	ModuleUnits func(module string) core.Units
+	// Suspended reports whether composite recovery, the composite runners,
+	// Wake and module recovery handlers must do nothing (spec 10, restore
+	// quarantine); an error counts as suspended. nil never suspends.
+	Suspended func(ctx context.Context) (bool, error)
 }
 
 // Deadlines of spec 1.3.

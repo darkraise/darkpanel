@@ -101,6 +101,9 @@ func (e *Engine) recovererClaim(ctx context.Context, p core.Principal, def core.
 // the action's ApplyTimeout, but the engine waits for it to return, so
 // ownership never lapses.
 func (e *Engine) runRecoverer(ctx context.Context, changeID string) (core.ChangeView, error) {
+	if e.suspended(ctx, "module recovery handlers") {
+		return core.ChangeView{}, errRecovererSuspended
+	}
 	var ref core.ActionRef
 	var actor, state, owner, cause string
 	err := e.cfg.Base.DB.Read().QueryRowContext(ctx,
