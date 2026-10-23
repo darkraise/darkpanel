@@ -167,6 +167,23 @@ func TestEventsReplay(t *testing.T) {
 	}
 }
 
+// TestEventBacklogTwoIDs: two Last-Event-ID headers, even two valid ones,
+// get a reset.
+func TestEventBacklogTwoIDs(t *testing.T) {
+	bus := events.NewBus(nil)
+	for i := range 5 {
+		sseChange(bus, "c"+strconv.Itoa(i+1))
+	}
+	id := events.FormatID(bus.Epoch(), 3)
+	if got := eventBacklog(bus, []string{id}, 5); len(got) != 2 {
+		t.Fatalf("one id: %d events, want the 2 after it", len(got))
+	}
+	got := eventBacklog(bus, []string{id, id}, 5)
+	if len(got) != 1 || got[0].Type != events.TypeReset || got[0].Seq != 5 {
+		t.Fatalf("two ids: %+v, want one reset at seq 5", got)
+	}
+}
+
 func TestEventsLimit(t *testing.T) {
 	h, _, base := sseHarness(t)
 	token := h.token(core.ScopeRead)
