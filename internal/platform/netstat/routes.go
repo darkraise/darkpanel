@@ -40,7 +40,9 @@ type RouteQuery struct {
 }
 
 // Route is a route entry, or the answer to a lookup (whose Dst is the
-// looked-up address as a host prefix). A multipath route has no OutIface.
+// looked-up address as a host prefix). OutIface is empty for a multipath
+// route, or when the interface vanished before its name was read; OutIndex
+// still holds the kernel's answer.
 type Route struct {
 	Type string
 	// Table is the entry's table, or the table a lookup matched. While no
@@ -83,7 +85,7 @@ func RouteGet(q RouteQuery) (Route, error) {
 		if errors.As(err, &errno) && (errno == unix.ENETUNREACH || errno == unix.EHOSTUNREACH || errno == unix.EACCES) {
 			return Route{}, fmt.Errorf("%w to %s: %w", ErrNoRoute, q.Dst, errno)
 		}
-		return Route{}, err
+		return Route{}, fmt.Errorf("netstat: route lookup: %w", err)
 	}
 	if len(msgs) != 1 {
 		return Route{}, fmt.Errorf("netstat: route lookup answered %d messages", len(msgs))
@@ -131,13 +133,15 @@ func Routes(family Family) ([]Route, error) {
 	}
 	msgs, err := netlinkRequest(unix.RTM_GETROUTE, unix.NLM_F_DUMP, rtMsg(af, 0, 0, 0))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("netstat: route dump: %w", err)
 	}
-	names := map[int]string{}
-	if ifs, err := net.Interfaces(); err == nil {
-		for _, ifc := range ifs {
-			names[ifc.Index] = ifc.Name
-		}
+	ifs, err := net.Interfaces()
+	if err != nil {
+		return nil, fmt.Errorf("netstat: interfaces: %w", err)
+	}
+	names := make(map[int]string, len(ifs))
+	for _, ifc := range ifs {
+		names[ifc.Index] = ifc.Name
 	}
 	out := make([]Route, 0, len(msgs))
 	for _, m := range msgs {
