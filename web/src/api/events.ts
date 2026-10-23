@@ -3,31 +3,25 @@ import { HOSTS_QUERY_KEY } from "./client"
 
 export type EventSourceFactory = (url: string) => EventSource
 
-interface ChangeEventData {
-  changeId: string
-}
-
-interface StepEventData {
-  changeId: string
-}
-
-interface ModuleEventData {
-  hostId: string
-}
-
 // EventSource.CLOSED, spelled out because the factory may not build a real
 // EventSource.
 const CLOSED = 2
 const MIN_RETRY_MS = 1000
 const MAX_RETRY_MS = 30_000
 
-function parse<T>(event: MessageEvent): T | null {
+// parse returns an event's data when it is a JSON object whose fields are
+// strings, and null otherwise.
+function parse<K extends string>(event: MessageEvent, fields: readonly K[]): Record<K, string> | null {
   if (typeof event.data !== "string") return null
+  let data: unknown
   try {
-    return JSON.parse(event.data) as T
+    data = JSON.parse(event.data)
   } catch {
     return null
   }
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return null
+  const record = data as Record<string, unknown>
+  return fields.every((field) => typeof record[field] === "string") ? (record as Record<K, string>) : null
 }
 
 // connectEvents keeps the controller's event stream open and refetches the
@@ -36,8 +30,10 @@ function parse<T>(event: MessageEvent): T | null {
 // or sends a reset. A refused reconnect (429, a proxy's 502) leaves the
 // EventSource closed for good, so a closed source is reopened with a growing
 // delay, and a reopened stream refetches like a reset because its first
-// request carries no last id. Open queries are refetched, but a plan is not:
-// refetching one posts a new plan. The returned function closes the stream.
+// request carries no last id. An event whose data cannot be read names
+// nothing, so it refetches like a reset too. Open queries are refetched, but
+// a plan is not: refetching one posts a new plan. The returned function
+// closes the stream.
 export function connectEvents(client: QueryClient, factory: EventSourceFactory = (url) => new EventSource(url)): () => void {
   let source: EventSource
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -51,17 +47,20 @@ export function connectEvents(client: QueryClient, factory: EventSourceFactory =
 
   function attach(next: EventSource) {
     source = next
-    function on<T>(type: string, keys: (data: T) => QueryKey[]) {
+    function on<K extends string>(type: string, fields: readonly K[], keys: (data: Record<K, string>) => QueryKey[]) {
       next.addEventListener(type, (event: MessageEvent) => {
-        const data = parse<T>(event)
-        if (data === null) return
+        const data = parse(event, fields)
+        if (data === null) {
+          refetchAll()
+          return
+        }
         for (const queryKey of keys(data)) void client.invalidateQueries({ queryKey })
       })
     }
-    on<ChangeEventData>("change", (d) => [["changes"], ["change", d.changeId], ["audit"]])
-    on<StepEventData>("composite.step", (d) => [["change", d.changeId], ["steps", d.changeId]])
-    on<object>("host", () => [HOSTS_QUERY_KEY])
-    on<ModuleEventData>("module", (d) => [HOSTS_QUERY_KEY, ["resource", d.hostId]])
+    on("change", ["changeId"], (d) => [["changes"], ["change", d.changeId], ["audit"]])
+    on("composite.step", ["changeId"], (d) => [["change", d.changeId], ["steps", d.changeId]])
+    on("host", [], () => [HOSTS_QUERY_KEY])
+    on("module", ["hostId"], (d) => [HOSTS_QUERY_KEY, ["resource", d.hostId]])
     next.addEventListener("reset", refetchAll)
     next.addEventListener("open", () => {
       delay = MIN_RETRY_MS

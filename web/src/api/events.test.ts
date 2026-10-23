@@ -75,10 +75,19 @@ describe("connectEvents", () => {
     expect(evtInvalidated(client)).toEqual(cached.filter((key) => want.some((w) => JSON.stringify(w) === JSON.stringify(key))))
   })
 
-  test("ignores an event whose data is not JSON", () => {
+  test.each<[string, string]>([
+    ["change", "{not json"],
+    ["change", "{}"],
+    ["change", "5"],
+    ["change", '["c1"]'],
+    ["composite.step", "null"],
+    ["composite.step", '{"changeId":7}'],
+    ["module", '{"hostId":1}'],
+    ["host", '"h1"'],
+  ])("a %s event with data %s refetches everything", (type, data) => {
     const { client, source } = evtConnect()
-    source.emit("change", "{not json")
-    expect(evtInvalidated(client)).toEqual([])
+    source.emit(type, data)
+    expect(evtInvalidated(client)).toEqual(refetched)
   })
 
   test("uses the browser's EventSource without a factory", () => {
