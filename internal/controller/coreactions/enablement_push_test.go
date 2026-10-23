@@ -36,6 +36,15 @@ func (e *testEnv) pushAgent(fail error) *[]string {
 	return pushed
 }
 
+// pushRepushes wraps a host directory and records the hosts whose enablement
+// the action asked to have pushed again.
+type pushRepushes struct {
+	core.HostDirectory
+	hosts []string
+}
+
+func (r *pushRepushes) RepushEnablement(hostID string) { r.hosts = append(r.hosts, hostID) }
+
 func TestEnableModulePushesFlag(t *testing.T) {
 	e := newModuleEnv(t)
 	pushed := e.pushAgent(nil)
@@ -52,10 +61,11 @@ func TestEnablementPushFailureIsLogged(t *testing.T) {
 	tests := []struct {
 		name, action, logged string
 		offline              bool
+		repushed             []string
 	}{
-		{"enable, push fails", "core.module.enable", gone.Error(), false},
-		{"disable, push fails", "core.module.disable", gone.Error(), false},
-		{"disable, host offline", "core.module.disable", "host h1 not found", true},
+		{"enable, push fails", "core.module.enable", gone.Error(), false, []string{"h1"}},
+		{"disable, push fails", "core.module.disable", gone.Error(), false, []string{"h1"}},
+		{"disable, host offline", "core.module.disable", "host h1 not found", true, nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -73,7 +83,8 @@ func TestEnablementPushFailureIsLogged(t *testing.T) {
 				t.Fatalf("%s is not registered", tt.action)
 			}
 			var buf bytes.Buffer
-			env := core.Env{DB: e.db, Clock: e.clock, Log: slog.New(slog.NewTextHandler(&buf, nil)), Agents: e.hosts,
+			dir := &pushRepushes{HostDirectory: e.hosts}
+			env := core.Env{DB: e.db, Clock: e.clock, Log: slog.New(slog.NewTextHandler(&buf, nil)), Agents: dir,
 				Principal: operator}
 			if _, err := def.Handler.Apply(context.Background(), env, encodeInput(t, in)); err != nil {
 				t.Fatalf("Apply = %v, want the push failure only logged", err)
@@ -82,6 +93,9 @@ func TestEnablementPushFailureIsLogged(t *testing.T) {
 			if !strings.Contains(log, `level=WARN msg="coreactions: push module enablement" host=h1 module=demo`) ||
 				!strings.Contains(log, tt.logged) {
 				t.Errorf("log = %q, want the failed push with %q", log, tt.logged)
+			}
+			if !reflect.DeepEqual(dir.hosts, tt.repushed) {
+				t.Errorf("hosts asked for another push = %q, want %q", dir.hosts, tt.repushed)
 			}
 		})
 	}

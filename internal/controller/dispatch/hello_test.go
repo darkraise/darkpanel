@@ -204,10 +204,14 @@ func TestHelloPushesEnablement(t *testing.T) {
 		}}
 	var pushed []string
 	refuse := ""
+	var refuseErr error
 	agent := &coretest.FakeAgent{
 		HelloFunc: func(context.Context) (core.AgentHello, error) { return hello, nil },
 		SetModuleEnabledFunc: func(_ context.Context, id string, enabled bool) error {
 			pushed = append(pushed, fmt.Sprintf("%s=%t", id, enabled))
+			if refuseErr != nil {
+				return refuseErr
+			}
 			if id == refuse {
 				return fmt.Errorf("the agent refused %s", id)
 			}
@@ -243,5 +247,38 @@ func TestHelloPushesEnablement(t *testing.T) {
 	}
 	if want := []string{"WARN dispatch: push module enablement host=h2"}; !reflect.DeepEqual(warned, want) {
 		t.Errorf("warnings = %q, want %q", warned, want)
+	}
+
+	// The refused push is tried again at the next reach, on the same session.
+	pushed, refuse = nil, ""
+	if _, err := h.hosts.Agent(ctx, "h2"); err != nil {
+		t.Fatalf("Agent after a refused push = %v, want the client", err)
+	}
+	if !reflect.DeepEqual(pushed, want) {
+		t.Errorf("pushes at the next reach = %q, want %q", pushed, want)
+	}
+	if got := h.hosts.JournalEpoch("h2"); got != "01EPOCHB" {
+		t.Errorf("epoch after the repush = %q, want 01EPOCHB", got)
+	}
+	pushed = nil
+	if _, err := h.hosts.Agent(ctx, "h2"); err != nil {
+		t.Fatal(err)
+	}
+	if len(pushed) != 0 {
+		t.Errorf("pushes after a clean hello = %q, want none", pushed)
+	}
+
+	// An agent without the route cannot be helped by trying again.
+	refuseErr = errcode.New(errcode.NotFound, "no such route")
+	h.hosts.RepushEnablement("h2")
+	if _, err := h.hosts.Agent(ctx, "h2"); err != nil {
+		t.Fatal(err)
+	}
+	pushed = nil
+	if _, err := h.hosts.Agent(ctx, "h2"); err != nil {
+		t.Fatal(err)
+	}
+	if len(pushed) != 0 {
+		t.Errorf("pushes after not_found = %q, want none", pushed)
 	}
 }

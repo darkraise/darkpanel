@@ -50,10 +50,12 @@ type Hosts struct {
 }
 
 // greeting is a host's last successful Hello and the client generation that
-// answered it.
+// answered it. repush asks the next reach of the host to say Hello again,
+// which pushes every module's enabled flag again.
 type greeting struct {
-	gen   uint64
-	hello core.AgentHello
+	gen    uint64
+	hello  core.AgentHello
+	repush bool
 }
 
 var _ core.HostDirectory = (*Hosts)(nil)
@@ -87,12 +89,24 @@ func (h *Hosts) Agent(ctx context.Context, hostID string) (core.AgentClient, err
 	h.mu.Lock()
 	greeted, ok := h.greeted[hostID]
 	h.mu.Unlock()
-	if !ok || greeted.gen != gen {
+	if !ok || greeted.gen != gen || greeted.repush {
 		if err := h.hello(ctx, hostID, c, gen); err != nil {
 			return nil, err
 		}
 	}
 	return c, nil
+}
+
+// RepushEnablement makes the next reach of hostID say Hello again, which
+// pushes every module's enabled flag again. It does nothing for a host with no
+// Hello on record: its next reach says Hello anyway.
+func (h *Hosts) RepushEnablement(hostID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if g, ok := h.greeted[hostID]; ok {
+		g.repush = true
+		h.greeted[hostID] = g
+	}
 }
 
 // Hello calls hostID's Hello now and records every module's availability.
@@ -220,7 +234,14 @@ func (h *Hosts) hello(ctx context.Context, hostID string, c core.AgentClient, ge
 	h.mu.Unlock()
 	h.cfg.Log.Info("dispatch: host said hello", "host", hostID, "protocol", hello.ProtocolVersion,
 		"version", hello.BinaryVersion, "os", hello.OS, "arch", hello.Arch, "journalEpoch", hello.JournalEpoch)
-	h.pushEnablement(ctx, hostID, c, flags)
+	if h.pushEnablement(ctx, hostID, c, flags) {
+		h.mu.Lock()
+		if g, ok := h.greeted[hostID]; ok && g.gen == gen {
+			g.repush = true
+			h.greeted[hostID] = g
+		}
+		h.mu.Unlock()
+	}
 	return nil
 }
 
@@ -233,13 +254,21 @@ type moduleFlag struct {
 // pushEnablement hands the agent the stored enabled flag of every module its
 // hello reported (spec 1.4): the agent runs a module's background tasks only
 // while the flag is set. A failed push is logged and leaves the hello
-// standing; the next hello pushes every flag again.
-func (h *Hosts) pushEnablement(ctx context.Context, hostID string, c core.AgentClient, flags []moduleFlag) {
+// standing; unless the agent answered not_found, the next Agent call says
+// hello again, which pushes every flag again. It reports whether any push
+// failed that way. An agent without the route answers not_found, and trying
+// again cannot help it.
+func (h *Hosts) pushEnablement(ctx context.Context, hostID string, c core.AgentClient, flags []moduleFlag) (retry bool) {
 	for _, f := range flags {
 		if err := c.SetModuleEnabled(ctx, f.id, f.enabled); err != nil {
 			h.cfg.Log.Warn("dispatch: push module enablement", "host", hostID, "module", f.id, "error", err)
+			var coded *errcode.Error
+			if !errors.As(err, &coded) || coded.Code != errcode.NotFound {
+				retry = true
+			}
 		}
 	}
+	return retry
 }
 
 // nullText stores an empty string as NULL, which reads as "not reported".
