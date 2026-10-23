@@ -539,3 +539,39 @@ func TestServiceTLSConfigResumesSessionsAcrossClones(t *testing.T) {
 		t.Errorf("handshakes through a fresh configuration each resumed %v, want [false false]", got)
 	}
 }
+
+func TestServiceRenewsTheLeafTLSConfigIssued(t *testing.T) {
+	f := newServiceFixture(t)
+	s, err := f.start(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := s.TLSConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := cfg.GetCertificate(&tls.ClientHelloInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	s.timer.Stop()
+	s.mu.Unlock()
+	f.clock.Advance(LeafRenewAfter - CheckInterval)
+	s.check()
+	if c, _ := cfg.GetCertificate(&tls.ClientHelloInfo{}); c != first {
+		t.Fatal("the leaf was renewed before 60 days")
+	}
+	f.clock.Advance(CheckInterval)
+	c, err := cfg.GetCertificate(&tls.ClientHelloInfo{})
+	if err != nil || c == first {
+		t.Fatalf("GetCertificate = %v, %v; want a renewed leaf after 60 days", c, err)
+	}
+	leaf, err := x509.ParseCertificate(c.Certificate[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(leaf.DNSNames, []string{"panel", "localhost"}) || len(leaf.IPAddresses) != 0 {
+		t.Fatalf("renewed leaf SANs %v %v, want the hostname and localhost without IP addresses", leaf.DNSNames, leaf.IPAddresses)
+	}
+}

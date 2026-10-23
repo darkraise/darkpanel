@@ -173,7 +173,13 @@ func (s *Service) apply(ctx context.Context) error {
 			ips = append(ips, e.Addr.Addr())
 		}
 	}
-	if len(ips) > 0 {
+	// A leaf with no HTTPS listener behind it still serves the runtime
+	// listeners, so it keeps renewing with the addresses it already carries.
+	cur := s.leaf.cur.Load()
+	if len(ips) == 0 && cur != nil {
+		ips = cur.ips
+	}
+	if len(ips) > 0 || cur != nil {
 		issued, err := s.leaf.Ensure(ctx, ips)
 		if err != nil {
 			return err
