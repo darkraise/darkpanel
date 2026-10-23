@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -148,6 +149,8 @@ func TestRelayAgentError(t *testing.T) {
 		{"broken line", `{"data":` + "\n", []string{internal}},
 		{"neither data nor end", `{"other":1}` + "\n", []string{internal}},
 		{"carriage return", "{\"data\":\r{\"n\":1}}\n" + `{"end":{"reason":"done"}}` + "\n", []string{`data {"n":1}`, `end {"reason":"done"}`}},
+		{"line too long", `{"data":{"n":1}}` + "\n" + `{"data":"` + strings.Repeat("x", maxRelayLine) + `"}` + "\n" + `{"end":{"reason":"done"}}` + "\n",
+			[]string{`data {"n":1}`, internal}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -158,6 +161,35 @@ func TestRelayAgentError(t *testing.T) {
 				t.Errorf("frames\n%q\nwant\n%q", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestRelayLogsBadLines: a line the client sees only as internal is logged.
+func TestRelayLogsBadLines(t *testing.T) {
+	for _, tc := range []struct{ name, lines, want string }{
+		{"too long", `{"data":"` + strings.Repeat("x", maxRelayLine) + `"}` + "\n", "a module stream line is too long"},
+		{"not JSON", `{"data":` + "\n", "a module stream line does not decode"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			log, buf := testLog()
+			out := make(chan sseFrame, relayBuffer+1)
+			relay(&relayBody{Reader: strings.NewReader(tc.lines)}, out, log.With("host", "h1"))
+			var last sseFrame
+			for f := range out {
+				last = f
+			}
+			if last.Event != "end" || !strings.Contains(buf.String(), tc.want) || !strings.Contains(buf.String(), "host=h1") {
+				t.Errorf("last frame %+v, log %q; want an end frame and %q with the host", last, buf.String(), tc.want)
+			}
+		})
+	}
+	log, buf := testLog()
+	out := make(chan sseFrame, relayBuffer+1)
+	relay(&relayBody{Reader: strings.NewReader(`{"data":{"n":1}}` + "\n")}, out, log)
+	for range out {
+	}
+	if buf.Len() != 0 {
+		t.Errorf("a body that ended without an end line logged %q", buf.String())
 	}
 }
 
@@ -176,7 +208,7 @@ func TestRelayOverflow(t *testing.T) {
 		}
 	}()
 	out := make(chan sseFrame, relayBuffer+1)
-	relay(body, out)
+	relay(body, out, slog.New(slog.DiscardHandler))
 	if n := <-wrote; n != relayBuffer+1 {
 		t.Errorf("the agent wrote %d events before its stream closed, want %d", n, relayBuffer+1)
 	}

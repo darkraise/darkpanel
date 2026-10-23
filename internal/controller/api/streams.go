@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -45,7 +47,7 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = body.Close() }()
 	frames := make(chan sseFrame, relayBuffer+1)
-	go relay(body, frames)
+	go relay(body, frames, s.log.With("host", r.PathValue("host"), "module", r.PathValue("module"), "stream", r.PathValue("name")))
 	rw := &relayWriter{ResponseWriter: w}
 	reason := s.sseStream(rw, r, frames)
 	// sseStream may pick an expiry, a revocation or CloseStreams over the
@@ -96,8 +98,9 @@ func (w *relayWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 // out after the one end frame. A data frame is sent only while fewer than
 // relayBuffer frames wait, so the end frame always fits in out's last
 // slot: when the client falls that far behind, relay closes body, which
-// ends the agent's stream, and ends with overflow.
-func relay(body io.ReadCloser, out chan<- sseFrame) {
+// ends the agent's stream, and ends with overflow. A line too long or not
+// JSON is logged on log, since the client sees only internal.
+func relay(body io.ReadCloser, out chan<- sseFrame, log *slog.Logger) {
 	defer close(out)
 	sc := bufio.NewScanner(body)
 	sc.Buffer(make([]byte, 0, 4096), maxRelayLine)
@@ -106,8 +109,10 @@ func relay(body io.ReadCloser, out chan<- sseFrame) {
 			Data json.RawMessage `json:"data"`
 			End  *relayEnd       `json:"end"`
 		}
-		if json.Unmarshal(sc.Bytes(), &line) != nil {
-			break
+		if err := json.Unmarshal(sc.Bytes(), &line); err != nil {
+			log.Warn("api: a module stream line does not decode", "err", err)
+			out <- endFrame("error", nil)
+			return
 		}
 		switch {
 		case line.End != nil && line.End.Reason == "done":
@@ -126,7 +131,12 @@ func relay(body io.ReadCloser, out chan<- sseFrame) {
 		}
 		out <- sseFrame{Event: "data", Data: line.Data}
 	}
-	// The body broke, or ended without an end line.
+	// The body broke, or ended without an end line. Other read errors are
+	// not logged: the handler's own close of body on a client's departure
+	// is one.
+	if errors.Is(sc.Err(), bufio.ErrTooLong) {
+		log.Warn("api: a module stream line is too long", "limit", maxRelayLine)
+	}
 	out <- endFrame("error", nil)
 }
 
