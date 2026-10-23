@@ -378,3 +378,98 @@ func TestExtensionStreamFlusher(t *testing.T) {
 		t.Errorf("body %q with operations %q, want one ending in a deadline and a flush", rec.text(), got)
 	}
 }
+
+func TestExtensionSocketRoute(t *testing.T) {
+	h := xrHarness(t, ext.Route{Surface: ext.SurfaceSocket, Method: http.MethodGet, Path: "/api/v1/controller/xr",
+		Summary: "Socket only", Handler: xrHandler})
+	setUID(t, 1000)
+	rec := h.socketRequest(request("GET", "/api/v1/controller/xr", ""), 0)
+	if rec.Code != http.StatusOK || rec.Body.String() != "local:root@"+testHostID {
+		t.Errorf("root on the socket: %d %q", rec.Code, rec.Body.String())
+	}
+	if rec := h.socketRequest(request("GET", "/api/v1/controller/xr", ""), 1000); rec.Code != http.StatusForbidden {
+		t.Errorf("uid 1000 outside dev mode: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := h.serve(withToken(request("GET", "/api/v1/controller/xr", ""), h.token(core.ScopeAdmin))); rec.Code != http.StatusNotFound {
+		t.Errorf("the socket route on the network: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := h.socketRequest(request("GET", "/healthz", ""), 0); rec.Code != http.StatusOK {
+		t.Errorf("the socket's own routes: /healthz %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestExtensionSocketRouteRefused(t *testing.T) {
+	socket := func(method, path string) ext.Route {
+		return ext.Route{Surface: ext.SurfaceSocket, Method: method, Path: path, Handler: xrHandler}
+	}
+	tests := []struct {
+		name   string
+		routes []ext.Route
+		want   string
+	}{
+		{"clash with the web CA route", []ext.Route{socket("GET", "/api/v1/controller/web-ca")}, "GET /api/v1/controller/web-ca"},
+		{"clash with the break-glass actions", []ext.Route{socket("POST", "/api/v1/actions/{n}/{v}/plan")}, "POST /api/v1/actions/{n}/{v}/plan"},
+		{"the same route twice", []ext.Route{socket("POST", "/api/v1/controller/xr"), socket("POST", "/api/v1/controller/xr")},
+			"POST /api/v1/controller/xr"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.cfg.Extensions = tt.routes
+			if _, err := New(h.cfg); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("New: %v, want an error containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestOpenAPIRoutesIncludeExtensions(t *testing.T) {
+	h := xrHarness(t,
+		ext.Route{Surface: ext.SurfaceWeb, Method: "GET", Path: "/api/v1/xr/items", Summary: "List items", Scope: core.ScopeRead, Handler: xrHandler},
+		ext.Route{Surface: ext.SurfaceSocket, Method: "POST", Path: "/api/v1/controller/xr", Summary: "Socket only", Handler: xrHandler},
+	)
+	routes := h.srv.OpenAPIRoutes()
+	if len(routes) != len(Routes())+1 || routes[len(routes)-1].Path != "/api/v1/xr/items" || routes[len(routes)-1].Summary != "List items" {
+		t.Errorf("OpenAPIRoutes ends with %+v, want Routes and the web route", routes[len(routes)-1])
+	}
+	rec := h.serve(withToken(request("GET", "/api/v1/openapi.json", ""), h.token(core.ScopeRead)))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"/api/v1/xr/items"`) ||
+		strings.Contains(rec.Body.String(), "/api/v1/controller/xr") {
+		t.Errorf("document %d lists the web route %v and the socket route %v", rec.Code,
+			strings.Contains(rec.Body.String(), `"/api/v1/xr/items"`), strings.Contains(rec.Body.String(), "/api/v1/controller/xr"))
+	}
+}
+
+// TestExtensionSocketStreamEnds: a socket stream route ends at the hard
+// limit and at CloseStreams; the peer check needs no re-authentication.
+func TestExtensionSocketStreamEnds(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		end  func(h *harness)
+	}{
+		{"hard limit", func(h *harness) { h.clock.Advance(SSEHardLimit) }},
+		{"CloseStreams", func(h *harness) { h.srv.CloseStreams() }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := xrHarness(t, ext.Route{Surface: ext.SurfaceSocket, Method: "GET", Path: "/api/v1/controller/xr/follow",
+				Stream: true, Handler: xrWaiter})
+			base := h.clock.Pending()
+			done := make(chan struct{})
+			go func() {
+				h.socketRequest(request("GET", "/api/v1/controller/xr/follow", ""), 0)
+				close(done)
+			}()
+			sseWait(t, "the stream's hard limit", func() bool { return h.clock.Pending() == base+1 })
+			for range 3 {
+				h.clock.Advance(SSERecheck)
+			}
+			select {
+			case <-done:
+				t.Fatal("the socket stream ended before its limit")
+			case <-time.After(20 * time.Millisecond):
+			}
+			tc.end(h)
+			xrEnded(t, done, func() {})
+		})
+	}
+}

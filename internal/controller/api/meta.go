@@ -51,14 +51,14 @@ func (s *Server) health() string {
 }
 
 // handleOpenAPI answers the OpenAPI document (spec section 7), built from
-// the registry and Routes on each request; it is rarely fetched.
+// the registry and OpenAPIRoutes on each request; it is rarely fetched.
 func (s *Server) handleOpenAPI(w http.ResponseWriter, r *http.Request) {
 	c, _ := callerFrom(r.Context())
 	if err := authorize(c.principal, core.ScopeRead); err != nil {
 		writeProblem(w, s.log, err)
 		return
 	}
-	doc, err := schema.OpenAPI(s.cfg.Registry, Routes())
+	doc, err := schema.OpenAPI(s.cfg.Registry, s.OpenAPIRoutes())
 	if err != nil {
 		writeProblem(w, s.log, err)
 		return

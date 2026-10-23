@@ -10,6 +10,7 @@ import (
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/ext"
+	"github.com/darkraise/darkpanel/internal/core/schema"
 )
 
 // extensionPrefix is where every contributed route lives: under the API,
@@ -96,6 +97,20 @@ func (s *Server) extensionStreamRoute(r *http.Request) bool {
 	_, pattern := s.mux.Handler(r)
 	_, stream := s.streamMux.Handler(r)
 	return pattern != "" && pattern == stream
+}
+
+// mountSocketExtensions mounts the socket surface's contributed routes on
+// mux, where the socket's peer check is their authentication.
+func (s *Server) mountSocketExtensions(mux *http.ServeMux) error {
+	for _, rt := range s.cfg.Extensions {
+		if rt.Surface != ext.SurfaceSocket {
+			continue
+		}
+		if err := mount(mux, rt.Method+" "+rt.Path, s.extensionStream(rt)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // extensionStream is rt's handler. A stream route instead gets the
@@ -201,3 +216,16 @@ func (w *deadlineWriter) Flush() {
 // Unwrap lets a handler's ResponseController reach the connection's
 // deadlines.
 func (w *deadlineWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+// OpenAPIRoutes returns Routes followed by the web surface's contributed
+// routes, which the served OpenAPI document lists. The socket's routes are
+// not part of the network API the document describes.
+func (s *Server) OpenAPIRoutes() []schema.Route {
+	out := Routes()
+	for _, rt := range s.cfg.Extensions {
+		if rt.Surface == ext.SurfaceWeb {
+			out = append(out, schema.Route{Method: rt.Method, Path: rt.Path, Summary: rt.Summary})
+		}
+	}
+	return out
+}

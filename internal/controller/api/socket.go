@@ -191,19 +191,27 @@ func (s *Server) SocketServer() *http.Server {
 }
 
 // SocketHandler serves the controller socket's own mux (spec section 14):
-// GET /healthz with full detail, GET /api/v1/controller/web-ca, and plan,
-// apply and read of break-glass actions. No session, token or CSRF applies;
-// the peer uid is the authentication, and a request without an allowed one
-// is refused.
-func (s *Server) SocketHandler() http.Handler {
+// GET /healthz with full detail, GET /api/v1/controller/web-ca, plan,
+// apply and read of break-glass actions, and the socket surface's
+// contributed routes (spec 1.12). No session, token or CSRF applies; the
+// peer uid is the authentication, and a request without an allowed one is
+// refused.
+func (s *Server) SocketHandler() http.Handler { return s.socket }
+
+// buildSocketHandler builds SocketHandler's answer; it fails when a
+// contributed socket route clashes with another.
+func (s *Server) buildSocketHandler() (http.Handler, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+healthzPath, s.writeHealthDetail)
 	mux.HandleFunc("GET /api/v1/controller/web-ca", s.handleWebCA)
 	for _, op := range []string{opPlan, opApply, opRead} {
 		mux.HandleFunc("POST /api/v1/actions/{name}/{version}/"+op, s.socketAction(op))
 	}
+	if err := s.mountSocketExtensions(mux); err != nil {
+		return nil, err
+	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { s.unrouted(w, r, mux, false) })
-	return securityHeaders(recoverPanics(s.log, s.socketPeer(mux)))
+	return securityHeaders(recoverPanics(s.log, s.socketPeer(mux))), nil
 }
 
 // socketPeer puts the socket principal of the request's peer in its context.

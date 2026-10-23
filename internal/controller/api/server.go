@@ -90,6 +90,7 @@ type Server struct {
 	log       *slog.Logger
 	mux       *http.ServeMux
 	handler   http.Handler
+	socket    http.Handler   // SocketHandler's answer, built once by New
 	streamMux *http.ServeMux // the contributed web stream routes' patterns
 	listeners atomic.Pointer[func() ListenerState]
 
@@ -159,6 +160,11 @@ func New(cfg Config) (*Server, error) {
 	}
 	s.mux.HandleFunc("/", s.networkFallback)
 	s.handler = securityHeaders(recoverPanics(s.log, s.authenticate(s.mux)))
+	socket, err := s.buildSocketHandler()
+	if err != nil {
+		return nil, err
+	}
+	s.socket = socket
 	return s, nil
 }
 
