@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -140,6 +141,53 @@ func TestPrintEventsEscapesTerminalControls(t *testing.T) {
 	}
 	if got["line"] != orig["line"] {
 		t.Errorf("the escaped line decodes to %q, want %q", got["line"], orig["line"])
+	}
+}
+
+func TestPrintEventsRefusals(t *testing.T) {
+	for _, tc := range []struct{ name, in, want string }{
+		{"data not JSON", "event: data\ndata: {\"line\":\n\n", "the stream sent an event that is not JSON"},
+		{"end not JSON", "event: end\ndata: done\n\n", "the stream sent an end event that is not JSON"},
+		{"line too long", "event: data\ndata: \"" + strings.Repeat("x", maxEventLine) + "\"\n\n", "read the stream: bufio.Scanner: token too long"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out strings.Builder
+			if err := printEvents(strings.NewReader(tc.in), &out); err == nil || err.Error() != tc.want || out.Len() != 0 {
+				t.Errorf("printEvents = %v, printed %q; want %q and nothing printed", err, out.String(), tc.want)
+			}
+		})
+	}
+}
+
+func TestQueryOf(t *testing.T) {
+	q, err := queryOf(json.RawMessage(`{"follow":true,"tail":10,"names":["x","y"],"since":"1h"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "follow=true&names=x&names=y&since=1h&tail=10"; q.Encode() != want {
+		t.Errorf("query %s, want %s", q.Encode(), want)
+	}
+	for _, in := range []string{`{"filter":{"a":1}}`, `{"names":[["x"]]}`, `{"tail":null}`} {
+		_, err := queryOf(json.RawMessage(in))
+		var u *usageError
+		if !errors.As(err, &u) || !strings.Contains(err.Error(), "must be a string, number, boolean or a list of them") {
+			t.Errorf("queryOf(%s) = %v, want a usage error", in, err)
+		}
+	}
+}
+
+// cflFollowParams has a parameter that would take the CLI's --follow.
+type cflFollowParams struct {
+	Follow bool `json:"follow,omitempty" jsonschema_description:"Follow."`
+}
+
+func TestStreamCommandRefusesFollowParameter(t *testing.T) {
+	ms := core.ModuleStream{Module: "cfl", Def: core.DefineStream("tail", func(context.Context, core.Env, cflFollowParams, func(cflLogLine) error) error {
+		return nil
+	})}
+	_, err := (&app{}).streamCommand(entry{Name: "cfl.tail", Path: []string{"cfl", "tail"}, Stream: &ms})
+	if err == nil || !strings.Contains(err.Error(), "would take the CLI's own flag --follow") {
+		t.Errorf("streamCommand = %v, want the --follow collision refused", err)
 	}
 }
 
