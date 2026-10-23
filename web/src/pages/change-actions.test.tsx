@@ -1,11 +1,13 @@
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { Route, Routes } from "react-router"
 import { expect, test } from "vitest"
 import { changeQueryKey } from "@/api/client"
 import type { Change, Plan, Step } from "@/api/types"
 import { renderWithProviders, stubFetch, type StubHandler } from "@/test/utils"
 import { undoOffered } from "@/lib/undo"
 import { ChangeActions } from "./change-actions"
+import { ChangePage } from "./change"
 
 function cacChange(over: Partial<Change> = {}): Change {
   return {
@@ -133,4 +135,31 @@ test("a composite that needs repair decides one step", async () => {
   await user.click(screen.getByRole("radio", { name: "Applied" }))
   await user.click(decide)
   await waitFor(() => expect(calls.find((c) => c.path.endsWith("/repair"))?.body).toEqual({ step: "proxy", as: "applied" }))
+})
+
+test("the release report stays on the change page once the change is released", async () => {
+  const released = cacChange({ state: "abandoned", updatedAt: "2026-10-23T08:10:00Z" })
+  let current = cacChange({ state: "needs_repair" })
+  stubFetch({
+    "GET /api/v1/changes/c1": () => ({ body: current }),
+    "GET /api/v1/changes/c1/effects": { body: { effects: [] } },
+    "POST /api/v1/changes/c1/release": () => {
+      current = released
+      return { body: { change: released, abandoned: [{ seq: 1 }, { seq: 2 }] } }
+    },
+  })
+  const { client } = renderWithProviders(
+    <Routes>
+      <Route path="/changes/:changeId" element={<ChangePage />} />
+    </Routes>,
+    { path: "/changes/c1" },
+  )
+  const user = userEvent.setup()
+  await user.click(await screen.findByRole("button", { name: "Release" }))
+  const dialog = screen.getByRole("dialog", { name: "Release this change?" })
+  await user.type(within(dialog).getByLabelText("Reason"), "stuck")
+  await user.click(within(dialog).getByRole("button", { name: "Release" }))
+  await waitFor(() => expect(client.getQueryData(changeQueryKey("c1"))).toEqual(released))
+  expect((await screen.findByText("Released. 2 effects abandoned.")).getAttribute("role")).toBe("status")
+  expect(screen.queryByRole("button", { name: "Release" })).toBeNull()
 })

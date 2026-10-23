@@ -202,7 +202,9 @@ export function ChangeActions({ change }: { change: Change }) {
     }
   }
 
-  if (!undoOffered(change) && !needsRepair) return null
+  // A release moves the change out of needs_repair; the report of what it
+  // abandoned must outlive that.
+  if (!undoOffered(change) && !needsRepair && notice === null) return null
   return (
     <section aria-label="Actions" className="flex flex-col gap-3">
       <div className="flex flex-wrap gap-2">

@@ -332,7 +332,7 @@ export function ChangePage() {
       />
       <div className="flex flex-col gap-6">
         <Summary change={c} />
-        <ChangeActions change={c} />
+        <ChangeActions key={c.id} change={c} />
         {c.class === "composite" && <Steps changeId={c.id} />}
         <Effects change={c} />
       </div>
