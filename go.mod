@@ -13,6 +13,7 @@ require (
 	github.com/oklog/ulid/v2 v2.1.2
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/spf13/cobra v1.10.2
+	github.com/tailscale/hujson v0.0.0-20260727124030-b80ff77dac4f
 	golang.org/x/crypto v0.58.0
 	golang.org/x/sys v0.49.0
 	golang.org/x/term v0.47.0
