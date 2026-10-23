@@ -22,9 +22,9 @@ import (
 const PinsFile = "images.json"
 
 // RequiredPackages are the packages every OS pins, in the order the pin file
-// lists them: Docker Engine from Docker's apt repository and tailscaled from
-// Tailscale's stable repository.
-var RequiredPackages = []string{"docker-ce", "docker-ce-cli", "containerd.io", "tailscale"}
+// lists them: Docker Engine and its Compose plugin from Docker's apt
+// repository, and tailscaled from Tailscale's stable repository.
+var RequiredPackages = []string{"docker-ce", "docker-ce-cli", "containerd.io", "docker-compose-plugin", "tailscale"}
 
 // Pins are the pinned images and packages of every operating system the
 // harness tests.

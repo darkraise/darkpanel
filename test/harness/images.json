@@ -29,6 +29,12 @@
           "sha256": "d14ab79a27f1e6f376d192ac340fea74efba2bee2e2a228a7aceece86e14a12b"
         },
         {
+          "name": "docker-compose-plugin",
+          "version": "5.6.0-1~ubuntu.22.04~jammy",
+          "url": "https://download.docker.com/linux/ubuntu/dists/jammy/pool/stable/amd64/docker-compose-plugin_5.6.0-1~ubuntu.22.04~jammy_amd64.deb",
+          "sha256": "2389d885e90df60ef9dcee0e1fae16b70ffa392d6f29d742469aa8ea63eb1daa"
+        },
+        {
           "name": "tailscale",
           "version": "1.104.1",
           "url": "https://pkgs.tailscale.com/stable/ubuntu/pool/tailscale_1.104.1_amd64.deb",
@@ -62,6 +68,12 @@
           "version": "2.4.2-2~ubuntu.24.04~noble",
           "url": "https://download.docker.com/linux/ubuntu/dists/noble/pool/stable/amd64/containerd.io_2.4.2-2~ubuntu.24.04~noble_amd64.deb",
           "sha256": "7327ab23182425e94b46a91567e9ddf0183f9b3a5ed53d5e2489f000dbf9cfe2"
+        },
+        {
+          "name": "docker-compose-plugin",
+          "version": "5.6.0-1~ubuntu.24.04~noble",
+          "url": "https://download.docker.com/linux/ubuntu/dists/noble/pool/stable/amd64/docker-compose-plugin_5.6.0-1~ubuntu.24.04~noble_amd64.deb",
+          "sha256": "132266d499d9873aafcbe5b515997b8abd714914fa32a62ccac705c1ede7ca81"
         },
         {
           "name": "tailscale",
@@ -99,6 +111,12 @@
           "sha256": "9100b99aad702b120e8bd5286e378f2fb13317745bd7afaf39be6d64f5bbf8b8"
         },
         {
+          "name": "docker-compose-plugin",
+          "version": "5.6.0-1~debian.12~bookworm",
+          "url": "https://download.docker.com/linux/debian/dists/bookworm/pool/stable/amd64/docker-compose-plugin_5.6.0-1~debian.12~bookworm_amd64.deb",
+          "sha256": "b3e0c6c950f7a08155e65a318ced8cf2314b7fdc0617cb807283bcef3d411c40"
+        },
+        {
           "name": "tailscale",
           "version": "1.104.1",
           "url": "https://pkgs.tailscale.com/stable/debian/pool/tailscale_1.104.1_amd64.deb",
@@ -132,6 +150,12 @@
           "version": "2.4.2-2~debian.13~trixie",
           "url": "https://download.docker.com/linux/debian/dists/trixie/pool/stable/amd64/containerd.io_2.4.2-2~debian.13~trixie_amd64.deb",
           "sha256": "a3e696cb98baafbb63895dc18b53f143088a2ead95c57820ac90dc5e1d61b05d"
+        },
+        {
+          "name": "docker-compose-plugin",
+          "version": "5.6.0-1~debian.13~trixie",
+          "url": "https://download.docker.com/linux/debian/dists/trixie/pool/stable/amd64/docker-compose-plugin_5.6.0-1~debian.13~trixie_amd64.deb",
+          "sha256": "500327ad3ca6c52f6d142225c7e6830c46a27ff0348a2b2291f0a143d99872ac"
         },
         {
           "name": "tailscale",

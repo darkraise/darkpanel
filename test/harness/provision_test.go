@@ -43,7 +43,7 @@ func TestTargetScript(t *testing.T) {
 			}
 		}
 		install := `apt_get install --no-install-recommends "$pkgdir/docker-ce.deb" "$pkgdir/docker-ce-cli.deb" ` +
-			`"$pkgdir/containerd.io.deb" "$pkgdir/tailscale.deb"`
+			`"$pkgdir/containerd.io.deb" "$pkgdir/docker-compose-plugin.deb" "$pkgdir/tailscale.deb"`
 		if !strings.Contains(s, install) {
 			t.Errorf("%s script lacks %q:\n%s", c.os.ID, install, s)
 		}

@@ -46,7 +46,8 @@ func validOS(id string) OS {
 		},
 		Packages: []Package{
 			pkg("docker-ce", "5:29.9.1-1~debian.13~trixie"), pkg("docker-ce-cli", "5:29.9.1-1~debian.13~trixie"),
-			pkg("containerd.io", "2.4.2-2~debian.13~trixie"), pkg("tailscale", "1.104.1"),
+			pkg("containerd.io", "2.4.2-2~debian.13~trixie"), pkg("docker-compose-plugin", "5.6.0-1~debian.13~trixie"),
+			pkg("tailscale", "1.104.1"),
 		},
 	}
 }
@@ -66,16 +67,16 @@ func TestPinChecks(t *testing.T) {
 		{"unknown family", func(p *Pins) { p.OS[0].Family = "fedora" }, "want ubuntu or debian"},
 		{"missing id", func(p *Pins) { p.OS[0].ID = "" }, "id and versionId are required"},
 		{"missing package version", func(p *Pins) { p.OS[0].Packages[0].Version = "" }, "not an apt version"},
-		{"shell in a version", func(p *Pins) { p.OS[0].Packages[3].Version = "1.0'; reboot; '" }, "not an apt version"},
+		{"shell in a version", func(p *Pins) { p.OS[0].Packages[4].Version = "1.0'; reboot; '" }, "not an apt version"},
 		{"plain http package", func(p *Pins) {
 			p.OS[0].Packages[1].URL = strings.Replace(p.OS[0].Packages[1].URL, "https", "http", 1)
 		}, "not an https .deb URL"},
 		{"quote in a package URL", func(p *Pins) { p.OS[0].Packages[2].URL = "https://example.org/a'b.deb" }, "not an https .deb URL"},
 		{"short package checksum", func(p *Pins) { p.OS[0].Packages[0].SHA256 = "abc" }, "64 lowercase hex"},
-		{"missing package", func(p *Pins) { p.OS[0].Packages = p.OS[0].Packages[:3] }, "want [docker-ce docker-ce-cli containerd.io tailscale]"},
+		{"missing package", func(p *Pins) { p.OS[0].Packages = p.OS[0].Packages[:4] }, "want [docker-ce docker-ce-cli containerd.io docker-compose-plugin tailscale]"},
 		{"packages out of order", func(p *Pins) {
 			p.OS[0].Packages[0], p.OS[0].Packages[1] = p.OS[0].Packages[1], p.OS[0].Packages[0]
-		}, "want [docker-ce docker-ce-cli containerd.io tailscale]"},
+		}, "want [docker-ce docker-ce-cli containerd.io docker-compose-plugin tailscale]"},
 		{"duplicate OS", func(p *Pins) { p.OS = append(p.OS, validOS("debian-13")) }, "listed twice"},
 		{"unknown scanner", func(p *Pins) { p.Scanner = "debian-14" }, "names no listed OS"},
 	}

@@ -56,7 +56,8 @@ systemctl enable --now ufw docker tailscaled
 // allowed, and the agent port only on the private link, and ufw.service
 // started (Debian's package enables the unit on install without starting it,
 // so it would stay inactive until a reboot), sqlite3 for reading the
-// databases, and Docker Engine and tailscaled from o's pinned .deb files.
+// databases, and Docker Engine with its Compose plugin and tailscaled from
+// o's pinned .deb files.
 // tailscaled runs but is not logged in until M5.
 func TargetScript(o OS) string {
 	var b strings.Builder
