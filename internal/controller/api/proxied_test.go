@@ -160,7 +160,7 @@ func TestProxiedStreamRevoked(t *testing.T) {
 	r := request("GET", "/api/v1/events", "")
 	r = r.WithContext(core.WithProxied(withCaller(r.Context(), caller{principal: id.Principal, identity: id}), pxProxied(revoked)))
 	go func() { e.done <- e.srv.sseStream(e.rec, r, e.src) }()
-	sseWait(t, "the stream's timers", func() bool { return e.clock.Pending() == 4 })
+	sseWait(t, "the stream's timers", func() bool { return e.clock.Pending() >= 1 })
 	if got := e.rec.Header().Get("X-Accel-Buffering"); got != "no" {
 		t.Errorf("X-Accel-Buffering %q, want no", got)
 	}

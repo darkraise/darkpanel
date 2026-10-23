@@ -364,3 +364,97 @@ func TestRelayEndsWhenRecheckFails(t *testing.T) {
 		}
 	}
 }
+
+// relayRequest is a relayed stream request of a read-scoped caller whose
+// credentials hold for an hour, served by calling handleStream directly.
+func relayRequest(ctx context.Context, h *harness) *http.Request {
+	id := sseIdentity(h.clock.Now().Add(time.Hour))
+	r := request(http.MethodGet, "/api/v1/hosts/h1/streams/sm/logs", "").WithContext(withCaller(ctx, caller{principal: id.Principal, identity: id}))
+	r.SetPathValue("host", "h1")
+	r.SetPathValue("module", "sm")
+	r.SetPathValue("name", "logs")
+	return r
+}
+
+// relayFailing is an sseRecorder whose every body write fails, counting the
+// attempts.
+type relayFailing struct {
+	*sseRecorder
+	attempts atomic.Int32
+}
+
+func (w *relayFailing) Write([]byte) (int, error) {
+	w.attempts.Add(1)
+	return 0, errors.New("broken pipe")
+}
+
+// TestRelayEndFrameSuppressed: a relayed stream whose write failed, or whose
+// client left, gets no end frame after it.
+func TestRelayEndFrameSuppressed(t *testing.T) {
+	t.Run("failed write", func(t *testing.T) {
+		h := newHarness(t)
+		h.disp.OpenStreamFunc = func(context.Context, core.Principal, string, string, string, url.Values) (io.ReadCloser, error) {
+			return &relayBody{Reader: strings.NewReader(`{"data":{"n":1}}` + "\n")}, nil
+		}
+		w := &relayFailing{sseRecorder: newSSERecorder()}
+		h.srv.handleStream(w, relayRequest(context.Background(), h))
+		if n := w.attempts.Load(); n != 1 {
+			t.Errorf("%d writes attempted, want only the data frame's", n)
+		}
+	})
+	t.Run("client left", func(t *testing.T) {
+		h := newHarness(t)
+		pr, pw := io.Pipe()
+		t.Cleanup(func() { _ = pw.Close() })
+		h.disp.OpenStreamFunc = func(context.Context, core.Principal, string, string, string, url.Values) (io.ReadCloser, error) {
+			return &relayBody{Reader: pr}, nil
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		rec := newSSERecorder()
+		done := make(chan struct{})
+		go func() {
+			h.srv.handleStream(rec, relayRequest(ctx, h))
+			close(done)
+		}()
+		_, _ = io.WriteString(pw, `{"data":{"n":1}}`+"\n")
+		sseWait(t, "the data frame", func() bool { return strings.Contains(rec.text(), "event: data") })
+		cancel()
+		<-done
+		if got := relayFrames(strings.NewReader(rec.text())); !reflect.DeepEqual(got, []string{`data {"n":1}`}) {
+			t.Errorf("frames %q, want the data frame and no end frame", got)
+		}
+	})
+}
+
+// TestRelayRevokedListener: a relayed stream through a runtime listener
+// ends with exactly one revoked end frame when the listener is revoked.
+func TestRelayRevokedListener(t *testing.T) {
+	h := newHarness(t)
+	pr, pw := io.Pipe()
+	t.Cleanup(func() { _ = pw.Close() })
+	body := &relayBody{Reader: pr}
+	h.disp.OpenStreamFunc = func(context.Context, core.Principal, string, string, string, url.Values) (io.ReadCloser, error) {
+		return body, nil
+	}
+	revoked := make(chan struct{})
+	rec := newSSERecorder()
+	done := make(chan struct{})
+	go func() {
+		h.srv.handleStream(rec, relayRequest(core.WithProxied(context.Background(), pxProxied(revoked)), h))
+		close(done)
+	}()
+	_, _ = io.WriteString(pw, `{"data":{"n":1}}`+"\n")
+	sseWait(t, "the data frame", func() bool { return strings.Contains(rec.text(), "event: data") })
+	close(revoked)
+	<-done
+	want := []string{`data {"n":1}`, `end {"reason":"revoked"}`}
+	if got := relayFrames(strings.NewReader(rec.text())); !reflect.DeepEqual(got, want) {
+		t.Errorf("frames %q, want %q", got, want)
+	}
+	if rec.Header().Get("X-Accel-Buffering") != "no" {
+		t.Errorf("X-Accel-Buffering %q, want no", rec.Header().Get("X-Accel-Buffering"))
+	}
+	if !body.closed.Load() {
+		t.Error("the dispatcher's reader was not closed")
+	}
+}
