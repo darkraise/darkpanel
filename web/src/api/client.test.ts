@@ -274,6 +274,12 @@ describe("messages", () => {
     ["recovering", null, null],
     ["releasing", null, null],
     ["needs_repair", { code: "core.needs_repair", message: "the change needs repair", cause: "cloud.uncertain_outcome" }, "the change needs repair"],
+    ["reverted", null, null],
+    ["reverted", { code: "verify.failed", message: "the verify failed" }, "the verify failed"],
+    ["repaired", { code: "core.needs_repair", message: "the change needs repair" }, null],
+    ["kept", null, null],
+    ["abandoned", { code: "core.needs_repair", message: "the change needs repair" }, null],
+    ["quarantined", null, "The change ended in state quarantined."],
   ])("changeError for state %s", (state, error, want) => {
     const change = { state, error } as Change
     expect(changeError(change)).toBe(want)

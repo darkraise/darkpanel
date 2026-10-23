@@ -29,6 +29,10 @@ export const effectsQueryKey = (id: string) => ["effects", id] as const
 
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"])
 const SUCCESSFUL_STATES = new Set(["completed", "confirmed", "pending"])
+// A change ends in these states by a repair, an undo stopped at an accepted
+// effect or a release: outcomes an operator chose, although a repaired or
+// released change keeps the error it needed repair for.
+const RESOLVED_STATES = new Set(["repaired", "kept", "abandoned"])
 // A change in one of these states has not ended: an asynchronous apply
 // answers with the change applying, and an undo with it undoing.
 const IN_PROGRESS_STATES = new Set(["applying", "awaiting_confirmation", "undoing", "recovering", "releasing"])
@@ -220,8 +224,11 @@ export function changeInProgress(change: Change): boolean {
 }
 
 // changeError is the failure a change ended with, or null while it
-// succeeded or is still in progress.
+// succeeded, was resolved or is still in progress. A reverted change failed
+// only when it carries an error, as after a failed verify; one an operator
+// or the confirmation timer reverted carries none.
 export function changeError(change: Change): string | null {
-  if (SUCCESSFUL_STATES.has(change.state) || IN_PROGRESS_STATES.has(change.state)) return null
+  if (SUCCESSFUL_STATES.has(change.state) || IN_PROGRESS_STATES.has(change.state) || RESOLVED_STATES.has(change.state)) return null
+  if (change.state === "reverted") return change.error?.message ?? null
   return change.error?.message ?? `The change ended in state ${change.state}.`
 }
