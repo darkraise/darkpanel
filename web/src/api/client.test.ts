@@ -271,6 +271,8 @@ describe("messages", () => {
     ["applying", null, null],
     ["awaiting_confirmation", null, null],
     ["undoing", null, null],
+    ["recovering", null, null],
+    ["releasing", null, null],
     ["needs_repair", { code: "core.needs_repair", message: "the change needs repair", cause: "cloud.uncertain_outcome" }, "the change needs repair"],
   ])("changeError for state %s", (state, error, want) => {
     const change = { state, error } as Change

@@ -22,8 +22,8 @@ export interface Effect { changeId: string; seq: number; kind: EffectKind; resou
 export interface Candidate { resource: string; state: StateDoc }
 export interface Observation { current: StateDoc; resource: string; matches: number; candidates: Candidate[] | null; exclusive: boolean }
 export interface ObserveResult { effect: Effect; observation: Observation; allowed: Resolution[] | null }
-// A step's action is core.ActionRef, which the controller encodes without JSON tags.
-export interface Step { id: string; ordinal: number; host: string; action: { Name: string; Version: number }; state: string; attempt: number; childChangeId: string; earlierChildChangeIds: string[] | null; childDeadline: string | null; error: ChangeError | null }
+// A step's action is core.ActionRef, which the controller encodes as one "<name>/v<version>" string.
+export interface Step { id: string; ordinal: number; host: string; action: string; state: string; attempt: number; childChangeId: string; earlierChildChangeIds: string[] | null; childDeadline: string | null; error: ChangeError | null }
 export type RepairBody = { input?: Record<string, unknown> } | { step: string; as: "reverted" | "applied" }
 export interface RepairResult { change?: Change; plan?: Plan }
 export interface ReleaseResult { change: Change; abandoned: Effect[] }
