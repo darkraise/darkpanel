@@ -134,7 +134,8 @@ type Env struct {
 	Clock     Clock
 	Log       *slog.Logger
 	Agents    HostDirectory
-	Units     Units // the action's module's unit client; nil on the controller
+	Units     Units     // the action's module's unit client; nil on the controller
+	Listeners Listeners // controller-side actions only; nil on the agent
 }
 
 // CallContext is why a change runs. It comes from the controller, never from
