@@ -29,7 +29,12 @@ func (c dispatchChildren) Apply(ctx context.Context, p core.Principal, hostID st
 	return c.d.Apply(ctx, p, hostID, a, planID, opts)
 }
 
+// Read reads a read step; an Internal action goes the controller's own
+// path, ReadInternal, never the public read (spec 1.7).
 func (c dispatchChildren) Read(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage) (json.RawMessage, error) {
+	if def, ok := c.d.cfg.Registry.Action(a); ok && def.Spec.Internal {
+		return c.d.ReadInternal(ctx, p, hostID, a, input)
+	}
 	return c.d.Read(ctx, p, hostID, a, input)
 }
 
