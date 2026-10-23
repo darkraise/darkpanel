@@ -1,0 +1,22 @@
+name: Runner probe
+
+# Dispatched by the runner job of ci.yml to learn whether the self-hosted runner
+# picks up work. It does nothing else.
+run-name: probe ${{ inputs.id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      id:
+        description: Identifies the dispatching CI run
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  probe:
+    runs-on: [self-hosted, darkpanel-linux]
+    timeout-minutes: 5
+    steps:
+      - run: echo "self-hosted runner reachable"
