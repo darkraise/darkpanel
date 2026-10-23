@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -120,8 +121,8 @@ func TestExtensionStreamDeadline(t *testing.T) {
 	token := h.token(core.ScopeRead)
 	rec := newSSERecorder()
 	h.srv.Handler().ServeHTTP(rec, withToken(request("GET", "/api/v1/xr/stream", ""), token))
-	if rec.text() != "onetwo" || len(rec.deadlines) != 4 {
-		t.Fatalf("stream body %q with %d deadlines, want onetwo with 4", rec.text(), len(rec.deadlines))
+	if got := strings.Join(rec.record(), " "); rec.text() != "onetwo" || !strings.Contains(got, "deadline header deadline write one deadline write two") {
+		t.Fatalf("stream body %q with operations %q, want onetwo with a deadline before the header and each write", rec.text(), got)
 	}
 	for _, d := range rec.deadlines {
 		if d <= SSEWriteTimeout-5*time.Second || d > SSEWriteTimeout {
@@ -215,9 +216,11 @@ func TestExtensionStreamEnds(t *testing.T) {
 	t.Run("credentials hold", func(t *testing.T) {
 		h := xrHarness(t, route)
 		done := xrOpen(t, h, withToken(request("GET", "/api/v1/xr/follow", ""), h.token(core.ScopeRead)))
+		armed := h.clock.Pending()
 		for range 3 {
 			h.clock.Advance(SSERecheck)
-			time.Sleep(10 * time.Millisecond)
+			// The watcher re-arms its recheck only after the check passed.
+			sseWait(t, "the recheck", func() bool { return h.clock.Pending() >= armed })
 		}
 		select {
 		case <-done:
@@ -491,5 +494,101 @@ func TestExtensionRouteRefusedByTheDocument(t *testing.T) {
 				t.Errorf("New: %v, want an error containing %q", err, want)
 			}
 		})
+	}
+}
+
+// xrEvents is a server-sent event stream handler that ignores its context:
+// it writes a frame every millisecond until a write fails, sends that error
+// on failed, and, with ownEnd, first writes an end frame of its own.
+func xrEvents(contentType string, ownEnd bool, failed chan<- error) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", contentType)
+		w.WriteHeader(http.StatusOK)
+		if ownEnd {
+			_, _ = w.Write([]byte("event: end\ndata: {\"reason\":\"done\"}\n\n"))
+		}
+		for {
+			if _, err := w.Write([]byte("event: data\ndata: {}\n\n")); err != nil {
+				failed <- err
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+}
+
+// TestExtensionStreamEndFrame: once a contributed stream must end, the
+// handler's writes fail even when it ignores its context, and a
+// server-sent event stream gets one end frame naming why, unless it wrote
+// its own.
+func TestExtensionStreamEndFrame(t *testing.T) {
+	const end = "event: end\ndata: {\"reason\":"
+	for _, tc := range []struct {
+		name        string
+		contentType string
+		ownEnd      bool
+		end         func(h *harness, revoked chan struct{})
+		want        string // the start of the end frame the wrapper adds, "" for none
+	}{
+		{"revoked", "text/event-stream", false, func(_ *harness, revoked chan struct{}) { close(revoked) }, end + "\"revoked\"}\n\n"},
+		{"hard limit", "text/event-stream", false, func(h *harness, _ chan struct{}) { h.clock.Advance(SSEHardLimit) }, end + "\"expired\"}\n\n"},
+		{"CloseStreams", "text/event-stream", false, func(h *harness, _ chan struct{}) { h.srv.CloseStreams() }, end + "\"error\",\"error\":{\"code\":\"internal\""},
+		{"its own end frame", "text/event-stream", true, func(_ *harness, revoked chan struct{}) { close(revoked) }, ""},
+		{"not server-sent events", "application/x-ndjson", false, func(_ *harness, revoked chan struct{}) { close(revoked) }, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			failed := make(chan error, 1)
+			h := xrHarness(t, ext.Route{Surface: ext.SurfaceWeb, Method: "GET", Path: "/api/v1/xr/follow", Scope: core.ScopeRead,
+				Stream: true, Handler: xrEvents(tc.contentType, tc.ownEnd, failed)})
+			revoked := make(chan struct{})
+			r := withToken(request("GET", "/api/v1/xr/follow", ""), h.token(core.ScopeRead))
+			r = r.WithContext(core.WithProxied(r.Context(), pxProxied(revoked)))
+			rec := newSSERecorder()
+			base := h.clock.Pending()
+			done := make(chan struct{})
+			go func() {
+				h.srv.Handler().ServeHTTP(rec, r)
+				close(done)
+			}()
+			sseWait(t, "the stream's timers", func() bool { return h.clock.Pending() >= base+2 })
+			tc.end(h, revoked)
+			select {
+			case err := <-failed:
+				if !errors.Is(err, context.Canceled) {
+					t.Errorf("the handler's write failed with %v, want context.Canceled", err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("the handler kept writing after its stream ended")
+			}
+			<-done
+			body := rec.text()
+			last := body[max(0, strings.LastIndex(body, "event: end\n")):]
+			if n := strings.Count(body, "event: end\n"); tc.want != "" && (n != 1 || !strings.HasPrefix(last, tc.want)) {
+				t.Errorf("body ends %q with %d end frames, want one end frame %q", last, n, tc.want)
+			}
+			if tc.want == "" && strings.Count(body, "event: end\n") != map[bool]int{true: 1, false: 0}[tc.ownEnd] {
+				t.Errorf("body %q: the wrapper added an end frame", body[max(0, len(body)-60):])
+			}
+		})
+	}
+}
+
+// xrFlushFails is an sseRecorder whose flush fails.
+type xrFlushFails struct{ *sseRecorder }
+
+func (xrFlushFails) FlushError() error { return errors.New("connection reset") }
+
+// TestExtensionStreamFlushError: a stream handler's ResponseController
+// sees the connection's flush error.
+func TestExtensionStreamFlushError(t *testing.T) {
+	got := make(chan error, 1)
+	h := xrHarness(t, ext.Route{Surface: ext.SurfaceWeb, Method: "GET", Path: "/api/v1/xr/stream", Scope: core.ScopeRead,
+		Stream: true, Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte("one"))
+			got <- http.NewResponseController(w).Flush()
+		})})
+	h.srv.Handler().ServeHTTP(xrFlushFails{newSSERecorder()}, withToken(request("GET", "/api/v1/xr/stream", ""), h.token(core.ScopeRead)))
+	if err := <-got; err == nil || err.Error() != "connection reset" {
+		t.Errorf("Flush = %v, want the connection's error", err)
 	}
 }

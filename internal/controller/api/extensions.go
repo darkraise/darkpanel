@@ -1,7 +1,9 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -119,14 +121,16 @@ func (s *Server) mountSocketExtensions(mux *http.ServeMux) error {
 // ends at SSEHardLimit, at CloseStreams, when the runtime listener it came
 // through is revoked, and on the web when the SSERecheck re-authentication
 // fails; through a runtime listener it also gets X-Accel-Buffering: no
-// (spec 1.6, 1.10).
+// (spec 1.6, 1.10). Once that context ends, the handler's writes fail, and
+// a server-sent event stream gets the end frame naming why it ended.
 func (s *Server) extensionStream(rt ext.Route) http.Handler {
 	if !rt.Stream {
 		return rt.Handler
 	}
 	recheck := rt.Surface == ext.SurfaceWeb
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithCancel(r.Context())
+		client := r.Context()
+		ctx, cancel := context.WithCancel(client)
 		defer cancel()
 		var revoked <-chan struct{}
 		if p, ok := core.ProxiedFrom(ctx); ok {
@@ -136,18 +140,32 @@ func (s *Server) extensionStream(rt ext.Route) http.Handler {
 		r = r.WithContext(ctx)
 		// The watcher re-authenticates a copy, so it never reads the
 		// request the handler may still be using.
-		go s.watchStream(ctx, cancel, r.Clone(ctx), recheck, revoked)
-		dw := &deadlineWriter{ResponseWriter: w}
+		watched := make(chan string, 1)
+		watcher := r.Clone(ctx)
+		go func() { watched <- s.watchStream(ctx, cancel, watcher, recheck, revoked) }()
+		dw := &deadlineWriter{ResponseWriter: w, ctx: ctx}
 		dw.renew()
 		rt.Handler.ServeHTTP(dw, r)
+		cancel()
+		reason := <-watched
+		// The handler has returned, so the end frame cannot interleave with
+		// its writes. A stream that already ended itself, broke, or whose
+		// client left takes none.
+		if reason == "" || !dw.events || dw.ended || dw.broken || client.Err() != nil {
+			return
+		}
+		if b, err := sseEncode(endFrame(reason, nil)); err == nil {
+			_ = sseWrite(w, b)
+		}
 	})
 }
 
 // watchStream cancels a stream route's context when the stream must end,
-// and returns once it is done. It ends the stream on a failed
-// re-authentication of r only with recheck: the socket's peer check holds
-// for the connection's life.
-func (s *Server) watchStream(ctx context.Context, cancel context.CancelFunc, r *http.Request, recheck bool, revoked <-chan struct{}) {
+// and returns why, as an end frame's reason, once it is done: "" when the
+// context ended first. It ends the stream on a failed re-authentication of
+// r only with recheck: the socket's peer check holds for the connection's
+// life.
+func (s *Server) watchStream(ctx context.Context, cancel context.CancelFunc, r *http.Request, recheck bool, revoked <-chan struct{}) string {
 	defer cancel()
 	c, _ := callerFrom(r.Context())
 	expires := c.identity.ExpiresAt
@@ -167,16 +185,16 @@ func (s *Server) watchStream(ctx context.Context, cancel context.CancelFunc, r *
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return ""
 		case <-hard:
-			return
+			return "expired"
 		case <-s.streamsDone:
-			return
+			return "error"
 		case <-revoked:
-			return
+			return "revoked"
 		case <-check:
-			if s.sseRecheck(r, &expires) != "" {
-				return
+			if reason := s.sseRecheck(r, &expires); reason != "" {
+				return reason
 			}
 			checkT = clock.AfterFunc(SSERecheck, sseSignal(check))
 		}
@@ -184,9 +202,24 @@ func (s *Server) watchStream(ctx context.Context, cancel context.CancelFunc, r *
 }
 
 // deadlineWriter renews the connection's write deadline before every
-// header and body write.
+// header and body write, and refuses both once ctx has ended, so a handler
+// that does not watch its context still stops writing to a stream that was
+// ended. It records what extensionStream needs to decide on an end frame.
 type deadlineWriter struct {
 	http.ResponseWriter
+	ctx     context.Context
+	started bool // the status line was written
+	events  bool // the response is a successful text/event-stream
+	ended   bool // an end frame went through
+	broken  bool // a write or flush failed
+}
+
+func (w *deadlineWriter) start(status int) {
+	if w.started {
+		return
+	}
+	w.started = true
+	w.events = status >= 200 && status < 300 && strings.HasPrefix(w.Header().Get("Content-Type"), "text/event-stream")
 }
 
 // renew moves the write deadline SSEWriteTimeout ahead. Its error is
@@ -197,21 +230,47 @@ func (w *deadlineWriter) renew() {
 }
 
 func (w *deadlineWriter) WriteHeader(status int) {
+	if w.ctx.Err() != nil {
+		return
+	}
 	w.renew()
+	w.start(status)
 	w.ResponseWriter.WriteHeader(status)
 }
 
 func (w *deadlineWriter) Write(b []byte) (int, error) {
+	if err := w.ctx.Err(); err != nil {
+		return 0, err
+	}
 	w.renew()
-	return w.ResponseWriter.Write(b)
+	w.start(http.StatusOK)
+	if bytes.HasPrefix(b, []byte("event: end\n")) {
+		w.ended = true
+	}
+	n, err := w.ResponseWriter.Write(b)
+	if err != nil {
+		w.broken = true
+	}
+	return n, err
 }
 
-// Flush renews the deadline and flushes, so a handler that asserts
-// http.Flusher rather than using a ResponseController still flushes.
-func (w *deadlineWriter) Flush() {
+// FlushError renews the deadline and flushes; a handler's
+// ResponseController calls it, so it sees the flush's error.
+func (w *deadlineWriter) FlushError() error {
+	if err := w.ctx.Err(); err != nil {
+		return err
+	}
 	w.renew()
-	_ = http.NewResponseController(w.ResponseWriter).Flush()
+	err := http.NewResponseController(w.ResponseWriter).Flush()
+	if err != nil && !errors.Is(err, http.ErrNotSupported) {
+		w.broken = true
+	}
+	return err
 }
+
+// Flush is FlushError for a handler that asserts http.Flusher rather than
+// using a ResponseController; http.Flusher has no way to return the error.
+func (w *deadlineWriter) Flush() { _ = w.FlushError() }
 
 // Unwrap lets a handler's ResponseController reach the connection's
 // deadlines.
