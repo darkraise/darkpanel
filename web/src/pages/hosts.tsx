@@ -8,6 +8,7 @@ import { Spinner } from "darkraise-ui/components/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
 import { HOSTS_QUERY_KEY, errorMessage, listHosts } from "@/api/client"
 import type { Host, ModuleState } from "@/api/types"
+import { CreateHostDialog } from "./create-host-dialog"
 
 function moduleStatus(m: ModuleState): { text: string; variant: BadgeVariant } {
   if (!m.enabled) return { text: "off", variant: "outline" }
@@ -99,7 +100,7 @@ function HostsBody() {
 export function HostsPage() {
   return (
     <>
-      <PageHeader title="Hosts" description="The servers this controller manages." />
+      <PageHeader title="Hosts" description="The servers this controller manages." actions={<CreateHostDialog />} />
       <HostsBody />
     </>
   )
