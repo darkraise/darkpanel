@@ -329,3 +329,20 @@ func TestServesTheEventStream(t *testing.T) {
 		t.Fatalf("after Shutdown the stream read %q, %v; want its end", rest, err)
 	}
 }
+
+func TestListenerMessageNamesUnboundRuntimeListeners(t *testing.T) {
+	for _, tc := range []struct {
+		message string
+		unbound int
+		want    string
+	}{
+		{"Serving loopback only.", 0, "Serving loopback only."},
+		{"Serving loopback only.", 1, "Serving loopback only. One runtime listener could not be bound; retrying."},
+		{"Serving loopback only.", 3, "Serving loopback only. 3 runtime listeners could not be bound; retrying."},
+		{"", 2, "2 runtime listeners could not be bound; retrying."},
+	} {
+		if got := withUnbound(tc.message, tc.unbound); got != tc.want {
+			t.Errorf("withUnbound(%q, %d) = %q, want %q", tc.message, tc.unbound, got, tc.want)
+		}
+	}
+}

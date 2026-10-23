@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/oklog/ulid/v2"
 
@@ -109,10 +110,9 @@ func (r *Runtime) Start(ctx context.Context, handler RuntimeHandlerFunc, tlsConf
 		if err := r.bindLocked(ctx, info); err != nil {
 			r.cfg.Log.Warn("listen: a runtime listener could not be bound; retrying", "id", info.ID,
 				"addr", info.Spec.Addr.String(), "err", err)
-			r.pending[info.ID] = info
+			r.pendLocked(info)
 		}
 	}
-	r.armLocked()
 	return nil
 }
 
@@ -212,6 +212,13 @@ func (r *Runtime) Get(ctx context.Context, id string) (core.ListenerInfo, error)
 	return getListener(ctx, r.cfg.DB, id)
 }
 
+// Unbound is the number of open listeners waiting for a bind retry.
+func (r *Runtime) Unbound() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.pending)
+}
+
 // Addrs are the bound addresses of the listeners that still accept, sorted.
 func (r *Runtime) Addrs() []netip.AddrPort {
 	r.mu.Lock()
@@ -273,8 +280,8 @@ func (r *Runtime) bindLocked(ctx context.Context, info core.ListenerInfo) error 
 		}
 		return nil
 	}
-	l := &runtimeListener{info: row, ln: &peerListener{Listener: ln, allowed: info.Spec.AllowedPeer, id: info.ID, log: r.cfg.Log},
-		revoked: make(chan struct{})}
+	l := &runtimeListener{info: row, revoked: make(chan struct{}),
+		ln: &peerListener{Listener: ln, allowed: info.Spec.AllowedPeer, id: info.ID, log: r.cfg.Log, clock: r.cfg.Clock}}
 	id := info.ID
 	isRevoked := func(ctx context.Context) (bool, error) {
 		row, err := getListener(ctx, r.cfg.DB, id)
@@ -296,11 +303,19 @@ func (r *Runtime) bindLocked(ctx context.Context, info core.ListenerInfo) error 
 	r.serving.Go(func() {
 		err := l.srv.ServeTLS(l.ln, "", "")
 		r.mu.Lock()
-		stopped := l.stopped || r.closed
-		r.mu.Unlock()
-		if !stopped && !errors.Is(err, http.ErrServerClosed) {
-			r.cfg.Log.Error("listen: a runtime listener stopped serving", "id", id, "err", err)
+		defer r.mu.Unlock()
+		if l.stopped || r.closed || errors.Is(err, http.ErrServerClosed) {
+			return
 		}
+		// The row is still open, so the listener goes back to the pending
+		// binds: Addrs must not report an address nothing serves.
+		r.cfg.Log.Error("listen: a runtime listener stopped serving; rebinding", "id", id, "err", err)
+		l.stopped = true
+		_ = l.srv.Close()
+		if r.live[id] == l {
+			delete(r.live, id)
+		}
+		r.pendLocked(row)
 	})
 	r.cfg.Log.Info("listen: serving a runtime listener", "id", id, "addr", ln.Addr().String(),
 		"peer", info.Spec.AllowedPeer.String())
@@ -334,6 +349,16 @@ func (r *Runtime) stopLocked(l *runtimeListener) {
 		r.mu.Unlock()
 	})
 	r.cfg.Log.Info("listen: revoked a runtime listener", "id", l.info.ID)
+}
+
+// pendLocked adds info to the pending binds, arming the retry unless one is
+// already armed for the binds pending before it.
+func (r *Runtime) pendLocked(info core.ListenerInfo) {
+	armed := len(r.pending) > 0
+	r.pending[info.ID] = info
+	if !armed {
+		r.armLocked()
+	}
 }
 
 // armLocked schedules the next retry of the pending binds.
@@ -385,13 +410,23 @@ func validListenerSpec(spec core.ListenerSpec) (core.ListenerSpec, error) {
 	return spec, nil
 }
 
+// refusalLogInterval is the least time between two log lines about refused
+// connections to one runtime listener. Any host that reaches the address can
+// open connections, and a line for each would let it flood the log.
+const refusalLogInterval = time.Minute
+
 // peerListener accepts connections from the allowed peer only and closes
-// every other one before any byte is read.
+// every other one before any byte is read. Accept runs on the one serving
+// goroutine, so the log throttle needs no lock.
 type peerListener struct {
 	net.Listener
 	allowed netip.Addr
 	id      string
 	log     *slog.Logger
+	clock   core.Clock
+
+	quietUntil time.Time // no refusal is logged before it
+	suppressed int       // refusals not logged since the last line
 }
 
 func (l *peerListener) Accept() (net.Conn, error) {
@@ -404,8 +439,18 @@ func (l *peerListener) Accept() (net.Conn, error) {
 		if err == nil && ap.Addr().Unmap().WithZone("") == l.allowed {
 			return c, nil
 		}
-		l.log.Warn("listen: refused a connection to a runtime listener from another peer", "id", l.id,
-			"peer", c.RemoteAddr().String())
+		l.refused(c.RemoteAddr().String())
 		_ = c.Close()
 	}
+}
+
+func (l *peerListener) refused(peer string) {
+	now := l.clock.Now()
+	if now.Before(l.quietUntil) {
+		l.suppressed++
+		return
+	}
+	l.log.Warn("listen: refused a connection to a runtime listener from another peer", "id", l.id,
+		"peer", peer, "suppressed", l.suppressed)
+	l.quietUntil, l.suppressed = now.Add(refusalLogInterval), 0
 }

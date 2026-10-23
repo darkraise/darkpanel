@@ -518,6 +518,9 @@ func TestRuntimeStartRetriesAFailedBind(t *testing.T) {
 	if addrs := f.rt.Addrs(); len(addrs) != 0 {
 		t.Fatalf("Addrs = %v while every bind fails", addrs)
 	}
+	if n := f.rt.Unbound(); n != 2 {
+		t.Fatalf("Unbound = %d while every bind fails, want 2", n)
+	}
 	if err := f.rt.Revoke(context.Background(), "L2"); err != nil {
 		t.Fatal(err)
 	}
@@ -534,8 +537,96 @@ func TestRuntimeStartRetriesAFailedBind(t *testing.T) {
 	if body, err := rtGet(f.client, "https://"+addrs[0].String()+"/"); err != nil || !strings.HasPrefix(body, "L1 ") {
 		t.Fatalf("GET = %q, %v; want L1, never the revoked L2", body, err)
 	}
+	if n := f.rt.Unbound(); n != 0 {
+		t.Errorf("Unbound = %d after the bind recovered", n)
+	}
 	if f.clock.Pending() != 0 {
 		t.Errorf("%d timers armed with nothing left to bind", f.clock.Pending())
+	}
+}
+
+// A listener that stops serving on its own leaves Addrs and is bound again
+// by the retry, since its row is still open.
+func TestRuntimeRebindsAListenerThatStoppedServing(t *testing.T) {
+	f := newRtFixture(t)
+	var mu sync.Mutex
+	var bound []net.Listener
+	f.rt = NewRuntime(RuntimeConfig{DB: f.db, Clock: f.clock, Log: slog.New(slog.DiscardHandler),
+		Bind: func(ctx context.Context, e Endpoint) (net.Listener, error) {
+			ln, err := f.binder.bind(ctx, e)
+			if err == nil {
+				mu.Lock()
+				bound = append(bound, ln)
+				mu.Unlock()
+			}
+			return ln, err
+		}})
+	f.start(t)
+	id, _ := f.open(t, rtSpec)
+	mu.Lock()
+	_ = bound[0].Close()
+	mu.Unlock()
+	deadline := time.Now().Add(5 * time.Second)
+	for f.rt.Unbound() != 1 {
+		if time.Now().After(deadline) {
+			t.Fatal("the listener whose socket failed was not queued for a rebind")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if addrs := f.rt.Addrs(); len(addrs) != 0 {
+		t.Fatalf("Addrs = %v; the failed listener is still reported", addrs)
+	}
+	f.clock.Advance(CheckInterval)
+	addrs := f.rt.Addrs()
+	if len(addrs) != 1 || f.rt.Unbound() != 0 {
+		t.Fatalf("Addrs = %v, Unbound = %d after the retry; want the listener bound again", addrs, f.rt.Unbound())
+	}
+	if body, err := rtGet(f.client, "https://"+addrs[0].String()+"/"); err != nil || !strings.HasPrefix(body, id+" ") {
+		t.Fatalf("GET = %q, %v; want the rebound listener's answer", body, err)
+	}
+}
+
+// Refused connections are logged once per refusalLogInterval, with the
+// number left unlogged since the previous line.
+func TestRuntimeThrottlesTheRefusalLog(t *testing.T) {
+	f := newRtFixture(t)
+	log := &logBuffer{}
+	f.rt = NewRuntime(RuntimeConfig{DB: f.db, Clock: f.clock, Log: slog.New(slog.NewTextHandler(log, nil)), Bind: f.binder.bind})
+	f.start(t)
+	other := rtSpec
+	other.AllowedPeer = netip.MustParseAddr("127.0.0.2")
+	_, url := f.open(t, other)
+	refuse := func() {
+		t.Helper()
+		c, err := net.Dial("tcp4", strings.TrimPrefix(url, "https://"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = c.Close() }()
+		_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
+		if _, err := c.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
+			t.Fatalf("read on a refused connection = %v, want EOF", err)
+		}
+	}
+	lines := func() []string {
+		var out []string
+		for _, l := range strings.Split(log.String(), "\n") {
+			if strings.Contains(l, "refused a connection") {
+				out = append(out, l)
+			}
+		}
+		return out
+	}
+	for range 3 {
+		refuse()
+	}
+	if got := lines(); len(got) != 1 || !strings.Contains(got[0], "suppressed=0") {
+		t.Fatalf("refusal lines %q, want one", got)
+	}
+	f.clock.Advance(refusalLogInterval)
+	refuse()
+	if got := lines(); len(got) != 2 || !strings.Contains(got[1], "suppressed=2") {
+		t.Fatalf("refusal lines %q, want a second one counting the two unlogged refusals", got)
 	}
 }
 

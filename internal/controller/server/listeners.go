@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/darkraise/darkpanel/internal/controller/api"
 	"github.com/darkraise/darkpanel/internal/controller/listen"
@@ -96,7 +98,7 @@ func (s *Server) startListeners(ctx context.Context) error {
 	// listeners are shut down.
 	srv.SetListenerState(func() api.ListenerState {
 		st := svc.State()
-		return api.ListenerState{TailscaleBound: st.TailscaleBound, Message: st.Message}
+		return api.ListenerState{TailscaleBound: st.TailscaleBound, Message: withUnbound(st.Message, s.runtimeListeners.Unbound())}
 	})
 
 	listenSocket := s.opts.ListenSocket
@@ -136,6 +138,19 @@ func (s *Server) startListeners(ctx context.Context) error {
 	}
 	s.log.Info("server: serving", "message", svc.State().Message, "listeners", urls, "socket", s.opts.Paths.ControllerSocket)
 	return nil
+}
+
+// withUnbound adds to the listener message that unbound runtime listeners
+// are down, so an exposure whose listener cannot bind does not look live.
+func withUnbound(message string, unbound int) string {
+	switch unbound {
+	case 0:
+		return message
+	case 1:
+		return strings.TrimSpace(message + " One runtime listener could not be bound; retrying.")
+	default:
+		return strings.TrimSpace(fmt.Sprintf("%s %d runtime listeners could not be bound; retrying.", message, unbound))
+	}
 }
 
 // serveFailure records err for Run; only the first error is kept.
