@@ -40,6 +40,7 @@ func (s *Server) startListeners(ctx context.Context) error {
 	}
 	srv, err := api.New(api.Config{
 		Dispatcher: s.dispatcher, Auth: s.authService, Registry: s.registry, WebCA: authority,
+		Availability: s.dispatcher.Availability,
 		SchemaVersion: func(ctx context.Context) (int, error) {
 			return store.SchemaVersion(ctx, s.controllerDB, store.SideController)
 		},
