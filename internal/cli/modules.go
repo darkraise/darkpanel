@@ -42,13 +42,15 @@ func (a *app) mountHandWritten(root, controller *cobra.Command) error {
 	return nil
 }
 
-// addHandWritten adds cmds under parent, refusing a name or alias that a
-// command of parent already takes.
+// addHandWritten adds cmds under parent, refusing a command whose name or
+// alias a command of parent already takes as a name or alias.
 func addHandWritten(parent *cobra.Command, cmds []*cobra.Command) error {
 	for _, c := range cmds {
-		for _, have := range parent.Commands() {
-			if have.Name() == c.Name() || have.HasAlias(c.Name()) {
-				return fmt.Errorf("the hand-written command \"%s %s\" clashes with an existing command", parent.CommandPath(), c.Name())
+		for _, name := range append([]string{c.Name()}, c.Aliases...) {
+			for _, have := range parent.Commands() {
+				if have.Name() == name || have.HasAlias(name) {
+					return fmt.Errorf("the hand-written command \"%s %s\" clashes with an existing command on %q", parent.CommandPath(), c.Name(), name)
+				}
 			}
 		}
 		parent.AddCommand(c)

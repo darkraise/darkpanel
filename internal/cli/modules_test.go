@@ -32,29 +32,33 @@ func mhCommand(name string) func(a *app) []*cobra.Command {
 	}
 }
 
+// mhAliased is mhCommand with aliases.
+func mhAliased(name string, aliases ...string) func(a *app) []*cobra.Command {
+	return func(a *app) []*cobra.Command {
+		cmds := mhCommand(name)(a)
+		cmds[0].Aliases = aliases
+		return cmds
+	}
+}
+
 func TestModuleCommandsCoverEveryModule(t *testing.T) {
 	want := []string{"cloudflare", "derp", "docker", "firewall", "npm", "panel", "tailnet", "tailscale"}
 	if got := slices.Sorted(maps.Keys(moduleCommands)); !slices.Equal(got, want) {
 		t.Fatalf("moduleCommands has %v, want %v", got, want)
 	}
-	for _, id := range want {
-		if cmds := moduleCommands[id](&app{}); len(cmds) != 0 {
-			t.Errorf("the %s stub returns %d commands, want none", id, len(cmds))
-		}
-	}
 	if len(controllerCommands) != 1 {
 		t.Fatalf("controllerCommands has %d entries, want 1 (backupCommands)", len(controllerCommands))
-	}
-	if cmds := controllerCommands[0](&app{}); len(cmds) != 0 {
-		t.Errorf("the backup stub returns %d commands, want none", len(cmds))
 	}
 	root, err := NewRoot(Options{Registry: testRegistry(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, c := range root.Commands() {
-		if slices.Contains(want, c.Name()) {
-			t.Errorf("a module without hand-written commands got the group %q", c.CommandPath())
+	// testRegistry generates no command for these modules, so a group exists
+	// exactly when the module's function returns hand-written commands.
+	for _, id := range want {
+		grouped := slices.ContainsFunc(root.Commands(), func(c *cobra.Command) bool { return c.Name() == id })
+		if has := len(moduleCommands[id](&app{})) > 0; grouped != has {
+			t.Errorf("module %s: group present %t, hand-written commands %t", id, grouped, has)
 		}
 	}
 }
@@ -95,6 +99,10 @@ func TestModuleCommandsRefuseClashes(t *testing.T) {
 		{"the controller's web-ca", nil, []func(a *app) []*cobra.Command{mhCommand("web-ca")}, `"darkpanel controller web-ca"`},
 		{"another hand-written command", nil,
 			[]func(a *app) []*cobra.Command{mhCommand("backup"), mhCommand("backup")}, `"darkpanel controller backup"`},
+		{"an alias on an existing name", nil,
+			[]func(a *app) []*cobra.Command{mhAliased("bkp", "web-ca")}, `"darkpanel controller bkp" clashes with an existing command on "web-ca"`},
+		{"an alias on another hand-written alias", nil,
+			[]func(a *app) []*cobra.Command{mhAliased("backup", "b"), mhAliased("bundle", "b")}, `"darkpanel controller bundle" clashes with an existing command on "b"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			mhSwap(t, tc.mods, tc.ctrl)
