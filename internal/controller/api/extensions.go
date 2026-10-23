@@ -86,13 +86,16 @@ func (s *Server) mountWebExtensions() error {
 }
 
 // extensionStreamRoute reports whether r asks for a contributed web stream
-// route.
+// route: the network mux must route r to a pattern streamMux holds. Asking
+// streamMux alone would also count a request that a more specific ordinary
+// route serves, which would then never extend its session.
 func (s *Server) extensionStreamRoute(r *http.Request) bool {
 	if s.streamMux == nil {
 		return false
 	}
-	_, pattern := s.streamMux.Handler(r)
-	return pattern != ""
+	_, pattern := s.mux.Handler(r)
+	_, stream := s.streamMux.Handler(r)
+	return pattern != "" && pattern == stream
 }
 
 // extensionStream is rt's handler. A stream route instead gets the
@@ -188,6 +191,13 @@ func (w *deadlineWriter) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
+// Flush renews the deadline and flushes, so a handler that asserts
+// http.Flusher rather than using a ResponseController still flushes.
+func (w *deadlineWriter) Flush() {
+	w.renew()
+	_ = http.NewResponseController(w.ResponseWriter).Flush()
+}
+
 // Unwrap lets a handler's ResponseController reach the connection's
-// flusher and deadlines.
+// deadlines.
 func (w *deadlineWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }

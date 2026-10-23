@@ -320,3 +320,61 @@ func TestExtensionRouteNotASubtree(t *testing.T) {
 		}
 	}
 }
+
+// TestExtensionStreamPassiveNarrower: a request the network mux sends to a
+// more specific ordinary route authenticates actively, even where a broader
+// stream pattern also matches it.
+func TestExtensionStreamPassiveNarrower(t *testing.T) {
+	h := newHarness(t)
+	a := &xrAuth{}
+	a.set(sseIdentity(h.clock.Now().Add(time.Hour)), nil)
+	h.cfg.Auth, h.cfg.Clock = a, h.clock
+	h.cfg.Extensions = []ext.Route{
+		{Surface: ext.SurfaceWeb, Method: "GET", Path: "/api/v1/xr/{id}", Scope: core.ScopeRead, Stream: true, Handler: xrHandler},
+		{Surface: ext.SurfaceWeb, Method: "GET", Path: "/api/v1/xr/items", Scope: core.ScopeRead, Handler: xrHandler},
+	}
+	srv, err := New(h.cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		path    string
+		passive bool
+	}{
+		{"/api/v1/xr/i1", true},
+		{"/api/v1/xr/items", false},
+	} {
+		a.mu.Lock()
+		a.passive = nil
+		a.mu.Unlock()
+		srv.Handler().ServeHTTP(httptest.NewRecorder(), withToken(request("GET", tc.path, ""), "any"))
+		a.mu.Lock()
+		got := a.passive
+		a.mu.Unlock()
+		if len(got) == 0 || got[0] != tc.passive {
+			t.Errorf("GET %s authenticated with Passive %v, want %v", tc.path, got, tc.passive)
+		}
+	}
+}
+
+// TestExtensionStreamFlusher: a stream handler that asserts http.Flusher
+// reaches the connection's flush, which renews the write deadline first.
+func TestExtensionStreamFlusher(t *testing.T) {
+	flusher := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		f, ok := w.(http.Flusher)
+		if !ok {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("no flusher"))
+			return
+		}
+		_, _ = w.Write([]byte("one"))
+		f.Flush()
+	})
+	h := xrHarness(t, ext.Route{Surface: ext.SurfaceWeb, Method: "GET", Path: "/api/v1/xr/stream", Scope: core.ScopeRead,
+		Stream: true, Handler: flusher})
+	rec := newSSERecorder()
+	h.srv.Handler().ServeHTTP(rec, withToken(request("GET", "/api/v1/xr/stream", ""), h.token(core.ScopeRead)))
+	if got := strings.Join(rec.record(), " "); rec.text() != "one" || !strings.HasSuffix(got, "deadline flush") {
+		t.Errorf("body %q with operations %q, want one ending in a deadline and a flush", rec.text(), got)
+	}
+}
