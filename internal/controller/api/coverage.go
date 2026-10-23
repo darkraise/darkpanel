@@ -18,9 +18,9 @@ var pathParam = regexp.MustCompile(`\{[A-Za-z]+\}`)
 // reg: every route of the network mux appears in the OpenAPI document (a
 // hand-written route as itself, a per-action route once for each
 // non-break-glass action or resource of reg it serves), and every operation
-// of the document is served by a network route and names no break-glass
-// action. Tests call it; plan 4's assembly test calls it with the real
-// registry.
+// of the document is served by a network route and names no break-glass or
+// Internal action. Tests call it; plan 4's assembly test calls it with the
+// real registry.
 func CheckOpenAPI(reg *core.Registry) error {
 	doc, err := schema.OpenAPI(reg, Routes())
 	if err != nil {
@@ -52,8 +52,14 @@ func checkOpenAPI(reg *core.Registry, routes []route, doc []byte) error {
 	}
 	for p, ops := range d.Paths {
 		for _, def := range reg.Actions() {
-			if def.Spec.BreakGlass && strings.Contains(p, "/"+def.Spec.Name+"/") {
+			if !strings.Contains(p, "/"+def.Spec.Name+"/") {
+				continue
+			}
+			if def.Spec.BreakGlass {
 				errs = append(errs, fmt.Errorf("document path %s: break-glass action %s is listed", p, def.Spec.Name))
+			}
+			if def.Spec.Internal {
+				errs = append(errs, fmt.Errorf("document path %s: internal action %s is listed", p, def.Spec.Name))
 			}
 		}
 		for m := range ops {
@@ -72,7 +78,7 @@ func checkOpenAPI(reg *core.Registry, routes []route, doc []byte) error {
 
 // instances lists the document paths of a per-action route: one per
 // resource for the resource route, and for an action route one per
-// non-break-glass action of its side whose class has its operation.
+// non-break-glass action of its side that the route's operation serves.
 func instances(reg *core.Registry, rt route) []string {
 	if strings.Contains(rt.path, "/resources/") {
 		var out []string
@@ -90,7 +96,7 @@ func instances(reg *core.Registry, rt route) []string {
 	var out []string
 	for _, def := range reg.Actions() {
 		s := def.Spec
-		if s.BreakGlass || s.Side != side || (op == opRead) != (s.Class == core.ClassRead) {
+		if s.BreakGlass || s.Side != side || !servesOp(s, op) {
 			continue
 		}
 		out = append(out, strings.NewReplacer("{name}", s.Name, "{version}", fmt.Sprintf("v%d", s.Version)).Replace(rt.path))

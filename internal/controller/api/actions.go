@@ -17,9 +17,10 @@ import (
 
 // The operations of an action route, its last path segment.
 const (
-	opPlan  = "plan"
-	opApply = "apply"
-	opRead  = "read"
+	opPlan   = "plan"
+	opApply  = "apply"
+	opRead   = "read"
+	opReveal = "reveal"
 )
 
 // maxChangeLimit is the largest limit of GET /api/v1/changes; the engine
@@ -164,8 +165,7 @@ func (a applyRequest) options() (core.ApplyOptions, error) {
 }
 
 // lookupAction resolves an action route's {name} and {version} to an action
-// that side serves with op: a read action has only read, a mutating action
-// only plan and apply.
+// that side serves with op (servesOp).
 func (s *Server) lookupAction(name, version string, side core.Side, op string) (core.ActionDef, error) {
 	unknown := errcode.New(errcode.ActionUnknown, fmt.Sprintf("no action %s/%s with a %s operation at this route", name, version, op))
 	v, err := core.ParseVersion(version)
@@ -173,10 +173,26 @@ func (s *Server) lookupAction(name, version string, side core.Side, op string) (
 		return core.ActionDef{}, unknown
 	}
 	def, ok := s.cfg.Registry.Action(core.ActionRef{Name: name, Version: v})
-	if !ok || def.Spec.Side != side || (op == opRead) != (def.Spec.Class == core.ClassRead) {
+	if !ok || def.Spec.Side != side || !servesOp(def.Spec, op) {
 		return core.ActionDef{}, unknown
 	}
 	return def, nil
+}
+
+// servesOp reports whether an action route's op serves the action of s: a
+// reveal action has only reveal, any other read action only read, a
+// mutating action only plan and apply, and an Internal action no route at
+// all, because only the controller itself dispatches it (spec 1.7).
+func servesOp(s core.ActionSpec, op string) bool {
+	switch {
+	case s.Internal:
+		return false
+	case s.Reveal:
+		return op == opReveal
+	case s.Class == core.ClassRead:
+		return op == opRead
+	}
+	return op == opPlan || op == opApply
 }
 
 // actionHandler serves op of the network's action routes: agent-side
