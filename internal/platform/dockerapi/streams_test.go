@@ -97,6 +97,7 @@ func TestLogsMalformedFrames(t *testing.T) {
 		"oversized frame": {big, "exceeds"},
 		"short header":    {[]byte{1, 0, 0}, "truncated frame header"},
 		"short payload":   {stFrame(1, "abcdef")[:10], "truncated frame"},
+		"no payload":      {stFrame(1, "abcdef")[:8], "truncated frame"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -110,7 +111,7 @@ func TestLogsMalformedFrames(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer func() { _ = s.Close() }()
-			if _, err := s.Next(); err == nil || !strings.Contains(err.Error(), tc.want) {
+			if _, err := s.Next(); err == nil || errors.Is(err, io.EOF) || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("err = %v, want %q", err, tc.want)
 			}
 		})

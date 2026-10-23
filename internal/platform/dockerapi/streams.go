@@ -100,6 +100,9 @@ func (s *LogStream) Next() (LogFrame, error) {
 	}
 	data := make([]byte, size)
 	if _, err := io.ReadFull(s.r, data); err != nil {
+		if errors.Is(err, io.EOF) {
+			err = io.ErrUnexpectedEOF
+		}
 		return LogFrame{}, fmt.Errorf("dockerapi: logs: truncated frame: %w", err)
 	}
 	return LogFrame{Stream: stream, Data: data}, nil
