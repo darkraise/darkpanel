@@ -2,16 +2,22 @@ package main
 
 import (
 	"context"
+	"crypto/x509"
+	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/darkraise/darkpanel/internal/agent/daemon"
 	"github.com/darkraise/darkpanel/internal/cli"
+	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/install"
 	"github.com/darkraise/darkpanel/internal/modules"
+	"github.com/darkraise/darkpanel/internal/transport"
 )
 
 // fakePlan is a planned uninstall that records what was done with it.
@@ -127,6 +133,84 @@ func TestUninstallModuleOptionFlag(t *testing.T) {
 			}
 			if len(cfgs) != 1 || !reflect.DeepEqual(cfgs[0].ModuleOptions, tt.want) {
 				t.Errorf("ModuleOptions = %v, want %v", cfgs, tt.want)
+			}
+		})
+	}
+}
+
+func TestUninstallFlags(t *testing.T) {
+	const hostID = "01HZY5S4ZK8V3J1M2N3P4Q5R6S"
+	enrolled := func(string) (*daemon.Credentials, error) {
+		uri, err := url.Parse(transport.HostURI(hostID))
+		if err != nil {
+			return nil, err
+		}
+		return &daemon.Credentials{Cert: &x509.Certificate{URIs: []*url.URL{uri}}}, nil
+	}
+	unenrolled := func(string) (*daemon.Credentials, error) { return nil, daemon.ErrNotEnrolled }
+	broken := func(string) (*daemon.Credentials, error) {
+		return nil, errors.New("daemon: generation 3: agent.crt: bad PEM")
+	}
+	const cleared = "the uninstall barrier is cleared; the agent accepts changes again"
+	tests := []struct {
+		name      string
+		args      []string
+		creds     func(string) (*daemon.Credentials, error)
+		code      int
+		plans     int
+		stopTasks bool
+		actor     string // the abort's actor; "" when no abort runs
+		out       string
+	}{
+		{"stop tasks", []string{"--yes", "--stop-tasks"}, unenrolled, cli.ExitOK, 1, true, "", "removed the units"},
+		{"without stop tasks", []string{"--yes"}, unenrolled, cli.ExitOK, 1, false, "", "removed the units"},
+		{"abort", []string{"--abort"}, enrolled, cli.ExitOK, 0, false, "local:root@" + hostID, cleared},
+		{"abort before enrollment", []string{"--abort"}, unenrolled, cli.ExitOK, 0, false, core.ActorUnenrolled, cleared},
+		{"abort with unreadable credentials", []string{"--abort"}, broken, cli.ExitError, 0, false, "", "read the agent credentials"},
+		{"abort with stop tasks", []string{"--abort", "--stop-tasks"}, enrolled, cli.ExitUsage, 0, false, "", "--abort takes none of"},
+		{"abort with keep data", []string{"--abort", "--keep-data"}, enrolled, cli.ExitUsage, 0, false, "", "--abort takes none of"},
+		{"abort with a module option", []string{"--abort", "--module-option", "opt.rules=keep"}, enrolled, cli.ExitUsage, 0, false, "",
+			"--abort takes none of"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := fakeAgent(t, 0)
+			var plans, aborts []install.UninstallConfig
+			oldPlan, oldAbort, oldCreds := planUninstall, abortUninstall, loadCredentials
+			t.Cleanup(func() { planUninstall, abortUninstall, loadCredentials = oldPlan, oldAbort, oldCreds })
+			planUninstall = func(_ context.Context, cfg install.UninstallConfig) (plannedUninstall, error) {
+				plans = append(plans, cfg)
+				return &fakePlan{}, nil
+			}
+			abortUninstall = func(_ context.Context, cfg install.UninstallConfig) (string, error) {
+				aborts = append(aborts, cfg)
+				return cleared, nil
+			}
+			var dirs []string
+			loadCredentials = func(dir string) (*daemon.Credentials, error) {
+				dirs = append(dirs, dir)
+				return tt.creds(dir)
+			}
+			stdout, stderr, code := runStdin(strings.NewReader(""), append([]string{"uninstall"}, tt.args...)...)
+			if code != tt.code || !strings.Contains(stdout+stderr, tt.out) || len(plans) != tt.plans {
+				t.Fatalf("exit %d, %d plans, stdout %q, stderr %q; want exit %d, %d plans and %q",
+					code, len(plans), stdout, stderr, tt.code, tt.plans, tt.out)
+			}
+			if tt.plans == 1 && plans[0].StopTasks != tt.stopTasks {
+				t.Errorf("StopTasks = %v, want %v", plans[0].StopTasks, tt.stopTasks)
+			}
+			if tt.actor == "" {
+				if len(aborts) != 0 {
+					t.Errorf("an abort ran: %+v", aborts)
+				}
+				return
+			}
+			if len(aborts) != 1 || aborts[0].Actor != tt.actor || aborts[0].Layout != s.layout || aborts[0].Systemd != s.systemd {
+				t.Errorf("aborts %+v, want one as %s over the installed layout and the systemd connection", aborts, tt.actor)
+			}
+			if !reflect.DeepEqual(dirs, []string{s.layout.Paths.AgentTLSDir}) || s.systemd.closed != 1 {
+				t.Errorf("credentials read from %q and systemd closed %d times; want %s and once", dirs, s.systemd.closed,
+					s.layout.Paths.AgentTLSDir)
 			}
 		})
 	}

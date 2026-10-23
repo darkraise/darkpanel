@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/darkraise/darkpanel/internal/agent/daemon"
 	"github.com/darkraise/darkpanel/internal/cli"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/install"
@@ -34,8 +35,15 @@ var planUninstall = func(ctx context.Context, cfg install.UninstallConfig) (plan
 	return u, nil
 }
 
+// abortUninstall clears the uninstall barrier; tests replace it.
+var abortUninstall = install.AbortUninstall
+
+// loadCredentials reads the agent's credentials, which name the audit
+// actor of --abort; tests replace it.
+var loadCredentials = daemon.LoadCredentials
+
 func newUninstallCmd() *cobra.Command {
-	var keepData, yes bool
+	var keepData, yes, stopTasks, abort bool
 	var optionFlags []string
 	var options map[string]map[string]string
 	cmd := &cobra.Command{
@@ -48,6 +56,9 @@ func newUninstallCmd() *cobra.Command {
 			if geteuid() != 0 {
 				return errors.New("uninstall runs as root; run it with sudo")
 			}
+			if abort && (stopTasks || keepData || len(optionFlags) > 0) {
+				return errors.New("--abort takes none of --stop-tasks, --keep-data and --module-option")
+			}
 			var err error
 			options, err = parseModuleOptions(optionFlags)
 			return err
@@ -57,8 +68,11 @@ func newUninstallCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if abort {
+				return errors.Join(runAbort(cmd, sd), sd.Close())
+			}
 			plan, err := planUninstall(cmd.Context(), install.UninstallConfig{
-				Layout: installLayout(), KeepData: keepData, Modules: modules.All(), ModuleOptions: options,
+				Layout: installLayout(), KeepData: keepData, StopTasks: stopTasks, Modules: modules.All(), ModuleOptions: options,
 				Systemd: sd, Exec: platform.NewRunner(platform.ProductionRules()), Users: install.SystemUsers{},
 				Clock: core.SystemClock{}, Log: slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil)),
 			})
@@ -77,7 +91,41 @@ func newUninstallCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&yes, "yes", false, "uninstall without asking Proceed? [y/N]")
 	cmd.Flags().StringArrayVar(&optionFlags, "module-option", nil,
 		"<module>.<key>=<value>: an option of a module's uninstall step (repeatable); the plan lists every option with its default")
+	cmd.Flags().BoolVar(&stopTasks, "stop-tasks", false,
+		"stop the task units of unfinished changes instead of refusing to uninstall while one is active")
+	cmd.Flags().BoolVar(&abort, "abort", false,
+		"clear the uninstall barrier of an uninstall that stopped before it stopped the services, so the agent accepts changes again")
 	return cmd
+}
+
+// runAbort is uninstall --abort: it clears the uninstall barrier while the
+// agent service still runs, audited as this host's local root user.
+func runAbort(cmd *cobra.Command, sd platform.Systemd) error {
+	l := installLayout()
+	actor, err := abortActor(l.Paths.AgentTLSDir)
+	if err != nil {
+		return err
+	}
+	line, err := abortUninstall(cmd.Context(), install.UninstallConfig{Layout: l, Systemd: sd, Actor: actor})
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(cmd.OutOrStdout(), line)
+	return err
+}
+
+// abortActor names the local root user after the host the agent's
+// credentials name, as the agent socket does, and core.ActorUnenrolled
+// before the agent enrolled.
+func abortActor(tlsDir string) (string, error) {
+	creds, err := loadCredentials(tlsDir)
+	switch {
+	case errors.Is(err, daemon.ErrNotEnrolled):
+		return core.ActorUnenrolled, nil
+	case err != nil:
+		return "", fmt.Errorf("read the agent credentials: %w", err)
+	}
+	return "local:root@" + creds.HostID(), nil
 }
 
 // parseModuleOptions reads --module-option values, each
