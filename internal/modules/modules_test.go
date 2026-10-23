@@ -131,9 +131,9 @@ func TestServerRegistryHasTheSameShape(t *testing.T) {
 	}
 }
 
-// TestAllListsTheModuleSkeletons shows the order of All and that each
-// module of the v1 programme is registered, enabled by default and
-// declares nothing yet.
+// TestAllListsTheModuleSkeletons shows the order of All and that the
+// registry accepts every module of the v1 programme. What each module
+// declares is tested in its own package.
 func TestAllListsTheModuleSkeletons(t *testing.T) {
 	want := []string{"hostinfo", "firewall", "docker", "tailscale", "tailnet", "derp", "npm", "cloudflare", "panel"}
 	var ids []string
@@ -142,13 +142,6 @@ func TestAllListsTheModuleSkeletons(t *testing.T) {
 	}
 	if !slices.Equal(ids, want) {
 		t.Fatalf("modules.All() = %v, want %v", ids, want)
-	}
-	for _, m := range modules.All()[1:] {
-		man := m.Manifest()
-		if man.Version != 1 || !man.DefaultEnabled || len(man.Actions) != 0 || len(man.Resources) != 0 ||
-			len(man.Preflight) != 0 || len(man.OwnedPaths) != 0 || len(man.Migrations) != 0 || man.Settings != nil {
-			t.Errorf("module %s: manifest %+v, want version 1, enabled by default and nothing declared", man.ID, man)
-		}
 	}
 	if _, err := core.NewRegistry(modules.All()...); err != nil {
 		t.Errorf("core.NewRegistry(modules.All()...): %v", err)
