@@ -54,6 +54,10 @@ type services struct {
 	dispatcher  *dispatch.Dispatcher
 	topo        topology // the dispatcher's guard topology
 	events      *events.Bus
+	// runtimeListeners are the controller's runtime listeners (spec 1.10),
+	// created before the engine so controller-side actions and contributions
+	// get them, and started with the network listeners.
+	runtimeListeners *listen.Runtime
 
 	purgeMu     sync.Mutex // held while a purge runs, so Shutdown waits for it
 	purgeTimer  core.Timer
@@ -74,6 +78,8 @@ func (s *Server) Registry() *core.Registry { return s.registry }
 // alike and a development database keeps one controller id across modes.
 func (s *Server) startServices(ctx context.Context) error {
 	s.events = events.NewBus(s.log)
+	s.runtimeListeners = listen.NewRuntime(listen.RuntimeConfig{DB: s.controllerDB, Clock: s.clock, Log: s.log, Bind: s.opts.Bind})
+	s.topo.setRuntime(s.runtimeListeners.Addrs)
 	s.auditLog = audit.New(s.controllerDB, s.clock)
 	s.authService = auth.New(s.controllerDB, s.controllerSealer, s.clock, s.auditLog, auth.Options{Params: s.opts.AuthParams})
 	var err error
@@ -185,6 +191,7 @@ func (s *Server) engineConfig(reg *core.Registry) lifecycle.Config {
 		Redact: schema.Redact, Publish: s.events.Publish,
 		Base: core.Env{
 			DB: s.controllerDB, Sealer: s.controllerSealer, Clock: s.clock, Log: s.log, Agents: s.hosts,
+			Listeners: s.runtimeListeners,
 		},
 	}
 }

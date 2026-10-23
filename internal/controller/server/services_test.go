@@ -508,8 +508,15 @@ func TestTopologyOf(t *testing.T) {
 		AgentListen: []netip.AddrPort{netip.MustParseAddrPort("[::]:7443")},
 		AgentPeers:  peers,
 	}
-	if got := topologyOf(web, agent, peers); !reflect.DeepEqual(got, want) {
+	if got := topologyOf(web, nil, agent, peers); !reflect.DeepEqual(got, want) {
 		t.Errorf("topologyOf = %+v, want %+v", got, want)
+	}
+	// A runtime listener is a panel address too; an IPv4-mapped one is unmapped.
+	runtime := []netip.AddrPort{netip.MustParseAddrPort("[::ffff:172.31.255.1]:9443")}
+	withRuntime := want
+	withRuntime.PanelListen = []netip.AddrPort{netip.MustParseAddrPort("127.0.0.1:8443"), netip.MustParseAddrPort("172.31.255.1:9443")}
+	if got := topologyOf(web, runtime, agent, peers); !reflect.DeepEqual(got, withRuntime) {
+		t.Errorf("topologyOf with a runtime listener = %+v, want %+v", got, withRuntime)
 	}
 
 	// The sources count once they are registered.
@@ -522,6 +529,10 @@ func TestTopologyOf(t *testing.T) {
 	tp.setPeers(func() []netip.Addr { return peers })
 	if got := tp.read(); !reflect.DeepEqual(got, want) {
 		t.Errorf("the registered topology reads %+v, want %+v", got, want)
+	}
+	tp.setRuntime(func() []netip.AddrPort { return runtime })
+	if got := tp.read(); !reflect.DeepEqual(got, withRuntime) {
+		t.Errorf("the topology with runtime listeners reads %+v, want %+v", got, withRuntime)
 	}
 }
 

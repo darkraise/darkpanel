@@ -37,7 +37,7 @@ type contributor struct {
 func (s *Server) extDeps() ext.Deps {
 	return ext.Deps{
 		DB: s.controllerDB, Sealer: s.controllerSealer, Clock: s.clock, Log: s.log, Hosts: s.hosts,
-		Dispatch: s.dispatcher, Events: s.events, Audit: s.auditLog, LocalHostID: s.localHostID,
+		Dispatch: s.dispatcher, Events: s.events, Listeners: s.runtimeListeners, Audit: s.auditLog, LocalHostID: s.localHostID,
 	}
 }
 

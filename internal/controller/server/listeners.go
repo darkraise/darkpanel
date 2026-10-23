@@ -70,6 +70,7 @@ func (s *Server) startListeners(ctx context.Context) error {
 		Specs: specs, Hostname: s.hostname, DB: s.controllerDB, Authority: authority, Clock: s.clock,
 		Handler: srv.Handler(), Log: s.log, Interfaces: s.opts.Interfaces, Bind: s.opts.Bind,
 		OnServeError: s.serveFailure,
+		Sources:      &listen.SourceDeps{Dispatch: s.dispatcher, LocalHostID: s.localHostID, Log: s.log},
 	})
 	if err != nil {
 		return err
@@ -77,6 +78,17 @@ func (s *Server) startListeners(ctx context.Context) error {
 	s.listenService = svc
 	s.topo.setWeb(func() []listen.Bound { return svc.State().Listeners })
 	s.onShutdown("listeners", svc.Shutdown)
+	// The runtime listeners share the HTTPS listeners' TLS configuration
+	// (spec 1.10); every listener recorded open, also one an action opened
+	// during startup recovery, is bound here.
+	tlsConfig, err := svc.TLSConfig()
+	if err != nil {
+		return err
+	}
+	if err := s.runtimeListeners.Start(ctx, srv.RuntimeHandler, tlsConfig); err != nil {
+		return err
+	}
+	s.onShutdown("runtime listeners", s.runtimeListeners.Shutdown)
 	// Registered after the listeners, so it runs before their shutdown,
 	// which waits for running requests.
 	s.onShutdown("stream responses", func(context.Context) error { srv.CloseStreams(); return nil })
