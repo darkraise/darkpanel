@@ -100,11 +100,21 @@ func TestCompositeConfirmAnswerLost(t *testing.T) {
 		if err != nil || got.State != core.StateAwaitingConfirmation {
 			t.Fatalf("Confirm = %s, %v; want still awaiting confirmation", got.State, err)
 		}
-		if s := f.stepsOf(v.ID)["g"]; s.State != core.StepConfirming {
-			t.Fatalf("step g = %s, want confirming", s.State)
+		// The background runner may settle the step between Confirm's answer
+		// and this read, so only a state on the way to confirmed is checked
+		// here; the runner's outcome is checked once the composite is done.
+		if s := f.stepsOf(v.ID)["g"]; s.State != core.StepConfirming && s.State != core.StepConfirmed {
+			t.Fatalf("step g = %s, want confirming or confirmed", s.State)
 		}
 		if done := f.await(v.ID, core.StateCompleted, core.StateReverted); done.State != core.StateCompleted {
 			t.Fatalf("composite = %s, want completed", done.State)
+		}
+		g := f.stepsOf(v.ID)["g"]
+		if g.State != core.StepConfirmed {
+			t.Errorf("step g = %s, want confirmed", g.State)
+		}
+		if child := f.agentChange(g.ChildID); child.State != core.StateConfirmed {
+			t.Errorf("child of g = %s, want confirmed", child.State)
 		}
 	})
 }
