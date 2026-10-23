@@ -116,13 +116,14 @@ func (s *Server) handleUndo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, s.log, status, toChange(v))
 }
 
-// handleRepair needs the scope of the change's own action. It answers 202
-// with the change a repair started, or 200 with the plan it made, which the
-// client applies through the ordinary apply route.
+// handleRepair needs the scope of the change's own action and of every
+// registered version of its RepairedBy action, which the repair plans. It
+// answers 202 with the change a repair started, or 200 with the plan it
+// made, which the client applies through the ordinary apply route.
 func (s *Server) handleRepair(w http.ResponseWriter, r *http.Request) {
 	p, v, err := s.visibleChange(r, core.ScopeRead)
 	if err == nil {
-		err = s.authorizeChange(p, v)
+		err = s.authorizeRepair(p, v)
 	}
 	var body repairRequest
 	if err == nil {
@@ -150,6 +151,27 @@ func (s *Server) handleRepair(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeProblem(w, s.log, fmt.Errorf("api: the repair of change %s answered neither a change nor a plan", r.PathValue("id")))
 	}
+}
+
+// authorizeRepair is authorizeChange, raised to the scope of the change's
+// RepairedBy action: the registry does not bound that action's MinScope by
+// the change's.
+func (s *Server) authorizeRepair(p core.Principal, v core.ChangeView) error {
+	if err := s.authorizeChange(p, v); err != nil {
+		return err
+	}
+	def, ok := s.cfg.Registry.Action(core.ActionRef{Name: v.Action, Version: v.Version})
+	if !ok || def.Spec.RepairedBy == "" {
+		return nil
+	}
+	for _, a := range s.cfg.Registry.Actions() {
+		if a.Spec.Name == def.Spec.RepairedBy {
+			if err := authorize(p, core.RequiredScope(a.Spec)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request) {
