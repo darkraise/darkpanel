@@ -167,10 +167,16 @@ func harnessImages(ctx context.Context, t *testing.T) (OS, string, string) {
 	return o, targetImg, scannerImg
 }
 
-// bootVMs boots cfgs in parallel and stops each VM when the test ends. Any
-// failed boot fails the test, naming dir, where the logs stay.
+// bootVMs boots cfgs in parallel, once the VM limit (-vms) has room for all
+// of them, and stops each VM when the test ends, before giving its slots
+// back. Any failed boot fails the test, naming dir, where the logs stay.
 func bootVMs(ctx context.Context, t *testing.T, dir string, cfgs []vm.Config) []*vm.VM {
 	t.Helper()
+	if err := vmSlots().acquire(ctx, len(cfgs)); err != nil {
+		t.Fatal(err)
+	}
+	// Registered before the VMs' Shutdown, so it runs after them.
+	t.Cleanup(func() { vmSlots().release(len(cfgs)) })
 	vms := make([]*vm.VM, len(cfgs))
 	errs := make([]error, len(cfgs))
 	var wg sync.WaitGroup
