@@ -45,6 +45,23 @@ func TestFakeAgentChangeOps(t *testing.T) {
 	}
 }
 
+func TestFakeAgentEnablement(t *testing.T) {
+	ctx := context.Background()
+	var got []any
+	var client core.AgentClient = &FakeAgent{
+		SetModuleEnabledFunc: func(_ context.Context, id string, enabled bool) error {
+			got = append(got, id, enabled)
+			return nil
+		},
+	}
+	if err := client.SetModuleEnabled(ctx, "demo", false); err != nil || len(got) != 2 || got[0] != "demo" || got[1] != false {
+		t.Errorf("SetModuleEnabled = %v, the fake saw %v", err, got)
+	}
+	if err := (&FakeAgent{}).SetModuleEnabled(ctx, "demo", true); err == nil || !strings.Contains(err.Error(), "SetModuleEnabled is not configured") {
+		t.Errorf("unconfigured SetModuleEnabled error = %v", err)
+	}
+}
+
 func TestFakeDispatcher(t *testing.T) {
 	ctx := context.Background()
 	d := &FakeDispatcher{

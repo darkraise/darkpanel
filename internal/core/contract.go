@@ -1030,6 +1030,7 @@ type AgentClient interface {
 	Journal(ctx context.Context, afterSeq int64, limit int) ([]JournalEntry, error)
 	Ack(ctx context.Context, seq int64) error
 	AgentChangeOps
+	AgentEnablement
 }
 
 // Dispatcher is what the HTTP API and the controller socket call. hostID is

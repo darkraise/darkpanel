@@ -16,27 +16,28 @@ func notConfigured(fake, method string) error {
 // FakeAgent is a core.AgentClient whose methods call the matching function
 // field; a method whose field is nil returns an error naming it.
 type FakeAgent struct {
-	HelloFunc      func(ctx context.Context) (core.AgentHello, error)
-	ReadFunc       func(ctx context.Context, p core.Principal, a core.ActionRef, input json.RawMessage) (json.RawMessage, error)
-	ResourceFunc   func(ctx context.Context, p core.Principal, name string) (json.RawMessage, error)
-	PlanFunc       func(ctx context.Context, p core.Principal, a core.ActionRef, input json.RawMessage, opts core.PlanOptions) (core.PlanView, error)
-	ApplyFunc      func(ctx context.Context, p core.Principal, planID string, opts core.ApplyOptions) (core.ChangeView, error)
-	ConfirmFunc    func(ctx context.Context, p core.Principal, changeID string) (core.ChangeView, error)
-	RevertFunc     func(ctx context.Context, p core.Principal, changeID string) (core.ChangeView, error)
-	ChangeFunc     func(ctx context.Context, changeID string) (core.ChangeView, error)
-	ChangesFunc    func(ctx context.Context, f core.ChangeFilter) ([]core.ChangeView, error)
-	PreflightFunc  func(ctx context.Context, moduleID string) (core.ModuleStatus, error)
-	JournalFunc    func(ctx context.Context, afterSeq int64, limit int) ([]core.JournalEntry, error)
-	AckFunc        func(ctx context.Context, seq int64) error
-	UndoFunc       func(ctx context.Context, p core.Principal, changeID string, call *core.CallContext) (core.ChangeView, error)
-	RepairFunc     func(ctx context.Context, p core.Principal, changeID string, req core.RepairRequest) (core.RepairResult, error)
-	ReleaseFunc    func(ctx context.Context, p core.Principal, changeID, reason string, call *core.CallContext) (core.ReleaseResult, error)
-	EffectsFunc    func(ctx context.Context, p core.Principal, changeID string) ([]core.EffectView, error)
-	ObserveFunc    func(ctx context.Context, p core.Principal, changeID string, seq int) (core.ObserveResult, error)
-	ResolveFunc    func(ctx context.Context, p core.Principal, changeID string, seq int, req core.ResolveRequest) (core.EffectView, error)
-	LookupFunc     func(ctx context.Context, planID string, private bool) (core.PlanLookup, error)
-	RetireFunc     func(ctx context.Context, planID string) (core.PlanLookup, error)
-	AckPrivateFunc func(ctx context.Context, changeID string, final bool) error
+	HelloFunc            func(ctx context.Context) (core.AgentHello, error)
+	ReadFunc             func(ctx context.Context, p core.Principal, a core.ActionRef, input json.RawMessage) (json.RawMessage, error)
+	ResourceFunc         func(ctx context.Context, p core.Principal, name string) (json.RawMessage, error)
+	PlanFunc             func(ctx context.Context, p core.Principal, a core.ActionRef, input json.RawMessage, opts core.PlanOptions) (core.PlanView, error)
+	ApplyFunc            func(ctx context.Context, p core.Principal, planID string, opts core.ApplyOptions) (core.ChangeView, error)
+	ConfirmFunc          func(ctx context.Context, p core.Principal, changeID string) (core.ChangeView, error)
+	RevertFunc           func(ctx context.Context, p core.Principal, changeID string) (core.ChangeView, error)
+	ChangeFunc           func(ctx context.Context, changeID string) (core.ChangeView, error)
+	ChangesFunc          func(ctx context.Context, f core.ChangeFilter) ([]core.ChangeView, error)
+	PreflightFunc        func(ctx context.Context, moduleID string) (core.ModuleStatus, error)
+	JournalFunc          func(ctx context.Context, afterSeq int64, limit int) ([]core.JournalEntry, error)
+	AckFunc              func(ctx context.Context, seq int64) error
+	UndoFunc             func(ctx context.Context, p core.Principal, changeID string, call *core.CallContext) (core.ChangeView, error)
+	RepairFunc           func(ctx context.Context, p core.Principal, changeID string, req core.RepairRequest) (core.RepairResult, error)
+	ReleaseFunc          func(ctx context.Context, p core.Principal, changeID, reason string, call *core.CallContext) (core.ReleaseResult, error)
+	EffectsFunc          func(ctx context.Context, p core.Principal, changeID string) ([]core.EffectView, error)
+	ObserveFunc          func(ctx context.Context, p core.Principal, changeID string, seq int) (core.ObserveResult, error)
+	ResolveFunc          func(ctx context.Context, p core.Principal, changeID string, seq int, req core.ResolveRequest) (core.EffectView, error)
+	LookupFunc           func(ctx context.Context, planID string, private bool) (core.PlanLookup, error)
+	RetireFunc           func(ctx context.Context, planID string) (core.PlanLookup, error)
+	AckPrivateFunc       func(ctx context.Context, changeID string, final bool) error
+	SetModuleEnabledFunc func(ctx context.Context, moduleID string, enabled bool) error
 }
 
 var _ core.AgentClient = (*FakeAgent)(nil)
@@ -207,6 +208,14 @@ func (f *FakeAgent) AckPrivate(ctx context.Context, changeID string, final bool)
 		return notConfigured("FakeAgent", "AckPrivate")
 	}
 	return f.AckPrivateFunc(ctx, changeID, final)
+}
+
+// SetModuleEnabled calls SetModuleEnabledFunc.
+func (f *FakeAgent) SetModuleEnabled(ctx context.Context, moduleID string, enabled bool) error {
+	if f.SetModuleEnabledFunc == nil {
+		return notConfigured("FakeAgent", "SetModuleEnabled")
+	}
+	return f.SetModuleEnabledFunc(ctx, moduleID, enabled)
 }
 
 // MapHosts is a core.HostDirectory over a map from host id to client.
