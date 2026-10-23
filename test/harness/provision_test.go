@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -105,5 +106,37 @@ func TestFetchChecksThePins(t *testing.T) {
 	out, err = fetch("file://"+filepath.Join(src, "gone.deb"), good)
 	if want := "pinned package docker-ce=1.0-1 missing; update the harness pins"; err == nil || out != want {
 		t.Errorf("fetch of a missing package: %v, %q; want a failure saying %q", err, out, want)
+	}
+}
+
+func TestPullScript(t *testing.T) {
+	cs := validContainers()
+	s := PullScript(cs...)
+	for _, c := range cs {
+		if want := "pull_image '" + c.Name + "' '" + c.Ref + "'\n"; !strings.Contains(s, want) {
+			t.Errorf("PullScript lacks %q:\n%s", want, s)
+		}
+	}
+	o := OS{ID: "debian-13", Family: "debian", VersionID: "13", Packages: testPackages("debian.13~trixie", "2")}
+	bashSyntax(t, TargetScript(o)+s)
+
+	// docker is a function that fails until its call number reaches ok and
+	// logs its arguments, so the retries run without a daemon.
+	pull := func(ok int) (string, string, error) {
+		log := filepath.Join(t.TempDir(), "docker.log")
+		script := "pull_retry_delay=0\nn=0\ndocker() { n=$((n+1)); echo \"$*\" >> '" + log + "'; [ \"$n\" -ge " +
+			strconv.Itoa(ok) + " ]; }\n" + PullScript(cs[0]) + "echo pulled\n"
+		out, err := exec.Command("bash", "-c", script).CombinedOutput() //nolint:gosec // G204: the test's own script
+		calls, _ := os.ReadFile(log)                                    //nolint:gosec // G304: the test's own temporary file
+		return strings.TrimSpace(string(out)), string(calls), err
+	}
+	out, calls, err := pull(2)
+	if want := strings.Repeat("pull --quiet "+cs[0].Ref+"\n", 2); err != nil || out != "pulled" || calls != want {
+		t.Errorf("a pull that succeeds on its second attempt: %v, output %q, calls %q; want success after %q", err, out, calls, want)
+	}
+	out, calls, err = pull(4)
+	if want := "pinned image pebble (" + cs[0].Ref + ") cannot be pulled; update the harness pins"; err == nil || out != want ||
+		strings.Count(calls, "\n") != 3 {
+		t.Errorf("a pull that always fails: %v, output %q, calls %q; want a failure saying %q after 3 attempts", err, out, calls, want)
 	}
 }

@@ -3,6 +3,7 @@
 package harness
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"text/template"
@@ -31,6 +32,21 @@ const fetchFunc = `fetch() {
     echo "pinned package $1=$2 has SHA-256 $got, want $4; update the harness pins" >&2
     exit 1
   fi
+}
+`
+
+// pullFunc pulls a pinned image by digest once Docker runs, retrying a
+// registry that fails for a moment, and fails with the pins message when it
+// cannot. pull_retry_delay exists for the script's own test.
+const pullFunc = `pull_image() {
+  for _ in 1 2 3; do
+    if docker pull --quiet "$2" >/dev/null; then
+      return 0
+    fi
+    sleep "${pull_retry_delay:-5}"
+  done
+  echo "pinned image $1 ($2) cannot be pulled; update the harness pins" >&2
+  exit 1
 }
 `
 
@@ -63,6 +79,19 @@ func TargetScript(o OS) string {
 	var b strings.Builder
 	if err := targetTemplate.Execute(&b, o); err != nil {
 		panic(err) // the template names only OS and Package fields
+	}
+	return b.String()
+}
+
+// PullScript is a provisioning fragment, appended to TargetScript, that
+// pulls cs on the target by digest, as the target fetches its packages
+// itself. Docker checks every pulled blob against the digest, so a changed
+// image cannot pass as the pinned one; a test then runs each by its Ref.
+func PullScript(cs ...Container) string {
+	var b strings.Builder
+	b.WriteString(pullFunc)
+	for _, c := range cs {
+		fmt.Fprintf(&b, "pull_image '%s' '%s'\n", c.Name, c.Ref)
 	}
 	return b.String()
 }
