@@ -140,6 +140,29 @@ func TestServiceRunnerResetsTheDelayAfterALongRun(t *testing.T) {
 	svNextRun(t, svc)
 }
 
+func TestServiceRunnerKeepsTheDelayAfterAShorterRun(t *testing.T) {
+	clock := coretest.NewFakeClock(t0)
+	svc := newSvService(clock)
+	r := startServiceRunner(serviceRunnerConfig{Services: []ext.Service{svc.service("test.keep")}, Clock: clock})
+	t.Cleanup(r.stop)
+	svNextRun(t, svc)
+	for _, d := range []time.Duration{time.Second, 2 * time.Second} {
+		svFailAndWait(t, svc, clock)
+		clock.Advance(d)
+		svNextRun(t, svc)
+	}
+	// A run just short of serviceRestartMax keeps the backoff: the next
+	// delay doubles to 4 s.
+	clock.Advance(serviceRestartMax - time.Nanosecond)
+	svFailAndWait(t, svc, clock)
+	clock.Advance(4*time.Second - time.Nanosecond)
+	if n := clock.Pending(); n != 1 {
+		t.Fatal("the service restarted before 4 s")
+	}
+	clock.Advance(time.Nanosecond)
+	svNextRun(t, svc)
+}
+
 func TestServiceRunnerRestartsAnEarlyReturnAndAPanic(t *testing.T) {
 	clock := coretest.NewFakeClock(t0)
 	svc := newSvService(clock)

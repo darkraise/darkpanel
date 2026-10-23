@@ -84,6 +84,30 @@ func TestQuarantinedControllerHoldsMutations(t *testing.T) {
 	exec(t, s, `DELETE FROM core_meta WHERE key = ?`, quarantine.MetaKey)
 	clock.Advance(serviceDefaultPoll)
 	xcWait(t, c.ran, "the contributed service's start after the quarantine")
+
+	// The same rollout moves on once the flag is gone, so the host stayed
+	// waiting because of the quarantine and not for want of a precondition.
+	clock.Advance(rollout.PollInterval)
+	aqEventually(t, "the rollout host to leave waiting after the quarantine", func() bool {
+		var state string
+		if err := s.controllerDB.Read().QueryRowContext(ctx,
+			`SELECT state FROM core_rollout_hosts WHERE rollout_id = ? AND host_id = ?`, r.ID, id).Scan(&state); err != nil {
+			t.Fatal(err)
+		}
+		return state != core.RolloutHostWaiting
+	})
+}
+
+// aqEventually fails t unless cond holds within five seconds.
+func aqEventually(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
 
 // TestQuarantineSuspendsSchedulerAndEngine: once the flag is set on a
@@ -119,4 +143,55 @@ func TestQuarantineSuspendsSchedulerAndEngine(t *testing.T) {
 	if on, err := suspended(ctx); err != nil || on {
 		t.Errorf("engine Suspended after the quarantine = %v, %v; want false, nil", on, err)
 	}
+
+	// The window is still open, so the scheduler claims it once the flag is
+	// gone: it held because of the quarantine alone.
+	clock.Advance(rollout.ScheduleInterval)
+	aqEventually(t, "a rollout after the quarantine", func() bool {
+		return count(t, s, `SELECT count(*) FROM core_rollouts`) > 0
+	})
+}
+
+// TestQuarantineHoldsCompositeRecoveryAtStart: a controller started in
+// quarantine leaves an unfinished composite to its owner, and a start after
+// the flag is cleared recovers it.
+func TestQuarantineHoldsCompositeRecoveryAtStart(t *testing.T) {
+	opts := testOptions(t)
+	ctx := context.Background()
+	s, err := Start(ctx, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := planDisable(t, s)
+	at := t0.Format(timeFormat)
+	const id = "01COMPOSITE0000000000000QX"
+	exec(t, s, `INSERT INTO core_changes (id, plan_id, host_id, action, version, class, compensated_by, actor, state,
+		 input_json, recovery_owner, created_at, updated_at)
+		 VALUES (?, ?, '', 'cfx.deploy.add', 1, 'composite', '', 'local:root@h', 'undoing', '{}', 'composite', ?, ?)`,
+		id, plan.PlanID, at, at)
+	exec(t, s, "INSERT INTO core_composites (change_id, direction, cursor, steps_deadline) VALUES (?, 'unwind', -1, ?)", id, at)
+	exec(t, s, `INSERT INTO core_meta (key, value) VALUES (?, ?)`, quarantine.MetaKey,
+		`{"tx":"01RESTORE","restoredAt":"2026-10-18T12:00:00Z","backupCreatedAt":"2026-10-17T12:00:00Z"}`)
+	if err := s.Shutdown(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	s = start(t, opts)
+	time.Sleep(200 * time.Millisecond)
+	if v, err := s.engine.Change(ctx, id); err != nil || v.State != core.StateUndoing || v.Owner != "composite" {
+		t.Fatalf("composite in quarantine = %s owned by %q, %v; want it left undoing and owned by composite", v.State, v.Owner, err)
+	}
+	exec(t, s, `DELETE FROM core_meta WHERE key = ?`, quarantine.MetaKey)
+	if err := s.Shutdown(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	s = start(t, opts)
+	aqEventually(t, "composite recovery after the quarantine", func() bool {
+		v, err := s.engine.Change(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v.State == core.StateReverted && v.Owner == ""
+	})
 }
