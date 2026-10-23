@@ -31,10 +31,17 @@ func (s *Server) AgentListeners() []listen.Bound {
 	return s.agentListen.Bound()
 }
 
-// startListeners loads or creates the web authority, builds the API, starts
-// the network listeners with it and serves the controller socket.
+// startListeners loads or creates the web authority, builds the API with
+// the controller contributions' routes, starts the network listeners with
+// it, serves the controller socket and then starts the contributed services.
+// Composite recovery has run by then (startServices), so a service never
+// races it.
 func (s *Server) startListeners(ctx context.Context) error {
 	authority, err := listen.LoadOrCreateAuthority(ctx, s.controllerDB, s.controllerSealer, s.clock)
+	if err != nil {
+		return err
+	}
+	routes, services, err := s.contributions()
 	if err != nil {
 		return err
 	}
@@ -45,7 +52,7 @@ func (s *Server) startListeners(ctx context.Context) error {
 			return store.SchemaVersion(ctx, s.controllerDB, store.SideController)
 		},
 		HostID: s.localHostID, Dev: s.opts.Dev, UI: api.EmbeddedUI(), Log: s.log, HealthStatus: s.opts.HealthStatus,
-		Events: s.events, Clock: s.clock,
+		Events: s.events, Clock: s.clock, Extensions: routes,
 	})
 	if err != nil {
 		return err
@@ -105,6 +112,11 @@ func (s *Server) startListeners(ctx context.Context) error {
 		}
 		return err
 	})
+
+	// Registered last, so the services stop first and see the dispatcher and
+	// the listeners until they have returned.
+	runner := startServiceRunner(serviceRunnerConfig{Services: services, Clock: s.clock, Log: s.log})
+	s.onShutdown("controller services", func(context.Context) error { runner.stop(); return nil })
 
 	urls := make([]string, 0, len(svc.State().Listeners))
 	for _, b := range svc.State().Listeners {
