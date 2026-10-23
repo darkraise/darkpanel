@@ -774,6 +774,13 @@ func (h *handler) handleStreams(w http.ResponseWriter, r *http.Request) {
 // controller closes the connection, which ends the request's context and
 // with it the stream's.
 func (h *handler) handleStream(w http.ResponseWriter, r *http.Request) {
+	// ServeMux routes HEAD here too; OpensStream does not count it, so the
+	// daemon's guard would hold its lock for the stream's whole life.
+	if r.Method == http.MethodHead {
+		w.Header().Set("Allow", http.MethodGet)
+		h.writeProblem(w, errcode.New(errcode.MethodNotAllowed, "a module stream opens with GET"))
+		return
+	}
 	module, name := r.PathValue("module"), r.PathValue("name")
 	p, err := h.actor(r, opStream, module+"."+name)
 	var body io.ReadCloser

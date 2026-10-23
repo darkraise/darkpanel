@@ -758,6 +758,12 @@ func TestStreamRoute(t *testing.T) {
 	hdr := http.Header{wire.HeaderPrincipal: {principalHeader(t, testPrincipal)}}
 	wantProblem(t, call(t, h, "GET", "/agent/v1/streams/sm/nope", hdr, nil), 404, errcode.NotFound)
 	wantProblem(t, call(t, h, "GET", "/agent/v1/streams/sm/logs", nil, nil), 422, errcode.InvalidInput)
+	wantProblem(t, call(t, h, "HEAD", "/agent/v1/streams/sm/logs", hdr, nil), 405, errcode.MethodNotAllowed)
+	select {
+	case o := <-got:
+		t.Fatalf("a HEAD request opened the stream: %+v", o)
+	default:
+	}
 
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
