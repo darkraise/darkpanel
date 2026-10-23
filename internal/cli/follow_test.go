@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -113,6 +114,32 @@ func TestFollowPrintsAsItArrives(t *testing.T) {
 	close(printed)
 	if err := <-done; err != nil {
 		t.Fatalf("follow: %v", err)
+	}
+}
+
+// TestPrintEventsEscapesTerminalControls: a C1 control or a bidirectional
+// override in an event reaches the terminal escaped, in JSON that means the
+// same; other non-ASCII text is printed as it is.
+func TestPrintEventsEscapesTerminalControls(t *testing.T) {
+	csi, rlo, eAcute := string(rune(0x9b)), string(rune(0x202e)), string(rune(0xe9))
+	event := `{"line":"a` + csi + `31mb` + rlo + `c` + eAcute + `"}`
+	in := "event: data\ndata: " + event + "\n\nevent: end\ndata: {\"reason\":\"done\"}\n\n"
+	var out strings.Builder
+	if err := printEvents(strings.NewReader(in), &out); err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"line":"a\` + `u009b31mb\` + `u202ec` + eAcute + `"}` + "\n"; out.String() != want {
+		t.Fatalf("printed %q, want %q", out.String(), want)
+	}
+	var got, orig map[string]string
+	if err := json.Unmarshal([]byte(out.String()), &got); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(event), &orig); err != nil {
+		t.Fatal(err)
+	}
+	if got["line"] != orig["line"] {
+		t.Errorf("the escaped line decodes to %q, want %q", got["line"], orig["line"])
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/spf13/cobra"
 
@@ -184,7 +185,7 @@ func printEvents(r io.Reader, w io.Writer) error {
 			if !json.Valid([]byte(payload)) {
 				return errors.New("the stream sent an event that is not JSON")
 			}
-			if _, err := fmt.Fprintln(w, payload); err != nil {
+			if _, err := fmt.Fprintln(w, jsonSafe(payload)); err != nil {
 				return err
 			}
 		case "end":
@@ -196,6 +197,21 @@ func printEvents(r io.Reader, w io.Writer) error {
 		return fmt.Errorf("read the stream: %w", err)
 	}
 	return errors.New("the stream closed without an end event")
+}
+
+// jsonSafe escapes the C1 controls and format hazards that sanitize escapes
+// in payload, valid JSON, as \u escapes: encoding/json leaves them raw, and
+// a terminal would act on them, while the escaped JSON means the same.
+func jsonSafe(payload string) string {
+	var b strings.Builder
+	for _, r := range payload {
+		if r >= 0x80 && (unicode.IsControl(r) || isFormatHazard(r)) {
+			fmt.Fprintf(&b, "\\u%04x", r)
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // streamEnded is the result of an end event: nil for done, else an error
