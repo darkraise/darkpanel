@@ -53,6 +53,10 @@ type DriverConfig struct {
 	Dispatcher Dispatcher
 	Clock      core.Clock
 	Log        *slog.Logger // nil discards
+	// Suspended reports whether automatic changes are suspended (restore
+	// quarantine, spec 10): a pass that finds it true does nothing, and an
+	// error counts as true. nil is never suspended.
+	Suspended func(ctx context.Context) (bool, error)
 }
 
 // Driver drives the active rollout from its rows, one host at a time (spec
@@ -124,8 +128,10 @@ func (d *Driver) tick() {
 	if d.stopped {
 		return
 	}
-	if err := d.pass(d.ctx); err != nil {
-		d.cfg.Log.Warn("rollout: drive the active rollout", "error", err)
+	if !suspended(d.ctx, d.cfg.Suspended, d.cfg.Log, "driver") {
+		if err := d.pass(d.ctx); err != nil {
+			d.cfg.Log.Warn("rollout: drive the active rollout", "error", err)
+		}
 	}
 	d.timer = d.cfg.Clock.AfterFunc(PollInterval, d.tick)
 }

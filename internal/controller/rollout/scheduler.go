@@ -33,7 +33,8 @@ type ReleaseSource interface {
 	Releases(ctx context.Context) ([]update.Release, error)
 }
 
-// SchedulerConfig wires a Scheduler; every field is required.
+// SchedulerConfig wires a Scheduler; every field but Log and Suspended is
+// required.
 type SchedulerConfig struct {
 	DB *store.DB // the controller database
 	// Clients tells which hosts are online: a host whose client answers an
@@ -46,6 +47,10 @@ type SchedulerConfig struct {
 	Clock   core.Clock
 	Log     *slog.Logger // nil discards
 	Version string       // the controller's buildinfo.Version
+	// Suspended reports whether automatic changes are suspended (restore
+	// quarantine, spec 10): a pass that finds it true does nothing, and an
+	// error counts as true. nil is never suspended.
+	Suspended func(ctx context.Context) (bool, error)
 }
 
 // Scheduler starts a one-host rollout in a host's update window (spec
@@ -121,8 +126,10 @@ func (s *Scheduler) tick() {
 	if s.stopped {
 		return
 	}
-	if err := s.pass(s.ctx); err != nil {
-		s.cfg.Log.Warn("rollout: scheduled updates", "error", err)
+	if !suspended(s.ctx, s.cfg.Suspended, s.cfg.Log, "scheduler") {
+		if err := s.pass(s.ctx); err != nil {
+			s.cfg.Log.Warn("rollout: scheduled updates", "error", err)
+		}
 	}
 	s.timer = s.cfg.Clock.AfterFunc(ScheduleInterval, s.tick)
 }
