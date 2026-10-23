@@ -23,6 +23,11 @@ const (
 	TaskBackoffMax = 5 * time.Minute
 )
 
+// TaskSkipWarnEvery is how many passes in a row a task skips, because a
+// change holds one of its locks, before each warning: a lock left behind
+// would otherwise stop the task without a sign.
+const TaskSkipWarnEvery = 10
+
 // background holds the modules whose background tasks run.
 type background struct {
 	// mu is held while a module's tasks start or stop, so a change of the
@@ -153,7 +158,7 @@ func (r *Runtime) startTasks(moduleID string, tasks []core.BackgroundTask) *modu
 // next one waits with backoff, during which wakes wait too.
 func (r *Runtime) runTask(ctx context.Context, t *taskRun) {
 	tc := r.taskContext(t)
-	var failures int64
+	var failures, skips int64
 	for {
 		// A wake that came before this pass is answered by it.
 		select {
@@ -165,6 +170,13 @@ func (r *Runtime) runTask(ctx context.Context, t *taskRun) {
 			return
 		}
 		wait := t.def.Every
+		skips++
+		if !skipped {
+			skips = 0
+		} else if skips%TaskSkipWarnEvery == 0 {
+			r.cfg.Log.Warn("runtime: background task skipped while its locks are held", "task", t.def.ID,
+				"passes", skips, "locks", t.def.LockKeys)
+		}
 		switch {
 		case err != nil:
 			failures++

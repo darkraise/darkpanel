@@ -1,10 +1,12 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -76,6 +78,7 @@ type bgHost struct {
 	clock  core.Clock
 	passes chan bgRun  // every pass, as it starts
 	wakes  chan func() // the wake of every Watch that stays up
+	log    *bgLog      // when set, the runtime's log
 
 	mu            sync.Mutex
 	down          map[string]bool // modules whose preflight fails
@@ -87,6 +90,24 @@ type bgHost struct {
 	watchReturned int
 	tc            core.TaskContext // the last pass's
 	applied       []string
+}
+
+// bgLog is a log the runtime's goroutines write while a test reads it.
+type bgLog struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (l *bgLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.Write(p)
+}
+
+func (l *bgLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.String()
 }
 
 func bgNewHost() *bgHost {
@@ -251,6 +272,9 @@ func bgOpen(t *testing.T, h *bgHost, mods ...core.Module) (*fixture, *bgClock) {
 	t.Cleanup(func() { _ = f.db.Close() })
 	cfg := f.config()
 	cfg.Clock = clock
+	if h.log != nil {
+		cfg.Log = slog.New(slog.NewTextHandler(h.log, nil))
+	}
 	if f.rt, err = Open(ctx, cfg); err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -340,6 +364,31 @@ func TestBackgroundSkipsHeldLock(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestBackgroundWarnsOfLongSkips: every TaskSkipWarnEvery skipped passes in
+// a row are logged, so a lock left behind is seen.
+func TestBackgroundWarnsOfLongSkips(t *testing.T) {
+	h := bgNewHost()
+	h.log = &bgLog{}
+	f, clock := bgOpen(t, h, bgModule{id: "bg", every: 10 * time.Second, h: h})
+	h.pass(t)
+	clock.awaitArmed(t, 10*time.Second, 1)
+	if _, err := f.db.Writer().Exec("INSERT INTO core_locks (key, owner) VALUES ('bg', '01HOLDER')"); err != nil {
+		t.Fatal(err)
+	}
+	const msg = "background task skipped while its locks are held"
+	for i := 1; i <= TaskSkipWarnEvery; i++ {
+		if strings.Contains(h.log.String(), msg) {
+			t.Fatalf("warned after %d skipped passes, want %d", i-1, TaskSkipWarnEvery)
+		}
+		clock.Advance(10 * time.Second)
+		clock.awaitArmed(t, 10*time.Second, 1+i)
+	}
+	if log := h.log.String(); strings.Count(log, msg) != 1 || !strings.Contains(log, "task=bg.sync passes=10") {
+		t.Errorf("log = %q, want one warning naming the task and 10 passes", log)
+	}
+	h.noPass(t)
 }
 
 func TestBackgroundBackoff(t *testing.T) {
