@@ -643,3 +643,40 @@ func TestEnablementRoute(t *testing.T) {
 		t.Errorf("refused requests reached the agent: %v", got)
 	}
 }
+
+func TestAvailabilityRoute(t *testing.T) {
+	answer := core.ModuleAvailability{Module: "demo", Available: true, Actions: []core.ActionAvailability{
+		{Name: "demo.set", Reason: "demo is down"}, {Name: "demo.get", Available: true},
+	}}
+	var asked []string
+	fake := &coretest.FakeAgent{AvailabilityFunc: func(_ context.Context, id string) (core.ModuleAvailability, error) {
+		asked = append(asked, id)
+		if id != "demo" {
+			return core.ModuleAvailability{}, errcode.New(errcode.NotFound, "no module "+id)
+		}
+		return answer, nil
+	}}
+	h := NewHandler(Config{Agent: fake, Log: discardLog()})
+	rec := call(t, h, "GET", "/agent/v1/modules/demo/availability", nil, nil)
+	want := `{"module":"demo","available":true,"reason":null,"actions":[` +
+		`{"name":"demo.set","available":false,"reason":"demo is down"},{"name":"demo.get","available":true,"reason":null}]}`
+	if rec.Code != 200 || rec.Header().Get("Content-Type") != "application/json" || rec.Body.String() != want {
+		t.Errorf("answer %d %s %s\nwant 200 %s", rec.Code, rec.Header().Get("Content-Type"), rec.Body, want)
+	}
+	empty := call(t, NewHandler(Config{Agent: &coretest.FakeAgent{
+		AvailabilityFunc: func(_ context.Context, id string) (core.ModuleAvailability, error) {
+			return core.ModuleAvailability{Module: id, Reason: "no docker"}, nil
+		}}, Log: discardLog()}), "GET", "/agent/v1/modules/demo/availability", nil, nil)
+	if empty.Body.String() != `{"module":"demo","available":false,"reason":"no docker","actions":[]}` {
+		t.Errorf("answer %s, want actions [] when there are none", empty.Body)
+	}
+	wantProblem(t, call(t, h, "GET", "/agent/v1/modules/nope/availability", nil, nil), 404, errcode.NotFound)
+	if !slices.Equal(asked, []string{"demo", "nope"}) {
+		t.Errorf("the agent was asked about %v", asked)
+	}
+
+	var enrolled atomic.Bool
+	enrolled.Store(true)
+	sock := socketHandler(newSocketFake(), &enrolled)
+	wantProblem(t, call(t, sock, "GET", "/agent/v1/modules/demo/availability", nil, nil), 404, errcode.NotFound)
+}

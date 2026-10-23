@@ -30,28 +30,29 @@ const problemContentType = "application/problem+json"
 
 // The operations of the agent API, one per route.
 const (
-	opHello      = "hello"
-	opRead       = "read"
-	opResource   = "resource"
-	opPlan       = "plan"
-	opApply      = "apply"
-	opConfirm    = "confirm"
-	opRevert     = "revert"
-	opChange     = "change"
-	opChanges    = "changes"
-	opPreflight  = "preflight"
-	opJournal    = "journal"
-	opAck        = "ack"
-	opUndo       = "undo"
-	opRepair     = "repair"
-	opRelease    = "release"
-	opEffects    = "effects"
-	opObserve    = "observe"
-	opResolve    = "resolve"
-	opLookup     = "lookup"
-	opRetire     = "retire"
-	opAckPrivate = "ack-private"
-	opEnabled    = "enabled"
+	opHello        = "hello"
+	opRead         = "read"
+	opResource     = "resource"
+	opPlan         = "plan"
+	opApply        = "apply"
+	opConfirm      = "confirm"
+	opRevert       = "revert"
+	opChange       = "change"
+	opChanges      = "changes"
+	opPreflight    = "preflight"
+	opJournal      = "journal"
+	opAck          = "ack"
+	opUndo         = "undo"
+	opRepair       = "repair"
+	opRelease      = "release"
+	opEffects      = "effects"
+	opObserve      = "observe"
+	opResolve      = "resolve"
+	opLookup       = "lookup"
+	opRetire       = "retire"
+	opAckPrivate   = "ack-private"
+	opEnabled      = "enabled"
+	opAvailability = "availability"
 )
 
 // ControllerHello is the controller's half of a hello, sent in the headers
@@ -126,6 +127,7 @@ func (h *handler) routes(controller bool) *http.ServeMux {
 		mux.HandleFunc("POST "+prefix+"changes/{id}/release", h.handleRelease)
 		mux.HandleFunc("GET "+prefix+"changes/{id}/effects", h.handleEffects)
 		mux.HandleFunc("GET "+prefix+"changes/{id}/effects/{seq}/observe", h.handleObserve)
+		mux.HandleFunc("GET "+prefix+"modules/{id}/availability", h.handleAvailability)
 		mux.HandleFunc("POST "+prefix+"changes/{id}/effects/{seq}/resolve", h.handleResolve)
 		mux.HandleFunc("POST "+prefix+"changes/{id}/private-output/ack", h.handleAckPrivate)
 		mux.HandleFunc("GET "+prefix+"plans/{id}", h.handleLookup)
@@ -384,6 +386,21 @@ func (h *handler) handlePreflight(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.writeJSON(w, http.StatusOK, wire.FromModuleStatus(st))
+}
+
+// handleAvailability answers which actions of a module are available (spec
+// 1.7); it serves only the controller's session.
+func (h *handler) handleAvailability(w http.ResponseWriter, r *http.Request) {
+	err := h.allow(r.Context(), opAvailability, "")
+	var m core.ModuleAvailability
+	if err == nil {
+		m, err = h.cfg.Agent.Availability(r.Context(), r.PathValue("id"))
+	}
+	if err != nil {
+		h.writeProblem(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, wire.FromModuleAvailability(m))
 }
 
 // journalQuery reads after (a sequence, 0 when absent) and limit (a
