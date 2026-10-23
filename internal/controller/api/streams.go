@@ -52,14 +52,10 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	reason := s.sseStream(rw, r, frames)
 	// sseStream may pick an expiry, a revocation or CloseStreams over the
 	// closed source right after it wrote the relay's end frame; the stream
-	// has one.
-	if rw.ended {
-		return
-	}
-	switch {
-	case reason == "expired" || reason == "revoked":
-	case reason == "error" && s.streamsClosed():
-	default:
+	// has one. A stream whose writes failed or whose client left cannot
+	// take one; every other end, a failed re-authentication included, gets
+	// its end frame here.
+	if rw.ended || rw.broken || reason == "done" || r.Context().Err() != nil {
 		return
 	}
 	if b, err := sseEncode(endFrame(reason, nil)); err == nil {
@@ -67,27 +63,23 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// streamsClosed reports whether CloseStreams ran.
-func (s *Server) streamsClosed() bool {
-	select {
-	case <-s.streamsDone:
-		return true
-	default:
-		return false
-	}
-}
-
-// relayWriter records whether an end frame was written through it.
+// relayWriter records whether an end frame was written through it, and
+// whether a write failed.
 type relayWriter struct {
 	http.ResponseWriter
-	ended bool
+	ended  bool
+	broken bool
 }
 
 func (w *relayWriter) Write(b []byte) (int, error) {
 	if bytes.HasPrefix(b, []byte("event: end\n")) {
 		w.ended = true
 	}
-	return w.ResponseWriter.Write(b)
+	n, err := w.ResponseWriter.Write(b)
+	if err != nil {
+		w.broken = true
+	}
+	return n, err
 }
 
 // Unwrap lets sseWrite's ResponseController reach the connection's

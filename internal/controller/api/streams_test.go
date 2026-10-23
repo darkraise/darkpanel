@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/darkraise/darkpanel/internal/controller/auth"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 )
@@ -313,4 +315,52 @@ func TestRelayRefusals(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.srv.handleStream(rec, r)
 	decodeProblem(t, rec, http.StatusForbidden, errcode.Forbidden)
+}
+
+// TestRelayEndsWhenRecheckFails: a re-authentication that fails for a
+// reason other than the credentials, such as a database error, ends a
+// relayed stream with one error end frame.
+func TestRelayEndsWhenRecheckFails(t *testing.T) {
+	h := newHarness(t)
+	pr, pw := io.Pipe()
+	t.Cleanup(func() { _ = pw.Close() })
+	body := &relayBody{Reader: pr}
+	opened := make(chan struct{}, 1)
+	h.disp.OpenStreamFunc = func(context.Context, core.Principal, string, string, string, url.Values) (io.ReadCloser, error) {
+		opened <- struct{}{}
+		return body, nil
+	}
+	a := &sseAuth{}
+	a.set(sseIdentity(h.clock.Now().Add(time.Hour)), nil)
+	cfg := h.cfg
+	cfg.Auth, cfg.Clock = a, h.clock
+	srv, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	resp := relayGet(t, ts, "/api/v1/hosts/h1/streams/sm/logs", "any")
+	<-opened
+	a.set(auth.Identity{}, errors.New("database is locked"))
+	frames := make(chan []string, 1)
+	go func() { frames <- relayFrames(resp.Body) }()
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case got := <-frames:
+			want := []string{`end {"reason":"error","error":{"code":"internal","detail":"Internal error"}}`}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("frames %q, want %q", got, want)
+			}
+			if !body.closed.Load() {
+				t.Error("the dispatcher's reader was not closed")
+			}
+			return
+		case <-deadline:
+			t.Fatal("the stream did not end")
+		case <-time.After(5 * time.Millisecond):
+			h.clock.Advance(SSERecheck)
+		}
+	}
 }
