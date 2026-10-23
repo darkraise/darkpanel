@@ -292,3 +292,71 @@ func TestApplySendsGuardRefresh(t *testing.T) {
 		t.Errorf("the controller handler's apply saw guard refresh %s, want none", dgJSON(t, c.GuardRefresh))
 	}
 }
+
+// dgProxied is a request through an NPM exposure's runtime listener.
+var dgProxied = core.Proxied{
+	ListenerID: "01LISTENER",
+	Client:     netip.MustParseAddr("203.0.113.5"),
+	Transport:  netip.MustParseAddrPort("172.31.255.2:40112"),
+	PublicHost: "panel.example.com",
+	Path: core.ProxyPath{
+		ExposureID:   "01EXPOSURE",
+		Kind:         "npm",
+		ProxyAddr:    netip.MustParseAddr("172.31.255.2"),
+		ListenerAddr: netip.MustParseAddrPort("172.31.255.1:9443"),
+		Public:       []netip.AddrPort{netip.MustParseAddrPort("198.51.100.4:443")},
+	},
+}
+
+func TestPlanGuardCarriesProxyPath(t *testing.T) {
+	d, seen, agent := newDg(t, func() Topology { return dgTopology })
+	client := core.Peer{Addr: dgProxied.Client}
+	ctx := core.WithProxied(core.WithClientPeer(context.Background(), client), dgProxied)
+	if _, err := d.Plan(ctx, alice, testHost, refDgAgent, json.RawMessage(`{"name":"a"}`), core.PlanOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	via := dgProxied.Path
+	want := dgJSON(t, &core.GuardContext{Client: &client, Via: &via, PanelListen: dgTopology.PanelListen,
+		AgentListen: dgTopology.AgentListen, AgentPeers: dgTopology.AgentPeers})
+	if got := dgJSON(t, seen.guard(core.SideAgent)); got != want {
+		t.Errorf("guard %s, want %s", got, want)
+	}
+
+	// The apply's guard refresh carries the path too.
+	v, err := d.Plan(ctx, alice, testHost, refDgAgent, json.RawMessage(`{"name":"b"}`), core.PlanOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Apply(ctx, alice, testHost, refDgAgent, v.PlanID, core.ApplyOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := agent.lastOpts(); got.Call == nil || dgJSON(t, got.Call.GuardRefresh) != want {
+		t.Errorf("apply guard refresh %+v, want %s", got.Call, want)
+	}
+}
+
+func TestGuardContextProxyPathIsACopyWithoutZones(t *testing.T) {
+	d, _, _ := newDg(t, nil)
+	px := dgProxied
+	px.Path.ProxyAddr = netip.MustParseAddr("fe80::2%dp-panel")
+	px.Path.ListenerAddr = netip.MustParseAddrPort("[fe80::1%dp-panel]:9443")
+	px.Path.Public = []netip.AddrPort{netip.MustParseAddrPort("[fe80::9%eth0]:443")}
+	g := d.guardContext(core.WithProxied(context.Background(), px))
+	if g.Via == nil {
+		t.Fatal("no proxy path")
+	}
+	if g.Via.ProxyAddr != netip.MustParseAddr("fe80::2") || g.Via.ListenerAddr != netip.MustParseAddrPort("[fe80::1]:9443") ||
+		!slices.Equal(g.Via.Public, []netip.AddrPort{netip.MustParseAddrPort("[fe80::9]:443")}) {
+		t.Errorf("proxy path %s kept a zone", dgJSON(t, g.Via))
+	}
+	if g.Via.ExposureID != "01EXPOSURE" || g.Via.Kind != "npm" {
+		t.Errorf("proxy path %s, want the exposure and kind of the request", dgJSON(t, g.Via))
+	}
+	g.Via.Public[0] = netip.MustParseAddrPort("192.0.2.1:1")
+	if px.Path.Public[0] != netip.MustParseAddrPort("[fe80::9%eth0]:443") {
+		t.Error("the request's proxy path was changed through the guard context")
+	}
+	if g := d.guardContext(context.Background()); g.Via != nil {
+		t.Errorf("a direct request has proxy path %s, want none", dgJSON(t, g.Via))
+	}
+}
