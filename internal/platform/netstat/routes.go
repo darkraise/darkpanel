@@ -1,6 +1,7 @@
 package netstat
 
 import (
+	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -80,22 +81,29 @@ func RouteGet(q RouteQuery) (Route, error) {
 		return Route{}, err
 	}
 	msgs, err := netlinkRequest(unix.RTM_GETROUTE, 0, body)
+	r, err := routeLookupResult(q.Dst, msgs, err)
+	if err != nil {
+		return Route{}, err
+	}
+	r.OutIface = ifaceName(r.OutIndex, nil)
+	return r, nil
+}
+
+// routeLookupResult turns the outcome of a lookup request into a route. The
+// kernel answers a destination it cannot reach with an errno rather than a
+// route, and a lookup has exactly one answer.
+func routeLookupResult(dst netip.Addr, msgs [][]byte, err error) (Route, error) {
 	if err != nil {
 		var errno unix.Errno
 		if errors.As(err, &errno) && (errno == unix.ENETUNREACH || errno == unix.EHOSTUNREACH || errno == unix.EACCES) {
-			return Route{}, fmt.Errorf("%w to %s: %w", ErrNoRoute, q.Dst, errno)
+			return Route{}, fmt.Errorf("%w to %s: %w", ErrNoRoute, dst, errno)
 		}
 		return Route{}, fmt.Errorf("netstat: route lookup: %w", err)
 	}
 	if len(msgs) != 1 {
 		return Route{}, fmt.Errorf("netstat: route lookup answered %d messages", len(msgs))
 	}
-	r, err := parseRoute(msgs[0])
-	if err != nil {
-		return Route{}, err
-	}
-	r.OutIface = ifaceName(r.OutIndex, nil)
-	return r, nil
+	return parseRoute(msgs[0])
 }
 
 // routeRequest encodes q as an RTM_GETROUTE body: struct rtmsg, then the
@@ -319,7 +327,13 @@ func netlinkRequest(typ, flags uint16, body []byte) ([][]byte, error) {
 	if err := unix.Bind(fd, &unix.SockaddrNetlink{Family: unix.AF_NETLINK}); err != nil {
 		return nil, fmt.Errorf("netstat: netlink bind: %w", err)
 	}
-	const seq = 1
+	// A random sequence number keeps another local process from predicting
+	// the one that identifies this request's answer.
+	var rnd [4]byte
+	if _, err := rand.Read(rnd[:]); err != nil {
+		return nil, fmt.Errorf("netstat: netlink sequence: %w", err)
+	}
+	seq := binary.NativeEndian.Uint32(rnd[:])
 	msg := make([]byte, unix.SizeofNlMsghdr, unix.SizeofNlMsghdr+len(body))
 	binary.NativeEndian.PutUint32(msg[0:], uint32(unix.SizeofNlMsghdr+len(body))) //nolint:gosec // G115: a request is well under 64 KiB
 	binary.NativeEndian.PutUint16(msg[4:], typ)
@@ -333,9 +347,12 @@ func netlinkRequest(typ, flags uint16, body []byte) ([][]byte, error) {
 	var out [][]byte
 	buf := make([]byte, 1<<16)
 	for {
-		n, _, err := unix.Recvfrom(fd, buf, 0)
+		n, from, err := unix.Recvfrom(fd, buf, 0)
 		if err != nil {
 			return nil, fmt.Errorf("netstat: netlink receive: %w", err)
+		}
+		if !fromKernel(from) {
+			continue
 		}
 		msgs, done, err := parseNetlink(buf[:n], seq)
 		if err != nil {
@@ -348,9 +365,21 @@ func netlinkRequest(typ, flags uint16, body []byte) ([][]byte, error) {
 	}
 }
 
+// fromKernel reports whether a datagram's sender is the kernel, which has
+// netlink port id 0. Any other process can unicast datagrams to this socket,
+// and its answers must not be taken for the kernel's.
+func fromKernel(from unix.Sockaddr) bool {
+	sa, ok := from.(*unix.SockaddrNetlink)
+	return ok && sa.Pid == 0
+}
+
+// errDumpInterrupted is returned when the kernel flags a dump as
+// inconsistent because the table changed while it was being read.
+var errDumpInterrupted = errors.New("netstat: netlink dump interrupted by a concurrent change")
+
 // parseNetlink splits one datagram into message payloads. done reports a
-// NLMSG_DONE or a zero error (an acknowledgement); a non-zero error is
-// returned as its errno.
+// NLMSG_DONE or a zero error (an acknowledgement); a non-zero error, also in
+// the status a NLMSG_DONE carries, is returned as its errno.
 func parseNetlink(b []byte, seq uint32) (msgs [][]byte, done bool, err error) {
 	for len(b) > 0 {
 		if len(b) < unix.SizeofNlMsghdr {
@@ -358,6 +387,7 @@ func parseNetlink(b []byte, seq uint32) (msgs [][]byte, done bool, err error) {
 		}
 		l := int(binary.NativeEndian.Uint32(b[0:]))
 		typ := binary.NativeEndian.Uint16(b[4:])
+		flags := binary.NativeEndian.Uint16(b[6:])
 		if l < unix.SizeofNlMsghdr || l > len(b) {
 			return nil, false, fmt.Errorf("netstat: netlink message of length %d in %d bytes", l, len(b))
 		}
@@ -365,8 +395,16 @@ func parseNetlink(b []byte, seq uint32) (msgs [][]byte, done bool, err error) {
 		if got := binary.NativeEndian.Uint32(b[8:]); got != seq {
 			return nil, false, fmt.Errorf("netstat: netlink answer with sequence %d, want %d", got, seq)
 		}
+		if flags&unix.NLM_F_DUMP_INTR != 0 {
+			return nil, false, errDumpInterrupted
+		}
 		switch typ {
 		case unix.NLMSG_DONE:
+			if len(payload) >= 4 {
+				if code := int32(binary.NativeEndian.Uint32(payload)); code != 0 { //nolint:gosec // G115: the status field is a signed errno
+					return nil, false, unix.Errno(-code) //nolint:gosec // G115: the kernel sends a negative errno
+				}
+			}
 			return msgs, true, nil
 		case unix.NLMSG_ERROR:
 			if len(payload) < 4 {

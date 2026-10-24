@@ -26,16 +26,48 @@ const (
 	IPv6 Family = 6
 )
 
+// Proto is a socket's transport protocol.
+type Proto string
+
+// The protocols of the socket table.
+const (
+	ProtoTCP Proto = "tcp"
+	ProtoUDP Proto = "udp"
+)
+
+// State is a socket's state. A UDP socket is only StateEstablished
+// (connected) or StateClose (unconnected); the kernel's table has no other
+// UDP states.
+type State string
+
+// The TCP states (include/net/tcp_states.h), plus StateUnknown for a state
+// number this reader does not know, or one that does not fit the protocol.
+const (
+	StateEstablished State = "established"
+	StateSynSent     State = "syn-sent"
+	StateSynRecv     State = "syn-recv"
+	StateFinWait1    State = "fin-wait1"
+	StateFinWait2    State = "fin-wait2"
+	StateTimeWait    State = "time-wait"
+	StateClose       State = "close"
+	StateCloseWait   State = "close-wait"
+	StateLastAck     State = "last-ack"
+	StateListen      State = "listen"
+	StateClosing     State = "closing"
+	StateNewSynRecv  State = "new-syn-recv"
+	StateUnknown     State = "unknown"
+)
+
 // Socket is one entry of the kernel's TCP or UDP socket table. Addresses
 // are as the kernel reports them: an IPv4 peer of a dual-stack IPv6 socket
 // appears IPv4-mapped (::ffff:a.b.c.d), so callers comparing addresses
 // unmap them.
 type Socket struct {
-	Proto     string // "tcp" or "udp"
+	Proto     Proto
 	Family    Family // of the table the entry came from
 	Local     netip.AddrPort
 	Remote    netip.AddrPort
-	State     string // a TCP state name; for UDP "established" (connected) or "close" (unconnected)
+	State     State
 	UID       uint32
 	Inode     uint64
 	Processes []Process // every process holding the socket; empty when none is visible
@@ -44,10 +76,13 @@ type Socket struct {
 // Listening reports whether the socket accepts new connections or
 // datagrams: a TCP socket in LISTEN, or an unconnected UDP socket.
 func (s Socket) Listening() bool {
-	if s.Proto == "tcp" {
-		return s.State == "listen"
+	switch s.Proto {
+	case ProtoTCP:
+		return s.State == StateListen
+	case ProtoUDP:
+		return s.State == StateClose
 	}
-	return s.State == "close"
+	return false
 }
 
 // Process is a process holding a socket.
@@ -57,10 +92,24 @@ type Process struct {
 }
 
 // tcpStates are the kernel's TCP states (include/net/tcp_states.h).
-var tcpStates = map[uint64]string{
-	0x01: "established", 0x02: "syn-sent", 0x03: "syn-recv", 0x04: "fin-wait1",
-	0x05: "fin-wait2", 0x06: "time-wait", 0x07: "close", 0x08: "close-wait",
-	0x09: "last-ack", 0x0A: "listen", 0x0B: "closing", 0x0C: "new-syn-recv",
+var tcpStates = map[uint64]State{
+	0x01: StateEstablished, 0x02: StateSynSent, 0x03: StateSynRecv, 0x04: StateFinWait1,
+	0x05: StateFinWait2, 0x06: StateTimeWait, 0x07: StateClose, 0x08: StateCloseWait,
+	0x09: StateLastAck, 0x0A: StateListen, 0x0B: StateClosing, 0x0C: StateNewSynRecv,
+}
+
+// stateOf names a state number of a table of proto. A number outside the
+// protocol's states is StateUnknown rather than an error, so one unfamiliar
+// entry does not make the whole table unreadable.
+func stateOf(proto Proto, n uint64) State {
+	state, ok := tcpStates[n]
+	if !ok {
+		return StateUnknown
+	}
+	if proto == ProtoUDP && state != StateEstablished && state != StateClose {
+		return StateUnknown
+	}
+	return state
 }
 
 // Table reads the socket table under a proc root.
@@ -78,10 +127,10 @@ func (t Table) Sockets() ([]Socket, error) {
 	var out []Socket
 	for _, src := range []struct {
 		file   string
-		proto  string
+		proto  Proto
 		family Family
 	}{
-		{"tcp", "tcp", IPv4}, {"tcp6", "tcp", IPv6}, {"udp", "udp", IPv4}, {"udp6", "udp", IPv6},
+		{"tcp", ProtoTCP, IPv4}, {"tcp6", ProtoTCP, IPv6}, {"udp", ProtoUDP, IPv4}, {"udp6", ProtoUDP, IPv6},
 	} {
 		socks, err := t.readTable(filepath.Join(t.Root, "net", src.file), src.proto, src.family)
 		if errors.Is(err, fs.ErrNotExist) {
@@ -104,7 +153,7 @@ func (t Table) Sockets() ([]Socket, error) {
 	return out, nil
 }
 
-func (t Table) readTable(path, proto string, family Family) ([]Socket, error) {
+func (t Table) readTable(path string, proto Proto, family Family) ([]Socket, error) {
 	f, err := os.Open(path) //nolint:gosec // G304: the proc root joined with a fixed table name
 	if err != nil {
 		return nil, fmt.Errorf("netstat: %w", err)
@@ -137,7 +186,7 @@ func (t Table) readTable(path, proto string, family Family) ([]Socket, error) {
 // parseEntry parses one line of /proc/net/{tcp,udp}{,6}: sl, local
 // address, remote address, state, queues, timer, retransmits, uid,
 // timeout, inode, and fields this reader ignores.
-func parseEntry(fields []string, proto string, family Family) (Socket, error) {
+func parseEntry(fields []string, proto Proto, family Family) (Socket, error) {
 	if len(fields) < 10 {
 		return Socket{}, fmt.Errorf("%d fields, want at least 10", len(fields))
 	}
@@ -153,10 +202,6 @@ func parseEntry(fields []string, proto string, family Family) (Socket, error) {
 	if err != nil {
 		return Socket{}, fmt.Errorf("state %q: %w", fields[3], err)
 	}
-	state, ok := tcpStates[st]
-	if !ok {
-		return Socket{}, fmt.Errorf("unknown state %q", fields[3])
-	}
 	uid, err := strconv.ParseUint(fields[7], 10, 32)
 	if err != nil {
 		return Socket{}, fmt.Errorf("uid %q: %w", fields[7], err)
@@ -167,7 +212,7 @@ func parseEntry(fields []string, proto string, family Family) (Socket, error) {
 	}
 	return Socket{
 		Proto: proto, Family: family, Local: local, Remote: remote,
-		State: state, UID: uint32(uid), Inode: inode,
+		State: stateOf(proto, st), UID: uint32(uid), Inode: inode,
 	}, nil
 }
 

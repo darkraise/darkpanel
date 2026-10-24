@@ -3,6 +3,7 @@ package netstat
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"net/netip"
 	"reflect"
 	"slices"
@@ -33,8 +34,10 @@ func rtRoute(family, dstLen, table, proto, typ uint8, attrs ...[]byte) []byte {
 }
 
 func TestParseRoute(t *testing.T) {
-	m := rtRoute(unix.AF_INET6, 0, unix.RT_TABLE_MAIN, RouteProtoRA, unix.RTN_UNICAST,
-		nlAttr(unix.RTA_TABLE, nlUint32(254)),
+	// The header's table byte and the attribute differ so that ignoring the
+	// attribute, which carries tables above 255, fails the comparison.
+	m := rtRoute(unix.AF_INET6, 0, 252, RouteProtoRA, unix.RTN_UNICAST,
+		nlAttr(unix.RTA_TABLE, nlUint32(1000)),
 		nlAttr(unix.RTA_GATEWAY, netip.MustParseAddr("fe80::1").AsSlice()),
 		nlAttr(unix.RTA_OIF, nlUint32(2)),
 		nlAttr(unix.RTA_PRIORITY, nlUint32(1024)),
@@ -45,7 +48,7 @@ func TestParseRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := Route{
-		Type: "unicast", Table: 254, Protocol: RouteProtoRA, Dst: netip.MustParsePrefix("::/0"),
+		Type: "unicast", Table: 1000, Protocol: RouteProtoRA, Dst: netip.MustParsePrefix("::/0"),
 		Gateway: netip.MustParseAddr("fe80::1"), OutIndex: 2, Priority: 1024,
 	}
 	if r != want {
@@ -100,6 +103,63 @@ func TestParseNetlink(t *testing.T) {
 		if _, _, err := parseNetlink(bad, 1); err == nil {
 			t.Errorf("%s: parsed", name)
 		}
+	}
+}
+
+func TestParseNetlinkDoneStatus(t *testing.T) {
+	code := -int32(unix.EINTR)
+	status := binary.NativeEndian.AppendUint32(nil, uint32(code)) //nolint:gosec // G115: encodes the negative errno the kernel sends
+	msgs, done, err := parseNetlink(append(rtMessage(unix.RTM_NEWROUTE, 1, []byte{1}), rtMessage(unix.NLMSG_DONE, 1, status)...), 1)
+	if !errors.Is(err, unix.EINTR) || done || msgs != nil {
+		t.Fatalf("a dump that ended with an errno = %v, done %v, messages %v; want the errno and no partial table", err, done, msgs)
+	}
+}
+
+func TestParseNetlinkDumpInterrupted(t *testing.T) {
+	for name, typ := range map[string]uint16{"data": unix.RTM_NEWROUTE, "done": unix.NLMSG_DONE} {
+		m := rtMessage(typ, 1, []byte{0, 0, 0, 0})
+		binary.NativeEndian.PutUint16(m[6:], unix.NLM_F_MULTI|unix.NLM_F_DUMP_INTR)
+		if _, _, err := parseNetlink(m, 1); !errors.Is(err, errDumpInterrupted) {
+			t.Errorf("%s message flagged as an inconsistent dump: err = %v", name, err)
+		}
+	}
+}
+
+func TestFromKernel(t *testing.T) {
+	if !fromKernel(&unix.SockaddrNetlink{Family: unix.AF_NETLINK}) {
+		t.Error("the kernel's port id 0 was refused")
+	}
+	for name, from := range map[string]unix.Sockaddr{
+		"another process": &unix.SockaddrNetlink{Family: unix.AF_NETLINK, Pid: 4242},
+		"unix address":    &unix.SockaddrUnix{Name: "/tmp/x"},
+		"no address":      nil,
+	} {
+		if fromKernel(from) {
+			t.Errorf("%s was accepted as the kernel", name)
+		}
+	}
+}
+
+func TestRouteLookupResult(t *testing.T) {
+	dst := netip.MustParseAddr("192.0.2.1")
+	for _, errno := range []unix.Errno{unix.ENETUNREACH, unix.EHOSTUNREACH, unix.EACCES} {
+		_, err := routeLookupResult(dst, nil, fmt.Errorf("netstat: wrapped: %w", errno))
+		if !errors.Is(err, ErrNoRoute) || !errors.Is(err, errno) {
+			t.Errorf("%v: err = %v, want ErrNoRoute wrapping the errno", errno, err)
+		}
+	}
+	if _, err := routeLookupResult(dst, nil, unix.EPERM); err == nil || errors.Is(err, ErrNoRoute) || !errors.Is(err, unix.EPERM) {
+		t.Errorf("EPERM err = %v, want a plain failure", err)
+	}
+	one := rtRoute(unix.AF_INET, 32, 254, RouteProtoKernel, unix.RTN_UNICAST, nlAttr(unix.RTA_DST, dst.AsSlice()))
+	for _, msgs := range [][][]byte{nil, {one, one}} {
+		if _, err := routeLookupResult(dst, msgs, nil); err == nil || !strings.Contains(err.Error(), "answered") {
+			t.Errorf("%d messages: err = %v", len(msgs), err)
+		}
+	}
+	r, err := routeLookupResult(dst, [][]byte{one}, nil)
+	if err != nil || r.Dst != netip.MustParsePrefix("192.0.2.1/32") {
+		t.Fatalf("one message = %+v, %v", r, err)
 	}
 }
 

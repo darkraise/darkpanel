@@ -117,7 +117,7 @@ func TestSocketsRejectMalformedTables(t *testing.T) {
 		"short addr":   skHeader4 + "   0: 0000:0016 00000000:0000 0A 0:0 0:0 0 0 0 1 1\n",
 		"no port":      skHeader4 + "   0: 00000000 00000000:0000 0A 0:0 0:0 0 0 0 1 1\n",
 		"bad hex":      skHeader4 + "   0: 0000000G:0016 00000000:0000 0A 0:0 0:0 0 0 0 1 1\n",
-		"bad state":    skHeader4 + "   0: 00000000:0016 00000000:0000 FF 0:0 0:0 0 0 0 1 1\n",
+		"bad state":    skHeader4 + "   0: 00000000:0016 00000000:0000 ZZ 0:0 0:0 0 0 0 1 1\n",
 		"bad uid":      skHeader4 + "   0: 00000000:0016 00000000:0000 0A 0:0 0:0 0 x 0 1 1\n",
 		"bad inode":    skHeader4 + "   0: 00000000:0016 00000000:0000 0A 0:0 0:0 0 0 0 -1 1\n",
 		"port too big": skHeader4 + "   0: 00000000:10000 00000000:0000 0A 0:0 0:0 0 0 0 1 1\n",
@@ -129,6 +129,47 @@ func TestSocketsRejectMalformedTables(t *testing.T) {
 				t.Fatalf("err = %v, want one naming line 2", err)
 			}
 		})
+	}
+}
+
+func TestUnknownStateDoesNotHideTheTable(t *testing.T) {
+	table := skHeader4 +
+		"   0: 00000000:0016 00000000:0000 FF 00000000:00000000 00:00000000 00000000     0        0 1 1 0\n" +
+		"   1: 00000000:0017 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 2 1 0\n"
+	root := skProc(t, map[string]string{"tcp": table}, nil)
+	socks, err := Table{Root: root}.Sockets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(socks) != 2 || socks[0].State != StateUnknown || socks[0].Listening() || !socks[1].Listening() {
+		t.Fatalf("sockets = %+v", socks)
+	}
+}
+
+func TestStateAndProtocolPairing(t *testing.T) {
+	for _, tc := range []struct {
+		sock      Socket
+		listening bool
+	}{
+		{Socket{Proto: ProtoTCP, State: StateListen}, true},
+		{Socket{Proto: ProtoTCP, State: StateClose}, false},
+		{Socket{Proto: ProtoUDP, State: StateClose}, true},
+		{Socket{Proto: ProtoUDP, State: StateListen}, false},
+		{Socket{Proto: ProtoUDP, State: StateEstablished}, false},
+		{Socket{Proto: "sctp", State: StateClose}, false},
+	} {
+		if got := tc.sock.Listening(); got != tc.listening {
+			t.Errorf("%s %s: Listening() = %v, want %v", tc.sock.Proto, tc.sock.State, got, tc.listening)
+		}
+	}
+	if got := stateOf(ProtoUDP, 0x0A); got != StateUnknown {
+		t.Errorf("a UDP socket in the TCP listen state = %q, want unknown", got)
+	}
+	if got := stateOf(ProtoUDP, 0x07); got != StateClose {
+		t.Errorf("an unconnected UDP socket = %q", got)
+	}
+	if got := stateOf(ProtoTCP, 0x0A); got != StateListen {
+		t.Errorf("a listening TCP socket = %q", got)
 	}
 }
 
