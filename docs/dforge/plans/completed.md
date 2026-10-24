@@ -21,3 +21,4 @@
 - 2026-10-22 `docs/dforge/plans/2026-10-21-v1-w0a-lifecycle-core.md` — merged into `main` at ac80fc2
 - 2026-10-23 `docs/dforge/plans/2026-10-22-v1-w0b-platform-surfaces.md` — merged into `main` at 07f36fd
 - 2026-10-23 `docs/dforge/plans/2026-10-23-v1-w0c-extensions-and-web.md` — merged into `main` at 7708870
+- 2026-10-24 `docs/dforge/plans/2026-10-23-v1-w0b-host-clients.md` — merged into `main` at f6a2276
