@@ -88,24 +88,23 @@ func TestPullImageStream(t *testing.T) {
 	}
 	defer func() { _ = s.Close() }()
 	var msgs []PullMessage
+	var failure error
 	for {
 		m, err := s.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
 		if err != nil {
-			t.Fatal(err)
+			failure = err
+			break
 		}
 		msgs = append(msgs, m)
 	}
 	if query != "fromImage=alpine&tag=3" {
 		t.Fatalf("query = %s", query)
 	}
-	if len(msgs) != 3 || msgs[1].ProgressDetail.Total != 100 || msgs[0].Err() != nil {
+	if len(msgs) != 2 || msgs[1].ProgressDetail.Total != 100 || msgs[0].Err() != nil {
 		t.Fatalf("messages = %+v", msgs)
 	}
-	if err := msgs[2].Err(); err == nil || err.Error() != "dockerapi: pull: manifest unknown" {
-		t.Fatalf("stream failure = %v", err)
+	if failure == nil || errors.Is(failure, io.EOF) || failure.Error() != "dockerapi: pull: manifest unknown" {
+		t.Fatalf("stream failure = %v, want the daemon's error from Next", failure)
 	}
 	if err := (PullMessage{Error: "denied"}).Err(); err == nil || err.Error() != "dockerapi: pull: denied" {
 		t.Fatalf("legacy error field = %v", err)
@@ -113,6 +112,48 @@ func TestPullImageStream(t *testing.T) {
 	query = "unset"
 	if _, err := c.PullImage(t.Context(), "alpine:"); err == nil || query != "unset" {
 		t.Fatalf("trailing colon: err = %v, query = %s", err, query)
+	}
+}
+
+func TestPullImageCleanStreamEndsWithEOF(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1.49/images/create", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"status":"Pulling from library/alpine","id":"3"}`+"\n"+`{"status":"Status: Downloaded newer image for alpine:3"}`+"\n")
+	})
+	s, err := newFakeDaemon(t, "1.49", mux).PullImage(t.Context(), "alpine:3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	for range 2 {
+		if _, err := s.Next(); err != nil {
+			t.Fatalf("progress message: %v", err)
+		}
+	}
+	if _, err := s.Next(); !errors.Is(err, io.EOF) {
+		t.Fatalf("end of a successful pull = %v, want io.EOF", err)
+	}
+}
+
+func TestImageRefGuardsEveryCall(t *testing.T) {
+	mux := http.NewServeMux()
+	reached := 0
+	mux.HandleFunc("/", func(http.ResponseWriter, *http.Request) { reached++ })
+	c := newFakeDaemon(t, "1.49", mux)
+	ctx := t.Context()
+	for _, bad := range []string{"", "a?b", "a b", "../../containers/x", "a#b", "a%2Fb", "alpine:"} {
+		if _, err := c.InspectImage(ctx, bad); err == nil || !strings.Contains(err.Error(), "invalid image reference") {
+			t.Errorf("InspectImage(%q) err = %v", bad, err)
+		}
+		if _, err := c.RemoveImage(ctx, bad, RemoveImageOptions{}); err == nil || !strings.Contains(err.Error(), "invalid image reference") {
+			t.Errorf("RemoveImage(%q) err = %v", bad, err)
+		}
+		if _, err := c.PullImage(ctx, bad); err == nil || !strings.Contains(err.Error(), "invalid image reference") {
+			t.Errorf("PullImage(%q) err = %v", bad, err)
+		}
+	}
+	if reached != 0 {
+		t.Fatalf("%d requests reached the daemon for invalid references", reached)
 	}
 }
 

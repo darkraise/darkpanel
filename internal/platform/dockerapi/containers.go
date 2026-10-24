@@ -216,7 +216,7 @@ func (c *Client) CreateContainer(ctx context.Context, cfg ContainerCreate) (stri
 // was already running (the daemon's 304).
 func (c *Client) StartContainer(ctx context.Context, id string) (bool, error) {
 	code, err := c.call(ctx, request{method: http.MethodPost, path: "/containers/" + url.PathEscape(id) + "/start"}, nil)
-	return code != http.StatusNotModified, err
+	return err == nil && code != http.StatusNotModified, err
 }
 
 // StopContainer stops a container, killing it after timeout. It reports
@@ -224,7 +224,7 @@ func (c *Client) StartContainer(ctx context.Context, id string) (bool, error) {
 func (c *Client) StopContainer(ctx context.Context, id string, timeout time.Duration) (bool, error) {
 	q := url.Values{"t": {strconv.Itoa(int(timeout / time.Second))}}
 	code, err := c.call(ctx, request{method: http.MethodPost, path: "/containers/" + url.PathEscape(id) + "/stop", query: q}, nil)
-	return code != http.StatusNotModified, err
+	return err == nil && code != http.StatusNotModified, err
 }
 
 // RestartContainer restarts a container, killing it after timeout if it

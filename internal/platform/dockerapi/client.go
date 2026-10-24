@@ -91,6 +91,11 @@ func (f Filters) set(q url.Values) error {
 type Client struct {
 	hc *http.Client
 
+	// negotiating has one slot, held while a /version call is in flight. A
+	// channel rather than a mutex lets a queued caller give up when its own
+	// context ends instead of waiting behind a hung daemon.
+	negotiating chan struct{}
+
 	mu      sync.Mutex
 	version string
 }
@@ -110,19 +115,28 @@ func New(socket string) *Client {
 		MaxIdleConns:       4,
 		IdleConnTimeout:    30 * time.Second,
 	}
-	return &Client{hc: &http.Client{Transport: tr}}
+	return &Client{hc: &http.Client{Transport: tr}, negotiating: make(chan struct{}, 1)}
 }
 
 // Close releases idle connections.
 func (c *Client) Close() { c.hc.CloseIdleConnections() }
 
 // APIVersion returns the negotiated API version: the daemon's, capped at
-// MaxAPIVersion. A failed negotiation is retried on the next call.
+// MaxAPIVersion. A failed negotiation is retried on the next call, and so is
+// negotiation after the daemon became unreachable, since it may have been
+// replaced by another version.
 func (c *Client) APIVersion(ctx context.Context) (string, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.version != "" {
-		return c.version, nil
+	if v := c.cachedVersion(); v != "" {
+		return v, nil
+	}
+	select {
+	case c.negotiating <- struct{}{}:
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	defer func() { <-c.negotiating }()
+	if v := c.cachedVersion(); v != "" {
+		return v, nil
 	}
 	v, err := c.Version(ctx)
 	if err != nil {
@@ -135,11 +149,26 @@ func (c *Client) APIVersion(ctx context.Context) (string, error) {
 	if cmpMin < 0 {
 		return "", fmt.Errorf("%w: daemon API %s is older than %s", ErrUnsupportedVersion, v.APIVersion, MinAPIVersion)
 	}
-	c.version = MaxAPIVersion
+	negotiated := MaxAPIVersion
 	if cmpMax, _ := compareVersions(v.APIVersion, MaxAPIVersion); cmpMax < 0 {
-		c.version = v.APIVersion
+		negotiated = v.APIVersion
 	}
-	return c.version, nil
+	c.mu.Lock()
+	c.version = negotiated
+	c.mu.Unlock()
+	return negotiated, nil
+}
+
+func (c *Client) cachedVersion() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.version
+}
+
+func (c *Client) forgetVersion() {
+	c.mu.Lock()
+	c.version = ""
+	c.mu.Unlock()
 }
 
 // compareVersions compares two "major.minor" API versions.
@@ -222,6 +251,9 @@ func (c *Client) send(ctx context.Context, r request) (*http.Response, error) {
 	}
 	res, err := c.hc.Do(req)
 	if err != nil {
+		if errors.Is(err, ErrUnavailable) {
+			c.forgetVersion()
+		}
 		return nil, fmt.Errorf("dockerapi: %s %s: %w", r.method, r.path, err)
 	}
 	if res.StatusCode/100 != 2 && res.StatusCode != http.StatusNotModified {
@@ -261,20 +293,50 @@ func (c *Client) call(ctx context.Context, r request, out any) (int, error) {
 	return res.StatusCode, nil
 }
 
+// maxStreamValue bounds the bytes Next reads from the network while it
+// decodes one value; events, progress messages and stats samples are far
+// smaller.
+const maxStreamValue = 1 << 20
+
+var errStreamValueTooLarge = fmt.Errorf("dockerapi: stream value exceeds %d bytes", maxStreamValue)
+
+// valueReader fails once more than its budget is read; the stream resets the
+// budget before each value, so a stream may run indefinitely while no single
+// value grows without bound.
+type valueReader struct {
+	r    io.Reader
+	left int64
+}
+
+func (v *valueReader) Read(p []byte) (int, error) {
+	if v.left <= 0 {
+		return 0, errStreamValueTooLarge
+	}
+	if int64(len(p)) > v.left {
+		p = p[:v.left]
+	}
+	n, err := v.r.Read(p)
+	v.left -= int64(n)
+	return n, err
+}
+
 // Stream decodes a stream of JSON values: events, pull progress, stats.
 type Stream[T any] struct {
 	body io.ReadCloser
+	src  *valueReader
 	dec  *json.Decoder
 }
 
 func newStream[T any](res *http.Response) *Stream[T] {
-	return &Stream[T]{body: res.Body, dec: json.NewDecoder(res.Body)}
+	src := &valueReader{r: res.Body}
+	return &Stream[T]{body: res.Body, src: src, dec: json.NewDecoder(src)}
 }
 
 // Next returns the next value, or io.EOF once the daemon ends the stream.
 // Cancelling the request's context ends a stream that would block.
 func (s *Stream[T]) Next() (T, error) {
 	var v T
+	s.src.left = maxStreamValue
 	err := s.dec.Decode(&v)
 	return v, err
 }

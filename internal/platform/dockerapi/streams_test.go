@@ -62,6 +62,19 @@ func TestLogsMultiplexed(t *testing.T) {
 	}
 }
 
+func TestLogsNeedsAStream(t *testing.T) {
+	mux := http.NewServeMux()
+	reached := false
+	mux.HandleFunc("/", func(http.ResponseWriter, *http.Request) { reached = true })
+	c := newFakeDaemon(t, "1.49", mux)
+	if _, err := c.Logs(t.Context(), "web", LogsOptions{Follow: true}); err == nil || !strings.Contains(err.Error(), "neither Stdout nor Stderr") {
+		t.Fatalf("err = %v", err)
+	}
+	if reached {
+		t.Fatal("a request without a stream selection reached the daemon")
+	}
+}
+
 func TestLogsRawForTTY(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1.49/containers/{id}/logs", func(w http.ResponseWriter, _ *http.Request) {

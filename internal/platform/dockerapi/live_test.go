@@ -60,14 +60,11 @@ func TestDockerLive(t *testing.T) {
 		t.Fatal(err)
 	}
 	for {
-		m, err := pull.Next()
+		_, err := pull.Next()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			t.Fatal(err)
-		}
-		if err := m.Err(); err != nil {
 			t.Fatal(err)
 		}
 	}

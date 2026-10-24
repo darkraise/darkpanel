@@ -11,7 +11,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // newFakeDaemon serves mux on a Unix socket in a short temporary directory
@@ -213,5 +215,136 @@ func TestFiltersAndStream(t *testing.T) {
 	}
 	if filters != `{"label":["a=b"]}` {
 		t.Fatalf("filters = %s", filters)
+	}
+}
+
+func TestAPIVersionQueuedCallerHonoursItsContext(t *testing.T) {
+	mux := http.NewServeMux()
+	var versionCalls atomic.Int32
+	started := make(chan struct{}, 4)
+	release := make(chan struct{})
+	mux.HandleFunc("GET /version", func(w http.ResponseWriter, _ *http.Request) {
+		versionCalls.Add(1)
+		started <- struct{}{}
+		<-release
+		_, _ = io.WriteString(w, `{"ApiVersion":"1.47"}`)
+	})
+	c := newFakeDaemon(t, "", mux)
+	released := false
+	releaseOnce := func() {
+		if !released {
+			released = true
+			close(release)
+		}
+	}
+	defer releaseOnce()
+
+	type result struct {
+		v   string
+		err error
+	}
+	first := make(chan result, 1)
+	go func() {
+		v, err := c.APIVersion(context.Background())
+		first <- result{v, err}
+	}()
+	<-started
+
+	patient := make(chan result, 1)
+	go func() {
+		v, err := c.APIVersion(context.Background())
+		patient <- result{v, err}
+	}()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	impatient := make(chan error, 1)
+	go func() {
+		_, err := c.APIVersion(ctx)
+		impatient <- err
+	}()
+	select {
+	case err := <-impatient:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("queued caller err = %v, want the context's deadline error", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a queued caller ignored its context while another negotiation was in flight")
+	}
+
+	releaseOnce()
+	for _, ch := range []chan result{first, patient} {
+		if r := <-ch; r.err != nil || r.v != "1.47" {
+			t.Fatalf("APIVersion = %q, %v", r.v, r.err)
+		}
+	}
+	if n := versionCalls.Load(); n != 1 {
+		t.Fatalf("/version called %d times, want 1", n)
+	}
+}
+
+func TestNegotiationRepeatsAfterDaemonUnavailable(t *testing.T) {
+	dir, err := os.MkdirTemp("", "dp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "d.sock")
+	serve := func(apiVersion string) *httptest.Server {
+		mux := http.NewServeMux()
+		mux.HandleFunc("GET /version", func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = fmt.Fprintf(w, `{"ApiVersion":%q}`, apiVersion)
+		})
+		mux.HandleFunc("GET /{version}/info", func(w http.ResponseWriter, r *http.Request) {
+			_, _ = fmt.Fprintf(w, `{"ServerVersion":%q}`, strings.TrimPrefix(r.PathValue("version"), "v")) //nolint:gosec // G705: a test fake answering JSON
+		})
+		l, err := net.Listen("unix", sock)
+		if err != nil {
+			t.Fatal(err)
+		}
+		srv := httptest.NewUnstartedServer(mux)
+		_ = srv.Listener.Close()
+		srv.Listener = l
+		srv.Start()
+		return srv
+	}
+	c := New(sock)
+	defer c.Close()
+
+	old := serve("1.45")
+	if info, err := c.Info(t.Context()); err != nil || info.ServerVersion != "1.45" {
+		t.Fatalf("first daemon: %+v, %v", info, err)
+	}
+	old.Close()
+	if _, err := c.Info(t.Context()); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("stopped daemon: err = %v, want ErrUnavailable", err)
+	}
+	upgraded := serve("1.54")
+	defer upgraded.Close()
+	if info, err := c.Info(t.Context()); err != nil || info.ServerVersion != "1.49" {
+		t.Fatalf("replacement daemon: %+v, %v; want a fresh negotiation to 1.49", info, err)
+	}
+}
+
+func TestStreamBoundsOneValue(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1.49/events", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"s":"ok"}`+"\n")
+		_, _ = io.WriteString(w, `{"s":"`)
+		_, _ = io.WriteString(w, strings.Repeat("x", 2*maxStreamValue))
+		_, _ = io.WriteString(w, `"}`+"\n")
+	})
+	c := newFakeDaemon(t, "1.49", mux)
+	res, err := c.do(t.Context(), request{method: http.MethodGet, path: "/events"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := newStream[struct{ S string }](res)
+	defer func() { _ = s.Close() }()
+	if v, err := s.Next(); err != nil || v.S != "ok" {
+		t.Fatalf("first value = %+v, %v", v, err)
+	}
+	if _, err := s.Next(); err == nil || errors.Is(err, io.EOF) || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized value err = %v, want a size error", err)
 	}
 }

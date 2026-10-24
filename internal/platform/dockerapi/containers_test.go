@@ -142,11 +142,15 @@ func TestStartStopRestartRemove(t *testing.T) {
 	var seen []string
 	mux.HandleFunc("POST /v1.49/containers/{id}/{op}", func(w http.ResponseWriter, r *http.Request) {
 		seen = append(seen, r.PathValue("op")+" "+r.PathValue("id")+" "+r.URL.RawQuery)
-		if r.PathValue("id") == "already" {
+		switch r.PathValue("id") {
+		case "already":
 			w.WriteHeader(http.StatusNotModified)
-			return
+		case "broken":
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = io.WriteString(w, `{"message":"cannot start"}`)
+		default:
+			w.WriteHeader(http.StatusNoContent)
 		}
-		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("DELETE /v1.49/containers/{id}", func(w http.ResponseWriter, r *http.Request) {
 		seen = append(seen, "delete "+r.PathValue("id")+" "+r.URL.RawQuery)
@@ -171,6 +175,12 @@ func TestStartStopRestartRemove(t *testing.T) {
 	if changed, err := c.StopContainer(ctx, "already", 0); err != nil || changed {
 		t.Fatalf("stop of a stopped container = %v, %v", changed, err)
 	}
+	if changed, err := c.StartContainer(ctx, "broken"); err == nil || changed {
+		t.Fatalf("start answered 500: changed = %v, err = %v", changed, err)
+	}
+	if changed, err := c.StopContainer(ctx, "broken", time.Second); err == nil || changed {
+		t.Fatalf("stop answered 500: changed = %v, err = %v", changed, err)
+	}
 	if err := c.RestartContainer(ctx, "web", 5*time.Second); err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +191,7 @@ func TestStartStopRestartRemove(t *testing.T) {
 		t.Fatalf("remove of a running container err = %v", err)
 	}
 	want := []string{
-		"start web ", "start already ", "stop web t=10", "stop already t=0", "restart web t=5",
+		"start web ", "start already ", "stop web t=10", "stop already t=0", "start broken ", "stop broken t=1", "restart web t=5",
 		"delete web force=true&v=true", "delete busy force=false&v=false",
 	}
 	if !reflect.DeepEqual(seen, want) {

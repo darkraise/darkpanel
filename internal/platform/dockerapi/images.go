@@ -112,11 +112,31 @@ func (c *Client) InspectImage(ctx context.Context, ref string) (ImageInspect, er
 	return out, err
 }
 
+// PullStream reads the progress of an image pull.
+type PullStream struct {
+	s *Stream[PullMessage]
+}
+
+// Next returns the next progress message, or io.EOF once the pull ends. A
+// message that reports a failure is returned together with that failure as
+// the error, so a pull that failed after the daemon answered 200 cannot be
+// mistaken for one that finished.
+func (p *PullStream) Next() (PullMessage, error) {
+	m, err := p.s.Next()
+	if err != nil {
+		return m, err
+	}
+	return m, m.Err()
+}
+
+// Close ends the stream.
+func (p *PullStream) Close() error { return p.s.Close() }
+
 // PullImage starts pulling ref and returns its progress stream; the caller
-// reads it to the end, checking each message's Err. A reference without a
-// tag or digest pulls the tag "latest": the daemon would otherwise pull
-// every tag of the repository.
-func (c *Client) PullImage(ctx context.Context, ref string) (*Stream[PullMessage], error) {
+// reads it until Next returns io.EOF, and any other error means the pull
+// failed. A reference without a tag or digest pulls the tag "latest": the
+// daemon would otherwise pull every tag of the repository.
+func (c *Client) PullImage(ctx context.Context, ref string) (*PullStream, error) {
 	if err := checkImageRef(ref); err != nil {
 		return nil, err
 	}
@@ -126,7 +146,7 @@ func (c *Client) PullImage(ctx context.Context, ref string) (*Stream[PullMessage
 	if err != nil {
 		return nil, err
 	}
-	return newStream[PullMessage](res), nil
+	return &PullStream{s: newStream[PullMessage](res)}, nil
 }
 
 // splitImageRef splits a reference into the fromImage and tag arguments:

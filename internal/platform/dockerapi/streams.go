@@ -17,7 +17,8 @@ import (
 // well below it.
 const maxFrame = 8 << 20
 
-// LogsOptions selects a container's log output.
+// LogsOptions selects a container's log output. At least one of Stdout and
+// Stderr must be set: the daemon answers 400 when neither is.
 type LogsOptions struct {
 	Follow     bool
 	Since      time.Time // zero: from the start
@@ -43,6 +44,9 @@ type LogStream struct {
 
 // Logs opens a container's log output.
 func (c *Client) Logs(ctx context.Context, id string, opts LogsOptions) (*LogStream, error) {
+	if !opts.Stdout && !opts.Stderr {
+		return nil, errors.New("dockerapi: logs: neither Stdout nor Stderr selected")
+	}
 	q := url.Values{
 		"follow":     {strconv.FormatBool(opts.Follow)},
 		"timestamps": {strconv.FormatBool(opts.Timestamps)},
