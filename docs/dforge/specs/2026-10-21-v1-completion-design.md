@@ -2775,7 +2775,11 @@ Resource `firewall.status` (configured and loaded state, rules with origin,
   interface, since
   strict reverse-path filtering drops anything else before `INPUT`. Loose
   mode (2) and 0 exclude nothing. IPv6 has no `rp_filter`, so every up
-  interface is eligible. The
+  interface is eligible. A source in Tailscale's ranges (`100.64.0.0/10`,
+  `fd7a:115c:a1e0::/48`) is eligible only on `tailscale0` while that
+  interface is up, because tailscaled's `ts-input` drops such a source on
+  every other interface. An interface that disappears while the facts are
+  read is not eligible. The
   out-interface comes from a forward lookup including policy rules; a
   lookup that cannot be resolved is `unknown`. The flows:
   1. each established TCP connection whose local socket is owned by `sshd`:
