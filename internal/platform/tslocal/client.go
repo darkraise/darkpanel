@@ -191,6 +191,10 @@ func (c *Client) Status(ctx context.Context) (*Status, error) {
 	return &s, nil
 }
 
+// errExitNodeBoth is returned when preferences name an exit node by both ID
+// and address; tailscaled documents that at most one of the two may be set.
+var errExitNodeBoth = errors.New("tslocal: ExitNodeID and ExitNodeIP are both set; at most one may be")
+
 // Prefs is the node's preferences. Prefs read from tailscaled keep every
 // field tailscaled sent, modelled or not, and send them back unchanged, so
 // Start with UpdatePrefs replaces the preferences without resetting fields
@@ -234,6 +238,9 @@ func (p *Prefs) UnmarshalJSON(b []byte) error {
 // MarshalJSON encodes every kept field with the modelled fields' current
 // values over them.
 func (p Prefs) MarshalJSON() ([]byte, error) {
+	if p.ExitNodeID != "" && p.ExitNodeIP.IsValid() {
+		return nil, errExitNodeBoth
+	}
 	b, err := json.Marshal(prefsFields(p))
 	if err != nil {
 		return nil, err
@@ -272,8 +279,12 @@ type PrefsPatch struct {
 	AdvertiseRoutes *[]netip.Prefix
 }
 
-// MarshalJSON encodes the patch as MaskedPrefs.
+// MarshalJSON encodes the patch as MaskedPrefs. Setting an exit node by ID
+// while clearing the address (or the reverse) is allowed; naming both is not.
 func (p PrefsPatch) MarshalJSON() ([]byte, error) {
+	if p.ExitNodeID != nil && *p.ExitNodeID != "" && p.ExitNodeIP != nil && p.ExitNodeIP.IsValid() {
+		return nil, errExitNodeBoth
+	}
 	m := map[string]any{}
 	set := func(name string, v any) {
 		m[name] = v
@@ -328,9 +339,13 @@ type StartOptions struct {
 }
 
 // Start (re)starts the backend, logging in with opts.AuthKey when set.
-// UpdatePrefs replaces every preference, so it should be the node's
-// current Prefs with the wanted fields changed.
+// UpdatePrefs replaces every preference, so it must be the node's current
+// Prefs, read with Client.Prefs, with the wanted fields changed; Prefs built
+// in code are refused because they would reset every unmodelled preference.
 func (c *Client) Start(ctx context.Context, opts StartOptions) error {
+	if opts.UpdatePrefs != nil && len(opts.UpdatePrefs.raw) == 0 {
+		return errors.New("tslocal: start: UpdatePrefs were not read from tailscaled and would reset unmodelled preferences")
+	}
 	_, err := c.send(ctx, http.MethodPost, "/localapi/v0/start", opts, http.StatusNoContent)
 	return err
 }

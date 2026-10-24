@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -189,6 +190,69 @@ func TestEditPrefsSendsMaskedPrefs(t *testing.T) {
 	}
 	if b, _ := json.Marshal(PrefsPatch{}); string(b) != `{}` {
 		t.Fatalf("empty patch = %s", b)
+	}
+}
+
+func TestPrefsPatchEveryBranch(t *testing.T) {
+	yes := true
+	id := "nodeA"
+	b, err := json.Marshal(PrefsPatch{WantRunning: &yes, RouteAll: &yes, ExitNodeID: &id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		"WantRunning": true, "WantRunningSet": true,
+		"RouteAll": true, "RouteAllSet": true,
+		"ExitNodeID": "nodeA", "ExitNodeIDSet": true,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("patch = %s", b)
+	}
+}
+
+func TestExitNodeIDAndIPAreExclusive(t *testing.T) {
+	id := "nodeA"
+	none := ""
+	ip := netip.MustParseAddr("100.64.0.2")
+	if _, err := json.Marshal(PrefsPatch{ExitNodeID: &id, ExitNodeIP: &ip}); err == nil || !strings.Contains(err.Error(), "ExitNodeID and ExitNodeIP") {
+		t.Fatalf("patch naming both: err = %v", err)
+	}
+	if _, err := json.Marshal(Prefs{ExitNodeID: id, ExitNodeIP: ip}); err == nil || !strings.Contains(err.Error(), "ExitNodeID and ExitNodeIP") {
+		t.Fatalf("prefs naming both: err = %v", err)
+	}
+	// Switching from one form to the other names one and clears the other.
+	b, err := json.Marshal(PrefsPatch{ExitNodeID: &none, ExitNodeIP: &ip})
+	if err != nil || !strings.Contains(string(b), `"ExitNodeIDSet":true`) || !strings.Contains(string(b), `"ExitNodeIP":"100.64.0.2"`) {
+		t.Fatalf("clearing the ID while setting the address = %s, %v", b, err)
+	}
+
+	reached := false
+	mux := http.NewServeMux()
+	mux.HandleFunc("PATCH /localapi/v0/prefs", func(http.ResponseWriter, *http.Request) { reached = true })
+	c := newFakeTailscaled(t, mux)
+	if _, err := c.EditPrefs(t.Context(), PrefsPatch{ExitNodeID: &id, ExitNodeIP: &ip}); err == nil || reached {
+		t.Fatalf("EditPrefs sent a patch naming both: err = %v, reached = %v", err, reached)
+	}
+}
+
+func TestStartRefusesPrefsBuiltInCode(t *testing.T) {
+	reached := false
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /localapi/v0/start", func(w http.ResponseWriter, _ *http.Request) {
+		reached = true
+		w.WriteHeader(http.StatusNoContent)
+	})
+	c := newFakeTailscaled(t, mux)
+	err := c.Start(t.Context(), StartOptions{UpdatePrefs: &Prefs{WantRunning: true}})
+	if err == nil || !strings.Contains(err.Error(), "not read from tailscaled") || reached {
+		t.Fatalf("err = %v, reached = %v", err, reached)
+	}
+	if err := c.Start(t.Context(), StartOptions{AuthKey: "tskey-auth-x"}); err != nil || !reached {
+		t.Fatalf("start without UpdatePrefs = %v (reached %v)", err, reached)
 	}
 }
 

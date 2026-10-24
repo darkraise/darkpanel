@@ -71,7 +71,9 @@ func (c *Client) CertPair(ctx context.Context, domain string) (certPEM, keyPEM [
 		return nil, nil, errors.New("tslocal: certificate pair: no delimiter between key and certificate")
 	}
 	i += len("--\n")
-	keyPEM, certPEM = b[:i], b[i:]
+	// The key slice's capacity is capped so that appending to it cannot
+	// overwrite the start of the certificate.
+	keyPEM, certPEM = b[:i:i], b[i:]
 	if !bytes.Contains(keyPEM, []byte(" PRIVATE KEY-----")) || bytes.Contains(certPEM, []byte(" PRIVATE KEY-----")) {
 		return nil, nil, errors.New("tslocal: certificate pair: the first block is not the only private key")
 	}

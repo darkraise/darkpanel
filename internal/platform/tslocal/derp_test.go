@@ -65,6 +65,10 @@ func TestCertPair(t *testing.T) {
 	if string(k) != key || string(cert) != chain || path != "/localapi/v0/cert/vps.tail1234.ts.net" || query != "type=pair" {
 		t.Fatalf("key %q cert %q (path %s?%s)", k, cert, path, query)
 	}
+	grown := append(k, "appended"...) //nolint:gocritic // appendAssign: the append is the behaviour under test
+	if string(cert) != chain || !strings.HasSuffix(string(grown), "appended") {
+		t.Fatalf("appending to the key corrupted the certificate: %q", cert)
+	}
 	if _, _, err := c.CertPair(t.Context(), "broken.ts.net"); err == nil {
 		t.Fatal("a chain without a key block was accepted as a pair")
 	}
