@@ -80,6 +80,23 @@ checklist (section 12). M9 post-v1 candidates are out of scope.
   about as many problems in it.
 - After revision 8 the owner chose to plan wave 0 as three sequential
   plans (`w0a`, `w0b`, `w0c`; see Plans) instead of one, because of its size.
+- **Before the wave 1 plan (2026-10-24) the owner ruled on three conflicts
+  between this spec and the merged wave 0 code:**
+  - **R1, revertible repair actions.** A `RepairedBy` action may be
+    compensable, irreversible or revertible, and a revertible repair action
+    may name itself (`firewall.state.repair`, `tailscale.prefs.repair`). The
+    registry's check, which refused a revertible repair action, is fixed by
+    an integrator task of the wave 1 plan (1.3).
+  - **R2, the revert timeout is per apply.** R41's "configurable timeout"
+    is the apply request's `confirmTimeoutSeconds` (10–900 s, default 60);
+    the CLI gains `--confirm-timeout` on every revertible action and the
+    change dialog a timeout field. The stored per-host setting is deferred
+    (2.4).
+  - **R3, the firewall gathers its own live guard facts.** The firewall
+    module reads sockets, interfaces and routes through
+    `internal/platform/netstat` and finds a local `darkpanel-controller`
+    process through its scoped unit client, declaring the external unit
+    `{Name: "darkpanel-controller.service", Ops: ["state"]}` (1.5, 1.12).
 
 ## Versions
 
@@ -652,7 +669,9 @@ changes of other modules' actions on one or more hosts.
     defined over them); `ApplyTimeout` above 45 s requires `LongRunning`;
     a revertible action has `RepairedBy`, an action of the same module
     whose lock keys are a subset of its own, whose input accepts `{}`
-    (the repair request may add fields, below), and which is neither a
+    (the repair request may add fields, below), which is compensable,
+    irreversible or revertible (a revertible repair action may name
+    itself; owner ruling R1), and which is neither a
     task action nor has a module recovery handler; a task action is
     compensable or irreversible, agent-side, with lock keys and an
     `ApplyTimeout`.
@@ -1567,7 +1586,10 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
   passed at plan now fails or a new protected flow (a new SSH session, a new
   agent, a new listener) fails.
 - **Local break-glass** plans and applies, and plans made by background
-  tasks as `system:*` actors (1.4), have only the agent's own facts. When a
+  tasks as `system:*` actors (1.4), have only the agent's own facts. The
+  firewall module gathers these facts itself (owner ruling R3), so a
+  timer revert, which runs without the request's context, gathers them
+  afresh. When a
   `darkpanel-controller` process runs on the agent's host (found in the
   socket table, 1.8, by the unit's main PID through D-Bus), the agent adds
   its listening sockets as protected flows (direct panel, runtime and agent
@@ -1864,7 +1886,9 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
     `state`, `start`, `stop`, `restart`: v1 declares one,
     `tailscale`'s `{Name: "tailscaled.service", Ops: ["state",
     "restart"]}` (4.1's rollback restarts tailscaled; the DERP module
-    restarts it through a `tailscale` action, never directly);
+    restarts it through a `tailscale` action, never directly), and
+    `firewall`'s `{Name: "darkpanel-controller.service", Ops: ["state"]}`
+    (owner ruling R3: the lockout guard reads the controller's main PID);
   - `List` is refused (core only).
 
   The `Env` that the `agent task` subcommand builds for a task process
@@ -2782,8 +2806,9 @@ Resource `firewall.status` (configured and loaded state, rules with origin,
 #### 2.4 Auto-revert (R41)
 
 Every mutating firewall action is revertible with the agent's revert timer.
-Setting `revertTimeoutSeconds` (default 60, range 30–600) is the module's
-per-host setting. The timer is armed in the change's intent transaction,
+The timeout is the apply request's `confirmTimeoutSeconds` (default 60,
+range 10–900, owner ruling R2), set with the CLI's `--confirm-timeout` and
+the change dialog's timeout field; a stored per-host setting is deferred. The timer is armed in the change's intent transaction,
 so it runs even when Apply or Verify hangs: if it fires while the change is
 still `applying`, the agent exits through the revert watchdog and startup
 recovery reverts the change (1.2). The UI shows a countdown with Confirm and
