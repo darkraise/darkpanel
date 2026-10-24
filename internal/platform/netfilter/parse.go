@@ -15,13 +15,20 @@ import (
 	"strings"
 )
 
-// Tables are the tables the parser accepts, in the order the firewall
-// module reads them.
-var Tables = []string{"filter", "nat", "raw", "mangle", "security"}
+var knownTables = []string{"filter", "nat", "raw", "mangle", "security"}
+
+// Tables returns the tables the parser accepts, in the order the firewall
+// module reads them. The slice is a copy, so callers cannot change what
+// Parse accepts.
+func Tables() []string { return slices.Clone(knownTables) }
 
 // Ruleset is one save output.
 type Ruleset struct {
 	Tables []Table
+	// LegacyPresent is set when iptables-nft-save warned that iptables-legacy
+	// tables exist as well: rules in them are not in this ruleset, so it may
+	// be incomplete.
+	LegacyPresent bool
 }
 
 // Table is one *<name> ... COMMIT block.
@@ -122,7 +129,10 @@ func (t *Table) Chain(name string) *Chain {
 const maxLine = 1 << 20
 
 // Parse reads save output. Comment lines are skipped except the
-// incompatible-table notes, which are attached to their table.
+// incompatible-table notes, which are attached to their table, and the
+// legacy-table warning, which sets Ruleset.LegacyPresent. Input with neither
+// a table block nor an incompatible-table note is an error, so an empty or
+// truncated capture is never mistaken for an empty firewall.
 func Parse(r io.Reader) (*Ruleset, error) {
 	p := parser{notes: map[string]string{}}
 	sc := bufio.NewScanner(r)
@@ -139,10 +149,21 @@ func Parse(r io.Reader) (*Ruleset, error) {
 	if p.table != nil {
 		return nil, fmt.Errorf("netfilter: table %s has no COMMIT", p.table.Name)
 	}
-	for _, name := range Tables {
-		if note, ok := p.notes[name]; ok {
-			p.rs.Tables = append(p.rs.Tables, Table{Name: name, Incompatible: note})
+	// A note that came after its table's block belongs to that table; a table
+	// with no block at all is kept as a note-only table.
+	for _, name := range knownTables {
+		note, ok := p.notes[name]
+		if !ok {
+			continue
 		}
+		if t := p.rs.Table(name); t != nil {
+			t.Incompatible = note
+			continue
+		}
+		p.rs.Tables = append(p.rs.Tables, Table{Name: name, Incompatible: note})
+	}
+	if len(p.rs.Tables) == 0 {
+		return nil, errors.New("netfilter: no tables in the input")
 	}
 	return &p.rs, nil
 }
@@ -178,8 +199,13 @@ func (p *parser) parseLine(line string) error {
 	return fmt.Errorf("unexpected line %q", truncate(line))
 }
 
-// note records iptables-nft-save's incompatible-table comments.
+// note records iptables-nft-save's incompatible-table and legacy-table
+// comments.
 func (p *parser) note(line string) {
+	if strings.HasPrefix(line, "# Warning: iptables-legacy tables present") {
+		p.rs.LegacyPresent = true
+		return
+	}
 	name, ok := strings.CutPrefix(line, "# Table `")
 	if !ok {
 		return
@@ -195,7 +221,7 @@ func (p *parser) openTable(name string) error {
 	if p.table != nil {
 		return fmt.Errorf("table %s opened inside table %s", name, p.table.Name)
 	}
-	if !slices.Contains(Tables, name) {
+	if !slices.Contains(knownTables, name) {
 		return fmt.Errorf("unknown table %q", truncate(name))
 	}
 	if p.rs.Table(name) != nil {

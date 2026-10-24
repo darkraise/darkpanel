@@ -9,8 +9,9 @@ import (
 )
 
 // FuzzParse feeds arbitrary input to Parse: it must never panic, and a
-// ruleset it accepts holds only known tables, and each rule jumps to a
-// declared chain or a contract target or is opaque (spec 1.8, R74).
+// ruleset it accepts holds at least one table, each known and named once, and
+// each rule jumps to a declared chain or a contract target or is opaque
+// (spec 1.8, R74).
 func FuzzParse(f *testing.F) {
 	seeds, err := filepath.Glob(filepath.Join("testdata", "*.save"))
 	if err != nil {
@@ -29,10 +30,18 @@ func FuzzParse(f *testing.F) {
 		if err != nil {
 			return
 		}
+		if len(rs.Tables) == 0 {
+			t.Fatal("accepted input produced no tables")
+		}
+		seen := map[string]bool{}
 		for _, tb := range rs.Tables {
-			if !slices.Contains(Tables, tb.Name) {
+			if !slices.Contains(Tables(), tb.Name) {
 				t.Fatalf("table name %q", tb.Name)
 			}
+			if seen[tb.Name] {
+				t.Fatalf("table %q appears twice", tb.Name)
+			}
+			seen[tb.Name] = true
 			for _, c := range tb.Chains {
 				for _, r := range c.Rules {
 					if r.Target.Chain && tb.Chain(r.Target.Name) == nil {
