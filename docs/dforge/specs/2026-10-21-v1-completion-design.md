@@ -1498,6 +1498,7 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
       PanelListen []netip.AddrPort // the controller's web and runtime listeners, on the controller's host
       AgentListen []netip.AddrPort // the controller's agent listeners, on the controller's host
       AgentPeers  []netip.Addr     // live agents' source addresses, on the controller's host
+      Complete    bool             // the three lists come from a complete topology with no address dropped; false makes the firewall guard unknown (register row 82)
   }
   type Peer struct {
       Addr netip.Addr
