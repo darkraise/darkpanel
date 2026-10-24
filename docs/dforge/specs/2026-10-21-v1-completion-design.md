@@ -2940,7 +2940,8 @@ Revert; the CLI behaves as in 1.13.
   (read) diffs two snapshots or one against now; `firewall.snapshot.restore`
   (revertible) restores one, and its diff lists every manual rule it would
   add or remove, which needs `manual: true`.
-- **Break-glass.** `sudo darkpanel firewall snapshot restore --local <id>` and
+- **Break-glass.** `sudo darkpanel firewall snapshot restore --local --id <id> --confirm`
+  (the generated action command) and
   `sudo darkpanel firewall rollback --local [--change <id>]`, which reverts
   the newest non-system change (or the named one) as above and confirms in
   the same command. These CLI commands live in `internal/cli/firewall*.go`.
