@@ -24,6 +24,12 @@ type GuardContext struct {
 	PanelListen []netip.AddrPort `json:"panelListen,omitempty"` // the controller's web listeners
 	AgentListen []netip.AddrPort `json:"agentListen,omitempty"` // the controller's agent listeners
 	AgentPeers  []netip.Addr     `json:"agentPeers,omitempty"`  // live agents' source addresses
+	// Complete is true when the controller filled PanelListen, AgentListen
+	// and AgentPeers from a complete topology with no address dropped. It
+	// says nothing about Client, which is legitimately nil for a composite's
+	// children, a peer without an IP address and system principals. A guard
+	// treats a context whose Complete is false as an unknown topology.
+	Complete bool `json:"complete,omitempty"`
 }
 
 // Peer is one end of a connection.
