@@ -2723,10 +2723,14 @@ Resource `firewall.status` (configured and loaded state, rules with origin,
   naming the difference). Verify then compares the
   loaded chains with the image. Repair is the only action with a
   before-image; every other action starts from an in-sync host. Verify
-  compares the predicted state relevant to every protected flow (UFW
-  chains, the built-in policies and every chain those flows traverse) with
-  the loaded state after apply; a difference fails verify with
-  `firewall.prediction_mismatch`, which reverts.
+  compares the predicted state with the loaded state after apply over
+  UFW's chains, Darkpanel's chains and the built-in chains of all five
+  tables (a rule that before.rules or after.rules appends to a built-in
+  chain of the nat, raw, mangle or security table is appended again by
+  every start, so such a chain passes while it holds every rule the start
+  appends); foreign user chains are not compared, because no start writes
+  them. A difference fails verify with `firewall.prediction_mismatch`,
+  which reverts.
 - **Evaluation** (`internal/modules/firewall/eval`, wave 1). The evaluator
   walks a predicted or loaded state for a packet tuple `(family, in-interface,
   out-interface, source, source port, destination, protocol, destination
@@ -2853,7 +2857,12 @@ Revert; the CLI behaves as in 1.13.
   (1.2) and reads the change's journal through `env.Effects` and
   `env.ChangeID`. Per effect kind, `State` holds the
   file hash, the rule tuple, the default or logging value, the `ENABLED`
-  flag, the logical row or the sysctl value; `Version` is empty. A mid-apply crash therefore leaves an exact list of what
+  flag, the logical row or the sysctl value. `Version` holds what changes
+  on every write: the hashes of the four files ufw rewrites, and for a
+  rule its positions; a file or sysctl effect has none. Settle's `skipped`
+  needs State and Version both equal to the before-state, while `made`
+  and a revert's conflict check compare State only, so a manual edit
+  elsewhere in `user.rules` is no conflict. A mid-apply crash therefore leaves an exact list of what
   was done, or names the one effect that cannot be settled.
 - **Revert of a change** (timer, explicit revert, startup recovery,
   failed apply or verify) follows 1.2's single precedence rule, decided in

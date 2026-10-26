@@ -12,36 +12,38 @@
 
 **Execution:** subagent — `claude --model sonnet --effort high` — the plan runs parallel waves, and each task's **Implementer:** line chooses its implementer
 
-**Parallelism:** waves — 1-3 | 4-6 | 7-8 | 9 | 10 | 11-13 | 14 | 15 | 16 | 17 | 18-20 | 21-22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33-34 | 35 | 36 | 37 | 38-39 | 40 | 41 | 42 | 43 | 44 | 45 | 46-47 | 48 | 49 | 50 | 51 | 52 | 53 | 54 | 55 | 56 | 57 | 58 | 59 | 60 | 61 | 62 | 63 | 64 | 65 | 66 | 67 | 68 | 69 | 70 | 71 | 72 | 73 | 74 | 75 | 76 | 77 | 78 | 79 | 80 | 81 | 82-83 | 84-85 | 86 | 87 | 88 | 89 | 90
+**Parallelism:** waves — 1-3 | 4-6 | 7-8 | 9 | 10 | 11-13 | 14 | 15 | 16 | 17 | 18-20 | 21-22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33-34 | 35 | 36 | 37 | 38-39 | 40 | 41 | 42 | 43 | 44 | 45 | 46-47 | 48 | 49 | 50 | 51 | 52 | 53 | 54 | 55 | 56 | 57 | 58 | 59 | 60 | 61 | 62 | 63 | 64 | 65 | 66 | 67 | 68 | 69 | 70 | 71 | 72 | 73 | 74 | 75 | 76 | 77 | 78 | 79 | 80 | 81 | 82-83 | 84-85 | 86 | 87 | 88 | 89-90 | 91 | 92-94 | 95-97 | 98-100 | 101 | 102 | 103 | 104 | 105 | 106 | 107-109 | 110 | 111 | 112 | 113 | 114 | 115-116 | 117 | 118 | 119
 
 **Integration check:** `mkdir -p /root/.cache/w1-tmp/integ && export TMPDIR=/root/.cache/w1-tmp/integ GOTOOLCHAIN=local && timeout 600 go build ./... && timeout 300 go vet ./... && timeout 300 go vet -tags harness ./test/... && timeout 1500 go test -count=1 ./... && timeout 900 golangci-lint run --allow-serial-runners ./... && timeout 600 golangci-lint run --allow-serial-runners --build-tags harness ./test/... && timeout 300 go mod tidy -diff && timeout 1200 make lint-web test-web`
 
 **Worktree setup:** `timeout 600 make web-deps`
 
+**Plan review:** 2026-10-26 — dforge:judge-opus — executability 15 / coherence 12 / coverage 13 / assumptions 14 (round 1)
+
 ## Global Constraints
 
-- Scope is spec revision 8 as amended on `main` (owner rulings R1–R3 of 2026-10-24 included): sections 2.1–2.5, 2.9 and 2.10 without the Docker and exposure pages, the firewall rows of section 5, the firewall parts of 1.5, 1.8 and 1.13 that wave 1 owns, and register rows 1–6, 80, 82, 84, 259, 284 and 285 of `docs/dforge/registers/2026-10-21-v1-completion.md`. Not built here: wave 2 (`internal/modules/firewall/docker*.go`, `exposure*.go`, `reconcile*.go`, spec 2.6–2.8, `test/harness/m3_docker_test.go`); rows 288 and 289 (deferred), 91 (deferred to wave 8) and 287 (an owner ruling).
-- Host safety (absolute). This host is live and runs an installed `darkpanel-agent` and `darkpanel-controller`. Never run `ufw`, `iptables`/`ip6tables` (any variant, any verb but `--version` and `-save`), `*-restore`, `nft` with anything but `list`, `sysctl -w`, or write under `/proc/sys`, `/etc/ufw`, `/etc/default/ufw`, `/var/lib/darkpanel`, `/etc/darkpanel` or `/run/darkpanel`; never start, stop, restart or reload any systemd unit. Real UFW and Docker work happens only inside privileged containers a task's script starts and removes in the same task (`docker ps -a --filter name=dp-w1-` prints only its header afterwards). Unit tests never touch the host's firewall, sysctls or units: every host access goes through an injected `core.Runner`, `core.FileWriter` or `core.Units` fake, or a root directory inside `t.TempDir()`.
+- Scope is spec revision 8 as amended on `main` (owner rulings R1–R3 of 2026-10-24 included): sections 2.1–2.5, 2.9 and 2.10 without the Docker and exposure pages, the firewall rows of section 5, the firewall parts of 1.5, 1.8 and 1.13 that wave 1 owns, and register rows 1–6, 80, 82, 84, 259, 284 and 285 of `docs/dforge/registers/2026-10-21-v1-completion.md`. Not built here: wave 2 (`internal/modules/firewall/docker*.go`, `exposure*.go`, `reconcile*.go`, spec 2.6–2.8, `test/harness/m3_docker_test.go`); rows 288, 289 and 290 (deferred), 91 (deferred to wave 8) and 287 (an owner ruling).
+- Host safety (absolute). This host is live and runs an installed `darkpanel-agent` and `darkpanel-controller`. Never run `ufw`, `iptables`/`ip6tables` (any variant, any verb but `--version` and `-save`), `*-restore`, `nft` with anything but `list`, `sysctl -w`, or write under `/proc/sys`, `/etc/ufw`, `/etc/default/ufw`, `/var/lib/darkpanel`, `/etc/darkpanel` or `/run/darkpanel`; never start, stop, restart or reload any systemd unit. Real UFW and Docker work happens only inside privileged containers a task's script starts and removes in the same task (`docker ps -a --filter name=dp-w1-` prints only its header afterwards). Unit tests never touch the host's firewall, sysctls or units: every host access goes through an injected `core.Runner`, `core.FileWriter` or `core.Units` fake, or a root directory inside `t.TempDir()`. Two production reads use `os` directly and are kept: part A2's preflight reads the binaries under `/usr/sbin` and dpkg's status file through `f.hostPath`, under `f.d.root` (`"/"` in production, a `t.TempDir()` in tests), and `snapshotConfig` writes a snapshot's files under `os.MkdirTemp("", "dp-fw-snapshot")` and removes them before it returns (the agent unit `internal/install/units/darkpanel-agent.service` has no `PrivateTmp`, so the directory is the host's `/tmp`).
 - Every `go`, `golangci-lint`, `make` and `pnpm` command runs with `GOTOOLCHAIN=local`, an explicit `timeout`, and `TMPDIR=/root/.cache/w1-tmp/<task number>` (`mkdir -p` it first; remove it and run `go clean -testcache` when the task ends), also where a step's command omits one of them: `/tmp` is an 8 GiB tmpfs and Unix socket paths over 108 bytes fail. The root filesystem is tight: when `df -h /` passes 90 %, trim Go build cache entries older than a few hours.
 - Dependencies: no task changes `go.mod`, `go.sum`, `web/package.json` or `web/pnpm-lock.yaml`; only the standard library and modules already required are used, and after every task `GOTOOLCHAIN=local timeout 300 go mod tidy -diff` prints nothing.
 - After every task all of these pass, with their real output recorded: `go build ./...`; `go vet ./...` (no output); `go test -count=1 ./...` (every line `ok` or `?`); `go test -race -count=1` on the task's packages; `golangci-lint run --allow-serial-runners ./...` (`0 issues.`); `go mod tidy -diff` (no output). A task that edits `test/harness/` also runs `go vet -tags harness ./test/...` and `go test -tags harness -count=1 ./test/harness/...`. A task that edits `web/` also runs `pnpm -C web lint`, `pnpm -C web typecheck` and `pnpm -C web test`.
 - TDD: write the test, run it and see the expected RED (usually a build failure naming the first undefined identifier), implement, run GREEN.
-- Frozen files (spec 1.12): `internal/core/contract.go`, `units.go`, `define.go`, `registry.go`, `internal/core/ext/**`, `internal/core/errcode/errcode.go`, `internal/core/lifecycle/**`, the core migrations, `internal/platform/exec.go`, `files.go`, `systemd.go`, `internal/modules/modules.go`, `internal/cli/modules.go`, `internal/controller/server/**`, `internal/controller/api/**`, `internal/controller/events/**`, `internal/controller/listen/sources.go`, `cmd/darkpanel/paths.go`, `go.mod`, `go.sum`, `web/package.json`, `web/pnpm-lock.yaml`, `web/src/modules/registry.ts`, `web/src/modules/types.ts`, `web/src/app.tsx`, `test/harness/pins.go`. Only the four tasks titled `Integrator:` (Tasks 9, 23, 16 and 28) edit frozen files, each only those its **Files:** block names. A task that finds a missing code, allowlist rule or extension point in a frozen file stops and reports it; it does not edit the file.
+- Frozen files (spec 1.12): `internal/core/contract.go`, `units.go`, `define.go`, `registry.go`, `internal/core/ext/**`, `internal/core/errcode/errcode.go`, `internal/core/lifecycle/**`, the core migrations, `internal/platform/exec.go`, `files.go`, `systemd.go`, `internal/modules/modules.go`, `internal/cli/modules.go`, `internal/controller/server/**`, `internal/controller/api/**`, `internal/controller/events/**`, `internal/controller/listen/sources.go`, `cmd/darkpanel/paths.go`, `go.mod`, `go.sum`, `web/package.json`, `web/pnpm-lock.yaml`, `web/src/modules/registry.ts`, `web/src/modules/types.ts`, `web/src/app.tsx`, `test/harness/pins.go`. Only the six tasks titled `Integrator:` (Tasks 9, 23, 16, 28, 102 and 111) edit frozen files, each only those its **Files:** block names. A task that finds a missing code, allowlist rule or extension point in a frozen file stops and reports it; it does not edit the file.
 - A task edits only the files of its own **Files:** block. Each task of a wave runs in its own worktree from the wave's base (`main` plus every merged earlier wave), so a package-wide command sees only merged work plus the task's own files.
-- Test isolation: `t.TempDir()` for files and databases; TCP only on `127.0.0.1` port 0; Unix sockets under `os.MkdirTemp("", "dp")`; `coretest.NewFakeClock` wherever a duration above one second is waited on; no fixed path outside a temporary directory; no global mutable state shared between tests of different tasks. Container names carry the task's part and a suffix of their own (`dp-w1-<part>-…`), so capture scripts of one wave never share a container. Tasks of one wave therefore share no port, path, container or global state.
+- Test isolation: `t.TempDir()` for files and databases; TCP only on `127.0.0.1` port 0; Unix sockets under `os.MkdirTemp("", "dp")`; `coretest.NewFakeClock` wherever a duration above one second is waited on; no fixed path outside a temporary directory; no global mutable state shared between tests of different tasks. Container names start with `dp-w1-` and end in a suffix no other task's script uses (most use `dp-w1-<part>-<n>`; part F2's capture script uses `dp-w1-cap-…`), so capture scripts of one wave never share a container. Tasks of one wave therefore share no port, path, container or global state.
 - Tasks that share a Go package declare no top-level identifier, test helpers included, that another task declares. Shared test helpers are the ones each part's constraints below name; every other new test helper carries its task's prefix.
-- Code style: match the surrounding code; a doc comment on every exported identifier; comments only for a non-obvious why, in full sentences, never naming a plan, task, register row or review; `//nolint` names the rule and a reason; gofmt clean. Error strings start with the package name (`firewall:`, `model:`, `fwstate:`, `conf:`, `loaded:`, `predict:`, `eval:`, `guard:`, `netfilter:`, `netstat:`, `core:`, `lifecycle:`, `dispatch:`, `server:`, `cli:`, `harness:`). Refusals are `*errcode.Error` with client-safe details, using the codes already in `internal/core/errcode/errcode.go` (`firewall.*`, `plan.guard_failed`, `request.invalid_input`); anything else is a plain error.
+- Code style: match the surrounding code; a doc comment on every exported identifier; comments only for a non-obvious why, in full sentences, never naming a plan, task, register row or review; `//nolint` names the rule and a reason; gofmt clean. Error strings start with the package name (`firewall:`, `model:`, `fwstate:`, `conf:`, `loaded:`, `predict:`, `eval:`, `guard:`, `netfilter:`, `netstat:`, `core:`, `lifecycle:`, `dispatch:`, `server:`, `cli:`, `harness:`), with one exception: package `guard`'s production errors start with `firewall:`, because they reach the operator inside the lockout guard's message. Refusals are `*errcode.Error` with client-safe details, using the codes already in `internal/core/errcode/errcode.go` (`firewall.*`, `plan.guard_failed`, `request.invalid_input`); anything else is a plain error.
 - The firewall's module id is `firewall`; every `env.Files` call passes module `"firewall"`. `env.Exec` runs only allowlisted vectors (`internal/platform/exec_rules.go`): `ufw [--force|--dry-run] <verb> …`, `iptables|ip6tables --version`, `<family><variant>-save -t <table>`, `<family><variant>-restore -n` (stdin), `nft list tables`, `nft list table <family> <name>`. The firewall's sysctl owned paths (spec 2.1) are `net/ipv4/ip_forward` and, with `<iface>` also `all` and `default`, `net/ipv6/conf/<iface>/forwarding`, `net/ipv6/conf/<iface>/accept_ra`, `net/ipv4/conf/<iface>/rp_filter` and `net/ipv4/conf/<iface>/accept_source_route`.
 - Values copied from the spec, used exactly: the revert timeout is the apply request's `confirmTimeoutSeconds`, 10–900 s, default 60 (owner ruling R2); snapshot retention keeps the last 50 unpinned snapshots of non-system changes and the last 10 of system changes, plus those of unconfirmed or `needs_repair` changes, plus pinned ones, and the first mutation on a host pins a `baseline` snapshot; the controller unit the guard reads is `{Name: "darkpanel-controller.service", Ops: ["state"]}` (owner ruling R3); Tailscale's ranges are `100.64.0.0/10` and `fd7a:115c:a1e0::/48`.
 - "The base" in a task's text means the work its **Depends on** line names (each part was drafted on the merge of every earlier part; Assumptions). "Part contracts" means that part's subsection of Contracts below, and "part <letter>" names a part of the table there.
 - Commits use `<type>(<scope>): <subject>`, type one of feat|fix|docs|style|refactor|test|chore|perf, subject at most 50 characters, imperative, no trailing period, no attribution of any kind. English only.
-- The plan ends with the gates in `docs/dforge/gates.md`. Tasks 8, 83, 85, 86 and 89 touch `test/harness/` or `.github/workflows/harness.yml`, so gate 7 (harness) applies to the branch once it is pushed, as well as on `main`; dispatch `harness.yml` on the branch per the owner's standing authorization. Task 89 raises the `vm` job's `timeout-minutes` from 120 to 200. No task creates or pushes a tag.
+- The plan ends with the gates in `docs/dforge/gates.md`. Tasks 8, 83, 85, 86, 90, 101, 110, 116 and 118 touch `test/harness/` or `.github/workflows/harness.yml`, so gate 7 (harness) applies to the branch once it is pushed, as well as on `main`; dispatch `harness.yml` on the branch per the owner's standing authorization. Task 90 raises the `vm` job's `timeout-minutes` from 120 to 200. No task creates or pushes a tag.
 
-### Part F1 constraints (Tasks 1, 2, 3, 4, 5, 6, 9, 11, 12, 15, 16, 23, 24, 28)
+### Part F1 constraints (Tasks 1, 2, 3, 4, 5, 6, 9, 11, 12, 15, 16, 23, 24, 28, 89, 92, 102, 107, 111, 115)
 
 - Part F1 edits only these files: `internal/core/registry.go` and `registry_test.go` (frozen; Task 9 only, titled `Integrator:`, owner ruling R1); `internal/core/guard.go` and `internal/core/guard_test.go`; `internal/controller/dispatch/guard.go` and `guard_test.go`; `internal/controller/server/topology.go`, `services.go` and `services_test.go` (frozen; Task 23 only, titled `Integrator:`, register row 82); `internal/platform/netfilter/**`; `internal/platform/netstat/**`; `internal/cli/mutate.go`, `local.go`, `change.go` and their tests `mutate_test.go`, `local_test.go`, `change_test.go`; `internal/core/lifecycle/repair.go` and the new `repair_revertible_test.go` (frozen; Task 16 only, titled `Integrator:`, controller ruling); `internal/controller/fleet/registry.go`, `internal/controller/listen/runtime.go`, their tests `registry_test.go` and `runtime_test.go`, and `internal/controller/server/topology.go`, `services_test.go` and `assembly_test.go` again (frozen; Task 28 only, titled `Integrator:`, controller ruling on row 82). It never edits `internal/modules/firewall/**` (part F2) or any other file of `internal/core/lifecycle/**`.
 - `core.GuardContext.Complete` describes only `PanelListen`, `AgentListen` and `AgentPeers`. `Client` may be nil in a complete context (a composite's children, a peer without an IP address, system principals). The firewall guard treats a non-nil plan `GuardContext` whose `Complete` is false as `unknown` (spec 1.5): the guard fails, and like every unknown verdict it is overridable unless the host is unsupported or out of sync (spec 2.3). A nil `Guard` (local break-glass plans, `system:*` actors) carries no controller topology at all; the firewall then relies on its own live facts (owner ruling R3).
-- The dispatcher is the only writer of `Complete`: it copies `Topology.Complete` and clears it when `Topology.Dropped` is not empty. The server's topology is complete only once all four sources (web, runtime, agent, peers) have registered; an embedded-agent controller registers empty agent and peer sources with `setNoAgents`. Every address the web and agent listeners, the runtime listeners or the session registry cannot read as an IP address ends up in `Topology.Dropped`, and the runtime listeners and the session registry also log each one at Warn.
+- The dispatcher is the only writer of `Complete`: it copies `Topology.Complete` and clears it when `Topology.Dropped` is not empty. The server's topology is complete only once all four sources (web, runtime, agent, peers) have registered; an embedded-agent controller registers empty agent and peer sources with `setNoAgents`. From Task 102 on, the runtime source counts only once `Runtime.Start` has succeeded, and an open runtime listener that is not bound leaves the topology incomplete. Every address the web and agent listeners, the runtime listeners or the session registry cannot read as an IP address ends up in `Topology.Dropped`, and the runtime listeners and the session registry also log each one at Warn.
 - A repair change's outcome follows the target's stored class (`core_changes.class`). For a revertible target, the outcome is the `repairOutcome` its `RepairedBy` action reported, and the target's own output is kept. For any other target applied again, the outcome is `kept` and the target takes the repair's output.
 - `netfilter.Parse` keeps its save-syntax behaviour exactly; restore syntax is read only through `ParseRestore`, which calls `parseRule(toks, true)`.
 - `netfilter.Key` is the comparison form for prediction, the in-sync check and verify. Nothing compares rule text directly. Rules are compared per chain, in order, with `Key(rule, ipv6)` for the chain's family.
@@ -50,7 +52,7 @@
 - The CLI offers `--confirm-timeout` on revertible actions and on `change repair`. It takes 10 to 900 seconds, using the bounds `lifecycle.MinConfirmTimeout` and `MaxConfirmTimeout`; 0 means the server's default and is never sent. An out-of-range value is a usage error raised before any request.
 - Shared test helpers: `ufwImages`, `ufwLoad` and `chainNames` (Task 11, `restore_test.go`), used by Task 24. Each other new top-level test identifier carries its task's prefix: `gc` (Task 1), `tg` (Task 23), `rs` (Task 11), `ky` (Task 24), `dl` (Task 5), `srx` (Task 16, the module `srx`), `peersLog` and `rtOdd` (Task 28).
 
-### Part F2 constraints (Tasks 10, 13, 18, 25, 29, 33)
+### Part F2 constraints (Tasks 10, 13, 18, 25, 29, 33, 103)
 
 - Part F2 owns exactly `internal/modules/firewall/model/**`, `internal/modules/firewall/fwstate/**`, `internal/modules/firewall/conf/**`, `internal/modules/firewall/testdata/golden/**` and `internal/modules/firewall/testdata/capture.sh`. It edits no existing file: not `internal/modules/firewall/firewall.go` or its test (the actions part owns the module root), no frozen file, no `go.mod`.
 - Imports: `model` uses only the standard library and `internal/core/errcode`; `fwstate` uses only `model`, `internal/core` and `internal/platform/netfilter` (the types at the base: `netfilter.Ruleset`); `conf` uses only `fwstate`, `model` and `internal/core`. No F2 package imports another firewall package, so the loaded-state reader, predictor, evaluator, guard, snapshots and actions can build on them in parallel.
@@ -64,7 +66,7 @@
 - Test identifiers: `ruleTest*` (Task 10), `tupleTest*` (Task 13), `argsTest*` (Task 25), `confTest*` (Task 29), `golden*` (Task 33). The only shared test helper is `ruleTestID` (Task 10), which Task 13's tests use.
 - Order: Task 10, then Task 13; after Task 13, Task 25 and the chain Task 18, Task 29, Task 33 are independent and may run in parallel.
 
-### Part C constraints (Tasks 40, 48, 49, 50, 56, 60)
+### Part C constraints (Tasks 40, 48, 49, 50, 56, 60, 93)
 
 - Part C owns exactly `internal/modules/firewall/loaded/**` (the package `loaded` and its `testdata/nft/`). It edits no existing file, no frozen file and no `go.mod`/`go.sum`.
 - Imports: `loaded` uses the standard library, `internal/core`, `internal/core/errcode`, `internal/modules/firewall/fwstate`, `internal/modules/firewall/conf`, `internal/platform/netfilter` and `internal/platform/netstat`; its tests also use `internal/platform` (only `ProductionRules`). No other firewall package is imported, so the predictor, evaluator, guard and snapshots parts build beside it.
@@ -76,7 +78,7 @@
 - Test identifiers: `ld*` (Task 40, shared), `nftTest*` (Task 48, shared), `fh*` (Task 56), `sr*` (Task 60), `sp*` (Task 49), `cmp*` (Task 50). The shared helpers are Task 40's `ldRunner`, `ldResult`, `ldMissing`, `ldGolden`, `ldFiles`, `ldEnv`, `ldReader`, `ldParse`, `ldGoldenDir`, `ldImages`, `ldScenarios`, `ldLegacyFilter`, `ldLegacyRaw` (used by Task 56 and Task 60) and Task 48's `nftTestDir`, `nftTestRead` (used by Task 56). Every test that reads through `read` passes its own `procNet` temporary directory and a `Reader` whose `Interfaces` and `NFTablesLoaded` are set, so no test reads the host.
 - Order: Task 40 first. Then Task 48, Task 49 and Task 50 are independent of each other; Task 56 needs Task 48; Task 60 needs Task 56 (both rewrite `read.go`).
 
-### Part P constraints (Tasks 38, 46, 51, 57, 58, 61)
+### Part P constraints (Tasks 38, 46, 51, 57, 58, 61, 104)
 
 - Part P owns exactly `internal/modules/firewall/predict/**`. It edits no existing file, no frozen file and no `go.mod`, and adds no testdata: its tests read F2's golden tree (`internal/modules/firewall/testdata/golden/`, never edited by hand) and embed the few container captures they need as constants.
 - Imports: `predict` uses the standard library, `internal/core/errcode`, `internal/modules/firewall/fwstate`, `internal/modules/firewall/model` and `internal/platform/netfilter`. Its tests also use `internal/core` and `internal/modules/firewall/conf`. No firewall package imports `predict` until the actions part wires it.
@@ -93,13 +95,13 @@
 - Part E owns `internal/modules/firewall/eval/**` and nothing else. No task edits `fwstate`, `netfilter`, `conf`, `model` or any frozen file.
 - The evaluator is pure: no host access (no `core.Runner`, no files, no sockets, no `/proc`), no logging, no goroutines, and no package-level mutable state. The package-level maps (`ctStates`, `protoNumbers`, `tcpFlagBits`) are only read.
 - Unknown is always safe. Whatever the walk cannot model returns `fwstate.Unknown` with a reason; no path through the code turns an unmodelled match, target, table or hook into `Accept`. A later change that models something new must keep this property: it may turn `Unknown` into a decided verdict only where the kernel's behaviour is certain.
-- The exported surface is exactly the fixed cross-part signature `func Evaluate(rs *netfilter.Ruleset, p fwstate.Packet, route fwstate.Router) fwstate.Result`. No `Options` parameter was added (Assumptions, ruling R-E1).
+- The exported surface is exactly the fixed cross-part signature `func Evaluate(rs *netfilter.Ruleset, p fwstate.Packet, route fwstate.Router) fwstate.Result`. No `Options` parameter was added (Assumptions, ruling R-E1). Task 99 later adds a second exported function, `func Unmodelled(rs *netfilter.Ruleset) []string` (part A2fix contracts); no other task adds one.
 - `Evaluate`'s packet contract, which callers (the guard) must meet: `Path` is the routing decision for the packet's original destination (`input` when routing delivers it to this host, `forward` otherwise, `output` for a locally generated packet); an `input` packet is addressed to a local unicast address; a locally generated packet to this host has `OutIface` `lo`; `InIface` is required for `input` and `forward`, `OutIface` for `forward` and `output`; `CtState` is one of `NEW`, `ESTABLISHED`, `RELATED`, `INVALID`, `UNTRACKED`; `SrcPort` 0 means the source port is unknown (a connection that does not exist yet), which makes every `--sport`/`--sports` match undecidable (Task 42); `Mark` is the mark the packet carries when it enters netfilter (0 for a packet from the network unless the caller knows otherwise; for a locally generated packet 0 means "unknown, the socket may set one" and any other value is taken as the socket's exact mark).
 - Trace entries are `<table>/<chain>#<n>` with `n` the 1-based position of the rule in its chain, in walk order; jumps are traced; a rule whose match could not be decided is not traced. `Reason` is empty for `Accept`; for `Drop` and `Reject` it is `<table>/<chain>#<n> drops|rejects` or `<table>/<chain> policy DROP`; for `Unknown` it is `<ref>: <why>`, an `eval:`-prefixed packet error, or a hook-level reason.
 - Shared test helpers (declared once, in `eval_test.go` by Task 30): `evalRuleset`, `evalPacket`, `evalCheck`. Every other test identifier carries its task's prefix: `walk` (Task 30), `match` (Task 35), `hooks` (Task 41), `mark` (Task 52), `ufwGolden` (Task 39), `docker28` (Task 47), `tailscale` (Task 55), `srcPort` (Task 42).
 - Fixtures under `eval/testdata/` are read with paths relative to the package directory; the UFW goldens are read from `../testdata/golden/` (part F2's captures) and never copied.
 
-### Part G constraints (Tasks 17, 31, 36, 43, 44, 53)
+### Part G constraints (Tasks 17, 31, 36, 43, 44, 53, 94, 95, 105, 112, 113)
 
 - Part G creates and edits only `internal/modules/firewall/guard/**` (package `guard`). It imports `internal/core`, `internal/modules/firewall/fwstate`, `internal/platform/netfilter` and `internal/platform/netstat`, and no other firewall package: the evaluator reaches it only as `Input.Eval`, so `guard` builds in parallel with parts C, P, E and A1.
 - Every host access goes through `guard.Host` (sockets, interfaces, route lookups, the agent's PID), `env.Files.ReadSysctl` and `env.Units.State`. Unit tests use the fakes `gHost`, `gFiles` and `gUnits`; no test reads the host's firewall, writes a sysctl or touches a unit. Only `TestLiveHost` reads the real `/proc` and asks the kernel for the route to `127.0.0.1`, both read-only.
@@ -110,7 +112,7 @@
 - After Task 53, a flow for a connection that does not exist yet (SSH, panel, agent link, controller session, exposure, tailscaled's TCP 443) carries `SrcPort` 0, which the evaluator reads as an unknown source port; only flows built from an observed socket whose source port is known keep it (the agent's own outbound session, tailscaled's UDP port). Every `input` packet the guard evaluates is addressed to one of this host's addresses (evaluator ruling R-E1); `probes` makes any other incoming flow `unknown`.
 - Test helpers shared between tasks are `gHost`, `gFiles`, `gUnits`, `gEnv` and `gIfaces` (Task 17), `flPkt`, `flOn`, `flSock` and `flAddrPorts` (Task 31), and `rtQuery` and `rtVia` (Task 36); Task 44 adds the field `errs` to `gFiles`. Every other test helper carries its task's prefix: `fl` (Task 31), `rt` (Task 36), `ck` (Task 43); Task 53 adds `ckEnv`, `ckIfaces` and `rtFactsWithPanel` and edits Task 43's `ck` fixtures.
 
-### Part A1 constraints (Tasks 32, 37, 45, 54, 59, 62, 63, 64)
+### Part A1 constraints (Tasks 32, 37, 45, 54, 59, 62, 63, 64, 106, 114, 117, 119)
 
 - Part A1 creates exactly these files in package `firewall` (`internal/modules/firewall/`): `image.go`, `store.go`, `migrations/agent/0001_firewall.sql`, `deps.go`, `snapshot.go`, `observe.go`, `effects.go`, `restore.go`, `inverse.go`, `revert.go`, and the tests `image_test.go`, `store_test.go`, `host_test.go`, `snapshot_test.go`, `observe_test.go`, `effects_test.go`, `restore_test.go`, `inverse_test.go`, `revert_test.go`. It edits no existing file: not `firewall.go` or `firewall_test.go` (the actions part writes the manifest), no subpackage, no frozen file, no `go.mod`.
 - Every name of this part is unexported. The actions part, in the same package, calls them. Every host access goes through `deps`, `env.Exec`, `env.Files`, `env.Effects` and `env.DB`; nothing reads `/proc`, `/etc` or the kernel directly.
@@ -124,7 +126,7 @@
 - Tests never touch the host. They use the `fakeHost` of `host_test.go`: UFW's files under `t.TempDir()`, parsed by the real `conf.Read`; a scripted ufw; and fakes for `core.Runner`, `core.FileWriter` and `core.EffectJournal`. Shared test helpers: `fwTestDB` and `stTestIDs` (Task 37); `fakeHost`, `newFakeHost`, `fhState`, `fhStateOf`, `fhJournal`, `fhParse`, `fhSave`, `fhTag`, `fhRule22v4`, `fhRule22v6`, `fhRule3000v4`, `fhRule53v6` (Task 45); `obTestID` and `obTestVersion` (Task 54); `efTestID`, `efTestRule`, `efTestLines` and `efTestOnly` (Task 59); `rsTestSnap` and `rsTestRuns` (Task 62). Every other test identifier carries its task's prefix: `im` (Task 32), `st` (Task 37), `ob` (Task 54), `ef` (Task 59), `rs` (Task 62), `iv` (Task 63), `rv` (Task 64), or is a `Test` function named after its subject.
 - Order: the tasks form one chain, Task 32 to Task 64. Each needs every task before it.
 
-### Part A2 constraints (Tasks 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84, 87, 88, 90)
+### Part A2 constraints (Tasks 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84, 87, 88, 91, 96, 97, 98, 99, 100, 108, 109)
 
 - Part A2 creates exactly these files in package `firewall` (`internal/modules/firewall/`): `wire.go`, `preflight.go`, `sync.go`, `status.go`, `diff.go`, `target.go`, `plan.go`, `handler.go`, `actions_state.go`, `actions_rule.go`, `actions_rules.go`, `actions_snapshot.go`, `snapshots.go`, `actions_repair.go`, `uninstall.go`, and the tests `wire_test.go`, `preflight_test.go`, `sync_test.go`, `status_test.go`, `diff_test.go`, `target_test.go`, `plan_test.go`, `handler_test.go`, `actions_state_test.go`, `actions_rule_test.go`, `actions_rules_test.go`, `actions_snapshot_test.go`, `snapshots_test.go`, `actions_repair_test.go`, `uninstall_test.go`, `e2e_guard_test.go`, `e2e_engine_test.go`. It rewrites `firewall.go` and `firewall_test.go` (the wave 0 skeleton) and adds the generated `schemas/firewall.*/v1.json`. It edits no file of part A1 (`deps.go`, `image.go`, `store.go`, `snapshot.go`, `observe.go`, `effects.go`, `restore.go`, `inverse.go`, `revert.go`, the migration and their tests), no subpackage, no frozen file and no `go.mod`/`go.sum`.
 - Only the types an action or resource exchanges are exported, because the schema generator, the web part and the CLI part read them: `StateInput`, `DefaultsInput`, `LoggingInput`, `RuleAddInput`, `RuleDeleteInput`, `RulesApplyInput`, `SnapshotRestoreInput`, `RepairInput`, `SnapshotCompareInput`, `ChangeOutput`, `Status`, `Configured`, `Defaults`, `LoadedState`, `LoadedChain`, `ChainDifference`, `SnapshotList`, `SnapshotInfo`, `SnapshotComparison`, `FileChange`. Everything else is unexported and used only inside the package.
@@ -145,20 +147,82 @@ As part A2, plus:
 - `mutation.Verify` reads only the host (`readConfig`, `readLoaded`), the change's own effect journal (`env.Effects.List`) and the module's store (the snapshot attached to `env.ChangeID`). It writes nothing, so startup recovery may still call it with a zero output.
 - A change's sysctl prediction comes from its journal and its snapshot, never from its input: a change started UFW when its last made effect on `firewall.state:enabled` left UFW enabled (an enable or a reload); a change that did not start UFW and wrote no sysctl key predicts and checks no sysctl value. A change that started UFW predicts `loaded.PredictSysctl(cfg, <the snapshot's values>, TransEnable)` for every key UFW's sysctl file sets and every key the kernel changes as a side effect, and nothing for the other keys. A value the change wrote itself (a made `firewall.sysctl:<key>` effect) replaces the prediction of that key.
 - `Config.Files` holds `/etc/ufw/sysctl.conf` on every host (`Present` false when the file is absent), whether or not `/etc/default/ufw` sets `IPT_SYSCTL`; `Config.SysctlFile` and `Config.Sysctl` still describe only the file `IPT_SYSCTL` names. Every snapshot therefore holds the file, and `fw.writeRestored`, A1's `restore` and the file effects' inverses treat it like any other state file.
-- Shared test helpers added: `eeEngineRunning` and `eeSkewed` (Task 90, `e2e_engine_test.go`), and the `NoSysctl` field of A1's `fhState` (Task 88, `host_test.go`). Every other new test identifier carries its task's prefix: `vs` (Task 87, Task 90) or `sf` (Task 88).
-- Order: Task 87 and Task 88 need only the base (part A2 complete). Task 90 needs Task 87.
+- Shared test helpers added: `eeEngineRunning` and `eeSkewed` (Task 91, `e2e_engine_test.go`), and the `NoSysctl` field of A1's `fhState` (Task 88, `host_test.go`). Every other new test identifier carries its task's prefix: `vs` (Task 87, Task 91) or `sf` (Task 88).
+- Order: Task 87 and Task 88 need only the base (part A2 complete). Task 91 needs Task 87.
 
-### Part U constraints (Tasks 7, 8, 14, 19, 20, 21, 22, 26, 27, 34, 83, 85, 86, 89)
+### Part U constraints (Tasks 7, 8, 14, 19, 20, 21, 22, 26, 27, 34, 83, 85, 86, 90, 101, 110, 116, 118)
 
-- Part U owns `internal/cli/firewall.go` and `internal/cli/firewall_test.go`; `web/src/modules/firewall/**` except the Docker and exposure pages (`container-actions.tsx` stays the wave 0 stub for the Docker wave); the revert-timeout field of `web/src/components/change-dialog.tsx` and its test; `test/harness/m3_firewall_test.go` and its helper file `test/harness/m3_firewall_helpers_test.go`; and, by controller ruling, the nftables line of `test/harness/provision.go` with its test (Task 8) and the M3 step of `.github/workflows/harness.yml` (Task 89; wave 1 runs alone, so spec 1.12 allows the workflow change in this wave). No task edits a frozen file (spec 1.12: `internal/cli/modules.go`, `web/src/modules/registry.ts`, `web/src/modules/types.ts`, `web/src/app.tsx`, `test/harness/pins.go`).
+- Part U owns `internal/cli/firewall.go` and `internal/cli/firewall_test.go`; `web/src/modules/firewall/**` except the Docker and exposure pages (`container-actions.tsx` stays the wave 0 stub for the Docker wave); the revert-timeout field of `web/src/components/change-dialog.tsx` and its test; `test/harness/m3_firewall_test.go` and its helper file `test/harness/m3_firewall_helpers_test.go`; and, by controller ruling, the nftables line of `test/harness/provision.go` with its test (Task 8) and the M3 step of `.github/workflows/harness.yml` (Task 90; wave 1 runs alone, so spec 1.12 allows the workflow change in this wave). No task edits a frozen file (spec 1.12: `internal/cli/modules.go`, `web/src/modules/registry.ts`, `web/src/modules/types.ts`, `web/src/app.tsx`, `test/harness/pins.go`).
 - `web/src/api/client.ts` is edited by Task 7 although it is not in part U's brief: `applyPlan` is the only function that builds the apply request, and owner ruling R2 needs that request to carry `confirmTimeoutSeconds`, so it gains the optional `ApplyOptions` parameter. The change is additive (every existing caller is unchanged), the file is not frozen, and no other wave 1 part edits web files (controller ruling 3, 2026-10-24).
 - Every mutating firewall action is revertible (spec 2.4): every firewall page opens its change through `FirewallChange` (Task 14), which sets `revertible: true`, so the change dialog asks for the revert timeout and sends `confirmTimeoutSeconds`.
 - The firewall pages never decide a refusal themselves: the agent plans every change, and the change dialog shows its diff and guards. A manual rule is changed only after the operator agrees in the page, which then sends `manual: true` (spec 2.2, 2.5).
 - The TypeScript types in `web/src/modules/firewall/types.ts` mirror the JSON of part A2's Go types (Part contracts, "Shapes taken from part A2"); a later change to one side changes the other in the same task.
 - Change events do not refetch resource queries (`web/src/api/events.ts`), so a firewall page invalidates `["resource", hostId]` itself after an apply and whenever its change dialog closes.
 - The break-glass rollback talks only to the agent socket (`--local`), and asks `Apply? [y/N]` unless `--yes`; it never goes through the controller API.
-- `TestM3Firewall` runs only with `-os`, `-m2` and `-m3`, in the workflow step of its own that Task 89 adds; `go test -tags harness ./test/harness/...` without them only runs the helpers' unit test `TestM3UFWLines`. The harness scenarios are compiled here, never run here (VMs in CI only).
+- `TestM3Firewall` runs only with `-os`, `-m2` and `-m3`, in the workflow step of its own that Task 90 adds; `go test -tags harness ./test/harness/...` without them only runs the helpers' unit test `TestM3UFWLines`. The harness scenarios are compiled here, never run here (VMs in CI only).
 - Harness test helpers carry the `m3` prefix; CLI test helpers the `fwrb` prefix; web test helpers of one file carry that file's prefix (`rt`, `rf`, `sc`, `sp`, `scmp`, `fp`) except the shared fixtures of `fixtures.ts`.
+
+### Review fix Gfix constraints (Tasks 94, 95, 105, 112, 113)
+
+As part G, plus (the fix part Gfix, Tasks 94, 95, 105, 112 and 113):
+
+- Gfix edits `internal/modules/firewall/guard/**` and, in Task 113 only, adds one method to the fake host `e2eNet` of `internal/modules/firewall/e2e_guard_test.go`. Its test helpers carry the prefix `gx`.
+- Every route lookup the guard makes carries the packet's mark in `netstat.RouteQuery.Mark`: the lookups of `(*router).probes` (output, forwarded, the route back to an unspecified destination, the reverse-path lookup of `eligible`) and the evaluator's Router `(*router).route`. A flow's packet has mark 0 except tailscaled's own flows (flow 6), which carry `tailscaleMark`, `0x80000`; no incoming flow has a mark, so their lookups carry 0.
+- The Router answers `("output", "lo")` for an `output` packet whose destination is a loopback or host address, and `("input", "")` for any other packet with such a destination; the evaluator requires a non-empty out-interface for an output packet.
+- With a controller on the host (`facts.controller != 0`, the main process of its unit) every TCP socket it listens on is a protected flow from an internet stand-in address with `SrcPort` 0. A loopback listener and a listener bound to an address that is not this host's are skipped. A listener on an address of `dp-panel` (the runtime listener) is reached from the next address of the bridge's network, entering on `dp-panel`. With no controller main process there are no listener flows.
+- `Host` is unchanged. Listing routes is the separate interface `routeDumper`, which `LiveHost` implements. `Check` asks the host for it only when a supported IPv6 forwarding value of the checked state differs from the live one, and then returns an error (never an empty fact) when the host lacks it or the listing fails.
+- A change to IPv6 forwarding on a host whose default IPv6 route was learned from router advertisements fails the guard as one `unknown` flow labelled `IPv6 router advertisements`, which comes last among `Check`'s results and is overridable like every `unknown` (the actions part decides). The live forwarding values are read through `env.Files.ReadSysctl` like `rp_filter`, so the firewall manifest must declare the sysctl owned path `net/ipv6/conf/<iface>/forwarding`; it does (spec 2.1, `firewall.go`'s `sysctlKeys`).
+- After Task 113 every `Host` given to a `Check` that can see a forwarding change (the end-to-end fake, a harness fake) implements `Routes(netstat.Family) ([]netstat.Route, error)`.
+
+### Review fix A1fix constraints (Tasks 106, 114, 117, 119)
+
+As part A1, plus:
+
+- Part A1fix creates `migrations/agent/0002_firewall_restore_kind.sql` and edits only part A1's files `store.go`, `restore.go`, `revert.go` and `image.go` (a doc comment) with their tests `store_test.go`, `restore_test.go` and `revert_test.go`. It edits no file of part A2, no subpackage, no frozen file and no `go.mod`/`go.sum`. It consumes three names of part A2 without changing them: `ufwRunning` (`status.go`, Task 69), `reloadArgs` (`target.go`, Task 71) and `transitionOp` (`handler.go`, Task 73). Task 117 and Task 119 need them, so the controller must order those two tasks after Tasks 69, 71 and 73.
+- `0001_firewall.sql` is untouched. `0002` is expand-only: two `ADD COLUMN`s, one with a default, so a row written before it is a normal restore and an older binary running on the newer schema inserts rows without them, which are normal restores too.
+- `restore`'s signature is unchanged (part A2's `uninstall.go` calls it). The emergency restore is the one caller of the new `restoreOver`.
+- A restore record has a kind. `firewall_restores.override` is NULL exactly when `kind` is `normal` (a CHECK constraint). An emergency record is the JSON of `emergencyRecord` and is written in the same transaction that records the restore, before the first file is written.
+- Retention, `beginRestore` (one record at most; a new restore deletes the old one) and `endRestore` are as part A1 left them.
+- New test identifiers: the tests are named `TestAx...` and the one shared helper is `axImageRepair` (Task 119, `revert_test.go`).
+- Order: the tasks form one chain, Task 106 to Task 119, each needing the one before. All four need the base (part A1 and part A2 complete).
+
+### Review fix A2fix constraints (Tasks 96, 97, 98, 99, 100, 108, 109)
+
+As part A2, plus:
+
+- Part A2fix edits only these files in package `firewall` (`internal/modules/firewall/`): `actions_repair.go`, `actions_repair_test.go`, `wire_test.go`, `sync.go`, `sync_test.go`, `handler.go`, `e2e_engine_test.go`, `plan.go`, `status.go`, `actions_rules.go` and `actions_rules_test.go`; creates `unsupported.go` and `unsupported_test.go`; and regenerates `schemas/firewall.state.repair/v1.json`. In part E's package `eval` it only adds `unsupported.go` and `unsupported_test.go` (Task 99, titled "Fix part E's evaluator"), and edits no existing file there. It edits no file of part A1 (`restore.go`, `revert.go`, `store.go`, `image.go`, the migration), none of part C's `loaded/sysctl_read.go` or part P's `predict/`, no frozen file and no `go.mod`/`go.sum`.
+- A repair that restores a snapshot needs `manual: true` exactly when `firewall.snapshot.restore` does: when the restore adds or removes a manual rule. `outcome` is `restore`, `keep` or absent; any other value is `request.invalid_input` at `/outcome`, with or without a repaired change.
+- Verify (`mutation.Verify`) compares with `fw.verifyDiffs`, and the plan's in-sync check and the status with `fw.syncDiffs`. They differ on purpose: `syncDiffs` cannot tell the rules a `before.rules` or `after.rules` block appends to a non-filter built-in chain on every start from a difference, so it leaves those chains out; `verifyDiffs` reads the state right after a start and accepts them while the loaded chain holds them. Nothing else may compare a built-in chain of the nat, raw, mangle or security table by rule text or by `loaded.Compare` over all rules without the same tolerance.
+- `restoreKeep` (part A1's restore and revert verification) is not changed; `verifyKeep` is separate and is a superset of it.
+- The host is an unsupported configuration (a hard refusal, spec 2.1) when `hostUnsupported` lists any reason: the configured state's, the loaded state's, or a mangle or security rule `eval.Unmodelled` returns. `fw.prepare` applies the same check to the loaded state the change predicts. `eval.Unmodelled` and `Evaluate` must agree: a change to what the walk decides changes `modelledModules` and `targetGap` in the same commit (`TestUnmodelledAgreesWithEvaluate`).
+- Test identifiers added carry the prefix `ay`: `ayRunner` (Task 97), `ayMasq` and `ayNat` (Task 98), `ayNoNat` (Task 108), `ayTables` (Task 99) and `ayMangle` (Task 109). None is shared between tasks. The new `Test…` functions are named after their subject.
+- Order: Task 96, Task 97, Task 98, Task 99 and Task 100 need only the base (part A2 complete). Task 108 needs Task 98. Task 109 needs Task 99.
+
+### Review fix PCF2fix constraints (Tasks 93, 103, 104)
+
+As parts P, C and F2 (their Part constraints), plus:
+
+- Part PCF2fix edits only these files: `internal/modules/firewall/predict/predict.go`, `translate.go` and `predict_test.go` (Task 104); `internal/modules/firewall/loaded/sysctl_read.go`, `sysctl_predict.go` (its doc comment only) and `sysctl_read_test.go` (Task 93); `internal/modules/firewall/model/args.go` and `args_test.go` (Task 103). It edits no frozen file, no module-root file and no `go.mod`. The three tasks share no file or package and may run in parallel; each follows its own part's last task.
+- Predict, start with UFW's primary chains present (Task 104): `ufw_start` adds the six jumps of each built-in filter chain only when it creates the primary chains, and appends the built-in chain rules of before.rules and after.rules on every start. `startFamily` therefore skips exactly the first `len(jumpedChains)` rules of each built-in filter chain of the translation, the jumps `restoreText` writes first, and loads every other rule. `restoreText` and `startFamily` both take the jumps from `jumpedChains`, so the two cannot drift. A reload or a re-enable appends those rules again after the existing jumps, as UFW does.
+- Loaded sysctl values (Task 93): `loaded` reads the four per-interface keys of every interface `Reader.Interfaces` lists, the loopback interface included, in the interface order given after `all` and `default`. Only an interface whose name cannot be a key segment, or is `all` or `default`, is not read and becomes an `Unsupported` reason.
+- Argument safety (Task 103): no argument of any vector starts with `-`. `AddArgs` and `InsertArgs` render a manual rule's comment only when it is not empty, does not start with `-` and matches `commentPattern`; otherwise the rule is written without a comment. A Darkpanel rule's tag is always written; its label follows the tag only when it matches `commentPattern`. `DeleteArgs` never carries a comment. `Validate` is unchanged: the builders do not rely on it for comments read from UFW's files.
+- New test identifiers carry the prefixes `px` (Task 104: `TestPxBuiltinRules`) and `mx` (Task 103: `mxRules`, `mxRule`, `TestMxCommentArgs`); Task 93 adds none.
+
+### Review fix F1Ufix constraints (Tasks 89, 92, 101, 102, 107, 110, 115, 116, 118)
+
+As parts F1 and U, plus:
+
+- The server's guard topology is complete only when the web, agent and peer sources are registered, the runtime source is registered and no open runtime listener waits for a bind. The runtime source is registered by `(*Server).startRuntimeListeners` after `listen.Runtime.Start` succeeded, never in `startServices`. This replaces Part F1's statement that the topology is complete once the four sources are registered (Tasks 23 and 28 keep their code; Task 102 changes it).
+- `listen.Runtime.Listening` is the only way the server reads the runtime listeners for the topology; it reads the bound addresses and the unbound count under one lock. Do not call `Addrs` and `Unbound` one after the other for that.
+- `netfilter.Key` spells values as iptables 1.8.11 reads and `iptables-save` prints them (pinned in Assumptions). A spelling that iptables refuses is kept as written, so `Key` never maps a rule that cannot be loaded onto one that can. A name, alias or unit is added to a table only with a test row of what a container's `iptables-save` printed.
+- The ICMP, REJECT, LOG and limit tables of `key.go` are tied to `iptables-1.8.11.tar.xz` (sha256 in Assumptions). A change to them re-runs the probe of Assumptions against the iptables version the supported images ship.
+- The harness scenarios of this part run only on the VM fleet (`go test -tags harness -run TestM3Firewall -os ... -m2 ... -m3`). What can run without VMs is a pure helper with the prefix `m3x` and a unit test. Every harness helper that decides pass or fail is such a helper.
+- `refuse-tailscaled-egress` fails, never skips, when the agent host shows no tailscaled socket: a logged-out tailscaled holds its UDP port.
+- Test identifiers: `kx` in `internal/platform/netfilter` (`kxIcmp4`, `kxIcmp6`, `kxIcmpRefused`, `TestKxIcmpTypes` in Task 92; `kxReject`, `kxRejectRefused`, `kxLogLevels`, `kxLogRefused`, `TestKxRejectNames`, `TestKxLogLevels` in Task 107; `kxLimits`, `kxLimitRefused`, `TestKxLimitRates` in Task 115), `tx` in `internal/controller/listen` and `internal/controller/server` (`TestTxRuntimeListening`, `TestTxTopologyWaitsForRuntimeListeners`, `TestTxRuntimeSourceRegistersAfterStart`), `m3x` in `test/harness`. The new helpers of `key.go` carry no prefix: no other part edits package `netfilter`.
+
+### Review fix F1Sfix constraints (Tasks 111)
+
+- As part F1. Task 111 is an `Integrator:` task and edits only the frozen files its **Files:** block names: `internal/controller/server/topology.go`, `server.go` and the test file `listeners_test.go`. Its test carries the prefix `Sd`.
 
 ## Contracts
 
@@ -166,15 +230,15 @@ Each part below was drafted and verified as one unit; its contracts are kept as 
 
 | Part | Scope | Tasks |
 |---|---|---|
-| F1 | Integrator fixes (registry R1, guard topology row 82, repair outcome), `netfilter` ErrNoTables, ParseRestore and Key, `netstat` rows 259 and 284, the CLI's `--confirm-timeout` | 1, 2, 3, 4, 5, 6, 9, 11, 12, 15, 16, 23, 24, 28 |
-| F2 | `firewall/model`, `firewall/fwstate`, `firewall/conf`, the UFW golden captures | 10, 13, 18, 25, 29, 33 |
-| C | `firewall/loaded`: the loaded-state reader, nft listings, foreign hooks, sysctl values and prediction, Compare | 40, 48, 49, 50, 56, 60 |
-| P | `firewall/predict`: UFW's files, argument vectors, edits, translation, transitions, the IPv6 refusal | 38, 46, 51, 57, 58, 61 |
+| F1 | Integrator fixes (registry R1, guard topology row 82, repair outcome), `netfilter` ErrNoTables, ParseRestore and Key, `netstat` rows 259 and 284, the CLI's `--confirm-timeout` | 1, 2, 3, 4, 5, 6, 9, 11, 12, 15, 16, 23, 24, 28, 89, 92, 102, 107, 111, 115 |
+| F2 | `firewall/model`, `firewall/fwstate`, `firewall/conf`, the UFW golden captures | 10, 13, 18, 25, 29, 33, 103 |
+| C | `firewall/loaded`: the loaded-state reader, nft listings, foreign hooks, sysctl values and prediction, Compare | 40, 48, 49, 50, 56, 60, 93 |
+| P | `firewall/predict`: UFW's files, argument vectors, edits, translation, transitions, the IPv6 refusal | 38, 46, 51, 57, 58, 61, 104 |
 | E | `firewall/eval`: the packet evaluator and its UFW, Docker 28 and tailscaled goldens | 30, 35, 39, 41, 42, 47, 52, 55 |
-| G | `firewall/guard`: live facts, protected flows, eligibility and routing, the lockout check | 17, 31, 36, 43, 44, 53 |
-| A1 | module root: before-images, the snapshot store and capture, effects, observe, restore, inverses, revert | 32, 37, 45, 54, 59, 62, 63, 64 |
-| A2 | module root: wiring, preflight, manifest, status, plan, the actions and resources, uninstall, end-to-end tests | 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84, 87, 88, 90 |
-| U | break-glass CLI, the change dialog's timeout, the web pages, the M3 harness and its workflow step | 7, 8, 14, 19, 20, 21, 22, 26, 27, 34, 83, 85, 86, 89 |
+| G | `firewall/guard`: live facts, protected flows, eligibility and routing, the lockout check | 17, 31, 36, 43, 44, 53, 94, 95, 105, 112, 113 |
+| A1 | module root: before-images, the snapshot store and capture, effects, observe, restore, inverses, revert | 32, 37, 45, 54, 59, 62, 63, 64, 106, 114, 117, 119 |
+| A2 | module root: wiring, preflight, manifest, status, plan, the actions and resources, uninstall, end-to-end tests | 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84, 87, 88, 91, 96, 97, 98, 99, 100, 108, 109 |
+| U | break-glass CLI, the change dialog's timeout, the web pages, the M3 harness and its workflow step | 7, 8, 14, 19, 20, 21, 22, 26, 27, 34, 83, 85, 86, 90, 101, 110, 116, 118 |
 
 ### Cross-part signatures
 
@@ -215,7 +279,185 @@ func Check(ctx context.Context, env core.Env, st fwstate.Loaded, in Input) (core
 
 `Check` returns the `firewall.lockout` guard: `OK` false when any flow is `drop`, `reject` or `unknown`, with a message naming the failing flows. It never decides overridability or hard refusals; the actions part does.
 
-### Part F1 contracts (Tasks 1, 2, 3, 4, 5, 6, 9, 11, 12, 15, 16, 23, 24, 28)
+### Shared types
+
+Package `fwstate` (`internal/modules/firewall/fwstate/fwstate.go`), as Task 18 creates it; Task 88 later changes only the comment of `Config.Files` to the one shown ("StateFiles plus /etc/ufw/sysctl.conf"). Every part exchanges these types; no task adds a field.
+
+```go
+package fwstate
+
+import (
+	"net/netip"
+
+	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/model"
+	"github.com/darkraise/darkpanel/internal/platform/netfilter"
+)
+
+// Family is an IP family.
+type Family string
+
+// The families.
+const (
+	V4 Family = "v4"
+	V6 Family = "v6"
+)
+
+// StateFiles are UFW's state files a snapshot holds (spec 2.5), in this order.
+var StateFiles = []string{
+	"/etc/ufw/user.rules", "/etc/ufw/user6.rules",
+	"/etc/ufw/before.rules", "/etc/ufw/before6.rules",
+	"/etc/ufw/after.rules", "/etc/ufw/after6.rules",
+	"/etc/ufw/ufw.conf", "/etc/default/ufw",
+}
+
+// MaxFileSize is the largest state file a snapshot records (spec 2.5).
+const MaxFileSize = 4 << 20
+
+// Config is UFW's configured state (spec 2.1).
+type Config struct {
+	Enabled        bool   // ufw.conf ENABLED=yes
+	LogLevel       string // ufw.conf LOGLEVEL: off, low, medium, high or full
+	IPv6           bool   // /etc/default/ufw IPV6=yes
+	ManageBuiltins bool   // MANAGE_BUILTINS=yes
+	DefaultInput   string // DEFAULT_INPUT_POLICY: ACCEPT, DROP or REJECT
+	DefaultOutput  string
+	DefaultForward string
+	SysctlFile     string                       // IPT_SYSCTL, absolute
+	Rules4, Rules6 []model.Tuple                // the ### tuple ### lines of user.rules and user6.rules, in file order
+	Files          map[string]core.RestoreEntry // StateFiles plus /etc/ufw/sysctl.conf, by absolute path; Present false when absent
+	Sysctl         []SysctlSetting              // SysctlFile's settings, in file order
+	Unsupported    []string                     // why the configuration cannot be predicted (2.1); empty when supported
+}
+
+// SysctlSetting is one key = value line of UFW's sysctl file, the key in
+// /proc/sys form ("net/ipv4/ip_forward").
+type SysctlSetting struct{ Key, Value string }
+
+// Loaded is the loaded state (spec 2.1): what the kernel holds now, or what
+// a prediction says it will hold.
+type Loaded struct {
+	Variant     string             // "nft" or "legacy": the iptables variant UFW uses
+	V4, V6      *netfilter.Ruleset // that variant's five tables; V6 nil when ip6tables is absent
+	Sysctl      map[string]string  // supported keys in /proc/sys form to value, global and per present interface
+	Unsupported []string           // foreign netfilter hooks found (2.1)
+}
+
+// Transition is what an action makes UFW do (spec 2.3).
+type Transition string
+
+// The transitions.
+const (
+	TransNone    Transition = "none"
+	TransReload  Transition = "reload" // a rule change with reload, or a reload after a file change
+	TransEnable  Transition = "enable"
+	TransDisable Transition = "disable"
+)
+
+// Packet is one packet tuple the evaluator walks (spec 2.3).
+type Packet struct {
+	Family   Family
+	Path     string // "input", "forward" or "output": the hook chain after routing
+	InIface  string // input and forward
+	OutIface string // forward and output
+	Src, Dst netip.Addr
+	SrcPort  uint16
+	DstPort  uint16
+	Proto    string // "tcp", "udp", "icmp", ...
+	CtState  string // conntrack state: "NEW", "ESTABLISHED", ...
+	Mark     uint32
+}
+
+// Verdict is what the evaluator decided.
+type Verdict string
+
+// The verdicts.
+const (
+	Accept  Verdict = "accept"
+	Drop    Verdict = "drop"
+	Reject  Verdict = "reject"
+	Unknown Verdict = "unknown"
+)
+
+// Result is a verdict with the reason and the rules that decided it.
+type Result struct {
+	Verdict Verdict
+	Reason  string   // why, for unknown and for a drop or reject: the deciding rule
+	Trace   []string // "<table>/<chain>#<rule index>" in walk order
+}
+
+// Router says where a packet goes after nat PREROUTING rewrote its
+// destination: the new path and out-interface.
+type Router func(p Packet) (path, outIface string, err error)
+
+// ChainDiff is one chain whose rules differ between two loaded states.
+type ChainDiff struct {
+	Family       Family
+	Table, Chain string
+	PolicyA      string // "" when equal or not a built-in chain
+	PolicyB      string
+	OnlyA, OnlyB []string // netfilter rule keys present on one side only, in order
+	OrderDiffers bool     // same keys, different order
+}
+```
+
+Package `firewall`'s injected host functions (`internal/modules/firewall/deps.go`, Task 45). The module's `fw` value holds them as `f.d`; parts A1 and A2 reach the host only through them, and Task 65 wires the production values.
+
+```go
+// deps are the firewall's host-facing functions. Production values come
+// from conf, loaded, predict and guard; tests replace them.
+type deps struct {
+	root       string // "/" in production; the root conf.Read reads under
+	readConfig func(root string) (fwstate.Config, error)
+	readLoaded func(ctx context.Context, env core.Env) (fwstate.Loaded, error)
+	predict    func(cfg fwstate.Config, cur fwstate.Loaded, tr fwstate.Transition) (fwstate.Loaded, error)
+	edit       func(cfg fwstate.Config, args []string) (fwstate.Config, error)
+	files      func(cfg fwstate.Config) (map[string][]byte, error)
+	compare    func(a, b fwstate.Loaded, keep func(f fwstate.Family, table, chain string) bool) []fwstate.ChainDiff
+	sysctl     func(cfg fwstate.Config, cur map[string]string, tr fwstate.Transition) (map[string]string, error)
+	// lockout evaluates the lockout guard on st for the connectivity
+	// exception; gc is the GuardContext the snapshot recorded.
+	lockout func(ctx context.Context, env core.Env, st fwstate.Loaded, gc *core.GuardContext) (ok bool, detail string, err error)
+}
+```
+
+### Further shared names
+
+Unexported names that one task defines and later tasks of the same package call or edit. Use each exactly as written here; a later signature replaces the earlier one from the task that changes it.
+
+| Name | Package | Signature | Defined in | Used by |
+|---|---|---|---|---|
+| `chainOf` | `firewall` | `func chainOf(rs *netfilter.Ruleset, table, chain string) *netfilter.Chain` | Task 32 | 68, 69, 82, 84, 91, 98, 108, 109 |
+| `sysctlRank` | `firewall` | `func sysctlRank(key string) int` | Task 62 | 73 |
+| `logVanished` | `firewall` | `func logVanished(env core.Env, keys []string)` | Task 64 | 80, 114 |
+| `eligible` | `guard` | `func (r *router) eligible(p fwstate.Packet) ([]string, error)` | Task 36 | 17, 43, 44, 86, 105, 113 |
+| `rtFacts` | `guard` | `func rtFacts(all, eth0, eth1 int) facts` | Task 36 | 44, 53, 105 |
+| `newPacket` | `guard` | `func newPacket(path string, src netip.Addr, sport uint16, dst netip.Addr, dport uint16, proto string) fwstate.Packet` | Task 31 | 53, 105, 112 |
+| `listenFor` | `guard` | `func listenFor(src, l netip.Addr) (netip.Addr, bool)`; from Task 53: `func listenFor(src, l netip.Addr, local map[netip.Addr]bool) (netip.Addr, bool)` | Task 31 | 53, 112 |
+| `viaFlows` | `guard` | `func viaFlows(s *flowSet, ctxs []*core.GuardContext, retired []string)`; from Task 53: `func viaFlows(s *flowSet, ctxs []*core.GuardContext, retired []string, local map[netip.Addr]bool)` | Task 31 | 53 |
+| `ckHost` | `guard` | `func ckHost() *gHost` | Task 43 | 53, 105, 112 |
+| `ckAllFlows` | `guard` | `var ckAllFlows []string (every flow name ckHost yields)` | Task 43 | 53, 105 |
+| `ckInput` | `guard` | `func ckInput(t *testing.T, deny func(p fwstate.Packet) bool) Input` | Task 43 | 53 |
+| `transition` | `firewall` | `func (f fw) transition(tg *target, cur fwstate.Loaded, tr fwstate.Transition, args []string) error` | Task 71 | — |
+| `start` | `firewall` | `func (f fw) start(tg *target, cur fwstate.Loaded, running bool) error` | Task 71 | — |
+| `eeEngine` | `firewall` | `func eeEngine(t *testing.T, h *e2eHost) *lifecycle.Engine` | Task 84 | 91 |
+| `eePlanApply` | `firewall` | `func eePlanApply(t *testing.T, eng *lifecycle.Engine, name, raw string) (core.PlanView, core.ChangeView, error)` | Task 84 | 91, 108 |
+| `vsEffect` | `firewall` | `func vsEffect(resource string, state core.EffectState, post string) core.Effect` | Task 87 | 91 |
+| `vsBefore` | `firewall` | `func vsBefore() map[string]string` | Task 87 | 91 |
+| `vsConfig` | `firewall` | `func vsConfig(settings ...fwstate.SysctlSetting) fwstate.Config` | Task 87 | 91 |
+| `dpkgStatus` | `firewall` | `const dpkgStatus = "/var/lib/dpkg/status"` | Task 67 | — |
+| `minUFW` | `firewall` | `var minUFW = []int{0, 35}` | Task 67 | — |
+| `plural` | `firewall` | `func plural(n int, noun string) string` | Task 68 | 98 |
+| `familyRules` | `firewall` | `func familyRules(st fwstate.Loaded, fam fwstate.Family) *netfilter.Ruleset` | Task 68 | 98 |
+| `foreignKeys` | `firewall` | `func foreignKeys(rs *netfilter.Ruleset, chain string, fam fwstate.Family) []string` | Task 68 | 98 |
+| `stateAction` | `firewall` | `func (f fw) stateAction(name, summary string, enable bool) core.ActionDef` | Task 74 | — |
+| `hkMutation` | `firewall` | `func hkMutation(f fw, build buildFunc) mutation[hkInput]` | Task 73 | 91 |
+| `hkInput` | `firewall` | `type hkInput struct (test input of the handler tests)` | Task 73 | 91 |
+| `pnHost` | `firewall` | `func pnHost(t *testing.T) (*fakeHost, fw, *fwStub)` | Task 72 | 73, 91 |
+| `tgStopped` | `firewall` | `tgStopped = "*filter\n:INPUT ACCEPT [0:0]…" (test fixture: a loaded state with UFW stopped)` | Task 71 | 73, 74, 91 |
+| `fhParse` | `firewall` | `func fhParse(t *testing.T, text string) *netfilter.Ruleset` | Task 45 | 62, 68, 69, 71, 72, 73, 74, 91, 98, 109, 117, 119 |
+
+### Part F1 contracts (Tasks 1, 2, 3, 4, 5, 6, 9, 11, 12, 15, 16, 23, 24, 28, 89, 92, 102, 107, 111, 115)
 
 **Task 9 — registry rule (`internal/core/registry.go`).** `(*Registry).checkRepairedBy(a ActionDef) []error` accepts a `RepairedBy` action whose class is compensable, irreversible or revertible, and a revertible action may name itself. It still refuses the read and composite classes, a task action, an action with a recovery handler, another module's action, another side, and a lock key the revertible action does not hold. The class is checked first, so a composite repair action is refused with `action <ref>: repair action <ref> is composite, want compensable, irreversible or revertible`. Read actions get the same message with `read`.
 
@@ -320,7 +562,7 @@ Each returns its readable addresses as before. It also returns, sorted, every re
 - **Repair action.** Register `firewall.state.repair` as revertible with `RepairedBy: "firewall.state.repair"`, and register every other firewall action with `RepairedBy: "firewall.state.repair"`. The registry accepts both after Task 9. Its input must accept `{}` (lifecycle `checkRepairedBy`). A `firewall.state.repair` change that repairs another `firewall.state.repair` change reports its `repairOutcome` like any other repair (Task 16). The repaired change keeps its own output.
 - **CLI and web.** The firewall's generated revertible commands inherit `--confirm-timeout` from `addMutatingFlags`. Hand-written firewall CLI commands that call `planAndApply` get the check and the request field automatically if they add the flag with `addConfirmTimeoutFlag`. The web change dialog sends `confirmTimeoutSeconds` in the apply body, the field the CLI sends.
 
-### Part F2 contracts (Tasks 10, 13, 18, 25, 29, 33)
+### Part F2 contracts (Tasks 10, 13, 18, 25, 29, 33, 103)
 
 **Task 10 — rule model, `internal/modules/firewall/model/rule.go`.**
 
@@ -371,7 +613,7 @@ Each returns its readable addresses as before. It also returns, sorted, every re
 - **Evaluator and guard:** walk `fwstate.Packet` through `fwstate.Loaded` to a `fwstate.Result`, with `fwstate.Router` for post-DNAT routing; compare states with `fwstate.ChainDiff`.
 - **Snapshots:** record `cfg.Files` (all of `fwstate.StateFiles` plus `/etc/ufw/sysctl.conf` when `IPT_SYSCTL` is set; sizes already capped at `fwstate.MaxFileSize`) as the snapshot's `RestoreEntry` values; the only sysctl file path the manifest needs as an owned path of kind restore is `/etc/ufw/sysctl.conf`.
 
-### Part C contracts (Tasks 40, 48, 49, 50, 56, 60)
+### Part C contracts (Tasks 40, 48, 49, 50, 56, 60, 93)
 
 **Task 40 — loaded tables, `internal/modules/firewall/loaded/read.go`.**
 
@@ -436,7 +678,7 @@ One `ChainDiff` per differing chain that `keep` selects (nil: all), ordered by f
 - **Sysctl (2.1).** `next, err := loaded.PredictSysctl(cfgAfter, st.Sysctl, tr)`: an error is returned as is (it is already `firewall.unsupported_configuration`, a hard refusal); every key whose value differs between `st.Sysctl` and `next` is shown in the plan. The guard evaluates the target state with `next` (for example `rp_filter` eligibility: the maximum of `net/ipv4/conf/all/rp_filter` and `net/ipv4/conf/<iface>/rp_filter`), and `ip_forward` 0 under a forwarded protected flow fails it; an IPv6 forwarding change on a host whose default IPv6 route came from router advertisements is `unknown` (the guard part's rule). Snapshots record `st.Sysctl` as the before-values; revert writes them back with `WriteSysctl`, `all` and `default` first.
 - **Predictor.** `predict.Predict` takes `st` as `cur`: the tables `Read` returns are the save tool's view, so a table the kernel lacks under the nft variant is present with empty built-in chains and policy `ACCEPT`, and `Compare` treats that the same as an absent table.
 
-### Part P contracts (Tasks 38, 46, 51, 57, 58, 61)
+### Part P contracts (Tasks 38, 46, 51, 57, 58, 61, 104)
 
 **Task 38 — rendering, `internal/modules/firewall/predict/render.go`.**
 
@@ -608,7 +850,7 @@ func IPv6Refusal(cfg fwstate.Config, cur fwstate.Loaded, tr fwstate.Transition) 
 - A `Result` whose `Verdict` is not `fwstate.Accept` fails the flow; `Reason` names the deciding rule and `Trace` the rules walked, for the guard's message. `fwstate.Loaded.V6` is nil when ip6tables is absent: `Evaluate` then returns `Unknown` ("eval: no ruleset for the packet's family"), so the guard decides before calling whether a missing IPv6 ruleset means "no IPv6 filtering" (Assumptions, controller item).
 - Predictor and loaded-state reader (parts P, C) need nothing from part E; their `fwstate.Loaded` values are what the guard passes in.
 
-### Part G contracts (Tasks 17, 31, 36, 43, 44, 53)
+### Part G contracts (Tasks 17, 31, 36, 43, 44, 53, 94, 95, 105, 112, 113)
 
 **Task 17 — live facts (`internal/modules/firewall/guard/facts.go`).**
 
@@ -754,7 +996,7 @@ func viaFlows(s *flowSet, ctxs []*core.GuardContext, retired []string, local map
 
 Flows 1 to 4 (from the context and from live facts), the exposure flows and tailscaled's TCP 443 flow carry `SrcPort` 0; the agent's outbound sessions keep their local port and tailscaled's UDP flows their socket port. A panel or agent listener that is specified and not a host address is skipped. An NPM `Public` address that is not a host address becomes the unspecified address of its family (upstream NAT), which `probes` resolves to the preferred source of the route back to the stand-in client. `probes` answers one unknown probe `"<dst> is not an address of this host"` for an `input` flow whose (resolved) destination is not in `localAddrs`. Test helpers: `ckEnv` and `ckIfaces` in `guard_test.go` (`gIfaces` plus an up `dp-panel` at 172.30.0.1/16, with its `rp_filter` 0), `rtFactsWithPanel` in `route_test.go`.
 
-### Part A1 contracts (Tasks 32, 37, 45, 54, 59, 62, 63, 64)
+### Part A1 contracts (Tasks 32, 37, 45, 54, 59, 62, 63, 64, 106, 114, 117, 119)
 
 **Task 32 — before-images (`image.go`).**
 
@@ -1030,7 +1272,7 @@ The actions part (manifest, actions, Verify) uses this part as follows:
 - **Repair.** `firewall.state.repair` with `outcome: restore` finds the target's snapshot with `snapshotOfChange(ctx, env.DB, env.Call.RepairOf)`, loads it with `getSnapshot`, and restores it with `restore`. After a successful repair apply it calls `unpinChangeSnapshot(ctx, env, env.Call.RepairOf)`. Retention keeps the target's snapshot anyway while the target is `needs_repair`.
 - **Resources and CLI.** `firewall.snapshots` lists with `listSnapshots` (the System filter selects the reconcile task's snapshots). `firewall.snapshot.compare` loads with `getSnapshot`. The break-glass `rollback --local --change <id>` finds a change's snapshot with `snapshotOfChange`.
 
-### Part A2 contracts (Tasks 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84, 87, 88, 90)
+### Part A2 contracts (Tasks 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84, 87, 88, 91, 96, 97, 98, 99, 100, 108, 109)
 
 **Task 65 — wiring (`wire.go`).**
 
@@ -1285,7 +1527,7 @@ func sysctlMismatches(want, live map[string]string) []string
 
 `sysctlRecordOf` ignores every effect that is not made or has no `Post`; `started` is true when the last made effect on `firewall.state:enabled` has `Post` `true`; `written` holds the made `firewall.sysctl:<key>` effects whose `Post` is a JSON string (a `null`, a key that has gone, is skipped). `written` is never nil. `expectedSysctl` takes the configuration `cfg` after the change and `before`, the live values before it (the change's snapshot's `State.Sysctl`): when `r.started` it asks `f.d.sysctl(cfg, before, fwstate.TransEnable)` (an error is wrapped, `firewall: predict the sysctl values: …`, and keeps its `firewall.unsupported_configuration` code) and keeps the keys whose predicted value differs from `before` or that `cfg.Sysctl` names; then `r.written` overrides. `sysctlMismatches` returns, sorted by key, `<key>: live "<live>", predicted "<want>"` for each key of `want` that `live` holds with another value; a key `live` lacks is skipped.
 
-**Task 90 — verify (`handler.go`).** `func (f fw) verifySysctl(ctx context.Context, env core.Env, cfg fwstate.Config, live map[string]string) error`. `mutation.Verify` calls it last, after the chain comparison, with the configuration it read and `st.Sysctl` of the loaded state it read. It lists `env.Effects`, returns nil when the record shows no start and no write, otherwise reads the snapshot of `env.ChangeID` (`snapshotOfChange`, `getSnapshot`), predicts with `expectedSysctl` over that snapshot's `State.Sysctl` and fails with `firewall.prediction_mismatch` (`mismatch`), `the loaded sysctl values differ from the prediction: ` followed by the `sysctlMismatches` joined by `"; "`. Every other failure (the journal, the snapshot, the prediction) is a plain error `firewall: verify: …`. Test helpers: `func eeEngineRunning(t *testing.T, h *e2eHost, exec core.Runner) *lifecycle.Engine` (`eeEngine` calls it with `h`) and `eeSkewed{*e2eHost; key, value string}`, a runner whose `ufw reload` leaves `key` at `value`.
+**Task 91 — verify (`handler.go`).** `func (f fw) verifySysctl(ctx context.Context, env core.Env, cfg fwstate.Config, live map[string]string) error`. `mutation.Verify` calls it last, after the chain comparison, with the configuration it read and `st.Sysctl` of the loaded state it read. It lists `env.Effects`, returns nil when the record shows no start and no write, otherwise reads the snapshot of `env.ChangeID` (`snapshotOfChange`, `getSnapshot`), predicts with `expectedSysctl` over that snapshot's `State.Sysctl` and fails with `firewall.prediction_mismatch` (`mismatch`), `the loaded sysctl values differ from the prediction: ` followed by the `sysctlMismatches` joined by `"; "`. Every other failure (the journal, the snapshot, the prediction) is a plain error `firewall: verify: …`. Test helpers: `func eeEngineRunning(t *testing.T, h *e2eHost, exec core.Runner) *lifecycle.Engine` (`eeEngine` calls it with `h`) and `eeSkewed{*e2eHost; key, value string}`, a runner whose `ufw reload` leaves `key` at `value`.
 
 **Task 88 — `conf.Read` (`conf/conf.go`).** Behaviour change, no new name: `Read` records `/etc/ufw/sysctl.conf` in `Files` on every host. With `IPT_SYSCTL` unset it records the file (or an absent entry) and sets neither `SysctlFile` nor `Sysctl`, and the file's content raises no `Unsupported` reason. With `IPT_SYSCTL` naming another path it behaves as before. A `/etc/ufw/sysctl.conf` that is a symbolic link, not a regular file or larger than `fwstate.MaxFileSize` is now an error whatever `IPT_SYSCTL` says. Test helper: `fhState.NoSysctl bool` (the fake ufw leaves `IPT_SYSCTL` out of `/etc/default/ufw`; `fhStateOf` sets it from `cfg.SysctlFile == ""`).
 
@@ -1294,7 +1536,7 @@ func sysctlMismatches(want, live map[string]string) []string
 - **Wave 2 (Docker integration) and every later mutating action.** A new action is checked without further work when it starts UFW through `ufw --force enable` or `ufw reload` journaled as an effect on `firewall.state:enabled` (`fw.run`, `transitionOp`), and when it writes a sysctl key through `writeSysctlEffect` (`fw.restoreSysctl`). An action that starts or stops UFW by another resource must journal it on `firewall.state:enabled` for the check to see it; one that writes a sysctl key by another path must journal a `firewall.sysctl:<key>` effect.
 - **Part U (web and CLI), break-glass.** No surface changes. `firewall.snapshot.compare` now lists `/etc/ufw/sysctl.conf` among the files of a snapshot on every host (`absent` when the host has no such file); `firewall.status` reports `configured.sysctlFile` as before (the file `IPT_SYSCTL` names, empty when unset). A change whose sysctl values are not what the prediction said is reverted by the engine with `firewall.prediction_mismatch`, naming the key, the live and the predicted value.
 
-### Part U contracts (Tasks 7, 8, 14, 19, 20, 21, 22, 26, 27, 34, 83, 85, 86, 89)
+### Part U contracts (Tasks 7, 8, 14, 19, 20, 21, 22, 26, 27, 34, 83, 85, 86, 90, 101, 110, 116, 118)
 
 ##### Contracts of Task 26 — `internal/cli/firewall.go` (package `cli`)
 
@@ -1340,7 +1582,7 @@ func sysctlMismatches(want, live map[string]string) []string
 - Helpers (`m3_firewall_helpers_test.go`): types `m3Status`, `m3Chain`, `m3Plan` with `(m3Plan).m3Lockout() (core.Guard, bool)` and `(m3Plan).m3DiffText() string`; `(*API).m3Status`, `(*API).m3Plan`, `(*API).m3Apply(ctx, host, action, input, timeoutSeconds) (Change, error)`, `(*API).m3Change`, `(*API).m3Revert`; `m3TLSAPI(base, dial, caPEM) (*API, error)`, `m3WebCA`, `m3Run`, `m3WaitStatus(ctx, t, api, host, timeout, check)`, `m3Healthy`, `m3WaitChange(ctx, t, api, id, want, timeout)`, `m3FindRule`, `m3ManualPort(port, iface)`, `m3HasPort`, `m3PortRule(port)`, `m3Hold`, `m3Release`, `m3WaitSession`, `m3Quote`, `m3UFWLines(save) []string`, `m3JSON`; unit test `TestM3UFWLines`.
 - Scenario helpers (`m3_firewall_test.go`): `m3Ready` (waits until both hosts are supported, in sync and active; nftables comes from provisioning, Task 8), `m3RequireCut(ctx, t, api, host, action, input, want)`, `m3RequirePending`, `m3RequireGone`, `m3RequireUnsupported(ctx, t, f, action, input, want)`, `m3UnsupportedNamed`, `m3StoppedIPv6No`, and the constants `m3DenyOutgoing`, `m3MismatchWrapper`, `m3StrayRule`, `m3ClearForeignIPv6`.
 
-##### Contracts of Task 89 — `.github/workflows/harness.yml`
+##### Contracts of Task 90 — `.github/workflows/harness.yml`
 
 - The `vm` job gains the step "Run the M3 firewall harness" after "Run the harness": `go test -tags harness -timeout 70m -v -run '^TestM3Firewall$' ./test/harness/ -args -os <os> -m3 -bin … -m2 … -commit … -workdir "$RUNNER_TEMP/harness-m3" -cache …`, run unless the job was cancelled (`if: ${{ !cancelled() }}`), so a failed M1/M2 run does not hide the M3 result; the job's `timeout-minutes` goes from 120 to 200; the failure-log upload also takes `${{ runner.temp }}/harness-m3/**/*.log`.
 
@@ -1363,20 +1605,253 @@ Aligned to part A2's code at its final commit `a2da643` (2026-10-24, A2's latest
 - Part A2's merge registers the actions and resources these pages, the rollback and the harness call; nothing here registers anything. Once merged, `darkpanel firewall snapshot restore`, `snapshot compare`, `snapshots get` and `status get` exist as generated commands next to `darkpanel firewall rollback`.
 - The Docker wave (3a/2.6) adds its routes to `FirewallRoutes` (a new `<Route>` before `*`), its panel to `FirewallPage`, and fills `container-actions.tsx`; it opens every change through `FirewallChange(hostId, action, title, input, onClose)` and reads status with `statusQueryKey(hostId)`. The exposure wave adds its table the same way.
 - Any other module's page that plans a revertible action passes `target.revertible: true` to `ChangeDialog` to ask for the revert timeout; `applyPlan(plan, confirmation, { confirmTimeoutSeconds })` is the only way the web sends it.
-- Later harness waves append their M3 steps (Docker integration, exposure scan) to the `steps` list of `TestM3Firewall`, before `golden-recheck`, and reuse `m3Plan`, `m3Apply`, `m3RequireCut`, `m3WaitStatus` and `m3WaitChange`. Task 89's workflow step runs `TestM3Firewall` with `-m3` in a go test run of its own; a later wave that adds many M3 steps re-sizes its 70-minute timeout and `m3Deadline` together.
+- Later harness waves append their M3 steps (Docker integration, exposure scan) to the `steps` list of `TestM3Firewall`, before `golden-recheck`, and reuse `m3Plan`, `m3Apply`, `m3RequireCut`, `m3WaitStatus` and `m3WaitChange`. Task 90's workflow step runs `TestM3Firewall` with `-m3` in a go test run of its own; a later wave that adds many M3 steps re-sizes its 70-minute timeout and `m3Deadline` together.
+
+### Review fix Gfix contracts (Tasks 94, 95, 105, 112, 113)
+
+As part G, plus:
+
+**Task 105 - marks (`flows.go`, `route.go`).** Unexported:
+
+```go
+const tailscaleMark uint32 = 0x80000 // tailscaled's bypass mark, carried by flow 6
+```
+
+`tailscaleFlows` sets `Packet.Mark` to `tailscaleMark` on every packet it builds (UDP and TCP 443). `(*router).probes` and `(*router).route` pass `Mark: p.Mark` in every `netstat.RouteQuery` they build. `(*router).route` answers `("output", "lo", nil)` for an `output` packet whose destination is loopback or one of the host's addresses; for any other path the answer is unchanged (`("input", "", nil)`). Test helpers: `func gxMark(p fwstate.Packet, mark uint32) fwstate.Packet` (`flows_test.go`) and `func gxQueryMark(q netstat.RouteQuery, mark uint32) netstat.RouteQuery` (`route_test.go`). `ckHost`'s route for tailscaled's lookup of 198.51.100.1 is keyed with `gxQueryMark(..., 0x80000)`.
+
+**Task 112 - controller listeners (`flows.go`).** Unexported:
+
+```go
+func controllerListenFlows(s *flowSet, f facts, local map[netip.Addr]bool)
+func panelProxy(ifaces []netstat.Interface, l netip.Addr) (proxy netip.Addr, onBridge bool)
+```
+
+`buildFlows` calls `controllerListenFlows` after `controllerSessionFlows` and before `agentOutboundFlows`. When `f.controller != 0`, for every socket of `f.sockets` that is TCP, listening and held by the process `f.controller` (`heldBy`), with the unmapped local address `l` not loopback: when `panelProxy(f.ifaces, l)` reports `onBridge` (`l` is an address of the interface named `dp-panel`), the flow is `{label: "controller listener", pkt: newPacket("input", proxy, 0, l, port, "tcp") with InIface "dp-panel"}` when `proxy` is valid (`l.Next()` lies in the same prefix) and no flow otherwise; any other `l` gives, for each of `internet4` and `internet6`, `listenFor(src, l, local)` and, when it holds, `{label: "controller listener", pkt: newPacket("input", src, 0, dst, port, "tcp")}` (an unspecified IPv4 listener gives one flow, an unspecified IPv6 listener one per family, a specified listener of another host none). A flow whose packet already exists keeps its first label.
+
+**Task 94 - listing routes (`routes.go`).** Unexported, used by Task 113:
+
+```go
+type routeDumper interface {
+	Routes(family netstat.Family) ([]netstat.Route, error)
+}
+```
+
+and exported `func (LiveHost) Routes(family netstat.Family) ([]netstat.Route, error)` (`netstat.Routes(family)`). Shared test fake in `routes_test.go`: `type gxDumpHost struct{ *gHost; dump map[netstat.Family][]netstat.Route; err error; dumps []netstat.Family }` with `func (h *gxDumpHost) Routes(family netstat.Family) ([]netstat.Route, error)` (records `family` in `dumps`, answers `dump[family]` and `err`); it is a `Host` and a `routeDumper`.
+
+**Task 113 - IPv6 forwarding (`ra.go`, `guard.go`).** Unexported:
+
+```go
+var forwardingKey = regexp.MustCompile(`^net/ipv6/conf/[^/]+/forwarding$`)
+func raFlows(ctx context.Context, env core.Env, h Host, st fwstate.Loaded) ([]flow, error)
+```
+
+`raFlows` walks the keys of `st.Sysctl` that match `forwardingKey` in sorted order. It reads each one live with `env.Files.ReadSysctl(ctx, "firewall", key)`: an error matching `fs.ErrNotExist` skips the key, any other error is returned (`firewall: read <key>: ...`). At the first key whose live value differs from `st.Sysctl[key]` it asserts `h.(routeDumper)` (absent: error `firewall: the host cannot list routes`), lists `h.Routes(netstat.IPv6)` (error: `firewall: read the IPv6 routes: ...`) and returns one flow `{label: "IPv6 router advertisements", unknown: "<key> changes from <live> to <predicted> and the default IPv6 route was learned from router advertisements, which an interface stops accepting while it forwards"}` when a route has `Protocol == netstat.RouteProtoRA` and prefix length 0, otherwise none. No differing key reads no routes. `Check` appends the result of `raFlows` after `buildFlows`' flows and returns its error as its own (zero guard, nil results). The flow is evaluated like every other unknown flow: `FlowResult.Flow` is its label, the verdict is `unknown` and the guard's message names it, for example `the change would cut IPv6 router advertisements: unknown (net/ipv6/conf/all/forwarding changes from 0 to 1 and ...)`. `e2eNet` of `e2e_guard_test.go` gains `func (e2eNet) Routes(netstat.Family) ([]netstat.Route, error)` returning no routes. Test helpers in `ra_test.go`: `func gxDefault6(proto uint8) netstat.Route` (a default IPv6 route of that protocol out of `eth0`) and `func gxPrefix6() netstat.Route` (a connected IPv6 network route of `eth0`).
+
+**Task 95 - none** (it changes `TestLiveHost` only).
+
+**How the next parts use it.** Changes to what Part G's "How the next parts use it" says:
+
+1. `Check` needs nothing new from the actions part: the predicted forwarding values arrive in `st.Sysctl` (`loaded.PredictSysctl`, already passed as `p.tg.pred`), and the live ones are read through `env.Files`, whose manifest already declares the sysctl owned path `net/ipv6/conf/<iface>/forwarding`.
+2. A `Host` handed to `Checker` (fakes of the end-to-end and harness tests) implements `Routes(netstat.Family) ([]netstat.Route, error)` as soon as its test can change a forwarding value; without it `Check` returns the error `firewall: the host cannot list routes`. `LiveHost` and `e2eNet` do.
+3. On a controller host the guard now also lists one flow per listening socket of the controller (label `controller listener`), including for a break-glass change and a timer revert, whether or not a client is connected; harness hosts that run a controller see those flows in the plan's guard message.
+
+### Review fix A1fix contracts (Tasks 106, 114, 117, 119)
+
+As part A1, plus:
+
+**Task 106 — the restore record (`migrations/agent/0002_firewall_restore_kind.sql`, `store.go`).** `firewall_restores` gains `kind` (`normal` by default, or `emergency`) and `override` (TEXT, the emergency record's JSON; NULL for a normal restore).
+
+```go
+type restoreRecord struct {
+	Transition fwstate.Transition
+	Emergency  json.RawMessage // nil for a normal restore
+}
+func beginRestoreRecord(ctx context.Context, db *store.DB, id string, rec restoreRecord, now time.Time) error
+func markEmergency(ctx context.Context, db *store.DB, id string, emergency json.RawMessage) error
+func restoreRecordOf(ctx context.Context, db *store.DB, id string) (rec restoreRecord, ok bool, err error)
+```
+
+`beginRestoreRecord` deletes every restore record and inserts one for `id` with the transition and the kind (`emergency` when `rec.Emergency` is not nil). `beginRestore(ctx, db, id, tr, now)` is `beginRestoreRecord` with a normal record. `markEmergency` turns the record of `id` into an emergency record with the given JSON and keeps its transition; with no record it fails (`firewall: record the emergency restore of snapshot <id>: no restore is recorded`). `restoreRecordOf` returns the record of `id`, `ok` false when there is none. `restoreIntent` keeps its signature and returns the record's transition.
+
+**Task 114 — the emergency restore's record (`restore.go`, `revert.go`).**
+
+```go
+func restoreOver(ctx context.Context, env core.Env, d deps, snap snapshot, emergency json.RawMessage) (restoreReport, error)
+type emergencyRecord struct {
+	Detail  overrideDetail  `json:"detail"`
+	Effects []storedOutcome `json:"effects"`
+}
+type storedOutcome struct {
+	Seq     int              `json:"seq"`
+	State   core.EffectState `json:"state"`
+	Reason  string           `json:"reason,omitempty"`
+	Current *core.StateDoc   `json:"current,omitempty"`
+}
+func storeOutcomes(out []core.EffectOutcome) []storedOutcome
+func (r emergencyRecord) outcomes() []core.EffectOutcome
+func finishRestore(ctx context.Context, env core.Env, d deps, snap snapshot, rec restoreRecord, blocked, made []core.Effect) (core.RevertOutcome, error)
+```
+
+`restore(ctx, env, d, snap)` is `restoreOver(ctx, env, d, snap, nil)`. `restoreOver` reads the record of `snap`: with none it chooses the transition as before and records it, with `emergency` when that is not nil; with one and a non-nil `emergency` it calls `markEmergency` (a normal whole restore that failed and then became the connectivity exception). `emergencyRestore` computes the files it overwrites and the outcome of every effect before it restores, stores them as an `emergencyRecord`, and passes the JSON to `restoreOver`; the loaded-chain differences and the vanished sysctl keys are added to the detail after the restore. `revert` reads the record with `restoreRecordOf` and hands it to `finishRestore`. `finishRestore` restores again with the recorded transition; for an emergency record it pins the snapshot and returns `Override: true`, the stored effect outcomes and the stored detail with `Vanished` from this run (its `Chains` stay empty, because the loaded state before the cut-off run is gone). A normal record keeps the earlier behaviour: every made effect `undone`, or, with an unresolved effect, the inferred override. A record whose JSON cannot be read is logged at Warn and treated as a normal one.
+
+**Task 117 — the transition of a restore (`restore.go`).** `func activeNow(ctx context.Context, env core.Env, d deps, cur fwstate.Config) bool`: `cur.Enabled`, unless a restore record exists (it can only be another snapshot's, because `restoreOver` asks only when the snapshot has none) and the loaded state is readable; then `ufwRunning` of the loaded state. `restoreOver` passes it to `chooseTransition` in place of `cur.Enabled`. `pendingRestore` is now called outside tests.
+
+**Task 119 — the before-image after the inverses (`restore.go`, `revert.go`, `image.go`).**
+
+```go
+func loadImage(ctx context.Context, env core.Env, img *beforeImage, before fwstate.Loaded) (imagePlan, error)
+func loadVerifiedImage(ctx context.Context, env core.Env, d deps, snap snapshot) error
+func excludedError(excluded []chainRef) error
+func axImageRepair(t *testing.T) (h *fakeHost, snap snapshot, imaged fwstate.Loaded) // revert_test.go
+```
+
+`loadImage` is the part of a restore that loads a before-image: `planImage` over `before`, then each family's `*-restore -n` with its input; it returns the plan even when a program fails. `loadVerifiedImage` reads the loaded state, calls `loadImage`, reads the state again and fails with `firewall: verify the before-image: <chains> differ from it` when `imageMismatch` finds a chain, or with `excludedError` when `planImage` left a built-in chain as it is. `excludedError` is the error text a restore with excluded chains already returned. `axImageRepair` is the test host of a repair of change `c1` whose snapshot holds a before-image: effect 1 is the repair's `ufw reload`, the loaded chains differ from the image, a manual IPv6 rule was added after the apply (so the revert goes by inverses), and the fake loads `imaged` when the IPv6 restore program runs. `revert` calls `loadVerifiedImage` after `undoNewestFirst` succeeded when `snap.State.Image` is not nil; a failure is a write failure, which takes the revert to the connectivity exception.
+
+#### How the next parts use it
+
+- **Part A2 (`uninstall.go`, `actions_repair.go`).** No call changes. `restore` finishes a record of its own snapshot with the recorded transition, as before, and now also picks the transition of a new restore from UFW's loaded chains while a record of another snapshot is still there.
+- **Every revertible action's `Revert`.** `revert` returns the same `RevertOutcome` for an emergency restore whether it ran in one go or was cut off and finished at startup: `Override: true`, one outcome per effect (the unresolved ones and the conflicts with what was overwritten), and the `overrideDetail` (the loaded-chain differences only when the first run completed). A caller never needs to tell the two apart.
+- **Wave 2 and later.** A new kind of state that a restore brings back (the Docker chains of spec 2.6) is written by `restoreOver`, so it is repeated when a cut-off restore is finished. A new action with a before-image gets the load after its inverses from `revert` without code.
+
+### Review fix A2fix contracts (Tasks 96, 97, 98, 99, 100, 108, 109)
+
+As part A2, plus:
+
+**Task 96 — repair (`actions_repair.go`).** `RepairInput{core.Guarded; Outcome string; Manual bool}`: JSON `outcome` (optional, enum `restore|keep`) and `manual` (optional boolean, "Confirms the manual rules a restore brings back or removes"). `stateRepair` declares `manual: func(in RepairInput) bool { return in.Manual }`, so `fw.plan`'s manual check (Task 72) passes a restore that adds or removes manual rules only with it; it has no effect on `keep` or on a repair of no change, which change no rule. `repairChange` refuses an outcome other than `""`, `restore` and `keep` with `request.invalid_input` at `/outcome` (`the outcome "<o>" is neither restore nor keep`) before it reads the repaired change's snapshot. `schemas/firewall.state.repair/v1.json` carries the `manual` property.
+
+**Task 97 — wiring test (`wire_test.go`).** `type ayRunner func(ctx context.Context, cmd core.Cmd) (core.CmdResult, error)`, a `core.Runner`. `TestProductionReadLoaded` and `TestProductionLockout` replace the non-nil check of `TestProductionFW`. No production name changes.
+
+**Task 98 — verify's comparison (`sync.go`).**
+
+```go
+var builtinNames = []string{"PREROUTING", "INPUT", "FORWARD", "OUTPUT", "POSTROUTING"}
+func verifyKeep(_ fwstate.Family, _, chain string) bool
+func (f fw) verifyDiffs(cfg fwstate.Config, cur fwstate.Loaded) ([]fwstate.ChainDiff, error)
+func reappended(d fwstate.ChainDiff, cur fwstate.Loaded) bool
+```
+
+`verifyKeep` selects `firewallChain` chains and the chains named in `builtinNames`, in every table. `verifyDiffs` is `syncDiffs` when `cfg.Enabled` is false. Otherwise it asks `f.d.predict(cfg, cur, TransReload)` (an error is wrapped like `syncDiffs`'s, `firewall: predict the loaded state of the configuration: …`), compares over `verifyKeep` and drops each difference `reappended` accepts. `reappended` is true for a difference in a built-in chain (`builtinNames`) of a table other than `filter` that has no policy difference, no rule only loaded and no order difference, and whose rules only predicted (`OnlyA`) the loaded chain holds, counting duplicates. The result is never shared with `syncDiffs`'s.
+
+**Task 108 — verify (`handler.go`).** `mutation.Verify` calls `fw.verifyDiffs(cfg, st)` where it called `fw.syncDiffs`; the error text of a difference (`firewall.prediction_mismatch`, `the loaded state differs from the prediction: <chainDiffText>; …`) and the order of its steps (the action's check, the chains, then `verifySysctl`) are unchanged. Test helper: `type ayNoNat struct{ *e2eHost }`, a runner whose `ufw reload` empties the IPv4 `nat/POSTROUTING` chain.
+
+**Task 99 — the evaluator's gaps (`eval/unsupported.go`).**
+
+```go
+func Unmodelled(rs *netfilter.Ruleset) []string
+```
+
+`Unmodelled` returns, for the `mangle` table and then the `security` table of `rs` (nil `rs` and absent tables give nil), in chain and rule order, one `<table>/<chain>#<n>: <what>` per rule the walk cannot model. `<what>` is the rule's `Unsupported` reasons joined by `, ` for an opaque rule; `target <name>` for a target outside the walk's; `target <name> with these options` for a `MARK` or `CONNMARK` whose options `parseMarkTarget` refuses; `target <name> outside the nat table` for `DNAT`, `SNAT` and `MASQUERADE`; otherwise `match <module>` for the first match whose module is not in `modelledModules` (`comment`, `tcp`, `udp`, `multiport`, `conntrack`, `state`, `addrtype`, `mark`, `connmark`, `rt`), and only when `decides(target)` is true and the target is not a mark copy (`copiesMark`). Unexported: `modelledModules`, `ruleGap(*netfilter.Rule) string`, `targetGap(netfilter.Target) string`, `copiesMark(netfilter.Target) bool`. Test helper: `ayTables(mangle, security string) string`.
+
+**Task 109 — unsupported reasons (`unsupported.go`).**
+
+```go
+func hostUnsupported(cfg fwstate.Config, cur fwstate.Loaded) []string
+func unmodelledRules(st fwstate.Loaded) []string
+```
+
+`hostUnsupported` returns `cfg.Unsupported`, then `cur.Unsupported`, then `unmodelledRules(cur)`; never nil. `unmodelledRules` returns, for `st.V4` (tool `iptables`) and then `st.V6` (`ip6tables`), `<tool>-<variant> <table>/<chain>#<n>: <what>, which the evaluator cannot model` for each `eval.Unmodelled` entry, where `<variant>` is `st.Variant`. `fw.prepare` refuses with `hostUnsupported(cfg0, cur)` (`the host is an unsupported configuration: <reasons joined by "; ">`) and then with `tg.cfgN.Unsupported` followed by `unmodelledRules(tg.pred)` (`the configuration the change leads to is unsupported: …`). `Status.Unsupported` (Task 69) is `hostUnsupported(cfg, cur)`: the configured state's reasons, the loaded state's, then those rules; `Supported` is false when it is not empty. Test constant: `ayMangle`.
+
+**Task 100 — batch label (`actions_rules.go`).** `func labelProblem(label string) string` returns the model's message when `label` cannot be a rule's comment, else `""`. `batch` reports it as one field error at `/label` (before the per-rule checks, whether or not the batch adds rules); the per-rule `Validate` of the comment stays.
+
+#### How the next parts use it
+
+- **Part U (web and CLI), break-glass.** `firewall.state.repair` accepts `manual` next to `outcome`: `darkpanel change repair <id> --input '{"manual":true}'` (or with `"outcome":"restore"`) confirms the manual rules a restore brings back or removes, after the operator agrees; a repair plan refused with `firewall.manual_required` is re-planned that way, as a restore is. `firewall.status` may now list, in `unsupported`, `<tool>-<variant> <table>/<chain>#<n>: <what>, which the evaluator cannot model`; the pages already show every reason as text. No other surface changes.
+- **Wave 2 (Docker integration) and every later mutating action.** An action's verify now compares UFW's, Darkpanel's (`DOCKER-USER`, `darkpanel-*`, `dp-b-*`) and every table's built-in chains through `mutation.Verify`, with no work of its own. A new mutating action that predicts a change to the nat table's built-in chains must predict it with the same re-append behaviour as `predict.Predict`, so that `reappended` applies. Support for a further mangle or security match or target in the evaluator changes `eval.Unmodelled`'s sets in the same change.
+
+### Review fix PCF2fix contracts (Tasks 93, 103, 104)
+
+As parts P, C and F2, plus:
+
+**Task 104 — `internal/modules/firewall/predict/translate.go`, `predict.go`.**
+
+```go
+var jumpedChains = []string{"before-logging", "before", "after", "after-logging", "reject", "track"} // unexported
+```
+
+`jumpedChains` are the chains, per direction, that `ufw_start` appends a jump to at the top of INPUT, OUTPUT and FORWARD, in order. `restoreText` writes one jump per entry for each of the three built-in chains before anything else, and `startFamily` skips that many leading rules of each built-in filter chain of the translation when the primary chains already exist. `Predict`'s signature and every other name are unchanged. New behaviour: `Predict(cfg, cur, TransReload)` and `Predict(cfg, cur, TransEnable)` on a state whose primary chains exist append the rules that before.rules and after.rules write to INPUT, OUTPUT and FORWARD of the filter table after the jumps already there, once per start, and set the built-in policies from `cfg` as before. A state without the primary chains behaves as before.
+
+**Task 93 — `internal/modules/firewall/loaded/sysctl_read.go`.** Signatures are unchanged: `func sysctlKeys(ifaces []netstat.Interface) (keys, reasons []string)` now returns, after `net/ipv4/ip_forward`, the four keys of `all`, `default` and then of each readable interface in the order given, the loopback interface included, and `Reader.Read` fills `Loaded.Sysctl` with them (a key the kernel lacks stays absent, as before). Everything that consumes `Loaded.Sysctl` sees the loopback keys: snapshot capture records them, restore and revert write them back (`lo` exists beside `all`, so the agent's `Files` takes it), the plan's diff and the status page list them, and `PredictSysctl` applies a `lo` line of `sysctl.conf` and spreads `net/ipv6/conf/all/forwarding` to `lo`. One new consequence: an IPv4 `default` value that differs from the old one while `lo`'s equals the old default and `sysctl.conf` has not set `lo` earlier is refused by `PredictSysctl` as `firewall.unsupported_configuration`, exactly as it is for any other interface.
+
+**Task 103 — `internal/modules/firewall/model/args.go`.** `AddArgs(r Rule) []string`, `InsertArgs(pos int, r Rule) []string` and `DeleteArgs(r Rule) []string` keep their signatures and never return an argument that starts with `-` for a comment. For a manual rule (`Origin == OriginManual`): a non-empty comment that matches `commentPattern` and does not start with `-` ends the vector as `"comment", <comment>`; any other comment is left off, and the vector ends with the rule specification. For a Darkpanel rule the vector ends with `"comment", Tag(r.ID, label)`, where `label` is `r.Comment` when it matches `commentPattern` and `""` otherwise (a label starting with `-` is kept: it follows the tag inside one argument). `DeleteArgs` has no comment. Unexported: `func withComment(r Rule, args []string) []string`. Test helpers: `mxRules` (a table of rules with the vectors expected), `func mxRule(origin Origin, id, comment string) Rule`.
+
+Caller behaviour (part A1 and the module root; none of their code changes): `inverse`'s `reinsert` is the only caller that writes a manual rule (`addRuleOp` refuses one), and it takes the rule from the journal's tuples. For a manual rule whose comment is left off it re-adds the rule without the comment; the undo's observation then finds the rule under another id (a manual id is derived from the tuple line, which carries the comment) and `inverse` fails with `firewall: undo effect <seq> (firewall.rule:<id>) left null, want {"v6":"### tuple ### … comment=<hex>"}`, so the revert ends `needs_repair` and repair restores the file bytes of the snapshot. `diff.go`'s `ruleText` strips the comment pair from `AddArgs` and prints `r.Comment` itself, so a diff still shows an unsafe comment as text, quoted.
+
+**How the next parts use it.** Nothing new is called: part A1's `Predict`, `PredictSysctl`, `Reader.Read`, `AddArgs` and `InsertArgs` calls keep their arguments. They see the three behaviours above and nothing else.
+
+### Review fix F1Ufix contracts (Tasks 89, 92, 101, 102, 107, 110, 115, 116, 118)
+
+As parts F1 and U, plus:
+
+**Task 89 — `internal/controller/listen/runtime.go`.**
+
+```go
+func (r *Runtime) Listening() (addrs []netip.AddrPort, dropped []string, unbound int)
+```
+
+`addrs` and `dropped` are what `Addrs` returned before (the bound addresses of the listeners that still accept, sorted, unmapped; the addresses that are not an IP address and port, sorted and logged at Warn), and `unbound` is what `Unbound` returns (the open listeners waiting for a bind retry), all read under one hold of the runtime's lock. `Addrs` returns the first two results of `Listening`; `Unbound` is unchanged.
+
+**Task 102 — `internal/controller/server` (frozen, unexported).**
+
+- `(*topology).setRuntime(f func() ([]netip.AddrPort, []string, int))`: the third result of `f` is the number of open runtime listeners that are not bound. `(*topology).read` sets `Complete` only when the web, runtime, agent and peer sources are registered and that number is 0; the addresses and the dropped values are as before.
+- `(*Server).startRuntimeListeners(ctx context.Context, handler listen.RuntimeHandlerFunc, tlsConfig *tls.Config) error`: calls `s.runtimeListeners.Start(ctx, handler, tlsConfig)` and, only when it succeeded, `s.topo.setRuntime(s.runtimeListeners.Listening)`. `startListeners` calls it where it called `Start`; `startServices` no longer calls `setRuntime`.
+
+**Task 92 — `internal/platform/netfilter/key.go` (unexported).**
+
+- `type icmpName struct { name string; typ, codeMin, codeMax int }`; `icmpNames`, `icmp6Names []icmpName`: the tables of `extensions/libxt_icmp.h` of iptables 1.8.11 in its order and spelling, including the MLD names of ICMPv6.
+- `icmpTypeNumber(names []icmpName, v string, ipv6 bool) string`: `v` as `iptables-save` prints an icmp type: the type number, `type/code` (the first code) when the codes are not 0 to 255, `any` for ICMPv4 type 255 with every code; `v` unchanged when iptables refuses it. `parseICMPType`, `parseICMPRange`, `parseCNumber` (a number as `strtoul` with base 0 reads it), `isDigitIn`, `digitValue` are its helpers.
+- `hasPrefixFold(s, prefix string) bool`: `strncasecmp(s, prefix, len(prefix)) == 0` for ASCII; Tasks 107 and 115 call it.
+
+**Task 107 — `internal/platform/netfilter/key.go` (unexported).**
+
+- `type rejectName struct{ name, alias string }`; `rejectNames` (IPv4) and `reject6Names` (IPv6) in the order of the kernel's reject types; they replace `rejectAliases` and `reject6Aliases`.
+- `rejectWith(names []rejectName, v string) string`: the `name` of the first row of which `v` is a case-insensitive prefix of the name or the alias; `v` unchanged when none is, or when `v` is empty.
+- `logLevels`: `emerg`, `panic` (0), `alert` (1), `crit` (2), `error` (3), `warning` (4), `notice` (5), `info` (6), `debug` (7), looked up without changing the case; `err`, `warn` and capitals are no longer names.
+
+**Task 115 — `internal/platform/netfilter/key.go` (unexported).**
+
+- `const limitScale = 10000`; `limitUnits` (the unit words in the order iptables tries them, with their seconds); `limitPrinted` (the units `iptables-save` prints, largest first, with the period of one packet per unit).
+- `limitRate(v string) string`: the rate as `iptables-save` prints it (`60/min` is `1/sec`, `3/minute` is `3/min`, `2` is `2/sec`); `v` unchanged when iptables refuses it (no digits, zero, an unknown or empty unit, a period of zero).
+
+**Task 101 — `test/harness/m3_firewall_helpers_test.go`.**
+
+`m3xOutOfSyncRefusal(plan m3Plan, planErr error, overridden m3Plan, overriddenErr error) error`: nil when both plans succeeded, the first has a failing `firewall.lockout` guard and the second, planned with `overrides: ["firewall.lockout"]`, still has it failing; otherwise an error naming what was wrong.
+
+**Task 110 — `test/harness`.**
+
+- `m3xOutOfSync(st m3Status) error`: nil when `st.InSync` is false.
+- `m3xPutOutOfSync(ctx context.Context, t *testing.T, f *fleet)`: waits for a healthy agent host, registers the cleanup `sudo ufw reload`, loads `m3StrayRule` with `iptables -A`, and waits until the status is out of sync.
+- `m3RepairRevertsReboot(ctx, t, f)` and the step `repair-reverts-reboot` of `TestM3Firewall`, after `repair-reverts`.
+
+**Task 116 — `test/harness`.** `m3xTailscaledSocket(ss string) error`: nil when the output of `ss -Htuanp` has a socket of process `"tailscaled"`.
+
+**Task 118 — `test/harness`.** `const m3xNftablesReason`: the start of the status reason for the table of `m3UnsupportedNftables`.
+
+How the next parts use it: nothing in a later wave calls these names. The controller merges the tasks after the part tasks they depend on (the `Depends on` lines), amends the plan header where it describes the topology and the Key tables (Assumptions, "Controller"), and runs the M3 harness on the VM fleet to see the new step and the changed ones.
+
+### Review fix F1Sfix contracts (Tasks 111)
+
+**Task 111 — `internal/controller/server` (frozen, unexported).**
+
+```go
+func (t *topology) close()
+```
+
+`close` marks the topology incomplete for good: from then on `read` returns `Complete` false whatever the sources report. `(*Server).Shutdown` calls it once, on its first call, before it runs the first shutdown step, so a guard plan made while the listeners shut down reads the topology as `unknown` (spec 1.5) rather than as a complete, empty list of listeners.
 
 ## Assumptions (evidence)
 
-- Integration check, 2026-10-26: the part branches (bundles in `.dforge/drafts/v1-w1-firewall/parts/`, all on `main` `3f79c2e`) merged without conflict, the sysctl follow-up (Tasks 87 and 88 and 90) on top. On the merge of the nine parts, `go build ./...`, `go vet ./...`, `go vet -tags harness ./test/...`, `golangci-lint run` (`0 issues.`, with and without `--build-tags harness`), `pnpm -C web lint`, `typecheck` and `test` (294 passed), the schema generator (no difference from `schemas/`), `make test-adr` (21 passed) and `make test-release` passed; the follow-up's drafter ran the Go checks after each of its tasks (part A2 assumptions), and on the merge with the follow-up `go build ./...`, `go vet ./...` (also with `-tags harness`), `go test -count=1 ./...` (every package `ok`), `golangci-lint run` (`0 issues.`) and `go mod tidy -diff` passed again with `TMPDIR` set.
+- Integration check, 2026-10-26: the part branches (bundles in `.dforge/drafts/v1-w1-firewall/parts/`, all on `main` `3f79c2e`) merged without conflict, the sysctl follow-up (Tasks 87 and 88 and 91) on top. On the merge of the nine parts, `go build ./...`, `go vet ./...`, `go vet -tags harness ./test/...`, `golangci-lint run` (`0 issues.`, with and without `--build-tags harness`), `pnpm -C web lint`, `typecheck` and `test` (294 passed), the schema generator (no difference from `schemas/`), `make test-adr` (21 passed) and `make test-release` passed; the follow-up's drafter ran the Go checks after each of its tasks (part A2 assumptions), and on the merge with the follow-up `go build ./...`, `go vet ./...` (also with `-tags harness`), `go test -count=1 ./...` (every package `ok`), `golangci-lint run` (`0 issues.`) and `go mod tidy -diff` passed again with `TMPDIR` set. The five review-fix parts (Gfix, A1fix, A2fix, PCF2fix and F1Ufix, bundles in the same directory, each drafted on that merge) touch disjoint files and merged onto it without conflict, and part F1Sfix (Task 111, an owner decision) was drafted on that result; on the result (2026-10-26) `go build ./...`, `go vet ./...`, `go vet -tags harness ./test/...` (no output), `go test -timeout 40m -p 4 ./...` with `TMPDIR` set (61 packages `ok`), `golangci-lint run --allow-serial-runners` (`0 issues.`, with and without `--build-tags harness`), `go test -tags harness -count=1 ./test/harness/...` (`ok`), `make schemas` (no difference from `schemas/`) and `go mod tidy -diff` (no output) passed. No fix part touches `web/`, so the web results above stand.
 - `TMPDIR` matters: with `TMPDIR` unset, `TestRunTaskFence` and `TestRunTaskFenceRefusesWhileUninstalling` (`internal/core/lifecycle`) fail on this host on `main` `28598fa` as well ("the task ended without recording a result"); with `TMPDIR=/root/.cache/w1-tmp/<n>` they and all of `internal/core/...` pass (2026-10-26). Hence the `TMPDIR` constraint holds for every command, the integration check included; the cause under `/tmp` is unknown.
 - `main`'s CI is red before this plan: run 40051108436 on `f42795c` fails the `go` job (revive `time-naming`: `BackoffMin` in `internal/transport/backoff.go`, `TaskBackoffMin` in `internal/agent/runtime/background.go`) and the `release-scripts` job; the local `golangci-lint` reports `0 issues.`. Gate 6 (CI green) cannot pass on this plan's branch until that is fixed on `main`; this plan does not touch those files.
-- Dependencies across parts were derived, not drafted: a part's tasks marked "base" were verified on the merge of every earlier part. A task depends on every task of an earlier phase (phase 1: F1, F2; phase 2: C, P, E, G, A1; phase 3: A2, U) that touches a Go package the task imports or a directory its **Files:** lists, on Task 33 when it reads `testdata/golden`, and Task 83 on Task 81 because the harness drives part A2's actions by name and input. Cross-part dependencies implied by another dependency are left out; a part's own dependency lines are as drafted. Tasks 1 to 90 build in wave order on that basis because each one's packages are complete once its dependencies have merged.
-- Waves: 53 tasks carry risk 3 and the four `Integrator:` tasks change frozen files, so each runs in a wave of its own; parallel tasks of one depth share a wave of at most three when their **Files:** blocks do not meet.
+- Dependencies across parts were derived, not drafted: a part's tasks marked "base" were verified on the merge of every earlier part. A task depends on every task of an earlier phase (phase 1: F1, F2; phase 2: C, P, E, G, A1; phase 3: A2, U) that touches a Go package the task imports or a directory its **Files:** lists, on Task 33 when it reads `testdata/golden`, and Task 83 on Task 81 because the harness drives part A2's actions by name and input. A review-fix task (the tasks each "Review fix" subsection of Contracts lists) depends on the tasks its own part drafted it after and, because it was verified on the merge of every part, on every original task that touches its directories, a package it imports, or a package that imports one of its directories directly or indirectly (`go list -deps` with test imports, on the merged tree); a fix task that edits `test/harness/` depends on every original task, because the harness drives the whole agent. So no fix task merges before code whose tests it could change. Cross-part dependencies implied by another dependency are left out; a part's own dependency lines are as drafted. Tasks 1 to 119 build in wave order on that basis because each one's packages are complete once its dependencies have merged.
+- Waves: 64 tasks carry risk 3 and the six `Integrator:` tasks change frozen files, so each runs in a wave of its own; parallel tasks of one depth share a wave of at most three when their **Files:** blocks do not meet.
 - Contracts are long (each part's contracts in full), and every task brief carries them; they are kept verbatim because the tasks cite them by part and task, and a condensed copy would drift from the verified code.
 - The parts' scores and implementers were assigned under dforge 4.4.1's ladder; `plan-lint` re-checks them under 4.6.0. The drafted `**Lenses:** test-quality` lines of Tasks 82 and 84 were dropped at assembly: a lens needs risk 3, and both score risk 1.
-- Plan-time rulings at assembly: part A2's two known gaps (Verify not checking the sysctl values a start sets; a restore of `/etc/ufw/sysctl.conf` where `IPT_SYSCTL` is unset leaving an undo that fails) are Tasks 87 and 88 and 90, drafted and verified on the merge of every part. Register row 91 is deferred to wave 8 (no break-glass composite exists before the panel exposure); row 85 stays deferred (the firewall's sysctl patterns are anchored). The follow-up's ruling that `conf.Read` fails on an unusable `/etc/ufw/sysctl.conf` (a symbolic link, a directory, a file over 4 MiB) even when `IPT_SYSCTL` is unset is accepted: it is the rule every other state file follows, so the reader fails closed, and none of the four golden hosts is affected.
+- Plan-time rulings at assembly: part A2's two known gaps (Verify not checking the sysctl values a start sets; a restore of `/etc/ufw/sysctl.conf` where `IPT_SYSCTL` is unset leaving an undo that fails) are Tasks 87 and 88 and 91, drafted and verified on the merge of every part. Register row 91 is deferred to wave 8 (no break-glass composite exists before the panel exposure); row 85 stays deferred (the firewall's sysctl patterns are anchored). The follow-up's ruling that `conf.Read` fails on an unusable `/etc/ufw/sysctl.conf` (a symbolic link, a directory, a file over 4 MiB) even when `IPT_SYSCTL` is unset is accepted: it is the rule every other state file follows, so the reader fails closed, and none of the four golden hosts is affected. Owner decisions of 2026-10-26 on the review-fix parts: the out-of-sync guard keeps reporting `Overridable` true while no override passes it (register row 290, deferred); the guard's two rulings stand (the `dp-panel` runtime listener is protected for the bridge's proxy address; any predicted IPv6 forwarding change on a host whose default IPv6 route came from router advertisements adds one overridable `unknown` flow); a revert that re-adds a manual rule without its unsafe comment ends `needs_repair` (accepted); and the controller's topology reads incomplete once its shutdown begins (Task 111).
+- Captures that depend on moving package repositories (Tasks 3, 33 and 47: UFW fixtures, UFW golden files, Docker 28 chains) state the checksums of the drafting run. On a mismatch each task saves the diff for the controller and checks out the drafted capture from its part's bundle under `/root/repositories/darkpanel/.dforge/drafts/v1-w1-firewall/parts/` (`.dforge/` is excluded from git, so the absolute path is the one every worktree can read), and later tasks keep the values they pin.
+- Plan review, round 1 (2026-10-26): the assembled plan was reviewed in nine slices by `dforge:judge-opus` seats, one for the header and one per part or half part (`.dforge/sdd/2026-10-24-v1-w1-firewall-core/r1/`), each scoring its slice; the plan's scores are the minimum over the slices: executability 15, coherence 12, coverage 13, assumptions 14, with no Critical finding, so no second round is required. Coherence 12 and coverage 13 are borderline; decision: every Important finding was answered by a review-fix task (Tasks 105 to 95, 106 to 119, 96 to 100, 104, 93, 103, 89 to 115 and 101 to 118), a spec amendment of 2026-10-26 (2.3: the chains verify compares; 2.5: what an effect's `Version` holds) or a header correction, so the plan proceeds without another round.
 
-### Part F1 assumptions (Tasks 1, 2, 3, 4, 5, 6, 9, 11, 12, 15, 16, 23, 24, 28)
+### Part F1 assumptions (Tasks 1, 2, 3, 4, 5, 6, 9, 11, 12, 15, 16, 23, 24, 28, 89, 92, 102, 107, 111, 115)
 
 - Owner rulings R1 to R3 (2026-10-24) are taken as written in the spec's Owner decisions (`docs/dforge/specs/2026-10-21-v1-completion-design.md:85-99`). Spec 1.3's registry rules already state R1 (`:673`).
 - Row 82's field is named `Complete` and describes only the three topology lists (part brief ruling). The spec's `GuardContext` listing shows the field (`spec:1501`, added in commit `98e3e60`).
@@ -1391,7 +1866,7 @@ Aligned to part A2's code at its final commit `a2da643` (2026-10-24, A2's latest
 - UFW loads its files with `*-restore -n` in this order: the skeleton on first start, the reject, track, logging and skip-to-policy chains, `before`, `after`, the user chains, `user`, the hooks into the user chains, and the built-in policies (`ufw-init-functions`, `ufw_start`, in `.dforge/drafts/v1-w1-firewall/ufw-src/*/ufw/`). The 0.36.1 and 0.36.2 sources differ only in comments (`diff` run on 2026-10-24).
 - The four images ship byte-identical `before.rules`, `after.rules`, `before6.rules` and `after6.rules`: each of the four files has one sha256 across all images (Task 3 checksums, 2026-10-24). Captured versions: `ubuntu:22.04` ufw 0.36.1-4ubuntu0.1 with iptables 1.8.7, `ubuntu:24.04` 0.36.2-6 with 1.8.10, `debian:12` 0.36.2-1 with 1.8.9, `debian:13` 0.36.2-9 with 1.8.11, all nf_tables (`testdata/ufw/*/versions`).
 - `capture.sh` is deterministic: two runs on 2026-10-24 produced byte-identical trees (`diff -r`). Each image's `user.rules` is byte-identical to the `=== user.rules` section of the matching `.dforge/drafts/v1-w1-firewall/ufwspike-<image>.scen1`, so the tests cover the brief's scen1 sections. The scen1 captures lack `user6.rules`, which is why the script recaptures.
-- iptables-save prints ICMP types as numbers (`--icmp-type 3`, `--icmpv6-type 135`), `ipv6-icmp` for `icmpv6`, `3/min` for `3/minute`, REJECT's default `--reject-with`, and recent's defaults (`testdata/ufw/*/ip*tables.save`, captured 2026-10-24). The ICMP name tables and REJECT aliases follow iptables' `extensions/libxt_icmp.c`, `libip6t_icmp6.c`, `libipt_REJECT.c` and `libip6t_REJECT.c`, and the limit units follow `libxt_limit.c`'s `parse_rate` (prefix of second, minute, hour or day). These tables were written from the iptables sources as I know them and were not fetched in this session. Every name the fixtures use is checked by `TestKeyMatchesUFW`; the other entries are checked only by `TestKeyEqualAcrossSyntaxes`'s rows.
+- iptables-save prints ICMP types as numbers (`--icmp-type 3`, `--icmpv6-type 135`), `ipv6-icmp` for `icmpv6`, `3/min` for `3/minute`, REJECT's default `--reject-with`, and recent's defaults (`testdata/ufw/*/ip*tables.save`, captured 2026-10-24). The ICMP name tables and REJECT aliases follow iptables' `extensions/libxt_icmp.c`, `libip6t_icmp6.c`, `libipt_REJECT.c` and `libip6t_REJECT.c`, and the limit units follow `libxt_limit.c`'s `parse_rate` (prefix of second, minute, hour or day). These tables were written from the iptables sources as I know them and were not fetched in this session. Every name the fixtures use is checked by `TestKeyMatchesUFW`; the other entries are checked only by `TestKeyEqualAcrossSyntaxes`'s rows. Tasks 92, 107 and 115 replace the ICMP name tables, the REJECT aliases and the limit rates with what iptables 1.8.11 prints, measured in a container for 227 spellings (part F1Ufix assumptions), so these tables are verified once those tasks have run.
 - `TestKeyMatchesUFW` is not vacuous. Replacing the IPv4 REJECT default made all four IPv4 subtests fail (mutation run on 2026-10-24), and the test requires at least 30 chains and 60 rules per image and family.
 - `unix.NsecToTimeval` rounds up to a microsecond (`golang.org/x/sys/unix`, `timestruct.go`), so a positive remaining wait never becomes the zero `SO_RCVTIMEO`, which would block forever. The live route tests (`TestRouteGetLive`, `TestRouteGetIncomingLive`, `TestRoutesAndInterfacesLive`) pass with the new reader on this host (2026-10-24).
 - The engine accepts `confirmTimeoutSeconds` from 10 to 900 and ignores it for a class other than revertible (`internal/core/lifecycle/apply.go:18-19`, `:292`). The API decodes it (`internal/controller/api/actions.go:104`), and the agent wire carries it (`internal/agent/wire/wire.go:260`), so the CLI needs no server change. The CLI imports `internal/core/lifecycle` for the bounds; it already depended on it through `internal/agent/api` (`go list -deps ./internal/cli`, 2026-10-24).
@@ -1400,7 +1875,7 @@ Aligned to part A2's code at its final commit `a2da643` (2026-10-24, A2's latest
 - Every task's code was run before this plan was written, on 2026-10-24, from base `3f79c2e`. Each task followed TDD: the RED output in each Step 2 was captured by applying only the task's test files to its parent commit. After each task's commit, a separate worktree at that commit passed all six checks: `go build ./...`, `go vet ./...` (no output), `go test -count=1 ./...` (all `ok` or `?`), `go test -race -count=1` on the task's packages, `golangci-lint run --allow-serial-runners ./...` (`0 issues.`), and `go mod tidy -diff` (no output). The drafted commits are Task 9 `dec266b`, Task 1 `e63828f`, Task 15 `8664a72`, Task 23 `276dec3`, Task 2 `f0861dc`, Task 3 `1ac9555`, Task 11 `547265a`, Task 24 `9ffaea9`, Task 4 `b4d103e`, Task 5 `640ea3a`, Task 6 `0906b63`, Task 12 `0f88b62`, Task 16 `bee9b63` and Task 28 `5101c12`, on branch `f1-part` of the clone.
 - Some tasks depend on something other than the previous task. Each was rebuilt on a temporary branch from `3f79c2e` plus only its dependencies (`git cherry-pick`, no conflicts), and the same six checks passed on 2026-10-24: Task 1 alone (`f274c0e`), Task 2 alone (`45435d0`), Task 3 alone (`0ac3b6f`), Task 11 on Task 2 and Task 3 (`3bfb171`), Task 4 alone (`f4c0b0a`), Task 5 alone (`9d0cf9a`), Task 6 alone (`cd928e3`), Task 16 on Task 9 (`70c093a`) and Task 28 on Task 1, Task 15 and Task 23 (`2278838`).
 
-### Part F2 assumptions (Tasks 10, 13, 18, 25, 29, 33)
+### Part F2 assumptions (Tasks 10, 13, 18, 25, 29, 33, 103)
 
 - Plan-time ruling (part brief): Darkpanel rules carry a ULID in the tag; manual rule ids are derived and stable across reads (`Tuple.Rule`, `Merge`; `TestMerge` checks stability).
 - Plan-time ruling (part brief): `Merge` decides `Family: both` only for identical tuples present in both files, as UFW writes an any/any rule.
@@ -1426,7 +1901,7 @@ Aligned to part A2's code at its final commit `a2da643` (2026-10-24, A2's latest
 - UFW's tuple grammar is read from `ufw-src/ufwspike-ubuntu-22-04/ufw/backend_iptables.py:684-781` (`_read_rules`) and `:863-897` (`_write_rules`), `common.py:114-179` (`format_rule`) and `util.py:41-43` (supported, port-less and IPv4-only protocols); the Debian 13 copy is the same grammar.
 - Every task's code was run: from base `3f79c2e`, each task was written test first (the RED outputs in Step 2 were regenerated from the committed test files on the task's parent commit), and its final commit passed `go build ./...` (no output), `go vet ./...` (no output), `go test -count=1 ./...` (all `ok`/`?`: 55, 55, 55, 56, 57, 57 `ok` packages and 2 without tests after Task 10 … Task 33), `go test -race -count=1` on the task's package (`ok`), `golangci-lint run --allow-serial-runners ./...` (`0 issues.`) and `go mod tidy -diff` (no output), all with `GOTOOLCHAIN=local` and `TMPDIR=/root/.cache/w1-tmp/<task>`. Task 18, Task 29 and Task 33 do not depend on Task 25: rebuilt on a branch from `3f79c2e` with only Task 10, Task 13, Task 18, Task 29, Task 33 cherry-picked, the same checks passed after each of the three (race on `./internal/modules/firewall/...`). After the controller's `IPT_SYSCTL` ruling, Task 29 was amended (test first; the new `TestReadOtherSysctlFile` failed on the old code with `Files records the unsupported sysctl file` among four errors), Task 33 re-applied on top, and the full checks, the `FuzzReadFiles` run (45 s) and the rebuild of Task 29 and Task 33 without Task 25 passed again. `FuzzParseTuple` ran 5.95 million inputs in 60 s and `FuzzReadFiles` 162 thousand in 45 s without a failure; `shellcheck capture.sh` is clean.
 
-### Part C assumptions (Tasks 40, 48, 49, 50, 56, 60)
+### Part C assumptions (Tasks 40, 48, 49, 50, 56, 60, 93)
 
 - **`loaded` reads; it never writes the host** (part brief ruling). Every command it runs is a read-only vector of the exec allowlist (`internal/platform/exec_rules.go`: `--version`, `execMatchSave`, `execMatchNft`), and `ldRunner` refuses any vector `platform.ProductionRules()` refuses, so every test proves it.
 - **`Unsupported` collects reasons; it is not an error** (part brief ruling).
@@ -1452,7 +1927,7 @@ Aligned to part A2's code at its final commit `a2da643` (2026-10-24, A2's latest
 - **Disk space (environment).** During drafting the host's root filesystem filled (20 MB free, `df -h /`, 2026-10-24); the drafter deleted only Go build-cache entries unused for over 24 hours (`find /root/.cache/go-build -mindepth 2 -type f -mmin +1440 -delete`, 10.6 GB), which Go regenerates and would itself trim after five days. Every check in the next bullet ran after that.
 - **Every task's code was run** before this text was written, on 2026-10-24, from base commit `537c4eb` (merge of F1 and F2) in the drafter's clone: each task's Step 2 output is the real RED of its test on exactly the base plus its `Depends on` tasks; after each task, on the base plus the tasks up to it, `go build ./...`, `go vet ./...` and `go mod tidy -diff` printed nothing, `go test -count=1 ./...` printed only `ok`/`?` lines, `go test -race -count=1 ./internal/modules/firewall/loaded/` printed `ok`, and `golangci-lint run --allow-serial-runners ./...` printed `0 issues.`. Tasks 49 and 50, whose `Depends on` is Task 40 only, were also rebuilt on a branch of the base with only Task 40 and the task cherry-picked, and passed the same checks. `FuzzParseNFTTable` ran 5.1 million inputs in 60 s without a failure.
 
-### Part P assumptions (Tasks 38, 46, 51, 57, 58, 61)
+### Part P assumptions (Tasks 38, 46, 51, 57, 58, 61, 104)
 
 - Plan-time ruling (part brief): the prediction covers the pinned images' UFW 0.36.1 and 0.36.2; an unknown version is the actions part's preflight concern. The two versions' Python sources differ only in an unreachable second position check in `set_rule` and in comments (`diff` of `.dforge/drafts/v1-w1-firewall/ufw-src/ufwspike-ubuntu-22-04/ufw/` and `ufwspike-debian-13/ufw/`, 2026-10-24: `backend_iptables.py:1004-1006` of 0.36.1 sits after the identical `position > len(rules)` check at `:997`).
 - Plan-time ruling (part brief): rules are compared by `netfilter.Key`, never by text, except `Files`, which is byte-exact.
@@ -1510,7 +1985,7 @@ Aligned to part A2's code at its final commit `a2da643` (2026-10-24, A2's latest
 - Controller ruling C-E3 (2026-10-24), implemented by Task 42: `Packet.SrcPort == 0` means the source port is unknown (a connection that does not exist yet); a `--sport`/`--sports` match against it is undecidable and follows R-E3. No earlier test or golden expectation used port 0 with a source-port rule: the whole package passed unchanged after the change (2026-10-24).
 - Brief sanity: every Docker container part E started (`dp-w1-E-1`, `dp-w1-E-2`, `dp-w1-E-docker28` twice) was removed; `docker ps -a --filter name=dp-w1-E` printed nothing afterwards (2026-10-24).
 
-### Part G assumptions (Tasks 17, 31, 36, 43, 44, 53)
+### Part G assumptions (Tasks 17, 31, 36, 43, 44, 53, 94, 95, 105, 112, 113)
 
 - Owner ruling R3 (spec "Owner decisions", 2026-10-24): the firewall gathers its own live guard facts through `internal/platform/netstat` and its scoped unit client; a timer revert calls `Check` again and gathers afresh. `Check` therefore takes no facts from its caller.
 - Flow 5 is the agent's own outbound TCP sessions: every established TCP socket held by `Host.PID()` (production: `os.Getpid()`) that was not accepted on a listening socket (part brief ruling).
@@ -1541,7 +2016,7 @@ Aligned to part A2's code at its final commit `a2da643` (2026-10-24, A2's latest
 - Every task's code was run before this text was written, on base commit `537c4eb` (branch `p2-base`, the merge of parts F1 and F2), on 2026-10-24: each task's RED output was captured on its parent commit plus only its test file, and after each task `go build ./...`, `go vet ./...` (no output), `go test -count=1 ./...` (all `ok` or `?`), `go test -race -count=1 ./internal/modules/firewall/guard/` (`ok`), `golangci-lint run --allow-serial-runners ./...` (`0 issues.`) and `go mod tidy -diff` (no output) passed, all with `GOTOOLCHAIN=local` and a `TMPDIR` under `/root/.cache/w1-tmp/`.
 - Tasks 17, 31, 36 and 43 each depend on every earlier task, so base plus their dependencies is exactly their parent commit. Task 44 depends on Tasks 17, 31 and 36 only: on 2026-10-24 its commit was cherry-picked onto Task 36's commit (base plus Task 17, Task 31, Task 36), its RED output was captured there with only its test edits, and all six checks passed there too, so Task 44 and Task 43 may run in parallel; applied after Task 43 (the drafted order) they also pass. Task 53 depends on every earlier task (it edits `guard_test.go` of Task 43 and lines of `route_test.go` that Task 44 added), so base plus its dependencies is its parent commit; its RED output was captured on Task 44's commit with only its test edits.
 
-### Part A1 assumptions (Tasks 32, 37, 45, 54, 59, 62, 63, 64)
+### Part A1 assumptions (Tasks 32, 37, 45, 54, 59, 62, 63, 64, 106, 114, 117, 119)
 
 - Part brief rulings, taken as given. The snapshot bytes the engine stores are the snapshot row's id. Every firewall effect is `Local: true`. Container rules (`firewall_container_rules`) are wave 2, so no table exists for them now.
 - **How the engine calls the handler.**
@@ -1588,7 +2063,7 @@ Aligned to part A2's code at its final commit `a2da643` (2026-10-24, A2's latest
 - **No Docker hook.** Docker chains are wave 2, and the part brief prefers no seam, so the code has none.
 - **Cross-part assumption.** `predict.Files` returns its map keyed by the four absolute paths of `ufwFiles`. `runUfw` refuses a prediction without them, so a drift shows in the actions part's first test.
 
-### Part A2 assumptions (Tasks 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84, 87, 88, 90)
+### Part A2 assumptions (Tasks 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84, 87, 88, 91, 96, 97, 98, 99, 100, 108, 109)
 
 - **Rulings of the part brief, taken as given.** The revert timeout is per apply (owner ruling R2): no settings store exists, the confirm timeout comes from the apply request (`internal/core/lifecycle/apply.go:292-303`, `confirmTimeout`), and the module declares only its `ApplyTimeout`. Manual rule changes need `manual: true` (spec 2.2). Parts G's and E's rulings bind: guard packets target local unicast addresses, an absent IPv6 ruleset is `unknown`, and source port 0 is unknown (`guard`'s and `eval`'s Part constraints in `clone-G/PLAN-PART.md` and `clone-E/PLAN-PART.md`).
 - **Controller rulings after phase 2, implemented.** After `ufw --force enable` on a host where UFW never started, Apply runs `ufw reload` at once as a journaled effect (`target.go`, `fw.start`; `TestTargetTransitions` "first enable"). Part P's call order is followed exactly: `Edit` per command, then `IPv6Refusal` and `Predict` with the configuration from before the transition command, then `Edit` of the transition command for the post-apply configuration (`fw.predictTarget`, `fw.transition`; `TestTargetCommands` checks the refusal is asked about the transition). Every batch on an active UFW ends with `ufw reload` (`TestDefaultsAndLogging`, `TestRulesApply`). Part C's conservative IPv4 `default` refusal reaches plans as a plan error (`TestTargetCommands`, "sysctl refusal"); part A1's `attach` is used as is.
@@ -1625,14 +2100,14 @@ Aligned to part A2's code at its final commit `a2da643` (2026-10-24, A2's latest
 - **No frozen file, error code, allowlist rule or extension point was needed.** The new check uses `errcode.FirewallPredictionMismatch`, which exists; `env.Effects.List` is in `core.EffectJournal`.
 - **The two `internal/core/lifecycle` tests the brief names** (`TestRunTaskFence`, `TestRunTaskFenceRefusesWhileUninstalling`) **passed** in every full run of this part (`go test -count=1 ./...`, 2026-10-26, `ok github.com/darkraise/darkpanel/internal/core/lifecycle` in 90 to 120 s); the brief says they fail on `main`, so they are either flaky or fail only under load, and this part does not touch them.
 - **One container was needed and removed.** `docker ps -a --filter name=dp-w1-` printed only the header on 2026-10-26 after `docker rm -f dp-w1-A2x-1` (and the image `ubuntu:24.04`, which this host did not hold before, was removed).
-- **Every task's code was run** before this text was written, on 2026-10-26, from base `c37bfdb` on branch `a2x-part` of the clone. Each task was written test first; each Step 2 output is the real output of the task's test files applied to its parent commit. After each task's commit, a separate worktree at that commit (Task 88: the commit cherry-picked onto the base, which is its dependency) passed all six checks with `GOTOOLCHAIN=local` and a `TMPDIR` under `/root/.cache/w1-tmp/`: `go build ./...` and `go vet ./...` (no output), `go test -count=1 ./...` (61 `ok`, 2 `?`, no `FAIL`), `go test -race -count=1 ./internal/modules/firewall/...` (every line `ok`), `golangci-lint run --allow-serial-runners ./...` (`0 issues.`) and `go mod tidy -diff` (no output). The commits are Task 87 `964047e`, Task 90 `518f9bb` and Task 88 `59fcd8f`. Task 90's first lint run reported QF1008 (`s.e2eHost.sysctl` could drop the embedded field), fixed before its commit.
-- **Tasks whose `Depends on` is not just the previous task** were rebuilt on a temporary branch from `c37bfdb` with only their dependencies cherry-picked and the same six checks passed on 2026-10-26: Task 88 (no dependency beyond the base, cherry-picked clean). Task 87 depends on the base; Task 90 on Task 87.
+- **Every task's code was run** before this text was written, on 2026-10-26, from base `c37bfdb` on branch `a2x-part` of the clone. Each task was written test first; each Step 2 output is the real output of the task's test files applied to its parent commit. After each task's commit, a separate worktree at that commit (Task 88: the commit cherry-picked onto the base, which is its dependency) passed all six checks with `GOTOOLCHAIN=local` and a `TMPDIR` under `/root/.cache/w1-tmp/`: `go build ./...` and `go vet ./...` (no output), `go test -count=1 ./...` (61 `ok`, 2 `?`, no `FAIL`), `go test -race -count=1 ./internal/modules/firewall/...` (every line `ok`), `golangci-lint run --allow-serial-runners ./...` (`0 issues.`) and `go mod tidy -diff` (no output). The commits are Task 87 `964047e`, Task 91 `518f9bb` and Task 88 `59fcd8f`. Task 91's first lint run reported QF1008 (`s.e2eHost.sysctl` could drop the embedded field), fixed before its commit.
+- **Tasks whose `Depends on` is not just the previous task** were rebuilt on a temporary branch from `c37bfdb` with only their dependencies cherry-picked and the same six checks passed on 2026-10-26: Task 88 (no dependency beyond the base, cherry-picked clean). Task 87 depends on the base; Task 91 on Task 87.
 
-### Part U assumptions (Tasks 7, 8, 14, 19, 20, 21, 22, 26, 27, 34, 83, 85, 86, 89)
+### Part U assumptions (Tasks 7, 8, 14, 19, 20, 21, 22, 26, 27, 34, 83, 85, 86, 90, 101, 110, 116, 118)
 
 - Every task's code was run before this text was written. Base: commit `55536b3` of `the phase 3 base clone` (branch `p3-base`: main + F1, F2, C, P, E, G, A1). In the clone `part U's drafting clone`, branch `u-part`, each task commit was checked out in turn on 2026-10-24 and passed `go build ./...`, `go vet ./...` (no output), `go test -count=1 ./...` (61 `ok`, 2 without test files, nothing else), `go test -race -count=1 ./internal/cli/`, `go vet -tags harness ./test/harness/`, `go test -tags harness -count=1 ./test/harness/...`, `golangci-lint run --allow-serial-runners ./...` (`0 issues.`) and `go mod tidy -diff` (no output), and each task that edits `web/` also `pnpm -C web lint`, `pnpm -C web typecheck` and `pnpm -C web test`; the per-commit log is summarised under "Verification log" below. Each Step 2 output is the real output of the task's Step 1 files on its parent commit.
 - Tasks whose `Depends on` is not the task before were rebuilt on a temporary branch from `55536b3` with only their dependencies cherry-picked (`git cherry-pick`), and their checks passed there; see "Dependency rebuilds" below.
-- The harness scenarios were compiled here (`go vet -tags harness ./test/harness/`, and `go test -tags harness ./test/harness/...`, which runs `TestM3UFWLines` and skips `TestM3Firewall`) and **not run**: they need the CI VMs. They are verified by `harness.yml` on `main` (gate 7) through the step Task 89 adds. Brief ruling.
+- The harness scenarios were compiled here (`go vet -tags harness ./test/harness/`, and `go test -tags harness ./test/harness/...`, which runs `TestM3UFWLines` and skips `TestM3Firewall`) and **not run**: they need the CI VMs. They are verified by `harness.yml` on `main` (gate 7) through the step Task 90 adds. Brief ruling.
 - Owner ruling R2 (spec, Owner decisions): the revert timeout is per apply, `confirmTimeoutSeconds` 10–900 s, default 60. The bounds match `lifecycle.MinConfirmTimeout`/`MaxConfirmTimeout`/`DefaultConfirmTimeout` (`internal/core/lifecycle/apply.go:17-19`), the API refuses others (`internal/controller/api/actions.go:161`), and the engine ignores the field for a class other than revertible (`internal/core/lifecycle/apply.go:292`). The CLI already has `--confirm-timeout` on every revertible action (`internal/cli/mutate.go`, `addConfirmTimeoutFlag`). Brief ruling.
 - Rollback semantics (brief ruling): the newest non-system firewall change or the named one; pending → revert through the agent's revert route (`api.Client.Revert`, `internal/agent/api/client.go:271`); confirmed → plan `firewall.snapshot.restore` with that change's snapshot, apply, confirm. "Confirm in the same command" is the apply option `ConfirmNow`, which the engine turns into a confirmation right after verify passes (`internal/core/lifecycle/apply.go:416-421`).
 - Plan-time ruling: rollback reads the snapshot taken before a change from the change's own output field `snapshot`, which every mutating firewall action returns (part A2, `internal/modules/firewall/handler.go`, `ChangeOutput.Snapshot`, clone-A2 commit `a2da643`), instead of searching `firewall.snapshots` for the change id.
@@ -1646,7 +2121,7 @@ Aligned to part A2's code at its final commit `a2da643` (2026-10-24, A2's latest
 - The firewall pages' and the harness's shapes follow part A2's committed Go types (Part contracts, "Shapes taken from part A2"), aligned on 2026-10-24 to `part A2's drafting clone` commit `a2da643` (`status.go`, `sync.go`, `actions_state.go`, `actions_rule.go`, `actions_snapshot.go`, `actions_repair.go`, `snapshots.go`, `handler.go`, `plan.go`, `firewall.go`): the JSON tags and `errcode.New(errcode.Firewall…)` refusals of those files are identical to commit `8f91bba`, where they were first read (checked with a `diff` of the `json:"` and refusal lines of each file at both commits), and `firewall.go` registers the resources `firewall.status` and `firewall.snapshots` under those names.
 - Change events do not refetch resource queries: `connectEvents` invalidates `["changes"]`, `["change", id]` and `["audit"]` on a change event and `["resource", hostId]` only on a module event (`web/src/api/events.ts`), hence `FirewallChange`'s own invalidation.
 - `react-refresh/only-export-components` is a warning under `--max-warnings 0` (`web/eslint.config.js`), so component files export only components and constants; `ruleSummary` stays unexported.
-- Plan-time ruling and controller ruling 1 (2026-10-24): `TestM3Firewall` runs only with the new flag `-m3` besides `-os` and `-m2`, because `TestM1` (`testDeadline` 40 min, `test/harness/m1_test.go`) and `TestM2` (`m2Deadline` 55 min, `test/harness/m2_test.go`) already fill the 100-minute `go test -timeout` of `harness.yml`'s "Run the harness" step. Task 89 runs it in a step of its own. Sizing (an estimate; the scenarios were not run here): booting and provisioning three VMs takes up to about 15 minutes on a runner (M2's fleet, the same `bootFleet`), installing about 5, and the 19 scenarios about 25 (one reboot, timer waits of 10 to 120 s, a controller restart, sshd and status polls), so `m3Deadline` is 60 minutes, the step's `go test -timeout` 70 (the deadline plus time for the VMs' cleanups, as `testDeadline` and `m2Deadline` leave under 100) and the job's `timeout-minutes` 200 (120 for the steps that exist plus 80). The step runs `if: ${{ !cancelled() }}` and has its own `-workdir`, because `bootFleet` keeps its VMs in `<workdir>/m2`, which the M2 run already used. `actionlint .github/workflows/harness.yml` (actionlint in `~/go/bin`) and a `yaml.safe_load` parse passed on 2026-10-24.
+- Plan-time ruling and controller ruling 1 (2026-10-24): `TestM3Firewall` runs only with the new flag `-m3` besides `-os` and `-m2`, because `TestM1` (`testDeadline` 40 min, `test/harness/m1_test.go`) and `TestM2` (`m2Deadline` 55 min, `test/harness/m2_test.go`) already fill the 100-minute `go test -timeout` of `harness.yml`'s "Run the harness" step. Task 90 runs it in a step of its own. Sizing (an estimate; the scenarios were not run here): booting and provisioning three VMs takes up to about 15 minutes on a runner (M2's fleet, the same `bootFleet`), installing about 5, and the 19 scenarios about 25 (one reboot, timer waits of 10 to 120 s, a controller restart, sshd and status polls), so `m3Deadline` is 60 minutes, the step's `go test -timeout` 70 (the deadline plus time for the VMs' cleanups, as `testDeadline` and `m2Deadline` leave under 100) and the job's `timeout-minutes` 200 (120 for the steps that exist plus 80). The step runs `if: ${{ !cancelled() }}` and has its own `-workdir`, because `bootFleet` keeps its VMs in `<workdir>/m2`, which the M2 run already used. `actionlint .github/workflows/harness.yml` (actionlint in `~/go/bin`) and a `yaml.safe_load` parse passed on 2026-10-24.
 - Controller ruling 4 (2026-10-24): Task 8 makes `TargetScript` (`test/harness/provision.go`) install `nftables`, because with `nf_tables` loaded (iptables-nft loads it) and no `nft` binary the firewall reports every host unsupported (spec 2.1, part C's reader); the harness test therefore installs nothing itself. Task 8 comes before the harness tasks, which depend on it. `nftables` is in the main archive of all four target releases, the same archive provisioning already installs `ufw` from.
 - The harness's own SSH connections reach a VM from `10.0.2.2` on `dpmgmt`: the management NIC is QEMU user-mode networking with `hostfwd` to port 22 (`test/harness/vm/vm.go`, `qemuArgs`; interface names in `test/harness/vm/seed.go:36-38`).
 - The lockout guard's message is "the change would cut " + "<label>[ <proto>] from <src> to <dst:port>[ on <iface>][ out <iface>]: <verdict> (<reason>)" joined by "; " (`internal/modules/firewall/guard/route.go`, `describe`; `guard/guard.go`, `verdict`); the labels are `ssh`, `panel`, `agent link`, `controller session`, `controller link` and `tailscale` (`guard/flows.go`). The scenarios match on these substrings.
@@ -1676,7 +2151,7 @@ Each row: the task's commit in `part U's drafting clone` (branch `u-part`), chec
 | Task 83 | `15d605a` | 61 ok, 2 no test files | — |
 | Task 85 | `fb66120` | 61 ok, 2 no test files | — |
 | Task 86 | `cb9d008` | 61 ok, 2 no test files | — |
-| Task 89 | `d7dc6d4` | 61 ok, 2 no test files; `actionlint .github/workflows/harness.yml` silent | — |
+| Task 90 | `d7dc6d4` | 61 ok, 2 no test files; `actionlint .github/workflows/harness.yml` silent | — |
 
 #### Dependency rebuilds
 
@@ -1690,6 +2165,89 @@ Run on 2026-10-24 in the clone, each on a temporary branch from `55536b3` with o
 | Task 22 | `32db5f2` `4b5cc09` `ada460e` | web lint and typecheck clean; 23 files, 267 tests passed |
 | Task 34 | `32db5f2` `4b5cc09` `683ce8b` `fabc1be` `aa0f7e1` `ada460e` `15f325d` `814530e` (without Task 26) | web lint and typecheck clean; 28 files, 294 tests passed |
 | Task 8 | `c2a22c2` | `go test ./...` 61 ok; `go test -race ./internal/cli/` ok; harness vet silent, three `ok`; lint `0 issues.`; tidy silent |
+
+### Review fix Gfix assumptions (Tasks 94, 95, 105, 112, 113)
+
+- Base and clone: the integration tree at `59fcd8f` (`fix(firewall): always record UFW's sysctl file`, every part merged), cloned into `clone-Gfix`, branch `gfix-part`. `df -h /` showed 78% on 2026-10-26, so no build cache was trimmed. Commits in task order: `9688db6` (Task 105), `f3d9cea` (Task 112), `d3ccbf8` (Task 94), `a8566c7` (Task 113), `1f322da` (Task 95).
+- Marks (review finding, Tasks 31 and 36). The plan header's Part E guidance says tailscaled's own flows carry its bypass mark `0x80000` (tailscale `util/linuxfw/linuxfw.go`, `TailscaleBypassMark`) and that the Router wraps the route lookup with `p.Mark`; spec 2.3 (`docs/dforge/specs/2026-10-21-v1-completion-design.md:2783`, at `28598fa`; later spec line numbers are from the same revision) says the out-interface comes from "a forward lookup including policy rules". The evaluator hands the Router the packet with its mark (`internal/modules/firewall/eval/hooks.go:103-104`: `w.pkt.Mark = w.mark.val`, then `w.route(w.pkt)`), and it starts a locally generated packet whose `Mark` is 0 with every mark bit unknown (`eval/mark.go:24-33`), so tailscaled's `-m mark --mark 0x80000/0xff0000` rules are decidable only when the guard gives the packet the mark. Ruling: every lookup of `probes` and `route` passes `p.Mark`, including the reverse-path and reply lookups of incoming flows, whose mark is 0 today, so that the rule has no exception.
+- Local output destination (review minor, Task 36). The evaluator accepts only `path == "output" && out != ""` from the Router for an output packet (`eval/hooks.go:109-111`), so the old answer `("input", "")` for an output packet to a local address made the verdict `unknown`; the plan header says `"lo"` is the out-interface of a locally generated flow to a local destination. Ruling: `("output", "lo")`, handled before the non-local cases.
+- Controller listeners (spec 1.5, `design.md:1593-1599`: with a controller on the host "the agent adds its listening sockets as protected flows (direct panel, runtime and agent listeners) and its established agent sessions' peers"). Rulings: (a) a listener is a TCP socket in LISTEN state held by the process `facts.controller`, the main process of `darkpanel-controller.service`; a guard context that names a listener of this host while no unit runs gives no listener flows, because the process is unknown. (b) A loopback listener is skipped like every flow from a local address (`fromHere`), a listener bound to another host's address like `listenFor` skips it, and an unspecified IPv6 listener yields both families, as Go's dual-stack listeners accept both. (c) The stand-in sources are `internet4` and `internet6` with `SrcPort` 0, as the brief says. (d) Departure from the brief for one listener: the runtime listener is on the panel bridge's gateway address, and the only rule that opens it is `allow in on dp-panel from <proxy> to <gateway> port 9443` (spec 8, `design.md:4216`); with a gateway `.1` and proxy `.2` (`design.md:4201-4203`). A stand-in internet source would be dropped by that rule on every host with a panel exposure, so every firewall change there would fail the guard. The flow for a listener on an address of `dp-panel` therefore enters on `dp-panel` from the next address of the bridge's network (`.2`, the proxy); when the exposure's guard context names the same proxy and listener, flow 3 builds the identical packet first and keeps its label. The owner confirmed this ruling on 2026-10-26. (e) A panel or agent port that a rule restricts to certain sources fails the stand-in flow, which is overridable; the NPM public flow behaves the same way.
+- IPv6 forwarding (spec 2.1, `design.md:2587-2593`: "an IPv6 interface with `accept_ra=1` stops accepting router advertisements while it forwards" and "a change to IPv6 forwarding on a host whose default IPv6 route was learned from router advertisements fails the guard as `unknown`"). How `Check` gets the predicted values today: the plan passes the predicted loaded state `p.tg.pred` (`internal/modules/firewall/plan.go:126`), whose `Sysctl` comes from `loaded.PredictSysctl` (`plan.go:92`, `loaded/sysctl_predict.go:49`), and `Check` takes it as `st`. It gets the live values from nothing yet, so the guard reads them itself through `env.Files.ReadSysctl`, which the firewall manifest allows for `net/ipv6/conf/<iface>/forwarding` (`internal/modules/firewall/firewall.go:27`); `Input` is unchanged. Rulings: "a change" is any supported `net/ipv6/conf/*/forwarding` value of `st` that differs from the live one, in both directions and for `all`, `default` or any interface, because the spec states the rule for the host and `PredictSysctl` spreads a write of `all` to every interface; the rule does not look at `accept_ra` or at the route's interface, so it errs toward refusing, and an `unknown` is overridable (spec 2.3). A default route is a route whose protocol is `netstat.RouteProtoRA` (`RTPROT_RA`, 9, `internal/platform/netstat/routes.go:24`) and whose prefix length is 0, in any table. A key the kernel lacks (`fs.ErrNotExist`, IPv6 off or the interface gone) is no change; any other read error is an error. The routes are read only when a value differs. The owner confirmed this ruling, including that it errs toward refusing, on 2026-10-26.
+- Why `Routes` is not a method of `Host`: adding a method to `Host` changes a shared interface (ladder coupling 3), which Rule S cannot score with the rest of the task. Ruling: a separate optional interface, `routeDumper`, with the fail-closed rule above. The end-to-end tests do change forwarding: with `Routes` missing from `e2eNet`, `go test -count=1 ./internal/modules/firewall/` on 2026-10-26 failed with `--- FAIL: TestE2EVerifySysctl` and `plan firewall.logging.set: firewall: the lockout guard: firewall: the host cannot list routes`, so Task 113 adds the method to the fake (the task depends on Task 82, which created that file).
+- `TestLiveHost` (review minor, Task 17). Evidence of the defect, 2026-10-26: the unedited test binary run in a private network namespace (`unshare -n sh -c 'ip link set lo up; guard-old.test -test.run "TestLiveHost$" -test.v'`; the namespace is empty, nothing on the host changes) printed `facts_test.go:254: the host has no sockets` and `--- FAIL: TestLiveHost`; the edited binary printed `--- PASS: TestLiveHost` in the same namespace and in this host's own.
+- Not done, by the part brief: the review's minor findings on the `firewall:` error prefix and on the unlisted unexported names are outside this part.
+- Environment: on 2026-10-26 the host's load average reached 545 while other drafters ran. A full `go test -count=1 ./...` then timed out in `internal/core/lifecycle` after 958 s; the same package passed alone in 293 s (`ok`) at a load of 17. Every other package passed in that run, and the final run below passed everything.
+- Every task's code was run on base `59fcd8f` on 2026-10-26: each task's RED output was captured on its parent commit plus only its test files (the failing test names are in each task's Step 2), and after Tasks 105 and 112 `go build ./...`, `go vet ./...` and `go vet -tags harness ./test/...` (no output), `go test -count=1 ./...` (no package other than `ok` or `?`), `go test -race -count=1 ./internal/modules/firewall/...` (Task 105) or `.../guard/` (Task 112) (`ok`), `golangci-lint run --allow-serial-runners ./...` (`0 issues.`) and `go mod tidy -diff` (no output) passed, all with `GOTOOLCHAIN=local` and a `TMPDIR` under `/root/.cache/w1-tmp/`. After Tasks 94 and 113 the checks were the firewall subtree: `go vet ./internal/modules/firewall/...`, `go test -count=1 ./internal/modules/firewall/...` (all `ok`) and lint (`0 issues.`); after the last commit (`1f322da`, Task 95) the full set passed: `go build ./...`, `go vet ./...`, `go vet -tags harness ./test/...` and `go mod tidy -diff` with no output, `go test -count=1 ./...` with every package `ok` or `?`, `go test -race -count=1 ./internal/modules/firewall/guard/ ./internal/modules/firewall/` (`ok` for both) and `golangci-lint run --allow-serial-runners ./...` (`0 issues.`).
+- Dependency rebuilds. Tasks 105 and 112 form a chain (each edits files of the one before). Task 94 adds files only and depends on Task 53: its commit was cherry-picked onto `59fcd8f` alone in a throwaway worktree, and build, both vets, `go test -count=1 ./internal/modules/firewall/...`, `go test -race` on the guard package, `golangci-lint run --allow-serial-runners ./...` (`0 issues.`) and `go mod tidy -diff` passed. Task 113 (depends on Tasks 82 and 94; `59fcd8f` contains the latter) was cherry-picked onto `59fcd8f` plus Task 94 only, Task 95 onto `59fcd8f` alone, and the same checks passed for both. The throwaway worktrees were removed.
+
+### Review fix A1fix assumptions (Tasks 106, 114, 117, 119)
+
+- **Part brief ruling taken as given: effects keep the four files' hashes and a rule's positions in `Version`** (the controller amends the spec to match). This part does not touch effects.
+- **Ruling: the restore record gets a kind and the override detail, both written by the transaction that records the restore** (`beginRestoreRecord`), because the review's defect is a crash between the restore and the return of `Revert`: nothing but the record survives it. The detail is stored as far as it is known before the first write: the guard's reason, the files the restore overwrites (the snapshot's entries whose hash differs from the host's, read before the restore), and the outcome of every effect (unresolved ones and conflicts with what was observed, the rest undone). The loaded-chain differences are known only after the restore, so a finished restore reports none; `RevertOutcome.Detail` is shown to the operator and a missing chain list is the smaller loss than a lost override. A whole restore that failed and then became the connectivity exception upgrades its existing record with `markEmergency`. Tests: `TestAxRestoreRecordKind`, `TestAxRestoreRecordMigrationKeepsOldRows` (Task 106), `TestAxRevertFinishesAnInterruptedEmergencyRestore` (Task 114, both ways to get there: over a conflict, and after a whole restore that failed).
+- **Ruling: a restore record written before the migration is a normal one**, and `finishRestore` keeps its earlier inference for a normal record (an unresolved effect means the connectivity exception). The migration of a database holding such a row was run in `TestAxRestoreRecordMigrationKeepsOldRows`: the module's migrations applied up to `0001`, a record inserted, then `0002` applied; `restoreRecordOf` reads it as a normal reload.
+- **Ruling: no startup hook finishes a restore record.** The brief asks for a hook where the engine or module starts, if one exists. Read on 2026-10-26: the only module-level loop is `core.Background` (`internal/core/background.go`), whose `Run` "mutates only through tc.Apply" (`:13-15`); the runtime starts it after startup recovery (`internal/agent/runtime/runtime.go:159`) and skips a pass while a change holds one of the task's lock keys (`internal/agent/runtime/background.go`, `taskPass`, `taskLocksHeld`). A task that restored a snapshot would run outside the engine, without a change, journal or audit. And no unfinished record would be left for it: every path that writes one finishes it itself. Callers of `restore`/`restoreOver`, by `grep -n 'restore(\|restoreOver(' internal/modules/firewall/*.go`: `revert.go` (the whole restore, `finishRestore`, `emergencyRestore`) and `uninstall.go:125` (`restoreBaseline`). The first three run inside `Revert`, which startup recovery calls for every change it finds cut off (`internal/core/lifecycle/recover.go:445`, `revertAtStart`), and `revert` finishes a record of its own snapshot before any check; a revert that fails leaves its change `needs_repair` holding the `firewall` lock, which the background loop would skip. `restoreBaseline` runs in `uninstall`, which "runs again when an uninstall that stopped at a later step is run anew" (`internal/core/contract.go:611`), and the second run restores the same baseline, so `restoreOver` finds its record and finishes it. `firewall.snapshot.restore` and `firewall.state.repair` with outcome `restore` do not call `restore` at all: they journal each step as an effect (`handler.go:183`, `fw.run`, `writeRestored`; `actions_snapshot.go:44`, `actions_repair.go:99`), so a crash there is settled and reverted by the engine like any other change. The brief's fallback applies: the direct callers finish a pending record before they start a new one, as the next ruling says.
+- **Ruling: a new restore does not finish another snapshot's record first; it chooses its transition from UFW's loaded chains while one is there** (`activeNow`). The one thing a superseded record holds that the new restore needs is the UFW transition: `beginRestore` deletes every record, and the new restore would choose its own from `ENABLED` in the files, which the cut-off restore may have half written while UFW still runs as before. Reproduced first (`TestAxRestoreAfterAnotherInterruptedRestore`, Task 117): a restore of an active snapshot over a cut-off disable (`ENABLED=no` written, UFW running) chose `ufw --force enable`, which on a running UFW runs `ufw-init start`, and that answers "Firewall already started, use 'force-reload'" and loads nothing (`.dforge/drafts/v1-w1-firewall/ufw-src/ufwspike-debian-13/ufw/backend_iptables.py:509-522`, `ufw-init-functions:108-115`; the plan's part A2 ruling on transitions says the same), so the restored rules would not load. Finishing the other snapshot first was rejected: the new restore rewrites every file and sysctl value the old one wrote, so finishing it would only write twice, and a record that cannot be finished (a failing verify) would block the emergency restore of a locked-out host. The chains decide through `ufwRunning`, which `firewall.status` already uses for "active". With no other record the configuration decides as before (`chooseTransition`'s four-way table, the last test row). A record left behind by a failed revert stays until the next restore of any snapshot replaces it; retention keeps its snapshot meanwhile (part A1's constraint).
+- **Ruling (spec question): a revert by inverses ends with the before-image load**, for every snapshot that holds one (`loadVerifiedImage`, Task 119). Spec 2.3 says reverting an unconfirmed repair "restores the files (...) and then loads the before-image"; spec 2.5 step 3 leaves other edits in place. Both hold: the inverses undo the effects and keep a manual edit, then the image puts UFW's and Darkpanel's chains and the built-ins back as they were before the repair. Reproduced first (`TestAxRevertByInversesLoadsTheBeforeImage`): a repair's only effect is `ufw reload` on `firewall.state:enabled` (`target.go`, `transition`; `handler.go`, `transitionOp`), whose inverse sets the `ENABLED` flag back to the value it has (`inverse.go`, the `nounState` case), so after a manual edit in the pending window the revert ran `ufw --force enable` and reported `reverted` with the repaired chains still loaded. The load is verified with `imageMismatch`, and built-in chains whose foreign rules changed are left as they are and fail the revert naming them (`TestAxRevertByInversesLeavesAChangedBuiltinChain`), exactly as a whole restore does. A failure counts as a failed write, so the revert goes on to the connectivity exception: the guard decides, and a failing guard restores the snapshot whole, which fails the same way on a changed built-in chain and returns an error rather than an override (part A1's earlier ruling that an emergency restore never flushes a changed built-in chain).
+- **Ruling: `imageMismatch` does not list a chain created after the image** (the review's Minor finding), and its comment now says why. A chain of the loaded state that the image lacks cannot be removed by `*-restore -n`, so listing it would fail the revert of a repair that started a stopped UFW (its user chains exist afterwards) although the revert did all it can. Once the image's built-in chains are loaded nothing jumps to such a chain; a built-in chain that keeps a jump to it (it holds a foreign rule that changed) is in `Excluded`, which fails the restore on its own. Declining a change was cheaper than the alternative of flushing such chains in `planImage`, which would need a fresh container verification of `*-restore -n` with such declarations (part A1 verified the image load in an `ubuntu:24.04` container only).
+- **Plan-time ruling: no new container work.** Every behaviour used here (`ufw --force enable` on a running UFW, `*-restore -n`) is part A1's or part A2's measurement or a cited UFW source line; this part started no Docker container (`docker ps -a --filter name=dp-w1-` printed only the header on 2026-10-26).
+- **Every task's code was run** before this text was written, on 2026-10-26, from base `59fcd8f`, in `clone-A1fix`, branch `a1fix-part`. Each task was written test first and each Step 2 output is the real output of the task's test file on its parent commit (the Task 106 test file does not build there; the other three fail on behaviour). Each commit, checked out in a separate worktree, passed `go build ./...`, `go vet ./...` (no output), `go test -count=1 ./internal/modules/...` (every line `ok`), `golangci-lint run --allow-serial-runners ./internal/modules/firewall/...` (`0 issues.`) and `go mod tidy -diff` (no output): Task 106 `2b501a7`, Task 114 `8e85825`, Task 117 `29d1626`, Task 119 `723637d`. After the last commit: `go build ./...` and `go vet ./...` (no output), `go vet -tags harness ./test/...` (no output), `go test -count=1 ./...` (61 `ok`, 2 `?`, no `FAIL`), `go test -race -count=1 ./internal/modules/firewall/` (`ok`, 87 s), `golangci-lint run --allow-serial-runners ./...` (`0 issues.`) and `go mod tidy -diff` (no output). Two runs failed while the host was loaded (load average above 200, other drafters running the same suites): the first `go test -count=1 ./...` ended in a SIGQUIT goroutine dump, and the first race run of the package failed after 628 s with a goroutine dump, which fits Go's default 10-minute test timeout (inference: the output was cut to its tail). Both passed unchanged once the load fell, and `go test -race -count=15 -run 'TestAx|TestRevert|TestRestore'` on the package then passed too (358 s).
+- **Tasks whose `Depends on` is not just the previous task:** none. Each depends on the one before it, and Task 106 on part A1's last task, Task 64.
+
+### Review fix A2fix assumptions (Tasks 96, 97, 98, 99, 100, 108, 109)
+
+- **Rulings of the part brief, taken as given.** (1) Repair: the restore returns the host to a snapshot the operator already accepted, so `RepairInput` gets `manual`, wired through `mutation.manual` like `snapshot.restore`; an outcome outside `restore|keep` is refused. (2) The production wiring is tested by behavior. (3) Verify compares every chain UFW's start can write: UFW's chains, Darkpanel's chains and the built-in chains of all five tables, not foreign user chains (which the guard and the in-sync check at plan time cover); the controller amends the spec sentence (the proposed text is in the report). (4) A non-empty mangle or security chain the evaluator does not support is an unsupported reason in the plan and in the status, through a pure function of `eval`. (5) `Label` is validated once, at `/label`.
+- **Plan-time ruling: verify gets its own comparison; `restoreKeep` and `syncDiffs` are not widened.** The brief allows widening them "or verify's keep". `restoreKeep` is also what A1's restore and revert verify against (`restore.go:183`, `revert.go:367`, which part A1fix edits), and `syncDiffs` is also the plan's in-sync check and the status: widening either to the nat, raw, mangle and security built-ins would mark a host out of sync forever whenever `before.rules` holds a `*nat` block, because UFW appends that block's rules to the built-in chains again on every start. Observed in `debian:13` with ufw 0.36.2-9 (container `dp-w1-P-5`, 2026-10-24, part P's Assumptions): the MASQUERADE rule appeared once after `ufw --force enable`, twice after `ufw reload` and three times after the next enable; `predict.loadChain` (`predict/predict.go:265-278`) models it, and the Part A2 ruling on `syncDiffs` says the same. So the comparison after a start needs a rule of its own: `verifyDiffs`. `TestE2EVerifyNatRule` reproduces the observed count through the module's own host model (one rule after the first reload, two after the second) and passes verify both times.
+- **Plan-time ruling: how a re-appended rule is told from a missing one (`reappended`).** Verify has the loaded state after the change, the change's journal and its snapshot, and the snapshot holds no loaded rules (only a repair's before-image does), so it cannot compare with the state before. The prediction made from the state after a start is that state plus the rules the start appends, so its difference in such a chain is exactly those rules; the chain passes when it holds each of them (counting duplicates) and fails when it does not, which is what a kernel that did not apply `before.rules` leaves (`TestE2EVerifyNatRule`, "not applied"). Limitation, accepted and recorded: when the chain already held the rule from an earlier start, a reload that skipped the append is not seen; every other difference in that chain (a policy, a rule only loaded, another order) still counts. Containment rather than "the chain ends with the rules" was chosen so that a foreign program appending to the chain between the reload and verify, which a host running Docker or tailscaled can do at any time, does not revert a good change.
+- **Plan-time ruling: what verify still compares exactly.** The filter table's built-in chains (they hold UFW's jumps and policies and were compared before) and the policy of every built-in chain of every table are exact. Only the rules of the other tables' built-in chains get the re-append tolerance. A disabled UFW is verified as before (UFW's chains only): a stop writes nothing else, and the built-in policy of a host whose UFW is off is not UFW's. Unverified and not changed here: `predict.startFamily` skips the rules of the filter table's built-in chains once UFW's primary chains exist (`predict/predict.go:169-171`), so a `-A INPUT` line in the `*filter` block of `before.rules` would be predicted once although UFW's restore appends it on every start; part P's run `dp-w1-P-5` measured only the nat block. Verify and the in-sync check would then report that host as differing; the default files hold no such line.
+- **Plan-time ruling: which mangle and security rules the evaluator "does not support" (`eval.Unmodelled`).** A rule counts when no packet makes the walk decide it, read from the code: `walkChain` stops with `unknown` for an opaque rule (`eval/eval.go`, `r.Opaque()`), for a target `target` does not run (`eval.go`, `target`; `hooks.go`, `natTarget` for the nat targets outside the nat table), for a `MARK` or `CONNMARK` whose options `parseMarkTarget` refuses (`mark.go`), and for a match `module` leaves `maybe` for lack of a model (`match.go`: `icmp`, `icmp6`, `hl`, `limit`, `recent`, `statistic`) when `decides(target)` and the rule is not a mark copy (`eval.go`, `decides`; `mark.go`, `uncertainCopy`). What `module` leaves `maybe` for a packet's sake (an unknown source port, the original destination of a later packet, the raw table before conntrack) does not count. Option-level gaps inside a modelled module (for example an address type other than `LOCAL`, `UNICAST`, `BROADCAST` and `MULTICAST`) are not listed either: they stay `unknown` verdicts, which the lockout guard fails and an override passes, because listing them would refuse the host for a value the walk decides for most packets. The parser's own classification (`netfilter/classify.go`, `modules`, `targets`) already makes every other module and target opaque. Both directions are checked: `TestUnmodelledAgreesWithEvaluate` pins the agreement with `Evaluate`, and `TestUnmodelledFixtures` runs the function over every capture of Docker 28, tailscaled 1.82 and 1.102 and the golden captures of UFW on the four images (`../testdata/golden/*/*/save/*.txt`), which hold none, so no supported host becomes unsupported.
+- **Plan-time ruling: the predicted state is checked too.** A start loads `before.rules` and `after.rules` blocks into the mangle and security tables, and the guard evaluates the predicted state, so a rule the walk cannot model there would make every flow `unknown` after the change. `fw.prepare` therefore refuses a target whose predicted loaded state holds such a rule, with the existing sentence for a target configuration (`the configuration the change leads to is unsupported`). A host that already has the rule is refused earlier, as an unsupported host.
+- **Plan-time ruling: `RepairInput.Manual` applies to `restore` only in effect.** `fw.plan`'s manual check compares the configuration before the change with the one after it; a repair of no change and `keep` change no rule, so `manual` has no effect there and is accepted. The check for an unknown outcome runs before the snapshot is read, so a typo is `request.invalid_input` and not "the snapshot of change …".
+- **Plan-time ruling: the production `lockout` is tested without the host.** `guard.Check` reads `/proc` and the kernel's routes through `LiveHost`, which only part G's `TestLiveHost` may do. `TestProductionLockout` instead gives it an environment with no file writer and no unit client, the first thing `gatherFacts` refuses (`guard/facts.go`: `firewall: the guard needs the file writer and the unit client`), and requires the production `lockout` to answer `false`, no detail and exactly the error `guard.Check` returns for that environment. `TestProductionReadLoaded` fails the first save tool through a fake runner, so the reader stops before `/sys/module/nf_tables`, the interface list and the sysctl reads. Evidence that the old test was blind and the new ones are not: the Step 2 of Task 97 (the mis-wired `fw` passes `TestProductionFW`, fails both new tests), run on 2026-10-26.
+- **Owner decision (2026-10-26): the out-of-sync guard's `Overridable` flag is deferred, register row 290.** The flag stays true; the refusal stands. The module cannot report it: `checkGuards` sets `g.Overridable = def.Spec.Guards[at].Overridable` for every guard the plan returns (`internal/core/lifecycle/overrides.go:56`, frozen), and the action declares `firewall.lockout` overridable, which a failing lockout needs. Two ways exist: the engine honours a `false` the module sets (a change in frozen `lifecycle/**`, an Integrator task), or the out-of-sync refusal becomes a second guard id (for example `firewall.sync`, `Overridable` false in every mutating action's `Guards`), which changes the plan's guard list that spec 2.3, the web page, the CLI hint and the M3 harness read as the single `firewall.lockout`. The refusal itself is right today: `planGuard` ignores `overrides` on an out-of-sync host, so apply refuses with `plan.guard_failed` (`TestPlanOutOfSync`, `TestE2EOutOfSync`); only the `overridable` flag of the plan's guard is wrong.
+- **The generated schema.** `schemas/firewall.state.repair/v1.json` is regenerated by `go run ./internal/core/schema/schemagen -out schemas` (`make schemas`); `TestSnapshotsCurrent` (`internal/modules/modules_test.go`) fails when it is stale. No file of `schemas/released/` exists yet.
+- **No frozen file, error code, allowlist rule or extension point was needed** by the six tasks that change behavior; the one finding that would need the frozen engine is the one above. The codes used (`firewall.manual_required`, `firewall.unsupported_configuration`, `firewall.prediction_mismatch`, `request.invalid_input`) exist.
+- **No container was needed.** The re-append behavior is part P's measurement (above) and the guard, status and plan tests use the module's fake and end-to-end hosts. This part started no Docker container (`docker ps -a --filter name=dp-w1-` printed only the header on 2026-10-26).
+- **The `internal/core/lifecycle` package timed out once under load.** On 2026-10-26 the host's load average was above 150 while other drafters ran, and the Task 97 full run killed `internal/core/lifecycle` after the 10-minute test timeout (`TestUndoOfAStep`, a timing test this part does not touch); the package passed alone on the same commit (`go test -count=1 ./internal/core/lifecycle/`, `ok` in 293 s under load) and in the full run of the last commit. Treat a lifecycle timeout under a load of this size as the host's.
+- **Every task's code was run** before this text was written, on 2026-10-26, from base `59fcd8f` on branch `a2fix-part` of the clone. Each task was written test first; each Step 2 output is the real output of the task's test files applied to its parent commit (Task 97: of its tests applied to a deliberately mis-wired `wire.go`). Tasks 96 and 97 passed all six checks with `GOTOOLCHAIN=local` and a `TMPDIR` under `/root/.cache/w1-tmp/` after their commits (`go build`, `go vet`, `go vet -tags harness ./test/...`, `go test -count=1 ./...`, `go test -race -count=1 ./internal/modules/firewall/...`, `golangci-lint run --allow-serial-runners ./...` with `0 issues.`, `go mod tidy -diff` with no output; the lifecycle package as above for Task 97). After each of Tasks 98, 99, 100, 108 and 109, `go build ./...`, `go vet ./...`, `go test -count=1 ./internal/modules/...`, `golangci-lint run --allow-serial-runners ./internal/modules/...` and `go mod tidy -diff` passed. The final commit passed all six checks in full: 61 `ok`, 2 `?`, no `FAIL`; race `ok` for the eight packages under `internal/modules/firewall/`; `0 issues.`; empty `go mod tidy -diff`. The commits are Task 96 `0b6baa2`, Task 97 `4286474`, Task 98 `eb7352c`, Task 108 `48cd82e`, Task 99 `ba0644f`, Task 109 `7fc1fa5` and Task 100 `ee781e7`.
+- **Tasks whose `Depends on` is not just the previous task** were rebuilt on a temporary branch from `59fcd8f` with only their dependencies cherry-picked, and `go build ./...`, `go vet ./...`, `go test -count=1 ./internal/modules/...` (this package includes `TestSnapshotsCurrent`), `golangci-lint run --allow-serial-runners ./internal/modules/...` and `go mod tidy -diff` passed on 2026-10-26: Task 96 (`0b6baa2`), Task 97 (`4286474`), Task 98 (`eb7352c`), Task 99 (`ba0644f`) and Task 100 (`ee781e7`) each alone; Task 108 on Task 98 (`eb7352c`, `48cd82e`); Task 109 on Task 99 (`ba0644f`, `7fc1fa5`). Every cherry-pick applied without a conflict. The dependencies on part A2's own tasks (Task 68, Task 69, Task 72, Task 73, Task 75, Task 76, Task 79, Task 81, Task 84, Task 91) are in the base.
+
+### Review fix PCF2fix assumptions (Tasks 93, 103, 104)
+
+- Plan-time ruling (Task 104): `startFamily` skips only the first six rules of each built-in filter chain of the translation when UFW's primary chains exist, not every rule. Evidence: `ufw_start` adds the 18 jumps only in the `else` branch of `if $exe -L ufw${type}-before-logging-input -n` (`.dforge/drafts/v1-w1-firewall/ufw-src/ufwspike-debian-13/ufw/ufw-init-functions:172-217`) and runs `$exe-restore -n < "$BEFORE_RULES"` and `"$AFTER_RULES"` unconditionally (`:287-288`, `:302-303`). Measured on 2026-10-26 in a privileged container (`docker run -d --privileged --name dp-w1-PCF2-1 debian:13 sleep infinity`, `apt-get install -y ufw iptables nftables procps iproute2`: ufw 0.36.2, iptables v1.8.11 nf_tables; `docker rm -f` afterwards): with `*filter` / `-A INPUT -s 203.0.113.9/32 -j DROP` / `COMMIT` prepended to `/etc/ufw/before.rules` and the same for `-A FORWARD -s 203.0.113.10/32 -j DROP` in `after.rules`, `iptables-save -t filter` after `ufw --force enable`, `ufw reload`, `ufw disable` and `ufw --force enable` showed INPUT with the six UFW jumps followed by 1, 2, 2 and 3 copies of the INPUT rule (FORWARD alike with its rule, OUTPUT with its six jumps only), policies INPUT and FORWARD `DROP`, `DROP`, `ACCEPT`, `DROP` and OUTPUT `ACCEPT` throughout. `TestPxBuiltinRules` pins that sequence from the `fresh` loaded state and the `rules` configuration. The IPv6 files go through the same loop (`for exe in $execs`, `:161`), which this run did not exercise separately (inference). The 22.04 source (ufw 0.36.1) differs from 0.36.2's `ufw-init-functions` only in comments (`diff` of the two copies in `ufw-src/`, 2026-10-26).
+- Plan-time ruling (Task 93): the loopback interface is read like any other interface; no reason to make a supported `lo` key unsupported exists. Evidence: spec 2.1's sysctl paragraph records "every supported key's live value, global and per interface"; in the container above (kernel 7.0.14-19-pve) `net/ipv6/conf/lo/forwarding`, `net/ipv6/conf/lo/accept_ra`, `net/ipv4/conf/lo/rp_filter` and `net/ipv4/conf/lo/accept_source_route` read `0`, `1`, `2`, `0`, and writing `net/ipv6/conf/all/forwarding` to 1 set `lo`'s `forwarding` to 1 and writing 0 set it back (2026-10-26; the Part C Assumptions measured the same on 2026-10-24), so the supported keys change `lo` and a revert needs its before value. `lo` matches the agent's `<iface>` segment (`^[A-Za-z0-9_.@-]{1,15}$`, spec 1.8, `internal/platform/files_sysctl.go:29`) and exists beside `all`. `PredictSysctl` needed no change but its comment: `spCur` in `sysctl_predict_test.go` already holds `lo` and the existing rows spread `all/forwarding` to it. Every other test in `./...` passed unchanged (checks below).
+- Plan-time ruling (Task 103): an unsafe comment is dropped, not refused. The builders return `[]string` without an error, so refusing would change three signatures and edit the module root, which part A1 owns; and the one caller that writes a manual rule is the revert's inverse, where a refusal leaves the deleted rule deleted (it may be the rule that keeps a flow open) while a dropped comment restores its behaviour and the undo's own observation still reports the difference. Evidence: a scratch test on the module root's fake host (not committed; 2026-10-26) deleted the manual IPv6 rule `### tuple ### deny udp 53 ::/0 any 2001:db8::/32 in comment=2d78` (comment `-x`) and ran `inverse`: it ran `/usr/sbin/ufw deny in proto udp from 2001:db8::/32 to ::/0 port 53` and returned `firewall: undo effect 1 (firewall.rule:manual-d5f01e26a73fd730) left null, want {"v6":"### tuple ### deny udp 53 ::/0 any 2001:db8::/32 in comment=2d78"}`. Spec 1.8's allowlist row says "every argument value is also constrained by 2.2's schema patterns before it reaches the runner", and 2.2's "Schema patterns" paragraph names `^[A-Za-z0-9 :._/-]{0,64}$` for comments; `commentPattern` itself allows a leading `-`, so the builders add that exclusion for a comment that is an argument of its own.
+- Owner decision (2026-10-26): a revert that re-adds a deleted manual rule without its unsafe comment ends `needs_repair`, and a repair restores the file; this is accepted, and part A1's reinsert is not changed.
+- Plan-time ruling (Task 103): a Darkpanel rule's label that fails `commentPattern` is left off the tag, and one that starts with `-` is kept. The tag starts with `darkpanel:`, so the argument never starts with `-`, and `Validate` accepts such a label in input. A label outside the pattern can only come from a hand-edited tag in UFW's files.
+- Observation (Task 103): UFW itself takes a dash-leading comment as a comment. In the container above `ufw allow in proto tcp from any to any port 8080 comment <c>` for `-x`, `--force`, `--dry-run` and `-h` each printed `Rules updated` and `Rules updated (v6)`, the last leaving the tuple `comment=2d68` (`-h`) in user.rules, so the exclusion is the spec's defence for an argument vector that a different `ufw` version or option parser could read as an option, not a fix for something UFW 0.36.2 does wrong.
+- `Validate` is not changed: a manual-origin rule with a comment such as `-x` still passes it. Only `reinsert` writes a manual rule (`effects.go:addRuleOp` refuses one, evidence: `grep -n 'OriginManual' internal/modules/firewall/effects.go`, 2026-10-26), and its rule comes from the journal, not from input.
+- Every task's code was run in `/tmp/claude-0/-root-repositories-darkpanel/13f9b7c3-1c9f-4af0-9171-4dc43949fe4e/scratchpad/clone-PCF2fix` (branch `pcf2fix-part`) on base `59fcd8f`, the integration tree with every part merged plus the sysctl follow-up, in the commits `ab5dc2a` (Task 104), `0a6c8b7` (Task 93) and `23c65bc` (Task 103). Each was RED first (outputs above) and GREEN after it; after each commit `go vet ./internal/modules/firewall/...` and `go test -count=1 ./internal/modules/firewall/...` passed. After the last commit (2026-10-26): `go build ./...` (no output), `go vet ./...` and `go vet -tags harness ./test/...` (no output), `go test -count=1 ./...` (no line but `ok` and `?`), `go test -race -count=1` on `predict`, `loaded` and `model` (`ok` for each), `golangci-lint run --allow-serial-runners ./...` (`0 issues.`), `go mod tidy -diff` (no output). Each task was also rebuilt alone: `git cherry-pick -n` of its commit onto `59fcd8f` in a scratch worktree, then `go build ./...`, `go vet ./internal/modules/firewall/...` and `go test -count=1 ./internal/modules/firewall/...` passed for each of the three, so none depends on another.
+- Container hygiene: the one container started, `dp-w1-PCF2-1`, was removed in the same session (`docker ps -a --filter name=dp-w1-PCF2` prints only the header).
+
+### Review fix F1Ufix assumptions (Tasks 89, 92, 101, 102, 107, 110, 115, 116, 118)
+
+- Every task's code was run before this part was written, on 2026-10-26, from base `59fcd8f`, in order, on branch `f1ufix-part` of `clone-F1Ufix`. Commits: Task 89 `6b95b7c`, Task 102 `27759f0`, Task 92 `adc293c`, Task 107 `db93957`, Task 115 `2ca8dff`, Task 101 `9800964`, Task 110 `1af1514`, Task 116 `0626d0d`, Task 118 `46cbc5f`. Each task followed TDD: the RED output of each Step 2 was captured with only the task's test changes applied (for Task 102, with the implementation files stashed). After each commit `go build ./...`, `go vet ./...` (harness tasks also `go vet -tags harness ./test/...`), `go test -race -count=1` on the task's packages and `golangci-lint run --allow-serial-runners` on the touched packages (harness: `--build-tags harness ./test/...`) passed. The full `go test -count=1 ./...` and the other full checks ran once after the last commit (result bullet at the end).
+- Dependencies rebuilt on a temporary worktree from `59fcd8f` plus only the task's dependencies (`git cherry-pick`, no conflicts), 2026-10-26: Task 89 alone, Task 89 then Task 102 (server tests `ok`), Task 92 alone, Task 92 then Task 107, then Task 115 (netfilter tests `ok` each time), Task 101 alone, then Task 110, Task 116, Task 118 in order (`go vet -tags harness ./test/...` and `TestM3x|TestM3UFWLines` `ok` each time). Task 118 alone does not apply (conflict in the helpers file), which is why it depends on Task 116.
+- **Pinned iptables sources.** `https://www.netfilter.org/pub/iptables/iptables-1.8.11.tar.xz`, sha256 `d87303d55ef8c92bcad4dd3f978b26d272013642b029425775f5bad1009fe7b2` (the same value as the `.sha256sum` file served beside it), fetched 2026-10-26. `git.netfilter.org/.../plain/extensions/<file>?h=v1.8.11` answers a scripted request with a bot-check page (five identical 80-line HTML files), so the release tarball is the pin. Files read: `extensions/libxt_icmp.h` (the ICMP and ICMPv6 tables and `__parse_icmp`; there is no `libxt_icmp.c` in 1.8.11, the brief's name was from memory), `libipt_icmp.c` and `libip6t_icmp6.c` (`icmp_save`, `icmp6_save`), `libipt_REJECT.c`, `libip6t_REJECT.c`, `libxt_limit.c` (`parse_rate`, `print_rate`), `libxt_LOG.c`, and `include/linux/netfilter_ipv4/ipt_REJECT.h`, `include/linux/netfilter_ipv6/ip6t_REJECT.h` (the order of the reject types).
+- **Container probe.** A privileged `debian:13` container `dp-w1-F1U-1` (own network namespace, removed afterwards; `docker ps -a --filter name=dp-w1-` prints only the header) with `iptables v1.8.11 (nf_tables)` and `ip6tables v1.8.11 (nf_tables)`, the version of the tarball. For each spelling, `printf '*filter\n:X - [0:0]\n-A X <rule>\nCOMMIT\n' | iptables-restore` then `iptables-save -t filter`, one restore per spelling (family 6 with the `ip6tables` tools). 227 spellings: every name of both ICMP tables, numbers (`255`, `0x3`, `03`, `3/0:255`, `3/1:2`, `1/3:3`), prefixes (`dest`, `pa`, `mld-listener-d`), capitals, 43 REJECT spellings in both families, 20 LOG levels, and 54 limit rates with 6 burst variants. The scripts and their output are in `F1Ufix-scratch/probe.sh`, `probe2.sh`, `probe.out` and `probe2.out` beside the clone, and the rows of the tests are generated from `probe.out` and `probe2.out`.
+- **Differences found, all fixed with test rows.** ICMPv6: the names `mld-listener-query` (130), `mld-listener-report` (131), `mld-listener-done` and `mld-listener-reduction` (132) were missing. ICMP, both families: iptables takes a case-insensitive prefix that names exactly one type (`dest` is 3, `pa` is 12; `echo` and `a` are ambiguous and refused), numbers as `strtoul` base 0 (`0x3`, `03`), a code range after the slash printed by its first code (`3/1:2` is `3/1`, `3/0:255` is `3`), and for ICMPv4 only type 255 with every code is `any`; ICMPv6 `any` is refused and `255` stays `255`. REJECT: IPv6 `tcp-rst` is refused (the alias is `tcp-reset`), and a spelling is a case-insensitive prefix of a name or alias, the first row in the order of the reject types winning (IPv4 `p` is `icmp-proto-unreachable`, IPv6 `p` is `icmp6-port-unreachable`). LOG: `err`, `warn` and capitals are refused, `panic` is level 0. Limit: iptables reads the rate into a period and prints the largest unit that divides it (`60/min` is `1/sec`, `120/hour` is `2/min`, `10000/min` is `166/sec`), reads the digits at the start of the rate (`3x/min`, `03/min`), and refuses zero, an unknown or empty unit and more than 10000 per second.
+- **Confirmed unchanged.** All 40 IPv4 and the other 28 IPv6 ICMP names, the eight IPv4 REJECT names and aliases, the IPv6 ones except `tcp-rst`, the REJECT defaults, the limit default `3/hour`, burst 5 omitted and burst 6 printed, `LOG` level 4 omitted, and the unit spellings `sec`, `min`, `hour`, `day`.
+- **Not modelled.** The nft backend saves `--limit-burst 0` without the option (probe line `-m limit --limit-burst 0 => -m limit --limit 3/hour`); `Key` keeps `--limit-burst 0` as written. UFW never writes it, so it matters only for a hand-written file. The legacy backend was not probed. Octal and hexadecimal `--log-level` numbers were not probed and stay as written.
+- **Topology ruling (Task 102).** The runtime source counts only after `Start` succeeds, and an open runtime listener that is not bound makes the topology incomplete. `Dropped` is not used for the unbound listeners: the dispatcher logs every dropped value as "not an IP address", which would be wrong. `Listening` reads the three results under one lock because two reads can miss a listener that is rebound between them. The ordering is tested through `startRuntimeListeners`: a `Start` that fails (nil handler) leaves the topology incomplete although every other source is registered. The mutations "registered before `Start`" and "unbound count ignored" each failed a test when tried (2026-10-26).
+- **Shutdown (adjacent).** After `Runtime.Shutdown` the runtime lists are empty and the topology read complete, as the web listeners' topology did after theirs, so a guard plan during shutdown saw no listeners. Owner decision (2026-10-26): Task 111 marks the topology incomplete once `Shutdown` begins.
+- **Harness ruling, out-of-sync check (Task 101).** The brief asks for a failing, non-overridable guard. The guard's `Overridable` is copied by the engine from the action's guard spec, which is true for `firewall.lockout` on every plan (`internal/modules/firewall/handler.go:60`, and `m3RequireCut` requires it true on a healthy host); part A2fix may set it false for the out-of-sync guard "if cheap". Asserting the flag would fail the M3 run if that does not land, so the step re-plans with `overrides: ["firewall.lockout"]` and requires the guard to still fail, which is what "an override cannot pass it" means (`planGuard`, `internal/modules/firewall/plan.go:113-125`, returns the failing guard before the overrides are read).
+- **Harness ruling, reboot half (Task 110).** Same shape as `m3RevertOnReboot`: apply with a 120 s timer, reboot, wait for `reverted`, then require the stray rule loaded again and the host out of sync. The stray rule is not persistent, so after the boot it is absent until the agent's revert loads the before-image. That order holds because UFW loads before the network is up (Debian 13's `ufw.service`: `DefaultDependencies=no`, `Before=network-pre.target`, read from the package with `apt-get download ufw` on 2026-10-26) and the agent unit has `After=network-online.target` (`internal/install/units/darkpanel-agent.service:6`). Ubuntu's unit was not read.
+- **Tailscaled evidence (Task 116).** The tailscale package of `images.json` (1.104.1, sha256 `509753a4ff223efc70234e7f539afc51f743b3af043d9e55313960bd7327700f` for `https://pkgs.tailscale.com/stable/debian/pool/tailscale_1.104.1_amd64.deb`, the value pinned for debian-12 and checked on 2026-10-26) installed in the privileged `debian:13` container, `tailscaled` started with the arguments of its unit (`--state=/var/lib/tailscale/tailscaled.state --socket=/run/tailscale/tailscaled.sock --port=41641`): `tailscale status` printed `Logged out.`, and `ss -Htuanp` showed `udp UNCONN 0.0.0.0:41641` and `udp UNCONN [::]:41641` held by `"tailscaled"` (plus one TCP connection, which a VM without internet may lack). The guard reads exactly these: `tailscaleFlows` (`internal/modules/firewall/guard/flows.go:331-352`) takes a non-loopback listening UDP socket of tailscaled. The step therefore fails, not skips, when no socket shows. The unit test holds that output (`F1Ufix-scratch/tsd-evidence.txt`). It was not run on the VM image itself.
+- **Nftables reason (Task 118).** `nativeTables` (`internal/modules/firewall/loaded/foreign.go:111-160`) formats `nft table %s %s: base chain %q on hook %q has %d rule(s) and policy %s`; `TestForeignNative` pins the format. For the step's table that is `nft table inet m3: base chain "input" on hook "input" has 1 rule(s) and policy accept`.
+- **Production names in `key.go`** carry no `kx` prefix: the prefix is for test identifiers, and no other fix part edits package `netfilter` (briefs of A1fix, A2fix, Gfix and PCF2fix, read 2026-10-26).
+- **Three Key tasks instead of one.** ICMP, REJECT with LOG, and limit are separate tasks so a reviewer can reject one table without the others (Rule S: one task would carry about 600 lines of edits and three independent ports).
+- **Not verified.** The M3 scenarios (`repair-reverts-reboot`, the changed `repair-reverts`, `refuse-tailscaled-egress`, `unsupported-nftables-chain`) need the QEMU fleet and were not run; their pass or fail helpers are unit-tested. They compile (`go vet -tags harness ./test/...`).
+- **Settled at assembly (2026-10-26).** The plan header and part F1's constraints and assumptions now say that the runtime source counts only after `Runtime.Start` (Task 102) and that Tasks 92, 107 and 115 verify the ICMP names, REJECT aliases and limit rates. The out-of-sync guard's `Overridable` flag is deferred (register row 290), and `m3xOutOfSyncRefusal` passes either way. The M3 harness runs on CI under gate 7; if `refuse-tailscaled-egress` fails there, the VM's tailscaled holds no socket, and the step moves to M5 with a register row.
+- **Final checks**, on `46cbc5f` (the last commit), 2026-10-26: `go build ./...` and `go vet ./...` no output; `go vet -tags harness ./test/...` no output; `go mod tidy -diff` no output, `go.mod` and `go.sum` unchanged; `golangci-lint run --allow-serial-runners ./...` `0 issues.`, and with `--build-tags harness ./test/...` `0 issues.`; `go test -race -count=1` on `./internal/controller/listen/`, `./internal/controller/server/` and `./internal/platform/netfilter/` `ok`; `go test -count=1 ./...`: 55 packages `ok` and `internal/controller/api`, `dispatch`, `internal/core/lifecycle`, `internal/install`, `internal/modules/firewall` and `internal/update` timed out at the 10 minute default because the host's load average was about 430 on 12 cores (other drafters' runs), and all six passed on a rerun with `-timeout 40m -p 2` (`ok` for each). The hard-to-read first failure is a `SIGQUIT` stack dump of the timeout, not a test failure.
+
+### Review fix F1Sfix assumptions (Tasks 111)
+
+- Owner decision of 2026-10-26: after the server begins to shut down, the topology reads as incomplete (before it, it read complete with every listener list empty once `Runtime.Shutdown` and the web listeners' shutdown had run, part F1Ufix assumptions).
+- Verified on 2026-10-26 on `integ-fix` with `TMPDIR` set: Step 2 printed `--- FAIL: TestSdTopologyIncompleteAfterShutdown` with `the topology {PanelListen:[] AgentListen:[] AgentPeers:[] Complete:true Dropped:[]} is complete after Shutdown`; after Step 3, the Step 4 tests passed, `go build ./...`, `go vet ./...` and `go mod tidy -diff` printed nothing, `go test -race -count=1 ./internal/controller/server/` and `go test -count=1 ./internal/controller/... ./cmd/...` printed `ok` for every package, and `golangci-lint run --allow-serial-runners ./...` printed `0 issues.`.
 
 ## Task index
 
@@ -1781,8 +2339,37 @@ Run on 2026-10-24 in the clone, each on a temporary branch from `55536b3` with o
 86. Harness — supported configurations and the golden re-check
 87. Predict the sysctl values of a change
 88. Fix part F2's conf.Read: record UFW's sysctl file on every host
-89. Workflow step for the M3 firewall harness
-90. Verify the sysctl values of a start
+89. listen: read bound and unbound runtime listeners at once
+90. Workflow step for the M3 firewall harness
+91. Verify the sysctl values of a start
+92. netfilter: read ICMP types as iptables does
+93. Read the loopback sysctl values
+94. Let the guard list the host's routes
+95. Live host test tolerates an empty socket table
+96. Let a repair restore manual rules
+97. Test the production wiring by behavior
+98. Compare every built-in chain after a start
+99. Fix part E's evaluator: list the mangle and security rules it cannot model
+100. Validate the batch label once
+101. Harness: require a failing guard on an out-of-sync host
+102. Integrator: wait for the runtime listeners in the guard topology
+103. Leave unsafe comments off vectors
+104. Predict built-in rules on reload
+105. Guard routes with the packet's mark
+106. Record the kind of a restore
+107. netfilter: read REJECT and LOG names as iptables does
+108. Verify with the wider comparison
+109. Refuse a host with mangle or security rules the evaluator cannot model
+110. Harness: revert an unconfirmed repair on reboot
+111. Integrator: mark the guard topology incomplete on shutdown
+112. Guard the controller's listening sockets
+113. Fail a change to IPv6 forwarding under router advertisements
+114. Finish a cut-off emergency restore as an override
+115. netfilter: print limit rates as iptables does
+116. Harness: fail when tailscaled holds no socket
+117. Restore over a cut-off restore
+118. Harness: match the exact nftables reason
+119. Load the before-image after the inverses
 
 ---
 
@@ -41692,7 +42279,7 @@ git commit -m "test(harness): check firewall configurations"
 **Evaluation:** files 1 - spec 0 - coupling 1 - risk 3 = 5
 **Lenses:** security
 
-Verify must compare the sysctl values a start of UFW sets with the live ones (spec 2.1, 2.3), and the starts a change made, and the keys it wrote itself, are in its effect journal. This task adds the pure part: reading a record from a change's effects, predicting the values from that record, the configuration and the values from before the change, and describing the differences. The tests prove a start predicts the keys UFW's sysctl file sets and the kernel's side effects but not the keys it leaves alone, that a change that did not start UFW predicts nothing, that a change's own writes win, and that a mismatch names the key, the live and the predicted value. Task 90 wires it into Verify.
+Verify must compare the sysctl values a start of UFW sets with the live ones (spec 2.1, 2.3), and the starts a change made, and the keys it wrote itself, are in its effect journal. This task adds the pure part: reading a record from a change's effects, predicting the values from that record, the configuration and the values from before the change, and describing the differences. The tests prove a start predicts the keys UFW's sysctl file sets and the kernel's side effects but not the keys it leaves alone, that a change that did not start UFW predicts nothing, that a change's own writes win, and that a mismatch names the key, the live and the predicted value. Task 91 wires it into Verify.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -42477,14 +43064,179 @@ git add internal/modules/firewall/conf/conf.go internal/modules/firewall/conf/co
 git commit -m "fix(firewall): always record UFW's sysctl file"
 ```
 
-### Task 89: Workflow step for the M3 firewall harness
+### Task 89: listen: read bound and unbound runtime listeners at once
+
+**Files:**
+- Modify: `internal/controller/listen/runtime.go`
+- Test: `internal/controller/listen/runtime_test.go`
+
+**Interfaces:**
+- Consumes: `Runtime.Addrs`, `Runtime.Unbound`, the `rtFixture` helpers and `rsInsert` of the merged tests
+- Produces: `(*Runtime).Listening() (addrs []netip.AddrPort, dropped []string, unbound int)` (Part contracts, Task 89)
+
+**Depends on:** Task 28, Task 86
+
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 0 - coupling 2 - risk 2 = 5
+
+`Runtime.Addrs` and `Runtime.Unbound` each take the runtime's lock, so a caller that reads one and then the other can miss a listener that stops serving and is bound again between the two reads: it is in the addresses of neither. Task 102 builds the guard topology from both, so it needs one read. `Listening` returns the bound addresses, the addresses that are not IP addresses and the number of open listeners waiting for a bind from one critical section, and `Addrs` now calls it. The test starts the runtime over an open row whose bind fails, requires no address and one unbound listener, lets the retry bind it, and requires one address, none unbound, and the same addresses as `Addrs`.
+
+- [ ] **Step 1: Write the failing test**
+
+Modify `internal/controller/listen/runtime_test.go` with 1 exact edit; the "replace" block occurs exactly once in the file at that point.
+
+Replace this block:
+
+```go
+		t.Errorf("logs %q, want a warning naming addr=@runtime", out)
+	}
+}
+```
+
+with:
+
+```go
+		t.Errorf("logs %q, want a warning naming addr=@runtime", out)
+	}
+}
+
+// TestTxRuntimeListening: Listening reports the bound addresses and the
+// open listeners waiting for a bind from one read, so the guard topology
+// cannot count a listener that is pending as absent from a complete list.
+func TestTxRuntimeListening(t *testing.T) {
+	f := newRtFixture(t)
+	rsInsert(t, f.db, "L1", rtSpec, testStart)
+	f.binder.setFail(syscall.EADDRNOTAVAIL)
+	f.start(t)
+	addrs, dropped, unbound := f.rt.Listening()
+	if len(addrs) != 0 || len(dropped) != 0 || unbound != 1 {
+		t.Fatalf("Listening = %v, %v, %d while the bind fails; want none, none, 1", addrs, dropped, unbound)
+	}
+	f.binder.setFail(nil)
+	f.clock.Advance(CheckInterval)
+	addrs, dropped, unbound = f.rt.Listening()
+	if len(addrs) != 1 || len(dropped) != 0 || unbound != 0 {
+		t.Fatalf("Listening = %v, %v, %d after the bind recovered; want one address, none, 0", addrs, dropped, unbound)
+	}
+	if want, _ := f.rt.Addrs(); !slices.Equal(addrs, want) {
+		t.Errorf("Listening addresses %v differ from Addrs %v", addrs, want)
+	}
+}
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `mkdir -p /root/.cache/w1-tmp/89 && TMPDIR=/root/.cache/w1-tmp/89 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestTxRuntimeListening' ./internal/controller/listen/`
+Expected: FAIL -- the build fails on the undefined `Listening`. The output observed when drafting:
+
+```text
+# github.com/darkraise/darkpanel/internal/controller/listen [github.com/darkraise/darkpanel/internal/controller/listen.test]
+internal/controller/listen/runtime_test.go:711:34: f.rt.Listening undefined (type *Runtime has no field or method Listening)
+internal/controller/listen/runtime_test.go:717:33: f.rt.Listening undefined (type *Runtime has no field or method Listening)
+FAIL	github.com/darkraise/darkpanel/internal/controller/listen [build failed]
+FAIL
+```
+
+- [ ] **Step 3: Write the implementation**
+
+Modify `internal/controller/listen/runtime.go` with 2 exact edits, in order; each "replace" block occurs exactly once in the file at that point.
+
+Edit 1. Replace this block:
+
+```go
+// dropped, sorted, and logged at Warn, because the guard topology built
+// from Addrs is then incomplete.
+func (r *Runtime) Addrs() (addrs []netip.AddrPort, dropped []string) {
+	r.mu.Lock()
+	addrs = make([]netip.AddrPort, 0, len(r.live))
+	for _, l := range r.live {
+```
+
+with:
+
+```go
+// dropped, sorted, and logged at Warn, because the guard topology built
+// from Addrs is then incomplete.
+func (r *Runtime) Addrs() (addrs []netip.AddrPort, dropped []string) {
+	addrs, dropped, _ = r.Listening()
+	return addrs, dropped
+}
+
+// Listening is Addrs together with Unbound, read under one lock. A listener
+// moves between the bound and the unbound listeners under that lock, so the
+// three results never miss it: a topology that reads Addrs and then Unbound
+// can see a listener in neither.
+func (r *Runtime) Listening() (addrs []netip.AddrPort, dropped []string, unbound int) {
+	r.mu.Lock()
+	addrs = make([]netip.AddrPort, 0, len(r.live))
+	for _, l := range r.live {
+```
+
+Edit 2. Replace this block:
+
+```go
+		}
+		addrs = append(addrs, netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port()))
+	}
+	r.mu.Unlock()
+	slices.Sort(dropped)
+	for _, d := range dropped {
+		r.cfg.Log.Warn("listen: a runtime listener's address is not an IP address", "addr", d)
+	}
+	slices.SortFunc(addrs, netip.AddrPort.Compare)
+	return addrs, dropped
+}
+
+// Shutdown stops every listener, letting running requests finish until ctx
+```
+
+with:
+
+```go
+		}
+		addrs = append(addrs, netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port()))
+	}
+	unbound = len(r.pending)
+	r.mu.Unlock()
+	slices.Sort(dropped)
+	for _, d := range dropped {
+		r.cfg.Log.Warn("listen: a runtime listener's address is not an IP address", "addr", d)
+	}
+	slices.SortFunc(addrs, netip.AddrPort.Compare)
+	return addrs, dropped, unbound
+}
+
+// Shutdown stops every listener, letting running requests finish until ctx
+```
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `go test -count=1 -run 'TestTxRuntimeListening' ./internal/controller/listen/` -- Expected: PASS
+
+Then run, each with `TMPDIR=/root/.cache/w1-tmp/89 GOTOOLCHAIN=local`:
+
+- `timeout 600 go build ./...` -- Expected: no output.
+- `timeout 300 go vet ./...` -- Expected: no output.
+- `timeout 1200 go test -count=1 ./...` -- Expected: every package `ok` or `?`.
+- `timeout 900 go test -race -count=1 ./internal/controller/listen/` -- Expected: `ok` for each.
+- `timeout 900 golangci-lint run --allow-serial-runners ./...` -- Expected: `0 issues.`
+- `timeout 300 go mod tidy -diff` -- Expected: no output.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/controller/listen/runtime.go internal/controller/listen/runtime_test.go
+git commit -m "feat(listen): read bound and unbound listeners at once"
+```
+
+### Task 90: Workflow step for the M3 firewall harness
 
 **Files:**
 - Modify: `.github/workflows/harness.yml`
 
 **Interfaces:**
 - Consumes: `TestM3Firewall` and its `-m3` flag (Tasks 83, 85 and 86); the `vm` job's existing flags `-os`, `-bin`, `-m2`, `-commit`, `-cache`.
-- Produces: the step "Run the M3 firewall harness" (Part contracts, Task 89).
+- Produces: the step "Run the M3 firewall harness" (Part contracts, Task 90).
 
 **Depends on:** Task 86
 
@@ -42573,7 +43325,7 @@ with:
 
 Run: `timeout 120 ~/go/bin/actionlint .github/workflows/harness.yml && python3 -c "import yaml; yaml.safe_load(open('.github/workflows/harness.yml'))" && grep -c 'TestM3Firewall' .github/workflows/harness.yml` — Expected: no output from actionlint and the parse, then `1`.
 
-Then run, each with `TMPDIR=/root/.cache/w1-tmp/89 GOTOOLCHAIN=local`:
+Then run, each with `TMPDIR=/root/.cache/w1-tmp/90 GOTOOLCHAIN=local`:
 
 ```bash
 timeout 600 go build ./...
@@ -42586,7 +43338,7 @@ timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
 ```
 
-Expected: build silent; vet prints nothing; every `go test` line `ok` or `? … [no test files]`; lint `0 issues.`; tidy prints nothing. Afterwards `go clean -testcache` and remove `/root/.cache/w1-tmp/89`.
+Expected: build silent; vet prints nothing; every `go test` line `ok` or `? … [no test files]`; lint `0 issues.`; tidy prints nothing. Afterwards `go clean -testcache` and remove `/root/.cache/w1-tmp/90`.
 
 - [ ] **Step 5: Commit**
 
@@ -42595,7 +43347,7 @@ git add .github/workflows/harness.yml
 git commit -m "chore(ci): run the firewall harness on its own"
 ```
 
-### Task 90: Verify the sysctl values of a start
+### Task 91: Verify the sysctl values of a start
 
 **Files:**
 - Modify: `internal/modules/firewall/handler.go`
@@ -42603,7 +43355,7 @@ git commit -m "chore(ci): run the firewall harness on its own"
 
 **Interfaces:**
 - Consumes: `sysctlRecordOf`, `fw.expectedSysctl`, `sysctlMismatches` (Task 87); `snapshotOfChange`, `getSnapshot` (part A1, `store.go`); `mismatch` (Task 74); `mutation.Verify` (Task 73); `eeEngine`, `eePlanApply`, `newE2EHost` (Tasks 82 and 84); `vsEffect`, `vsBefore`, `vsConfig` (Task 87's test file).
-- Produces: `fw.verifySysctl` (Part contracts, Task 90); `mutation.Verify` also checks the sysctl values; `eeEngineRunning`, `eeSkewed`.
+- Produces: `fw.verifySysctl` (Part contracts, Task 91); `mutation.Verify` also checks the sysctl values; `eeEngineRunning`, `eeSkewed`.
 
 **Items:** 5
 
@@ -43073,7 +43825,7 @@ func TestE2EVerifySysctl(t *testing.T) {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w1-tmp/90 && TMPDIR=/root/.cache/w1-tmp/90 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestVerifySysctl|TestE2EVerifySysctl' ./internal/modules/firewall/`
+Run: `mkdir -p /root/.cache/w1-tmp/91 && TMPDIR=/root/.cache/w1-tmp/91 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestVerifySysctl|TestE2EVerifySysctl' ./internal/modules/firewall/`
 Expected: FAIL — Verify does not look at the sysctl values yet. Observed output:
 
 ```text
@@ -43169,13 +43921,13 @@ func (f fw) verifySysctl(ctx context.Context, env core.Env, cfg fwstate.Config, 
 
 - [ ] **Step 4: Run the tests and checks**
 
-Run: `mkdir -p /root/.cache/w1-tmp/90 && TMPDIR=/root/.cache/w1-tmp/90 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestVerifySysctl|TestE2EVerifySysctl|TestMutationVerify' ./internal/modules/firewall/` — Expected: PASS. Observed output:
+Run: `mkdir -p /root/.cache/w1-tmp/91 && TMPDIR=/root/.cache/w1-tmp/91 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestVerifySysctl|TestE2EVerifySysctl|TestMutationVerify' ./internal/modules/firewall/` — Expected: PASS. Observed output:
 
 ```text
 ok  	github.com/darkraise/darkpanel/internal/modules/firewall	0.850s
 ```
 
-Then run, each from the repository root with `mkdir -p /root/.cache/w1-tmp/90` and `TMPDIR=/root/.cache/w1-tmp/90`:
+Then run, each from the repository root with `mkdir -p /root/.cache/w1-tmp/91` and `TMPDIR=/root/.cache/w1-tmp/91`:
 `GOTOOLCHAIN=local timeout 600 go build ./...` — Expected: no output;
 `GOTOOLCHAIN=local timeout 300 go vet ./...` — Expected: no output;
 `GOTOOLCHAIN=local timeout 1200 go test -count=1 ./...` — Expected: every line `ok` or `?` (no `FAIL`);
@@ -43188,4 +43940,8925 @@ Then run, each from the repository root with `mkdir -p /root/.cache/w1-tmp/90` a
 ```bash
 git add internal/modules/firewall/handler.go internal/modules/firewall/verify_sysctl_test.go internal/modules/firewall/e2e_engine_test.go
 git commit -m "fix(firewall): verify the sysctl values of a start"
+```
+
+### Task 92: netfilter: read ICMP types as iptables does
+
+**Files:**
+- Modify: `internal/platform/netfilter/key.go`
+- Test: `internal/platform/netfilter/key_test.go`
+
+**Interfaces:**
+- Consumes: `Key`, `keyValue`, `kyRule` (Task 24)
+- Produces: `icmpNames`, `icmp6Names`, `icmpTypeNumber(names []icmpName, v string, ipv6 bool) string`, `hasPrefixFold(s, prefix string) bool` (Part contracts, Task 92)
+
+**Depends on:** Task 24, Task 28, Task 80, Task 88, Task 91
+
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 0 - coupling 2 - risk 2 = 5
+
+The ICMP and ICMPv6 type tables of `Key` were written from memory. Checked against iptables 1.8.11 (Assumptions), the ICMPv6 table lacked the MLD names (types 130 to 132), and neither table read a spelling as iptables does: iptables takes any case-insensitive prefix that names exactly one type, numbers in the notation of `strtoul` (`0x3`, `03`), a code range after the slash that `iptables-save` prints by its first code, and `255` as `any` for ICMPv4 only; a spelling it refuses (an ambiguous prefix, a range of types, `any` for ICMPv6) is kept as written. `icmpTypeNumber` is now a port of `__parse_icmp` (libxt_icmp.h) and `icmp_save`. The test holds every name of both tables and the variations above with what `iptables-save` printed in a container, and the spellings it refused.
+
+- [ ] **Step 1: Write the failing test**
+
+Modify `internal/platform/netfilter/key_test.go` with 1 exact edit; the "replace" block occurs exactly once in the file at that point.
+
+Replace this block:
+
+```go
+			})
+		}
+	}
+}
+```
+
+with:
+
+```go
+			})
+		}
+	}
+}
+
+// kxIcmp4 and kxIcmp6 are the icmp type spellings that iptables and ip6tables
+// 1.8.11 (extensions/libxt_icmp.h, in iptables-1.8.11.tar.xz from
+// netfilter.org) accepted in a container, with the type iptables-save then
+// printed: every name of the tables, a type number, a code, a code range
+// and a case or prefix variation.
+var kxIcmp4 = []struct{ in, saved string }{
+	{"any", "any"},
+	{"echo-reply", "0"},
+	{"pong", "0"},
+	{"destination-unreachable", "3"},
+	{"network-unreachable", "3/0"},
+	{"host-unreachable", "3/1"},
+	{"protocol-unreachable", "3/2"},
+	{"port-unreachable", "3/3"},
+	{"fragmentation-needed", "3/4"},
+	{"source-route-failed", "3/5"},
+	{"network-unknown", "3/6"},
+	{"host-unknown", "3/7"},
+	{"network-prohibited", "3/9"},
+	{"host-prohibited", "3/10"},
+	{"TOS-network-unreachable", "3/11"},
+	{"TOS-host-unreachable", "3/12"},
+	{"communication-prohibited", "3/13"},
+	{"host-precedence-violation", "3/14"},
+	{"precedence-cutoff", "3/15"},
+	{"source-quench", "4"},
+	{"redirect", "5"},
+	{"network-redirect", "5/0"},
+	{"host-redirect", "5/1"},
+	{"TOS-network-redirect", "5/2"},
+	{"TOS-host-redirect", "5/3"},
+	{"echo-request", "8"},
+	{"ping", "8"},
+	{"router-advertisement", "9"},
+	{"router-solicitation", "10"},
+	{"time-exceeded", "11"},
+	{"ttl-exceeded", "11"},
+	{"ttl-zero-during-transit", "11/0"},
+	{"ttl-zero-during-reassembly", "11/1"},
+	{"parameter-problem", "12"},
+	{"ip-header-bad", "12/0"},
+	{"required-option-missing", "12/1"},
+	{"timestamp-request", "13"},
+	{"timestamp-reply", "14"},
+	{"address-mask-request", "17"},
+	{"address-mask-reply", "18"},
+	{"any", "any"},
+	{"255", "any"},
+	{"3/0", "3/0"},
+	{"3/0:255", "3"},
+	{"3/1:2", "3/1"},
+	{"3/4", "3/4"},
+	{"8/0", "8/0"},
+	{"Port-Unreachable", "3/3"},
+	{"TOS-host-redirect", "5/3"},
+	{"tos-host-redirect", "5/3"},
+	{"dest", "3"},
+	{"pa", "12"},
+	{"0x3", "3"},
+	{"03", "3"},
+	{"3/0x1", "3/1"},
+}
+
+var kxIcmp6 = []struct{ in, saved string }{
+	{"destination-unreachable", "1"},
+	{"no-route", "1/0"},
+	{"communication-prohibited", "1/1"},
+	{"beyond-scope", "1/2"},
+	{"address-unreachable", "1/3"},
+	{"port-unreachable", "1/4"},
+	{"failed-policy", "1/5"},
+	{"reject-route", "1/6"},
+	{"packet-too-big", "2"},
+	{"time-exceeded", "3"},
+	{"ttl-exceeded", "3"},
+	{"ttl-zero-during-transit", "3/0"},
+	{"ttl-zero-during-reassembly", "3/1"},
+	{"parameter-problem", "4"},
+	{"bad-header", "4/0"},
+	{"unknown-header-type", "4/1"},
+	{"unknown-option", "4/2"},
+	{"echo-request", "128"},
+	{"ping", "128"},
+	{"echo-reply", "129"},
+	{"pong", "129"},
+	{"mld-listener-query", "130"},
+	{"mld-listener-report", "131"},
+	{"mld-listener-done", "132"},
+	{"mld-listener-reduction", "132"},
+	{"router-solicitation", "133"},
+	{"router-advertisement", "134"},
+	{"neighbour-solicitation", "135"},
+	{"neighbor-solicitation", "135"},
+	{"neighbour-advertisement", "136"},
+	{"neighbor-advertisement", "136"},
+	{"redirect", "137"},
+	{"255", "255"},
+	{"1/0", "1/0"},
+	{"1/1:2", "1/1"},
+	{"128", "128"},
+	{"dest", "1"},
+	{"ECHO-REQUEST", "128"},
+	{"mld-listener-d", "132"},
+	{"0x80", "128"},
+	{"1/0:255", "1"},
+	{"1/3:3", "1/3"},
+}
+
+// kxIcmpRefused are spellings that iptables and ip6tables refused: an
+// ambiguous prefix, a type range, and "any" for ICMPv6. The key keeps them
+// as written, so a rule that cannot be loaded never equals one that can.
+var kxIcmpRefused = []struct {
+	ipv6 bool
+	in   string
+}{
+	{false, "echo"},
+	{false, "echo-r"},
+	{false, "3:4"},
+	{false, "a"},
+	{true, "mld"},
+	{true, "neighbo"},
+	{true, "any"},
+}
+
+func TestKxIcmpTypes(t *testing.T) {
+	for _, ipv6 := range []bool{false, true} {
+		proto, module, opt, rows := "icmp", "icmp", "icmp-type", kxIcmp4
+		if ipv6 {
+			proto, module, opt, rows = "ipv6-icmp", "icmp6", "icmpv6-type", kxIcmp6
+		}
+		for _, tc := range rows {
+			got := Key(kyRule(t, "-A X -p "+proto+" --"+opt+" "+tc.in+" -j ACCEPT", true), ipv6)
+			want := "-p " + proto + " -m " + module + " --" + opt + " " + tc.saved + " -j ACCEPT"
+			if got != want {
+				t.Errorf("ipv6 %v: --%s %s has the key %q, want %q", ipv6, opt, tc.in, got, want)
+			}
+		}
+	}
+	for _, tc := range kxIcmpRefused {
+		proto, opt := "icmp", "icmp-type"
+		if tc.ipv6 {
+			proto, opt = "ipv6-icmp", "icmpv6-type"
+		}
+		got := Key(kyRule(t, "-A X -p "+proto+" --"+opt+" "+tc.in+" -j ACCEPT", true), tc.ipv6)
+		if want := "--" + opt + " " + tc.in + " -j ACCEPT"; !strings.HasSuffix(got, want) {
+			t.Errorf("ipv6 %v: the refused --%s %s has the key %q, want it kept as written", tc.ipv6, opt, tc.in, got)
+		}
+	}
+}
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `mkdir -p /root/.cache/w1-tmp/92 && TMPDIR=/root/.cache/w1-tmp/92 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestKxIcmpTypes' ./internal/platform/netfilter/`
+Expected: FAIL -- the key keeps prefixes, hexadecimal and octal numbers, code ranges, `255` and the MLD names as written. The output observed when drafting:
+
+```text
+--- FAIL: TestKxIcmpTypes (0.00s)
+    key_test.go:304: ipv6 false: --icmp-type 255 has the key "-p icmp -m icmp --icmp-type 255 -j ACCEPT", want "-p icmp -m icmp --icmp-type any -j ACCEPT"
+    key_test.go:304: ipv6 false: --icmp-type 3/0:255 has the key "-p icmp -m icmp --icmp-type 3/0:255 -j ACCEPT", want "-p icmp -m icmp --icmp-type 3 -j ACCEPT"
+    key_test.go:304: ipv6 false: --icmp-type 3/1:2 has the key "-p icmp -m icmp --icmp-type 3/1:2 -j ACCEPT", want "-p icmp -m icmp --icmp-type 3/1 -j ACCEPT"
+... (18 more lines like these)
+```
+
+- [ ] **Step 3: Write the implementation**
+
+Modify `internal/platform/netfilter/key.go` with 2 exact edits, in order; each "replace" block occurs exactly once in the file at that point.
+
+Edit 1. Replace this block:
+
+```go
+func keyValue(ext, opt, v string, ipv6 bool) string {
+	switch {
+	case ext == "icmp" && opt == "icmp-type":
+		return icmpTypeNumber(icmpTypes, v)
+	case ext == "icmp6" && opt == "icmpv6-type":
+		return icmpTypeNumber(icmp6Types, v)
+	case ext == "limit" && opt == "limit":
+		return limitRate(v)
+	case (ext == "conntrack" && opt == "ctstate") || (ext == "state" && opt == "state"):
+```
+
+with:
+
+```go
+func keyValue(ext, opt, v string, ipv6 bool) string {
+	switch {
+	case ext == "icmp" && opt == "icmp-type":
+		return icmpTypeNumber(icmpNames, v, false)
+	case ext == "icmp6" && opt == "icmpv6-type":
+		return icmpTypeNumber(icmp6Names, v, true)
+	case ext == "limit" && opt == "limit":
+		return limitRate(v)
+	case (ext == "conntrack" && opt == "ctstate") || (ext == "state" && opt == "state"):
+```
+
+Edit 2. Replace this block:
+
+```go
+	return v
+}
+
+// icmpType is an ICMP type name of iptables (libxt_icmp.c, libip6t_icmp6.c)
+// with the type and, for a name of one code, the code.
+type icmpType struct {
+	typ  int
+	code int // -1 for every code
+}
+
+var icmpTypes = map[string]icmpType{
+	"any": {-1, -1}, "echo-reply": {0, -1}, "pong": {0, -1}, "destination-unreachable": {3, -1},
+	"network-unreachable": {3, 0}, "host-unreachable": {3, 1}, "protocol-unreachable": {3, 2},
+	"port-unreachable": {3, 3}, "fragmentation-needed": {3, 4}, "source-route-failed": {3, 5},
+	"network-unknown": {3, 6}, "host-unknown": {3, 7}, "network-prohibited": {3, 9}, "host-prohibited": {3, 10},
+	"tos-network-unreachable": {3, 11}, "tos-host-unreachable": {3, 12}, "communication-prohibited": {3, 13},
+	"host-precedence-violation": {3, 14}, "precedence-cutoff": {3, 15}, "source-quench": {4, -1},
+	"redirect": {5, -1}, "network-redirect": {5, 0}, "host-redirect": {5, 1}, "tos-network-redirect": {5, 2},
+	"tos-host-redirect": {5, 3}, "echo-request": {8, -1}, "ping": {8, -1}, "router-advertisement": {9, -1},
+	"router-solicitation": {10, -1}, "time-exceeded": {11, -1}, "ttl-exceeded": {11, -1},
+	"ttl-zero-during-transit": {11, 0}, "ttl-zero-during-reassembly": {11, 1}, "parameter-problem": {12, -1},
+	"ip-header-bad": {12, 0}, "required-option-missing": {12, 1}, "timestamp-request": {13, -1},
+	"timestamp-reply": {14, -1}, "address-mask-request": {17, -1}, "address-mask-reply": {18, -1},
+}
+
+var icmp6Types = map[string]icmpType{
+	"destination-unreachable": {1, -1}, "no-route": {1, 0}, "communication-prohibited": {1, 1},
+	"beyond-scope": {1, 2}, "address-unreachable": {1, 3}, "port-unreachable": {1, 4},
+	"failed-policy": {1, 5}, "reject-route": {1, 6}, "packet-too-big": {2, -1}, "time-exceeded": {3, -1},
+	"ttl-exceeded": {3, -1}, "ttl-zero-during-transit": {3, 0}, "ttl-zero-during-reassembly": {3, 1},
+	"parameter-problem": {4, -1}, "bad-header": {4, 0}, "unknown-header-type": {4, 1}, "unknown-option": {4, 2},
+	"echo-request": {128, -1}, "ping": {128, -1}, "echo-reply": {129, -1}, "pong": {129, -1},
+	"router-solicitation": {133, -1}, "router-advertisement": {134, -1}, "neighbour-solicitation": {135, -1},
+	"neighbor-solicitation": {135, -1}, "neighbour-advertisement": {136, -1}, "neighbor-advertisement": {136, -1},
+	"redirect": {137, -1},
+}
+
+// icmpTypeNumber is an ICMP type as iptables-save prints it: "any", the type
+// number, or type/code for a single code. An unknown spelling is kept.
+func icmpTypeNumber(names map[string]icmpType, v string) string {
+	t, ok := names[strings.ToLower(v)]
+	switch {
+	case !ok:
+		return v
+	case t.typ < 0:
+		return "any"
+	case t.code < 0:
+		return strconv.Itoa(t.typ)
+	}
+	return fmt.Sprintf("%d/%d", t.typ, t.code)
+}
+
+// limitUnits are the units of a limit rate, in the order iptables tries
+```
+
+with:
+
+```go
+	return v
+}
+
+// icmpName is a row of the type table of iptables (extensions/libxt_icmp.h):
+// the name, the type, and the first and last code the name stands for.
+type icmpName struct {
+	name                  string
+	typ, codeMin, codeMax int
+}
+
+// icmpNames and icmp6Names are the tables of iptables 1.8.11 in its order,
+// spelled as it spells them (TOS-network-unreachable), because the lookup
+// ignores case.
+var icmpNames = []icmpName{
+	{"any", 255, 0, 255}, {"echo-reply", 0, 0, 255}, {"pong", 0, 0, 255}, {"destination-unreachable", 3, 0, 255},
+	{"network-unreachable", 3, 0, 0}, {"host-unreachable", 3, 1, 1}, {"protocol-unreachable", 3, 2, 2},
+	{"port-unreachable", 3, 3, 3}, {"fragmentation-needed", 3, 4, 4}, {"source-route-failed", 3, 5, 5},
+	{"network-unknown", 3, 6, 6}, {"host-unknown", 3, 7, 7}, {"network-prohibited", 3, 9, 9},
+	{"host-prohibited", 3, 10, 10}, {"TOS-network-unreachable", 3, 11, 11}, {"TOS-host-unreachable", 3, 12, 12},
+	{"communication-prohibited", 3, 13, 13}, {"host-precedence-violation", 3, 14, 14},
+	{"precedence-cutoff", 3, 15, 15}, {"source-quench", 4, 0, 255}, {"redirect", 5, 0, 255},
+	{"network-redirect", 5, 0, 0}, {"host-redirect", 5, 1, 1}, {"TOS-network-redirect", 5, 2, 2},
+	{"TOS-host-redirect", 5, 3, 3}, {"echo-request", 8, 0, 255}, {"ping", 8, 0, 255},
+	{"router-advertisement", 9, 0, 255}, {"router-solicitation", 10, 0, 255}, {"time-exceeded", 11, 0, 255},
+	{"ttl-exceeded", 11, 0, 255}, {"ttl-zero-during-transit", 11, 0, 0}, {"ttl-zero-during-reassembly", 11, 1, 1},
+	{"parameter-problem", 12, 0, 255}, {"ip-header-bad", 12, 0, 0}, {"required-option-missing", 12, 1, 1},
+	{"timestamp-request", 13, 0, 255}, {"timestamp-reply", 14, 0, 255}, {"address-mask-request", 17, 0, 255},
+	{"address-mask-reply", 18, 0, 255},
+}
+
+var icmp6Names = []icmpName{
+	{"destination-unreachable", 1, 0, 255}, {"no-route", 1, 0, 0}, {"communication-prohibited", 1, 1, 1},
+	{"beyond-scope", 1, 2, 2}, {"address-unreachable", 1, 3, 3}, {"port-unreachable", 1, 4, 4},
+	{"failed-policy", 1, 5, 5}, {"reject-route", 1, 6, 6}, {"packet-too-big", 2, 0, 255},
+	{"time-exceeded", 3, 0, 255}, {"ttl-exceeded", 3, 0, 255}, {"ttl-zero-during-transit", 3, 0, 0},
+	{"ttl-zero-during-reassembly", 3, 1, 1}, {"parameter-problem", 4, 0, 255}, {"bad-header", 4, 0, 0},
+	{"unknown-header-type", 4, 1, 1}, {"unknown-option", 4, 2, 2}, {"echo-request", 128, 0, 255},
+	{"ping", 128, 0, 255}, {"echo-reply", 129, 0, 255}, {"pong", 129, 0, 255},
+	{"mld-listener-query", 130, 0, 255}, {"mld-listener-report", 131, 0, 255}, {"mld-listener-done", 132, 0, 255},
+	{"mld-listener-reduction", 132, 0, 255}, {"router-solicitation", 133, 0, 255},
+	{"router-advertisement", 134, 0, 255}, {"neighbour-solicitation", 135, 0, 255},
+	{"neighbor-solicitation", 135, 0, 255}, {"neighbour-advertisement", 136, 0, 255},
+	{"neighbor-advertisement", 136, 0, 255}, {"redirect", 137, 0, 255},
+}
+
+// icmpTypeNumber is an ICMP type as iptables-save prints it: the type
+// number, followed by /code when the match is not for every code, and "any"
+// for ICMPv4's every type. It reads v as iptables does (__parse_icmp in
+// libxt_icmp.h): a case-insensitive prefix of exactly one name, or a number
+// in the notation of strtoul, with a code or code range after a slash. A
+// code range is printed by its first code only, as iptables-save does. A
+// spelling iptables refuses, such as an ambiguous prefix or a range of
+// types, is kept as written.
+func icmpTypeNumber(names []icmpName, v string, ipv6 bool) string {
+	typ, lo, hi, ok := parseICMPType(names, v)
+	switch {
+	case !ok:
+		return v
+	case !ipv6 && typ == 255 && lo == 0 && hi == 255:
+		return "any"
+	case lo != 0 || hi != 255:
+		return fmt.Sprintf("%d/%d", typ, lo)
+	}
+	return strconv.Itoa(typ)
+}
+
+// parseICMPType reads an icmp type spelling: its type and code range.
+func parseICMPType(names []icmpName, v string) (typ, lo, hi int, ok bool) {
+	match := -1
+	for i, n := range names {
+		if hasPrefixFold(n.name, v) {
+			if match >= 0 {
+				return 0, 0, 0, false
+			}
+			match = i
+		}
+	}
+	if match >= 0 {
+		return names[match].typ, names[match].codeMin, names[match].codeMax, true
+	}
+	first, last, rest, ok := parseICMPRange(v)
+	if !ok || first != last {
+		return 0, 0, 0, false
+	}
+	switch {
+	case rest == "":
+		return first, 0, 255, true
+	case rest[0] == '/':
+		lo, hi, rest, ok = parseICMPRange(rest[1:])
+		return first, lo, hi, ok && rest == ""
+	}
+	return 0, 0, 0, false
+}
+
+// parseICMPRange reads n or n:m, each a number from 0 to 255, from the start
+// of s and returns what follows.
+func parseICMPRange(s string) (first, last int, rest string, ok bool) {
+	first, rest, ok = parseCNumber(s)
+	if !ok || first > 255 {
+		return 0, 0, "", false
+	}
+	last = first
+	if strings.HasPrefix(rest, ":") {
+		last, rest, ok = parseCNumber(rest[1:])
+		if !ok || last > 255 {
+			return 0, 0, "", false
+		}
+	}
+	return first, last, rest, true
+}
+
+// parseCNumber reads the unsigned number at the start of s as strtoul with
+// base 0 does: 0x or 0X and hexadecimal digits, a leading 0 and octal
+// digits, or decimal digits. It returns what follows the number.
+func parseCNumber(s string) (n int, rest string, ok bool) {
+	base, i := 10, 0
+	switch {
+	case len(s) > 2 && (s[:2] == "0x" || s[:2] == "0X") && isDigitIn(s[2], 16):
+		base, i = 16, 2
+	case len(s) > 0 && s[0] == '0':
+		base = 8
+	}
+	start := i
+	for i < len(s) && isDigitIn(s[i], base) {
+		n = n*base + digitValue(s[i])
+		if n > 1<<20 {
+			return 0, "", false
+		}
+		i++
+	}
+	if i == start {
+		return 0, "", false
+	}
+	return n, s[i:], true
+}
+
+func isDigitIn(c byte, base int) bool {
+	switch {
+	case c >= '0' && c <= '9':
+		return int(c-'0') < base
+	case c >= 'a' && c <= 'f', c >= 'A' && c <= 'F':
+		return base == 16
+	}
+	return false
+}
+
+func digitValue(c byte) int {
+	switch {
+	case c >= 'a':
+		return int(c-'a') + 10
+	case c >= 'A':
+		return int(c-'A') + 10
+	}
+	return int(c - '0')
+}
+
+// hasPrefixFold reports whether prefix is a prefix of s, ignoring the case
+// of ASCII letters, as strncasecmp(s, prefix, strlen(prefix)) == 0 does. An
+// empty prefix is a prefix of every s.
+func hasPrefixFold(s, prefix string) bool {
+	if len(prefix) > len(s) {
+		return false
+	}
+	for i := 0; i < len(prefix); i++ {
+		if lowerASCII(s[i]) != lowerASCII(prefix[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func lowerASCII(c byte) byte {
+	if c >= 'A' && c <= 'Z' {
+		return c + 'a' - 'A'
+	}
+	return c
+}
+
+// limitUnits are the units of a limit rate, in the order iptables tries
+```
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `go test -count=1 ./internal/platform/netfilter/` -- Expected: PASS
+
+Then run, each with `TMPDIR=/root/.cache/w1-tmp/92 GOTOOLCHAIN=local`:
+
+- `timeout 600 go build ./...` -- Expected: no output.
+- `timeout 300 go vet ./...` -- Expected: no output.
+- `timeout 1200 go test -count=1 ./...` -- Expected: every package `ok` or `?`.
+- `timeout 900 go test -race -count=1 ./internal/platform/netfilter/` -- Expected: `ok` for each.
+- `timeout 900 golangci-lint run --allow-serial-runners ./...` -- Expected: `0 issues.`
+- `timeout 300 go mod tidy -diff` -- Expected: no output.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/platform/netfilter/key.go internal/platform/netfilter/key_test.go
+git commit -m "fix(netfilter): read ICMP types as iptables does"
+```
+
+### Task 93: Read the loopback sysctl values
+
+**Files:**
+- Modify: `internal/modules/firewall/loaded/sysctl_read.go`
+- Modify: `internal/modules/firewall/loaded/sysctl_predict.go`
+- Test: `internal/modules/firewall/loaded/sysctl_read_test.go`
+
+**Interfaces:**
+- Consumes: Task 60 (`sysctlKeys`, `readSysctl`, `Reader.read`, `srValues`, `srIfaces`, `ldGolden`, `ldFiles`); Task 49 (`PredictSysctl`).
+- Produces: `Loaded.Sysctl` holding the four per-interface keys of the loopback interface (Part contracts Task 93); `sysctlKeys` and `PredictSysctl` keep their signatures.
+
+**Depends on:** Task 28, Task 49, Task 50, Task 60, Task 80, Task 88, Task 91
+
+**Implementer:** dforge:impl-sonnet-medium
+**Evaluation:** files 1 - spec 0 - coupling 1 - risk 2 = 4
+
+Spec 2.1 records every supported key per interface, and writing `net/ipv6/conf/all/forwarding` sets the loopback interface's `forwarding` like any other interface's (measured, Assumptions). `sysctlKeys` skipped the loopback interface, so a snapshot never held its values, `PredictSysctl` skipped a `lo` line of `sysctl.conf` as a key the state lacks, and a revert could not put a changed `lo` value back. The fix reads the loopback interface like every other one; `PredictSysctl` already handles per-interface keys, so only its doc comment changes. The tests read the four `lo` keys from the golden values and expect them in the reads and in the key list.
+
+- [ ] **Step 1: Write the failing test**
+
+Replace `internal/modules/firewall/loaded/sysctl_read_test.go` with:
+
+```go
+package loaded
+
+import (
+	"context"
+	"errors"
+	"maps"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"syscall"
+	"testing"
+
+	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/platform/netstat"
+)
+
+// srValues reads a golden sysctl.txt of key=value lines.
+func srValues(t *testing.T, image, scenario string) map[string]string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(ldGoldenDir, image, scenario, "sysctl.txt")) //nolint:gosec // G304: a fixed name under the golden directory
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]string{}
+	for line := range strings.Lines(string(data)) {
+		k, v, _ := strings.Cut(strings.TrimSpace(line), "=")
+		out[k] = v
+	}
+	return out
+}
+
+var srIfaces = []netstat.Interface{
+	{Index: 1, Name: "lo", Up: true, Loopback: true},
+	{Index: 2, Name: "eth0", Up: true, Running: true},
+	{Index: 3, Name: "docker0"},
+	{Index: 4, Name: "we:ird"},
+}
+
+func TestReadSysctl(t *testing.T) {
+	values := srValues(t, "debian-12", "rules")
+	values["net/ipv4/conf/docker0/rp_filter"] = "1"
+	values["net/ipv4/conf/docker0/accept_source_route"] = "0"
+	x := ldGolden(t, "debian-12", "rules")
+	files := &ldFiles{sysctl: values}
+	r := Reader{
+		Interfaces:     func() ([]netstat.Interface, error) { return srIfaces, nil },
+		NFTablesLoaded: func() bool { return false },
+	}
+	st, err := r.read(context.Background(), core.Env{Exec: x, Files: files}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !maps.Equal(st.Sysctl, values) {
+		t.Errorf("sysctl:\n got %v\nwant %v", st.Sysctl, values)
+	}
+	for _, k := range []string{"net/ipv6/conf/lo/forwarding", "net/ipv6/conf/lo/accept_ra", "net/ipv4/conf/lo/rp_filter", "net/ipv4/conf/lo/accept_source_route"} {
+		if _, ok := st.Sysctl[k]; !ok {
+			t.Errorf("sysctl lacks the loopback key %s", k)
+		}
+	}
+	if want := []string{`interface "we:ird": Darkpanel cannot read its sysctl values`}; !slices.Equal(st.Unsupported, want) {
+		t.Errorf("unsupported %q, want %q", st.Unsupported, want)
+	}
+	if len(files.reads) != 21 || files.reads[0] != "firewall net/ipv4/ip_forward" || files.reads[20] != "firewall net/ipv4/conf/docker0/accept_source_route" {
+		t.Errorf("reads %q", files.reads)
+	}
+}
+
+func TestSysctlKeys(t *testing.T) {
+	keys, reasons := sysctlKeys([]netstat.Interface{{Name: "eth0"}, {Name: "all"}, {Name: "lo", Loopback: true}, {Name: "a-very-long-name0"}})
+	want := []string{"net/ipv4/ip_forward",
+		"net/ipv6/conf/all/forwarding", "net/ipv6/conf/all/accept_ra", "net/ipv4/conf/all/rp_filter", "net/ipv4/conf/all/accept_source_route",
+		"net/ipv6/conf/default/forwarding", "net/ipv6/conf/default/accept_ra", "net/ipv4/conf/default/rp_filter", "net/ipv4/conf/default/accept_source_route",
+		"net/ipv6/conf/eth0/forwarding", "net/ipv6/conf/eth0/accept_ra", "net/ipv4/conf/eth0/rp_filter", "net/ipv4/conf/eth0/accept_source_route",
+		"net/ipv6/conf/lo/forwarding", "net/ipv6/conf/lo/accept_ra", "net/ipv4/conf/lo/rp_filter", "net/ipv4/conf/lo/accept_source_route"}
+	if !slices.Equal(keys, want) {
+		t.Errorf("keys %q", keys)
+	}
+	if want := []string{`interface "all": Darkpanel cannot read its sysctl values`, `interface "a-very-long-name0": Darkpanel cannot read its sysctl values`}; !slices.Equal(reasons, want) {
+		t.Errorf("reasons %q", reasons)
+	}
+}
+
+// srFailFiles fails every sysctl read with err.
+type srFailFiles struct {
+	core.FileWriter
+	err error
+}
+
+func (f srFailFiles) ReadSysctl(context.Context, string, string) (string, error) { return "", f.err }
+
+func TestReadSysctlErrors(t *testing.T) {
+	x := ldGolden(t, "debian-12", "rules")
+	denied := srFailFiles{err: errors.New("platform: module firewall does not declare sysctl net/ipv4/ip_forward")}
+	_, err := ldReader().read(context.Background(), core.Env{Exec: x, Files: denied}, t.TempDir())
+	if err == nil || err.Error() != "loaded: platform: module firewall does not declare sysctl net/ipv4/ip_forward" {
+		t.Errorf("err = %v", err)
+	}
+	gone := srFailFiles{err: syscall.ENOENT}
+	st, err := ldReader().read(context.Background(), core.Env{Exec: x, Files: gone}, t.TempDir())
+	if err != nil || len(st.Sysctl) != 0 || st.Sysctl == nil {
+		t.Errorf("every key missing: %v, %v", st.Sysctl, err)
+	}
+	r := ldReader()
+	r.Interfaces = func() ([]netstat.Interface, error) { return nil, errors.New("netstat: interfaces: boom") }
+	if _, err := r.read(context.Background(), ldEnv(x, nil), t.TempDir()); err == nil || err.Error() != "loaded: netstat: interfaces: boom" {
+		t.Errorf("err = %v", err)
+	}
+}
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `mkdir -p /root/.cache/w1-tmp/93 && TMPDIR=/root/.cache/w1-tmp/93 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestReadSysctl$|TestSysctlKeys' ./internal/modules/firewall/loaded/`
+Expected: FAIL (output as observed, long lines shortened with `…`):
+
+```
+--- FAIL: TestReadSysctl (0.00s)
+    sysctl_read_test.go:55: sysctl:
+         got map[net/ipv4/conf/all/accept_source_route:0 net/ipv4/conf/all/rp_filter:2 net/ipv4/conf/default/accept_source_route:0 net/ipv4/conf/default/rp_filter:2 net/i …
+        want map[net/ipv4/conf/all/accept_source_route:0 net/ipv4/conf/all/rp_filter:2 net/ipv4/conf/default/accept_source_route:0 net/ipv4/conf/default/rp_filter:2 net/i …
+    sysctl_read_test.go:59: sysctl lacks the loopback key net/ipv6/conf/lo/forwarding
+    sysctl_read_test.go:59: sysctl lacks the loopback key net/ipv6/conf/lo/accept_ra
+    sysctl_read_test.go:59: sysctl lacks the loopback key net/ipv4/conf/lo/rp_filter
+    sysctl_read_test.go:59: sysctl lacks the loopback key net/ipv4/conf/lo/accept_source_route
+    sysctl_read_test.go:66: reads ["firewall net/ipv4/ip_forward" "firewall net/ipv6/conf/all/forwarding" "firewall net/ipv6/conf/all/accept_ra" "firewall net/ipv4/conf/a …
+--- FAIL: TestSysctlKeys (0.00s)
+    sysctl_read_test.go:78: keys ["net/ipv4/ip_forward" "net/ipv6/conf/all/forwarding" "net/ipv6/conf/all/accept_ra" "net/ipv4/conf/all/rp_filter" "net/ipv4/conf/all/acce …
+FAIL
+FAIL	github.com/darkraise/darkpanel/internal/modules/firewall/loaded	0.004s
+FAIL
+```
+
+- [ ] **Step 3: Write the implementation**
+
+Replace `internal/modules/firewall/loaded/sysctl_read.go` with:
+
+```go
+package loaded
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io/fs"
+	"regexp"
+
+	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/platform/netstat"
+)
+
+const (
+	// module is the firewall's module id, which every env.Files call names.
+	module       = "firewall"
+	keyIPForward = "net/ipv4/ip_forward"
+)
+
+// sysctlIface is an interface name the agent's Files accepts as the
+// <iface> segment of a sysctl key.
+var sysctlIface = regexp.MustCompile(`^[A-Za-z0-9_.@-]{1,15}$`)
+
+// sysctlParams are the supported per-interface keys (spec 2.1), the
+// interface written as %s.
+var sysctlParams = []string{
+	"net/ipv6/conf/%s/forwarding",
+	"net/ipv6/conf/%s/accept_ra",
+	"net/ipv4/conf/%s/rp_filter",
+	"net/ipv4/conf/%s/accept_source_route",
+}
+
+// sysctlKeys returns the supported keys to read: net/ipv4/ip_forward, then
+// the per-interface keys of all, default and each interface in the order
+// given, the loopback interface included: writing all/forwarding changes
+// its forwarding like any other interface's. An interface whose name
+// cannot be a key segment, or that would read as all or default, is not
+// read and gets a reason instead: its reverse-path filter would be unknown.
+func sysctlKeys(ifaces []netstat.Interface) (keys, reasons []string) {
+	names := []string{"all", "default"}
+	for _, i := range ifaces {
+		switch {
+		case i.Name == "all" || i.Name == "default" || !sysctlIface.MatchString(i.Name):
+			reasons = append(reasons, fmt.Sprintf("interface %q: Darkpanel cannot read its sysctl values", truncate(i.Name)))
+		default:
+			names = append(names, i.Name)
+		}
+	}
+	keys = []string{keyIPForward}
+	for _, n := range names {
+		for _, p := range sysctlParams {
+			keys = append(keys, fmt.Sprintf(p, n))
+		}
+	}
+	return keys, reasons
+}
+
+// readSysctl reads every key through files. A key the kernel lacks (IPv6
+// disabled, an interface that went away) is left out; any other failure is
+// an error.
+func readSysctl(ctx context.Context, files core.FileWriter, keys []string) (map[string]string, error) {
+	out := make(map[string]string, len(keys))
+	for _, k := range keys {
+		v, err := files.ReadSysctl(ctx, module, k)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("loaded: %w", err)
+		}
+		out[k] = v
+	}
+	return out, nil
+}
+```
+
+Replace `internal/modules/firewall/loaded/sysctl_predict.go` with (only the doc comment of `PredictSysctl` changes: the loopback interface is no longer a key the state lacks):
+
+```go
+package loaded
+
+import (
+	"fmt"
+	"maps"
+	"regexp"
+	"slices"
+	"strings"
+
+	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/conf"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
+)
+
+const (
+	keyV6AllFwd  = "net/ipv6/conf/all/forwarding"
+	prefixV4Conf = "net/ipv4/conf/"
+	prefixV6Conf = "net/ipv6/conf/"
+	ifaceDefault = "default"
+	ifaceAll     = "all"
+	suffixFwd    = "/forwarding"
+)
+
+// The value patterns of the firewall's sysctl owned paths (spec 2.1).
+var (
+	sysctlBoolean  = regexp.MustCompile("^[01]$")
+	sysctlTristate = regexp.MustCompile("^[012]$")
+)
+
+// PredictSysctl returns the supported sysctl values (in /proc/sys form, as
+// in Loaded.Sysctl) after tr, starting from cur. UFW applies its sysctl
+// file only when it starts: on TransEnable, and on TransReload while
+// cfg.Enabled (ufw reload stops and starts UFW, and skips both when UFW is
+// not enabled). Any other transition returns a copy of cur.
+//
+// The file's supported settings apply in file order; a key that cur does
+// not hold (an absent interface, IPv6 disabled) is
+// skipped, as sysctl -e skips a missing key. The kernel's side effects on
+// supported keys are modelled: writing net/ipv6/conf/all/forwarding sets
+// default and every interface's forwarding, even when the value does not
+// change. Writing net/ipv4/ip_forward changes no other supported key (the
+// kernel sets every forwarding value under net/ipv4/conf and resets
+// all/accept_redirects, none of them supported). Writing an IPv4 default
+// value can be copied by the kernel to every interface never set
+// explicitly, which the live values cannot tell, so a write that could
+// change such an interface is an error, as is a value the firewall's
+// sysctl declarations would not let a revert write back. Both errors are
+// firewall.unsupported_configuration.
+func PredictSysctl(cfg fwstate.Config, cur map[string]string, tr fwstate.Transition) (map[string]string, error) {
+	out := maps.Clone(cur)
+	if out == nil {
+		out = map[string]string{}
+	}
+	if tr != fwstate.TransEnable && (tr != fwstate.TransReload || !cfg.Enabled) {
+		return out, nil
+	}
+	written := map[string]bool{}
+	for _, s := range cfg.Sysctl {
+		if !conf.SupportedSysctl(s.Key) {
+			continue
+		}
+		pattern := sysctlPattern(s.Key)
+		if !pattern.MatchString(s.Value) {
+			return nil, errcode.New(errcode.FirewallUnsupportedConfiguration,
+				fmt.Sprintf("%s sets %s to %q; Darkpanel supports only values matching %s", cfg.SysctlFile, s.Key, s.Value, pattern))
+		}
+		old, ok := out[s.Key]
+		if !ok {
+			continue
+		}
+		if err := sysctlDefaultCopy(cfg, out, written, s, old); err != nil {
+			return nil, err
+		}
+		out[s.Key] = s.Value
+		written[s.Key] = true
+		if s.Key == keyV6AllFwd {
+			for k := range out {
+				if strings.HasPrefix(k, prefixV6Conf) && strings.HasSuffix(k, suffixFwd) {
+					out[k] = s.Value
+				}
+			}
+		}
+	}
+	return out, nil
+}
+
+// sysctlPattern is the value pattern of a supported key.
+func sysctlPattern(key string) *regexp.Regexp {
+	if strings.HasSuffix(key, "/accept_ra") || strings.HasSuffix(key, "/rp_filter") {
+		return sysctlTristate
+	}
+	return sysctlBoolean
+}
+
+// sysctlDefaultCopy refuses a write of an IPv4 default value that the kernel
+// might copy to an interface: one not written earlier in the file whose
+// value equals the old default. An interface whose value differs from the
+// default has been set explicitly, so the kernel leaves it alone.
+func sysctlDefaultCopy(cfg fwstate.Config, cur map[string]string, written map[string]bool, s fwstate.SysctlSetting, old string) error {
+	param, ok := strings.CutPrefix(s.Key, prefixV4Conf+ifaceDefault+"/")
+	if !ok || s.Value == old {
+		return nil
+	}
+	for _, k := range slices.Sorted(maps.Keys(cur)) {
+		iface, rest, _ := strings.Cut(strings.TrimPrefix(k, prefixV4Conf), "/")
+		if !strings.HasPrefix(k, prefixV4Conf) || rest != param || iface == ifaceAll || iface == ifaceDefault || written[k] || cur[k] != old {
+			continue
+		}
+		return errcode.New(errcode.FirewallUnsupportedConfiguration, fmt.Sprintf(
+			"%s sets %s to %s, which the kernel may also copy to %s; Darkpanel cannot predict that, so set the interface's own value earlier in the file",
+			cfg.SysctlFile, s.Key, s.Value, k))
+	}
+	return nil
+}
+```
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `TMPDIR=/root/.cache/w1-tmp/93 GOTOOLCHAIN=local timeout 300 go test -count=1 ./internal/modules/firewall/loaded/` — Expected: PASS (`ok  	github.com/darkraise/darkpanel/internal/modules/firewall/loaded`)
+Then run, each with `TMPDIR=/root/.cache/w1-tmp/93` (created above): `GOTOOLCHAIN=local timeout 600 go build ./...`; `GOTOOLCHAIN=local timeout 300 go vet ./...`; `GOTOOLCHAIN=local timeout 300 go vet -tags harness ./test/...`; `GOTOOLCHAIN=local timeout 1200 go test -count=1 ./...`; `GOTOOLCHAIN=local timeout 900 go test -race -count=1 ./internal/modules/firewall/loaded/`; `GOTOOLCHAIN=local timeout 900 golangci-lint run --allow-serial-runners ./...`; `GOTOOLCHAIN=local timeout 300 go mod tidy -diff` — Expected: build, vet and tidy print nothing; every package line of `go test` is `ok` or `?`; the race run prints `ok` for each package; lint prints `0 issues.`
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/modules/firewall/loaded/sysctl_read.go internal/modules/firewall/loaded/sysctl_predict.go internal/modules/firewall/loaded/sysctl_read_test.go
+git commit -m "fix(firewall): read the loopback sysctl values"
+```
+
+Then remove the task's scratch: `rm -rf /root/.cache/w1-tmp/93 && GOTOOLCHAIN=local go clean -testcache`
+
+### Task 94: Let the guard list the host's routes
+
+**Files:**
+- Create: `internal/modules/firewall/guard/routes.go`
+- Test: `internal/modules/firewall/guard/routes_test.go`
+
+**Interfaces:**
+- Consumes: `LiveHost` (Task 17); `gHost` (Task 17); `netstat.Routes`, `netstat.Route`, `netstat.Family` (merged code).
+- Produces: `routeDumper`, `LiveHost.Routes` and the test fake `gxDumpHost` (Part contracts, Task 94).
+
+**Depends on:** Task 28, Task 53, Task 80, Task 88, Task 91
+
+**Implementer:** dforge:impl-sonnet-medium
+**Evaluation:** files 1 - spec 0 - coupling 2 - risk 1 = 4
+
+Task 113 must read the host's IPv6 routes. `Host` stays as it is, because changing a shared interface forces every fake of it to change in the same task; listing routes is a separate interface, `routeDumper`, which `LiveHost` implements through `netstat.Routes`, and the check that needs it asks the host for it and fails when the host cannot. This task adds the interface, the production method, and a test fake that wraps `gHost` and answers a route dump by family. The test proves that `LiveHost` and the fake satisfy both interfaces (at compile time) and that the live host's IPv4 dump holds only IPv4 routes.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `internal/modules/firewall/guard/routes_test.go`:
+
+```go
+package guard
+
+import (
+	"testing"
+
+	"github.com/darkraise/darkpanel/internal/platform/netstat"
+)
+
+// gxDumpHost is a gHost that also lists routes: dump answers by family, err
+// fails every dump, and dumps records the families asked.
+type gxDumpHost struct {
+	*gHost
+	dump  map[netstat.Family][]netstat.Route
+	err   error
+	dumps []netstat.Family
+}
+
+func (h *gxDumpHost) Routes(family netstat.Family) ([]netstat.Route, error) {
+	h.dumps = append(h.dumps, family)
+	return h.dump[family], h.err
+}
+
+var (
+	_ Host        = (*gxDumpHost)(nil)
+	_ routeDumper = (*gxDumpHost)(nil)
+	_ routeDumper = LiveHost{}
+)
+
+func TestGxLiveHostRoutes(t *testing.T) {
+	routes, err := LiveHost{}.Routes(netstat.IPv4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range routes {
+		if !r.Dst.IsValid() || !r.Dst.Addr().Is4() {
+			t.Errorf("route %+v is not an IPv4 route", r)
+		}
+	}
+}
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `mkdir -p /root/.cache/w1-tmp/94 && TMPDIR=/root/.cache/w1-tmp/94 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestGxLiveHostRoutes' ./internal/modules/firewall/guard/`
+Expected: FAIL, the package does not build:
+
+```text
+# github.com/darkraise/darkpanel/internal/modules/firewall/guard [github.com/darkraise/darkpanel/internal/modules/firewall/guard.test]
+internal/modules/firewall/guard/routes_test.go:25:4: undefined: routeDumper
+internal/modules/firewall/guard/routes_test.go:26:4: undefined: routeDumper
+internal/modules/firewall/guard/routes_test.go:30:28: LiveHost{}.Routes undefined (type LiveHost has no field or method Routes)
+FAIL	github.com/darkraise/darkpanel/internal/modules/firewall/guard [build failed]
+FAIL
+```
+
+- [ ] **Step 3: Write the implementation**
+
+Create `internal/modules/firewall/guard/routes.go`:
+
+```go
+package guard
+
+import "github.com/darkraise/darkpanel/internal/platform/netstat"
+
+// routeDumper is implemented by a Host that lists every route of a family.
+// It is not part of Host: only a check that must read the routes needs it,
+// and that check fails when its host cannot list them.
+type routeDumper interface {
+	Routes(family netstat.Family) ([]netstat.Route, error)
+}
+
+// Routes lists every route of every table for family.
+func (LiveHost) Routes(family netstat.Family) ([]netstat.Route, error) { return netstat.Routes(family) }
+```
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `TMPDIR=/root/.cache/w1-tmp/94 GOTOOLCHAIN=local timeout 300 go test -count=1 ./internal/modules/firewall/guard/` — Expected: PASS (`ok` for every package listed)
+Then run, each with `GOTOOLCHAIN=local`, an explicit `timeout` and `TMPDIR=/root/.cache/w1-tmp/94`: `go build ./...`; `go vet ./...` (no output); `go vet -tags harness ./test/...` (no output); `go test -count=1 ./...` (every package `ok` or `?`); `go test -race -count=1 ./internal/modules/firewall/guard/` (`ok`); `golangci-lint run --allow-serial-runners ./...` (`0 issues.`); `go mod tidy -diff` (no output).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/modules/firewall/guard/routes.go internal/modules/firewall/guard/routes_test.go
+git commit -m "feat(firewall): let the guard list host routes" -m "LiveHost lists every route of a family through netstat. The listing
+is an optional interface of the guard's host, so only a check that must
+read the routes needs a host that provides it."
+```
+
+### Task 95: Live host test tolerates an empty socket table
+
+**Files:**
+- Test: `internal/modules/firewall/guard/facts_test.go`
+
+**Interfaces:**
+- Consumes: `LiveHost`, `TestLiveHost` (Task 17).
+- Produces: nothing.
+
+**Depends on:** Task 28, Task 53, Task 80, Task 88, Task 91
+
+**Implementer:** dforge:impl-sonnet-low
+**Evaluation:** files 0 - spec 1 - coupling 0 - risk 0 = 1
+
+`TestLiveHost` asserted that the host has sockets, so it failed in a fresh network namespace, whose socket table is empty. What it checks is that `LiveHost.Sockets` reads the table without an error, so the assertion on the count goes. The defect shows only in an empty namespace, so the first two steps run the unedited test there.
+
+- [ ] **Step 1: Write the failing test**
+
+The test is the existing `TestLiveHost`; the defect shows only in an empty network namespace. Build the unedited test binary first (`unshare -n` makes a private network namespace and changes nothing on the host; `ip link set lo up` acts inside it):
+
+```bash
+mkdir -p /root/.cache/w1-tmp/95 && TMPDIR=/root/.cache/w1-tmp/95 GOTOOLCHAIN=local timeout 300 go test -c -o /root/.cache/w1-tmp/95/guard-old.test ./internal/modules/firewall/guard/
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `timeout 60 unshare -n sh -c 'ip link set lo up; /root/.cache/w1-tmp/95/guard-old.test -test.run "TestLiveHost$" -test.v'`
+Expected: FAIL, the empty socket table is reported as a failure:
+
+```text
+    facts_test.go:254: the host has no sockets
+--- FAIL: TestLiveHost (0.05s)
+FAIL
+```
+
+- [ ] **Step 3: Write the implementation**
+
+There is no implementation file; edit the test:
+
+In `internal/modules/firewall/guard/facts_test.go`:
+
+Replace this block:
+
+```go
+	if h.PID() != os.Getpid() {
+		t.Errorf("PID = %d, want %d", h.PID(), os.Getpid())
+	}
+	socks, err := h.Sockets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(socks) == 0 {
+		t.Error("the host has no sockets")
+	}
+	ifaces, err := h.Interfaces()
+	if err != nil {
+		t.Fatal(err)
+```
+
+with:
+
+```go
+	if h.PID() != os.Getpid() {
+		t.Errorf("PID = %d, want %d", h.PID(), os.Getpid())
+	}
+	if _, err := h.Sockets(); err != nil {
+		t.Fatal(err)
+	}
+	ifaces, err := h.Interfaces()
+	if err != nil {
+		t.Fatal(err)
+```
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `TMPDIR=/root/.cache/w1-tmp/95 GOTOOLCHAIN=local timeout 300 go test -c -o /root/.cache/w1-tmp/95/guard-new.test ./internal/modules/firewall/guard/` and then `timeout 60 unshare -n sh -c 'ip link set lo up; /root/.cache/w1-tmp/95/guard-new.test -test.run "TestLiveHost$" -test.v'` — Expected: `--- PASS: TestLiveHost`; and `TMPDIR=/root/.cache/w1-tmp/95 GOTOOLCHAIN=local timeout 300 go test -count=1 ./internal/modules/firewall/guard/` — Expected: PASS
+Then run, each with `GOTOOLCHAIN=local`, an explicit `timeout` and `TMPDIR=/root/.cache/w1-tmp/95`: `go build ./...`; `go vet ./...` (no output); `go vet -tags harness ./test/...` (no output); `go test -count=1 ./...` (every package `ok` or `?`); `go test -race -count=1 ./internal/modules/firewall/guard/` (`ok`); `golangci-lint run --allow-serial-runners ./...` (`0 issues.`); `go mod tidy -diff` (no output).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/modules/firewall/guard/facts_test.go
+git commit -m "test(firewall): live host test allows no sockets" -m "TestLiveHost failed in a fresh network namespace, whose socket table
+is empty; reading the table without an error is what it checks."
+```
+
+### Task 96: Let a repair restore manual rules
+
+**Files:**
+- Modify: `internal/modules/firewall/actions_repair.go`
+- Modify: `schemas/firewall.state.repair/v1.json`
+- Test: `internal/modules/firewall/actions_repair_test.go`
+
+**Interfaces:**
+- Consumes: `mutation.manual` and `defineMutation` (Task 73); `RepairInput`, `stateRepair`, `repairChange`, `rpRun`, `rpTarget`, `rpRepaired` (Task 79); `ruHost` (Task 75); `setPostHashes`, `fileHashes` (part A1); the generated `schemas/firewall.state.repair/v1.json` (Task 81).
+- Produces: `RepairInput.Manual` and the explicit refusal of an unknown outcome (Part contracts, Task 96); the regenerated schema snapshot.
+
+**Depends on:** Task 28, Task 79, Task 80, Task 81, Task 88, Task 91
+
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 1 - coupling 1 - risk 2 = 5
+
+`firewall.state.repair` with outcome `restore` returns the host to the snapshot of the repaired change, a state the operator already accepted, but its plan was refused with `firewall.manual_required` whenever the restore added or removed a manual rule, and `RepairInput` had no way to pass: a change in `needs_repair` that holds the firewall lock could not be repaired. `RepairInput` gains `manual`, wired through `mutation.manual` exactly as `firewall.snapshot.restore` does, so `darkpanel change repair --input '{"manual":true}'` confirms the manual rules a restore brings back or removes. An outcome other than `restore` or `keep` is also refused at `/outcome`; it used to run as `keep`. The tests prove, through the handler, that a snapshot holding a manual rule the host lacks is refused without `manual` and restored with it, and that an unknown outcome is refused whether or not a change is repaired. The schema snapshot gains the field; `make schemas` is its generator.
+
+- [ ] **Step 1: Write the failing test**
+
+Replace the whole file `internal/modules/firewall/actions_repair_test.go` with:
+
+```go
+package firewall
+
+import (
+	"context"
+	"encoding/json"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/core/schema"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/guard"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/model"
+)
+
+// rpRepaired is the change the repair tests repair.
+const rpRepaired = "01J000000000000000000000R1"
+
+// rpRun plans, snapshots and applies firewall.state.repair under env, then
+// clears the host's differences (the reload repaired them) and verifies.
+func rpRun(t *testing.T, h *fakeHost, f fw, env core.Env, raw string) (core.PlanOutcome, ChangeOutput) {
+	t.Helper()
+	ctx := context.Background()
+	def := f.stateRepair()
+	if err := schema.NewValidator().ValidateInput(def, json.RawMessage(raw)); err != nil {
+		t.Fatalf("input %s: %v", raw, err)
+	}
+	planEnv := env
+	planEnv.ChangeID = ""
+	plan, err := def.Handler.Plan(ctx, planEnv, json.RawMessage(raw))
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if _, err := def.Handler.Snapshot(ctx, env, json.RawMessage(raw)); err != nil {
+		t.Fatal(err)
+	}
+	res, err := def.Handler.Apply(ctx, env, json.RawMessage(raw))
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	h.diffs = nil
+	if err := def.Handler.Verify(ctx, env, json.RawMessage(raw), res); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	var out ChangeOutput
+	if err := json.Unmarshal(res, &out); err != nil {
+		t.Fatal(err)
+	}
+	return plan, out
+}
+
+// rpTarget gives the repair tests a repaired change whose snapshot is the
+// host now, pinned, and returns its id.
+func rpTarget(t *testing.T, h *fakeHost, f fw) string {
+	t.Helper()
+	id := snCapture(t, h, f)
+	if err := attachSnapshot(context.Background(), h.db, id, rpRepaired); err != nil {
+		t.Fatal(err)
+	}
+	if err := setPinned(context.Background(), h.db, id, true); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+// TestRepairDirect: run on its own, the repair reloads UFW from its
+// configuration on a host out of sync in UFW's chains, its guard runs and
+// its snapshot holds the loaded-state before-image.
+func TestRepairDirect(t *testing.T) {
+	h, f, env := ruHost(t)
+	h.diffs = []fwstate.ChainDiff{{Family: fwstate.V4, Table: "filter", Chain: "ufw-user-input", OnlyB: []string{"-j ACCEPT"}}}
+	plan, out := rpRun(t, h, f, env, `{}`)
+	if len(plan.Guards) != 1 || !plan.Guards[0].OK || !strings.HasPrefix(acDiff(plan)[0], "  out of sync: v4 filter/ufw-user-input") {
+		t.Errorf("plan %+v, want the differing chain and a passing guard", plan)
+	}
+	if out.RepairOutcome != "" {
+		t.Errorf("output %+v, want no repair outcome", out)
+	}
+	snap, err := getSnapshot(context.Background(), h.db, out.Snapshot)
+	if err != nil || snap.State.Image == nil {
+		t.Errorf("snapshot %+v (%v), want a before-image", snap.State, err)
+	}
+	if got := hkEffects(h); !reflect.DeepEqual(got, []string{"firewall.state:enabled made"}) {
+		t.Errorf("effects %v, want the reload", got)
+	}
+	_, err = f.stateRepair().Handler.Plan(context.Background(), env, json.RawMessage(`{"outcome":"keep"}`))
+	if e := errcode.From(err); e.Code != errcode.InvalidInput || len(e.Fields) != 1 || e.Fields[0].Path != "/outcome" {
+		t.Errorf("an outcome without a repaired change = %v, want an invalid input at /outcome", err)
+	}
+	if def := f.stateRepair(); def.Spec.RepairedBy != "firewall.state.repair" || def.Spec.Guards[0].ID != guard.GuardID {
+		t.Errorf("spec %+v", def.Spec)
+	}
+}
+
+// TestRepairRestore: repairing a change, outcome restore (the default)
+// returns the host to the change's snapshot, reports restored and unpins
+// the snapshot.
+func TestRepairRestore(t *testing.T) {
+	h, f, env := ruHost(t)
+	id := rpTarget(t, h, f)
+	s := h.state()
+	s.Rules4, s.Rules6 = s.Rules4[1:], nil
+	h.setState(s)
+	env.Call.RepairOf = rpRepaired
+	plan, out := rpRun(t, h, f, env, `{}`)
+	if len(plan.Diff) != 1 || !strings.Contains(plan.Diff[0].Text, fhTag) || plan.Diff[0].Op != "+" {
+		t.Errorf("diff %q, want the rule the restore brings back", acDiff(plan))
+	}
+	if out.RepairOutcome != "restored" || len(findRules(h.config(), fhTag)) != 1 {
+		t.Errorf("output %+v, want restored with the rule back", out)
+	}
+	if snap, _ := getSnapshot(context.Background(), h.db, id); snap.Pinned {
+		t.Error("the repaired change's snapshot is still pinned")
+	}
+}
+
+// TestRepairKeep: outcome keep reloads UFW from the files the change left,
+// only while they still hash as it recorded them, and reports kept.
+func TestRepairKeep(t *testing.T) {
+	ctx := context.Background()
+	h, f, env := ruHost(t)
+	id := rpTarget(t, h, f)
+	env.Call.RepairOf = rpRepaired
+	_, err := f.stateRepair().Handler.Plan(ctx, env, json.RawMessage(`{"outcome":"keep"}`))
+	if e := errcode.From(err); e.Code != errcode.InvalidInput || !strings.Contains(e.Detail, "no post-apply state") {
+		t.Errorf("keep without post-apply hashes = %v, want an invalid input", err)
+	}
+	if err := setPostHashes(ctx, h.db, id, fileHashes(h.config().Files)); err != nil {
+		t.Fatal(err)
+	}
+	_, out := rpRun(t, h, f, env, `{"outcome":"keep"}`)
+	if out.RepairOutcome != "kept" {
+		t.Errorf("output %+v, want kept", out)
+	}
+
+	s := h.state()
+	s.LogLevel = "full"
+	h.setState(s)
+	_, err = f.stateRepair().Handler.Plan(ctx, env, json.RawMessage(`{"outcome":"keep"}`))
+	if e := errcode.From(err); e.Code != errcode.InvalidInput || !strings.Contains(e.Detail, "/etc/ufw/ufw.conf") {
+		t.Errorf("keep with a changed file = %v, want an invalid input naming it", err)
+	}
+	err = f.stateRepair().Handler.Verify(ctx, env, json.RawMessage(`{"outcome":"keep"}`), json.RawMessage(`{}`))
+	if errcode.From(err).Code != errcode.FirewallPredictionMismatch {
+		t.Errorf("verify keep with a changed file = %v, want a prediction mismatch", err)
+	}
+	env.Call.RepairOf = "01J000000000000000000000R9"
+	if _, err := f.stateRepair().Handler.Plan(ctx, env, json.RawMessage(`{}`)); err == nil {
+		t.Error("repairing a change without a snapshot plans")
+	}
+}
+
+// TestRepairRestoreManual: repairing a change with outcome restore brings
+// back a manual rule the snapshot holds and the host lacks only with
+// manual: true, as firewall.snapshot.restore does, and then reports
+// restored with the rule back.
+func TestRepairRestoreManual(t *testing.T) {
+	ctx := context.Background()
+	h, f, env := ruHost(t)
+	rpTarget(t, h, f)
+	manual := model.Merge(h.config().Rules4, nil)[1].ID
+	s := h.state()
+	s.Rules4 = s.Rules4[:1]
+	h.setState(s)
+	env.Call.RepairOf = rpRepaired
+
+	_, err := f.stateRepair().Handler.Plan(ctx, env, json.RawMessage(`{}`))
+	if e := errcode.From(err); e.Code != errcode.FirewallManualRequired || !strings.Contains(e.Detail, manual) {
+		t.Fatalf("plan without manual = %v, want manual required naming %s", err, manual)
+	}
+	plan, out := rpRun(t, h, f, env, `{"manual":true}`)
+	if len(plan.Diff) != 1 || plan.Diff[0].Op != "+" || !strings.Contains(plan.Diff[0].Text, "rule "+manual+" (manual)") {
+		t.Errorf("diff %q, want the manual rule the restore brings back", acDiff(plan))
+	}
+	if out.RepairOutcome != "restored" || len(model.Merge(h.config().Rules4, nil)) != 2 {
+		t.Errorf("output %+v with %d rules, want restored with the manual rule back", out, len(model.Merge(h.config().Rules4, nil)))
+	}
+}
+
+// TestRepairRefusesOutcome: an outcome other than restore and keep is
+// refused at /outcome, whether or not a change is repaired.
+func TestRepairRefusesOutcome(t *testing.T) {
+	ctx := context.Background()
+	h, f, env := ruHost(t)
+	id := rpTarget(t, h, f)
+	if err := setPostHashes(ctx, h.db, id, fileHashes(h.config().Files)); err != nil {
+		t.Fatal(err)
+	}
+	for _, repairOf := range []string{"", rpRepaired} {
+		env.Call.RepairOf = repairOf
+		_, err := f.stateRepair().Handler.Plan(ctx, env, json.RawMessage(`{"outcome":"discard"}`))
+		if e := errcode.From(err); e.Code != errcode.InvalidInput || len(e.Fields) != 1 || e.Fields[0].Path != "/outcome" {
+			t.Errorf("repair of %q with outcome discard = %v, want an invalid input at /outcome", repairOf, err)
+		}
+	}
+}
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `mkdir -p /root/.cache/w1-tmp/96 && TMPDIR=/root/.cache/w1-tmp/96 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestRepairRestoreManual|TestRepairRefusesOutcome' ./internal/modules/firewall/`
+Expected: FAIL — the schema refuses `manual`, and an unknown outcome plans as `keep` once the repaired change recorded its post-apply state.
+
+```text
+--- FAIL: TestRepairRestoreManual (0.18s)
+    actions_repair_test.go:173: input {"manual":true}: request.invalid_input: input does not match the action's schema
+--- FAIL: TestRepairRefusesOutcome (0.20s)
+    actions_repair_test.go:195: repair of "01J000000000000000000000R1" with outcome discard = <nil>, want an invalid input at /outcome
+FAIL
+FAIL	github.com/darkraise/darkpanel/internal/modules/firewall	0.385s
+FAIL
+```
+
+- [ ] **Step 3: Write the implementation**
+
+Replace the whole file `internal/modules/firewall/actions_repair.go` with:
+
+```go
+package firewall
+
+import (
+	"context"
+	"fmt"
+	"maps"
+	"slices"
+	"strings"
+
+	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
+)
+
+// The repair outcomes (spec 1.3, 2.5).
+const (
+	outcomeRestore = "restore"
+	outcomeKeep    = "keep"
+)
+
+// RepairInput is the input of firewall.state.repair (v1). Repairing a
+// change (darkpanel change repair), outcome restore, the default, returns
+// the host to the change's snapshot, and keep brings UFW's loaded state to
+// the files the change left. Run on its own, the repair takes no outcome
+// and reloads UFW from its configuration. A restore changes the manual
+// rules the snapshot and the host hold differently only with manual.
+type RepairInput struct {
+	core.Guarded
+	Outcome string `json:"outcome,omitempty" jsonschema:"enum=restore,enum=keep" jsonschema_description:"Repairing a change: restore (the default) or keep."`
+	Manual  bool   `json:"manual,omitempty" jsonschema_description:"Confirms the manual rules a restore brings back or removes (spec 2.5)."`
+}
+
+// stateRepair is firewall.state.repair (spec 2.3, 2.5): from the actual
+// loaded state to a target, allowed on a host out of sync in UFW's and
+// Darkpanel's own chains, with a loaded-state before-image in its snapshot.
+// It is every firewall action's RepairedBy, its own included (owner ruling
+// R1).
+func (f fw) stateRepair() core.ActionDef {
+	return defineMutation(core.ActionSpec{Name: repairAction, Summary: "Repair the firewall: bring UFW's loaded state to its target."}, mutation[RepairInput]{
+		f:       f,
+		image:   true,
+		guarded: func(in RepairInput) core.Guarded { return in.Guarded },
+		manual:  func(in RepairInput) bool { return in.Manual },
+		build: func(ctx context.Context, env core.Env, in RepairInput) buildFunc {
+			return func(cfg fwstate.Config, _ fwstate.Loaded) (change, error) { return repairChange(ctx, env, in, cfg) }
+		},
+		check: func(ctx context.Context, env core.Env, in RepairInput, cfg fwstate.Config) error {
+			if env.Call.RepairOf == "" {
+				return nil
+			}
+			s, err := repairedSnapshot(ctx, env)
+			if err != nil {
+				return err
+			}
+			if in.Outcome == outcomeKeep {
+				if paths := changedFiles(cfg, s.PostHashes); len(paths) > 0 {
+					return mismatch("%s differ from what change %s left", strings.Join(paths, ", "), env.Call.RepairOf)
+				}
+				return nil
+			}
+			if cfg.Enabled != s.State.Enabled {
+				return mismatch("UFW's ENABLED is %s after the repair, the snapshot's is %s", yesNo(cfg.Enabled), yesNo(s.State.Enabled))
+			}
+			return nil
+		},
+		finish: func(ctx context.Context, env core.Env, in RepairInput, out *ChangeOutput) error {
+			if env.Call.RepairOf == "" {
+				return nil
+			}
+			out.RepairOutcome = "restored"
+			if in.Outcome == outcomeKeep {
+				out.RepairOutcome = "kept"
+			}
+			if err := unpinChangeSnapshot(ctx, env, env.Call.RepairOf); err != nil {
+				env.Log.Warn("firewall: cannot unpin the repaired change's snapshot", "change", env.Call.RepairOf, "error", err)
+			}
+			return nil
+		},
+	})
+}
+
+// repairChange is the repair's change. Without a repaired change it reloads
+// (or stops) UFW from its configuration. Repairing a change, restore brings
+// the change's snapshot back, and keep reloads UFW from the files the
+// change left, which must still hash as it recorded them right after it
+// applied.
+func repairChange(ctx context.Context, env core.Env, in RepairInput, cfg fwstate.Config) (change, error) {
+	refuse := func(msg string) error {
+		return &errcode.Error{Code: errcode.InvalidInput, Detail: msg, Fields: []errcode.FieldError{{Path: "/outcome", Message: msg}}}
+	}
+	if env.Call.RepairOf == "" {
+		if in.Outcome != "" {
+			return change{}, refuse("only the repair of a change takes an outcome")
+		}
+		return change{repair: true}, nil
+	}
+	if in.Outcome != "" && in.Outcome != outcomeRestore && in.Outcome != outcomeKeep {
+		return change{}, refuse(fmt.Sprintf("the outcome %q is neither %s nor %s", in.Outcome, outcomeRestore, outcomeKeep))
+	}
+	s, err := repairedSnapshot(ctx, env)
+	if err != nil {
+		return change{}, err
+	}
+	if in.Outcome != outcomeKeep {
+		return change{repair: true, restore: &s}, nil
+	}
+	if s.PostHashes == nil {
+		return change{}, refuse(fmt.Sprintf("change %s recorded no post-apply state; repair it with outcome restore", env.Call.RepairOf))
+	}
+	if paths := changedFiles(cfg, s.PostHashes); len(paths) > 0 {
+		return change{}, refuse(fmt.Sprintf("%s differ from what change %s left; repair it with outcome restore",
+			strings.Join(paths, ", "), env.Call.RepairOf))
+	}
+	return change{repair: true}, nil
+}
+
+// repairedSnapshot is the snapshot of the change the repair repairs.
+func repairedSnapshot(ctx context.Context, env core.Env) (snapshot, error) {
+	id, err := snapshotOfChange(ctx, env.DB, env.Call.RepairOf)
+	if err != nil {
+		return snapshot{}, fmt.Errorf("firewall: the snapshot of change %s: %w", env.Call.RepairOf, err)
+	}
+	return getSnapshot(ctx, env.DB, id)
+}
+
+// changedFiles lists the files whose hashes differ from want, sorted.
+func changedFiles(cfg fwstate.Config, want map[string]string) []string {
+	var out []string
+	for _, p := range slices.Sorted(maps.Keys(want)) {
+		if fileHash(cfg.Files[p]) != want[p] {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+```
+
+Modify `schemas/firewall.state.repair/v1.json` with 1 exact edit; its "replace" block occurs exactly once in the file.
+
+Edit 1. Replace this block:
+
+```json
+              "keep"
+            ],
+            "description": "Repairing a change: restore (the default) or keep."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+```
+
+with:
+
+```json
+              "keep"
+            ],
+            "description": "Repairing a change: restore (the default) or keep."
+          },
+          "manual": {
+            "type": "boolean",
+            "description": "Confirms the manual rules a restore brings back or removes (spec 2.5)."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+```
+
+Regenerate the schema snapshot and check that it changed only in the way the edit above shows:
+
+```bash
+mkdir -p /root/.cache/w1-tmp/96 && TMPDIR=/root/.cache/w1-tmp/96 GOTOOLCHAIN=local timeout 600 go run ./internal/core/schema/schemagen -out schemas
+git status --short
+```
+
+Expected: `go run` prints nothing and `git status --short` lists exactly the three files of this task.
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `TMPDIR=/root/.cache/w1-tmp/96 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestRepair|TestSnapshotsCurrent' ./internal/modules/firewall/ ./internal/modules/` — Expected: PASS
+
+Then run, each with `GOTOOLCHAIN=local`, an explicit `timeout` and `TMPDIR=/root/.cache/w1-tmp/96`:
+
+- `go build ./...` and `go vet ./...` — no output; `go vet -tags harness ./test/...` — no output.
+- `go test -count=1 ./...` — every line `ok` or `?` (61 `ok`, 2 `?` on 2026-10-26). When the host is loaded, `internal/core/lifecycle` can exceed the test timeout (Assumptions); rerun that package alone.
+- `go test -race -count=1 ./internal/modules/firewall/...` — every line `ok`.
+- `golangci-lint run --allow-serial-runners ./...` — `0 issues.`
+- `go mod tidy -diff` — no output.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/modules/firewall/actions_repair.go internal/modules/firewall/actions_repair_test.go schemas/firewall.state.repair/v1.json
+git commit -m "fix(firewall): let a repair restore manual rules"
+```
+
+### Task 97: Test the production wiring by behavior
+
+**Files:**
+- Test: `internal/modules/firewall/wire_test.go`
+
+**Interfaces:**
+- Consumes: `productionFW` and `lockoutVia` (Task 65); `deps.readLoaded` and `deps.lockout` (part A1, `deps.go`); `guard.Check`, `eval.Evaluate`; `core.Runner`.
+- Produces: `ayRunner`, `TestProductionReadLoaded` and `TestProductionLockout`; no production change.
+
+**Depends on:** Task 28, Task 65, Task 80, Task 88, Task 91
+
+**Implementer:** dforge:impl-sonnet-medium
+**Evaluation:** files 0 - spec 1 - coupling 1 - risk 1 = 3
+
+`TestProductionFW` checked that the production `readLoaded` and `lockout` were not nil, so a production `fw` wired to stubs passed it. `TestProductionReadLoaded` now runs the production reader on a fake `core.Runner`: it must ask `iptables --version` and then run the nft variant's save tool for the first table, and a tool that fails is the reader's error. `TestProductionLockout` runs the production guard on an environment with no file writer and no unit client, which `guard.Check` refuses before it reads anything from the host, and requires the very error `guard.Check` returns, with no verdict. Neither test reads the host. Step 2 shows the defect by wiring both functions to stubs for a moment: the old test still passes, the new ones fail.
+
+- [ ] **Step 1: Write the failing test**
+
+Replace the whole file `internal/modules/firewall/wire_test.go` with:
+
+```go
+package firewall
+
+import (
+	"context"
+	"errors"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/conf"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/eval"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/guard"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/loaded"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/predict"
+)
+
+func wrSameFunc(t *testing.T, name string, got, want any) {
+	t.Helper()
+	if reflect.ValueOf(got).Pointer() != reflect.ValueOf(want).Pointer() {
+		t.Errorf("%s is not the production function", name)
+	}
+}
+
+// TestProductionFW: the module's production functions are the readers,
+// predictor, comparison and guard of the firewall's packages, rooted at /.
+func TestProductionFW(t *testing.T) {
+	f := productionFW()
+	if f.d.root != "/" {
+		t.Errorf("root = %q, want /", f.d.root)
+	}
+	wrSameFunc(t, "readConfig", f.d.readConfig, conf.Read)
+	wrSameFunc(t, "predict", f.d.predict, predict.Predict)
+	wrSameFunc(t, "edit", f.d.edit, predict.Edit)
+	wrSameFunc(t, "files", f.d.files, predict.Files)
+	wrSameFunc(t, "compare", f.d.compare, loaded.Compare)
+	wrSameFunc(t, "sysctl", f.d.sysctl, loaded.PredictSysctl)
+	wrSameFunc(t, "ipv6Refusal", f.ipv6Refusal, predict.IPv6Refusal)
+	wrSameFunc(t, "check", f.check, guard.Check)
+}
+
+// TestLockoutVia: the revert's guard evaluates the snapshot's guard
+// context with the real evaluator and no apply-time refresh, and answers
+// the guard's verdict and message; a check that fails is an error.
+func TestLockoutVia(t *testing.T) {
+	ctx := context.Background()
+	gc := &core.GuardContext{Complete: true}
+	st := fwstate.Loaded{Variant: "nft"}
+	var got []guard.Input
+	answer := core.Guard{ID: guard.GuardID, OK: false, Message: "the change would cut ssh from 203.0.113.7 to 192.0.2.1:22 on eth0: drop"}
+	var answerErr error
+	lockout := lockoutVia(func(_ context.Context, _ core.Env, s fwstate.Loaded, in guard.Input) (core.Guard, []guard.FlowResult, error) {
+		if s.Variant != "nft" {
+			t.Errorf("state %+v, want the state passed in", s)
+		}
+		got = append(got, in)
+		return answer, nil, answerErr
+	})
+
+	ok, detail, err := lockout(ctx, core.Env{}, st, gc)
+	if ok || detail != answer.Message || err != nil {
+		t.Errorf("lockout = %v, %q, %v; want false, %q, nil", ok, detail, err, answer.Message)
+	}
+	if len(got) != 1 || got[0].Plan != gc || got[0].Refresh != nil || got[0].Retired != nil {
+		t.Fatalf("inputs %+v, want one with Plan the snapshot's context and no refresh", got)
+	}
+	wrSameFunc(t, "Eval", got[0].Eval, eval.Evaluate)
+
+	answer = core.Guard{ID: guard.GuardID, OK: true, Message: "every protected flow passes (3 checked)"}
+	if ok, detail, err := lockout(ctx, core.Env{}, st, nil); !ok || detail != answer.Message || err != nil {
+		t.Errorf("lockout = %v, %q, %v; want true, %q, nil", ok, detail, err, answer.Message)
+	}
+
+	answerErr = errors.New("firewall: read the socket table: netstat: no socket tables under the proc root")
+	if ok, _, err := lockout(ctx, core.Env{}, st, gc); ok || !errors.Is(err, answerErr) {
+		t.Errorf("lockout = %v, %v; want false and the check's error", ok, err)
+	}
+}
+
+// ayRunner is a core.Runner answered by a function.
+type ayRunner func(ctx context.Context, cmd core.Cmd) (core.CmdResult, error)
+
+func (r ayRunner) Run(ctx context.Context, cmd core.Cmd) (core.CmdResult, error) { return r(ctx, cmd) }
+
+// TestProductionReadLoaded: the production loaded-state reader is part C's:
+// through env.Exec it asks iptables for its variant, then runs that
+// variant's save tool for the first table, and a tool that fails is an
+// error, not an empty firewall.
+func TestProductionReadLoaded(t *testing.T) {
+	failed := errors.New("aytool: the tool failed")
+	var ran []string
+	exec := ayRunner(func(_ context.Context, cmd core.Cmd) (core.CmdResult, error) {
+		ran = append(ran, strings.Join(append([]string{cmd.Path}, cmd.Args...), " "))
+		if len(cmd.Args) == 1 && cmd.Args[0] == "--version" {
+			return core.CmdResult{Stdout: []byte("iptables v1.8.10 (nf_tables)\n")}, nil
+		}
+		return core.CmdResult{}, failed
+	})
+	_, err := productionFW().d.readLoaded(context.Background(), core.Env{Exec: exec})
+	if !errors.Is(err, failed) {
+		t.Errorf("readLoaded = %v, want the failing tool's error", err)
+	}
+	want := []string{"/usr/sbin/iptables --version", "/usr/sbin/iptables-nft-save -t filter"}
+	if !reflect.DeepEqual(ran, want) {
+		t.Errorf("ran %q, want %q", ran, want)
+	}
+}
+
+// TestProductionLockout: the production lockout guard of a revert is
+// guard.Check's: when the check cannot read the host (here it has neither
+// a file writer nor a unit client) the guard answers the check's own error
+// and not a verdict.
+func TestProductionLockout(t *testing.T) {
+	ctx := context.Background()
+	st := fwstate.Loaded{Variant: "nft"}
+	_, _, want := guard.Check(ctx, core.Env{}, st, guard.Input{Eval: eval.Evaluate})
+	if want == nil {
+		t.Fatal("guard.Check accepted an environment without host access")
+	}
+	ok, detail, err := productionFW().d.lockout(ctx, core.Env{}, st, nil)
+	if ok || detail != "" || err == nil || err.Error() != want.Error() {
+		t.Errorf("lockout = %v, %q, %v; want false, no detail and %q", ok, detail, err, want)
+	}
+}
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Prove the old test is blind and the new ones are not. Temporarily mis-wire the production `fw`: in `internal/modules/firewall/wire.go` replace `readLoaded: loaded.Reader{}.Read,` with `readLoaded: func(context.Context, core.Env) (fwstate.Loaded, error) { return fwstate.Loaded{}, nil },` and `lockout:    lockoutVia(guard.Check),` with `lockout:    func(context.Context, core.Env, fwstate.Loaded, *core.GuardContext) (bool, string, error) { return true, "", nil },`. This edit is a check only: it is undone below and is not part of the commit.
+
+Run: `mkdir -p /root/.cache/w1-tmp/97 && TMPDIR=/root/.cache/w1-tmp/97 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestProduction' ./internal/modules/firewall/`
+Expected: FAIL — `TestProductionReadLoaded` and `TestProductionLockout` fail, while `TestProductionFW` (run with `-run TestProductionFW`) passes on the same wiring:
+
+```text
+--- FAIL: TestProductionReadLoaded (0.00s)
+    wire_test.go:102: readLoaded = <nil>, want the failing tool's error
+    wire_test.go:106: ran [], want ["/usr/sbin/iptables --version" "/usr/sbin/iptables-nft-save -t filter"]
+--- FAIL: TestProductionLockout (0.00s)
+    wire_test.go:123: lockout = true, "", <nil>; want false, no detail and "firewall: the guard needs the file writer and the unit client"
+FAIL
+FAIL	github.com/darkraise/darkpanel/internal/modules/firewall	0.007s
+FAIL
+```
+
+Then undo the check: `git checkout -- internal/modules/firewall/wire.go`; `git status --short` lists only `wire_test.go`.
+
+- [ ] **Step 3: Write the implementation**
+
+There is no production change: `wire.go` is back as it was, and the wiring it holds is the one the new tests prove.
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `TMPDIR=/root/.cache/w1-tmp/97 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestProduction|TestLockoutVia' ./internal/modules/firewall/` — Expected: PASS
+
+Then run, each with `GOTOOLCHAIN=local`, an explicit `timeout` and `TMPDIR=/root/.cache/w1-tmp/97`:
+
+- `go build ./...` and `go vet ./...` — no output; `go vet -tags harness ./test/...` — no output.
+- `go test -count=1 ./...` — every line `ok` or `?` (61 `ok`, 2 `?` on 2026-10-26). When the host is loaded, `internal/core/lifecycle` can exceed the test timeout (Assumptions); rerun that package alone.
+- `go test -race -count=1 ./internal/modules/firewall/...` — every line `ok`.
+- `golangci-lint run --allow-serial-runners ./...` — `0 issues.`
+- `go mod tidy -diff` — no output.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/modules/firewall/wire_test.go
+git commit -m "test(firewall): check wiring by behavior"
+```
+
+### Task 98: Compare every built-in chain after a start
+
+**Files:**
+- Modify: `internal/modules/firewall/sync.go`
+- Test: `internal/modules/firewall/sync_test.go`
+
+**Interfaces:**
+- Consumes: `fw.syncDiffs`, `familyRules` (Task 68); `firewallChain`, `chainOf` (part A1, `image.go`); `deps.predict` and `deps.compare`; `syLoaded`, `syDecls` (Task 68's test file); `fhParse` (part A1).
+- Produces: `builtinNames`, `verifyKeep`, `fw.verifyDiffs` and `reappended` (Part contracts, Task 98); the test helpers `ayMasq` and `ayNat`.
+
+**Depends on:** Task 28, Task 68, Task 80, Task 88, Task 91
+
+**Implementer:** dforge:impl-sonnet-medium
+**Evaluation:** files 1 - spec 0 - coupling 1 - risk 2 = 4
+
+Spec 2.3 says verify compares the predicted state relevant to every protected flow, UFW's chains, the built-in policies and every chain those flows traverse, with the loaded state after apply. `fw.syncDiffs` covers UFW's and Darkpanel's chains and the filter table's built-ins only, so a `*nat` rule of `before.rules` that the kernel did not apply passed verify. `fw.verifyDiffs` compares, for an enabled UFW, every chain UFW's start can write: UFW's and Darkpanel's chains and the built-in chains of all five tables; a foreign user chain is left out, because no start writes it and the prediction copies it from the loaded state. UFW appends the rules a `before.rules` or `after.rules` block writes to a built-in chain again on every start, and the prediction models that, so the prediction made from the state after a start holds each such rule once more than that state does. A difference of that kind in a built-in chain of a table other than filter passes when the loaded chain holds every rule the start appends, and counts when it does not. A disabled UFW is compared as `syncDiffs` does. `syncDiffs`, which the plan's in-sync check and the status use too, is not changed: it cannot tell those re-appended rules from a difference. This task adds and tests the function; Task 108 calls it. `TestVerifyDiffs` proves, with the real `loaded.Compare` and a stub predictor, each case: the rule loaded, the rule loaded among foreign ones, the rule missing, a policy difference, a rule only loaded, a foreign user chain, a filter built-in still compared exactly, a disabled UFW and a prediction error.
+
+- [ ] **Step 1: Write the failing test**
+
+Replace the whole file `internal/modules/firewall/sync_test.go` with:
+
+```go
+package firewall
+
+import (
+	"errors"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/loaded"
+)
+
+// syLoaded parses one filter table, given as -A lines after the chain
+// declarations, for both families.
+func syLoaded(t *testing.T, decls string, rules ...string) fwstate.Loaded {
+	t.Helper()
+	text := "*filter\n" + decls + strings.Join(rules, "\n") + "\nCOMMIT\n"
+	return fwstate.Loaded{Variant: "nft", V4: fhParse(t, text), V6: fhParse(t, text)}
+}
+
+const syDecls = ":INPUT DROP [0:0]\n:FORWARD DROP [0:0]\n:OUTPUT ACCEPT [0:0]\n:ufw-user-input - [0:0]\n:fw-foreign - [0:0]\n"
+
+// TestSyncDiffs: an enabled UFW is compared with a reload's prediction over
+// UFW's and Darkpanel's chains and the filter built-ins; a disabled one with
+// a stop's over UFW's chains only, so a built-in policy set while UFW is off
+// does not count.
+func TestSyncDiffs(t *testing.T) {
+	cur := syLoaded(t, syDecls, "-A INPUT -j ufw-user-input", "-A ufw-user-input -p tcp -m tcp --dport 22 -j ACCEPT")
+	pred := syLoaded(t, strings.Replace(syDecls, ":INPUT DROP", ":INPUT ACCEPT", 1),
+		"-A INPUT -j ufw-user-input", "-A ufw-user-input -p tcp -m tcp --dport 80 -j ACCEPT",
+		"-A fw-foreign -j DROP")
+	var trs []fwstate.Transition
+	f := fw{d: deps{
+		predict: func(_ fwstate.Config, c fwstate.Loaded, tr fwstate.Transition) (fwstate.Loaded, error) {
+			if c.V4 != cur.V4 {
+				t.Error("predict is not given the loaded state")
+			}
+			trs = append(trs, tr)
+			return pred, nil
+		},
+		compare: loaded.Compare,
+	}}
+
+	diffs, err := f.syncDiffs(fwstate.Config{Enabled: true}, cur)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, d := range diffs {
+		got = append(got, chainDiffText(d))
+	}
+	want := []string{
+		"v4 filter/INPUT: policy ACCEPT predicted, DROP loaded",
+		"v4 filter/ufw-user-input: 1 rule only predicted, 1 only loaded",
+		"v6 filter/INPUT: policy ACCEPT predicted, DROP loaded",
+		"v6 filter/ufw-user-input: 1 rule only predicted, 1 only loaded",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("enabled diffs\n%q\nwant\n%q", got, want)
+	}
+
+	diffs, err = f.syncDiffs(fwstate.Config{Enabled: false}, cur)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = nil
+	for _, d := range diffs {
+		got = append(got, string(d.Family)+" "+d.Chain)
+	}
+	if want := []string{"v4 ufw-user-input", "v6 ufw-user-input"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("disabled diffs %q, want %q", got, want)
+	}
+	if want := []fwstate.Transition{fwstate.TransReload, fwstate.TransDisable}; !reflect.DeepEqual(trs, want) {
+		t.Errorf("transitions %v, want %v", trs, want)
+	}
+
+	f.d.predict = func(fwstate.Config, fwstate.Loaded, fwstate.Transition) (fwstate.Loaded, error) {
+		return fwstate.Loaded{}, errors.New("predict: translate: /etc/ufw/user.rules is empty")
+	}
+	if _, err := f.syncDiffs(fwstate.Config{Enabled: true}, cur); err == nil || !strings.Contains(err.Error(), "user.rules is empty") {
+		t.Errorf("syncDiffs = %v, want the prediction's error", err)
+	}
+}
+
+// TestConfined: a difference is confined to UFW's and Darkpanel's chains
+// when it lies in such a chain, or in a filter built-in chain whose other
+// rules are the same in order; a foreign chain, a foreign rule of a
+// built-in chain, or a built-in chain of another table is not.
+func TestConfined(t *testing.T) {
+	base := []string{"-A INPUT -s 198.51.100.7/32 -j DROP", "-A INPUT -j ufw-user-input", "-A ufw-user-input -j ACCEPT"}
+	cases := []struct {
+		name  string
+		cur   []string
+		decls string
+		ok    bool
+	}{
+		{"in sync", base, syDecls, true},
+		{"ufw chain", []string{base[0], base[1]}, syDecls, true},
+		{"jump moved", []string{base[1], base[0], base[2]}, syDecls, true},
+		{"jump missing and policy", []string{base[0], base[2]}, strings.Replace(syDecls, ":INPUT DROP", ":INPUT ACCEPT", 1), true},
+		{"foreign rule added", append([]string{"-A INPUT -p tcp -m tcp --dport 9000 -j ACCEPT"}, base...), syDecls, false},
+		{"foreign rule removed", base[1:], syDecls, false},
+		{"foreign chain", append(append([]string(nil), base...), "-A fw-foreign -j DROP"), syDecls, false},
+	}
+	pred := syLoaded(t, syDecls, base...)
+	for _, c := range cases {
+		cur := syLoaded(t, c.decls, c.cur...)
+		diffs := loaded.Compare(pred, cur, nil)
+		if got := confined(diffs, pred, cur); got != c.ok {
+			t.Errorf("%s: confined = %v, want %v (diffs %+v)", c.name, got, c.ok, diffs)
+		}
+	}
+	natPred := fwstate.Loaded{V4: fhParse(t, "*nat\n:POSTROUTING ACCEPT [0:0]\nCOMMIT\n")}
+	natCur := fwstate.Loaded{V4: fhParse(t, "*nat\n:POSTROUTING ACCEPT [0:0]\n-A POSTROUTING -j MASQUERADE\nCOMMIT\n")}
+	if confined(loaded.Compare(natPred, natCur, nil), natPred, natCur) {
+		t.Error("a nat built-in chain counts as UFW's")
+	}
+}
+
+// TestChainDifferences: the JSON form keeps every field of a ChainDiff.
+func TestChainDifferences(t *testing.T) {
+	got := chainDifferences([]fwstate.ChainDiff{{Family: fwstate.V6, Table: "filter", Chain: "INPUT", PolicyA: "DROP", PolicyB: "ACCEPT",
+		OnlyA: []string{"-j ufw6-before-input"}, OnlyB: []string{"-j ACCEPT"}, OrderDiffers: true}})
+	want := []ChainDifference{{Family: "v6", Table: "filter", Chain: "INPUT", PolicyPredicted: "DROP", PolicyLoaded: "ACCEPT",
+		OnlyPredicted: []string{"-j ufw6-before-input"}, OnlyLoaded: []string{"-j ACCEPT"}, OrderDiffers: true}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("chainDifferences = %+v, want %+v", got, want)
+	}
+	if chainDifferences(nil) == nil {
+		t.Error("chainDifferences(nil) is nil, want an empty list for JSON")
+	}
+	if s := chainDiffText(fwstate.ChainDiff{Family: fwstate.V4, Table: "filter", Chain: "ufw-user-input", OnlyA: []string{"a", "b"}, OrderDiffers: true}); s != "v4 filter/ufw-user-input: 2 rules only predicted, order differs" {
+		t.Errorf("chainDiffText = %q", s)
+	}
+}
+
+// ayMasq is the rule a before.rules nat block adds on every start.
+const ayMasq = "-A POSTROUTING -s 10.8.0.0/24 -o eth0 -j MASQUERADE"
+
+// ayNat is a loaded state with a nat table whose POSTROUTING holds rules.
+func ayNat(t *testing.T, policy string, rules ...string) fwstate.Loaded {
+	t.Helper()
+	text := "*nat\n:PREROUTING ACCEPT [0:0]\n:POSTROUTING " + policy + " [0:0]\n" + strings.Join(rules, "\n") + "\nCOMMIT\n"
+	return fwstate.Loaded{Variant: "nft", V4: fhParse(t, text)}
+}
+
+// TestVerifyDiffs: after a start, verify compares UFW's and Darkpanel's
+// chains and every table's built-in chains with the prediction of a reload.
+// A rule a before.rules block appends to a built-in chain of a table other
+// than filter is appended again by the reload the prediction models, so it
+// counts only when the loaded chain does not hold it; a foreign chain, which
+// no start writes, is never compared; a disabled UFW is compared as in
+// syncDiffs.
+func TestVerifyDiffs(t *testing.T) {
+	var trs []fwstate.Transition
+	withPred := func(pred fwstate.Loaded) fw {
+		return fw{d: deps{
+			predict: func(_ fwstate.Config, _ fwstate.Loaded, tr fwstate.Transition) (fwstate.Loaded, error) {
+				trs = append(trs, tr)
+				return pred, nil
+			},
+			compare: loaded.Compare,
+		}}
+	}
+	texts := func(diffs []fwstate.ChainDiff) []string {
+		var out []string
+		for _, d := range diffs {
+			out = append(out, chainDiffText(d))
+		}
+		return out
+	}
+	enabled := fwstate.Config{Enabled: true}
+
+	cases := []struct {
+		name      string
+		cur, pred fwstate.Loaded
+		want      []string
+	}{
+		{"the start's nat rule is loaded", ayNat(t, "ACCEPT", ayMasq), ayNat(t, "ACCEPT", ayMasq, ayMasq), nil},
+		{"the start's nat rule is loaded among foreign ones", ayNat(t, "ACCEPT", ayMasq, "-A POSTROUTING -j LOG"),
+			ayNat(t, "ACCEPT", ayMasq, "-A POSTROUTING -j LOG", ayMasq), nil},
+		{"the kernel did not apply the nat rule", ayNat(t, "ACCEPT"), ayNat(t, "ACCEPT", ayMasq),
+			[]string{"v4 nat/POSTROUTING: 1 rule only predicted"}},
+		{"a nat built-in policy differs", ayNat(t, "DROP", ayMasq), ayNat(t, "ACCEPT", ayMasq, ayMasq),
+			[]string{"v4 nat/POSTROUTING: policy ACCEPT predicted, DROP loaded, 1 rule only predicted"}},
+		{"a rule only loaded", ayNat(t, "ACCEPT", ayMasq, "-A POSTROUTING -j LOG"), ayNat(t, "ACCEPT", ayMasq),
+			[]string{"v4 nat/POSTROUTING: 1 rule only loaded"}},
+		{"a foreign user chain is not compared",
+			fwstate.Loaded{V4: fhParse(t, "*nat\n:POSTROUTING ACCEPT [0:0]\n:fw-foreign - [0:0]\nCOMMIT\n")},
+			fwstate.Loaded{V4: fhParse(t, "*nat\n:POSTROUTING ACCEPT [0:0]\n:fw-foreign - [0:0]\n-A fw-foreign -j DROP\nCOMMIT\n")}, nil},
+		{"a filter built-in is still compared exactly",
+			syLoaded(t, syDecls, "-A INPUT -j ufw-user-input"),
+			syLoaded(t, syDecls, "-A INPUT -j ufw-user-input", "-A INPUT -j ufw-user-input"),
+			[]string{"v4 filter/INPUT: 1 rule only predicted", "v6 filter/INPUT: 1 rule only predicted"}},
+	}
+	for _, c := range cases {
+		diffs, err := withPred(c.pred).verifyDiffs(enabled, c.cur)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if got := texts(diffs); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: diffs %q, want %q", c.name, got, c.want)
+		}
+	}
+	if len(trs) != len(cases) || trs[0] != fwstate.TransReload {
+		t.Errorf("transitions %v, want a reload predicted for each", trs)
+	}
+
+	cur := syLoaded(t, syDecls, "-A INPUT -j ufw-user-input", "-A ufw-user-input -p tcp -m tcp --dport 22 -j ACCEPT")
+	pred := syLoaded(t, strings.Replace(syDecls, ":INPUT DROP", ":INPUT ACCEPT", 1),
+		"-A INPUT -j ufw-user-input", "-A ufw-user-input -p tcp -m tcp --dport 80 -j ACCEPT")
+	trs = nil
+	diffs, err := withPred(pred).verifyDiffs(fwstate.Config{Enabled: false}, cur)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"v4 filter/ufw-user-input: 1 rule only predicted, 1 only loaded", "v6 filter/ufw-user-input: 1 rule only predicted, 1 only loaded"}; !reflect.DeepEqual(texts(diffs), want) {
+		t.Errorf("disabled diffs %q, want %q", texts(diffs), want)
+	}
+	if want := []fwstate.Transition{fwstate.TransDisable}; !reflect.DeepEqual(trs, want) {
+		t.Errorf("transitions %v, want a stop predicted", trs)
+	}
+
+	broken := fw{d: deps{predict: func(fwstate.Config, fwstate.Loaded, fwstate.Transition) (fwstate.Loaded, error) {
+		return fwstate.Loaded{}, errors.New("predict: translate: /etc/ufw/user.rules is empty")
+	}}}
+	if _, err := broken.verifyDiffs(enabled, cur); err == nil || !strings.Contains(err.Error(), "user.rules is empty") {
+		t.Errorf("verifyDiffs = %v, want the prediction's error", err)
+	}
+}
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `mkdir -p /root/.cache/w1-tmp/98 && TMPDIR=/root/.cache/w1-tmp/98 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestVerifyDiffs' ./internal/modules/firewall/`
+Expected: FAIL — a build failure naming `verifyDiffs`.
+
+```text
+FAIL	github.com/darkraise/darkpanel/internal/modules/firewall [build failed]
+FAIL
+# github.com/darkraise/darkpanel/internal/modules/firewall [github.com/darkraise/darkpanel/internal/modules/firewall.test]
+internal/modules/firewall/sync_test.go:197:34: withPred(c.pred).verifyDiffs undefined (type fw has no field or method verifyDiffs)
+internal/modules/firewall/sync_test.go:213:31: withPred(pred).verifyDiffs undefined (type fw has no field or method verifyDiffs)
+internal/modules/firewall/sync_test.go:227:22: broken.verifyDiffs undefined (type fw has no field or method verifyDiffs)
+```
+
+- [ ] **Step 3: Write the implementation**
+
+Replace the whole file `internal/modules/firewall/sync.go` with:
+
+```go
+package firewall
+
+import (
+	"fmt"
+	"slices"
+	"strings"
+
+	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
+	"github.com/darkraise/darkpanel/internal/platform/netfilter"
+)
+
+// ChainDifference is one chain whose loaded rules differ from what UFW's
+// configuration predicts (spec 2.3, in sync): the JSON form of a
+// fwstate.ChainDiff, with the prediction on one side and the loaded state on
+// the other. Rules are netfilter keys.
+type ChainDifference struct {
+	Family          string   `json:"family"` // v4 or v6
+	Table           string   `json:"table"`
+	Chain           string   `json:"chain"`
+	PolicyPredicted string   `json:"policyPredicted,omitempty"` // set only when the built-in policies differ
+	PolicyLoaded    string   `json:"policyLoaded,omitempty"`
+	OnlyPredicted   []string `json:"onlyPredicted,omitempty"`
+	OnlyLoaded      []string `json:"onlyLoaded,omitempty"`
+	OrderDiffers    bool     `json:"orderDiffers,omitempty"`
+}
+
+// chainDifferences is the JSON form of diffs; never nil.
+func chainDifferences(diffs []fwstate.ChainDiff) []ChainDifference {
+	out := make([]ChainDifference, 0, len(diffs))
+	for _, d := range diffs {
+		out = append(out, ChainDifference{
+			Family: string(d.Family), Table: d.Table, Chain: d.Chain, PolicyPredicted: d.PolicyA, PolicyLoaded: d.PolicyB,
+			OnlyPredicted: d.OnlyA, OnlyLoaded: d.OnlyB, OrderDiffers: d.OrderDiffers,
+		})
+	}
+	return out
+}
+
+// chainDiffText describes one difference on one line, for plans and
+// errors.
+func chainDiffText(d fwstate.ChainDiff) string {
+	var parts []string
+	if d.PolicyA != "" || d.PolicyB != "" {
+		parts = append(parts, fmt.Sprintf("policy %s predicted, %s loaded", d.PolicyA, d.PolicyB))
+	}
+	switch {
+	case len(d.OnlyA) > 0 && len(d.OnlyB) > 0:
+		parts = append(parts, fmt.Sprintf("%s only predicted, %d only loaded", plural(len(d.OnlyA), "rule"), len(d.OnlyB)))
+	case len(d.OnlyA) > 0:
+		parts = append(parts, plural(len(d.OnlyA), "rule")+" only predicted")
+	case len(d.OnlyB) > 0:
+		parts = append(parts, plural(len(d.OnlyB), "rule")+" only loaded")
+	}
+	if d.OrderDiffers {
+		parts = append(parts, "order differs")
+	}
+	if len(parts) == 0 {
+		parts = append(parts, "present on one side only")
+	}
+	return fmt.Sprintf("%s %s/%s: %s", d.Family, d.Table, d.Chain, strings.Join(parts, ", "))
+}
+
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
+}
+
+// ufwChain selects UFW's own chains.
+func ufwChain(_ fwstate.Family, _, chain string) bool {
+	return strings.HasPrefix(chain, "ufw-") || strings.HasPrefix(chain, "ufw6-")
+}
+
+// syncDiffs compares the loaded state cur with what the configuration cfg
+// predicts it to be (spec 2.3, in sync). An enabled UFW is compared with
+// the result of a reload, over UFW's and Darkpanel's chains and the filter
+// table's built-in chains, where UFW hooks in (rules a before.rules block
+// adds to another table's built-in chains repeat on every start and are
+// not compared). A disabled UFW is compared with the result of a stop, over
+// UFW's chains only, so a built-in policy set while UFW is off does not
+// count. A difference marks the host out of sync; after an apply, it fails
+// verify.
+func (f fw) syncDiffs(cfg fwstate.Config, cur fwstate.Loaded) ([]fwstate.ChainDiff, error) {
+	tr, keep := fwstate.TransReload, restoreKeep
+	if !cfg.Enabled {
+		tr, keep = fwstate.TransDisable, ufwChain
+	}
+	pred, err := f.d.predict(cfg, cur, tr)
+	if err != nil {
+		return nil, fmt.Errorf("firewall: predict the loaded state of the configuration: %w", err)
+	}
+	return f.d.compare(pred, cur, keep), nil
+}
+
+// builtinNames are the names of the built-in chains of the five tables.
+var builtinNames = []string{"PREROUTING", "INPUT", "FORWARD", "OUTPUT", "POSTROUTING"}
+
+// verifyKeep selects the chains verify compares after a start: UFW's and
+// Darkpanel's chains and the built-in chains of every table, which
+// before.rules and after.rules may write to. A foreign user chain is left
+// out: no start writes it, so the prediction copies it from the loaded
+// state.
+func verifyKeep(_ fwstate.Family, _, chain string) bool {
+	return firewallChain(chain) || slices.Contains(builtinNames, chain)
+}
+
+// verifyDiffs is syncDiffs for the state after a change (spec 2.3, verify).
+// An enabled UFW is compared over verifyKeep. A rule a before.rules or
+// after.rules block appends to a built-in chain of a table other than
+// filter is appended again by every start, which the prediction models, so
+// the prediction from the state after the start holds it once more than
+// that state does: such a difference is reappended and does not count while
+// the loaded chain holds every rule the start appends. A disabled UFW is
+// compared as in syncDiffs.
+func (f fw) verifyDiffs(cfg fwstate.Config, cur fwstate.Loaded) ([]fwstate.ChainDiff, error) {
+	if !cfg.Enabled {
+		return f.syncDiffs(cfg, cur)
+	}
+	pred, err := f.d.predict(cfg, cur, fwstate.TransReload)
+	if err != nil {
+		return nil, fmt.Errorf("firewall: predict the loaded state of the configuration: %w", err)
+	}
+	var out []fwstate.ChainDiff
+	for _, d := range f.d.compare(pred, cur, verifyKeep) {
+		if !reappended(d, cur) {
+			out = append(out, d)
+		}
+	}
+	return out, nil
+}
+
+// reappended reports whether d is only the rules a start appends to a
+// built-in chain of a table other than filter, all of which the loaded
+// chain already holds: the same policy, no rule only loaded, the same order.
+func reappended(d fwstate.ChainDiff, cur fwstate.Loaded) bool {
+	if d.Table == "filter" || !slices.Contains(builtinNames, d.Chain) ||
+		d.PolicyA != "" || d.PolicyB != "" || len(d.OnlyB) > 0 || d.OrderDiffers {
+		return false
+	}
+	have := map[string]int{}
+	if c := chainOf(familyRules(cur, d.Family), d.Table, d.Chain); c != nil {
+		for _, r := range c.Rules {
+			have[netfilter.Key(r, d.Family == fwstate.V6)]++
+		}
+	}
+	for _, k := range d.OnlyA {
+		if have[k]--; have[k] < 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// confined reports whether every difference between the prediction pred
+// and the loaded state cur lies in UFW's and Darkpanel's own chains, which
+// a repair may bring back (spec 2.3): a UFW or Darkpanel chain, or a
+// built-in chain of the filter table whose rules other than jumps to such
+// chains are the same, in order, on both sides (its policy and those jumps
+// are UFW's). Any other difference is a foreign chain's.
+func confined(diffs []fwstate.ChainDiff, pred, cur fwstate.Loaded) bool {
+	for _, d := range diffs {
+		switch {
+		case firewallChain(d.Chain):
+		case d.Table == "filter" && slices.Contains(builtinChains, d.Chain):
+			a, b := familyRules(pred, d.Family), familyRules(cur, d.Family)
+			if !slices.Equal(foreignKeys(a, d.Chain, d.Family), foreignKeys(b, d.Chain, d.Family)) {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func familyRules(st fwstate.Loaded, fam fwstate.Family) *netfilter.Ruleset {
+	if fam == fwstate.V6 {
+		return st.V6
+	}
+	return st.V4
+}
+
+// foreignKeys are the keys of a filter chain's rules that are not jumps to
+// a UFW or Darkpanel chain.
+func foreignKeys(rs *netfilter.Ruleset, chain string, fam fwstate.Family) []string {
+	var out []string
+	if c := chainOf(rs, "filter", chain); c != nil {
+		for _, r := range c.Rules {
+			if !firewallChain(r.Target.Name) {
+				out = append(out, netfilter.Key(r, fam == fwstate.V6))
+			}
+		}
+	}
+	return out
+}
+```
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `TMPDIR=/root/.cache/w1-tmp/98 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestVerifyDiffs|TestSyncDiffs|TestConfined' ./internal/modules/firewall/` — Expected: PASS
+
+Then run, each with `GOTOOLCHAIN=local`, an explicit `timeout` and `TMPDIR=/root/.cache/w1-tmp/98`:
+
+- `go build ./...` and `go vet ./...` — no output; `go vet -tags harness ./test/...` — no output.
+- `go test -count=1 ./...` — every line `ok` or `?` (61 `ok`, 2 `?` on 2026-10-26). When the host is loaded, `internal/core/lifecycle` can exceed the test timeout (Assumptions); rerun that package alone.
+- `go test -race -count=1 ./internal/modules/firewall/...` — every line `ok`.
+- `golangci-lint run --allow-serial-runners ./...` — `0 issues.`
+- `go mod tidy -diff` — no output.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/modules/firewall/sync.go internal/modules/firewall/sync_test.go
+git commit -m "feat(firewall): add the verify chain comparison"
+```
+
+### Task 99: Fix part E's evaluator: list the mangle and security rules it cannot model
+
+**Files:**
+- Create: `internal/modules/firewall/eval/unsupported.go`
+- Test: `internal/modules/firewall/eval/unsupported_test.go`
+
+**Interfaces:**
+- Consumes: `decides` (part E, `eval.go`); `parseMarkTarget` (part E, `mark.go`); `netfilter.Rule.Opaque`; `evalRuleset` and `evalPacket` (part E's `eval_test.go`); the captures under `eval/testdata/` and `../testdata/golden/`.
+- Produces: `eval.Unmodelled` (Part contracts, Task 99); the test helper `ayTables`.
+
+**Depends on:** Task 28, Task 80, Task 88, Task 91
+
+**Implementer:** dforge:impl-sonnet-medium
+**Evaluation:** files 1 - spec 0 - coupling 1 - risk 2 = 4
+
+Spec 2.1 makes a non-empty chain of the `mangle` or `security` table that the evaluator does not support an unsupported configuration, but nothing listed such rules: the evaluator only returned `unknown` for them. `eval.Unmodelled` is the pure function that lists them, as `<table>/<chain>#<n>: <what>` with the references of a verdict's trace. A rule counts when no packet makes the walk decide it: it uses a match or target outside the parser's contract; its target is not one the walk runs (`TPROXY`, `SECMARK`), is a `MARK` or `CONNMARK` with options the walk does not know, or is a nat target outside the nat table; or it has a match the walk cannot decide (`icmp`, `icmp6`, `hl`, `limit`, `recent`, `statistic`) and a target that would change the verdict. A rule that only logs, clamps the MSS or copies a mark is harmless whatever it matches, as `walkChain` treats it, and what depends on the packet (an unknown source port, a connection's NAT state) does not count. The tests prove each case, that the nat table is not listed, that no capture of Docker 28, tailscaled or UFW holds a listed rule, and that the function and `Evaluate` agree: a packet that reaches a listed rule gets `unknown`, and one that reaches an unlisted one a decided verdict.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `internal/modules/firewall/eval/unsupported_test.go`:
+
+```go
+package eval
+
+import (
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
+	"github.com/darkraise/darkpanel/internal/platform/netfilter"
+)
+
+// ayTables wraps rules in a mangle table and a security table whose
+// built-in chains accept.
+func ayTables(mangle, security string) string {
+	return "*mangle\n:PREROUTING ACCEPT [0:0]\n:INPUT ACCEPT [0:0]\n:FORWARD ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n:POSTROUTING ACCEPT [0:0]\n" +
+		mangle + "COMMIT\n*security\n:INPUT ACCEPT [0:0]\n:FORWARD ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n" + security + "COMMIT\n"
+}
+
+// TestUnmodelled: a rule of the mangle or security table counts when the
+// walk cannot model it whatever the packet: a match or target outside what
+// it decides, where the rule's target would change the verdict, or a mark
+// target with options it does not know. A rule whose undecidable match
+// guards a target that decides nothing does not count.
+func TestUnmodelled(t *testing.T) {
+	cases := []struct {
+		name, mangle, security string
+		want                   []string
+	}{
+		{"empty tables", "", "", nil},
+		{"tailscale's connmark rules",
+			"-A PREROUTING -m conntrack --ctstate RELATED,ESTABLISHED -m connmark ! --mark 0x0/0xff0000 -j CONNMARK --restore-mark --nfmask 0xff0000 --ctmask 0xff0000\n" +
+				"-A OUTPUT -m conntrack --ctstate NEW -m mark ! --mark 0x0/0xff0000 -j CONNMARK --save-mark --nfmask 0xff0000 --ctmask 0xff0000\n", "", nil},
+		{"a rate match before a target that decides", "-A INPUT -p tcp -m tcp --dport 22 -j ACCEPT\n-A INPUT -m recent --name scan --rcheck -j DROP\n", "",
+			[]string{"mangle/INPUT#2: match recent"}},
+		{"icmp types before a mark", "-A PREROUTING -p icmp -m icmp --icmp-type 8 -j MARK --set-xmark 0x1/0xff\n", "",
+			[]string{"mangle/PREROUTING#1: match icmp"}},
+		{"a rate match before a jump", ":mg-user - [0:0]\n-A FORWARD -m limit --limit 5/second -j mg-user\n", "",
+			[]string{"mangle/FORWARD#1: match limit"}},
+		{"an undecidable match before a target that decides nothing",
+			"-A PREROUTING -m limit --limit 1/second -j LOG\n-A PREROUTING -m statistic --mode random --probability 0.5 -j CONNMARK --save-mark\n", "", nil},
+		{"a target outside the contract", "-A PREROUTING -p tcp -j TPROXY --on-port 3128\n", "-A INPUT -j SECMARK --selctx system_u:object_r:ssh_server_packet_t:s0\n",
+			[]string{"mangle/PREROUTING#1: target TPROXY", "security/INPUT#1: target SECMARK"}},
+		{"a mark target with an option it does not know", "-A PREROUTING -j MARK --set-mark 1\n", "",
+			[]string{"mangle/PREROUTING#1: target MARK option --set-mark"}},
+		{"a mark target with two modes", "-A OUTPUT -j CONNMARK --save-mark --restore-mark\n", "",
+			[]string{"mangle/OUTPUT#1: target CONNMARK with these options"}},
+		{"a nat target outside the nat table", "-A POSTROUTING -j MASQUERADE\n", "",
+			[]string{"mangle/POSTROUTING#1: target MASQUERADE outside the nat table"}},
+	}
+	for _, c := range cases {
+		got := Unmodelled(evalRuleset(t, ayTables(c.mangle, c.security)))
+		if !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: Unmodelled = %q, want %q", c.name, got, c.want)
+		}
+	}
+	if got := Unmodelled(nil); got != nil {
+		t.Errorf("Unmodelled(nil) = %q, want none", got)
+	}
+	nat := evalRuleset(t, "*nat\n:PREROUTING ACCEPT [0:0]\n-A PREROUTING -m recent --name x --rcheck -j DNAT --to-destination 192.0.2.9\nCOMMIT\n")
+	if got := Unmodelled(nat); got != nil {
+		t.Errorf("Unmodelled of a nat table = %q, want none: only mangle and security are listed", got)
+	}
+}
+
+// TestUnmodelledFixtures: the captures of Docker 28, tailscaled and UFW
+// hold nothing the walk cannot model, so none of those hosts becomes
+// unsupported.
+func TestUnmodelledFixtures(t *testing.T) {
+	var files []string
+	for _, pattern := range []string{"testdata/docker28/*.save", "testdata/tailscale/*.save", "../testdata/golden/*/*/save/*.txt"} {
+		m, err := filepath.Glob(pattern)
+		if err != nil || len(m) == 0 {
+			t.Fatalf("glob %s = %v, %v", pattern, m, err)
+		}
+		files = append(files, m...)
+	}
+	for _, f := range files {
+		data, err := os.ReadFile(f) //nolint:gosec // G304: a capture under testdata
+		if err != nil {
+			t.Fatal(err)
+		}
+		rs, err := netfilter.Parse(strings.NewReader(string(data)))
+		if err != nil {
+			t.Fatalf("%s: %v", f, err)
+		}
+		if got := Unmodelled(rs); got != nil {
+			t.Errorf("%s: Unmodelled = %q, want none", f, got)
+		}
+	}
+}
+
+// TestUnmodelledAgreesWithEvaluate: a packet that reaches a rule Unmodelled
+// lists gets an unknown verdict, and one that reaches a rule it leaves out
+// gets a decided one.
+func TestUnmodelledAgreesWithEvaluate(t *testing.T) {
+	for _, c := range []struct {
+		rule, proto string
+		listed      bool
+	}{
+		{"-A INPUT -m recent --name scan --rcheck -j DROP", "tcp", true},
+		{"-A INPUT -p icmp -m icmp --icmp-type 8 -j MARK --set-xmark 0x1/0xff", "icmp", true},
+		{"-A INPUT -j MARK --set-mark 1", "tcp", true},
+		{"-A INPUT -j CONNMARK --save-mark --restore-mark", "tcp", true},
+		{"-A INPUT -j MASQUERADE", "tcp", true},
+		{"-A INPUT -m limit --limit 1/second -j LOG", "tcp", false},
+		{"-A INPUT -m statistic --mode random --probability 0.5 -j CONNMARK --save-mark", "tcp", false},
+	} {
+		rs := evalRuleset(t, ayTables(c.rule+"\n", ""))
+		p := evalPacket()
+		p.Proto = c.proto
+		res := Evaluate(rs, p, nil)
+		if listed := len(Unmodelled(rs)) > 0; listed != c.listed || (res.Verdict == fwstate.Unknown) != c.listed {
+			t.Errorf("%s: listed %v, verdict %s (%s); want listed %v and a verdict that is unknown only when listed", c.rule, listed, res.Verdict, res.Reason, c.listed)
+		}
+	}
+}
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `mkdir -p /root/.cache/w1-tmp/99 && TMPDIR=/root/.cache/w1-tmp/99 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestUnmodelled' ./internal/modules/firewall/eval/`
+Expected: FAIL — a build failure naming `Unmodelled`.
+
+```text
+FAIL	github.com/darkraise/darkpanel/internal/modules/firewall/eval [build failed]
+FAIL
+# github.com/darkraise/darkpanel/internal/modules/firewall/eval [github.com/darkraise/darkpanel/internal/modules/firewall/eval.test]
+internal/modules/firewall/eval/unsupported_test.go:53:10: undefined: Unmodelled
+internal/modules/firewall/eval/unsupported_test.go:58:12: undefined: Unmodelled
+internal/modules/firewall/eval/unsupported_test.go:62:12: undefined: Unmodelled
+internal/modules/firewall/eval/unsupported_test.go:88:13: undefined: Unmodelled
+internal/modules/firewall/eval/unsupported_test.go:114:20: undefined: Unmodelled
+```
+
+- [ ] **Step 3: Write the implementation**
+
+Create `internal/modules/firewall/eval/unsupported.go`:
+
+```go
+package eval
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/darkraise/darkpanel/internal/platform/netfilter"
+)
+
+// modelledModules are the -m modules the walk decides for a packet; every
+// other module in the parser's contract (icmp, icmp6, hl, limit, recent,
+// statistic) makes the rules that use it undecidable.
+var modelledModules = map[string]bool{
+	"comment": true, "tcp": true, "udp": true, "multiport": true, "conntrack": true, "state": true,
+	"addrtype": true, "mark": true, "connmark": true, "rt": true,
+}
+
+// Unmodelled lists the rules of rs's mangle and security tables that the
+// walk cannot model (spec 2.1: a non-empty chain of those tables the
+// evaluator does not support makes the host an unsupported configuration),
+// as "<table>/<chain>#<n>: <what>" in the order of the save output, using
+// the references of a verdict's trace. A rule counts when no packet makes
+// the walk decide it: it lies outside the parser's contract, its target is
+// one the walk does not run or runs only with other options, or it has a
+// match the walk cannot decide and a target that would change the verdict
+// (a rule that only logs, clamps the MSS or copies a mark is harmless
+// whatever it matches). What depends on the packet, such as an unknown
+// source port, does not count. The nat, raw and filter tables are not
+// listed. Unmodelled reads only rs.
+func Unmodelled(rs *netfilter.Ruleset) []string {
+	if rs == nil {
+		return nil
+	}
+	var out []string
+	for _, name := range []string{"mangle", "security"} {
+		t := rs.Table(name)
+		if t == nil {
+			continue
+		}
+		for _, c := range t.Chains {
+			for i := range c.Rules {
+				if why := ruleGap(&c.Rules[i]); why != "" {
+					out = append(out, fmt.Sprintf("%s/%s#%d: %s", name, c.Name, i+1, why))
+				}
+			}
+		}
+	}
+	return out
+}
+
+// ruleGap says why the walk cannot model r, or "" when it can.
+func ruleGap(r *netfilter.Rule) string {
+	if r.Opaque() {
+		return strings.Join(r.Unsupported, ", ")
+	}
+	if why := targetGap(r.Target); why != "" {
+		return why
+	}
+	if !decides(r.Target) || copiesMark(r.Target) {
+		return ""
+	}
+	for _, m := range r.Matches {
+		if !modelledModules[m.Module] {
+			return "match " + m.Module
+		}
+	}
+	return ""
+}
+
+// targetGap says why the walk cannot run a target in a mangle or security
+// table, or "" when it can.
+func targetGap(tg netfilter.Target) string {
+	if tg.Chain {
+		return ""
+	}
+	switch tg.Name {
+	case "", "ACCEPT", "DROP", "REJECT", "RETURN", "LOG", "TCPMSS":
+		return ""
+	case "MARK", "CONNMARK":
+		if _, ok := parseMarkTarget(tg); !ok {
+			return "target " + tg.Name + " with these options"
+		}
+		return ""
+	case "DNAT", "SNAT", "MASQUERADE":
+		return "target " + tg.Name + " outside the nat table"
+	}
+	return "target " + tg.Name
+}
+
+// copiesMark reports whether a target only copies one mark into the other,
+// the case uncertainCopy handles when a rule's match is undecidable.
+func copiesMark(tg netfilter.Target) bool {
+	if tg.Name != "CONNMARK" || tg.Chain {
+		return false
+	}
+	sp, ok := parseMarkTarget(tg)
+	return ok && !sp.set
+}
+```
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `TMPDIR=/root/.cache/w1-tmp/99 GOTOOLCHAIN=local timeout 300 go test -count=1 ./internal/modules/firewall/eval/` — Expected: PASS
+
+Then run, each with `GOTOOLCHAIN=local`, an explicit `timeout` and `TMPDIR=/root/.cache/w1-tmp/99`:
+
+- `go build ./...` and `go vet ./...` — no output; `go vet -tags harness ./test/...` — no output.
+- `go test -count=1 ./...` — every line `ok` or `?` (61 `ok`, 2 `?` on 2026-10-26). When the host is loaded, `internal/core/lifecycle` can exceed the test timeout (Assumptions); rerun that package alone.
+- `go test -race -count=1 ./internal/modules/firewall/eval/` — every line `ok`.
+- `golangci-lint run --allow-serial-runners ./...` — `0 issues.`
+- `go mod tidy -diff` — no output.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/modules/firewall/eval/unsupported.go internal/modules/firewall/eval/unsupported_test.go
+git commit -m "feat(firewall): list the rules eval cannot model"
+```
+
+### Task 100: Validate the batch label once
+
+**Files:**
+- Modify: `internal/modules/firewall/actions_rules.go`
+- Test: `internal/modules/firewall/actions_rules_test.go`
+
+**Interfaces:**
+- Consumes: `batch`, `RulesApplyInput` (Task 76); `model.Rule.Validate`; `apHost`, `apID1` (Task 76's test file); `fhTag`.
+- Produces: `labelProblem` (Part contracts, Task 100); `batch` reports an invalid label at `/label`.
+
+**Depends on:** Task 28, Task 76, Task 80, Task 88, Task 91
+
+**Implementer:** dforge:impl-sonnet-medium
+**Evaluation:** files 1 - spec 0 - coupling 1 - risk 1 = 3
+
+`firewall.rules.apply` checked the label only as each added rule's comment, so a bad label was reported at `/add/<i>/comment`, a field the caller never wrote, and a batch that only deletes rules was not checked at all. `batch` now checks the label once, first, and reports it at `/label`; `labelProblem` asks `model.Rule.Validate` about a probe rule that carries the label as its comment, so the label follows the model's comment rule (at most 64 letters, digits, spaces and `:._/-`, no leading or trailing space) without repeating it. The test proves a leading space, a trailing space on a delete-only batch and a label of 65 characters are each one invalid input at `/label`, and that a valid label plans.
+
+- [ ] **Step 1: Write the failing test**
+
+Replace the whole file `internal/modules/firewall/actions_rules_test.go` with:
+
+```go
+package firewall
+
+import (
+	"context"
+	"encoding/json"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/model"
+)
+
+// The ids a caller of rules.apply supplies.
+const (
+	apID1 = "01J00000000000000000000011"
+	apID2 = "01J00000000000000000000012"
+)
+
+// apHost is a fake host whose ufw adds the batch's rules (ports 8080 and
+// 8443, label "npm") and deletes the both-family rule fhTag.
+func apHost(t *testing.T) (*fakeHost, fw, core.Env) {
+	t.Helper()
+	h, f, env := ruHost(t)
+	for _, c := range []struct{ id, port string }{{apID1, "8080"}, {apID2, "8443"}} {
+		r := model.Rule{ID: c.id, Action: model.ActionAllow, Direction: model.DirIn, Proto: model.ProtoTCP, From: model.Any,
+			To: model.Any, ToPort: c.port, Family: model.FamilyV4, Comment: "npm"}
+		h.ufw[strings.Join(model.AddArgs(r), " ")] = func(s *fhState) int {
+			s.Rules4 = append(s.Rules4, ruTuple(c.port, model.Tag(c.id, "npm")))
+			return 0
+		}
+	}
+	return h, f, env
+}
+
+const apInput = `{"label":"npm","add":[` +
+	`{"id":"` + apID1 + `","action":"allow","direction":"in","proto":"tcp","from":"any","to":"any","toPort":"8080","family":"v4"},` +
+	`{"id":"` + apID2 + `","action":"allow","direction":"in","proto":"tcp","from":"any","to":"any","toPort":"8443","family":"v4"}],` +
+	`"delete":["` + fhTag + `"]}`
+
+// TestRulesApply: the batch adds its rules with the caller's ids and the
+// label, then deletes; run again with the same input it plans an empty
+// diff and runs nothing.
+func TestRulesApply(t *testing.T) {
+	h, f, env := apHost(t)
+	def := f.rulesApply()
+	if !def.Spec.Converges {
+		t.Error("rules.apply does not declare Converges")
+	}
+	n := len(h.calls)
+	plan, out := ruApply(t, env, def, apInput)
+	want := []string{
+		"- rule " + fhTag + ": allow in proto tcp from any to any port 22",
+		"+ rule " + apID1 + ": allow in proto tcp from 0.0.0.0/0 to 0.0.0.0/0 port 8080 comment \"npm\"",
+		"+ rule " + apID2 + ": allow in proto tcp from 0.0.0.0/0 to 0.0.0.0/0 port 8443 comment \"npm\"",
+	}
+	if !reflect.DeepEqual(acDiff(plan), want) {
+		t.Errorf("diff\n%q\nwant\n%q", acDiff(plan), want)
+	}
+	var ran []string
+	for _, c := range h.calls[n:] {
+		if v, ok := strings.CutPrefix(c, "run /usr/sbin/ufw "); ok {
+			ran = append(ran, v)
+		}
+	}
+	wantRan := []string{"allow in proto tcp from 0.0.0.0/0 to 0.0.0.0/0 port 8080 comment darkpanel:" + apID1 + " npm",
+		"allow in proto tcp from 0.0.0.0/0 to 0.0.0.0/0 port 8443 comment darkpanel:" + apID2 + " npm",
+		"delete allow in proto tcp from any to any port 22", "reload"}
+	if !reflect.DeepEqual(ran, wantRan) {
+		t.Errorf("ran\n%q\nwant\n%q", ran, wantRan)
+	}
+	if !reflect.DeepEqual(out.Rules, []string{apID1, apID2}) {
+		t.Errorf("output rules %v, want the batch's ids", out.Rules)
+	}
+
+	n = len(h.calls)
+	plan, _ = ruApply(t, env, def, apInput)
+	if len(plan.Diff) != 0 {
+		t.Errorf("second plan diff %q, want none", acDiff(plan))
+	}
+	for _, c := range h.calls[n:] {
+		if strings.HasPrefix(c, "run /usr/sbin/ufw") {
+			t.Errorf("the second apply ran %s", c)
+		}
+	}
+
+	conflict := strings.Replace(apInput, `"toPort":"8443"`, `"toPort":"9443"`, 1)
+	_, err := def.Handler.Plan(context.Background(), env, json.RawMessage(conflict))
+	if e := errcode.From(err); e.Code != errcode.InvalidInput || len(e.Fields) != 1 || e.Fields[0].Path != "/add/1" {
+		t.Errorf("plan with another rule under an existing id = %v, want an invalid input at /add/1", err)
+	}
+}
+
+// TestRulesApplyRefuses: the batch's own mistakes are invalid input with
+// the field that holds them; deleting a manual rule needs manual: true.
+func TestRulesApplyRefuses(t *testing.T) {
+	ctx := context.Background()
+	h, f, env := apHost(t)
+	rule := func(extra string) string {
+		return `{"action":"allow","direction":"in","proto":"tcp","from":"any","to":"any","toPort":"8080","family":"v4"` + extra + `}`
+	}
+	for _, c := range []struct{ raw, path string }{
+		{`{"add":[` + rule(``) + `]}`, "/add/0/id"},
+		{`{"add":[` + rule(`,"id":"manual-0123456789abcdef"`) + `]}`, "/add/0/id"},
+		{`{"add":[` + rule(`,"id":"`+apID1+`","comment":"x"`) + `]}`, "/add/0/comment"},
+		{`{"add":[` + rule(`,"id":"`+apID1+`","origin":"manual"`) + `]}`, "/add/0/origin"},
+		{`{"add":[` + rule(`,"id":"`+apID1+`"`) + `,` + rule(`,"id":"`+apID1+`"`) + `]}`, "/add/1/id"},
+		{`{"add":[` + rule(`,"id":"`+apID1+`"`) + `],"delete":["` + apID1 + `"]}`, "/delete/0"},
+		{`{"delete":["nope"]}`, "/delete/0"},
+		{`{"add":[` + rule(`,"id":"`+apID1+`","toPort":"0"`) + `]}`, "/add/0/toPort"},
+	} {
+		_, err := f.rulesApply().Handler.Plan(ctx, env, json.RawMessage(c.raw))
+		if e := errcode.From(err); e.Code != errcode.InvalidInput || len(e.Fields) == 0 || e.Fields[0].Path != c.path {
+			t.Errorf("plan %s = %v, want an invalid input at %s", c.raw, err, c.path)
+		}
+	}
+	manual := model.Merge(h.config().Rules4, nil)[1].ID
+	_, err := f.rulesApply().Handler.Plan(ctx, env, json.RawMessage(`{"delete":["`+manual+`"]}`))
+	if errcode.From(err).Code != errcode.FirewallManualRequired {
+		t.Errorf("deleting a manual rule = %v, want manual required", err)
+	}
+	if _, err := f.rulesApply().Handler.Plan(ctx, env, json.RawMessage(`{"delete":["`+manual+`"],"manual":true}`)); err != nil {
+		t.Errorf("deleting a manual rule with manual: %v", err)
+	}
+	err = f.rulesApply().Handler.Verify(ctx, env, json.RawMessage(apInput), json.RawMessage(`{}`))
+	if errcode.From(err).Code != errcode.FirewallPredictionMismatch {
+		t.Errorf("verify before the batch = %v, want a prediction mismatch", err)
+	}
+}
+
+// TestRulesApplyLabel: the label is checked once, at /label, whether the
+// batch adds rules or only deletes them.
+func TestRulesApplyLabel(t *testing.T) {
+	ctx := context.Background()
+	_, f, env := apHost(t)
+	rule := `{"id":"` + apID1 + `","action":"allow","direction":"in","proto":"tcp","from":"any","to":"any","toPort":"8080","family":"v4"}`
+	for _, c := range []struct{ name, raw string }{
+		{"add", `{"label":" npm","add":[` + rule + `]}`},
+		{"delete only", `{"label":"npm ","delete":["` + fhTag + `"]}`},
+		{"too long", `{"label":"` + strings.Repeat("n", 65) + `","add":[` + rule + `]}`},
+	} {
+		_, err := f.rulesApply().Handler.Plan(ctx, env, json.RawMessage(c.raw))
+		if e := errcode.From(err); e.Code != errcode.InvalidInput || len(e.Fields) != 1 || e.Fields[0].Path != "/label" {
+			t.Errorf("%s: plan = %v, want one invalid input at /label", c.name, err)
+		}
+	}
+	if _, err := f.rulesApply().Handler.Plan(ctx, env, json.RawMessage(`{"label":"npm: web.1","delete":["`+fhTag+`"]}`)); err != nil {
+		t.Errorf("plan with a valid label = %v", err)
+	}
+}
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `mkdir -p /root/.cache/w1-tmp/100 && TMPDIR=/root/.cache/w1-tmp/100 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestRulesApplyLabel' ./internal/modules/firewall/`
+Expected: FAIL — a bad label on a batch that adds rules is reported as the added rule's comment error, not at `/label`, and a delete-only batch with a bad label plans.
+
+```text
+--- FAIL: TestRulesApplyLabel (0.18s)
+    actions_rules_test.go:145: add: plan = request.invalid_input: the rule is outside the grammar UFW can represent, want one invalid input at /label
+    actions_rules_test.go:145: delete only: plan = <nil>, want one invalid input at /label
+    actions_rules_test.go:145: too long: plan = request.invalid_input: the rule is outside the grammar UFW can represent, want one invalid input at /label
+FAIL
+FAIL	github.com/darkraise/darkpanel/internal/modules/firewall	0.183s
+FAIL
+```
+
+- [ ] **Step 3: Write the implementation**
+
+Replace the whole file `internal/modules/firewall/actions_rules.go` with:
+
+```go
+package firewall
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"regexp"
+
+	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/model"
+)
+
+// RulesApplyInput is the input of firewall.rules.apply (v1): Darkpanel
+// rules to add, with ids the caller chooses (ULIDs) and the batch's label
+// as their comment, and rule ids to delete. A rule already present with
+// the same definition, and an id already absent, are skipped, so run again
+// with the same input it plans an empty diff (Converges).
+type RulesApplyInput struct {
+	core.Guarded
+	Label  string       `json:"label,omitempty" jsonschema:"pattern=^[A-Za-z0-9 :._/-]{0\\,64}$" jsonschema_description:"The comment of every added rule, after the Darkpanel tag."`
+	Add    []model.Rule `json:"add,omitempty" jsonschema_description:"Rules to add, each with its id and without a comment."`
+	Delete []string     `json:"delete,omitempty" jsonschema_description:"Ids of rules to delete."`
+	Manual bool         `json:"manual,omitempty" jsonschema_description:"Confirms deleting manual rules (spec 2.2)."`
+}
+
+var (
+	ruleIDRe = regexp.MustCompile(`^([0-9A-HJKMNP-TV-Z]{26}|manual-[0-9a-f]{16})$`)
+	ulidIDRe = regexp.MustCompile(`^[0-9A-HJKMNP-TV-Z]{26}$`)
+)
+
+// labelProblem says why label cannot be a rule's comment, or "" when it can.
+func labelProblem(label string) string {
+	probe := model.Rule{Action: model.ActionAllow, Direction: model.DirIn, Proto: model.ProtoAny, From: model.Any, To: model.Any,
+		Family: model.FamilyBoth, Comment: label}
+	var e *errcode.Error
+	if errors.As(probe.Validate(), &e) {
+		for _, fe := range e.Fields {
+			if fe.Path == "/comment" {
+				return fe.Message
+			}
+		}
+	}
+	return ""
+}
+
+// batch validates a rules.apply input: the label, once; each rule to add
+// carries a ULID of its own, no comment (the label is its comment) and is
+// Darkpanel's; ids are unique and none is both added and deleted; every id
+// to delete is a rule id.
+func batch(in RulesApplyInput) ([]model.Rule, error) {
+	var fields []errcode.FieldError
+	bad := func(path, msg string) { fields = append(fields, errcode.FieldError{Path: path, Message: msg}) }
+	if msg := labelProblem(in.Label); msg != "" {
+		bad("/label", msg)
+	}
+	seen := map[string]bool{}
+	var rules []model.Rule
+	for i, r := range in.Add {
+		path := fmt.Sprintf("/add/%d", i)
+		switch {
+		case !ulidIDRe.MatchString(r.ID):
+			bad(path+"/id", "a rule to add carries its own ULID")
+		case seen[r.ID]:
+			bad(path+"/id", "the id is listed twice")
+		}
+		seen[r.ID] = true
+		if r.Comment != "" {
+			bad(path+"/comment", "the batch's label is every added rule's comment")
+		}
+		if len(fields) > 0 {
+			continue
+		}
+		id := r.ID
+		r.ID = ""
+		nr, err := newRule(r, id, path)
+		if err != nil {
+			return nil, err
+		}
+		nr.Comment = in.Label
+		if err := nr.Validate(); err != nil {
+			return nil, fieldErrors(err, path)
+		}
+		rules = append(rules, nr)
+	}
+	for i, id := range in.Delete {
+		path := fmt.Sprintf("/delete/%d", i)
+		switch {
+		case !ruleIDRe.MatchString(id):
+			bad(path, "not a rule id")
+		case seen[id]:
+			bad(path, "the id is both added and deleted")
+		}
+	}
+	if len(fields) > 0 {
+		return nil, &errcode.Error{Code: errcode.InvalidInput, Detail: "the batch is invalid", Fields: fields}
+	}
+	return rules, nil
+}
+
+// rulesApply is firewall.rules.apply.
+func (f fw) rulesApply() core.ActionDef {
+	return defineMutation(core.ActionSpec{Name: "firewall.rules.apply", Summary: "Add and delete a batch of firewall rules.", Converges: true},
+		mutation[RulesApplyInput]{
+			f:       f,
+			guarded: func(in RulesApplyInput) core.Guarded { return in.Guarded },
+			manual:  func(in RulesApplyInput) bool { return in.Manual },
+			build: func(_ context.Context, _ core.Env, in RulesApplyInput) buildFunc {
+				return func(cfg fwstate.Config, _ fwstate.Loaded) (change, error) { return f.batchChange(cfg, in) }
+			},
+			check: func(_ context.Context, _ core.Env, in RulesApplyInput, cfg fwstate.Config) error {
+				for _, r := range in.Add {
+					if n := len(findRules(cfg, r.ID)); n != 1 {
+						return mismatch("%d rules carry the id %s after the change, not 1", n, r.ID)
+					}
+				}
+				for _, id := range in.Delete {
+					if len(findRules(cfg, id)) > 0 {
+						return mismatch("rule %s is still there after the change", id)
+					}
+				}
+				return nil
+			},
+			finish: func(_ context.Context, _ core.Env, in RulesApplyInput, out *ChangeOutput) error {
+				for _, r := range in.Add {
+					out.Rules = append(out.Rules, r.ID)
+				}
+				return nil
+			},
+		})
+}
+
+// batchChange adds, in order, each rule not present yet, then deletes each
+// rule still present. A rule present under its id with another definition
+// is refused.
+func (f fw) batchChange(cfg fwstate.Config, in RulesApplyInput) (change, error) {
+	rules, err := batch(in)
+	if err != nil {
+		return change{}, err
+	}
+	var c change
+	for i, r := range rules {
+		path := fmt.Sprintf("/add/%d", i)
+		switch groups := findRules(cfg, r.ID); {
+		case len(groups) == 1 && ruleText(groups[0].Rule) == ruleText(r):
+			continue
+		case len(groups) > 0:
+			return change{}, &errcode.Error{Code: errcode.InvalidInput, Detail: fmt.Sprintf("rule %s exists with another definition", r.ID),
+				Fields: []errcode.FieldError{{Path: path, Message: "a rule with this id exists with another definition"}}}
+		}
+		op, next, err := f.addOp(cfg, r, path)
+		if err != nil {
+			return change{}, err
+		}
+		c.ops, cfg = append(c.ops, op), next
+	}
+	for i, id := range in.Delete {
+		if len(findRules(cfg, id)) == 0 {
+			continue
+		}
+		op, err := deleteOp(cfg, id, fmt.Sprintf("/delete/%d", i))
+		if err != nil {
+			return change{}, err
+		}
+		next, err := f.d.edit(cfg, op.Args)
+		if err != nil {
+			return change{}, errcode.New(errcode.InvalidInput, fmt.Sprintf("Darkpanel cannot predict deleting rule %s: %v", id, err))
+		}
+		c.ops, cfg = append(c.ops, op), next
+	}
+	return c, nil
+}
+```
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `TMPDIR=/root/.cache/w1-tmp/100 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestRulesApply' ./internal/modules/firewall/` — Expected: PASS
+
+Then run, each with `GOTOOLCHAIN=local`, an explicit `timeout` and `TMPDIR=/root/.cache/w1-tmp/100`:
+
+- `go build ./...` and `go vet ./...` — no output; `go vet -tags harness ./test/...` — no output.
+- `go test -count=1 ./...` — every line `ok` or `?` (61 `ok`, 2 `?` on 2026-10-26). When the host is loaded, `internal/core/lifecycle` can exceed the test timeout (Assumptions); rerun that package alone.
+- `go test -race -count=1 ./internal/modules/firewall/...` — every line `ok`.
+- `golangci-lint run --allow-serial-runners ./...` — `0 issues.`
+- `go mod tidy -diff` — no output.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/modules/firewall/actions_rules.go internal/modules/firewall/actions_rules_test.go
+git commit -m "fix(firewall): validate the batch label once"
+```
+
+### Task 101: Harness: require a failing guard on an out-of-sync host
+
+**Files:**
+- Modify: `test/harness/m3_firewall_test.go`
+- Test: `test/harness/m3_firewall_helpers_test.go`
+
+**Interfaces:**
+- Consumes: `m3Plan`, `(m3Plan).m3Lockout`, `m3PortRule`, `m3RepairReverts` (Task 85), `APIError`
+- Produces: `m3xOutOfSyncRefusal(plan m3Plan, planErr error, overridden m3Plan, overriddenErr error) error` (Part contracts, Task 101)
+
+**Depends on:** Task 8, Task 26, Task 28, Task 34, Task 80, Task 85, Task 88, Task 90, Task 91
+
+**Implementer:** dforge:impl-sonnet-medium
+**Evaluation:** files 1 - spec 0 - coupling 1 - risk 1 = 3
+
+`m3RepairReverts` accepted any `*APIError` as the refusal of an ordinary change on an out-of-sync host, so a plan that failed for another reason passed the step. The contract is a plan that succeeds with a failing `firewall.lockout` guard that no override passes (spec 2.3); any error is fatal. `m3xOutOfSyncRefusal` checks the plan and the same plan with `overrides: ["firewall.lockout"]` and the step calls it. The override is re-planned instead of reading `Overridable`, because the engine copies that flag from the action's guard spec, which is true for the lockout guard on every plan. A table test covers each way the check can fail. The scenario itself runs only on the VM fleet (Assumptions).
+
+- [ ] **Step 1: Write the failing test**
+
+Modify `test/harness/m3_firewall_helpers_test.go` with 1 exact edit; the "replace" block occurs exactly once in the file at that point.
+
+Replace this block:
+
+```go
+	}
+	return string(b)
+}
+```
+
+with:
+
+```go
+	}
+	return string(b)
+}
+
+func TestM3xOutOfSyncRefusal(t *testing.T) {
+	failing := m3Plan{Guards: []core.Guard{{ID: "firewall.lockout", OK: false, Overridable: true, Message: "out of sync"}}}
+	passing := m3Plan{Guards: []core.Guard{{ID: "firewall.lockout", OK: true}}}
+	overridden := m3Plan{Guards: []core.Guard{{ID: "firewall.lockout", OK: true, Overridden: true}}}
+	refused := &APIError{Code: "request.invalid_input", Detail: "bad"}
+	for _, tc := range []struct {
+		name         string
+		plan         m3Plan
+		planErr      error
+		overrideP    m3Plan
+		overrideErr  error
+		wantRejected string
+	}{
+		{"refused", failing, nil, failing, nil, ""},
+		{"plan error", m3Plan{}, refused, failing, nil, "the plan was refused"},
+		{"plan without the guard", m3Plan{}, nil, failing, nil, "no firewall.lockout guard"},
+		{"guard passed", passing, nil, failing, nil, "passed"},
+		{"override error", failing, nil, m3Plan{}, refused, "the plan with the override was refused"},
+		{"override without the guard", failing, nil, m3Plan{}, nil, "no firewall.lockout guard"},
+		{"override passed the guard", failing, nil, overridden, nil, "an override passed"},
+	} {
+		err := m3xOutOfSyncRefusal(tc.plan, tc.planErr, tc.overrideP, tc.overrideErr)
+		switch {
+		case tc.wantRejected == "" && err != nil:
+			t.Errorf("%s: %v, want nil", tc.name, err)
+		case tc.wantRejected != "" && (err == nil || !strings.Contains(err.Error(), tc.wantRejected)):
+			t.Errorf("%s: %v, want an error naming %q", tc.name, err, tc.wantRejected)
+		}
+	}
+}
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `mkdir -p /root/.cache/w1-tmp/101 && TMPDIR=/root/.cache/w1-tmp/101 GOTOOLCHAIN=local timeout 300 go test -tags harness -count=1 -run 'TestM3xOutOfSyncRefusal' ./test/harness/`
+Expected: FAIL -- the build fails on the undefined `m3xOutOfSyncRefusal`. The output observed when drafting:
+
+```text
+# github.com/darkraise/darkpanel/test/harness [github.com/darkraise/darkpanel/test/harness.test]
+test/harness/m3_firewall_helpers_test.go:372:10: undefined: m3xOutOfSyncRefusal
+FAIL	github.com/darkraise/darkpanel/test/harness [build failed]
+FAIL
+```
+
+- [ ] **Step 3: Write the implementation**
+
+Modify `test/harness/m3_firewall_helpers_test.go` with 1 exact edit; the "replace" block occurs exactly once in the file at that point.
+
+Replace this block:
+
+```go
+	}
+}
+
+// m3JSON is v as JSON, for messages.
+func m3JSON(v any) string {
+	b, err := json.Marshal(v)
+```
+
+with:
+
+```go
+	}
+}
+
+// m3xOutOfSyncRefusal checks the plans of one ordinary change on an
+// out-of-sync host, planned without and with the override of
+// firewall.lockout: both plans must succeed, the first with a failing
+// firewall.lockout guard, and the override must not pass it. It returns nil
+// when they do.
+func m3xOutOfSyncRefusal(plan m3Plan, planErr error, overridden m3Plan, overriddenErr error) error {
+	if planErr != nil {
+		return fmt.Errorf("the plan was refused (%w); want a plan that succeeds with a failing firewall.lockout guard", planErr)
+	}
+	g, ok := plan.m3Lockout()
+	switch {
+	case !ok:
+		return fmt.Errorf("the plan has no firewall.lockout guard: %s", m3JSON(plan.Guards))
+	case g.OK:
+		return fmt.Errorf("firewall.lockout passed on an out-of-sync host: %s", m3JSON(plan.Guards))
+	case overriddenErr != nil:
+		return fmt.Errorf("the plan with the override was refused (%w); want a plan whose guard still fails", overriddenErr)
+	}
+	og, ok := overridden.m3Lockout()
+	switch {
+	case !ok:
+		return fmt.Errorf("the plan with the override has no firewall.lockout guard: %s", m3JSON(overridden.Guards))
+	case og.OK:
+		return fmt.Errorf("an override passed firewall.lockout on an out-of-sync host: %s", m3JSON(overridden.Guards))
+	}
+	return nil
+}
+
+// m3JSON is v as JSON, for messages.
+func m3JSON(v any) string {
+	b, err := json.Marshal(v)
+```
+
+Modify `test/harness/m3_firewall_test.go` with 1 exact edit; the "replace" block occurs exactly once in the file at that point.
+
+Replace this block:
+
+```go
+		return nil
+	}
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, outOfSync)
+	// The refusal is a plan that cannot pass, or a refused plan request.
+	var apiErr *APIError
+	switch p, err := f.api.m3Plan(ctx, f.agentID, "firewall.rule.add", m3PortRule(8097)); {
+	case err != nil && !errors.As(err, &apiErr):
+		t.Fatal(err)
+	case err == nil:
+		if g, ok := p.m3Lockout(); !ok || g.OK || g.Overridable {
+			t.Errorf("an ordinary change on an out-of-sync host planned with guards %s; want a firewall.lockout refusal that cannot be overridden", m3JSON(p.Guards))
+		}
+	}
+	ch, err := f.api.m3Apply(ctx, f.agentID, "firewall.state.repair", map[string]any{}, 30)
+	m3RequirePending(t, ch, err)
+```
+
+with:
+
+```go
+		return nil
+	}
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, outOfSync)
+	// The refusal is a plan whose guard fails and that an override cannot pass.
+	p, err := f.api.m3Plan(ctx, f.agentID, "firewall.rule.add", m3PortRule(8097))
+	overridden := m3PortRule(8097)
+	overridden["overrides"] = []string{"firewall.lockout"}
+	po, errO := f.api.m3Plan(ctx, f.agentID, "firewall.rule.add", overridden)
+	if err := m3xOutOfSyncRefusal(p, err, po, errO); err != nil {
+		t.Fatalf("an ordinary change on an out-of-sync host: %v", err)
+	}
+	ch, err := f.api.m3Apply(ctx, f.agentID, "firewall.state.repair", map[string]any{}, 30)
+	m3RequirePending(t, ch, err)
+```
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `go test -tags harness -count=1 -run 'TestM3xOutOfSyncRefusal|TestM3UFWLines' ./test/harness/` -- Expected: PASS
+
+Then run, each with `TMPDIR=/root/.cache/w1-tmp/101 GOTOOLCHAIN=local`:
+
+- `timeout 600 go build ./...` -- Expected: no output.
+- `timeout 300 go vet ./...` -- Expected: no output.
+- `timeout 300 go vet -tags harness ./test/...` -- Expected: no output.
+- `timeout 1200 go test -count=1 ./...` -- Expected: every package `ok` or `?`.
+- `timeout 900 go test -race -count=1 -tags harness ./test/harness/` -- Expected: `ok` for each.
+- `timeout 900 golangci-lint run --allow-serial-runners ./...` and `timeout 900 golangci-lint run --allow-serial-runners --build-tags harness ./test/...` -- Expected: `0 issues.`
+- `timeout 300 go mod tidy -diff` -- Expected: no output.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add test/harness/m3_firewall_helpers_test.go test/harness/m3_firewall_test.go
+git commit -m "test(harness): require a failing guard when out of sync"
+```
+
+### Task 102: Integrator: wait for the runtime listeners in the guard topology
+
+**Files:**
+- Modify: `internal/controller/server/topology.go`
+- Modify: `internal/controller/server/services.go`
+- Modify: `internal/controller/server/listeners.go`
+- Test: `internal/controller/server/services_test.go`
+- Test: `internal/controller/server/listeners_test.go`
+
+**Interfaces:**
+- Consumes: `(*Runtime).Listening` (Task 89), `dispatch.Topology.Complete` (Task 15), `asDeps`, `testOptions`, `start`, `localBind` of the merged tests
+- Produces: `(*topology).setRuntime(func() ([]netip.AddrPort, []string, int))`, `(*Server).startRuntimeListeners` (Part contracts, Task 102)
+
+**Items:** 82
+
+**Depends on:** Task 23, Task 28, Task 89
+
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 0 - coupling 2 - risk 3 = 6
+**Lenses:** security
+
+Register row 82, the frozen half, again. `setRuntime` ran in `startServices`, before `runtimeListeners.Start` read the open rows, so for a window the topology was complete with every runtime listener missing, and a listener whose bind failed (or that stopped serving and waits to be bound again) was left out of the lists while the topology stayed complete. A guard that sees a partial topology protects too few flows. Now `startRuntimeListeners` registers the runtime source only after `Start` succeeded, the source is `Runtime.Listening`, and `read` reports the topology incomplete while its third result, the number of open listeners that are not bound, is above zero. The tests cover the pure topology with an unbound listener, a real server restarted over an open runtime listener whose bind fails and then recovers, and a `Start` that fails, which must leave the source unregistered.
+
+- [ ] **Step 1: Write the failing test**
+
+Modify `internal/controller/server/services_test.go` with 2 exact edits, in order; each "replace" block occurs exactly once in the file at that point.
+
+Edit 1. Replace this block:
+
+```go
+	if got := tp.read(); !reflect.DeepEqual(got, want) {
+		t.Errorf("the topology without its runtime source reads %+v, want %+v", got, want)
+	}
+	tp.setRuntime(func() ([]netip.AddrPort, []string) { return runtime, nil })
+	withRuntime.Complete = true
+	if got := tp.read(); !reflect.DeepEqual(got, withRuntime) {
+		t.Errorf("the registered topology reads %+v, want %+v", got, withRuntime)
+	}
+	// What the runtime listeners and the session registry drop is dropped
+	// from the topology too.
+	tp.setRuntime(func() ([]netip.AddrPort, []string) { return runtime, []string{"@runtime"} })
+	tp.setPeers(func() ([]netip.Addr, []string) { return peers, []string{"pipe"} })
+	withRuntimeDropped := withRuntime
+	withRuntimeDropped.Dropped = []string{"@runtime", "pipe"}
+```
+
+with:
+
+```go
+	if got := tp.read(); !reflect.DeepEqual(got, want) {
+		t.Errorf("the topology without its runtime source reads %+v, want %+v", got, want)
+	}
+	tp.setRuntime(func() ([]netip.AddrPort, []string, int) { return runtime, nil, 0 })
+	withRuntime.Complete = true
+	if got := tp.read(); !reflect.DeepEqual(got, withRuntime) {
+		t.Errorf("the registered topology reads %+v, want %+v", got, withRuntime)
+	}
+	// What the runtime listeners and the session registry drop is dropped
+	// from the topology too.
+	tp.setRuntime(func() ([]netip.AddrPort, []string, int) { return runtime, []string{"@runtime"}, 0 })
+	tp.setPeers(func() ([]netip.Addr, []string) { return peers, []string{"pipe"} })
+	withRuntimeDropped := withRuntime
+	withRuntimeDropped.Dropped = []string{"@runtime", "pipe"}
+```
+
+Edit 2. Replace this block:
+
+```go
+		t.Errorf("the topology with dropped runtime and peer addresses reads %+v, want %+v", got, withRuntimeDropped)
+	}
+
+	// A controller whose agent runs embedded has no agent listener and no
+	// sessions; its topology is complete without them.
+	var embedded topology
+	embedded.setRuntime(func() ([]netip.AddrPort, []string) { return nil, nil })
+	embedded.setWeb(func() []listen.Bound { return web })
+	if got := embedded.read(); got.Complete {
+		t.Errorf("an embedded topology before setNoAgents reads %+v, want incomplete", got)
+```
+
+with:
+
+```go
+		t.Errorf("the topology with dropped runtime and peer addresses reads %+v, want %+v", got, withRuntimeDropped)
+	}
+
+	// An open runtime listener that is not bound yet may be reached by a flow
+	// the topology does not list, so the topology stays incomplete until it
+	// binds.
+	tp.setRuntime(func() ([]netip.AddrPort, []string, int) { return runtime, nil, 1 })
+	tp.setPeers(func() ([]netip.Addr, []string) { return peers, nil })
+	withUnbound := withRuntime
+	withUnbound.Complete = false
+	if got := tp.read(); !reflect.DeepEqual(got, withUnbound) {
+		t.Errorf("the topology with an unbound runtime listener reads %+v, want %+v", got, withUnbound)
+	}
+
+	// A controller whose agent runs embedded has no agent listener and no
+	// sessions; its topology is complete without them.
+	var embedded topology
+	embedded.setRuntime(func() ([]netip.AddrPort, []string, int) { return nil, nil, 0 })
+	embedded.setWeb(func() []listen.Bound { return web })
+	if got := embedded.read(); got.Complete {
+		t.Errorf("an embedded topology before setNoAgents reads %+v, want incomplete", got)
+```
+
+Modify `internal/controller/server/listeners_test.go` with 3 exact edits, in order; each "replace" block occurs exactly once in the file at that point.
+
+Edit 1. Replace this block:
+
+```go
+	"net/http"
+	"net/netip"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+```
+
+with:
+
+```go
+	"net/http"
+	"net/netip"
+	"os"
+	"slices"
+	"strings"
+	"sync/atomic"
+	"syscall"
+	"testing"
+	"time"
+
+```
+
+Edit 2. Replace this block:
+
+```go
+	"github.com/darkraise/darkpanel/internal/controller/listen"
+	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/coretest"
+)
+
+// baseURL is the URL of the server's plain HTTP IPv4 loopback listener.
+```
+
+with:
+
+```go
+	"github.com/darkraise/darkpanel/internal/controller/listen"
+	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/coretest"
+	"github.com/darkraise/darkpanel/internal/core/ext"
+)
+
+// baseURL is the URL of the server's plain HTTP IPv4 loopback listener.
+```
+
+Edit 3. Replace this block:
+
+```go
+		}
+	}
+}
+```
+
+with:
+
+```go
+		}
+	}
+}
+
+// TestTxTopologyWaitsForRuntimeListeners: a runtime listener that is open
+// but cannot be bound, as after a restart before its address exists, keeps
+// the guard topology incomplete until the retry binds it.
+func TestTxTopologyWaitsForRuntimeListeners(t *testing.T) {
+	opts := testOptions(t)
+	c := &asDeps{}
+	opts.Contributors = []ext.Controller{c}
+	first, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if !first.topo.read().Complete {
+		t.Errorf("a started server's topology %+v, want it complete", first.topo.read())
+	}
+	spec := core.ListenerSpec{
+		Addr: netip.MustParseAddrPort("127.0.0.1:9443"), AllowedPeer: netip.MustParseAddr("127.0.0.1"),
+		ClientHeader: core.ClientHeaderNPM, PublicHost: "panel.example.com", ChangeID: "01TOPOLOGYCHANGE000000000",
+	}
+	if _, err := c.deps.Listeners.Open(context.Background(), spec); err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if err := first.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	var failBind atomic.Bool
+	failBind.Store(true)
+	opts.Bind = func(ctx context.Context, e listen.Endpoint) (net.Listener, error) {
+		if e.Addr == spec.Addr && failBind.Load() {
+			return nil, syscall.EADDRNOTAVAIL
+		}
+		return localBind(ctx, e)
+	}
+	s := start(t, opts)
+	if n := s.runtimeListeners.Unbound(); n != 1 {
+		t.Fatalf("Unbound = %d, want the recorded listener waiting for a bind", n)
+	}
+	if got := s.topo.read(); got.Complete {
+		t.Errorf("the topology %+v is complete while a runtime listener is unbound", got)
+	}
+
+	failBind.Store(false)
+	s.clock.(*coretest.FakeClock).Advance(listen.CheckInterval)
+	addrs, _ := s.runtimeListeners.Addrs()
+	got := s.topo.read()
+	if len(addrs) != 1 || !got.Complete || !slices.Contains(got.PanelListen, addrs[0]) {
+		t.Errorf("after the bind recovered the topology %+v with runtime addresses %v, want it complete and listing them", got, addrs)
+	}
+}
+
+// TestTxRuntimeSourceRegistersAfterStart: the runtime listeners count toward
+// the topology only once Start has bound the recorded listeners; a Start
+// that fails leaves the topology incomplete.
+func TestTxRuntimeSourceRegistersAfterStart(t *testing.T) {
+	s := &Server{}
+	s.runtimeListeners = listen.NewRuntime(listen.RuntimeConfig{})
+	s.topo.setWeb(func() []listen.Bound { return nil })
+	s.topo.setNoAgents()
+	if err := s.startRuntimeListeners(context.Background(), nil, nil); err == nil {
+		t.Fatal("startRuntimeListeners without a handler succeeded")
+	}
+	if got := s.topo.read(); got.Complete {
+		t.Errorf("the topology %+v is complete although the runtime listeners did not start", got)
+	}
+}
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `mkdir -p /root/.cache/w1-tmp/102 && TMPDIR=/root/.cache/w1-tmp/102 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestTopologyOf|TestTxTopologyWaitsForRuntimeListeners|TestTxRuntimeSourceRegistersAfterStart' ./internal/controller/server/`
+Expected: FAIL -- the build fails on the undefined `startRuntimeListeners` and the three-result source of `setRuntime`. The output observed when drafting:
+
+```text
+# github.com/darkraise/darkpanel/internal/controller/server [github.com/darkraise/darkpanel/internal/controller/server.test]
+internal/controller/server/listeners_test.go:412:14: s.startRuntimeListeners undefined (type *Server has no field or method startRuntimeListeners)
+internal/controller/server/services_test.go:550:16: cannot use func() ([]netip.AddrPort, []string, int) {…} (value of type func() ([]netip.AddrPort, []string, int)) as func() ([]netip.AddrPort, []string) value in argument to tp.setRuntime
+internal/controller/server/services_test.go:557:16: cannot use func() ([]netip.AddrPort, []string, int) {…} (value of type func() ([]netip.AddrPort, []string, int)) as func() ([]netip.AddrPort, []string) value in argument to tp.setRuntime
+internal/controller/server/services_test.go:568:16: cannot use func() ([]netip.AddrPort, []string, int) {…} (value of type func() ([]netip.AddrPort, []string, int)) as func() ([]netip.AddrPort, []string) value in argument to tp.setRuntime
+internal/controller/server/services_test.go:579:22: cannot use func() ([]netip.AddrPort, []string, int) {…} (value of type func() ([]netip.AddrPort, []string, int)) as func() ([]netip.AddrPort, []string) value in argument to embedded.setRuntime
+FAIL	github.com/darkraise/darkpanel/internal/controller/server [build failed]
+FAIL
+```
+
+- [ ] **Step 3: Write the implementation**
+
+Replace the whole of `internal/controller/server/topology.go` with:
+
+```go
+package server
+
+import (
+	"net/netip"
+	"sync"
+
+	"github.com/darkraise/darkpanel/internal/controller/dispatch"
+	"github.com/darkraise/darkpanel/internal/controller/listen"
+)
+
+// topology is the dispatcher's Topology. The listeners start after the
+// dispatcher exists, and startup recovery may already call the dispatcher, so
+// each source is registered under mu once it exists; until then it adds
+// nothing and the topology reads as incomplete.
+type topology struct {
+	mu      sync.Mutex
+	web     func() []listen.Bound
+	runtime func() ([]netip.AddrPort, []string, int)
+	agent   func() []listen.Bound
+	peers   func() ([]netip.Addr, []string)
+}
+
+func (t *topology) setWeb(f func() []listen.Bound) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.web = f
+}
+
+// setRuntime registers the runtime listeners' source: their bound addresses,
+// the addresses it could not read, and the number of open listeners that are
+// not bound yet. The source is registered once the listeners have started,
+// because before that it cannot tell which listeners are open.
+func (t *topology) setRuntime(f func() ([]netip.AddrPort, []string, int)) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.runtime = f
+}
+
+func (t *topology) setAgent(f func() []listen.Bound) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.agent = f
+}
+
+func (t *topology) setPeers(f func() ([]netip.Addr, []string)) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.peers = f
+}
+
+// setNoAgents registers empty agent listeners and peers, for a controller
+// whose agent runs embedded: it serves no agent listener and has no agent
+// sessions, so their lists are complete when empty.
+func (t *topology) setNoAgents() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.agent = func() []listen.Bound { return nil }
+	t.peers = func() ([]netip.Addr, []string) { return nil, nil }
+}
+
+// read is the topology now. It is complete once all four sources have
+// registered and no open runtime listener waits for a bind; what the runtime
+// listeners and the session registry could not read is dropped from it after
+// what the bound listeners drop.
+func (t *topology) read() dispatch.Topology {
+	t.mu.Lock()
+	web, runtime, agent, peers := t.web, t.runtime, t.agent, t.peers
+	t.mu.Unlock()
+	var webBound, agentBound []listen.Bound
+	var runtimeAddrs []netip.AddrPort
+	var agentPeers []netip.Addr
+	var runtimeDropped, peersDropped []string
+	var runtimeUnbound int
+	if web != nil {
+		webBound = web()
+	}
+	if runtime != nil {
+		runtimeAddrs, runtimeDropped, runtimeUnbound = runtime()
+	}
+	if agent != nil {
+		agentBound = agent()
+	}
+	if peers != nil {
+		agentPeers, peersDropped = peers()
+	}
+	out := topologyOf(webBound, runtimeAddrs, agentBound, agentPeers)
+	out.Dropped = append(append(out.Dropped, runtimeDropped...), peersDropped...)
+	out.Complete = web != nil && runtime != nil && agent != nil && peers != nil && runtimeUnbound == 0
+	return out
+}
+
+// topologyOf is the topology of the bound web listeners, the runtime
+// listeners, the bound agent listeners and the live agents' addresses. The
+// panel is reached through the web and the runtime listeners alike (spec
+// 1.5). A listener without an IP address, such as a Unix socket, is left
+// out; any other address that cannot be read is listed in Dropped.
+func topologyOf(web []listen.Bound, runtime []netip.AddrPort, agent []listen.Bound, peers []netip.Addr) dispatch.Topology {
+	panel, dropped := boundAddrs(web)
+	for _, ap := range runtime {
+		panel = append(panel, netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port()))
+	}
+	agentAddrs, agentDropped := boundAddrs(agent)
+	return dispatch.Topology{PanelListen: panel, AgentListen: agentAddrs, AgentPeers: peers,
+		Dropped: append(dropped, agentDropped...)}
+}
+
+// boundAddrs returns the IP addresses of bound and, as dropped, every
+// address that is not one. A Unix socket is neither: no firewall rule can
+// cut it, so it is left out without being dropped.
+func boundAddrs(bound []listen.Bound) (out []netip.AddrPort, dropped []string) {
+	for _, b := range bound {
+		if b.Addr.Network() == "unix" {
+			continue
+		}
+		ap, err := netip.ParseAddrPort(b.Addr.String())
+		if err != nil {
+			dropped = append(dropped, b.Addr.String())
+			continue
+		}
+		out = append(out, netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port()))
+	}
+	return out, dropped
+}
+```
+
+Modify `internal/controller/server/services.go` with 1 exact edit; the "replace" block occurs exactly once in the file at that point.
+
+Replace this block:
+
+```go
+func (s *Server) startServices(ctx context.Context) error {
+	s.events = events.NewBus(s.log)
+	s.runtimeListeners = listen.NewRuntime(listen.RuntimeConfig{DB: s.controllerDB, Clock: s.clock, Log: s.log, Bind: s.opts.Bind})
+	s.topo.setRuntime(s.runtimeListeners.Addrs)
+	s.auditLog = audit.New(s.controllerDB, s.clock)
+	s.authService = auth.New(s.controllerDB, s.controllerSealer, s.clock, s.auditLog, auth.Options{Params: s.opts.AuthParams})
+	var err error
+```
+
+with:
+
+```go
+func (s *Server) startServices(ctx context.Context) error {
+	s.events = events.NewBus(s.log)
+	s.runtimeListeners = listen.NewRuntime(listen.RuntimeConfig{DB: s.controllerDB, Clock: s.clock, Log: s.log, Bind: s.opts.Bind})
+	s.auditLog = audit.New(s.controllerDB, s.clock)
+	s.authService = auth.New(s.controllerDB, s.controllerSealer, s.clock, s.auditLog, auth.Options{Params: s.opts.AuthParams})
+	var err error
+```
+
+Replace the whole of `internal/controller/server/listeners.go` with:
+
+```go
+package server
+
+import (
+	"context"
+	"crypto/tls"
+	"errors"
+	"fmt"
+	"net/http"
+	"strings"
+
+	"github.com/darkraise/darkpanel/internal/controller/api"
+	"github.com/darkraise/darkpanel/internal/controller/listen"
+	"github.com/darkraise/darkpanel/internal/core/store"
+)
+
+// listeners are the network listeners and the controller socket.
+type listeners struct {
+	apiServer     *api.Server
+	listenService *listen.Service
+	// serveFailed holds the first error of a listener or of the socket
+	// server that stopped serving on its own.
+	serveFailed chan error
+}
+
+// Listeners are the network listeners currently bound.
+func (s *Server) Listeners() []listen.Bound { return s.listenService.State().Listeners }
+
+// AgentListeners are the agent listener's bound sockets: none with the
+// embedded agent, and none after Shutdown.
+func (s *Server) AgentListeners() []listen.Bound {
+	if s.agentListen == nil {
+		return nil
+	}
+	return s.agentListen.Bound()
+}
+
+// startListeners loads or creates the web authority, builds the API with
+// the controller contributions' routes, starts the network listeners with
+// it, serves the controller socket and then starts the contributed services.
+// Composite recovery has run by then (startServices), so a service never
+// races it.
+func (s *Server) startListeners(ctx context.Context) error {
+	authority, err := listen.LoadOrCreateAuthority(ctx, s.controllerDB, s.controllerSealer, s.clock)
+	if err != nil {
+		return err
+	}
+	routes, services, err := s.contributions()
+	if err != nil {
+		return err
+	}
+	srv, err := api.New(api.Config{
+		Dispatcher: s.dispatcher, Auth: s.authService, Registry: s.registry, WebCA: authority,
+		Availability: s.dispatcher.Availability,
+		SchemaVersion: func(ctx context.Context) (int, error) {
+			return store.SchemaVersion(ctx, s.controllerDB, store.SideController)
+		},
+		HostID: s.localHostID, Dev: s.opts.Dev, UI: api.EmbeddedUI(), Log: s.log, HealthStatus: s.opts.HealthStatus,
+		Events: s.events, Clock: s.clock, Extensions: routes,
+	})
+	if err != nil {
+		return err
+	}
+	s.apiServer = srv
+	s.serveFailed = make(chan error, 1)
+
+	specs := s.opts.Listen
+	if specs == nil {
+		if specs, err = listen.ParseSpecs(nil); err != nil {
+			return err
+		}
+	}
+	svc, err := listen.Start(ctx, listen.Config{
+		Specs: specs, Hostname: s.hostname, DB: s.controllerDB, Authority: authority, Clock: s.clock,
+		Handler: srv.Handler(), Log: s.log, Interfaces: s.opts.Interfaces, Bind: s.opts.Bind,
+		OnServeError: s.serveFailure,
+		Sources:      &listen.SourceDeps{Dispatch: s.dispatcher, LocalHostID: s.localHostID, Log: s.log},
+	})
+	if err != nil {
+		return err
+	}
+	s.listenService = svc
+	s.topo.setWeb(func() []listen.Bound { return svc.State().Listeners })
+	s.onShutdown("listeners", svc.Shutdown)
+	// The runtime listeners share the HTTPS listeners' TLS configuration
+	// (spec 1.10); every listener recorded open, also one an action opened
+	// during startup recovery, is bound here.
+	tlsConfig, err := svc.TLSConfig()
+	if err != nil {
+		return err
+	}
+	if err := s.startRuntimeListeners(ctx, srv.RuntimeHandler, tlsConfig); err != nil {
+		return err
+	}
+	s.onShutdown("runtime listeners", s.runtimeListeners.Shutdown)
+	// Registered after the listeners, so it runs before their shutdown,
+	// which waits for running requests.
+	s.onShutdown("stream responses", func(context.Context) error { srv.CloseStreams(); return nil })
+	// The source stays set after Shutdown, so the state then reads that the
+	// listeners are shut down.
+	srv.SetListenerState(func() api.ListenerState {
+		st := svc.State()
+		return api.ListenerState{TailscaleBound: st.TailscaleBound, Message: withUnbound(st.Message, s.runtimeListeners.Unbound())}
+	})
+
+	listenSocket := s.opts.ListenSocket
+	if listenSocket == nil {
+		listenSocket = api.ListenSocket
+	}
+	ln, err := listenSocket(s.opts.Paths.ControllerSocket)
+	if err != nil {
+		return err
+	}
+	sock := srv.SocketServer()
+	served := make(chan error, 1)
+	go func() {
+		err := sock.Serve(srv.SocketListener(ln, nil))
+		if !errors.Is(err, http.ErrServerClosed) {
+			s.log.Error("server: the controller socket stopped serving", "err", err)
+			s.serveFailure(err)
+		}
+		served <- err
+	}()
+	s.onShutdown("controller socket", func(ctx context.Context) error {
+		err := sock.Shutdown(ctx)
+		if serveErr := <-served; !errors.Is(serveErr, http.ErrServerClosed) {
+			err = errors.Join(err, serveErr)
+		}
+		return err
+	})
+
+	// Registered last, so the services stop first and see the dispatcher and
+	// the listeners until they have returned.
+	runner := startServiceRunner(serviceRunnerConfig{Services: services, Suspended: s.quarantined, Clock: s.clock, Log: s.log})
+	s.onShutdown("controller services", func(context.Context) error { runner.stop(); return nil })
+
+	urls := make([]string, 0, len(svc.State().Listeners))
+	for _, b := range svc.State().Listeners {
+		urls = append(urls, b.Endpoint.URL())
+	}
+	s.log.Info("server: serving", "message", svc.State().Message, "listeners", urls, "socket", s.opts.Paths.ControllerSocket)
+	return nil
+}
+
+// startRuntimeListeners starts the runtime listeners and only then registers
+// them with the guard topology: until Start has read the open rows the
+// listeners cannot say which are missing, so the topology stays incomplete.
+func (s *Server) startRuntimeListeners(ctx context.Context, handler listen.RuntimeHandlerFunc, tlsConfig *tls.Config) error {
+	if err := s.runtimeListeners.Start(ctx, handler, tlsConfig); err != nil {
+		return err
+	}
+	s.topo.setRuntime(s.runtimeListeners.Listening)
+	return nil
+}
+
+// withUnbound adds to the listener message that unbound runtime listeners
+// are down, so an exposure whose listener cannot bind does not look live.
+func withUnbound(message string, unbound int) string {
+	switch unbound {
+	case 0:
+		return message
+	case 1:
+		return strings.TrimSpace(message + " One runtime listener could not be bound; retrying.")
+	default:
+		return strings.TrimSpace(fmt.Sprintf("%s %d runtime listeners could not be bound; retrying.", message, unbound))
+	}
+}
+
+// serveFailure records err for Run; only the first error is kept.
+func (s *Server) serveFailure(err error) {
+	select {
+	case s.serveFailed <- err:
+	default:
+	}
+}
+
+// Run starts a server, serves until ctx ends or a listener or the socket
+// stops serving on its own, and then shuts it down, giving the listeners and
+// the socket ShutdownTimeout to finish. It returns that serving error joined
+// with Shutdown's. It is `darkpanel serve`.
+func Run(ctx context.Context, opts Options) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	s, err := Start(ctx, opts)
+	if err != nil {
+		return err
+	}
+	var failed error
+	select {
+	case <-ctx.Done():
+	case failed = <-s.serveFailed:
+		s.log.Error("server: shutting down because a server stopped serving", "err", failed)
+		cancel()
+	}
+	stop, stopCancel := context.WithTimeout(context.WithoutCancel(ctx), ShutdownTimeout)
+	defer stopCancel()
+	err = s.Shutdown(stop)
+	// The socket's shutdown step already reports its serving error.
+	if failed == nil || errors.Is(err, failed) {
+		return err
+	}
+	return errors.Join(failed, err)
+}
+```
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `go test -count=1 -run 'TestTopologyOf|TestTxTopologyWaitsForRuntimeListeners|TestTxRuntimeSourceRegistersAfterStart|TestServerTopology|TestRuntimeListenerReachesTheAPI' ./internal/controller/server/` -- Expected: PASS
+
+Then run, each with `TMPDIR=/root/.cache/w1-tmp/102 GOTOOLCHAIN=local`:
+
+- `timeout 600 go build ./...` -- Expected: no output.
+- `timeout 300 go vet ./...` -- Expected: no output.
+- `timeout 1200 go test -count=1 ./...` -- Expected: every package `ok` or `?`.
+- `timeout 900 go test -race -count=1 ./internal/controller/server/ ./internal/controller/listen/ ./internal/controller/dispatch/` -- Expected: `ok` for each.
+- `timeout 900 golangci-lint run --allow-serial-runners ./...` -- Expected: `0 issues.`
+- `timeout 300 go mod tidy -diff` -- Expected: no output.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/controller/server/topology.go internal/controller/server/services.go internal/controller/server/listeners.go internal/controller/server/services_test.go internal/controller/server/listeners_test.go
+git commit -m "fix(server): wait for runtime listeners in topology"
+```
+
+### Task 103: Leave unsafe comments off vectors
+
+**Files:**
+- Modify: `internal/modules/firewall/model/args.go`
+- Test: `internal/modules/firewall/model/args_test.go`
+
+**Interfaces:**
+- Consumes: Task 25 (`AddArgs`, `InsertArgs`, `DeleteArgs`, `withComment`, `argsTestRules`, `TestArgsNoOptionLikeValue`); Task 10 (`commentRe`, `Tag`, `OriginManual`).
+- Produces: unchanged signatures with the comment rule of Part contracts Task 103; the test helpers `mxRules` and `mxRule`.
+
+**Depends on:** Task 25, Task 28, Task 33, Task 80, Task 86, Task 88, Task 91
+
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 1 - coupling 1 - risk 3 = 6
+**Lenses:** security
+
+A manual rule's comment is read from UFW's files as written (`Tuple.Rule` keeps `t.Comment`), so it can start with `-` or fall outside `commentPattern`, and `withComment` passed it as an argument of its own: spec 2.2 forbids any argument starting with `-` because `ufw` has no `--`, and the exec allowlist checks only the verb. `AddArgs` and `InsertArgs` now leave a manual rule's comment off when it is empty, starts with `-` or does not match `commentPattern`, and a Darkpanel rule's label off its tag when it does not match; `DeleteArgs` never carries a comment. They keep their signatures: the only caller that writes a manual rule is the inverse of a deleted rule, and it re-adds the rule without the comment (Part contracts Task 103 say what the undo then reports). The test pins the vectors for seven comments and adds them to `TestArgsNoOptionLikeValue`.
+
+- [ ] **Step 1: Write the failing test**
+
+In `internal/modules/firewall/model/args_test.go` (255 lines, so these are exact edits; the imports are unchanged):
+
+Replace this block:
+
+```go
+	}
+}
+
+func TestArgsNoOptionLikeValue(t *testing.T) {
+	for _, c := range argsTestRules {
+		for _, args := range [][]string{AddArgs(c.rule), DeleteArgs(c.rule), InsertArgs(1, c.rule)} {
+			if i := slices.IndexFunc(args, func(a string) bool { return strings.HasPrefix(a, "-") || a == "" }); i >= 0 {
+				t.Errorf("argument %d of %q is empty or starts with a dash", i, args)
+			}
+```
+
+with:
+
+```go
+	}
+}
+
+// mxRules are rules as UFW's files can hold them: a manual rule's comment
+// is whatever its tuple carries, and a Darkpanel rule's label is whatever
+// follows its tag. Each has the vectors AddArgs and InsertArgs(2) must
+// render: a comment the patterns of spec 2.2 do not allow, or a manual
+// comment that starts with a dash, is left off, and a Darkpanel rule keeps
+// its tag.
+var mxRules = []struct {
+	name   string
+	rule   Rule
+	add    string
+	insert string
+}{
+	{"manual comment starting with a dash", mxRule(OriginManual, "", "-x"),
+		"allow|in|proto|tcp|from|any|to|any|port|8080", "insert|2|allow|in|proto|tcp|from|any|to|any|port|8080"},
+	{"manual comment that is an option", mxRule(OriginManual, "", "--force"),
+		"allow|in|proto|tcp|from|any|to|any|port|8080", "insert|2|allow|in|proto|tcp|from|any|to|any|port|8080"},
+	{"manual comment outside the pattern", mxRule(OriginManual, "", "it's"),
+		"allow|in|proto|tcp|from|any|to|any|port|8080", "insert|2|allow|in|proto|tcp|from|any|to|any|port|8080"},
+	{"manual comment too long", mxRule(OriginManual, "", strings.Repeat("a", 65)),
+		"allow|in|proto|tcp|from|any|to|any|port|8080", "insert|2|allow|in|proto|tcp|from|any|to|any|port|8080"},
+	{"manual comment kept", mxRule(OriginManual, "", "a-b"),
+		"allow|in|proto|tcp|from|any|to|any|port|8080|comment|a-b", "insert|2|allow|in|proto|tcp|from|any|to|any|port|8080|comment|a-b"},
+	{"darkpanel label outside the pattern", mxRule(OriginDarkpanel, "01J00000000000000000000001", "caf\u00e9"),
+		"allow|in|proto|tcp|from|any|to|any|port|8080|comment|darkpanel:01J00000000000000000000001",
+		"insert|2|allow|in|proto|tcp|from|any|to|any|port|8080|comment|darkpanel:01J00000000000000000000001"},
+	{"darkpanel label starting with a dash", mxRule(OriginDarkpanel, "01J00000000000000000000001", "-x"),
+		"allow|in|proto|tcp|from|any|to|any|port|8080|comment|darkpanel:01J00000000000000000000001 -x",
+		"insert|2|allow|in|proto|tcp|from|any|to|any|port|8080|comment|darkpanel:01J00000000000000000000001 -x"},
+}
+
+func mxRule(origin Origin, id, comment string) Rule {
+	return Rule{ID: id, Action: ActionAllow, Direction: DirIn, Proto: ProtoTCP, From: Any, To: Any, ToPort: "8080",
+		Family: FamilyBoth, Log: LogOff, Comment: comment, Origin: origin}
+}
+
+func TestMxCommentArgs(t *testing.T) {
+	for _, c := range mxRules {
+		if got := strings.Join(AddArgs(c.rule), "|"); got != c.add {
+			t.Errorf("%s: AddArgs\n got %s\nwant %s", c.name, got, c.add)
+		}
+		if got := strings.Join(InsertArgs(2, c.rule), "|"); got != c.insert {
+			t.Errorf("%s: InsertArgs\n got %s\nwant %s", c.name, got, c.insert)
+		}
+		if got := strings.Join(DeleteArgs(c.rule), "|"); got != "delete|allow|in|proto|tcp|from|any|to|any|port|8080" {
+			t.Errorf("%s: DeleteArgs %s carries a comment", c.name, got)
+		}
+	}
+}
+
+func TestArgsNoOptionLikeValue(t *testing.T) {
+	rules := make([]Rule, 0, len(argsTestRules)+len(mxRules))
+	for _, c := range argsTestRules {
+		rules = append(rules, c.rule)
+	}
+	for _, c := range mxRules {
+		rules = append(rules, c.rule)
+	}
+	for _, rule := range rules {
+		for _, args := range [][]string{AddArgs(rule), DeleteArgs(rule), InsertArgs(1, rule)} {
+			if i := slices.IndexFunc(args, func(a string) bool { return strings.HasPrefix(a, "-") || a == "" }); i >= 0 {
+				t.Errorf("argument %d of %q is empty or starts with a dash", i, args)
+			}
+```
+
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `mkdir -p /root/.cache/w1-tmp/103 && TMPDIR=/root/.cache/w1-tmp/103 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestMxCommentArgs|TestArgsNoOptionLikeValue' ./internal/modules/firewall/model/`
+Expected: FAIL (output as observed, the middle of the list shortened with `…`):
+
+```
+--- FAIL: TestMxCommentArgs (0.00s)
+    args_test.go:155: manual comment starting with a dash: AddArgs
+         got allow|in|proto|tcp|from|any|to|any|port|8080|comment|-x
+        want allow|in|proto|tcp|from|any|to|any|port|8080
+    args_test.go:158: manual comment starting with a dash: InsertArgs
+         got insert|2|allow|in|proto|tcp|from|any|to|any|port|8080|comment|-x
+        want insert|2|allow|in|proto|tcp|from|any|to|any|port|8080
+    args_test.go:155: manual comment that is an option: AddArgs
+         got allow|in|proto|tcp|from|any|to|any|port|8080|comment|--force
+--- FAIL: TestArgsNoOptionLikeValue (0.00s)
+    args_test.go:177: argument 11 of ["allow" "in" "proto" "tcp" "from" "any" "to" "any" "port" "8080" "comment" "-x"] is empty or starts with a dash
+    args_test.go:177: argument 13 of ["insert" "1" "allow" "in" "proto" "tcp" "from" "any" "to" "any" "port" "8080" "comment" "-x"] is empty or starts with a dash
+    args_test.go:177: argument 11 of ["allow" "in" "proto" "tcp" "from" "any" "to" "any" "port" "8080" "comment" "--force"] is empty or starts with a dash
+    args_test.go:177: argument 13 of ["insert" "1" "allow" "in" "proto" "tcp" "from" "any" "to" "any" "port" "8080" "comment" "--force"] is empty or starts with a dash
+FAIL
+FAIL	github.com/darkraise/darkpanel/internal/modules/firewall/model	0.007s
+FAIL
+…
+```
+
+- [ ] **Step 3: Write the implementation**
+
+Replace `internal/modules/firewall/model/args.go` with:
+
+```go
+package model
+
+import (
+	"strconv"
+	"strings"
+)
+
+// AddArgs is the argument vector after /usr/sbin/ufw that adds r. A
+// Darkpanel rule ends with "comment" and its tag as one argument; a manual
+// rule ends with its own comment, if any, unless that comment starts with
+// "-" or does not match the comment pattern, when it is left off (the rule
+// is then written without its comment). r must be valid (Validate) except
+// for a comment read from UFW's files, and, for a Darkpanel rule, carry its
+// id.
+func AddArgs(r Rule) []string {
+	return withComment(r, actionPrefix(r, nil))
+}
+
+// DeleteArgs is the argument vector that deletes r: "delete" and the rule
+// specification without the comment, which ufw matches whatever comment
+// the stored rule carries.
+func DeleteArgs(r Rule) []string {
+	return actionPrefix(r, []string{"delete"})
+}
+
+// InsertArgs is the argument vector that adds r at position pos (1-based,
+// as ufw numbers its rules), for the inverse of a delete; the comment
+// follows the rule of AddArgs.
+func InsertArgs(pos int, r Rule) []string {
+	return withComment(r, actionPrefix(r, []string{"insert", strconv.Itoa(pos)}))
+}
+
+// actionPrefix renders "[route] <verb...> <action> <rule spec>".
+func actionPrefix(r Rule, verb []string) []string {
+	var args []string
+	if r.Direction == DirRoute {
+		args = append(args, "route")
+	}
+	args = append(args, verb...)
+	args = append(args, string(r.Action))
+	return append(args, spec(r)...)
+}
+
+// spec renders the rule specification in the order ufw's grammar requires:
+// direction and interfaces, then the log type, then protocol, source and
+// destination ("ufw allow log in" is refused as an invalid interface
+// clause).
+func spec(r Rule) []string {
+	var args []string
+	switch r.Direction {
+	case DirRoute:
+		if r.InIface != "" {
+			args = append(args, "in", "on", r.InIface)
+		}
+		if r.OutIface != "" {
+			args = append(args, "out", "on", r.OutIface)
+		}
+	case DirIn:
+		args = append(args, "in")
+		if r.InIface != "" {
+			args = append(args, "on", r.InIface)
+		}
+	case DirOut:
+		args = append(args, "out")
+		if r.OutIface != "" {
+			args = append(args, "on", r.OutIface)
+		}
+	}
+	if r.Log == LogOn || r.Log == LogAll {
+		args = append(args, string(r.Log))
+	}
+	if r.Proto != ProtoAny {
+		args = append(args, "proto", string(r.Proto))
+	}
+	args = append(args, "from", argAddr(r.From, r.Family))
+	if r.FromPort != "" {
+		args = append(args, "port", r.FromPort)
+	}
+	args = append(args, "to", argAddr(r.To, r.Family))
+	if r.ToPort != "" {
+		args = append(args, "port", r.ToPort)
+	}
+	return args
+}
+
+// argAddr writes any as the family's zero prefix for a single-family rule:
+// ufw writes a rule whose addresses are both "any" into both files.
+func argAddr(addr string, fam Family) string {
+	if addr != Any {
+		return addr
+	}
+	switch fam {
+	case FamilyV4:
+		return "0.0.0.0/0"
+	case FamilyV6:
+		return "::/0"
+	}
+	return Any
+}
+
+// withComment appends the comment argument. UFW's files can hold a comment
+// the schema patterns of spec 2.2 would refuse, and a manual rule's comment
+// is its own argument, which must not start with "-" since ufw has no "--".
+// Such a comment is left off, so a rule read from UFW's files can be written
+// again, without that comment; a Darkpanel rule keeps its tag.
+func withComment(r Rule, args []string) []string {
+	if r.Origin == OriginManual {
+		if r.Comment == "" || !commentRe.MatchString(r.Comment) || strings.HasPrefix(r.Comment, "-") {
+			return args
+		}
+		return append(args, "comment", r.Comment)
+	}
+	label := r.Comment
+	if !commentRe.MatchString(label) {
+		label = ""
+	}
+	return append(args, "comment", Tag(r.ID, label))
+}
+```
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `TMPDIR=/root/.cache/w1-tmp/103 GOTOOLCHAIN=local timeout 300 go test -count=1 ./internal/modules/firewall/model/` — Expected: PASS (`ok  	github.com/darkraise/darkpanel/internal/modules/firewall/model`)
+Then run, each with `TMPDIR=/root/.cache/w1-tmp/103` (created above): `GOTOOLCHAIN=local timeout 600 go build ./...`; `GOTOOLCHAIN=local timeout 300 go vet ./...`; `GOTOOLCHAIN=local timeout 300 go vet -tags harness ./test/...`; `GOTOOLCHAIN=local timeout 1200 go test -count=1 ./...`; `GOTOOLCHAIN=local timeout 900 go test -race -count=1 ./internal/modules/firewall/model/`; `GOTOOLCHAIN=local timeout 900 golangci-lint run --allow-serial-runners ./...`; `GOTOOLCHAIN=local timeout 300 go mod tidy -diff` — Expected: build, vet and tidy print nothing; every package line of `go test` is `ok` or `?`; the race run prints `ok` for each package; lint prints `0 issues.`
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/modules/firewall/model/args.go internal/modules/firewall/model/args_test.go
+git commit -m "fix(firewall): leave unsafe comments off vectors"
+```
+
+Then remove the task's scratch: `rm -rf /root/.cache/w1-tmp/103 && GOTOOLCHAIN=local go clean -testcache`
+
+### Task 104: Predict built-in rules on reload
+
+**Files:**
+- Modify: `internal/modules/firewall/predict/predict.go`
+- Modify: `internal/modules/firewall/predict/translate.go`
+- Test: `internal/modules/firewall/predict/predict_test.go`
+
+**Interfaces:**
+- Consumes: Task 51 (`restoreText`, `translate`, `primaryChains`, `predictLoaded`, `predictDiff`); Task 58 (`startFamily`, `loadChain`, `Predict`, `predictTestChain`, `predictTestSame`); Task 38 (`predictConfig`).
+- Produces: the unexported `jumpedChains` (Part contracts Task 104) and the corrected behaviour of `Predict` when UFW's primary chains exist.
+
+**Depends on:** Task 28, Task 51, Task 58, Task 61, Task 80, Task 88, Task 91
+
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 1 - coupling 1 - risk 3 = 6
+**Lenses:** security
+
+`startFamily` skips every built-in filter rule of the translation when UFW's primary chains already exist, which is every reload and every enable after a disable. `ufw_start` does not: it adds the six jumps of each built-in chain only in the branch that creates the primary chains (`ufw-init-functions:172-217`), but it runs `iptables-restore --noflush` on before.rules and after.rules on every start (`:287-303`), which appends their `-A INPUT`, `-A OUTPUT` and `-A FORWARD` rules to the built-in chains again. The prediction then lacks those rules, the verify step finds more rules than predicted on every reload, and the change reverts. The fix skips only the six leading jumps of each built-in filter chain (`jumpedChains`, which `restoreText` also uses to write them first) and loads the rest as it loads them on a first start. The new test follows real UFW 0.36.2 on debian:13: a `*filter` block with one INPUT rule at the top of before.rules and one FORWARD rule at the top of after.rules, through enable, reload, disable and enable again.
+
+- [ ] **Step 1: Write the failing test**
+
+In `internal/modules/firewall/predict/predict_test.go` (the file is longer than 250 lines, so these are exact edits; the imports are unchanged):
+
+Replace this block:
+
+```go
+				t.Errorf("%s %s:\n  %s\nwant\n  %s", tc.level, chain, strings.Join(have, "\n  "), strings.Join(want, "\n  "))
+			}
+		}
+	}
+}
+```
+
+with:
+
+```go
+				t.Errorf("%s %s:\n  %s\nwant\n  %s", tc.level, chain, strings.Join(have, "\n  "), strings.Join(want, "\n  "))
+			}
+		}
+	}
+}
+
+// TestPxBuiltinRules follows what ufw 0.36.2 did on debian:13 with a
+// "*filter" block that appends one rule to INPUT at the top of before.rules
+// and one to FORWARD at the top of after.rules: every start appends those
+// rules to the built-in chains again, after the jumps to UFW's chains, which
+// are added only on the first start, and disable keeps them all.
+func TestPxBuiltinRules(t *testing.T) {
+	cfg := predictConfig(t, "debian-13", "rules")
+	cfg.Files = maps.Clone(cfg.Files)
+	for path, block := range map[string]string{
+		"/etc/ufw/before.rules": "*filter\n-A INPUT -s 203.0.113.9/32 -j DROP\nCOMMIT\n",
+		"/etc/ufw/after.rules":  "*filter\n-A FORWARD -s 203.0.113.10/32 -j DROP\nCOMMIT\n",
+	} {
+		e := cfg.Files[path]
+		e.Data = append([]byte(block), e.Data...)
+		cfg.Files[path] = e
+	}
+	jumps := func(chain, dir string) []string {
+		var out []string
+		for _, c := range []string{"before-logging", "before", "after", "after-logging", "reject", "track"} {
+			out = append(out, "-A "+chain+" -j ufw-"+c+"-"+dir)
+		}
+		return out
+	}
+	in, fwd := "-A INPUT -s 203.0.113.9/32 -j DROP", "-A FORWARD -s 203.0.113.10/32 -j DROP"
+	check := func(step string, st fwstate.Loaded, policy string, copies int) {
+		t.Helper()
+		f := st.V4.Table("filter")
+		inRules, fwdRules := jumps("INPUT", "input"), jumps("FORWARD", "forward")
+		for range copies {
+			inRules, fwdRules = append(inRules, in), append(fwdRules, fwd)
+		}
+		predictTestSame(t, step, f.Chain("INPUT"), predictTestChain(t, "filter", "INPUT", policy, inRules...))
+		predictTestSame(t, step, f.Chain("FORWARD"), predictTestChain(t, "filter", "FORWARD", policy, fwdRules...))
+		predictTestSame(t, step, f.Chain("OUTPUT"), predictTestChain(t, "filter", "OUTPUT", "ACCEPT", jumps("OUTPUT", "output")...))
+	}
+
+	st, err := Predict(cfg, predictLoaded(t, "debian-13", "fresh"), fwstate.TransEnable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("enable", st, "DROP", 1)
+	if st, err = Predict(cfg, st, fwstate.TransReload); err != nil {
+		t.Fatal(err)
+	}
+	check("reload", st, "DROP", 2)
+	if st, err = Predict(cfg, st, fwstate.TransDisable); err != nil {
+		t.Fatal(err)
+	}
+	check("disable", st, "ACCEPT", 2)
+	if st, err = Predict(cfg, st, fwstate.TransEnable); err != nil {
+		t.Fatal(err)
+	}
+	check("enable again", st, "DROP", 3)
+}
+```
+
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `mkdir -p /root/.cache/w1-tmp/104 && TMPDIR=/root/.cache/w1-tmp/104 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestPxBuiltinRules' ./internal/modules/firewall/predict/`
+Expected: FAIL. The enable step passes; reload, disable and enable again each lack one rule per chain (output as observed, long lines shortened with `…`; below the first failure the `want` list shows the six jumps and the two INPUT rules the prediction should hold after the reload, where it holds one; the other five failures are cut to their first line):
+
+```
+--- FAIL: TestPxBuiltinRules (0.00s)
+    predict_test.go:310: reload: INPUT is &{Name:INPUT Builtin:true Policy:DROP Rules:[{Line:20 Text:-A INPUT -j ufw-before-logging-input Source:{Prefix:invalid Prefix Neg:false} Dest:{Prefix:invalid Prefix Neg …
+          -j ufw-before-logging-input
+          -j ufw-before-input
+          -j ufw-after-input
+          -j ufw-after-logging-input
+          -j ufw-reject-input
+          -j ufw-track-input
+          -s 203.0.113.9/32 -j DROP
+          -s 203.0.113.9/32 -j DROP
+    predict_test.go:310: reload: FORWARD is &{Name:FORWARD Builtin:true Policy:DROP Rules:[{Line:32 Text:-A FORWARD -j ufw-before-logging-forward Source:{Prefix:invalid Prefix Neg:false} Dest:{Prefix:invalid Pr …
+    predict_test.go:314: disable: INPUT is &{Name:INPUT Builtin:true Policy:ACCEPT Rules:[{Line:20 Text:-A INPUT -j ufw-before-logging-input Source:{Prefix:invalid Prefix Neg:false} Dest:{Prefix:invalid Prefix  …
+    predict_test.go:314: disable: FORWARD is &{Name:FORWARD Builtin:true Policy:ACCEPT Rules:[{Line:32 Text:-A FORWARD -j ufw-before-logging-forward Source:{Prefix:invalid Prefix Neg:false} Dest:{Prefix:invalid …
+    predict_test.go:318: enable again: INPUT is &{Name:INPUT Builtin:true Policy:DROP Rules:[{Line:20 Text:-A INPUT -j ufw-before-logging-input Source:{Prefix:invalid Prefix Neg:false} Dest:{Prefix:invalid Pref …
+    predict_test.go:318: enable again: FORWARD is &{Name:FORWARD Builtin:true Policy:DROP Rules:[{Line:32 Text:-A FORWARD -j ufw-before-logging-forward Source:{Prefix:invalid Prefix Neg:false} Dest:{Prefix:inva …
+FAIL
+FAIL	github.com/darkraise/darkpanel/internal/modules/firewall/predict	0.008s
+FAIL
+```
+
+- [ ] **Step 3: Write the implementation**
+
+Replace `internal/modules/firewall/predict/translate.go` with (shown whole; the change adds `jumpedChains` and uses it in `restoreText`):
+
+```go
+package predict
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
+	"github.com/darkraise/darkpanel/internal/platform/netfilter"
+)
+
+// directions are UFW's chain suffixes, in the order ufw-init-functions
+// writes them.
+var directions = []string{"input", "output", "forward"}
+
+// primaryChains are the chains ufw_start creates once and ufw_stop keeps,
+// so their jumps in INPUT, OUTPUT and FORWARD keep their positions.
+var primaryChains = []string{
+	"before-logging-input", "before-logging-output", "before-logging-forward",
+	"before-input", "before-output", "before-forward",
+	"after-input", "after-output", "after-forward",
+	"after-logging-input", "after-logging-output", "after-logging-forward",
+	"reject-input", "reject-output", "reject-forward",
+	"track-input", "track-output", "track-forward",
+}
+
+// jumpedChains are the chains, per direction, that ufw_start appends a jump
+// to at the top of INPUT, OUTPUT and FORWARD, in order.
+var jumpedChains = []string{"before-logging", "before", "after", "after-logging", "reject", "track"}
+
+// restoreText is the iptables-restore input of one family (user6.rules,
+// before6.rules and after6.rules for v6) in the order ufw_start loads it
+// on a host where none of UFW's chains exists: the primary chains and
+// their jumps from the built-in chains, the reject and track rules of the
+// default policies, the logging and skip-to-policy chains, before.rules,
+// after.rules, the user chains, user.rules, the jumps into the user chains
+// and the built-in policies (REJECT loads as DROP). The files are the
+// bytes cfg.Files holds, which ufw_start reads from disk: for a user.rules
+// UFW has written they equal Files' rendering, but the package's template,
+// which a first "ufw enable" loads before rewriting it, does not. A
+// missing or empty before, after or user file, which makes ufw_start fail,
+// is an error.
+func restoreText(cfg fwstate.Config, v6 bool) (string, error) {
+	if err := checkRenderable(cfg); err != nil {
+		return "", err
+	}
+	typ := ""
+	if v6 {
+		typ = "6"
+	}
+	u := chainPrefix(v6)
+	policy := map[string]string{"input": cfg.DefaultInput, "output": cfg.DefaultOutput, "forward": cfg.DefaultForward}
+	var b strings.Builder
+	w := func(format string, args ...any) { fmt.Fprintf(&b, format+"\n", args...) }
+	w("*filter")
+	for _, c := range primaryChains {
+		w(":%s-%s - [0:0]", u, c)
+	}
+	for _, d := range directions {
+		for _, c := range jumpedChains {
+			w("-A %s -j %s-%s-%s", strings.ToUpper(d), u, c, d)
+		}
+	}
+	w("COMMIT")
+	for _, d := range directions {
+		if policy[d] == "REJECT" {
+			w("*filter\n-A %s-reject-%s -j REJECT\nCOMMIT", u, d)
+		}
+	}
+	for _, d := range directions {
+		if policy[d] == "ACCEPT" {
+			w("*filter\n-A %[1]s-track-%[2]s -p tcp -m conntrack --ctstate NEW -j ACCEPT\n"+
+				"-A %[1]s-track-%[2]s -p udp -m conntrack --ctstate NEW -j ACCEPT\nCOMMIT", u, d)
+		}
+	}
+	w("*filter\n:%[1]s-logging-deny - [0:0]\n:%[1]s-logging-allow - [0:0]\nCOMMIT", u)
+	w("*filter")
+	for _, d := range directions {
+		w(":%s-skip-to-policy-%s - [0:0]", u, d)
+	}
+	for _, d := range directions {
+		w("-A %s-skip-to-policy-%s -j %s", u, d, policy[d])
+	}
+	w("COMMIT")
+	file := func(name string) error {
+		path := "/etc/ufw/" + name + typ + ".rules"
+		e := cfg.Files[path]
+		if !e.Present || len(e.Data) == 0 {
+			return fmt.Errorf("predict: %s is missing or empty, so UFW cannot start", path)
+		}
+		b.Write(e.Data)
+		if e.Data[len(e.Data)-1] != '\n' {
+			b.WriteByte('\n')
+		}
+		return nil
+	}
+	for _, name := range []string{"before", "after"} {
+		if err := file(name); err != nil {
+			return "", err
+		}
+	}
+	w("*filter")
+	for _, c := range []string{"user-input", "user-output", "user-forward", "user-logging-input", "user-logging-output",
+		"user-logging-forward", "user-limit", "user-limit-accept"} {
+		w(":%s-%s - [0:0]", u, c)
+	}
+	w("COMMIT")
+	if err := file("user"); err != nil {
+		return "", err
+	}
+	w("*filter\n-A %[1]s-before-input -j %[1]s-user-input\n-A %[1]s-before-output -j %[1]s-user-output\n"+
+		"-A %[1]s-before-forward -j %[1]s-user-forward\nCOMMIT", u)
+	builtin := func(d string) string {
+		if policy[d] == "REJECT" {
+			return "DROP"
+		}
+		return policy[d]
+	}
+	w("*filter\n:INPUT %s [0:0]\n:FORWARD %s [0:0]\n:OUTPUT %s [0:0]\nCOMMIT", builtin("input"), builtin("forward"), builtin("output"))
+	return b.String(), nil
+}
+
+// translate is what UFW loads for one family on a host where none of its
+// chains exists: restoreText parsed as iptables-restore would load it. The
+// filter table holds UFW's chains; another table appears only when
+// before.rules or after.rules write to it (a nat block for masquerading,
+// for example).
+func translate(cfg fwstate.Config, v6 bool) (*netfilter.Ruleset, error) {
+	text, err := restoreText(cfg, v6)
+	if err != nil {
+		return nil, err
+	}
+	rs, err := netfilter.ParseRestore(strings.NewReader(text))
+	if err != nil {
+		return nil, fmt.Errorf("predict: UFW's rules do not load: %w", err)
+	}
+	return rs, nil
+}
+```
+
+In `internal/modules/firewall/predict/predict.go`, exact edit (the file is longer than 250 lines):
+
+Replace this block:
+
+```go
+		}
+		for _, c := range tt.Chains {
+			if tt.Name == "filter" && c.Builtin && primary {
+				builtinChain(dst, c.Name).Policy = c.Policy
+				continue
+			}
+			loadChain(dst, c)
+		}
+```
+
+with:
+
+```go
+		}
+		for _, c := range tt.Chains {
+			if tt.Name == "filter" && c.Builtin && primary {
+				c.Rules = c.Rules[min(len(jumpedChains), len(c.Rules)):]
+			}
+			loadChain(dst, c)
+		}
+```
+
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `TMPDIR=/root/.cache/w1-tmp/104 GOTOOLCHAIN=local timeout 300 go test -count=1 ./internal/modules/firewall/predict/` — Expected: PASS (`ok  	github.com/darkraise/darkpanel/internal/modules/firewall/predict`)
+Then run, each with `TMPDIR=/root/.cache/w1-tmp/104` (created above): `GOTOOLCHAIN=local timeout 600 go build ./...`; `GOTOOLCHAIN=local timeout 300 go vet ./...`; `GOTOOLCHAIN=local timeout 300 go vet -tags harness ./test/...`; `GOTOOLCHAIN=local timeout 1200 go test -count=1 ./...`; `GOTOOLCHAIN=local timeout 900 go test -race -count=1 ./internal/modules/firewall/predict/`; `GOTOOLCHAIN=local timeout 900 golangci-lint run --allow-serial-runners ./...`; `GOTOOLCHAIN=local timeout 300 go mod tidy -diff` — Expected: build, vet and tidy print nothing; every package line of `go test` is `ok` or `?`; the race run prints `ok` for each package; lint prints `0 issues.`
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/modules/firewall/predict/predict.go internal/modules/firewall/predict/translate.go internal/modules/firewall/predict/predict_test.go
+git commit -m "fix(firewall): predict built-in rules on reload"
+```
+
+Then remove the task's scratch: `rm -rf /root/.cache/w1-tmp/104 && GOTOOLCHAIN=local go clean -testcache`
+
+### Task 105: Guard routes with the packet's mark
+
+**Files:**
+- Modify: `internal/modules/firewall/guard/flows.go`
+- Modify: `internal/modules/firewall/guard/route.go`
+- Test: `internal/modules/firewall/guard/flows_test.go`
+- Test: `internal/modules/firewall/guard/guard_test.go`
+- Test: `internal/modules/firewall/guard/route_test.go`
+
+**Interfaces:**
+- Consumes: `buildFlows`, `tailscaleFlows`, `newPacket`, `unknownPort`, `tailscaled` (Tasks 31 and 53); `(*router).probes`, `(*router).eligible`, `(*router).route`, `rtQuery`, `rtVia`, `rtFacts` (Tasks 36 and 44); `ckHost`, `ckAllFlows`, `ckEval`, `ckState`, `ckEnv` (Tasks 43 and 53); `gHost`, `gIfaces` (Task 17); `netstat.RouteQuery.Mark` (merged code).
+- Produces: `tailscaleMark`; the test helpers `gxMark` and `gxQueryMark` (Part contracts, Task 105).
+
+**Depends on:** Task 28, Task 53, Task 80, Task 88, Task 91
+
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 1 - coupling 1 - risk 3 = 6
+**Lenses:** security
+
+tailscaled's sockets carry the bypass mark `0x80000`, and policy routing may send a marked packet elsewhere than an unmarked one, so every route lookup the guard makes now passes the packet's mark (`netstat.RouteQuery.Mark`) and tailscaled's flows (flow 6) carry that mark. Before, those flows were routed by an unmarked lookup, and the evaluator saw a packet whose mark bits it takes to be unknown. The same task makes the Router answer `("output", "lo")` for a locally generated packet whose destination is this host, as the evaluator requires for an output packet (it rejected `input`). The tests: `buildFlows` gives tailscaled's flows the mark; `probes` and `route` record the lookups they make and every one carries it, for output, forwarded and incoming packets; and a full `Check` routes tailscaled's flow by the marked lookup, not the unmarked one.
+
+- [ ] **Step 1: Write the failing test**
+
+Replace the whole of `internal/modules/firewall/guard/flows_test.go` with:
+
+```go
+package guard
+
+import (
+	"net/netip"
+	"reflect"
+	"testing"
+
+	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
+	"github.com/darkraise/darkpanel/internal/platform/netstat"
+)
+
+// flPkt is the expected packet of a new connection.
+func flPkt(path, src string, sport uint16, dst string, dport uint16, proto string) fwstate.Packet {
+	s, d := netip.MustParseAddr(src), netip.MustParseAddr(dst)
+	fam := fwstate.V4
+	if s.Is6() {
+		fam = fwstate.V6
+	}
+	return fwstate.Packet{Family: fam, Path: path, Src: s, SrcPort: sport, Dst: d, DstPort: dport, Proto: proto, CtState: "NEW"}
+}
+
+// flOn is flPkt with a fixed in-interface.
+func flOn(iface string, p fwstate.Packet) fwstate.Packet {
+	p.InIface = iface
+	return p
+}
+
+// flSock is a socket of the table held by one process.
+func flSock(proto netstat.Proto, state netstat.State, local, remote, comm string, pid int) netstat.Socket {
+	s := netstat.Socket{Proto: proto, Family: netstat.IPv4, State: state, Local: netip.MustParseAddrPort(local)}
+	if remote != "" {
+		s.Remote = netip.MustParseAddrPort(remote)
+	}
+	if s.Local.Addr().Is6() {
+		s.Family = netstat.IPv6
+	}
+	if comm != "" {
+		s.Processes = []netstat.Process{{PID: pid, Comm: comm}}
+	}
+	return s
+}
+
+// gxMark is p with the packet mark set.
+func gxMark(p fwstate.Packet, mark uint32) fwstate.Packet {
+	p.Mark = mark
+	return p
+}
+
+func flAddrPorts(s ...string) []netip.AddrPort {
+	out := make([]netip.AddrPort, len(s))
+	for i, a := range s {
+		out[i] = netip.MustParseAddrPort(a)
+	}
+	return out
+}
+
+func TestBuildFlows(t *testing.T) {
+	const tcp, udp = netstat.ProtoTCP, netstat.ProtoUDP
+	const est, listen, closed = netstat.StateEstablished, netstat.StateListen, netstat.StateClose
+	client4 := &core.Peer{Addr: netip.MustParseAddr("203.0.113.7"), Port: 51000}
+	client6 := &core.Peer{Addr: netip.MustParseAddr("2001:db8:5::7"), Port: 52000}
+	panelListen := flAddrPorts("0.0.0.0:443", "[::]:8443", "192.0.2.1:9443")
+	npm := &core.ProxyPath{ExposureID: "exp1", Kind: "npm", ProxyAddr: netip.MustParseAddr("172.30.0.2"),
+		ListenerAddr: netip.MustParseAddrPort("172.30.0.1:8080"), Public: flAddrPorts("192.0.2.1:443", "[2001:db8::1]:443", "203.0.113.80:443", "[2001:db8:77::80]:443")}
+	tunnel := &core.ProxyPath{ExposureID: "exp2", Kind: "tunnel", ProxyAddr: netip.MustParseAddr("172.30.0.3"),
+		ListenerAddr: netip.MustParseAddrPort("172.30.0.1:8080")}
+	for _, tc := range []struct {
+		name string
+		in   Input
+		f    facts
+		want []flow
+	}{
+		{
+			name: "nothing to protect",
+			f:    facts{ifaces: gIfaces()},
+		},
+		{
+			name: "ssh sessions",
+			f: facts{ifaces: gIfaces(), sockets: []netstat.Socket{
+				flSock(tcp, listen, "0.0.0.0:22", "", "sshd", 10),
+				flSock(tcp, est, "192.0.2.1:22", "203.0.113.7:50000", "sshd-session", 11),
+				flSock(tcp, est, "[::ffff:192.0.2.1]:22", "[::ffff:203.0.113.8]:50001", "sshd", 12),
+				flSock(tcp, est, "192.0.2.1:41000", "198.51.100.20:80", "sshd-session", 11),
+				flSock(tcp, est, "127.0.0.1:22", "127.0.0.1:50002", "sshd-session", 13),
+				flSock(tcp, est, "192.0.2.1:22", "192.0.2.1:50003", "sshd-session", 14),
+				flSock(tcp, listen, "[::]:2222", "", "systemd", 1),
+				flSock(tcp, est, "[2001:db8::1]:2222", "[2001:db8:9::9]:50004", "sshd-auth", 15),
+				flSock(tcp, est, "192.0.2.1:22", "203.0.113.9:50005", "nginx", 16),
+			}},
+			want: []flow{
+				{label: "ssh", pkt: flPkt("input", "203.0.113.7", 0, "192.0.2.1", 22, "tcp")},
+				{label: "ssh", pkt: flPkt("input", "203.0.113.8", 0, "192.0.2.1", 22, "tcp")},
+				{label: "ssh", pkt: flPkt("input", "2001:db8:9::9", 0, "2001:db8::1", 2222, "tcp")},
+			},
+		},
+		{
+			name: "panel clients with a local controller",
+			in: Input{
+				Plan:    &core.GuardContext{Client: client4, PanelListen: panelListen, Complete: true},
+				Refresh: &core.GuardContext{Client: client6, PanelListen: panelListen, Complete: true},
+			},
+			f: facts{ifaces: gIfaces(), controller: 4242},
+			want: []flow{
+				{label: "panel", pkt: flPkt("input", "203.0.113.7", 0, "0.0.0.0", 443, "tcp")},
+				{label: "panel", pkt: flPkt("input", "203.0.113.7", 0, "0.0.0.0", 8443, "tcp")},
+				{label: "panel", pkt: flPkt("input", "203.0.113.7", 0, "192.0.2.1", 9443, "tcp")},
+				{label: "panel", pkt: flPkt("input", "2001:db8:5::7", 0, "::", 8443, "tcp")},
+			},
+		},
+		{
+			name: "panel listener on a host address means the controller runs here",
+			in:   Input{Plan: &core.GuardContext{Client: client4, PanelListen: flAddrPorts("192.0.2.1:443", "198.51.100.80:443"), Complete: true}},
+			f:    facts{ifaces: gIfaces()},
+			want: []flow{{label: "panel", pkt: flPkt("input", "203.0.113.7", 0, "192.0.2.1", 443, "tcp")}},
+		},
+		{
+			name: "no controller on this host",
+			in: Input{Plan: &core.GuardContext{Client: client4, Via: npm, PanelListen: flAddrPorts("198.51.100.80:443"),
+				AgentListen: flAddrPorts("198.51.100.80:7443"), AgentPeers: []netip.Addr{netip.MustParseAddr("192.0.2.77")}, Complete: true}},
+			f: facts{ifaces: gIfaces()},
+		},
+		{
+			name: "a client that came through an exposure is not a direct panel flow",
+			in:   Input{Plan: &core.GuardContext{Client: client4, Via: npm, PanelListen: panelListen, Complete: true}},
+			f:    facts{ifaces: gIfaces(), controller: 4242},
+			want: []flow{
+				{label: "exposure exp1 proxy", pkt: flOn("dp-panel", flPkt("input", "172.30.0.2", 0, "172.30.0.1", 8080, "tcp"))},
+				{label: "exposure exp1 public", pkt: flPkt("input", "198.51.100.1", 0, "192.0.2.1", 443, "tcp")},
+				{label: "exposure exp1 public", pkt: flPkt("input", "2001:db8:ffff::1", 0, "2001:db8::1", 443, "tcp")},
+				{label: "exposure exp1 public", pkt: flPkt("input", "198.51.100.1", 0, "0.0.0.0", 443, "tcp")},
+				{label: "exposure exp1 public", pkt: flPkt("input", "2001:db8:ffff::1", 0, "::", 443, "tcp")},
+			},
+		},
+		{
+			name: "tunnel exposure",
+			in:   Input{Plan: &core.GuardContext{Via: tunnel, Complete: true}},
+			f:    facts{ifaces: gIfaces(), controller: 4242},
+			want: []flow{
+				{label: "exposure exp2 proxy", pkt: flOn("dp-panel", flPkt("input", "172.30.0.3", 0, "172.30.0.1", 8080, "tcp"))},
+				{label: "exposure exp2 tunnel", pkt: flOn("dp-panel", flPkt("forward", "172.30.0.3", 0, "198.51.100.1", 7844, "udp")), standIn: true},
+				{label: "exposure exp2 tunnel", pkt: flOn("dp-panel", flPkt("forward", "172.30.0.3", 0, "198.51.100.1", 7844, "tcp")), standIn: true},
+				{label: "exposure exp2 tunnel", pkt: flOn("dp-panel", flPkt("forward", "172.30.0.3", 0, "198.51.100.1", 443, "tcp")), standIn: true},
+			},
+		},
+		{
+			name: "retired exposure",
+			in:   Input{Plan: &core.GuardContext{Via: tunnel, Complete: true}, Refresh: &core.GuardContext{Via: npm, Complete: true}, Retired: []string{"exp2", "exp1"}},
+			f:    facts{ifaces: gIfaces(), controller: 4242},
+		},
+		{
+			name: "malformed exposures",
+			in: Input{
+				Plan:    &core.GuardContext{Via: &core.ProxyPath{ExposureID: "exp3", Kind: "npm"}, Complete: true},
+				Refresh: &core.GuardContext{Via: &core.ProxyPath{ExposureID: "exp4", Kind: "carrier-pigeon", ProxyAddr: netip.MustParseAddr("172.30.0.4"), ListenerAddr: netip.MustParseAddrPort("172.30.0.1:8080")}, Complete: true},
+			},
+			f: facts{ifaces: gIfaces(), controller: 4242},
+			want: []flow{
+				{label: "exposure exp3", unknown: "the exposure has no proxy or listener address"},
+				{label: "exposure exp4 proxy", pkt: flOn("dp-panel", flPkt("input", "172.30.0.4", 0, "172.30.0.1", 8080, "tcp"))},
+				{label: "exposure exp4", unknown: "the exposure kind carrier-pigeon is not npm or tunnel"},
+			},
+		},
+		{
+			name: "agent links",
+			in: Input{Plan: &core.GuardContext{AgentListen: flAddrPorts("0.0.0.0:7443", "[::]:7444"), Complete: true,
+				AgentPeers: []netip.Addr{netip.MustParseAddr("198.51.100.7"), netip.MustParseAddr("192.0.2.1"), netip.MustParseAddr("2001:db8:7::7")}}},
+			f: facts{ifaces: gIfaces(), controller: 4242},
+			want: []flow{
+				{label: "agent link", pkt: flPkt("input", "198.51.100.7", 0, "0.0.0.0", 7443, "tcp")},
+				{label: "agent link", pkt: flPkt("input", "198.51.100.7", 0, "0.0.0.0", 7444, "tcp")},
+				{label: "agent link", pkt: flPkt("input", "2001:db8:7::7", 0, "::", 7444, "tcp")},
+			},
+		},
+		{
+			name: "local controller sessions from live facts",
+			f: facts{ifaces: gIfaces(), controller: 4242, sockets: []netstat.Socket{
+				flSock(tcp, listen, "[::]:443", "", "darkpanel-contr", 4242),
+				flSock(tcp, est, "[::ffff:192.0.2.1]:443", "[::ffff:203.0.113.9]:40000", "darkpanel-contr", 4242),
+				flSock(tcp, est, "192.0.2.1:40001", "198.51.100.50:443", "darkpanel-contr", 4242),
+				flSock(tcp, est, "[::1]:443", "[::1]:40002", "darkpanel-contr", 4242),
+			}},
+			want: []flow{{label: "controller session", pkt: flPkt("input", "203.0.113.9", 0, "192.0.2.1", 443, "tcp")}},
+		},
+		{
+			name: "the agent's outbound sessions",
+			f: facts{ifaces: gIfaces(), pid: 99, sockets: []netstat.Socket{
+				flSock(tcp, est, "192.0.2.1:40100", "198.51.100.9:7443", "darkpanel-agent", 99),
+				flSock(tcp, est, "127.0.0.1:40101", "127.0.0.1:7443", "darkpanel-agent", 99),
+				flSock(tcp, listen, "0.0.0.0:9100", "", "darkpanel-agent", 99),
+				flSock(tcp, est, "192.0.2.1:9100", "198.51.100.10:40102", "darkpanel-agent", 99),
+				flSock(tcp, est, "192.0.2.1:40103", "198.51.100.11:443", "curl", 500),
+			}},
+			want: []flow{{label: "controller link", pkt: flPkt("output", "192.0.2.1", 40100, "198.51.100.9", 7443, "tcp")}},
+		},
+		{
+			name: "tailscaled",
+			f: facts{ifaces: gIfaces(), sockets: []netstat.Socket{
+				flSock(udp, closed, "0.0.0.0:41641", "", "tailscaled", 300),
+				flSock(udp, closed, "[::]:41641", "", "tailscaled", 300),
+				flSock(udp, closed, "127.0.0.1:41000", "", "tailscaled", 300),
+				flSock(udp, closed, "0.0.0.0:0", "", "tailscaled", 300),
+				flSock(tcp, est, "100.64.0.1:41002", "100.64.0.2:443", "tailscaled", 300),
+			}},
+			want: []flow{
+				{label: "tailscale", pkt: gxMark(flPkt("output", "0.0.0.0", 41641, "198.51.100.1", 41641, "udp"), 0x80000), standIn: true},
+				{label: "tailscale", pkt: gxMark(flPkt("output", "0.0.0.0", 0, "198.51.100.1", 443, "tcp"), 0x80000), standIn: true},
+			},
+		},
+		{
+			name: "incomplete topology once for both contexts",
+			in:   Input{Plan: &core.GuardContext{}, Refresh: &core.GuardContext{}},
+			f:    facts{ifaces: gIfaces()},
+			want: []flow{{label: "controller topology", unknown: "the controller's topology is incomplete"}},
+		},
+		{
+			name: "plan and refresh merge without duplicates",
+			in: Input{
+				Plan:    &core.GuardContext{Client: client4, PanelListen: flAddrPorts("192.0.2.1:443"), Complete: true},
+				Refresh: &core.GuardContext{Client: client4, PanelListen: flAddrPorts("192.0.2.1:443", "10.0.0.1:443"), Complete: true},
+			},
+			f: facts{ifaces: gIfaces()},
+			want: []flow{
+				{label: "panel", pkt: flPkt("input", "203.0.113.7", 0, "192.0.2.1", 443, "tcp")},
+				{label: "panel", pkt: flPkt("input", "203.0.113.7", 0, "10.0.0.1", 443, "tcp")},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := buildFlows(tc.in, tc.f)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("buildFlows =\n%+v\nwant\n%+v", got, tc.want)
+			}
+		})
+	}
+}
+```
+
+In `internal/modules/firewall/guard/guard_test.go`:
+
+Replace this block:
+
+```go
+			flSock(netstat.ProtoUDP, netstat.StateClose, "0.0.0.0:41641", "", "tailscaled", 300),
+		},
+		routes: map[netstat.RouteQuery]netstat.Route{
+			rtQuery("198.51.100.9", "192.0.2.1", ""):          rtVia("eth0", "192.0.2.1"),
+			rtQuery("198.51.100.1", "", ""):                   rtVia("eth0", "192.0.2.1"),
+			rtQuery("198.51.100.1", "172.30.0.3", "dp-panel"): rtVia("eth0", ""),
+		},
+	}
+}
+```
+
+with:
+
+```go
+			flSock(netstat.ProtoUDP, netstat.StateClose, "0.0.0.0:41641", "", "tailscaled", 300),
+		},
+		routes: map[netstat.RouteQuery]netstat.Route{
+			rtQuery("198.51.100.9", "192.0.2.1", ""):              rtVia("eth0", "192.0.2.1"),
+			gxQueryMark(rtQuery("198.51.100.1", "", ""), 0x80000): rtVia("eth0", "192.0.2.1"),
+			rtQuery("198.51.100.1", "172.30.0.3", "dp-panel"):     rtVia("eth0", ""),
+		},
+	}
+}
+```
+
+Replace this block:
+
+```go
+	}
+}
+
+func TestCheckErrors(t *testing.T) {
+	env, _, _ := ckEnv()
+	if _, _, err := (Checker{Host: ckHost()}).Check(context.Background(), env, ckState(), Input{}); err == nil {
+```
+
+with:
+
+```go
+	}
+}
+
+func TestGxCheckTailscaleMark(t *testing.T) {
+	env, _, _ := ckEnv()
+	h := &gHost{ifaces: gIfaces(), sockets: []netstat.Socket{
+		flSock(netstat.ProtoUDP, netstat.StateClose, "0.0.0.0:41641", "", "tailscaled", 300),
+	}, routes: map[netstat.RouteQuery]netstat.Route{
+		rtQuery("198.51.100.1", "", ""):                       rtVia("eth1", "10.0.0.1"),
+		gxQueryMark(rtQuery("198.51.100.1", "", ""), 0x80000): rtVia("eth0", "192.0.2.1"),
+	}}
+	var seen []fwstate.Packet
+	eval := func(_ *netfilter.Ruleset, p fwstate.Packet, _ fwstate.Router) fwstate.Result {
+		seen = append(seen, p)
+		return fwstate.Result{Verdict: fwstate.Accept}
+	}
+	g, results, err := Checker{Host: h}.Check(context.Background(), env, ckState(), Input{Eval: eval})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var flows []string
+	for _, r := range results {
+		flows = append(flows, r.Flow)
+	}
+	want := []string{
+		"tailscale udp from 192.0.2.1 to 198.51.100.1:41641 out eth0",
+		"tailscale from 192.0.2.1 to 198.51.100.1:443 out eth0",
+	}
+	if !g.OK || !reflect.DeepEqual(flows, want) {
+		t.Errorf("guard %+v, flows %q; want tailscaled's flows routed by its bypass mark %q", g, flows, want)
+	}
+	for _, p := range seen {
+		if p.Mark != 0x80000 {
+			t.Errorf("evaluated %+v, want mark 0x80000", p)
+		}
+	}
+}
+
+func TestCheckErrors(t *testing.T) {
+	env, _, _ := ckEnv()
+	if _, _, err := (Checker{Host: ckHost()}).Check(context.Background(), env, ckState(), Input{}); err == nil {
+```
+
+In `internal/modules/firewall/guard/route_test.go`:
+
+Replace this block:
+
+```go
+	return q
+}
+
+// rtVia is a unicast route through iface with a preferred source.
+func rtVia(iface, prefSrc string) netstat.Route {
+	r := netstat.Route{Type: "unicast", OutIface: iface}
+```
+
+with:
+
+```go
+	return q
+}
+
+// gxQueryMark is q with the packet mark set.
+func gxQueryMark(q netstat.RouteQuery, mark uint32) netstat.RouteQuery {
+	q.Mark = mark
+	return q
+}
+
+// rtVia is a unicast route through iface with a preferred source.
+func rtVia(iface, prefSrc string) netstat.Route {
+	r := netstat.Route{Type: "unicast", OutIface: iface}
+```
+
+Replace this block:
+
+```go
+			routes: map[netstat.RouteQuery]netstat.Route{rtQuery("198.51.100.1", "", ""): rtVia("eth0", "192.0.2.1")},
+			want:   []probe{rtProbe("tailscale udp from 192.0.2.1 to 198.51.100.1:41641 out eth0", tsUDPResolved, "", "eth0")},
+		},
+		{
+			name: "a stand-in destination without a route has nothing to protect",
+			fl:   flow{label: "tailscale", pkt: tsUDP, standIn: true}, f: rtFacts(0, 0, 0),
+```
+
+with:
+
+```go
+			routes: map[netstat.RouteQuery]netstat.Route{rtQuery("198.51.100.1", "", ""): rtVia("eth0", "192.0.2.1")},
+			want:   []probe{rtProbe("tailscale udp from 192.0.2.1 to 198.51.100.1:41641 out eth0", tsUDPResolved, "", "eth0")},
+		},
+		{
+			name: "outbound looks the route up with the packet's mark",
+			fl:   flow{label: "tailscale", pkt: gxMark(tsUDP, 0x80000), standIn: true}, f: rtFacts(0, 0, 0),
+			routes: map[netstat.RouteQuery]netstat.Route{
+				rtQuery("198.51.100.1", "", ""):                       rtVia("eth1", "10.0.0.1"),
+				gxQueryMark(rtQuery("198.51.100.1", "", ""), 0x80000): rtVia("eth0", "192.0.2.1"),
+			},
+			want:    []probe{rtProbe("tailscale udp from 192.0.2.1 to 198.51.100.1:41641 out eth0", gxMark(tsUDPResolved, 0x80000), "", "eth0")},
+			lookups: []netstat.RouteQuery{gxQueryMark(rtQuery("198.51.100.1", "", ""), 0x80000)},
+		},
+		{
+			name: "a forwarded flow looks the route up with the packet's mark",
+			fl:   flow{label: "exposure exp2 tunnel", pkt: gxMark(tunnel, 0x10), standIn: true}, f: rtFacts(0, 0, 0),
+			routes: map[netstat.RouteQuery]netstat.Route{
+				gxQueryMark(rtQuery("198.51.100.1", "172.30.0.3", "dp-panel"), 0x10): rtVia("eth0", ""),
+			},
+			want:    []probe{rtProbe("exposure exp2 tunnel udp from 172.30.0.3 to 198.51.100.1:7844 on dp-panel out eth0", gxMark(tunnel, 0x10), "dp-panel", "eth0")},
+			lookups: []netstat.RouteQuery{gxQueryMark(rtQuery("198.51.100.1", "172.30.0.3", "dp-panel"), 0x10)},
+		},
+		{
+			name: "every lookup of an incoming flow carries the packet's mark",
+			fl:   flow{label: "panel", pkt: gxMark(panel, 0x10)}, f: rtFacts(1, 0, 0),
+			routes: map[netstat.RouteQuery]netstat.Route{
+				gxQueryMark(rtQuery("203.0.113.7", "", ""), 0x10):          rtVia("eth0", "192.0.2.1"),
+				gxQueryMark(rtQuery("203.0.113.7", "192.0.2.1", ""), 0x10): rtVia("eth0", "192.0.2.1"),
+			},
+			want:    []probe{rtProbe("panel from 203.0.113.7 to 192.0.2.1:443 on eth0", gxMark(panelResolved, 0x10), "eth0", "")},
+			lookups: []netstat.RouteQuery{gxQueryMark(rtQuery("203.0.113.7", "", ""), 0x10), gxQueryMark(rtQuery("203.0.113.7", "192.0.2.1", ""), 0x10)},
+		},
+		{
+			name: "a stand-in destination without a route has nothing to protect",
+			fl:   flow{label: "tailscale", pkt: tsUDP, standIn: true}, f: rtFacts(0, 0, 0),
+```
+
+Replace this block:
+
+```go
+		{name: "no route", p: fwd, err: "firewall: route to 172.17.0.2 from 198.51.100.1 on eth0: netstat: no route"},
+		{name: "multipath", p: fwd, routes: map[netstat.RouteQuery]netstat.Route{toDocker: rtVia("", "")}, err: "firewall: the route to 172.17.0.2 has no single out-interface"},
+		{name: "outbound", p: out, routes: map[netstat.RouteQuery]netstat.Route{rtQuery("198.51.100.9", "192.0.2.1", ""): rtVia("eth1", "")}, path: "output", oif: "eth1"},
+		{name: "outbound without a route", p: out, err: "firewall: route to 198.51.100.9: netstat: no route"},
+		{name: "outbound multipath", p: out, routes: map[netstat.RouteQuery]netstat.Route{rtQuery("198.51.100.9", "192.0.2.1", ""): rtVia("", "")},
+			err: "firewall: the route to 198.51.100.9 has no single out-interface"},
+```
+
+with:
+
+```go
+		{name: "no route", p: fwd, err: "firewall: route to 172.17.0.2 from 198.51.100.1 on eth0: netstat: no route"},
+		{name: "multipath", p: fwd, routes: map[netstat.RouteQuery]netstat.Route{toDocker: rtVia("", "")}, err: "firewall: the route to 172.17.0.2 has no single out-interface"},
+		{name: "outbound", p: out, routes: map[netstat.RouteQuery]netstat.Route{rtQuery("198.51.100.9", "192.0.2.1", ""): rtVia("eth1", "")}, path: "output", oif: "eth1"},
+		{name: "a forwarded packet carries its mark", p: gxMark(fwd, 0x10), routes: map[netstat.RouteQuery]netstat.Route{gxQueryMark(toDocker, 0x10): rtVia("docker0", "")}, path: "forward", oif: "docker0"},
+		{name: "outbound carries its mark", p: gxMark(out, 0x80000), routes: map[netstat.RouteQuery]netstat.Route{
+			rtQuery("198.51.100.9", "192.0.2.1", ""):                       rtVia("eth0", ""),
+			gxQueryMark(rtQuery("198.51.100.9", "192.0.2.1", ""), 0x80000): rtVia("eth1", ""),
+		}, path: "output", oif: "eth1"},
+		{name: "outbound to a host address leaves through lo", p: flPkt("output", "192.0.2.1", 40100, "10.0.0.1", 7443, "tcp"), path: "output", oif: "lo"},
+		{name: "outbound to a loopback address leaves through lo", p: flPkt("output", "192.0.2.1", 40100, "127.0.0.2", 7443, "tcp"), path: "output", oif: "lo"},
+		{name: "outbound without a route", p: out, err: "firewall: route to 198.51.100.9: netstat: no route"},
+		{name: "outbound multipath", p: out, routes: map[netstat.RouteQuery]netstat.Route{rtQuery("198.51.100.9", "192.0.2.1", ""): rtVia("", "")},
+			err: "firewall: the route to 198.51.100.9 has no single out-interface"},
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `mkdir -p /root/.cache/w1-tmp/105 && TMPDIR=/root/.cache/w1-tmp/105 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestBuildFlows|TestCheck|TestProbes|TestRouterRoute|TestGxCheckTailscaleMark' ./internal/modules/firewall/guard/`
+Expected: FAIL, the tailscale flows have mark 0, every lookup has `Mark:0`, and a local output destination routes as `input` (the full list of failing tests and three real messages):
+
+```text
+--- FAIL: TestBuildFlows (0.00s)
+    --- FAIL: TestBuildFlows/tailscaled (0.00s)
+--- FAIL: TestCheckAllPass (0.00s)
+--- FAIL: TestCheckEachFlowRefusingAlone (0.00s)
+    --- FAIL: TestCheckEachFlowRefusingAlone/tailscale (0.00s)
+    --- FAIL: TestCheckEachFlowRefusingAlone/a_new_connection_has_no_source_port (0.00s)
+    --- FAIL: TestCheckEachFlowRefusingAlone/an_observed_source_port_is_kept (0.00s)
+--- FAIL: TestCheckIncompleteTopology (0.00s)
+--- FAIL: TestCheckBreakGlass (0.00s)
+--- FAIL: TestGxCheckTailscaleMark (0.00s)
+    guard_test.go:374: evaluated {Family:v4 Path:output InIface: OutIface:eth1 Src:10.0.0.1 Dst:198.51.100.1 SrcPort:41641 DstPort:41641 Proto:udp CtState:NEW Mark:0}, want mark 0x80000
+--- FAIL: TestProbes (0.00s)
+    --- FAIL: TestProbes/outbound_looks_the_route_up_with_the_packet's_mark (0.00s)
+        route_test.go:253: lookups = [{Dst:198.51.100.1 Src:invalid IP IIF: OIF: Mark:0}], want [{Dst:198.51.100.1 Src:invalid IP IIF: OIF: Mark:524288}]
+    --- FAIL: TestProbes/a_forwarded_flow_looks_the_route_up_with_the_packet's_mark (0.00s)
+    --- FAIL: TestProbes/every_lookup_of_an_incoming_flow_carries_the_packet's_mark (0.00s)
+--- FAIL: TestRouterRoute (0.00s)
+    --- FAIL: TestRouterRoute/a_forwarded_packet_carries_its_mark (0.00s)
+    --- FAIL: TestRouterRoute/outbound_carries_its_mark (0.00s)
+    --- FAIL: TestRouterRoute/outbound_to_a_host_address_leaves_through_lo (0.00s)
+        route_test.go:351: route = "input", "", <nil>; want "output", "lo"
+    --- FAIL: TestRouterRoute/outbound_to_a_loopback_address_leaves_through_lo (0.00s)
+FAIL
+FAIL	github.com/darkraise/darkpanel/internal/modules/firewall/guard	0.005s
+FAIL
+```
+
+- [ ] **Step 3: Write the implementation**
+
+In `internal/modules/firewall/guard/flows.go`:
+
+Replace this block:
+
+```go
+// tailscaled is the process name of the Tailscale daemon.
+const tailscaled = "tailscaled"
+
+// flow is one protected flow before routing: pkt has no in- or
+// out-interface yet unless the flow fixes its in-interface. A flow with a
+// non-empty unknown is not evaluated and fails with that reason.
+```
+
+with:
+
+```go
+// tailscaled is the process name of the Tailscale daemon.
+const tailscaled = "tailscaled"
+
+// tailscaleMark is the bypass mark tailscaled puts on its own sockets, so
+// policy routing sends its traffic around the tailnet's routes.
+const tailscaleMark uint32 = 0x80000
+
+// flow is one protected flow before routing: pkt has no in- or
+// out-interface yet unless the flow fixes its in-interface. A flow with a
+// non-empty unknown is not evaluated and fails with that reason.
+```
+
+Replace this block:
+
+```go
+	}
+	slices.Sort(ports)
+	for _, port := range ports {
+		s.add(flow{label: "tailscale", pkt: newPacket("output", netip.IPv4Unspecified(), port, internet4, 41641, "udp"), standIn: true})
+	}
+	s.add(flow{label: "tailscale", pkt: newPacket("output", netip.IPv4Unspecified(), unknownPort, internet4, 443, "tcp"), standIn: true})
+}
+```
+
+with:
+
+```go
+	}
+	slices.Sort(ports)
+	for _, port := range ports {
+		p := newPacket("output", netip.IPv4Unspecified(), port, internet4, 41641, "udp")
+		p.Mark = tailscaleMark
+		s.add(flow{label: "tailscale", pkt: p, standIn: true})
+	}
+	p := newPacket("output", netip.IPv4Unspecified(), unknownPort, internet4, 443, "tcp")
+	p.Mark = tailscaleMark
+	s.add(flow{label: "tailscale", pkt: p, standIn: true})
+}
+```
+
+In `internal/modules/firewall/guard/route.go`:
+
+Replace this block:
+
+```go
+// without a fixed in-interface on every eligible in-interface, any other
+// flow once with the out-interface its route gives. A route that cannot be
+// resolved makes the flow unknown, except that a stand-in destination
+// without a route of its family has nothing to protect.
+func (r *router) probes(fl flow) []probe {
+	if fl.unknown != "" {
+		return []probe{{desc: fl.label, unknown: fl.unknown}}
+```
+
+with:
+
+```go
+// without a fixed in-interface on every eligible in-interface, any other
+// flow once with the out-interface its route gives. A route that cannot be
+// resolved makes the flow unknown, except that a stand-in destination
+// without a route of its family has nothing to protect. Every lookup
+// carries the packet's mark, which policy rules may match.
+func (r *router) probes(fl flow) []probe {
+	if fl.unknown != "" {
+		return []probe{{desc: fl.label, unknown: fl.unknown}}
+```
+
+Replace this block:
+
+```go
+	}
+	switch p.Path {
+	case "output":
+		q := netstat.RouteQuery{Dst: p.Dst}
+		if !p.Src.IsUnspecified() {
+			q.Src = p.Src
+		}
+```
+
+with:
+
+```go
+	}
+	switch p.Path {
+	case "output":
+		q := netstat.RouteQuery{Dst: p.Dst, Mark: p.Mark}
+		if !p.Src.IsUnspecified() {
+			q.Src = p.Src
+		}
+```
+
+Replace this block:
+
+```go
+		if off := r.forwardingOff(p.Family); off != "" {
+			return fail(off)
+		}
+		rt, ok, out := lookup(netstat.RouteQuery{Dst: p.Dst, Src: p.Src, IIF: p.InIface})
+		if !ok {
+			return out
+		}
+```
+
+with:
+
+```go
+		if off := r.forwardingOff(p.Family); off != "" {
+			return fail(off)
+		}
+		rt, ok, out := lookup(netstat.RouteQuery{Dst: p.Dst, Src: p.Src, IIF: p.InIface, Mark: p.Mark})
+		if !ok {
+			return out
+		}
+```
+
+Replace this block:
+
+```go
+		return []probe{{desc: describe(fl.label, p), pkt: p}}
+	}
+	if p.Dst.IsUnspecified() {
+		rt, err := r.host.RouteGet(netstat.RouteQuery{Dst: p.Src})
+		if err != nil {
+			return fail(fmt.Sprintf("the route back to %s cannot be resolved: %v", p.Src, err))
+		}
+```
+
+with:
+
+```go
+		return []probe{{desc: describe(fl.label, p), pkt: p}}
+	}
+	if p.Dst.IsUnspecified() {
+		rt, err := r.host.RouteGet(netstat.RouteQuery{Dst: p.Src, Mark: p.Mark})
+		if err != nil {
+			return fail(fmt.Sprintf("the route back to %s cannot be resolved: %v", p.Src, err))
+		}
+```
+
+Replace this block:
+
+```go
+			}
+			if rp == 1 {
+				if !looked {
+					q := netstat.RouteQuery{Dst: p.Src}
+					if r.local[p.Dst] {
+						q.Src = p.Dst
+					}
+```
+
+with:
+
+```go
+			}
+			if rp == 1 {
+				if !looked {
+					q := netstat.RouteQuery{Dst: p.Src, Mark: p.Mark}
+					if r.local[p.Dst] {
+						q.Src = p.Dst
+					}
+```
+
+Replace this block:
+
+```go
+}
+
+// route is the evaluator's fwstate.Router: where a packet goes once nat
+// PREROUTING has set its destination.
+func (r *router) route(p fwstate.Packet) (string, string, error) {
+	dst := p.Dst.Unmap()
+	if dst.IsLoopback() || r.local[dst] {
+		return "input", "", nil
+	}
+	if p.Path == "output" {
+		rt, err := r.host.RouteGet(netstat.RouteQuery{Dst: dst, Src: p.Src})
+		switch {
+		case err != nil:
+			return "", "", fmt.Errorf("firewall: route to %s: %w", dst, err)
+```
+
+with:
+
+```go
+}
+
+// route is the evaluator's fwstate.Router: where a packet goes once nat
+// PREROUTING has set its destination. Every lookup carries the packet's
+// mark, which policy rules may match. A locally generated packet to an
+// address of this host leaves through lo.
+func (r *router) route(p fwstate.Packet) (string, string, error) {
+	dst := p.Dst.Unmap()
+	if dst.IsLoopback() || r.local[dst] {
+		if p.Path == "output" {
+			return "output", "lo", nil
+		}
+		return "input", "", nil
+	}
+	if p.Path == "output" {
+		rt, err := r.host.RouteGet(netstat.RouteQuery{Dst: dst, Src: p.Src, Mark: p.Mark})
+		switch {
+		case err != nil:
+			return "", "", fmt.Errorf("firewall: route to %s: %w", dst, err)
+```
+
+Replace this block:
+
+```go
+	if off := r.forwardingOff(p.Family); off != "" {
+		return "", "", errors.New("firewall: " + off)
+	}
+	rt, err := r.host.RouteGet(netstat.RouteQuery{Dst: dst, Src: p.Src, IIF: p.InIface})
+	switch {
+	case err != nil:
+		return "", "", fmt.Errorf("firewall: route to %s from %s on %s: %w", dst, p.Src, p.InIface, err)
+```
+
+with:
+
+```go
+	if off := r.forwardingOff(p.Family); off != "" {
+		return "", "", errors.New("firewall: " + off)
+	}
+	rt, err := r.host.RouteGet(netstat.RouteQuery{Dst: dst, Src: p.Src, IIF: p.InIface, Mark: p.Mark})
+	switch {
+	case err != nil:
+		return "", "", fmt.Errorf("firewall: route to %s from %s on %s: %w", dst, p.Src, p.InIface, err)
+```
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `TMPDIR=/root/.cache/w1-tmp/105 GOTOOLCHAIN=local timeout 300 go test -count=1 ./internal/modules/firewall/guard/` — Expected: PASS (`ok` for every package listed)
+Then run, each with `GOTOOLCHAIN=local`, an explicit `timeout` and `TMPDIR=/root/.cache/w1-tmp/105`: `go build ./...`; `go vet ./...` (no output); `go vet -tags harness ./test/...` (no output); `go test -count=1 ./...` (every package `ok` or `?`); `go test -race -count=1 ./internal/modules/firewall/guard/` (`ok`); `golangci-lint run --allow-serial-runners ./...` (`0 issues.`); `go mod tidy -diff` (no output).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/modules/firewall/guard/flows.go internal/modules/firewall/guard/flows_test.go internal/modules/firewall/guard/guard_test.go internal/modules/firewall/guard/route.go internal/modules/firewall/guard/route_test.go
+git commit -m "fix(firewall): pass packet marks to guard routes" -m "tailscaled's flows carry its bypass mark 0x80000 and every route
+lookup of the guard passes the packet's mark, so policy rules that match
+it choose the out-interface. A locally generated packet whose
+destination is an address of this host routes as output through lo."
+```
+
+### Task 106: Record the kind of a restore
+
+**Files:**
+- Create: `internal/modules/firewall/migrations/agent/0002_firewall_restore_kind.sql`
+- Modify: `internal/modules/firewall/store.go`
+- Test: `internal/modules/firewall/store_test.go`
+
+**Interfaces:**
+- Consumes: `beginRestore`, `restoreIntent`, `pendingRestore`, `endRestore`, `agentMigrations`, `fwTestDB`, `stTestSnap`, `stTestT0` (part A1, Tasks 37 and 62).
+- Produces: `restoreRecord`, `beginRestoreRecord`, `markEmergency`, `restoreRecordOf` (Part contracts, Task 106).
+
+**Depends on:** Task 28, Task 64, Task 80, Task 88, Task 91
+
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 0 - coupling 2 - risk 3 = 6
+**Lenses:** security
+
+A restore is recorded in `firewall_restores` with its UFW transition only, so finishing a restore that a crash cut off cannot tell an emergency restore (the connectivity exception) from a normal one. This task adds the record's kind and, for an emergency restore, the override detail it carries, in an expand-only migration (a record written before is a normal restore), and the store functions that write and read them. The tests prove that the kind and the detail round-trip, that `markEmergency` keeps the transition and refuses a snapshot without a record, that a new restore supersedes the old record, and that a database migrated from `0001` with a record in it reads the record as a normal restore.
+
+- [ ] **Step 1: Write the failing test**
+
+Add two tests and the imports they need.
+
+In `internal/modules/firewall/store_test.go`:
+
+Replace this block:
+
+```go
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"path/filepath"
+	"reflect"
+	"testing"
+	"time"
+
+```
+
+with:
+
+```go
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"path/filepath"
+	"reflect"
+	"testing"
+	"testing/fstest"
+	"time"
+
+```
+
+Append to the end of the file:
+
+```go
+
+func TestAxRestoreRecordKind(t *testing.T) {
+	ctx := context.Background()
+	db := fwTestDB(t)
+	a, b := stTestSnap(1, false), stTestSnap(2, false)
+	for _, s := range []snapshot{a, b} {
+		if _, err := saveSnapshot(ctx, db, s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := beginRestore(ctx, db, a.ID, fwstate.TransReload, stTestT0); err != nil {
+		t.Fatal(err)
+	}
+	rec, ok, err := restoreRecordOf(ctx, db, a.ID)
+	if err != nil || !ok || rec.Transition != fwstate.TransReload || rec.Emergency != nil {
+		t.Fatalf("restoreRecordOf(a) = %+v, %v, %v, want a normal reload", rec, ok, err)
+	}
+	emergency := json.RawMessage(`{"detail":{"guard":"ssh is dropped"}}`)
+	if err := markEmergency(ctx, db, a.ID, emergency); err != nil {
+		t.Fatal(err)
+	}
+	rec, _, err = restoreRecordOf(ctx, db, a.ID)
+	if err != nil || rec.Transition != fwstate.TransReload || string(rec.Emergency) != string(emergency) {
+		t.Errorf("after markEmergency: %+v, %v", rec, err)
+	}
+	if err := markEmergency(ctx, db, b.ID, emergency); err == nil {
+		t.Error("markEmergency of a snapshot without a record succeeded")
+	}
+	if err := beginRestoreRecord(ctx, db, b.ID, restoreRecord{Transition: fwstate.TransDisable, Emergency: emergency}, stTestT0); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := restoreRecordOf(ctx, db, a.ID); ok {
+		t.Error("a new restore kept the superseded restore's record")
+	}
+	rec, _, err = restoreRecordOf(ctx, db, b.ID)
+	if err != nil || rec.Transition != fwstate.TransDisable || string(rec.Emergency) != string(emergency) {
+		t.Errorf("restoreRecordOf(b) = %+v, %v", rec, err)
+	}
+	if tr, ok, err := restoreIntent(ctx, db, b.ID); err != nil || !ok || tr != fwstate.TransDisable {
+		t.Errorf("restoreIntent(b) = %q, %v, %v", tr, ok, err)
+	}
+}
+
+func TestAxRestoreRecordMigrationKeepsOldRows(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "agent.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	coreSet, err := store.CoreMigrations(store.SideAgent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := fs.ReadFile(agentMigrations(), "0001_firewall.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	only1 := fstest.MapFS{"0001_firewall.sql": &fstest.MapFile{Data: first}}
+	opts := store.MigrateOptions{Side: store.SideAgent, BinaryVersion: "test", BackupRoot: filepath.Join(t.TempDir(), "backups"), Keep: 5, Now: time.Now()}
+	if res, err := store.Migrate(ctx, db, opts, coreSet, []store.MigrationSet{{Module: ID, FS: only1}}); err != nil || len(res.Failed) > 0 {
+		t.Fatalf("migrate 0001: %v %v", err, res.Failed)
+	}
+	if err := db.Write(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.Exec(`INSERT INTO firewall_snapshots (id, created_at, actor, entries, state, hashes) VALUES ('s1', 't', 'a', '[]', '{}', '{}')`); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`INSERT INTO firewall_restores (snapshot_id, transition, started_at) VALUES ('s1', 'reload', 't')`)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	opts.BinaryVersion = "test2"
+	if res, err := store.Migrate(ctx, db, opts, coreSet, []store.MigrationSet{{Module: ID, FS: agentMigrations()}}); err != nil || len(res.Failed) > 0 {
+		t.Fatalf("migrate 0002: %v %v", err, res.Failed)
+	}
+	rec, ok, err := restoreRecordOf(ctx, db, "s1")
+	if err != nil || !ok || rec.Transition != fwstate.TransReload || rec.Emergency != nil {
+		t.Errorf("a record written before the kind column = %+v, %v, %v, want a normal reload", rec, ok, err)
+	}
+}
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `mkdir -p /root/.cache/w1-tmp/106 && TMPDIR=/root/.cache/w1-tmp/106 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestAxRestoreRecord' ./internal/modules/firewall/`
+Expected: FAIL. Observed output:
+
+```text
+# github.com/darkraise/darkpanel/internal/modules/firewall [github.com/darkraise/darkpanel/internal/modules/firewall.test]
+internal/modules/firewall/store_test.go:370:18: undefined: restoreRecordOf
+internal/modules/firewall/store_test.go:375:12: undefined: markEmergency
+internal/modules/firewall/store_test.go:378:16: undefined: restoreRecordOf
+internal/modules/firewall/store_test.go:382:12: undefined: markEmergency
+internal/modules/firewall/store_test.go:385:12: undefined: beginRestoreRecord
+internal/modules/firewall/store_test.go:385:46: undefined: restoreRecord
+internal/modules/firewall/store_test.go:388:17: undefined: restoreRecordOf
+internal/modules/firewall/store_test.go:391:16: undefined: restoreRecordOf
+internal/modules/firewall/store_test.go:433:18: undefined: restoreRecordOf
+FAIL	github.com/darkraise/darkpanel/internal/modules/firewall [build failed]
+FAIL
+```
+
+- [ ] **Step 3: Write the implementation**
+
+Create `internal/modules/firewall/migrations/agent/0002_firewall_restore_kind.sql`:
+
+```sql
+-- The kind of a restore in progress (spec 2.5). An emergency restore, the
+-- connectivity exception, keeps the record of what it overwrote beside its
+-- restore record, so that a restore a crash cut off still ends as an
+-- override when it is finished. override is NULL exactly for a normal
+-- restore; a row written before this migration is a normal restore.
+ALTER TABLE firewall_restores ADD COLUMN kind TEXT NOT NULL DEFAULT 'normal' CHECK (kind IN ('normal', 'emergency'));
+ALTER TABLE firewall_restores ADD COLUMN override TEXT CHECK ((override IS NOT NULL) = (kind = 'emergency'));
+```
+
+In `internal/modules/firewall/store.go`:
+
+Replace this block:
+
+```go
+}
+
+// beginRestore records a restore of snapshot id with transition tr, in place
+// of any unfinished restore.
+func beginRestore(ctx context.Context, db *store.DB, id string, tr fwstate.Transition, now time.Time) error {
+	err := db.Write(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM firewall_restores"); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, "INSERT INTO firewall_restores (snapshot_id, transition, started_at) VALUES (?, ?, ?)",
+			id, string(tr), formatSnapshotTime(now))
+		return err
+	})
+```
+
+with:
+
+```go
+}
+
+// restoreRecord is the record of an unfinished restore: the UFW transition
+// it chose and, for an emergency restore (the connectivity exception), the
+// record of what it overwrites, which finishes the restore as an override.
+type restoreRecord struct {
+	Transition fwstate.Transition
+	Emergency  json.RawMessage // nil for a normal restore
+}
+
+// beginRestore records a normal restore of snapshot id with transition tr,
+// in place of any unfinished restore.
+func beginRestore(ctx context.Context, db *store.DB, id string, tr fwstate.Transition, now time.Time) error {
+	return beginRestoreRecord(ctx, db, id, restoreRecord{Transition: tr}, now)
+}
+
+// beginRestoreRecord records a restore of snapshot id, in place of any
+// unfinished restore.
+func beginRestoreRecord(ctx context.Context, db *store.DB, id string, rec restoreRecord, now time.Time) error {
+	kind, override := "normal", any(nil)
+	if rec.Emergency != nil {
+		kind, override = "emergency", string(rec.Emergency)
+	}
+	err := db.Write(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM firewall_restores"); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, "INSERT INTO firewall_restores (snapshot_id, transition, started_at, kind, override) VALUES (?, ?, ?, ?, ?)",
+			id, string(rec.Transition), formatSnapshotTime(now), kind, override)
+		return err
+	})
+```
+
+Replace this block:
+
+```go
+}
+
+// restoreIntent returns the transition of an unfinished restore of snapshot
+// id; ok is false when none is recorded.
+func restoreIntent(ctx context.Context, db *store.DB, id string) (fwstate.Transition, bool, error) {
+	var tr string
+	err := db.Read().QueryRowContext(ctx, "SELECT transition FROM firewall_restores WHERE snapshot_id = ?", id).Scan(&tr)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return "", false, nil
+	case err != nil:
+		return "", false, fmt.Errorf("firewall: read the restore of snapshot %s: %w", id, err)
+	}
+	return fwstate.Transition(tr), true, nil
+}
+
+```
+
+with:
+
+```go
+}
+
+// markEmergency turns the unfinished restore of snapshot id into an
+// emergency restore with the given record, keeping its transition. It fails
+// when there is no such restore.
+func markEmergency(ctx context.Context, db *store.DB, id string, emergency json.RawMessage) error {
+	err := db.Write(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, "UPDATE firewall_restores SET kind = 'emergency', override = ? WHERE snapshot_id = ?", string(emergency), id)
+		if err != nil {
+			return err
+		}
+		if n, err := res.RowsAffected(); err != nil {
+			return err
+		} else if n == 0 {
+			return errors.New("no restore is recorded")
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("firewall: record the emergency restore of snapshot %s: %w", id, err)
+	}
+	return nil
+}
+
+// restoreRecordOf returns the record of an unfinished restore of snapshot
+// id; ok is false when none is recorded.
+func restoreRecordOf(ctx context.Context, db *store.DB, id string) (rec restoreRecord, ok bool, err error) {
+	var tr string
+	var override sql.NullString
+	err = db.Read().QueryRowContext(ctx, "SELECT transition, override FROM firewall_restores WHERE snapshot_id = ?", id).Scan(&tr, &override)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return restoreRecord{}, false, nil
+	case err != nil:
+		return restoreRecord{}, false, fmt.Errorf("firewall: read the restore of snapshot %s: %w", id, err)
+	}
+	rec = restoreRecord{Transition: fwstate.Transition(tr)}
+	if override.Valid {
+		rec.Emergency = json.RawMessage(override.String)
+	}
+	return rec, true, nil
+}
+
+// restoreIntent returns the transition of an unfinished restore of snapshot
+// id; ok is false when none is recorded.
+func restoreIntent(ctx context.Context, db *store.DB, id string) (fwstate.Transition, bool, error) {
+	rec, ok, err := restoreRecordOf(ctx, db, id)
+	return rec.Transition, ok, err
+}
+
+```
+
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `TMPDIR=/root/.cache/w1-tmp/106 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestAxRestoreRecord' ./internal/modules/firewall/` Expected: PASS.
+Then run, with `GOTOOLCHAIN=local` and the task's `TMPDIR`: `timeout 600 go build ./...`; `timeout 300 go vet ./...` (no output); `timeout 300 go vet -tags harness ./test/...` (no output); `timeout 1200 go test -count=1 ./...` (every line `ok` or `?`); `timeout 900 go test -race -count=1 ./internal/modules/firewall/...` (every line `ok`); `timeout 900 golangci-lint run --allow-serial-runners ./...` (`0 issues.`); `timeout 300 go mod tidy -diff` (no output).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/modules/firewall/migrations/agent/0002_firewall_restore_kind.sql internal/modules/firewall/store.go internal/modules/firewall/store_test.go
+git commit -m "feat(firewall): record the kind of a restore"
+```
+
+### Task 107: netfilter: read REJECT and LOG names as iptables does
+
+**Files:**
+- Modify: `internal/platform/netfilter/key.go`
+- Test: `internal/platform/netfilter/key_test.go`
+
+**Interfaces:**
+- Consumes: `Key`, `keyValue`, `hasPrefixFold` (Task 92), `kyRule` (Task 24)
+- Produces: `rejectNames`, `reject6Names`, `rejectWith(names []rejectName, v string) string`, `logLevels` (Part contracts, Task 107)
+
+**Depends on:** Task 92
+
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 0 - coupling 2 - risk 2 = 5
+
+Checked against iptables 1.8.11, the REJECT aliases of `Key` were right for IPv4 but wrong for IPv6, where `tcp-rst` is not accepted (the alias of `tcp-reset` is `tcp-reset`), and neither family read a spelling as iptables does: `--reject-with` takes a case-insensitive prefix of a name or an alias and the first row of the table, in the order of the kernel's reject types, wins. `--log-level` takes the lower-case names alert, crit, debug, emerg, error, info, notice, panic and warning and the numbers 0 to 7; `err`, `warn` and capitals are refused, and `panic` was missing. `rejectWith` replaces the two alias maps and `logLevels` is corrected; a spelling the tool refuses is kept as written, so a rule that cannot be loaded never equals one that can.
+
+- [ ] **Step 1: Write the failing test**
+
+Modify `internal/platform/netfilter/key_test.go` with 1 exact edit; the "replace" block occurs exactly once in the file at that point.
+
+Replace this block:
+
+```go
+			t.Errorf("ipv6 %v: the refused --%s %s has the key %q, want it kept as written", tc.ipv6, opt, tc.in, got)
+		}
+	}
+}
+```
+
+with:
+
+```go
+			t.Errorf("ipv6 %v: the refused --%s %s has the key %q, want it kept as written", tc.ipv6, opt, tc.in, got)
+		}
+	}
+}
+
+// kxReject are the --reject-with spellings that iptables and ip6tables 1.8.11
+// (extensions/libipt_REJECT.c and libip6t_REJECT.c) accepted in a container,
+// with the name iptables-save then printed: the names and aliases, a name in
+// capitals and a prefix, which matches the first entry of the table in its
+// order.
+var kxReject = []struct {
+	ipv6      bool
+	in, saved string
+}{
+	{false, "icmp-net-unreachable", "icmp-net-unreachable"},
+	{false, "net-unreach", "icmp-net-unreachable"},
+	{false, "NET-UNREACH", "icmp-net-unreachable"},
+	{false, "icmp-port", "icmp-port-unreachable"},
+	{false, "port", "icmp-port-unreachable"},
+	{false, "p", "icmp-proto-unreachable"},
+	{false, "icmp-p", "icmp-proto-unreachable"},
+	{false, "icmp-h", "icmp-host-unreachable"},
+	{false, "h", "icmp-host-unreachable"},
+	{false, "host", "icmp-host-unreachable"},
+	{false, "net", "icmp-net-unreachable"},
+	{false, "tcp", "tcp-reset"},
+	{false, "tcp-rst", "tcp-reset"},
+	{false, "tcp-reset", "tcp-reset"},
+	{false, "admin", "icmp-admin-prohibited"},
+	{false, "admin-prohib", "icmp-admin-prohibited"},
+	{false, "icmp-admin", "icmp-admin-prohibited"},
+	{true, "icmp6-no-route", "icmp6-no-route"},
+	{true, "no-route", "icmp6-no-route"},
+	{true, "NO-ROUTE", "icmp6-no-route"},
+	{true, "adm-prohibited", "icmp6-adm-prohibited"},
+	{true, "icmp6-adm", "icmp6-adm-prohibited"},
+	{true, "addr-unreach", "icmp6-addr-unreachable"},
+	{true, "port-unreach", "icmp6-port-unreachable"},
+	{true, "port", "icmp6-port-unreachable"},
+	{true, "p", "icmp6-port-unreachable"},
+	{true, "icmp6", "icmp6-no-route"},
+	{true, "icmp6-p", "icmp6-port-unreachable"},
+	{true, "tcp", "tcp-reset"},
+	{true, "tcp-reset", "tcp-reset"},
+	{true, "policy-fail", "icmp6-policy-fail"},
+	{true, "policy", "icmp6-policy-fail"},
+	{true, "reject-route", "icmp6-reject-route"},
+	{true, "reject", "icmp6-reject-route"},
+	{true, "r", "icmp6-reject-route"},
+}
+
+// kxRejectRefused are spellings that the tools refused. The key keeps them
+// as written, so a rule that cannot be loaded never equals one that can.
+var kxRejectRefused = []struct {
+	ipv6 bool
+	in   string
+}{
+	{false, "echo-reply"},
+	{false, "nope"},
+	{true, "tcp-rst"},
+	{true, "icmp-port-unreachable"},
+	{true, "nope"},
+}
+
+// kxLogLevels are the --log-level spellings that iptables 1.8.11 accepted,
+// with the level iptables-save then printed (no level for the default 4), and
+// kxLogRefused those it refused: it takes the syslog names alert, crit,
+// debug, emerg, error, info, notice, panic and warning in lower case, and
+// the numbers 0 to 7.
+var kxLogLevels = []struct{ in, saved string }{
+	{"emerg", "0"},
+	{"alert", "1"},
+	{"crit", "2"},
+	{"error", "3"},
+	{"warning", "4"},
+	{"notice", "5"},
+	{"info", "6"},
+	{"debug", "7"},
+	{"panic", "0"},
+	{"0", "0"},
+	{"1", "1"},
+	{"4", "4"},
+	{"7", "7"},
+}
+
+var kxLogRefused = []string{
+	"err",
+	"warn",
+	"none",
+	"EMERG",
+	"Warning",
+	"8",
+	"warni",
+}
+
+func TestKxRejectNames(t *testing.T) {
+	for _, tc := range kxReject {
+		got := Key(kyRule(t, "-A X -p tcp -j REJECT --reject-with "+tc.in, true), tc.ipv6)
+		if want := "-j REJECT --reject-with " + tc.saved; !strings.HasSuffix(got, want) {
+			t.Errorf("ipv6 %v: --reject-with %s has the key %q, want it to end with %q", tc.ipv6, tc.in, got, want)
+		}
+	}
+	for _, tc := range kxRejectRefused {
+		got := Key(kyRule(t, "-A X -p tcp -j REJECT --reject-with "+tc.in, true), tc.ipv6)
+		if want := "-j REJECT --reject-with " + tc.in; !strings.HasSuffix(got, want) {
+			t.Errorf("ipv6 %v: the refused --reject-with %s has the key %q, want it kept as written", tc.ipv6, tc.in, got)
+		}
+	}
+}
+
+func TestKxLogLevels(t *testing.T) {
+	for _, tc := range kxLogLevels {
+		got := Key(kyRule(t, "-A X -j LOG --log-level "+tc.in, true), false)
+		want := "-j LOG --log-level " + tc.saved
+		if tc.saved == "4" {
+			want = "-j LOG"
+		}
+		if got != want {
+			t.Errorf("--log-level %s has the key %q, want %q", tc.in, got, want)
+		}
+	}
+	for _, in := range kxLogRefused {
+		got := Key(kyRule(t, "-A X -j LOG --log-level "+in, true), false)
+		if want := "-j LOG --log-level " + in; got != want {
+			t.Errorf("the refused --log-level %s has the key %q, want %q", in, got, want)
+		}
+	}
+}
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `mkdir -p /root/.cache/w1-tmp/107 && TMPDIR=/root/.cache/w1-tmp/107 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestKxRejectNames|TestKxLogLevels' ./internal/platform/netfilter/`
+Expected: FAIL -- prefixes and capitals are kept as written, IPv6 `tcp-rst` maps to `tcp-reset`, `panic` is not a level and `err`, `warn` and capitals map to numbers. The output observed when drafting:
+
+```text
+--- FAIL: TestKxRejectNames (0.00s)
+    key_test.go:414: ipv6 false: --reject-with NET-UNREACH has the key "-p tcp -j REJECT --reject-with NET-UNREACH", want it to end with "-j REJECT --reject-with icmp-net-unreachable"
+    key_test.go:414: ipv6 false: --reject-with icmp-port has the key "-p tcp -j REJECT --reject-with icmp-port", want it to end with "-j REJECT --reject-with icmp-port-unreachable"
+    key_test.go:414: ipv6 false: --reject-with port has the key "-p tcp -j REJECT --reject-with port", want it to end with "-j REJECT --reject-with icmp-port-unreachable"
+    key_test.go:414: ipv6 false: --reject-with p has the key "-p tcp -j REJECT --reject-with p", want it to end with "-j REJECT --reject-with icmp-proto-unreachable"
+... (28 more lines like these)
+```
+
+- [ ] **Step 3: Write the implementation**
+
+Modify `internal/platform/netfilter/key.go` with 2 exact edits, in order; each "replace" block occurs exactly once in the file at that point.
+
+Edit 1. Replace this block:
+
+```go
+	case (ext == "mark" || ext == "connmark") && opt == "mark", ext == "MARK" && opt == "set-xmark":
+		return markValue(v, ext == "MARK")
+	case ext == "REJECT" && opt == "reject-with":
+		aliases := rejectAliases
+		if ipv6 {
+			aliases = reject6Aliases
+		}
+		if c, ok := aliases[v]; ok {
+			return c
+		}
+	case ext == "LOG" && opt == "log-level":
+		if n, ok := logLevels[strings.ToLower(v)]; ok {
+			return n
+		}
+	case ext == "recent" && opt == "mask":
+```
+
+with:
+
+```go
+	case (ext == "mark" || ext == "connmark") && opt == "mark", ext == "MARK" && opt == "set-xmark":
+		return markValue(v, ext == "MARK")
+	case ext == "REJECT" && opt == "reject-with":
+		names := rejectNames
+		if ipv6 {
+			names = reject6Names
+		}
+		return rejectWith(names, v)
+	case ext == "LOG" && opt == "log-level":
+		if n, ok := logLevels[v]; ok {
+			return n
+		}
+	case ext == "recent" && opt == "mask":
+```
+
+Edit 2. Replace this block:
+
+```go
+	return v
+}
+
+// rejectAliases map the --reject-with spellings iptables accepts to the one
+// iptables-save prints (libipt_REJECT.c); reject6Aliases do the same for
+// ip6tables (libip6t_REJECT.c).
+var (
+	rejectAliases = map[string]string{
+		"net-unreach": "icmp-net-unreachable", "host-unreach": "icmp-host-unreachable",
+		"proto-unreach": "icmp-proto-unreachable", "port-unreach": "icmp-port-unreachable",
+		"net-prohib": "icmp-net-prohibited", "host-prohib": "icmp-host-prohibited",
+		"admin-prohib": "icmp-admin-prohibited", "tcp-rst": "tcp-reset",
+	}
+	reject6Aliases = map[string]string{
+		"no-route": "icmp6-no-route", "adm-prohibited": "icmp6-adm-prohibited",
+		"addr-unreach": "icmp6-addr-unreachable", "port-unreach": "icmp6-port-unreachable",
+		"tcp-rst": "tcp-reset", "policy-fail": "icmp6-policy-fail", "reject-route": "icmp6-reject-route",
+	}
+)
+
+// logLevels map syslog level names to the numbers iptables-save prints.
+var logLevels = map[string]string{
+	"emerg": "0", "alert": "1", "crit": "2", "err": "3", "error": "3", "warning": "4", "warn": "4",
+	"notice": "5", "info": "6", "debug": "7",
+}
+```
+
+with:
+
+```go
+	return v
+}
+
+// rejectName is a row of the REJECT type table of iptables: the name
+// iptables-save prints and its alias.
+type rejectName struct{ name, alias string }
+
+// rejectNames (libipt_REJECT.c) and reject6Names (libip6t_REJECT.c) are the
+// tables of iptables 1.8.11 in the order of the kernel's reject types, which
+// is the order in which iptables looks up a spelling.
+var (
+	rejectNames = []rejectName{
+		{"icmp-net-unreachable", "net-unreach"}, {"icmp-host-unreachable", "host-unreach"},
+		{"icmp-proto-unreachable", "proto-unreach"}, {"icmp-port-unreachable", "port-unreach"},
+		{"icmp-net-prohibited", "net-prohib"}, {"icmp-host-prohibited", "host-prohib"},
+		{"tcp-reset", "tcp-rst"}, {"icmp-admin-prohibited", "admin-prohib"},
+	}
+	reject6Names = []rejectName{
+		{"icmp6-no-route", "no-route"}, {"icmp6-adm-prohibited", "adm-prohibited"},
+		{"icmp6-addr-unreachable", "addr-unreach"}, {"icmp6-port-unreachable", "port-unreach"},
+		{"tcp-reset", "tcp-reset"}, {"icmp6-policy-fail", "policy-fail"}, {"icmp6-reject-route", "reject-route"},
+	}
+)
+
+// rejectWith is a --reject-with value as iptables-save prints it. Like
+// iptables, it takes the first row of names of which v is a case-insensitive
+// prefix of the name or the alias. A spelling iptables refuses is kept as
+// written.
+func rejectWith(names []rejectName, v string) string {
+	if v == "" {
+		return v
+	}
+	for _, n := range names {
+		if hasPrefixFold(n.name, v) || hasPrefixFold(n.alias, v) {
+			return n.name
+		}
+	}
+	return v
+}
+
+// logLevels map the syslog level names that iptables accepts (in lower case
+// only) to the numbers iptables-save prints.
+var logLevels = map[string]string{
+	"emerg": "0", "panic": "0", "alert": "1", "crit": "2", "error": "3", "warning": "4",
+	"notice": "5", "info": "6", "debug": "7",
+}
+```
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `go test -count=1 ./internal/platform/netfilter/` -- Expected: PASS
+
+Then run, each with `TMPDIR=/root/.cache/w1-tmp/107 GOTOOLCHAIN=local`:
+
+- `timeout 600 go build ./...` -- Expected: no output.
+- `timeout 300 go vet ./...` -- Expected: no output.
+- `timeout 1200 go test -count=1 ./...` -- Expected: every package `ok` or `?`.
+- `timeout 900 go test -race -count=1 ./internal/platform/netfilter/` -- Expected: `ok` for each.
+- `timeout 900 golangci-lint run --allow-serial-runners ./...` -- Expected: `0 issues.`
+- `timeout 300 go mod tidy -diff` -- Expected: no output.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/platform/netfilter/key.go internal/platform/netfilter/key_test.go
+git commit -m "fix(netfilter): read REJECT and LOG names as iptables does"
+```
+
+### Task 108: Verify with the wider comparison
+
+**Files:**
+- Modify: `internal/modules/firewall/handler.go`
+- Test: `internal/modules/firewall/e2e_engine_test.go`
+
+**Interfaces:**
+- Consumes: `fw.verifyDiffs` (Task 98); `mutation.Verify` (Task 73, edited by Task 91); `eeEngineRunning`, `eePlanApply`, `eeUser` (Tasks 84 and 91); `newE2EHost`, `e2eHost`, `ufwPath`, `chainOf`.
+- Produces: `mutation.Verify` compares over `fw.verifyDiffs` (Part contracts, Task 108); the test type `ayNoNat`.
+
+**Depends on:** Task 84, Task 88, Task 91, Task 98
+
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 1 - coupling 1 - risk 2 = 5
+
+`mutation.Verify` now compares the loaded state after apply with `fw.verifyDiffs` instead of `fw.syncDiffs`, so every action's verify covers the built-in chains of all five tables; a difference is still `firewall.prediction_mismatch`, which the engine reverts. The end-to-end test runs the real engine over the golden "rules" scenario with a `*nat` block appended to `before.rules`: a reload the kernel applies passes verify, also a second one that appends the rule again (two rules in `nat/POSTROUTING`), and a reload that leaves the rule out is reverted with `v4 nat/POSTROUTING: 1 rule only predicted` in the change's error. The predicted state of the host comes from part P's predictor, which appends the rule once per start as UFW does.
+
+- [ ] **Step 1: Write the failing test**
+
+Modify `internal/modules/firewall/e2e_engine_test.go` with 1 exact edit; its "replace" block occurs exactly once in the file.
+
+Edit 1. Replace this block:
+
+```go
+		if cv.State != core.StateReverted || cv.Error == nil || cv.Error.Code != string(errcode.FirewallPredictionMismatch) ||
+			!strings.Contains(cv.Error.Message, key+`: live "0", predicted "1"`) {
+			t.Errorf("not applied: change %+v, %v; want reverted by the prediction mismatch", cv, err)
+		}
+	}
+}
+```
+
+with:
+
+```go
+		if cv.State != core.StateReverted || cv.Error == nil || cv.Error.Code != string(errcode.FirewallPredictionMismatch) ||
+			!strings.Contains(cv.Error.Message, key+`: live "0", predicted "1"`) {
+			t.Errorf("not applied: change %+v, %v; want reverted by the prediction mismatch", cv, err)
+		}
+	}
+}
+
+// ayNoNat is a host whose kernel does not apply the nat rules of
+// before.rules when ufw reloads.
+type ayNoNat struct{ *e2eHost }
+
+func (s ayNoNat) Run(ctx context.Context, cmd core.Cmd) (core.CmdResult, error) {
+	res, err := s.e2eHost.Run(ctx, cmd)
+	if cmd.Path == ufwPath && len(cmd.Args) == 1 && cmd.Args[0] == "reload" {
+		if c := chainOf(s.loaded.V4, "nat", "POSTROUTING"); c != nil {
+			c.Rules = nil
+		}
+	}
+	return res, err
+}
+
+// TestE2EVerifyNatRule: UFW's before.rules appends a nat rule to
+// POSTROUTING on every start. A reload that applies it passes verify, also
+// when an earlier reload appended it already; one the kernel does not apply
+// fails it with the chain named, and the engine reverts the change.
+func TestE2EVerifyNatRule(t *testing.T) {
+	const masq = "-A POSTROUTING -s 10.8.0.0/24 -o eth0 -j MASQUERADE"
+	natRules := func(h *e2eHost) int {
+		if c := chainOf(h.loaded.V4, "nat", "POSTROUTING"); c != nil {
+			return len(c.Rules)
+		}
+		return 0
+	}
+	for _, applied := range []bool{true, false} {
+		h := newE2EHost(t, "rules", "rules")
+		before := h.config().Files["/etc/ufw/before.rules"].Data
+		h.write("/etc/ufw/before.rules", append(append([]byte{}, before...), "\n*nat\n:POSTROUTING ACCEPT [0:0]\n"+masq+"\nCOMMIT\n"...))
+		var exec core.Runner = h
+		if !applied {
+			exec = ayNoNat{h}
+		}
+		eng := eeEngineRunning(t, h, exec)
+		_, cv, err := eePlanApply(t, eng, "firewall.logging.set", `{"level":"high"}`)
+		if applied {
+			if err != nil || cv.State != core.StatePending || natRules(h) != 1 {
+				t.Fatalf("applied: change %+v, %v, %d nat rules; want pending with the rule loaded once", cv, err, natRules(h))
+			}
+			if cv, err = eng.Confirm(context.Background(), eeUser, cv.ID); err != nil || cv.State != core.StateConfirmed {
+				t.Fatalf("confirm = %+v, %v", cv, err)
+			}
+			if _, cv, err = eePlanApply(t, eng, "firewall.logging.set", `{"level":"low"}`); err != nil || cv.State != core.StatePending || natRules(h) != 2 {
+				t.Errorf("second reload: change %+v, %v, %d nat rules; want pending with the rule loaded twice", cv, err, natRules(h))
+			}
+			continue
+		}
+		if cv.State != core.StateReverted || cv.Error == nil || cv.Error.Code != string(errcode.FirewallPredictionMismatch) ||
+			!strings.Contains(cv.Error.Message, "v4 nat/POSTROUTING: 1 rule only predicted") {
+			t.Errorf("not applied: change %+v, %v; want reverted by the prediction mismatch naming nat/POSTROUTING", cv, err)
+		}
+	}
+}
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `mkdir -p /root/.cache/w1-tmp/108 && TMPDIR=/root/.cache/w1-tmp/108 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestE2EVerifyNatRule' ./internal/modules/firewall/`
+Expected: FAIL — verify accepts a reload that left the nat rule out, so the change stays pending (the change id and timestamps vary).
+
+```text
+--- FAIL: TestE2EVerifyNatRule (0.61s)
+    e2e_engine_test.go:282: not applied: change {ID:01M5PWGDG0DZW302S3EWZKA95Y HostID:h1 Action:firewall.logging.set Actor:user:u1 CompensatedBy: Version:1 Class:revertible State:pending CreatedAt:2026-10-24 12:00:00 +0000 UTC UpdatedAt:2026-10-24 12:00:00 +0000 UTC RevertDeadline:2026-10-24 12:01:00 +0000 UTC Output:{"snapshot":"01M5PWGDG0DYHENPTA4T518M61"} Error:<nil> ParentChangeID: Owner: RepairedBy: RepairOutcome: Override:null}, <nil>; want reverted by the prediction mismatch naming nat/POSTROUTING
+FAIL
+FAIL	github.com/darkraise/darkpanel/internal/modules/firewall	0.613s
+FAIL
+```
+
+- [ ] **Step 3: Write the implementation**
+
+Modify `internal/modules/firewall/handler.go` with 2 exact edits, in order; each "replace" block occurs exactly once in the file at that point.
+
+Edit 1. Replace this block:
+
+```go
+}
+
+// Verify runs the action's own check, then compares the loaded state with
+// what the configuration now predicts, over UFW's and Darkpanel's chains
+// and the filter built-ins (fw.syncDiffs), and the sysctl values the
+// change's transition sets with the live ones (fw.verifySysctl): a
+// difference means UFW or the kernel did not do what the prediction said
+// (firewall.prediction_mismatch, which reverts). It reads only the host,
+// the change's journal and snapshot, so it also serves startup recovery.
+func (m mutation[In]) Verify(ctx context.Context, env core.Env, in In, _ ChangeOutput) error {
+	cfg, err := m.f.d.readConfig(m.f.d.root)
+	if err != nil {
+```
+
+with:
+
+```go
+}
+
+// Verify runs the action's own check, then compares the loaded state with
+// what the configuration now predicts, over UFW's and Darkpanel's chains
+// and the built-in chains of every table (fw.verifyDiffs), and the sysctl
+// values the change's transition sets with the live ones
+// (fw.verifySysctl): a difference means UFW or the kernel did not do what
+// the prediction said (firewall.prediction_mismatch, which reverts). It
+// reads only the host, the change's journal and snapshot, so it also serves
+// startup recovery.
+func (m mutation[In]) Verify(ctx context.Context, env core.Env, in In, _ ChangeOutput) error {
+	cfg, err := m.f.d.readConfig(m.f.d.root)
+	if err != nil {
+```
+
+Edit 2. Replace this block:
+
+```go
+	if err != nil {
+		return fmt.Errorf("firewall: verify: %w", err)
+	}
+	diffs, err := m.f.syncDiffs(cfg, st)
+	if err != nil {
+		return fmt.Errorf("firewall: verify: %w", err)
+	}
+	if len(diffs) > 0 {
+```
+
+with:
+
+```go
+	if err != nil {
+		return fmt.Errorf("firewall: verify: %w", err)
+	}
+	diffs, err := m.f.verifyDiffs(cfg, st)
+	if err != nil {
+		return fmt.Errorf("firewall: verify: %w", err)
+	}
+	if len(diffs) > 0 {
+```
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `TMPDIR=/root/.cache/w1-tmp/108 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestE2E|TestVerify|TestApply' ./internal/modules/firewall/` — Expected: PASS
+
+Then run, each with `GOTOOLCHAIN=local`, an explicit `timeout` and `TMPDIR=/root/.cache/w1-tmp/108`:
+
+- `go build ./...` and `go vet ./...` — no output; `go vet -tags harness ./test/...` — no output.
+- `go test -count=1 ./...` — every line `ok` or `?` (61 `ok`, 2 `?` on 2026-10-26). When the host is loaded, `internal/core/lifecycle` can exceed the test timeout (Assumptions); rerun that package alone.
+- `go test -race -count=1 ./internal/modules/firewall/...` — every line `ok`.
+- `golangci-lint run --allow-serial-runners ./...` — `0 issues.`
+- `go mod tidy -diff` — no output.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/modules/firewall/e2e_engine_test.go internal/modules/firewall/handler.go
+git commit -m "fix(firewall): verify every built-in chain"
+```
+
+### Task 109: Refuse a host with mangle or security rules the evaluator cannot model
+
+**Files:**
+- Modify: `internal/modules/firewall/plan.go`
+- Modify: `internal/modules/firewall/status.go`
+- Create: `internal/modules/firewall/unsupported.go`
+- Test: `internal/modules/firewall/unsupported_test.go`
+
+**Interfaces:**
+- Consumes: `eval.Unmodelled` (Task 99); `fw.prepare` and `fw.plan` (Task 72); `fw.status` (Task 69); `target.pred` (Task 71); `suStatus` (Task 69's test file), `ruHost` (Task 75's test file), `fhParse`, `fhSave`, `newFakeHost` (part A1).
+- Produces: `hostUnsupported` and `unmodelledRules` (Part contracts, Task 109); `Status.Unsupported` and the plan's refusal include the rules of `eval.Unmodelled`; the test constant `ayMangle`.
+
+**Depends on:** Task 69, Task 72, Task 88, Task 99
+
+**Implementer:** dforge:impl-sonnet-medium
+**Evaluation:** files 1 - spec 0 - coupling 1 - risk 2 = 4
+
+A mangle or security rule the evaluator cannot model is now an unsupported configuration (spec 2.1): `firewall.status` reports the reason and every mutating action is refused with `firewall.unsupported_configuration`, a hard refusal that no override passes. `hostUnsupported` lists the configured state's reasons, the loaded state's, and then, for each family, `<tool>-<variant> <table>/<chain>#<n>: <what>, which the evaluator cannot model` for each rule `eval.Unmodelled` returns. `fw.prepare` uses it for the host, and checks the predicted loaded state the same way, because a start can load rules of `before.rules` into those tables; that refusal reads `the configuration the change leads to is unsupported`. The tests prove the reason list and its order, the status of a host with such a rule (unsupported, not compared with its configuration), and the plan's refusal for a loaded rule, for a loaded rule with the lockout guard overridden, and for a predicted one.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `internal/modules/firewall/unsupported_test.go`:
+
+```go
+package firewall
+
+import (
+	"context"
+	"encoding/json"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
+)
+
+// ayMangle is a mangle table the evaluator cannot model: a rate match
+// guarding a drop.
+const ayMangle = "*mangle\n:PREROUTING ACCEPT [0:0]\n:INPUT ACCEPT [0:0]\n-A PREROUTING -m recent --name scan --rcheck -j DROP\nCOMMIT\n"
+
+// TestHostUnsupported: the reasons are the configured state's, the loaded
+// state's and then the mangle and security rules the evaluator cannot
+// model, each naming the tool, the variant and the rule.
+func TestHostUnsupported(t *testing.T) {
+	h := newFakeHost(t)
+	st := h.loaded
+	st.V4 = fhParse(t, fhSave+ayMangle)
+	st.V6 = fhParse(t, fhSave+"*security\n:INPUT ACCEPT [0:0]\n-A INPUT -j SECMARK --selctx system_u:object_r:ssh_server_packet_t:s0\nCOMMIT\n")
+	st.Unsupported = []string{"loaded reason"}
+	got := hostUnsupported(fwstate.Config{Unsupported: []string{"configured reason"}}, st)
+	want := []string{
+		"configured reason", "loaded reason",
+		"iptables-nft mangle/PREROUTING#1: match recent, which the evaluator cannot model",
+		"ip6tables-nft security/INPUT#1: target SECMARK, which the evaluator cannot model",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("reasons\n%q\nwant\n%q", got, want)
+	}
+	if got := hostUnsupported(fwstate.Config{}, h.loaded); got == nil || len(got) != 0 {
+		t.Errorf("reasons of a supported host = %#v, want an empty list", got)
+	}
+}
+
+// TestStatusUnmodelledMangle: a mangle rule the evaluator cannot model
+// makes the status unsupported with the reason, and the host is not
+// compared with its configuration.
+func TestStatusUnmodelledMangle(t *testing.T) {
+	h := newFakeHost(t)
+	h.loaded.V4 = fhParse(t, fhSave+ayMangle)
+	st := suStatus(t, h)
+	want := []string{"iptables-nft mangle/PREROUTING#1: match recent, which the evaluator cannot model"}
+	if st.Supported || !reflect.DeepEqual(st.Unsupported, want) || st.InSync || len(st.OutOfSync) != 0 {
+		t.Errorf("status supported %v, reasons %q, in sync %v; want unsupported with %q", st.Supported, st.Unsupported, st.InSync, want)
+	}
+}
+
+// TestPlanRefusesUnmodelledMangle: with such a rule loaded, or with a
+// state the change would load, every mutating action is refused with
+// firewall.unsupported_configuration, an override of the lockout guard
+// included.
+func TestPlanRefusesUnmodelledMangle(t *testing.T) {
+	ctx := context.Background()
+	const add = `{"rule":{"action":"allow","direction":"in","proto":"tcp","from":"any","to":"any","toPort":"8080","family":"v4","comment":"web"}`
+	for _, c := range []struct {
+		name, raw string
+		loaded    bool
+		want      string
+	}{
+		{"loaded", add + `}`, true, "the host is an unsupported configuration: iptables-nft mangle/PREROUTING#1: match recent"},
+		{"overridden", add + `,"overrides":["firewall.lockout"]}`, true, "the host is an unsupported configuration"},
+		{"predicted", add + `}`, false, "the configuration the change leads to is unsupported: iptables-nft mangle/PREROUTING#1: match recent"},
+	} {
+		h, f, env := ruHost(t)
+		if c.loaded {
+			h.loaded.V4 = fhParse(t, fhSave+ayMangle)
+		} else {
+			pred := h.loaded
+			pred.V4 = fhParse(t, fhSave+ayMangle)
+			h.predicted = &pred
+		}
+		_, err := f.ruleAdd().Handler.Plan(ctx, env, json.RawMessage(c.raw))
+		if e := errcode.From(err); e.Code != errcode.FirewallUnsupportedConfiguration || !strings.Contains(e.Detail, c.want) {
+			t.Errorf("%s: plan = %v, want firewall.unsupported_configuration containing %q", c.name, err, c.want)
+		}
+	}
+}
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `mkdir -p /root/.cache/w1-tmp/109 && TMPDIR=/root/.cache/w1-tmp/109 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestHostUnsupported|TestStatusUnmodelledMangle|TestPlanRefusesUnmodelledMangle' ./internal/modules/firewall/`
+Expected: FAIL — a build failure naming `hostUnsupported`.
+
+```text
+FAIL	github.com/darkraise/darkpanel/internal/modules/firewall [build failed]
+FAIL
+# github.com/darkraise/darkpanel/internal/modules/firewall [github.com/darkraise/darkpanel/internal/modules/firewall.test]
+internal/modules/firewall/unsupported_test.go:27:9: undefined: hostUnsupported
+internal/modules/firewall/unsupported_test.go:36:12: undefined: hostUnsupported
+```
+
+- [ ] **Step 3: Write the implementation**
+
+Replace the whole file `internal/modules/firewall/plan.go` with:
+
+```go
+package firewall
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"slices"
+	"strings"
+
+	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/eval"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/guard"
+	"github.com/darkraise/darkpanel/internal/platform/netfilter"
+)
+
+// buildFunc computes an action's change from its input and the current
+// configured and loaded state.
+type buildFunc func(cfg fwstate.Config, cur fwstate.Loaded) (change, error)
+
+// planReq is one mutating action's plan request.
+type planReq struct {
+	input   any          // the action's decoded input, which the state hash covers
+	guarded core.Guarded // the input's guard context and overrides
+	manual  bool         // the input's manual: true
+	build   buildFunc
+}
+
+// prepared is a change computed from the state it starts from.
+type prepared struct {
+	cfg0 fwstate.Config
+	cur  fwstate.Loaded
+	c    change
+	tg   target
+}
+
+// prepare reads the configured and loaded state, refuses an unsupported
+// configuration (spec 2.1: a hard refusal, firewall.unsupported_configuration,
+// mangle and security rules the evaluator cannot model included), builds the
+// change and predicts its target, whose configuration and loaded state must
+// be supported too. Plan and Apply both start here.
+func (f fw) prepare(ctx context.Context, env core.Env, build buildFunc) (prepared, error) {
+	cfg0, err := f.d.readConfig(f.d.root)
+	if err != nil {
+		return prepared{}, fmt.Errorf("firewall: read the configured state: %w", err)
+	}
+	cur, err := f.d.readLoaded(ctx, env)
+	if err != nil {
+		return prepared{}, fmt.Errorf("firewall: read the loaded state: %w", err)
+	}
+	if reasons := hostUnsupported(cfg0, cur); len(reasons) > 0 {
+		return prepared{}, errcode.New(errcode.FirewallUnsupportedConfiguration,
+			"the host is an unsupported configuration: "+strings.Join(reasons, "; "))
+	}
+	c, err := build(cfg0, cur)
+	if err != nil {
+		return prepared{}, err
+	}
+	tg, err := f.predictTarget(cfg0, cur, c)
+	if err != nil {
+		return prepared{}, err
+	}
+	if reasons := append(slices.Clone(tg.cfgN.Unsupported), unmodelledRules(tg.pred)...); len(reasons) > 0 {
+		return prepared{}, errcode.New(errcode.FirewallUnsupportedConfiguration,
+			"the configuration the change leads to is unsupported: "+strings.Join(reasons, "; "))
+	}
+	return prepared{cfg0: cfg0, cur: cur, c: c, tg: tg}, nil
+}
+
+// plan is the plan of every mutating firewall action (spec 2.1-2.3). After
+// prepare it refuses a change of manual rules without manual: true
+// (firewall.manual_required); lists every change of the logical state
+// (R39) and, on a host out of sync with its configuration, each differing
+// chain; reports the lockout guard; and hashes the input with the state it
+// read. On an out-of-sync host the guard fails as a hard refusal, which
+// overrides cannot pass, except for a repair whose difference lies in UFW's
+// and Darkpanel's own chains: its guard runs on the target as usual.
+// Otherwise the guard runs on the predicted loaded state with the plan's
+// guard context, the apply's refresh, the retired exposures and the real
+// evaluator, and a failing guard listed in overrides passes as overridden.
+func (f fw) plan(ctx context.Context, env core.Env, req planReq) (core.PlanOutcome, error) {
+	p, err := f.prepare(ctx, env, req.build)
+	if err != nil {
+		return core.PlanOutcome{}, err
+	}
+	diffs, err := f.syncDiffs(p.cfg0, p.cur)
+	if err != nil {
+		return core.PlanOutcome{}, err
+	}
+	from, to := logical{cfg: p.cfg0, sysctl: p.cur.Sysctl}, logical{cfg: p.tg.final, sysctl: p.tg.pred.Sysctl}
+	if ids := manualChanges(from, to); len(ids) > 0 && !req.manual {
+		return core.PlanOutcome{}, errcode.New(errcode.FirewallManualRequired,
+			fmt.Sprintf("the change removes or adds manual rules %s; set manual: true to change them", strings.Join(ids, ", ")))
+	}
+	out := core.PlanOutcome{Diff: stateDiff(from, to)}
+	for _, d := range diffs {
+		out.Diff = append(out.Diff, core.DiffLine{Op: " ", Text: "out of sync: " + chainDiffText(d)})
+	}
+	g, err := f.planGuard(ctx, env, req.guarded, p, diffs)
+	if err != nil {
+		return core.PlanOutcome{}, err
+	}
+	out.Guards = []core.Guard{g}
+	if out.StateHash, err = stateHash(req.input, p.cfg0, p.cur, env.Call.RepairOf); err != nil {
+		return core.PlanOutcome{}, err
+	}
+	return out, nil
+}
+
+// planGuard is the lockout guard of a plan.
+func (f fw) planGuard(ctx context.Context, env core.Env, gd core.Guarded, p prepared, diffs []fwstate.ChainDiff) (core.Guard, error) {
+	if len(diffs) > 0 {
+		repairable := false
+		if p.c.repair {
+			var err error
+			if repairable, err = f.confinedDiffs(p.cfg0, p.cur, diffs); err != nil {
+				return core.Guard{}, err
+			}
+		}
+		if !repairable {
+			return core.Guard{ID: guard.GuardID, Message: outOfSyncMessage(diffs, p.c.repair)}, nil
+		}
+	}
+	in := guard.Input{Plan: gd.Guard, Refresh: env.Call.GuardRefresh, Retired: env.Call.Retired, Eval: eval.Evaluate}
+	g, _, err := f.check(ctx, env, p.tg.pred, in)
+	if err != nil {
+		return core.Guard{}, fmt.Errorf("firewall: the lockout guard: %w", err)
+	}
+	if !g.OK && slices.Contains(gd.Overrides, guard.GuardID) {
+		g.OK, g.Overridden = true, true
+	}
+	return g, nil
+}
+
+// confinedDiffs reports whether the differences between the loaded state
+// and the configuration's prediction lie in UFW's and Darkpanel's own
+// chains.
+func (f fw) confinedDiffs(cfg fwstate.Config, cur fwstate.Loaded, diffs []fwstate.ChainDiff) (bool, error) {
+	tr := fwstate.TransReload
+	if !cfg.Enabled {
+		tr = fwstate.TransDisable
+	}
+	pred, err := f.d.predict(cfg, cur, tr)
+	if err != nil {
+		return false, fmt.Errorf("firewall: predict the loaded state of the configuration: %w", err)
+	}
+	return confined(diffs, pred, cur), nil
+}
+
+func outOfSyncMessage(diffs []fwstate.ChainDiff, repair bool) string {
+	chains := make([]string, len(diffs))
+	for i, d := range diffs {
+		chains[i] = fmt.Sprintf("%s %s/%s", d.Family, d.Table, d.Chain)
+	}
+	if repair {
+		return "the loaded state differs from UFW's configuration outside UFW's and Darkpanel's chains (" +
+			strings.Join(chains, ", ") + "), which a repair does not change; every protected flow is unknown"
+	}
+	return "the host is out of sync with UFW's configuration (" + strings.Join(chains, ", ") +
+		"); every protected flow is unknown until firewall.state.repair brings it back"
+}
+
+// stateHash hashes what a plan depends on: the input, every file of the
+// configured state, every loaded chain with its policy and rule keys, the
+// sysctl values and the change a repair repairs. Apply re-plans and refuses
+// when it differs (plan.state_changed).
+func stateHash(input any, cfg fwstate.Config, cur fwstate.Loaded, repairOf string) (string, error) {
+	doc := struct {
+		Input    any               `json:"input"`
+		Files    map[string]string `json:"files"`
+		Variant  string            `json:"variant"`
+		Loaded   []string          `json:"loaded"`
+		Sysctl   map[string]string `json:"sysctl"`
+		RepairOf string            `json:"repairOf,omitempty"`
+	}{input, fileHashes(cfg.Files), cur.Variant, loadedKeys(cur), cur.Sysctl, repairOf}
+	b, err := json.Marshal(doc)
+	if err != nil {
+		return "", fmt.Errorf("firewall: state hash: %w", err)
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+// loadedKeys lists every chain of both families with its policy, each
+// followed by its rules' keys.
+func loadedKeys(st fwstate.Loaded) []string {
+	var out []string
+	for _, f := range []struct {
+		fam fwstate.Family
+		rs  *netfilter.Ruleset
+	}{{fwstate.V4, st.V4}, {fwstate.V6, st.V6}} {
+		if f.rs == nil {
+			continue
+		}
+		for _, t := range f.rs.Tables {
+			for _, c := range t.Chains {
+				out = append(out, fmt.Sprintf("%s %s %s %s", f.fam, t.Name, c.Name, c.Policy))
+				for _, r := range c.Rules {
+					out = append(out, "  "+netfilter.Key(r, f.fam == fwstate.V6))
+				}
+			}
+		}
+	}
+	return out
+}
+```
+
+Replace the whole file `internal/modules/firewall/status.go` with:
+
+```go
+package firewall
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/model"
+	"github.com/darkraise/darkpanel/internal/platform/netfilter"
+)
+
+// Status is the output of resource firewall.status (v1, spec 2.2): the
+// configured and loaded state, every rule with its origin, and whether UFW
+// is active, in sync and supported.
+type Status struct {
+	Supported   bool              `json:"supported"`
+	Unsupported []string          `json:"unsupported"` // why the host is an unsupported configuration (spec 2.1); empty when supported
+	Active      bool              `json:"active"`      // UFW's chains are loaded
+	InSync      bool              `json:"inSync"`      // the loaded state is what the configuration predicts; false when unsupported
+	OutOfSync   []ChainDifference `json:"outOfSync"`   // the chains that differ
+	SyncError   string            `json:"syncError,omitempty"`
+	Configured  Configured        `json:"configured"`
+	Loaded      LoadedState       `json:"loaded"`
+	// Rules are UFW's rules in its order (model.Merge): Darkpanel's carry
+	// origin darkpanel, the others manual; a manual rule the model cannot
+	// express carries only its id, origin and raw tuple, and is read-only.
+	Rules []model.Rule `json:"rules"`
+}
+
+// Configured is UFW's configured state (spec 2.1).
+type Configured struct {
+	Enabled    bool     `json:"enabled"` // ENABLED=yes in ufw.conf
+	LogLevel   string   `json:"logLevel"`
+	IPv6       bool     `json:"ipv6"`
+	Defaults   Defaults `json:"defaults"`
+	SysctlFile string   `json:"sysctlFile,omitempty"` // IPT_SYSCTL
+}
+
+// Defaults are UFW's default policies, as /etc/default/ufw spells them
+// (ACCEPT, DROP or REJECT).
+type Defaults struct {
+	Incoming string `json:"incoming"`
+	Outgoing string `json:"outgoing"`
+	Routed   string `json:"routed"`
+}
+
+// LoadedState is the loaded state (spec 2.1) in summary.
+type LoadedState struct {
+	Variant string            `json:"variant"` // nft or legacy
+	IPv6    bool              `json:"ipv6"`    // ip6tables is present
+	Sysctl  map[string]string `json:"sysctl"`  // the supported keys' live values
+	Chains  []LoadedChain     `json:"chains"`
+}
+
+// LoadedChain is one loaded chain.
+type LoadedChain struct {
+	Family string `json:"family"`
+	Table  string `json:"table"`
+	Chain  string `json:"chain"`
+	Policy string `json:"policy,omitempty"` // built-in chains only
+	Rules  int    `json:"rules"`
+}
+
+// ufwRunning reports whether UFW's user chains are loaded: UFW is running.
+func ufwRunning(st fwstate.Loaded) bool { return chainOf(st.V4, "filter", "ufw-user-input") != nil }
+
+// ufwNeverStarted reports whether not even UFW's primary chains are loaded:
+// UFW has not started since boot (a stop keeps them, empty).
+func ufwNeverStarted(st fwstate.Loaded) bool {
+	return chainOf(st.V4, "filter", "ufw-before-logging-input") == nil
+}
+
+// status reads resource firewall.status.
+func (f fw) status(ctx context.Context, env core.Env) (Status, error) {
+	cfg, err := f.d.readConfig(f.d.root)
+	if err != nil {
+		return Status{}, fmt.Errorf("firewall: status: %w", err)
+	}
+	cur, err := f.d.readLoaded(ctx, env)
+	if err != nil {
+		return Status{}, fmt.Errorf("firewall: status: %w", err)
+	}
+	st := Status{
+		Unsupported: hostUnsupported(cfg, cur),
+		Active:      ufwRunning(cur),
+		OutOfSync:   []ChainDifference{},
+		Configured: Configured{
+			Enabled: cfg.Enabled, LogLevel: cfg.LogLevel, IPv6: cfg.IPv6, SysctlFile: cfg.SysctlFile,
+			Defaults: Defaults{Incoming: cfg.DefaultInput, Outgoing: cfg.DefaultOutput, Routed: cfg.DefaultForward},
+		},
+		Loaded: LoadedState{Variant: cur.Variant, IPv6: cur.V6 != nil, Sysctl: cur.Sysctl, Chains: loadedChains(cur)},
+		Rules:  model.Merge(cfg.Rules4, cfg.Rules6),
+	}
+	if st.Rules == nil {
+		st.Rules = []model.Rule{}
+	}
+	if st.Loaded.Sysctl == nil {
+		st.Loaded.Sysctl = map[string]string{}
+	}
+	st.Supported = len(st.Unsupported) == 0
+	if !st.Supported {
+		return st, nil
+	}
+	diffs, err := f.syncDiffs(cfg, cur)
+	if err != nil {
+		st.SyncError = err.Error()
+		return st, nil
+	}
+	st.InSync, st.OutOfSync = len(diffs) == 0, chainDifferences(diffs)
+	return st, nil
+}
+
+// loadedChains lists every chain of both families in save order.
+func loadedChains(st fwstate.Loaded) []LoadedChain {
+	out := []LoadedChain{}
+	for _, f := range []struct {
+		fam fwstate.Family
+		rs  *netfilter.Ruleset
+	}{{fwstate.V4, st.V4}, {fwstate.V6, st.V6}} {
+		if f.rs == nil {
+			continue
+		}
+		for _, t := range f.rs.Tables {
+			for _, c := range t.Chains {
+				out = append(out, LoadedChain{Family: string(f.fam), Table: t.Name, Chain: c.Name, Policy: c.Policy, Rules: len(c.Rules)})
+			}
+		}
+	}
+	return out
+}
+```
+
+Create `internal/modules/firewall/unsupported.go`:
+
+```go
+package firewall
+
+import (
+	"fmt"
+
+	"github.com/darkraise/darkpanel/internal/modules/firewall/eval"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
+	"github.com/darkraise/darkpanel/internal/platform/netfilter"
+)
+
+// hostUnsupported lists why the host is an unsupported configuration (spec
+// 2.1): the reasons of the configured state, those of the loaded state and
+// each mangle or security rule the evaluator cannot model. The host is
+// supported when it is empty. The result is never nil.
+func hostUnsupported(cfg fwstate.Config, cur fwstate.Loaded) []string {
+	out := append(append([]string{}, cfg.Unsupported...), cur.Unsupported...)
+	return append(out, unmodelledRules(cur)...)
+}
+
+// unmodelledRules names, for both families, the mangle and security rules
+// of st that the evaluator cannot model: every protected flow would be
+// unknown, so the host is unsupported rather than merely failing the guard.
+func unmodelledRules(st fwstate.Loaded) []string {
+	var out []string
+	for _, f := range []struct {
+		tool string
+		rs   *netfilter.Ruleset
+	}{{"iptables", st.V4}, {"ip6tables", st.V6}} {
+		for _, r := range eval.Unmodelled(f.rs) {
+			out = append(out, fmt.Sprintf("%s-%s %s, which the evaluator cannot model", f.tool, st.Variant, r))
+		}
+	}
+	return out
+}
+```
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `TMPDIR=/root/.cache/w1-tmp/109 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestHostUnsupported|TestStatus|TestPlan|TestE2EUnsupported' ./internal/modules/firewall/` — Expected: PASS
+
+Then run, each with `GOTOOLCHAIN=local`, an explicit `timeout` and `TMPDIR=/root/.cache/w1-tmp/109`:
+
+- `go build ./...` and `go vet ./...` — no output; `go vet -tags harness ./test/...` — no output.
+- `go test -count=1 ./...` — every line `ok` or `?` (61 `ok`, 2 `?` on 2026-10-26). When the host is loaded, `internal/core/lifecycle` can exceed the test timeout (Assumptions); rerun that package alone.
+- `go test -race -count=1 ./internal/modules/firewall/...` — every line `ok`.
+- `golangci-lint run --allow-serial-runners ./...` — `0 issues.`
+- `go mod tidy -diff` — no output.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/modules/firewall/plan.go internal/modules/firewall/status.go internal/modules/firewall/unsupported.go internal/modules/firewall/unsupported_test.go
+git commit -m "fix(firewall): refuse unmodelled mangle rules"
+```
+
+### Task 110: Harness: revert an unconfirmed repair on reboot
+
+**Files:**
+- Modify: `test/harness/m3_firewall_test.go`
+- Test: `test/harness/m3_firewall_helpers_test.go`
+
+**Interfaces:**
+- Consumes: `m3xOutOfSyncRefusal` (Task 101), `m3RevertOnReboot` (Task 85), `m3Apply`, `m3WaitChange`, `m3WaitStatus`, `waitHosts`, `hostsAt`, `versionN`
+- Produces: `m3xOutOfSync(st m3Status) error`, `m3xPutOutOfSync(ctx, t, f)`, `m3RepairRevertsReboot(ctx, t, f)` and the step `repair-reverts-reboot` (Part contracts, Task 110)
+
+**Depends on:** Task 101
+
+**Implementer:** dforge:impl-sonnet-medium
+**Evaluation:** files 1 - spec 0 - coupling 1 - risk 1 = 3
+
+Spec Verification M3 asks for an unconfirmed `state.repair` from a deliberately out-of-sync loaded state reverting to that state "(timer and reboot)"; only the timer half existed. `m3RepairRevertsReboot` loads the stray rule by hand, applies `firewall.state.repair` with a 120 second revert timer, reboots the agent host as `m3RevertOnReboot` does, waits for the change to end `reverted` and requires the stray rule loaded again and the host out of sync. UFW loads its files before the network is up, so the rule is gone after the boot until the agent's revert loads it again (Assumptions). The setup of `m3RepairReverts` moves to `m3xPutOutOfSync`, and the out-of-sync predicate to `m3xOutOfSync`, which a unit test covers; the scenario runs only on the VM fleet.
+
+- [ ] **Step 1: Write the failing test**
+
+Modify `test/harness/m3_firewall_helpers_test.go` with 1 exact edit; the "replace" block occurs exactly once in the file at that point.
+
+Replace this block:
+
+```go
+		}
+	}
+}
+```
+
+with:
+
+```go
+		}
+	}
+}
+
+func TestM3xOutOfSync(t *testing.T) {
+	if err := m3xOutOfSync(m3Status{InSync: true}); err == nil {
+		t.Error("m3xOutOfSync accepted a host in sync")
+	}
+	if err := m3xOutOfSync(m3Status{InSync: false}); err != nil {
+		t.Errorf("m3xOutOfSync refused a host out of sync: %v", err)
+	}
+}
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `mkdir -p /root/.cache/w1-tmp/110 && TMPDIR=/root/.cache/w1-tmp/110 GOTOOLCHAIN=local timeout 300 go test -tags harness -count=1 -run 'TestM3xOutOfSync$' ./test/harness/`
+Expected: FAIL -- the build fails on the undefined `m3xOutOfSync`. The output observed when drafting:
+
+```text
+# github.com/darkraise/darkpanel/test/harness [github.com/darkraise/darkpanel/test/harness.test]
+test/harness/m3_firewall_helpers_test.go:411:12: undefined: m3xOutOfSync
+test/harness/m3_firewall_helpers_test.go:414:12: undefined: m3xOutOfSync
+FAIL	github.com/darkraise/darkpanel/test/harness [build failed]
+FAIL
+```
+
+- [ ] **Step 3: Write the implementation**
+
+Modify `test/harness/m3_firewall_helpers_test.go` with 1 exact edit; the "replace" block occurs exactly once in the file at that point.
+
+Replace this block:
+
+```go
+	return nil
+}
+
+// m3JSON is v as JSON, for messages.
+func m3JSON(v any) string {
+	b, err := json.Marshal(v)
+```
+
+with:
+
+```go
+	return nil
+}
+
+// m3xOutOfSync accepts a status whose loaded state differs from UFW's files.
+func m3xOutOfSync(st m3Status) error {
+	if st.InSync {
+		return errors.New("the host is still in sync")
+	}
+	return nil
+}
+
+// m3JSON is v as JSON, for messages.
+func m3JSON(v any) string {
+	b, err := json.Marshal(v)
+```
+
+Modify `test/harness/m3_firewall_test.go` with 3 exact edits, in order; each "replace" block occurs exactly once in the file at that point.
+
+Edit 1. Replace this block:
+
+```go
+		{"manual-edit-survives", false, func(t *testing.T) { m3ManualEditSurvives(ctx, t, f) }},
+		{"disable-reverts", false, func(t *testing.T) { m3DisableReverts(ctx, t, f) }},
+		{"repair-reverts", false, func(t *testing.T) { m3RepairReverts(ctx, t, f) }},
+		{"unsupported-before-init", false, func(t *testing.T) { m3UnsupportedBeforeInit(ctx, t, f) }},
+		{"unsupported-nftables-chain", false, func(t *testing.T) { m3UnsupportedNftables(ctx, t, f) }},
+		{"ipv6no-foreign-rules", false, func(t *testing.T) { m3IPv6NoForeignRules(ctx, t, f) }},
+```
+
+with:
+
+```go
+		{"manual-edit-survives", false, func(t *testing.T) { m3ManualEditSurvives(ctx, t, f) }},
+		{"disable-reverts", false, func(t *testing.T) { m3DisableReverts(ctx, t, f) }},
+		{"repair-reverts", false, func(t *testing.T) { m3RepairReverts(ctx, t, f) }},
+		{"repair-reverts-reboot", false, func(t *testing.T) { m3RepairRevertsReboot(ctx, t, f) }},
+		{"unsupported-before-init", false, func(t *testing.T) { m3UnsupportedBeforeInit(ctx, t, f) }},
+		{"unsupported-nftables-chain", false, func(t *testing.T) { m3UnsupportedNftables(ctx, t, f) }},
+		{"ipv6no-foreign-rules", false, func(t *testing.T) { m3IPv6NoForeignRules(ctx, t, f) }},
+```
+
+Edit 2. Replace this block:
+
+```go
+// which puts the loaded state out of sync with UFW's files.
+const m3StrayRule = "ufw-user-input -s 192.0.2.98/32 -j ACCEPT"
+
+// m3RepairReverts puts the loaded state out of sync, requires an ordinary
+// change to be refused, then leaves firewall.state.repair unconfirmed: the
+// revert loads the out-of-sync state again.
+func m3RepairReverts(ctx context.Context, t *testing.T, f *fleet) {
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3Healthy)
+	t.Cleanup(func() { _, _ = f.agent.Run(ctx, "sudo ufw reload") })
+	m3Run(ctx, t, f.agent, "sudo iptables -A "+m3StrayRule)
+	outOfSync := func(st m3Status) error {
+		if st.InSync {
+			return errors.New("the host is still in sync")
+		}
+		return nil
+	}
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, outOfSync)
+	// The refusal is a plan whose guard fails and that an override cannot pass.
+	p, err := f.api.m3Plan(ctx, f.agentID, "firewall.rule.add", m3PortRule(8097))
+	overridden := m3PortRule(8097)
+```
+
+with:
+
+```go
+// which puts the loaded state out of sync with UFW's files.
+const m3StrayRule = "ufw-user-input -s 192.0.2.98/32 -j ACCEPT"
+
+// m3xPutOutOfSync loads m3StrayRule by hand into a UFW chain of the agent
+// host and waits until the host reports it out of sync; the cleanup loads
+// UFW's files again.
+func m3xPutOutOfSync(ctx context.Context, t *testing.T, f *fleet) {
+	t.Helper()
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3Healthy)
+	t.Cleanup(func() { _, _ = f.agent.Run(ctx, "sudo ufw reload") })
+	m3Run(ctx, t, f.agent, "sudo iptables -A "+m3StrayRule)
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3xOutOfSync)
+}
+
+// m3RepairReverts puts the loaded state out of sync, requires an ordinary
+// change to be refused, then leaves firewall.state.repair unconfirmed: the
+// revert loads the out-of-sync state again.
+func m3RepairReverts(ctx context.Context, t *testing.T, f *fleet) {
+	m3xPutOutOfSync(ctx, t, f)
+	// The refusal is a plan whose guard fails and that an override cannot pass.
+	p, err := f.api.m3Plan(ctx, f.agentID, "firewall.rule.add", m3PortRule(8097))
+	overridden := m3PortRule(8097)
+```
+
+Edit 3. Replace this block:
+
+```go
+	if out := m3Run(ctx, t, f.agent, "sudo iptables -S ufw-user-input"); !strings.Contains(out, "192.0.2.98") {
+		t.Errorf("the revert did not load the out-of-sync state again:\n%s", out)
+	}
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, outOfSync)
+}
+
+// m3RequireUnsupported plans action on the agent host and requires the
+```
+
+with:
+
+```go
+	if out := m3Run(ctx, t, f.agent, "sudo iptables -S ufw-user-input"); !strings.Contains(out, "192.0.2.98") {
+		t.Errorf("the revert did not load the out-of-sync state again:\n%s", out)
+	}
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3xOutOfSync)
+}
+
+// m3RepairRevertsReboot puts the loaded state out of sync and reboots the
+// agent host while firewall.state.repair is unconfirmed. UFW loads its files
+// at boot, so the stray rule is gone until the agent, once the host is back,
+// reverts the change and loads the out-of-sync state again.
+func m3RepairRevertsReboot(ctx context.Context, t *testing.T, f *fleet) {
+	m3xPutOutOfSync(ctx, t, f)
+	ch, err := f.api.m3Apply(ctx, f.agentID, "firewall.state.repair", map[string]any{}, 120)
+	m3RequirePending(t, ch, err)
+	if err := f.agent.Reboot(ctx); err != nil {
+		t.Fatal(err)
+	}
+	waitHosts(ctx, t, f, 3*time.Minute, hostsAt(versionN, f.agentID))
+	m3WaitChange(ctx, t, f.api, ch.ID, core.StateReverted, 4*time.Minute)
+	if out := m3Run(ctx, t, f.agent, "sudo iptables -S ufw-user-input"); !strings.Contains(out, "192.0.2.98") {
+		t.Errorf("the revert after the reboot did not load the out-of-sync state again:\n%s", out)
+	}
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3xOutOfSync)
+}
+
+// m3RequireUnsupported plans action on the agent host and requires the
+```
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `go test -tags harness -count=1 -run 'TestM3x|TestM3UFWLines' ./test/harness/` -- Expected: PASS
+
+Then run, each with `TMPDIR=/root/.cache/w1-tmp/110 GOTOOLCHAIN=local`:
+
+- `timeout 600 go build ./...` -- Expected: no output.
+- `timeout 300 go vet ./...` -- Expected: no output.
+- `timeout 300 go vet -tags harness ./test/...` -- Expected: no output.
+- `timeout 1200 go test -count=1 ./...` -- Expected: every package `ok` or `?`.
+- `timeout 900 go test -race -count=1 -tags harness ./test/harness/` -- Expected: `ok` for each.
+- `timeout 900 golangci-lint run --allow-serial-runners ./...` and `timeout 900 golangci-lint run --allow-serial-runners --build-tags harness ./test/...` -- Expected: `0 issues.`
+- `timeout 300 go mod tidy -diff` -- Expected: no output.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add test/harness/m3_firewall_helpers_test.go test/harness/m3_firewall_test.go
+git commit -m "test(harness): revert an unconfirmed repair on reboot"
+```
+
+### Task 111: Integrator: mark the guard topology incomplete on shutdown
+
+**Files:**
+- Modify: `internal/controller/server/topology.go`
+- Modify: `internal/controller/server/server.go`
+- Test: `internal/controller/server/listeners_test.go`
+
+**Interfaces:**
+- Consumes: `topology`, `(*topology).read` (Task 102), `(*Server).Shutdown`, `start`, `embeddedOptions` of the merged tests
+- Produces: `(*topology).close()` (Part contracts, Task 111)
+
+**Items:** 82
+
+**Depends on:** Task 102
+
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 0 - coupling 1 - risk 3 = 5
+**Lenses:** security
+
+Register row 82, the frozen half, once more. After `Shutdown` the runtime listeners' and the web listeners' lists are empty while every source stays registered, so the topology read complete with no listener, and a guard plan made during shutdown would protect none of them. `Shutdown` now closes the topology before its first step, and `read` reports it incomplete from then on.
+
+- [ ] **Step 1: Write the failing test**
+
+Append to `internal/controller/server/listeners_test.go`:
+
+```go
+
+// TestSdTopologyIncompleteAfterShutdown: once Shutdown has begun, the
+// listeners are going away, so a guard plan made then must not read an
+// empty listener list as complete.
+func TestSdTopologyIncompleteAfterShutdown(t *testing.T) {
+	s := start(t, embeddedOptions(t))
+	if got := s.topo.read(); !got.Complete {
+		t.Fatalf("a started server's topology %+v, want it complete", got)
+	}
+	if err := s.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+	if got := s.topo.read(); got.Complete {
+		t.Errorf("the topology %+v is complete after Shutdown", got)
+	}
+}
+```
+
+`start` registers a second `Shutdown` at cleanup; a second call returns the first call's result.
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `mkdir -p /root/.cache/w1-tmp/111 && TMPDIR=/root/.cache/w1-tmp/111 GOTOOLCHAIN=local timeout 600 go test -count=1 -run 'TestSdTopologyIncompleteAfterShutdown' ./internal/controller/server/`
+Expected: FAIL with `the topology {PanelListen:[] AgentListen:[] AgentPeers:[] Complete:true Dropped:[]} is complete after Shutdown`
+
+- [ ] **Step 3: Write the implementation**
+
+Modify `internal/controller/server/topology.go` with 4 exact edits, in order; each "replace" block occurs exactly once in the file.
+
+Edit 1. Replace this block:
+
+```go
+// nothing and the topology reads as incomplete.
+type topology struct {
+	mu      sync.Mutex
+	web     func() []listen.Bound
+	runtime func() ([]netip.AddrPort, []string, int)
+	agent   func() []listen.Bound
+	peers   func() ([]netip.Addr, []string)
+}
+```
+
+with:
+
+```go
+// nothing and the topology reads as incomplete. Once the server shuts down
+// it reads as incomplete again, because the listeners are going away.
+type topology struct {
+	mu      sync.Mutex
+	closed  bool
+	web     func() []listen.Bound
+	runtime func() ([]netip.AddrPort, []string, int)
+	agent   func() []listen.Bound
+	peers   func() ([]netip.Addr, []string)
+}
+
+// close marks the topology incomplete for good.
+func (t *topology) close() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.closed = true
+}
+```
+
+Edit 2. Replace this block:
+
+```go
+// read is the topology now. It is complete once all four sources have
+// registered and no open runtime listener waits for a bind; what the runtime
+// listeners and the session registry could not read is dropped from it after
+// what the bound listeners drop.
+```
+
+with:
+
+```go
+// read is the topology now. It is complete once all four sources have
+// registered, no open runtime listener waits for a bind and the server has
+// not begun to shut down; what the runtime listeners and the session
+// registry could not read is dropped from it after what the bound listeners
+// drop.
+```
+
+Edit 3. Replace this line:
+
+```go
+	web, runtime, agent, peers := t.web, t.runtime, t.agent, t.peers
+```
+
+with:
+
+```go
+	closed, web, runtime, agent, peers := t.closed, t.web, t.runtime, t.agent, t.peers
+```
+
+Edit 4. Replace this line:
+
+```go
+	out.Complete = web != nil && runtime != nil && agent != nil && peers != nil && runtimeUnbound == 0
+```
+
+with:
+
+```go
+	out.Complete = !closed && web != nil && runtime != nil && agent != nil && peers != nil && runtimeUnbound == 0
+```
+
+Modify `internal/controller/server/server.go` in `(*Server).Shutdown`. Replace this block:
+
+```go
+	s.shutdown = true
+	var errs []error
+```
+
+with:
+
+```go
+	s.shutdown = true
+	s.topo.close()
+	var errs []error
+```
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `TMPDIR=/root/.cache/w1-tmp/111 GOTOOLCHAIN=local timeout 600 go test -count=1 -run 'TestTopologyOf|TestTxTopologyWaitsForRuntimeListeners|TestTxRuntimeSourceRegistersAfterStart|TestServerTopology|TestSdTopologyIncompleteAfterShutdown' ./internal/controller/server/` -- Expected: PASS
+
+Then run, each with `TMPDIR=/root/.cache/w1-tmp/111 GOTOOLCHAIN=local`:
+
+- `timeout 600 go build ./...` -- Expected: no output.
+- `timeout 300 go vet ./...` -- Expected: no output.
+- `timeout 1200 go test -count=1 ./...` -- Expected: every package `ok` or `?`.
+- `timeout 900 go test -race -count=1 ./internal/controller/server/` -- Expected: `ok`.
+- `timeout 900 golangci-lint run --allow-serial-runners ./...` -- Expected: `0 issues.`
+- `timeout 300 go mod tidy -diff` -- Expected: no output.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/controller/server/topology.go internal/controller/server/server.go internal/controller/server/listeners_test.go
+git commit -m "fix(server): mark the topology incomplete on shutdown"
+```
+
+### Task 112: Guard the controller's listening sockets
+
+**Files:**
+- Modify: `internal/modules/firewall/guard/flows.go`
+- Test: `internal/modules/firewall/guard/flows_test.go`
+- Test: `internal/modules/firewall/guard/guard_test.go`
+
+**Interfaces:**
+- Consumes: `buildFlows`, `controllerSessionFlows`, `listenFor`, `heldBy`, `internetFor`, `internet4`, `internet6`, `newPacket`, `unknownPort`, `panelBridge`, `flowSet` (Tasks 31 and 53); `ckIfaces`, `ckEnv`, `ckRunning`, `ckEval`, `ckState` (Tasks 43 and 53); `flSock`, `flPkt`, `flOn` (Task 31); `gHost`, `gIfaces` (Task 17); `rtQuery`, `rtVia` (Task 36).
+- Produces: `controllerListenFlows`, `panelProxy` and the flow label `controller listener` (Part contracts, Task 112).
+
+**Depends on:** Task 105
+
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 1 - coupling 1 - risk 3 = 6
+**Lenses:** security
+
+With a controller on the host (its main process is known from the unit), every TCP socket it listens on is a protected flow, so a change made with no client connected, a break-glass change, a timer revert or a system plan still cannot close the panel, runtime or agent port; before, only the established sessions' peers were protected. Each listener is reached from an internet stand-in address of its family with source port 0 (an unspecified listener is resolved by routing, as the panel flows are); a loopback listener and a listener bound to an address of another host are skipped. The runtime listener sits on the panel bridge's gateway address, and the only rule that opens it is `allow in on dp-panel from <proxy>` (spec 8), so a stand-in internet source would be dropped on every host with an exposure; its flow therefore enters on `dp-panel` from the next address of the bridge's network, the proxy container's. The tests cover the listener kinds in `buildFlows` and a full `Check` that fails when the change drops the agent listener port and passes when it does not.
+
+- [ ] **Step 1: Write the failing test**
+
+In `internal/modules/firewall/guard/flows_test.go`:
+
+Replace this block:
+
+```go
+				flSock(tcp, est, "192.0.2.1:40001", "198.51.100.50:443", "darkpanel-contr", 4242),
+				flSock(tcp, est, "[::1]:443", "[::1]:40002", "darkpanel-contr", 4242),
+			}},
+			want: []flow{{label: "controller session", pkt: flPkt("input", "203.0.113.9", 0, "192.0.2.1", 443, "tcp")}},
+		},
+		{
+			name: "the agent's outbound sessions",
+```
+
+with:
+
+```go
+				flSock(tcp, est, "192.0.2.1:40001", "198.51.100.50:443", "darkpanel-contr", 4242),
+				flSock(tcp, est, "[::1]:443", "[::1]:40002", "darkpanel-contr", 4242),
+			}},
+			want: []flow{
+				{label: "controller session", pkt: flPkt("input", "203.0.113.9", 0, "192.0.2.1", 443, "tcp")},
+				{label: "controller listener", pkt: flPkt("input", "198.51.100.1", 0, "0.0.0.0", 443, "tcp")},
+				{label: "controller listener", pkt: flPkt("input", "2001:db8:ffff::1", 0, "::", 443, "tcp")},
+			},
+		},
+		{
+			name: "the local controller's listening sockets",
+			f: facts{ifaces: ckIfaces(), controller: 4242, sockets: []netstat.Socket{
+				flSock(tcp, listen, "0.0.0.0:7443", "", "darkpanel-contr", 4242),
+				flSock(tcp, listen, "192.0.2.1:9443", "", "darkpanel-contr", 4242),
+				flSock(tcp, listen, "[2001:db8::1]:9444", "", "darkpanel-contr", 4242),
+				flSock(tcp, listen, "172.30.0.1:9445", "", "darkpanel-contr", 4242),
+				flSock(tcp, listen, "198.51.100.80:9446", "", "darkpanel-contr", 4242),
+				flSock(tcp, listen, "127.0.0.1:9447", "", "darkpanel-contr", 4242),
+				flSock(tcp, listen, "[::1]:9448", "", "darkpanel-contr", 4242),
+				flSock(udp, closed, "0.0.0.0:9449", "", "darkpanel-contr", 4242),
+				flSock(tcp, listen, "0.0.0.0:9450", "", "nginx", 500),
+				flSock(tcp, listen, "0.0.0.0:7443", "", "darkpanel-contr", 4242),
+			}},
+			want: []flow{
+				{label: "controller listener", pkt: flPkt("input", "198.51.100.1", 0, "0.0.0.0", 7443, "tcp")},
+				{label: "controller listener", pkt: flPkt("input", "198.51.100.1", 0, "192.0.2.1", 9443, "tcp")},
+				{label: "controller listener", pkt: flPkt("input", "2001:db8:ffff::1", 0, "2001:db8::1", 9444, "tcp")},
+				{label: "controller listener", pkt: flOn("dp-panel", flPkt("input", "172.30.0.2", 0, "172.30.0.1", 9445, "tcp"))},
+			},
+		},
+		{
+			name: "a runtime listener on a bridge address without a proxy address",
+			f: facts{controller: 4242, sockets: []netstat.Socket{flSock(tcp, listen, "172.30.0.1:9445", "", "darkpanel-contr", 4242)},
+				ifaces: append(gIfaces(), netstat.Interface{Index: 6, Name: "dp-panel", Up: true, Addrs: []netip.Prefix{netip.MustParsePrefix("172.30.0.1/32")}})},
+		},
+		{
+			name: "listening sockets without a controller process",
+			f: facts{ifaces: gIfaces(), sockets: []netstat.Socket{
+				flSock(tcp, listen, "0.0.0.0:7443", "", "darkpanel-contr", 4242),
+			}},
+		},
+		{
+			name: "the agent's outbound sessions",
+```
+
+In `internal/modules/firewall/guard/guard_test.go`:
+
+Replace this block:
+
+```go
+	}
+}
+
+func TestCheckErrors(t *testing.T) {
+	env, _, _ := ckEnv()
+	if _, _, err := (Checker{Host: ckHost()}).Check(context.Background(), env, ckState(), Input{}); err == nil {
+```
+
+with:
+
+```go
+	}
+}
+
+func TestGxCheckControllerListeners(t *testing.T) {
+	host := func() *gHost {
+		return &gHost{ifaces: gIfaces(), sockets: []netstat.Socket{
+			flSock(netstat.ProtoTCP, netstat.StateListen, "0.0.0.0:7443", "", "darkpanel-contr", 4242),
+		}, routes: map[netstat.RouteQuery]netstat.Route{
+			rtQuery("198.51.100.1", "", ""): rtVia("eth0", "192.0.2.1"),
+		}}
+	}
+	env, _, _ := ckEnv()
+	ckRunning(env)
+	g, results, err := Checker{Host: host()}.Check(context.Background(), env, ckState(),
+		Input{Eval: ckEval(t, func(p fwstate.Packet) bool { return p.DstPort == 7443 })})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := core.Guard{ID: "firewall.lockout", Message: "the change would cut " +
+		"controller listener from 198.51.100.1 to 192.0.2.1:7443 on eth0: drop (filter/ufw-user-input#1); " +
+		"controller listener from 198.51.100.1 to 192.0.2.1:7443 on eth1: drop (filter/ufw-user-input#1)"}
+	if g != want || len(results) != 2 {
+		t.Errorf("guard = %+v with %d results\nwant %+v", g, len(results), want)
+	}
+	g, _, err = Checker{Host: host()}.Check(context.Background(), env, ckState(), Input{Eval: ckEval(t, nil)})
+	if err != nil || !g.OK {
+		t.Errorf("an open agent listener: guard %+v, %v; want OK", g, err)
+	}
+}
+
+func TestCheckErrors(t *testing.T) {
+	env, _, _ := ckEnv()
+	if _, _, err := (Checker{Host: ckHost()}).Check(context.Background(), env, ckState(), Input{}); err == nil {
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `mkdir -p /root/.cache/w1-tmp/112 && TMPDIR=/root/.cache/w1-tmp/112 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestBuildFlows|TestGxCheckControllerListeners' ./internal/modules/firewall/guard/`
+Expected: FAIL, no listener flow exists (the failing tests and the real message of the full check):
+
+```text
+--- FAIL: TestBuildFlows (0.00s)
+    --- FAIL: TestBuildFlows/local_controller_sessions_from_live_facts (0.00s)
+    --- FAIL: TestBuildFlows/the_local_controller's_listening_sockets (0.00s)
+--- FAIL: TestGxCheckControllerListeners (0.00s)
+    guard_test.go:398: guard = {ID:firewall.lockout OK:true Message:no protected flow to check Overridable:false Overridden:false} with 0 results
+FAIL
+FAIL	github.com/darkraise/darkpanel/internal/modules/firewall/guard	0.003s
+FAIL
+```
+
+- [ ] **Step 3: Write the implementation**
+
+In `internal/modules/firewall/guard/flows.go`:
+
+Replace this block:
+
+```go
+		agentLinkFlows(s, ctxs, local)
+	}
+	controllerSessionFlows(s, f, local)
+	agentOutboundFlows(s, f, local)
+	tailscaleFlows(s, f)
+	return s.flows
+```
+
+with:
+
+```go
+		agentLinkFlows(s, ctxs, local)
+	}
+	controllerSessionFlows(s, f, local)
+	controllerListenFlows(s, f, local)
+	agentOutboundFlows(s, f, local)
+	tailscaleFlows(s, f)
+	return s.flows
+```
+
+Replace this block:
+
+```go
+	}
+}
+
+// agentOutboundFlows is flow 5: every outbound TCP session of the agent
+// itself, which includes its link to the controller.
+func agentOutboundFlows(s *flowSet, f facts, local map[netip.Addr]bool) {
+```
+
+with:
+
+```go
+	}
+}
+
+// controllerListenFlows is flow 4 from live facts, too: every listening TCP
+// socket of a local controller (its direct panel, runtime and agent
+// listeners), reached from an internet address, so a --local change keeps
+// them open whether or not a client is connected. A loopback listener
+// is reached through lo only, and a listener bound to an address of
+// another host is not reached at all. The runtime listener sits on the
+// panel bridge's gateway address and only the proxy container, the next
+// address of the bridge's network, may reach it, so that flow enters on
+// the bridge from the proxy's address.
+func controllerListenFlows(s *flowSet, f facts, local map[netip.Addr]bool) {
+	if f.controller == 0 {
+		return
+	}
+	for _, so := range f.sockets {
+		l := so.Local.Addr().Unmap()
+		if so.Proto != netstat.ProtoTCP || so.State != netstat.StateListen || !heldBy(so, f.controller) || l.IsLoopback() {
+			continue
+		}
+		if proxy, onBridge := panelProxy(f.ifaces, l); onBridge {
+			if proxy.IsValid() {
+				p := newPacket("input", proxy, unknownPort, l, so.Local.Port(), "tcp")
+				p.InIface = panelBridge
+				s.add(flow{label: "controller listener", pkt: p})
+			}
+			continue
+		}
+		for _, src := range []netip.Addr{internet4, internet6} {
+			if dst, ok := listenFor(src, l, local); ok {
+				s.add(flow{label: "controller listener", pkt: newPacket("input", src, unknownPort, dst, so.Local.Port(), "tcp")})
+			}
+		}
+	}
+}
+
+// panelProxy reports whether l is an address of the panel bridge and, when
+// the next address lies in the same network, that address: the proxy
+// container's.
+func panelProxy(ifaces []netstat.Interface, l netip.Addr) (proxy netip.Addr, onBridge bool) {
+	for _, i := range ifaces {
+		if i.Name != panelBridge {
+			continue
+		}
+		for _, p := range i.Addrs {
+			if p.Addr().Unmap() != l {
+				continue
+			}
+			if next := l.Next(); p.Contains(next) {
+				return next, true
+			}
+			return netip.Addr{}, true
+		}
+	}
+	return netip.Addr{}, false
+}
+
+// agentOutboundFlows is flow 5: every outbound TCP session of the agent
+// itself, which includes its link to the controller.
+func agentOutboundFlows(s *flowSet, f facts, local map[netip.Addr]bool) {
+```
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `TMPDIR=/root/.cache/w1-tmp/112 GOTOOLCHAIN=local timeout 300 go test -count=1 ./internal/modules/firewall/guard/` — Expected: PASS (`ok` for every package listed)
+Then run, each with `GOTOOLCHAIN=local`, an explicit `timeout` and `TMPDIR=/root/.cache/w1-tmp/112`: `go build ./...`; `go vet ./...` (no output); `go vet -tags harness ./test/...` (no output); `go test -count=1 ./...` (every package `ok` or `?`); `go test -race -count=1 ./internal/modules/firewall/guard/` (`ok`); `golangci-lint run --allow-serial-runners ./...` (`0 issues.`); `go mod tidy -diff` (no output).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/modules/firewall/guard/flows.go internal/modules/firewall/guard/flows_test.go internal/modules/firewall/guard/guard_test.go
+git commit -m "fix(firewall): protect the controller's listeners" -m "With a controller on the host, every listening TCP socket it holds is a
+protected flow from an internet stand-in address, so a change made with
+no connected client still keeps the panel, runtime and agent ports open.
+The runtime listener on the panel bridge is reached from the proxy
+container's address on the bridge."
+```
+
+### Task 113: Fail a change to IPv6 forwarding under router advertisements
+
+**Files:**
+- Modify: `internal/modules/firewall/guard/guard.go`
+- Create: `internal/modules/firewall/guard/ra.go`
+- Test: `internal/modules/firewall/e2e_guard_test.go`
+- Test: `internal/modules/firewall/guard/ra_test.go`
+
+**Interfaces:**
+- Consumes: `Check`, `moduleID`, `flow`, `routeDumper`, `LiveHost.Routes`, `gxDumpHost` (Tasks 17, 43 and 94); `ckEnv`, `ckState`, `ckEval`, `gHost`, `gIfaces`, `gFiles` (`errs`) (Tasks 17, 44 and 53); `fwstate.Loaded.Sysctl`; `netstat.RouteProtoRA` (merged code); `e2eNet` (Task 82).
+- Produces: `raFlows`, `forwardingKey`, the new behaviour of `Check`, `e2eNet.Routes`, and the test helpers `gxDefault6`, `gxPrefix6` (Part contracts, Task 113).
+
+**Depends on:** Task 94
+
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 1 - coupling 1 - risk 3 = 6
+**Lenses:** security
+
+Spec 2.1: an IPv6 interface with `accept_ra=1` stops accepting router advertisements while it forwards, so a change to IPv6 forwarding on a host whose default IPv6 route was learned from them lets that route expire and fails the guard as `unknown`. `Check` already receives the predicted sysctl values (`st.Sysctl`, from `loaded.PredictSysctl`), so it compares each `net/ipv6/conf/<iface>/forwarding` value of `st` with the live value read through `env.Files.ReadSysctl`, and only when one differs lists the IPv6 routes (Task 94) and looks for a default route whose protocol is `RTPROT_RA` (9). The result is one unknown flow, appended after the other flows. Any unreadable value or listing is an error, as every unreadable fact is; a key the kernel lacks (IPv6 off) is no change. The end-to-end test's fake host gains `Routes`, because the end-to-end tests do change forwarding. The tests cover both directions (0 to 1 and 1 to 0), a single interface's key, no change, a static default route, no default route, a router-advertisement route that is not the default, an unrelated key, and each failure path.
+
+- [ ] **Step 1: Write the failing test**
+
+In `internal/modules/firewall/e2e_guard_test.go`:
+
+Replace this block:
+
+```go
+	return netstat.Route{Type: "unicast", Dst: netip.PrefixFrom(q.Dst, q.Dst.BitLen()), PrefSrc: src, OutIface: "eth0"}, nil
+}
+
+func (e2eNet) PID() int { return 4242 }
+
+// e2eUnits says no controller runs on the host.
+```
+
+with:
+
+```go
+	return netstat.Route{Type: "unicast", Dst: netip.PrefixFrom(q.Dst, q.Dst.BitLen()), PrefSrc: src, OutIface: "eth0"}, nil
+}
+
+func (e2eNet) Routes(netstat.Family) ([]netstat.Route, error) { return nil, nil }
+
+func (e2eNet) PID() int { return 4242 }
+
+// e2eUnits says no controller runs on the host.
+```
+
+Create `internal/modules/firewall/guard/ra_test.go`:
+
+```go
+package guard
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/netip"
+	"strings"
+	"syscall"
+	"testing"
+
+	"github.com/darkraise/darkpanel/internal/platform/netstat"
+)
+
+// gxDefault6 is a default IPv6 route of the given protocol out of eth0.
+func gxDefault6(proto uint8) netstat.Route {
+	return netstat.Route{Type: "unicast", Table: 254, Protocol: proto, Dst: netip.MustParsePrefix("::/0"),
+		Gateway: netip.MustParseAddr("fe80::1"), OutIface: "eth0"}
+}
+
+// gxPrefix6 is a connected IPv6 network route of eth0.
+func gxPrefix6() netstat.Route {
+	return netstat.Route{Type: "unicast", Table: 254, Protocol: netstat.RouteProtoKernel, Dst: netip.MustParsePrefix("2001:db8::/64"), OutIface: "eth0"}
+}
+
+func TestGxCheckIPv6Forwarding(t *testing.T) {
+	const all, eth0 = "net/ipv6/conf/all/forwarding", "net/ipv6/conf/eth0/forwarding"
+	ra := []netstat.Route{gxPrefix6(), gxDefault6(netstat.RouteProtoRA)}
+	failed := func(key, from, to string) string {
+		return "the change would cut IPv6 router advertisements: unknown (" + key + " changes from " + from + " to " + to +
+			" and the default IPv6 route was learned from router advertisements, which an interface stops accepting while it forwards)"
+	}
+	for _, tc := range []struct {
+		name      string
+		routes    []netstat.Route
+		live, new map[string]string
+		message   string // "": the guard passes
+		dumps     int
+	}{
+		{"forwarding switched on", ra, map[string]string{all: "0"}, map[string]string{all: "1"}, failed(all, "0", "1"), 1},
+		{"forwarding switched off", ra, map[string]string{all: "1"}, map[string]string{all: "0"}, failed(all, "1", "0"), 1},
+		{"one interface's forwarding", ra, map[string]string{all: "0", eth0: "0"}, map[string]string{all: "0", eth0: "1"}, failed(eth0, "0", "1"), 1},
+		{"no change", ra, map[string]string{all: "0", eth0: "0"}, map[string]string{all: "0", eth0: "0"}, "", 0},
+		{"a static default route", []netstat.Route{gxPrefix6(), gxDefault6(netstat.RouteProtoStatic)}, map[string]string{all: "0"}, map[string]string{all: "1"}, "", 1},
+		{"no default route", []netstat.Route{gxPrefix6()}, map[string]string{all: "0"}, map[string]string{all: "1"}, "", 1},
+		{"a router advertisement route that is not the default", []netstat.Route{
+			{Type: "unicast", Table: 254, Protocol: netstat.RouteProtoRA, Dst: netip.MustParsePrefix("2001:db8:1::/64"), OutIface: "eth0"},
+		}, map[string]string{all: "0"}, map[string]string{all: "1"}, "", 1},
+		{"another supported key changes", ra, map[string]string{"net/ipv6/conf/all/accept_ra": "1"}, map[string]string{"net/ipv6/conf/all/accept_ra": "2"}, "", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env, files, _ := ckEnv()
+			for k, v := range tc.live {
+				files.sysctl[k] = v
+			}
+			st := ckState()
+			st.Sysctl = tc.new
+			h := &gxDumpHost{gHost: &gHost{ifaces: gIfaces()}, dump: map[netstat.Family][]netstat.Route{netstat.IPv6: tc.routes}}
+			g, results, err := Checker{Host: h}.Check(context.Background(), env, st, Input{Eval: ckEval(t, nil)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.message == "" && (!g.OK || len(results) != 0) {
+				t.Errorf("guard = %+v with %d results, want it to pass with none", g, len(results))
+			}
+			if tc.message != "" && (g.OK || g.Message != tc.message) {
+				t.Errorf("guard = %+v\nwant it failed with %q", g, tc.message)
+			}
+			if len(h.dumps) != tc.dumps {
+				t.Errorf("route dumps = %v, want %d", h.dumps, tc.dumps)
+			}
+		})
+	}
+}
+
+func TestGxCheckIPv6ForwardingFacts(t *testing.T) {
+	const key = "net/ipv6/conf/all/forwarding"
+	boom := errors.New("boom")
+	ra := map[netstat.Family][]netstat.Route{netstat.IPv6: {gxDefault6(netstat.RouteProtoRA)}}
+	for _, tc := range []struct {
+		name    string
+		err     error // the live read of key
+		dumpErr error
+		noDump  bool // the host cannot list routes
+		wantErr string
+	}{
+		{name: "the live value cannot be read", err: syscall.EACCES, wantErr: "firewall: read " + key},
+		{name: "IPv6 is off", err: fmt.Errorf("platform: open sysctl %s: %w", key, syscall.ENOENT)},
+		{name: "the routes cannot be read", dumpErr: boom, wantErr: "firewall: read the IPv6 routes: boom"},
+		{name: "the host cannot list routes", noDump: true, wantErr: "firewall: the host cannot list routes"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env, files, _ := ckEnv()
+			files.sysctl[key] = "0"
+			if tc.err != nil {
+				files.errs = map[string]error{key: tc.err}
+			}
+			st := ckState()
+			st.Sysctl = map[string]string{key: "1"}
+			var h Host = &gxDumpHost{gHost: &gHost{ifaces: gIfaces()}, dump: ra, err: tc.dumpErr}
+			if tc.noDump {
+				h = &gHost{ifaces: gIfaces()}
+			}
+			g, results, err := Checker{Host: h}.Check(context.Background(), env, st, Input{Eval: ckEval(t, nil)})
+			if tc.wantErr != "" {
+				if err == nil || !strings.HasPrefix(err.Error(), tc.wantErr) {
+					t.Fatalf("Check error = %v, want one starting %q", err, tc.wantErr)
+				}
+				if g.ID != "" || results != nil {
+					t.Errorf("a failed Check returned guard %+v and results %+v", g, results)
+				}
+				return
+			}
+			if err != nil || !g.OK {
+				t.Errorf("Check = %+v, %v; want a passing guard", g, err)
+			}
+		})
+	}
+}
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `mkdir -p /root/.cache/w1-tmp/113 && TMPDIR=/root/.cache/w1-tmp/113 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestGxCheckIPv6' ./internal/modules/firewall/guard/`
+Expected: FAIL, the check ignores forwarding changes (it reads no route dump and reports nothing):
+
+```text
+--- FAIL: TestGxCheckIPv6Forwarding (0.00s)
+    --- FAIL: TestGxCheckIPv6Forwarding/forwarding_switched_on (0.00s)
+        ra_test.go:70: route dumps = [], want 1
+    --- FAIL: TestGxCheckIPv6Forwarding/forwarding_switched_off (0.00s)
+    --- FAIL: TestGxCheckIPv6Forwarding/one_interface's_forwarding (0.00s)
+    --- FAIL: TestGxCheckIPv6Forwarding/a_static_default_route (0.00s)
+    --- FAIL: TestGxCheckIPv6Forwarding/no_default_route (0.00s)
+    --- FAIL: TestGxCheckIPv6Forwarding/a_router_advertisement_route_that_is_not_the_default (0.00s)
+--- FAIL: TestGxCheckIPv6ForwardingFacts (0.00s)
+    --- FAIL: TestGxCheckIPv6ForwardingFacts/the_live_value_cannot_be_read (0.00s)
+        ra_test.go:107: Check error = <nil>, want one starting "firewall: read net/ipv6/conf/all/forwarding"
+    --- FAIL: TestGxCheckIPv6ForwardingFacts/the_routes_cannot_be_read (0.00s)
+    --- FAIL: TestGxCheckIPv6ForwardingFacts/the_host_cannot_list_routes (0.00s)
+FAIL
+FAIL	github.com/darkraise/darkpanel/internal/modules/firewall/guard	0.003s
+FAIL
+```
+
+- [ ] **Step 3: Write the implementation**
+
+Replace the whole of `internal/modules/firewall/guard/guard.go` with:
+
+```go
+package guard
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
+	"github.com/darkraise/darkpanel/internal/platform/netfilter"
+)
+
+// GuardID is the id of the firewall's lockout guard.
+const GuardID = "firewall.lockout"
+
+// FlowResult is one protected flow on one in-interface and its verdict.
+type FlowResult struct {
+	Flow   string // human-readable: "ssh from 203.0.113.7 to 192.0.2.1:22 on eth0"
+	Result fwstate.Result
+}
+
+// Checker runs the lockout guard against a host.
+type Checker struct {
+	Host Host // nil: LiveHost{}
+}
+
+// Check runs the lockout guard against this host; see Checker.Check.
+func Check(ctx context.Context, env core.Env, st fwstate.Loaded, in Input) (core.Guard, []FlowResult, error) {
+	return Checker{}.Check(ctx, env, st, in)
+}
+
+// Check gathers the host's live facts, builds every protected flow from
+// them and from in, evaluates each flow with in.Eval against st on every
+// eligible in-interface, and returns the firewall.lockout guard with one
+// FlowResult per flow and interface. The guard fails when any flow is not
+// accepted. A change of IPv6 forwarding that stops router advertisements
+// adds one unknown flow (raFlows). Check never decides overridability or hard
+// refusals; a fact it cannot read is an error.
+func (c Checker) Check(ctx context.Context, env core.Env, st fwstate.Loaded, in Input) (core.Guard, []FlowResult, error) {
+	if in.Eval == nil {
+		return core.Guard{}, nil, errors.New("firewall: the guard has no evaluator")
+	}
+	h := c.Host
+	if h == nil {
+		h = LiveHost{}
+	}
+	f, err := gatherFacts(ctx, env, h)
+	if err != nil {
+		return core.Guard{}, nil, err
+	}
+	flows := buildFlows(in, f)
+	ra, err := raFlows(ctx, env, h, st)
+	if err != nil {
+		return core.Guard{}, nil, err
+	}
+	r := newRouter(h, f, st)
+	var results []FlowResult
+	for _, fl := range append(flows, ra...) {
+		for _, p := range r.probes(fl) {
+			results = append(results, FlowResult{Flow: p.desc, Result: evaluate(r, p, in.Eval)})
+		}
+	}
+	return verdict(results), results, nil
+}
+
+// evaluate walks one probe through the ruleset of its family.
+func evaluate(r *router, p probe, eval func(*netfilter.Ruleset, fwstate.Packet, fwstate.Router) fwstate.Result) fwstate.Result {
+	if p.unknown != "" {
+		return fwstate.Result{Verdict: fwstate.Unknown, Reason: p.unknown}
+	}
+	rs := r.st.V4
+	if p.pkt.Family == fwstate.V6 {
+		rs = r.st.V6
+	}
+	if rs == nil {
+		return fwstate.Result{Verdict: fwstate.Unknown, Reason: "no " + string(p.pkt.Family) + " ruleset was read"}
+	}
+	return eval(rs, p.pkt, r.route)
+}
+
+// verdict is the guard for the results: OK only when every flow is
+// accepted, so a drop, a reject, an unknown and any verdict the guard does
+// not know all fail it.
+func verdict(results []FlowResult) core.Guard {
+	var failed []string
+	for _, fr := range results {
+		if fr.Result.Verdict == fwstate.Accept {
+			continue
+		}
+		v := string(fr.Result.Verdict)
+		if v == "" {
+			v = "no verdict"
+		}
+		s := fr.Flow + ": " + v
+		if fr.Result.Reason != "" {
+			s += " (" + fr.Result.Reason + ")"
+		}
+		failed = append(failed, s)
+	}
+	switch {
+	case len(failed) > 0:
+		return core.Guard{ID: GuardID, Message: "the change would cut " + strings.Join(failed, "; ")}
+	case len(results) == 0:
+		return core.Guard{ID: GuardID, OK: true, Message: "no protected flow to check"}
+	}
+	return core.Guard{ID: GuardID, OK: true, Message: fmt.Sprintf("every protected flow passes (%d checked)", len(results))}
+}
+```
+
+Create `internal/modules/firewall/guard/ra.go`:
+
+```go
+package guard
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io/fs"
+	"maps"
+	"regexp"
+	"slices"
+
+	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
+	"github.com/darkraise/darkpanel/internal/platform/netstat"
+)
+
+// forwardingKey matches the supported IPv6 forwarding keys of a loaded
+// state's sysctl values.
+var forwardingKey = regexp.MustCompile(`^net/ipv6/conf/[^/]+/forwarding$`)
+
+// raFlows reports a change to IPv6 forwarding on a host whose default IPv6
+// route was learned from router advertisements as one unknown flow: an
+// interface with accept_ra 1 stops taking advertisements while it forwards,
+// so the route expires and the IPv6 paths of the host go with it. The change
+// is any forwarding value of st that differs from the live one; a key the
+// kernel lacks (IPv6 is off, the interface is gone) is no change. The
+// routes are read only when a value changes.
+func raFlows(ctx context.Context, env core.Env, h Host, st fwstate.Loaded) ([]flow, error) {
+	for _, key := range slices.Sorted(maps.Keys(st.Sysctl)) {
+		if !forwardingKey.MatchString(key) {
+			continue
+		}
+		live, err := env.Files.ReadSysctl(ctx, moduleID, key)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("firewall: read %s: %w", key, err)
+		}
+		if live == st.Sysctl[key] {
+			continue
+		}
+		dumper, ok := h.(routeDumper)
+		if !ok {
+			return nil, errors.New("firewall: the host cannot list routes")
+		}
+		routes, err := dumper.Routes(netstat.IPv6)
+		if err != nil {
+			return nil, fmt.Errorf("firewall: read the IPv6 routes: %w", err)
+		}
+		for _, rt := range routes {
+			if rt.Protocol == netstat.RouteProtoRA && rt.Dst.Bits() == 0 {
+				return []flow{{label: "IPv6 router advertisements", unknown: fmt.Sprintf(
+					"%s changes from %s to %s and the default IPv6 route was learned from router advertisements, which an interface stops accepting while it forwards",
+					key, live, st.Sysctl[key])}}, nil
+			}
+		}
+		return nil, nil
+	}
+	return nil, nil
+}
+```
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `TMPDIR=/root/.cache/w1-tmp/113 GOTOOLCHAIN=local timeout 300 go test -count=1 ./internal/modules/firewall/guard/ ./internal/modules/firewall/` — Expected: PASS (`ok` for every package listed)
+Then run, each with `GOTOOLCHAIN=local`, an explicit `timeout` and `TMPDIR=/root/.cache/w1-tmp/113`: `go build ./...`; `go vet ./...` (no output); `go vet -tags harness ./test/...` (no output); `go test -count=1 ./...` (every package `ok` or `?`); `go test -race -count=1 ./internal/modules/firewall/guard/ ./internal/modules/firewall/` (`ok`); `golangci-lint run --allow-serial-runners ./...` (`0 issues.`); `go mod tidy -diff` (no output).
+
+`go test -count=1 ./internal/modules/firewall/` includes the end-to-end tests (`TestE2EVerifySysctl` fails with `firewall: the host cannot list routes` if the fake's `Routes` is missing).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/modules/firewall/e2e_guard_test.go internal/modules/firewall/guard/guard.go internal/modules/firewall/guard/ra.go internal/modules/firewall/guard/ra_test.go
+git commit -m "fix(firewall): guard IPv6 forwarding and RA routes" -m "A change to IPv6 forwarding on a host whose default IPv6 route was
+learned from router advertisements fails the guard as unknown: an
+interface with accept_ra 1 stops taking advertisements while it
+forwards. The guard compares the state it checks with the live
+forwarding values and reads the IPv6 routes only when one differs."
+```
+
+### Task 114: Finish a cut-off emergency restore as an override
+
+**Files:**
+- Modify: `internal/modules/firewall/restore.go`
+- Modify: `internal/modules/firewall/revert.go`
+- Test: `internal/modules/firewall/revert_test.go`
+
+**Interfaces:**
+- Consumes: `restoreRecord`, `restoreRecordOf`, `beginRestoreRecord`, `markEmergency` (Task 106); `rvTestSetup`, `rvTestRemoveOwnRule`, `rvTestEffect` (part A1, `revert_test.go`); `fakeHost` fields `runErr`, `guardOK`, `guardDetail`, `guardCalls` (part A1, `host_test.go`).
+- Produces: `restoreOver`, `emergencyRecord`, `storedOutcome`, `storeOutcomes`, `emergencyRecord.outcomes`, `finishRestore` with a `restoreRecord` argument (Part contracts, Task 114).
+
+**Depends on:** Task 106
+
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 0 - coupling 2 - risk 3 = 6
+**Lenses:** security
+
+An emergency restore over conflicts only (no effect unresolved), cut off by a crash before `Revert` returned, ran again as a plain finished restore: nothing was unresolved, so every effect came back `undone`, `Override` was false and the change ended `reverted` with no emergency record (spec 2.5 step 4). Now `emergencyRestore` stores what it will report (the guard's reason, the files it overwrites, every effect's outcome) in the restore record before it writes anything, and `finishRestore` returns that override when the record says emergency. A normal whole restore that failed and then became the connectivity exception upgrades its record. The test cuts the restore off by making `ufw reload` fail, runs the revert again, and proves the second run is an override with the same effects and detail and does not evaluate the guard again, over a conflict and after a failed whole restore.
+
+- [ ] **Step 1: Write the failing test**
+
+Add one test.
+
+In `internal/modules/firewall/revert_test.go`:
+
+Append to the end of the file:
+
+```go
+
+func TestAxRevertFinishesAnInterruptedEmergencyRestore(t *testing.T) {
+	for _, c := range []struct {
+		name        string
+		set         func(h *fakeHost)
+		wantEffects []rvTestEffect
+	}{
+		{
+			name: "over a conflict",
+			set:  rvTestRemoveOwnRule,
+			wantEffects: []rvTestEffect{
+				{1, core.EffectUnresolved, core.ReasonConflict, "null"},
+				{2, core.EffectUndone, "", ""},
+			},
+		},
+		{
+			name:        "after a whole restore that failed",
+			set:         func(*fakeHost) {},
+			wantEffects: []rvTestEffect{{1, core.EffectUndone, "", ""}, {2, core.EffectUndone, "", ""}},
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			ctx := context.Background()
+			h, snap := rvTestSetup(t)
+			c.set(h)
+			h.guardOK, h.guardDetail = false, "ssh from 203.0.113.7 to 192.0.2.1:22 on eth0 is dropped"
+			h.runErr["/usr/sbin/ufw reload"] = errors.New("killed")
+			if _, err := revert(ctx, h.env(), h.deps(), []byte(snap.ID)); err == nil || !strings.Contains(err.Error(), "emergency restore") {
+				t.Fatalf("the cut-off revert = %v, want the emergency restore's failure", err)
+			}
+			if _, pending, _ := restoreIntent(ctx, h.db, snap.ID); !pending {
+				t.Fatal("the cut-off emergency restore left no record")
+			}
+			delete(h.runErr, "/usr/sbin/ufw reload")
+			h.guardOK, h.guardCalls = true, 0
+			out, err := revert(ctx, h.env(), h.deps(), []byte(snap.ID))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !out.Override {
+				t.Fatal("the finished emergency restore is not an override")
+			}
+			var got []rvTestEffect
+			for _, o := range out.Effects {
+				e := rvTestEffect{o.Seq, o.State, o.Reason, ""}
+				if o.Current != nil {
+					e.current = string(o.Current.State)
+				}
+				got = append(got, e)
+			}
+			if !reflect.DeepEqual(got, c.wantEffects) {
+				t.Errorf("effects = %+v, want %+v", got, c.wantEffects)
+			}
+			var detail overrideDetail
+			if err := json.Unmarshal(out.Detail, &detail); err != nil {
+				t.Fatal(err)
+			}
+			if detail.Snapshot != snap.ID || detail.Guard != "ssh from 203.0.113.7 to 192.0.2.1:22 on eth0 is dropped" || !detail.At.Equal(h.clock.Now()) {
+				t.Errorf("override detail = %+v", detail)
+			}
+			if h.guardCalls != 0 {
+				t.Errorf("finishing the restore evaluated the guard %d times", h.guardCalls)
+			}
+			if !reflect.DeepEqual(fileHashes(h.config().Files), snap.Hashes) {
+				t.Error("the state files are not the snapshot's")
+			}
+			if _, pending, _ := restoreIntent(ctx, h.db, snap.ID); pending {
+				t.Error("the finished restore left its record")
+			}
+			if s, err := getSnapshot(ctx, h.db, snap.ID); err != nil || !s.Pinned {
+				t.Errorf("snapshot pinned = %v, %v", s.Pinned, err)
+			}
+		})
+	}
+}
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `mkdir -p /root/.cache/w1-tmp/114 && TMPDIR=/root/.cache/w1-tmp/114 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestAxRevertFinishesAnInterruptedEmergencyRestore' ./internal/modules/firewall/`
+Expected: FAIL. Observed output:
+
+```text
+--- FAIL: TestAxRevertFinishesAnInterruptedEmergencyRestore (1.10s)
+    --- FAIL: TestAxRevertFinishesAnInterruptedEmergencyRestore/over_a_conflict (0.52s)
+        revert_test.go:466: the finished emergency restore is not an override
+    --- FAIL: TestAxRevertFinishesAnInterruptedEmergencyRestore/after_a_whole_restore_that_failed (0.58s)
+        revert_test.go:466: the finished emergency restore is not an override
+FAIL
+FAIL	github.com/darkraise/darkpanel/internal/modules/firewall	1.109s
+FAIL
+```
+
+- [ ] **Step 3: Write the implementation**
+
+In `internal/modules/firewall/restore.go`:
+
+Replace this block:
+
+```go
+import (
+	"context"
+	"fmt"
+	"slices"
+```
+
+with:
+
+```go
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"slices"
+```
+
+Replace this block:
+
+```go
+// make it fail after the rest is restored and verified.
+func restore(ctx context.Context, env core.Env, d deps, snap snapshot) (restoreReport, error) {
+	var rep restoreReport
+	tr, recorded, err := restoreIntent(ctx, env.DB, snap.ID)
+	if err != nil {
+		return rep, err
+	}
+	if !recorded {
+		switch cur, err := d.readConfig(d.root); {
+		case snap.State.Image != nil:
+```
+
+with:
+
+```go
+// make it fail after the rest is restored and verified.
+func restore(ctx context.Context, env core.Env, d deps, snap snapshot) (restoreReport, error) {
+	return restoreOver(ctx, env, d, snap, nil)
+}
+
+// restoreOver is restore for the connectivity exception when emergency is
+// not nil: the record of what the restore overwrites is kept with the
+// restore record, from before the first write, so that finishing a cut-off
+// restore still ends as an override.
+func restoreOver(ctx context.Context, env core.Env, d deps, snap snapshot, emergency json.RawMessage) (restoreReport, error) {
+	var rep restoreReport
+	rec, recorded, err := restoreRecordOf(ctx, env.DB, snap.ID)
+	if err != nil {
+		return rep, err
+	}
+	tr := rec.Transition
+	switch {
+	case recorded && emergency != nil:
+		if err := markEmergency(ctx, env.DB, snap.ID, emergency); err != nil {
+			return rep, err
+		}
+	case !recorded:
+		switch cur, err := d.readConfig(d.root); {
+		case snap.State.Image != nil:
+```
+
+Replace this block:
+
+```go
+			tr = chooseTransition(snap.State.Enabled, cur.Enabled)
+		}
+		if err := beginRestore(ctx, env.DB, snap.ID, tr, env.Clock.Now()); err != nil {
+			return rep, err
+		}
+```
+
+with:
+
+```go
+			tr = chooseTransition(snap.State.Enabled, cur.Enabled)
+		}
+		if err := beginRestoreRecord(ctx, env.DB, snap.ID, restoreRecord{Transition: tr, Emergency: emergency}, env.Clock.Now()); err != nil {
+			return rep, err
+		}
+```
+
+In `internal/modules/firewall/revert.go`:
+
+Replace this block:
+
+```go
+		}
+	}
+	if _, pending, err := restoreIntent(ctx, env.DB, snap.ID); err != nil {
+		return core.RevertOutcome{}, err
+	} else if pending {
+		return finishRestore(ctx, env, d, snap, blocked, made)
+	}
+
+```
+
+with:
+
+```go
+		}
+	}
+	if rec, pending, err := restoreRecordOf(ctx, env.DB, snap.ID); err != nil {
+		return core.RevertOutcome{}, err
+	} else if pending {
+		return finishRestore(ctx, env, d, snap, rec, blocked, made)
+	}
+
+```
+
+Replace this block:
+
+```go
+}
+
+// finishRestore finishes a restore of snap that a crash cut off. With an
+// effect unresolved, only the connectivity exception restores whole, so
+// the finished restore is that exception's and returns Override.
+func finishRestore(ctx context.Context, env core.Env, d deps, snap snapshot, blocked, made []core.Effect) (core.RevertOutcome, error) {
+	rep, err := restore(ctx, env, d, snap)
+	if err != nil {
+		pin(ctx, env, snap.ID)
+		return core.RevertOutcome{}, fmt.Errorf("firewall: finish the interrupted restore of snapshot %s: %w", snap.ID, err)
+	}
+	logVanished(env, rep.Vanished)
+	out := undoneOutcomes(made, nil)
+	if len(blocked) == 0 {
+```
+
+with:
+
+```go
+}
+
+// emergencyRecord is what an emergency restore keeps in its restore
+// record before it writes anything: the override detail as far as it is
+// known then (the loaded chains it changed are not), and the outcome of
+// every effect, so that finishing a restore a crash cut off returns the
+// same override.
+type emergencyRecord struct {
+	Detail  overrideDetail  `json:"detail"`
+	Effects []storedOutcome `json:"effects"`
+}
+
+// storedOutcome is a core.EffectOutcome in the restore record.
+type storedOutcome struct {
+	Seq     int              `json:"seq"`
+	State   core.EffectState `json:"state"`
+	Reason  string           `json:"reason,omitempty"`
+	Current *core.StateDoc   `json:"current,omitempty"`
+}
+
+func storeOutcomes(out []core.EffectOutcome) []storedOutcome {
+	s := make([]storedOutcome, len(out))
+	for i, o := range out {
+		s[i] = storedOutcome{Seq: o.Seq, State: o.State, Reason: o.Reason, Current: o.Current}
+	}
+	return s
+}
+
+func (r emergencyRecord) outcomes() []core.EffectOutcome {
+	out := make([]core.EffectOutcome, len(r.Effects))
+	for i, o := range r.Effects {
+		out[i] = core.EffectOutcome{Seq: o.Seq, State: o.State, Reason: o.Reason, Current: o.Current}
+	}
+	return out
+}
+
+// finishRestore finishes a restore of snap that a crash cut off, with the
+// transition its record holds. An emergency restore (the record says so)
+// ends as the override it was, with the effects and the detail it recorded
+// before it wrote, except for the loaded chains it changed: the state
+// before the cut-off run is gone. A restore recorded before the record had
+// a kind, over an effect that is unresolved, is taken for the connectivity
+// exception too, because only that restores whole over one.
+func finishRestore(ctx context.Context, env core.Env, d deps, snap snapshot, rec restoreRecord, blocked, made []core.Effect) (core.RevertOutcome, error) {
+	rep, err := restore(ctx, env, d, snap)
+	if err != nil {
+		pin(ctx, env, snap.ID)
+		return core.RevertOutcome{}, fmt.Errorf("firewall: finish the interrupted restore of snapshot %s: %w", snap.ID, err)
+	}
+	logVanished(env, rep.Vanished)
+	if rec.Emergency != nil {
+		var er emergencyRecord
+		if err := json.Unmarshal(rec.Emergency, &er); err == nil {
+			pin(ctx, env, snap.ID)
+			er.Detail.Vanished = rep.Vanished
+			return core.RevertOutcome{Effects: er.outcomes(), Override: true, Detail: mustJSON(er.Detail)}, nil
+		}
+		env.Log.Warn("firewall: the emergency restore record cannot be read", "snapshot", snap.ID, "error", err)
+	}
+	out := undoneOutcomes(made, nil)
+	if len(blocked) == 0 {
+```
+
+Replace this block:
+
+```go
+	}
+	beforeLoaded, beforeErr := d.readLoaded(ctx, env)
+	rep, err := restore(ctx, env, d, snap)
+	if err != nil {
+		return core.RevertOutcome{}, fmt.Errorf("firewall: the lockout guard failed (%s) and the emergency restore of snapshot %s failed: %w",
+			why, snap.ID, errors.Join(err, writeErr))
+	}
+	detail.Vanished = rep.Vanished
+	logVanished(env, rep.Vanished)
+	for _, e := range snap.Entries {
+		if was, now := beforeFiles[e.Path], fileHash(e); was != now {
+			detail.Files = append(detail.Files, fileOverwrite{Path: e.Path, Was: was, Now: now})
+		}
+	}
+	if afterLoaded, err := d.readLoaded(ctx, env); err == nil && beforeErr == nil {
+		for _, df := range d.compare(beforeLoaded, afterLoaded, restoreKeep) {
+```
+
+with:
+
+```go
+	}
+	beforeLoaded, beforeErr := d.readLoaded(ctx, env)
+	for _, e := range snap.Entries {
+		if was, now := beforeFiles[e.Path], fileHash(e); was != now {
+			detail.Files = append(detail.Files, fileOverwrite{Path: e.Path, Was: was, Now: now})
+		}
+	}
+	rep, err := restoreOver(ctx, env, d, snap, mustJSON(emergencyRecord{Detail: detail, Effects: storeOutcomes(out)}))
+	if err != nil {
+		return core.RevertOutcome{}, fmt.Errorf("firewall: the lockout guard failed (%s) and the emergency restore of snapshot %s failed: %w",
+			why, snap.ID, errors.Join(err, writeErr))
+	}
+	detail.Vanished = rep.Vanished
+	logVanished(env, rep.Vanished)
+	if afterLoaded, err := d.readLoaded(ctx, env); err == nil && beforeErr == nil {
+		for _, df := range d.compare(beforeLoaded, afterLoaded, restoreKeep) {
+```
+
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `TMPDIR=/root/.cache/w1-tmp/114 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestAxRevertFinishesAnInterruptedEmergencyRestore' ./internal/modules/firewall/` Expected: PASS.
+Then run, with `GOTOOLCHAIN=local` and the task's `TMPDIR`: `timeout 600 go build ./...`; `timeout 300 go vet ./...` (no output); `timeout 300 go vet -tags harness ./test/...` (no output); `timeout 1200 go test -count=1 ./...` (every line `ok` or `?`); `timeout 900 go test -race -count=1 ./internal/modules/firewall/...` (every line `ok`); `timeout 900 golangci-lint run --allow-serial-runners ./...` (`0 issues.`); `timeout 300 go mod tidy -diff` (no output).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/modules/firewall/restore.go internal/modules/firewall/revert.go internal/modules/firewall/revert_test.go
+git commit -m "fix(firewall): finish a cut-off emergency restore"
+```
+
+### Task 115: netfilter: print limit rates as iptables does
+
+**Files:**
+- Modify: `internal/platform/netfilter/key.go`
+- Test: `internal/platform/netfilter/key_test.go`
+
+**Interfaces:**
+- Consumes: `Key`, `keyValue`, `hasPrefixFold` (Task 92), `kyRule` (Task 24)
+- Produces: `limitRate(v string) string` as `iptables-save` prints a rate (Part contracts, Task 115)
+
+**Depends on:** Task 107
+
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 0 - coupling 2 - risk 2 = 5
+
+`iptables` reads a limit rate into a period (`XT_LIMIT_SCALE * seconds / n`, truncated) and `iptables-save` prints it in the largest unit that divides the period, so `60/min` is saved as `1/sec` and `10000/min` as `166/sec`. `limitRate` only spelled the unit short, so two equal rates in different units had different keys (the review's note on Task 24). It is now a port of `parse_rate` and `print_rate` of libxt_limit.c: the digits at the start of the rate, a prefix of a unit word in any case, a rate without a unit as per second, and a rate iptables refuses (zero, an unknown unit, faster than 10000 per second) is kept as written. The test holds the rates a container accepted with what `iptables-save` printed, and the ones it refused.
+
+- [ ] **Step 1: Write the failing test**
+
+Modify `internal/platform/netfilter/key_test.go` with 1 exact edit; the "replace" block occurs exactly once in the file at that point.
+
+Replace this block:
+
+```go
+			t.Errorf("the refused --log-level %s has the key %q, want %q", in, got, want)
+		}
+	}
+}
+```
+
+with:
+
+```go
+			t.Errorf("the refused --log-level %s has the key %q, want %q", in, got, want)
+		}
+	}
+}
+
+// kxLimits are the --limit spellings that iptables 1.8.11
+// (extensions/libxt_limit.c) accepted in a container, with the rate
+// iptables-save then printed: it reads a rate into a period, so an
+// equivalent rate in another unit is printed in the largest unit that
+// divides it, and kxLimitRefused those it refused.
+var kxLimits = []struct{ in, saved string }{
+	{"3/hour", "3/hour"},
+	{"3/minute", "3/min"},
+	{"3/min", "3/min"},
+	{"3/m", "3/min"},
+	{"3/s", "3/sec"},
+	{"3/second", "3/sec"},
+	{"3/sec", "3/sec"},
+	{"3/h", "3/hour"},
+	{"3/d", "3/day"},
+	{"3/day", "3/day"},
+	{"60/min", "1/sec"},
+	{"60/minute", "1/sec"},
+	{"60/hour", "1/min"},
+	{"120/hour", "2/min"},
+	{"3600/hour", "1/sec"},
+	{"1/sec", "1/sec"},
+	{"2", "2/sec"},
+	{"10", "10/sec"},
+	{"1/day", "1/day"},
+	{"7/hour", "7/hour"},
+	{"7/day", "7/day"},
+	{"3/Hour", "3/hour"},
+	{"3/hou", "3/hour"},
+	{"03/min", "3/min"},
+	{"3x/min", "3/min"},
+	{"100/s", "100/sec"},
+	{"10000/s", "10000/sec"},
+	{"86400/day", "1/sec"},
+	{"1440/day", "1/min"},
+	{"24/day", "1/hour"},
+	{"48/day", "2/hour"},
+	{"5/min", "5/min"},
+	{"4/hour", "4/hour"},
+	{"90/hour", "90/hour"},
+	{"59/min", "59/min"},
+	{"61/min", "61/min"},
+	{"7/min", "7/min"},
+	{"13/min", "13/min"},
+	{"999/hour", "999/hour"},
+	{"2500/day", "2500/day"},
+	{"100/min", "100/min"},
+	{"180/min", "3/sec"},
+	{"300/min", "5/sec"},
+	{"1000/min", "1000/min"},
+	{"10000/min", "166/sec"},
+}
+
+var kxLimitRefused = []string{
+	"3/HOURS",
+	"3/hours",
+	"3/",
+	"3/x",
+	"0/sec",
+	"0",
+	"abc",
+	"10001/s",
+	"20000/s",
+}
+
+func TestKxLimitRates(t *testing.T) {
+	for _, tc := range kxLimits {
+		got := Key(kyRule(t, "-A X -m limit --limit "+tc.in+" -j ACCEPT", true), false)
+		if want := "-m limit --limit " + tc.saved + " -j ACCEPT"; got != want {
+			t.Errorf("--limit %s has the key %q, want %q", tc.in, got, want)
+		}
+	}
+	for _, in := range kxLimitRefused {
+		got := Key(kyRule(t, "-A X -m limit --limit "+in+" -j ACCEPT", true), false)
+		if want := "-m limit --limit " + in + " -j ACCEPT"; got != want {
+			t.Errorf("the refused --limit %s has the key %q, want it kept as written", in, got)
+		}
+	}
+}
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `mkdir -p /root/.cache/w1-tmp/115 && TMPDIR=/root/.cache/w1-tmp/115 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestKxLimitRates' ./internal/platform/netfilter/`
+Expected: FAIL -- rates in another unit keep their spelling, `03/min` and `3x/min` are kept, and refused rates gain `/sec`. The output observed when drafting:
+
+```text
+--- FAIL: TestKxLimitRates (0.00s)
+    key_test.go:513: --limit 60/min has the key "-m limit --limit 60/min -j ACCEPT", want "-m limit --limit 1/sec -j ACCEPT"
+    key_test.go:513: --limit 60/minute has the key "-m limit --limit 60/min -j ACCEPT", want "-m limit --limit 1/sec -j ACCEPT"
+    key_test.go:513: --limit 60/hour has the key "-m limit --limit 60/hour -j ACCEPT", want "-m limit --limit 1/min -j ACCEPT"
+    key_test.go:513: --limit 120/hour has the key "-m limit --limit 120/hour -j ACCEPT", want "-m limit --limit 2/min -j ACCEPT"
+... (17 more lines like these)
+```
+
+- [ ] **Step 3: Write the implementation**
+
+Modify `internal/platform/netfilter/key.go` with 1 exact edit; the "replace" block occurs exactly once in the file at that point.
+
+Replace this block:
+
+```go
+	return c
+}
+
+// limitUnits are the units of a limit rate, in the order iptables tries
+// them, with the spelling iptables-save prints.
+var limitUnits = []struct{ word, short string }{{"second", "sec"}, {"minute", "min"}, {"hour", "hour"}, {"day", "day"}}
+
+// limitRate is a rate such as 3/minute as iptables-save prints it, 3/min.
+// Like iptables (libxt_limit.c, parse_rate), it takes any prefix of a unit
+// word and a rate without a unit as per second.
+func limitRate(v string) string {
+	n, unit, ok := strings.Cut(v, "/")
+	if !ok {
+		return n + "/sec"
+	}
+	for _, u := range limitUnits {
+		if unit != "" && len(unit) <= len(u.word) && strings.EqualFold(unit, u.word[:len(unit)]) {
+			return n + "/" + u.short
+		}
+	}
+	return v
+}
+
+// ctStateOrder is the order iptables-save prints conntrack states in.
+```
+
+with:
+
+```go
+	return c
+}
+
+// limitScale is the kernel's rate scale (XT_LIMIT_SCALE): a rate is stored as
+// the period, in units of 1/limitScale second, between two packets.
+const limitScale = 10000
+
+// limitUnits are the units of a limit rate in the order iptables tries them
+// when it reads one (libxt_limit.c, parse_rate), with the number of seconds
+// in each.
+var limitUnits = []struct {
+	word    string
+	seconds uint64
+}{{"second", 1}, {"minute", 60}, {"hour", 60 * 60}, {"day", 24 * 60 * 60}}
+
+// limitPrinted are the units iptables-save prints a rate in, the largest
+// first (libxt_limit.c, print_rate), with the period of one packet per unit.
+var limitPrinted = []struct {
+	name   string
+	period uint64
+}{{"day", limitScale * 24 * 60 * 60}, {"hour", limitScale * 60 * 60}, {"min", limitScale * 60}, {"sec", limitScale}}
+
+// limitRate is a rate as iptables-save prints it. iptables reads the rate
+// into a period, truncated to a whole number, and prints it in the largest
+// unit that divides it: 60/min is 1/sec. Like iptables, it takes any prefix
+// of a unit word, ignoring case, and a rate without a unit as per second,
+// and it reads the digits at the start of the rate. A rate iptables refuses
+// is kept as written.
+func limitRate(v string) string {
+	rate, unit, hasUnit := strings.Cut(v, "/")
+	seconds := uint64(1)
+	if hasUnit {
+		seconds = 0
+		for _, u := range limitUnits {
+			if unit != "" && hasPrefixFold(u.word, unit) {
+				seconds = u.seconds
+				break
+			}
+		}
+		if seconds == 0 {
+			return v
+		}
+	}
+	digits := 0
+	for digits < len(rate) && rate[digits] >= '0' && rate[digits] <= '9' {
+		digits++
+	}
+	n, err := strconv.ParseUint(rate[:digits], 10, 31)
+	if err != nil || n == 0 {
+		return v
+	}
+	period := limitScale * seconds / n
+	if period == 0 {
+		return v
+	}
+	i := 1
+	for ; i < len(limitPrinted); i++ {
+		if p := limitPrinted[i].period; period > p || p/period < p%period {
+			break
+		}
+	}
+	return strconv.FormatUint(limitPrinted[i-1].period/period, 10) + "/" + limitPrinted[i-1].name
+}
+
+// ctStateOrder is the order iptables-save prints conntrack states in.
+```
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `go test -count=1 ./internal/platform/netfilter/` -- Expected: PASS
+
+Then run, each with `TMPDIR=/root/.cache/w1-tmp/115 GOTOOLCHAIN=local`:
+
+- `timeout 600 go build ./...` -- Expected: no output.
+- `timeout 300 go vet ./...` -- Expected: no output.
+- `timeout 1200 go test -count=1 ./...` -- Expected: every package `ok` or `?`.
+- `timeout 900 go test -race -count=1 ./internal/platform/netfilter/` -- Expected: `ok` for each.
+- `timeout 900 golangci-lint run --allow-serial-runners ./...` -- Expected: `0 issues.`
+- `timeout 300 go mod tidy -diff` -- Expected: no output.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/platform/netfilter/key.go internal/platform/netfilter/key_test.go
+git commit -m "fix(netfilter): print limit rates as iptables does"
+```
+
+### Task 116: Harness: fail when tailscaled holds no socket
+
+**Files:**
+- Modify: `test/harness/m3_firewall_test.go`
+- Test: `test/harness/m3_firewall_helpers_test.go`
+
+**Interfaces:**
+- Consumes: `m3Run`, `m3RefuseTailscaled` (Task 83)
+- Produces: `m3xTailscaledSocket(ss string) error` (Part contracts, Task 116)
+
+**Depends on:** Task 83, Task 110
+
+**Implementer:** dforge:impl-sonnet-medium
+**Evaluation:** files 1 - spec 0 - coupling 1 - risk 1 = 3
+
+`refuse-tailscaled-egress` skipped when `ss` showed no tailscaled socket, and tailscaled runs logged out until M5, so the step could skip on every run. A container run of tailscale 1.104.1, the version of `images.json`, started as its unit starts it and logged out ("Logged out."), held a UDP socket on port 41641 for IPv4 and for IPv6, which is what the guard's tailscale flow reads (Assumptions). The step now fails when `ss -Htuanp` shows no socket of tailscaled. `m3xTailscaledSocket` is that check; the test feeds it what `ss` printed in the container, and outputs that show no tailscaled socket.
+
+- [ ] **Step 1: Write the failing test**
+
+Modify `test/harness/m3_firewall_helpers_test.go` with 1 exact edit; the "replace" block occurs exactly once in the file at that point.
+
+Replace this block:
+
+```go
+		t.Errorf("m3xOutOfSync refused a host out of sync: %v", err)
+	}
+}
+```
+
+with:
+
+```go
+		t.Errorf("m3xOutOfSync refused a host out of sync: %v", err)
+	}
+}
+
+// TestM3xTailscaledSocket: tailscaled holds its WireGuard UDP port while it
+// is logged out. The first output is what ss -Htuanp printed in a
+// privileged debian:13 container running tailscale 1.104.1 (the version of
+// images.json) as its unit starts it, before any login.
+func TestM3xTailscaledSocket(t *testing.T) {
+	loggedOut := `udp UNCONN    0      0         0.0.0.0:41641         0.0.0.0:*   users:(("tailscaled",pid=2075,fd=17))
+udp UNCONN    0      0            [::]:41641            [::]:*   users:(("tailscaled",pid=2075,fd=16))
+tcp ESTAB     0      0      172.17.0.9:58584 199.165.136.100:443 users:(("tailscaled",pid=2075,fd=18))
+tcp TIME-WAIT 0      0      172.17.0.9:35994 151.101.130.132:80
+`
+	if err := m3xTailscaledSocket(loggedOut); err != nil {
+		t.Errorf("m3xTailscaledSocket(logged-out tailscaled) = %v, want nil", err)
+	}
+	for name, out := range map[string]string{
+		"no output":    "",
+		"other daemon": `tcp LISTEN 0 4096 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=800,fd=3))` + "\n",
+		"no process":   "udp UNCONN 0 0 0.0.0.0:41641 0.0.0.0:*\n",
+	} {
+		if err := m3xTailscaledSocket(out); err == nil {
+			t.Errorf("%s: m3xTailscaledSocket = nil, want an error", name)
+		}
+	}
+}
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `mkdir -p /root/.cache/w1-tmp/116 && TMPDIR=/root/.cache/w1-tmp/116 GOTOOLCHAIN=local timeout 300 go test -tags harness -count=1 -run 'TestM3xTailscaledSocket' ./test/harness/`
+Expected: FAIL -- the build fails on the undefined `m3xTailscaledSocket`. The output observed when drafting:
+
+```text
+# github.com/darkraise/darkpanel/test/harness [github.com/darkraise/darkpanel/test/harness.test]
+test/harness/m3_firewall_helpers_test.go:437:12: undefined: m3xTailscaledSocket
+test/harness/m3_firewall_helpers_test.go:445:13: undefined: m3xTailscaledSocket
+FAIL	github.com/darkraise/darkpanel/test/harness [build failed]
+FAIL
+```
+
+- [ ] **Step 3: Write the implementation**
+
+Modify `test/harness/m3_firewall_helpers_test.go` with 1 exact edit; the "replace" block occurs exactly once in the file at that point.
+
+Replace this block:
+
+```go
+	return nil
+}
+
+// m3JSON is v as JSON, for messages.
+func m3JSON(v any) string {
+	b, err := json.Marshal(v)
+```
+
+with:
+
+```go
+	return nil
+}
+
+// m3xTailscaledSocket accepts the output of ss -Htuanp when it shows a
+// socket held by tailscaled, which is how the guard learns that tailscaled
+// runs.
+func m3xTailscaledSocket(ss string) error {
+	if !strings.Contains(ss, `"tailscaled"`) {
+		return fmt.Errorf("tailscaled holds no TCP or UDP socket; ss -Htuanp printed:\n%s", ss)
+	}
+	return nil
+}
+
+// m3JSON is v as JSON, for messages.
+func m3JSON(v any) string {
+	b, err := json.Marshal(v)
+```
+
+Modify `test/harness/m3_firewall_test.go` with 1 exact edit; the "replace" block occurs exactly once in the file at that point.
+
+Replace this block:
+
+```go
+}
+
+// m3RefuseTailscaled: denying outgoing traffic would cut tailscaled's own
+// traffic, which the guard checks whenever tailscaled holds a socket.
+func m3RefuseTailscaled(ctx context.Context, t *testing.T, f *fleet) {
+	out := m3Run(ctx, t, f.agent, `sudo ss -Htuanp`)
+	if !strings.Contains(out, `"tailscaled"`) {
+		t.Skip("tailscaled holds no TCP or UDP socket on the agent host while it is logged out, so the guard has no tailscaled flow to protect")
+	}
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3Healthy)
+	m3RequireCut(ctx, t, f.api, f.agentID, "firewall.defaults.set", m3DenyOutgoing, "tailscale from ")
+```
+
+with:
+
+```go
+}
+
+// m3RefuseTailscaled: denying outgoing traffic would cut tailscaled's own
+// traffic, which the guard checks whenever tailscaled holds a socket. A
+// tailscaled that is logged out, as it is until M5, still holds its
+// WireGuard UDP port, so a host without a socket of it is a failure.
+func m3RefuseTailscaled(ctx context.Context, t *testing.T, f *fleet) {
+	if err := m3xTailscaledSocket(m3Run(ctx, t, f.agent, `sudo ss -Htuanp`)); err != nil {
+		t.Fatal(err)
+	}
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3Healthy)
+	m3RequireCut(ctx, t, f.api, f.agentID, "firewall.defaults.set", m3DenyOutgoing, "tailscale from ")
+```
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `go test -tags harness -count=1 -run 'TestM3x|TestM3UFWLines' ./test/harness/` -- Expected: PASS
+
+Then run, each with `TMPDIR=/root/.cache/w1-tmp/116 GOTOOLCHAIN=local`:
+
+- `timeout 600 go build ./...` -- Expected: no output.
+- `timeout 300 go vet ./...` -- Expected: no output.
+- `timeout 300 go vet -tags harness ./test/...` -- Expected: no output.
+- `timeout 1200 go test -count=1 ./...` -- Expected: every package `ok` or `?`.
+- `timeout 900 go test -race -count=1 -tags harness ./test/harness/` -- Expected: `ok` for each.
+- `timeout 900 golangci-lint run --allow-serial-runners ./...` and `timeout 900 golangci-lint run --allow-serial-runners --build-tags harness ./test/...` -- Expected: `0 issues.`
+- `timeout 300 go mod tidy -diff` -- Expected: no output.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add test/harness/m3_firewall_helpers_test.go test/harness/m3_firewall_test.go
+git commit -m "test(harness): fail when tailscaled holds no socket"
+```
+
+### Task 117: Restore over a cut-off restore
+
+**Files:**
+- Modify: `internal/modules/firewall/restore.go`
+- Test: `internal/modules/firewall/restore_test.go`
+
+**Interfaces:**
+- Consumes: `restoreOver`, `beginRestore`, `pendingRestore` (Tasks 106 and 114); `ufwRunning` (part A2, Task 69, `status.go`); `rsTestSnap`, `rsTestRuns` (part A1, `restore_test.go`); `fhParse` (part A1, `host_test.go`).
+- Produces: `activeNow` (Part contracts, Task 117).
+
+**Depends on:** Task 114
+
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 0 - coupling 1 - risk 3 = 5
+**Lenses:** security
+
+A restore that finds a record of another snapshot's cut-off restore replaces it, and with it the UFW transition the record held. It then chose its own from `ENABLED` in the files, which the cut-off restore may have half written: after a cut-off disable (`ENABLED=no` written, UFW still running) a restore of an active snapshot chose `ufw --force enable`, which loads nothing on a running UFW. Now, while a record of another snapshot exists, the restore asks the loaded chains whether UFW is running (`ufwRunning`) and chooses from that. The test covers a cut-off disable and a cut-off enable, a stopped UFW, and the unchanged choice when no record exists.
+
+- [ ] **Step 1: Write the failing test**
+
+Add one test.
+
+In `internal/modules/firewall/restore_test.go`:
+
+Append to the end of the file:
+
+```go
+
+func TestAxRestoreAfterAnotherInterruptedRestore(t *testing.T) {
+	const stopped = "*filter\n:INPUT DROP [0:0]\n:FORWARD DROP [0:0]\n:OUTPUT ACCEPT [0:0]\nCOMMIT\n"
+	for _, c := range []struct {
+		name       string
+		other      bool // a restore of another snapshot was cut off
+		confEnable bool // ufw.conf says ENABLED=yes when the restore starts
+		running    bool // UFW's chains are loaded
+		snapActive bool
+		want       []string
+	}{
+		{"cut off before ufw stopped", true, false, true, true, []string{"run /usr/sbin/ufw reload"}},
+		{"cut off before ufw started", true, true, false, false, nil},
+		{"cut off while stopped, snapshot active", true, false, false, true, []string{"run /usr/sbin/ufw --force enable"}},
+		{"no record: the configuration says", false, false, true, true, []string{"run /usr/sbin/ufw --force enable"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			ctx := context.Background()
+			h := newFakeHost(t)
+			s := h.state()
+			s.Enabled = c.snapActive
+			h.setState(s)
+			snap := rsTestSnap(t, h, false)
+			other := rsTestSnap(t, h, false)
+			if c.other {
+				if err := beginRestore(ctx, h.db, other.ID, fwstate.TransDisable, h.clock.Now()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			s.Enabled = c.confEnable
+			h.setState(s)
+			if !c.running {
+				h.loaded.V4 = fhParse(t, stopped)
+				h.loaded.V6 = fhParse(t, stopped)
+			}
+			for _, args := range []string{"reload", "--force enable", "disable"} {
+				h.ufw[args] = func(*fhState) int { return 0 }
+			}
+			h.calls = nil
+			if _, err := restore(ctx, h.env(), h.deps(), snap); err != nil {
+				t.Fatal(err)
+			}
+			if got := rsTestRuns(h); !reflect.DeepEqual(got, c.want) {
+				t.Errorf("ufw ran %v, want %v", got, c.want)
+			}
+			if _, pending, _ := pendingRestore(ctx, h.db); pending {
+				t.Error("the restore left a record")
+			}
+		})
+	}
+}
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `mkdir -p /root/.cache/w1-tmp/117 && TMPDIR=/root/.cache/w1-tmp/117 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestAxRestoreAfterAnotherInterruptedRestore' ./internal/modules/firewall/`
+Expected: FAIL. Observed output:
+
+```text
+--- FAIL: TestAxRestoreAfterAnotherInterruptedRestore (1.70s)
+    --- FAIL: TestAxRestoreAfterAnotherInterruptedRestore/cut_off_before_ufw_stopped (0.51s)
+        restore_test.go:359: ufw ran [run /usr/sbin/ufw --force enable], want [run /usr/sbin/ufw reload]
+    --- FAIL: TestAxRestoreAfterAnotherInterruptedRestore/cut_off_before_ufw_started (0.35s)
+        restore_test.go:359: ufw ran [run /usr/sbin/ufw disable], want []
+FAIL
+FAIL	github.com/darkraise/darkpanel/internal/modules/firewall	1.705s
+FAIL
+```
+
+- [ ] **Step 3: Write the implementation**
+
+In `internal/modules/firewall/restore.go`:
+
+Replace this block:
+
+```go
+	}
+	return fwstate.TransNone
+}
+
+```
+
+with:
+
+```go
+	}
+	return fwstate.TransNone
+}
+
+// activeNow reports whether UFW is active, for choosing the transition of a
+// restore that has no record yet. The configuration says so, unless a
+// record of another snapshot's restore is still there: that restore was cut
+// off, its files may be half written while UFW still runs as before, and
+// the new restore replaces its record, which held the transition. Then the
+// loaded chains say.
+func activeNow(ctx context.Context, env core.Env, d deps, cur fwstate.Config) bool {
+	if _, other, err := pendingRestore(ctx, env.DB); err != nil || !other {
+		return cur.Enabled
+	}
+	st, err := d.readLoaded(ctx, env)
+	if err != nil {
+		return cur.Enabled
+	}
+	return ufwRunning(st)
+}
+
+```
+
+Replace this block:
+
+```go
+			tr = fwstate.TransDisable
+		default:
+			tr = chooseTransition(snap.State.Enabled, cur.Enabled)
+		}
+		if err := beginRestoreRecord(ctx, env.DB, snap.ID, restoreRecord{Transition: tr, Emergency: emergency}, env.Clock.Now()); err != nil {
+```
+
+with:
+
+```go
+			tr = fwstate.TransDisable
+		default:
+			tr = chooseTransition(snap.State.Enabled, activeNow(ctx, env, d, cur))
+		}
+		if err := beginRestoreRecord(ctx, env.DB, snap.ID, restoreRecord{Transition: tr, Emergency: emergency}, env.Clock.Now()); err != nil {
+```
+
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `TMPDIR=/root/.cache/w1-tmp/117 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestAxRestoreAfterAnotherInterruptedRestore' ./internal/modules/firewall/` Expected: PASS.
+Then run, with `GOTOOLCHAIN=local` and the task's `TMPDIR`: `timeout 600 go build ./...`; `timeout 300 go vet ./...` (no output); `timeout 300 go vet -tags harness ./test/...` (no output); `timeout 1200 go test -count=1 ./...` (every line `ok` or `?`); `timeout 900 go test -race -count=1 ./internal/modules/firewall/...` (every line `ok`); `timeout 900 golangci-lint run --allow-serial-runners ./...` (`0 issues.`); `timeout 300 go mod tidy -diff` (no output).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/modules/firewall/restore.go internal/modules/firewall/restore_test.go
+git commit -m "fix(firewall): restore over a cut-off restore"
+```
+
+### Task 118: Harness: match the exact nftables reason
+
+**Files:**
+- Modify: `test/harness/m3_firewall_test.go`
+- Test: `test/harness/m3_firewall_helpers_test.go`
+
+**Interfaces:**
+- Consumes: `m3UnsupportedNamed`, `m3RequireUnsupported`, `m3UnsupportedNftables` (Task 86)
+- Produces: `m3xNftablesReason` (Part contracts, Task 118)
+
+**Depends on:** Task 86, Task 116
+
+**Implementer:** dforge:impl-sonnet-medium
+**Evaluation:** files 1 - spec 0 - coupling 1 - risk 1 = 3
+
+`m3UnsupportedNftables` waited for a reason that contains `"m3"`, which any reason naming a path, a table or a host with that text satisfies. The reason that `firewall.status` gives for the table the step adds is `nft table inet m3: base chain "input" on hook "input" has 1 rule(s) and policy accept` (`nativeTables`, internal/modules/firewall/loaded/foreign.go); `m3xNftablesReason` is its start, and the step waits for and requires it. The test shows that `m3UnsupportedNamed` accepts that reason and refuses the look-alikes.
+
+- [ ] **Step 1: Write the failing test**
+
+Modify `test/harness/m3_firewall_helpers_test.go` with 1 exact edit; the "replace" block occurs exactly once in the file at that point.
+
+Replace this block:
+
+```go
+			t.Errorf("%s: m3xTailscaledSocket = nil, want an error", name)
+		}
+	}
+}
+```
+
+with:
+
+```go
+			t.Errorf("%s: m3xTailscaledSocket = nil, want an error", name)
+		}
+	}
+}
+
+func TestM3xNftablesReason(t *testing.T) {
+	check := m3UnsupportedNamed(m3xNftablesReason)
+	if err := check(m3Status{Unsupported: []string{`nft table inet m3: base chain "input" on hook "input" has 1 rule(s) and policy accept`}}); err != nil {
+		t.Errorf("the reason of the m3 table was refused: %v", err)
+	}
+	for _, other := range []string{
+		"/etc/ufw/m3.rules is missing",
+		`nft table inet m3x: base chain "input" on hook "input" has 1 rule(s) and policy accept`,
+		`nft table ip m3: base chain "input" on hook "input" has 1 rule(s) and policy accept`,
+		`nft table inet m3: base chain "forward" on hook "forward" has 1 rule(s) and policy accept`,
+	} {
+		if err := check(m3Status{Unsupported: []string{other}}); err == nil {
+			t.Errorf("the reason %q was accepted", other)
+		}
+	}
+	if err := check(m3Status{Supported: true, Unsupported: []string{`nft table inet m3: base chain "input" on hook "input" has 1 rule(s)`}}); err == nil {
+		t.Error("a supported host was accepted")
+	}
+}
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `mkdir -p /root/.cache/w1-tmp/118 && TMPDIR=/root/.cache/w1-tmp/118 GOTOOLCHAIN=local timeout 300 go test -tags harness -count=1 -run 'TestM3xNftablesReason' ./test/harness/`
+Expected: FAIL -- the build fails on the undefined `m3xNftablesReason`. The output observed when drafting:
+
+```text
+# github.com/darkraise/darkpanel/test/harness [github.com/darkraise/darkpanel/test/harness.test]
+test/harness/m3_firewall_helpers_test.go:462:30: undefined: m3xNftablesReason
+FAIL	github.com/darkraise/darkpanel/test/harness [build failed]
+FAIL
+```
+
+- [ ] **Step 3: Write the implementation**
+
+Modify `test/harness/m3_firewall_test.go` with 2 exact edits, in order; each "replace" block occurs exactly once in the file at that point.
+
+Edit 1. Replace this block:
+
+```go
+	m3RequireUnsupported(ctx, t, f, "firewall.rule.add", m3PortRule(8098), "before.init")
+}
+
+// m3UnsupportedNftables adds a native nftables base chain with a rule,
+// which the firewall cannot evaluate: the host is unsupported.
+func m3UnsupportedNftables(ctx context.Context, t *testing.T, f *fleet) {
+```
+
+with:
+
+```go
+	m3RequireUnsupported(ctx, t, f, "firewall.rule.add", m3PortRule(8098), "before.init")
+}
+
+// m3xNftablesReason is the start of the reason that firewall.status gives
+// for the base chain m3UnsupportedNftables adds: the table, its one chain
+// and hook and the one rule.
+const m3xNftablesReason = `nft table inet m3: base chain "input" on hook "input" has 1 rule(s)`
+
+// m3UnsupportedNftables adds a native nftables base chain with a rule,
+// which the firewall cannot evaluate: the host is unsupported.
+func m3UnsupportedNftables(ctx context.Context, t *testing.T, f *fleet) {
+```
+
+Edit 2. Replace this block:
+
+```go
+	m3Run(ctx, t, f.agent, "sudo nft add table inet m3 && "+
+		"sudo nft 'add chain inet m3 input { type filter hook input priority 0 ; policy accept ; }' && "+
+		"sudo nft add rule inet m3 input tcp dport 9999 drop")
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3UnsupportedNamed("m3"))
+	m3RequireUnsupported(ctx, t, f, "firewall.rule.add", m3PortRule(8099), "m3")
+}
+
+// m3StoppedIPv6No disables UFW and sets IPV6=no, as an operator preparing
+```
+
+with:
+
+```go
+	m3Run(ctx, t, f.agent, "sudo nft add table inet m3 && "+
+		"sudo nft 'add chain inet m3 input { type filter hook input priority 0 ; policy accept ; }' && "+
+		"sudo nft add rule inet m3 input tcp dport 9999 drop")
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3UnsupportedNamed(m3xNftablesReason))
+	m3RequireUnsupported(ctx, t, f, "firewall.rule.add", m3PortRule(8099), m3xNftablesReason)
+}
+
+// m3StoppedIPv6No disables UFW and sets IPV6=no, as an operator preparing
+```
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `go test -tags harness -count=1 -run 'TestM3x|TestM3UFWLines' ./test/harness/` -- Expected: PASS
+
+Then run, each with `TMPDIR=/root/.cache/w1-tmp/118 GOTOOLCHAIN=local`:
+
+- `timeout 600 go build ./...` -- Expected: no output.
+- `timeout 300 go vet ./...` -- Expected: no output.
+- `timeout 300 go vet -tags harness ./test/...` -- Expected: no output.
+- `timeout 1200 go test -count=1 ./...` -- Expected: every package `ok` or `?`.
+- `timeout 900 go test -race -count=1 -tags harness ./test/harness/` -- Expected: `ok` for each.
+- `timeout 900 golangci-lint run --allow-serial-runners ./...` and `timeout 900 golangci-lint run --allow-serial-runners --build-tags harness ./test/...` -- Expected: `0 issues.`
+- `timeout 300 go mod tidy -diff` -- Expected: no output.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add test/harness/m3_firewall_helpers_test.go test/harness/m3_firewall_test.go
+git commit -m "test(harness): match the exact nftables reason"
+```
+
+### Task 119: Load the before-image after the inverses
+
+**Files:**
+- Modify: `internal/modules/firewall/restore.go`
+- Modify: `internal/modules/firewall/revert.go`
+- Modify: `internal/modules/firewall/image.go`
+- Test: `internal/modules/firewall/revert_test.go`
+
+**Interfaces:**
+- Consumes: `restoreOver`, `planImage`, `imageMismatch`, `runFailure`, `joinRefs`, `undoNewestFirst` (part A1); `transitionOp` (part A2, Task 73, `handler.go`) and `reloadArgs` (part A2, Task 71, `target.go`); `rsTestSave4`, `rsTestRuns` (part A1, `restore_test.go`); `rvTestManualEdit` (part A1, `revert_test.go`).
+- Produces: `loadImage`, `loadVerifiedImage`, `excludedError`, the test helper `axImageRepair` (Part contracts, Task 119).
+
+**Depends on:** Task 117
+
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 0 - coupling 2 - risk 3 = 6
+**Lenses:** security
+
+A repair's snapshot holds the loaded-state before-image, and a revert that goes by whole restore loads it. A revert by inverses (a manual edit in the pending window, or a conflict) never did: the inverse of the repair's `ufw reload` effect only sets `ENABLED` back to the value it has, so the revert reported `reverted` with the repaired chains still loaded (spec 2.3). Now `revert` loads and verifies the image after the inverses whenever the snapshot holds one; built-in chains whose foreign rules changed are left alone and fail the revert naming them, and a failure goes to the connectivity exception like any failed write. The restore's image step becomes `loadImage`, which both paths use. `imageMismatch` still does not list chains created after the image; its comment says why. The tests prove the image is loaded after the inverses with the manual edit kept, and that a changed built-in chain is neither flushed nor silently accepted.
+
+- [ ] **Step 1: Write the failing test**
+
+Add a helper and two tests.
+
+In `internal/modules/firewall/revert_test.go`:
+
+Append to the end of the file:
+
+```go
+
+// axImageRepair returns a host on which a repair of change c1, whose
+// snapshot holds a before-image, reloaded UFW (effect 1) and so replaced
+// the loaded UFW chains, and on which a manual rule was added afterwards,
+// so the revert goes by inverses. imaged is the loaded state of the image.
+func axImageRepair(t *testing.T) (h *fakeHost, snap snapshot, imaged fwstate.Loaded) {
+	t.Helper()
+	ctx := context.Background()
+	h = newFakeHost(t)
+	h.loaded.V4 = fhParse(t, rsTestSave4)
+	imaged = h.loaded
+	env, d := h.env(), h.deps()
+	raw, err := capture(ctx, env, d, &core.GuardContext{Complete: true}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := attach(ctx, env); err != nil {
+		t.Fatal(err)
+	}
+	h.ufw["reload"] = func(*fhState) int { return 0 }
+	h.ufw["--force enable"] = func(s *fhState) int { s.Enabled = true; return 0 }
+	if err := runUfw(ctx, env, d, transitionOp(reloadArgs)); err != nil {
+		t.Fatal(err)
+	}
+	if err := recordPostHashes(ctx, env, d, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if snap, err = getSnapshot(ctx, h.db, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	h.loaded.V4 = fhParse(t, strings.Replace(rsTestSave4, "--dport 22", "--dport 2222", 1))
+	rvTestManualEdit(h)
+	h.onRun = func(h *fakeHost, cmd core.Cmd) core.CmdResult {
+		if cmd.Path == "/usr/sbin/ip6tables-nft-restore" {
+			h.loaded = imaged
+		}
+		return core.CmdResult{}
+	}
+	h.calls = nil
+	return h, snap, imaged
+}
+
+func TestAxRevertByInversesLoadsTheBeforeImage(t *testing.T) {
+	ctx := context.Background()
+	h, snap, imaged := axImageRepair(t)
+	out, err := revert(ctx, h.env(), h.deps(), []byte(snap.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Override || !reflect.DeepEqual(out.Effects, []core.EffectOutcome{{Seq: 1, State: core.EffectUndone}}) {
+		t.Errorf("outcome = %+v", out)
+	}
+	if got, want := rsTestRuns(h), []string{"run /usr/sbin/ufw --force enable", "run /usr/sbin/iptables-nft-restore -n", "run /usr/sbin/ip6tables-nft-restore -n"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("runs = %q, want %q", got, want)
+	}
+	want := planImage(snap.State.Image, fwstate.Loaded{V4: fhParse(t, strings.Replace(rsTestSave4, "--dport 22", "--dport 2222", 1)), V6: imaged.V6})
+	if string(h.stdin["/usr/sbin/iptables-nft-restore"]) != string(want.Restore4) {
+		t.Errorf("the loaded input =\n%s\nwant\n%s", h.stdin["/usr/sbin/iptables-nft-restore"], want.Restore4)
+	}
+	if !slices.Contains(h.state().Rules6, fhRule53v6) {
+		t.Error("the revert removed the manual rule")
+	}
+	if h.guardCalls != 0 {
+		t.Errorf("the guard was evaluated %d times for a complete revert", h.guardCalls)
+	}
+}
+
+func TestAxRevertByInversesLeavesAChangedBuiltinChain(t *testing.T) {
+	ctx := context.Background()
+	h, snap, _ := axImageRepair(t)
+	changed := strings.Replace(rsTestSave4, "-A INPUT -j ufw-user-input\n", "-A INPUT -j ufw-user-input\n-A INPUT -s 192.0.2.9/32 -j DROP\n", 1)
+	h.loaded.V4 = fhParse(t, changed)
+	_, err := revert(ctx, h.env(), h.deps(), []byte(snap.ID))
+	if err == nil || !strings.Contains(err.Error(), "v4 filter/INPUT") {
+		t.Fatalf("revert = %v, want an error naming v4 filter/INPUT", err)
+	}
+	if strings.Contains(string(h.stdin["/usr/sbin/iptables-nft-restore"]), "-F INPUT") {
+		t.Error("the load flushes the changed INPUT chain")
+	}
+	if h.guardCalls != 1 {
+		t.Errorf("the guard was evaluated %d times, want 1", h.guardCalls)
+	}
+	if s, err := getSnapshot(ctx, h.db, snap.ID); err != nil || !s.Pinned {
+		t.Errorf("snapshot pinned = %v, %v", s.Pinned, err)
+	}
+}
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `mkdir -p /root/.cache/w1-tmp/119 && TMPDIR=/root/.cache/w1-tmp/119 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestAxRevertByInverses' ./internal/modules/firewall/`
+Expected: FAIL. Observed output:
+
+```text
+--- FAIL: TestAxRevertByInversesLoadsTheBeforeImage (0.55s)
+    revert_test.go:554: runs = ["run /usr/sbin/ufw --force enable"], want ["run /usr/sbin/ufw --force enable" "run /usr/sbin/iptables-nft-restore -n" "run /usr/sbin/ip6tables-nft-restore -n"]
+    revert_test.go:558: the loaded input =
+        
+        want
+        *filter
+        :INPUT DROP [0:0]
+        :FORWARD DROP [0:0]
+        :OUTPUT ACCEPT [0:0]
+        :ufw-user-input - [0:0]
+        -F INPUT
+        -F FORWARD
+        -F OUTPUT
+        -A INPUT -j fw-foreign
+        -A INPUT -j ufw-user-input
+        -A ufw-user-input -p tcp -m tcp --dport 22 -j ACCEPT
+        COMMIT
+--- FAIL: TestAxRevertByInversesLeavesAChangedBuiltinChain (0.55s)
+    revert_test.go:575: revert = <nil>, want an error naming v4 filter/INPUT
+FAIL
+FAIL	github.com/darkraise/darkpanel/internal/modules/firewall	1.107s
+FAIL
+```
+
+- [ ] **Step 3: Write the implementation**
+
+In `internal/modules/firewall/restore.go`:
+
+Replace this block:
+
+```go
+	var plan imagePlan
+	if img := snap.State.Image; img != nil {
+		plan = planImage(img, before)
+		rep.Excluded = plan.Excluded
+		for _, f := range []struct {
+			fam   fwstate.Family
+			input []byte
+		}{{fwstate.V4, plan.Restore4}, {fwstate.V6, plan.Restore6}} {
+			if f.input == nil {
+				continue
+			}
+			cmd := core.Cmd{Path: restoreProgram(f.fam, before.Variant), Args: []string{"-n"}, Stdin: f.input}
+			if res, err := env.Exec.Run(ctx, cmd); err != nil || res.ExitCode != 0 {
+				return rep, fmt.Errorf("firewall: load the %s before-image: %w", f.fam, runFailure(cmd, res, err))
+			}
+		}
+	} else if args := transitionArgs(tr); args != nil {
+```
+
+with:
+
+```go
+	var plan imagePlan
+	if img := snap.State.Image; img != nil {
+		plan, err = loadImage(ctx, env, img, before)
+		rep.Excluded = plan.Excluded
+		if err != nil {
+			return rep, err
+		}
+	} else if args := transitionArgs(tr); args != nil {
+```
+
+Replace this block:
+
+```go
+	}
+	if len(rep.Excluded) > 0 {
+		return rep, fmt.Errorf("firewall: the before-image left %s as they are: their rules other than UFW's and Darkpanel's changed since the snapshot",
+			joinRefs(rep.Excluded))
+	}
+	return rep, nil
+}
+
+```
+
+with:
+
+```go
+	}
+	if len(rep.Excluded) > 0 {
+		return rep, excludedError(rep.Excluded)
+	}
+	return rep, nil
+}
+
+// loadImage loads before-image img over the loaded state before with
+// *-restore -n, as planImage decides. It returns the plan even when a
+// program fails.
+func loadImage(ctx context.Context, env core.Env, img *beforeImage, before fwstate.Loaded) (imagePlan, error) {
+	plan := planImage(img, before)
+	for _, f := range []struct {
+		fam   fwstate.Family
+		input []byte
+	}{{fwstate.V4, plan.Restore4}, {fwstate.V6, plan.Restore6}} {
+		if f.input == nil {
+			continue
+		}
+		cmd := core.Cmd{Path: restoreProgram(f.fam, before.Variant), Args: []string{"-n"}, Stdin: f.input}
+		if res, err := env.Exec.Run(ctx, cmd); err != nil || res.ExitCode != 0 {
+			return plan, fmt.Errorf("firewall: load the %s before-image: %w", f.fam, runFailure(cmd, res, err))
+		}
+	}
+	return plan, nil
+}
+
+// loadVerifiedImage loads and verifies snap's before-image over the loaded
+// state, as the end of a whole restore does. A revert by inverses ends with
+// it, because the inverses of a repair's effects cannot take back what its
+// reload did to the loaded chains: only the image holds that state.
+func loadVerifiedImage(ctx context.Context, env core.Env, d deps, snap snapshot) error {
+	before, err := d.readLoaded(ctx, env)
+	if err != nil {
+		return fmt.Errorf("firewall: load the before-image: %w", err)
+	}
+	plan, err := loadImage(ctx, env, snap.State.Image, before)
+	if err != nil {
+		return err
+	}
+	after, err := d.readLoaded(ctx, env)
+	if err != nil {
+		return fmt.Errorf("firewall: load the before-image: %w", err)
+	}
+	if bad := imageMismatch(snap.State.Image, after, plan.Excluded); len(bad) > 0 {
+		return fmt.Errorf("firewall: verify the before-image: %s differ from it", joinRefs(bad))
+	}
+	if len(plan.Excluded) > 0 {
+		return excludedError(plan.Excluded)
+	}
+	return nil
+}
+
+func excludedError(excluded []chainRef) error {
+	return fmt.Errorf("firewall: the before-image left %s as they are: their rules other than UFW's and Darkpanel's changed since the snapshot",
+		joinRefs(excluded))
+}
+
+```
+
+In `internal/modules/firewall/revert.go`:
+
+Replace this block:
+
+```go
+//  3. Otherwise the inverses of the made effects, newest first, skipping
+//     conflicts and stopping at the first failure, then "ufw reload" when
+//     a rule, default or logging inverse ran on an active UFW.
+//  4. Whenever that did not restore the prior state, the lockout guard on
+//     the loaded state now, with the snapshot's guard context. A failing
+```
+
+with:
+
+```go
+//  3. Otherwise the inverses of the made effects, newest first, skipping
+//     conflicts and stopping at the first failure, then "ufw reload" when
+//     a rule, default or logging inverse ran on an active UFW, and, for a
+//     repair's snapshot, the before-image loaded over the loaded chains.
+//  4. Whenever that did not restore the prior state, the lockout guard on
+//     the loaded state now, with the snapshot's guard context. A failing
+```
+
+Replace this block:
+
+```go
+		} else {
+			writeErr = undoNewestFirst(ctx, env, d, snap, made, conflicts)
+		}
+	}
+```
+
+with:
+
+```go
+		} else {
+			writeErr = undoNewestFirst(ctx, env, d, snap, made, conflicts)
+			if writeErr == nil && snap.State.Image != nil {
+				writeErr = loadVerifiedImage(ctx, env, d, snap)
+			}
+		}
+	}
+```
+
+In `internal/modules/firewall/image.go`:
+
+Replace this block:
+
+```go
+
+// imageMismatch lists the chains of img, except those excluded, whose
+// policy or rules in st differ from the image.
+func imageMismatch(img *beforeImage, st fwstate.Loaded, excluded []chainRef) []chainRef {
+	var out []chainRef
+```
+
+with:
+
+```go
+
+// imageMismatch lists the chains of img, except those excluded, whose
+// policy or rules in st differ from the image. A chain of st that the image
+// lacks, created after the image was taken, is not listed: *-restore -n
+// cannot remove a chain, and once the image's built-in chains are loaded
+// nothing jumps to it. A built-in chain that keeps a jump to it is in
+// excluded, which fails the restore on its own.
+func imageMismatch(img *beforeImage, st fwstate.Loaded, excluded []chainRef) []chainRef {
+	var out []chainRef
+```
+
+
+- [ ] **Step 4: Run the tests and checks**
+
+Run: `TMPDIR=/root/.cache/w1-tmp/119 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestAxRevertByInverses' ./internal/modules/firewall/` Expected: PASS.
+Then run, with `GOTOOLCHAIN=local` and the task's `TMPDIR`: `timeout 600 go build ./...`; `timeout 300 go vet ./...` (no output); `timeout 300 go vet -tags harness ./test/...` (no output); `timeout 1200 go test -count=1 ./...` (every line `ok` or `?`); `timeout 900 go test -race -count=1 ./internal/modules/firewall/...` (every line `ok`); `timeout 900 golangci-lint run --allow-serial-runners ./...` (`0 issues.`); `timeout 300 go mod tidy -diff` (no output).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/modules/firewall/restore.go internal/modules/firewall/revert.go internal/modules/firewall/image.go internal/modules/firewall/revert_test.go
+git commit -m "fix(firewall): load the image after the inverses"
 ```
