@@ -71,6 +71,7 @@ func TestParseTupleErrors(t *testing.T) {
 		{"### tuple ### allow tcp 22 0.0.0.0/0 any 0.0.0.0/0 on_eth0", false},
 		{"### tuple ### allow tcp 22 0.0.0.0/0 any 0.0.0.0/0 in_eth0:1", false},
 		{"### tuple ### allow tcp 22 0.0.0.0/0 any 0.0.0.0/0 in_abcdefghijklmnop", false},
+		{"### tuple ### route:allow tcp 22 0.0.0.0/0 any 0.0.0.0/0 in_a!b!out_c", false},
 		{"### tuple ### accept tcp 22 0.0.0.0/0 any 0.0.0.0/0 in", false},
 		{"### tuple ### allow_loud tcp 22 0.0.0.0/0 any 0.0.0.0/0 in", false},
 		{"### tuple ### fwd:allow tcp 22 0.0.0.0/0 any 0.0.0.0/0 in", false},

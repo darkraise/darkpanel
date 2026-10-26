@@ -113,6 +113,9 @@ func (t *Tuple) parseIfaces(s string) error {
 	if strings.Contains(s, "_") {
 		switch {
 		case strings.Contains(s, "!") && ifaceInRe.MatchString(s) && ifaceOutRe.MatchString(s):
+			if strings.Count(s, "!") != 1 {
+				return fmt.Errorf("model: tuple interfaces %q are malformed", s)
+			}
 			in, out, _ := strings.Cut(s, "!")
 			_, t.InIface, _ = strings.Cut(in, "_")
 			_, t.OutIface, _ = strings.Cut(out, "_")
