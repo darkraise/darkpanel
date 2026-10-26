@@ -112,6 +112,11 @@ func stateOf(proto Proto, n uint64) State {
 	return state
 }
 
+// ErrNoSocketTables is a proc root that provides none of the four socket
+// tables: not a host without sockets, which always has the tables, but a
+// missing or foreign proc mount.
+var ErrNoSocketTables = errors.New("netstat: no socket tables under the proc root")
+
 // Table reads the socket table under a proc root.
 type Table struct {
 	Root string // "/proc" on a host
@@ -122,9 +127,11 @@ func Sockets() ([]Socket, error) { return Table{Root: "/proc"}.Sockets() }
 
 // Sockets reads every TCP and UDP socket of both families with the
 // processes holding them. A table the kernel does not provide (IPv6
-// disabled) is skipped.
+// disabled) is skipped; when none of the four exists, Sockets returns
+// ErrNoSocketTables.
 func (t Table) Sockets() ([]Socket, error) {
 	var out []Socket
+	found := false
 	for _, src := range []struct {
 		file   string
 		proto  Proto
@@ -139,7 +146,11 @@ func (t Table) Sockets() ([]Socket, error) {
 		if err != nil {
 			return nil, err
 		}
+		found = true
 		out = append(out, socks...)
+	}
+	if !found {
+		return nil, ErrNoSocketTables
 	}
 	owners, err := t.owners()
 	if err != nil {
