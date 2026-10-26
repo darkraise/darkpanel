@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -311,6 +313,14 @@ func parseRoute(m []byte) (Route, error) {
 	return r, nil
 }
 
+// netlinkTimeout bounds the whole answer to one request, however many
+// datagrams from other senders arrive meanwhile.
+const netlinkTimeout = 5 * time.Second
+
+// errNetlinkTimeout is a request whose answer did not complete within
+// netlinkTimeout.
+var errNetlinkTimeout = fmt.Errorf("netstat: no netlink answer within %s: %w", netlinkTimeout, os.ErrDeadlineExceeded)
+
 // netlinkRequest sends one rtnetlink request and returns the payloads of
 // its answer: one message, or every message of a dump. An error message
 // is returned as its errno.
@@ -320,10 +330,6 @@ func netlinkRequest(typ, flags uint16, body []byte) ([][]byte, error) {
 		return nil, fmt.Errorf("netstat: netlink socket: %w", err)
 	}
 	defer func() { _ = unix.Close(fd) }()
-	tv := unix.Timeval{Sec: 5}
-	if err := unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_RCVTIMEO, &tv); err != nil {
-		return nil, fmt.Errorf("netstat: netlink timeout: %w", err)
-	}
 	if err := unix.Bind(fd, &unix.SockaddrNetlink{Family: unix.AF_NETLINK}); err != nil {
 		return nil, fmt.Errorf("netstat: netlink bind: %w", err)
 	}
@@ -340,14 +346,52 @@ func netlinkRequest(typ, flags uint16, body []byte) ([][]byte, error) {
 	binary.NativeEndian.PutUint16(msg[6:], unix.NLM_F_REQUEST|flags)
 	binary.NativeEndian.PutUint32(msg[8:], seq)
 	msg = append(msg, body...)
+	deadline := time.Now().Add(netlinkTimeout)
 	if err := unix.Sendto(fd, msg, 0, &unix.SockaddrNetlink{Family: unix.AF_NETLINK}); err != nil {
 		return nil, fmt.Errorf("netstat: netlink send: %w", err)
 	}
-	dump := flags&unix.NLM_F_DUMP != 0
+	r := netlinkReader{
+		recv: func(buf []byte) (int, unix.Sockaddr, error) { return unix.Recvfrom(fd, buf, 0) },
+		setWait: func(d time.Duration) error {
+			// NsecToTimeval rounds up to a microsecond, so a positive wait
+			// never becomes the zero timeout, which would block forever.
+			tv := unix.NsecToTimeval(d.Nanoseconds())
+			return unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_RCVTIMEO, &tv)
+		},
+		now: time.Now,
+	}
+	return r.answer(seq, flags&unix.NLM_F_DUMP != 0, deadline)
+}
+
+// netlinkReader receives the answer to one request: recv reads a datagram,
+// setWait sets how long the next recv may wait, and now is the clock. Tests
+// replace all three.
+type netlinkReader struct {
+	recv    func(buf []byte) (int, unix.Sockaddr, error)
+	setWait func(time.Duration) error
+	now     func() time.Time
+}
+
+// answer reads the datagrams answering request seq until the answer is
+// complete. Each read waits only for what remains until deadline, because a
+// local process that knows the socket's port id can send datagrams, which
+// are dropped, and a timeout restarted per read would let it keep the
+// request waiting forever.
+func (r netlinkReader) answer(seq uint32, dump bool, deadline time.Time) ([][]byte, error) {
 	var out [][]byte
 	buf := make([]byte, 1<<16)
 	for {
-		n, from, err := unix.Recvfrom(fd, buf, 0)
+		wait := deadline.Sub(r.now())
+		if wait <= 0 {
+			return nil, errNetlinkTimeout
+		}
+		if err := r.setWait(wait); err != nil {
+			return nil, fmt.Errorf("netstat: netlink timeout: %w", err)
+		}
+		n, from, err := r.recv(buf)
+		if errors.Is(err, unix.EAGAIN) {
+			return nil, errNetlinkTimeout
+		}
 		if err != nil {
 			return nil, fmt.Errorf("netstat: netlink receive: %w", err)
 		}
