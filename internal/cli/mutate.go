@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/lifecycle"
 )
 
 // planWire is the part of the API's Plan (spec section 12) the CLI reads.
@@ -87,7 +88,8 @@ func waitChange(ctx context.Context, c *client, ch changeWire, raw json.RawMessa
 }
 
 // addMutatingFlags adds --yes, --confirmation for an irreversible action or
-// --confirm for a revertible one, and --override for an action with Guards.
+// --confirm and --confirm-timeout for a revertible one, and --override for
+// an action with Guards.
 func addMutatingFlags(cmd *cobra.Command, spec core.ActionSpec) {
 	cmd.Flags().Bool("yes", false, "apply without asking Apply? [y/N]; an irreversible action still needs its confirmation phrase")
 	switch spec.Class {
@@ -95,6 +97,7 @@ func addMutatingFlags(cmd *cobra.Command, spec core.ActionSpec) {
 		cmd.Flags().String("confirmation", "", "the confirmation phrase the plan names, instead of typing it")
 	case core.ClassRevertible:
 		cmd.Flags().Bool("confirm", false, "confirm the change at once instead of leaving it pending until its revert deadline")
+		addConfirmTimeoutFlag(cmd)
 	}
 	if len(spec.Guards) == 0 {
 		return
@@ -110,6 +113,34 @@ func addMutatingFlags(cmd *cobra.Command, spec core.ActionSpec) {
 		usage += "; overridable: " + strings.Join(ids, ", ")
 	}
 	cmd.Flags().StringArray("override", nil, usage)
+}
+
+// addConfirmTimeoutFlag adds --confirm-timeout, the revert timeout of the
+// apply request (owner ruling R2).
+func addConfirmTimeoutFlag(cmd *cobra.Command) {
+	cmd.Flags().Int("confirm-timeout", 0, fmt.Sprintf(
+		"seconds an unconfirmed change waits before it is reverted, %d to %d; 0 keeps the server's default of %d",
+		int(lifecycle.MinConfirmTimeout/time.Second), int(lifecycle.MaxConfirmTimeout/time.Second),
+		int(lifecycle.DefaultConfirmTimeout/time.Second)))
+}
+
+// confirmTimeout is the --confirm-timeout of cmd: 0 when the command has no
+// such flag or it is 0, which leaves the server's default, else the
+// duration, refused with a usage error outside the range the engine
+// accepts.
+func confirmTimeout(cmd *cobra.Command) (time.Duration, error) {
+	if cmd.Flags().Lookup("confirm-timeout") == nil {
+		return 0, nil
+	}
+	secs, err := cmd.Flags().GetInt("confirm-timeout")
+	if err != nil {
+		return 0, err
+	}
+	lo, hi := int(lifecycle.MinConfirmTimeout/time.Second), int(lifecycle.MaxConfirmTimeout/time.Second)
+	if secs != 0 && (secs < lo || secs > hi) {
+		return 0, usagef("--confirm-timeout must be %d to %d seconds, not %d", lo, hi, secs)
+	}
+	return time.Duration(secs) * time.Second, nil
 }
 
 // withOverrides sets the input's overrides to the --override ids when the
@@ -133,8 +164,12 @@ func withOverrides(cmd *cobra.Command, input json.RawMessage) (json.RawMessage, 
 }
 
 // runMutating runs the mutating flow of one action (spec section 15), on
-// the agent socket with --local.
+// the agent socket with --local. An invalid --confirm-timeout is refused
+// before any request.
 func (a *app) runMutating(cmd *cobra.Command, def core.ActionDef, fields []inputField, secrets []string) error {
+	if _, err := confirmTimeout(cmd); err != nil {
+		return err
+	}
 	local, err := useLocal(cmd)
 	if err != nil {
 		return err
@@ -180,10 +215,11 @@ func (a *app) applyAndShow(cmd *cobra.Command, calls actionCalls, input any, sec
 }
 
 // actionCalls are the plan and apply of one action, on the controller API
-// or on the agent socket. apply returns the change and its JSON.
+// or on the agent socket. apply returns the change and its JSON; a zero
+// confirmTimeout leaves the server's default.
 type actionCalls struct {
 	plan  func(ctx context.Context, input any) (planWire, error)
-	apply func(ctx context.Context, planID, confirmation string, confirmNow bool) (changeWire, json.RawMessage, error)
+	apply func(ctx context.Context, planID, confirmation string, confirmNow bool, confirmTimeout time.Duration) (changeWire, json.RawMessage, error)
 }
 
 // apiCalls are def's plan and apply on the API c reaches, under host for an
@@ -195,13 +231,16 @@ func apiCalls(c *client, def core.ActionDef, host string) actionCalls {
 			err := c.do(ctx, http.MethodPost, actionPath(def, host, "plan"), map[string]any{"input": input}, &plan)
 			return plan, err
 		},
-		apply: func(ctx context.Context, planID, confirmation string, confirmNow bool) (changeWire, json.RawMessage, error) {
+		apply: func(ctx context.Context, planID, confirmation string, confirmNow bool, confirmTimeout time.Duration) (changeWire, json.RawMessage, error) {
 			body := map[string]any{"planId": planID}
 			if confirmation != "" {
 				body["confirmation"] = confirmation
 			}
 			if confirmNow {
 				body["confirmNow"] = true
+			}
+			if confirmTimeout != 0 {
+				body["confirmTimeoutSeconds"] = int(confirmTimeout / time.Second)
 			}
 			var raw json.RawMessage
 			if err := c.do(ctx, http.MethodPost, actionPath(def, host, "apply"), body, &raw); err != nil {
@@ -217,17 +256,22 @@ func apiCalls(c *client, def core.ActionDef, host string) actionCalls {
 	}
 }
 
-// planAndApply plans with input, shows the plan, asks, and applies. A
-// failing guard, a declined question or a wrong phrase refuses before
-// anything is applied. The plan goes to standard output, or to standard
-// error with --json. agreed skips the Apply? [y/N] question, as --yes
-// does, for a step of a flow the operator already agreed to; it never
-// skips the confirmation phrase.
+// planAndApply plans with input, shows the plan, asks, and applies. An
+// invalid --confirm-timeout refuses before the plan; a failing guard, a
+// declined question or a wrong phrase refuses before anything is applied.
+// The plan goes to standard output, or to standard error with --json.
+// agreed skips the Apply? [y/N] question, as --yes does, for a step of a
+// flow the operator already agreed to; it never skips the confirmation
+// phrase.
 func (a *app) planAndApply(cmd *cobra.Command, calls actionCalls, input any, agreed bool) (changeWire, json.RawMessage, error) {
 	ctx := cmd.Context()
 	info := cmd.OutOrStdout()
 	if asJSON, _ := cmd.Flags().GetBool("json"); asJSON {
 		info = cmd.ErrOrStderr()
+	}
+	timeout, err := confirmTimeout(cmd)
+	if err != nil {
+		return changeWire{}, nil, err
 	}
 	plan, err := calls.plan(ctx, input)
 	if err != nil {
@@ -252,7 +296,7 @@ func (a *app) planAndApply(cmd *cobra.Command, calls actionCalls, input any, agr
 		}
 	}
 	now, _ := cmd.Flags().GetBool("confirm")
-	return calls.apply(ctx, plan.PlanID, phrase, now)
+	return calls.apply(ctx, plan.PlanID, phrase, now, timeout)
 }
 
 // askApply asks Apply? [y/N] unless --yes or agreed; without a terminal it
