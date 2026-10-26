@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -137,6 +139,100 @@ func TestFromKernel(t *testing.T) {
 		if fromKernel(from) {
 			t.Errorf("%s was accepted as the kernel", name)
 		}
+	}
+}
+
+// dlFake is a netlink socket for netlinkReader: it answers each receive
+// with the next datagram of answers, or with a datagram from another
+// process once they run out, and advances its clock by step per receive.
+type dlFake struct {
+	now     time.Time
+	step    time.Duration
+	answers [][]byte
+	waits   []time.Duration
+	recvs   int
+	err     error
+}
+
+func (f *dlFake) reader() netlinkReader {
+	return netlinkReader{
+		recv: func(buf []byte) (int, unix.Sockaddr, error) {
+			f.recvs++
+			f.now = f.now.Add(f.step)
+			if f.err != nil {
+				return 0, nil, f.err
+			}
+			if len(f.answers) == 0 {
+				return copy(buf, rtMessage(unix.RTM_NEWROUTE, 7, []byte{9})), &unix.SockaddrNetlink{Pid: 4242}, nil
+			}
+			n := copy(buf, f.answers[0])
+			f.answers = f.answers[1:]
+			return n, &unix.SockaddrNetlink{}, nil
+		},
+		setWait: func(d time.Duration) error {
+			f.waits = append(f.waits, d)
+			return nil
+		},
+		now: func() time.Time { return f.now },
+	}
+}
+
+// TestNetlinkAnswerDeadline: datagrams from another process never extend a
+// request past its overall deadline, and every receive waits at most what
+// remains of it.
+func TestNetlinkAnswerDeadline(t *testing.T) {
+	t0 := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+	f := &dlFake{now: t0, step: 1500 * time.Millisecond}
+	_, err := f.reader().answer(7, false, t0.Add(netlinkTimeout))
+	if !errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("err = %v, want a deadline error", err)
+	}
+	if f.recvs != 4 {
+		t.Errorf("%d receives, want 4 within %s", f.recvs, netlinkTimeout)
+	}
+	want := []time.Duration{5 * time.Second, 3500 * time.Millisecond, 2 * time.Second, 500 * time.Millisecond}
+	if !slices.Equal(f.waits, want) {
+		t.Errorf("receive timeouts %v, want %v", f.waits, want)
+	}
+
+	// The socket's own timeout ends the request the same way.
+	f = &dlFake{now: t0, err: unix.EAGAIN}
+	if _, err := f.reader().answer(7, false, t0.Add(netlinkTimeout)); !errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Errorf("a receive timeout: err = %v, want a deadline error", err)
+	}
+	f = &dlFake{now: t0, err: unix.EBADF}
+	if _, err := f.reader().answer(7, false, t0.Add(netlinkTimeout)); !errors.Is(err, unix.EBADF) || errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Errorf("a failed receive: err = %v, want EBADF", err)
+	}
+}
+
+func TestNetlinkAnswer(t *testing.T) {
+	t0 := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+	// One answer; the foreign datagram before it is skipped.
+	f := &dlFake{now: t0, step: time.Second, answers: [][]byte{rtMessage(unix.RTM_NEWROUTE, 7, []byte{1, 2})}}
+	reader := f.reader()
+	recv := reader.recv
+	foreign := true
+	reader.recv = func(buf []byte) (int, unix.Sockaddr, error) {
+		if foreign {
+			foreign = false
+			f.now = f.now.Add(f.step)
+			return copy(buf, rtMessage(unix.RTM_NEWROUTE, 7, []byte{9})), &unix.SockaddrNetlink{Pid: 1}, nil
+		}
+		return recv(buf)
+	}
+	msgs, err := reader.answer(7, false, t0.Add(netlinkTimeout))
+	if err != nil || len(msgs) != 1 || !slices.Equal(msgs[0], []byte{1, 2}) {
+		t.Fatalf("answer = %v, %v", msgs, err)
+	}
+	// A dump reads until NLMSG_DONE.
+	f = &dlFake{now: t0, step: time.Second, answers: [][]byte{
+		rtMessage(unix.RTM_NEWROUTE, 7, []byte{1}), rtMessage(unix.RTM_NEWROUTE, 7, []byte{2}),
+		rtMessage(unix.NLMSG_DONE, 7, []byte{0, 0, 0, 0}),
+	}}
+	msgs, err = f.reader().answer(7, true, t0.Add(netlinkTimeout))
+	if err != nil || len(msgs) != 2 {
+		t.Fatalf("dump = %v, %v", msgs, err)
 	}
 }
 
