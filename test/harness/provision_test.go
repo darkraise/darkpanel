@@ -51,8 +51,8 @@ func TestTargetScript(t *testing.T) {
 		if strings.Contains(s, c.other) {
 			t.Errorf("%s script names another OS's packages (%s):\n%s", c.os.ID, c.other, s)
 		}
-		if !strings.Contains(s, "apt_get install --no-install-recommends ca-certificates curl sqlite3 ufw\n") {
-			t.Errorf("%s script does not install sqlite3 beside curl and ufw:\n%s", c.os.ID, s)
+		if !strings.Contains(s, "apt_get install --no-install-recommends ca-certificates curl sqlite3 ufw nftables\n") {
+			t.Errorf("%s script does not install sqlite3 and nftables beside curl and ufw:\n%s", c.os.ID, s)
 		}
 		allow, enable := strings.Index(s, "ufw allow 22/tcp"), strings.Index(s, "ufw --force enable")
 		if allow < 0 || enable < allow || strings.Index(s, "systemctl enable --now ufw docker tailscaled") < enable {

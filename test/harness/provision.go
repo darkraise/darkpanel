@@ -58,7 +58,7 @@ const pullFunc = `pull_image() {
 var agentRule = "ufw allow in on dppriv to any port " + strconv.Itoa(listen.AgentPort) + " proto tcp\n"
 
 var targetTemplate = template.Must(template.New("target").Parse(scriptHeader + fetchFunc + `apt_get update
-apt_get install --no-install-recommends ca-certificates curl sqlite3 ufw
+apt_get install --no-install-recommends ca-certificates curl sqlite3 ufw nftables
 pkgdir=/var/cache/harness-packages
 mkdir -p "$pkgdir"
 {{range .Packages}}fetch '{{.Name}}' '{{.Version}}' '{{.URL}}' '{{.SHA256}}'
@@ -72,8 +72,9 @@ systemctl enable --now ufw docker tailscaled
 // allowed, and the agent port only on the private link, and ufw.service
 // started (Debian's package enables the unit on install without starting it,
 // so it would stay inactive until a reboot), sqlite3 for reading the
-// databases, and Docker Engine with its Compose plugin and tailscaled from
-// o's pinned .deb files.
+// databases, nftables so the firewall can read every nftables table the
+// kernel holds (without nft it reports the host unsupported), and Docker
+// Engine with its Compose plugin and tailscaled from o's pinned .deb files.
 // tailscaled runs but is not logged in until M5.
 func TargetScript(o OS) string {
 	var b strings.Builder
