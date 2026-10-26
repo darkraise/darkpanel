@@ -55,6 +55,9 @@ func TestEveryActionHasACommand(t *testing.T) {
 		if (cmd.Flags().Lookup("confirm") != nil) != (def.Spec.Class == core.ClassRevertible) {
 			t.Errorf("%s: --confirm only on revertible actions", def.Spec.Name)
 		}
+		if (cmd.Flags().Lookup("confirm-timeout") != nil) != (def.Spec.Class == core.ClassRevertible) {
+			t.Errorf("%s: --confirm-timeout only on revertible actions", def.Spec.Name)
+		}
 	}
 }
 
@@ -114,6 +117,46 @@ func TestMutatingRevertible(t *testing.T) {
 	out, errOut, code = cli.run(t, append(args, "--confirm")...)
 	if code != 0 || !strings.Contains(out, "Change c3: confirmed\n") || strings.Contains(out, "Confirm it before") {
 		t.Errorf("--confirm: exit %d, out %q, err %q", code, out, errOut)
+	}
+}
+
+// TestMutatingConfirmTimeout: --confirm-timeout sends confirmTimeoutSeconds
+// with the apply, 0 leaves the server's default, and a value outside 10 to
+// 900 is refused before the plan is requested.
+func TestMutatingConfirmTimeout(t *testing.T) {
+	limits := filepath.Join(t.TempDir(), "limits.json")
+	if err := os.WriteFile(limits, []byte(`{"limits":{"max":10}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	input := `{"input":{"limits":{"max":10},"name":"web","port":443}}`
+	base := newFakeAPI(t, testToken,
+		hostList("h1:web"),
+		exchange{method: "POST", path: "/api/v1/hosts/h1/actions/demo.rule.set/v1/plan", body: input,
+			reply: planJSON("p4", "demo.rule.set", "h1", "", `[]`)},
+		exchange{method: "POST", path: "/api/v1/hosts/h1/actions/demo.rule.set/v1/apply", body: `{"planId":"p4","confirmTimeoutSeconds":300}`,
+			reply: changeJSON("c4", "demo.rule.set", "revertible", "pending",
+				`"revertDeadline":"2026-10-18T12:05:00Z","output":null,"error":null,"compensatedBy":null`)},
+		hostList("h1:web"),
+		exchange{method: "POST", path: "/api/v1/hosts/h1/actions/demo.rule.set/v1/plan", body: input,
+			reply: planJSON("p5", "demo.rule.set", "h1", "", `[]`)},
+		exchange{method: "POST", path: "/api/v1/hosts/h1/actions/demo.rule.set/v1/apply", body: `{"planId":"p5"}`,
+			reply: changeJSON("c5", "demo.rule.set", "revertible", "pending",
+				`"revertDeadline":"2026-10-18T12:01:00Z","output":null,"error":null,"compensatedBy":null`)},
+	)
+	cli := cliEnv{env: tokenEnv}
+	args := []string{"demo", "rule", "set", "--name", "web", "--port", "443", "--input", limits, "--yes", "--url", base}
+	if out, errOut, code := cli.run(t, append(args, "--confirm-timeout", "300")...); code != 0 ||
+		!strings.Contains(out, "Confirm it before 2026-10-18T12:05:00Z") {
+		t.Errorf("--confirm-timeout 300: exit %d, out %q, err %q", code, out, errOut)
+	}
+	if out, errOut, code := cli.run(t, append(args, "--confirm-timeout", "0")...); code != 0 || !strings.Contains(out, "Change c5: pending") {
+		t.Errorf("--confirm-timeout 0: exit %d, out %q, err %q", code, out, errOut)
+	}
+	for _, v := range []string{"9", "901", "-10"} {
+		_, errOut, code := cli.run(t, append(args, "--confirm-timeout", v)...)
+		if code != ExitUsage || !strings.Contains(errOut, "--confirm-timeout must be 10 to 900 seconds, not "+v) {
+			t.Errorf("--confirm-timeout %s: exit %d, err %q; want a usage error before any request", v, code, errOut)
+		}
 	}
 }
 

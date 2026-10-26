@@ -217,10 +217,11 @@ func localCalls(c *api.Client, def core.ActionDef, socket string) actionCalls {
 			return planWire{PlanID: v.PlanID, HostID: optional(v.HostID), Action: v.Action, Version: v.Version,
 				Diff: v.Diff, Guards: v.Guards, Confirmation: optional(v.Confirmation)}, nil
 		},
-		apply: func(ctx context.Context, planID, confirmation string, confirmNow bool) (changeWire, json.RawMessage, error) {
+		apply: func(ctx context.Context, planID, confirmation string, confirmNow bool, confirmTimeout time.Duration) (changeWire, json.RawMessage, error) {
 			actx, cancel := context.WithTimeout(ctx, localTimeout)
 			defer cancel()
-			v, err := c.Apply(actx, core.Principal{}, planID, core.ApplyOptions{Confirmation: confirmation, ConfirmNow: confirmNow})
+			v, err := c.Apply(actx, core.Principal{}, planID,
+				core.ApplyOptions{Confirmation: confirmation, ConfirmNow: confirmNow, ConfirmTimeout: confirmTimeout})
 			// The agent may still finish an apply the CLI stopped waiting for,
 			// so running the command again could apply the change twice.
 			if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {

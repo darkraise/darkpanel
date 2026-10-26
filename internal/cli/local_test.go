@@ -300,6 +300,39 @@ func TestLocalConfirmations(t *testing.T) {
 	}
 }
 
+// TestLocalConfirmTimeout: on the agent socket --confirm-timeout reaches the
+// apply as core.ApplyOptions.ConfirmTimeout, and a value out of range is
+// refused before the plan.
+func TestLocalConfirmTimeout(t *testing.T) {
+	limits := filepath.Join(t.TempDir(), "limits.json")
+	if err := os.WriteFile(limits, []byte(`{"limits":{"max":10}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rec := &agentCalls{}
+	agent := &coretest.FakeAgent{
+		PlanFunc: func(_ context.Context, _ core.Principal, a core.ActionRef, _ json.RawMessage, _ core.PlanOptions) (core.PlanView, error) {
+			rec.add("plan %s", a.Name)
+			return core.PlanView{PlanID: "p1", HostID: "h1", Action: a.Name, Version: a.Version}, nil
+		},
+		ApplyFunc: func(_ context.Context, _ core.Principal, planID string, opts core.ApplyOptions) (core.ChangeView, error) {
+			rec.add("apply %s %s", planID, opts.ConfirmTimeout)
+			return core.ChangeView{ID: "c1", HostID: "h1", Action: "demo.rule.set", Version: 1, State: core.StateConfirmed}, nil
+		},
+	}
+	cli := cliEnv{agentSocket: agentSocket(t, agent)}
+	args := []string{"demo", "rule", "set", "--name", "web", "--port", "443", "--input", limits, "--yes", "--local"}
+	if out, errOut, code := cli.run(t, append(args, "--confirm-timeout", "600")...); code != 0 {
+		t.Errorf("--confirm-timeout 600: exit %d, out %q, err %q", code, out, errOut)
+	}
+	if _, errOut, code := cli.run(t, append(args, "--confirm-timeout", "1000")...); code != ExitUsage ||
+		!strings.Contains(errOut, "--confirm-timeout must be 10 to 900 seconds, not 1000") {
+		t.Errorf("--confirm-timeout 1000: exit %d, err %q; want a usage error", code, errOut)
+	}
+	if got, want := rec.list(), []string{"plan demo.rule.set", "apply p1 10m0s"}; !slices.Equal(got, want) {
+		t.Errorf("agent calls %q, want %q", got, want)
+	}
+}
+
 // localTestCommands are hand-written commands as the assembly passes them;
 // own has a persistent pre-run hook of its own, which cobra runs instead of
 // the root's.
