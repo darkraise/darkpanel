@@ -322,3 +322,55 @@ test("the planned dialog has no accessibility violations", async () => {
   await within(dialog).findByLabelText("Planned changes")
   expect(await axe(dialog)).toHaveNoViolations()
 })
+
+const cdxRevertible = { name: "cdx.rule.set", version: 1, hostId: "h1", module: "cdx", revertible: true }
+
+test("a revertible action sends its revert timeout, 60 s unless changed", async () => {
+  const { calls } = cdxRender({ [PLAN]: { body: cdxPlan() }, [APPLY]: { body: cdxChange() } }, { target: cdxRevertible })
+  const dialog = await screen.findByRole("dialog")
+  const field = await within(dialog).findByLabelText("Revert after (seconds)")
+  expect((field as HTMLInputElement).value).toBe("60")
+  await userEvent.setup().click(within(dialog).getByRole("button", { name: "Apply" }))
+  await waitFor(() => expect(calls.find((c) => c.path.endsWith("/apply"))?.body).toEqual({ planId: "p1", confirmTimeoutSeconds: 60 }))
+})
+
+test("a changed revert timeout is sent with the apply", async () => {
+  const { calls } = cdxRender({ [PLAN]: { body: cdxPlan() }, [APPLY]: { body: cdxChange() } }, { target: cdxRevertible })
+  const dialog = await screen.findByRole("dialog")
+  const user = userEvent.setup()
+  const field = await within(dialog).findByLabelText("Revert after (seconds)")
+  await user.clear(field)
+  await user.type(field, "300")
+  await user.click(within(dialog).getByRole("button", { name: "Apply" }))
+  await waitFor(() => expect(calls.find((c) => c.path.endsWith("/apply"))?.body).toEqual({ planId: "p1", confirmTimeoutSeconds: 300 }))
+})
+
+test.each(["9", "901", "12.5", ""])("a revert timeout of %j keeps Apply disabled", async (typed) => {
+  const { calls } = cdxRender({ [PLAN]: { body: cdxPlan() }, [APPLY]: { body: cdxChange() } }, { target: cdxRevertible })
+  const dialog = await screen.findByRole("dialog")
+  const user = userEvent.setup()
+  const field = await within(dialog).findByLabelText("Revert after (seconds)")
+  await waitFor(() => expect(within(dialog).getByRole("button", { name: "Apply" }).hasAttribute("disabled")).toBe(false))
+  await user.clear(field)
+  if (typed !== "") await user.type(field, typed)
+  expect(within(dialog).getByText("Enter a whole number of seconds from 10 to 900.").textContent).toBe("Enter a whole number of seconds from 10 to 900.")
+  expect(field.getAttribute("aria-invalid")).toBe("true")
+  const apply = within(dialog).getByRole("button", { name: "Apply" })
+  expect(apply.hasAttribute("disabled")).toBe(true)
+  await user.click(apply)
+  expect(calls.some((c) => c.path.endsWith("/apply"))).toBe(false)
+})
+
+test("an action that is not revertible asks for no revert timeout", async () => {
+  cdxRender({ [PLAN]: { body: cdxPlan() } })
+  const dialog = await screen.findByRole("dialog")
+  await within(dialog).findByLabelText("Planned changes")
+  expect(within(dialog).queryByLabelText("Revert after (seconds)")).toBeNull()
+})
+
+test("the revert timeout field has no accessibility violations", async () => {
+  cdxRender({ [PLAN]: { body: cdxPlan() } }, { target: cdxRevertible })
+  const dialog = await screen.findByRole("dialog")
+  await within(dialog).findByLabelText("Revert after (seconds)")
+  expect(await axe(dialog)).toHaveNoViolations()
+})

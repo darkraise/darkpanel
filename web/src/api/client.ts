@@ -136,11 +136,19 @@ export function planAction(name: string, version: number, input: object, hostId?
   return request<Plan>("POST", actionPath(name, version, "plan", hostId), { input })
 }
 
+// ApplyOptions are the optional fields of an apply request.
+export interface ApplyOptions {
+  // The revert timeout of a revertible action, 10 to 900 s; the server
+  // defaults to 60 s.
+  confirmTimeoutSeconds?: number
+}
+
 // applyPlan applies a plan. Composites, long-running and task actions answer
 // 202 with the change still applying; the change events say when it ends.
-export function applyPlan<O>(plan: Plan, confirmation?: string): Promise<Change<O>> {
-  const body: { planId: string; confirmation?: string } = { planId: plan.planId }
+export function applyPlan<O>(plan: Plan, confirmation?: string, options: ApplyOptions = {}): Promise<Change<O>> {
+  const body: { planId: string; confirmation?: string; confirmTimeoutSeconds?: number } = { planId: plan.planId }
   if (confirmation !== undefined) body.confirmation = confirmation
+  if (options.confirmTimeoutSeconds !== undefined) body.confirmTimeoutSeconds = options.confirmTimeoutSeconds
   return request<Change<O>>("POST", actionPath(plan.action, plan.version, "apply", plan.hostId ?? undefined), body)
 }
 

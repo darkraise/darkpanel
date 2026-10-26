@@ -29,6 +29,20 @@ export interface ChangeTarget {
   version: number
   hostId?: string
   module?: string // checked against getAvailability when hostId is set
+  revertible?: boolean // asks for the revert timeout, sent as confirmTimeoutSeconds
+}
+
+// The revert timeout an apply request accepts, in seconds.
+const CONFIRM_TIMEOUT_DEFAULT = 60
+const CONFIRM_TIMEOUT_MIN = 10
+const CONFIRM_TIMEOUT_MAX = 900
+
+// confirmTimeout is the whole number of seconds typed, or null when it is
+// not one within the range the apply request accepts.
+function confirmTimeout(typed: string): number | null {
+  if (!/^[0-9]+$/.test(typed.trim())) return null
+  const seconds = Number(typed.trim())
+  return seconds >= CONFIRM_TIMEOUT_MIN && seconds <= CONFIRM_TIMEOUT_MAX ? seconds : null
 }
 
 export interface ChangeDialogProps {
@@ -205,6 +219,7 @@ interface BodyProps extends Omit<ChangeDialogProps, "open" | "onOpenChange" | "t
 function ChangeDialogBody({ target, input, plan: given, onApplied, busy, setBusy, close }: BodyProps) {
   const [overrides, setOverrides] = useState<string[]>([])
   const [typed, setTyped] = useState("")
+  const [timeoutText, setTimeoutText] = useState(String(CONFIRM_TIMEOUT_DEFAULT))
   const [error, setError] = useState<string | null>(null)
   const [applied, setApplied] = useState<Change | null>(null)
   // The overrides are part of the plan's query key, so a toggle starts a
@@ -251,19 +266,23 @@ function ChangeDialogBody({ target, input, plan: given, onApplied, busy, setBusy
   }
   const guardsOk = plan !== null && plan.guards.every((g) => g.ok)
   const confirmed = plan === null || plan.confirmation === null || typed === plan.confirmation
+  const revertible = target.revertible === true
+  const timeoutSeconds = confirmTimeout(timeoutText)
+  const timeoutOk = !revertible || timeoutSeconds !== null
   // Only a plan answered for the overrides now selected may be applied, never the last plan kept on screen.
   const answered = given !== undefined || planned.data !== undefined
   // Until the availability check has answered, nothing says the action may run.
   const availabilityKnown = !checksAvailability || availability.isSuccess
   const canApply =
-    plan !== null && answered && !planned.isFetching && guardsOk && confirmed && availabilityKnown && unavailable === null && !busy
+    plan !== null && answered && !planned.isFetching && guardsOk && confirmed && timeoutOk && availabilityKnown && unavailable === null && !busy
 
   async function apply() {
     if (plan === null || !canApply) return
     setBusy(true)
     setError(null)
     try {
-      const change = await applyPlan(plan, plan.confirmation === null ? undefined : typed)
+      const options = revertible && timeoutSeconds !== null ? { confirmTimeoutSeconds: timeoutSeconds } : {}
+      const change = await applyPlan(plan, plan.confirmation === null ? undefined : typed, options)
       setApplied(change)
       onApplied?.(change)
     } catch (err) {
@@ -306,6 +325,28 @@ function ChangeDialogBody({ target, input, plan: given, onApplied, busy, setBusy
             <div className="flex flex-col gap-2">
               <Label htmlFor="change-confirmation">{`Type ${plan.confirmation} to confirm`}</Label>
               <Input id="change-confirmation" autoComplete="off" value={typed} onChange={(e) => setTyped(e.target.value)} />
+            </div>
+          )}
+          {revertible && (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="change-confirm-timeout">Revert after (seconds)</Label>
+              <Input
+                id="change-confirm-timeout"
+                type="number"
+                inputMode="numeric"
+                min={CONFIRM_TIMEOUT_MIN}
+                max={CONFIRM_TIMEOUT_MAX}
+                step={1}
+                value={timeoutText}
+                aria-describedby="change-confirm-timeout-help"
+                aria-invalid={timeoutSeconds === null}
+                onChange={(e) => setTimeoutText(e.target.value)}
+              />
+              <span id="change-confirm-timeout-help" className={timeoutSeconds === null ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>
+                {timeoutSeconds === null
+                  ? `Enter a whole number of seconds from ${CONFIRM_TIMEOUT_MIN} to ${CONFIRM_TIMEOUT_MAX}.`
+                  : "Unless you confirm the change within this time, it is reverted on the host."}
+              </span>
             </div>
           )}
         </div>
