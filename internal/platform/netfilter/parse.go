@@ -275,7 +275,7 @@ func (p *parser) addRule(line string) error {
 	if c == nil {
 		return fmt.Errorf("rule for undeclared chain %q", truncate(toks[1].text))
 	}
-	rule, err := parseRule(toks[2:])
+	rule, err := parseRule(toks[2:], false)
 	if err != nil {
 		return err
 	}
@@ -350,11 +350,21 @@ var topLevel = map[string]string{
 	"j": "j", "jump": "j", "g": "g", "goto": "g", "f": "f", "fragment": "f",
 }
 
-// parseRule reads the tokens after "-A <chain>". Options of a -m module
-// or the -j target follow it until the next top-level option.
-func parseRule(toks []token) (Rule, error) {
+// The extension parseRule reads options for: none, the -j target, or the
+// index of a -m module in Rule.Matches.
+const (
+	extNone   = -1
+	extTarget = -2
+)
+
+// parseRule reads the tokens after "-A <chain>". In save syntax the
+// options of a -m module or the -j target follow it until the next
+// top-level option. In restore syntax (restore true) an option goes to the
+// extension restoreOwner names, an address may be a bare host address or
+// carry host bits, and the protocol is spelled as iptables-save prints it.
+func parseRule(toks []token, restore bool) (Rule, error) {
 	var r Rule
-	var cur *[]Option // the module's or target's options being read
+	cur := extNone
 	seen := map[string]bool{}
 	for i := 0; i < len(toks); {
 		neg := false
@@ -377,11 +387,18 @@ func parseRule(toks []token) (Rule, error) {
 		}
 		short, top := topLevel[name]
 		if !top {
-			if cur == nil {
+			if restore {
+				cur = r.restoreOwner(cur, name)
+			}
+			if cur == extNone {
 				r.Unsupported = append(r.Unsupported, "option --"+name)
 				continue
 			}
-			*cur = append(*cur, Option{Name: name, Neg: neg, Values: vals})
+			opts := &r.Target.Options
+			if cur >= 0 {
+				opts = &r.Matches[cur].Options
+			}
+			*opts = append(*opts, Option{Name: name, Neg: neg, Values: vals})
 			continue
 		}
 		if short != "m" && seen[short] {
@@ -395,25 +412,25 @@ func parseRule(toks []token) (Rule, error) {
 			}
 			if short == "m" {
 				r.Matches = append(r.Matches, Match{Module: vals[0]})
-				cur = &r.Matches[len(r.Matches)-1].Options
+				cur = len(r.Matches) - 1
 			} else {
 				r.Target.Name = vals[0]
-				cur = &r.Target.Options
+				cur = extTarget
 			}
 			continue
 		case "g", "f":
 			r.Unsupported = append(r.Unsupported, map[string]string{"g": "goto", "f": "fragment match"}[short])
-			cur = nil
+			cur = extNone
 			continue
 		}
 		if len(vals) != 1 {
 			return Rule{}, fmt.Errorf("-%s needs one value", short)
 		}
-		cur = nil
+		cur = extNone
 		switch short {
 		case "s", "d":
-			pfx, err := netip.ParsePrefix(vals[0])
-			if err != nil {
+			pfx, ok := parseAddr(vals[0], restore)
+			if !ok {
 				r.Unsupported = append(r.Unsupported, fmt.Sprintf("address %q", truncate(vals[0])))
 				continue
 			}
@@ -428,10 +445,38 @@ func parseRule(toks []token) (Rule, error) {
 		case "o":
 			r.Out = NameMatch{Name: vals[0], Neg: neg}
 		case "p":
-			r.Proto = NameMatch{Name: vals[0], Neg: neg}
+			proto := vals[0]
+			if restore {
+				proto = canonicalProto(proto)
+			}
+			// iptables matches every protocol for -p all and saves no -p.
+			if restore && proto == "all" && !neg {
+				continue
+			}
+			r.Proto = NameMatch{Name: proto, Neg: neg}
 		}
 	}
 	return r, nil
+}
+
+// parseAddr reads an -s or -d value. Save output always prints a prefix;
+// restore input may also give a bare address, a host prefix, or a prefix
+// with host bits set, which iptables masks.
+func parseAddr(v string, restore bool) (netip.Prefix, bool) {
+	if pfx, err := netip.ParsePrefix(v); err == nil {
+		if restore {
+			return pfx.Masked(), true
+		}
+		return pfx, true
+	}
+	if !restore {
+		return netip.Prefix{}, false
+	}
+	a, err := netip.ParseAddr(v)
+	if err != nil || a.Zone() != "" {
+		return netip.Prefix{}, false
+	}
+	return netip.PrefixFrom(a, a.BitLen()), true
 }
 
 func truncate(s string) string {
