@@ -1,10 +1,13 @@
 package dispatch
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/netip"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -358,5 +361,47 @@ func TestGuardContextProxyPathIsACopyWithoutZones(t *testing.T) {
 	}
 	if g := d.guardContext(context.Background()); g.Via != nil {
 		t.Errorf("a direct request has proxy path %s, want none", dgJSON(t, g.Via))
+	}
+}
+
+// TestGuardContextComplete: the guard context is complete only when the
+// topology says every source registered and no address was dropped; each
+// dropped address is logged at Warn with its value.
+func TestGuardContextComplete(t *testing.T) {
+	full := dgTopology
+	full.Complete = true
+	dropped := full
+	dropped.Dropped = []string{"@agent-abstract", "fleet:7"}
+	for _, tc := range []struct {
+		name     string
+		topo     func() Topology
+		complete bool
+		warns    int
+	}{
+		{"complete", func() Topology { return full }, true, 0},
+		{"not every source registered", func() Topology { return dgTopology }, false, 0},
+		{"an address dropped", func() Topology { return dropped }, false, 2},
+		{"no topology", nil, false, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, seen, _ := newDg(t, tc.topo)
+			var buf bytes.Buffer
+			d.cfg.Log = slog.New(slog.NewTextHandler(&buf, nil))
+			if _, err := d.Plan(context.Background(), alice, testHost, refDgAgent, json.RawMessage(`{"name":"a"}`), core.PlanOptions{}); err != nil {
+				t.Fatal(err)
+			}
+			if g := seen.guard(core.SideAgent); g == nil || g.Complete != tc.complete {
+				t.Errorf("guard %s, want complete %v", dgJSON(t, g), tc.complete)
+			}
+			logs := buf.String()
+			if got := strings.Count(logs, "level=WARN"); got != tc.warns {
+				t.Errorf("%d warnings, want %d:\n%s", got, tc.warns, logs)
+			}
+			for _, addr := range dropped.Dropped {
+				if want := "addr=" + addr; tc.warns > 0 && !strings.Contains(logs, want) {
+					t.Errorf("logs %q do not name %s", logs, want)
+				}
+			}
+		})
 	}
 }

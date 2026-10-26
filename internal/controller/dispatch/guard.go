@@ -16,6 +16,11 @@ type Topology struct {
 	PanelListen []netip.AddrPort
 	AgentListen []netip.AddrPort
 	AgentPeers  []netip.Addr
+	// Complete is set when every source of the three lists has registered.
+	Complete bool
+	// Dropped holds each listener or peer address that could not be read as
+	// an IP address and so is missing from the lists.
+	Dropped []string
 }
 
 // guardContext is the guard context of a call now: the client peer the API
@@ -24,7 +29,9 @@ type Topology struct {
 // engine's context and so carry neither. Every address loses its
 // IPv6 zone: a zone names an interface of the controller, so it means nothing
 // on the agent's host and two addresses that differ only by zone must compare
-// equal. The topology's slices are copied, never changed.
+// equal. The topology's slices are copied, never changed. The context is
+// complete only when the topology is and dropped no address, because a guard
+// that saw a partial topology would protect too few flows.
 func (d *Dispatcher) guardContext(ctx context.Context) core.GuardContext {
 	var g core.GuardContext
 	if d.cfg.Topology != nil {
@@ -32,6 +39,10 @@ func (d *Dispatcher) guardContext(ctx context.Context) core.GuardContext {
 		g.PanelListen = withoutPortZones(t.PanelListen)
 		g.AgentListen = withoutPortZones(t.AgentListen)
 		g.AgentPeers = withoutZones(t.AgentPeers)
+		for _, addr := range t.Dropped {
+			d.cfg.Log.Warn("dispatch: a guard topology address is not an IP address", "addr", addr)
+		}
+		g.Complete = t.Complete && len(t.Dropped) == 0
 	}
 	if p, ok := core.ClientPeer(ctx); ok {
 		p.Addr = p.Addr.WithZone("")
