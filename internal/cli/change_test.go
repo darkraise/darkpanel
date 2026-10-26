@@ -186,6 +186,35 @@ func TestChangeRepair(t *testing.T) {
 	}
 }
 
+// TestChangeRepairConfirmTimeout: change repair sends --confirm-timeout with
+// the apply of a revertible repair plan, refuses it for any other plan
+// before applying, and refuses a value out of range before the repair
+// request.
+func TestChangeRepairConfirmTimeout(t *testing.T) {
+	base := newFakeAPI(t, testToken,
+		exchange{method: "POST", path: "/api/v1/changes/c6/repair", body: `{}`,
+			reply: `{"plan":` + planJSON("p6", "demo.rule.set", "h1", "", `[]`) + `}`},
+		exchange{method: "POST", path: "/api/v1/hosts/h1/actions/demo.rule.set/v1/apply", body: `{"planId":"p6","confirmTimeoutSeconds":120}`,
+			reply: changeJSON("c7", "demo.rule.set", "revertible", "pending",
+				`"revertDeadline":"2026-10-18T12:02:00Z","output":null,"error":null,"compensatedBy":null`)},
+		exchange{method: "POST", path: "/api/v1/changes/c8/repair", body: `{}`,
+			reply: `{"plan":` + planJSON("p8", "demo.item.add", "h1", "", `[]`) + `}`},
+	)
+	cli := cliEnv{env: tokenEnv}
+	out, errOut, code := cli.run(t, "change", "repair", "c6", "--yes", "--confirm-timeout", "120", "--url", base)
+	if code != 0 || !strings.Contains(out, "Change c7: pending") || !strings.Contains(out, "Confirm it before 2026-10-18T12:02:00Z") {
+		t.Errorf("revertible repair plan: exit %d, out %q, err %q", code, out, errOut)
+	}
+	if _, errOut, code := cli.run(t, "change", "repair", "c8", "--yes", "--confirm-timeout", "120", "--url", base); code != ExitUsage ||
+		!strings.Contains(errOut, "--confirm-timeout applies only to a revertible repair action; demo.item.add/v1 is compensable") {
+		t.Errorf("compensable repair plan: exit %d, err %q; want a usage error", code, errOut)
+	}
+	if _, errOut, code := cli.run(t, "change", "repair", "c9", "--confirm-timeout", "5", "--url", base); code != ExitUsage ||
+		!strings.Contains(errOut, "--confirm-timeout must be 10 to 900 seconds, not 5") {
+		t.Errorf("out of range: exit %d, err %q; want a usage error before the repair request", code, errOut)
+	}
+}
+
 func TestChangeRelease(t *testing.T) {
 	base := newFakeAPI(t, testToken,
 		exchange{method: "POST", path: "/api/v1/changes/c1/release", body: `{"reason":"host rebuilt"}`,

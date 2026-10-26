@@ -276,13 +276,18 @@ func (a *app) changeUndoCommand() *cobra.Command {
 // changeRepairCommand is `change repair`. The controller answers with the
 // change the repair started, which the command waits for, or with a plan of
 // the repairing action, which it shows, asks about and applies like any
-// plan.
+// plan. The repairing action is known only from that answer, so
+// --confirm-timeout is range-checked before the request and refused after
+// it when the plan's action is not revertible.
 func (a *app) changeRepairCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "repair <id>",
 		Short: "Repair a change that needs repair",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if _, err := confirmTimeout(cmd); err != nil {
+				return err
+			}
 			body, err := repairBody(cmd)
 			if err != nil {
 				return err
@@ -320,6 +325,7 @@ func (a *app) changeRepairCommand() *cobra.Command {
 	cmd.Flags().String("as", "", "what the step counts as: reverted or applied")
 	cmd.Flags().Bool("yes", false, "apply a repair plan without asking Apply? [y/N]; an irreversible action still needs its confirmation phrase")
 	cmd.Flags().String("confirmation", "", "the confirmation phrase a repair plan names, instead of typing it")
+	addConfirmTimeoutFlag(cmd)
 	cmd.Flags().Bool("json", false, "print the raw JSON answer")
 	addConnFlags(cmd, false, false)
 	return cmd
@@ -357,6 +363,10 @@ func (a *app) applyRepairPlan(cmd *cobra.Command, c *client, plan planWire) erro
 	if !ok {
 		return fmt.Errorf("the repair plan %s is for %s/v%d, which this darkpanel does not know; apply it through the API",
 			sanitize(plan.PlanID), sanitize(plan.Action), plan.Version)
+	}
+	if timeout, _ := cmd.Flags().GetInt("confirm-timeout"); timeout != 0 && def.Spec.Class != core.ClassRevertible {
+		return usagef("--confirm-timeout applies only to a revertible repair action; %s is %s; nothing was applied",
+			def.Ref(), def.Spec.Class)
 	}
 	host := ""
 	if plan.HostID != nil {
