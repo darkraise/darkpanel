@@ -376,10 +376,13 @@ func checkExternalUnits(m Manifest) []error {
 const maxSyncApplyTimeout = 45 * time.Second
 
 // checkRepairedBy checks a revertible action's repair action (spec 1.3): every
-// registered version of it belongs to the same module and side, is a mutating
-// action that is neither a task action nor has a recovery handler, and locks
-// no key the revertible action does not hold, because its repair change runs
-// under the revertible change's locks.
+// registered version of it belongs to the same module and side, is
+// compensable, irreversible or revertible (a revertible repair action may
+// name itself), is neither a task action nor has a recovery handler, and
+// locks no key the revertible action does not hold, because its repair
+// change runs under the revertible change's locks. The class is checked
+// before the side, so a composite, which is always controller-side, is
+// refused for its class.
 func (r *Registry) checkRepairedBy(a ActionDef) []error {
 	ref, name := a.Ref(), a.Spec.RepairedBy
 	module, _, _ := strings.Cut(a.Spec.Name, ".")
@@ -395,10 +398,12 @@ func (r *Registry) checkRepairedBy(a ActionDef) []error {
 			continue
 		}
 		switch {
+		case rep.Spec.Class != ClassCompensable && rep.Spec.Class != ClassIrreversible && rep.Spec.Class != ClassRevertible:
+			errs = append(errs, fmt.Errorf("action %s: repair action %s is %s, want compensable, irreversible or revertible",
+				ref, rep.Ref(), rep.Spec.Class))
+			continue
 		case rep.Spec.Side != a.Spec.Side:
 			errs = append(errs, fmt.Errorf("action %s: repair action %s runs on side %s, not %s", ref, rep.Ref(), rep.Spec.Side, a.Spec.Side))
-		case rep.Spec.Class != ClassCompensable && rep.Spec.Class != ClassIrreversible:
-			errs = append(errs, fmt.Errorf("action %s: repair action %s is %s, want compensable or irreversible", ref, rep.Ref(), rep.Spec.Class))
 		case rep.Spec.Task:
 			errs = append(errs, fmt.Errorf("action %s: repair action %s is a task action", ref, rep.Ref()))
 		case rep.Handler.Recover != nil:

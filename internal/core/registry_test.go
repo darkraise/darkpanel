@@ -271,6 +271,25 @@ func TestLifecycleRegistryAccepts(t *testing.T) {
 	}
 }
 
+// TestRegistryAcceptsRevertibleRepairActions registers a revertible action
+// that repairs itself and one repaired by another revertible action, which
+// in turn repairs itself (owner ruling R1).
+func TestRegistryAcceptsRevertibleRepairActions(t *testing.T) {
+	self := revertible("demo.state.repair", SideAgent)
+	self.Spec.RepairedBy = self.Spec.Name
+	set := revertible("demo.rule.set", SideAgent)
+	set.Spec.RepairedBy = self.Spec.Name
+	set.Spec.LockKeys = []string{"demo.state.repair", "demo.rule.set"}
+	mod := testModule{ID: "demo", Version: 1, Actions: []ActionDef{self, set}}
+	r, err := NewRegistry(mod)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	if def, ok := r.Action(ActionRef{"demo.state.repair", 1}); !ok || def.Spec.RepairedBy != "demo.state.repair" {
+		t.Errorf("demo.state.repair/v1 = %+v, %v; want it registered as its own repair action", def.Spec, ok)
+	}
+}
+
 func TestLifecycleRegistryRules(t *testing.T) {
 	module := func(actions ...ActionDef) []Module {
 		return []Module{testModule{ID: "demo", Version: 1, Actions: actions}}
@@ -334,7 +353,9 @@ func TestLifecycleRegistryRules(t *testing.T) {
 			func(d *ActionDef) { d.Spec.LockKeys = []string{"demo.rule.set"} })), "is a task action"},
 		{"repair action with a recovery handler", module(set, DefineMutating[echoIn, echoOut](ActionSpec{
 			Name: "demo.rule.repair", Version: 1, Class: ClassIrreversible, Side: SideAgent}, regRecoverEcho{})), "has a recovery handler"},
-		{"repair action that reads", module(set, readAction("demo.rule.repair")), "want compensable or irreversible"},
+		{"repair action that reads", module(set, readAction("demo.rule.repair")), "is read, want compensable, irreversible or revertible"},
+		{"repair action that is a composite", module(set, regComposite("demo.rule.repair", UnwindForward)),
+			"is composite, want compensable, irreversible or revertible"},
 		{"task action that is revertible", module(with(regTask("demo.package.install", ClassIrreversible),
 			func(d *ActionDef) { d.Spec.Class = ClassRevertible })), "task action is compensable or irreversible"},
 		{"task action on the controller", module(with(regTask("demo.package.install", ClassIrreversible),
