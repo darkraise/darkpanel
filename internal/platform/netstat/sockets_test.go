@@ -1,6 +1,7 @@
 package netstat
 
 import (
+	"errors"
 	"net"
 	"net/netip"
 	"os"
@@ -143,6 +144,25 @@ func TestUnknownStateDoesNotHideTheTable(t *testing.T) {
 	}
 	if len(socks) != 2 || socks[0].State != StateUnknown || socks[0].Listening() || !socks[1].Listening() {
 		t.Fatalf("sockets = %+v", socks)
+	}
+}
+
+// TestSocketsWithoutTables: a proc root whose net directory holds none of
+// the four tables is an error, so a reader never mistakes a missing or
+// foreign proc mount for a host without sockets.
+func TestSocketsWithoutTables(t *testing.T) {
+	for name, root := range map[string]string{
+		"empty net directory": skProc(t, nil, nil),
+		"no net directory":    t.TempDir(),
+		"unrelated files":     skProc(t, map[string]string{"raw": skHeader4, "unix": "Num RefCount\n"}, nil),
+	} {
+		if socks, err := (Table{Root: root}).Sockets(); !errors.Is(err, ErrNoSocketTables) || socks != nil {
+			t.Errorf("%s: Sockets() = %v, %v; want ErrNoSocketTables", name, socks, err)
+		}
+	}
+	root := skProc(t, map[string]string{"udp6": skHeader6}, nil)
+	if socks, err := (Table{Root: root}).Sockets(); err != nil || len(socks) != 0 {
+		t.Errorf("one empty table: Sockets() = %v, %v; want no sockets and no error", socks, err)
 	}
 }
 
