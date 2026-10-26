@@ -17,6 +17,11 @@ import (
 
 var knownTables = []string{"filter", "nat", "raw", "mangle", "security"}
 
+// ErrNoTables is input that holds neither a table block nor an
+// incompatible-table note: an empty or truncated capture, never an empty
+// firewall, which save output always shows as tables.
+var ErrNoTables = errors.New("netfilter: no tables in the input")
+
 // Tables returns the tables the parser accepts, in the order the firewall
 // module reads them. The slice is a copy, so callers cannot change what
 // Parse accepts.
@@ -131,8 +136,8 @@ const maxLine = 1 << 20
 // Parse reads save output. Comment lines are skipped except the
 // incompatible-table notes, which are attached to their table, and the
 // legacy-table warning, which sets Ruleset.LegacyPresent. Input with neither
-// a table block nor an incompatible-table note is an error, so an empty or
-// truncated capture is never mistaken for an empty firewall.
+// a table block nor an incompatible-table note is ErrNoTables, so an empty
+// or truncated capture is never mistaken for an empty firewall.
 func Parse(r io.Reader) (*Ruleset, error) {
 	p := parser{notes: map[string]string{}}
 	sc := bufio.NewScanner(r)
@@ -163,7 +168,7 @@ func Parse(r io.Reader) (*Ruleset, error) {
 		p.rs.Tables = append(p.rs.Tables, Table{Name: name, Incompatible: note})
 	}
 	if len(p.rs.Tables) == 0 {
-		return nil, errors.New("netfilter: no tables in the input")
+		return nil, ErrNoTables
 	}
 	return &p.rs, nil
 }
