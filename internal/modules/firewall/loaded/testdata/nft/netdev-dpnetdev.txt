@@ -1,0 +1,5 @@
+table netdev dpnetdev {
+	chain ingress {
+		type filter hook ingress device "eth0" priority filter; policy accept;
+	}
+}

@@ -1,0 +1,6 @@
+table ip dpnat {
+	chain post {
+		type nat hook postrouting priority srcnat; policy accept;
+		oifname "eth0" masquerade
+	}
+}

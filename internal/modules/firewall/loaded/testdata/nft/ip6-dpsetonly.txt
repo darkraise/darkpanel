@@ -1,0 +1,9 @@
+table ip6 dpsetonly {
+	set s {
+		type ipv6_addr
+	}
+
+	chain regular {
+		drop
+	}
+}

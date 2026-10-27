@@ -1,0 +1,5 @@
+table inet dpforeign
+table netdev dpnetdev
+table ip dpnat
+table ip6 dpsetonly
+table ip filter
