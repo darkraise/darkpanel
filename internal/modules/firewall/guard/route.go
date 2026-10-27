@@ -18,9 +18,10 @@ type probe struct {
 }
 
 // tailnetIface is tailscaled's interface, and tailnetRanges are the
-// address ranges it assigns. tailscaled's ts-input chain drops a packet from
-// these ranges on every other interface, so such a source can reach this
-// host only through tailnetIface.
+// address ranges it assigns. tailscaled drops these sources on other
+// interfaces only for IPv4 and only when its netfilter rules are installed,
+// and 100.64.0.0/10 is also carrier-grade NAT space, so fromTailnet also
+// requires the route back to the source to leave through tailnetIface.
 const tailnetIface = "tailscale0"
 
 var tailnetRanges = []netip.Prefix{netip.MustParsePrefix("100.64.0.0/10"), netip.MustParsePrefix("fd7a:115c:a1e0::/48")}
@@ -127,7 +128,8 @@ func (r *router) probes(fl flow) []probe {
 // up, non-loopback interface, except that for IPv4 an interface under
 // strict reverse-path filtering takes only packets whose route back to the
 // source leaves through it. A source in a tailnet range arrives only on
-// tailscale0 while that interface is up.
+// tailscale0 while that interface is up and the route back to the source
+// leaves through it.
 func (r *router) eligible(p fwstate.Packet) ([]string, error) {
 	if r.fromTailnet(p.Src) {
 		return []string{tailnetIface}, nil
@@ -166,21 +168,28 @@ func (r *router) eligible(p fwstate.Packet) ([]string, error) {
 	return out, nil
 }
 
-// fromTailnet reports whether src is a tailnet address and tailscale0 is up.
+// fromTailnet reports whether src is a tailnet address, tailscale0 is up
+// and the route back to src leaves through tailscale0, so a working session
+// from src is one tailscaled carries. A failed lookup is not a tailnet
+// source.
 func (r *router) fromTailnet(src netip.Addr) bool {
+	src = src.Unmap()
 	in := false
 	for _, p := range tailnetRanges {
-		in = in || p.Contains(src.Unmap())
+		in = in || p.Contains(src)
 	}
 	if !in {
 		return false
 	}
+	up := false
 	for _, i := range r.f.ifaces {
-		if i.Name == tailnetIface && i.Up {
-			return true
-		}
+		up = up || (i.Name == tailnetIface && i.Up)
 	}
-	return false
+	if !up {
+		return false
+	}
+	rt, err := r.host.RouteGet(netstat.RouteQuery{Dst: src})
+	return err == nil && rt.OutIface == tailnetIface
 }
 
 // rpFilter is an interface's effective rp_filter: the larger of all's and

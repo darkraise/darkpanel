@@ -216,6 +216,10 @@ func TestProbesTailscaleSource(t *testing.T) {
 		f.rpFilter["tailscale0"] = 0
 		return f
 	}
+	tsPeer4 := flPkt("input", "100.101.1.3", 50000, "100.101.1.1", 22, "tcp")
+	cgnat4 := flPkt("input", "100.64.7.7", 50002, "192.0.2.1", 22, "tcp")
+	cgnat6 := flPkt("input", "fd7a:115c:a1e0::9", 50003, "2001:db8::1", 22, "tcp")
+	noRoute6 := flPkt("input", "fd7a:115c:a1e0::a", 50004, "2001:db8::1", 22, "tcp")
 	tsSSH4 := flPkt("input", "100.101.1.2", 50000, "100.101.1.1", 22, "tcp")
 	tsSSH6 := flPkt("input", "fd7a:115c:a1e0::5", 50001, "2001:db8::1", 22, "tcp")
 	ssh4 := flPkt("input", "203.0.113.7", 50000, "192.0.2.1", 22, "tcp")
@@ -225,8 +229,11 @@ func TestProbesTailscaleSource(t *testing.T) {
 		f    facts
 		want []string
 	}{
-		{"an IPv4 tailnet source only on tailscale0", tsSSH4, withTS(true), []string{"tailscale0"}},
+		{"an IPv4 tailnet source only on tailscale0", tsPeer4, withTS(true), []string{"tailscale0"}},
 		{"an IPv6 tailnet source only on tailscale0", tsSSH6, withTS(true), []string{"tailscale0"}},
+		{"an IPv4 tailnet-range source routed back through eth0 keeps the normal rule", cgnat4, withTS(true), []string{"eth0"}},
+		{"an IPv6 tailnet-range source routed back through eth0 keeps the normal rule", cgnat6, withTS(true), []string{"eth0", "eth1", "tailscale0"}},
+		{"a failed route-back lookup keeps the normal rule", noRoute6, withTS(true), []string{"eth0", "eth1", "tailscale0"}},
 		{"tailscale0 down keeps the normal rule", tsSSH4, withTS(false), []string{"eth0"}},
 		{"no tailscale0 keeps the normal rule", tsSSH4, rtFacts(1, 0, 0), []string{"eth0"}},
 		{"another source is not limited to tailscale0", ssh4, withTS(true), []string{"eth0"}},
@@ -236,6 +243,12 @@ func TestProbesTailscaleSource(t *testing.T) {
 				rtQuery("100.101.1.2", "100.101.1.1", ""): rtVia("eth0", ""),
 				rtQuery("100.101.1.2", "", ""):            rtVia("eth0", ""),
 				rtQuery("203.0.113.7", "192.0.2.1", ""):   rtVia("eth0", ""),
+				rtQuery("100.101.1.3", "", ""):            rtVia("tailscale0", ""),
+				rtQuery("100.101.1.3", "100.101.1.1", ""): rtVia("eth0", ""),
+				rtQuery("fd7a:115c:a1e0::5", "", ""):      rtVia("tailscale0", ""),
+				rtQuery("100.64.7.7", "", ""):             rtVia("eth0", ""),
+				rtQuery("100.64.7.7", "192.0.2.1", ""):    rtVia("eth0", ""),
+				rtQuery("fd7a:115c:a1e0::9", "", ""):      rtVia("eth0", ""),
 			}}
 			var got []string
 			for _, pr := range newRouter(h, tc.f, fwstate.Loaded{}).probes(flow{label: "ssh", pkt: tc.p}) {
