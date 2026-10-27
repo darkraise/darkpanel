@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -24,7 +25,10 @@ var eeUser = core.Principal{Actor: "user:u1", UserID: "u1", Scope: core.ScopeOpe
 
 // eeEngine is the agent's lifecycle engine over the host, serving the
 // firewall module.
-func eeEngine(t *testing.T, h *e2eHost) *lifecycle.Engine {
+func eeEngine(t *testing.T, h *e2eHost) *lifecycle.Engine { return eeEngineRunning(t, h, h) }
+
+// eeEngineRunning is eeEngine with exec running the host's programs.
+func eeEngineRunning(t *testing.T, h *e2eHost, exec core.Runner) *lifecycle.Engine {
 	t.Helper()
 	reg, err := core.NewRegistry(module{f: h.fw()})
 	if err != nil {
@@ -32,7 +36,7 @@ func eeEngine(t *testing.T, h *e2eHost) *lifecycle.Engine {
 	}
 	eng, err := lifecycle.New(lifecycle.Config{
 		Side: core.SideAgent, Registry: reg, Validator: schema.NewValidator(), Journal: &coretest.MemJournal{}, Redact: schema.Redact,
-		Base: core.Env{HostID: "h1", DB: h.db, Exec: h, Files: h, Sealer: coretest.Sealer{}, Clock: h.clock,
+		Base: core.Env{HostID: "h1", DB: h.db, Exec: exec, Files: h, Sealer: coretest.Sealer{}, Clock: h.clock,
 			Log: slog.New(slog.NewTextHandler(io.Discard, nil))},
 		ModuleUnits: func(string) core.Units { return e2eUnits{} },
 	})
@@ -175,5 +179,52 @@ func TestE2ETimerReverts(t *testing.T) {
 	}
 	if got := h.config(); got.LogLevel != before.LogLevel || !bytes.Equal(got.Files["/etc/ufw/user.rules"].Data, before.Files["/etc/ufw/user.rules"].Data) {
 		t.Errorf("logging %s after the timer, want %s and the files as before", got.LogLevel, before.LogLevel)
+	}
+}
+
+// eeSkewed is a host whose kernel does not apply UFW's sysctl file when
+// ufw reloads: the key keeps value.
+type eeSkewed struct {
+	*e2eHost
+	key, value string
+}
+
+func (s eeSkewed) Run(ctx context.Context, cmd core.Cmd) (core.CmdResult, error) {
+	res, err := s.e2eHost.Run(ctx, cmd)
+	if cmd.Path == ufwPath && len(cmd.Args) == 1 && cmd.Args[0] == "reload" {
+		s.sysctl[s.key] = s.value
+	}
+	return res, err
+}
+
+// TestE2EVerifySysctl: UFW's sysctl file of the golden "sysctl" scenario
+// sets ip_forward and IPv6's default forwarding to 1 while the kernel holds
+// 0. A reload that applies the file passes verify; one the kernel does not
+// apply fails it with the key, the predicted and the live value, and the
+// engine reverts the change.
+func TestE2EVerifySysctl(t *testing.T) {
+	const key = "net/ipv4/ip_forward"
+	for _, applied := range []bool{true, false} {
+		h := newE2EHost(t, "sysctl", "sysctl")
+		h.sysctl[key], h.sysctl["net/ipv6/conf/default/forwarding"] = "0", "0"
+		var exec core.Runner = h
+		if !applied {
+			exec = eeSkewed{e2eHost: h, key: key, value: "0"}
+		}
+		eng := eeEngineRunning(t, h, exec)
+		pv, cv, err := eePlanApply(t, eng, "firewall.logging.set", `{"level":"high"}`)
+		if !slices.Contains(pv.Diff, core.DiffLine{Op: "+", Text: "sysctl " + key + "=1"}) {
+			t.Errorf("applied %v: plan diff %+v, want the sysctl change", applied, pv.Diff)
+		}
+		if applied {
+			if err != nil || cv.State != core.StatePending || h.sysctl[key] != "1" {
+				t.Errorf("applied: change %+v, %v, %s = %s; want pending with the file applied", cv, err, key, h.sysctl[key])
+			}
+			continue
+		}
+		if cv.State != core.StateReverted || cv.Error == nil || cv.Error.Code != string(errcode.FirewallPredictionMismatch) ||
+			!strings.Contains(cv.Error.Message, key+`: live "0", predicted "1"`) {
+			t.Errorf("not applied: change %+v, %v; want reverted by the prediction mismatch", cv, err)
+		}
 	}
 }

@@ -1,6 +1,7 @@
 package firewall
 
 import (
+	"context"
 	"encoding/json"
 	"reflect"
 	"strings"
@@ -120,5 +121,94 @@ func TestSysctlMismatches(t *testing.T) {
 	}
 	if strings.Join(sysctlMismatches(nil, live), "") != "" {
 		t.Error("nothing predicted must report nothing")
+	}
+}
+
+// vsHost is a fake host whose ufw adds pnRule, whose sysctl file sets
+// net/ipv4/ip_forward to 1 while the live value is 0, and whose sysctl
+// prediction is part C's.
+func vsHost(t *testing.T) (*fakeHost, fw) {
+	t.Helper()
+	h, f, _ := pnHost(t)
+	h.writeFile("/etc/ufw/sysctl.conf", []byte("net/ipv4/ip_forward=1\n"))
+	f.d.sysctl = loaded.PredictSysctl
+	return h, f
+}
+
+// TestVerifySysctl: after a change that reloaded UFW, verify compares the
+// values UFW's sysctl file sets with the live ones; a change that did not
+// start UFW checks nothing new.
+func TestVerifySysctl(t *testing.T) {
+	ctx := context.Background()
+	h, f := vsHost(t)
+	m := hkMutation(f, nil)
+	env := h.env()
+	if _, err := m.Snapshot(ctx, env, hkInput{}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := m.Apply(ctx, env, hkInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = m.Verify(ctx, env, hkInput{}, out)
+	if e := errcode.From(err); e.Code != errcode.FirewallPredictionMismatch || !strings.Contains(e.Detail, `net/ipv4/ip_forward: live "0", predicted "1"`) {
+		t.Errorf("Verify = %v, want a prediction mismatch naming the key, the live and the predicted value", err)
+	}
+	h.sysctl["net/ipv4/ip_forward"] = "1"
+	if err := m.Verify(ctx, env, hkInput{}, out); err != nil {
+		t.Errorf("Verify with the kernel as predicted: %v", err)
+	}
+
+	h, f = vsHost(t)
+	s := h.state()
+	s.Enabled = false
+	h.setState(s)
+	m = hkMutation(f, nil)
+	if _, err := m.Snapshot(ctx, h.env(), hkInput{}); err != nil {
+		t.Fatal(err)
+	}
+	if out, err = m.Apply(ctx, h.env(), hkInput{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Verify(ctx, h.env(), hkInput{}, out); err != nil {
+		t.Errorf("Verify of a change that did not start UFW: %v", err)
+	}
+}
+
+// TestVerifySysctlRestore: a restore's own sysctl writes replace the
+// prediction of UFW's file, and are checked.
+func TestVerifySysctlRestore(t *testing.T) {
+	ctx := context.Background()
+	h, f := vsHost(t)
+	h.writeFile("/etc/ufw/sysctl.conf", []byte("net/ipv4/ip_forward=0\n"))
+	h.ufw["--force enable"] = func(s *fhState) int { s.Enabled = true; return 0 }
+	h.ufw["disable"] = func(s *fhState) int { s.Enabled = false; return 0 }
+	h.loaded = fwstate.Loaded{Variant: "nft", V4: fhParse(t, tgStopped), V6: fhParse(t, tgStopped)}
+	cfg := h.config()
+	var entries []core.RestoreEntry
+	for _, p := range fwstate.StateFiles {
+		entries = append(entries, cfg.Files[p])
+	}
+	snap := snapshot{ID: "01J00000000000000000000009", Entries: entries, State: snapshotState{Enabled: true,
+		Sysctl: map[string]string{"net/ipv4/ip_forward": "1"}}}
+	s := h.state()
+	s.Enabled = false
+	h.setState(s)
+
+	m := hkMutation(f, func(fwstate.Config, fwstate.Loaded) (change, error) { return change{restore: &snap}, nil })
+	if _, err := m.Snapshot(ctx, h.env(), hkInput{}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := m.Apply(ctx, h.env(), hkInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Verify(ctx, h.env(), hkInput{}, out); err != nil {
+		t.Errorf("Verify of a restore that wrote the snapshot's value: %v", err)
+	}
+	h.sysctl["net/ipv4/ip_forward"] = "0"
+	err = m.Verify(ctx, h.env(), hkInput{}, out)
+	if e := errcode.From(err); e.Code != errcode.FirewallPredictionMismatch || !strings.Contains(e.Detail, `net/ipv4/ip_forward: live "0", predicted "1"`) {
+		t.Errorf("Verify = %v, want a prediction mismatch for the value the restore wrote", err)
 	}
 }

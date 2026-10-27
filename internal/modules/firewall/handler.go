@@ -126,9 +126,11 @@ func (m mutation[In]) Apply(ctx context.Context, env core.Env, in In) (ChangeOut
 
 // Verify runs the action's own check, then compares the loaded state with
 // what the configuration now predicts, over UFW's and Darkpanel's chains
-// and the filter built-ins (fw.syncDiffs): a difference means UFW did not
-// do what the prediction said (firewall.prediction_mismatch, which
-// reverts). It reads only the host, so it also serves startup recovery.
+// and the filter built-ins (fw.syncDiffs), and the sysctl values the
+// change's transition sets with the live ones (fw.verifySysctl): a
+// difference means UFW or the kernel did not do what the prediction said
+// (firewall.prediction_mismatch, which reverts). It reads only the host,
+// the change's journal and snapshot, so it also serves startup recovery.
 func (m mutation[In]) Verify(ctx context.Context, env core.Env, in In, _ ChangeOutput) error {
 	cfg, err := m.f.d.readConfig(m.f.d.root)
 	if err != nil {
@@ -153,6 +155,37 @@ func (m mutation[In]) Verify(ctx context.Context, env core.Env, in In, _ ChangeO
 			texts[i] = chainDiffText(d)
 		}
 		return errcode.New(errcode.FirewallPredictionMismatch, "the loaded state differs from the prediction: "+strings.Join(texts, "; "))
+	}
+	return m.f.verifySysctl(ctx, env, cfg, st.Sysctl)
+}
+
+// verifySysctl compares the live sysctl values live with the ones the
+// change's transition sets (spec 2.1, 2.3), predicted from the values in
+// the change's snapshot, which were live before the change. A change whose
+// journal shows no start of UFW and no sysctl write predicts none.
+func (f fw) verifySysctl(ctx context.Context, env core.Env, cfg fwstate.Config, live map[string]string) error {
+	effects, err := env.Effects.List(ctx)
+	if err != nil {
+		return fmt.Errorf("firewall: verify: read the change's effects: %w", err)
+	}
+	rec := sysctlRecordOf(effects)
+	if !rec.started && len(rec.written) == 0 {
+		return nil
+	}
+	id, err := snapshotOfChange(ctx, env.DB, env.ChangeID)
+	if err != nil {
+		return fmt.Errorf("firewall: verify: %w", err)
+	}
+	snap, err := getSnapshot(ctx, env.DB, id)
+	if err != nil {
+		return fmt.Errorf("firewall: verify: %w", err)
+	}
+	want, err := f.expectedSysctl(cfg, snap.State.Sysctl, rec)
+	if err != nil {
+		return fmt.Errorf("firewall: verify: %w", err)
+	}
+	if bad := sysctlMismatches(want, live); len(bad) > 0 {
+		return mismatch("the loaded sysctl values differ from the prediction: %s", strings.Join(bad, "; "))
 	}
 	return nil
 }
