@@ -2,6 +2,7 @@ package firewall
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 
@@ -29,13 +30,31 @@ var (
 	ulidIDRe = regexp.MustCompile(`^[0-9A-HJKMNP-TV-Z]{26}$`)
 )
 
-// batch validates a rules.apply input: each rule to add carries a ULID of
-// its own, no comment (the label is its comment) and is Darkpanel's; ids
-// are unique and none is both added and deleted; every id to delete is a
-// rule id.
+// labelProblem says why label cannot be a rule's comment, or "" when it can.
+func labelProblem(label string) string {
+	probe := model.Rule{Action: model.ActionAllow, Direction: model.DirIn, Proto: model.ProtoAny, From: model.Any, To: model.Any,
+		Family: model.FamilyBoth, Comment: label}
+	var e *errcode.Error
+	if errors.As(probe.Validate(), &e) {
+		for _, fe := range e.Fields {
+			if fe.Path == "/comment" {
+				return fe.Message
+			}
+		}
+	}
+	return ""
+}
+
+// batch validates a rules.apply input: the label, once; each rule to add
+// carries a ULID of its own, no comment (the label is its comment) and is
+// Darkpanel's; ids are unique and none is both added and deleted; every id
+// to delete is a rule id.
 func batch(in RulesApplyInput) ([]model.Rule, error) {
 	var fields []errcode.FieldError
 	bad := func(path, msg string) { fields = append(fields, errcode.FieldError{Path: path, Message: msg}) }
+	if msg := labelProblem(in.Label); msg != "" {
+		bad("/label", msg)
+	}
 	seen := map[string]bool{}
 	var rules []model.Rule
 	for i, r := range in.Add {

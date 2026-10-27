@@ -128,3 +128,24 @@ func TestRulesApplyRefuses(t *testing.T) {
 		t.Errorf("verify before the batch = %v, want a prediction mismatch", err)
 	}
 }
+
+// TestRulesApplyLabel: the label is checked once, at /label, whether the
+// batch adds rules or only deletes them.
+func TestRulesApplyLabel(t *testing.T) {
+	ctx := context.Background()
+	_, f, env := apHost(t)
+	rule := `{"id":"` + apID1 + `","action":"allow","direction":"in","proto":"tcp","from":"any","to":"any","toPort":"8080","family":"v4"}`
+	for _, c := range []struct{ name, raw string }{
+		{"add", `{"label":" npm","add":[` + rule + `]}`},
+		{"delete only", `{"label":"npm ","delete":["` + fhTag + `"]}`},
+		{"too long", `{"label":"` + strings.Repeat("n", 65) + `","add":[` + rule + `]}`},
+	} {
+		_, err := f.rulesApply().Handler.Plan(ctx, env, json.RawMessage(c.raw))
+		if e := errcode.From(err); e.Code != errcode.InvalidInput || len(e.Fields) != 1 || e.Fields[0].Path != "/label" {
+			t.Errorf("%s: plan = %v, want one invalid input at /label", c.name, err)
+		}
+	}
+	if _, err := f.rulesApply().Handler.Plan(ctx, env, json.RawMessage(`{"label":"npm: web.1","delete":["`+fhTag+`"]}`)); err != nil {
+		t.Errorf("plan with a valid label = %v", err)
+	}
+}
