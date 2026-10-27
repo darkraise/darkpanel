@@ -198,19 +198,27 @@ func (r *Registry) Client(_ context.Context, hostID string) (core.AgentClient, u
 }
 
 // Peers returns the source addresses of the live sessions, deduplicated and
-// sorted, IPv4-mapped addresses unmapped. A session whose connection has no
-// IP address has none.
-func (r *Registry) Peers() []netip.Addr {
+// sorted, IPv4-mapped addresses unmapped. A session whose remote address is
+// not an IP address and port is returned in dropped, sorted, and logged at
+// Warn, because the guard topology built from Peers is then incomplete.
+func (r *Registry) Peers() (addrs []netip.Addr, dropped []string) {
 	r.mu.Lock()
-	var out []netip.Addr
 	for _, ls := range r.live {
-		if ap, err := netip.ParseAddrPort(ls.session.RemoteAddr().String()); err == nil {
-			out = append(out, ap.Addr().Unmap())
+		remote := ls.session.RemoteAddr().String()
+		ap, err := netip.ParseAddrPort(remote)
+		if err != nil {
+			dropped = append(dropped, remote)
+			continue
 		}
+		addrs = append(addrs, ap.Addr().Unmap())
 	}
 	r.mu.Unlock()
-	slices.SortFunc(out, netip.Addr.Compare)
-	return slices.Compact(out)
+	slices.Sort(dropped)
+	for _, d := range dropped {
+		r.cfg.Log.Warn("fleet: an agent session's remote address is not an IP address", "addr", d)
+	}
+	slices.SortFunc(addrs, netip.Addr.Compare)
+	return slices.Compact(addrs), dropped
 }
 
 // Disconnect closes hostID's live session, if any. A revoked or deleted

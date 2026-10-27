@@ -543,20 +543,29 @@ func TestTopologyOf(t *testing.T) {
 	}
 	tp.setWeb(func() []listen.Bound { return web })
 	tp.setAgent(func() []listen.Bound { return agent })
-	tp.setPeers(func() []netip.Addr { return peers })
+	tp.setPeers(func() ([]netip.Addr, []string) { return peers, nil })
 	if got := tp.read(); !reflect.DeepEqual(got, want) {
 		t.Errorf("the topology without its runtime source reads %+v, want %+v", got, want)
 	}
-	tp.setRuntime(func() []netip.AddrPort { return runtime })
+	tp.setRuntime(func() ([]netip.AddrPort, []string) { return runtime, nil })
 	withRuntime.Complete = true
 	if got := tp.read(); !reflect.DeepEqual(got, withRuntime) {
 		t.Errorf("the registered topology reads %+v, want %+v", got, withRuntime)
+	}
+	// What the runtime listeners and the session registry drop is dropped
+	// from the topology too.
+	tp.setRuntime(func() ([]netip.AddrPort, []string) { return runtime, []string{"@runtime"} })
+	tp.setPeers(func() ([]netip.Addr, []string) { return peers, []string{"pipe"} })
+	withRuntimeDropped := withRuntime
+	withRuntimeDropped.Dropped = []string{"@runtime", "pipe"}
+	if got := tp.read(); !reflect.DeepEqual(got, withRuntimeDropped) {
+		t.Errorf("the topology with dropped runtime and peer addresses reads %+v, want %+v", got, withRuntimeDropped)
 	}
 
 	// A controller whose agent runs embedded has no agent listener and no
 	// sessions; its topology is complete without them.
 	var embedded topology
-	embedded.setRuntime(func() []netip.AddrPort { return nil })
+	embedded.setRuntime(func() ([]netip.AddrPort, []string) { return nil, nil })
 	embedded.setWeb(func() []listen.Bound { return web })
 	if got := embedded.read(); got.Complete {
 		t.Errorf("an embedded topology before setNoAgents reads %+v, want incomplete", got)

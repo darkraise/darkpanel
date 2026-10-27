@@ -13,6 +13,7 @@ import (
 	"net/netip"
 	"net/url"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -502,10 +503,34 @@ func (e *registryEnv) peerRegister(t *testing.T, hostID string, s *transport.Ses
 	}
 }
 
+// peersLog is a slog handler's output, safe for the registry's goroutines.
+type peersLog struct {
+	mu sync.Mutex
+	b  []byte
+}
+
+func (l *peersLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.b = append(l.b, p...)
+	return len(p), nil
+}
+
+func (l *peersLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return string(l.b)
+}
+
+// TestRegistryPeers: the TCP sessions' addresses come once each; the pipe
+// session, which has no IP address, is dropped by value and logged at Warn,
+// so the guard topology can mark itself incomplete.
 func TestRegistryPeers(t *testing.T) {
 	e := newRegistry(t, transport.HeartbeatConfig{Interval: time.Hour})
-	if got := e.r.Peers(); len(got) != 0 {
-		t.Fatalf("Peers without a session = %v, want none", got)
+	logs := &peersLog{}
+	e.r.cfg.Log = slog.New(slog.NewTextHandler(logs, nil))
+	if got, dropped := e.r.Peers(); len(got) != 0 || len(dropped) != 0 {
+		t.Fatalf("Peers without a session = %v, dropped %v; want none", got, dropped)
 	}
 	ctrl1, agent1 := peerTCPPair(t)
 	ctrl2, agent2 := peerTCPPair(t)
@@ -513,13 +538,23 @@ func TestRegistryPeers(t *testing.T) {
 	e.register(t, ctrl1)
 	e.peerRegister(t, "H2", ctrl2)
 	e.peerRegister(t, "H3", pipe)
-	if got, want := e.r.Peers(), []netip.Addr{netip.MustParseAddr("127.0.0.1")}; !slices.Equal(got, want) {
-		t.Errorf("Peers = %v, want %v: the two TCP sessions once and no address for the pipe", got, want)
+	got, dropped := e.r.Peers()
+	if want := []netip.Addr{netip.MustParseAddr("127.0.0.1")}; !slices.Equal(got, want) {
+		t.Errorf("Peers = %v, want %v: the two TCP sessions once", got, want)
+	}
+	if want := []string{"pipe"}; !slices.Equal(dropped, want) {
+		t.Errorf("dropped = %v, want %v: the pipe session has no IP address", dropped, want)
+	}
+	if out := logs.String(); !strings.Contains(out, "level=WARN") || !strings.Contains(out, "addr=pipe") {
+		t.Errorf("logs %q, want a warning naming addr=pipe", out)
 	}
 	for _, s := range []*transport.Session{agent1, agent2, pipeAgent} {
 		_ = s.Close()
 	}
-	eventually(t, "the ended sessions to leave the registry", func() bool { return len(e.r.Peers()) == 0 })
+	eventually(t, "the ended sessions to leave the registry", func() bool {
+		got, dropped := e.r.Peers()
+		return len(got) == 0 && len(dropped) == 0
+	})
 }
 
 // TestRegistryDialsModuleStreams holds every module stream slot open and

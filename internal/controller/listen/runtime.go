@@ -220,20 +220,31 @@ func (r *Runtime) Unbound() int {
 }
 
 // Addrs are the bound addresses of the listeners that still accept, sorted.
-func (r *Runtime) Addrs() []netip.AddrPort {
+// A listener whose address is not an IP address and port is returned in
+// dropped, sorted, and logged at Warn, because the guard topology built
+// from Addrs is then incomplete.
+func (r *Runtime) Addrs() (addrs []netip.AddrPort, dropped []string) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	out := make([]netip.AddrPort, 0, len(r.live))
+	addrs = make([]netip.AddrPort, 0, len(r.live))
 	for _, l := range r.live {
 		if l.stopped {
 			continue
 		}
-		if ap, err := netip.ParseAddrPort(l.ln.Addr().String()); err == nil {
-			out = append(out, netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port()))
+		bound := l.ln.Addr().String()
+		ap, err := netip.ParseAddrPort(bound)
+		if err != nil {
+			dropped = append(dropped, bound)
+			continue
 		}
+		addrs = append(addrs, netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port()))
 	}
-	slices.SortFunc(out, netip.AddrPort.Compare)
-	return out
+	r.mu.Unlock()
+	slices.Sort(dropped)
+	for _, d := range dropped {
+		r.cfg.Log.Warn("listen: a runtime listener's address is not an IP address", "addr", d)
+	}
+	slices.SortFunc(addrs, netip.AddrPort.Compare)
+	return addrs, dropped
 }
 
 // Shutdown stops every listener, letting running requests finish until ctx

@@ -120,7 +120,7 @@ func TestRuntimeListenerReachesTheAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	addrs := s.runtimeListeners.Addrs()
+	addrs, _ := s.runtimeListeners.Addrs()
 	if len(addrs) != 1 {
 		t.Fatalf("runtime listener addresses %v, want one", addrs)
 	}

@@ -136,17 +136,18 @@ func (f *rtFixture) start(t *testing.T) {
 // address Addrs gained.
 func (f *rtFixture) open(t *testing.T, spec core.ListenerSpec) (string, string) {
 	t.Helper()
-	before := f.rt.Addrs()
+	before, _ := f.rt.Addrs()
 	id, err := f.rt.Open(context.Background(), spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, a := range f.rt.Addrs() {
+	after, _ := f.rt.Addrs()
+	for _, a := range after {
 		if !slices.Contains(before, a) {
 			return id, "https://" + a.String()
 		}
 	}
-	t.Fatalf("Open bound no new address; Addrs = %v", f.rt.Addrs())
+	t.Fatalf("Open bound no new address; Addrs = %v", after)
 	return "", ""
 }
 
@@ -283,14 +284,14 @@ func TestRuntimeOpenBeforeStart(t *testing.T) {
 	if err := f.rt.Revoke(ctx, gone); err != nil {
 		t.Fatalf("Revoke before Start = %v", err)
 	}
-	if addrs := f.rt.Addrs(); len(addrs) != 0 {
+	if addrs, _ := f.rt.Addrs(); len(addrs) != 0 {
 		t.Fatalf("Addrs = %v before Start, want none", addrs)
 	}
 	if got := f.state(t, early); got != core.ListenerOpen {
 		t.Fatalf("state before Start %s, want open", got)
 	}
 	f.start(t)
-	addrs := f.rt.Addrs()
+	addrs, _ := f.rt.Addrs()
 	if len(addrs) != 1 {
 		t.Fatalf("Addrs = %v after Start, want the open listener only", addrs)
 	}
@@ -433,8 +434,8 @@ func TestRuntimeRevokeEndsStreamsAndLetsResponsesFinish(t *testing.T) {
 	if _, err := lines.ReadString('\n'); !errors.Is(err, io.EOF) {
 		t.Errorf("the stream stayed open: %v", err)
 	}
-	if len(f.rt.Addrs()) != 0 {
-		t.Errorf("Addrs = %v after Revoke, want none", f.rt.Addrs())
+	if addrs, _ := f.rt.Addrs(); len(addrs) != 0 {
+		t.Errorf("Addrs = %v after Revoke, want none", addrs)
 	}
 	if _, err := net.DialTimeout("tcp", strings.TrimPrefix(url, "https://"), time.Second); err == nil {
 		t.Error("a revoked listener accepted a new connection")
@@ -497,7 +498,7 @@ func TestRuntimeStartReopensOnlyOpenListeners(t *testing.T) {
 	rsSet(t, f.db, "L3", core.ListenerRevoked, core.ListenerOpen)
 	rsSet(t, f.db, "L3", core.ListenerClosed, core.ListenerRevoked)
 	f.start(t)
-	addrs := f.rt.Addrs()
+	addrs, _ := f.rt.Addrs()
 	if len(addrs) != 1 {
 		t.Fatalf("Addrs = %v, want only L1 bound", addrs)
 	}
@@ -515,7 +516,7 @@ func TestRuntimeStartRetriesAFailedBind(t *testing.T) {
 	rsInsert(t, f.db, "L2", rtSpec, testStart.Add(time.Second))
 	f.binder.setFail(syscall.EADDRNOTAVAIL)
 	f.start(t)
-	if addrs := f.rt.Addrs(); len(addrs) != 0 {
+	if addrs, _ := f.rt.Addrs(); len(addrs) != 0 {
 		t.Fatalf("Addrs = %v while every bind fails", addrs)
 	}
 	if n := f.rt.Unbound(); n != 2 {
@@ -525,12 +526,12 @@ func TestRuntimeStartRetriesAFailedBind(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.clock.Advance(CheckInterval)
-	if addrs := f.rt.Addrs(); len(addrs) != 0 {
+	if addrs, _ := f.rt.Addrs(); len(addrs) != 0 {
 		t.Fatalf("Addrs = %v; the bind still fails", addrs)
 	}
 	f.binder.setFail(nil)
 	f.clock.Advance(CheckInterval)
-	addrs := f.rt.Addrs()
+	addrs, _ := f.rt.Addrs()
 	if len(addrs) != 1 {
 		t.Fatalf("Addrs = %v after the bind recovered, want L1 only", addrs)
 	}
@@ -573,11 +574,11 @@ func TestRuntimeRebindsAListenerThatStoppedServing(t *testing.T) {
 		}
 		time.Sleep(time.Millisecond)
 	}
-	if addrs := f.rt.Addrs(); len(addrs) != 0 {
+	if addrs, _ := f.rt.Addrs(); len(addrs) != 0 {
 		t.Fatalf("Addrs = %v; the failed listener is still reported", addrs)
 	}
 	f.clock.Advance(CheckInterval)
-	addrs := f.rt.Addrs()
+	addrs, _ := f.rt.Addrs()
 	if len(addrs) != 1 || f.rt.Unbound() != 0 {
 		t.Fatalf("Addrs = %v, Unbound = %d after the retry; want the listener bound again", addrs, f.rt.Unbound())
 	}
@@ -662,5 +663,39 @@ func TestRuntimeSessionResumption(t *testing.T) {
 	}
 	if body, err := rtGet(f.client, url+"/"); err == nil {
 		t.Fatalf("a resumed session reached a revoked listener: %q", body)
+	}
+}
+
+// rtOddListener is a listener whose address is not an IP address and port,
+// as a custom BindFunc may return.
+type rtOddListener struct{ net.Listener }
+
+func (rtOddListener) Addr() net.Addr { return &net.UnixAddr{Name: "@runtime", Net: "unixpacket"} }
+
+// TestRuntimeAddrsDropsUnreadableAddresses: a bound listener whose address
+// cannot be read as an IP address and port is returned in dropped, by
+// value, and logged at Warn, so the guard topology can mark itself
+// incomplete.
+func TestRuntimeAddrsDropsUnreadableAddresses(t *testing.T) {
+	f := newRtFixture(t)
+	log := &logBuffer{}
+	f.rt = NewRuntime(RuntimeConfig{DB: f.db, Clock: f.clock, Log: slog.New(slog.NewTextHandler(log, nil)),
+		Bind: func(ctx context.Context, e Endpoint) (net.Listener, error) {
+			ln, err := f.binder.bind(ctx, e)
+			if err != nil {
+				return nil, err
+			}
+			return rtOddListener{ln}, nil
+		}})
+	f.start(t)
+	if _, err := f.rt.Open(context.Background(), rtSpec); err != nil {
+		t.Fatal(err)
+	}
+	addrs, dropped := f.rt.Addrs()
+	if len(addrs) != 0 || !slices.Equal(dropped, []string{"@runtime"}) {
+		t.Fatalf("Addrs = %v, dropped %v; want none and [@runtime]", addrs, dropped)
+	}
+	if out := log.String(); !strings.Contains(out, "level=WARN") || !strings.Contains(out, "addr=@runtime") {
+		t.Errorf("logs %q, want a warning naming addr=@runtime", out)
 	}
 }

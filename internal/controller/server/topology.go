@@ -15,9 +15,9 @@ import (
 type topology struct {
 	mu      sync.Mutex
 	web     func() []listen.Bound
-	runtime func() []netip.AddrPort
+	runtime func() ([]netip.AddrPort, []string)
 	agent   func() []listen.Bound
-	peers   func() []netip.Addr
+	peers   func() ([]netip.Addr, []string)
 }
 
 func (t *topology) setWeb(f func() []listen.Bound) {
@@ -26,7 +26,7 @@ func (t *topology) setWeb(f func() []listen.Bound) {
 	t.web = f
 }
 
-func (t *topology) setRuntime(f func() []netip.AddrPort) {
+func (t *topology) setRuntime(f func() ([]netip.AddrPort, []string)) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.runtime = f
@@ -38,7 +38,7 @@ func (t *topology) setAgent(f func() []listen.Bound) {
 	t.agent = f
 }
 
-func (t *topology) setPeers(f func() []netip.Addr) {
+func (t *topology) setPeers(f func() ([]netip.Addr, []string)) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.peers = f
@@ -51,11 +51,12 @@ func (t *topology) setNoAgents() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.agent = func() []listen.Bound { return nil }
-	t.peers = func() []netip.Addr { return nil }
+	t.peers = func() ([]netip.Addr, []string) { return nil, nil }
 }
 
 // read is the topology now. It is complete once all four sources have
-// registered.
+// registered; what the runtime listeners and the session registry could not
+// read is dropped from it after what the bound listeners drop.
 func (t *topology) read() dispatch.Topology {
 	t.mu.Lock()
 	web, runtime, agent, peers := t.web, t.runtime, t.agent, t.peers
@@ -63,19 +64,21 @@ func (t *topology) read() dispatch.Topology {
 	var webBound, agentBound []listen.Bound
 	var runtimeAddrs []netip.AddrPort
 	var agentPeers []netip.Addr
+	var runtimeDropped, peersDropped []string
 	if web != nil {
 		webBound = web()
 	}
 	if runtime != nil {
-		runtimeAddrs = runtime()
+		runtimeAddrs, runtimeDropped = runtime()
 	}
 	if agent != nil {
 		agentBound = agent()
 	}
 	if peers != nil {
-		agentPeers = peers()
+		agentPeers, peersDropped = peers()
 	}
 	out := topologyOf(webBound, runtimeAddrs, agentBound, agentPeers)
+	out.Dropped = append(append(out.Dropped, runtimeDropped...), peersDropped...)
 	out.Complete = web != nil && runtime != nil && agent != nil && peers != nil
 	return out
 }
