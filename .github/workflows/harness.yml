@@ -57,7 +57,8 @@ jobs:
   vm:
     needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    # 120 minutes for the M1 and M2 run, 80 more for the M3 firewall run.
+    timeout-minutes: 200
     strategy:
       fail-fast: false
       matrix:
@@ -105,10 +106,25 @@ jobs:
           -commit "$GITHUB_SHA"
           -workdir "$RUNNER_TEMP/harness"
           -cache "$HOME/.cache/darkpanel-harness"
+      # TestM3Firewall boots a fleet of its own; it runs apart because TestM1
+      # and TestM2 already fill the run above. Its own deadline is 60
+      # minutes, and the extra 10 leave its VM cleanups time to finish.
+      - name: Run the M3 firewall harness
+        if: ${{ !cancelled() }}
+        run: >-
+          go test -tags harness -timeout 70m -v -run '^TestM3Firewall$' ./test/harness/
+          -args -os ${{ matrix.os }} -m3
+          -bin "$GITHUB_WORKSPACE/bin/darkpanel-linux-amd64"
+          -m2 "$GITHUB_WORKSPACE/bin/harness"
+          -commit "$GITHUB_SHA"
+          -workdir "$RUNNER_TEMP/harness-m3"
+          -cache "$HOME/.cache/darkpanel-harness"
       - if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: logs-${{ matrix.os }}
-          path: ${{ runner.temp }}/harness/**/*.log
+          path: |
+            ${{ runner.temp }}/harness/**/*.log
+            ${{ runner.temp }}/harness-m3/**/*.log
           retention-days: 7
           if-no-files-found: ignore
