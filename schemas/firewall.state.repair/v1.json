@@ -113,6 +113,10 @@
               "keep"
             ],
             "description": "Repairing a change: restore (the default) or keep."
+          },
+          "manual": {
+            "type": "boolean",
+            "description": "Confirms the manual rules a restore brings back or removes (spec 2.5)."
           }
         },
         "additionalProperties": false,

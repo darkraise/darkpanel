@@ -22,10 +22,12 @@ const (
 // change (darkpanel change repair), outcome restore, the default, returns
 // the host to the change's snapshot, and keep brings UFW's loaded state to
 // the files the change left. Run on its own, the repair takes no outcome
-// and reloads UFW from its configuration.
+// and reloads UFW from its configuration. A restore changes the manual
+// rules the snapshot and the host hold differently only with manual.
 type RepairInput struct {
 	core.Guarded
 	Outcome string `json:"outcome,omitempty" jsonschema:"enum=restore,enum=keep" jsonschema_description:"Repairing a change: restore (the default) or keep."`
+	Manual  bool   `json:"manual,omitempty" jsonschema_description:"Confirms the manual rules a restore brings back or removes (spec 2.5)."`
 }
 
 // stateRepair is firewall.state.repair (spec 2.3, 2.5): from the actual
@@ -38,6 +40,7 @@ func (f fw) stateRepair() core.ActionDef {
 		f:       f,
 		image:   true,
 		guarded: func(in RepairInput) core.Guarded { return in.Guarded },
+		manual:  func(in RepairInput) bool { return in.Manual },
 		build: func(ctx context.Context, env core.Env, in RepairInput) buildFunc {
 			return func(cfg fwstate.Config, _ fwstate.Loaded) (change, error) { return repairChange(ctx, env, in, cfg) }
 		},
@@ -91,11 +94,14 @@ func repairChange(ctx context.Context, env core.Env, in RepairInput, cfg fwstate
 		}
 		return change{repair: true}, nil
 	}
+	if in.Outcome != "" && in.Outcome != outcomeRestore && in.Outcome != outcomeKeep {
+		return change{}, refuse(fmt.Sprintf("the outcome %q is neither %s nor %s", in.Outcome, outcomeRestore, outcomeKeep))
+	}
 	s, err := repairedSnapshot(ctx, env)
 	if err != nil {
 		return change{}, err
 	}
-	if in.Outcome == "" || in.Outcome == outcomeRestore {
+	if in.Outcome != outcomeKeep {
 		return change{repair: true, restore: &s}, nil
 	}
 	if s.PostHashes == nil {

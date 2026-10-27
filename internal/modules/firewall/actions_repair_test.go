@@ -12,6 +12,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/schema"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/guard"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/model"
 )
 
 // rpRepaired is the change the repair tests repair.
@@ -148,5 +149,50 @@ func TestRepairKeep(t *testing.T) {
 	env.Call.RepairOf = "01J000000000000000000000R9"
 	if _, err := f.stateRepair().Handler.Plan(ctx, env, json.RawMessage(`{}`)); err == nil {
 		t.Error("repairing a change without a snapshot plans")
+	}
+}
+
+// TestRepairRestoreManual: repairing a change with outcome restore brings
+// back a manual rule the snapshot holds and the host lacks only with
+// manual: true, as firewall.snapshot.restore does, and then reports
+// restored with the rule back.
+func TestRepairRestoreManual(t *testing.T) {
+	ctx := context.Background()
+	h, f, env := ruHost(t)
+	rpTarget(t, h, f)
+	manual := model.Merge(h.config().Rules4, nil)[1].ID
+	s := h.state()
+	s.Rules4 = s.Rules4[:1]
+	h.setState(s)
+	env.Call.RepairOf = rpRepaired
+
+	_, err := f.stateRepair().Handler.Plan(ctx, env, json.RawMessage(`{}`))
+	if e := errcode.From(err); e.Code != errcode.FirewallManualRequired || !strings.Contains(e.Detail, manual) {
+		t.Fatalf("plan without manual = %v, want manual required naming %s", err, manual)
+	}
+	plan, out := rpRun(t, h, f, env, `{"manual":true}`)
+	if len(plan.Diff) != 1 || plan.Diff[0].Op != "+" || !strings.Contains(plan.Diff[0].Text, "rule "+manual+" (manual)") {
+		t.Errorf("diff %q, want the manual rule the restore brings back", acDiff(plan))
+	}
+	if out.RepairOutcome != "restored" || len(model.Merge(h.config().Rules4, nil)) != 2 {
+		t.Errorf("output %+v with %d rules, want restored with the manual rule back", out, len(model.Merge(h.config().Rules4, nil)))
+	}
+}
+
+// TestRepairRefusesOutcome: an outcome other than restore and keep is
+// refused at /outcome, whether or not a change is repaired.
+func TestRepairRefusesOutcome(t *testing.T) {
+	ctx := context.Background()
+	h, f, env := ruHost(t)
+	id := rpTarget(t, h, f)
+	if err := setPostHashes(ctx, h.db, id, fileHashes(h.config().Files)); err != nil {
+		t.Fatal(err)
+	}
+	for _, repairOf := range []string{"", rpRepaired} {
+		env.Call.RepairOf = repairOf
+		_, err := f.stateRepair().Handler.Plan(ctx, env, json.RawMessage(`{"outcome":"discard"}`))
+		if e := errcode.From(err); e.Code != errcode.InvalidInput || len(e.Fields) != 1 || e.Fields[0].Path != "/outcome" {
+			t.Errorf("repair of %q with outcome discard = %v, want an invalid input at /outcome", repairOf, err)
+		}
 	}
 }
