@@ -109,8 +109,8 @@ func TestRead(t *testing.T) {
 
 func TestReadDefaults(t *testing.T) {
 	files := confTestFiles()
-	files["etc/ufw/ufw.conf"] = "LOGLEVEL='FULL' # set by hand\n"
-	files["etc/default/ufw"] = "IPV6=NO\nDEFAULT_INPUT_POLICY=REJECT\nDEFAULT_OUTPUT_POLICY='DROP'\nDEFAULT_FORWARD_POLICY=\"ACCEPT\"\n"
+	files["etc/ufw/ufw.conf"] = "LOGLEVEL=FULL\n"
+	files["etc/default/ufw"] = "IPV6=NO\nDEFAULT_INPUT_POLICY=REJECT\nDEFAULT_OUTPUT_POLICY=\"DROP\"\nDEFAULT_FORWARD_POLICY=\"ACCEPT\"\n"
 	files["etc/ufw/user6.rules"] = ""
 	files["etc/ufw/before6.rules"] = ""
 	files["etc/ufw/sysctl.conf"] = ""
@@ -162,6 +162,23 @@ func TestReadUnsupported(t *testing.T) {
 		{"missing after6.rules", func(t *testing.T, root string, _ map[string]string) {
 			confTestRemove(t, filepath.Join(root, "etc/ufw/after6.rules"))
 		}, "/etc/ufw/after6.rules is missing"},
+		{"two assignments", confTestSet("etc/default/ufw", "MANAGE_BUILTINS=no", "IPV6=yes MANAGE_BUILTINS=yes"), "/etc/default/ufw line 10"},
+		{"export", confTestSet("etc/default/ufw", "MANAGE_BUILTINS=no", "export MANAGE_BUILTINS=yes"), "/etc/default/ufw line 10"},
+		{"conditional", confTestSet("etc/default/ufw", "MANAGE_BUILTINS=no", "[ -e /x ] && MANAGE_BUILTINS=yes"), "/etc/default/ufw line 10"},
+		{"trailing comment", confTestSet("etc/default/ufw", "MANAGE_BUILTINS=no", "MANAGE_BUILTINS=no # c"), "/etc/default/ufw line 10"},
+		{"command after assignment", confTestSet("etc/default/ufw", "IPV6=yes", "IPV6=yes foo"), "/etc/default/ufw line 4"},
+		{"text after quotes", confTestSet("etc/default/ufw", "IPV6=yes", `IPV6="yes"x`), "/etc/default/ufw line 4"},
+		{"lower-case key", confTestSet("etc/default/ufw", "IPV6=yes", "ipv6=yes"), "/etc/default/ufw line 4"},
+		{"indented", confTestSet("etc/default/ufw", "IPV6=yes", "  IPV6=yes"), "/etc/default/ufw line 4"},
+		{"single quotes", confTestSet("etc/default/ufw", `IPT_MODULES=""`, "IPT_MODULES=''"), "/etc/default/ufw line 15"},
+		{"carriage return", confTestSet("etc/ufw/ufw.conf", "ENABLED=yes", "ENABLED=yes\r"), "/etc/ufw/ufw.conf line 5"},
+		{"after.init directory", func(t *testing.T, root string, _ map[string]string) {
+			p := filepath.Join(root, "etc/ufw/after.init")
+			confTestRemove(t, p)
+			if err := os.Mkdir(p, 0o750); err != nil {
+				t.Fatal(err)
+			}
+		}, "after.init"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -287,6 +304,13 @@ func TestReadErrors(t *testing.T) {
 				t.Fatal(err)
 			}
 		}},
+		{"init script loop", func(t *testing.T, root string) {
+			p := filepath.Join(root, "etc/ufw/before.init")
+			confTestRemove(t, p)
+			if err := os.Symlink("before.init", p); err != nil {
+				t.Fatal(err)
+			}
+		}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -343,4 +367,16 @@ func FuzzReadFiles(f *testing.F) {
 		files["etc/ufw/ufw.conf"], files["etc/default/ufw"], files["etc/ufw/sysctl.conf"] = ufwConf+"\n", def+"\n", sysctl+"\n"
 		_, _ = Read(confTestTree(t, files))
 	})
+}
+
+func TestReadQuotedList(t *testing.T) {
+	files := confTestFiles()
+	files["etc/default/ufw"] = strings.Replace(confTestDefault, `IPT_MODULES=""`, `IPT_MODULES="nf_conntrack_ftp nf_nat_ftp nf_conntrack_netbios_ns"`, 1)
+	c, err := Read(confTestTree(t, files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Unsupported) != 0 {
+		t.Errorf("Unsupported = %q, want none", c.Unsupported)
+	}
 }

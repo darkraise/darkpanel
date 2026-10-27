@@ -56,7 +56,7 @@ func Read(root string) (fwstate.Config, error) {
 		}
 	}
 	r := reader{c: &c}
-	cv, dv := parseShell(c.Files[ufwConf].Data), parseShell(c.Files[defaultsUFW].Data)
+	cv, dv := r.shell(ufwConf), r.shell(defaultsUFW)
 	c.Enabled = r.yesNo(ufwConf, cv, "ENABLED")
 	c.LogLevel = strings.ToLower(cv["LOGLEVEL"])
 	if !slices.Contains(LogLevels, c.LogLevel) {
@@ -83,7 +83,14 @@ func Read(root string) (fwstate.Config, error) {
 	c.Rules4 = r.tuples(userRules, false)
 	c.Rules6 = r.tuples(userRules6, true)
 	for _, name := range []string{"before.init", "after.init"} {
-		if fi, err := os.Stat(filepath.Join(root, "etc/ufw", name)); err == nil && fi.Mode().IsRegular() && fi.Mode()&0o111 != 0 {
+		fi, err := os.Stat(filepath.Join(root, "etc/ufw", name))
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fwstate.Config{}, fmt.Errorf("conf: stat /etc/ufw/%s: %w", name, err)
+		}
+		if fi.Mode()&0o111 != 0 {
 			r.unsupported("/etc/ufw/%s is executable: UFW runs it at start, which Darkpanel cannot predict", name)
 		}
 	}
@@ -98,6 +105,14 @@ type reader struct{ c *fwstate.Config }
 
 func (r reader) unsupported(format string, args ...any) {
 	r.c.Unsupported = append(r.c.Unsupported, fmt.Sprintf(format, args...))
+}
+
+func (r reader) shell(file string) map[string]string {
+	vars, bad := parseShell(r.c.Files[file].Data)
+	for _, n := range bad {
+		r.unsupported("%s line %d: not a plain KEY=value line, which UFW's init script and its Python code may read differently", file, n)
+	}
+	return vars
 }
 
 // yesNo reads a yes/no key. UFW's Python code lower-cases the value and its
@@ -217,31 +232,28 @@ func readEntry(root, path string) (core.RestoreEntry, error) {
 	return e, nil
 }
 
-var shellNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+var shellAssignRe = regexp.MustCompile(`^([A-Z_][A-Z0-9_]*)=([A-Za-z0-9_./:@%+,-]*|"[A-Za-z0-9_./:@%+, -]*")[ \t]*$`)
 
-// parseShell reads KEY=value lines as the init script's shell would for
-// the forms UFW's files use: an optional pair of quotes, an unquoted value
-// ending at white space, comments, the last assignment winning.
-func parseShell(data []byte) map[string]string {
+// parseShell accepts only the forms that UFW's init script and its Python
+// _get_defaults both read the same way: blank lines, comment lines and
+// KEY=value assignments at column 0 with an upper-case key and a plain or
+// double-quoted value, the last assignment winning. It returns the
+// variables and the 1-based numbers of every other line.
+func parseShell(data []byte) (map[string]string, []int) {
 	vars := map[string]string{}
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		key, val, ok := strings.Cut(line, "=")
-		if !ok || !shellNameRe.MatchString(key) {
+	var bad []int
+	for i, line := range strings.Split(string(data), "\n") {
+		if t := strings.TrimLeft(line, " \t"); t == "" || t[0] == '#' {
 			continue
 		}
-		if val != "" && (val[0] == '"' || val[0] == '\'') {
-			if end := strings.IndexByte(val[1:], val[0]); end >= 0 {
-				val = val[1 : 1+end]
-			} else {
-				val = val[1:]
-			}
-		} else if i := strings.IndexAny(val, " \t"); i >= 0 {
-			val = val[:i]
+		m := shellAssignRe.FindStringSubmatch(line)
+		if m == nil {
+			bad = append(bad, i+1)
+			continue
 		}
-		vars[key] = val
+		vars[m[1]] = strings.Trim(m[2], `"`)
 	}
-	return vars
+	return vars, bad
 }
 
 // parseSysctl reads a sysctl file as "sysctl -p" does: comments start with
