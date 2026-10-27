@@ -2,6 +2,7 @@ package eval
 
 import (
 	"fmt"
+	"net/netip"
 	"strings"
 
 	"github.com/darkraise/darkpanel/internal/platform/netfilter"
@@ -60,11 +61,65 @@ func ruleGap(r *netfilter.Rule) string {
 		return ""
 	}
 	for _, m := range r.Matches {
-		if !modelledModules[m.Module] {
-			return "match " + m.Module
+		if why := matchGap(m); why != "" {
+			return why
 		}
 	}
 	return ""
+}
+
+// matchGap says why the walk cannot decide m for any packet its module
+// applies to, or "" when it can.
+func matchGap(m netfilter.Match) string {
+	if !modelledModules[m.Module] {
+		return "match " + m.Module
+	}
+	for _, o := range m.Options {
+		switch o.Name {
+		case "src-type", "dst-type":
+			if m.Module == "addrtype" && !anyModelledType(o.Values[0]) {
+				return "match addrtype type " + o.Values[0]
+			}
+		case "mark":
+			if m.Module == "mark" || m.Module == "connmark" {
+				if _, _, ok := parseMark(o.Values[0]); !ok {
+					return "match " + m.Module + " value " + o.Values[0]
+				}
+			}
+		case "tcp-flags":
+			_, ok1 := flagSet(o.Values[0])
+			_, ok2 := flagSet(o.Values[1])
+			if !ok1 || !ok2 {
+				return "match tcp flags " + o.Values[0] + " " + o.Values[1]
+			}
+		case "sport", "dport", "sports", "dports":
+			for item := range strings.SplitSeq(o.Values[0], ",") {
+				if _, _, ok := portRange(item); !ok {
+					return "match " + m.Module + " port " + o.Values[0]
+				}
+			}
+		case "ctorigdst":
+			if _, err := netip.ParsePrefix(o.Values[0]); err != nil {
+				if _, err := netip.ParseAddr(o.Values[0]); err != nil {
+					return "match conntrack original destination " + o.Values[0]
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// anyModelledType reports whether a comma-separated address type list names
+// a type the walk decides. A list that mixes one with an unmodelled type is
+// packet-dependent, so it does not count as a gap.
+func anyModelledType(list string) bool {
+	for typ := range strings.SplitSeq(list, ",") {
+		switch typ {
+		case "LOCAL", "UNICAST", "BROADCAST", "MULTICAST":
+			return true
+		}
+	}
+	return false
 }
 
 // targetGap says why the walk cannot run a target in a mangle or security

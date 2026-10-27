@@ -46,6 +46,8 @@ func TestUnmodelled(t *testing.T) {
 			[]string{"mangle/PREROUTING#1: target MARK option --set-mark"}},
 		{"a mark target with two modes", "-A OUTPUT -j CONNMARK --save-mark --restore-mark\n", "",
 			[]string{"mangle/OUTPUT#1: target CONNMARK with these options"}},
+		{"an address type the walk does not decide", "-A PREROUTING -m addrtype --dst-type BLACKHOLE -j DROP\n", "",
+			[]string{"mangle/PREROUTING#1: match addrtype type BLACKHOLE"}},
 		{"a nat target outside the nat table", "-A POSTROUTING -j MASQUERADE\n", "",
 			[]string{"mangle/POSTROUTING#1: target MASQUERADE outside the nat table"}},
 	}
@@ -104,6 +106,10 @@ func TestUnmodelledAgreesWithEvaluate(t *testing.T) {
 		{"-A INPUT -j MARK --set-mark 1", "tcp", true},
 		{"-A INPUT -j CONNMARK --save-mark --restore-mark", "tcp", true},
 		{"-A INPUT -j MASQUERADE", "tcp", true},
+		{"-A INPUT -m addrtype --dst-type BLACKHOLE -j DROP", "tcp", true},
+		{"-A INPUT -m addrtype --dst-type LOCAL,BLACKHOLE -j DROP", "tcp", false},
+		{"-A INPUT -p tcp -m tcp --tcp-flags SYN,ECE SYN -j DROP", "tcp", true},
+		{"-A INPUT -m mark --mark zz -j DROP", "tcp", true},
 		{"-A INPUT -m limit --limit 1/second -j LOG", "tcp", false},
 		{"-A INPUT -m statistic --mode random --probability 0.5 -j CONNMARK --save-mark", "tcp", false},
 	} {
