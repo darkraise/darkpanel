@@ -224,6 +224,15 @@ func (r *Runtime) Unbound() int {
 // dropped, sorted, and logged at Warn, because the guard topology built
 // from Addrs is then incomplete.
 func (r *Runtime) Addrs() (addrs []netip.AddrPort, dropped []string) {
+	addrs, dropped, _ = r.Listening()
+	return addrs, dropped
+}
+
+// Listening is Addrs together with Unbound, read under one lock. A listener
+// moves between the bound and the unbound listeners under that lock, so the
+// three results never miss it: a topology that reads Addrs and then Unbound
+// can see a listener in neither.
+func (r *Runtime) Listening() (addrs []netip.AddrPort, dropped []string, unbound int) {
 	r.mu.Lock()
 	addrs = make([]netip.AddrPort, 0, len(r.live))
 	for _, l := range r.live {
@@ -238,13 +247,14 @@ func (r *Runtime) Addrs() (addrs []netip.AddrPort, dropped []string) {
 		}
 		addrs = append(addrs, netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port()))
 	}
+	unbound = len(r.pending)
 	r.mu.Unlock()
 	slices.Sort(dropped)
 	for _, d := range dropped {
 		r.cfg.Log.Warn("listen: a runtime listener's address is not an IP address", "addr", d)
 	}
 	slices.SortFunc(addrs, netip.AddrPort.Compare)
-	return addrs, dropped
+	return addrs, dropped, unbound
 }
 
 // Shutdown stops every listener, letting running requests finish until ctx

@@ -699,3 +699,26 @@ func TestRuntimeAddrsDropsUnreadableAddresses(t *testing.T) {
 		t.Errorf("logs %q, want a warning naming addr=@runtime", out)
 	}
 }
+
+// TestTxRuntimeListening: Listening reports the bound addresses and the
+// open listeners waiting for a bind from one read, so the guard topology
+// cannot count a listener that is pending as absent from a complete list.
+func TestTxRuntimeListening(t *testing.T) {
+	f := newRtFixture(t)
+	rsInsert(t, f.db, "L1", rtSpec, testStart)
+	f.binder.setFail(syscall.EADDRNOTAVAIL)
+	f.start(t)
+	addrs, dropped, unbound := f.rt.Listening()
+	if len(addrs) != 0 || len(dropped) != 0 || unbound != 1 {
+		t.Fatalf("Listening = %v, %v, %d while the bind fails; want none, none, 1", addrs, dropped, unbound)
+	}
+	f.binder.setFail(nil)
+	f.clock.Advance(CheckInterval)
+	addrs, dropped, unbound = f.rt.Listening()
+	if len(addrs) != 1 || len(dropped) != 0 || unbound != 0 {
+		t.Fatalf("Listening = %v, %v, %d after the bind recovered; want one address, none, 0", addrs, dropped, unbound)
+	}
+	if want, _ := f.rt.Addrs(); !slices.Equal(addrs, want) {
+		t.Errorf("Listening addresses %v differ from Addrs %v", addrs, want)
+	}
+}
