@@ -309,12 +309,14 @@ func (e *Engine) repairTransition(ctx context.Context, tx *sql.Tx, now time.Time
 		}
 		// A re-apply of the target's own action produced the output the
 		// target failed to give, and a forward composite advances past a
-		// kept step with it; a RepairedBy action's output has another type.
+		// kept step with it. A revertible target was repaired by its
+		// RepairedBy action, whose output has another type even when it is
+		// the target's own action, so its output is never copied.
 		res, err := tx.ExecContext(ctx,
 			`UPDATE core_changes SET state = ?, repair_outcome = ?, recovery_owner = '', updated_at = ?,
-			 output_json = CASE WHEN action = ? AND version = ? THEN coalesce(?, output_json) ELSE output_json END
+			 output_json = CASE WHEN action = ? AND version = ? AND class <> ? THEN coalesce(?, output_json) ELSE output_json END
 			 WHERE id = ? AND state = ? AND recovery_owner = ?`,
-			core.StateRepaired, outcome, formatTime(now), action.String, version, nullJSON(out),
+			core.StateRepaired, outcome, formatTime(now), action.String, version, string(core.ClassRevertible), nullJSON(out),
 			target.String, core.StateNeedsRepair, core.OwnerRepair)
 		if err != nil {
 			return err
@@ -353,16 +355,20 @@ func returnRepairTarget(ctx context.Context, tx *sql.Tx, now time.Time, p, targe
 }
 
 // repairOutcomeOf is the repairOutcome a completed repair change reports
-// relative to its target: a re-apply of the target's own action leaves the
-// host in the target's intended state, so it is always kept; a RepairedBy
-// action reports it in its output field repairOutcome. A missing or unknown
-// value is stored as NULL and logged.
+// relative to its target. The target's stored class tells which row of
+// spec 1.3's repair table made the repair plan, as Repair chose it: a
+// revertible target is repaired by its RepairedBy action, which reports the
+// outcome in its output field repairOutcome even when it is the target's
+// own action (a revertible repair action may name itself); any other
+// target repaired by its own action was applied again, which leaves the
+// host in the target's intended state, so it is always kept. A missing or
+// unknown value is stored as NULL and logged.
 func (e *Engine) repairOutcomeOf(ctx context.Context, tx *sql.Tx, p, pAction, target string, out json.RawMessage) (any, error) {
-	var rAction string
-	if err := tx.QueryRowContext(ctx, "SELECT action FROM core_changes WHERE id = ?", target).Scan(&rAction); err != nil {
+	var rAction, rClass string
+	if err := tx.QueryRowContext(ctx, "SELECT action, class FROM core_changes WHERE id = ?", target).Scan(&rAction, &rClass); err != nil {
 		return nil, err
 	}
-	if pAction == rAction {
+	if pAction == rAction && core.Class(rClass) != core.ClassRevertible {
 		return core.RepairKept, nil
 	}
 	var o struct {
