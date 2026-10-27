@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
 )
 
@@ -311,5 +312,28 @@ func TestWriteBackSysctlOrder(t *testing.T) {
 	}
 	if slices.Contains(h.calls, "sysctl net/ipv4/conf/eth1/rp_filter=1") {
 		t.Error("a vanished interface's key was written")
+	}
+}
+
+func TestRestoreRefusesIPv6NoOverForeignRules(t *testing.T) {
+	ctx := context.Background()
+	h := newFakeHost(t)
+	s := h.state()
+	s.IPv6 = false
+	h.setState(s)
+	snap := rsTestSnap(t, h, false)
+	h.loaded.V6 = fhParse(t, rsTestSave4)
+	h.ufw["reload"] = func(*fhState) int { return 0 }
+	h.calls = nil
+	_, err := restore(ctx, h.env(), h.deps(), snap)
+	var ec *errcode.Error
+	if !errors.As(err, &ec) || ec.Code != errcode.FirewallUnsupportedConfiguration || !strings.Contains(ec.Detail, "chain fw-foreign") {
+		t.Fatalf("restore = %v, want firewall.unsupported_configuration naming chain fw-foreign", err)
+	}
+	if got := rsTestRuns(h); got != nil {
+		t.Errorf("runs = %v, want none", got)
+	}
+	if _, ok, _ := pendingRestore(ctx, h.db); !ok {
+		t.Error("a refused restore cleared its record")
 	}
 }

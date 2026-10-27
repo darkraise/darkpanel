@@ -8,6 +8,7 @@ import (
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/predict"
 )
 
 // restoreReport is what a restore did besides restoring.
@@ -95,6 +96,18 @@ func restore(ctx context.Context, env core.Env, d deps, snap snapshot) (restoreR
 	before, err := d.readLoaded(ctx, env)
 	if err != nil {
 		return rep, fmt.Errorf("firewall: restore: %w", err)
+	}
+	if snap.State.Image == nil {
+		cfgS, err := d.readConfig(d.root)
+		if err != nil {
+			return rep, fmt.Errorf("firewall: restore: %w", err)
+		}
+		// An IPV6=no start replaces the whole IPv6 filter table, which no
+		// snapshot can rebuild (spec 2.3); not even the connectivity
+		// exception overrides this refusal.
+		if err := predict.IPv6Refusal(cfgS, before, tr); err != nil {
+			return rep, err
+		}
 	}
 	var plan imagePlan
 	if img := snap.State.Image; img != nil {
