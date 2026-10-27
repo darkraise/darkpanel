@@ -1,0 +1,60 @@
+# tailscaled 1.82 on a host whose own firewall drops by default, with
+# netfilter mode "on", subnet routing and exit-node advertisement (SNAT of
+# subnet routes on) and stateful filtering on. Hand-written from
+# https://raw.githubusercontent.com/tailscale/tailscale/v1.82.0/util/linuxfw/iptables_runner.go
+# and wgengine/router/router_linux.go at the same tag (fetched 2026-10-24):
+# AddHooks inserts the ts-* jumps at position 1, addBase4 builds ts-input
+# and ts-forward, AddLoopbackRule inserts the lo rule at position 1,
+# AddMagicsockPortRule appends the WireGuard port rule, AddStatefulRule
+# inserts its DROP before the final ACCEPT, and AddSNATRule builds
+# ts-postrouting. The tailnet address is 100.101.102.103 and the WireGuard
+# port 41641. The INPUT rules after the ts-input jump stand in for the
+# host's own firewall.
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+:ts-forward - [0:0]
+:ts-input - [0:0]
+-A INPUT -j ts-input
+-A INPUT -i lo -j ACCEPT
+-A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 3000 -j REJECT --reject-with tcp-reset
+-A FORWARD -j ts-forward
+-A ts-forward -i tailscale0 -j MARK --set-xmark 0x40000/0xff0000
+-A ts-forward -m mark --mark 0x40000/0xff0000 -j ACCEPT
+-A ts-forward -s 100.64.0.0/10 -o tailscale0 -j DROP
+-A ts-forward -o tailscale0 -m conntrack ! --ctstate RELATED,ESTABLISHED -j DROP
+-A ts-forward -o tailscale0 -j ACCEPT
+-A ts-input -s 100.101.102.103/32 -i lo -j ACCEPT
+-A ts-input -s 100.115.92.0/23 ! -i tailscale0 -j RETURN
+-A ts-input -s 100.64.0.0/10 ! -i tailscale0 -j DROP
+-A ts-input -i tailscale0 -j ACCEPT
+-A ts-input -p udp -m udp --dport 41641 -j ACCEPT
+COMMIT
+*nat
+:PREROUTING ACCEPT [0:0]
+:INPUT ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+:ts-postrouting - [0:0]
+-A POSTROUTING -j ts-postrouting
+-A ts-postrouting -m mark --mark 0x40000/0xff0000 -j MASQUERADE
+COMMIT
+*raw
+:PREROUTING ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+COMMIT
+*mangle
+:PREROUTING ACCEPT [0:0]
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+COMMIT
+*security
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+COMMIT

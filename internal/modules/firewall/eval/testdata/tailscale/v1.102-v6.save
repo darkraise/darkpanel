@@ -1,0 +1,49 @@
+# The IPv6 tables of v1.102-v4.save's host: addBase6 has no CGNAT rules,
+# and the tailnet address is fd7a:115c:a1e0::1.
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+:ts-forward - [0:0]
+:ts-input - [0:0]
+-A INPUT -j ts-input
+-A INPUT -i lo -j ACCEPT
+-A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 3000 -j REJECT --reject-with tcp-reset
+-A FORWARD -j ts-forward
+-A ts-forward -i tailscale0 -j MARK --set-xmark 0x40000/0xff0000
+-A ts-forward -m mark --mark 0x40000/0xff0000 -j ACCEPT
+-A ts-forward -o tailscale0 -m conntrack ! --ctstate RELATED,ESTABLISHED -j DROP
+-A ts-forward -o tailscale0 -j ACCEPT
+-A ts-input -s fd7a:115c:a1e0::1/128 -i lo -j ACCEPT
+-A ts-input -i tailscale0 -j ACCEPT
+-A ts-input -p udp -m udp --dport 41641 -j ACCEPT
+COMMIT
+*nat
+:PREROUTING ACCEPT [0:0]
+:INPUT ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+:ts-postrouting - [0:0]
+-A POSTROUTING -j ts-postrouting
+-A ts-postrouting -m mark --mark 0x40000/0xff0000 -j MASQUERADE
+COMMIT
+*raw
+:PREROUTING ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+COMMIT
+*mangle
+:PREROUTING ACCEPT [0:0]
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+-A PREROUTING -m conntrack --ctstate RELATED,ESTABLISHED -m connmark ! --mark 0x0/0xff0000 -j CONNMARK --restore-mark --nfmask 0xff0000 --ctmask 0xff0000
+-A OUTPUT -m conntrack --ctstate NEW -m mark ! --mark 0x0/0xff0000 -j CONNMARK --save-mark --nfmask 0xff0000 --ctmask 0xff0000
+COMMIT
+*security
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+COMMIT
