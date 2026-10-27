@@ -254,8 +254,8 @@ func addrMatch(m netfilter.AddrMatch, a netip.Addr) bool {
 }
 
 var protoNumbers = map[string]int{
-	"icmp": 1, "igmp": 2, "tcp": 6, "dccp": 33, "udp": 17, "ipv6": 41, "gre": 47,
-	"esp": 50, "ah": 51, "ipv6-icmp": 58, "icmpv6": 58, "sctp": 132, "udplite": 136,
+	"ip": 0, "icmp": 1, "igmp": 2, "tcp": 6, "dccp": 33, "udp": 17, "ipv6": 41, "gre": 47,
+	"esp": 50, "ah": 51, "ipv6-icmp": 58, "icmpv6": 58, "icmp6": 58, "sctp": 132, "udplite": 136,
 }
 
 // protoNumber returns a protocol's number from its name as iptables-save or
@@ -278,11 +278,14 @@ func sameProto(a, b string) bool {
 	return strings.EqualFold(a, b)
 }
 
+// protoMatch applies -p. The kernel matches every protocol for protocol 0,
+// which a restore file may spell "0" or "ip" and the parser keeps as given.
 func protoMatch(m netfilter.NameMatch, proto string) bool {
 	if m.Name == "" {
 		return true
 	}
-	return (m.Name == "all" || sameProto(m.Name, proto)) != m.Neg
+	n, ok := protoNumber(m.Name)
+	return (m.Name == "all" || ok && n == 0 || sameProto(m.Name, proto)) != m.Neg
 }
 
 // modules evaluates the rule's -m matches.

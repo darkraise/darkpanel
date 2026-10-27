@@ -257,3 +257,34 @@ func TestEvaluateInvalidPacket(t *testing.T) {
 		})
 	}
 }
+
+// TestProtoMatch: protocol 0, as a number or as "ip", matches every protocol
+// as "all" does, and every spelling of ICMPv6 is one protocol.
+func TestProtoMatch(t *testing.T) {
+	tests := []struct {
+		rule string
+		neg  bool
+		pkt  string
+		want bool
+	}{
+		{"0", false, "tcp", true},
+		{"ip", false, "udp", true},
+		{"all", false, "gre", true},
+		{"0", true, "tcp", false},
+		{"ipv6-icmp", false, "icmp6", true},
+		{"ipv6-icmp", false, "icmpv6", true},
+		{"58", false, "icmp6", true},
+		{"6", false, "tcp", true},
+		{"tcp", false, "udp", false},
+	}
+	for _, tt := range tests {
+		if got := protoMatch(netfilter.NameMatch{Name: tt.rule, Neg: tt.neg}, tt.pkt); got != tt.want {
+			t.Errorf("protoMatch(%q, neg %v, %q) = %v, want %v", tt.rule, tt.neg, tt.pkt, got, tt.want)
+		}
+	}
+}
+
+func TestEvaluateProtoZero(t *testing.T) {
+	rs := evalRuleset(t, "*filter\n:INPUT ACCEPT [0:0]\n:FORWARD ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n-A INPUT -p 0 -j DROP\nCOMMIT\n")
+	evalCheck(t, Evaluate(rs, evalPacket(), nil), fwstate.Drop, []string{"filter/INPUT#1"}, "filter/INPUT#1 drops")
+}
