@@ -7,7 +7,11 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"net"
+	"os"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -65,6 +69,14 @@ func TestM3Firewall(t *testing.T) {
 		{"manual-edit-survives", false, func(t *testing.T) { m3ManualEditSurvives(ctx, t, f) }},
 		{"disable-reverts", false, func(t *testing.T) { m3DisableReverts(ctx, t, f) }},
 		{"repair-reverts", false, func(t *testing.T) { m3RepairReverts(ctx, t, f) }},
+		{"unsupported-before-init", false, func(t *testing.T) { m3UnsupportedBeforeInit(ctx, t, f) }},
+		{"unsupported-nftables-chain", false, func(t *testing.T) { m3UnsupportedNftables(ctx, t, f) }},
+		{"ipv6no-foreign-rules", false, func(t *testing.T) { m3IPv6NoForeignRules(ctx, t, f) }},
+		{"ipv6-ssh-session", false, func(t *testing.T) { m3IPv6SSHSession(ctx, t, f) }},
+		{"asymmetric-rp-filter", false, func(t *testing.T) { m3AsymmetricRoute(ctx, t, f) }},
+		{"sysctl-revert", false, func(t *testing.T) { m3SysctlRevert(ctx, t, f) }},
+		// The golden re-check resets UFW's rules on the agent host, so it runs last.
+		{"golden-recheck", false, func(t *testing.T) { m3GoldenRecheck(ctx, t, f) }},
 	}
 	for _, s := range steps {
 		if !t.Run(s.name, s.run) && s.gate {
@@ -369,4 +381,206 @@ func m3RepairReverts(ctx context.Context, t *testing.T, f *fleet) {
 		t.Errorf("the revert did not load the out-of-sync state again:\n%s", out)
 	}
 	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, outOfSync)
+}
+
+// m3RequireUnsupported plans action on the agent host and requires the
+// plan to be refused with firewall.unsupported_configuration naming want.
+func m3RequireUnsupported(ctx context.Context, t *testing.T, f *fleet, action string, input any, want string) {
+	t.Helper()
+	p, err := f.api.m3Plan(ctx, f.agentID, action, input)
+	var apiErr *APIError
+	switch {
+	case err == nil:
+		t.Fatalf("%s planned on an unsupported configuration: %s %s", action, p.m3DiffText(), m3JSON(p.Guards))
+	case !errors.As(err, &apiErr):
+		t.Fatal(err)
+	case apiErr.Code != string(errcode.FirewallUnsupportedConfiguration):
+		t.Fatalf("%s was refused with %s (%s); want %s", action, apiErr.Code, apiErr.Detail, errcode.FirewallUnsupportedConfiguration)
+	case !strings.Contains(apiErr.Detail, want):
+		t.Errorf("%s was refused with %q; want it to name %q", action, apiErr.Detail, want)
+	}
+}
+
+// m3UnsupportedNamed accepts a status that reports an unsupported
+// configuration with a reason naming want.
+func m3UnsupportedNamed(want string) func(m3Status) error {
+	return func(st m3Status) error {
+		if st.Supported || !slices.ContainsFunc(st.Unsupported, func(r string) bool { return strings.Contains(r, want) }) {
+			return fmt.Errorf("supported %t, reasons %q; want a reason naming %q", st.Supported, st.Unsupported, want)
+		}
+		return nil
+	}
+}
+
+// m3UnsupportedBeforeInit makes /etc/ufw/before.init executable, which UFW
+// would run at start: the host is unsupported and every change refused.
+func m3UnsupportedBeforeInit(ctx context.Context, t *testing.T, f *fleet) {
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3Healthy)
+	mode := strings.TrimSpace(m3Run(ctx, t, f.agent, "sudo stat -c %a /etc/ufw/before.init"))
+	t.Cleanup(func() { _, _ = f.agent.Run(ctx, "sudo chmod "+mode+" /etc/ufw/before.init") })
+	m3Run(ctx, t, f.agent, "sudo chmod 0755 /etc/ufw/before.init")
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3UnsupportedNamed("before.init"))
+	m3RequireUnsupported(ctx, t, f, "firewall.rule.add", m3PortRule(8098), "before.init")
+}
+
+// m3UnsupportedNftables adds a native nftables base chain with a rule,
+// which the firewall cannot evaluate: the host is unsupported.
+func m3UnsupportedNftables(ctx context.Context, t *testing.T, f *fleet) {
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3Healthy)
+	t.Cleanup(func() { _, _ = f.agent.Run(ctx, "sudo nft delete table inet m3") })
+	m3Run(ctx, t, f.agent, "sudo nft add table inet m3 && "+
+		"sudo nft 'add chain inet m3 input { type filter hook input priority 0 ; policy accept ; }' && "+
+		"sudo nft add rule inet m3 input tcp dport 9999 drop")
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3UnsupportedNamed("m3"))
+	m3RequireUnsupported(ctx, t, f, "firewall.rule.add", m3PortRule(8099), "m3")
+}
+
+// m3StoppedIPv6No disables UFW and sets IPV6=no, as an operator preparing
+// to enable it would; the cleanup sets IPV6=yes and enables UFW again.
+func m3StoppedIPv6No(ctx context.Context, t *testing.T, f *fleet) {
+	t.Helper()
+	t.Cleanup(func() {
+		_, _ = f.agent.Run(ctx, "sudo sed -i 's/^IPV6=.*/IPV6=yes/' /etc/default/ufw && sudo ufw --force enable")
+		m3WaitStatus(ctx, t, f.api, f.agentID, 2*time.Minute, m3Healthy)
+	})
+	m3Run(ctx, t, f.agent, "sudo ufw disable && sudo sed -i 's/^IPV6=.*/IPV6=no/' /etc/default/ufw")
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, func(st m3Status) error {
+		if !st.Supported || !st.InSync || st.Active {
+			return fmt.Errorf("supported %t (%v), in sync %t (%v), active %t; want supported, in sync and inactive",
+				st.Supported, st.Unsupported, st.InSync, st.OutOfSync, st.Active)
+		}
+		return nil
+	})
+}
+
+// m3IPv6NoForeignRules: starting UFW with IPV6=no would remove every IPv6
+// filter chain UFW did not create, so state.enable is refused while one
+// is loaded.
+func m3IPv6NoForeignRules(ctx context.Context, t *testing.T, f *fleet) {
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3Healthy)
+	m3StoppedIPv6No(ctx, t, f)
+	// Registered after m3StoppedIPv6No's cleanup, so it runs before UFW is
+	// enabled again.
+	t.Cleanup(func() {
+		_, _ = f.agent.Run(ctx, "sudo ip6tables -D INPUT -j m3-foreign; sudo ip6tables -F m3-foreign; sudo ip6tables -X m3-foreign")
+	})
+	m3Run(ctx, t, f.agent, "sudo ip6tables -N m3-foreign && sudo ip6tables -A m3-foreign -j RETURN && sudo ip6tables -I INPUT -j m3-foreign")
+	m3RequireUnsupported(ctx, t, f, "firewall.state.enable", map[string]any{}, "m3-foreign")
+}
+
+// m3ClearForeignIPv6 deletes every IPv6 filter chain UFW did not create,
+// and the built-in chains' jumps into them, once Docker is stopped.
+const m3ClearForeignIPv6 = `set -e
+ip6tables -S | awk '$1 == "-A" && ($2 == "INPUT" || $2 == "FORWARD" || $2 == "OUTPUT") && $0 !~ / -j ufw6-/ { sub(/^-A/, "-D"); print }' |
+	while read -r rule; do eval "ip6tables $rule"; done
+for c in $(ip6tables -S | awk '$1 == "-N" && $2 !~ /^ufw6-/ { print $2 }'); do ip6tables -F "$c"; done
+for c in $(ip6tables -S | awk '$1 == "-N" && $2 !~ /^ufw6-/ { print $2 }'); do ip6tables -X "$c"; done
+`
+
+// m3IPv6SSHSession holds an SSH connection from the scanner over IPv6;
+// with IPV6=no, enabling UFW would load an IPv6 table that drops it, so
+// the guard refuses state.enable naming that session.
+func m3IPv6SSHSession(ctx context.Context, t *testing.T, f *fleet) {
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3Healthy)
+	t.Cleanup(func() {
+		m3Release(ctx, f.scanner, "m3-ssh6")
+		_, _ = f.agent.Run(ctx, "sudo systemctl start docker")
+	})
+	m3Run(ctx, t, f.agent, "sudo systemctl stop docker.socket docker")
+	if out, err := f.agent.RunInput(ctx, "sudo sh -s", strings.NewReader(m3ClearForeignIPv6)); err != nil {
+		t.Fatalf("clear the foreign IPv6 chains: %v\n%s", err, out)
+	}
+	m3StoppedIPv6No(ctx, t, f)
+	m3Hold(ctx, t, f.scanner, "m3-ssh6", agentIPv6, 22)
+	m3WaitSession(ctx, t, f.agent, 22, scannerIPv6)
+	m3RequireCut(ctx, t, f.api, f.agentID, "firewall.state.enable", map[string]any{}, "ssh from "+scannerIPv6+" to ")
+}
+
+// m3AsymmetricRoute holds an SSH connection from the scanner arriving on
+// dpinet while the route back to the scanner leaves through dppriv. With
+// loose reverse-path filtering every interface is eligible, so the guard
+// protects the session on dpinet, where it really arrives.
+func m3AsymmetricRoute(ctx context.Context, t *testing.T, f *fleet) {
+	st := m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3Healthy)
+	before := strings.Fields(m3Run(ctx, t, f.agent, "sysctl -n net.ipv4.conf.all.rp_filter net.ipv4.conf.dpinet.rp_filter"))
+	if len(before) != 2 {
+		t.Fatalf("rp_filter values %q", before)
+	}
+	t.Cleanup(func() {
+		m3Release(ctx, f.scanner, "m3-ssh4")
+		_, _ = f.agent.Run(ctx, "sudo ip route del "+scannerIPv4+"/32 dev dppriv; sudo sysctl -w net.ipv4.conf.all.rp_filter="+before[0]+
+			" net.ipv4.conf.dpinet.rp_filter="+before[1])
+	})
+	m3Run(ctx, t, f.agent, "sudo sysctl -w net.ipv4.conf.all.rp_filter=2 net.ipv4.conf.dpinet.rp_filter=2")
+	m3Hold(ctx, t, f.scanner, "m3-ssh4", agentIPv4, 22)
+	m3WaitSession(ctx, t, f.agent, 22, scannerIPv4)
+	m3Run(ctx, t, f.agent, "sudo ip route add "+scannerIPv4+"/32 dev dppriv")
+	r, ok := m3FindRule(st.Rules, m3ManualPort("22", ""))
+	if !ok {
+		t.Fatalf("the agent host has no manual allow rule for 22/tcp: %s", m3JSON(st.Rules))
+	}
+	m3RequireCut(ctx, t, f.api, f.agentID, "firewall.rule.delete", map[string]any{"id": r.ID, "manual": true},
+		"ssh from "+scannerIPv4+" to "+net.JoinHostPort(agentIPv4, "22")+" on dpinet")
+}
+
+// m3SysctlRevert makes UFW's sysctl.conf change a supported key: the plan
+// shows it, the change applies it, and the revert writes the old value
+// back.
+func m3SysctlRevert(ctx context.Context, t *testing.T, f *fleet) {
+	const key = "net.ipv4.conf.all.accept_source_route"
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3Healthy)
+	read := func() string { return strings.TrimSpace(m3Run(ctx, t, f.agent, "sysctl -n "+key)) }
+	if v := read(); v != "0" {
+		t.Fatalf("%s is %s before the scenario, want 0", key, v)
+	}
+	t.Cleanup(func() {
+		_, _ = f.agent.Run(ctx, "sudo cp -p /root/m3-sysctl.conf /etc/ufw/sysctl.conf && sudo rm -f /root/m3-sysctl.conf; sudo sysctl -w "+key+"=0")
+	})
+	m3Run(ctx, t, f.agent, "sudo cp -p /etc/ufw/sysctl.conf /root/m3-sysctl.conf && "+
+		"echo net/ipv4/conf/all/accept_source_route=1 | sudo tee -a /etc/ufw/sysctl.conf >/dev/null")
+	p, err := f.api.m3Plan(ctx, f.agentID, "firewall.rule.add", m3PortRule(8096))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(p.m3DiffText(), "accept_source_route") {
+		t.Errorf("the plan does not show the sysctl change:\n%s", p.m3DiffText())
+	}
+	ch, err := f.api.m3Apply(ctx, f.agentID, "firewall.rule.add", m3PortRule(8096), 30)
+	m3RequirePending(t, ch, err)
+	if v := read(); v != "1" {
+		t.Errorf("%s is %s while the change is pending, want 1", key, v)
+	}
+	m3WaitChange(ctx, t, f.api, ch.ID, core.StateReverted, 2*time.Minute)
+	if v := read(); v != "0" {
+		t.Errorf("%s is %s after the revert, want 0", key, v)
+	}
+	m3RequireGone(ctx, t, f, 8096)
+}
+
+// m3GoldenRecheck replays the golden "rules" scenario on the agent host's
+// own UFW and requires the lines UFW loads to equal the golden capture of
+// this OS, which the firewall's prediction is tested against.
+func m3GoldenRecheck(ctx context.Context, t *testing.T, f *fleet) {
+	dir := filepath.Join("..", "..", "internal", "modules", "firewall", "testdata", "golden", f.os.ID, "rules")
+	capture := os.DirFS(dir)
+	cmds, err := fs.ReadFile(capture, "commands.txt")
+	if err != nil {
+		t.Fatalf("the golden capture of %s: %v", f.os.ID, err)
+	}
+	m3Run(ctx, t, f.agent, "sudo ufw --force reset")
+	for line := range strings.SplitSeq(strings.TrimSpace(string(cmds)), "\n") {
+		m3Run(ctx, t, f.agent, "sudo sh -c "+m3Quote(line))
+	}
+	for _, fam := range []struct{ name, save string }{{"v4", "iptables-save"}, {"v6", "ip6tables-save"}} {
+		golden, err := fs.ReadFile(capture, "save/nft-"+fam.name+"-filter.txt")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := m3UFWLines(string(golden))
+		got := m3UFWLines(m3Run(ctx, t, f.agent, "sudo "+fam.save+" -t filter"))
+		if !slices.Equal(got, want) {
+			t.Errorf("%s: the %s filter lines UFW loaded differ from the golden capture %s (regenerate it with capture.sh if UFW changed):\ngot\n%s\nwant\n%s",
+				f.os.ID, fam.name, dir, strings.Join(got, "\n"), strings.Join(want, "\n"))
+		}
+	}
 }
