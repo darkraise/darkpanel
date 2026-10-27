@@ -79,6 +79,18 @@ func (r Reader) read(ctx context.Context, env core.Env, procNet string) (fwstate
 			st.Variant = v
 		} else if v != st.Variant {
 			st.Unsupported = append(st.Unsupported, fmt.Sprintf("ip6tables uses the %s variant but iptables uses the %s variant", v, st.Variant))
+			haveNFT := r.NFTablesLoaded
+			if haveNFT == nil {
+				haveNFT = func() bool {
+					_, statErr := os.Stat("/sys/module/nf_tables")
+					return statErr == nil
+				}
+			}
+			// Under the legacy variant, ip6tables-nft-save would make the kernel
+			// load nf_tables; the host is unsupported already, so V6 stays nil.
+			if v == variantNFT && !haveNFT() {
+				continue
+			}
 		}
 		tables := netfilter.Tables()
 		if v == variantLegacy {

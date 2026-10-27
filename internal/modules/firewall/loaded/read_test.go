@@ -253,6 +253,45 @@ func TestReadMixedVariants(t *testing.T) {
 	}
 }
 
+func TestReadLegacyWithNFTIPv6(t *testing.T) {
+	t.Run("nf_tables absent", func(t *testing.T) {
+		x := &ldRunner{answers: map[string]ldResult{
+			"/usr/sbin/iptables --version":  {out: "iptables v1.8.9 (legacy)\n"},
+			"/usr/sbin/ip6tables --version": {out: "ip6tables v1.8.9 (nf_tables)\n"},
+		}}
+		st, err := ldReader().read(context.Background(), ldEnv(x, nil), t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []string{"ip6tables uses the nft variant but iptables uses the legacy variant"}
+		if !slices.Equal(st.Unsupported, want) {
+			t.Errorf("unsupported %q, want %q", st.Unsupported, want)
+		}
+		if st.V6 != nil {
+			t.Errorf("v6 %+v, want nil: reading it would load nf_tables", st.V6)
+		}
+		if len(x.calls) != 2 {
+			t.Errorf("%d commands: %q; want only the two --version checks", len(x.calls), x.calls)
+		}
+	})
+	t.Run("nf_tables loaded", func(t *testing.T) {
+		x := ldGolden(t, "debian-12", "rules")
+		x.answers["/usr/sbin/iptables --version"] = ldResult{out: "iptables v1.8.9 (legacy)\n"}
+		r := ldReader()
+		r.NFTablesLoaded = func() bool { return true }
+		st, err := r.read(context.Background(), ldEnv(x, nil), t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.V6 == nil || len(st.V6.Tables) != len(netfilter.Tables()) {
+			t.Errorf("v6 %+v, want the five tables of ip6tables-nft-save", st.V6)
+		}
+		if len(x.calls) != 2+len(netfilter.Tables()) {
+			t.Errorf("%d commands: %q", len(x.calls), x.calls)
+		}
+	})
+}
+
 func TestReadIncompatible(t *testing.T) {
 	x := ldGolden(t, "debian-12", "fresh")
 	x.answers["/usr/sbin/iptables-nft-save -t filter"] = ldResult{out: "# Table `filter' contains incompatible base-chains, use 'nft' tool to list them.\n" +
