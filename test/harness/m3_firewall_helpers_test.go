@@ -12,6 +12,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -74,6 +76,43 @@ func (a *API) m3Plan(ctx context.Context, host, action string, input any) (m3Pla
 		return m3Plan{}, fmt.Errorf("plan %s: %w", action, err)
 	}
 	return p, nil
+}
+
+// m3Apply plans version 1 of the revertible firewall action on host and
+// applies it with the revert timeout given, without confirming it; a
+// failing guard is an error and nothing is applied. It returns the change
+// in whatever state the apply answered.
+func (a *API) m3Apply(ctx context.Context, host, action string, input any, timeoutSeconds int) (Change, error) {
+	p, err := a.m3Plan(ctx, host, action, input)
+	if err != nil {
+		return Change{}, err
+	}
+	for _, g := range p.Guards {
+		if !g.OK {
+			return Change{}, fmt.Errorf("harness: plan %s: guard %s failed: %s", action, g.ID, g.Message)
+		}
+	}
+	path, _ := actionPath(host, action+"/v1", "apply")
+	var ch Change
+	body := map[string]any{"planId": p.PlanID, "confirmTimeoutSeconds": timeoutSeconds}
+	if err := a.do(ctx, http.MethodPost, path, body, &ch); err != nil {
+		return Change{}, fmt.Errorf("apply %s: %w", action, err)
+	}
+	return ch, nil
+}
+
+// m3Change reads the change id.
+func (a *API) m3Change(ctx context.Context, id string) (Change, error) {
+	var ch Change
+	err := a.do(ctx, http.MethodGet, "/api/v1/changes/"+url.PathEscape(id), nil, &ch)
+	return ch, err
+}
+
+// m3Revert reverts the pending change id now.
+func (a *API) m3Revert(ctx context.Context, id string) (Change, error) {
+	var ch Change
+	err := a.do(ctx, http.MethodPost, "/api/v1/changes/"+url.PathEscape(id)+"/revert", nil, &ch)
+	return ch, err
 }
 
 // m3TLSAPI is NewAPI for an https listener of the controller, trusting
@@ -140,6 +179,26 @@ func m3Healthy(st m3Status) error {
 	return nil
 }
 
+// for up to timeout, and returns it.
+func m3WaitChange(ctx context.Context, t *testing.T, api *API, id, want string, timeout time.Duration) Change {
+	t.Helper()
+	var ch Change
+	err := eventually(ctx, timeout, func(ctx context.Context) error {
+		var err error
+		if ch, err = api.m3Change(ctx, id); err != nil {
+			return err
+		}
+		if ch.State != want {
+			return fmt.Errorf("change %s is %s, want %s", id, ch.State, want)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ch
+}
+
 // m3FindRule returns the first rule of rules that match accepts.
 func m3FindRule(rules []model.Rule, match func(model.Rule) bool) (model.Rule, bool) {
 	for _, r := range rules {
@@ -158,6 +217,19 @@ func m3ManualPort(port, iface string) func(model.Rule) bool {
 		return r.Origin == model.OriginManual && r.Action == model.ActionAllow && r.Direction == model.DirIn &&
 			r.ToPort == port && r.InIface == iface && r.Raw == ""
 	}
+}
+
+// m3HasPort reports whether rules hold a rule for the destination port.
+func m3HasPort(rules []model.Rule, port string) bool {
+	_, ok := m3FindRule(rules, func(r model.Rule) bool { return r.ToPort == port })
+	return ok
+}
+
+// m3PortRule is firewall.rule.add's input for the Darkpanel rule the
+// revert scenarios add and expect to disappear: allow incoming tcp to port.
+func m3PortRule(port int) map[string]any {
+	return map[string]any{"rule": model.Rule{Action: model.ActionAllow, Direction: model.DirIn, Proto: model.ProtoTCP,
+		From: model.Any, To: model.Any, ToPort: strconv.Itoa(port), Family: model.FamilyBoth, Comment: "m3 revert"}}
 }
 
 // m3JSON is v as JSON, for messages.

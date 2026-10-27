@@ -4,13 +4,17 @@ package harness
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/paths"
 	"github.com/darkraise/darkpanel/internal/update"
 )
@@ -55,6 +59,12 @@ func TestM3Firewall(t *testing.T) {
 		{"refuse-controller-link", false, func(t *testing.T) { m3RefuseControllerLink(ctx, t, f) }},
 		{"refuse-tailscaled-egress", false, func(t *testing.T) { m3RefuseTailscaled(ctx, t, f) }},
 		{"refuse-direct-panel", false, func(t *testing.T) { m3RefuseDirectPanel(ctx, t, f) }},
+		{"revert-on-disconnect", false, func(t *testing.T) { m3RevertOnDisconnect(ctx, t, f) }},
+		{"revert-on-reboot", false, func(t *testing.T) { m3RevertOnReboot(ctx, t, f) }},
+		{"prediction-mismatch", false, func(t *testing.T) { m3PredictionMismatch(ctx, t, f) }},
+		{"manual-edit-survives", false, func(t *testing.T) { m3ManualEditSurvives(ctx, t, f) }},
+		{"disable-reverts", false, func(t *testing.T) { m3DisableReverts(ctx, t, f) }},
+		{"repair-reverts", false, func(t *testing.T) { m3RepairReverts(ctx, t, f) }},
 	}
 	for _, s := range steps {
 		if !t.Run(s.name, s.run) && s.gate {
@@ -189,4 +199,174 @@ func m3RefuseDirectPanel(ctx context.Context, t *testing.T, f *fleet) {
 	}
 	m3RequireCut(ctx, t, api, f.localID, "firewall.rule.delete", map[string]any{"id": r.ID, "manual": true},
 		"panel from "+scannerIPv4+" to "+m3PanelAddr)
+}
+
+// m3RequirePending fails the test unless ch is pending.
+func m3RequirePending(t *testing.T, ch Change, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch.State != core.StatePending {
+		t.Fatalf("change %s is %s, want %s: %s", ch.ID, ch.State, core.StatePending, m3JSON(ch.Error))
+	}
+}
+
+// m3RequireGone waits until the agent host is healthy again and requires
+// that no rule for port is left.
+func m3RequireGone(ctx context.Context, t *testing.T, f *fleet, port int) m3Status {
+	t.Helper()
+	st := m3WaitStatus(ctx, t, f.api, f.agentID, 2*time.Minute, m3Healthy)
+	if m3HasPort(st.Rules, strconv.Itoa(port)) {
+		t.Errorf("a rule for port %d is still there after the revert: %s", port, m3JSON(st.Rules))
+	}
+	return st
+}
+
+// m3RevertOnDisconnect applies a change through a client of its own that
+// then goes away; the agent's timer reverts the change without it.
+func m3RevertOnDisconnect(ctx context.Context, t *testing.T, f *fleet) {
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3Healthy)
+	client := NewAPI(apiURL, f.controller.DialContext)
+	if err := client.Login(ctx, adminName, f.password, nextCode(ctx, t, f)); err != nil {
+		t.Fatal(err)
+	}
+	ch, err := client.m3Apply(ctx, f.agentID, "firewall.rule.add", m3PortRule(8091), 10)
+	m3RequirePending(t, ch, err)
+	// The applying client is never used again: each of its requests had a
+	// connection of its own, so nothing of it is left open.
+	m3WaitChange(ctx, t, f.api, ch.ID, core.StateReverted, 2*time.Minute)
+	m3RequireGone(ctx, t, f, 8091)
+}
+
+// m3RevertOnReboot reboots the agent host while a change is pending; the
+// change is reverted once the host is back.
+func m3RevertOnReboot(ctx context.Context, t *testing.T, f *fleet) {
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3Healthy)
+	ch, err := f.api.m3Apply(ctx, f.agentID, "firewall.rule.add", m3PortRule(8092), 120)
+	m3RequirePending(t, ch, err)
+	if err := f.agent.Reboot(ctx); err != nil {
+		t.Fatal(err)
+	}
+	waitHosts(ctx, t, f, 3*time.Minute, hostsAt(versionN, f.agentID))
+	m3WaitChange(ctx, t, f.api, ch.ID, core.StateReverted, 4*time.Minute)
+	m3RequireGone(ctx, t, f, 8092)
+}
+
+// m3MismatchWrapper replaces /usr/sbin/ufw: once /run/m3-mismatch exists,
+// the next ufw reload also adds a rule no prediction holds, so the change
+// that reloads fails verify.
+const m3MismatchWrapper = `#!/bin/sh
+/usr/sbin/ufw.distrib "$@"
+rc=$?
+case " $* " in
+*" reload "*)
+	if [ -e /run/m3-mismatch ]; then
+		rm -f /run/m3-mismatch
+		iptables -A ufw-user-input -s 192.0.2.99/32 -j ACCEPT
+	fi
+	;;
+esac
+exit $rc
+`
+
+// m3PredictionMismatch makes the loaded state differ from the prediction
+// right after a change reloads UFW: verify fails with
+// firewall.prediction_mismatch and the change is reverted, which also
+// removes the stray rule.
+func m3PredictionMismatch(ctx context.Context, t *testing.T, f *fleet) {
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3Healthy)
+	t.Cleanup(func() {
+		// Only a diverted ufw has a wrapper to remove; without the diversion
+		// /usr/sbin/ufw is UFW itself.
+		_, _ = f.agent.Run(ctx, "sudo sh -c 'rm -f /run/m3-mismatch; if [ -e /usr/sbin/ufw.distrib ]; then "+
+			"rm -f /usr/sbin/ufw && dpkg-divert --local --rename --remove /usr/sbin/ufw; fi; ufw reload'")
+	})
+	m3Run(ctx, t, f.agent, "sudo dpkg-divert --local --rename --add /usr/sbin/ufw")
+	if out, err := f.agent.RunInput(ctx, "sudo tee /usr/sbin/ufw >/dev/null && sudo chmod 0755 /usr/sbin/ufw", strings.NewReader(m3MismatchWrapper)); err != nil {
+		t.Fatalf("install the ufw wrapper: %v\n%s", err, out)
+	}
+	m3Run(ctx, t, f.agent, "sudo touch /run/m3-mismatch")
+	ch, err := f.api.m3Apply(ctx, f.agentID, "firewall.rule.add", m3PortRule(8093), 60)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch.State != core.StateReverted || ch.Error == nil || ch.Error.Code != string(errcode.FirewallPredictionMismatch) {
+		t.Fatalf("change %s is %s with error %s; want it reverted with %s", ch.ID, ch.State, m3JSON(ch.Error), errcode.FirewallPredictionMismatch)
+	}
+	m3RequireGone(ctx, t, f, 8093)
+	if out := m3Run(ctx, t, f.agent, "sudo iptables -S ufw-user-input"); strings.Contains(out, "192.0.2.99") {
+		t.Errorf("the stray rule survived the revert:\n%s", out)
+	}
+}
+
+// m3ManualEditSurvives adds a rule by hand while a change is pending; the
+// revert takes back only the change's own rule.
+func m3ManualEditSurvives(ctx context.Context, t *testing.T, f *fleet) {
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3Healthy)
+	ch, err := f.api.m3Apply(ctx, f.agentID, "firewall.rule.add", m3PortRule(8094), 120)
+	m3RequirePending(t, ch, err)
+	t.Cleanup(func() { _, _ = f.agent.Run(ctx, "sudo ufw delete allow 8095/tcp") })
+	m3Run(ctx, t, f.agent, "sudo ufw allow 8095/tcp")
+	if _, err := f.api.m3Revert(ctx, ch.ID); err != nil {
+		t.Fatal(err)
+	}
+	m3WaitChange(ctx, t, f.api, ch.ID, core.StateReverted, 2*time.Minute)
+	st := m3RequireGone(ctx, t, f, 8094)
+	if _, ok := m3FindRule(st.Rules, m3ManualPort("8095", "")); !ok {
+		t.Errorf("the rule added by hand during the pending window is gone: %s", m3JSON(st.Rules))
+	}
+}
+
+// m3DisableReverts leaves firewall.state.disable unconfirmed; the revert
+// enables UFW again.
+func m3DisableReverts(ctx context.Context, t *testing.T, f *fleet) {
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3Healthy)
+	ch, err := f.api.m3Apply(ctx, f.agentID, "firewall.state.disable", map[string]any{}, 10)
+	m3RequirePending(t, ch, err)
+	m3WaitChange(ctx, t, f.api, ch.ID, core.StateReverted, 2*time.Minute)
+	m3WaitStatus(ctx, t, f.api, f.agentID, 2*time.Minute, m3Healthy)
+	if out := m3Run(ctx, t, f.agent, "sudo ufw status"); !strings.HasPrefix(out, "Status: active") {
+		t.Errorf("ufw status after the revert:\n%s", out)
+	}
+}
+
+// m3StrayRule is the rule m3RepairReverts loads by hand into a UFW chain,
+// which puts the loaded state out of sync with UFW's files.
+const m3StrayRule = "ufw-user-input -s 192.0.2.98/32 -j ACCEPT"
+
+// m3RepairReverts puts the loaded state out of sync, requires an ordinary
+// change to be refused, then leaves firewall.state.repair unconfirmed: the
+// revert loads the out-of-sync state again.
+func m3RepairReverts(ctx context.Context, t *testing.T, f *fleet) {
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3Healthy)
+	t.Cleanup(func() { _, _ = f.agent.Run(ctx, "sudo ufw reload") })
+	m3Run(ctx, t, f.agent, "sudo iptables -A "+m3StrayRule)
+	outOfSync := func(st m3Status) error {
+		if st.InSync {
+			return errors.New("the host is still in sync")
+		}
+		return nil
+	}
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, outOfSync)
+	// The refusal is a plan that cannot pass, or a refused plan request.
+	var apiErr *APIError
+	switch p, err := f.api.m3Plan(ctx, f.agentID, "firewall.rule.add", m3PortRule(8097)); {
+	case err != nil && !errors.As(err, &apiErr):
+		t.Fatal(err)
+	case err == nil:
+		if g, ok := p.m3Lockout(); !ok || g.OK || g.Overridable {
+			t.Errorf("an ordinary change on an out-of-sync host planned with guards %s; want a firewall.lockout refusal that cannot be overridden", m3JSON(p.Guards))
+		}
+	}
+	ch, err := f.api.m3Apply(ctx, f.agentID, "firewall.state.repair", map[string]any{}, 30)
+	m3RequirePending(t, ch, err)
+	if out := m3Run(ctx, t, f.agent, "sudo iptables -S ufw-user-input"); strings.Contains(out, "192.0.2.98") {
+		t.Errorf("the repair left the stray rule loaded:\n%s", out)
+	}
+	m3WaitChange(ctx, t, f.api, ch.ID, core.StateReverted, 2*time.Minute)
+	if out := m3Run(ctx, t, f.agent, "sudo iptables -S ufw-user-input"); !strings.Contains(out, "192.0.2.98") {
+		t.Errorf("the revert did not load the out-of-sync state again:\n%s", out)
+	}
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, outOfSync)
 }
