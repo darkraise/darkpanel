@@ -85,16 +85,22 @@ func (w *walker) natRules(chain string) bool {
 }
 
 // reroute asks the router where the packet goes after nat rewrote its
-// destination, and reports whether the walk can go on.
+// destination or mangle changed its mark, which policy routing may read,
+// and reports whether the walk can go on.
 func (w *walker) reroute() bool {
-	if !w.dnat {
+	if !w.dnat && w.mark.val == w.pkt.Mark {
 		return true
 	}
 	dst := w.pkt.Dst.String()
 	if w.route == nil {
-		w.stop(fwstate.Unknown, "the destination was rewritten to "+dst+" and no router was given")
+		why := "the destination was rewritten to " + dst
+		if !w.dnat {
+			why = fmt.Sprintf("the mark was changed to %#x", w.mark.val)
+		}
+		w.stop(fwstate.Unknown, why+" and no router was given")
 		return false
 	}
+	w.pkt.Mark = w.mark.val
 	path, out, err := w.route(w.pkt)
 	if err != nil {
 		w.stop(fwstate.Unknown, fmt.Sprintf("route to %s: %v", dst, err))

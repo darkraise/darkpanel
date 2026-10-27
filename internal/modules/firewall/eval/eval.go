@@ -64,6 +64,8 @@ type walker struct {
 	origDst  netip.Addr // the destination before any DNAT
 	origPort uint16     // the destination port before any DNAT
 	dnat     bool       // a DNAT rule rewrote the destination
+	mark     markState  // the packet mark
+	conn     markState  // the connection mark
 }
 
 func newWalker(rs *netfilter.Ruleset, p fwstate.Packet, route fwstate.Router) (*walker, error) {
@@ -101,10 +103,12 @@ func newWalker(rs *netfilter.Ruleset, p fwstate.Packet, route fwstate.Router) (*
 	if p.Path == "output" {
 		p.InIface = ""
 	}
-	return &walker{
+	w := &walker{
 		rs: rs, route: route, pkt: p, res: fwstate.Result{Trace: []string{}},
 		origDst: p.Dst, origPort: p.DstPort,
-	}, nil
+	}
+	w.mark, w.conn = startMarks(p)
+	return w, nil
 }
 
 func (w *walker) stop(v fwstate.Verdict, reason string) outcome {
@@ -163,6 +167,9 @@ func (w *walker) walkChain(t *netfilter.Table, c *netfilter.Chain, depth int) ou
 			continue
 		}
 		if m == maybe {
+			if w.uncertainCopy(r.Target) {
+				continue
+			}
 			if decides(r.Target) {
 				return w.stop(fwstate.Unknown, ref+": "+why)
 			}
@@ -221,6 +228,8 @@ func (w *walker) target(t *netfilter.Table, r *netfilter.Rule, ref string, depth
 		return ret
 	case "DNAT", "SNAT", "MASQUERADE":
 		return w.natTarget(t, tg, ref)
+	case "MARK", "CONNMARK":
+		return w.markTarget(tg, ref)
 	}
 	return w.stop(fwstate.Unknown, ref+": target "+tg.Name+" is not modelled")
 }
