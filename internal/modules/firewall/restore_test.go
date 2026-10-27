@@ -322,6 +322,8 @@ func TestRestoreRefusesIPv6NoOverForeignRules(t *testing.T) {
 	s.IPv6 = false
 	h.setState(s)
 	snap := rsTestSnap(t, h, false)
+	s.IPv6 = true
+	h.setState(s)
 	h.loaded.V6 = fhParse(t, rsTestSave4)
 	h.ufw["reload"] = func(*fhState) int { return 0 }
 	h.calls = nil
@@ -329,6 +331,9 @@ func TestRestoreRefusesIPv6NoOverForeignRules(t *testing.T) {
 	var ec *errcode.Error
 	if !errors.As(err, &ec) || ec.Code != errcode.FirewallUnsupportedConfiguration || !strings.Contains(ec.Detail, "chain fw-foreign") {
 		t.Fatalf("restore = %v, want firewall.unsupported_configuration naming chain fw-foreign", err)
+	}
+	if !h.config().IPv6 {
+		t.Error("a refused restore wrote the snapshot's IPV6=no")
 	}
 	if got := rsTestRuns(h); got != nil {
 		t.Errorf("runs = %v, want none", got)

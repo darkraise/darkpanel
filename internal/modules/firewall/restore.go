@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/conf"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/predict"
 )
@@ -88,25 +89,27 @@ func restore(ctx context.Context, env core.Env, d deps, snap snapshot) (restoreR
 		}
 	}
 	rep.Transition = tr
-	for _, e := range snap.Entries {
-		if err := env.Files.Restore(ctx, ID, e); err != nil {
-			return rep, fmt.Errorf("firewall: restore %s: %w", e.Path, err)
-		}
-	}
 	before, err := d.readLoaded(ctx, env)
 	if err != nil {
 		return rep, fmt.Errorf("firewall: restore: %w", err)
 	}
 	if snap.State.Image == nil {
-		cfgS, err := d.readConfig(d.root)
+		cfgS, err := snapshotStart(snap)
 		if err != nil {
-			return rep, fmt.Errorf("firewall: restore: %w", err)
+			return rep, err
 		}
 		// An IPV6=no start replaces the whole IPv6 filter table, which no
 		// snapshot can rebuild (spec 2.3); not even the connectivity
-		// exception overrides this refusal.
+		// exception overrides this refusal. It is decided before the first
+		// write, so a refused restore leaves no IPV6=no on disk for the next
+		// reload or boot to start from.
 		if err := predict.IPv6Refusal(cfgS, before, tr); err != nil {
 			return rep, err
+		}
+	}
+	for _, e := range snap.Entries {
+		if err := env.Files.Restore(ctx, ID, e); err != nil {
+			return rep, fmt.Errorf("firewall: restore %s: %w", e.Path, err)
 		}
 	}
 	var plan imagePlan
@@ -148,6 +151,17 @@ func restore(ctx context.Context, env core.Env, d deps, snap snapshot) (restoreR
 			joinRefs(rep.Excluded))
 	}
 	return rep, nil
+}
+
+// snapshotStart is what IPv6Refusal reads of the configuration snap
+// restores, taken from its entries before anything is written.
+func snapshotStart(snap snapshot) (fwstate.Config, error) {
+	for _, e := range snap.Entries {
+		if e.Path == "/etc/default/ufw" && e.Present {
+			return fwstate.Config{Enabled: snap.State.Enabled, IPv6: conf.DefaultsIPv6(e.Data)}, nil
+		}
+	}
+	return fwstate.Config{}, fmt.Errorf("firewall: restore: snapshot %s holds no /etc/default/ufw", snap.ID)
 }
 
 func joinRefs(refs []chainRef) string {

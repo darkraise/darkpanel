@@ -315,3 +315,11 @@ func SupportedSysctl(key string) bool { return supportedSysctlRe.MatchString(key
 // file that sets it unsupported: net/ipv4/conf/*/forwarding,
 // */route_localnet and net/bridge/bridge-nf-call-*.
 func FilteringSysctl(key string) bool { return filteringSysctlRe.MatchString(key) }
+
+// DefaultsIPv6 returns IPV6 of /etc/default/ufw's contents data as Read
+// reads it: true only for yes or YES.
+func DefaultsIPv6(data []byte) bool {
+	c := fwstate.Config{Files: map[string]core.RestoreEntry{defaultsUFW: {Path: defaultsUFW, Present: true, Data: data}}}
+	r := reader{c: &c}
+	return r.yesNo(defaultsUFW, r.shell(defaultsUFW), "IPV6")
+}
