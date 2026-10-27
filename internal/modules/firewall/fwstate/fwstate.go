@@ -43,7 +43,7 @@ type Config struct {
 	DefaultForward string
 	SysctlFile     string                       // IPT_SYSCTL, absolute
 	Rules4, Rules6 []model.Tuple                // the ### tuple ### lines of user.rules and user6.rules, in file order
-	Files          map[string]core.RestoreEntry // StateFiles plus SysctlFile, by absolute path; Present false when absent
+	Files          map[string]core.RestoreEntry // StateFiles plus /etc/ufw/sysctl.conf, by absolute path; Present false when absent
 	Sysctl         []SysctlSetting              // SysctlFile's settings, in file order
 	Unsupported    []string                     // why the configuration cannot be predicted (2.1); empty when supported
 }

@@ -43,13 +43,14 @@ type fhState struct {
 	Enabled                bool
 	LogLevel               string
 	IPv6                   bool
+	NoSysctl               bool // /etc/default/ufw leaves IPT_SYSCTL unset, as ufw leaves it
 	Input, Output, Forward string
 	Rules4, Rules6         []string // tuple lines
 }
 
 // fhStateOf reads the edited values back from a configuration.
 func fhStateOf(cfg fwstate.Config) fhState {
-	s := fhState{Enabled: cfg.Enabled, LogLevel: cfg.LogLevel, IPv6: cfg.IPv6,
+	s := fhState{Enabled: cfg.Enabled, LogLevel: cfg.LogLevel, IPv6: cfg.IPv6, NoSysctl: cfg.SysctlFile == "",
 		Input: cfg.DefaultInput, Output: cfg.DefaultOutput, Forward: cfg.DefaultForward}
 	for _, t := range cfg.Rules4 {
 		s.Rules4 = append(s.Rules4, t.Raw)
@@ -79,13 +80,17 @@ func fhYes(v bool) string {
 
 // files renders the four files ufw writes, by absolute path.
 func (s fhState) files() map[string][]byte {
+	iptSysctl := "IPT_SYSCTL=/etc/ufw/sysctl.conf\n"
+	if s.NoSysctl {
+		iptSysctl = ""
+	}
 	return map[string][]byte{
 		"/etc/ufw/user.rules":  fhRules(s.Rules4),
 		"/etc/ufw/user6.rules": fhRules(s.Rules6),
 		"/etc/ufw/ufw.conf":    []byte(fmt.Sprintf("ENABLED=%s\nLOGLEVEL=%s\n", fhYes(s.Enabled), s.LogLevel)),
 		"/etc/default/ufw": []byte(fmt.Sprintf("IPV6=%s\nDEFAULT_INPUT_POLICY=%q\nDEFAULT_OUTPUT_POLICY=%q\n"+
-			"DEFAULT_FORWARD_POLICY=%q\nMANAGE_BUILTINS=no\nIPT_SYSCTL=/etc/ufw/sysctl.conf\n",
-			fhYes(s.IPv6), s.Input, s.Output, s.Forward)),
+			"DEFAULT_FORWARD_POLICY=%q\nMANAGE_BUILTINS=no\n%s",
+			fhYes(s.IPv6), s.Input, s.Output, s.Forward, iptSysctl)),
 	}
 }
 

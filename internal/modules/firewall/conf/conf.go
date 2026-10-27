@@ -35,9 +35,12 @@ var LogLevels = []string{"off", "low", "medium", "high", "full"}
 var policies = []string{"ACCEPT", "DROP", "REJECT"}
 
 // Read reads the configured state from the files under root: production
-// passes "/", tests a temporary tree. Every state file and, when
-// IPT_SYSCTL is set, /etc/ufw/sysctl.conf is recorded in Files, absent ones
-// with Present false; IPT_SYSCTL naming any other file is unsupported. A state file that
+// passes "/", tests a temporary tree. Every state file and
+// /etc/ufw/sysctl.conf is recorded in Files, absent ones with Present false,
+// whether or not IPT_SYSCTL names the file, so that a snapshot holds it on
+// every host and a restore that makes /etc/default/ufw name it finds its
+// before-state; only the file IPT_SYSCTL names has its settings read, and
+// IPT_SYSCTL naming any other file is unsupported. A state file that
 // is not a regular file or exceeds fwstate.MaxFileSize, and a missing
 // ufw.conf or /etc/default/ufw, are errors; anything Darkpanel cannot
 // predict is a reason in Unsupported.
@@ -165,10 +168,18 @@ func (r reader) tuples(path string, v6 bool) []model.Tuple {
 // read from the host.
 const sysctlFile = "/etc/ufw/sysctl.conf"
 
-// sysctl records the file IPT_SYSCTL names and its settings. Any other file
-// than sysctlFile is unsupported and not read; Files then records
-// sysctlFile, so a snapshot still holds UFW's default file.
+// sysctl records sysctlFile in Files whatever IPT_SYSCTL says: UFW applies
+// the file only while IPT_SYSCTL names it, but a restore of
+// /etc/default/ufw can make it do so, and the file must then be in the
+// snapshot that restore is undone from. It reads the settings of the file
+// IPT_SYSCTL names; any other file than sysctlFile is unsupported and not
+// read.
 func (r reader) sysctl(root, name string) error {
+	e, err := readEntry(root, sysctlFile)
+	if err != nil {
+		return err
+	}
+	r.c.Files[sysctlFile] = e
 	if name == "" {
 		return nil
 	}
@@ -176,13 +187,6 @@ func (r reader) sysctl(root, name string) error {
 	supported := filepath.IsAbs(name) && filepath.Clean(name) == sysctlFile
 	if !supported {
 		r.unsupported("%s: IPT_SYSCTL names %q; only %s is supported", defaultsUFW, name, sysctlFile)
-	}
-	e, err := readEntry(root, sysctlFile)
-	if err != nil {
-		return err
-	}
-	r.c.Files[sysctlFile] = e
-	if !supported {
 		return nil
 	}
 	r.c.SysctlFile = sysctlFile

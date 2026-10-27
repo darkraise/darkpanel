@@ -125,8 +125,35 @@ func TestReadDefaults(t *testing.T) {
 	if e := c.Files["/etc/ufw/user6.rules"]; e.Present || e.Path != "/etc/ufw/user6.rules" {
 		t.Errorf("absent user6.rules = %+v", e)
 	}
-	if _, ok := c.Files["/etc/ufw/sysctl.conf"]; ok {
-		t.Error("Files holds a sysctl file although IPT_SYSCTL is unset")
+	if e, ok := c.Files["/etc/ufw/sysctl.conf"]; !ok || e.Present {
+		t.Errorf("Files[/etc/ufw/sysctl.conf] = %+v (recorded %v), want an absent entry although IPT_SYSCTL is unset", e, ok)
+	}
+}
+
+// TestReadSysctlFileWithoutName: UFW's sysctl file is part of the state
+// whether or not IPT_SYSCTL names it, present or absent, but its settings
+// count only while IPT_SYSCTL names it.
+func TestReadSysctlFileWithoutName(t *testing.T) {
+	files := confTestFiles()
+	files["etc/default/ufw"] = strings.Replace(confTestDefault, "IPT_SYSCTL=/etc/ufw/sysctl.conf\n", "", 1)
+	files["etc/ufw/sysctl.conf"] = "net.ipv4.conf.all.forwarding=1\nnet.ipv4.ip_forward=1\n"
+	root := confTestTree(t, files)
+	c, err := Read(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := c.Files["/etc/ufw/sysctl.conf"]; !e.Present || string(e.Data) != files["etc/ufw/sysctl.conf"] || e.Path != "/etc/ufw/sysctl.conf" {
+		t.Errorf("Files[/etc/ufw/sysctl.conf] = %+v, want the file's bytes", e)
+	}
+	if c.SysctlFile != "" || len(c.Sysctl) != 0 || len(c.Unsupported) != 0 {
+		t.Errorf("SysctlFile %q, %d settings, Unsupported %q; want the file ignored while IPT_SYSCTL is unset", c.SysctlFile, len(c.Sysctl), c.Unsupported)
+	}
+	confTestRemove(t, filepath.Join(root, "etc/ufw/sysctl.conf"))
+	if c, err = Read(root); err != nil {
+		t.Fatal(err)
+	}
+	if e, ok := c.Files["/etc/ufw/sysctl.conf"]; !ok || e.Present || e.Path != "/etc/ufw/sysctl.conf" {
+		t.Errorf("Files[/etc/ufw/sysctl.conf] = %+v (recorded %v), want an absent entry", e, ok)
 	}
 }
 
