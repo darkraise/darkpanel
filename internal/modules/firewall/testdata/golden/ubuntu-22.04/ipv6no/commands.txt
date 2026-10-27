@@ -1,0 +1,3 @@
+sed -i 's/^IPV6=.*/IPV6=no/' /etc/default/ufw
+ufw allow in proto tcp to any port 22
+ufw --force enable

@@ -1,0 +1,12 @@
+ufw allow in proto tcp to any port 22 comment 'darkpanel:01J00000000000000000000000 ssh'
+ufw deny in proto udp from 2001:db8::/32 to any port 5000:5100
+ufw route allow out on eth0 proto tcp to 172.17.0.2 port 80
+ufw limit in proto tcp to any port 2222
+ufw reject in to any port 3000
+ufw allow in log proto tcp from 10.0.0.0/8 to any port 443,8000:8100
+ufw allow out on eth0 to any port 53
+ufw allow in on eth0 proto esp
+ufw --force enable
+ufw logging high
+ufw default allow outgoing
+ufw default deny routed
