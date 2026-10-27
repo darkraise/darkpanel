@@ -81,6 +81,14 @@ func TestRunUfwAddsARule(t *testing.T) {
 	if _, err := addRuleOp(manual); err == nil {
 		t.Error("a manual rule became an add operation")
 	}
+	h = newFakeHost(t)
+	h.ufw[strings.Join(op.Args, " ")] = func(s *fhState) int {
+		s.Rules4[0], s.Rules6[0] = v4, v6
+		return 0
+	}
+	if err := efTestRun(t, h, op); err == nil || len(h.journal.effects) != 0 {
+		t.Errorf("an add that replaces a rule = %v with %d effects", err, len(h.journal.effects))
+	}
 }
 
 func TestRunUfwDeletesARule(t *testing.T) {

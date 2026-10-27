@@ -153,6 +153,12 @@ func runUfw(ctx context.Context, env core.Env, d deps, op ufwOp) error {
 			return fmt.Errorf("firewall: %s exists already", op.Resource)
 		}
 		_, id, _ := splitResource(op.Resource)
+		// ufw replaces a rule that differs only in action, log type or
+		// comment; journaled as a creation, its undo would lose that rule.
+		if len(next.Rules4)-len(cfg.Rules4) != taggedTuples(next.Rules4, id) ||
+			len(next.Rules6)-len(cfg.Rules6) != taggedTuples(next.Rules6, id) {
+			return fmt.Errorf("firewall: ufw %s would replace an existing rule", strings.Join(op.Args, " "))
+		}
 		e.Resource, e.Recovery = nounRule+":?"+id, &core.RecoveryID{Kind: "marker", Value: id}
 		e.Before = core.StateDoc{State: json.RawMessage("null"), Version: before.Version}
 	}
@@ -163,6 +169,17 @@ func runUfw(ctx context.Context, env core.Env, d deps, op ufwOp) error {
 		return ufwFailure(op.Args, res, runErr)
 	}
 	return nil
+}
+
+// taggedTuples counts the tuples whose comment is a tag of id.
+func taggedTuples(ts []model.Tuple, id string) int {
+	n := 0
+	for _, t := range ts {
+		if got, _, ok := model.ParseTag(t.Comment); ok && got == id {
+			n++
+		}
+	}
+	return n
 }
 
 // runJournaled intends e, makes the call and records the outcome from an
