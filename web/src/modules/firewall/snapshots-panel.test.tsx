@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { expect, test } from "vitest"
 import { axe } from "vitest-axe"
@@ -64,6 +64,22 @@ test("a restore allowed to change manual rules sends manual: true", async () => 
   await user.click(within(ask).getByRole("button", { name: "Plan the restore" }))
   await within(await screen.findByRole("dialog", { name: "Restore a snapshot" })).findByLabelText("Planned changes")
   expect(calls.find((c) => c.path.endsWith("/plan"))?.body).toEqual({ input: { id: "s-base", manual: true } })
+})
+
+test("cancelling a restore clears the manual-rules consent", async () => {
+  const calls = spRender()
+  const user = userEvent.setup()
+  await user.click(await screen.findByRole("button", { name: `Restore the snapshot taken ${formatTime("2026-10-20T08:00:00Z")}` }))
+  const first = await screen.findByRole("dialog", { name: "Restore this snapshot?" })
+  await user.click(within(first).getByRole("checkbox", { name: "Allow the restore to add or remove manual rules" }))
+  await user.click(within(first).getByRole("button", { name: "Cancel" }))
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Restore this snapshot?" })).toBeNull())
+  await user.click(screen.getByRole("button", { name: `Restore the snapshot taken ${formatTime("2026-10-24T08:00:00Z")}` }))
+  const again = await screen.findByRole("dialog", { name: "Restore this snapshot?" })
+  expect(within(again).getByRole("checkbox", { name: "Allow the restore to add or remove manual rules" }).getAttribute("aria-checked")).toBe("false")
+  await user.click(within(again).getByRole("button", { name: "Plan the restore" }))
+  await within(await screen.findByRole("dialog", { name: "Restore a snapshot" })).findByLabelText("Planned changes")
+  expect(calls.find((c) => c.path.endsWith("/plan"))?.body).toEqual({ input: { id: "s-new" } })
 })
 
 test("no snapshots is an empty state", async () => {

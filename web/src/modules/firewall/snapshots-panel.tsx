@@ -60,7 +60,13 @@ function RestoreConsent({ snapshot, onCancel, onPlan }: {
           <Label htmlFor="restore-manual">Allow the restore to add or remove manual rules</Label>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onCancel}>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setManual(false)
+              onCancel()
+            }}
+          >
             Cancel
           </Button>
           <Button
