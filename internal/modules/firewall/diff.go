@@ -37,21 +37,13 @@ func stateDiff(a, b logical) []core.DiffLine {
 	pair(enabledText(a.cfg.Enabled), enabledText(b.cfg.Enabled))
 
 	ra, rb := model.Merge(a.cfg.Rules4, a.cfg.Rules6), model.Merge(b.cfg.Rules4, b.cfg.Rules6)
-	inA, inB := ruleTexts(ra), ruleTexts(rb)
-	var keptA, keptB []string
-	for _, r := range ra {
-		if t := ruleText(r); inB[t] {
-			keptA = append(keptA, r.ID)
-		} else {
-			out = append(out, core.DiffLine{Op: "-", Text: t})
-		}
+	keptA, removed := unmatched(ra, rb)
+	keptB, added := unmatched(rb, ra)
+	for _, r := range removed {
+		out = append(out, core.DiffLine{Op: "-", Text: ruleText(r)})
 	}
-	for _, r := range rb {
-		if t := ruleText(r); inA[t] {
-			keptB = append(keptB, r.ID)
-		} else {
-			out = append(out, core.DiffLine{Op: "+", Text: t})
-		}
+	for _, r := range added {
+		out = append(out, core.DiffLine{Op: "+", Text: ruleText(r)})
 	}
 	if !slices.Equal(keptA, keptB) {
 		out = append(out, core.DiffLine{Op: " ", Text: "rules reordered: " + strings.Join(keptB, ", ")})
@@ -88,23 +80,41 @@ func stateDiff(a, b logical) []core.DiffLine {
 
 // manualChanges returns the ids of the manual rules a change from a to b
 // removes or adds (spec 2.2: they need manual: true), in stateDiff's order.
+// An id appears once for each copy of the rule removed or added.
 func manualChanges(a, b logical) []string {
 	ra, rb := model.Merge(a.cfg.Rules4, a.cfg.Rules6), model.Merge(b.cfg.Rules4, b.cfg.Rules6)
-	inA, inB := ruleTexts(ra), ruleTexts(rb)
+	_, removed := unmatched(ra, rb)
+	_, added := unmatched(rb, ra)
 	var out []string
-	for _, f := range []struct {
-		rules []model.Rule
-		other map[string]bool
-	}{{ra, inB}, {rb, inA}} {
-		for _, r := range f.rules {
-			if r.Origin == model.OriginManual && !f.other[ruleText(r)] {
-				out = append(out, r.ID)
-			}
+	for _, r := range slices.Concat(removed, added) {
+		if r.Origin == model.OriginManual {
+			out = append(out, r.ID)
 		}
 	}
 	return out
 }
 
+// unmatched splits rules into the ids of those other also holds and the
+// rules it does not. Rules match by their whole text one copy to one copy:
+// identical manual rules share an id, so only a count shows that a change
+// adds or removes a copy, which changes which copy filters first.
+func unmatched(rules, other []model.Rule) (kept []string, rest []model.Rule) {
+	left := make(map[string]int, len(other))
+	for _, r := range other {
+		left[ruleText(r)]++
+	}
+	for _, r := range rules {
+		if t := ruleText(r); left[t] > 0 {
+			left[t]--
+			kept = append(kept, r.ID)
+		} else {
+			rest = append(rest, r)
+		}
+	}
+	return kept, rest
+}
+
+// ruleTexts is the set of the rules' texts; it does not count copies.
 func ruleTexts(rules []model.Rule) map[string]bool {
 	out := make(map[string]bool, len(rules))
 	for _, r := range rules {

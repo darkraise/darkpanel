@@ -106,3 +106,57 @@ func TestStateDiffManual(t *testing.T) {
 		t.Errorf("ruleText = %q, want %q", got, want)
 	}
 }
+
+// TestStateDiffDuplicates: rules match one copy to one copy, so adding or
+// removing a copy of a duplicated manual rule is a diff line and needs
+// manual: true (spec 2.2, 2.5), and moving which copy filters first is a
+// reordering; ruleTexts is a set and does not count copies.
+func TestStateDiffDuplicates(t *testing.T) {
+	h := newFakeHost(t)
+	once := h.state()
+	once.Rules4 = []string{fhRule22v4, fhRule3000v4}
+	a := dgLogical(t, h, once, nil)
+	twice := once
+	twice.Rules4 = []string{fhRule22v4, fhRule3000v4, fhRule3000v4}
+	b := dgLogical(t, h, twice, nil)
+	ahead := once
+	ahead.Rules4 = []string{fhRule3000v4, fhRule22v4, fhRule3000v4}
+	c := dgLogical(t, h, ahead, nil)
+
+	rb := model.Merge(b.cfg.Rules4, b.cfg.Rules6)
+	if n := len(rb); n != 3 {
+		t.Fatalf("merged rules of b = %d, want 3", n)
+	}
+	manual := rb[2]
+	if manual.Origin != model.OriginManual {
+		t.Fatalf("rule 2 is %s", manual.Origin)
+	}
+	text := ruleText(manual)
+
+	if got, want := stateDiff(b, a), []core.DiffLine{{Op: "-", Text: text}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("diff removing a copy\n%+v\nwant\n%+v", got, want)
+	}
+	if got, want := stateDiff(a, b), []core.DiffLine{{Op: "+", Text: text}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("diff adding a copy\n%+v\nwant\n%+v", got, want)
+	}
+	if got, want := manualChanges(b, a), []string{manual.ID}; !reflect.DeepEqual(got, want) {
+		t.Errorf("manualChanges removing a copy = %v, want %v", got, want)
+	}
+	if got, want := manualChanges(a, b), []string{manual.ID}; !reflect.DeepEqual(got, want) {
+		t.Errorf("manualChanges adding a copy = %v, want %v", got, want)
+	}
+
+	want := []core.DiffLine{
+		{Op: "-", Text: text},
+		{Op: " ", Text: "rules reordered: 01J00000000000000000000001, " + manual.ID},
+	}
+	if got := stateDiff(c, a); !reflect.DeepEqual(got, want) {
+		t.Errorf("diff dropping the copy ahead\n%+v\nwant\n%+v", got, want)
+	}
+	if got, want := manualChanges(c, a), []string{manual.ID}; !reflect.DeepEqual(got, want) {
+		t.Errorf("manualChanges dropping the copy ahead = %v, want %v", got, want)
+	}
+	if got := ruleTexts(rb); len(got) != 2 {
+		t.Errorf("ruleTexts = %v, want 2 texts", got)
+	}
+}
