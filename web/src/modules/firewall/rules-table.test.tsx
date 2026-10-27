@@ -1,4 +1,5 @@
-import { screen, waitFor, within } from "@testing-library/react"
+import { act, screen, waitFor, within } from "@testing-library/react"
+import { useQuery } from "@tanstack/react-query"
 import userEvent from "@testing-library/user-event"
 import { expect, test } from "vitest"
 import { axe } from "vitest-axe"
@@ -92,4 +93,27 @@ test("no rules is an empty state", () => {
 test("the rules table has no accessibility violations", async () => {
   rtRender()
   expect(await axe(screen.getByRole("table", { name: "Firewall rules" }))).toHaveNoViolations()
+})
+
+function RtLive() {
+  const rules = useQuery({ queryKey: ["rt-rules"], queryFn: () => fwStatus().rules, initialData: fwStatus().rules, staleTime: Infinity }).data
+  return <RulesTable hostId="h1" rules={rules} />
+}
+
+test("the delete dialog stays open when the last rule goes away", async () => {
+  stubFetch({
+    "GET /api/v1/hosts/h1/modules/firewall/availability": {
+      body: { module: "firewall", available: true, reason: null, actions: [{ name: "firewall.rule.delete", available: true, reason: null }] },
+    },
+    [RT_PLAN]: { body: rtPlan() },
+  })
+  const { client } = renderWithProviders(<RtLive />)
+  await userEvent.setup().click(screen.getByRole("button", { name: "Delete rule 1" }))
+  const dialog = await screen.findByRole("dialog")
+  await within(dialog).findByLabelText("Planned changes")
+  act(() => {
+    client.setQueryData(["rt-rules"], [])
+  })
+  expect((await screen.findByText("No rules")).textContent).toBe("No rules")
+  expect(screen.getByRole("dialog", { name: "Delete rule: allow in tcp from any to any port 443" })).toBe(dialog)
 })

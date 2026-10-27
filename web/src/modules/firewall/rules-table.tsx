@@ -64,8 +64,6 @@ export function RulesTable({ hostId, rules }: { hostId: string; rules: Rule[] })
   const [asking, setAsking] = useState<Rule | null>(null)
   const [deleting, setDeleting] = useState<{ rule: Rule; manual: boolean } | null>(null)
 
-  if (rules.length === 0) return <EmptyState title="No rules" description="UFW has no rules on this host." />
-
   function startDelete(rule: Rule) {
     if (rule.origin === "manual") setAsking(rule)
     else setDeleting({ rule, manual: false })
@@ -74,6 +72,9 @@ export function RulesTable({ hostId, rules }: { hostId: string; rules: Rule[] })
   const input = deleting === null ? null : deleting.manual ? { id: deleting.rule.id, manual: true } : { id: deleting.rule.id }
   return (
     <>
+      {rules.length === 0 ? (
+        <EmptyState title="No rules" description="UFW has no rules on this host." />
+      ) : (
       <Table aria-label="Firewall rules">
         <TableHeader>
           <TableRow>
@@ -131,6 +132,7 @@ export function RulesTable({ hostId, rules }: { hostId: string; rules: Rule[] })
           })}
         </TableBody>
       </Table>
+      )}
       <ManualConsent
         rule={asking}
         onCancel={() => setAsking(null)}
