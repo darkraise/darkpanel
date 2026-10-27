@@ -107,16 +107,6 @@ func newWalker(rs *netfilter.Ruleset, p fwstate.Packet, route fwstate.Router) (*
 	}, nil
 }
 
-// run walks the hooks the packet traverses.
-func (w *walker) run() fwstate.Result {
-	chain := map[string]string{"input": "INPUT", "forward": "FORWARD", "output": "OUTPUT"}[w.pkt.Path]
-	if w.hook("filter", chain) == final {
-		return w.res
-	}
-	w.res.Verdict = fwstate.Accept
-	return w.res
-}
-
 func (w *walker) stop(v fwstate.Verdict, reason string) outcome {
 	w.res.Verdict, w.res.Reason = v, reason
 	return final
@@ -198,7 +188,9 @@ func decides(tg netfilter.Target) bool {
 		return true
 	}
 	switch tg.Name {
-	case "", "LOG", "TCPMSS":
+	// SNAT and MASQUERADE run only in nat POSTROUTING, the last hook the
+	// walk visits, and in nat INPUT, which the walk refuses to model.
+	case "", "LOG", "TCPMSS", "SNAT", "MASQUERADE":
 		return false
 	}
 	return true
@@ -227,6 +219,8 @@ func (w *walker) target(t *netfilter.Table, r *netfilter.Rule, ref string, depth
 		return w.stop(fwstate.Reject, ref+" rejects")
 	case "RETURN":
 		return ret
+	case "DNAT", "SNAT", "MASQUERADE":
+		return w.natTarget(t, tg, ref)
 	}
 	return w.stop(fwstate.Unknown, ref+": target "+tg.Name+" is not modelled")
 }
