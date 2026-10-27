@@ -226,3 +226,18 @@ func sysUntouched(t *testing.T, root string) {
 		t.Fatal(err)
 	}
 }
+
+// TestSysctlRootMissing: a missing sysctl root (no /proc mounted) is an
+// error, never fs.ErrNotExist, so no caller reads it as every key gone.
+func TestSysctlRootMissing(t *testing.T) {
+	f, _ := fpFiles(t, FilesConfig{ProcSys: filepath.Join(t.TempDir(), "absent"), Owned: map[string][]core.OwnedPath{
+		"sys": {{Path: sysForward, Kind: core.OwnedSysctl, Pattern: `^[01]$`}},
+	}})
+	ctx := context.Background()
+	if _, err := f.ReadSysctl(ctx, "sys", sysForward); err == nil || errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("ReadSysctl under a missing root = %v; want an error that is not fs.ErrNotExist", err)
+	}
+	if err := f.WriteSysctl(ctx, "sys", sysForward, "1"); err == nil || errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("WriteSysctl under a missing root = %v; want an error that is not fs.ErrNotExist", err)
+	}
+}

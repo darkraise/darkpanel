@@ -138,7 +138,7 @@ func (f *Files) openProcSys() (int, error) {
 		Resolve: unix.RESOLVE_NO_SYMLINKS,
 	})
 	if err != nil {
-		return -1, fmt.Errorf("platform: open %s: %w", root, err)
+		return -1, fmt.Errorf("platform: open %s: %v", root, err) //nolint:errorlint // a missing sysctl root must not read as a missing key (fs.ErrNotExist)
 	}
 	if f.cfg.ProcSys == "" {
 		ok, err := isProcfs(fd)
