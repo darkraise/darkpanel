@@ -35,7 +35,7 @@ test("lists the snapshots newest first with the change each was taken before", a
   spRender()
   const table = await screen.findByRole("table", { name: "Firewall snapshots" })
   const rows = within(table).getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell").map((c) => c.textContent))
-  expect(rows).toEqual([
+  expect(rows.map((cells) => cells.slice(-5))).toEqual([
     [formatTime("2026-10-24T08:00:00Z"), "c2", "user:u1", "", "Restore"],
     [formatTime("2026-10-22T08:00:00Z"), "—", "system:firewall.reconcile", "system", "Restore"],
     [formatTime("2026-10-20T08:00:00Z"), "c0", "user:u1", "baselinepinned", "Restore"],

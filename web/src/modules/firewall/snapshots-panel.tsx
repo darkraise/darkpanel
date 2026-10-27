@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "d
 import { errorMessage, readResource } from "@/api/client"
 import { formatTime } from "@/lib/format"
 import { FirewallChange } from "./firewall-change"
+import { CompareDialog, type ComparePair } from "./snapshot-compare"
 import { FIREWALL_MODULE, snapshotsQueryKey, type SnapshotInfo, type SnapshotList } from "./types"
 
 function Flags({ s }: { s: SnapshotInfo }) {
@@ -92,6 +93,8 @@ export function SnapshotsPanel({ hostId }: { hostId: string }) {
   })
   const [asking, setAsking] = useState<SnapshotInfo | null>(null)
   const [restoring, setRestoring] = useState<{ id: string; manual: boolean } | null>(null)
+  const [selected, setSelected] = useState<string[]>([])
+  const [comparing, setComparing] = useState<ComparePair | null>(null)
 
   if (snapshots.isPending) return <Spinner aria-label="Loading the snapshots" />
   if (snapshots.isError) {
@@ -103,11 +106,32 @@ export function SnapshotsPanel({ hostId }: { hostId: string }) {
   }
   const list = [...snapshots.data.snapshots].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   if (list.length === 0) return <EmptyState title="No snapshots yet" description="The firewall takes a snapshot before every change." />
+
+  // At most two snapshots are selected; selecting a third drops the first.
+  function select(id: string, on: boolean) {
+    setSelected((cur) => (on ? [...cur.filter((x) => x !== id), id].slice(-2) : cur.filter((x) => x !== id)))
+  }
+
+  function compare() {
+    const chosen = list.filter((s) => selected.includes(s.id)).sort((x, y) => x.createdAt.localeCompare(y.createdAt))
+    const [a, b] = chosen
+    if (a !== undefined) setComparing({ a, b: b ?? null })
+  }
+
   return (
     <>
+      <div className="mb-2 flex items-center gap-2">
+        <Button variant="outline" size="sm" disabled={selected.length === 0} onClick={compare}>
+          {selected.length === 2 ? "Compare the two" : "Compare with now"}
+        </Button>
+        <span className="text-sm text-muted-foreground">Select one snapshot to compare with now, or two to compare with each other.</span>
+      </div>
       <Table aria-label="Firewall snapshots">
         <TableHeader>
           <TableRow>
+            <TableHead>
+              <span className="sr-only">Select</span>
+            </TableHead>
             <TableHead>Taken</TableHead>
             <TableHead>Before change</TableHead>
             <TableHead>Actor</TableHead>
@@ -120,6 +144,13 @@ export function SnapshotsPanel({ hostId }: { hostId: string }) {
         <TableBody>
           {list.map((s) => (
             <TableRow key={s.id}>
+              <TableCell>
+                <Checkbox
+                  aria-label={`Select the snapshot taken ${formatTime(s.createdAt)}`}
+                  checked={selected.includes(s.id)}
+                  onCheckedChange={(checked) => select(s.id, checked === true)}
+                />
+              </TableCell>
               <TableCell>{formatTime(s.createdAt)}</TableCell>
               <TableCell>
                 {s.changeId === undefined || s.changeId === "" ? (
@@ -158,6 +189,7 @@ export function SnapshotsPanel({ hostId }: { hostId: string }) {
         input={restoring === null ? null : restoring.manual ? { id: restoring.id, manual: true } : { id: restoring.id }}
         onClose={() => setRestoring(null)}
       />
+      <CompareDialog hostId={hostId} pair={comparing} onClose={() => setComparing(null)} />
     </>
   )
 }
