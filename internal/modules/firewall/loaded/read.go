@@ -40,11 +40,19 @@ type family struct {
 	fam   fwstate.Family
 	tool  string // "iptables" or "ip6tables"
 	names string // the procNet file listing the family's legacy tables
+	nft   string // the nftables family of iptables-nft's tables
 }
 
 var families = []family{
-	{fam: fwstate.V4, tool: "iptables", names: "ip_tables_names"},
-	{fam: fwstate.V6, tool: "ip6tables", names: "ip6_tables_names"},
+	{fam: fwstate.V4, tool: "iptables", names: "ip_tables_names", nft: "ip"},
+	{fam: fwstate.V6, tool: "ip6tables", names: "ip6_tables_names", nft: "ip6"},
+}
+
+// famState is what reading one family's own tables found.
+type famState struct {
+	f       family
+	variant string
+	rs      *netfilter.Ruleset
 }
 
 // Reader reads the loaded state of the host it runs on.
@@ -55,15 +63,19 @@ type Reader struct {
 
 // Read returns the loaded state: Variant from /usr/sbin/iptables --version,
 // V4 and V6 from that variant's save tools, and Unsupported naming what
-// makes the host unpredictable. A table the save tool does not print is
-// absent; ip6tables not being installed leaves V6 nil. Every other failure
-// to run or parse a tool is an error, never an empty firewall.
+// makes the host unpredictable, foreign netfilter hooks included. A table
+// the save tool does not print is absent; ip6tables not being installed
+// leaves V6 nil. Every other failure to run or parse a tool is an error,
+// never an empty firewall.
 func (r Reader) Read(ctx context.Context, env core.Env) (fwstate.Loaded, error) {
 	return r.read(ctx, env, procNet)
 }
 
 func (r Reader) read(ctx context.Context, env core.Env, procNet string) (fwstate.Loaded, error) {
-	var st fwstate.Loaded
+	var (
+		st   fwstate.Loaded
+		fams []famState
+	)
 	for _, f := range families {
 		v, ok, err := toolVariant(ctx, env.Exec, f.tool)
 		if err != nil {
@@ -79,12 +91,9 @@ func (r Reader) read(ctx context.Context, env core.Env, procNet string) (fwstate
 			st.Variant = v
 		} else if v != st.Variant {
 			st.Unsupported = append(st.Unsupported, fmt.Sprintf("ip6tables uses the %s variant but iptables uses the %s variant", v, st.Variant))
-			haveNFT := r.NFTablesLoaded
-			if haveNFT == nil {
-				haveNFT = func() bool {
-					_, statErr := os.Stat("/sys/module/nf_tables")
-					return statErr == nil
-				}
+			haveNFT := nfTablesLoaded
+			if r.NFTablesLoaded != nil {
+				haveNFT = r.NFTablesLoaded
 			}
 			// Under the legacy variant, ip6tables-nft-save would make the kernel
 			// load nf_tables; the host is unsupported already, so V6 stays nil.
@@ -112,7 +121,17 @@ func (r Reader) read(ctx context.Context, env core.Env, procNet string) (fwstate
 		} else {
 			st.V6 = rs
 		}
+		fams = append(fams, famState{f: f, variant: v, rs: rs})
 	}
+	nftLoaded := r.NFTablesLoaded
+	if nftLoaded == nil {
+		nftLoaded = nfTablesLoaded
+	}
+	reasons, err := foreign(ctx, env.Exec, procNet, nftLoaded(), fams)
+	if err != nil {
+		return fwstate.Loaded{}, err
+	}
+	st.Unsupported = append(st.Unsupported, reasons...)
 	return st, nil
 }
 

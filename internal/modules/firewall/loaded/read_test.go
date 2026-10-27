@@ -277,6 +277,7 @@ func TestReadLegacyWithNFTIPv6(t *testing.T) {
 	t.Run("nf_tables loaded", func(t *testing.T) {
 		x := ldGolden(t, "debian-12", "rules")
 		x.answers["/usr/sbin/iptables --version"] = ldResult{out: "iptables v1.8.9 (legacy)\n"}
+		x.answers["/usr/sbin/nft list tables"] = ldResult{}
 		r := ldReader()
 		r.NFTablesLoaded = func() bool { return true }
 		st, err := r.read(context.Background(), ldEnv(x, nil), t.TempDir())
@@ -286,7 +287,7 @@ func TestReadLegacyWithNFTIPv6(t *testing.T) {
 		if st.V6 == nil || len(st.V6.Tables) != len(netfilter.Tables()) {
 			t.Errorf("v6 %+v, want the five tables of ip6tables-nft-save", st.V6)
 		}
-		if len(x.calls) != 2+len(netfilter.Tables()) {
+		if len(x.calls) != 2+2*len(netfilter.Tables())+1 {
 			t.Errorf("%d commands: %q", len(x.calls), x.calls)
 		}
 	})
