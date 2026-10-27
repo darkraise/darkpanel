@@ -69,11 +69,21 @@ func (s markState) match(val, mask uint32, neg bool) tri {
 	return no
 }
 
+// noConn reports whether the packet has no connection: the kernel gives
+// INVALID and UNTRACKED packets none, so connmark never matches them,
+// negated or not, and CONNMARK leaves them alone.
+func (w *walker) noConn() bool {
+	return w.pkt.CtState == "INVALID" || w.pkt.CtState == "UNTRACKED"
+}
+
 // markMatch applies -m mark or -m connmark. It handles "!" itself, because
 // negating an assumed value is not the same as negating a decided one.
 func (w *walker) markMatch(m netfilter.Match) (tri, string) {
 	st := w.mark
 	if m.Module == "connmark" {
+		if w.noConn() {
+			return no, ""
+		}
 		st = w.conn
 	}
 	res, why := yes, ""
@@ -140,30 +150,29 @@ func (w *walker) markTarget(tg netfilter.Target, ref string) outcome {
 	if !ok {
 		return w.stop(fwstate.Unknown, ref+": target "+tg.Name+" with these options is not modelled")
 	}
+	if tg.Name == "CONNMARK" && w.noConn() {
+		return next
+	}
 	switch {
 	case tg.Name == "MARK":
 		w.mark = markState{val: w.mark.val&^sp.setMask ^ sp.setVal, ext: w.mark.ext &^ sp.setMask}
 	case sp.set:
 		w.conn = markState{val: w.conn.val&^sp.setMask ^ sp.setVal, ext: w.conn.ext &^ sp.setMask}
 	case sp.save:
-		w.conn = markState{
-			val: w.conn.val&^sp.ctmask ^ w.mark.val&sp.nfmask,
-			ext: w.conn.ext&^sp.ctmask | w.mark.ext&sp.nfmask,
-		}
+		w.conn = w.saved(sp)
 	default:
-		w.mark = markState{
-			val: w.mark.val&^sp.nfmask ^ w.conn.val&sp.ctmask,
-			ext: w.mark.ext&^sp.nfmask | w.conn.ext&sp.ctmask,
-		}
+		w.mark = w.restored(sp)
 	}
 	return next
 }
 
 // uncertainCopy handles a rule whose match the walk cannot decide and
 // whose target only copies one mark into the other, and reports whether it
-// did. Whether such a rule runs decides nothing by itself: the walk marks
-// the bits it may copy as unknown, so any later match that reads them is
-// undecidable in turn.
+// did. It absorbs the rule only when running it leaves the known value of
+// the mark it writes unchanged; the walk then marks the bits the copy may
+// bring in as unknown, so any later match that reads them is undecidable
+// in turn. A copy that could change a known bit is left to decides, which
+// makes the verdict unknown.
 func (w *walker) uncertainCopy(tg netfilter.Target) bool {
 	if tg.Name != "CONNMARK" || tg.Chain {
 		return false
@@ -172,10 +181,36 @@ func (w *walker) uncertainCopy(tg netfilter.Target) bool {
 	switch {
 	case !ok || sp.set:
 		return false
+	case w.noConn():
+		return true
 	case sp.save:
-		w.conn.ext |= sp.ctmask
+		ran := w.saved(sp)
+		if ran.val != w.conn.val {
+			return false
+		}
+		w.conn.ext |= ran.ext
 	default:
-		w.mark.ext |= sp.nfmask
+		ran := w.restored(sp)
+		if ran.val != w.mark.val {
+			return false
+		}
+		w.mark.ext |= ran.ext
 	}
 	return true
+}
+
+// saved is the connection mark after CONNMARK --save-mark.
+func (w *walker) saved(sp markSpec) markState {
+	return markState{
+		val: w.conn.val&^sp.ctmask ^ w.mark.val&sp.nfmask,
+		ext: w.conn.ext&^sp.ctmask | w.mark.ext&sp.nfmask,
+	}
+}
+
+// restored is the packet mark after CONNMARK --restore-mark.
+func (w *walker) restored(sp markSpec) markState {
+	return markState{
+		val: w.mark.val&^sp.nfmask ^ w.conn.val&sp.ctmask,
+		ext: w.mark.ext&^sp.nfmask | w.conn.ext&sp.ctmask,
+	}
 }

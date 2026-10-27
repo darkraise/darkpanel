@@ -229,6 +229,9 @@ func (w *walker) target(t *netfilter.Table, r *netfilter.Rule, ref string, depth
 	case "DNAT", "SNAT", "MASQUERADE":
 		return w.natTarget(t, tg, ref)
 	case "MARK", "CONNMARK":
+		if tg.Name == "CONNMARK" && t.Name == "raw" {
+			return w.stop(fwstate.Unknown, ref+": target CONNMARK in the raw table runs before connection tracking")
+		}
 		return w.markTarget(tg, ref)
 	}
 	return w.stop(fwstate.Unknown, ref+": target "+tg.Name+" is not modelled")

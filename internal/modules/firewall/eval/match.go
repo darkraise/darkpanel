@@ -55,6 +55,9 @@ func (w *walker) module(t *netfilter.Table, m netfilter.Match) (tri, string) {
 	case "addrtype":
 		return w.options(m, w.addrtypeOption)
 	case "mark", "connmark":
+		if m.Module == "connmark" && t.Name == "raw" {
+			return maybe, "the raw table runs before connection tracking"
+		}
 		return w.markMatch(m)
 	case "rt":
 		// The packets the guard evaluates carry no IPv6 extension headers,

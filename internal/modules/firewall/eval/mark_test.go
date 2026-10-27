@@ -62,6 +62,36 @@ func (r *markRouter) route(p fwstate.Packet) (string, string, error) {
 	return p.Path, p.OutIface, nil
 }
 
+// markUntracked accepts on the connection mark, negated or not; a packet
+// without a connection matches neither, and the CONNMARK rule leaves it alone.
+const markUntracked = `*mangle
+:PREROUTING ACCEPT [0:0]
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+-A PREROUTING -j CONNMARK --set-xmark 0x7/0xff
+COMMIT
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -m connmark --mark 0x0/0xff -j ACCEPT
+-A INPUT -m connmark ! --mark 0x0/0xff -j ACCEPT
+COMMIT
+`
+
+func TestEvaluateMarkWithoutConnection(t *testing.T) {
+	rs := evalRuleset(t, markUntracked)
+	for _, st := range []string{"UNTRACKED", "INVALID"} {
+		t.Run(st, func(t *testing.T) {
+			p := evalPacket()
+			p.CtState = st
+			evalCheck(t, Evaluate(rs, p, nil), fwstate.Drop, []string{"mangle/PREROUTING#1"}, "filter/INPUT policy DROP")
+		})
+	}
+}
+
 func TestEvaluateMarks(t *testing.T) {
 	in := evalRuleset(t, markIncoming)
 	out := evalRuleset(t, markOutgoing)
@@ -204,6 +234,29 @@ func TestEvaluateMarks(t *testing.T) {
 	}
 }
 
+const markRaw = `*raw
+:PREROUTING ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+-A PREROUTING -i wg3 -m connmark --mark 0x0/0xff -j ACCEPT
+-A PREROUTING -i wg3 -j DROP
+-A PREROUTING -i wg4 -j CONNMARK --set-xmark 0x100/0xff00
+COMMIT
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+COMMIT
+`
+
+func TestEvaluateMarkRaw(t *testing.T) {
+	rs := evalRuleset(t, markRaw)
+	p := evalPacket()
+	p.InIface = "wg3"
+	evalCheck(t, Evaluate(rs, p, nil), fwstate.Unknown, nil, "raw/PREROUTING#1: the raw table runs before connection tracking")
+	p.InIface = "wg4"
+	evalCheck(t, Evaluate(rs, p, nil), fwstate.Unknown, nil, "raw/PREROUTING#3: target CONNMARK in the raw table runs before connection tracking")
+}
+
 func TestEvaluateMarkReroutes(t *testing.T) {
 	r := &markRouter{}
 	p := evalPacket()
@@ -225,4 +278,37 @@ func TestEvaluateMarkReroutes(t *testing.T) {
 	p.InIface = "wg0"
 	evalCheck(t, Evaluate(evalRuleset(t, markIncoming), p, nil), fwstate.Unknown, nil,
 		"the mark was changed to 0x100 and no router was given")
+}
+
+// markUncertain puts a CONNMARK restore and save behind a match the walk
+// cannot decide; each would overwrite a known bit if it ran.
+const markUncertain = `*mangle
+:PREROUTING ACCEPT [0:0]
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+-A PREROUTING -i wg0 -j MARK --set-xmark 0x100/0xff00
+-A PREROUTING -i wg0 -m statistic --mode random --probability 0.5 -j CONNMARK --restore-mark --nfmask 0xff00 --ctmask 0xff00
+-A PREROUTING -i wg1 -j CONNMARK --set-xmark 0x100/0xff00
+-A PREROUTING -i wg1 -m statistic --mode random --probability 0.5 -j CONNMARK --save-mark --nfmask 0xff00 --ctmask 0xff00
+COMMIT
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -m mark --mark 0x100/0xff00 -j ACCEPT
+-A INPUT -m connmark --mark 0x100/0xff00 -j ACCEPT
+COMMIT
+`
+
+func TestEvaluateMarkUncertainCopy(t *testing.T) {
+	rs := evalRuleset(t, markUncertain)
+	for iface, ref := range map[string]string{"wg0": "mangle/PREROUTING#2", "wg1": "mangle/PREROUTING#4"} {
+		t.Run(iface, func(t *testing.T) {
+			p := evalPacket()
+			p.InIface = iface
+			evalCheck(t, Evaluate(rs, p, nil), fwstate.Unknown, nil, ref+": match statistic depends on rates or earlier packets")
+		})
+	}
 }
