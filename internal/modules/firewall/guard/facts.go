@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"strconv"
 
@@ -59,17 +60,19 @@ func (LiveHost) PID() int { return os.Getpid() }
 // facts are the live facts one guard check uses.
 type facts struct {
 	sockets    []netstat.Socket
-	ifaces     []netstat.Interface
-	rpFilter   map[string]int // live net/ipv4/conf/<name>/rp_filter for "all" and every up, non-loopback interface
-	controller int            // MainPID of a running local darkpanel-controller.service; 0 when none
-	pid        int            // the agent's own process id
+	ifaces     []netstat.Interface // without an interface that vanished before its rp_filter read
+	rpFilter   map[string]int      // live net/ipv4/conf/<name>/rp_filter for "all" and every up, non-loopback interface
+	controller int                 // MainPID of a running local darkpanel-controller.service; 0 when none
+	pid        int                 // the agent's own process id
 }
 
 // gatherFacts reads the socket table, the interfaces, the live rp_filter
 // values and the local controller's main process. Any read that fails is an
 // error, so a guard never passes on facts it could not read; in particular a
 // proc root without socket tables (netstat.ErrNoSocketTables) is not a host
-// without sessions.
+// without sessions. The one exception is an interface whose rp_filter key
+// no longer exists: it vanished after the interfaces were listed, so no
+// packet can arrive on it, and it is left out.
 func gatherFacts(ctx context.Context, env core.Env, h Host) (facts, error) {
 	if env.Files == nil || env.Units == nil {
 		return facts{}, errors.New("firewall: the guard needs the file writer and the unit client")
@@ -82,24 +85,22 @@ func gatherFacts(ctx context.Context, env core.Env, h Host) (facts, error) {
 	if err != nil {
 		return facts{}, fmt.Errorf("firewall: read the interfaces: %w", err)
 	}
-	f := facts{sockets: socks, ifaces: ifaces, rpFilter: map[string]int{}, pid: h.PID()}
-	names := []string{"all"}
+	f := facts{sockets: socks, rpFilter: map[string]int{}, pid: h.PID()}
+	if f.rpFilter["all"], err = readRPFilter(ctx, env, "all"); err != nil {
+		return facts{}, err
+	}
 	for _, i := range ifaces {
 		if i.Up && !i.Loopback {
-			names = append(names, i.Name)
+			n, err := readRPFilter(ctx, env, i.Name)
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			if err != nil {
+				return facts{}, err
+			}
+			f.rpFilter[i.Name] = n
 		}
-	}
-	for _, name := range names {
-		key := "net/ipv4/conf/" + name + "/rp_filter"
-		v, err := env.Files.ReadSysctl(ctx, moduleID, key)
-		if err != nil {
-			return facts{}, fmt.Errorf("firewall: read %s: %w", key, err)
-		}
-		n, err := strconv.Atoi(v)
-		if err != nil {
-			return facts{}, fmt.Errorf("firewall: %s is %q, not a number", key, v)
-		}
-		f.rpFilter[name] = n
+		f.ifaces = append(f.ifaces, i)
 	}
 	st, err := env.Units.State(ctx, controllerUnit)
 	if err != nil {
@@ -109,4 +110,19 @@ func gatherFacts(ctx context.Context, env core.Env, h Host) (facts, error) {
 		f.controller = int(st.MainPID)
 	}
 	return f, nil
+}
+
+// readRPFilter reads the live net/ipv4/conf/<name>/rp_filter. A read error
+// is wrapped, so a key that does not exist still matches fs.ErrNotExist.
+func readRPFilter(ctx context.Context, env core.Env, name string) (int, error) {
+	key := "net/ipv4/conf/" + name + "/rp_filter"
+	v, err := env.Files.ReadSysctl(ctx, moduleID, key)
+	if err != nil {
+		return 0, fmt.Errorf("firewall: read %s: %w", key, err)
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, fmt.Errorf("firewall: %s is %q, not a number", key, v)
+	}
+	return n, nil
 }

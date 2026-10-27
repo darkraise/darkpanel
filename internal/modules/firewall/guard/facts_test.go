@@ -3,9 +3,11 @@ package guard
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/netip"
 	"os"
 	"reflect"
+	"syscall"
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -42,17 +44,21 @@ func (h *gHost) RouteGet(q netstat.RouteQuery) (netstat.Route, error) {
 
 func (h *gHost) PID() int { return h.pid }
 
-// gFiles is the fake FileWriter: it answers ReadSysctl from sysctl and
-// panics on any other method.
+// gFiles is the fake FileWriter: it answers ReadSysctl from errs, then
+// sysctl, and panics on any other method.
 type gFiles struct {
 	core.FileWriter
 	sysctl map[string]string
 	err    error
+	errs   map[string]error // per key, checked before err
 	reads  []string
 }
 
 func (f *gFiles) ReadSysctl(_ context.Context, module, key string) (string, error) {
 	f.reads = append(f.reads, module+" "+key)
+	if err, ok := f.errs[key]; ok {
+		return "", err
+	}
 	if f.err != nil {
 		return "", f.err
 	}
@@ -189,6 +195,41 @@ func TestGatherFactsBadSysctl(t *testing.T) {
 	files.sysctl["net/ipv4/conf/eth0/rp_filter"] = "strict"
 	if _, err := gatherFacts(context.Background(), env, &gHost{ifaces: gIfaces()}); err == nil {
 		t.Fatal("gatherFacts accepted a non-numeric rp_filter")
+	}
+}
+
+func TestGatherFactsVanishedInterface(t *testing.T) {
+	gone := func(key string) error { return fmt.Errorf("platform: open sysctl %s: %w", key, syscall.ENOENT) }
+	env, files, _ := gEnv()
+	files.errs = map[string]error{"net/ipv4/conf/eth1/rp_filter": gone("net/ipv4/conf/eth1/rp_filter")}
+	got, err := gatherFacts(context.Background(), env, &gHost{ifaces: gIfaces()})
+	if err != nil {
+		t.Fatalf("an interface that vanished before its rp_filter read: %v", err)
+	}
+	var names []string
+	for _, i := range got.ifaces {
+		names = append(names, i.Name)
+	}
+	if !reflect.DeepEqual(names, []string{"lo", "eth0", "eth2"}) {
+		t.Errorf("interfaces = %q, want eth1 dropped", names)
+	}
+	if !reflect.DeepEqual(got.rpFilter, map[string]int{"all": 0, "eth0": 0}) {
+		t.Errorf("rpFilter = %v, want no eth1", got.rpFilter)
+	}
+	for _, tc := range []struct {
+		name string
+		errs map[string]error
+	}{
+		{"all is missing", map[string]error{"net/ipv4/conf/all/rp_filter": gone("net/ipv4/conf/all/rp_filter")}},
+		{"an interface is unreadable otherwise", map[string]error{"net/ipv4/conf/eth1/rp_filter": syscall.EACCES}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env, files, _ := gEnv()
+			files.errs = tc.errs
+			if _, err := gatherFacts(context.Background(), env, &gHost{ifaces: gIfaces()}); err == nil {
+				t.Fatal("gatherFacts succeeded")
+			}
+		})
 	}
 }
 

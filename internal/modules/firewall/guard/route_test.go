@@ -206,6 +206,51 @@ func TestProbes(t *testing.T) {
 	}
 }
 
+func TestProbesTailscaleSource(t *testing.T) {
+	ts := func(up bool) netstat.Interface {
+		return netstat.Interface{Index: 5, Name: "tailscale0", Up: up, Running: up, Addrs: []netip.Prefix{netip.MustParsePrefix("100.101.1.1/32")}}
+	}
+	withTS := func(up bool) facts {
+		f := rtFacts(1, 0, 0)
+		f.ifaces = append(f.ifaces, ts(up))
+		f.rpFilter["tailscale0"] = 0
+		return f
+	}
+	tsSSH4 := flPkt("input", "100.101.1.2", 50000, "100.101.1.1", 22, "tcp")
+	tsSSH6 := flPkt("input", "fd7a:115c:a1e0::5", 50001, "2001:db8::1", 22, "tcp")
+	ssh4 := flPkt("input", "203.0.113.7", 50000, "192.0.2.1", 22, "tcp")
+	for _, tc := range []struct {
+		name string
+		p    fwstate.Packet
+		f    facts
+		want []string
+	}{
+		{"an IPv4 tailnet source only on tailscale0", tsSSH4, withTS(true), []string{"tailscale0"}},
+		{"an IPv6 tailnet source only on tailscale0", tsSSH6, withTS(true), []string{"tailscale0"}},
+		{"tailscale0 down keeps the normal rule", tsSSH4, withTS(false), []string{"eth0"}},
+		{"no tailscale0 keeps the normal rule", tsSSH4, rtFacts(1, 0, 0), []string{"eth0"}},
+		{"another source is not limited to tailscale0", ssh4, withTS(true), []string{"eth0"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := &gHost{routes: map[netstat.RouteQuery]netstat.Route{
+				rtQuery("100.101.1.2", "100.101.1.1", ""): rtVia("eth0", ""),
+				rtQuery("100.101.1.2", "", ""):            rtVia("eth0", ""),
+				rtQuery("203.0.113.7", "192.0.2.1", ""):   rtVia("eth0", ""),
+			}}
+			var got []string
+			for _, pr := range newRouter(h, tc.f, fwstate.Loaded{}).probes(flow{label: "ssh", pkt: tc.p}) {
+				if pr.unknown != "" {
+					t.Fatalf("unknown probe: %s", pr.unknown)
+				}
+				got = append(got, pr.pkt.InIface)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("in-interfaces = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRouterRoute(t *testing.T) {
 	fwd := flOn("eth0", flPkt("input", "198.51.100.1", 49152, "172.17.0.2", 80, "tcp"))
 	out := flPkt("output", "192.0.2.1", 40100, "198.51.100.9", 7443, "tcp")

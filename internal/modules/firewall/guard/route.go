@@ -17,6 +17,14 @@ type probe struct {
 	unknown string         // non-empty: not evaluated, and why
 }
 
+// tailnetIface is tailscaled's interface, and tailnetRanges are the
+// address ranges it assigns. tailscaled's ts-input chain drops a packet from
+// these ranges on every other interface, so such a source can reach this
+// host only through tailnetIface.
+const tailnetIface = "tailscale0"
+
+var tailnetRanges = []netip.Prefix{netip.MustParsePrefix("100.64.0.0/10"), netip.MustParsePrefix("fd7a:115c:a1e0::/48")}
+
 // router places flows on this host's interfaces and routes. Its route
 // method is the fwstate.Router the evaluator calls.
 type router struct {
@@ -118,8 +126,12 @@ func (r *router) probes(fl flow) []probe {
 // eligible lists the in-interfaces an incoming packet may arrive on: every
 // up, non-loopback interface, except that for IPv4 an interface under
 // strict reverse-path filtering takes only packets whose route back to the
-// source leaves through it.
+// source leaves through it. A source in a tailnet range arrives only on
+// tailscale0 while that interface is up.
 func (r *router) eligible(p fwstate.Packet) ([]string, error) {
+	if r.fromTailnet(p.Src) {
+		return []string{tailnetIface}, nil
+	}
 	var out []string
 	back := ""
 	looked := false
@@ -152,6 +164,23 @@ func (r *router) eligible(p fwstate.Packet) ([]string, error) {
 		out = append(out, i.Name)
 	}
 	return out, nil
+}
+
+// fromTailnet reports whether src is a tailnet address and tailscale0 is up.
+func (r *router) fromTailnet(src netip.Addr) bool {
+	in := false
+	for _, p := range tailnetRanges {
+		in = in || p.Contains(src.Unmap())
+	}
+	if !in {
+		return false
+	}
+	for _, i := range r.f.ifaces {
+		if i.Name == tailnetIface && i.Up {
+			return true
+		}
+	}
+	return false
 }
 
 // rpFilter is an interface's effective rp_filter: the larger of all's and
