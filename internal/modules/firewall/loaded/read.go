@@ -62,11 +62,11 @@ type Reader struct {
 }
 
 // Read returns the loaded state: Variant from /usr/sbin/iptables --version,
-// V4 and V6 from that variant's save tools, and Unsupported naming what
-// makes the host unpredictable, foreign netfilter hooks included. A table
-// the save tool does not print is absent; ip6tables not being installed
-// leaves V6 nil. Every other failure to run or parse a tool is an error,
-// never an empty firewall.
+// V4 and V6 from that variant's save tools, Sysctl from env.Files, and
+// Unsupported naming what makes the host unpredictable, foreign netfilter
+// hooks included. A table the save tool does not print is absent;
+// ip6tables not being installed leaves V6 nil. Every other failure to run
+// or parse a tool or to read a value is an error, never an empty firewall.
 func (r Reader) Read(ctx context.Context, env core.Env) (fwstate.Loaded, error) {
 	return r.read(ctx, env, procNet)
 }
@@ -132,6 +132,19 @@ func (r Reader) read(ctx context.Context, env core.Env, procNet string) (fwstate
 		return fwstate.Loaded{}, err
 	}
 	st.Unsupported = append(st.Unsupported, reasons...)
+	interfaces := r.Interfaces
+	if interfaces == nil {
+		interfaces = netstat.Interfaces
+	}
+	ifaces, err := interfaces()
+	if err != nil {
+		return fwstate.Loaded{}, fmt.Errorf("loaded: %w", err)
+	}
+	keys, reasons := sysctlKeys(ifaces)
+	st.Unsupported = append(st.Unsupported, reasons...)
+	if st.Sysctl, err = readSysctl(ctx, env.Files, keys); err != nil {
+		return fwstate.Loaded{}, err
+	}
 	return st, nil
 }
 
