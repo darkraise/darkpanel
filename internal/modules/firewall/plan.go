@@ -70,7 +70,8 @@ func (f fw) prepare(ctx context.Context, env core.Env, build buildFunc) (prepare
 }
 
 // plan is the plan of every mutating firewall action (spec 2.1-2.3). After
-// prepare it refuses a change of manual rules without manual: true
+// prepare it refuses a rule add that ufw would turn into a replacement
+// (request.invalid_input) and a change of manual rules without manual: true
 // (firewall.manual_required); lists every change of the logical state
 // (R39) and, on a host out of sync with its configuration, each differing
 // chain; reports the lockout guard; and hashes the input with the state it
@@ -83,6 +84,9 @@ func (f fw) prepare(ctx context.Context, env core.Env, build buildFunc) (prepare
 func (f fw) plan(ctx context.Context, env core.Env, req planReq) (core.PlanOutcome, error) {
 	p, err := f.prepare(ctx, env, req.build)
 	if err != nil {
+		return core.PlanOutcome{}, err
+	}
+	if err := f.replacingAdd(p.cfg0, p.c.ops); err != nil {
 		return core.PlanOutcome{}, err
 	}
 	diffs, err := f.syncDiffs(p.cfg0, p.cur)
@@ -107,6 +111,33 @@ func (f fw) plan(ctx context.Context, env core.Env, req planReq) (core.PlanOutco
 		return core.PlanOutcome{}, err
 	}
 	return out, nil
+}
+
+// replacingAdd refuses a rule add that ufw would turn into a replacement
+// of an existing rule differing only in action, log type or comment: the
+// check runUfw makes before Apply journals the add, here on each command's
+// predicted edit, so the plan shows the refusal Apply would raise.
+func (f fw) replacingAdd(cfg fwstate.Config, ops []ufwOp) error {
+	for _, op := range ops {
+		next, err := f.d.edit(cfg, op.Args)
+		if err != nil {
+			return fmt.Errorf("firewall: predict ufw %s: %w", strings.Join(op.Args, " "), err)
+		}
+		if op.Kind == core.EffectCreate {
+			_, id, err := splitResource(op.Resource)
+			if err != nil {
+				return err
+			}
+			if len(next.Rules4)-len(cfg.Rules4) != taggedTuples(next.Rules4, id) ||
+				len(next.Rules6)-len(cfg.Rules6) != taggedTuples(next.Rules6, id) {
+				return errcode.New(errcode.InvalidInput, fmt.Sprintf(
+					"ufw %s would replace an existing rule that differs only in action, log type or comment; delete that rule first",
+					strings.Join(op.Args, " ")))
+			}
+		}
+		cfg = next
+	}
+	return nil
 }
 
 // planGuard is the lockout guard of a plan.

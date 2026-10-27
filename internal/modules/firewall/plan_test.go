@@ -167,6 +167,28 @@ func TestPlanRefusals(t *testing.T) {
 	}
 }
 
+// TestPlanReplacingAdd: an add that ufw would turn into a replacement of a
+// rule differing only in action, log type or comment is refused at plan
+// time, as Apply would refuse it.
+func TestPlanReplacingAdd(t *testing.T) {
+	ctx := context.Background()
+	h, f, stub := pnHost(t)
+	s := h.state()
+	s.Rules4, s.Rules6 = []string{strings.Replace(fhRule22v4, "allow tcp 22", "deny tcp 80", 1), fhRule3000v4}, nil
+	h.setState(s)
+	h.ufw[strings.Join(model.AddArgs(pnRule), " ")] = func(s *fhState) int {
+		s.Rules4[0] = "### tuple ### allow tcp 80 0.0.0.0/0 any 0.0.0.0/0 in comment=" + hex.EncodeToString([]byte(model.Tag(planRuleID, "")))
+		return 0
+	}
+	_, err := f.plan(ctx, h.env(), pnReq(t, core.Guarded{Overrides: []string{guard.GuardID}}))
+	if e := errcode.From(err); e.Code != errcode.InvalidInput || !strings.Contains(e.Detail, "would replace an existing rule") {
+		t.Errorf("plan = %v, want the replacement refused", err)
+	}
+	if len(stub.inputs) != 0 {
+		t.Errorf("guard checked %d times, want none", len(stub.inputs))
+	}
+}
+
 // TestPlanOutOfSync: an out-of-sync host shows the differing chains and
 // fails the guard as a hard refusal that overrides cannot pass, except for
 // a repair whose difference is confined to UFW's and Darkpanel's chains,
