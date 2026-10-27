@@ -1,0 +1,2 @@
+docker 28.5.2
+iptables v1.8.11 (nf_tables)
