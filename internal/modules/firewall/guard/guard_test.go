@@ -35,11 +35,24 @@ func ckEval(t *testing.T, deny func(p fwstate.Packet) bool) func(*netfilter.Rule
 	}
 }
 
+// ckEnv is gEnv with rp_filter 0 for the dp-panel bridge of ckIfaces too.
+func ckEnv() (core.Env, *gFiles, *gUnits) {
+	env, files, units := gEnv()
+	files.sysctl["net/ipv4/conf/dp-panel/rp_filter"] = "0"
+	return env, files, units
+}
+
+// ckIfaces are gIfaces with the controller's up dp-panel bridge.
+func ckIfaces() []netstat.Interface {
+	return append(gIfaces(), netstat.Interface{Index: 6, Name: "dp-panel", Up: true, Running: true,
+		Addrs: []netip.Prefix{netip.MustParsePrefix("172.30.0.1/16")}})
+}
+
 // ckHost is a host with an SSH session, a running local controller, the
 // agent's own link to a controller, and tailscaled.
 func ckHost() *gHost {
 	return &gHost{
-		ifaces: gIfaces(),
+		ifaces: ckIfaces(),
 		pid:    99,
 		sockets: []netstat.Socket{
 			flSock(netstat.ProtoTCP, netstat.StateListen, "0.0.0.0:22", "", "sshd", 10),
@@ -79,14 +92,17 @@ func ckInput(t *testing.T, deny func(p fwstate.Packet) bool) Input {
 var ckAllFlows = []string{
 	"ssh from 203.0.113.7 to 192.0.2.1:22 on eth0",
 	"ssh from 203.0.113.7 to 192.0.2.1:22 on eth1",
+	"ssh from 203.0.113.7 to 192.0.2.1:22 on dp-panel",
 	"panel from 203.0.113.7 to 192.0.2.1:443 on eth0",
 	"panel from 203.0.113.7 to 192.0.2.1:443 on eth1",
+	"panel from 203.0.113.7 to 192.0.2.1:443 on dp-panel",
 	"exposure exp2 proxy from 172.30.0.3 to 172.30.0.1:8080 on dp-panel",
 	"exposure exp2 tunnel udp from 172.30.0.3 to 198.51.100.1:7844 on dp-panel out eth0",
 	"exposure exp2 tunnel from 172.30.0.3 to 198.51.100.1:7844 on dp-panel out eth0",
 	"exposure exp2 tunnel from 172.30.0.3 to 198.51.100.1:443 on dp-panel out eth0",
 	"agent link from 198.51.100.7 to 192.0.2.1:7443 on eth0",
 	"agent link from 198.51.100.7 to 192.0.2.1:7443 on eth1",
+	"agent link from 198.51.100.7 to 192.0.2.1:7443 on dp-panel",
 	"controller link from 192.0.2.1 to 198.51.100.9:7443 out eth0",
 	"tailscale udp from 192.0.2.1 to 198.51.100.1:41641 out eth0",
 	"tailscale from 192.0.2.1 to 198.51.100.1:443 out eth0",
@@ -109,7 +125,7 @@ func ckFailing(results []FlowResult) []string {
 }
 
 func TestCheckAllPass(t *testing.T) {
-	env, _, _ := gEnv()
+	env, _, _ := ckEnv()
 	ckRunning(env)
 	g, results, err := Checker{Host: ckHost()}.Check(context.Background(), env, ckState(), ckInput(t, nil))
 	if err != nil {
@@ -122,7 +138,7 @@ func TestCheckAllPass(t *testing.T) {
 	if !reflect.DeepEqual(flows, ckAllFlows) {
 		t.Errorf("flows =\n%q\nwant\n%q", flows, ckAllFlows)
 	}
-	want := core.Guard{ID: "firewall.lockout", OK: true, Message: "every protected flow passes (13 checked)"}
+	want := core.Guard{ID: "firewall.lockout", OK: true, Message: "every protected flow passes (16 checked)"}
 	if g != want {
 		t.Errorf("guard = %+v, want %+v", g, want)
 	}
@@ -134,16 +150,23 @@ func TestCheckEachFlowRefusingAlone(t *testing.T) {
 		deny func(p fwstate.Packet) bool
 		want []string
 	}{
-		{"ssh", func(p fwstate.Packet) bool { return p.DstPort == 22 }, ckAllFlows[0:2]},
-		{"panel on one interface", func(p fwstate.Packet) bool { return p.DstPort == 443 && p.InIface == "eth1" }, ckAllFlows[3:4]},
-		{"exposure proxy", func(p fwstate.Packet) bool { return p.DstPort == 8080 }, ckAllFlows[4:5]},
-		{"tunnel over udp", func(p fwstate.Packet) bool { return p.DstPort == 7844 && p.Proto == "udp" }, ckAllFlows[5:6]},
-		{"agent link", func(p fwstate.Packet) bool { return p.DstPort == 7443 && p.Path == "input" }, ckAllFlows[8:10]},
-		{"controller link", func(p fwstate.Packet) bool { return p.DstPort == 7443 && p.Path == "output" }, ckAllFlows[10:11]},
-		{"tailscale", func(p fwstate.Packet) bool { return p.DstPort == 41641 }, ckAllFlows[11:12]},
+		{"ssh", func(p fwstate.Packet) bool { return p.DstPort == 22 }, ckAllFlows[0:3]},
+		{"panel on one interface", func(p fwstate.Packet) bool { return p.DstPort == 443 && p.InIface == "eth1" }, ckAllFlows[4:5]},
+		{"exposure proxy", func(p fwstate.Packet) bool { return p.DstPort == 8080 }, ckAllFlows[6:7]},
+		{"tunnel over udp", func(p fwstate.Packet) bool { return p.DstPort == 7844 && p.Proto == "udp" }, ckAllFlows[7:8]},
+		{"agent link", func(p fwstate.Packet) bool { return p.DstPort == 7443 && p.Path == "input" }, ckAllFlows[10:13]},
+		{"controller link", func(p fwstate.Packet) bool { return p.DstPort == 7443 && p.Path == "output" }, ckAllFlows[13:14]},
+		{"tailscale", func(p fwstate.Packet) bool { return p.DstPort == 41641 }, ckAllFlows[14:15]},
+		{"a new connection has no source port", func(p fwstate.Packet) bool {
+			observed := p.Path == "output" && (p.Proto == "udp" || p.DstPort == 7443)
+			return p.SrcPort != 0 && !observed
+		}, nil},
+		{"an observed source port is kept", func(p fwstate.Packet) bool {
+			return p.Path == "output" && (p.Proto == "udp" && p.SrcPort != 41641 || p.DstPort == 7443 && p.SrcPort != 40100)
+		}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			env, _, _ := gEnv()
+			env, _, _ := ckEnv()
 			ckRunning(env)
 			g, results, err := Checker{Host: ckHost()}.Check(context.Background(), env, ckState(), ckInput(t, tc.deny))
 			if err != nil {
@@ -157,6 +180,9 @@ func TestCheckEachFlowRefusingAlone(t *testing.T) {
 				parts[i] = f + ": drop (filter/ufw-user-input#1)"
 			}
 			want := core.Guard{ID: "firewall.lockout", Message: "the change would cut " + strings.Join(parts, "; ")}
+			if len(tc.want) == 0 {
+				want = core.Guard{ID: "firewall.lockout", OK: true, Message: "every protected flow passes (16 checked)"}
+			}
 			if g != want {
 				t.Errorf("guard = %+v\nwant %+v", g, want)
 			}
@@ -171,7 +197,7 @@ func TestCheckStrictRPFilter(t *testing.T) {
 			rtQuery("203.0.113.7", "192.0.2.1", ""): rtVia("eth0", "192.0.2.1"),
 		}}
 	}
-	env, files, _ := gEnv()
+	env, files, _ := ckEnv()
 	g, _, err := Checker{Host: host()}.Check(context.Background(), env, ckState(), Input{Eval: ckEval(t, denyEth1)})
 	if err != nil {
 		t.Fatal(err)
@@ -190,7 +216,7 @@ func TestCheckStrictRPFilter(t *testing.T) {
 }
 
 func TestCheckUnresolvableRoute(t *testing.T) {
-	env, _, _ := gEnv()
+	env, _, _ := ckEnv()
 	ckRunning(env)
 	h := ckHost()
 	delete(h.routes, rtQuery("198.51.100.9", "192.0.2.1", ""))
@@ -208,7 +234,7 @@ func TestCheckUnresolvableRoute(t *testing.T) {
 }
 
 func TestCheckIncompleteTopology(t *testing.T) {
-	env, _, _ := gEnv()
+	env, _, _ := ckEnv()
 	ckRunning(env)
 	in := ckInput(t, nil)
 	in.Plan.Complete = false
@@ -226,12 +252,12 @@ func TestCheckIncompleteTopology(t *testing.T) {
 }
 
 func TestCheckBreakGlass(t *testing.T) {
-	env, _, _ := gEnv()
+	env, _, _ := ckEnv()
 	g, results, err := Checker{Host: ckHost()}.Check(context.Background(), env, ckState(), Input{Eval: ckEval(t, nil)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{ckAllFlows[0], ckAllFlows[1], ckAllFlows[10], ckAllFlows[11], ckAllFlows[12]}
+	want := []string{ckAllFlows[0], ckAllFlows[1], ckAllFlows[2], ckAllFlows[13], ckAllFlows[14], ckAllFlows[15]}
 	var got []string
 	for _, r := range results {
 		got = append(got, r.Flow)
@@ -242,7 +268,7 @@ func TestCheckBreakGlass(t *testing.T) {
 }
 
 func TestCheckRetiredVia(t *testing.T) {
-	env, _, _ := gEnv()
+	env, _, _ := ckEnv()
 	ckRunning(env)
 	in := ckInput(t, func(p fwstate.Packet) bool { return p.DstPort == 8080 || p.DstPort == 7844 })
 	in.Retired = []string{"exp2"}
@@ -261,7 +287,7 @@ func TestCheckRetiredVia(t *testing.T) {
 }
 
 func TestCheckNoIPv6Ruleset(t *testing.T) {
-	env, _, _ := gEnv()
+	env, _, _ := ckEnv()
 	h := &gHost{ifaces: gIfaces(), sockets: []netstat.Socket{
 		flSock(netstat.ProtoTCP, netstat.StateListen, "[::]:22", "", "sshd", 10),
 		flSock(netstat.ProtoTCP, netstat.StateEstablished, "[2001:db8::1]:22", "[2001:db8:9::9]:50000", "sshd", 11),
@@ -278,10 +304,11 @@ func TestCheckNoIPv6Ruleset(t *testing.T) {
 }
 
 func TestCheckRouterGiven(t *testing.T) {
-	env, _, _ := gEnv()
+	env, _, _ := ckEnv()
 	ckRunning(env)
-	h := &gHost{ifaces: gIfaces(), routes: map[netstat.RouteQuery]netstat.Route{
-		rtQuery("172.17.0.5", "198.51.100.1", "eth0"): rtVia("docker0", ""),
+	h := &gHost{ifaces: ckIfaces(), routes: map[netstat.RouteQuery]netstat.Route{
+		rtQuery("172.17.0.5", "198.51.100.1", "eth0"):     rtVia("docker0", ""),
+		rtQuery("172.17.0.5", "198.51.100.1", "dp-panel"): rtVia("docker0", ""),
 	}}
 	in := Input{
 		Plan: &core.GuardContext{Via: &core.ProxyPath{ExposureID: "exp1", Kind: "npm", ProxyAddr: netip.MustParseAddr("172.30.0.2"),
@@ -309,13 +336,13 @@ func TestCheckRouterGiven(t *testing.T) {
 	if g.OK || g.Message != "the change would cut "+want {
 		t.Errorf("guard = %+v, want only eth1 failing with %q", g, want)
 	}
-	if len(results) != 3 {
-		t.Errorf("%d results, want the proxy flow and the public flow on two interfaces", len(results))
+	if len(results) != 4 {
+		t.Errorf("%d results, want the proxy flow and the public flow on three interfaces", len(results))
 	}
 }
 
 func TestCheckErrors(t *testing.T) {
-	env, _, _ := gEnv()
+	env, _, _ := ckEnv()
 	if _, _, err := (Checker{Host: ckHost()}).Check(context.Background(), env, ckState(), Input{}); err == nil {
 		t.Error("Check without an evaluator succeeded")
 	}

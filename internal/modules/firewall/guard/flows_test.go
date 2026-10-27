@@ -56,7 +56,7 @@ func TestBuildFlows(t *testing.T) {
 	client6 := &core.Peer{Addr: netip.MustParseAddr("2001:db8:5::7"), Port: 52000}
 	panelListen := flAddrPorts("0.0.0.0:443", "[::]:8443", "192.0.2.1:9443")
 	npm := &core.ProxyPath{ExposureID: "exp1", Kind: "npm", ProxyAddr: netip.MustParseAddr("172.30.0.2"),
-		ListenerAddr: netip.MustParseAddrPort("172.30.0.1:8080"), Public: flAddrPorts("192.0.2.1:443", "[2001:db8::1]:443")}
+		ListenerAddr: netip.MustParseAddrPort("172.30.0.1:8080"), Public: flAddrPorts("192.0.2.1:443", "[2001:db8::1]:443", "203.0.113.80:443", "[2001:db8:77::80]:443")}
 	tunnel := &core.ProxyPath{ExposureID: "exp2", Kind: "tunnel", ProxyAddr: netip.MustParseAddr("172.30.0.3"),
 		ListenerAddr: netip.MustParseAddrPort("172.30.0.1:8080")}
 	for _, tc := range []struct {
@@ -83,9 +83,9 @@ func TestBuildFlows(t *testing.T) {
 				flSock(tcp, est, "192.0.2.1:22", "203.0.113.9:50005", "nginx", 16),
 			}},
 			want: []flow{
-				{label: "ssh", pkt: flPkt("input", "203.0.113.7", 50000, "192.0.2.1", 22, "tcp")},
-				{label: "ssh", pkt: flPkt("input", "203.0.113.8", 50001, "192.0.2.1", 22, "tcp")},
-				{label: "ssh", pkt: flPkt("input", "2001:db8:9::9", 50004, "2001:db8::1", 2222, "tcp")},
+				{label: "ssh", pkt: flPkt("input", "203.0.113.7", 0, "192.0.2.1", 22, "tcp")},
+				{label: "ssh", pkt: flPkt("input", "203.0.113.8", 0, "192.0.2.1", 22, "tcp")},
+				{label: "ssh", pkt: flPkt("input", "2001:db8:9::9", 0, "2001:db8::1", 2222, "tcp")},
 			},
 		},
 		{
@@ -96,17 +96,17 @@ func TestBuildFlows(t *testing.T) {
 			},
 			f: facts{ifaces: gIfaces(), controller: 4242},
 			want: []flow{
-				{label: "panel", pkt: flPkt("input", "203.0.113.7", 51000, "0.0.0.0", 443, "tcp")},
-				{label: "panel", pkt: flPkt("input", "203.0.113.7", 51000, "0.0.0.0", 8443, "tcp")},
-				{label: "panel", pkt: flPkt("input", "203.0.113.7", 51000, "192.0.2.1", 9443, "tcp")},
-				{label: "panel", pkt: flPkt("input", "2001:db8:5::7", 52000, "::", 8443, "tcp")},
+				{label: "panel", pkt: flPkt("input", "203.0.113.7", 0, "0.0.0.0", 443, "tcp")},
+				{label: "panel", pkt: flPkt("input", "203.0.113.7", 0, "0.0.0.0", 8443, "tcp")},
+				{label: "panel", pkt: flPkt("input", "203.0.113.7", 0, "192.0.2.1", 9443, "tcp")},
+				{label: "panel", pkt: flPkt("input", "2001:db8:5::7", 0, "::", 8443, "tcp")},
 			},
 		},
 		{
 			name: "panel listener on a host address means the controller runs here",
-			in:   Input{Plan: &core.GuardContext{Client: client4, PanelListen: flAddrPorts("192.0.2.1:443"), Complete: true}},
+			in:   Input{Plan: &core.GuardContext{Client: client4, PanelListen: flAddrPorts("192.0.2.1:443", "198.51.100.80:443"), Complete: true}},
 			f:    facts{ifaces: gIfaces()},
-			want: []flow{{label: "panel", pkt: flPkt("input", "203.0.113.7", 51000, "192.0.2.1", 443, "tcp")}},
+			want: []flow{{label: "panel", pkt: flPkt("input", "203.0.113.7", 0, "192.0.2.1", 443, "tcp")}},
 		},
 		{
 			name: "no controller on this host",
@@ -119,9 +119,11 @@ func TestBuildFlows(t *testing.T) {
 			in:   Input{Plan: &core.GuardContext{Client: client4, Via: npm, PanelListen: panelListen, Complete: true}},
 			f:    facts{ifaces: gIfaces(), controller: 4242},
 			want: []flow{
-				{label: "exposure exp1 proxy", pkt: flOn("dp-panel", flPkt("input", "172.30.0.2", 49152, "172.30.0.1", 8080, "tcp"))},
-				{label: "exposure exp1 public", pkt: flPkt("input", "198.51.100.1", 49152, "192.0.2.1", 443, "tcp")},
-				{label: "exposure exp1 public", pkt: flPkt("input", "2001:db8:ffff::1", 49152, "2001:db8::1", 443, "tcp")},
+				{label: "exposure exp1 proxy", pkt: flOn("dp-panel", flPkt("input", "172.30.0.2", 0, "172.30.0.1", 8080, "tcp"))},
+				{label: "exposure exp1 public", pkt: flPkt("input", "198.51.100.1", 0, "192.0.2.1", 443, "tcp")},
+				{label: "exposure exp1 public", pkt: flPkt("input", "2001:db8:ffff::1", 0, "2001:db8::1", 443, "tcp")},
+				{label: "exposure exp1 public", pkt: flPkt("input", "198.51.100.1", 0, "0.0.0.0", 443, "tcp")},
+				{label: "exposure exp1 public", pkt: flPkt("input", "2001:db8:ffff::1", 0, "::", 443, "tcp")},
 			},
 		},
 		{
@@ -129,10 +131,10 @@ func TestBuildFlows(t *testing.T) {
 			in:   Input{Plan: &core.GuardContext{Via: tunnel, Complete: true}},
 			f:    facts{ifaces: gIfaces(), controller: 4242},
 			want: []flow{
-				{label: "exposure exp2 proxy", pkt: flOn("dp-panel", flPkt("input", "172.30.0.3", 49152, "172.30.0.1", 8080, "tcp"))},
-				{label: "exposure exp2 tunnel", pkt: flOn("dp-panel", flPkt("forward", "172.30.0.3", 49152, "198.51.100.1", 7844, "udp")), standIn: true},
-				{label: "exposure exp2 tunnel", pkt: flOn("dp-panel", flPkt("forward", "172.30.0.3", 49152, "198.51.100.1", 7844, "tcp")), standIn: true},
-				{label: "exposure exp2 tunnel", pkt: flOn("dp-panel", flPkt("forward", "172.30.0.3", 49152, "198.51.100.1", 443, "tcp")), standIn: true},
+				{label: "exposure exp2 proxy", pkt: flOn("dp-panel", flPkt("input", "172.30.0.3", 0, "172.30.0.1", 8080, "tcp"))},
+				{label: "exposure exp2 tunnel", pkt: flOn("dp-panel", flPkt("forward", "172.30.0.3", 0, "198.51.100.1", 7844, "udp")), standIn: true},
+				{label: "exposure exp2 tunnel", pkt: flOn("dp-panel", flPkt("forward", "172.30.0.3", 0, "198.51.100.1", 7844, "tcp")), standIn: true},
+				{label: "exposure exp2 tunnel", pkt: flOn("dp-panel", flPkt("forward", "172.30.0.3", 0, "198.51.100.1", 443, "tcp")), standIn: true},
 			},
 		},
 		{
@@ -149,7 +151,7 @@ func TestBuildFlows(t *testing.T) {
 			f: facts{ifaces: gIfaces(), controller: 4242},
 			want: []flow{
 				{label: "exposure exp3", unknown: "the exposure has no proxy or listener address"},
-				{label: "exposure exp4 proxy", pkt: flOn("dp-panel", flPkt("input", "172.30.0.4", 49152, "172.30.0.1", 8080, "tcp"))},
+				{label: "exposure exp4 proxy", pkt: flOn("dp-panel", flPkt("input", "172.30.0.4", 0, "172.30.0.1", 8080, "tcp"))},
 				{label: "exposure exp4", unknown: "the exposure kind carrier-pigeon is not npm or tunnel"},
 			},
 		},
@@ -159,9 +161,9 @@ func TestBuildFlows(t *testing.T) {
 				AgentPeers: []netip.Addr{netip.MustParseAddr("198.51.100.7"), netip.MustParseAddr("192.0.2.1"), netip.MustParseAddr("2001:db8:7::7")}}},
 			f: facts{ifaces: gIfaces(), controller: 4242},
 			want: []flow{
-				{label: "agent link", pkt: flPkt("input", "198.51.100.7", 49152, "0.0.0.0", 7443, "tcp")},
-				{label: "agent link", pkt: flPkt("input", "198.51.100.7", 49152, "0.0.0.0", 7444, "tcp")},
-				{label: "agent link", pkt: flPkt("input", "2001:db8:7::7", 49152, "::", 7444, "tcp")},
+				{label: "agent link", pkt: flPkt("input", "198.51.100.7", 0, "0.0.0.0", 7443, "tcp")},
+				{label: "agent link", pkt: flPkt("input", "198.51.100.7", 0, "0.0.0.0", 7444, "tcp")},
+				{label: "agent link", pkt: flPkt("input", "2001:db8:7::7", 0, "::", 7444, "tcp")},
 			},
 		},
 		{
@@ -172,7 +174,7 @@ func TestBuildFlows(t *testing.T) {
 				flSock(tcp, est, "192.0.2.1:40001", "198.51.100.50:443", "darkpanel-contr", 4242),
 				flSock(tcp, est, "[::1]:443", "[::1]:40002", "darkpanel-contr", 4242),
 			}},
-			want: []flow{{label: "controller session", pkt: flPkt("input", "203.0.113.9", 40000, "192.0.2.1", 443, "tcp")}},
+			want: []flow{{label: "controller session", pkt: flPkt("input", "203.0.113.9", 0, "192.0.2.1", 443, "tcp")}},
 		},
 		{
 			name: "the agent's outbound sessions",
@@ -196,7 +198,7 @@ func TestBuildFlows(t *testing.T) {
 			}},
 			want: []flow{
 				{label: "tailscale", pkt: flPkt("output", "0.0.0.0", 41641, "198.51.100.1", 41641, "udp"), standIn: true},
-				{label: "tailscale", pkt: flPkt("output", "0.0.0.0", 49152, "198.51.100.1", 443, "tcp"), standIn: true},
+				{label: "tailscale", pkt: flPkt("output", "0.0.0.0", 0, "198.51.100.1", 443, "tcp"), standIn: true},
 			},
 		},
 		{
@@ -213,8 +215,8 @@ func TestBuildFlows(t *testing.T) {
 			},
 			f: facts{ifaces: gIfaces()},
 			want: []flow{
-				{label: "panel", pkt: flPkt("input", "203.0.113.7", 51000, "192.0.2.1", 443, "tcp")},
-				{label: "panel", pkt: flPkt("input", "203.0.113.7", 51000, "10.0.0.1", 443, "tcp")},
+				{label: "panel", pkt: flPkt("input", "203.0.113.7", 0, "192.0.2.1", 443, "tcp")},
+				{label: "panel", pkt: flPkt("input", "203.0.113.7", 0, "10.0.0.1", 443, "tcp")},
 			},
 		},
 	} {

@@ -105,6 +105,9 @@ func (r *router) probes(fl flow) []probe {
 		}
 		p.Dst = rt.PrefSrc.Unmap()
 	}
+	if !r.local[p.Dst] {
+		return fail(p.Dst.String() + " is not an address of this host")
+	}
 	if p.InIface != "" {
 		return []probe{{desc: describe(fl.label, p), pkt: p}}
 	}

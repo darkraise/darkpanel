@@ -21,9 +21,9 @@ type Input struct {
 // panelBridge is the Docker bridge of the panel network (spec 8).
 const panelBridge = "dp-panel"
 
-// ephemeralPort stands in for the source port of a connection that does
-// not exist yet; it lies inside every Linux ephemeral port range.
-const ephemeralPort uint16 = 49152
+// unknownPort is the source port of a connection that does not exist yet:
+// the evaluator treats a source-port match against it as undecidable.
+const unknownPort uint16 = 0
 
 // The documentation addresses that stand in for "any internet address".
 var (
@@ -90,7 +90,7 @@ func buildFlows(in Input, f facts) []flow {
 	sshFlows(s, f, local)
 	if f.controller != 0 || listensHere(ctxs, local) {
 		panelFlows(s, ctxs, local)
-		viaFlows(s, ctxs, in.Retired)
+		viaFlows(s, ctxs, in.Retired, local)
 		agentLinkFlows(s, ctxs, local)
 	}
 	controllerSessionFlows(s, f, local)
@@ -141,12 +141,15 @@ func newPacket(path string, src netip.Addr, sport uint16, dst netip.Addr, dport 
 }
 
 // listenFor is the destination a client at src reaches a listener on l
-// through, or false when the listener does not take src's family. An
-// unspecified IPv6 listener is dual-stack, as Go's listeners are; the
-// unspecified destination stays for routing to resolve.
-func listenFor(src, l netip.Addr) (netip.Addr, bool) {
+// through, or false when the listener does not take src's family or is an
+// address of another host. An unspecified IPv6 listener is dual-stack, as
+// Go's listeners are; the unspecified destination stays for routing to
+// resolve.
+func listenFor(src, l netip.Addr, local map[netip.Addr]bool) (netip.Addr, bool) {
 	src, l = src.Unmap(), l.Unmap()
 	switch {
+	case !l.IsUnspecified() && !local[l]:
+		return netip.Addr{}, false
 	case l.IsUnspecified() && l.Is6() && src.Is4():
 		return netip.IPv4Unspecified(), true
 	case l.Is4() == src.Is4():
@@ -196,7 +199,7 @@ func sshFlows(s *flowSet, f facts, local map[netip.Addr]bool) {
 		if !heldBy(so, 0, sshComms...) || !inbound(f.sockets, so) || fromHere(so.Remote.Addr(), local) {
 			continue
 		}
-		s.add(flow{label: "ssh", pkt: newPacket("input", so.Remote.Addr(), so.Remote.Port(), so.Local.Addr(), so.Local.Port(), "tcp")})
+		s.add(flow{label: "ssh", pkt: newPacket("input", so.Remote.Addr(), unknownPort, so.Local.Addr(), so.Local.Port(), "tcp")})
 	}
 }
 
@@ -212,16 +215,19 @@ func panelFlows(s *flowSet, ctxs []*core.GuardContext, local map[netip.Addr]bool
 			continue
 		}
 		for _, l := range listen {
-			if dst, ok := listenFor(g.Client.Addr, l.Addr()); ok {
-				s.add(flow{label: "panel", pkt: newPacket("input", g.Client.Addr, g.Client.Port, dst, l.Port(), "tcp")})
+			if dst, ok := listenFor(g.Client.Addr, l.Addr(), local); ok {
+				s.add(flow{label: "panel", pkt: newPacket("input", g.Client.Addr, unknownPort, dst, l.Port(), "tcp")})
 			}
 		}
 	}
 }
 
 // viaFlows is flow 3: the exposure a request came through, unless a
-// composite has retired it.
-func viaFlows(s *flowSet, ctxs []*core.GuardContext, retired []string) {
+// composite has retired it. A public address that is not one of this
+// host's arrives through upstream address translation (a cloud's 1:1 NAT),
+// so its packets reach the host's own address and the destination is left
+// unspecified for routing to resolve.
+func viaFlows(s *flowSet, ctxs []*core.GuardContext, retired []string, local map[netip.Addr]bool) {
 	for _, g := range ctxs {
 		v := g.Via
 		if v == nil || slices.Contains(retired, v.ExposureID) {
@@ -232,20 +238,28 @@ func viaFlows(s *flowSet, ctxs []*core.GuardContext, retired []string) {
 			s.add(flow{label: label, unknown: "the exposure has no proxy or listener address"})
 			continue
 		}
-		proxy := newPacket("input", v.ProxyAddr, ephemeralPort, v.ListenerAddr.Addr(), v.ListenerAddr.Port(), "tcp")
+		proxy := newPacket("input", v.ProxyAddr, unknownPort, v.ListenerAddr.Addr(), v.ListenerAddr.Port(), "tcp")
 		proxy.InIface = panelBridge
 		s.add(flow{label: label + " proxy", pkt: proxy})
 		switch v.Kind {
 		case "npm":
 			for _, pub := range v.Public {
-				s.add(flow{label: label + " public", pkt: newPacket("input", internetFor(pub.Addr()), ephemeralPort, pub.Addr(), pub.Port(), "tcp")})
+				dst := pub.Addr().Unmap()
+				switch {
+				case dst.IsUnspecified() || local[dst]:
+				case dst.Is4():
+					dst = netip.IPv4Unspecified()
+				default:
+					dst = netip.IPv6Unspecified()
+				}
+				s.add(flow{label: label + " public", pkt: newPacket("input", internetFor(pub.Addr()), unknownPort, dst, pub.Port(), "tcp")})
 			}
 		case "tunnel":
 			for _, out := range []struct {
 				proto string
 				port  uint16
 			}{{"udp", 7844}, {"tcp", 7844}, {"tcp", 443}} {
-				p := newPacket("forward", v.ProxyAddr, ephemeralPort, internetFor(v.ProxyAddr), out.port, out.proto)
+				p := newPacket("forward", v.ProxyAddr, unknownPort, internetFor(v.ProxyAddr), out.port, out.proto)
 				p.InIface = panelBridge
 				s.add(flow{label: label + " tunnel", pkt: p, standIn: true})
 			}
@@ -277,8 +291,8 @@ func agentLinkFlows(s *flowSet, ctxs []*core.GuardContext, local map[netip.Addr]
 			continue
 		}
 		for _, l := range listen {
-			if dst, ok := listenFor(p, l.Addr()); ok {
-				s.add(flow{label: "agent link", pkt: newPacket("input", p, ephemeralPort, dst, l.Port(), "tcp")})
+			if dst, ok := listenFor(p, l.Addr(), local); ok {
+				s.add(flow{label: "agent link", pkt: newPacket("input", p, unknownPort, dst, l.Port(), "tcp")})
 			}
 		}
 	}
@@ -296,7 +310,7 @@ func controllerSessionFlows(s *flowSet, f facts, local map[netip.Addr]bool) {
 		if !heldBy(so, f.controller) || !inbound(f.sockets, so) || fromHere(so.Remote.Addr(), local) {
 			continue
 		}
-		s.add(flow{label: "controller session", pkt: newPacket("input", so.Remote.Addr(), so.Remote.Port(), so.Local.Addr(), so.Local.Port(), "tcp")})
+		s.add(flow{label: "controller session", pkt: newPacket("input", so.Remote.Addr(), unknownPort, so.Local.Addr(), so.Local.Port(), "tcp")})
 	}
 }
 
@@ -333,5 +347,5 @@ func tailscaleFlows(s *flowSet, f facts) {
 	for _, port := range ports {
 		s.add(flow{label: "tailscale", pkt: newPacket("output", netip.IPv4Unspecified(), port, internet4, 41641, "udp"), standIn: true})
 	}
-	s.add(flow{label: "tailscale", pkt: newPacket("output", netip.IPv4Unspecified(), ephemeralPort, internet4, 443, "tcp"), standIn: true})
+	s.add(flow{label: "tailscale", pkt: newPacket("output", netip.IPv4Unspecified(), unknownPort, internet4, 443, "tcp"), standIn: true})
 }

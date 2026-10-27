@@ -37,6 +37,15 @@ func rtFacts(all, eth0, eth1 int) facts {
 	return facts{ifaces: gIfaces(), rpFilter: map[string]int{"all": all, "eth0": eth0, "eth1": eth1}}
 }
 
+// rtFactsWithPanel are rtFacts(1, 1, 1) with an up dp-panel bridge at
+// 172.30.0.1/16.
+func rtFactsWithPanel() facts {
+	f := rtFacts(1, 1, 1)
+	f.ifaces = append(f.ifaces, netstat.Interface{Index: 6, Name: "dp-panel", Up: true, Running: true, Addrs: []netip.Prefix{netip.MustParsePrefix("172.30.0.1/16")}})
+	f.rpFilter["dp-panel"] = 1
+	return f
+}
+
 // rtProbe is a probe of a packet that was evaluated.
 func rtProbe(desc string, p fwstate.Packet, in, out string) probe {
 	p.InIface, p.OutIface = in, out
@@ -51,8 +60,8 @@ func TestProbes(t *testing.T) {
 	link := flPkt("output", "192.0.2.1", 40100, "198.51.100.9", 7443, "tcp")
 	tsUDP := flPkt("output", "0.0.0.0", 41641, "198.51.100.1", 41641, "udp")
 	tsUDPResolved := flPkt("output", "192.0.2.1", 41641, "198.51.100.1", 41641, "udp")
-	tunnel := flOn("dp-panel", flPkt("forward", "172.30.0.3", 49152, "198.51.100.1", 7844, "udp"))
-	proxy := flOn("dp-panel", flPkt("input", "172.30.0.2", 49152, "172.30.0.1", 8080, "tcp"))
+	tunnel := flOn("dp-panel", flPkt("forward", "172.30.0.3", 0, "198.51.100.1", 7844, "udp"))
+	proxy := flOn("dp-panel", flPkt("input", "172.30.0.2", 0, "172.30.0.1", 8080, "tcp"))
 	sshDesc := "ssh from 203.0.113.7 to 192.0.2.1:22"
 	deadline := fmt.Errorf("netstat: route lookup: %w", os.ErrDeadlineExceeded)
 	for _, tc := range []struct {
@@ -133,8 +142,14 @@ func TestProbes(t *testing.T) {
 		},
 		{
 			name: "a fixed in-interface is the only one",
-			fl:   flow{label: "exposure exp1 proxy", pkt: proxy}, f: rtFacts(1, 1, 1),
+			fl:   flow{label: "exposure exp1 proxy", pkt: proxy}, f: rtFactsWithPanel(),
 			want: []probe{rtProbe("exposure exp1 proxy from 172.30.0.2 to 172.30.0.1:8080 on dp-panel", proxy, "dp-panel", "")},
+		},
+		{
+			name: "an incoming flow to an address of another host is unknown",
+			fl:   flow{label: "exposure exp1 proxy", pkt: proxy}, f: rtFacts(0, 0, 0),
+			want: []probe{{desc: "exposure exp1 proxy from 172.30.0.2 to 172.30.0.1:8080 on dp-panel",
+				unknown: "172.30.0.1 is not an address of this host"}},
 		},
 		{
 			name: "outbound from a known source",
@@ -222,6 +237,7 @@ func TestProbesTailscaleSource(t *testing.T) {
 	noRoute6 := flPkt("input", "fd7a:115c:a1e0::a", 50004, "2001:db8::1", 22, "tcp")
 	tsSSH4 := flPkt("input", "100.101.1.2", 50000, "100.101.1.1", 22, "tcp")
 	tsSSH6 := flPkt("input", "fd7a:115c:a1e0::5", 50001, "2001:db8::1", 22, "tcp")
+	tsSSH4Eth0 := flPkt("input", "100.101.1.2", 50000, "192.0.2.1", 22, "tcp")
 	ssh4 := flPkt("input", "203.0.113.7", 50000, "192.0.2.1", 22, "tcp")
 	for _, tc := range []struct {
 		name string
@@ -235,13 +251,14 @@ func TestProbesTailscaleSource(t *testing.T) {
 		{"an IPv6 tailnet-range source routed back through eth0 keeps the normal rule", cgnat6, withTS(true), []string{"eth0", "eth1", "tailscale0"}},
 		{"a failed route-back lookup keeps the normal rule", noRoute6, withTS(true), []string{"eth0", "eth1", "tailscale0"}},
 		{"tailscale0 down keeps the normal rule", tsSSH4, withTS(false), []string{"eth0"}},
-		{"no tailscale0 keeps the normal rule", tsSSH4, rtFacts(1, 0, 0), []string{"eth0"}},
+		{"no tailscale0 keeps the normal rule", tsSSH4Eth0, rtFacts(1, 0, 0), []string{"eth0"}},
 		{"another source is not limited to tailscale0", ssh4, withTS(true), []string{"eth0"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := &gHost{routes: map[netstat.RouteQuery]netstat.Route{
 				rtQuery("100.101.1.2", "100.101.1.1", ""): rtVia("eth0", ""),
 				rtQuery("100.101.1.2", "", ""):            rtVia("eth0", ""),
+				rtQuery("100.101.1.2", "192.0.2.1", ""):   rtVia("eth0", ""),
 				rtQuery("203.0.113.7", "192.0.2.1", ""):   rtVia("eth0", ""),
 				rtQuery("100.101.1.3", "", ""):            rtVia("tailscale0", ""),
 				rtQuery("100.101.1.3", "100.101.1.1", ""): rtVia("eth0", ""),
@@ -265,7 +282,7 @@ func TestProbesTailscaleSource(t *testing.T) {
 }
 
 func TestRouterRoute(t *testing.T) {
-	fwd := flOn("eth0", flPkt("input", "198.51.100.1", 49152, "172.17.0.2", 80, "tcp"))
+	fwd := flOn("eth0", flPkt("input", "198.51.100.1", 0, "172.17.0.2", 80, "tcp"))
 	out := flPkt("output", "192.0.2.1", 40100, "198.51.100.9", 7443, "tcp")
 	toDocker := rtQuery("172.17.0.2", "198.51.100.1", "eth0")
 	for _, tc := range []struct {
@@ -277,8 +294,8 @@ func TestRouterRoute(t *testing.T) {
 		path, oif string
 		err       string
 	}{
-		{name: "a host address", p: flOn("eth0", flPkt("input", "198.51.100.1", 49152, "10.0.0.1", 80, "tcp")), path: "input"},
-		{name: "a loopback address", p: flOn("eth0", flPkt("input", "198.51.100.1", 49152, "127.0.0.2", 80, "tcp")), path: "input"},
+		{name: "a host address", p: flOn("eth0", flPkt("input", "198.51.100.1", 0, "10.0.0.1", 80, "tcp")), path: "input"},
+		{name: "a loopback address", p: flOn("eth0", flPkt("input", "198.51.100.1", 0, "127.0.0.2", 80, "tcp")), path: "input"},
 		{name: "forwarded", p: fwd, routes: map[netstat.RouteQuery]netstat.Route{toDocker: rtVia("docker0", "")}, path: "forward", oif: "docker0"},
 		{name: "a local route", p: fwd, routes: map[netstat.RouteQuery]netstat.Route{toDocker: {Type: "local", OutIface: "lo"}}, path: "input"},
 		{name: "forwarding off", p: fwd, sysctl: map[string]string{"net/ipv4/ip_forward": "0"}, err: "firewall: forwarding is off (net/ipv4/ip_forward = 0)"},
@@ -314,7 +331,7 @@ func TestDescribe(t *testing.T) {
 	if got, want := describe("ssh", p), "ssh from 2001:db8:9::9 to [2001:db8::1]:22 on eth0"; got != want {
 		t.Errorf("describe = %q, want %q", got, want)
 	}
-	q := flPkt("forward", "172.30.0.3", 49152, "198.51.100.1", 7844, "udp")
+	q := flPkt("forward", "172.30.0.3", 0, "198.51.100.1", 7844, "udp")
 	q.InIface, q.OutIface = "dp-panel", "eth0"
 	if got, want := describe("exposure x tunnel", q), "exposure x tunnel udp from 172.30.0.3 to 198.51.100.1:7844 on dp-panel out eth0"; got != want {
 		t.Errorf("describe = %q, want %q", got, want)
