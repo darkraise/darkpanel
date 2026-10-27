@@ -2,12 +2,14 @@ package firewall
 
 import (
 	"context"
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/model"
 )
 
@@ -202,13 +204,13 @@ func TestInverseSetsValuesBack(t *testing.T) {
 	}{
 		{def, func(s *fhState) { s.Input = "ACCEPT" }, func(s *fhState) { s.Input = "DROP" }, "default deny incoming"},
 		{logging, func(s *fhState) { s.LogLevel = "full" }, func(s *fhState) { s.LogLevel = "low" }, "logging low"},
-		{enableOp(false), func(s *fhState) { s.Enabled = false }, func(s *fhState) { s.Enabled = true }, "--force enable"},
+		// UFW's start applies its sysctl file.
+		{enableOp(false), func(s *fhState) { s.Enabled = false }, func(s *fhState) { s.Enabled = true; h.sysctl["net/ipv4/ip_forward"] = "1" }, "--force enable"},
 	} {
 		edit, undo := c.edit, c.undo
 		h.ufw[strings.Join(c.forward.Args, " ")] = func(s *fhState) int { edit(s); return 0 }
 		h.ufw[c.undoArgs] = func(s *fhState) int { undo(s); return 0 }
 		e := ivTestForward(t, h, c.forward)
-		h.sysctl["net/ipv4/ip_forward"] = "1"
 		h.calls = nil
 		if err := inverse(ctx, h.env(), h.deps(), snap, e); err != nil {
 			t.Fatalf("undo %s: %v", c.undoArgs, err)
@@ -278,5 +280,48 @@ func TestInverseRefusesWhatItCannotUndo(t *testing.T) {
 	}
 	if slices.ContainsFunc(h.calls, func(c string) bool { return strings.HasPrefix(c, "run ") }) {
 		t.Errorf("a refused undo ran %v", h.calls)
+	}
+}
+
+func TestInverseKeepsAManualSysctlEdit(t *testing.T) {
+	ctx := context.Background()
+	h := newFakeHost(t)
+	s := h.state()
+	s.Enabled = false
+	h.setState(s)
+	snap := rsTestSnap(t, h, false)
+	h.ufw["--force enable"] = func(s *fhState) int {
+		s.Enabled = true
+		h.sysctl["net/ipv4/ip_forward"] = "1"
+		return 0
+	}
+	h.ufw["disable"] = func(s *fhState) int { s.Enabled = false; return 0 }
+	e := ivTestForward(t, h, enableOp(true))
+	if h.sysctl["net/ipv4/ip_forward"] != "1" {
+		t.Fatal("UFW's start left net/ipv4/ip_forward as it was")
+	}
+	// The snapshot's and the predicted value are both 2.
+	h.sysctl["net/ipv4/conf/all/rp_filter"] = "0"
+	d := h.deps()
+	var trs []fwstate.Transition
+	d.sysctl = func(_ fwstate.Config, cur map[string]string, tr fwstate.Transition) (map[string]string, error) {
+		trs = append(trs, tr)
+		out := maps.Clone(cur)
+		if tr == fwstate.TransEnable {
+			out["net/ipv4/ip_forward"] = "1"
+		}
+		return out, nil
+	}
+	if err := inverse(ctx, h.env(), d, snap, e); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := h.sysctl["net/ipv4/ip_forward"], snap.State.Sysctl["net/ipv4/ip_forward"]; got != want || want != "0" {
+		t.Errorf("net/ipv4/ip_forward = %s after the undo, want the snapshot's %s", got, want)
+	}
+	if got := h.sysctl["net/ipv4/conf/all/rp_filter"]; got != "0" {
+		t.Errorf("net/ipv4/conf/all/rp_filter = %s after the undo, want the manual 0", got)
+	}
+	if !reflect.DeepEqual(trs, []fwstate.Transition{fwstate.TransEnable}) {
+		t.Errorf("predicted transitions %v, want the forward enable", trs)
 	}
 }

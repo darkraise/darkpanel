@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/model"
 )
 
@@ -15,8 +16,9 @@ import (
 // the IPv4 and IPv6 halves of a both-family rule separately, because ufw
 // puts the other half of one insert at the end; a default, the logging
 // level or the enabled state is set back to its Before (after an enable or
-// disable, with the snapshot's sysctl values written back, since UFW's
-// start applies its sysctl file); a file gets the snapshot's entry whose
+// disable, with the snapshot's values of the sysctl keys not edited by hand
+// since written back, since UFW's start applies its sysctl file); a file
+// gets the snapshot's entry whose
 // hash is its Before; a sysctl key gets its Before. The resource is then
 // observed, and anything but its Before's State is an error.
 func inverse(ctx context.Context, env core.Env, d deps, snap snapshot, e core.Effect) error {
@@ -50,8 +52,11 @@ func inverse(ctx context.Context, env core.Env, d deps, snap snapshot, e core.Ef
 	case nounState:
 		var enabled bool
 		if err = json.Unmarshal(e.Before.State, &enabled); err == nil {
-			if err = ufw(ctx, env, enableOp(enabled).Args); err == nil {
-				err = writeBackLive(ctx, env, d, snap)
+			var target map[string]string
+			if target, err = sysctlTarget(ctx, env, d, snap, e); err == nil {
+				if err = ufw(ctx, env, enableOp(enabled).Args); err == nil {
+					err = writeBackLive(ctx, env, d, target)
+				}
 			}
 		}
 	case nounFile:
@@ -202,13 +207,56 @@ func restoreFile(ctx context.Context, env core.Env, snap snapshot, path string, 
 	return fmt.Errorf("snapshot %s holds no entry of %s with hash %s", snap.ID, path, before.State)
 }
 
-// writeBackLive writes the snapshot's sysctl values back over the live
-// ones; a vanished interface's keys are skipped.
-func writeBackLive(ctx context.Context, env core.Env, d deps, snap snapshot) error {
+// sysctlTarget returns the sysctl values undoing the enable or disable e
+// should leave, read before its ufw vector runs: the snapshot's value of
+// every key the change left at the snapshot's value or at the value its
+// transition predicts, and the live value of any other key, which was
+// edited by hand since and stays (spec 2.5). Keys absent now are left out.
+func sysctlTarget(ctx context.Context, env core.Env, d deps, snap snapshot, e core.Effect) (map[string]string, error) {
+	if e.Post == nil {
+		return nil, fmt.Errorf("effect %d has no post state", e.Seq)
+	}
+	var enabled bool
+	if err := json.Unmarshal(e.Post.State, &enabled); err != nil {
+		return nil, err
+	}
+	tr := fwstate.TransDisable
+	if enabled {
+		tr = fwstate.TransEnable
+	}
+	pre, err := d.readLoaded(ctx, env)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := d.readConfig(d.root)
+	if err != nil {
+		return nil, err
+	}
+	fwd, err := d.sysctl(cfg, snap.State.Sysctl, tr)
+	if err != nil {
+		return nil, err
+	}
+	target := make(map[string]string, len(snap.State.Sysctl))
+	for k, v := range snap.State.Sysctl {
+		cur, ok := pre.Sysctl[k]
+		switch {
+		case !ok:
+		case cur == v || cur == fwd[k]:
+			target[k] = v
+		default:
+			target[k] = cur
+		}
+	}
+	return target, nil
+}
+
+// writeBackLive writes target's sysctl values back over the live ones; a
+// vanished interface's keys are skipped.
+func writeBackLive(ctx context.Context, env core.Env, d deps, target map[string]string) error {
 	st, err := d.readLoaded(ctx, env)
 	if err != nil {
 		return err
 	}
-	_, err = writeBackSysctl(ctx, env, snap.State.Sysctl, st.Sysctl)
+	_, err = writeBackSysctl(ctx, env, target, st.Sysctl)
 	return err
 }
