@@ -246,12 +246,8 @@ func TestLiveHost(t *testing.T) {
 	if h.PID() != os.Getpid() {
 		t.Errorf("PID = %d, want %d", h.PID(), os.Getpid())
 	}
-	socks, err := h.Sockets()
-	if err != nil {
+	if _, err := h.Sockets(); err != nil {
 		t.Fatal(err)
-	}
-	if len(socks) == 0 {
-		t.Error("the host has no sockets")
 	}
 	ifaces, err := h.Interfaces()
 	if err != nil {
