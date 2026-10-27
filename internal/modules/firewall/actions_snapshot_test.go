@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
@@ -79,5 +80,34 @@ func TestSnapshotRestoreRefuses(t *testing.T) {
 	}
 	if def := f.snapshotRestore(); def.Spec.Name != "firewall.snapshot.restore" || def.Spec.Class != core.ClassRevertible {
 		t.Errorf("spec %+v", def.Spec)
+	}
+}
+
+// TestSnapshotRestoreOldestRetained: the restore's own capture counts toward
+// retention, so the oldest retained snapshot must survive its own restore.
+func TestSnapshotRestoreOldestRetained(t *testing.T) {
+	ctx := context.Background()
+	h, f, env := ruHost(t)
+	snCapture(t, h, f) // the host's first snapshot is the baseline, never pruned
+	h.clock.Advance(time.Second)
+	id := snCapture(t, h, f)
+	for i := 1; i < keepSnapshots; i++ {
+		h.clock.Advance(time.Second)
+		snCapture(t, h, f)
+	}
+	h.clock.Advance(time.Second)
+	if ids := stTestIDs(t, h.db); len(ids) != keepSnapshots+1 || !ids[id] {
+		t.Fatalf("%d snapshots before the restore, want the baseline and %d retained including %s", len(ids), keepSnapshots, id)
+	}
+	s := h.state()
+	s.Rules4, s.Input = s.Rules4[:1], "ACCEPT"
+	h.setState(s)
+	ruApply(t, env, f.snapshotRestore(), `{"id":"`+id+`","manual":true}`)
+	got, err := getSnapshot(ctx, h.db, id)
+	if err != nil || got.Pinned {
+		t.Errorf("target after the restore: pinned %v, %v; want kept and unpinned", got.Pinned, err)
+	}
+	if h.state().Input != "DROP" {
+		t.Errorf("state %+v, want the snapshot's", h.state())
 	}
 }

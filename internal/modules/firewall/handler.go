@@ -49,6 +49,8 @@ type mutation[In any] struct {
 	// finish fills the action's own output fields after a successful
 	// apply; nil means none.
 	finish func(ctx context.Context, env core.Env, in In, out *ChangeOutput) error
+	// keep names a snapshot the apply reads; nil means none.
+	keep func(in In) string
 }
 
 // defineMutation declares a mutating firewall action from spec's Name,
@@ -70,8 +72,29 @@ func (m mutation[In]) Plan(ctx context.Context, env core.Env, in In) (core.PlanO
 	return m.f.plan(ctx, env, req)
 }
 
-// Snapshot captures the logical snapshot with the plan's guard context.
+// Snapshot captures the logical snapshot with the plan's guard context. The
+// engine calls it before it records the change, and the capture prunes by
+// retention counting its own new row, so a snapshot the apply reads (keep)
+// is pinned for the capture; otherwise restoring the oldest retained
+// snapshot would delete it.
 func (m mutation[In]) Snapshot(ctx context.Context, env core.Env, in In) ([]byte, error) {
+	if m.keep != nil {
+		id := m.keep(in)
+		s, err := getSnapshot(ctx, env.DB, id)
+		if err != nil {
+			return nil, err
+		}
+		if !s.Pinned {
+			if err := setPinned(ctx, env.DB, id, true); err != nil {
+				return nil, err
+			}
+			defer func() {
+				if err := setPinned(context.WithoutCancel(ctx), env.DB, id, false); err != nil {
+					env.Log.Warn("firewall: cannot unpin the snapshot a change restores", "snapshot", id, "error", err)
+				}
+			}()
+		}
+	}
 	return capture(ctx, env, m.f.d, m.guarded(in).Guard, m.image)
 }
 

@@ -35,6 +35,7 @@ func (f fw) snapshotRestore() core.ActionDef {
 		f:       f,
 		guarded: func(in SnapshotRestoreInput) core.Guarded { return in.Guarded },
 		manual:  func(in SnapshotRestoreInput) bool { return in.Manual },
+		keep:    func(in SnapshotRestoreInput) string { return in.ID },
 		build: func(ctx context.Context, env core.Env, in SnapshotRestoreInput) buildFunc {
 			return func(fwstate.Config, fwstate.Loaded) (change, error) {
 				s, err := loadSnapshot(ctx, env, in.ID, "/id")
