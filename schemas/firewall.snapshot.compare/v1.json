@@ -1,0 +1,101 @@
+{
+  "name": "firewall.snapshot.compare",
+  "version": 1,
+  "class": "read",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/SnapshotCompareInput",
+    "$defs": {
+      "SnapshotCompareInput": {
+        "properties": {
+          "from": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "The older snapshot's id."
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "The newer snapshot's id; omitted: the host now."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "from"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/SnapshotComparison",
+    "$defs": {
+      "DiffLine": {
+        "properties": {
+          "op": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "op",
+          "text"
+        ]
+      },
+      "FileChange": {
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "from",
+          "to"
+        ]
+      },
+      "SnapshotComparison": {
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "diff": {
+            "items": {
+              "$ref": "#/$defs/DiffLine"
+            },
+            "type": "array"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/$defs/FileChange"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "from",
+          "to",
+          "diff",
+          "files"
+        ]
+      }
+    }
+  }
+}

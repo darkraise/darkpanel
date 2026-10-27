@@ -1,0 +1,282 @@
+{
+  "name": "firewall.rules.apply",
+  "version": 1,
+  "class": "revertible",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/RulesApplyInput",
+    "$defs": {
+      "GuardContext": {
+        "properties": {
+          "client": {
+            "$ref": "#/$defs/Peer"
+          },
+          "via": {
+            "$ref": "#/$defs/ProxyPath"
+          },
+          "panelListen": {
+            "items": {
+              "type": "string",
+              "format": "ip-address-port"
+            },
+            "type": "array"
+          },
+          "agentListen": {
+            "items": {
+              "type": "string",
+              "format": "ip-address-port"
+            },
+            "type": "array"
+          },
+          "agentPeers": {
+            "items": {
+              "type": "string",
+              "format": "ip-address"
+            },
+            "type": "array"
+          },
+          "complete": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "Peer": {
+        "properties": {
+          "addr": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "port": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "addr",
+          "port"
+        ]
+      },
+      "ProxyPath": {
+        "properties": {
+          "exposureId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "proxyAddr": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "listenerAddr": {
+            "type": "string",
+            "format": "ip-address-port"
+          },
+          "public": {
+            "items": {
+              "type": "string",
+              "format": "ip-address-port"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "exposureId",
+          "kind",
+          "proxyAddr",
+          "listenerAddr",
+          "public"
+        ]
+      },
+      "Rule": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^([0-9A-HJKMNP-TV-Z]{26}|manual-[0-9a-f]{16})$",
+            "description": "Rule id: the ULID in a Darkpanel rule's tag, or manual- and 16 hex digits derived from a manual rule's tuple."
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "deny",
+              "limit",
+              "reject"
+            ],
+            "description": "What the rule does; limit only for incoming rules."
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "in",
+              "out",
+              "route"
+            ],
+            "description": "Incoming, outgoing or routed (forwarded) traffic."
+          },
+          "proto": {
+            "type": "string",
+            "enum": [
+              "tcp",
+              "udp",
+              "any",
+              "ah",
+              "esp",
+              "gre",
+              "ipv6",
+              "igmp"
+            ],
+            "description": "Protocol; ah, esp, gre, ipv6 and igmp take no ports, ipv6 and igmp only with family v4."
+          },
+          "from": {
+            "type": "string",
+            "pattern": "^(any|[0-9A-Fa-f:./]{2,43})$",
+            "description": "Source: any, an address or a CIDR in canonical form."
+          },
+          "fromPort": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,4}(:[1-9][0-9]{0,4})?(,[1-9][0-9]{0,4}(:[1-9][0-9]{0,4})?)*$",
+            "description": "Source port, range a:b or ascending comma list of at most 15 multiport slots; ranges and lists need tcp or udp."
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^(any|[0-9A-Fa-f:./]{2,43})$",
+            "description": "Destination: any, an address or a CIDR in canonical form."
+          },
+          "toPort": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,4}(:[1-9][0-9]{0,4})?(,[1-9][0-9]{0,4}(:[1-9][0-9]{0,4})?)*$",
+            "description": "Destination port, range a:b or ascending comma list of at most 15 multiport slots; ranges and lists need tcp or udp."
+          },
+          "inIface": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.+-]{0,14}$",
+            "description": "Interface the packet arrives on; only for in and route rules."
+          },
+          "outIface": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.+-]{0,14}$",
+            "description": "Interface the packet leaves on; only for out and route rules."
+          },
+          "family": {
+            "type": "string",
+            "enum": [
+              "v4",
+              "v6",
+              "both"
+            ],
+            "description": "IP family; both only when from and to are any."
+          },
+          "log": {
+            "type": "string",
+            "enum": [
+              "off",
+              "log",
+              "log-all"
+            ],
+            "description": "Logging; off when omitted."
+          },
+          "comment": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9 :._/-]{0,64}$",
+            "description": "Label after the Darkpanel tag, or a manual rule's comment."
+          },
+          "origin": {
+            "type": "string",
+            "enum": [
+              "darkpanel",
+              "manual"
+            ],
+            "description": "Who made the rule; darkpanel when omitted."
+          },
+          "raw": {
+            "type": "string",
+            "description": "Read-only: the tuple of a manual rule the model cannot express; never accepted in input.",
+            "readOnly": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "action",
+          "direction",
+          "proto",
+          "from",
+          "to",
+          "family"
+        ]
+      },
+      "RulesApplyInput": {
+        "properties": {
+          "guard": {
+            "$ref": "#/$defs/GuardContext"
+          },
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "label": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9 :._/-]{0,64}$",
+            "description": "The comment of every added rule, after the Darkpanel tag."
+          },
+          "add": {
+            "items": {
+              "$ref": "#/$defs/Rule"
+            },
+            "type": "array",
+            "description": "Rules to add, each with its id and without a comment."
+          },
+          "delete": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Ids of rules to delete."
+          },
+          "manual": {
+            "type": "boolean",
+            "description": "Confirms deleting manual rules (spec 2.2)."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ChangeOutput",
+    "$defs": {
+      "ChangeOutput": {
+        "properties": {
+          "snapshot": {
+            "type": "string"
+          },
+          "rules": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "repairOutcome": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "snapshot"
+        ]
+      }
+    }
+  }
+}

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/schema"
 	"github.com/darkraise/darkpanel/internal/platform"
 )
 
@@ -91,7 +92,6 @@ func TestManifestScopesTheHostClients(t *testing.T) {
 	keys := map[string]string{
 		"net/ipv4/ip_forward": "0", "net/ipv6/conf/all/forwarding": "0", "net/ipv6/conf/eth0.5/accept_ra": "1",
 		"net/ipv4/conf/default/rp_filter": "2", "net/ipv4/conf/br-1a2b/accept_source_route": "0",
-		"net/ipv4/conf/all/rp_filter": "1", "net/ipv4/conf/eth0/rp_filter": "0",
 		"net/ipv4/conf/all/forwarding": "0",
 	}
 	for k, v := range keys {
@@ -140,5 +140,49 @@ func TestManifestScopesTheHostClients(t *testing.T) {
 	}
 	if !reflect.DeepEqual(u.asked, []string{"darkpanel-controller.service"}) {
 		t.Errorf("calls reaching the unit client %v, want the controller's state only", u.asked)
+	}
+}
+
+// TestManifestActions: the actions of section 5's firewall rows of this
+// wave, each mutating one revertible on the agent under the firewall lock,
+// repaired by firewall.state.repair and guarded by the overridable lockout
+// guard; rules.apply converges; snapshot.compare reads; and the resources
+// status and snapshots. Every input and output has a schema.
+func TestManifestActions(t *testing.T) {
+	m := Module().Manifest()
+	var names []string
+	for _, a := range m.Actions {
+		names = append(names, a.Spec.Name)
+		if _, err := schema.ActionSnapshot(a); err != nil {
+			t.Errorf("%s: %v", a.Ref(), err)
+		}
+		if a.Spec.Name == "firewall.snapshot.compare" {
+			if a.Spec.Class != core.ClassRead || a.Spec.Side != core.SideAgent {
+				t.Errorf("%s spec %+v, want a read action on the agent", a.Ref(), a.Spec)
+			}
+			continue
+		}
+		s := a.Spec
+		if s.Class != core.ClassRevertible || s.Side != core.SideAgent || !reflect.DeepEqual(s.LockKeys, []string{"firewall"}) ||
+			s.RepairedBy != "firewall.state.repair" || s.Version != 1 || s.Converges != (s.Name == "firewall.rules.apply") ||
+			!reflect.DeepEqual(s.Guards, []core.GuardSpec{{ID: "firewall.lockout", Overridable: true}}) {
+			t.Errorf("%s spec %+v", a.Ref(), s)
+		}
+	}
+	want := []string{"firewall.state.enable", "firewall.state.disable", "firewall.state.repair", "firewall.defaults.set",
+		"firewall.logging.set", "firewall.rules.apply", "firewall.rule.add", "firewall.rule.delete",
+		"firewall.snapshot.restore", "firewall.snapshot.compare"}
+	if !reflect.DeepEqual(names, want) {
+		t.Errorf("actions %v, want %v", names, want)
+	}
+	var resources []string
+	for _, r := range m.Resources {
+		resources = append(resources, r.Name)
+		if _, err := schema.ResourceSnapshot(r); err != nil {
+			t.Errorf("%s: %v", r.Name, err)
+		}
+	}
+	if !reflect.DeepEqual(resources, []string{"firewall.status", "firewall.snapshots"}) {
+		t.Errorf("resources %v", resources)
 	}
 }

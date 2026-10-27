@@ -42,6 +42,8 @@ func (m module) Manifest() core.Manifest {
 		ID:             ID,
 		Version:        1,
 		DefaultEnabled: true,
+		Actions:        m.f.actions(),
+		Resources:      m.f.resources(),
 		Preflight:      m.f.preflight(),
 		OwnedPaths:     ownedPaths(),
 		Migrations:     map[core.Side]fs.FS{core.SideAgent: agentMigrations()},
@@ -61,4 +63,19 @@ func ownedPaths() []core.OwnedPath {
 		out = append(out, core.OwnedPath{Path: k.key, Kind: core.OwnedSysctl, Pattern: k.pattern})
 	}
 	return out
+}
+
+// actions are the firewall's actions (section 5): every mutating one
+// revertible under the firewall lock and repaired by firewall.state.repair,
+// and the read firewall.snapshot.compare.
+func (f fw) actions() []core.ActionDef {
+	return []core.ActionDef{
+		f.stateEnable(), f.stateDisable(), f.stateRepair(), f.defaultsSet(), f.loggingSet(),
+		f.rulesApply(), f.ruleAdd(), f.ruleDelete(), f.snapshotRestore(), f.snapshotCompare(),
+	}
+}
+
+// resources are firewall.status and firewall.snapshots.
+func (f fw) resources() []core.ResourceDef {
+	return []core.ResourceDef{core.DefineResource(ID+".status", f.status), core.DefineResource(ID+".snapshots", f.snapshots)}
 }

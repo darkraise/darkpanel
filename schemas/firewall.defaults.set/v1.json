@@ -1,0 +1,168 @@
+{
+  "name": "firewall.defaults.set",
+  "version": 1,
+  "class": "revertible",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/DefaultsInput",
+    "$defs": {
+      "DefaultsInput": {
+        "properties": {
+          "guard": {
+            "$ref": "#/$defs/GuardContext"
+          },
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "incoming": {
+            "type": "string",
+            "enum": [
+              "ACCEPT",
+              "DROP",
+              "REJECT"
+            ],
+            "description": "Default policy for incoming traffic."
+          },
+          "outgoing": {
+            "type": "string",
+            "enum": [
+              "ACCEPT",
+              "DROP",
+              "REJECT"
+            ],
+            "description": "Default policy for outgoing traffic."
+          },
+          "routed": {
+            "type": "string",
+            "enum": [
+              "ACCEPT",
+              "DROP",
+              "REJECT"
+            ],
+            "description": "Default policy for routed (forwarded) traffic."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "GuardContext": {
+        "properties": {
+          "client": {
+            "$ref": "#/$defs/Peer"
+          },
+          "via": {
+            "$ref": "#/$defs/ProxyPath"
+          },
+          "panelListen": {
+            "items": {
+              "type": "string",
+              "format": "ip-address-port"
+            },
+            "type": "array"
+          },
+          "agentListen": {
+            "items": {
+              "type": "string",
+              "format": "ip-address-port"
+            },
+            "type": "array"
+          },
+          "agentPeers": {
+            "items": {
+              "type": "string",
+              "format": "ip-address"
+            },
+            "type": "array"
+          },
+          "complete": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "Peer": {
+        "properties": {
+          "addr": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "port": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "addr",
+          "port"
+        ]
+      },
+      "ProxyPath": {
+        "properties": {
+          "exposureId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "proxyAddr": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "listenerAddr": {
+            "type": "string",
+            "format": "ip-address-port"
+          },
+          "public": {
+            "items": {
+              "type": "string",
+              "format": "ip-address-port"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "exposureId",
+          "kind",
+          "proxyAddr",
+          "listenerAddr",
+          "public"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ChangeOutput",
+    "$defs": {
+      "ChangeOutput": {
+        "properties": {
+          "snapshot": {
+            "type": "string"
+          },
+          "rules": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "repairOutcome": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "snapshot"
+        ]
+      }
+    }
+  }
+}
