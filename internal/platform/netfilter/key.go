@@ -153,9 +153,9 @@ func keyTargetDefaults(ext string, opts []Option, ipv6 bool) []Option {
 func keyValue(ext, opt, v string, ipv6 bool) string {
 	switch {
 	case ext == "icmp" && opt == "icmp-type":
-		return icmpTypeNumber(icmpTypes, v)
+		return icmpTypeNumber(icmpNames, v, false)
 	case ext == "icmp6" && opt == "icmpv6-type":
-		return icmpTypeNumber(icmp6Types, v)
+		return icmpTypeNumber(icmp6Names, v, true)
 	case ext == "limit" && opt == "limit":
 		return limitRate(v)
 	case (ext == "conntrack" && opt == "ctstate") || (ext == "state" && opt == "state"):
@@ -180,53 +180,179 @@ func keyValue(ext, opt, v string, ipv6 bool) string {
 	return v
 }
 
-// icmpType is an ICMP type name of iptables (libxt_icmp.c, libip6t_icmp6.c)
-// with the type and, for a name of one code, the code.
-type icmpType struct {
-	typ  int
-	code int // -1 for every code
+// icmpName is a row of the type table of iptables (extensions/libxt_icmp.h):
+// the name, the type, and the first and last code the name stands for.
+type icmpName struct {
+	name                  string
+	typ, codeMin, codeMax int
 }
 
-var icmpTypes = map[string]icmpType{
-	"any": {-1, -1}, "echo-reply": {0, -1}, "pong": {0, -1}, "destination-unreachable": {3, -1},
-	"network-unreachable": {3, 0}, "host-unreachable": {3, 1}, "protocol-unreachable": {3, 2},
-	"port-unreachable": {3, 3}, "fragmentation-needed": {3, 4}, "source-route-failed": {3, 5},
-	"network-unknown": {3, 6}, "host-unknown": {3, 7}, "network-prohibited": {3, 9}, "host-prohibited": {3, 10},
-	"tos-network-unreachable": {3, 11}, "tos-host-unreachable": {3, 12}, "communication-prohibited": {3, 13},
-	"host-precedence-violation": {3, 14}, "precedence-cutoff": {3, 15}, "source-quench": {4, -1},
-	"redirect": {5, -1}, "network-redirect": {5, 0}, "host-redirect": {5, 1}, "tos-network-redirect": {5, 2},
-	"tos-host-redirect": {5, 3}, "echo-request": {8, -1}, "ping": {8, -1}, "router-advertisement": {9, -1},
-	"router-solicitation": {10, -1}, "time-exceeded": {11, -1}, "ttl-exceeded": {11, -1},
-	"ttl-zero-during-transit": {11, 0}, "ttl-zero-during-reassembly": {11, 1}, "parameter-problem": {12, -1},
-	"ip-header-bad": {12, 0}, "required-option-missing": {12, 1}, "timestamp-request": {13, -1},
-	"timestamp-reply": {14, -1}, "address-mask-request": {17, -1}, "address-mask-reply": {18, -1},
+// icmpNames and icmp6Names are the tables of iptables 1.8.11 in its order,
+// spelled as it spells them (TOS-network-unreachable), because the lookup
+// ignores case.
+var icmpNames = []icmpName{
+	{"any", 255, 0, 255}, {"echo-reply", 0, 0, 255}, {"pong", 0, 0, 255}, {"destination-unreachable", 3, 0, 255},
+	{"network-unreachable", 3, 0, 0}, {"host-unreachable", 3, 1, 1}, {"protocol-unreachable", 3, 2, 2},
+	{"port-unreachable", 3, 3, 3}, {"fragmentation-needed", 3, 4, 4}, {"source-route-failed", 3, 5, 5},
+	{"network-unknown", 3, 6, 6}, {"host-unknown", 3, 7, 7}, {"network-prohibited", 3, 9, 9},
+	{"host-prohibited", 3, 10, 10}, {"TOS-network-unreachable", 3, 11, 11}, {"TOS-host-unreachable", 3, 12, 12},
+	{"communication-prohibited", 3, 13, 13}, {"host-precedence-violation", 3, 14, 14},
+	{"precedence-cutoff", 3, 15, 15}, {"source-quench", 4, 0, 255}, {"redirect", 5, 0, 255},
+	{"network-redirect", 5, 0, 0}, {"host-redirect", 5, 1, 1}, {"TOS-network-redirect", 5, 2, 2},
+	{"TOS-host-redirect", 5, 3, 3}, {"echo-request", 8, 0, 255}, {"ping", 8, 0, 255},
+	{"router-advertisement", 9, 0, 255}, {"router-solicitation", 10, 0, 255}, {"time-exceeded", 11, 0, 255},
+	{"ttl-exceeded", 11, 0, 255}, {"ttl-zero-during-transit", 11, 0, 0}, {"ttl-zero-during-reassembly", 11, 1, 1},
+	{"parameter-problem", 12, 0, 255}, {"ip-header-bad", 12, 0, 0}, {"required-option-missing", 12, 1, 1},
+	{"timestamp-request", 13, 0, 255}, {"timestamp-reply", 14, 0, 255}, {"address-mask-request", 17, 0, 255},
+	{"address-mask-reply", 18, 0, 255},
 }
 
-var icmp6Types = map[string]icmpType{
-	"destination-unreachable": {1, -1}, "no-route": {1, 0}, "communication-prohibited": {1, 1},
-	"beyond-scope": {1, 2}, "address-unreachable": {1, 3}, "port-unreachable": {1, 4},
-	"failed-policy": {1, 5}, "reject-route": {1, 6}, "packet-too-big": {2, -1}, "time-exceeded": {3, -1},
-	"ttl-exceeded": {3, -1}, "ttl-zero-during-transit": {3, 0}, "ttl-zero-during-reassembly": {3, 1},
-	"parameter-problem": {4, -1}, "bad-header": {4, 0}, "unknown-header-type": {4, 1}, "unknown-option": {4, 2},
-	"echo-request": {128, -1}, "ping": {128, -1}, "echo-reply": {129, -1}, "pong": {129, -1},
-	"router-solicitation": {133, -1}, "router-advertisement": {134, -1}, "neighbour-solicitation": {135, -1},
-	"neighbor-solicitation": {135, -1}, "neighbour-advertisement": {136, -1}, "neighbor-advertisement": {136, -1},
-	"redirect": {137, -1},
+var icmp6Names = []icmpName{
+	{"destination-unreachable", 1, 0, 255}, {"no-route", 1, 0, 0}, {"communication-prohibited", 1, 1, 1},
+	{"beyond-scope", 1, 2, 2}, {"address-unreachable", 1, 3, 3}, {"port-unreachable", 1, 4, 4},
+	{"failed-policy", 1, 5, 5}, {"reject-route", 1, 6, 6}, {"packet-too-big", 2, 0, 255},
+	{"time-exceeded", 3, 0, 255}, {"ttl-exceeded", 3, 0, 255}, {"ttl-zero-during-transit", 3, 0, 0},
+	{"ttl-zero-during-reassembly", 3, 1, 1}, {"parameter-problem", 4, 0, 255}, {"bad-header", 4, 0, 0},
+	{"unknown-header-type", 4, 1, 1}, {"unknown-option", 4, 2, 2}, {"echo-request", 128, 0, 255},
+	{"ping", 128, 0, 255}, {"echo-reply", 129, 0, 255}, {"pong", 129, 0, 255},
+	{"mld-listener-query", 130, 0, 255}, {"mld-listener-report", 131, 0, 255}, {"mld-listener-done", 132, 0, 255},
+	{"mld-listener-reduction", 132, 0, 255}, {"router-solicitation", 133, 0, 255},
+	{"router-advertisement", 134, 0, 255}, {"neighbour-solicitation", 135, 0, 255},
+	{"neighbor-solicitation", 135, 0, 255}, {"neighbour-advertisement", 136, 0, 255},
+	{"neighbor-advertisement", 136, 0, 255}, {"redirect", 137, 0, 255},
 }
 
-// icmpTypeNumber is an ICMP type as iptables-save prints it: "any", the type
-// number, or type/code for a single code. An unknown spelling is kept.
-func icmpTypeNumber(names map[string]icmpType, v string) string {
-	t, ok := names[strings.ToLower(v)]
+// icmpTypeNumber is an ICMP type as iptables-save prints it: the type
+// number, followed by /code when the match is not for every code, and "any"
+// for ICMPv4's every type. It reads v as iptables does (__parse_icmp in
+// libxt_icmp.h): a case-insensitive prefix of exactly one name, or a number
+// in the notation of strtoul, with a code or code range after a slash. A
+// code range is printed by its first code only, as iptables-save does. A
+// spelling iptables refuses, such as an ambiguous prefix or a range of
+// types, is kept as written.
+func icmpTypeNumber(names []icmpName, v string, ipv6 bool) string {
+	typ, lo, hi, ok := parseICMPType(names, v)
 	switch {
 	case !ok:
 		return v
-	case t.typ < 0:
+	case !ipv6 && typ == 255 && lo == 0 && hi == 255:
 		return "any"
-	case t.code < 0:
-		return strconv.Itoa(t.typ)
+	case lo != 0 || hi != 255:
+		return fmt.Sprintf("%d/%d", typ, lo)
 	}
-	return fmt.Sprintf("%d/%d", t.typ, t.code)
+	return strconv.Itoa(typ)
+}
+
+// parseICMPType reads an icmp type spelling: its type and code range.
+func parseICMPType(names []icmpName, v string) (typ, lo, hi int, ok bool) {
+	match := -1
+	for i, n := range names {
+		if hasPrefixFold(n.name, v) {
+			if match >= 0 {
+				return 0, 0, 0, false
+			}
+			match = i
+		}
+	}
+	if match >= 0 {
+		return names[match].typ, names[match].codeMin, names[match].codeMax, true
+	}
+	first, last, rest, ok := parseICMPRange(v)
+	if !ok || first != last {
+		return 0, 0, 0, false
+	}
+	switch {
+	case rest == "":
+		return first, 0, 255, true
+	case rest[0] == '/':
+		lo, hi, rest, ok = parseICMPRange(rest[1:])
+		return first, lo, hi, ok && rest == ""
+	}
+	return 0, 0, 0, false
+}
+
+// parseICMPRange reads n or n:m, each a number from 0 to 255, from the start
+// of s and returns what follows.
+func parseICMPRange(s string) (first, last int, rest string, ok bool) {
+	first, rest, ok = parseCNumber(s)
+	if !ok || first > 255 {
+		return 0, 0, "", false
+	}
+	last = first
+	if strings.HasPrefix(rest, ":") {
+		last, rest, ok = parseCNumber(rest[1:])
+		if !ok || last > 255 {
+			return 0, 0, "", false
+		}
+	}
+	return first, last, rest, true
+}
+
+// parseCNumber reads the unsigned number at the start of s as strtoul with
+// base 0 does: 0x or 0X and hexadecimal digits, a leading 0 and octal
+// digits, or decimal digits. It returns what follows the number.
+func parseCNumber(s string) (n int, rest string, ok bool) {
+	base, i := 10, 0
+	switch {
+	case len(s) > 2 && (s[:2] == "0x" || s[:2] == "0X") && isDigitIn(s[2], 16):
+		base, i = 16, 2
+	case len(s) > 0 && s[0] == '0':
+		base = 8
+	}
+	start := i
+	for i < len(s) && isDigitIn(s[i], base) {
+		n = n*base + digitValue(s[i])
+		if n > 1<<20 {
+			return 0, "", false
+		}
+		i++
+	}
+	if i == start {
+		return 0, "", false
+	}
+	return n, s[i:], true
+}
+
+func isDigitIn(c byte, base int) bool {
+	switch {
+	case c >= '0' && c <= '9':
+		return int(c-'0') < base
+	case c >= 'a' && c <= 'f', c >= 'A' && c <= 'F':
+		return base == 16
+	}
+	return false
+}
+
+func digitValue(c byte) int {
+	switch {
+	case c >= 'a':
+		return int(c-'a') + 10
+	case c >= 'A':
+		return int(c-'A') + 10
+	}
+	return int(c - '0')
+}
+
+// hasPrefixFold reports whether prefix is a prefix of s, ignoring the case
+// of ASCII letters, as strncasecmp(s, prefix, strlen(prefix)) == 0 does. An
+// empty prefix is a prefix of every s.
+func hasPrefixFold(s, prefix string) bool {
+	if len(prefix) > len(s) {
+		return false
+	}
+	for i := 0; i < len(prefix); i++ {
+		if lowerASCII(s[i]) != lowerASCII(prefix[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func lowerASCII(c byte) byte {
+	if c >= 'A' && c <= 'Z' {
+		return c + 'a' - 'A'
+	}
+	return c
 }
 
 // limitUnits are the units of a limit rate, in the order iptables tries

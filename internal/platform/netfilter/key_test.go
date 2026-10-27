@@ -177,3 +177,153 @@ func TestKeyMatchesUFW(t *testing.T) {
 		}
 	}
 }
+
+// kxIcmp4 and kxIcmp6 are the icmp type spellings that iptables and ip6tables
+// 1.8.11 (extensions/libxt_icmp.h, in iptables-1.8.11.tar.xz from
+// netfilter.org) accepted in a container, with the type iptables-save then
+// printed: every name of the tables, a type number, a code, a code range
+// and a case or prefix variation.
+var kxIcmp4 = []struct{ in, saved string }{
+	{"any", "any"},
+	{"echo-reply", "0"},
+	{"pong", "0"},
+	{"destination-unreachable", "3"},
+	{"network-unreachable", "3/0"},
+	{"host-unreachable", "3/1"},
+	{"protocol-unreachable", "3/2"},
+	{"port-unreachable", "3/3"},
+	{"fragmentation-needed", "3/4"},
+	{"source-route-failed", "3/5"},
+	{"network-unknown", "3/6"},
+	{"host-unknown", "3/7"},
+	{"network-prohibited", "3/9"},
+	{"host-prohibited", "3/10"},
+	{"TOS-network-unreachable", "3/11"},
+	{"TOS-host-unreachable", "3/12"},
+	{"communication-prohibited", "3/13"},
+	{"host-precedence-violation", "3/14"},
+	{"precedence-cutoff", "3/15"},
+	{"source-quench", "4"},
+	{"redirect", "5"},
+	{"network-redirect", "5/0"},
+	{"host-redirect", "5/1"},
+	{"TOS-network-redirect", "5/2"},
+	{"TOS-host-redirect", "5/3"},
+	{"echo-request", "8"},
+	{"ping", "8"},
+	{"router-advertisement", "9"},
+	{"router-solicitation", "10"},
+	{"time-exceeded", "11"},
+	{"ttl-exceeded", "11"},
+	{"ttl-zero-during-transit", "11/0"},
+	{"ttl-zero-during-reassembly", "11/1"},
+	{"parameter-problem", "12"},
+	{"ip-header-bad", "12/0"},
+	{"required-option-missing", "12/1"},
+	{"timestamp-request", "13"},
+	{"timestamp-reply", "14"},
+	{"address-mask-request", "17"},
+	{"address-mask-reply", "18"},
+	{"any", "any"},
+	{"255", "any"},
+	{"3/0", "3/0"},
+	{"3/0:255", "3"},
+	{"3/1:2", "3/1"},
+	{"3/4", "3/4"},
+	{"8/0", "8/0"},
+	{"Port-Unreachable", "3/3"},
+	{"TOS-host-redirect", "5/3"},
+	{"tos-host-redirect", "5/3"},
+	{"dest", "3"},
+	{"pa", "12"},
+	{"0x3", "3"},
+	{"03", "3"},
+	{"3/0x1", "3/1"},
+}
+
+var kxIcmp6 = []struct{ in, saved string }{
+	{"destination-unreachable", "1"},
+	{"no-route", "1/0"},
+	{"communication-prohibited", "1/1"},
+	{"beyond-scope", "1/2"},
+	{"address-unreachable", "1/3"},
+	{"port-unreachable", "1/4"},
+	{"failed-policy", "1/5"},
+	{"reject-route", "1/6"},
+	{"packet-too-big", "2"},
+	{"time-exceeded", "3"},
+	{"ttl-exceeded", "3"},
+	{"ttl-zero-during-transit", "3/0"},
+	{"ttl-zero-during-reassembly", "3/1"},
+	{"parameter-problem", "4"},
+	{"bad-header", "4/0"},
+	{"unknown-header-type", "4/1"},
+	{"unknown-option", "4/2"},
+	{"echo-request", "128"},
+	{"ping", "128"},
+	{"echo-reply", "129"},
+	{"pong", "129"},
+	{"mld-listener-query", "130"},
+	{"mld-listener-report", "131"},
+	{"mld-listener-done", "132"},
+	{"mld-listener-reduction", "132"},
+	{"router-solicitation", "133"},
+	{"router-advertisement", "134"},
+	{"neighbour-solicitation", "135"},
+	{"neighbor-solicitation", "135"},
+	{"neighbour-advertisement", "136"},
+	{"neighbor-advertisement", "136"},
+	{"redirect", "137"},
+	{"255", "255"},
+	{"1/0", "1/0"},
+	{"1/1:2", "1/1"},
+	{"128", "128"},
+	{"dest", "1"},
+	{"ECHO-REQUEST", "128"},
+	{"mld-listener-d", "132"},
+	{"0x80", "128"},
+	{"1/0:255", "1"},
+	{"1/3:3", "1/3"},
+}
+
+// kxIcmpRefused are spellings that iptables and ip6tables refused: an
+// ambiguous prefix, a type range, and "any" for ICMPv6. The key keeps them
+// as written, so a rule that cannot be loaded never equals one that can.
+var kxIcmpRefused = []struct {
+	ipv6 bool
+	in   string
+}{
+	{false, "echo"},
+	{false, "echo-r"},
+	{false, "3:4"},
+	{false, "a"},
+	{true, "mld"},
+	{true, "neighbo"},
+	{true, "any"},
+}
+
+func TestKxIcmpTypes(t *testing.T) {
+	for _, ipv6 := range []bool{false, true} {
+		proto, module, opt, rows := "icmp", "icmp", "icmp-type", kxIcmp4
+		if ipv6 {
+			proto, module, opt, rows = "ipv6-icmp", "icmp6", "icmpv6-type", kxIcmp6
+		}
+		for _, tc := range rows {
+			got := Key(kyRule(t, "-A X -p "+proto+" --"+opt+" "+tc.in+" -j ACCEPT", true), ipv6)
+			want := "-p " + proto + " -m " + module + " --" + opt + " " + tc.saved + " -j ACCEPT"
+			if got != want {
+				t.Errorf("ipv6 %v: --%s %s has the key %q, want %q", ipv6, opt, tc.in, got, want)
+			}
+		}
+	}
+	for _, tc := range kxIcmpRefused {
+		proto, opt := "icmp", "icmp-type"
+		if tc.ipv6 {
+			proto, opt = "ipv6-icmp", "icmpv6-type"
+		}
+		got := Key(kyRule(t, "-A X -p "+proto+" --"+opt+" "+tc.in+" -j ACCEPT", true), tc.ipv6)
+		if want := "--" + opt + " " + tc.in + " -j ACCEPT"; !strings.HasSuffix(got, want) {
+			t.Errorf("ipv6 %v: the refused --%s %s has the key %q, want it kept as written", tc.ipv6, opt, tc.in, got)
+		}
+	}
+}
