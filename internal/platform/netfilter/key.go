@@ -2,6 +2,7 @@ package netfilter
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -274,13 +275,13 @@ func ctStates(v string) string {
 // kept.
 func markValue(v string, alwaysMask bool) string {
 	val, mask, hasMask := strings.Cut(v, "/")
-	n, err := strconv.ParseUint(val, 0, 32)
-	if err != nil {
+	n, ok := markNumber(val)
+	if !ok {
 		return v
 	}
 	m := uint64(0xffffffff)
 	if hasMask {
-		if m, err = strconv.ParseUint(mask, 0, 32); err != nil {
+		if m, ok = markNumber(mask); !ok {
 			return v
 		}
 	}
@@ -288,6 +289,22 @@ func markValue(v string, alwaysMask bool) string {
 		return fmt.Sprintf("0x%x", n)
 	}
 	return fmt.Sprintf("0x%x/0x%x", n, m)
+}
+
+// markSyntax is the number syntax strtoul with base 0 reads in full. Go's
+// base-0 parsing also takes 0b, 0o and digit separators, which iptables
+// refuses; the glibc of Debian 12 and Ubuntu 22.04 stops strtoul at the b of
+// 0b.
+var markSyntax = regexp.MustCompile(`^(0[xX][0-9a-fA-F]+|0[0-7]*|[1-9][0-9]*)$`)
+
+// markNumber reads a mark or mask as iptables does, reporting false for a
+// spelling iptables refuses or a value above 32 bits.
+func markNumber(s string) (uint64, bool) {
+	if !markSyntax.MatchString(s) {
+		return 0, false
+	}
+	n, err := strconv.ParseUint(s, 0, 32)
+	return n, err == nil
 }
 
 // keyAddr is an address in its canonical spelling; a value that is not an

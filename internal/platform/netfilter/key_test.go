@@ -104,6 +104,17 @@ func TestKeyDistinguishes(t *testing.T) {
 	if !o1.Opaque() || Key(o1, false) == Key(o2, false) {
 		t.Errorf("opaque rules: %s and %s", Key(o1, false), Key(o2, false))
 	}
+	// A mark spelling iptables refuses keeps its text, so it never shares the
+	// key of a mark iptables loads.
+	for _, in := range []string{"0o1", "0O1", "1_0", "0x1_0", "0b1", "1/0o7"} {
+		want := "-m mark --mark " + in + " -j ACCEPT"
+		if got := Key(kyRule(t, "-A X -m mark --mark "+in+" -j ACCEPT", true), false); got != want {
+			t.Errorf("mark %s has the key %s, want %s", in, got, want)
+		}
+	}
+	if got, want := Key(kyRule(t, "-A X -m mark --mark 017 -j ACCEPT", true), false), "-m mark --mark 0xf -j ACCEPT"; got != want {
+		t.Errorf("mark 017 has the key %s, want %s", got, want)
+	}
 }
 
 // TestKeyMatchesUFW is the acceptance test of Key: on every captured image
