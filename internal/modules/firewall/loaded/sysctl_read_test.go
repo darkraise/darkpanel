@@ -51,19 +51,18 @@ func TestReadSysctl(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := maps.Clone(values)
-	for k := range want {
-		if strings.Contains(k, "/lo/") {
-			delete(want, k)
-		}
+	if !maps.Equal(st.Sysctl, values) {
+		t.Errorf("sysctl:\n got %v\nwant %v", st.Sysctl, values)
 	}
-	if !maps.Equal(st.Sysctl, want) {
-		t.Errorf("sysctl:\n got %v\nwant %v", st.Sysctl, want)
+	for _, k := range []string{"net/ipv6/conf/lo/forwarding", "net/ipv6/conf/lo/accept_ra", "net/ipv4/conf/lo/rp_filter", "net/ipv4/conf/lo/accept_source_route"} {
+		if _, ok := st.Sysctl[k]; !ok {
+			t.Errorf("sysctl lacks the loopback key %s", k)
+		}
 	}
 	if want := []string{`interface "we:ird": Darkpanel cannot read its sysctl values`}; !slices.Equal(st.Unsupported, want) {
 		t.Errorf("unsupported %q, want %q", st.Unsupported, want)
 	}
-	if len(files.reads) != 17 || files.reads[0] != "firewall net/ipv4/ip_forward" || files.reads[16] != "firewall net/ipv4/conf/docker0/accept_source_route" {
+	if len(files.reads) != 21 || files.reads[0] != "firewall net/ipv4/ip_forward" || files.reads[20] != "firewall net/ipv4/conf/docker0/accept_source_route" {
 		t.Errorf("reads %q", files.reads)
 	}
 }
@@ -73,7 +72,8 @@ func TestSysctlKeys(t *testing.T) {
 	want := []string{"net/ipv4/ip_forward",
 		"net/ipv6/conf/all/forwarding", "net/ipv6/conf/all/accept_ra", "net/ipv4/conf/all/rp_filter", "net/ipv4/conf/all/accept_source_route",
 		"net/ipv6/conf/default/forwarding", "net/ipv6/conf/default/accept_ra", "net/ipv4/conf/default/rp_filter", "net/ipv4/conf/default/accept_source_route",
-		"net/ipv6/conf/eth0/forwarding", "net/ipv6/conf/eth0/accept_ra", "net/ipv4/conf/eth0/rp_filter", "net/ipv4/conf/eth0/accept_source_route"}
+		"net/ipv6/conf/eth0/forwarding", "net/ipv6/conf/eth0/accept_ra", "net/ipv4/conf/eth0/rp_filter", "net/ipv4/conf/eth0/accept_source_route",
+		"net/ipv6/conf/lo/forwarding", "net/ipv6/conf/lo/accept_ra", "net/ipv4/conf/lo/rp_filter", "net/ipv4/conf/lo/accept_source_route"}
 	if !slices.Equal(keys, want) {
 		t.Errorf("keys %q", keys)
 	}

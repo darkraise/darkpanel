@@ -34,7 +34,7 @@ var (
 // not enabled). Any other transition returns a copy of cur.
 //
 // The file's supported settings apply in file order; a key that cur does
-// not hold (an absent interface, IPv6 disabled, the loopback interface) is
+// not hold (an absent interface, IPv6 disabled) is
 // skipped, as sysctl -e skips a missing key. The kernel's side effects on
 // supported keys are modelled: writing net/ipv6/conf/all/forwarding sets
 // default and every interface's forwarding, even when the value does not

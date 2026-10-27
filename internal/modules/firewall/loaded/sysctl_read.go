@@ -31,15 +31,15 @@ var sysctlParams = []string{
 }
 
 // sysctlKeys returns the supported keys to read: net/ipv4/ip_forward, then
-// the per-interface keys of all, default and each non-loopback interface
-// in the order given. An interface whose name cannot be a key segment, or
-// that would read as all or default, is not read and gets a reason
-// instead: its reverse-path filter would be unknown.
+// the per-interface keys of all, default and each interface in the order
+// given, the loopback interface included: writing all/forwarding changes
+// its forwarding like any other interface's. An interface whose name
+// cannot be a key segment, or that would read as all or default, is not
+// read and gets a reason instead: its reverse-path filter would be unknown.
 func sysctlKeys(ifaces []netstat.Interface) (keys, reasons []string) {
 	names := []string{"all", "default"}
 	for _, i := range ifaces {
 		switch {
-		case i.Loopback:
 		case i.Name == "all" || i.Name == "default" || !sysctlIface.MatchString(i.Name):
 			reasons = append(reasons, fmt.Sprintf("interface %q: Darkpanel cannot read its sysctl values", truncate(i.Name)))
 		default:
