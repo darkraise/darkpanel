@@ -93,10 +93,69 @@ func (f fw) syncDiffs(cfg fwstate.Config, cur fwstate.Loaded) ([]fwstate.ChainDi
 	return f.d.compare(pred, cur, keep), nil
 }
 
+// builtinNames are the names of the built-in chains of the five tables.
+var builtinNames = []string{"PREROUTING", "INPUT", "FORWARD", "OUTPUT", "POSTROUTING"}
+
+// verifyKeep selects the chains verify compares after a start: UFW's and
+// Darkpanel's chains and the built-in chains of every table, which
+// before.rules and after.rules may write to. A foreign user chain is left
+// out: no start writes it, so the prediction copies it from the loaded
+// state.
+func verifyKeep(_ fwstate.Family, _, chain string) bool {
+	return firewallChain(chain) || slices.Contains(builtinNames, chain)
+}
+
+// verifyDiffs is syncDiffs for the state after a change (spec 2.3, verify).
+// An enabled UFW is compared over verifyKeep. A rule a before.rules or
+// after.rules block appends to a built-in chain of a table other than
+// filter is appended again by every start, which the prediction models, so
+// the prediction from the state after the start holds it once more than
+// that state does: such a difference is reappended and does not count while
+// the loaded chain holds every rule the start appends. A disabled UFW is
+// compared as in syncDiffs.
+func (f fw) verifyDiffs(cfg fwstate.Config, cur fwstate.Loaded) ([]fwstate.ChainDiff, error) {
+	if !cfg.Enabled {
+		return f.syncDiffs(cfg, cur)
+	}
+	pred, err := f.d.predict(cfg, cur, fwstate.TransReload)
+	if err != nil {
+		return nil, fmt.Errorf("firewall: predict the loaded state of the configuration: %w", err)
+	}
+	var out []fwstate.ChainDiff
+	for _, d := range f.d.compare(pred, cur, verifyKeep) {
+		if !reappended(d, cur) {
+			out = append(out, d)
+		}
+	}
+	return out, nil
+}
+
+// reappended reports whether d is only the rules a start appends to a
+// built-in chain of a table other than filter, all of which the loaded
+// chain already holds: the same policy, no rule only loaded, the same order.
+func reappended(d fwstate.ChainDiff, cur fwstate.Loaded) bool {
+	if d.Table == "filter" || !slices.Contains(builtinNames, d.Chain) ||
+		d.PolicyA != "" || d.PolicyB != "" || len(d.OnlyB) > 0 || d.OrderDiffers {
+		return false
+	}
+	have := map[string]int{}
+	if c := chainOf(familyRules(cur, d.Family), d.Table, d.Chain); c != nil {
+		for _, r := range c.Rules {
+			have[netfilter.Key(r, d.Family == fwstate.V6)]++
+		}
+	}
+	for _, k := range d.OnlyA {
+		if have[k]--; have[k] < 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // confined reports whether every difference between the prediction pred
 // and the loaded state cur lies in UFW's and Darkpanel's own chains, which
 // a repair may bring back (spec 2.3): a UFW or Darkpanel chain, or a
-// built-in chain of the filter table whose rules other than jumps to such
+// built-in chain of the filter table whose rules other than bare jumps to such
 // chains are the same, in order, on both sides (its policy and those jumps
 // are UFW's). Any other difference is a foreign chain's.
 func confined(diffs []fwstate.ChainDiff, pred, cur fwstate.Loaded) bool {
@@ -122,14 +181,15 @@ func familyRules(st fwstate.Loaded, fam fwstate.Family) *netfilter.Ruleset {
 	return st.V4
 }
 
-// foreignKeys are the keys of a filter chain's rules that are not jumps to
-// a UFW or Darkpanel chain.
+// foreignKeys are the keys of a filter chain's rules that are not bare jumps
+// to a UFW or Darkpanel chain.
 func foreignKeys(rs *netfilter.Ruleset, chain string, fam fwstate.Family) []string {
 	var out []string
 	if c := chainOf(rs, "filter", chain); c != nil {
 		for _, r := range c.Rules {
-			if !firewallChain(r.Target.Name) {
-				out = append(out, netfilter.Key(r, fam == fwstate.V6))
+			k := netfilter.Key(r, fam == fwstate.V6)
+			if !firewallChain(r.Target.Name) || k != "-j "+r.Target.Name {
+				out = append(out, k)
 			}
 		}
 	}
