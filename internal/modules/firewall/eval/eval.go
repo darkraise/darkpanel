@@ -60,6 +60,10 @@ type walker struct {
 	in    string         // the in-interface the current hook sees, "" for none
 	out   string         // the out-interface the current hook sees, "" for none
 	res   fwstate.Result
+
+	origDst  netip.Addr // the destination before any DNAT
+	origPort uint16     // the destination port before any DNAT
+	dnat     bool       // a DNAT rule rewrote the destination
 }
 
 func newWalker(rs *netfilter.Ruleset, p fwstate.Packet, route fwstate.Router) (*walker, error) {
@@ -97,7 +101,10 @@ func newWalker(rs *netfilter.Ruleset, p fwstate.Packet, route fwstate.Router) (*
 	if p.Path == "output" {
 		p.InIface = ""
 	}
-	return &walker{rs: rs, route: route, pkt: p, res: fwstate.Result{Trace: []string{}}}, nil
+	return &walker{
+		rs: rs, route: route, pkt: p, res: fwstate.Result{Trace: []string{}},
+		origDst: p.Dst, origPort: p.DstPort,
+	}, nil
 }
 
 // run walks the hooks the packet traverses.
@@ -286,14 +293,4 @@ func protoMatch(m netfilter.NameMatch, proto string) bool {
 	}
 	n, ok := protoNumber(m.Name)
 	return (m.Name == "all" || ok && n == 0 || sameProto(m.Name, proto)) != m.Neg
-}
-
-// modules evaluates the rule's -m matches.
-func (w *walker) modules(_ *netfilter.Table, r *netfilter.Rule) (tri, string) {
-	for _, m := range r.Matches {
-		if m.Module != "comment" {
-			return maybe, "match " + m.Module + " is not modelled"
-		}
-	}
-	return yes, ""
 }
