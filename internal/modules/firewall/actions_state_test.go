@@ -151,14 +151,15 @@ func TestStateActionsVerify(t *testing.T) {
 		s.Enabled = false
 		h.setState(s)
 		err := c.def.Handler.Verify(ctx, h.env(), json.RawMessage(c.raw), json.RawMessage(`{"snapshot":""}`))
-		if errcode.From(err).Code != errcode.FirewallPredictionMismatch {
-			t.Errorf("%s verify = %v, want a prediction mismatch", c.def.Spec.Name, err)
+		if e := errcode.From(err); e.Code != errcode.FirewallPredictionMismatch || !strings.Contains(e.Detail, "after the change") {
+			t.Errorf("%s verify = %v, want the action's own prediction mismatch", c.def.Spec.Name, err)
 		}
 	}
 	s := h.state()
 	s.Enabled = true
 	h.setState(s)
-	if err := f.stateDisable().Handler.Verify(ctx, h.env(), json.RawMessage(`{}`), json.RawMessage(`{}`)); errcode.From(err).Code != errcode.FirewallPredictionMismatch {
-		t.Errorf("disable verify = %v, want a prediction mismatch", err)
+	err := f.stateDisable().Handler.Verify(ctx, h.env(), json.RawMessage(`{}`), json.RawMessage(`{}`))
+	if e := errcode.From(err); e.Code != errcode.FirewallPredictionMismatch || !strings.Contains(e.Detail, "after the change") {
+		t.Errorf("disable verify = %v, want the action's own prediction mismatch", err)
 	}
 }
