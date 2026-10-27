@@ -496,6 +496,12 @@ func TestServerPublishesHostEvents(t *testing.T) {
 	pubWant(t, ch, events.TypeHost, events.HostEvent{HostID: "h1"})
 }
 
+// tgAddr is a listener address of a network the topology cannot read.
+type tgAddr struct{ network, text string }
+
+func (a tgAddr) Network() string { return a.network }
+func (a tgAddr) String() string  { return a.text }
+
 func TestTopologyOf(t *testing.T) {
 	web := []listen.Bound{{Addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8443}}}
 	agent := []listen.Bound{
@@ -518,8 +524,19 @@ func TestTopologyOf(t *testing.T) {
 	if got := topologyOf(web, runtime, agent, peers); !reflect.DeepEqual(got, withRuntime) {
 		t.Errorf("topologyOf with a runtime listener = %+v, want %+v", got, withRuntime)
 	}
+	// A listener address that is neither an IP address nor a Unix socket is
+	// dropped by value, so the dispatcher can log it and mark the topology
+	// incomplete.
+	odd := append(slices.Clone(web), listen.Bound{Addr: tgAddr{"tcp", "panel.internal:8443"}})
+	oddAgent := append(slices.Clone(agent), listen.Bound{Addr: tgAddr{"vsock", "3:7443"}})
+	withDropped := want
+	withDropped.Dropped = []string{"panel.internal:8443", "3:7443"}
+	if got := topologyOf(odd, nil, oddAgent, peers); !reflect.DeepEqual(got, withDropped) {
+		t.Errorf("topologyOf with unreadable addresses = %+v, want %+v", got, withDropped)
+	}
 
-	// The sources count once they are registered.
+	// The sources count once they are registered, and the topology is
+	// complete once all four are.
 	var tp topology
 	if got := tp.read(); !reflect.DeepEqual(got, dispatch.Topology{}) {
 		t.Errorf("an empty topology reads %+v", got)
@@ -528,21 +545,38 @@ func TestTopologyOf(t *testing.T) {
 	tp.setAgent(func() []listen.Bound { return agent })
 	tp.setPeers(func() []netip.Addr { return peers })
 	if got := tp.read(); !reflect.DeepEqual(got, want) {
-		t.Errorf("the registered topology reads %+v, want %+v", got, want)
+		t.Errorf("the topology without its runtime source reads %+v, want %+v", got, want)
 	}
 	tp.setRuntime(func() []netip.AddrPort { return runtime })
+	withRuntime.Complete = true
 	if got := tp.read(); !reflect.DeepEqual(got, withRuntime) {
-		t.Errorf("the topology with runtime listeners reads %+v, want %+v", got, withRuntime)
+		t.Errorf("the registered topology reads %+v, want %+v", got, withRuntime)
+	}
+
+	// A controller whose agent runs embedded has no agent listener and no
+	// sessions; its topology is complete without them.
+	var embedded topology
+	embedded.setRuntime(func() []netip.AddrPort { return nil })
+	embedded.setWeb(func() []listen.Bound { return web })
+	if got := embedded.read(); got.Complete {
+		t.Errorf("an embedded topology before setNoAgents reads %+v, want incomplete", got)
+	}
+	embedded.setNoAgents()
+	wantEmbedded := dispatch.Topology{PanelListen: want.PanelListen, Complete: true}
+	if got := embedded.read(); !reflect.DeepEqual(got, wantEmbedded) {
+		t.Errorf("an embedded topology reads %+v, want %+v", got, wantEmbedded)
 	}
 }
 
 // TestServerTopology: a started server's dispatcher sees its web listeners;
-// the embedded agent has no agent listener and no sessions.
+// the embedded agent has no agent listener and no sessions, and the topology
+// is complete.
 func TestServerTopology(t *testing.T) {
 	s := start(t, embeddedOptions(t))
 	got := s.topo.read()
-	if len(got.PanelListen) == 0 || !reflect.DeepEqual(got.PanelListen, boundAddrs(s.Listeners())) ||
-		len(got.AgentListen) != 0 || len(got.AgentPeers) != 0 {
-		t.Errorf("topology %+v, want the web listeners %v only", got, s.Listeners())
+	panel, dropped := boundAddrs(s.Listeners())
+	if len(got.PanelListen) == 0 || !reflect.DeepEqual(got.PanelListen, panel) || len(dropped) != 0 ||
+		len(got.AgentListen) != 0 || len(got.AgentPeers) != 0 || !got.Complete {
+		t.Errorf("topology %+v, want the web listeners %v only, complete", got, s.Listeners())
 	}
 }

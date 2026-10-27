@@ -154,6 +154,8 @@ func (s *Server) startServices(ctx context.Context) error {
 
 	if s.sessions != nil {
 		s.topo.setPeers(s.sessions.Peers)
+	} else {
+		s.topo.setNoAgents()
 	}
 	s.dispatcher, err = dispatch.New(dispatch.Config{
 		Registry: reg, Engine: eng, Hosts: s.hosts, DB: s.controllerDB, Clock: s.clock, Log: s.log, Ingest: s.ingester,
