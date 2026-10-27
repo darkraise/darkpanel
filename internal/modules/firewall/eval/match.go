@@ -98,6 +98,11 @@ func hasPorts(proto string) bool {
 func (w *walker) portOption(o netfilter.Option) (tri, string) {
 	switch o.Name {
 	case "sport", "sports":
+		// Port 0 is the caller's way of saying the connection does not
+		// exist yet, so the kernel has not chosen its source port.
+		if w.pkt.SrcPort == 0 {
+			return maybe, "the source port of a connection that does not exist yet is unknown"
+		}
 		return portIn(o.Values[0], w.pkt.SrcPort)
 	case "dport", "dports":
 		return portIn(o.Values[0], w.pkt.DstPort)
