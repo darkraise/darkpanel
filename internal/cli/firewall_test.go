@@ -249,6 +249,54 @@ func TestFirewallRollbackRefusals(t *testing.T) {
 	}
 }
 
+// TestFirewallRollbackFailingOutcomes: a revert or a restore that does not
+// end as rollback wants exits with an error naming the state it reached.
+func TestFirewallRollbackFailingOutcomes(t *testing.T) {
+	failed := &core.ChangeError{Code: "firewall.prediction_mismatch", Message: "the loaded chains differ"}
+	for _, tc := range []struct {
+		name    string
+		state   string
+		err     *core.ChangeError
+		revert  bool
+		errPart string
+	}{
+		{"revert ends needs_repair", core.StateNeedsRepair, &core.ChangeError{Code: "change.revert_failed", Message: "the revert stopped"}, true,
+			"change c2 is needs_repair, not reverted: the revert stopped (change.revert_failed)"},
+		{"revert ends needs_repair without an error", core.StateNeedsRepair, nil, true, "change c2 is needs_repair, not reverted"},
+		{"restore ends reverted", core.StateReverted, failed, false,
+			"change c9 is reverted, not confirmed: the loaded chains differ (firewall.prediction_mismatch)"},
+		{"restore ends failed", core.StateFailed, failed, false,
+			"change c9 is failed, not confirmed: the loaded chains differ (firewall.prediction_mismatch)"},
+		{"restore ends failed without an error", core.StateFailed, nil, false, "change c9 is failed, not confirmed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			changes := []core.ChangeView{fwrbView("c1", "firewall.rule.add", "user:u1", core.StateConfirmed)}
+			if tc.revert {
+				changes = []core.ChangeView{fwrbView("c2", "firewall.rule.add", "user:u1", core.StatePending)}
+			}
+			agent := fwrbAgent(&agentCalls{}, changes)
+			agent.RevertFunc = func(_ context.Context, _ core.Principal, id string) (core.ChangeView, error) {
+				v := fwrbView(id, "firewall.rule.add", "user:u1", tc.state)
+				v.Error = tc.err
+				return v, nil
+			}
+			agent.ApplyFunc = func(context.Context, core.Principal, string, core.ApplyOptions) (core.ChangeView, error) {
+				v := fwrbView("c9", firewallRestoreAction, "user:u1", tc.state)
+				v.Error = tc.err
+				return v, nil
+			}
+			cli := cliEnv{reg: fwrbRegistry(t), agentSocket: agentSocket(t, agent)}
+			out, errOut, code := cli.run(t, "firewall", "rollback", "--local", "--yes")
+			if code != ExitError || !strings.Contains(errOut, tc.errPart) {
+				t.Errorf("exit %d, out %q, err %q; want exit %d and an error containing %q", code, out, errOut, ExitError, tc.errPart)
+			}
+			if tc.err == nil && strings.Contains(errOut, "not "+map[bool]string{true: "reverted", false: "confirmed"}[tc.revert]+":") {
+				t.Errorf("err %q names an error the change does not carry", errOut)
+			}
+		})
+	}
+}
+
 func TestFirewallRollbackNeedsTheRestoreAction(t *testing.T) {
 	changes := []core.ChangeView{fwrbView("c1", "firewall.rule.add", "user:u1", core.StateConfirmed)}
 	cli := cliEnv{agentSocket: agentSocket(t, fwrbAgent(&agentCalls{}, changes))}
