@@ -114,9 +114,65 @@ func TestArgs(t *testing.T) {
 	}
 }
 
+// mxRules are rules as UFW's files can hold them: a manual rule's comment
+// is whatever its tuple carries, and a Darkpanel rule's label is whatever
+// follows its tag. Each has the vectors AddArgs and InsertArgs(2) must
+// render: a comment the patterns of spec 2.2 do not allow, or a manual
+// comment that starts with a dash, is left off, and a Darkpanel rule keeps
+// its tag.
+var mxRules = []struct {
+	name   string
+	rule   Rule
+	add    string
+	insert string
+}{
+	{"manual comment starting with a dash", mxRule(OriginManual, "", "-x"),
+		"allow|in|proto|tcp|from|any|to|any|port|8080", "insert|2|allow|in|proto|tcp|from|any|to|any|port|8080"},
+	{"manual comment that is an option", mxRule(OriginManual, "", "--force"),
+		"allow|in|proto|tcp|from|any|to|any|port|8080", "insert|2|allow|in|proto|tcp|from|any|to|any|port|8080"},
+	{"manual comment outside the pattern", mxRule(OriginManual, "", "it's"),
+		"allow|in|proto|tcp|from|any|to|any|port|8080", "insert|2|allow|in|proto|tcp|from|any|to|any|port|8080"},
+	{"manual comment too long", mxRule(OriginManual, "", strings.Repeat("a", 65)),
+		"allow|in|proto|tcp|from|any|to|any|port|8080", "insert|2|allow|in|proto|tcp|from|any|to|any|port|8080"},
+	{"manual comment kept", mxRule(OriginManual, "", "a-b"),
+		"allow|in|proto|tcp|from|any|to|any|port|8080|comment|a-b", "insert|2|allow|in|proto|tcp|from|any|to|any|port|8080|comment|a-b"},
+	{"darkpanel label outside the pattern", mxRule(OriginDarkpanel, "01J00000000000000000000001", "café"),
+		"allow|in|proto|tcp|from|any|to|any|port|8080|comment|darkpanel:01J00000000000000000000001",
+		"insert|2|allow|in|proto|tcp|from|any|to|any|port|8080|comment|darkpanel:01J00000000000000000000001"},
+	{"darkpanel label starting with a dash", mxRule(OriginDarkpanel, "01J00000000000000000000001", "-x"),
+		"allow|in|proto|tcp|from|any|to|any|port|8080|comment|darkpanel:01J00000000000000000000001 -x",
+		"insert|2|allow|in|proto|tcp|from|any|to|any|port|8080|comment|darkpanel:01J00000000000000000000001 -x"},
+}
+
+func mxRule(origin Origin, id, comment string) Rule {
+	return Rule{ID: id, Action: ActionAllow, Direction: DirIn, Proto: ProtoTCP, From: Any, To: Any, ToPort: "8080",
+		Family: FamilyBoth, Log: LogOff, Comment: comment, Origin: origin}
+}
+
+func TestMxCommentArgs(t *testing.T) {
+	for _, c := range mxRules {
+		if got := strings.Join(AddArgs(c.rule), "|"); got != c.add {
+			t.Errorf("%s: AddArgs\n got %s\nwant %s", c.name, got, c.add)
+		}
+		if got := strings.Join(InsertArgs(2, c.rule), "|"); got != c.insert {
+			t.Errorf("%s: InsertArgs\n got %s\nwant %s", c.name, got, c.insert)
+		}
+		if got := strings.Join(DeleteArgs(c.rule), "|"); got != "delete|allow|in|proto|tcp|from|any|to|any|port|8080" {
+			t.Errorf("%s: DeleteArgs %s carries a comment", c.name, got)
+		}
+	}
+}
+
 func TestArgsNoOptionLikeValue(t *testing.T) {
+	rules := make([]Rule, 0, len(argsTestRules)+len(mxRules))
 	for _, c := range argsTestRules {
-		for _, args := range [][]string{AddArgs(c.rule), DeleteArgs(c.rule), InsertArgs(1, c.rule)} {
+		rules = append(rules, c.rule)
+	}
+	for _, c := range mxRules {
+		rules = append(rules, c.rule)
+	}
+	for _, rule := range rules {
+		for _, args := range [][]string{AddArgs(rule), DeleteArgs(rule), InsertArgs(1, rule)} {
 			if i := slices.IndexFunc(args, func(a string) bool { return strings.HasPrefix(a, "-") || a == "" }); i >= 0 {
 				t.Errorf("argument %d of %q is empty or starts with a dash", i, args)
 			}
