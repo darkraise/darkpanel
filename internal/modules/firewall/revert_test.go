@@ -551,6 +551,67 @@ func TestAxRevertFinishesAnUnreadableEmergencyRecord(t *testing.T) {
 	}
 }
 
+// TestRevertReaddsAManualRuleWithoutItsComment (ruling cv-103a): a manual
+// rule whose comment ufw cannot be given ("-x") is re-added by its undo
+// without the comment, so the observation differs from its Before and the
+// revert ends needing repair, never reverted.
+func TestRevertReaddsAManualRuleWithoutItsComment(t *testing.T) {
+	const (
+		withDash = "### tuple ### allow tcp 9000 0.0.0.0/0 any 0.0.0.0/0 in comment=2d78"
+		bare     = "### tuple ### allow tcp 9000 0.0.0.0/0 any 0.0.0.0/0 in"
+	)
+	ctx := context.Background()
+	h := newFakeHost(t)
+	s := h.state()
+	s.Rules4 = append(s.Rules4, withDash)
+	h.setState(s)
+	env, d := h.env(), h.deps()
+	raw, err := capture(ctx, env, d, &core.GuardContext{Complete: true}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := attach(ctx, env); err != nil {
+		t.Fatal(err)
+	}
+	rule := findRules(h.config(), obTestID(t, []string{withDash}, nil))[0].Rule
+	op := deleteRuleOp(rule)
+	h.ufw[strings.Join(op.Args, " ")] = func(s *fhState) int {
+		s.Rules4 = slices.DeleteFunc(s.Rules4, func(l string) bool { return l == withDash })
+		return 0
+	}
+	if err := runUfw(ctx, env, d, op); err != nil {
+		t.Fatal(err)
+	}
+	if err := recordPostHashes(ctx, env, d, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	rvTestManualEdit(h)
+	var undo []string
+	readd := func(args []string) {
+		h.ufw[strings.Join(args, " ")] = func(s *fhState) int {
+			undo = args
+			s.Rules4 = append(s.Rules4, bare)
+			return 0
+		}
+	}
+	readd(model.AddArgs(rule))
+	for pos := 1; pos <= len(h.state().Rules4)+1; pos++ {
+		readd(model.InsertArgs(pos, rule))
+	}
+	h.ufw["reload"] = func(*fhState) int { return 0 }
+	h.calls = nil
+	_, err = revert(ctx, env, d, raw)
+	if err == nil || !strings.Contains(err.Error(), "the revert stopped") {
+		t.Fatalf("revert = %v, want it stopped by the missing comment", err)
+	}
+	if undo == nil || slices.Contains(undo, "-x") {
+		t.Errorf("undo ran %q, want the rule without its comment", undo)
+	}
+	if s, err := getSnapshot(ctx, h.db, string(raw)); err != nil || !s.Pinned {
+		t.Errorf("snapshot pinned = %v, %v", s.Pinned, err)
+	}
+}
+
 // TestRevertOverrideDetailUnread: when the emergency restore cannot read
 // the state files or the loaded state before it writes, the override
 // detail says so instead of a blank hash or an empty chain list.
