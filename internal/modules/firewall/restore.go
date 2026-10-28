@@ -112,19 +112,8 @@ func restoreOver(ctx context.Context, env core.Env, d deps, snap snapshot, emerg
 			return rep, err
 		}
 	case !recorded:
-		switch cur, err := d.readConfig(d.root); {
-		case snap.State.Image != nil:
-			tr = fwstate.TransNone
-		case err != nil && snap.State.Enabled:
-			tr = fwstate.TransEnable
-		case err != nil:
-			tr = fwstate.TransDisable
-		default:
-			active, err := activeNow(ctx, env, d, cur)
-			if err != nil {
-				return rep, err
-			}
-			tr = chooseTransition(snap.State.Enabled, active)
+		if tr, err = restoreTransition(ctx, env, d, snap); err != nil {
+			return rep, err
 		}
 		if err := beginRestoreRecord(ctx, env.DB, snap.ID, restoreRecord{Transition: tr, Emergency: emergency}, env.Clock.Now()); err != nil {
 			return rep, err
@@ -183,6 +172,28 @@ func restoreOver(ctx context.Context, env core.Env, d deps, snap snapshot, emerg
 		return rep, excludedError(rep.Excluded)
 	}
 	return rep, nil
+}
+
+// restoreTransition chooses the transition of a restore of snap that no
+// record holds yet: none for a before-image, which loads the chains
+// itself; otherwise from the snapshot's ENABLED and the current state, or
+// an explicit enable or disable when the configuration cannot be read.
+func restoreTransition(ctx context.Context, env core.Env, d deps, snap snapshot) (fwstate.Transition, error) {
+	if snap.State.Image != nil {
+		return fwstate.TransNone, nil
+	}
+	cur, err := d.readConfig(d.root)
+	switch {
+	case err != nil && snap.State.Enabled:
+		return fwstate.TransEnable, nil
+	case err != nil:
+		return fwstate.TransDisable, nil
+	}
+	active, err := activeNow(ctx, env, d, cur)
+	if err != nil {
+		return "", err
+	}
+	return chooseTransition(snap.State.Enabled, active), nil
 }
 
 // loadImage loads before-image img over the loaded state before with
