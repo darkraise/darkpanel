@@ -547,14 +547,14 @@ func TestTopologyOf(t *testing.T) {
 	if got := tp.read(); !reflect.DeepEqual(got, want) {
 		t.Errorf("the topology without its runtime source reads %+v, want %+v", got, want)
 	}
-	tp.setRuntime(func() ([]netip.AddrPort, []string) { return runtime, nil })
+	tp.setRuntime(func() ([]netip.AddrPort, []string, int) { return runtime, nil, 0 })
 	withRuntime.Complete = true
 	if got := tp.read(); !reflect.DeepEqual(got, withRuntime) {
 		t.Errorf("the registered topology reads %+v, want %+v", got, withRuntime)
 	}
 	// What the runtime listeners and the session registry drop is dropped
 	// from the topology too.
-	tp.setRuntime(func() ([]netip.AddrPort, []string) { return runtime, []string{"@runtime"} })
+	tp.setRuntime(func() ([]netip.AddrPort, []string, int) { return runtime, []string{"@runtime"}, 0 })
 	tp.setPeers(func() ([]netip.Addr, []string) { return peers, []string{"pipe"} })
 	withRuntimeDropped := withRuntime
 	withRuntimeDropped.Dropped = []string{"@runtime", "pipe"}
@@ -562,10 +562,21 @@ func TestTopologyOf(t *testing.T) {
 		t.Errorf("the topology with dropped runtime and peer addresses reads %+v, want %+v", got, withRuntimeDropped)
 	}
 
+	// An open runtime listener that is not bound yet may be reached by a flow
+	// the topology does not list, so the topology stays incomplete until it
+	// binds.
+	tp.setRuntime(func() ([]netip.AddrPort, []string, int) { return runtime, nil, 1 })
+	tp.setPeers(func() ([]netip.Addr, []string) { return peers, nil })
+	withUnbound := withRuntime
+	withUnbound.Complete = false
+	if got := tp.read(); !reflect.DeepEqual(got, withUnbound) {
+		t.Errorf("the topology with an unbound runtime listener reads %+v, want %+v", got, withUnbound)
+	}
+
 	// A controller whose agent runs embedded has no agent listener and no
 	// sessions; its topology is complete without them.
 	var embedded topology
-	embedded.setRuntime(func() ([]netip.AddrPort, []string) { return nil, nil })
+	embedded.setRuntime(func() ([]netip.AddrPort, []string, int) { return nil, nil, 0 })
 	embedded.setWeb(func() []listen.Bound { return web })
 	if got := embedded.read(); got.Complete {
 		t.Errorf("an embedded topology before setNoAgents reads %+v, want incomplete", got)

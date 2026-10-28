@@ -15,7 +15,7 @@ import (
 type topology struct {
 	mu      sync.Mutex
 	web     func() []listen.Bound
-	runtime func() ([]netip.AddrPort, []string)
+	runtime func() ([]netip.AddrPort, []string, int)
 	agent   func() []listen.Bound
 	peers   func() ([]netip.Addr, []string)
 }
@@ -26,7 +26,11 @@ func (t *topology) setWeb(f func() []listen.Bound) {
 	t.web = f
 }
 
-func (t *topology) setRuntime(f func() ([]netip.AddrPort, []string)) {
+// setRuntime registers the runtime listeners' source: their bound addresses,
+// the addresses it could not read, and the number of open listeners that are
+// not bound yet. The source is registered once the listeners have started,
+// because before that it cannot tell which listeners are open.
+func (t *topology) setRuntime(f func() ([]netip.AddrPort, []string, int)) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.runtime = f
@@ -55,8 +59,9 @@ func (t *topology) setNoAgents() {
 }
 
 // read is the topology now. It is complete once all four sources have
-// registered; what the runtime listeners and the session registry could not
-// read is dropped from it after what the bound listeners drop.
+// registered and no open runtime listener waits for a bind; what the runtime
+// listeners and the session registry could not read is dropped from it after
+// what the bound listeners drop.
 func (t *topology) read() dispatch.Topology {
 	t.mu.Lock()
 	web, runtime, agent, peers := t.web, t.runtime, t.agent, t.peers
@@ -65,11 +70,12 @@ func (t *topology) read() dispatch.Topology {
 	var runtimeAddrs []netip.AddrPort
 	var agentPeers []netip.Addr
 	var runtimeDropped, peersDropped []string
+	var runtimeUnbound int
 	if web != nil {
 		webBound = web()
 	}
 	if runtime != nil {
-		runtimeAddrs, runtimeDropped = runtime()
+		runtimeAddrs, runtimeDropped, runtimeUnbound = runtime()
 	}
 	if agent != nil {
 		agentBound = agent()
@@ -79,7 +85,7 @@ func (t *topology) read() dispatch.Topology {
 	}
 	out := topologyOf(webBound, runtimeAddrs, agentBound, agentPeers)
 	out.Dropped = append(append(out.Dropped, runtimeDropped...), peersDropped...)
-	out.Complete = web != nil && runtime != nil && agent != nil && peers != nil
+	out.Complete = web != nil && runtime != nil && agent != nil && peers != nil && runtimeUnbound == 0
 	return out
 }
 

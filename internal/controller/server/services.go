@@ -80,7 +80,6 @@ func (s *Server) Registry() *core.Registry { return s.registry }
 func (s *Server) startServices(ctx context.Context) error {
 	s.events = events.NewBus(s.log)
 	s.runtimeListeners = listen.NewRuntime(listen.RuntimeConfig{DB: s.controllerDB, Clock: s.clock, Log: s.log, Bind: s.opts.Bind})
-	s.topo.setRuntime(s.runtimeListeners.Addrs)
 	s.auditLog = audit.New(s.controllerDB, s.clock)
 	s.authService = auth.New(s.controllerDB, s.controllerSealer, s.clock, s.auditLog, auth.Options{Params: s.opts.AuthParams})
 	var err error

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net/http"
@@ -87,7 +88,7 @@ func (s *Server) startListeners(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := s.runtimeListeners.Start(ctx, srv.RuntimeHandler, tlsConfig); err != nil {
+	if err := s.startRuntimeListeners(ctx, srv.RuntimeHandler, tlsConfig); err != nil {
 		return err
 	}
 	s.onShutdown("runtime listeners", s.runtimeListeners.Shutdown)
@@ -137,6 +138,17 @@ func (s *Server) startListeners(ctx context.Context) error {
 		urls = append(urls, b.Endpoint.URL())
 	}
 	s.log.Info("server: serving", "message", svc.State().Message, "listeners", urls, "socket", s.opts.Paths.ControllerSocket)
+	return nil
+}
+
+// startRuntimeListeners starts the runtime listeners and only then registers
+// them with the guard topology: until Start has read the open rows the
+// listeners cannot say which are missing, so the topology stays incomplete.
+func (s *Server) startRuntimeListeners(ctx context.Context, handler listen.RuntimeHandlerFunc, tlsConfig *tls.Config) error {
+	if err := s.runtimeListeners.Start(ctx, handler, tlsConfig); err != nil {
+		return err
+	}
+	s.topo.setRuntime(s.runtimeListeners.Listening)
 	return nil
 }
 

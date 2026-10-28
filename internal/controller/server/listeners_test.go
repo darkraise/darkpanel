@@ -10,7 +10,10 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"slices"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -19,6 +22,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/controller/listen"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/coretest"
+	"github.com/darkraise/darkpanel/internal/core/ext"
 )
 
 // baseURL is the URL of the server's plain HTTP IPv4 loopback listener.
@@ -344,5 +348,71 @@ func TestListenerMessageNamesUnboundRuntimeListeners(t *testing.T) {
 		if got := withUnbound(tc.message, tc.unbound); got != tc.want {
 			t.Errorf("withUnbound(%q, %d) = %q, want %q", tc.message, tc.unbound, got, tc.want)
 		}
+	}
+}
+
+// TestTxTopologyWaitsForRuntimeListeners: a runtime listener that is open
+// but cannot be bound, as after a restart before its address exists, keeps
+// the guard topology incomplete until the retry binds it.
+func TestTxTopologyWaitsForRuntimeListeners(t *testing.T) {
+	opts := testOptions(t)
+	c := &asDeps{}
+	opts.Contributors = []ext.Controller{c}
+	first, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if !first.topo.read().Complete {
+		t.Errorf("a started server's topology %+v, want it complete", first.topo.read())
+	}
+	spec := core.ListenerSpec{
+		Addr: netip.MustParseAddrPort("127.0.0.1:9443"), AllowedPeer: netip.MustParseAddr("127.0.0.1"),
+		ClientHeader: core.ClientHeaderNPM, PublicHost: "panel.example.com", ChangeID: "01TOPOLOGYCHANGE000000000",
+	}
+	if _, err := c.deps.Listeners.Open(context.Background(), spec); err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if err := first.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	var failBind atomic.Bool
+	failBind.Store(true)
+	opts.Bind = func(ctx context.Context, e listen.Endpoint) (net.Listener, error) {
+		if e.Addr == spec.Addr && failBind.Load() {
+			return nil, syscall.EADDRNOTAVAIL
+		}
+		return localBind(ctx, e)
+	}
+	s := start(t, opts)
+	if n := s.runtimeListeners.Unbound(); n != 1 {
+		t.Fatalf("Unbound = %d, want the recorded listener waiting for a bind", n)
+	}
+	if got := s.topo.read(); got.Complete {
+		t.Errorf("the topology %+v is complete while a runtime listener is unbound", got)
+	}
+
+	failBind.Store(false)
+	s.clock.(*coretest.FakeClock).Advance(listen.CheckInterval)
+	addrs, _ := s.runtimeListeners.Addrs()
+	got := s.topo.read()
+	if len(addrs) != 1 || !got.Complete || !slices.Contains(got.PanelListen, addrs[0]) {
+		t.Errorf("after the bind recovered the topology %+v with runtime addresses %v, want it complete and listing them", got, addrs)
+	}
+}
+
+// TestTxRuntimeSourceRegistersAfterStart: the runtime listeners count toward
+// the topology only once Start has bound the recorded listeners; a Start
+// that fails leaves the topology incomplete.
+func TestTxRuntimeSourceRegistersAfterStart(t *testing.T) {
+	s := &Server{}
+	s.runtimeListeners = listen.NewRuntime(listen.RuntimeConfig{})
+	s.topo.setWeb(func() []listen.Bound { return nil })
+	s.topo.setNoAgents()
+	if err := s.startRuntimeListeners(context.Background(), nil, nil); err == nil {
+		t.Fatal("startRuntimeListeners without a handler succeeded")
+	}
+	if got := s.topo.read(); got.Complete {
+		t.Errorf("the topology %+v is complete although the runtime listeners did not start", got)
 	}
 }
