@@ -1,0 +1,3 @@
+iptables v1.8.10 (nf_tables)
+ufw 0.36.2
+Docker version 29.9.1, build b26fb77

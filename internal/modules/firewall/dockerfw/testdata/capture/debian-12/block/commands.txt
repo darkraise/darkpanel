@@ -1,0 +1,10 @@
+0	ufw --force enable
+0	ufw allow 22/tcp
+0	docker run -d --name web -p 8080:80 -p 127.0.0.1:8081:80 busybox:1.37 httpd -f -p 80
+0	docker network create -o com.docker.network.bridge.name=dpcustom --subnet 172.30.0.0/24 custom
+0	docker run -d --name app --network custom -p 9090:80 busybox:1.37 httpd -f -p 80
+0	docker network create --ipv6 --subnet fd00:dead::/64 v6net
+0	docker run -d --name six --network v6net -p 8443:80 busybox:1.37 httpd -f -p 80
+0	ufw route allow out on docker0 proto tcp to 172.18.0.2 port 80 comment 'darkpanel:01J00000000000000000000000 ctr 01J00000000000000000000001'
+0	ufw route deny out on docker0 proto tcp from 203.0.113.0/24 to 172.18.0.2 port 80 comment 'darkpanel:01J00000000000000000000002 ctr 01J00000000000000000000003'
+0	ufw reload

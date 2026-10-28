@@ -1,0 +1,8 @@
+*raw
+:PREROUTING ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+-A PREROUTING -d 172.18.0.2/32 ! -i docker0 -j DROP
+-A PREROUTING -d 127.0.0.1/32 ! -i lo -p tcp -m tcp --dport 8081 -j DROP
+-A PREROUTING -d 172.30.0.2/32 ! -i dpcustom -j DROP
+-A PREROUTING -d 172.19.0.2/32 ! -i br-b4fbf9bfbf37 -j DROP
+COMMIT
