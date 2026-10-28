@@ -3079,7 +3079,7 @@ Revert; the CLI behaves as in 1.13.
   `fe80::/10`. Each entry is a CIDR parsed by `netip`, at most 32 entries,
   and no entry may be shorter than /8 (IPv4) or /7 (IPv6), so `0.0.0.0/0`
   and `::/0` are refused. It and `forwardExemptions` are changed with
-  `firewall.docker.sources.set` (revertible, lock `firewall`; input either
+  `firewall.docker.set-sources` (revertible, lock `firewall`; input either
   list or both), rendered into the block, and recorded in
   snapshots with the module's settings. The destination lines (`-d
   10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`; IPv6 `fc00::/7`) are not
@@ -3855,7 +3855,7 @@ Scopes follow 1.7 (existing rules kept; raised where noted).
 
 | Module | Action | Class | Side | Locks |
 |---|---|---|---|---|
-| firewall | `state.enable`, `state.disable`, `state.repair`, `defaults.set`, `logging.set`, `rules.apply`, `rule.add`, `rule.delete`, `snapshot.restore`, `docker.enable`, `docker.disable`, `docker.repair`, `docker.sources.set`, `container.allow`, `container.deny`, `container.remove`, `containers.apply` (each `RepairedBy: state.repair`, 2.5) | R | A | `firewall` |
+| firewall | `state.enable`, `state.disable`, `state.repair`, `defaults.set`, `logging.set`, `rules.apply`, `rule.add`, `rule.delete`, `snapshot.restore`, `docker.enable`, `docker.disable`, `docker.repair`, `docker.set-sources`, `container.allow`, `container.deny`, `container.remove`, `containers.apply` (each `RepairedBy: state.repair`, 2.5) | R | A | `firewall` |
 | firewall | `snapshot.compare` | Rd | A | — |
 | docker | the table in 3 (`compose.*` admin and L; `image.pull` L) | — | A | `docker` |
 | tailscale | `prefs.set`, `prefs.repair` (each `RepairedBy: prefs.repair`, 4.1) | R | A | `tailscale` |
