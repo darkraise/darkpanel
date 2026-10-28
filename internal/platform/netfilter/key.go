@@ -163,15 +163,13 @@ func keyValue(ext, opt, v string, ipv6 bool) string {
 	case (ext == "mark" || ext == "connmark") && opt == "mark", ext == "MARK" && opt == "set-xmark":
 		return markValue(v, ext == "MARK")
 	case ext == "REJECT" && opt == "reject-with":
-		aliases := rejectAliases
+		names := rejectNames
 		if ipv6 {
-			aliases = reject6Aliases
+			names = reject6Names
 		}
-		if c, ok := aliases[v]; ok {
-			return c
-		}
+		return rejectWith(names, v)
 	case ext == "LOG" && opt == "log-level":
-		if n, ok := logLevels[strings.ToLower(v)]; ok {
+		if n, ok := logLevels[v]; ok {
 			return n
 		}
 	case ext == "recent" && opt == "mask":
@@ -442,25 +440,46 @@ func keyAddr(v string) string {
 	return v
 }
 
-// rejectAliases map the --reject-with spellings iptables accepts to the one
-// iptables-save prints (libipt_REJECT.c); reject6Aliases do the same for
-// ip6tables (libip6t_REJECT.c).
+// rejectName is a row of the REJECT type table of iptables: the name
+// iptables-save prints and its alias.
+type rejectName struct{ name, alias string }
+
+// rejectNames (libipt_REJECT.c) and reject6Names (libip6t_REJECT.c) are the
+// tables of iptables 1.8.11 in the order of the kernel's reject types, which
+// is the order in which iptables looks up a spelling.
 var (
-	rejectAliases = map[string]string{
-		"net-unreach": "icmp-net-unreachable", "host-unreach": "icmp-host-unreachable",
-		"proto-unreach": "icmp-proto-unreachable", "port-unreach": "icmp-port-unreachable",
-		"net-prohib": "icmp-net-prohibited", "host-prohib": "icmp-host-prohibited",
-		"admin-prohib": "icmp-admin-prohibited", "tcp-rst": "tcp-reset",
+	rejectNames = []rejectName{
+		{"icmp-net-unreachable", "net-unreach"}, {"icmp-host-unreachable", "host-unreach"},
+		{"icmp-proto-unreachable", "proto-unreach"}, {"icmp-port-unreachable", "port-unreach"},
+		{"icmp-net-prohibited", "net-prohib"}, {"icmp-host-prohibited", "host-prohib"},
+		{"tcp-reset", "tcp-rst"}, {"icmp-admin-prohibited", "admin-prohib"},
 	}
-	reject6Aliases = map[string]string{
-		"no-route": "icmp6-no-route", "adm-prohibited": "icmp6-adm-prohibited",
-		"addr-unreach": "icmp6-addr-unreachable", "port-unreach": "icmp6-port-unreachable",
-		"tcp-rst": "tcp-reset", "policy-fail": "icmp6-policy-fail", "reject-route": "icmp6-reject-route",
+	reject6Names = []rejectName{
+		{"icmp6-no-route", "no-route"}, {"icmp6-adm-prohibited", "adm-prohibited"},
+		{"icmp6-addr-unreachable", "addr-unreach"}, {"icmp6-port-unreachable", "port-unreach"},
+		{"tcp-reset", "tcp-reset"}, {"icmp6-policy-fail", "policy-fail"}, {"icmp6-reject-route", "reject-route"},
 	}
 )
 
-// logLevels map syslog level names to the numbers iptables-save prints.
+// rejectWith is a --reject-with value as iptables-save prints it. Like
+// iptables, it takes the first row of names of which v is a case-insensitive
+// prefix of the name or the alias. A spelling iptables refuses is kept as
+// written.
+func rejectWith(names []rejectName, v string) string {
+	if v == "" {
+		return v
+	}
+	for _, n := range names {
+		if hasPrefixFold(n.name, v) || hasPrefixFold(n.alias, v) {
+			return n.name
+		}
+	}
+	return v
+}
+
+// logLevels map the syslog level names that iptables accepts (in lower case
+// only) to the numbers iptables-save prints.
 var logLevels = map[string]string{
-	"emerg": "0", "alert": "1", "crit": "2", "err": "3", "error": "3", "warning": "4", "warn": "4",
+	"emerg": "0", "panic": "0", "alert": "1", "crit": "2", "error": "3", "warning": "4",
 	"notice": "5", "info": "6", "debug": "7",
 }

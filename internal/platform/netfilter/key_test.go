@@ -327,3 +327,127 @@ func TestKxIcmpTypes(t *testing.T) {
 		}
 	}
 }
+
+// kxReject are the --reject-with spellings that iptables and ip6tables 1.8.11
+// (extensions/libipt_REJECT.c and libip6t_REJECT.c) accepted in a container,
+// with the name iptables-save then printed: the names and aliases, a name in
+// capitals and a prefix, which matches the first entry of the table in its
+// order.
+var kxReject = []struct {
+	ipv6      bool
+	in, saved string
+}{
+	{false, "icmp-net-unreachable", "icmp-net-unreachable"},
+	{false, "net-unreach", "icmp-net-unreachable"},
+	{false, "NET-UNREACH", "icmp-net-unreachable"},
+	{false, "icmp-port", "icmp-port-unreachable"},
+	{false, "port", "icmp-port-unreachable"},
+	{false, "p", "icmp-proto-unreachable"},
+	{false, "icmp-p", "icmp-proto-unreachable"},
+	{false, "icmp-h", "icmp-host-unreachable"},
+	{false, "h", "icmp-host-unreachable"},
+	{false, "host", "icmp-host-unreachable"},
+	{false, "net", "icmp-net-unreachable"},
+	{false, "tcp", "tcp-reset"},
+	{false, "tcp-rst", "tcp-reset"},
+	{false, "tcp-reset", "tcp-reset"},
+	{false, "admin", "icmp-admin-prohibited"},
+	{false, "admin-prohib", "icmp-admin-prohibited"},
+	{false, "icmp-admin", "icmp-admin-prohibited"},
+	{true, "icmp6-no-route", "icmp6-no-route"},
+	{true, "no-route", "icmp6-no-route"},
+	{true, "NO-ROUTE", "icmp6-no-route"},
+	{true, "adm-prohibited", "icmp6-adm-prohibited"},
+	{true, "icmp6-adm", "icmp6-adm-prohibited"},
+	{true, "addr-unreach", "icmp6-addr-unreachable"},
+	{true, "port-unreach", "icmp6-port-unreachable"},
+	{true, "port", "icmp6-port-unreachable"},
+	{true, "p", "icmp6-port-unreachable"},
+	{true, "icmp6", "icmp6-no-route"},
+	{true, "icmp6-p", "icmp6-port-unreachable"},
+	{true, "tcp", "tcp-reset"},
+	{true, "tcp-reset", "tcp-reset"},
+	{true, "policy-fail", "icmp6-policy-fail"},
+	{true, "policy", "icmp6-policy-fail"},
+	{true, "reject-route", "icmp6-reject-route"},
+	{true, "reject", "icmp6-reject-route"},
+	{true, "r", "icmp6-reject-route"},
+}
+
+// kxRejectRefused are spellings that the tools refused. The key keeps them
+// as written, so a rule that cannot be loaded never equals one that can.
+var kxRejectRefused = []struct {
+	ipv6 bool
+	in   string
+}{
+	{false, "echo-reply"},
+	{false, "nope"},
+	{true, "tcp-rst"},
+	{true, "icmp-port-unreachable"},
+	{true, "nope"},
+}
+
+// kxLogLevels are the --log-level spellings that iptables 1.8.11 accepted,
+// with the level iptables-save then printed (no level for the default 4), and
+// kxLogRefused those it refused: it takes the syslog names alert, crit,
+// debug, emerg, error, info, notice, panic and warning in lower case, and
+// the numbers 0 to 7.
+var kxLogLevels = []struct{ in, saved string }{
+	{"emerg", "0"},
+	{"alert", "1"},
+	{"crit", "2"},
+	{"error", "3"},
+	{"warning", "4"},
+	{"notice", "5"},
+	{"info", "6"},
+	{"debug", "7"},
+	{"panic", "0"},
+	{"0", "0"},
+	{"1", "1"},
+	{"4", "4"},
+	{"7", "7"},
+}
+
+var kxLogRefused = []string{
+	"err",
+	"warn",
+	"none",
+	"EMERG",
+	"Warning",
+	"8",
+	"warni",
+}
+
+func TestKxRejectNames(t *testing.T) {
+	for _, tc := range kxReject {
+		got := Key(kyRule(t, "-A X -p tcp -j REJECT --reject-with "+tc.in, true), tc.ipv6)
+		if want := "-j REJECT --reject-with " + tc.saved; !strings.HasSuffix(got, want) {
+			t.Errorf("ipv6 %v: --reject-with %s has the key %q, want it to end with %q", tc.ipv6, tc.in, got, want)
+		}
+	}
+	for _, tc := range kxRejectRefused {
+		got := Key(kyRule(t, "-A X -p tcp -j REJECT --reject-with "+tc.in, true), tc.ipv6)
+		if want := "-j REJECT --reject-with " + tc.in; !strings.HasSuffix(got, want) {
+			t.Errorf("ipv6 %v: the refused --reject-with %s has the key %q, want it kept as written", tc.ipv6, tc.in, got)
+		}
+	}
+}
+
+func TestKxLogLevels(t *testing.T) {
+	for _, tc := range kxLogLevels {
+		got := Key(kyRule(t, "-A X -j LOG --log-level "+tc.in, true), false)
+		want := "-j LOG --log-level " + tc.saved
+		if tc.saved == "4" {
+			want = "-j LOG"
+		}
+		if got != want {
+			t.Errorf("--log-level %s has the key %q, want %q", tc.in, got, want)
+		}
+	}
+	for _, in := range kxLogRefused {
+		got := Key(kyRule(t, "-A X -j LOG --log-level "+in, true), false)
+		if want := "-j LOG --log-level " + in; got != want {
+			t.Errorf("the refused --log-level %s has the key %q, want %q", in, got, want)
+		}
+	}
+}
