@@ -75,7 +75,7 @@ func TestSnapshotRestoreMode(t *testing.T) {
 	s.Input = "ACCEPT"
 	h.setState(s)
 	path := filepath.Join(h.root, "etc/ufw/user.rules")
-	if err := os.Chmod(path, 0o666); err != nil {
+	if err := os.Chmod(path, 0o400); err != nil {
 		t.Fatal(err)
 	}
 	ruApply(t, env, f.snapshotRestore(), `{"id":"`+id+`"}`)
