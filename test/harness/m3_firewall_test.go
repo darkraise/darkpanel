@@ -519,7 +519,7 @@ func m3IPv6SSHSession(ctx context.Context, t *testing.T, f *fleet) {
 	m3StoppedIPv6No(ctx, t, f)
 	m3Hold(ctx, t, f.scanner, "m3-ssh6", agentIPv6, 22)
 	m3WaitSession(ctx, t, f.agent, 22, scannerIPv6)
-	m3RequireCut(ctx, t, f.api, f.agentID, "firewall.state.enable", map[string]any{}, "ssh from "+scannerIPv6+" to ")
+	m3RequireCut(ctx, t, f.api, f.agentID, "firewall.state.enable", map[string]any{"manual": true}, "ssh from "+scannerIPv6+" to ")
 }
 
 // m3AsymmetricRoute holds an SSH connection from the scanner arriving on
@@ -528,7 +528,7 @@ func m3IPv6SSHSession(ctx context.Context, t *testing.T, f *fleet) {
 // protects the session on dpinet, where it really arrives.
 func m3AsymmetricRoute(ctx context.Context, t *testing.T, f *fleet) {
 	st := m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3Healthy)
-	before := strings.Fields(m3Run(ctx, t, f.agent, "sysctl -n net.ipv4.conf.all.rp_filter net.ipv4.conf.dpinet.rp_filter"))
+	before := strings.Fields(m3Run(ctx, t, f.agent, "sudo sysctl -n net.ipv4.conf.all.rp_filter net.ipv4.conf.dpinet.rp_filter"))
 	if len(before) != 2 {
 		t.Fatalf("rp_filter values %q", before)
 	}
@@ -555,7 +555,7 @@ func m3AsymmetricRoute(ctx context.Context, t *testing.T, f *fleet) {
 func m3SysctlRevert(ctx context.Context, t *testing.T, f *fleet) {
 	const key = "net.ipv4.conf.all.accept_source_route"
 	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3Healthy)
-	read := func() string { return strings.TrimSpace(m3Run(ctx, t, f.agent, "sysctl -n "+key)) }
+	read := func() string { return strings.TrimSpace(m3Run(ctx, t, f.agent, "sudo sysctl -n "+key)) }
 	if v := read(); v != "0" {
 		t.Fatalf("%s is %s before the scenario, want 0", key, v)
 	}

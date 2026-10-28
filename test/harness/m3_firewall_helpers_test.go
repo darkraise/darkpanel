@@ -191,7 +191,7 @@ func m3WaitChange(ctx context.Context, t *testing.T, api *API, id, want string, 
 			return err
 		}
 		if ch.State != want {
-			return fmt.Errorf("change %s is %s, want %s", id, ch.State, want)
+			return fmt.Errorf("change %s is %s, want %s: error %s, output %s", id, ch.State, want, m3JSON(ch.Error), ch.Output)
 		}
 		return nil
 	})
