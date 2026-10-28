@@ -75,9 +75,10 @@ func detMajor(version string) (int, bool) {
 }
 
 // DockerChains reports whether the filter table declares both DOCKER-USER and
-// DOCKER-FORWARD, with or without rules.
+// DOCKER-FORWARD, with or without rules. A table nft cannot fully show counts
+// as false even when it still lists both chains.
 func DockerChains(filter *netfilter.Table) bool {
-	return filter != nil && filter.Chain("DOCKER-USER") != nil && filter.Chain("DOCKER-FORWARD") != nil
+	return filter != nil && filter.Incompatible == "" && filter.Chain("DOCKER-USER") != nil && filter.Chain("DOCKER-FORWARD") != nil
 }
 
 // RawProtected reports whether the IPv4 raw table holds the protection Docker
@@ -117,9 +118,14 @@ func RawProtected(raw *netfilter.Table, facts Facts) bool {
 // detHasDrop reports whether rules hold a DROP of traffic to addr that does
 // not arrive on iface. With proto empty the rule has no protocol and no
 // match; otherwise it matches that protocol and the single destination port.
+// A rule with parts the parser did not model, or restricted by source, drops
+// only some of that traffic and does not count.
 func detHasDrop(rules []netfilter.Rule, addr netip.Addr, iface, proto string, port uint16) bool {
 	dest := netip.PrefixFrom(addr, 32)
 	for _, r := range rules {
+		if r.Opaque() || r.Source.Prefix.IsValid() {
+			continue
+		}
 		if r.Target.Name != "DROP" || r.Target.Chain || r.Goto != "" {
 			continue
 		}

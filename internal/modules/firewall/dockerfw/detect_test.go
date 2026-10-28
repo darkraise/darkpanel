@@ -89,6 +89,7 @@ func TestDtDockerChains(t *testing.T) {
 		{"only DOCKER-FORWARD", head + ":DOCKER-FORWARD - [0:0]\nCOMMIT\n", false},
 		{"neither", head + ":ufw-user-input - [0:0]\nCOMMIT\n", false},
 		{"a table nft cannot show", "# Table `filter' is incompatible, use 'nft' tool.\n", false},
+		{"a table with incompatible base-chains that still declares both", "# Table `filter' contains incompatible base-chains, use 'nft' tool to list them.\n" + head + ":DOCKER-USER - [0:0]\n:DOCKER-FORWARD - [0:0]\nCOMMIT\n", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -153,6 +154,8 @@ func TestDtRawProtected(t *testing.T) {
 		{"a container address has no drop rule", without("-A PREROUTING -d 172.21.0.3/32 ! -i br-a2871ddf38b3 -j DROP"), func(*Facts) {}, false},
 		{"the drop rule names another bridge", strings.Replace(dtRaw, "172.21.0.3/32 ! -i br-a2871ddf38b3", "172.21.0.3/32 ! -i docker0", 1), func(*Facts) {}, false},
 		{"the rule is not negated", strings.Replace(dtRaw, "172.17.0.2/32 ! -i docker0", "172.17.0.2/32 -i docker0", 1), func(*Facts) {}, false},
+		{"the drop matches fragments only", strings.Replace(dtRaw, "172.17.0.2/32 ! -i docker0 -j DROP", "172.17.0.2/32 ! -i docker0 -f -j DROP", 1), func(*Facts) {}, false},
+		{"the drop is restricted by source", strings.Replace(dtRaw, "-A PREROUTING -d 172.17.0.2/32", "-A PREROUTING -s 10.0.0.0/8 -d 172.17.0.2/32", 1), func(*Facts) {}, false},
 		{"a loopback UDP port needs a udp rule", dtRaw, func(f *Facts) {
 			f.Containers[1].Ports = []Published{{HostAddr: a("127.0.0.1"), HostPort: 5432, ContainerPort: 5432, Proto: "udp"}}
 		}, false},
