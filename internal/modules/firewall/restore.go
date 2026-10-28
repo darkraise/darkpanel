@@ -239,12 +239,20 @@ func excludedError(excluded []chainRef) error {
 // snapshotStart is what IPv6Refusal reads of the configuration snap
 // restores, taken from its entries before anything is written.
 func snapshotStart(snap snapshot) (fwstate.Config, error) {
+	var defaults, ufwconf []byte
+	found := false
 	for _, e := range snap.Entries {
-		if e.Path == "/etc/default/ufw" && e.Present {
-			return fwstate.Config{Enabled: snap.State.Enabled, IPv6: conf.DefaultsIPv6(e.Data)}, nil
+		switch {
+		case e.Path == "/etc/default/ufw" && e.Present:
+			defaults, found = e.Data, true
+		case e.Path == "/etc/ufw/ufw.conf" && e.Present:
+			ufwconf = e.Data
 		}
 	}
-	return fwstate.Config{}, fmt.Errorf("firewall: restore: snapshot %s holds no /etc/default/ufw", snap.ID)
+	if !found {
+		return fwstate.Config{}, fmt.Errorf("firewall: restore: snapshot %s holds no /etc/default/ufw", snap.ID)
+	}
+	return fwstate.Config{Enabled: snap.State.Enabled, IPv6: conf.ConfiguredIPv6(defaults, ufwconf)}, nil
 }
 
 func joinRefs(refs []chainRef) string {

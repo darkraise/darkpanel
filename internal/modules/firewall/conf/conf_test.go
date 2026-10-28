@@ -285,6 +285,67 @@ func TestReadOtherSysctlFile(t *testing.T) {
 	}
 }
 
+// TestReadUFWConfWins: UFW reads /etc/default/ufw and then ufw.conf into one
+// set, so a key in ufw.conf overrides it; Read takes the value UFW reads and
+// gives a reason for every key in the file UFW does not write it to.
+func TestReadUFWConfWins(t *testing.T) {
+	cases := []struct {
+		name, rel, line string
+		check           func(fwstate.Config) bool
+		want            []string
+	}{
+		{"manage builtins", "etc/ufw/ufw.conf", "MANAGE_BUILTINS=yes",
+			func(c fwstate.Config) bool { return c.ManageBuiltins },
+			[]string{"/etc/ufw/ufw.conf sets MANAGE_BUILTINS", "MANAGE_BUILTINS=yes makes UFW flush"}},
+		{"ipv6 off", "etc/ufw/ufw.conf", "IPV6=no",
+			func(c fwstate.Config) bool { return !c.IPv6 },
+			[]string{"/etc/ufw/ufw.conf sets IPV6"}},
+		{"input policy", "etc/ufw/ufw.conf", `DEFAULT_INPUT_POLICY="ACCEPT"`,
+			func(c fwstate.Config) bool { return c.DefaultInput == "ACCEPT" },
+			[]string{"/etc/ufw/ufw.conf sets DEFAULT_INPUT_POLICY"}},
+		{"loglevel in defaults", "etc/default/ufw", "LOGLEVEL=full",
+			func(c fwstate.Config) bool { return c.LogLevel == "low" },
+			[]string{"/etc/default/ufw sets LOGLEVEL"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			files := confTestFiles()
+			files[tc.rel] += tc.line + "\n"
+			c, err := Read(confTestTree(t, files))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !tc.check(c) {
+				t.Errorf("config = %+v, want the value UFW reads", c)
+			}
+			if len(c.Unsupported) != len(tc.want) {
+				t.Fatalf("Unsupported = %q, want %d reasons", c.Unsupported, len(tc.want))
+			}
+			for i, w := range tc.want {
+				if !strings.Contains(c.Unsupported[i], w) {
+					t.Errorf("Unsupported[%d] = %q, want it to name %q", i, c.Unsupported[i], w)
+				}
+			}
+		})
+	}
+}
+
+func TestConfiguredIPv6(t *testing.T) {
+	for _, tc := range []struct {
+		defaults, ufwconf string
+		want              bool
+	}{
+		{"IPV6=yes\n", "ENABLED=yes\n", true},
+		{"IPV6=yes\n", "IPV6=no\n", false},
+		{"IPV6=no\n", "IPV6=YES\n", true},
+		{"IPV6=no\n", "", false},
+	} {
+		if got := ConfiguredIPv6([]byte(tc.defaults), []byte(tc.ufwconf)); got != tc.want {
+			t.Errorf("ConfiguredIPv6(%q, %q) = %v, want %v", tc.defaults, tc.ufwconf, got, tc.want)
+		}
+	}
+}
+
 func TestReadIPv6Off(t *testing.T) {
 	files := confTestFiles()
 	files["etc/default/ufw"] = strings.Replace(confTestDefault, "IPV6=yes", "IPV6=no", 1)

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -59,20 +60,20 @@ func Read(root string) (fwstate.Config, error) {
 		}
 	}
 	r := reader{c: &c}
-	cv, dv := r.shell(ufwConf), r.shell(defaultsUFW)
-	c.Enabled = r.yesNo(ufwConf, cv, "ENABLED")
-	c.LogLevel = strings.ToLower(cv["LOGLEVEL"])
+	vars := r.settings()
+	c.Enabled = r.yesNo(ufwConf, vars, "ENABLED")
+	c.LogLevel = strings.ToLower(vars["LOGLEVEL"])
 	if !slices.Contains(LogLevels, c.LogLevel) {
 		r.unsupported("%s: LOGLEVEL is missing or not one of %s", ufwConf, strings.Join(LogLevels, ", "))
 	}
-	c.IPv6 = r.yesNo(defaultsUFW, dv, "IPV6")
-	c.ManageBuiltins = r.yesNo(defaultsUFW, dv, "MANAGE_BUILTINS")
+	c.IPv6 = r.yesNo(defaultsUFW, vars, "IPV6")
+	c.ManageBuiltins = r.yesNo(defaultsUFW, vars, "MANAGE_BUILTINS")
 	if c.ManageBuiltins {
 		r.unsupported("%s: MANAGE_BUILTINS=yes makes UFW flush the built-in chains, which Darkpanel cannot predict", defaultsUFW)
 	}
-	c.DefaultInput = r.policy(dv, "DEFAULT_INPUT_POLICY")
-	c.DefaultOutput = r.policy(dv, "DEFAULT_OUTPUT_POLICY")
-	c.DefaultForward = r.policy(dv, "DEFAULT_FORWARD_POLICY")
+	c.DefaultInput = r.policy(vars, "DEFAULT_INPUT_POLICY")
+	c.DefaultOutput = r.policy(vars, "DEFAULT_OUTPUT_POLICY")
+	c.DefaultForward = r.policy(vars, "DEFAULT_FORWARD_POLICY")
 
 	required := []string{userRules, "/etc/ufw/before.rules", "/etc/ufw/after.rules"}
 	if c.IPv6 {
@@ -97,7 +98,7 @@ func Read(root string) (fwstate.Config, error) {
 			r.unsupported("/etc/ufw/%s is executable: UFW runs it at start, which Darkpanel cannot predict", name)
 		}
 	}
-	if err := r.sysctl(root, dv["IPT_SYSCTL"]); err != nil {
+	if err := r.sysctl(root, vars["IPT_SYSCTL"]); err != nil {
 		return fwstate.Config{}, err
 	}
 	return c, nil
@@ -114,6 +115,31 @@ func (r reader) shell(file string) map[string]string {
 	vars, bad := parseShell(r.c.Files[file].Data)
 	for _, n := range bad {
 		r.unsupported("%s line %d: not a plain KEY=value line, which UFW's init script and its Python code may read differently", file, n)
+	}
+	return vars
+}
+
+// keyFile is the file UFW writes each key Read uses to.
+var keyFile = map[string]string{
+	"ENABLED": ufwConf, "LOGLEVEL": ufwConf,
+	"IPV6": defaultsUFW, "MANAGE_BUILTINS": defaultsUFW, "IPT_SYSCTL": defaultsUFW,
+	"DEFAULT_INPUT_POLICY": defaultsUFW, "DEFAULT_OUTPUT_POLICY": defaultsUFW, "DEFAULT_FORWARD_POLICY": defaultsUFW,
+}
+
+// settings reads both files into one set as UFW's init script and its
+// Python _get_defaults do: /etc/default/ufw first, then ufw.conf, so a key
+// in ufw.conf wins. A key in the file UFW does not write it to is a reason:
+// UFW's commands rewrite only the other file, so the change would not hold.
+func (r reader) settings() map[string]string {
+	vars := map[string]string{}
+	for _, file := range []string{defaultsUFW, ufwConf} {
+		fv := r.shell(file)
+		for _, k := range slices.Sorted(maps.Keys(fv)) {
+			vars[k] = fv[k]
+			if own, ok := keyFile[k]; ok && own != file {
+				r.unsupported("%s sets %s, which UFW writes to %s and reads from both files with ufw.conf last; Darkpanel cannot predict that", file, k, own)
+			}
+		}
 	}
 	return vars
 }
@@ -320,10 +346,13 @@ func SupportedSysctl(key string) bool { return supportedSysctlRe.MatchString(key
 // */route_localnet and net/bridge/bridge-nf-call-*.
 func FilteringSysctl(key string) bool { return filteringSysctlRe.MatchString(key) }
 
-// DefaultsIPv6 returns IPV6 of /etc/default/ufw's contents data as Read
-// reads it: true only for yes or YES.
-func DefaultsIPv6(data []byte) bool {
-	c := fwstate.Config{Files: map[string]core.RestoreEntry{defaultsUFW: {Path: defaultsUFW, Present: true, Data: data}}}
+// ConfiguredIPv6 returns IPV6 as Read reads it from the contents of
+// /etc/default/ufw and ufw.conf: true only for yes or YES, ufw.conf winning.
+func ConfiguredIPv6(defaults, ufwconf []byte) bool {
+	c := fwstate.Config{Files: map[string]core.RestoreEntry{
+		defaultsUFW: {Path: defaultsUFW, Present: true, Data: defaults},
+		ufwConf:     {Path: ufwConf, Present: true, Data: ufwconf},
+	}}
 	r := reader{c: &c}
-	return r.yesNo(defaultsUFW, r.shell(defaultsUFW), "IPV6")
+	return r.yesNo(defaultsUFW, r.settings(), "IPV6")
 }

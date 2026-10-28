@@ -42,16 +42,15 @@ func Files(cfg fwstate.Config) (map[string][]byte, error) {
 		userRules:  renderUser(cfg, false),
 		userRules6: renderUser(cfg, true),
 	}
-	conf := ufwDefaults(cfg.Files[ufwConf].Data)
+	defs := ufwDefaults(cfg.Files[defaultsUFW].Data, cfg.Files[ufwConf].Data)
 	data := cfg.Files[ufwConf].Data
-	if (conf["enabled"] == "yes") != cfg.Enabled {
+	if (defs["enabled"] == "yes") != cfg.Enabled {
 		data = setDefault(data, "ENABLED", yesNo(cfg.Enabled))
 	}
-	if conf["loglevel"] != cfg.LogLevel {
+	if defs["loglevel"] != cfg.LogLevel {
 		data = setDefault(data, "LOGLEVEL", cfg.LogLevel)
 	}
 	out[ufwConf] = data
-	defs := ufwDefaults(cfg.Files[defaultsUFW].Data)
 	data = cfg.Files[defaultsUFW].Data
 	for _, p := range policyKeys(cfg) {
 		if defs[strings.ToLower(p.key)] != strings.ToLower(p.value) {
@@ -96,16 +95,19 @@ func yesNo(b bool) string {
 
 var ufwDefaultRe = regexp.MustCompile(`^\w+="?\w+"?`)
 
-// ufwDefaults reads KEY=value lines as UFW's _get_defaults does: keys and
-// values lower-cased, quotes stripped, the last assignment winning.
-func ufwDefaults(data []byte) map[string]string {
+// ufwDefaults reads KEY=value lines as UFW's _get_defaults does: the files
+// in the order given (/etc/default/ufw, then ufw.conf) into one map, keys
+// and values lower-cased, quotes stripped, the last assignment winning.
+func ufwDefaults(files ...[]byte) map[string]string {
 	out := map[string]string{}
-	for _, line := range strings.Split(string(data), "\n") {
-		if !ufwDefaultRe.MatchString(line) {
-			continue
+	for _, data := range files {
+		for _, line := range strings.Split(string(data), "\n") {
+			if !ufwDefaultRe.MatchString(line) {
+				continue
+			}
+			f := strings.Split(strings.TrimSpace(line), "=")
+			out[strings.ToLower(f[0])] = strings.Trim(strings.ToLower(f[1]), `"'`)
 		}
-		f := strings.Split(strings.TrimSpace(line), "=")
-		out[strings.ToLower(f[0])] = strings.Trim(strings.ToLower(f[1]), `"'`)
 	}
 	return out
 }

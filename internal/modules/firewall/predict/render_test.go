@@ -363,6 +363,32 @@ func TestFilesConfKeys(t *testing.T) {
 	}
 }
 
+// TestFilesConfOverrides: UFW reads /etc/default/ufw and then ufw.conf into
+// one map, so Files compares cfg with the merged values and leaves a file
+// alone when UFW already reads cfg's value from the other one.
+func TestFilesConfOverrides(t *testing.T) {
+	cfg := predictConfig(t, "debian-13", "enabled")
+	cfg.Files = maps.Clone(cfg.Files)
+	conf := cfg.Files[ufwConf]
+	conf.Data = []byte("ENABLED=yes\nDEFAULT_INPUT_POLICY=\"ACCEPT\"\n")
+	cfg.Files[ufwConf] = conf
+	defs := cfg.Files[defaultsUFW]
+	defs.Data = []byte("LOGLEVEL=full\nDEFAULT_INPUT_POLICY=\"DROP\"\nDEFAULT_OUTPUT_POLICY=\"ACCEPT\"\nDEFAULT_FORWARD_POLICY=\"DROP\"\n")
+	cfg.Files[defaultsUFW] = defs
+	cfg.Enabled, cfg.LogLevel = true, "full"
+	cfg.DefaultInput, cfg.DefaultOutput, cfg.DefaultForward = "ACCEPT", "ACCEPT", "DROP"
+	got, err := Files(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got[ufwConf], conf.Data) {
+		t.Errorf("ufw.conf = %q, want it unchanged", got[ufwConf])
+	}
+	if !bytes.Equal(got[defaultsUFW], defs.Data) {
+		t.Errorf("/etc/default/ufw = %q, want it unchanged", got[defaultsUFW])
+	}
+}
+
 func TestFilesRefuses(t *testing.T) {
 	base := predictConfig(t, "debian-13", "enabled")
 	for name, edit := range map[string]func(*fwstate.Config){
