@@ -180,13 +180,20 @@ func exposureRows(in exposureInput) []ExposureRow {
 		if !s.Listening() || s.Local.Port() == 0 {
 			continue
 		}
-		k := xvRowKey{string(s.Proto), s.Local.Addr().Unmap(), s.Local.Port()}
-		row(k)
-		for _, p := range s.Processes {
-			if (p.Comm == xvDockerProxy && published[k]) || slices.Contains(procs[k], p.Comm) {
-				continue
+		addr := s.Local.Addr().Unmap()
+		keys := []xvRowKey{{string(s.Proto), addr, s.Local.Port()}}
+		if addr == netip.IPv6Unspecified() {
+			// A socket bound to [::] also accepts IPv4 unless it sets IPV6_V6ONLY.
+			keys = append(keys, xvRowKey{string(s.Proto), netip.IPv4Unspecified(), s.Local.Port()})
+		}
+		for _, k := range keys {
+			row(k)
+			for _, p := range s.Processes {
+				if (p.Comm == xvDockerProxy && published[k]) || slices.Contains(procs[k], p.Comm) {
+					continue
+				}
+				procs[k] = append(procs[k], p.Comm)
 			}
-			procs[k] = append(procs[k], p.Comm)
 		}
 	}
 
