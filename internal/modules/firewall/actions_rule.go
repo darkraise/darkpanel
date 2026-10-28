@@ -15,7 +15,8 @@ import (
 // id; the action tags it with its change's id.
 type RuleAddInput struct {
 	core.Guarded
-	Rule model.Rule `json:"rule"`
+	Rule   model.Rule `json:"rule"`
+	Manual bool       `json:"manual,omitempty" jsonschema_description:"Confirms the manual rules the change removes, such as the IPv6 rules a reload with IPV6=no discards (spec 2.2)."`
 }
 
 // RuleDeleteInput is the input of firewall.rule.delete (v1).
@@ -94,6 +95,7 @@ func (f fw) ruleAdd() core.ActionDef {
 	return defineMutation(core.ActionSpec{Name: "firewall.rule.add", Summary: "Add a firewall rule."}, mutation[RuleAddInput]{
 		f:       f,
 		guarded: func(in RuleAddInput) core.Guarded { return in.Guarded },
+		manual:  func(in RuleAddInput) bool { return in.Manual },
 		build: func(_ context.Context, env core.Env, in RuleAddInput) buildFunc {
 			return func(cfg fwstate.Config, _ fwstate.Loaded) (change, error) {
 				r, err := newRule(in.Rule, changeRuleID(env), "/rule")

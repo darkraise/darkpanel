@@ -24,12 +24,14 @@ type DefaultsInput struct {
 	Incoming string `json:"incoming,omitempty" jsonschema:"enum=ACCEPT,enum=DROP,enum=REJECT" jsonschema_description:"Default policy for incoming traffic."`
 	Outgoing string `json:"outgoing,omitempty" jsonschema:"enum=ACCEPT,enum=DROP,enum=REJECT" jsonschema_description:"Default policy for outgoing traffic."`
 	Routed   string `json:"routed,omitempty" jsonschema:"enum=ACCEPT,enum=DROP,enum=REJECT" jsonschema_description:"Default policy for routed (forwarded) traffic."`
+	Manual   bool   `json:"manual,omitempty" jsonschema_description:"Confirms the manual rules the change removes, such as the IPv6 rules a reload with IPV6=no discards (spec 2.2)."`
 }
 
 // LoggingInput is the input of firewall.logging.set (v1).
 type LoggingInput struct {
 	core.Guarded
-	Level string `json:"level" jsonschema:"enum=off,enum=low,enum=medium,enum=high,enum=full" jsonschema_description:"UFW's logging level."`
+	Level  string `json:"level" jsonschema:"enum=off,enum=low,enum=medium,enum=high,enum=full" jsonschema_description:"UFW's logging level."`
+	Manual bool   `json:"manual,omitempty" jsonschema_description:"Confirms the manual rules the change removes, such as the IPv6 rules a reload with IPV6=no discards (spec 2.2)."`
 }
 
 // mismatch is a verify failure: the configuration does not show what the
@@ -76,6 +78,7 @@ func (f fw) defaultsSet() core.ActionDef {
 	return defineMutation(core.ActionSpec{Name: "firewall.defaults.set", Summary: "Set UFW's default policies."}, mutation[DefaultsInput]{
 		f:       f,
 		guarded: func(in DefaultsInput) core.Guarded { return in.Guarded },
+		manual:  func(in DefaultsInput) bool { return in.Manual },
 		build: func(_ context.Context, _ core.Env, in DefaultsInput) buildFunc {
 			return func(cfg fwstate.Config, _ fwstate.Loaded) (change, error) {
 				if in.Incoming == "" && in.Outgoing == "" && in.Routed == "" {
@@ -116,6 +119,7 @@ func (f fw) loggingSet() core.ActionDef {
 	return defineMutation(core.ActionSpec{Name: "firewall.logging.set", Summary: "Set UFW's logging level."}, mutation[LoggingInput]{
 		f:       f,
 		guarded: func(in LoggingInput) core.Guarded { return in.Guarded },
+		manual:  func(in LoggingInput) bool { return in.Manual },
 		build: func(_ context.Context, _ core.Env, in LoggingInput) buildFunc {
 			return func(cfg fwstate.Config, _ fwstate.Loaded) (change, error) {
 				if cfg.LogLevel == in.Level {

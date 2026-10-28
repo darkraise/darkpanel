@@ -128,6 +128,53 @@ func TestStateEnableIPv6No(t *testing.T) {
 	}
 }
 
+// TestMutationsIPv6NoManual: on an active UFW every change reloads it, and
+// a reload with IPV6=no empties user6.rules, so logging.set, defaults.set
+// and rule.add on a host that holds an IPv6 manual rule need manual: true.
+func TestMutationsIPv6NoManual(t *testing.T) {
+	ctx := context.Background()
+	h, f, env := ruHost(t)
+	env.ChangeID = ""
+	s := h.state()
+	s.IPv6 = false
+	s.Rules6 = append(s.Rules6, fhRule53v6)
+	h.setState(s)
+	h.ufw["reload"] = func(s *fhState) int {
+		if !s.IPv6 {
+			s.Rules6 = nil
+		}
+		return 0
+	}
+	h.ufw["logging high"] = func(s *fhState) int { s.LogLevel = "high"; return 0 }
+	h.ufw["default allow incoming"] = func(s *fhState) int { s.Input = "ACCEPT"; return 0 }
+	rule := `"rule":{"action":"allow","direction":"in","proto":"tcp","from":"any","to":"any","toPort":"8080","family":"v4","comment":"web"}`
+	for _, c := range []struct {
+		def       core.ActionDef
+		raw, with string
+	}{
+		{f.loggingSet(), `{"level":"high"}`, `{"level":"high","manual":true}`},
+		{f.defaultsSet(), `{"incoming":"ACCEPT"}`, `{"incoming":"ACCEPT","manual":true}`},
+		{f.ruleAdd(), `{` + rule + `}`, `{` + rule + `,"manual":true}`},
+	} {
+		t.Run(c.def.Spec.Name, func(t *testing.T) {
+			_, err := c.def.Handler.Plan(ctx, env, json.RawMessage(c.raw))
+			if e := errcode.From(err); e.Code != errcode.FirewallManualRequired || !strings.Contains(e.Detail, "set manual: true") {
+				t.Fatalf("plan without manual = %v, want manual required", err)
+			}
+			if err := schema.NewValidator().ValidateInput(c.def, json.RawMessage(c.with)); err != nil {
+				t.Fatalf("input %s: %v", c.with, err)
+			}
+			out, err := c.def.Handler.Plan(ctx, env, json.RawMessage(c.with))
+			if err != nil {
+				t.Fatalf("plan with manual = %v", err)
+			}
+			if d := strings.Join(acDiff(out), "\n"); !strings.Contains(d, "(manual)") {
+				t.Errorf("diff %q, want the discarded manual rule marked", d)
+			}
+		})
+	}
+}
+
 // TestDefaultsAndLogging: the defaults and the logging level are set for
 // what changes, then an active UFW reloads; nothing to change is a no-op;
 // a request without any direction is refused.
