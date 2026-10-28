@@ -205,16 +205,29 @@ func (m mutation[In]) Observe(ctx context.Context, env core.Env, e core.Effect) 
 }
 
 // run makes a prepared change, each step a journaled effect (spec 2.5),
-// stopping at the first failure: a restore's files, the change's ufw
-// commands, the transition commands, and a restore's sysctl values.
+// stopping at the first failure: a restore's files; the Docker flag,
+// settings and container rows; the after files the change writes whole; the
+// change's ufw commands; the cleanup of Darkpanel's Docker chains; the
+// transition commands; and a restore's sysctl values.
 func (f fw) run(ctx context.Context, env core.Env, p prepared) error {
 	if p.c.restore != nil {
 		if err := f.writeRestored(ctx, env, p); err != nil {
 			return err
 		}
 	}
+	if err := f.runLogical(ctx, env, p.c); err != nil {
+		return err
+	}
+	if err := f.writeBlockFiles(ctx, env, p.c.files); err != nil {
+		return err
+	}
 	for _, op := range p.c.ops {
 		if err := runUfw(ctx, env, f.d, op); err != nil {
+			return err
+		}
+	}
+	if p.c.cleanup {
+		if err := f.cleanupChains(ctx, env, env.ChangeID, cleanupRefuse); err != nil {
 			return err
 		}
 	}

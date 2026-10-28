@@ -18,15 +18,13 @@ import (
 // change is what one mutating action asks of UFW, computed from its input
 // and the configured state.
 type change struct {
-	ops     []ufwOp           // rule, default and logging commands, in order
-	enable  *bool             // the UFW state the action sets; nil keeps it
-	restore *snapshot         // a snapshot whose files, UFW state and sysctl values the action brings back
-	repair  bool              // from the actual loaded state to the target (spec 2.3, the repair path)
-	files   map[string][]byte // whole after.rules / after6.rules contents to write before the ufw commands
-	flag    *bool             // the Docker integration flag to store; nil keeps it
-	//nolint:unused // Apply stores it; no prediction reads it
-	sources *dockerfw.Settings // settings to store; nil keeps them
-	//nolint:unused // Apply stores it; no prediction reads it
+	ops     []ufwOp                  // rule, default and logging commands, in order
+	enable  *bool                    // the UFW state the action sets; nil keeps it
+	restore *snapshot                // a snapshot whose files, UFW state and sysctl values the action brings back
+	repair  bool                     // from the actual loaded state to the target (spec 2.3, the repair path)
+	files   map[string][]byte        // whole after.rules / after6.rules contents to write before the ufw commands
+	flag    *bool                    // the Docker integration flag to store; nil keeps it
+	sources *dockerfw.Settings       // settings to store; nil keeps them
 	rowsAdd []dockerfw.ContainerRule // container rules to insert
 	rowsDel []string                 // container rule ids to delete
 	cleanup bool                     // run the owned-chain cleanup before the transition commands
