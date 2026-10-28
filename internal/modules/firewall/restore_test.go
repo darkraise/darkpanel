@@ -246,6 +246,12 @@ func TestRestoreLoadsABeforeImage(t *testing.T) {
 	if string(h.stdin["/usr/sbin/iptables-nft-restore"]) != string(want.Restore4) || string(h.stdin["/usr/sbin/ip6tables-nft-restore"]) != string(want.Restore6) {
 		t.Errorf("restore input =\n%s\n%s", h.stdin["/usr/sbin/iptables-nft-restore"], h.stdin["/usr/sbin/ip6tables-nft-restore"])
 	}
+	const literal4 = "*filter\n:INPUT DROP [0:0]\n:FORWARD DROP [0:0]\n:OUTPUT ACCEPT [0:0]\n:ufw-user-input - [0:0]\n" +
+		"-F INPUT\n-F FORWARD\n-F OUTPUT\n-A INPUT -j fw-foreign\n-A INPUT -j ufw-user-input\n" +
+		"-A ufw-user-input -p tcp -m tcp --dport 22 -j ACCEPT\nCOMMIT\n"
+	if got := string(h.stdin["/usr/sbin/iptables-nft-restore"]); got != literal4 {
+		t.Errorf("IPv4 restore input =\n%s\nwant\n%s", got, literal4)
+	}
 	if len(h.keeps) != 0 {
 		t.Error("a before-image restore compared chains with the prediction")
 	}

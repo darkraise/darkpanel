@@ -247,6 +247,16 @@ func TestBuildFlows(t *testing.T) {
 			},
 		},
 		{
+			name: "tailscaled without a UDP socket",
+			f: facts{ifaces: gIfaces(), sockets: []netstat.Socket{
+				flSock(tcp, est, "100.64.0.1:41002", "100.64.0.2:443", "tailscaled", 300),
+			}},
+			want: []flow{
+				{label: "tailscale", pkt: gxMark(flPkt("output", "0.0.0.0", 0, "198.51.100.1", 443, "tcp"), 0x80000), standIn: true},
+				{label: "tailscale", pkt: gxMark(flPkt("output", "::", 0, "2001:db8:ffff::1", 443, "tcp"), 0x80000), standIn: true},
+			},
+		},
+		{
 			name: "incomplete topology once for both contexts",
 			in:   Input{Plan: &core.GuardContext{}, Refresh: &core.GuardContext{}},
 			f:    facts{ifaces: gIfaces()},

@@ -100,6 +100,11 @@ func TestStateActions(t *testing.T) {
 	if h.state().Enabled {
 		t.Error("UFW is still enabled")
 	}
+	h.loaded = fwstate.Loaded{Variant: "nft", V4: fhParse(t, tgStopped), V6: fhParse(t, tgStopped)}
+	out, ran = acRun(t, h, f.stateDisable(), `{}`)
+	if len(out.Diff) != 0 || len(ran) != 0 {
+		t.Errorf("disable again: diff %q ran %q, want nothing", acDiff(out), ran)
+	}
 }
 
 // TestStateEnableIPv6No: starting UFW with IPV6=no empties user6.rules, so
