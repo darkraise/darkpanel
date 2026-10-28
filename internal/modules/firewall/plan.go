@@ -96,6 +96,11 @@ func (f fw) plan(ctx context.Context, env core.Env, req planReq) (core.PlanOutco
 			fmt.Sprintf("the change removes or adds manual rules %s; set manual: true to change them", strings.Join(ids, ", ")))
 	}
 	out := core.PlanOutcome{Diff: stateDiff(from, to)}
+	docker, err := dockerLines(ctx, env, p.cfg0, p.c)
+	if err != nil {
+		return core.PlanOutcome{}, err
+	}
+	out.Diff = append(out.Diff, docker...)
 	for _, d := range diffs {
 		out.Diff = append(out.Diff, core.DiffLine{Op: " ", Text: "out of sync: " + chainDiffText(d)})
 	}
