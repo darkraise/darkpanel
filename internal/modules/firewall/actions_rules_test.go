@@ -3,12 +3,14 @@ package firewall
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/core/schema"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/model"
 )
 
@@ -126,6 +128,36 @@ func TestRulesApplyRefuses(t *testing.T) {
 	err = f.rulesApply().Handler.Verify(ctx, env, json.RawMessage(apInput), json.RawMessage(`{}`))
 	if errcode.From(err).Code != errcode.FirewallPredictionMismatch {
 		t.Errorf("verify before the batch = %v, want a prediction mismatch", err)
+	}
+}
+
+// TestRulesApplyBatchSize: a batch adds and deletes at most maxBatch rules
+// each; the schema and the plan both refuse a longer list.
+func TestRulesApplyBatchSize(t *testing.T) {
+	_, f, env := apHost(t)
+	def := f.rulesApply()
+	ids := make([]string, maxBatch+1)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("01J000000000000000000%05d", i)
+	}
+	rules := make([]string, len(ids))
+	for i, id := range ids {
+		rules[i] = `{"id":"` + id + `","action":"allow","direction":"in","proto":"tcp","from":"any","to":"any","toPort":"8080","family":"v4"}`
+	}
+	for _, c := range []struct{ raw, path string }{
+		{`{"add":[` + strings.Join(rules, ",") + `]}`, "/add"},
+		{`{"delete":["` + strings.Join(ids, `","`) + `"]}`, "/delete"},
+	} {
+		if err := schema.NewValidator().ValidateInput(def, json.RawMessage(c.raw)); err == nil {
+			t.Errorf("the schema accepts %d items at %s", len(ids), c.path)
+		}
+		_, err := def.Handler.Plan(context.Background(), env, json.RawMessage(c.raw))
+		if e := errcode.From(err); e.Code != errcode.InvalidInput || len(e.Fields) != 1 || e.Fields[0].Path != c.path {
+			t.Errorf("plan with %d items at %s = %v, want an invalid input there", len(ids), c.path, err)
+		}
+	}
+	if err := schema.NewValidator().ValidateInput(def, json.RawMessage(`{"delete":["`+strings.Join(ids[:maxBatch], `","`)+`"]}`)); err != nil {
+		t.Errorf("the schema refuses %d deletes: %v", maxBatch, err)
 	}
 }
 

@@ -20,10 +20,15 @@ import (
 type RulesApplyInput struct {
 	core.Guarded
 	Label  string       `json:"label,omitempty" jsonschema:"pattern=^[A-Za-z0-9 :._/-]{0\\,64}$" jsonschema_description:"The comment of every added rule, after the Darkpanel tag."`
-	Add    []model.Rule `json:"add,omitempty" jsonschema_description:"Rules to add, each with its id and without a comment."`
-	Delete []string     `json:"delete,omitempty" jsonschema_description:"Ids of rules to delete."`
+	Add    []model.Rule `json:"add,omitempty" jsonschema:"maxItems=256" jsonschema_description:"Rules to add, each with its id and without a comment."`
+	Delete []string     `json:"delete,omitempty" jsonschema:"maxItems=256" jsonschema_description:"Ids of rules to delete."`
 	Manual bool         `json:"manual,omitempty" jsonschema_description:"Confirms deleting manual rules (spec 2.2)."`
 }
+
+// maxBatch is the most rules one rules.apply adds, and the most it
+// deletes: planning re-reads every rule after each one, so an unbounded
+// batch could hold the agent for hours.
+const maxBatch = 256
 
 var (
 	ruleIDRe = regexp.MustCompile(`^([0-9A-HJKMNP-TV-Z]{26}|manual-[0-9a-f]{16})$`)
@@ -54,6 +59,15 @@ func batch(in RulesApplyInput) ([]model.Rule, error) {
 	bad := func(path, msg string) { fields = append(fields, errcode.FieldError{Path: path, Message: msg}) }
 	if msg := labelProblem(in.Label); msg != "" {
 		bad("/label", msg)
+	}
+	if len(in.Add) > maxBatch {
+		bad("/add", fmt.Sprintf("at most %d rules are added at once", maxBatch))
+	}
+	if len(in.Delete) > maxBatch {
+		bad("/delete", fmt.Sprintf("at most %d rules are deleted at once", maxBatch))
+	}
+	if len(fields) > 0 {
+		return nil, &errcode.Error{Code: errcode.InvalidInput, Detail: "the batch is invalid", Fields: fields}
 	}
 	seen := map[string]bool{}
 	var rules []model.Rule

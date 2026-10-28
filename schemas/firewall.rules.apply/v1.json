@@ -234,6 +234,7 @@
               "$ref": "#/$defs/Rule"
             },
             "type": "array",
+            "maxItems": 256,
             "description": "Rules to add, each with its id and without a comment."
           },
           "delete": {
@@ -241,6 +242,7 @@
               "type": "string"
             },
             "type": "array",
+            "maxItems": 256,
             "description": "Ids of rules to delete."
           },
           "manual": {
