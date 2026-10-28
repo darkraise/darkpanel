@@ -62,7 +62,11 @@ type effectOverwrite struct {
 //  3. Otherwise the inverses of the made effects, newest first, skipping
 //     conflicts and stopping at the first failure, then "ufw reload" when
 //     a rule, default or logging inverse ran on an active UFW, and, for a
-//     repair's snapshot, the before-image loaded over the loaded chains.
+//     repair's snapshot, the before-image loaded over the loaded chains
+//     while every state file is as the snapshot captured it. A changed
+//     file is an edit whose rules the image would drop from the loaded
+//     chains, so the image is not loaded, the edit stays enforced, and
+//     the revert fails naming the files.
 //  4. Whenever that did not restore the prior state, the lockout guard on
 //     the loaded state now, with the snapshot's guard context. A failing
 //     (or unevaluable) guard restores the snapshot whole over everything
@@ -128,7 +132,15 @@ func revert(ctx context.Context, env core.Env, d deps, snapBytes []byte) (core.R
 		} else {
 			writeErr = undoNewestFirst(ctx, env, d, snap, made, conflicts)
 			if writeErr == nil && snap.State.Image != nil {
-				writeErr = loadVerifiedImage(ctx, env, d, snap)
+				switch changed, err := imageFilesChanged(d, snap); {
+				case err != nil:
+					writeErr = fmt.Errorf("firewall: load the before-image: %w", err)
+				case len(changed) > 0:
+					writeErr = fmt.Errorf("firewall: the before-image was not loaded: %s changed since the snapshot, and loading it would drop their rules from the loaded chains",
+						strings.Join(changed, ", "))
+				default:
+					writeErr = loadVerifiedImage(ctx, env, d, snap)
+				}
 			}
 		}
 	}
@@ -207,6 +219,22 @@ func hashesAsApplied(d deps, snap snapshot, made []core.Effect) bool {
 		}
 	}
 	return true
+}
+
+// imageFilesChanged lists the state files that differ from snap's capture.
+// A repair never changes them, so such a file was edited after the repair.
+func imageFilesChanged(d deps, snap snapshot) ([]string, error) {
+	cfg, err := d.readConfig(d.root)
+	if err != nil {
+		return nil, err
+	}
+	var changed []string
+	for _, e := range snap.Entries {
+		if fileHash(cfg.Files[e.Path]) != fileHash(e) {
+			changed = append(changed, e.Path)
+		}
+	}
+	return changed, nil
 }
 
 // expectedHashes returns the state files' hashes after the made effects,

@@ -543,8 +543,9 @@ func TestAxRevertFinishesAnUnreadableEmergencyRecord(t *testing.T) {
 
 // axImageRepair returns a host on which a repair of change c1, whose
 // snapshot holds a before-image, reloaded UFW (effect 1) and so replaced
-// the loaded UFW chains, and on which a manual rule was added afterwards,
-// so the revert goes by inverses. imaged is the loaded state of the image.
+// the loaded UFW chains, and on which a manual rule was added afterwards to
+// user6.rules and the loaded IPv6 chains, as ufw adds one, so the revert
+// goes by inverses. imaged is the loaded state of the image.
 func axImageRepair(t *testing.T) (h *fakeHost, snap snapshot, imaged fwstate.Loaded) {
 	t.Helper()
 	ctx := context.Background()
@@ -572,6 +573,7 @@ func axImageRepair(t *testing.T) (h *fakeHost, snap snapshot, imaged fwstate.Loa
 	}
 	h.loaded.V4 = fhParse(t, strings.Replace(rsTestSave4, "--dport 22", "--dport 2222", 1))
 	rvTestManualEdit(h)
+	h.loaded.V6 = fhParse(t, strings.Replace(fhSave, "COMMIT\n", "-A ufw-user-input -s 2001:db8::/32 -p udp -m udp --dport 53 -j DROP\nCOMMIT\n", 1))
 	h.onRun = func(h *fakeHost, cmd core.Cmd) core.CmdResult {
 		if cmd.Path == "/usr/sbin/ip6tables-nft-restore" {
 			h.loaded = imaged
@@ -582,34 +584,77 @@ func axImageRepair(t *testing.T) (h *fakeHost, snap snapshot, imaged fwstate.Loa
 	return h, snap, imaged
 }
 
+func TestAxRevertByInversesKeepsAManualEdit(t *testing.T) {
+	ctx := context.Background()
+	h, snap, _ := axImageRepair(t)
+	manual := h.loaded.V6
+	_, err := revert(ctx, h.env(), h.deps(), []byte(snap.ID))
+	if err == nil || !strings.Contains(err.Error(), "/etc/ufw/user6.rules") {
+		t.Fatalf("revert = %v, want an error naming /etc/ufw/user6.rules", err)
+	}
+	if got, want := rsTestRuns(h), []string{"run /usr/sbin/ufw --force enable"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("runs = %q, want %q", got, want)
+	}
+	if !reflect.DeepEqual(h.loaded.V6, manual) {
+		t.Error("the revert removed the manual rule from the loaded IPv6 chains")
+	}
+	if !slices.Contains(h.state().Rules6, fhRule53v6) {
+		t.Error("the revert removed the manual rule from user6.rules")
+	}
+	if h.guardCalls != 1 {
+		t.Errorf("the guard was evaluated %d times, want 1", h.guardCalls)
+	}
+	if s, err := getSnapshot(ctx, h.db, snap.ID); err != nil || !s.Pinned {
+		t.Errorf("snapshot pinned = %v, %v", s.Pinned, err)
+	}
+}
+
 func TestAxRevertByInversesLoadsTheBeforeImage(t *testing.T) {
 	ctx := context.Background()
 	h, snap, imaged := axImageRepair(t)
+	// The files and the loaded IPv6 chains are back as the snapshot has
+	// them, and the operator set a sysctl the repair wrote: the conflict
+	// sends the revert by inverses with every state file unchanged.
+	s := h.state()
+	s.Rules6 = slices.DeleteFunc(s.Rules6, func(l string) bool { return l == fhRule53v6 })
+	h.setState(s)
+	h.loaded.V6 = imaged.V6
+	if err := writeSysctlEffect(ctx, h.env(), h.deps(), "net/ipv4/conf/eth0/rp_filter", "2"); err != nil {
+		t.Fatal(err)
+	}
+	h.sysctl["net/ipv4/conf/eth0/rp_filter"] = "0"
+	h.calls = nil
+	want := planImage(snap.State.Image, h.loaded)
 	out, err := revert(ctx, h.env(), h.deps(), []byte(snap.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Override || !reflect.DeepEqual(out.Effects, []core.EffectOutcome{{Seq: 1, State: core.EffectUndone}}) {
+	if out.Override || len(out.Effects) != 2 || out.Effects[0] != (core.EffectOutcome{Seq: 1, State: core.EffectUndone}) ||
+		out.Effects[1].Seq != 2 || out.Effects[1].Reason != core.ReasonConflict {
 		t.Errorf("outcome = %+v", out)
 	}
 	if got, want := rsTestRuns(h), []string{"run /usr/sbin/ufw --force enable", "run /usr/sbin/iptables-nft-restore -n", "run /usr/sbin/ip6tables-nft-restore -n"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("runs = %q, want %q", got, want)
 	}
-	want := planImage(snap.State.Image, fwstate.Loaded{V4: fhParse(t, strings.Replace(rsTestSave4, "--dport 22", "--dport 2222", 1)), V6: imaged.V6})
 	if string(h.stdin["/usr/sbin/iptables-nft-restore"]) != string(want.Restore4) {
 		t.Errorf("the loaded input =\n%s\nwant\n%s", h.stdin["/usr/sbin/iptables-nft-restore"], want.Restore4)
 	}
-	if !slices.Contains(h.state().Rules6, fhRule53v6) {
-		t.Error("the revert removed the manual rule")
-	}
-	if h.guardCalls != 0 {
-		t.Errorf("the guard was evaluated %d times for a complete revert", h.guardCalls)
+	if h.sysctl["net/ipv4/conf/eth0/rp_filter"] != "0" {
+		t.Errorf("rp_filter = %s, want the operator's 0", h.sysctl["net/ipv4/conf/eth0/rp_filter"])
 	}
 }
 
 func TestAxRevertByInversesLeavesAChangedBuiltinChain(t *testing.T) {
 	ctx := context.Background()
-	h, snap, _ := axImageRepair(t)
+	h, snap, imaged := axImageRepair(t)
+	s := h.state()
+	s.Rules6 = slices.DeleteFunc(s.Rules6, func(l string) bool { return l == fhRule53v6 })
+	h.setState(s)
+	h.loaded.V6 = imaged.V6
+	if err := writeSysctlEffect(ctx, h.env(), h.deps(), "net/ipv4/conf/eth0/rp_filter", "2"); err != nil {
+		t.Fatal(err)
+	}
+	h.sysctl["net/ipv4/conf/eth0/rp_filter"] = "0"
 	changed := strings.Replace(rsTestSave4, "-A INPUT -j ufw-user-input\n", "-A INPUT -j ufw-user-input\n-A INPUT -s 192.0.2.9/32 -j DROP\n", 1)
 	h.loaded.V4 = fhParse(t, changed)
 	_, err := revert(ctx, h.env(), h.deps(), []byte(snap.ID))
