@@ -374,6 +374,16 @@ func m3xOutOfSync(st m3Status) error {
 	return nil
 }
 
+// m3xTailscaledSocket accepts the output of ss -Htuanp when it shows a
+// socket held by tailscaled, which is how the guard learns that tailscaled
+// runs.
+func m3xTailscaledSocket(ss string) error {
+	if !strings.Contains(ss, `"tailscaled"`) {
+		return fmt.Errorf("tailscaled holds no TCP or UDP socket; ss -Htuanp printed:\n%s", ss)
+	}
+	return nil
+}
+
 // m3JSON is v as JSON, for messages.
 func m3JSON(v any) string {
 	b, err := json.Marshal(v)
@@ -420,5 +430,29 @@ func TestM3xOutOfSync(t *testing.T) {
 	}
 	if err := m3xOutOfSync(m3Status{InSync: false}); err != nil {
 		t.Errorf("m3xOutOfSync refused a host out of sync: %v", err)
+	}
+}
+
+// TestM3xTailscaledSocket: tailscaled holds its WireGuard UDP port while it
+// is logged out. The first output is what ss -Htuanp printed in a
+// privileged debian:13 container running tailscale 1.104.1 (the version of
+// images.json) as its unit starts it, before any login.
+func TestM3xTailscaledSocket(t *testing.T) {
+	loggedOut := `udp UNCONN    0      0         0.0.0.0:41641         0.0.0.0:*   users:(("tailscaled",pid=2075,fd=17))
+udp UNCONN    0      0            [::]:41641            [::]:*   users:(("tailscaled",pid=2075,fd=16))
+tcp ESTAB     0      0      172.17.0.9:58584 199.165.136.100:443 users:(("tailscaled",pid=2075,fd=18))
+tcp TIME-WAIT 0      0      172.17.0.9:35994 151.101.130.132:80
+`
+	if err := m3xTailscaledSocket(loggedOut); err != nil {
+		t.Errorf("m3xTailscaledSocket(logged-out tailscaled) = %v, want nil", err)
+	}
+	for name, out := range map[string]string{
+		"no output":    "",
+		"other daemon": `tcp LISTEN 0 4096 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=800,fd=3))` + "\n",
+		"no process":   "udp UNCONN 0 0 0.0.0.0:41641 0.0.0.0:*\n",
+	} {
+		if err := m3xTailscaledSocket(out); err == nil {
+			t.Errorf("%s: m3xTailscaledSocket = nil, want an error", name)
+		}
 	}
 }
