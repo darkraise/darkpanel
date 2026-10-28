@@ -223,12 +223,16 @@ func sysctlDoc(ctx context.Context, env core.Env, key string) (core.StateDoc, er
 // observe reads the resource of one effect (the Observer of every firewall
 // action, spec 1.2 and 2.5). Current has the shape of the effect's Before,
 // After and Post. A rule creation reports how many rules its id matches,
-// with each one as a candidate when there are several; every other effect
-// matches 1.
+// with each one as a candidate when there are several, and a container
+// rule creation 0 or 1; every other effect matches 1.
 func observe(ctx context.Context, env core.Env, d deps, e core.Effect) (core.Observation, error) {
 	noun, ident, err := splitResource(e.Resource)
 	if err != nil {
 		return core.Observation{}, err
+	}
+	switch noun {
+	case nounSetting, nounContainer, nounChains:
+		return deObserve(ctx, env, d, e, noun, ident)
 	}
 	if noun == nounSysctl {
 		doc, err := sysctlDoc(ctx, env, ident)
