@@ -37,9 +37,9 @@ type imageChain struct {
 // from the rule in its whole table, so a jump compares the same way it did
 // in the loaded state.
 type imageRule struct {
-	Text string `json:"text"`          // the -A line as *-save printed it
-	Key  string `json:"key"`           // netfilter.Key of the rule in its family
-	Own  bool   `json:"own,omitempty"` // a bare jump to a UFW or Darkpanel chain
+	Text string `json:"text"`           // the -A line as *-save printed it
+	Key  string `json:"key"`            // netfilter.Key of the rule in its family
+	Own  bool   `json:"own,omitempty"`  // a bare jump to a UFW or Darkpanel chain
 	Jump string `json:"jump,omitempty"` // the chain of its table the rule jumps or goes to
 }
 
