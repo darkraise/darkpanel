@@ -110,6 +110,29 @@ func TestFileHash(t *testing.T) {
 	}
 }
 
+func TestSameFile(t *testing.T) {
+	base := core.RestoreEntry{Path: "/x", Present: true, Mode: 0o640, UID: 0, GID: 4, Data: []byte("abc")}
+	for name, c := range map[string]struct {
+		edit func(*core.RestoreEntry)
+		want bool
+	}{
+		"same":  {func(*core.RestoreEntry) {}, true},
+		"data":  {func(e *core.RestoreEntry) { e.Data = []byte("abd") }, false},
+		"mode":  {func(e *core.RestoreEntry) { e.Mode = 0o666 }, false},
+		"owner": {func(e *core.RestoreEntry) { e.UID = 1000 }, false},
+		"group": {func(e *core.RestoreEntry) { e.GID = 0 }, false},
+	} {
+		other := base
+		c.edit(&other)
+		if got := sameFile(base, other); got != c.want {
+			t.Errorf("%s: sameFile = %v, want %v", name, got, c.want)
+		}
+	}
+	if !sameFile(core.RestoreEntry{Path: "/x", Mode: 0o600}, core.RestoreEntry{Path: "/x"}) {
+		t.Error("two absent entries differ")
+	}
+}
+
 func TestSnapshotSaveGetRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	db := fwTestDB(t)

@@ -263,7 +263,7 @@ func (f fw) writeRestored(ctx context.Context, env core.Env, p prepared) error {
 		if err != nil {
 			return fmt.Errorf("firewall: restore %s: %w", e.Path, err)
 		}
-		if fileHash(cur.Files[e.Path]) == fileHash(want) {
+		if sameFile(cur.Files[e.Path], want) {
 			continue
 		}
 		if err := writeFileEffect(ctx, env, f.d, want); err != nil {

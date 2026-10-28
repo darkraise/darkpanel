@@ -86,6 +86,13 @@ func fileHash(e core.RestoreEntry) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
+// sameFile reports whether two entries of a state file are the same file:
+// the same fileHash and, when present, the same mode and owner, which
+// fileHash leaves out so that the stored hashes stay comparable.
+func sameFile(a, b core.RestoreEntry) bool {
+	return fileHash(a) == fileHash(b) && (!a.Present || (a.Mode == b.Mode && a.UID == b.UID && a.GID == b.GID))
+}
+
 func formatSnapshotTime(t time.Time) string { return t.UTC().Format(snapshotTimeFormat) }
 
 // saveSnapshot inserts s, makes it the baseline when the host has none yet,

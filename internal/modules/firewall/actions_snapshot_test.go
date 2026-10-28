@@ -3,6 +3,8 @@ package firewall
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -58,6 +60,28 @@ func TestSnapshotRestore(t *testing.T) {
 	}
 	if got := h.state(); len(got.Rules4) != 2 || got.Input != "DROP" || h.sysctl["net/ipv4/ip_forward"] != "0" {
 		t.Errorf("state %+v ip_forward %s, want the snapshot's", got, h.sysctl["net/ipv4/ip_forward"])
+	}
+}
+
+// TestSnapshotRestoreMode: a state file whose bytes are the snapshot's but
+// whose mode drifted is written back too.
+func TestSnapshotRestoreMode(t *testing.T) {
+	h, f, env := ruHost(t)
+	id := snCapture(t, h, f)
+	s := h.state()
+	s.Input = "ACCEPT"
+	h.setState(s)
+	path := filepath.Join(h.root, "etc/ufw/user.rules")
+	if err := os.Chmod(path, 0o666); err != nil {
+		t.Fatal(err)
+	}
+	ruApply(t, env, f.snapshotRestore(), `{"id":"`+id+`"}`)
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Errorf("user.rules mode = %v after the restore, want the snapshot's 0600", fi.Mode().Perm())
 	}
 }
 

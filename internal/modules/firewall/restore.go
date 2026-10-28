@@ -295,8 +295,9 @@ func verifyRestore(d deps, snap snapshot, tr fwstate.Transition, before, after f
 		return fmt.Errorf("firewall: verify the restore: ENABLED is %v, the snapshot's is %v", cfg.Enabled, snap.State.Enabled)
 	}
 	for _, e := range snap.Entries {
-		if got := fileHash(cfg.Files[e.Path]); got != fileHash(e) {
-			return fmt.Errorf("firewall: verify the restore: %s is %s, the snapshot's is %s", e.Path, got, fileHash(e))
+		if got := cfg.Files[e.Path]; !sameFile(got, e) {
+			return fmt.Errorf("firewall: verify the restore: %s is %s (mode %v, owner %d:%d), the snapshot's is %s (mode %v, owner %d:%d)",
+				e.Path, fileHash(got), got.Mode, got.UID, got.GID, fileHash(e), e.Mode, e.UID, e.GID)
 		}
 	}
 	if snap.State.Image != nil {
