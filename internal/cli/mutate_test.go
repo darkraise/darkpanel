@@ -142,6 +142,18 @@ func TestMutatingConfirmTimeout(t *testing.T) {
 		exchange{method: "POST", path: "/api/v1/hosts/h1/actions/demo.rule.set/v1/apply", body: `{"planId":"p5"}`,
 			reply: changeJSON("c5", "demo.rule.set", "revertible", "pending",
 				`"revertDeadline":"2026-10-18T12:01:00Z","output":null,"error":null,"compensatedBy":null`)},
+		hostList("h1:web"),
+		exchange{method: "POST", path: "/api/v1/hosts/h1/actions/demo.rule.set/v1/plan", body: input,
+			reply: planJSON("p6", "demo.rule.set", "h1", "", `[]`)},
+		exchange{method: "POST", path: "/api/v1/hosts/h1/actions/demo.rule.set/v1/apply", body: `{"planId":"p6","confirmTimeoutSeconds":10}`,
+			reply: changeJSON("c6", "demo.rule.set", "revertible", "pending",
+				`"revertDeadline":"2026-10-18T12:00:10Z","output":null,"error":null,"compensatedBy":null`)},
+		hostList("h1:web"),
+		exchange{method: "POST", path: "/api/v1/hosts/h1/actions/demo.rule.set/v1/plan", body: input,
+			reply: planJSON("p7", "demo.rule.set", "h1", "", `[]`)},
+		exchange{method: "POST", path: "/api/v1/hosts/h1/actions/demo.rule.set/v1/apply", body: `{"planId":"p7","confirmTimeoutSeconds":900}`,
+			reply: changeJSON("c7", "demo.rule.set", "revertible", "pending",
+				`"revertDeadline":"2026-10-18T12:15:00Z","output":null,"error":null,"compensatedBy":null`)},
 	)
 	cli := cliEnv{env: tokenEnv}
 	args := []string{"demo", "rule", "set", "--name", "web", "--port", "443", "--input", limits, "--yes", "--url", base}
@@ -151,6 +163,11 @@ func TestMutatingConfirmTimeout(t *testing.T) {
 	}
 	if out, errOut, code := cli.run(t, append(args, "--confirm-timeout", "0")...); code != 0 || !strings.Contains(out, "Change c5: pending") {
 		t.Errorf("--confirm-timeout 0: exit %d, out %q, err %q", code, out, errOut)
+	}
+	for _, b := range []struct{ secs, change string }{{"10", "c6"}, {"900", "c7"}} {
+		if out, errOut, code := cli.run(t, append(args, "--confirm-timeout", b.secs)...); code != 0 || !strings.Contains(out, "Change "+b.change+": pending") {
+			t.Errorf("--confirm-timeout %s: exit %d, out %q, err %q", b.secs, code, out, errOut)
+		}
 	}
 	for _, v := range []string{"9", "901", "-10"} {
 		_, errOut, code := cli.run(t, append(args, "--confirm-timeout", v)...)
