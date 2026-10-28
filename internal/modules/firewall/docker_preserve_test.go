@@ -188,6 +188,7 @@ func kfHost(t *testing.T, v4, v6 []string) *kfRig {
 	t.Helper()
 	h := newFakeHost(t)
 	h.ufw["reload"] = func(*fhState) int { return 0 }
+	h.writeFile(ufwPath, []byte("#!/bin/sh\n"))
 	for f, path := range map[fwstate.Family]string{fwstate.V4: "/etc/ufw/after.rules", fwstate.V6: "/etc/ufw/after6.rules"} {
 		file, err := dockerfw.WithBlock([]byte("*filter\n# after\nCOMMIT\n"), dockerfw.Render(kfInput(), f))
 		if err != nil {

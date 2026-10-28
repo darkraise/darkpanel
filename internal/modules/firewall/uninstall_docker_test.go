@@ -102,6 +102,9 @@ func TestDunRunsCleanup(t *testing.T) {
 			if deleted != c.wantDelete {
 				t.Errorf("ufw ran %q, want a rule delete: %v", unRan(h, 0), c.wantDelete)
 			}
+			if c.noUFW && len(unRan(h, 0)) > 0 {
+				t.Errorf("ufw ran %q on a host without UFW", unRan(h, 0))
+			}
 			if c.wantDelete {
 				del := slices.IndexFunc(h.calls, func(v string) bool { return strings.HasPrefix(v, "run /usr/sbin/ufw delete ") })
 				clean := slices.IndexFunc(h.calls, func(v string) bool { return strings.HasPrefix(v, "run /usr/sbin/iptables-nft-restore -n") })

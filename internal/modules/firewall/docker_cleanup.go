@@ -225,7 +225,9 @@ func (f fw) cleanupSteps(ctx context.Context, env core.Env, cfg fwstate.Config, 
 		}
 		changed = true
 	}
-	if changed && env.Effects == nil && ufwRunning(before) {
+	// UFW's chains stay loaded after its package is removed, until a reboot,
+	// so the loaded state alone does not show that its program exists.
+	if changed && env.Effects == nil && ufwRunning(before) && f.regular(ufwPath) == nil {
 		return ufw(ctx, env, reloadArgs)
 	}
 	return nil
