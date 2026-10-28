@@ -154,11 +154,12 @@ func m3RefuseControllerLink(ctx context.Context, t *testing.T, f *fleet) {
 }
 
 // m3RefuseTailscaled: denying outgoing traffic would cut tailscaled's own
-// traffic, which the guard checks whenever tailscaled holds a socket.
+// traffic, which the guard checks whenever tailscaled holds a socket. A
+// tailscaled that is logged out, as it is until M5, still holds its
+// WireGuard UDP port, so a host without a socket of it is a failure.
 func m3RefuseTailscaled(ctx context.Context, t *testing.T, f *fleet) {
-	out := m3Run(ctx, t, f.agent, `sudo ss -Htuanp`)
-	if !strings.Contains(out, `"tailscaled"`) {
-		t.Skip("tailscaled holds no TCP or UDP socket on the agent host while it is logged out, so the guard has no tailscaled flow to protect")
+	if err := m3xTailscaledSocket(m3Run(ctx, t, f.agent, `sudo ss -Htuanp`)); err != nil {
+		t.Fatal(err)
 	}
 	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3Healthy)
 	m3RequireCut(ctx, t, f.api, f.agentID, "firewall.defaults.set", m3DenyOutgoing, "tailscale from ")
