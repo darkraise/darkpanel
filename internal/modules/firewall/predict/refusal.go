@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
@@ -36,7 +37,7 @@ func IPv6Refusal(cfg fwstate.Config, cur fwstate.Loaded, tr fwstate.Transition) 
 		default:
 			for i, r := range c.Rules {
 				if !ufwBuiltinRule(c.Name, r) {
-					foreign = append(foreign, fmt.Sprintf("%s rule %d (%s)", c.Name, i+1, strings.Join(strings.Fields(r.Text), " ")))
+					foreign = append(foreign, fmt.Sprintf("%s rule %d (%s)", c.Name, i+1, shorten(strings.Join(strings.Fields(r.Text), " "))))
 				}
 			}
 		}
@@ -44,9 +45,31 @@ func IPv6Refusal(cfg fwstate.Config, cur fwstate.Loaded, tr fwstate.Transition) 
 	if len(foreign) == 0 {
 		return nil
 	}
+	if n := len(foreign) - refusalItems; n > 0 {
+		foreign = append(foreign[:refusalItems:refusalItems], fmt.Sprintf("and %d more", n))
+	}
 	return errcode.New(errcode.FirewallUnsupportedConfiguration, fmt.Sprintf(
 		"starting UFW with IPV6=no would replace the IPv6 filter table and remove what UFW did not create, which no snapshot can rebuild: %s; set IPV6=yes in /etc/default/ufw",
 		strings.Join(foreign, ", ")))
+}
+
+// The refusal names at most refusalItems chains and rules, each rule's
+// text cut to refusalText bytes, so a large foreign table does not flood
+// the API response, the logs and the change record.
+const (
+	refusalItems = 10
+	refusalText  = 80
+)
+
+func shorten(s string) string {
+	if len(s) <= refusalText {
+		return s
+	}
+	cut := refusalText
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "..."
 }
 
 // ufwBuiltinRule reports whether a rule of a built-in IPv6 filter chain is

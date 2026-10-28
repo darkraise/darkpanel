@@ -2,8 +2,10 @@ package predict
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
@@ -73,6 +75,28 @@ func TestIPv6Refusal(t *testing.T) {
 				t.Errorf("%s: detail %q lacks %q", tc.name, ce.Detail, w)
 			}
 		}
+	}
+}
+
+// TestIPv6RefusalCapsTheDetail: the detail names ten items and counts the
+// rest, and cuts a long rule text.
+func TestIPv6RefusalCapsTheDetail(t *testing.T) {
+	chains := map[string][]string{}
+	for i := range 15 {
+		chains[fmt.Sprintf("fw-%02d", i)] = nil
+	}
+	long := strings.Repeat("é", 60)
+	cur := refusalTestState(t, "ipv6no", chains, map[string]string{"INPUT": `-A INPUT -m comment --comment "` + long + `" -j ACCEPT`})
+	err := IPv6Refusal(predictConfig(t, "debian-13", "ipv6no"), cur, fwstate.TransEnable)
+	var ce *errcode.Error
+	if !errors.As(err, &ce) {
+		t.Fatalf("err = %v, want a refusal", err)
+	}
+	if n := strings.Count(ce.Detail, "chain fw-"); n != 9 || !strings.Contains(ce.Detail, "and 6 more;") {
+		t.Errorf("detail %q names %d chains, want 9 and the count of the other 6", ce.Detail, n)
+	}
+	if strings.Contains(ce.Detail, long) || !strings.Contains(ce.Detail, `...)`) || !utf8.ValidString(ce.Detail) {
+		t.Errorf("detail %q, want the rule text cut on a character boundary", ce.Detail)
 	}
 }
 
