@@ -200,6 +200,9 @@ func restoreTransition(ctx context.Context, env core.Env, d deps, snap snapshot)
 // *-restore -n, as planImage decides. It returns the plan even when a
 // program fails.
 func loadImage(ctx context.Context, env core.Env, img *beforeImage, before fwstate.Loaded) (imagePlan, error) {
+	if err := img.check(); err != nil {
+		return imagePlan{}, err
+	}
 	plan := planImage(img, before)
 	for _, f := range []struct {
 		fam   fwstate.Family

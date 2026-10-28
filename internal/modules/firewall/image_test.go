@@ -1,6 +1,7 @@
 package firewall
 
 import (
+	"context"
 	"reflect"
 	"strings"
 	"testing"
@@ -224,6 +225,30 @@ func TestPlanImageMissingJumpTarget(t *testing.T) {
 	}
 	if p := planImage(takeImage(imTestLoaded(t, gone, imTestSave6)), imTestLoaded(t, gone, imTestSave6)); len(p.Excluded) != 0 {
 		t.Errorf("excluded %v while fw-gone still exists, want none", p.Excluded)
+	}
+}
+
+// TestImageRefusesALineBreak: a damaged image row with a line break in a
+// rule, a chain name or a policy is not loaded, so it cannot add lines of
+// its own to the *-restore input.
+func TestImageRefusesALineBreak(t *testing.T) {
+	if err := takeImage(imTestLoaded(t, imTestSave4, imTestSave6)).check(); err != nil {
+		t.Fatalf("an intact image: %v", err)
+	}
+	for name, damage := range map[string]func(*beforeImage){
+		"rule":   func(img *beforeImage) { img.V4[1].Chains[0].Rules[0].Text += "\n-F DOCKER-USER" },
+		"chain":  func(img *beforeImage) { img.V6[0].Chains[3].Name += "\nCOMMIT" },
+		"policy": func(img *beforeImage) { img.V4[1].Chains[1].Policy = "DROP\r" },
+	} {
+		img := takeImage(imTestLoaded(t, imTestSave4, imTestSave6))
+		damage(img)
+		if err := img.check(); err == nil {
+			t.Errorf("%s: a line break was accepted", name)
+		}
+		h := newFakeHost(t)
+		if _, err := loadImage(context.Background(), h.env(), img, h.loaded); err == nil || len(h.calls) != 0 {
+			t.Errorf("%s: loadImage = %v after %v, want a refusal before any run", name, err, h.calls)
+		}
 	}
 }
 

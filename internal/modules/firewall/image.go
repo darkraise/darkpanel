@@ -117,6 +117,28 @@ func imageTables(rs *netfilter.Ruleset, ipv6 bool) []imageTable {
 	return out
 }
 
+// check refuses an image with a line break in a name, a policy or a rule:
+// planFamily writes them into *-restore input line by line, so a damaged
+// row could add -F, -X or COMMIT lines of its own.
+func (img *beforeImage) check() error {
+	for _, tables := range [][]imageTable{img.V4, img.V6} {
+		for _, t := range tables {
+			for _, c := range t.Chains {
+				texts := []string{t.Name, c.Name, c.Policy}
+				for _, r := range c.Rules {
+					texts = append(texts, r.Text)
+				}
+				for _, s := range texts {
+					if strings.ContainsAny(s, "\r\n") {
+						return fmt.Errorf("firewall: the before-image of %s/%s holds a line break, so it is not loaded", t.Name, c.Name)
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // planImage decides how to load img over the current loaded state st. A
 // user chain is always loaded: *-restore -n flushes and refills a chain it
 // declares. A built-in chain is not flushed by a declaration, so it is
