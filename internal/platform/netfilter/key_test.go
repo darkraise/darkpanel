@@ -451,3 +451,83 @@ func TestKxLogLevels(t *testing.T) {
 		}
 	}
 }
+
+// kxLimits are the --limit spellings that iptables 1.8.11
+// (extensions/libxt_limit.c) accepted in a container, with the rate
+// iptables-save then printed: it reads a rate into a period, so an
+// equivalent rate in another unit is printed in the largest unit that
+// divides it, and kxLimitRefused those it refused.
+var kxLimits = []struct{ in, saved string }{
+	{"3/hour", "3/hour"},
+	{"3/minute", "3/min"},
+	{"3/min", "3/min"},
+	{"3/m", "3/min"},
+	{"3/s", "3/sec"},
+	{"3/second", "3/sec"},
+	{"3/sec", "3/sec"},
+	{"3/h", "3/hour"},
+	{"3/d", "3/day"},
+	{"3/day", "3/day"},
+	{"60/min", "1/sec"},
+	{"60/minute", "1/sec"},
+	{"60/hour", "1/min"},
+	{"120/hour", "2/min"},
+	{"3600/hour", "1/sec"},
+	{"1/sec", "1/sec"},
+	{"2", "2/sec"},
+	{"10", "10/sec"},
+	{"1/day", "1/day"},
+	{"7/hour", "7/hour"},
+	{"7/day", "7/day"},
+	{"3/Hour", "3/hour"},
+	{"3/hou", "3/hour"},
+	{"03/min", "3/min"},
+	{"3x/min", "3/min"},
+	{"100/s", "100/sec"},
+	{"10000/s", "10000/sec"},
+	{"86400/day", "1/sec"},
+	{"1440/day", "1/min"},
+	{"24/day", "1/hour"},
+	{"48/day", "2/hour"},
+	{"5/min", "5/min"},
+	{"4/hour", "4/hour"},
+	{"90/hour", "90/hour"},
+	{"59/min", "59/min"},
+	{"61/min", "61/min"},
+	{"7/min", "7/min"},
+	{"13/min", "13/min"},
+	{"999/hour", "999/hour"},
+	{"2500/day", "2500/day"},
+	{"100/min", "100/min"},
+	{"180/min", "3/sec"},
+	{"300/min", "5/sec"},
+	{"1000/min", "1000/min"},
+	{"10000/min", "166/sec"},
+}
+
+var kxLimitRefused = []string{
+	"3/HOURS",
+	"3/hours",
+	"3/",
+	"3/x",
+	"0/sec",
+	"0",
+	"abc",
+	"10001/s",
+	"20000/s",
+}
+
+func TestKxLimitRates(t *testing.T) {
+	for _, tc := range kxLimits {
+		got := Key(kyRule(t, "-A X -m limit --limit "+tc.in+" -j ACCEPT", true), false)
+		if want := "-m limit --limit " + tc.saved + " -j ACCEPT"; got != want {
+			t.Errorf("--limit %s has the key %q, want %q", tc.in, got, want)
+		}
+	}
+	for _, in := range kxLimitRefused {
+		got := Key(kyRule(t, "-A X -m limit --limit "+in+" -j ACCEPT", true), false)
+		if want := "-m limit --limit " + in + " -j ACCEPT"; got != want {
+			t.Errorf("the refused --limit %s has the key %q, want it kept as written", in, got)
+		}
+	}
+}
