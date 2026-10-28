@@ -439,13 +439,6 @@ func restoreRecordOf(ctx context.Context, db *store.DB, id string) (rec restoreR
 	return rec, true, nil
 }
 
-// restoreIntent returns the transition of an unfinished restore of snapshot
-// id; ok is false when none is recorded.
-func restoreIntent(ctx context.Context, db *store.DB, id string) (fwstate.Transition, bool, error) {
-	rec, ok, err := restoreRecordOf(ctx, db, id)
-	return rec.Transition, ok, err
-}
-
 // pendingRestore returns the snapshot of the unfinished restore, if any.
 func pendingRestore(ctx context.Context, db *store.DB) (string, bool, error) {
 	var id string

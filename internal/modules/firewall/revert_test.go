@@ -453,7 +453,7 @@ func TestAxRevertFinishesAnInterruptedEmergencyRestore(t *testing.T) {
 			if _, err := revert(ctx, h.env(), h.deps(), []byte(snap.ID)); err == nil || !strings.Contains(err.Error(), "emergency restore") {
 				t.Fatalf("the cut-off revert = %v, want the emergency restore's failure", err)
 			}
-			if _, pending, _ := restoreIntent(ctx, h.db, snap.ID); !pending {
+			if _, pending, _ := restoreRecordOf(ctx, h.db, snap.ID); !pending {
 				t.Fatal("the cut-off emergency restore left no record")
 			}
 			delete(h.runErr, "/usr/sbin/ufw reload")
@@ -489,7 +489,7 @@ func TestAxRevertFinishesAnInterruptedEmergencyRestore(t *testing.T) {
 			if !reflect.DeepEqual(fileHashes(h.config().Files), snap.Hashes) {
 				t.Error("the state files are not the snapshot's")
 			}
-			if _, pending, _ := restoreIntent(ctx, h.db, snap.ID); pending {
+			if _, pending, _ := restoreRecordOf(ctx, h.db, snap.ID); pending {
 				t.Error("the finished restore left its record")
 			}
 			if s, err := getSnapshot(ctx, h.db, snap.ID); err != nil || !s.Pinned {
@@ -541,7 +541,7 @@ func TestAxRevertFinishesAnUnreadableEmergencyRecord(t *testing.T) {
 			if !reflect.DeepEqual(fileHashes(h.config().Files), snap.Hashes) {
 				t.Error("the state files are not the snapshot's")
 			}
-			if _, pending, _ := restoreIntent(ctx, h.db, snap.ID); pending {
+			if _, pending, _ := restoreRecordOf(ctx, h.db, snap.ID); pending {
 				t.Error("the finished restore left its record")
 			}
 			if s, err := getSnapshot(ctx, h.db, snap.ID); err != nil || !s.Pinned {

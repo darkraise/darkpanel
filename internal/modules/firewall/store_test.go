@@ -358,13 +358,13 @@ func TestRestoreIntent(t *testing.T) {
 	if err := beginRestore(ctx, db, a.ID, fwstate.TransDisable, stTestT0); err != nil {
 		t.Fatal(err)
 	}
-	if tr, ok, err := restoreIntent(ctx, db, a.ID); err != nil || !ok || tr != fwstate.TransDisable {
-		t.Errorf("restoreIntent(a) = %q, %v, %v", tr, ok, err)
+	if rec, ok, err := restoreRecordOf(ctx, db, a.ID); err != nil || !ok || rec.Transition != fwstate.TransDisable {
+		t.Errorf("restoreRecordOf(a) = %+v, %v, %v", rec, ok, err)
 	}
 	if err := beginRestore(ctx, db, b.ID, fwstate.TransEnable, stTestT0); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok, _ := restoreIntent(ctx, db, a.ID); ok {
+	if _, ok, _ := restoreRecordOf(ctx, db, a.ID); ok {
 		t.Error("a new restore kept the superseded restore's record")
 	}
 	if id, ok, err := pendingRestore(ctx, db); err != nil || !ok || id != b.ID {
@@ -415,8 +415,8 @@ func TestAxRestoreRecordKind(t *testing.T) {
 	if err != nil || rec.Transition != fwstate.TransDisable || string(rec.Emergency) != string(emergency) {
 		t.Errorf("restoreRecordOf(b) = %+v, %v", rec, err)
 	}
-	if tr, ok, err := restoreIntent(ctx, db, b.ID); err != nil || !ok || tr != fwstate.TransDisable {
-		t.Errorf("restoreIntent(b) = %q, %v, %v", tr, ok, err)
+	if rec, ok, err := restoreRecordOf(ctx, db, b.ID); err != nil || !ok || rec.Transition != fwstate.TransDisable {
+		t.Errorf("restoreRecordOf(b) = %+v, %v, %v", rec, ok, err)
 	}
 }
 
