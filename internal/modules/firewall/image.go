@@ -39,7 +39,7 @@ type imageChain struct {
 type imageRule struct {
 	Text string `json:"text"`          // the -A line as *-save printed it
 	Key  string `json:"key"`           // netfilter.Key of the rule in its family
-	Own  bool   `json:"own,omitempty"` // a jump to a UFW or Darkpanel chain
+	Own  bool   `json:"own,omitempty"` // a bare jump to a UFW or Darkpanel chain
 }
 
 // chainRef names one chain of a loaded state.
@@ -68,6 +68,13 @@ func firewallChain(name string) bool {
 		strings.HasPrefix(name, "darkpanel-") || strings.HasPrefix(name, "dp-b-")
 }
 
+// ownJump reports whether r is a bare jump, with no matches, to a UFW or
+// Darkpanel chain. A jump with matches is another program's rule even when
+// it targets such a chain.
+func ownJump(r netfilter.Rule, ipv6 bool) bool {
+	return firewallChain(r.Target.Name) && netfilter.Key(r, ipv6) == "-j "+r.Target.Name
+}
+
 // imageHolds reports whether a before-image holds chain c of table.
 func imageHolds(table string, c netfilter.Chain) bool {
 	return firewallChain(c.Name) || (table == "filter" && c.Builtin && slices.Contains(builtinChains, c.Name))
@@ -91,7 +98,7 @@ func imageTables(rs *netfilter.Ruleset, ipv6 bool) []imageTable {
 			}
 			ic := imageChain{Name: c.Name, Builtin: c.Builtin, Policy: c.Policy, Rules: []imageRule{}}
 			for _, r := range c.Rules {
-				ic.Rules = append(ic.Rules, imageRule{Text: r.Text, Key: netfilter.Key(r, ipv6), Own: firewallChain(r.Target.Name)})
+				ic.Rules = append(ic.Rules, imageRule{Text: r.Text, Key: netfilter.Key(r, ipv6), Own: ownJump(r, ipv6)})
 			}
 			it.Chains = append(it.Chains, ic)
 		}
@@ -105,8 +112,8 @@ func imageTables(rs *netfilter.Ruleset, ipv6 bool) []imageTable {
 // planImage decides how to load img over the current loaded state st. A
 // user chain is always loaded: *-restore -n flushes and refills a chain it
 // declares. A built-in chain is not flushed by a declaration, so it is
-// flushed explicitly, and only when its rules other than jumps to UFW and
-// Darkpanel chains equal the image's; otherwise it is left as it is and
+// flushed explicitly, and only when its rules other than bare jumps to UFW
+// and Darkpanel chains equal the image's; otherwise it is left as it is and
 // listed in Excluded, so no other program's rule is overwritten. A family
 // the current state lacks is left out with all its built-in chains
 // excluded.
@@ -163,7 +170,7 @@ func planFamily(tables []imageTable, cur *netfilter.Ruleset, fam fwstate.Family,
 }
 
 // foreignEqual reports whether the current built-in chain's rules other
-// than jumps to UFW and Darkpanel chains equal, in order, the image's.
+// than bare jumps to UFW and Darkpanel chains equal, in order, the image's.
 func foreignEqual(c imageChain, cur *netfilter.Ruleset, table string, ipv6 bool) bool {
 	var want []string
 	for _, r := range c.Rules {
@@ -174,7 +181,7 @@ func foreignEqual(c imageChain, cur *netfilter.Ruleset, table string, ipv6 bool)
 	var got []string
 	if ch := chainOf(cur, table, c.Name); ch != nil {
 		for _, r := range ch.Rules {
-			if !firewallChain(r.Target.Name) {
+			if !ownJump(r, ipv6) {
 				got = append(got, netfilter.Key(r, ipv6))
 			}
 		}

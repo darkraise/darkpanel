@@ -113,6 +113,10 @@ func TestTakeImage(t *testing.T) {
 	if empty := img.V4[1].Chains[2]; empty.Rules == nil {
 		t.Error("an empty chain's rules are nil, which encodes as null")
 	}
+	matched := strings.Replace(imTestSave4, "-A INPUT -j ufw-before-input\n", "-A INPUT -j ufw-before-input\n-A INPUT -s 203.0.113.9/32 -j ufw-user-input\n", 1)
+	if r := takeImage(imTestLoaded(t, matched, imTestSave6)).V4[1].Chains[0].Rules[2]; r.Own {
+		t.Errorf("matched jump %q is own, want another program's", r.Text)
+	}
 	if got := takeImage(fwstate.Loaded{Variant: "nft", V4: imTestParse(t, imTestSave4)}); got.V6 != nil {
 		t.Errorf("an image of a state without IPv6 has v6 chains %v", got.V6)
 	}
@@ -163,6 +167,7 @@ func TestPlanImageExcludesChangedBuiltin(t *testing.T) {
 		"foreign rule added":   strings.Replace(imTestSave4, "-A INPUT -j ufw-before-input\n", "-A INPUT -j ufw-before-input\n-A INPUT -s 192.0.2.9/32 -j DROP\n", 1),
 		"foreign rule removed": strings.Replace(imTestSave4, "-A INPUT -j fw-foreign\n", "", 1),
 		"foreign rule doubled": strings.Replace(imTestSave4, "-A INPUT -j fw-foreign\n-A INPUT -j ufw-before-input\n", "-A INPUT -j fw-foreign\n-A INPUT -j fw-foreign\n", 1),
+		"foreign matched jump": strings.Replace(imTestSave4, "-A INPUT -j ufw-before-input\n", "-A INPUT -j ufw-before-input\n-A INPUT -s 203.0.113.9/32 -j ufw-user-input\n", 1),
 	} {
 		t.Run(name, func(t *testing.T) {
 			p := planImage(img, imTestLoaded(t, cur, imTestSave6))
