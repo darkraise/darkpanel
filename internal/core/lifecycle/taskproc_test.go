@@ -121,6 +121,8 @@ func TestRunTaskFence(t *testing.T) {
 	f.taskUntil(v.ID, core.StateFailed)
 
 	w := f.taskApplyStart(refTskInstall, `{"name":"b","value":"1"}`)
+	// A running row whose unit is inactive reads as a dead process.
+	f.units.set(TaskUnitName(w.ID, core.TaskOpApply, 1), true)
 	for range 2 {
 		if err := f.eng.RunTask(ctx, w.ID, core.TaskOpApply, 1); err != nil {
 			t.Fatalf("RunTask = %v", err)
@@ -140,6 +142,7 @@ func TestRunTaskFence(t *testing.T) {
 func TestRunTaskSealsItsOutput(t *testing.T) {
 	f := newTaskFixture(t)
 	v := f.taskApplyStart(refTskInstall, `{"name":"a","value":"1"}`)
+	f.units.set(TaskUnitName(v.ID, core.TaskOpApply, 1), true)
 	if err := f.eng.RunTask(context.Background(), v.ID, core.TaskOpApply, 1); err != nil {
 		t.Fatal(err)
 	}
