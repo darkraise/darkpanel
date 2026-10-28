@@ -12,7 +12,7 @@
 
 **Execution:** subagent — `claude --model sonnet --effort high` — the plan runs parallel waves, and each task's **Implementer:** line chooses its implementer
 
-**Parallelism:** waves — 1-3 | 4-6 | 7-8 | 9-11 | 12-14 | 15-17 | 18 | 19-21 | 22-24 | 25-27 | 28-30 | 31-33 | 34 | 35 | 36-37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47-48 | 49 | 50
+**Parallelism:** waves — 1-3 | 4-5 | 6-8 | 9-11 | 12-13 | 14-16 | 17-19 | 20 | 21-23 | 24-26 | 27-29 | 30-32 | 33-35 | 36 | 37 | 38-39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47-48 | 49 | 50 | 51-52 | 53 | 54
 
 **Integration check:** `mkdir -p /root/.cache/w2-tmp/integ && export TMPDIR=/root/.cache/w2-tmp/integ GOTOOLCHAIN=local && timeout 600 go build ./... && timeout 300 go vet ./... && timeout 300 go vet -tags harness ./test/... && timeout 1500 go test -count=1 ./... && timeout 900 golangci-lint run --allow-serial-runners ./... && timeout 600 golangci-lint run --allow-serial-runners --build-tags harness ./test/... && timeout 300 go mod tidy -diff && timeout 1200 make lint-web test-web`
 
@@ -37,7 +37,7 @@
 - Values copied from the spec, used exactly: Docker 28.0 or later with `FirewallBackend.Driver` exactly `iptables` (`iptables` when the field is absent), Docker's chains in the same variant as UFW's and its `raw` protection loaded; default `privateSources` `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`, `fc00::/7`, `fe80::/10`; at most 32 entries, none shorter than /8 (IPv4) or /7 (IPv6); the block's text of spec 2.6 line for line, with log prefix `[DARKPANEL DOCKER DENY] ` and `-m limit --limit 3/min`; binding chain `dp-b-<first 12 hex digits of the binding's hash>`; reconcile wakes on Docker events (container `start`, `die`, `destroy`; network `connect`, `disconnect`, `create`, `destroy`) and every 5 minutes, as actor `system:firewall.reconcile`; Tailscale's ranges `100.64.0.0/10` and `fd7a:115c:a1e0::/48` on `tailscale0`; the exposure verdicts `open`, `closed`, `filtered`, `partial`, `unknown`; the revert timeout is the apply request's `confirmTimeoutSeconds`, 10–900 s, default 60.
 - Every mutating Docker action is a `mutation[In]` declared with wave 1's `defineMutation` (revertible, agent side, lock `firewall`, `RepairedBy: "firewall.state.repair"`, `ApplyTimeout` 45 s, the overridable `firewall.lockout` guard, input embedding `core.Guarded`). Plan goes through `fw.plan`, Apply through `fw.prepare` and `fw.run`, Revert through wave 1's `revert`. A revert is never refused for foreign `DOCKER-USER` rules, and no automatic operation ever discards a foreign rule.
 - Commits use `<type>(<scope>): <subject>`, type one of feat|fix|docs|style|refactor|test|chore|perf, subject at most 50 characters, imperative, no trailing period, no attribution of any kind. English only.
-- The plan ends with the gates in `docs/dforge/gates.md`. Tasks 8, 48, 49 and 50 touch `test/harness/` or `.github/workflows/harness.yml`, so gate 7 (harness) applies to the branch once it is pushed, as well as on `main`; dispatch `harness.yml` on the branch per the owner's standing authorization. No task creates or pushes a tag.
+- The plan ends with the gates in `docs/dforge/gates.md`. Tasks 9, 52, 53 and 54 touch `test/harness/` or `.github/workflows/harness.yml`, so gate 7 (harness) applies to the branch once it is pushed, as well as on `main`; dispatch `harness.yml` on the branch per the owner's standing authorization. No task creates or pushes a tag.
 
 ## Contracts
 
@@ -47,20 +47,20 @@ Names are given with their package; everything not exported is used only inside 
 
 | Package | Task: prefix |
 |---|---|
-| `dockerfw` | 1: `cap` (shared helpers `capDir`, `capImages`, `capScenarios`, `capLoad`, `capFile`), 2: `set`, 9: `bd`, 11: `dt`, 15: `bk` (shared helper `bkRuleset(t *testing.T, text []byte) *netfilter.Ruleset`, which parses restore text with `netfilter.ParseRestore`), 19: `rz` (shared helpers in `realize_test.go`: `rzContainer(name string, ports []Published, eps ...Endpoint) Container` with `ID` `"id-"+name`; `rzNetwork(name, bridge string, subnets ...string) Network` with `ID` `"id-"+name` and `Driver` `bridge`; `rzFacts(containers []Container, networks ...Network) Facts`), 20: `hl`, 21: `ch`, 22: `ro`, 23: `dc` |
-| `exposure` | 5: `pt`, 10: `ex` |
+| `dockerfw` | 1: `cap` (shared helpers `capDir`, `capImages`, `capScenarios`, `capLoad`, `capFile`), 2: `set`, 10: `bd`, 12: `dt`, 13: `dtf`, 17: `bk` (shared helper `bkRuleset(t *testing.T, text []byte) *netfilter.Ruleset`, which parses restore text with `netfilter.ParseRestore`), 21: `rz` (shared helpers in `realize_test.go`: `rzContainer(name string, ports []Published, eps ...Endpoint) Container` with `ID` `"id-"+name`; `rzNetwork(name, bridge string, subnets ...string) Network` with `ID` `"id-"+name` and `Driver` `bridge`; `rzFacts(containers []Container, networks ...Network) Facts`), 22: `hl`, 23: `ch`, 24: `ro`, 25: `dc` |
+| `exposure` | 5: `pt`, 6: `pa`, 11: `ex` |
 | `loaded` | 3: `vr` |
 | `eval` | 4: `dcd` |
-| `firewall` (module root) | 12: `fd` (shared helpers `fakeDocker`, `newFakeDocker`, `fdContainer`, `fdNetwork`, `fdDeps`), 16: `dtg`, 18: `ds` (shared helper `dsDB`), 24: `de`, 25: `di`, 26: `dsn`, 28: `drs`, 29: `df` (shared helper `dfState`), 30: `ddf`, 31: `dref`, 32: `dst`, 33: `xv`, 34: `kf` (shared helper `kfHost`), 35: `cl`, 36: `dru`, 37: `dun`, 38: `kfw`, 39: `den`, 40: `ctr`, 41: `dsh`, 42: `dsr`, 43: `drp`, 44: `dre`, 45: `rc`, 46: `reg`, 47: `dee` |
-| `test/harness` | 8, 48, 49, 50: `m3d` (pure helpers `m3dx…` with unit tests) |
-| web (`web/src/modules/firewall/`) | each test file uses its own file's prefix; shared fixtures only in `fixtures.ts` (Task 6) |
+| `firewall` (module root) | 14: `fd` (shared helpers `fakeDocker`, `newFakeDocker`, `fdContainer`, `fdNetwork`, `fdDeps`), 18: `dtg`, 20: `ds` (shared helper `dsDB`), 26: `de`, 27: `di`, 28: `dsn`, 30: `drs`, 31: `df` (shared helper `dfState`), 32: `ddf`, 33: `dref`, 34: `dst`, 35: `xv`, 36: `kf` (shared helper `kfHost`), 37: `cl`, 38: `dru`, 39: `dun`, 40: `kfw`, 41: `dro`, 42: `den`, 43: `ctr`, 44: `dsh`, 45: `dsr`, 46: `drp`, 47: `dre`, 48: `dso`, 49: `rc`, 50: `reg`, 51: `dee` |
+| `test/harness` | 9, 52, 53, 54: `m3d` (pure helpers `m3dx…` with unit tests) |
+| web (`web/src/modules/firewall/`) | each test file uses its own file's prefix; shared fixtures only in `fixtures.ts` (Task 7) |
 
 
 ### Dependencies
 
-Each task's **Depends on** line is exactly this: 1–8 none; 9: Task 2; 10: Task 4, Task 5; 11: Task 1, Task 2; 12: Task 3; 13, 14, 17: Task 6; 15, 16, 18: Task 9; 19, 21: Task 15; 20: Task 11, Task 15; 22: Task 19; 23: Task 1, Task 19; 24, 26: Task 18; 25: Task 24; 27: Task 6, Task 13; 28: Task 26; 29: Task 12, Task 18, Task 19; 30: Task 16, Task 18; 31: Task 15, Task 18; 32: Task 11, Task 18, Task 20, Task 29; 33: Task 10, Task 12, Task 29; 34: Task 18, Task 21; 35: Task 12, Task 18, Task 21, Task 24, Task 34; 36: Task 16, Task 24, Task 35; 37: Task 35; 38: Task 28, Task 34, Task 35; 39: Task 22, Task 30, Task 31, Task 32, Task 36; 40: Task 22, Task 30, Task 32, Task 36, Task 39; 41: Task 29, Task 30, Task 31, Task 35, Task 36; 42: Task 31, Task 36, Task 38; 43: Task 31, Task 36, Task 42; 44: Task 39; 45: Task 40, Task 44; 46: Task 32, Task 33, Task 37, Task 39, Task 40, Task 41, Task 42, Task 43, Task 44, Task 45; 47: Task 46; 48: Task 8, Task 46; 49: Task 48; 50: Task 49.
+Each task's **Depends on** line is exactly this: 1, 2, 3, 4, 5, 7, 8, 9 none; 6: Task 5; 10: Task 2; 11: Task 4, Task 5, Task 6; 12, 13: Task 1, Task 2; 14: Task 3; 15, 16, 19: Task 7; 17, 18, 20: Task 10; 21, 23: Task 17; 22: Task 12, Task 13, Task 17; 24: Task 21; 25: Task 1, Task 21; 26, 28: Task 20; 27: Task 26; 29: Task 7, Task 15; 30: Task 28; 31: Task 14, Task 20, Task 21; 32: Task 18, Task 20; 33: Task 17, Task 20; 34: Task 12, Task 13, Task 20, Task 22, Task 31; 35: Task 11, Task 14, Task 31; 36: Task 20, Task 23; 37: Task 14, Task 20, Task 23, Task 26, Task 36; 38: Task 18, Task 26, Task 37; 39: Task 37; 40: Task 30, Task 36, Task 37; 41: Task 10, Task 24; 42: Task 24, Task 32, Task 33, Task 34, Task 38, Task 41; 43: Task 24, Task 32, Task 34, Task 38, Task 41, Task 42; 44: Task 31, Task 32, Task 33, Task 37, Task 38; 45: Task 33, Task 38, Task 40; 46: Task 33, Task 38, Task 45; 47, 48: Task 41, Task 42; 49: Task 43, Task 47, Task 48; 50: Task 34, Task 35, Task 39, Task 41, Task 42, Task 43, Task 44, Task 45, Task 46, Task 47, Task 48, Task 49; 51: Task 50; 52: Task 9, Task 50; 53: Task 52; 54: Task 53.
 
-### Capture tree (Task 1)
+### Capture tree (from Task 1)
 
 `internal/modules/firewall/dockerfw/testdata/capture/capture.sh <image> <outdir>` runs in a privileged container named `dp-w2-cap-<slug>-<scenario>` per image `ubuntu:22.04`, `ubuntu:24.04`, `debian:12`, `debian:13`, installs UFW from the image's archive and `docker-ce` 29.9.1 with `containerd.io` from Docker's repository (the versions in `test/harness/images.json`), and writes `<outdir>/<slug>/<scenario>/` for the scenarios `base`, `block`, `cleanup` and `routed`:
 
@@ -71,7 +71,7 @@ Each task's **Depends on** line is exactly this: 1–8 none; 9: Task 2; 10: Task
 
 Each scenario directory holds `save/<variant>-<v4|v6>-<table>.txt` for the five tables of each variant whose tables exist (save output without the `# Generated by`/`# Completed on` lines, chain counters `[0:0]`), `files/etc/ufw/{after,after6,user,user6}.rules` and `files/etc/default/ufw`, `info.json` (the daemon's `/info` with `ServerVersion` and `FirewallBackend`), `version.json` (`/version`), `networks.json` (`/networks` with every network inspected), `containers.json` (every container inspected), `interfaces.txt` (`ip -o link` names, one per line), `commands.txt` (each command run and its exit status) and `versions.txt` (`iptables --version`, `ufw --version`, `dockerd --version`). Test-only helpers in `dockerfw/capture_test.go`: `capDir = "testdata/capture"`, `capImages` (the four slugs `ubuntu-22.04`, `ubuntu-24.04`, `debian-12`, `debian-13`), `capScenarios`, `capLoad(t *testing.T, image, scenario string) map[fwstate.Family]*netfilter.Ruleset` (the variant UFW uses, all five tables) and `capFile(t *testing.T, image, scenario, rel string) []byte`.
 
-### dockerfw settings and facts (Task 2)
+### dockerfw settings and facts (from Task 2)
 
 Package `internal/modules/firewall/dockerfw` (doc comment in `settings.go`), imports only the standard library, `internal/core/errcode`, `internal/modules/firewall/fwstate`, `internal/modules/firewall/model` and `internal/platform/netfilter`; it reads no host state.
 
@@ -94,7 +94,7 @@ func (s Settings) Validate() error                    // *errcode.Error request.
 func (s Settings) Private(a netip.Addr) (netip.Prefix, bool) // the first privateSources range holding a
 func (e Exemption) Family() fwstate.Family
 
-// the container facts every later dockerfw task reads (filled by the module root, Task 29)
+// the container facts every later dockerfw task reads (filled by the module root, Task 31)
 type Endpoint struct {
 	Network      string     // network name
 	Bridge       string     // the network's bridge interface
@@ -126,7 +126,7 @@ func Bridge(n Network) string // com.docker.network.bridge.name, "docker0" for t
 
 `Validate`: every prefix is valid and masked (`p == p.Masked()`), at most 32, IPv4 bits ≥ 8, IPv6 bits ≥ 7, no duplicate; an exemption's two addresses are valid, not unspecified and of one family, `proto` is `tcp` or `udp`, `inInterface` empty or matching `^[a-zA-Z0-9][a-zA-Z0-9_.+-]{0,14}$`, ports 0 (absent) or 1–65535, no duplicate exemption. Whether an exemption's destination lies in a Docker subnet is checked against facts by `ExemptionConflicts` (Contracts: dockerfw detection).
 
-### dockerfw bindings and rules (Task 9)
+### dockerfw bindings and rules (from Task 10)
 
 ```go
 type Binding struct {
@@ -154,7 +154,7 @@ func RuleOf(label string) (id string, ok bool)
 
 Selector patterns: a name `^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$`, a Compose service `^[a-z0-9][a-z0-9_-]{0,62}/[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$`; `Selects` compares a name selector with the container name (without Docker's leading `/`) and a service selector with the Compose labels. `ContainerRule.Validate`: a deny needs `From`; `From` is masked; a deny whose `From` lies inside a `privateSources` range is refused at `/from` ("it could never match", spec 2.6); `HostAddr`, when set, is not unspecified.
 
-### dockerfw block (Task 15)
+### dockerfw block (from Task 17)
 
 ```go
 const (
@@ -194,7 +194,7 @@ func Foreign(chain *netfilter.Chain, known []netfilter.Rule, f fwstate.Family) [
 
 `Render` follows spec 2.6's listing line for line: the declarations (`ufw-user-forward` or `ufw6-user-forward`, `DOCKER-USER`, the two `darkpanel-docker-*` chains, then each binding chain of the family in `Chains` order), the `DOCKER-USER` lines (custom bridges in order, the family's `privateSources`, the family's exemptions rendered as spec 2.6 says), the binding lines of the family in `Lines` order, the binding chains' deny, allow and final deny lines, the deny chain, `COMMIT`. IPv6 uses `ufw6-user-forward` and destination `fc00::/7` in place of the three IPv4 private destinations.
 
-### dockerfw realization (Task 19)
+### dockerfw realization (from Task 21)
 
 Uses Task 2's `Facts`, `Container`, `Endpoint`, `Network` and `Published`; declares none of them.
 
@@ -208,7 +208,7 @@ func Realize(rows []ContainerRule, facts Facts, s Settings) Realized
 
 `Realize` per allow row, per container the binding selects that publishes `HostPort`/`Proto` on `HostAddr` (or on every address), per network endpoint and family: with a container address in the family, one `route allow out on <bridge> proto <p> [from <From>] to <addr> port <container port>` rule, one `BindingLine` and the binding's `BindingChain` allow entry; for a family the binding is published on but the container has no address in (`docker-proxy`, spec 2.6 "Proxied families"), one `allow in proto <p> [from <From>] to <host addr or any> port <host port>` rule of that family. Per deny row on a binding that has an allow row: the chain's deny entry, one `route deny` rule placed after every Darkpanel route allow for the same container address and port, and for a proxied family one `deny in` rule placed before that family's `allow in` rule. A binding whose container is not running realizes nothing.
 
-### dockerfw rule operations (Task 22)
+### dockerfw rule operations (from Task 24)
 
 ```go
 type RuleOp struct {
@@ -221,9 +221,9 @@ func RuleOps(current []model.Rule, desired []model.Rule, newID func() string) ([
 
 `current` is the configured rules (both families, as wave 1's status lists them); only Darkpanel rules whose label `RuleOf` reads are container rules. A desired rule equal to a current container rule (every field but `ID`) is kept; every other current container rule is deleted; every missing desired rule is added at the position that makes UFW's order match `desired`'s relative order; manual rules and other Darkpanel rules are never deleted or moved.
 
-### Container rule ops and ids (Task 39)
+### Container rule ops and ids (from Task 41)
 
-Task 39 adds, in `docker_ruleops.go` (module root), the one place where `dockerfw.RuleOps` becomes `change.ops`; Tasks 40, 44 and 45 call it and declare no variant of their own:
+Task 41 adds, in `docker_ruleops.go` (module root), the one place where `dockerfw.RuleOps` becomes `change.ops`; Tasks 43, 47, 48 and 49 call it and declare no variant of their own:
 
 ```go
 func newULID(env core.Env) func() string // each call: ulid.MustNew(ulid.Timestamp(env.Clock.Now()), rand.Reader).String(), as snapshot.go mints snapshot ids
@@ -232,9 +232,9 @@ func containerRuleOps(cfg fwstate.Config, desired []model.Rule, newID func() str
 
 `containerRuleOps` calls `dockerfw.RuleOps(model.Merge(cfg.Rules4, cfg.Rules6), desired, newID)` and maps each `RuleOp` in order: `Delete` → wave 1's `deleteRuleOp` of the current rule with that id; `Add` with `Insert == 0` → wave 1's `addRuleOp(*Add)`; `Add` with `Insert > 0` → `ufwOp{Kind: core.EffectCreate, Resource: ruleResource(Add.ID), Args: model.InsertArgs(Insert, *Add)}` (the same effect and inverse as an add: the rule's tag is its recovery identity). New UFW rule ids and new `dockerfw.ContainerRule.ID` values both come from `newULID(env)`. A plan builds the change exactly as Apply does, with freshly minted ids; no plan line and no comparison shows a rule id, so the plan needs no placeholder.
 
-### Integration on and off (Tasks 39, 40, 44, 45)
+### Integration on and off (Tasks 41, 42, 43, 47, 48, 49)
 
-The desired container rules of any change are `st.realized.Rules` (Task 29's `dockerState`, which realizes the stored rows whatever the flag) when the flag after the change is on, and nil when it is off; every builder that touches container rules passes that to `containerRuleOps`.
+The desired container rules of any change are `st.realized.Rules` (Task 31's `dockerState`, which realizes the stored rows whatever the flag) when the flag after the change is on, and nil when it is off; every builder that touches container rules passes that to `containerRuleOps`.
 
 - `firewall.docker.enable`: `flag` on; `files` = `blockFiles(cfg, st, true)`; `reload` true; `ops` = `containerRuleOps(cfg, st.realized.Rules, newULID(env))`. The stored rows are realized in the same change, so enable never leaves an allowed binding closed until the next reconcile.
 - `firewall.docker.disable`: `flag` off; `files` = `blockFiles(cfg, st, false)`; `cleanup` true; `ops` = `containerRuleOps(cfg, nil, newULID(env))` (every tagged container rule deleted). The stored rows are kept, so a later enable restores the same policy.
@@ -243,7 +243,7 @@ The desired container rules of any change are `st.realized.Rules` (Task 29's `do
 - `firewall.reconcile` does nothing while the flag is off.
 - `firewall.docker.enable` with a foreign `nat PREROUTING` DNAT rule that no `forwardExemptions` entry covers refuses with `*errcode.Error` `firewall.unsupported_integration` (spec 2.6 names no code; this is the code of its sibling refusal), its message naming each uncovered rule and the exemption proposed for it.
 
-### dockerfw detection (Task 11)
+### dockerfw detection (Tasks 12 and 13)
 
 ```go
 type Detection struct {
@@ -262,7 +262,7 @@ func Covered(r netfilter.Rule, ex []Exemption) bool
 func ExemptionConflicts(ex []Exemption, nets []Network) []string        // "exemption <i>: destination <addr> lies in Docker network <name> (<subnet>)"
 ```
 
-### dockerfw health (Task 20)
+### dockerfw health (from Task 22)
 
 ```go
 type Level string
@@ -288,9 +288,9 @@ func Unprotected(n Network, s Settings) (reason string, unprotected bool)
 
 `Health` covers spec 2.6's list for both families in this order: block missing from a file (broken); the loaded `DOCKER-USER`, `darkpanel-docker-bindings`, `darkpanel-docker-deny` and `dp-b-*` chains not equal to the block's rules exactly once and in order, compared with `netfilter.Key` (broken); `FORWARD` not jumping to `DOCKER-USER` before Docker's own accept rules (broken); a foreign `DOCKER-USER` rule (broken, naming it); a foreign DNAT forward without an exemption (degraded, naming it); an exemption destination inside a Docker subnet (broken); a configured or loaded incoming policy that is not `DROP` or `REJECT` (broken); a `br-*` interface that is no Docker network's bridge (degraded, naming it); an unprotected network (degraded, with `Unprotected`'s reason: routed or `nat-unprotected` gateway mode, or a custom bridge name with a non-private subnet); `IPV6=no` with an IPv6-enabled Docker network (degraded). With `Want` false only the foreign-rule, incoming-policy and network checks apply.
 
-### dockerfw restore inputs (Task 21)
+### dockerfw restore inputs (from Task 23)
 
-Uses Task 15's `Foreign` to tell foreign rules apart.
+Uses Task 17's `Foreign` to tell foreign rules apart.
 
 ```go
 type Layout struct {
@@ -306,7 +306,7 @@ func CleanupInput(loaded *netfilter.Ruleset) []byte   // DOCKER-USER redeclared 
 
 Rule texts are `netfilter.Rule.Text` (save syntax `-A <chain> …`).
 
-### loaded variant read (Task 3)
+### loaded variant read (from Task 3)
 
 ```go
 func (r Reader) ReadVariant(ctx context.Context, env core.Env, f fwstate.Family, variant string, tables []string) (*netfilter.Ruleset, error)
@@ -314,16 +314,16 @@ func (r Reader) ReadVariant(ctx context.Context, env core.Env, f fwstate.Family,
 
 Same safety rules as `Read`: a legacy table is read only when `/proc/net/ip{,6}_tables_names` lists it, nothing nftables runs while `/sys/module/nf_tables` is absent; a variant that cannot be read safely returns `nil, nil`.
 
-### eval decided (Task 4)
+### eval decided (from Task 4)
 
 `fwstate.Result` gains `Decided string`: for `Accept`, the filter hook rule (`<table>/<chain>#<n>`) or policy (`<table>/<chain> policy ACCEPT`) that accepted the packet, or the last hook's when the filter table holds no rule on the path; for `Drop` and `Reject`, the rule or policy that dropped or rejected it; for `Unknown`, the rule whose match or target could not be decided, or empty for a hook-level reason. Nothing else in `Result` changes.
 
-### exposure (Tasks 5 and 10)
+### exposure (Tasks 5, 6 and 11)
 
 Package `internal/modules/firewall/exposure`, imports only the standard library, `fwstate`, `eval` and `internal/platform/netfilter`; pure.
 
 ```go
-// Task 5
+// Tasks 5 and 6
 type Iface struct {
 	Name     string
 	Up       bool
@@ -344,7 +344,7 @@ func Atoms(include, exclude, cuts []netip.Prefix) []Range
 func (r Range) Prefixes() []netip.Prefix
 func PortAtoms(cuts []PortRange) []PortRange // a partition of 1–65535
 
-// Task 10
+// Task 11
 const DefaultMaxProbes = 4096
 type Input struct {
 	Rules     *netfilter.Ruleset
@@ -380,7 +380,7 @@ func Evaluate(in Input, t Target) []Verdict
 
 Partitions come from every source prefix, in-interface and source-port range any rule of the ruleset names (a superset of the row's path, which is always a correct partition). Per class: internet = addresses outside every `privateSources` range, Tailscale's ranges, loopback, link-local multicast and unspecified, on every up interface that is not loopback, `tailscale0` or a Docker bridge; private = the range's addresses on the same interfaces; tailnet = Tailscale's range of the family on `tailscale0` when it exists and is up (Note "host firewall; tailnet policy not evaluated"; with `ShieldsUp` `closed`, DecidedBy "Tailscale shields-up"); localhost = an `output` packet to `lo`. A probe carries a concrete source port (one per port atom). Verdict mapping: every probe `Accept` → `open`; every probe `Reject` → `closed`; no `Accept` and some `Drop` → `filtered`; `Accept` mixed with others → `partial` with `Allowed` grouping the accepted probes by `Decided`; any `Unknown` → `unknown` with the first reason in `Note`; more probes than `MaxProbes` → `unknown` with Note "too many partitions". A target bound to a loopback address is `closed` with DecidedBy "bound to loopback" for every class but localhost. A wildcard target's destination is the probe interface's first address of the family.
 
-### Docker client seam (Task 12)
+### Docker client seam (from Task 14)
 
 In package `firewall` (`deps.go`, `wire.go`):
 
@@ -408,7 +408,7 @@ type dockerAPI interface {
 
 `productionFW` sets them from `dockerapi.New(dockerapi.DefaultSocket)` (behind a small adapter whose `Events` returns the `*dockerapi.Stream[dockerapi.Event]`), `loaded.Reader.ReadVariant`, `netstat` under the module root, and `tslocal` prefs (`known` false when tailscaled is unavailable). Test helpers in `docker_fake_test.go`: `fakeDocker` (fields `info`, `version`, `containers []dockerapi.ContainerJSON`, `networks []dockerapi.Network`, `events chan dockerapi.Event`, `err error`, `calls []string`), `newFakeDocker() *fakeDocker` (Docker 29.9.1, driver `iptables`, no containers, the `bridge` network), `fdContainer(name string, opts ...func(*dockerapi.ContainerJSON)) dockerapi.ContainerJSON`, `fdNetwork(name, bridge string, subnets ...string)`, and `fdDeps(h *fakeHost, d *fakeDocker) deps`, which extends wave 1's `fakeHost` deps with the Docker fields (the variant reads, sockets, interfaces and routes served from fields of the fake host's `onRun`-style hooks).
 
-Task 12 adds these hook fields to wave 1's `fakeHost` (`host_test.go`); a nil hook means "nothing to read":
+Task 14 adds these hook fields to wave 1's `fakeHost` (`host_test.go`); a nil hook means "nothing to read":
 
 - `onReadVariant func(f fwstate.Family, variant string, tables []string) (*netfilter.Ruleset, error)` (nil answers `nil, nil`)
 - `onSockets func() ([]netstat.Socket, error)` (nil answers `nil, nil`)
@@ -418,7 +418,7 @@ Task 12 adds these hook fields to wave 1's `fakeHost` (`host_test.go`); a nil ho
 
 `fakeDocker.calls` records `Info`, `Version`, `ListContainers`, `InspectContainer <id as given>`, `ListNetworks` and `Events`. `ListContainers` lists running containers unless `All` is set; `InspectContainer` matches id, name or `/name` and answers the 404 `APIError` when nothing matches; the daemon's version and driver are the `info` and `version` fields. `fdContainer` gives a running container with no endpoints, empty non-nil label, port and network maps, and `ID` = sha256 hex of `"container:"+name`; its options are plain `func(*dockerapi.ContainerJSON)` values. `fdNetwork` sets the `com.docker.network.bridge.name` option only when `bridge` is non-empty, and `EnableIPv6` when any subnet is IPv6. There is no shared supported-host fixture: a task whose tests need a loaded `DOCKER-USER`, Docker's `raw` protection, a foreign `DOCKER-USER` or DNAT rule, chains in the other variant, published ports or endpoint addresses builds them in its own test file, through these hooks and `fdContainer` options, with helpers under its own test prefix.
 
-### Docker store (Task 18)
+### Docker store (from Task 20)
 
 Migration `internal/modules/firewall/migrations/agent/0003_firewall_docker.sql` (expand-only, `STRICT`):
 
@@ -471,26 +471,26 @@ func pendingCleanups(ctx context.Context, db *store.DB) ([]string, error)
 
 Shared test helper `dsDB(t *testing.T) *store.DB` (wave 1's `fwTestDB` with migration 0003 applied).
 
-### Snapshot Docker state (Task 26)
+### Snapshot Docker state (from Task 28)
 
-`snapshotState` (store.go) keeps `Docker bool` (`json:"docker"`, now set from the flag) and gains `DockerSettings *dockerfw.Settings` (`json:"dockerSettings,omitempty"`) and `ContainerRules []dockerfw.ContainerRule` (`json:"containerRules,omitempty"`). A nil `DockerSettings` is a snapshot taken before the integration existed and restores `dockerfw.DefaultSettings()`; `ContainerRules` are in id order and keep bindings, never addresses; every snapshot `capture` takes, repair snapshots included, has a non-nil `DockerSettings`. Tasks 28, 38 and 42 read these fields.
+`snapshotState` (store.go) keeps `Docker bool` (`json:"docker"`, now set from the flag) and gains `DockerSettings *dockerfw.Settings` (`json:"dockerSettings,omitempty"`) and `ContainerRules []dockerfw.ContainerRule` (`json:"containerRules,omitempty"`). A nil `DockerSettings` is a snapshot taken before the integration existed and restores `dockerfw.DefaultSettings()`; `ContainerRules` are in id order and keep bindings, never addresses; every snapshot `capture` takes, repair snapshots included, has a non-nil `DockerSettings`. Tasks 30, 40 and 45 read these fields.
 
-### Docker effects (Tasks 24 and 25)
+### Docker effects (Tasks 26 and 27)
 
 New effect resources, all `Local` and `InverseLocal` like wave 1's:
 
-| Resource | Kind | State (`Before`/`After`/`Post`) | Version | Inverse (Task 25) |
+| Resource | Kind | State (`Before`/`After`/`Post`) | Version | Inverse (Task 27) |
 |---|---|---|---|---|
 | `firewall.setting:docker` | Modify | the flag (bool) | none | write the `Before` flag |
 | `firewall.setting:sources` | Modify | `dockerfw.Settings` | none | write the `Before` settings |
 | `firewall.container:<rule id>` | Create / Delete | the `dockerfw.ContainerRule` or `null` | none | delete the row / insert the `Before` row |
 | `firewall.chains:docker` | Modify | `"loaded"` or `"absent"` (any `darkpanel-*` or `dp-b-*` chain loaded in either family) | none | `absent` → `d.cleanChains(ctx, env, env.ChangeID)` (an error when the field is nil); `loaded` → `ufw reload` when UFW is active |
 
-Task 24 adds, in `docker_effects.go`: the op builders `flagOp(on bool) dockerOp`, `sourcesOp(s dockerfw.Settings) dockerOp`, `rowCreateOp(r dockerfw.ContainerRule) dockerOp`, `rowDeleteOp(r dockerfw.ContainerRule) dockerOp` and `chainsOp(state string, apply func(ctx context.Context, env core.Env) error) dockerOp`; `runDockerEffect` refuses an op whose `apply` is nil; `runDockerEffect(ctx context.Context, env core.Env, d deps, op dockerOp) error` (journaled like `runUfw`: Intend, call, observe, Made/Skipped); `dockerDoc(ctx context.Context, env core.Env, d deps, resource string) (json.RawMessage, error)` for `observe`; and the `observe` dispatch for the four nouns, keyed by the constants `nounSetting = "firewall.setting"`, `nounContainer = "firewall.container"` and `nounChains = "firewall.chains"` (Task 25's `inverse` cases read them). `type dockerOp struct { Kind core.EffectKind; Resource string; After any; apply func(ctx context.Context, env core.Env) error }`. Row and setting writes happen in one SQL transaction each.
+Task 26 adds, in `docker_effects.go`: the op builders `flagOp(on bool) dockerOp`, `sourcesOp(s dockerfw.Settings) dockerOp`, `rowCreateOp(r dockerfw.ContainerRule) dockerOp`, `rowDeleteOp(r dockerfw.ContainerRule) dockerOp` and `chainsOp(state string, apply func(ctx context.Context, env core.Env) error) dockerOp`; `runDockerEffect` refuses an op whose `apply` is nil; `runDockerEffect(ctx context.Context, env core.Env, d deps, op dockerOp) error` (journaled like `runUfw`: Intend, call, observe, Made/Skipped); `dockerDoc(ctx context.Context, env core.Env, d deps, resource string) (json.RawMessage, error)` for `observe`; and the `observe` dispatch for the four nouns, keyed by the constants `nounSetting = "firewall.setting"`, `nounContainer = "firewall.container"` and `nounChains = "firewall.chains"` (Task 27's `inverse` cases read them). `type dockerOp struct { Kind core.EffectKind; Resource string; After any; apply func(ctx context.Context, env core.Env) error }`. Row and setting writes happen in one SQL transaction each.
 
-Task 25 adds the field `cleanChains func(ctx context.Context, env core.Env, owner string) error` to `deps` (`deps.go`); its tests set it to a fake. Task 35 sets it in `productionFW` (`wire.go`) to `cleanupChains` in `cleanupPreserve` mode, and `fdDeps` leaves it nil unless a test sets it.
+Task 27 adds the field `cleanChains func(ctx context.Context, env core.Env, owner string) error` to `deps` (`deps.go`); its tests set it to a fake. Task 37 sets it in `productionFW` (`wire.go`) to `cleanupChains` in `cleanupPreserve` mode, and `fdDeps` leaves it nil unless a test sets it.
 
-### change and target (Tasks 16, 30, 36)
+### change and target (Tasks 18, 32, 38)
 
 `change` (target.go) gains:
 
@@ -500,13 +500,13 @@ Task 25 adds the field `cleanChains func(ctx context.Context, env core.Env, owne
 	sources  *dockerfw.Settings         // settings to store; nil keeps them
 	rowsAdd  []dockerfw.ContainerRule   // container rules to insert
 	rowsDel  []string                   // container rule ids to delete
-	cleanup  bool                       // run the owned-chain cleanup (Task 35) before the transition commands
+	cleanup  bool                       // run the owned-chain cleanup (Task 37) before the transition commands
 	reload   bool                       // the change needs `ufw reload` when UFW stays active (block files changed)
 ```
 
-`predictTarget` (Task 16) overlays `files` onto `cfgN.Files` before predicting, forces a `TransReload` when `reload` is set and UFW is active, and predicts the cleanup by removing every `darkpanel-*` and `dp-b-*` chain and setting `DOCKER-USER` to `-j RETURN` in both families. `fw.run` (Task 36) runs, in order: a restore's files; the logical effects (flag, sources, row deletes, row inserts); the `files` writes (`writeFileEffect`); the ufw ops; the cleanup's chain effect; the transition commands; a restore's sysctl values. The plan diff (Task 30) adds lines `docker integration on|off`, `private sources: …`, `forward exemptions: …`, `container rule + <selector> <hostAddr|all>:<hostPort>/<proto> <allow|deny> <from|any>`, `container rule - …`, `after.rules: Docker block written|removed`, `after6.rules: …`, `Docker chains removed`.
+`predictTarget` (Task 18) overlays `files` onto `cfgN.Files` before predicting, forces a `TransReload` when `reload` is set and UFW is active, and predicts the cleanup by removing every `darkpanel-*` and `dp-b-*` chain and setting `DOCKER-USER` to `-j RETURN` in both families. `fw.run` (Task 38) runs, in order: a restore's files; the logical effects (flag, sources, row deletes, row inserts); the `files` writes (`writeFileEffect`); the ufw ops; the cleanup's chain effect; the transition commands; a restore's sysctl values. The plan diff (Task 32) adds lines `docker integration on|off`, `private sources: …`, `forward exemptions: …`, `container rule + <selector> <hostAddr|all>:<hostPort>/<proto> <allow|deny> <from|any>`, `container rule - …`, `after.rules: Docker block written|removed`, `after6.rules: …`, `Docker chains removed`.
 
-### Docker state (Task 29)
+### Docker state (from Task 31)
 
 ```go
 type dockerState struct {
@@ -525,7 +525,7 @@ func blockFiles(cfg fwstate.Config, st dockerState, enabled bool) (map[string][]
 
 Docker unavailable (`dockerapi.ErrUnavailable`) is not an error: `available` false, empty facts. Test helper `dfState(t *testing.T, opts ...func(*dockerState)) dockerState` (in `docker_state_test.go`).
 
-### Refusals (Task 31)
+### Refusals (from Task 33)
 
 In `docker_refuse.go`, called from `fw.prepare` after `hostUnsupported`:
 
@@ -534,13 +534,13 @@ func dockerUserInUse(cur fwstate.Loaded, cfg fwstate.Config, flag bool) error //
 func refuseOpenIncoming(flagAfter bool, final fwstate.Config) error             // flagAfter and DEFAULT_INPUT_POLICY ACCEPT: firewall.unsupported_integration
 ```
 
-`prepare` calls `dockerUserInUse` for every mutation except `firewall.docker.repair` with `discardForeign: true` and `manual: true`. Task 31 adds the field `discardForeign bool` to `change` (target.go; true only when `firewall.docker.repair`'s build, Task 44, has both `DiscardForeign` and `Manual` set) and calls `dockerUserInUse` in `prepare` after `build` returns and before `predictTarget`, skipping it when `c.discardForeign` is true. The builders of `defaults.set`, `state.enable`, `state.repair`, `snapshot.restore`, `docker.enable` and `docker.set-sources` call `refuseOpenIncoming`.
+`prepare` calls `dockerUserInUse` for every mutation except `firewall.docker.repair` with `discardForeign: true` and `manual: true`. Task 33 adds the field `discardForeign bool` to `change` (target.go; true only when `firewall.docker.repair`'s build, Task 47, has both `DiscardForeign` and `Manual` set) and calls `dockerUserInUse` in `prepare` after `build` returns and before `predictTarget`, skipping it when `c.discardForeign` is true. The builders of `defaults.set`, `state.enable`, `state.repair`, `snapshot.restore`, `docker.enable` and `docker.set-sources` call `refuseOpenIncoming`.
 
-### Snapshot restore with the integration (Task 42, used by Task 43)
+### Snapshot restore with the integration (Task 45, used by Task 46)
 
-Task 42 declares, in `docker_restore_change.go` (Task 28 owns `docker_restore.go`), `func (f fw) dockerRestoreChange(ctx context.Context, env core.Env, c change, s snapshot) (change, error)`: it returns `c` with the flag, settings and container-row changes that bring the stored Docker state to snapshot `s`'s, after `refuseOpenIncoming` with the snapshot's flag. `snapshot.restore`'s build and Task 43's `state.repair` with a restore both call it.
+Task 45 declares, in `docker_restore_change.go` (Task 30 owns `docker_restore.go`), `func (f fw) dockerRestoreChange(ctx context.Context, env core.Env, c change, s snapshot) (change, error)`: it returns `c` with the flag, settings and container-row changes that bring the stored Docker state to snapshot `s`'s, after `refuseOpenIncoming` with the snapshot's flag. `snapshot.restore`'s build and Task 46's `state.repair` with a restore both call it.
 
-### Owned-chain cleanup (Task 35)
+### Owned-chain cleanup (from Task 37)
 
 ```go
 type cleanupMode int
@@ -549,11 +549,11 @@ func (f fw) cleanupChains(ctx context.Context, env core.Env, owner string, mode 
 func (f fw) finishCleanups(ctx context.Context, env core.Env) error // repeats every pending intent from step 2
 ```
 
-Spec 2.6's five steps: `beginCleanup(owner)`; the files without the block (only when they hold one; as `firewall.file:` effects when `env.Effects` is set, else `env.Files.Restore`); re-read `DOCKER-USER` and, in `cleanupRefuse` mode, refuse with `firewall.docker_user_in_use` when it holds a foreign rule, while `cleanupPreserve` keeps the foreign rules through Task 34's `keepForeign`; `dockerfw.CleanupInput` through `<family><variant>-restore -n`; `ufw reload` when UFW is active and the caller asked for it; verify that no `darkpanel-*` or `dp-b-*` chain is loaded and `DOCKER-USER` holds only `-j RETURN` plus preserved foreign rules; `endCleanup(owner)`. `owner` is the change id, or `"uninstall"`. Inside a change, the chain step is journaled as `chainsOp("absent", <the restore-input load>)` through `runDockerEffect`.
+Spec 2.6's five steps: `beginCleanup(owner)`; the files without the block (only when they hold one; as `firewall.file:` effects when `env.Effects` is set, else `env.Files.Restore`); re-read `DOCKER-USER` and, in `cleanupRefuse` mode, refuse with `firewall.docker_user_in_use` when it holds a foreign rule, while `cleanupPreserve` keeps the foreign rules through Task 36's `keepForeign`; `dockerfw.CleanupInput` through `<family><variant>-restore -n`; `ufw reload` when UFW is active and the caller asked for it; verify that no `darkpanel-*` or `dp-b-*` chain is loaded and `DOCKER-USER` holds only `-j RETURN` plus preserved foreign rules; `endCleanup(owner)`. `owner` is the change id, or `"uninstall"`. Inside a change, the chain step is journaled as `chainsOp("absent", <the restore-input load>)` through `runDockerEffect`.
 
-### Foreign-rule preservation (Tasks 34 and 38)
+### Foreign-rule preservation (Tasks 36 and 40)
 
-Task 34 declares, in `docker_preserve.go`, the store functions of the `firewall_docker_foreign` table (created by Task 18's migration):
+Task 36 declares, in `docker_preserve.go`, the store functions of the `firewall_docker_foreign` table (created by Task 20's migration):
 
 ```go
 type foreignRecord struct {
@@ -572,9 +572,9 @@ func (f fw) finishForeign(ctx context.Context, env core.Env, owner string) (inte
 
 `known` are the `after.rules`/`after6.rules` contents whose block lines count as Darkpanel's (the files before and after the transition). Before `transition` it reads `DOCKER-USER` in both families, computes `dockerfw.LayoutOf`, and stores `putForeign(owner, …)`; after it, it loads `dockerfw.DockerUserInput(next[f], layout)` with `*-restore -n`, then `deleteForeign`. `next[f]` is nil when the restored state has no block loaded (integration off or UFW stopped). `finishForeign` repeats the reload for a record a crash left. An interleaved layout makes the caller end the change `needs_repair` with the original order in its detail.
 
-### Shapes the web and the schemas read (Tasks 32, 33, 39–44)
+### Shapes the web and the schemas read (Tasks 34, 35, 41–48)
 
-Exported from package `firewall`; `web/src/modules/firewall/types.ts` (Task 6) mirrors their JSON exactly.
+Exported from package `firewall`; `web/src/modules/firewall/types.ts` (Task 7) mirrors their JSON exactly.
 
 ```go
 type DockerStatus struct {
@@ -673,11 +673,11 @@ type ExposureContainer struct {
 }
 ```
 
-Value spellings in these shapes (Tasks 6, 8, 14, 32, 33 and 48–50 read them): every family string, `ExposureRow.Family` and each `DockerBinding.Proxied` entry, is a `fwstate.Family` value, `v4` or `v6`; every `Proto` is `tcp` or `udp`; `ExposureRow.Addr` is `netip.Addr.String()` of the listening address with IPv4-mapped addresses unmapped (`Unmap`), and a wildcard listener is `0.0.0.0` or `::`.
+Value spellings in these shapes (Tasks 7, 9, 16, 34, 35 and 52–54 read them): every family string, `ExposureRow.Family` and each `DockerBinding.Proxied` entry, is a `fwstate.Family` value, `v4` or `v6`; every `Proto` is `tcp` or `udp`; `ExposureRow.Addr` is `netip.Addr.String()` of the listening address with IPv4-mapped addresses unmapped (`Unmap`), and a wildcard listener is `0.0.0.0` or `::`.
 
-Action names, all version 1: `firewall.docker.enable`, `firewall.docker.disable`, `firewall.docker.repair`, `firewall.docker.set-sources`, `firewall.container.allow`, `firewall.container.deny`, `firewall.container.remove`, `firewall.containers.apply`. Resources: `firewall.docker` (`DockerStatus`), `firewall.exposure` (`ExposureView`). Background task id `firewall.reconcile` (`Every: 5 * time.Minute`, `LockKeys: ["firewall"]`). Constructors, each a method of `fw` returning `core.ActionDef`, `core.ResourceDef` or `core.BackgroundTask`, registered only by Task 46: `dockerEnable`, `dockerDisable` (Task 39), `containerAllow`, `containerDeny`, `containerRemove`, `containersApply` (Task 40), `dockerRepair`, `dockerSourcesSet` (Task 44), `reconcileTask` (Task 45), `dockerResource` (Task 32), `exposureResource` (Task 33).
+Action names, all version 1: `firewall.docker.enable`, `firewall.docker.disable`, `firewall.docker.repair`, `firewall.docker.set-sources`, `firewall.container.allow`, `firewall.container.deny`, `firewall.container.remove`, `firewall.containers.apply`. Resources: `firewall.docker` (`DockerStatus`), `firewall.exposure` (`ExposureView`). Background task id `firewall.reconcile` (`Every: 5 * time.Minute`, `LockKeys: ["firewall"]`). Constructors, each a method of `fw` returning `core.ActionDef`, `core.ResourceDef` or `core.BackgroundTask`, registered only by Task 50: `dockerEnable`, `dockerDisable` (Task 42), `containerAllow`, `containerDeny`, `containerRemove`, `containersApply` (Task 43), `dockerRepair` (Task 47), `dockerSourcesSet` (Task 48), `reconcileTask` (Task 49), `dockerResource` (Task 34), `exposureResource` (Task 35).
 
-### Harness (Task 8, used by Tasks 48–50)
+### Harness (Task 9, used by Tasks 52–54)
 
 In `test/harness/nmap.go` (package `harness`, beside `OpenPorts`, which stays unchanged):
 
@@ -700,7 +700,7 @@ func NmapArgs(o ScanOpts) []string               // -Pn -n, the scan type, -p, t
 func ParsePorts(grepable string) ([]PortState, error) // every port entry of -oG output, TCP and UDP
 ```
 
-In `test/harness/m3_docker_helpers_test.go` (build tag `harness`), declared only by Task 8:
+In `test/harness/m3_docker_helpers_test.go` (build tag `harness`), declared only by Task 9:
 
 ```go
 func m3dScan(ctx context.Context, t *testing.T, scanner *vm.VM, o ScanOpts) []PortState
@@ -721,29 +721,29 @@ func m3dxMismatch(rows []m3dRow, scanned []PortState, proto string) []string // 
 
 `m3dxMismatch` compares only the rows whose `Proto` equals `proto`, and never a row whose `Verdict` is `partial` or `unknown`: a caller that probes a `partial` row from an allowed source and from an outside one passes copies of the row with `Verdict` rewritten to `open` and to the outside verdict, one call per probe source.
 
-Tasks 48–50 add only names that start with `m3dDock`, `m3dTraffic` and `m3dExpo` respectively (and their own `TestM3x…` unit tests), so no two declare one name.
+Tasks 52–54 add only names that start with `m3dDock`, `m3dTraffic` and `m3dExpo` respectively (and their own `TestM3x…` unit tests), so no two declare one name.
 
-### Web (Tasks 6, 7, 13, 14, 17, 27)
+### Web (Tasks 7, 8, 15, 16, 19, 29)
 
-`types.ts` (Task 6) adds `DockerStatus`, `DockerNetwork`, `DockerBinding`, `DockerIssue`, `Exemption`, `DockerSettings`, `ContainerRule`, `Binding`, `ExposureView`, `ExposureRow`, `ExposureVerdict`, `ExposureAllowed`, and `dockerQueryKey(hostId)` = `["resource", hostId, "firewall.docker"]`, `exposureQueryKey(hostId)` = `["resource", hostId, "firewall.exposure"]`; `fixtures.ts` adds `fwDocker(over: Partial<DockerStatus> = {}): DockerStatus`, `fwExposure(over: Partial<ExposureView> = {}): ExposureView` and `fwBinding(over: Partial<DockerBinding> = {}): DockerBinding`, on the pattern of `fwStatus`. Components, each opening its change through `FirewallChange`: `DockerSources({hostId, docker}: {hostId: string; docker: DockerStatus})` (`docker-sources.tsx`, Task 13); `ExposurePage()` (`exposure-page.tsx`, route `exposure` in `routes.tsx`, reading `hostId` from the route params as `SnapshotsPage` does and fetching `exposureQueryKey`, Task 14); `AllowAction` and `DenyAction` (`container-actions.tsx`, props `{container: ContainerRef; onDone: () => void}`, Task 17; they fetch `dockerQueryKey(container.hostId)` for the binding list); `DockerPanel({hostId}: {hostId: string})` (`docker-panel.tsx`, fetching `dockerQueryKey` and rendering `DockerSources`, placed on `FirewallPage` with a link to `exposure`, Task 27). `FirewallChange` (Task 7) keeps its props; when a plan fails with `firewall.manual_required` it shows the detail and a confirmation that plans again with `manual: true` added to the input.
+`types.ts` (Task 7) adds `DockerStatus`, `DockerNetwork`, `DockerBinding`, `DockerIssue`, `Exemption`, `DockerSettings`, `ContainerRule`, `Binding`, `ExposureView`, `ExposureRow`, `ExposureVerdict`, `ExposureAllowed`, and `dockerQueryKey(hostId)` = `["resource", hostId, "firewall.docker"]`, `exposureQueryKey(hostId)` = `["resource", hostId, "firewall.exposure"]`; `fixtures.ts` adds `fwDocker(over: Partial<DockerStatus> = {}): DockerStatus`, `fwExposure(over: Partial<ExposureView> = {}): ExposureView` and `fwBinding(over: Partial<DockerBinding> = {}): DockerBinding`, on the pattern of `fwStatus`. Components, each opening its change through `FirewallChange`: `DockerSources({hostId, docker}: {hostId: string; docker: DockerStatus})` (`docker-sources.tsx`, Task 15); `ExposurePage()` (`exposure-page.tsx`, route `exposure` in `routes.tsx`, reading `hostId` from the route params as `SnapshotsPage` does and fetching `exposureQueryKey`, Task 16); `AllowAction` and `DenyAction` (`container-actions.tsx`, props `{container: ContainerRef; onDone: () => void}`, Task 19; they fetch `dockerQueryKey(container.hostId)` for the binding list); `DockerPanel({hostId}: {hostId: string})` (`docker-panel.tsx`, fetching `dockerQueryKey` and rendering `DockerSources`, placed on `FirewallPage` with a link to `exposure`, Task 29). `FirewallChange` (Task 8) keeps its props; when a plan fails with `firewall.manual_required` it shows the detail and a confirmation that plans again with `manual: true` added to the input.
 
 ## Assumptions (evidence)
 
 - Wave 1 left no Docker code in the firewall module: `rg -i docker internal/modules/firewall --glob '!*_test.go'` on 2026-10-28 finds only the package doc, `snapshotState.Docker` (`store.go`, never set) and `firewallChain` (`image.go`), which already counts `DOCKER-USER`, `darkpanel-*` and `dp-b-*` as Darkpanel's chains in `restoreKeep`, `verifyKeep`, `confined` and the repair before-image.
-- The predictor already handles a block in `after.rules` that declares non-UFW chains: `predict/translate.go` `restoreText` concatenates the framework files and `startFamily` replaces a declared non-built-in chain's rules (flush semantics of `-n`) and keeps undeclared chains (read 2026-10-28). Unverified on real UFW with Docker — Task 1 verifies, and Task 23 compares the prediction with Task 1's `block` captures.
-- The evaluator supports `--ctstate DNAT`, `--ctorigdst`, `--ctorigdstport`, nat `PREROUTING` DNAT with rerouting through the Router, Docker's raw-table drop and `-m limit … -j LOG` continuing (`eval/match.go` `ctstate`, `conntrackOption`; `eval/hooks.go` `natTarget`, `reroute`; `eval/eval_test.go` "a rate-limited LOG continues"; read 2026-10-28). It evaluates one packet at a time and gives no deciding rule for an accept, hence Tasks 4, 5 and 10.
+- The predictor already handles a block in `after.rules` that declares non-UFW chains: `predict/translate.go` `restoreText` concatenates the framework files and `startFamily` replaces a declared non-built-in chain's rules (flush semantics of `-n`) and keeps undeclared chains (read 2026-10-28). Unverified on real UFW with Docker — Task 1 verifies, and Task 25 compares the prediction with Task 1's `block` captures.
+- The evaluator supports `--ctstate DNAT`, `--ctorigdst`, `--ctorigdstport`, nat `PREROUTING` DNAT with rerouting through the Router, Docker's raw-table drop and `-m limit … -j LOG` continuing (`eval/match.go` `ctstate`, `conntrackOption`; `eval/hooks.go` `natTarget`, `reroute`; `eval/eval_test.go` "a rate-limited LOG continues"; read 2026-10-28). It evaluates one packet at a time and gives no deciding rule for an accept, hence Tasks 4, 5, 6 and 11.
 - The exec allowlist already permits every vector this plan runs (`internal/platform/exec_rules.go` `ProductionRules`: `{iptables,ip6tables}{,-legacy,-nft}-save -t <table>`, `-restore -n`, the ufw verbs), read 2026-10-28; `iptables -S`/`-L` are not allowed and not used.
 - The block's appended `*filter … COMMIT` section loads with UFW's `iptables-restore -n` of `after.rules`, and `CleanupInput`'s `-F`/`-X` lines load with `*-restore -n` on both variants: unverified — Task 1 verifies on all four images (the spec's own wave 2 spike, spec 2.6 step 3).
-- Docker 29.9.1 (the harness pin in `test/harness/images.json`) reports `FirewallBackend.Driver` `iptables`, creates `DOCKER-USER` and `DOCKER-FORWARD` in the variant on its `PATH` and loads raw-table protection rules: unverified — Task 1 records `info.json` and the raw table, and Task 11 encodes `RawProtected` from them.
-- `core.BackgroundTask{ID, Every, LockKeys, Run, Watch}` and `TaskContext.Apply` exist (`internal/core/background.go`); the agent runs a pass on start, every `Every`, and on a wake, skips a pass while a `LockKeys` entry is held, and applies as `system:<task id>` through `engine.ApplySystem` with `ConfirmNow` (`internal/agent/runtime/background.go`, `internal/core/lifecycle/system.go`; read 2026-10-28). No production module implements `Background` yet; Task 45 is the first.
-- There is no generic module settings store (`core.Manifest.Settings` is read nowhere), so the firewall keeps the flag and settings in its own table (Task 18). `firewall_container_rules` does not exist yet.
+- Docker 29.9.1 (the harness pin in `test/harness/images.json`) reports `FirewallBackend.Driver` `iptables`, creates `DOCKER-USER` and `DOCKER-FORWARD` in the variant on its `PATH` and loads raw-table protection rules: unverified — Task 1 records `info.json` and the raw table, and Task 12 encodes `RawProtected` from them.
+- `core.BackgroundTask{ID, Every, LockKeys, Run, Watch}` and `TaskContext.Apply` exist (`internal/core/background.go`); the agent runs a pass on start, every `Every`, and on a wake, skips a pass while a `LockKeys` entry is held, and applies as `system:<task id>` through `engine.ApplySystem` with `ConfirmNow` (`internal/agent/runtime/background.go`, `internal/core/lifecycle/system.go`; read 2026-10-28). No production module implements `Background` yet; Task 49 is the first.
+- There is no generic module settings store (`core.Manifest.Settings` is read nowhere), so the firewall keeps the flag and settings in its own table (Task 20). `firewall_container_rules` does not exist yet.
 - The module has no startup hook (`core.Module` is `Manifest()` plus optional `Uninstaller`, `Background`, `Streamer`), so an interrupted owned-chain cleanup outside a change is finished by `finishCleanups`, which the reconcile pass (first pass at agent start) and the next uninstall call; a cleanup inside a change is undone or repeated by the engine's revert of that change.
-- Wave 1 has two restore paths: the `firewall.snapshot.restore` action and repair-with-restore go through `fw.run` → `writeRestored` as journaled effects, while revert, the emergency restore, a cut-off restore and uninstall's baseline go through `restoreOver` (`restore.go`). Both need the Docker hooks (Tasks 28, 38, 42).
-- `module.Uninstall` returns before any work for `rules=keep` and when `/usr/sbin/ufw` is missing (`uninstall.go`, read 2026-10-28); spec 2.9 needs the cleanup in every case (Task 37).
-- No page renders the container action slot yet (`web/src/modules/docker/routes.tsx` returns null); Task 17's components are tested on their own, and wave 3a renders them.
-- The harness VMs install Docker CE 29.9.1 and the Compose plugin and pull the pinned `pebble` and `pebble-challtestsrv` images (`test/harness/images.json`, `provision.go`); those two serve TCP (Pebble's 14000) and UDP (challtestsrv's DNS on 8053), so the Docker harness needs no new image or `pins.go` change. `checkScan` scans TCP SYN only and has no fixed source port (`test/harness/m1_test.go`), hence Task 8.
-- Spec 2.6 and section 5 name the action `firewall.docker.sources.set`, but `core.NewRegistry` (`internal/core/registry.go`, frozen; spec 1.1) accepts only `^[a-z][a-z0-9]*\.[a-z][a-z0-9]*\.[a-z][a-z0-9-]*$`, so a four-segment name would stop the firewall module loading (found by Task 46's drafter, 2026-10-28). This plan names it `firewall.docker.set-sources`, following the dashed-verb names `core.user.reset-totp` and `npm.admin.reveal-password`; the spec's two mentions are a spec defect to amend.
-- The `vm` job of `.github/workflows/harness.yml` has `timeout-minutes: 200` and an M3 firewall step with `-timeout 70m`; Task 50 adds the Docker step and raises the job's limit if the measured total needs it.
+- Wave 1 has two restore paths: the `firewall.snapshot.restore` action and repair-with-restore go through `fw.run` → `writeRestored` as journaled effects, while revert, the emergency restore, a cut-off restore and uninstall's baseline go through `restoreOver` (`restore.go`). Both need the Docker hooks (Tasks 30, 40, 45).
+- `module.Uninstall` returns before any work for `rules=keep` and when `/usr/sbin/ufw` is missing (`uninstall.go`, read 2026-10-28); spec 2.9 needs the cleanup in every case (Task 39).
+- No page renders the container action slot yet (`web/src/modules/docker/routes.tsx` returns null); Task 19's components are tested on their own, and wave 3a renders them.
+- The harness VMs install Docker CE 29.9.1 and the Compose plugin and pull the pinned `pebble` and `pebble-challtestsrv` images (`test/harness/images.json`, `provision.go`); those two serve TCP (Pebble's 14000) and UDP (challtestsrv's DNS on 8053), so the Docker harness needs no new image or `pins.go` change. `checkScan` scans TCP SYN only and has no fixed source port (`test/harness/m1_test.go`), hence Task 9.
+- Spec 2.6 and section 5 name the action `firewall.docker.sources.set`, but `core.NewRegistry` (`internal/core/registry.go`, frozen; spec 1.1) accepts only `^[a-z][a-z0-9]*\.[a-z][a-z0-9]*\.[a-z][a-z0-9-]*$`, so a four-segment name would stop the firewall module loading (found by Task 50's drafter, 2026-10-28). This plan names it `firewall.docker.set-sources`, following the dashed-verb names `core.user.reset-totp` and `npm.admin.reveal-password`; the spec's two mentions are a spec defect to amend.
+- The `vm` job of `.github/workflows/harness.yml` has `timeout-minutes: 200` and an M3 firewall step with `-timeout 70m`; Task 54 adds the Docker step and raises the job's limit if the measured total needs it.
 
 ## Task index
 
@@ -751,52 +751,56 @@ Tasks 48–50 add only names that start with `m3dDock`, `m3dTraffic` and `m3dExp
 2. dockerfw: settings, private sources and forward exemptions
 3. loaded: read one iptables variant on demand
 4. eval: name the deciding rule of every verdict
-5. exposure: source partitions
-6. web: Docker and exposure types and fixtures
-7. web: confirm manual rules in the firewall change dialog
-8. harness: UDP and source-port scans and Docker helpers
-9. dockerfw: bindings and container rules
-10. exposure: per-class verdicts
-11. dockerfw: detection and foreign forwards
-12. Docker client seam and fakes
-13. web: private sources and forward exemptions editor
-14. web: exposure page
-15. dockerfw: render the block and its markers
-16. Predict block files, rows and the cleanup
-17. web: container Allow and Deny actions
-18. Docker store and migration
-19. dockerfw: realize container rules against facts
-20. dockerfw: integration health
-21. dockerfw: DOCKER-USER and cleanup restore inputs
-22. dockerfw: UFW rule operations
-23. dockerfw: prove the block's decisions on the captures
-24. Journal the Docker logical state as effects
-25. Inverses of the Docker effects
-26. Snapshots record the Docker logical state
-27. web: Docker integration panel
-28. Whole restore brings back the Docker rows and settings
-29. Gather Docker state
-30. Plan diff lines for Docker changes
-31. Refuse foreign DOCKER-USER rules and an open incoming policy
-32. firewall.docker resource
-33. firewall.exposure resource
-34. Preserve foreign DOCKER-USER rules around a transition
-35. Owned-chain cleanup
-36. Run Docker changes in order
-37. Uninstall runs the cleanup in every case
-38. Revert and restore keep foreign DOCKER-USER rules
-39. firewall.docker.enable and firewall.docker.disable
-40. Container allow, deny, remove and apply actions
-41. state.enable, state.disable and defaults.set with the integration
-42. snapshot.restore with the integration
-43. state.repair with the integration
-44. firewall.docker.repair and firewall.docker.set-sources
-45. Background task firewall.reconcile
-46. Register the Docker actions, resources and task
-47. End-to-end Docker change through the engine
-48. harness: Docker integration lifecycle and refusals
-49. harness: Docker traffic with the integration on
-50. harness: exposure against the scan and the workflow step
+5. exposure: source classes and cuts
+6. exposure: address and port atoms
+7. web: Docker and exposure types and fixtures
+8. web: confirm manual rules in the firewall change dialog
+9. harness: UDP and source-port scans and Docker helpers
+10. dockerfw: bindings and container rules
+11. exposure: per-class verdicts
+12. dockerfw: detection
+13. dockerfw: foreign forwards
+14. Docker client seam and fakes
+15. web: private sources and forward exemptions editor
+16. web: exposure page
+17. dockerfw: render the block and its markers
+18. Predict block files, rows and the cleanup
+19. web: container Allow and Deny actions
+20. Docker store and migration
+21. dockerfw: realize container rules against facts
+22. dockerfw: integration health
+23. dockerfw: DOCKER-USER and cleanup restore inputs
+24. dockerfw: UFW rule operations
+25. dockerfw: prove the block's decisions on the captures
+26. Journal the Docker logical state as effects
+27. Inverses of the Docker effects
+28. Snapshots record the Docker logical state
+29. web: Docker integration panel
+30. Whole restore brings back the Docker rows and settings
+31. Gather Docker state
+32. Plan diff lines for Docker changes
+33. Refuse foreign DOCKER-USER rules and an open incoming policy
+34. firewall.docker resource
+35. firewall.exposure resource
+36. Preserve foreign DOCKER-USER rules around a transition
+37. Owned-chain cleanup
+38. Run Docker changes in order
+39. Uninstall runs the cleanup in every case
+40. Revert and restore keep foreign DOCKER-USER rules
+41. Container rule operations and ids
+42. firewall.docker.enable and firewall.docker.disable
+43. Container allow, deny, remove and apply actions
+44. state.enable, state.disable and defaults.set with the integration
+45. snapshot.restore with the integration
+46. state.repair with the integration
+47. firewall.docker.repair
+48. firewall.docker.set-sources
+49. Background task firewall.reconcile
+50. Register the Docker actions, resources and task
+51. End-to-end Docker change through the engine
+52. harness: Docker integration lifecycle and refusals
+53. harness: Docker traffic with the integration on
+54. harness: exposure against the scan and the workflow step
 
 ---
 
@@ -815,6 +819,8 @@ Tasks 48–50 add only names that start with `m3dDock`, `m3dTraffic` and `m3dExp
 **Items:** 7, 8, 10
 
 **Depends on:** none
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 This task is the plan's spike. Its tests turn the Assumptions that read "unverified — Task 1 verifies" into checked facts: the block loads with UFW's `iptables-restore -n` and leaves Docker's chains and UFW's user chains intact, `CleanupInput`'s `-F`/`-X` syntax loads, and Docker 29.9.1 reports driver `iptables`, creates `DOCKER-USER` and `DOCKER-FORWARD` and loads raw-table protection. If a capture contradicts a test on any image, that is a finding: stop and report the image, scenario and the differing lines. Never weaken a test or edit a captured file by hand to make the suite pass.
 
@@ -1483,6 +1489,8 @@ git commit -m "test(dockerfw): capture Docker and UFW state"
 **Items:** 10
 
 **Depends on:** none
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1835,6 +1843,8 @@ git commit -m "feat(dockerfw): add settings and container facts"
 **Items:** 7
 
 **Depends on:** none
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2113,9 +2123,11 @@ git commit -m "feat(loaded): read one iptables variant"
 
 **Interfaces:**
 - Consumes: nothing from another task. The test reuses the existing helpers `evalRuleset`, `evalPacket` and the constant `walkFilter` of `eval_test.go`.
-- Produces: Contracts "eval decided": `fwstate.Result.Decided string`, filled by `eval.Evaluate` for every verdict. Tasks 10 and 33 group the accepted probes of a row by it.
+- Produces: Contracts "eval decided": `fwstate.Result.Decided string`, filled by `eval.Evaluate` for every verdict. Tasks 11 and 35 group the accepted probes of a row by it.
 
 **Depends on:** none
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2391,19 +2403,19 @@ git add internal/modules/firewall/fwstate/fwstate.go internal/modules/firewall/e
 git commit -m "feat(eval): name the deciding rule of a verdict"
 ```
 
-### Task 5: exposure: source partitions
+### Task 5: exposure: source classes and cuts
 
 **Files:**
-- Create: `internal/modules/firewall/exposure/classes.go` (package doc, `Iface`, `Class`, `Classes`, `Cuts`)
-- Create: `internal/modules/firewall/exposure/atoms.go` (`PortRange`, `Range`, `Atoms`, `Range.Prefixes`, `PortAtoms`)
+- Create: `internal/modules/firewall/exposure/classes.go` (package doc, `Iface`, `Class`, `PortRange`, `Classes`, `Cuts`)
 - Test: `internal/modules/firewall/exposure/classes_test.go` (create)
-- Test: `internal/modules/firewall/exposure/atoms_test.go` (create)
 
 **Interfaces:**
 - Consumes: `fwstate.Family`, `fwstate.V4`, `fwstate.V6` (`internal/modules/firewall/fwstate`) and `netfilter.Ruleset` and its `Table`, `Chain`, `Rule`, `Match`, `Option` types (`internal/platform/netfilter`). The package imports nothing else outside the standard library; it does not import `eval` yet.
-- Produces: Contracts "exposure (Tasks 5 and 10)", the Task 5 block, exactly as written there: `Iface`, `Class`, `PortRange`, `Range`, `Classes`, `Cuts`, `Atoms`, `Range.Prefixes`, `PortAtoms`. Task 10 builds `Evaluate` on them and declares no name of its own in these two files.
+- Produces: Contracts "exposure (Tasks 5, 6 and 11)", the Tasks 5 and 6 block, exactly as written there: `Iface`, `Class`, `PortRange`, `Classes`, `Cuts`. Task 6 builds `PortAtoms` on `PortRange`; Task 11 builds `Evaluate` on all of them and declares no name of its own in this file.
 
 **Depends on:** none
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2552,6 +2564,65 @@ func TestPtCutsV6(t *testing.T) {
 }
 ```
 
+- [ ] **Step 2: Run the tests to verify they fail**
+
+```bash
+mkdir -p /root/.cache/w2-tmp/5 && export TMPDIR=/root/.cache/w2-tmp/5 GOTOOLCHAIN=local
+timeout 300 go test -count=1 ./internal/modules/firewall/exposure/
+```
+
+Expected: FAIL to build with `undefined: Class`, `undefined: Iface`, `undefined: PortRange`, `undefined: Classes` and `undefined: Cuts` (the package has no non-test file yet).
+
+- [ ] **Step 3: Implement**
+
+Doc comment on every exported identifier; the package comment (in `classes.go`) says the package computes which source classes can reach a port, for spec 2.7, and that it is pure: it reads only the rulesets and values it is given. Declare the types exactly as Contracts gives them (`Iface` with `Name`, `Up`, `Loopback`, `Tailnet`, `Bridge`, `Addrs`; `Class` with `Name` and `Range`; `PortRange{From, To uint16}`).
+
+1. `Classes(private []netip.Prefix, f fwstate.Family) []Class`: returns `internet`, then one `private` class per entry of `private` that is valid and of family `f` (an IPv4 prefix for `fwstate.V4`, any other prefix for `fwstate.V6`), in the order given and with `Range` set to the entry as given, then `tailnet`, then `localhost`. Only `private` carries a `Range`.
+2. `Cuts(rs *netfilter.Ruleset) (srcs []netip.Prefix, ifaces []string, sports []PortRange)`: reads every rule of every chain of every table of `rs`, opaque rules included, because a superset of the cuts is always a correct partition. A nil `rs` returns three nils.
+   - `srcs`: each rule's valid `Source.Prefix`, masked (`Prefix.Masked()`); negation is ignored.
+   - `ifaces`: each rule's non-empty `In.Name` as saved, a trailing `+` kept; negation is ignored.
+   - `sports`: for every match of every rule (any module), every option named `sport` or `sports`; its first value is a comma list of items `n`, `a:b`, `:b` and `a:`; an open start is 0 and an open end is 65535, as iptables reads them. An item that is not a number is skipped (the evaluator already makes such a rule undecidable). Values are not clipped here.
+   - Each result is sorted and has no duplicates: `srcs` by address then prefix length, `ifaces` lexically, `sports` by `From` then `To`. A result with nothing in it is nil or empty.
+3. `gosec` G115 flags an `int` to `uint16` conversion: do the port arithmetic in `uint32` and convert only a value proven at most 65535, or add `//nolint:gosec` with that reason in a comment. gofmt clean.
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+```bash
+export TMPDIR=/root/.cache/w2-tmp/5 GOTOOLCHAIN=local
+timeout 300 go test -count=1 ./internal/modules/firewall/exposure/ -v
+timeout 600 go test -race -count=1 ./internal/modules/firewall/exposure/
+timeout 600 go build ./... && timeout 300 go vet ./...
+timeout 600 go test -count=1 ./...
+timeout 900 golangci-lint run --allow-serial-runners ./...
+timeout 300 go mod tidy -diff
+rm -rf /root/.cache/w2-tmp/5 && go clean -testcache
+```
+
+Expected: every `TestPt` test and subtest `PASS`; every package line `ok` or `?`; `go vet` and `go mod tidy -diff` print nothing; golangci-lint ends `0 issues.`. Record the real output in the task report.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/modules/firewall/exposure/classes.go internal/modules/firewall/exposure/classes_test.go
+git commit -m "feat(exposure): add source classes and cuts"
+```
+
+### Task 6: exposure: address and port atoms
+
+**Files:**
+- Create: `internal/modules/firewall/exposure/atoms.go` (`Range`, `Atoms`, `Range.Prefixes`, `PortAtoms`)
+- Test: `internal/modules/firewall/exposure/atoms_test.go` (create)
+
+**Interfaces:**
+- Consumes: Task 5's `PortRange` (Contracts "exposure (Tasks 5, 6 and 11)", declared in `classes.go`); the standard library only (`net/netip`, and `math/big` if used for IPv6). The file imports neither `fwstate` nor `netfilter`.
+- Produces: Contracts "exposure (Tasks 5, 6 and 11)", the Tasks 5 and 6 block, exactly as written there: `Range`, `Atoms`, `Range.Prefixes`, `PortAtoms`. Task 11 builds `Evaluate` on them and declares no name of its own in this file.
+
+**Depends on:** Task 5
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
+
+- [ ] **Step 1: Write the failing tests**
+
 Create `internal/modules/firewall/exposure/atoms_test.go` with exactly this content:
 
 ```go
@@ -2563,7 +2634,7 @@ import (
 	"testing"
 )
 
-func ptPrefixes(ss ...string) []netip.Prefix {
+func paPrefixes(ss ...string) []netip.Prefix {
 	var out []netip.Prefix
 	for _, s := range ss {
 		out = append(out, netip.MustParsePrefix(s))
@@ -2571,11 +2642,11 @@ func ptPrefixes(ss ...string) []netip.Prefix {
 	return out
 }
 
-func ptRange(from, to string) Range {
+func paRange(from, to string) Range {
 	return Range{From: netip.MustParseAddr(from), To: netip.MustParseAddr(to)}
 }
 
-func TestPtAtoms(t *testing.T) {
+func TestPaAtoms(t *testing.T) {
 	tests := []struct {
 		name                   string
 		include, exclude, cuts []string
@@ -2584,7 +2655,7 @@ func TestPtAtoms(t *testing.T) {
 		{
 			name:    "no cuts is one atom",
 			include: []string{"0.0.0.0/0"},
-			want:    []Range{ptRange("0.0.0.0", "255.255.255.255")},
+			want:    []Range{paRange("0.0.0.0", "255.255.255.255")},
 		},
 		{
 			name:    "an excluded range leaves a gap, and cuts split what remains, in order",
@@ -2592,12 +2663,12 @@ func TestPtAtoms(t *testing.T) {
 			exclude: []string{"10.0.0.0/8"},
 			cuts:    []string{"203.0.113.0/24", "172.16.0.0/12"},
 			want: []Range{
-				ptRange("0.0.0.0", "9.255.255.255"),
-				ptRange("11.0.0.0", "172.15.255.255"),
-				ptRange("172.16.0.0", "172.31.255.255"),
-				ptRange("172.32.0.0", "203.0.112.255"),
-				ptRange("203.0.113.0", "203.0.113.255"),
-				ptRange("203.0.114.0", "255.255.255.255"),
+				paRange("0.0.0.0", "9.255.255.255"),
+				paRange("11.0.0.0", "172.15.255.255"),
+				paRange("172.16.0.0", "172.31.255.255"),
+				paRange("172.32.0.0", "203.0.112.255"),
+				paRange("203.0.113.0", "203.0.113.255"),
+				paRange("203.0.114.0", "255.255.255.255"),
 			},
 		},
 		{
@@ -2605,17 +2676,17 @@ func TestPtAtoms(t *testing.T) {
 			include: []string{"10.0.0.0/8"},
 			cuts:    []string{"10.1.2.0/24", "10.1.0.0/16", "10.1.0.0/16"},
 			want: []Range{
-				ptRange("10.0.0.0", "10.0.255.255"),
-				ptRange("10.1.0.0", "10.1.1.255"),
-				ptRange("10.1.2.0", "10.1.2.255"),
-				ptRange("10.1.3.0", "10.1.255.255"),
-				ptRange("10.2.0.0", "10.255.255.255"),
+				paRange("10.0.0.0", "10.0.255.255"),
+				paRange("10.1.0.0", "10.1.1.255"),
+				paRange("10.1.2.0", "10.1.2.255"),
+				paRange("10.1.3.0", "10.1.255.255"),
+				paRange("10.2.0.0", "10.255.255.255"),
 			},
 		},
 		{
 			name:    "adjacent include prefixes make one atom",
 			include: []string{"128.0.0.0/1", "0.0.0.0/1"},
-			want:    []Range{ptRange("0.0.0.0", "255.255.255.255")},
+			want:    []Range{paRange("0.0.0.0", "255.255.255.255")},
 		},
 		{
 			name:    "a cut outside the covered set, inside an exclusion or covering everything changes nothing",
@@ -2623,8 +2694,8 @@ func TestPtAtoms(t *testing.T) {
 			exclude: []string{"10.5.0.0/16"},
 			cuts:    []string{"192.0.2.0/24", "10.5.1.0/24", "0.0.0.0/0", "10.0.0.0/8"},
 			want: []Range{
-				ptRange("10.0.0.0", "10.4.255.255"),
-				ptRange("10.6.0.0", "10.255.255.255"),
+				paRange("10.0.0.0", "10.4.255.255"),
+				paRange("10.6.0.0", "10.255.255.255"),
 			},
 		},
 		{
@@ -2632,8 +2703,8 @@ func TestPtAtoms(t *testing.T) {
 			include: []string{"255.255.255.0/24"},
 			cuts:    []string{"255.255.255.255/32"},
 			want: []Range{
-				ptRange("255.255.255.0", "255.255.255.254"),
-				ptRange("255.255.255.255", "255.255.255.255"),
+				paRange("255.255.255.0", "255.255.255.254"),
+				paRange("255.255.255.255", "255.255.255.255"),
 			},
 		},
 		{
@@ -2641,8 +2712,8 @@ func TestPtAtoms(t *testing.T) {
 			include: []string{"0.0.0.0/8"},
 			cuts:    []string{"0.0.0.0/32"},
 			want: []Range{
-				ptRange("0.0.0.0", "0.0.0.0"),
-				ptRange("0.0.0.1", "0.255.255.255"),
+				paRange("0.0.0.0", "0.0.0.0"),
+				paRange("0.0.0.1", "0.255.255.255"),
 			},
 		},
 		{
@@ -2650,8 +2721,8 @@ func TestPtAtoms(t *testing.T) {
 			include: []string{"fc00::/7"},
 			cuts:    []string{"fd00::/8"},
 			want: []Range{
-				ptRange("fc00::", "fcff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"),
-				ptRange("fd00::", "fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"),
+				paRange("fc00::", "fcff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"),
+				paRange("fd00::", "fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"),
 			},
 		},
 		{
@@ -2660,16 +2731,16 @@ func TestPtAtoms(t *testing.T) {
 			exclude: []string{"::1/128"},
 			cuts:    []string{"ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128"},
 			want: []Range{
-				ptRange("::", "::"),
-				ptRange("::2", "ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffe"),
-				ptRange("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"),
+				paRange("::", "::"),
+				paRange("::2", "ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffe"),
+				paRange("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"),
 			},
 		},
 		{
 			name:    "a cut of the other family is ignored",
 			include: []string{"10.0.0.0/8"},
 			cuts:    []string{"fd00::/8"},
-			want:    []Range{ptRange("10.0.0.0", "10.255.255.255")},
+			want:    []Range{paRange("10.0.0.0", "10.255.255.255")},
 		},
 		{
 			name:    "an exclusion that covers everything leaves nothing",
@@ -2681,7 +2752,7 @@ func TestPtAtoms(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := Atoms(ptPrefixes(tt.include...), ptPrefixes(tt.exclude...), ptPrefixes(tt.cuts...))
+			got := Atoms(paPrefixes(tt.include...), paPrefixes(tt.exclude...), paPrefixes(tt.cuts...))
 			if !slices.Equal(got, tt.want) {
 				t.Errorf("Atoms = %v, want %v", got, tt.want)
 			}
@@ -2689,24 +2760,24 @@ func TestPtAtoms(t *testing.T) {
 	}
 }
 
-func TestPtRangePrefixes(t *testing.T) {
+func TestPaRangePrefixes(t *testing.T) {
 	tests := []struct {
 		name string
 		r    Range
 		want []string
 	}{
-		{"one aligned block", ptRange("10.0.0.0", "10.255.255.255"), []string{"10.0.0.0/8"}},
-		{"everything", ptRange("0.0.0.0", "255.255.255.255"), []string{"0.0.0.0/0"}},
-		{"one address", ptRange("1.2.3.4", "1.2.3.4"), []string{"1.2.3.4/32"}},
-		{"unaligned ends", ptRange("10.0.0.1", "10.0.0.6"), []string{"10.0.0.1/32", "10.0.0.2/31", "10.0.0.4/31", "10.0.0.6/32"}},
-		{"a range between two blocks", ptRange("11.0.0.0", "172.15.255.255"), []string{
+		{"one aligned block", paRange("10.0.0.0", "10.255.255.255"), []string{"10.0.0.0/8"}},
+		{"everything", paRange("0.0.0.0", "255.255.255.255"), []string{"0.0.0.0/0"}},
+		{"one address", paRange("1.2.3.4", "1.2.3.4"), []string{"1.2.3.4/32"}},
+		{"unaligned ends", paRange("10.0.0.1", "10.0.0.6"), []string{"10.0.0.1/32", "10.0.0.2/31", "10.0.0.4/31", "10.0.0.6/32"}},
+		{"a range between two blocks", paRange("11.0.0.0", "172.15.255.255"), []string{
 			"11.0.0.0/8", "12.0.0.0/6", "16.0.0.0/4", "32.0.0.0/3", "64.0.0.0/2",
 			"128.0.0.0/3", "160.0.0.0/5", "168.0.0.0/6", "172.0.0.0/12",
 		}},
-		{"IPv6 aligned block", ptRange("fd00::", "fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"), []string{"fd00::/8"}},
-		{"IPv6 one address", ptRange("::", "::"), []string{"::/128"}},
-		{"IPv6 everything", ptRange("::", "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"), []string{"::/0"}},
-		{"from after to", ptRange("10.0.0.2", "10.0.0.1"), nil},
+		{"IPv6 aligned block", paRange("fd00::", "fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"), []string{"fd00::/8"}},
+		{"IPv6 one address", paRange("::", "::"), []string{"::/128"}},
+		{"IPv6 everything", paRange("::", "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"), []string{"::/0"}},
+		{"from after to", paRange("10.0.0.2", "10.0.0.1"), nil},
 		{"mixed families", Range{From: netip.MustParseAddr("10.0.0.1"), To: netip.MustParseAddr("fd00::1")}, nil},
 		{"zero range", Range{}, nil},
 	}
@@ -2723,7 +2794,7 @@ func TestPtRangePrefixes(t *testing.T) {
 	}
 }
 
-func TestPtPortAtoms(t *testing.T) {
+func TestPaPortAtoms(t *testing.T) {
 	tests := []struct {
 		name string
 		cuts []PortRange
@@ -2754,50 +2825,44 @@ func TestPtPortAtoms(t *testing.T) {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 ```bash
-mkdir -p /root/.cache/w2-tmp/5 && export TMPDIR=/root/.cache/w2-tmp/5 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w2-tmp/6 && export TMPDIR=/root/.cache/w2-tmp/6 GOTOOLCHAIN=local
 timeout 300 go test -count=1 ./internal/modules/firewall/exposure/
 ```
 
-Expected: FAIL to build with `undefined: Class`, `undefined: Iface`, `undefined: Range`, `undefined: PortRange` and the missing functions (the package has no non-test file yet).
+Expected: FAIL to build with `undefined: Range`, `undefined: Atoms` and `undefined: PortAtoms` (`PortRange` comes from Task 5's `classes.go`; `atoms.go` does not exist yet).
 
 - [ ] **Step 3: Implement**
 
-Doc comment on every exported identifier; the package comment (in `classes.go`) says the package computes which source classes can reach a port, for spec 2.7, and that it is pure: it reads only the rulesets and values it is given. Declare the types exactly as Contracts gives them (`Iface` with `Name`, `Up`, `Loopback`, `Tailnet`, `Bridge`, `Addrs`; `Class` with `Name` and `Range`; `PortRange{From, To uint16}`; `Range{From, To netip.Addr}`).
+Doc comment on every exported identifier. Declare `Range{From, To netip.Addr}` exactly as Contracts gives it; `PortRange` is Task 5's and is not declared again here.
 
-1. `Classes(private []netip.Prefix, f fwstate.Family) []Class`: returns `internet`, then one `private` class per entry of `private` that is valid and of family `f` (an IPv4 prefix for `fwstate.V4`, any other prefix for `fwstate.V6`), in the order given and with `Range` set to the entry as given, then `tailnet`, then `localhost`. Only `private` carries a `Range`.
-2. `Cuts(rs *netfilter.Ruleset) (srcs []netip.Prefix, ifaces []string, sports []PortRange)`: reads every rule of every chain of every table of `rs`, opaque rules included, because a superset of the cuts is always a correct partition. A nil `rs` returns three nils.
-   - `srcs`: each rule's valid `Source.Prefix`, masked (`Prefix.Masked()`); negation is ignored.
-   - `ifaces`: each rule's non-empty `In.Name` as saved, a trailing `+` kept; negation is ignored.
-   - `sports`: for every match of every rule (any module), every option named `sport` or `sports`; its first value is a comma list of items `n`, `a:b`, `:b` and `a:`; an open start is 0 and an open end is 65535, as iptables reads them. An item that is not a number is skipped (the evaluator already makes such a rule undecidable). Values are not clipped here.
-   - Each result is sorted and has no duplicates: `srcs` by address then prefix length, `ifaces` lexically, `sports` by `From` then `To`. A result with nothing in it is nil or empty.
-3. `Atoms(include, exclude, cuts []netip.Prefix) []Range`: the family is the first `include` prefix's. A prefix that is invalid or of the other family is ignored in all three lists, and prefixes are masked before use. Compute the covered set: the union of `include` minus the union of `exclude`, as maximal runs of addresses (overlapping or adjacent `include` prefixes form one run). Split each run at every cut boundary that lies strictly inside it, where a cut's boundaries are its first address and the address after its last (a cut ending at the family's top address has only the first). Return the pieces in ascending order of `From`; `To` is inclusive. A cut that lies outside the covered set, wholly inside an exclusion, or over a whole run splits nothing. No `include`, or an `exclude` that covers all of it, returns nil. IPv6 needs 128-bit arithmetic: use `math/big`, or two `uint64` halves taken from `Addr.As16()`; an IPv4 address stays a 4-byte address in the result.
-4. `(r Range) Prefixes() []netip.Prefix`: the exact cover of `r.From` to `r.To` by the fewest CIDR prefixes, ascending. At each step take the largest block that starts at the current address, is aligned to its size and does not pass `r.To`. A zero or invalid address, addresses of two families, or `From` after `To` returns nil. The same arithmetic as `Atoms` is needed, so share its helpers.
-5. `PortAtoms(cuts []PortRange) []PortRange`: partitions ports 1 to 65535. Clip each cut to 1 to 65535 (a `From` of 0 becomes 1) and ignore a cut that is empty after clipping (`From` after `To`, or only port 0). The boundaries are 1, and each clipped cut's `From` and, when `To` is below 65535, `To+1`. The atoms are the runs between consecutive distinct boundaries, the last ending at 65535. With no cuts the result is `[{1, 65535}]`.
-6. `gosec` G115 flags an `int` to `uint16` conversion: do the port arithmetic in `uint32` and convert only a value proven at most 65535, or add `//nolint:gosec` with that reason in a comment. gofmt clean.
+1. `Atoms(include, exclude, cuts []netip.Prefix) []Range`: the family is the first `include` prefix's. A prefix that is invalid or of the other family is ignored in all three lists, and prefixes are masked before use. Compute the covered set: the union of `include` minus the union of `exclude`, as maximal runs of addresses (overlapping or adjacent `include` prefixes form one run). Split each run at every cut boundary that lies strictly inside it, where a cut's boundaries are its first address and the address after its last (a cut ending at the family's top address has only the first). Return the pieces in ascending order of `From`; `To` is inclusive. A cut that lies outside the covered set, wholly inside an exclusion, or over a whole run splits nothing. No `include`, or an `exclude` that covers all of it, returns nil. IPv6 needs 128-bit arithmetic: use `math/big`, or two `uint64` halves taken from `Addr.As16()`; an IPv4 address stays a 4-byte address in the result.
+2. `(r Range) Prefixes() []netip.Prefix`: the exact cover of `r.From` to `r.To` by the fewest CIDR prefixes, ascending. At each step take the largest block that starts at the current address, is aligned to its size and does not pass `r.To`. A zero or invalid address, addresses of two families, or `From` after `To` returns nil. The same arithmetic as `Atoms` is needed, so share its helpers.
+3. `PortAtoms(cuts []PortRange) []PortRange`: partitions ports 1 to 65535. Clip each cut to 1 to 65535 (a `From` of 0 becomes 1) and ignore a cut that is empty after clipping (`From` after `To`, or only port 0). The boundaries are 1, and each clipped cut's `From` and, when `To` is below 65535, `To+1`. The atoms are the runs between consecutive distinct boundaries, the last ending at 65535. With no cuts the result is `[{1, 65535}]`.
+4. `gosec` G115 flags an `int` to `uint16` conversion: do the port arithmetic in `uint32` and convert only a value proven at most 65535, or add `//nolint:gosec` with that reason in a comment. gofmt clean.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
-export TMPDIR=/root/.cache/w2-tmp/5 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w2-tmp/6 GOTOOLCHAIN=local
 timeout 300 go test -count=1 ./internal/modules/firewall/exposure/ -v
 timeout 600 go test -race -count=1 ./internal/modules/firewall/exposure/
 timeout 600 go build ./... && timeout 300 go vet ./...
 timeout 600 go test -count=1 ./...
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w2-tmp/5 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/6 && go clean -testcache
 ```
 
-Expected: every `TestPt` test and subtest `PASS`; every package line `ok` or `?`; `go vet` and `go mod tidy -diff` print nothing; golangci-lint ends `0 issues.`. Record the real output in the task report.
+Expected: every `TestPa` test and subtest `PASS` (and Task 5's `TestPt` tests still `PASS`); every package line `ok` or `?`; `go vet` and `go mod tidy -diff` print nothing; golangci-lint ends `0 issues.`. Record the real output in the task report.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add internal/modules/firewall/exposure/classes.go internal/modules/firewall/exposure/atoms.go internal/modules/firewall/exposure/classes_test.go internal/modules/firewall/exposure/atoms_test.go
-git commit -m "feat(exposure): add source classes and partitions"
+git add internal/modules/firewall/exposure/atoms.go internal/modules/firewall/exposure/atoms_test.go
+git commit -m "feat(exposure): add address and port atoms"
 ```
 
-### Task 6: web: Docker and exposure types and fixtures
+### Task 7: web: Docker and exposure types and fixtures
 
 **Files:**
 - Modify: `web/src/modules/firewall/types.ts`
@@ -2806,9 +2871,11 @@ git commit -m "feat(exposure): add source classes and partitions"
 
 **Interfaces:**
 - Consumes: Contracts "Shapes the web and the schemas read" (the Go JSON of `DockerStatus`, `DockerNetwork`, `DockerBinding`, `ExposureView`, `ExposureRow`, `ExposureContainer`, `exposure.Verdict`, `exposure.Allowed`, `dockerfw.Settings`, `Exemption`, `Binding`, `ContainerRule`, `Issue`); Contracts "Web" (the names this task adds). No Go identifier is used.
-- Produces: Contracts "Web": the types `DockerStatus`, `DockerNetwork`, `DockerBinding`, `DockerIssue`, `Exemption`, `DockerSettings`, `ContainerRule`, `Binding`, `ExposureView`, `ExposureRow`, `ExposureVerdict`, `ExposureAllowed`, the query keys `dockerQueryKey(hostId)` and `exposureQueryKey(hostId)` in `types.ts`, and the fixtures `fwDocker`, `fwExposure` and `fwBinding` in `fixtures.ts`. Beyond the Contracts' list it also exports the types `ExposureContainer`, `ExposureClass` and `DockerProto`, which the pages of Tasks 13, 14, 17 and 27 may import.
+- Produces: Contracts "Web": the types `DockerStatus`, `DockerNetwork`, `DockerBinding`, `DockerIssue`, `Exemption`, `DockerSettings`, `ContainerRule`, `Binding`, `ExposureView`, `ExposureRow`, `ExposureVerdict`, `ExposureAllowed`, the query keys `dockerQueryKey(hostId)` and `exposureQueryKey(hostId)` in `types.ts`, and the fixtures `fwDocker`, `fwExposure` and `fwBinding` in `fixtures.ts`. Beyond the Contracts' list it also exports the types `ExposureContainer`, `ExposureClass` and `DockerProto`, which the pages of Tasks 15, 16, 19 and 29 may import.
 
 **Depends on:** none
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
 
 The types mirror the JSON the Go shapes encode, field for field; a field the Go tag marks `omitempty` or `omitzero` is optional (`?`) in TypeScript, and every other field is required. `netip.Addr`, `netip.Prefix` and the `uint16` ports encode as a string and a number. The test file is the only place that runs these types: Vitest strips types, so the typecheck of the literals in its last test is what pins the field names.
 
@@ -2907,7 +2974,7 @@ test("fxTypes accept every optional field the server can send", () => {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run, from the repository root: `mkdir -p /root/.cache/w2-tmp/6 && export TMPDIR=/root/.cache/w2-tmp/6 GOTOOLCHAIN=local && timeout 300 pnpm -C web exec vitest run src/modules/firewall/fixtures.test.ts`
+Run, from the repository root: `mkdir -p /root/.cache/w2-tmp/7 && export TMPDIR=/root/.cache/w2-tmp/7 GOTOOLCHAIN=local && timeout 300 pnpm -C web exec vitest run src/modules/firewall/fixtures.test.ts`
 Expected: FAIL, six of the seven tests with `TypeError: fwDocker is not a function` (or `fwExposure`, `fwBinding`, `dockerQueryKey`, `exposureQueryKey`); `fxTypes` passes at run time. Then `timeout 300 pnpm -C web typecheck` prints `TS2305: Module '"./fixtures"' has no exported member 'fwBinding'` and the same for `fwDocker`, `fwExposure`, `dockerQueryKey`, `exposureQueryKey`, `ContainerRule`, `DockerSettings`, `ExposureAllowed`, `ExposureRow` and `ExposureVerdict`.
 
 - [ ] **Step 3: Implement**
@@ -2937,8 +3004,8 @@ Expected: FAIL, six of the seven tests with `TypeError: fwDocker is not a functi
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `export TMPDIR=/root/.cache/w2-tmp/6 GOTOOLCHAIN=local && timeout 300 pnpm -C web exec vitest run src/modules/firewall/fixtures.test.ts`
-Expected: PASS, 7 tests. Then the web checks the Global Constraints require: `timeout 300 pnpm -C web typecheck` (no output), `timeout 600 pnpm -C web lint` (no output) and `timeout 600 pnpm -C web test` (every file passes). Then `rm -rf /root/.cache/w2-tmp/6 && go clean -testcache`.
+Run: `export TMPDIR=/root/.cache/w2-tmp/7 GOTOOLCHAIN=local && timeout 300 pnpm -C web exec vitest run src/modules/firewall/fixtures.test.ts`
+Expected: PASS, 7 tests. Then the web checks the Global Constraints require: `timeout 300 pnpm -C web typecheck` (no output), `timeout 600 pnpm -C web lint` (no output) and `timeout 600 pnpm -C web test` (every file passes). Then `rm -rf /root/.cache/w2-tmp/7 && go clean -testcache`.
 
 - [ ] **Step 5: Commit**
 
@@ -2947,7 +3014,7 @@ git add web/src/modules/firewall/types.ts web/src/modules/firewall/fixtures.ts w
 git commit -m "feat(web): add Docker and exposure firewall types"
 ```
 
-### Task 7: web: confirm manual rules in the firewall change dialog
+### Task 8: web: confirm manual rules in the firewall change dialog
 
 **Files:**
 - Modify: `web/src/modules/firewall/firewall-change.tsx`
@@ -2955,11 +3022,13 @@ git commit -m "feat(web): add Docker and exposure firewall types"
 
 **Interfaces:**
 - Consumes: `ChangeDialog` and its query key (`web/src/components/change-dialog.tsx`, which this task does not edit: the plan query is keyed `["plan", target.name, target.version, target.hostId ?? null, JSON.stringify(input ?? {}), overrides]`); `ApiError` (`@/api/client`, with `code` and `message` holding the problem's code and detail); the server's refusal `firewall.manual_required` (409, Contracts: Global Constraints' list of codes). Wave 1's `FirewallChangeProps` is unchanged.
-- Produces: `FirewallChange` with the same props (`hostId`, `action`, `title`, `input`, `onClose`) that, when the plan of `input` fails with code `firewall.manual_required`, shows the server's detail in a confirmation dialog titled "Change a manual rule?" and plans again with `manual: true` added to the input once the operator agrees (Contracts: Web). Tasks 13, 17, 27 and the existing callers (`rules-table.tsx`, `snapshots-panel.tsx`, `state-controls.tsx`, `rule-form.tsx`) use it unchanged.
+- Produces: `FirewallChange` with the same props (`hostId`, `action`, `title`, `input`, `onClose`) that, when the plan of `input` fails with code `firewall.manual_required`, shows the server's detail in a confirmation dialog titled "Change a manual rule?" and plans again with `manual: true` added to the input once the operator agrees (Contracts: Web). Tasks 15, 19, 29 and the existing callers (`rules-table.tsx`, `snapshots-panel.tsx`, `state-controls.tsx`, `rule-form.tsx`) use it unchanged.
 
 **Items:** 291
 
 **Depends on:** none
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 1 = 5
 
 Callers that already know a rule is manual pass `manual: true` themselves (`rules-table.tsx`, `snapshots-panel.tsx`); those inputs are never refused for it and must never be asked about again. Actions that discover a manual rule only while planning (`state.enable`, `state.disable`, `logging.set`, `defaults.set` and `rule.add` on an `IPV6=no` host with leftover IPv6 manual rules, and the Docker repair that would discard manual rules) have no such caller-side check; the confirmation here serves them.
 
@@ -3126,7 +3195,7 @@ test("the question has no accessibility violations", async () => {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w2-tmp/7 && export TMPDIR=/root/.cache/w2-tmp/7 GOTOOLCHAIN=local && timeout 300 pnpm -C web exec vitest run src/modules/firewall/firewall-change.test.tsx`
+Run: `mkdir -p /root/.cache/w2-tmp/8 && export TMPDIR=/root/.cache/w2-tmp/8 GOTOOLCHAIN=local && timeout 300 pnpm -C web exec vitest run src/modules/firewall/firewall-change.test.tsx`
 Expected: FAIL, five tests (every test that expects the "Change a manual rule?" dialog) with `Unable to find role="dialog" and name "Change a manual rule?"`; the three tests that expect no question (`a plan that needs no manual rule…`, `another refusal stays…`, `an input that already says manual…`) already pass and guard against a regression.
 
 - [ ] **Step 3: Implement**
@@ -3143,8 +3212,8 @@ In `firewall-change.tsx`:
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `export TMPDIR=/root/.cache/w2-tmp/7 GOTOOLCHAIN=local && timeout 300 pnpm -C web exec vitest run src/modules/firewall`
-Expected: PASS, every firewall test file including `firewall-change.test.tsx` (8 tests) and the unchanged `rules-table`, `snapshots-panel`, `state-controls` and `rule-form` tests. Then `timeout 300 pnpm -C web typecheck` (no output), `timeout 600 pnpm -C web lint` (no output) and `timeout 600 pnpm -C web test` (every file passes). Then `rm -rf /root/.cache/w2-tmp/7 && go clean -testcache`.
+Run: `export TMPDIR=/root/.cache/w2-tmp/8 GOTOOLCHAIN=local && timeout 300 pnpm -C web exec vitest run src/modules/firewall`
+Expected: PASS, every firewall test file including `firewall-change.test.tsx` (8 tests) and the unchanged `rules-table`, `snapshots-panel`, `state-controls` and `rule-form` tests. Then `timeout 300 pnpm -C web typecheck` (no output), `timeout 600 pnpm -C web lint` (no output) and `timeout 600 pnpm -C web test` (every file passes). Then `rm -rf /root/.cache/w2-tmp/8 && go clean -testcache`.
 
 - [ ] **Step 5: Commit**
 
@@ -3153,7 +3222,7 @@ git add web/src/modules/firewall/firewall-change.tsx web/src/modules/firewall/fi
 git commit -m "feat(web): confirm manual rules in the change dialog"
 ```
 
-### Task 8: harness: UDP and source-port scans and Docker helpers
+### Task 9: harness: UDP and source-port scans and Docker helpers
 
 **Files:**
 - Modify: `test/harness/nmap.go` (add below `OpenPorts`, which stays unchanged; the import block gains `net/netip` and `strconv`)
@@ -3162,13 +3231,15 @@ git commit -m "feat(web): confirm manual rules in the change dialog"
 
 **Interfaces:**
 - Consumes: nothing from earlier tasks. From the existing harness package: `LoadPins`, `PinsFile` and `Pins.Container` (`pins.go`), `m3Run` and `m3Quote` (`m3_firewall_helpers_test.go`), `eventually` (`m1_test.go`), `vm.VM.Run`.
-- Produces: Contracts "Harness (Task 8, used by Tasks 48–50)": `ScanOpts`, `PortState`, `NmapArgs`, `ParsePorts` in `nmap.go`; `m3dScan`, `m3dAddSource`, `m3dDocker`, `m3dWaitRunning`, `m3dRunTCP`, `m3dRunUDP`, `m3dRow`, `m3dxRows`, `m3dxMismatch` in `m3_docker_helpers_test.go`. The file also declares the pure helpers `m3dxShell`, `m3dxNmapCommand`, `m3dxAddrCmd`, `m3dxRunCmd`, `m3dxRunning`, `m3dxImage` and the function `m3dRun`; Tasks 48–50 use only the names Contracts lists.
+- Produces: Contracts "Harness (Task 9, used by Tasks 52–54)": `ScanOpts`, `PortState`, `NmapArgs`, `ParsePorts` in `nmap.go`; `m3dScan`, `m3dAddSource`, `m3dDocker`, `m3dWaitRunning`, `m3dRunTCP`, `m3dRunUDP`, `m3dRow`, `m3dxRows`, `m3dxMismatch` in `m3_docker_helpers_test.go`. The file also declares the pure helpers `m3dxShell`, `m3dxNmapCommand`, `m3dxAddrCmd`, `m3dxRunCmd`, `m3dxRunning`, `m3dxImage` and the function `m3dRun`; Tasks 52–54 use only the names Contracts lists.
 
 **Items:** 13
 
 **Depends on:** none
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
 
-This task adds the scan options and the helpers the Docker scenarios of Tasks 48–50 need: a TCP or UDP scan from a chosen source address and source port, a parser for every port entry of nmap's grepable output, container helpers on a VM, and the comparison of the exposure view with a scan (spec 2.7, "Harness check"). Every decision the helpers make is a pure function with a unit test; the functions that drive a VM are thin wrappers over them and run only in the scenarios of Tasks 48–50. No step here starts a VM, runs nmap or touches Docker.
+This task adds the scan options and the helpers the Docker scenarios of Tasks 52–54 need: a TCP or UDP scan from a chosen source address and source port, a parser for every port entry of nmap's grepable output, container helpers on a VM, and the comparison of the exposure view with a scan (spec 2.7, "Harness check"). Every decision the helpers make is a pure function with a unit test; the functions that drive a VM are thin wrappers over them and run only in the scenarios of Tasks 52–54. No step here starts a VM, runs nmap or touches Docker.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -3425,7 +3496,7 @@ func TestM3dxImage(t *testing.T) {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w2-tmp/8 && export TMPDIR=/root/.cache/w2-tmp/8 GOTOOLCHAIN=local && timeout 300 go test -tags harness -count=1 -run 'TestM3d|TestOpenPorts' ./test/harness/`
+Run: `mkdir -p /root/.cache/w2-tmp/9 && export TMPDIR=/root/.cache/w2-tmp/9 GOTOOLCHAIN=local && timeout 300 go test -tags harness -count=1 -run 'TestM3d|TestOpenPorts' ./test/harness/`
 Expected: FAIL to build, the first error `m3_docker_unit_test.go:26:14: undefined: m3dxRows`, followed by `undefined: m3dRow`, `undefined: PortState`, `undefined: ScanOpts`, `undefined: NmapArgs` and `undefined: ParsePorts`.
 
 - [ ] **Step 3: Implement**
@@ -3456,13 +3527,13 @@ In `test/harness/m3_docker_helpers_test.go` (build tag `harness`, package `harne
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `export TMPDIR=/root/.cache/w2-tmp/8 GOTOOLCHAIN=local && timeout 300 go test -tags harness -count=1 -v -run 'TestM3d|TestOpenPorts' ./test/harness/`
+Run: `export TMPDIR=/root/.cache/w2-tmp/9 GOTOOLCHAIN=local && timeout 300 go test -tags harness -count=1 -v -run 'TestM3d|TestOpenPorts' ./test/harness/`
 Expected: PASS for `TestOpenPorts`, `TestM3dNmapArgs`, `TestM3dParsePorts`, `TestM3dxRows`, `TestM3dxMismatch`, `TestM3dxCommands`, `TestM3dxRunning` and `TestM3dxImage`.
 
 - [ ] **Step 5: Run the gates and commit**
 
 ```bash
-export TMPDIR=/root/.cache/w2-tmp/8 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w2-tmp/9 GOTOOLCHAIN=local
 timeout 600 go build ./...
 timeout 300 go vet ./...
 timeout 300 go vet -tags harness ./test/...
@@ -3471,7 +3542,7 @@ timeout 600 go test -tags harness -count=1 ./test/harness/...
 timeout 600 go test -tags harness -race -count=1 ./test/harness/
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
-go clean -testcache && rm -rf /root/.cache/w2-tmp/8
+go clean -testcache && rm -rf /root/.cache/w2-tmp/9
 ```
 
 Expected: `go vet` and `go mod tidy -diff` print nothing, every test line is `ok` or `?`, and golangci-lint prints `0 issues.`. Record the real output.
@@ -3481,7 +3552,7 @@ git add test/harness/nmap.go test/harness/nmap_test.go test/harness/m3_docker_he
 git commit -m "test(harness): add UDP and Docker scan helpers"
 ```
 
-### Task 9: dockerfw: bindings and container rules
+### Task 10: dockerfw: bindings and container rules
 
 **Files:**
 - Create: `internal/modules/firewall/dockerfw/binding.go`, `internal/modules/firewall/dockerfw/rule.go`
@@ -3494,6 +3565,8 @@ git commit -m "test(harness): add UDP and Docker scan helpers"
 **Items:** 9
 
 **Depends on:** Task 2
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
 
 Task 2 created the package (its doc comment is in `settings.go`). This task adds the published-binding identity and the stored container rule, and nothing that reads host state. Declare no top-level identifier the package already has; the unexported names below are chosen not to collide, and a collision found by `go build` is reported, not renamed silently.
 
@@ -3813,7 +3886,7 @@ func TestBdRuleJSON(t *testing.T) {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w2-tmp/9 && export TMPDIR=/root/.cache/w2-tmp/9 GOTOOLCHAIN=local && timeout 300 go test -count=1 ./internal/modules/firewall/dockerfw/`
+Run: `mkdir -p /root/.cache/w2-tmp/10 && export TMPDIR=/root/.cache/w2-tmp/10 GOTOOLCHAIN=local && timeout 300 go test -count=1 ./internal/modules/firewall/dockerfw/`
 Expected: FAIL to build, the first error `binding_test.go:12:30: undefined: Binding`, then `undefined: ContainerRule`, `undefined: Allow`, `undefined: LabelPrefix` and `undefined: RuleOf`.
 
 - [ ] **Step 3: Implement**
@@ -3844,20 +3917,20 @@ Lint: a doc comment on every exported identifier.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `export TMPDIR=/root/.cache/w2-tmp/9 GOTOOLCHAIN=local && timeout 300 go test -count=1 -v -run 'TestBd' ./internal/modules/firewall/dockerfw/`
+Run: `export TMPDIR=/root/.cache/w2-tmp/10 GOTOOLCHAIN=local && timeout 300 go test -count=1 -v -run 'TestBd' ./internal/modules/firewall/dockerfw/`
 Expected: PASS for `TestBdBindingID`, `TestBdBindingValidate`, `TestBdBindingSelects`, `TestBdRuleValidate`, `TestBdRuleOf` and `TestBdRuleJSON`.
 
 - [ ] **Step 5: Run the gates and commit**
 
 ```bash
-export TMPDIR=/root/.cache/w2-tmp/9 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w2-tmp/10 GOTOOLCHAIN=local
 timeout 600 go build ./...
 timeout 300 go vet ./...
 timeout 1500 go test -count=1 ./...
 timeout 600 go test -race -count=1 ./internal/modules/firewall/dockerfw/
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
-go clean -testcache && rm -rf /root/.cache/w2-tmp/9
+go clean -testcache && rm -rf /root/.cache/w2-tmp/10
 ```
 
 Expected: `go vet` and `go mod tidy -diff` print nothing, every test line is `ok` or `?`, and golangci-lint prints `0 issues.`. Record the real output.
@@ -3867,23 +3940,25 @@ git add internal/modules/firewall/dockerfw/binding.go internal/modules/firewall/
 git commit -m "feat(firewall): add container bindings and rules"
 ```
 
-### Task 10: exposure: per-class verdicts
+### Task 11: exposure: per-class verdicts
 
 **Files:**
 - Create: `internal/modules/firewall/exposure/verdict.go`
 - Test: `internal/modules/firewall/exposure/verdict_test.go`
 
 **Interfaces:**
-- Consumes: Contracts "eval decided" (`fwstate.Result.Decided`, filled by `eval.Evaluate`); Contracts "exposure (Tasks 5 and 10)", Task 5's part: `Iface`, `Class`, `Classes`, `Cuts`, `Atoms`, `Range` with `Range.Prefixes`, `PortRange` and `PortAtoms`; `fwstate.Packet`, `fwstate.Router`, `netfilter.Ruleset`.
-- Produces: Contracts "exposure (Tasks 5 and 10)", Task 10's part: `DefaultMaxProbes`, `Input`, `Target`, `Allowed`, `Verdict` and `Evaluate`, with the JSON tags Contracts gives. Step 3 fixes what each field holds; Task 33 builds the `firewall.exposure` rows from it.
+- Consumes: Contracts "eval decided" (`fwstate.Result.Decided`, filled by `eval.Evaluate`); Contracts "exposure (Tasks 5, 6 and 11)", Tasks 5 and 6's part: `Iface`, `Class`, `Classes`, `Cuts`, `Atoms`, `Range` with `Range.Prefixes`, `PortRange` and `PortAtoms`; `fwstate.Packet`, `fwstate.Router`, `netfilter.Ruleset`.
+- Produces: Contracts "exposure (Tasks 5, 6 and 11)", Task 11's part: `DefaultMaxProbes`, `Input`, `Target`, `Allowed`, `Verdict` and `Evaluate`, with the JSON tags Contracts gives. Step 3 fixes what each field holds; Task 35 builds the `firewall.exposure` rows from it.
 
 **Items:** 12
 
-**Depends on:** Task 4, Task 5
+**Depends on:** Task 4, Task 5, Task 6
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
 
 - [ ] **Step 1: Write the failing test**
 
-Create `internal/modules/firewall/exposure/verdict_test.go` with exactly this content. The tests use only Task 5's `Iface` and the Task 10 names, and build their rulesets from `netfilter.Parse`, so no host state is read.
+Create `internal/modules/firewall/exposure/verdict_test.go` with exactly this content. The tests use only Tasks 5 and 6's `Iface` and the Task 11 names, and build their rulesets from `netfilter.Parse`, so no host state is read.
 
 ```go
 package exposure
@@ -4438,14 +4513,14 @@ COMMIT
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w2-tmp/10 && TMPDIR=/root/.cache/w2-tmp/10 GOTOOLCHAIN=local timeout 300 go test -count=1 ./internal/modules/firewall/exposure/`
-Expected: FAIL with a build error naming the identifiers this task adds, the first being `undefined: Verdict` (also `Input`, `Target`, `Allowed`, `Evaluate`, `DefaultMaxProbes`). Any other build error means Task 4 or Task 5 is missing from the base: stop and report it.
+Run: `mkdir -p /root/.cache/w2-tmp/11 && TMPDIR=/root/.cache/w2-tmp/11 GOTOOLCHAIN=local timeout 300 go test -count=1 ./internal/modules/firewall/exposure/`
+Expected: FAIL with a build error naming the identifiers this task adds, the first being `undefined: Verdict` (also `Input`, `Target`, `Allowed`, `Evaluate`, `DefaultMaxProbes`). Any other build error means Task 4 or Tasks 5 and 6 is missing from the base: stop and report it.
 
 - [ ] **Step 3: Implement**
 
-Create `internal/modules/firewall/exposure/verdict.go` in package `exposure`. It imports only the standard library, `internal/modules/firewall/eval`, `internal/modules/firewall/fwstate` and `internal/platform/netfilter`, does no I/O, starts no goroutine and keeps no global state. Every top-level identifier it declares besides the Contracts names starts with `ev`, so it cannot collide with Task 5's unexported names. Every exported identifier has a doc comment.
+Create `internal/modules/firewall/exposure/verdict.go` in package `exposure`. It imports only the standard library, `internal/modules/firewall/eval`, `internal/modules/firewall/fwstate` and `internal/platform/netfilter`, does no I/O, starts no goroutine and keeps no global state. Every top-level identifier it declares besides the Contracts names starts with `ev`, so it cannot collide with Tasks 5 and 6's unexported names. Every exported identifier has a doc comment.
 
-1. Declare `DefaultMaxProbes` (4096), `Input`, `Target`, `Allowed` and `Verdict` exactly as Contracts "exposure (Tasks 5 and 10)" lists them, JSON tags included, and `Evaluate(in Input, t Target) []Verdict`.
+1. Declare `DefaultMaxProbes` (4096), `Input`, `Target`, `Allowed` and `Verdict` exactly as Contracts "exposure (Tasks 5, 6 and 11)" lists them, JSON tags included, and `Evaluate(in Input, t Target) []Verdict`.
 2. `Evaluate` walks `Classes(in.Private, in.Family)` in the order it returns them and appends at most one `Verdict` per class, in that order. `Class` is the class name and `Range` is `Class.Range.String()` for a private class and empty otherwise. A class whose name is not `internet`, `private`, `tailnet` or `localhost` is skipped. `Cuts(in.Rules)` is called once per `Evaluate` call, when `in.Rules` is not nil.
 3. Per class, the first of these that applies decides it:
    1. `tailnet` when no interface in `in.Ifaces` is both `Up` and `Tailnet`: no verdict for the class at all.
@@ -4469,17 +4544,17 @@ Create `internal/modules/firewall/exposure/verdict.go` in package `exposure`. It
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `TMPDIR=/root/.cache/w2-tmp/10 GOTOOLCHAIN=local timeout 300 go test -count=1 -v ./internal/modules/firewall/exposure/`
+Run: `TMPDIR=/root/.cache/w2-tmp/11 GOTOOLCHAIN=local timeout 300 go test -count=1 -v ./internal/modules/firewall/exposure/`
 Expected: PASS for `TestExEvaluate` (every row), `TestExDescribe`, `TestExDefaultMaxProbes`, `TestExPublishedPort` and `TestExIPv6`. Then the task gate:
 
 ```bash
-export TMPDIR=/root/.cache/w2-tmp/10 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w2-tmp/11 GOTOOLCHAIN=local
 timeout 600 go build ./... && timeout 300 go vet ./...
 timeout 300 go test -race -count=1 ./internal/modules/firewall/exposure/
 timeout 1500 go test -count=1 ./...
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w2-tmp/10 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/11 && go clean -testcache
 ```
 
 Expected: `go vet` and `go mod tidy -diff` print nothing, every `go test` line is `ok` or `?`, and golangci-lint prints `0 issues.`. Record the real output.
@@ -4491,21 +4566,21 @@ git add internal/modules/firewall/exposure/verdict.go internal/modules/firewall/
 git commit -m "feat(firewall): add exposure verdicts per class"
 ```
 
-### Task 11: dockerfw: detection and foreign forwards
+### Task 12: dockerfw: detection
 
 **Files:**
 - Create: `internal/modules/firewall/dockerfw/detect.go`
-- Create: `internal/modules/firewall/dockerfw/forward.go`
 - Test: `internal/modules/firewall/dockerfw/detect_test.go`
-- Test: `internal/modules/firewall/dockerfw/forward_test.go`
 
 **Interfaces:**
-- Consumes: Contracts "dockerfw settings and facts" (`Exemption`, `Facts`, `Container`, `Endpoint`, `Published`, `Network`); Contracts "Capture tree" (`capDir`, `capImages`, `capScenarios`, `capLoad`, `capFile`, and the capture files `containers.json`, `networks.json`, `info.json`); `fwstate.Family`; `netfilter.Table` and `netfilter.Rule`.
-- Produces: Contracts "dockerfw detection": `Detection`, `Unsupported`, `DockerChains`, `RawProtected`, `ForeignDNAT`, `Propose`, `Covered` and `ExemptionConflicts`. Task 20 (health) and Task 29 (Docker state) call them; the strings `Unsupported` returns reach the web as `DockerStatus.Unsupported`, so Step 3 fixes them exactly.
+- Consumes: Contracts "dockerfw settings and facts" (`Facts`, `Container`, `Endpoint`, `Published`, `Network`); Contracts "Capture tree" (`capDir`, `capImages`, `capScenarios`, `capLoad`, `capFile`, and the capture files `containers.json`, `networks.json`, `info.json`); `fwstate.Family`; `netfilter.Table`.
+- Produces: Contracts "dockerfw detection": `Detection`, `Unsupported`, `DockerChains` and `RawProtected`. Task 31 (Docker state), Task 34 (the `firewall.docker` resource) and Task 49 (reconcile) call them; the strings `Unsupported` returns reach the web as `DockerStatus.Unsupported`, so Step 3 fixes them exactly.
 
 **Items:** 7
 
 **Depends on:** Task 1, Task 2
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -4816,7 +4891,7 @@ func dtCaptureFacts(t *testing.T, image, scenario string) Facts {
 	return f
 }
 
-// TestDtCaptures holds Task 11's functions to what Docker 29.9.1 and UFW
+// TestDtCaptures holds this file's functions to what Docker 29.9.1 and UFW
 // left on the four images.
 func TestDtCaptures(t *testing.T) {
 	for _, image := range capImages {
@@ -4828,13 +4903,6 @@ func TestDtCaptures(t *testing.T) {
 				}
 				if !DockerChains(v4.Table("filter")) {
 					t.Error("DockerChains = false on the variant UFW uses")
-				}
-				nat := v4.Table("nat")
-				if nat == nil {
-					t.Fatal("no nat table in the capture")
-				}
-				if got := ForeignDNAT(nat); len(got) != 0 {
-					t.Errorf("ForeignDNAT = %d rules on a host with only Docker's forwards: %q", len(got), got[0].Text)
 				}
 				facts := dtCaptureFacts(t, image, scenario)
 				protected := RawProtected(v4.Table("raw"), facts)
@@ -4861,19 +4929,7 @@ func TestDtCaptures(t *testing.T) {
 				if scenario != "base" {
 					return
 				}
-				// The controls: the captured nat table does hold Docker's DNAT
-				// rules, and the captured containers do need raw rules.
-				dnat := 0
-				for _, c := range nat.Chains {
-					for _, r := range c.Rules {
-						if r.Target.Name == "DNAT" {
-							dnat++
-						}
-					}
-				}
-				if dnat == 0 {
-					t.Error("the base capture's nat table holds no DNAT rule, so the ForeignDNAT check proves nothing")
-				}
+				// The control: the captured containers do need raw rules.
 				if len(facts.Containers) == 0 {
 					t.Fatal("the base capture has no running container")
 				}
@@ -4886,7 +4942,72 @@ func TestDtCaptures(t *testing.T) {
 }
 ```
 
-Create `internal/modules/firewall/dockerfw/forward_test.go` with exactly this content.
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `mkdir -p /root/.cache/w2-tmp/12 && TMPDIR=/root/.cache/w2-tmp/12 GOTOOLCHAIN=local timeout 300 go test -count=1 ./internal/modules/firewall/dockerfw/`
+Expected: FAIL with a build error naming the identifiers this task adds, the first being `undefined: Detection` (also `Unsupported`, `DockerChains`, `RawProtected`). Any other build error (`Facts`, `capLoad`, `capFile`, `capImages`, `capScenarios` undefined) means Task 1 or Task 2 is missing from the base: stop and report it.
+
+- [ ] **Step 3: Implement**
+
+Create `detect.go` in package `dockerfw`. It imports only the standard library and `internal/platform/netfilter`, and reads no host state. Every exported identifier has a doc comment. Every other top-level identifier in it starts with `det`, so it cannot collide with another dockerfw task's unexported names.
+
+1. `Detection` exactly as Contracts "dockerfw detection" declares it.
+2. `Unsupported(d Detection) []string` appends these reasons in this order, each when its condition holds, and returns nil when none does. Strings are exact; `%q` means Go's quoted form:
+   1. Version. Read the leading `<major>.<minor>` of `d.Version`: digits, a dot, digits, whatever follows the minor (`.1`, `-rc.1`) is ignored. Not readable (including empty): `Docker version %q is not recognised`. Major below 28: `Docker <d.Version> is older than 28.0` with the version as given. A major of 28 or more passes whatever the minor.
+   2. `d.Driver` is not exactly `iptables`: `Docker's firewall backend is %q; only "iptables" is supported`.
+   3. `d.UFWVariant` is neither `nft` nor `legacy`: `UFW's iptables variant is not known`.
+   4. `d.DockerVariant`: `nft` or `legacy` and UFW's variant is known and different: `Docker's chains are in iptables-<docker variant> but UFW uses iptables-<ufw variant>`; `both`: `Docker's chains are in both iptables variants`; any other value, the empty string included: `Docker's chains DOCKER-USER and DOCKER-FORWARD are in neither iptables variant`.
+   5. `!d.RawProtection`: `Docker's raw-table protection of published ports is not loaded`.
+3. `DockerChains(filter *netfilter.Table) bool` is true when the table is not nil and declares both `DOCKER-USER` and `DOCKER-FORWARD`, with or without rules. A nil table, a table nft cannot show (`Incompatible` set) and a table with only one of the two are false.
+4. `RawProtected(raw *netfilter.Table, facts Facts) bool` reports whether the IPv4 raw table holds the protection Docker 28 and later loads for the running containers in `facts`. A nil table or one with `Incompatible` set is false. Otherwise it is true when every expectation below is met, so a host with no container to protect is true. A short comment on the function says why: an idle Docker loads no raw rule, so absence of rules proves nothing until a container exists. Every rule it looks for is in the `PREROUTING` chain, has target `DROP` and is not a jump.
+   - For every endpoint of every container that has an `Addr4`, unless the endpoint's network (looked up by name in `facts.Networks`) has `GatewayModeV4` `routed` or `nat-unprotected`: a rule with destination exactly `<Addr4>/32` (not negated), a negated in-interface equal to the endpoint's `Bridge`, no `-p` and no `-m` match. An endpoint of a network that `facts.Networks` does not list is held to this rule too. An endpoint with only `Addr6` expects nothing, because only the IPv4 table is read.
+   - For every published port whose `HostAddr` is an IPv4 loopback address: a rule with destination exactly `<HostAddr>/32` (not negated), negated in-interface `lo`, `-p <Proto>`, and the `-m <Proto>` match with a single non-negated `--dport <HostPort>`. A port on any other address, including `::1`, expects nothing.
+
+If `TestDtCaptures` fails for a capture, the capture is the oracle: report the image, scenario and the rule text it contradicts instead of loosening a check. If it fails only because `dtCaptureFacts` cannot decode Task 1's `containers.json` or `networks.json`, fix that helper in the test file (it reads only the fields it declares), not the capture.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `TMPDIR=/root/.cache/w2-tmp/12 GOTOOLCHAIN=local timeout 300 go test -count=1 -v ./internal/modules/firewall/dockerfw/ -run '^TestDt(Unsupported|DockerChains|RawProtected|Captures)$'`
+Expected: PASS for `TestDtUnsupported`, `TestDtDockerChains`, `TestDtRawProtected` and `TestDtCaptures` (sixteen subtests, one per image and scenario). Then the task gate:
+
+```bash
+export TMPDIR=/root/.cache/w2-tmp/12 GOTOOLCHAIN=local
+timeout 600 go build ./... && timeout 300 go vet ./...
+timeout 300 go test -race -count=1 ./internal/modules/firewall/dockerfw/
+timeout 1500 go test -count=1 ./...
+timeout 900 golangci-lint run --allow-serial-runners ./...
+timeout 300 go mod tidy -diff
+rm -rf /root/.cache/w2-tmp/12 && go clean -testcache
+```
+
+Expected: `go vet` and `go mod tidy -diff` print nothing, every `go test` line is `ok` or `?`, and golangci-lint prints `0 issues.`. Record the real output.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/modules/firewall/dockerfw/detect.go internal/modules/firewall/dockerfw/detect_test.go
+git commit -m "feat(firewall): detect supported Docker setups"
+```
+
+### Task 13: dockerfw: foreign forwards
+
+**Files:**
+- Create: `internal/modules/firewall/dockerfw/forward.go`
+- Test: `internal/modules/firewall/dockerfw/forward_test.go`
+
+**Interfaces:**
+- Consumes: Contracts "dockerfw settings and facts" (`Exemption`, `Network`); Contracts "Capture tree" (`capImages`, `capScenarios`, `capLoad`); `fwstate.Family`; `netfilter.Table` and `netfilter.Rule`.
+- Produces: Contracts "dockerfw detection": `ForeignDNAT`, `Propose`, `Covered` and `ExemptionConflicts`. Task 22 (health) and Task 34 (the `firewall.docker` resource) call them.
+
+**Items:** 7
+
+**Depends on:** Task 1, Task 2
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `internal/modules/firewall/dockerfw/forward_test.go` with exactly this content. `TestDtfCaptures` reads Task 1's committed captures through `capLoad`; the rest is hand-written save text.
 
 ```go
 package dockerfw
@@ -4901,7 +5022,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/platform/netfilter"
 )
 
-const dtNat = `*nat
+const dtfNat = `*nat
 :PREROUTING ACCEPT [0:0]
 :INPUT ACCEPT [0:0]
 :OUTPUT ACCEPT [0:0]
@@ -4927,8 +5048,22 @@ const dtNat = `*nat
 COMMIT
 `
 
-func TestDtForeignDNAT(t *testing.T) {
-	got := ForeignDNAT(dtTable(t, dtNat, "nat"))
+// dtfTable parses save text and returns the named table.
+func dtfTable(t *testing.T, save, name string) *netfilter.Table {
+	t.Helper()
+	rs, err := netfilter.Parse(strings.NewReader(save))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	tb := rs.Table(name)
+	if tb == nil {
+		t.Fatalf("no table %s in %q", name, save)
+	}
+	return tb
+}
+
+func TestDtfForeignDNAT(t *testing.T) {
+	got := ForeignDNAT(dtfTable(t, dtfNat, "nat"))
 	var texts []string
 	for _, r := range got {
 		texts = append(texts, r.Text)
@@ -4949,13 +5084,13 @@ func TestDtForeignDNAT(t *testing.T) {
 		}
 	})
 	t.Run("no PREROUTING chain", func(t *testing.T) {
-		tb := dtTable(t, "*nat\n:OUTPUT ACCEPT [0:0]\n-A OUTPUT -p tcp -j DNAT --to-destination 10.9.0.1\nCOMMIT\n", "nat")
+		tb := dtfTable(t, "*nat\n:OUTPUT ACCEPT [0:0]\n-A OUTPUT -p tcp -j DNAT --to-destination 10.9.0.1\nCOMMIT\n", "nat")
 		if got := ForeignDNAT(tb); len(got) != 0 {
 			t.Errorf("ForeignDNAT = %v", got)
 		}
 	})
 	t.Run("Docker's prefixed chains are Docker's", func(t *testing.T) {
-		tb := dtTable(t, "*nat\n:PREROUTING ACCEPT [0:0]\n:DOCKER-INGRESS - [0:0]\n-A PREROUTING -j DOCKER-INGRESS\n"+
+		tb := dtfTable(t, "*nat\n:PREROUTING ACCEPT [0:0]\n:DOCKER-INGRESS - [0:0]\n-A PREROUTING -j DOCKER-INGRESS\n"+
 			"-A DOCKER-INGRESS -p tcp -m tcp --dport 80 -j DNAT --to-destination 172.18.0.2:80\nCOMMIT\n", "nat")
 		if got := ForeignDNAT(tb); len(got) != 0 {
 			t.Errorf("ForeignDNAT = %v", got)
@@ -4963,19 +5098,19 @@ func TestDtForeignDNAT(t *testing.T) {
 	})
 }
 
-// dtRule parses one rule line of nat PREROUTING.
-func dtRule(t *testing.T, line string) netfilter.Rule {
+// dtfRule parses one rule line of nat PREROUTING.
+func dtfRule(t *testing.T, line string) netfilter.Rule {
 	t.Helper()
-	tb := dtTable(t, "*nat\n:PREROUTING ACCEPT [0:0]\n-A PREROUTING "+line+"\nCOMMIT\n", "nat")
+	tb := dtfTable(t, "*nat\n:PREROUTING ACCEPT [0:0]\n-A PREROUTING "+line+"\nCOMMIT\n", "nat")
 	return tb.Chain("PREROUTING").Rules[0]
 }
 
-func dtExemption(inIface, origDst string, origPort uint16, dst, proto string, port uint16) Exemption {
+func dtfExemption(inIface, origDst string, origPort uint16, dst, proto string, port uint16) Exemption {
 	return Exemption{InInterface: inIface, OrigDestination: netip.MustParseAddr(origDst), OrigPort: origPort,
 		Destination: netip.MustParseAddr(dst), Proto: proto, Port: port}
 }
 
-func TestDtPropose(t *testing.T) {
+func TestDtfPropose(t *testing.T) {
 	tests := []struct {
 		name string
 		fam  fwstate.Family
@@ -4985,28 +5120,28 @@ func TestDtPropose(t *testing.T) {
 	}{
 		{"a port forward", fwstate.V4,
 			"-d 192.0.2.10/32 -i eth0 -p tcp -m tcp --dport 80 -j DNAT --to-destination 10.9.0.5:8080",
-			dtExemption("eth0", "192.0.2.10", 80, "10.9.0.5", "tcp", 8080), true},
+			dtfExemption("eth0", "192.0.2.10", 80, "10.9.0.5", "tcp", 8080), true},
 		{"the translated port is the original one when the target names none", fwstate.V4,
 			`-d 192.0.2.13/32 -p tcp -m tcp --dport 25 -m comment --comment "mail" -j DNAT --to-destination 10.9.0.9`,
-			dtExemption("", "192.0.2.13", 25, "10.9.0.9", "tcp", 25), true},
+			dtfExemption("", "192.0.2.13", 25, "10.9.0.9", "tcp", 25), true},
 		{"a UDP forward of every port to one port", fwstate.V4,
 			"-d 192.0.2.11/32 -p udp -j DNAT --to-destination 10.9.0.7:5353",
-			dtExemption("", "192.0.2.11", 0, "10.9.0.7", "udp", 5353), true},
+			dtfExemption("", "192.0.2.11", 0, "10.9.0.7", "udp", 5353), true},
 		{"a forward of every port to every port", fwstate.V4,
 			"-d 192.0.2.11/32 -p tcp -j DNAT --to-destination 10.9.0.7",
-			dtExemption("", "192.0.2.11", 0, "10.9.0.7", "tcp", 0), true},
+			dtfExemption("", "192.0.2.11", 0, "10.9.0.7", "tcp", 0), true},
 		{"a source restriction does not change what the rule translates", fwstate.V4,
 			"-s 203.0.113.0/24 -d 192.0.2.10/32 -p tcp -m tcp --dport 80 -j DNAT --to-destination 10.9.0.5:80",
-			dtExemption("", "192.0.2.10", 80, "10.9.0.5", "tcp", 80), true},
+			dtfExemption("", "192.0.2.10", 80, "10.9.0.5", "tcp", 80), true},
 		{"an interface wildcard is kept as written", fwstate.V4,
 			"-d 192.0.2.10/32 -i eth+ -p tcp -m tcp --dport 80 -j DNAT --to-destination 10.9.0.5",
-			dtExemption("eth+", "192.0.2.10", 80, "10.9.0.5", "tcp", 80), true},
+			dtfExemption("eth+", "192.0.2.10", 80, "10.9.0.5", "tcp", 80), true},
 		{"an IPv6 forward", fwstate.V6,
 			"-d 2001:db8::10/128 -p tcp -m tcp --dport 443 -j DNAT --to-destination [fd00::5]:8443",
-			dtExemption("", "2001:db8::10", 443, "fd00::5", "tcp", 8443), true},
+			dtfExemption("", "2001:db8::10", 443, "fd00::5", "tcp", 8443), true},
 		{"an IPv6 forward without a target port", fwstate.V6,
 			"-d 2001:db8::10/128 -p tcp -m tcp --dport 443 -j DNAT --to-destination fd00::5",
-			dtExemption("", "2001:db8::10", 443, "fd00::5", "tcp", 443), true},
+			dtfExemption("", "2001:db8::10", 443, "fd00::5", "tcp", 443), true},
 		{"no destination address", fwstate.V4, "-p tcp -m tcp --dport 80 -j DNAT --to-destination 10.9.0.5:80", Exemption{}, false},
 		{"a destination network", fwstate.V4, "-d 192.0.2.0/24 -p tcp -m tcp --dport 80 -j DNAT --to-destination 10.9.0.5:80", Exemption{}, false},
 		{"a negated destination", fwstate.V4, "! -d 192.0.2.10/32 -p tcp -m tcp --dport 80 -j DNAT --to-destination 10.9.0.5:80", Exemption{}, false},
@@ -5025,7 +5160,7 @@ func TestDtPropose(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, ok := Propose(dtRule(t, tt.rule), tt.fam)
+			got, ok := Propose(dtfRule(t, tt.rule), tt.fam)
 			if ok != tt.ok || got != tt.want {
 				t.Errorf("Propose = %+v, %v; want %+v, %v", got, ok, tt.want, tt.ok)
 			}
@@ -5033,9 +5168,9 @@ func TestDtPropose(t *testing.T) {
 	}
 }
 
-func TestDtCovered(t *testing.T) {
+func TestDtfCovered(t *testing.T) {
 	const line = "-d 192.0.2.10/32 -i eth0 -p tcp -m tcp --dport 80 -j DNAT --to-destination 10.9.0.5:8080"
-	exact := dtExemption("eth0", "192.0.2.10", 80, "10.9.0.5", "tcp", 8080)
+	exact := dtfExemption("eth0", "192.0.2.10", 80, "10.9.0.5", "tcp", 8080)
 	with := func(edit func(e *Exemption)) Exemption {
 		e := exact
 		edit(&e)
@@ -5062,18 +5197,18 @@ func TestDtCovered(t *testing.T) {
 		{"a rule with no destination address is never covered", "-p tcp -m tcp --dport 80 -j DNAT --to-destination 10.9.0.5:8080",
 			[]Exemption{with(func(e *Exemption) { e.InInterface = "" })}, false},
 		{"an IPv6 rule", "-d 2001:db8::10/128 -p tcp -m tcp --dport 443 -j DNAT --to-destination [fd00::5]:8443",
-			[]Exemption{dtExemption("", "2001:db8::10", 443, "fd00::5", "tcp", 8443)}, true},
+			[]Exemption{dtfExemption("", "2001:db8::10", 443, "fd00::5", "tcp", 8443)}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := Covered(dtRule(t, tt.rule), tt.ex); got != tt.want {
+			if got := Covered(dtfRule(t, tt.rule), tt.ex); got != tt.want {
 				t.Errorf("Covered = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestDtExemptionConflicts(t *testing.T) {
+func TestDtfExemptionConflicts(t *testing.T) {
 	p := netip.MustParsePrefix
 	nets := []Network{
 		{Name: "bridge", Subnets: []netip.Prefix{p("172.17.0.0/16")}},
@@ -5081,10 +5216,10 @@ func TestDtExemptionConflicts(t *testing.T) {
 		{Name: "narrow", Subnets: []netip.Prefix{p("172.21.0.0/24")}},
 	}
 	ex := []Exemption{
-		dtExemption("", "192.0.2.10", 80, "10.9.0.5", "tcp", 80),
-		dtExemption("", "192.0.2.11", 80, "172.21.0.9", "tcp", 80),
-		dtExemption("", "2001:db8::10", 80, "fd00:dead::7", "tcp", 80),
-		dtExemption("", "192.0.2.12", 80, "172.17.0.3", "udp", 53),
+		dtfExemption("", "192.0.2.10", 80, "10.9.0.5", "tcp", 80),
+		dtfExemption("", "192.0.2.11", 80, "172.21.0.9", "tcp", 80),
+		dtfExemption("", "2001:db8::10", 80, "fd00:dead::7", "tcp", 80),
+		dtfExemption("", "192.0.2.12", 80, "172.17.0.3", "udp", 53),
 	}
 	want := []string{
 		"exemption 1: destination 172.21.0.9 lies in Docker network app (172.21.0.0/16)",
@@ -5102,59 +5237,81 @@ func TestDtExemptionConflicts(t *testing.T) {
 		t.Errorf("ExemptionConflicts(no networks) = %q", got)
 	}
 }
+
+// TestDtfCaptures holds ForeignDNAT to what Docker 29.9.1 left in the nat table
+// of the four images.
+func TestDtfCaptures(t *testing.T) {
+	for _, image := range capImages {
+		for _, scenario := range capScenarios {
+			t.Run(image+"/"+scenario, func(t *testing.T) {
+				v4 := capLoad(t, image, scenario)[fwstate.V4]
+				if v4 == nil {
+					t.Fatal("the capture has no IPv4 tables")
+				}
+				nat := v4.Table("nat")
+				if nat == nil {
+					t.Fatal("no nat table in the capture")
+				}
+				if got := ForeignDNAT(nat); len(got) != 0 {
+					t.Errorf("ForeignDNAT = %d rules on a host with only Docker's forwards: %q", len(got), got[0].Text)
+				}
+				if scenario != "base" {
+					return
+				}
+				// The control: the captured nat table does hold Docker's DNAT
+				// rules, so the check above proves something.
+				dnat := 0
+				for _, c := range nat.Chains {
+					for _, r := range c.Rules {
+						if r.Target.Name == "DNAT" {
+							dnat++
+						}
+					}
+				}
+				if dnat == 0 {
+					t.Error("the base capture's nat table holds no DNAT rule, so the ForeignDNAT check proves nothing")
+				}
+			})
+		}
+	}
+}
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w2-tmp/11 && TMPDIR=/root/.cache/w2-tmp/11 GOTOOLCHAIN=local timeout 300 go test -count=1 ./internal/modules/firewall/dockerfw/`
-Expected: FAIL with a build error naming the identifiers this task adds, the first being `undefined: Detection` (also `Unsupported`, `DockerChains`, `RawProtected`, `ForeignDNAT`, `Propose`, `Covered`, `ExemptionConflicts`). Any other build error (`Facts`, `capLoad`, `capFile`, `capImages`, `capScenarios` undefined) means Task 1 or Task 2 is missing from the base: stop and report it.
+Run: `mkdir -p /root/.cache/w2-tmp/13 && TMPDIR=/root/.cache/w2-tmp/13 GOTOOLCHAIN=local timeout 300 go test -count=1 ./internal/modules/firewall/dockerfw/`
+Expected: FAIL with a build error naming the identifiers this task adds, the first being `undefined: ForeignDNAT` (also `Propose`, `Covered`, `ExemptionConflicts`). Any other build error (`Exemption`, `Network`, `capLoad`, `capImages`, `capScenarios` undefined) means Task 1 or Task 2 is missing from the base: stop and report it.
 
 - [ ] **Step 3: Implement**
 
-Create the two files in package `dockerfw`. They import only the standard library, `internal/modules/firewall/fwstate` and `internal/platform/netfilter`, and read no host state. Every exported identifier has a doc comment. Every other top-level identifier in them starts with `det`, so it cannot collide with another dockerfw task's unexported names.
+Create `forward.go` in package `dockerfw`. It imports only the standard library, `internal/modules/firewall/fwstate` and `internal/platform/netfilter`, and reads no host state. Every exported identifier has a doc comment. Every other top-level identifier in it starts with `dtf`, so it cannot collide with another dockerfw task's unexported names.
 
-`detect.go`:
-
-1. `Detection` exactly as Contracts "dockerfw detection" declares it.
-2. `Unsupported(d Detection) []string` appends these reasons in this order, each when its condition holds, and returns nil when none does. Strings are exact; `%q` means Go's quoted form:
-   1. Version. Read the leading `<major>.<minor>` of `d.Version`: digits, a dot, digits, whatever follows the minor (`.1`, `-rc.1`) is ignored. Not readable (including empty): `Docker version %q is not recognised`. Major below 28: `Docker <d.Version> is older than 28.0` with the version as given. A major of 28 or more passes whatever the minor.
-   2. `d.Driver` is not exactly `iptables`: `Docker's firewall backend is %q; only "iptables" is supported`.
-   3. `d.UFWVariant` is neither `nft` nor `legacy`: `UFW's iptables variant is not known`.
-   4. `d.DockerVariant`: `nft` or `legacy` and UFW's variant is known and different: `Docker's chains are in iptables-<docker variant> but UFW uses iptables-<ufw variant>`; `both`: `Docker's chains are in both iptables variants`; any other value, the empty string included: `Docker's chains DOCKER-USER and DOCKER-FORWARD are in neither iptables variant`.
-   5. `!d.RawProtection`: `Docker's raw-table protection of published ports is not loaded`.
-3. `DockerChains(filter *netfilter.Table) bool` is true when the table is not nil and declares both `DOCKER-USER` and `DOCKER-FORWARD`, with or without rules. A nil table, a table nft cannot show (`Incompatible` set) and a table with only one of the two are false.
-4. `RawProtected(raw *netfilter.Table, facts Facts) bool` reports whether the IPv4 raw table holds the protection Docker 28 and later loads for the running containers in `facts`. A nil table or one with `Incompatible` set is false. Otherwise it is true when every expectation below is met, so a host with no container to protect is true. A short comment on the function says why: an idle Docker loads no raw rule, so absence of rules proves nothing until a container exists. Every rule it looks for is in the `PREROUTING` chain, has target `DROP` and is not a jump.
-   - For every endpoint of every container that has an `Addr4`, unless the endpoint's network (looked up by name in `facts.Networks`) has `GatewayModeV4` `routed` or `nat-unprotected`: a rule with destination exactly `<Addr4>/32` (not negated), a negated in-interface equal to the endpoint's `Bridge`, no `-p` and no `-m` match. An endpoint of a network that `facts.Networks` does not list is held to this rule too. An endpoint with only `Addr6` expects nothing, because only the IPv4 table is read.
-   - For every published port whose `HostAddr` is an IPv4 loopback address: a rule with destination exactly `<HostAddr>/32` (not negated), negated in-interface `lo`, `-p <Proto>`, and the `-m <Proto>` match with a single non-negated `--dport <HostPort>`. A port on any other address, including `::1`, expects nothing.
-
-`forward.go`:
-
-5. `ForeignDNAT(nat *netfilter.Table) []netfilter.Rule` returns every rule with target `DNAT` that is reachable from the `PREROUTING` chain and is not in one of Docker's chains, in walk order. Walk `PREROUTING`'s rules in order; at a jump rule, walk the target chain at that point unless the chain is Docker's (named `DOCKER` or starting `DOCKER-`) or was already walked (each chain is walked once, `PREROUTING` itself included, so a loop or a second jump to the same chain cannot repeat or hang). A rule with target `DNAT` is returned even when the parser keeps it opaque. Rules in chains no jump reaches, other targets such as `REDIRECT`, and the `OUTPUT` chain are not returned. A nil table or one without `PREROUTING` returns nil.
-6. `Propose(r netfilter.Rule, f fwstate.Family) (Exemption, bool)` turns a foreign DNAT rule into the exemption that names it exactly (spec 2.6), or reports false. It is false unless all of these hold:
+1. `ForeignDNAT(nat *netfilter.Table) []netfilter.Rule` returns every rule with target `DNAT` that is reachable from the `PREROUTING` chain and is not in one of Docker's chains, in walk order. Walk `PREROUTING`'s rules in order; at a jump rule, walk the target chain at that point unless the chain is Docker's (named `DOCKER` or starting `DOCKER-`) or was already walked (each chain is walked once, `PREROUTING` itself included, so a loop or a second jump to the same chain cannot repeat or hang). A rule with target `DNAT` is returned even when the parser keeps it opaque. Rules in chains no jump reaches, other targets such as `REDIRECT`, and the `OUTPUT` chain are not returned. A nil table or one without `PREROUTING` returns nil.
+2. `Propose(r netfilter.Rule, f fwstate.Family) (Exemption, bool)` turns a foreign DNAT rule into the exemption that names it exactly (spec 2.6), or reports false with the zero `Exemption`, whatever it had read so far. It is false unless all of these hold:
    - the target is `DNAT`, the rule is not opaque (`Rule.Opaque()`) and has no goto;
    - the rule's `-d` is present, not negated, a single address (a /32 or /128 prefix) of family `f`, and becomes `OrigDestination` (a rule with no destination address, or a network, has no `origDestination` to name, so it can never be covered and enabling the integration keeps refusing until the operator adds `-d`);
    - `-p` is present, not negated, and is `tcp` or `udp`, which becomes `Proto`;
    - `-i`, when present, is not negated and becomes `InInterface` as written (a wildcard such as `eth+` stays);
    - every `-m` module is `tcp`, `udp` (matching `-p`) or `comment`; the tcp or udp module carries at most `--dport`, not negated, one port with no range or list, which becomes `OrigPort`; a source restriction (`-s`) is ignored, since the exemption matches only connections this rule itself translated;
    - `--to-destination` is one address of family `f` (IPv4 `addr` or `addr:port`; IPv6 `addr` or `[addr]:port`), no range; it becomes `Destination`, and its port becomes `Port`; when it names no port, `Port` is the rule's `--dport` (0 when there is none), since DNAT keeps the original port.
-7. `Covered(r netfilter.Rule, ex []Exemption) bool` is false when `r.Dest` has no valid prefix (nothing to derive the family from) or `Propose` is false for it, using family IPv4 when the destination is IPv4 and IPv6 otherwise. Otherwise it is true when some exemption `e` matches the proposal `p` as follows: `e.OrigDestination`, `e.Destination` and `e.Proto` equal `p`'s, and each of `InInterface`, `OrigPort` and `Port` is either unset in `e` (empty, 0) or equal to `p`'s. An exemption that is broader than the rule covers it; a narrower one does not.
-8. `ExemptionConflicts(ex []Exemption, nets []Network) []string` returns, in exemption order, then network order, one string per (exemption, network) pair where some subnet of the network contains the exemption's `Destination`: `exemption <i>: destination <addr> lies in Docker network <name> (<subnet>)`, with `<i>` the exemption's zero-based index and `<subnet>` the first containing subnet of that network. Nil when nothing conflicts.
+3. `Covered(r netfilter.Rule, ex []Exemption) bool` is false when `r.Dest` has no valid prefix (nothing to derive the family from) or `Propose` is false for it, using family IPv4 when the destination is IPv4 and IPv6 otherwise. Otherwise it is true when some exemption `e` matches the proposal `p` as follows: `e.OrigDestination`, `e.Destination` and `e.Proto` equal `p`'s, and each of `InInterface`, `OrigPort` and `Port` is either unset in `e` (empty, 0) or equal to `p`'s. An exemption that is broader than the rule covers it; a narrower one does not.
+4. `ExemptionConflicts(ex []Exemption, nets []Network) []string` returns, in exemption order, then network order, one string per (exemption, network) pair where some subnet of the network contains the exemption's `Destination`: `exemption <i>: destination <addr> lies in Docker network <name> (<subnet>)`, with `<i>` the exemption's zero-based index and `<subnet>` the first containing subnet of that network. Nil when nothing conflicts.
 
-If `TestDtCaptures` fails for a capture, the capture is the oracle: report the image, scenario and the rule text it contradicts instead of loosening a check. If it fails only because `dtCaptureFacts` cannot decode Task 1's `containers.json` or `networks.json`, fix that helper in the test file (it reads only the fields it declares), not the capture.
+If `TestDtfCaptures` fails for a capture, the capture is the oracle: report the image, scenario and the rule text it contradicts instead of loosening a check.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `TMPDIR=/root/.cache/w2-tmp/11 GOTOOLCHAIN=local timeout 300 go test -count=1 -v ./internal/modules/firewall/dockerfw/ -run 'TestDt'`
-Expected: PASS for `TestDtUnsupported`, `TestDtDockerChains`, `TestDtRawProtected`, `TestDtCaptures` (sixteen subtests, one per image and scenario), `TestDtForeignDNAT`, `TestDtPropose`, `TestDtCovered` and `TestDtExemptionConflicts`. Then the task gate:
+Run: `TMPDIR=/root/.cache/w2-tmp/13 GOTOOLCHAIN=local timeout 300 go test -count=1 -v ./internal/modules/firewall/dockerfw/ -run '^TestDtf'`
+Expected: PASS for `TestDtfForeignDNAT`, `TestDtfPropose`, `TestDtfCovered`, `TestDtfExemptionConflicts` and `TestDtfCaptures` (sixteen subtests, one per image and scenario). Then the task gate:
 
 ```bash
-export TMPDIR=/root/.cache/w2-tmp/11 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w2-tmp/13 GOTOOLCHAIN=local
 timeout 600 go build ./... && timeout 300 go vet ./...
 timeout 300 go test -race -count=1 ./internal/modules/firewall/dockerfw/
 timeout 1500 go test -count=1 ./...
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w2-tmp/11 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/13 && go clean -testcache
 ```
 
 Expected: `go vet` and `go mod tidy -diff` print nothing, every `go test` line is `ok` or `?`, and golangci-lint prints `0 issues.`. Record the real output.
@@ -5162,11 +5319,11 @@ Expected: `go vet` and `go mod tidy -diff` print nothing, every `go test` line i
 - [ ] **Step 5: Commit**
 
 ```bash
-git add internal/modules/firewall/dockerfw/detect.go internal/modules/firewall/dockerfw/forward.go internal/modules/firewall/dockerfw/detect_test.go internal/modules/firewall/dockerfw/forward_test.go
-git commit -m "feat(firewall): detect Docker and foreign forwards"
+git add internal/modules/firewall/dockerfw/forward.go internal/modules/firewall/dockerfw/forward_test.go
+git commit -m "feat(firewall): propose exemptions for forwards"
 ```
 
-### Task 12: Docker client seam and fakes
+### Task 14: Docker client seam and fakes
 
 **Files:**
 - Modify: `internal/modules/firewall/deps.go` (the two interfaces and six `deps` fields)
@@ -5177,9 +5334,11 @@ git commit -m "feat(firewall): detect Docker and foreign forwards"
 
 **Interfaces:**
 - Consumes: Contracts "loaded variant read (Task 3)": `loaded.Reader.ReadVariant`. Wave 1's `wrSameFunc` (`wire_test.go`), `fakeHost`, `newFakeHost`, `fhParse`, `fhSave` (`host_test.go`). `dockerapi.Client`, `dockerapi.Event`, `dockerapi.SystemInfo`, `dockerapi.VersionInfo`, `dockerapi.ContainerJSON`, `dockerapi.ContainerSummary`, `dockerapi.Network`, `dockerapi.APIError`, `dockerapi.ErrUnavailable`; `netstat.Sockets`, `netstat.Interfaces`, `netstat.RouteGet`, `netstat.ErrNoRoute`; `tslocal.Client.Prefs`, `tslocal.ErrUnavailable`.
-- Produces: Contracts "Docker client seam (Task 12)" exactly: the interfaces `dockerEvents` and `dockerAPI`, the `deps` fields `docker`, `readVariant`, `sockets`, `interfaces`, `routeGet`, `shieldsUp`, `productionFW` setting them, and the test helpers `fakeDocker`, `newFakeDocker`, `fdContainer`, `fdNetwork`, `fdDeps`. Also, used only inside this task: `dockerClient`, `newDockerClient(socket string) dockerAPI`, `shieldsUpVia`, `fdEvents`, `fdHexID`. The fake's observable behaviour that later tasks' tests rely on is fixed in Step 3 (call log format, which containers a list holds, how an inspect finds one, the `fakeHost` hook fields).
+- Produces: Contracts "Docker client seam (Task 14)" exactly: the interfaces `dockerEvents` and `dockerAPI`, the `deps` fields `docker`, `readVariant`, `sockets`, `interfaces`, `routeGet`, `shieldsUp`, `productionFW` setting them, and the test helpers `fakeDocker`, `newFakeDocker`, `fdContainer`, `fdNetwork`, `fdDeps`. Also, used only inside this task: `dockerClient`, `newDockerClient(socket string) dockerAPI`, `shieldsUpVia`, `fdEvents`, `fdHexID`. The fake's observable behaviour that later tasks' tests rely on is fixed in Step 3 (call log format, which containers a list holds, how an inspect finds one, the `fakeHost` hook fields).
 
 **Depends on:** Task 3
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 1 = 6
 
 - [ ] **Step 1: Write the failing test**
 
@@ -5565,7 +5724,7 @@ func TestFdDockerClient(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w2-tmp/12 && export TMPDIR=/root/.cache/w2-tmp/12 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestFd' ./internal/modules/firewall/`
+Run: `mkdir -p /root/.cache/w2-tmp/14 && export TMPDIR=/root/.cache/w2-tmp/14 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestFd' ./internal/modules/firewall/`
 Expected: FAIL to build, the first error `docker_seam_test.go:25:7: undefined: dockerAPI`, followed by `undefined: fakeDocker` and `undefined: newFakeDocker`. (`loaded.Reader.ReadVariant` exists only once Task 3 is merged; the base of this task has it.)
 
 - [ ] **Step 3: Implement**
@@ -5587,14 +5746,14 @@ Expected: FAIL to build, the first error `docker_seam_test.go:25:7: undefined: d
    - `fdHexID(seed string) string` is the lower-case hex of the SHA-256 of `seed` (64 digits).
    - `fdContainer(name, opts...)` returns a running container: `ID` `fdHexID("container:" + name)`, `Name` `"/" + name`, `State` `{Status: "running", Running: true}`, `Config.Image` `busybox`, and empty non-nil `Config.Labels`, `NetworkSettings.Ports` and `NetworkSettings.Networks` maps, so an option assigns into them directly. It has no endpoint. Each option is applied in order to the container before it is returned.
    - `fdNetwork(name, bridge string, subnets ...string)` returns a network with `ID` `fdHexID("network:" + name)`, `Name`, `Scope` `local`, `Driver` `bridge`, empty non-nil `Options` and `Labels`, `Options["com.docker.network.bridge.name"]` set to `bridge` only when `bridge` is not empty (empty leaves Docker's `br-<first 12 digits of the id>` naming to the reader), and one `IPAM.Config` entry per subnet in order (`Subnet` parsed with `netip.MustParsePrefix`, `Gateway` the first address after the subnet's network address); `EnableIPv6` is true when any subnet is IPv6.
-   - `fdDeps(h *fakeHost, d *fakeDocker) deps` starts from `h.deps()`, sets `docker` to `d` when `d` is not nil (a nil `d` leaves `docker` a nil interface), and sets `readVariant`, `sockets`, `interfaces`, `routeGet` and `shieldsUp` to closures that call the matching `h.on…` hook when it is set at call time. With the hook nil they return, in order: `nil, nil`; `nil, nil`; `nil, nil`; `netstat.Route{}, netstat.ErrNoRoute`; `false, false, nil`. It does not set any field Task 25 adds.
+   - `fdDeps(h *fakeHost, d *fakeDocker) deps` starts from `h.deps()`, sets `docker` to `d` when `d` is not nil (a nil `d` leaves `docker` a nil interface), and sets `readVariant`, `sockets`, `interfaces`, `routeGet` and `shieldsUp` to closures that call the matching `h.on…` hook when it is set at call time. With the hook nil they return, in order: `nil, nil`; `nil, nil`; `nil, nil`; `netstat.Route{}, netstat.ErrNoRoute`; `false, false, nil`. It does not set any field Task 27 adds.
 5. Nothing else changes: no production behaviour reads these fields yet.
 
 - [ ] **Step 4: Run test to verify it passes, then the task's checks**
 
 Run:
 ```
-export TMPDIR=/root/.cache/w2-tmp/12 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w2-tmp/14 GOTOOLCHAIN=local
 timeout 300 go test -count=1 -race -run 'TestFd|TestProductionFW' -v ./internal/modules/firewall/
 timeout 300 go build ./...
 timeout 300 go vet ./...
@@ -5602,7 +5761,7 @@ timeout 1500 go test -count=1 ./...
 timeout 900 go test -race -count=1 ./internal/modules/firewall/
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w2-tmp/12 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/14 && go clean -testcache
 ```
 Expected: the first command prints `PASS` for every `TestFd…` test and `TestProductionFW`; `go build` and `go vet` print nothing; every `go test` line is `ok` or `?`; `golangci-lint` prints `0 issues.`; `go mod tidy -diff` prints nothing. Record the real output.
 
@@ -5613,17 +5772,19 @@ git add internal/modules/firewall/deps.go internal/modules/firewall/wire.go inte
 git commit -m "feat(firewall): add the Docker client seam"
 ```
 
-### Task 13: web: private sources and forward exemptions editor
+### Task 15: web: private sources and forward exemptions editor
 
 **Files:**
 - Create: `web/src/modules/firewall/docker-sources.tsx`
 - Test: `web/src/modules/firewall/docker-sources.test.tsx`
 
 **Interfaces:**
-- Consumes: Contracts "Web (Tasks 6, 7, 13, 14, 17, 27)": `DockerStatus`, `Exemption` (its optional fields `inInterface`, `origPort` and `port`) and `DockerSettings` from `types.ts`, `fwDocker` from `fixtures.ts`, and `FirewallChange` (props `hostId`, `action`, `title`, `input`, `onClose`). Contracts "Shapes the web and the schemas read": the input of `firewall.docker.set-sources` (`DockerSourcesInput`: `privateSources` and `forwardExemptions`, each omitted to keep it), `Exemption`'s JSON and `DockerStatus.settings` and `.foreignForwards`.
-- Produces: `DockerSources({hostId, docker}: {hostId: string; docker: DockerStatus})` exported from `docker-sources.tsx`, as Contracts "Web" names it. It renders no page chrome of its own beyond two cards and the change dialog; Task 27's `DockerPanel` renders it.
+- Consumes: Contracts "Web (Tasks 7, 8, 15, 16, 19, 29)": `DockerStatus`, `Exemption` (its optional fields `inInterface`, `origPort` and `port`) and `DockerSettings` from `types.ts`, `fwDocker` from `fixtures.ts`, and `FirewallChange` (props `hostId`, `action`, `title`, `input`, `onClose`). Contracts "Shapes the web and the schemas read": the input of `firewall.docker.set-sources` (`DockerSourcesInput`: `privateSources` and `forwardExemptions`, each omitted to keep it), `Exemption`'s JSON and `DockerStatus.settings` and `.foreignForwards`.
+- Produces: `DockerSources({hostId, docker}: {hostId: string; docker: DockerStatus})` exported from `docker-sources.tsx`, as Contracts "Web" names it. It renders no page chrome of its own beyond two cards and the change dialog; Task 29's `DockerPanel` renders it.
 
-**Depends on:** Task 6
+**Depends on:** Task 7
+**Implementer:** dforge:impl-sonnet-medium
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 0 = 4
 
 - [ ] **Step 1: Write the failing test**
 
@@ -5803,7 +5964,7 @@ test("the sources editor has no accessibility violations", async () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `export TMPDIR=/root/.cache/w2-tmp/13 GOTOOLCHAIN=local && mkdir -p $TMPDIR && timeout 600 make web-deps && timeout 300 pnpm -C web exec vitest run src/modules/firewall/docker-sources.test.tsx`
+Run: `export TMPDIR=/root/.cache/w2-tmp/15 GOTOOLCHAIN=local && mkdir -p $TMPDIR && timeout 600 make web-deps && timeout 300 pnpm -C web exec vitest run src/modules/firewall/docker-sources.test.tsx`
 Expected: FAIL, `Failed to resolve import "./docker-sources" from "src/modules/firewall/docker-sources.test.tsx"`.
 
 - [ ] **Step 3: Implement**
@@ -5817,13 +5978,13 @@ Expected: FAIL, `Failed to resolve import "./docker-sources" from "src/modules/f
    - When `foreignForwards` is not empty, a second table with the same columns and `aria-label="Proposed forward exemptions"`, each row with a button "Add" whose `aria-label` is `Add proposed exemption <n>`. It plans title `Add a forward exemption` with input `{forwardExemptions: <the current list followed by that proposal>}`. With none, no such table exists. Both tables are one component taking the label, the rows and a render function for the actions cell.
    - A `<form aria-label="Add forward exemption">` with text fields labelled exactly `In interface (optional)`, `Original destination`, `Original port (optional)`, `Destination` and `Destination port (optional)`, a protocol radio group (legend and group label "Protocol", options `tcp` and `udp`, default `tcp`, each option's `Label` tied to its radio) and a submit button "Add exemption". On submit: when the trimmed original destination or destination is empty, show `Enter the original destination and the destination.` and plan nothing; otherwise a port field that is not empty and is not a whole number from 1 to 65535 (digits only, so `80a` and `0` and `70000` all fail) shows `Ports are whole numbers from 1 to 65535.` and plans nothing. The message is a `<p role="alert">` inside the form, shown only while it is set and cleared by a valid submit. A valid submit plans title `Add a forward exemption` with input `{forwardExemptions: <the current list followed by the new exemption>}`; the new exemption has the trimmed `origDestination` and `destination` and `proto`, and `inInterface` (trimmed), `origPort` and `port` (numbers) only when their fields are not empty. No address-format check: the action validates.
 4. One `FirewallChange` at the end with `action="firewall.docker.set-sources"`, the pending title (empty when none) and the pending input (`null` when none). Its `onClose` clears the pending change, the private-sources draft and the add form's draft.
-5. Do not edit `types.ts`, `fixtures.ts`, `firewall-page.tsx` or any other file: Task 27 places the component.
+5. Do not edit `types.ts`, `fixtures.ts`, `firewall-page.tsx` or any other file: Task 29 places the component.
 
 - [ ] **Step 4: Run test to verify it passes, then the task's checks**
 
 Run:
 ```
-export TMPDIR=/root/.cache/w2-tmp/13 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w2-tmp/15 GOTOOLCHAIN=local
 timeout 300 pnpm -C web exec vitest run src/modules/firewall/docker-sources.test.tsx
 timeout 300 pnpm -C web lint
 timeout 300 pnpm -C web typecheck
@@ -5833,7 +5994,7 @@ timeout 300 go vet ./...
 timeout 1500 go test -count=1 ./...
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w2-tmp/13 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/15 && go clean -testcache
 ```
 Expected: the first command reports `Tests  15 passed (15)`; lint and typecheck print no errors; the whole web suite passes; `go build` and `go vet` print nothing; every `go test` line is `ok` or `?`; `golangci-lint` prints `0 issues.`; `go mod tidy -diff` prints nothing. Record the real output.
 
@@ -5844,7 +6005,7 @@ git add web/src/modules/firewall/docker-sources.tsx web/src/modules/firewall/doc
 git commit -m "feat(web): edit private sources and exemptions"
 ```
 
-### Task 14: web: exposure page
+### Task 16: web: exposure page
 
 **Files:**
 - Create: `web/src/modules/firewall/exposure-page.tsx`
@@ -5852,12 +6013,14 @@ git commit -m "feat(web): edit private sources and exemptions"
 - Test: `web/src/modules/firewall/exposure-page.test.tsx`
 
 **Interfaces:**
-- Consumes: Contracts "Web" and "Shapes the web and the schemas read": from `types.ts` (Task 6) `ExposureView`, `ExposureRow`, `ExposureVerdict`, `ExposureAllowed` and `exposureQueryKey(hostId)`; from `fixtures.ts` (Task 6) `fwExposure` and the existing `fwStatus`; the existing `FIREWALL_MODULE`, `readResource` and `errorMessage` (`@/api/client`). The page reads the `firewall.exposure` resource, whose JSON is `ExposureView` (rows of `proto`, `addr`, `port`, `family` `v4|v6`, optional `process`, optional `container` `{name, binding, containerPort, proxied}`, and `classes`: one `ExposureVerdict` `{class, range?, verdict, decidedBy?, allowed?, note?}` per source class, in the server's order).
-- Produces: `ExposurePage()` (Contracts "Web": no props, reads `hostId` from the route params) exported from `exposure-page.tsx`, and the route `exposure` in the firewall module's `routes.tsx`, which resolves to `/hosts/:hostId/firewall/exposure`. Task 27 links to it from the firewall page; this task adds no link.
+- Consumes: Contracts "Web" and "Shapes the web and the schemas read": from `types.ts` (Task 7) `ExposureView`, `ExposureRow`, `ExposureVerdict`, `ExposureAllowed` and `exposureQueryKey(hostId)`; from `fixtures.ts` (Task 7) `fwExposure` and the existing `fwStatus`; the existing `FIREWALL_MODULE`, `readResource` and `errorMessage` (`@/api/client`). The page reads the `firewall.exposure` resource, whose JSON is `ExposureView` (rows of `proto`, `addr`, `port`, `family` `v4|v6`, optional `process`, optional `container` `{name, binding, containerPort, proxied}`, and `classes`: one `ExposureVerdict` `{class, range?, verdict, decidedBy?, allowed?, note?}` per source class, in the server's order).
+- Produces: `ExposurePage()` (Contracts "Web": no props, reads `hostId` from the route params) exported from `exposure-page.tsx`, and the route `exposure` in the firewall module's `routes.tsx`, which resolves to `/hosts/:hostId/firewall/exposure`. Task 29 links to it from the firewall page; this task adds no link.
 
 **Items:** 12
 
-**Depends on:** Task 6
+**Depends on:** Task 7
+**Implementer:** dforge:impl-sonnet-medium
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 0 = 4
 
 The page is read-only: it opens no change dialog. Every test identifier in the test file starts with `ep`, the prefix of the file.
 
@@ -6048,7 +6211,7 @@ test("the exposure table has no accessibility violations", async () => {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w2-tmp/14 && TMPDIR=/root/.cache/w2-tmp/14 GOTOOLCHAIN=local timeout 300 pnpm -C web exec vitest run src/modules/firewall/exposure-page.test.tsx`
+Run: `mkdir -p /root/.cache/w2-tmp/16 && TMPDIR=/root/.cache/w2-tmp/16 GOTOOLCHAIN=local timeout 300 pnpm -C web exec vitest run src/modules/firewall/exposure-page.test.tsx`
 Expected: FAIL, all 9 tests, each with `Unable to find role="table" and name "Exposure"` (or, for the error and empty-state tests, the matching missing alert or text): the firewall routes have no `exposure` page, so they answer "Page not found".
 
 - [ ] **Step 3: Implement**
@@ -6064,13 +6227,13 @@ Expected: FAIL, all 9 tests, each with `Unable to find role="table" and name "Ex
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `TMPDIR=/root/.cache/w2-tmp/14 GOTOOLCHAIN=local timeout 300 pnpm -C web exec vitest run src/modules/firewall/exposure-page.test.tsx`
+Run: `TMPDIR=/root/.cache/w2-tmp/16 GOTOOLCHAIN=local timeout 300 pnpm -C web exec vitest run src/modules/firewall/exposure-page.test.tsx`
 Expected: PASS, 9 tests.
 
 Then run the task's gates, each with its real output recorded:
 
 ```bash
-export TMPDIR=/root/.cache/w2-tmp/14 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w2-tmp/16 GOTOOLCHAIN=local
 mkdir -p "$TMPDIR"
 timeout 600 pnpm -C web lint
 timeout 600 pnpm -C web typecheck
@@ -6082,7 +6245,7 @@ timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
 ```
 
-Expected: `pnpm` lint prints no warning, typecheck prints no error, every web test file passes, the Go commands pass as the Global Constraints say (`go vet` and `go mod tidy -diff` print nothing, `golangci-lint` prints `0 issues.`). Then `rm -rf /root/.cache/w2-tmp/14 && GOTOOLCHAIN=local go clean -testcache`.
+Expected: `pnpm` lint prints no warning, typecheck prints no error, every web test file passes, the Go commands pass as the Global Constraints say (`go vet` and `go mod tidy -diff` print nothing, `golangci-lint` prints `0 issues.`). Then `rm -rf /root/.cache/w2-tmp/16 && GOTOOLCHAIN=local go clean -testcache`.
 
 - [ ] **Step 5: Commit**
 
@@ -6091,19 +6254,21 @@ git add web/src/modules/firewall/exposure-page.tsx web/src/modules/firewall/expo
 git commit -m "feat(web): add the firewall exposure page"
 ```
 
-### Task 15: dockerfw: render the block and its markers
+### Task 17: dockerfw: render the block and its markers
 
 **Files:**
 - Create: `internal/modules/firewall/dockerfw/block.go`
 - Test: `internal/modules/firewall/dockerfw/block_test.go`
 
 **Interfaces:**
-- Consumes: Contracts "dockerfw settings and facts" (Task 2): `Settings`, `Exemption`, `DefaultSettings`, `Exemption.Family`; `fwstate.Family` (`fwstate.V4`, `fwstate.V6`); `netfilter.ParseRestore`, `netfilter.Key`, `netfilter.Ruleset`, `netfilter.Chain`, `netfilter.Rule`. Task 9's binding chain names (`dp-b-<12 hex digits>`) arrive as plain strings in `BindingLine.Chain` and `BindingChain.Name`; this task does not import Task 9's types.
-- Produces: Contracts "dockerfw block": `ChainDockerUser`, `ChainBindings`, `ChainDeny`, `BlockID`, `LogPrefix`, `BindingLine`, `BindingChain`, `BlockInput`, `Render`, `WithBlock`, `WithoutBlock`, `BlockOf`, `Owned`, `BlockRules`, `Foreign`, with the exact signatures given there. It also declares, for the test files of Tasks 19, 20 and 21, the shared test helper `bkRuleset(t *testing.T, text []byte) *netfilter.Ruleset`, which parses restore text with `netfilter.ParseRestore` and fails the test on an error.
+- Consumes: Contracts "dockerfw settings and facts" (Task 2): `Settings`, `Exemption`, `DefaultSettings`, `Exemption.Family`; `fwstate.Family` (`fwstate.V4`, `fwstate.V6`); `netfilter.ParseRestore`, `netfilter.Key`, `netfilter.Ruleset`, `netfilter.Chain`, `netfilter.Rule`. Task 10's binding chain names (`dp-b-<12 hex digits>`) arrive as plain strings in `BindingLine.Chain` and `BindingChain.Name`; this task does not import Task 10's types.
+- Produces: Contracts "dockerfw block": `ChainDockerUser`, `ChainBindings`, `ChainDeny`, `BlockID`, `LogPrefix`, `BindingLine`, `BindingChain`, `BlockInput`, `Render`, `WithBlock`, `WithoutBlock`, `BlockOf`, `Owned`, `BlockRules`, `Foreign`, with the exact signatures given there. It also declares, for the test files of Tasks 21, 22 and 23, the shared test helper `bkRuleset(t *testing.T, text []byte) *netfilter.Ruleset`, which parses restore text with `netfilter.ParseRestore` and fails the test on an error.
 
 **Items:** 8
 
-**Depends on:** Task 9
+**Depends on:** Task 10
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
 
 The package comment lives in `settings.go` (Task 2); this task adds none. The package may import only what Contracts "dockerfw settings and facts" lists, so the marker scan is written here and does not import `internal/platform`. Every unexported top-level identifier this task adds in `block.go` starts with `block`, so it cannot meet another task's name in the package.
 
@@ -6600,7 +6765,7 @@ func TestBkForeign(t *testing.T) {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w2-tmp/15 && TMPDIR=/root/.cache/w2-tmp/15 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestBk' ./internal/modules/firewall/dockerfw/`
+Run: `mkdir -p /root/.cache/w2-tmp/17 && TMPDIR=/root/.cache/w2-tmp/17 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestBk' ./internal/modules/firewall/dockerfw/`
 Expected: FAIL to build, `undefined: BlockInput` (the first identifier `block_test.go` uses that does not exist yet).
 
 - [ ] **Step 3: Implement**
@@ -6623,13 +6788,13 @@ Create `block.go` with the constants and types of Contracts "dockerfw block" (a 
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `TMPDIR=/root/.cache/w2-tmp/15 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestBk' -v ./internal/modules/firewall/dockerfw/`
+Run: `TMPDIR=/root/.cache/w2-tmp/17 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestBk' -v ./internal/modules/firewall/dockerfw/`
 Expected: PASS for `TestBkRender`, `TestBkRenderChainFamilies`, `TestBkRenderParses`, `TestBkBlockRules`, `TestBkWithBlock`, `TestBkWithBlockIsIdempotent`, `TestBkWithoutBlock`, `TestBkBlockOf`, `TestBkWithoutBlockUndoesWithBlock`, `TestBkOwned` and `TestBkForeign`.
 
 Then run the task's gates, each with its real output recorded:
 
 ```bash
-export TMPDIR=/root/.cache/w2-tmp/15 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w2-tmp/17 GOTOOLCHAIN=local
 mkdir -p "$TMPDIR"
 timeout 600 go build ./...
 timeout 300 go vet ./...
@@ -6639,7 +6804,7 @@ timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
 ```
 
-Expected: every `go test` line `ok` or `?`, `go vet` and `go mod tidy -diff` print nothing, `golangci-lint` prints `0 issues.`. Then `rm -rf /root/.cache/w2-tmp/15 && GOTOOLCHAIN=local go clean -testcache`.
+Expected: every `go test` line `ok` or `?`, `go vet` and `go mod tidy -diff` print nothing, `golangci-lint` prints `0 issues.`. Then `rm -rf /root/.cache/w2-tmp/17 && GOTOOLCHAIN=local go clean -testcache`.
 
 - [ ] **Step 5: Commit**
 
@@ -6648,7 +6813,7 @@ git add internal/modules/firewall/dockerfw/block.go internal/modules/firewall/do
 git commit -m "feat(firewall): render the Docker block"
 ```
 
-### Task 16: Predict block files, rows and the cleanup
+### Task 18: Predict block files, rows and the cleanup
 
 **Files:**
 - Modify: `internal/modules/firewall/target.go` (`change`, `predictTarget`, two new unexported helpers `overlayBlockFiles` and `predictChainCleanup`)
@@ -6656,11 +6821,13 @@ git commit -m "feat(firewall): render the Docker block"
 
 **Interfaces:**
 - Consumes: Contracts "dockerfw settings and facts" (`dockerfw.Settings`) and "dockerfw bindings and rules" (`dockerfw.ContainerRule`) as the types of two new `change` fields; wave 1's `fwstate.Config.Files` (`core.RestoreEntry` by absolute path), `fwstate.Loaded`, `netfilter.ParseRestore`, `chainOf` (`image.go`) and the test helpers `newTGHost`, `tgHost`, `tgRunning`, `tgStopped`, `tgCmds`, `yes`, `no`, `fhParse` (`target_test.go`, `host_test.go`).
-- Produces: Contracts "change and target": the `change` fields `files`, `flag`, `sources`, `rowsAdd`, `rowsDel`, `cleanup`, `reload`, and `predictTarget`'s handling of `files`, `reload` and `cleanup`. Tasks 30 and 36 read the fields; `flag`, `sources`, `rowsAdd` and `rowsDel` are stored by Task 36 and never change the predicted loaded state.
+- Produces: Contracts "change and target": the `change` fields `files`, `flag`, `sources`, `rowsAdd`, `rowsDel`, `cleanup`, `reload`, and `predictTarget`'s handling of `files`, `reload` and `cleanup`. Tasks 32 and 38 read the fields; `flag`, `sources`, `rowsAdd` and `rowsDel` are stored by Task 38 and never change the predicted loaded state.
 
 **Items:** 8
 
-**Depends on:** Task 9
+**Depends on:** Task 10
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 - [ ] **Step 1: Write the failing test**
 
@@ -6965,7 +7132,7 @@ func TestDtgCleanup(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-mkdir -p /root/.cache/w2-tmp/16 && export TMPDIR=/root/.cache/w2-tmp/16 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w2-tmp/18 && export TMPDIR=/root/.cache/w2-tmp/18 GOTOOLCHAIN=local
 timeout 300 go test -count=1 -run 'TestDtg' ./internal/modules/firewall/
 ```
 
@@ -6975,7 +7142,7 @@ Expected: FAIL at build, `unknown field files in struct literal of type change` 
 
 All changes are in `internal/modules/firewall/target.go`.
 
-1. Add to the `change` struct, below its existing fields, the seven fields of Contracts "change and target" with their types and the comments given there: `files map[string][]byte`, `flag *bool`, `sources *dockerfw.Settings`, `rowsAdd []dockerfw.ContainerRule`, `rowsDel []string`, `cleanup bool`, `reload bool`. Import `internal/modules/firewall/dockerfw` and `internal/platform/netfilter`. Only `files`, `cleanup` and `reload` are read here; `flag`, `sources`, `rowsAdd` and `rowsDel` change no loaded state and `predictTarget` ignores them (they are applied by Task 36's `fw.run`).
+1. Add to the `change` struct, below its existing fields, the seven fields of Contracts "change and target" with their types and the comments given there: `files map[string][]byte`, `flag *bool`, `sources *dockerfw.Settings`, `rowsAdd []dockerfw.ContainerRule`, `rowsDel []string`, `cleanup bool`, `reload bool`. Import `internal/modules/firewall/dockerfw` and `internal/platform/netfilter`. Only `files`, `cleanup` and `reload` are read here; `flag`, `sources`, `rowsAdd` and `rowsDel` change no loaded state and `predictTarget` ignores them (they are applied by Task 38's `fw.run`).
 2. `overlayBlockFiles(cfg fwstate.Config, files map[string][]byte) (fwstate.Config, error)` returns a copy of `cfg` whose `Files` map is a clone with each given path's `core.RestoreEntry.Data` replaced; `Present`, `Mode`, `UID` and `GID` stay as they were, as `predict.Edit`'s own writes keep them. It never changes the map or entries of `cfg` it was given. Walk the paths in sorted order so an error is deterministic. A path other than `/etc/ufw/after.rules` and `/etc/ufw/after6.rules` is a plain error `firewall: <path> is not a file a Docker change writes`; a path whose entry is absent or has `Present` false is a plain error `firewall: <path> is missing`. Neither is an `*errcode.Error`.
 3. `predictChainCleanup(cur fwstate.Loaded) fwstate.Loaded` returns a copy of `cur` (all other fields as they are) whose `V4` and `V6` are cleaned independently; a nil family stays nil, and a ruleset with no `filter` table is returned unchanged. In the `filter` table it drops every chain whose name starts with `darkpanel-` or `dp-b-`, gives `DOCKER-USER` exactly one rule, a bare `-j RETURN`, and appends `DOCKER-USER` holding that rule when the chain is not loaded, as the cleanup's restore input declares it (Contracts "dockerfw restore inputs"). Build the rule by parsing the fixed text `*filter\n:DOCKER-USER - [0:0]\n-A DOCKER-USER -j RETURN\nCOMMIT\n` with `netfilter.ParseRestore` and taking that chain's rule, so its `Text` and fields are what a real parse gives. Other tables, other chains and every built-in chain's policy and rules stay as they are. The copy must not share a modified slice with `cur`: clone the table list, the filter table's chain list and the replaced chain's rule list; leave untouched tables shared.
 4. In `predictTarget`:
@@ -6987,7 +7154,7 @@ All changes are in `internal/modules/firewall/target.go`.
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-export TMPDIR=/root/.cache/w2-tmp/16 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w2-tmp/18 GOTOOLCHAIN=local
 timeout 300 go test -count=1 -run 'TestDtg|TestTarget|TestSnapshotConfig' -v ./internal/modules/firewall/
 ```
 
@@ -6996,14 +7163,14 @@ Expected: PASS for every `TestDtg*` test and for the existing `TestTarget*` and 
 Then the task's gates, each with its real output recorded:
 
 ```bash
-export TMPDIR=/root/.cache/w2-tmp/16 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w2-tmp/18 GOTOOLCHAIN=local
 timeout 600 go build ./...
 timeout 300 go vet ./...
 timeout 900 go test -count=1 ./...
 timeout 900 go test -race -count=1 ./internal/modules/firewall/
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w2-tmp/16 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/18 && go clean -testcache
 ```
 
 Expected: no build or vet output, every test line `ok` or `?`, `0 issues.`, and no `go mod tidy -diff` output.
@@ -7015,23 +7182,25 @@ git add internal/modules/firewall/target.go internal/modules/firewall/target_doc
 git commit -m "feat(firewall): predict block files and cleanup"
 ```
 
-### Task 17: web: container Allow and Deny actions
+### Task 19: web: container Allow and Deny actions
 
 **Files:**
 - Modify: `web/src/modules/firewall/container-actions.tsx` (replace the two stubs that return `null`)
 - Test: `web/src/modules/firewall/container-actions.test.tsx` (create)
 
 **Interfaces:**
-- Consumes: Contracts "Web": `DockerStatus`, `DockerBinding`, `Binding`, `dockerQueryKey(hostId)` and the fixtures `fwDocker`, `fwBinding` (Task 6, `types.ts` and `fixtures.ts`); `FirewallChange` (`firewall-change.tsx`, props unchanged by Task 7); `FIREWALL_MODULE` (`types.ts`); `readResource` and `errorMessage` (`@/api/client`); `ContainerRef` (`web/src/modules/types.ts`, fields `hostId`, `containerId`, `name`, `composeService?`, `ports`). Contracts "Shapes the web and the schemas read": the JSON of `DockerStatus` and the inputs `ContainerAllowInput` (`{binding, from?}`) and `ContainerDenyInput` (`{binding, from}`) of actions `firewall.container.allow` and `firewall.container.deny`.
+- Consumes: Contracts "Web": `DockerStatus`, `DockerBinding`, `Binding`, `dockerQueryKey(hostId)` and the fixtures `fwDocker`, `fwBinding` (Task 7, `types.ts` and `fixtures.ts`); `FirewallChange` (`firewall-change.tsx`, props unchanged by Task 8); `FIREWALL_MODULE` (`types.ts`); `readResource` and `errorMessage` (`@/api/client`); `ContainerRef` (`web/src/modules/types.ts`, fields `hostId`, `containerId`, `name`, `composeService?`, `ports`). Contracts "Shapes the web and the schemas read": the JSON of `DockerStatus` and the inputs `ContainerAllowInput` (`{binding, from?}`) and `ContainerDenyInput` (`{binding, from}`) of actions `firewall.container.allow` and `firewall.container.deny`.
 - Produces: Contracts "Web": `AllowAction` and `DenyAction`, props `{container: ContainerRef; onDone: () => void}`. `web/src/modules/registry.ts` already lists both as the `firewall.allow` and `firewall.deny` container actions and is not edited; wave 3a's container page renders them.
 
 **Items:** 9
 
-**Depends on:** Task 6
+**Depends on:** Task 7
+**Implementer:** dforge:impl-sonnet-medium
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 0 = 4
 
 - [ ] **Step 1: Write the failing test**
 
-Create `web/src/modules/firewall/container-actions.test.tsx` with exactly this content. It sets every `fwDocker` and `fwBinding` field a case depends on, so it does not rely on Task 6's defaults.
+Create `web/src/modules/firewall/container-actions.test.tsx` with exactly this content. It sets every `fwDocker` and `fwBinding` field a case depends on, so it does not rely on Task 7's defaults.
 
 ```tsx
 import { screen, waitFor, within } from "@testing-library/react"
@@ -7227,7 +7396,7 @@ test("the Allow and Deny forms have no accessibility violations", async () => {
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-mkdir -p /root/.cache/w2-tmp/17 && export TMPDIR=/root/.cache/w2-tmp/17 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w2-tmp/19 && export TMPDIR=/root/.cache/w2-tmp/19 GOTOOLCHAIN=local
 timeout 600 pnpm -C web exec vitest run src/modules/firewall/container-actions.test.tsx
 ```
 
@@ -7251,7 +7420,7 @@ Replace the body of `web/src/modules/firewall/container-actions.tsx`. Keep the e
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-export TMPDIR=/root/.cache/w2-tmp/17 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w2-tmp/19 GOTOOLCHAIN=local
 timeout 600 pnpm -C web exec vitest run src/modules/firewall/container-actions.test.tsx
 ```
 
@@ -7260,7 +7429,7 @@ Expected: PASS, 12 tests.
 Then the task's gates, each with its real output recorded:
 
 ```bash
-export TMPDIR=/root/.cache/w2-tmp/17 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w2-tmp/19 GOTOOLCHAIN=local
 timeout 600 pnpm -C web lint
 timeout 600 pnpm -C web typecheck
 timeout 900 pnpm -C web test
@@ -7269,7 +7438,7 @@ timeout 300 go vet ./...
 timeout 900 go test -count=1 ./...
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w2-tmp/17 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/19 && go clean -testcache
 ```
 
 Expected: lint and typecheck print no error, every web test file passes, no Go build or vet output, every Go test line `ok` or `?`, `0 issues.`, and no `go mod tidy -diff` output.
@@ -7281,7 +7450,7 @@ git add web/src/modules/firewall/container-actions.tsx web/src/modules/firewall/
 git commit -m "feat(web): add container Allow and Deny"
 ```
 
-### Task 18: Docker store and migration
+### Task 20: Docker store and migration
 
 **Files:**
 - Create: `internal/modules/firewall/migrations/agent/0003_firewall_docker.sql`
@@ -7290,11 +7459,13 @@ git commit -m "feat(web): add container Allow and Deny"
 
 **Interfaces:**
 - Consumes: Contracts "dockerfw bindings and rules" (`dockerfw.Binding`, `dockerfw.ContainerRule`, `dockerfw.Kind`, `dockerfw.Allow`, `dockerfw.Deny`) and "dockerfw settings and facts" (`dockerfw.Settings`, `dockerfw.DefaultSettings`); wave 1's `agentMigrations`, `formatSnapshotTime`, `rowScanner` (`store.go`) and `fwTestDB` (`store_test.go`).
-- Produces: Contracts "Docker store": the migration, `dockerConfig`, `readDockerConfig`, `writeDockerConfig`, `listContainerRules`, `containerRule`, `insertContainerRule`, `deleteContainerRule`, `replaceContainerRules`, `beginCleanup`, `endCleanup`, `pendingCleanups`, and the shared test helper `dsDB`. The table `firewall_docker_foreign` is created here and read and written only by Task 34.
+- Produces: Contracts "Docker store": the migration, `dockerConfig`, `readDockerConfig`, `writeDockerConfig`, `listContainerRules`, `containerRule`, `insertContainerRule`, `deleteContainerRule`, `replaceContainerRules`, `beginCleanup`, `endCleanup`, `pendingCleanups`, and the shared test helper `dsDB`. The table `firewall_docker_foreign` is created here and read and written only by Task 36.
 
 **Items:** 8, 9
 
-**Depends on:** Task 9
+**Depends on:** Task 10
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 3 = 8
 
 - [ ] **Step 1: Write the failing test**
 
@@ -7692,7 +7863,7 @@ func TestDsCleanupIntents(t *testing.T) {
 - [ ] **Step 2: Run the test to verify it fails**
 
 ```bash
-mkdir -p /root/.cache/w2-tmp/18 && export TMPDIR=/root/.cache/w2-tmp/18 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w2-tmp/20 && export TMPDIR=/root/.cache/w2-tmp/20 GOTOOLCHAIN=local
 timeout 600 go test -count=1 -run 'TestDs' ./internal/modules/firewall/
 ```
 
@@ -7712,12 +7883,12 @@ Expected: FAIL to build, `undefined: listContainerRules` (and the other store fu
    - `beginCleanup(ctx, db, owner, at)` inserts `(owner, formatSnapshotTime(at))` through `db.Write` with `ON CONFLICT (owner) DO NOTHING`, so an owner recorded twice keeps its first `started_at`. `db.Write` commits with `synchronous=FULL`, which is the fsync spec 2.6 step 1 asks for.
    - `endCleanup(ctx, db, owner)` deletes the owner's row; an absent owner is not an error.
    - `pendingCleanups(ctx, db)` returns the owners ordered by `started_at`, then `owner`; none returns a nil slice.
-3. Do not add functions for `firewall_docker_foreign` (Task 34), do not call any of these functions from existing code (later tasks do), and change no existing file.
+3. Do not add functions for `firewall_docker_foreign` (Task 36), do not call any of these functions from existing code (later tasks do), and change no existing file.
 
 - [ ] **Step 4: Run the test to verify it passes**
 
 ```bash
-export TMPDIR=/root/.cache/w2-tmp/18 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w2-tmp/20 GOTOOLCHAIN=local
 timeout 600 go test -count=1 -run 'TestDs' -v ./internal/modules/firewall/
 ```
 
@@ -7726,20 +7897,20 @@ Expected: PASS for `TestDsMigrationOnlyAddsTables`, `TestDsMigrationConstraints`
 - [ ] **Step 5: Verify the task and commit**
 
 ```bash
-export TMPDIR=/root/.cache/w2-tmp/18 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w2-tmp/20 GOTOOLCHAIN=local
 timeout 600 go build ./... && timeout 300 go vet ./... \
   && timeout 600 go test -race -count=1 ./internal/modules/firewall/ \
   && timeout 1500 go test -count=1 ./... \
   && timeout 900 golangci-lint run --allow-serial-runners ./... \
   && timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w2-tmp/18 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/20 && go clean -testcache
 git add internal/modules/firewall/migrations/agent/0003_firewall_docker.sql internal/modules/firewall/docker_store.go internal/modules/firewall/docker_store_test.go
 git commit -m "feat(firewall): store the Docker integration state"
 ```
 
 Expected: every command exits 0, `go vet` prints nothing, every `go test` line is `ok` or `?`, `golangci-lint` prints `0 issues.`, `go mod tidy -diff` prints nothing.
 
-### Task 19: dockerfw: realize container rules against facts
+### Task 21: dockerfw: realize container rules against facts
 
 **Files:**
 - Create: `internal/modules/firewall/dockerfw/realize.go`
@@ -7747,11 +7918,13 @@ Expected: every command exits 0, `go vet` prints nothing, every `go test` line i
 
 **Interfaces:**
 - Consumes: Contracts "dockerfw settings and facts" (`Settings`, `Facts`, `Container`, `Endpoint`, `Network`, `Published`; none is declared again), "dockerfw bindings and rules" (`Binding` and its `ID`, `Chain` and `Selects`, `ContainerRule`, `Kind`, `Allow`, `Deny`, `LabelPrefix`), "dockerfw block" (`BlockInput`, `BindingLine`, `BindingChain`; Render and the markers are not used here) and `model.Rule`.
-- Produces: Contracts "dockerfw realization": `Realized` and `Realize`, which Tasks 22, 23, 29 and 40 consume; and the shared test helpers `rzFacts`, `rzContainer` and `rzNetwork` with these signatures: `rzFacts(containers []Container, networks ...Network) Facts`, `rzContainer(name string, ports []Published, eps ...Endpoint) Container` (`ID` is `"id-"+name`, no project or service), `rzNetwork(name, bridge string, subnets ...string) Network` (`Driver` `bridge`, `ID` `"id-"+name`).
+- Produces: Contracts "dockerfw realization": `Realized` and `Realize`, which Tasks 24, 25, 31 and 43 consume; and the shared test helpers `rzFacts`, `rzContainer` and `rzNetwork` with these signatures: `rzFacts(containers []Container, networks ...Network) Facts`, `rzContainer(name string, ports []Published, eps ...Endpoint) Container` (`ID` is `"id-"+name`, no project or service), `rzNetwork(name, bridge string, subnets ...string) Network` (`Driver` `bridge`, `ID` `"id-"+name`).
 
 **Items:** 9, 10
 
-**Depends on:** Task 15
+**Depends on:** Task 17
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
 
 - [ ] **Step 1: Write the failing test**
 
@@ -8150,7 +8323,7 @@ func TestRzRealizeIsIndependentOfRowOrder(t *testing.T) {
 - [ ] **Step 2: Run the test to verify it fails**
 
 ```bash
-mkdir -p /root/.cache/w2-tmp/19 && export TMPDIR=/root/.cache/w2-tmp/19 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w2-tmp/21 && export TMPDIR=/root/.cache/w2-tmp/21 GOTOOLCHAIN=local
 timeout 600 go test -count=1 -run 'TestRz' ./internal/modules/firewall/dockerfw/
 ```
 
@@ -8158,7 +8331,7 @@ Expected: FAIL to build, `undefined: Realized` (then `undefined: Realize`).
 
 - [ ] **Step 3: Implement**
 
-Create `realize.go` in package `dockerfw`. It is pure: it reads no host state and imports only the standard library, `fwstate` and `model` besides the package's own types. Give `Realized` and `Realize` doc comments. `Realize` follows these rules; every ordering below is part of its contract, because the block, the UFW rule operations (Task 22) and reconcile compare its output byte for byte between passes.
+Create `realize.go` in package `dockerfw`. It is pure: it reads no host state and imports only the standard library, `fwstate` and `model` besides the package's own types. Give `Realized` and `Realize` doc comments. `Realize` follows these rules; every ordering below is part of its contract, because the block, the UFW rule operations (Task 24) and reconcile compare its output byte for byte between passes.
 
 1. **Rows.** Work on a copy of `rows` sorted by `ID` (the caller's slice is not reordered). Group the rows by `Binding.ID()`; the groups are taken in the order of each group's smallest row `ID`. A group with no allow row realizes nothing, so a deny row alone has no effect. Ignore a row of any other kind.
 2. **Custom bridges.** `Block.CustomBridges` holds the `Bridge` of every `facts.Networks` entry whose `Driver` is `bridge`, whose `Bridge` is not empty, is not `docker0` and does not start with `br-` (the block's `br-+` wildcard already covers those), without duplicates, sorted; it is `nil` when there is none. `Block.Settings` is `s`, whatever the rows are.
@@ -8168,7 +8341,7 @@ Create `realize.go` in package `dockerfw`. It is pure: it reads no host state an
    - The container's *targets* in that family are its `Endpoints`, in order, that have a valid address in the family (`Addr4` or `Addr6`) and a non-empty `Bridge`.
    - With targets, for each target: one `BindingLine` appended to `Block.Lines` (`Proto` the binding's, `ContainerAddr` the target's address, `ContainerPort` the published container port, `HostAddr` the binding's `HostAddr` as set, zero when unset, `HostPort` the binding's, `Chain` `Binding.Chain()`); one route allow rule per applicable allow row: direction `route`, action `allow`, `OutIface` the target's `Bridge`, `Proto` the binding's, `From` the row's `From` as text (`any` when unset), `To` the target's address, `ToPort` the container port as a decimal string, `Family` `v4` or `v6`, `Comment` `LabelPrefix + row.ID`; and one route deny rule per applicable deny row, the same but action `deny` and the deny row's `From`.
    - Without targets (the container has no address in the family, so `docker-proxy` serves it on the host): per applicable allow row one rule with direction `in`, action `allow`, `Proto` the binding's, `From` as above, `To` the binding's `HostAddr` text or `any`, `ToPort` the host port, `Family` the family, `Comment` as above; per applicable deny row the same with action `deny`. No line is added.
-6. **Binding chains.** A group that produced at least one line adds one `BindingChain` to `Block.Chains`, in group order: `Name` is `Binding.Chain()`, `Deny` is every deny row's `From` in row order (nil when none), `Allow` is every allow row's `From` in row order, except that it is nil when any allow row has no `From` (an allow from any source makes the others redundant, and an empty `Allow` renders as `0.0.0.0/0` or `::/0`). Both lists carry prefixes of both families; Task 15's `Render` selects the family's.
+6. **Binding chains.** A group that produced at least one line adds one `BindingChain` to `Block.Chains`, in group order: `Name` is `Binding.Chain()`, `Deny` is every deny row's `From` in row order (nil when none), `Allow` is every allow row's `From` in row order, except that it is nil when any allow row has no `From` (an allow from any source makes the others redundant, and an empty `Allow` renders as `0.0.0.0/0` or `::/0`). Both lists carry prefixes of both families; Task 17's `Render` selects the family's.
 7. **Rule form.** Pass every rule through `model.Rule.Normalize()`, so that `Log` is `off`, `Origin` is `darkpanel`, a `/32` or `/128` source is written as the plain address and the text equals what UFW's files read back as. `ID` stays empty.
 8. **Duplicates.** Two rules equal in every field but `Comment` (two bindings of one container port, or one deny of two bindings) are one rule: keep the first generated, which carries the smaller row id.
 9. **Merging the families.** UFW stores an allow-in rule from any to any as one rule for both families, and wave 1's rule list reads it back as `Family` `both`. An allow-in rule for `v4` and one for `v6` that are equal in every field but `Family` (including `Comment`) and whose `From` and `To` are both `any` are therefore returned as one rule with `Family` `both`, at the position of the `v4` rule.
@@ -8180,7 +8353,7 @@ Do not validate rows (the actions do), do not read the clock, and do not call `R
 - [ ] **Step 4: Run the test to verify it passes**
 
 ```bash
-export TMPDIR=/root/.cache/w2-tmp/19 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w2-tmp/21 GOTOOLCHAIN=local
 timeout 600 go test -count=1 -run 'TestRz' -v ./internal/modules/firewall/dockerfw/
 ```
 
@@ -8189,20 +8362,20 @@ Expected: PASS for `TestRzRealizeRouteAllow`, `TestRzRealizeProxiedFamily`, `Tes
 - [ ] **Step 5: Verify the task and commit**
 
 ```bash
-export TMPDIR=/root/.cache/w2-tmp/19 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w2-tmp/21 GOTOOLCHAIN=local
 timeout 600 go build ./... && timeout 300 go vet ./... \
   && timeout 600 go test -race -count=1 ./internal/modules/firewall/dockerfw/ \
   && timeout 1500 go test -count=1 ./... \
   && timeout 900 golangci-lint run --allow-serial-runners ./... \
   && timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w2-tmp/19 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/21 && go clean -testcache
 git add internal/modules/firewall/dockerfw/realize.go internal/modules/firewall/dockerfw/realize_test.go
 git commit -m "feat(dockerfw): realize container rules"
 ```
 
 Expected: every command exits 0, `go vet` prints nothing, every `go test` line is `ok` or `?`, `golangci-lint` prints `0 issues.`, `go mod tidy -diff` prints nothing.
 
-### Task 20: dockerfw: integration health
+### Task 22: dockerfw: integration health
 
 **Files:**
 - Create: `internal/modules/firewall/dockerfw/health.go`
@@ -8210,11 +8383,13 @@ Expected: every command exits 0, `go vet` prints nothing, every `go test` line i
 
 **Interfaces:**
 - Consumes: Contracts "dockerfw settings and facts" (`Settings`, `DefaultSettings`, `Facts`, `Network`, `Exemption`); Contracts "dockerfw block" (`Render`, `WithBlock`, `BlockOf`, `BlockRules`, `Owned`, `Foreign`, `ChainDockerUser`, `ChainDeny`, `BlockInput`, `BindingLine`, `BindingChain`); Contracts "dockerfw detection" (`ForeignDNAT`, `Covered`, `Propose`, `ExemptionConflicts`); `netfilter.Key`, `netfilter.Ruleset`, `fwstate.Family`.
-- Produces: Contracts "dockerfw health": `Level`, `Degraded`, `Broken`, `Issue`, `HealthInput`, `Health`, `Unprotected`. Task 32 fills `HealthInput` and surfaces the issues in `firewall.docker`; this task only evaluates them.
+- Produces: Contracts "dockerfw health": `Level`, `Degraded`, `Broken`, `Issue`, `HealthInput`, `Health`, `Unprotected`. Task 34 fills `HealthInput` and surfaces the issues in `firewall.docker`; this task only evaluates them.
 
 **Items:** 11
 
-**Depends on:** Task 11, Task 15
+**Depends on:** Task 12, Task 13, Task 17
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
 
 `Health` is a pure function: it reads no host state and runs nothing. It reports every problem it finds, in a fixed order, so a caller can show the list as is.
 
@@ -8701,7 +8876,7 @@ func TestHlUnprotected(t *testing.T) {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w2-tmp/20 && TMPDIR=/root/.cache/w2-tmp/20 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestHl' ./internal/modules/firewall/dockerfw/`
+Run: `mkdir -p /root/.cache/w2-tmp/22 && TMPDIR=/root/.cache/w2-tmp/22 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestHl' ./internal/modules/firewall/dockerfw/`
 Expected: FAIL, `[build failed]`, the first error naming `undefined: HealthInput` (then `Level`, `Health`, `Unprotected`).
 
 - [ ] **Step 3: Implement**
@@ -8741,20 +8916,20 @@ With `Want` false (the flag is on and UFW is disabled) checks 1, 2, 3, 5 and the
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `TMPDIR=/root/.cache/w2-tmp/20 GOTOOLCHAIN=local timeout 300 go test -count=1 -v -run 'TestHl' ./internal/modules/firewall/dockerfw/`
+Run: `TMPDIR=/root/.cache/w2-tmp/22 GOTOOLCHAIN=local timeout 300 go test -count=1 -v -run 'TestHl' ./internal/modules/firewall/dockerfw/`
 Expected: PASS for `TestHlHealth`, `TestHlHealthForeignForwards`, `TestHlHealthWithoutTheBlock` and `TestHlUnprotected`.
 
 Then the task's gates, recording their real output:
 
 ```bash
-export TMPDIR=/root/.cache/w2-tmp/20 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w2-tmp/22 GOTOOLCHAIN=local
 timeout 600 go build ./...
 timeout 300 go vet ./...
 timeout 1500 go test -count=1 ./...
 timeout 600 go test -race -count=1 ./internal/modules/firewall/dockerfw/
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w2-tmp/20 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/22 && go clean -testcache
 ```
 
 Expected: no build or vet output, every test line `ok` or `?`, `0 issues.`, and nothing from `go mod tidy -diff`.
@@ -8766,7 +8941,7 @@ git add internal/modules/firewall/dockerfw/health.go internal/modules/firewall/d
 git commit -m "feat(firewall): add Docker integration health"
 ```
 
-### Task 21: dockerfw: DOCKER-USER and cleanup restore inputs
+### Task 23: dockerfw: DOCKER-USER and cleanup restore inputs
 
 **Files:**
 - Create: `internal/modules/firewall/dockerfw/restore_input.go`
@@ -8774,11 +8949,13 @@ git commit -m "feat(firewall): add Docker integration health"
 
 **Interfaces:**
 - Consumes: Contracts "dockerfw block" (`Foreign`, `Owned`, `ChainDockerUser`); `netfilter.Chain`, `netfilter.Rule` (`Text`, `Line`), `netfilter.Ruleset`, `fwstate.Family`.
-- Produces: Contracts "dockerfw restore inputs": `Layout`, `LayoutOf`, `DockerUserInput`, `CleanupInput`. Task 34's `keepForeign` stores a `Layout` per family and loads `DockerUserInput`; Task 35's cleanup loads `CleanupInput`; both pass the result to `*-restore -n` on stdin.
+- Produces: Contracts "dockerfw restore inputs": `Layout`, `LayoutOf`, `DockerUserInput`, `CleanupInput`. Task 36's `keepForeign` stores a `Layout` per family and loads `DockerUserInput`; Task 37's cleanup loads `CleanupInput`; both pass the result to `*-restore -n` on stdin.
 
 **Items:** 8
 
-**Depends on:** Task 15
+**Depends on:** Task 17
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
 
 These three functions build text for `iptables-restore -n` and decide where foreign `DOCKER-USER` rules sit relative to the block's lines (spec 2.6, "Foreign rules and revert"). They run nothing: a caller loads their output.
 
@@ -8997,7 +9174,7 @@ func TestChCleanupInput(t *testing.T) {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w2-tmp/21 && TMPDIR=/root/.cache/w2-tmp/21 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestCh' ./internal/modules/firewall/dockerfw/`
+Run: `mkdir -p /root/.cache/w2-tmp/23 && TMPDIR=/root/.cache/w2-tmp/23 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestCh' ./internal/modules/firewall/dockerfw/`
 Expected: FAIL, `[build failed]`, the first error naming `undefined: Layout` (then `LayoutOf`, `DockerUserInput`, `CleanupInput`).
 
 - [ ] **Step 3: Implement**
@@ -9019,20 +9196,20 @@ In `restore_input.go`, declare the Contracts "dockerfw restore inputs" `Layout` 
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `TMPDIR=/root/.cache/w2-tmp/21 GOTOOLCHAIN=local timeout 300 go test -count=1 -v -run 'TestCh' ./internal/modules/firewall/dockerfw/`
+Run: `TMPDIR=/root/.cache/w2-tmp/23 GOTOOLCHAIN=local timeout 300 go test -count=1 -v -run 'TestCh' ./internal/modules/firewall/dockerfw/`
 Expected: PASS for `TestChLayoutOf`, `TestChLayoutOfIPv6`, `TestChDockerUserInput`, `TestChLayoutRoundTrip` and `TestChCleanupInput`.
 
 Then the task's gates, recording their real output:
 
 ```bash
-export TMPDIR=/root/.cache/w2-tmp/21 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w2-tmp/23 GOTOOLCHAIN=local
 timeout 600 go build ./...
 timeout 300 go vet ./...
 timeout 1500 go test -count=1 ./...
 timeout 600 go test -race -count=1 ./internal/modules/firewall/dockerfw/
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w2-tmp/21 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/23 && go clean -testcache
 ```
 
 Expected: no build or vet output, every test line `ok` or `?`, `0 issues.`, and nothing from `go mod tidy -diff`.
@@ -9044,7 +9221,7 @@ git add internal/modules/firewall/dockerfw/restore_input.go internal/modules/fir
 git commit -m "feat(firewall): add DOCKER-USER restore inputs"
 ```
 
-### Task 22: dockerfw: UFW rule operations
+### Task 24: dockerfw: UFW rule operations
 
 **Files:**
 - Create: `internal/modules/firewall/dockerfw/ruleops.go`
@@ -9056,9 +9233,11 @@ git commit -m "feat(firewall): add DOCKER-USER restore inputs"
 
 **Items:** 9
 
-**Depends on:** Task 19
+**Depends on:** Task 21
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
 
-`RuleOps` turns the rules `Realize` wants into the UFW commands that bring the host there. The module root (Task 40) runs each operation as a journaled effect: a `Delete` through `model.DeleteArgs` of the current rule with that id, an `Add` through `model.InsertArgs(Insert, *Add)` or, when `Insert` is 0, `model.AddArgs(*Add)`. Three facts of UFW 0.36 shape the rules below: `ufw delete` matches a rule by its specification and ignores the comment; `ufw route allow ...` for a tuple that UFW already holds with another comment does not add a rule but replaces the comment of the existing one (`predict.Edit` reproduces this); and UFW numbers the rules of `user.rules` first and those of `user6.rules` after them, `ufw insert N` placing the new rule before the rule now numbered N.
+`RuleOps` turns the rules `Realize` wants into the UFW commands that bring the host there. The module root (Task 43) runs each operation as a journaled effect: a `Delete` through `model.DeleteArgs` of the current rule with that id, an `Add` through `model.InsertArgs(Insert, *Add)` or, when `Insert` is 0, `model.AddArgs(*Add)`. Three facts of UFW 0.36 shape the rules below: `ufw delete` matches a rule by its specification and ignores the comment; `ufw route allow ...` for a tuple that UFW already holds with another comment does not add a rule but replaces the comment of the existing one (`predict.Edit` reproduces this); and UFW numbers the rules of `user.rules` first and those of `user6.rules` after them, `ufw insert N` placing the new rule before the rule now numbered N.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -9413,7 +9592,7 @@ func TestRoRuleOpsRefuses(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w2-tmp/22 && TMPDIR=/root/.cache/w2-tmp/22 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestRo' ./internal/modules/firewall/dockerfw/`
+Run: `mkdir -p /root/.cache/w2-tmp/24 && TMPDIR=/root/.cache/w2-tmp/24 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestRo' ./internal/modules/firewall/dockerfw/`
 Expected: FAIL to build, `undefined: RuleOp` (then `undefined: RuleOps`).
 
 - [ ] **Step 3: Implement**
@@ -9433,19 +9612,19 @@ Create `internal/modules/firewall/dockerfw/ruleops.go` in package `dockerfw`, im
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `TMPDIR=/root/.cache/w2-tmp/22 GOTOOLCHAIN=local timeout 300 go test -count=1 -v -run 'TestRo' ./internal/modules/firewall/dockerfw/`
+Run: `TMPDIR=/root/.cache/w2-tmp/24 GOTOOLCHAIN=local timeout 300 go test -count=1 -v -run 'TestRo' ./internal/modules/firewall/dockerfw/`
 Expected: PASS for every case of `TestRoRuleOps` and `TestRoRuleOpsRefuses`.
 
 - [ ] **Step 5: Verify the task and commit**
 
 ```bash
-mkdir -p /root/.cache/w2-tmp/22 && export TMPDIR=/root/.cache/w2-tmp/22 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w2-tmp/24 && export TMPDIR=/root/.cache/w2-tmp/24 GOTOOLCHAIN=local
 timeout 300 go build ./... && timeout 300 go vet ./... \
   && timeout 900 go test -race -count=1 ./internal/modules/firewall/dockerfw/ \
   && timeout 1500 go test -count=1 ./... \
   && timeout 900 golangci-lint run --allow-serial-runners ./... \
   && timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w2-tmp/22 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/24 && go clean -testcache
 ```
 
 Expected: `go vet` and `go mod tidy -diff` print nothing, every `go test` line is `ok` or `?`, `golangci-lint` prints `0 issues.`. Record the real output.
@@ -9455,7 +9634,7 @@ git add internal/modules/firewall/dockerfw/ruleops.go internal/modules/firewall/
 git commit -m "feat(firewall): compute UFW container rule ops"
 ```
 
-### Task 23: dockerfw: prove the block's decisions on the captures
+### Task 25: dockerfw: prove the block's decisions on the captures
 
 **Files:**
 - Test: `internal/modules/firewall/dockerfw/decisions_test.go`
@@ -9466,7 +9645,9 @@ git commit -m "feat(firewall): compute UFW container rule ops"
 
 **Items:** 8, 9, 10
 
-**Depends on:** Task 1, Task 19
+**Depends on:** Task 1, Task 21
+**Implementer:** dforge:impl-sonnet-medium
+**Evaluation:** files 0 - spec 2 - coupling 2 - risk 0 = 4
 
 This task adds a test file and no production code. Task 1's captures are the only data: its `block` scenario holds the block written by hand into both `after` files, the two route rules UFW stored for the `web` binding, and the loaded state after `ufw reload`; its `base` and `cleanup` scenarios hold the same host without the block. Each test compares one stage of the pipeline with that data:
 
@@ -10075,10 +10256,10 @@ func TestDcRealize(t *testing.T) {
 
 - [ ] **Step 2: Run the tests**
 
-Run: `mkdir -p /root/.cache/w2-tmp/23 && TMPDIR=/root/.cache/w2-tmp/23 GOTOOLCHAIN=local timeout 300 go test -count=1 -v -run 'TestDc' ./internal/modules/firewall/dockerfw/`
-Expected: PASS for `TestDcRealize`, `TestDcPrediction` and every case of `TestDcDecisions` on each of the four images, since the code under test is the base's (Tasks 1, 2, 9, 15 and 19 and wave 1). Without those tasks the build fails with `undefined: Facts` and `undefined: capFile`; that is not the result to record.
+Run: `mkdir -p /root/.cache/w2-tmp/25 && TMPDIR=/root/.cache/w2-tmp/25 GOTOOLCHAIN=local timeout 300 go test -count=1 -v -run 'TestDc' ./internal/modules/firewall/dockerfw/`
+Expected: PASS for `TestDcRealize`, `TestDcPrediction` and every case of `TestDcDecisions` on each of the four images, since the code under test is the base's (Tasks 1, 2, 10, 17 and 21 and wave 1). Without those tasks the build fails with `undefined: Facts` and `undefined: capFile`; that is not the result to record.
 
-A failure is a finding about the stage named by the test, not something to fix here. Record the full output and stop with a report, changing no file: do not edit this test, the captures, `Realize`, `Render`, `BlockOf`, `BlockRules`, `Owned` or wave 1's packages. A diff in `TestDcRealize` points at Task 15, 19 or 1; one in `TestDcPrediction` at the predictor's treatment of the block (wave 1 `predict`) or at the capture; a verdict `unknown` or a wrong verdict in `TestDcDecisions` at the evaluator, the block, or an expectation spec 2.6 does not support, which the report quotes.
+A failure is a finding about the stage named by the test, not something to fix here. Record the full output and stop with a report, changing no file: do not edit this test, the captures, `Realize`, `Render`, `BlockOf`, `BlockRules`, `Owned` or wave 1's packages. A diff in `TestDcRealize` points at Task 17, 21 or 1; one in `TestDcPrediction` at the predictor's treatment of the block (wave 1 `predict`) or at the capture; a verdict `unknown` or a wrong verdict in `TestDcDecisions` at the evaluator, the block, or an expectation spec 2.6 does not support, which the report quotes.
 
 - [ ] **Step 3: Show that each test can fail**
 
@@ -10091,13 +10272,13 @@ Make each temporary edit, run the command, see the failure named, then undo the 
 - [ ] **Step 4: Verify the task and commit**
 
 ```bash
-mkdir -p /root/.cache/w2-tmp/23 && export TMPDIR=/root/.cache/w2-tmp/23 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w2-tmp/25 && export TMPDIR=/root/.cache/w2-tmp/25 GOTOOLCHAIN=local
 timeout 300 go build ./... && timeout 300 go vet ./... \
   && timeout 900 go test -race -count=1 ./internal/modules/firewall/dockerfw/ \
   && timeout 1500 go test -count=1 ./... \
   && timeout 900 golangci-lint run --allow-serial-runners ./... \
   && timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w2-tmp/23 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/25 && go clean -testcache
 ```
 
 Expected: `go vet` and `go mod tidy -diff` print nothing, every `go test` line is `ok` or `?`, `golangci-lint` prints `0 issues.`. Record the real output of Step 2 and of this step.
@@ -10107,7 +10288,7 @@ git add internal/modules/firewall/dockerfw/decisions_test.go
 git commit -m "test(firewall): check the block on captures"
 ```
 
-### Task 24: Journal the Docker logical state as effects
+### Task 26: Journal the Docker logical state as effects
 
 **Files:**
 - Create: `internal/modules/firewall/docker_effects.go`
@@ -10115,10 +10296,12 @@ git commit -m "test(firewall): check the block on captures"
 - Test: `internal/modules/firewall/docker_effects_test.go`
 
 **Interfaces:**
-- Consumes: Contracts "Docker store" (`readDockerConfig`, `writeDockerConfig`, `listContainerRules`, `containerRule`, `insertContainerRule`, `deleteContainerRule`; the test host's `h.db` is wave 1's `fwTestDB`, which applies every migration of `agentMigrations()`, Task 18's `0003_firewall_docker.sql` included); Contracts "dockerfw bindings and rules" (`dockerfw.ContainerRule`, `Binding`, `Kind`, `Allow`, `Deny`) and "dockerfw settings and facts" (`dockerfw.Settings`, `DefaultSettings`); wave 1's `runJournaled`, `observe`, `splitResource`, `mustJSON`, `jsonEqual`, `deps` (`readLoaded`) and `core.Env` (`DB`, `Clock`, `Effects`, `ChangeID`).
-- Produces: Contracts "Docker effects": `dockerOp`, `flagOp`, `sourcesOp`, `rowCreateOp`, `rowDeleteOp`, `chainsOp`, `runDockerEffect`, `dockerDoc` and the `observe` dispatch for the nouns `firewall.setting`, `firewall.container` and `firewall.chains`. Also the constants `nounSetting = "firewall.setting"`, `nounContainer = "firewall.container"` and `nounChains = "firewall.chains"` in `docker_effects.go`, which Task 25 reads.
+- Consumes: Contracts "Docker store" (`readDockerConfig`, `writeDockerConfig`, `listContainerRules`, `containerRule`, `insertContainerRule`, `deleteContainerRule`; the test host's `h.db` is wave 1's `fwTestDB`, which applies every migration of `agentMigrations()`, Task 20's `0003_firewall_docker.sql` included); Contracts "dockerfw bindings and rules" (`dockerfw.ContainerRule`, `Binding`, `Kind`, `Allow`, `Deny`) and "dockerfw settings and facts" (`dockerfw.Settings`, `DefaultSettings`); wave 1's `runJournaled`, `observe`, `splitResource`, `mustJSON`, `jsonEqual`, `deps` (`readLoaded`) and `core.Env` (`DB`, `Clock`, `Effects`, `ChangeID`).
+- Produces: Contracts "Docker effects": `dockerOp`, `flagOp`, `sourcesOp`, `rowCreateOp`, `rowDeleteOp`, `chainsOp`, `runDockerEffect`, `dockerDoc` and the `observe` dispatch for the nouns `firewall.setting`, `firewall.container` and `firewall.chains`. Also the constants `nounSetting = "firewall.setting"`, `nounContainer = "firewall.container"` and `nounChains = "firewall.chains"` in `docker_effects.go`, which Task 27 reads.
 
-**Depends on:** Task 18
+**Depends on:** Task 20
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 - [ ] **Step 1: Write the failing test**
 
@@ -10461,7 +10644,7 @@ func TestDeObserveRefusesUnknownDockerResources(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w2-tmp/24 && export TMPDIR=/root/.cache/w2-tmp/24 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestDeRun|TestDeObserve' ./internal/modules/firewall/`
+Run: `mkdir -p /root/.cache/w2-tmp/26 && export TMPDIR=/root/.cache/w2-tmp/26 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestDeRun|TestDeObserve' ./internal/modules/firewall/`
 Expected: FAIL to build with `undefined: dockerOp` (and the other builders the test names).
 
 - [ ] **Step 3: Implement**
@@ -10486,14 +10669,14 @@ Expected: FAIL to build with `undefined: dockerOp` (and the other builders the t
    3. The effect is `core.Effect{Kind, Resource, Local: true, InverseLocal: true, Before, After}` with no `Version`. A Create's `Resource` is `firewall.container:?<id>` with `Recovery` `&core.RecoveryID{Kind: "marker", Value: <id>}`, as `runUfw` does for a rule.
    4. Call `runJournaled(ctx, env, d, e, op.Resource, …)` with a call that runs `op.apply(ctx, env)` and returns an empty `core.CmdResult`. It records Made (State-equal to `After`; for a creation, exactly one match), Skipped (equal to `Before`, whatever the call returned) or leaves the effect intended with an error. Any error is returned wrapped with `firewall: <resource>: %w`.
 
-   Do not change wave 1's other effect functions; the inverse side is Task 25.
+   Do not change wave 1's other effect functions; the inverse side is Task 27.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `mkdir -p /root/.cache/w2-tmp/24 && export TMPDIR=/root/.cache/w2-tmp/24 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestDeRun|TestDeObserve' ./internal/modules/firewall/`
+Run: `mkdir -p /root/.cache/w2-tmp/26 && export TMPDIR=/root/.cache/w2-tmp/26 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestDeRun|TestDeObserve' ./internal/modules/firewall/`
 Expected: PASS
 
-Then, with the same `TMPDIR` and `GOTOOLCHAIN`, record the real output of each: `timeout 600 go build ./...`; `timeout 300 go vet ./...` (no output); `timeout 1500 go test -count=1 ./...` (every line `ok` or `?`); `timeout 900 go test -race -count=1 ./internal/modules/firewall/`; `timeout 900 golangci-lint run --allow-serial-runners ./...` (`0 issues.`); `timeout 300 go mod tidy -diff` (no output). Finish with `rm -rf /root/.cache/w2-tmp/24 && go clean -testcache`.
+Then, with the same `TMPDIR` and `GOTOOLCHAIN`, record the real output of each: `timeout 600 go build ./...`; `timeout 300 go vet ./...` (no output); `timeout 1500 go test -count=1 ./...` (every line `ok` or `?`); `timeout 900 go test -race -count=1 ./internal/modules/firewall/`; `timeout 900 golangci-lint run --allow-serial-runners ./...` (`0 issues.`); `timeout 300 go mod tidy -diff` (no output). Finish with `rm -rf /root/.cache/w2-tmp/26 && go clean -testcache`.
 
 - [ ] **Step 5: Commit**
 
@@ -10502,7 +10685,7 @@ git add internal/modules/firewall/docker_effects.go internal/modules/firewall/do
 git commit -m "feat(firewall): journal Docker state as effects"
 ```
 
-### Task 25: Inverses of the Docker effects
+### Task 27: Inverses of the Docker effects
 
 **Files:**
 - Modify: `internal/modules/firewall/deps.go` (the `deps` struct)
@@ -10510,10 +10693,12 @@ git commit -m "feat(firewall): journal Docker state as effects"
 - Test: `internal/modules/firewall/docker_inverse_test.go`
 
 **Interfaces:**
-- Consumes: Task 24's `flagOp`, `sourcesOp`, `rowCreateOp`, `rowDeleteOp`, `dockerOp.apply`, `runDockerEffect`, `dockerDoc`, `observe` and the constants `nounSetting`, `nounContainer`, `nounChains` (all in `docker_effects.go`); the tests also use Task 24's helpers `deTestHold`, `deTestRules`, `deTestAllow`, `deTestDeny`, `deTestSave*` from `docker_effects_test.go` (same package); wave 1's `inverse`, `beforeValue`, `ufw`, `efTestOnly`, `obTestObserve` and `fakeHost`.
-- Produces: Contracts "Docker effects", column "Inverse"; the field `cleanChains func(ctx context.Context, env core.Env, owner string) error` of `deps`, which Task 35 sets in `productionFW` and which Task 36's `fw.run` and Task 38's revert path reach through `inverse`.
+- Consumes: Task 26's `flagOp`, `sourcesOp`, `rowCreateOp`, `rowDeleteOp`, `dockerOp.apply`, `runDockerEffect`, `dockerDoc`, `observe` and the constants `nounSetting`, `nounContainer`, `nounChains` (all in `docker_effects.go`); the tests also use Task 26's helpers `deTestHold`, `deTestRules`, `deTestAllow`, `deTestDeny`, `deTestSave*` from `docker_effects_test.go` (same package); wave 1's `inverse`, `beforeValue`, `ufw`, `efTestOnly`, `obTestObserve` and `fakeHost`.
+- Produces: Contracts "Docker effects", column "Inverse"; the field `cleanChains func(ctx context.Context, env core.Env, owner string) error` of `deps`, which Task 37 sets in `productionFW` and which Task 38's `fw.run` and Task 40's revert path reach through `inverse`.
 
-**Depends on:** Task 24
+**Depends on:** Task 26
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 - [ ] **Step 1: Write the failing test**
 
@@ -10757,14 +10942,14 @@ func TestDiInverseRefusesDamagedEffects(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w2-tmp/25 && export TMPDIR=/root/.cache/w2-tmp/25 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestDiInverse' ./internal/modules/firewall/`
+Run: `mkdir -p /root/.cache/w2-tmp/27 && export TMPDIR=/root/.cache/w2-tmp/27 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestDiInverse' ./internal/modules/firewall/`
 Expected: FAIL to build with `d.cleanChains undefined (type deps has no field or method cleanChains)`.
 
 - [ ] **Step 3: Implement**
 
-1. `deps.go`: add the field `cleanChains func(ctx context.Context, env core.Env, owner string) error` to `deps`, after `lockout`, with a doc comment saying it removes Darkpanel's Docker chains from the loaded rules for `owner` (the owned-chain cleanup). Production sets it in Task 35; `fakeHost.deps()` leaves it nil.
+1. `deps.go`: add the field `cleanChains func(ctx context.Context, env core.Env, owner string) error` to `deps`, after `lockout`, with a doc comment saying it removes Darkpanel's Docker chains from the loaded rules for `owner` (the owned-chain cleanup). Production sets it in Task 37; `fakeHost.deps()` leaves it nil.
 2. `inverse.go`: add `case nounSetting, nounContainer, nounChains:` to the `switch noun` of `inverse`, calling a new `undoDocker(ctx, env, d, noun, ident, e)`; its error goes through the existing `firewall: undo effect %d (%s)` wrapping, and the existing final step (observe the resource, require the State to equal `e.Before.State`) applies to the new nouns unchanged. Extend `inverse`'s doc comment with the Docker cases.
-3. `undoDocker` decodes the effect's own journal fields (never the change's input) and reuses Task 24's `apply` functions, so a write goes through the same one-transaction path as the forward call:
+3. `undoDocker` decodes the effect's own journal fields (never the change's input) and reuses Task 26's `apply` functions, so a write goes through the same one-transaction path as the forward call:
    - `firewall.setting:docker`: decode `Before` with `beforeValue` into a bool and run `flagOp(before).apply`.
    - `firewall.setting:sources`: decode `Before` into `dockerfw.Settings` and run `sourcesOp(before).apply`.
    - `firewall.container:<id>` of kind Create: the row to delete is the one in `Post` (error when `Post` is nil or `null`); decode it into a `dockerfw.ContainerRule` and run `rowDeleteOp(rule).apply`.
@@ -10774,10 +10959,10 @@ Expected: FAIL to build with `d.cleanChains undefined (type deps has no field or
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `mkdir -p /root/.cache/w2-tmp/25 && export TMPDIR=/root/.cache/w2-tmp/25 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestDiInverse|TestDeRun|TestDeObserve' ./internal/modules/firewall/`
+Run: `mkdir -p /root/.cache/w2-tmp/27 && export TMPDIR=/root/.cache/w2-tmp/27 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestDiInverse|TestDeRun|TestDeObserve' ./internal/modules/firewall/`
 Expected: PASS
 
-Then, with the same `TMPDIR` and `GOTOOLCHAIN`, record the real output of each: `timeout 600 go build ./...`; `timeout 300 go vet ./...` (no output); `timeout 1500 go test -count=1 ./...` (every line `ok` or `?`); `timeout 900 go test -race -count=1 ./internal/modules/firewall/`; `timeout 900 golangci-lint run --allow-serial-runners ./...` (`0 issues.`); `timeout 300 go mod tidy -diff` (no output). Finish with `rm -rf /root/.cache/w2-tmp/25 && go clean -testcache`.
+Then, with the same `TMPDIR` and `GOTOOLCHAIN`, record the real output of each: `timeout 600 go build ./...`; `timeout 300 go vet ./...` (no output); `timeout 1500 go test -count=1 ./...` (every line `ok` or `?`); `timeout 900 go test -race -count=1 ./internal/modules/firewall/`; `timeout 900 golangci-lint run --allow-serial-runners ./...` (`0 issues.`); `timeout 300 go mod tidy -diff` (no output). Finish with `rm -rf /root/.cache/w2-tmp/27 && go clean -testcache`.
 
 - [ ] **Step 5: Commit**
 
@@ -10786,7 +10971,7 @@ git add internal/modules/firewall/deps.go internal/modules/firewall/inverse.go i
 git commit -m "feat(firewall): undo the Docker effects"
 ```
 
-### Task 26: Snapshots record the Docker logical state
+### Task 28: Snapshots record the Docker logical state
 
 **Files:**
 - Modify: `internal/modules/firewall/store.go` (the `snapshotState` struct, its doc comment and the new imports)
@@ -10796,9 +10981,11 @@ git commit -m "feat(firewall): undo the Docker effects"
 
 **Interfaces:**
 - Consumes: Contracts "Docker store" (`dockerConfig`, `readDockerConfig`, `listContainerRules`, `writeDockerConfig` and `replaceContainerRules` for the tests; migration 0003 is applied by `fwTestDB`, because it applies every embedded migration, so `newFakeHost`'s database has the Docker tables); Contracts "dockerfw settings and facts" (`dockerfw.Settings`, `dockerfw.DefaultSettings`); Contracts "dockerfw bindings and rules" (`dockerfw.ContainerRule`).
-- Produces: three fields of `snapshotState` (spec 2.5: the rows of `firewall_container_rules`, the module's settings and the Docker integration flag), read by Task 28 and by the later restore tasks. `Docker bool` (`json:"docker"`) already exists and is now set; the two new ones are `DockerSettings *dockerfw.Settings` (`json:"dockerSettings,omitempty"`) and `ContainerRules []dockerfw.ContainerRule` (`json:"containerRules,omitempty"`). A nil `DockerSettings` means a snapshot taken before the integration existed, which restores the default settings; `ContainerRules` are in id order, and a rule keeps its binding, never an address. Every snapshot `capture` takes, repair snapshots included, has a non-nil `DockerSettings`.
+- Produces: three fields of `snapshotState` (spec 2.5: the rows of `firewall_container_rules`, the module's settings and the Docker integration flag), read by Task 30 and by the later restore tasks. `Docker bool` (`json:"docker"`) already exists and is now set; the two new ones are `DockerSettings *dockerfw.Settings` (`json:"dockerSettings,omitempty"`) and `ContainerRules []dockerfw.ContainerRule` (`json:"containerRules,omitempty"`). A nil `DockerSettings` means a snapshot taken before the integration existed, which restores the default settings; `ContainerRules` are in id order, and a rule keeps its binding, never an address. Every snapshot `capture` takes, repair snapshots included, has a non-nil `DockerSettings`.
 
-**Depends on:** Task 18
+**Depends on:** Task 20
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -10989,31 +11176,31 @@ No other existing test compares a whole `snapshotState` (the others only build o
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w2-tmp/26 && export TMPDIR=/root/.cache/w2-tmp/26 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'Dsn|TestCaptureRecordsTheLogicalState' ./internal/modules/firewall/`
+Run: `mkdir -p /root/.cache/w2-tmp/28 && export TMPDIR=/root/.cache/w2-tmp/28 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'Dsn|TestCaptureRecordsTheLogicalState' ./internal/modules/firewall/`
 Expected: FAIL to build, `s.State.DockerSettings undefined (type snapshotState has no field or method DockerSettings)` (and `unknown field DockerSettings in struct literal of type snapshotState` in `snapshot_test.go`). With only the two fields added to the struct, the tests build and fail for the behaviour: `the snapshot lost the Docker integration flag`, `settings = <nil>`, `a failed capture saved map[...]`.
 
 - [ ] **Step 3: Implement**
 
 1. `snapshotState` in `store.go`: keep `Docker bool` and change its comment to say it is the Docker integration flag at capture. Add `DockerSettings *dockerfw.Settings` with tag `json:"dockerSettings,omitempty"` and `ContainerRules []dockerfw.ContainerRule` with tag `json:"containerRules,omitempty"`, each with a doc comment: the settings at capture, nil in a snapshot taken before the integration existed (a restore then writes the default settings); the rows of `firewall_container_rules` at capture, in id order. Import `internal/modules/firewall/dockerfw` (it imports nothing from the module root, so there is no cycle). The state is stored as JSON in the existing `state` column, so there is no migration.
 2. `capture` in `snapshot.go`: after `d.readLoaded` and before building the snapshot, call `readDockerConfig(ctx, env.DB)` and `listContainerRules(ctx, env.DB)`. An error from either returns `nil` and the error wrapped as `firewall: snapshot: read the Docker settings: %w` or `firewall: snapshot: read the container rules: %w`, so nothing is saved: a snapshot without the rows would delete them when restored. Set `Docker` to the config's `Enabled`, `DockerSettings` to a pointer to the config's `Settings` (always non-nil), and `ContainerRules` to the rows. This applies to a repair snapshot (`withImage`) too. Everything else in `capture` stays as it is.
-3. Do not touch `snapshots.go`, `diff.go`, the compare action or any restore code: Task 28 and the later tasks read the new fields.
+3. Do not touch `snapshots.go`, `diff.go`, the compare action or any restore code: Task 30 and the later tasks read the new fields.
 
 - [ ] **Step 4: Run the tests to verify they pass, then the task's checks**
 
-Run: `export TMPDIR=/root/.cache/w2-tmp/26 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'Dsn|TestCaptureRecordsTheLogicalState|TestSnapshotSaveGetRoundTrip' ./internal/modules/firewall/`
+Run: `export TMPDIR=/root/.cache/w2-tmp/28 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'Dsn|TestCaptureRecordsTheLogicalState|TestSnapshotSaveGetRoundTrip' ./internal/modules/firewall/`
 Expected: `ok`.
 
 Then run the task's checks and record their real output (`go vet` prints nothing, `golangci-lint` prints `0 issues.`, `go mod tidy -diff` prints nothing, every `go test` line is `ok` or `?`):
 
 ```bash
-mkdir -p /root/.cache/w2-tmp/26 && export TMPDIR=/root/.cache/w2-tmp/26 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w2-tmp/28 && export TMPDIR=/root/.cache/w2-tmp/28 GOTOOLCHAIN=local
 timeout 600 go build ./...
 timeout 300 go vet ./...
 timeout 1500 go test -count=1 ./...
 timeout 900 go test -race -count=1 ./internal/modules/firewall/
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w2-tmp/26 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/28 && go clean -testcache
 ```
 
 - [ ] **Step 5: Commit**
@@ -11023,7 +11210,7 @@ git add internal/modules/firewall/store.go internal/modules/firewall/snapshot.go
 git commit -m "feat(firewall): snapshot the Docker state"
 ```
 
-### Task 27: web: Docker integration panel
+### Task 29: web: Docker integration panel
 
 **Files:**
 - Create: `web/src/modules/firewall/docker-panel.tsx`
@@ -11032,12 +11219,14 @@ git commit -m "feat(firewall): snapshot the Docker state"
 - Test: `web/src/modules/firewall/docker-panel.test.tsx` (create)
 
 **Interfaces:**
-- Consumes: Contracts "Web (Tasks 6, 7, 13, 14, 17, 27)": `DockerStatus` and `dockerQueryKey(hostId)` from `types.ts` and `fwDocker` from `fixtures.ts` (Task 6), `DockerSources({hostId, docker})` from `docker-sources.tsx` (Task 13), and `FirewallChange` (unchanged props; Task 7 makes it confirm `firewall.manual_required`, which a repair that discards foreign rules raises); Contracts "Shapes the web and the schemas read" (the JSON of `DockerStatus`, `DockerNetwork`, `dockerfw.Issue`, and the inputs of `firewall.docker.enable`, `firewall.docker.disable` and `firewall.docker.repair`); the existing `readResource`, `errorMessage` and `FIREWALL_MODULE` (resource `docker` of module `firewall` is `firewall.docker`).
-- Produces: `DockerPanel({hostId}: {hostId: string})` in `docker-panel.tsx` (Contracts "Web"), rendered by `FirewallPage` after the Rules card, and a link `Exposure` (to `exposure`, the route Task 14 adds) beside the Snapshots link.
+- Consumes: Contracts "Web (Tasks 7, 8, 15, 16, 19, 29)": `DockerStatus` and `dockerQueryKey(hostId)` from `types.ts` and `fwDocker` from `fixtures.ts` (Task 7), `DockerSources({hostId, docker})` from `docker-sources.tsx` (Task 15), and `FirewallChange` (unchanged props; Task 8 makes it confirm `firewall.manual_required`, which a repair that discards foreign rules raises); Contracts "Shapes the web and the schemas read" (the JSON of `DockerStatus`, `DockerNetwork`, `dockerfw.Issue`, and the inputs of `firewall.docker.enable`, `firewall.docker.disable` and `firewall.docker.repair`); the existing `readResource`, `errorMessage` and `FIREWALL_MODULE` (resource `docker` of module `firewall` is `firewall.docker`).
+- Produces: `DockerPanel({hostId}: {hostId: string})` in `docker-panel.tsx` (Contracts "Web"), rendered by `FirewallPage` after the Rules card, and a link `Exposure` (to `exposure`, the route Task 16 adds) beside the Snapshots link.
 
 **Items:** 7, 11
 
-**Depends on:** Task 6, Task 13
+**Depends on:** Task 7, Task 15
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 2 - spec 2 - coupling 1 - risk 0 = 5
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -11247,7 +11436,7 @@ test("the firewall page shows the Docker integration and links to the exposure p
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w2-tmp/27 && export TMPDIR=/root/.cache/w2-tmp/27 GOTOOLCHAIN=local && timeout 300 pnpm -C web exec vitest run src/modules/firewall/docker-panel.test.tsx src/modules/firewall/firewall-page.test.tsx`
+Run: `mkdir -p /root/.cache/w2-tmp/29 && export TMPDIR=/root/.cache/w2-tmp/29 GOTOOLCHAIN=local && timeout 300 pnpm -C web exec vitest run src/modules/firewall/docker-panel.test.tsx src/modules/firewall/firewall-page.test.tsx`
 Expected: `docker-panel.test.tsx` FAIL with `Failed to resolve import "./docker-panel"`; in `firewall-page.test.tsx` the new test FAILS with `Unable to find an element with the text: /^Docker integration/` (the other page tests still pass).
 
 - [ ] **Step 3: Implement**
@@ -11267,13 +11456,13 @@ Expected: `docker-panel.test.tsx` FAIL with `Failed to resolve import "./docker-
 
 - [ ] **Step 4: Run the tests to verify they pass, then the task's checks**
 
-Run: `export TMPDIR=/root/.cache/w2-tmp/27 GOTOOLCHAIN=local && timeout 300 pnpm -C web exec vitest run src/modules/firewall/docker-panel.test.tsx src/modules/firewall/firewall-page.test.tsx`
+Run: `export TMPDIR=/root/.cache/w2-tmp/29 GOTOOLCHAIN=local && timeout 300 pnpm -C web exec vitest run src/modules/firewall/docker-panel.test.tsx src/modules/firewall/firewall-page.test.tsx`
 Expected: PASS.
 
 Then run the task's checks and record their real output (`golangci-lint` prints `0 issues.`, `go vet` and `go mod tidy -diff` print nothing, the web commands print no error or warning):
 
 ```bash
-mkdir -p /root/.cache/w2-tmp/27 && export TMPDIR=/root/.cache/w2-tmp/27 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w2-tmp/29 && export TMPDIR=/root/.cache/w2-tmp/29 GOTOOLCHAIN=local
 timeout 600 go build ./...
 timeout 300 go vet ./...
 timeout 1500 go test -count=1 ./...
@@ -11282,7 +11471,7 @@ timeout 300 go mod tidy -diff
 timeout 600 pnpm -C web lint
 timeout 300 pnpm -C web typecheck
 timeout 600 pnpm -C web test
-rm -rf /root/.cache/w2-tmp/27 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/29 && go clean -testcache
 ```
 
 - [ ] **Step 5: Commit**
@@ -11292,7 +11481,7 @@ git add web/src/modules/firewall/docker-panel.tsx web/src/modules/firewall/docke
 git commit -m "feat(web): add the firewall Docker panel"
 ```
 
-### Task 28: Whole restore brings back the Docker rows and settings
+### Task 30: Whole restore brings back the Docker rows and settings
 
 **Files:**
 - Create: `internal/modules/firewall/docker_restore.go`
@@ -11301,10 +11490,12 @@ git commit -m "feat(web): add the firewall Docker panel"
 - Test: `internal/modules/firewall/docker_restore_test.go` (create)
 
 **Interfaces:**
-- Consumes: Task 26's `snapshotState.Docker`, `snapshotState.DockerSettings` and `snapshotState.ContainerRules`; Contracts "Docker store" (`dockerConfig`, `writeDockerConfig` and `replaceContainerRules` in the implementation; `readDockerConfig` and `listContainerRules` in the tests); Contracts "dockerfw settings and facts" (`dockerfw.DefaultSettings`); wave 1's `restoreOver`, `restoreRecord`, `beginRestoreRecord`, `markEmergency`, `pendingRestore` and the shared test helper `rsTestSnap` (`restore_test.go`).
-- Produces: `restoreDockerState(ctx context.Context, tx *sql.Tx, snap snapshot, at time.Time) error` and `writeDockerState(ctx context.Context, db *store.DB, snap snapshot, at time.Time) error` (`docker_restore.go`); `beginRestoreWith(ctx context.Context, db *store.DB, id string, rec restoreRecord, now time.Time, logical func(tx *sql.Tx) error) error` (`store.go`). After this task every whole restore (`restore`, `restoreOver`: revert, the emergency restore, a cut-off restore finished later, uninstall's baseline) first records its intent and writes the snapshot's Docker flag, settings and container rules in one transaction, as spec 2.5 says. It does not touch the Docker chains or the block files: bringing the loaded chains in line with the restored flag, and keeping foreign `DOCKER-USER` rules, is Task 38's.
+- Consumes: Task 28's `snapshotState.Docker`, `snapshotState.DockerSettings` and `snapshotState.ContainerRules`; Contracts "Docker store" (`dockerConfig`, `writeDockerConfig` and `replaceContainerRules` in the implementation; `readDockerConfig` and `listContainerRules` in the tests); Contracts "dockerfw settings and facts" (`dockerfw.DefaultSettings`); wave 1's `restoreOver`, `restoreRecord`, `beginRestoreRecord`, `markEmergency`, `pendingRestore` and the shared test helper `rsTestSnap` (`restore_test.go`).
+- Produces: `restoreDockerState(ctx context.Context, tx *sql.Tx, snap snapshot, at time.Time) error` and `writeDockerState(ctx context.Context, db *store.DB, snap snapshot, at time.Time) error` (`docker_restore.go`); `beginRestoreWith(ctx context.Context, db *store.DB, id string, rec restoreRecord, now time.Time, logical func(tx *sql.Tx) error) error` (`store.go`). After this task every whole restore (`restore`, `restoreOver`: revert, the emergency restore, a cut-off restore finished later, uninstall's baseline) first records its intent and writes the snapshot's Docker flag, settings and container rules in one transaction, as spec 2.5 says. It does not touch the Docker chains or the block files: bringing the loaded chains in line with the restored flag, and keeping foreign `DOCKER-USER` rules, is Task 40's.
 
-**Depends on:** Task 26
+**Depends on:** Task 28
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -11509,7 +11700,7 @@ func TestDrsRecordedRestoreWritesTheRows(t *testing.T) {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w2-tmp/28 && export TMPDIR=/root/.cache/w2-tmp/28 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'Drs' ./internal/modules/firewall/`
+Run: `mkdir -p /root/.cache/w2-tmp/30 && export TMPDIR=/root/.cache/w2-tmp/30 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'Drs' ./internal/modules/firewall/`
 Expected: FAIL (the tests build). `TestDrsRestoreBringsBackTheDockerState`, `TestDrsRowsAreWrittenBeforeTheFilesAndAgainOnRetry` and `TestDrsRecordedRestoreWritesTheRows` report `flag and settings = {Enabled:false ...}, want {Enabled:true ...}` and the rows of state B instead of state A; `TestDrsRestoreOfASnapshotFromBeforeTheIntegration` reports the flag still on and the leftover row; `TestDrsRowsAndRecordShareOneTransaction` reports `restore succeeded without a table for the container rows`.
 
 - [ ] **Step 3: Implement**
@@ -11520,20 +11711,20 @@ Expected: FAIL (the tests build). `TestDrsRestoreBringsBackTheDockerState`, `Tes
 
 - [ ] **Step 4: Run the tests to verify they pass, then the task's checks**
 
-Run: `export TMPDIR=/root/.cache/w2-tmp/28 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'Drs|TestRestore|TestAxRestore|TestRevert' ./internal/modules/firewall/`
+Run: `export TMPDIR=/root/.cache/w2-tmp/30 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'Drs|TestRestore|TestAxRestore|TestRevert' ./internal/modules/firewall/`
 Expected: `ok`.
 
 Then run the task's checks and record their real output (`go vet` prints nothing, `golangci-lint` prints `0 issues.`, `go mod tidy -diff` prints nothing, every `go test` line is `ok` or `?`):
 
 ```bash
-mkdir -p /root/.cache/w2-tmp/28 && export TMPDIR=/root/.cache/w2-tmp/28 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w2-tmp/30 && export TMPDIR=/root/.cache/w2-tmp/30 GOTOOLCHAIN=local
 timeout 600 go build ./...
 timeout 300 go vet ./...
 timeout 1500 go test -count=1 ./...
 timeout 900 go test -race -count=1 ./internal/modules/firewall/
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w2-tmp/28 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/30 && go clean -testcache
 ```
 
 - [ ] **Step 5: Commit**
@@ -11543,17 +11734,19 @@ git add internal/modules/firewall/docker_restore.go internal/modules/firewall/st
 git commit -m "feat(firewall): restore the Docker state"
 ```
 
-### Task 29: Gather Docker state
+### Task 31: Gather Docker state
 
 **Files:**
 - Create: `internal/modules/firewall/docker_state.go`
 - Test: `internal/modules/firewall/docker_state_test.go`
 
 **Interfaces:**
-- Consumes: Contracts "Docker client seam" (Task 12: the `deps` fields `docker`, `readVariant` and `interfaces`, and the test helpers `fakeDocker`, `newFakeDocker`, `fdContainer`); "dockerfw realization" (Task 19: `Realize`, `Realized`). Also in the base from earlier waves: "dockerfw settings and facts" (Task 2: `Settings`, `DefaultSettings`, `Facts`, `Container`, `Endpoint`, `Published`, `Network`, `Bridge`), "dockerfw bindings and rules" (Task 9: `Binding.Chain`, `ContainerRule`), "dockerfw block" (Task 15: `Render`, `WithBlock`, `WithoutBlock`, `BlockOf`), "dockerfw detection" (Task 11: `Detection`, `DockerChains`, `RawProtected`) and "Docker store" (Task 18: `dockerConfig`, `readDockerConfig`, `listContainerRules`, `writeDockerConfig`, `insertContainerRule`, `dsDB`); wave 1's `fhParse` (`host_test.go`).
-- Produces: Contracts "Docker state" exactly: `type dockerState`, `func (f fw) dockerState(ctx context.Context, env core.Env, cur fwstate.Loaded) (dockerState, error)`, `func blockFiles(cfg fwstate.Config, st dockerState, enabled bool) (map[string][]byte, error)`, and the test helper `dfState(t *testing.T, opts ...func(*dockerState)) dockerState`, declared in `docker_state_test.go`: it returns a state with Docker 29.9.1 available (driver `iptables`, both variants `nft`, raw protection on), the integration off, the default settings and no rows or facts, applies each opt, then sets `realized` from the result's rows, facts and settings. Tasks 32 and 33 build their states with it.
+- Consumes: Contracts "Docker client seam" (Task 14: the `deps` fields `docker`, `readVariant` and `interfaces`, and the test helpers `fakeDocker`, `newFakeDocker`, `fdContainer`); "dockerfw realization" (Task 21: `Realize`, `Realized`). Also in the base from earlier waves: "dockerfw settings and facts" (Task 2: `Settings`, `DefaultSettings`, `Facts`, `Container`, `Endpoint`, `Published`, `Network`, `Bridge`), "dockerfw bindings and rules" (Task 10: `Binding.Chain`, `ContainerRule`), "dockerfw block" (Task 17: `Render`, `WithBlock`, `WithoutBlock`, `BlockOf`), "dockerfw detection" (Tasks 12 and 13: `Detection`, `DockerChains`, `RawProtected`) and "Docker store" (Task 20: `dockerConfig`, `readDockerConfig`, `listContainerRules`, `writeDockerConfig`, `insertContainerRule`, `dsDB`); wave 1's `fhParse` (`host_test.go`).
+- Produces: Contracts "Docker state" exactly: `type dockerState`, `func (f fw) dockerState(ctx context.Context, env core.Env, cur fwstate.Loaded) (dockerState, error)`, `func blockFiles(cfg fwstate.Config, st dockerState, enabled bool) (map[string][]byte, error)`, and the test helper `dfState(t *testing.T, opts ...func(*dockerState)) dockerState`, declared in `docker_state_test.go`: it returns a state with Docker 29.9.1 available (driver `iptables`, both variants `nft`, raw protection on), the integration off, the default settings and no rows or facts, applies each opt, then sets `realized` from the result's rows, facts and settings. Tasks 34 and 35 build their states with it.
 
-**Depends on:** Task 12, Task 18, Task 19
+**Depends on:** Task 14, Task 20, Task 21
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
 
 - [ ] **Step 1: Write the failing test**
 
@@ -12010,7 +12203,7 @@ func TestDfBlockFiles(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w2-tmp/29 && TMPDIR=/root/.cache/w2-tmp/29 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestDf' ./internal/modules/firewall/`
+Run: `mkdir -p /root/.cache/w2-tmp/31 && TMPDIR=/root/.cache/w2-tmp/31 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestDf' ./internal/modules/firewall/`
 Expected: FAIL to build with `undefined: dockerState` (then `blockFiles` and the `dockerState` method).
 
 - [ ] **Step 3: Implement**
@@ -12032,13 +12225,13 @@ In `docker_state.go`, with a doc comment on `dockerState`, its method and `block
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `TMPDIR=/root/.cache/w2-tmp/29 GOTOOLCHAIN=local timeout 300 go test -count=1 -race -run 'TestDf' ./internal/modules/firewall/`
+Run: `TMPDIR=/root/.cache/w2-tmp/31 GOTOOLCHAIN=local timeout 300 go test -count=1 -race -run 'TestDf' ./internal/modules/firewall/`
 Expected: `ok`.
 
 - [ ] **Step 5: Verify the task and commit**
 
 ```bash
-mkdir -p /root/.cache/w2-tmp/29 && export TMPDIR=/root/.cache/w2-tmp/29 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w2-tmp/31 && export TMPDIR=/root/.cache/w2-tmp/31 GOTOOLCHAIN=local
 timeout 600 go build ./...
 timeout 300 go vet ./...
 timeout 1500 go test -count=1 ./...
@@ -12046,14 +12239,14 @@ timeout 600 go test -race -count=1 ./internal/modules/firewall/
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
 ```
-Expected: `go build` and `go vet` print nothing; every `go test` line is `ok` or `?`; the linter prints `0 issues.`; `go mod tidy -diff` prints nothing. Record the real output. Then `rm -rf /root/.cache/w2-tmp/29 && GOTOOLCHAIN=local go clean -testcache`.
+Expected: `go build` and `go vet` print nothing; every `go test` line is `ok` or `?`; the linter prints `0 issues.`; `go mod tidy -diff` prints nothing. Record the real output. Then `rm -rf /root/.cache/w2-tmp/31 && GOTOOLCHAIN=local go clean -testcache`.
 
 ```bash
 git add internal/modules/firewall/docker_state.go internal/modules/firewall/docker_state_test.go
 git commit -m "feat(firewall): gather the Docker state"
 ```
 
-### Task 30: Plan diff lines for Docker changes
+### Task 32: Plan diff lines for Docker changes
 
 **Files:**
 - Create: `internal/modules/firewall/docker_diff.go`
@@ -12061,10 +12254,12 @@ git commit -m "feat(firewall): gather the Docker state"
 - Test: `internal/modules/firewall/docker_diff_test.go`
 
 **Interfaces:**
-- Consumes: Contracts "change and target" (Task 16: the `change` fields `files`, `flag`, `sources`, `rowsAdd`, `rowsDel` and `cleanup`, and the diff lines its last paragraph lists). Also in the base from earlier waves: "Docker store" (Task 18: `dockerConfig`, `readDockerConfig`, `listContainerRules`, `writeDockerConfig`, `insertContainerRule`), "dockerfw settings and facts" (Task 2: `Settings`, `DefaultSettings`, `Exemption`), "dockerfw bindings and rules" (Task 9: `Binding`, `ContainerRule`, `Kind`, `Allow`, `Deny`) and "dockerfw block" (Task 15: `BlockOf`, `WithBlock`); wave 1's `fw.plan`, `planReq`, `stateDiff`, `newFakeHost` and `newFW`.
-- Produces: `func dockerDiff(before dockerConfig, rows []dockerfw.ContainerRule, cfg0 fwstate.Config, c change) ([]core.DiffLine, error)` and `func dockerLines(ctx context.Context, env core.Env, cfg0 fwstate.Config, c change) ([]core.DiffLine, error)`, which `fw.plan` calls for every mutating action. The lines are the Docker lines of Contracts "change and target"; their exact text is fixed in Step 3 and by this task's tests, which Task 39, 40, 41, 42, 43 and 44 rely on.
+- Consumes: Contracts "change and target" (Task 18: the `change` fields `files`, `flag`, `sources`, `rowsAdd`, `rowsDel` and `cleanup`, and the diff lines its last paragraph lists). Also in the base from earlier waves: "Docker store" (Task 20: `dockerConfig`, `readDockerConfig`, `listContainerRules`, `writeDockerConfig`, `insertContainerRule`), "dockerfw settings and facts" (Task 2: `Settings`, `DefaultSettings`, `Exemption`), "dockerfw bindings and rules" (Task 10: `Binding`, `ContainerRule`, `Kind`, `Allow`, `Deny`) and "dockerfw block" (Task 17: `BlockOf`, `WithBlock`); wave 1's `fw.plan`, `planReq`, `stateDiff`, `newFakeHost` and `newFW`.
+- Produces: `func dockerDiff(before dockerConfig, rows []dockerfw.ContainerRule, cfg0 fwstate.Config, c change) ([]core.DiffLine, error)` and `func dockerLines(ctx context.Context, env core.Env, cfg0 fwstate.Config, c change) ([]core.DiffLine, error)`, which `fw.plan` calls for every mutating action. The lines are the Docker lines of Contracts "change and target"; their exact text is fixed in Step 3 and by this task's tests, which Task 41, 42, 43, 44, 45, 46 and 47, 48 rely on.
 
-**Depends on:** Task 16, Task 18
+**Depends on:** Task 18, Task 20
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 1 = 6
 
 - [ ] **Step 1: Write the failing test**
 
@@ -12316,7 +12511,7 @@ func TestDdfPlanDockerLines(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w2-tmp/30 && TMPDIR=/root/.cache/w2-tmp/30 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestDdf' ./internal/modules/firewall/`
+Run: `mkdir -p /root/.cache/w2-tmp/32 && TMPDIR=/root/.cache/w2-tmp/32 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestDdf' ./internal/modules/firewall/`
 Expected: FAIL to build with `undefined: dockerDiff`.
 
 - [ ] **Step 3: Implement**
@@ -12334,13 +12529,13 @@ In `docker_diff.go`, with a doc comment on each function:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `TMPDIR=/root/.cache/w2-tmp/30 GOTOOLCHAIN=local timeout 300 go test -count=1 -race -run 'TestDdf|TestPlan|TestStateDiff' ./internal/modules/firewall/`
+Run: `TMPDIR=/root/.cache/w2-tmp/32 GOTOOLCHAIN=local timeout 300 go test -count=1 -race -run 'TestDdf|TestPlan|TestStateDiff' ./internal/modules/firewall/`
 Expected: `ok`.
 
 - [ ] **Step 5: Verify the task and commit**
 
 ```bash
-mkdir -p /root/.cache/w2-tmp/30 && export TMPDIR=/root/.cache/w2-tmp/30 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w2-tmp/32 && export TMPDIR=/root/.cache/w2-tmp/32 GOTOOLCHAIN=local
 timeout 600 go build ./...
 timeout 300 go vet ./...
 timeout 1500 go test -count=1 ./...
@@ -12348,14 +12543,14 @@ timeout 600 go test -race -count=1 ./internal/modules/firewall/
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
 ```
-Expected: `go build` and `go vet` print nothing; every `go test` line is `ok` or `?`; the linter prints `0 issues.`; `go mod tidy -diff` prints nothing. Record the real output. Then `rm -rf /root/.cache/w2-tmp/30 && GOTOOLCHAIN=local go clean -testcache`.
+Expected: `go build` and `go vet` print nothing; every `go test` line is `ok` or `?`; the linter prints `0 issues.`; `go mod tidy -diff` prints nothing. Record the real output. Then `rm -rf /root/.cache/w2-tmp/32 && GOTOOLCHAIN=local go clean -testcache`.
 
 ```bash
 git add internal/modules/firewall/docker_diff.go internal/modules/firewall/plan.go internal/modules/firewall/docker_diff_test.go
 git commit -m "feat(firewall): show Docker changes in plans"
 ```
 
-### Task 31: Refuse foreign DOCKER-USER rules and an open incoming policy
+### Task 33: Refuse foreign DOCKER-USER rules and an open incoming policy
 
 **Files:**
 - Create: `internal/modules/firewall/docker_refuse.go` (`dockerUserInUse`, `refuseOpenIncoming`)
@@ -12364,12 +12559,14 @@ git commit -m "feat(firewall): show Docker changes in plans"
 - Test: `internal/modules/firewall/docker_refuse_test.go` (create)
 
 **Interfaces:**
-- Consumes: Contracts "dockerfw block" (`dockerfw.BlockOf`, `dockerfw.BlockRules`, `dockerfw.Foreign`, `dockerfw.ChainDockerUser`; the tests also use `dockerfw.Render`, `dockerfw.WithBlock` and `dockerfw.BlockInput`), "dockerfw settings and facts" (`dockerfw.DefaultSettings`), "Docker store" (`dockerConfig`, `readDockerConfig`, `writeDockerConfig`) and "change and target" (the field `change.flag`, which Task 16 added to `change` in an earlier wave). From wave 1: `fw.prepare`, `buildFunc`, `change`, the helpers `newFakeHost`, `newFW`, `fhParse` and `fakeHost`'s `writeFile`, `db`, `loaded` and `predictErr` fields.
-- Produces: Contracts "Refusals": `dockerUserInUse(cur fwstate.Loaded, cfg fwstate.Config, flag bool) error`, `refuseOpenIncoming(flagAfter bool, final fwstate.Config) error` and `change.discardForeign bool`. Tasks 39 and 41-44 call `refuseOpenIncoming` from their builders; Task 44 sets `discardForeign`; Tasks 35 and 45 rely on `prepare` refusing while foreign rules stand.
+- Consumes: Contracts "dockerfw block" (`dockerfw.BlockOf`, `dockerfw.BlockRules`, `dockerfw.Foreign`, `dockerfw.ChainDockerUser`; the tests also use `dockerfw.Render`, `dockerfw.WithBlock` and `dockerfw.BlockInput`), "dockerfw settings and facts" (`dockerfw.DefaultSettings`), "Docker store" (`dockerConfig`, `readDockerConfig`, `writeDockerConfig`) and "change and target" (the field `change.flag`, which Task 18 added to `change` in an earlier wave). From wave 1: `fw.prepare`, `buildFunc`, `change`, the helpers `newFakeHost`, `newFW`, `fhParse` and `fakeHost`'s `writeFile`, `db`, `loaded` and `predictErr` fields.
+- Produces: Contracts "Refusals": `dockerUserInUse(cur fwstate.Loaded, cfg fwstate.Config, flag bool) error`, `refuseOpenIncoming(flagAfter bool, final fwstate.Config) error` and `change.discardForeign bool`. Tasks 41, 42 and 44-48 call `refuseOpenIncoming` from their builders; Tasks 47 and 48 sets `discardForeign`; Tasks 37 and 49 rely on `prepare` refusing while foreign rules stand.
 
 **Items:** 8
 
-**Depends on:** Task 15, Task 18
+**Depends on:** Task 17, Task 20
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 - [ ] **Step 1: Write the failing test**
 
@@ -12650,7 +12847,7 @@ func TestDrefPrepareKeepsBuildError(t *testing.T) {
 - [ ] **Step 2: Run the test to verify it fails**
 
 ```bash
-mkdir -p /root/.cache/w2-tmp/31 && export TMPDIR=/root/.cache/w2-tmp/31 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w2-tmp/33 && export TMPDIR=/root/.cache/w2-tmp/33 GOTOOLCHAIN=local
 timeout 300 go test -count=1 ./internal/modules/firewall/ -run TestDref
 ```
 
@@ -12660,19 +12857,19 @@ Expected: FAIL to build, `undefined: dockerUserInUse`, followed by `undefined: r
 
 Spec 2.6 "Adoption of `DOCKER-USER`" is the source: while the integration is on, `DOCKER-USER` holding anything other than Docker's `-j RETURN` or the block's own rules refuses every mutating action, except the repair that discards those rules on purpose, and no automatic operation discards a foreign rule.
 
-1. `target.go`, `change`: add the field `discardForeign bool` after the fields Task 16 added, with a doc comment saying it is true only for a change that discards the foreign `DOCKER-USER` rules on purpose (`firewall.docker.repair` with `DiscardForeign` and `Manual` both set, built by Task 44) and that `prepare` then skips `dockerUserInUse`. Change nothing else in the file.
+1. `target.go`, `change`: add the field `discardForeign bool` after the fields Task 18 added, with a doc comment saying it is true only for a change that discards the foreign `DOCKER-USER` rules on purpose (`firewall.docker.repair` with `DiscardForeign` and `Manual` both set, built by Tasks 47 and 48) and that `prepare` then skips `dockerUserInUse`. Change nothing else in the file.
 2. `docker_refuse.go`, `dockerUserInUse(cur, cfg, flag)`. With `flag` false it returns nil. Otherwise it visits the families in the order v4, v6, each with its loaded ruleset (`cur.V4`, `cur.V6`) and its after file in `cfg.Files` (`/etc/ufw/after.rules`, `/etc/ufw/after6.rules`), and skips a family whose ruleset is nil or has no `filter` table or no `DOCKER-USER` chain (Docker not running, or no `ip6tables`).
    - The rules the integration owns, `known`, are the `DOCKER-USER` rules of the block in that family's after file: `dockerfw.BlockOf` of the entry's `Data` when the entry is `Present`, then `dockerfw.BlockRules` of the block, then the rules of its `filter` table's `DOCKER-USER` chain. An absent file, a file with no block or a block with no such chain gives no known rules.
    - When `BlockOf` or `BlockRules` fails, return `fmt.Errorf("firewall: %s: %w", path, err)`. It is a plain error on purpose: a damaged block cannot say which rules are Darkpanel's, and no override must clear that.
    - The foreign rules are `dockerfw.Foreign(chain, known, family)`; each is listed as `<v4|v6> <rule.Text>`, so the text is the rule's save line such as `v4 -A DOCKER-USER -s 203.0.113.9/32 -j DROP`.
    - With none listed return nil. Otherwise return `errcode.New(errcode.FirewallDockerUserInUse, detail)` where detail is `DOCKER-USER holds <n> rule(s) the Docker integration does not own: <the list joined with "; ">; remove them, or run firewall.docker.repair with discardForeign: true and manual: true`.
-3. `docker_refuse.go`, `refuseOpenIncoming(flagAfter, final)`: nil unless `flagAfter` is true and `final.DefaultInput` is exactly `ACCEPT`, in which case `errcode.New(errcode.FirewallUnsupportedIntegration, ...)` with a detail that names `DEFAULT_INPUT_POLICY`, says the policy must be `DROP` or `REJECT` and that an `ACCEPT` policy leaves every proxied published port open. Spec 2.6 "Proxied families" makes this an invariant while the flag is on. This task only declares the function; the builders of Tasks 39 and 41-44 call it with the flag after the change and the configuration after the change's transition.
+3. `docker_refuse.go`, `refuseOpenIncoming(flagAfter, final)`: nil unless `flagAfter` is true and `final.DefaultInput` is exactly `ACCEPT`, in which case `errcode.New(errcode.FirewallUnsupportedIntegration, ...)` with a detail that names `DEFAULT_INPUT_POLICY`, says the policy must be `DROP` or `REJECT` and that an `ACCEPT` policy leaves every proxied published port open. Spec 2.6 "Proxied families" makes this an invariant while the flag is on. This task only declares the function; the builders of Tasks 41, 42 and 44-48 call it with the flag after the change and the configuration after the change's transition.
 4. `plan.go`, `prepare`: after `build(cfg0, cur)` returns without error and before `f.predictTarget`, unless `c.discardForeign` is true, read the stored flag with `readDockerConfig(ctx, env.DB)` (an error returns `firewall: read the Docker integration flag: %w`) and call `dockerUserInUse(cur, cfg0, stored.Enabled || (c.flag != nil && *c.flag))`, returning its error unchanged. The flag counts when the integration is on before the change (every mutating action refuses) or after it (`firewall.docker.enable` refuses to adopt a populated chain). The check comes after `build` so a builder's own refusal wins, and before the prediction so a refusal never depends on the predictor. Add one sentence about the refusal to `prepare`'s doc comment. Revert and the restore paths (`revert`, `restoreOver`) do not call `prepare` and stay unrefused, as spec 2.6 requires.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
-export TMPDIR=/root/.cache/w2-tmp/31 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w2-tmp/33 GOTOOLCHAIN=local
 timeout 300 go test -count=1 ./internal/modules/firewall/ -run TestDref -v
 timeout 900 go test -count=1 ./internal/modules/firewall/...
 timeout 900 go test -race -count=1 ./internal/modules/firewall/
@@ -12680,7 +12877,7 @@ timeout 600 go build ./... && timeout 300 go vet ./...
 timeout 1500 go test -count=1 ./...
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w2-tmp/31 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/33 && go clean -testcache
 ```
 
 Expected: every `TestDref` test and subtest `PASS`; every package line `ok` or `?`; `go vet` and `go mod tidy -diff` print nothing; golangci-lint ends `0 issues.`. Record the real output in the task report.
@@ -12692,7 +12889,7 @@ git add internal/modules/firewall/docker_refuse.go internal/modules/firewall/doc
 git commit -m "feat(firewall): refuse foreign DOCKER-USER rules"
 ```
 
-### Task 32: firewall.docker resource
+### Task 34: firewall.docker resource
 
 **Files:**
 - Create: `internal/modules/firewall/docker_resource.go` (`DockerStatus`, `DockerNetwork`, `DockerBinding`, `dockerStatusOf`, `dockerHealthLevel`, `fw.dockerStatus`, `fw.dockerResource` and their `status*` helpers)
@@ -12700,11 +12897,13 @@ git commit -m "feat(firewall): refuse foreign DOCKER-USER rules"
 
 **Interfaces:**
 - Consumes: Contracts "dockerfw settings and facts" (`Settings`, `Facts`, `Container`, `Network`, `Endpoint`, `Published`, `Exemption`), "dockerfw bindings and rules" (`Binding`, `ContainerRule`, `Allow`, `Deny`, `LabelPrefix`), "dockerfw detection" (`Detection`, `Unsupported`, `ForeignDNAT`, `Propose`, `Covered`), "dockerfw block" (`BlockOf`, `BlockRules`, `Foreign`, `Render`, `WithBlock`, `ChainDockerUser`), "dockerfw realization" (`Realized`), "dockerfw health" (`Health`, `HealthInput`, `Issue`, `Level`, `Unprotected`), "Docker store" (`dockerConfig`), "Docker state" (`dockerState` and `fw.dockerState`) and "Docker client seam" (the deps fields and `fakeDocker`, `newFakeDocker`). From wave 1: `fw.status`'s pattern, `ruleText` (`diff.go`), `model.Merge`, and the helpers `newFakeHost`, `fhParse`.
-- Produces: Contracts "Shapes the web and the schemas read": the types `DockerStatus`, `DockerNetwork` and `DockerBinding`, and the constructor `fw.dockerResource() core.ResourceDef` for resource `firewall.docker`, which Task 46 registers. Also `dockerStatusOf(cfg fwstate.Config, cur fwstate.Loaded, st dockerState) DockerStatus`, the pure builder behind the resource, and `fw.dockerStatus(ctx, env) (DockerStatus, error)`; later tasks that need the health or the foreign rules of a host (Task 45) call these instead of recomputing them.
+- Produces: Contracts "Shapes the web and the schemas read": the types `DockerStatus`, `DockerNetwork` and `DockerBinding`, and the constructor `fw.dockerResource() core.ResourceDef` for resource `firewall.docker`, which Task 50 registers. Also `dockerStatusOf(cfg fwstate.Config, cur fwstate.Loaded, st dockerState) DockerStatus`, the pure builder behind the resource, and `fw.dockerStatus(ctx, env) (DockerStatus, error)`; later tasks that need the health or the foreign rules of a host (Task 49) call these instead of recomputing them.
 
 **Items:** 7, 11
 
-**Depends on:** Task 11, Task 18, Task 20, Task 29
+**Depends on:** Task 12, Task 13, Task 20, Task 22, Task 31
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
 
 - [ ] **Step 1: Write the failing test**
 
@@ -13094,7 +13293,7 @@ func TestDstResourceDockerUnavailable(t *testing.T) {
 - [ ] **Step 2: Run the test to verify it fails**
 
 ```bash
-mkdir -p /root/.cache/w2-tmp/32 && export TMPDIR=/root/.cache/w2-tmp/32 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w2-tmp/34 && export TMPDIR=/root/.cache/w2-tmp/34 GOTOOLCHAIN=local
 timeout 300 go test -count=1 ./internal/modules/firewall/ -run TestDst
 ```
 
@@ -13104,7 +13303,7 @@ Expected: FAIL to build, `undefined: dockerStatusOf`, followed by `undefined: do
 
 `docker_resource.go` declares, with a doc comment on each exported type, `DockerStatus`, `DockerNetwork` and `DockerBinding` exactly as Contracts "Shapes the web and the schemas read" gives them (field names, types and JSON tags are fixed: the web mirrors them), and the following. Spec 2.6 "Detection", "Reconcile and health" and "Manual route rules" are the source.
 
-1. `func (f fw) dockerResource() core.ResourceDef` is `core.DefineResource(ID+".docker", f.dockerStatus)`, as `resources()` builds `firewall.status`. Task 46 registers it; this task does not touch `firewall.go`.
+1. `func (f fw) dockerResource() core.ResourceDef` is `core.DefineResource(ID+".docker", f.dockerStatus)`, as `resources()` builds `firewall.status`. Task 50 registers it; this task does not touch `firewall.go`.
 2. `func (f fw) dockerStatus(ctx, env) (DockerStatus, error)` reads `f.d.readConfig(f.d.root)` and `f.d.readLoaded(ctx, env)`, then `f.dockerState(ctx, env, cur)` (Docker being unavailable is not an error there), and returns `dockerStatusOf(cfg, cur, st)`. A read failure is wrapped `firewall: docker status: %w`.
 3. `func dockerStatusOf(cfg, cur, st) DockerStatus` is pure and fills the fields in this order:
    - `Available` and `Reason` from `st.available` and `st.reason`; `Enabled` from `st.cfg.Enabled`; `Settings` from `st.cfg.Settings` with a nil `PrivateSources` or `ForwardExemptions` replaced by an empty slice; `Rules` from `st.rows`. `Rules`, `Networks` and `Bindings` are empty slices, never nil, because the web reads arrays.
@@ -13123,7 +13322,7 @@ Expected: FAIL to build, `undefined: dockerStatusOf`, followed by `undefined: do
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
-export TMPDIR=/root/.cache/w2-tmp/32 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w2-tmp/34 GOTOOLCHAIN=local
 timeout 300 go test -count=1 ./internal/modules/firewall/ -run TestDst -v
 timeout 900 go test -count=1 ./internal/modules/firewall/...
 timeout 900 go test -race -count=1 ./internal/modules/firewall/
@@ -13131,7 +13330,7 @@ timeout 600 go build ./... && timeout 300 go vet ./...
 timeout 1500 go test -count=1 ./...
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w2-tmp/32 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/34 && go clean -testcache
 ```
 
 Expected: every `TestDst` test and subtest `PASS`; every package line `ok` or `?`; `go vet` and `go mod tidy -diff` print nothing; golangci-lint ends `0 issues.`. Record the real output in the task report.
@@ -13143,19 +13342,21 @@ git add internal/modules/firewall/docker_resource.go internal/modules/firewall/d
 git commit -m "feat(firewall): add the firewall.docker resource"
 ```
 
-### Task 33: firewall.exposure resource
+### Task 35: firewall.exposure resource
 
 **Files:**
 - Create: `internal/modules/firewall/exposure_resource.go` (`ExposureView`, `ExposureRow`, `ExposureContainer`, `exposureInput`, `exposureRows`, `exposureRoute`, `exposureDescribe`, `exposureManualNotes`, `fw.exposureView`, `fw.exposureResource`)
 - Test: `internal/modules/firewall/exposure_resource_test.go` (create)
 
 **Interfaces:**
-- Consumes: Contracts "exposure (Tasks 5 and 10)" (`exposure.Evaluate`, `exposure.Input`, `exposure.Target`, `exposure.Iface`, `exposure.Verdict`), "eval decided" (through `Evaluate`: each verdict's `DecidedBy` is `Describe` of the evaluator's `Decided`), "Docker client seam" (the deps fields `sockets`, `interfaces`, `routeGet`, `shieldsUp`, `docker`, `readVariant`; `fakeDocker`, `newFakeDocker`), "Docker state" (`dockerState`, `fw.dockerState`), "dockerfw settings and facts" (`Facts`, `Container`, `Network`, `Published`, `Endpoint`) and "dockerfw bindings and rules" (`Binding`). From wave 1: `hostUnsupported`, `fw.syncDiffs`, `ruleText` (`diff.go`), `model.Merge`, `netstat.Socket`, `netstat.Interface`, `netstat.RouteQuery`, and the helpers `newFakeHost`, `fhParse`.
-- Produces: Contracts "Shapes the web and the schemas read": `ExposureView`, `ExposureRow` and `ExposureContainer`, and the constructor `fw.exposureResource() core.ResourceDef` for resource `firewall.exposure`, which Task 46 registers.
+- Consumes: Contracts "exposure (Tasks 5, 6 and 11)" (`exposure.Evaluate`, `exposure.Input`, `exposure.Target`, `exposure.Iface`, `exposure.Verdict`), "eval decided" (through `Evaluate`: each verdict's `DecidedBy` is `Describe` of the evaluator's `Decided`), "Docker client seam" (the deps fields `sockets`, `interfaces`, `routeGet`, `shieldsUp`, `docker`, `readVariant`; `fakeDocker`, `newFakeDocker`), "Docker state" (`dockerState`, `fw.dockerState`), "dockerfw settings and facts" (`Facts`, `Container`, `Network`, `Published`, `Endpoint`) and "dockerfw bindings and rules" (`Binding`). From wave 1: `hostUnsupported`, `fw.syncDiffs`, `ruleText` (`diff.go`), `model.Merge`, `netstat.Socket`, `netstat.Interface`, `netstat.RouteQuery`, and the helpers `newFakeHost`, `fhParse`.
+- Produces: Contracts "Shapes the web and the schemas read": `ExposureView`, `ExposureRow` and `ExposureContainer`, and the constructor `fw.exposureResource() core.ResourceDef` for resource `firewall.exposure`, which Task 50 registers.
 
 **Items:** 12
 
-**Depends on:** Task 10, Task 12, Task 29
+**Depends on:** Task 11, Task 14, Task 31
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
 
 - [ ] **Step 1: Write the failing test**
 
@@ -13677,7 +13878,7 @@ func TestXvViewJSON(t *testing.T) {
 - [ ] **Step 2: Run the test to verify it fails**
 
 ```bash
-mkdir -p /root/.cache/w2-tmp/33 && export TMPDIR=/root/.cache/w2-tmp/33 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w2-tmp/35 && export TMPDIR=/root/.cache/w2-tmp/35 GOTOOLCHAIN=local
 timeout 300 go test -count=1 ./internal/modules/firewall/ -run TestXv
 ```
 
@@ -13704,13 +13905,13 @@ Expected: FAIL to build, `undefined: exposureInput`, followed by `undefined: exp
    - Rows are sorted by port, then by the text `<proto> <family> <addr>`.
 5. `func exposureRoute(routeGet, ifaces, nets, sysctl) fwstate.Router` is the router of the evaluation, on the pattern of the guard's own router (which is unexported): a destination that is loopback or an address of one of `ifaces` goes `output`/`lo` from the output path and `input` otherwise; the output path to anything else asks `routeGet(RouteQuery{Dst, Src, Mark})` and goes `output` through the route's `OutIface` (an error when it is empty); a forwarded packet first fails with `firewall: forwarding is off (<key> = 0)` when the live value of `net/ipv4/ip_forward` (IPv4) or `net/ipv6/conf/all/forwarding` (IPv6) in `sysctl` is `0`; then a destination inside a subnet of a network in `nets` with a bridge goes `forward` through that bridge without asking the kernel (Docker's own subnets are known facts); any other destination asks `routeGet(RouteQuery{Dst, Src, IIF: in-interface, Mark})`, and a route of type `local` goes `input`, an empty `OutIface` is an error `firewall: the route to <dst> has no single out-interface`, otherwise `forward` through `OutIface`. A lookup failure is wrapped `firewall: route to <dst> ...: %w`. Destinations are unmapped first.
 6. `func exposureDescribe(rs *netfilter.Ruleset, rules []model.Rule) func(ref string) string` names a deciding rule. A ref `<table>/<chain>#<n>` (n counts from 1) found in `rs` becomes `<ref>: <rule.Text>` followed by an origin suffix; a ref that is a policy, malformed or not found (also with a nil ruleset) is returned unchanged. The suffix is, in this order: for `ufw-user-input`, `ufw-user-output` or `ufw-user-forward` (and the `ufw6-` spellings) with exactly as many rules in the chain as `rules` holds of the direction in, out or route, ` [ufw <ruleText(that rule)>]` for the n-th of them (when the counts differ nothing is attributed, since logging and limit rules write several lines per tuple); ` [Darkpanel Docker block]` for chain `DOCKER-USER`, `darkpanel-docker-*` and `dp-b-*`; ` [Docker]` for `DOCKER` and `DOCKER-*`; ` [Docker raw-table protection]` for a `DROP` rule of `raw` `PREROUTING`; ` [tailscaled]` for `ts-*`; ` [UFW framework]` for any other `ufw-*` or `ufw6-*` chain; none otherwise.
-7. `func exposureManualNotes(cfg, facts) []string`: for each rule of `model.Merge(cfg.Rules4, cfg.Rules6)` whose `Origin` is manual, whose `Direction` is route, whose `Raw` is empty and whose `To` is not `any`, parse `To` as a prefix (an address becomes a host prefix; an unparsable value is skipped); when the prefix overlaps a subnet of any network in `facts`, the note `<ruleText(rule)>: no effect without a Darkpanel binding` (spec 2.6 "Manual route rules"). Task 32 applies the same test to `DockerStatus.ManualRoutes` in its own function; the two tasks share a wave, so each declares its own copy.
+7. `func exposureManualNotes(cfg, facts) []string`: for each rule of `model.Merge(cfg.Rules4, cfg.Rules6)` whose `Origin` is manual, whose `Direction` is route, whose `Raw` is empty and whose `To` is not `any`, parse `To` as a prefix (an address becomes a host prefix; an unparsable value is skipped); when the prefix overlaps a subnet of any network in `facts`, the note `<ruleText(rule)>: no effect without a Darkpanel binding` (spec 2.6 "Manual route rules"). Task 34 applies the same test to `DockerStatus.ManualRoutes` in its own function; the two tasks share a wave, so each declares its own copy.
 8. Doc comments are full sentences and none names this plan.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
-export TMPDIR=/root/.cache/w2-tmp/33 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w2-tmp/35 GOTOOLCHAIN=local
 timeout 300 go test -count=1 ./internal/modules/firewall/ -run TestXv -v
 timeout 900 go test -count=1 ./internal/modules/firewall/...
 timeout 900 go test -race -count=1 ./internal/modules/firewall/
@@ -13718,7 +13919,7 @@ timeout 600 go build ./... && timeout 300 go vet ./...
 timeout 1500 go test -count=1 ./...
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w2-tmp/33 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/35 && go clean -testcache
 ```
 
 Expected: every `TestXv` test and subtest `PASS`; every package line `ok` or `?`; `go vet` and `go mod tidy -diff` print nothing; golangci-lint ends `0 issues.`. Record the real output in the task report.
@@ -13730,7 +13931,7 @@ git add internal/modules/firewall/exposure_resource.go internal/modules/firewall
 git commit -m "feat(firewall): add the firewall.exposure resource"
 ```
 
-### Task 34: Preserve foreign DOCKER-USER rules around a transition
+### Task 36: Preserve foreign DOCKER-USER rules around a transition
 
 **Files:**
 - Create: `internal/modules/firewall/docker_preserve.go`
@@ -13738,11 +13939,13 @@ git commit -m "feat(firewall): add the firewall.exposure resource"
 
 **Interfaces:**
 - Consumes: Contracts "Docker store" (the `firewall_docker_foreign` table of migration 0003 and the shared test helper `dsDB`); "dockerfw restore inputs" (`Layout`, `LayoutOf`, `DockerUserInput`); "dockerfw block" (`BlockOf`, `BlockRules`, `Render`, `WithBlock`, `BlockInput`, `BindingLine`, `BindingChain`, `ChainDockerUser`; `Foreign` is used through `LayoutOf`); "dockerfw settings and facts" (`DefaultSettings`). From wave 1: `fw` and its `d.readLoaded`, `chainOf` (`image.go`), `restoreProgram` (`image.go`), `runFailure` (`restore.go`), `formatSnapshotTime` (`store.go`), and the test helpers `fakeHost`, `newFakeHost`, `newFW`, `fhParse`, `fhSave`.
-- Produces: Contracts "Foreign-rule preservation", exactly as stated there: `foreignRecord`, `putForeign`, `foreignOf`, `deleteForeign`, `(fw).keepForeign`, `(fw).finishForeign`. Also two unexported names that Task 35 uses and no other task declares: `preserveFamilies` (`[]fwstate.Family{fwstate.V4, fwstate.V6}`, the order families are loaded in) and `blockUserRules(files [][]byte) ([]netfilter.Rule, error)`. And the shared test helper of Contracts "Test prefixes", declared only here in `docker_preserve_test.go`: `kfHost(t *testing.T, v4, v6 []string) *kfRig` builds a fake host whose UFW is active, whose `after.rules` and `after6.rules` hold the Docker block and whose loaded DOCKER-USER chains hold the lines `v4` and `v6` (nil: the block's own lines). Its `*-restore -n` programs change the loaded state as iptables-restore would and are recorded in `kfRig.loads`. `kfRig` has the fields `h *fakeHost`, `f fw`, `env core.Env` (the env of change `c1`, with the journal), `loads []kfLoad` and `log *bytes.Buffer`, and the methods `standalone()` (clears `env.Effects` and `env.ChangeID`), `known() [][]byte`, `flush(t, family, lines)` and `loadedLines(family)`. Later tasks use these helpers and the constants `kfForeign1`, `kfForeign2`, `kfReturn` as they are.
+- Produces: Contracts "Foreign-rule preservation", exactly as stated there: `foreignRecord`, `putForeign`, `foreignOf`, `deleteForeign`, `(fw).keepForeign`, `(fw).finishForeign`. Also two unexported names that Task 37 uses and no other task declares: `preserveFamilies` (`[]fwstate.Family{fwstate.V4, fwstate.V6}`, the order families are loaded in) and `blockUserRules(files [][]byte) ([]netfilter.Rule, error)`. And the shared test helper of Contracts "Test prefixes", declared only here in `docker_preserve_test.go`: `kfHost(t *testing.T, v4, v6 []string) *kfRig` builds a fake host whose UFW is active, whose `after.rules` and `after6.rules` hold the Docker block and whose loaded DOCKER-USER chains hold the lines `v4` and `v6` (nil: the block's own lines). Its `*-restore -n` programs change the loaded state as iptables-restore would and are recorded in `kfRig.loads`. `kfRig` has the fields `h *fakeHost`, `f fw`, `env core.Env` (the env of change `c1`, with the journal), `loads []kfLoad` and `log *bytes.Buffer`, and the methods `standalone()` (clears `env.Effects` and `env.ChangeID`), `known() [][]byte`, `flush(t, family, lines)` and `loadedLines(family)`. Later tasks use these helpers and the constants `kfForeign1`, `kfForeign2`, `kfReturn` as they are.
 
 **Items:** 8
 
-**Depends on:** Task 18, Task 21
+**Depends on:** Task 20, Task 23
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 3 = 8
 
 - [ ] **Step 1: Write the failing test**
 
@@ -14335,7 +14538,7 @@ func TestKfFinishForeign(t *testing.T) {
 - [ ] **Step 2: Run the test to verify it fails**
 
 ```bash
-mkdir -p /root/.cache/w2-tmp/34 && export TMPDIR=/root/.cache/w2-tmp/34 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w2-tmp/36 && export TMPDIR=/root/.cache/w2-tmp/36 GOTOOLCHAIN=local
 timeout 600 go test -count=1 -run 'TestKf' ./internal/modules/firewall/
 ```
 
@@ -14364,7 +14567,7 @@ Nothing else changes. `keepForeign` never discards a foreign rule and is never r
 - [ ] **Step 4: Run the test to verify it passes**
 
 ```bash
-export TMPDIR=/root/.cache/w2-tmp/34 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w2-tmp/36 GOTOOLCHAIN=local
 timeout 600 go test -count=1 -run 'TestKf' -v ./internal/modules/firewall/
 ```
 
@@ -14373,7 +14576,7 @@ Expected: every `TestKf…` test and subtest PASS (`TestKfForeignStore`, `TestKf
 - [ ] **Step 5: Verify the whole tree**
 
 ```bash
-export TMPDIR=/root/.cache/w2-tmp/34 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w2-tmp/36 GOTOOLCHAIN=local
 timeout 600 go build ./...
 timeout 300 go vet ./...
 timeout 1500 go test -count=1 ./...
@@ -14387,12 +14590,12 @@ Expected: build and vet print nothing; every test line is `ok` or `?`; golangci-
 - [ ] **Step 6: Commit**
 
 ```bash
-rm -rf /root/.cache/w2-tmp/34 && GOTOOLCHAIN=local go clean -testcache
+rm -rf /root/.cache/w2-tmp/36 && GOTOOLCHAIN=local go clean -testcache
 git add internal/modules/firewall/docker_preserve.go internal/modules/firewall/docker_preserve_test.go
 git commit -m "feat(firewall): keep foreign DOCKER-USER rules"
 ```
 
-### Task 35: Owned-chain cleanup
+### Task 37: Owned-chain cleanup
 
 **Files:**
 - Create: `internal/modules/firewall/docker_cleanup.go`
@@ -14400,12 +14603,14 @@ git commit -m "feat(firewall): keep foreign DOCKER-USER rules"
 - Test: `internal/modules/firewall/docker_cleanup_test.go`
 
 **Interfaces:**
-- Consumes: Contracts "Docker store" (`beginCleanup`, `endCleanup`, `pendingCleanups`, and the `firewall_docker_foreign` table); "Docker effects" (`chainsOp`, `runDockerEffect`, the resource `firewall.chains:docker`, and the field `deps.cleanChains`, which Task 25 added in an earlier wave); "dockerfw restore inputs" (`CleanupInput`); "dockerfw block" (`BlockOf`, `WithoutBlock`, `Foreign`, `Owned`, `ChainDockerUser`); "Foreign-rule preservation" (`foreignRecord`, `putForeign`, `foreignOf`, `(fw).keepForeign`, `(fw).finishForeign`) and Task 34's `blockUserRules`, `preserveFamilies` and test helpers (`kfHost`, `kfRig` and its methods, `kfForeign1`, `kfForeign2`, `kfReturn`, `kfLines`, `kfNext`, `kfJoin`, `kfOne`, `kfRecordHeld`). From wave 1: `writeFileEffect` (`effects.go`), `ufw` (`inverse.go`), `reloadArgs` (`target.go`), `ufwRunning` (`status.go`), `chainOf`, `restoreProgram`, `runFailure`, `fhParse`, `fhSave`, and `errcode.FirewallDockerUserInUse`.
-- Produces: Contracts "Owned-chain cleanup", exactly as stated there: `cleanupMode`, `cleanupRefuse`, `cleanupPreserve`, `(fw).cleanupChains`, `(fw).finishCleanups`. Also `(fw).cleanChainsPreserving(ctx, env, owner) error`, which `productionFW` assigns to `deps.cleanChains` (Contracts "Docker effects": Task 25's inverse of `firewall.chains:docker` calls it). Unexported names only this task declares: `cleanupFiles`, `cleanupUserChain`, `cleanupOwned`, `(fw).runCleanup`, `(fw).cleanupSteps`, `(fw).verifyCleanup`.
+- Consumes: Contracts "Docker store" (`beginCleanup`, `endCleanup`, `pendingCleanups`, and the `firewall_docker_foreign` table); "Docker effects" (`chainsOp`, `runDockerEffect`, the resource `firewall.chains:docker`, and the field `deps.cleanChains`, which Task 27 added in an earlier wave); "dockerfw restore inputs" (`CleanupInput`); "dockerfw block" (`BlockOf`, `WithoutBlock`, `Foreign`, `Owned`, `ChainDockerUser`); "Foreign-rule preservation" (`foreignRecord`, `putForeign`, `foreignOf`, `(fw).keepForeign`, `(fw).finishForeign`) and Task 36's `blockUserRules`, `preserveFamilies` and test helpers (`kfHost`, `kfRig` and its methods, `kfForeign1`, `kfForeign2`, `kfReturn`, `kfLines`, `kfNext`, `kfJoin`, `kfOne`, `kfRecordHeld`). From wave 1: `writeFileEffect` (`effects.go`), `ufw` (`inverse.go`), `reloadArgs` (`target.go`), `ufwRunning` (`status.go`), `chainOf`, `restoreProgram`, `runFailure`, `fhParse`, `fhSave`, and `errcode.FirewallDockerUserInUse`.
+- Produces: Contracts "Owned-chain cleanup", exactly as stated there: `cleanupMode`, `cleanupRefuse`, `cleanupPreserve`, `(fw).cleanupChains`, `(fw).finishCleanups`. Also `(fw).cleanChainsPreserving(ctx, env, owner) error`, which `productionFW` assigns to `deps.cleanChains` (Contracts "Docker effects": Task 27's inverse of `firewall.chains:docker` calls it). Unexported names only this task declares: `cleanupFiles`, `cleanupUserChain`, `cleanupOwned`, `(fw).runCleanup`, `(fw).cleanupSteps`, `(fw).verifyCleanup`.
 
 **Items:** 8
 
-**Depends on:** Task 12, Task 18, Task 21, Task 24, Task 34
+**Depends on:** Task 14, Task 20, Task 23, Task 26, Task 36
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 3 = 8
 
 - [ ] **Step 1: Write the failing test**
 
@@ -14764,7 +14969,7 @@ func TestClCleanChainsWiring(t *testing.T) {
 - [ ] **Step 2: Run the test to verify it fails**
 
 ```bash
-mkdir -p /root/.cache/w2-tmp/35 && export TMPDIR=/root/.cache/w2-tmp/35 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w2-tmp/37 && export TMPDIR=/root/.cache/w2-tmp/37 GOTOOLCHAIN=local
 timeout 600 go test -count=1 -run 'TestCl' ./internal/modules/firewall/
 ```
 
@@ -14793,16 +14998,16 @@ Create `internal/modules/firewall/docker_cleanup.go`, in package `firewall`, wit
 - [ ] **Step 4: Run the test to verify it passes**
 
 ```bash
-export TMPDIR=/root/.cache/w2-tmp/35 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w2-tmp/37 GOTOOLCHAIN=local
 timeout 600 go test -count=1 -run 'TestCl|TestKf' -v ./internal/modules/firewall/
 ```
 
-Expected: every `TestCl…` test and subtest PASS (`TestClCleanup` with `refuse` and `preserve`, `TestClRefuse` with `IPv4` and `IPv6`, `TestClPreserve`, `TestClInChange`, `TestClNothingToClean`, `TestClFinishCleanups`, `TestClFailedLoadIsFinished`, `TestClVerifyFails`, `TestClCleanChainsWiring`) and Task 34's `TestKf…` tests still PASS, then `ok`.
+Expected: every `TestCl…` test and subtest PASS (`TestClCleanup` with `refuse` and `preserve`, `TestClRefuse` with `IPv4` and `IPv6`, `TestClPreserve`, `TestClInChange`, `TestClNothingToClean`, `TestClFinishCleanups`, `TestClFailedLoadIsFinished`, `TestClVerifyFails`, `TestClCleanChainsWiring`) and Task 36's `TestKf…` tests still PASS, then `ok`.
 
 - [ ] **Step 5: Verify the whole tree**
 
 ```bash
-export TMPDIR=/root/.cache/w2-tmp/35 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w2-tmp/37 GOTOOLCHAIN=local
 timeout 600 go build ./...
 timeout 300 go vet ./...
 timeout 1500 go test -count=1 ./...
@@ -14816,12 +15021,12 @@ Expected: build and vet print nothing; every test line is `ok` or `?`; golangci-
 - [ ] **Step 6: Commit**
 
 ```bash
-rm -rf /root/.cache/w2-tmp/35 && GOTOOLCHAIN=local go clean -testcache
+rm -rf /root/.cache/w2-tmp/37 && GOTOOLCHAIN=local go clean -testcache
 git add internal/modules/firewall/docker_cleanup.go internal/modules/firewall/wire.go internal/modules/firewall/docker_cleanup_test.go
 git commit -m "feat(firewall): clean up the Docker chains"
 ```
 
-### Task 36: Run Docker changes in order
+### Task 38: Run Docker changes in order
 
 **Files:**
 - Modify: `internal/modules/firewall/handler.go` (`fw.run` and its doc comment)
@@ -14829,12 +15034,14 @@ git commit -m "feat(firewall): clean up the Docker chains"
 - Test: `internal/modules/firewall/run_docker_test.go`
 
 **Interfaces:**
-- Consumes: Contracts "change and target" (Task 16: the `change` fields `files`, `flag`, `sources`, `rowsAdd`, `rowsDel`, `cleanup`, `reload`, and `target.cmds`); "Docker effects" (Task 24: `flagOp`, `sourcesOp`, `rowCreateOp`, `rowDeleteOp`, `runDockerEffect`); "Docker store" (Task 18: `containerRule`, `readDockerConfig`, `writeDockerConfig`, `listContainerRules`, `insertContainerRule`, `pendingCleanups`, the helper `dsDB`); "Owned-chain cleanup" (Task 35: `fw.cleanupChains`, `cleanupRefuse`); wave 1's `writeFileEffect`, `runUfw`, `transitionOp`, `sameFile`, `reloadArgs`, `writeRestored` and `restoreSysctl`.
-- Produces: `fw.run` runs a change's Docker fields in the order Contracts "change and target" states, so every Docker action built on `change` (Tasks 39-44) gets its effects journaled in that order. Also `func (f fw) runLogical(ctx context.Context, env core.Env, c change) error` and `func (f fw) writeBlockFiles(ctx context.Context, env core.Env, files map[string][]byte) error` in `run_docker.go`, used only by `run`.
+- Consumes: Contracts "change and target" (Task 18: the `change` fields `files`, `flag`, `sources`, `rowsAdd`, `rowsDel`, `cleanup`, `reload`, and `target.cmds`); "Docker effects" (Task 26: `flagOp`, `sourcesOp`, `rowCreateOp`, `rowDeleteOp`, `runDockerEffect`); "Docker store" (Task 20: `containerRule`, `readDockerConfig`, `writeDockerConfig`, `listContainerRules`, `insertContainerRule`, `pendingCleanups`, the helper `dsDB`); "Owned-chain cleanup" (Task 37: `fw.cleanupChains`, `cleanupRefuse`); wave 1's `writeFileEffect`, `runUfw`, `transitionOp`, `sameFile`, `reloadArgs`, `writeRestored` and `restoreSysctl`.
+- Produces: `fw.run` runs a change's Docker fields in the order Contracts "change and target" states, so every Docker action built on `change` (Tasks 41-48) gets its effects journaled in that order. Also `func (f fw) runLogical(ctx context.Context, env core.Env, c change) error` and `func (f fw) writeBlockFiles(ctx context.Context, env core.Env, files map[string][]byte) error` in `run_docker.go`, used only by `run`.
 
 **Items:** 8, 9
 
-**Depends on:** Task 16, Task 24, Task 35
+**Depends on:** Task 18, Task 26, Task 37
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 - [ ] **Step 1: Write the failing test**
 
@@ -15077,7 +15284,7 @@ func TestDruCleanupRefused(t *testing.T) {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w2-tmp/36 && TMPDIR=/root/.cache/w2-tmp/36 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestDru' ./internal/modules/firewall/`
+Run: `mkdir -p /root/.cache/w2-tmp/38 && TMPDIR=/root/.cache/w2-tmp/38 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestDru' ./internal/modules/firewall/`
 Expected: FAIL. `TestDruRunOrder` reports the journal's effects as only `firewall.rule:<id>` and `firewall.state:enabled`, the stored configuration still enabled and the old row still stored; the three cases of `TestDruRunFiles` fail (no `firewall.file:` effect, no error for the missing row, no error for `/etc/ufw/user.rules`); `TestDruCleanupRefused` reports `run = <nil>`.
 
 - [ ] **Step 3: Implement**
@@ -15089,13 +15296,13 @@ Expected: FAIL. `TestDruRunOrder` reports the journal's effects as only `firewal
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `TMPDIR=/root/.cache/w2-tmp/36 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestDru' ./internal/modules/firewall/`
+Run: `TMPDIR=/root/.cache/w2-tmp/38 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestDru' ./internal/modules/firewall/`
 Expected: PASS
 
 - [ ] **Step 5: Verify the task and commit**
 
 ```bash
-mkdir -p /root/.cache/w2-tmp/36 && export TMPDIR=/root/.cache/w2-tmp/36 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w2-tmp/38 && export TMPDIR=/root/.cache/w2-tmp/38 GOTOOLCHAIN=local
 timeout 600 go build ./... && timeout 300 go vet ./...
 timeout 900 go test -count=1 ./...
 timeout 600 go test -race -count=1 ./internal/modules/firewall/
@@ -15106,7 +15313,7 @@ timeout 300 go mod tidy -diff
 Expected: `go build` and `go vet` print nothing, every `go test` line is `ok` or `?`, `golangci-lint` prints `0 issues.`, and `go mod tidy -diff` prints nothing. Record the real output, then clean up:
 
 ```bash
-rm -rf /root/.cache/w2-tmp/36 && GOTOOLCHAIN=local go clean -testcache
+rm -rf /root/.cache/w2-tmp/38 && GOTOOLCHAIN=local go clean -testcache
 ```
 
 ```bash
@@ -15114,19 +15321,21 @@ git add internal/modules/firewall/handler.go internal/modules/firewall/run_docke
 git commit -m "feat(firewall): run Docker changes in order"
 ```
 
-### Task 37: Uninstall runs the cleanup in every case
+### Task 39: Uninstall runs the cleanup in every case
 
 **Files:**
 - Modify: `internal/modules/firewall/uninstall.go` (`module.Uninstall` and its doc comment)
 - Test: `internal/modules/firewall/uninstall_docker_test.go`
 
 **Interfaces:**
-- Consumes: Contracts "Owned-chain cleanup" (Task 35: `fw.cleanupChains`, `fw.finishCleanups`, `cleanupRefuse`); "dockerfw block" (Task 15: `dockerfw.BlockOf`); "Docker store" (Task 18: `beginCleanup`, `pendingCleanups`); wave 1's `fw.regular`, `missingFile`, `restoreBaseline`, `removeRules`, `unSetup` and `unRan` (the existing uninstall tests' helpers) and `pfRemove`.
+- Consumes: Contracts "Owned-chain cleanup" (Task 37: `fw.cleanupChains`, `fw.finishCleanups`, `cleanupRefuse`); "dockerfw block" (Task 17: `dockerfw.BlockOf`); "Docker store" (Task 20: `beginCleanup`, `pendingCleanups`); wave 1's `fw.regular`, `missingFile`, `restoreBaseline`, `removeRules`, `unSetup` and `unRan` (the existing uninstall tests' helpers) and `pfRemove`.
 - Produces: `module.Uninstall` runs, for every value of `rules` and on a host without UFW, the interrupted cleanups and the owned-chain cleanup of spec 2.9; the cleanup owner is `"uninstall"`. In `uninstall.go`: `func (f fw) uninstallRules(ctx context.Context, env core.Env, v string, hasUFW bool) error`, `func (f fw) uninstallDocker(ctx context.Context, env core.Env, hasUFW bool) error` and `func (f fw) dockerLeft(ctx context.Context, env core.Env, hasUFW bool) (bool, error)`, used only there.
 
 **Items:** 8
 
-**Depends on:** Task 35
+**Depends on:** Task 37
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 2 = 6
 
 - [ ] **Step 1: Write the failing test**
 
@@ -15306,7 +15515,7 @@ func TestDunFinishesInterrupted(t *testing.T) {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w2-tmp/37 && TMPDIR=/root/.cache/w2-tmp/37 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestDun' ./internal/modules/firewall/`
+Run: `mkdir -p /root/.cache/w2-tmp/39 && TMPDIR=/root/.cache/w2-tmp/39 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestDun' ./internal/modules/firewall/`
 Expected: FAIL. Every case of `TestDunRunsCleanup` and `TestDunFinishesInterrupted` reports the block still in both files, an empty `iptables-nft-restore` input and the chain `darkpanel-docker-deny` still loaded; `TestDunCleanupRefused` reports `uninstall = <nil>`; `TestDunNeedsDarkpanelState` fails at its second half, where the cleanup should run.
 
 - [ ] **Step 3: Implement**
@@ -15319,13 +15528,13 @@ Expected: FAIL. Every case of `TestDunRunsCleanup` and `TestDunFinishesInterrupt
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `TMPDIR=/root/.cache/w2-tmp/37 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestDun|TestUninstall' ./internal/modules/firewall/`
+Run: `TMPDIR=/root/.cache/w2-tmp/39 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestDun|TestUninstall' ./internal/modules/firewall/`
 Expected: PASS (the existing `TestUninstall…` tests stay green).
 
 - [ ] **Step 5: Verify the task and commit**
 
 ```bash
-mkdir -p /root/.cache/w2-tmp/37 && export TMPDIR=/root/.cache/w2-tmp/37 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w2-tmp/39 && export TMPDIR=/root/.cache/w2-tmp/39 GOTOOLCHAIN=local
 timeout 600 go build ./... && timeout 300 go vet ./...
 timeout 900 go test -count=1 ./...
 timeout 600 go test -race -count=1 ./internal/modules/firewall/
@@ -15336,7 +15545,7 @@ timeout 300 go mod tidy -diff
 Expected: `go build` and `go vet` print nothing, every `go test` line is `ok` or `?`, `golangci-lint` prints `0 issues.`, and `go mod tidy -diff` prints nothing. Record the real output, then clean up:
 
 ```bash
-rm -rf /root/.cache/w2-tmp/37 && GOTOOLCHAIN=local go clean -testcache
+rm -rf /root/.cache/w2-tmp/39 && GOTOOLCHAIN=local go clean -testcache
 ```
 
 ```bash
@@ -15344,7 +15553,7 @@ git add internal/modules/firewall/uninstall.go internal/modules/firewall/uninsta
 git commit -m "feat(firewall): clean Docker chains on uninstall"
 ```
 
-### Task 38: Revert and restore keep foreign DOCKER-USER rules
+### Task 40: Revert and restore keep foreign DOCKER-USER rules
 
 **Files:**
 - Create: `internal/modules/firewall/docker_revert.go`
@@ -15352,12 +15561,14 @@ git commit -m "feat(firewall): clean Docker chains on uninstall"
 - Test: `internal/modules/firewall/docker_revert_test.go`
 
 **Interfaces:**
-- Consumes: Contracts "Foreign-rule preservation" (Task 34: `fw.keepForeign`, `fw.finishForeign`, `putForeign`, `foreignOf`, `foreignRecord`); "Docker effects" (`deps.cleanChains`, the field Task 25 adds and Task 35 sets in `productionFW`); "dockerfw block" (Task 15: `BlockOf`, `BlockRules`, `Foreign`); "dockerfw restore inputs" (Task 21: `Layout`, `LayoutOf`); "Docker store" (Task 18: the `firewall_docker_foreign` table); wave 1's `restoreOver`, `verifyRestore`, `undoNewestFirst`, `loadVerifiedImage`, `imageFilesChanged`, `rvTestManualEdit` and `loaded.Compare`.
+- Consumes: Contracts "Foreign-rule preservation" (Task 36: `fw.keepForeign`, `fw.finishForeign`, `putForeign`, `foreignOf`, `foreignRecord`); "Docker effects" (`deps.cleanChains`, the field Task 27 adds and Task 37 sets in `productionFW`); "dockerfw block" (Task 17: `BlockOf`, `BlockRules`, `Foreign`); "dockerfw restore inputs" (Task 23: `Layout`, `LayoutOf`); "Docker store" (Task 20: the `firewall_docker_foreign` table); wave 1's `restoreOver`, `verifyRestore`, `undoNewestFirst`, `loadVerifiedImage`, `imageFilesChanged`, `rvTestManualEdit` and `loaded.Compare`.
 - Produces: `restoreReport.Interleaved []string` and `overrideDetail.InterleavedForeign []string` (JSON `interleavedForeign`), both the original order of foreign rules that sat between the block's lines, each entry `<family> <rule save text>` with the family `v4` or `v6`, IPv4 first. The foreign-record owners `"restore:<snapshot id>"` (a restore) and `"revert:<change id>"` (a revert by inverses). In `docker_revert.go`, used only in `package firewall`: the plan of spec 2.6's "Foreign rules and revert" and the helpers named in Step 3.
 
 **Items:** 8
 
-**Depends on:** Task 28, Task 34, Task 35
+**Depends on:** Task 30, Task 36, Task 37
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 3 = 8
 
 - [ ] **Step 1: Write the failing test**
 
@@ -15807,7 +16018,7 @@ func TestKfwEmergencyOrder(t *testing.T) {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w2-tmp/38 && TMPDIR=/root/.cache/w2-tmp/38 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestKfw' ./internal/modules/firewall/`
+Run: `mkdir -p /root/.cache/w2-tmp/40 && TMPDIR=/root/.cache/w2-tmp/40 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestKfw' ./internal/modules/firewall/`
 Expected: FAIL to build: `rep.Interleaved undefined (type restoreReport has no field or method Interleaved)`. With only the two new fields added (Step 3 item 1), the tests fail on behaviour: `TestKfwRestore` cases with a foreign rule report an empty or wrong `DOCKER-USER reload input` and a `DOCKER-USER` without the foreign rule; the integration-off cases report `cleanups [], want one for change c1` or `verify the restore: … differ from the prediction`; `TestKfwRevert` reports each of its four cases without the foreign rule or without the error; `TestKfwReloadsRecorded` reports `the record is left`; `TestKfwEmergencyOrder` reports an empty order.
 
 - [ ] **Step 3: Implement**
@@ -15824,17 +16035,17 @@ Expected: FAIL to build: `rep.Interleaved undefined (type restoreReport has no f
 3. `restoreOver` (`restore.go`). Use `fw{d: d}` for the fw methods. The owner is `"restore:" + snap.ID`. In this order: after the restore record is settled and **before** `readLoaded` reads `before`, set `rep.Interleaved` from `finishRecorded` (a leftover record's reload must be in the loaded state `before` holds, or the plan would not see the foreign rules). Keep the IPv6 refusal. Before the first file write, build the plan: the files on disk now come from `f.d.readConfig(f.d.root)` (an unreadable configuration counts as no files), the files afterwards from the snapshot's present entries, enabled from `snap.State.Enabled`, IPv6 from `snapshotStart(snap)` (an error counts as off), flush true. Write the entries as before. Wrap the existing transition (the before-image load, or the `ufw` transition command, with its errors and `rep.Excluded` unchanged) in a closure, then: when `cleanup`, call `d.cleanChains(ctx, env, owner)` with the owner `env.ChangeID`, or `"uninstall"` when it is empty (a nil `d.cleanChains` is the error `firewall: restore: the loaded Docker chains need a cleanup, and none is configured`), re-read the loaded state into `before`, then run the closure; when `keep`, call `f.keepForeign(ctx, env, "restore:"+snap.ID, known, next, closure)` and, when it reports interleaved, set `rep.Interleaved` to the plan's `order`; otherwise just run the closure. Verification calls `verifyRestore` with `without(before)` and `without(after)`. Nothing else in `restoreOver` changes, and a restore whose host holds no foreign rule and no loaded owned chain runs no extra program.
 4. `revert` (`revert.go`). Right after the snapshot is read and attached, call `finishRecorded(ctx, env, "revert:"+env.ChangeID)`. In the whole-restore branch, when `restore` succeeds with a non-empty `rep.Interleaved`, treat it as the failure `interleavedError(rep.Interleaved)` (it flows into `writeErr`, so the snapshot is pinned, the connectivity exception still applies and the change becomes `needs_repair`); with an empty one the branch returns as before. Move the inverses branch's body (`undoNewestFirst`, then for a before-image snapshot the changed-files check and `loadVerifiedImage`) into `undoKeepingForeign(ctx, env, snap, made, conflicts)` on `fw`, which builds a plan and wraps that body. It reads the configuration and loaded state (when either cannot be read it logs a warning and just runs the body). The files afterwards are the files now, except that a made, non-conflicting `firewall.file:<path>` effect for an after file makes that file the snapshot's entry; UFW is enabled afterwards as now, except that a made, non-conflicting `firewall.state:enabled` effect makes it `snap.State.Enabled`; the transition rewrites `DOCKER-USER` when any made, non-conflicting effect has the noun `firewall.rule`, `firewall.default`, `firewall.logging`, `firewall.state` or `firewall.chains`; IPv6 is the configuration's. When the plan is not `keep` it runs the body; otherwise `f.keepForeign(ctx, env, "revert:"+env.ChangeID, known, next, body)`, and an interleaved result becomes `interleavedError(order)` when the body did not fail.
 5. `finishRestore`: after a successful `restore`, a non-empty `rep.Interleaved` on a restore that is not an emergency one pins the snapshot and returns `interleavedError(rep.Interleaved)`; an emergency one stores it in the detail it returns. `emergencyRestore` stores `rep.Interleaved` in `detail.InterleavedForeign`.
-6. Do not change `undoNewestFirst`, `restore`'s signature, `verifyRestore`'s signature or any wave 1 test. Keep function names in `docker_revert.go` distinct from Task 34's and Task 35's declarations. Comments only for non-obvious reasons, none naming a task.
+6. Do not change `undoNewestFirst`, `restore`'s signature, `verifyRestore`'s signature or any wave 1 test. Keep function names in `docker_revert.go` distinct from Task 36's and Task 37's declarations. Comments only for non-obvious reasons, none naming a task.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `TMPDIR=/root/.cache/w2-tmp/38 GOTOOLCHAIN=local timeout 600 go test -count=1 -run 'TestKfw|TestRevert|TestRestore|TestEmergency' ./internal/modules/firewall/`
+Run: `TMPDIR=/root/.cache/w2-tmp/40 GOTOOLCHAIN=local timeout 600 go test -count=1 -run 'TestKfw|TestRevert|TestRestore|TestEmergency' ./internal/modules/firewall/`
 Expected: PASS (wave 1's revert and restore tests stay green).
 
 - [ ] **Step 5: Verify the task and commit**
 
 ```bash
-mkdir -p /root/.cache/w2-tmp/38 && export TMPDIR=/root/.cache/w2-tmp/38 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w2-tmp/40 && export TMPDIR=/root/.cache/w2-tmp/40 GOTOOLCHAIN=local
 timeout 600 go build ./... && timeout 300 go vet ./...
 timeout 900 go test -count=1 ./...
 timeout 600 go test -race -count=1 ./internal/modules/firewall/
@@ -15845,7 +16056,7 @@ timeout 300 go mod tidy -diff
 Expected: `go build` and `go vet` print nothing, every `go test` line is `ok` or `?`, `golangci-lint` prints `0 issues.`, and `go mod tidy -diff` prints nothing. Record the real output, then clean up:
 
 ```bash
-rm -rf /root/.cache/w2-tmp/38 && GOTOOLCHAIN=local go clean -testcache
+rm -rf /root/.cache/w2-tmp/40 && GOTOOLCHAIN=local go clean -testcache
 ```
 
 ```bash
@@ -15853,23 +16064,23 @@ git add internal/modules/firewall/docker_revert.go internal/modules/firewall/res
 git commit -m "feat(firewall): keep foreign rules in reverts"
 ```
 
-### Task 39: firewall.docker.enable and firewall.docker.disable
+### Task 41: Container rule operations and ids
 
 **Files:**
 - Create: `internal/modules/firewall/docker_ruleops.go` (`newULID`, `containerRuleOps`)
-- Create: `internal/modules/firewall/actions_docker_enable.go` (`DockerEnableInput`, `DockerDisableInput`, `dockerEnable`, `dockerDisable`, and the unexported `dockerEnableChange`, `dockerDisableChange`, `dockerFlagCheck`)
 - Test: `internal/modules/firewall/docker_ruleops_test.go` (create)
-- Test: `internal/modules/firewall/actions_docker_enable_test.go` (create)
 
 **Interfaces:**
-- Consumes: Contracts "Integration on and off" (the rules of `firewall.docker.enable` and `firewall.docker.disable`, including the refusal of an uncovered foreign DNAT rule); "Docker state" (Task 29: `dockerState` with its fields `available`, `reason`, `det`, `facts`, `cfg`, `realized`, `func (f fw) dockerState`, `blockFiles`); "Docker store" (Task 18: `dockerConfig`, `readDockerConfig`, `writeDockerConfig`); "change and target" (Tasks 16, 30, 36: the `change` fields `files`, `flag`, `reload`, `cleanup`, `ops`, and the plan lines of Task 30, which this task's plan test reads); "Refusals" (Task 31: `refuseOpenIncoming`); "dockerfw detection" (Task 11: `Unsupported`, `ForeignDNAT`, `Propose`, `Covered`, `ExemptionConflicts`); "dockerfw rule operations" (Task 22: `RuleOps`); "dockerfw block" (Task 15: `BlockOf`, `WithBlock`); "dockerfw bindings and rules" (Task 9: `LabelPrefix`); "dockerfw realization" (Task 19: `Realize`); "Docker client seam" (Task 12: `fakeDocker` with the fields `info` and `err`, `newFakeDocker`, `fdDeps`, and the `fakeHost` hook `onReadVariant`). Wave 1's `defineMutation`, `mutation`, `buildFunc`, `addRuleOp`, `deleteRuleOp`, `ruleResource`, `findRules`, `mismatch`, `ufwOp`, `fakeHost`, `newFakeHost`, `newFW`, `fhParse`, `fhSave`, `fhRule3000v4`, `fhRule22v4`.
-- Produces: Contracts "Container rule ops and ids (Task 39)": `newULID` and `containerRuleOps`, exactly as stated there (Tasks 40, 44 and 45 call them); Contracts "Shapes the web and the schemas read": `DockerEnableInput` and `DockerDisableInput`; the constructors `dockerEnable` and `dockerDisable` of Contracts "Shapes…" (registered by Task 46).
+- Consumes: Contracts "dockerfw rule operations" (Task 24: `RuleOp` with its fields `Delete`, `Add`, `Insert`, and `RuleOps`); "dockerfw bindings and rules" (Task 10: `LabelPrefix`, which the tests read). Wave 1's `deleteRuleOp`, `addRuleOp`, `ruleResource`, `findRules`, `ufwOp`, `fakeHost`, `newFakeHost`, `fhRule3000v4`, `model.Merge`, `model.AddArgs`, `model.InsertArgs`, `model.DeleteArgs`, ``github.com/oklog/ulid/v2`, which `snapshot.go` already imports.
+- Produces: Contracts "Container rule ops and ids (Task 41)": `newULID` and `containerRuleOps`, exactly as stated there (Tasks 42, 43, 47, 48 and 49 call them).
 
-**Items:** 7, 8
+**Items:** 9
 
-**Depends on:** Task 22, Task 30, Task 31, Task 32, Task 36
+**Depends on:** Task 10, Task 24
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 1 = 6
 
-`firewall.docker.enable` and `firewall.docker.disable` are the first mutations that change the Docker logical state. Both are `mutation[In]` declared with `defineMutation` (revertible, agent side, lock `firewall`, the overridable lockout guard), so Plan, Apply, Verify and Revert come from wave 1 and Task 36's `fw.run`; this task writes only the builders, the verify checks and the one place where `dockerfw.RuleOps` becomes `change.ops`. The tests exercise the builders as functions of a `dockerState` literal, and the plan and verify paths through the handler on a fake host whose Docker is a `fakeDocker`.
+`dockerfw.RuleOps` is pure: it says which container rules to delete and which to add and where. The module root turns that into the `ufwOp` values a `change` journals and `fw.run` runs, and this task writes the one place where it does, so that no later builder declares a variant of its own. `newULID` is the one source of ids for new UFW rules (and for new container rule rows). The tests build configurations from tuple lines as UFW writes them and compare the operations exactly, with a counter standing in for the id source.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -15893,23 +16104,23 @@ import (
 	"github.com/darkraise/darkpanel/internal/modules/firewall/model"
 )
 
-// denULID is the n-th 26-character ULID of these tests.
-func denULID(n int) string { return fmt.Sprintf("01J%023d", n) }
+// droULID is the n-th 26-character ULID of these tests.
+func droULID(n int) string { return fmt.Sprintf("01J%023d", n) }
 
-// denSeq returns a newID function that hands out denULID(first), then the
+// droSeq returns a newID function that hands out droULID(first), then the
 // next numbers.
-func denSeq(first int) func() string {
+func droSeq(first int) func() string {
 	n := first - 1
 	return func() string {
 		n++
-		return denULID(n)
+		return droULID(n)
 	}
 }
 
-// denRouteTuple is the tuple line UFW writes in user.rules for a route rule
+// droRouteTuple is the tuple line UFW writes in user.rules for a route rule
 // out on docker0 to 172.17.0.2 port 80, tagged id with label; an empty from
 // is any source.
-func denRouteTuple(action, from, id, label string) string {
+func droRouteTuple(action, from, id, label string) string {
 	if from == "" {
 		from = "0.0.0.0/0"
 	}
@@ -15917,9 +16128,9 @@ func denRouteTuple(action, from, id, label string) string {
 		action, from, hex.EncodeToString([]byte(model.Tag(id, label))))
 }
 
-// denConfig is a configuration whose user.rules holds the given tuple
+// droConfig is a configuration whose user.rules holds the given tuple
 // lines.
-func denConfig(t *testing.T, v4 ...string) fwstate.Config {
+func droConfig(t *testing.T, v4 ...string) fwstate.Config {
 	t.Helper()
 	cfg := fwstate.Config{IPv6: true, DefaultInput: "DROP"}
 	for _, line := range v4 {
@@ -15932,9 +16143,9 @@ func denConfig(t *testing.T, v4 ...string) fwstate.Config {
 	return cfg
 }
 
-// denRoute is the rule Realize wants for a route allow or deny out on
+// droRoute is the rule Realize wants for a route allow or deny out on
 // docker0 to 172.17.0.2 port 80, labelled for container rule row: no id.
-func denRoute(action model.Action, from, row string) model.Rule {
+func droRoute(action model.Action, from, row string) model.Rule {
 	return model.Rule{
 		Action: action, Direction: model.DirRoute, Proto: model.ProtoTCP, From: from, To: "172.17.0.2", ToPort: "80",
 		OutIface: "docker0", Family: model.FamilyV4, Log: model.LogOff, Comment: dockerfw.LabelPrefix + row,
@@ -15942,15 +16153,15 @@ func denRoute(action model.Action, from, row string) model.Rule {
 	}
 }
 
-// denWithID is r as containerRuleOps must add it: with its new id.
-func denWithID(r model.Rule, id string) model.Rule {
+// droWithID is r as containerRuleOps must add it: with its new id.
+func droWithID(r model.Rule, id string) model.Rule {
 	r.ID = id
 	return r
 }
 
-// TestDenNewULID: newULID mints a fresh valid ULID on every call, carrying
+// TestDroNewULID: newULID mints a fresh valid ULID on every call, carrying
 // the time of the env's clock.
-func TestDenNewULID(t *testing.T) {
+func TestDroNewULID(t *testing.T) {
 	env := newFakeHost(t).env()
 	newID := newULID(env)
 	seen := map[string]bool{}
@@ -15970,19 +16181,19 @@ func TestDenNewULID(t *testing.T) {
 	}
 }
 
-// TestDenContainerRuleOps: dockerfw.RuleOps' operations become ufw
+// TestDroContainerRuleOps: dockerfw.RuleOps' operations become ufw
 // operations that a change can journal: a delete is wave 1's delete of the
 // current rule with that id, an add that appends is wave 1's add, and an
 // add at a position is the same effect through "ufw insert".
-func TestDenContainerRuleOps(t *testing.T) {
+func TestDroContainerRuleOps(t *testing.T) {
 	const (
 		row1, row2, row3 = "01J00000000000000000000R01", "01J00000000000000000000R02", "01J00000000000000000000R03"
 		tag1, tag2       = "01J00000000000000000000T01", "01J00000000000000000000T02"
 	)
 	manual := fhRule3000v4
-	allow1 := denRouteTuple("allow", "", tag1, dockerfw.LabelPrefix+row1)
-	deny2 := denRouteTuple("deny", "203.0.113.0/24", tag2, dockerfw.LabelPrefix+row2)
-	cfg := denConfig(t, manual, allow1, deny2)
+	allow1 := droRouteTuple("allow", "", tag1, dockerfw.LabelPrefix+row1)
+	deny2 := droRouteTuple("deny", "203.0.113.0/24", tag2, dockerfw.LabelPrefix+row2)
+	cfg := droConfig(t, manual, allow1, deny2)
 	current := model.Merge(cfg.Rules4, cfg.Rules6)
 	if len(current) != 3 || current[1].ID != tag1 || current[2].ID != tag2 {
 		t.Fatalf("the fixture's rules are %+v, want the manual rule and the two tagged ones", current)
@@ -15996,8 +16207,8 @@ func TestDenContainerRuleOps(t *testing.T) {
 	wantInsert := func(pos int, r model.Rule) ufwOp {
 		return ufwOp{Kind: core.EffectCreate, Resource: ruleResource(r.ID), Args: model.InsertArgs(pos, r)}
 	}
-	kept := []model.Rule{denRoute(model.ActionAllow, model.Any, row1), denRoute(model.ActionDeny, "203.0.113.0/24", row2)}
-	fresh := denRoute(model.ActionAllow, "198.51.100.0/24", row3)
+	kept := []model.Rule{droRoute(model.ActionAllow, model.Any, row1), droRoute(model.ActionDeny, "203.0.113.0/24", row2)}
+	fresh := droRoute(model.ActionAllow, "198.51.100.0/24", row3)
 
 	tests := []struct {
 		name    string
@@ -16008,17 +16219,17 @@ func TestDenContainerRuleOps(t *testing.T) {
 		{"rules the host holds already need no operation", cfg, kept, nil},
 		{"nothing desired deletes every container rule and keeps the manual one", cfg, nil,
 			[]ufwOp{wantDelete(current[1]), wantDelete(current[2])}},
-		{"a missing rule at the end is added", denConfig(t, manual), kept[:1],
-			[]ufwOp{wantAdd(denWithID(kept[0], denULID(500)))}},
-		{"a missing rule before a kept one is inserted at its position", denConfig(t, manual, allow1),
+		{"a missing rule at the end is added", droConfig(t, manual), kept[:1],
+			[]ufwOp{wantAdd(droWithID(kept[0], droULID(500)))}},
+		{"a missing rule before a kept one is inserted at its position", droConfig(t, manual, allow1),
 			[]model.Rule{fresh, kept[0]},
-			[]ufwOp{wantInsert(2, denWithID(fresh, denULID(500)))}},
-		{"a changed rule is deleted and added again", denConfig(t, allow1), []model.Rule{fresh},
-			[]ufwOp{wantDelete(current[1]), wantAdd(denWithID(fresh, denULID(500)))}},
+			[]ufwOp{wantInsert(2, droWithID(fresh, droULID(500)))}},
+		{"a changed rule is deleted and added again", droConfig(t, allow1), []model.Rule{fresh},
+			[]ufwOp{wantDelete(current[1]), wantAdd(droWithID(fresh, droULID(500)))}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := containerRuleOps(tt.cfg, tt.desired, denSeq(500))
+			got, err := containerRuleOps(tt.cfg, tt.desired, droSeq(500))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -16032,11 +16243,11 @@ func TestDenContainerRuleOps(t *testing.T) {
 	}
 }
 
-// TestDenContainerRuleOpsError: a failure of dockerfw.RuleOps, here an id
+// TestDroContainerRuleOpsError: a failure of dockerfw.RuleOps, here an id
 // that is not a ULID, is returned as a firewall error and no operation
 // comes with it.
-func TestDenContainerRuleOpsError(t *testing.T) {
-	ops, err := containerRuleOps(denConfig(t, fhRule3000v4), []model.Rule{denRoute(model.ActionAllow, model.Any, denULID(1))},
+func TestDroContainerRuleOpsError(t *testing.T) {
+	ops, err := containerRuleOps(droConfig(t, fhRule3000v4), []model.Rule{droRoute(model.ActionAllow, model.Any, droULID(1))},
 		func() string { return "not-a-ulid" })
 	if err == nil || !strings.HasPrefix(err.Error(), "firewall:") || !strings.Contains(err.Error(), "dockerfw:") {
 		t.Errorf("containerRuleOps = %v, want a firewall error that wraps the dockerfw one", err)
@@ -16047,6 +16258,64 @@ func TestDenContainerRuleOpsError(t *testing.T) {
 }
 ```
 
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `mkdir -p /root/.cache/w2-tmp/41 && TMPDIR=/root/.cache/w2-tmp/41 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestDro' ./internal/modules/firewall/`
+Expected: FAIL to build with errors naming only the two identifiers this task adds: `undefined: newULID` and `undefined: containerRuleOps`. An error that names anything else (`dockerfw`, `LabelPrefix`, `RuleOps`, `deleteRuleOp`, `fhRule3000v4`) means a task this one depends on is missing from the base: stop and report it.
+
+- [ ] **Step 3: Implement**
+
+`docker_ruleops.go`, imports `crypto/rand`, `fmt`, `github.com/oklog/ulid/v2` (already required by `snapshot.go`), `core`, `dockerfw`, `fwstate`, `model`. Doc comment on both functions.
+
+1. `newULID(env core.Env) func() string` returns a function that on each call returns `ulid.MustNew(ulid.Timestamp(env.Clock.Now()), rand.Reader).String()`, the way `snapshot.go` mints snapshot ids. It reads the clock at each call.
+2. `containerRuleOps(cfg fwstate.Config, desired []model.Rule, newID func() string) ([]ufwOp, error)` calls `dockerfw.RuleOps(model.Merge(cfg.Rules4, cfg.Rules6), desired, newID)` and returns its error as `firewall: container rule operations: %w` with a nil slice. It maps each `dockerfw.RuleOp` in order: a `Delete` becomes `deleteRuleOp` of the rule `findRules(cfg, op.Delete)` finds (an error `firewall: container rule operations: %d rules carry the id %s` when there is not exactly one); an `Add` with `Insert == 0` becomes `addRuleOp(*op.Add)`; an `Add` with `Insert > 0` becomes `ufwOp{Kind: core.EffectCreate, Resource: ruleResource(op.Add.ID), Args: model.InsertArgs(op.Insert, *op.Add)}`, the same effect and inverse as an add, because the rule's tag is its recovery identity. With nothing to do the result is empty and the error nil. It reads no host state.
+
+Nothing else changes: no builder, no registration, no other file.
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `TMPDIR=/root/.cache/w2-tmp/41 GOTOOLCHAIN=local timeout 300 go test -count=1 -race -v -run 'TestDro' ./internal/modules/firewall/`
+Expected: `PASS` for `TestDroNewULID`, `TestDroContainerRuleOps` (five cases) and `TestDroContainerRuleOpsError`.
+
+- [ ] **Step 5: Verify the task and commit**
+
+```bash
+mkdir -p /root/.cache/w2-tmp/41 && export TMPDIR=/root/.cache/w2-tmp/41 GOTOOLCHAIN=local
+timeout 600 go build ./... && timeout 300 go vet ./...
+timeout 900 go test -race -count=1 ./internal/modules/firewall/
+timeout 1500 go test -count=1 ./...
+timeout 900 golangci-lint run --allow-serial-runners ./...
+timeout 300 go mod tidy -diff
+rm -rf /root/.cache/w2-tmp/41 && go clean -testcache
+```
+
+Expected: `go vet` and `go mod tidy -diff` print nothing, every `go test` line is `ok` or `?`, and the linter prints `0 issues.`. Record the real output.
+
+```bash
+git add internal/modules/firewall/docker_ruleops.go internal/modules/firewall/docker_ruleops_test.go
+git commit -m "feat(firewall): map container rule ops to ufw ops"
+```
+
+### Task 42: firewall.docker.enable and firewall.docker.disable
+
+**Files:**
+- Create: `internal/modules/firewall/actions_docker_enable.go` (`DockerEnableInput`, `DockerDisableInput`, `dockerEnable`, `dockerDisable`, and the unexported `dockerEnableChange`, `dockerDisableChange`, `dockerFlagCheck`)
+- Test: `internal/modules/firewall/actions_docker_enable_test.go` (create)
+
+**Interfaces:**
+- Consumes: Contracts "Integration on and off" (the rules of `firewall.docker.enable` and `firewall.docker.disable`, including the refusal of an uncovered foreign DNAT rule); "Container rule ops and ids (Task 41)" (`newULID`, `containerRuleOps`); "Docker state" (Task 31: `dockerState` with its fields `available`, `reason`, `det`, `facts`, `cfg`, `realized`, `func (f fw) dockerState`, `blockFiles`); "Docker store" (Task 20: `dockerConfig`, `readDockerConfig`, `writeDockerConfig`); "change and target" (Tasks 18, 32, 38: the `change` fields `files`, `flag`, `reload`, `cleanup`, `ops`, and the plan lines of Task 32, which this task's plan test reads); "Refusals" (Task 33: `refuseOpenIncoming`); "dockerfw detection" (Tasks 12 and 13: `Unsupported`, `ForeignDNAT`, `Propose`, `Covered`, `ExemptionConflicts`); "dockerfw block" (Task 17: `BlockOf`, `WithBlock`); "dockerfw bindings and rules" (Task 10: `LabelPrefix`); "dockerfw realization" (Task 21: `Realize`); "Docker client seam" (Task 14: `fakeDocker` with the fields `info` and `err`, `newFakeDocker`, `fdDeps`, and the `fakeHost` hook `onReadVariant`). Wave 1's `defineMutation`, `mutation`, `buildFunc`, `ruleResource`, `mismatch`, `ufwOp`, `fakeHost`, `newFakeHost`, `newFW`, `fhParse`, `fhSave`, `fhRule3000v4`, `fhRule22v4`.
+- Produces: Contracts "Shapes the web and the schemas read": `DockerEnableInput` and `DockerDisableInput`; the constructors `dockerEnable` and `dockerDisable` of Contracts "Shapes…" (registered by Task 50).
+
+**Items:** 7, 8
+
+**Depends on:** Task 24, Task 32, Task 33, Task 34, Task 38, Task 41
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
+
+`firewall.docker.enable` and `firewall.docker.disable` are the first mutations that change the Docker logical state. Both are `mutation[In]` declared with `defineMutation` (revertible, agent side, lock `firewall`, the overridable lockout guard), so Plan, Apply, Verify and Revert come from wave 1 and Task 38's `fw.run`; this task writes only the builders, the verify checks and the constructors, and takes its rule operations from Task 41's `containerRuleOps`. The tests exercise the builders as functions of a `dockerState` literal, and the plan and verify paths through the handler on a fake host whose Docker is a `fakeDocker`.
+
+- [ ] **Step 1: Write the failing tests**
+
 Create `internal/modules/firewall/actions_docker_enable_test.go` with exactly this content:
 
 ```go
@@ -16056,6 +16325,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -16085,6 +16355,32 @@ const (
 )
 
 var denULIDRe = regexp.MustCompile(`^[0-9A-HJKMNP-TV-Z]{26}$`)
+
+// denRouteTuple is the tuple line UFW writes in user.rules for a route rule
+// out on docker0 to 172.17.0.2 port 80, tagged id with label; an empty from
+// is any source.
+func denRouteTuple(action, from, id, label string) string {
+	if from == "" {
+		from = "0.0.0.0/0"
+	}
+	return fmt.Sprintf("### tuple ### route:%s tcp 80 172.17.0.2 any %s out_docker0 comment=%s",
+		action, from, hex.EncodeToString([]byte(model.Tag(id, label))))
+}
+
+// denConfig is a configuration whose user.rules holds the given tuple
+// lines.
+func denConfig(t *testing.T, v4 ...string) fwstate.Config {
+	t.Helper()
+	cfg := fwstate.Config{IPv6: true, DefaultInput: "DROP"}
+	for _, line := range v4 {
+		tp, err := model.ParseTuple(line, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg.Rules4 = append(cfg.Rules4, tp)
+	}
+	return cfg
+}
 
 // denBlock is a block as an after file holds it between its markers.
 var denBlock = []byte("*filter\n:DOCKER-USER - [0:0]\nCOMMIT\n")
@@ -16671,67 +16967,67 @@ func TestDenActionDefinitions(t *testing.T) {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w2-tmp/39 && TMPDIR=/root/.cache/w2-tmp/39 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestDen' ./internal/modules/firewall/`
-Expected: FAIL to build with errors naming only identifiers this task adds: `undefined: newULID`, `containerRuleOps`, `dockerEnableChange`, `dockerDisableChange`, and `f.dockerEnable`/`f.dockerDisable undefined`. An error that names anything else (`dockerfw`, `dockerState`, `blockFiles`, `fdDeps`, `onReadVariant`, `refuseOpenIncoming`, `writeDockerConfig`) means a task this one depends on is missing from the base: stop and report it.
+Run: `mkdir -p /root/.cache/w2-tmp/42 && TMPDIR=/root/.cache/w2-tmp/42 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestDen' ./internal/modules/firewall/`
+Expected: FAIL to build with errors naming only identifiers this task adds: `undefined: dockerEnableChange`, `dockerDisableChange`, and `f.dockerEnable`/`f.dockerDisable undefined`. An error that names anything else (`dockerfw`, `dockerState`, `blockFiles`, `fdDeps`, `onReadVariant`, `refuseOpenIncoming`, `writeDockerConfig`) means a task this one depends on is missing from the base: stop and report it.
 
 - [ ] **Step 3: Implement**
 
-1. `docker_ruleops.go`, imports `crypto/rand`, `fmt`, `github.com/oklog/ulid/v2` (already required by `snapshot.go`), `core`, `dockerfw`, `fwstate`, `model`. Doc comment on both functions.
-   - `newULID(env core.Env) func() string` returns a function that on each call returns `ulid.MustNew(ulid.Timestamp(env.Clock.Now()), rand.Reader).String()`, the way `snapshot.go` mints snapshot ids. It reads the clock at each call.
-   - `containerRuleOps(cfg fwstate.Config, desired []model.Rule, newID func() string) ([]ufwOp, error)` calls `dockerfw.RuleOps(model.Merge(cfg.Rules4, cfg.Rules6), desired, newID)` and returns its error as `firewall: container rule operations: %w` with a nil slice. It maps each `dockerfw.RuleOp` in order: a `Delete` becomes `deleteRuleOp` of the rule `findRules(cfg, op.Delete)` finds (an error `firewall: container rule operations: %d rules carry the id %s` when there is not exactly one); an `Add` with `Insert == 0` becomes `addRuleOp(*op.Add)`; an `Add` with `Insert > 0` becomes `ufwOp{Kind: core.EffectCreate, Resource: ruleResource(op.Add.ID), Args: model.InsertArgs(op.Insert, *op.Add)}`, the same effect and inverse as an add, because the rule's tag is its recovery identity. With nothing to do the result is empty and the error nil. It reads no host state.
-2. `actions_docker_enable.go`, doc comments on every exported identifier.
-   - `DockerEnableInput` and `DockerDisableInput` are `struct{ core.Guarded }` as Contracts give them: no `manual` field, so a schema check rejects one.
-   - `dockerEnableChange(env core.Env, cfg fwstate.Config, cur fwstate.Loaded, st dockerState) (change, error)` in this order, every refusal an `*errcode.Error` with code `firewall.unsupported_integration`, from `errcode.New`, and the zero `change` returned with it:
-     1. `st.cfg.Enabled`: return the empty `change{}` and no error (enable while on is a no-op, whatever Docker's state).
-     2. `!st.available`: detail `the Docker integration needs Docker: ` followed by `st.reason`.
-     3. `dockerfw.Unsupported(st.det)` not empty: detail `the Docker integration is not supported on this host: ` and the reasons joined with `; `.
-     4. `refuseOpenIncoming(true, cfg)` (Task 31): return its error unchanged.
-     5. `dockerfw.ExemptionConflicts(st.cfg.Settings.ForwardExemptions, st.facts.Networks)` not empty: detail `a forward exemption points into a Docker network: ` and the conflicts joined with `; `.
-     6. Uncovered foreign forwards. For family `fwstate.V4` with `cur.V4` and `fwstate.V6` with `cur.V6` (skip a nil ruleset and a ruleset with no `nat` table), take `dockerfw.ForeignDNAT(rs.Table("nat"))` and skip each rule for which `dockerfw.Covered(rule, st.cfg.Settings.ForwardExemptions)` is true. Each remaining rule is one item: its `Text`, then ` -> propose ` and the JSON (`encoding/json`) of the `dockerfw.Exemption` that `dockerfw.Propose(rule, family)` returns, or, when `Propose` reports false, ` -> no exemption can name it`. When any item exists, detail `foreign port forwards need an entry in forwardExemptions before the integration is enabled: ` and the items joined with `; `. Every uncovered rule of both families is named in the one refusal. The detail carries rule texts only, no secret.
-     7. Otherwise: `files := blockFiles(cfg, st, true)`, `ops := containerRuleOps(cfg, st.realized.Rules, newULID(env))`, and return `change{flag: &on, files: files, reload: true, ops: ops}` with `on` true. Errors from the two calls are returned as they are.
-   - `dockerDisableChange(env core.Env, cfg fwstate.Config, st dockerState) (change, error)`: when `!st.cfg.Enabled` return the empty change; otherwise `files := blockFiles(cfg, st, false)`, `ops := containerRuleOps(cfg, nil, newULID(env))` and `change{flag: &off, files: files, cleanup: true, ops: ops}` with `off` false and no `reload` (the cleanup of Task 35 reloads UFW itself when it must). It never reads Docker's facts, so it works with Docker unreachable, and it leaves `rowsAdd`, `rowsDel` and `sources` nil: the stored rows and settings stay, so a later enable restores the same policy.
-   - `dockerFlagCheck(ctx, env, cfg fwstate.Config, on bool) error`: reads `readDockerConfig(ctx, env.DB)` (a read error is `firewall: verify: %w`) and returns `mismatch(...)` when the stored flag is not `on`; then, for `/etc/ufw/after.rules` and `/etc/ufw/after6.rules` in `cfg.Files`, runs `dockerfw.BlockOf` on the file's data (a malformed-marker error is `firewall: verify: <path>: %w`) and returns `mismatch(...)` when the file holds a block and `on` is false or holds none and `on` is true. Every mismatch text names the flag or the file and ends `after the change` (wave 1's wording, which the tests read).
-   - `func (f fw) dockerEnable() core.ActionDef` is `defineMutation(core.ActionSpec{Name: "firewall.docker.enable", Summary: "Enable the Docker integration."}, mutation[DockerEnableInput]{…})` with `f: f`, `guarded` returning `in.Guarded`, no `manual`, `build` returning a `buildFunc` that calls `f.dockerState(ctx, env, cur)` with the `ctx` and `env` of `build` and the `cur` it is given, returns that error as it is, and otherwise `dockerEnableChange(env, cfg, cur, st)`, and `check` calling `dockerFlagCheck(ctx, env, cfg, true)`. `dockerDisable` is the same with the name `firewall.docker.disable`, summary `Disable the Docker integration.`, `dockerDisableChange(env, cfg, st)` and `dockerFlagCheck(…, false)`.
+`actions_docker_enable.go`, doc comments on every exported identifier.
 
-   Nothing else changes: no registration (Task 46), no other file.
+1. `DockerEnableInput` and `DockerDisableInput` are `struct{ core.Guarded }` as Contracts give them: no `manual` field, so a schema check rejects one.
+2. `dockerEnableChange(env core.Env, cfg fwstate.Config, cur fwstate.Loaded, st dockerState) (change, error)` in this order, every refusal an `*errcode.Error` with code `firewall.unsupported_integration`, from `errcode.New`, and the zero `change` returned with it:
+   1. `st.cfg.Enabled`: return the empty `change{}` and no error (enable while on is a no-op, whatever Docker's state).
+   2. `!st.available`: detail `the Docker integration needs Docker: ` followed by `st.reason`.
+   3. `dockerfw.Unsupported(st.det)` not empty: detail `the Docker integration is not supported on this host: ` and the reasons joined with `; `.
+   4. `refuseOpenIncoming(true, cfg)` (Task 33): return its error unchanged.
+   5. `dockerfw.ExemptionConflicts(st.cfg.Settings.ForwardExemptions, st.facts.Networks)` not empty: detail `a forward exemption points into a Docker network: ` and the conflicts joined with `; `.
+   6. Uncovered foreign forwards. For family `fwstate.V4` with `cur.V4` and `fwstate.V6` with `cur.V6` (skip a nil ruleset and a ruleset with no `nat` table), take `dockerfw.ForeignDNAT(rs.Table("nat"))` and skip each rule for which `dockerfw.Covered(rule, st.cfg.Settings.ForwardExemptions)` is true. Each remaining rule is one item: its `Text`, then ` -> propose ` and the JSON (`encoding/json`) of the `dockerfw.Exemption` that `dockerfw.Propose(rule, family)` returns, or, when `Propose` reports false, ` -> no exemption can name it`. When any item exists, detail `foreign port forwards need an entry in forwardExemptions before the integration is enabled: ` and the items joined with `; `. Every uncovered rule of both families is named in the one refusal. The detail carries rule texts only, no secret.
+   7. Otherwise: `files := blockFiles(cfg, st, true)`, `ops := containerRuleOps(cfg, st.realized.Rules, newULID(env))` (Task 41), and return `change{flag: &on, files: files, reload: true, ops: ops}` with `on` true. Errors from the two calls are returned as they are.
+3. `dockerDisableChange(env core.Env, cfg fwstate.Config, st dockerState) (change, error)`: when `!st.cfg.Enabled` return the empty change; otherwise `files := blockFiles(cfg, st, false)`, `ops := containerRuleOps(cfg, nil, newULID(env))` and `change{flag: &off, files: files, cleanup: true, ops: ops}` with `off` false and no `reload` (the cleanup of Task 37 reloads UFW itself when it must). It never reads Docker's facts, so it works with Docker unreachable, and it leaves `rowsAdd`, `rowsDel` and `sources` nil: the stored rows and settings stay, so a later enable restores the same policy.
+4. `dockerFlagCheck(ctx, env, cfg fwstate.Config, on bool) error`: reads `readDockerConfig(ctx, env.DB)` (a read error is `firewall: verify: %w`) and returns `mismatch(...)` when the stored flag is not `on`; then, for `/etc/ufw/after.rules` and `/etc/ufw/after6.rules` in `cfg.Files`, runs `dockerfw.BlockOf` on the file's data (a malformed-marker error is `firewall: verify: <path>: %w`) and returns `mismatch(...)` when the file holds a block and `on` is false or holds none and `on` is true. Every mismatch text names the flag or the file and ends `after the change` (wave 1's wording, which the tests read).
+5. `func (f fw) dockerEnable() core.ActionDef` is `defineMutation(core.ActionSpec{Name: "firewall.docker.enable", Summary: "Enable the Docker integration."}, mutation[DockerEnableInput]{…})` with `f: f`, `guarded` returning `in.Guarded`, no `manual`, `build` returning a `buildFunc` that calls `f.dockerState(ctx, env, cur)` with the `ctx` and `env` of `build` and the `cur` it is given, returns that error as it is, and otherwise `dockerEnableChange(env, cfg, cur, st)`, and `check` calling `dockerFlagCheck(ctx, env, cfg, true)`. `dockerDisable` is the same with the name `firewall.docker.disable`, summary `Disable the Docker integration.`, `dockerDisableChange(env, cfg, st)` and `dockerFlagCheck(…, false)`.
+
+`newULID` and `containerRuleOps` are Task 41's: an `undefined` for either at Step 3 or Step 4 means Task 41 is missing from the base: stop and report it. Nothing else changes: no registration (Task 50), no other file.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `TMPDIR=/root/.cache/w2-tmp/39 GOTOOLCHAIN=local timeout 300 go test -count=1 -race -v -run 'TestDen' ./internal/modules/firewall/`
-Expected: `PASS` for `TestDenNewULID`, `TestDenContainerRuleOps`, `TestDenContainerRuleOpsError`, `TestDenEnableChange` (twelve cases), `TestDenEnableForeignForwards`, `TestDenEnableAlreadyOn`, `TestDenDisableChange`, `TestDenEnablePlan`, `TestDenDisablePlan`, `TestDenVerify` and `TestDenActionDefinitions`.
+Run: `TMPDIR=/root/.cache/w2-tmp/42 GOTOOLCHAIN=local timeout 300 go test -count=1 -race -v -run 'TestDen' ./internal/modules/firewall/`
+Expected: `PASS` for `TestDenEnableChange` (twelve cases), `TestDenEnableForeignForwards`, `TestDenEnableAlreadyOn`, `TestDenDisableChange`, `TestDenEnablePlan`, `TestDenDisablePlan`, `TestDenVerify` and `TestDenActionDefinitions`.
 
 - [ ] **Step 5: Verify the task and commit**
 
 ```bash
-mkdir -p /root/.cache/w2-tmp/39 && export TMPDIR=/root/.cache/w2-tmp/39 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w2-tmp/42 && export TMPDIR=/root/.cache/w2-tmp/42 GOTOOLCHAIN=local
 timeout 600 go build ./... && timeout 300 go vet ./...
 timeout 900 go test -race -count=1 ./internal/modules/firewall/
 timeout 1500 go test -count=1 ./...
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w2-tmp/39 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/42 && go clean -testcache
 ```
 
 Expected: `go vet` and `go mod tidy -diff` print nothing, every `go test` line is `ok` or `?`, and the linter prints `0 issues.`. Record the real output.
 
 ```bash
-git add internal/modules/firewall/docker_ruleops.go internal/modules/firewall/actions_docker_enable.go internal/modules/firewall/docker_ruleops_test.go internal/modules/firewall/actions_docker_enable_test.go
+git add internal/modules/firewall/actions_docker_enable.go internal/modules/firewall/actions_docker_enable_test.go
 git commit -m "feat(firewall): enable and disable the Docker integration"
 ```
 
-### Task 40: Container allow, deny, remove and apply actions
+### Task 43: Container allow, deny, remove and apply actions
 
 **Files:**
 - Create: `internal/modules/firewall/actions_container.go` (`ContainerAllowInput`, `ContainerDenyInput`, `ContainerRemoveInput`, `ContainerOp`, `ContainersApplyInput`, `containerAllow`, `containerDeny`, `containerRemove`, `containersApply`, and the unexported `containerChange`, `containerRowsCheck`)
 - Test: `internal/modules/firewall/actions_container_test.go` (create)
 
 **Interfaces:**
-- Consumes: Contracts "Container rule ops and ids (Task 39)": `newULID`, `containerRuleOps`; Contracts "Integration on and off" (the rules of the four container actions); "Docker state" (Task 29: `dockerState`, `func (f fw) dockerState`, `blockFiles`); "Docker store" (Task 18: `dockerConfig`, `listContainerRules`, `writeDockerConfig`, `deleteContainerRule`); "change and target" (Tasks 16, 30, 36: the `change` fields `rowsAdd`, `rowsDel`, `files`, `reload`, `ops`, the plan lines `container rule + …` and `container rule - …` of Task 30, and the effects `firewall.container:<id>` that Task 36 journals for the rows); "dockerfw bindings and rules" (Task 9: `Binding` with `Validate`, `ContainerRule` with `Validate`, `Kind`, `Allow`, `Deny`, `LabelPrefix`); "dockerfw realization" (Task 19: `Realize`); "dockerfw rule operations" (Task 22); "dockerfw block" (Task 15: `BlockOf`, `WithBlock`); "Docker client seam" (Task 12: `fakeDocker` with the field `err`, `newFakeDocker`, `fdDeps`). Wave 1's `defineMutation`, `mutation`, `buildFunc`, `fieldErrors` (`actions_rule.go`), `mismatch`, `ruleResource`, `ufwOp`, `fakeHost`, `newFakeHost`, `newFW`, `acRun` (`actions_state_test.go`), `fhRule3000v4`.
-- Produces: the input types and the constructors `containerAllow`, `containerDeny`, `containerRemove`, `containersApply` of Contracts "Shapes the web and the schemas read" (registered by Task 46), with the input types exactly as stated there.
+- Consumes: Contracts "Container rule ops and ids (Tasks 41 and 42)": `newULID`, `containerRuleOps`; Contracts "Integration on and off" (the rules of the four container actions); "Docker state" (Task 31: `dockerState`, `func (f fw) dockerState`, `blockFiles`); "Docker store" (Task 20: `dockerConfig`, `listContainerRules`, `writeDockerConfig`, `deleteContainerRule`); "change and target" (Tasks 18, 32, 38: the `change` fields `rowsAdd`, `rowsDel`, `files`, `reload`, `ops`, the plan lines `container rule + …` and `container rule - …` of Task 32, and the effects `firewall.container:<id>` that Task 38 journals for the rows); "dockerfw bindings and rules" (Task 10: `Binding` with `Validate`, `ContainerRule` with `Validate`, `Kind`, `Allow`, `Deny`, `LabelPrefix`); "dockerfw realization" (Task 21: `Realize`); "dockerfw rule operations" (Task 24); "dockerfw block" (Task 17: `BlockOf`, `WithBlock`); "Docker client seam" (Task 14: `fakeDocker` with the field `err`, `newFakeDocker`, `fdDeps`). Wave 1's `defineMutation`, `mutation`, `buildFunc`, `fieldErrors` (`actions_rule.go`), `mismatch`, `ruleResource`, `ufwOp`, `fakeHost`, `newFakeHost`, `newFW`, `acRun` (`actions_state_test.go`), `fhRule3000v4`.
+- Produces: the input types and the constructors `containerAllow`, `containerDeny`, `containerRemove`, `containersApply` of Contracts "Shapes the web and the schemas read" (registered by Task 50), with the input types exactly as stated there.
 
 **Items:** 9
 
-**Depends on:** Task 22, Task 30, Task 32, Task 36, Task 39
+**Depends on:** Task 24, Task 32, Task 34, Task 38, Task 41, Task 42
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 The four actions are one operation list over the stored rows (spec 2.6, container policy): `allow`, `deny` and `remove` are the single-element lists, `containers.apply` takes the list itself. One builder, `containerChange`, validates the list against the stored rows in order, then realizes the resulting rows when the integration flag is on (Contracts "Integration on and off": the desired container rules are `st.realized.Rules` of the changed rows when the flag is on, nil when it is off). Decisions this task fixes: an allowance or deny equal to a stored row (binding, kind, source; not its id) changes nothing; a deny needs an allow row on the same binding at that point of the list; removing an allowance leaves the binding's denies stored (they realize nothing without an allowance, as Contracts "dockerfw realization" says, and `firewall.docker` lists them); with the integration on, an unreachable Docker is refused because the realization would otherwise close every published port.
 
@@ -17370,7 +17666,7 @@ func TestCtrActionDefinitions(t *testing.T) {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w2-tmp/40 && TMPDIR=/root/.cache/w2-tmp/40 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestCtr' ./internal/modules/firewall/`
+Run: `mkdir -p /root/.cache/w2-tmp/43 && TMPDIR=/root/.cache/w2-tmp/43 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestCtr' ./internal/modules/firewall/`
 Expected: FAIL to build with errors naming only identifiers this task adds: `undefined: ContainerOp` (first), `containerChange`, and `f.containerAllow`, `f.containerDeny`, `f.containerRemove`, `f.containersApply undefined`. An error that names anything else (`dockerfw`, `dockerState`, `blockFiles`, `fdDeps`, `listContainerRules`, `writeDockerConfig`, `newULID`) means a task this one depends on is missing from the base: stop and report it.
 
 - [ ] **Step 3: Implement**
@@ -17387,25 +17683,25 @@ Create `actions_container.go` with a doc comment on every exported identifier.
       Build these errors as `*errcode.Error{Code: errcode.InvalidInput, Detail: <message>, Fields: []errcode.FieldError{{Path: …, Message: <message>}}}`.
    3. `c := change{rowsAdd: …, rowsDel: …}`. With the integration off (`!st.cfg.Enabled`) the desired rules are nil and nothing is realized. With it on, set `st.rows` to the working copy and `st.realized` to `dockerfw.Realize(copy, st.facts, st.cfg.Settings)`, take `blockFiles(cfg, st, true)` and put into `c.files` only the paths whose bytes differ from `cfg.Files[path].Data` (a map stays nil when none differs); `c.reload` is true exactly when `c.files` is not empty; the desired rules are `st.realized.Rules`. Finally `c.ops` is `containerRuleOps(cfg, desired, newID)`; its error is returned. The result is the empty change when nothing differs, so a `containers.apply` with no operations re-realizes the stored rows and writes nothing when the host already holds the realization.
 3. `containerRowsCheck(ctx, env, ops []ContainerOp) error` is the verify check. It reads `listContainerRules(ctx, env.DB)` (a read error is `firewall: verify: %w`) and compares the stored rows with the list: for each `remove` operation, a row with its id is still stored: `mismatch("container rule %s is still stored after the change", id)`; for each `allow` or `deny` operation after the last `remove` of the list (every one when the list has no remove), no stored row has its binding, kind and source: `mismatch("no %s rule of %s:%d/%s is stored after the change", op, selector, hostPort, proto)`. Operations before a later remove are skipped, because a later removal may take a row an earlier equal operation skipped or stored.
-4. The four constructors are methods of `fw` returning `core.ActionDef` through `defineMutation`, with one shared generic helper to avoid four copies of the closure: names `firewall.container.allow`, `firewall.container.deny`, `firewall.container.remove`, `firewall.containers.apply`; summaries `Allow access to a published container port.`, `Deny a source range on an allowed container port.`, `Remove a container allowance or deny.`, `Change container rules in one batch and realize them.`; `guarded` returns the input's `Guarded`; no `manual`; the single-action inputs map to the one-element lists `{Op: "allow", Binding: &in.Binding, From: in.From}`, `{Op: "deny", …}` and `{Op: "remove", ID: in.ID}` with `batch` false, `containers.apply` maps to `in.Ops` with `batch` true; `build` returns a `buildFunc` that calls `f.dockerState(ctx, env, cur)` (with the `ctx`, `env` of `build` and the `cur` it is given), returns its error as it is, and returns `containerChange(env, cfg, st, ops, batch)`; `check` calls `containerRowsCheck(ctx, env, ops)`. The helper is private to this file; it must not reuse an unexported name of Task 39.
+4. The four constructors are methods of `fw` returning `core.ActionDef` through `defineMutation`, with one shared generic helper to avoid four copies of the closure: names `firewall.container.allow`, `firewall.container.deny`, `firewall.container.remove`, `firewall.containers.apply`; summaries `Allow access to a published container port.`, `Deny a source range on an allowed container port.`, `Remove a container allowance or deny.`, `Change container rules in one batch and realize them.`; `guarded` returns the input's `Guarded`; no `manual`; the single-action inputs map to the one-element lists `{Op: "allow", Binding: &in.Binding, From: in.From}`, `{Op: "deny", …}` and `{Op: "remove", ID: in.ID}` with `batch` false, `containers.apply` maps to `in.Ops` with `batch` true; `build` returns a `buildFunc` that calls `f.dockerState(ctx, env, cur)` (with the `ctx`, `env` of `build` and the `cur` it is given), returns its error as it is, and returns `containerChange(env, cfg, st, ops, batch)`; `check` calls `containerRowsCheck(ctx, env, ops)`. The helper is private to this file; it must not reuse an unexported name of Tasks 41 and 42.
 
-   Nothing else changes: no registration (Task 46), no other file.
+   Nothing else changes: no registration (Task 50), no other file.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `TMPDIR=/root/.cache/w2-tmp/40 GOTOOLCHAIN=local timeout 300 go test -count=1 -race -v -run 'TestCtr' ./internal/modules/firewall/`
+Run: `TMPDIR=/root/.cache/w2-tmp/43 GOTOOLCHAIN=local timeout 300 go test -count=1 -race -v -run 'TestCtr' ./internal/modules/firewall/`
 Expected: `PASS` for `TestCtrChangeSingle`, `TestCtrChangeBatch`, `TestCtrChangeIntegrationOn`, `TestCtrActions`, `TestCtrPlanRefusals`, `TestCtrVerify` and `TestCtrActionDefinitions`.
 
 - [ ] **Step 5: Verify the task and commit**
 
 ```bash
-mkdir -p /root/.cache/w2-tmp/40 && export TMPDIR=/root/.cache/w2-tmp/40 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w2-tmp/43 && export TMPDIR=/root/.cache/w2-tmp/43 GOTOOLCHAIN=local
 timeout 600 go build ./... && timeout 300 go vet ./...
 timeout 900 go test -race -count=1 ./internal/modules/firewall/
 timeout 1500 go test -count=1 ./...
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w2-tmp/40 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/43 && go clean -testcache
 ```
 
 Expected: `go vet` and `go mod tidy -diff` print nothing, every `go test` line is `ok` or `?`, and the linter prints `0 issues.`. Record the real output.
@@ -17415,19 +17711,21 @@ git add internal/modules/firewall/actions_container.go internal/modules/firewall
 git commit -m "feat(firewall): add container allow, deny and apply"
 ```
 
-### Task 41: state.enable, state.disable and defaults.set with the integration
+### Task 44: state.enable, state.disable and defaults.set with the integration
 
 **Files:**
 - Modify: `internal/modules/firewall/actions_state.go` (`stateAction`'s `build`, `defaultsSet`'s `build`, and two new unexported functions `stateChange` and `integrationChange`)
 - Test: `internal/modules/firewall/actions_state_docker_test.go` (create)
 
 **Interfaces:**
-- Consumes: Contracts "Docker store" (`dockerConfig`, `readDockerConfig`; `writeDockerConfig` in the tests), "Docker state" (`dockerState` and its `cfg` and `realized` fields, `fw.dockerState`, `blockFiles`), "Refusals" (`refuseOpenIncoming`), "change and target" (the `change` fields `files` and `cleanup`, which Task 16's prediction, Task 30's diff and Task 36's `fw.run` act on), "Owned-chain cleanup" (what `cleanup` makes `fw.run` run), "dockerfw block" (`Render`, `WithBlock`, `BlockOf`, `BlockInput`), "dockerfw settings and facts" (`Settings`), "dockerfw realization" (`Realized`), "Docker client seam" (`newFakeDocker`, `fakeDocker.err`, `fdDeps`). Wave 1's `acHost`, `acRun` (`actions_state_test.go`), `hkEffects` (`handler_test.go`), `fakeHost` and `fhState` (`host_test.go`). Tasks 12, 16, 18, 26, 29 and 30 merge in earlier waves than this task, so the base holds their names even though this task's **Depends on** line names only 31, 35 and 36.
+- Consumes: Contracts "Docker store" (`dockerConfig`, `readDockerConfig`; `writeDockerConfig` in the tests), "Docker state" (`dockerState` and its `cfg` and `realized` fields, `fw.dockerState`, `blockFiles`), "Refusals" (`refuseOpenIncoming`), "change and target" (the `change` fields `files` and `cleanup`, which Task 18's prediction, Task 32's diff and Task 38's `fw.run` act on), "Owned-chain cleanup" (what `cleanup` makes `fw.run` run), "dockerfw block" (`Render`, `WithBlock`, `BlockOf`, `BlockInput`), "dockerfw settings and facts" (`Settings`), "dockerfw realization" (`Realized`), "Docker client seam" (`newFakeDocker`, `fakeDocker.err`, `fdDeps`). Wave 1's `acHost`, `acRun` (`actions_state_test.go`), `hkEffects` (`handler_test.go`), `fakeHost` and `fhState` (`host_test.go`). Tasks 14, 18, 20, 28, 31 and 32 merge in earlier waves than this task, so the base holds their names even though this task's **Depends on** line names only 31, 35 and 36.
 - Produces: `func (f fw) stateChange(ctx context.Context, env core.Env, enable bool, cfg fwstate.Config, cur fwstate.Loaded) (change, error)` and `func integrationChange(enable bool, cfg fwstate.Config, st dockerState) (change, error)`, both used only by this task. Behaviour later tasks rely on: with the integration flag on, `firewall.state.enable` writes the block into the after files before UFW starts, `firewall.state.disable` takes the block out and asks for the owned-chain cleanup, and `firewall.state.enable` and `firewall.defaults.set` refuse an incoming policy of ACCEPT.
 
 **Items:** 8
 
-**Depends on:** Task 29, Task 30, Task 31, Task 35, Task 36
+**Depends on:** Task 31, Task 32, Task 33, Task 37, Task 38
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 - [ ] **Step 1: Write the failing test**
 
@@ -17637,7 +17935,7 @@ func TestDshRefusesOpenIncoming(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w2-tmp/41 && export TMPDIR=/root/.cache/w2-tmp/41 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestDsh' ./internal/modules/firewall/`
+Run: `mkdir -p /root/.cache/w2-tmp/44 && export TMPDIR=/root/.cache/w2-tmp/44 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestDsh' ./internal/modules/firewall/`
 Expected: FAIL to build with `undefined: integrationChange`. With `integrationChange` declared as a stub that returns `change{enable: &enable}` and `stateChange` and the `defaultsSet` change absent, the tests build and fail for the behaviour: `TestDshIntegrationChange` finds no `files` and no `cleanup` in its enable-from-stopped and disable cases, `TestDshEnableWritesBlock` finds no write of either after file before the start of UFW, and `TestDshRefusesOpenIncoming` plans, where it wants `firewall.unsupported_integration`, in the cases with the flag on and an incoming policy of ACCEPT.
 
 - [ ] **Step 3: Implement**
@@ -17656,20 +17954,20 @@ All changes are in `internal/modules/firewall/actions_state.go`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `export TMPDIR=/root/.cache/w2-tmp/41 GOTOOLCHAIN=local && timeout 300 go test -count=1 -race -run 'TestDsh|TestStateActions|TestStateEnableIPv6No|TestMutationsIPv6NoManual|TestDefaultsAndLogging|TestStateActionsVerify' -v ./internal/modules/firewall/`
+Run: `export TMPDIR=/root/.cache/w2-tmp/44 GOTOOLCHAIN=local && timeout 300 go test -count=1 -race -run 'TestDsh|TestStateActions|TestStateEnableIPv6No|TestMutationsIPv6NoManual|TestDefaultsAndLogging|TestStateActionsVerify' -v ./internal/modules/firewall/`
 Expected: PASS for every `TestDsh…` test and for the existing state-action tests.
 
 Then the task's gates, each with its real output recorded:
 
 ```bash
-mkdir -p /root/.cache/w2-tmp/41 && export TMPDIR=/root/.cache/w2-tmp/41 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w2-tmp/44 && export TMPDIR=/root/.cache/w2-tmp/44 GOTOOLCHAIN=local
 timeout 600 go build ./...
 timeout 300 go vet ./...
 timeout 1500 go test -count=1 ./...
 timeout 900 go test -race -count=1 ./internal/modules/firewall/
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w2-tmp/41 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/44 && go clean -testcache
 ```
 Expected: `go build` and `go vet` print nothing; every `go test` line is `ok` or `?`; the linter prints `0 issues.`; `go mod tidy -diff` prints nothing.
 
@@ -17680,7 +17978,7 @@ git add internal/modules/firewall/actions_state.go internal/modules/firewall/act
 git commit -m "feat(firewall): write the block on enable, clean up on disable"
 ```
 
-### Task 42: snapshot.restore with the integration
+### Task 45: snapshot.restore with the integration
 
 **Files:**
 - Create: `internal/modules/firewall/docker_restore_change.go`
@@ -17688,12 +17986,14 @@ git commit -m "feat(firewall): write the block on enable, clean up on disable"
 - Test: `internal/modules/firewall/actions_snapshot_docker_test.go` (create)
 
 **Interfaces:**
-- Consumes: Task 26's `snapshotState.Docker`, `snapshotState.DockerSettings` (nil in a snapshot taken before the integration existed) and `snapshotState.ContainerRules`; Contracts "Docker store" (`dockerConfig`, `readDockerConfig`, `listContainerRules`; `writeDockerConfig` and `replaceContainerRules` in the tests), "Refusals" (`refuseOpenIncoming`), "change and target" (the `change` fields `flag`, `sources`, `rowsAdd`, `rowsDel` and `cleanup`, which Task 30's diff reads and Task 36's `fw.run` applies in order before the restore's transition), "dockerfw settings and facts" (`Settings`, `DefaultSettings`), "dockerfw bindings and rules" (`ContainerRule`, `Binding`, `Allow`, `Kind`), "Docker client seam" (`newFakeDocker`, `fakeDocker.err`, `fdDeps`). Wave 1's `snapshotConfig` (`target.go`), `loadSnapshot`, and the test helpers `acHost`, `acRun`, `acDiff`, `hkEffects`, `snCapture`, `fhParse`.
-- Produces: `type dockerRestoreSide struct { cfg dockerConfig; rows []dockerfw.ContainerRule }` (fields in this order), `func readDockerRestoreSide(ctx context.Context, db *store.DB) (dockerRestoreSide, error)`, `func snapshotDockerSide(s snapshot) dockerRestoreSide`, `func withDockerRestore(c change, now, want dockerRestoreSide) change` and `func (f fw) dockerRestoreChange(ctx context.Context, env core.Env, c change, s snapshot) (change, error)`, in `docker_restore_change.go`. Task 43 calls `dockerRestoreChange` for a repair's restore. After this task `firewall.snapshot.restore` brings the snapshot's integration flag, settings and container rules back as journaled effects, turns an integration that is on off with the owned-chain cleanup when the snapshot was taken without it, and refuses a restore that leaves the integration on with an incoming policy of ACCEPT.
+- Consumes: Task 28's `snapshotState.Docker`, `snapshotState.DockerSettings` (nil in a snapshot taken before the integration existed) and `snapshotState.ContainerRules`; Contracts "Docker store" (`dockerConfig`, `readDockerConfig`, `listContainerRules`; `writeDockerConfig` and `replaceContainerRules` in the tests), "Refusals" (`refuseOpenIncoming`), "change and target" (the `change` fields `flag`, `sources`, `rowsAdd`, `rowsDel` and `cleanup`, which Task 32's diff reads and Task 38's `fw.run` applies in order before the restore's transition), "dockerfw settings and facts" (`Settings`, `DefaultSettings`), "dockerfw bindings and rules" (`ContainerRule`, `Binding`, `Allow`, `Kind`), "Docker client seam" (`newFakeDocker`, `fakeDocker.err`, `fdDeps`). Wave 1's `snapshotConfig` (`target.go`), `loadSnapshot`, and the test helpers `acHost`, `acRun`, `acDiff`, `hkEffects`, `snCapture`, `fhParse`.
+- Produces: `type dockerRestoreSide struct { cfg dockerConfig; rows []dockerfw.ContainerRule }` (fields in this order), `func readDockerRestoreSide(ctx context.Context, db *store.DB) (dockerRestoreSide, error)`, `func snapshotDockerSide(s snapshot) dockerRestoreSide`, `func withDockerRestore(c change, now, want dockerRestoreSide) change` and `func (f fw) dockerRestoreChange(ctx context.Context, env core.Env, c change, s snapshot) (change, error)`, in `docker_restore_change.go`. Task 46 calls `dockerRestoreChange` for a repair's restore. After this task `firewall.snapshot.restore` brings the snapshot's integration flag, settings and container rules back as journaled effects, turns an integration that is on off with the owned-chain cleanup when the snapshot was taken without it, and refuses a restore that leaves the integration on with an incoming policy of ACCEPT.
 
 **Items:** 8
 
-**Depends on:** Task 31, Task 36, Task 38
+**Depends on:** Task 33, Task 38, Task 40
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 - [ ] **Step 1: Write the failing test**
 
@@ -17933,7 +18233,7 @@ func TestDsrRestoreRefusesOpenIncoming(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w2-tmp/42 && export TMPDIR=/root/.cache/w2-tmp/42 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestDsr' ./internal/modules/firewall/`
+Run: `mkdir -p /root/.cache/w2-tmp/45 && export TMPDIR=/root/.cache/w2-tmp/45 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestDsr' ./internal/modules/firewall/`
 Expected: FAIL to build with `undefined: dockerRestoreSide`, followed by `undefined: withDockerRestore` and `undefined: readDockerRestoreSide`. With the types and functions declared as stubs that return zero values, the tests build and fail for the behaviour: `TestDsrRestorePlan` finds none of its three diff lines, `TestDsrRestoreAppliesState` finds the row `dsrRuleB` still stored and the settings not restored, and the `snapshot with the integration on` case of `TestDsrRestoreRefusesOpenIncoming` plans instead of refusing.
 
 - [ ] **Step 3: Implement**
@@ -17941,27 +18241,27 @@ Expected: FAIL to build with `undefined: dockerRestoreSide`, followed by `undefi
 1. Create `docker_restore_change.go` (a doc comment on each declaration; imports `internal/core`, `internal/core/store`, `internal/modules/firewall/dockerfw`):
    - `dockerRestoreSide` is the Docker integration's logical state on one side of a restore: `cfg dockerConfig` then `rows []dockerfw.ContainerRule`, in that order.
    - `readDockerRestoreSide(ctx, db)` reads `readDockerConfig` and `listContainerRules` and returns them as a side; an error is returned as `firewall: read the Docker state: %w`.
-   - `snapshotDockerSide(s)` is the state a snapshot records: `Enabled` from `s.State.Docker`, `Settings` from `*s.State.DockerSettings`, or `dockerfw.DefaultSettings()` when that pointer is nil, and `rows` from `s.State.ContainerRules`. Read these three fields of `snapshotState` directly; they are Task 26's, and Task 28 reads them the same way.
+   - `snapshotDockerSide(s)` is the state a snapshot records: `Enabled` from `s.State.Docker`, `Settings` from `*s.State.DockerSettings`, or `dockerfw.DefaultSettings()` when that pointer is nil, and `rows` from `s.State.ContainerRules`. Read these three fields of `snapshotState` directly; they are Task 28's, and Task 30 reads them the same way.
    - `withDockerRestore(c, now, want)` returns `c` with its Docker fields set for a restore from `now` to `want`, and every other field of `c` (`restore`, `repair`, `ops`, ...) as it was: `flag` points at `want.cfg.Enabled` when it differs from `now.cfg.Enabled`; `sources` points at a copy of `want.cfg.Settings` when `PrivateSources` or `ForwardExemptions` differ (compare each with `slices.Equal`; both element types are comparable, so a nil list and an empty one are equal); `rowsAdd` holds, in `want.rows` order, the rows of `want` whose id `now` lacks; `rowsDel` holds, in `now.rows` order, the ids of the rows of `now` that `want` lacks (rows are told apart by id alone: a row is never edited); `cleanup` is true exactly when `now.cfg.Enabled` is true and `want.cfg.Enabled` is false. It sets neither `files` nor `reload`: the snapshot's own files already carry or lack the block, and a restore of an active UFW reloads anyway. A comment gives the reason for the cleanup condition: with the flag off no integration chain is loaded, and a cleanup would refuse a host whose `DOCKER-USER` holds the operator's own rules.
    - `(f fw) dockerRestoreChange(ctx, env, c, s)`: `want := snapshotDockerSide(s)`; `final, err := f.snapshotConfig(s)`; `refuseOpenIncoming(want.cfg.Enabled, final)` (the invariant is about the integration after the restore, which is the snapshot's flag); `now, err := readDockerRestoreSide(ctx, env.DB)`; return `withDockerRestore(c, now, want)`. Errors are returned unchanged.
 2. `actions_snapshot.go`, `snapshotRestore`'s `build`: after `loadSnapshot`, return `f.dockerRestoreChange(ctx, env, change{restore: &s}, s)` in place of `change{restore: &s}, nil`. The `check`, `keep` and the input do not change.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `export TMPDIR=/root/.cache/w2-tmp/42 GOTOOLCHAIN=local && timeout 300 go test -count=1 -race -run 'TestDsr|TestSnapshotRestore|TestSnapshot' -v ./internal/modules/firewall/`
+Run: `export TMPDIR=/root/.cache/w2-tmp/45 GOTOOLCHAIN=local && timeout 300 go test -count=1 -race -run 'TestDsr|TestSnapshotRestore|TestSnapshot' -v ./internal/modules/firewall/`
 Expected: PASS for every `TestDsr…` test and for the existing snapshot-restore tests.
 
 Then the task's gates, each with its real output recorded:
 
 ```bash
-mkdir -p /root/.cache/w2-tmp/42 && export TMPDIR=/root/.cache/w2-tmp/42 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w2-tmp/45 && export TMPDIR=/root/.cache/w2-tmp/45 GOTOOLCHAIN=local
 timeout 600 go build ./...
 timeout 300 go vet ./...
 timeout 1500 go test -count=1 ./...
 timeout 900 go test -race -count=1 ./internal/modules/firewall/
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w2-tmp/42 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/45 && go clean -testcache
 ```
 Expected: `go build` and `go vet` print nothing; every `go test` line is `ok` or `?`; the linter prints `0 issues.`; `go mod tidy -diff` prints nothing.
 
@@ -17972,19 +18272,21 @@ git add internal/modules/firewall/docker_restore_change.go internal/modules/fire
 git commit -m "feat(firewall): restore the Docker state with a snapshot"
 ```
 
-### Task 43: state.repair with the integration
+### Task 46: state.repair with the integration
 
 **Files:**
 - Modify: `internal/modules/firewall/actions_repair.go` (`stateRepair`'s `build`, `repairChange`, and a new unexported method `repairReload`)
 - Test: `internal/modules/firewall/actions_repair_docker_test.go` (create)
 
 **Interfaces:**
-- Consumes: `fw.dockerRestoreChange` (declared by Task 42, whose wave merges before this task's); Contracts "Docker store" (`dockerConfig`, `readDockerConfig`, `listContainerRules`; `writeDockerConfig` and `replaceContainerRules` in the tests), "Refusals" (`refuseOpenIncoming`), "change and target" (the `change` fields Task 42's helper sets), "dockerfw settings and facts" (`Settings`, `DefaultSettings`), "dockerfw bindings and rules" (`ContainerRule`, `Binding`, `Allow`, `Kind`), "Docker client seam" (`newFakeDocker`, `fakeDocker.err`, `fdDeps`). Wave 1's `repairedSnapshot`, `changedFiles`, and the test helpers `ruHost`, `rpTarget`, `rpRun`, `rpRepaired` (`actions_repair_test.go`), `acDiff`, `hkEffects`, `fhParse`, `fileHashes`, `setPostHashes`.
+- Consumes: `fw.dockerRestoreChange` (declared by Task 45, whose wave merges before this task's); Contracts "Docker store" (`dockerConfig`, `readDockerConfig`, `listContainerRules`; `writeDockerConfig` and `replaceContainerRules` in the tests), "Refusals" (`refuseOpenIncoming`), "change and target" (the `change` fields Task 45's helper sets), "dockerfw settings and facts" (`Settings`, `DefaultSettings`), "dockerfw bindings and rules" (`ContainerRule`, `Binding`, `Allow`, `Kind`), "Docker client seam" (`newFakeDocker`, `fakeDocker.err`, `fdDeps`). Wave 1's `repairedSnapshot`, `changedFiles`, and the test helpers `ruHost`, `rpTarget`, `rpRun`, `rpRepaired` (`actions_repair_test.go`), `acDiff`, `hkEffects`, `fhParse`, `fileHashes`, `setPostHashes`.
 - Produces: `repairChange` becomes a method, `func (f fw) repairChange(ctx context.Context, env core.Env, in RepairInput, cfg fwstate.Config) (change, error)`, and `func (f fw) repairReload(ctx context.Context, env core.Env, cfg fwstate.Config) (change, error)`; both are used only inside `actions_repair.go`. After this task `firewall.state.repair` refuses a configured incoming policy of ACCEPT whenever the integration is on after the repair, and a repair with outcome restore brings the repaired change's snapshot's integration flag, settings and container rules back, with the cleanup when it turns the integration off.
 
 **Items:** 8
 
-**Depends on:** Task 31, Task 36, Task 42
+**Depends on:** Task 33, Task 38, Task 45
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 - [ ] **Step 1: Write the failing test**
 
@@ -18164,7 +18466,7 @@ func TestDrpRestoreAppliesState(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w2-tmp/43 && export TMPDIR=/root/.cache/w2-tmp/43 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestDrp' ./internal/modules/firewall/`
+Run: `mkdir -p /root/.cache/w2-tmp/46 && export TMPDIR=/root/.cache/w2-tmp/46 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestDrp' ./internal/modules/firewall/`
 Expected: the tests build and FAIL for the behaviour: `plan = <nil>, want firewall.unsupported_integration` in the subtests `on_its_own,_integration_on`, `keep,_integration_on` and `restore_to_a_snapshot_with_the_integration_on` of `TestDrpRefusesOpenIncoming`; `TestDrpRestoreTurnsTheIntegrationOff` finds none of its three diff lines; `TestDrpRestoreAppliesState` finds both rows still stored, the settings not restored and no `firewall.container:` effect. The subtests whose want is a successful plan pass already; they pin that the refusal is not over-broad.
 
 - [ ] **Step 3: Implement**
@@ -18173,25 +18475,25 @@ All changes are in `internal/modules/firewall/actions_repair.go`.
 
 1. `repairChange` becomes `func (f fw) repairChange(ctx context.Context, env core.Env, in RepairInput, cfg fwstate.Config) (change, error)`; the `build` closure in `stateRepair` calls `f.repairChange(ctx, env, in, cfg)`. No test calls it directly. Its validation order does not change: the refusals of an outcome on a repair of nothing, of an unknown outcome and of a keep without post-apply hashes or with changed files all come first.
 2. New `func (f fw) repairReload(ctx context.Context, env core.Env, cfg fwstate.Config) (change, error)`, with a doc comment: it reads `readDockerConfig(ctx, env.DB)`, returns `refuseOpenIncoming(flag, cfg)`'s error unchanged, and otherwise returns `change{repair: true}`. `cfg` is the configuration the repair reloads from, the files as they are on disk, so the integration's flag after the repair is the stored one. A repair on its own and a repair with outcome keep both return `f.repairReload(ctx, env, cfg)` where they returned `change{repair: true}` (after their own validation).
-3. Outcome restore (the branch that returned `change{repair: true, restore: &s}`) now returns `f.dockerRestoreChange(ctx, env, change{repair: true, restore: &s}, s)`: the flag after the repair is the snapshot's, so that is the one the refusal reads, and the snapshot's flag, settings and rows and the cleanup come from Task 42's helper.
+3. Outcome restore (the branch that returned `change{repair: true, restore: &s}`) now returns `f.dockerRestoreChange(ctx, env, change{repair: true, restore: &s}, s)`: the flag after the repair is the snapshot's, so that is the one the refusal reads, and the snapshot's flag, settings and rows and the cleanup come from Task 45's helper.
 4. Extend `RepairInput`'s doc comment or `repairChange`'s with one sentence: with the integration on afterwards a repair refuses an incoming policy of ACCEPT, and a restore brings back the snapshot's Docker state. Comments only for the non-obvious why, in full sentences. `firewall.state.repair` does not rewrite the block; that is `firewall.docker.repair`'s job.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `export TMPDIR=/root/.cache/w2-tmp/43 GOTOOLCHAIN=local && timeout 300 go test -count=1 -race -run 'TestDrp|TestRepair' -v ./internal/modules/firewall/`
+Run: `export TMPDIR=/root/.cache/w2-tmp/46 GOTOOLCHAIN=local && timeout 300 go test -count=1 -race -run 'TestDrp|TestRepair' -v ./internal/modules/firewall/`
 Expected: PASS for every `TestDrp…` test and for the existing `TestRepair…` tests.
 
 Then the task's gates, each with its real output recorded:
 
 ```bash
-mkdir -p /root/.cache/w2-tmp/43 && export TMPDIR=/root/.cache/w2-tmp/43 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w2-tmp/46 && export TMPDIR=/root/.cache/w2-tmp/46 GOTOOLCHAIN=local
 timeout 600 go build ./...
 timeout 300 go vet ./...
 timeout 1500 go test -count=1 ./...
 timeout 900 go test -race -count=1 ./internal/modules/firewall/
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w2-tmp/43 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/46 && go clean -testcache
 ```
 Expected: `go build` and `go vet` print nothing; every `go test` line is `ok` or `?`; the linter prints `0 issues.`; `go mod tidy -diff` prints nothing.
 
@@ -18202,27 +18504,27 @@ git add internal/modules/firewall/actions_repair.go internal/modules/firewall/ac
 git commit -m "feat(firewall): repair with the Docker integration"
 ```
 
-### Task 44: firewall.docker.repair and firewall.docker.set-sources
+### Task 47: firewall.docker.repair
 
 **Files:**
 - Create: `internal/modules/firewall/docker_repair.go`
-- Create: `internal/modules/firewall/docker_sources.go`
 - Test: `internal/modules/firewall/docker_repair_test.go`
-- Test: `internal/modules/firewall/docker_sources_test.go`
 
 **Interfaces:**
-- Consumes: Contracts "dockerfw settings and facts" (`Settings`, `Exemption`, `DefaultSettings`, `Settings.Validate`, the facts types), "dockerfw bindings and rules" (`ContainerRule.Validate`, `Binding.Chain`), "dockerfw block" (`BlockInput`, `Render`, `WithBlock`, `BlockOf`, `BlockRules`, `Foreign`), "dockerfw realization" (`Realize`), "dockerfw detection" (`Detection`, `Unsupported`, `ExemptionConflicts`), "Docker state" (`dockerState`, `fw.dockerState`, `blockFiles`), "Docker store" (`dockerConfig`, `readDockerConfig`), "change and target" (the `change` fields `files`, `sources`, `reload`, `flag`, `cleanup`, `rowsAdd`, `rowsDel`), "Refusals" (`refuseOpenIncoming`, and `change.discardForeign`, which Task 31's `prepare` reads to skip `dockerUserInUse`), "Container rule ops and ids" (`containerRuleOps`, `newULID`), "Integration on and off", and "Shapes the web and the schemas read" (the two input types it declares). Wave 1's `mutation`, `defineMutation`, `buildFunc`, `change`, `mismatch` and test helpers `fakeHost`, `newFakeHost`, `newFW`, `acRun`, `acDiff`, `fhState`, and Task 12's `fakeDocker`, `newFakeDocker`, `fdDeps`.
-- Produces: `DockerRepairInput` and `DockerSourcesInput` (Contracts "Shapes the web and the schemas read", declared here and nowhere else), and the constructors `(f fw) dockerRepair() core.ActionDef` and `(f fw) dockerSourcesSet() core.ActionDef` (Contracts "Action names..."), which only Task 46 registers. Used only inside this task: `dockerRepairChange`, `dockerSourcesChange` and `repairDiscards`. Task 45 consumes `DockerRepairInput` and the action name `firewall.docker.repair`.
+- Consumes: Contracts "dockerfw settings and facts" (`Settings`, `DefaultSettings`, the facts types), "dockerfw bindings and rules" (`ContainerRule`, `Binding.Chain`), "dockerfw block" (`BlockInput`, `Render`, `WithBlock`, `BlockOf`, `BlockRules`, `Foreign`), "dockerfw realization" (`Realize`), "dockerfw detection" (`Detection`, `Unsupported`), "Docker state" (`dockerState`, `fw.dockerState`, `blockFiles`), "Docker store" (`dockerConfig`, `readDockerConfig`), "change and target" (the `change` fields `files`, `flag`, `sources` and `reload`), "Refusals" (`change.discardForeign`, which Task 33's `prepare` reads to skip `dockerUserInUse`), "Container rule ops and ids" (`containerRuleOps`, `newULID`), "Integration on and off", and "Shapes the web and the schemas read" (the input type it declares). Wave 1's `mutation`, `defineMutation`, `buildFunc`, `change` (`repair`, `ops`), `mismatch` and test helpers `fakeHost`, `newFakeHost`, `newFW`, `fhState`, and Task 14's `fakeDocker`, `newFakeDocker`, `fdDeps`.
+- Produces: `DockerRepairInput` (Contracts "Shapes the web and the schemas read", declared here and nowhere else) and the constructor `(f fw) dockerRepair() core.ActionDef` (Contracts "Action names..."), which only Task 50 registers. Used only inside this task: `dockerRepairChange` and `repairDiscards`. Task 49 consumes `DockerRepairInput` and the action name `firewall.docker.repair`.
 
-**Items:** 10, 11
+**Items:** 11
 
-**Depends on:** Task 39
+**Depends on:** Task 41, Task 42
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
-Both actions are `mutation[In]` handlers declared with `defineMutation`, so they are revertible, agent-side, under lock `firewall`, repaired by `firewall.state.repair`, and carry the overridable `firewall.lockout` guard. Plan goes through `fw.plan`, Apply through `fw.prepare` and `fw.run`, Revert through wave 1's `revert`; this task adds none of those. Each action's whole decision is one pure function over the state it is given, so the tests call the function with a literal `dockerState`, and two tests run an action through wave 1's `acRun` on a fake host whose Docker daemon cannot be reached.
+The action is a `mutation[DockerRepairInput]` handler declared with `defineMutation`, so it is revertible, agent-side, under lock `firewall`, repaired by `firewall.state.repair`, and carries the overridable `firewall.lockout` guard. Plan goes through `fw.plan`, Apply through `fw.prepare` and `fw.run`, Revert through wave 1's `revert`; this task adds none of those. The action's whole decision is one pure function over the state it is given, so the tests call it with a literal `dockerState`, and one test plans the action on a fake host whose Docker daemon cannot be reached. The `-run` pattern is anchored so that it leaves out Task 33's `TestDref` tests.
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `internal/modules/firewall/docker_repair_test.go`. It declares the helpers both test files share (`dreAddr`, `drePrefix`, `dreFacts`, `dreRows`, `dreState`, `dreIDs`, `dreRefused`, `dreEmpty`, `dreHost`) and the constants `dreAfter4`, `dreAfter6`, `dreAllow1`, `dreDeny2`.
+Create `internal/modules/firewall/docker_repair_test.go`. It declares its own helpers (`dreAddr`, `drePrefix`, `dreFacts`, `dreRows`, `dreState`, `dreIDs`, `dreRefused`, `dreHost`) and the constants `dreAfter4`, `dreAfter6`, `dreAllow1`.
 
 ```go
 package firewall
@@ -18250,7 +18552,6 @@ const (
 	dreAfter4 = "/etc/ufw/after.rules"
 	dreAfter6 = "/etc/ufw/after6.rules"
 	dreAllow1 = "01J00000000000000000000001"
-	dreDeny2  = "01J00000000000000000000002"
 )
 
 func dreAddr(s string) netip.Addr     { return netip.MustParseAddr(s) }
@@ -18272,15 +18573,10 @@ func dreFacts() dockerfw.Facts {
 	}
 }
 
-// dreRows is an allowance of web's binding 8080/tcp and, when deny is set,
-// a deny of 203.0.113.0/24 on it.
-func dreRows(deny bool) []dockerfw.ContainerRule {
+// dreRows is an allowance of web's binding 8080/tcp.
+func dreRows() []dockerfw.ContainerRule {
 	b := dockerfw.Binding{Selector: "web", HostPort: 8080, Proto: "tcp"}
-	rows := []dockerfw.ContainerRule{{ID: dreAllow1, Binding: b, Kind: dockerfw.Allow}}
-	if deny {
-		rows = append(rows, dockerfw.ContainerRule{ID: dreDeny2, Binding: b, Kind: dockerfw.Deny, From: drePrefix("203.0.113.0/24")})
-	}
-	return rows
+	return []dockerfw.ContainerRule{{ID: dreAllow1, Binding: b, Kind: dockerfw.Allow}}
 }
 
 // dreState is the Docker state of a supported daemon whose integration flag
@@ -18316,12 +18612,6 @@ func dreRefused(t *testing.T, err error, code errcode.Code) *errcode.Error {
 	return e
 }
 
-// dreEmpty reports whether c asks for nothing.
-func dreEmpty(c change) bool {
-	return c.sources == nil && c.flag == nil && c.files == nil && !c.reload && !c.cleanup && !c.repair && !c.discardForeign &&
-		len(c.ops) == 0 && len(c.rowsAdd) == 0 && len(c.rowsDel) == 0
-}
-
 // dreHost is a fake host whose Docker daemon cannot be reached and whose
 // ufw reloads, with the firewall over it.
 func dreHost(t *testing.T) (*fakeHost, fw) {
@@ -18342,7 +18632,7 @@ func TestDreRepairChange(t *testing.T) {
 	cfg := newFakeHost(t).config()
 	settings := dockerfw.DefaultSettings()
 	supported := dreState(true, nil, settings)
-	withRows := dreState(true, dreRows(false), settings)
+	withRows := dreState(true, dreRows(), settings)
 	off := dreState(false, nil, settings)
 	gone := supported
 	gone.available, gone.reason = false, "the Docker daemon is not running"
@@ -18392,7 +18682,7 @@ func TestDreRepairChange(t *testing.T) {
 		if len(c.ops) != 1 || c.ops[0].Kind != core.EffectCreate {
 			t.Errorf("ops %+v, want the one route allow for web's address", c.ops)
 		}
-		if want := ":" + dreRows(false)[0].Binding.Chain() + " - [0:0]"; !strings.Contains(string(c.files[dreAfter4]), want) {
+		if want := ":" + dreRows()[0].Binding.Chain() + " - [0:0]"; !strings.Contains(string(c.files[dreAfter4]), want) {
 			t.Errorf("after.rules lacks the binding chain declaration %q", want)
 		}
 	})
@@ -18490,55 +18780,98 @@ func TestDreRepairOffRefusedByPlan(t *testing.T) {
 	dreRefused(t, err, errcode.InvalidInput)
 }
 
-// TestDreActionSpecs: both actions are revertible agent actions under the
-// firewall lock, repaired by firewall.state.repair, and their input schemas
-// take the documented fields only.
-func TestDreActionSpecs(t *testing.T) {
-	f := fw{}
-	cases := []struct {
-		def  core.ActionDef
-		name string
-		ok   []string
-		bad  []string
-	}{
-		{f.dockerRepair(), "firewall.docker.repair",
-			[]string{`{}`, `{"discardForeign":true,"manual":true}`},
-			[]string{`{"discardForeign":"yes"}`, `{"discard":true}`}},
-		{f.dockerSourcesSet(), "firewall.docker.set-sources",
-			[]string{`{"privateSources":["10.0.0.0/8","fc00::/7"]}`, `{"privateSources":[]}`,
-				`{"forwardExemptions":[{"origDestination":"192.0.2.10","destination":"10.9.0.5","proto":"tcp","port":80}]}`},
-			[]string{`{"privateSources":"10.0.0.0/8"}`, `{"privateSources":["not-a-prefix"]}`,
-				`{"forwardExemptions":[{"origDestination":"192.0.2.10"}]}`}},
+// TestDreActionSpec: the action is a revertible agent action under the
+// firewall lock, repaired by firewall.state.repair, and its input schema
+// takes the documented fields only.
+func TestDreActionSpec(t *testing.T) {
+	def := fw{}.dockerRepair()
+	s := def.Spec
+	if s.Name != "firewall.docker.repair" || s.Version != 1 || s.Class != core.ClassRevertible || s.Side != core.SideAgent ||
+		!slices.Equal(s.LockKeys, []string{"firewall"}) || s.RepairedBy != "firewall.state.repair" {
+		t.Errorf("spec %+v, want a version 1 revertible agent action under the firewall lock repaired by firewall.state.repair", s)
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			s := tc.def.Spec
-			if s.Name != tc.name || s.Version != 1 || s.Class != core.ClassRevertible || s.Side != core.SideAgent ||
-				!slices.Equal(s.LockKeys, []string{"firewall"}) || s.RepairedBy != "firewall.state.repair" {
-				t.Errorf("spec %+v, want a version 1 revertible agent action under the firewall lock repaired by firewall.state.repair", s)
-			}
-			v := schema.NewValidator()
-			for _, raw := range tc.ok {
-				if err := v.ValidateInput(tc.def, json.RawMessage(raw)); err != nil {
-					t.Errorf("input %s refused: %v", raw, err)
-				}
-			}
-			for _, raw := range tc.bad {
-				if err := v.ValidateInput(tc.def, json.RawMessage(raw)); err == nil {
-					t.Errorf("input %s accepted", raw)
-				}
-			}
-		})
+	v := schema.NewValidator()
+	for _, raw := range []string{`{}`, `{"discardForeign":true,"manual":true}`} {
+		if err := v.ValidateInput(def, json.RawMessage(raw)); err != nil {
+			t.Errorf("input %s refused: %v", raw, err)
+		}
+	}
+	for _, raw := range []string{`{"discardForeign":"yes"}`, `{"discard":true}`} {
+		if err := v.ValidateInput(def, json.RawMessage(raw)); err == nil {
+			t.Errorf("input %s accepted", raw)
+		}
 	}
 }
 ```
 
-Create `internal/modules/firewall/docker_sources_test.go`:
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `mkdir -p /root/.cache/w2-tmp/47 && export TMPDIR=/root/.cache/w2-tmp/47 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run '^TestDre[A-Z]' ./internal/modules/firewall/`
+Expected: FAIL to build, the first error `docker_repair_test.go:115:8: undefined: DockerRepairInput`, followed by `undefined: dockerRepairChange`, `undefined: repairDiscards` and `f.dockerRepair undefined`. Every other identifier the tests use is a name of the base.
+
+- [ ] **Step 3: Implement**
+
+1. `docker_repair.go`, `DockerRepairInput`: the struct of Contracts "Shapes the web and the schemas read" (`core.Guarded` embedded; `DiscardForeign` and `Manual` bools tagged `json:"...,omitempty"`), with a doc comment saying it is the input of `firewall.docker.repair` (v1), and `jsonschema_description` tags in the style of wave 1's inputs: `discardForeign` "Discards the foreign rules DOCKER-USER holds; the plan lists each. Needs manual: true." and `manual` "Confirms discardForeign."
+2. `docker_repair.go`, `func (f fw) dockerRepair() core.ActionDef`: `defineMutation(core.ActionSpec{Name: "firewall.docker.repair", Summary: "Rewrite and reload the Docker integration's block."}, mutation[DockerRepairInput]{...})` with `guarded` returning `in.Guarded`, `manual` returning `in.Manual`, `build` returning a `buildFunc` that calls `f.dockerState(ctx, env, cur)` and then `dockerRepairChange(cfg, in, st, newULID(env))`, and a `check` that, when `readDockerConfig(ctx, env.DB)` shows the integration on, requires `dockerfw.BlockOf` of `cfg.Files["/etc/ufw/after.rules"].Data` and of `after6.rules` to report a block without error (otherwise `mismatch("%s holds no Docker block after the repair", path)`). Keep the `core.ActionDef` that `defineMutation` returns and wrap its `Handler.Plan`: the wrapper calls the original and returns its error unchanged; when the original succeeded and the raw input decodes (`encoding/json`) into a `DockerRepairInput` with both `DiscardForeign` and `Manual` set, it reads `f.d.readConfig(f.d.root)` and `f.d.readLoaded(ctx, env)`, calls `repairDiscards`, appends the lines to the outcome's `Diff` and returns it (read errors wrapped as `firewall: list the foreign rules: %w`). This is how the plan "lists each rule it will discard"; the state hash the original computed already covers the loaded chains.
+3. `docker_repair.go`, `func dockerRepairChange(cfg fwstate.Config, in DockerRepairInput, st dockerState, newID func() string) (change, error)`, in this order:
+   1. `in.DiscardForeign && !in.Manual`: `errcode.New(errcode.FirewallManualRequired, "discarding foreign DOCKER-USER rules needs manual: true")`.
+   2. `!st.cfg.Enabled`: `errcode.New(errcode.InvalidInput, "the Docker integration is off, so there is nothing to repair")`.
+   3. `!st.available`: `errcode.New(errcode.FirewallUnsupportedIntegration, "Docker is unavailable: " + st.reason)`; a non-empty `dockerfw.Unsupported(st.det)`: the same code with its reasons joined by "; ". There is no `refuseOpenIncoming` here: a repair cannot change the incoming policy, and health already reports it.
+   4. `files` from `blockFiles(cfg, st, true)` and `ops` from `containerRuleOps(cfg, st.realized.Rules, newID)` (Contracts "Integration on and off": every builder that touches container rules passes the realized rules), their errors returned wrapped with context; return `change{repair: true, reload: true, files: files, ops: ops, discardForeign: in.DiscardForeign && in.Manual}`. `repair: true` makes the plan's guard accept a loaded `DOCKER-USER`, `darkpanel-*` or `dp-b-*` chain that differs from the files, which a repair exists to fix; `discardForeign` is what Task 33's `prepare` reads to let the foreign rules through (the block's reload then flushes them, and the prediction already models that flush).
+4. `docker_repair.go`, `func repairDiscards(in DockerRepairInput, cfg fwstate.Config, cur fwstate.Loaded) ([]core.DiffLine, error)`: nil unless both `DiscardForeign` and `Manual` are set. Otherwise, for IPv4 (`/etc/ufw/after.rules`, `cur.V4`) and then IPv6 (`/etc/ufw/after6.rules`, `cur.V6`), skipping a family whose ruleset is nil or has no `filter` table or no `DOCKER-USER` chain: the known rules are the rules of the `DOCKER-USER` chain of `dockerfw.BlockRules(block)`, where `block` comes from `dockerfw.BlockOf` of the file (none known when the file holds no block; an error of `BlockOf` or `BlockRules` is returned wrapped); `dockerfw.Foreign(chain, known, family)` gives the foreign rules in chain order, and each becomes `core.DiffLine{Op: "-", Text: "foreign DOCKER-USER rule (v4): " + rule.Text}` (`v6` for IPv6). IPv4 lines come first.
+5. Register nothing: `actions()` is Task 50's. No test or helper outside the test file changes.
+
+- [ ] **Step 4: Run the tests to verify they pass, then the task's checks**
+
+Run:
+```
+export TMPDIR=/root/.cache/w2-tmp/47 GOTOOLCHAIN=local
+timeout 300 go test -count=1 -race -run '^TestDre[A-Z]' -v ./internal/modules/firewall/
+timeout 300 go build ./...
+timeout 300 go vet ./...
+timeout 1500 go test -count=1 ./...
+timeout 900 go test -race -count=1 ./internal/modules/firewall/
+timeout 900 golangci-lint run --allow-serial-runners ./...
+timeout 300 go mod tidy -diff
+rm -rf /root/.cache/w2-tmp/47 && go clean -testcache
+```
+Expected: the first command prints `PASS` for `TestDreRepairChange`, `TestDreRepairDiscards`, `TestDreRepairOffRefusedByPlan` and `TestDreActionSpec`; `go build` and `go vet` print nothing; every `go test` line is `ok` or `?`; `golangci-lint` prints `0 issues.`; `go mod tidy -diff` prints nothing. Record the real output.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/modules/firewall/docker_repair.go internal/modules/firewall/docker_repair_test.go
+git commit -m "feat(firewall): add docker repair action"
+```
+
+### Task 48: firewall.docker.set-sources
+
+**Files:**
+- Create: `internal/modules/firewall/docker_sources.go`
+- Test: `internal/modules/firewall/docker_sources_test.go`
+
+**Interfaces:**
+- Consumes: Contracts "dockerfw settings and facts" (`Settings`, `Exemption`, `DefaultSettings`, `Settings.Validate`, the facts types), "dockerfw bindings and rules" (`ContainerRule.Validate`), "dockerfw block" (`BlockOf`), "dockerfw realization" (`Realize`), "dockerfw detection" (`Detection`, `Unsupported`, `ExemptionConflicts`), "Docker state" (`dockerState`, `fw.dockerState`, `blockFiles`), "Docker store" (`dockerConfig`, `readDockerConfig`), "change and target" (the `change` fields `files`, `sources`, `reload`, `flag`, `cleanup`, `rowsAdd`, `rowsDel` and `discardForeign`), "Refusals" (`refuseOpenIncoming`), "Container rule ops and ids" (`containerRuleOps`, `newULID`), "Integration on and off", and "Shapes the web and the schemas read" (the input type it declares). Wave 1's `mutation`, `defineMutation`, `buildFunc`, `change` (`repair`, `ops`), `mismatch` and test helpers `fakeHost`, `newFakeHost`, `newFW`, `acRun`, `acDiff`, `fhState`, and Task 14's `fakeDocker`, `newFakeDocker`, `fdDeps`.
+- Produces: `DockerSourcesInput` (Contracts "Shapes the web and the schemas read", declared here and nowhere else) and the constructor `(f fw) dockerSourcesSet() core.ActionDef` (Contracts "Action names..."), which only Task 50 registers. Used only inside this task: `dockerSourcesChange`.
+
+**Items:** 10
+
+**Depends on:** Task 41, Task 42
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
+
+The action is a `mutation[DockerSourcesInput]` handler declared with `defineMutation`, so it is revertible, agent-side, under lock `firewall`, repaired by `firewall.state.repair`, and carries the overridable `firewall.lockout` guard. Plan goes through `fw.plan`, Apply through `fw.prepare` and `fw.run`, Revert through wave 1's `revert`; this task adds none of those. The action's whole decision is one pure function over the state it is given, so the tests call it with a literal `dockerState`, and two tests run the action on a fake host whose Docker daemon cannot be reached, one through wave 1's `acRun` and one planning only.
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `internal/modules/firewall/docker_sources_test.go`. It declares its own helpers (`dsoAddr`, `dsoPrefix`, `dsoFacts`, `dsoRows`, `dsoState`, `dsoIDs`, `dsoRefused`, `dsoEmpty`, `dsoHost`, `dsoSources`, `dsoExemptions`, `dsoForward`) and the constants `dsoAfter4`, `dsoAfter6`, `dsoAllow1`, `dsoDeny2`.
 
 ```go
 package firewall
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/netip"
 	"slices"
@@ -18547,43 +18880,134 @@ import (
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/core/schema"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/dockerfw"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
+	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
 )
 
-func dreSources(ranges ...string) *[]netip.Prefix {
+const (
+	dsoAfter4 = "/etc/ufw/after.rules"
+	dsoAfter6 = "/etc/ufw/after6.rules"
+	dsoAllow1 = "01J00000000000000000000001"
+	dsoDeny2  = "01J00000000000000000000002"
+)
+
+func dsoAddr(s string) netip.Addr     { return netip.MustParseAddr(s) }
+func dsoPrefix(s string) netip.Prefix { return netip.MustParsePrefix(s) }
+
+// dsoFacts is one running container, web, that publishes host port 8080 to
+// its port 80 on the default bridge.
+func dsoFacts() dockerfw.Facts {
+	return dockerfw.Facts{
+		Containers: []dockerfw.Container{{
+			ID: "id-web", Name: "web",
+			Ports:     []dockerfw.Published{{HostAddr: dsoAddr("0.0.0.0"), HostPort: 8080, ContainerPort: 80, Proto: "tcp"}},
+			Endpoints: []dockerfw.Endpoint{{Network: "bridge", Bridge: "docker0", Addr4: dsoAddr("172.17.0.2")}},
+		}},
+		Networks: []dockerfw.Network{{
+			ID: "id-bridge", Name: "bridge", Driver: "bridge", Bridge: "docker0",
+			Subnets: []netip.Prefix{dsoPrefix("172.17.0.0/16")},
+		}},
+	}
+}
+
+// dsoRows is an allowance of web's binding 8080/tcp and, when deny is set,
+// a deny of 203.0.113.0/24 on it.
+func dsoRows(deny bool) []dockerfw.ContainerRule {
+	b := dockerfw.Binding{Selector: "web", HostPort: 8080, Proto: "tcp"}
+	rows := []dockerfw.ContainerRule{{ID: dsoAllow1, Binding: b, Kind: dockerfw.Allow}}
+	if deny {
+		rows = append(rows, dockerfw.ContainerRule{ID: dsoDeny2, Binding: b, Kind: dockerfw.Deny, From: dsoPrefix("203.0.113.0/24")})
+	}
+	return rows
+}
+
+// dsoState is the Docker state of a supported daemon whose integration flag
+// is enabled, holding rows and settings s, realized against dsoFacts.
+func dsoState(enabled bool, rows []dockerfw.ContainerRule, s dockerfw.Settings) dockerState {
+	facts := dsoFacts()
+	return dockerState{
+		available: true,
+		det:       dockerfw.Detection{Version: "29.9.1", Driver: "iptables", DockerVariant: "nft", UFWVariant: "nft", RawProtection: true},
+		facts:     facts,
+		cfg:       dockerConfig{Enabled: enabled, Settings: s},
+		rows:      rows,
+		realized:  dockerfw.Realize(rows, facts, s),
+	}
+}
+
+// dsoIDs mints distinct rule ids.
+func dsoIDs() func() string {
+	n := 0
+	return func() string {
+		n++
+		return fmt.Sprintf("01J%023d", n)
+	}
+}
+
+// dsoRefused fails the test unless err is an *errcode.Error with code.
+func dsoRefused(t *testing.T, err error, code errcode.Code) *errcode.Error {
+	t.Helper()
+	var e *errcode.Error
+	if !errors.As(err, &e) || e.Code != code {
+		t.Fatalf("error %v, want code %s", err, code)
+	}
+	return e
+}
+
+// dsoEmpty reports whether c asks for nothing.
+func dsoEmpty(c change) bool {
+	return c.sources == nil && c.flag == nil && c.files == nil && !c.reload && !c.cleanup && !c.repair && !c.discardForeign &&
+		len(c.ops) == 0 && len(c.rowsAdd) == 0 && len(c.rowsDel) == 0
+}
+
+// dsoHost is a fake host whose Docker daemon cannot be reached and whose
+// ufw reloads, with the firewall over it.
+func dsoHost(t *testing.T) (*fakeHost, fw) {
+	t.Helper()
+	h := newFakeHost(t)
+	d := newFakeDocker()
+	d.err = fmt.Errorf("dockerapi: %w", dockerapi.ErrUnavailable)
+	h.ufw["reload"] = func(*fhState) int { return 0 }
+	f, _ := newFW(h)
+	f.d = fdDeps(h, d)
+	return h, f
+}
+
+func dsoSources(ranges ...string) *[]netip.Prefix {
 	out := make([]netip.Prefix, len(ranges))
 	for i, r := range ranges {
-		out[i] = drePrefix(r)
+		out[i] = dsoPrefix(r)
 	}
 	return &out
 }
 
-func dreExemptions(e ...dockerfw.Exemption) *[]dockerfw.Exemption { return &e }
+func dsoExemptions(e ...dockerfw.Exemption) *[]dockerfw.Exemption { return &e }
 
-// dreForward is a foreign port forward: connections to 192.0.2.10:8443 that
+// dsoForward is a foreign port forward: connections to 192.0.2.10:8443 that
 // the host's own rule sends to dest:443.
-func dreForward(dest string) dockerfw.Exemption {
-	return dockerfw.Exemption{OrigDestination: dreAddr("192.0.2.10"), OrigPort: 8443, Destination: dreAddr(dest), Proto: "tcp", Port: 443}
+func dsoForward(dest string) dockerfw.Exemption {
+	return dockerfw.Exemption{OrigDestination: dsoAddr("192.0.2.10"), OrigPort: 8443, Destination: dsoAddr(dest), Proto: "tcp", Port: 443}
 }
 
-// TestDreSourcesChange: the new lists are validated against the settings'
+// TestDsoSourcesChange: the new lists are validated against the settings'
 // rules, the Docker networks and the stored container rules; with the
 // integration off they are only stored, and with it on the block is
 // rewritten and UFW reloaded.
-func TestDreSourcesChange(t *testing.T) {
+func TestDsoSourcesChange(t *testing.T) {
 	cfg := newFakeHost(t).config()
 	settings := dockerfw.DefaultSettings()
-	off := dreState(false, nil, settings)
-	on := dreState(true, nil, settings)
-	denied := dreState(false, dreRows(true), settings)
+	off := dsoState(false, nil, settings)
+	on := dsoState(true, nil, settings)
+	denied := dsoState(false, dsoRows(true), settings)
 	gone := on
 	gone.available, gone.reason = false, "the Docker daemon is not running"
 	nftables := on
 	nftables.det.Driver = "nftables"
 	open := cfg
 	open.DefaultInput = "ACCEPT"
-	extra := append(slices.Clone(settings.PrivateSources), drePrefix("203.0.113.0/24"))
+	extra := append(slices.Clone(settings.PrivateSources), dsoPrefix("203.0.113.0/24"))
 	var tooMany []string
 	for i := range 33 {
 		tooMany = append(tooMany, fmt.Sprintf("10.%d.0.0/16", i))
@@ -18599,16 +19023,16 @@ func TestDreSourcesChange(t *testing.T) {
 		want string
 	}{
 		{"no list", cfg, DockerSourcesInput{}, off, errcode.InvalidInput, "/privateSources", ""},
-		{"a range shorter than /8", cfg, DockerSourcesInput{PrivateSources: dreSources("0.0.0.0/0")}, off, errcode.InvalidInput, "/privateSources/0", ""},
-		{"a range that is not masked", cfg, DockerSourcesInput{PrivateSources: dreSources("10.1.2.3/8")}, off, errcode.InvalidInput, "/privateSources/0", ""},
-		{"more than 32 ranges", cfg, DockerSourcesInput{PrivateSources: dreSources(tooMany...)}, off, errcode.InvalidInput, "", ""},
+		{"a range shorter than /8", cfg, DockerSourcesInput{PrivateSources: dsoSources("0.0.0.0/0")}, off, errcode.InvalidInput, "/privateSources/0", ""},
+		{"a range that is not masked", cfg, DockerSourcesInput{PrivateSources: dsoSources("10.1.2.3/8")}, off, errcode.InvalidInput, "/privateSources/0", ""},
+		{"more than 32 ranges", cfg, DockerSourcesInput{PrivateSources: dsoSources(tooMany...)}, off, errcode.InvalidInput, "", ""},
 		{"an exemption with an unknown protocol", cfg,
-			DockerSourcesInput{ForwardExemptions: dreExemptions(dockerfw.Exemption{OrigDestination: dreAddr("192.0.2.10"), Destination: dreAddr("10.9.0.5"), Proto: "icmp"})},
+			DockerSourcesInput{ForwardExemptions: dsoExemptions(dockerfw.Exemption{OrigDestination: dsoAddr("192.0.2.10"), Destination: dsoAddr("10.9.0.5"), Proto: "icmp"})},
 			off, errcode.InvalidInput, "/forwardExemptions/0/proto", ""},
-		{"an exemption into a Docker network", cfg, DockerSourcesInput{ForwardExemptions: dreExemptions(dreForward("172.17.0.2"))},
+		{"an exemption into a Docker network", cfg, DockerSourcesInput{ForwardExemptions: dsoExemptions(dsoForward("172.17.0.2"))},
 			off, errcode.FirewallUnsupportedIntegration, "", "bridge"},
 		{"a deny that a new range would shadow", cfg, DockerSourcesInput{PrivateSources: &extra},
-			denied, errcode.InvalidInput, "/privateSources", dreDeny2},
+			denied, errcode.InvalidInput, "/privateSources", dsoDeny2},
 		{"integration on with an open incoming policy", open, DockerSourcesInput{PrivateSources: &extra},
 			on, errcode.FirewallUnsupportedIntegration, "", ""},
 		{"integration on without a daemon", cfg, DockerSourcesInput{PrivateSources: &extra},
@@ -18618,8 +19042,8 @@ func TestDreSourcesChange(t *testing.T) {
 	}
 	for _, tc := range refusals {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := dockerSourcesChange(tc.cfg, tc.in, tc.st, dreIDs())
-			e := dreRefused(t, err, tc.code)
+			_, err := dockerSourcesChange(tc.cfg, tc.in, tc.st, dsoIDs())
+			e := dsoRefused(t, err, tc.code)
 			if !strings.Contains(e.Detail, tc.want) {
 				t.Errorf("detail %q, want it to contain %q", e.Detail, tc.want)
 			}
@@ -18631,13 +19055,13 @@ func TestDreSourcesChange(t *testing.T) {
 
 	t.Run("the stored lists change nothing", func(t *testing.T) {
 		same := settings.PrivateSources
-		c, err := dockerSourcesChange(cfg, DockerSourcesInput{PrivateSources: &same, ForwardExemptions: dreExemptions()}, on, dreIDs())
-		if err != nil || !dreEmpty(c) {
+		c, err := dockerSourcesChange(cfg, DockerSourcesInput{PrivateSources: &same, ForwardExemptions: dsoExemptions()}, on, dsoIDs())
+		if err != nil || !dsoEmpty(c) {
 			t.Errorf("change %+v, err %v; want an empty change", c, err)
 		}
 	})
 	t.Run("integration off: stored, nothing written", func(t *testing.T) {
-		c, err := dockerSourcesChange(cfg, DockerSourcesInput{PrivateSources: &extra}, off, dreIDs())
+		c, err := dockerSourcesChange(cfg, DockerSourcesInput{PrivateSources: &extra}, off, dsoIDs())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -18651,13 +19075,13 @@ func TestDreSourcesChange(t *testing.T) {
 	t.Run("integration off: a missing daemon and an open policy do not matter", func(t *testing.T) {
 		st := off
 		st.available = false
-		if _, err := dockerSourcesChange(open, DockerSourcesInput{PrivateSources: &extra}, st, dreIDs()); err != nil {
+		if _, err := dockerSourcesChange(open, DockerSourcesInput{PrivateSources: &extra}, st, dsoIDs()); err != nil {
 			t.Errorf("refused: %v", err)
 		}
 	})
 	t.Run("one list keeps the other", func(t *testing.T) {
-		st := dreState(false, nil, dockerfw.Settings{PrivateSources: extra})
-		c, err := dockerSourcesChange(cfg, DockerSourcesInput{ForwardExemptions: dreExemptions(dreForward("10.9.0.5"))}, st, dreIDs())
+		st := dsoState(false, nil, dockerfw.Settings{PrivateSources: extra})
+		c, err := dockerSourcesChange(cfg, DockerSourcesInput{ForwardExemptions: dsoExemptions(dsoForward("10.9.0.5"))}, st, dsoIDs())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -18667,15 +19091,15 @@ func TestDreSourcesChange(t *testing.T) {
 	})
 	t.Run("integration on: the block is rewritten and UFW reloaded", func(t *testing.T) {
 		c, err := dockerSourcesChange(cfg, DockerSourcesInput{
-			PrivateSources: &extra, ForwardExemptions: dreExemptions(dreForward("10.9.0.5")),
-		}, on, dreIDs())
+			PrivateSources: &extra, ForwardExemptions: dsoExemptions(dsoForward("10.9.0.5")),
+		}, on, dsoIDs())
 		if err != nil {
 			t.Fatal(err)
 		}
 		if c.sources == nil || !slices.Equal(c.sources.PrivateSources, extra) || !c.reload || c.flag != nil || c.repair {
 			t.Errorf("change %+v, want the new settings and a reload", c)
 		}
-		after4, after6 := string(c.files[dreAfter4]), string(c.files[dreAfter6])
+		after4, after6 := string(c.files[dsoAfter4]), string(c.files[dsoAfter6])
 		for _, want := range []string{
 			"-A DOCKER-USER -s 203.0.113.0/24 -j RETURN",
 			"-A DOCKER-USER -m conntrack --ctstate DNAT --ctorigdst 192.0.2.10 --ctorigdstport 8443 -p tcp -d 10.9.0.5 --dport 443 -j RETURN",
@@ -18687,13 +19111,13 @@ func TestDreSourcesChange(t *testing.T) {
 		if strings.Contains(after6, "203.0.113.0/24") || strings.Contains(after6, "10.9.0.5") {
 			t.Errorf("after6.rules holds IPv4 entries:\n%s", after6)
 		}
-		if _, ok, err := dockerfw.BlockOf(c.files[dreAfter6]); err != nil || !ok {
+		if _, ok, err := dockerfw.BlockOf(c.files[dsoAfter6]); err != nil || !ok {
 			t.Errorf("after6.rules holds no marked block (ok %v, err %v)", ok, err)
 		}
 	})
 	t.Run("integration on: the stored rows are realized with it", func(t *testing.T) {
-		st := dreState(true, dreRows(false), settings)
-		c, err := dockerSourcesChange(cfg, DockerSourcesInput{PrivateSources: &extra}, st, dreIDs())
+		st := dsoState(true, dsoRows(false), settings)
+		c, err := dockerSourcesChange(cfg, DockerSourcesInput{PrivateSources: &extra}, st, dsoIDs())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -18703,11 +19127,11 @@ func TestDreSourcesChange(t *testing.T) {
 	})
 }
 
-// TestDreSourcesSetApplied: with the integration off the action runs
+// TestDsoSourcesSetApplied: with the integration off the action runs
 // through the engine's steps, stores the lists as one journaled setting
 // effect and runs no ufw command; the same input again changes nothing.
-func TestDreSourcesSetApplied(t *testing.T) {
-	h, f := dreHost(t)
+func TestDsoSourcesSetApplied(t *testing.T) {
+	h, f := dsoHost(t)
 	def := f.dockerSourcesSet()
 	out, ran := acRun(t, h, def, `{"privateSources":["10.0.0.0/8","203.0.113.0/24"]}`)
 	if len(ran) != 0 {
@@ -18720,7 +19144,7 @@ func TestDreSourcesSetApplied(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []netip.Prefix{drePrefix("10.0.0.0/8"), drePrefix("203.0.113.0/24")}; !slices.Equal(got.Settings.PrivateSources, want) ||
+	if want := []netip.Prefix{dsoPrefix("10.0.0.0/8"), dsoPrefix("203.0.113.0/24")}; !slices.Equal(got.Settings.PrivateSources, want) ||
 		len(got.Settings.ForwardExemptions) != 0 || got.Enabled {
 		t.Errorf("stored config %+v, want the two ranges, no exemptions and the flag off", got)
 	}
@@ -18740,22 +19164,51 @@ func TestDreSourcesSetApplied(t *testing.T) {
 	}
 }
 
-// TestDreSourcesSetPlanRefused: an input that names neither list is refused
+// TestDsoSourcesSetPlanRefused: an input that names neither list is refused
 // when planned.
-func TestDreSourcesSetPlanRefused(t *testing.T) {
-	h, f := dreHost(t)
+func TestDsoSourcesSetPlanRefused(t *testing.T) {
+	h, f := dsoHost(t)
 	_, err := f.dockerSourcesSet().Handler.Plan(t.Context(), h.env(), []byte(`{}`))
-	e := dreRefused(t, err, errcode.InvalidInput)
+	e := dsoRefused(t, err, errcode.InvalidInput)
 	if len(e.Fields) == 0 || e.Fields[0].Path != "/privateSources" {
 		t.Errorf("fields %+v, want the first at /privateSources", e.Fields)
+	}
+}
+
+// TestDsoActionSpec: the action is a revertible agent action under the
+// firewall lock, repaired by firewall.state.repair, and its input schema
+// takes the documented fields only.
+func TestDsoActionSpec(t *testing.T) {
+	def := fw{}.dockerSourcesSet()
+	s := def.Spec
+	if s.Name != "firewall.docker.set-sources" || s.Version != 1 || s.Class != core.ClassRevertible || s.Side != core.SideAgent ||
+		!slices.Equal(s.LockKeys, []string{"firewall"}) || s.RepairedBy != "firewall.state.repair" {
+		t.Errorf("spec %+v, want a version 1 revertible agent action under the firewall lock repaired by firewall.state.repair", s)
+	}
+	v := schema.NewValidator()
+	for _, raw := range []string{
+		`{"privateSources":["10.0.0.0/8","fc00::/7"]}`, `{"privateSources":[]}`,
+		`{"forwardExemptions":[{"origDestination":"192.0.2.10","destination":"10.9.0.5","proto":"tcp","port":80}]}`,
+	} {
+		if err := v.ValidateInput(def, json.RawMessage(raw)); err != nil {
+			t.Errorf("input %s refused: %v", raw, err)
+		}
+	}
+	for _, raw := range []string{
+		`{"privateSources":"10.0.0.0/8"}`, `{"privateSources":["not-a-prefix"]}`,
+		`{"forwardExemptions":[{"origDestination":"192.0.2.10"}]}`,
+	} {
+		if err := v.ValidateInput(def, json.RawMessage(raw)); err == nil {
+			t.Errorf("input %s accepted", raw)
+		}
 	}
 }
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w2-tmp/44 && export TMPDIR=/root/.cache/w2-tmp/44 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestDre' ./internal/modules/firewall/`
-Expected: FAIL to build, the first error `docker_repair_test.go:127:8: undefined: DockerRepairInput`, followed by `undefined: dockerRepairChange`, `undefined: repairDiscards`, `f.dockerRepair undefined`, `f.dockerSourcesSet undefined`, `undefined: DockerSourcesInput` and `undefined: dockerSourcesChange`. Every other identifier the tests use is a name of the base.
+Run: `mkdir -p /root/.cache/w2-tmp/48 && export TMPDIR=/root/.cache/w2-tmp/48 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run '^TestDso[A-Z]' ./internal/modules/firewall/`
+Expected: FAIL to build, the first error `docker_sources_test.go:150:8: undefined: DockerSourcesInput`, followed by `undefined: dockerSourcesChange` and `f.dockerSourcesSet undefined`. Every other identifier the tests use is a name of the base.
 
 - [ ] **Step 3: Implement**
 
@@ -18770,48 +19223,46 @@ Expected: FAIL to build, the first error `docker_repair_test.go:127:8: undefined
    6. `c := change{sources: &s}`. With the integration off (`!st.cfg.Enabled`) return `c`: the lists are stored, no file is written and UFW is not reloaded.
    7. With the integration on: `!st.available` is `errcode.New(errcode.FirewallUnsupportedIntegration, "Docker is unavailable: " + st.reason)`; a non-empty `dockerfw.Unsupported(st.det)` is the same code with its reasons joined by "; "; then `refuseOpenIncoming(true, cfg)`'s error is returned as it is. A block rewritten against facts that are not there would drop every binding.
    8. Set `st.cfg.Settings = s` and `st.realized = dockerfw.Realize(st.rows, st.facts, s)`; `c.files` is `blockFiles(cfg, st, true)`, `c.ops` is `containerRuleOps(cfg, st.realized.Rules, newID)` (Contracts "Integration on and off": every builder that touches container rules passes the realized rules) and `c.reload` is true. Errors of either call are returned wrapped with context.
-4. `docker_repair.go`, `DockerRepairInput`: the struct of Contracts "Shapes the web and the schemas read" (`core.Guarded` embedded; `DiscardForeign` and `Manual` bools tagged `omitempty`), with `jsonschema_description` tags: `discardForeign` "Discards the foreign rules DOCKER-USER holds; the plan lists each. Needs manual: true." and `manual` "Confirms discardForeign."
-5. `docker_repair.go`, `func (f fw) dockerRepair() core.ActionDef`: `defineMutation(core.ActionSpec{Name: "firewall.docker.repair", Summary: "Rewrite and reload the Docker integration's block."}, mutation[DockerRepairInput]{...})` with `guarded` from `in.Guarded`, `manual` returning `in.Manual`, `build` as in step 2 calling `dockerRepairChange(cfg, in, st, newULID(env))`, and a `check` that, when `readDockerConfig` shows the integration on, requires `dockerfw.BlockOf` of `cfg.Files["/etc/ufw/after.rules"].Data` and of `after6.rules` to report a block without error (otherwise `mismatch("%s holds no Docker block after the repair", path)`). Keep the `core.ActionDef` that `defineMutation` returns and wrap its `Handler.Plan`: the wrapper calls the original and returns its error unchanged; when the original succeeded and the raw input decodes (`encoding/json`) into a `DockerRepairInput` with both `DiscardForeign` and `Manual` set, it reads `f.d.readConfig(f.d.root)` and `f.d.readLoaded(ctx, env)`, calls `repairDiscards`, appends the lines to the outcome's `Diff` and returns it (read errors wrapped as `firewall: list the foreign rules: %w`). This is how the plan "lists each rule it will discard"; the state hash the original computed already covers the loaded chains.
-6. `docker_repair.go`, `func dockerRepairChange(cfg fwstate.Config, in DockerRepairInput, st dockerState, newID func() string) (change, error)`, in this order: (a) `in.DiscardForeign && !in.Manual`: `errcode.New(errcode.FirewallManualRequired, "discarding foreign DOCKER-USER rules needs manual: true")`; (b) `!st.cfg.Enabled`: `errcode.New(errcode.InvalidInput, "the Docker integration is off, so there is nothing to repair")`; (c) the availability and `Unsupported` refusals of step 3.7, but not `refuseOpenIncoming` (a repair cannot change the incoming policy, and health already reports it); (d) `files` from `blockFiles(cfg, st, true)` and `ops` from `containerRuleOps(cfg, st.realized.Rules, newID)`; return `change{repair: true, reload: true, files: files, ops: ops, discardForeign: in.DiscardForeign && in.Manual}`. `repair: true` makes the plan's guard accept a loaded `DOCKER-USER`, `darkpanel-*` or `dp-b-*` chain that differs from the files, which a repair exists to fix; `discardForeign` is what Task 31's `prepare` reads to let the foreign rules through (the block's reload then flushes them, and the prediction already models that flush).
-7. `docker_repair.go`, `func repairDiscards(in DockerRepairInput, cfg fwstate.Config, cur fwstate.Loaded) ([]core.DiffLine, error)`: nil unless both `DiscardForeign` and `Manual` are set. Otherwise, for IPv4 (`/etc/ufw/after.rules`, `cur.V4`) and then IPv6 (`/etc/ufw/after6.rules`, `cur.V6`), skipping a family whose ruleset is nil or has no `filter` table or no `DOCKER-USER` chain: the known rules are the rules of the `DOCKER-USER` chain of `dockerfw.BlockRules(block)`, where `block` comes from `dockerfw.BlockOf` of the file (none known when the file holds no block; an error of `BlockOf` or `BlockRules` is returned wrapped); `dockerfw.Foreign(chain, known, family)` gives the foreign rules in chain order, and each becomes `core.DiffLine{Op: "-", Text: "foreign DOCKER-USER rule (v4): " + rule.Text}` (`v6` for IPv6). IPv4 lines come first.
-8. Register nothing: `actions()` is Task 46's. No test or helper outside the two test files changes.
+4. Register nothing: `actions()` is Task 50's. No test or helper outside the test file changes.
 
 - [ ] **Step 4: Run the tests to verify they pass, then the task's checks**
 
 Run:
 ```
-export TMPDIR=/root/.cache/w2-tmp/44 GOTOOLCHAIN=local
-timeout 300 go test -count=1 -race -run 'TestDre' -v ./internal/modules/firewall/
+export TMPDIR=/root/.cache/w2-tmp/48 GOTOOLCHAIN=local
+timeout 300 go test -count=1 -race -run '^TestDso[A-Z]' -v ./internal/modules/firewall/
 timeout 300 go build ./...
 timeout 300 go vet ./...
 timeout 1500 go test -count=1 ./...
 timeout 900 go test -race -count=1 ./internal/modules/firewall/
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w2-tmp/44 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/48 && go clean -testcache
 ```
-Expected: the first command prints `PASS` for `TestDreRepairChange`, `TestDreRepairDiscards`, `TestDreRepairOffRefusedByPlan`, `TestDreActionSpecs`, `TestDreSourcesChange`, `TestDreSourcesSetApplied` and `TestDreSourcesSetPlanRefused`; `go build` and `go vet` print nothing; every `go test` line is `ok` or `?`; `golangci-lint` prints `0 issues.`; `go mod tidy -diff` prints nothing. Record the real output.
+Expected: the first command prints `PASS` for `TestDsoSourcesChange`, `TestDsoSourcesSetApplied`, `TestDsoSourcesSetPlanRefused` and `TestDsoActionSpec`; `go build` and `go vet` print nothing; every `go test` line is `ok` or `?`; `golangci-lint` prints `0 issues.`; `go mod tidy -diff` prints nothing. Record the real output.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add internal/modules/firewall/docker_repair.go internal/modules/firewall/docker_sources.go internal/modules/firewall/docker_repair_test.go internal/modules/firewall/docker_sources_test.go
-git commit -m "feat(firewall): add docker repair and sources set"
+git add internal/modules/firewall/docker_sources.go internal/modules/firewall/docker_sources_test.go
+git commit -m "feat(firewall): add docker set-sources action"
 ```
 
-### Task 45: Background task firewall.reconcile
+### Task 49: Background task firewall.reconcile
 
 **Files:**
 - Create: `internal/modules/firewall/reconcile.go`
 - Test: `internal/modules/firewall/reconcile_test.go`
 
 **Interfaces:**
-- Consumes: Contracts "Docker client seam" (`dockerAPI.Events`, `dockerEvents`, `dockerapi.EventsOptions`), "Docker state" (`dockerState`, `fw.dockerState`, `blockFiles`), "Docker store" (`readDockerConfig`, `beginCleanup`, `pendingCleanups`, `writeDockerConfig`), "Refusals" (`dockerUserInUse`), "Owned-chain cleanup" (`fw.finishCleanups`), "Container rule ops and ids" (`containerRuleOps`, `newULID`), "dockerfw detection" (`Unsupported`), "dockerfw block" (`Owned`), "Integration on and off" (reconcile does nothing while the flag is off), "Shapes the web and the schemas read" (`ContainersApplyInput`, `ContainerOp`, `DockerRepairInput`, the action names, "Background task id `firewall.reconcile`"). Wave 1's `fw.syncDiffs`, `lockKey`, `ID`, and the test helpers `fakeHost`, `newFakeHost`, `newFW`, `fhParse`; Task 12's `fakeDocker`, `newFakeDocker`, `fdDeps`; `core.BackgroundTask`, `core.TaskContext`.
-- Produces: `(f fw) reconcileTask() core.BackgroundTask` (Contracts "Action names..."), which only Task 46 registers. Used only inside this task: `reconcile`, `reconcileWith`, `reconcileWatch`, `reconcileEvent`.
+- Consumes: Contracts "Docker client seam" (`dockerAPI.Events`, `dockerEvents`, `dockerapi.EventsOptions`), "Docker state" (`dockerState`, `fw.dockerState`, `blockFiles`), "Docker store" (`readDockerConfig`, `beginCleanup`, `pendingCleanups`, `writeDockerConfig`), "Refusals" (`dockerUserInUse`), "Owned-chain cleanup" (`fw.finishCleanups`), "Container rule ops and ids" (`containerRuleOps`, `newULID`), "dockerfw detection" (`Unsupported`), "dockerfw block" (`Owned`), "Integration on and off" (reconcile does nothing while the flag is off), "Shapes the web and the schemas read" (`ContainersApplyInput`, `ContainerOp`, `DockerRepairInput`, the action names, "Background task id `firewall.reconcile`"). Wave 1's `fw.syncDiffs`, `lockKey`, `ID`, and the test helpers `fakeHost`, `newFakeHost`, `newFW`, `fhParse`; Task 14's `fakeDocker`, `newFakeDocker`, `fdDeps`; `core.BackgroundTask`, `core.TaskContext`.
+- Produces: `(f fw) reconcileTask() core.BackgroundTask` (Contracts "Action names..."), which only Task 50 registers. Used only inside this task: `reconcile`, `reconcileWith`, `reconcileWatch`, `reconcileEvent`.
 
 **Items:** 9, 11
 
-**Depends on:** Task 40, Task 44
+**Depends on:** Task 43, Task 47, Task 48
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 3 = 8
 
 The task wakes on Docker events and every 5 minutes. A pass changes nothing itself: it decides whether the host differs from what the stored rows, the current containers and the current networks realize, and when it does it applies `firewall.docker.repair` or `firewall.containers.apply` through `tc.Apply`, which runs as actor `system:firewall.reconcile` and confirms at once. Every apply is a recorded change, so a pass that finds nothing to do applies nothing. The pass never discards a foreign rule: it skips while `DOCKER-USER` holds one (spec 2.6, 2.8). Health findings the pass cannot fix (an unprotected network, a non-Docker `br-*` interface, an incoming policy of ACCEPT) are not its business; `firewall.docker` reports them.
 
@@ -19155,7 +19606,7 @@ func TestRcFinishesCleanup(t *testing.T) {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w2-tmp/45 && export TMPDIR=/root/.cache/w2-tmp/45 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestRc' ./internal/modules/firewall/`
+Run: `mkdir -p /root/.cache/w2-tmp/49 && export TMPDIR=/root/.cache/w2-tmp/49 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestRc' ./internal/modules/firewall/`
 Expected: FAIL to build, the first error `reconcile_test.go:120:15: fw{}.reconcileTask undefined`, followed by `undefined: reconcileEvent`, `f.reconcileWatch undefined`, `f.reconcileWith undefined` and `f.reconcile undefined`.
 
 - [ ] **Step 3: Implement**
@@ -19178,13 +19629,13 @@ Expected: FAIL to build, the first error `reconcile_test.go:120:15: fw{}.reconci
    5. `tc.Apply(ctx, action, input)`; an error is returned as `fmt.Errorf("firewall: reconcile: %s: %w", action, err)` (the runtime logs it and backs off); on success log at Info which action ran.
 4. `func (f fw) reconcileWatch(ctx context.Context, _ core.Env, wake func()) error`: open `f.d.docker.Events(ctx, dockerapi.EventsOptions{Filters: dockerapi.Filters{"type": {"container", "network"}, "event": {"start", "die", "destroy", "connect", "disconnect", "create"}}})`; close the stream on return; loop on `Next()`, calling `wake()` for each event `reconcileEvent` accepts. When `Events` or `Next` fails: return nil if `ctx.Err() != nil` (the watch was stopped), else the error wrapped ("watch Docker events"), which includes the stream's `io.EOF`, so the runtime restarts the watch and wakes a full pass.
 5. `func reconcileEvent(ev dockerapi.Event) bool`: true exactly for type `container` with action `start`, `die` or `destroy`, and type `network` with action `connect`, `disconnect`, `create` or `destroy`, comparing the action as a whole (`exec_start: sh` and `health_status: healthy` do not match; Docker's `event` filter alone also lets container `create` through).
-6. Register nothing: `module.BackgroundTasks` is Task 46's. No other file changes.
+6. Register nothing: `module.BackgroundTasks` is Task 50's. No other file changes.
 
 - [ ] **Step 4: Run the tests to verify they pass, then the task's checks**
 
 Run:
 ```
-export TMPDIR=/root/.cache/w2-tmp/45 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w2-tmp/49 GOTOOLCHAIN=local
 timeout 300 go test -count=1 -race -run 'TestRc' -v ./internal/modules/firewall/
 timeout 300 go build ./...
 timeout 300 go vet ./...
@@ -19192,7 +19643,7 @@ timeout 1500 go test -count=1 ./...
 timeout 900 go test -race -count=1 ./internal/modules/firewall/
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w2-tmp/45 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/49 && go clean -testcache
 ```
 Expected: the first command prints `PASS` for `TestRcTaskDeclaration`, `TestRcEvent`, `TestRcWatch`, `TestRcWatchStops`, `TestRcPass`, `TestRcGates` and `TestRcFinishesCleanup`; `go build` and `go vet` print nothing; every `go test` line is `ok` or `?`; `golangci-lint` prints `0 issues.`; `go mod tidy -diff` prints nothing. Record the real output.
 
@@ -19203,7 +19654,7 @@ git add internal/modules/firewall/reconcile.go internal/modules/firewall/reconci
 git commit -m "feat(firewall): add the reconcile task"
 ```
 
-### Task 46: Register the Docker actions, resources and task
+### Task 50: Register the Docker actions, resources and task
 
 **Files:**
 - Modify: `internal/modules/firewall/firewall.go` (`actions`, `resources`, and a new `BackgroundTasks` method on `module`)
@@ -19213,11 +19664,13 @@ git commit -m "feat(firewall): add the reconcile task"
 
 **Interfaces:**
 - Consumes: Contracts "Shapes the web and the schemas read": the eight action names, the resource names `firewall.docker` and `firewall.exposure`, the background task id `firewall.reconcile` (`Every: 5 * time.Minute`, `LockKeys: ["firewall"]`) and the constructors, each a method of `fw`: `dockerEnable`, `dockerDisable`, `dockerRepair`, `dockerSourcesSet`, `containerAllow`, `containerDeny`, `containerRemove`, `containersApply` (each returns `core.ActionDef`), `dockerResource` and `exposureResource` (each returns `core.ResourceDef`) and `reconcileTask` (returns `core.BackgroundTask`); the input types of the same Contracts entry, whose JSON the schema test below pins. Wave 1's `defineMutation` declaration, which every Docker action already carries (revertible, agent side, lock `firewall`, `RepairedBy: "firewall.state.repair"`, the overridable `firewall.lockout` guard, no `Converges`).
-- Produces: the firewall module's `Manifest()` declares, in this order, wave 1's ten actions and then `firewall.docker.enable`, `firewall.docker.disable`, `firewall.docker.repair`, `firewall.docker.set-sources`, `firewall.container.allow`, `firewall.container.deny`, `firewall.container.remove`, `firewall.containers.apply` (section 5's order), and the resources `firewall.status`, `firewall.snapshots`, `firewall.docker`, `firewall.exposure`; the module implements `core.Background` with the one task `firewall.reconcile`; the ten schema snapshots. Task 47 and the harness read all of it through the engine and the registry.
+- Produces: the firewall module's `Manifest()` declares, in this order, wave 1's ten actions and then `firewall.docker.enable`, `firewall.docker.disable`, `firewall.docker.repair`, `firewall.docker.set-sources`, `firewall.container.allow`, `firewall.container.deny`, `firewall.container.remove`, `firewall.containers.apply` (section 5's order), and the resources `firewall.status`, `firewall.snapshots`, `firewall.docker`, `firewall.exposure`; the module implements `core.Background` with the one task `firewall.reconcile`; the ten schema snapshots. Task 51 and the harness read all of it through the engine and the registry.
 
 **Items:** 7, 8, 9, 11, 12
 
-**Depends on:** Task 32, Task 33, Task 37, Task 39, Task 40, Task 41, Task 42, Task 43, Task 44, Task 45
+**Depends on:** Task 34, Task 35, Task 39, Task 41, Task 42, Task 43, Task 44, Task 45, Task 46, Task 47, Task 48, Task 49
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 1 = 6
 
 This task is the only place the Docker constructors are registered. It adds no logic: a failing assertion below that is not about registration is a defect in the task that owns the constructor, to be reported, not fixed here.
 
@@ -19356,7 +19809,7 @@ func TestRegReconcileTask(t *testing.T) {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w2-tmp/46 && export TMPDIR=/root/.cache/w2-tmp/46 GOTOOLCHAIN=local && timeout 600 go test -count=1 -run 'TestReg|TestManifestActions' ./internal/modules/firewall/`
+Run: `mkdir -p /root/.cache/w2-tmp/50 && export TMPDIR=/root/.cache/w2-tmp/50 GOTOOLCHAIN=local && timeout 600 go test -count=1 -run 'TestReg|TestManifestActions' ./internal/modules/firewall/`
 Expected: FAIL. `TestManifestActions` reports `actions [... firewall.snapshot.compare], want [... firewall.containers.apply]` and `resources [firewall.status firewall.snapshots]`; `TestRegDockerInputs` reports `firewall.docker.enable is not declared` and the same for each other Docker action (20 lines); `TestRegReconcileTask` reports `the module does not implement core.Background`.
 
 - [ ] **Step 3: Implement**
@@ -19369,10 +19822,10 @@ Expected: FAIL. `TestManifestActions` reports `actions [... firewall.snapshot.co
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `mkdir -p /root/.cache/w2-tmp/46 && export TMPDIR=/root/.cache/w2-tmp/46 GOTOOLCHAIN=local && timeout 600 go test -count=1 -race ./internal/modules/firewall/ ./internal/modules/ ./schemas/ ./internal/registry/... ./internal/cli/...`
+Run: `mkdir -p /root/.cache/w2-tmp/50 && export TMPDIR=/root/.cache/w2-tmp/50 GOTOOLCHAIN=local && timeout 600 go test -count=1 -race ./internal/modules/firewall/ ./internal/modules/ ./schemas/ ./internal/registry/... ./internal/cli/...`
 Expected: every line `ok`. `schemas` runs `TestActionHashesMatchTheEmbeddedSnapshots`, which reads `<name>/v1.json` for every registered action and so fails for a missing or stale snapshot, and `internal/modules` runs `TestRegistrationRules` over the real registry, which checks the new action and resource names, the CLI names (`firewall docker enable`, `firewall docker get`, `firewall exposure get`, ...) and the revertible actions' `RepairedBy`.
 
-Then the plan's checks, each with its real output recorded: `GOTOOLCHAIN=local timeout 600 go build ./...`; `GOTOOLCHAIN=local timeout 300 go vet ./...` (no output); `GOTOOLCHAIN=local timeout 1500 go test -count=1 ./...` (every line `ok` or `?`); `GOTOOLCHAIN=local timeout 900 golangci-lint run --allow-serial-runners ./...` (`0 issues.`); `GOTOOLCHAIN=local timeout 300 go mod tidy -diff` (no output). Finally `rm -rf /root/.cache/w2-tmp/46 && GOTOOLCHAIN=local go clean -testcache`.
+Then the plan's checks, each with its real output recorded: `GOTOOLCHAIN=local timeout 600 go build ./...`; `GOTOOLCHAIN=local timeout 300 go vet ./...` (no output); `GOTOOLCHAIN=local timeout 1500 go test -count=1 ./...` (every line `ok` or `?`); `GOTOOLCHAIN=local timeout 900 golangci-lint run --allow-serial-runners ./...` (`0 issues.`); `GOTOOLCHAIN=local timeout 300 go mod tidy -diff` (no output). Finally `rm -rf /root/.cache/w2-tmp/50 && GOTOOLCHAIN=local go clean -testcache`.
 
 - [ ] **Step 5: Commit**
 
@@ -19381,19 +19834,21 @@ git add internal/modules/firewall/firewall.go internal/modules/firewall/firewall
 git commit -m "feat(firewall): register the Docker surface"
 ```
 
-### Task 47: End-to-end Docker change through the engine
+### Task 51: End-to-end Docker change through the engine
 
 **Files:**
 - Create: `internal/modules/firewall/docker_e2e_host_test.go`
 - Test: `internal/modules/firewall/docker_e2e_test.go`
 
 **Interfaces:**
-- Consumes, from wave 1's tests: `newE2EHost` and its `e2eHost` (fields `db`, `loaded`, `clock`, `ran`; methods `config`, `write`, `env`, `fw`, `Run`, and the `core.FileWriter` methods), `e2eNet`, `e2eUnits`, `eeUser` (`e2e_guard_test.go`, `e2e_engine_test.go`), and from wave 1's code `chainOf` (`image.go`) and `restoreKeep` (`restore.go`). From this plan: Contracts "Docker client seam" (`newFakeDocker`, `fakeDocker` with its fields `info`, `version`, `containers`, `networks`, and the `deps` fields `docker`, `readVariant`, `sockets`, `interfaces`, `routeGet`, `shieldsUp`); "Docker effects" (the `deps` field `cleanChains`); "Owned-chain cleanup" (`fw.cleanupChains`, `cleanupPreserve`); "Docker store" (`readDockerConfig`, `listContainerRules`); "Shapes the web and the schemas read" (`DockerStatus`, `ExposureView`, `ExposureRow`, its `Classes` of `exposure.Verdict` with `Class` and `Verdict`, and the action names, the resources and the task registered by Task 46); "dockerfw bindings and rules" (`Binding` and `Binding.Chain`, `ContainerRule`, `Allow`, `RuleOf`); "dockerfw block" (`BlockOf`); "Plan diff lines" of Contracts "change and target" (the exact texts below); and Contracts "Capture tree (Task 1)": the committed directory `internal/modules/firewall/dockerfw/testdata/capture/ubuntu-24.04/base` with its `save/nft-<v4|v6>-<table>.txt`, `files/etc/ufw/{after,after6,user,user6}.rules`, `files/etc/default/ufw`, `info.json` and `version.json` (objects), `networks.json` and `containers.json` (arrays of the daemon's inspect output), `interfaces.txt` (one name per line) and `versions.txt` (first line `iptables --version`).
+- Consumes, from wave 1's tests: `newE2EHost` and its `e2eHost` (fields `db`, `loaded`, `clock`, `ran`; methods `config`, `write`, `env`, `fw`, `Run`, and the `core.FileWriter` methods), `e2eNet`, `e2eUnits`, `eeUser` (`e2e_guard_test.go`, `e2e_engine_test.go`), and from wave 1's code `chainOf` (`image.go`) and `restoreKeep` (`restore.go`). From this plan: Contracts "Docker client seam" (`newFakeDocker`, `fakeDocker` with its fields `info`, `version`, `containers`, `networks`, and the `deps` fields `docker`, `readVariant`, `sockets`, `interfaces`, `routeGet`, `shieldsUp`); "Docker effects" (the `deps` field `cleanChains`); "Owned-chain cleanup" (`fw.cleanupChains`, `cleanupPreserve`); "Docker store" (`readDockerConfig`, `listContainerRules`); "Shapes the web and the schemas read" (`DockerStatus`, `ExposureView`, `ExposureRow`, its `Classes` of `exposure.Verdict` with `Class` and `Verdict`, and the action names, the resources and the task registered by Task 50); "dockerfw bindings and rules" (`Binding` and `Binding.Chain`, `ContainerRule`, `Allow`, `RuleOf`); "dockerfw block" (`BlockOf`); "Plan diff lines" of Contracts "change and target" (the exact texts below); and Contracts "Capture tree (Task 1)": the committed directory `internal/modules/firewall/dockerfw/testdata/capture/ubuntu-24.04/base` with its `save/nft-<v4|v6>-<table>.txt`, `files/etc/ufw/{after,after6,user,user6}.rules`, `files/etc/default/ufw`, `info.json` and `version.json` (objects), `networks.json` and `containers.json` (arrays of the daemon's inspect output), `interfaces.txt` (one name per line) and `versions.txt` (first line `iptables --version`).
 - Produces: nothing a later task consumes. Every top-level identifier of the two files starts with `dee`, as Contracts "Test prefixes" says for this task, and the host (`deeHost`) is for these tests only.
 
 **Items:** 8, 9
 
-**Depends on:** Task 46
+**Depends on:** Task 50
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
 
 This task adds tests and no production code. It runs Docker changes the way an operator's request does: through `lifecycle.Engine` (plan, apply, verify, confirm, revert, and a system apply for the reconcile task), on a host whose UFW files and kernel tables are Task 1's `base` capture on Ubuntu 24.04, with a fake Docker daemon answering with that capture's networks and containers. UFW runs as the predictor models it, as in wave 1's end-to-end tests. `iptables-restore -n`, which the cleanup and the `DOCKER-USER` reload run, is modelled by `deeRestore` with the behaviour of the real tool the captures verified: a declared user chain is flushed, `-X` refuses a chain that is not empty or is still jumped to, and a failing line loads nothing. The tests pin the spec's observable behaviour: the published port that is open through Docker's own chains before the integration, closed with it on and no binding allowed, open again for an allowed binding in both families; the cleanup that leaves no Darkpanel chain loaded and keeps the stored policy; a foreign `DOCKER-USER` rule that never stops a revert and refuses every other mutation; and the reconcile pass that follows a recreated container.
 
@@ -20466,9 +20921,9 @@ func TestDeeReconcileFollowsARecreatedContainer(t *testing.T) {
 
 - [ ] **Step 2: Prove the tests can fail**
 
-The code under test exists, so there is no missing-code failure to wait for; prove that the tests depend on the registration of Task 46 instead. In `internal/modules/firewall/firewall.go` remove `f.dockerEnable()` from the list `actions()` returns (an edit of the working tree only), then run:
+The code under test exists, so there is no missing-code failure to wait for; prove that the tests depend on the registration of Task 50 instead. In `internal/modules/firewall/firewall.go` remove `f.dockerEnable()` from the list `actions()` returns (an edit of the working tree only), then run:
 
-`mkdir -p /root/.cache/w2-tmp/47 && export TMPDIR=/root/.cache/w2-tmp/47 GOTOOLCHAIN=local && timeout 600 go test -count=1 -run 'TestDeeEnableApplyRevert|TestDeeForeignRuleSurvivesRevert' ./internal/modules/firewall/`
+`mkdir -p /root/.cache/w2-tmp/51 && export TMPDIR=/root/.cache/w2-tmp/51 GOTOOLCHAIN=local && timeout 600 go test -count=1 -run 'TestDeeEnableApplyRevert|TestDeeForeignRuleSurvivesRevert' ./internal/modules/firewall/`
 
 Expected: FAIL, each test reporting, in its `enable = ...` message, the plan's error naming the unknown action `firewall.docker.enable`. Then restore the file with `git checkout -- internal/modules/firewall/firewall.go` and confirm `git status --short internal/modules/firewall/firewall.go` prints nothing.
 
@@ -20476,17 +20931,17 @@ Expected: FAIL, each test reporting, in its `enable = ...` message, the plan's e
 
 There is no production code to write. Run:
 
-`export TMPDIR=/root/.cache/w2-tmp/47 GOTOOLCHAIN=local && timeout 900 go test -count=1 -race -run 'TestDee' -v ./internal/modules/firewall/`
+`export TMPDIR=/root/.cache/w2-tmp/51 GOTOOLCHAIN=local && timeout 900 go test -count=1 -race -run 'TestDee' -v ./internal/modules/firewall/`
 
 Expected: the six tests `TestDeeEnableApplyRevert`, `TestDeeContainerAllowAndRemove`, `TestDeeDisableCleansTheChains`, `TestDeeForeignRuleSurvivesRevert`, `TestDeeForeignRuleRefusesMutations` and `TestDeeReconcileFollowsARecreatedContainer` pass. When one fails, sort the failure before touching anything:
 
 1. A failure of the host model itself (`deeNewHost` finds the capture's iptables is not the nft variant or a capture file missing or in another shape than Contracts "Capture tree" says, a command `deeHost.Run` reports as not modelled, a restore line `deeRestore` rejects) is this task's to fix, in the two test files: extend the model to what the real `iptables-restore -n` does, never to what makes a test pass. A restore line that the real tool would refuse is a defect of the task that produced the line, to be reported.
-2. A failed assertion about the module's behaviour is a defect in the task that owns it. Stop and report the test, the assertion text, the owning task and the lines involved; never weaken, skip or edit an assertion, change the capture, or edit another task's file. The owners: the plan lines of the diff (Task 30); `docker.enable` and `disable` (Tasks 39 and 36); the container actions (Task 40); the realized rules, binding lines and chains (Tasks 19, 15 and 22); health and detection (Tasks 11, 20 and 29); the exposure verdicts (Tasks 5, 10 and 33); the cleanup and the foreign-rule preservation (Tasks 35, 34 and 38); the refusal and the repair with `discardForeign` (Tasks 31 and 44); the reconcile pass (Task 45); the journaled effects and their inverses (Tasks 24, 25, 26 and 28).
+2. A failed assertion about the module's behaviour is a defect in the task that owns it. Stop and report the test, the assertion text, the owning task and the lines involved; never weaken, skip or edit an assertion, change the capture, or edit another task's file. The owners: the plan lines of the diff (Task 32); `docker.enable` and `disable` (Tasks 41, 42 and 38); the container actions (Task 43); the realized rules, binding lines and chains (Tasks 21, 17 and 24); health and detection (Tasks 12, 13, 22 and 31); the exposure verdicts (Tasks 5, 6, 11 and 35); the cleanup and the foreign-rule preservation (Tasks 37, 36 and 40); the refusal and the repair with `discardForeign` (Tasks 33 and 47, 48); the reconcile pass (Task 49); the journaled effects and their inverses (Tasks 26, 27, 28 and 30).
 3. A test that passes only once the expectation moves, where the capture contradicts the spec (for example the published port is not `open` before the integration), is a finding about the capture or the evaluator: report it with the chain lines from `save/nft-v4-filter.txt` that decide the verdict.
 
 - [ ] **Step 4: Run the plan's checks**
 
-Run, with each command's real output recorded: `export TMPDIR=/root/.cache/w2-tmp/47 GOTOOLCHAIN=local && timeout 600 go build ./... && timeout 300 go vet ./... && timeout 1500 go test -count=1 ./... && timeout 900 golangci-lint run --allow-serial-runners ./... && timeout 300 go mod tidy -diff`, then `timeout 900 go test -race -count=1 ./internal/modules/firewall/`. Expected: no vet output, every test line `ok` or `?`, `0 issues.`, no tidy output. Finally `rm -rf /root/.cache/w2-tmp/47 && go clean -testcache`.
+Run, with each command's real output recorded: `export TMPDIR=/root/.cache/w2-tmp/51 GOTOOLCHAIN=local && timeout 600 go build ./... && timeout 300 go vet ./... && timeout 1500 go test -count=1 ./... && timeout 900 golangci-lint run --allow-serial-runners ./... && timeout 300 go mod tidy -diff`, then `timeout 900 go test -race -count=1 ./internal/modules/firewall/`. Expected: no vet output, every test line `ok` or `?`, `0 issues.`, no tidy output. Finally `rm -rf /root/.cache/w2-tmp/51 && go clean -testcache`.
 
 - [ ] **Step 5: Commit**
 
@@ -20495,7 +20950,7 @@ git add internal/modules/firewall/docker_e2e_host_test.go internal/modules/firew
 git commit -m "test(firewall): run Docker changes end to end"
 ```
 
-### Task 48: harness: Docker integration lifecycle and refusals
+### Task 52: harness: Docker integration lifecycle and refusals
 
 **Files:**
 - Create: `test/harness/m3_docker_test.go` (`TestM3Docker`, `m3dDockDeadline` and the step list)
@@ -20503,12 +20958,14 @@ git commit -m "test(firewall): run Docker changes end to end"
 - Test: `test/harness/m3_docker_lifecycle_unit_test.go` (unit tests of the pure helpers)
 
 **Interfaces:**
-- Consumes: Contracts "Harness (Task 8, used by Tasks 48–50)": `m3dDocker`, `m3dWaitRunning`, `m3dRunTCP`. Contracts "Shapes the web and the schemas read": the action names `firewall.docker.enable`, `firewall.docker.disable`, `firewall.docker.repair`, `firewall.docker.set-sources` and `firewall.container.allow`, the resource `firewall.docker`, and the JSON of `DockerStatus`, `DockerNetwork`, `DockerBinding`, `DockerRepairInput`, `DockerSourcesInput` and `ContainerAllowInput`. Contracts "change and target": the plan diff lines `docker integration on` and `after.rules: Docker block written`. Wave 1's harness, all in package `harness` under the build tag `harness`: `bootFleet`, `serveReleases`, `scenarioInstall`, `fleet`, `eventually`, `waitHosts`, `hostsAt`, `versionN`, `agentIPv4`, `scannerIPv4`, `API.Resource`, `API.m3Plan`, `API.m3Apply`, `API.m3Revert`, `m3Plan.m3DiffText`, `m3Plan.m3Lockout`, `m3Ready`, `m3WaitStatus`, `m3WaitChange`, `m3Healthy`, `m3RequirePending`, `m3RequireUnsupported`, `m3StoppedIPv6No`, `m3Run`, `m3PortRule`, `m3FindRule`, `m3Flag`, `osFlag`, `m2Flag`, `m3Status` (its `Rules`) and `model.Rule`.
-- Produces, used by Tasks 49 and 50: `TestM3Docker` and `m3dDockDeadline` (`60 * time.Minute`); the types `m3dDockStatus`, `m3dDockExemption`, `m3dDockIssue`, `m3dDockNetwork`, `m3dDockBinding`, `m3dDockRule` and `m3dDockBindingView`; `func (a *API) m3dDockRead(ctx context.Context, host string) (m3dDockStatus, error)`; `func (a *API) m3dDockConfirm(ctx context.Context, id string) (Change, error)`; `func m3dDockWait(ctx context.Context, t *testing.T, api *API, host string, timeout time.Duration, check func(m3dDockStatus) error) m3dDockStatus`; `func m3dDockApply(ctx context.Context, t *testing.T, f *fleet, action string, input any) Change`; `func m3dDockRefused(ctx context.Context, t *testing.T, f *fleet, action string, input any, code string, want ...string)`; `func m3dDockEnable(ctx context.Context, t *testing.T, f *fleet)`; `func m3dDockSave(ctx context.Context, t *testing.T, v *vm.VM, family string) string`; `func m3dDockRemove(ctx context.Context, v *vm.VM, names ...string)`; `func m3dDockReach(ctx context.Context, v *vm.VM, host string, port int) error`; and the pure helpers `m3dxDockDetected`, `m3dxDockHealth`, `m3dxDockChains`, `m3dxDockRulesOf`, `m3dxDockCleaned`, `m3dxDockBlockLoaded`, `m3dxDockExemptionLine`, `m3dxDockRefusal`, `m3dxDockInSubnet` and `m3dxDockRoutes`.
+- Consumes: Contracts "Harness (Task 9, used by Tasks 52–54)": `m3dDocker`, `m3dWaitRunning`, `m3dRunTCP`. Contracts "Shapes the web and the schemas read": the action names `firewall.docker.enable`, `firewall.docker.disable`, `firewall.docker.repair`, `firewall.docker.set-sources` and `firewall.container.allow`, the resource `firewall.docker`, and the JSON of `DockerStatus`, `DockerNetwork`, `DockerBinding`, `DockerRepairInput`, `DockerSourcesInput` and `ContainerAllowInput`. Contracts "change and target": the plan diff lines `docker integration on` and `after.rules: Docker block written`. Wave 1's harness, all in package `harness` under the build tag `harness`: `bootFleet`, `serveReleases`, `scenarioInstall`, `fleet`, `eventually`, `waitHosts`, `hostsAt`, `versionN`, `agentIPv4`, `scannerIPv4`, `API.Resource`, `API.m3Plan`, `API.m3Apply`, `API.m3Revert`, `m3Plan.m3DiffText`, `m3Plan.m3Lockout`, `m3Ready`, `m3WaitStatus`, `m3WaitChange`, `m3Healthy`, `m3RequirePending`, `m3RequireUnsupported`, `m3StoppedIPv6No`, `m3Run`, `m3PortRule`, `m3FindRule`, `m3Flag`, `osFlag`, `m2Flag`, `m3Status` (its `Rules`) and `model.Rule`.
+- Produces, used by Tasks 53 and 54: `TestM3Docker` and `m3dDockDeadline` (`60 * time.Minute`); the types `m3dDockStatus`, `m3dDockExemption`, `m3dDockIssue`, `m3dDockNetwork`, `m3dDockBinding`, `m3dDockRule` and `m3dDockBindingView`; `func (a *API) m3dDockRead(ctx context.Context, host string) (m3dDockStatus, error)`; `func (a *API) m3dDockConfirm(ctx context.Context, id string) (Change, error)`; `func m3dDockWait(ctx context.Context, t *testing.T, api *API, host string, timeout time.Duration, check func(m3dDockStatus) error) m3dDockStatus`; `func m3dDockApply(ctx context.Context, t *testing.T, f *fleet, action string, input any) Change`; `func m3dDockRefused(ctx context.Context, t *testing.T, f *fleet, action string, input any, code string, want ...string)`; `func m3dDockEnable(ctx context.Context, t *testing.T, f *fleet)`; `func m3dDockSave(ctx context.Context, t *testing.T, v *vm.VM, family string) string`; `func m3dDockRemove(ctx context.Context, v *vm.VM, names ...string)`; `func m3dDockReach(ctx context.Context, v *vm.VM, host string, port int) error`; and the pure helpers `m3dxDockDetected`, `m3dxDockHealth`, `m3dxDockChains`, `m3dxDockRulesOf`, `m3dxDockCleaned`, `m3dxDockBlockLoaded`, `m3dxDockExemptionLine`, `m3dxDockRefusal`, `m3dxDockInSubnet` and `m3dxDockRoutes`.
 
 **Items:** 7, 8, 11
 
-**Depends on:** Task 8, Task 46
+**Depends on:** Task 9, Task 50
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
 
 - [ ] **Step 1: Write the failing test**
 
@@ -20806,7 +21263,7 @@ func TestM3xDockStatusJSON(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w2-tmp/48 && export TMPDIR=/root/.cache/w2-tmp/48 GOTOOLCHAIN=local && timeout 300 go vet -tags harness ./test/harness/`
+Run: `mkdir -p /root/.cache/w2-tmp/52 && export TMPDIR=/root/.cache/w2-tmp/52 GOTOOLCHAIN=local && timeout 300 go vet -tags harness ./test/harness/`
 Expected: FAIL to compile, `undefined: m3dDockStatus` (the first helper the test file names).
 
 - [ ] **Step 3: Implement**
@@ -20850,7 +21307,7 @@ The scenarios run only in `.github/workflows/harness.yml` (gate 7); on a develop
 8. `m3dDockRemove` runs `sudo docker rm -f <names>` on `v`, ignoring the error (it is for `t.Cleanup`).
 9. `m3dDockReach` runs `timeout 5 bash -c '</dev/tcp/<host>/<port>'` on `v` and returns its error; `host` is always one of the fleet's address constants or a literal of this task, never input.
 
-**D. `m3_docker_test.go`.** `const m3dDockDeadline = 60 * time.Minute`. `TestM3Docker` skips with the message `no -os, -m2 or -m3 given: the VM tests run in .github/workflows/harness.yml` when `*osFlag == "" || *m2Flag == "" || !*m3Flag` (it shares TestM3Firewall's `-m3` flag; the workflow selects it with `-run`), runs under `context.WithTimeout(context.Background(), m3dDockDeadline)`, calls `bootFleet` and `serveReleases` (the release server on the scanner is also the outbound target of Task 49), and runs the same `steps` table as `TestM3Firewall` (name, gate, run; a failing gate step stops the run). Steps in this order, gate steps first:
+**D. `m3_docker_test.go`.** `const m3dDockDeadline = 60 * time.Minute`. `TestM3Docker` skips with the message `no -os, -m2 or -m3 given: the VM tests run in .github/workflows/harness.yml` when `*osFlag == "" || *m2Flag == "" || !*m3Flag` (it shares TestM3Firewall's `-m3` flag; the workflow selects it with `-run`), runs under `context.WithTimeout(context.Background(), m3dDockDeadline)`, calls `bootFleet` and `serveReleases` (the release server on the scanner is also the outbound target of Task 53), and runs the same `steps` table as `TestM3Firewall` (name, gate, run; a failing gate step stops the run). Steps in this order, gate steps first:
 
 | Name | Gate | Function |
 |---|---|---|
@@ -20868,7 +21325,7 @@ The scenarios run only in `.github/workflows/harness.yml` (gate 7); on a develop
 | `foreign-in-interrupted-cleanup` | no | `m3dDockForeignCleanup` |
 | `refuse-ipv6no-docker-rules` | no | `m3dDockIPv6NoRules` |
 
-Every scenario function has the signature `func(ctx context.Context, t *testing.T, f *fleet)`. Tasks 49 and 50 append their steps after the last row. Every scenario that enables the integration does it with `m3dDockEnable`, so the cleanup disables it again and each step starts on a host with the integration off; a scenario that adds a rule, namespace, container or file registers its undo with `t.Cleanup` before it creates the thing, and the undos ignore errors.
+Every scenario function has the signature `func(ctx context.Context, t *testing.T, f *fleet)`. Tasks 53 and 54 append their steps after the last row. Every scenario that enables the integration does it with `m3dDockEnable`, so the cleanup disables it again and each step starts on a host with the integration off; a scenario that adds a rule, namespace, container or file registers its undo with `t.Cleanup` before it creates the thing, and the undos ignore errors.
 
 **E. The scenarios** (`m3_docker_lifecycle_test.go`). The foreign `DOCKER-USER` rules are plain `iptables` insertions on the agent VM; Docker's own `DOCKER-USER` holds one `-j RETURN`, so `-I DOCKER-USER 1` puts a foreign rule before everything else.
 
@@ -20891,7 +21348,7 @@ Every scenario function has the signature `func(ctx context.Context, t *testing.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `export TMPDIR=/root/.cache/w2-tmp/48 GOTOOLCHAIN=local && timeout 300 go vet -tags harness ./test/... && timeout 300 go test -tags harness -count=1 -run '^TestM3x' -v ./test/harness/`
+Run: `export TMPDIR=/root/.cache/w2-tmp/52 GOTOOLCHAIN=local && timeout 300 go vet -tags harness ./test/... && timeout 300 go test -tags harness -count=1 -run '^TestM3x' -v ./test/harness/`
 Expected: no vet output; every `TestM3xDock…` test and the wave 1 `TestM3x…` tests print `--- PASS`, and the run ends `ok`.
 
 - [ ] **Step 5: Commit**
@@ -20904,18 +21361,18 @@ git commit -m "test(harness): Docker integration lifecycle"
 - [ ] **Step 6: Verify**
 
 ```bash
-mkdir -p /root/.cache/w2-tmp/48 && export TMPDIR=/root/.cache/w2-tmp/48 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w2-tmp/52 && export TMPDIR=/root/.cache/w2-tmp/52 GOTOOLCHAIN=local
 timeout 600 go build ./... && timeout 300 go vet ./... && timeout 300 go vet -tags harness ./test/...
 timeout 600 go test -tags harness -race -count=1 ./test/harness/...
 timeout 1500 go test -count=1 ./...
 timeout 900 golangci-lint run --allow-serial-runners ./... && timeout 600 golangci-lint run --allow-serial-runners --build-tags harness ./test/...
 timeout 300 go mod tidy -diff
 git status --short
-rm -rf /root/.cache/w2-tmp/48 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/52 && go clean -testcache
 ```
 Expected: the builds and vets print nothing, the race run and the full run end `ok` or `?` on every line, `golangci-lint` prints `0 issues.` twice, `go mod tidy -diff` and `git status --short` print nothing. The scenarios themselves run in `harness.yml` (gate 7) once the branch is pushed.
 
-### Task 49: harness: Docker traffic with the integration on
+### Task 53: harness: Docker traffic with the integration on
 
 **Files:**
 - Modify: `test/harness/m3_docker_test.go` (append seven rows to `TestM3Docker`'s step table)
@@ -20923,16 +21380,18 @@ Expected: the builds and vets print nothing, the race run and the full run end `
 - Test: `test/harness/m3_docker_traffic_unit_test.go` (unit tests of the pure helpers)
 
 **Interfaces:**
-- Consumes: Task 48's `TestM3Docker` step table, `m3dDockStatus` and its sub-types, `m3dDockRead`, `m3dDockWait`, `m3dDockApply`, `m3dDockEnable`, `m3dDockRemove`, `m3dxDockHealth`. Contracts "Harness (Task 8, used by Tasks 48–50)": `ScanOpts`, `PortState`, `m3dScan`, `m3dAddSource`, `m3dDocker`, `m3dWaitRunning`, `m3dRunTCP`. Contracts "Shapes the web and the schemas read": the actions `firewall.container.allow`, `firewall.container.deny`, `firewall.container.remove` and `firewall.containers.apply` with the JSON of `ContainerAllowInput`, `ContainerDenyInput`, `ContainerRemoveInput`, `ContainersApplyInput` and `ContainerOp`, and `DockerBinding` (`Allowed`, `Proxied`). Wave 1's harness: `fleet`, `eventually`, `waitHosts`, `hostsAt`, `versionN`, `agentIPv4`, `agentIPv6`, `scannerIPv4`, `m3Run`, `m3Quote`, `update.AgentUnit`.
-- Produces: the helpers `m3dTrafficWant`, `m3dTrafficPublish`, `m3dTrafficNetwork`, `m3dTrafficAllow`, `m3dTrafficDeny`, `m3dTrafficRemove`, `m3dTrafficAddr`, `m3dTrafficPID`, `m3dTrafficProbe` and the constants `m3dTrafficIface` and `m3dTrafficSrcB`, of which Task 50 reuses `m3dTrafficPublish`, `m3dTrafficNetwork`, `m3dTrafficAllow`, `m3dTrafficIface` and `m3dTrafficSrcB`; the pure helpers `m3dxTrafficExpect`, `m3dxTrafficExpectAll`, `m3dxTrafficLeaks`, `m3dxTrafficConnect` and `m3dxTrafficRuleID`.
+- Consumes: Task 52's `TestM3Docker` step table, `m3dDockStatus` and its sub-types, `m3dDockRead`, `m3dDockWait`, `m3dDockApply`, `m3dDockEnable`, `m3dDockRemove`, `m3dxDockHealth`. Contracts "Harness (Task 9, used by Tasks 52–54)": `ScanOpts`, `PortState`, `m3dScan`, `m3dAddSource`, `m3dDocker`, `m3dWaitRunning`, `m3dRunTCP`. Contracts "Shapes the web and the schemas read": the actions `firewall.container.allow`, `firewall.container.deny`, `firewall.container.remove` and `firewall.containers.apply` with the JSON of `ContainerAllowInput`, `ContainerDenyInput`, `ContainerRemoveInput`, `ContainersApplyInput` and `ContainerOp`, and `DockerBinding` (`Allowed`, `Proxied`). Wave 1's harness: `fleet`, `eventually`, `waitHosts`, `hostsAt`, `versionN`, `agentIPv4`, `agentIPv6`, `scannerIPv4`, `m3Run`, `m3Quote`, `update.AgentUnit`.
+- Produces: the helpers `m3dTrafficWant`, `m3dTrafficPublish`, `m3dTrafficNetwork`, `m3dTrafficAllow`, `m3dTrafficDeny`, `m3dTrafficRemove`, `m3dTrafficAddr`, `m3dTrafficPID`, `m3dTrafficProbe` and the constants `m3dTrafficIface` and `m3dTrafficSrcB`, of which Task 54 reuses `m3dTrafficPublish`, `m3dTrafficNetwork`, `m3dTrafficAllow`, `m3dTrafficIface` and `m3dTrafficSrcB`; the pure helpers `m3dxTrafficExpect`, `m3dxTrafficExpectAll`, `m3dxTrafficLeaks`, `m3dxTrafficConnect` and `m3dxTrafficRuleID`.
 
 **Items:** 9, 10
 
-**Depends on:** Task 48
+**Depends on:** Task 52
+**Implementer:** dforge:impl-sonnet-medium
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 0 = 4
 
 - [ ] **Step 1: Write the failing test**
 
-Create `test/harness/m3_docker_traffic_unit_test.go`. `PortState` is Task 8's type (`Port uint16`, `Proto`, `State` as nmap prints it).
+Create `test/harness/m3_docker_traffic_unit_test.go`. `PortState` is Task 9's type (`Port uint16`, `Proto`, `State` as nmap prints it).
 
 ```go
 //go:build harness
@@ -21079,7 +21538,7 @@ func TestM3xTrafficRuleID(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w2-tmp/49 && export TMPDIR=/root/.cache/w2-tmp/49 GOTOOLCHAIN=local && timeout 300 go vet -tags harness ./test/harness/`
+Run: `mkdir -p /root/.cache/w2-tmp/53 && export TMPDIR=/root/.cache/w2-tmp/53 GOTOOLCHAIN=local && timeout 300 go vet -tags harness ./test/harness/`
 Expected: FAIL to compile, `undefined: m3dxTrafficExpect`.
 
 - [ ] **Step 3: Implement**
@@ -21117,7 +21576,7 @@ The scenarios run only in `.github/workflows/harness.yml` (gate 7). Everything i
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `export TMPDIR=/root/.cache/w2-tmp/49 GOTOOLCHAIN=local && timeout 300 go vet -tags harness ./test/... && timeout 300 go test -tags harness -count=1 -run '^TestM3x' -v ./test/harness/`
+Run: `export TMPDIR=/root/.cache/w2-tmp/53 GOTOOLCHAIN=local && timeout 300 go vet -tags harness ./test/... && timeout 300 go test -tags harness -count=1 -run '^TestM3x' -v ./test/harness/`
 Expected: no vet output; every `TestM3xTraffic…` test prints `--- PASS` and the run ends `ok`.
 
 - [ ] **Step 5: Commit**
@@ -21130,18 +21589,18 @@ git commit -m "test(harness): Docker traffic scenarios"
 - [ ] **Step 6: Verify**
 
 ```bash
-mkdir -p /root/.cache/w2-tmp/49 && export TMPDIR=/root/.cache/w2-tmp/49 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w2-tmp/53 && export TMPDIR=/root/.cache/w2-tmp/53 GOTOOLCHAIN=local
 timeout 600 go build ./... && timeout 300 go vet ./... && timeout 300 go vet -tags harness ./test/...
 timeout 600 go test -tags harness -race -count=1 ./test/harness/...
 timeout 1500 go test -count=1 ./...
 timeout 900 golangci-lint run --allow-serial-runners ./... && timeout 600 golangci-lint run --allow-serial-runners --build-tags harness ./test/...
 timeout 300 go mod tidy -diff
 git status --short
-rm -rf /root/.cache/w2-tmp/49 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/53 && go clean -testcache
 ```
 Expected: the builds and vets print nothing, the race run and the full run end `ok` or `?` on every line, `golangci-lint` prints `0 issues.` twice, `go mod tidy -diff` and `git status --short` print nothing. The scenarios run in `harness.yml` (gate 7) once the branch is pushed.
 
-### Task 50: harness: exposure against the scan and the workflow step
+### Task 54: harness: exposure against the scan and the workflow step
 
 **Files:**
 - Modify: `test/harness/m3_docker_test.go` (append three rows to `TestM3Docker`'s step table)
@@ -21150,16 +21609,18 @@ Expected: the builds and vets print nothing, the race run and the full run end `
 - Test: `test/harness/m3_docker_exposure_unit_test.go` (unit tests of the pure helpers and of the workflow)
 
 **Interfaces:**
-- Consumes: Task 48's `TestM3Docker` step table, `m3dDockDeadline`, `m3dDockStatus` and its sub-types, `m3dDockRead`, `m3dDockApply`, `m3dDockEnable`, `m3dDockRemove`, `m3dDockBinding`. Task 49's `m3dTrafficPublish`, `m3dTrafficNetwork`, `m3dTrafficAllow`, `m3dTrafficIface`, `m3dTrafficSrcB`. Contracts "Harness (Task 8, used by Tasks 48–50)": `ScanOpts`, `PortState`, `m3dScan`, `m3dAddSource`, `m3dRunUDP`, `m3dWaitRunning`, `m3dRow`, `m3dxRows`, `m3dxMismatch`. Contracts "Shapes the web and the schemas read": the resource `firewall.exposure` with the JSON of `ExposureView`, `ExposureRow`, `ExposureContainer` and `exposure.Verdict`/`Allowed` (Contracts "exposure (Tasks 5 and 10)"), the action `firewall.docker.set-sources` with `DockerSourcesInput`, and `DockerBinding.PrivateReach`. Wave 1's harness: `fleet`, `eventually`, `agentIPv4`, `agentIPv6`, `scannerIPv4`, `scannerIPv6`, `m3Healthy`, `m3WaitStatus`, `m3Run`.
+- Consumes: Task 52's `TestM3Docker` step table, `m3dDockDeadline`, `m3dDockStatus` and its sub-types, `m3dDockRead`, `m3dDockApply`, `m3dDockEnable`, `m3dDockRemove`, `m3dDockBinding`. Task 53's `m3dTrafficPublish`, `m3dTrafficNetwork`, `m3dTrafficAllow`, `m3dTrafficIface`, `m3dTrafficSrcB`. Contracts "Harness (Task 9, used by Tasks 52–54)": `ScanOpts`, `PortState`, `m3dScan`, `m3dAddSource`, `m3dRunUDP`, `m3dWaitRunning`, `m3dRow`, `m3dxRows`, `m3dxMismatch`. Contracts "Shapes the web and the schemas read": the resource `firewall.exposure` with the JSON of `ExposureView`, `ExposureRow`, `ExposureContainer` and `exposure.Verdict`/`Allowed` (Contracts "exposure (Tasks 5, 6 and 11)"), the action `firewall.docker.set-sources` with `DockerSourcesInput`, and `DockerBinding.PrivateReach`. Wave 1's harness: `fleet`, `eventually`, `agentIPv4`, `agentIPv6`, `scannerIPv4`, `scannerIPv6`, `m3Healthy`, `m3WaitStatus`, `m3Run`.
 - Produces: `m3dExpoView`, `m3dExpoRow`, `m3dExpoClass`, `m3dExpoAllowed`, `m3dExpoContainer`; `m3dExpoDecode`, `(m3dExpoRow).m3dExpoClassOf`, `(m3dExpoClass).m3dExpoBySourcePort`; the pure helpers `m3dxExpoExpect`, `m3dxExpoSourcePorts`, `m3dxExpoCompare`, `m3dxExpoTarget`, `m3dxExpoVerdicts`, `m3dxExpoWorkflow`; the workflow step `Run the M3 Docker harness`.
 
 **Items:** 12, 13
 
-**Depends on:** Task 49
+**Depends on:** Task 53
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
 
 - [ ] **Step 1: Write the failing test**
 
-Create `test/harness/m3_docker_exposure_unit_test.go`. The JSON fixture follows Contracts "ExposureView" (`family` holds `fwstate.Family`'s `v4` and `v6`). `TestM3xExpoWorkflowFile` reads the committed workflow and needs Task 48's `m3dDockDeadline`.
+Create `test/harness/m3_docker_exposure_unit_test.go`. The JSON fixture follows Contracts "ExposureView" (`family` holds `fwstate.Family`'s `v4` and `v6`). `TestM3xExpoWorkflowFile` reads the committed workflow and needs Task 52's `m3dDockDeadline`.
 
 ```go
 //go:build harness
@@ -21444,12 +21905,12 @@ func TestM3xExpoBySourcePort(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w2-tmp/50 && export TMPDIR=/root/.cache/w2-tmp/50 GOTOOLCHAIN=local && timeout 300 go vet -tags harness ./test/harness/`
+Run: `mkdir -p /root/.cache/w2-tmp/54 && export TMPDIR=/root/.cache/w2-tmp/54 GOTOOLCHAIN=local && timeout 300 go vet -tags harness ./test/harness/`
 Expected: FAIL to compile, `undefined: m3dExpoDecode`.
 
 - [ ] **Step 3: Implement**
 
-The scenarios run only in `.github/workflows/harness.yml` (gate 7). Everything is in package `harness` under the build tag `harness`, with doc comments, error strings in lower case. Host: the agent VM (`f.agent`, `f.agentID`), scanned from `f.scanner`. Port numbers 18301–18399 are this task's alone. `m3dExpoSrcB6 = "2001:db8:d0::30"` is a second scanner source address for IPv6 (the first is `scannerIPv6`), added with `m3dAddSource(ctx, t, f.scanner, netip.MustParsePrefix(m3dExpoSrcB6+"/128"), m3dTrafficIface)`; the IPv4 one is Task 49's `m3dTrafficSrcB`.
+The scenarios run only in `.github/workflows/harness.yml` (gate 7). Everything is in package `harness` under the build tag `harness`, with doc comments, error strings in lower case. Host: the agent VM (`f.agent`, `f.agentID`), scanned from `f.scanner`. Port numbers 18301–18399 are this task's alone. `m3dExpoSrcB6 = "2001:db8:d0::30"` is a second scanner source address for IPv6 (the first is `scannerIPv6`), added with `m3dAddSource(ctx, t, f.scanner, netip.MustParsePrefix(m3dExpoSrcB6+"/128"), m3dTrafficIface)`; the IPv4 one is Task 53's `m3dTrafficSrcB`.
 
 **A. The mirror types** (`m3_docker_exposure_test.go`), JSON names exactly as the fixture uses: `m3dExpoAllowed` (`Sources: sources`, `Ifaces: ifaces,omitempty`, `SrcPorts: srcPorts,omitempty` all []string, `DecidedBy: decidedBy`); `m3dExpoClass` (`Class: class`, `Range: range,omitempty`, `Verdict: verdict`, `DecidedBy: decidedBy,omitempty`, `Allowed: allowed,omitempty` []m3dExpoAllowed, `Note: note,omitempty`); `m3dExpoContainer` (`Name: name`, `Binding: binding` an `m3dDockBinding`, `ContainerPort: containerPort`, `Proxied: proxied` bool); `m3dExpoRow` (`Proto: proto`, `Addr: addr`, `Port: port` uint16, `Family: family`, `Process: process,omitempty`, `Container: container,omitempty` *m3dExpoContainer, `Classes: classes` []m3dExpoClass); `m3dExpoView` (`Rows: rows`, `Notes: notes,omitempty`).
 
@@ -21500,7 +21961,7 @@ with
 
 and add the line `            ${{ runner.temp }}/harness-m3d/**/*.log` after the `harness-m3` line of the failure artifact's `path:`. Change nothing else in the file.
 
-**D. `m3_docker_test.go`.** Append these rows, none a gate, after Task 49's: `exposure-equals-scan` → `m3dExpoScan`, `exposure-source-port` → `m3dExpoSourcePort`, `exposure-private-class` → `m3dExpoPrivateClass`. Signature `func(ctx context.Context, t *testing.T, f *fleet)`.
+**D. `m3_docker_test.go`.** Append these rows, none a gate, after Task 53's: `exposure-equals-scan` → `m3dExpoScan`, `exposure-source-port` → `m3dExpoSourcePort`, `exposure-private-class` → `m3dExpoPrivateClass`. Signature `func(ctx context.Context, t *testing.T, f *fleet)`.
 
 **E. The helpers that talk to the fleet** (`m3_docker_exposure_test.go`):
 
@@ -21524,7 +21985,7 @@ and add the line `            ${{ runner.temp }}/harness-m3d/**/*.log` after the
 
    With `eventually` for two minutes, read the view (`m3dExpoRead`) until `m3dxExpoVerdicts(view.Rows, want)` is nil for `want` = `tcp/v4/18301` open, `tcp/v6/18301` open, `tcp/v4/18302` partial, `tcp/v6/18302` partial, `tcp/v4/18303` filtered, `tcp/v6/18303` filtered, `udp/v4/18304` open, `udp/v4/18305` filtered, `tcp/v4/18306` filtered, `tcp/v6/18306` filtered, `tcp/v4/18307` open, `tcp/v6/18307` open (the IPv6 rows of the default-bridge containers are `docker-proxy`'s, governed by UFW's INPUT rules; `m3d-x2`, on an IPv6 network, is DNATed and partial for both families). The test fails with the last error otherwise. Then `m3dExpoCheck`, which does, for the final view:
    - `view.Notes` must be empty (`t.Errorf` otherwise).
-   - Decode `raw` with Task 8's `m3dxRows`. For each family (`v4` with flag `-4`, `v6` with `-6`) and protocol (`tcp`, `udp`): the rows of that family and protocol whose `m3dxExpoTarget(row.Addr, row.Family, agentIPv4, agentIPv6)` is true give the target (`agentIPv4` or `agentIPv6`) and the port list (ascending, no duplicates); skip the pair when the list is empty. One `m3dScan(ctx, t, f.scanner, ScanOpts{Family: flag, UDP: proto == "udp", Ports: ports, Target: target})` from the default source. `m3dxMismatch(plain, scanned, proto)` for `plain` = those rows whose `Verdict` is neither `partial` nor `unknown`; each returned line is a `t.Errorf`.
+   - Decode `raw` with Task 9's `m3dxRows`. For each family (`v4` with flag `-4`, `v6` with `-6`) and protocol (`tcp`, `udp`): the rows of that family and protocol whose `m3dxExpoTarget(row.Addr, row.Family, agentIPv4, agentIPv6)` is true give the target (`agentIPv4` or `agentIPv6`) and the port list (ascending, no duplicates); skip the pair when the list is empty. One `m3dScan(ctx, t, f.scanner, ScanOpts{Family: flag, UDP: proto == "udp", Ports: ports, Target: target})` from the default source. `m3dxMismatch(plain, scanned, proto)` for `plain` = those rows whose `Verdict` is neither `partial` nor `unknown`; each returned line is a `t.Errorf`.
    - For every scannable TCP row of `view` whose internet class is `partial` and for which `m3dExpoBySourcePort()` is false, and for every source of its family (IPv4: `scannerIPv4` and `m3dTrafficSrcB`; IPv6: `scannerIPv6` and `m3dExpoSrcB6`): `expect, err := m3dxExpoExpect(class, src, 0, m3dTrafficIface)` (an error is a `t.Errorf`); one `m3dScan` of the row's port with `ScanOpts{Family: flag, Ports: []uint16{row.Port}, Target: target}` plus `Source: src` and `Iface: m3dTrafficIface` when `src` is a second source; `m3dxExpoCompare(expect, scanned[0], "tcp")`. For the rows of port 18302 the sources must split: at least one expectation `open` and one `notopen` per family, or the scenario fails (a partial row scanned from one side proves nothing).
    - A scannable row whose internet verdict is `unknown` fails the test when its port is 18301–18399 and is logged with `t.Logf` otherwise; a row skipped by `m3dxExpoTarget` is not scanned (a loopback or private-link listener cannot be probed from the internet link).
 2. `m3dExpoSourcePort` (a rule restricted by source port, scanned from inside and outside its range). Run a listener on the agent: `sudo systemd-run --unit=m3d-sp --collect /usr/bin/python3 -m http.server 18311 --bind 0.0.0.0` (cleanup `sudo systemctl stop m3d-sp`), and the manual rule `sudo ufw allow proto tcp from any port 5300:5399 to any port 18311` (cleanup `sudo ufw delete allow proto tcp from any port 5300:5399 to any port 18311`); `m3WaitStatus` with `m3Healthy`. With `eventually` for a minute, read the view until the row `tcp`/`v4`/18311 has an internet class that is `partial` and `m3dExpoBySourcePort()`. Collect every `SrcPorts` entry of its groups into one list and take `inside, outside` from `m3dxExpoSourcePorts`. For each of `inside` and `outside`: `expect` from `m3dxExpoExpect(class, netip.MustParseAddr(scannerIPv4), port, m3dTrafficIface)`, which must be `open` for `inside` and `notopen` for `outside`; then `m3dScan` with `ScanOpts{Family: "-4", Ports: []uint16{18311}, SourcePort: port, Target: agentIPv4}` and `m3dxExpoCompare(expect, scanned[0], "tcp")`.
@@ -21534,7 +21995,7 @@ Order of work: the pure helpers, the mirror types and `m3dxExpoWorkflow` first (
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `export TMPDIR=/root/.cache/w2-tmp/50 GOTOOLCHAIN=local && timeout 300 go vet -tags harness ./test/... && timeout 300 go test -tags harness -count=1 -run '^TestM3x' -v ./test/harness/`
+Run: `export TMPDIR=/root/.cache/w2-tmp/54 GOTOOLCHAIN=local && timeout 300 go vet -tags harness ./test/... && timeout 300 go test -tags harness -count=1 -run '^TestM3x' -v ./test/harness/`
 Expected: no vet output; every `TestM3xExpo…` test, including `TestM3xExpoWorkflowFile`, prints `--- PASS` and the run ends `ok`.
 
 - [ ] **Step 5: Commit**
@@ -21547,7 +22008,7 @@ git commit -m "test(harness): exposure against the scan"
 - [ ] **Step 6: Verify**
 
 ```bash
-mkdir -p /root/.cache/w2-tmp/50 && export TMPDIR=/root/.cache/w2-tmp/50 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w2-tmp/54 && export TMPDIR=/root/.cache/w2-tmp/54 GOTOOLCHAIN=local
 timeout 600 go build ./... && timeout 300 go vet ./... && timeout 300 go vet -tags harness ./test/...
 timeout 600 go test -tags harness -race -count=1 ./test/harness/...
 timeout 1500 go test -count=1 ./...
@@ -21555,7 +22016,6 @@ timeout 900 golangci-lint run --allow-serial-runners ./... && timeout 600 golang
 timeout 300 go mod tidy -diff
 grep -n 'timeout-minutes: 280\|name: Run the M3 Docker harness' .github/workflows/harness.yml
 git status --short
-rm -rf /root/.cache/w2-tmp/50 && go clean -testcache
+rm -rf /root/.cache/w2-tmp/54 && go clean -testcache
 ```
 Expected: the builds and vets print nothing, the race run and the full run end `ok` or `?` on every line, `golangci-lint` prints `0 issues.` twice, `go mod tidy -diff` prints nothing, the `grep` prints the two lines `timeout-minutes: 280` and `- name: Run the M3 Docker harness`, and `git status --short` prints nothing. `TestM3Docker` itself runs in `harness.yml` on the four images (gate 7): dispatch it on the branch once it is pushed, as the plan's closing gate requires.
-
