@@ -20,6 +20,8 @@
 
 **Wave check:** `mkdir -p /root/.cache/w2-tmp/wave && export TMPDIR=/root/.cache/w2-tmp/wave GOTOOLCHAIN=local && timeout 600 go build ./... && timeout 300 go vet ./... && timeout 900 go test -count=1 ./internal/modules/firewall/... ./internal/platform/... ./internal/core/...`
 
+**Plan review:** 2026-10-28 — dforge:judge-opus — executability 17 / coherence 16 / coverage 16 / assumptions 16 (round 1)
+
 ## Global Constraints
 
 - Scope is spec revision 8 as amended on `main`: sections 2.6, 2.7, 2.8, the Docker parts of 2.3, 2.5 and 2.9, the Docker and exposure parts of 2.10, the firewall Docker rows of section 5 (`docker.enable`, `docker.disable`, `docker.repair`, `docker.set-sources`, `container.allow`, `container.deny`, `container.remove`, `containers.apply`), the Docker and exposure exit criteria of the M3 row of Verification, and register rows 7–13 and 291 of `docs/dforge/registers/2026-10-21-v1-completion.md`. Not built here: the Docker module (wave 3a; its container view renders the container action slot this plan fills), Tailscale, exposure modules and hardening waves.
@@ -502,9 +504,10 @@ Task 27 adds the field `cleanChains func(ctx context.Context, env core.Env, owne
 	rowsDel  []string                   // container rule ids to delete
 	cleanup  bool                       // run the owned-chain cleanup (Task 37) before the transition commands
 	reload   bool                       // the change needs `ufw reload` when UFW stays active (block files changed)
+	notes    []core.DiffLine            // extra plan lines a builder adds (Task 32 adds the field and lists them; Task 42 fills them)
 ```
 
-`predictTarget` (Task 18) overlays `files` onto `cfgN.Files` before predicting, forces a `TransReload` when `reload` is set and UFW is active, and predicts the cleanup by removing every `darkpanel-*` and `dp-b-*` chain and setting `DOCKER-USER` to `-j RETURN` in both families. `fw.run` (Task 38) runs, in order: a restore's files; the logical effects (flag, sources, row deletes, row inserts); the `files` writes (`writeFileEffect`); the ufw ops; the cleanup's chain effect; the transition commands; a restore's sysctl values. The plan diff (Task 32) adds lines `docker integration on|off`, `private sources: …`, `forward exemptions: …`, `container rule + <selector> <hostAddr|all>:<hostPort>/<proto> <allow|deny> <from|any>`, `container rule - …`, `after.rules: Docker block written|removed`, `after6.rules: …`, `Docker chains removed`.
+`predictTarget` (Task 18) overlays `files` onto `cfgN.Files` before predicting, forces a `TransReload` when `reload` is set and UFW is active, and predicts the cleanup by removing every `darkpanel-*` and `dp-b-*` chain and setting `DOCKER-USER` to `-j RETURN` in both families. `fw.run` (Task 38) runs, in order: a restore's files; the logical effects (flag, sources, row deletes, row inserts); the `files` writes (`writeFileEffect`); the ufw ops; the cleanup's chain effect; the transition commands; a restore's sysctl values. The plan diff (Task 32) adds lines `docker integration on|off`, `private sources: …`, `forward exemptions: …`, `container rule + <selector> <hostAddr|all>:<hostPort>/<proto> <allow|deny> <from|any>`, `container rule - …`, `after.rules: Docker block written|removed`, `after6.rules: …`, `Docker chains removed`, then each of `c.notes` as given. `firewall.docker.enable` (Task 42) puts in `notes` one line `{Op: " ", Text: "manual route rule <ruleText(rule)>: no effect without a Darkpanel binding"}` per rule `statusManualRoutes(cfg, st.facts)` (Task 34) lists, as spec 2.6 "Manual route rules" requires.
 
 ### Docker state (from Task 31)
 
@@ -742,8 +745,10 @@ Tasks 52–54 add only names that start with `m3dDock`, `m3dTraffic` and `m3dExp
 - `module.Uninstall` returns before any work for `rules=keep` and when `/usr/sbin/ufw` is missing (`uninstall.go`, read 2026-10-28); spec 2.9 needs the cleanup in every case (Task 39).
 - No page renders the container action slot yet (`web/src/modules/docker/routes.tsx` returns null); Task 19's components are tested on their own, and wave 3a renders them.
 - The harness VMs install Docker CE 29.9.1 and the Compose plugin and pull the pinned `pebble` and `pebble-challtestsrv` images (`test/harness/images.json`, `provision.go`); those two serve TCP (Pebble's 14000) and UDP (challtestsrv's DNS on 8053), so the Docker harness needs no new image or `pins.go` change. `checkScan` scans TCP SYN only and has no fixed source port (`test/harness/m1_test.go`), hence Task 9.
-- Spec 2.6 and section 5 name the action `firewall.docker.sources.set`, but `core.NewRegistry` (`internal/core/registry.go`, frozen; spec 1.1) accepts only `^[a-z][a-z0-9]*\.[a-z][a-z0-9]*\.[a-z][a-z0-9-]*$`, so a four-segment name would stop the firewall module loading (found by Task 50's drafter, 2026-10-28). This plan names it `firewall.docker.set-sources`, following the dashed-verb names `core.user.reset-totp` and `npm.admin.reveal-password`; the spec's two mentions are a spec defect to amend.
-- The `vm` job of `.github/workflows/harness.yml` has `timeout-minutes: 200` and an M3 firewall step with `-timeout 70m`; Task 54 adds the Docker step and raises the job's limit if the measured total needs it.
+- Spec 2.6 and section 5 name the action `firewall.docker.sources.set`, but `core.NewRegistry` (`internal/core/registry.go`, frozen; spec 1.1) accepts only `^[a-z][a-z0-9]*\.[a-z][a-z0-9]*\.[a-z][a-z0-9-]*$`, so a four-segment name would stop the firewall module loading (found by Task 50's drafter, 2026-10-28). This plan names it `firewall.docker.set-sources`, following the dashed-verb names `core.user.reset-totp` and `npm.admin.reveal-password`; the spec's two mentions were amended to match on 2026-10-28.
+- The `vm` job of `.github/workflows/harness.yml` has `timeout-minutes: 200` and an M3 firewall step with `-timeout 70m`; Task 54 adds the Docker step and raises the job's limit to 280 minutes.
+- Task 14's seam relies only on platform client APIs that exist (read 2026-10-28): `dockerapi.SystemInfo.FirewallBackend`, `VersionInfo`, `ListContainersOptions`, `ContainerJSON`, `Filters`, `EventsOptions`, `Event`, `Stream[T].Next/Close`, `ErrUnavailable`, `DefaultSocket` and `APIError` (`internal/platform/dockerapi/client.go`, `streams.go`, `containers.go`, `networks.go`); `netstat.Socket`, `Interface`, `RouteQuery`, `Route` and `ErrNoRoute` (`internal/platform/netstat/routes.go`, `sockets.go`); `tslocal.Client.Prefs` with `ShieldsUp` (`internal/platform/tslocal/client.go`).
+- Spec 2.8's "checks health" is read as: reconcile repairs only differences in Darkpanel's own chains (`syncDiffs` restricted to `dockerfw.Owned`) and logs every other health finding, such as `FORWARD` no longer jumping to `DOCKER-USER` first, for the operator's `firewall.docker.repair` (Task 49), because no automatic operation rewrites chains Darkpanel does not own.
 
 ## Task index
 
@@ -12251,6 +12256,7 @@ git commit -m "feat(firewall): gather the Docker state"
 **Files:**
 - Create: `internal/modules/firewall/docker_diff.go`
 - Modify: `internal/modules/firewall/plan.go` (`fw.plan`, at the line `out := core.PlanOutcome{Diff: stateDiff(from, to)}`)
+- Modify: `internal/modules/firewall/target.go` (`change`: the field `notes`, with its comment from Contracts "change and target")
 - Test: `internal/modules/firewall/docker_diff_test.go`
 
 **Interfaces:**
@@ -12428,6 +12434,14 @@ func TestDdfDockerDiffUnchanged(t *testing.T) {
 		{"the removal of an absent block", change{files: map[string][]byte{ddfAfterV6: ddfAfter(t, nil)}, cleanup: true}, []core.DiffLine{
 			{Op: "-", Text: "Docker chains removed"},
 		}},
+		{"notes after the other lines", change{flag: &off, notes: []core.DiffLine{{Op: " ", Text: "manual route rule x: no effect without a Darkpanel binding"}}}, []core.DiffLine{
+			{Op: "-", Text: "docker integration on"},
+			{Op: "+", Text: "docker integration off"},
+			{Op: " ", Text: "manual route rule x: no effect without a Darkpanel binding"},
+		}},
+		{"notes alone", change{notes: []core.DiffLine{{Op: " ", Text: "note"}}}, []core.DiffLine{
+			{Op: " ", Text: "note"},
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := dockerDiff(before, nil, cfg0, tc.c)
@@ -12518,13 +12532,14 @@ Expected: FAIL to build with `undefined: dockerDiff`.
 
 In `docker_diff.go`, with a doc comment on each function:
 
-1. `dockerLines` returns `nil, nil` without touching `env.DB` when the change holds no Docker state: `c.flag` and `c.sources` are nil, `c.rowsAdd`, `c.rowsDel` and `c.files` are empty and `c.cleanup` is false. Otherwise it reads `readDockerConfig(ctx, env.DB)` and `listContainerRules(ctx, env.DB)` (a failure is a `firewall:` error wrapping the cause) and returns `dockerDiff` of them.
+1. `dockerLines` returns `nil, nil` without touching `env.DB` when the change holds no Docker state: `c.flag` and `c.sources` are nil, `c.rowsAdd`, `c.rowsDel`, `c.files` and `c.notes` are empty and `c.cleanup` is false. Otherwise it reads `readDockerConfig(ctx, env.DB)` and `listContainerRules(ctx, env.DB)` (a failure is a `firewall:` error wrapping the cause) and returns `dockerDiff` of them.
 2. `dockerDiff` lists lines in this order, each a `core.DiffLine`; "old" and "new" lines come as a `-` line then a `+` line:
    - `c.flag` non-nil and different from `before.Enabled`: `docker integration on` or `docker integration off` for the old value (`-`) and the new one (`+`).
    - `c.sources` non-nil and its `PrivateSources` differing from `before.Settings.PrivateSources` (`slices.Equal`, so a reordering counts): `private sources: <list>` old and new, the list being the prefixes in order joined by `, `, or `none` when empty. The same for `ForwardExemptions` with the prefix `forward exemptions: `, an exemption written `[in <inInterface> ]<origDestination>[:<origPort>] -> <destination>[:<port>]/<proto>`, a port shown only when not 0 and an address with a port written as `netip.AddrPortFrom(addr, port).String()` (so IPv6 is bracketed), joined by `, `, or `none`. The two lists are compared separately and only the one that differs gives lines.
    - Each of `c.rowsAdd` in order, `+`: `container rule + <rule>`; then each id of `c.rowsDel` in order, `-`: `container rule - <rule>`, where the removed rule is the one in `rows` with that id (an id not in `rows` is the error `firewall: container rule <id> is not stored`), and `<rule>` is `<selector> <hostAddr|all>:<hostPort>/<proto> <allow|deny> <from|any>`, with a host address written as above (`all:8080`, `192.0.2.1:9090`, `[2001:db8::1]:8443`) and `from` the prefix as `Prefix.String()`.
    - For `/etc/ufw/after.rules`, then `/etc/ufw/after6.rules`, each present in `c.files`: the block of the current content (`cfg0.Files[path]`, when `Present`) and of the new content, both through `dockerfw.BlockOf` (its error is returned as `firewall: <path>: %w`). A new block that is absent from the current file, or present with other bytes, gives `+` `after.rules: Docker block written` (`after6.rules` for the other file); a block present now and absent from the new content gives `-` `after.rules: Docker block removed`; anything else gives no line. A path of `c.files` that is neither file is ignored.
    - `c.cleanup`: `-` `Docker chains removed`, always, whatever is loaded.
+   - Last, each line of `c.notes` in order, exactly as given.
 3. In `fw.plan`, right after `out := core.PlanOutcome{Diff: stateDiff(from, to)}`, call `dockerLines(ctx, env, p.cfg0, p.c)`, return its error unchanged and append its lines to `out.Diff`, before the loop that appends the `out of sync:` lines. Nothing else in `plan.go` changes: the state hash, the guard and the manual check stay as they are, and `Apply` and revert do not use these lines.
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -12560,7 +12575,7 @@ git commit -m "feat(firewall): show Docker changes in plans"
 
 **Interfaces:**
 - Consumes: Contracts "dockerfw block" (`dockerfw.BlockOf`, `dockerfw.BlockRules`, `dockerfw.Foreign`, `dockerfw.ChainDockerUser`; the tests also use `dockerfw.Render`, `dockerfw.WithBlock` and `dockerfw.BlockInput`), "dockerfw settings and facts" (`dockerfw.DefaultSettings`), "Docker store" (`dockerConfig`, `readDockerConfig`, `writeDockerConfig`) and "change and target" (the field `change.flag`, which Task 18 added to `change` in an earlier wave). From wave 1: `fw.prepare`, `buildFunc`, `change`, the helpers `newFakeHost`, `newFW`, `fhParse` and `fakeHost`'s `writeFile`, `db`, `loaded` and `predictErr` fields.
-- Produces: Contracts "Refusals": `dockerUserInUse(cur fwstate.Loaded, cfg fwstate.Config, flag bool) error`, `refuseOpenIncoming(flagAfter bool, final fwstate.Config) error` and `change.discardForeign bool`. Tasks 41, 42 and 44-48 call `refuseOpenIncoming` from their builders; Tasks 47 and 48 sets `discardForeign`; Tasks 37 and 49 rely on `prepare` refusing while foreign rules stand.
+- Produces: Contracts "Refusals": `dockerUserInUse(cur fwstate.Loaded, cfg fwstate.Config, flag bool) error`, `refuseOpenIncoming(flagAfter bool, final fwstate.Config) error` and `change.discardForeign bool`. Tasks 41, 42, 44, 45, 46 and 48 call `refuseOpenIncoming` from their builders; Task 47 sets `discardForeign`; Tasks 37 and 49 rely on `prepare` refusing while foreign rules stand.
 
 **Items:** 8
 
@@ -12857,13 +12872,13 @@ Expected: FAIL to build, `undefined: dockerUserInUse`, followed by `undefined: r
 
 Spec 2.6 "Adoption of `DOCKER-USER`" is the source: while the integration is on, `DOCKER-USER` holding anything other than Docker's `-j RETURN` or the block's own rules refuses every mutating action, except the repair that discards those rules on purpose, and no automatic operation discards a foreign rule.
 
-1. `target.go`, `change`: add the field `discardForeign bool` after the fields Task 18 added, with a doc comment saying it is true only for a change that discards the foreign `DOCKER-USER` rules on purpose (`firewall.docker.repair` with `DiscardForeign` and `Manual` both set, built by Tasks 47 and 48) and that `prepare` then skips `dockerUserInUse`. Change nothing else in the file.
+1. `target.go`, `change`: add the field `discardForeign bool` after the fields Task 18 added, with a doc comment saying it is true only for a change that discards the foreign `DOCKER-USER` rules on purpose (`firewall.docker.repair` with `DiscardForeign` and `Manual` both set, built by Task 47) and that `prepare` then skips `dockerUserInUse`. Change nothing else in the file.
 2. `docker_refuse.go`, `dockerUserInUse(cur, cfg, flag)`. With `flag` false it returns nil. Otherwise it visits the families in the order v4, v6, each with its loaded ruleset (`cur.V4`, `cur.V6`) and its after file in `cfg.Files` (`/etc/ufw/after.rules`, `/etc/ufw/after6.rules`), and skips a family whose ruleset is nil or has no `filter` table or no `DOCKER-USER` chain (Docker not running, or no `ip6tables`).
    - The rules the integration owns, `known`, are the `DOCKER-USER` rules of the block in that family's after file: `dockerfw.BlockOf` of the entry's `Data` when the entry is `Present`, then `dockerfw.BlockRules` of the block, then the rules of its `filter` table's `DOCKER-USER` chain. An absent file, a file with no block or a block with no such chain gives no known rules.
    - When `BlockOf` or `BlockRules` fails, return `fmt.Errorf("firewall: %s: %w", path, err)`. It is a plain error on purpose: a damaged block cannot say which rules are Darkpanel's, and no override must clear that.
    - The foreign rules are `dockerfw.Foreign(chain, known, family)`; each is listed as `<v4|v6> <rule.Text>`, so the text is the rule's save line such as `v4 -A DOCKER-USER -s 203.0.113.9/32 -j DROP`.
    - With none listed return nil. Otherwise return `errcode.New(errcode.FirewallDockerUserInUse, detail)` where detail is `DOCKER-USER holds <n> rule(s) the Docker integration does not own: <the list joined with "; ">; remove them, or run firewall.docker.repair with discardForeign: true and manual: true`.
-3. `docker_refuse.go`, `refuseOpenIncoming(flagAfter, final)`: nil unless `flagAfter` is true and `final.DefaultInput` is exactly `ACCEPT`, in which case `errcode.New(errcode.FirewallUnsupportedIntegration, ...)` with a detail that names `DEFAULT_INPUT_POLICY`, says the policy must be `DROP` or `REJECT` and that an `ACCEPT` policy leaves every proxied published port open. Spec 2.6 "Proxied families" makes this an invariant while the flag is on. This task only declares the function; the builders of Tasks 41, 42 and 44-48 call it with the flag after the change and the configuration after the change's transition.
+3. `docker_refuse.go`, `refuseOpenIncoming(flagAfter, final)`: nil unless `flagAfter` is true and `final.DefaultInput` is exactly `ACCEPT`, in which case `errcode.New(errcode.FirewallUnsupportedIntegration, ...)` with a detail that names `DEFAULT_INPUT_POLICY`, says the policy must be `DROP` or `REJECT` and that an `ACCEPT` policy leaves every proxied published port open. Spec 2.6 "Proxied families" makes this an invariant while the flag is on. This task only declares the function; the builders of Tasks 42, 44, 45, 46 and 48 call it with the flag after the change and the configuration after the change's transition.
 4. `plan.go`, `prepare`: after `build(cfg0, cur)` returns without error and before `f.predictTarget`, unless `c.discardForeign` is true, read the stored flag with `readDockerConfig(ctx, env.DB)` (an error returns `firewall: read the Docker integration flag: %w`) and call `dockerUserInUse(cur, cfg0, stored.Enabled || (c.flag != nil && *c.flag))`, returning its error unchanged. The flag counts when the integration is on before the change (every mutating action refuses) or after it (`firewall.docker.enable` refuses to adopt a populated chain). The check comes after `build` so a builder's own refusal wins, and before the prediction so a refusal never depends on the predictor. Add one sentence about the refusal to `prepare`'s doc comment. Revert and the restore paths (`revert`, `restoreOver`) do not call `prepare` and stay unrefused, as spec 2.6 requires.
 
 - [ ] **Step 4: Run the tests to verify they pass**
@@ -12897,7 +12912,7 @@ git commit -m "feat(firewall): refuse foreign DOCKER-USER rules"
 
 **Interfaces:**
 - Consumes: Contracts "dockerfw settings and facts" (`Settings`, `Facts`, `Container`, `Network`, `Endpoint`, `Published`, `Exemption`), "dockerfw bindings and rules" (`Binding`, `ContainerRule`, `Allow`, `Deny`, `LabelPrefix`), "dockerfw detection" (`Detection`, `Unsupported`, `ForeignDNAT`, `Propose`, `Covered`), "dockerfw block" (`BlockOf`, `BlockRules`, `Foreign`, `Render`, `WithBlock`, `ChainDockerUser`), "dockerfw realization" (`Realized`), "dockerfw health" (`Health`, `HealthInput`, `Issue`, `Level`, `Unprotected`), "Docker store" (`dockerConfig`), "Docker state" (`dockerState` and `fw.dockerState`) and "Docker client seam" (the deps fields and `fakeDocker`, `newFakeDocker`). From wave 1: `fw.status`'s pattern, `ruleText` (`diff.go`), `model.Merge`, and the helpers `newFakeHost`, `fhParse`.
-- Produces: Contracts "Shapes the web and the schemas read": the types `DockerStatus`, `DockerNetwork` and `DockerBinding`, and the constructor `fw.dockerResource() core.ResourceDef` for resource `firewall.docker`, which Task 50 registers. Also `dockerStatusOf(cfg fwstate.Config, cur fwstate.Loaded, st dockerState) DockerStatus`, the pure builder behind the resource, and `fw.dockerStatus(ctx, env) (DockerStatus, error)`; later tasks that need the health or the foreign rules of a host (Task 49) call these instead of recomputing them.
+- Produces: Contracts "Shapes the web and the schemas read": the types `DockerStatus`, `DockerNetwork` and `DockerBinding`, and the constructor `fw.dockerResource() core.ResourceDef` for resource `firewall.docker`, which Task 50 registers. Also `dockerStatusOf(cfg fwstate.Config, cur fwstate.Loaded, st dockerState) DockerStatus`, the pure builder behind the resource, and `fw.dockerStatus(ctx, env) (DockerStatus, error)`.
 
 **Items:** 7, 11
 
@@ -16071,7 +16086,7 @@ git commit -m "feat(firewall): keep foreign rules in reverts"
 - Test: `internal/modules/firewall/docker_ruleops_test.go` (create)
 
 **Interfaces:**
-- Consumes: Contracts "dockerfw rule operations" (Task 24: `RuleOp` with its fields `Delete`, `Add`, `Insert`, and `RuleOps`); "dockerfw bindings and rules" (Task 10: `LabelPrefix`, which the tests read). Wave 1's `deleteRuleOp`, `addRuleOp`, `ruleResource`, `findRules`, `ufwOp`, `fakeHost`, `newFakeHost`, `fhRule3000v4`, `model.Merge`, `model.AddArgs`, `model.InsertArgs`, `model.DeleteArgs`, ``github.com/oklog/ulid/v2`, which `snapshot.go` already imports.
+- Consumes: Contracts "dockerfw rule operations" (Task 24: `RuleOp` with its fields `Delete`, `Add`, `Insert`, and `RuleOps`); "dockerfw bindings and rules" (Task 10: `LabelPrefix`, which the tests read). Wave 1's `deleteRuleOp`, `addRuleOp`, `ruleResource`, `findRules`, `ufwOp`, `fakeHost`, `newFakeHost`, `fhRule3000v4`, `model.Merge`, `model.AddArgs`, `model.InsertArgs`, `model.DeleteArgs`, `github.com/oklog/ulid/v2`, which `snapshot.go` already imports.
 - Produces: Contracts "Container rule ops and ids (Task 41)": `newULID` and `containerRuleOps`, exactly as stated there (Tasks 42, 43, 47, 48 and 49 call them).
 
 **Items:** 9
@@ -16690,6 +16705,32 @@ func TestDenEnableAlreadyOn(t *testing.T) {
 	}
 }
 
+// TestDenEnableManualRoutes: enabling lists each manual route rule to a
+// container network as a plan note (spec 2.6 "Manual route rules"); a manual
+// route rule to another address is not listed.
+func TestDenEnableManualRoutes(t *testing.T) {
+	env := newFakeHost(t).env()
+	toWeb := "### tuple ### route:allow tcp 80 172.17.0.5 any 0.0.0.0/0 out_docker0"
+	elsewhere := "### tuple ### route:allow tcp 80 192.0.2.9 any 0.0.0.0/0 out_eth1"
+	cfg := denFileConfig(t, false, false, toWeb, elsewhere)
+	c, err := dockerEnableChange(env, cfg, denLoaded(t, "", ""), denState(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want []core.DiffLine
+	for _, r := range model.Merge(cfg.Rules4, cfg.Rules6) {
+		if r.To == "172.17.0.5" {
+			want = append(want, core.DiffLine{Op: " ", Text: "manual route rule " + ruleText(r) + ": no effect without a Darkpanel binding"})
+		}
+	}
+	if len(want) != 1 {
+		t.Fatalf("fixture: %d manual route rules to 172.17.0.5, want 1", len(want))
+	}
+	if !reflect.DeepEqual(c.notes, want) {
+		t.Errorf("notes = %+v, want %+v", c.notes, want)
+	}
+}
+
 // TestDenDisableChange: disabling stores the flag off, writes both after
 // files without the block, deletes every tagged container rule, keeps the
 // stored rows and the settings, and asks for the owned-chain cleanup; it
@@ -16982,7 +17023,7 @@ Expected: FAIL to build with errors naming only identifiers this task adds: `und
    4. `refuseOpenIncoming(true, cfg)` (Task 33): return its error unchanged.
    5. `dockerfw.ExemptionConflicts(st.cfg.Settings.ForwardExemptions, st.facts.Networks)` not empty: detail `a forward exemption points into a Docker network: ` and the conflicts joined with `; `.
    6. Uncovered foreign forwards. For family `fwstate.V4` with `cur.V4` and `fwstate.V6` with `cur.V6` (skip a nil ruleset and a ruleset with no `nat` table), take `dockerfw.ForeignDNAT(rs.Table("nat"))` and skip each rule for which `dockerfw.Covered(rule, st.cfg.Settings.ForwardExemptions)` is true. Each remaining rule is one item: its `Text`, then ` -> propose ` and the JSON (`encoding/json`) of the `dockerfw.Exemption` that `dockerfw.Propose(rule, family)` returns, or, when `Propose` reports false, ` -> no exemption can name it`. When any item exists, detail `foreign port forwards need an entry in forwardExemptions before the integration is enabled: ` and the items joined with `; `. Every uncovered rule of both families is named in the one refusal. The detail carries rule texts only, no secret.
-   7. Otherwise: `files := blockFiles(cfg, st, true)`, `ops := containerRuleOps(cfg, st.realized.Rules, newULID(env))` (Task 41), and return `change{flag: &on, files: files, reload: true, ops: ops}` with `on` true. Errors from the two calls are returned as they are.
+   7. Otherwise: `files := blockFiles(cfg, st, true)`, `ops := containerRuleOps(cfg, st.realized.Rules, newULID(env))` (Task 41), `notes` with one `core.DiffLine{Op: " ", Text: "manual route rule " + ruleText(r) + ": no effect without a Darkpanel binding"}` for each rule `r` of `model.Merge(cfg.Rules4, cfg.Rules6)` whose `ruleText` `statusManualRoutes(cfg, st.facts)` (Task 34) lists, in that order (nil when none), and return `change{flag: &on, files: files, reload: true, ops: ops, notes: notes}` with `on` true. Errors from the two calls are returned as they are.
 3. `dockerDisableChange(env core.Env, cfg fwstate.Config, st dockerState) (change, error)`: when `!st.cfg.Enabled` return the empty change; otherwise `files := blockFiles(cfg, st, false)`, `ops := containerRuleOps(cfg, nil, newULID(env))` and `change{flag: &off, files: files, cleanup: true, ops: ops}` with `off` false and no `reload` (the cleanup of Task 37 reloads UFW itself when it must). It never reads Docker's facts, so it works with Docker unreachable, and it leaves `rowsAdd`, `rowsDel` and `sources` nil: the stored rows and settings stay, so a later enable restores the same policy.
 4. `dockerFlagCheck(ctx, env, cfg fwstate.Config, on bool) error`: reads `readDockerConfig(ctx, env.DB)` (a read error is `firewall: verify: %w`) and returns `mismatch(...)` when the stored flag is not `on`; then, for `/etc/ufw/after.rules` and `/etc/ufw/after6.rules` in `cfg.Files`, runs `dockerfw.BlockOf` on the file's data (a malformed-marker error is `firewall: verify: <path>: %w`) and returns `mismatch(...)` when the file holds a block and `on` is false or holds none and `on` is true. Every mismatch text names the flag or the file and ends `after the change` (wave 1's wording, which the tests read).
 5. `func (f fw) dockerEnable() core.ActionDef` is `defineMutation(core.ActionSpec{Name: "firewall.docker.enable", Summary: "Enable the Docker integration."}, mutation[DockerEnableInput]{…})` with `f: f`, `guarded` returning `in.Guarded`, no `manual`, `build` returning a `buildFunc` that calls `f.dockerState(ctx, env, cur)` with the `ctx` and `env` of `build` and the `cur` it is given, returns that error as it is, and otherwise `dockerEnableChange(env, cfg, cur, st)`, and `check` calling `dockerFlagCheck(ctx, env, cfg, true)`. `dockerDisable` is the same with the name `firewall.docker.disable`, summary `Disable the Docker integration.`, `dockerDisableChange(env, cfg, st)` and `dockerFlagCheck(…, false)`.
@@ -19624,7 +19665,7 @@ Expected: FAIL to build, the first error `reconcile_test.go:120:15: fw{}.reconci
 3. `func (f fw) reconcileWith(ctx context.Context, tc core.TaskContext, cfg fwstate.Config, cur fwstate.Loaded, st dockerState) error` decides and applies, in this order:
    1. `!st.available`: stop, logging at Debug with `st.reason` (Docker not running is a normal state, and the exposure and container views report it).
    2. `dockerfw.Unsupported(st.det)` not empty: stop, logging at Warn with the reasons.
-   3. `diffs, err := f.syncDiffs(cfg, cur)` (an error is returned wrapped). When there are differences between the loaded state and what the files predict: if every difference's chain satisfies `dockerfw.Owned` (DOCKER-USER, `darkpanel-*`, `dp-b-*`), the action is `firewall.docker.repair` with input `DockerRepairInput{}` (it rewrites the files, reloads UFW and realizes the rows, and its plan accepts exactly this kind of difference); otherwise stop, logging at Warn that the host is out of sync outside the integration's chains and that `firewall.state.repair` is the operator's call. A change applied now would fail its plan's guard.
+   3. `diffs, err := f.syncDiffs(cfg, cur)` (an error is returned wrapped). Deliberately, only differences in Darkpanel's own chains are repaired here; any other health finding (for example `FORWARD` no longer jumping to `DOCKER-USER` first) is logged and left to the operator's `firewall.docker.repair`, because no automatic operation rewrites chains Darkpanel does not own. When there are differences between the loaded state and what the files predict: if every difference's chain satisfies `dockerfw.Owned` (DOCKER-USER, `darkpanel-*`, `dp-b-*`), the action is `firewall.docker.repair` with input `DockerRepairInput{}` (it rewrites the files, reloads UFW and realizes the rows, and its plan accepts exactly this kind of difference); otherwise stop, logging at Warn that the host is out of sync outside the integration's chains and that `firewall.state.repair` is the operator's call. A change applied now would fail its plan's guard.
    4. No differences: compute `files, err := blockFiles(cfg, st, true)` and `ops, err := containerRuleOps(cfg, st.realized.Rules, newULID(tc.Env))` (errors returned wrapped; a broken marker pair in an after file is one). When the bytes of `files["/etc/ufw/after.rules"]` and `files["/etc/ufw/after6.rules"]` both equal `cfg.Files[path].Data` and `ops` is empty, stop without logging above Debug: the host is in step. Otherwise the action is `firewall.containers.apply` with input `ContainersApplyInput{Ops: []ContainerOp{}}` (an empty, non-nil list, which encodes as `"ops":[]`, the "re-realize the stored rows" form).
    5. `tc.Apply(ctx, action, input)`; an error is returned as `fmt.Errorf("firewall: reconcile: %s: %w", action, err)` (the runtime logs it and backs off); on success log at Info which action ran.
 4. `func (f fw) reconcileWatch(ctx context.Context, _ core.Env, wake func()) error`: open `f.d.docker.Events(ctx, dockerapi.EventsOptions{Filters: dockerapi.Filters{"type": {"container", "network"}, "event": {"start", "die", "destroy", "connect", "disconnect", "create"}}})`; close the stream on return; loop on `Next()`, calling `wake()` for each event `reconcileEvent` accepts. When `Events` or `Next` fails: return nil if `ctx.Err() != nil` (the watch was stopped), else the error wrapped ("watch Docker events"), which includes the stream's `io.EOF`, so the runtime restarts the watch and wakes a full pass.
