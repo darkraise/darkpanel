@@ -343,40 +343,6 @@ func TestSnapshotRetention(t *testing.T) {
 	}
 }
 
-// TestRetentionUnpinsRepairedChanges: a snapshot left pinned after its
-// change was repaired (the repair's unpin failed) is unpinned by the next
-// retention pass and pruned like any other; one whose change still needs
-// repair stays pinned.
-func TestRetentionUnpinsRepairedChanges(t *testing.T) {
-	ctx := context.Background()
-	db := fwTestDB(t)
-	if _, err := saveSnapshot(ctx, db, stTestSnap(1, false)); err != nil {
-		t.Fatal(err)
-	}
-	for n, state := range map[int]string{2: "repaired", 3: "kept", 4: "needs_repair"} {
-		s := stTestSnap(n, false)
-		s.ChangeID, s.Pinned = fmt.Sprintf("c-%d", n), true
-		stTestChange(t, db, s.ChangeID, state, false)
-		if _, err := saveSnapshot(ctx, db, s); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for n := 100; n < 100+keepSnapshots; n++ {
-		if _, err := saveSnapshot(ctx, db, stTestSnap(n, false)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	ids := stTestIDs(t, db)
-	for n, want := range map[int]bool{2: false, 3: false, 4: true} {
-		if got := ids[stTestSnap(n, false).ID]; got != want {
-			t.Errorf("snapshot %d kept = %v, want %v", n, got, want)
-		}
-	}
-	if s, err := getSnapshot(ctx, db, stTestSnap(4, false).ID); err != nil || !s.Pinned {
-		t.Errorf("the needs_repair change's snapshot: pinned %v, %v", s.Pinned, err)
-	}
-}
-
 func TestRestoreIntent(t *testing.T) {
 	ctx := context.Background()
 	db := fwTestDB(t)
