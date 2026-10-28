@@ -376,6 +376,33 @@ func TestGxCheckTailscaleMark(t *testing.T) {
 	}
 }
 
+func TestGxCheckControllerListeners(t *testing.T) {
+	host := func() *gHost {
+		return &gHost{ifaces: gIfaces(), sockets: []netstat.Socket{
+			flSock(netstat.ProtoTCP, netstat.StateListen, "0.0.0.0:7443", "", "darkpanel-contr", 4242),
+		}, routes: map[netstat.RouteQuery]netstat.Route{
+			rtQuery("198.51.100.1", "", ""): rtVia("eth0", "192.0.2.1"),
+		}}
+	}
+	env, _, _ := ckEnv()
+	ckRunning(env)
+	g, results, err := Checker{Host: host()}.Check(context.Background(), env, ckState(),
+		Input{Eval: ckEval(t, func(p fwstate.Packet) bool { return p.DstPort == 7443 })})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := core.Guard{ID: "firewall.lockout", Message: "the change would cut " +
+		"controller listener from 198.51.100.1 to 192.0.2.1:7443 on eth0: drop (filter/ufw-user-input#1); " +
+		"controller listener from 198.51.100.1 to 192.0.2.1:7443 on eth1: drop (filter/ufw-user-input#1)"}
+	if g != want || len(results) != 2 {
+		t.Errorf("guard = %+v with %d results\nwant %+v", g, len(results), want)
+	}
+	g, _, err = Checker{Host: host()}.Check(context.Background(), env, ckState(), Input{Eval: ckEval(t, nil)})
+	if err != nil || !g.OK {
+		t.Errorf("an open agent listener: guard %+v, %v; want OK", g, err)
+	}
+}
+
 func TestCheckErrors(t *testing.T) {
 	env, _, _ := ckEnv()
 	if _, _, err := (Checker{Host: ckHost()}).Check(context.Background(), env, ckState(), Input{}); err == nil {

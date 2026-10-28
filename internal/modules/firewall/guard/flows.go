@@ -98,6 +98,7 @@ func buildFlows(in Input, f facts) []flow {
 		agentLinkFlows(s, ctxs, local)
 	}
 	controllerSessionFlows(s, f, local)
+	controllerListenFlows(s, f, local)
 	agentOutboundFlows(s, f, local)
 	tailscaleFlows(s, f)
 	return s.flows
@@ -316,6 +317,61 @@ func controllerSessionFlows(s *flowSet, f facts, local map[netip.Addr]bool) {
 		}
 		s.add(flow{label: "controller session", pkt: newPacket("input", so.Remote.Addr(), unknownPort, so.Local.Addr(), so.Local.Port(), "tcp")})
 	}
+}
+
+// controllerListenFlows is flow 4 from live facts, too: every listening TCP
+// socket of a local controller (its direct panel, runtime and agent
+// listeners), reached from an internet address, so a --local change keeps
+// them open whether or not a client is connected. A loopback listener
+// is reached through lo only, and a listener bound to an address of
+// another host is not reached at all. The runtime listener sits on the
+// panel bridge's gateway address and only the proxy container, the next
+// address of the bridge's network, may reach it, so that flow enters on
+// the bridge from the proxy's address.
+func controllerListenFlows(s *flowSet, f facts, local map[netip.Addr]bool) {
+	if f.controller == 0 {
+		return
+	}
+	for _, so := range f.sockets {
+		l := so.Local.Addr().Unmap()
+		if so.Proto != netstat.ProtoTCP || so.State != netstat.StateListen || !heldBy(so, f.controller) || l.IsLoopback() {
+			continue
+		}
+		if proxy, onBridge := panelProxy(f.ifaces, l); onBridge {
+			if proxy.IsValid() {
+				p := newPacket("input", proxy, unknownPort, l, so.Local.Port(), "tcp")
+				p.InIface = panelBridge
+				s.add(flow{label: "controller listener", pkt: p})
+			}
+			continue
+		}
+		for _, src := range []netip.Addr{internet4, internet6} {
+			if dst, ok := listenFor(src, l, local); ok {
+				s.add(flow{label: "controller listener", pkt: newPacket("input", src, unknownPort, dst, so.Local.Port(), "tcp")})
+			}
+		}
+	}
+}
+
+// panelProxy reports whether l is an address of the panel bridge and, when
+// the next address lies in the same network, that address: the proxy
+// container's.
+func panelProxy(ifaces []netstat.Interface, l netip.Addr) (proxy netip.Addr, onBridge bool) {
+	for _, i := range ifaces {
+		if i.Name != panelBridge {
+			continue
+		}
+		for _, p := range i.Addrs {
+			if p.Addr().Unmap() != l {
+				continue
+			}
+			if next := l.Next(); p.Contains(next) {
+				return next, true
+			}
+			return netip.Addr{}, true
+		}
+	}
+	return netip.Addr{}, false
 }
 
 // agentOutboundFlows is flow 5: every outbound TCP session of the agent

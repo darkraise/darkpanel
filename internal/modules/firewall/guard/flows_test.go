@@ -180,7 +180,43 @@ func TestBuildFlows(t *testing.T) {
 				flSock(tcp, est, "192.0.2.1:40001", "198.51.100.50:443", "darkpanel-contr", 4242),
 				flSock(tcp, est, "[::1]:443", "[::1]:40002", "darkpanel-contr", 4242),
 			}},
-			want: []flow{{label: "controller session", pkt: flPkt("input", "203.0.113.9", 0, "192.0.2.1", 443, "tcp")}},
+			want: []flow{
+				{label: "controller session", pkt: flPkt("input", "203.0.113.9", 0, "192.0.2.1", 443, "tcp")},
+				{label: "controller listener", pkt: flPkt("input", "198.51.100.1", 0, "0.0.0.0", 443, "tcp")},
+				{label: "controller listener", pkt: flPkt("input", "2001:db8:ffff::1", 0, "::", 443, "tcp")},
+			},
+		},
+		{
+			name: "the local controller's listening sockets",
+			f: facts{ifaces: ckIfaces(), controller: 4242, sockets: []netstat.Socket{
+				flSock(tcp, listen, "0.0.0.0:7443", "", "darkpanel-contr", 4242),
+				flSock(tcp, listen, "192.0.2.1:9443", "", "darkpanel-contr", 4242),
+				flSock(tcp, listen, "[2001:db8::1]:9444", "", "darkpanel-contr", 4242),
+				flSock(tcp, listen, "172.30.0.1:9445", "", "darkpanel-contr", 4242),
+				flSock(tcp, listen, "198.51.100.80:9446", "", "darkpanel-contr", 4242),
+				flSock(tcp, listen, "127.0.0.1:9447", "", "darkpanel-contr", 4242),
+				flSock(tcp, listen, "[::1]:9448", "", "darkpanel-contr", 4242),
+				flSock(udp, closed, "0.0.0.0:9449", "", "darkpanel-contr", 4242),
+				flSock(tcp, listen, "0.0.0.0:9450", "", "nginx", 500),
+				flSock(tcp, listen, "0.0.0.0:7443", "", "darkpanel-contr", 4242),
+			}},
+			want: []flow{
+				{label: "controller listener", pkt: flPkt("input", "198.51.100.1", 0, "0.0.0.0", 7443, "tcp")},
+				{label: "controller listener", pkt: flPkt("input", "198.51.100.1", 0, "192.0.2.1", 9443, "tcp")},
+				{label: "controller listener", pkt: flPkt("input", "2001:db8:ffff::1", 0, "2001:db8::1", 9444, "tcp")},
+				{label: "controller listener", pkt: flOn("dp-panel", flPkt("input", "172.30.0.2", 0, "172.30.0.1", 9445, "tcp"))},
+			},
+		},
+		{
+			name: "a runtime listener on a bridge address without a proxy address",
+			f: facts{controller: 4242, sockets: []netstat.Socket{flSock(tcp, listen, "172.30.0.1:9445", "", "darkpanel-contr", 4242)},
+				ifaces: append(gIfaces(), netstat.Interface{Index: 6, Name: "dp-panel", Up: true, Addrs: []netip.Prefix{netip.MustParsePrefix("172.30.0.1/32")}})},
+		},
+		{
+			name: "listening sockets without a controller process",
+			f: facts{ifaces: gIfaces(), sockets: []netstat.Socket{
+				flSock(tcp, listen, "0.0.0.0:7443", "", "darkpanel-contr", 4242),
+			}},
 		},
 		{
 			name: "the agent's outbound sessions",
