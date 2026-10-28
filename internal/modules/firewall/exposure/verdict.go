@@ -238,12 +238,13 @@ func (r *evRun) allowed(probes []evProbe, points []evPoint) []Allowed {
 	}
 	slices.Sort(keys)
 
-	probed := 0
+	var probedIfaces []string
 	for _, pt := range points {
 		if !pt.local {
-			probed++
+			probedIfaces = evAdd(probedIfaces, pt.iface)
 		}
 	}
+	probed := len(probedIfaces)
 	out := make([]Allowed, 0, len(keys))
 	for _, k := range keys {
 		g := groups[k]
@@ -298,12 +299,12 @@ func (r *evRun) atoms(c Class) []Range {
 	is4 := evIs4(r.in.Family)
 	switch c.Name {
 	case "internet":
-		whole, others := netip.MustParsePrefix("::/0"), []string{"::1/128", "fe80::/10", "ff00::/8", "::/128"}
+		whole, others := netip.MustParsePrefix("::/0"), []string{"::1/128", "ff00::/8", "::/128"}
 		if is4 {
 			whole = netip.MustParsePrefix("0.0.0.0/0")
-			others = []string{"127.0.0.0/8", "169.254.0.0/16", "224.0.0.0/4", "0.0.0.0/32"}
+			others = []string{"127.0.0.0/8", "224.0.0.0/4", "0.0.0.0/32"}
 		}
-		exclude := append(slices.Clone(r.in.Private), evTailscale(is4))
+		exclude := slices.DeleteFunc(slices.Clone(r.in.Private), func(p netip.Prefix) bool { return p.Addr().Is4() != is4 })
 		for _, s := range others {
 			exclude = append(exclude, netip.MustParsePrefix(s))
 		}
@@ -334,20 +335,18 @@ func (r *evRun) points(c Class) []evPoint {
 		} else if i.Loopback || i.Tailnet || i.Bridge {
 			continue
 		}
-		dst := r.t.Addr
-		if !concrete {
-			k := slices.IndexFunc(i.Addrs, func(a netip.Addr) bool {
-				if evIs4(r.in.Family) {
-					return a.Is4()
-				}
-				return a.Is6() && !a.Is4In6()
-			})
-			if k < 0 {
+		if concrete {
+			out = append(out, evPoint{iface: i.Name, dst: r.t.Addr})
+			continue
+		}
+		var seen []netip.Addr
+		for _, a := range i.Addrs {
+			if evIs4(r.in.Family) != a.Is4() || a.Is4In6() || slices.Contains(seen, a) {
 				continue
 			}
-			dst = i.Addrs[k]
+			seen = append(seen, a)
+			out = append(out, evPoint{iface: i.Name, dst: a})
 		}
-		out = append(out, evPoint{iface: i.Name, dst: dst})
 	}
 	return out
 }

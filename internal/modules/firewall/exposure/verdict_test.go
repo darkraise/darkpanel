@@ -288,6 +288,24 @@ func TestExEvaluate(t *testing.T) {
 			},
 		},
 		{
+			name: "link-local and Tailscale-range sources outside privateSources are internet",
+			lines: "-A ufw-user-input -s 169.254.0.0/16 -p tcp -m tcp --dport 22 -j ACCEPT\n" +
+				"-A ufw-user-input -s 100.64.0.0/10 -p tcp -m tcp --dport 22 -j ACCEPT\n",
+			edit: func(in *Input) {
+				in.Private = slices.DeleteFunc(in.Private, func(p netip.Prefix) bool { return p == netip.MustParsePrefix("100.64.0.0/10") })
+			},
+			want: exWithout(exWant("filtered", "internet", "partial", "tailnet", "open", "localhost", "open"), "private 100.64.0.0/10"),
+			check: func(t *testing.T, got map[string]Verdict) {
+				want := []Allowed{
+					{Sources: []string{"169.254.0.0/16"}, DecidedBy: "filter/ufw-user-input#1"},
+					{Sources: []string{"100.64.0.0/10"}, DecidedBy: "filter/ufw-user-input#2"},
+				}
+				if v := got["internet"]; !slices.EqualFunc(v.Allowed, want, exAllowedEqual) {
+					t.Errorf("internet allowed = %+v, want %+v", v.Allowed, want)
+				}
+			},
+		},
+		{
 			name: "a target bound to loopback", lines: exOpen,
 			target: Target{Proto: "tcp", Addr: netip.MustParseAddr("127.0.0.1"), Port: 22},
 			want:   exWant("closed", "localhost", "open"),
@@ -307,6 +325,23 @@ func TestExEvaluate(t *testing.T) {
 		{
 			name: "a wildcard uses each probe interface's own address", lines: "-A ufw-user-input -d 192.0.2.10/32 -p tcp -m tcp --dport 22 -j ACCEPT\n",
 			want: exWant("open", "tailnet", "filtered"),
+		},
+		{
+			name: "a wildcard probes every address of the interface", lines: "-A ufw-user-input -d 192.0.2.11/32 -p tcp -m tcp --dport 22 -j ACCEPT\n",
+			edit: func(in *Input) {
+				for i := range in.Ifaces {
+					if in.Ifaces[i].Name == "eth0" {
+						in.Ifaces[i].Addrs = append(in.Ifaces[i].Addrs, netip.MustParseAddr("192.0.2.11"))
+					}
+				}
+			},
+			want: exWant("partial", "tailnet", "filtered", "localhost", "open"),
+			check: func(t *testing.T, got map[string]Verdict) {
+				if v := got["internet"]; len(v.Allowed) != 1 || v.Allowed[0].Ifaces != nil || v.Allowed[0].SrcPorts != nil ||
+					v.Allowed[0].DecidedBy != "filter/ufw-user-input#1" {
+					t.Errorf("internet allowed = %+v", v.Allowed)
+				}
+			},
 		},
 		{
 			name: "a local connection dropped on OUTPUT", lines: exOpen + "-A OUTPUT -o lo -p tcp -m tcp --dport 22 -j DROP\n",
