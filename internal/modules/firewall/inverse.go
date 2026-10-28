@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/dockerfw"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/model"
 )
@@ -23,8 +25,12 @@ import (
 // disable, with the snapshot's values of the sysctl keys not edited by hand
 // since written back, since UFW's start applies its sysctl file); a file
 // gets the snapshot's entry whose
-// hash is its Before; a sysctl key gets its Before. The resource is then
-// observed, and anything but its Before's State is an error.
+// hash is its Before; a sysctl key gets its Before; the Docker flag and
+// settings get their Before, a container rule created is deleted as its
+// Post records it and one deleted is inserted again from its Before, and
+// Darkpanel's Docker chains are cleaned up again or reloaded (undoDocker).
+// The resource is then observed, and anything but its Before's State is an
+// error.
 func inverse(ctx context.Context, env core.Env, d deps, snap snapshot, e core.Effect) error {
 	noun, ident, err := splitResource(e.Resource)
 	if err != nil {
@@ -70,6 +76,8 @@ func inverse(ctx context.Context, env core.Env, d deps, snap snapshot, e core.Ef
 		if err = beforeValue(e, &value); err == nil {
 			err = env.Files.WriteSysctl(ctx, ID, ident, value)
 		}
+	case nounSetting, nounContainer, nounChains:
+		err = undoDocker(ctx, env, d, noun, ident, e)
 	default:
 		err = fmt.Errorf("firewall: effect resource %q has no firewall noun", e.Resource)
 	}
@@ -94,6 +102,72 @@ func beforeValue(e core.Effect, v any) error {
 		return fmt.Errorf("effect %d has no before state", e.Seq)
 	}
 	return json.Unmarshal(e.Before.State, v)
+}
+
+// undoDocker undoes a made Docker effect through the writes of the forward
+// ops, each in one transaction as there. Chains that were absent are
+// cleaned up again under the change's id; chains that were loaded come
+// back with a ufw reload, which only an active UFW runs, so with UFW
+// inactive nothing runs and the caller's observation reports them absent.
+// An identity outside these resources is refused before anything is
+// written.
+func undoDocker(ctx context.Context, env core.Env, d deps, noun, ident string, e core.Effect) error {
+	switch {
+	case e.Resource == deResourceFlag:
+		var on bool
+		if err := beforeValue(e, &on); err != nil {
+			return err
+		}
+		return flagOp(on).apply(ctx, env)
+	case e.Resource == deResourceSources:
+		var s dockerfw.Settings
+		if err := beforeValue(e, &s); err != nil {
+			return err
+		}
+		return sourcesOp(s).apply(ctx, env)
+	case noun == nounContainer:
+		doc, op := e.Before, rowCreateOp
+		if e.Kind == core.EffectCreate {
+			if e.Post == nil {
+				return fmt.Errorf("effect %d has no post state", e.Seq)
+			}
+			doc, op = *e.Post, rowDeleteOp
+		}
+		if raw := bytes.TrimSpace(doc.State); len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+			return fmt.Errorf("effect %d records no container rule", e.Seq)
+		}
+		var r dockerfw.ContainerRule
+		if err := json.Unmarshal(doc.State, &r); err != nil {
+			return fmt.Errorf("container rule %s: %w", doc.State, err)
+		}
+		if r.ID != ident {
+			return fmt.Errorf("effect %d records container rule %s, not %s", e.Seq, r.ID, ident)
+		}
+		return op(r).apply(ctx, env)
+	case e.Resource == deResourceChains:
+		var state string
+		if err := beforeValue(e, &state); err != nil {
+			return err
+		}
+		switch state {
+		case "absent":
+			if d.cleanChains == nil {
+				return errors.New("no owned-chain cleanup: cleanChains is not set")
+			}
+			return d.cleanChains(ctx, env, env.ChangeID)
+		case "loaded":
+			cfg, err := d.readConfig(d.root)
+			if err != nil {
+				return err
+			}
+			if !cfg.Enabled {
+				return nil
+			}
+			return ufw(ctx, env, reloadArgs)
+		}
+		return fmt.Errorf("chains state %q is neither loaded nor absent", state)
+	}
+	return fmt.Errorf("effect resource %q is not a Docker resource", e.Resource)
 }
 
 // ufw runs one ufw vector and fails on a non-zero exit.

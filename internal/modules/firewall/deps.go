@@ -24,6 +24,9 @@ type deps struct {
 	// lockout evaluates the lockout guard on st for the connectivity
 	// exception; gc is the GuardContext the snapshot recorded.
 	lockout func(ctx context.Context, env core.Env, st fwstate.Loaded, gc *core.GuardContext) (ok bool, detail string, err error)
+	// cleanChains removes Darkpanel's Docker chains from the loaded rules
+	// for owner: the owned-chain cleanup.
+	cleanChains func(ctx context.Context, env core.Env, owner string) error
 
 	docker      dockerAPI
 	readVariant func(ctx context.Context, env core.Env, f fwstate.Family, variant string, tables []string) (*netfilter.Ruleset, error)
