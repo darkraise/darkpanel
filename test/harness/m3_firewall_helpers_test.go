@@ -338,6 +338,34 @@ COMMIT
 	}
 }
 
+// m3xOutOfSyncRefusal checks the plans of one ordinary change on an
+// out-of-sync host, planned without and with the override of
+// firewall.lockout: both plans must succeed, the first with a failing
+// firewall.lockout guard, and the override must not pass it. It returns nil
+// when they do.
+func m3xOutOfSyncRefusal(plan m3Plan, planErr error, overridden m3Plan, overriddenErr error) error {
+	if planErr != nil {
+		return fmt.Errorf("the plan was refused (%w); want a plan that succeeds with a failing firewall.lockout guard", planErr)
+	}
+	g, ok := plan.m3Lockout()
+	switch {
+	case !ok:
+		return fmt.Errorf("the plan has no firewall.lockout guard: %s", m3JSON(plan.Guards))
+	case g.OK:
+		return fmt.Errorf("firewall.lockout passed on an out-of-sync host: %s", m3JSON(plan.Guards))
+	case overriddenErr != nil:
+		return fmt.Errorf("the plan with the override was refused (%w); want a plan whose guard still fails", overriddenErr)
+	}
+	og, ok := overridden.m3Lockout()
+	switch {
+	case !ok:
+		return fmt.Errorf("the plan with the override has no firewall.lockout guard: %s", m3JSON(overridden.Guards))
+	case og.OK:
+		return fmt.Errorf("an override passed firewall.lockout on an out-of-sync host: %s", m3JSON(overridden.Guards))
+	}
+	return nil
+}
+
 // m3JSON is v as JSON, for messages.
 func m3JSON(v any) string {
 	b, err := json.Marshal(v)
@@ -345,4 +373,35 @@ func m3JSON(v any) string {
 		return fmt.Sprint(v)
 	}
 	return string(b)
+}
+
+func TestM3xOutOfSyncRefusal(t *testing.T) {
+	failing := m3Plan{Guards: []core.Guard{{ID: "firewall.lockout", OK: false, Overridable: true, Message: "out of sync"}}}
+	passing := m3Plan{Guards: []core.Guard{{ID: "firewall.lockout", OK: true}}}
+	overridden := m3Plan{Guards: []core.Guard{{ID: "firewall.lockout", OK: true, Overridden: true}}}
+	refused := &APIError{Code: "request.invalid_input", Detail: "bad"}
+	for _, tc := range []struct {
+		name         string
+		plan         m3Plan
+		planErr      error
+		overrideP    m3Plan
+		overrideErr  error
+		wantRejected string
+	}{
+		{"refused", failing, nil, failing, nil, ""},
+		{"plan error", m3Plan{}, refused, failing, nil, "the plan was refused"},
+		{"plan without the guard", m3Plan{}, nil, failing, nil, "no firewall.lockout guard"},
+		{"guard passed", passing, nil, failing, nil, "passed"},
+		{"override error", failing, nil, m3Plan{}, refused, "the plan with the override was refused"},
+		{"override without the guard", failing, nil, m3Plan{}, nil, "no firewall.lockout guard"},
+		{"override passed the guard", failing, nil, overridden, nil, "an override passed"},
+	} {
+		err := m3xOutOfSyncRefusal(tc.plan, tc.planErr, tc.overrideP, tc.overrideErr)
+		switch {
+		case tc.wantRejected == "" && err != nil:
+			t.Errorf("%s: %v, want nil", tc.name, err)
+		case tc.wantRejected != "" && (err == nil || !strings.Contains(err.Error(), tc.wantRejected)):
+			t.Errorf("%s: %v, want an error naming %q", tc.name, err, tc.wantRejected)
+		}
+	}
 }

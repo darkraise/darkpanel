@@ -361,15 +361,13 @@ func m3RepairReverts(ctx context.Context, t *testing.T, f *fleet) {
 		return nil
 	}
 	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, outOfSync)
-	// The refusal is a plan that cannot pass, or a refused plan request.
-	var apiErr *APIError
-	switch p, err := f.api.m3Plan(ctx, f.agentID, "firewall.rule.add", m3PortRule(8097)); {
-	case err != nil && !errors.As(err, &apiErr):
-		t.Fatal(err)
-	case err == nil:
-		if g, ok := p.m3Lockout(); !ok || g.OK || g.Overridable {
-			t.Errorf("an ordinary change on an out-of-sync host planned with guards %s; want a firewall.lockout refusal that cannot be overridden", m3JSON(p.Guards))
-		}
+	// The refusal is a plan whose guard fails and that an override cannot pass.
+	p, err := f.api.m3Plan(ctx, f.agentID, "firewall.rule.add", m3PortRule(8097))
+	overridden := m3PortRule(8097)
+	overridden["overrides"] = []string{"firewall.lockout"}
+	po, errO := f.api.m3Plan(ctx, f.agentID, "firewall.rule.add", overridden)
+	if err := m3xOutOfSyncRefusal(p, err, po, errO); err != nil {
+		t.Fatalf("an ordinary change on an out-of-sync host: %v", err)
 	}
 	ch, err := f.api.m3Apply(ctx, f.agentID, "firewall.state.repair", map[string]any{}, 30)
 	m3RequirePending(t, ch, err)
