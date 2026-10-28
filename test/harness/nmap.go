@@ -121,7 +121,7 @@ func ParsePorts(grepable string) ([]PortState, error) {
 			case strings.HasPrefix(field, "Ports: "):
 				reported = true
 				for _, entry := range strings.Split(strings.TrimPrefix(field, "Ports: "), ", ") {
-					p, err := parsePortEntry(entry)
+					p, err := m3dParsePortEntry(entry)
 					if err != nil {
 						return nil, err
 					}
@@ -136,8 +136,8 @@ func ParsePorts(grepable string) ([]PortState, error) {
 	return ports, nil
 }
 
-// parsePortEntry reads <port>/<state>/<protocol>/<owner>/<service>/<rpc>/<version>/.
-func parsePortEntry(entry string) (PortState, error) {
+// m3dParsePortEntry reads <port>/<state>/<protocol>/<owner>/<service>/<rpc>/<version>/.
+func m3dParsePortEntry(entry string) (PortState, error) {
 	f := strings.Split(entry, "/")
 	if len(f) < 3 {
 		return PortState{}, fmt.Errorf("harness: nmap port entry %q has fewer than three fields", entry)
