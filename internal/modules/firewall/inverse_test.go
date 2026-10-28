@@ -168,6 +168,59 @@ func TestInverseReinsertsADeletedRule(t *testing.T) {
 	}
 }
 
+// TestInverseReinsertKeepsTheSnapshotOrder: the snapshot holds A, B, R, C,
+// the change deletes R and an operator then inserts M first. The undo puts
+// R after B, its nearest predecessor still there, not at its old absolute
+// place 3, which would put it before B.
+func TestInverseReinsertKeepsTheSnapshotOrder(t *testing.T) {
+	const (
+		a = "### tuple ### allow tcp 80 0.0.0.0/0 any 0.0.0.0/0 in"
+		b = "### tuple ### allow tcp 81 0.0.0.0/0 any 0.0.0.0/0 in"
+		r = "### tuple ### deny tcp 82 0.0.0.0/0 any 0.0.0.0/0 in"
+		c = "### tuple ### allow tcp 83 0.0.0.0/0 any 0.0.0.0/0 in"
+		m = "### tuple ### allow tcp 84 0.0.0.0/0 any 0.0.0.0/0 in"
+	)
+	for _, tc := range []struct {
+		name       string
+		edit, want []string
+	}{
+		{"insert first", []string{m, a, b, c}, []string{m, a, b, r, c}},
+		{"predecessor deleted", []string{m, a, c}, []string{m, a, r, c}},
+		{"no predecessor left", []string{m, c}, []string{r, m, c}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			h := newFakeHost(t)
+			s := h.state()
+			s.Rules4, s.Rules6 = []string{a, b, r, c}, nil
+			h.setState(s)
+			snap := rsTestSnap(t, h, false)
+			rule := findRules(h.config(), obTestID(t, []string{r}, nil))[0].Rule
+			op := deleteRuleOp(rule)
+			h.ufw[strings.Join(op.Args, " ")] = func(s *fhState) int {
+				s.Rules4 = slices.DeleteFunc(s.Rules4, func(l string) bool { return l == r })
+				return 0
+			}
+			e := ivTestForward(t, h, op)
+			s = h.state()
+			s.Rules4 = tc.edit
+			h.setState(s)
+			for pos := 1; pos <= len(tc.edit); pos++ {
+				h.ufw[strings.Join(model.InsertArgs(pos, rule), " ")] = func(s *fhState) int {
+					s.Rules4 = ivTestInsert(s.Rules4, pos-1, r)
+					return 0
+				}
+			}
+			if err := inverse(ctx, h.env(), h.deps(), snap, e); err != nil {
+				t.Fatal(err)
+			}
+			if got := h.state().Rules4; !slices.Equal(got, tc.want) {
+				t.Errorf("rules after the undo = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestInverseFailsWhenUfwSkipsTheInsert(t *testing.T) {
 	ctx := context.Background()
 	h := newFakeHost(t)

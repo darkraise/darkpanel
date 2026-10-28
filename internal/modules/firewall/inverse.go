@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
@@ -12,9 +14,10 @@ import (
 
 // inverse undoes one made effect (spec 2.5) from the journal alone, never
 // from the change's input: a rule added is deleted by the tuples in its
-// Post; a rule deleted is inserted again at the positions in its Before,
-// the IPv4 and IPv6 halves of a both-family rule separately, because ufw
-// puts the other half of one insert at the end; a default, the logging
+// Post; a rule deleted is inserted again at its place among the
+// snapshot's rules, the IPv4 and IPv6 halves of a both-family rule
+// separately, because ufw puts the other half of one insert at the end; a
+// default, the logging
 // level or the enabled state is set back to its Before (after an enable or
 // disable, with the snapshot's values of the sysctl keys not edited by hand
 // since written back, since UFW's start applies its sysctl file); a file
@@ -31,7 +34,7 @@ func inverse(ctx context.Context, env core.Env, d deps, snap snapshot, e core.Ef
 		if e.Kind == core.EffectCreate {
 			err = deleteAdded(ctx, env, e)
 		} else {
-			err = reinsert(ctx, env, d, e)
+			err = reinsert(ctx, env, d, snap, e)
 		}
 	case nounDefault:
 		var policy string
@@ -146,12 +149,15 @@ func deleteAdded(ctx context.Context, env core.Env, e core.Effect) error {
 	return ufw(ctx, env, model.DeleteArgs(r))
 }
 
-// reinsert adds the rule a "rule deleted" effect removed at the positions
-// its Before records: the IPv4 half at its place among user.rules' tuples,
-// then the IPv6 half at its place among user6.rules' tuples, which ufw
-// numbers after every IPv4 rule. A place past the end appends, since ufw
-// refuses to insert there.
-func reinsert(ctx context.Context, env core.Env, d deps, e core.Effect) error {
+// reinsert adds the rule a "rule deleted" effect removed back at its place
+// among the snapshot's rules: the IPv4 half among user.rules' tuples, then
+// the IPv6 half among user6.rules' tuples, which ufw numbers after every
+// IPv4 rule. The place is right after the nearest rule before it in the
+// snapshot's file that is still there, so rules added or deleted by hand
+// since keep the snapshot's order; the position its Before records is used
+// only when the snapshot does not hold the rule. A place past the end
+// appends, since ufw refuses to insert there.
+func reinsert(ctx context.Context, env core.Env, d deps, snap snapshot, e core.Effect) error {
 	_, v4, v6, err := stateTuples(e.Before.State)
 	if err != nil {
 		return err
@@ -181,19 +187,54 @@ func reinsert(ctx context.Context, env core.Env, d deps, e core.Effect) error {
 		if err != nil {
 			return err
 		}
-		n, offset := len(cfg.Rules4), 0
+		cur, offset, file := cfg.Rules4, 0, "/etc/ufw/user.rules"
 		if half.v6 {
-			n, offset = len(cfg.Rules6), len(cfg.Rules4)
+			cur, offset, file = cfg.Rules6, len(cfg.Rules4), "/etc/ufw/user6.rules"
+		}
+		place := half.pos
+		if p, ok := snapshotPlace(snap, file, half.v6, half.tuples[0].Raw, cur); ok {
+			place = p
 		}
 		args := model.AddArgs(r)
-		if half.pos >= 1 && half.pos <= n {
-			args = model.InsertArgs(offset+half.pos, r)
+		if place >= 1 && place <= len(cur) {
+			args = model.InsertArgs(offset+place, r)
 		}
 		if err := ufw(ctx, env, args); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// snapshotPlace returns the 1-based place among cur at which the tuple line
+// raw goes to keep its order in the snapshot's copy of file: after the
+// nearest tuple before it there that cur still holds, or first when cur
+// holds none of them. ok is false when the snapshot does not hold raw.
+func snapshotPlace(snap snapshot, file string, v6 bool, raw string, cur []model.Tuple) (place int, ok bool) {
+	var lines []string
+	for _, e := range snap.Entries {
+		if e.Path != file || !e.Present {
+			continue
+		}
+		for _, line := range strings.Split(string(e.Data), "\n") {
+			if !strings.HasPrefix(line, model.TuplePrefix) {
+				continue
+			}
+			if t, err := model.ParseTuple(line, v6); err == nil {
+				lines = append(lines, t.Raw)
+			}
+		}
+	}
+	i := slices.Index(lines, raw)
+	if i < 0 {
+		return 0, false
+	}
+	for j := i - 1; j >= 0; j-- {
+		if m := slices.IndexFunc(cur, func(t model.Tuple) bool { return t.Raw == lines[j] }); m >= 0 {
+			return m + 2, true
+		}
+	}
+	return 1, true
 }
 
 // restoreFile writes back the snapshot's entry of path, which must be the
