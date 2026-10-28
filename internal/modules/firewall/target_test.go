@@ -5,6 +5,7 @@ import (
 	"errors"
 	"maps"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -231,6 +232,27 @@ func TestTargetCommands(t *testing.T) {
 // TestTargetRestore: a restore's configuration is the snapshot's, its
 // transition follows the snapshot's and the current UFW state, and the
 // snapshot's sysctl values overlay the prediction for the keys that exist.
+// TestSnapshotConfigRefusesAForeignPath: a damaged snapshot row whose entry
+// names a path outside UFW's state files is refused before anything is
+// written under the temporary root.
+func TestSnapshotConfigRefusesAForeignPath(t *testing.T) {
+	h := newTGHost(t, tgStopped, false)
+	cfg := h.config()
+	var entries []core.RestoreEntry
+	for _, p := range fwstate.StateFiles {
+		entries = append(entries, cfg.Files[p])
+	}
+	if _, err := h.f.snapshotConfig(snapshot{ID: "s1", Entries: entries}); err != nil {
+		t.Fatalf("an intact snapshot: %v", err)
+	}
+	for _, p := range []string{"/etc/ufw/../../tmp/x", "/etc/passwd", "etc/ufw/user.rules"} {
+		bad := append(slices.Clone(entries), core.RestoreEntry{Path: p, Present: true, Data: []byte("x")})
+		if _, err := h.f.snapshotConfig(snapshot{ID: "s1", Entries: bad}); err == nil || !strings.Contains(err.Error(), "not a UFW state file") {
+			t.Errorf("entry %q: %v, want a refusal", p, err)
+		}
+	}
+}
+
 func TestTargetRestore(t *testing.T) {
 	h := newTGHost(t, tgStopped, false)
 	s := h.state()

@@ -5,6 +5,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/darkraise/darkpanel/internal/core/errcode"
@@ -174,6 +175,9 @@ func (f fw) snapshotConfig(s snapshot) (fwstate.Config, error) {
 	}
 	defer func() { _ = os.RemoveAll(root) }()
 	for _, e := range s.Entries {
+		if e.Path != ufwSysctlFile && !slices.Contains(fwstate.StateFiles, e.Path) {
+			return fwstate.Config{}, fmt.Errorf("firewall: snapshot %s holds %q, which is not a UFW state file", s.ID, e.Path)
+		}
 		if !e.Present {
 			continue
 		}
