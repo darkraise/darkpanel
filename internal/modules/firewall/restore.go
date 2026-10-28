@@ -41,16 +41,22 @@ func chooseTransition(snapEnabled, curEnabled bool) fwstate.Transition {
 // record of another snapshot's restore is still there: that restore was cut
 // off, its files may be half written while UFW still runs as before, and
 // the new restore replaces its record, which held the transition. Then the
-// loaded chains say.
-func activeNow(ctx context.Context, env core.Env, d deps, cur fwstate.Config) bool {
-	if _, other, err := pendingRestore(ctx, env.DB); err != nil || !other {
-		return cur.Enabled
+// loaded chains say. A record or chains it cannot read are an error, never
+// the configuration's word, because the caller records the transition it
+// chooses and a retry reuses it.
+func activeNow(ctx context.Context, env core.Env, d deps, cur fwstate.Config) (bool, error) {
+	_, other, err := pendingRestore(ctx, env.DB)
+	if err != nil {
+		return false, err
+	}
+	if !other {
+		return cur.Enabled, nil
 	}
 	st, err := d.readLoaded(ctx, env)
 	if err != nil {
-		return cur.Enabled
+		return false, fmt.Errorf("firewall: restore: %w", err)
 	}
-	return ufwRunning(st)
+	return ufwRunning(st), nil
 }
 
 // transitionArgs is the ufw vector of a transition; nil for none.
@@ -114,7 +120,11 @@ func restoreOver(ctx context.Context, env core.Env, d deps, snap snapshot, emerg
 		case err != nil:
 			tr = fwstate.TransDisable
 		default:
-			tr = chooseTransition(snap.State.Enabled, activeNow(ctx, env, d, cur))
+			active, err := activeNow(ctx, env, d, cur)
+			if err != nil {
+				return rep, err
+			}
+			tr = chooseTransition(snap.State.Enabled, active)
 		}
 		if err := beginRestoreRecord(ctx, env.DB, snap.ID, restoreRecord{Transition: tr, Emergency: emergency}, env.Clock.Now()); err != nil {
 			return rep, err

@@ -393,3 +393,40 @@ func TestAxRestoreAfterAnotherInterruptedRestore(t *testing.T) {
 		})
 	}
 }
+
+func TestAxRestoreOverUnreadableChains(t *testing.T) {
+	ctx := context.Background()
+	h := newFakeHost(t)
+	s := h.state()
+	s.Enabled = true
+	h.setState(s)
+	snap := rsTestSnap(t, h, false)
+	other := rsTestSnap(t, h, false)
+	if err := beginRestore(ctx, h.db, other.ID, fwstate.TransDisable, h.clock.Now()); err != nil {
+		t.Fatal(err)
+	}
+	s.Enabled = false
+	h.setState(s)
+	for _, args := range []string{"reload", "--force enable", "disable"} {
+		h.ufw[args] = func(*fhState) int { return 0 }
+	}
+	h.loadErr = errors.New("loaded: iptables-nft-save exited 1")
+	h.calls = nil
+	if _, err := restore(ctx, h.env(), h.deps(), snap); err == nil {
+		t.Fatal("restore succeeded without the loaded chains")
+	}
+	if _, ok, _ := restoreRecordOf(ctx, h.db, snap.ID); ok {
+		t.Fatal("a restore that could not read the loaded chains recorded its transition")
+	}
+	if got := rsTestRuns(h); got != nil {
+		t.Errorf("ufw ran %v, want nothing", got)
+	}
+	h.loadErr = nil
+	h.calls = nil
+	if _, err := restore(ctx, h.env(), h.deps(), snap); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := rsTestRuns(h), []string{"run /usr/sbin/ufw reload"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("the retry ran %v, want %v", got, want)
+	}
+}
