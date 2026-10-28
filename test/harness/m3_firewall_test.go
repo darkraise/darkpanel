@@ -257,6 +257,12 @@ func m3RevertOnDisconnect(ctx context.Context, t *testing.T, f *fleet) {
 // change is reverted once the host is back.
 func m3RevertOnReboot(ctx context.Context, t *testing.T, f *fleet) {
 	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3Healthy)
+	t.Cleanup(func() {
+		if t.Failed() {
+			out, _ := f.agent.Run(ctx, "sudo journalctl -u darkpanel-agent --no-pager -o short-iso | tail -150")
+			t.Logf("agent journal:\n%s", out)
+		}
+	})
 	ch, err := f.api.m3Apply(ctx, f.agentID, "firewall.rule.add", m3PortRule(8092), 120)
 	m3RequirePending(t, ch, err)
 	if err := f.agent.Reboot(ctx); err != nil {
