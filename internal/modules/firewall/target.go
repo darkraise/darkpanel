@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/dockerfw"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
@@ -30,6 +31,7 @@ type change struct {
 	rowsDel []string                 // container rule ids to delete
 	cleanup bool                     // run the owned-chain cleanup before the transition commands
 	reload  bool                     // the change needs `ufw reload` when UFW stays active (block files changed)
+	notes   []core.DiffLine          // extra plan lines a builder adds
 }
 
 // target is where a change ends.
