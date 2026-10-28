@@ -23,6 +23,10 @@ var primaryChains = []string{
 	"track-input", "track-output", "track-forward",
 }
 
+// jumpedChains are the chains, per direction, that ufw_start appends a jump
+// to at the top of INPUT, OUTPUT and FORWARD, in order.
+var jumpedChains = []string{"before-logging", "before", "after", "after-logging", "reject", "track"}
+
 // restoreText is the iptables-restore input of one family (user6.rules,
 // before6.rules and after6.rules for v6) in the order ufw_start loads it
 // on a host where none of UFW's chains exists: the primary chains and
@@ -52,7 +56,7 @@ func restoreText(cfg fwstate.Config, v6 bool) (string, error) {
 		w(":%s-%s - [0:0]", u, c)
 	}
 	for _, d := range directions {
-		for _, c := range []string{"before-logging", "before", "after", "after-logging", "reject", "track"} {
+		for _, c := range jumpedChains {
 			w("-A %s -j %s-%s-%s", strings.ToUpper(d), u, c, d)
 		}
 	}

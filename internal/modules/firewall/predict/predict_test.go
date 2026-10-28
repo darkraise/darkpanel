@@ -262,3 +262,58 @@ func TestPredictFirstEnableLogging(t *testing.T) {
 		}
 	}
 }
+
+// TestPxBuiltinRules follows what ufw 0.36.2 did on debian:13 with a
+// "*filter" block that appends one rule to INPUT at the top of before.rules
+// and one to FORWARD at the top of after.rules: every start appends those
+// rules to the built-in chains again, after the jumps to UFW's chains, which
+// are added only on the first start, and disable keeps them all.
+func TestPxBuiltinRules(t *testing.T) {
+	cfg := predictConfig(t, "debian-13", "rules")
+	cfg.Files = maps.Clone(cfg.Files)
+	for path, block := range map[string]string{
+		"/etc/ufw/before.rules": "*filter\n-A INPUT -s 203.0.113.9/32 -j DROP\nCOMMIT\n",
+		"/etc/ufw/after.rules":  "*filter\n-A FORWARD -s 203.0.113.10/32 -j DROP\nCOMMIT\n",
+	} {
+		e := cfg.Files[path]
+		e.Data = append([]byte(block), e.Data...)
+		cfg.Files[path] = e
+	}
+	jumps := func(chain, dir string) []string {
+		var out []string
+		for _, c := range []string{"before-logging", "before", "after", "after-logging", "reject", "track"} {
+			out = append(out, "-A "+chain+" -j ufw-"+c+"-"+dir)
+		}
+		return out
+	}
+	in, fwd := "-A INPUT -s 203.0.113.9/32 -j DROP", "-A FORWARD -s 203.0.113.10/32 -j DROP"
+	check := func(step string, st fwstate.Loaded, policy string, copies int) {
+		t.Helper()
+		f := st.V4.Table("filter")
+		inRules, fwdRules := jumps("INPUT", "input"), jumps("FORWARD", "forward")
+		for range copies {
+			inRules, fwdRules = append(inRules, in), append(fwdRules, fwd)
+		}
+		predictTestSame(t, step, f.Chain("INPUT"), predictTestChain(t, "filter", "INPUT", policy, inRules...))
+		predictTestSame(t, step, f.Chain("FORWARD"), predictTestChain(t, "filter", "FORWARD", policy, fwdRules...))
+		predictTestSame(t, step, f.Chain("OUTPUT"), predictTestChain(t, "filter", "OUTPUT", "ACCEPT", jumps("OUTPUT", "output")...))
+	}
+
+	st, err := Predict(cfg, predictLoaded(t, "debian-13", "fresh"), fwstate.TransEnable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("enable", st, "DROP", 1)
+	if st, err = Predict(cfg, st, fwstate.TransReload); err != nil {
+		t.Fatal(err)
+	}
+	check("reload", st, "DROP", 2)
+	if st, err = Predict(cfg, st, fwstate.TransDisable); err != nil {
+		t.Fatal(err)
+	}
+	check("disable", st, "ACCEPT", 2)
+	if st, err = Predict(cfg, st, fwstate.TransEnable); err != nil {
+		t.Fatal(err)
+	}
+	check("enable again", st, "DROP", 3)
+}

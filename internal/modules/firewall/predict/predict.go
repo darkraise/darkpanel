@@ -167,8 +167,7 @@ func startFamily(cfg fwstate.Config, rs *netfilter.Ruleset, v6 bool) error {
 		}
 		for _, c := range tt.Chains {
 			if tt.Name == "filter" && c.Builtin && primary {
-				builtinChain(dst, c.Name).Policy = c.Policy
-				continue
+				c.Rules = c.Rules[min(len(jumpedChains), len(c.Rules)):]
 			}
 			loadChain(dst, c)
 		}
