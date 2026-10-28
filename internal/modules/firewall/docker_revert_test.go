@@ -491,3 +491,72 @@ func TestKfwEmergencyOrder(t *testing.T) {
 		t.Errorf("DOCKER-USER holds %q, want %q", got, want)
 	}
 }
+
+// TestKfwCleanupUnjournaled: the owned-chain cleanup that a restore and the
+// undo of a chains effect run inside a revert journals nothing in the change
+// being reverted, removes the block's chains and keeps the foreign rule.
+func TestKfwCleanupUnjournaled(t *testing.T) {
+	ctx := context.Background()
+	check := func(t *testing.T, h *fakeHost, env core.Env, n int) {
+		t.Helper()
+		if got := kfwJournaled(t, env); got != n {
+			t.Errorf("the journal holds %d effects after the cleanup, want %d", got, n)
+		}
+		if got := kfwChain(h); !slices.Contains(got, kfwForeign) || h.loaded.V4.Tables[0].Chain("darkpanel-docker-deny") != nil {
+			t.Errorf("DOCKER-USER holds %q, want the foreign rule kept and the block's chains removed", got)
+		}
+	}
+	t.Run("a restore", func(t *testing.T) {
+		h, d := kfwHost(t, false)
+		snap := kfwSnapshot(t, h, d)
+		kfwFiles(h, true)
+		kfwSet(t, h, kfwWith(kfwBlockLines, 3, kfwForeign), true)
+		rvTestManualEdit(h)
+		kfwCleanReal(t, h, &d)
+		env := h.env()
+		n := kfwJournaled(t, env)
+		if _, err := restore(ctx, env, d, snap); err != nil {
+			t.Fatal(err)
+		}
+		check(t, h, env, n)
+	})
+	t.Run("the undo of a chains effect", func(t *testing.T) {
+		h, d := kfwHost(t, true)
+		kfwSet(t, h, kfwWith(kfwBlockLines, 3, kfwForeign), true)
+		kfwCleanReal(t, h, &d)
+		env := h.env()
+		n := kfwJournaled(t, env)
+		e := core.Effect{Seq: 1, Kind: core.EffectModify, Resource: deResourceChains,
+			Before: core.StateDoc{State: json.RawMessage(`"absent"`)}}
+		if err := undoDocker(ctx, env, d, nounChains, "docker", e); err != nil {
+			t.Fatal(err)
+		}
+		check(t, h, env, n)
+	})
+}
+
+// kfwCleanReal gives d the production cleanup and makes the fake host drop
+// the block's chains, leaving -j RETURN, when the cleanup's input deletes
+// them.
+func kfwCleanReal(t *testing.T, h *fakeHost, d *deps) {
+	t.Helper()
+	load := h.onRun
+	h.onRun = func(h *fakeHost, cmd core.Cmd) core.CmdResult {
+		if strings.Contains(string(cmd.Stdin), "-X darkpanel-docker-deny") {
+			kfwSet(t, h, []string{kfwReturn}, false)
+			return core.CmdResult{}
+		}
+		return load(h, cmd)
+	}
+	d.cleanChains = fw{d: *d}.cleanChainsPreserving
+}
+
+// kfwJournaled counts the effects env's journal holds.
+func kfwJournaled(t *testing.T, env core.Env) int {
+	t.Helper()
+	effects, err := env.Effects.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(effects)
+}

@@ -154,7 +154,10 @@ func undoDocker(ctx context.Context, env core.Env, d deps, noun, ident string, e
 			if d.cleanChains == nil {
 				return errors.New("no owned-chain cleanup: cleanChains is not set")
 			}
-			return d.cleanChains(ctx, env, env.ChangeID)
+			// A revert settles only the effects it read before it began, so an effect journaled here would stay made.
+			clean := env
+			clean.Effects = nil
+			return d.cleanChains(ctx, clean, env.ChangeID)
 		case "loaded":
 			cfg, err := d.readConfig(d.root)
 			if err != nil {

@@ -175,6 +175,9 @@ func restoreOver(ctx context.Context, env core.Env, d deps, snap snapshot, emerg
 		// written, it would keep the block's own lines as foreign rules and
 		// reload jumps to the chains it has just deleted; run first, it also
 		// leaves the snapshot's files, block or not, to the restore itself.
+		// A revert settles only the effects it read before it began, so an
+		// effect journaled here would stay made and leave the change needing
+		// repair.
 		cleanOwner := env.ChangeID
 		if cleanOwner == "" {
 			cleanOwner = "uninstall"
@@ -182,7 +185,9 @@ func restoreOver(ctx context.Context, env core.Env, d deps, snap snapshot, emerg
 		if d.cleanChains == nil {
 			return rep, errors.New("firewall: restore: the loaded Docker chains need a cleanup, and none is configured")
 		}
-		if err := d.cleanChains(ctx, env, cleanOwner); err != nil {
+		clean := env
+		clean.Effects = nil
+		if err := d.cleanChains(ctx, clean, cleanOwner); err != nil {
 			return rep, err
 		}
 		if before, err = d.readLoaded(ctx, env); err != nil {
