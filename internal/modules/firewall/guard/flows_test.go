@@ -211,6 +211,7 @@ func TestBuildFlows(t *testing.T) {
 			name: "a runtime listener on a bridge address without a proxy address",
 			f: facts{controller: 4242, sockets: []netstat.Socket{flSock(tcp, listen, "172.30.0.1:9445", "", "darkpanel-contr", 4242)},
 				ifaces: append(gIfaces(), netstat.Interface{Index: 6, Name: "dp-panel", Up: true, Addrs: []netip.Prefix{netip.MustParsePrefix("172.30.0.1/32")}})},
+			want: []flow{{label: "controller listener", unknown: "the runtime listener 172.30.0.1:9445 on dp-panel has no proxy address in its network"}},
 		},
 		{
 			name: "listening sockets without a controller process",

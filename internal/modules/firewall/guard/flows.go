@@ -327,7 +327,8 @@ func controllerSessionFlows(s *flowSet, f facts, local map[netip.Addr]bool) {
 // another host is not reached at all. The runtime listener sits on the
 // panel bridge's gateway address and only the proxy container, the next
 // address of the bridge's network, may reach it, so that flow enters on
-// the bridge from the proxy's address.
+// the bridge from the proxy's address; with no such address the flow
+// cannot be placed and is unknown.
 func controllerListenFlows(s *flowSet, f facts, local map[netip.Addr]bool) {
 	if f.controller == 0 {
 		return
@@ -338,11 +339,14 @@ func controllerListenFlows(s *flowSet, f facts, local map[netip.Addr]bool) {
 			continue
 		}
 		if proxy, onBridge := panelProxy(f.ifaces, l); onBridge {
-			if proxy.IsValid() {
-				p := newPacket("input", proxy, unknownPort, l, so.Local.Port(), "tcp")
-				p.InIface = panelBridge
-				s.add(flow{label: "controller listener", pkt: p})
+			if !proxy.IsValid() {
+				s.add(flow{label: "controller listener", unknown: "the runtime listener " +
+					netip.AddrPortFrom(l, so.Local.Port()).String() + " on dp-panel has no proxy address in its network"})
+				continue
 			}
+			p := newPacket("input", proxy, unknownPort, l, so.Local.Port(), "tcp")
+			p.InIface = panelBridge
+			s.add(flow{label: "controller listener", pkt: p})
 			continue
 		}
 		for _, src := range []netip.Addr{internet4, internet6} {
