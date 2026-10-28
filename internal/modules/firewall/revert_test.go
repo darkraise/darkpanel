@@ -764,6 +764,63 @@ func TestAxRevertByInversesLoadsTheBeforeImage(t *testing.T) {
 	}
 }
 
+// TestAxRevertOfARestoreRepair: a repair with outcome restore rewrites a
+// state file before its reload. Its revert by inverses writes the file
+// back first, so the files match the capture again and the before-image
+// is loaded.
+func TestAxRevertOfARestoreRepair(t *testing.T) {
+	ctx := context.Background()
+	h := newFakeHost(t)
+	h.loaded.V4 = fhParse(t, rsTestSave4)
+	imaged := h.loaded
+	env, d := h.env(), h.deps()
+	raw, err := capture(ctx, env, d, &core.GuardContext{Complete: true}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := attach(ctx, env); err != nil {
+		t.Fatal(err)
+	}
+	entry := h.config().Files["/etc/ufw/user.rules"]
+	entry.Data = []byte(strings.Replace(string(entry.Data), "\n", "\n# restored\n", 1))
+	if err := writeFileEffect(ctx, env, d, entry); err != nil {
+		t.Fatal(err)
+	}
+	h.ufw["reload"] = func(*fhState) int { return 0 }
+	h.ufw["--force enable"] = func(s *fhState) int { s.Enabled = true; return 0 }
+	if err := runUfw(ctx, env, d, transitionOp(reloadArgs)); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeSysctlEffect(ctx, env, d, "net/ipv4/conf/eth0/rp_filter", "2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := recordPostHashes(ctx, env, d, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := getSnapshot(ctx, h.db, string(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.sysctl["net/ipv4/conf/eth0/rp_filter"] = "0"
+	h.loaded.V4 = fhParse(t, strings.Replace(rsTestSave4, "--dport 22", "--dport 2222", 1))
+	h.onRun = func(h *fakeHost, cmd core.Cmd) core.CmdResult {
+		if cmd.Path == "/usr/sbin/iptables-nft-restore" {
+			h.loaded = imaged
+		}
+		return core.CmdResult{}
+	}
+	h.calls = nil
+	if _, err := revert(ctx, h.env(), h.deps(), []byte(snap.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(rsTestRuns(h), "run /usr/sbin/iptables-nft-restore -n") {
+		t.Errorf("runs = %q, want the before-image loaded", rsTestRuns(h))
+	}
+	if got := fileHashes(h.config().Files); !reflect.DeepEqual(got, snap.Hashes) {
+		t.Error("the state files are not the snapshot's")
+	}
+}
+
 func TestAxRevertByInversesLeavesAChangedBuiltinChain(t *testing.T) {
 	ctx := context.Background()
 	h, snap, imaged := axImageRepair(t)

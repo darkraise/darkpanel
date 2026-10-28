@@ -229,7 +229,8 @@ func hashesAsApplied(d deps, snap snapshot, made []core.Effect) bool {
 }
 
 // imageFilesChanged lists the state files that differ from snap's capture.
-// A repair never changes them, so such a file was edited after the repair.
+// It runs after the inverses, which put back any file a repair with outcome
+// restore wrote, so such a file was edited after the repair.
 func imageFilesChanged(d deps, snap snapshot) ([]string, error) {
 	cfg, err := d.readConfig(d.root)
 	if err != nil {
