@@ -82,7 +82,7 @@ func (f fw) status(ctx context.Context, env core.Env) (Status, error) {
 		return Status{}, fmt.Errorf("firewall: status: %w", err)
 	}
 	st := Status{
-		Unsupported: append(append([]string{}, cfg.Unsupported...), cur.Unsupported...),
+		Unsupported: hostUnsupported(cfg, cur),
 		Active:      ufwRunning(cur),
 		OutOfSync:   []ChainDifference{},
 		Configured: Configured{

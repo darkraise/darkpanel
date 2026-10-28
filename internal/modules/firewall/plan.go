@@ -38,9 +38,10 @@ type prepared struct {
 }
 
 // prepare reads the configured and loaded state, refuses an unsupported
-// configuration (spec 2.1: a hard refusal, firewall.unsupported_configuration),
-// builds the change and predicts its target, whose configuration must be
-// supported too. Plan and Apply both start here.
+// configuration (spec 2.1: a hard refusal, firewall.unsupported_configuration,
+// mangle and security rules the evaluator cannot model included), builds the
+// change and predicts its target, whose configuration and loaded state must
+// be supported too. Plan and Apply both start here.
 func (f fw) prepare(ctx context.Context, env core.Env, build buildFunc) (prepared, error) {
 	cfg0, err := f.d.readConfig(f.d.root)
 	if err != nil {
@@ -50,7 +51,7 @@ func (f fw) prepare(ctx context.Context, env core.Env, build buildFunc) (prepare
 	if err != nil {
 		return prepared{}, fmt.Errorf("firewall: read the loaded state: %w", err)
 	}
-	if reasons := append(append([]string{}, cfg0.Unsupported...), cur.Unsupported...); len(reasons) > 0 {
+	if reasons := hostUnsupported(cfg0, cur); len(reasons) > 0 {
 		return prepared{}, errcode.New(errcode.FirewallUnsupportedConfiguration,
 			"the host is an unsupported configuration: "+strings.Join(reasons, "; "))
 	}
@@ -62,9 +63,9 @@ func (f fw) prepare(ctx context.Context, env core.Env, build buildFunc) (prepare
 	if err != nil {
 		return prepared{}, err
 	}
-	if len(tg.cfgN.Unsupported) > 0 {
+	if reasons := append(slices.Clone(tg.cfgN.Unsupported), unmodelledRules(tg.pred)...); len(reasons) > 0 {
 		return prepared{}, errcode.New(errcode.FirewallUnsupportedConfiguration,
-			"the configuration the change leads to is unsupported: "+strings.Join(tg.cfgN.Unsupported, "; "))
+			"the configuration the change leads to is unsupported: "+strings.Join(reasons, "; "))
 	}
 	return prepared{cfg0: cfg0, cur: cur, c: c, tg: tg}, nil
 }
