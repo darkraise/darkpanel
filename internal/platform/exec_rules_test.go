@@ -56,6 +56,8 @@ func TestProductionRules(t *testing.T) {
 			{[]string{"list", "tables"}, true},
 			{[]string{"list", "table", "inet", "filter"}, true},
 			{[]string{"list", "table", "inet", "a/b"}, false},
+			{[]string{"list", "table", "inet", "-x"}, false},
+			{[]string{"list", "table", "ip", "docker-user"}, true},
 			{[]string{"list", "table", "foo", "filter"}, false},
 			{[]string{"flush", "ruleset"}, false},
 		},
