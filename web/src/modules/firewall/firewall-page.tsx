@@ -4,6 +4,7 @@ import { Alert, AlertDescription } from "darkraise-ui/components/alert"
 import { Card, CardContent, CardHeader, CardTitle } from "darkraise-ui/components/card"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { errorMessage, readResource } from "@/api/client"
+import { DockerPanel } from "./docker-panel"
 import { AddRule } from "./rule-form"
 import { RulesTable } from "./rules-table"
 import { SnapshotsPanel } from "./snapshots-panel"
@@ -43,9 +44,15 @@ export function FirewallPage({ hostId }: { hostId: string }) {
           <RulesTable hostId={hostId} rules={s.rules} />
         </CardContent>
       </Card>
-      <Link to="snapshots" className="text-sm underline-offset-4 hover:underline">
-        Snapshots
-      </Link>
+      <DockerPanel hostId={hostId} />
+      <div className="flex gap-4">
+        <Link to="snapshots" className="text-sm underline-offset-4 hover:underline">
+          Snapshots
+        </Link>
+        <Link to="exposure" className="text-sm underline-offset-4 hover:underline">
+          Exposure
+        </Link>
+      </div>
     </div>
   )
 }

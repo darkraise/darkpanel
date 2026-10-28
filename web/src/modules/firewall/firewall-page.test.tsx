@@ -4,14 +4,20 @@ import { Route, Routes } from "react-router"
 import { expect, test } from "vitest"
 import { axe } from "vitest-axe"
 import { renderWithProviders, stubFetch, type StubHandler } from "@/test/utils"
-import { fwSnapshot, fwStatus } from "./fixtures"
+import { fwDocker, fwSnapshot, fwStatus } from "./fixtures"
 import FirewallRoutes from "./routes"
 
 const STATUS = "GET /api/v1/hosts/h1/resources/firewall/status"
 const SNAPSHOTS = "GET /api/v1/hosts/h1/resources/firewall/snapshots"
+const DOCKER = "GET /api/v1/hosts/h1/resources/firewall/docker"
 
 function fpRender(path: string, routes: Record<string, StubHandler> = {}) {
-  const calls = stubFetch({ [STATUS]: { body: fwStatus() }, [SNAPSHOTS]: { body: { snapshots: [fwSnapshot()] } }, ...routes })
+  const calls = stubFetch({
+    [STATUS]: { body: fwStatus() },
+    [SNAPSHOTS]: { body: { snapshots: [fwSnapshot()] } },
+    [DOCKER]: { body: fwDocker({ available: false, reason: "the Docker socket is not present", enabled: false, health: "off" }) },
+    ...routes,
+  })
   const result = renderWithProviders(
     <Routes>
       <Route path="/hosts/:hostId/firewall/*" element={<FirewallRoutes hostId="h1" />} />
@@ -29,6 +35,13 @@ test("the firewall page shows the state, the settings and the rules", async () =
   expect(within(screen.getByRole("table", { name: "Firewall rules" })).getAllByRole("row")).toHaveLength(4)
   expect(screen.getByRole("button", { name: "Add rule" })).toBeTruthy()
   expect(screen.queryByRole("alert")).toBeNull()
+})
+
+test("the firewall page shows the Docker integration and links to the exposure page", async () => {
+  fpRender("/hosts/h1/firewall")
+  expect((await screen.findByText(/^Docker integration/)).textContent).toBe("Docker integrationoff")
+  expect(screen.getByText("Docker is not available on this host: the Docker socket is not present").textContent).toContain("socket is not present")
+  expect(screen.getByRole("link", { name: "Exposure" }).getAttribute("href")).toBe("/hosts/h1/firewall/exposure")
 })
 
 test("an unsupported configuration shows its banner on the page", async () => {
