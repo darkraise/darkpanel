@@ -182,6 +182,9 @@ func TestParseStructuralUnsupported(t *testing.T) {
 		if !r.Opaque() || !reflect.DeepEqual(r.Unsupported, []string{tc.want}) {
 			t.Errorf("%s: unsupported = %q, want [%q]", tc.rule, r.Unsupported, tc.want)
 		}
+		if wantGoto := map[bool]string{true: "Y"}[tc.want == "goto"]; r.Goto != wantGoto {
+			t.Errorf("%s: Goto = %q, want %q", tc.rule, r.Goto, wantGoto)
+		}
 	}
 }
 

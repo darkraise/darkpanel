@@ -68,6 +68,8 @@ type Rule struct {
 	Matches []Match
 	// Target is the -j target; Name is "" for a rule without one.
 	Target Target
+	// Goto is the -g chain, or "". A goto makes the rule opaque.
+	Goto string
 	// Unsupported lists why the rule is opaque; empty for a rule fully
 	// inside the contract.
 	Unsupported []string
@@ -420,6 +422,9 @@ func parseRule(toks []token, restore bool) (Rule, error) {
 			continue
 		case "g", "f":
 			r.Unsupported = append(r.Unsupported, map[string]string{"g": "goto", "f": "fragment match"}[short])
+			if short == "g" && len(vals) == 1 && !neg {
+				r.Goto = vals[0]
+			}
 			cur = extNone
 			continue
 		}

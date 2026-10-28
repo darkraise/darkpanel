@@ -17,7 +17,7 @@ import (
 type restoreReport struct {
 	Transition fwstate.Transition
 	Vanished   []string   // per-interface sysctl keys not written back: the interface has gone (spec 2.1)
-	Excluded   []chainRef // before-image built-in chains left as they are (spec 2.3)
+	Excluded   []chainRef // before-image chains left as they are (spec 2.3)
 }
 
 // chooseTransition is the UFW transition that takes UFW from its current
@@ -232,7 +232,7 @@ func loadVerifiedImage(ctx context.Context, env core.Env, d deps, snap snapshot)
 }
 
 func excludedError(excluded []chainRef) error {
-	return fmt.Errorf("firewall: the before-image left %s as they are: their rules other than UFW's and Darkpanel's changed since the snapshot",
+	return fmt.Errorf("firewall: the before-image left %s as they are: their rules other than UFW's and Darkpanel's changed since the snapshot, or they jump to a chain that no longer exists",
 		joinRefs(excluded))
 }
 

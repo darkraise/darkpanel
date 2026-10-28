@@ -185,6 +185,48 @@ func TestPlanImageExcludesChangedBuiltin(t *testing.T) {
 	}
 }
 
+// TestPlanImageMissingJumpTarget: *-restore -n rejects a whole table when a
+// rule jumps to a chain that neither the input nor the table declares, so
+// a chain whose jump target another program deleted is excluded, and so is
+// every chain that jumps to an excluded chain the table no longer has.
+func TestPlanImageMissingJumpTarget(t *testing.T) {
+	gone := strings.NewReplacer(":ufw-user-input - [0:0]\n", ":ufw-user-input - [0:0]\n:fw-gone - [0:0]\n",
+		"-A ufw-user-input -p tcp", "-A ufw-user-input -j fw-gone\n-A ufw-user-input -p tcp").Replace(imTestSave4)
+	for _, tc := range []struct {
+		name, image, cur string
+		want             []chainRef
+	}{
+		{"jump", gone, imTestSave4, []chainRef{{fwstate.V4, "filter", "ufw-user-input"}}},
+		{"goto", strings.Replace(gone, "-j fw-gone", "-g fw-gone", 1), imTestSave4, []chainRef{{fwstate.V4, "filter", "ufw-user-input"}}},
+		{"cascade", gone, strings.NewReplacer(":ufw-user-input - [0:0]\n", "", "-A ufw-before-input -j ufw-user-input\n", "",
+			"-A ufw-user-input -p tcp -m tcp --dport 22 -j ACCEPT\n", "").Replace(imTestSave4),
+			[]chainRef{{fwstate.V4, "filter", "ufw-before-input"}, {fwstate.V4, "filter", "ufw-user-input"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			img := takeImage(imTestLoaded(t, tc.image, imTestSave6))
+			p := planImage(img, imTestLoaded(t, tc.cur, imTestSave6))
+			if !reflect.DeepEqual(p.Excluded, tc.want) {
+				t.Errorf("excluded %v, want %v", p.Excluded, tc.want)
+			}
+			text := string(p.Restore4)
+			if strings.Contains(text, "fw-gone") {
+				t.Errorf("restore input names the deleted chain:\n%s", text)
+			}
+			for _, ref := range tc.want {
+				if strings.Contains(text, ":"+ref.Chain+" ") || strings.Contains(text, "-A "+ref.Chain+" ") {
+					t.Errorf("restore input loads excluded %s:\n%s", ref.Chain, text)
+				}
+			}
+			if !strings.Contains(text, "-F INPUT\n") {
+				t.Errorf("restore input lost INPUT:\n%s", text)
+			}
+		})
+	}
+	if p := planImage(takeImage(imTestLoaded(t, gone, imTestSave6)), imTestLoaded(t, gone, imTestSave6)); len(p.Excluded) != 0 {
+		t.Errorf("excluded %v while fw-gone still exists, want none", p.Excluded)
+	}
+}
+
 func TestPlanImageMissingFamily(t *testing.T) {
 	img := takeImage(imTestLoaded(t, imTestSave4, imTestSave6))
 	p := planImage(img, imTestLoaded(t, imTestSave4, ""))

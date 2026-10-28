@@ -40,6 +40,7 @@ type imageRule struct {
 	Text string `json:"text"`          // the -A line as *-save printed it
 	Key  string `json:"key"`           // netfilter.Key of the rule in its family
 	Own  bool   `json:"own,omitempty"` // a bare jump to a UFW or Darkpanel chain
+	Jump string `json:"jump,omitempty"` // the chain of its table the rule jumps or goes to
 }
 
 // chainRef names one chain of a loaded state.
@@ -54,7 +55,7 @@ func (c chainRef) String() string { return fmt.Sprintf("%s %s/%s", c.Family, c.T
 // imagePlan is what loading a before-image does to the current loaded state.
 type imagePlan struct {
 	Restore4, Restore6 []byte     // *-restore -n input per family; nil when the family loads nothing
-	Excluded           []chainRef // built-in chains left as they are, because their other rules changed
+	Excluded           []chainRef // chains left as they are: see skippedChains
 }
 
 // builtinChains are the built-in chains a before-image holds, of the filter
@@ -98,7 +99,14 @@ func imageTables(rs *netfilter.Ruleset, ipv6 bool) []imageTable {
 			}
 			ic := imageChain{Name: c.Name, Builtin: c.Builtin, Policy: c.Policy, Rules: []imageRule{}}
 			for _, r := range c.Rules {
-				ic.Rules = append(ic.Rules, imageRule{Text: r.Text, Key: netfilter.Key(r, ipv6), Own: ownJump(r, ipv6)})
+				ir := imageRule{Text: r.Text, Key: netfilter.Key(r, ipv6), Own: ownJump(r, ipv6)}
+				switch {
+				case r.Target.Chain:
+					ir.Jump = r.Target.Name
+				case r.Goto != "" && t.Chain(r.Goto) != nil:
+					ir.Jump = r.Goto
+				}
+				ic.Rules = append(ic.Rules, ir)
 			}
 			it.Chains = append(it.Chains, ic)
 		}
@@ -114,7 +122,8 @@ func imageTables(rs *netfilter.Ruleset, ipv6 bool) []imageTable {
 // declares. A built-in chain is not flushed by a declaration, so it is
 // flushed explicitly, and only when its rules other than bare jumps to UFW
 // and Darkpanel chains equal the image's; otherwise it is left as it is and
-// listed in Excluded, so no other program's rule is overwritten. A family
+// listed in Excluded, so no other program's rule is overwritten. A chain
+// that jumps to a chain the load would leave missing is excluded too. A family
 // the current state lacks is left out with all its built-in chains
 // excluded.
 func planImage(img *beforeImage, st fwstate.Loaded) imagePlan {
@@ -138,13 +147,14 @@ func planFamily(tables []imageTable, cur *netfilter.Ruleset, fam fwstate.Family,
 	}
 	var b bytes.Buffer
 	for _, t := range tables {
+		skip := skippedChains(t, cur, ipv6)
 		var decl, flush, rules []string
 		for _, c := range t.Chains {
+			if skip[c.Name] {
+				*excluded = append(*excluded, chainRef{fam, t.Name, c.Name})
+				continue
+			}
 			if c.Builtin {
-				if !foreignEqual(c, cur, t.Name, ipv6) {
-					*excluded = append(*excluded, chainRef{fam, t.Name, c.Name})
-					continue
-				}
 				decl = append(decl, fmt.Sprintf(":%s %s [0:0]", c.Name, c.Policy))
 				flush = append(flush, "-F "+c.Name)
 			} else {
@@ -167,6 +177,36 @@ func planFamily(tables []imageTable, cur *netfilter.Ruleset, fam fwstate.Family,
 		return nil
 	}
 	return b.Bytes()
+}
+
+// skippedChains returns the chains of t the load leaves out: a built-in
+// chain whose other rules changed, and, repeated until nothing changes, any
+// chain with a rule that jumps or goes to a chain neither loaded nor
+// current, because *-restore -n rejects the whole table for such a rule.
+func skippedChains(t imageTable, cur *netfilter.Ruleset, ipv6 bool) map[string]bool {
+	skip := map[string]bool{}
+	loaded := map[string]bool{}
+	for _, c := range t.Chains {
+		if c.Builtin && !foreignEqual(c, cur, t.Name, ipv6) {
+			skip[c.Name] = true
+		}
+		loaded[c.Name] = true
+	}
+	for changed := true; changed; {
+		changed = false
+		for _, c := range t.Chains {
+			if skip[c.Name] {
+				continue
+			}
+			for _, r := range c.Rules {
+				if j := r.Jump; j != "" && (!loaded[j] || skip[j]) && chainOf(cur, t.Name, j) == nil {
+					skip[c.Name], changed = true, true
+					break
+				}
+			}
+		}
+	}
+	return skip
 }
 
 // foreignEqual reports whether the current built-in chain's rules other
