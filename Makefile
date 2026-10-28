@@ -74,7 +74,8 @@ lint-web: web-deps
 	pnpm -C web typecheck
 
 lint-sh:
-	shellcheck release/*.sh $(wildcard install.sh)
+	shellcheck release/*.sh $(wildcard install.sh) internal/modules/firewall/testdata/capture.sh \
+		internal/modules/firewall/eval/testdata/docker28/capture.sh internal/platform/netfilter/testdata/ufw/capture.sh
 
 lint: lint-go lint-web lint-sh
 
