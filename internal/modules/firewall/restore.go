@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -19,6 +20,10 @@ type restoreReport struct {
 	Transition fwstate.Transition
 	Vanished   []string   // sysctl keys not written back because they are not live: an interface that has gone, or a protocol the host booted without (spec 2.1)
 	Excluded   []chainRef // before-image chains left as they are (spec 2.3)
+	// Interleaved is the original order of foreign DOCKER-USER rules that
+	// sat between the block's lines and were re-inserted before its first
+	// line.
+	Interleaved []string
 }
 
 // chooseTransition is the UFW transition that takes UFW from its current
@@ -131,6 +136,9 @@ func restoreOver(ctx context.Context, env core.Env, d deps, snap snapshot, emerg
 		}
 	}
 	rep.Transition = tr
+	f := fw{d: d}
+	owner := "restore:" + snap.ID
+	rep.Interleaved = f.finishRecorded(ctx, env, owner)
 	before, err := d.readLoaded(ctx, env)
 	if err != nil {
 		return rep, fmt.Errorf("firewall: restore: %w", err)
@@ -149,22 +157,68 @@ func restoreOver(ctx context.Context, env core.Env, d deps, snap snapshot, emerg
 			return rep, err
 		}
 	}
+	var onDisk map[string]core.RestoreEntry
+	if cur, err := d.readConfig(d.root); err == nil {
+		onDisk = cur.Files
+	}
+	restored := map[string]core.RestoreEntry{}
+	for _, e := range snap.Entries {
+		if e.Present {
+			restored[e.Path] = e
+		}
+	}
+	cfgS, startErr := snapshotStart(snap)
+	kp := kfwPlanOf(onDisk, restored, snap.State.Enabled, startErr == nil && cfgS.IPv6, true, before)
+	if kp.cleanup {
+		// The cleanup learns which DOCKER-USER rules are the block's from the
+		// after files on disk. Run after the snapshot's block-free files are
+		// written, it would keep the block's own lines as foreign rules and
+		// reload jumps to the chains it has just deleted; run first, it also
+		// leaves the snapshot's files, block or not, to the restore itself.
+		cleanOwner := env.ChangeID
+		if cleanOwner == "" {
+			cleanOwner = "uninstall"
+		}
+		if d.cleanChains == nil {
+			return rep, errors.New("firewall: restore: the loaded Docker chains need a cleanup, and none is configured")
+		}
+		if err := d.cleanChains(ctx, env, cleanOwner); err != nil {
+			return rep, err
+		}
+		if before, err = d.readLoaded(ctx, env); err != nil {
+			return rep, fmt.Errorf("firewall: restore: %w", err)
+		}
+	}
 	for _, e := range snap.Entries {
 		if err := env.Files.Restore(ctx, ID, e); err != nil {
 			return rep, fmt.Errorf("firewall: restore %s: %w", e.Path, err)
 		}
 	}
 	var plan imagePlan
-	if img := snap.State.Image; img != nil {
-		plan, err = loadImage(ctx, env, img, before)
-		rep.Excluded = plan.Excluded
+	transition := func() error {
+		if img := snap.State.Image; img != nil {
+			var err error
+			plan, err = loadImage(ctx, env, img, before)
+			rep.Excluded = plan.Excluded
+			return err
+		}
+		if args := transitionArgs(tr); args != nil {
+			if res, err := env.Exec.Run(ctx, core.Cmd{Path: ufwPath, Args: args}); err != nil || res.ExitCode != 0 {
+				return ufwFailure(args, res, err)
+			}
+		}
+		return nil
+	}
+	if kp.keep {
+		interleaved, err := f.keepForeign(ctx, env, owner, kp.known, kp.next, transition)
 		if err != nil {
 			return rep, err
 		}
-	} else if args := transitionArgs(tr); args != nil {
-		if res, err := env.Exec.Run(ctx, core.Cmd{Path: ufwPath, Args: args}); err != nil || res.ExitCode != 0 {
-			return rep, ufwFailure(args, res, err)
+		if interleaved {
+			rep.Interleaved = kp.order()
 		}
+	} else if err := transition(); err != nil {
+		return rep, err
 	}
 	after, err := d.readLoaded(ctx, env)
 	if err != nil {
@@ -173,7 +227,7 @@ func restoreOver(ctx context.Context, env core.Env, d deps, snap snapshot, emerg
 	if rep.Vanished, err = writeBackSysctl(ctx, env, snap.State.Sysctl, after.Sysctl); err != nil {
 		return rep, err
 	}
-	if err := verifyRestore(d, snap, tr, before, after, plan); err != nil {
+	if err := verifyRestore(d, snap, tr, kp.without(before), kp.without(after), plan); err != nil {
 		return rep, err
 	}
 	if err := endRestore(ctx, env.DB, snap.ID); err != nil {

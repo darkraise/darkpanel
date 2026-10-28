@@ -27,6 +27,10 @@ type overrideDetail struct {
 	// ChainsUnread says why Chains is not known, so an empty Chains is not
 	// read as "no loaded chain changed".
 	ChainsUnread string `json:"chainsUnread,omitempty"`
+	// InterleavedForeign is the original order of foreign DOCKER-USER rules
+	// that sat between the block's lines and were re-inserted before its
+	// first line.
+	InterleavedForeign []string `json:"interleavedForeign,omitempty"`
 }
 
 type fileOverwrite struct {
@@ -95,6 +99,8 @@ func revert(ctx context.Context, env core.Env, d deps, snapBytes []byte) (core.R
 			return core.RevertOutcome{}, fmt.Errorf("firewall: revert: %w", err)
 		}
 	}
+	f := fw{d: d}
+	f.finishRecorded(ctx, env, "revert:"+env.ChangeID)
 	effects, err := env.Effects.List(ctx)
 	if err != nil {
 		return core.RevertOutcome{}, fmt.Errorf("firewall: revert: read the effects: %w", err)
@@ -133,22 +139,14 @@ func revert(ctx context.Context, env core.Env, d deps, snapBytes []byte) (core.R
 			rep, err := restore(ctx, env, d, snap)
 			if err == nil {
 				logVanished(env, rep.Vanished)
-				return core.RevertOutcome{Effects: undoneOutcomes(made, nil)}, nil
+				if len(rep.Interleaved) == 0 {
+					return core.RevertOutcome{Effects: undoneOutcomes(made, nil)}, nil
+				}
+				err = interleavedError(rep.Interleaved)
 			}
 			writeErr = err
 		} else {
-			writeErr = undoNewestFirst(ctx, env, d, snap, made, conflicts)
-			if writeErr == nil && snap.State.Image != nil {
-				switch changed, err := imageFilesChanged(d, snap); {
-				case err != nil:
-					writeErr = fmt.Errorf("firewall: load the before-image: %w", err)
-				case len(changed) > 0:
-					writeErr = fmt.Errorf("firewall: the before-image was not loaded: %s changed since the snapshot, and loading it would drop their rules from the loaded chains",
-						strings.Join(changed, ", "))
-				default:
-					writeErr = loadVerifiedImage(ctx, env, d, snap)
-				}
-			}
+			writeErr = f.undoKeepingForeign(ctx, env, snap, made, conflicts)
 		}
 	}
 	if len(blocked) == 0 && len(conflicts) == 0 && writeErr == nil {
@@ -373,6 +371,10 @@ func finishRestore(ctx context.Context, env core.Env, d deps, snap snapshot, rec
 		return core.RevertOutcome{}, fmt.Errorf("firewall: finish the interrupted restore of snapshot %s: %w", snap.ID, err)
 	}
 	logVanished(env, rep.Vanished)
+	if len(rep.Interleaved) > 0 && rec.Emergency == nil && len(blocked) == 0 {
+		pin(ctx, env, snap.ID)
+		return core.RevertOutcome{}, interleavedError(rep.Interleaved)
+	}
 	const chainsGone = "the restore was cut off and finished later, so the loaded state before it is gone"
 	if rec.Emergency != nil {
 		pin(ctx, env, snap.ID)
@@ -380,13 +382,15 @@ func finishRestore(ctx context.Context, env core.Env, d deps, snap snapshot, rec
 		readErr := json.Unmarshal(rec.Emergency, &er)
 		if readErr == nil {
 			er.Detail.Vanished, er.Detail.ChainsUnread = rep.Vanished, chainsGone
+			er.Detail.InterleavedForeign = rep.Interleaved
 			return core.RevertOutcome{Effects: er.outcomes(), Override: true, Detail: mustJSON(er.Detail)}, nil
 		}
 		env.Log.Warn("firewall: the emergency restore record cannot be read", "snapshot", snap.ID, "error", readErr)
 		// Which made effects were conflicts the restore overwrote is lost
 		// with the record, so none is reported undone.
 		detail := overrideDetail{At: env.Clock.Now().UTC(), Snapshot: snap.ID, ChainsUnread: chainsGone, Vanished: rep.Vanished,
-			Guard: "an interrupted emergency restore was finished, but its record cannot be read: " + readErr.Error()}
+			Guard:              "an interrupted emergency restore was finished, but its record cannot be read: " + readErr.Error(),
+			InterleavedForeign: rep.Interleaved}
 		var out []core.EffectOutcome
 		for _, e := range blocked {
 			out = append(out, core.EffectOutcome{Seq: e.Seq, State: core.EffectUnresolved, Reason: e.Reason})
@@ -406,7 +410,7 @@ func finishRestore(ctx context.Context, env core.Env, d deps, snap snapshot, rec
 	}
 	pin(ctx, env, snap.ID)
 	detail := overrideDetail{At: env.Clock.Now().UTC(), Snapshot: snap.ID, Guard: "an interrupted emergency restore was finished",
-		ChainsUnread: chainsGone, Vanished: rep.Vanished}
+		ChainsUnread: chainsGone, Vanished: rep.Vanished, InterleavedForeign: rep.Interleaved}
 	for _, e := range blocked {
 		out = append(out, core.EffectOutcome{Seq: e.Seq, State: core.EffectUnresolved, Reason: e.Reason})
 		detail.Effects = append(detail.Effects, effectOverwrite{Seq: e.Seq, Resource: e.Resource})
@@ -474,7 +478,7 @@ func emergencyRestore(ctx context.Context, env core.Env, d deps, snap snapshot, 
 		return core.RevertOutcome{}, fmt.Errorf("firewall: the lockout guard failed (%s) and the emergency restore of snapshot %s failed: %w",
 			why, snap.ID, errors.Join(err, writeErr))
 	}
-	detail.Vanished = rep.Vanished
+	detail.Vanished, detail.InterleavedForeign = rep.Vanished, rep.Interleaved
 	logVanished(env, rep.Vanished)
 	afterLoaded, afterErr := d.readLoaded(ctx, env)
 	switch {
