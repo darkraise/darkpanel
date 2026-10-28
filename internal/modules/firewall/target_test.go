@@ -229,9 +229,6 @@ func TestTargetCommands(t *testing.T) {
 	}
 }
 
-// TestTargetRestore: a restore's configuration is the snapshot's, its
-// transition follows the snapshot's and the current UFW state, and the
-// snapshot's sysctl values overlay the prediction for the keys that exist.
 // TestSnapshotConfigRefusesAForeignPath: a damaged snapshot row whose entry
 // names a path outside UFW's state files is refused before anything is
 // written under the temporary root.
@@ -253,6 +250,9 @@ func TestSnapshotConfigRefusesAForeignPath(t *testing.T) {
 	}
 }
 
+// TestTargetRestore: a restore's configuration is the snapshot's, its
+// transition follows the snapshot's and the current UFW state, and the
+// snapshot's sysctl values overlay the prediction for the keys that exist.
 func TestTargetRestore(t *testing.T) {
 	h := newTGHost(t, tgStopped, false)
 	s := h.state()
