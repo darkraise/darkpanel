@@ -2,6 +2,7 @@ package firewall
 
 import (
 	"context"
+	"errors"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/conf"
@@ -10,6 +11,9 @@ import (
 	"github.com/darkraise/darkpanel/internal/modules/firewall/guard"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/loaded"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/predict"
+	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
+	"github.com/darkraise/darkpanel/internal/platform/netstat"
+	"github.com/darkraise/darkpanel/internal/platform/tslocal"
 )
 
 // checkFunc runs the lockout guard on st: guard.Check, or a test's stand-in.
@@ -36,6 +40,13 @@ func productionFW() fw {
 			compare:    loaded.Compare,
 			sysctl:     loaded.PredictSysctl,
 			lockout:    lockoutVia(guard.Check),
+
+			docker:      newDockerClient(dockerapi.DefaultSocket),
+			readVariant: loaded.Reader{}.ReadVariant,
+			sockets:     netstat.Sockets,
+			interfaces:  netstat.Interfaces,
+			routeGet:    netstat.RouteGet,
+			shieldsUp:   shieldsUpVia(tslocal.New(tslocal.DefaultSocket).Prefs),
 		},
 		ipv6Refusal: predict.IPv6Refusal,
 		check:       guard.Check,
@@ -53,5 +64,41 @@ func lockoutVia(check checkFunc) func(ctx context.Context, env core.Env, st fwst
 			return false, "", err
 		}
 		return g.OK, g.Message, nil
+	}
+}
+
+// dockerClient is the Docker client as the firewall's dockerAPI.
+type dockerClient struct{ *dockerapi.Client }
+
+// newDockerClient returns the client of the daemon on socket; it opens no
+// connection until the first call.
+func newDockerClient(socket string) dockerAPI {
+	return dockerClient{dockerapi.New(socket)}
+}
+
+// Events opens the daemon's event stream. On an error it returns a nil
+// interface rather than the client's nil stream, which inside a
+// dockerEvents would compare non-nil.
+func (c dockerClient) Events(ctx context.Context, o dockerapi.EventsOptions) (dockerEvents, error) {
+	s, err := c.Client.Events(ctx, o)
+	if err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// shieldsUpVia reads Tailscale's shields-up preference through prefs. A
+// tailscaled that cannot be reached is not an error: shields-up is then
+// unknown.
+func shieldsUpVia(prefs func(ctx context.Context) (*tslocal.Prefs, error)) func(ctx context.Context) (on, known bool, err error) {
+	return func(ctx context.Context) (bool, bool, error) {
+		p, err := prefs(ctx)
+		if errors.Is(err, tslocal.ErrUnavailable) {
+			return false, false, nil
+		}
+		if err != nil {
+			return false, false, err
+		}
+		return p.ShieldsUp, true, nil
 	}
 }

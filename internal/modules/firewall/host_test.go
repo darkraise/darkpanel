@@ -20,6 +20,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/modules/firewall/conf"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
 	"github.com/darkraise/darkpanel/internal/platform/netfilter"
+	"github.com/darkraise/darkpanel/internal/platform/netstat"
 )
 
 // Rule tuples as UFW 0.36 writes them (captured in containers): fhRule22
@@ -112,6 +113,15 @@ type fakeHost struct {
 	runErr map[string]error // Run fails before the program starts, by "<path> <args>"
 	calls  []string         // "run <path> <args>", "restore <path>", "sysctl <key>=<value>", in order
 	stdin  map[string][]byte
+
+	// The Docker-facing reads fdDeps serves, read when called. A nil hook
+	// answers as a host with nothing to read: no variant tables, sockets or
+	// interfaces, no route, tailscaled unreachable.
+	onReadVariant func(f fwstate.Family, variant string, tables []string) (*netfilter.Ruleset, error)
+	onSockets     func() ([]netstat.Socket, error)
+	onInterfaces  func() ([]netstat.Interface, error)
+	onRouteGet    func(q netstat.RouteQuery) (netstat.Route, error)
+	onShieldsUp   func() (on, known bool, err error)
 
 	sysctl     map[string]string // live values, by /proc/sys key
 	sysctlFail map[string]error  // WriteSysctl fails, by key
