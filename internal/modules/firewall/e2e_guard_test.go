@@ -280,6 +280,8 @@ func (e2eNet) RouteGet(q netstat.RouteQuery) (netstat.Route, error) {
 	return netstat.Route{Type: "unicast", Dst: netip.PrefixFrom(q.Dst, q.Dst.BitLen()), PrefSrc: src, OutIface: "eth0"}, nil
 }
 
+func (e2eNet) Routes(netstat.Family) ([]netstat.Route, error) { return nil, nil }
+
 func (e2eNet) PID() int { return 4242 }
 
 // e2eUnits says no controller runs on the host.

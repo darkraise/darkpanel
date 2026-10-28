@@ -34,8 +34,9 @@ func Check(ctx context.Context, env core.Env, st fwstate.Loaded, in Input) (core
 // them and from in, evaluates each flow with in.Eval against st on every
 // eligible in-interface, and returns the firewall.lockout guard with one
 // FlowResult per flow and interface. The guard fails when any flow is not
-// accepted. Check never decides overridability or hard refusals; a fact it
-// cannot read is an error.
+// accepted. A change of IPv6 forwarding that stops router advertisements
+// adds one unknown flow (raFlows). Check never decides overridability or hard
+// refusals; a fact it cannot read is an error.
 func (c Checker) Check(ctx context.Context, env core.Env, st fwstate.Loaded, in Input) (core.Guard, []FlowResult, error) {
 	if in.Eval == nil {
 		return core.Guard{}, nil, errors.New("firewall: the guard has no evaluator")
@@ -48,9 +49,14 @@ func (c Checker) Check(ctx context.Context, env core.Env, st fwstate.Loaded, in 
 	if err != nil {
 		return core.Guard{}, nil, err
 	}
+	flows := buildFlows(in, f)
+	ra, err := raFlows(ctx, env, h, st)
+	if err != nil {
+		return core.Guard{}, nil, err
+	}
 	r := newRouter(h, f, st)
 	var results []FlowResult
-	for _, fl := range buildFlows(in, f) {
+	for _, fl := range append(flows, ra...) {
 		for _, p := range r.probes(fl) {
 			results = append(results, FlowResult{Flow: p.desc, Result: evaluate(r, p, in.Eval)})
 		}
