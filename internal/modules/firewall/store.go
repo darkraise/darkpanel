@@ -151,8 +151,15 @@ func saveSnapshot(ctx context.Context, db *store.DB, s snapshot) (snapshot, erro
 // system changes, every pinned or baseline snapshot, every snapshot whose
 // change is pending, applying or needs_repair, and the snapshot of a
 // restore in progress. An unattached snapshot counts as a non-system
-// change's unless its actor made it system.
+// change's unless its actor made it system. It first unpins the snapshot
+// of every change a repair has ended (repaired or kept), which that
+// repair's own unpin may have failed to do.
 func pruneSnapshots(ctx context.Context, tx *sql.Tx) (int64, error) {
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE firewall_snapshots SET pinned = 0
+		 WHERE pinned = 1 AND change_id IN (SELECT id FROM core_changes WHERE state IN ('repaired', 'kept'))`); err != nil {
+		return 0, fmt.Errorf("firewall: prune snapshots: unpin repaired changes: %w", err)
+	}
 	res, err := tx.ExecContext(ctx,
 		`DELETE FROM firewall_snapshots
 		 WHERE pinned = 0 AND baseline = 0
