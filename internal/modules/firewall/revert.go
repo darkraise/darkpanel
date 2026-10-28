@@ -23,7 +23,7 @@ type overrideDetail struct {
 	Files    []fileOverwrite   `json:"files,omitempty"`          // state files the restore rewrote
 	Chains   []chainOverwrite  `json:"chains,omitempty"`         // loaded chains the restore changed
 	Effects  []effectOverwrite `json:"effects,omitempty"`        // effects left unresolved, with what the restore overwrote
-	Vanished []string          `json:"vanishedSysctl,omitempty"` // sysctl keys of interfaces that have gone, not restored
+	Vanished []string          `json:"vanishedSysctl,omitempty"` // sysctl keys not restored because they are not live: an interface that has gone, or a protocol the host booted without
 	// ChainsUnread says why Chains is not known, so an empty Chains is not
 	// read as "no loaded chain changed".
 	ChainsUnread string `json:"chainsUnread,omitempty"`

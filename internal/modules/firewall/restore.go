@@ -16,7 +16,7 @@ import (
 // restoreReport is what a restore did besides restoring.
 type restoreReport struct {
 	Transition fwstate.Transition
-	Vanished   []string   // per-interface sysctl keys not written back: the interface has gone (spec 2.1)
+	Vanished   []string   // sysctl keys not written back because they are not live: an interface that has gone, or a protocol the host booted without (spec 2.1)
 	Excluded   []chainRef // before-image chains left as they are (spec 2.3)
 }
 
