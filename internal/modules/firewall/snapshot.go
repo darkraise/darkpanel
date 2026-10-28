@@ -73,7 +73,24 @@ func capture(ctx context.Context, env core.Env, d deps, gc *core.GuardContext, w
 	if err != nil {
 		return nil, fmt.Errorf("firewall: snapshot: %w", err)
 	}
-	state := snapshotState{Enabled: cfg.Enabled, Sysctl: maps.Clone(st.Sysctl), Guard: gc}
+	// Without the Docker state nothing is saved: a snapshot missing the rows
+	// would delete them when restored.
+	dc, err := readDockerConfig(ctx, env.DB)
+	if err != nil {
+		return nil, fmt.Errorf("firewall: snapshot: read the Docker settings: %w", err)
+	}
+	rows, err := listContainerRules(ctx, env.DB)
+	if err != nil {
+		return nil, fmt.Errorf("firewall: snapshot: read the container rules: %w", err)
+	}
+	state := snapshotState{
+		Enabled:        cfg.Enabled,
+		Sysctl:         maps.Clone(st.Sysctl),
+		Guard:          gc,
+		Docker:         dc.Enabled,
+		DockerSettings: &dc.Settings,
+		ContainerRules: rows,
+	}
 	if state.Sysctl == nil {
 		state.Sysctl = map[string]string{}
 	}

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/dockerfw"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
 )
 
@@ -48,7 +49,8 @@ func TestCaptureRecordsTheLogicalState(t *testing.T) {
 	if len(s.Hashes) != len(wantPaths) {
 		t.Errorf("%d hashes, want %d", len(s.Hashes), len(wantPaths))
 	}
-	want := snapshotState{Enabled: true, Sysctl: h.sysctl, Guard: gc}
+	defaults := dockerfw.DefaultSettings()
+	want := snapshotState{Enabled: true, Sysctl: h.sysctl, Guard: gc, DockerSettings: &defaults}
 	if !reflect.DeepEqual(s.State, want) {
 		t.Errorf("state = %+v, want %+v", s.State, want)
 	}

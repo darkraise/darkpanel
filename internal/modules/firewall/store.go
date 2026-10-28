@@ -14,6 +14,7 @@ import (
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/store"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/dockerfw"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
 )
 
@@ -61,13 +62,22 @@ type snapshot struct {
 }
 
 // snapshotState is a snapshot's logical state, the state column (spec 2.1,
-// 2.3, 2.5).
+// 2.3, 2.5), Docker's included: the integration flag, the module's settings
+// and the rows of firewall_container_rules.
 type snapshotState struct {
 	Enabled bool               `json:"enabled"`               // ufw.conf ENABLED at capture
 	Sysctl  map[string]string  `json:"sysctl"`                // every supported key's live value at capture, in /proc/sys form
 	Guard   *core.GuardContext `json:"guard,omitempty"`       // the guard context of the change's plan, for the connectivity exception
 	Image   *beforeImage       `json:"beforeImage,omitempty"` // a repair's loaded-state before-image
-	Docker  bool               `json:"docker"`                // the Docker integration flag; false until the integration exists
+	Docker  bool               `json:"docker"`                // the Docker integration flag at capture
+
+	// DockerSettings is the module's Docker settings at capture. It is nil
+	// in a snapshot taken before the integration existed; a restore then
+	// writes dockerfw.DefaultSettings.
+	DockerSettings *dockerfw.Settings `json:"dockerSettings,omitempty"`
+	// ContainerRules is the rows of firewall_container_rules at capture, in
+	// id order. A row keeps its binding, never a container address.
+	ContainerRules []dockerfw.ContainerRule `json:"containerRules,omitempty"`
 }
 
 // snapshotFilter narrows listSnapshots.
