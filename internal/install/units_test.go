@@ -80,6 +80,7 @@ func TestControllerUnits(t *testing.T) {
 	wantLines(t, "controller", units["/etc/systemd/system/darkpanel-controller.service"], wdUnitLines()...)
 	wantLines(t, "agent", units["/etc/systemd/system/darkpanel-agent.service"], wdUnitLines()...)
 	wantLines(t, "agent", units["/etc/systemd/system/darkpanel-agent.service"],
+		"After=network-online.target ufw.service docker.service tailscaled.service",
 		"ExecStart=/usr/local/lib/darkpanel/darkpanel agent run", "RuntimeDirectory=darkpanel-agent", "RuntimeDirectoryMode=0700",
 		"Restart=on-failure", "RestartSec=2", "StartLimitIntervalSec=60", "StartLimitBurst=5", "TimeoutStartSec=30s",
 		"TimeoutStopSec=10s", "OnFailure=darkpanel-rollback.service", "WantedBy=multi-user.target")

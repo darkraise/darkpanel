@@ -3,7 +3,9 @@
 Description=Darkpanel agent
 Documentation=https://github.com/Darkraise/darkpanel
 Wants=network-online.target
-After=network-online.target
+# Startup recovery reverts against the loaded firewall, so the programs that
+# load rules finish first: a unit that is absent or disabled is ignored.
+After=network-online.target ufw.service docker.service tailscaled.service
 StartLimitIntervalSec=60
 StartLimitBurst=5
 OnFailure=darkpanel-rollback.service
