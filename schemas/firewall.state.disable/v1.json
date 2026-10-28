@@ -105,6 +105,10 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "manual": {
+            "type": "boolean",
+            "description": "Confirms the manual rules the change removes, such as the IPv6 rules a start with IPV6=no discards (spec 2.2)."
           }
         },
         "additionalProperties": false,

@@ -13,6 +13,7 @@ import (
 // firewall.state.disable (v1).
 type StateInput struct {
 	core.Guarded
+	Manual bool `json:"manual,omitempty" jsonschema_description:"Confirms the manual rules the change removes, such as the IPv6 rules a start with IPV6=no discards (spec 2.2)."`
 }
 
 // DefaultsInput is the input of firewall.defaults.set (v1): the default
@@ -53,6 +54,7 @@ func (f fw) stateAction(name, summary string, enable bool) core.ActionDef {
 	return defineMutation(core.ActionSpec{Name: name, Summary: summary}, mutation[StateInput]{
 		f:       f,
 		guarded: func(in StateInput) core.Guarded { return in.Guarded },
+		manual:  func(in StateInput) bool { return in.Manual },
 		build: func(context.Context, core.Env, StateInput) buildFunc {
 			return func(fwstate.Config, fwstate.Loaded) (change, error) { return change{enable: &enable}, nil }
 		},

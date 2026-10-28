@@ -102,6 +102,32 @@ func TestStateActions(t *testing.T) {
 	}
 }
 
+// TestStateEnableIPv6No: starting UFW with IPV6=no empties user6.rules, so
+// enabling a host that holds an IPv6 manual rule needs manual: true.
+func TestStateEnableIPv6No(t *testing.T) {
+	ctx := context.Background()
+	h, f := acHost(t, false)
+	s := h.state()
+	s.IPv6 = false
+	s.Rules6 = append(s.Rules6, fhRule53v6)
+	h.setState(s)
+	h.ufw["--force enable"] = func(s *fhState) int {
+		s.Enabled = true
+		if !s.IPv6 {
+			s.Rules6 = nil
+		}
+		return 0
+	}
+	_, err := f.stateEnable().Handler.Plan(ctx, h.env(), json.RawMessage(`{}`))
+	if e := errcode.From(err); e.Code != errcode.FirewallManualRequired || !strings.Contains(e.Detail, "set manual: true") {
+		t.Fatalf("enable with IPV6=no and an IPv6 manual rule = %v, want manual required", err)
+	}
+	out, _ := acRun(t, h, f.stateEnable(), `{"manual":true}`)
+	if d := strings.Join(acDiff(out), "\n"); !strings.Contains(d, "(manual)") {
+		t.Errorf("diff %q, want the discarded manual rule marked", d)
+	}
+}
+
 // TestDefaultsAndLogging: the defaults and the logging level are set for
 // what changes, then an active UFW reloads; nothing to change is a no-op;
 // a request without any direction is refused.
