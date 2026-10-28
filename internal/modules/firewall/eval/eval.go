@@ -66,6 +66,10 @@ type walker struct {
 	dnat     bool       // a DNAT rule rewrote the destination
 	mark     markState  // the packet mark
 	conn     markState  // the connection mark
+
+	hookBy   string // the rule or policy that accepted in the hook walked last
+	filterBy string // the rule or policy that accepted in the filter table's hook
+	lastBy   string // the rule or policy that accepted in the last hook that had one
 }
 
 func newWalker(rs *netfilter.Ruleset, p fwstate.Packet, route fwstate.Router) (*walker, error) {
@@ -116,9 +120,16 @@ func (w *walker) stop(v fwstate.Verdict, reason string) outcome {
 	return final
 }
 
+// stopAt ends the walk like stop and names the rule or policy that decided.
+func (w *walker) stopAt(v fwstate.Verdict, decided, reason string) outcome {
+	w.res.Decided = decided
+	return w.stop(v, reason)
+}
+
 // hook walks one built-in chain of one table. An absent table or chain
 // registers no hook in the kernel, so it lets the packet through.
 func (w *walker) hook(table, chain string) outcome {
+	w.hookBy = ""
 	t := w.rs.Table(table)
 	if t == nil {
 		return accept
@@ -145,9 +156,10 @@ func (w *walker) hook(table, chain string) outcome {
 	ref := table + "/" + chain
 	switch c.Policy {
 	case "ACCEPT":
+		w.hookBy = ref + " policy ACCEPT"
 		return accept
 	case "DROP":
-		return w.stop(fwstate.Drop, ref+" policy DROP")
+		return w.stopAt(fwstate.Drop, ref+" policy DROP", ref+" policy DROP")
 	}
 	return w.stop(fwstate.Unknown, ref+" has no policy")
 }
@@ -160,7 +172,7 @@ func (w *walker) walkChain(t *netfilter.Table, c *netfilter.Chain, depth int) ou
 			continue
 		}
 		if r.Opaque() {
-			return w.stop(fwstate.Unknown, ref+": "+strings.Join(r.Unsupported, ", "))
+			return w.stopAt(fwstate.Unknown, ref, ref+": "+strings.Join(r.Unsupported, ", "))
 		}
 		m, why := w.modules(t, r)
 		if m == no {
@@ -171,7 +183,7 @@ func (w *walker) walkChain(t *netfilter.Table, c *netfilter.Chain, depth int) ou
 				continue
 			}
 			if decides(r.Target) {
-				return w.stop(fwstate.Unknown, ref+": "+why)
+				return w.stopAt(fwstate.Unknown, ref, ref+": "+why)
 			}
 			continue
 		}
@@ -181,6 +193,11 @@ func (w *walker) walkChain(t *netfilter.Table, c *netfilter.Chain, depth int) ou
 		case ret:
 			return next
 		default:
+			// A jump's accept was already credited to the innermost rule
+			// that accepted.
+			if o == accept && !r.Target.Chain {
+				w.hookBy = ref
+			}
 			return o
 		}
 	}
@@ -208,10 +225,10 @@ func (w *walker) target(t *netfilter.Table, r *netfilter.Rule, ref string, depth
 	if tg.Chain {
 		c := t.Chain(tg.Name)
 		if c == nil {
-			return w.stop(fwstate.Unknown, ref+": no chain "+tg.Name)
+			return w.stopAt(fwstate.Unknown, ref, ref+": no chain "+tg.Name)
 		}
 		if depth >= maxDepth {
-			return w.stop(fwstate.Unknown, fmt.Sprintf("%s: jumps nest deeper than %d", ref, maxDepth))
+			return w.stopAt(fwstate.Unknown, ref, fmt.Sprintf("%s: jumps nest deeper than %d", ref, maxDepth))
 		}
 		return w.walkChain(t, c, depth+1)
 	}
@@ -221,20 +238,20 @@ func (w *walker) target(t *netfilter.Table, r *netfilter.Rule, ref string, depth
 	case "ACCEPT":
 		return accept
 	case "DROP":
-		return w.stop(fwstate.Drop, ref+" drops")
+		return w.stopAt(fwstate.Drop, ref, ref+" drops")
 	case "REJECT":
-		return w.stop(fwstate.Reject, ref+" rejects")
+		return w.stopAt(fwstate.Reject, ref, ref+" rejects")
 	case "RETURN":
 		return ret
 	case "DNAT", "SNAT", "MASQUERADE":
 		return w.natTarget(t, tg, ref)
 	case "MARK", "CONNMARK":
 		if tg.Name == "CONNMARK" && t.Name == "raw" {
-			return w.stop(fwstate.Unknown, ref+": target CONNMARK in the raw table runs before connection tracking")
+			return w.stopAt(fwstate.Unknown, ref, ref+": target CONNMARK in the raw table runs before connection tracking")
 		}
 		return w.markTarget(tg, ref)
 	}
-	return w.stop(fwstate.Unknown, ref+": target "+tg.Name+" is not modelled")
+	return w.stopAt(fwstate.Unknown, ref, ref+": target "+tg.Name+" is not modelled")
 }
 
 // header evaluates the options outside any -m module.

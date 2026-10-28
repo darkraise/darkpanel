@@ -102,6 +102,12 @@ type Result struct {
 	Verdict Verdict
 	Reason  string   // why, for unknown and for a drop or reject: the deciding rule
 	Trace   []string // "<table>/<chain>#<rule index>" in walk order
+	// Decided names the rule or policy that ended the walk: a rule as
+	// "<table>/<chain>#<rule index>", where the chain is the one that holds
+	// the rule, or a built-in chain's policy as "<table>/<chain> policy
+	// ACCEPT" or "<table>/<chain> policy DROP". It is empty for an unknown
+	// verdict caused by a whole hook or by an invalid input.
+	Decided string
 }
 
 // Router says where a packet goes after nat PREROUTING rewrote its

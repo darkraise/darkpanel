@@ -46,6 +46,10 @@ func (w *walker) run() fwstate.Result {
 		return w.res
 	}
 	w.res.Verdict = fwstate.Accept
+	w.res.Decided = w.filterBy
+	if w.res.Decided == "" {
+		w.res.Decided = w.lastBy
+	}
 	return w.res
 }
 
@@ -65,6 +69,12 @@ func (w *walker) steps(seq []step) bool {
 		}
 		if w.hook(s.table, s.chain) == final {
 			return false
+		}
+		if w.hookBy != "" {
+			w.lastBy = w.hookBy
+			if s.table == "filter" {
+				w.filterBy = w.hookBy
+			}
 		}
 	}
 	return true
@@ -125,7 +135,7 @@ func (w *walker) reroute() bool {
 // hook. Only DNAT matters to the verdict: it changes where the packet goes.
 func (w *walker) natTarget(t *netfilter.Table, tg netfilter.Target, ref string) outcome {
 	if t.Name != "nat" {
-		return w.stop(fwstate.Unknown, ref+": target "+tg.Name+" outside the nat table")
+		return w.stopAt(fwstate.Unknown, ref, ref+": target "+tg.Name+" outside the nat table")
 	}
 	if tg.Name != "DNAT" {
 		return accept
@@ -138,7 +148,7 @@ func (w *walker) natTarget(t *netfilter.Table, tg netfilter.Target, ref string) 
 	}
 	addr, port, err := natDestination(to, w.pkt.Family)
 	if err != nil {
-		return w.stop(fwstate.Unknown, ref+": "+err.Error())
+		return w.stopAt(fwstate.Unknown, ref, ref+": "+err.Error())
 	}
 	w.pkt.Dst, w.dnat = addr, true
 	if port != 0 {

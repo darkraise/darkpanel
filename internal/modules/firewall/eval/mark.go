@@ -148,7 +148,7 @@ func parseMarkTarget(tg netfilter.Target) (markSpec, bool) {
 func (w *walker) markTarget(tg netfilter.Target, ref string) outcome {
 	sp, ok := parseMarkTarget(tg)
 	if !ok {
-		return w.stop(fwstate.Unknown, ref+": target "+tg.Name+" with these options is not modelled")
+		return w.stopAt(fwstate.Unknown, ref, ref+": target "+tg.Name+" with these options is not modelled")
 	}
 	if tg.Name == "CONNMARK" && w.noConn() {
 		return next
