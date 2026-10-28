@@ -112,6 +112,18 @@ test("a binding the integration already knows keeps its stored selector", async 
   expect(caPlanCall(calls).body).toEqual({ input: { binding: { selector: "shop/web", hostPort: 8080, proto: "tcp" } } })
 })
 
+test("a container name with Docker's leading slash still matches stored bindings and names new ones", async () => {
+  const container = caContainer({ name: "/web", ports: [{ privatePort: 80, protocol: "tcp", bindings: [{ hostIp: "0.0.0.0", hostPort: 9090 }] }] })
+  const { calls } = caRender("allow", caDocker({ bindings: [caWeb.all] }), container)
+  const user = userEvent.setup()
+  const form = await screen.findByRole("form", { name: "Allow" })
+  expect(within(form).getAllByRole("radio").map((r) => form.querySelector(`label[for="${r.id}"]`)?.textContent)).toEqual(["all:8080/tcp", "all:9090/tcp"])
+  await user.click(within(form).getByRole("radio", { name: "all:9090/tcp" }))
+  await user.click(within(form).getByRole("button", { name: "Plan" }))
+  await within(await screen.findByRole("dialog")).findByLabelText("Planned changes")
+  expect(caPlanCall(calls).body).toEqual({ input: { binding: { selector: "web", hostPort: 9090, proto: "tcp" } } })
+})
+
 test("Deny offers only allowed bindings and needs a source", async () => {
   const allowed = { ...caWeb.all, allowed: ["any"] }
   const { calls } = caRender("deny", caDocker({ bindings: [allowed, caWeb.local] }), caContainer({ ports: [caLocalPort] }))

@@ -38,18 +38,18 @@ function bindingLabel(b: Binding): string {
 
 // candidatesOf lists the bindings of one container: those the integration
 // stores for it, then each published port it has no binding for yet.
-function candidatesOf(docker: DockerStatus, container: ContainerRef): Candidate[] {
+function candidatesOf(docker: DockerStatus, container: ContainerRef, name: string): Candidate[] {
   const found = new Map<string, Candidate>()
   function add(binding: Binding, allowed: boolean) {
     const key = bindingKey(binding)
     if (!found.has(key)) found.set(key, { key, label: bindingLabel(binding), binding, allowed })
   }
   for (const d of docker.bindings) {
-    if (d.containers.includes(container.name)) add(d.binding, d.allowed.length > 0)
+    if (d.containers.includes(name)) add(d.binding, d.allowed.length > 0)
   }
   for (const port of container.ports) {
     for (const published of port.bindings) {
-      const binding: Binding = { selector: container.name, hostPort: published.hostPort, proto: port.protocol }
+      const binding: Binding = { selector: name, hostPort: published.hostPort, proto: port.protocol }
       if (!ANY_ADDRESS.has(published.hostIp)) binding.hostAddr = published.hostIp
       add(binding, false)
     }
@@ -65,6 +65,7 @@ function disabledReason(docker: DockerStatus, kind: Kind, name: string, offered:
 }
 
 function ContainerRuleForm({ kind, container, onDone }: { kind: Kind; container: ContainerRef; onDone: () => void }) {
+  const name = container.name.replace(/^\//, "")
   const [picked, setPicked] = useState("")
   const [from, setFrom] = useState("")
   const [pending, setPending] = useState<Pending | null>(null)
@@ -81,9 +82,9 @@ function ContainerRuleForm({ kind, container, onDone }: { kind: Kind; container:
     )
   }
 
-  const offered = candidatesOf(docker.data, container).filter((c) => kind === "allow" || c.allowed)
+  const offered = candidatesOf(docker.data, container, name).filter((c) => kind === "allow" || c.allowed)
   const selected = offered.find((c) => c.key === picked) ?? offered[0]
-  const reason = disabledReason(docker.data, kind, container.name, offered)
+  const reason = disabledReason(docker.data, kind, name, offered)
   const source = from.trim()
   const verb = kind === "allow" ? "Allow" : "Deny"
   const fieldId = `ctr-${kind}-from`
@@ -93,7 +94,7 @@ function ContainerRuleForm({ kind, container, onDone }: { kind: Kind; container:
     if (reason !== null || selected === undefined) return
     const who = source === "" ? "any source" : source
     setPending({
-      title: `${verb} ${who} to ${container.name} on ${selected.label}`,
+      title: `${verb} ${who} to ${name} on ${selected.label}`,
       input: source === "" ? { binding: selected.binding } : { binding: selected.binding, from: source },
     })
   }
