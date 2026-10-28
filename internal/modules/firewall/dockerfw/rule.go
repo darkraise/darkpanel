@@ -64,6 +64,8 @@ func (r ContainerRule) Validate(s Settings) error {
 		add("/from", "a deny needs the source range to refuse")
 	case set && !r.From.IsValid():
 		add("/from", "must be a valid CIDR range")
+	case set && r.From.Addr().Is4In6():
+		add("/from", "is an IPv4-mapped IPv6 range; write it as an IPv4 range")
 	case set && r.From != r.From.Masked():
 		add("/from", "has host bits set; use "+r.From.Masked().String())
 	case r.Kind == Deny:

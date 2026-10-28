@@ -153,7 +153,7 @@ func rzGroups(rows []ContainerRule) []*rzGroup {
 	return groups
 }
 
-func rzIs6(a netip.Addr) bool { return !a.Unmap().Is4() }
+func rzIs6(a netip.Addr) bool { return !a.Is4() }
 
 // rzContainerPorts returns, per family (IPv4 then IPv6), the container port
 // the binding's host port maps to and whether the container publishes it on

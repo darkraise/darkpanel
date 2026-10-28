@@ -50,6 +50,8 @@ func TestBdRuleValidate(t *testing.T) {
 		{"an unmasked allowance", nil, func(r *ContainerRule) { r.From = netip.MustParsePrefix("203.0.113.5/24") }, []string{"/from"}, "203.0.113.0/24"},
 		{"an unmasked deny", nil, deny("203.0.113.5/24"), []string{"/from"}, "203.0.113.0/24"},
 		{"an invalid prefix", nil, func(r *ContainerRule) { r.From = netip.PrefixFrom(netip.MustParseAddr("203.0.113.0"), 99) }, []string{"/from"}, ""},
+		{"an IPv4-mapped allowance", nil, func(r *ContainerRule) { r.From = netip.MustParsePrefix("::ffff:203.0.113.0/120") }, []string{"/from"}, "IPv4"},
+		{"an IPv4-mapped deny of a private range", nil, deny("::ffff:10.0.0.0/104"), []string{"/from"}, "IPv4"},
 		{"a deny inside 10.0.0.0/8", nil, deny("10.1.0.0/16"), []string{"/from"}, "10.0.0.0/8"},
 		{"a deny equal to a private range", nil, deny("100.64.0.0/10"), []string{"/from"}, "100.64.0.0/10"},
 		{"a deny inside 192.168.0.0/16", nil, deny("192.168.1.0/24"), []string{"/from"}, "192.168.0.0/16"},

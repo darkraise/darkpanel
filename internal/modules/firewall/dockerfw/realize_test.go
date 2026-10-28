@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/model"
 )
 
@@ -382,6 +383,18 @@ func TestRzRealizeIsIndependentOfRowOrder(t *testing.T) {
 		}
 		if got := Realize(shuffled, facts, DefaultSettings()); !reflect.DeepEqual(got, want) {
 			t.Errorf("%s rows: %+v, want the result of the sorted rows %+v", name, got, want)
+		}
+	}
+}
+
+// TestRzFamilyMatchesRender: Realize and Render must file every address
+// under the same family, or a line or a deny lands in a family whose
+// chain never lists it.
+func TestRzFamilyMatchesRender(t *testing.T) {
+	for _, s := range []string{"192.0.2.1", "::ffff:192.0.2.1", "2001:db8::1", "0.0.0.0", "::"} {
+		a := netip.MustParseAddr(s)
+		if got, want := rzIs6(a), blockFamilyOf(a) == fwstate.V6; got != want {
+			t.Errorf("rzIs6(%s) = %v, want %v (Render's family)", s, got, want)
 		}
 	}
 }
