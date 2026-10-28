@@ -1,6 +1,7 @@
 package firewall
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -22,6 +23,9 @@ import (
 type foreignRecord struct {
 	Layouts map[fwstate.Family]dockerfw.Layout `json:"layouts"`
 	Block   map[fwstate.Family][]string        `json:"block"` // the DOCKER-USER lines to reload; nil: -j RETURN
+	// Known are the after files whose block lines count as Darkpanel's,
+	// kept because a repeat may find the files on disk without the block.
+	Known [][]byte `json:"known,omitempty"`
 }
 
 // preserveFamilies are the families whose DOCKER-USER is kept, in the order
@@ -110,7 +114,17 @@ func (f fw) keepForeign(ctx context.Context, env core.Env, owner string, known [
 	if err != nil {
 		return false, fmt.Errorf("firewall: read DOCKER-USER: %w", err)
 	}
-	rules, err := blockUserRules(known)
+	earlier, ok, err := foreignOf(ctx, env.DB, owner)
+	if err != nil {
+		return false, err
+	}
+	files := slices.Clone(known)
+	for _, file := range earlier.Known {
+		if !slices.ContainsFunc(files, func(k []byte) bool { return bytes.Equal(k, file) }) {
+			files = append(files, file)
+		}
+	}
+	rules, err := blockUserRules(files)
 	if err != nil {
 		return false, err
 	}
@@ -124,14 +138,10 @@ func (f fw) keepForeign(ctx context.Context, env core.Env, owner string, known [
 			layouts[fam] = dockerfw.LayoutOf(c, rules, fam)
 		}
 	}
-	earlier, ok, err := foreignOf(ctx, env.DB, owner)
-	if err != nil {
-		return false, err
-	}
 	if ok {
 		layouts = mergeLayouts(earlier.Layouts, layouts)
 	}
-	rec := foreignRecord{Layouts: layouts, Block: next}
+	rec := foreignRecord{Layouts: layouts, Block: next, Known: files}
 	if err := putForeign(ctx, env.DB, owner, rec, env.Clock.Now()); err != nil {
 		return false, err
 	}

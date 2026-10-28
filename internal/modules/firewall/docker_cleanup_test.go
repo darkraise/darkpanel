@@ -233,12 +233,14 @@ func TestClFinishCleanups(t *testing.T) {
 	ctx := context.Background()
 	r := kfHost(t, kfJoin(kfOne(kfForeign1), kfLines(t, fwstate.V4)), nil)
 	r.standalone()
+	known := r.known()
 	for _, p := range []string{"/etc/ufw/after.rules", "/etc/ufw/after6.rules"} {
 		r.h.writeFile(p, []byte("*filter\n# after\nCOMMIT\n"))
 	}
 	rec := foreignRecord{
 		Layouts: map[fwstate.Family]dockerfw.Layout{fwstate.V4: {Before: kfOne(kfForeign1)}, fwstate.V6: {}},
 		Block:   kfNext(t),
+		Known:   known,
 	}
 	if err := beginCleanup(ctx, r.h.db, "c9", r.h.clock.Now()); err != nil {
 		t.Fatal(err)
@@ -297,6 +299,45 @@ func TestClFailedLoadIsFinished(t *testing.T) {
 	}
 	if got, want := r.loadedLines(fwstate.V4), kfJoin(kfOne(kfForeign1), kfOne(kfReturn)); !slices.Equal(got, want) {
 		t.Errorf("IPv4 DOCKER-USER = %q, want %q", got, want)
+	}
+	if got := clChains(r); len(got) != 0 {
+		t.Errorf("chains %q are still loaded", got)
+	}
+	if got := clPending(t, r); len(got) != 0 || kfRecordHeld(t, r, "c1") {
+		t.Errorf("intents %q or a record left", got)
+	}
+}
+
+// TestClLateForeignKept: foreign rules added after a cut-off cleanup, one
+// in a family already cleaned and one in a family still holding the
+// block's lines, are kept by the repeat, after the rule the first attempt
+// recorded, and the block's lines are not taken for foreign rules.
+func TestClLateForeignKept(t *testing.T) {
+	ctx := context.Background()
+	const late6 = "-A DOCKER-USER -s 2001:db8::/32 -j DROP"
+	r := kfHost(t, kfJoin(kfOne(kfForeign1), kfLines(t, fwstate.V4)), nil)
+	r.standalone()
+	inner, broken := r.h.onRun, true
+	r.h.onRun = func(h *fakeHost, cmd core.Cmd) core.CmdResult {
+		if broken && cmd.Path == "/usr/sbin/ip6tables-nft-restore" {
+			return core.CmdResult{ExitCode: 1, Stderr: []byte("ip6tables-restore: resource problem")}
+		}
+		return inner(h, cmd)
+	}
+	if err := r.f.cleanupChains(ctx, r.env, "c1", cleanupPreserve); err == nil {
+		t.Fatal("cleanupChains = nil, want the failed IPv6 load")
+	}
+	broken = false
+	r.flush(t, fwstate.V4, kfJoin(kfOne(kfForeign2), r.loadedLines(fwstate.V4)))
+	r.flush(t, fwstate.V6, kfJoin(kfOne(late6), r.loadedLines(fwstate.V6)))
+	if err := r.f.finishCleanups(ctx, r.env); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := r.loadedLines(fwstate.V4), kfJoin(kfOne(kfForeign1), kfOne(kfForeign2), kfOne(kfReturn)); !slices.Equal(got, want) {
+		t.Errorf("IPv4 DOCKER-USER = %q, want %q", got, want)
+	}
+	if got, want := r.loadedLines(fwstate.V6), kfJoin(kfOne(late6), kfOne(kfReturn)); !slices.Equal(got, want) {
+		t.Errorf("IPv6 DOCKER-USER = %q, want %q", got, want)
 	}
 	if got := clChains(r); len(got) != 0 {
 		t.Errorf("chains %q are still loaded", got)

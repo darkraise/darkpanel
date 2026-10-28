@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -113,6 +114,11 @@ func (f fw) runCleanup(ctx context.Context, env core.Env, owner string, mode cle
 	if err != nil {
 		return err
 	}
+	if held {
+		if rules, err = blockUserRules(slices.Concat(known, rec.Known)); err != nil {
+			return fmt.Errorf("firewall: cleanup: %w", err)
+		}
+	}
 	// Refusing before anything is recorded or written means a refused
 	// cleanup changes nothing.
 	if mode == cleanupRefuse && !held {
@@ -133,32 +139,19 @@ func (f fw) runCleanup(ctx context.Context, env core.Env, owner string, mode cle
 		}
 	}
 	steps := func() error { return f.cleanupSteps(ctx, env, cfg, cur) }
-	// The interleaved results are dropped: with no block line left, every
-	// foreign rule sits in its original order ahead of -j RETURN.
-	switch {
-	case held:
-		// An earlier attempt was cut off after it read DOCKER-USER. The files
-		// no longer hold the block, so the chain's remaining block lines would
-		// read as foreign: the record says what is foreign. Its block lines
-		// are a restore's, and this cleanup leaves -j RETURN.
-		if err := steps(); err != nil {
-			return err
-		}
-		rec.Block = nil
-		if err := putForeign(ctx, env.DB, owner, rec, env.Clock.Now()); err != nil {
-			return err
-		}
-		if _, err := f.finishForeign(ctx, env, owner); err != nil {
-			return err
-		}
-	case len(cleanupOwned(cur.V4)) > 0 || len(cleanupOwned(cur.V6)) > 0:
+	// A held record means an earlier attempt was cut off after it read
+	// DOCKER-USER, and the files may no longer hold the block. keepForeign
+	// judges the chain against the files that attempt recorded too, so the
+	// block lines still loaded are not taken for foreign rules, while rules
+	// added since then are kept after the recorded ones. The interleaved
+	// result is dropped: with no block line left, every foreign rule sits in
+	// its original order ahead of -j RETURN.
+	if held || len(cleanupOwned(cur.V4)) > 0 || len(cleanupOwned(cur.V6)) > 0 {
 		if _, err := f.keepForeign(ctx, env, owner, known, nil, steps); err != nil {
 			return err
 		}
-	default:
-		if err := steps(); err != nil {
-			return err
-		}
+	} else if err := steps(); err != nil {
+		return err
 	}
 	if err := f.verifyCleanup(ctx, env, rules); err != nil {
 		return err
