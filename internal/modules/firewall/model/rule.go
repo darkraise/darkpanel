@@ -91,8 +91,10 @@ const (
 const Any = "any"
 
 // The schema patterns, which the struct tags repeat (a struct tag cannot
-// name a constant). They are the only protection of the argument vectors,
-// since ufw has no "--": no value may start with "-".
+// name a constant). Since ufw has no "--", no value may start with "-":
+// they protect the argument vectors of a rule from a request, and
+// withComment drops a manual rule's comment read from UFW's files that
+// fails them.
 const (
 	idPattern      = `^([0-9A-HJKMNP-TV-Z]{26}|manual-[0-9a-f]{16})$`
 	addrPattern    = `^(any|[0-9A-Fa-f:./]{2,43})$`
