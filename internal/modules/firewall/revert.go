@@ -61,7 +61,8 @@ type effectOverwrite struct {
 //     recorded, never).
 //  3. Otherwise the inverses of the made effects, newest first, skipping
 //     conflicts and stopping at the first failure, then "ufw reload" when
-//     a rule, default or logging inverse ran on an active UFW.
+//     a rule, default or logging inverse ran on an active UFW, and, for a
+//     repair's snapshot, the before-image loaded over the loaded chains.
 //  4. Whenever that did not restore the prior state, the lockout guard on
 //     the loaded state now, with the snapshot's guard context. A failing
 //     (or unevaluable) guard restores the snapshot whole over everything
@@ -126,6 +127,9 @@ func revert(ctx context.Context, env core.Env, d deps, snapBytes []byte) (core.R
 			writeErr = err
 		} else {
 			writeErr = undoNewestFirst(ctx, env, d, snap, made, conflicts)
+			if writeErr == nil && snap.State.Image != nil {
+				writeErr = loadVerifiedImage(ctx, env, d, snap)
+			}
 		}
 	}
 	if len(blocked) == 0 && len(conflicts) == 0 && writeErr == nil {

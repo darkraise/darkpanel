@@ -540,3 +540,89 @@ func TestAxRevertFinishesAnUnreadableEmergencyRecord(t *testing.T) {
 		})
 	}
 }
+
+// axImageRepair returns a host on which a repair of change c1, whose
+// snapshot holds a before-image, reloaded UFW (effect 1) and so replaced
+// the loaded UFW chains, and on which a manual rule was added afterwards,
+// so the revert goes by inverses. imaged is the loaded state of the image.
+func axImageRepair(t *testing.T) (h *fakeHost, snap snapshot, imaged fwstate.Loaded) {
+	t.Helper()
+	ctx := context.Background()
+	h = newFakeHost(t)
+	h.loaded.V4 = fhParse(t, rsTestSave4)
+	imaged = h.loaded
+	env, d := h.env(), h.deps()
+	raw, err := capture(ctx, env, d, &core.GuardContext{Complete: true}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := attach(ctx, env); err != nil {
+		t.Fatal(err)
+	}
+	h.ufw["reload"] = func(*fhState) int { return 0 }
+	h.ufw["--force enable"] = func(s *fhState) int { s.Enabled = true; return 0 }
+	if err := runUfw(ctx, env, d, transitionOp(reloadArgs)); err != nil {
+		t.Fatal(err)
+	}
+	if err := recordPostHashes(ctx, env, d, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if snap, err = getSnapshot(ctx, h.db, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	h.loaded.V4 = fhParse(t, strings.Replace(rsTestSave4, "--dport 22", "--dport 2222", 1))
+	rvTestManualEdit(h)
+	h.onRun = func(h *fakeHost, cmd core.Cmd) core.CmdResult {
+		if cmd.Path == "/usr/sbin/ip6tables-nft-restore" {
+			h.loaded = imaged
+		}
+		return core.CmdResult{}
+	}
+	h.calls = nil
+	return h, snap, imaged
+}
+
+func TestAxRevertByInversesLoadsTheBeforeImage(t *testing.T) {
+	ctx := context.Background()
+	h, snap, imaged := axImageRepair(t)
+	out, err := revert(ctx, h.env(), h.deps(), []byte(snap.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Override || !reflect.DeepEqual(out.Effects, []core.EffectOutcome{{Seq: 1, State: core.EffectUndone}}) {
+		t.Errorf("outcome = %+v", out)
+	}
+	if got, want := rsTestRuns(h), []string{"run /usr/sbin/ufw --force enable", "run /usr/sbin/iptables-nft-restore -n", "run /usr/sbin/ip6tables-nft-restore -n"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("runs = %q, want %q", got, want)
+	}
+	want := planImage(snap.State.Image, fwstate.Loaded{V4: fhParse(t, strings.Replace(rsTestSave4, "--dport 22", "--dport 2222", 1)), V6: imaged.V6})
+	if string(h.stdin["/usr/sbin/iptables-nft-restore"]) != string(want.Restore4) {
+		t.Errorf("the loaded input =\n%s\nwant\n%s", h.stdin["/usr/sbin/iptables-nft-restore"], want.Restore4)
+	}
+	if !slices.Contains(h.state().Rules6, fhRule53v6) {
+		t.Error("the revert removed the manual rule")
+	}
+	if h.guardCalls != 0 {
+		t.Errorf("the guard was evaluated %d times for a complete revert", h.guardCalls)
+	}
+}
+
+func TestAxRevertByInversesLeavesAChangedBuiltinChain(t *testing.T) {
+	ctx := context.Background()
+	h, snap, _ := axImageRepair(t)
+	changed := strings.Replace(rsTestSave4, "-A INPUT -j ufw-user-input\n", "-A INPUT -j ufw-user-input\n-A INPUT -s 192.0.2.9/32 -j DROP\n", 1)
+	h.loaded.V4 = fhParse(t, changed)
+	_, err := revert(ctx, h.env(), h.deps(), []byte(snap.ID))
+	if err == nil || !strings.Contains(err.Error(), "v4 filter/INPUT") {
+		t.Fatalf("revert = %v, want an error naming v4 filter/INPUT", err)
+	}
+	if strings.Contains(string(h.stdin["/usr/sbin/iptables-nft-restore"]), "-F INPUT") {
+		t.Error("the load flushes the changed INPUT chain")
+	}
+	if h.guardCalls != 1 {
+		t.Errorf("the guard was evaluated %d times, want 1", h.guardCalls)
+	}
+	if s, err := getSnapshot(ctx, h.db, snap.ID); err != nil || !s.Pinned {
+		t.Errorf("snapshot pinned = %v, %v", s.Pinned, err)
+	}
+}

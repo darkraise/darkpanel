@@ -194,7 +194,11 @@ func chainOf(rs *netfilter.Ruleset, table, chain string) *netfilter.Chain {
 }
 
 // imageMismatch lists the chains of img, except those excluded, whose
-// policy or rules in st differ from the image.
+// policy or rules in st differ from the image. A chain of st that the image
+// lacks, created after the image was taken, is not listed: *-restore -n
+// cannot remove a chain, and once the image's built-in chains are loaded
+// nothing jumps to it. A built-in chain that keeps a jump to it is in
+// excluded, which fails the restore on its own.
 func imageMismatch(img *beforeImage, st fwstate.Loaded, excluded []chainRef) []chainRef {
 	var out []chainRef
 	check := func(tables []imageTable, cur *netfilter.Ruleset, fam fwstate.Family, ipv6 bool) {

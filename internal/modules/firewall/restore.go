@@ -156,19 +156,10 @@ func restoreOver(ctx context.Context, env core.Env, d deps, snap snapshot, emerg
 	}
 	var plan imagePlan
 	if img := snap.State.Image; img != nil {
-		plan = planImage(img, before)
+		plan, err = loadImage(ctx, env, img, before)
 		rep.Excluded = plan.Excluded
-		for _, f := range []struct {
-			fam   fwstate.Family
-			input []byte
-		}{{fwstate.V4, plan.Restore4}, {fwstate.V6, plan.Restore6}} {
-			if f.input == nil {
-				continue
-			}
-			cmd := core.Cmd{Path: restoreProgram(f.fam, before.Variant), Args: []string{"-n"}, Stdin: f.input}
-			if res, err := env.Exec.Run(ctx, cmd); err != nil || res.ExitCode != 0 {
-				return rep, fmt.Errorf("firewall: load the %s before-image: %w", f.fam, runFailure(cmd, res, err))
-			}
+		if err != nil {
+			return rep, err
 		}
 	} else if args := transitionArgs(tr); args != nil {
 		if res, err := env.Exec.Run(ctx, core.Cmd{Path: ufwPath, Args: args}); err != nil || res.ExitCode != 0 {
@@ -189,10 +180,60 @@ func restoreOver(ctx context.Context, env core.Env, d deps, snap snapshot, emerg
 		return rep, err
 	}
 	if len(rep.Excluded) > 0 {
-		return rep, fmt.Errorf("firewall: the before-image left %s as they are: their rules other than UFW's and Darkpanel's changed since the snapshot",
-			joinRefs(rep.Excluded))
+		return rep, excludedError(rep.Excluded)
 	}
 	return rep, nil
+}
+
+// loadImage loads before-image img over the loaded state before with
+// *-restore -n, as planImage decides. It returns the plan even when a
+// program fails.
+func loadImage(ctx context.Context, env core.Env, img *beforeImage, before fwstate.Loaded) (imagePlan, error) {
+	plan := planImage(img, before)
+	for _, f := range []struct {
+		fam   fwstate.Family
+		input []byte
+	}{{fwstate.V4, plan.Restore4}, {fwstate.V6, plan.Restore6}} {
+		if f.input == nil {
+			continue
+		}
+		cmd := core.Cmd{Path: restoreProgram(f.fam, before.Variant), Args: []string{"-n"}, Stdin: f.input}
+		if res, err := env.Exec.Run(ctx, cmd); err != nil || res.ExitCode != 0 {
+			return plan, fmt.Errorf("firewall: load the %s before-image: %w", f.fam, runFailure(cmd, res, err))
+		}
+	}
+	return plan, nil
+}
+
+// loadVerifiedImage loads and verifies snap's before-image over the loaded
+// state, as the end of a whole restore does. A revert by inverses ends with
+// it, because the inverses of a repair's effects cannot take back what its
+// reload did to the loaded chains: only the image holds that state.
+func loadVerifiedImage(ctx context.Context, env core.Env, d deps, snap snapshot) error {
+	before, err := d.readLoaded(ctx, env)
+	if err != nil {
+		return fmt.Errorf("firewall: load the before-image: %w", err)
+	}
+	plan, err := loadImage(ctx, env, snap.State.Image, before)
+	if err != nil {
+		return err
+	}
+	after, err := d.readLoaded(ctx, env)
+	if err != nil {
+		return fmt.Errorf("firewall: load the before-image: %w", err)
+	}
+	if bad := imageMismatch(snap.State.Image, after, plan.Excluded); len(bad) > 0 {
+		return fmt.Errorf("firewall: verify the before-image: %s differ from it", joinRefs(bad))
+	}
+	if len(plan.Excluded) > 0 {
+		return excludedError(plan.Excluded)
+	}
+	return nil
+}
+
+func excludedError(excluded []chainRef) error {
+	return fmt.Errorf("firewall: the before-image left %s as they are: their rules other than UFW's and Darkpanel's changed since the snapshot",
+		joinRefs(excluded))
 }
 
 // snapshotStart is what IPv6Refusal reads of the configuration snap
