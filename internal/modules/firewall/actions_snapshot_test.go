@@ -75,7 +75,7 @@ func TestSnapshotRestoreMode(t *testing.T) {
 	s.Input = "ACCEPT"
 	h.setState(s)
 	path := filepath.Join(h.root, "etc/ufw/user.rules")
-	if err := os.Chmod(path, 0o400); err != nil {
+	if err := os.Chmod(path, 0o640); err != nil { //nolint:gosec // G302: a mode the owner can still write, so the test passes without root.
 		t.Fatal(err)
 	}
 	ruApply(t, env, f.snapshotRestore(), `{"id":"`+id+`"}`)
