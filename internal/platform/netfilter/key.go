@@ -353,24 +353,65 @@ func lowerASCII(c byte) byte {
 	return c
 }
 
-// limitUnits are the units of a limit rate, in the order iptables tries
-// them, with the spelling iptables-save prints.
-var limitUnits = []struct{ word, short string }{{"second", "sec"}, {"minute", "min"}, {"hour", "hour"}, {"day", "day"}}
+// limitScale is the kernel's rate scale (XT_LIMIT_SCALE): a rate is stored as
+// the period, in units of 1/limitScale second, between two packets.
+const limitScale = 10000
 
-// limitRate is a rate such as 3/minute as iptables-save prints it, 3/min.
-// Like iptables (libxt_limit.c, parse_rate), it takes any prefix of a unit
-// word and a rate without a unit as per second.
+// limitUnits are the units of a limit rate in the order iptables tries them
+// when it reads one (libxt_limit.c, parse_rate), with the number of seconds
+// in each.
+var limitUnits = []struct {
+	word    string
+	seconds uint64
+}{{"second", 1}, {"minute", 60}, {"hour", 60 * 60}, {"day", 24 * 60 * 60}}
+
+// limitPrinted are the units iptables-save prints a rate in, the largest
+// first (libxt_limit.c, print_rate), with the period of one packet per unit.
+var limitPrinted = []struct {
+	name   string
+	period uint64
+}{{"day", limitScale * 24 * 60 * 60}, {"hour", limitScale * 60 * 60}, {"min", limitScale * 60}, {"sec", limitScale}}
+
+// limitRate is a rate as iptables-save prints it. iptables reads the rate
+// into a period, truncated to a whole number, and prints it in the largest
+// unit that divides it: 60/min is 1/sec. Like iptables, it takes any prefix
+// of a unit word, ignoring case, and a rate without a unit as per second,
+// and it reads the digits at the start of the rate. A rate iptables refuses
+// is kept as written.
 func limitRate(v string) string {
-	n, unit, ok := strings.Cut(v, "/")
-	if !ok {
-		return n + "/sec"
-	}
-	for _, u := range limitUnits {
-		if unit != "" && len(unit) <= len(u.word) && strings.EqualFold(unit, u.word[:len(unit)]) {
-			return n + "/" + u.short
+	rate, unit, hasUnit := strings.Cut(v, "/")
+	seconds := uint64(1)
+	if hasUnit {
+		seconds = 0
+		for _, u := range limitUnits {
+			if unit != "" && hasPrefixFold(u.word, unit) {
+				seconds = u.seconds
+				break
+			}
+		}
+		if seconds == 0 {
+			return v
 		}
 	}
-	return v
+	digits := 0
+	for digits < len(rate) && rate[digits] >= '0' && rate[digits] <= '9' {
+		digits++
+	}
+	n, err := strconv.ParseUint(rate[:digits], 10, 31)
+	if err != nil || n == 0 {
+		return v
+	}
+	period := limitScale * seconds / n
+	if period == 0 {
+		return v
+	}
+	i := 1
+	for ; i < len(limitPrinted); i++ {
+		if p := limitPrinted[i].period; period > p || p/period < p%period {
+			break
+		}
+	}
+	return strconv.FormatUint(limitPrinted[i-1].period/period, 10) + "/" + limitPrinted[i-1].name
 }
 
 // ctStateOrder is the order iptables-save prints conntrack states in.
