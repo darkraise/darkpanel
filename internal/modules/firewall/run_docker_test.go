@@ -20,12 +20,12 @@ const (
 	druPlain4 = "*filter\n# after\nCOMMIT\n"
 	druPlain6 = "*filter\n# after6\nCOMMIT\n"
 	druBlock  = "# BEGIN DARKPANEL docker\n*filter\n:DOCKER-USER - [0:0]\n:darkpanel-docker-deny - [0:0]\n" +
-		"-A DOCKER-USER -j RETURN\n-A darkpanel-docker-deny -j DROP\nCOMMIT\n# END DARKPANEL docker\n"
+		"-A DOCKER-USER -o docker0 -j darkpanel-docker-deny\n-A DOCKER-USER -j RETURN\n-A darkpanel-docker-deny -j DROP\nCOMMIT\n# END DARKPANEL docker\n"
 	// druLoaded is a loaded filter table that holds the block's chains.
 	druLoaded = "*filter\n:INPUT DROP [0:0]\n:FORWARD DROP [0:0]\n:OUTPUT ACCEPT [0:0]\n:ufw-user-input - [0:0]\n" +
 		":DOCKER-USER - [0:0]\n:darkpanel-docker-deny - [0:0]\n" +
 		"-A INPUT -j ufw-user-input\n-A ufw-user-input -p tcp -m tcp --dport 22 -j ACCEPT\n" +
-		"-A DOCKER-USER -j RETURN\n-A darkpanel-docker-deny -j DROP\nCOMMIT\n"
+		"-A DOCKER-USER -o docker0 -j darkpanel-docker-deny\n-A DOCKER-USER -j RETURN\n-A darkpanel-docker-deny -j DROP\nCOMMIT\n"
 	druForeignRule = "-A DOCKER-USER -s 192.0.2.0/24 -j DROP\n"
 )
 
@@ -91,9 +91,10 @@ func druLastIndex(calls []string, call string) int {
 	return -1
 }
 
-// TestDruRunOrder: a change that carries the Docker fields runs them in
-// the order of spec 2.6: the logical rows and settings, the block files, the
-// ufw commands, the cleanup of the loaded chains, then the transition.
+// TestDruRunOrder: a change that carries the Docker fields runs the cleanup
+// of the loaded chains first, while the after files still hold the block,
+// then the logical rows and settings, the block files, the ufw commands and
+// the transition.
 func TestDruRunOrder(t *testing.T) {
 	ctx := context.Background()
 	h, f, env, rule := druHost(t)
@@ -122,9 +123,9 @@ func TestDruRunOrder(t *testing.T) {
 	}
 
 	want := []string{
+		"firewall.file:/etc/ufw/after.rules", "firewall.file:/etc/ufw/after6.rules", "firewall.chains:docker",
 		"firewall.setting:docker", "firewall.setting:sources", "firewall.container:" + druOld.ID, "firewall.container:" + druNew.ID,
-		"firewall.file:/etc/ufw/after.rules", "firewall.file:/etc/ufw/after6.rules",
-		"firewall.rule:" + rule.ID, "firewall.chains:docker", "firewall.state:enabled",
+		"firewall.rule:" + rule.ID, "firewall.state:enabled",
 	}
 	if got := druResources(h); !reflect.DeepEqual(got, want) {
 		t.Errorf("effects\n%q\nwant\n%q", got, want)
@@ -149,8 +150,8 @@ func TestDruRunOrder(t *testing.T) {
 	}
 	file, del := druIndex(h.calls, "restore /etc/ufw/after.rules"), druIndex(h.calls, "run /usr/sbin/ufw delete")
 	clean, reload := druIndex(h.calls, "run /usr/sbin/iptables-nft-restore -n"), druLastIndex(h.calls, "run /usr/sbin/ufw reload")
-	if file < 0 || del <= file || clean <= del || reload <= clean {
-		t.Errorf("calls %q: want the block file, the ufw rule delete, the chain cleanup and the reload in that order", h.calls)
+	if file < 0 || clean <= file || del <= clean || reload <= del {
+		t.Errorf("calls %q: want the block file, the chain cleanup, the ufw rule delete and the reload in that order", h.calls)
 	}
 }
 

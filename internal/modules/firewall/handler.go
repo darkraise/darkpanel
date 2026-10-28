@@ -205,11 +205,21 @@ func (m mutation[In]) Observe(ctx context.Context, env core.Env, e core.Effect) 
 }
 
 // run makes a prepared change, each step a journaled effect (spec 2.5),
-// stopping at the first failure: a restore's files; the Docker flag,
-// settings and container rows; the after files the change writes whole; the
-// change's ufw commands; the cleanup of Darkpanel's Docker chains; the
-// transition commands; and a restore's sysctl values.
+// stopping at the first failure: the cleanup of Darkpanel's Docker chains; a
+// restore's files; the Docker flag, settings and container rows; the after
+// files the change writes whole; the change's ufw commands; the transition
+// commands; and a restore's sysctl values.
 func (f fw) run(ctx context.Context, env core.Env, p prepared) error {
+	// The cleanup learns which DOCKER-USER rules are the block's from the
+	// after files on disk, and strips the block from them itself. Run after a
+	// write that already removed the block, it would take every block rule for
+	// a foreign one and refuse. Run first, it also refuses before anything is
+	// stored, and the block-file writes then skip the files it left as wanted.
+	if p.c.cleanup {
+		if err := f.cleanupChains(ctx, env, env.ChangeID, cleanupRefuse); err != nil {
+			return err
+		}
+	}
 	if p.c.restore != nil {
 		if err := f.writeRestored(ctx, env, p); err != nil {
 			return err
@@ -223,11 +233,6 @@ func (f fw) run(ctx context.Context, env core.Env, p prepared) error {
 	}
 	for _, op := range p.c.ops {
 		if err := runUfw(ctx, env, f.d, op); err != nil {
-			return err
-		}
-	}
-	if p.c.cleanup {
-		if err := f.cleanupChains(ctx, env, env.ChangeID, cleanupRefuse); err != nil {
 			return err
 		}
 	}
