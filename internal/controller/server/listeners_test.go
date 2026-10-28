@@ -416,3 +416,19 @@ func TestTxRuntimeSourceRegistersAfterStart(t *testing.T) {
 		t.Errorf("the topology %+v is complete although the runtime listeners did not start", got)
 	}
 }
+
+// TestSdTopologyIncompleteAfterShutdown: once Shutdown has begun, the
+// listeners are going away, so a guard plan made then must not read an
+// empty listener list as complete.
+func TestSdTopologyIncompleteAfterShutdown(t *testing.T) {
+	s := start(t, embeddedOptions(t))
+	if got := s.topo.read(); !got.Complete {
+		t.Fatalf("a started server's topology %+v, want it complete", got)
+	}
+	if err := s.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+	if got := s.topo.read(); got.Complete {
+		t.Errorf("the topology %+v is complete after Shutdown", got)
+	}
+}

@@ -180,6 +180,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		return s.err
 	}
 	s.shutdown = true
+	s.topo.close()
 	var errs []error
 	for i := len(s.closers) - 1; i >= 0; i-- {
 		if s.closers[i].name == lockStep && len(errs) > 0 && ctx.Err() != nil {

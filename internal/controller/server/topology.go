@@ -11,13 +11,22 @@ import (
 // topology is the dispatcher's Topology. The listeners start after the
 // dispatcher exists, and startup recovery may already call the dispatcher, so
 // each source is registered under mu once it exists; until then it adds
-// nothing and the topology reads as incomplete.
+// nothing and the topology reads as incomplete. Once the server shuts down
+// it reads as incomplete again, because the listeners are going away.
 type topology struct {
 	mu      sync.Mutex
+	closed  bool
 	web     func() []listen.Bound
 	runtime func() ([]netip.AddrPort, []string, int)
 	agent   func() []listen.Bound
 	peers   func() ([]netip.Addr, []string)
+}
+
+// close marks the topology incomplete for good.
+func (t *topology) close() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.closed = true
 }
 
 func (t *topology) setWeb(f func() []listen.Bound) {
@@ -59,12 +68,13 @@ func (t *topology) setNoAgents() {
 }
 
 // read is the topology now. It is complete once all four sources have
-// registered and no open runtime listener waits for a bind; what the runtime
-// listeners and the session registry could not read is dropped from it after
-// what the bound listeners drop.
+// registered, no open runtime listener waits for a bind and the server has
+// not begun to shut down; what the runtime listeners and the session
+// registry could not read is dropped from it after what the bound listeners
+// drop.
 func (t *topology) read() dispatch.Topology {
 	t.mu.Lock()
-	web, runtime, agent, peers := t.web, t.runtime, t.agent, t.peers
+	closed, web, runtime, agent, peers := t.closed, t.web, t.runtime, t.agent, t.peers
 	t.mu.Unlock()
 	var webBound, agentBound []listen.Bound
 	var runtimeAddrs []netip.AddrPort
@@ -85,7 +95,7 @@ func (t *topology) read() dispatch.Topology {
 	}
 	out := topologyOf(webBound, runtimeAddrs, agentBound, agentPeers)
 	out.Dropped = append(append(out.Dropped, runtimeDropped...), peersDropped...)
-	out.Complete = web != nil && runtime != nil && agent != nil && peers != nil && runtimeUnbound == 0
+	out.Complete = !closed && web != nil && runtime != nil && agent != nil && peers != nil && runtimeUnbound == 0
 	return out
 }
 
