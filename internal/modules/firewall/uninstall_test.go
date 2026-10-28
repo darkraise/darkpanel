@@ -3,12 +3,14 @@ package firewall
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"log/slog"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/model"
 )
 
 // unSetup is a fake host with ufw installed, the module over it and an env
@@ -60,6 +62,26 @@ func TestUninstallRemove(t *testing.T) {
 	n = len(h.calls)
 	if err := m.Uninstall(ctx, env, false, map[string]string{"rules": "remove"}); err != nil || len(unRan(h, n)) != 0 {
 		t.Errorf("a second uninstall = %v and ran %q, want nothing", err, unRan(h, n))
+	}
+}
+
+// TestUninstallRemoveLeavesAnInexpressibleRule: a Darkpanel-tagged rule
+// the model cannot express cannot be deleted by its arguments, so the
+// uninstall deletes the others, reloads, and then fails naming it.
+func TestUninstallRemoveLeavesAnInexpressibleRule(t *testing.T) {
+	ctx := context.Background()
+	h, m, env, _ := unSetup(t)
+	app := "### tuple ### allow any any 0.0.0.0/0 any 0.0.0.0/0 OpenSSH - in comment=" + hex.EncodeToString([]byte(model.Tag(ruChange, "")))
+	s := h.state()
+	s.Rules4 = append(s.Rules4, app)
+	h.setState(s)
+	n := len(h.calls)
+	err := m.Uninstall(ctx, env, false, map[string]string{"rules": "remove"})
+	if err == nil || !strings.Contains(err.Error(), ruChange) {
+		t.Errorf("uninstall = %v, want an error naming %s", err, ruChange)
+	}
+	if got := unRan(h, n); !reflect.DeepEqual(got, []string{"delete allow in proto tcp from any to any port 22", "reload"}) {
+		t.Errorf("ran %q, want the other Darkpanel rule deleted and a reload", got)
 	}
 }
 

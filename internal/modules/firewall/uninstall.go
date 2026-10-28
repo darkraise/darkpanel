@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/model"
@@ -52,20 +53,22 @@ func (m module) Uninstall(ctx context.Context, env core.Env, _ bool, opts map[st
 }
 
 // removeRules deletes every Darkpanel rule, then reloads an active UFW. A
-// tagged rule the model cannot express cannot be deleted by its arguments
-// and is left, with a warning.
+// tagged rule the model cannot express cannot be deleted by its arguments:
+// it is left, and the uninstall fails naming it once the rest is done.
 func (f fw) removeRules(ctx context.Context, env core.Env) error {
 	cfg, err := f.d.readConfig(f.d.root)
 	if err != nil {
 		return fmt.Errorf("firewall: uninstall: %w", err)
 	}
 	deleted := 0
+	var left []string
 	for _, r := range model.Merge(cfg.Rules4, cfg.Rules6) {
 		switch {
 		case r.Origin != model.OriginDarkpanel:
 			continue
 		case r.Raw != "":
 			env.Log.Warn("firewall: the uninstall leaves a Darkpanel rule it cannot express", "rule", r.ID, "tuple", r.Raw)
+			left = append(left, r.ID)
 			continue
 		}
 		if err := ufw(ctx, env, model.DeleteArgs(r)); err != nil {
@@ -75,7 +78,13 @@ func (f fw) removeRules(ctx context.Context, env core.Env) error {
 		deleted++
 	}
 	if deleted > 0 && cfg.Enabled {
-		return ufw(ctx, env, reloadArgs)
+		if err := ufw(ctx, env, reloadArgs); err != nil {
+			return err
+		}
+	}
+	if len(left) > 0 {
+		return fmt.Errorf("firewall: uninstall: Darkpanel rules %s cannot be written as ufw arguments, so they stay; delete them by number with ufw",
+			strings.Join(left, ", "))
 	}
 	return nil
 }
