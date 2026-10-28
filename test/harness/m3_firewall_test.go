@@ -69,6 +69,7 @@ func TestM3Firewall(t *testing.T) {
 		{"manual-edit-survives", false, func(t *testing.T) { m3ManualEditSurvives(ctx, t, f) }},
 		{"disable-reverts", false, func(t *testing.T) { m3DisableReverts(ctx, t, f) }},
 		{"repair-reverts", false, func(t *testing.T) { m3RepairReverts(ctx, t, f) }},
+		{"repair-reverts-reboot", false, func(t *testing.T) { m3RepairRevertsReboot(ctx, t, f) }},
 		{"unsupported-before-init", false, func(t *testing.T) { m3UnsupportedBeforeInit(ctx, t, f) }},
 		{"unsupported-nftables-chain", false, func(t *testing.T) { m3UnsupportedNftables(ctx, t, f) }},
 		{"ipv6no-foreign-rules", false, func(t *testing.T) { m3IPv6NoForeignRules(ctx, t, f) }},
@@ -347,20 +348,22 @@ func m3DisableReverts(ctx context.Context, t *testing.T, f *fleet) {
 // which puts the loaded state out of sync with UFW's files.
 const m3StrayRule = "ufw-user-input -s 192.0.2.98/32 -j ACCEPT"
 
+// m3xPutOutOfSync loads m3StrayRule by hand into a UFW chain of the agent
+// host and waits until the host reports it out of sync; the cleanup loads
+// UFW's files again.
+func m3xPutOutOfSync(ctx context.Context, t *testing.T, f *fleet) {
+	t.Helper()
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3Healthy)
+	t.Cleanup(func() { _, _ = f.agent.Run(ctx, "sudo ufw reload") })
+	m3Run(ctx, t, f.agent, "sudo iptables -A "+m3StrayRule)
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3xOutOfSync)
+}
+
 // m3RepairReverts puts the loaded state out of sync, requires an ordinary
 // change to be refused, then leaves firewall.state.repair unconfirmed: the
 // revert loads the out-of-sync state again.
 func m3RepairReverts(ctx context.Context, t *testing.T, f *fleet) {
-	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3Healthy)
-	t.Cleanup(func() { _, _ = f.agent.Run(ctx, "sudo ufw reload") })
-	m3Run(ctx, t, f.agent, "sudo iptables -A "+m3StrayRule)
-	outOfSync := func(st m3Status) error {
-		if st.InSync {
-			return errors.New("the host is still in sync")
-		}
-		return nil
-	}
-	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, outOfSync)
+	m3xPutOutOfSync(ctx, t, f)
 	// The refusal is a plan whose guard fails and that an override cannot pass.
 	p, err := f.api.m3Plan(ctx, f.agentID, "firewall.rule.add", m3PortRule(8097))
 	overridden := m3PortRule(8097)
@@ -378,7 +381,26 @@ func m3RepairReverts(ctx context.Context, t *testing.T, f *fleet) {
 	if out := m3Run(ctx, t, f.agent, "sudo iptables -S ufw-user-input"); !strings.Contains(out, "192.0.2.98") {
 		t.Errorf("the revert did not load the out-of-sync state again:\n%s", out)
 	}
-	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, outOfSync)
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3xOutOfSync)
+}
+
+// m3RepairRevertsReboot puts the loaded state out of sync and reboots the
+// agent host while firewall.state.repair is unconfirmed. UFW loads its files
+// at boot, so the stray rule is gone until the agent, once the host is back,
+// reverts the change and loads the out-of-sync state again.
+func m3RepairRevertsReboot(ctx context.Context, t *testing.T, f *fleet) {
+	m3xPutOutOfSync(ctx, t, f)
+	ch, err := f.api.m3Apply(ctx, f.agentID, "firewall.state.repair", map[string]any{}, 120)
+	m3RequirePending(t, ch, err)
+	if err := f.agent.Reboot(ctx); err != nil {
+		t.Fatal(err)
+	}
+	waitHosts(ctx, t, f, 3*time.Minute, hostsAt(versionN, f.agentID))
+	m3WaitChange(ctx, t, f.api, ch.ID, core.StateReverted, 4*time.Minute)
+	if out := m3Run(ctx, t, f.agent, "sudo iptables -S ufw-user-input"); !strings.Contains(out, "192.0.2.98") {
+		t.Errorf("the revert after the reboot did not load the out-of-sync state again:\n%s", out)
+	}
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3xOutOfSync)
 }
 
 // m3RequireUnsupported plans action on the agent host and requires the

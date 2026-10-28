@@ -366,6 +366,14 @@ func m3xOutOfSyncRefusal(plan m3Plan, planErr error, overridden m3Plan, overridd
 	return nil
 }
 
+// m3xOutOfSync accepts a status whose loaded state differs from UFW's files.
+func m3xOutOfSync(st m3Status) error {
+	if st.InSync {
+		return errors.New("the host is still in sync")
+	}
+	return nil
+}
+
 // m3JSON is v as JSON, for messages.
 func m3JSON(v any) string {
 	b, err := json.Marshal(v)
@@ -403,5 +411,14 @@ func TestM3xOutOfSyncRefusal(t *testing.T) {
 		case tc.wantRejected != "" && (err == nil || !strings.Contains(err.Error(), tc.wantRejected)):
 			t.Errorf("%s: %v, want an error naming %q", tc.name, err, tc.wantRejected)
 		}
+	}
+}
+
+func TestM3xOutOfSync(t *testing.T) {
+	if err := m3xOutOfSync(m3Status{InSync: true}); err == nil {
+		t.Error("m3xOutOfSync accepted a host in sync")
+	}
+	if err := m3xOutOfSync(m3Status{InSync: false}); err != nil {
+		t.Errorf("m3xOutOfSync refused a host out of sync: %v", err)
 	}
 }
