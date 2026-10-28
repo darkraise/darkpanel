@@ -96,10 +96,10 @@ func revert(ctx context.Context, env core.Env, d deps, snapBytes []byte) (core.R
 			made = append(made, e)
 		}
 	}
-	if _, pending, err := restoreIntent(ctx, env.DB, snap.ID); err != nil {
+	if rec, pending, err := restoreRecordOf(ctx, env.DB, snap.ID); err != nil {
 		return core.RevertOutcome{}, err
 	} else if pending {
-		return finishRestore(ctx, env, d, snap, blocked, made)
+		return finishRestore(ctx, env, d, snap, rec, blocked, made)
 	}
 
 	conflicts := map[int]core.EffectOutcome{}
@@ -283,16 +283,64 @@ func reloadIfActive(ctx context.Context, env core.Env, d deps) error {
 	return ufw(ctx, env, transitionArgs(fwstate.TransReload))
 }
 
-// finishRestore finishes a restore of snap that a crash cut off. With an
-// effect unresolved, only the connectivity exception restores whole, so
-// the finished restore is that exception's and returns Override.
-func finishRestore(ctx context.Context, env core.Env, d deps, snap snapshot, blocked, made []core.Effect) (core.RevertOutcome, error) {
+// emergencyRecord is what an emergency restore keeps in its restore
+// record before it writes anything: the override detail as far as it is
+// known then (the loaded chains it changed are not), and the outcome of
+// every effect, so that finishing a restore a crash cut off returns the
+// same override.
+type emergencyRecord struct {
+	Detail  overrideDetail  `json:"detail"`
+	Effects []storedOutcome `json:"effects"`
+}
+
+// storedOutcome is a core.EffectOutcome in the restore record.
+type storedOutcome struct {
+	Seq     int              `json:"seq"`
+	State   core.EffectState `json:"state"`
+	Reason  string           `json:"reason,omitempty"`
+	Current *core.StateDoc   `json:"current,omitempty"`
+}
+
+func storeOutcomes(out []core.EffectOutcome) []storedOutcome {
+	s := make([]storedOutcome, len(out))
+	for i, o := range out {
+		s[i] = storedOutcome{Seq: o.Seq, State: o.State, Reason: o.Reason, Current: o.Current}
+	}
+	return s
+}
+
+func (r emergencyRecord) outcomes() []core.EffectOutcome {
+	out := make([]core.EffectOutcome, len(r.Effects))
+	for i, o := range r.Effects {
+		out[i] = core.EffectOutcome{Seq: o.Seq, State: o.State, Reason: o.Reason, Current: o.Current}
+	}
+	return out
+}
+
+// finishRestore finishes a restore of snap that a crash cut off, with the
+// transition its record holds. An emergency restore (the record says so)
+// ends as the override it was, with the effects and the detail it recorded
+// before it wrote, except for the loaded chains it changed: the state
+// before the cut-off run is gone. A restore recorded before the record had
+// a kind, over an effect that is unresolved, is taken for the connectivity
+// exception too, because only that restores whole over one.
+func finishRestore(ctx context.Context, env core.Env, d deps, snap snapshot, rec restoreRecord, blocked, made []core.Effect) (core.RevertOutcome, error) {
 	rep, err := restore(ctx, env, d, snap)
 	if err != nil {
 		pin(ctx, env, snap.ID)
 		return core.RevertOutcome{}, fmt.Errorf("firewall: finish the interrupted restore of snapshot %s: %w", snap.ID, err)
 	}
 	logVanished(env, rep.Vanished)
+	if rec.Emergency != nil {
+		var er emergencyRecord
+		readErr := json.Unmarshal(rec.Emergency, &er)
+		if readErr == nil {
+			pin(ctx, env, snap.ID)
+			er.Detail.Vanished = rep.Vanished
+			return core.RevertOutcome{Effects: er.outcomes(), Override: true, Detail: mustJSON(er.Detail)}, nil
+		}
+		env.Log.Warn("firewall: the emergency restore record cannot be read", "snapshot", snap.ID, "error", readErr)
+	}
 	out := undoneOutcomes(made, nil)
 	if len(blocked) == 0 {
 		return core.RevertOutcome{Effects: out}, nil
@@ -351,18 +399,18 @@ func emergencyRestore(ctx context.Context, env core.Env, d deps, snap snapshot, 
 		beforeFiles = fileHashes(cfg.Files)
 	}
 	beforeLoaded, beforeErr := d.readLoaded(ctx, env)
-	rep, err := restore(ctx, env, d, snap)
+	for _, e := range snap.Entries {
+		if was, now := beforeFiles[e.Path], fileHash(e); was != now {
+			detail.Files = append(detail.Files, fileOverwrite{Path: e.Path, Was: was, Now: now})
+		}
+	}
+	rep, err := restoreOver(ctx, env, d, snap, mustJSON(emergencyRecord{Detail: detail, Effects: storeOutcomes(out)}))
 	if err != nil {
 		return core.RevertOutcome{}, fmt.Errorf("firewall: the lockout guard failed (%s) and the emergency restore of snapshot %s failed: %w",
 			why, snap.ID, errors.Join(err, writeErr))
 	}
 	detail.Vanished = rep.Vanished
 	logVanished(env, rep.Vanished)
-	for _, e := range snap.Entries {
-		if was, now := beforeFiles[e.Path], fileHash(e); was != now {
-			detail.Files = append(detail.Files, fileOverwrite{Path: e.Path, Was: was, Now: now})
-		}
-	}
 	if afterLoaded, err := d.readLoaded(ctx, env); err == nil && beforeErr == nil {
 		for _, df := range d.compare(beforeLoaded, afterLoaded, restoreKeep) {
 			detail.Chains = append(detail.Chains, chainOverwrite{Family: df.Family, Table: df.Table, Chain: df.Chain,

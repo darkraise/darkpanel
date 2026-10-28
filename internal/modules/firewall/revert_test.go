@@ -423,3 +423,120 @@ func TestUnpinChangeSnapshot(t *testing.T) {
 		t.Errorf("unpin of a change without a snapshot = %v", err)
 	}
 }
+
+func TestAxRevertFinishesAnInterruptedEmergencyRestore(t *testing.T) {
+	for _, c := range []struct {
+		name        string
+		set         func(h *fakeHost)
+		wantEffects []rvTestEffect
+	}{
+		{
+			name: "over a conflict",
+			set:  rvTestRemoveOwnRule,
+			wantEffects: []rvTestEffect{
+				{1, core.EffectUnresolved, core.ReasonConflict, "null"},
+				{2, core.EffectUndone, "", ""},
+			},
+		},
+		{
+			name:        "after a whole restore that failed",
+			set:         func(*fakeHost) {},
+			wantEffects: []rvTestEffect{{1, core.EffectUndone, "", ""}, {2, core.EffectUndone, "", ""}},
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			ctx := context.Background()
+			h, snap := rvTestSetup(t)
+			c.set(h)
+			h.guardOK, h.guardDetail = false, "ssh from 203.0.113.7 to 192.0.2.1:22 on eth0 is dropped"
+			h.runErr["/usr/sbin/ufw reload"] = errors.New("killed")
+			if _, err := revert(ctx, h.env(), h.deps(), []byte(snap.ID)); err == nil || !strings.Contains(err.Error(), "emergency restore") {
+				t.Fatalf("the cut-off revert = %v, want the emergency restore's failure", err)
+			}
+			if _, pending, _ := restoreIntent(ctx, h.db, snap.ID); !pending {
+				t.Fatal("the cut-off emergency restore left no record")
+			}
+			delete(h.runErr, "/usr/sbin/ufw reload")
+			h.guardOK, h.guardCalls = true, 0
+			out, err := revert(ctx, h.env(), h.deps(), []byte(snap.ID))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !out.Override {
+				t.Fatal("the finished emergency restore is not an override")
+			}
+			var got []rvTestEffect
+			for _, o := range out.Effects {
+				e := rvTestEffect{o.Seq, o.State, o.Reason, ""}
+				if o.Current != nil {
+					e.current = string(o.Current.State)
+				}
+				got = append(got, e)
+			}
+			if !reflect.DeepEqual(got, c.wantEffects) {
+				t.Errorf("effects = %+v, want %+v", got, c.wantEffects)
+			}
+			var detail overrideDetail
+			if err := json.Unmarshal(out.Detail, &detail); err != nil {
+				t.Fatal(err)
+			}
+			if detail.Snapshot != snap.ID || detail.Guard != "ssh from 203.0.113.7 to 192.0.2.1:22 on eth0 is dropped" || !detail.At.Equal(h.clock.Now()) {
+				t.Errorf("override detail = %+v", detail)
+			}
+			if h.guardCalls != 0 {
+				t.Errorf("finishing the restore evaluated the guard %d times", h.guardCalls)
+			}
+			if !reflect.DeepEqual(fileHashes(h.config().Files), snap.Hashes) {
+				t.Error("the state files are not the snapshot's")
+			}
+			if _, pending, _ := restoreIntent(ctx, h.db, snap.ID); pending {
+				t.Error("the finished restore left its record")
+			}
+			if s, err := getSnapshot(ctx, h.db, snap.ID); err != nil || !s.Pinned {
+				t.Errorf("snapshot pinned = %v, %v", s.Pinned, err)
+			}
+		})
+	}
+}
+
+func TestAxRevertFinishesAnUnreadableEmergencyRecord(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		record json.RawMessage
+	}{
+		{"empty", json.RawMessage{}},
+		{"malformed", json.RawMessage(`{"detail":`)},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			ctx := context.Background()
+			h, snap := rvTestSetup(t)
+			if err := beginRestoreRecord(ctx, h.db, snap.ID, restoreRecord{Transition: fwstate.TransReload, Emergency: c.record}, h.clock.Now()); err != nil {
+				t.Fatal(err)
+			}
+			out, err := revert(ctx, h.env(), h.deps(), []byte(snap.ID))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if out.Override {
+				t.Error("an unreadable emergency record finished as an override")
+			}
+			var got []rvTestEffect
+			for _, o := range out.Effects {
+				e := rvTestEffect{o.Seq, o.State, o.Reason, ""}
+				if o.Current != nil {
+					e.current = string(o.Current.State)
+				}
+				got = append(got, e)
+			}
+			if want := []rvTestEffect{{1, core.EffectUndone, "", ""}, {2, core.EffectUndone, "", ""}}; !reflect.DeepEqual(got, want) {
+				t.Errorf("effects = %+v, want %+v", got, want)
+			}
+			if !reflect.DeepEqual(fileHashes(h.config().Files), snap.Hashes) {
+				t.Error("the state files are not the snapshot's")
+			}
+			if _, pending, _ := restoreIntent(ctx, h.db, snap.ID); pending {
+				t.Error("the finished restore left its record")
+			}
+		})
+	}
+}

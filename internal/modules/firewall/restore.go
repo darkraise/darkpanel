@@ -2,6 +2,7 @@ package firewall
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -68,12 +69,26 @@ func restoreKeep(_ fwstate.Family, table, chain string) bool {
 // the record. Built-in chains the before-image had to leave as they are
 // make it fail after the rest is restored and verified.
 func restore(ctx context.Context, env core.Env, d deps, snap snapshot) (restoreReport, error) {
+	return restoreOver(ctx, env, d, snap, nil)
+}
+
+// restoreOver is restore for the connectivity exception when emergency is
+// not nil: the record of what the restore overwrites is kept with the
+// restore record, from before the first write, so that finishing a cut-off
+// restore still ends as an override.
+func restoreOver(ctx context.Context, env core.Env, d deps, snap snapshot, emergency json.RawMessage) (restoreReport, error) {
 	var rep restoreReport
-	tr, recorded, err := restoreIntent(ctx, env.DB, snap.ID)
+	rec, recorded, err := restoreRecordOf(ctx, env.DB, snap.ID)
 	if err != nil {
 		return rep, err
 	}
-	if !recorded {
+	tr := rec.Transition
+	switch {
+	case recorded && emergency != nil:
+		if err := markEmergency(ctx, env.DB, snap.ID, emergency); err != nil {
+			return rep, err
+		}
+	case !recorded:
 		switch cur, err := d.readConfig(d.root); {
 		case snap.State.Image != nil:
 			tr = fwstate.TransNone
@@ -84,7 +99,7 @@ func restore(ctx context.Context, env core.Env, d deps, snap snapshot) (restoreR
 		default:
 			tr = chooseTransition(snap.State.Enabled, cur.Enabled)
 		}
-		if err := beginRestore(ctx, env.DB, snap.ID, tr, env.Clock.Now()); err != nil {
+		if err := beginRestoreRecord(ctx, env.DB, snap.ID, restoreRecord{Transition: tr, Emergency: emergency}, env.Clock.Now()); err != nil {
 			return rep, err
 		}
 	}
