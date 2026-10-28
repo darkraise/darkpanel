@@ -20,8 +20,10 @@ type sysctlRecord struct {
 
 // sysctlRecordOf reads a record from the effects of one change. Only made
 // effects count; a change started UFW when its last made effect on the
-// enabled state left UFW enabled (an enable, or a reload).
-func sysctlRecordOf(effects []core.Effect) sysctlRecord {
+// enabled state left UFW enabled (an enable, or a reload). A made effect on
+// the enabled state or a sysctl key whose Post cannot be read is an error,
+// since skipping it could skip the whole sysctl verification.
+func sysctlRecordOf(effects []core.Effect) (sysctlRecord, error) {
 	r := sysctlRecord{written: map[string]string{}}
 	for _, e := range effects {
 		if e.State != core.EffectMade || e.Post == nil {
@@ -33,18 +35,22 @@ func sysctlRecordOf(effects []core.Effect) sysctlRecord {
 		}
 		switch noun {
 		case nounState:
-			var enabled bool
-			if json.Unmarshal(e.Post.State, &enabled) == nil {
-				r.started = enabled
+			var enabled *bool
+			if err := json.Unmarshal(e.Post.State, &enabled); err != nil || enabled == nil {
+				return r, fmt.Errorf("firewall: effect %d (%s) records no enabled state after it: %s", e.Seq, e.Resource, e.Post.State)
 			}
+			r.started = *enabled
 		case nounSysctl:
 			var value *string
-			if json.Unmarshal(e.Post.State, &value) == nil && value != nil {
+			if err := json.Unmarshal(e.Post.State, &value); err != nil {
+				return r, fmt.Errorf("firewall: effect %d (%s) records an unreadable value after it: %w", e.Seq, e.Resource, err)
+			}
+			if value != nil {
 				r.written[ident] = *value
 			}
 		}
 	}
-	return r
+	return r, nil
 }
 
 // expectedSysctl returns the supported sysctl values a change's transition

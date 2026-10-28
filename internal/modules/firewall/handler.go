@@ -169,7 +169,10 @@ func (f fw) verifySysctl(ctx context.Context, env core.Env, cfg fwstate.Config, 
 	if err != nil {
 		return fmt.Errorf("firewall: verify: read the change's effects: %w", err)
 	}
-	rec := sysctlRecordOf(effects)
+	rec, err := sysctlRecordOf(effects)
+	if err != nil {
+		return fmt.Errorf("firewall: verify: %w", err)
+	}
 	if !rec.started && len(rec.written) == 0 {
 		return nil
 	}

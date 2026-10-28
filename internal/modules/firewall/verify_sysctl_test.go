@@ -59,8 +59,17 @@ func TestSysctlRecordOf(t *testing.T) {
 			sysctlRecord{written: map[string]string{"net/ipv4/ip_forward": "1"}}},
 	}
 	for _, c := range cases {
-		if got := sysctlRecordOf(c.effects); !reflect.DeepEqual(got, c.want) {
-			t.Errorf("%s: record %+v, want %+v", c.name, got, c.want)
+		if got, err := sysctlRecordOf(c.effects); err != nil || !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: record %+v, %v, want %+v", c.name, got, err, c.want)
+		}
+	}
+	for name, e := range map[string]core.Effect{
+		"enabled state not JSON": vsEffect(enabled, core.EffectMade, "tru"),
+		"enabled state null":     vsEffect(enabled, core.EffectMade, "null"),
+		"sysctl value not JSON":  vsEffect("firewall.sysctl:net/ipv4/ip_forward", core.EffectMade, `"1`),
+	} {
+		if _, err := sysctlRecordOf([]core.Effect{e}); err == nil {
+			t.Errorf("%s: no error", name)
 		}
 	}
 }
