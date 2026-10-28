@@ -3,11 +3,14 @@ package firewall
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"path/filepath"
 	"reflect"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -349,5 +352,86 @@ func TestRestoreIntent(t *testing.T) {
 	}
 	if _, ok, _ := pendingRestore(ctx, db); ok {
 		t.Error("endRestore left the record")
+	}
+}
+
+func TestAxRestoreRecordKind(t *testing.T) {
+	ctx := context.Background()
+	db := fwTestDB(t)
+	a, b := stTestSnap(1, false), stTestSnap(2, false)
+	for _, s := range []snapshot{a, b} {
+		if _, err := saveSnapshot(ctx, db, s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := beginRestore(ctx, db, a.ID, fwstate.TransReload, stTestT0); err != nil {
+		t.Fatal(err)
+	}
+	rec, ok, err := restoreRecordOf(ctx, db, a.ID)
+	if err != nil || !ok || rec.Transition != fwstate.TransReload || rec.Emergency != nil {
+		t.Fatalf("restoreRecordOf(a) = %+v, %v, %v, want a normal reload", rec, ok, err)
+	}
+	emergency := json.RawMessage(`{"detail":{"guard":"ssh is dropped"}}`)
+	if err := markEmergency(ctx, db, a.ID, emergency); err != nil {
+		t.Fatal(err)
+	}
+	rec, _, err = restoreRecordOf(ctx, db, a.ID)
+	if err != nil || rec.Transition != fwstate.TransReload || string(rec.Emergency) != string(emergency) {
+		t.Errorf("after markEmergency: %+v, %v", rec, err)
+	}
+	if err := markEmergency(ctx, db, b.ID, emergency); err == nil {
+		t.Error("markEmergency of a snapshot without a record succeeded")
+	}
+	if err := beginRestoreRecord(ctx, db, b.ID, restoreRecord{Transition: fwstate.TransDisable, Emergency: emergency}, stTestT0); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := restoreRecordOf(ctx, db, a.ID); ok {
+		t.Error("a new restore kept the superseded restore's record")
+	}
+	rec, _, err = restoreRecordOf(ctx, db, b.ID)
+	if err != nil || rec.Transition != fwstate.TransDisable || string(rec.Emergency) != string(emergency) {
+		t.Errorf("restoreRecordOf(b) = %+v, %v", rec, err)
+	}
+	if tr, ok, err := restoreIntent(ctx, db, b.ID); err != nil || !ok || tr != fwstate.TransDisable {
+		t.Errorf("restoreIntent(b) = %q, %v, %v", tr, ok, err)
+	}
+}
+
+func TestAxRestoreRecordMigrationKeepsOldRows(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "agent.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	coreSet, err := store.CoreMigrations(store.SideAgent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := fs.ReadFile(agentMigrations(), "0001_firewall.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	only1 := fstest.MapFS{"0001_firewall.sql": &fstest.MapFile{Data: first}}
+	opts := store.MigrateOptions{Side: store.SideAgent, BinaryVersion: "test", BackupRoot: filepath.Join(t.TempDir(), "backups"), Keep: 5, Now: time.Now()}
+	if res, err := store.Migrate(ctx, db, opts, coreSet, []store.MigrationSet{{Module: ID, FS: only1}}); err != nil || len(res.Failed) > 0 {
+		t.Fatalf("migrate 0001: %v %v", err, res.Failed)
+	}
+	if err := db.Write(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.Exec(`INSERT INTO firewall_snapshots (id, created_at, actor, entries, state, hashes) VALUES ('s1', 't', 'a', '[]', '{}', '{}')`); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`INSERT INTO firewall_restores (snapshot_id, transition, started_at) VALUES ('s1', 'reload', 't')`)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	opts.BinaryVersion = "test2"
+	if res, err := store.Migrate(ctx, db, opts, coreSet, []store.MigrationSet{{Module: ID, FS: agentMigrations()}}); err != nil || len(res.Failed) > 0 {
+		t.Fatalf("migrate 0002: %v %v", err, res.Failed)
+	}
+	rec, ok, err := restoreRecordOf(ctx, db, "s1")
+	if err != nil || !ok || rec.Transition != fwstate.TransReload || rec.Emergency != nil {
+		t.Errorf("a record written before the kind column = %+v, %v, %v, want a normal reload", rec, ok, err)
 	}
 }

@@ -356,15 +356,33 @@ func setPinned(ctx context.Context, db *store.DB, id string, pinned bool) error 
 	return updateSnapshot(ctx, db, id, "UPDATE firewall_snapshots SET pinned = ? WHERE id = ?", pinned)
 }
 
-// beginRestore records a restore of snapshot id with transition tr, in place
-// of any unfinished restore.
+// restoreRecord is the record of an unfinished restore: the UFW transition
+// it chose and, for an emergency restore (the connectivity exception), the
+// record of what it overwrites, which finishes the restore as an override.
+type restoreRecord struct {
+	Transition fwstate.Transition
+	Emergency  json.RawMessage // nil for a normal restore
+}
+
+// beginRestore records a normal restore of snapshot id with transition tr,
+// in place of any unfinished restore.
 func beginRestore(ctx context.Context, db *store.DB, id string, tr fwstate.Transition, now time.Time) error {
+	return beginRestoreRecord(ctx, db, id, restoreRecord{Transition: tr}, now)
+}
+
+// beginRestoreRecord records a restore of snapshot id, in place of any
+// unfinished restore.
+func beginRestoreRecord(ctx context.Context, db *store.DB, id string, rec restoreRecord, now time.Time) error {
+	kind, override := "normal", any(nil)
+	if rec.Emergency != nil {
+		kind, override = "emergency", string(rec.Emergency)
+	}
 	err := db.Write(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM firewall_restores"); err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx, "INSERT INTO firewall_restores (snapshot_id, transition, started_at) VALUES (?, ?, ?)",
-			id, string(tr), formatSnapshotTime(now))
+		_, err := tx.ExecContext(ctx, "INSERT INTO firewall_restores (snapshot_id, transition, started_at, kind, override) VALUES (?, ?, ?, ?, ?)",
+			id, string(rec.Transition), formatSnapshotTime(now), kind, override)
 		return err
 	})
 	if err != nil {
@@ -373,18 +391,52 @@ func beginRestore(ctx context.Context, db *store.DB, id string, tr fwstate.Trans
 	return nil
 }
 
+// markEmergency turns the unfinished restore of snapshot id into an
+// emergency restore with the given record, keeping its transition. It fails
+// when there is no such restore.
+func markEmergency(ctx context.Context, db *store.DB, id string, emergency json.RawMessage) error {
+	err := db.Write(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, "UPDATE firewall_restores SET kind = 'emergency', override = ? WHERE snapshot_id = ?", string(emergency), id)
+		if err != nil {
+			return err
+		}
+		if n, err := res.RowsAffected(); err != nil {
+			return err
+		} else if n == 0 {
+			return errors.New("no restore is recorded")
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("firewall: record the emergency restore of snapshot %s: %w", id, err)
+	}
+	return nil
+}
+
+// restoreRecordOf returns the record of an unfinished restore of snapshot
+// id; ok is false when none is recorded.
+func restoreRecordOf(ctx context.Context, db *store.DB, id string) (rec restoreRecord, ok bool, err error) {
+	var tr string
+	var override sql.NullString
+	err = db.Read().QueryRowContext(ctx, "SELECT transition, override FROM firewall_restores WHERE snapshot_id = ?", id).Scan(&tr, &override)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return restoreRecord{}, false, nil
+	case err != nil:
+		return restoreRecord{}, false, fmt.Errorf("firewall: read the restore of snapshot %s: %w", id, err)
+	}
+	rec = restoreRecord{Transition: fwstate.Transition(tr)}
+	if override.Valid {
+		rec.Emergency = json.RawMessage(override.String)
+	}
+	return rec, true, nil
+}
+
 // restoreIntent returns the transition of an unfinished restore of snapshot
 // id; ok is false when none is recorded.
 func restoreIntent(ctx context.Context, db *store.DB, id string) (fwstate.Transition, bool, error) {
-	var tr string
-	err := db.Read().QueryRowContext(ctx, "SELECT transition FROM firewall_restores WHERE snapshot_id = ?", id).Scan(&tr)
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-		return "", false, nil
-	case err != nil:
-		return "", false, fmt.Errorf("firewall: read the restore of snapshot %s: %w", id, err)
-	}
-	return fwstate.Transition(tr), true, nil
+	rec, ok, err := restoreRecordOf(ctx, db, id)
+	return rec.Transition, ok, err
 }
 
 // pendingRestore returns the snapshot of the unfinished restore, if any.
