@@ -444,6 +444,11 @@ func m3UnsupportedBeforeInit(ctx context.Context, t *testing.T, f *fleet) {
 	m3RequireUnsupported(ctx, t, f, "firewall.rule.add", m3PortRule(8098), "before.init")
 }
 
+// m3xNftablesReason is the start of the reason that firewall.status gives
+// for the base chain m3UnsupportedNftables adds: the table, its one chain
+// and hook and the one rule.
+const m3xNftablesReason = `nft table inet m3: base chain "input" on hook "input" has 1 rule(s)`
+
 // m3UnsupportedNftables adds a native nftables base chain with a rule,
 // which the firewall cannot evaluate: the host is unsupported.
 func m3UnsupportedNftables(ctx context.Context, t *testing.T, f *fleet) {
@@ -452,8 +457,8 @@ func m3UnsupportedNftables(ctx context.Context, t *testing.T, f *fleet) {
 	m3Run(ctx, t, f.agent, "sudo nft add table inet m3 && "+
 		"sudo nft 'add chain inet m3 input { type filter hook input priority 0 ; policy accept ; }' && "+
 		"sudo nft add rule inet m3 input tcp dport 9999 drop")
-	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3UnsupportedNamed("m3"))
-	m3RequireUnsupported(ctx, t, f, "firewall.rule.add", m3PortRule(8099), "m3")
+	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3UnsupportedNamed(m3xNftablesReason))
+	m3RequireUnsupported(ctx, t, f, "firewall.rule.add", m3PortRule(8099), m3xNftablesReason)
 }
 
 // m3StoppedIPv6No disables UFW and sets IPV6=no, as an operator preparing

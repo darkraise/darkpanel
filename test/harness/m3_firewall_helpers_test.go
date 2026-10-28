@@ -456,3 +456,23 @@ tcp TIME-WAIT 0      0      172.17.0.9:35994 151.101.130.132:80
 		}
 	}
 }
+
+func TestM3xNftablesReason(t *testing.T) {
+	check := m3UnsupportedNamed(m3xNftablesReason)
+	if err := check(m3Status{Unsupported: []string{`nft table inet m3: base chain "input" on hook "input" has 1 rule(s) and policy accept`}}); err != nil {
+		t.Errorf("the reason of the m3 table was refused: %v", err)
+	}
+	for _, other := range []string{
+		"/etc/ufw/m3.rules is missing",
+		`nft table inet m3x: base chain "input" on hook "input" has 1 rule(s) and policy accept`,
+		`nft table ip m3: base chain "input" on hook "input" has 1 rule(s) and policy accept`,
+		`nft table inet m3: base chain "forward" on hook "forward" has 1 rule(s) and policy accept`,
+	} {
+		if err := check(m3Status{Unsupported: []string{other}}); err == nil {
+			t.Errorf("the reason %q was accepted", other)
+		}
+	}
+	if err := check(m3Status{Supported: true, Unsupported: []string{`nft table inet m3: base chain "input" on hook "input" has 1 rule(s)`}}); err == nil {
+		t.Error("a supported host was accepted")
+	}
+}
