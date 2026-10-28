@@ -29,7 +29,7 @@ type fw struct {
 
 // productionFW is the firewall over this host.
 func productionFW() fw {
-	return fw{
+	f := fw{
 		d: deps{
 			root:       "/",
 			readConfig: conf.Read,
@@ -51,6 +51,8 @@ func productionFW() fw {
 		ipv6Refusal: predict.IPv6Refusal,
 		check:       guard.Check,
 	}
+	f.d.cleanChains = f.cleanChainsPreserving
+	return f
 }
 
 // lockoutVia is the lockout guard of a revert's connectivity exception
