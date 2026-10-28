@@ -517,8 +517,8 @@ func TestAxRevertFinishesAnUnreadableEmergencyRecord(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if out.Override {
-				t.Error("an unreadable emergency record finished as an override")
+			if !out.Override {
+				t.Error("an unreadable emergency record finished as a plain revert")
 			}
 			var got []rvTestEffect
 			for _, o := range out.Effects {
@@ -528,8 +528,15 @@ func TestAxRevertFinishesAnUnreadableEmergencyRecord(t *testing.T) {
 				}
 				got = append(got, e)
 			}
-			if want := []rvTestEffect{{1, core.EffectUndone, "", ""}, {2, core.EffectUndone, "", ""}}; !reflect.DeepEqual(got, want) {
+			if want := []rvTestEffect{{1, core.EffectUnresolved, core.ReasonUncertain, ""}, {2, core.EffectUnresolved, core.ReasonUncertain, ""}}; !reflect.DeepEqual(got, want) {
 				t.Errorf("effects = %+v, want %+v", got, want)
+			}
+			var detail overrideDetail
+			if err := json.Unmarshal(out.Detail, &detail); err != nil {
+				t.Fatal(err)
+			}
+			if detail.Snapshot != snap.ID || !strings.Contains(detail.Guard, "record cannot be read") || len(detail.Effects) != 2 || detail.ChainsUnread == "" {
+				t.Errorf("override detail = %+v", detail)
 			}
 			if !reflect.DeepEqual(fileHashes(h.config().Files), snap.Hashes) {
 				t.Error("the state files are not the snapshot's")
@@ -537,7 +544,59 @@ func TestAxRevertFinishesAnUnreadableEmergencyRecord(t *testing.T) {
 			if _, pending, _ := restoreIntent(ctx, h.db, snap.ID); pending {
 				t.Error("the finished restore left its record")
 			}
+			if s, err := getSnapshot(ctx, h.db, snap.ID); err != nil || !s.Pinned {
+				t.Errorf("snapshot pinned = %v, %v", s.Pinned, err)
+			}
 		})
+	}
+}
+
+// TestRevertOverrideDetailUnread: when the emergency restore cannot read
+// the state files or the loaded state before it writes, the override
+// detail says so instead of a blank hash or an empty chain list.
+func TestRevertOverrideDetailUnread(t *testing.T) {
+	ctx := context.Background()
+	h, snap := rvTestSetup(t)
+	rvTestRemoveOwnRule(h)
+	h.guardOK = false
+	d := h.deps()
+	readConfig, readLoaded := d.readConfig, d.readLoaded
+	configFailed, loadedFailed := false, false
+	d.readConfig = func(root string) (fwstate.Config, error) {
+		if h.guardCalls > 0 && !configFailed {
+			configFailed = true
+			return fwstate.Config{}, errors.New("disk error")
+		}
+		return readConfig(root)
+	}
+	d.readLoaded = func(ctx context.Context, env core.Env) (fwstate.Loaded, error) {
+		if h.guardCalls > 0 && !loadedFailed {
+			loadedFailed = true
+			return fwstate.Loaded{}, errors.New("nft busy")
+		}
+		return readLoaded(ctx, env)
+	}
+	out, err := revert(ctx, h.env(), d, []byte(snap.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !configFailed || !loadedFailed {
+		t.Fatalf("reads failed: config %v, loaded %v; want both", configFailed, loadedFailed)
+	}
+	var detail overrideDetail
+	if err := json.Unmarshal(out.Detail, &detail); err != nil {
+		t.Fatal(err)
+	}
+	if len(detail.Files) != len(snap.Entries) {
+		t.Errorf("files = %+v, want every entry", detail.Files)
+	}
+	for _, f := range detail.Files {
+		if f.Was != wasUnread {
+			t.Errorf("file %+v, want was %q", f, wasUnread)
+		}
+	}
+	if len(detail.Chains) != 0 || !strings.Contains(detail.ChainsUnread, "nft busy") {
+		t.Errorf("chains = %+v, unread = %q; want the read error", detail.Chains, detail.ChainsUnread)
 	}
 }
 

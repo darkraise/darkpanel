@@ -24,13 +24,20 @@ type overrideDetail struct {
 	Chains   []chainOverwrite  `json:"chains,omitempty"`         // loaded chains the restore changed
 	Effects  []effectOverwrite `json:"effects,omitempty"`        // effects left unresolved, with what the restore overwrote
 	Vanished []string          `json:"vanishedSysctl,omitempty"` // sysctl keys of interfaces that have gone, not restored
+	// ChainsUnread says why Chains is not known, so an empty Chains is not
+	// read as "no loaded chain changed".
+	ChainsUnread string `json:"chainsUnread,omitempty"`
 }
 
 type fileOverwrite struct {
 	Path string `json:"path"`
-	Was  string `json:"was"` // fileHash before the restore
+	Was  string `json:"was"` // fileHash before the restore, or wasUnread
 	Now  string `json:"now"` // the snapshot's
 }
+
+// wasUnread is fileOverwrite.Was when the files could not be read before
+// the restore.
+const wasUnread = "unreadable"
 
 type chainOverwrite struct {
 	Family    fwstate.Family `json:"family"`
@@ -353,7 +360,9 @@ func (r emergencyRecord) outcomes() []core.EffectOutcome {
 // transition its record holds. An emergency restore (the record says so)
 // ends as the override it was, with the effects and the detail it recorded
 // before it wrote, except for the loaded chains it changed: the state
-// before the cut-off run is gone. A restore recorded before the record had
+// before the cut-off run is gone. One whose record cannot be read ends as
+// an override too, with every effect unresolved. A restore recorded before
+// the record had
 // a kind, over an effect that is unresolved, is taken for the connectivity
 // exception too, because only that restores whole over one.
 func finishRestore(ctx context.Context, env core.Env, d deps, snap snapshot, rec restoreRecord, blocked, made []core.Effect) (core.RevertOutcome, error) {
@@ -363,22 +372,40 @@ func finishRestore(ctx context.Context, env core.Env, d deps, snap snapshot, rec
 		return core.RevertOutcome{}, fmt.Errorf("firewall: finish the interrupted restore of snapshot %s: %w", snap.ID, err)
 	}
 	logVanished(env, rep.Vanished)
+	const chainsGone = "the restore was cut off and finished later, so the loaded state before it is gone"
 	if rec.Emergency != nil {
+		pin(ctx, env, snap.ID)
 		var er emergencyRecord
 		readErr := json.Unmarshal(rec.Emergency, &er)
 		if readErr == nil {
-			pin(ctx, env, snap.ID)
-			er.Detail.Vanished = rep.Vanished
+			er.Detail.Vanished, er.Detail.ChainsUnread = rep.Vanished, chainsGone
 			return core.RevertOutcome{Effects: er.outcomes(), Override: true, Detail: mustJSON(er.Detail)}, nil
 		}
 		env.Log.Warn("firewall: the emergency restore record cannot be read", "snapshot", snap.ID, "error", readErr)
+		// Which made effects were conflicts the restore overwrote is lost
+		// with the record, so none is reported undone.
+		detail := overrideDetail{At: env.Clock.Now().UTC(), Snapshot: snap.ID, ChainsUnread: chainsGone, Vanished: rep.Vanished,
+			Guard: "an interrupted emergency restore was finished, but its record cannot be read: " + readErr.Error()}
+		var out []core.EffectOutcome
+		for _, e := range blocked {
+			out = append(out, core.EffectOutcome{Seq: e.Seq, State: core.EffectUnresolved, Reason: e.Reason})
+			detail.Effects = append(detail.Effects, effectOverwrite{Seq: e.Seq, Resource: e.Resource})
+		}
+		for _, e := range made {
+			out = append(out, core.EffectOutcome{Seq: e.Seq, State: core.EffectUnresolved, Reason: core.ReasonUncertain})
+			detail.Effects = append(detail.Effects, effectOverwrite{Seq: e.Seq, Resource: e.Resource})
+		}
+		slices.SortFunc(out, func(a, b core.EffectOutcome) int { return a.Seq - b.Seq })
+		slices.SortFunc(detail.Effects, func(a, b effectOverwrite) int { return a.Seq - b.Seq })
+		return core.RevertOutcome{Effects: out, Override: true, Detail: mustJSON(detail)}, nil
 	}
 	out := undoneOutcomes(made, nil)
 	if len(blocked) == 0 {
 		return core.RevertOutcome{Effects: out}, nil
 	}
 	pin(ctx, env, snap.ID)
-	detail := overrideDetail{At: env.Clock.Now().UTC(), Snapshot: snap.ID, Guard: "an interrupted emergency restore was finished", Vanished: rep.Vanished}
+	detail := overrideDetail{At: env.Clock.Now().UTC(), Snapshot: snap.ID, Guard: "an interrupted emergency restore was finished",
+		ChainsUnread: chainsGone, Vanished: rep.Vanished}
 	for _, e := range blocked {
 		out = append(out, core.EffectOutcome{Seq: e.Seq, State: core.EffectUnresolved, Reason: e.Reason})
 		detail.Effects = append(detail.Effects, effectOverwrite{Seq: e.Seq, Resource: e.Resource})
@@ -426,13 +453,18 @@ func emergencyRestore(ctx context.Context, env core.Env, d deps, snap snapshot, 
 	slices.SortFunc(out, func(a, b core.EffectOutcome) int { return a.Seq - b.Seq })
 	slices.SortFunc(detail.Effects, func(a, b effectOverwrite) int { return a.Seq - b.Seq })
 
-	beforeFiles := map[string]string{}
-	if cfg, err := d.readConfig(d.root); err == nil {
-		beforeFiles = fileHashes(cfg.Files)
+	cfg, cfgErr := d.readConfig(d.root)
+	if cfgErr != nil {
+		env.Log.Warn("firewall: the emergency restore cannot read the state files it overwrites", "snapshot", snap.ID, "error", cfgErr)
 	}
+	beforeFiles := fileHashes(cfg.Files)
 	beforeLoaded, beforeErr := d.readLoaded(ctx, env)
 	for _, e := range snap.Entries {
-		if was, now := beforeFiles[e.Path], fileHash(e); was != now {
+		was, now := beforeFiles[e.Path], fileHash(e)
+		if cfgErr != nil {
+			was = wasUnread
+		}
+		if was != now {
 			detail.Files = append(detail.Files, fileOverwrite{Path: e.Path, Was: was, Now: now})
 		}
 	}
@@ -443,7 +475,13 @@ func emergencyRestore(ctx context.Context, env core.Env, d deps, snap snapshot, 
 	}
 	detail.Vanished = rep.Vanished
 	logVanished(env, rep.Vanished)
-	if afterLoaded, err := d.readLoaded(ctx, env); err == nil && beforeErr == nil {
+	afterLoaded, afterErr := d.readLoaded(ctx, env)
+	switch {
+	case beforeErr != nil:
+		detail.ChainsUnread = "the loaded state before the restore cannot be read: " + beforeErr.Error()
+	case afterErr != nil:
+		detail.ChainsUnread = "the loaded state after the restore cannot be read: " + afterErr.Error()
+	default:
 		for _, df := range d.compare(beforeLoaded, afterLoaded, restoreKeep) {
 			detail.Chains = append(detail.Chains, chainOverwrite{Family: df.Family, Table: df.Table, Chain: df.Chain,
 				PolicyWas: df.PolicyA, PolicyNow: df.PolicyB, Removed: df.OnlyA, Added: df.OnlyB, Reordered: df.OrderDiffers})
