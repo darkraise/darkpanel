@@ -239,7 +239,7 @@ func (h *agentHost) waitClock(what string, cond func() bool) {
 		if cond() {
 			return true
 		}
-		h.clock.Advance(transport.BackoffMax)
+		h.clock.Advance(transport.MaxBackoff)
 		return false
 	})
 }

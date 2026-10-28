@@ -352,7 +352,7 @@ func TestBackgroundSkipsHeldLock(t *testing.T) {
 			clock.Advance(10 * time.Second)
 			clock.awaitArmed(t, 10*time.Second, 2)
 			h.noPass(t)
-			if n := clock.armedFor(TaskBackoffMin); n != 0 {
+			if n := clock.armedFor(MinTaskBackoff); n != 0 {
 				t.Errorf("the skipped pass backed off %d times, want a skip without error", n)
 			}
 			if _, err := f.db.Writer().Exec("DELETE FROM core_locks WHERE key = ?", key); err != nil {
@@ -422,8 +422,8 @@ func TestBackgroundWatchRestart(t *testing.T) {
 	h.watchErrs = 1
 	_, clock := bgOpen(t, h, bgModule{id: "bg", watch: true, h: h})
 	h.pass(t)
-	clock.awaitArmed(t, TaskBackoffMin, 1)
-	clock.Advance(TaskBackoffMin)
+	clock.awaitArmed(t, MinTaskBackoff, 1)
+	clock.Advance(MinTaskBackoff)
 	var wake func()
 	select {
 	case wake = <-h.wakes:

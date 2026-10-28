@@ -151,7 +151,7 @@ func (a *fleetAgent) hello() (core.AgentHello, error) {
 
 // skipWaits advances the agent's clock past its longest redial backoff and
 // credential poll, so its dial loop never sleeps for long.
-func (a *fleetAgent) skipWaits() { a.clock.Advance(transport.BackoffMax) }
+func (a *fleetAgent) skipWaits() { a.clock.Advance(transport.MaxBackoff) }
 
 // loginAdmin creates the first admin through the controller socket with the
 // CLI, as TestEndToEnd does, and logs it in over HTTP.

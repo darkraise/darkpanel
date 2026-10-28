@@ -200,7 +200,7 @@ func TestBackoffJitter(t *testing.T) {
 	b := NewBackoff()
 	var low bool
 	for i := range 200 {
-		ceiling := min(BackoffMax, BackoffMin<<min(i, 6))
+		ceiling := min(MaxBackoff, MinBackoff<<min(i, 6))
 		d := b.Next()
 		if d < 0 || d > ceiling {
 			t.Fatalf("call %d: Next = %v, outside [0, %v]", i, d, ceiling)

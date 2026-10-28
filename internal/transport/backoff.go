@@ -7,12 +7,12 @@ import (
 
 // Bounds of the agent's redial delay.
 const (
-	BackoffMin = time.Second
-	BackoffMax = time.Minute
+	MinBackoff = time.Second
+	MaxBackoff = time.Minute
 )
 
-// Backoff spaces the agent's redials: exponential from BackoffMin to
-// BackoffMax with full jitter, so agents that lost a controller together do
+// Backoff spaces the agent's redials: exponential from MinBackoff to
+// MaxBackoff with full jitter, so agents that lost a controller together do
 // not return together. It is not safe for concurrent use.
 type Backoff struct {
 	attempt int
@@ -24,17 +24,17 @@ func NewBackoff() *Backoff {
 	return &Backoff{rand: rand.Int64N} //nolint:gosec // G404: jitter needs no unpredictability
 }
 
-// Next returns a delay drawn uniformly from [0, min(BackoffMax,
-// BackoffMin*2^n)] for the n-th call since the last Reset.
+// Next returns a delay drawn uniformly from [0, min(MaxBackoff,
+// MinBackoff*2^n)] for the n-th call since the last Reset.
 func (b *Backoff) Next() time.Duration {
-	ceiling := BackoffMin
-	for i := 0; i < b.attempt && ceiling < BackoffMax; i++ {
+	ceiling := MinBackoff
+	for i := 0; i < b.attempt && ceiling < MaxBackoff; i++ {
 		ceiling *= 2
 	}
-	if ceiling < BackoffMax {
+	if ceiling < MaxBackoff {
 		b.attempt++
 	}
-	ceiling = min(ceiling, BackoffMax)
+	ceiling = min(ceiling, MaxBackoff)
 	return time.Duration(b.rand(int64(ceiling) + 1))
 }
 

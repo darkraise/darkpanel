@@ -16,11 +16,11 @@ import (
 )
 
 // The backoff of a background task whose Run or Watch failed (spec 1.4): it
-// doubles from TaskBackoffMin up to TaskBackoffMax, and a successful pass
+// doubles from MinTaskBackoff up to MaxTaskBackoff, and a successful pass
 // resets Run's backoff.
 const (
-	TaskBackoffMin = time.Second
-	TaskBackoffMax = 5 * time.Minute
+	MinTaskBackoff = time.Second
+	MaxTaskBackoff = 5 * time.Minute
 )
 
 // TaskSkipWarnEvery is how many passes in a row a task skips, because a
@@ -62,11 +62,11 @@ func (t *taskRun) wakeUp() {
 
 // taskBackoff is the wait after the failures-th consecutive failure.
 func taskBackoff(failures int64) time.Duration {
-	d := TaskBackoffMin
-	for i := int64(1); i < failures && d < TaskBackoffMax; i++ {
+	d := MinTaskBackoff
+	for i := int64(1); i < failures && d < MaxTaskBackoff; i++ {
 		d *= 2
 	}
-	return min(d, TaskBackoffMax)
+	return min(d, MaxTaskBackoff)
 }
 
 // startBackground starts the background tasks of every module whose enabled

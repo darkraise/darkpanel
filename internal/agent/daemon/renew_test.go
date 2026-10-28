@@ -69,7 +69,7 @@ func TestRunRenewsTheCertificate(t *testing.T) {
 	}
 	// The renewed certificate is fresh: no further renewal or reconnection.
 	for range 20 {
-		h.clock.Advance(transport.BackoffMax)
+		h.clock.Advance(transport.MaxBackoff)
 		time.Sleep(5 * time.Millisecond)
 	}
 	if n := len(ctrl.agentSessions()); n != 2 {
