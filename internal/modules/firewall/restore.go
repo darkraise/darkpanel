@@ -335,8 +335,11 @@ func sysctlIface(key string) string {
 }
 
 // writeBackSysctl writes want's values in sysctlRank order and reads each
-// back. A per-interface key absent from present (the live keys) belongs to
-// an interface that has gone: it is not written and is returned instead.
+// back. A key absent from present (the live keys) cannot be written: a
+// per-interface key belongs to an interface that has gone, and an all,
+// default or global key is gone when the host booted without that
+// protocol (ipv6.disable=1). It is not written and is returned instead, so
+// that no restore, the emergency one included, fails on it every time.
 func writeBackSysctl(ctx context.Context, env core.Env, want, present map[string]string) ([]string, error) {
 	keys := make([]string, 0, len(want))
 	for k := range want {
@@ -350,11 +353,9 @@ func writeBackSysctl(ctx context.Context, env core.Env, want, present map[string
 	})
 	var vanished, written []string
 	for _, k := range keys {
-		if sysctlRank(k) == 3 && sysctlIface(k) != "" {
-			if _, ok := present[k]; !ok {
-				vanished = append(vanished, k)
-				continue
-			}
+		if _, ok := present[k]; !ok {
+			vanished = append(vanished, k)
+			continue
 		}
 		if err := env.Files.WriteSysctl(ctx, ID, k, want[k]); err != nil {
 			return vanished, fmt.Errorf("firewall: write sysctl %s back: %w", k, err)

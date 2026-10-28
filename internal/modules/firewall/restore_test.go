@@ -315,6 +315,30 @@ func TestWriteBackSysctlOrder(t *testing.T) {
 	}
 }
 
+// TestRestoreWithoutAnAllKey: a host rebooted with ipv6.disable=1 has no
+// net/ipv6/conf/all/forwarding, so a restore of a snapshot that holds it
+// reports the key instead of failing on it every time.
+func TestRestoreWithoutAnAllKey(t *testing.T) {
+	ctx := context.Background()
+	h := newFakeHost(t)
+	snap := rsTestSnap(t, h, false)
+	if _, ok := snap.State.Sysctl["net/ipv6/conf/all/forwarding"]; !ok {
+		t.Fatal("the snapshot holds no net/ipv6/conf/all/forwarding")
+	}
+	delete(h.sysctl, "net/ipv6/conf/all/forwarding")
+	h.ufw["reload"] = func(*fhState) int { return 0 }
+	rep, err := restore(ctx, h.env(), h.deps(), snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(rep.Vanished, "net/ipv6/conf/all/forwarding") {
+		t.Errorf("vanished = %v, want the all key", rep.Vanished)
+	}
+	if _, ok, _ := pendingRestore(ctx, h.db); ok {
+		t.Error("the restore left its record")
+	}
+}
+
 func TestRestoreRefusesIPv6NoOverForeignRules(t *testing.T) {
 	ctx := context.Background()
 	h := newFakeHost(t)
