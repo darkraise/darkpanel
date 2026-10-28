@@ -6,6 +6,8 @@
 # by default the directory holding this script. Needs Docker and network
 # access for apt.
 set -eu
+# Git Bash would rewrite the container paths given to docker exec.
+export MSYS_NO_PATHCONV=1
 
 out=${1:-$(dirname "$0")}
 
@@ -33,6 +35,7 @@ for image in ubuntu:22.04 ubuntu:24.04 debian:12 debian:13; do
 	name="dp-w1-F1-$slug"
 	dir="$out/$slug"
 	mkdir -p "$dir"
+	docker rm -f "$name" >/dev/null 2>&1 || true
 	docker run -d --privileged --name "$name" "$image" sleep infinity >/dev/null
 	trap 'docker rm -f "$name" >/dev/null 2>&1' EXIT
 	docker exec "$name" sh -c "$scenario"
@@ -40,8 +43,12 @@ for image in ubuntu:22.04 ubuntu:24.04 debian:12 debian:13; do
 		docker exec "$name" cat "/etc/ufw/$f" >"$dir/$f"
 	done
 	docker exec "$name" cat /etc/default/ufw >"$dir/default"
-	docker exec "$name" iptables-save -t filter | normalize >"$dir/iptables.save"
-	docker exec "$name" ip6tables-save -t filter | normalize >"$dir/ip6tables.save"
+	# POSIX sh has no pipefail, so each save is taken whole first and a
+	# failed one stops the script under set -e.
+	save=$(docker exec "$name" iptables-save -t filter)
+	printf '%s\n' "$save" | normalize >"$dir/iptables.save"
+	save=$(docker exec "$name" ip6tables-save -t filter)
+	printf '%s\n' "$save" | normalize >"$dir/ip6tables.save"
 	docker exec "$name" sh -c 'dpkg-query -W -f "ufw \${Version}\n" ufw; iptables --version' >"$dir/versions"
 	docker rm -f "$name" >/dev/null
 	trap - EXIT
