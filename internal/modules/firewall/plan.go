@@ -41,7 +41,10 @@ type prepared struct {
 // configuration (spec 2.1: a hard refusal, firewall.unsupported_configuration,
 // mangle and security rules the evaluator cannot model included), builds the
 // change and predicts its target, whose configuration and loaded state must
-// be supported too. Plan and Apply both start here.
+// be supported too. Between the build and the prediction it refuses the
+// change (firewall.docker_user_in_use) while the Docker integration is on
+// before or after it and DOCKER-USER holds a foreign rule, unless the change
+// discards those rules on purpose. Plan and Apply both start here.
 func (f fw) prepare(ctx context.Context, env core.Env, build buildFunc) (prepared, error) {
 	cfg0, err := f.d.readConfig(f.d.root)
 	if err != nil {
@@ -58,6 +61,20 @@ func (f fw) prepare(ctx context.Context, env core.Env, build buildFunc) (prepare
 	c, err := build(cfg0, cur)
 	if err != nil {
 		return prepared{}, err
+	}
+	// The stored flag is read only when DOCKER-USER holds something to
+	// refuse, so a change on a host without the integration's state never
+	// reads the Docker store.
+	if !c.discardForeign {
+		if refusal := dockerUserInUse(cur, cfg0, true); refusal != nil {
+			stored, err := readDockerConfig(ctx, env.DB)
+			if err != nil {
+				return prepared{}, fmt.Errorf("firewall: read the Docker integration flag: %w", err)
+			}
+			if stored.Enabled || (c.flag != nil && *c.flag) {
+				return prepared{}, refusal
+			}
+		}
 	}
 	tg, err := f.predictTarget(cfg0, cur, c)
 	if err != nil {

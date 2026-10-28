@@ -32,6 +32,11 @@ type change struct {
 	cleanup bool                     // run the owned-chain cleanup before the transition commands
 	reload  bool                     // the change needs `ufw reload` when UFW stays active (block files changed)
 	notes   []core.DiffLine          // extra plan lines a builder adds
+	// discardForeign is true only for a change that discards the foreign
+	// DOCKER-USER rules on purpose (firewall.docker.repair with
+	// DiscardForeign and Manual both set); prepare then skips
+	// dockerUserInUse.
+	discardForeign bool
 }
 
 // target is where a change ends.
