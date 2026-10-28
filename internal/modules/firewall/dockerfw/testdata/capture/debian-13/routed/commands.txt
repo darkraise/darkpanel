@@ -1,0 +1,8 @@
+0	ufw --force enable
+0	ufw allow 22/tcp
+0	docker run -d --name web -p 8080:80 -p 127.0.0.1:8081:80 busybox:1.37 httpd -f -p 80
+0	docker network create -o com.docker.network.bridge.name=dpcustom --subnet 172.30.0.0/24 custom
+0	docker run -d --name app --network custom -p 9090:80 busybox:1.37 httpd -f -p 80
+0	docker network create --ipv6 --subnet fd00:dead::/64 v6net
+0	docker run -d --name six --network v6net -p 8443:80 busybox:1.37 httpd -f -p 80
+0	docker network create -o com.docker.network.bridge.gateway_mode_ipv4=routed --subnet 198.51.100.0/24 routednet

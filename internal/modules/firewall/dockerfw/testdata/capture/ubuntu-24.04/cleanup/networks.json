@@ -1,0 +1,214 @@
+[
+  {
+    "Attachable": false,
+    "ConfigFrom": {
+      "Network": ""
+    },
+    "ConfigOnly": false,
+    "Containers": {
+      "53f76f6bfc33b3c5e663feeea23d3c13101e772cbb3dc223b8aa2de5b00deceb": {
+        "EndpointID": "e764b310f0df6607a3e430deff69cb8ca8bcddb854c580d1f91a50313d47277a",
+        "IPv4Address": "172.18.0.2/16",
+        "IPv6Address": "",
+        "MacAddress": "9e:a3:fc:46:70:9d",
+        "Name": "web"
+      }
+    },
+    "Created": "2026-10-28T10:27:22.733269953Z",
+    "Driver": "bridge",
+    "EnableIPv4": true,
+    "EnableIPv6": false,
+    "IPAM": {
+      "Config": [
+        {
+          "Gateway": "172.18.0.1",
+          "Subnet": "172.18.0.0/16"
+        }
+      ],
+      "Driver": "default",
+      "Options": null
+    },
+    "Id": "66dc7f343b2e126b5f540dcbdfe3d2e5183313945892598bde4744f962b256ee",
+    "Ingress": false,
+    "Internal": false,
+    "Labels": {},
+    "Name": "bridge",
+    "Options": {
+      "com.docker.network.bridge.default_bridge": "true",
+      "com.docker.network.bridge.enable_icc": "true",
+      "com.docker.network.bridge.enable_ip_masquerade": "true",
+      "com.docker.network.bridge.host_binding_ipv4": "0.0.0.0",
+      "com.docker.network.bridge.name": "docker0",
+      "com.docker.network.driver.mtu": "1500"
+    },
+    "Scope": "local",
+    "Status": {
+      "IPAM": {
+        "Subnets": {
+          "172.18.0.0/16": {
+            "DynamicIPsAvailable": 65532,
+            "IPsInUse": 4
+          }
+        }
+      }
+    }
+  },
+  {
+    "Attachable": false,
+    "ConfigFrom": {
+      "Network": ""
+    },
+    "ConfigOnly": false,
+    "Containers": {
+      "7cb3abd99b89db206275044a1453afcf4dcc5a8d370878d64d792eb8dcfdd135": {
+        "EndpointID": "d97d6a386ab78aae08a2f54e5e160ae6ed081959adae8bb76b599036240c719b",
+        "IPv4Address": "172.30.0.2/24",
+        "IPv6Address": "",
+        "MacAddress": "a2:74:35:3d:c8:f3",
+        "Name": "app"
+      }
+    },
+    "Created": "2026-10-28T10:27:27.133635698Z",
+    "Driver": "bridge",
+    "EnableIPv4": true,
+    "EnableIPv6": false,
+    "IPAM": {
+      "Config": [
+        {
+          "Gateway": "172.30.0.1",
+          "Subnet": "172.30.0.0/24"
+        }
+      ],
+      "Driver": "default",
+      "Options": {}
+    },
+    "Id": "817f9dec52af59242ff7997c74ce4cf37d7671b7e3bb2442f7b52b4895b1d63a",
+    "Ingress": false,
+    "Internal": false,
+    "Labels": {},
+    "Name": "custom",
+    "Options": {
+      "com.docker.network.bridge.name": "dpcustom"
+    },
+    "Scope": "local",
+    "Status": {
+      "IPAM": {
+        "Subnets": {
+          "172.30.0.0/24": {
+            "DynamicIPsAvailable": 252,
+            "IPsInUse": 4
+          }
+        }
+      }
+    }
+  },
+  {
+    "Attachable": false,
+    "ConfigFrom": {
+      "Network": ""
+    },
+    "ConfigOnly": false,
+    "Containers": {},
+    "Created": "2026-10-28T10:27:22.732883427Z",
+    "Driver": "host",
+    "EnableIPv4": true,
+    "EnableIPv6": false,
+    "IPAM": {
+      "Config": null,
+      "Driver": "default",
+      "Options": null
+    },
+    "Id": "d71284fcef8c1e5135122bb2cab5c45e755721200031201eaa55a8b76bd346bb",
+    "Ingress": false,
+    "Internal": false,
+    "Labels": {},
+    "Name": "host",
+    "Options": {},
+    "Scope": "local",
+    "Status": {
+      "IPAM": {}
+    }
+  },
+  {
+    "Attachable": false,
+    "ConfigFrom": {
+      "Network": ""
+    },
+    "ConfigOnly": false,
+    "Containers": {},
+    "Created": "2026-10-28T10:27:22.732648115Z",
+    "Driver": "null",
+    "EnableIPv4": true,
+    "EnableIPv6": false,
+    "IPAM": {
+      "Config": null,
+      "Driver": "default",
+      "Options": null
+    },
+    "Id": "60e05b76fa5613c6fe9597c2c791b9273311b69ed883e280ac80e6d38a860e90",
+    "Ingress": false,
+    "Internal": false,
+    "Labels": {},
+    "Name": "none",
+    "Options": {},
+    "Scope": "local",
+    "Status": {
+      "IPAM": {}
+    }
+  },
+  {
+    "Attachable": false,
+    "ConfigFrom": {
+      "Network": ""
+    },
+    "ConfigOnly": false,
+    "Containers": {
+      "6944b2284ef87926e85a3f0152205ee14cee83c0c52fcf97d463a43d70c5cc27": {
+        "EndpointID": "60a929ea9abc806eab9837ee9b9032856c181978d93863ef8af606fcbc62b7ca",
+        "IPv4Address": "172.19.0.2/16",
+        "IPv6Address": "fd00:dead::2/64",
+        "MacAddress": "7a:90:fb:42:4b:f8",
+        "Name": "six"
+      }
+    },
+    "Created": "2026-10-28T10:27:27.339300958Z",
+    "Driver": "bridge",
+    "EnableIPv4": true,
+    "EnableIPv6": true,
+    "IPAM": {
+      "Config": [
+        {
+          "Gateway": "fd00:dead::1",
+          "Subnet": "fd00:dead::/64"
+        },
+        {
+          "Gateway": "172.19.0.1",
+          "Subnet": "172.19.0.0/16"
+        }
+      ],
+      "Driver": "default",
+      "Options": {}
+    },
+    "Id": "424351636c8a4467da8b998a828fee78c202e041d231d07590e7b012c4e1fcbf",
+    "Ingress": false,
+    "Internal": false,
+    "Labels": {},
+    "Name": "v6net",
+    "Options": {},
+    "Scope": "local",
+    "Status": {
+      "IPAM": {
+        "Subnets": {
+          "172.19.0.0/16": {
+            "DynamicIPsAvailable": 65532,
+            "IPsInUse": 4
+          },
+          "fd00:dead::/64": {
+            "DynamicIPsAvailable": 18446744073709551613,
+            "IPsInUse": 3
+          }
+        }
+      }
+    }
+  }
+]

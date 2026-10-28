@@ -1,0 +1,16 @@
+*nat
+:PREROUTING ACCEPT [0:0]
+:INPUT ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+:DOCKER - [0:0]
+-A PREROUTING -m addrtype --dst-type LOCAL -j DOCKER
+-A OUTPUT ! -d 127.0.0.0/8 -m addrtype --dst-type LOCAL -j DOCKER
+-A POSTROUTING -s 172.19.0.0/16 ! -o br-57cda17f95ba -j MASQUERADE
+-A POSTROUTING -s 172.30.0.0/24 ! -o dpcustom -j MASQUERADE
+-A POSTROUTING -s 172.18.0.0/16 ! -o docker0 -j MASQUERADE
+-A DOCKER ! -i docker0 -p tcp -m tcp --dport 8080 -j DNAT --to-destination 172.18.0.2:80
+-A DOCKER -d 127.0.0.1/32 ! -i docker0 -p tcp -m tcp --dport 8081 -j DNAT --to-destination 172.18.0.2:80
+-A DOCKER ! -i dpcustom -p tcp -m tcp --dport 9090 -j DNAT --to-destination 172.30.0.2:80
+-A DOCKER ! -i br-57cda17f95ba -p tcp -m tcp --dport 8443 -j DNAT --to-destination 172.19.0.2:80
+COMMIT
