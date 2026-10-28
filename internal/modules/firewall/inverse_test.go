@@ -326,12 +326,16 @@ func TestInverseRefusesWhatItCannotUndo(t *testing.T) {
 			Post: &core.StateDoc{State: mustJSON(ruleState{Matches: 2})}},
 		"application rule": {Seq: 1, Kind: core.EffectDelete, Resource: ruleResource("manual-0000000000000000"),
 			Before: core.StateDoc{State: mustJSON(ruleState{V4: "### tuple ### allow any any 0.0.0.0/0 any 0.0.0.0/0 OpenSSH - in"}), Version: mustJSON(ufwVersion{Pos4: 1})}},
+		"null enabled state": {Seq: 1, Kind: core.EffectModify, Resource: resourceEnabled,
+			Before: core.StateDoc{State: []byte("null")}, Post: &core.StateDoc{State: mustJSON(true)}},
+		"null logging level": {Seq: 1, Kind: core.EffectModify, Resource: resourceLogging, Before: core.StateDoc{State: []byte(" null ")}},
+		"null sysctl value":  {Seq: 1, Kind: core.EffectModify, Resource: sysctlResource("net/ipv4/ip_forward"), Before: core.StateDoc{State: []byte("null")}},
 	} {
 		if err := inverse(ctx, h.env(), h.deps(), snap, e); err == nil {
 			t.Errorf("%s: inverse succeeded", name)
 		}
 	}
-	if slices.ContainsFunc(h.calls, func(c string) bool { return strings.HasPrefix(c, "run ") }) {
+	if slices.ContainsFunc(h.calls, func(c string) bool { return strings.HasPrefix(c, "run ") || strings.HasPrefix(c, "sysctl ") }) {
 		t.Errorf("a refused undo ran %v", h.calls)
 	}
 }

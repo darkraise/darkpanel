@@ -1,6 +1,7 @@
 package firewall
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -38,7 +39,7 @@ func inverse(ctx context.Context, env core.Env, d deps, snap snapshot, e core.Ef
 		}
 	case nounDefault:
 		var policy string
-		if err = json.Unmarshal(e.Before.State, &policy); err == nil {
+		if err = beforeValue(e, &policy); err == nil {
 			var op ufwOp
 			if op, err = defaultOp(ident, policy); err == nil {
 				err = ufw(ctx, env, op.Args)
@@ -46,7 +47,7 @@ func inverse(ctx context.Context, env core.Env, d deps, snap snapshot, e core.Ef
 		}
 	case nounLogging:
 		var level string
-		if err = json.Unmarshal(e.Before.State, &level); err == nil {
+		if err = beforeValue(e, &level); err == nil {
 			var op ufwOp
 			if op, err = loggingOp(level); err == nil {
 				err = ufw(ctx, env, op.Args)
@@ -54,7 +55,7 @@ func inverse(ctx context.Context, env core.Env, d deps, snap snapshot, e core.Ef
 		}
 	case nounState:
 		var enabled bool
-		if err = json.Unmarshal(e.Before.State, &enabled); err == nil {
+		if err = beforeValue(e, &enabled); err == nil {
 			var target map[string]string
 			if target, err = sysctlTarget(ctx, env, d, snap, e); err == nil {
 				if err = ufw(ctx, env, enableOp(enabled).Args); err == nil {
@@ -66,7 +67,7 @@ func inverse(ctx context.Context, env core.Env, d deps, snap snapshot, e core.Ef
 		err = restoreFile(ctx, env, snap, ident, e.Before)
 	case nounSysctl:
 		var value string
-		if err = json.Unmarshal(e.Before.State, &value); err == nil {
+		if err = beforeValue(e, &value); err == nil {
 			err = env.Files.WriteSysctl(ctx, ID, ident, value)
 		}
 	default:
@@ -83,6 +84,16 @@ func inverse(ctx context.Context, env core.Env, d deps, snap snapshot, e core.Ef
 		return fmt.Errorf("firewall: undo effect %d (%s) left %s, want %s", e.Seq, e.Resource, obs.Current.State, e.Before.State)
 	}
 	return nil
+}
+
+// beforeValue decodes a value effect's Before into v. JSON null would
+// decode to the zero value and undo to it, so a damaged journal is refused
+// before anything is written.
+func beforeValue(e core.Effect, v any) error {
+	if raw := bytes.TrimSpace(e.Before.State); len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return fmt.Errorf("effect %d has no before state", e.Seq)
+	}
+	return json.Unmarshal(e.Before.State, v)
 }
 
 // ufw runs one ufw vector and fails on a non-zero exit.
