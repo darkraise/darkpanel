@@ -41,6 +41,12 @@ func flSock(proto netstat.Proto, state netstat.State, local, remote, comm string
 	return s
 }
 
+// gxMark is p with the packet mark set.
+func gxMark(p fwstate.Packet, mark uint32) fwstate.Packet {
+	p.Mark = mark
+	return p
+}
+
 func flAddrPorts(s ...string) []netip.AddrPort {
 	out := make([]netip.AddrPort, len(s))
 	for i, a := range s {
@@ -197,8 +203,10 @@ func TestBuildFlows(t *testing.T) {
 				flSock(tcp, est, "100.64.0.1:41002", "100.64.0.2:443", "tailscaled", 300),
 			}},
 			want: []flow{
-				{label: "tailscale", pkt: flPkt("output", "0.0.0.0", 41641, "198.51.100.1", 41641, "udp"), standIn: true},
-				{label: "tailscale", pkt: flPkt("output", "0.0.0.0", 0, "198.51.100.1", 443, "tcp"), standIn: true},
+				{label: "tailscale", pkt: gxMark(flPkt("output", "0.0.0.0", 41641, "198.51.100.1", 41641, "udp"), 0x80000), standIn: true},
+				{label: "tailscale", pkt: gxMark(flPkt("output", "0.0.0.0", 0, "198.51.100.1", 443, "tcp"), 0x80000), standIn: true},
+				{label: "tailscale", pkt: gxMark(flPkt("output", "::", 41641, "2001:db8:ffff::1", 41641, "udp"), 0x80000), standIn: true},
+				{label: "tailscale", pkt: gxMark(flPkt("output", "::", 0, "2001:db8:ffff::1", 443, "tcp"), 0x80000), standIn: true},
 			},
 		},
 		{

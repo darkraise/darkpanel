@@ -43,7 +43,8 @@ func newRouter(h Host, f facts, st fwstate.Loaded) *router {
 // without a fixed in-interface on every eligible in-interface, any other
 // flow once with the out-interface its route gives. A route that cannot be
 // resolved makes the flow unknown, except that a stand-in destination
-// without a route of its family has nothing to protect.
+// without a route of its family has nothing to protect. Every lookup
+// carries the packet's mark, which policy rules may match.
 func (r *router) probes(fl flow) []probe {
 	if fl.unknown != "" {
 		return []probe{{desc: fl.label, unknown: fl.unknown}}
@@ -64,7 +65,7 @@ func (r *router) probes(fl flow) []probe {
 	}
 	switch p.Path {
 	case "output":
-		q := netstat.RouteQuery{Dst: p.Dst}
+		q := netstat.RouteQuery{Dst: p.Dst, Mark: p.Mark}
 		if !p.Src.IsUnspecified() {
 			q.Src = p.Src
 		}
@@ -84,7 +85,7 @@ func (r *router) probes(fl flow) []probe {
 		if off := r.forwardingOff(p.Family); off != "" {
 			return fail(off)
 		}
-		rt, ok, out := lookup(netstat.RouteQuery{Dst: p.Dst, Src: p.Src, IIF: p.InIface})
+		rt, ok, out := lookup(netstat.RouteQuery{Dst: p.Dst, Src: p.Src, IIF: p.InIface, Mark: p.Mark})
 		if !ok {
 			return out
 		}
@@ -96,7 +97,7 @@ func (r *router) probes(fl flow) []probe {
 		return []probe{{desc: describe(fl.label, p), pkt: p}}
 	}
 	if p.Dst.IsUnspecified() {
-		rt, err := r.host.RouteGet(netstat.RouteQuery{Dst: p.Src})
+		rt, err := r.host.RouteGet(netstat.RouteQuery{Dst: p.Src, Mark: p.Mark})
 		if err != nil {
 			return fail(fmt.Sprintf("the route back to %s cannot be resolved: %v", p.Src, err))
 		}
@@ -151,7 +152,7 @@ func (r *router) eligible(p fwstate.Packet) ([]string, error) {
 			}
 			if rp == 1 {
 				if !looked {
-					q := netstat.RouteQuery{Dst: p.Src}
+					q := netstat.RouteQuery{Dst: p.Src, Mark: p.Mark}
 					if r.local[p.Dst] {
 						q.Src = p.Dst
 					}
@@ -232,14 +233,19 @@ func (r *router) forwardingOff(fam fwstate.Family) string {
 }
 
 // route is the evaluator's fwstate.Router: where a packet goes once nat
-// PREROUTING has set its destination.
+// PREROUTING has set its destination. Every lookup carries the packet's
+// mark, which policy rules may match. A locally generated packet to an
+// address of this host leaves through lo.
 func (r *router) route(p fwstate.Packet) (string, string, error) {
 	dst := p.Dst.Unmap()
 	if dst.IsLoopback() || r.local[dst] {
+		if p.Path == "output" {
+			return "output", "lo", nil
+		}
 		return "input", "", nil
 	}
 	if p.Path == "output" {
-		rt, err := r.host.RouteGet(netstat.RouteQuery{Dst: dst, Src: p.Src})
+		rt, err := r.host.RouteGet(netstat.RouteQuery{Dst: dst, Src: p.Src, Mark: p.Mark})
 		switch {
 		case err != nil:
 			return "", "", fmt.Errorf("firewall: route to %s: %w", dst, err)
@@ -251,7 +257,7 @@ func (r *router) route(p fwstate.Packet) (string, string, error) {
 	if off := r.forwardingOff(p.Family); off != "" {
 		return "", "", errors.New("firewall: " + off)
 	}
-	rt, err := r.host.RouteGet(netstat.RouteQuery{Dst: dst, Src: p.Src, IIF: p.InIface})
+	rt, err := r.host.RouteGet(netstat.RouteQuery{Dst: dst, Src: p.Src, IIF: p.InIface, Mark: p.Mark})
 	switch {
 	case err != nil:
 		return "", "", fmt.Errorf("firewall: route to %s from %s on %s: %w", dst, p.Src, p.InIface, err)

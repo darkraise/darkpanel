@@ -61,9 +61,9 @@ func ckHost() *gHost {
 			flSock(netstat.ProtoUDP, netstat.StateClose, "0.0.0.0:41641", "", "tailscaled", 300),
 		},
 		routes: map[netstat.RouteQuery]netstat.Route{
-			rtQuery("198.51.100.9", "192.0.2.1", ""):          rtVia("eth0", "192.0.2.1"),
-			rtQuery("198.51.100.1", "", ""):                   rtVia("eth0", "192.0.2.1"),
-			rtQuery("198.51.100.1", "172.30.0.3", "dp-panel"): rtVia("eth0", ""),
+			rtQuery("198.51.100.9", "192.0.2.1", ""):              rtVia("eth0", "192.0.2.1"),
+			gxQueryMark(rtQuery("198.51.100.1", "", ""), 0x80000): rtVia("eth0", "192.0.2.1"),
+			rtQuery("198.51.100.1", "172.30.0.3", "dp-panel"):     rtVia("eth0", ""),
 		},
 	}
 }
@@ -338,6 +338,41 @@ func TestCheckRouterGiven(t *testing.T) {
 	}
 	if len(results) != 4 {
 		t.Errorf("%d results, want the proxy flow and the public flow on three interfaces", len(results))
+	}
+}
+
+func TestGxCheckTailscaleMark(t *testing.T) {
+	env, _, _ := ckEnv()
+	h := &gHost{ifaces: gIfaces(), sockets: []netstat.Socket{
+		flSock(netstat.ProtoUDP, netstat.StateClose, "0.0.0.0:41641", "", "tailscaled", 300),
+	}, routes: map[netstat.RouteQuery]netstat.Route{
+		rtQuery("198.51.100.1", "", ""):                       rtVia("eth1", "10.0.0.1"),
+		gxQueryMark(rtQuery("198.51.100.1", "", ""), 0x80000): rtVia("eth0", "192.0.2.1"),
+	}}
+	var seen []fwstate.Packet
+	eval := func(_ *netfilter.Ruleset, p fwstate.Packet, _ fwstate.Router) fwstate.Result {
+		seen = append(seen, p)
+		return fwstate.Result{Verdict: fwstate.Accept}
+	}
+	g, results, err := Checker{Host: h}.Check(context.Background(), env, ckState(), Input{Eval: eval})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var flows []string
+	for _, r := range results {
+		flows = append(flows, r.Flow)
+	}
+	want := []string{
+		"tailscale udp from 192.0.2.1 to 198.51.100.1:41641 out eth0",
+		"tailscale from 192.0.2.1 to 198.51.100.1:443 out eth0",
+	}
+	if !g.OK || !reflect.DeepEqual(flows, want) {
+		t.Errorf("guard %+v, flows %q; want tailscaled's flows routed by its bypass mark %q", g, flows, want)
+	}
+	for _, p := range seen {
+		if p.Mark != 0x80000 {
+			t.Errorf("evaluated %+v, want mark 0x80000", p)
+		}
 	}
 }
 

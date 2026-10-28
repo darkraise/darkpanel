@@ -39,6 +39,10 @@ var sshComms = []string{"sshd", "sshd-session", "sshd-auth"}
 // tailscaled is the process name of the Tailscale daemon.
 const tailscaled = "tailscaled"
 
+// tailscaleMark is the bypass mark tailscaled puts on its own sockets, so
+// policy routing sends its traffic around the tailnet's routes.
+const tailscaleMark uint32 = 0x80000
+
 // flow is one protected flow before routing: pkt has no in- or
 // out-interface yet unless the flow fixes its in-interface. A flow with a
 // non-empty unknown is not evaluated and fails with that reason.
@@ -344,8 +348,15 @@ func tailscaleFlows(s *flowSet, f facts) {
 		return
 	}
 	slices.Sort(ports)
-	for _, port := range ports {
-		s.add(flow{label: "tailscale", pkt: newPacket("output", netip.IPv4Unspecified(), port, internet4, 41641, "udp"), standIn: true})
+	for _, src := range []netip.Addr{netip.IPv4Unspecified(), netip.IPv6Unspecified()} {
+		dst := internetFor(src)
+		for _, port := range ports {
+			p := newPacket("output", src, port, dst, 41641, "udp")
+			p.Mark = tailscaleMark
+			s.add(flow{label: "tailscale", pkt: p, standIn: true})
+		}
+		p := newPacket("output", src, unknownPort, dst, 443, "tcp")
+		p.Mark = tailscaleMark
+		s.add(flow{label: "tailscale", pkt: p, standIn: true})
 	}
-	s.add(flow{label: "tailscale", pkt: newPacket("output", netip.IPv4Unspecified(), unknownPort, internet4, 443, "tcp"), standIn: true})
 }

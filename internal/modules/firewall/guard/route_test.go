@@ -22,6 +22,12 @@ func rtQuery(dst, src, iif string) netstat.RouteQuery {
 	return q
 }
 
+// gxQueryMark is q with the packet mark set.
+func gxQueryMark(q netstat.RouteQuery, mark uint32) netstat.RouteQuery {
+	q.Mark = mark
+	return q
+}
+
 // rtVia is a unicast route through iface with a preferred source.
 func rtVia(iface, prefSrc string) netstat.Route {
 	r := netstat.Route{Type: "unicast", OutIface: iface}
@@ -165,6 +171,35 @@ func TestProbes(t *testing.T) {
 			want:   []probe{rtProbe("tailscale udp from 192.0.2.1 to 198.51.100.1:41641 out eth0", tsUDPResolved, "", "eth0")},
 		},
 		{
+			name: "outbound looks the route up with the packet's mark",
+			fl:   flow{label: "tailscale", pkt: gxMark(tsUDP, 0x80000), standIn: true}, f: rtFacts(0, 0, 0),
+			routes: map[netstat.RouteQuery]netstat.Route{
+				rtQuery("198.51.100.1", "", ""):                       rtVia("eth1", "10.0.0.1"),
+				gxQueryMark(rtQuery("198.51.100.1", "", ""), 0x80000): rtVia("eth0", "192.0.2.1"),
+			},
+			want:    []probe{rtProbe("tailscale udp from 192.0.2.1 to 198.51.100.1:41641 out eth0", gxMark(tsUDPResolved, 0x80000), "", "eth0")},
+			lookups: []netstat.RouteQuery{gxQueryMark(rtQuery("198.51.100.1", "", ""), 0x80000)},
+		},
+		{
+			name: "a forwarded flow looks the route up with the packet's mark",
+			fl:   flow{label: "exposure exp2 tunnel", pkt: gxMark(tunnel, 0x10), standIn: true}, f: rtFacts(0, 0, 0),
+			routes: map[netstat.RouteQuery]netstat.Route{
+				gxQueryMark(rtQuery("198.51.100.1", "172.30.0.3", "dp-panel"), 0x10): rtVia("eth0", ""),
+			},
+			want:    []probe{rtProbe("exposure exp2 tunnel udp from 172.30.0.3 to 198.51.100.1:7844 on dp-panel out eth0", gxMark(tunnel, 0x10), "dp-panel", "eth0")},
+			lookups: []netstat.RouteQuery{gxQueryMark(rtQuery("198.51.100.1", "172.30.0.3", "dp-panel"), 0x10)},
+		},
+		{
+			name: "every lookup of an incoming flow carries the packet's mark",
+			fl:   flow{label: "panel", pkt: gxMark(panel, 0x10)}, f: rtFacts(1, 0, 0),
+			routes: map[netstat.RouteQuery]netstat.Route{
+				gxQueryMark(rtQuery("203.0.113.7", "", ""), 0x10):          rtVia("eth0", "192.0.2.1"),
+				gxQueryMark(rtQuery("203.0.113.7", "192.0.2.1", ""), 0x10): rtVia("eth0", "192.0.2.1"),
+			},
+			want:    []probe{rtProbe("panel from 203.0.113.7 to 192.0.2.1:443 on eth0", gxMark(panelResolved, 0x10), "eth0", "")},
+			lookups: []netstat.RouteQuery{gxQueryMark(rtQuery("203.0.113.7", "", ""), 0x10), gxQueryMark(rtQuery("203.0.113.7", "192.0.2.1", ""), 0x10)},
+		},
+		{
 			name: "a stand-in destination without a route has nothing to protect",
 			fl:   flow{label: "tailscale", pkt: tsUDP, standIn: true}, f: rtFacts(0, 0, 0),
 		},
@@ -302,6 +337,13 @@ func TestRouterRoute(t *testing.T) {
 		{name: "no route", p: fwd, err: "firewall: route to 172.17.0.2 from 198.51.100.1 on eth0: netstat: no route"},
 		{name: "multipath", p: fwd, routes: map[netstat.RouteQuery]netstat.Route{toDocker: rtVia("", "")}, err: "firewall: the route to 172.17.0.2 has no single out-interface"},
 		{name: "outbound", p: out, routes: map[netstat.RouteQuery]netstat.Route{rtQuery("198.51.100.9", "192.0.2.1", ""): rtVia("eth1", "")}, path: "output", oif: "eth1"},
+		{name: "a forwarded packet carries its mark", p: gxMark(fwd, 0x10), routes: map[netstat.RouteQuery]netstat.Route{gxQueryMark(toDocker, 0x10): rtVia("docker0", "")}, path: "forward", oif: "docker0"},
+		{name: "outbound carries its mark", p: gxMark(out, 0x80000), routes: map[netstat.RouteQuery]netstat.Route{
+			rtQuery("198.51.100.9", "192.0.2.1", ""):                       rtVia("eth0", ""),
+			gxQueryMark(rtQuery("198.51.100.9", "192.0.2.1", ""), 0x80000): rtVia("eth1", ""),
+		}, path: "output", oif: "eth1"},
+		{name: "outbound to a host address leaves through lo", p: flPkt("output", "192.0.2.1", 40100, "10.0.0.1", 7443, "tcp"), path: "output", oif: "lo"},
+		{name: "outbound to a loopback address leaves through lo", p: flPkt("output", "192.0.2.1", 40100, "127.0.0.2", 7443, "tcp"), path: "output", oif: "lo"},
 		{name: "outbound without a route", p: out, err: "firewall: route to 198.51.100.9: netstat: no route"},
 		{name: "outbound multipath", p: out, routes: map[netstat.RouteQuery]netstat.Route{rtQuery("198.51.100.9", "192.0.2.1", ""): rtVia("", "")},
 			err: "firewall: the route to 198.51.100.9 has no single out-interface"},
