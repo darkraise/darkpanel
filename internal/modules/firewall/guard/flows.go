@@ -164,6 +164,9 @@ func listenFor(src, l netip.Addr, local map[netip.Addr]bool) (netip.Addr, bool) 
 }
 
 // heldBy reports whether a process named one of comms, or with pid, holds s.
+// Any local user can set a process's comm, so a name match only ever adds
+// a protected flow: a forged "sshd" can make a change fail the
+// overridable guard, never let a lockout through.
 func heldBy(s netstat.Socket, pid int, comms ...string) bool {
 	for _, p := range s.Processes {
 		if (pid != 0 && p.PID == pid) || slices.Contains(comms, p.Comm) {
