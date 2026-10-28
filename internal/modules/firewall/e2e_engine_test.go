@@ -228,3 +228,58 @@ func TestE2EVerifySysctl(t *testing.T) {
 		}
 	}
 }
+
+// ayNoNat is a host whose kernel does not apply the nat rules of
+// before.rules when ufw reloads.
+type ayNoNat struct{ *e2eHost }
+
+func (s ayNoNat) Run(ctx context.Context, cmd core.Cmd) (core.CmdResult, error) {
+	res, err := s.e2eHost.Run(ctx, cmd)
+	if cmd.Path == ufwPath && len(cmd.Args) == 1 && cmd.Args[0] == "reload" {
+		if c := chainOf(s.loaded.V4, "nat", "POSTROUTING"); c != nil {
+			c.Rules = nil
+		}
+	}
+	return res, err
+}
+
+// TestE2EVerifyNatRule: UFW's before.rules appends a nat rule to
+// POSTROUTING on every start. A reload that applies it passes verify, also
+// when an earlier reload appended it already; one the kernel does not apply
+// fails it with the chain named, and the engine reverts the change.
+func TestE2EVerifyNatRule(t *testing.T) {
+	const masq = "-A POSTROUTING -s 10.8.0.0/24 -o eth0 -j MASQUERADE"
+	natRules := func(h *e2eHost) int {
+		if c := chainOf(h.loaded.V4, "nat", "POSTROUTING"); c != nil {
+			return len(c.Rules)
+		}
+		return 0
+	}
+	for _, applied := range []bool{true, false} {
+		h := newE2EHost(t, "rules", "rules")
+		before := h.config().Files["/etc/ufw/before.rules"].Data
+		h.write("/etc/ufw/before.rules", append(append([]byte{}, before...), "\n*nat\n:POSTROUTING ACCEPT [0:0]\n"+masq+"\nCOMMIT\n"...))
+		var exec core.Runner = h
+		if !applied {
+			exec = ayNoNat{h}
+		}
+		eng := eeEngineRunning(t, h, exec)
+		_, cv, err := eePlanApply(t, eng, "firewall.logging.set", `{"level":"high"}`)
+		if applied {
+			if err != nil || cv.State != core.StatePending || natRules(h) != 1 {
+				t.Fatalf("applied: change %+v, %v, %d nat rules; want pending with the rule loaded once", cv, err, natRules(h))
+			}
+			if cv, err = eng.Confirm(context.Background(), eeUser, cv.ID); err != nil || cv.State != core.StateConfirmed {
+				t.Fatalf("confirm = %+v, %v", cv, err)
+			}
+			if _, cv, err = eePlanApply(t, eng, "firewall.logging.set", `{"level":"low"}`); err != nil || cv.State != core.StatePending || natRules(h) != 2 {
+				t.Errorf("second reload: change %+v, %v, %d nat rules; want pending with the rule loaded twice", cv, err, natRules(h))
+			}
+			continue
+		}
+		if cv.State != core.StateReverted || cv.Error == nil || cv.Error.Code != string(errcode.FirewallPredictionMismatch) ||
+			!strings.Contains(cv.Error.Message, "v4 nat/POSTROUTING: 1 rule only predicted") {
+			t.Errorf("not applied: change %+v, %v; want reverted by the prediction mismatch naming nat/POSTROUTING", cv, err)
+		}
+	}
+}

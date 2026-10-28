@@ -126,11 +126,12 @@ func (m mutation[In]) Apply(ctx context.Context, env core.Env, in In) (ChangeOut
 
 // Verify runs the action's own check, then compares the loaded state with
 // what the configuration now predicts, over UFW's and Darkpanel's chains
-// and the filter built-ins (fw.syncDiffs), and the sysctl values the
-// change's transition sets with the live ones (fw.verifySysctl): a
-// difference means UFW or the kernel did not do what the prediction said
-// (firewall.prediction_mismatch, which reverts). It reads only the host,
-// the change's journal and snapshot, so it also serves startup recovery.
+// and the built-in chains of every table (fw.verifyDiffs), and the sysctl
+// values the change's transition sets with the live ones
+// (fw.verifySysctl): a difference means UFW or the kernel did not do what
+// the prediction said (firewall.prediction_mismatch, which reverts). It
+// reads only the host, the change's journal and snapshot, so it also serves
+// startup recovery.
 func (m mutation[In]) Verify(ctx context.Context, env core.Env, in In, _ ChangeOutput) error {
 	cfg, err := m.f.d.readConfig(m.f.d.root)
 	if err != nil {
@@ -145,7 +146,7 @@ func (m mutation[In]) Verify(ctx context.Context, env core.Env, in In, _ ChangeO
 	if err != nil {
 		return fmt.Errorf("firewall: verify: %w", err)
 	}
-	diffs, err := m.f.syncDiffs(cfg, st)
+	diffs, err := m.f.verifyDiffs(cfg, st)
 	if err != nil {
 		return fmt.Errorf("firewall: verify: %w", err)
 	}
