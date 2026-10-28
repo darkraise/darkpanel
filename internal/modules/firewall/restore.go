@@ -2,6 +2,7 @@ package firewall
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -98,24 +99,34 @@ func restore(ctx context.Context, env core.Env, d deps, snap snapshot) (restoreR
 // restoreOver is restore for the connectivity exception when emergency is
 // not nil: the record of what the restore overwrites is kept with the
 // restore record, from before the first write, so that finishing a cut-off
-// restore still ends as an override.
+// restore still ends as an override. The record is written together with
+// the snapshot's Docker flag, settings and container rules (spec 2.5).
 func restoreOver(ctx context.Context, env core.Env, d deps, snap snapshot, emergency json.RawMessage) (restoreReport, error) {
 	var rep restoreReport
 	rec, recorded, err := restoreRecordOf(ctx, env.DB, snap.ID)
 	if err != nil {
 		return rep, err
 	}
+	now := env.Clock.Now()
 	tr := rec.Transition
 	switch {
 	case recorded && emergency != nil:
 		if err := markEmergency(ctx, env.DB, snap.ID, emergency); err != nil {
 			return rep, err
 		}
-	case !recorded:
+		if err := writeDockerState(ctx, env.DB, snap, now); err != nil {
+			return rep, err
+		}
+	case recorded:
+		if err := writeDockerState(ctx, env.DB, snap, now); err != nil {
+			return rep, err
+		}
+	default:
 		if tr, err = restoreTransition(ctx, env, d, snap); err != nil {
 			return rep, err
 		}
-		if err := beginRestoreRecord(ctx, env.DB, snap.ID, restoreRecord{Transition: tr, Emergency: emergency}, env.Clock.Now()); err != nil {
+		logical := func(tx *sql.Tx) error { return restoreDockerState(ctx, tx, snap, now) }
+		if err := beginRestoreWith(ctx, env.DB, snap.ID, restoreRecord{Transition: tr, Emergency: emergency}, now, logical); err != nil {
 			return rep, err
 		}
 	}

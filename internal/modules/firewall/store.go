@@ -390,6 +390,13 @@ func beginRestore(ctx context.Context, db *store.DB, id string, tr fwstate.Trans
 // beginRestoreRecord records a restore of snapshot id, in place of any
 // unfinished restore.
 func beginRestoreRecord(ctx context.Context, db *store.DB, id string, rec restoreRecord, now time.Time) error {
+	return beginRestoreWith(ctx, db, id, rec, now, nil)
+}
+
+// beginRestoreWith is beginRestoreRecord that also runs logical, when not
+// nil, in the same transaction, so the record and the restore's logical
+// writes commit together or not at all.
+func beginRestoreWith(ctx context.Context, db *store.DB, id string, rec restoreRecord, now time.Time, logical func(tx *sql.Tx) error) error {
 	kind, override := "normal", any(nil)
 	if rec.Emergency != nil {
 		kind, override = "emergency", string(rec.Emergency)
@@ -398,9 +405,14 @@ func beginRestoreRecord(ctx context.Context, db *store.DB, id string, rec restor
 		if _, err := tx.ExecContext(ctx, "DELETE FROM firewall_restores"); err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx, "INSERT INTO firewall_restores (snapshot_id, transition, started_at, kind, override) VALUES (?, ?, ?, ?, ?)",
-			id, string(rec.Transition), formatSnapshotTime(now), kind, override)
-		return err
+		if _, err := tx.ExecContext(ctx, "INSERT INTO firewall_restores (snapshot_id, transition, started_at, kind, override) VALUES (?, ?, ?, ?, ?)",
+			id, string(rec.Transition), formatSnapshotTime(now), kind, override); err != nil {
+			return err
+		}
+		if logical != nil {
+			return logical(tx)
+		}
+		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("firewall: record the restore of snapshot %s: %w", id, err)
