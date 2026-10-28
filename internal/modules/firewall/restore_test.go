@@ -342,3 +342,54 @@ func TestRestoreRefusesIPv6NoOverForeignRules(t *testing.T) {
 		t.Error("a refused restore cleared its record")
 	}
 }
+
+func TestAxRestoreAfterAnotherInterruptedRestore(t *testing.T) {
+	const stopped = "*filter\n:INPUT DROP [0:0]\n:FORWARD DROP [0:0]\n:OUTPUT ACCEPT [0:0]\nCOMMIT\n"
+	for _, c := range []struct {
+		name       string
+		other      bool // a restore of another snapshot was cut off
+		confEnable bool // ufw.conf says ENABLED=yes when the restore starts
+		running    bool // UFW's chains are loaded
+		snapActive bool
+		want       []string
+	}{
+		{"cut off before ufw stopped", true, false, true, true, []string{"run /usr/sbin/ufw reload"}},
+		{"cut off before ufw started", true, true, false, false, nil},
+		{"cut off while stopped, snapshot active", true, false, false, true, []string{"run /usr/sbin/ufw --force enable"}},
+		{"no record: the configuration says", false, false, true, true, []string{"run /usr/sbin/ufw --force enable"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			ctx := context.Background()
+			h := newFakeHost(t)
+			s := h.state()
+			s.Enabled = c.snapActive
+			h.setState(s)
+			snap := rsTestSnap(t, h, false)
+			other := rsTestSnap(t, h, false)
+			if c.other {
+				if err := beginRestore(ctx, h.db, other.ID, fwstate.TransDisable, h.clock.Now()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			s.Enabled = c.confEnable
+			h.setState(s)
+			if !c.running {
+				h.loaded.V4 = fhParse(t, stopped)
+				h.loaded.V6 = fhParse(t, stopped)
+			}
+			for _, args := range []string{"reload", "--force enable", "disable"} {
+				h.ufw[args] = func(*fhState) int { return 0 }
+			}
+			h.calls = nil
+			if _, err := restore(ctx, h.env(), h.deps(), snap); err != nil {
+				t.Fatal(err)
+			}
+			if got := rsTestRuns(h); !reflect.DeepEqual(got, c.want) {
+				t.Errorf("ufw ran %v, want %v", got, c.want)
+			}
+			if _, pending, _ := pendingRestore(ctx, h.db); pending {
+				t.Error("the restore left a record")
+			}
+		})
+	}
+}

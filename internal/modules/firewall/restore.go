@@ -36,6 +36,23 @@ func chooseTransition(snapEnabled, curEnabled bool) fwstate.Transition {
 	return fwstate.TransNone
 }
 
+// activeNow reports whether UFW is active, for choosing the transition of a
+// restore that has no record yet. The configuration says so, unless a
+// record of another snapshot's restore is still there: that restore was cut
+// off, its files may be half written while UFW still runs as before, and
+// the new restore replaces its record, which held the transition. Then the
+// loaded chains say.
+func activeNow(ctx context.Context, env core.Env, d deps, cur fwstate.Config) bool {
+	if _, other, err := pendingRestore(ctx, env.DB); err != nil || !other {
+		return cur.Enabled
+	}
+	st, err := d.readLoaded(ctx, env)
+	if err != nil {
+		return cur.Enabled
+	}
+	return ufwRunning(st)
+}
+
 // transitionArgs is the ufw vector of a transition; nil for none.
 func transitionArgs(tr fwstate.Transition) []string {
 	switch tr {
@@ -97,7 +114,7 @@ func restoreOver(ctx context.Context, env core.Env, d deps, snap snapshot, emerg
 		case err != nil:
 			tr = fwstate.TransDisable
 		default:
-			tr = chooseTransition(snap.State.Enabled, cur.Enabled)
+			tr = chooseTransition(snap.State.Enabled, activeNow(ctx, env, d, cur))
 		}
 		if err := beginRestoreRecord(ctx, env.DB, snap.ID, restoreRecord{Transition: tr, Emergency: emergency}, env.Clock.Now()); err != nil {
 			return rep, err
