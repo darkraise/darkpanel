@@ -278,8 +278,9 @@ func (f fw) writeRestored(ctx context.Context, env core.Env, p prepared) error {
 
 // restoreSysctl writes back each of a snapshot's sysctl values that
 // differs from the live one, as one effect each, in the order of spec 2.1
-// (net.ipv4.ip_forward, all, default, each interface). A key that no
-// longer exists belongs to an interface that has gone and is skipped.
+// (net.ipv4.ip_forward, all, default, each interface). A key the kernel no
+// longer has (an interface that has gone, or a protocol the host booted
+// without) cannot be written: it is skipped and logged.
 func (f fw) restoreSysctl(ctx context.Context, env core.Env, want map[string]string) error {
 	keys := make([]string, 0, len(want))
 	for k := range want {
@@ -291,10 +292,12 @@ func (f fw) restoreSysctl(ctx context.Context, env core.Env, want map[string]str
 		}
 		return strings.Compare(a, b)
 	})
+	var vanished []string
 	for _, k := range keys {
 		live, err := env.Files.ReadSysctl(ctx, ID, k)
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
+			vanished = append(vanished, k)
 			continue
 		case err != nil:
 			return fmt.Errorf("firewall: read sysctl %s: %w", k, err)
@@ -305,5 +308,6 @@ func (f fw) restoreSysctl(ctx context.Context, env core.Env, want map[string]str
 			return err
 		}
 	}
+	logVanished(env, vanished)
 	return nil
 }

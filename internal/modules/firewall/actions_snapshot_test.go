@@ -1,11 +1,14 @@
 package firewall
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -82,6 +85,23 @@ func TestSnapshotRestoreMode(t *testing.T) {
 	}
 	if fi.Mode().Perm() != 0o600 {
 		t.Errorf("user.rules mode = %v after the restore, want the snapshot's 0600", fi.Mode().Perm())
+	}
+}
+
+// TestSnapshotRestoreLogsAVanishedKey: a snapshot's sysctl key the kernel
+// no longer has is skipped and logged.
+func TestSnapshotRestoreLogsAVanishedKey(t *testing.T) {
+	h, f, env := ruHost(t)
+	id := snCapture(t, h, f)
+	s := h.state()
+	s.Input = "ACCEPT"
+	h.setState(s)
+	delete(h.sysctl, "net/ipv6/conf/eth0/accept_ra")
+	var log bytes.Buffer
+	env.Log = slog.New(slog.NewTextHandler(&log, nil))
+	ruApply(t, env, f.snapshotRestore(), `{"id":"`+id+`"}`)
+	if !strings.Contains(log.String(), "net/ipv6/conf/eth0/accept_ra") {
+		t.Errorf("log %q, want the skipped key", log.String())
 	}
 }
 

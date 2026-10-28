@@ -302,13 +302,14 @@ func sysctlTarget(ctx context.Context, env core.Env, d deps, snap snapshot, e co
 	return target, nil
 }
 
-// writeBackLive writes target's sysctl values back over the live ones; a
-// vanished interface's keys are skipped.
+// writeBackLive writes target's sysctl values back over the live ones; the
+// keys the kernel no longer has are skipped and logged.
 func writeBackLive(ctx context.Context, env core.Env, d deps, target map[string]string) error {
 	st, err := d.readLoaded(ctx, env)
 	if err != nil {
 		return err
 	}
-	_, err = writeBackSysctl(ctx, env, target, st.Sysctl)
+	vanished, err := writeBackSysctl(ctx, env, target, st.Sysctl)
+	logVanished(env, vanished)
 	return err
 }
