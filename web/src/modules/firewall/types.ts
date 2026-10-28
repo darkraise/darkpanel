@@ -118,3 +118,137 @@ export interface SnapshotComparison {
 // every ["resource", hostId] query.
 export const statusQueryKey = (hostId: string) => ["resource", hostId, "firewall.status"] as const
 export const snapshotsQueryKey = (hostId: string) => ["resource", hostId, "firewall.snapshots"] as const
+export const dockerQueryKey = (hostId: string) => ["resource", hostId, "firewall.docker"] as const
+export const exposureQueryKey = (hostId: string) => ["resource", hostId, "firewall.exposure"] as const
+
+// The transport protocol of a Docker binding.
+export type DockerProto = "tcp" | "udp"
+
+// One finding of the Docker integration's health check.
+export interface DockerIssue {
+  level: "degraded" | "broken"
+  reason: string
+}
+
+// A DNAT forward that stays open to private sources; an absent port is any port.
+export interface Exemption {
+  inInterface?: string
+  origDestination: string
+  origPort?: number
+  destination: string
+  proto: DockerProto
+  port?: number
+}
+
+// The Docker integration's settings.
+export interface DockerSettings {
+  privateSources: string[]
+  forwardExemptions: Exemption[]
+}
+
+// A published port of a container selection; an absent hostAddr is every host address.
+export interface Binding {
+  selector: string // a container name, or <compose project>/<service>
+  hostAddr?: string
+  hostPort: number
+  proto: DockerProto
+}
+
+// A stored allow or deny of a binding; an absent from is any source and only an allow has none.
+export interface ContainerRule {
+  id: string
+  binding: Binding
+  kind: "allow" | "deny"
+  from?: string
+}
+
+// A Docker network and whether the block protects its bridge.
+export interface DockerNetwork {
+  name: string
+  id: string
+  bridge: string
+  subnets: string[]
+  protected: boolean
+  reason?: string // why the network is unprotected
+}
+
+// A binding as realized against the running containers.
+export interface DockerBinding {
+  binding: Binding
+  id: string
+  containers: string[]
+  containerPort: number
+  allowed: string[] // sources, "any" for every source
+  denied: string[]
+  proxied?: string[] // families served by docker-proxy
+  privateReach?: string[] // privateSources ranges that reach it only through the exemption
+}
+
+// The firewall.docker resource.
+export interface DockerStatus {
+  available: boolean
+  reason?: string
+  version?: string
+  driver?: string
+  dockerVariant?: string
+  ufwVariant?: string
+  rawProtection: boolean
+  supported: boolean
+  unsupported?: string[]
+  enabled: boolean
+  health: "off" | "ok" | "degraded" | "broken" | "unsupported"
+  issues?: DockerIssue[]
+  foreignRules?: string[]
+  foreignForwards?: Exemption[] // proposed exemptions for uncovered foreign DNAT rules
+  manualRoutes?: string[] // manual route rules to containers: no effect without a Darkpanel binding
+  networks: DockerNetwork[]
+  settings: DockerSettings
+  rules: ContainerRule[]
+  bindings: DockerBinding[]
+}
+
+// The sources class an exposure verdict speaks for.
+export type ExposureClass = "internet" | "private" | "tailnet" | "localhost"
+
+// The accepted sources of a partly reachable target and the rule that accepts them.
+export interface ExposureAllowed {
+  sources: string[]
+  ifaces?: string[]
+  srcPorts?: string[]
+  decidedBy: string
+}
+
+// Whether one class of sources reaches a listening port.
+export interface ExposureVerdict {
+  class: ExposureClass
+  range?: string // private only
+  verdict: "open" | "closed" | "filtered" | "partial" | "unknown"
+  decidedBy?: string
+  allowed?: ExposureAllowed[]
+  note?: string
+}
+
+// The container behind a published port.
+export interface ExposureContainer {
+  name: string
+  binding: Binding
+  containerPort: number
+  proxied: boolean
+}
+
+// One listening port with a verdict per source class.
+export interface ExposureRow {
+  proto: string
+  addr: string
+  port: number
+  family: string
+  process?: string
+  container?: ExposureContainer
+  classes: ExposureVerdict[]
+}
+
+// The firewall.exposure resource.
+export interface ExposureView {
+  rows: ExposureRow[]
+  notes?: string[] // out of sync, unsupported, Docker unavailable
+}
