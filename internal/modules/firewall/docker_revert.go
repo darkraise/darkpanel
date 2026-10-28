@@ -183,6 +183,40 @@ func (f fw) finishRecorded(ctx context.Context, env core.Env, owner string) []st
 	return kfwOrderOf(rec.Layouts)
 }
 
+// kfwUndoOrder returns made with each Docker chains effect that found the
+// chains loaded moved ahead of the after-file effects directly before it.
+//
+// A cleanup journals its file writes before its chains effect, so undone in
+// plain reverse order the chains effect's reload runs while the files still
+// lack the block, and the inverse's own check of the loaded chains fails. A
+// chains effect that loaded the block keeps its place because its inverse,
+// the cleanup, reads the block from the files.
+func kfwUndoOrder(made []core.Effect) []core.Effect {
+	out := make([]core.Effect, 0, len(made))
+	run := -1
+	for _, e := range made {
+		var state string
+		switch {
+		case e.Resource == deResourceChains && beforeValue(e, &state) == nil && state == "loaded":
+			if run >= 0 {
+				out = slices.Insert(out, run, e)
+			} else {
+				out = append(out, e)
+			}
+			run = -1
+		case slices.ContainsFunc(cleanupFiles, func(path string) bool { return e.Resource == nounFile+":"+path }):
+			if run < 0 {
+				run = len(out)
+			}
+			out = append(out, e)
+		default:
+			out = append(out, e)
+			run = -1
+		}
+	}
+	return out
+}
+
 // undoKeepingForeign runs the inverses of the made effects not in
 // conflicts, newest first, and for a repair's snapshot then loads its
 // before-image, keeping the foreign DOCKER-USER rules that a reload or the
@@ -195,18 +229,8 @@ func (f fw) undoKeepingForeign(ctx context.Context, env core.Env, snap snapshot,
 		}
 	}
 	body := func() error {
-		if err := undoNewestFirst(ctx, env, f.d, snap, made, conflicts); err != nil {
+		if err := undoNewestFirst(ctx, env, f.d, snap, kfwUndoOrder(made), conflicts); err != nil {
 			return err
-		}
-		// A cleanup journals its file writes before its chains effect, so
-		// undoing newest first reloads UFW for the chains while the files
-		// still lack the block; only the file inverses after it put the block
-		// back, and this reload loads its chains.
-		if slices.ContainsFunc(undone, func(e core.Effect) bool { return e.Resource == deResourceChains }) &&
-			!slices.ContainsFunc(undone, ufwEffect) {
-			if err := reloadIfActive(ctx, env, f.d); err != nil {
-				return err
-			}
 		}
 		if snap.State.Image == nil {
 			return nil
@@ -259,6 +283,11 @@ func (f fw) undoKeepingForeign(ctx context.Context, env core.Env, snap snapshot,
 	}
 	interleaved, err := f.keepForeign(ctx, env, "revert:"+env.ChangeID, p.known, p.next, body)
 	if err != nil {
+		// A failed body leaves the flushed foreign rules in this owner's
+		// record, which only a later revert of the same change would replay;
+		// the emergency restore and a repair's restore keep foreign rules
+		// under their own owner, so they would not see these.
+		f.finishRecorded(ctx, env, "revert:"+env.ChangeID)
 		return err
 	}
 	if interleaved {

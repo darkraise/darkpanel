@@ -345,6 +345,61 @@ func TestKfwRevert(t *testing.T) {
 			t.Errorf("DOCKER-USER holds %q, want %q", got, want)
 		}
 	})
+	t.Run("a failed inverse loads the foreign rules back", func(t *testing.T) {
+		h, d, _ := kfwRevertHost(t)
+		kfwSet(t, h, kfwWith(kfwBlockLines, 3, kfwForeign), true)
+		rvTestManualEdit(h)
+		h.ufw["default allow outgoing"] = func(*fhState) int { return 1 }
+		if _, err := revert(ctx, h.env(), d, []byte(kfwSnapshotID(t, h))); err == nil {
+			t.Fatal("revert succeeded, want the failed inverse reported")
+		}
+		if _, ok, err := foreignOf(ctx, h.db, "revert:c1"); err != nil || ok {
+			t.Errorf("the revert:c1 record is left (%v, %v)", ok, err)
+		}
+		if got, want := kfwChain(h), append(slices.Clone(kfwBlockLines), kfwForeign); !slices.Equal(got, want) {
+			t.Errorf("DOCKER-USER holds %q, want %q", got, want)
+		}
+	})
+	t.Run("inverses of a cleanup", func(t *testing.T) {
+		h, d := kfwHost(t, true)
+		env := h.env()
+		raw, err := capture(ctx, env, d, &core.GuardContext{Complete: true}, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := attach(ctx, env); err != nil {
+			t.Fatal(err)
+		}
+		load := h.onRun
+		h.onRun = func(h *fakeHost, cmd core.Cmd) core.CmdResult {
+			if strings.Contains(string(cmd.Stdin), "-X darkpanel-docker-deny") {
+				kfwSet(t, h, []string{kfwReturn}, false)
+				return core.CmdResult{}
+			}
+			return load(h, cmd)
+		}
+		if err := (fw{d: d}).cleanupChains(ctx, env, "c1", cleanupPreserve); err != nil {
+			t.Fatal(err)
+		}
+		if err := recordPostHashes(ctx, env, d, string(raw)); err != nil {
+			t.Fatal(err)
+		}
+		h.calls, h.stdin = nil, map[string][]byte{}
+		rvTestManualEdit(h)
+		out, err := revert(ctx, h.env(), d, []byte(kfwSnapshotID(t, h)))
+		if err != nil || len(out.Effects) == 0 {
+			t.Fatalf("revert = %+v, %v, want the cleanup's effects undone", out, err)
+		}
+		for _, e := range out.Effects {
+			if e.State != core.EffectUndone {
+				t.Errorf("effect %+v, want it undone", e)
+			}
+		}
+		owned := h.loaded.V4.Tables[0].Chain("darkpanel-docker-deny") != nil
+		if got := kfwChain(h); !slices.Equal(got, kfwBlockLines) || !owned {
+			t.Errorf("DOCKER-USER holds %q (block chain loaded: %v), want the block's lines with its chain loaded again", got, owned)
+		}
+	})
 	t.Run("an interrupted restore, finished", func(t *testing.T) {
 		h, d, snap := kfwRevertHost(t)
 		if err := beginRestoreRecord(ctx, h.db, snap.ID, restoreRecord{Transition: fwstate.TransReload}, time.Now()); err != nil {
