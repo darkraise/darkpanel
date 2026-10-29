@@ -188,8 +188,10 @@ func (f fw) keepForeign(ctx context.Context, env core.Env, owner string, known [
 }
 
 // mergeLayouts combines the layouts an earlier attempt recorded with those
-// read now. A recorded rule the chain still holds is not repeated, and one
-// the earlier attempt's flush removed comes before the newer rules.
+// read now. A recorded rule the chain still holds is not repeated, copy for
+// copy, and one the earlier attempt's flush removed comes before the newer
+// rules. A recorded line the chain now holds only among the block's lines
+// is not repeated either.
 func mergeLayouts(rec, cur map[fwstate.Family]dockerfw.Layout) map[fwstate.Family]dockerfw.Layout {
 	out := map[fwstate.Family]dockerfw.Layout{}
 	for _, fam := range preserveFamilies {
@@ -197,13 +199,21 @@ func mergeLayouts(rec, cur map[fwstate.Family]dockerfw.Layout) map[fwstate.Famil
 		c, inCur := cur[fam]
 		switch {
 		case inRec && inCur:
-			held := func(line string) bool {
-				return slices.Contains(c.Before, line) || slices.Contains(c.After, line) || slices.Contains(c.Order, line)
+			held := map[string]int{}
+			for _, line := range slices.Concat(c.Before, c.After) {
+				held[line]++
+			}
+			block := map[string]bool{}
+			for _, line := range c.Order {
+				block[line] = held[line] == 0
 			}
 			gone := func(recorded, current []string) []string {
 				var lines []string
 				for _, line := range recorded {
-					if !held(line) {
+					switch {
+					case held[line] > 0:
+						held[line]--
+					case !block[line]:
 						lines = append(lines, line)
 					}
 				}

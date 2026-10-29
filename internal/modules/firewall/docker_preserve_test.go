@@ -498,15 +498,22 @@ func TestKfKeepForeignRetry(t *testing.T) {
 	b4 := kfLines(t, fwstate.V4)
 	for _, c := range []struct {
 		name  string
+		first []string // DOCKER-USER when the first attempt starts; nil: kfForeign1 and the block
 		chain []string // DOCKER-USER when the second attempt starts
 		want  []string
 	}{
 		{name: "flushed", chain: b4, want: kfJoin(kfOne(kfForeign1), b4)},
 		{name: "a rule arrived after the flush", chain: kfJoin(b4, kfOne(kfForeign2)), want: kfJoin(kfOne(kfForeign1), b4, kfOne(kfForeign2))},
 		{name: "not flushed", chain: kfJoin(kfOne(kfForeign1), b4), want: kfJoin(kfOne(kfForeign1), b4)},
+		{name: "one of two copies flushed", first: kfJoin(kfOne(kfForeign1), kfOne(kfForeign1), b4),
+			chain: kfJoin(kfOne(kfForeign1), b4), want: kfJoin(kfOne(kfForeign1), kfOne(kfForeign1), b4)},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			r := kfHost(t, kfJoin(kfOne(kfForeign1), b4), nil)
+			first := c.first
+			if first == nil {
+				first = kfJoin(kfOne(kfForeign1), b4)
+			}
+			r := kfHost(t, first, nil)
 			if _, err := r.f.keepForeign(ctx, r.env, "c1", r.known(), kfNext(t), func() error { return errors.New("cut off") }); err == nil {
 				t.Fatal("the first attempt succeeded")
 			}
