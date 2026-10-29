@@ -85,7 +85,7 @@ func (f fw) reconcile(ctx context.Context, tc core.TaskContext) error {
 func (f fw) reconcileWith(ctx context.Context, tc core.TaskContext, cfg fwstate.Config, cur fwstate.Loaded, st dockerState) error {
 	log := tc.Env.Log
 	if !st.available {
-		log.Debug("reconcile skipped: Docker is unavailable", "reason", st.reason)
+		log.Warn("reconcile skipped: the integration is on and Docker is unavailable", "reason", st.reason)
 		return nil
 	}
 	if reasons := dockerUnsupported(st); len(reasons) > 0 {
