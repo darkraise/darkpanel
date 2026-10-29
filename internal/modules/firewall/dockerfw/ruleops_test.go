@@ -234,6 +234,21 @@ func TestRoRuleOps(t *testing.T) {
 			want:    []RuleOp{roAdd(allow, 500, 0)},
 		},
 		{
+			name:    "an insert is numbered after the deletes before it have run",
+			current: []model.Rule{roManual("22"), roHave(allow, 101), roHave(deny, 103)},
+			desired: []model.Rule{other, deny},
+			want:    []RuleOp{roDel(101), roAdd(other, 500, 2)},
+		},
+		{
+			name: "an IPv6 insert counts the IPv4 rules left after the deletes",
+			current: []model.Rule{
+				roManual("22"), roHave(allow, 101),
+				roHave(roRule6(model.ActionAllow, model.Any, 7), 107),
+			},
+			desired: []model.Rule{roRule6(model.ActionDeny, "2001:db8::/32", 9), roRule6(model.ActionAllow, model.Any, 7)},
+			want:    []RuleOp{roDel(101), roAdd(roRule6(model.ActionDeny, "2001:db8::/32", 9), 500, 2)},
+		},
+		{
 			name:    "two desired rules that differ only in label collapse to the first",
 			current: nil,
 			desired: []model.Rule{allow, roRule(model.ActionAllow, model.Any, 2)},
