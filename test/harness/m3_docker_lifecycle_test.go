@@ -401,6 +401,28 @@ func (a *API) m3dDockRead(ctx context.Context, host string) (m3dDockStatus, erro
 	return st, err
 }
 
+// m3dChange is one entry of the change list.
+type m3dChange struct {
+	ID     string `json:"id"`
+	Action string `json:"action"`
+	State  string `json:"state"`
+}
+
+// m3dLatestChange returns host's newest change of action.
+func (a *API) m3dLatestChange(ctx context.Context, host, action string) (m3dChange, error) {
+	var out struct {
+		Changes []m3dChange `json:"changes"`
+	}
+	q := url.Values{"hostId": {host}, "limit": {"50"}}
+	if err := a.do(ctx, http.MethodGet, "/api/v1/changes?"+q.Encode(), nil, &out); err != nil {
+		return m3dChange{}, err
+	}
+	if i := slices.IndexFunc(out.Changes, func(c m3dChange) bool { return c.Action == action }); i >= 0 {
+		return out.Changes[i], nil
+	}
+	return m3dChange{}, fmt.Errorf("harness: host %s has no %s change among its newest %d", host, action, len(out.Changes))
+}
+
 // m3dDockConfirm confirms the pending change id.
 func (a *API) m3dDockConfirm(ctx context.Context, id string) (Change, error) {
 	var ch Change
@@ -967,6 +989,18 @@ func m3dDockForeignCleanup(ctx context.Context, t *testing.T, f *fleet) {
 	}
 	m3Run(ctx, t, f.agent, "sudo touch /run/m3d-abort")
 	waitHosts(ctx, t, f, 3*time.Minute, hostsAt(versionN, f.agentID))
+	// The status below already holds before startup recovery has reverted
+	// the disable, so the chain is read, and the rule deleted, only once the
+	// revert has ended; a revert still running would load the rule again.
+	var disable m3dChange
+	if err := eventually(ctx, time.Minute, func(ctx context.Context) error {
+		var err error
+		disable, err = f.api.m3dLatestChange(ctx, f.agentID, "firewall.docker.disable")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m3WaitChange(ctx, t, f.api, disable.ID, core.StateReverted, 4*time.Minute)
 	m3dDockWait(ctx, t, f.api, f.agentID, 4*time.Minute, func(st m3dDockStatus) error {
 		if !st.Enabled {
 			return errors.New("harness: the integration is not enabled")
