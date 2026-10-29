@@ -603,3 +603,33 @@ func TestKfwReadFailures(t *testing.T) {
 		}
 	})
 }
+
+// TestKfwImageWithForeign: restoring a repair's snapshot whose before-image
+// captured a foreign DOCKER-USER rule, such as one a repair discarded, loads
+// the image and verifies, setting the foreign rule aside in the image as in
+// the loaded state.
+func TestKfwImageWithForeign(t *testing.T) {
+	ctx := context.Background()
+	h, d := kfwHost(t, true)
+	kfwSet(t, h, kfwWith(kfwBlockLines, 3, kfwForeign), true)
+	env := h.env()
+	env.ChangeID = ""
+	raw, err := capture(ctx, env, d, nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, err := getSnapshot(ctx, h.db, string(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.State.Image == nil {
+		t.Fatal("the snapshot holds no before-image")
+	}
+	kfwSet(t, h, kfwBlockLines, true)
+	if _, err := restore(ctx, h.env(), d, snap); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := kfwChain(h), append(slices.Clone(kfwBlockLines), kfwForeign); !slices.Equal(got, want) {
+		t.Errorf("DOCKER-USER holds %q, want the image's %q", got, want)
+	}
+}

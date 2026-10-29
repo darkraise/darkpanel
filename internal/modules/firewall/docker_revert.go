@@ -133,6 +133,38 @@ func (p kfwPlan) withoutIn(rs *netfilter.Ruleset, fam fwstate.Family) *netfilter
 	return &out
 }
 
+// withoutImage returns img with the foreign rules of each family's
+// DOCKER-USER removed, as without does for a loaded state, so that an image
+// that captured a foreign rule compares with a loaded state whose foreign
+// rules are set aside. img is left as it is; nil stays nil.
+func (p kfwPlan) withoutImage(img *beforeImage) *beforeImage {
+	if img == nil {
+		return nil
+	}
+	return &beforeImage{V4: p.withoutImageIn(img.V4, fwstate.V4), V6: p.withoutImageIn(img.V6, fwstate.V6)}
+}
+
+func (p kfwPlan) withoutImageIn(tables []imageTable, fam fwstate.Family) []imageTable {
+	v6 := fam == fwstate.V6
+	known := map[string]bool{"-j RETURN": true}
+	for _, r := range p.block[fam] {
+		known[netfilter.Key(r, v6)] = true
+	}
+	out := slices.Clone(tables)
+	for i := range out {
+		if out[i].Name != "filter" {
+			continue
+		}
+		out[i].Chains = slices.Clone(out[i].Chains)
+		for j := range out[i].Chains {
+			if c := &out[i].Chains[j]; c.Name == dockerfw.ChainDockerUser {
+				c.Rules = slices.DeleteFunc(slices.Clone(c.Rules), func(r imageRule) bool { return !known[r.Key] })
+			}
+		}
+	}
+	return out
+}
+
 // order returns the original order of the DOCKER-USER chain of each family
 // in which a foreign rule sits between the block's lines.
 func (p kfwPlan) order() []string {

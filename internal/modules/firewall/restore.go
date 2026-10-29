@@ -239,7 +239,9 @@ func restoreOver(ctx context.Context, env core.Env, d deps, snap snapshot, emerg
 	if rep.Vanished, err = writeBackSysctl(ctx, env, snap.State.Sysctl, after.Sysctl); err != nil {
 		return rep, err
 	}
-	if err := verifyRestore(d, snap, tr, kp.without(before), kp.without(after), plan); err != nil {
+	verified := snap
+	verified.State.Image = kp.withoutImage(snap.State.Image)
+	if err := verifyRestore(d, verified, tr, kp.without(before), kp.without(after), plan); err != nil {
 		return rep, err
 	}
 	if err := endRestore(ctx, env.DB, snap.ID); err != nil {
