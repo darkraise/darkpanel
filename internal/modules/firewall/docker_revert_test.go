@@ -710,3 +710,46 @@ func TestKfwStrandedRevertRecord(t *testing.T) {
 		}
 	})
 }
+
+// TestKfwRestoreBranches: a restore that has to clean up the loaded Docker
+// chains without a cleanup configured fails before it writes; and finishing
+// an interrupted emergency restore whose record cannot be read still reports
+// the foreign rule it moved ahead of the block.
+func TestKfwRestoreBranches(t *testing.T) {
+	ctx := context.Background()
+	t.Run("no cleanup configured", func(t *testing.T) {
+		h, d := kfwHost(t, false)
+		snap := kfwSnapshot(t, h, d)
+		kfwFiles(h, true)
+		kfwSet(t, h, kfwBlockLines, true)
+		d.cleanChains = nil
+		h.calls = nil
+		_, err := restore(ctx, h.env(), d, snap)
+		if err == nil || !strings.Contains(err.Error(), "none is configured") {
+			t.Fatalf("restore = %v, want the missing cleanup reported", err)
+		}
+		if i := kfwIndex(h.calls, "restore /etc/"); i >= 0 {
+			t.Errorf("calls %q, want no file written", h.calls)
+		}
+	})
+	t.Run("an unreadable emergency record", func(t *testing.T) {
+		h, d, snap := kfwRevertHost(t)
+		rec := restoreRecord{Transition: fwstate.TransReload, Emergency: json.RawMessage(`"damaged"`)}
+		if err := beginRestoreRecord(ctx, h.db, snap.ID, rec, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		kfwSet(t, h, kfwWith(kfwBlockLines, 1, kfwForeign), true)
+		out, err := revert(ctx, h.env(), d, []byte(snap.ID))
+		if err != nil || !out.Override {
+			t.Fatalf("revert = %+v, %v, want the override", out, err)
+		}
+		var detail overrideDetail
+		if err := json.Unmarshal(out.Detail, &detail); err != nil {
+			t.Fatal(err)
+		}
+		if want := kfwOrder(kfwWith(kfwBlockLines, 1, kfwForeign)); !slices.Equal(detail.InterleavedForeign, want) ||
+			!strings.Contains(detail.Guard, "cannot be read") {
+			t.Errorf("detail %+v, want the unreadable record named and the interleaved order %q", detail, want)
+		}
+	})
+}
