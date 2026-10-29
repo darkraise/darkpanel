@@ -643,3 +643,48 @@ func TestDeeFailedCleanupStaysReverted(t *testing.T) {
 		t.Errorf("the kernel's chains differ from before the disable after the reconcile pass: %+v", diffs)
 	}
 }
+
+// TestDeeStateDisableCleansTheChains: firewall.state.disable with the
+// integration on removes the block from the files and the Docker chains from
+// the kernel before UFW stops, leaving DOCKER-USER with -j RETURN, and the
+// revert brings UFW, the block and the chains back.
+func TestDeeStateDisableCleansTheChains(t *testing.T) {
+	ctx := context.Background()
+	h := deeNewHost(t)
+	eng := deeEngine(t, h)
+	deeConfirm(t, eng, "firewall.docker.enable", `{}`)
+	beforeLoaded, beforeAfter := h.loaded, h.config().Files["/etc/ufw/after.rules"].Data
+
+	_, cv, err := deePlanApply(t, eng, "firewall.state.disable", `{}`)
+	if err != nil || cv.State != core.StatePending || cv.Error != nil {
+		t.Fatalf("state.disable = %+v, %v; want pending after verify", cv, err)
+	}
+	cfg := h.config()
+	if cfg.Enabled {
+		t.Error("UFW is still enabled")
+	}
+	for _, p := range []string{"/etc/ufw/after.rules", "/etc/ufw/after6.rules"} {
+		if _, ok, err := dockerfw.BlockOf(cfg.Files[p].Data); err != nil || ok {
+			t.Errorf("%s holds the Docker block: %v, %v; want it removed", p, ok, err)
+		}
+	}
+	if owned := deeOwnedChains(h); len(owned) != 0 {
+		t.Errorf("chains %v are still loaded", owned)
+	}
+	if got := deeTexts(h, fwstate.V4, "DOCKER-USER"); !slices.Equal(got, []string{"-A DOCKER-USER -j RETURN"}) {
+		t.Errorf("v4 DOCKER-USER = %q, want only -j RETURN", got)
+	}
+	if c, err := readDockerConfig(ctx, h.db); err != nil || !c.Enabled {
+		t.Errorf("flag = %+v, %v; want the integration still on for the next enable", c, err)
+	}
+
+	if cv, err = eng.Revert(ctx, eeUser, cv.ID); err != nil || cv.State != core.StateReverted {
+		t.Fatalf("revert = %+v, %v; want reverted", cv, err)
+	}
+	if !h.config().Enabled || !bytes.Equal(h.config().Files["/etc/ufw/after.rules"].Data, beforeAfter) {
+		t.Error("UFW or after.rules differs from before the disable")
+	}
+	if diffs := deeKernelDiffs(beforeLoaded, h.loaded); len(diffs) != 0 {
+		t.Errorf("the kernel's chains differ from before the disable: %+v", diffs)
+	}
+}
