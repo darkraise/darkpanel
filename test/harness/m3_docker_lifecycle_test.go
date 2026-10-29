@@ -852,12 +852,16 @@ func m3dDockForeignCleanup(ctx context.Context, t *testing.T, f *fleet) {
 			t.Logf("agent journal:\n%s", out)
 		}
 	})
+	t.Cleanup(func() { _, _ = f.agent.Run(ctx, "sudo rm -f /run/m3d-stall /run/m3d-stalled /run/m3d-abort") })
+	m3Run(ctx, t, f.agent, "sudo touch /run/m3d-stall")
+	// The wait is registered once the goroutine is certain to start, so that
+	// no failure can leave it blocked on a channel nothing closes, and the
+	// release after it so that the release runs first and unblocks the apply.
 	applied := make(chan struct{})
 	t.Cleanup(func() { <-applied })
 	t.Cleanup(func() {
 		_, _ = f.agent.Run(ctx, "sudo sh -c 'touch /run/m3d-abort; sleep 2; rm -f /run/m3d-stall /run/m3d-stalled /run/m3d-abort'")
 	})
-	m3Run(ctx, t, f.agent, "sudo touch /run/m3d-stall")
 	go func() {
 		defer close(applied)
 		_, _ = f.api.m3Apply(ctx, f.agentID, "firewall.docker.disable", map[string]any{}, 120)
