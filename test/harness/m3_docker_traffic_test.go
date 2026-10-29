@@ -91,34 +91,56 @@ func m3dxTrafficExpectAll(states []PortState, want map[uint16]string) error {
 // ever connected and that each was probed at least minAttempts times, so a
 // probe that never ran cannot pass as one that saw nothing.
 func m3dxTrafficLeaks(log string, unallowed []uint16, minAttempts int) error {
-	attempts := map[uint16]int{}
-	oks := map[uint16]int{}
+	attempts, oks, err := m3dxTrafficCount(log)
+	if err != nil {
+		return err
+	}
+	for _, p := range unallowed {
+		if oks[p] > 0 {
+			return fmt.Errorf("harness: port %d connected in %d of %d attempts", p, oks[p], attempts[p])
+		}
+	}
+	return m3dxTrafficProbed(log, unallowed, minAttempts)
+}
+
+// m3dxTrafficProbed requires a probe log to hold at least minAttempts
+// attempts for every port of ports, whatever their results.
+func m3dxTrafficProbed(log string, ports []uint16, minAttempts int) error {
+	attempts, _, err := m3dxTrafficCount(log)
+	if err != nil {
+		return err
+	}
+	for _, p := range ports {
+		if attempts[p] < minAttempts {
+			return fmt.Errorf("harness: port %d had %d attempts, want at least %d", p, attempts[p], minAttempts)
+		}
+	}
+	return nil
+}
+
+// m3dxTrafficCount counts the attempts, and the connected ones, per port of a
+// probe log.
+func m3dxTrafficCount(log string) (attempts, oks map[uint16]int, err error) {
+	attempts = map[uint16]int{}
+	oks = map[uint16]int{}
 	for _, line := range strings.Split(log, "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
 		f := strings.Fields(line)
 		if len(f) != 2 || f[1] != "ok" && f[1] != "fail" {
-			return fmt.Errorf("harness: malformed probe log line %q", line)
+			return nil, nil, fmt.Errorf("harness: malformed probe log line %q", line)
 		}
 		p, err := strconv.ParseUint(f[0], 10, 16)
 		if err != nil {
-			return fmt.Errorf("harness: malformed probe log line %q", line)
+			return nil, nil, fmt.Errorf("harness: malformed probe log line %q", line)
 		}
 		attempts[uint16(p)]++
 		if f[1] == "ok" {
 			oks[uint16(p)]++
 		}
 	}
-	for _, p := range unallowed {
-		if oks[p] > 0 {
-			return fmt.Errorf("harness: port %d connected in %d of %d attempts", p, oks[p], attempts[p])
-		}
-		if attempts[p] < minAttempts {
-			return fmt.Errorf("harness: port %d had %d attempts, want at least %d", p, attempts[p], minAttempts)
-		}
-	}
-	return nil
+	return attempts, oks, nil
 }
 
 // m3dxTrafficConnect returns the command that opens a TCP connection to
@@ -258,7 +280,7 @@ func m3dTrafficPID(ctx context.Context, t *testing.T, f *fleet, container string
 // host and ports in a loop. The stop function it returns stops the unit and
 // returns the probe log; it also runs when the test ends, and a second call
 // returns the same log.
-func m3dTrafficProbe(ctx context.Context, t *testing.T, f *fleet, unit, host string, ports ...uint16) (stop func() string) {
+func m3dTrafficProbe(ctx context.Context, t *testing.T, f *fleet, unit, host string, ports ...uint16) (stop func(minAttempts int) string) {
 	t.Helper()
 	log := "/var/tmp/" + unit + ".log"
 	args := []string{log, host}
@@ -269,11 +291,25 @@ func m3dTrafficProbe(ctx context.Context, t *testing.T, f *fleet, unit, host str
 	m3Run(ctx, t, f.scanner, "sudo systemd-run "+m3dxShell("--unit="+unit)+" --collect /usr/bin/python3 -c "+m3Quote(m3dTrafficProbeScript)+" "+m3dxShell(args...))
 	var out string
 	stopped := false
-	stop = func() string {
+	stop = func(minAttempts int) string {
 		if stopped {
 			return out
 		}
 		stopped = true
+		// A filtered port costs an attempt about half a second, so a short
+		// scenario can end before the probe has made minAttempts attempts.
+		if err := eventually(ctx, time.Minute, func(ctx context.Context) error {
+			if minAttempts <= 0 {
+				return nil
+			}
+			got, err := f.scanner.Run(ctx, "sudo cat "+m3dxShell(log))
+			if err != nil {
+				return err
+			}
+			return m3dxTrafficProbed(got, ports, minAttempts)
+		}); err != nil {
+			t.Logf("wait for %d attempts in %s: %v", minAttempts, log, err)
+		}
 		if _, err := f.scanner.Run(ctx, "sudo systemctl stop "+m3dxShell(unit)); err != nil {
 			t.Logf("stop %s: %v", unit, err)
 		}
@@ -283,7 +319,7 @@ func m3dTrafficProbe(ctx context.Context, t *testing.T, f *fleet, unit, host str
 		}
 		return out
 	}
-	t.Cleanup(func() { stop() })
+	t.Cleanup(func() { stop(0) })
 	return stop
 }
 
@@ -463,11 +499,12 @@ func m3dTrafficRecreate(ctx context.Context, t *testing.T, f *fleet) {
 	waitHosts(ctx, t, f, 3*time.Minute, hostsAt(versionN, f.agentID))
 	m3dTrafficWant(ctx, t, f, v4, map[uint16]string{18208: "open"})
 	m3dTrafficWant(ctx, t, f, v4, map[uint16]string{18209: "notopen"})
+	const minAttempts = 20
 	for _, p := range []struct {
 		name string
 		log  string
-	}{{"IPv4", stop4()}, {"IPv6", stop6()}} {
-		if err := m3dxTrafficLeaks(p.log, []uint16{18209}, 20); err != nil {
+	}{{"IPv4", stop4(minAttempts)}, {"IPv6", stop6(minAttempts)}} {
+		if err := m3dxTrafficLeaks(p.log, []uint16{18209}, minAttempts); err != nil {
 			t.Errorf("%s probe: %v\n%s", p.name, err, p.log)
 		}
 	}

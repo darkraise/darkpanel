@@ -86,6 +86,27 @@ func TestM3xTrafficLeaks(t *testing.T) {
 	}
 }
 
+func TestM3xTrafficProbed(t *testing.T) {
+	var log strings.Builder
+	for range 19 {
+		log.WriteString("18209 fail\n18210 fail\n")
+	}
+	if err := m3dxTrafficProbed(log.String(), []uint16{18209, 18210}, 20); err == nil || !strings.Contains(err.Error(), "19 attempts") {
+		t.Errorf("19 attempts each: %v, want an error naming the 19 attempts", err)
+	}
+	log.WriteString("18209 fail\n")
+	if err := m3dxTrafficProbed(log.String(), []uint16{18209, 18210}, 20); err == nil || !strings.Contains(err.Error(), "18210") {
+		t.Errorf("one port still short: %v, want an error naming 18210", err)
+	}
+	log.WriteString("18210 ok\n")
+	if err := m3dxTrafficProbed(log.String(), []uint16{18209, 18210}, 20); err != nil {
+		t.Errorf("20 attempts each, one connected: %v, want nil; a leak is m3dxTrafficLeaks's to report", err)
+	}
+	if err := m3dxTrafficProbed("18209\n", []uint16{18209}, 1); err == nil || !strings.Contains(err.Error(), "malformed") {
+		t.Errorf("malformed line: %v, want an error naming it", err)
+	}
+}
+
 func TestM3xTrafficConnect(t *testing.T) {
 	got, err := m3dxTrafficConnect(4242, "203.0.113.2", 14000)
 	if want := "sudo nsenter -t 4242 -n -- timeout 5 bash -c '</dev/tcp/203.0.113.2/14000'"; err != nil || got != want {
