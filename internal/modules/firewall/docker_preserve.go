@@ -239,7 +239,15 @@ func mergeLayouts(rec, cur map[fwstate.Family]dockerfw.Layout) map[fwstate.Famil
 // can hold foreign rules added after the record was written: each recorded
 // family is reloaded with the record merged with the loaded chain, as
 // keepForeign merges a record an earlier attempt left.
-func (f fw) finishForeign(ctx context.Context, env core.Env, owner string) (interleaved bool, err error) {
+//
+// With keepLoaded, the reload only puts back the rules the record adds: each
+// family keeps the non-foreign lines its chain holds now in place of the
+// record's block, and a family whose chain already holds every recorded
+// rule is not reloaded. That is for a record whose transition is being
+// undone, where the record's block is that transition's target: loading it
+// over a block that is still loaded would drop the block's DNAT gate, and
+// leave published ports unfiltered until the undo loads the block again.
+func (f fw) finishForeign(ctx context.Context, env core.Env, owner string, keepLoaded bool) (interleaved bool, err error) {
 	rec, ok, err := foreignOf(ctx, env.DB, owner)
 	if err != nil || !ok {
 		return false, err
@@ -265,6 +273,7 @@ func (f fw) finishForeign(ctx context.Context, env core.Env, owner string) (inte
 		}
 	}
 	live := map[fwstate.Family]dockerfw.Layout{}
+	chains := map[fwstate.Family]*netfilter.Chain{}
 	for _, fam := range preserveFamilies {
 		if _, recorded := rec.Layouts[fam]; !recorded {
 			continue
@@ -277,10 +286,42 @@ func (f fw) finishForeign(ctx context.Context, env core.Env, owner string) (inte
 		if c == nil {
 			continue
 		}
+		chains[fam] = c
 		live[fam] = dockerfw.LayoutOf(c, rules, fam)
 	}
-	rec.Layouts = mergeLayouts(rec.Layouts, live)
+	merged := mergeLayouts(rec.Layouts, live)
+	if keepLoaded {
+		block := map[fwstate.Family][]string{}
+		for fam, l := range merged {
+			if len(l.Before)+len(l.After) == len(live[fam].Before)+len(live[fam].After) {
+				delete(merged, fam)
+				continue
+			}
+			block[fam] = rec.Block[fam]
+			if c := chains[fam]; c != nil {
+				block[fam] = ownLines(c, rules, fam)
+			}
+		}
+		rec.Block = block
+	}
+	rec.Layouts = merged
 	return reloadDockerUser(ctx, env, owner, cur.Variant, rec)
+}
+
+// ownLines returns the save text of the rules of c that are not foreign to
+// known, in chain order.
+func ownLines(c *netfilter.Chain, known []netfilter.Rule, fam fwstate.Family) []string {
+	foreign := map[int]bool{}
+	for _, r := range dockerfw.Foreign(c, known, fam) {
+		foreign[r.Line] = true
+	}
+	var out []string
+	for _, r := range c.Rules {
+		if !foreign[r.Line] {
+			out = append(out, r.Text)
+		}
+	}
+	return out
 }
 
 // reloadDockerUser loads, IPv4 first, the DOCKER-USER of each family rec

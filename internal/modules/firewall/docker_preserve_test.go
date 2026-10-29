@@ -479,7 +479,7 @@ func TestKfKeepForeignTransitionFails(t *testing.T) {
 	if err != nil || !ok || !slices.Equal(rec.Layouts[fwstate.V4].Before, kfOne(kfForeign1)) {
 		t.Fatalf("record = %+v, %v, %v, want the rule before the block", rec, ok, err)
 	}
-	if il, err := r.f.finishForeign(ctx, r.env, "c1"); err != nil || il {
+	if il, err := r.f.finishForeign(ctx, r.env, "c1", false); err != nil || il {
 		t.Fatalf("finishForeign = %v, %v", il, err)
 	}
 	if got, want := r.loadedLines(fwstate.V4), kfJoin(kfOne(kfForeign1), b4); !slices.Equal(got, want) {
@@ -548,7 +548,7 @@ func TestKfKeepForeignLoadFails(t *testing.T) {
 	}
 	broken = false
 	r.flush(t, fwstate.V4, b4)
-	if il, err := r.f.finishForeign(ctx, r.env, "c1"); err != nil || il {
+	if il, err := r.f.finishForeign(ctx, r.env, "c1", false); err != nil || il {
 		t.Fatalf("finishForeign = %v, %v", il, err)
 	}
 	if got, want := r.loadedLines(fwstate.V4), kfJoin(kfOne(kfForeign1), b4); !slices.Equal(got, want) {
@@ -564,7 +564,7 @@ func TestKfKeepForeignLoadFails(t *testing.T) {
 func TestKfFinishForeign(t *testing.T) {
 	ctx := context.Background()
 	r := kfHost(t, nil, nil)
-	if il, err := r.f.finishForeign(ctx, r.env, "c1"); err != nil || il || len(r.loads) != 0 {
+	if il, err := r.f.finishForeign(ctx, r.env, "c1", false); err != nil || il || len(r.loads) != 0 {
 		t.Fatalf("finishForeign without a record = %v, %v with %d loads, want false, nil, 0", il, err, len(r.loads))
 	}
 	rec := foreignRecord{Layouts: map[fwstate.Family]dockerfw.Layout{
@@ -573,7 +573,7 @@ func TestKfFinishForeign(t *testing.T) {
 	if err := putForeign(ctx, r.h.db, "c1", rec, r.h.clock.Now()); err != nil {
 		t.Fatal(err)
 	}
-	il, err := r.f.finishForeign(ctx, r.env, "c1")
+	il, err := r.f.finishForeign(ctx, r.env, "c1", false)
 	if err != nil || !il {
 		t.Fatalf("finishForeign = %v, %v, want true, nil", il, err)
 	}

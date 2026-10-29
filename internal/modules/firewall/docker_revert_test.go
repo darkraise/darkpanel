@@ -834,6 +834,68 @@ func TestKfwEndCleanupKeepsLiveForeign(t *testing.T) {
 	}
 }
 
+// TestKfwEndCleanupKeepsGate: a disable's cleanup records the block-free
+// DOCKER-USER it loads next. Cut off before its transition, it leaves the
+// block and its DNAT gate loaded. The revert that puts the block back must
+// never load DOCKER-USER without the gate while it ends that cleanup, or
+// published ports are unfiltered until it reloads the block. The record's
+// rules and a rule added since are still loaded once each.
+func TestKfwEndCleanupKeepsGate(t *testing.T) {
+	ctx := context.Background()
+	const added = "-A DOCKER-USER -s 192.0.2.80/32 -j DROP"
+	gate := kfwBlockLines[1]
+	for _, c := range []struct {
+		name     string
+		recorded []string
+		live     []string
+		want     []string
+	}{
+		{name: "nothing was flushed", live: append([]string{added}, kfwBlockLines...), want: append([]string{added}, kfwBlockLines...)},
+		{name: "a recorded rule is not loaded", recorded: []string{kfwForeign}, live: append([]string{added}, kfwBlockLines...),
+			want: append([]string{kfwForeign, added}, kfwBlockLines...)},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h, d, snap := kfwRevertHost(t)
+			if err := beginCleanup(ctx, h.db, "c1", h.clock.Now()); err != nil {
+				t.Fatal(err)
+			}
+			files := h.config().Files
+			rec := foreignRecord{
+				Layouts: map[fwstate.Family]dockerfw.Layout{fwstate.V4: {Before: c.recorded}, fwstate.V6: {Before: c.recorded}},
+				Known:   [][]byte{files["/etc/ufw/after.rules"].Data, files["/etc/ufw/after6.rules"].Data},
+			}
+			if err := putForeign(ctx, h.db, "c1", rec, h.clock.Now()); err != nil {
+				t.Fatal(err)
+			}
+			kfwSet(t, h, c.live, true)
+			var loads [][]string
+			run := h.onRun
+			h.onRun = func(h *fakeHost, cmd core.Cmd) core.CmdResult {
+				if strings.HasSuffix(cmd.Path, "-restore") && strings.Contains(string(cmd.Stdin), ":DOCKER-USER") {
+					loads = append(loads, strings.Split(strings.TrimSpace(string(cmd.Stdin)), "\n"))
+				}
+				return run(h, cmd)
+			}
+			if _, err := revert(ctx, h.env(), d, []byte(snap.ID)); err != nil {
+				t.Fatalf("revert = %v, want no error", err)
+			}
+			for i, in := range loads {
+				if !slices.Contains(in, gate) {
+					t.Errorf("load %d of DOCKER-USER lacks the gate %q: %q", i+1, gate, in)
+				}
+			}
+			if got := kfwChain(h); !slices.Equal(got, c.want) {
+				t.Errorf("DOCKER-USER holds %q, want %q", got, c.want)
+			}
+			for _, owner := range []string{"c1", "revert:c1"} {
+				if _, ok, err := foreignOf(ctx, h.db, owner); err != nil || ok {
+					t.Errorf("the %s record is left (%v, %v)", owner, ok, err)
+				}
+			}
+		})
+	}
+}
+
 // TestKfwRestoreBranches: a restore that has to clean up the loaded Docker
 // chains without a cleanup configured fails before it writes; and finishing
 // an interrupted emergency restore whose record cannot be read still reports

@@ -206,7 +206,7 @@ func (f fw) finishRecorded(ctx context.Context, env core.Env, owner string) ([]s
 	if err != nil || !ok {
 		return nil, err
 	}
-	if _, err := f.finishForeign(ctx, env, owner); err != nil {
+	if _, err := f.finishForeign(ctx, env, owner, false); err != nil {
 		return kfwOrderOf(rec.Layouts), fmt.Errorf("firewall: the foreign DOCKER-USER rules recorded for %s are not loaded: %w", owner, err)
 	}
 	return kfwOrderOf(rec.Layouts), nil
@@ -246,7 +246,7 @@ func (f fw) endChangeCleanup(ctx context.Context, env core.Env) error {
 	if env.ChangeID == "" {
 		return nil
 	}
-	if _, err := f.finishForeign(ctx, env, env.ChangeID); err != nil {
+	if _, err := f.finishForeign(ctx, env, env.ChangeID, true); err != nil {
 		env.Log.Warn("firewall: cannot load the foreign DOCKER-USER rules the change's cleanup flushed; the revert loads them",
 			"change", env.ChangeID, "error", err)
 		if _, aerr := adoptForeign(ctx, env.DB, env.ChangeID, "revert:"+env.ChangeID, env.Clock.Now()); aerr != nil {
