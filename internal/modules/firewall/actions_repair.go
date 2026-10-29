@@ -42,7 +42,7 @@ func (f fw) stateRepair() core.ActionDef {
 		guarded: func(in RepairInput) core.Guarded { return in.Guarded },
 		manual:  func(in RepairInput) bool { return in.Manual },
 		build: func(ctx context.Context, env core.Env, in RepairInput) buildFunc {
-			return func(cfg fwstate.Config, _ fwstate.Loaded) (change, error) { return repairChange(ctx, env, in, cfg) }
+			return func(cfg fwstate.Config, _ fwstate.Loaded) (change, error) { return f.repairChange(ctx, env, in, cfg) }
 		},
 		check: func(ctx context.Context, env core.Env, in RepairInput, cfg fwstate.Config) error {
 			if env.Call.RepairOf == "" {
@@ -83,8 +83,10 @@ func (f fw) stateRepair() core.ActionDef {
 // (or stops) UFW from its configuration. Repairing a change, restore brings
 // the change's snapshot back, and keep reloads UFW from the files the
 // change left, which must still hash as it recorded them right after it
-// applied.
-func repairChange(ctx context.Context, env core.Env, in RepairInput, cfg fwstate.Config) (change, error) {
+// applied. With the Docker integration on afterwards a repair refuses an
+// incoming policy of ACCEPT, and a restore brings back the snapshot's
+// Docker state; rewriting the block is firewall.docker.repair's job.
+func (f fw) repairChange(ctx context.Context, env core.Env, in RepairInput, cfg fwstate.Config) (change, error) {
 	refuse := func(msg string) error {
 		return &errcode.Error{Code: errcode.InvalidInput, Detail: msg, Fields: []errcode.FieldError{{Path: "/outcome", Message: msg}}}
 	}
@@ -92,7 +94,7 @@ func repairChange(ctx context.Context, env core.Env, in RepairInput, cfg fwstate
 		if in.Outcome != "" {
 			return change{}, refuse("only the repair of a change takes an outcome")
 		}
-		return change{repair: true}, nil
+		return f.repairReload(ctx, env, cfg)
 	}
 	if in.Outcome != "" && in.Outcome != outcomeRestore && in.Outcome != outcomeKeep {
 		return change{}, refuse(fmt.Sprintf("the outcome %q is neither %s nor %s", in.Outcome, outcomeRestore, outcomeKeep))
@@ -102,7 +104,7 @@ func repairChange(ctx context.Context, env core.Env, in RepairInput, cfg fwstate
 		return change{}, err
 	}
 	if in.Outcome != outcomeKeep {
-		return change{repair: true, restore: &s}, nil
+		return f.dockerRestoreChange(ctx, env, change{repair: true, restore: &s}, s)
 	}
 	if s.PostHashes == nil {
 		return change{}, refuse(fmt.Sprintf("change %s recorded no post-apply state; repair it with outcome restore", env.Call.RepairOf))
@@ -110,6 +112,20 @@ func repairChange(ctx context.Context, env core.Env, in RepairInput, cfg fwstate
 	if paths := changedFiles(cfg, s.PostHashes); len(paths) > 0 {
 		return change{}, refuse(fmt.Sprintf("%s differ from what change %s left; repair it with outcome restore",
 			strings.Join(paths, ", "), env.Call.RepairOf))
+	}
+	return f.repairReload(ctx, env, cfg)
+}
+
+// repairReload is the change of a repair that reloads UFW from cfg, the
+// files as they are on disk: the repair leaves the stored integration flag
+// alone, so that flag is the one the incoming-policy refusal reads.
+func (f fw) repairReload(ctx context.Context, env core.Env, cfg fwstate.Config) (change, error) {
+	dc, err := readDockerConfig(ctx, env.DB)
+	if err != nil {
+		return change{}, err
+	}
+	if err := refuseOpenIncoming(dc.Enabled, cfg); err != nil {
+		return change{}, err
 	}
 	return change{repair: true}, nil
 }
