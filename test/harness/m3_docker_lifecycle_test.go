@@ -463,10 +463,14 @@ func m3dDockRemove(ctx context.Context, v *vm.VM, names ...string) {
 	_, _ = v.Run(ctx, "sudo docker rm -f "+m3dxShell(names...))
 }
 
-// m3dDockReach opens a TCP connection from v to host:port. host is always a
-// constant of the fleet or of a scenario, never input.
+// m3dDockReach opens a TCP connection from v to host:port. host must be an
+// IP address, which is what makes it safe inside the quoted command.
 func m3dDockReach(ctx context.Context, v *vm.VM, host string, port int) error {
-	_, err := v.Run(ctx, fmt.Sprintf("timeout 5 bash -c '</dev/tcp/%s/%d'", host, port))
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return fmt.Errorf("harness: reach %q: %w", host, err)
+	}
+	_, err = v.Run(ctx, fmt.Sprintf("timeout 5 bash -c '</dev/tcp/%s/%d'", addr, port))
 	return err
 }
 

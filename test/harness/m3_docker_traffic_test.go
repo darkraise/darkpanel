@@ -265,8 +265,8 @@ func m3dTrafficProbe(ctx context.Context, t *testing.T, f *fleet, unit, host str
 	for _, p := range ports {
 		args = append(args, strconv.Itoa(int(p)))
 	}
-	_, _ = f.scanner.Run(ctx, "sudo rm -f "+log)
-	m3Run(ctx, t, f.scanner, "sudo systemd-run --unit="+unit+" --collect /usr/bin/python3 -c "+m3Quote(m3dTrafficProbeScript)+" "+strings.Join(args, " "))
+	_, _ = f.scanner.Run(ctx, "sudo rm -f "+m3dxShell(log))
+	m3Run(ctx, t, f.scanner, "sudo systemd-run "+m3dxShell("--unit="+unit)+" --collect /usr/bin/python3 -c "+m3Quote(m3dTrafficProbeScript)+" "+m3dxShell(args...))
 	var out string
 	stopped := false
 	stop = func() string {
@@ -274,11 +274,11 @@ func m3dTrafficProbe(ctx context.Context, t *testing.T, f *fleet, unit, host str
 			return out
 		}
 		stopped = true
-		if _, err := f.scanner.Run(ctx, "sudo systemctl stop "+unit); err != nil {
+		if _, err := f.scanner.Run(ctx, "sudo systemctl stop "+m3dxShell(unit)); err != nil {
 			t.Logf("stop %s: %v", unit, err)
 		}
 		var err error
-		if out, err = f.scanner.Run(ctx, "sudo cat "+log); err != nil {
+		if out, err = f.scanner.Run(ctx, "sudo cat "+m3dxShell(log)); err != nil {
 			t.Logf("read %s: %v", log, err)
 		}
 		return out
