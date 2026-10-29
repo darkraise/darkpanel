@@ -48,6 +48,9 @@ func TestM3Docker(t *testing.T) {
 		{"traffic-deny-keeps-allow", false, func(t *testing.T) { m3dTrafficDenyKeeps(ctx, t, f) }},
 		{"traffic-proxied-ipv6", false, func(t *testing.T) { m3dTrafficProxied(ctx, t, f) }},
 		{"traffic-recreate-under-scan", false, func(t *testing.T) { m3dTrafficRecreate(ctx, t, f) }},
+		{"exposure-equals-scan", false, func(t *testing.T) { m3dExpoScan(ctx, t, f) }},
+		{"exposure-source-port", false, func(t *testing.T) { m3dExpoSourcePort(ctx, t, f) }},
+		{"exposure-private-class", false, func(t *testing.T) { m3dExpoPrivateClass(ctx, t, f) }},
 	}
 	for _, s := range steps {
 		if !t.Run(s.name, s.run) && s.gate {
