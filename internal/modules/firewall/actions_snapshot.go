@@ -42,7 +42,7 @@ func (f fw) snapshotRestore() core.ActionDef {
 				if err != nil {
 					return change{}, err
 				}
-				return change{restore: &s}, nil
+				return f.dockerRestoreChange(ctx, env, change{restore: &s}, s)
 			}
 		},
 		check: func(ctx context.Context, env core.Env, in SnapshotRestoreInput, cfg fwstate.Config) error {
