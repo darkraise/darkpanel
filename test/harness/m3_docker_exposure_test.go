@@ -404,19 +404,16 @@ func m3dxExpoWorkflow(yml string, deadline time.Duration) error {
 	return nil
 }
 
-// m3dExpoRead reads firewall.exposure of the agent and fails the test when it
-// cannot be read or decoded.
-func m3dExpoRead(ctx context.Context, t *testing.T, f *fleet) ([]byte, m3dExpoView) {
-	t.Helper()
+// m3dExpoRead reads firewall.exposure of the agent and returns its JSON and
+// the decoded view, or an error when it cannot be read or decoded, so that a
+// caller inside eventually can retry.
+func m3dExpoRead(ctx context.Context, f *fleet) ([]byte, m3dExpoView, error) {
 	var raw json.RawMessage
 	if err := f.api.Resource(ctx, f.agentID, "firewall.exposure", &raw); err != nil {
-		t.Fatal(err)
+		return nil, m3dExpoView{}, fmt.Errorf("harness: firewall.exposure: %w", err)
 	}
 	view, err := m3dExpoDecode(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return raw, view
+	return raw, view, err
 }
 
 // m3dExpoPublishUDP starts the UDP container name on the default bridge,
@@ -573,7 +570,11 @@ func m3dExpoScan(ctx context.Context, t *testing.T, f *fleet) {
 	var raw []byte
 	var view m3dExpoView
 	err := eventually(ctx, 2*time.Minute, func(ctx context.Context) error {
-		raw, view = m3dExpoRead(ctx, t, f)
+		r, v, err := m3dExpoRead(ctx, f)
+		if err != nil {
+			return err
+		}
+		raw, view = r, v
 		return m3dxExpoVerdicts(view.Rows, want)
 	})
 	if err != nil {
@@ -594,7 +595,10 @@ func m3dExpoSourcePort(ctx context.Context, t *testing.T, f *fleet) {
 	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3Healthy)
 	var class m3dExpoClass
 	err := eventually(ctx, time.Minute, func(ctx context.Context) error {
-		_, view := m3dExpoRead(ctx, t, f)
+		_, view, err := m3dExpoRead(ctx, f)
+		if err != nil {
+			return err
+		}
 		for _, r := range view.Rows {
 			if r.Proto != "tcp" || r.Family != "v4" || r.Port != 18311 {
 				continue
@@ -662,7 +666,10 @@ func m3dExpoPrivateClass(ctx context.Context, t *testing.T, f *fleet) {
 		return m3dExpoRow{}, errors.New("harness: no row tcp/v4/18321")
 	}
 	err = eventually(ctx, time.Minute, func(ctx context.Context) error {
-		_, view := m3dExpoRead(ctx, t, f)
+		_, view, err := m3dExpoRead(ctx, f)
+		if err != nil {
+			return err
+		}
 		r, err := row(view)
 		if err != nil {
 			return err
@@ -681,7 +688,10 @@ func m3dExpoPrivateClass(ctx context.Context, t *testing.T, f *fleet) {
 	t.Cleanup(func() { m3dDockTry(ctx, t, f, "firewall.docker.set-sources", map[string]any{"privateSources": orig}) })
 	m3dDockApply(ctx, t, f, "firewall.docker.set-sources", map[string]any{"privateSources": append(slices.Clone(orig), srcRange)})
 	err = eventually(ctx, time.Minute, func(ctx context.Context) error {
-		_, view := m3dExpoRead(ctx, t, f)
+		_, view, err := m3dExpoRead(ctx, f)
+		if err != nil {
+			return err
+		}
 		r, err := row(view)
 		if err != nil {
 			return err
