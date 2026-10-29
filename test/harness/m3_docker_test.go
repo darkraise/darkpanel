@@ -41,6 +41,13 @@ func TestM3Docker(t *testing.T) {
 		{"foreign-in-confirmation-window", false, func(t *testing.T) { m3dDockForeignWindow(ctx, t, f) }},
 		{"foreign-in-interrupted-cleanup", false, func(t *testing.T) { m3dDockForeignCleanup(ctx, t, f) }},
 		{"refuse-ipv6no-docker-rules", false, func(t *testing.T) { m3dDockIPv6NoRules(ctx, t, f) }},
+		{"traffic-unallowed-closed", false, func(t *testing.T) { m3dTrafficUnallowed(ctx, t, f) }},
+		{"traffic-new-network", false, func(t *testing.T) { m3dTrafficNewNetwork(ctx, t, f) }},
+		{"traffic-container-to-container", false, func(t *testing.T) { m3dTrafficContainers(ctx, t, f) }},
+		{"traffic-disjoint-bindings", false, func(t *testing.T) { m3dTrafficDisjoint(ctx, t, f) }},
+		{"traffic-deny-keeps-allow", false, func(t *testing.T) { m3dTrafficDenyKeeps(ctx, t, f) }},
+		{"traffic-proxied-ipv6", false, func(t *testing.T) { m3dTrafficProxied(ctx, t, f) }},
+		{"traffic-recreate-under-scan", false, func(t *testing.T) { m3dTrafficRecreate(ctx, t, f) }},
 	}
 	for _, s := range steps {
 		if !t.Run(s.name, s.run) && s.gate {
