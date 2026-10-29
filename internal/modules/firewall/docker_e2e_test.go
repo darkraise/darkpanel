@@ -575,3 +575,71 @@ func TestDeeReconcileFollowsARecreatedContainer(t *testing.T) {
 		t.Errorf("a second pass applied %v, want nothing more", applied[reconciled:])
 	}
 }
+
+// deeFailUserReload is the host with the first DOCKER-USER reload failing:
+// a restore input that deletes no chain is the reload that follows the
+// cleanup's flush, not the cleanup itself.
+type deeFailUserReload struct {
+	*deeHost
+	failed bool
+}
+
+func (r *deeFailUserReload) Run(ctx context.Context, cmd core.Cmd) (core.CmdResult, error) {
+	if !r.failed && strings.HasSuffix(cmd.Path, "-restore") && !bytes.Contains(cmd.Stdin, []byte("\n-X ")) {
+		r.failed = true
+		return core.CmdResult{ExitCode: 1, Stderr: []byte("iptables-restore: line 2 failed\n")}, nil
+	}
+	return r.deeHost.Run(ctx, cmd)
+}
+
+// TestDeeFailedCleanupStaysReverted: firewall.docker.disable whose cleanup
+// fails after recording its intent is reverted, and the revert ends that
+// intent, so the next reconcile pass neither strips the block the revert put
+// back nor applies anything.
+func TestDeeFailedCleanupStaysReverted(t *testing.T) {
+	ctx := context.Background()
+	h := deeNewHost(t)
+	deeConfirm(t, deeEngine(t, h), "firewall.docker.enable", `{}`)
+	beforeLoaded, beforeAfter := h.loaded, h.config().Files["/etc/ufw/after.rules"].Data
+	exec := &deeFailUserReload{deeHost: h}
+	eng := deeEngineWith(t, h, exec)
+
+	_, cv, err := deePlanApply(t, eng, "firewall.docker.disable", `{}`)
+	if !exec.failed || cv.State != core.StateReverted {
+		t.Fatalf("disable = %+v, %v (reload failed: %v); want reverted after the failed cleanup", cv, err, exec.failed)
+	}
+	if owners, err := pendingCleanups(ctx, h.db); err != nil || len(owners) != 0 {
+		t.Errorf("cleanup intents after the revert %v, %v; want none", owners, err)
+	}
+	if _, held, err := foreignOf(ctx, h.db, cv.ID); err != nil || held {
+		t.Errorf("foreign record of %s after the revert: %v, %v; want none", cv.ID, held, err)
+	}
+	if !bytes.Equal(h.config().Files["/etc/ufw/after.rules"].Data, beforeAfter) {
+		t.Error("after.rules differs from before the disable")
+	}
+	if diffs := deeKernelDiffs(beforeLoaded, h.loaded); len(diffs) != 0 {
+		t.Errorf("the kernel's chains differ from before the disable: %+v", diffs)
+	}
+
+	system := core.Principal{Actor: "system:firewall.reconcile", Scope: core.ScopeAdmin}
+	env := h.env()
+	env.Principal = system
+	var applied []string
+	tc := core.TaskContext{Env: env, Apply: func(ctx context.Context, action string, input any) (core.ChangeView, error) {
+		applied = append(applied, action)
+		raw, err := json.Marshal(input)
+		if err != nil {
+			return core.ChangeView{}, err
+		}
+		return eng.ApplySystem(ctx, system, core.ActionRef{Name: action, Version: 1}, raw)
+	}}
+	if err := (module{f: h.fw()}).BackgroundTasks()[0].Run(ctx, tc); err != nil {
+		t.Fatal(err)
+	}
+	if len(applied) != 0 {
+		t.Errorf("the reconcile pass applied %v, want nothing on the reverted host", applied)
+	}
+	if diffs := deeKernelDiffs(beforeLoaded, h.loaded); len(diffs) != 0 {
+		t.Errorf("the kernel's chains differ from before the disable after the reconcile pass: %+v", diffs)
+	}
+}

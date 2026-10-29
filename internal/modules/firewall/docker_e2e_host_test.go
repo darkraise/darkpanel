@@ -484,13 +484,20 @@ func deeJumpsTo(line, chain string) bool {
 // firewall module with Docker.
 func deeEngine(t *testing.T, h *deeHost) *lifecycle.Engine {
 	t.Helper()
+	return deeEngineWith(t, h, h)
+}
+
+// deeEngineWith is deeEngine with the changes running their programs
+// through exec.
+func deeEngineWith(t *testing.T, h *deeHost, exec core.Runner) *lifecycle.Engine {
+	t.Helper()
 	reg, err := core.NewRegistry(module{f: h.fw()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	eng, err := lifecycle.New(lifecycle.Config{
 		Side: core.SideAgent, Registry: reg, Validator: schema.NewValidator(), Journal: &coretest.MemJournal{}, Redact: schema.Redact,
-		Base: core.Env{HostID: "h1", DB: h.db, Exec: h, Files: h, Sealer: coretest.Sealer{}, Clock: h.clock,
+		Base: core.Env{HostID: "h1", DB: h.db, Exec: exec, Files: h, Sealer: coretest.Sealer{}, Clock: h.clock,
 			Log: slog.New(slog.NewTextHandler(io.Discard, nil))},
 		ModuleUnits: func(string) core.Units { return e2eUnits{} },
 	})

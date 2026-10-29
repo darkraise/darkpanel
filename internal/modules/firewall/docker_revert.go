@@ -183,6 +183,22 @@ func (f fw) finishRecorded(ctx context.Context, env core.Env, owner string) []st
 	return kfwOrderOf(rec.Layouts)
 }
 
+// endChangeCleanup ends the cleanup intent of the change being reverted. The
+// revert takes the host back to before the change, so finishCleanups
+// repeating that cleanup would strip the block the revert puts back. The
+// foreign DOCKER-USER rules a failed attempt of the cleanup flushed are
+// loaded back first, where the revert keeps them. A cleanup the revert runs
+// itself records its own intent again.
+func (f fw) endChangeCleanup(ctx context.Context, env core.Env) error {
+	if env.ChangeID == "" {
+		return nil
+	}
+	if _, err := f.finishForeign(ctx, env, env.ChangeID); err != nil {
+		return fmt.Errorf("load the foreign DOCKER-USER rules the change's cleanup flushed: %w", err)
+	}
+	return endCleanup(ctx, env.DB, env.ChangeID)
+}
+
 // kfwUndoOrder returns made with each Docker chains effect that found the
 // chains loaded moved ahead of the after-file effects directly before it.
 //
