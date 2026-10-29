@@ -46,7 +46,11 @@ func (f fw) dockerRepair() core.ActionDef {
 				return nil
 			}
 			for _, p := range []string{"/etc/ufw/after.rules", "/etc/ufw/after6.rules"} {
-				if _, ok, err := dockerfw.BlockOf(cfg.Files[p].Data); err != nil || !ok {
+				_, ok, err := dockerfw.BlockOf(cfg.Files[p].Data)
+				if err != nil {
+					return fmt.Errorf("firewall: verify: %s: %w", p, err)
+				}
+				if !ok {
 					return mismatch("%s holds no Docker block after the repair", p)
 				}
 			}

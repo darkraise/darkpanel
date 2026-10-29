@@ -273,3 +273,16 @@ func TestDreActionSpec(t *testing.T) {
 		}
 	}
 }
+
+// TestDreVerifyBrokenMarkers: a repair whose after file holds broken block
+// markers fails its verify with the marker error, not with a missing block.
+func TestDreVerifyBrokenMarkers(t *testing.T) {
+	h, f := dreHost(t)
+	denSeed(t, h, true)
+	h.writeFile(denAfter4, append(denAfterFile(t, true), []byte("# BEGIN DARKPANEL docker\n")...))
+	h.writeFile(denAfter6, denAfterFile(t, true))
+	err := f.dockerRepair().Handler.Verify(t.Context(), h.env(), json.RawMessage(`{}`), json.RawMessage(`{}`))
+	if err == nil || strings.Contains(err.Error(), "holds no Docker block") || !strings.Contains(err.Error(), denAfter4+":") {
+		t.Errorf("verify = %v, want the marker error of %s", err, denAfter4)
+	}
+}
