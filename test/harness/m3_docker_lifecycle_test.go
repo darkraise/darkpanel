@@ -319,6 +319,14 @@ func m3dxCleanupRetryable(err error) bool {
 	return m3dxLockHeld(err) || errors.As(err, &guardErr) && guardErr.Guard.ID == "firewall.lockout"
 }
 
+// m3dxRefused reports whether err is, or wraps, a refusal: an API error or a
+// failing guard.
+func m3dxRefused(err error) bool {
+	var apiErr *APIError
+	var guardErr *m3GuardError
+	return errors.As(err, &apiErr) || errors.As(err, &guardErr)
+}
+
 // m3dxRetry calls apply until it returns an error that retry rejects, or
 // none, waiting interval between calls, and returns its last error, joined
 // with ctx's when ctx ends first.
@@ -484,9 +492,23 @@ func m3dDockRefused(ctx context.Context, t *testing.T, f *fleet, action string, 
 
 // m3dDockEnable enables the integration on the agent host and waits until it
 // is healthy. It first requires a host where the integration is off, and
-// registers the cleanup that disables it again.
+// registers the cleanup that disables it again. When an earlier scenario left
+// the integration enabled, it disables it first, so that one failed cleanup
+// does not fail every later scenario.
 func m3dDockEnable(ctx context.Context, t *testing.T, f *fleet) {
 	t.Helper()
+	st := m3dDockWait(ctx, t, f.api, f.agentID, time.Minute, func(st m3dDockStatus) error {
+		if !st.Available || !st.Supported {
+			return fmt.Errorf("harness: docker available %t, supported %t (%q); want it available and supported", st.Available, st.Supported, st.Unsupported)
+		}
+		return nil
+	})
+	if st.Enabled {
+		t.Logf("the integration is still enabled (health %q, issues %+v); disabling it first", st.Health, st.Issues)
+		if err := m3dDockSettle(ctx, t, f, "firewall.docker.disable", map[string]any{}, m3dxRefused); err != nil {
+			t.Fatalf("disable the integration an earlier scenario left enabled: %v", err)
+		}
+	}
 	m3dDockWait(ctx, t, f.api, f.agentID, time.Minute, func(st m3dDockStatus) error {
 		if !st.Available || !st.Supported || st.Enabled {
 			return fmt.Errorf("harness: docker available %t, supported %t (%q), enabled %t; want it available, supported and not enabled", st.Available, st.Supported, st.Unsupported, st.Enabled)

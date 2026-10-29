@@ -248,6 +248,15 @@ func TestM3xDockLockRetry(t *testing.T) {
 	if err := m3dxRetry(ctx, time.Millisecond, m3dxCleanupRetryable, apply); err == nil || *calls != 1 {
 		t.Errorf("a 423 without lock.held: %v after %d calls, want it returned at once", err, *calls)
 	}
+	apply, calls = answers(other, otherGuard, held)
+	if err := m3dxRetry(ctx, time.Millisecond, m3dxRefused, apply); err != nil || *calls != 4 {
+		t.Errorf("any refusal: %v after %d calls, want success on the fourth", err, *calls)
+	}
+	transport := errors.New("connection refused")
+	apply, calls = answers(transport)
+	if err := m3dxRetry(ctx, time.Millisecond, m3dxRefused, apply); !errors.Is(err, transport) || *calls != 1 {
+		t.Errorf("an error that is no refusal: %v after %d calls, want it returned at once", err, *calls)
+	}
 
 	short, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
 	defer cancel()
