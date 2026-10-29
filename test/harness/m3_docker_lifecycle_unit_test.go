@@ -3,11 +3,14 @@
 package harness
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/darkraise/darkpanel/internal/modules/firewall/model"
 )
@@ -204,6 +207,46 @@ func TestM3xDockRefusal(t *testing.T) {
 		if (err == nil) != tc.ok {
 			t.Errorf("%s: %v, want ok=%t", tc.name, err, tc.ok)
 		}
+	}
+}
+
+func TestM3xDockLockRetry(t *testing.T) {
+	held := fmt.Errorf("apply firewall.docker.disable: %w", &APIError{Status: 423, Code: "lock.held", Detail: "lock firewall is held by change 01M6364WMPD8QGJ1TACCYFQQC4"})
+	other := &APIError{Status: 409, Code: "firewall.docker_user_in_use", Detail: "DOCKER-USER holds -s 192.0.2.77/32 -j DROP"}
+	answers := func(errs ...error) (func(context.Context) error, *int) {
+		calls := 0
+		return func(context.Context) error {
+			calls++
+			if calls <= len(errs) {
+				return errs[calls-1]
+			}
+			return nil
+		}, &calls
+	}
+	ctx := context.Background()
+
+	apply, calls := answers(held, held)
+	if err := m3dxLockRetry(ctx, time.Millisecond, apply); err != nil || *calls != 3 {
+		t.Errorf("a lock released after two refusals: %v after %d calls, want success on the third", err, *calls)
+	}
+	apply, calls = answers(other, held)
+	if err := m3dxLockRetry(ctx, time.Millisecond, apply); !errors.Is(err, other) || *calls != 1 {
+		t.Errorf("another refusal: %v after %d calls, want it returned at once", err, *calls)
+	}
+	apply, calls = answers(&APIError{Status: 423, Detail: "locked"})
+	if err := m3dxLockRetry(ctx, time.Millisecond, apply); err == nil || *calls != 1 {
+		t.Errorf("a 423 without lock.held: %v after %d calls, want it returned at once", err, *calls)
+	}
+
+	short, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer cancel()
+	calls = new(int)
+	err := m3dxLockRetry(short, 10*time.Millisecond, func(context.Context) error { *calls++; return held })
+	if !errors.Is(err, context.DeadlineExceeded) || !m3dxLockHeld(err) {
+		t.Errorf("a lock never released: %v, want the deadline and the last lock.held", err)
+	}
+	if *calls < 2 || *calls > 10 {
+		t.Errorf("a lock never released: %d calls in 50ms at a 10ms interval, want a few", *calls)
 	}
 }
 

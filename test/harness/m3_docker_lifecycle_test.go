@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/model"
 	"github.com/darkraise/darkpanel/test/harness/vm"
 )
@@ -299,6 +300,32 @@ func m3dxDockExemptionLine(save string, e m3dDockExemption) error {
 	return fmt.Errorf("harness: no DOCKER-USER rule returns the exemption %+v; DOCKER-USER holds:\n%s", e, strings.Join(rules, "\n"))
 }
 
+// m3dDockTryLocked bounds how long m3dDockTry waits for a held lock.
+const m3dDockTryLocked = 2 * time.Minute
+
+// m3dxLockHeld reports whether err is, or wraps, the API's 423 lock.held.
+func m3dxLockHeld(err error) bool {
+	var apiErr *APIError
+	return errors.As(err, &apiErr) && apiErr.Status == http.StatusLocked && apiErr.Code == string(errcode.LockHeld)
+}
+
+// m3dxLockRetry calls apply until it returns anything but lock.held, waiting
+// interval between calls, and returns its last error, joined with ctx's when
+// ctx ends first.
+func m3dxLockRetry(ctx context.Context, interval time.Duration, apply func(context.Context) error) error {
+	for {
+		err := apply(ctx)
+		if !m3dxLockHeld(err) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("%w; last error: %w", ctx.Err(), err)
+		case <-time.After(interval):
+		}
+	}
+}
+
 // m3dxDockRefusal returns nil when err is, or wraps, an API refusal with the
 // code given (any code when it is empty) whose detail names every want.
 func m3dxDockRefusal(err error, code string, want ...string) error {
@@ -397,9 +424,22 @@ func m3dDockApply(ctx context.Context, t *testing.T, f *fleet, action string, in
 }
 
 // m3dDockTry applies and confirms the action like m3dDockApply but only logs
-// a failure, for the cleanups that undo a scenario.
+// a failure, for the cleanups that undo a scenario. A background change, such
+// as the reconcile that follows a container's removal, can hold the firewall
+// lock briefly, so an apply refused with lock.held is tried again for up to
+// m3dDockTryLocked.
 func m3dDockTry(ctx context.Context, t *testing.T, f *fleet, action string, input any) {
-	ch, err := f.api.m3Apply(ctx, f.agentID, action, input, 300)
+	applyCtx, cancel := context.WithTimeout(ctx, m3dDockTryLocked)
+	defer cancel()
+	var ch Change
+	err := m3dxLockRetry(applyCtx, pollInterval, func(ctx context.Context) error {
+		var err error
+		ch, err = f.api.m3Apply(ctx, f.agentID, action, input, 300)
+		if m3dxLockHeld(err) {
+			t.Logf("cleanup: %s: %v; trying again", action, err)
+		}
+		return err
+	})
 	if err != nil {
 		t.Logf("cleanup: %s: %v", action, err)
 		return
