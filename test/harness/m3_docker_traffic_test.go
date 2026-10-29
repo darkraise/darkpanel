@@ -172,7 +172,11 @@ func m3dTrafficWant(ctx context.Context, t *testing.T, f *fleet, o ScanOpts, wan
 		o.Iface = m3dTrafficIface
 	}
 	err := eventually(ctx, 90*time.Second, func(ctx context.Context) error {
-		return m3dxTrafficExpectAll(m3dScan(ctx, t, f.scanner, o), want)
+		scanned, err := m3dScanErr(ctx, f.scanner, o)
+		if err != nil {
+			return err
+		}
+		return m3dxTrafficExpectAll(scanned, want)
 	})
 	if err != nil {
 		t.Fatalf("scan %s of %s from %v: %v", o.Family, o.Target, o.Source, err)

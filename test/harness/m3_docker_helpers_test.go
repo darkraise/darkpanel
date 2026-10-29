@@ -216,18 +216,29 @@ func m3dxMismatch(rows []m3dRow, scanned []PortState, proto string) []string {
 	return out
 }
 
-// m3dScan runs the scan o on scanner and returns every port entry it reports.
-//
-//nolint:unused // the Docker harness scenarios call it
+// m3dScan runs the scan o on scanner and returns every port entry it
+// reports; a failed scan fails the test.
 func m3dScan(ctx context.Context, t *testing.T, scanner *vm.VM, o ScanOpts) []PortState {
 	t.Helper()
-	cmd := m3dxNmapCommand(o)
-	out := m3Run(ctx, t, scanner, cmd)
-	ports, err := ParsePorts(out)
+	ports, err := m3dScanErr(ctx, scanner, o)
 	if err != nil {
-		t.Fatalf("%s: %v\n%s", cmd, err, out)
+		t.Fatal(err)
 	}
 	return ports
+}
+
+// m3dScanErr is m3dScan returning the failure, for a check that retries.
+func m3dScanErr(ctx context.Context, scanner *vm.VM, o ScanOpts) ([]PortState, error) {
+	cmd := m3dxNmapCommand(o)
+	out, err := scanner.Run(ctx, cmd)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w\n%s", cmd, err, out)
+	}
+	ports, err := ParsePorts(out)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w\n%s", cmd, err, out)
+	}
+	return ports, nil
 }
 
 // m3dAddSource adds p to iface of scanner and removes it when the test ends.
