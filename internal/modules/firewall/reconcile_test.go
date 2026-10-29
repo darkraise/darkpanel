@@ -215,6 +215,7 @@ func TestRcPass(t *testing.T) {
 	deny := fwstate.ChainDiff{Family: fwstate.V4, Table: "filter", Chain: "darkpanel-docker-deny"}
 	binding := fwstate.ChainDiff{Family: fwstate.V6, Table: "filter", Chain: "dp-b-0123456789ab"}
 	ufw := fwstate.ChainDiff{Family: fwstate.V4, Table: "filter", Chain: "ufw-user-input"}
+	nat := fwstate.ChainDiff{Family: fwstate.V4, Table: "nat", Chain: "darkpanel-nat"}
 	plain, withRow, custom := rcState(false), rcState(true), rcState(false, "203.0.113.0/24")
 	gone := plain
 	gone.available, gone.reason = false, "the Docker daemon is not running"
@@ -239,6 +240,7 @@ func TestRcPass(t *testing.T) {
 		{"loaded chain differs and the files are old too", custom, &plain, []fwstate.ChainDiff{user}, repair},
 		{"the difference reaches beyond the integration", plain, &plain, []fwstate.ChainDiff{deny, ufw}, nil},
 		{"only a UFW chain differs", plain, &plain, []fwstate.ChainDiff{ufw}, nil},
+		{"a Darkpanel chain of another table differs", plain, &plain, []fwstate.ChainDiff{nat}, nil},
 		{"Docker unreachable", gone, nil, nil, nil},
 		{"unsupported combination", nftables, nil, nil, nil},
 	}

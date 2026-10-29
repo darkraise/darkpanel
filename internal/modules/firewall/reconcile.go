@@ -101,7 +101,9 @@ func (f fw) reconcileWith(ctx context.Context, tc core.TaskContext, cfg fwstate.
 	if len(diffs) > 0 {
 		var outside []string
 		for _, d := range diffs {
-			if !dockerfw.Owned(d.Chain) {
+			// The block's chains are all in the filter table; a darkpanel-*
+			// chain of another table is not the integration's to repair.
+			if d.Table != "filter" || !dockerfw.Owned(d.Chain) {
 				outside = append(outside, string(d.Family)+" "+d.Table+" "+d.Chain)
 			}
 		}
