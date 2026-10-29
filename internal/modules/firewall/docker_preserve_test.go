@@ -231,7 +231,7 @@ func kfHost(t *testing.T, v4, v6 []string) *kfRig {
 }
 
 // standalone makes the env that of a call outside any change.
-func (r *kfRig) standalone() { r.env.Effects, r.env.ChangeID = nil, "" } //nolint:unused // shared helper for the tests of calls outside a change in this package
+func (r *kfRig) standalone() { r.env.Effects, r.env.ChangeID = nil, "" }
 
 // known are after.rules and after6.rules as they are on disk now.
 func (r *kfRig) known() [][]byte {

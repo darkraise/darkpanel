@@ -244,8 +244,6 @@ func m3dScanErr(ctx context.Context, scanner *vm.VM, o ScanOpts) ([]PortState, e
 // m3dAddSource adds p to iface of scanner and removes it when the test ends.
 // p is added with its own prefix length, so a caller passes a host prefix
 // (/32, /128) or an address inside the link's network.
-//
-//nolint:unused // the Docker harness scenarios call it
 func m3dAddSource(ctx context.Context, t *testing.T, scanner *vm.VM, p netip.Prefix, iface string) {
 	t.Helper()
 	m3Run(ctx, t, scanner, m3dxAddrCmd(p, iface, true))
@@ -257,16 +255,12 @@ func m3dAddSource(ctx context.Context, t *testing.T, scanner *vm.VM, p netip.Pre
 }
 
 // m3dDocker runs sudo docker with args on host and returns the output.
-//
-//nolint:unused // the Docker harness scenarios call it
 func m3dDocker(ctx context.Context, t *testing.T, host *vm.VM, args ...string) string {
 	t.Helper()
 	return m3Run(ctx, t, host, "sudo docker "+m3dxShell(args...))
 }
 
 // m3dWaitRunning waits up to a minute for the container name to run.
-//
-//nolint:unused // the Docker harness scenarios call it
 func m3dWaitRunning(ctx context.Context, t *testing.T, host *vm.VM, name string) {
 	t.Helper()
 	err := eventually(ctx, time.Minute, func(ctx context.Context) error {
@@ -283,8 +277,6 @@ func m3dWaitRunning(ctx context.Context, t *testing.T, host *vm.VM, name string)
 
 // m3dRun starts the pinned image as the container name and removes the
 // container when the test ends.
-//
-//nolint:unused // the Docker harness scenarios call it
 func m3dRun(ctx context.Context, t *testing.T, host *vm.VM, image, name, network string, publish []string) {
 	t.Helper()
 	ref, err := m3dxImage(image)
@@ -300,8 +292,6 @@ func m3dRun(ctx context.Context, t *testing.T, host *vm.VM, image, name, network
 }
 
 // m3dRunTCP starts the pinned pebble image, which serves TCP 14000.
-//
-//nolint:unused // the Docker harness scenarios call it
 func m3dRunTCP(ctx context.Context, t *testing.T, host *vm.VM, name, network string, publish ...string) {
 	t.Helper()
 	m3dRun(ctx, t, host, "pebble", name, network, publish)
@@ -309,8 +299,6 @@ func m3dRunTCP(ctx context.Context, t *testing.T, host *vm.VM, name, network str
 
 // m3dRunUDP starts the pinned pebble-challtestsrv image, which serves TCP and
 // UDP 8053.
-//
-//nolint:unused // the Docker harness scenarios call it
 func m3dRunUDP(ctx context.Context, t *testing.T, host *vm.VM, name, network string, publish ...string) {
 	t.Helper()
 	m3dRun(ctx, t, host, "pebble-challtestsrv", name, network, publish)
