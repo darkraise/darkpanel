@@ -51,12 +51,14 @@ func (f fw) dockerDisable() core.ActionDef {
 		f:       f,
 		guarded: func(in DockerDisableInput) core.Guarded { return in.Guarded },
 		build: func(ctx context.Context, env core.Env, _ DockerDisableInput) buildFunc {
-			return func(cfg fwstate.Config, cur fwstate.Loaded) (change, error) {
-				st, err := f.dockerState(ctx, env, cur)
+			return func(cfg fwstate.Config, _ fwstate.Loaded) (change, error) {
+				// Removing the block needs no facts, and turning the integration
+				// off must not depend on the daemon answering.
+				dc, err := readDockerConfig(ctx, env.DB)
 				if err != nil {
 					return change{}, err
 				}
-				return dockerDisableChange(env, cfg, st)
+				return dockerDisableChange(env, cfg, dockerState{cfg: dc})
 			}
 		},
 		check: func(ctx context.Context, env core.Env, _ DockerDisableInput, cfg fwstate.Config) error {

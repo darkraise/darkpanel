@@ -584,7 +584,7 @@ func TestDenDisablePlan(t *testing.T) {
 		s.Rules4 = slices.DeleteFunc(s.Rules4, func(l string) bool { return l == tagged })
 		return 0
 	}
-	d.err = fmt.Errorf("dial unix /var/run/docker.sock: %w", dockerapi.ErrUnavailable)
+	d.err = fmt.Errorf("docker: status %d", 500)
 
 	out, err := f.dockerDisable().Handler.Plan(ctx, h.env(), raw)
 	if err != nil {
