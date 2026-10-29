@@ -239,7 +239,7 @@ func TestDenEnableChange(t *testing.T) {
 		{name: "raw protection missing", edit: func(s *dockerState) { s.det.RawProtection = false }, cur: denLoaded(t, "", ""),
 			refused: true, detail: "raw-table protection"},
 		{name: "an open incoming policy", cur: denLoaded(t, "", ""), cfg: func(c *fwstate.Config) { c.DefaultInput = "ACCEPT" },
-			refused: true},
+			refused: true, detail: "DEFAULT_INPUT_POLICY"},
 		{name: "an exemption into a Docker network", edit: withExemptions(inDocker), cur: denLoaded(t, "", ""),
 			refused: true, detail: "exemption 0: destination 172.17.0.9 lies in Docker network bridge (172.17.0.0/16)"},
 		{name: "a foreign IPv4 forward without an exemption", cur: denLoaded(t, denNat(denForward4), ""),

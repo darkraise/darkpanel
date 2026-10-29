@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"net/netip"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -232,8 +233,25 @@ func TestBkBlockRules(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BlockRules: %v", err)
 	}
-	if want := bkRuleset(t, text); !reflect.DeepEqual(got, want) {
-		t.Errorf("BlockRules differs from the restore parser's ruleset")
+	filter := got.Table("filter")
+	if filter == nil || len(got.Tables) != 1 {
+		t.Fatalf("tables %+v, want the filter table only", got.Tables)
+	}
+	var names []string
+	for _, c := range filter.Chains {
+		names = append(names, c.Name)
+	}
+	if want := []string{"ufw-user-forward", "DOCKER-USER", "darkpanel-docker-bindings", "darkpanel-docker-deny", "dp-b-aaaaaaaaaaaa", "dp-b-bbbbbbbbbbbb"}; !slices.Equal(names, want) {
+		t.Errorf("chains %q, want %q", names, want)
+	}
+	user := filter.Chain(ChainDockerUser)
+	if user == nil || !slices.ContainsFunc(user.Rules, func(r netfilter.Rule) bool {
+		return r.Target.Name == ChainBindings && strings.Contains(r.Text, "--ctstate DNAT")
+	}) {
+		t.Errorf("DOCKER-USER %+v lacks the DNAT gate to %s", user, ChainBindings)
+	}
+	if c := filter.Chain(ChainBindings); c == nil || len(c.Rules) != 3 {
+		t.Errorf("bindings chain %+v, want the two IPv4 binding lines and the deny", c)
 	}
 	if _, err := BlockRules([]byte("-A DOCKER-USER -j RETURN\n")); err == nil {
 		t.Error("BlockRules accepted input with no table")

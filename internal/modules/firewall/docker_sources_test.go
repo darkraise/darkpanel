@@ -165,11 +165,11 @@ func TestDsoSourcesChange(t *testing.T) {
 		{"a deny that a new range would shadow", cfg, DockerSourcesInput{PrivateSources: &extra},
 			denied, errcode.InvalidInput, "/privateSources", dsoDeny2},
 		{"integration on with an open incoming policy", open, DockerSourcesInput{PrivateSources: &extra},
-			on, errcode.FirewallUnsupportedIntegration, "", ""},
+			on, errcode.FirewallUnsupportedIntegration, "", "DEFAULT_INPUT_POLICY"},
 		{"integration on without a daemon", cfg, DockerSourcesInput{PrivateSources: &extra},
 			gone, errcode.FirewallUnsupportedIntegration, "", "not running"},
 		{"integration on with an unsupported driver", cfg, DockerSourcesInput{PrivateSources: &extra},
-			nftables, errcode.FirewallUnsupportedIntegration, "", ""},
+			nftables, errcode.FirewallUnsupportedIntegration, "", `firewall backend is "nftables"`},
 	}
 	for _, tc := range refusals {
 		t.Run(tc.name, func(t *testing.T) {
