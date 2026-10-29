@@ -491,23 +491,32 @@ func TestXvResourceNotes(t *testing.T) {
 	})
 }
 
-// TestXvViewJSON: rows and classes are never null, and a view with nothing
-// to say omits notes.
+// TestXvViewJSON: the resource's JSON never holds a null rows or classes
+// list, for an unsupported host, a host with no socket or one with a row,
+// and a view with nothing to say omits notes.
 func TestXvViewJSON(t *testing.T) {
-	raw, err := json.Marshal(ExposureView{Rows: []ExposureRow{}})
-	if err != nil {
-		t.Fatal(err)
+	read := func(t *testing.T, h *fakeHost, d deps) string {
+		t.Helper()
+		raw, err := fw{d: d}.exposureResource().Read(context.Background(), h.env())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(raw)
 	}
-	if string(raw) != `{"rows":[]}` {
-		t.Errorf("json %s", raw)
+	sshd := []netstat.Socket{xvSocket(netstat.ProtoTCP, "0.0.0.0:22", "sshd")}
+	unsupported := xvHost(t)
+	unsupported.loaded.Unsupported = []string{"a foreign nftables hook"}
+	if got := read(t, unsupported, xvDeps(unsupported, newFakeDocker(), sshd)); !strings.Contains(got, `"rows":[]`) {
+		t.Errorf("unsupported host: %s, want an empty rows list", got)
 	}
-	h := xvHost(t)
-	d := xvDeps(h, newFakeDocker(), []netstat.Socket{xvSocket(netstat.ProtoTCP, "0.0.0.0:22", "sshd")})
-	v, err := fw{d: d}.exposureView(context.Background(), h.env())
-	if err != nil {
-		t.Fatal(err)
+	empty, idle := xvHost(t), newFakeDocker()
+	idle.containers = nil
+	if got := read(t, empty, xvDeps(empty, idle, nil)); !strings.HasPrefix(got, `{"rows":[]`) || strings.Contains(got, `"notes"`) {
+		t.Errorf("host without sockets: %s, want an empty rows list and no notes", got)
 	}
-	if len(v.Rows) != 1 || len(v.Rows[0].Classes) == 0 {
-		t.Errorf("view %+v, want one row with classes", v)
+	one := xvHost(t)
+	got := read(t, one, xvDeps(one, newFakeDocker(), sshd))
+	if strings.Contains(got, "null") || !strings.Contains(got, `"classes":[{`) {
+		t.Errorf("host with a row: %s, want classes listed and no null", got)
 	}
 }
