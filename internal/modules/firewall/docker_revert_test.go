@@ -784,6 +784,56 @@ func TestKfwEndCleanupReloadFails(t *testing.T) {
 	})
 }
 
+// TestKfwEndCleanupKeepsLiveForeign: a cleanup cut off before or after its
+// transition flushed DOCKER-USER leaves a record that predates a foreign rule
+// an operator added since. Ending the cleanup in a revert loads the recorded
+// rule back and keeps the added one, each once.
+func TestKfwEndCleanupKeepsLiveForeign(t *testing.T) {
+	ctx := context.Background()
+	const added = "-A DOCKER-USER -s 192.0.2.80/32 -j DROP"
+	for _, c := range []struct {
+		name  string
+		live  []string
+		owned bool
+	}{
+		{name: "the transition never ran", live: append([]string{added}, kfwWith(kfwBlockLines, 3, kfwForeign)...), owned: true},
+		{name: "the transition flushed the chain", live: []string{added, kfwReturn}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h, d, snap := kfwRevertHost(t)
+			if err := beginCleanup(ctx, h.db, "c1", h.clock.Now()); err != nil {
+				t.Fatal(err)
+			}
+			files := h.config().Files
+			rec := foreignRecord{
+				Layouts: map[fwstate.Family]dockerfw.Layout{fwstate.V4: {After: []string{kfwForeign}}, fwstate.V6: {After: []string{kfwForeign}}},
+				Known:   [][]byte{files["/etc/ufw/after.rules"].Data, files["/etc/ufw/after6.rules"].Data},
+			}
+			if err := putForeign(ctx, h.db, "c1", rec, h.clock.Now()); err != nil {
+				t.Fatal(err)
+			}
+			kfwSet(t, h, c.live, c.owned)
+			if _, err := revert(ctx, h.env(), d, []byte(snap.ID)); err != nil {
+				t.Fatalf("revert = %v, want no error", err)
+			}
+			got := kfwChain(h)
+			for _, rule := range []string{added, kfwForeign} {
+				if n := len(slices.DeleteFunc(slices.Clone(got), func(r string) bool { return r != rule })); n != 1 {
+					t.Errorf("DOCKER-USER holds %q, want %q once", got, rule)
+				}
+			}
+			for _, owner := range []string{"c1", "revert:c1"} {
+				if _, ok, err := foreignOf(ctx, h.db, owner); err != nil || ok {
+					t.Errorf("the %s record is left (%v, %v)", owner, ok, err)
+				}
+			}
+			if owners, err := pendingCleanups(ctx, h.db); err != nil || slices.Contains(owners, "c1") {
+				t.Errorf("cleanup intents %q (%v), want none for c1", owners, err)
+			}
+		})
+	}
+}
+
 // TestKfwRestoreBranches: a restore that has to clean up the loaded Docker
 // chains without a cleanup configured fails before it writes; and finishing
 // an interrupted emergency restore whose record cannot be read still reports

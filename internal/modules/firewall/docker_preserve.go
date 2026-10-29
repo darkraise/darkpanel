@@ -234,7 +234,11 @@ func mergeLayouts(rec, cur map[fwstate.Family]dockerfw.Layout) map[fwstate.Famil
 }
 
 // finishForeign completes owner's reload when a record is left, after a
-// failed or cut-off keepForeign; with no record it does nothing.
+// failed or cut-off keepForeign; with no record it does nothing. The attempt
+// may have stopped before its transition flushed DOCKER-USER, so the chain
+// can hold foreign rules added after the record was written: each recorded
+// family is reloaded with the record merged with the loaded chain, as
+// keepForeign merges a record an earlier attempt left.
 func (f fw) finishForeign(ctx context.Context, env core.Env, owner string) (interleaved bool, err error) {
 	rec, ok, err := foreignOf(ctx, env.DB, owner)
 	if err != nil || !ok {
@@ -244,6 +248,38 @@ func (f fw) finishForeign(ctx context.Context, env core.Env, owner string) (inte
 	if err != nil {
 		return false, fmt.Errorf("firewall: read DOCKER-USER: %w", err)
 	}
+	cfg, err := f.d.readConfig(f.d.root)
+	if err != nil {
+		return false, fmt.Errorf("firewall: read the configuration to keep foreign DOCKER-USER rules: %w", err)
+	}
+	rules, err := blockUserRules(rec.Known)
+	if err != nil {
+		return false, err
+	}
+	// A loaded block line that only the files now hold would otherwise be
+	// kept as foreign, with its jump to a chain a cleanup then cannot delete.
+	for _, path := range cleanupFiles {
+		if file := cfg.Files[path]; file.Present {
+			rs, _ := kfwBlockRules(file.Data)
+			rules = append(rules, rs...)
+		}
+	}
+	live := map[fwstate.Family]dockerfw.Layout{}
+	for _, fam := range preserveFamilies {
+		if _, recorded := rec.Layouts[fam]; !recorded {
+			continue
+		}
+		rs := cur.V4
+		if fam == fwstate.V6 {
+			rs = cur.V6
+		}
+		c := chainOf(rs, "filter", dockerfw.ChainDockerUser)
+		if c == nil {
+			continue
+		}
+		live[fam] = dockerfw.LayoutOf(c, rules, fam)
+	}
+	rec.Layouts = mergeLayouts(rec.Layouts, live)
 	return reloadDockerUser(ctx, env, owner, cur.Variant, rec)
 }
 
