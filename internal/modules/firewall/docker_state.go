@@ -156,8 +156,9 @@ func dfContainerFact(c dockerapi.ContainerJSON, bridges map[string]dockerfw.Netw
 			continue
 		}
 		for _, b := range bindings {
+			// Port 0 is no port a client can reach, so it realizes no rule.
 			hport, err := strconv.ParseUint(b.HostPort, 10, 16)
-			if err != nil {
+			if err != nil || hport == 0 {
 				continue
 			}
 			addr := netip.IPv4Unspecified()

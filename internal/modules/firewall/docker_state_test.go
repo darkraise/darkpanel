@@ -471,3 +471,16 @@ func TestDfBlockFiles(t *testing.T) {
 		t.Errorf("blockFiles with an unterminated block = %v, want an error naming the file", err)
 	}
 }
+
+// TestDfContainerFactSkipsPortZero: a binding without a host port has no rule
+// to realize, so it is not a published port.
+func TestDfContainerFactSkipsPortZero(t *testing.T) {
+	c := fdContainer("web", func(c *dockerapi.ContainerJSON) {
+		c.NetworkSettings.Ports["80/tcp"] = []dockerapi.PortBinding{{HostIP: "0.0.0.0", HostPort: "0"}, {HostIP: "0.0.0.0", HostPort: "8080"}}
+	})
+	got := dfContainerFact(c, nil).Ports
+	want := []dockerfw.Published{{HostAddr: netip.IPv4Unspecified(), HostPort: 8080, ContainerPort: 80, Proto: "tcp"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ports %+v, want %+v", got, want)
+	}
+}
