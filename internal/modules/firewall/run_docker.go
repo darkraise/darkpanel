@@ -43,15 +43,21 @@ func (f fw) runLogical(ctx context.Context, env core.Env, c change) error {
 	return nil
 }
 
-// writeBlockFiles writes the after files of a change whole, each that
-// differs from the host's as one effect. A file that exists keeps its mode
-// and owner.
-func (f fw) writeBlockFiles(ctx context.Context, env core.Env, files map[string][]byte) error {
+// checkBlockFiles refuses a change that would write a file other than the
+// two after files.
+func checkBlockFiles(files map[string][]byte) error {
 	for p := range files {
 		if !slices.Contains(cleanupFiles, p) {
 			return fmt.Errorf("firewall: a change writes %s, which is not a block file", p)
 		}
 	}
+	return nil
+}
+
+// writeBlockFiles writes the after files of a change whole, each that
+// differs from the host's as one effect. A file that exists keeps its mode
+// and owner.
+func (f fw) writeBlockFiles(ctx context.Context, env core.Env, files map[string][]byte) error {
 	for _, p := range slices.Sorted(maps.Keys(files)) {
 		cur, err := f.d.readConfig(f.d.root)
 		if err != nil {

@@ -156,8 +156,8 @@ func TestDruRunOrder(t *testing.T) {
 }
 
 // TestDruRunFiles: a block file already as wanted is not
-// rewritten; a missing row, and a file that is not a block file, stop the
-// change before it writes.
+// rewritten; a missing row stops the change before it writes, and a file
+// that is not a block file before it stores anything.
 func TestDruRunFiles(t *testing.T) {
 	ctx := context.Background()
 	for _, c := range []struct {
@@ -180,7 +180,7 @@ func TestDruRunFiles(t *testing.T) {
 		},
 		{
 			name:    "a file that is not a block file",
-			c:       change{files: map[string][]byte{"/etc/ufw/user.rules": []byte("*filter\nCOMMIT\n")}},
+			c:       change{files: map[string][]byte{"/etc/ufw/user.rules": []byte("*filter\nCOMMIT\n")}, flag: druPtr(true)},
 			wantErr: "/etc/ufw/user.rules",
 		},
 	} {

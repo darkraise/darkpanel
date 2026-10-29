@@ -210,6 +210,9 @@ func (m mutation[In]) Observe(ctx context.Context, env core.Env, e core.Effect) 
 // files the change writes whole; the change's ufw commands; the transition
 // commands; and a restore's sysctl values.
 func (f fw) run(ctx context.Context, env core.Env, p prepared) error {
+	if err := checkBlockFiles(p.c.files); err != nil {
+		return err
+	}
 	// The cleanup learns which DOCKER-USER rules are the block's from the
 	// after files on disk, and strips the block from them itself. Run after a
 	// write that already removed the block, it would take every block rule for
