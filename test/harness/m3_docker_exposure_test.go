@@ -754,6 +754,11 @@ func m3dExpoPrivateClass(ctx context.Context, t *testing.T, f *fleet) {
 	}
 	m3dExpoProbe(ctx, t, f, ScanOpts{Family: "-4", Ports: []uint16{18321}, Target: agentIPv4}, "filtered")
 	m3dExpoProbe(ctx, t, f, ScanOpts{Family: "-4", Ports: []uint16{18321}, Target: agentIPv4, Source: netip.MustParseAddr(m3dTrafficSrcB), Iface: m3dTrafficIface}, "open")
+	// The status lists a binding only once a stored row names it, and only an
+	// allow row gives it the block lines privateReach reads. No probe leaves
+	// from 192.0.2.1, and the allow does not cover srcRange, which still
+	// reaches the binding through the exemption alone.
+	m3dTrafficAllow(ctx, t, f, "m3d-q1", 18321, "192.0.2.1/32")
 	m3dTrafficView(ctx, t, f, "m3d-q1", 18321, func(b m3dDockBindingView) error {
 		if !slices.Contains(b.PrivateReach, srcRange) {
 			return fmt.Errorf("harness: m3d-q1 port 18321 privateReach %q lacks %s", b.PrivateReach, srcRange)
