@@ -300,7 +300,7 @@ func m3dxDockExemptionLine(save string, e m3dDockExemption) error {
 	return fmt.Errorf("harness: no DOCKER-USER rule returns the exemption %+v; DOCKER-USER holds:\n%s", e, strings.Join(rules, "\n"))
 }
 
-// m3dDockTryLocked bounds how long m3dDockTry waits for a held lock.
+// m3dDockTryLocked bounds how long m3dDockSettle tries an apply again.
 const m3dDockTryLocked = 2 * time.Minute
 
 // m3dxLockHeld reports whether err is, or wraps, the API's 423 lock.held.
@@ -309,13 +309,23 @@ func m3dxLockHeld(err error) bool {
 	return errors.As(err, &apiErr) && apiErr.Status == http.StatusLocked && apiErr.Code == string(errcode.LockHeld)
 }
 
-// m3dxLockRetry calls apply until it returns anything but lock.held, waiting
-// interval between calls, and returns its last error, joined with ctx's when
-// ctx ends first.
-func m3dxLockRetry(ctx context.Context, interval time.Duration, apply func(context.Context) error) error {
+// m3dxCleanupRetryable reports whether err is a refusal that a background
+// change causes and outlives: lock.held while the change applies, or a
+// failing lockout guard. Plans take no lock, so a plan can read the host
+// while that change's ufw reload has loaded IPv4 but not yet IPv6, which the
+// guard reports as out of sync.
+func m3dxCleanupRetryable(err error) bool {
+	var guardErr *m3GuardError
+	return m3dxLockHeld(err) || errors.As(err, &guardErr) && guardErr.Guard.ID == "firewall.lockout"
+}
+
+// m3dxRetry calls apply until it returns an error that retry rejects, or
+// none, waiting interval between calls, and returns its last error, joined
+// with ctx's when ctx ends first.
+func m3dxRetry(ctx context.Context, interval time.Duration, retry func(error) bool, apply func(context.Context) error) error {
 	for {
 		err := apply(ctx)
-		if !m3dxLockHeld(err) {
+		if err == nil || !retry(err) {
 			return err
 		}
 		select {
@@ -423,29 +433,41 @@ func m3dDockApply(ctx context.Context, t *testing.T, f *fleet, action string, in
 	return ch
 }
 
-// m3dDockTry applies and confirms the action like m3dDockApply but only logs
-// a failure, for the cleanups that undo a scenario. A background change, such
-// as the reconcile that follows a container's removal, can hold the firewall
-// lock briefly, so an apply refused with lock.held is tried again for up to
-// m3dDockTryLocked.
-func m3dDockTry(ctx context.Context, t *testing.T, f *fleet, action string, input any) {
+// m3dDockSettle applies and confirms the action like m3dDockApply, trying the
+// plan and apply again for up to m3dDockTryLocked while retry accepts the
+// refusal, and logs each such refusal. It returns the last error.
+func m3dDockSettle(ctx context.Context, t *testing.T, f *fleet, action string, input any, retry func(error) bool) error {
 	applyCtx, cancel := context.WithTimeout(ctx, m3dDockTryLocked)
 	defer cancel()
 	var ch Change
-	err := m3dxLockRetry(applyCtx, pollInterval, func(ctx context.Context) error {
+	err := m3dxRetry(applyCtx, pollInterval, retry, func(ctx context.Context) error {
 		var err error
 		ch, err = f.api.m3Apply(ctx, f.agentID, action, input, 300)
-		if m3dxLockHeld(err) {
-			t.Logf("cleanup: %s: %v; trying again", action, err)
+		if err != nil && retry(err) {
+			t.Logf("%s: %v; trying again", action, err)
 		}
 		return err
 	})
 	if err != nil {
-		t.Logf("cleanup: %s: %v", action, err)
-		return
+		return err
 	}
-	if _, err := f.api.m3dDockConfirm(ctx, ch.ID); err != nil {
-		t.Logf("cleanup: confirm %s: %v", action, err)
+	if ch, err = f.api.m3dDockConfirm(ctx, ch.ID); err != nil {
+		return fmt.Errorf("confirm %s: %w", action, err)
+	}
+	if ch.State != core.StateConfirmed {
+		return fmt.Errorf("change %s of %s is %s, want %s: %s", ch.ID, action, ch.State, core.StateConfirmed, m3JSON(ch.Error))
+	}
+	return nil
+}
+
+// m3dDockTry applies and confirms the action like m3dDockApply but only logs
+// a failure, for the cleanups that undo a scenario. A background change, such
+// as the reconcile that follows a container's removal, can briefly hold the
+// firewall lock or reload UFW under a plan, so those refusals are tried again
+// (m3dxCleanupRetryable).
+func m3dDockTry(ctx context.Context, t *testing.T, f *fleet, action string, input any) {
+	if err := m3dDockSettle(ctx, t, f, action, input, m3dxCleanupRetryable); err != nil {
+		t.Logf("cleanup: %s: %v", action, err)
 	}
 }
 

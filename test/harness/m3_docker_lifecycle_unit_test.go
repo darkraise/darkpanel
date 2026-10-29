@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/model"
 )
 
@@ -224,24 +225,34 @@ func TestM3xDockLockRetry(t *testing.T) {
 		}, &calls
 	}
 	ctx := context.Background()
+	outOfSync := &m3GuardError{Action: "firewall.docker.disable", Guard: core.Guard{ID: "firewall.lockout", Message: "the host is out of sync with UFW's configuration (v6 filter/INPUT)"}}
+	otherGuard := &m3GuardError{Action: "firewall.docker.disable", Guard: core.Guard{ID: "firewall.other", Message: "no"}}
 
 	apply, calls := answers(held, held)
-	if err := m3dxLockRetry(ctx, time.Millisecond, apply); err != nil || *calls != 3 {
+	if err := m3dxRetry(ctx, time.Millisecond, m3dxCleanupRetryable, apply); err != nil || *calls != 3 {
 		t.Errorf("a lock released after two refusals: %v after %d calls, want success on the third", err, *calls)
 	}
+	apply, calls = answers(held, outOfSync, held)
+	if err := m3dxRetry(ctx, time.Millisecond, m3dxCleanupRetryable, apply); err != nil || *calls != 4 {
+		t.Errorf("a plan read during a reload between two held locks: %v after %d calls, want success on the fourth", err, *calls)
+	}
 	apply, calls = answers(other, held)
-	if err := m3dxLockRetry(ctx, time.Millisecond, apply); !errors.Is(err, other) || *calls != 1 {
+	if err := m3dxRetry(ctx, time.Millisecond, m3dxCleanupRetryable, apply); !errors.Is(err, other) || *calls != 1 {
 		t.Errorf("another refusal: %v after %d calls, want it returned at once", err, *calls)
 	}
+	apply, calls = answers(otherGuard)
+	if err := m3dxRetry(ctx, time.Millisecond, m3dxCleanupRetryable, apply); !errors.Is(err, otherGuard) || *calls != 1 {
+		t.Errorf("another guard: %v after %d calls, want it returned at once", err, *calls)
+	}
 	apply, calls = answers(&APIError{Status: 423, Detail: "locked"})
-	if err := m3dxLockRetry(ctx, time.Millisecond, apply); err == nil || *calls != 1 {
+	if err := m3dxRetry(ctx, time.Millisecond, m3dxCleanupRetryable, apply); err == nil || *calls != 1 {
 		t.Errorf("a 423 without lock.held: %v after %d calls, want it returned at once", err, *calls)
 	}
 
 	short, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
 	defer cancel()
 	calls = new(int)
-	err := m3dxLockRetry(short, 10*time.Millisecond, func(context.Context) error { *calls++; return held })
+	err := m3dxRetry(short, 10*time.Millisecond, m3dxCleanupRetryable, func(context.Context) error { *calls++; return held })
 	if !errors.Is(err, context.DeadlineExceeded) || !m3dxLockHeld(err) {
 		t.Errorf("a lock never released: %v, want the deadline and the last lock.held", err)
 	}

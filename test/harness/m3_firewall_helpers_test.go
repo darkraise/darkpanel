@@ -80,6 +80,16 @@ func (a *API) m3Plan(ctx context.Context, host, action string, input any) (m3Pla
 	return p, nil
 }
 
+// m3GuardError is a plan of Action that Guard refused.
+type m3GuardError struct {
+	Action string
+	Guard  core.Guard
+}
+
+func (e *m3GuardError) Error() string {
+	return fmt.Sprintf("harness: plan %s: guard %s failed: %s", e.Action, e.Guard.ID, e.Guard.Message)
+}
+
 // m3Apply plans version 1 of the revertible firewall action on host and
 // applies it with the revert timeout given, without confirming it; a
 // failing guard is an error and nothing is applied. It returns the change
@@ -91,7 +101,7 @@ func (a *API) m3Apply(ctx context.Context, host, action string, input any, timeo
 	}
 	for _, g := range p.Guards {
 		if !g.OK {
-			return Change{}, fmt.Errorf("harness: plan %s: guard %s failed: %s", action, g.ID, g.Message)
+			return Change{}, &m3GuardError{Action: action, Guard: g}
 		}
 	}
 	path, _ := actionPath(host, action+"/v1", "apply")
