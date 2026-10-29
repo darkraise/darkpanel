@@ -143,11 +143,12 @@ func TestManifestScopesTheHostClients(t *testing.T) {
 	}
 }
 
-// TestManifestActions: the actions of section 5's firewall rows of this
-// wave, each mutating one revertible on the agent under the firewall lock,
-// repaired by firewall.state.repair and guarded by the overridable lockout
-// guard; rules.apply converges; snapshot.compare reads; and the resources
-// status and snapshots. Every input and output has a schema.
+// TestManifestActions: the actions of section 5's firewall rows, wave 1's
+// ten and the eight Docker actions, each mutating one revertible on the
+// agent under the firewall lock, repaired by firewall.state.repair and
+// guarded by the overridable lockout guard; rules.apply converges;
+// snapshot.compare reads; and the resources status, snapshots, docker and
+// exposure. Every input and output has a schema.
 func TestManifestActions(t *testing.T) {
 	m := Module().Manifest()
 	var names []string
@@ -171,7 +172,9 @@ func TestManifestActions(t *testing.T) {
 	}
 	want := []string{"firewall.state.enable", "firewall.state.disable", "firewall.state.repair", "firewall.defaults.set",
 		"firewall.logging.set", "firewall.rules.apply", "firewall.rule.add", "firewall.rule.delete",
-		"firewall.snapshot.restore", "firewall.snapshot.compare"}
+		"firewall.snapshot.restore", "firewall.snapshot.compare",
+		"firewall.docker.enable", "firewall.docker.disable", "firewall.docker.repair", "firewall.docker.set-sources",
+		"firewall.container.allow", "firewall.container.deny", "firewall.container.remove", "firewall.containers.apply"}
 	if !reflect.DeepEqual(names, want) {
 		t.Errorf("actions %v, want %v", names, want)
 	}
@@ -182,7 +185,7 @@ func TestManifestActions(t *testing.T) {
 			t.Errorf("%s: %v", r.Name, err)
 		}
 	}
-	if !reflect.DeepEqual(resources, []string{"firewall.status", "firewall.snapshots"}) {
+	if !reflect.DeepEqual(resources, []string{"firewall.status", "firewall.snapshots", "firewall.docker", "firewall.exposure"}) {
 		t.Errorf("resources %v", resources)
 	}
 }

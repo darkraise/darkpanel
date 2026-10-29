@@ -1,0 +1,178 @@
+{
+  "name": "firewall.container.deny",
+  "version": 1,
+  "class": "revertible",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ContainerDenyInput",
+    "$defs": {
+      "Binding": {
+        "properties": {
+          "selector": {
+            "type": "string"
+          },
+          "hostAddr": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "hostPort": {
+            "type": "integer"
+          },
+          "proto": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "selector",
+          "hostPort",
+          "proto"
+        ]
+      },
+      "ContainerDenyInput": {
+        "properties": {
+          "guard": {
+            "$ref": "#/$defs/GuardContext"
+          },
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "binding": {
+            "$ref": "#/$defs/Binding",
+            "description": "The allowed published container port the deny narrows."
+          },
+          "from": {
+            "type": "string",
+            "format": "ip-prefix",
+            "description": "The source range denied."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "binding",
+          "from"
+        ]
+      },
+      "GuardContext": {
+        "properties": {
+          "client": {
+            "$ref": "#/$defs/Peer"
+          },
+          "via": {
+            "$ref": "#/$defs/ProxyPath"
+          },
+          "panelListen": {
+            "items": {
+              "type": "string",
+              "format": "ip-address-port"
+            },
+            "type": "array"
+          },
+          "agentListen": {
+            "items": {
+              "type": "string",
+              "format": "ip-address-port"
+            },
+            "type": "array"
+          },
+          "agentPeers": {
+            "items": {
+              "type": "string",
+              "format": "ip-address"
+            },
+            "type": "array"
+          },
+          "complete": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "Peer": {
+        "properties": {
+          "addr": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "port": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "addr",
+          "port"
+        ]
+      },
+      "ProxyPath": {
+        "properties": {
+          "exposureId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "proxyAddr": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "listenerAddr": {
+            "type": "string",
+            "format": "ip-address-port"
+          },
+          "public": {
+            "items": {
+              "type": "string",
+              "format": "ip-address-port"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "exposureId",
+          "kind",
+          "proxyAddr",
+          "listenerAddr",
+          "public"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ChangeOutput",
+    "$defs": {
+      "ChangeOutput": {
+        "properties": {
+          "snapshot": {
+            "type": "string"
+          },
+          "rules": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "repairOutcome": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "snapshot"
+        ]
+      }
+    }
+  }
+}

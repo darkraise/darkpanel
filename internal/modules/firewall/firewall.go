@@ -65,17 +65,30 @@ func ownedPaths() []core.OwnedPath {
 	return out
 }
 
-// actions are the firewall's actions (section 5): every mutating one
-// revertible under the firewall lock and repaired by firewall.state.repair,
-// and the read firewall.snapshot.compare.
+// actions are the firewall's actions (section 5): every mutating one, the
+// UFW actions and the eight Docker ones alike, revertible under the firewall
+// lock and repaired by firewall.state.repair, and the read
+// firewall.snapshot.compare.
 func (f fw) actions() []core.ActionDef {
 	return []core.ActionDef{
 		f.stateEnable(), f.stateDisable(), f.stateRepair(), f.defaultsSet(), f.loggingSet(),
 		f.rulesApply(), f.ruleAdd(), f.ruleDelete(), f.snapshotRestore(), f.snapshotCompare(),
+		f.dockerEnable(), f.dockerDisable(), f.dockerRepair(), f.dockerSourcesSet(),
+		f.containerAllow(), f.containerDeny(), f.containerRemove(), f.containersApply(),
 	}
 }
 
-// resources are firewall.status and firewall.snapshots.
+// resources are firewall.status, firewall.snapshots, firewall.docker and
+// firewall.exposure.
 func (f fw) resources() []core.ResourceDef {
-	return []core.ResourceDef{core.DefineResource(ID+".status", f.status), core.DefineResource(ID+".snapshots", f.snapshots)}
+	return []core.ResourceDef{
+		core.DefineResource(ID+".status", f.status), core.DefineResource(ID+".snapshots", f.snapshots),
+		f.dockerResource(), f.exposureResource(),
+	}
+}
+
+// BackgroundTasks is the firewall's agent-side reconcile loop (spec 2.8);
+// declaring it makes module a core.Background.
+func (m module) BackgroundTasks() []core.BackgroundTask {
+	return []core.BackgroundTask{m.f.reconcileTask()}
 }

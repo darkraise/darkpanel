@@ -1,0 +1,171 @@
+{
+  "name": "firewall.exposure",
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ExposureView",
+    "$defs": {
+      "Allowed": {
+        "properties": {
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "ifaces": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "srcPorts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "decidedBy": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sources",
+          "decidedBy"
+        ]
+      },
+      "Binding": {
+        "properties": {
+          "selector": {
+            "type": "string"
+          },
+          "hostAddr": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "hostPort": {
+            "type": "integer"
+          },
+          "proto": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "selector",
+          "hostPort",
+          "proto"
+        ]
+      },
+      "ExposureContainer": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "binding": {
+            "$ref": "#/$defs/Binding"
+          },
+          "containerPort": {
+            "type": "integer"
+          },
+          "proxied": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "binding",
+          "containerPort",
+          "proxied"
+        ]
+      },
+      "ExposureRow": {
+        "properties": {
+          "proto": {
+            "type": "string"
+          },
+          "addr": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "family": {
+            "type": "string"
+          },
+          "process": {
+            "type": "string"
+          },
+          "container": {
+            "$ref": "#/$defs/ExposureContainer"
+          },
+          "classes": {
+            "items": {
+              "$ref": "#/$defs/Verdict"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "proto",
+          "addr",
+          "port",
+          "family",
+          "classes"
+        ]
+      },
+      "ExposureView": {
+        "properties": {
+          "rows": {
+            "items": {
+              "$ref": "#/$defs/ExposureRow"
+            },
+            "type": "array"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rows"
+        ]
+      },
+      "Verdict": {
+        "properties": {
+          "class": {
+            "type": "string"
+          },
+          "range": {
+            "type": "string"
+          },
+          "verdict": {
+            "type": "string"
+          },
+          "decidedBy": {
+            "type": "string"
+          },
+          "allowed": {
+            "items": {
+              "$ref": "#/$defs/Allowed"
+            },
+            "type": "array"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "class",
+          "verdict"
+        ]
+      }
+    }
+  }
+}
