@@ -3,6 +3,9 @@ package firewall
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -559,4 +562,44 @@ func kfwJournaled(t *testing.T, env core.Env) int {
 		t.Fatal(err)
 	}
 	return len(effects)
+}
+
+// TestKfwReadFailures: a revert by inverses that cannot read what it needs
+// to keep the foreign DOCKER-USER rules fails before its first write instead
+// of running a reload that flushes them. A restore, which has to repair a
+// configuration that no longer reads, goes on and keeps the foreign rule.
+func TestKfwReadFailures(t *testing.T) {
+	ctx := context.Background()
+	t.Run("a revert by inverses without the loaded state", func(t *testing.T) {
+		h, d, _ := kfwRevertHost(t)
+		kfwSet(t, h, kfwWith(kfwBlockLines, 3, kfwForeign), true)
+		rvTestManualEdit(h)
+		d.readLoaded = func(context.Context, core.Env) (fwstate.Loaded, error) {
+			return fwstate.Loaded{}, errors.New("loaded: iptables-nft-save failed")
+		}
+		if _, err := revert(ctx, h.env(), d, []byte(kfwSnapshotID(t, h))); err == nil {
+			t.Fatal("revert succeeded, want the read failure reported")
+		}
+		if ran := unRan(h, 0); len(ran) != 0 {
+			t.Errorf("ufw ran %q, want nothing run without the loaded state", ran)
+		}
+		if got, want := kfwChain(h), kfwWith(kfwBlockLines, 3, kfwForeign); !slices.Equal(got, want) {
+			t.Errorf("DOCKER-USER holds %q, want %q", got, want)
+		}
+	})
+	t.Run("a restore over an unreadable configuration", func(t *testing.T) {
+		h, d := kfwHost(t, true)
+		snap := kfwSnapshot(t, h, d)
+		kfwSet(t, h, kfwWith(kfwBlockLines, 3, kfwForeign), true)
+		if err := os.Remove(filepath.Join(h.root, "/etc/ufw/ufw.conf")); err != nil {
+			t.Fatal(err)
+		}
+		h.ufw["--force enable"] = func(s *fhState) int { s.Enabled = true; kfwSet(t, h, kfwBlockLines, true); return 0 }
+		if _, err := restore(ctx, h.env(), d, snap); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := kfwChain(h), append(slices.Clone(kfwBlockLines), kfwForeign); !slices.Equal(got, want) {
+			t.Errorf("DOCKER-USER holds %q, want %q", got, want)
+		}
+	})
 }

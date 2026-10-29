@@ -261,15 +261,16 @@ func (f fw) undoKeepingForeign(ctx context.Context, env core.Env, snap snapshot,
 		return loadVerifiedImage(ctx, env, f.d, snap)
 	}
 
+	// Without the configuration and the loaded state the foreign rules
+	// cannot be told from the block's, and the inverses' reload would flush
+	// them, so nothing is undone.
 	cfg, err := f.d.readConfig(f.d.root)
 	if err != nil {
-		env.Log.Warn("firewall: the revert cannot read the configuration to keep foreign DOCKER-USER rules", "change", env.ChangeID, "error", err)
-		return body()
+		return fmt.Errorf("firewall: read the configuration to keep foreign DOCKER-USER rules: %w", err)
 	}
 	cur, err := f.d.readLoaded(ctx, env)
 	if err != nil {
-		env.Log.Warn("firewall: the revert cannot read the loaded state to keep foreign DOCKER-USER rules", "change", env.ChangeID, "error", err)
-		return body()
+		return fmt.Errorf("firewall: read the loaded state to keep foreign DOCKER-USER rules: %w", err)
 	}
 	after := maps.Clone(cfg.Files)
 	enabled, flush := cfg.Enabled, false

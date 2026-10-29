@@ -157,9 +157,16 @@ func restoreOver(ctx context.Context, env core.Env, d deps, snap snapshot, emerg
 			return rep, err
 		}
 	}
+	// A restore is how a configuration that no longer reads is repaired, so
+	// it goes on without the block on disk. Only the snapshot's block then
+	// counts as Darkpanel's, which keeps every other DOCKER-USER line,
+	// never fewer.
 	var onDisk map[string]core.RestoreEntry
 	if cur, err := d.readConfig(d.root); err == nil {
 		onDisk = cur.Files
+	} else {
+		env.Log.Warn("firewall: the restore cannot read the block on disk; DOCKER-USER lines outside the snapshot's block are kept as foreign rules",
+			"snapshot", snap.ID, "error", err)
 	}
 	restored := map[string]core.RestoreEntry{}
 	for _, e := range snap.Entries {
