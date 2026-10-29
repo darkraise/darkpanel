@@ -124,7 +124,7 @@ func TestM3dxCommands(t *testing.T) {
 		{"remove an IPv4 source", m3dxAddrCmd(netip.MustParsePrefix("203.0.113.9/32"), "eth1", false),
 			"sudo ip addr del 203.0.113.9/32 dev eth1"},
 		{"add an IPv6 source", m3dxAddrCmd(netip.MustParsePrefix("2001:db8::5/128"), "eth1", true),
-			"sudo ip addr add 2001:db8::5/128 dev eth1 nodad"},
+			"sudo ip addr add 2001:db8::5/128 dev eth1 nodad preferred_lft 0"},
 		{"remove an IPv6 source", m3dxAddrCmd(netip.MustParsePrefix("2001:db8::5/128"), "eth1", false),
 			"sudo ip addr del 2001:db8::5/128 dev eth1"},
 		{"run on a network", m3dxRunCmd(image, "dp-m3d-web", "custom", []string{"8080:14000", "127.0.0.1:8081:14000"}),

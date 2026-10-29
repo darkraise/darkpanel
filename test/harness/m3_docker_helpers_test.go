@@ -65,14 +65,17 @@ func m3dxNmapCommand(o ScanOpts) string {
 
 // m3dxAddrCmd is the command line that adds p to iface, or removes it. An
 // IPv6 address is added without duplicate address detection so that it is
-// usable at once.
+// usable at once, and deprecated so that the kernel never picks it as a
+// default source: a /128 matches a lab peer over more bits than the /64
+// primary does (RFC 6724 rule 8), so a scan that names no source would
+// otherwise leave from the added address.
 func m3dxAddrCmd(p netip.Prefix, iface string, add bool) string {
 	if !add {
 		return m3dxShell("sudo", "ip", "addr", "del", p.String(), "dev", iface)
 	}
 	args := []string{"sudo", "ip", "addr", "add", p.String(), "dev", iface}
 	if p.Addr().Is6() {
-		args = append(args, "nodad")
+		args = append(args, "nodad", "preferred_lft", "0")
 	}
 	return m3dxShell(args...)
 }
