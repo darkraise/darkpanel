@@ -138,7 +138,14 @@ func restoreOver(ctx context.Context, env core.Env, d deps, snap snapshot, emerg
 	rep.Transition = tr
 	f := fw{d: d}
 	owner := "restore:" + snap.ID
-	rep.Interleaved = f.finishRecorded(ctx, env, owner)
+	rep.Interleaved = f.finishRecordedLogged(ctx, env, owner)
+	// A failed revert of the change leaves the foreign rules its body
+	// flushed under its own owner; the restore that follows, the emergency
+	// one, loads them with its own.
+	held, err := f.adoptRevertRecord(ctx, env, owner)
+	if err != nil {
+		return rep, err
+	}
 	before, err := d.readLoaded(ctx, env)
 	if err != nil {
 		return rep, fmt.Errorf("firewall: restore: %w", err)
@@ -221,7 +228,7 @@ func restoreOver(ctx context.Context, env core.Env, d deps, snap snapshot, emerg
 		}
 		return nil
 	}
-	if kp.keep {
+	if kp.keep || held {
 		interleaved, err := f.keepForeign(ctx, env, owner, kp.known, kp.next, transition)
 		if err != nil {
 			return rep, err

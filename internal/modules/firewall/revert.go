@@ -100,7 +100,7 @@ func revert(ctx context.Context, env core.Env, d deps, snapBytes []byte) (core.R
 		}
 	}
 	f := fw{d: d}
-	f.finishRecorded(ctx, env, "revert:"+env.ChangeID)
+	f.finishRecordedLogged(ctx, env, "revert:"+env.ChangeID)
 	if err := f.endChangeCleanup(ctx, env); err != nil {
 		return core.RevertOutcome{}, fmt.Errorf("firewall: revert: %w", err)
 	}

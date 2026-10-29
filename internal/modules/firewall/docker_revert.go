@@ -2,6 +2,7 @@ package firewall
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -198,21 +199,39 @@ func interleavedError(order []string) error {
 
 // finishRecorded completes owner's reload of DOCKER-USER when a cut-off
 // attempt left its record, and returns the original order of the
-// interleaved chains the record held. A revert is never refused for
-// foreign rules, so a failure is only logged.
-func (f fw) finishRecorded(ctx context.Context, env core.Env, owner string) []string {
+// interleaved chains the record held. A record that fails to load stays
+// for the caller's own keepForeign, which merges it.
+func (f fw) finishRecorded(ctx context.Context, env core.Env, owner string) ([]string, error) {
 	rec, ok, err := foreignOf(ctx, env.DB, owner)
-	if err != nil {
-		env.Log.Warn("firewall: cannot read the foreign DOCKER-USER rules left by an earlier attempt", "owner", owner, "error", err)
-		return nil
-	}
-	if !ok {
-		return nil
+	if err != nil || !ok {
+		return nil, err
 	}
 	if _, err := f.finishForeign(ctx, env, owner); err != nil {
+		return kfwOrderOf(rec.Layouts), fmt.Errorf("firewall: the foreign DOCKER-USER rules recorded for %s are not loaded: %w", owner, err)
+	}
+	return kfwOrderOf(rec.Layouts), nil
+}
+
+// adoptRevertRecord moves the foreign DOCKER-USER rules a failed revert of
+// env's change left recorded into owner's record, and reports whether owner
+// holds a record afterwards, whose rules its keepForeign then loads.
+func (f fw) adoptRevertRecord(ctx context.Context, env core.Env, owner string) (bool, error) {
+	if env.ChangeID == "" {
+		_, held, err := foreignOf(ctx, env.DB, owner)
+		return held, err
+	}
+	return adoptForeign(ctx, env.DB, "revert:"+env.ChangeID, owner, env.Clock.Now())
+}
+
+// finishRecordedLogged is finishRecorded for a caller that goes on to its
+// own keepForeign, which merges a record that failed to load: the failure
+// is only logged.
+func (f fw) finishRecordedLogged(ctx context.Context, env core.Env, owner string) []string {
+	order, err := f.finishRecorded(ctx, env, owner)
+	if err != nil {
 		env.Log.Warn("firewall: cannot load the foreign DOCKER-USER rules left by an earlier attempt", "owner", owner, "error", err)
 	}
-	return kfwOrderOf(rec.Layouts)
+	return order
 }
 
 // endChangeCleanup ends the cleanup intent of the change being reverted. The
@@ -327,16 +346,24 @@ func (f fw) undoKeepingForeign(ctx context.Context, env core.Env, snap snapshot,
 		}
 	}
 	p := kfwPlanOf(cfg.Files, after, enabled, cfg.IPv6, flush, cur)
-	if !p.keep {
+	owner := "revert:" + env.ChangeID
+	// A record an earlier attempt left that failed to load holds rules no
+	// longer in the chain, so only keepForeign's merge loads them again.
+	_, held, err := foreignOf(ctx, env.DB, owner)
+	if err != nil {
+		return err
+	}
+	if !p.keep && !held {
 		return body()
 	}
-	interleaved, err := f.keepForeign(ctx, env, "revert:"+env.ChangeID, p.known, p.next, body)
+	interleaved, err := f.keepForeign(ctx, env, owner, p.known, p.next, body)
 	if err != nil {
 		// A failed body leaves the flushed foreign rules in this owner's
-		// record, which only a later revert of the same change would replay;
-		// the emergency restore and a repair's restore keep foreign rules
-		// under their own owner, so they would not see these.
-		f.finishRecorded(ctx, env, "revert:"+env.ChangeID)
+		// record. A restore of the change's snapshot adopts the record; when
+		// none follows, the error says that the rules are not loaded.
+		if _, ferr := f.finishRecorded(ctx, env, owner); ferr != nil {
+			return errors.Join(err, ferr)
+		}
 		return err
 	}
 	if interleaved {

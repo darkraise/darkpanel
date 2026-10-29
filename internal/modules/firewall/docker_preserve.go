@@ -79,6 +79,42 @@ func deleteForeign(ctx context.Context, db *store.DB, owner string) error {
 	return nil
 }
 
+// adoptForeign moves the record of from into to's, merged with any record to
+// holds, in one transaction, and reports whether to holds a record
+// afterwards. The adopted rules come first: they were flushed earlier.
+func adoptForeign(ctx context.Context, db *store.DB, from, to string, at time.Time) (bool, error) {
+	mine, held, err := foreignOf(ctx, db, to)
+	if err != nil {
+		return false, err
+	}
+	rec, ok, err := foreignOf(ctx, db, from)
+	if err != nil || !ok {
+		return held, err
+	}
+	if held {
+		rec.Layouts = mergeLayouts(rec.Layouts, mine.Layouts)
+		rec.Known = append(rec.Known, mine.Known...)
+		rec.Block = mine.Block
+	}
+	data, err := json.Marshal(rec)
+	if err != nil {
+		return false, fmt.Errorf("firewall: move the foreign DOCKER-USER rules of %s to %s: %w", from, to, err)
+	}
+	err = db.Write(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx,
+			"INSERT OR REPLACE INTO firewall_docker_foreign (owner, record, created_at) VALUES (?, ?, ?)",
+			to, string(data), formatSnapshotTime(at)); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, "DELETE FROM firewall_docker_foreign WHERE owner = ?", from)
+		return err
+	})
+	if err != nil {
+		return false, fmt.Errorf("firewall: move the foreign DOCKER-USER rules of %s to %s: %w", from, to, err)
+	}
+	return true, nil
+}
+
 // blockUserRules returns the DOCKER-USER rules of the Docker block of each
 // file, in file order; a file without a block adds none.
 func blockUserRules(files [][]byte) ([]netfilter.Rule, error) {

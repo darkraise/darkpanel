@@ -633,3 +633,80 @@ func TestKfwImageWithForeign(t *testing.T) {
 		t.Errorf("DOCKER-USER holds %q, want the image's %q", got, want)
 	}
 }
+
+// kfwRevertRecord stores, as a failed revert of c1 leaves it, the foreign
+// rule flushed from DOCKER-USER under revert:c1.
+func kfwRevertRecord(t *testing.T, h *fakeHost) {
+	t.Helper()
+	rec := foreignRecord{
+		Layouts: map[fwstate.Family]dockerfw.Layout{fwstate.V4: {After: []string{kfwForeign}}, fwstate.V6: {After: []string{kfwForeign}}},
+		Block:   map[fwstate.Family][]string{fwstate.V4: kfwBlockLines, fwstate.V6: kfwBlockLines},
+	}
+	if err := putForeign(context.Background(), h.db, "revert:c1", rec, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// kfwFailRestores makes the next n restore programs fail.
+func kfwFailRestores(h *fakeHost, n int) {
+	load := h.onRun
+	h.onRun = func(h *fakeHost, cmd core.Cmd) core.CmdResult {
+		if strings.HasSuffix(cmd.Path, "-restore") && n > 0 {
+			n--
+			return core.CmdResult{ExitCode: 1, Stderr: []byte("iptables-restore: line 3 failed")}
+		}
+		return load(h, cmd)
+	}
+}
+
+// TestKfwStrandedRevertRecord: the foreign rules a failed revert of a change
+// left recorded are not lost. A restore of the change's snapshot, as the
+// emergency restore runs, adopts and loads them; a later undo loads them even
+// when no foreign rule is loaded now; and a revert whose body and reload both
+// fail says that they are not loaded.
+func TestKfwStrandedRevertRecord(t *testing.T) {
+	ctx := context.Background()
+	want := append(slices.Clone(kfwBlockLines), kfwForeign)
+	t.Run("a restore adopts them", func(t *testing.T) {
+		h, d, snap := kfwRevertHost(t)
+		kfwRevertRecord(t, h)
+		if _, err := restore(ctx, h.env(), d, snap); err != nil {
+			t.Fatal(err)
+		}
+		if got := kfwChain(h); !slices.Equal(got, want) {
+			t.Errorf("DOCKER-USER holds %q, want %q", got, want)
+		}
+		for _, owner := range []string{"revert:c1", "restore:" + snap.ID} {
+			if _, ok, err := foreignOf(ctx, h.db, owner); err != nil || ok {
+				t.Errorf("the %s record is left (%v, %v)", owner, ok, err)
+			}
+		}
+	})
+	t.Run("an undo loads them", func(t *testing.T) {
+		h, d, _ := kfwRevertHost(t)
+		rvTestManualEdit(h)
+		kfwRevertRecord(t, h)
+		kfwFailRestores(h, 1)
+		out, err := revert(ctx, h.env(), d, []byte(kfwSnapshotID(t, h)))
+		if err != nil || len(out.Effects) != 1 || out.Effects[0].State != core.EffectUndone {
+			t.Fatalf("revert = %+v, %v, want effect 1 undone", out, err)
+		}
+		if got := kfwChain(h); !slices.Equal(got, want) {
+			t.Errorf("DOCKER-USER holds %q, want %q", got, want)
+		}
+		if _, ok, err := foreignOf(ctx, h.db, "revert:c1"); err != nil || ok {
+			t.Errorf("the revert:c1 record is left (%v, %v)", ok, err)
+		}
+	})
+	t.Run("a failed body and reload are reported", func(t *testing.T) {
+		h, d, _ := kfwRevertHost(t)
+		kfwSet(t, h, kfwWith(kfwBlockLines, 3, kfwForeign), true)
+		rvTestManualEdit(h)
+		h.ufw["default allow outgoing"] = func(*fhState) int { return 1 }
+		kfwFailRestores(h, 100)
+		_, err := revert(ctx, h.env(), d, []byte(kfwSnapshotID(t, h)))
+		if err == nil || !strings.Contains(err.Error(), "load DOCKER-USER") {
+			t.Fatalf("revert = %v, want the failed reload of the foreign rules reported", err)
+		}
+	})
+}
