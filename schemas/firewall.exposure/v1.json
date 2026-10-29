@@ -98,7 +98,14 @@
             "type": "string"
           },
           "container": {
-            "$ref": "#/$defs/ExposureContainer"
+            "oneOf": [
+              {
+                "$ref": "#/$defs/ExposureContainer"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "classes": {
             "items": {

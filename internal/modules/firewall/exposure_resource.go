@@ -35,7 +35,7 @@ type ExposureRow struct {
 	Port      uint16             `json:"port"`
 	Family    string             `json:"family"`
 	Process   string             `json:"process,omitempty"`
-	Container *ExposureContainer `json:"container,omitempty"`
+	Container *ExposureContainer `json:"container,omitempty" jsonschema:"nullable"`
 	Classes   []exposure.Verdict `json:"classes"`
 }
 
