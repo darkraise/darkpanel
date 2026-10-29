@@ -634,15 +634,15 @@ func TestKfwImageWithForeign(t *testing.T) {
 	}
 }
 
-// kfwRevertRecord stores, as a failed revert of c1 leaves it, the foreign
-// rule flushed from DOCKER-USER under revert:c1.
-func kfwRevertRecord(t *testing.T, h *fakeHost) {
+// kfwForeignRecord stores, as a failed attempt of owner leaves it, the
+// foreign rule flushed from DOCKER-USER under owner.
+func kfwForeignRecord(t *testing.T, h *fakeHost, owner string) {
 	t.Helper()
 	rec := foreignRecord{
 		Layouts: map[fwstate.Family]dockerfw.Layout{fwstate.V4: {After: []string{kfwForeign}}, fwstate.V6: {After: []string{kfwForeign}}},
 		Block:   map[fwstate.Family][]string{fwstate.V4: kfwBlockLines, fwstate.V6: kfwBlockLines},
 	}
-	if err := putForeign(context.Background(), h.db, "revert:c1", rec, time.Now()); err != nil {
+	if err := putForeign(context.Background(), h.db, owner, rec, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -669,7 +669,7 @@ func TestKfwStrandedRevertRecord(t *testing.T) {
 	want := append(slices.Clone(kfwBlockLines), kfwForeign)
 	t.Run("a restore adopts them", func(t *testing.T) {
 		h, d, snap := kfwRevertHost(t)
-		kfwRevertRecord(t, h)
+		kfwForeignRecord(t, h, "revert:c1")
 		if _, err := restore(ctx, h.env(), d, snap); err != nil {
 			t.Fatal(err)
 		}
@@ -685,7 +685,7 @@ func TestKfwStrandedRevertRecord(t *testing.T) {
 	t.Run("an undo loads them", func(t *testing.T) {
 		h, d, _ := kfwRevertHost(t)
 		rvTestManualEdit(h)
-		kfwRevertRecord(t, h)
+		kfwForeignRecord(t, h, "revert:c1")
 		kfwFailRestores(h, 1)
 		out, err := revert(ctx, h.env(), d, []byte(kfwSnapshotID(t, h)))
 		if err != nil || len(out.Effects) != 1 || out.Effects[0].State != core.EffectUndone {
@@ -707,6 +707,79 @@ func TestKfwStrandedRevertRecord(t *testing.T) {
 		_, err := revert(ctx, h.env(), d, []byte(kfwSnapshotID(t, h)))
 		if err == nil || !strings.Contains(err.Error(), "load DOCKER-USER") {
 			t.Fatalf("revert = %v, want the failed reload of the foreign rules reported", err)
+		}
+	})
+}
+
+// TestKfwEndCleanupReloadFails: a revert is not refused when the foreign
+// DOCKER-USER rules its change's cleanup flushed fail to load. The revert
+// loads them itself, and a loaded state it cannot read still reaches the
+// lockout guard and its emergency restore.
+func TestKfwEndCleanupReloadFails(t *testing.T) {
+	ctx := context.Background()
+	setup := func(t *testing.T) (*fakeHost, deps, snapshot) {
+		t.Helper()
+		h, d, snap := kfwRevertHost(t)
+		if err := beginCleanup(ctx, h.db, "c1", h.clock.Now()); err != nil {
+			t.Fatal(err)
+		}
+		kfwForeignRecord(t, h, "c1")
+		return h, d, snap
+	}
+	t.Run("the revert keeps the rule", func(t *testing.T) {
+		h, d, snap := setup(t)
+		load, failed := h.onRun, false
+		h.onRun = func(h *fakeHost, cmd core.Cmd) core.CmdResult {
+			if !failed && strings.HasSuffix(cmd.Path, "-restore") && slices.Contains(cmd.Args, "-n") &&
+				strings.Contains(string(cmd.Stdin), ":"+dockerfw.ChainDockerUser+" ") {
+				failed = true
+				return core.CmdResult{ExitCode: 1, Stderr: []byte("iptables-restore: line 3 failed")}
+			}
+			return load(h, cmd)
+		}
+		if _, err := revert(ctx, h.env(), d, []byte(snap.ID)); err != nil {
+			t.Fatalf("revert = %v, want no error", err)
+		}
+		if !failed {
+			t.Fatal("no DOCKER-USER load failed")
+		}
+		if owners, err := pendingCleanups(ctx, h.db); err != nil || slices.Contains(owners, "c1") {
+			t.Errorf("cleanup intents %q (%v), want none for c1", owners, err)
+		}
+		for _, owner := range []string{"c1", "revert:c1"} {
+			if _, ok, err := foreignOf(ctx, h.db, owner); err != nil || ok {
+				t.Errorf("the %s record is left (%v, %v)", owner, ok, err)
+			}
+		}
+		if got := kfwChain(h); !slices.Contains(got, kfwForeign) {
+			t.Errorf("DOCKER-USER holds %q, want %q kept", got, kfwForeign)
+		}
+	})
+	t.Run("an unreadable state still reaches the guard", func(t *testing.T) {
+		h, d, snap := setup(t)
+		// The emergency restore cannot write without reading the loaded state,
+		// so the reads fail up to and including the guard's and succeed once
+		// the emergency restore has recorded itself.
+		readLoaded := d.readLoaded
+		d.readLoaded = func(ctx context.Context, env core.Env) (fwstate.Loaded, error) {
+			if rec, pending, err := restoreRecordOf(ctx, h.db, snap.ID); err == nil && pending && rec.Emergency != nil {
+				return readLoaded(ctx, env)
+			}
+			return fwstate.Loaded{}, errors.New("loaded: iptables-nft-save failed")
+		}
+		out, err := revert(ctx, h.env(), d, []byte(snap.ID))
+		if err != nil || !out.Override {
+			t.Fatalf("revert = %+v, %v, want the emergency restore's override", out, err)
+		}
+		var detail overrideDetail
+		if err := json.Unmarshal(out.Detail, &detail); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(detail.Guard, "the loaded state cannot be read") {
+			t.Errorf("guard %q, want the unreadable loaded state named", detail.Guard)
+		}
+		if got := kfwChain(h); !slices.Contains(got, kfwForeign) {
+			t.Errorf("DOCKER-USER holds %q, want %q kept", got, kfwForeign)
 		}
 	})
 }

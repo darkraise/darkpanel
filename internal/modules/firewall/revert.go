@@ -101,8 +101,9 @@ func revert(ctx context.Context, env core.Env, d deps, snapBytes []byte) (core.R
 	}
 	f := fw{d: d}
 	f.finishRecordedLogged(ctx, env, "revert:"+env.ChangeID)
-	if err := f.endChangeCleanup(ctx, env); err != nil {
-		return core.RevertOutcome{}, fmt.Errorf("firewall: revert: %w", err)
+	cleanupErr := f.endChangeCleanup(ctx, env)
+	if cleanupErr != nil {
+		cleanupErr = fmt.Errorf("firewall: revert: %w", cleanupErr)
 	}
 	effects, err := env.Effects.List(ctx)
 	if err != nil {
@@ -142,16 +143,18 @@ func revert(ctx context.Context, env core.Env, d deps, snapBytes []byte) (core.R
 			rep, err := restore(ctx, env, d, snap)
 			if err == nil {
 				logVanished(env, rep.Vanished)
-				if len(rep.Interleaved) == 0 {
+				if len(rep.Interleaved) > 0 {
+					err = interleavedError(rep.Interleaved)
+				} else if cleanupErr == nil {
 					return core.RevertOutcome{Effects: undoneOutcomes(made, nil)}, nil
 				}
-				err = interleavedError(rep.Interleaved)
 			}
 			writeErr = err
 		} else {
 			writeErr = f.undoKeepingForeign(ctx, env, snap, made, conflicts)
 		}
 	}
+	writeErr = errors.Join(writeErr, cleanupErr)
 	if len(blocked) == 0 && len(conflicts) == 0 && writeErr == nil {
 		return core.RevertOutcome{Effects: undoneOutcomes(made, nil)}, nil
 	}
@@ -168,8 +171,8 @@ func revert(ctx context.Context, env core.Env, d deps, snapBytes []byte) (core.R
 		return emergencyRestore(ctx, env, d, snap, why, blocked, made, conflicts, writeErr)
 	}
 	if len(blocked) > 0 {
-		return core.RevertOutcome{}, fmt.Errorf("firewall: the revert left the host as it is: effects %s are unresolved; resolve them, then repair the change",
-			seqList(blocked))
+		return core.RevertOutcome{}, errors.Join(fmt.Errorf("firewall: the revert left the host as it is: effects %s are unresolved; resolve them, then repair the change",
+			seqList(blocked)), cleanupErr)
 	}
 	if writeErr != nil {
 		return core.RevertOutcome{}, fmt.Errorf("firewall: the revert stopped: %w", writeErr)

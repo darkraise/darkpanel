@@ -238,14 +238,20 @@ func (f fw) finishRecordedLogged(ctx context.Context, env core.Env, owner string
 // revert takes the host back to before the change, so finishCleanups
 // repeating that cleanup would strip the block the revert puts back. The
 // foreign DOCKER-USER rules a failed attempt of the cleanup flushed are
-// loaded back first, where the revert keeps them. A cleanup the revert runs
-// itself records its own intent again.
+// loaded back first, where the revert keeps them. A record that fails to
+// load is handed to the revert's own keepForeign, which loads its rules with
+// the revert's; when it cannot be handed over, the intent keeps owning it. A
+// cleanup the revert runs itself records its own intent again.
 func (f fw) endChangeCleanup(ctx context.Context, env core.Env) error {
 	if env.ChangeID == "" {
 		return nil
 	}
 	if _, err := f.finishForeign(ctx, env, env.ChangeID); err != nil {
-		return fmt.Errorf("load the foreign DOCKER-USER rules the change's cleanup flushed: %w", err)
+		env.Log.Warn("firewall: cannot load the foreign DOCKER-USER rules the change's cleanup flushed; the revert loads them",
+			"change", env.ChangeID, "error", err)
+		if _, aerr := adoptForeign(ctx, env.DB, env.ChangeID, "revert:"+env.ChangeID, env.Clock.Now()); aerr != nil {
+			return errors.Join(fmt.Errorf("load the foreign DOCKER-USER rules the change's cleanup flushed: %w", err), aerr)
+		}
 	}
 	return endCleanup(ctx, env.DB, env.ChangeID)
 }
