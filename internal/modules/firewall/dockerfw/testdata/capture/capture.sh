@@ -23,10 +23,21 @@
 # container, so their expansions and escapes are meant to happen there.
 # shellcheck disable=SC2016,SC2028
 set -euo pipefail
-# Git Bash would rewrite the container paths given to docker exec.
-export MSYS_NO_PATHCONV=1
 
-if [ $# -ne 2 ]; then
+# Git Bash rewrites arguments that look like paths for native programs.
+# Docker gets its container paths as they are, and a host path given to it
+# is converted to Windows form first; every other program keeps the
+# rewriting, which its host paths need.
+docker() { MSYS_NO_PATHCONV=1 command docker "$@"; }
+hostpath() {
+	if command -v cygpath >/dev/null; then
+		cygpath -m "$1"
+	else
+		printf '%s' "$1"
+	fi
+}
+
+if [ $# -ne 2 ] || [ -z "$2" ]; then
 	echo "usage: $0 <image> <outdir>" >&2
 	exit 2
 fi
@@ -34,14 +45,15 @@ image=$1
 slug=$(printf '%s' "$image" | tr ':/' '--')
 outdir=$2
 
-for tool in docker jq curl sha256sum; do
+for tool in docker jq curl sha256sum timeout; do
 	if ! command -v "$tool" >/dev/null; then
 		echo "$0: $tool is required" >&2
 		exit 1
 	fi
 done
 
-images=$(cd "$(dirname "$0")/../../../../../.." && pwd)/test/harness/images.json
+root=$(cd "$(dirname "$0")/../../../../../.." && pwd) || exit 1
+images=$root/test/harness/images.json
 if ! jq -e --arg id "$slug" 'any(.os[]; .id == $id)' "$images" >/dev/null; then
 	echo "$0: $image is not an image of $images" >&2
 	exit 2
@@ -62,10 +74,10 @@ chmod 755 "$pkgs"
 list=$(jq -r --arg id "$slug" '.os[] | select(.id == $id) | .packages[] | select(.name | IN("docker-ce", "docker-ce-cli", "containerd.io")) | [.url, .sha256] | @tsv' "$images")
 while IFS=$'\t' read -r url sum; do
 	file=$pkgs/${url##*/}
-	curl -fsSL -o "$file" "$url"
+	curl -fsSL --connect-timeout 15 --max-time 600 --retry 3 -o "$file" "$url"
 	printf '%s  %s\n' "$sum" "$file" | sha256sum -c --quiet
 done <<<"$list"
-docker pull -q "$image" >/dev/null
+MSYS_NO_PATHCONV=1 timeout 900 docker pull -q "$image" >/dev/null
 
 dx() { docker exec "$name" bash -euo pipefail -c "$1"; }
 
@@ -97,7 +109,7 @@ base() {
 		echo "$0: dockerd did not start" >&2
 		exit 1
 	fi
-	dx 'docker pull -q busybox:1.37' >/dev/null
+	dx 'timeout 900 docker pull -q busybox:1.37' >/dev/null
 	record 'docker run -d --name web -p 8080:80 -p 127.0.0.1:8081:80 busybox:1.37 httpd -f -p 80'
 	record 'docker network create -o com.docker.network.bridge.name=dpcustom --subnet 172.30.0.0/24 custom'
 	record 'docker run -d --name app --network custom -p 9090:80 busybox:1.37 httpd -f -p 80'
@@ -213,7 +225,7 @@ capture() {
 		docker exec "$name" cat "/etc/ufw/$f" >"$dir/files/etc/ufw/$f"
 	done
 	docker exec "$name" cat /etc/default/ufw >"$dir/files/etc/default/ufw"
-	dx 'iptables --version; ufw --version | head -n1; dockerd --version' >"$dir/versions.txt"
+	dx 'iptables --version; ufw --version | sed -n 1p; dockerd --version' >"$dir/versions.txt"
 	dx 'curl -fsS --unix-socket /var/run/docker.sock http://localhost/info | jq -S .' >"$dir/info.json"
 	dx 'curl -fsS --unix-socket /var/run/docker.sock http://localhost/version | jq -S .' >"$dir/version.json"
 	dx 'docker network inspect $(docker network ls -q) | jq -S "sort_by(.Name)"' >"$dir/networks.json"
@@ -237,9 +249,10 @@ for scenario in base block cleanup routed; do
 	mkdir -p "$dir"
 	name=dp-w2-cap-$slug-$scenario
 	docker rm -f "$name" >/dev/null 2>&1 || true
-	docker run -d --privileged --name "$name" --tmpfs /var/lib/docker:exec -v "$pkgs:/debs:ro" "$image" sleep infinity >/dev/null
-	dx 'apt-get update -qq >/dev/null && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ufw iptables nftables procps iproute2 curl ca-certificates jq >/dev/null 2>&1'
-	dx 'DEBIAN_FRONTEND=noninteractive apt-get install -y -qq /debs/*.deb >/dev/null 2>&1'
+	docker run -d --privileged --name "$name" --tmpfs /var/lib/docker:exec -v "$(hostpath "$pkgs"):/debs:ro" "$image" sleep infinity >/dev/null
+	dx 'timeout 900 apt-get update -qq >/dev/null'
+	dx 'DEBIAN_FRONTEND=noninteractive timeout 900 apt-get install -y -qq ufw iptables nftables procps iproute2 curl ca-certificates jq >/tmp/apt.log 2>&1 || { cat /tmp/apt.log >&2; exit 1; }'
+	dx 'DEBIAN_FRONTEND=noninteractive timeout 900 apt-get install -y -qq /debs/*.deb >/tmp/apt.log 2>&1 || { cat /tmp/apt.log >&2; exit 1; }'
 	base
 	case $scenario in
 	block) block ;;
