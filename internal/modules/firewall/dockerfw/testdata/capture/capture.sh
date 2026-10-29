@@ -19,6 +19,11 @@
 # exists in the container's network namespace (/proc/net/ip*_tables_names):
 # asking for another one would make the host kernel load its module.
 #
+# The committed IPv6 saves of every image lack the last rule of
+# ufw6-user-limit and of ufw6-user-limit-accept, which user6.rules declares;
+# a test that compares a base IPv6 save with UFW adds them first, as
+# docker_e2e_host_test.go does.
+#
 # The single-quoted scripts and the echoed commands run inside the
 # container, so their expansions and escapes are meant to happen there.
 # shellcheck disable=SC2016,SC2028
