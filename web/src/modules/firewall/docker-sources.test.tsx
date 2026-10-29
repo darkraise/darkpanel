@@ -150,6 +150,30 @@ test.each([
   expect(screen.queryByRole("dialog")).toBeNull()
 })
 
+test("a valid exemption after an invalid one clears the message and plans", async () => {
+  const { calls } = dsRender(dsStatus({ settings: { privateSources: ["10.0.0.0/8"], forwardExemptions: [] } }))
+  const user = userEvent.setup()
+  const form = dsAddForm()
+  await user.type(within(form).getByLabelText("Original destination"), "203.0.113.9")
+  await user.click(within(form).getByRole("button", { name: "Add exemption" }))
+  expect(within(form).getByRole("alert").textContent).toBe("Enter the original destination and the destination.")
+  await user.type(within(form).getByLabelText("Destination"), "192.168.70.4")
+  await user.click(within(form).getByRole("button", { name: "Add exemption" }))
+  expect(await dsPlanned(calls, "Add a forward exemption")).toEqual({
+    input: { forwardExemptions: [{ origDestination: "203.0.113.9", destination: "192.168.70.4", proto: "tcp" }] },
+  })
+  expect(within(form).queryByRole("alert")).toBeNull()
+})
+
+test("clearing every private source plans an empty list", async () => {
+  const { calls } = dsRender(dsStatus())
+  const user = userEvent.setup()
+  const form = screen.getByRole("form", { name: "Private sources" })
+  await user.clear(within(form).getByLabelText("Private source ranges"))
+  await user.click(within(form).getByRole("button", { name: "Set private sources" }))
+  expect(await dsPlanned(calls, "Set the private sources")).toEqual({ input: { privateSources: [] } })
+})
+
 test("offers each proposed exemption, which adds it to the list", async () => {
   const { calls } = dsRender(dsStatus({ foreignForwards: [dsProposed] }))
   const table = screen.getByRole("table", { name: "Proposed forward exemptions" })
