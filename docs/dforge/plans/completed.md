@@ -23,3 +23,4 @@
 - 2026-10-23 `docs/dforge/plans/2026-10-23-v1-w0c-extensions-and-web.md` — merged into `main` at 7708870
 - 2026-10-24 `docs/dforge/plans/2026-10-23-v1-w0b-host-clients.md` — merged into `main` at f6a2276
 - 2026-10-28 `docs/dforge/plans/2026-10-24-v1-w1-firewall-core.md` — merged into `main` at 2e07a58
+- 2026-10-29 `docs/dforge/plans/2026-10-28-v1-w2-firewall-docker.md` — merged into `main` at 721e40b

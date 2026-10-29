@@ -1,0 +1,304 @@
+# v1 wave 2 firewall docker — follow-ups
+
+What the run left open, taken from its ledger before the workspace was deleted. The final review, its fix wave and three harness-fix rounds (to 721e40b) fixed many of the deferred minors below; the list is not filtered against them, so check a line against the code before acting on it. The decisions behind the parked lines are in `v1-w2-firewall-docker-rulings.md`.
+
+## Deferred minors
+
+- Task 2: internal/modules/firewall/dockerfw/settings.go:151 — the message hard-codes "32" instead of deriving it from `MaxPrivateSources`
+- Task 2: internal/modules/firewall/dockerfw/settings.go:174 — the inInterface message says "at most 15 characters", but the check also rejects a leading dash and characters such as ":"
+- Task 2: internal/modules/firewall/dockerfw/settings_test.go:447-460 — no test checks the error's Detail string "the Docker settings are invalid", and none covers `Bridge` with an empty ID (which returns "br-")
+- Task 3: internal/modules/firewall/loaded/variant_test.go:302 — plan-mandated: the table-driven test branches on `c.name == "empty save"`.
+- Task 3: internal/modules/firewall/loaded/variant.go:57 — `netfilter.Tables()` is called once per requested table inside the loop.
+- Task 1: internal/modules/firewall/dockerfw/testdata/capture/capture.sh:236 — the scenario directory is removed only when that scenario starts
+- Task 1: internal/modules/firewall/dockerfw/testdata/capture/capture.sh:63 — the package list is not checked to hold the three Docker packages
+- Task 4: .dforge/sdd/2026-10-28-v1-w2-firewall-docker/task-4-report.md:27 — GREEN evidence is paraphrased, not real output, and its subtest count is wrong
+- Task 4: internal/modules/firewall/fwstate/fwstate.go:550 — the Decided doc comment does not say it can be empty on Accept
+- Task 4: .dforge/sdd/2026-10-28-v1-w2-firewall-docker/task-4-report.md:72 — the harness refuses any command containing `eval`, which affects later tasks
+- Task 5: internal/modules/firewall/exposure/classes.go:126 — backwards ranges and out-of-range numbers are skipped without a test
+- Task 5: internal/modules/firewall/exposure/classes_test.go:68 — plan-mandated: TestPtIfaceFields asserts only values it just assigned
+- Task 5: .dforge/sdd/2026-10-28-v1-w2-firewall-docker/task-5-report.md:18 — GREEN, race, vet and lint results are paraphrased rather than quoted
+- Task 6: internal/modules/firewall/exposure/atoms.go:174 — the first-valid-include family rule has no test
+- Task 6: .dforge/sdd/2026-10-28-v1-w2-firewall-docker/task-6-report.md:20 — the race run may predate the last code edit
+- Task 7: web/src/modules/firewall/fixtures.test.ts:103 — the `fxTypes` runtime assertion is tautological (`typeof` of three object literals); the test's value lies entirely in typecheck.
+- Task 7: web/src/modules/firewall/fixtures.ts:3 — the file's header comment still says "a status, rules and snapshots", but the file now also holds the Docker, binding and exposure fixtures.
+- Task 7: web/src/modules/firewall/types.ts:198 — `dockerQueryKey` and `exposureQueryKey` have no comment of their own, although Step 3 asks for a one-line comment on each export.
+- Task 8: web/src/modules/firewall/firewall-change.test.tsx:116 — dismissing the question (Escape or outside click) has no test
+- Task 8: web/src/modules/firewall/firewall-change.test.tsx:170 — test output is not clean: "HTMLCanvasElement's getContext() not implemented" lines
+- Task 8: web/src/modules/firewall/firewall-change.tsx:68 — the change dialog opens briefly in its loading state before it closes and the question replaces it
+- Task 9: test/harness/nmap_test.go:63 — no `TestM3dParsePorts` case shows that entries from more than one `Host:` line are all returned
+- Task 9: test/harness/m3_docker_helpers_test.go:206 — any protocol other than `udp` falls into the TCP exact-match branch
+- Task 9: test/harness/nmap.go:6 — `errors` added to the import block beyond the brief's `net/netip` and `strconv`
+- Task 10: internal/modules/firewall/dockerfw/binding.go:70 — Field messages for selector, hostAddr, proto, kind and an invalid From do not include the offending value
+- Task 10: internal/modules/firewall/dockerfw/rule.go:327 — `From` is not checked for being IPv4-mapped (`::ffff:a.b.c.d/n`), although `Binding.HostAddr` is refused for the same form
+- Task 10: internal/modules/firewall/dockerfw/rule.go:311 — No check that the families of `From` and `Binding.HostAddr` agree
+- Task 11: internal/modules/firewall/exposure/verdict.go:323 — internet's exclude list clones all of `in.Private`, not only the family's entries
+- Task 11: internal/modules/firewall/exposure/verdict.go:155 — the probe count multiplies by the interfaces that yield a probe, not by every eligible interface
+- Task 11: internal/modules/firewall/exposure/verdict.go:136 — `IsLoopback` is false for an IPv4-mapped loopback (::ffff:127.0.0.1)
+- Task 12: internal/modules/firewall/dockerfw/detect_test.go:55 — no test for Docker on nft/legacy while UFW's variant is unknown
+- Task 12: internal/modules/firewall/dockerfw/detect.go:121 — the destination is built with a fixed /32 even if Addr4 were an IPv4-mapped IPv6 address
+- Task 13: internal/modules/firewall/dockerfw/forward.go:48 — `ForeignDNAT` follows `-g` gotos as well as jumps, and no test covers that path.
+- Task 13: internal/modules/firewall/dockerfw/forward.go:146 — `dtfFamily` uses `Is4()`, while the existing `Exemption.Family` (settings.go:155-160) uses `Is6()`.
+- Task 13: task-13-report.md:19 — the full-suite gate is quoted as the suite-run wrapper's summary (`63 pass, 0 fail`) rather than the `go test -count=1 ./...` lines the brief asks to record.
+- Task 14: internal/modules/firewall/docker_fake_test.go:124 — `record` returns `d.err` without the lock, and `containers` and `networks` are read without it too
+- Task 14: internal/modules/firewall/docker_fake_test.go:164 — `ContainerSummary.Labels` shares the container's `Config.Labels` map
+- Task 14: internal/modules/firewall/deps.go:32 — the `deps` doc comment still says production values come from "conf, loaded, predict and guard"
+- Task 15: web/src/modules/firewall/docker-sources.tsx:423 — closing the dialog discards the drafts even after the action refuses the input
+- Task 15: web/src/modules/firewall/docker-sources.test.tsx:189 — the report notes jsdom's "Not implemented: HTMLCanvasElement's getContext()" in the axe run and does not fix it
+- Task 15: web/src/modules/firewall/docker-sources.tsx:0 — the report summarizes the command results instead of quoting the real output the brief asked for
+- Task 16: web/src/modules/firewall/exposure-page.test.tsx:32 — the test departs from the brief's "exactly this content" (`cls: string` became `ExposureVerdict["class"]`)
+- Task 16: .dforge/sdd/2026-10-28-v1-w2-firewall-docker/task-16-report.md:19 — the reported `pnpm -C web test` output contains jsdom "HTMLCanvasElement getContext not implemented" notices
+- Task 16: web/src/modules/firewall/exposure-page.tsx:231 — a third local `Choice` radio-group component
+- Task 16: web/src/modules/firewall/exposure-page.tsx:230 — the comment on `Choice` describes what the code does, not why
+- Task 16: web/src/modules/firewall/exposure-page.tsx:220 — the badge variants and the `—` listener fallback (line 259) are not tested
+- Task 16: web/src/modules/firewall/exposure-page.tsx:304 — notes use their text as the React key
+- Task 17: internal/modules/firewall/dockerfw/block.go:87 — an invalid (zero) address is classified as V6
+- Task 17: internal/modules/firewall/dockerfw/block.go:252-253 — misleading error when a different block is open
+- Task 17: internal/modules/firewall/dockerfw/block.go:355-363 — known keys are searched linearly instead of held in a set
+- Task 19: web/src/modules/firewall/container-actions.tsx:76 — a failed Docker refetch unmounts an open change dialog
+- Task 19: web/src/modules/firewall/container-actions.tsx:114 — radio and From ids are unique only per kind, so two Allow forms on one page collide
+- Task 19: web/src/modules/firewall/container-actions.test.tsx:184 — the accessibility test is named for Allow and Deny but renders only Allow
+- Task 19: web/src/modules/firewall/container-actions.tsx:62 — an unsupported status with an empty `unsupported` list shows a dangling "not supported: "
+- Task 19: web/src/modules/firewall/container-actions.tsx:61 — an empty-string `docker.reason` shows a blank warning
+- Task 19: web/src/modules/firewall/container-actions.test.tsx:0 — test evidence is summarised rather than quoted
+- Task 18: internal/modules/firewall/target.go:45 — the `//nolint:unused` directives on `sources` and `rowsAdd` were not in the brief, but they are justified
+- Task 18: internal/modules/firewall/target.go:159 — `overlayBlockFiles` stores the caller's byte slice as `Data` without copying it
+- Task 18: internal/modules/firewall/target.go:170-174 — `predictChainCleanup` re-parses a constant restore text on every call and panics if the parse fails
+- Task 18: internal/modules/firewall/target.go:193-195 — when DOCKER-USER is not loaded, it is appended at the end of the filter chain list
+- Task 18: internal/modules/firewall/target.go:152 — the two after-file paths are string literals; no named constant exists for them
+- Task 20: .dforge/sdd/2026-10-28-v1-w2-firewall-docker/task-20-report.md:29 — the RED 2 run's failure text was not captured
+- Task 20: internal/modules/firewall/docker_store.go:113 — scan errors are wrapped twice, so messages repeat their prefix
+- Task 20: internal/modules/firewall/docker_store.go:84 — kind is cast to dockerfw.Kind without a check
+- Task 21: internal/modules/firewall/dockerfw/realize_test.go:342 — `TestRzRealizeCustomBridges` does not itself assert that `CustomBridges` is nil when empty, although the report claims it does
+- Task 21: internal/modules/firewall/dockerfw/realize.go:26 — the `Realize` doc comment claims more order independence than the code provides
+- Task 21: .dforge/sdd/2026-10-28-v1-w2-firewall-docker/task-21-report.md:25 — the full `go test -count=1 ./...` evidence is a summary ("63 pass, 0 fail"), not the per-package `ok`/`?` lines the brief's Step 5 expects
+- Task 22: internal/modules/firewall/dockerfw/health_test.go:236 — no test covers the check-3 path where an `ACCEPT` rule on a bridge sits before the jump
+- Task 22: internal/modules/firewall/dockerfw/health_test.go:0 — no test has `Want` true while a family's `Loaded` or `Expected` entry is nil
+- Task 22: internal/modules/firewall/dockerfw/health.go:121-122 — when `n.Bridge` is empty and `ID` is shorter than 12 characters, `Unprotected` treats the network as having a custom bridge
+- Task 22: internal/modules/firewall/dockerfw/health.go:278-284 — `hlBridges` also includes non-bridge networks (macvlan, ipvlan), which feed check 8 (line 87) and check 3 (line 305)
+- Task 23: internal/modules/firewall/dockerfw/restore_input_test.go:184 — no case where the same foreign rule text appears twice in the chain
+- Task 23: internal/modules/firewall/dockerfw/restore_input.go:48 — the subsequence walk fails silently if `Foreign` ever returns a rule that is not an unmodified element of `chain.Rules`
+- Task 23: .dforge/sdd/2026-10-28-v1-w2-firewall-docker/task-23-report.md:22 — the full-suite gate is quoted as a summary instead of real per-package output
+- Task 24: internal/modules/firewall/dockerfw/ruleops_test.go:317 — the "id that is not a ULID" case asserts only the `dockerfw: ` prefix
+- Task 24: internal/modules/firewall/dockerfw/ruleops_test.go:313 — the "both families" case accepts either refusal message of pass 1
+- Task 24: internal/modules/firewall/dockerfw/ruleops.go:71 — no case covers a `current` rule of family `both`
+- Task 25: internal/modules/firewall/dockerfw/decisions_test.go:591 — the extra-rule check accepts any IPv6 `in` rule unconditionally
+- Task 25: internal/modules/firewall/dockerfw/decisions_test.go:89 — `dcAddr` swallows a parse error and returns the zero address
+- Task 25: internal/modules/firewall/dockerfw/decisions_test.go:441 — the `c.base != ""` skip branch is dead, and the scenarios are loaded outside any subtest
+- Task 25: internal/modules/firewall/dockerfw/decisions_test.go:341 — `dcRequireBlock` hard-codes `"darkpanel-docker-deny"` and `"DOCKER-USER"` instead of `ChainDeny` and `ChainDockerUser`
+- Task 25: internal/modules/firewall/dockerfw/decisions_test.go:0 — the report summarises the test output instead of quoting it
+- Task 26: internal/modules/firewall/docker_effects.go:184 — a Create always becomes `firewall.container:?<id>`, whatever its noun, and the `splitResource` error is discarded.
+- Task 26: internal/modules/firewall/docker_effects.go:169 — errors from `dockerDoc` and the refusals at :175-180 are returned without the `firewall: <resource>: %w` wrap.
+- Task 26: internal/modules/firewall/docker_effects_test.go:537 — the chains-state cases cover only the `filter` table.
+- Task 27: internal/modules/firewall/inverse.go:400 — the check that the rule ID matches the resource identity is unrequested and untested
+- Task 27: internal/modules/firewall/inverse.go:393 — the "Post is JSON null on a creation" branch is never exercised
+- Task 27: internal/modules/firewall/docker_effects.go:61 — undoing a row deletion gives the row a new `created_at`
+- Task 28: internal/modules/firewall/docker_snapshot_test.go:116 — the error path for a failed `readDockerConfig` is not tested
+- Task 28: internal/modules/firewall/snapshot.go:203 — the Docker config and rows are read separately, outside the reads of `cfg` and the loaded state
+- Task 28: internal/modules/firewall/snapshot.go:201 — added a comment the brief did not ask for
+- Task 29: web/src/modules/firewall/docker-panel.tsx:334 — React list keys use the rule text, which can repeat across IPv4 and IPv6.
+- Task 29: web/src/modules/firewall/docker-panel.test.tsx:197 — the full `pnpm -C web test` output is not clean.
+- Task 29: web/src/modules/firewall/docker-panel.tsx:426 — `orNone(docker.reason, "") === ""` is a roundabout emptiness check.
+- Task 29: web/src/modules/firewall/firewall-page.tsx:514 — the `FirewallPage` doc comment no longer describes the whole page.
+- Task 30: internal/modules/firewall/restore.go:305 — The `writeDockerState` call and its error return appear twice, once in each recorded `case` arm.
+- Task 30: internal/modules/firewall/restore.go:310 — The same failure produces different error text depending on the branch.
+- Task 30: internal/modules/firewall/docker_restore_test.go:246 — No test covers a `writeDockerState` failure in a recorded branch.
+- Task 31: internal/modules/firewall/docker_state_test.go:484 — the "skip a non-running inspected container" branch (docker_state.go:139-141) is never exercised
+- Task 31: internal/modules/firewall/docker_state_test.go:648 — `ErrUnavailable` is only tested as a failure on every call, not partway through fact gathering
+- Task 31: internal/modules/firewall/docker_state.go:175 — a binding with host port `0` is kept as `Published{HostPort: 0}`
+- Task 31: internal/modules/firewall/docker_state.go:267 — the after-file paths `/etc/ufw/after.rules` and `/etc/ufw/after6.rules` are hardcoded a third time
+- Task 30: internal/modules/firewall/restore.go:305 — the writeDockerState call and error return appear twice, once in each recorded case arm
+- Task 30: internal/modules/firewall/restore.go:310 — a failed Docker row write reports different error text on a first attempt and on a retry (both wraps are mandated by the brief)
+- Task 30: internal/modules/firewall/docker_restore_test.go:246 — no test covers a writeDockerState failure in a recorded branch
+- Task 31: internal/modules/firewall/docker_state_test.go:484 — the skip-a-non-running-inspected-container branch (docker_state.go:139-141) is never exercised
+- Task 31: internal/modules/firewall/docker_state_test.go:648 — ErrUnavailable is only tested as a failure on every call, not partway through fact gathering
+- Task 31: internal/modules/firewall/docker_state.go:175 — a binding with host port 0 is kept as Published{HostPort: 0}
+- Task 31: internal/modules/firewall/docker_state.go:267 — the after-file paths are hardcoded a third time (target.go overlayBlockFiles and predict/edit.go hold the others)
+- Task 32: internal/modules/firewall/docker_diff.go:120 — `ddfIntegrationText` has no doc comment
+- Task 32: internal/modules/firewall/target.go:27-29 — the `//nolint:unused // ... no prediction reads it` comments on `sources` and `rowsAdd` are now stale
+- Task 32: internal/modules/firewall/docker_diff.go:44-51 — no test covers the store-read error paths of `dockerLines`
+- Task 32: internal/modules/firewall/docker_diff.go:120 — ddfIntegrationText has no doc comment
+- Task 32: internal/modules/firewall/target.go:27-29 — the //nolint:unused comments on change.sources and change.rowsAdd are stale now that dockerDiff reads both (Task 38 already owes their removal)
+- Task 32: internal/modules/firewall/docker_diff.go:44-51 — no test covers the store-read error paths of dockerLines
+- Task 33: internal/modules/firewall/plan.go:435 — plan-conflict: brief step 4 says to read the stored flag on every call to prepare, which panics the merged Task 32 test
+- Task 33: internal/modules/firewall/plan.go:432 — the new comment overstates when the store is skipped
+- Task 33: internal/modules/firewall/docker_refuse_test.go:0 — the lazy shape's own branches are not tested
+- Task 33: internal/modules/firewall/plan.go:436 — `dockerUserInUse(cur, cfg0, true)` now parses both after-file blocks on every call to prepare, even with the integration off
+- Task 33: .dforge/sdd/2026-10-28-v1-w2-firewall-docker/task-33-report.md:55 — the verbose TestDref run was on the discarded literal shape
+- Task 34: internal/modules/firewall/docker_resource.go:107 — errors from dockerState get a doubled package prefix
+- Task 34: internal/modules/firewall/docker_resource.go:401 — any address that is not IPv4 counts as IPv6
+- Task 34: internal/modules/firewall/docker_resource_test.go:0 — several behaviors the brief specifies have no test
+- Task 34: internal/modules/firewall/docker_resource.go:217 — the after file for a family is found by a linear scan inside the family loop
+- Task 34: internal/modules/firewall/docker_resource.go:33 — doc comment says "(v1, spec 2.6)"
+- Task 34: .dforge/sdd/2026-10-28-v1-w2-firewall-docker/task-34-report.md:0 — command outputs are summarized, not quoted
+- Task 33: internal/modules/firewall/plan.go:435 — plan-conflict: brief step 4 reads the stored Docker flag on every prepare, which panics Task 32's TestDdfPlanDockerLines (env.DB = nil); the deferred read stands
+- Task 33: internal/modules/firewall/plan.go:436 — dockerUserInUse parses both after-file blocks on every prepare, even with the integration off
+- Task 34: internal/modules/firewall/docker_resource.go:107 — errors from dockerState get a doubled firewall: prefix
+- Task 35: internal/modules/firewall/exposure_resource.go:27 — the inline comment on `Notes` lists only "out of sync, unsupported, Docker unavailable"
+- Task 35: internal/modules/firewall/exposure_resource.go:157 — published ports whose `HostAddr` is invalid are skipped silently
+- Task 35: internal/modules/firewall/exposure_resource.go:301 — the forward-path lookup error prints `from invalid IP on ` when the packet has no source or in-interface
+- Task 35: .dforge/sdd/2026-10-28-v1-w2-firewall-docker/task-35-report.md:12 — the report paraphrases the command output instead of recording it
+- Task 35: internal/modules/firewall/exposure_resource.go:27 — the inline comment on Notes lists only out of sync, unsupported and Docker unavailable
+- Task 35: internal/modules/firewall/exposure_resource.go:157 — published ports whose HostAddr is invalid are skipped silently (dead guard)
+- Task 35: .dforge/sdd/2026-10-28-v1-w2-firewall-docker/task-35-report.md:12 — the report paraphrases command output instead of recording it
+- Task 36: internal/modules/firewall/docker_preserve.go:171 — `mergeLayouts` matches recorded rules by text alone, so one copy of a repeated identical foreign rule can be lost on a retry
+- Task 36: internal/modules/firewall/docker_preserve.go:183 — the less obvious `mergeLayouts` branches have no tests
+- Task 36: internal/modules/firewall/docker_preserve_test.go:474 — the one change from the verbatim test file: `//nolint:unused` on `(*kfRig).standalone`
+- Task 36: internal/modules/firewall/docker_preserve.go:171 — mergeLayouts matches recorded rules by text alone, so one copy of a repeated identical foreign rule can be lost on a retry (the brief specifies text matching)
+- Task 36: internal/modules/firewall/docker_preserve.go:183 — the less obvious mergeLayouts branches (removed rule after the block, interleaved earlier record, family only in the earlier record) have no tests
+- Task 36: internal/modules/firewall/docker_preserve_test.go:474 — //nolint:unused on (*kfRig).standalone is the one change from the verbatim test file; a later task that uses the helper should remove it
+- Task 37: internal/modules/firewall/docker_cleanup_test.go:634 — TestClCleanChainsWiring checks only that production's `cleanChains` is non-nil
+- Task 37: internal/modules/firewall/wire.go:686 — the method value binds a copy of `f` whose `d.cleanChains` is still nil
+- Task 37: internal/modules/firewall/docker_cleanup.go:128 — the `blockUserRules` error wrap doubles the prefix
+- Task 37: internal/modules/firewall/docker_cleanup.go:62 — the cleanup and the chain effect disagree on which tables count
+- Task 37: internal/modules/firewall/docker_cleanup.go:269 — the family-to-ruleset selection is written three ways
+- Task 37: internal/modules/firewall/docker_preserve_test.go:0 — the `//nolint:unused` directive on `(*kfRig).standalone` is now stale
+- Task 37: .dforge/sdd/2026-10-28-v1-w2-firewall-docker/task-37-report.md:52 — the GREEN and race-run evidence is paraphrased, not the real output
+- Task 37: internal/modules/firewall/docker_cleanup_test.go:634 — TestClCleanChainsWiring checks only that production's cleanChains is non-nil
+- Task 37: internal/modules/firewall/wire.go:686 — the method value binds a copy of f whose d.cleanChains is still nil
+- Task 37: internal/modules/firewall/docker_cleanup.go:128 — the blockUserRules error wrap doubles the firewall: prefix
+- Task 37: internal/modules/firewall/docker_cleanup.go:62 — cleanupOwned looks only at the filter table while deChainsLoaded looks at every table
+- Task 37: internal/modules/firewall/docker_preserve_test.go:0 — the //nolint:unused on (*kfRig).standalone is now stale (Task 36's file; the final review removes it)
+- Task 37: internal/modules/firewall/docker_preserve.go:144 — the record now stores whole after files as base64, and each attempt whose files differ from every recorded one adds another copy. The record therefore grows with the number of differing attempts. Nothing breaks; the implementer noted it.
+- Task 37: internal/modules/firewall/docker_preserve.go:0 — out of scope: finishForeign (Task 36) still reloads only the recorded layout. Any future caller that repeats through it instead of keepForeign will drop foreign rules added after the first attempt, which is the same gap this round closed for the cleanup.
+- Task 37: internal/modules/firewall/dockerfw/block.go:345 — out of scope: Foreign compares rules by key as a set. A foreign rule whose key matches a block line is treated as Darkpanel's and dropped, and verifyCleanup (docker_cleanup.go:261-263) requires it to be gone. On a repeat the set also includes rec.Known, so this now also applies to a family that was already cleaned. The behaviour is by design and matches the first attempt; it is listed so the final review can confirm the spec accepts it.
+- Task 37: internal/modules/firewall/docker_preserve.go:144 — the foreign record stores whole after files as base64, and each attempt whose files differ adds another copy
+- Task 37: internal/modules/firewall/docker_preserve.go:0 — finishForeign (Task 36) still reloads only the recorded layout; a future caller that repeats through it instead of keepForeign would drop late foreign rules
+- Task 37: internal/modules/firewall/dockerfw/block.go:345 — Foreign compares rules by key as a set, so a foreign rule identical to a block line is treated as Darkpanel's and dropped (verifyCleanup requires it); the final review confirms the spec accepts this
+- Task 38: internal/modules/firewall/run_docker.go:51 — a non-block path is refused only after `runLogical` has already stored the flag, settings and rows
+- Task 38: internal/modules/firewall/run_docker_test.go:199 — TestDruRunFiles chooses its assertion by comparing the test-case name string (`c.name == "a file that is not a block file"`)
+- Task 38: internal/modules/firewall/run_docker_test.go:74 — a new comment names the spec ("in the order of spec 2.6"), which Step 3.4 of the brief forbids ("No new comment names a task or the spec")
+- Task 38: internal/modules/firewall/run_docker.go:51 — a non-block path is refused only after runLogical has stored the flag, settings and rows (journaled, so a revert undoes them)
+- Task 38: internal/modules/firewall/run_docker_test.go:199 — TestDruRunFiles chooses its assertion by comparing the test-case name string
+- Task 38: internal/modules/firewall/run_docker_test.go:74 — a new comment names the spec ("in the order of spec 2.6"), which Step 3.4 of the brief forbids, and cites the wrong reference
+- Task 38: internal/modules/firewall/inverse.go:158 — out of scope: on the effect-by-effect revert path (undoNewestFirst, revert.go:290), the chains effect's "loaded" inverse runs `ufw reload` before the older firewall.file: inverses put the block back into the after files, so the reload loads no block chains; a trailing reload runs only when a rule, default or logging inverse also ran (revert.go:298-301). The relative order of the file and chains effects was the same before this fix, so the fix did not introduce it (inference from reading the code, no test run)
+- Task 38: a revert's chains inverse runs ufw reload before older file effects put the block back (pre-existing order, addressed by Task 40's amendment A18)
+- Task 39: internal/modules/firewall/uninstall.go:44 — `rules=keep` now stats `ufwPath` and fails when it exists but is not a regular file
+- Task 39: internal/modules/firewall/uninstall_docker_test.go:132 — `dockerLeft`'s two triggers and its error paths are never tested on their own
+- Task 39: internal/modules/firewall/uninstall_docker_test.go:42 — the fixture changes what the shared field `h.stdin` means for this file only
+- Task 39: internal/modules/firewall/uninstall.go:44 — rules=keep now stats ufwPath and fails when it exists but is not a regular file; no test pins it
+- Task 39: internal/modules/firewall/uninstall_docker_test.go:132 — dockerLeft's two triggers and its error paths are never tested on their own
+- Task 39: internal/modules/firewall/uninstall_docker_test.go:42 — the fixture repurposes the shared field h.stdin to hold every input; a test-local slice would be clearer
+- Task 40: internal/modules/firewall/docker_revert.go:53 — `known` leaves out a present file whose block does not parse, while the brief defines `known` as "the four file contents"
+- Task 40: internal/modules/firewall/docker_revert.go:64 — `loads` requires UFW enabled for the IPv6 block too, which is one reading of an ambiguous sentence in the brief
+- Task 40: internal/modules/firewall/docker_revert.go:290 — on a failed body, `finishRecorded` reloads the record's block lines, which may jump to a chain that is not loaded
+- Task 40: internal/modules/firewall/restore.go:170 — `snapshotStart(snap)` is called a second time, and `cfgS` is reused as a name in a different scope
+- Task 40: internal/modules/firewall/docker_revert_test.go:363 — no test covers a whole-restore revert of a cleanup
+- Task 40: internal/modules/firewall/docker_revert.go:53 — `known` leaves out a present file whose block does not parse (the brief says the four file contents)
+- Task 40: internal/modules/firewall/docker_revert.go:64 — `loads` requires UFW enabled for the IPv6 block too (one reading of an ambiguous brief sentence; recorded for Tasks 45 and 46)
+- Task 40: internal/modules/firewall/docker_revert.go:290 — on a failed body, finishRecorded reloads the record's block lines, which may jump to a chain that is not loaded
+- Task 40: internal/modules/firewall/restore.go:170 — snapshotStart(snap) is called a second time and cfgS is reused as a name in a different scope
+- Task 41: internal/modules/firewall/docker_ruleops.go:67 — the insert branch skips the origin and empty-id guard that `addRuleOp` applies (effects.go:33)
+- Task 41: internal/modules/firewall/docker_ruleops.go:58 — a `RuleOp` with an empty `Delete` and a nil `Add` dereferences nil and panics instead of returning an error
+- Task 41: internal/modules/firewall/docker_ruleops_test.go:0 — no test exercises the `%d rules carry the id %s` error (docker_ruleops.go:54-56)
+- Task 42: internal/modules/firewall/actions_docker_enable.go:124-129 — manual-route notes match on `ruleText` alone
+- Task 42: internal/modules/firewall/actions_docker_enable_test.go:0 — the error paths of `dockerFlagCheck` are untested
+- Task 43: internal/modules/firewall/actions_container.go:230 — verify dereferences `op.Binding` without a nil check and converts `op.Op` to a Kind by its string value.
+- Task 43: internal/modules/firewall/actions_container.go:139 — operations that carry fields their kind does not use are accepted silently.
+- Task 44: internal/modules/firewall/actions_state.go:76 — flag on and enable on an already-active UFW still calls `f.dockerState` (which reads from the Docker daemon), and `integrationChange` then discards the result
+- Task 44: internal/modules/firewall/actions_state_docker_test.go:272 — no action-level test of `firewall.state.disable` with the flag on
+- Task 45: internal/modules/firewall/actions_snapshot_docker_test.go:71 — plan-level fixture defect, fixed with a justified one-line deviation
+- Task 45: internal/modules/firewall/docker_restore_change.go:305 — double package prefix in the wrapped error
+- Task 45: internal/modules/firewall/actions_snapshot_docker_test.go:0 — no direct test of the `DockerSettings == nil` fallback in `snapshotDockerSide`
+- Task 46: internal/modules/firewall/actions_repair_docker_test.go:198 — no keep case separates the stored flag from the snapshot's flag.
+- Task 46: .dforge/sdd/2026-10-28-v1-w2-firewall-docker/task-46-report.md:22-45 — the RED and GREEN output is summarised, not quoted.
+- Task 46: internal/modules/firewall/actions_repair.go:91-94 — the `readDockerConfig` error is returned without added context.
+- Task 47: internal/modules/firewall/docker_repair_test.go:0 — no test reaches the Plan wrapper's success path that appends the discard lines
+- Task 47: internal/modules/firewall/docker_repair.go:160 — loaded Darkpanel lines from a stale block are listed (and discarded) as "foreign"
+- Task 48: internal/modules/firewall/docker_sources.go:103 — the shadowed-deny refusal reads "…no longer fits the private sources: request.invalid_input: the container rule is invalid"
+- Task 48: internal/modules/firewall/docker_sources_test.go:308 — the shadowed-deny case only asserts that the detail contains the rule id
+- Task 49: internal/modules/firewall/reconcile.go:108 — The Warn for an unsupported integration repeats every 5 minutes and on every matching Docker event.
+- Task 49: internal/modules/firewall/reconcile_test.go:482 — No test covers the branch where `dockerUserInUse` returns an error other than `docker_user_in_use` and the pass must fail (reconcile.go:88).
+- Task 49: internal/modules/firewall/reconcile.go:104 — `dockerfw.Owned(d.Chain)` ignores `d.Table`, so a difference in a same-named chain of another table would count as owned and route to `firewall.docker.repair`.
+- Task 50: schemas/firewall.exposure/v1.json:2031 — this snapshot becomes stale as soon as the fix above lands
+- Task 51: internal/modules/firewall/docker_e2e_test.go:670 — plan-mandated: deeKernelDiffs lets the revert leave a `-j RETURN` in DOCKER-USER that was not there before
+- Task 51: internal/modules/firewall/docker_e2e_host_test.go:193 — sockets and interfaces discard the error from e2eNet
+- Task 51: internal/modules/firewall/docker_e2e_test.go:971 — the final loop of TestDeeForeignRuleSurvivesRevert accepts any single extra rule in the IPv4 DOCKER-USER
+- Task 52: test/harness/m3_docker_lifecycle_test.go:763 — the container-rule row cleanup is registered after `m3dDockApply` creates the row
+- Task 52: test/harness/m3_docker_lifecycle_test.go:425 — `m3dDockTry` drops the confirm answer
+- Task 53: test/harness/m3_docker_traffic_test.go:329 — The cleanups use the test-wide ctx, so they fail once TestM3Docker's 60-minute deadline has passed.
+- Task 53: test/harness/m3_docker_traffic_test.go:507 — After the restart, ports 18208 and 18209 are checked by two separate scans rather than one.
+- Task 53: .dforge/sdd/2026-10-28-v1-w2-firewall-docker/task-53-report.md:26 — The report says it added "three small unexported helpers" but names only two (m3dTrafficAllowed and m3dTrafficView). The diff contains those two.
+- Task 54: test/harness/m3_docker_exposure_test.go:504 — the unknown-verdict rule covers only TCP rows
+- Task 54: test/harness/m3_docker_exposure_test.go:621-626 — `m3dExpoSourcePort` repeats the probe logic instead of reusing `m3dExpoProbe`
+- Final review: out of scope — callers outside the fix drop finishForeign's interleaved result, so a live foreign rule placed between block lines is moved ahead of the block without marking the change needs_repair (spec 2.6)
+- Final review: internal/modules/firewall/docker_revert_test.go — TestKfwEndCleanupKeepsLiveForeign checks only the two foreign rules, not that block lines stay out of the foreign set; finishForeign's configuration-read failure path has no test; m3dDockTry's 2-minute bound also cuts off a slow apply that was not refused for the lock
+- Final review: spec decision for the plan owner — the exposure-private-class scenario now checks the private-range warning only on a binding with a stored allow rule (a deny row cannot produce privateReach), so a published port with no rules gets no warning and nothing tests that case; the status lists bindings without rows no differently
+- Final review: test/harness/m3_docker_lifecycle_test.go — the leftover-integration disable step retries every API error for up to 2 minutes, including a server error after the apply may already have created a change
+
+## Parked findings
+
+- Task 2: cannot-verify: later tasks (10, 12, 13, 17, 21, 22, 31) consume these types as the Contracts describe — Ruling: forward-looking, the diff cannot satisfy it; Task 2's exports match the Contracts entry exactly — if a consumer finds a mismatch its own review reports it, a one-line fix
+- Task 1: cannot-verify: leftover container dp-w2-cap-exp and the header-only docker ps check — Ruling: Task 1 removed every container it started and may remove only those; the check does not apply to a container that predates the run; no later task runs it
+- Task 3: cannot-verify: full-suite result quoted only as a summary — Ruling: the log holds 61 ok and 2 no-test-files lines, no FAIL, and belongs to commit 5787e97 by reflog timestamp — if wrong, a failure in the loaded package would surface at the wave check
+- Task 4: cannot-verify: whether Tasks 11 and 35 can group by Decided when it is empty — Ruling: Task 4 matches its contract; Accept carries a non-empty Decided, only hook-level Unknown is empty and Task 11 classes any Unknown as unknown before grouping; Task 35 only passes Decided through — a consumer mismatch would show in Task 11's own review
+- Task 6: cannot-verify: suite log and lint result belong to HEAD 3e60df1 — Ruling: the suite log post-dates the commit with 63 ok lines and no FAIL, and the controller's -race run at 3e60df1 passed; the 0 issues lint result rests on the implementer's report and wave 3's full Integration check re-runs golangci-lint — a lint finding would surface there and be local to atoms.go
+- Task 7: cannot-verify: no suite-run digest for 420d066 — Ruling: the plan asks only for pnpm lint, typecheck and test to pass, which the implementer ran (29 files, 303 tests); the wave's closing full check re-runs everything — a failure would surface there
+- Task 7: cannot-verify: the brief's separate RED typecheck run was skipped — Ruling: the Vitest RED run failed before the implementation and the post-implementation typecheck passed, so no requirement is unmet — none
+- Task 8: cannot-verify: no suite-run digest for b855520 — Ruling: settled by the controller's full Integration check at b855520 (suite pass, 63 pass 0 fail) which includes the web gates — none
+- Task 8: cannot-verify: Go-side global gates not shown in the report — Ruling: the same full check ran every Go gate at b855520, and the diff touches only two web files — none
+- Task 9: ParsePorts repeats OpenPorts' scan loop (plan-mandated, nmap.go:109) — Ruling: the duplication stands; OpenPorts filters by host and skips bad entries while ParsePorts reads every host and errors on a bad entry, so sharing the loop would change wave 1's M1 scan tests, which the brief's "OpenPorts stays unchanged" prevents; Tasks 52-54 depend only on ParsePorts — a future nmap output change must be fixed in two neighbouring functions
+- Task 9: cannot-verify: gate results paraphrased in the report — Ruling: the fix round's section quotes the harness, harness/release and harness/vm ok lines and 0 issues. verbatim and the post-commit suite log holds 63 ok with no FAIL — none
+- Task 9: cannot-verify: pebble and challtestsrv ports and pins — Ruling: both images are pinned in test/harness/images.json and pins.go; whether they serve the ports is a run-time check for Tasks 52-54 — a wrong port assumption surfaces in Task 52-54's harness run
+- Task 10: cannot-verify: full-suite gate quoted as a wrapper summary — Ruling: the suite log (started 2 s after commit 0b1fed9) holds 63 ok lines and no FAIL, --- or panic line, which meets the brief's every-line-ok-or-? requirement — none
+- Task 10: cannot-verify: RED evidence quotes two of five undefined identifiers — Ruling: the brief's RED step only describes the expected failure and does not require quoting all five; the report shows real build-failure lines — none
+- Task 11: cannot-verify: how Atoms treats exclude prefixes of the other family — Ruling: dropped by design (Task 6 text, atoms.go paSpans, an existing test), and A5 makes Task 11 filter in.Private by family itself — none
+- Task 11: cannot-verify: whether Task 35 passes Target.Addr unmapped and of in.Family — Ruling: Task 35's text already does (Unmap on host and local addresses, one Input per family) — Task 35's review would catch a regression
+- Task 12: every IPv4 endpoint held to a bridge raw rule whatever its driver (plan-mandated, detect.go:104) — Ruling: stands; Task 31 builds Endpoints only for bridge-driver networks and is the only caller of RawProtected, and the spec reports non-bridge networks as unprotected rather than refusing the host — a non-bridge endpoint reaching RawProtected would wrongly refuse a supported host
+- Task 12: cannot-verify: whether Task 31 fills Endpoint.Bridge for every endpoint — Ruling: Task 31 Step 3 item 4 sets it from the bridge name or dockerfw.Bridge, never empty, and TestDfDockerStateFacts pins the values — an empty Bridge would refuse the host rather than hide an exposure
+- Task 17: netfilter.Key output for a V6 bare -j RETURN could not be verified from the diff — Ruling: the requirement is met; Key returns exactly -j RETURN in both families (the ipv6 flag only changes the recent mask, icmp6 names and REJECT defaults), established by reading the code; the missing V6 test case is a coverage gap — if wrong, Foreign flags Docker's own default V6 rule as foreign and the in-sync check shows a false drift
+- Task 17: callers must supply CustomBridges sorted and BindingLine.HostAddr zero for a wildcard — Ruling: Task 21 rules 2 and 5 already require both and TestRzRealizeCustomBridges and TestRzRealizeHostAddress pin them; Task 21's review should confirm those two tests are present — if wrong, a wildcard HostAddr prints --ctorigdst 0.0.0.0 and the published port is silently closed
+- Task 18: fw.run writing the block files after a restore's files and before the ufw commands, as the new doc comment at target.go:74-80 states — Ruling: Task 38 Step 3 item 1 and the Contracts paragraph already order fw.run that way and TestDruRunOrder pins files before the ufw commands; the after-a-restore's-files half is unreachable because no builder emits restore and files together — if wrong, only the Task 18 doc comment overstates a combination nothing produces
+- Task 20: whether later tasks (26, 28, 31, 36) call writeDockerConfig and replaceContainerRules inside a db.Write transaction as the contract intends — Ruling: the plan text of Task 26 step 3.2, Task 30 step 3.2 and Task 37 step 4 already calls them inside one write and Task 36 uses only the foreign-rules table, so nothing needs re-checking when they land — if wrong, a later task would write the Docker settings outside a transaction and a failed insert could leave partial state
+- Task 23: CleanupInput's :DOCKER-USER redeclaration discards foreign DOCKER-USER rules, against the constraint that no automatic operation discards one — Ruling: Task 37 refuses with firewall.docker_user_in_use in refuse mode and in preserve mode reloads the foreign rules through Task 36's keepForeign (DockerUserInput) after cleanup, pinned by TestClRefuse, TestClPreserve, TestClFinishCleanups, TestClFailedLoadIsFinished and TestClCleanChainsWiring; a crash between the two restores leaves a record that finishCleanups restores from — if wrong, a foreign DOCKER-USER rule could be dropped during cleanup
+- Task 23: -X of the owned chains fails and -n rejects the whole input if a chain outside the input still jumps to one — Ruling: the finding's premise does not hold for Darkpanel's block (ufw-user-forward is a jump target of dp-b-*, never a jumper; the only jumps into the owned chains come from DOCKER-USER, which CleanupInput resets in the same transaction), commands.txt shows exit 0 for both restores on all four images, pinned by TestCapCleanup and Task 37's TestClCleanup — if wrong, the cleanup restore is rejected and the chains stay loaded
+- Task 25: whether the 16 expected verdicts in TestDcDecisions and the noRaw modelling match spec 2.6 — Ruling: none of the 16 contradicts spec 2.6 and the spec says nothing about the raw table, so evaluating without it tests only the block's own chains; compared by reading, tests not run — if wrong, a verdict row would assert behaviour the spec does not give
+- Task 26: the Contracts entry "Docker effects" says the observe dispatch covers four nouns while the brief and code have three — Ruling: three is right; "four" counts the four resources, but the same sentence lists three noun constants, and Task 27's inverse adds one case for those three and needs no fourth — if wrong, Task 27's inverse would miss a noun
+- Task 27: Task 37 must set cleanChains in productionFW or undoing a firewall.chains:docker effect whose Before is "absent" fails in production — Ruling: the plan already requires it (Task 37 lists wire.go in its Files and Step 3 item 2 sets f.d.cleanChains = f.cleanChainsPreserving) and TestClCleanChainsWiring (Task 37 Step 1) fails if productionFW leaves cleanChains nil; Task 37's review confirms that test is present and passing — if wrong, undoing a chain cleanup fails outside tests
+- Task 28: whether every capture caller runs under the firewall lock so the separate Docker reads agree with row writes — Ruling: the only production caller is mutation.Snapshot (handler.go:98), which the engine calls inside the apply under applyMu after locksFree confirms the firewall lock is free and before takeLocks, so no other firewall change can run then; fw.prepare, fw.run and repair do not call capture and no later task adds a caller — if wrong, a snapshot could read Docker settings and rows from different moments
+- Task 28: whether Tasks 30, 40 and 45 read DockerSettings == nil as write dockerfw.DefaultSettings — Ruling: Tasks 30 and 45 both do (Task 30 has TestDrsRestoreOfASnapshotFromBeforeTheIntegration; Task 45 states the rule without a test of its own) and Task 40 never reads DockerSettings — if wrong, restoring a pre-integration snapshot would write empty settings
+- Task 29: whether DockerStatus.health and DockerIssue.level are the closed unions HEALTH_BADGES and LEVEL_BADGES assume — Ruling: they are closed string-literal unions in types.ts and both badge maps are Record types over exactly those unions, so the compiler enforces the keys — if wrong, a new health or level value would render without a badge
+- Task 29: FirewallChange re-planning with manual: true after firewall.manual_required, and its effect on the "Repair and discard foreign rules" path — Ruling: the path plans first without manual, FirewallChange catches the refusal, asks the operator and re-plans with manual: true only on "Change it anyway", so foreign rules are never discarded without the confirmation; the server side (Task 47 refusing discardForeign without manual) is not built yet and was checked against the plan text only — if Task 47 does not implement it, the failure is safe: the web shows an error and discards nothing
+- Task 30: whether Task 40 decides its cleanup from the stored Docker flag, which Task 30 overwrites before any file write — Ruling: Task 40's text defines cleanup from the snapshot's afterwards files and the loaded chains (readLoaded), never from readDockerConfig, and TestKfwRestore's two no-block cases cannot pass with a flag-driven design — if wrong, Task 40 could skip or run a cleanup from a flag already overwritten
+- Task 31: whether Tasks 34 and 35 depend on dfState recomputing realized after the opts run — Ruling: neither task calls dfState (Task 34 builds states with dstState(), Task 35 with xvDocker()), so a mismatch would show as a compile error in that task, not a silent change — if wrong, a Task 34/35 test fails to compile and is fixed there
+- Task 32: whether the plan-diff line texts satisfy Tasks 41-48 — Ruling: the plan text and tests of Tasks 42, 43, 45, 46 and 48 use exactly the texts Task 32 emits and Tasks 41, 44 and 47 name none — if wrong, a later task's own plan test fails at its first run and its expected string is corrected there
+- Task 33: plan-conflict: prepare reads the stored Docker flag only when dockerUserInUse finds something to refuse (Task 32's test plans with env.DB = nil) — Ruling: spec 2.6 says nothing about when the flag is read, the lazy shape refuses identically in every case the brief and its tests list, and it keeps Task 32's test passing; no text change — if wrong, a store read error goes unreported when DOCKER-USER holds nothing to refuse
+- Task 33: whether Tasks 37, 47 and 49 assume prepare reads the flag on every call — Ruling: none does (Task 37 never calls prepare, Task 47's discard path skips the check in both shapes, Task 49 reads the flag itself) — if wrong, one of those tasks' tests fails on first run
+- Task 34: Task 50 registering f.dockerResource() in resources() — Ruling: Task 50 Step 3 item 2 already appends f.dockerResource() and f.exposureResource() — if wrong, Task 50's review catches the missing registration
+- Task 34: BlockOf return order assumed by docker_resource.go:232 — Ruling: matches the Contracts dockerfw block signature (block, ok, err) — if wrong, the build would already fail
+- Task 35: RawProtected (dockerfw/detect.go, Task 12) is stricter than the spec, so a host running Docker's allow-direct-routing would be refused as unsupported — Ruling: the check fails closed with an explicit reason, the Task 1 captures cover only default daemons, and nothing downstream depends on it; the final review carries it as an open owner note — if wrong, hosts with allow-direct-routing are refused until the owner relaxes the check with a capture scenario
+- Task 35: whether Task 50 registers fw.exposureResource() — Ruling: Task 50 Step 3 item 2 and its resource-list test already require it — if wrong, Task 50's own test fails on its first run
+- Task 37: whether A14 matches the discard text of brief step 4.5 — Ruling: A14's New text is word for word the step 4.5 text the reviewer checked — if wrong, none
+- Task 37: whether Task 40 can leave a record under a change id whose cleanup runs later — Ruling: Task 40 records under restore:/revert: owners that never equal a cleanup owner (the change id or uninstall) and Task 38 never calls keepForeign — if wrong, a cleanup repeat would reload -j RETURN in place of the restore's block and the next reconcile reports health broken; no foreign rule is lost
+- Task 38: whether deEditConfig's read through env.DB races with concurrent writers — Ruling: the store has a single writer connection and every write takes an immediate transaction, so the read inside deEditConfig happens under the write lock — if wrong, a lost update of the stored Docker settings
+- Task 39: whether Task 39's uninstall cleanup runs after restoreBaseline strips the block — Ruling: only rules=baseline rewrites the after files first, through restoreOver, which under A17 runs the cleanup while the files still hold the block; until Task 40 lands, a baseline uninstall refuses and no Task 39 test catches it — if wrong, uninstall with rules=baseline refuses with firewall.docker_user_in_use
+- Task 39: whether a repeated uninstall succeeds after a failed reload — Ruling: on the repeat nothing is left to change, so the cleanup never calls ufw and clears the leftover intent — if wrong, a repeated uninstall keeps failing
+- Task 40: the implementer's readings of `known` (a present file whose block does not parse is left out) and `loads` (enabled && (v4 || (ipv6 && v6))), and the failed-body finishRecorded reload — Ruling: both readings are recorded for Tasks 45 and 46 to use, and the reload concern needs a DOCKER-USER flush without the block's chains loaded, which does not happen on real UFW — if wrong, Tasks 45/46 read the ambiguous sentence differently or foreign rules stay unloaded until a later revert
+- Task 40: whether other effects sit between the cleanup's file effects and its chains effect for kfwUndoOrder — Ruling: fw.run runs the cleanup first and nothing records between them in any change carrying cleanup — if wrong, kfwUndoOrder misses a chains effect and the revert fails its Before check
+- Task 41: cv-41-2 (revert/recovery of an `insert` create) — Ruling: runUfw, observe and deleteAdded find a created rule by its id tag and recorded post state and never read the allow/deny verb in Args, so an insert create reverts like an add — if wrong, a reverted or crashed insert leaves a stray tagged container rule
+- Task 42: cv-42-1 (blockFiles vs dockerFlagCheck's two-file loop) — Ruling: blockFiles always handles both after files and refuses the build if either is missing, so verify always matches what enable wrote — if wrong, none for verify
+- Task 42: cv-42-2 (suite log unopened) — Ruling: the log holds 63 ok lines and no FAIL, panic or --- lines — if wrong, none, the next wave's Integration check re-runs the suite
+- Task 43: cv-43-1 (container rule plan lines and firewall.container:<id> journal effects) — Ruling: Task 32's docker_diff tests and Task 38's run_docker and docker_effects tests pin the lines and effects, and TestCtrActions pins the plan lines and the created effect (the removed row's delete effect is covered by the Task 38 tests through the same rowDeleteOp) — if wrong, a container allow, deny or remove would show a wrong diff line or write a wrong journal effect
+- Task 44: cv-44-1 (nil env.DB in readDockerConfig for state.enable, state.disable and defaults.set) — Ruling: Engine.env copies the engine's Base and engine.go:153 rejects a nil Base.DB, so every production Env has a database; a nil-DB guard would hide a wiring error — if wrong, planning one of the three actions without a database panics
+- Task 44: cv-44-2 (cleanup before the transition on disable) — Ruling: fw.run (handler.go:212) runs the cleanup first, TestDruRunOrder and TestDruRunFiles pin that order for a disable-shaped change, integrationChange sets cleanup = !enable and TestDshIntegrationChange asserts it; no Task 44 test runs disable end to end, the harness steps in Tasks 53/54 do — if wrong, disable would clean after the transition
+- Task 45: cv-45-1 (Docker effects on the inactive-UFW restore path) — Ruling: fw.run (handler.go:212-248) runs the cleanup, writeRestored and runLogical before the UFW transition without testing whether UFW is active, and the spec orders a restore that way; no test pins the inactive case — if wrong, a restore on an inactive-UFW host would leave the Docker flag, settings or rows unrestored
+- Task 46: cv-46-1 (dockerRestoreChange refusal and cleanup) — Ruling: dockerRestoreChange calls refuseOpenIncoming(want.cfg.Enabled, final) with the snapshot's flag and configuration before reading any state, and withDockerRestore sets c.cleanup = now.cfg.Enabled && !want.cfg.Enabled on both restore paths (actions_snapshot.go:45, actions_repair.go:107) — if wrong, a restore or repair could open incoming traffic or leave Docker chains loaded after turning the integration off
+- Task 47: cv-47-1 (fw.prepare skipping dockerUserInUse under discardForeign, predictTarget modelling the flush, plan-level test) — Ruling: plan.go:68 guards the refusal and TestDrefPrepare covers it, predictTarget overlays the block files and takes the reload branch so the foreign rules are gone from the predicted state (TestDtgPredictsTheBlock); the plan-level test of a successful repair listing the discarded rules can wait, since Task 51's TestDeeForeignRuleRefusesMutations plans and applies firewall.docker.repair with discardForeign and manual and asserts the diff lists the rule (the final review checks it survives) — if wrong, a repair with discardForeign is refused or its plan hides the discarded rules
+- Task 48: cv-48-1 (private sources plan line and revert of firewall.setting:sources) — Ruling: Task 32's dockerDiff tests assert the "private sources:" lines and TestDsoSourcesSetApplied checks fw.plan emits one for this action; Task 27's TestDiInverseSettings undoes a firewall.setting:sources effect and checks the prior lists return, and Task 48 writes the same effect through sourcesOp; no Task 49-54 test reverts firewall.docker.set-sources, which the earlier tests make unnecessary — if wrong, a revert of set-sources would leave the new lists in place
+- Task 49: cv-49-1 (firewall.docker.repair accepts every difference reconcile routes to it) — Ruling: dockerfw.Owned is a subset of the chains firewallChain covers and confined in sync.go uses firewallChain, so the repair plan guard never refuses a routed difference — if wrong, reconcile passes would fail the repair guard on every run
+- Task 49: cv-49-2 (containers.apply with an empty ops list rewrites stale after files) — Ruling: containerChange in actions_container.go (Task 43's file) sets the files and the reload for any after file that differs even with no ops, pinned by the subtest "a change that restores a lost realization is made" — if wrong, a pass that finds stale files would keep applying a no-op change
+- Task 49: cv-49-3 (registration of reconcileTask and the actor system:firewall.reconcile) — Ruling: Task 50 Step 3 item 3 registers reconcileTask through module.BackgroundTasks and TestRegReconcileTask pins it; the runtime builds the actor as "system:"+task ID and ApplySystem accepts any non-irreversible action of the task's own module — if wrong, the task is never registered or its actions are refused
+- Task 50: cv-50-1 (tagged field passes the guard) — Ruling: the fix round's own run of ./internal/modules/ and ./schemas/ settles it — if wrong, the guard still fails after the fix
+- Task 50: cv-50-2 (other untagged pointer outputs) — Ruling: the guard checks every registered output and reported only rows[].container; the other pointers in Contracts are input fields — if wrong, the fix round's run of ./internal/modules/ names them
+- Task 51: cv-51-1 (Task 1 capture's IPv6 limit-chain rules missing in all four images) — Ruling: the capture stays unchanged and the gap is recorded for the final review; Tasks 52-54 read no dockerfw capture file and only dockerfw capture_test.go, decisions_test.go and Task 51's host fixture read them, the fixture working around the gap (A28) — if wrong, a later test asserting the base IPv6 save is in sync with UFW sees a false mismatch
+- Task 51: cv-51-2 (repair snapshot that captured a foreign DOCKER-USER rule fails before-image verification) — Ruling: stays carried to the final review as Important; verifyRestore runs only from restoreOver on revert and restore, and Tasks 52-54 never revert a repair snapshot holding a foreign rule — if wrong, a harness scenario reverting such a repair fails on a VM
+- Task 51: cv-51-3 (suite log not opened) — Ruling: .dforge/suites/1793247719-1548894.log holds 63 ok package lines and 2 no-test-files lines and no FAIL, panic, race or warning lines — if wrong, none
+- Task 52: cv-52-1 (scenario 7 requires exactly one -j RETURN in DOCKER-USER after firewall.state.disable) — Ruling: spec 2.6 says the cleanup leaves DOCKER-USER holding only -j RETURN and state.disable with the flag on runs it, so wantReturn stays true; the final review reads scenario 7 in the gate-7 log and relaxing to false is acceptable only if it shows zero -j RETURN lines after UFW stops — if wrong, scenario 7 fails on a VM
+- Task 52: cv-52-2 (real iptables-nft-save text of the exemption and DNAT gate) — Ruling: routed to the gate-7 run; the final review looks for m3dxDockExemptionLine and m3dxDockBlockLoaded failures — if wrong, those helpers fail on a VM
+- Task 52: cv-52-3 (scenario 10's wrapper path and stall-file race) — Ruling: the plan restricts the agent to calling /usr/sbin/<tool>-restore -n by path so the wrapper assumption holds; a stall-file race would show as a timeout in scenario 10 — if wrong, scenario 10 times out on a VM
+- Task 52: cv-52-4 (none of the eleven scenarios has run) — Ruling: the plan routes the gate-7 run (header line 42, Task 54 Step 6, gates.md gate 7); harness.yml is dispatched once after Task 54 is committed and the branch is pushed, since only Task 54 adds the TestM3Docker workflow step — if wrong, an earlier run would not exercise Task 52
+- Task 53: cv-53-1 (60-minute TestM3Docker deadline) — Ruling: the deadline stays; Task 54 owns the workflow (-timeout 70m, 280-minute job limit) and checks it against m3dDockDeadline so it can raise the deadline if the gate-7 run needs more time, and the 90-second waits only run to their limit when a scenario is already failing — if wrong, the gate-7 run times out and Task 54 raises the deadline
+- Task 53: cv-53-2 (scenarios pass on real VMs) — Ruling: they run only in gate 7, routed after Task 54 is committed and the branch pushed (Task 52 ruling) — if wrong, a scenario fails on a VM
+- Task 53: cv-53-3 (same source-B address added by two scenarios) — Ruling: m3dAddSource registers its removal on the subtest's own t, so the second add does not collide — if wrong, the second add collides
+- Task 53: cv-53-4 (release server needed for the outbound connection to scannerIPv4:8000) — Ruling: serveReleases runs before the steps (m3_docker_test.go:25) — if wrong, the outbound connection scenario fails
+- Task 54: cv-54-1 (TestM3Docker 60-minute deadline over 23 steps) — Ruling: the waits are upper limits only a failing step reaches; the first gate-7 run is the check, and if TestM3Docker takes more than 45 minutes on any image the final review raises the deadline to 90 minutes, the step's -timeout to 100m and the job limit to 300 minutes in one commit — if wrong, the gate-7 run times out
+- Task 54: cv-54-2 (expected exposure verdicts for docker-proxy IPv6 rows and 18302 partial) — Ruling: they follow from the spec's rules for docker-proxy ports and the rows Task 35's TestXvRows checks; 18302 is partial because the scanner's addresses are outside the default private ranges; gate 7 confirms — if wrong, the scenario fails on a VM
