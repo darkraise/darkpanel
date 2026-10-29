@@ -1,6 +1,7 @@
 package firewall
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 
@@ -57,8 +58,10 @@ func (f fw) stateAction(name, summary string, enable bool) core.ActionDef {
 		f:       f,
 		guarded: func(in StateInput) core.Guarded { return in.Guarded },
 		manual:  func(in StateInput) bool { return in.Manual },
-		build: func(context.Context, core.Env, StateInput) buildFunc {
-			return func(fwstate.Config, fwstate.Loaded) (change, error) { return change{enable: &enable}, nil }
+		build: func(ctx context.Context, env core.Env, _ StateInput) buildFunc {
+			return func(cfg fwstate.Config, cur fwstate.Loaded) (change, error) {
+				return f.stateChange(ctx, env, enable, cfg, cur)
+			}
 		},
 		check: func(_ context.Context, _ core.Env, _ StateInput, cfg fwstate.Config) error {
 			if cfg.Enabled != enable {
@@ -67,6 +70,59 @@ func (f fw) stateAction(name, summary string, enable bool) core.ActionDef {
 			return nil
 		},
 	})
+}
+
+// stateChange is the change of firewall.state.enable (enable) and
+// firewall.state.disable: the transition alone while the Docker integration
+// is off, and with it on the after files with or without the Docker block
+// and, when stopping UFW, the owned-chain cleanup.
+func (f fw) stateChange(ctx context.Context, env core.Env, enable bool, cfg fwstate.Config, cur fwstate.Loaded) (change, error) {
+	dc, err := readDockerConfig(ctx, env.DB)
+	if err != nil {
+		return change{}, err
+	}
+	if !dc.Enabled {
+		return change{enable: &enable}, nil
+	}
+	// Disabling keeps the zero dockerState: removing the block needs no
+	// facts, and turning UFW off must not depend on the daemon answering.
+	var st dockerState
+	if enable {
+		if err := refuseOpenIncoming(true, cfg); err != nil {
+			return change{}, err
+		}
+		if st, err = f.dockerState(ctx, env, cur); err != nil {
+			return change{}, err
+		}
+	}
+	return integrationChange(enable, cfg, st)
+}
+
+// integrationChange is the transition to enable with the Docker integration
+// on: starting UFW writes the realized block into the after files first, and
+// stopping it removes the block and asks for the owned-chain cleanup. Only
+// the files whose bytes change are written.
+func integrationChange(enable bool, cfg fwstate.Config, st dockerState) (change, error) {
+	c := change{enable: &enable}
+	// An active UFW's block is firewall.docker.repair's to rewrite; this
+	// transition only adds or removes it with UFW itself.
+	if enable == cfg.Enabled {
+		return c, nil
+	}
+	files, err := blockFiles(cfg, st, enable)
+	if err != nil {
+		return change{}, err
+	}
+	for p, data := range files {
+		if !bytes.Equal(data, cfg.Files[p].Data) {
+			if c.files == nil {
+				c.files = map[string][]byte{}
+			}
+			c.files[p] = data
+		}
+	}
+	c.cleanup = !enable
+	return c, nil
 }
 
 // defaultsSet is firewall.defaults.set: set the default policies that
@@ -79,11 +135,22 @@ func (f fw) defaultsSet() core.ActionDef {
 		f:       f,
 		guarded: func(in DefaultsInput) core.Guarded { return in.Guarded },
 		manual:  func(in DefaultsInput) bool { return in.Manual },
-		build: func(_ context.Context, _ core.Env, in DefaultsInput) buildFunc {
+		build: func(ctx context.Context, env core.Env, in DefaultsInput) buildFunc {
 			return func(cfg fwstate.Config, _ fwstate.Loaded) (change, error) {
 				if in.Incoming == "" && in.Outgoing == "" && in.Routed == "" {
 					return change{}, &errcode.Error{Code: errcode.InvalidInput, Detail: "set at least one default policy",
 						Fields: []errcode.FieldError{{Path: "/incoming", Message: "set incoming, outgoing or routed"}}}
+				}
+				dc, err := readDockerConfig(ctx, env.DB)
+				if err != nil {
+					return change{}, err
+				}
+				final := cfg
+				if in.Incoming != "" {
+					final.DefaultInput = in.Incoming
+				}
+				if err := refuseOpenIncoming(dc.Enabled, final); err != nil {
+					return change{}, err
 				}
 				var c change
 				for _, d := range dirs(in) {
