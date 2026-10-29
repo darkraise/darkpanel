@@ -3,6 +3,7 @@ package dockerfw
 import (
 	"net/netip"
 	"reflect"
+	"strconv"
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
@@ -396,5 +397,35 @@ func TestRzFamilyMatchesRender(t *testing.T) {
 		if got, want := rzIs6(a), blockFamilyOf(a) == fwstate.V6; got != want {
 			t.Errorf("rzIs6(%s) = %v, want %v (Render's family)", s, got, want)
 		}
+	}
+}
+
+// TestRzBadBridges: a bridge network whose interface name is not a plain
+// Linux name of at most 15 characters is reported, since the name goes into
+// the block's -i and -o matches, where eth+ would match every eth interface.
+func TestRzBadBridges(t *testing.T) {
+	for _, c := range []struct {
+		bridge string
+		bad    bool
+	}{
+		{"dpcustom", false}, {"docker0", false}, {"br-0123456789ab", false}, {"a.b_c-d", false}, {"abcdefghijklmno", false},
+		{"eth+", true}, {"br-+", true}, {"eth*", true}, {"eth 0", true}, {"!eth0", true}, {"eth0\t", true},
+		{"abcdefghijklmnop", true}, {"-i", true}, {".", true}, {"eth0;", true}, {"ethé", true},
+	} {
+		n := Network{ID: "id-net", Name: "net", Driver: "bridge", Bridge: c.bridge}
+		got := BadBridges([]Network{n})
+		if c.bad != (len(got) == 1) {
+			t.Errorf("BadBridges(%q) = %q, want bad %v", c.bridge, got, c.bad)
+		}
+		if c.bad && got[0] != "network net: bridge name "+strconv.Quote(c.bridge)+" is not a plain interface name of at most 15 letters, digits, '_', '-' or '.'" {
+			t.Errorf("BadBridges(%q) = %q", c.bridge, got[0])
+		}
+	}
+	others := []Network{
+		{ID: "0123456789abcdef", Name: "plain", Driver: "bridge"},
+		{ID: "id-overlay", Name: "overlay", Driver: "overlay", Bridge: "eth+"},
+	}
+	if got := BadBridges(others); len(got) != 0 {
+		t.Errorf("BadBridges = %q, want none for a default bridge name and a network without a bridge", got)
 	}
 }

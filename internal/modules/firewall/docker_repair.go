@@ -98,7 +98,7 @@ func dockerRepairChange(cfg fwstate.Config, in DockerRepairInput, st dockerState
 	if !st.available {
 		return change{}, errcode.New(errcode.FirewallUnsupportedIntegration, "Docker is unavailable: "+st.reason)
 	}
-	if reasons := dockerfw.Unsupported(st.det); len(reasons) > 0 {
+	if reasons := dockerUnsupported(st); len(reasons) > 0 {
 		return change{}, errcode.New(errcode.FirewallUnsupportedIntegration, strings.Join(reasons, "; "))
 	}
 	files, err := blockFiles(cfg, st, true)

@@ -1,7 +1,9 @@
 package dockerfw
 
 import (
+	"fmt"
 	"net/netip"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -124,6 +126,27 @@ func rzCustomBridges(networks []Network) []string {
 	}
 	slices.Sort(bridges)
 	return slices.Compact(bridges)
+}
+
+// bridgeNameRe is the shape of a bridge name the block can carry. The name
+// goes into -i and -o matches as it is, where a '+' is iptables' wildcard and
+// a space or '!' changes the rule, so only plain Linux names pass.
+var bridgeNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,14}$`)
+
+// BadBridges describes each bridge network whose bridge name the block
+// cannot carry, in the order of networks. Docker takes the name from the
+// network's com.docker.network.bridge.name option, which it does not check.
+func BadBridges(networks []Network) []string {
+	var out []string
+	for _, n := range networks {
+		if n.Driver != "bridge" {
+			continue
+		}
+		if br := Bridge(n); !bridgeNameRe.MatchString(br) {
+			out = append(out, fmt.Sprintf("network %s: bridge name %q is not a plain interface name of at most 15 letters, digits, '_', '-' or '.'", n.Name, br))
+		}
+	}
+	return out
 }
 
 // rzGroups groups the allow and deny rows by binding. The groups follow the

@@ -246,6 +246,9 @@ func TestDenEnableChange(t *testing.T) {
 			refused: true, detail: denForward4},
 		{name: "a foreign IPv6 forward without an exemption", cur: denLoaded(t, "", denNat(denForward6)),
 			refused: true, detail: denForward6},
+		{name: "a bridge name with iptables' wildcard", edit: func(s *dockerState) {
+			s.facts.Networks = append(s.facts.Networks, dockerfw.Network{ID: "id-wild", Name: "wild", Driver: "bridge", Bridge: "eth+"})
+		}, cur: denLoaded(t, "", ""), refused: true, detail: `network wild: bridge name "eth+"`},
 		{name: "an exemption that covers another forward", edit: withExemptions(exemption),
 			cur: denLoaded(t, denNat(denForward4), denNat(denForward6)), refused: true, detail: denForward6},
 	}
@@ -666,5 +669,25 @@ func TestDenActionDefinitions(t *testing.T) {
 		if err := schema.NewValidator().ValidateInput(def, json.RawMessage(`{"manual":true}`)); err == nil {
 			t.Errorf("%s accepts a manual flag it has no use for", name)
 		}
+	}
+}
+
+// TestDenBlockFilesRefusesABadBridge: no path writes a bridge name the block
+// cannot carry into the after files; removing the block still works.
+func TestDenBlockFilesRefusesABadBridge(t *testing.T) {
+	st := denState(func(s *dockerState) {
+		s.facts.Networks = append(s.facts.Networks, dockerfw.Network{ID: "id-wild", Name: "wild", Driver: "bridge", Bridge: "eth+"})
+		s.realized = dockerfw.Realize(s.rows, s.facts, s.cfg.Settings)
+	})
+	cfg := denFileConfig(t, false, false, fhRule3000v4)
+	files, err := blockFiles(cfg, st, true)
+	if e := errcode.From(err); err == nil || e.Code != errcode.FirewallUnsupportedIntegration || !strings.Contains(e.Detail, `"eth+"`) {
+		t.Fatalf("blockFiles = %v, want firewall.unsupported_integration naming the bridge", err)
+	}
+	if files != nil {
+		t.Errorf("a refusal came with the files %v", slices.Sorted(maps.Keys(files)))
+	}
+	if _, err := blockFiles(cfg, st, false); err != nil {
+		t.Errorf("removing the block = %v, want it written whatever the bridges", err)
 	}
 }

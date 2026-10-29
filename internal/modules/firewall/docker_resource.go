@@ -117,7 +117,7 @@ func dockerStatusOf(cfg fwstate.Config, cur fwstate.Loaded, st dockerState) Dock
 
 	ds.Version, ds.Driver, ds.DockerVariant, ds.UFWVariant = st.det.Version, st.det.Driver, st.det.DockerVariant, st.det.UFWVariant
 	ds.RawProtection = st.det.RawProtection
-	if reasons := dockerfw.Unsupported(st.det); len(reasons) > 0 {
+	if reasons := dockerUnsupported(st); len(reasons) > 0 {
 		ds.Unsupported = reasons
 	}
 	ds.Supported = len(ds.Unsupported) == 0

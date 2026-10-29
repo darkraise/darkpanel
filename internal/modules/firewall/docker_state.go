@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/dockerfw"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
 	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
@@ -239,10 +240,21 @@ func dfWithoutInternal(facts dockerfw.Facts, internal map[string]bool) dockerfw.
 	return out
 }
 
+// dockerUnsupported returns the reasons the integration cannot manage the
+// host of st: those of its detection, then each bridge network whose bridge
+// name the block cannot carry.
+func dockerUnsupported(st dockerState) []string {
+	return append(dockerfw.Unsupported(st.det), dockerfw.BadBridges(st.facts.Networks)...)
+}
+
 // blockFiles returns the contents of /etc/ufw/after.rules and
 // /etc/ufw/after6.rules with the realized Docker block of their family
-// (enabled) or without any block. It writes nothing.
+// (enabled) or without any block. It writes nothing, and refuses to write a
+// block over a bridge name the block cannot carry.
 func blockFiles(cfg fwstate.Config, st dockerState, enabled bool) (map[string][]byte, error) {
+	if bad := dockerfw.BadBridges(st.facts.Networks); enabled && len(bad) > 0 {
+		return nil, errcode.New(errcode.FirewallUnsupportedIntegration, strings.Join(bad, "; "))
+	}
 	out := map[string][]byte{}
 	for _, p := range []struct {
 		path   string

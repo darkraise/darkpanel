@@ -77,7 +77,7 @@ func dockerEnableChange(env core.Env, cfg fwstate.Config, cur fwstate.Loaded, st
 	if !st.available {
 		return change{}, errcode.New(errcode.FirewallUnsupportedIntegration, "the Docker integration needs Docker: "+st.reason)
 	}
-	if reasons := dockerfw.Unsupported(st.det); len(reasons) > 0 {
+	if reasons := dockerUnsupported(st); len(reasons) > 0 {
 		return change{}, errcode.New(errcode.FirewallUnsupportedIntegration,
 			"the Docker integration is not supported on this host: "+strings.Join(reasons, "; "))
 	}
