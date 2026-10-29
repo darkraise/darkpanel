@@ -276,3 +276,21 @@ func TestM3xExpoBySourcePort(t *testing.T) {
 		t.Error("m3dExpoBySourcePort must be true only for a class whose allowed sets name source ports")
 	}
 }
+
+func TestM3xExpoUDPAnswer(t *testing.T) {
+	scanned := []PortState{{Port: 18304, Proto: "udp", State: "open"}, {Port: 18305, Proto: "udp", State: "open|filtered"}, {Port: 18306, Proto: "tcp", State: "open"}}
+	cases := []struct {
+		port    uint16
+		answers bool
+		ok      bool
+	}{
+		{18304, true, true}, {18304, false, false},
+		{18305, false, true}, {18305, true, false},
+		{18306, true, false}, {18307, false, false},
+	}
+	for _, c := range cases {
+		if err := m3dxUDPAnswer(scanned, c.port, c.answers); (err == nil) != c.ok {
+			t.Errorf("m3dxUDPAnswer(%d, answers %v) = %v, want ok %v", c.port, c.answers, err, c.ok)
+		}
+	}
+}

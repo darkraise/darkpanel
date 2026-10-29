@@ -65,6 +65,8 @@ func TestM3dNmapArgs(t *testing.T) {
 			want([]string{"-4", "-Pn", "-n", "-sS", "-p8080", "-S", "198.19.0.5", "-e", "eth1"}, "198.18.0.10")},
 		{"interface without a source, no family", ScanOpts{Ports: []uint16{22, 80}, Iface: "eth1", Target: "198.18.0.10"},
 			want([]string{"-Pn", "-n", "-sS", "-p22,80", "-e", "eth1"}, "198.18.0.10")},
+		{"a UDP payload", ScanOpts{Family: "-4", UDP: true, Ports: []uint16{18304}, Payload: []byte{0x12, 0x34, 0xab}, Target: "198.18.0.10"},
+			want([]string{"-4", "-Pn", "-n", "-sU", "-p18304", "--data", "1234ab"}, "198.18.0.10")},
 		{"every option", ScanOpts{Family: "-6", UDP: true, Ports: []uint16{53}, SourcePort: 53, Source: netip.MustParseAddr("2001:db8:d0::99"), Iface: "eth1", Target: "2001:db8:d0::10"},
 			want([]string{"-6", "-Pn", "-n", "-sU", "-p53", "--source-port", "53", "-S", "2001:db8:d0::99", "-e", "eth1"}, "2001:db8:d0::10")},
 	}

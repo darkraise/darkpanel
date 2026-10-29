@@ -3,6 +3,7 @@
 package harness
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -56,7 +57,10 @@ type ScanOpts struct {
 	SourcePort uint16     // --source-port <n>; 0: nmap's choice
 	Source     netip.Addr // -S <addr> -e <iface> when valid
 	Iface      string     // the scanner interface for -e
-	Target     string
+	// Payload is sent in every probe (--data); nil leaves nmap its own UDP
+	// payloads, which a service on an unusual port does not answer.
+	Payload []byte
+	Target  string
 }
 
 // PortState is one port entry of nmap's grepable output.
@@ -97,6 +101,9 @@ func NmapArgs(o ScanOpts) []string {
 	}
 	if o.Iface != "" {
 		args = append(args, "-e", o.Iface)
+	}
+	if len(o.Payload) > 0 {
+		args = append(args, "--data", hex.EncodeToString(o.Payload))
 	}
 	args = append(args, "--min-rate", "2000", "--max-retries", "2", "--max-rtt-timeout", "500ms", "-oG", "-")
 	return append(args, o.Target)

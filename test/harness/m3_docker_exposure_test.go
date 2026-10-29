@@ -581,6 +581,51 @@ func m3dExpoScan(ctx context.Context, t *testing.T, f *fleet) {
 		t.Fatalf("firewall.exposure: %v", err)
 	}
 	m3dExpoCheck(ctx, t, f, raw, view)
+	// The check above cannot tell an allowed UDP port from a dropped one:
+	// without an answer both scan as open|filtered. A DNS query, which the
+	// challenge test server answers, makes the allowed port scan as open.
+	m3dExpoUDPAnswers(ctx, t, f, 18304, true)
+	m3dExpoUDPAnswers(ctx, t, f, 18305, false)
+}
+
+// m3dExpoDNSQuery is a DNS query for the A record of example.com.
+var m3dExpoDNSQuery = []byte{
+	0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	7, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 3, 'c', 'o', 'm', 0, 0x00, 0x01, 0x00, 0x01,
+}
+
+// m3dExpoUDPAnswers requires the UDP port of the agent's IPv4 address to
+// answer a DNS query (answers) or not, retrying for a minute.
+func m3dExpoUDPAnswers(ctx context.Context, t *testing.T, f *fleet, port uint16, answers bool) {
+	t.Helper()
+	o := ScanOpts{Family: "-4", UDP: true, Ports: []uint16{port}, Target: agentIPv4, Payload: m3dExpoDNSQuery}
+	err := eventually(ctx, time.Minute, func(ctx context.Context) error {
+		scanned, err := m3dScanErr(ctx, f.scanner, o)
+		if err != nil {
+			return err
+		}
+		return m3dxUDPAnswer(scanned, port, answers)
+	})
+	if err != nil {
+		t.Errorf("udp/%d with a DNS query: %v", port, err)
+	}
+}
+
+// m3dxUDPAnswer checks that the UDP port of scanned answered (open) when
+// answers is set, and did not otherwise.
+func m3dxUDPAnswer(scanned []PortState, port uint16, answers bool) error {
+	i := slices.IndexFunc(scanned, func(s PortState) bool { return s.Port == port && s.Proto == "udp" })
+	if i < 0 {
+		return fmt.Errorf("harness: udp/%d is not in the scan", port)
+	}
+	want := "not open"
+	if answers {
+		want = "open"
+	}
+	if got := scanned[i].State; (got == "open") != answers {
+		return fmt.Errorf("harness: udp/%d is %s, want %s", port, got, want)
+	}
+	return nil
 }
 
 // m3dExpoSourcePort requires a rule restricted by source port to be scanned
