@@ -1,0 +1,42 @@
+{
+  "name": "build",
+  "networks": {
+    "default": {
+      "name": "build_default",
+      "ipam": {}
+    }
+  },
+  "services": {
+    "app": {
+      "build": {
+        "context": "/srv/compose/build/app",
+        "dockerfile": "Dockerfile"
+      },
+      "command": null,
+      "entrypoint": null,
+      "networks": {
+        "default": null
+      }
+    },
+    "plain": {
+      "command": null,
+      "entrypoint": null,
+      "image": "busybox:1.36",
+      "networks": {
+        "default": null
+      }
+    },
+    "tagged": {
+      "build": {
+        "context": "/srv/compose/build/app",
+        "dockerfile": "Dockerfile"
+      },
+      "command": null,
+      "entrypoint": null,
+      "image": "example/tagged:1",
+      "networks": {
+        "default": null
+      }
+    }
+  }
+}

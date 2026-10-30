@@ -1,0 +1,31 @@
+{
+  "name": "provider",
+  "networks": {
+    "default": {
+      "name": "provider_default",
+      "ipam": {}
+    }
+  },
+  "services": {
+    "ext": {
+      "command": null,
+      "entrypoint": null,
+      "provider": {
+        "type": "awesomecloud",
+        "options": {
+          "type": [
+            "mysql"
+          ]
+        }
+      }
+    },
+    "web": {
+      "command": null,
+      "entrypoint": null,
+      "image": "nginx:1.27",
+      "networks": {
+        "default": null
+      }
+    }
+  }
+}
