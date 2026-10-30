@@ -194,6 +194,9 @@ func (c *Client) ListContainers(ctx context.Context, opts ListContainersOptions)
 
 // InspectContainer inspects a container by ID or name.
 func (c *Client) InspectContainer(ctx context.Context, id string) (ContainerJSON, error) {
+	if err := requireID("container", id); err != nil {
+		return ContainerJSON{}, err
+	}
 	var out ContainerJSON
 	_, err := c.call(ctx, request{method: http.MethodGet, path: "/containers/" + url.PathEscape(id) + "/json"}, &out)
 	return out, err
@@ -215,6 +218,9 @@ func (c *Client) CreateContainer(ctx context.Context, cfg ContainerCreate) (stri
 // StartContainer starts a container. It reports false when the container
 // was already running (the daemon's 304).
 func (c *Client) StartContainer(ctx context.Context, id string) (bool, error) {
+	if err := requireID("container", id); err != nil {
+		return false, err
+	}
 	code, err := c.call(ctx, request{method: http.MethodPost, path: "/containers/" + url.PathEscape(id) + "/start"}, nil)
 	return err == nil && code != http.StatusNotModified, err
 }
@@ -222,6 +228,9 @@ func (c *Client) StartContainer(ctx context.Context, id string) (bool, error) {
 // StopContainer stops a container, killing it after timeout. It reports
 // false when the container was already stopped (the daemon's 304).
 func (c *Client) StopContainer(ctx context.Context, id string, timeout time.Duration) (bool, error) {
+	if err := requireID("container", id); err != nil {
+		return false, err
+	}
 	q := url.Values{"t": {strconv.Itoa(int(timeout / time.Second))}}
 	code, err := c.call(ctx, request{method: http.MethodPost, path: "/containers/" + url.PathEscape(id) + "/stop", query: q}, nil)
 	return err == nil && code != http.StatusNotModified, err
@@ -230,6 +239,9 @@ func (c *Client) StopContainer(ctx context.Context, id string, timeout time.Dura
 // RestartContainer restarts a container, killing it after timeout if it
 // does not stop.
 func (c *Client) RestartContainer(ctx context.Context, id string, timeout time.Duration) error {
+	if err := requireID("container", id); err != nil {
+		return err
+	}
 	q := url.Values{"t": {strconv.Itoa(int(timeout / time.Second))}}
 	_, err := c.call(ctx, request{method: http.MethodPost, path: "/containers/" + url.PathEscape(id) + "/restart", query: q}, nil)
 	return err
@@ -243,6 +255,9 @@ type RemoveContainerOptions struct {
 
 // RemoveContainer removes a container.
 func (c *Client) RemoveContainer(ctx context.Context, id string, opts RemoveContainerOptions) error {
+	if err := requireID("container", id); err != nil {
+		return err
+	}
 	q := url.Values{"force": {strconv.FormatBool(opts.Force)}, "v": {strconv.FormatBool(opts.Volumes)}}
 	_, err := c.call(ctx, request{method: http.MethodDelete, path: "/containers/" + url.PathEscape(id), query: q}, nil)
 	return err
