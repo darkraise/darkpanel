@@ -4,6 +4,7 @@ import (
 	"context"
 	"io/fs"
 	"os"
+	"testing"
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -111,10 +112,21 @@ func (c dockerClient) Stats(ctx context.Context, id string, stream bool) (statsS
 // newDockerClient returns the Engine client for the socket; it opens no connection until a call.
 func newDockerClient(socket string) dockerAPI { return dockerClient{dockerapi.New(socket)} }
 
+// absentSocket is the socket a test binary dials instead of the host's. Test
+// binaries that link the module, such as the controller's server tests, open a
+// runtime that runs this module's preflight, and they must never reach the
+// host's Docker daemon. A path that never exists makes every call fail as a
+// missing socket.
+const absentSocket = "/nonexistent/darkpanel/docker.sock"
+
 // productionDK wires the module to the host's Docker daemon and file system.
 func productionDK() dk {
+	socket := dockerapi.DefaultSocket
+	if testing.Testing() {
+		socket = absentSocket
+	}
 	return dk{d: deps{
-		docker:   newDockerClient(dockerapi.DefaultSocket),
+		docker:   newDockerClient(socket),
 		lstat:    os.Lstat,
 		readFile: os.ReadFile,
 		secrets: func(context.Context, core.Env, string) ([][]byte, error) {

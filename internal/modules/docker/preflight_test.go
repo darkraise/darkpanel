@@ -92,6 +92,15 @@ func TestMFPreflightFails(t *testing.T) {
 	}
 }
 
+// TestMFProductionDKAvoidsTheHostSocket: in a test binary the production
+// client dials absentSocket, never the host's Docker socket.
+func TestMFProductionDKAvoidsTheHostSocket(t *testing.T) {
+	_, err := productionDK().d.docker.Version(context.Background())
+	if err == nil || !strings.Contains(err.Error(), absentSocket) {
+		t.Errorf("Version error = %v, want a failed dial of %s", err, absentSocket)
+	}
+}
+
 // TestMFManifestDeclaresPreflight: the module's manifest carries the engine
 // check. The check is not run: that would reach the host's Docker socket.
 func TestMFManifestDeclaresPreflight(t *testing.T) {
