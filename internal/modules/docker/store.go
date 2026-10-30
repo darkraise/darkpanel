@@ -11,10 +11,12 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/core/store"
+	"github.com/darkraise/darkpanel/internal/modules/docker/compose"
 	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
 )
 
@@ -150,8 +152,17 @@ func setProjectRun(ctx context.Context, tx *sql.Tx, name string, profiles []stri
 func (k dk) configHash(p projectRow) string {
 	h := sha256.New()
 	for _, path := range append(append([]string{}, p.Files...), p.EnvFiles...) {
+		// The paths come from container labels, so a FIFO, a device or a
+		// huge file there must not stall or exhaust the read.
+		if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+			return ""
+		}
+		info, err := k.d.lstat(path)
+		if err != nil || !info.Mode().IsRegular() || info.Size() > compose.MaxConfigBytes {
+			return ""
+		}
 		data, err := k.d.readFile(path)
-		if err != nil {
+		if err != nil || len(data) > compose.MaxConfigBytes {
 			return ""
 		}
 		// Each length prefix ends one field, so a byte moved from one file

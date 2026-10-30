@@ -3,6 +3,7 @@ package docker
 import (
 	"context"
 	"database/sql"
+	"io/fs"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/core/store"
+	"github.com/darkraise/darkpanel/internal/modules/docker/compose"
 	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
 )
 
@@ -225,5 +227,15 @@ func TestPjConfigHash(t *testing.T) {
 	}
 	if got := k.configHash(projectRow{Files: []string{"/srv/blog/compose.yaml"}, EnvFiles: []string{"/srv/blog/gone.env"}}); got != "" {
 		t.Errorf("hash %q with an unreadable env file, want empty", got)
+	}
+
+	h.files["/srv/blog/fifo.yaml"] = dkFile{Mode: fs.ModeNamedPipe}
+	h.files["/srv/blog/link.yaml"] = dkFile{Symlink: true, Data: []byte("services: {}\n")}
+	h.files["/srv/blog/big.yaml"] = dkFile{Data: make([]byte, compose.MaxConfigBytes+1)}
+	put("compose.yaml", "services: {}\n")
+	for _, path := range []string{"/srv/blog/fifo.yaml", "/srv/blog/link.yaml", "/srv/blog/big.yaml", "compose.yaml"} {
+		if got := k.configHash(projectRow{Files: []string{path}}); got != "" {
+			t.Errorf("hash %q with %s, want empty", got, path)
+		}
 	}
 }
