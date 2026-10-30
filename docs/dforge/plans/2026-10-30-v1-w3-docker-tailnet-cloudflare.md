@@ -27,6 +27,7 @@
 - Every `go`, `golangci-lint`, `make` and `pnpm` command runs with `GOTOOLCHAIN=local`, an explicit `timeout`, and `TMPDIR=/root/.cache/w3-tmp/<task number>` (`mkdir -p` it first; remove it and run `go clean -testcache` when the task ends), also where a step's command omits one of them: `/tmp` is an 8 GiB tmpfs and Unix socket paths over 108 bytes fail. When `df -h /` passes 90 %, trim Go build cache entries older than a few hours.
 - Dependencies: no task changes `go.mod`, `go.sum`, `web/package.json` or `web/pnpm-lock.yaml`; only the standard library and modules already required are used, and after every task `GOTOOLCHAIN=local timeout 300 go mod tidy -diff` prints nothing.
 - After every task all of these pass, with their real output recorded: `go build ./...`; `go vet ./...` (no output); `go test -count=1 ./...` (every line `ok` or `?`); `go test -race -count=1` on the task's packages; `golangci-lint run --allow-serial-runners ./...` (`0 issues.`); `go mod tidy -diff` (no output). A task that edits `test/harness/` also runs `go vet -tags harness ./test/...` and `go test -tags harness -count=1 ./test/harness/...`. A task that edits `web/` also runs `pnpm -C web lint`, `pnpm -C web typecheck` and `pnpm -C web test`.
+- Contract-check gate: after wave 1-3 merges, the controller reads Task 1's report; any Divergences or Compose 5.6.0 schema entry other than `none` stops execution until the integrator amends Contracts and every task that states the old value (a header amendment), before wave 4-6 starts. Tasks after wave 1-3 implement their text as written.
 - TDD: write the test, run it and see the expected RED (usually a build failure naming the first undefined identifier), implement, run GREEN.
 - Frozen files (spec 1.12), which no task edits: `internal/core/contract.go`, `units.go`, `define.go`, `registry.go`, `internal/core/ext/**`, `internal/core/errcode/errcode.go`, `internal/core/lifecycle/**`, the core migrations, `internal/platform/exec.go`, `files.go`, `systemd.go`, `internal/modules/modules.go`, `internal/cli/modules.go`, `internal/controller/server/**`, `internal/controller/api/**`, `internal/controller/events/**`, `internal/controller/listen/sources.go`, `cmd/darkpanel/paths.go`, `go.mod`, `go.sum`, `web/package.json`, `web/pnpm-lock.yaml`, `web/src/modules/registry.ts`, `web/src/modules/types.ts`, `web/src/app.tsx`, `test/harness/pins.go`. Outside the spec's list, this plan's scope also leaves untouched (wave 0 owns them or no task needs them): `internal/core/stream.go`, `background.go`, `internal/platform/exec_rules.go`, `internal/controller/cloud/**`, `web/src/modules/registry.test.tsx`, `test/harness/images.json`, `Makefile`. A task that finds a missing code, allowlist rule or extension point in a frozen file stops and reports it; it does not edit the file. One integrator change is planned (spec 1.12 sends frozen-file fixes through the integrator on `main`, as the w1 plan's `Integrator:` tasks did): Task 50, alone in its wave, changes only `TestContributionsCollectInOrder` in the frozen `internal/controller/server/extensions_test.go` to compare its own test contributors, because compiled-in modules now contribute services; no other task edits a frozen file. Every program and argument vector this plan runs is already allowlisted (Assumptions).
 - A task edits only the files of its own **Files:** block. Each task of a wave runs in its own worktree from the wave's base (`main` plus every merged earlier wave), so a package-wide command sees only merged work plus the task's own files. "The base" in a task's text means the work its **Depends on** line names.
@@ -62,7 +63,7 @@ Names are given with their package; everything not exported is used only inside 
 
 ### Dependencies
 
-Each task's **Depends on** line is exactly this: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13: none; 14, 16: Task 5; 15: Task 3, Task 5; 17, 18: Task 1; 19, 20: Task 8; 21, 23: Task 9; 22: Task 9, Task 10; 24: Task 4; 25: Task 5, Task 11, Task 15, Task 16; 26: Task 5, Task 15; 27, 28, 29, 30, 31: Task 15; 32: Task 18; 33: Task 19; 34: Task 21, Task 23; 35: Task 10, Task 22; 36: Task 11, Task 15, Task 25; 37: Task 15; 38: Task 15, Task 24, Task 26; 39: Task 12, Task 17; 40: Task 20, Task 33; 41: Task 38; 42: Task 12, Task 39; 43: Task 13, Task 32; 44: Task 14, Task 16, Task 25, Task 26, Task 27, Task 28, Task 29, Task 30, Task 31, Task 36, Task 37, Task 41; 45, 46, 49: Task 42; 47: Task 43; 48: Task 7, Task 43; 50: Task 42, Task 49; 51: Task 6, Task 42; 52: Task 7, Task 43; 53: Task 52; 54: Task 44; 55: Task 51; 56: Task 52; 57: Task 44, Task 45, Task 46, Task 49, Task 50, Task 51, Task 55; 58: Task 44, Task 47, Task 48, Task 53, Task 56; 59: Task 54; 60: Task 59.
+Each task's **Depends on** line is exactly this: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13: none; 14, 16: Task 5; 15: Task 3, Task 5; 17, 18: Task 1; 19, 20: Task 8; 21, 23: Task 9; 22: Task 1, Task 9, Task 10; 24: Task 4; 25: Task 5, Task 11, Task 15, Task 16; 26: Task 5, Task 15; 27, 28, 29, 30, 31: Task 15; 32: Task 1, Task 18; 33: Task 19; 34: Task 21, Task 23; 35: Task 10, Task 22; 36: Task 11, Task 15, Task 25; 37: Task 15; 38: Task 15, Task 24, Task 26; 39: Task 12, Task 17; 40: Task 20, Task 33; 41: Task 38; 42: Task 12, Task 39; 43: Task 13, Task 32; 44: Task 14, Task 16, Task 25, Task 26, Task 27, Task 28, Task 29, Task 30, Task 31, Task 36, Task 37, Task 41; 45, 46, 49: Task 42; 47: Task 43; 48: Task 7, Task 43; 50: Task 42, Task 49; 51: Task 6, Task 42; 52: Task 7, Task 43; 53: Task 52; 54: Task 44; 55: Task 51; 56: Task 52; 57: Task 44, Task 45, Task 46, Task 49, Task 50, Task 51, Task 55; 58: Task 44, Task 47, Task 48, Task 53, Task 56; 59: Task 54; 60: Task 59.
 
 ### dockerapi guards (from Task 2)
 
@@ -139,7 +140,7 @@ Test data: `internal/modules/docker/compose/testdata/*.json`, real `config --for
 Same package, file `validate.go`:
 
 ```go
-var TopLevelKeys, ServiceKeys, NetworkKeys, VolumeKeys, ConfigKeys, SecretKeys []string // the keys the pinned Compose version documents; source URL in a comment
+var TopLevelKeys, ServiceKeys, NetworkKeys, VolumeKeys, ConfigKeys, SecretKeys []string // the keys of the schema embedded in the host's Compose plugin 5.1.4 (compose-go v2.11.0); that module version in a comment
 type Facts struct {
 	ImagePresent func(ref string) bool          // an image is present locally
 	Owner        func(kind, name string) string // the darkpanel.module label of an Engine object; kind "container" | "network" | "volume"; "" when unlabelled or absent
@@ -909,7 +910,7 @@ type DNSRecord struct {
 	ID, Type, Name, Content, Comment string
 	Proxied                          bool
 }
-func (a *api) VerifyToken(ctx context.Context) error                          // the endpoint Task 1 records
+func (a *api) VerifyToken(ctx context.Context) error                          // GET /accounts/{a}/tokens/verify
 func (a *api) Tunnels(ctx context.Context, name string) ([]Tunnel, error)      // GET /accounts/{a}/cfd_tunnel?is_deleted=false[&name=]
 func (a *api) Tunnel(ctx context.Context, id string) (Tunnel, error)
 func (a *api) CreateTunnel(ctx context.Context, name string) (Tunnel, error)   // POST, config_src cloudflare
@@ -1154,7 +1155,7 @@ Components, each a named export in its own file: `DockerChange({hostId, action, 
 - There is no core API through which a module registers secrets for log filtering (`rg -i 'RegisterSecret|secret.*filter' internal/core` finds none, 2026-10-30). The docker module builds the filter (`logfilter`) behind its own `deps.secrets` seam, which returns none until waves 6a and 6b feed it; this plan adds a register row for that.
 - The web client has no module-stream reader; the relay serves `GET /api/v1/hosts/{host}/streams/{module}/{name}` as server-sent events with `event: data` frames and one `event: end` frame (`internal/controller/api/streams.go`), query parameters decoded by the stream's params schema (`internal/core/schema/params.go` `ParamsJSON`). The tests' `EvtSource` stands in for `EventSource` (`web/src/test/evt-source.ts`).
 - `web/src/modules/registry.test.tsx` hard-asserts the module ids, container action ids and global paths and renders every lazy component against 404 stubs; no task renames an id, and every new page renders its loading or error state against those stubs. `enabledModules` (`web/src/modules/registry.ts`) returns only entries with host routes, so the container page filters the registry itself for `containerActions` (Cloudflare has only a global page).
-- The Compose plugin pinned for the harness is 5.6.0 and Docker 29.9.1 (`test/harness/images.json`); this host has Compose v5.1.4 and Docker 29.5.3 (`docker compose version`, `docker version`, 2026-10-30). Task 4 captures its test data with the host's Compose; the harness (Task 59) runs the pinned version. The key allowlists of Task 24 ("the set the pinned Compose version documents"): unverified — Task 24 derives them from the compose-spec JSON schema that Compose 5.6.0 vendors and cites its URL.
+- The Compose plugin pinned for the harness is 5.6.0 and Docker 29.9.1 (`test/harness/images.json`); this host has Compose v5.1.4 and Docker 29.5.3 (`docker compose version`, `docker version`, 2026-10-30). Task 4 captures its test data with the host's Compose; the harness (Task 59) runs the pinned version. The key allowlists of Task 24 come from the schema embedded in the host plugin 5.1.4 (compose-go v2.11.0), cited by module version. Whether 5.6.0's resolved `config --format json` adds or changes a key the strict parser (Task 4) or the allowlists (Task 24) refuse: unverified — Task 1 compares 5.6.0's compose-go schema with 5.1.4's (contract-check gate), and Task 59's Compose scenarios run the pinned version on every VM, where a refusal names the offending key.
 - `git`, `ssh` and the buildx plugin may or may not be present on the harness VMs (the provisioning installs only the pinned debs, `test/harness/provision.go`): unverified — Task 59 installs logging shims at `/usr/bin/git`, `/usr/bin/ssh` and `/usr/libexec/docker/cli-plugins/docker-buildx` (the buildx shim answers `docker-cli-plugin-metadata` and logs every other invocation) and proves none ran.
 - The harness's `vm` job runs every OS step in one job with `timeout-minutes: 280` and three `go test` steps (`.github/workflows/harness.yml`, read 2026-10-30); `TestM4` gets its own flag `-m4` so the first step (no `-run`) skips it, its own workdir `$RUNNER_TEMP/harness-m4`, a step with `-timeout 70m`, a log-upload glob, and the job's limit raised to 360 minutes (Task 60). `TestDockerLive` runs on the VM as a test binary compiled by the `build` job (`go test -c -o bin/harness/dockerapi.test ./internal/platform/dockerapi`, uploaded with `bin/harness`) and copied in with `VM.CopyFile`, so `Makefile` does not change. The spec's rule that a parallel wave's `harness.yml` change belongs to the integrator holds: Task 60 runs alone, last.
 - Spec 1.9 lists `change release` and `quarantine resolve` among the paths that delete a credentials row, but the merged core's release only marks effects abandoned (`internal/core/lifecycle/release.go` `Release`), and neither deletes a module row; the lifecycle is frozen. `cleanupPending` is therefore called by `<module>.account.disconnect` and by the `Inverse` of `<module>.account.connect` (returning `core.Definite(cloud.cleanup_pending)` without writing), the only deleting paths.
@@ -1169,6 +1170,7 @@ Components, each a named export in its own file: `DockerChange({hostId, action, 
 - Ruling: the key sweep also sets a `retired` row `deleted` once its window is over and no listed key carries its description, and runs one orphan pass when the service starts. Spec 1.9's "Tailscale auth key create" row (`spec:2065`) does not say how a `retired` row ends; without this it would block `tailnet.account.disconnect` (`cleanupPending`) for ever, and a controller restarted more often than daily would never reach the daily pass.
 - Task 24's Compose key allowlists come from the schema embedded in this host's Compose plugin 5.1.4 (`docker compose version`, 2026-10-30), not the pinned 5.6.0, which is not on this host and which Global Constraints forbid fetching. A key 5.6.0 adds is refused until the schema file and lists are refreshed; the harness Compose fixtures (Task 59) use only keys both versions accept. Excluding `models` (served through a host plugin) is an inference the task labels as such.
 - The fake Tailscale and Cloudflare servers (Tasks 17, 18) are drafted before Task 1 records spec 4.2a and 7.1, so their key-list shape, `acl/validate` answer and token-verify path are the drafters' reading of the providers' documentation; each fake task tells its implementer to change the fake and its tests together where Task 1's record differs, and the consumers (Tasks 32, 39, 43, 49, 50) handle both a key list with descriptions and one with ids only (`describedKeys`).
+- Ruling: Task 1 edits the spec (4.2, 7.1) in its own worktree in wave 1-3 rather than the integrator editing it on `main` (spec "Parallel decomposition"); no other task of that wave touches the spec, so the merged result is the same, and the contract-check gate applies the results before any consumer runs.
 - `plan-lint` warns on a placeholder in Task 1; the match is Task 1's own check script, which greps the spec for `TBD`, `TODO` and `???` to prove none is left.
 - `logfilter.Flush` emits a held partial prefix of a secret unmasked at the end of a stream: a proper prefix is not the secret, and masking it would hide ordinary text that merely starts like one.
 
@@ -7861,7 +7863,7 @@ git commit -m "feat(docker): add list resources and usage summary"
 **Implementer:** dforge:impl-sonnet-high
 **Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
 
-Read spec section 4.2a first: Task 1 recorded there (a) the scope set and the dependencies between scopes, (b) whether `GET /api/v2/tailnet/{t}/keys` returns each key's `description` or only its `id`, and (c) the response of `POST …/acl/validate` for a valid policy. The scope table below and the tests assume the four scopes `devices:core`, `devices:routes`, `auth_keys` and `policy_file` of the spec's first draft and an empty 200 body for a valid policy. If 4.2a records a different scope name for an endpoint, or a non-empty valid-policy answer, change the table, `TestFkScopes` and `TestFkPolicyValidate` together, and say so in the report; do not leave fake and test disagreeing with 4.2a. If 4.2a records that the list returns descriptions, add `description` to each list entry (the tests only read `id` there).
+Read spec section 4.2a first: Task 1 recorded there (a) the scope set and the dependencies between scopes, (b) whether `GET /api/v2/tailnet/{t}/keys` returns each key's `description` or only its `id`, and (c) the response of `POST …/acl/validate` for a valid policy. The scope table below and the tests assume the four scopes `devices:core`, `devices:routes`, `auth_keys` and `policy_file` of the spec's first draft and an empty 200 body for a valid policy. The contract-check gate (Global Constraints) has already amended this task if 4.2a differs; implement the table and tests as written, and stop and report if 4.2a still disagrees with them. If 4.2a records that the list returns descriptions, add `description` to each list entry (the tests only read `id` there).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -8452,7 +8454,7 @@ git commit -m "test(tailnet): add the fake Tailscale API server"
 **Implementer:** dforge:impl-sonnet-high
 **Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
 
-Read spec section 7.1 first: Task 1 recorded there the token-verify endpoint for an account token and whether tunnel creation or the token read needs a permission beyond the three constants. The tests assume `GET /accounts/{a}/tokens/verify` (needing no permission) and that the three constants cover every other endpoint. If 7.1 records otherwise, change `TestFkVerifyToken`, `TestFkAuthAndPermissions` and the fake together and say so in the report. Where 7.1 records a response shape that differs from the ones below, 7.1 wins; change the fake and the assertions on that shape together.
+Read spec section 7.1 first: Task 1 recorded there the token-verify endpoint for an account token and whether tunnel creation or the token read needs a permission beyond the three constants. The tests assume `GET /accounts/{a}/tokens/verify` (needing no permission) and that the three constants cover every other endpoint. The contract-check gate (Global Constraints) has already amended this task if 7.1 differs; implement as written, and stop and report if 7.1 still disagrees with it.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -10071,7 +10073,7 @@ git commit -m "feat(web): add the tailnet account panel"
 
 **Items:** 33
 
-**Depends on:** Task 9, Task 10
+**Depends on:** Task 1, Task 9, Task 10
 **Implementer:** dforge:impl-sonnet-medium
 **Evaluation:** files 1 - spec 2 - coupling 1 - risk 0 = 4
 
@@ -15345,7 +15347,7 @@ git commit -m "feat(docker): connect and disconnect networks"
 
 **Items:** 33, 292
 
-**Depends on:** Task 18
+**Depends on:** Task 1, Task 18
 **Implementer:** dforge:impl-opus-high
 **Evaluation:** files 1 - spec 2 - coupling 2 - risk 1 = 6
 
@@ -16041,7 +16043,7 @@ Expected: FAIL to build with `undefined: HostnameView` (and `undefined: cf`, `un
    - non-2xx answers are mapped by the cloud client (`cloud.auth_failed`, `cloud.permission_missing`, `cloud.rate_limited`, `cloud.conflict`, `cloud.unavailable`, `cloud.uncertain_outcome`, `request.invalid_input`) and keep its details, for example `cloudflare answered 403 (10000)`; do not re-wrap them, so a 4xx on a write stays `core.Definite`.
 
 5. **`client.go`, methods.** Decode only the members the types hold; `Tunnel.CreatedAt` and `Connection.OpenedAt` come from `created_at` and `opened_at` (RFC 3339 with or without fractions).
-   - `VerifyToken`: the endpoint spec 7.1 records; nil when Cloudflare answers success.
+   - `VerifyToken`: `GET /accounts/{a}/tokens/verify`; nil when Cloudflare answers success.
    - `Tunnels(name)`: `GET .../cfd_tunnel` with the query `is_deleted=false` and, when `name != ""`, `name=<name>`; `Tunnel(id)`: `GET .../cfd_tunnel/<id>`. A tunnel's `connections` array fills `Tunnel.Connections` (`id`, `colo_name`, `origin_ip`, `opened_at`, `client_version`).
    - `CreateTunnel(name)`: `POST .../cfd_tunnel` with exactly `{"name": <name>, "config_src": "cloudflare"}`. `DeleteTunnel(id)`: `DELETE .../cfd_tunnel/<id>`. `TunnelToken(id)`: `GET .../cfd_tunnel/<id>/token`, whose `result` is a JSON string.
    - `Connections(id)`: `GET .../cfd_tunnel/<id>/connections`, accepting both shapes the endpoint is documented with: an array of connectors, each with `version` and a `conns` array (every element of `conns` becomes one `Connection`, its `ClientVersion` the connector's `version`), and a flat array of connections that carry `client_version` themselves.
