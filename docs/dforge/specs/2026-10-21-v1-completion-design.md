@@ -4255,11 +4255,14 @@ a spec change.
   - **Token verify:** `GET /accounts/{a}/tokens/verify` for an account-owned
     token (no listed permission); the user-token endpoint is `GET
     /user/tokens/verify` with no account id. The sources do not say which
-    applies to a given token; the account endpoint is the one for a token
-    given with an account id. 200 `result`: `id`, `status` (`active`,
-    `disabled` or `expired`), `expires_on` and `not_before` (date-time,
-    optional). Invalid token: a 4XX with `success` false, `errors[]` and
-    `result` null; the exact status and code: not documented.
+    applies to a given token, nor whether the account endpoint accepts a
+    user-owned token; Darkpanel's choice, not a provider fact: `VerifyToken`
+    asks the account endpoint and, when it answers 401 or 403, the user
+    endpoint, and the token is valid when either answers success. 200
+    `result`: `id`, `status` (`active`, `disabled` or `expired`), `expires_on`
+    and `not_before` (date-time, optional). Invalid token: a 4XX with
+    `success` false, `errors[]` and `result` null; the exact status and code:
+    not documented.
   - **Envelope:** `success`, `errors[]` and `messages[]` (each `code`, an
     integer of at least 1000, `message`, optional `documentation_url` and
     `source.pointer`), `result`, `result_info` (`count`, `page`, `per_page`,
