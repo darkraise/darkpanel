@@ -3737,8 +3737,10 @@ empty list or map as equal, addresses in canonical `netip` form.
   HuJSON text. Plan fetches `GET /api/v2/tailnet/{t}/acl` with `Accept:
   application/hujson` and its `ETag`, validates the new text with `POST
   .../acl/validate` (a 200 with an empty body or `{}` is valid; a 200 with
-  `{message, data}` or a 400 with `{message}` becomes
-  `tailnet.policy_invalid`), and renders a line diff. Apply posts with
+  `{"message":"test(s) failed","data"}` or a 400 with `{message}` becomes
+  `tailnet.policy_invalid`; whether a 200 with `{"message":"warning(s)
+  found","data"}` also becomes `tailnet.policy_invalid` is an open point the
+  integrator confirms before Tasks 17 and 39), and renders a line diff. Apply posts with
   `If-Match` on that ETag; a 412 fails with `tailnet.policy_conflict`. The
   effects journal stores the before-text and the after-ETag. Undo posts the
   before-text with `If-Match` on the after-ETag; if the policy changed since,
