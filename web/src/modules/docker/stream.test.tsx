@@ -107,6 +107,32 @@ test("a new url closes the old stream and starts again with no events and no end
   expect(result.current).toEqual({ events: [], end: null })
 })
 
+test("a stream reopened at an earlier url or with another max starts again with no events", () => {
+  const { result, rerender } = renderHook(({ url, max }: { url: string | null; max: number }) => useStream<StEvent>(url, max), { initialProps: { url: "/s/1" as string | null, max: 10 } })
+  act(() => {
+    stSource(0).emit("data", { n: 1 })
+    stSource(0).emit("end", { reason: "done" })
+  })
+  rerender({ url: "/s/2", max: 10 })
+  rerender({ url: "/s/1", max: 10 })
+  expect(EvtSource.instances).toHaveLength(3)
+  expect(result.current).toEqual({ events: [], end: null })
+  act(() => stSource(2).emit("data", { n: 1 }))
+  expect(result.current).toEqual({ events: [{ n: 1 }], end: null })
+  rerender({ url: null, max: 10 })
+  rerender({ url: "/s/1", max: 10 })
+  expect(EvtSource.instances).toHaveLength(4)
+  expect(result.current).toEqual({ events: [], end: null })
+  act(() => stSource(3).emit("data", { n: 2 }))
+  expect(result.current.events).toEqual([{ n: 2 }])
+  rerender({ url: "/s/1", max: 5 })
+  expect(stSource(3).closed).toBe(true)
+  expect(EvtSource.instances).toHaveLength(5)
+  expect(result.current).toEqual({ events: [], end: null })
+  act(() => stSource(4).emit("data", { n: 3 }))
+  expect(result.current.events).toEqual([{ n: 3 }])
+})
+
 test("unmounting closes the stream", () => {
   const { unmount } = renderHook(() => useStream<StEvent>("/s/1"))
   unmount()

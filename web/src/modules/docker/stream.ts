@@ -13,7 +13,7 @@ export function streamUrl(hostId: string, module: string, name: string, params: 
 }
 
 interface StreamState<E> {
-  url: string | null
+  key: string
   events: E[]
   end: StreamEnd | null
 }
@@ -26,19 +26,21 @@ function parseData(event: Event): unknown {
   }
 }
 
-// useStream collects the events of one module stream. A state recorded for
-// another url is ignored, so a url change shows an empty stream at once and
-// the first update of the new stream starts from an empty state.
+// useStream collects the events of one module stream. The state is keyed on
+// the url and max, and is reset during render when that key changes, so a
+// reopened stream shows no events and no end until its own connection sends
+// one, even when its url was used before.
 export function useStream<E>(url: string | null, max = 1000): { events: E[]; end: StreamEnd | null } {
-  const [state, setState] = useState<StreamState<E>>({ url, events: [], end: null })
+  const key = `${max} ${url}`
+  const [state, setState] = useState<StreamState<E>>({ key, events: [], end: null })
+  if (state.key !== key) setState({ key, events: [], end: null })
 
   useEffect(() => {
     if (url === null) return
     let live = true
     let ended = false
     const source = new EventSource(url)
-    const update = (change: (s: StreamState<E>) => StreamState<E>) =>
-      setState((prev) => change(prev.url === url ? prev : { url, events: [], end: null }))
+    const update = (change: (s: StreamState<E>) => StreamState<E>) => setState((prev) => (prev.key === key ? change(prev) : prev))
 
     source.addEventListener("data", (event) => {
       if (!live || ended) return
@@ -67,7 +69,7 @@ export function useStream<E>(url: string | null, max = 1000): { events: E[]; end
       live = false
       source.close()
     }
-  }, [url, max])
+  }, [url, max, key])
 
-  return state.url === url ? { events: state.events, end: state.end } : { events: [], end: null }
+  return state.key === key ? { events: state.events, end: state.end } : { events: [], end: null }
 }
