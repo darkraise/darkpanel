@@ -1157,7 +1157,7 @@ Components, each a named export in its own file: `DockerChange({hostId, action, 
 - `web/src/modules/registry.test.tsx` hard-asserts the module ids, container action ids and global paths and renders every lazy component against 404 stubs; no task renames an id, and every new page renders its loading or error state against those stubs. `enabledModules` (`web/src/modules/registry.ts`) returns only entries with host routes, so the container page filters the registry itself for `containerActions` (Cloudflare has only a global page).
 - The Compose plugin pinned for the harness is 5.6.0 and Docker 29.9.1 (`test/harness/images.json`); this host has Compose v5.1.4 and Docker 29.5.3 (`docker compose version`, `docker version`, 2026-10-30). Task 4 captures its test data with the host's Compose; the harness (Task 59) runs the pinned version. The key allowlists of Task 24 come from the schema embedded in the host plugin 5.1.4 (compose-go v2.11.0), cited by module version. Whether 5.6.0's resolved `config --format json` adds or changes a key the strict parser (Task 4) or the allowlists (Task 24) refuse: unverified — Task 1 compares 5.6.0's compose-go schema with 5.1.4's (contract-check gate), and Task 59's Compose scenarios run the pinned version on every VM, where a refusal names the offending key.
 - `git`, `ssh` and the buildx plugin may or may not be present on the harness VMs (the provisioning installs only the pinned debs, `test/harness/provision.go`): unverified — Task 59 installs logging shims at `/usr/bin/git`, `/usr/bin/ssh` and `/usr/libexec/docker/cli-plugins/docker-buildx` (the buildx shim answers `docker-cli-plugin-metadata` and logs every other invocation) and proves none ran.
-- The harness's `vm` job runs every OS step in one job with `timeout-minutes: 280` and three `go test` steps (`.github/workflows/harness.yml`, read 2026-10-30); `TestM4` gets its own flag `-m4` so the first step (no `-run`) skips it, its own workdir `$RUNNER_TEMP/harness-m4`, a step with `-timeout 70m`, a log-upload glob, and the job's limit raised to 360 minutes (Task 60). `TestDockerLive` runs on the VM as a test binary compiled by the `build` job (`go test -c -o bin/harness/dockerapi.test ./internal/platform/dockerapi`, uploaded with `bin/harness`) and copied in with `VM.CopyFile`, so `Makefile` does not change. The spec's rule that a parallel wave's `harness.yml` change belongs to the integrator holds: Task 60 runs alone, last.
+- The harness's `vm` job runs every OS step in one job with `timeout-minutes: 280` and three `go test` steps (`.github/workflows/harness.yml`, read 2026-10-30); `TestM4` gets its own flag `-m4` so the first step (no `-run`) skips it, its own workdir `$RUNNER_TEMP/harness-m4`, a step with `-timeout 70m`, a log-upload glob, and its own `vm-m4` job with a 100-minute limit (Task 60), so the `vm` job stays at 280. `TestDockerLive` runs on the VM as a test binary compiled by the `build` job (`go test -c -o bin/harness/dockerapi.test ./internal/platform/dockerapi`, uploaded with `bin/harness`) and copied in with `VM.CopyFile`, so `Makefile` does not change. The spec's rule that a parallel wave's `harness.yml` change belongs to the integrator holds: Task 60 runs alone, last.
 - Spec 1.9 lists `change release` and `quarantine resolve` among the paths that delete a credentials row, but the merged core's release only marks effects abandoned (`internal/core/lifecycle/release.go` `Release`), and neither deletes a module row; the lifecycle is frozen. `cleanupPending` is therefore called by `<module>.account.disconnect` and by the `Inverse` of `<module>.account.connect` (returning `core.Definite(cloud.cleanup_pending)` without writing), the only deleting paths.
 - Controller-side `Undoer` handlers run like agent-side ones: `lifecycle/undo.go` has no side check, and `core_effects` exists in the controller schema (`internal/core/store/migrations/controller/0009_lifecycle_core.sql`); no production module uses one yet, and the only exemplar is `internal/core/lifecycle/composite_fixture_test.go` (`cstAdd`). Unverified end to end — Task 42's engine test undoes `tailnet.account.connect` on a controller engine.
 - Provider facts this plan builds on: the Tailscale OAuth scopes and their dependencies, whether `GET /api/v2/tailnet/{t}/keys` returns descriptions, the `acl/validate` answer for a valid policy, the Cloudflare token-verify endpoint for an account token, and whether creating a tunnel or reading its token needs a permission beyond "Cloudflare Tunnel Write", "Zone Read" and "DNS Write": unverified — Task 1 settles each against the providers' documentation and writes the result into spec 4.2a and 7.1 (spec "Parallel decomposition": every part with a contract check runs it first). The fakes (Tasks 17, 18) follow what Task 1 records.
@@ -1170,6 +1170,7 @@ Components, each a named export in its own file: `DockerChange({hostId, action, 
 - Ruling: the key sweep also sets a `retired` row `deleted` once its window is over and no listed key carries its description, and runs one orphan pass when the service starts. Spec 1.9's "Tailscale auth key create" row (`spec:2065`) does not say how a `retired` row ends; without this it would block `tailnet.account.disconnect` (`cleanupPending`) for ever, and a controller restarted more often than daily would never reach the daily pass.
 - Task 24's Compose key allowlists come from the schema embedded in this host's Compose plugin 5.1.4 (`docker compose version`, 2026-10-30), not the pinned 5.6.0, which is not on this host and which Global Constraints forbid fetching. A key 5.6.0 adds is refused until the schema file and lists are refreshed; the harness Compose fixtures (Task 59) use only keys both versions accept. Excluding `models` (served through a host plugin) is an inference the task labels as such.
 - The fake Tailscale and Cloudflare servers (Tasks 17, 18) are drafted before Task 1 records spec 4.2a and 7.1, so their key-list shape, `acl/validate` answer and token-verify path are the drafters' reading of the providers' documentation; each fake task tells its implementer to change the fake and its tests together where Task 1's record differs, and the consumers (Tasks 32, 39, 43, 49, 50) handle both a key list with descriptions and one with ids only (`describedKeys`).
+- Known Compose difference (compose-go schemas fetched 2026-10-30 while drafting Task 1): the pinned 5.6.0 (compose-go v2.16.1) adds top-level `jobs` and service `pre_start` against the host's 5.1.4 (compose-go v2.11.0). Ruling: Task 24's allowlists stay those of 5.1.4, so a project using either key is refused, which fails safe; Task 1 records both, and the contract-check gate needs no amendment for them.
 - Ruling: Task 1 edits the spec (4.2, 7.1) in its own worktree in wave 1-3 rather than the integrator editing it on `main` (spec "Parallel decomposition"); no other task of that wave touches the spec, so the merged result is the same, and the contract-check gate applies the results before any consumer runs.
 - `plan-lint` warns on a placeholder in Task 1; the match is Task 1's own check script, which greps the spec for `TBD`, `TODO` and `???` to prove none is left.
 - `logfilter.Flush` emits a held partial prefix of a secret unmasked at the end of a stream: a proper prefix is not the secret, and masking it would hide ordinary text that merely starts like one.
@@ -1242,12 +1243,15 @@ Components, each a named export in its own file: `DockerChange({hostId, action, 
 ### Task 1: Contract check: Tailscale scopes and policy API, Cloudflare permissions
 
 **Files:**
-- Modify: `docs/dforge/specs/2026-10-21-v1-completion-design.md`, section 4.2 only (the "4.2a Scopes" bullet, a new recorded-contract bullet placed directly before the "Devices." bullet, and the "Policy (R59)" bullet only when the recorded validate answer differs from its text), and section 7.1 only (the "Account." bullet's permission sentence, and a new recorded-contract bullet placed directly before the "Tunnels." bullet). No other line of the spec changes.
+- Modify: `docs/dforge/specs/2026-10-21-v1-completion-design.md`, three places and no other line:
+  - section 3: one new nested bullet `**Compose 5.6.0 schema:**` inside the "Compose (R53)." bullet, placed directly before its nested "Running." bullet (a section 3 note, not a 7.1 entry: Compose validation belongs to section 3, and Task 24 reads it there);
+  - section 4.2: the "4.2a Scopes" bullet, a new recorded-contract bullet placed directly before the "Devices." bullet, and the "Policy (R59)." bullet only when the recorded validate answer differs from its text;
+  - section 7.1: the "Account." bullet's permission sentence, and a new recorded-contract bullet placed directly before the "Tunnels." bullet.
 - Test: none; the check script of Step 1 is the test. It lives in `$TMPDIR`, not in the repository.
 
 **Interfaces:**
-- Consumes: nothing from earlier tasks. The providers' public documentation, read over the network (only this task does; Global Constraints "Host safety").
-- Produces: two bullets in the spec that later tasks read as fixed facts: "Recorded contract (Tailscale, ...)" in 4.2 and "Recorded contract (Cloudflare, ...)" in 7.1. Task 17 builds the Tailscale fake from the first (its endpoints, response shapes, ETag behaviour and `acl/validate` answer); Task 18 builds the Cloudflare fake from the second (its paths, permissions and envelope); Task 39 and Task 32 write the API clients against them; Tasks 21 and 22 take the scope and permission lists for their connect-dialog help text; Task 49 reads "Keys list" to decide how the key sweep works from ids alone or from descriptions.
+- Consumes: nothing from earlier tasks. The providers' public documentation and the Compose source files named in Step 3, read over the network (only this task does; Global Constraints "Host safety"). On this host the only command run against Docker is `docker compose version`.
+- Produces: three bullets in the spec that later tasks read as fixed facts: "Recorded contract (Tailscale, ...)" in 4.2, "Recorded contract (Cloudflare, ...)" in 7.1 and `**Compose 5.6.0 schema:**` in section 3. Task 17 builds the Tailscale fake from the first (its endpoints, response shapes, ETag behaviour and `acl/validate` answer); Task 18 builds the Cloudflare fake from the second (its paths, permissions and envelope); Task 39 and Task 32 write the API clients against them; Tasks 21 and 22 take the scope and permission lists for their connect-dialog help text; Task 49 reads "Keys list" to decide how the key sweep works from ids alone or from descriptions; Task 24 reads the Compose bullet to learn which keys Compose 5.6.0 adds or removes against the host schema it commits. The three bullets' `Divergences` entries (and the Compose bullet's entries) gate the plan: after wave 1-3 merges, any entry other than `none` stops execution until the integrator amends Contracts and the tasks that state the old value (Global Constraints "Contract-check gate").
 
 **Depends on:** none
 **Implementer:** dforge:impl-sonnet-medium
@@ -1255,9 +1259,15 @@ Components, each a named export in its own file: `DockerChange({hostId, action, 
 
 This task changes no code. It settles the facts that the plan's Assumptions mark "unverified — Task 1 settles each" and writes them into the spec, so every later task builds on recorded provider behaviour instead of a guess.
 
+Every divergence the task finds, in the spec bullets and in the report, is written in one fixed form, because the integrator acts on it mechanically:
+
+`<Contracts section> — <plan value> → <provider value> — <source URL>`
+
+for example `Tailnet wire shapes — KeyInfo.Revoked bool → revoked is a timestamp — https://api.tailscale.com/api/v2?outputOpenapiSchema=true`. The first field is the heading of the Contracts section that states the plan value ("Tailnet internals", "Tailnet wire shapes", "Cloudflare internals", "Cloudflare wire shapes" or "compose refusals"); the separators are an em dash with spaces around it and an arrow; the URL is the page or file that states the provider value. One entry per difference, never two differences in one entry.
+
 - [ ] **Step 1: Write the check**
 
-Create `$TMPDIR/check-contract.sh` (with `mkdir -p /root/.cache/w3-tmp/1 && export TMPDIR=/root/.cache/w3-tmp/1`) with exactly this content. It verifies that both recorded-contract bullets exist with every required label, that the "to be settled" sentences are gone, that no placeholder is left, and that the only files and lines changed are the spec's sections 4.2 and 7.1.
+Create `$TMPDIR/check-contract.sh` (with `mkdir -p /root/.cache/w3-tmp/1 && export TMPDIR=/root/.cache/w3-tmp/1`) with exactly this content. It verifies that the three bullets exist with every required label, that each `Divergences` bullet (and the Compose bullet) is `none` or is followed by entries in the fixed form, that the 7.1 token-verify line names the verify endpoint, that the "to be settled" sentences are gone, that no placeholder is left, and that the only file and lines changed are the spec's sections 3, 4.2 and 7.1.
 
 ```bash
 #!/usr/bin/env bash
@@ -1271,36 +1281,64 @@ section() { awk -v s="$1" -v e="$2" 'index($0,s)==1{f=1;next} index($0,e)==1{f=0
 # bounds <start prefix> <end prefix>: first and last line number of that section, headings included.
 bounds() { awk -v s="$1" -v e="$2" 'index($0,s)==1{a=NR} index($0,e)==1&&a{print a, NR-1; exit}' "$spec"; }
 
+s3=$(section '### 3. Docker management' '### 4. Tailscale')
 s42=$(section '#### 4.2 Tailnet' '#### 4.3 ')
 s71=$(section '#### 7.1 Account and tunnels' '#### 7.2 ')
 
 need() { printf '%s\n' "$1" | grep -Eq -- "$3" || bad "$2 lacks: $3"; }
+
+# entries <section text> <label>: the bullet with that label is "none" or is followed by nested entries of the form
+# "<Contracts section> — <plan value> → <provider value> — <source URL>".
+entries() {
+  printf '%s\n' "$1" | awk -v label="$2" '
+    function finish() { if (open && n == 0) { print "FAIL: " label " lists no entry and is not none"; rc = 1 } open = 0 }
+    index($0, "**" label ":**") {
+      finish()
+      rest = substr($0, index($0, "**" label ":**") + length("**" label ":**"))
+      if (rest ~ /^ *none\.? *$/) next
+      if (rest ~ /^ *$/) { open = 1; n = 0; next }
+      print "FAIL: " label " must be none or be followed by entries: " $0; rc = 1; next
+    }
+    open && /^ +- .+ — .+ → .+ — https?:\/\/[^ ]+$/ { n++; next }
+    open { finish() }
+    END { finish(); exit rc }'
+}
+
+need "$s3" "3" '\*\*Compose 5\.6\.0 schema:\*\*'
+entries "$s3" 'Compose 5.6.0 schema' || fail=1
 
 need "$s42" "4.2" 'Recorded contract \(Tailscale, checked 20[0-9]{2}-[0-9]{2}-[0-9]{2}\)'
 for l in Sources Scopes Token Devices Routes 'Device writes' 'Keys create' 'Keys list' 'Keys get and delete' \
          'Policy read' 'Policy write' 'Policy validate' Errors Divergences; do
   need "$s42" "4.2" "\\*\\*$l:\\*\\*"
 done
+entries "$s42" Divergences || fail=1
+
 need "$s71" "7.1" 'Recorded contract \(Cloudflare, checked 20[0-9]{2}-[0-9]{2}-[0-9]{2}\)'
 for l in Sources Permissions 'Token verify' Envelope Tunnels 'Tunnel token' Connections Configuration Zones \
          'DNS records' Errors Divergences; do
   need "$s71" "7.1" "\\*\\*$l:\\*\\*"
 done
+need "$s71" "7.1" '\*\*Token verify:\*\*.*/verify'
+entries "$s71" Divergences || fail=1
 
 printf '%s\n' "$s42" | grep -q 'Contract check (3b, first task)' && bad "4.2a still says the check is to be done"
 printf '%s\n' "$s71" | grep -q '3c contract check\*\* (first task)' && bad "7.1 still says the check is to be done"
-printf '%s\n%s\n' "$s42" "$s71" | grep -En 'TBD|TODO|\?\?\?' && bad "a placeholder is left in 4.2 or 7.1"
+printf '%s\n%s\n%s\n' "$s3" "$s42" "$s71" | grep -En 'TBD|TODO|\?\?\?' && bad "a placeholder is left in 3, 4.2 or 7.1"
 
+read -r a0 b0 < <(bounds '### 3. Docker management' '### 4. Tailscale')
 read -r a1 b1 < <(bounds '#### 4.2 Tailnet' '#### 4.3 ')
 read -r a2 b2 < <(bounds '#### 7.1 Account and tunnels' '#### 7.2 ')
 stray=$(git diff -U0 -- "$spec" | grep -E '^@@' | while read -r _ _ plus _; do
   start=${plus#+}; start=${start%%,*}; len=1
   case $plus in *,*) len=${plus#*,};; esac
   end=$((start + len - 1)); [ "$len" -eq 0 ] && end=$start
-  if { [ "$start" -ge "$a1" ] && [ "$end" -le "$b1" ]; } || { [ "$start" -ge "$a2" ] && [ "$end" -le "$b2" ]; }; then continue; fi
+  if { [ "$start" -ge "$a0" ] && [ "$end" -le "$b0" ]; } \
+     || { [ "$start" -ge "$a1" ] && [ "$end" -le "$b1" ]; } \
+     || { [ "$start" -ge "$a2" ] && [ "$end" -le "$b2" ]; }; then continue; fi
   echo "hunk +$start,$len"
 done)
-[ -z "$stray" ] || bad "the spec changed outside 4.2 and 7.1: $stray"
+[ -z "$stray" ] || bad "the spec changed outside sections 3, 4.2 and 7.1: $stray"
 
 others=$(git status --porcelain | grep -v " $spec\$" || true)
 [ -z "$others" ] || bad "files other than the spec changed: $others"
@@ -1312,11 +1350,11 @@ exit "$fail"
 - [ ] **Step 2: Run the check to verify it fails**
 
 Run, from the repository root: `bash $TMPDIR/check-contract.sh`
-Expected: exit status 1 and 30 `FAIL:` lines: every label of both recorded-contract bullets reported missing, plus "4.2a still says the check is to be done" and "7.1 still says the check is to be done". No "changed outside" line, because nothing is edited yet.
+Expected: exit status 1 and 32 `FAIL:` lines: the Compose bullet's label, every label of both recorded-contract bullets and the 7.1 verify line reported missing, plus "4.2a still says the check is to be done" and "7.1 still says the check is to be done". No "changed outside" line, because nothing is edited yet.
 
 - [ ] **Step 3: Read the documentation and record the result**
 
-Network rules. This is the only task that touches the network. Use only unauthenticated `curl -sSL --max-time 60` GETs of the URLs below; send no credential and make no authenticated request to either provider. Save each download in its own new empty directory under `$TMPDIR/docs/` (for example `$TMPDIR/docs/ts-openapi/`), keep any script you write in a different directory, read the files with `rg` and `sed -n`, and run Python only as `python3 -I` with the file passed as an argument. If a source cannot be fetched, stop and report BLOCKED with the URL; never fill a fact in from memory.
+Network rules. This is the only task that touches the network. Use only unauthenticated `curl -sSL --max-time 60` GETs of the URLs below: the providers' public documentation and schema files, and two files of the public Compose repositories on `raw.githubusercontent.com`. Send no credential and make no authenticated request to either provider. Save each download in its own new empty directory under `$TMPDIR/docs/` (for example `$TMPDIR/docs/ts-openapi/`), keep every script you write in a different directory (`$TMPDIR/scripts/`), read the files with `rg` and `sed -n`, and run Python only as `python3 -I` with the file passed as an argument. If a source cannot be fetched, stop and report BLOCKED with the URL; never fill a fact in from memory.
 
 Tailscale sources:
 - `https://tailscale.com/kb/1623/trust-credentials` (the scope table and each scope's endpoints and dependencies)
@@ -1339,9 +1377,45 @@ for p,ops in d["paths"].items():
 - `https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-remote-tunnel-api/` (the remotely managed tunnel flow and its permissions)
 - `https://developers.cloudflare.com/fundamentals/api/get-started/account-owned-tokens/` and `https://developers.cloudflare.com/api/resources/accounts/subresources/tokens/methods/verify/` (account-owned tokens and the verify endpoint)
 
-Edit the spec, in sections 4.2 and 7.1 only, as follows.
+Compose sources (for the Compose bullet):
+- The host's Compose version: run `docker compose version` (the only Docker command this task runs); it prints `Docker Compose version v<host>` (v5.1.4 on 2026-10-30). Use what it prints, not that number.
+- The pinned Compose version: the `docker-compose-plugin` entries of `test/harness/images.json` carry `"version": "5.6.0-..."`; the tag is `v5.6.0`. Read it from the file.
+- For each of the two tags `T`: `https://raw.githubusercontent.com/docker/compose/T/go.mod`; read the line `github.com/compose-spec/compose-go/v2 vX.Y.Z` (v2.16.1 for v5.6.0 and v2.11.0 for v5.1.4 on 2026-10-30; use what the files say).
+- For each of the two compose-go versions `V`: `https://raw.githubusercontent.com/compose-spec/compose-go/V/schema/compose-spec.json`, saved as `$TMPDIR/docs/compose-host/compose-spec.json` (the host's) and `$TMPDIR/docs/compose-pinned/compose-spec.json` (the pinned one's).
 
-1. **4.2a, Tailscale.** Rewrite the paragraph that begins "**Contract check (3b, first task)** settles" in the past tense as one sentence pointing to the recorded bullet ("Contract check (3b) result: see the recorded contract below"), and correct in place any name or dependency in the "Scopes." bullet that the documentation contradicts. Then add, directly before the "Devices." bullet, one bullet that starts `- **Recorded contract (Tailscale, checked YYYY-MM-DD).**` (the day you ran the check, as an absolute date) with exactly these nested bullets, each starting with its bold label, in this order, each stating method and path, the scope that authorizes it, the request and response members the plan reads, and the documented status codes:
+Compare the two schemas with this script, saved as `$TMPDIR/scripts/schema-keys.py` and run as `python3 -I $TMPDIR/scripts/schema-keys.py $TMPDIR/docs/compose-host/compose-spec.json $TMPDIR/docs/compose-pinned/compose-spec.json`. It prints, for the top level and for the service, network, volume, secret and config definitions, the property names the pinned schema adds and removes against the host's (a service's properties are collected through its `allOf` references, because newer schemas split them across definitions):
+
+```python
+import json, sys
+
+def props(node, defs):
+    out = set(node.get("properties", {}))
+    for sub in node.get("allOf", []):
+        ref = sub.get("$ref", "")
+        if ref:
+            out |= props(defs[ref.rsplit("/", 1)[1]], defs)
+        else:
+            out |= props(sub, defs)
+    return out
+
+def keys(path):
+    d = json.load(open(path))
+    defs = d.get("$defs") or d.get("definitions")
+    got = {"top-level": set(d.get("properties", {}))}
+    for name in ("service", "network", "volume", "secret", "config"):
+        got[name] = props(defs[name], defs)
+    return got
+
+old, new = keys(sys.argv[1]), keys(sys.argv[2])
+for name in old:
+    print(name, "added:", sorted(new[name] - old[name]), "removed:", sorted(old[name] - new[name]))
+```
+
+Edit the spec, in sections 3, 4.2 and 7.1 only, as follows.
+
+1. **Section 3, Compose.** Directly before the nested `**Running.**` bullet of the "Compose (R53)." bullet add `  - **Compose 5.6.0 schema:**` (two-space indented like its siblings). It states, in a few lines, the host and pinned Compose versions and their compose-go versions with the two source URLs, that Task 24's key allowlists are the host schema's property names, and then the result of the comparison: write ` none` on the same line when the script printed no added and no removed key, and otherwise end the line after the label and add one nested entry per added or removed key, in the fixed divergence form, for example `compose refusals — ServiceKeys lacks pre_start → pre_start is a service property in compose-go v2.16.1 — https://raw.githubusercontent.com/compose-spec/compose-go/v2.16.1/schema/compose-spec.json` (use `TopLevelKeys`, `ServiceKeys`, `NetworkKeys`, `VolumeKeys`, `ConfigKeys` or `SecretKeys` as the plan value's list, `lacks` for an added key and `still lists` for a removed one).
+
+2. **4.2a, Tailscale.** Rewrite the paragraph that begins "**Contract check (3b, first task)** settles" in the past tense as one sentence pointing to the recorded bullet ("Contract check (3b) result: see the recorded contract below"), and correct in place any name or dependency in the "Scopes." bullet that the documentation contradicts. Then add, directly before the "Devices." bullet, one bullet that starts `- **Recorded contract (Tailscale, checked YYYY-MM-DD).**` (the day you ran the check, as an absolute date) with exactly these nested bullets, each starting with its bold label, in this order, each stating method and path, the scope that authorizes it, the request and response members the plan reads, and the documented status codes:
    - `**Sources:**` each URL read.
    - `**Scopes:**` the scope set the module needs for connect's read probes (list devices, list keys, read the policy) and for each write group, the dependencies (`policy_file` needs `devices:posture_attributes` and `devices:core:read`; confirm or correct), whether `devices:routes` needs another scope, and the tags rule for a credential holding `auth_keys` or `devices:core`.
    - `**Token:**` `POST /api/v2/oauth/token`: content type, form fields (`client_id`, `client_secret`, `grant_type`, and whether `scope` and `tags` may be omitted), the success members (`access_token`, `token_type`, `expires_in`, `scope`), the token lifetime, and the status and body for wrong credentials.
@@ -1355,12 +1429,12 @@ Edit the spec, in sections 4.2 and 7.1 only, as follows.
    - `**Policy write:**` `POST /api/v2/tailnet/{t}/acl`: the request content type for HuJSON text, the `If-Match` behaviour, the success status, body and new `ETag`, the 412 answer for a stale `If-Match`, and the answer for a policy with an error.
    - `**Policy validate:**` `POST /api/v2/tailnet/{t}/acl/validate`: the answer for a valid policy (status and body), for an invalid one (the `{message, data}` shape or whatever the provider documents), whether HuJSON text is accepted as the body and with which content type, and the answer when the policy's own `tests` fail. When a valid policy does not answer an empty 200, correct the "Policy (R59)" bullet's sentence about the empty 200 body so the spec states the recorded answer.
    - `**Errors:**` the error body shape (for example `{"message": ...}`), the 401 and 403 answers for a missing scope or tag (and whether the scope is named), 404, and 429 with `Retry-After`.
-   - `**Divergences:**` each place where the provider differs from the plan's Contracts "Tailnet internals" and "Tailnet wire shapes" (an endpoint, a member's name or type, an ETag form), one line each, or the single word `none`.
+   - `**Divergences:**` each place where the provider differs from the plan's Contracts "Tailnet internals" and "Tailnet wire shapes" (an endpoint, a member's name or type, an ETag form), one entry in the fixed divergence form per difference as nested bullets after the label, or the single word `none` on the label's line.
 
-2. **7.1, Cloudflare.** In the "Account." bullet, replace the sentence that begins "The **3c contract check** (first task) settles" with a past-tense sentence ("The 3c contract check settled this; the final list is recorded below and belongs in the connect dialog's help text"), and make the "Required permissions" sentence name the final list using the names Cloudflare shows in its dashboard today, with the legacy names in parentheses where they differ (for example the spec's "Cloudflare Tunnel Write"). Then add, directly before the "Tunnels." bullet, one bullet that starts `- **Recorded contract (Cloudflare, checked YYYY-MM-DD).**` with exactly these nested bullets, in this order, with the same level of detail:
+3. **7.1, Cloudflare.** In the "Account." bullet, replace the sentence that begins "The **3c contract check** (first task) settles" with a past-tense sentence ("The 3c contract check settled this; the final list is recorded below and belongs in the connect dialog's help text"), and make the "Required permissions" sentence name the final list using the names Cloudflare shows in its dashboard today, with the legacy names in parentheses where they differ (for example the spec's "Cloudflare Tunnel Write"). Then add, directly before the "Tunnels." bullet, one bullet that starts `- **Recorded contract (Cloudflare, checked YYYY-MM-DD).**` with exactly these nested bullets, in this order, with the same level of detail:
    - `**Sources:**` each URL read.
    - `**Permissions:**` one line per operation the module calls (token verify; tunnel list, get, create and delete; tunnel token; connections list; configuration get and put; zones list; DNS records list, get, create and delete) naming the permissions Cloudflare lists for it, then the final minimal set to ask the operator for, the resource each is scoped to (account or zone), and the answer to the open question: whether creating a tunnel and reading its token need anything beyond the tunnel write permission, "Zone Read" and "DNS Write" (for example "Account Settings: Read").
-   - `**Token verify:**` the endpoint for an account-owned token and the one for a user token, which one applies to a token given with an account id, the response members and `status` values, and the answer for an invalid token.
+   - `**Token verify:**` the first line of this bullet states the exact method and path of the verify endpoint for an account-owned API token. The plan's Contracts name `GET /accounts/{account_id}/tokens/verify` (`VerifyToken`); write that path when the documentation says so, and otherwise write the documented path and add the entry `Cloudflare internals — VerifyToken GET /accounts/{a}/tokens/verify → <documented method and path> — <URL>` to the Divergences bullet. The bullet then gives the endpoint for a user token, which one applies to a token given with an account id, the response members and `status` values, and the answer for an invalid token.
    - `**Envelope:**` `success`, `errors[]` (`code`, `message`), `messages`, `result`, `result_info`; the pagination parameters of each list endpoint the module calls, with their default and maximum page size.
    - `**Tunnels:**` list (`is_deleted=false`, `name`), get, create (request members, whether `tunnel_secret` is required with `config_src: cloudflare`) and delete (what happens while connections exist, and whether connections must be cleaned up first); the tunnel object's members (`id`, `name`, `status`, `created_at`, `deleted_at`, `connections`) and the `status` values.
    - `**Tunnel token:**` `GET .../cfd_tunnel/{id}/token`: the type of `result`.
@@ -1369,7 +1443,7 @@ Edit the spec, in sections 4.2 and 7.1 only, as follows.
    - `**Zones:**` `GET /zones`: the filter parameters (`name`, `account.id`), the members `id` and `name`, and pagination.
    - `**DNS records:**` list (the filter parameters for name and for the comment, exactly as spelled), get, create (`type`, `name`, `content`, `proxied`, `comment`, `ttl`) and delete: result members, the delete answer, and the error code for a duplicate record and for an unknown record.
    - `**Errors:**` the HTTP status and the first `errors[].code` for an invalid token, a missing permission, a missing object, a rate limit and a conflicting record.
-   - `**Divergences:**` each place where the provider differs from the plan's Contracts "Cloudflare internals" and "Cloudflare wire shapes", one line each, or `none`.
+   - `**Divergences:**` each place where the provider differs from the plan's Contracts "Cloudflare internals" and "Cloudflare wire shapes", one entry in the fixed divergence form per difference as nested bullets after the label, or `none` on the label's line.
 
 Rules for the text you write. State only what a source says; where a source is silent write `not documented` for that item, never a guess. Keep every bullet factual and at most about eight lines. Use obvious placeholders in examples (`<tailnet>`, `fake-secret`); no credential appears. Do not edit the plan, the fakes' contracts or any other section of the spec. If a result breaks a requirement (for example no way to filter DNS records by comment, or a permission the spec does not list that the module cannot work without), record the facts in the bullet and put the conflict at the top of your report; do not work around it.
 
@@ -1395,7 +1469,7 @@ git commit -m "docs(spec): record the tailnet and cloudflare contracts"
 rm -rf /root/.cache/w3-tmp/1 && GOTOOLCHAIN=local go clean -testcache
 ```
 
-In your report list every entry of the two "Divergences" bullets that is not `none`, one per line, because the plan's Contracts are not edited by this task and the integrator amends them from your report.
+Your report ends with a section "Divergences" that repeats, verbatim and one per line, every nested entry of the three bullets (`**Divergences:**` in 4.2, `**Divergences:**` in 7.1 and `**Compose 5.6.0 schema:**` in section 3), each in the fixed form `<Contracts section> — <plan value> → <provider value> — <source URL>`; when all three are `none`, the section says `none`. The plan's Contracts are not edited by this task. Any entry other than `none` stops the plan after wave 1-3 merges until the integrator amends Contracts and every task that states the old value, so write each entry precisely enough to be applied without reading the spec bullet.
 
 ### Task 2: dockerapi: reject empty ids and wrap the negotiation error
 
@@ -30086,7 +30160,7 @@ git commit -m "test(harness): add the M4 Compose scenarios"
 
 **Interfaces:**
 - Consumes: `TestM4` and its step table (Task 54); Task 59's rows, which this row follows; from `main`: `fleet` (`os OS`, `agent *vm.VM`), `OS.Packages`, `LoadPins`, `PinsFile`, `m3Run`, `m3dxShell`, `m3dxExpoSteps`, `m3dxExpoJob`, `m3dxExpoTimeoutRE`, `m3dxExpoLimitRE`; `TestDockerLive` and `DARKPANEL_DOCKER_LIVE`, `DARKPANEL_DOCKER_LIVE_IMAGE` in `internal/platform/dockerapi/live_test.go` (unchanged).
-- Produces: the flag `dockerapiTestFlag` (Contracts "Harness M4"), the step `dockerapi-live`, the build step `Build the dockerapi live test` that writes `bin/harness/dockerapi.test`, the workflow step `Run the M4 Docker harness` and a `vm` job limit of 360 minutes. Names starting `m4l` only.
+- Produces: the flag `dockerapiTestFlag` (Contracts "Harness M4"), the step `dockerapi-live`, the build step `Build the dockerapi live test` that writes `bin/harness/dockerapi.test`, and a new workflow job `vm-m4` that runs `TestM4` for each OS. The `vm` job is not changed. Names in Go start with `m4l` only.
 
 **Items:** 252
 
@@ -30194,11 +30268,33 @@ const m4lWorkflowDoc = `jobs:
           path: bin/harness
   vm:
     needs: build
-    timeout-minutes: 360
+    timeout-minutes: 280
     steps:
       - name: Run the harness
         run: >-
           go test -tags harness -timeout 100m -v ./test/harness/
+  vm-m4:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04, debian-12, debian-13]
+    steps:
+      - name: Enable KVM
+        run: test -e /dev/kvm
+      - run: sudo apt-get install -y qemu-system-x86
+      - uses: actions/checkout@x
+      - uses: actions/setup-go@x
+      - uses: actions/download-artifact@x
+        with:
+          name: darkpanel-linux-amd64
+      - uses: actions/download-artifact@x
+        with:
+          name: darkpanel-harness
+      - uses: actions/cache@x
+      - run: go vet -tags harness ./test/...
       - name: Run the M4 Docker harness
         run: >-
           go test -tags harness -timeout 70m -v -run '^TestM4$' ./test/harness/
@@ -30206,34 +30302,45 @@ const m4lWorkflowDoc = `jobs:
           -dockerapi-test "$GITHUB_WORKSPACE/bin/harness/dockerapi.test"
           -workdir "$RUNNER_TEMP/harness-m4"
       - if: failure()
+        uses: actions/upload-artifact@x
         with:
-          path: |
-            ${{ runner.temp }}/harness-m4/**/*.log
+          name: logs-m4-${{ matrix.os }}
+          path: ${{ runner.temp }}/harness-m4/**/*.log
 `
 
 func TestM4lWorkflow(t *testing.T) {
 	if err := m4lWorkflow(m4lWorkflowDoc, 60*time.Minute); err != nil {
 		t.Fatalf("the fixture: %v", err)
 	}
+	const buildStep = "      - name: Build the dockerapi live test\n        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go test -c -o bin/harness/dockerapi.test ./internal/platform/dockerapi\n"
 	for name, tc := range map[string]struct{ from, to, want string }{
 		"no build step":      {"Build the dockerapi live test", "Build something", "Build the dockerapi live test"},
 		"dynamic binary":     {"CGO_ENABLED=0 ", "", "CGO_ENABLED=0"},
 		"wrong output":       {"-o bin/harness/dockerapi.test", "-o bin/dockerapi.test", "-o bin/harness/dockerapi.test"},
-		"built after upload": {"      - name: Build the dockerapi live test\n        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go test -c -o bin/harness/dockerapi.test ./internal/platform/dockerapi\n", "", "Build the dockerapi live test"},
+		"built after upload": {buildStep, "", "Build the dockerapi live test"},
+		"M4 left in vm":      {"go test -tags harness -timeout 100m -v ./test/harness/", "go test -tags harness -timeout 100m -v -run '^TestM4$' ./test/harness/", "vm job"},
+		"no vm-m4 job":       {"  vm-m4:\n", "  vm-other:\n", "no vm-m4 job"},
+		"no needs":           {"  vm-m4:\n    needs: build\n", "  vm-m4:\n", "needs: build"},
+		"fail-fast":          {"fail-fast: false", "fail-fast: true", "fail-fast: false"},
+		"no matrix":          {"debian-13]", "debian-12]", "os: ["},
+		"no KVM":             {"/dev/kvm", "/dev/null", "/dev/kvm"},
+		"no fleet download":  {"name: darkpanel-harness\n", "name: other\n", "name: darkpanel-harness"},
+		"no vet":             {"      - run: go vet -tags harness ./test/...\n", "", "go vet -tags harness"},
 		"no run step":        {"Run the M4 Docker harness", "Run M4", "Run the M4 Docker harness"},
 		"no flag":            {" -m4\n", "\n", "-m4"},
 		"no binary":          {"-dockerapi-test", "-unknown", "-dockerapi-test"},
 		"short timeout":      {"-timeout 70m -v -run", "-timeout 60m -v -run", "-timeout 60m"},
-		"no logs":            {"${{ runner.temp }}/harness-m4/**/*.log", "", "harness-m4"},
-		"limit too small":    {"timeout-minutes: 360", "timeout-minutes: 150", "timeout-minutes 150"},
-		"limit too large":    {"timeout-minutes: 360", "timeout-minutes: 400", "timeout-minutes 400"},
+		"no logs":            {"${{ runner.temp }}/harness-m4/**/*.log", "", "harness-m4/**/*.log"},
+		"wrong artifact":     {"name: logs-m4-", "name: logs-", "logs-m4-"},
+		"limit too small":    {"timeout-minutes: 100", "timeout-minutes: 90", "timeout-minutes 90"},
+		"limit too large":    {"timeout-minutes: 100", "timeout-minutes: 130", "timeout-minutes 130"},
 	} {
 		if !strings.Contains(m4lWorkflowDoc, tc.from) {
 			t.Fatalf("%s: the fixture lacks %q", name, tc.from)
 		}
 		doc := strings.Replace(m4lWorkflowDoc, tc.from, tc.to, 1)
 		if name == "built after upload" {
-			doc = strings.Replace(doc, "  vm:\n", "      - name: Build the dockerapi live test\n        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go test -c -o bin/harness/dockerapi.test ./internal/platform/dockerapi\n  vm:\n", 1)
+			doc = strings.Replace(doc, "  vm:\n", buildStep+"  vm:\n", 1)
 		}
 		if err := m4lWorkflow(doc, 60*time.Minute); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: %v, want an error naming %q", name, err, tc.want)
@@ -30278,7 +30385,13 @@ const m4lImage = "public.ecr.aws/docker/library/alpine@sha256:be2656061b536c1883
 - `m4lVerdict(out string) error` reads the `-test.v` output line by line: a line starting `--- SKIP`, `--- FAIL`, `FAIL` or `panic:` is an error `harness: TestDockerLive did not pass: "<line>"` followed by the output, and the output without a line starting `--- PASS: TestDockerLive` is an error containing `no --- PASS: TestDockerLive line`. The skip case matters: the test binary prints `--- SKIP` and ends `PASS` when `DARKPANEL_DOCKER_LIVE` is not `1`.
 - `m4lServerVersion(pkgVersion string) (string, error)` turns a pinned Debian package version into the Engine's version: drop everything up to the first `:` (the epoch), then everything from the first `-`; an empty result is an error. `5:29.9.1-1~ubuntu.22.04~jammy` gives `29.9.1`.
 - `m4lLive(ctx context.Context, t *testing.T, f *fleet)`: fail with `harness: -dockerapi-test is required: the path of the dockerapi test binary the workflow builds` when the flag is empty (a skip would hide a workflow that lost the flag); take the version of the `docker-ce` entry of `f.os.Packages` through `m4lServerVersion`, and require `sudo docker version --format '{{.Server.Version}}'` on `f.agent` (through `m3Run`, trimmed) to equal it, so the run is against the pinned Docker; copy the binary with `f.agent.CopyFile(ctx, *dockerapiTestFlag, m4lRemote, 0o755)` and remove it in a `t.Cleanup`; run `m4lCommand(m4lRemote, m4lImage)` on `f.agent`, log the output with `t.Logf`, fail the test on a non-zero exit, then on `m4lVerdict`.
-- Constants `m4lBuildStep = "Build the dockerapi live test"`, `m4lRunStep = "Run the M4 Docker harness"`, `m4lJobMax = 360`; `m4lStep(job, name string) (string, bool)` finds a step by its `name:` line among `m3dxExpoSteps(job)`; and `m4lWorkflow(yml string, deadline time.Duration) error`, which the tests call. It requires, in order, each with an error naming what is missing: a `build` job (`m3dxExpoJob`) with the step `m4lBuildStep` containing `CGO_ENABLED=0`, `GOOS=linux`, `GOARCH=amd64`, `go test -c`, `-o bin/harness/dockerapi.test` and `./internal/platform/dockerapi`, placed before the text `path: bin/harness` of the artifact upload; a `vm` job with the step `m4lRunStep` containing `-run '^TestM4$'`, ` -m4`, `-os ${{ matrix.os }}`, `-workdir "$RUNNER_TEMP/harness-m4"` and `-dockerapi-test "$GITHUB_WORKSPACE/bin/harness/dockerapi.test"`, with a `-timeout <n>m` of at least `deadline` plus 10 minutes; the text `harness-m4/**/*.log` in the job; and a `timeout-minutes` between the sum of the job's `-timeout` values plus 30 and `m4lJobMax`.
+- Constants `m4lBuildStep = "Build the dockerapi live test"`, `m4lRunStep = "Run the M4 Docker harness"`, `m4lJob = "vm-m4"` and `m4lJobMax = 120`, the last with the comment that a job past 120 minutes is split per milestone (spec, Parallel decomposition); `m4lSetup`, the list of strings `/dev/kvm`, `qemu-system-x86`, `actions/checkout@`, `actions/setup-go@`, `name: darkpanel-linux-amd64`, `name: darkpanel-harness`, `actions/cache@` and `go vet -tags harness ./test/...`, which are the `vm` job's setup steps; `m4lStep(job, name string) (string, bool)`, which finds a step by its `name:` line among `m3dxExpoSteps(job)`; and `m4lWorkflow(yml string, deadline time.Duration) error`, which the tests call. It requires, in order, each with an error naming what is missing:
+  1. a `build` job (`m3dxExpoJob`) with the step `m4lBuildStep` containing `CGO_ENABLED=0`, `GOOS=linux`, `GOARCH=amd64`, `go test -c`, `-o bin/harness/dockerapi.test` and `./internal/platform/dockerapi`, placed before the text `path: bin/harness` of the artifact upload;
+  2. a `vm` job that contains neither `TestM4` nor `harness-m4` (it has no M4 step and collects no M4 log);
+  3. a `vm-m4` job containing `needs: build`, `runs-on: ubuntu-24.04`, `fail-fast: false`, `os: [ubuntu-22.04, ubuntu-24.04, debian-12, debian-13]` and every `m4lSetup` string;
+  4. in that job the step `m4lRunStep` containing `-run '^TestM4$'`, ` -m4`, `-os ${{ matrix.os }}`, `-workdir "$RUNNER_TEMP/harness-m4"` and `-dockerapi-test "$GITHUB_WORKSPACE/bin/harness/dockerapi.test"`, with a `-timeout <n>m` of at least `deadline` plus 10 minutes;
+  5. in that job the failure upload: `name: logs-m4-${{ matrix.os }}` and `harness-m4/**/*.log`;
+  6. in that job a `timeout-minutes` between `n` + 30 (the step's `-timeout` plus 30 minutes of setup) and `m4lJobMax`, with the error text naming both bounds.
 
 *Step table.* In `test/harness/m4_test.go`, after Task 59's last row, add, in the form of the existing rows and not a gate:
 
@@ -30286,9 +30399,9 @@ const m4lImage = "public.ecr.aws/docker/library/alpine@sha256:be2656061b536c1883
 		{"dockerapi-live", false, func(t *testing.T) { m4lLive(ctx, t, f) }},
 ```
 
-*`.github/workflows/harness.yml`* (a configuration value; the three edits and nothing else, and no action is bumped):
+*`.github/workflows/harness.yml`* (a configuration value; the two edits and nothing else, no action is bumped, and the `vm` job stays exactly as it is, with its limit of 280 minutes). The M4 run does not go into the `vm` job: that job already holds the M1 to M3 runs, and a job past 120 minutes is split per milestone, so M4 gets a job of its own.
 
-1. In the `build` job, directly after `- run: make harness-builds` (which creates `bin/harness`) and before `Harness unit tests`, add a step. `CGO_ENABLED=0` gives a static binary: the VMs run Ubuntu 22.04 to Debian 13 and the runner's libc is newer than the oldest of them.
+1. In the `build` job, directly after `- run: make harness-builds` (which creates `bin/harness`) and before `Harness unit tests`, add a step. `CGO_ENABLED=0` gives a static binary: the VMs run Ubuntu 22.04 to Debian 13 and the runner's libc is newer than the oldest of them. The existing artifact step that uploads `bin/harness` carries the file to the `vm-m4` job, and `-m2` (the same directory) ignores the extra file.
 
 ```yaml
       # The dockerapi live test runs on the harness VMs, which have no Go
@@ -30297,23 +30410,58 @@ const m4lImage = "public.ecr.aws/docker/library/alpine@sha256:be2656061b536c1883
         run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go test -c -o bin/harness/dockerapi.test ./internal/platform/dockerapi
 ```
 
-   The existing artifact step that uploads `bin/harness` then carries it to the `vm` job, and `-m2` (the same directory) ignores the extra file.
-2. In the `vm` job, replace the comment and limit above `strategy:` with the lines below. The existing `m3dxExpoWorkflow` check (`TestM3xExpoWorkflowFile`) requires the limit to cover every `-timeout` of the job plus 30 minutes, and the new 70-minute step makes that 340.
+2. At the end of the file, after the `vm` job and a blank line, add the job below. It carries the `vm` job's setup steps, copied exactly (KVM, QEMU, checkout, setup-go, both artifact downloads, the image cache, `go vet`), then the M4 step and its own failure upload. Its limit is the smallest that covers the step's `-timeout` plus 30 minutes of setup. The comment sits under the job key, not above it, because `m3dxExpoJob` counts a comment line before a key as part of the job above.
 
 ```yaml
-    # 120 minutes for the M1 and M2 run, 80 more for each of the M3 firewall,
-    # M3 Docker and M4 Docker runs.
-    timeout-minutes: 360
-```
-
-3. After the `Run the M3 Docker harness` step and before the `- if: failure()` upload step, add the M4 step; and in that upload step's `path:` list add the line `${{ runner.temp }}/harness-m4/**/*.log` after the `harness-m3d` line:
-
-```yaml
+  vm-m4:
+    # The M4 run has a job of its own: a job past 120 minutes is split per
+    # milestone, and the vm job already holds the M1 to M3 runs. The limit is
+    # the step's -timeout plus 30 minutes of setup.
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04, debian-12, debian-13]
+    steps:
+      - name: Enable KVM
+        run: |
+          if [ ! -e /dev/kvm ]; then
+            echo "::error::/dev/kvm is missing on this runner; the harness needs KVM (ADR 0008)"
+            exit 1
+          fi
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install QEMU and cloud-image-utils
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils cloud-image-utils
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: darkpanel-linux-amd64
+          path: bin
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: darkpanel-harness
+          path: bin/harness
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/darkpanel-harness
+          key: harness-images-${{ matrix.os }}-${{ hashFiles('test/harness/images.json') }}
+      - run: go vet -tags harness ./test/...
       # TestM4 boots a fleet of its own, as TestM3Docker does, and runs the
       # dockerapi live test on its agent. Its own deadline is 60 minutes, and
       # the extra 10 leave its VM cleanups time to finish.
       - name: Run the M4 Docker harness
-        if: ${{ !cancelled() }}
         run: >-
           go test -tags harness -timeout 70m -v -run '^TestM4$' ./test/harness/
           -args -os ${{ matrix.os }} -m4
@@ -30323,6 +30471,13 @@ const m4lImage = "public.ecr.aws/docker/library/alpine@sha256:be2656061b536c1883
           -commit "$GITHUB_SHA"
           -workdir "$RUNNER_TEMP/harness-m4"
           -cache "$HOME/.cache/darkpanel-harness"
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: logs-m4-${{ matrix.os }}
+          path: ${{ runner.temp }}/harness-m4/**/*.log
+          retention-days: 7
+          if-no-files-found: ignore
 ```
 
 - [ ] **Step 4: Run the tests to verify they pass**
@@ -30336,9 +30491,10 @@ timeout 900 golangci-lint run --allow-serial-runners --build-tags harness ./test
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 timeout 300 go test -c -o "$TMPDIR/dockerapi.test" ./internal/platform/dockerapi
 file "$TMPDIR/dockerapi.test"
 DARKPANEL_DOCKER_LIVE= "$TMPDIR/dockerapi.test" -test.run '^TestDockerLive$' -test.v
+git diff -- .github/workflows/harness.yml
 ```
 
-Expected: all `TestM4l*` and `TestM3xExpoWorkflowFile` pass; `0 issues.`; `file` prints `statically linked`; the last command prints `--- SKIP: TestDockerLive` and `PASS`. Never set `DARKPANEL_DOCKER_LIVE=1` on this host: the test would drive its live Docker daemon (Global Constraints, host safety); it runs only on the harness VMs in gate 7. Then the checks every task runs, including `go test -count=1 ./...` and `go mod tidy -diff`. Remove `/root/.cache/w3-tmp/60` and run `go clean -testcache`.
+Expected: all `TestM4l*` and `TestM3xExpoWorkflowFile` pass; `0 issues.`; `file` prints `statically linked`; the `-test.v` run prints `--- SKIP: TestDockerLive` and `PASS`; the diff touches only the new `build` step and the appended `vm-m4` job (the `vm` job's lines are unchanged). Never set `DARKPANEL_DOCKER_LIVE=1` on this host: the test would drive its live Docker daemon (Global Constraints, host safety); it runs only on the harness VMs in gate 7. Then the checks every task runs, including `go test -count=1 ./...` and `go mod tidy -diff`. Remove `/root/.cache/w3-tmp/60` and run `go clean -testcache`.
 
 - [ ] **Step 5: Commit**
 
