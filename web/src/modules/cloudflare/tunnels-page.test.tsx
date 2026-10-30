@@ -17,8 +17,8 @@ function tpConnection(colo: string, id: string) {
 function tpTunnels(): TunnelView[] {
   return [
     cfTunnel({ id: "t1", name: "darkpanel-c1", status: "healthy", connections: [tpConnection("ams01", "k1"), tpConnection("fra02", "k2")], hostnames: 2 }),
-    cfTunnel({ id: "t2", name: "darkpanel-c2", status: "inactive", drift: true }),
-    cfTunnel({ id: "t3", name: "darkpanel-c3", status: "unknown" }),
+    cfTunnel({ id: "t2", name: "darkpanel-c2", status: "inactive", connections: [], drift: true, hostnames: 0 }),
+    cfTunnel({ id: "t3", name: "darkpanel-c3", status: "unknown", connections: [], hostnames: 0 }),
   ]
 }
 
