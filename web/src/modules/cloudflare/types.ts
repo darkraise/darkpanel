@@ -1,8 +1,8 @@
 export const CLOUDFLARE_ACTION_VERSION = 1
 
 // ["cloudflare"] is the prefix CloudflareChange invalidates when its dialog closes.
-export function cloudflareKey(name: "account" | "tunnels" | "hostnames"): string[] {
-  return ["cloudflare", name]
+export function cloudflareKey(name: "account" | "tunnels" | "hostnames") {
+  return ["cloudflare", name] as const
 }
 
 export interface CloudflareAccountView {
