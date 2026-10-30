@@ -8,6 +8,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
@@ -89,6 +90,47 @@ func TestMFPreflightFails(t *testing.T) {
 				t.Errorf("%s: error %q lacks %q", name, err, w)
 			}
 		}
+	}
+}
+
+// mfSilent is a daemon that accepts the version request and never answers.
+type mfSilent struct {
+	*fakeDocker
+	asked chan struct{}
+}
+
+func (a mfSilent) Version(ctx context.Context) (dockerapi.VersionInfo, error) {
+	close(a.asked)
+	<-ctx.Done()
+	return dockerapi.VersionInfo{}, fmt.Errorf("dockerapi: GET /version: %w", ctx.Err())
+}
+
+// TestMFPreflightTimesOut: a daemon that never answers fails the check once
+// preflightTimeout passes on the module's clock, not before.
+func TestMFPreflightTimesOut(t *testing.T) {
+	h := newDKHost(t)
+	k := h.dk()
+	silent := mfSilent{fakeDocker: h.docker, asked: make(chan struct{})}
+	k.d.docker = silent
+	done := make(chan error, 1)
+	go func() { done <- k.preflight()[0].Run(context.Background(), h.env("")) }()
+	<-silent.asked
+
+	h.clock.Advance(preflightTimeout - time.Nanosecond)
+	select {
+	case err := <-done:
+		t.Fatalf("the check ended before %v: %v", preflightTimeout, err)
+	default:
+	}
+	h.clock.Advance(time.Nanosecond)
+	select {
+	case err := <-done:
+		if err == nil || !strings.HasPrefix(err.Error(), "docker: ") ||
+			!strings.Contains(err.Error(), "did not answer") || !strings.Contains(err.Error(), preflightTimeout.String()) {
+			t.Errorf("error = %v, want the daemon's silence within %v", err, preflightTimeout)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the check still waits for the daemon after its bound")
 	}
 }
 

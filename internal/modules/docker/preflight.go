@@ -7,22 +7,41 @@ import (
 	"io/fs"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
 )
+
+// preflightTimeout bounds the check's call to the daemon: the runtime runs
+// preflights in sequence while it opens, so a daemon that accepts the
+// connection and never answers would otherwise hold up the agent's start.
+const preflightTimeout = 10 * time.Second
 
 // preflight is the module's preflight (spec 3): the Docker daemon answers on
 // its socket with an API version of at least dockerapi.MinAPIVersion.
 func (k dk) preflight() []core.PreflightCheck {
 	return []core.PreflightCheck{{
 		ID: ID + ".engine",
-		Run: func(ctx context.Context, _ core.Env) error {
+		Run: func(ctx context.Context, env core.Env) error {
+			clock := env.Clock
+			if clock == nil {
+				clock = core.SystemClock{}
+			}
+			ctx, cancel := context.WithCancelCause(ctx)
+			defer cancel(nil)
+			timer := clock.AfterFunc(preflightTimeout, func() { cancel(errNoAnswer) })
+			defer timer.Stop()
 			_, err := k.probe(ctx)
+			if err != nil && errors.Is(context.Cause(ctx), errNoAnswer) {
+				return errNoAnswer
+			}
 			return err
 		},
 	}}
 }
+
+var errNoAnswer = fmt.Errorf("docker: the Docker daemon did not answer on %s within %s", dockerapi.DefaultSocket, preflightTimeout)
 
 // probe asks the daemon for its version once and returns it, or the reason
 // the engine cannot be used.
