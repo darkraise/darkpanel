@@ -61,7 +61,7 @@ test("the table shows each container's image, state, ports, project and usage an
   const rows = within(await screen.findByRole("table", { name: "Docker containers" })).getAllByRole("row")
   expect(rows).toHaveLength(3)
   const cells = (row: HTMLElement | undefined) => within(row as HTMLElement).getAllByRole("cell").slice(0, 6).map((c) => c.textContent)
-  expect(cells(rows[1])).toEqual(["web", "nginx:1.27", "running", "8080→80/tcp, 443/tcp", "shop / web", "12.3% · 45 MiB / 1 GiB"])
+  expect(cells(rows[1])).toEqual(["web", "nginx:1.27", "running", "8080→80/tcp, 443/tcp", "shop / web", "12.3% · 45.0 MiB / 1.0 GiB"])
   expect(cells(rows[2])).toEqual(["db", "postgres:17", "exited", "—", "—", "—"])
   expect(within(rows[1] as HTMLElement).getByRole("link", { name: "web" }).getAttribute("href")).toBe("/hosts/h1/docker/containers/c1")
 })

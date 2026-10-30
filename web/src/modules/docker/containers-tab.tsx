@@ -8,6 +8,7 @@ import { EmptyState } from "darkraise-ui/components/empty-state"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
 import { errorMessage, readResource } from "@/api/client"
+import { formatBytes } from "@/lib/format"
 import { DockerChange } from "./docker-change"
 import { DOCKER_MODULE, dockerKey, type DockerContainer, type DockerPort, type DockerUsage } from "./types"
 
@@ -15,18 +16,6 @@ interface Pending {
   action: string
   title: string
   container: string
-}
-
-const UNITS = ["B", "KiB", "MiB", "GiB", "TiB"]
-
-function bytes(n: number): string {
-  let value = n
-  let unit = 0
-  while (Math.round(value * 10) / 10 >= 1024 && unit < UNITS.length - 1) {
-    value /= 1024
-    unit++
-  }
-  return `${Math.round(value * 10) / 10} ${UNITS[unit]}`
 }
 
 function portText(p: DockerPort): string {
@@ -46,7 +35,7 @@ function project(c: DockerContainer): string {
 
 function usage(u: DockerUsage | undefined): string {
   if (!u) return "—"
-  return `${u.cpuPercent.toFixed(1)}% · ${bytes(u.memUsage)} / ${bytes(u.memLimit)}`
+  return `${u.cpuPercent.toFixed(1)}% · ${formatBytes(u.memUsage)} / ${formatBytes(u.memLimit)}`
 }
 
 function ContainerRow({ container: c, onChange }: { container: DockerContainer; onChange: (p: Pending) => void }) {

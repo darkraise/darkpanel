@@ -10,6 +10,7 @@ import { Label } from "darkraise-ui/components/label"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
 import { errorMessage, readResource } from "@/api/client"
+import { formatBytes } from "@/lib/format"
 import { DockerChange } from "./docker-change"
 import { DOCKER_MODULE, dockerKey, type DockerImage } from "./types"
 
@@ -17,18 +18,6 @@ interface Pending {
   action: string
   title: string
   input: Record<string, unknown>
-}
-
-const UNITS = ["B", "KiB", "MiB", "GiB", "TiB"]
-
-function bytes(n: number): string {
-  let value = n
-  let unit = 0
-  while (Math.round(value * 10) / 10 >= 1024 && unit < UNITS.length - 1) {
-    value /= 1024
-    unit++
-  }
-  return `${Math.round(value * 10) / 10} ${UNITS[unit]}`
 }
 
 // imageName is what the daemon is asked about: the first tag, else the id.
@@ -63,7 +52,7 @@ function ImageTable({ images, onRemove }: { images: DockerImage[]; onRemove: (i:
               ) : null}
             </TableCell>
             <TableCell className="font-mono">{i.id.replace(/^sha256:/, "").slice(0, 12)}</TableCell>
-            <TableCell>{bytes(i.size)}</TableCell>
+            <TableCell>{formatBytes(i.size)}</TableCell>
             <TableCell>{i.created.slice(0, 10)}</TableCell>
             <TableCell>{i.containers.length === 0 ? "—" : i.containers.join(", ")}</TableCell>
             <TableCell>
