@@ -44,6 +44,9 @@ type LogStream struct {
 
 // Logs opens a container's log output.
 func (c *Client) Logs(ctx context.Context, id string, opts LogsOptions) (*LogStream, error) {
+	if err := requireID("container", id); err != nil {
+		return nil, err
+	}
 	if !opts.Stdout && !opts.Stderr {
 		return nil, errors.New("dockerapi: logs: neither Stdout nor Stderr selected")
 	}
@@ -166,6 +169,9 @@ type NetworkStats struct {
 // is false (the daemon takes two readings so the CPU delta is filled),
 // otherwise one sample per second until the stream is closed.
 func (c *Client) Stats(ctx context.Context, id string, stream bool) (*Stream[Stats], error) {
+	if err := requireID("container", id); err != nil {
+		return nil, err
+	}
 	q := url.Values{"stream": {strconv.FormatBool(stream)}}
 	res, err := c.do(ctx, request{method: http.MethodGet, path: "/containers/" + url.PathEscape(id) + "/stats", query: q})
 	if err != nil {
@@ -217,6 +223,9 @@ func (c *Client) Events(ctx context.Context, opts EventsOptions) (*Stream[Event]
 // CopyFromContainer returns a tar archive of path inside a container; the
 // caller closes it.
 func (c *Client) CopyFromContainer(ctx context.Context, id, path string) (io.ReadCloser, error) {
+	if err := requireID("container", id); err != nil {
+		return nil, err
+	}
 	q := url.Values{"path": {path}}
 	res, err := c.do(ctx, request{method: http.MethodGet, path: "/containers/" + url.PathEscape(id) + "/archive", query: q})
 	if err != nil {
@@ -228,6 +237,9 @@ func (c *Client) CopyFromContainer(ctx context.Context, id, path string) (io.Rea
 // CopyToContainer extracts a tar archive into the directory path inside a
 // container, refusing to replace a directory with a file or the reverse.
 func (c *Client) CopyToContainer(ctx context.Context, id, path string, archive io.Reader) error {
+	if err := requireID("container", id); err != nil {
+		return err
+	}
 	q := url.Values{"path": {path}, "noOverwriteDirNonDir": {"true"}}
 	_, err := c.call(ctx, request{
 		method: http.MethodPut, path: "/containers/" + url.PathEscape(id) + "/archive", query: q,

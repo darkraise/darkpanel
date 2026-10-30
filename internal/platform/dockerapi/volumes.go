@@ -41,6 +41,9 @@ func (c *Client) ListVolumes(ctx context.Context, filters Filters) ([]Volume, er
 
 // InspectVolume inspects a volume by name.
 func (c *Client) InspectVolume(ctx context.Context, name string) (Volume, error) {
+	if err := requireID("volume", name); err != nil {
+		return Volume{}, err
+	}
 	var out Volume
 	_, err := c.call(ctx, request{method: http.MethodGet, path: "/volumes/" + url.PathEscape(name)}, &out)
 	return out, err
@@ -57,6 +60,9 @@ func (c *Client) CreateVolume(ctx context.Context, v VolumeCreate) (Volume, erro
 // RemoveVolume removes a volume; the daemon answers 409 while a container
 // uses it.
 func (c *Client) RemoveVolume(ctx context.Context, name string, force bool) error {
+	if err := requireID("volume", name); err != nil {
+		return err
+	}
 	q := url.Values{"force": {strconv.FormatBool(force)}}
 	_, err := c.call(ctx, request{method: http.MethodDelete, path: "/volumes/" + url.PathEscape(name), query: q}, nil)
 	return err

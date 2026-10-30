@@ -46,7 +46,20 @@ var (
 	// ErrUnsupportedVersion is returned when the daemon's API is older than
 	// MinAPIVersion.
 	ErrUnsupportedVersion = errors.New("dockerapi: daemon API version unsupported")
+	// ErrEmptyID is wrapped by the error of a call given an empty object id,
+	// name or reference.
+	ErrEmptyID = errors.New("dockerapi: empty id")
 )
+
+// requireID refuses an empty id before any request: an empty path segment
+// would address the collection's list route (for example /volumes/), and the
+// daemon would answer something decodable instead of an error.
+func requireID(what, id string) error {
+	if id == "" {
+		return fmt.Errorf("%w: %s", ErrEmptyID, what)
+	}
+	return nil
+}
 
 // APIError is an answer outside 2xx and 304 from the daemon.
 type APIError struct {
@@ -132,7 +145,7 @@ func (c *Client) APIVersion(ctx context.Context) (string, error) {
 	select {
 	case c.negotiating <- struct{}{}:
 	case <-ctx.Done():
-		return "", ctx.Err()
+		return "", fmt.Errorf("dockerapi: negotiate API version: %w", ctx.Err())
 	}
 	defer func() { <-c.negotiating }()
 	if v := c.cachedVersion(); v != "" {

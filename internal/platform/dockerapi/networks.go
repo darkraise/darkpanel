@@ -75,6 +75,9 @@ func (c *Client) ListNetworks(ctx context.Context, filters Filters) ([]Network, 
 
 // InspectNetwork inspects a network by ID or name, with its containers.
 func (c *Client) InspectNetwork(ctx context.Context, id string) (Network, error) {
+	if err := requireID("network", id); err != nil {
+		return Network{}, err
+	}
 	var out Network
 	_, err := c.call(ctx, request{method: http.MethodGet, path: "/networks/" + url.PathEscape(id)}, &out)
 	return out, err
@@ -91,6 +94,9 @@ func (c *Client) CreateNetwork(ctx context.Context, n NetworkCreate) (string, er
 
 // RemoveNetwork removes a network; the daemon refuses one with endpoints.
 func (c *Client) RemoveNetwork(ctx context.Context, id string) error {
+	if err := requireID("network", id); err != nil {
+		return err
+	}
 	_, err := c.call(ctx, request{method: http.MethodDelete, path: "/networks/" + url.PathEscape(id)}, nil)
 	return err
 }
@@ -98,6 +104,12 @@ func (c *Client) RemoveNetwork(ctx context.Context, id string) error {
 // ConnectNetwork attaches a container to a network; endpoint may be nil or
 // carry aliases and static addresses.
 func (c *Client) ConnectNetwork(ctx context.Context, network, container string, endpoint *EndpointSettings) error {
+	if err := requireID("network", network); err != nil {
+		return err
+	}
+	if err := requireID("container", container); err != nil {
+		return err
+	}
 	body := struct {
 		Container      string
 		EndpointConfig *EndpointSettings `json:",omitempty"`
@@ -108,6 +120,12 @@ func (c *Client) ConnectNetwork(ctx context.Context, network, container string, 
 
 // DisconnectNetwork detaches a container from a network.
 func (c *Client) DisconnectNetwork(ctx context.Context, network, container string, force bool) error {
+	if err := requireID("network", network); err != nil {
+		return err
+	}
+	if err := requireID("container", container); err != nil {
+		return err
+	}
 	body := struct {
 		Container string
 		Force     bool
