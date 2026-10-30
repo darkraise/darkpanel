@@ -3398,6 +3398,21 @@ empty list or map as equal, addresses in canonical `netip` form.
     ADR 0014 records it, together with the Compose execution exception to
     ADR 0009 (an allowlisted binary that reads operator-authored files and
     starts containers through the daemon).
+  - **Compose 5.6.0 schema:**
+    - compose refusals — TopLevelKeys lacks jobs → jobs is a top-level property in compose-go v2.16.1 — https://raw.githubusercontent.com/compose-spec/compose-go/v2.16.1/schema/compose-spec.json
+    - compose refusals — ServiceKeys lacks pre_start → pre_start is a service property in compose-go v2.16.1 — https://raw.githubusercontent.com/compose-spec/compose-go/v2.16.1/schema/compose-spec.json
+    - Basis, checked 2026-10-30: the host runs Compose v5.1.4
+      (`docker compose version`), whose `go.mod` requires compose-go v2.11.0
+      (https://raw.githubusercontent.com/docker/compose/v5.1.4/go.mod); the
+      harness pins Compose v5.6.0 (`test/harness/images.json`), whose `go.mod`
+      requires compose-go v2.16.1
+      (https://raw.githubusercontent.com/docker/compose/v5.6.0/go.mod). The
+      key allowlists of the Compose validation are the property names of the
+      host schema (compose-go v2.11.0). Comparing the pinned schema against
+      it for the top level and the service, network, volume, secret and config
+      definitions (a service's properties collected through its `allOf`
+      references), the pinned schema adds the two keys above and removes none.
+      The network, volume, secret and config definitions are unchanged.
   - **Running.** `/usr/bin/docker compose --project-directory <dir> -p <name>
     -f <file>... [--env-file <f>]... [--profile <p>]... <verb>` with fixed
     verb flags (`up -d --no-build`, `down`, `pull`, `restart`, and `config
@@ -3588,15 +3603,128 @@ empty list or map as equal, addresses in canonical `netip` form.
   tags, and keys it creates must carry those tags or tags they own through
   `tagOwners`. Tokens come from `POST /api/v2/oauth/token` and last one hour;
   the client caches one and renews it at 50 minutes.
-  **Contract check (3b, first task)** settles, against Tailscale's API
-  documentation and the fake's recorded responses, and writes into this
-  section: the scope set and the dependencies stated above (Tailscale's
-  OAuth page now defers its scope table to its "trust credentials" topic);
-  whether `GET /api/v2/tailnet/{t}/keys` returns each key's description or
-  only ids (the auth-key sweep, 1.9, is written to work from ids alone,
-  fetching each key with `GET /api/v2/tailnet/{t}/keys/{id}`); and the
-  response of `POST .../acl/validate` for a valid policy (an empty 200 body
-  is the assumption above).
+  Contract check (3b) result: see the recorded contract below.
+- **Recorded contract (Tailscale, checked 2026-10-30).**
+  - **Sources:** https://tailscale.com/kb/1623/trust-credentials (scopes,
+    last validated Jan 30, 2026), https://tailscale.com/kb/1215/oauth-clients
+    (token endpoint, tags), https://api.tailscale.com/api/v2?outputOpenapiSchema=true
+    (Tailscale's OpenAPI document, which calls itself unstable; the endpoint
+    shapes below). https://tailscale.com/api returns a page rendered by
+    script with no API text, so nothing was taken from it. Paths below are
+    relative to `https://api.tailscale.com`; `{t}` is the tailnet name or
+    ID, or `-` for the token's own tailnet. An item the sources do not state
+    is written `not documented`.
+  - **Scopes:** connect's read probes: list devices `devices:core:read`,
+    list keys `auth_keys:read`, read the policy `policy_file:read`. Write
+    groups: authorize, expire and delete a device `devices:core`; routes
+    `devices:routes` (its `GET` needs `devices:routes:read`, which it
+    includes; no other scope); create and delete an auth key `auth_keys`;
+    write the policy `policy_file` (it includes read and validate). Each
+    write scope includes its `:read` scope. Dependencies confirmed:
+    `policy_file:read` needs `devices:posture_attributes:read` and
+    `devices:core:read`; `policy_file` needs `devices:posture_attributes` and
+    `devices:core:read`. Tags: a credential created with `devices:core` or
+    `auth_keys` must have one or more tags, and auth keys created with it
+    must have those exact tags or tags they own through `tagOwners`; tags in
+    a token request count only for tokens with `devices:core`, `auth_keys`
+    or `all`. Every scope may `GET .../keys/{id}` for the key in use. The
+    legacy ids (`devices`, `acl`, `routes`) remain valid only for existing
+    credentials.
+  - **Token:** `POST /api/v2/oauth/token`, the OAuth 2.0 client credentials
+    request format; the page's example sends `client_id` and `client_secret`
+    as form data (`curl -d`) and neither `grant_type`, `scope` nor `tags`.
+    `scope` and `tags` are optional space-delimited lists the client must be
+    permitted to grant. Success: `{"access_token":"tskey-...","token_type":
+    "Bearer","expires_in":3600,"scope":"devices"}`. The token lasts one hour
+    and "this time cannot be modified". Content type of the request, whether
+    `grant_type` is required, and the answer for wrong credentials: not
+    documented.
+  - **Devices:** `GET /api/v2/tailnet/{t}/devices?fields=all` answers 200
+    `{"devices":[Device]}`; `GET /api/v2/device/{id}?fields=all` answers 200
+    one `Device` (400 invalid id, 404 unknown). Scope `devices:core:read`.
+    Without `fields=all` the default subset omits `enabledRoutes` and
+    `advertisedRoutes`. `Device` members at the top level: `nodeId` (the
+    preferred id) and `id` (the legacy numeric id, still accepted), `name`
+    (MagicDNS name), `hostname`, `os`, `user`, `addresses` (strings), `tags`
+    (strings), `authorized` (bool), `lastSeen` and `expires` (date-time
+    strings such as `2022-12-01T05:23:30Z`; `lastSeen` is omitted when the
+    device never connected or is connected now), `keyExpiryDisabled` (bool),
+    `advertisedRoutes` and `enabledRoutes` (strings). `{id}` accepts the node
+    id (preferred) and the numeric id.
+  - **Routes:** `GET /api/v2/device/{id}/routes` (`devices:routes:read`)
+    answers 200 `{"advertisedRoutes":[...],"enabledRoutes":[...]}`, 404
+    unknown. `POST` (`devices:routes`) takes `{"routes":[...]}` and replaces
+    the enabled list; advertised routes cannot be set through the API;
+    it answers 200 with the same two members, 404 unknown. How an exit node
+    is expressed (the routes `0.0.0.0/0` and `::/0`): not documented.
+  - **Device writes:** authorize `POST /api/v2/device/{id}/authorized`, body
+    `{"authorized":true|false}` (required; 400 when missing or not a bool),
+    200 without a described body, 402 when the plan or billing refuses, 404
+    unknown. Expire `POST /api/v2/device/{id}/expire`, no body, 200 without a
+    described body, 404 unknown. Delete `DELETE /api/v2/device/{id}`, 200
+    without a described body, 400 invalid id, 501 for a device not owned by
+    the tailnet; the answer for an unknown device: not documented. All
+    three need `devices:core`.
+  - **Keys create:** `POST /api/v2/tailnet/{t}/keys`, scope `auth_keys`.
+    Request: `capabilities.devices.create` with `reusable`, `ephemeral`,
+    `preauthorized` (bools) and `tags` (strings; required when the caller is
+    an OAuth-derived token), `description` (at most 50 alphanumeric
+    characters, hyphens and spaces allowed), `expirySeconds` (int64; default
+    90 days; limits not documented), `keyType` (default `auth`). The body
+    must hold a `capabilities.devices` object, which may be `{}`. Response
+    200 `Key`: `id`, `key` (only here), `keyType`, `created`, `expires`,
+    `expirySeconds`, `description`, `capabilities`, `userId`. 404 unknown
+    tailnet.
+  - **Keys list:** `GET /api/v2/tailnet/{t}/keys[?all=true]` answers 200
+    `{"keys":[Key]}` of active keys. `Key` has `description`, and the
+    document's example list shows `description` on every entry, so entries
+    carry it and not only ids. Without `all`, a token derived from an OAuth
+    client lists the tailnet's OAuth clients, not its auth keys; with
+    `all=true` it lists all auth keys, API access tokens and OAuth clients.
+    Reads need `auth_keys:read` for auth keys (`api_access_tokens:read`,
+    `oauth_keys:read` and `federated_keys:read` for the other types); the
+    answer to `all=true` with only `auth_keys:read`: not documented.
+    Timestamps `created`, `expires`, `updated` and `revoked` are date-time
+    strings; `revoked` is a timestamp, not a bool. `keyType` is `auth`,
+    `client`, `api` or `federated`.
+  - **Keys get and delete:** `GET /api/v2/tailnet/{t}/keys/{id}`
+    (`auth_keys:read`) answers 200 `Key`; a revoked (deleted) or expired key
+    still answers 200 with `invalid: true`; 404 for an unknown tailnet or
+    key. `DELETE` (`auth_keys`) answers 200 without a described body, 403 for
+    insufficient access, 404 for an unknown tailnet. Deleting a deleted key,
+    and an unknown id on `DELETE`: not documented.
+  - **Policy read:** `GET /api/v2/tailnet/{t}/acl` with `Accept:
+    application/hujson` (`policy_file:read`) answers 200 with the HuJSON text
+    as `application/hujson`; `Accept: application/json` answers JSON, and
+    any other value or none answers HuJSON. The `ETag` response header is
+    documented as present; its exact form is not stated, and the document's
+    `If-Match` examples are quoted (`"e0b2816b418"`, `"ts-default"`), so the
+    value is sent back as received. 400, 403, 404.
+  - **Policy write:** `POST /api/v2/tailnet/{t}/acl` (`policy_file`), request
+    `Content-Type: application/hujson` for HuJSON text (JSON is also
+    accepted), `If-Match: <ETag as read>` to avoid overwriting a newer
+    policy (the value `ts-default` matches only the untouched default).
+    200 returns the stored policy in the format of `Accept`; an `ETag` header
+    on that answer: not documented. 400 for an incorrectly defined policy or
+    one whose `tests` fail; 412 `{"message":"precondition failed, invalid old
+    hash"}` for a stale `If-Match`; 403, 404.
+  - **Policy validate:** `POST /api/v2/tailnet/{t}/acl/validate`
+    (`policy_file:read`), body the policy text as `application/hujson` or
+    JSON (a JSON array of tests runs them against the current policy
+    instead). It changes nothing. 200 with an empty body means validation
+    and tests passed (the document's success example is `{}`); 200 with
+    `{"message":"test(s) failed","data":[{"user":...,"errors":[...]}]}` when
+    the policy's own `tests` fail; 200 with `{"message":"warning(s)
+    found","data":[{"user":...,"warnings":[...]}]}` for warnings; 400
+    `{"message":...}` for a policy that does not parse.
+  - **Errors:** body `{"message":"..."}`. 403 "Forbidden" with that body;
+    whether it names the scope or tag: not documented. 404 `{"message"}`.
+    429 `{"message"}`; `Retry-After`: not documented. 401: not documented.
+    Also 400, 402, 500, 501, 502 and 504 with `{"message"}`.
+  - **Divergences:**
+    - Tailnet internals — KeyInfo.Revoked bool → revoked is a date-time timestamp — https://api.tailscale.com/api/v2?outputOpenapiSchema=true
+    - Tailnet internals — KeyInfo has no member for a deleted or expired key → GET /tailnet/{t}/keys/{id} answers invalid: true for it — https://api.tailscale.com/api/v2?outputOpenapiSchema=true
+    - Tailnet internals — Keys GET /api/v2/tailnet/{t}/keys → needs the query all=true, because without it an OAuth-derived token lists only OAuth clients — https://api.tailscale.com/api/v2?outputOpenapiSchema=true
 - **Devices.** Read `tailnet.device.list`, `tailnet.policy.get`.
   Compensable: `tailnet.device.authorize` (undo: de-authorize, if this change
   authorized it); `tailnet.device.set-routes` (approve routes and exit node;
@@ -3608,8 +3736,9 @@ empty list or map as equal, addresses in canonical `netip` form.
 - **Policy (R59).** `tailnet.policy.set` (compensable): input is the full
   HuJSON text. Plan fetches `GET /api/v2/tailnet/{t}/acl` with `Accept:
   application/hujson` and its `ETag`, validates the new text with `POST
-  .../acl/validate` (an empty 200 body is valid; otherwise `{message, data}`
-  becomes `tailnet.policy_invalid`), and renders a line diff. Apply posts with
+  .../acl/validate` (a 200 with an empty body or `{}` is valid; a 200 with
+  `{message, data}` or a 400 with `{message}` becomes
+  `tailnet.policy_invalid`), and renders a line diff. Apply posts with
   `If-Match` on that ETag; a 412 fails with `tailnet.policy_conflict`. The
   effects journal stores the before-text and the after-ETag. Undo posts the
   before-text with `If-Match` on the after-ETag; if the policy changed since,
@@ -4096,14 +4225,95 @@ a spec change.
   (sealed). Token verification shows only that the token is valid, so connect
   probes read capabilities (list tunnels on the account, list zones) and
   reports write capabilities as unverified (1.9). Required permissions:
-  "Cloudflare Tunnel Write" on the account (shown as Cloudflare Tunnel Edit in
-  the dashboard), "Zone Read" and "DNS Write" on the zones used (shown as
-  "DNS: Edit"). The **3c contract check** (first task) settles against
-  Cloudflare's API documentation whether creating a tunnel and reading its
-  token need any further permission (for example "Account Settings:
-  Read"), and records the final list here and in the connect dialog's
-  help text.
+  "Account: Cloudflare Tunnel: Edit" ("Cloudflare Tunnel Write") on the
+  account, "Zone: Zone: Read" ("Zone Read") and "Zone: DNS: Edit" ("DNS
+  Write") on the zones used. The 3c contract check settled this; the final
+  list is recorded below and belongs in the connect dialog's help text.
   `cloudflare.account.disconnect` is irreversible.
+- **Recorded contract (Cloudflare, checked 2026-10-30).**
+  - **Sources:** https://raw.githubusercontent.com/cloudflare/api-schemas/main/openapi.json
+    (Cloudflare's OpenAPI document; `x-api-token-group` lists the accepted
+    permissions per operation),
+    https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-remote-tunnel-api/,
+    https://developers.cloudflare.com/fundamentals/api/get-started/account-owned-tokens/
+    and https://developers.cloudflare.com/api/resources/accounts/subresources/tokens/methods/verify/.
+    Paths are relative to `https://api.cloudflare.com/client/v4`; `{a}` is the
+    account id. An item the sources do not state is written `not documented`.
+  - **Permissions:** token verify: none listed. Tunnel list, get,
+    connections list, configuration get: Cloudflare Tunnel Read or Write. Tunnel
+    create, delete, tunnel token, configuration put: Cloudflare Tunnel Write.
+    Zones list: Zone Read (the document's group is named "Zone Zone Read").
+    DNS records list and get: DNS Read or DNS Write; create and delete: DNS
+    Write. Cloudflare One Connectors and Cloudflare One Connector:
+    cloudflared (Read or Write) are accepted wherever Cloudflare Tunnel is
+    listed. Final set to ask for: Account / Cloudflare Tunnel / Edit
+    (account), Zone / Zone / Read and Zone / DNS / Edit (the zones used).
+    Creating a tunnel and reading its token need nothing beyond Cloudflare
+    Tunnel Write: no operation lists Account Settings: Read or any other group.
+  - **Token verify:** `GET /accounts/{a}/tokens/verify` for an account-owned
+    token (no listed permission); the user-token endpoint is `GET
+    /user/tokens/verify` with no account id. The sources do not say which
+    applies to a given token; the account endpoint is the one for a token
+    given with an account id. 200 `result`: `id`, `status` (`active`,
+    `disabled` or `expired`), `expires_on` and `not_before` (date-time,
+    optional). Invalid token: a 4XX with `success` false, `errors[]` and
+    `result` null; the exact status and code: not documented.
+  - **Envelope:** `success`, `errors[]` and `messages[]` (each `code`, an
+    integer of at least 1000, `message`, optional `documentation_url` and
+    `source.pointer`), `result`, `result_info` (`count`, `page`, `per_page`,
+    `total_count`; zones add `total_pages`). Pagination by `page` (default 1)
+    and `per_page`: tunnels 1 to 1000, default not documented; zones default
+    20, 5 to 50; DNS records default 100, maximum 5000000.
+  - **Tunnels:** list `GET /accounts/{a}/cfd_tunnel?is_deleted=false[&name=]`
+    (without `is_deleted` deleted tunnels are included); get `GET
+    .../cfd_tunnel/{id}`; create `POST .../cfd_tunnel` with `name` (required),
+    `config_src` (`cloudflare` or `local`, default `local`) and `tunnel_secret`
+    (optional, described for locally managed tunnels; the tutorial omits it);
+    its answer also carries the tunnel `token`. Delete `DELETE
+    .../cfd_tunnel/{id}`: "must have no active connections"; `DELETE
+    .../{id}/connections` cleans connections up (Tunnel Write); the answer for
+    a tunnel with connections: not documented. Object: `id`, `name`, `status`
+    (`inactive` never run, `degraded`, `healthy`, `down`), `created_at`,
+    `deleted_at` (null when live), `connections[]`, `conns_active_at`,
+    `conns_inactive_at`, `config_src`, `remote_config`, `account_tag`,
+    `tun_type`, `metadata`.
+  - **Tunnel token:** `GET .../cfd_tunnel/{id}/token` (Tunnel Write; Read does
+    not authorize it): `result` is a string.
+  - **Connections:** `GET .../cfd_tunnel/{id}/connections`: `result` is an
+    array of connectors (`id`, `version`, `arch`, `run_at`, `config_version`,
+    `features`) each with `conns[]`; every `conns` element has `id`, `uuid`,
+    `client_id`, `client_version`, `colo_name`, `origin_ip`, `opened_at` (date-time),
+    `is_pending_reconnect`. The tunnel object's `connections[]` holds the same
+    members, flat.
+  - **Configuration:** `GET` and `PUT .../cfd_tunnel/{id}/configurations`; the
+    `PUT` body is `{"config":{"ingress":[...]}}` (also `originRequest` and
+    `warp-routing.enabled` under `config`); `result`: `tunnel_id`, `version`
+    (integer), `config`, `source` (`local` or `cloudflare`), `created_at`
+    (`account_id` on the `PUT` answer). Rule: `hostname`, `path`, `service`
+    (required: `http://`, `https://`, `unix://`, `tcp://`, `ssh://`, `rdp://`,
+    `unix+tls://`, `smb://` or `http_status:<code>`), `originRequest` with
+    `noTLSVerify` among others. At least one rule is required and the
+    tutorial requires a catch-all rule last (`{"service":"http_status:404"}`);
+    the document marks `hostname` required in the `PUT` schema, which that
+    catch-all example contradicts. A never-configured tunnel's `GET`, and the
+    validation error codes: not documented.
+  - **Zones:** `GET /zones?name=<name>&account.id=<id>` (Zone Read); `name`
+    also takes operators (`contains`, `starts_with` and others); `result[]`
+    holds `id` and `name` among other members; pagination above.
+  - **DNS records:** list `GET /zones/{z}/dns_records?name=<name>&comment=<text>`
+    (`name` and `comment` are exact, case-insensitive aliases of `name.exact`
+    and `comment.exact`; `type`, `content` and `proxied` also filter); get `GET
+    .../{id}`; create `POST` with `type`, `name`, `content`, `proxied` (default
+    false), `comment`, `ttl` (default 1, automatic); delete `DELETE .../{id}`
+    answers 200 `result` `{"id"}`. A record has `id`, `type`, `name`,
+    `content`, `proxied`, `comment`, `ttl`, `created_on`, `modified_on`. A CNAME
+    `content` must not equal its name; A/AAAA and CNAME cannot share a name.
+    Error codes for a duplicate and for an unknown record: not documented.
+  - **Errors:** each failure is the envelope with `success` false, `errors[]`
+    and `result` null, in a 4XX. The status and first `errors[].code` for an
+    invalid token, a missing permission, a missing object, a rate limit and a
+    conflicting record: not documented in the sources read.
+  - **Divergences:** none
 - **Tunnels.** `cloudflare.tunnel.create` (compensable; undo: delete the
   created tunnel; name `darkpanel-<change id>`) creates a remotely managed
   tunnel with `POST /accounts/{a}/cfd_tunnel` and `config_src: cloudflare`;
