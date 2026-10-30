@@ -152,33 +152,40 @@ func insertKey(ctx context.Context, tx *sql.Tx, k keyRow) error {
 	return nil
 }
 
+// scanKey decodes one tailnet_keys row, its columns selected in table order,
+// through scan, a *sql.Row's or a *sql.Rows' Scan method.
+func scanKey(scan func(dest ...any) error) (keyRow, error) {
+	var k keyRow
+	var requested, updated, tagsRaw string
+	if err := scan(&k.Description, &k.Kind, &k.OwnerID, &requested, &k.ExpirySeconds, &tagsRaw, &k.KeyID, &k.State, &updated); err != nil {
+		return keyRow{}, fmt.Errorf("tailnet: scan key: %w", err)
+	}
+	var err error
+	if k.RequestedAt, err = parseStoreTime(requested); err != nil {
+		return keyRow{}, err
+	}
+	if k.UpdatedAt, err = parseStoreTime(updated); err != nil {
+		return keyRow{}, err
+	}
+	if err := json.Unmarshal([]byte(tagsRaw), &k.Tags); err != nil {
+		return keyRow{}, fmt.Errorf("tailnet: decode key %s tags: %w", k.Description, err)
+	}
+	if k.Tags == nil {
+		k.Tags = []string{}
+	}
+	return k, nil
+}
+
 // loadKey loads the key with that description; ok is false when there is
 // none.
 func loadKey(ctx context.Context, q queryer, description string) (keyRow, bool, error) {
-	var (
-		k                           keyRow
-		requested, updated, tagsRaw string
-	)
-	err := q.QueryRowContext(ctx, `SELECT description, kind, owner_id, requested_at, expiry_seconds, tags_json, key_id, state, updated_at
-		FROM tailnet_keys WHERE description = ?`, description).
-		Scan(&k.Description, &k.Kind, &k.OwnerID, &requested, &k.ExpirySeconds, &tagsRaw, &k.KeyID, &k.State, &updated)
+	k, err := scanKey(q.QueryRowContext(ctx, `SELECT description, kind, owner_id, requested_at, expiry_seconds, tags_json, key_id, state, updated_at
+		FROM tailnet_keys WHERE description = ?`, description).Scan)
 	if errors.Is(err, sql.ErrNoRows) {
 		return keyRow{}, false, nil
 	}
 	if err != nil {
-		return keyRow{}, false, fmt.Errorf("tailnet: load key %s: %w", description, err)
-	}
-	if k.RequestedAt, err = parseStoreTime(requested); err != nil {
 		return keyRow{}, false, err
-	}
-	if k.UpdatedAt, err = parseStoreTime(updated); err != nil {
-		return keyRow{}, false, err
-	}
-	if err := json.Unmarshal([]byte(tagsRaw), &k.Tags); err != nil {
-		return keyRow{}, false, fmt.Errorf("tailnet: decode key %s tags: %w", description, err)
-	}
-	if k.Tags == nil {
-		k.Tags = []string{}
 	}
 	return k, true, nil
 }
@@ -193,24 +200,9 @@ func listKeys(ctx context.Context, q queryer) ([]keyRow, error) {
 	defer func() { _ = rows.Close() }()
 	var out []keyRow
 	for rows.Next() {
-		var (
-			k                           keyRow
-			requested, updated, tagsRaw string
-		)
-		if err := rows.Scan(&k.Description, &k.Kind, &k.OwnerID, &requested, &k.ExpirySeconds, &tagsRaw, &k.KeyID, &k.State, &updated); err != nil {
-			return nil, fmt.Errorf("tailnet: list keys: %w", err)
-		}
-		if k.RequestedAt, err = parseStoreTime(requested); err != nil {
+		k, err := scanKey(rows.Scan)
+		if err != nil {
 			return nil, err
-		}
-		if k.UpdatedAt, err = parseStoreTime(updated); err != nil {
-			return nil, err
-		}
-		if err := json.Unmarshal([]byte(tagsRaw), &k.Tags); err != nil {
-			return nil, fmt.Errorf("tailnet: decode key %s tags: %w", k.Description, err)
-		}
-		if k.Tags == nil {
-			k.Tags = []string{}
 		}
 		out = append(out, k)
 	}
