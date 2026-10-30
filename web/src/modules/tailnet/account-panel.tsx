@@ -87,7 +87,13 @@ function ConnectForm({ onPlan }: { onPlan: (pending: Pending) => void }) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (!next) setDraft(EMPTY)
+      }}
+    >
       <DialogTrigger asChild>
         <Button>Connect</Button>
       </DialogTrigger>

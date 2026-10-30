@@ -147,6 +147,20 @@ test("the connect form forgets what was typed, the secret included, once the cha
   }
 })
 
+test("dismissing the connect dialog without planning forgets what was typed", async () => {
+  apRender(apDisconnected)
+  const user = userEvent.setup()
+  await user.click(await screen.findByRole("button", { name: "Connect" }))
+  await apFill(user, await screen.findByRole("form", { name: "Tailnet connection" }), { tailnet: "example.com", clientId: "k123CNTRL", secret: "tskey-client-s3cret", tags: "tag:server" })
+  await user.keyboard("{Escape}")
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+  await user.click(screen.getByRole("button", { name: "Connect" }))
+  const form = await screen.findByRole("form", { name: "Tailnet connection" })
+  for (const label of ["Tailnet", "OAuth client ID", "OAuth client secret", "Allowed tags"]) {
+    expect((within(form).getByLabelText(label) as HTMLInputElement).value).toBe("")
+  }
+})
+
 test("an applied connection shows the account once the dialog closes", async () => {
   let reads = 0
   const { calls } = apRender(apDisconnected, {
