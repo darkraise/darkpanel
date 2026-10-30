@@ -1,0 +1,100 @@
+{
+  "configs": {
+    "cfg": {
+      "name": "external_cfg",
+      "content": "hello",
+      "labels": {
+        "k": "v"
+      }
+    }
+  },
+  "name": "external",
+  "networks": {
+    "shared": {
+      "name": "my-shared-net",
+      "ipam": {},
+      "external": true
+    }
+  },
+  "secrets": {
+    "sec": {
+      "name": "external_sec",
+      "environment": "HOME"
+    }
+  },
+  "services": {
+    "api": {
+      "command": null,
+      "entrypoint": null,
+      "image": "nginx:1.27",
+      "labels": {
+        "a": "b",
+        "c": ""
+      },
+      "networks": {
+        "shared": null
+      },
+      "volumes": [
+        {
+          "type": "volume",
+          "source": "plain",
+          "target": "/plain",
+          "volume": {}
+        }
+      ]
+    },
+    "web": {
+      "command": null,
+      "configs": [
+        {
+          "source": "cfg"
+        }
+      ],
+      "entrypoint": null,
+      "image": "nginx:1.27",
+      "network_mode": "host",
+      "secrets": [
+        {
+          "source": "sec",
+          "target": "/run/secrets/sec"
+        }
+      ],
+      "volumes": [
+        {
+          "type": "volume",
+          "source": "ext",
+          "target": "/data",
+          "volume": {}
+        },
+        {
+          "type": "volume",
+          "source": "other",
+          "target": "/other"
+        },
+        {
+          "type": "bind",
+          "source": "/srv/data",
+          "target": "/srv"
+        },
+        {
+          "type": "tmpfs",
+          "target": "/tmp"
+        }
+      ]
+    }
+  },
+  "volumes": {
+    "ext": {
+      "name": "ext",
+      "external": true
+    },
+    "other": {
+      "name": "real-other",
+      "external": true
+    },
+    "plain": {
+      "name": "external_plain"
+    }
+  },
+  "x-note": "kept"
+}

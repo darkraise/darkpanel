@@ -1,0 +1,74 @@
+{
+  "name": "simple",
+  "networks": {
+    "back": {
+      "name": "simple_back",
+      "ipam": {},
+      "internal": true,
+      "labels": {
+        "com.example.net": "back"
+      }
+    },
+    "front": {
+      "name": "simple_front",
+      "ipam": {}
+    }
+  },
+  "services": {
+    "db": {
+      "command": null,
+      "entrypoint": null,
+      "image": "postgres:16",
+      "networks": {
+        "back": null
+      }
+    },
+    "web": {
+      "command": null,
+      "container_name": "simple-web",
+      "entrypoint": null,
+      "environment": {
+        "MODE": "prod"
+      },
+      "image": "nginx:1.27",
+      "labels": {
+        "com.example.tier": "front"
+      },
+      "networks": {
+        "back": null,
+        "front": null
+      },
+      "ports": [
+        {
+          "mode": "ingress",
+          "target": 80,
+          "published": "8080",
+          "protocol": "tcp"
+        }
+      ],
+      "volumes": [
+        {
+          "type": "volume",
+          "source": "data",
+          "target": "/var/lib/data",
+          "volume": {}
+        },
+        {
+          "type": "bind",
+          "source": "/srv/compose/simple/conf",
+          "target": "/etc/conf",
+          "read_only": true,
+          "bind": {}
+        }
+      ]
+    }
+  },
+  "volumes": {
+    "data": {
+      "name": "simple_data",
+      "labels": {
+        "com.example.vol": "data"
+      }
+    }
+  }
+}
