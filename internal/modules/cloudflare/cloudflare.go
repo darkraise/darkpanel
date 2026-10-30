@@ -7,10 +7,10 @@ import "github.com/darkraise/darkpanel/internal/core"
 // ID is the module id.
 const ID = "cloudflare"
 
-type module struct{}
+type module struct{ c cf }
 
 // Module returns the Cloudflare Tunnel module.
-func Module() core.Module { return module{} }
+func Module() core.Module { return module{c: productionCF()} }
 
 // Manifest declares the module. Every module is enabled by default;
 // preflight decides whether it is available on a host (R9). The manifest
