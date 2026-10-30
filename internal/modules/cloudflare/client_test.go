@@ -137,6 +137,11 @@ func TestAPListsFollowEveryPage(t *testing.T) {
 	if want := []Zone{{ID: "z1", Name: "example.com"}, {ID: "z2", Name: "example.org"}}; !reflect.DeepEqual(zones, want) {
 		t.Errorf("zones %+v, want %+v", zones, want)
 	}
+	for _, r := range srv.Requests() {
+		if q := apQuery(t, r); q.Get("account.id") != apAccount || q.Get("per_page") != "50" {
+			t.Errorf("zones query %v, want account.id=%s and per_page=50", q, apAccount)
+		}
+	}
 }
 
 func TestAPTunnelDecodesTheProvidersFields(t *testing.T) {

@@ -400,7 +400,7 @@ func (a *api) Zones(ctx context.Context) ([]Zone, error) {
 		ID   string `json:"id"`
 		Name string `json:"name"`
 	}
-	if err := list(ctx, a, "/zones", nil, zonesPerPage, &raw); err != nil {
+	if err := list(ctx, a, "/zones", url.Values{"account.id": {a.account}}, zonesPerPage, &raw); err != nil {
 		return nil, err
 	}
 	out := make([]Zone, 0, len(raw))
