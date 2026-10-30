@@ -171,6 +171,52 @@ func TestCPParseMemberPresence(t *testing.T) {
 	}
 }
 
+// TestCPParseContainerRefs: the containers a service names through
+// network_mode, pid, ipc, volumes_from and external_links, in the shapes
+// `docker compose config --format json` prints them. Service references
+// (service:<name> and bare volumes_from entries) name no container.
+func TestCPParseContainerRefs(t *testing.T) {
+	in := `{"services":{` +
+		`"web":{"image":"nginx:1.27","network_mode":"container:netbox","pid":"container:pidbox","ipc":"container:ipcbox",` +
+		`"volumes_from":["container:volbox:ro","container:volbox2","db","db:rw","container:netbox"],` +
+		`"external_links":["linkbox:alias","plainbox","pidbox"]},` +
+		`"db":{"image":"postgres:16","pid":"host","ipc":"shareable"},` +
+		`"side":{"image":"busybox:1.36","network_mode":"service:db","ipc":"service:db"},` +
+		`"empty":{"network_mode":"container:","volumes_from":["container:"],"external_links":[""]}}}`
+	got, err := Parse([]byte(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][]string{
+		"web":   cpKeys("ipcbox", "linkbox", "netbox", "pidbox", "plainbox", "volbox", "volbox2"),
+		"db":    nil,
+		"side":  nil,
+		"empty": nil,
+	}
+	for name, w := range want {
+		if refs := got.Services[name].ContainerRefs; !reflect.DeepEqual(refs, w) {
+			t.Errorf("service %s: ContainerRefs %q, want %q", name, refs, w)
+		}
+	}
+
+	rejects := []struct{ name, in string }{
+		{"network_mode is a number", `{"services":{"a":{"network_mode":1}}}`},
+		{"pid is a bool", `{"services":{"a":{"pid":true}}}`},
+		{"ipc is null", `{"services":{"a":{"ipc":null}}}`},
+		{"volumes_from is a string", `{"services":{"a":{"volumes_from":"container:x"}}}`},
+		{"a volumes_from entry is a number", `{"services":{"a":{"volumes_from":[1]}}}`},
+		{"external_links is an object", `{"services":{"a":{"external_links":{}}}}`},
+		{"an external_links entry is null", `{"services":{"a":{"external_links":[null]}}}`},
+	}
+	for _, tc := range rejects {
+		t.Run(tc.name, func(t *testing.T) {
+			if got, err := Parse([]byte(tc.in)); err == nil || !strings.HasPrefix(err.Error(), "compose:") {
+				t.Errorf("Parse(%s) = %+v, %v; want an error starting with \"compose:\"", tc.in, got, err)
+			}
+		})
+	}
+}
+
 func TestCPParseRejects(t *testing.T) {
 	tests := []struct{ name, in string }{
 		{"empty input", ``},

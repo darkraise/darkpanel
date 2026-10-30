@@ -72,11 +72,15 @@ func Validate(project string, c Config, f Facts) error {
 		if _, ok := s.Labels[ownerLabel]; ok {
 			return refuse(errcode.DockerOwned, "service %s sets the %s label", name, ownerLabel)
 		}
-		if s.ContainerName == "" {
-			continue
+		if s.ContainerName != "" {
+			if id := f.owner("container", s.ContainerName); id != "" {
+				return refuse(errcode.DockerOwned, "container %s belongs to module %s", s.ContainerName, id)
+			}
 		}
-		if id := f.owner("container", s.ContainerName); id != "" {
-			return refuse(errcode.DockerOwned, "container %s belongs to module %s", s.ContainerName, id)
+		for _, ref := range s.ContainerRefs {
+			if id := f.owner("container", ref); id != "" {
+				return refuse(errcode.DockerOwned, "container %s belongs to module %s", ref, id)
+			}
 		}
 	}
 	for _, g := range []struct {

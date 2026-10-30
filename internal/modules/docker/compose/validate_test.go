@@ -206,6 +206,49 @@ func TestCVValidateAsksForTheEngineNamesOnly(t *testing.T) {
 	}
 }
 
+// TestCVValidateContainerRefs parses each configuration, so the reference
+// reaches Validate through the member that names it.
+func TestCVValidateContainerRefs(t *testing.T) {
+	owners := map[string]string{"container npm-app": "npm", "container npm-data": "npm"}
+	refuses := []struct{ name, in, detail string }{
+		{"an owned container through network_mode",
+			`{"name":"shop","services":{"web":{"image":"nginx:1.27","network_mode":"container:npm-app"}}}`,
+			"container npm-app belongs to module npm"},
+		{"an owned container through volumes_from, after an unowned container_name",
+			`{"name":"shop","services":{"web":{"image":"nginx:1.27","container_name":"shop-web","volumes_from":["db","container:npm-data:ro"]}}}`,
+			"container npm-data belongs to module npm"},
+	}
+	for _, r := range refuses {
+		t.Run(r.name, func(t *testing.T) {
+			c, err := Parse([]byte(r.in))
+			if err != nil {
+				t.Fatal(err)
+			}
+			cvRefusal(t, Validate("shop", c, cvFacts(nil, owners)), errcode.DockerOwned, r.detail)
+		})
+	}
+
+	t.Run("unowned containers", func(t *testing.T) {
+		var asked []string
+		facts := Facts{Owner: func(kind, name string) string {
+			asked = append(asked, kind+" "+name)
+			return owners[kind+" "+name]
+		}}
+		c, err := Parse([]byte(`{"name":"shop","services":{"web":{"image":"nginx:1.27",` +
+			`"pid":"container:other-pid","volumes_from":["container:other-data"],"external_links":["other-link:alias"]}}}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := Validate("shop", c, facts); err != nil {
+			t.Fatalf("Validate = %v, want nil", err)
+		}
+		want := []string{"container other-data", "container other-link", "container other-pid"}
+		if !slices.Equal(asked, want) {
+			t.Fatalf("Owner was asked about %q, want %q", asked, want)
+		}
+	})
+}
+
 // cvSchema is the part of the compose-spec JSON schema the allowlists come from.
 type cvSchema struct {
 	Properties map[string]json.RawMessage `json:"properties"`

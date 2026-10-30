@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strings"
 )
 
 // MaxConfigBytes is the largest configuration Parse accepts.
@@ -36,6 +37,11 @@ type Service struct {
 	Networks      []string // network keys the service joins, sorted
 	Volumes       []string // named-volume sources of its volume mounts, sorted
 	Labels        map[string]string
+	// ContainerRefs are the containers the service names through
+	// network_mode, pid or ipc ("container:<name>"), volumes_from
+	// ("container:<name>[:ro|:rw]") and external_links ("<name>[:<alias>]"),
+	// sorted and distinct.
+	ContainerRefs []string
 }
 
 // Object is one top-level network, volume, config or secret of a Config.
@@ -101,9 +107,35 @@ func parseService(path string, raw json.RawMessage) (Service, error) {
 		return Service{}, err
 	}
 	s := Service{Keys: keysOf(ms)}
+	var refs []string
 	for _, m := range ms {
 		p := path + "." + m.key
 		switch m.key {
+		case "network_mode", "pid", "ipc":
+			var v string
+			if v, err = stringOf(m.val, p); err == nil {
+				if ref, ok := strings.CutPrefix(v, "container:"); ok {
+					refs = append(refs, ref)
+				}
+			}
+		case "volumes_from":
+			var vs []string
+			if vs, err = stringsOf(m.val, p); err == nil {
+				for _, v := range vs {
+					if rest, ok := strings.CutPrefix(v, "container:"); ok {
+						ref, _, _ := strings.Cut(rest, ":")
+						refs = append(refs, ref)
+					}
+				}
+			}
+		case "external_links":
+			var vs []string
+			if vs, err = stringsOf(m.val, p); err == nil {
+				for _, v := range vs {
+					ref, _, _ := strings.Cut(v, ":")
+					refs = append(refs, ref)
+				}
+			}
 		case "image":
 			s.Image, err = stringOf(m.val, p)
 		case "container_name":
@@ -125,6 +157,10 @@ func parseService(path string, raw json.RawMessage) (Service, error) {
 		if err != nil {
 			return Service{}, err
 		}
+	}
+	if refs = slices.DeleteFunc(refs, func(r string) bool { return r == "" }); len(refs) > 0 {
+		slices.Sort(refs)
+		s.ContainerRefs = slices.Compact(refs)
 	}
 	return s, nil
 }
@@ -282,6 +318,26 @@ func stringOf(raw json.RawMessage, path string) (string, error) {
 		return "", fmt.Errorf("compose: %s must be a string", path)
 	}
 	return s, nil
+}
+
+// stringsOf reads an array whose elements are all strings.
+func stringsOf(raw json.RawMessage, path string) ([]string, error) {
+	if len(raw) == 0 || raw[0] != '[' {
+		return nil, fmt.Errorf("compose: %s must be an array", path)
+	}
+	var elems []json.RawMessage
+	if err := json.Unmarshal(raw, &elems); err != nil {
+		return nil, fmt.Errorf("compose: %s: %w", path, err)
+	}
+	out := make([]string, 0, len(elems))
+	for i, e := range elems {
+		s, err := stringOf(e, fmt.Sprintf("%s[%d]", path, i))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, nil
 }
 
 func boolOf(raw json.RawMessage, path string) (bool, error) {
