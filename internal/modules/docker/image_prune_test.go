@@ -158,6 +158,42 @@ func TestImPruneApply(t *testing.T) {
 			t.Errorf("%d RemoveImage calls, want the run to stop after the first", len(rec.refs))
 		}
 	})
+	t.Run("a refusal before any removal is definite", func(t *testing.T) {
+		h := imPruneSetup(t)
+		h.docker.fail("RemoveImage", &dockerapi.APIError{StatusCode: 409, Message: "conflict"})
+		_, err := h.dk().imagePrune().Handler.Apply(ctx, h.env("c1"), json.RawMessage(`{}`))
+		if err == nil || !core.IsDefinite(err) {
+			t.Errorf("error %v, want a definite refusal", err)
+		}
+	})
+	t.Run("a refusal after a removal is uncertain", func(t *testing.T) {
+		h := imPruneSetup(t)
+		k := h.dk()
+		k.d.docker = &imRefuseAfter{dockerAPI: k.d.docker, after: 1, err: &dockerapi.APIError{StatusCode: 409, Message: "conflict"}}
+		_, err := k.imagePrune().Handler.Apply(ctx, h.env("c1"), json.RawMessage(`{}`))
+		if err == nil || core.IsDefinite(err) {
+			t.Errorf("error %v, want an uncertain failure", err)
+		}
+		if _, ierr := h.docker.InspectImage(ctx, h.dangling[0].ID); !dockerapi.IsNotFound(ierr) {
+			t.Errorf("first image: %v, want it removed", ierr)
+		}
+	})
+}
+
+// imRefuseAfter passes the first after RemoveImage calls to the wrapped
+// client and answers err to every later one.
+type imRefuseAfter struct {
+	dockerAPI
+	after int
+	err   error
+}
+
+func (r *imRefuseAfter) RemoveImage(ctx context.Context, ref string, o dockerapi.RemoveImageOptions) ([]dockerapi.ImageDeleteItem, error) {
+	if r.after == 0 {
+		return nil, r.err
+	}
+	r.after--
+	return r.dockerAPI.RemoveImage(ctx, ref, o)
 }
 
 func TestImPruneVerify(t *testing.T) {

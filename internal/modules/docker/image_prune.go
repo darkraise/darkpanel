@@ -87,7 +87,7 @@ func (h imagePruneHandler) Plan(ctx context.Context, _ core.Env, _ ImagePruneInp
 }
 
 // Apply stops at the first failure other than not found; the images removed
-// before it stay removed.
+// before it stay removed, and the failure is Definite only when there are none.
 func (h imagePruneHandler) Apply(ctx context.Context, _ core.Env, _ ImagePruneInput) (Pruned, error) {
 	images, err := h.list(ctx)
 	if err != nil {
@@ -99,7 +99,10 @@ func (h imagePruneHandler) Apply(ctx context.Context, _ core.Env, _ ImagePruneIn
 			if dockerapi.IsNotFound(err) {
 				continue
 			}
-			return Pruned{}, imageCallError("image", i.ID, err)
+			if len(out.Images) == 0 {
+				return Pruned{}, imageCallError("image", i.ID, err)
+			}
+			return Pruned{}, engineError("image", i.ID, err)
 		}
 		size := imagePruneSize(i)
 		out.Images = append(out.Images, PrunedImage{ID: i.ID, Tags: resWithout(i.RepoTags, "<none>:<none>"), Size: size})
