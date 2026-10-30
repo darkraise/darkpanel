@@ -58,15 +58,30 @@ func manageHash(v any) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// manageNetworkUsers names the containers attached to a network as
-// InspectNetwork reports them.
-func manageNetworkUsers(n dockerapi.Network) []string {
-	names := make([]string, 0, len(n.Containers))
-	for _, c := range n.Containers {
-		names = append(names, c.Name)
+// manageNetworkUsers names the containers, running or not, attached to the
+// network. It does not read n.Containers: the daemon lists only running
+// containers' endpoints there, yet removing the network strands a stopped
+// container that is still attached to it.
+func (k dk) manageNetworkUsers(ctx context.Context, n dockerapi.Network) ([]string, error) {
+	containers, err := k.d.docker.ListContainers(ctx, dockerapi.ListContainersOptions{All: true})
+	if err != nil {
+		return nil, engineError("network", n.Name, err)
 	}
-	slices.Sort(names)
-	return names
+	var users []string
+	for _, c := range containers {
+		if c.NetworkSettings == nil {
+			continue
+		}
+		_, attached := c.NetworkSettings.Networks[n.Name]
+		for _, ep := range c.NetworkSettings.Networks {
+			attached = attached || (ep != nil && ep.NetworkID == n.ID)
+		}
+		if attached {
+			users = append(users, resContainerName(c.Names))
+		}
+	}
+	slices.Sort(users)
+	return users, nil
 }
 
 func (k dk) networkCreate() core.ActionDef {
@@ -220,7 +235,11 @@ func (h networkCreateHandler) Inverse(ctx context.Context, _ core.Env, e core.Ef
 	if err != nil {
 		return core.InverseResult{}, core.Definite(engineError("network", id, err))
 	}
-	if users := manageNetworkUsers(n); len(users) > 0 {
+	users, err := h.k.manageNetworkUsers(ctx, n)
+	if err != nil {
+		return core.InverseResult{}, core.Definite(err)
+	}
+	if len(users) > 0 {
 		return core.InverseResult{}, core.Definite(errcode.New(errcode.DockerInUse,
 			"network "+n.Name+" is used by containers: "+strings.Join(users, ", ")))
 	}
@@ -263,7 +282,11 @@ func (h networkRemoveHandler) target(ctx context.Context, in NetworkInput) (dock
 	if err := refuseOwned("network", n.Name, n.Labels); err != nil {
 		return dockerapi.Network{}, err
 	}
-	if users := manageNetworkUsers(n); len(users) > 0 {
+	users, err := h.k.manageNetworkUsers(ctx, n)
+	if err != nil {
+		return dockerapi.Network{}, core.Definite(err)
+	}
+	if len(users) > 0 {
 		return dockerapi.Network{}, core.Definite(errcode.New(errcode.DockerInUse,
 			"network "+n.Name+" is used by containers: "+strings.Join(users, ", ")))
 	}

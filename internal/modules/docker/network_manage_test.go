@@ -87,6 +87,16 @@ func obShared(h *dkHost) dockerapi.Network {
 	return n
 }
 
+// obActiveOnly stands for a daemon whose network inspect lists no endpoint,
+// as the real one does for stopped containers.
+type obActiveOnly struct{ dockerAPI }
+
+func (o obActiveOnly) InspectNetwork(ctx context.Context, id string) (dockerapi.Network, error) {
+	n, err := o.dockerAPI.InspectNetwork(ctx, id)
+	n.Containers = nil
+	return n, err
+}
+
 func TestObNetworkCreatePlan(t *testing.T) {
 	ctx := context.Background()
 	tests := []struct {
@@ -287,6 +297,21 @@ func TestObNetworkCreateUndo(t *testing.T) {
 			t.Errorf("the network was removed: %v", err)
 		}
 	})
+	t.Run("a stopped container joined", func(t *testing.T) {
+		h := newDKHost(t)
+		_, e := apply(t, h)
+		n, _ := h.docker.InspectNetwork(ctx, "app")
+		h.docker.put(dkContainer("idle", dkOnNetwork(n.ID)))
+		k := h.dk()
+		k.d.docker = obActiveOnly{k.d.docker}
+		_, err := k.networkCreate().Handler.Inverse(ctx, h.env("c1"), e)
+		if coded := obRefused(t, err, errcode.DockerInUse); !strings.Contains(coded.Detail, "idle") {
+			t.Errorf("detail %q does not name idle", coded.Detail)
+		}
+		if _, err := h.docker.InspectNetwork(ctx, "app"); err != nil {
+			t.Errorf("the network was removed under a stopped container: %v", err)
+		}
+	})
 	t.Run("already gone", func(t *testing.T) {
 		h := newDKHost(t)
 		def, e := apply(t, h)
@@ -426,6 +451,37 @@ func TestObNetworkRemoveApply(t *testing.T) {
 		_ = obRefused(t, err, errcode.DockerInUse)
 		if len(h.journal.effects()) != 0 || slices.Contains(h.docker.calls(), "RemoveNetwork") {
 			t.Error("a refused apply journaled an effect or called RemoveNetwork")
+		}
+	})
+	t.Run("stopped containers are attached", func(t *testing.T) {
+		h := newDKHost(t)
+		front := dkNetwork("front")
+		h.docker.putNetwork(front)
+		h.docker.put(dkContainer("idle", dkOnNetwork(front.ID)))
+		h.docker.put(dkContainer("fresh", func(c *dockerapi.ContainerJSON) {
+			c.NetworkSettings.Networks = map[string]*dockerapi.EndpointSettings{"front": {}}
+		}))
+		k := h.dk()
+		k.d.docker = obActiveOnly{k.d.docker}
+		_, err := k.networkRemove().Handler.Apply(ctx, h.env("c1"), input(front))
+		if coded := obRefused(t, err, errcode.DockerInUse); !strings.Contains(coded.Detail, "fresh, idle") {
+			t.Errorf("detail %q does not name the containers fresh, idle in order", coded.Detail)
+		}
+		if len(h.journal.effects()) != 0 || slices.Contains(h.docker.calls(), "RemoveNetwork") {
+			t.Error("a refused apply journaled an effect or called RemoveNetwork")
+		}
+	})
+	t.Run("listing the containers fails", func(t *testing.T) {
+		h := newDKHost(t)
+		old := dkNetwork("old")
+		h.docker.putNetwork(old)
+		h.docker.fail("ListContainers", &dockerapi.APIError{StatusCode: 500, Message: "boom"})
+		_, err := h.dk().networkRemove().Handler.Apply(ctx, h.env("c1"), input(old))
+		if err == nil || !core.IsDefinite(err) {
+			t.Fatalf("error %v, want a definite refusal", err)
+		}
+		if len(h.journal.effects()) != 0 || slices.Contains(h.docker.calls(), "RemoveNetwork") {
+			t.Error("a failed check journaled an effect or called RemoveNetwork")
 		}
 	})
 	t.Run("the daemon refuses", func(t *testing.T) {
