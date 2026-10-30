@@ -18,7 +18,9 @@
 
 **Worktree setup:** `timeout 600 make web-deps`
 
-**Wave check:** `mkdir -p /root/.cache/w3-tmp/wave && export TMPDIR=/root/.cache/w3-tmp/wave GOTOOLCHAIN=local && timeout 600 go build ./... && timeout 300 go vet ./... && timeout 900 go test -count=1 ./internal/modules/... ./internal/platform/dockerapi/... ./schemas/...`
+**Wave check:** `mkdir -p /root/.cache/w3-tmp/wave && export TMPDIR=/root/.cache/w3-tmp/wave GOTOOLCHAIN=local && timeout 600 go build ./... && timeout 300 go vet ./... && timeout 900 go test -count=1 ./internal/modules/... ./internal/platform/dockerapi/... ./schemas/... && timeout 300 go vet -tags harness ./test/... && timeout 1200 make lint-web test-web`
+
+**Plan review:** 2026-10-30 — dforge:judge-opus — executability 17 / coherence 15 / coverage 17 / assumptions 14 (round 1)
 
 ## Global Constraints
 
