@@ -272,6 +272,15 @@ func TestCCPrepareRefusesUnsafePaths(t *testing.T) {
 			h.files[dir] = dkFile{Mode: ccDirMode, UID: 1000}
 			h.files[dir+"/compose.yaml"] = dkFile{Mode: 0o644, UID: 1001, Data: []byte("services: {}\n")}
 		}, []string{dir + "/compose.yaml", "owned by"}},
+		{"parent owned by another user", func(h *dkHost) { h.files["/srv"] = dkFile{Mode: ccDirMode, UID: 1001} }, []string{"/srv", "owned by uid 1001"}},
+		{"parent owned by another user than the directory's", func(h *dkHost) {
+			h.files["/srv"] = dkFile{Mode: ccDirMode, UID: 1001}
+			h.files[dir] = dkFile{Mode: ccDirMode, UID: 1000}
+		}, []string{"/srv", "owned by uid 1001"}},
+		{"parent owned by the directory's owner", func(h *dkHost) {
+			h.files["/srv"] = dkFile{Mode: ccDirMode, UID: 1000}
+			h.files[dir] = dkFile{Mode: ccDirMode, UID: 1000}
+		}, nil},
 		{"directory group-writable", func(h *dkHost) { h.files[dir] = dkFile{Mode: fs.ModeDir | 0o775} }, []string{dir, "writable"}},
 		{"parent other-writable", func(h *dkHost) { h.files["/srv"] = dkFile{Mode: fs.ModeDir | 0o777} }, []string{"/srv", "writable"}},
 		{"parent sticky and root-owned is accepted", func(h *dkHost) {
@@ -308,6 +317,29 @@ func TestCCPrepareRefusesUnsafePaths(t *testing.T) {
 				t.Errorf("an unsafe project ran %v", h.cmds)
 			}
 		})
+	}
+}
+
+func TestCCPrepareChecksTheAncestorsOfEachFile(t *testing.T) {
+	for _, tc := range []struct {
+		owner  int
+		detail []string
+	}{{0, nil}, {1001, []string{"/etc/shop", "owned by uid 1001"}}} {
+		h := newDKHost(t)
+		ccProject(t, h, "shop")
+		h.files["/etc"] = dkFile{Mode: ccDirMode}
+		h.files["/etc/shop"] = dkFile{Mode: ccDirMode, UID: tc.owner}
+		h.files["/etc/shop/.env"] = dkFile{Mode: 0o600, Data: []byte("A=1\n")}
+		p := ccDiscover(t, h, "outside", "/srv/shop", []string{"/srv/shop/compose.yaml"}, []string{"/etc/shop/.env"})
+		ccConfig(h, p, nil, ccSimple)
+		_, err := ccPrepare(h, "outside", nil)
+		if tc.detail == nil {
+			if err != nil {
+				t.Errorf("env file under a root-owned directory: %v, want success", err)
+			}
+			continue
+		}
+		ccRefused(t, err, errcode.DockerComposeUnavailable, tc.detail...)
 	}
 }
 

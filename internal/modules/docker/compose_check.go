@@ -172,12 +172,14 @@ func (k dk) prepareCompose(ctx context.Context, env core.Env, in ComposeInput) (
 // checkProjectPaths checks the project's directory, Compose files and env
 // files. Compose runs as root and reads these files, so a path through a
 // symlink, or a file another user can replace, would let that user choose
-// what root runs.
+// what root runs. The owner of an ancestor directory can rename what it
+// holds and put their own in its place, so every ancestor is owned by root
+// or by the project directory's owner, whose files are trusted already.
 func (k dk) checkProjectPaths(p projectRow) error {
 	if len(p.Files) == 0 {
 		return composeUnavailable("project %s records no Compose file", p.Name)
 	}
-	dir, err := k.composeLstatPath(p.Directory)
+	dir, ancestors, err := k.composeLstatPath(p.Directory)
 	if err != nil {
 		return err
 	}
@@ -188,9 +190,23 @@ func (k dk) checkProjectPaths(p projectRow) error {
 	if err != nil {
 		return err
 	}
+	trusted := func(ancestors []composeAncestor) error {
+		for _, a := range ancestors {
+			if a.uid != 0 && a.uid != dirOwner {
+				return composeUnavailable("%s is owned by uid %d, not root or the project directory's owner", a.path, a.uid)
+			}
+		}
+		return nil
+	}
+	if err := trusted(ancestors); err != nil {
+		return err
+	}
 	for _, path := range append(slices.Clone(p.Files), p.EnvFiles...) {
-		info, err := k.composeLstatPath(path)
+		info, ancestors, err := k.composeLstatPath(path)
 		if err != nil {
+			return err
+		}
+		if err := trusted(ancestors); err != nil {
 			return err
 		}
 		if !info.Mode().IsRegular() {
@@ -207,17 +223,24 @@ func (k dk) checkProjectPaths(p projectRow) error {
 	return nil
 }
 
+// composeAncestor is a directory above a checked path and its owner.
+type composeAncestor struct {
+	path string
+	uid  uint32
+}
+
 // composeLstatPath refuses a path that is not absolute and clean, has a
 // missing or symlinked component, or has a component its group or others can
-// write, and returns the path's own information. A writable ancestor would
-// let another user rename the project away and put their own in its place;
-// only a root-owned sticky ancestor, such as /tmp, prevents that.
-func (k dk) composeLstatPath(path string) (fs.FileInfo, error) {
+// write, and returns the path's own information and its ancestors' owners. A
+// writable ancestor would let another user rename the project away and put
+// their own in its place; only a root-owned sticky ancestor, such as /tmp,
+// prevents that.
+func (k dk) composeLstatPath(path string) (fs.FileInfo, []composeAncestor, error) {
 	if !filepath.IsAbs(path) {
-		return nil, composeUnavailable("%s is not absolute", path)
+		return nil, nil, composeUnavailable("%s is not absolute", path)
 	}
 	if filepath.Clean(path) != path {
-		return nil, composeUnavailable("%s is not a clean path", path)
+		return nil, nil, composeUnavailable("%s is not a clean path", path)
 	}
 	prefixes := []string{"/"}
 	if path != "/" {
@@ -229,33 +252,33 @@ func (k dk) composeLstatPath(path string) (fs.FileInfo, error) {
 		}
 	}
 	var info fs.FileInfo
+	var ancestors []composeAncestor
 	for i, prefix := range prefixes {
 		var err error
 		info, err = k.d.lstat(prefix)
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil, composeUnavailable("%s does not exist", prefix)
+			return nil, nil, composeUnavailable("%s does not exist", prefix)
 		}
 		if err != nil {
-			return nil, fmt.Errorf("docker: check %s: %w", prefix, err)
+			return nil, nil, fmt.Errorf("docker: check %s: %w", prefix, err)
 		}
 		if info.Mode()&fs.ModeSymlink != 0 {
-			return nil, composeUnavailable("%s is a symlink", prefix)
+			return nil, nil, composeUnavailable("%s is a symlink", prefix)
 		}
-		if info.Mode().Perm()&0o022 == 0 {
+		last := i == len(prefixes)-1
+		var uid uint32
+		if !last {
+			if uid, err = composeOwner(prefix, info); err != nil {
+				return nil, nil, err
+			}
+			ancestors = append(ancestors, composeAncestor{path: prefix, uid: uid})
+		}
+		if info.Mode().Perm()&0o022 == 0 || !last && info.Mode()&fs.ModeSticky != 0 && uid == 0 {
 			continue
 		}
-		if i < len(prefixes)-1 && info.Mode()&fs.ModeSticky != 0 {
-			uid, err := composeOwner(prefix, info)
-			if err != nil {
-				return nil, err
-			}
-			if uid == 0 {
-				continue
-			}
-		}
-		return nil, composeUnavailable("%s is writable by its group or others", prefix)
+		return nil, nil, composeUnavailable("%s is writable by its group or others", prefix)
 	}
-	return info, nil
+	return info, ancestors, nil
 }
 
 // composeOwner is the uid that owns path.
