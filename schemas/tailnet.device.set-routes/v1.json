@@ -1,0 +1,59 @@
+{
+  "name": "tailnet.device.set-routes",
+  "version": 1,
+  "class": "compensable",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/SetRoutesInput",
+    "$defs": {
+      "SetRoutesInput": {
+        "properties": {
+          "device": {
+            "type": "string"
+          },
+          "routes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "device",
+          "routes"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/DeviceRoutes",
+    "$defs": {
+      "DeviceRoutes": {
+        "properties": {
+          "advertisedRoutes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "enabledRoutes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "advertisedRoutes",
+          "enabledRoutes"
+        ]
+      }
+    }
+  }
+}
