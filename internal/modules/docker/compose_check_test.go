@@ -272,6 +272,23 @@ func TestCCPrepareRefusesUnsafePaths(t *testing.T) {
 			h.files[dir] = dkFile{Mode: ccDirMode, UID: 1000}
 			h.files[dir+"/compose.yaml"] = dkFile{Mode: 0o644, UID: 1001, Data: []byte("services: {}\n")}
 		}, []string{dir + "/compose.yaml", "owned by"}},
+		{"directory group-writable", func(h *dkHost) { h.files[dir] = dkFile{Mode: fs.ModeDir | 0o775} }, []string{dir, "writable"}},
+		{"parent other-writable", func(h *dkHost) { h.files["/srv"] = dkFile{Mode: fs.ModeDir | 0o777} }, []string{"/srv", "writable"}},
+		{"parent sticky and root-owned is accepted", func(h *dkHost) {
+			h.files["/srv"] = dkFile{Mode: fs.ModeDir | fs.ModeSticky | 0o777}
+		}, nil},
+		{"parent sticky but user-owned", func(h *dkHost) {
+			h.files["/srv"] = dkFile{Mode: fs.ModeDir | fs.ModeSticky | 0o777, UID: 1000}
+		}, []string{"/srv", "writable"}},
+		{"directory sticky and other-writable", func(h *dkHost) {
+			h.files[dir] = dkFile{Mode: fs.ModeDir | fs.ModeSticky | 0o777}
+		}, []string{dir, "writable"}},
+		{"compose file group-writable", func(h *dkHost) {
+			h.files[dir+"/compose.yaml"] = dkFile{Mode: 0o664, Data: []byte("services: {}\n")}
+		}, []string{dir + "/compose.yaml", "writable"}},
+		{"env file other-writable", func(h *dkHost) {
+			h.files[dir+"/.env"] = dkFile{Mode: 0o606, Data: []byte("A=1\n")}
+		}, []string{dir + "/.env", "writable"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -300,6 +317,20 @@ func TestCCPrepareRefusesRelativePaths(t *testing.T) {
 	ccDiscover(t, h, "rel", "srv/rel", []string{"srv/rel/compose.yaml"}, nil)
 	_, err := ccPrepare(h, "rel", nil)
 	ccRefused(t, err, errcode.DockerComposeUnavailable, "srv/rel", "not absolute")
+}
+
+func TestCCPrepareRefusesAProjectWithNoComposeFile(t *testing.T) {
+	h := newDKHost(t)
+	ccProject(t, h, "shop")
+	p := ccDiscover(t, h, "bare", "/srv/shop", nil, nil)
+	if len(p.Files) != 0 {
+		t.Fatalf("recorded files %q, want none", p.Files)
+	}
+	_, err := ccPrepare(h, "bare", nil)
+	ccRefused(t, err, errcode.DockerComposeUnavailable, "bare", "no Compose file")
+	if len(h.cmds) != 0 {
+		t.Errorf("a project with no Compose file ran %v", h.cmds)
+	}
 }
 
 func TestCCPrepareChecksTheDockerConfigDirectory(t *testing.T) {

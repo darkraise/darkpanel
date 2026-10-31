@@ -89,7 +89,8 @@ func composeInvalid(path, msg string) error {
 
 // prepareCompose runs every check of spec 3 "Validation" for a plan and again
 // at apply: the stored project, absolute existing paths owned by root or the
-// directory's owner with no symlink in any component, the docker-config
+// directory's owner with no symlink in any component and, except for
+// root-owned sticky ancestors, none writable by group or others, the docker-config
 // directory (absent, or holding at most a config.json without credsStore or
 // credHelpers and no cli-plugins entry), the plugin directory and
 // docker-compose root-owned and not group- or other-writable, current
@@ -173,6 +174,9 @@ func (k dk) prepareCompose(ctx context.Context, env core.Env, in ComposeInput) (
 // symlink, or a file another user can replace, would let that user choose
 // what root runs.
 func (k dk) checkProjectPaths(p projectRow) error {
+	if len(p.Files) == 0 {
+		return composeUnavailable("project %s records no Compose file", p.Name)
+	}
 	dir, err := k.composeLstatPath(p.Directory)
 	if err != nil {
 		return err
@@ -203,8 +207,11 @@ func (k dk) checkProjectPaths(p projectRow) error {
 	return nil
 }
 
-// composeLstatPath refuses a path that is not absolute and clean or has a
-// missing or symlinked component, and returns the path's own information.
+// composeLstatPath refuses a path that is not absolute and clean, has a
+// missing or symlinked component, or has a component its group or others can
+// write, and returns the path's own information. A writable ancestor would
+// let another user rename the project away and put their own in its place;
+// only a root-owned sticky ancestor, such as /tmp, prevents that.
 func (k dk) composeLstatPath(path string) (fs.FileInfo, error) {
 	if !filepath.IsAbs(path) {
 		return nil, composeUnavailable("%s is not absolute", path)
@@ -222,7 +229,7 @@ func (k dk) composeLstatPath(path string) (fs.FileInfo, error) {
 		}
 	}
 	var info fs.FileInfo
-	for _, prefix := range prefixes {
+	for i, prefix := range prefixes {
 		var err error
 		info, err = k.d.lstat(prefix)
 		if errors.Is(err, fs.ErrNotExist) {
@@ -234,6 +241,19 @@ func (k dk) composeLstatPath(path string) (fs.FileInfo, error) {
 		if info.Mode()&fs.ModeSymlink != 0 {
 			return nil, composeUnavailable("%s is a symlink", prefix)
 		}
+		if info.Mode().Perm()&0o022 == 0 {
+			continue
+		}
+		if i < len(prefixes)-1 && info.Mode()&fs.ModeSticky != 0 {
+			uid, err := composeOwner(prefix, info)
+			if err != nil {
+				return nil, err
+			}
+			if uid == 0 {
+				continue
+			}
+		}
+		return nil, composeUnavailable("%s is writable by its group or others", prefix)
 	}
 	return info, nil
 }
