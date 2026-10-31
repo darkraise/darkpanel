@@ -83,7 +83,7 @@ const rdWebDetail = `{
   "id": "%ID%", "name": "web", "image": "nginx:1.27", "imageId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "created": "2026-10-01T00:00:00.5Z", "state": "running", "running": true,
   "startedAt": "2026-10-01T08:00:00.25Z", "exitCode": 0, "restartPolicy": "unless-stopped",
-  "cmd": ["nginx", "-g", "[redacted]"], "entrypoint": ["/docker-entrypoint.sh"], "workingDir": "/srv", "user": "nginx",
+  "cmd": ["nginx", "-g", "daemon off;"], "entrypoint": ["/docker-entrypoint.sh"], "workingDir": "/srv", "user": "nginx",
   "env": [
     {"name": "PATH", "value": "[redacted]"}, {"name": "DB_PASSWORD", "value": "[redacted]"}, {"name": "EMPTY", "value": "[redacted]"},
     {"name": "FLAG", "value": "[redacted]"}, {"name": "TOKEN", "value": "[redacted]"}
@@ -110,8 +110,12 @@ func rdExpectedDetail(owner string) string {
 	if owner != "" {
 		s = strings.Replace(s, `"service": "web"`, `"service": "web", "owner": "`+owner+`"`, 1)
 		s = strings.Replace(s, `"tier": "front"`, `"tier": "front", "darkpanel.module": "`+owner+`"`, 1)
+		return s
 	}
-	return s
+	// Darkpanel does not own the container, so only the program and the
+	// Compose labels are shown.
+	s = strings.Replace(s, `"cmd": ["nginx", "-g", "daemon off;"]`, `"cmd": ["nginx", "[redacted]", "[redacted]"]`, 1)
+	return strings.Replace(s, `"tier": "front"`, `"tier": "[redacted]"`, 1)
 }
 
 func TestRdInspectReportsTheContainer(t *testing.T) {
@@ -249,80 +253,45 @@ func TestRdReadActionsAreUnlockedAgentReads(t *testing.T) {
 	}
 }
 
-// TestRdRedactArgs pins the fail-closed masking of a command line: each
-// shape a value takes, with adversarial cases, and what stays shown.
 func TestRdRedactArgs(t *testing.T) {
 	const m = "[redacted]"
-	for _, tc := range []struct {
-		name     string
-		in, want []string
-	}{
-		{"nil", nil, nil},
-		{"empty argument", []string{"app", ""}, []string{"app", ""}},
-		// The value after any flag.
-		{"flag then value", []string{"app", "--port", "80", "-v", "x"}, []string{"app", "--port", m, "-v", m}},
-		{"flag then a dash value", []string{"app", "--password", "-x1"}, []string{"app", "--password", m}},
-		{"flag then the next long flag", []string{"app", "--verbose", "--port", "80"}, []string{"app", "--verbose", "--port", m}},
-		{"flag then a spaced value", []string{"app", "--password", "two words"}, []string{"app", "--password", m}},
-		{"redis-cli", []string{"redis-cli", "-a", "hunter2", "ping"}, []string{"redis-cli", "-a", m, "ping"}},
-		{"flag in a string", []string{"sh", "-c", "app --db-password hunter2 run"}, []string{"sh", "-c", "app --db-password " + m + " run"}},
-		// NAME=value: everything after the first = outside quotes.
-		{"assignment", []string{"env", "DB_PASSWORD=hunter2", "PORT=80"}, []string{"env", "DB_PASSWORD=" + m, "PORT=" + m}},
-		{"assignment with delimiters and quotes", []string{"app", "PASSWORD=abc,def;ghi", `X=abc"def`, "--secret='a'b", "TOKEN=,a"},
-			[]string{"app", "PASSWORD=" + m, "X=" + m, "--secret=" + m, "TOKEN=" + m}},
-		{"query strings and operators", []string{"sh", "-c", "curl https://h/p?token=t1 && run a&password=p2 | tee x>y=z"},
-			[]string{"sh", "-c", "curl https://h/p?token=" + m + " && run a&password=" + m + " | tee x>y=" + m}},
-		// NAME: value and JSON.
-		{"yaml pair", []string{"app", "auth: x,y", "auth:x"}, []string{"app", "auth: " + m, "auth:x"}},
-		{"json pairs", []string{"app", `{"password": "hunter2", "user": "u"}`, `{"apiKey":"k1","port":80}`},
-			[]string{"app", `{"password": ` + m + ` "user": ` + m, `{"apiKey":` + m}},
-		{"detached separators", []string{"sh", "-c", "PASSWORD = x; TOKEN : y; SECRET =z; KEY :w"},
-			[]string{"sh", "-c", "PASSWORD = " + m + " TOKEN : " + m + " SECRET =" + m + " KEY :" + m}},
-		// Quoted segments are read as command lines wherever they sit.
-		{"quoted assignment", []string{"app", `"PASSWORD=hunter2"`, `x"PASSWORD=a b"`}, []string{"app", `"PASSWORD=` + m + `"`, `x"PASSWORD=` + m + ` b"`}},
-		{"quoted command", []string{"sh", "-c", `exec "redis-cli -a pw ping"`}, []string{"sh", "-c", `exec "redis-cli -a ` + m + ` ping"`}},
-		{"unclosed quote", []string{"sh", "-c", `run "--password x y`}, []string{"sh", "-c", `run "--password ` + m + ` y`}},
-		{"escaped quote", []string{"app", `{"secret":"a\"b","n":1}`}, []string{"app", `{"secret":` + m}},
-		// URL user information.
-		{"url password", []string{"app", "postgres://app:hunter2@db:5432/app"}, []string{"app", "postgres://app:" + m + "@db:5432/app"}},
-		{"url password with an @", []string{"app", "postgres://app:p@ss@db/x"}, []string{"app", "postgres://app:" + m + "@db/x"}},
-		// Short password flags.
-		{"mysql", []string{"/usr/bin/mysql", "-phunter2", "db"}, []string{"/usr/bin/mysql", "-p" + m, "db"}},
-		{"mysql after a flag", []string{"/usr/bin/mysql", "-uroot", "-phunter2", "db"}, []string{"/usr/bin/mysql", "-uroot", m, "db"}},
-		{"mysql in a string", []string{"sh", "-c", "mysqldump -phunter2 -uroot db"}, []string{"sh", "-c", "mysqldump -p" + m + " -uroot " + m}},
-		{"value in the next token", []string{"app", "PASSWORD=", "x", `"token":`, `"y"`}, []string{"app", "PASSWORD=", m, `"token":`, m}},
-		// What stays shown.
-		{"program and positionals", []string{"/docker-entrypoint.sh", "nginx"}, []string{"/docker-entrypoint.sh", "nginx"}},
-		{"plain colons", []string{"app", "0.0.0.0:8080", "http://host:8080/a@b", "nginx:1.27"}, []string{"app", "0.0.0.0:8080", "http://host:8080/a@b", "nginx:1.27"}},
-		{"shell script", []string{"/bin/sh", "-c", "exec nginx -g 'daemon off;'"}, []string{"/bin/sh", "-c", "exec nginx -g " + m}},
+	for _, tc := range []struct{ in, want []string }{
+		{nil, nil},
+		{[]string{}, []string{}},
+		{[]string{"nginx"}, []string{"nginx"}},
+		{[]string{"nginx", "-g", "daemon off;"}, []string{"nginx", m, m}},
+		{[]string{"/bin/sh", "-c", "app --password hunter2"}, []string{"/bin/sh", m, m}},
+		{[]string{"redis-cli", "-a", "hunter2", "ping"}, []string{"redis-cli", m, m, m}},
+		{[]string{"app", `"--password"`, "x", "PASSWORD=a,b", "postgres://u:p@db/x", ""}, []string{"app", m, m, m, m, m}},
 	} {
 		if got := redactArgs(tc.in); !reflect.DeepEqual(got, tc.want) {
-			t.Errorf("%s: redactArgs(%q)\n got %q\nwant %q", tc.name, tc.in, got, tc.want)
+			t.Errorf("redactArgs(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }
 
 func TestRdRedactLabels(t *testing.T) {
-	got := redactLabels(map[string]string{ //nolint:gosec // G101: made-up values the test masks, not credentials
+	labels := map[string]string{ //nolint:gosec // G101: made-up values the test masks, not credentials
 		"traefik.http.middlewares.auth.basicauth.users": "admin:$apr1$x$y",
-		"com.example.api-token":                         "tok123",
-		"com.example.dsn":                               "mysql://root:hunter2@db/app",
-		"com.example.config":                            `{"apiKey":"k1","port":80}`,
-		"com.example.env":                               "MODE=prod PASSWORD=a,b",
-		"com.docker.compose.project":                    "shop",
-		"org.opencontainers.image.authors":              "Jane",
-	})
+		"com.example.dsn":                  "mysql://root:hunter2@db/app",
+		"com.docker.compose.project":       "shop",
+		"org.opencontainers.image.authors": "Jane",
+	}
 	want := map[string]string{
 		"traefik.http.middlewares.auth.basicauth.users": "[redacted]",
-		"com.example.api-token":                         "[redacted]",
-		"com.example.dsn":                               "mysql://root:[redacted]@db/app",
-		"com.example.config":                            `{"apiKey":[redacted]`,
-		"com.example.env":                               "MODE=[redacted] PASSWORD=[redacted]",
-		"com.docker.compose.project":                    "shop",
-		"org.opencontainers.image.authors":              "Jane",
+		"com.example.dsn":                  "[redacted]",
+		"com.docker.compose.project":       "shop",
+		"org.opencontainers.image.authors": "Jane",
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("redactLabels = %v, want %v", got, want)
+	if got := redactLabels(labels); !reflect.DeepEqual(got, want) {
+		t.Errorf("labels of a container Darkpanel does not own = %v, want %v", got, want)
+	}
+	owned := map[string]string{core.LabelModule: "npm", "com.example.dsn": "mysql://root:x@db/app"} //nolint:gosec // G101: a made-up value the test shows, not a credential
+	if got := redactLabels(owned); !reflect.DeepEqual(got, owned) {
+		t.Errorf("labels of an owned container = %v, want them as they are", got)
+	}
+	if got := redactLabels(nil); got != nil {
+		t.Errorf("no labels = %v, want nil", got)
 	}
 }
 
