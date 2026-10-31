@@ -129,7 +129,7 @@ func haApplyPlan(t *testing.T, eng *lifecycle.Engine, input string) core.ChangeV
 // haAdd adds an active hostname to the tunnel darkpanel-ha through the
 // action, preparing the account, zone and tunnel first, and returns its row.
 // It builds an engine of its own and closes it before it returns.
-func haAdd(t *testing.T, h *cfHost, srv *fake.Server, hostname string) hostnameRow {
+func haAdd(t *testing.T, h *cfHost, srv *fake.Server, hostname string) hostnameRow { //nolint:unused // shared helper of the other hostname test files
 	t.Helper()
 	c, _, _, _ := haPrepare(t, h, srv)
 	eng := haEngine(t, h, c)
@@ -596,6 +596,103 @@ func TestHAUncertainRecordCreateNeedsRepair(t *testing.T) {
 		if w == http.MethodDelete {
 			t.Error("a DELETE was sent while the effect was unresolved")
 		}
+	}
+}
+
+// haInsertAdding stores the tunnel's hash and a hostname row in phase
+// adding_record for changeID, as an add leaves them after its rule write.
+func haInsertAdding(t *testing.T, f *haFixture, host, changeID, hash string) {
+	t.Helper()
+	ctx := context.Background()
+	row := hostnameRow{Hostname: host, TunnelID: f.tunnelID, Service: haService, ZoneID: f.zoneID, Phase: "adding_record", ChangeID: changeID,
+		Health: "unknown", UpdatedAt: f.h.clock.Now()}
+	err := f.h.db.Write(ctx, func(tx *sql.Tx) error {
+		if err := setTunnelHash(ctx, tx, f.tunnelID, hash); err != nil {
+			return err
+		}
+		return insertHostname(ctx, tx, row)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// haMadeRule journals the change's ingress effect for host as made, with the
+// rule as the configuration now holds it.
+func haMadeRule(t *testing.T, f *haFixture, env core.Env, host string) {
+	t.Helper()
+	ctx := context.Background()
+	e := core.Effect{Kind: core.EffectModify, Resource: "cloudflare.ingress:" + f.tunnelID + "/" + host, CommitWait: cloud.CommitWait,
+		Before: core.StateDoc{State: json.RawMessage(`{"rule":null}`)}}
+	seq, err := env.Effects.Intend(ctx, e, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule, _ := ingress.Lookup(f.config(), host)
+	b, _ := json.Marshal(rule)
+	if err := env.Effects.Made(ctx, seq, e.Resource, core.StateDoc{State: json.RawMessage(`{"rule":` + string(b) + `}`)}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHARecoverRollsBackItsOwnRuleWhoseHashWasNotStored(t *testing.T) {
+	const host, changeID = "lag.example.com", "01HRECLAG"
+	for _, foreign := range []bool{false, true} {
+		t.Run(fmt.Sprintf("foreign rule %t", foreign), func(t *testing.T) {
+			f := newHAFixture(t)
+			f.putRule("keep.example.com", "http://10.0.0.9:80")
+			haInsertAdding(t, f, host, changeID, ingress.Hash(f.config()))
+			f.putRule(host, haService)
+			if foreign {
+				f.putRule("other.example.com", "http://10.0.0.8:80")
+			}
+			env := f.h.env(changeID)
+			haMadeRule(t, f, env, host)
+			out, err := hostnameHandler{c: f.c}.Recover(context.Background(), env)
+			cfg := f.config()
+			_, hasRule := ingress.Lookup(cfg, host)
+			_, hasRow := f.row(host)
+			if foreign {
+				if err == nil || errcode.From(err).Code != errcode.CloudConflict || !hasRule || !hasRow {
+					t.Errorf("Recover = %+v, %v; rule %t, row %t; want cloud.conflict with the rule and the row kept", out, err, hasRule, hasRow)
+				}
+				return
+			}
+			if err != nil || out.State != core.RecoveryRolledBack || hasRule || hasRow {
+				t.Fatalf("Recover = %+v, %v; rule %t, row %t; want rolled back with the rule and the row gone", out, err, hasRule, hasRow)
+			}
+			if _, ok := ingress.Lookup(cfg, "keep.example.com"); !ok {
+				t.Error("the rollback dropped an unrelated rule")
+			}
+			if got := f.tunnel().ConfigHash; got != ingress.Hash(cfg) {
+				t.Errorf("stored hash = %q, want the hash of the configuration after the rollback", got)
+			}
+		})
+	}
+}
+
+func TestHARecoverCountsAGoneTunnelAsRemoved(t *testing.T) {
+	const host, changeID = "gone.example.com", "01HRECGONE"
+	f := newHAFixture(t)
+	haInsertAdding(t, f, host, changeID, "")
+	f.putRule(host, haService)
+	env := f.h.env(changeID)
+	haMadeRule(t, f, env, host)
+	f.srv.Cloud().Fail(http.MethodGet, f.path("/accounts/"+fake.AccountID+"/cfd_tunnel/"+f.tunnelID+"/configurations"),
+		cloudfake.Fault{Status: http.StatusNotFound, Body: `{"success":false,"errors":[{"code":1003,"message":"tunnel not found"}],"result":null}`})
+	before := len(f.writes())
+	out, err := hostnameHandler{c: f.c}.Recover(context.Background(), env)
+	if err != nil || out.State != core.RecoveryRolledBack {
+		t.Fatalf("Recover = %+v, %v; want rolled back: a tunnel gone at Cloudflare took its rule with it", out, err)
+	}
+	if _, ok := f.row(host); ok {
+		t.Error("the hostname row is still stored after the rollback")
+	}
+	if n := len(f.writes()) - before; n != 0 {
+		t.Errorf("Recover sent %d writes, want none", n)
+	}
+	if got := f.tunnel().ConfigHash; got != "" {
+		t.Errorf("stored hash = %q, want it left empty", got)
 	}
 }
 

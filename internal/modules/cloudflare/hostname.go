@@ -319,7 +319,28 @@ func (h hostnameHandler) removeRule(ctx context.Context, env core.Env, a *api, e
 	}
 	ours := rowFound && row.ChangeID == e.ChangeID
 	cfg, err := h.c.checkDrift(ctx, a, tunnel)
-	if err != nil {
+	if hostnameAbsent(err) {
+		// The tunnel is gone at Cloudflare, and its rule with it.
+		if !ours {
+			return nil
+		}
+		return env.DB.Write(ctx, func(tx *sql.Tx) error { return deleteHostname(ctx, tx, hostname) })
+	}
+	var drift *errcode.Error
+	switch {
+	case errors.As(err, &drift) && drift.Code == errcode.CloudConflict:
+		// The stored hash may lag the add's own rule write: its answer was
+		// lost, its read-back failed, or the add stopped before storing it.
+		if cfg, err = a.Configuration(ctx, tunnel.ID); err != nil {
+			return core.Definite(err)
+		}
+		rule, present := ingress.Lookup(cfg, hostname)
+		without, _ := ingress.Remove(cfg, hostname)
+		if !present || !ours || rule.Service != row.Service || rule.NoTLSVerify != row.NoTLSVerify ||
+			ingress.Hash(without) != tunnel.ConfigHash {
+			return core.Definite(drift)
+		}
+	case err != nil:
 		// Nothing was written yet.
 		return core.Definite(err)
 	}
