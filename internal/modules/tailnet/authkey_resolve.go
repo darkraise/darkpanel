@@ -147,7 +147,7 @@ func (h authkeyHandler) Inverse(ctx context.Context, env core.Env, e core.Effect
 }
 
 // Resolved moves the key's row with the operator's resolution of its
-// creation effect.
+// creation effect, unless the sweep has already deleted the key (settleKey).
 func (h authkeyHandler) Resolved(ctx context.Context, tx *sql.Tx, e core.Effect, _ string) error {
 	description, err := authkeyDescription(e)
 	if err != nil {
@@ -180,7 +180,7 @@ func (h authkeyHandler) Resolved(ctx context.Context, tx *sql.Tx, e core.Effect,
 	default:
 		return fmt.Errorf("tailnet: effect %s resolved in state %s", e.Resource, e.State)
 	}
-	return setKeyState(ctx, tx, description, state, keyID, e.ResolvedAt)
+	return settleKey(ctx, tx, description, state, keyID, e.ResolvedAt)
 }
 
 // authkeyNull reports whether a state document says no key exists.

@@ -109,7 +109,7 @@ func (h authkeyHandler) Apply(ctx context.Context, env core.Env, in AuthKeyInput
 	record := context.WithoutCancel(ctx)
 	setRow := func(state, keyID string) error {
 		return env.DB.Write(record, func(tx *sql.Tx) error {
-			return setKeyState(record, tx, description, state, keyID, env.Clock.Now().UTC())
+			return settleKey(record, tx, description, state, keyID, env.Clock.Now().UTC())
 		})
 	}
 

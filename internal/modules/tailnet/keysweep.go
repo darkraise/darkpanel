@@ -151,7 +151,7 @@ func (t tn) sweep(ctx context.Context, deps ext.Deps, now time.Time, orphans boo
 		if !keySweepable(r, ok, now, orphans) {
 			continue
 		}
-		if err := t.sweepKey(ctx, deps, a, k, ok && r.State == "retired", now); err != nil {
+		if err := t.sweepKey(ctx, deps, a, k, ok, now); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -234,9 +234,9 @@ func keyWindowEnd(r keyRow) time.Time {
 	return r.RequestedAt.Add(time.Duration(r.ExpirySeconds)*time.Second + keyWindowSlack)
 }
 
-// sweepKey deletes one key, audits the deletion and, for a row still
-// retired, marks the row deleted.
-func (t tn) sweepKey(ctx context.Context, deps ext.Deps, a *api, k KeyInfo, retired bool, now time.Time) error {
+// sweepKey deletes one key, audits the deletion and, when the key has a row,
+// records the deletion on the row as it is after the delete (keyDeleted).
+func (t tn) sweepKey(ctx context.Context, deps ext.Deps, a *api, k KeyInfo, hasRow bool, now time.Time) error {
 	// A not-found answer counts as deleted: the cloud client resends a DELETE
 	// whose answer was lost, so a delete that committed can come back 404.
 	if err := a.DeleteKey(ctx, k.ID); err != nil && !authkeyGone(err) {
@@ -255,13 +255,29 @@ func (t tn) sweepKey(ctx context.Context, deps ext.Deps, a *api, k KeyInfo, reti
 	}); err != nil {
 		errs = append(errs, fmt.Errorf("tailnet: audit the sweep of key %s: %w", k.ID, err))
 	}
-	if retired {
-		_, err := moveKey(record, deps.DB, k.Description, "deleted", k.ID, now, func(cur keyRow) bool {
-			return cur.State == "retired"
-		})
-		if err != nil {
+	if hasRow {
+		if err := deps.DB.Write(record, func(tx *sql.Tx) error { return keyDeleted(record, tx, k, now) }); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// keyDeleted records on its row, as read in tx, that the sweep deleted key k.
+// A create or a resolution may have written the row between the sweep's read
+// and its delete. A retired row, or one made live with k since, is deleted.
+// An uncertain row stays uncertain, since a late commit may still create
+// another key, and names k so a resolution does not make it live (settleKey).
+func keyDeleted(ctx context.Context, tx *sql.Tx, k KeyInfo, now time.Time) error {
+	cur, ok, err := loadKey(ctx, tx, k.Description)
+	if err != nil || !ok {
+		return err
+	}
+	switch {
+	case cur.State == "retired", cur.State == "live" && cur.KeyID == k.ID:
+		return setKeyState(ctx, tx, k.Description, "deleted", k.ID, now)
+	case cur.State == "uncertain":
+		return setKeyState(ctx, tx, k.Description, "uncertain", k.ID, now)
+	}
+	return nil
 }

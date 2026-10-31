@@ -212,6 +212,26 @@ func listKeys(ctx context.Context, q queryer) ([]keyRow, error) {
 	return out, nil
 }
 
+// settleKey moves the row of description to the state a create's outcome
+// or its resolution gives it, in tx. A deleted row is final and stays as it
+// is. A row the sweep left uncertain names the last key it deleted, so a key
+// it names is gone and the row becomes retired rather than live; a later
+// commit is still swept.
+func settleKey(ctx context.Context, tx *sql.Tx, description, state, keyID string, at time.Time) error {
+	cur, ok, err := loadKey(ctx, tx, description)
+	if err != nil {
+		return err
+	}
+	switch {
+	case !ok:
+	case cur.State == "deleted":
+		return nil
+	case state == "live" && cur.State == "uncertain" && cur.KeyID != "" && cur.KeyID == keyID:
+		state = "retired"
+	}
+	return setKeyState(ctx, tx, description, state, keyID, at)
+}
+
 // setKeyState sets the state and updated_at of the key with that
 // description, and its key_id when keyID is not "". It leaves every other
 // column alone.

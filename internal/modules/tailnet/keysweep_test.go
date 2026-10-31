@@ -348,3 +348,112 @@ func TestSwServiceSchedule(t *testing.T) {
 	f.h.clock.Advance(24 * time.Hour)
 	swEventually(t, "the daily pass to delete the orphan", func() bool { return !f.alive(orphan) })
 }
+
+func TestSwSettleKey(t *testing.T) {
+	cases := []struct {
+		name, state, keyID   string
+		toState, toKey       string
+		wantState, wantKeyID string
+	}{
+		{"requested row learns its key", "requested", "", "live", "k1", "live", "k1"},
+		{"uncertain row is resolved live", "uncertain", "", "live", "k1", "live", "k1"},
+		{"uncertain row whose key the sweep deleted", "uncertain", "k1", "live", "k1", "retired", "k1"},
+		{"uncertain row with another key swept", "uncertain", "k0", "live", "k1", "live", "k1"},
+		{"deleted row is not made live", "deleted", "k1", "live", "k1", "deleted", "k1"},
+		{"deleted row is not retired", "deleted", "k1", "retired", "", "deleted", "k1"},
+		{"live row is retired", "live", "k1", "retired", "", "retired", "k1"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := swSetup(t)
+			desc := "darkpanel-" + swChange(20)
+			f.row(t, desc, tc.state, tc.keyID, time.Hour)
+			ctx := context.Background()
+			err := f.h.db.Write(ctx, func(tx *sql.Tx) error {
+				return settleKey(ctx, tx, desc, tc.toState, tc.toKey, f.h.clock.Now())
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			r, _, err := loadKey(ctx, f.h.db.Read(), desc)
+			if err != nil || r.State != tc.wantState || r.KeyID != tc.wantKeyID {
+				t.Errorf("row %s/%s (err %v), want %s/%s", r.State, r.KeyID, err, tc.wantState, tc.wantKeyID)
+			}
+		})
+	}
+}
+
+// swAccepted is the creation effect of description as an operator accepts
+// it with an observation of key id.
+func swAccepted(description, id string, at time.Time) core.Effect {
+	return core.Effect{
+		Resource: authkeyResourcePrefix + "?" + description, State: core.EffectAccepted, ResolvedAt: at,
+		Recovery: &core.RecoveryID{Kind: "marker", Value: description},
+		Current:  &core.StateDoc{State: authkeyState(id, description)},
+	}
+}
+
+func TestSwResolutionAfterTheSweepDeletedTheKey(t *testing.T) {
+	f := swSetup(t)
+	ctx := context.Background()
+	desc := "darkpanel-" + swChange(21)
+	id := f.key(t, desc)
+	f.row(t, desc, "uncertain", "", time.Hour)
+	if err := f.t.sweep(ctx, f.deps, f.h.clock.Now(), false); err != nil {
+		t.Fatal(err)
+	}
+	if f.alive(id) {
+		t.Fatal("the pass left the uncertain row's key")
+	}
+	if r, _, _ := loadKey(ctx, f.h.db.Read(), desc); r.State != "uncertain" || r.KeyID != id {
+		t.Fatalf("row %s/%s after the pass, want uncertain naming the deleted key %s", r.State, r.KeyID, id)
+	}
+	err := f.h.db.Write(ctx, func(tx *sql.Tx) error {
+		return f.t.authkeyCreate().Handler.Resolved(ctx, tx, swAccepted(desc, id, f.h.clock.Now()), core.ResolutionAccept)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := f.state(t, desc); got != "retired" {
+		t.Errorf("row %q after accepting the deleted key, want retired", got)
+	}
+}
+
+// swBeforeDelete runs before before every DELETE it forwards.
+type swBeforeDelete struct {
+	next   http.RoundTripper
+	before func()
+}
+
+func (s swBeforeDelete) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.Method == http.MethodDelete {
+		s.before()
+	}
+	return s.next.RoundTrip(r)
+}
+
+func TestSwResolutionBetweenTheReadAndTheDelete(t *testing.T) {
+	f := swSetup(t)
+	ctx := context.Background()
+	desc := "darkpanel-" + swChange(22)
+	id := f.key(t, desc)
+	f.row(t, desc, "uncertain", "", time.Hour)
+	resolve := func() {
+		err := f.h.db.Write(ctx, func(tx *sql.Tx) error {
+			return f.t.authkeyCreate().Handler.Resolved(ctx, tx, swAccepted(desc, id, f.h.clock.Now()), core.ResolutionAccept)
+		})
+		if err != nil {
+			t.Error(err)
+		}
+	}
+	f.t.d.http = &http.Client{Transport: swBeforeDelete{next: f.srv.Client().Transport, before: resolve}}
+	if err := f.t.sweep(ctx, f.deps, f.h.clock.Now(), false); err != nil {
+		t.Fatal(err)
+	}
+	if f.alive(id) {
+		t.Fatal("the pass did not delete the key")
+	}
+	if r, _, _ := loadKey(ctx, f.h.db.Read(), desc); r.State != "deleted" || r.KeyID != id {
+		t.Errorf("row %s/%s, want deleted: the resolution made it live for the key the pass deleted", r.State, r.KeyID)
+	}
+}
