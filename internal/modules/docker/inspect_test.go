@@ -248,3 +248,59 @@ func TestRdReadActionsAreUnlockedAgentReads(t *testing.T) {
 		t.Errorf("reveal-env spec %+v", s)
 	}
 }
+
+func TestRdRedactArgs(t *testing.T) {
+	for _, tc := range []struct{ in, want []string }{
+		{nil, nil},
+		{[]string{"nginx", "-g", "daemon off;"}, []string{"nginx", "-g", "daemon off;"}},
+		{[]string{"app", "--password=hunter2", "--db-token", "tok123", "--port", "80"},
+			[]string{"app", "--password=[redacted]", "--db-token", "[redacted]", "--port", "80"}},
+		{[]string{"app", "--api-key", "--verbose"}, []string{"app", "--api-key", "--verbose"}},
+		{[]string{"tunnel", "run", "--token-file", "/run/darkpanel/token"}, []string{"tunnel", "run", "--token-file", "/run/darkpanel/token"}},
+		{[]string{"env", "DB_PASSWORD=hunter2", "PORT=80", "run"}, []string{"env", "DB_PASSWORD=[redacted]", "PORT=80", "run"}},
+		{[]string{"sh", "-c", "exec app --secret='s 3' --name=web postgres://app:hunter2@db:5432/app"},
+			[]string{"sh", "-c", "exec app --secret=[redacted] --name=web postgres://app:[redacted]@db:5432/app"}},
+	} {
+		if got := redactArgs(tc.in); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("redactArgs(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestRdRedactLabels(t *testing.T) {
+	got := redactLabels(map[string]string{
+		"traefik.http.middlewares.auth.basicauth.users": "admin:$apr1$x$y",
+		"com.example.api-token":                         "tok123",
+		"com.example.dsn":                               "mysql://root:hunter2@db/app",
+		"com.docker.compose.project":                    "shop",
+		"org.opencontainers.image.authors":              "Jane",
+	})
+	want := map[string]string{
+		"traefik.http.middlewares.auth.basicauth.users": "[redacted]",
+		"com.example.api-token":                         "[redacted]",
+		"com.example.dsn":                               "mysql://root:[redacted]@db/app",
+		"com.docker.compose.project":                    "shop",
+		"org.opencontainers.image.authors":              "Jane",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("redactLabels = %v, want %v", got, want)
+	}
+}
+
+func TestRdInspectRedactsTheCommandLineAndLabels(t *testing.T) {
+	h := newDKHost(t)
+	h.docker.put(rdWeb(func(c *dockerapi.ContainerJSON) {
+		c.Config.Cmd = []string{"app", "--password", "hunter3"}
+		c.Config.Entrypoint = []string{"/entry", "--dsn=postgres://u:hunter4@db/x"}
+		c.Config.Labels["com.example.secret"] = "hunter5"
+	}))
+	raw, err := rdRead(t, h.dk().containerInspect(), h, `{"container":"web"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"hunter3", "hunter4", "hunter5"} {
+		if strings.Contains(string(raw), secret) {
+			t.Errorf("inspect leaks %q:\n%s", secret, raw)
+		}
+	}
+}

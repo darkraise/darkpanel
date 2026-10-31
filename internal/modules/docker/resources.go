@@ -240,7 +240,7 @@ func resLabels(labels map[string]string) map[string]string {
 	if len(labels) == 0 {
 		return nil
 	}
-	return labels
+	return redactLabels(labels)
 }
 
 func resWithout(values []string, placeholder string) []string {
