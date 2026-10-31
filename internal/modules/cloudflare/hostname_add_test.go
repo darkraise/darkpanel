@@ -805,3 +805,48 @@ func TestHARecover(t *testing.T) {
 		})
 	}
 }
+
+// TestHAVerify: Verify passes after an add and fails once the row belongs to
+// another change, the rule routes elsewhere or the record is gone.
+func TestHAVerify(t *testing.T) {
+	ctx := context.Background()
+	input := haInput("app.example.com")
+	for _, c := range []struct {
+		name  string
+		spoil func(f *haFixture, changeID string) string
+	}{
+		{"another change", func(_ *haFixture, _ string) string { return "01J0000000000000000000OTHER" }},
+		{"rule routes elsewhere", func(f *haFixture, changeID string) string {
+			cfg, _ := ingress.Remove(f.config(), "app.example.com")
+			next, _, err := ingress.Add(cfg, ingress.Rule{Hostname: "app.example.com", Service: "http://10.0.0.6:8080"})
+			if err != nil {
+				f.t.Fatal(err)
+			}
+			if err := f.api.PutConfiguration(ctx, f.tunnelID, next); err != nil {
+				f.t.Fatal(err)
+			}
+			return changeID
+		}},
+		{"record gone", func(f *haFixture, changeID string) string {
+			row, _ := f.row("app.example.com")
+			if err := f.api.DeleteDNSRecord(ctx, f.zoneID, row.RecordID); err != nil {
+				f.t.Fatal(err)
+			}
+			return changeID
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newHAFixture(t)
+			cv := f.apply(input)
+			verify := func(changeID string) error {
+				return f.c.hostnameAdd().Handler.Verify(ctx, f.h.env(changeID), json.RawMessage(input), cv.Output)
+			}
+			if err := verify(cv.ID); err != nil {
+				t.Fatalf("verify after the add: %v", err)
+			}
+			if err := verify(c.spoil(f, cv.ID)); err == nil {
+				t.Error("verify passed, want it to fail")
+			}
+		})
+	}
+}

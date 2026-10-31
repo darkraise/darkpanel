@@ -674,3 +674,21 @@ func TestHRTunnelGone(t *testing.T) {
 		})
 	}
 }
+
+// TestHRVerifyFails: Verify fails while the row is stored or while the tunnel
+// still routes the hostname.
+func TestHRVerifyFails(t *testing.T) {
+	ctx := context.Background()
+	w := hrNew(t)
+	env := w.h.env("01J00000000000000000000002")
+	out := json.RawMessage(`{"hostname":"` + hrHostname + `","tunnel":"` + w.tunnel + `","phase":"removed"}`)
+	if err := w.def.Handler.Verify(ctx, env, hrIn, out); err == nil {
+		t.Error("verify passed while the hostname row is stored")
+	}
+	if err := w.h.db.Write(ctx, func(tx *sql.Tx) error { return deleteHostname(ctx, tx, hrHostname) }); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.def.Handler.Verify(ctx, env, hrIn, out); err == nil {
+		t.Error("verify passed while the tunnel still has the hostname's rule")
+	}
+}

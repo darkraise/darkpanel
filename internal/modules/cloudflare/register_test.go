@@ -255,6 +255,13 @@ func TestRegHostnamesService(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- services[0].Run(ctx) }()
+	// Cancel only once the first pass has run and scheduled the next, so the
+	// test stops a running service rather than one never started.
+	for deadline := time.Now().Add(10 * time.Second); h.clock.Pending() == 0; time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the service did not schedule its next pass")
+		}
+	}
 	cancel()
 	select {
 	case err := <-done:

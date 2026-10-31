@@ -31,7 +31,7 @@ func (m module) Manifest() core.Manifest {
 }
 
 // actions are spec 5's cloudflare account, tunnel and hostname rows, all
-// controller-side under the cloudflare lock.
+// controller-side, the mutating ones under the cloudflare lock.
 func (c cf) actions() []core.ActionDef {
 	return []core.ActionDef{
 		c.accountConnect(),

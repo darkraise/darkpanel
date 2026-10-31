@@ -482,3 +482,31 @@ func TestAcDefinitions(t *testing.T) {
 		}
 	}
 }
+
+// TestAcVerify: connect's Verify passes only while the input's account is
+// stored, and disconnect's only while no account is.
+func TestAcVerify(t *testing.T) {
+	ctx := context.Background()
+	srv := fake.New(t)
+	h := newCFHost(t)
+	c := cfWith(srv)
+	connect, disconnect := c.accountConnect().Handler, c.accountDisconnect().Handler
+	in := json.RawMessage(acConnectInput(fake.Token))
+	if err := connect.Verify(ctx, h.env(""), in, json.RawMessage(`{}`)); err == nil {
+		t.Error("connect verify passed with no account stored")
+	}
+	if err := disconnect.Verify(ctx, h.env(""), json.RawMessage(`{}`), json.RawMessage(`{"abandoned":[]}`)); err != nil {
+		t.Errorf("disconnect verify with no account stored: %v", err)
+	}
+	acConnect(t, h, srv)
+	if err := connect.Verify(ctx, h.env(""), in, json.RawMessage(`{}`)); err != nil {
+		t.Errorf("connect verify with the account stored: %v", err)
+	}
+	other := json.RawMessage(`{"accountId":"0123456789abcdef0123456789abcdee","apiToken":"` + fake.Token + `"}`)
+	if err := connect.Verify(ctx, h.env(""), other, json.RawMessage(`{}`)); err == nil {
+		t.Error("connect verify passed for an account other than the stored one")
+	}
+	if err := disconnect.Verify(ctx, h.env(""), json.RawMessage(`{}`), json.RawMessage(`{"abandoned":[]}`)); err == nil {
+		t.Error("disconnect verify passed with an account stored")
+	}
+}
