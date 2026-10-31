@@ -110,9 +110,9 @@ func fetchToken(ctx context.Context, c *cloud.Client, form []byte) (string, time
 		// A token request writes nothing, so an answer that never came only
 		// means the provider is unavailable.
 		if errcode.From(err).Code == errcode.CloudUncertainOutcome {
-			return "", 0, errcode.Wrap(errcode.CloudUnavailable, err, "tailscale did not issue an access token")
+			err = errcode.Wrap(errcode.CloudUnavailable, err, "tailscale did not issue an access token")
 		}
-		return "", 0, err
+		return "", 0, hideStatus(err)
 	}
 	var tok struct {
 		AccessToken string `json:"access_token"`
@@ -129,6 +129,25 @@ func fetchToken(ctx context.Context, c *cloud.Client, form []byte) (string, time
 		ttl = time.Duration(*tok.ExpiresIn) * time.Second
 	}
 	return tok.AccessToken, ttl, nil
+}
+
+// hideStatus keeps a token request's provider status only as text, along with
+// its code, detail and definite mark. The cloud client hands a token error,
+// wrapped, to the call whose Auth asked for the token, and that call re-codes
+// its own status (a 404, 400 or 412); the token endpoint's must not pass for it.
+func hideStatus(err error) error {
+	if cloud.Status(err) == 0 {
+		return err
+	}
+	e := errcode.From(err)
+	hidden := &errcode.Error{Code: e.Code, Detail: e.Detail, Fields: e.Fields}
+	if e.Err != nil {
+		hidden.Err = errors.New(e.Err.Error())
+	}
+	if core.IsDefinite(err) {
+		return core.Definite(hidden)
+	}
+	return hidden
 }
 
 func (a *api) tailnetPath(rest string) string { return "/api/v2/tailnet/" + a.tailnet + rest }

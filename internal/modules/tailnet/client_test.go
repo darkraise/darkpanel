@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/darkraise/darkpanel/internal/controller/cloud"
 	"github.com/darkraise/darkpanel/internal/controller/cloud/cloudfake"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/coretest"
@@ -279,6 +281,53 @@ func TestAPDeviceNotFound(t *testing.T) {
 	}
 	if _, err := a.Device(context.Background(), ""); apCode(t, err) != errcode.InvalidInput {
 		t.Errorf("empty id: %v, want request.invalid_input", err)
+	}
+}
+
+// A call re-codes only its own status: the token endpoint's must not pass for
+// it, or a refused token request would read as "already gone", a policy
+// conflict or a policy rejection.
+func TestAPTokenStatusIsNotTheCallsStatus(t *testing.T) {
+	tests := []struct {
+		name    string
+		status  int
+		call    func(*api) error
+		path    string
+		notWant errcode.Code
+		want    errcode.Code
+	}{
+		{"DeleteKey after a token 404", http.StatusNotFound,
+			func(a *api) error { return a.DeleteKey(context.Background(), "k1") },
+			apTailnet("/keys/k1"), errcode.NotFound, errcode.InvalidInput},
+		{"SetPolicy after a token 412", http.StatusPreconditionFailed,
+			func(a *api) error { _, err := a.SetPolicy(context.Background(), []byte("{}"), `"e1"`); return err },
+			apTailnet("/acl"), errcode.TailnetPolicyConflict, errcode.CloudConflict},
+		{"ValidatePolicy after a token 400", http.StatusBadRequest,
+			func(a *api) error { return a.ValidatePolicy(context.Background(), []byte("{}")) },
+			apTailnet("/acl/validate"), errcode.TailnetPolicyInvalid, errcode.InvalidInput},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, a := apFake(t)
+			apAnswer(srv, http.MethodPost, "/api/v2/oauth/token", tc.status, `{"message":"token refused"}`)
+			err := tc.call(a)
+			got := apCode(t, err)
+			if got == tc.notWant || got != tc.want {
+				t.Errorf("code %s, want the token answer's %s and never %s", got, tc.want, tc.notWant)
+			}
+			if s := cloud.Status(err); s != 0 {
+				t.Errorf("the error carries the token endpoint's status %d", s)
+			}
+			if !core.IsDefinite(err) {
+				t.Error("a call that never reached the API is definite")
+			}
+			if n := len(srv.Cloud().Requests()) - len(apRequests(srv, http.MethodPost, "/api/v2/oauth/token")); n != 0 {
+				t.Errorf("%d API requests sent without a token", n)
+			}
+			if !strings.Contains(err.Error(), strconv.Itoa(tc.status)) {
+				t.Errorf("the error %q no longer names the token answer's status", err)
+			}
+		})
 	}
 }
 
