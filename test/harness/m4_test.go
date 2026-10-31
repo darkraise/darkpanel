@@ -43,6 +43,11 @@ func TestM4(t *testing.T) {
 		{"images", false, func(t *testing.T) { m4dImages(ctx, t, f) }},
 		{"networks-and-volumes", false, func(t *testing.T) { m4dNetworksVolumes(ctx, t, f) }},
 		{"owned-refused", false, func(t *testing.T) { m4dOwned(ctx, t, f) }},
+		{"compose-shims", false, func(t *testing.T) { m4cInstallShims(ctx, t, f) }},
+		{"compose-lifecycle", false, func(t *testing.T) { m4cLifecycle(ctx, t, f) }},
+		{"compose-refuse-git", false, func(t *testing.T) { m4cRefuseGit(ctx, t, f) }},
+		{"compose-refuse-build", false, func(t *testing.T) { m4cRefuseBuild(ctx, t, f) }},
+		{"compose-no-programs", false, func(t *testing.T) { m4cNoPrograms(ctx, t, f) }},
 	}
 	for _, s := range steps {
 		if !t.Run(s.name, s.run) && s.gate {
