@@ -1,0 +1,76 @@
+{
+  "name": "docker.networks",
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/NetworkList",
+    "$defs": {
+      "Network": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "driver": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "internal": {
+            "type": "boolean"
+          },
+          "ipv6": {
+            "type": "boolean"
+          },
+          "subnets": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "containers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "created": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "driver",
+          "scope",
+          "internal",
+          "ipv6",
+          "subnets",
+          "containers",
+          "created"
+        ]
+      },
+      "NetworkList": {
+        "properties": {
+          "networks": {
+            "items": {
+              "$ref": "#/$defs/Network"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "networks"
+        ]
+      }
+    }
+  }
+}

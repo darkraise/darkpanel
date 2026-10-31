@@ -1,0 +1,61 @@
+{
+  "name": "docker.container.reveal-env",
+  "version": 1,
+  "class": "read",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ContainerInput",
+    "$defs": {
+      "ContainerInput": {
+        "properties": {
+          "container": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "container"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/RevealedEnv",
+    "$defs": {
+      "EnvVar": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "value"
+        ]
+      },
+      "RevealedEnv": {
+        "properties": {
+          "env": {
+            "items": {
+              "$ref": "#/$defs/EnvVar"
+            },
+            "type": "array",
+            "x-secret": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "env"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "name": "docker.container.remove",
+  "version": 1,
+  "class": "irreversible",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ContainerRemoveInput",
+    "$defs": {
+      "ContainerRemoveInput": {
+        "properties": {
+          "container": {
+            "type": "string"
+          },
+          "force": {
+            "type": "boolean"
+          },
+          "volumes": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "container"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Removed",
+    "$defs": {
+      "Removed": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "name": "docker.container.logs",
+  "version": 1,
+  "class": "read",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/LogsInput",
+    "$defs": {
+      "LogsInput": {
+        "properties": {
+          "container": {
+            "type": "string"
+          },
+          "tail": {
+            "type": "integer"
+          },
+          "since": {
+            "type": "string"
+          },
+          "timestamps": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "container"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/LogsOutput",
+    "$defs": {
+      "LogLine": {
+        "properties": {
+          "stream": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "stream",
+          "text"
+        ]
+      },
+      "LogsOutput": {
+        "properties": {
+          "lines": {
+            "items": {
+              "$ref": "#/$defs/LogLine"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "lines"
+        ]
+      }
+    }
+  }
+}

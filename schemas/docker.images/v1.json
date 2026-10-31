@@ -1,0 +1,68 @@
+{
+  "name": "docker.images",
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ImageList",
+    "$defs": {
+      "Image": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "digests": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "created": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "containers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "dangling": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tags",
+          "digests",
+          "size",
+          "created",
+          "containers",
+          "dangling"
+        ]
+      },
+      "ImageList": {
+        "properties": {
+          "images": {
+            "items": {
+              "$ref": "#/$defs/Image"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "images"
+        ]
+      }
+    }
+  }
+}

@@ -60,7 +60,7 @@ func TestRegistrationRules(t *testing.T) {
 				t.Errorf("action %s is registered twice", a.Ref())
 			}
 			refs[a.Ref()] = true
-			if s.Class == core.ClassCompensable && !names[s.CompensatedBy] {
+			if s.Class == core.ClassCompensable && a.Handler.Inverse == nil && !s.ForwardOnly && !names[s.CompensatedBy] {
 				t.Errorf("action %s: compensating action %q is not registered", a.Ref(), s.CompensatedBy)
 			}
 			if s.BreakGlass && s.Side != core.SideController {

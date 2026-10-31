@@ -1,0 +1,64 @@
+{
+  "name": "docker.image.prune",
+  "version": 1,
+  "class": "irreversible",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ImagePruneInput",
+    "$defs": {
+      "ImagePruneInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Pruned",
+    "$defs": {
+      "Pruned": {
+        "properties": {
+          "images": {
+            "items": {
+              "$ref": "#/$defs/PrunedImage"
+            },
+            "type": "array"
+          },
+          "reclaimed": {
+            "type": "integer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "images",
+          "reclaimed"
+        ]
+      },
+      "PrunedImage": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "size": {
+            "type": "integer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tags",
+          "size"
+        ]
+      }
+    }
+  }
+}
