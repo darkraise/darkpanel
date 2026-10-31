@@ -593,3 +593,20 @@ func TestCCPlanComposeRendersWhatTheRunDoes(t *testing.T) {
 }
 
 func ccClone(l []core.DiffLine) []core.DiffLine { return append([]core.DiffLine(nil), l...) }
+
+func TestCCOwnerOfAContainerByIDPrefix(t *testing.T) {
+	h := newDKHost(t)
+	owned := dkContainer("npm-app", dkLabels(map[string]string{core.LabelModule: "npm"}))
+	h.docker.put(owned)
+	h.docker.put(dkContainer("web"))
+	ctx := context.Background()
+	for _, ref := range []string{owned.ID, owned.ID[:12], "npm-app"} {
+		labels, err := h.dk().composeObjectLabels(ctx, "container", ref)
+		if err != nil || ownerOf(labels) != "npm" {
+			t.Errorf("owner of container %q = %q (err %v), want npm", ref, ownerOf(labels), err)
+		}
+	}
+	if labels, err := h.dk().composeObjectLabels(ctx, "container", "nosuch"); err != nil || labels != nil {
+		t.Errorf("labels of an unknown container = %v (err %v), want none", labels, err)
+	}
+}

@@ -249,6 +249,10 @@ func (k dk) composeContainersOf(ctx context.Context, name string) ([]dockerapi.C
 	var cs []dockerapi.ContainerJSON
 	for _, s := range list {
 		c, err := k.d.docker.InspectContainer(ctx, s.ID)
+		if dockerapi.IsNotFound(err) {
+			// Removed since it was listed, so it is no longer the project's.
+			continue
+		}
 		if err != nil {
 			return nil, engineError("container", s.ID, err)
 		}

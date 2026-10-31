@@ -633,3 +633,20 @@ func TestCUVerifyChecksTheContainersThatShouldExist(t *testing.T) {
 		})
 	}
 }
+
+func TestCUContainersSkipOneRemovedAfterTheList(t *testing.T) {
+	h := newDKHost(t)
+	cuContainers(h)
+	h.docker.fail("InspectContainer", dkAPIError(404, "No such container"))
+	cs, err := h.dk().composeContainersOf(context.Background(), "shop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cs) != 2 {
+		t.Errorf("%d containers, want the two of shop still there", len(cs))
+	}
+	h.docker.fail("InspectContainer", dkAPIError(500, "boom"))
+	if _, err := h.dk().composeContainersOf(context.Background(), "shop"); err == nil {
+		t.Error("an Engine failure other than not found was ignored")
+	}
+}

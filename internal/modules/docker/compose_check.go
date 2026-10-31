@@ -459,10 +459,24 @@ func (k dk) composeObjectLabels(ctx context.Context, kind, name string) (map[str
 		if err != nil {
 			return nil, err
 		}
+		var prefixed []map[string]string
 		for _, c := range cs {
 			if c.ID == name || slices.Contains(c.Names, "/"+name) {
 				return c.Labels, nil
 			}
+			if strings.HasPrefix(c.ID, name) {
+				prefixed = append(prefixed, c.Labels)
+			}
+		}
+		// The Engine also takes a prefix of an id; of several containers
+		// it could name, an owned one decides.
+		for _, labels := range prefixed {
+			if ownerOf(labels) != "" {
+				return labels, nil
+			}
+		}
+		if len(prefixed) > 0 {
+			return prefixed[0], nil
 		}
 		return nil, nil
 	case "network":
