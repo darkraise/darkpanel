@@ -38,14 +38,16 @@ type hostnameRemoveHandler struct {
 
 // hostnameRemoval is what a removal found: the account's api, the hostname
 // and tunnel rows, the configuration read, and the hostname's DNS record and
-// rule, each nil when already gone.
+// rule, each nil when already gone. tunnelGone is set when the tunnel no
+// longer exists at Cloudflare, which takes its rule with it.
 type hostnameRemoval struct {
-	a      *api
-	row    hostnameRow
-	tunnel tunnelRow
-	cfg    ingress.Config
-	record *DNSRecord
-	rule   *ingress.Rule
+	a          *api
+	row        hostnameRow
+	tunnel     tunnelRow
+	cfg        ingress.Config
+	record     *DNSRecord
+	rule       *ingress.Rule
+	tunnelGone bool
 }
 
 // inspect loads the row of a hostname and reads what is left to remove of
@@ -95,7 +97,10 @@ func (h hostnameRemoveHandler) inspectRow(ctx context.Context, env core.Env, row
 		// predate one of its writes that landed.
 		r.cfg, err = a.Configuration(ctx, tunnel.ID)
 	}
-	if err != nil {
+	switch {
+	case hostnameAbsent(err):
+		r.tunnelGone = true
+	case err != nil:
 		return hostnameRemoval{}, core.Definite(err)
 	}
 	if rule, ok := ingress.Lookup(r.cfg, row.Hostname); ok {
@@ -185,13 +190,15 @@ func (h hostnameRemoveHandler) remove(ctx context.Context, env core.Env, r hostn
 			return err
 		}
 	}
-	last, err := h.removeRule(ctx, env, r)
+	last, gone, err := h.removeRule(ctx, env, r)
 	if err != nil {
 		return err
 	}
 	return env.DB.Write(ctx, func(tx *sql.Tx) error {
-		if err := setTunnelHash(ctx, tx, r.tunnel.ID, ingress.Hash(last)); err != nil {
-			return err
+		if !gone {
+			if err := setTunnelHash(ctx, tx, r.tunnel.ID, ingress.Hash(last)); err != nil {
+				return err
+			}
 		}
 		return deleteHostname(ctx, tx, row.Hostname)
 	})
@@ -214,59 +221,70 @@ func (h hostnameRemoveHandler) removeRecord(ctx context.Context, env core.Env, r
 		return err
 	}
 	if err := r.a.DeleteDNSRecord(ctx, r.row.ZoneID, r.record.ID); err != nil && !hostnameAbsent(err) {
-		return hostnameWriteFailed(ctx, env, seq, eff.Resource,
-			fmt.Errorf("cloudflare: delete DNS record %s of %s: %w", r.record.ID, r.row.Hostname, err))
+		err = fmt.Errorf("cloudflare: delete DNS record %s of %s: %w", r.record.ID, r.row.Hostname, err)
+		if tunnelRefused(err) {
+			err = core.Definite(err)
+		}
+		return hostnameWriteFailed(ctx, env, seq, eff.Resource, err)
 	}
 	return env.Effects.Made(ctx, seq, eff.Resource, core.StateDoc{State: hostnameRecordDoc(nil)})
 }
 
 // removeRule drops the hostname's rule from the tunnel's live configuration
 // as one journaled effect, and answers the configuration read last. A rule
-// already gone is not written.
-func (h hostnameRemoveHandler) removeRule(ctx context.Context, env core.Env, r hostnameRemoval) (ingress.Config, error) {
+// already gone is not written. gone reports that the tunnel no longer exists
+// at Cloudflare, so there is no configuration to write or hash.
+func (h hostnameRemoveHandler) removeRule(ctx context.Context, env core.Env, r hostnameRemoval) (last ingress.Config, gone bool, err error) {
+	if r.tunnelGone {
+		return ingress.Config{}, true, nil
+	}
 	hostname := r.row.Hostname
 	cfg, err := r.a.Configuration(ctx, r.tunnel.ID)
+	if hostnameAbsent(err) {
+		return ingress.Config{}, true, nil
+	}
 	if err != nil {
-		return ingress.Config{}, fmt.Errorf("cloudflare: read the configuration of tunnel %s: %w", r.tunnel.Name, err)
+		return ingress.Config{}, false, fmt.Errorf("cloudflare: read the configuration of tunnel %s: %w", r.tunnel.Name, err)
 	}
 	if _, present := ingress.Lookup(cfg, hostname); !present {
-		return cfg, nil
+		return cfg, false, nil
 	}
 	before, err := hostnameRuleDoc(cfg, hostname)
 	if err != nil {
-		return ingress.Config{}, err
+		return ingress.Config{}, false, err
 	}
 	eff := cloudEffect(core.EffectModify, ingressResource(r.tunnel.ID, hostname), before)
 	eff.After = &core.StateDoc{State: json.RawMessage(`{"rule":null}`)}
 	seq, err := env.Effects.Intend(ctx, eff, nil)
 	if err != nil {
-		return ingress.Config{}, err
+		return ingress.Config{}, false, err
 	}
 	next, _ := ingress.Remove(cfg, hostname)
 	if err := r.a.PutConfiguration(ctx, r.tunnel.ID, next); err != nil {
-		return ingress.Config{}, hostnameWriteFailed(ctx, env, seq, eff.Resource,
+		return ingress.Config{}, false, hostnameWriteFailed(ctx, env, seq, eff.Resource,
 			fmt.Errorf("cloudflare: write the configuration of tunnel %s: %w", r.tunnel.Name, err))
 	}
 	readBack, err := r.a.Configuration(ctx, r.tunnel.ID)
 	if err != nil {
 		// The effect stays intended: the write may have committed.
-		return ingress.Config{}, fmt.Errorf("cloudflare: read back the configuration of tunnel %s: %w", r.tunnel.Name, err)
+		return ingress.Config{}, false, fmt.Errorf("cloudflare: read back the configuration of tunnel %s: %w", r.tunnel.Name, err)
 	}
 	post, err := hostnameRuleDoc(readBack, hostname)
 	if err != nil {
-		return ingress.Config{}, err
+		return ingress.Config{}, false, err
 	}
 	if err := env.Effects.Made(ctx, seq, eff.Resource, core.StateDoc{State: post}); err != nil {
-		return ingress.Config{}, err
+		return ingress.Config{}, false, err
 	}
 	if _, present := ingress.Lookup(readBack, hostname); present || ingress.Hash(readBack) != ingress.Hash(next) {
-		return ingress.Config{}, fmt.Errorf("cloudflare: the configuration of tunnel %s differs from the one written", r.tunnel.Name)
+		return ingress.Config{}, false, fmt.Errorf("cloudflare: the configuration of tunnel %s differs from the one written", r.tunnel.Name)
 	}
-	return readBack, nil
+	return readBack, false, nil
 }
 
 // Verify passes when the hostname has no row and, when the output names its
-// tunnel, the tunnel's configuration has no rule for it. It only reads.
+// tunnel, the tunnel's configuration has no rule for it or the tunnel is gone
+// at Cloudflare. It only reads.
 func (h hostnameRemoveHandler) Verify(ctx context.Context, env core.Env, in HostnameInput, out HostnameView) error {
 	if _, found, err := loadHostname(ctx, env.DB.Read(), in.Hostname); err != nil {
 		return err
@@ -281,6 +299,9 @@ func (h hostnameRemoveHandler) Verify(ctx context.Context, env core.Env, in Host
 		return err
 	}
 	cfg, err := a.Configuration(ctx, out.Tunnel)
+	if hostnameAbsent(err) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}

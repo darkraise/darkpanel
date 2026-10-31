@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/controller/cloud"
+	"github.com/darkraise/darkpanel/internal/controller/cloud/cloudfake"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/modules/cloudflare/fake"
@@ -558,5 +559,111 @@ func TestHRRecoverAfterTheRowIsGone(t *testing.T) {
 	}
 	if got := w.writes(); len(got) != 0 {
 		t.Errorf("writes %v, want none", got)
+	}
+}
+
+// TestHRRecordDeleteRefused: a record delete Cloudflare refuses changed
+// nothing, so apply fails definitely, skips the effect and keeps the record,
+// the rule and the row in removing_record.
+func TestHRRecordDeleteRefused(t *testing.T) {
+	ctx := context.Background()
+	w := hrNew(t)
+	var path string
+	for _, r := range w.srv.Cloud().Requests() {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.Path, "/zones/"+w.zone+"/dns_records") {
+			path = r.Path + "/" + w.record
+		}
+	}
+	if path == "" {
+		t.Fatal("the fixture's record create was not recorded")
+	}
+	w.srv.Cloud().Fail(http.MethodDelete, path, cloudfake.Fault{Status: http.StatusForbidden})
+	_, err := w.def.Handler.Apply(ctx, w.h.env("01J00000000000000000000002"), hrIn)
+	if err == nil || !core.IsDefinite(err) {
+		t.Fatalf("apply error %v (definite %v), want a definite refusal", err, core.IsDefinite(err))
+	}
+	effs := w.h.journal.effects()
+	if len(effs) != 1 || effs[0].State != core.EffectSkipped || !strings.HasPrefix(effs[0].Resource, "cloudflare.dnsrecord:") {
+		t.Errorf("effects %+v, want the record delete skipped", effs)
+	}
+	if got := w.writes(); len(got) != 1 || !strings.HasPrefix(got[0], "DELETE ") {
+		t.Errorf("writes %v, want the refused record delete only", got)
+	}
+	if recs := w.records(t); len(recs) != 1 {
+		t.Errorf("%d records, want the record kept", len(recs))
+	}
+	if _, ok := ingress.Lookup(w.config(t), hrHostname); !ok {
+		t.Error("the rule is gone, want it kept")
+	}
+	if row, ok := w.row(t); !ok || row.Phase != "removing_record" {
+		t.Errorf("row %+v present %v, want phase removing_record", row, ok)
+	}
+}
+
+// TestHRTunnelGone: a tunnel deleted at Cloudflare took the hostname's rule
+// with it, so the removal deletes only the record that is left, writes no
+// configuration, stores no hash and deletes the row.
+func TestHRTunnelGone(t *testing.T) {
+	for _, recordGone := range []bool{false, true} {
+		name := "record present"
+		if recordGone {
+			name = "record gone"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			w := hrNew(t)
+			stored, _, err := loadTunnel(ctx, w.h.db.Read(), w.tunnel)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if recordGone {
+				if err := w.pa.DeleteDNSRecord(ctx, w.zone, w.record); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := w.pa.DeleteTunnel(ctx, w.tunnel); err != nil {
+				t.Fatal(err)
+			}
+			w.base = len(w.srv.Cloud().Requests())
+			plan, err := w.def.Handler.Plan(ctx, w.h.env(""), hrIn)
+			if err != nil {
+				t.Fatalf("plan: %v", err)
+			}
+			wantLines := 2
+			if recordGone {
+				wantLines = 0
+			}
+			if len(plan.Diff) != wantLines || (!recordGone && !strings.HasPrefix(plan.Diff[0].Text, "dns record "+w.record)) {
+				t.Errorf("diff %+v, want %d lines and no rule line", plan.Diff, wantLines)
+			}
+			env := w.h.env("01J00000000000000000000002")
+			raw, err := w.def.Handler.Apply(ctx, env, hrIn)
+			if err != nil {
+				t.Fatalf("apply: %v", err)
+			}
+			var view HostnameView
+			if err := json.Unmarshal(raw, &view); err != nil || view.Hostname != hrHostname || view.Tunnel != w.tunnel || view.Phase != "removed" {
+				t.Errorf("apply answered %s (err %v), want the removed hostname and its tunnel", raw, err)
+			}
+			got, effs := w.writes(), w.h.journal.effects()
+			if recordGone {
+				if len(got) != 0 || len(effs) != 0 {
+					t.Errorf("writes %v effects %+v, want none", got, effs)
+				}
+			} else if len(got) != 1 || !strings.HasPrefix(got[0], "DELETE ") || !strings.Contains(got[0], "/dns_records/"+w.record) ||
+				len(effs) != 1 || effs[0].Resource != "cloudflare.dnsrecord:"+w.zone+"/"+w.record || effs[0].State != core.EffectMade {
+				t.Errorf("writes %v effects %+v, want the record delete only", got, effs)
+			}
+			if _, ok := w.row(t); ok {
+				t.Error("the hostname row remains")
+			}
+			tr, _, err := loadTunnel(ctx, w.h.db.Read(), w.tunnel)
+			if err != nil || tr.ConfigHash != stored.ConfigHash {
+				t.Errorf("tunnel hash %q err %v, want the stored hash %q kept", tr.ConfigHash, err, stored.ConfigHash)
+			}
+			if err := w.def.Handler.Verify(ctx, env, hrIn, raw); err != nil {
+				t.Errorf("verify after apply: %v", err)
+			}
+		})
 	}
 }
