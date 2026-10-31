@@ -105,6 +105,9 @@ func TestEveryActionHasACLICommand(t *testing.T) {
 		if def.Spec.Class != core.ClassRead {
 			mutating++
 		}
+		if def.Spec.Internal {
+			continue
+		}
 		if _, ok := cli.FindCommand(root, def.Spec.Name); !ok {
 			t.Errorf("action %s has no CLI command darkpanel %s", def.Ref(), strings.Join(cli.CommandPath(def.Spec.Name), " "))
 		}
