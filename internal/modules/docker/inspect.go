@@ -109,30 +109,22 @@ var (
 	// urlPassword is the password of a URL's user information, which runs to
 	// the last @ before the host, since a password may hold an @.
 	urlPassword = regexp.MustCompile(`(://[^/:@\s]*):[^/\s]*@`)
-	// pairName is a NAME= or NAME: at the start of a piece of a token, the
-	// name possibly quoted.
-	pairName = regexp.MustCompile(`^(["']?)(-{0,2}[\w.-]+)(["']?)([=:])`)
-	// flagWord is a token that is a flag alone, its value the next one.
-	flagWord = regexp.MustCompile(`^-{1,2}[\w.-]+$`)
+	// flagAlone is a token that is a flag with no value of its own.
+	flagAlone = regexp.MustCompile(`^-{1,2}[^-=\s"'][^=\s"']*$`)
 )
 
-// shortSecretFlags are the one-letter password flags of common programs
-// whose names say nothing: mysql's -p<password>, attached, and redis-cli's
-// -a <password>.
-var shortSecretFlags = map[string]struct {
-	flag     string
-	attached bool
-}{
-	"mysql": {"-p", true}, "mysqladmin": {"-p", true}, "mysqldump": {"-p", true},
-	"mariadb": {"-p", true}, "mariadb-admin": {"-p", true}, "mariadb-dump": {"-p", true},
-	"redis-cli": {"-a", false},
+// attachedSecretFlags are programs whose one-letter flag carries a password
+// attached to it: mysql's -p<password>.
+var attachedSecretFlags = map[string]string{
+	"mysql": "-p", "mysqladmin": "-p", "mysqldump": "-p", "mariadb": "-p", "mariadb-admin": "-p", "mariadb-dump": "-p",
 }
 
-const pairSeparators = ",;{}[]()"
+// shells are the programs whose -c argument is a command line, read as one.
+var shells = map[string]bool{"sh": true, "bash": true, "ash": true, "dash": true, "zsh": true}
 
-func isSpace(c byte) bool {
-	return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f'
-}
+const spaces = " \t\n\r\v\f"
+
+func isSpace(c byte) bool { return strings.IndexByte(spaces, c) >= 0 }
 
 // quotedEnd is the index after the quoted segment starting at s[i], or -1
 // when its quote is never closed. A backslash escapes the next byte inside
@@ -181,132 +173,106 @@ func tokens(s string) (toks, seps []string, tail string) {
 	return toks, seps, ""
 }
 
-// maskWhole is the mask in place of a whole value. A value that is one
-// closed quoted string, followed by nothing but separators, keeps its
-// quotes and separators; anything else becomes the bare mask.
-func maskWhole(v string) string {
-	if v != "" && (v[0] == '"' || v[0] == '\'') {
-		if e := quotedEnd(v, 0); e >= 0 && strings.Trim(v[e:], pairSeparators) == "" {
-			return v[:1] + logfilter.Mask + v[:1] + v[e:]
-		}
-	}
-	return logfilter.Mask
-}
-
-// redactToken masks the secrets inside one token: a URL password, and the
-// value of each NAME=value or NAME: value pair, JSON style pairs included,
-// whose name is a secret's. A NAME= value runs to the end of the token. A
-// NAME: value that is one closed quoted string is masked alone, so the pairs
-// after it are read too; any other is masked to the end of the token.
-// maskNext reports a secret NAME: with its value in the next token.
-func redactToken(tok string) (out string, maskNext bool) {
-	tok = urlPassword.ReplaceAllString(tok, "${1}:"+logfilter.Mask+"@")
+// redactQuoted keeps a piece of a token outside quotes and reads the inside
+// of each quoted segment as a command line of its own; an unclosed quote's
+// inside runs to the end.
+func redactQuoted(piece string) string {
 	var b strings.Builder
-	i := 0
-	for i < len(tok) {
-		if strings.IndexByte(pairSeparators, tok[i]) >= 0 {
-			b.WriteByte(tok[i])
+	for i := 0; i < len(piece); {
+		if piece[i] != '"' && piece[i] != '\'' {
+			b.WriteByte(piece[i])
 			i++
 			continue
 		}
-		if m := pairName.FindStringSubmatch(tok[i:]); m != nil {
-			b.WriteString(m[0])
-			i += len(m[0])
-			if !secretName(m[2]) {
-				continue
-			}
-			rest := tok[i:]
-			switch {
-			case rest == "":
-				return b.String(), m[4] == ":"
-			case m[4] == ":" && (rest[0] == '"' || rest[0] == '\'') && quotedEnd(rest, 0) >= 0:
-				e := quotedEnd(rest, 0)
-				b.WriteString(rest[:1] + logfilter.Mask + rest[:1])
-				i += e
-				continue
-			}
-			b.WriteString(maskWhole(rest))
-			return b.String(), false
+		e := quotedEnd(piece, i)
+		if e < 0 {
+			b.WriteString(piece[i:i+1] + redactText(piece[i+1:]))
+			break
 		}
-		if tok[i] == '"' || tok[i] == '\'' {
-			e := quotedEnd(tok, i)
-			if e < 0 {
-				b.WriteString(tok[i:])
-				break
-			}
-			b.WriteString(tok[i:e])
-			i = e
-			continue
-		}
-		j := i
-		for j < len(tok) && strings.IndexByte(pairSeparators, tok[j]) < 0 && tok[j] != '"' && tok[j] != '\'' {
-			j++
-		}
-		b.WriteString(tok[i:j])
-		i = j
+		b.WriteString(piece[i:i+1] + redactText(piece[i+1:e-1]) + piece[i:i+1])
+		i = e
 	}
-	return b.String(), false
+	return b.String()
 }
 
-// redactSeq masks the secrets of a sequence of tokens: the arguments of a
-// command, or the tokens of one string. Besides each token's own pairs it
-// masks the token after a flag or NAME: named like a secret, unless that
-// token is the next long flag, and the short password flags of the programs
-// in shortSecretFlags. An argument holding whitespace, or a token that is
-// one quoted string, is itself read as a string.
+// redactToken masks one token that is not a flag: URL passwords, everything
+// after its first = outside quotes, and everything after a quoted name and a
+// colon, as in JSON. maskNext reports a token ending in that = or colon, or
+// in a colon as a YAML name does, whose value is the next token.
+func redactToken(tok string) (out string, maskNext bool) {
+	tok = urlPassword.ReplaceAllString(tok, "${1}:"+logfilter.Mask+"@")
+	if tok[0] == '=' || tok[0] == ':' {
+		return tok[:1] + logfilter.Mask, false
+	}
+	for i := 0; i < len(tok); i++ {
+		switch tok[i] {
+		case '"', '\'':
+			e := quotedEnd(tok, i)
+			if e < 0 {
+				return redactQuoted(tok), false
+			}
+			if e < len(tok) && tok[e] == ':' {
+				if e+1 == len(tok) {
+					return redactQuoted(tok), true
+				}
+				return redactQuoted(tok[:e+1]) + logfilter.Mask, false
+			}
+			i = e - 1
+		case '=':
+			if i+1 == len(tok) {
+				return redactQuoted(tok), true
+			}
+			return redactQuoted(tok[:i+1]) + logfilter.Mask, false
+		}
+	}
+	return redactQuoted(tok), strings.HasSuffix(tok, ":")
+}
+
+// redactSeq masks a sequence of tokens, the arguments of a command or the
+// tokens of one string, failing closed: the token after any flag, unless it
+// is a long flag; the token after a detached = or : or a NAME:; the value
+// of each token's own pairs (redactToken); and mysql's attached -p
+// password. A shell's -c argument is read as a command line, and so is an
+// argument holding whitespace.
 func redactSeq(toks []string, args bool) []string {
 	out := make([]string, len(toks))
-	maskNext := false
-	prev := ""
-	var short *struct {
-		flag     string
-		attached bool
-	}
+	maskNext, shell, attached := false, false, ""
 	for i, tok := range toks {
-		// A NAME and its = or : may stand apart: "password" : "x".
-		if (tok == ":" || tok == "=") && secretName(strings.Trim(prev, `"'`+pairSeparators)) {
-			out[i], maskNext, prev = tok, true, tok
-			continue
-		}
-		prev = tok
 		if tok == "" {
 			continue
 		}
+		spaced := strings.ContainsAny(tok, spaces)
 		if maskNext {
 			maskNext = false
-			if !strings.HasPrefix(tok, "--") {
-				out[i] = maskWhole(tok)
-				continue
-			}
-		}
-		if short != nil {
 			switch {
-			case short.attached && len(tok) > len(short.flag) && strings.HasPrefix(tok, short.flag):
-				out[i] = short.flag + logfilter.Mask
+			case strings.HasPrefix(tok, "--") && flagAlone.MatchString(tok):
+			case shell && i > 0 && toks[i-1] == "-c":
+				out[i] = redactText(tok)
 				continue
-			case !short.attached && tok == short.flag:
-				out[i], maskNext = tok, true
+			default:
+				out[i] = logfilter.Mask
 				continue
 			}
 		}
-		if spec, ok := shortSecretFlags[path.Base(strings.Trim(tok, `"'`))]; ok {
-			short = &spec
+		if attached != "" && len(tok) > len(attached) && strings.HasPrefix(tok, attached) {
+			out[i] = attached + logfilter.Mask
+			continue
 		}
-		spaced := strings.ContainsAny(tok, " \t\n\r\v\f")
-		if args && spaced {
+		base := path.Base(strings.Trim(tok, `"'`))
+		if flag, ok := attachedSecretFlags[base]; ok {
+			attached = flag
+		}
+		if shells[base] {
+			shell = true
+		}
+		switch {
+		case args && spaced:
 			out[i] = redactText(tok)
-			continue
-		}
-		if flagWord.MatchString(tok) && secretName(tok) {
+		case flagAlone.MatchString(tok), tok == "=", tok == ":":
 			out[i], maskNext = tok, true
-			continue
+		default:
+			out[i], maskNext = redactToken(tok)
 		}
-		r, next := redactToken(tok)
-		maskNext = next
-		if q := tok[0]; r == tok && !next && spaced && (q == '"' || q == '\'') && len(tok) >= 2 && tok[len(tok)-1] == q {
-			r = tok[:1] + redactText(tok[1:len(tok)-1]) + tok[:1]
-		}
-		out[i] = r
 	}
 	return out
 }
@@ -323,8 +289,10 @@ func redactText(s string) string {
 	return b.String() + tail
 }
 
-// redactArgs masks the secrets of a command line, which inspect shows to
-// every reader (redactSeq).
+// redactArgs masks a command line, which inspect shows to every reader. A
+// command line is free text, so the masking fails closed (redactSeq): it
+// shows the program, its flags and the names of its pairs, and masks the
+// values it cannot tell apart from secrets.
 func redactArgs(args []string) []string {
 	if args == nil {
 		return nil

@@ -83,7 +83,7 @@ const rdWebDetail = `{
   "id": "%ID%", "name": "web", "image": "nginx:1.27", "imageId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "created": "2026-10-01T00:00:00.5Z", "state": "running", "running": true,
   "startedAt": "2026-10-01T08:00:00.25Z", "exitCode": 0, "restartPolicy": "unless-stopped",
-  "cmd": ["nginx", "-g", "daemon off;"], "entrypoint": ["/docker-entrypoint.sh"], "workingDir": "/srv", "user": "nginx",
+  "cmd": ["nginx", "-g", "[redacted]"], "entrypoint": ["/docker-entrypoint.sh"], "workingDir": "/srv", "user": "nginx",
   "env": [
     {"name": "PATH", "value": "[redacted]"}, {"name": "DB_PASSWORD", "value": "[redacted]"}, {"name": "EMPTY", "value": "[redacted]"},
     {"name": "FLAG", "value": "[redacted]"}, {"name": "TOKEN", "value": "[redacted]"}
@@ -249,53 +249,52 @@ func TestRdReadActionsAreUnlockedAgentReads(t *testing.T) {
 	}
 }
 
-// TestRdRedactArgs covers each shape a secret takes in a command line, with
-// an adversarial case per shape, and values that are not secrets.
+// TestRdRedactArgs pins the fail-closed masking of a command line: each
+// shape a value takes, with adversarial cases, and what stays shown.
 func TestRdRedactArgs(t *testing.T) {
+	const m = "[redacted]"
 	for _, tc := range []struct {
 		name     string
 		in, want []string
 	}{
 		{"nil", nil, nil},
 		{"empty argument", []string{"app", ""}, []string{"app", ""}},
-		// A flag named like a secret, its value the next argument.
-		{"flag then value", []string{"app", "--db-token", "tok123", "--port", "80"}, []string{"app", "--db-token", "[redacted]", "--port", "80"}},
-		{"flag then a dash value", []string{"app", "--password", "-x1"}, []string{"app", "--password", "[redacted]"}},
-		{"flag then the next long flag", []string{"app", "--api-key", "--verbose"}, []string{"app", "--api-key", "--verbose"}},
-		{"flag then value in a string", []string{"sh", "-c", "app --verbose --db-password hunter2 --name web"},
-			[]string{"sh", "-c", "app --verbose --db-password [redacted] --name web"}},
-		{"flag then quoted value in a string", []string{"sh", "-c", "app --password 'two words' run"}, []string{"sh", "-c", "app --password '[redacted]' run"}},
-		{"names of secrets", []string{"redis-server", "--requirepass", "a", "--masterauth", "b", "--passphrase=c", "--pwd", "d", "--auth", "e"},
-			[]string{"redis-server", "--requirepass", "[redacted]", "--masterauth", "[redacted]", "--passphrase=[redacted]", "--pwd", "[redacted]", "--auth", "[redacted]"}},
-		// NAME=value, the value running to the end of its token.
-		{"assignment", []string{"env", "DB_PASSWORD=hunter2", "PORT=80"}, []string{"env", "DB_PASSWORD=[redacted]", "PORT=80"}},
-		{"assignment with delimiters", []string{"app", "PASSWORD=abc,def;ghi", "TOKEN=,abc"}, []string{"app", "PASSWORD=[redacted]", "TOKEN=[redacted]"}},
-		{"assignment with quotes inside", []string{"app", `PASSWORD=abc"def`, "--secret='a'b", `SECRET="un closed`}, []string{"app", "PASSWORD=[redacted]", "--secret=[redacted]", "SECRET=[redacted]"}},
-		{"assignment quoted whole", []string{"app", `"PASSWORD=hunter2"`}, []string{"app", `"PASSWORD=[redacted]`}},
-		{"assignment in a string", []string{"sh", "-c", "PASSWORD=abc;def exec app --secret='s 3' --name=web"},
-			[]string{"sh", "-c", "PASSWORD=[redacted] exec app --secret='[redacted]' --name=web"}},
-		{"unclosed quote in a string", []string{"sh", "-c", `run SECRET="abc def`}, []string{"sh", "-c", "run SECRET=[redacted]"}},
-		{"nested assignment", []string{"app", "--opts=a=1,password=x"}, []string{"app", "--opts=a=1,password=[redacted]"}},
-		// NAME: value and JSON pairs.
-		{"yaml pair", []string{"app", "auth: x,y", "auth:x"}, []string{"app", "auth: [redacted]", "auth:[redacted]"}},
-		{"json pairs", []string{"app", `{"password": "hunter2", "user": "u"}`, `{"apiKey":"k1","port":80,"token":"t2"}`},
-			[]string{"app", `{"password": "[redacted]", "user": "u"}`, `{"apiKey":"[redacted]","port":80,"token":"[redacted]"}`}},
-		{"json escaped quote", []string{"app", `{"secret":"a\"b","n":1}`}, []string{"app", `{"secret":"[redacted]","n":1}`}},
-		{"spaced colon", []string{"app", `{"password" : "hunter2"}`}, []string{"app", `{"password" : "[redacted]"}`}},
+		// The value after any flag.
+		{"flag then value", []string{"app", "--port", "80", "-v", "x"}, []string{"app", "--port", m, "-v", m}},
+		{"flag then a dash value", []string{"app", "--password", "-x1"}, []string{"app", "--password", m}},
+		{"flag then the next long flag", []string{"app", "--verbose", "--port", "80"}, []string{"app", "--verbose", "--port", m}},
+		{"flag then a spaced value", []string{"app", "--password", "two words"}, []string{"app", "--password", m}},
+		{"redis-cli", []string{"redis-cli", "-a", "hunter2", "ping"}, []string{"redis-cli", "-a", m, "ping"}},
+		{"flag in a string", []string{"sh", "-c", "app --db-password hunter2 run"}, []string{"sh", "-c", "app --db-password " + m + " run"}},
+		// NAME=value: everything after the first = outside quotes.
+		{"assignment", []string{"env", "DB_PASSWORD=hunter2", "PORT=80"}, []string{"env", "DB_PASSWORD=" + m, "PORT=" + m}},
+		{"assignment with delimiters and quotes", []string{"app", "PASSWORD=abc,def;ghi", `X=abc"def`, "--secret='a'b", "TOKEN=,a"},
+			[]string{"app", "PASSWORD=" + m, "X=" + m, "--secret=" + m, "TOKEN=" + m}},
+		{"query strings and operators", []string{"sh", "-c", "curl https://h/p?token=t1 && run a&password=p2 | tee x>y=z"},
+			[]string{"sh", "-c", "curl https://h/p?token=" + m + " && run a&password=" + m + " | tee x>y=" + m}},
+		// NAME: value and JSON.
+		{"yaml pair", []string{"app", "auth: x,y", "auth:x"}, []string{"app", "auth: " + m, "auth:x"}},
+		{"json pairs", []string{"app", `{"password": "hunter2", "user": "u"}`, `{"apiKey":"k1","port":80}`},
+			[]string{"app", `{"password": ` + m + ` "user": ` + m, `{"apiKey":` + m}},
+		{"detached separators", []string{"sh", "-c", "PASSWORD = x; TOKEN : y; SECRET =z; KEY :w"},
+			[]string{"sh", "-c", "PASSWORD = " + m + " TOKEN : " + m + " SECRET =" + m + " KEY :" + m}},
+		// Quoted segments are read as command lines wherever they sit.
+		{"quoted assignment", []string{"app", `"PASSWORD=hunter2"`, `x"PASSWORD=a b"`}, []string{"app", `"PASSWORD=` + m + `"`, `x"PASSWORD=` + m + ` b"`}},
+		{"quoted command", []string{"sh", "-c", `exec "redis-cli -a pw ping"`}, []string{"sh", "-c", `exec "redis-cli -a ` + m + ` ping"`}},
+		{"unclosed quote", []string{"sh", "-c", `run "--password x y`}, []string{"sh", "-c", `run "--password ` + m + ` y`}},
+		{"escaped quote", []string{"app", `{"secret":"a\"b","n":1}`}, []string{"app", `{"secret":` + m}},
 		// URL user information.
-		{"url password", []string{"app", "postgres://app:hunter2@db:5432/app"}, []string{"app", "postgres://app:[redacted]@db:5432/app"}},
-		{"url password with an @", []string{"app", "--dsn=postgres://app:p@ss@db/x"}, []string{"app", "--dsn=postgres://app:[redacted]@db/x"}},
-		{"url in a json value", []string{"app", `{"dsn":"mysql://u:pw@h/d"}`}, []string{"app", `{"dsn":"mysql://u:[redacted]@h/d"}`}},
-		// Short password flags of known programs.
-		{"mysql", []string{"/usr/bin/mysql", "-uroot", "-phunter2", "-p", "db"}, []string{"/usr/bin/mysql", "-uroot", "-p[redacted]", "-p", "db"}},
-		{"mysql in a string", []string{"sh", "-c", "mysqldump -uroot -phunter2 db"}, []string{"sh", "-c", "mysqldump -uroot -p[redacted] db"}},
-		{"redis-cli", []string{"redis-cli", "-a", "hunter2", "ping"}, []string{"redis-cli", "-a", "[redacted]", "ping"}},
-		{"redis-cli quoted in a string", []string{"sh", "-c", "redis-cli -a 'pw x' ping"}, []string{"sh", "-c", "redis-cli -a '[redacted]' ping"}},
-		// Not secrets.
-		{"plain", []string{"nginx", "-p", "/etc/nginx", "-g", "daemon off;"}, []string{"nginx", "-p", "/etc/nginx", "-g", "daemon off;"}},
-		{"file of a secret", []string{"tunnel", "run", "--token-file", "/run/darkpanel/token"}, []string{"tunnel", "run", "--token-file", "/run/darkpanel/token"}},
-		{"look-alikes", []string{"app", "--author", "me", "--listen", "0.0.0.0:8080", "http://host:8080/a@b", "--name=web"},
-			[]string{"app", "--author", "me", "--listen", "0.0.0.0:8080", "http://host:8080/a@b", "--name=web"}},
+		{"url password", []string{"app", "postgres://app:hunter2@db:5432/app"}, []string{"app", "postgres://app:" + m + "@db:5432/app"}},
+		{"url password with an @", []string{"app", "postgres://app:p@ss@db/x"}, []string{"app", "postgres://app:" + m + "@db/x"}},
+		// Short password flags.
+		{"mysql", []string{"/usr/bin/mysql", "-phunter2", "db"}, []string{"/usr/bin/mysql", "-p" + m, "db"}},
+		{"mysql after a flag", []string{"/usr/bin/mysql", "-uroot", "-phunter2", "db"}, []string{"/usr/bin/mysql", "-uroot", m, "db"}},
+		{"mysql in a string", []string{"sh", "-c", "mysqldump -phunter2 -uroot db"}, []string{"sh", "-c", "mysqldump -p" + m + " -uroot " + m}},
+		{"value in the next token", []string{"app", "PASSWORD=", "x", `"token":`, `"y"`}, []string{"app", "PASSWORD=", m, `"token":`, m}},
+		// What stays shown.
+		{"program and positionals", []string{"/docker-entrypoint.sh", "nginx"}, []string{"/docker-entrypoint.sh", "nginx"}},
+		{"plain colons", []string{"app", "0.0.0.0:8080", "http://host:8080/a@b", "nginx:1.27"}, []string{"app", "0.0.0.0:8080", "http://host:8080/a@b", "nginx:1.27"}},
+		{"shell script", []string{"/bin/sh", "-c", "exec nginx -g 'daemon off;'"}, []string{"/bin/sh", "-c", "exec nginx -g " + m}},
 	} {
 		if got := redactArgs(tc.in); !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s: redactArgs(%q)\n got %q\nwant %q", tc.name, tc.in, got, tc.want)
@@ -317,8 +316,8 @@ func TestRdRedactLabels(t *testing.T) {
 		"traefik.http.middlewares.auth.basicauth.users": "[redacted]",
 		"com.example.api-token":                         "[redacted]",
 		"com.example.dsn":                               "mysql://root:[redacted]@db/app",
-		"com.example.config":                            `{"apiKey":"[redacted]","port":80}`,
-		"com.example.env":                               "MODE=prod PASSWORD=[redacted]",
+		"com.example.config":                            `{"apiKey":[redacted]`,
+		"com.example.env":                               "MODE=[redacted] PASSWORD=[redacted]",
 		"com.docker.compose.project":                    "shop",
 		"org.opencontainers.image.authors":              "Jane",
 	}
