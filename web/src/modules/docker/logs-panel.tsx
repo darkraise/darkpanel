@@ -27,7 +27,7 @@ function LogFeed({
   onReconnect: () => void
 }) {
   const params: Record<string, string> = { container: containerId, tail }
-  if (follow) params.follow = "true"
+  if (follow) params.live = "true"
   const { events, end } = useStream<LogEvent>(streamUrl(hostId, DOCKER_MODULE, "logs", params))
 
   return (

@@ -41,10 +41,10 @@ type Container struct {
 	Created time.Time         `json:"created"`
 	Ports   []Port            `json:"ports"`
 	Labels  map[string]string `json:"labels,omitempty"`
-	Project string            `json:"project,omitempty"` // com.docker.compose.project
-	Service string            `json:"service,omitempty"` // com.docker.compose.service
-	Owner   string            `json:"owner,omitempty"`   // darkpanel.module
-	Usage   *Usage            `json:"usage,omitempty"`   // running containers; nil when the one-shot stats read failed
+	Project string            `json:"project,omitempty"`                     // com.docker.compose.project
+	Service string            `json:"service,omitempty"`                     // com.docker.compose.service
+	Owner   string            `json:"owner,omitempty"`                       // darkpanel.module
+	Usage   *Usage            `json:"usage,omitempty" jsonschema:"nullable"` // running containers; nil when the one-shot stats read failed
 }
 
 // ContainerList is the output of the containers resource.
@@ -115,7 +115,7 @@ type Project struct {
 	Containers  []string   `json:"containers"`  // names, current
 	Running     int        `json:"running"`
 	FirstSeen   time.Time  `json:"firstSeen"`
-	LastRun     *time.Time `json:"lastRun,omitempty"`
+	LastRun     *time.Time `json:"lastRun,omitempty" jsonschema:"nullable"`
 }
 
 // ProjectList is the output of the projects resource.
@@ -330,7 +330,7 @@ type ComposeResult struct {
 // LogsParams are the parameters of the logs stream.
 type LogsParams struct {
 	Container string `json:"container"`
-	Follow    bool   `json:"follow,omitempty"`
+	Live      bool   `json:"live,omitempty"`  // keep reading as the container writes; "follow" is the CLI's own flag
 	Since     string `json:"since,omitempty"` // RFC 3339
 	Tail      string `json:"tail,omitempty"`  // "all" or a number, default "200"
 }

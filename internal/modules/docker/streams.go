@@ -81,7 +81,7 @@ func logOptions(p LogsParams) (dockerapi.LogsOptions, error) {
 			return dockerapi.LogsOptions{}, streamInvalid("/tail", `tail is "all" or a whole number of lines`)
 		}
 	}
-	return dockerapi.LogsOptions{Follow: p.Follow, Since: since, Tail: tail, Stdout: true, Stderr: true}, nil
+	return dockerapi.LogsOptions{Follow: p.Live, Since: since, Tail: tail, Stdout: true, Stderr: true}, nil
 }
 
 // logEnd is what a logs stream returns once Next fails with err, after

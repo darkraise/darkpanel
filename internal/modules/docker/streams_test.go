@@ -166,7 +166,7 @@ func TestStLogsOptions(t *testing.T) {
 		want         dockerapi.LogsOptions
 	}{
 		{"defaults", `{"container":"web"}`, dockerapi.LogsOptions{Stdout: true, Stderr: true, Tail: "200"}},
-		{"follow and every line", `{"container":"web","follow":true,"tail":"all"}`, dockerapi.LogsOptions{Follow: true, Stdout: true, Stderr: true}},
+		{"follow and every line", `{"container":"web","live":true,"tail":"all"}`, dockerapi.LogsOptions{Follow: true, Stdout: true, Stderr: true}},
 		{"count and since", `{"container":"web","tail":"5","since":"2026-10-30T11:00:00Z"}`, dockerapi.LogsOptions{Stdout: true, Stderr: true, Tail: "5", Since: noon}},
 		{"since with an offset", `{"container":"web","since":"2026-10-30T13:00:00+02:00"}`, dockerapi.LogsOptions{Stdout: true, Stderr: true, Tail: "200", Since: noon}},
 		{"no lines", `{"container":"web","tail":"0"}`, dockerapi.LogsOptions{Stdout: true, Stderr: true, Tail: "0"}},
@@ -329,7 +329,7 @@ func TestStLogsEnds(t *testing.T) {
 		d.frames, d.block = []dockerapi.LogFrame{stFrame("stdout", "a\n")}, true
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		err := k.logsStream().Run(ctx, h.env(""), json.RawMessage(`{"container":"web","follow":true}`), func(any) error {
+		err := k.logsStream().Run(ctx, h.env(""), json.RawMessage(`{"container":"web","live":true}`), func(any) error {
 			cancel()
 			return nil
 		})
@@ -366,7 +366,7 @@ func TestStLogsFlushesHeldBytesOnEveryEnd(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var got []any
-		err := k.logsStream().Run(ctx, h.env(""), json.RawMessage(`{"container":"npm-app","follow":true}`), func(e any) error {
+		err := k.logsStream().Run(ctx, h.env(""), json.RawMessage(`{"container":"npm-app","live":true}`), func(e any) error {
 			got = append(got, e)
 			cancel()
 			return nil
@@ -383,7 +383,7 @@ func TestStLogsMasksASecretAcrossLines(t *testing.T) {
 		return [][]byte{[]byte("BEGIN KEY\nmiddle\nEND KEY")}, nil
 	}
 	d.frames = []dockerapi.LogFrame{stFrame("stdout", "key: BEGIN KEY\n"), stFrame("stdout", "middle\nEND"), stFrame("stdout", " KEY\nok\n")}
-	got, err := stCollect(context.Background(), h, k.logsStream(), `{"container":"npm-app","follow":true}`)
+	got, err := stCollect(context.Background(), h, k.logsStream(), `{"container":"npm-app","live":true}`)
 	if text := stText(got, "stdout"); err != nil || text != "key: "+logfilter.Mask+"\nok\n" {
 		t.Errorf("text %q (%v), want the multi-line secret masked across frames", text, err)
 	}
