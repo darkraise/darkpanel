@@ -412,6 +412,12 @@ func TestHAAddRefusals(t *testing.T) {
 		{"panel gateway service", nil, func(*haFixture) string {
 			return haInputWith(haTunnelName, "app.example.com", "http://172.31.255.1:8080")
 		}, errcode.CloudflareReserved},
+		{"name resolving into the panel network", nil, func(*haFixture) string {
+			return haInputWith(haTunnelName, "app.example.com", "http://gw"+cfInPanel+":8443")
+		}, errcode.CloudflareReserved},
+		{"legacy numeric address", nil, func(*haFixture) string {
+			return haInputWith(haTunnelName, "app.example.com", "http://2887778049:8080")
+		}, errcode.InvalidInput},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -450,12 +456,17 @@ func TestHAReservedServiceNeedsTheExposureParent(t *testing.T) {
 }
 
 func TestHAReserved(t *testing.T) {
+	c := cf{d: deps{lookup: cfLookup}}
 	for service, want := range map[string]bool{
 		"http://172.31.255.1:8080": true, "tcp://172.31.255.254:22": true, "https://172.31.255.7": true,
 		"http://172.31.254.1:80": false, "http://172.31.256.1:80": false, "http://panel.internal:80": false,
 		"http_status:404": false, "ssh://[::1]:22": false, "": false,
+		"http://172.31.255.1.:80": true, "http://[::ffff:172.31.255.1]:80": true,
+		"http://2887778049:80": true, "http://0xac1fff01:80": true, "http://0254.037.0377.01:80": true,
+		"http://172.31.65281:80": true, "http://172.2096897:80": true, "http://2887777793:80": false,
+		"http://gw" + cfInPanel + ":80": true, "http://gw" + cfInPanel + ".:80": true,
 	} {
-		if got := reserved(service); got != want {
+		if got := c.reserved(context.Background(), service); got != want {
 			t.Errorf("reserved(%q) = %t, want %t", service, got, want)
 		}
 	}

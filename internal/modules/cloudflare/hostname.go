@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/darkraise/darkpanel/internal/controller/cloud"
 	"github.com/darkraise/darkpanel/internal/core"
@@ -28,19 +31,78 @@ const (
 	dnsRecordNoun = "cloudflare.dnsrecord:"
 )
 
+// lookupTimeout bounds the name lookup of reserved, which runs under the
+// cloudflare lock.
+const lookupTimeout = 5 * time.Second
+
 // reserved reports whether service routes to an address of the panel
-// network. A service that does not parse, has no host or names its host by a
-// name rather than an address is not reserved.
-func reserved(service string) bool {
+// network: its host is such an address in canonical or legacy numeric form,
+// or is a name the controller resolves to any such address. A name the
+// controller cannot resolve, such as a container name only Docker's resolver
+// knows, is not reserved. The check is best effort, because cloudflared
+// resolves names on its own host.
+func (c cf) reserved(ctx context.Context, service string) bool {
 	u, err := url.Parse(service)
 	if err != nil || u.Host == "" {
 		return false
 	}
-	addr, err := netip.ParseAddr(u.Hostname())
+	host := strings.TrimSuffix(u.Hostname(), ".")
+	if addr, err := netip.ParseAddr(host); err == nil {
+		return panelNetwork.Contains(addr.Unmap())
+	}
+	if addr, ok := legacyIPv4(host); ok {
+		return panelNetwork.Contains(addr)
+	}
+	ctx, cancel := context.WithTimeout(ctx, lookupTimeout)
+	defer cancel()
+	addrs, err := c.lookup(ctx, host)
 	if err != nil {
 		return false
 	}
-	return panelNetwork.Contains(addr.Unmap())
+	for _, a := range addrs {
+		if panelNetwork.Contains(a.Unmap()) {
+			return true
+		}
+	}
+	return false
+}
+
+// lookup resolves host to its addresses.
+func (c cf) lookup(ctx context.Context, host string) ([]netip.Addr, error) {
+	if c.d.lookup != nil {
+		return c.d.lookup(ctx, host)
+	}
+	return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+}
+
+// legacyIPv4 reads host as inet_aton does, which many resolvers still apply:
+// one to four parts, each decimal, 0-prefixed octal or 0x-prefixed
+// hexadecimal, the last filling the bytes the others leave.
+func legacyIPv4(host string) (netip.Addr, bool) {
+	parts := strings.Split(host, ".")
+	if len(parts) > 4 {
+		return netip.Addr{}, false
+	}
+	var v uint32
+	for i, p := range parts {
+		base, digits := 10, p
+		switch {
+		case len(p) > 1 && (p[1] == 'x' || p[1] == 'X') && p[0] == '0':
+			base, digits = 16, p[2:]
+		case len(p) > 1 && p[0] == '0':
+			base, digits = 8, p[1:]
+		}
+		bits := 8
+		if i == len(parts)-1 {
+			bits = 8 * (5 - len(parts))
+		}
+		n, err := strconv.ParseUint(digits, base, bits)
+		if err != nil {
+			return netip.Addr{}, false
+		}
+		v = v<<bits | uint32(n)
+	}
+	return netip.AddrFrom4([4]byte{byte(v >> 24), byte(v >> 16), byte(v >> 8), byte(v)}), true
 }
 
 // ingressResource names the ingress rule of hostname in a tunnel's

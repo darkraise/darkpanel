@@ -406,11 +406,18 @@ func TestHRRefusals(t *testing.T) {
 	}
 }
 
-// TestHRReserved: a hostname whose service is in the panel network is
-// removed only as a step of panel.exposure.remove.
+// TestHRReserved: a hostname whose service is in the panel network, by
+// address or by a name that resolves into it, is removed only as a step of
+// panel.exposure.remove.
 func TestHRReserved(t *testing.T) {
+	for _, service := range []string{"http://172.31.255.1:8080", "http://gw" + cfInPanel + ":9443"} {
+		t.Run(service, func(t *testing.T) { hrReserved(t, service) })
+	}
+}
+
+func hrReserved(t *testing.T, service string) {
 	ctx := context.Background()
-	w := hrNew(t, func(o *hrOpts) { o.service = "http://172.31.255.1:8080" })
+	w := hrNew(t, func(o *hrOpts) { o.service = service })
 	for _, parent := range []string{"", "panel.exposure.add", "npm.expose.remove"} {
 		env := w.h.env("")
 		env.Call.ParentAction = parent

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -94,6 +95,12 @@ func serviceProblem(service string) string {
 	if err != nil || u.Opaque != "" || u.Hostname() == "" {
 		return want
 	}
+	host := strings.TrimSuffix(u.Hostname(), ".")
+	if _, legacy := legacyIPv4(host); legacy {
+		if _, err := netip.ParseAddr(host); err != nil {
+			return "the service names its host as a DNS name or a canonical IP address"
+		}
+	}
 	switch u.Scheme {
 	case "http", "https", "tcp", "ssh":
 	default:
@@ -125,7 +132,7 @@ func (h hostnameAddHandler) inspect(ctx context.Context, env core.Env, in Hostna
 	if !found {
 		return hostnameAddition{}, core.Definite(errcode.New(errcode.NotFound, "no managed tunnel "+in.Tunnel))
 	}
-	if reserved(in.Service) && env.Call.ParentAction != exposureParent {
+	if env.Call.ParentAction != exposureParent && h.c.reserved(ctx, in.Service) {
 		return hostnameAddition{}, core.Definite(errcode.New(errcode.CloudflareReserved, fmt.Sprintf(
 			"service %s is in the panel network %s, which only %s routes to", in.Service, panelNetwork, exposureParent)))
 	}
