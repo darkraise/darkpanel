@@ -169,9 +169,11 @@ func TestCUPlans(t *testing.T) {
 		{"restart", dk.composeRestart, "", []core.DiffLine{
 			{Op: " ", Text: "restart container shop-web-1"},
 			{Op: " ", Text: "restart container shop-cache-1"},
+			{Op: " ", Text: "start container shop-db-1, which is stopped; an undo does not stop it again"},
 		}, []core.DiffLine{
 			{Op: " ", Text: "restart container shop-db-1"},
 			{Op: " ", Text: "restart container other-web-1"},
+			{Op: " ", Text: "start container other-web-1, which is stopped; an undo does not stop it again"},
 		}},
 	}
 	for _, tc := range tests {
@@ -219,8 +221,21 @@ func TestCUPlanRestartWithNothingRunning(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
-	if !cuHasLine(out.Diff, " ", "no container of the project is running") {
-		t.Errorf("diff %+v lacks the line saying nothing is running", out.Diff)
+	if !cuHasLine(out.Diff, " ", "start container shop-db-1, which is stopped; an undo does not stop it again") {
+		t.Errorf("diff %+v lacks the line saying the stopped container is started", out.Diff)
+	}
+	if slices.ContainsFunc(out.Diff, func(l core.DiffLine) bool { return strings.Contains(l.Text, "no container") }) {
+		t.Errorf("diff %+v claims the project has no running container to act on", out.Diff)
+	}
+
+	empty := newDKHost(t)
+	cuProject(t, empty)
+	out, err = cuPlan(t, empty, empty.dk().composeRestart(), cuInput)
+	if err != nil {
+		t.Fatalf("Plan without containers: %v", err)
+	}
+	if !cuHasLine(out.Diff, " ", "the project has no container") {
+		t.Errorf("diff %+v lacks the line saying the project has no container", out.Diff)
 	}
 }
 

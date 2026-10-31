@@ -83,15 +83,16 @@ func (v composeVerb) Plan(ctx context.Context, env core.Env, in ComposeInput) (c
 	case "pull":
 		diff = append(diff, core.DiffLine{Op: " ", Text: "images are pulled; a tag that moved is not reverted by an undo"})
 	case "restart":
-		running := 0
+		// Compose restart also starts stopped containers, which the undo leaves running.
 		for _, c := range cs {
 			if c.State.Running {
-				running++
 				diff = append(diff, core.DiffLine{Op: " ", Text: "restart container " + containerName(c)})
+			} else {
+				diff = append(diff, core.DiffLine{Op: " ", Text: "start container " + containerName(c) + ", which is stopped; an undo does not stop it again"})
 			}
 		}
-		if running == 0 {
-			diff = append(diff, core.DiffLine{Op: " ", Text: "no container of the project is running"})
+		if len(cs) == 0 {
+			diff = append(diff, core.DiffLine{Op: " ", Text: "the project has no container"})
 		}
 	}
 	out := core.PlanOutcome{Diff: diff, StateHash: composeStateHash(r, cs)}
