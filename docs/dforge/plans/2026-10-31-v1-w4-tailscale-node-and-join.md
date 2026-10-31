@@ -20,6 +20,8 @@
 
 **Wave check:** `mkdir -p /root/.cache/w4-tmp/wave && export TMPDIR=/root/.cache/w4-tmp/wave GOTOOLCHAIN=local && timeout 600 go build ./... && timeout 300 go vet ./... && timeout 900 go test -count=1 ./internal/modules/... ./internal/transport/... ./internal/controller/... ./internal/install/... ./internal/core/... ./schemas/... && timeout 300 go vet -tags harness ./test/... && timeout 1200 make lint-web test-web`
 
+**Plan review:** 2026-11-01 — dforge:judge-opus — executability 16 / coherence 17 / coverage 17 / assumptions 13 (round 2)
+
 ## Global Constraints
 
 - Scope is spec revision 8 as amended on `main`: section 4.1 (R56, R57), section 4.2's join at install (R60: steps 1–5, the bundle, the enroll key's cleanup and `tailnet.node.join`), ADR 0010's web certificate through `internal/controller/listen/tailscale_cert.go` (4.1, 1.12), the tailscale rows and the `tailnet.node.join` row of section 5, the tailscale error codes of section 11, the M5 row of Verification for the node tests that need no tailnet (Contracts of the spec: "the harness runs the node tests that need no tailnet"), and the register rows the tasks' **Items:** lines name. DERP (4.3, wave 5), the live tailnet demonstrations (spec 12 item 2) and everything of waves 6–10 are out of scope.
@@ -760,6 +762,7 @@ Package `internal/modules/tailnet`, file `join.go`: `tailnet.node.join/v1`, `Def
 - The installer can build the production `core.Runner` and a `core.FileWriter` over the agent database it has just migrated, so `tailscale.Join` records the repository files as owned exactly as `tailscale.package.install` does: unverified — Task 26 builds `JoinDeps` from the platform constructors in a test over a temporary layout, and Task 30 wires the same construction in `cmd/darkpanel/system.go`; if the provider cannot run before the agent's first start, Task 26 stops and reports it.
 - `plan-lint` warns of a placeholder in Task 1: the flagged line is Task 1's own check command, which greps the spec for `TBD` and `TODO`; it is not a placeholder.
 - Scoring follows the programme's convention (plans w1-w3): the files axis counts kinds of file (Go source, Go test, SQL, TypeScript, shell, workflow YAML, generated schema), not instances, so a single-package task with many files scores files 1.
+- Plan review round 2 scored assumptions 13 (borderline) for the M5 deadlines (`m5Deadline` 30 min, `m5pDeadline` 25 min), which fit the 70-minute run budget but rest on no measured run. Decision: before wave 33 runs, restore 60/35 and give `TestM5Node` and `TestM5Pin` separate run steps or jobs whose limits cover them (the M3 job's shape), editing Tasks 33-35 and Contracts "Harness M5" together.
 - Every revertible change in the harness is confirmed or left to revert by the scenario itself; harness changes to `.github/workflows/harness.yml` happen only in Task 35, alone and last, as spec 1.12 requires of a wave's `harness.yml` change.
 
 ## Task index
