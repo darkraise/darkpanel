@@ -307,7 +307,14 @@ func m4cLifecycle(ctx context.Context, t *testing.T, f *fleet) {
 		}
 		return nil
 	}
-	m4cWaitProject(ctx, t, f, name, listed)
+	var container string
+	m4cWaitProject(ctx, t, f, name, func(p docker.Project) error {
+		if err := listed(p); err != nil {
+			return err
+		}
+		container = p.Containers[0]
+		return nil
+	})
 
 	plan, err := f.api.m4cPlan(ctx, f.agentID, "docker.compose.up", input)
 	if err != nil {
@@ -318,9 +325,9 @@ func m4cLifecycle(ctx context.Context, t *testing.T, f *fleet) {
 	}
 
 	for _, action := range []string{"docker.compose.restart", "docker.compose.pull"} {
+		before := m4dStartedAt(ctx, t, f, container)
 		ch := m4ApplyAsync(ctx, t, f.api, f.agentID, action, input)
 		res := m4cResult(t, ch, name)
-		container := res.Containers[0].Name
 		if !res.Containers[0].Running {
 			t.Errorf("%s: container %s is not reported running", action, container)
 		}
@@ -329,6 +336,14 @@ func m4cLifecycle(ctx context.Context, t *testing.T, f *fleet) {
 		}
 		if err := m4Undo(ctx, f.api, ch.ID); err != nil {
 			t.Errorf("undo of %s: %v", action, err)
+		}
+		// A restart that did nothing, or a pull that restarted, would
+		// otherwise pass: the container runs before and after either way.
+		switch after := m4dStartedAt(ctx, t, f, container); {
+		case action == "docker.compose.restart" && after == before:
+			t.Errorf("StartedAt of %s is still %s after docker.compose.restart", container, before)
+		case action == "docker.compose.pull" && after != before:
+			t.Errorf("StartedAt of %s moved from %s to %s during docker.compose.pull", container, before, after)
 		}
 		if got := strings.TrimSpace(m4Docker(ctx, t, f.agent, "inspect", "-f", "{{.State.Running}}", container)); got != "true" {
 			t.Errorf("after the undo of %s container %s Running = %q, want true", action, container, got)
@@ -368,7 +383,7 @@ func m4cLifecycle(ctx context.Context, t *testing.T, f *fleet) {
 	}
 
 	ch := m4ApplyAsync(ctx, t, f.api, f.agentID, "docker.compose.up", input)
-	container := m4cResult(t, ch, name).Containers[0].Name
+	container = m4cResult(t, ch, name).Containers[0].Name
 	if got := strings.TrimSpace(m4Docker(ctx, t, f.agent, "inspect", "-f", `{{index .Config.Labels "dp-m4c.rev"}}`, container)); got != "2" {
 		t.Errorf("container %s has label dp-m4c.rev %q after up, want 2", container, got)
 	}
