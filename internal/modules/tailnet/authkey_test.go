@@ -294,6 +294,28 @@ func TestAkApplyUncertainLeavesTheEffectOpen(t *testing.T) {
 	}
 }
 
+func TestAkApplyAnswerWithoutKeyIDIsUncertain(t *testing.T) {
+	e := akSetup(t)
+	e.srv.Cloud().Fail(http.MethodPost, akKeysPath, cloudfake.Fault{
+		Status: http.StatusOK,
+		Body:   `{"key":"tskey-auth-noid","expires":"2026-11-01T00:00:00Z","description":"darkpanel-` + akChange + `"}`,
+	})
+	out, err := akApply(t, e, akChange, AuthKeyInput{Tags: []string{"tag:ci"}})
+	if got := akCode(t, err); got != errcode.CloudUncertainOutcome || core.IsDefinite(err) {
+		t.Fatalf("apply error %v (definite %v), want an uncertain outcome", err, core.IsDefinite(err))
+	}
+	if out.Key != "" {
+		t.Error("the secret was returned for a key without an id")
+	}
+	eff := akOnly(t, e)
+	if eff.State != core.EffectIntended || eff.Resource != "tailnet.key:?darkpanel-"+akChange {
+		t.Errorf("effect %s on %s, want intended on the marker resource", eff.State, eff.Resource)
+	}
+	if r := akRow(t, e, "darkpanel-"+akChange); r.State != "uncertain" || r.KeyID != "" {
+		t.Errorf("row %+v, want uncertain with no key id", r)
+	}
+}
+
 func TestAkObserve(t *testing.T) {
 	ctx := context.Background()
 	desc := "darkpanel-" + akChange
@@ -366,6 +388,26 @@ func TestAkInverseDeletesTheKey(t *testing.T) {
 	akSame(t, obs.Current.State, json.RawMessage(`null`))
 	if r := akRow(t, e, "darkpanel-"+akChange); r.State != "deleted" {
 		t.Errorf("row %s, want deleted", r.State)
+	}
+}
+
+func TestAkInverseOfAKeyAlreadyGone(t *testing.T) {
+	ctx := context.Background()
+	e := akSetup(t)
+	ck, err := akApply(t, e, akChange, AuthKeyInput{Tags: []string{"tag:ci"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eff := akOnly(t, e)
+	e.srv.Cloud().Fail(http.MethodDelete, akKeysPath+"/"+ck.ID, cloudfake.Fault{LoseResponse: true})
+	if _, err := e.t.authkeyCreate().Handler.Inverse(ctx, e.h.env(akChange), eff); err != nil {
+		t.Fatalf("undo of a key whose delete committed unanswered: %v", err)
+	}
+	if n := len(e.srv.Keys()); n != 0 {
+		t.Errorf("provider holds %d keys, want 0", n)
+	}
+	if r := akRow(t, e, "darkpanel-"+akChange); r.State != "deleted" || r.KeyID != ck.ID {
+		t.Errorf("row %+v, want deleted with key id %s", r, ck.ID)
 	}
 }
 

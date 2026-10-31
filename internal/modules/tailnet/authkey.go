@@ -129,6 +129,11 @@ func (h authkeyHandler) Apply(ctx context.Context, env core.Env, in AuthKeyInput
 		Description: description, Tags: in.Tags, Reusable: in.Reusable, Ephemeral: in.Ephemeral,
 		Preauthorized: in.Preauthorized, ExpirySeconds: in.ExpirySeconds,
 	})
+	if err == nil && ck.ID == "" {
+		// A key the answer does not name can be neither observed nor deleted
+		// by id; the marker recovery finds it by its description.
+		err = errcode.New(errcode.CloudUncertainOutcome, "Tailscale answered a created auth key without an id; the key may still exist")
+	}
 	if err != nil {
 		if core.IsDefinite(err) {
 			if serr := env.Effects.Skipped(record, seq); serr != nil {

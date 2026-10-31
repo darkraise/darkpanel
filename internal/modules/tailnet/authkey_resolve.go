@@ -121,7 +121,9 @@ func (h authkeyHandler) Inverse(ctx context.Context, env core.Env, e core.Effect
 		// Nothing was sent to the provider.
 		return core.InverseResult{}, core.Definite(err)
 	}
-	if err := a.DeleteKey(ctx, id); err != nil {
+	// A not-found answer counts as deleted: the cloud client resends a DELETE
+	// whose answer was lost, so a delete that committed can come back 404.
+	if err := a.DeleteKey(ctx, id); err != nil && !authkeyGone(err) {
 		// The cloud client never marks a DELETE refusal definite, since it
 		// resends a DELETE; a 4xx answer still changed nothing.
 		if s := cloud.Status(err); s >= 400 && s <= 499 {
