@@ -587,3 +587,28 @@ func TestEPUndoStopsAfterALaterChange(t *testing.T) {
 		t.Errorf("disconnect calls %+v, want none", f.rec.disconnects)
 	}
 }
+
+// TestEPVerify: connect's Verify passes only while the container is on the
+// network, and disconnect's only while it is not.
+func TestEPVerify(t *testing.T) {
+	ctx := context.Background()
+	backend := dkNetwork("backend")
+	h := newDKHost(t)
+	h.docker.putNetwork(backend)
+	h.docker.put(dkContainer("on", dkRunning, dkOnNetwork(backend.ID)))
+	h.docker.put(dkContainer("off", dkRunning))
+	connect, disconnect := h.dk().networkConnect().Handler, h.dk().networkDisconnect().Handler
+	for _, tc := range []struct {
+		name      string
+		container string
+		connected bool
+	}{{"connected container", "on", true}, {"container not connected", "off", false}} {
+		in := json.RawMessage(epInput(backend.ID, tc.container, ""))
+		if err := connect.Verify(ctx, h.env(""), in, json.RawMessage(`{}`)); (err == nil) != tc.connected {
+			t.Errorf("%s: connect verify = %v, want pass %v", tc.name, err, tc.connected)
+		}
+		if err := disconnect.Verify(ctx, h.env(""), in, json.RawMessage(`{}`)); (err == nil) == tc.connected {
+			t.Errorf("%s: disconnect verify = %v, want pass %v", tc.name, err, !tc.connected)
+		}
+	}
+}
