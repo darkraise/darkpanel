@@ -610,3 +610,17 @@ func TestCCOwnerOfAContainerByIDPrefix(t *testing.T) {
 		t.Errorf("labels of an unknown container = %v (err %v), want none", labels, err)
 	}
 }
+
+func TestCCPrepareRefusesAShadowingPlugin(t *testing.T) {
+	for _, dir := range shadowPluginDirs {
+		h := newDKHost(t)
+		p := ccProject(t, h, "shop")
+		ccConfig(h, p, nil, ccSimple)
+		h.files[dir+"/docker-compose"] = dkFile{Mode: 0o755, Data: []byte("other")}
+		_, err := ccPrepare(h, "shop", nil)
+		ccRefused(t, err, errcode.DockerComposeUnavailable, dir+"/docker-compose")
+		if len(h.cmds) != 0 {
+			t.Errorf("%s: ran %v", dir, h.cmds)
+		}
+	}
+}
