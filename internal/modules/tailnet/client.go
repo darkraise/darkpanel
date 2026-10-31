@@ -48,9 +48,11 @@ const (
 // api is the only code that talks to Tailscale: one tailnet's calls,
 // answering provider values and carrying no business rules.
 type api struct {
-	c       *cloud.Client
-	cfg     cloud.Config // c's configuration, for the per-call client of ValidatePolicy
-	tailnet string       // path-escaped
+	c         *cloud.Client
+	cfg       cloud.Config // c's configuration, for the per-call client of ValidatePolicy
+	tailnet   string       // path-escaped
+	authorize func(ctx context.Context) (string, error)
+	forget    func() // drops the cached access token
 }
 
 // newAPI builds the api of one account. The secret is held only by the token
@@ -76,11 +78,12 @@ func (t tn) newAPI(a account, secret []byte, clock core.Clock) (*api, error) {
 	// a changed secret then never reuses a token minted from the old one.
 	sum := sha256.Sum256(secret)
 	key := a.ClientID + "/" + hex.EncodeToString(sum[:])
+	authorize := func(ctx context.Context) (string, error) { return t.tokens.token(ctx, key, fetch, clock.Now()) }
 	cfg := cloud.Config{
 		Provider: provider,
 		BaseURL:  t.d.baseURL,
 		Auth: func(r *http.Request) error {
-			tok, err := t.tokens.token(r.Context(), key, fetch, clock.Now())
+			tok, err := authorize(r.Context())
 			if err != nil {
 				return err
 			}
@@ -95,7 +98,8 @@ func (t tn) newAPI(a account, secret []byte, clock core.Clock) (*api, error) {
 	if err != nil {
 		return nil, fmt.Errorf("tailnet: %w", err)
 	}
-	return &api{c: c, cfg: cfg, tailnet: url.PathEscape(a.Tailnet)}, nil
+	forget := func() { t.tokens.drop(key) }
+	return &api{c: c, cfg: cfg, tailnet: url.PathEscape(a.Tailnet), authorize: authorize, forget: forget}, nil
 }
 
 // fetchToken asks the token endpoint for an access token and its lifetime.
@@ -125,7 +129,7 @@ func fetchToken(ctx context.Context, c *cloud.Client, form []byte) (string, time
 		return "", 0, errcode.New(errcode.CloudUnavailable, "tailscale answered no access token")
 	}
 	ttl := defaultTokenLifetime
-	if tok.ExpiresIn != nil {
+	if tok.ExpiresIn != nil && *tok.ExpiresIn > 0 {
 		ttl = time.Duration(*tok.ExpiresIn) * time.Second
 	}
 	return tok.AccessToken, ttl, nil
@@ -175,6 +179,18 @@ func notFound(err error, kind, id string) error {
 	return errcode.Wrap(errcode.NotFound, err, fmt.Sprintf("tailscale %s %s was not found", kind, id))
 }
 
+// do sends one request. A 401 means the cached access token was revoked or
+// its client recreated, so the token is dropped and the request sent once
+// more with a new one; an unauthenticated request changed nothing.
+func (a *api) do(ctx context.Context, req cloud.Request) (cloud.Response, error) {
+	res, err := a.c.Do(ctx, req)
+	if cloud.Status(err) == http.StatusUnauthorized {
+		a.forget()
+		res, err = a.c.Do(ctx, req)
+	}
+	return res, err
+}
+
 // call sends one request with in encoded as JSON (nil sends no body) and
 // decodes a 2xx body into out (nil skips it).
 func (a *api) call(ctx context.Context, method, path string, query url.Values, in, out any) error {
@@ -187,7 +203,7 @@ func (a *api) call(ctx context.Context, method, path string, query url.Values, i
 		req.Body = b
 		req.Header.Set("Content-Type", "application/json")
 	}
-	res, err := a.c.Do(ctx, req)
+	res, err := a.do(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -467,7 +483,7 @@ func (a *api) DeleteKey(ctx context.Context, id string) error {
 
 // Policy reads the policy file as HuJSON, comments kept, and its ETag as sent.
 func (a *api) Policy(ctx context.Context) (text []byte, etag string, err error) {
-	res, err := a.c.Do(ctx, cloud.Request{Method: http.MethodGet, Path: a.tailnetPath("/acl"), Header: http.Header{"Accept": {contentHuJSON}}})
+	res, err := a.do(ctx, cloud.Request{Method: http.MethodGet, Path: a.tailnetPath("/acl"), Header: http.Header{"Accept": {contentHuJSON}}})
 	if err != nil {
 		return nil, "", err
 	}
@@ -484,7 +500,7 @@ func (a *api) SetPolicy(ctx context.Context, text []byte, ifMatch string) (etag 
 	if ifMatch == "" {
 		return "", core.Definite(errcode.New(errcode.InvalidInput, "the ETag of the policy file read is required to write it"))
 	}
-	res, err := a.c.Do(ctx, cloud.Request{
+	res, err := a.do(ctx, cloud.Request{
 		Method: http.MethodPost,
 		Path:   a.tailnetPath("/acl"),
 		Header: http.Header{"Content-Type": {contentHuJSON}, "If-Match": {ifMatch}},

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/darkraise/darkpanel/internal/controller/cloud"
 	"github.com/darkraise/darkpanel/internal/controller/cloud/cloudfake"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
@@ -190,5 +191,43 @@ func TestAPTokenEndpointFailureIsUnavailableAndDefinite(t *testing.T) {
 	}
 	if n := len(apRequests(srv, http.MethodGet, apTailnet("/devices"))); n != 0 {
 		t.Errorf("%d device reads sent without a token", n)
+	}
+}
+
+func TestAPRevokedTokenIsReplacedOnce(t *testing.T) {
+	srv, a := apFake(t)
+	ctx := context.Background()
+	if _, err := a.Devices(ctx); err != nil {
+		t.Fatal(err)
+	}
+	srv.Cloud().Fail(http.MethodGet, apTailnet("/devices"), cloudfake.Fault{Status: http.StatusUnauthorized, Times: 1})
+	if _, err := a.Devices(ctx); err != nil {
+		t.Fatalf("a call whose token was refused once: %v", err)
+	}
+	if n := srv.Tokens(); n != 2 {
+		t.Errorf("%d tokens issued, want a second one after the 401", n)
+	}
+	srv.Cloud().Fail(http.MethodGet, apTailnet("/devices"), cloudfake.Fault{Status: http.StatusUnauthorized, Times: 2})
+	if got := apCode(t, func() error { _, err := a.Devices(ctx); return err }()); got != errcode.CloudAuthFailed {
+		t.Errorf("code %s after two 401s, want %s", got, errcode.CloudAuthFailed)
+	}
+}
+
+func TestAPNonPositiveLifetimeUsesTheDefault(t *testing.T) {
+	for _, body := range []string{
+		`{"access_token":"t","expires_in":0}`,
+		`{"access_token":"t","expires_in":-5}`,
+	} {
+		srv := fake.New(t)
+		srv.Cloud().Fail(http.MethodPost, "/api/v2/oauth/token", cloudfake.Fault{Status: http.StatusOK, Body: body, Times: 1})
+		c, err := cloud.New(cloud.Config{Provider: provider, BaseURL: srv.URL(), HTTP: srv.Client(), Clock: apClock(),
+			Sleep: func(context.Context, time.Duration) error { return nil }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, ttl, err := fetchToken(context.Background(), c, []byte("grant_type=client_credentials"))
+		if err != nil || ttl != defaultTokenLifetime {
+			t.Errorf("%s: lifetime %v (err %v), want the default %v", body, ttl, err, defaultTokenLifetime)
+		}
 	}
 }

@@ -134,11 +134,24 @@ func checkConnect(in ConnectInput) (ConnectInput, error) {
 
 // probeAccount proves the client's credentials and read capabilities with harmless
 // reads; it never writes to the tailnet. A refused client is a definite
-// cloud.auth_failed; every other failed read is a missing capability.
+// cloud.auth_failed and an unreachable provider fails the probe; once a token
+// is issued, every other failed read is a missing capability.
 func (t tn) probeAccount(ctx context.Context, env core.Env, in ConnectInput) ([]cloud.Capability, error) {
 	c, err := t.newAPI(account{ID: env.ChangeID, Tailnet: in.Tailnet, ClientID: in.ClientID}, []byte(in.ClientSecret), env.Clock)
 	if err != nil {
 		return nil, fmt.Errorf("tailnet: build the probe client: %w", err)
+	}
+	// The token endpoint's answer to wrong credentials is not documented, so
+	// any refusal of the token request counts as one.
+	if _, err := c.authorize(ctx); err != nil {
+		switch errcode.From(err).Code {
+		case errcode.CloudUnavailable, errcode.CloudRateLimited, errcode.CloudUncertainOutcome:
+			return nil, err
+		}
+		if ctx.Err() != nil {
+			return nil, err
+		}
+		return nil, core.Definite(errcode.New(errcode.CloudAuthFailed, "the OAuth client id or secret was refused"))
 	}
 	reads := []func(ctx context.Context) error{
 		func(ctx context.Context) error { _, err := c.Devices(ctx); return err },

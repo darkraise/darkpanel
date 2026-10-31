@@ -43,3 +43,10 @@ func (c *tokenCache) token(ctx context.Context, key string, fetch func(ctx conte
 	c.entries[key] = cachedToken{token: tok, renewAt: now.Add(min(ttl, renewAfter))}
 	return tok, nil
 }
+
+// drop forgets the cached token of key.
+func (c *tokenCache) drop(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.entries, key)
+}

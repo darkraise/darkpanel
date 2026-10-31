@@ -7,12 +7,14 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/controller/cloud"
+	"github.com/darkraise/darkpanel/internal/controller/cloud/cloudfake"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/coretest"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
@@ -221,6 +223,31 @@ func TestACPlanRefusals(t *testing.T) {
 			}
 			if strings.Contains(coded.Detail, "wrong") {
 				t.Errorf("detail %q carries the secret", coded.Detail)
+			}
+		})
+	}
+}
+
+// TestACPlanTokenRefusals: a token request the provider refuses with any
+// status counts as refused credentials, and an unavailable token endpoint
+// fails the plan instead of passing for a missing capability.
+func TestACPlanTokenRefusals(t *testing.T) {
+	for _, tc := range []struct {
+		status   int
+		code     errcode.Code
+		definite bool
+	}{
+		{http.StatusBadRequest, errcode.CloudAuthFailed, true},
+		{http.StatusForbidden, errcode.CloudAuthFailed, true},
+		{http.StatusServiceUnavailable, errcode.CloudUnavailable, false},
+	} {
+		t.Run(http.StatusText(tc.status), func(t *testing.T) {
+			srv := fake.New(t)
+			srv.Cloud().Fail(http.MethodPost, oauthPath, cloudfake.Fault{Status: tc.status, Times: 10})
+			h := newTNHost(t)
+			_, err := tnWith(srv).accountConnect().Handler.Plan(context.Background(), h.env(""), acInput(nil))
+			if coded := acCode(t, err); coded.Code != tc.code || core.IsDefinite(err) != tc.definite {
+				t.Errorf("Plan = %v (definite %v), want %s (definite %v)", err, core.IsDefinite(err), tc.code, tc.definite)
 			}
 		})
 	}
