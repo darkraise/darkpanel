@@ -91,9 +91,9 @@ const cpDetail = (over: Partial<ContainerDetail> = {}) =>
     ...over,
   })
 
-function cpRender(opts: { detail?: StubHandler; host?: Host; exposure?: StubHandler; id?: string } = {}) {
+function cpRender(opts: { detail?: StubHandler; host?: Host; hosts?: StubHandler; exposure?: StubHandler; id?: string } = {}) {
   const calls = stubFetch({
-    [CP_HOSTS]: { body: { output: { hosts: [opts.host ?? cpHost()] } } },
+    [CP_HOSTS]: opts.hosts ?? { body: { output: { hosts: [opts.host ?? cpHost()] } } },
     [CP_INSPECT]: opts.detail ?? { body: { output: cpDetail() } },
     [CP_EXPOSURE]: opts.exposure ?? { body: { rows: [] } satisfies ExposureView },
   })
@@ -207,6 +207,17 @@ test.each([
 ])("without a usable firewall ($name) exposure says why and asks the firewall nothing", async ({ firewall, text }) => {
   const { calls } = cpRender({ host: cpHost(firewall) })
   expect(await screen.findByText(text)).toBeTruthy()
+  expect(cpCalls(calls, CP_EXPOSURE)).toHaveLength(0)
+})
+
+test("a failed read of the host's modules is shown as an error, not as a disabled firewall", async () => {
+  const { calls } = cpRender({
+    hosts: { status: 503, body: { type: "about:blank", title: "Unavailable", status: 503, detail: "the controller is busy", code: "cloud.unavailable" } },
+  })
+  const alerts = await screen.findAllByText(/^The host's modules could not be read: /)
+  expect(alerts).toHaveLength(2)
+  expect(screen.queryByText("The firewall module is not enabled on this host.")).toBeNull()
+  expect(screen.getByText("Actions")).toBeTruthy()
   expect(cpCalls(calls, CP_EXPOSURE)).toHaveLength(0)
 })
 

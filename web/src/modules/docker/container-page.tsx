@@ -125,7 +125,27 @@ function Inspect({ detail }: { detail: ContainerDetail }) {
   )
 }
 
-function Exposure({ hostId, containerRef: ref, modules, modulesPending }: { hostId: string; containerRef: ContainerRef; modules: ModuleState[]; modulesPending: boolean }) {
+function ModulesError({ error }: { error: unknown }) {
+  return (
+    <Alert variant="destructive" role="alert">
+      <AlertDescription>{`The host's modules could not be read: ${errorMessage(error)}`}</AlertDescription>
+    </Alert>
+  )
+}
+
+function Exposure({
+  hostId,
+  containerRef: ref,
+  modules,
+  modulesPending,
+  modulesError,
+}: {
+  hostId: string
+  containerRef: ContainerRef
+  modules: ModuleState[]
+  modulesPending: boolean
+  modulesError: unknown
+}) {
   const firewall = modules.find((s) => s.id === FIREWALL_MODULE)
   const usable = firewall !== undefined && firewall.enabled && firewall.available
   const exposure = useQuery({
@@ -137,6 +157,8 @@ function Exposure({ hostId, containerRef: ref, modules, modulesPending }: { host
   let body
   if (modulesPending) {
     body = <Spinner aria-label="Loading the modules" />
+  } else if (modulesError) {
+    body = <ModulesError error={modulesError} />
   } else if (firewall === undefined || !firewall.enabled) {
     body = <p>The firewall module is not enabled on this host.</p>
   } else if (!firewall.available) {
@@ -235,8 +257,17 @@ export function ContainerPage({ hostId }: { hostId: string }) {
           <StatsPanel hostId={hostId} containerId={detail.id} />
         </CardContent>
       </Card>
-      <Exposure hostId={hostId} containerRef={ref} modules={modules} modulesPending={hosts.isPending} />
-      {actions.length === 0 ? null : (
+      <Exposure hostId={hostId} containerRef={ref} modules={modules} modulesPending={hosts.isPending} modulesError={hosts.error} />
+      {hosts.isError ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Actions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ModulesError error={hosts.error} />
+          </CardContent>
+        </Card>
+      ) : actions.length === 0 ? null : (
         <Card>
           <CardHeader>
             <CardTitle>Actions</CardTitle>
