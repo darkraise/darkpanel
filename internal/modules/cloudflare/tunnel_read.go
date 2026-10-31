@@ -22,8 +22,9 @@ func (c cf) tunnelList() core.ActionDef {
 type tunnelReader struct{ c cf }
 
 // Read answers every stored tunnel sorted by name. Each provider read fails
-// on its own and leaves its part of the view unknown; without an account
-// every status is unknown.
+// on its own and leaves its part of the view unknown: the status "unknown"
+// and the connections null. Without an account every part is unknown. A
+// read whose context ends fails as a whole.
 func (r tunnelReader) Read(ctx context.Context, env core.Env, _ TunnelListInput) (TunnelList, error) {
 	rows, err := listTunnels(ctx, env.DB.Read())
 	if err != nil {
@@ -45,7 +46,7 @@ func (r tunnelReader) Read(ctx context.Context, env core.Env, _ TunnelListInput)
 	views := make([]TunnelView, 0, len(rows))
 	for _, row := range rows {
 		v := TunnelView{
-			ID: row.ID, Name: row.Name, Status: "unknown", Connections: []ConnectionView{},
+			ID: row.ID, Name: row.Name, Status: "unknown",
 			Drift: row.Drift, Hostnames: hostnames[row.ID], CreatedAt: row.CreatedAt,
 		}
 		if a != nil {
@@ -53,12 +54,16 @@ func (r tunnelReader) Read(ctx context.Context, env core.Env, _ TunnelListInput)
 				v.Status = t.Status
 			}
 			if conns, err := a.Connections(ctx, row.ID); err == nil {
+				v.Connections = []ConnectionView{}
 				for _, cn := range conns {
 					v.Connections = append(v.Connections, ConnectionView{
 						ID: cn.ID, Colo: cn.ColoName, OriginIP: cn.OriginIP, OpenedAt: cn.OpenedAt, Version: cn.ClientVersion,
 					})
 				}
 			}
+		}
+		if err := ctx.Err(); err != nil {
+			return TunnelList{}, err
 		}
 		views = append(views, v)
 	}

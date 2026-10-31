@@ -28,7 +28,7 @@ export interface TunnelView {
   id: string
   name: string
   status: "inactive" | "degraded" | "healthy" | "down" | "unknown"
-  connections: ConnectionView[]
+  connections: ConnectionView[] | null // null when Cloudflare could not be read
   drift: boolean
   hostnames: number
   createdAt: string

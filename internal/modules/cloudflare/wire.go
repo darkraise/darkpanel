@@ -69,7 +69,7 @@ type TunnelView struct {
 	ID          string           `json:"id"`
 	Name        string           `json:"name"`
 	Status      string           `json:"status"` // the provider's; "unknown" when the read failed
-	Connections []ConnectionView `json:"connections"`
+	Connections []ConnectionView `json:"connections" jsonschema:"nullable"` // null when the read failed
 	Drift       bool             `json:"drift"`
 	Hostnames   int              `json:"hostnames"`
 	CreatedAt   time.Time        `json:"createdAt"`

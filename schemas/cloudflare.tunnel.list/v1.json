@@ -73,10 +73,17 @@
             "type": "string"
           },
           "connections": {
-            "items": {
-              "$ref": "#/$defs/ConnectionView"
-            },
-            "type": "array"
+            "oneOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/ConnectionView"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "drift": {
             "type": "boolean"

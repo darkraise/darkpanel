@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -117,18 +118,28 @@ func TestTrList(t *testing.T) {
 	if va.ID != a.ID || va.Name != "darkpanel-a" || va.Status != "healthy" || len(va.Connections) != 2 || va.Hostnames != 1 || va.Drift {
 		t.Errorf("tunnel a: %+v", va)
 	}
-	if vb.ID != b.ID || vb.Status != "inactive" || len(vb.Connections) != 0 || vb.Hostnames != 0 || !vb.Drift {
+	if vb.ID != b.ID || vb.Status != "inactive" || vb.Connections == nil || len(vb.Connections) != 0 || vb.Hostnames != 0 || !vb.Drift {
 		t.Errorf("tunnel b: %+v", vb)
 	}
-	if vc.ID != gone.ID || vc.Status != "unknown" || len(vc.Connections) != 0 || vc.Hostnames != 0 {
-		t.Errorf("tunnel c, which Cloudflare no longer has: %+v", vc)
+	if vc.ID != gone.ID || vc.Status != "unknown" || vc.Connections != nil || vc.Hostnames != 0 {
+		t.Errorf("tunnel c, which Cloudflare no longer has: %+v, want its status unknown and its connections null", vc)
 	}
 	if !va.CreatedAt.Equal(a.CreatedAt) {
 		t.Errorf("created at %v, want %v", va.CreatedAt, a.CreatedAt)
 	}
 	enc, err := json.Marshal(out)
-	if err != nil || strings.Count(string(enc), `"connections":[]`) != 2 {
-		t.Errorf("encoded list %s (err %v), want an empty array for each tunnel without connections", enc, err)
+	if err != nil || strings.Count(string(enc), `"connections":[]`) != 1 || strings.Count(string(enc), `"connections":null`) != 1 {
+		t.Errorf("encoded list %s (err %v), want an empty array for the tunnel without connections and null for the one not read", enc, err)
+	}
+}
+
+func TestTrListFailsWhenTheContextEnds(t *testing.T) {
+	r := trNew(t)
+	trTunnel(t, r.h, r.srv, "darkpanel-a")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := r.c.tunnelList().Handler.Read(ctx, r.h.env(""), json.RawMessage(`{}`)); !errors.Is(err, context.Canceled) {
+		t.Errorf("read with a cancelled context: %v, want context.Canceled", err)
 	}
 }
 
@@ -144,8 +155,8 @@ func TestTrListWithoutAccountOrTunnels(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out TunnelList
-	if err := json.Unmarshal(raw, &out); err != nil || len(out.Tunnels) != 1 || out.Tunnels[0].Status != "unknown" {
-		t.Errorf("without an account: %+v (err %v), want the stored tunnel with status unknown", out, err)
+	if err := json.Unmarshal(raw, &out); err != nil || len(out.Tunnels) != 1 || out.Tunnels[0].Status != "unknown" || out.Tunnels[0].Connections != nil {
+		t.Errorf("without an account: %+v (err %v), want the stored tunnel with status unknown and connections null", out, err)
 	}
 }
 

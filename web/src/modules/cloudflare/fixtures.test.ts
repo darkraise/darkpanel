@@ -23,7 +23,7 @@ test("fxTunnel defaults to a healthy tunnel with one connection and no drift", (
   expect(t.name).toMatch(/^darkpanel-[0-9A-Z]{26}$/)
   expect(t.status).toBe("healthy")
   expect(t.connections).toHaveLength(1)
-  expect(t.connections[0]).toMatchObject({ colo: "FRA", originIp: "203.0.113.7" })
+  expect(t.connections?.[0]).toMatchObject({ colo: "FRA", originIp: "203.0.113.7" })
   expect(t.drift).toBe(false)
   expect(t.hostnames).toBe(1)
   const down = cfTunnel({ status: "down", connections: [], drift: true })

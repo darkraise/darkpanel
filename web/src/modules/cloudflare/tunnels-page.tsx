@@ -19,6 +19,7 @@ interface Pending {
 }
 
 function connections(t: TunnelView): string {
+  if (t.connections === null) return "Unknown"
   if (t.connections.length === 0) return "0"
   return `${t.connections.length} (${t.connections.map((c) => c.colo).join(", ")})`
 }

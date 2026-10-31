@@ -18,7 +18,7 @@ function tpTunnels(): TunnelView[] {
   return [
     cfTunnel({ id: "t1", name: "darkpanel-c1", status: "healthy", connections: [tpConnection("ams01", "k1"), tpConnection("fra02", "k2")], hostnames: 2 }),
     cfTunnel({ id: "t2", name: "darkpanel-c2", status: "inactive", connections: [], drift: true, hostnames: 0 }),
-    cfTunnel({ id: "t3", name: "darkpanel-c3", status: "unknown", connections: [], hostnames: 0 }),
+    cfTunnel({ id: "t3", name: "darkpanel-c3", status: "unknown", connections: null, hostnames: 0 }),
   ]
 }
 
@@ -55,7 +55,7 @@ test("lists the tunnels with status, connections, hostnames and configuration, i
   expect(rows.map((r) => within(r).getAllByRole("cell").slice(0, 5).map((c) => c.textContent))).toEqual([
     ["darkpanel-c1", "healthy", "2 (ams01, fra02)", "2", "In sync"],
     ["darkpanel-c2", "inactive", "0", "0", "Changed outside Darkpanel"],
-    ["darkpanel-c3", "unknown", "0", "0", "In sync"],
+    ["darkpanel-c3", "unknown", "Unknown", "0", "In sync"],
   ])
 })
 
