@@ -157,8 +157,8 @@ func m4lWorkflow(yml string, deadline time.Duration) error {
 			return fmt.Errorf("harness: the step %q lacks %s", m4lBuildStep, want)
 		}
 	}
-	upload := strings.Index(build, "path: bin/harness")
-	if upload < 0 || strings.Index(build, strings.TrimRight(step, "\n")) > upload {
+	upload, at := strings.Index(build, "path: bin/harness"), strings.Index(build, strings.TrimRight(step, "\n"))
+	if upload < 0 || at < 0 || at > upload {
 		return fmt.Errorf("harness: the build job does not run the step %q before it uploads path: bin/harness", m4lBuildStep)
 	}
 
