@@ -16,10 +16,12 @@ import (
 var dockerapiTestFlag = flag.String("dockerapi-test", "", "path of the compiled dockerapi test binary")
 
 // m4lImage is the image TestDockerLive creates containers from. Its command
-// runs sh, which the pinned pebble image lacks, so this is Alpine 3.24 from
-// AWS's public mirror of Docker's official images, pinned by the digest of
-// its multi-architecture index.
-const m4lImage = "public.ecr.aws/docker/library/alpine@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a"
+// runs sh, which the pinned pebble image lacks, so this is Docker's official
+// Alpine 3.14.0 as the containerd project mirrors it on ghcr.io, pinned by the
+// digest of its multi-architecture index. ghcr.io is used because the harness
+// already pulls the pebble images from it, while anonymous pulls from
+// public.ecr.aws can exceed that registry's data quota.
+const m4lImage = "ghcr.io/containerd/alpine@sha256:adab3844f497ab9171f070d4cae4114b5aec565ac772e2f2579405b78be67c96"
 
 // m4lRemote is where the dockerapi test binary is copied on the agent.
 const m4lRemote = "/var/tmp/dockerapi.test"
