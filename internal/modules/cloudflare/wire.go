@@ -68,7 +68,7 @@ type ConnectionView struct {
 type TunnelView struct {
 	ID          string           `json:"id"`
 	Name        string           `json:"name"`
-	Status      string           `json:"status"` // the provider's; "unknown" when the read failed
+	Status      string           `json:"status"`                            // the provider's; "unknown" when the read failed
 	Connections []ConnectionView `json:"connections" jsonschema:"nullable"` // null when the read failed
 	Drift       bool             `json:"drift"`
 	Hostnames   int              `json:"hostnames"`

@@ -100,7 +100,7 @@ func legacyIPv4(host string) (netip.Addr, bool) {
 		if err != nil {
 			return netip.Addr{}, false
 		}
-		v = v<<bits | uint32(n)
+		v = v<<bits | uint32(n) //nolint:gosec // G115: ParseUint bounds n to bits, at most 32
 	}
 	return netip.AddrFrom4([4]byte{byte(v >> 24), byte(v >> 16), byte(v >> 8), byte(v)}), true
 }

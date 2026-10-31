@@ -23,9 +23,9 @@ type cf struct{ d deps }
 
 // deps say where and how the module reaches Cloudflare.
 type deps struct {
-	baseURL string                                           // "https://api.cloudflare.com/client/v4"
-	http    *http.Client                                     // nil: cloud's default client
-	sleep   func(ctx context.Context, d time.Duration) error // nil: cloud's default
+	baseURL string                                                       // "https://api.cloudflare.com/client/v4"
+	http    *http.Client                                                 // nil: cloud's default client
+	sleep   func(ctx context.Context, d time.Duration) error             // nil: cloud's default
 	lookup  func(ctx context.Context, host string) ([]netip.Addr, error) // nil: the system resolver
 }
 
