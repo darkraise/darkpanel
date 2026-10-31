@@ -470,3 +470,32 @@ func TestDvDefinitions(t *testing.T) {
 		}
 	}
 }
+
+// TestDvVerify: authorize's Verify passes only for an authorized device and
+// set-routes' only when the approved routes are the wanted ones.
+func TestDvVerify(t *testing.T) {
+	f := dvNew(t, true)
+	ctx := context.Background()
+	ok := f.srv.AddDevice(fake.Device{Name: "gw.example.ts.net", Hostname: "gw", Authorized: true,
+		AdvertisedRoutes: []string{"10.0.0.0/24", "::/0"}, EnabledRoutes: []string{"::/0", "10.0.0.0/24"}})
+	pending := f.srv.AddDevice(fake.Device{Name: "web-1.example.ts.net", Hostname: "web-1"})
+	authorize, routes := f.tn.deviceAuthorize().Handler, f.tn.deviceSetRoutes().Handler
+	for _, tt := range []struct {
+		name  string
+		def   core.ErasedHandler
+		input string
+		pass  bool
+	}{
+		{"authorized device", authorize, `{"device":"` + ok + `"}`, true},
+		{"device not authorized", authorize, `{"device":"` + pending + `"}`, false},
+		{"missing device", authorize, `{"device":"missing"}`, false},
+		{"routes as wanted", routes, `{"device":"` + ok + `","routes":["10.0.0.0/24","::/0"]}`, true},
+		{"routes not approved", routes, `{"device":"` + ok + `","routes":["10.0.0.0/24"]}`, false},
+		{"routes of a missing device", routes, `{"device":"missing","routes":[]}`, false},
+	} {
+		err := tt.def.Verify(ctx, f.h.env(""), json.RawMessage(tt.input), json.RawMessage(`{}`))
+		if (err == nil) != tt.pass {
+			t.Errorf("%s: verify = %v, want pass %v", tt.name, err, tt.pass)
+		}
+	}
+}

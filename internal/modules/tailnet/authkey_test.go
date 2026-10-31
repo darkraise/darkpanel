@@ -548,3 +548,35 @@ func TestAkActionsRegister(t *testing.T) {
 		t.Errorf("list spec %+v", list.Spec)
 	}
 }
+
+// TestAkVerify: Verify passes while the created key exists and is not
+// revoked, and fails once it is revoked or gone.
+func TestAkVerify(t *testing.T) {
+	ctx := context.Background()
+	e := akSetup(t)
+	def := e.t.authkeyCreate()
+	ck, err := akApply(t, e, akChange, AuthKeyInput{Tags: []string{"tag:ci"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	verify := func(id string) error {
+		return def.Handler.Verify(ctx, e.h.env(akChange), akJSON(t, AuthKeyInput{Tags: []string{"tag:ci"}}), akJSON(t, CreatedKey{ID: id}))
+	}
+	if err := verify(ck.ID); err != nil {
+		t.Errorf("verify of the created key: %v", err)
+	}
+	e.srv.AddKey(fake.Key{ID: "k-revoked", Description: "darkpanel-" + akChange, Revoked: true})
+	if err := verify("k-revoked"); err == nil {
+		t.Error("verify passed for a revoked key")
+	}
+	a, _, err := e.t.connected(ctx, e.h.db, coretest.Sealer{}, e.h.clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.DeleteKey(ctx, ck.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := verify(ck.ID); err == nil {
+		t.Error("verify passed for a deleted key")
+	}
+}
