@@ -132,6 +132,17 @@ test("the form plans nothing until both fields are filled", async () => {
   expect(apBodies(calls, "/plan")).toEqual([])
 })
 
+test("a token of spaces only is not planned", async () => {
+  const calls = stubFetch({ [AP_READ]: apDisconnected, [AP_CONNECT_PLAN]: { body: apPlan("cloudflare.account.connect") } })
+  renderWithProviders(<AccountPanel />)
+  const user = userEvent.setup()
+  await user.type(await screen.findByLabelText("Account ID"), AP_ACCOUNT_ID)
+  await user.type(screen.getByLabelText("API token"), "   ")
+  await user.click(screen.getByRole("button", { name: "Connect" }))
+  expect(screen.queryByRole("dialog")).toBeNull()
+  expect(apBodies(calls, "/plan")).toEqual([])
+})
+
 test("disconnecting asks for the account id and plans with no input", async () => {
   const calls = stubFetch({
     [AP_READ]: apReads(apConnected, apDisconnected),

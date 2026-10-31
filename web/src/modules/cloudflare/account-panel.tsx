@@ -41,7 +41,7 @@ function ConnectForm({
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const id = accountId.trim()
-    if (id === "" || apiToken === "") return
+    if (id === "" || apiToken.trim() === "") return
     onPlan({ action: "cloudflare.account.connect", title: "Connect Cloudflare", input: { accountId: id, apiToken } })
   }
   return (

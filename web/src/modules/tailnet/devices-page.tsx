@@ -76,7 +76,7 @@ function RoutesDialog({ device, onCancel, onReview }: { device: TailnetDevice; o
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{`Routes of ${device.name}`}</DialogTitle>
-          <DialogDescription>Tick the routes this device may advertise to the tailnet.</DialogDescription>
+          <DialogDescription>Tick the routes this device advertises that the tailnet approves.</DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-3">
           {advertised.map((route, i) => (
