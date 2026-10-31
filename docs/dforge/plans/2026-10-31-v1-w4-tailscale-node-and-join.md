@@ -27,7 +27,7 @@
 - Every `go`, `golangci-lint`, `make` and `pnpm` command runs with `GOTOOLCHAIN=local`, an explicit `timeout`, and `TMPDIR=/root/.cache/w4-tmp/<task number>` (`mkdir -p` it first; remove it and run `go clean -testcache` when the task ends), also where a step's command omits one of them: `/tmp` is an 8 GiB tmpfs and Unix socket paths over 108 bytes fail. When `df -h /` passes 90 %, trim Go build cache entries older than a few hours. Web commands use `pnpm -C web exec vitest run <files>` for single files (`pnpm -C web vitest run` does not work here).
 - Dependencies: no task changes `go.mod`, `go.sum`, `web/package.json` or `web/pnpm-lock.yaml`; only the standard library and modules already required are used, and after every task `GOTOOLCHAIN=local timeout 300 go mod tidy -diff` prints nothing. The STUN client is hand-written; no Tailscale library is imported (spec 4.1).
 - After every task all of these pass, with their real output recorded: `go build ./...`; `go vet ./...` (no output); `go test -count=1 ./...` (every line `ok` or `?`); `go test -race -count=1` on the task's packages; `golangci-lint run --allow-serial-runners ./...` (`0 issues.`); `go mod tidy -diff` (no output). A task that edits `test/harness/` also runs `go vet -tags harness ./test/...` and `go test -tags harness -count=1 -run 'Unit' ./test/harness/...`. A task that edits `web/` also runs `pnpm -C web lint`, `pnpm -C web typecheck` and `pnpm -C web test`. A task that adds or changes an action, resource or input type runs `make schemas` and commits the snapshots it changes, or `modules.TestSnapshotsCurrent` fails; only the tasks whose **Files:** name `schemas/` do this.
-- Contract-check gate: after wave 1-3 merges, the controller reads Task 1's report. Any entry under its `Divergences` heading other than `none` stops execution until the integrator amends Contracts and every task that states the old value (a header amendment), before wave 4 starts. Tasks after wave 1-3 implement their text as written.
+- Contract-check gate: after wave 1-3 merges, the controller reads Task 1's report. Any entry under its `Divergences` heading other than `none` stops execution until the integrator amends Contracts and every task that states the old value (a header amendment), before wave 4 starts. Tasks after wave 1-3 implement their text as written. In the same step the integrator copies the fingerprint from the `**Keyring:**` line of Task 1's "Recorded contract (tailscale node, ...)" bullet in spec 4.1 into Contracts "Tailscale shared plan helpers" (the `keyringFingerprint` line), replacing its placeholder value, and commits it.
 - TDD: write the test, run it and see the expected RED (usually a build failure naming the first undefined identifier), implement, run GREEN. Quote the RED and GREEN output in the report, not a paraphrase.
 - Frozen files (spec 1.12), which no task edits: `internal/core/contract.go`, `units.go`, `define.go`, `registry.go`, `guard.go`, `internal/core/ext/**`, `internal/core/errcode/errcode.go`, `internal/core/lifecycle/**`, the core migrations, `internal/platform/exec.go`, `files.go`, `systemd.go`, `internal/platform/exec_rules.go`, `internal/modules/modules.go`, `internal/cli/modules.go`, `internal/controller/server/**`, `internal/controller/api/**`, `internal/controller/events/**`, `internal/controller/listen/sources.go`, `cmd/darkpanel/paths.go`, `go.mod`, `go.sum`, `web/package.json`, `web/pnpm-lock.yaml`, `web/src/modules/registry.ts`, `web/src/modules/types.ts`, `web/src/app.tsx`, `test/harness/pins.go`, `test/harness/images.json`, `internal/platform/tslocal/**`, `internal/platform/netstat/**`, `internal/modules/firewall/**`. A task that finds a missing code, allowlist rule or extension point in a frozen file stops and reports it; it does not edit the file. Every program and argument vector this plan runs is already allowlisted (Assumptions).
 - A task edits only the files of its own **Files:** block. Each task of a wave runs in its own worktree from the wave's base (`main` plus every merged earlier wave), so a package-wide command sees only merged work plus the task's own files. "The base" in a task's text means the work its **Depends on** line names.
@@ -205,7 +205,7 @@ Package `internal/controller/coreactions`. `hostCreate` (hostenroll.go) with `Ta
 
 ### Tailnet enroll keys (from Tasks 10, 18)
 
-Package `internal/modules/tailnet`. Task 10 writes `join_enroll.go`: `module` implements `core.EnrollJoiner` (`func (m module) PlanJoin(...)`, `func (m module) PrepareJoin(...)`), through `func (t tn) planJoin(...)` and `func (t tn) prepareJoin(...)`. PrepareJoin inserts the `tailnet_keys` row `{description: "darkpanel-enroll-" + HostID, kind: "enroll", owner_id: HostID, state: "requested", expiry_seconds: 3600, tags_json}` in its own write transaction, then calls `api.CreateKey(KeyRequest{Description, Tags, Reusable: false, Ephemeral: false, Preauthorized: true, ExpirySeconds: 3600})`, then settles the row `live` with the key id (`settleKey`); on a provider failure it settles the row `deleted` when the error is `core.IsDefinite` (nothing was created) and `uncertain` otherwise (left for the sweep, spec 1.9's uncertain-create rule), and returns the error. Task 18 writes `join_sweep.go`: `func settleEnrollKeys(ctx context.Context, db *store.DB, now time.Time) error` moves each `enroll` row in `live` or `uncertain`: to `used` when `core_hosts` holds its owner in state `enrolled`; to `retired` when the owner row is gone, or its enrollment token (`core_enroll_tokens` for the owner) expired unconsumed, or the row is older than its expiry plus 15 minutes; and `keysweep.go`'s `sweep` calls it first in every pass.
+Package `internal/modules/tailnet`. Task 10 writes `join_enroll.go`: `module` implements `core.EnrollJoiner` (`func (m module) PlanJoin(...)`, `func (m module) PrepareJoin(...)`), through `func (t tn) planJoin(...)` and `func (t tn) prepareJoin(...)`. PrepareJoin inserts the `tailnet_keys` row `{description: "darkpanel-enroll-" + HostID, kind: "enroll", owner_id: HostID, state: "requested", expiry_seconds: 3600, tags_json}` in its own write transaction, then calls `api.CreateKey(KeyRequest{Description, Tags, Reusable: false, Ephemeral: false, Preauthorized: true, ExpirySeconds: 3600})`, refuses an empty tag list (`request.invalid_input`, field `/tags`: spec 4.2 requires tags on every auth key, so the "no tags" wording of Task 9's diff line is reached only with a test joiner), then settles the row `live` with the key id (`settleKey`); on a provider failure it settles the row `deleted` when the error is `core.IsDefinite` (nothing was created) and `uncertain` otherwise (left for the sweep, spec 1.9's uncertain-create rule), and returns the error. Task 18 writes `join_sweep.go`: `func settleEnrollKeys(ctx context.Context, db *store.DB, now time.Time) error` moves each `enroll` row in `live` or `uncertain`: to `used` when `core_hosts` holds its owner in state `enrolled`; to `retired` when the owner row is gone, or its enrollment token (`core_enroll_tokens` for the owner) expired unconsumed, or the row is older than its expiry plus 15 minutes; and `keysweep.go`'s `sweep` calls it first in every pass.
 
 ### Tailscale wire shapes (Tasks 8, 14–16, 20–29; read by Tasks 5, 12, 13, 19, 26, 31, 33)
 
@@ -341,9 +341,9 @@ Action specs, all `Version: 1`, side agent, `LockKeys: []string{"tailscale"}` fo
 | Action | Class / constructor | Guards | Other |
 |---|---|---|---|
 | `tailscale.prefs.set` | revertible, `DefineRevertible` | `tailscale.link` (overridable) | `RepairedBy: "tailscale.prefs.repair"`; `Available: t.available` |
-| `tailscale.prefs.repair` | revertible, `DefineRevertible` | `tailscale.link` | `RepairedBy: "tailscale.prefs.repair"`; `Available: t.available` |
-| `tailscale.node.login` | compensable, `DefineMutating` with an `Undoer` | `tailscale.link` | `Available: t.available` |
-| `tailscale.node.logout` | irreversible, `DefineMutating`, confirmation the host name (`os.Hostname`) | `tailscale.link` | `Available: t.available` |
+| `tailscale.prefs.repair` | revertible, `DefineRevertible` | `tailscale.link` (overridable) | `RepairedBy: "tailscale.prefs.repair"`; `Available: t.available` |
+| `tailscale.node.login` | compensable, `DefineMutating` with an `Undoer` | `tailscale.link` (overridable) | `Available: t.available` |
+| `tailscale.node.logout` | irreversible, `DefineMutating`, confirmation the host name (`os.Hostname`) | `tailscale.link` (overridable) | `Available: t.available` |
 | `tailscale.package.install` | compensable task, `DefineTask` with an `Undoer` | — | `LongRunning`; `ApplyTimeout: 15 * time.Minute`; no `Available` |
 | `tailscale.package.update` | irreversible task, `DefineTask`, confirmation the host name | — | `ApplyTimeout: 15 * time.Minute`; `Available: t.available` |
 | `tailscale.package.pin` | compensable task, `DefineTask` with an `Undoer` and a `Recoverer` | — | `ApplyTimeout: 20 * time.Minute`; `Available: t.available` |
@@ -614,12 +614,16 @@ Request flows: with a guard context whose `Client` is set and a controller on th
 Task 20 writes `repo.go` and `package_install.go`:
 
 ```go
+// keyringFingerprint pins repo_keyring.gpg; the contract-check gate replaces this value with the one Task 1 records.
+const keyringFingerprint = "SET-BY-CONTRACT-CHECK-GATE"
 // repoFiles renders the keyring (the bytes embedded from repo_keyring.gpg, whose fingerprint Task 1 records)
 // and the source list line "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/<ID> <Codename> main\n"
 // for this host, or refuses an unsupported OS or architecture.
 func (t ts) repoFiles() (keyring, sources []byte, err error)
 // ensureRepo writes the two files when absent (recording them as owned), uses them unrecorded when byte-identical,
-// and refuses with tailscale.repo_conflict when either differs; written reports what it wrote.
+// and refuses with tailscale.repo_conflict when either differs; written reports what it wrote. It journals a
+// tailscale.file:<path> create effect only when env.Effects is not nil: package.install passes its journal (it
+// observes and undoes the files); package.update, package.pin and Join pass an env whose Effects is nil.
 func (t ts) ensureRepo(ctx context.Context, env core.Env) (written []string, err error)
 // aptInstall runs APT-1 then APT-2 under ctx.
 func aptInstall(ctx context.Context, env core.Env) error
@@ -709,7 +713,7 @@ The agent role's install parses `Config.Token` with `transport.ParseBootstrap`; 
 
 ### Listen certificate source (from Task 6)
 
-Package `internal/controller/listen`, file `tailscale_cert.go` (the stub's two functions keep their signatures; `sources.go` is frozen): `tailscaleCertSource(d SourceDeps) CertSource` returns a source that reads `tailscale.cert.get/v1` with `d.Dispatch.ReadInternal(ctx, core.Principal{Actor: "system:listen.cert", Scope: core.ScopeAdmin}, d.LocalHostID, ..., {})` (bounded by 10 s), caches the `CertPair` (JSON shape of Contracts "Tailscale wire shapes"), answers a handshake whose `ServerName` equals the pair's name (case-insensitive, trailing dot ignored) and falls through otherwise, and refreshes in the background once two thirds of the pair's life has passed; `tailscaleNames` returns the cached pair's name, refreshed with the same bounded read, lower-cased, without a trailing dot, and dropped when it is empty, an IP literal, non-ASCII or not a valid DNS name. Any read error falls through and is logged at debug level once per distinct error. Because the frozen `sources.go` passes only `SourceDeps`, the certificate cache is a package-level `sync.Map` keyed by dispatcher and host id. Task 6 also adds `ReadInternalFunc` to `internal/core/coretest/dispatcher.go`, and Task 7 edits `internal/controller/coreactions/registry_test.go` (`TestCoreActionSecrets` must know the grant's new secret `Bundle`).
+Package `internal/controller/listen`, file `tailscale_cert.go` (the stub's two functions keep their signatures; `sources.go` is frozen): `tailscaleCertSource(d SourceDeps) CertSource` returns a source that reads `tailscale.cert.get/v1` with `d.Dispatch.ReadInternal(ctx, core.Principal{Actor: "system:listen.cert", Scope: core.ScopeAdmin}, d.LocalHostID, ..., {})` (bounded by 10 s), caches the `CertPair` (JSON shape of Contracts "Tailscale wire shapes"), answers a handshake whose `ServerName` equals the pair's name (case-insensitive, trailing dot ignored) and falls through otherwise, and refreshes in the background once two thirds of the pair's life has passed (and `tailscaleNames` reads it again once the cached pair is 5 minutes old, so an address change that gives the node a new MagicDNS name is picked up within 5 minutes); `tailscaleNames` returns the cached pair's name, refreshed with the same bounded read, lower-cased, without a trailing dot, and dropped when it is empty, an IP literal, non-ASCII or not a valid DNS name. Any read error falls through and is logged at debug level once per distinct error. Because the frozen `sources.go` passes only `SourceDeps`, the certificate cache is a package-level `sync.Map` keyed by dispatcher and host id. Task 6 also adds `ReadInternalFunc` to `internal/core/coretest/dispatcher.go`, and Task 7 edits `internal/controller/coreactions/registry_test.go` (`TestCoreActionSecrets` must know the grant's new secret `Bundle`).
 
 ### Web: tailscale (Tasks 5, 12, 13, 19)
 
@@ -747,6 +751,8 @@ Package `internal/modules/tailnet`, file `join.go`: `tailnet.node.join/v1`, `Def
 - Ruling: `tailscale.status` carries the node's current preferences (`Status.Prefs`, all seven fields), because the web's preferences form needs them and no other read returns them; the conversion `prefsFieldsOf` belongs to Task 14 and prefs.set uses it.
 - Ruling: the pin's phase 6 learns the agent's controller session from outside the agent process, because it runs in a transient unit: through the agent socket's `Hello` (`controllerConnected`, `internal/core/contract.go:1003`) and the saved controller address (`daemon.LoadCredentials`, `internal/agent/daemon/creds.go:118`); `internal/agent/daemon` and `internal/agent/api` do not import `internal/modules` (`go list -deps`, 2026-11-01), so the tailscale module may import them.
 - Ruling: the engine waits for a running task unit before it calls a recovery handler (`internal/core/lifecycle/taskunit.go`, `taskproc.go`, read 2026-11-01), so the pin's `Recover` decides only by the pin row's phase.
+- Ruling: the enroll key's row keeps only the provider's key id, not the key sealed (spec 4.2 step 2 says "stores the key sealed for cleanup only"): the cleanup deletes by description and key id and never needs the key itself, so not storing it removes a secret at rest without losing a capability.
+- Ruling: `currentLinkPrefs` (Task 17) counts a node advertising either default route as advertising an exit node, while `prefsFieldsOf` (Task 14) requires both: the guard's reading is the conservative one (it protects a flow that may use either route), and the status shows what `tailscale set --advertise-exit-node` sets.
 - Ruling: the `tailscale.link` guard gathers its own flows through `internal/platform/netstat` (as the firewall does, owner ruling R3) instead of importing `internal/modules/firewall/guard`, whose flow builder is unexported and evaluates netfilter state the tailscale guard does not need; the module therefore declares `darkpanel-controller.service` with the `state` operation besides `tailscaled.service` with `state` and `restart`.
 - Ruling: a peer's connection is `direct` when `CurAddr` is set (endpoint `CurAddr`), else `peer-relay` when `PeerRelay` is set, else `derp` when `Relay` is set (region `Relay`), else `none`; `preferredDerp` is `Self.Relay`. Task 1 confirms or amends this mapping (contract-check gate).
 - Ruling: `tailscale.latency` reads the region list from `DERPMap`; a region's STUN endpoints are its nodes' `IPv4`/`IPv6` with `STUNPort` (default 3478, `-1` means none), and its HTTPS probe URL is `https://<node HostName>/derp/latency-check`. A logged-out node may answer an empty DERP map, which the resource reports as no regions; the harness checks the resource against whatever map tailscaled answers (spec Contracts: "the latency resource against the DERP map").
@@ -1011,7 +1017,8 @@ Expected: no build or vet output, every test line `ok` or `?`, `0 issues.`, and 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add docs/dforge/specs/2026-10-21-v1-completion-design.md internal/modules/tailscale/repo_keyring.gpg
+git add docs/dforge/specs/2026-10-21-v1-completion-design.md
+if [ -f internal/modules/tailscale/repo_keyring.gpg ]; then git add internal/modules/tailscale/repo_keyring.gpg; fi
 git commit -m "docs(spec): record the tailscale node contract"
 rm -rf /root/.cache/w4-tmp/1 && GOTOOLCHAIN=local go clean -testcache
 ```
@@ -2780,6 +2787,40 @@ func TestTcExpiredPairIsNotServed(t *testing.T) {
 	c.wait()
 }
 
+// TestTcNamesRechecksTheNodeEveryFiveMinutes: the leaf asks for its extra
+// names on every listen check, and an address change of the node (a re-login
+// as another node) can change its MagicDNS name, so a pair older than five
+// minutes is read again on that path, and a new name replaces the old one.
+func TestTcNamesRechecksTheNodeEveryFiveMinutes(t *testing.T) {
+	first, _ := tcPair(t, tcName, testStart, testStart.Add(90*time.Hour))
+	second, secondDER := tcPair(t, "other.tail1234.ts.net", testStart, testStart.Add(90*time.Hour))
+	r := &tcReader{answer: func(_ context.Context, n int) (json.RawMessage, error) {
+		if n == 1 {
+			return first, nil
+		}
+		return second, nil
+	}}
+	c, clock := tcNewCache(r, nil)
+	if names, err := c.names(context.Background()); err != nil || !slices.Equal(names, []string{tcName}) {
+		t.Fatalf("names = %v, %v; want [%s]", names, err, tcName)
+	}
+	clock.Advance(5*time.Minute - time.Second)
+	if names, _ := c.names(context.Background()); !slices.Equal(names, []string{tcName}) || r.count() != 1 {
+		t.Fatalf("names = %v after %d reads; want the cached name and no second read before five minutes", names, r.count())
+	}
+	clock.Advance(time.Second)
+	if names, _ := c.names(context.Background()); !slices.Equal(names, []string{"other.tail1234.ts.net"}) || r.count() != 2 {
+		t.Fatalf("names = %v after %d reads; want the node's new name from a second read", names, r.count())
+	}
+	if got := tcServed(t, c, "other.tail1234.ts.net"); !bytes.Equal(got, secondDER) {
+		t.Error("the pair of the new name is not served")
+	}
+	if got := tcServed(t, c, tcName); got != nil {
+		t.Error("the old name is still served after the node's name changed")
+	}
+	c.wait()
+}
+
 func TestTcFailedRefreshIsNotRetriedForAMinute(t *testing.T) {
 	r := &tcReader{answer: func(context.Context, int) (json.RawMessage, error) {
 		return nil, errors.New("tailscaled does not answer")
@@ -3020,10 +3061,10 @@ Expected: FAIL to build: `unknown field ReadInternalFunc in struct literal of ty
 
 1. `internal/core/coretest/dispatcher.go`: add the field `ReadInternalFunc` with the signature of `ReadFunc`, and the method `ReadInternal(ctx, p, hostID, a, input)` that calls it, or returns `nil` and `notConfigured("FakeDispatcher", "ReadInternal")` when the field is nil, with the doc comment `// ReadInternal calls ReadInternalFunc.` as the neighbouring methods have. Run `gofmt -w` on the file (it realigns the field block). Commit this file alone first (Step 6).
 2. `internal/controller/listen/tailscale_cert.go`: delete `fallThrough`, keep the two function signatures, and implement them over one cache type, so a handshake and the leaf's name hook share one pair. `sources.go` is frozen and hands both functions only a `SourceDeps`, so the shared cache is found in a package-level `sync.Map` keyed by a comparable struct of `d.Dispatch` and `d.LocalHostID`; `tailscaleCertSource(d)` and `tailscaleNames(ctx, d)` both call one `sharedPairs(d)` that returns the stored `*pairCache` or stores a new `newPairCache(d, core.SystemClock{})`. A comment says why the registry exists. Every `ext.Dispatcher` in the program is a pointer, so the key is comparable; a dispatcher of a non-comparable type is not supported.
-3. Types and constants. Constants `certReadTimeout = 10 * time.Second` and `certRetryAfter = time.Minute`; a package variable `certReader = core.Principal{Actor: "system:listen.cert", Scope: core.ScopeAdmin}`. `pairCache` holds the `SourceDeps`, a `core.Clock`, a logger (`d.Log`, or a discarding one when nil), a field `timeout time.Duration` (initialised to `certReadTimeout`; the test shrinks it), a `sync.WaitGroup` for background reads, and, under a mutex, the cached pair, a `loading` flag, a `nextTry` time and the last logged error text. A cached pair holds the normalised name, the `*tls.Certificate` (with `Leaf` set), `expires` (the leaf's `NotAfter`) and `renewAt` (the leaf's `NotBefore` plus two thirds of `NotAfter.Sub(NotBefore)`). `newPairCache(d SourceDeps, clock core.Clock) *pairCache` builds one; `(*pairCache).wait()` waits for the background reads.
+3. Types and constants. Constants `certReadTimeout = 10 * time.Second`, `certRetryAfter = time.Minute` and `certRecheck = 5 * time.Minute`; a package variable `certReader = core.Principal{Actor: "system:listen.cert", Scope: core.ScopeAdmin}`. `pairCache` holds the `SourceDeps`, a `core.Clock`, a logger (`d.Log`, or a discarding one when nil), a field `timeout time.Duration` (initialised to `certReadTimeout`; the test shrinks it), a `sync.WaitGroup` for background reads, and, under a mutex, the cached pair, a `loading` flag, a `nextTry` time and the last logged error text. A cached pair holds the normalised name, the `*tls.Certificate` (with `Leaf` set), `expires` (the leaf's `NotAfter`) and `renewAt` (the leaf's `NotBefore` plus two thirds of `NotAfter.Sub(NotBefore)`) and `readAt` (the clock time of the read that stored it). `newPairCache(d SourceDeps, clock core.Clock) *pairCache` builds one; `(*pairCache).wait()` waits for the background reads.
 4. The read (`fetch`): call `d.Dispatch.ReadInternal(ctx, certReader, d.LocalHostID, core.ActionRef{Name: "tailscale.cert.get", Version: 1}, json.RawMessage("{}"))`; decode the answer into the private struct; normalise the name (`strings.ToLower`, one trailing dot removed) and refuse it unless it is a valid DNS name: 1 to 253 bytes, not an IP literal (`netip.ParseAddr` succeeds), dot-separated labels of 1 to 63 bytes, each only `a-z`, `0-9` or `-` and neither starting nor ending with `-` (this also refuses non-ASCII, underscores and spaces); build the pair with `tls.X509KeyPair` on the two PEM strings and `x509.ParseCertificate` on its first certificate. Every failure is an error whose text starts with `listen:` and wraps the cause with `%w`. Never log or return the answer's body, the PEM text or the key. The read wrapper (`read`) stores a successful pair, clears `nextTry` and the last error; on failure it sets `nextTry` to now plus `certRetryAfter` and logs the error at debug level only when its text differs from the last logged one.
 5. `(*pairCache).Certificate(hello)`: with a nil `d.Dispatch` return `nil, nil`. Read the clock once. Under the mutex take the cached pair and decide to refresh when no read is in flight and (there is no pair or now is not before `renewAt`) and now is not before `nextTry`; then mark the read in flight and add to the wait group. A refresh runs in a goroutine with `context.WithTimeout(context.Background(), timeout)` and clears the in-flight flag when done; the handshake never waits for it. Serve the cached pair's certificate only when a pair exists, now is before its `expires` and `normalise(hello.ServerName)` equals the pair's name; otherwise return `nil, nil` (fall through). The pair that is due keeps being served while its refresh runs. Never return an error.
-6. `(*pairCache).names(ctx)`: with a nil `d.Dispatch` return `nil, nil`. When there is no pair, or now is not before its `renewAt`, read synchronously with `context.WithTimeout(ctx, timeout)` (a failure is only logged, and `nextTry` is ignored on this path). Return a one-element slice of the cached pair's name, or `nil, nil` when there is no pair; never return an error, so a failing source keeps the cached name and a never-loaded one adds none.
+6. `(*pairCache).names(ctx)`: with a nil `d.Dispatch` return `nil, nil`. When there is no pair, or now is not before its `renewAt`, or now is at least `certRecheck` after its `readAt` (the leaf asks on every listen check, and an address change can give the node a new MagicDNS name: spec 4.1 "renewing ... on address changes"), read synchronously with `context.WithTimeout(ctx, timeout)` (a failure is only logged, and `nextTry` is ignored on this path). Return a one-element slice of the cached pair's name, or `nil, nil` when there is no pair; never return an error, so a failing source keeps the cached name and a never-loaded one adds none.
 7. gofmt; every exported identifier keeps its doc comment; unexported identifiers get a comment only where the why is not obvious (the registry, the retry gate, the pair that is served while due).
 
 - [ ] **Step 4: Run the tests to verify they pass**
@@ -9428,9 +9469,17 @@ test.each([
 test("a node that is logged out offers to join the tailnet and reads its status again when the dialog closes", async () => {
   const { calls } = tpRender("/hosts/h1/tailscale", { body: tpStatus({ backendState: "NeedsLogin", self: null, peers: [] }) })
   const user = userEvent.setup()
-  await user.click(await screen.findByRole("button", { name: "Join tailnet" }))
+  const join = await screen.findByRole("button", { name: "Join tailnet" })
+  const tags = screen.getByRole("textbox", { name: "Tailscale tags" })
+  expect(join).toHaveProperty("disabled", true)
+  await user.type(tags, "server")
+  expect(join).toHaveProperty("disabled", true)
+  await user.clear(tags)
+  await user.type(tags, "tag:server, tag:web")
+  expect(join).toHaveProperty("disabled", false)
+  await user.click(join)
   expect(screen.getByTestId("join-action").textContent).toBe("tailnet.node.join")
-  expect(JSON.parse(screen.getByTestId("join-input").textContent ?? "")).toEqual({ hostId: "h1" })
+  expect(JSON.parse(screen.getByTestId("join-input").textContent ?? "")).toEqual({ hostId: "h1", tags: ["tag:server", "tag:web"] })
   const reads = () => calls.filter((c) => c.method === "GET" && c.path === "/api/v1/hosts/h1/resources/tailscale/status").length
   expect(reads()).toBe(1)
   await user.click(screen.getByRole("button", { name: "Close the dialog" }))
@@ -9443,8 +9492,10 @@ test("a node whose tailscaled does not answer shows why, offers the install and 
   expect(await screen.findByText("Tailscale is not available on this host: tailscaled does not answer on its socket")).toBeTruthy()
   expect(tpProps("package-panel")).toEqual({ hostId: "h1", available: false })
   expect(screen.queryByRole("tablist")).toBeNull()
-  await userEvent.setup().click(screen.getByRole("button", { name: "Join tailnet" }))
-  expect(JSON.parse(screen.getByTestId("join-input").textContent ?? "")).toEqual({ hostId: "h1", install: true })
+  const user = userEvent.setup()
+  await user.type(screen.getByRole("textbox", { name: "Tailscale tags" }), "tag:server")
+  await user.click(screen.getByRole("button", { name: "Join tailnet" }))
+  expect(JSON.parse(screen.getByTestId("join-input").textContent ?? "")).toEqual({ hostId: "h1", tags: ["tag:server"], install: true })
 })
 
 test("any other failed status read shows the server's reason and nothing else", async () => {
@@ -9484,7 +9535,7 @@ Expected: FAIL: the routes still render nothing, so `findByTestId("status-panel"
    - "Preferences": `PrefsForm hostId status prefs`, then `NodeControls hostId status`;
    - "Package": `PackagePanel hostId available` (true: tailscaled answered).
    `prefs` is `status.prefs ?? {}`: the agent sends the node's current preferences in the status (Contracts "Tailscale wire shapes", `Status.Prefs`); an answer without them gives `{}`, and `PrefsForm` then takes what it needs from `status`.
-4. The "Join tailnet" button (`Button` variant `outline`) opens `TailnetChange` with `action` `tailnet.node.join`, `title` "Join the tailnet" and `input` `{ hostId }`, plus `install: true` only on the unavailable path (Assumptions: the button sets `install` from the host's availability). `input` is `null` while the dialog is closed. `onClose` closes it and invalidates `["resource", hostId]` so the status is read again.
+4. The "Join tailnet" button (`Button` variant `outline`) sits beside an `Input` labelled "Tailscale tags" (comma-separated `tag:` names, as Task 11's host-create form reads them: split on commas, trim, drop empty entries). The button is disabled until there is at least one tag and every tag matches `^tag:[a-z0-9][a-z0-9-]{0,62}$` (`tailnet.node.join` refuses a join with no tag, Task 32). It opens `TailnetChange` with `action` `tailnet.node.join`, `title` "Join the tailnet" and `input` `{ hostId, tags }`, plus `install: true` only on the unavailable path (Assumptions: the button sets `install` from the host's availability). `input` is `null` while the dialog is closed. `onClose` closes it and invalidates `["resource", hostId]` so the status is read again.
 5. Replace `routes.tsx` with the shape of the Docker module's: `export default function TailscaleRoutes({ hostId }: ModuleRouteProps)` returning `Routes` with an index route to `TailscalePage` and a `*` route showing `EmptyState` titled "Page not found" with the description "The Tailscale module has no page at this address.".
 
 - [ ] **Step 4: Run the tests to verify they pass, then the gates**
@@ -10253,7 +10304,7 @@ Expected: FAIL to build, naming `repoKeyring`, `keyringFingerprint`, `repoFiles`
 `repo.go`:
 
 1. `//go:embed repo_keyring.gpg` into `var repoKeyring []byte` (a variable, because a test replaces it). The file is the Tailscale repository key Task 1 committed in the module directory; this task does not download anything. If the file is absent, stop and report: only Task 1 reads the network.
-2. `const keyringFingerprint`: the fingerprint of that key as Task 1 recorded it in spec 4.1 (the "Files" bullet, "fingerprint pinned in code"), written as 40 upper-case hexadecimal digits with no spaces. If the spec does not give it, stop and report. Do not compute it from the file and paste the result: the pin exists to catch a changed file.
+2. `const keyringFingerprint`: the fingerprint of that key as Contracts "Tailscale shared plan helpers" gives it (`keyringFingerprint`), which the contract-check gate copies from the `**Keyring:**` line of the `**Recorded contract (tailscale node, checked YYYY-MM-DD).**` bullet Task 1 adds to spec 4.1; 40 upper-case hexadecimal digits with no spaces. If neither Contracts nor that line gives it, stop and report. Do not compute it from the file and paste the result: the pin exists to catch a changed file.
 3. `keyringFingerprints(b []byte) ([]string, error)` lists the OpenPGP version 4 fingerprints (40 upper-case hex digits) of every public-key (tag 6) and public-subkey (tag 14) packet in a binary keyring, in order. A fingerprint is the SHA-1 of the byte 0x99, the packet body's length as 16 bits, big-endian, and the body (`//nolint:gosec` on the `crypto/sha1` import with G505 and on the use with G401, and on the length conversion with G115, each with the reason). Packet headers: bit 7 of the first byte must be set, else an error; bit 6 set is the new format (tag in the low six bits; length: one byte below 192, two bytes for 192 to 223 as `((first-192)<<8)+second+192`, `0xFF` then four bytes; 224 to 254 is a partial length, which is an error); bit 6 clear is the old format (tag in bits 5 to 2; the low two bits give a length of 1, 2 or 4 bytes, and 3 means "to the end of the data"). A packet that runs past the data is an error. Keys whose version byte is not 4 are skipped. An empty keyring gives no fingerprints and no error.
 4. `repoFiles()`: `t.d.osRelease()` (an error is returned wrapped, `tailscale: read the OS release: %w`); supported systems are Ubuntu `jammy` and `noble` and Debian `bookworm` and `trixie` on `t.d.arch` `amd64` or `arm64`, anything else returns `errcode.New(errcode.TailscaleUnavailable, "tailscale does not support <ID> <Codename> on <arch>")`. It then requires `keyringFingerprint` among `keyringFingerprints(repoKeyring)` and returns a plain error mentioning the fingerprint when it is not, so a keyring that is not the pinned one is never written. It returns a copy of `repoKeyring` and the single line `deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/<ID> <Codename> main` plus a newline (use the `keyringPath` constant for the path).
 5. `repoStatus()` (unexported, shared by the plan and `ensureRepo`): calls `repoFiles`, then reads each of `keyringPath` and `sourcesPath` through `t.d.readFile`. `fs.ErrNotExist` means absent; another read error is returned wrapped and is not a coded refusal; identical bytes mean present; different bytes return `core.Definite(errcode.New(errcode.TailscaleRepoConflict, "<path> exists and is not what Darkpanel would write"))`. It returns the two files in order (keyring, source list) with their bytes and whether each is present.
@@ -11054,7 +11105,7 @@ func TestLiActionDefinitions(t *testing.T) {
 			s.Available == nil || s.Task || s.LongRunning || s.Internal {
 			t.Errorf("%s: spec %+v, want a synchronous %s agent action locking %q with an availability check", tc.name, s, tc.class, lockKey)
 		}
-		if want := []core.GuardSpec{{ID: link.GuardID}}; !reflect.DeepEqual(s.Guards, want) {
+		if want := []core.GuardSpec{{ID: link.GuardID, Overridable: true}}; !reflect.DeepEqual(s.Guards, want) {
 			t.Errorf("%s: guards %+v, want %+v", tc.name, s.Guards, want)
 		}
 		if tc.def.InputType != tc.in || tc.def.OutputType != tc.out {
@@ -11499,11 +11550,11 @@ Expected: FAIL to build, `tt.nodeLogin undefined (type ts has no field or method
 
 - [ ] **Step 3: Implement `node_login.go` and `node_logout.go`**
 
-Decisions this task embodies. Both actions use the guard `tailscale.link` as a non-overridable `GuardSpec` (the Contracts table marks only `prefs.set` overridable). Login journals one effect on the resource `tailscale.node:self` whose State is only `{"loggedIn": <bool>}`; what an undo cannot restore (the backend state) is in `Version`. Logout is irreversible and journals nothing. The auth key is a secret: it appears in no effect, diff, plan, output or error text. A login never waits longer than 20 s, so it fits the default 30 s apply budget.
+Decisions this task embodies. Both actions use the guard `tailscale.link` as an overridable `GuardSpec`, `{ID: link.GuardID, Overridable: true}` (spec 4.1: "Guard `tailscale.link` (overridable)"). Login journals one effect on the resource `tailscale.node:self` whose State is only `{"loggedIn": <bool>}`; what an undo cannot restore (the backend state) is in `Version`. Logout is irreversible and journals nothing. The auth key is a secret: it appears in no effect, diff, plan, output or error text. A login never waits longer than 20 s, so it fits the default 30 s apply budget.
 
 `node_login.go`:
 
-1. `func (t ts) nodeLogin() core.ActionDef` returns `core.DefineMutating[LoginInput, LoginResult]` with `ActionSpec{Name: "tailscale.node.login", Summary: "Log the node in to a tailnet with an auth key.", Version: 1, Class: core.ClassCompensable, Side: core.SideAgent, LockKeys: []string{lockKey}, Guards: []core.GuardSpec{{ID: link.GuardID}}, Available: t.available}`. The handler is the value type `nodeLoginHandler{t ts}` with value-receiver methods Plan, Apply, Verify, Observe and Inverse (so `DefineMutating` finds the `Undoer`); it has no Snapshot or Revert. Constants: the resource `tailscale.node:self`; the effect's commit wait, 2 minutes; the login wait, 20 s; the poll interval, 500 ms; the tag pattern `^tag:[a-z0-9][a-z0-9-]{0,62}$`; the host name pattern, one DNS label `^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`.
+1. `func (t ts) nodeLogin() core.ActionDef` returns `core.DefineMutating[LoginInput, LoginResult]` with `ActionSpec{Name: "tailscale.node.login", Summary: "Log the node in to a tailnet with an auth key.", Version: 1, Class: core.ClassCompensable, Side: core.SideAgent, LockKeys: []string{lockKey}, Guards: []core.GuardSpec{{ID: link.GuardID, Overridable: true}}, Available: t.available}`. The handler is the value type `nodeLoginHandler{t ts}` with value-receiver methods Plan, Apply, Verify, Observe and Inverse (so `DefineMutating` finds the `Undoer`); it has no Snapshot or Revert. Constants: the resource `tailscale.node:self`; the effect's commit wait, 2 minutes; the login wait, 20 s; the poll interval, 500 ms; the tag pattern `^tag:[a-z0-9][a-z0-9-]{0,62}$`; the host name pattern, one DNS label `^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`.
 2. `nodeLoginLoggedIn(st *tslocal.Status) (loggedIn, known bool)`: backend state `NoState` is `(false, false)`, `NeedsLogin` is `(false, true)`, every other state (`Stopped`, `Starting`, `Running`, `NeedsMachineAuth`) is `(true, true)`. `nodeLoginSettled(st)` is true for `Running` and `NeedsMachineAuth`. `nodeLoginDoc(st) core.StateDoc` has State `{"loggedIn": <bool>}` and Version `{"backendState": st.BackendState}`; `nodeLoginFlagDoc(bool)` has the State only. `nodeLoginSelfName(st)` is `Self.DNSName` without its trailing dot, or `this node` when there is no self or no name.
 3. `nodeLoginValidate(LoginInput) error`: `request.invalid_input`, `core.Definite`, one field error with the message as detail: `/authKey` when empty or containing whitespace; `/hostname` when set and not matching the host name pattern; `/advertiseTags/<i>` for the first tag not matching the tag pattern.
 4. `nodeLoginRefusal(err error, what, secret string) error`: replaces `secret` (when non-empty) by `[redacted]` in the error text and in tailscaled's message, then returns `core.Definite(errcode.Wrap(errcode.TailscaleUnavailable, <redacted cause>, "tailscaled does not answer on its socket"))` for `tslocal.ErrUnavailable`; `core.Definite(errcode.Wrap(errcode.InvalidInput, <redacted cause>, "tailscaled refused the " + what + ": " + <redacted message>))` for an `*tslocal.APIError` with a status from 400 to 499; and for anything else a new, unwrapped error `tailscale: <what>: <redacted text>` (the original is not wrapped because its text may carry the key).
@@ -11515,7 +11566,7 @@ Decisions this task embodies. Both actions use the guard `tailscale.link` as a n
 
 `node_logout.go`:
 
-10. `func (t ts) nodeLogout() core.ActionDef` returns `core.DefineMutating[LogoutInput, LogoutResult]` with `ActionSpec{Name: "tailscale.node.logout", Summary: "Log the node out of its tailnet.", Version: 1, Class: core.ClassIrreversible, Side: core.SideAgent, LockKeys: []string{lockKey}, Guards: []core.GuardSpec{{ID: link.GuardID}}, Available: t.available}` and the value type `nodeLogoutHandler{t ts}` with Plan, Apply and Verify only.
+10. `func (t ts) nodeLogout() core.ActionDef` returns `core.DefineMutating[LogoutInput, LogoutResult]` with `ActionSpec{Name: "tailscale.node.logout", Summary: "Log the node out of its tailnet.", Version: 1, Class: core.ClassIrreversible, Side: core.SideAgent, LockKeys: []string{lockKey}, Guards: []core.GuardSpec{{ID: link.GuardID, Overridable: true}}, Available: t.available}` and the value type `nodeLogoutHandler{t ts}` with Plan, Apply and Verify only.
 11. Plan: read `Status`; `known` false and a logged-out node are refused as in step 5 (`tailscale.unavailable`, and `request.invalid_input` "the node is already logged out", both `core.Definite`); read the host name through `t.d.hostname`; the guard is `t.linkGuard(ctx, env, in.Guarded, lp, link.Change{Kind: "logout", After: lp})`. Diff: `- node: logged in as <name>`, `+ node: logged out`. `Confirmation` is the host name. `StateHash` is the hex SHA-256 of `<BackendState>|<Self.ID or empty>`.
 12. Apply: call `Logout`, errors through `nodeLoginRefusal(err, "logout", "")`; return `LogoutResult{BackendState: <Status after>}`. Verify, from the input alone: the backend state must be `NeedsLogin`, else an error naming it.
 
@@ -11749,6 +11800,9 @@ func TestPuTaskWritesTheRepositoryAndUpdates(t *testing.T) {
 	if !reflect.DeepEqual(h.files, map[string][]byte{keyringPath: keyring, sourcesPath: sources}) {
 		t.Errorf("files written %v, want the keyring and the source list this host's repository needs", h.files)
 	}
+	if es := h.journal.effects(); len(es) != 0 {
+		t.Errorf("journaled %+v, want no effect: update has no Observe, so the repository files it writes are owned but not journaled", es)
+	}
 }
 
 func TestPuTaskUsesTheRepositoryInPlace(t *testing.T) {
@@ -11854,7 +11908,7 @@ Decisions this task embodies. The update cannot know the version the repository 
 
 1. `func (t ts) packageUpdate() core.ActionDef` returns `core.DefineTask[PackageUpdateInput, PackageUpdated]` with `ActionSpec{Name: "tailscale.package.update", Summary: "Update the tailscale package to the repository's current version.", Version: 1, Class: core.ClassIrreversible, Side: core.SideAgent, LockKeys: []string{lockKey}, ApplyTimeout: 15 * time.Minute, Available: t.available}`; `DefineTask` sets `Task` and `LongRunning`. The handler is the value type `packageUpdateHandler{t ts}` with Plan, Task and Verify; it has no Apply, Observe or Inverse and the action has no guards.
 2. Plan (writes nothing; the only command it runs is the read of the holds): `t.installedVersion` empty is refused, `core.Definite`, `tailscale.unavailable`, "the tailscale package is not installed; install it with tailscale.package.install"; `t.held` true is refused, `core.Definite`, `tailscale.package_held`, "the tailscale package is held at <version>; release the hold before updating"; `t.repoFiles()` failing (an OS or architecture without a repository) is refused with that error marked `core.Definite`. Diff: `{Op: " ", Text: "tailscale <version> is installed"}` then `{Op: "+", Text: "update to the version the Tailscale repository offers (apt-get update of that repository, then apt-get install tailscale)"}`. `Confirmation` is the host name from `t.d.hostname`. `StateHash` is the hex SHA-256 of the installed version. No guards.
-3. Task: read the installed version (`from`); `t.ensureRepo(ctx, env)` (it writes absent repository files, uses identical ones and refuses a differing one with `tailscale.repo_conflict`, before any apt-get runs); `aptInstall(ctx, env)` (APT-1 then APT-2); read the installed version again (`to`), an error "the package is not installed after the update" when it is empty; return `PackageUpdated{From: from, To: to}`. Any error is returned as it is.
+3. Task: read the installed version (`from`); `t.ensureRepo(ctx, noJournal)`, where `noJournal` is a copy of `env` with `Effects` set to nil, so the repository files it writes are recorded as owned (uninstall removes them) but not journaled: this handler has no `Observe` and the engine refuses `Intend` for an action without one (it writes absent repository files, uses identical ones and refuses a differing one with `tailscale.repo_conflict`, before any apt-get runs); `aptInstall(ctx, env)` (APT-1 then APT-2); read the installed version again (`to`), an error "the package is not installed after the update" when it is empty; return `PackageUpdated{From: from, To: to}`. Any error is returned as it is.
 4. Verify, from the input alone (recovery calls it with the zero output): the installed version must be non-empty, and equal to `out.To` when `out.To` is set; the errors name the version found.
 
 Add no other file and do not touch `tailscale.go`; `TestManifestIsASkeleton` keeps passing.
@@ -12545,6 +12599,9 @@ func TestPnTaskWritesAbsentRepositoryFiles(t *testing.T) {
 	if pnPin(t, s.h).Phase != "done" {
 		t.Error("the pin did not finish")
 	}
+	if es := s.h.journal.effects(); len(es) != 1 || es[0].Resource != "tailscale.package:tailscale" {
+		t.Errorf("journaled %+v, want only the package effect: the repository files are owned but not journaled, since the pin observes and undoes only the package", es)
+	}
 }
 
 func TestPnTaskRefusesAForeignRepository(t *testing.T) {
@@ -12908,7 +12965,7 @@ Decisions this task embodies. The pin changes the package under a running node t
    1. The precheck again. Then `Status` through `t.d.local()` under a `pinTxProbe` bound (real time) for the prior backend state: an error is `core.Definite` `tailscale.unavailable` "tailscaled does not answer on its socket" wrapping the cause. Then `t.d.session` under the same bound for `viaTailnet`: an error is returned `core.Definite`, wrapped as `tailscale: read the agent's controller session: %w`.
    2. Insert the pin row in phase `recorded` inside `env.DB.Write` with `insertPin`: `ChangeID` from `env.ChangeID`, `Arch` from `t.d.arch`, the prior version, prior hold, prior backend state, `LinkTailnet` from `viaTailnet`, `UpdatedAt` from `env.Clock`.
    3. `env.Effects.Intend` the one pin effect: `Kind` modify, `Resource` `pinTxResource`, `Local` and `InverseLocal` true, `Before` the state `{"version":"<prior>","held":<prior held>}`, `After` the state `{"version":"<version>","held":true}`. An `Intend` error runs `rollback` on the recorded row (which only marks it `rolled_back`) and is returned.
-   4. `t.ensureRepo(ctx, env)`. An error runs `rollback` on the recorded row, marks the effect `Skipped`, and returns the error as it is (a repository conflict stays the `core.Definite` `tailscale.repo_conflict` Task 20 makes). Nothing has been unheld at this point.
+   4. `t.ensureRepo(ctx, noJournal)`, where `noJournal` is a copy of `env` with `Effects` set to nil: the repository files it writes are recorded as owned (uninstall removes them) but not journaled, because the pin's `Observe` and `Inverse` (Task 29) cover only `tailscale.package:tailscale`. An error runs `rollback` on the recorded row, marks the effect `Skipped`, and returns the error as it is (a repository conflict stays the `core.Definite` `tailscale.repo_conflict` Task 20 makes). Nothing has been unheld at this point.
    5. The forward steps, in order, each as: write its phase (when it has one), run it, append its step. The first failing step stops the run: `unhold` (phase `unheld`; `apt-mark unhold tailscale`); `stage-prior` (phase `staged`; APT-1, then APT-4 of the prior version); `stage-target` (APT-4 of the new version); `copy-prior` (read `pinTxArchive/tailscale_<prior>_<arch>.deb` through `t.d.readFile`, `env.Files.WriteManaged(ctx, ID, debDir, <flat name>, data, 0o600, 0, 0)`, then `setPinStaged` with the flat name and the SHA-256); `install` (phase `installed`; APT-3 of the new version); `hold` (phase `held`; `apt-mark hold tailscale`); `check` (phase `checking`; the wait below). All commands go through `run` and `env.Exec`; the engine already bounds `ctx` by the 20 minute `ApplyTimeout`.
    6. The wait, used by `check` and by `rollback-verify`: one probe at once; success returns nil; the deadline is `env.Clock.Now()` plus `pinCheckWindow`, fixed before the first probe; after a failed probe, if `env.Clock.Now()` is not before the deadline return `tailscale: not reached within <pinCheckWindow>: <the probe's error>`, else wait `pinTxPoll` on `env.Clock.AfterFunc` and a channel (returning `ctx.Err()` when the context ends first) and probe again. Each probe runs under a `pinTxProbe` bound. The check's probe needs `Status` to answer, the backend state to equal the row's `prior_backend`, and, when the row's `link_tailnet` is set, `t.d.session` to answer `up` (its error or `up` false fails the probe).
    7. On a failing forward step: reload the pin row (its phase is the step's) and call `rollback`. When the rollback succeeds, mark the pin effect `Skipped` (the host is as before) and return `errcode.Wrap(errcode.TailscalePinFailed, <cause>, "<step> failed (<reason>); tailscale is back at <prior>")` where `<reason>` is the first line of the cause. When the rollback fails, leave the effect `intended` and return `errcode.Wrap(errcode.TailscalePinFailed, <both errors joined>, "<step> failed (<reason>) and the rollback to <prior> failed (<rollback error>); tailscale needs repair")`. Neither detail carries more than the first line of a command's stderr.
@@ -16356,7 +16413,7 @@ git commit -m "feat(tailnet): add the node.join composite"
 
 **Files:**
 - Create: `test/harness/m5_helpers_test.go` (the shared helpers of Contracts "Harness M5")
-- Create: `test/harness/m5_test.go` (`TestM5Node` and its scenarios)
+- Create: `test/harness/m5_node_test.go` (`TestM5Node` and its scenarios)
 - Create: `test/harness/m5_unit_test.go` (`TestM5Unit...`, no VM)
 
 **Interfaces:**
@@ -16378,7 +16435,7 @@ func m5Status(t *testing.T, v *vm.VM) tailscale.Status
 **Implementer:** dforge:impl-sonnet-high
 **Evaluation:** files 1 - spec 2 - coupling 1 - risk 1 = 5
 
-The scenarios of `m5_test.go` need KVM virtual machines, so they run only in the harness workflow (Task 35 adds the `vm-m5` job; gate 7 covers them). On this host the task compiles them, runs the VM-free unit tests, and sees `TestM5Node` skip. Never pass `-os`, `-m2` or `-m5` here.
+The scenarios of `m5_node_test.go` need KVM virtual machines, so they run only in the harness workflow (Task 35 adds the `vm-m5` job; gate 7 covers them). On this host the task compiles them, runs the VM-free unit tests, and sees `TestM5Node` skip. Never pass `-os`, `-m2` or `-m5` here.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -16687,7 +16744,7 @@ func TestM5UnitLinkGuard(t *testing.T) {
 }
 ```
 
-Create `test/harness/m5_test.go`:
+Create `test/harness/m5_node_test.go`:
 
 ```go
 //go:build harness
@@ -16954,7 +17011,7 @@ Expected: FAIL to build, `undefined: m5Lab` first, then the other helpers (`m5Re
 
 Create `test/harness/m5_helpers_test.go` (`//go:build harness`, package `harness`) with these declarations. Every name and every error fragment below is pinned by the tests; the `m5x` functions are pure.
 
-1. Flag and aliases. `var m5Flag = flag.Bool("m5", false, ...)`, a help text saying it runs the M5 node scenarios, needs `-os` and `-m2`, and that each M5 test is a `go test` run of its own. `const m5Deadline = 60 * time.Minute`. `type VM = vm.VM` and `type ChangeView = Change`, each with a doc comment saying they are the names Contracts "Harness M5" gives to `*vm.VM` and to the harness's change type.
+1. Flag and aliases. `var m5Flag = flag.Bool("m5", false, ...)`, a help text saying it runs the M5 node scenarios, needs `-os` and `-m2`, and that each M5 test is a `go test` run of its own. `const m5Deadline = 30 * time.Minute` (the vm-m5 job runs `TestM5Node` and `TestM5Pin` in one `go test` whose `-timeout` is 70 minutes; 30 + 25 + 10 minutes of cleanup fits). `type VM = vm.VM` and `type ChangeView = Change`, each with a doc comment saying they are the names Contracts "Harness M5" gives to `*vm.VM` and to the harness's change type.
 2. The node registry. `type m5Node struct { ctx context.Context; api *API; hostID string; os OS }` (a comment on `ctx`: one per lab, for the helpers that take only the VM). `var m5Nodes sync.Map` keyed by `*vm.VM`. `m5Register(t, v, n)` stores `n` under `v` and deletes it in `t.Cleanup`. `m5Lookup(t, v) m5Node` returns it and calls `t.Fatal("harness: the VM is not the agent of an M5 lab; get it from m5Lab")` when absent. The helpers use `v` only as the key, so a test may register a `new(vm.VM)`.
 3. `m5Configs(lab *Lab, o OS, targetImg, scannerImg string, key ssh.Signer) []vm.Config` (`ssh` is `golang.org/x/crypto/ssh`, already required by `test/harness/vm`) returns three configs, in this order, for the fleet of M2 on the lab's own links. Controller: `Name: lab.VMName("controller")`, `Image: targetImg`, 2048 MiB, 2 CPUs, `MgmtMAC/InetMAC/PrivMAC` = `lab.MAC(NICMgmt|NICInet|NICPriv, 10)`, `InetAddrs: targetIPv4+"/15", targetIPv6+"/64"`, `PrivAddrs: controllerPriv+"/24"`, `McastPort: lab.McastPort`, `PrivMcastPort: lab.PrivMcastPort`, `Provision: TargetScript(o)`, `Key: key`. Agent: the same with role `agent`, host number 11, `agentIPv4`, `agentIPv6`, `agentPriv`. Scanner: role `scanner`, `Image: scannerImg`, 2048 MiB, 1 CPU, host number 20, no private NIC (`PrivMAC`, `PrivAddrs`, `PrivMcastPort` unset), `scannerIPv4`, `scannerIPv6`, `Provision: ScannerScript()`. `Dir` stays empty: `Lab.Boot` sets it. The addresses are the fleet's because `scenarioInstall` and `serveReleases` use them; the lab's multicast ports keep two labs on separate links.
 4. `m5Lab(t) (*Lab, *vm.VM)`: `t.Helper()`; unless `*osFlag`, `*m2Flag` and `*m5Flag` are all set, `t.Skip("no -os, -m2 or -m5 given: the VM tests run in .github/workflows/harness.yml")`. Then: a context with `m5Deadline` whose cancel is registered with `t.Cleanup` before anything boots (so it runs after the VMs stop); `lab := NewLab(t)`; `harnessImages(ctx, t)`; a key from `vm.NewKey()`; `lab.Boot(ctx, t, m5Configs(...))`; `f := &fleet{os: o, controller: vms[0], agent: vms[1], scanner: vms[2]}`; `serveReleases(ctx, t, f)`; `scenarioInstall(ctx, t, f)` (this installs the harness build on the controller and the agent, creates the admin, logs in, creates the host `agent` and enrolls it); `m5Register(t, f.agent, m5Node{ctx: ctx, api: f.api, hostID: f.agentID, os: o})`; return `lab, f.agent`.
@@ -16983,7 +17040,7 @@ Expected: `ok`.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add test/harness/m5_helpers_test.go test/harness/m5_test.go test/harness/m5_unit_test.go
+git add test/harness/m5_helpers_test.go test/harness/m5_node_test.go test/harness/m5_unit_test.go
 git commit -m "test(harness): add TestM5Node node scenarios"
 ```
 
@@ -17324,7 +17381,7 @@ Create `test/harness/m5_pin_test.go` (first line `//go:build harness`, package `
 *Why the scenario is built this way (spec 4.1, the harness requirement of the pin).* A pin has a health check of 120 s after phase 5 (`held`). On a harness host the agent's link runs over the private NIC `dppriv`, not over a tailnet, so the check cannot fail through the link; it fails when tailscaled does not answer. The scenario therefore makes tailscaled stop exactly when `apt-mark hold tailscale` succeeds (phase 5), and at the same instant cuts the agent's link to the controller, so the 120 s check fails and the whole rollback runs with no controller. The hook is a wrapper that replaces `/usr/bin/apt-mark` (the one path the exec allowlist runs) for the test's duration, the way `m3PredictionMismatch` replaces `/usr/sbin/ufw`. The cut is an `iptables` rule at position 1 of the `OUTPUT` chain: UFW accepts established connections before its user rules, so a `ufw deny out` would leave the live session open.
 
 *Helpers, each with the exact behaviour the tests pin.*
-- `const m5pDeadline = 35 * time.Minute`: the bound of `TestM5Pin`, with a comment that the workflow's `-timeout` for this test must stay at least 10 minutes above it.
+- `const m5pDeadline = 25 * time.Minute`: the bound of `TestM5Pin`, with a comment that the workflow's `-timeout`, which covers `TestM5Node` and this test in one run, must stay at least `m5Deadline + m5pDeadline + 10` minutes.
 - `type m5pStep struct { name string; gate bool; run func(t *testing.T) }`.
 - `m5pSteps(ctx context.Context, f *fleet) []m5pStep` returns, in this order and with closures that capture `ctx` and `f` and read neither before they run: `install` (gate) running `scenarioInstall(ctx, t, f)`, `package-install` (gate) running `m5pPackage(ctx, t, f)`, `pin-rollback` (not a gate) running `m5pRollback(ctx, t, f)`.
 - `m5pTarget(madison, installed string) (string, error)` reads `apt-cache madison tailscale` output. For each line, split on `|`; use lines with at least three fields whose first field, trimmed, is exactly `tailscale`; the version is the second field, trimmed. Skip a version equal to `installed` or not matching `^[0-9][0-9A-Za-z.+~-]{0,63}$` (the pin's input pattern, Contracts). Return the first one left (madison lists the newest first). With none left, return the error `harness: apt-cache madison lists no tailscale version other than the installed <installed>` followed by a newline and the madison output.
@@ -17392,7 +17449,7 @@ git commit -m "test(harness): roll back a pin with the link cut"
 - Modify: `.github/workflows/harness.yml`
 
 **Interfaces:**
-- Consumes: from Task 34: `m5pSteps`, `m5pStep` and `m5pDeadline` (`m5_pin_test.go`). From Task 33 (Contracts "Harness M5"): the test names `TestM5Node` and the flag `-m5`, which the new job passes. From the harness as it is on `main`: `fleet` (`controller`, `agent *vm.VM`), `m3Run`, `m3dxShell`, `unitState`, `m3dxExpoSteps`, `m3dxExpoJob`, `m3dxExpoTimeoutRE`, `m3dxExpoLimitRE`, `m4lStep` and `m4lSetup` (`m4_live_test.go`). `tslocal.DefaultSocket`; `TestTailscaledLive` and `DARKPANEL_TAILSCALED_SOCKET` in `internal/platform/tslocal/live_test.go`, unchanged (the package is frozen).
+- Consumes: from Task 34: `m5pSteps`, `m5pStep` and `m5pDeadline` (`m5_pin_test.go`). From Task 33 (Contracts "Harness M5"): `m5Deadline` (`m5_helpers_test.go`), the test names `TestM5Node` and the flag `-m5`, which the new job passes. From the harness as it is on `main`: `fleet` (`controller`, `agent *vm.VM`), `m3Run`, `m3dxShell`, `unitState`, `m3dxExpoSteps`, `m3dxExpoJob`, `m3dxExpoTimeoutRE`, `m3dxExpoLimitRE`, `m4lStep` and `m4lSetup` (`m4_live_test.go`). `tslocal.DefaultSocket`; `TestTailscaledLive` and `DARKPANEL_TAILSCALED_SOCKET` in `internal/platform/tslocal/live_test.go`, unchanged (the package is frozen).
 - Produces: the flag `m5lBinaryFlag` (`-tslocal-test`, the path of the compiled tslocal test binary), the step `tailscaled-live` of `TestM5Pin`, the build step `Build the tslocal live test` that writes `bin/harness/tslocal.test`, and the workflow job `vm-m5` that runs `TestM5Node` and `TestM5Pin` for each OS (Contracts "Harness M5"). The `vm` and `vm-m4` jobs are not changed. Names in Go start with `m5l` only.
 
 **Items:** 251
@@ -17606,7 +17663,7 @@ Expected: FAIL to build, `undefined: m5lCommand` (then `m5lSocket`, `m5lVerdict`
 
 - [ ] **Step 3: Implement**
 
-*Budget check before editing.* Read the deadline constant of `TestM5Node` in Task 33's `test/harness/m5_node_test.go`. The job below gives the run step `-timeout 70m` for `TestM5Node` and `TestM5Pin` together; that holds when `TestM5Node`'s deadline plus `m5pDeadline` (35 minutes) plus 10 minutes of cleanup is at most 70. If it is not, do not change the numbers: finish the task and put the sum in the report as a concern.
+*Budget.* The run step's `-timeout 70m` covers `TestM5Node` and `TestM5Pin` in one `go test` run: `m5Deadline` (30 minutes, Task 33's `test/harness/m5_helpers_test.go`) plus `m5pDeadline` (25 minutes, Task 34) plus 10 minutes of cleanup is 65, within the 70 minutes the 100-minute job leaves after its 30 minutes of setup. `m5lWorkflow` checks that sum, so a later change to either deadline that breaks it fails `TestM5lUnitWorkflowFile`.
 
 *`test/harness/m5_live_test.go`* (first line `//go:build harness`, package `harness`):
 - `var m5lBinaryFlag = flag.String("tslocal-test", "", "path of the compiled tslocal test binary")`.
@@ -17619,7 +17676,7 @@ Expected: FAIL to build, `undefined: m5lCommand` (then `m5lSocket`, `m5lVerdict`
   1. a `build` job (`m3dxExpoJob`) with the step `m5lBuildStep` containing `CGO_ENABLED=0`, `GOOS=linux`, `GOARCH=amd64`, `go test -c`, `-o bin/harness/tslocal.test` and `./internal/platform/tslocal`, placed before the text `path: bin/harness` of the artifact upload (error: `the step "<name>" lacks <text>`, or `the build job does not run the step "<name>" before it uploads path: bin/harness`, or `the build job has no step named "<name>"`);
   2. a `vm` job (error `the workflow has no vm job`) that contains neither `TestM5` nor `harness-m5` (error `the vm job holds <text>, which belongs to the vm-m5 job`);
   3. a `vm-m5` job (error `the workflow has no vm-m5 job`) containing `needs: build`, `runs-on: ubuntu-24.04`, `fail-fast: false`, `os: [ubuntu-22.04, ubuntu-24.04, debian-12, debian-13]` and every `m4lSetup` string (error `the vm-m5 job lacks <text>`);
-  4. in that job the step `m5lRunStep` (error `the vm-m5 job has no step named "<name>"`) containing `-run '^(TestM5Node|TestM5Pin)$'`, ` -m5`, `-os ${{ matrix.os }}`, `-m2 "$GITHUB_WORKSPACE/bin/harness"`, `-workdir "$RUNNER_TEMP/harness-m5"` and `-tslocal-test "$GITHUB_WORKSPACE/bin/harness/tslocal.test"` (error `the step "<name>" lacks <text>`), with a `-timeout <n>m` (`m3dxExpoTimeoutRE`) of at least `m5pDeadline` plus 10 minutes (error `the step "<name>" has -timeout <n>m, under TestM5Pin's deadline <d> plus 10 minutes`) and at most `m5lJobLimit - m5lSetupMinutes` (error `the step "<name>" has -timeout <n>m, over <max>m (...)`);
+  4. in that job the step `m5lRunStep` (error `the vm-m5 job has no step named "<name>"`) containing `-run '^(TestM5Node|TestM5Pin)$'`, ` -m5`, `-os ${{ matrix.os }}`, `-m2 "$GITHUB_WORKSPACE/bin/harness"`, `-workdir "$RUNNER_TEMP/harness-m5"` and `-tslocal-test "$GITHUB_WORKSPACE/bin/harness/tslocal.test"` (error `the step "<name>" lacks <text>`), with a `-timeout <n>m` (`m3dxExpoTimeoutRE`) of at least `m5Deadline + m5pDeadline` plus 10 minutes (error `the step "<name>" has -timeout <n>m, under the M5 deadlines <d> plus 10 minutes`, `<d>` being `m5Deadline + m5pDeadline`) and at most `m5lJobLimit - m5lSetupMinutes` (error `the step "<name>" has -timeout <n>m, over <max>m (...)`);
   5. in that job the failure upload: `name: logs-m5-${{ matrix.os }}` and `harness-m5/**/*.log` (error `the vm-m5 job's failure upload lacks <text>`);
   6. in that job a `timeout-minutes` (`m3dxExpoLimitRE`) equal to `m5lJobLimit` (error `the vm-m5 job has timeout-minutes <have>, want 100`; no value at all: `the vm-m5 job has no timeout-minutes`).
 
