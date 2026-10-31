@@ -752,6 +752,8 @@ Package `internal/modules/tailnet`, file `join.go`: `tailnet.node.join/v1`, `Def
 - Ruling: `tailscale.latency` reads the region list from `DERPMap`; a region's STUN endpoints are its nodes' `IPv4`/`IPv6` with `STUNPort` (default 3478, `-1` means none), and its HTTPS probe URL is `https://<node HostName>/derp/latency-check`. A logged-out node may answer an empty DERP map, which the resource reports as no regions; the harness checks the resource against whatever map tailscaled answers (spec Contracts: "the latency resource against the DERP map").
 - The harness VMs have tailscaled 1.104.1 pre-installed and running but logged out (`test/harness/provision.go` lines 68–78, `images.json`, read 2026-10-31), and reach the internet (Task 59 of plan w3 pulled container images on them). `tailscale.package.install` is exercised after the scenario removes the package with `apt-get remove -y tailscale` over the VM's SSH; whether `pkgs.tailscale.com` is reachable from the VMs: unverified — Task 33's install scenario proves it, and fails naming the URL if not.
 - The installer can build the production `core.Runner` and a `core.FileWriter` over the agent database it has just migrated, so `tailscale.Join` records the repository files as owned exactly as `tailscale.package.install` does: unverified — Task 26 builds `JoinDeps` from the platform constructors in a test over a temporary layout, and Task 30 wires the same construction in `cmd/darkpanel/system.go`; if the provider cannot run before the agent's first start, Task 26 stops and reports it.
+- `plan-lint` warns of a placeholder in Task 1: the flagged line is Task 1's own check command, which greps the spec for `TBD` and `TODO`; it is not a placeholder.
+- Scoring follows the programme's convention (plans w1-w3): the files axis counts kinds of file (Go source, Go test, SQL, TypeScript, shell, workflow YAML, generated schema), not instances, so a single-package task with many files scores files 1.
 - Every revertible change in the harness is confirmed or left to revert by the scenario itself; harness changes to `.github/workflows/harness.yml` happen only in Task 35, alone and last, as spec 1.12 requires of a wave's `harness.yml` change.
 
 ## Task index
@@ -810,6 +812,8 @@ Package `internal/modules/tailnet`, file `join.go`: `tailnet.node.join/v1`, `Def
 - Produces: two spec bullets and one file that later tasks read as fixed facts. Task 8's `localAPI` interface and Tasks 6, 16, 22 and 26 call the endpoints as 1.8 "Endpoints", "Cert pair" and "Login by key" record them; Task 14 builds `Peer.Connection`, `Endpoint`, `Region`, `Node.ID` and `PreferredDERP` from 4.1 "Connection" and "Identifiers"; Task 15 builds its probes from 1.8 "Latency check"; Task 20 embeds `repo_keyring.gpg` and pins the fingerprint 4.1 "Keyring" records (Contracts "Tailscale shared plan helpers"). The two `Divergences` bullets gate the plan: after wave 1-3 merges, any entry other than `none` stops execution until the integrator amends Contracts and the tasks that state the old value (Global Constraints "Contract-check gate").
 
 **Depends on:** none
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
 
 This task changes no Go code. It settles the facts the plan's Assumptions mark "unverified — Task 1 settles each", and it checks the login sequence of a key join, which Tasks 22 and 26 rely on, so every later task builds on recorded behaviour instead of a guess. The facts are read from Tailscale's source at two tags: `v1.82.0`, the oldest tailscaled the spec supports (Versions table), and `v1.104.1`, the version the harness VMs run (`test/harness/images.json`).
 
@@ -1028,6 +1032,8 @@ Your report ends with a section "Divergences" that repeats, verbatim and one per
 **Items:** 70
 
 **Depends on:** none
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 The test prefix is `bd` (Contracts "Test prefixes"); `FuzzParseBootstrap` keeps the name the Contracts give it.
 
@@ -1361,6 +1367,8 @@ rm -rf /root/.cache/w4-tmp/2 && GOTOOLCHAIN=local go clean -testcache
 - Produces: Contracts "STUN client (from Task 3)": `stun.Probe`, `stun.Request`, `stun.Parse`. Task 8's `deps.stun` is `stun.Probe`; Task 15 calls it three times per region.
 
 **Depends on:** none
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
 
 The test prefix is `sn`. The package is pure protocol code: it knows nothing about DERP maps or the module. Its tests use a UDP fake on `127.0.0.1` port 0; the one wildcard socket is `Probe`'s own client socket, which the Contracts fix as `net.ListenPacket("udp", "")`. No test waits longer than a fraction of a second, so none needs a fake clock.
 
@@ -1760,6 +1768,8 @@ rm -rf /root/.cache/w4-tmp/3 && GOTOOLCHAIN=local go clean -testcache
 - Produces: Contracts "Link guard rules (from Task 4)": `link.GuardID`, `link.Interface`, `link.Flow`, `link.Prefs`, `link.Change`, `link.Check`, `link.IsTailscaleAddr`. Task 17's `linkGuard` builds the flows and calls `Check`; `Check` never sets `Overridden` (the engine and Task 17 do).
 
 **Depends on:** none
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 1 = 6
 
 The test prefix is `lk`. The firewall's `internal/modules/firewall/guard` is the model for what a flow is (`flows.go`, `facts.go`); this package takes the already-classified flows and holds only the decision.
 
@@ -2154,6 +2164,8 @@ Read, do not edit: `web/src/modules/docker/docker-change.tsx` and `types.ts` (th
   - `tailscale-change.tsx` exports `TailscaleChange({ hostId, action, title, input, onClose })` and `TailscaleChangeProps`, with `input: Record<string, unknown> | null` (null keeps the dialog closed).
 
 **Depends on:** none
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2489,9 +2501,11 @@ Read, do not edit: `internal/controller/listen/sources.go` (frozen: `CertSource`
 - Consumes: Contracts "Listen certificate source" and the JSON shape of `CertPair` from "Tailscale wire shapes" (`name`, `certPem`, `keyPem`, `notAfter`). The package must not import `internal/modules/tailscale`: it declares a private struct with the `name`, `certPem` and `keyPem` JSON members.
 - Produces: `tailscaleCertSource(d SourceDeps) CertSource` and `tailscaleNames(ctx context.Context, d SourceDeps) ([]string, error)` with their stub signatures; and `coretest.FakeDispatcher.ReadInternalFunc`, which makes `*FakeDispatcher` satisfy `ext.Dispatcher`.
 
-**Items:** 60
+**Items:** 60, 187, 188, 249
 
 **Depends on:** none
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3059,9 +3073,11 @@ Bundle string `json:"bundle,omitempty" secret:"true" jsonschema_description:"Sin
 
   The `pattern=` in the `Tags` tag is the item pattern: invopop/jsonschema applies a `pattern` on a slice field to its items, and the comma of `{0,62}` is escaped as `\\,` inside the Go tag, as the neighbouring `Name` pattern does. Do not write `Tags` without the escape.
 
-**Items:** 24
+**Items:** 70, 24
 
 **Depends on:** none
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -3275,6 +3291,8 @@ Read, do not edit: `internal/modules/docker/deps.go`, `store.go`, `preflight.go`
 - What the test host does, for every task that builds on it: `newTSHost` starts a logged-in tailscaled 1.104.1 (`BackendState` Running, address 100.64.0.7, `Self` set, `Prefs` with `WantRunning` and `CorpDNS` true), Ubuntu 24.04 (noble) on amd64, the tailscale package installed at 1.104.1 in `reads["/var/lib/dpkg/status"]`, `tailscaled.service` active and `darkpanel-controller.service` not found, interfaces `lo`, `eth0` and `tailscale0`, no sockets and no routes, and the clock at 2026-10-31 12:00 UTC. `Run` records every vector in `ran`, then refuses any vector the production exec allowlist (`platform.ProductionRules`) does not admit, then answers the next scripted result of that vector (exit 0 and no output when none is left). `WriteFile`, `Remove`, `WriteManaged`, `RemoveManaged` and `Owns` accept only module `tailscale` and only what `ownedPaths()` declares (the two files, and names matching the managed-dir pattern in `debDir`); every other `FileWriter` method returns an error. `deps.readFile` answers `reads` first, then what `Files` wrote, then `fs.ErrNotExist`. `tsUnits` allows `State` of both declared units and `Restart` of `tailscaled.service` only. The default `deps.stun` and `deps.https` answer an error until a test replaces them on the `ts` value that `h.ts()` returns.
 
 **Depends on:** Task 1
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -5365,6 +5383,8 @@ Read, do not edit: `internal/controller/listen/tailscale.go` (`LoadTailscaleAddr
 **Items:** 24
 
 **Depends on:** Task 2, Task 7
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -5829,6 +5849,8 @@ Read, do not edit: `internal/modules/tailnet/authkey.go` (`normalizeAuthKey`, `a
 **Items:** 24
 
 **Depends on:** Task 7
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -6281,9 +6303,11 @@ Read-only context: `web/src/modules/registry.ts` and `web/src/modules/types.ts` 
 - Consumes: Contracts "Core host join (from Task 7)": the `core.host.create` input members `tailnetJoin` (boolean) and `tags` (array of strings) and the grant member `bundle` (string, secret, set only when `tailnetJoin` was asked; `token` keeps the plain token).
 - Produces: Contracts "Web: host create (from Task 11)". `host-create.tsx` default-exports `TailnetHostCreate({ value, onChange })` (the `HostCreateExtension` component props of `web/src/modules/types.ts`); it calls `onChange({ tailnetJoin: true, tags })` with `tags` a `string[]` (possibly empty), or `onChange({})` when the box is unchecked. `create-host-dialog.tsx` keeps its exports (`CreateHostDialog`) and shows the grant's `bundle`, when it is a non-empty string, in place of the token.
 
-**Items:** 2026-10-21-v1-completion#24
+**Items:** 24
 
 **Depends on:** Task 7
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 1 = 5
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -6483,9 +6507,11 @@ Read-only context for conventions: `web/src/modules/docker/containers-tab.tsx` a
 - Consumes: Contracts "Web: tailscale (Tasks 5, 12, 13, 19)": `TAILSCALE_MODULE`, the types `TailscaleStatus`, `TailscaleNode`, `TailscalePeer`, `TailscaleLatency`, `RegionLatency`, `Measurement` and the guards `isTailscaleStatus`, `isTailscaleLatency`, all from `web/src/modules/tailscale/types.ts`; the field names are those of Contracts "Tailscale wire shapes" (`backendState`, `self`, `magicDNSSuffix`, `preferredDerp`, `runSSH`, `peers`, `health`, `regions`, `stun`, `https`, `medianMs`, `reason`, `lastHandshake`, ...). The resources are read with `readResource` from `web/src/api/client.ts` (`GET /api/v1/hosts/<host>/resources/tailscale/status` and `.../latency`), under the query keys `["resource", hostId, "tailscale.status"]` and `["resource", hostId, "tailscale.latency"]` (the convention of `dockerKey` and the firewall's `statusQueryKey`, so `TailscaleChange` invalidating `["resource", hostId]` refreshes them).
 - Produces: Contracts "Web: tailscale": `StatusPanel({ hostId })` in `status-panel.tsx`, `PeersTable({ peers })` in `peers-table.tsx` (`peers: TailscalePeer[]`), `LatencyPanel({ hostId })` in `latency-panel.tsx`, each a named export. Task 19 composes them.
 
-**Items:** 2026-10-21-v1-completion#20
+**Items:** 20
 
 **Depends on:** Task 5
+**Implementer:** dforge:impl-sonnet-medium
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 0 = 4
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -6811,9 +6837,11 @@ Read-only context for conventions: `web/src/modules/firewall/state-controls.tsx`
 - Consumes: Contracts "Web: tailscale": from `web/src/modules/tailscale/types.ts` `TailscaleStatus`, `TailscalePeer` and `PrefsFields` (the mirror of Contracts "Tailscale wire shapes": optional `wantRunning`, `advertiseRoutes` (string[]), `exitNode`, `advertiseExitNode`, `acceptRoutes`, `shieldsUp`, `runSSH`); from `tailscale-change.tsx` `TailscaleChange({ hostId, action, title, input, onClose })` (`input: Record<string, unknown> | null`, null keeps the dialog closed; for `tailscale.prefs.set` it already asks for the revert timeout). The action names and input members are those of Contracts "Tailscale wire shapes": `tailscale.prefs.set` (`PrefsFields` members), `tailscale.node.login` (`authKey`, `hostname`, `advertiseTags`, `relogin`), `tailscale.node.logout` (no input), `tailscale.package.install` and `tailscale.package.update` (no input).
 - Produces: Contracts "Web: tailscale": `PrefsForm({ hostId, status, prefs })` with `prefs: PrefsFields` (the node's current preferences; a member left out is unknown and is taken from `status`), `NodeControls({ hostId, status })` and `PackagePanel({ hostId, available })` with `available: boolean`, each a named export. Task 19 composes them.
 
-**Items:** 2026-10-21-v1-completion#21
+**Items:** 21
 
 **Depends on:** Task 5
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 1 = 5
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -7212,7 +7240,11 @@ Read, do not edit: `internal/platform/tslocal/client.go` (`Status`, `PeerStatus`
 - Consumes: Contracts "Tailscale wire shapes" (`Status`, `Node`, `Peer`, `PrefsFields`), "Tailscale internals" (`ts`, `deps.local`, `localAPI`), "Tailscale test host" (`newTSHost`, `h.ts()`, `h.env`, `h.local`, `thHostname`); `tslocal.Status`, `tslocal.PeerStatus`, `tslocal.Prefs`, `tslocal.ErrUnavailable`; `errcode.TailscaleUnavailable`; `core.DefineResource`.
 - Produces: Contracts "Tailscale constructors" row `func (t ts) statusResource() core.ResourceDef` (declares `tailscale.status`), and Contracts "Tailscale preferences" `func prefsFieldsOf(p *tslocal.Prefs) PrefsFields`, which Tasks 21, 22, 27 and 28 call. Private beyond the Contracts, in `status.go`: the read method `func (t ts) statusRead(ctx context.Context, env core.Env) (Status, error)`, `statusNode(p *tslocal.PeerStatus, fallback []netip.Addr) Node`, `statusPeer(p *tslocal.PeerStatus) Peer` and `statusLocalErr(ctx context.Context, err error) error`.
 
+**Items:** 20
+
 **Depends on:** Task 8
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
 
 The test prefix is `st`. The resource is a pure read of tailscaled's local API through the fake of Task 8: no file, command or journal is touched, and no test waits on a clock.
 
@@ -7619,7 +7651,11 @@ Read, do not edit: `internal/platform/tslocal/derp.go` (`DERPMap`, `DERPRegion`,
 - Consumes: Contracts "Tailscale wire shapes" (`Latency`, `RegionLatency`, `Measurement`), "Tailscale internals" (`ts`, `deps.local`, `deps.stun`, `deps.https`), "Tailscale test host" (`newTSHost`, `h.ts()`, `h.env`, `h.local.DERP`, `h.local.Errs`), "STUN client" (the signature of `deps.stun` is `stun.Probe`'s); `tslocal.DERPMap`, `tslocal.DERPRegion`, `tslocal.DERPNode`; `errcode.TailscaleUnavailable`; `core.DefineResource`.
 - Produces: Contracts "Tailscale constructors" row `func (t ts) latencyResource() core.ResourceDef` (declares `tailscale.latency`). Private, in `latency.go`: `latencyRead`, `latencyStunServers(r *tslocal.DERPRegion) []netip.AddrPort`, `latencyProbeURLs(r *tslocal.DERPRegion) []string`, `latencyMedian(d []time.Duration) time.Duration` and the generic `latencyMeasure`, all named so no other task of the package declares them.
 
+**Items:** 20
+
 **Depends on:** Task 3, Task 8
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 1 = 5
 
 The test prefix is `lt`. No test reaches a network: `deps.stun` and `deps.https` are replaced by a fake that answers from a script. The scripts are instant, so no test needs the fake clock; the one test that proves regions are probed together waits on a channel and gives up after five seconds of real time only when the code under test is wrong.
 
@@ -8111,7 +8147,11 @@ Read, do not edit: `internal/core/define.go` (`DefineInternalRead`, `Revealed`),
 - Consumes: Contracts "Tailscale wire shapes" (`CertGetInput`, `CertPair`, whose `KeyPEM` carries `secret:"true"`), "Tailscale internals" (`ts`, `deps.local`, `localAPI.Status`, `localAPI.CertPair`), "Tailscale test host" (`newTSHost`, `h.ts()`, `h.env`, `h.local.Status`, `h.local.Cert`, `h.local.CertCalls`, `h.local.Errs`); `core.DefineInternalRead`, `core.Revealed`, `core.ActionSpec`; `tslocal.Status.CertDomains`; `errcode.TailscaleUnavailable`.
 - Produces: Contracts "Tailscale constructors" row `func (t ts) certGet() core.ActionDef` (declares `tailscale.cert.get/v1`), the internal read the controller's certificate source dispatches (Contracts "Listen certificate source"). Private, in `cert_get.go`: `func (t ts) certRead(ctx context.Context, env core.Env, in CertGetInput) (core.Revealed[CertPair], error)`.
 
+**Items:** 60
+
 **Depends on:** Task 8
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 2 = 6
 
 The test prefix is `ce`. The tests generate certificates with the standard library (ECDSA P-256, self-signed), so no file or network is used, and no command runs. Per Task 31's registration table the action declares no `MinScope`, no lock, no guard and no `Available`: it reports an unreachable tailscaled from its own handler.
 
@@ -8397,6 +8437,8 @@ git commit -m "feat(tailscale): add cert.get internal read"
 - Produces: Contracts "Tailscale shared plan helpers": `func (t ts) linkGuard(ctx context.Context, env core.Env, in core.Guarded, cur link.Prefs, c link.Change) (core.Guard, error)` and `func (t ts) currentLinkPrefs(ctx context.Context) (link.Prefs, *tslocal.Prefs, error)`, read by Tasks 21, 22 and 27. This task adds no method to `linkHost` and touches no file of Task 8; the unexported names it declares all start with `link` (`linkInternet4`, `linkInternet6`, `linkTailnet4`, `linkTailnet6`, `linkSSHComms`, `linkRaw`, `linkFacts` and the helpers named in Step 3), so no other task of the package collides with them.
 
 **Depends on:** Task 4, Task 8
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 The guard is the agent's half of spec 4.1's `tailscale.link` guard: it reads this host's protected flows, decides for each which interface the kernel routes it through, and hands them to the pure rules of Task 4. It never calls the local API for flows (the local API lists none) and never changes the host.
 
@@ -8963,7 +9005,11 @@ git commit -m "feat(tailscale): add the link guard's host facts"
 - Consumes: Contracts "Tailnet enroll keys" (Tasks 10, 18): the `tailnet_keys` rows of kind `enroll` that Task 10's `prepareJoin` writes (owner the host id, description `darkpanel-enroll-<host id>`, expiry 3600 s). Existing: `setKeyState`, `insertKey`, `loadKey`, `keyRow`, `formatStoreTime`, `parseStoreTime` (`store.go`), `swSetup`, `swFix`, `tnWith`, `newTNHost` (existing tests), `core_hosts` and `core_enroll_tokens` of the controller database (`internal/core/store/migrations/controller/0001_core.sql`, `0005_fleet.sql`), `core.HostEnrolled`.
 - Produces: `func settleEnrollKeys(ctx context.Context, db *store.DB, now time.Time) error` (Contracts "Tailnet enroll keys"); `keysweep.go`'s `sweep` calls it first in every pass.
 
+**Items:** 24
+
 **Depends on:** Task 10
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 2 = 6
 
 Spec 4.2 step 3: an enroll key whose host enrolled is `used` and nothing is deleted; one whose token expired unused, or whose host was deleted, is `retired` and the sweep deletes the key by description. The fleet code has no tailnet knowledge (ruling in Assumptions): the sweep reads `core_hosts` and `core_enroll_tokens` itself, at most five minutes late.
 
@@ -9255,6 +9301,8 @@ git commit -m "feat(tailnet): settle enroll keys in the sweep"
 - Produces: `TailscalePage({hostId})` (Contracts "Web: tailscale") and the module's route bundle (`export default function TailscaleRoutes({hostId}: ModuleRouteProps)`), which `web/src/modules/registry.ts` already loads lazily. Frozen files (`registry.ts`, `types.ts` of the registry, `app.tsx`) and `registry.test.tsx` are not edited.
 
 **Depends on:** Task 12, Task 13
+**Implementer:** dforge:impl-sonnet-medium
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 0 = 4
 
 `/hosts/:hostId/tailscale` (spec 4.1 Web): status, peers, latency, preferences, and install or update, plus the "Join tailnet" button that applies `tailnet.node.join` (spec 4.2 step 5) when the host is not on a tailnet. The page reads the status once and gives the panels what they need; the panels, which have their own tests, are mocked here so this test pins only what the page decides.
 
@@ -9476,6 +9524,8 @@ git commit -m "feat(web): add the Tailscale host page"
 - Produces: Contracts "Tailscale shared plan helpers": `func (t ts) repoFiles() (keyring, sources []byte, err error)`, `func (t ts) ensureRepo(ctx context.Context, env core.Env) (written []string, err error)`, `func aptInstall(ctx context.Context, env core.Env) error` (Task 26's `Join` calls `ensureRepo` and `aptInstall`); the action constructor `func (t ts) packageInstall() core.ActionDef` (the docker module's naming: the action name without its module, in camel case), which Task 31 registers; the effect resources `tailscale.package:tailscale` and `tailscale.file:<path>`. `ensureRepo` journals the files it writes only when `env.Effects` is not nil, so the installer, which has no change, can call it. New unexported names: `repoKeyring`, `keyringFingerprint`, `keyringFingerprints`, `repoFileResource`, `repoFileNoun`, `repoFile`, `repoStatus`, `repoFileDoc`, `repoCodenames`, `packageInstallHandler`, `packageInstallTimeout`, `installPackageResource`, `installPackageDoc`.
 
 **Depends on:** Task 8
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 `tailscale.package.install` (spec 4.1): a compensable task action. It writes Tailscale's apt keyring and source list when absent, runs `apt-get` APT-1 then APT-2, and refuses a host that has the package (`tailscale.package_present`). Its undo removes the package it installed, and the repository files it wrote, and nothing else. No test here runs `apt-get`, `dpkg`, `systemctl` or touches `/etc` or `/usr/share`: every host effect goes through the test host's fakes.
 
@@ -10255,7 +10305,11 @@ git commit -m "feat(tailscale): add package.install action"
 - Consumes: Contracts "Tailscale wire shapes" (`PrefsFields`, `PrefsSetInput`, `PrefsResult`, and the action-spec row of `tailscale.prefs.set`); "Tailscale internals" (`ts`, `deps.local`, `localAPI`, `lockKey`, `ts.available`); "Tailscale test host" (`newTSHost`, `tsHost`, `tsLocal`, `tsUnits`, `tsJournal`); "Tailscale shared plan helpers" (`ts.linkGuard`, `ts.currentLinkPrefs`); "Tailscale preferences" (`prefsFieldsOf`, written by Task 14 in `status.go`); "Link guard rules" (`link.GuardID`, `link.Prefs`, `link.Change`, `link.IsTailscaleAddr`); `core.DefineRevertible`, `core.Reverter`, `core.Observer`, `core.RevertOutcome` (`internal/core/contract.go`, `define.go`); `tslocal.Prefs`, `tslocal.PrefsPatch`, `tslocal.APIError` and `tslocal.ErrUnavailable` (`internal/platform/tslocal/client.go`).
 - Produces: `func (t ts) prefsSet() core.ActionDef`, the constructor of `tailscale.prefs.set/v1`. Task 31 adds it to `Manifest().Actions`; this task does not edit `tailscale.go`. Contracts "Tailscale preferences": `prefsEffectResource`, `prefsCommitWait`, `prefsSetPick`, `prefsSetNormalize`, `prefsSetPatch`, `prefsSetLinkAfter` and `prefsSetHandler` with its `Revert` and `Observe`, which Task 27 calls. The other package-level helpers of `prefs_set.go` are named with the prefix `prefsSet` (`prefsSetState`, `prefsSetSame`, `prefsSetRefusal`) and are not Contracts.
 
+**Items:** 21
+
 **Depends on:** Task 14, Task 17
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 The tests are module-private and use only the fakes of Contracts "Tailscale test host"; nothing here touches tailscaled, apt or systemd on this host. Helpers `pfSetup`, `pfEffects` and `pfSame` are declared by this task's test file only; the test files of Tasks 22 and 23 declare their own.
 
@@ -10820,7 +10874,11 @@ git commit -m "feat(tailscale): add prefs.set action"
 - Consumes: Contracts "Tailscale wire shapes" (`LoginInput`, `LoginResult`, `LogoutInput`, `LogoutResult`, and the action-spec rows of `tailscale.node.login` and `tailscale.node.logout`); "Tailscale internals" (`ts`, `deps.local`, `deps.hostname`, `localAPI`, `lockKey`, `ts.available`); "Tailscale test host" (`newTSHost`, `tsHost`, `tsLocal`, `tsUnits`, `tsJournal`); "Tailscale shared plan helpers" (`ts.linkGuard`, `ts.currentLinkPrefs`); "Link guard rules" (`link.GuardID`, `link.Change` with Kind `prefs`, `relogin` and `logout`); `core.DefineMutating`, `core.Undoer`, `core.Observer` (`internal/core/contract.go`); `tslocal.Status`, `tslocal.StartOptions`, `tslocal.Prefs`, `tslocal.APIError`, `tslocal.ErrUnavailable`.
 - Produces: `func (t ts) nodeLogin() core.ActionDef` (`tailscale.node.login/v1`) and `func (t ts) nodeLogout() core.ActionDef` (`tailscale.node.logout/v1`). Task 31 adds both to `Manifest().Actions`; this task does not edit `tailscale.go`. Every package-level identifier these files add is named with the prefix `nodeLogin` or `nodeLogout` (`nodeLoginLoggedIn`, `nodeLoginSettled`, `nodeLoginDoc`, `nodeLoginFlagDoc`, `nodeLoginSelfName`, `nodeLoginRefusal`, `nodeLoginValidate`, `nodeLoginHandler`, `nodeLogoutHandler` and the constants); they are not Contracts.
 
+**Items:** 21
+
 **Depends on:** Task 17
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 2 = 6
 
 The tests are module-private and use only the fakes of Contracts "Tailscale test host"; nothing here talks to a tailscaled socket or runs `tailscale` on this host. Helpers `liSetup`, `liEffects`, `liSame` and the `liFlow` wrapper are declared by this task's test file only.
 
@@ -11495,7 +11553,11 @@ git commit -m "feat(tailscale): add node login and logout"
 - Consumes: Contracts "Tailscale wire shapes" (`PackageUpdateInput`, `PackageUpdated`, and the action-spec row of `tailscale.package.update`); "Tailscale internals" (`ts`, `deps.hostname`, `deps.osRelease`, `deps.arch`, `deps.readFile`, `lockKey`, `keyringPath`, `sourcesPath`, `ts.available`, `ts.installedVersion`, `ts.held`); "Tailscale test host" (`newTSHost`, `tsHost`, `tsRun`, `h.script`, `h.ran`, `h.reads`, `h.files`); "Tailscale shared plan helpers" (`ts.repoFiles`, `ts.ensureRepo`, `aptInstall`); `core.DefineTask`, `core.TaskMutator` (`internal/core/contract.go`, `define.go`); `platform.AptUpdateTailscale` and `platform.AptInstallTailscale` (`internal/platform/exec_rules.go`).
 - Produces: `func (t ts) packageUpdate() core.ActionDef`, the constructor of `tailscale.package.update/v1`. Task 31 adds it to `Manifest().Actions`; this task does not edit `tailscale.go`. The handler type is `packageUpdateHandler`; no other package-level identifier is added.
 
+**Items:** 21
+
 **Depends on:** Task 20
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 2 = 6
 
 The tests are module-private and use only the fakes of Contracts "Tailscale test host"; no test runs `apt-get`, `apt-mark` or `dpkg` on this host or writes under `/etc/apt` or `/usr/share/keyrings`. The `pu` helpers (`puStatus`, `puSetup`, `puRunner`, `puEnv`, `puVector`) are declared by this task's test file only. `puRunner` stands for apt-get: when the install vector succeeds it rewrites dpkg's status file in the host fake, because the host fake does not.
 
@@ -11839,6 +11901,8 @@ git commit -m "feat(tailscale): add package.update action"
 **Items:** 21
 
 **Depends on:** Task 20
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 3 = 8
 
 `tailscale.package.pin` (spec 4.1) installs exactly `tailscale=<version>` and holds it, as an agent-local transaction that rolls itself back when the node does not come back. This task writes the forward phases, the rollback, the plan, the verification and the production reader of the agent's controller session; Task 29 adds the undo and recovery handlers to the same handler type. The real engine refuses `Intend` for an action without an `Observe`, and the registry refuses a compensable action without an undo handler, so this action is not registered until Tasks 29 and 31; this task's tests call the handler directly with the module's fake journal. No test runs `apt-get`, `apt-mark`, `dpkg` or `systemctl`, writes under `/etc`, `/usr/share` or `/var/lib/darkpanel`, or touches the agent socket at `/run/darkpanel-agent`: every host effect goes through the test host, and the session reader is tested with `paths.Under` of a temporary directory.
 
@@ -12834,7 +12898,7 @@ Decisions this task embodies. The pin changes the package under a running node t
 1. `deps.go`: add to `deps` the field `session func(ctx context.Context) (up, viaTailnet bool, err error)`, with a comment that it is the agent's controller session as the pin's transient unit sees it, from outside the agent process; `productionTS` sets `session: agentSession`. `TestPnProductionTSWiresTheSession` pins this.
 2. `pin_session.go`:
    - `const pinTxProbe = 5 * time.Second`, the bound of every single probe of tailscaled or of the session.
-   - `func agentSession(ctx context.Context) (up, viaTailnet bool, err error)` is `sessionAt(ctx, paths.Production())`. (Contracts "Tailscale pin" writes `paths.Default()`, which does not exist in `internal/paths`; `paths.Production()` is the layout of an installed host and is what the transient unit runs on.)
+   - `func agentSession(ctx context.Context) (up, viaTailnet bool, err error)` is `sessionAt(ctx, paths.Production())`. (`paths.Production()` is the layout of an installed host, which is what the transient unit runs on.)
    - `func sessionAt(ctx context.Context, p paths.Paths) (up, viaTailnet bool, err error)`: `daemon.LoadCredentials(p.AgentTLSDir)`; `daemon.ErrNotEnrolled` (use `errors.Is`) gives `false, false, nil`; any other error is returned wrapped as `tailscale: read the agent credentials: %w` with both flags false. `viaTailnet` is `link.IsTailscaleAddr` of the host part of `Controller.Address` (split with `net.SplitHostPort`) when that host parses as an IP address with `netip.ParseAddr`, else false. Then, under a context bounded by `pinTxProbe`, build `api.NewClient(api.ClientConfig{Dial: ...})` whose dial is a `net.Dialer` `DialContext` of network `unix` and address `p.AgentSocket`, with no `Controller` set, and call `Hello`. A `Hello` error is returned wrapped as `tailscale: ask the agent about its controller session: %w` with `up` false and `viaTailnet` as computed. `up` is `ControllerConnected != nil && *ControllerConnected`.
 3. `package_pin.go`: constants `pinTxResource = "tailscale.package:tailscale"`, `pinTxArchive = "/var/cache/apt/archives"` and `pinTxPoll = 2 * time.Second`; two regular expressions: the version pattern `^[0-9][0-9A-Za-z.+~-]{0,63}$` and the staged-name stem pattern `^[a-z0-9][a-z0-9._-]{0,63}$`, which is the pattern the exec allowlist applies to the part before `.deb` of an APT-5 package path (`aptDebStemPattern` in `internal/platform/exec_rules.go`, unexported, so repeated here); `type packagePinHandler struct{ t ts }` with value receivers throughout.
 4. `func (t ts) packagePin() core.ActionDef` is `core.DefineTask[PinInput, Pinned]` with `ActionSpec{Name: "tailscale.package.pin", Summary: <one sentence>, Version: 1, Class: core.ClassCompensable, Side: core.SideAgent, LockKeys: []string{lockKey}, ApplyTimeout: 20 * time.Minute, Available: t.available}`, no guards, and `packagePinHandler{t}`. `DefineTask` sets `Task` and `LongRunning`.
@@ -12888,6 +12952,8 @@ git commit -m "feat(tailscale): add package.pin transaction"
 **Items:** 21
 
 **Depends on:** Task 20
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 2 = 6
 
 `darkpanel uninstall` runs each module's `Uninstaller` before it removes the module's files (spec 1.11). The tailscale module declares one option, `package` (`keep` or `remove`, default `keep`), and with `remove` takes out the tailscale package only if Darkpanel installed it, which `tailscale_installs` (written by `tailscale.package.install` and by Task 26's `Join`) records. By default an uninstall therefore never removes a tailscaled the owner installed, and never cuts a tailnet SSH session. No test runs `apt-get` or `apt-mark` on this host: every command goes through the test host, which also refuses what the production allowlist does not admit.
 
@@ -13165,6 +13231,8 @@ git commit -m "feat(tailscale): add uninstall step"
 **Items:** 24
 
 **Depends on:** Task 20
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 Spec 4.2 step 4: `install.sh --role agent` and `darkpanel system install --role agent`, given a `dpb2.` bundle, install tailscale (the same code as `tailscale.package.install`), log in through the local API with the bundle's key, wait up to 60 s for a tailnet address, and then enroll over the tailnet. `Join` is the module's part of that: it runs in the installer, before the agent has ever started, so it has no change, no journal and no unit client; it takes its providers from `JoinDeps`. The tests are module-private and use the test host's fakes plus a fake tailscaled (`jnLocal`) that answers `Status` as a node that is down, logged out, starting or running; the wait runs on the host's fake clock. No test runs `apt-get` or `tailscaled` on this host, writes under `/etc` or `/usr/share`, or talks to the host's tailscaled socket: `TestJnJoinOverTheSocket` serves a Unix socket of its own in a temporary directory, and `Join` itself is called only with arguments that are refused before anything runs.
 
@@ -13712,6 +13780,8 @@ git commit -m "feat(tailscale): add installer join entry point"
 **Items:** 21
 
 **Depends on:** Task 21
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 2 = 6
 
 `tailscale.prefs.repair` is the repair action of a `tailscale.prefs.set` whose revert failed (spec 4.1) and of itself. The tests are module-private and use only the fakes of Contracts "Tailscale test host"; nothing here touches tailscaled, apt or systemd on this host. The repaired change is stored as the engine would leave it, with a row pair in `core_plans` and `core_changes` whose snapshot is sealed with `coretest.Sealer{}` (the sealer `h.env` hands to the module). The helpers `prSetup`, `prSeed`, `prSeedAD`, `prSeedSet`, `prEnv`, `prEffects`, `prSame` and the type `prStale` are declared by this task's test file only.
 
@@ -14298,6 +14368,8 @@ git commit -m "feat(tailscale): add prefs.repair action"
 **Items:** 21
 
 **Depends on:** Task 24
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 2 = 6
 
 `tailscale.package.unpin` (spec 4.1) takes no input and reverses the newest pin in phase `done` that is not yet unpinned (`activePin`): it restores the hold state the pin recorded (`prior_held`) and leaves the installed version alone. With no such pin it plans an empty diff and applies as a no-op, which is what `Converges` requires of the forward composite `derp.server.remove`. Its undo re-holds. The tests are module-private and use only the fakes of Contracts "Tailscale test host"; no test runs `apt-mark` on this host. The helpers `upRunner`, `upSetup`, `upEnv`, `upPin`, `upAdd`, `upLoad`, `upHolds` and `upSame` are declared by this task's test file only. `upRunner` stands for apt-mark: it keeps the hold state in a boolean the test owns and runs every vector through the host fake, which records it and checks it against the production exec allowlist.
 
@@ -14792,6 +14864,8 @@ git commit -m "feat(tailscale): add package.unpin action"
 **Items:** 21
 
 **Depends on:** Task 24
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 3 = 7
 
 The engine calls `Recover` only once the apply unit has ended (spec 1.3c), so `Recover` decides by the pin row's phase alone. The engine settles the pin's effect itself through `Observe` after `Recover` returns, so `Recover` journals nothing. The tests are module-private and use only the fakes of Contracts "Tailscale test host"; no test runs `apt-get`, `apt-mark` or `dpkg` on this host. The helpers `rbRunner`, `rbSetup`, `rbStaged`, `rbPin`, `rbAdd`, `rbDef`, `rbSteps` and `rbSame` are declared by this task's test file only. `rbRunner` stands for apt-mark and apt-get: it keeps the hold state in a boolean the test owns and, when the install of the staged package succeeds, rewrites dpkg's status file in the host fake to the prior version, because the host fake does not.
 
@@ -15231,6 +15305,8 @@ Read, do not edit: `internal/transport/token.go` (`ParseBootstrap`, `Bundle`), `
 **Items:** 24
 
 **Depends on:** Task 2, Task 26
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 The bundle is a one-use bearer secret: nothing in this task prints it, the token inside it or the tailnet key, and a refused bundle's error carries only the parser's own detail. No test of this task runs `tailscale.Join`, `apt-get` or `tailscale`; the join is a fake in `internal/install` and a replaced `joinTailnet` in `cmd/darkpanel`. At run time `installTailnet` needs the tailscale module's manifest (its owned paths and its agent migrations), which Task 31 registers; Task 30 ships before it, so the tests stand on the seams.
 
@@ -15662,6 +15738,8 @@ git commit -m "feat(install): join the tailnet from a bundle"
 - Produces: `Module().Manifest()` declaring the nine actions of the table, the two resources `tailscale.status` and `tailscale.latency`, the OS preflight, the owned paths, the external units and the agent migrations; the eleven schema snapshots. Task 32 builds a registry from this module, and Tasks 33-35 call these actions through the controller API.
 
 **Depends on:** Task 14, Task 15, Task 16, Task 20, Task 21, Task 22, Task 23, Task 24, Task 25, Task 27, Task 28, Task 29
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 1 = 6
 
 - [ ] **Step 1: Write the failing test**
 
@@ -16020,7 +16098,11 @@ type NodeJoined struct {
 }
 ```
 
+**Items:** 24
+
 **Depends on:** Task 10, Task 31
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 1 = 6
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -16293,6 +16375,8 @@ func m5Status(t *testing.T, v *vm.VM) tailscale.Status
   Also produced, for Task 34 to reuse: `m5ReadStatus`, `m5HostPrefs`, `m5PlanLink` and `m5Lookup` (below).
 
 **Depends on:** Task 31
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 1 = 5
 
 The scenarios of `m5_test.go` need KVM virtual machines, so they run only in the harness workflow (Task 35 adds the `vm-m5` job; gate 7 covers them). On this host the task compiles them, runs the VM-free unit tests, and sees `TestM5Node` skip. Never pass `-os`, `-m2` or `-m5` here.
 
@@ -16918,6 +17002,8 @@ git commit -m "test(harness): add TestM5Node node scenarios"
 **Items:** 21
 
 **Depends on:** Task 33
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 1 = 5
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -17312,6 +17398,8 @@ git commit -m "test(harness): roll back a pin with the link cut"
 **Items:** 251
 
 **Depends on:** Task 34
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 1 = 5
 
 - [ ] **Step 1: Write the failing tests**
 
