@@ -203,6 +203,7 @@ func TestACPlanRefusals(t *testing.T) {
 	}{
 		{"empty tailnet", func(in *ConnectInput) { in.Tailnet = "" }, errcode.InvalidInput, "/tailnet"},
 		{"tailnet with a slash", func(in *ConnectInput) { in.Tailnet = "a/b" }, errcode.InvalidInput, "/tailnet"},
+		{"tailnet of dots only", func(in *ConnectInput) { in.Tailnet = ".." }, errcode.InvalidInput, "/tailnet"},
 		{"empty client id", func(in *ConnectInput) { in.ClientID = "" }, errcode.InvalidInput, "/clientId"},
 		{"empty client secret", func(in *ConnectInput) { in.ClientSecret = "" }, errcode.InvalidInput, "/clientSecret"},
 		{"no tags", func(in *ConnectInput) { in.TagsAllowed = nil }, errcode.InvalidInput, "/tagsAllowed"},

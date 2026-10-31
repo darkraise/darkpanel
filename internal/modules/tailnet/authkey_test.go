@@ -294,6 +294,24 @@ func TestAkApplyUncertainLeavesTheEffectOpen(t *testing.T) {
 	}
 }
 
+func TestAkApplyAnswerWithoutTheSecretIsUncertain(t *testing.T) {
+	e := akSetup(t)
+	e.srv.Cloud().Fail(http.MethodPost, akKeysPath, cloudfake.Fault{
+		Status: http.StatusOK,
+		Body:   `{"id":"k-nosecret","key":"","expires":"2026-11-01T00:00:00Z","description":"darkpanel-` + akChange + `"}`,
+	})
+	_, err := akApply(t, e, akChange, AuthKeyInput{Tags: []string{"tag:ci"}})
+	if got := akCode(t, err); got != errcode.CloudUncertainOutcome || core.IsDefinite(err) {
+		t.Fatalf("apply error %v (definite %v), want an uncertain outcome", err, core.IsDefinite(err))
+	}
+	if eff := akOnly(t, e); eff.State != core.EffectIntended {
+		t.Errorf("effect %s, want it left intended", eff.State)
+	}
+	if r := akRow(t, e, "darkpanel-"+akChange); r.State != "uncertain" {
+		t.Errorf("row %+v, want uncertain so the sweep deletes the key", r)
+	}
+}
+
 func TestAkApplyAnswerWithoutKeyIDIsUncertain(t *testing.T) {
 	e := akSetup(t)
 	e.srv.Cloud().Fail(http.MethodPost, akKeysPath, cloudfake.Fault{

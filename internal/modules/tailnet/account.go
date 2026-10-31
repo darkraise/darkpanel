@@ -108,8 +108,8 @@ func accountView(a account) AccountView {
 func checkConnect(in ConnectInput) (ConnectInput, error) {
 	var fields []errcode.FieldError
 	bad := func(path, msg string) { fields = append(fields, errcode.FieldError{Path: path, Message: msg}) }
-	if !accountTailnetPattern.MatchString(in.Tailnet) {
-		bad("/tailnet", "the tailnet name holds 1 to 253 letters, digits, '.', '_', '@' or '-'")
+	if !accountTailnetPattern.MatchString(in.Tailnet) || strings.Trim(in.Tailnet, ".") == "" {
+		bad("/tailnet", "the tailnet name holds 1 to 253 letters, digits, '.', '_', '@' or '-', not only dots")
 	}
 	if in.ClientID == "" {
 		bad("/clientId", "the OAuth client id is required")
