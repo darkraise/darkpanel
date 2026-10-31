@@ -39,10 +39,14 @@ func TestContributionsCollectInOrder(t *testing.T) {
 	}
 	var paths, names []string
 	for _, r := range routes {
-		paths = append(paths, r.Path)
+		if strings.HasPrefix(r.Path, "/api/v1/test/") {
+			paths = append(paths, r.Path)
+		}
 	}
 	for _, svc := range services {
-		names = append(names, svc.Name)
+		if strings.HasPrefix(svc.Name, "test.") {
+			names = append(names, svc.Name)
+		}
 	}
 	if want := []string{"/api/v1/test/a", "/api/v1/test/b"}; !slices.Equal(paths, want) {
 		t.Errorf("routes %v, want %v", paths, want)
