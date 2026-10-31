@@ -40,7 +40,7 @@ type AccountGetInput struct{}
 // AccountStatus is the output of tailnet.account.get.
 type AccountStatus struct {
 	Connected bool         `json:"connected"`
-	Account   *AccountView `json:"account,omitempty"`
+	Account   *AccountView `json:"account,omitempty" jsonschema:"nullable"`
 }
 
 // DeviceListInput is the input of tailnet.device.list.
