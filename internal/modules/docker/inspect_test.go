@@ -107,15 +107,14 @@ const rdWebDetail = `{
 
 func rdExpectedDetail(owner string) string {
 	s := strings.NewReplacer("%ID%", dkID("web"), "%APP%", dkID("app"), "%BRIDGE%", dkID("bridge")).Replace(rdWebDetail)
+	// Owned or not, only the program and the listed labels are shown.
+	s = strings.Replace(s, `"cmd": ["nginx", "-g", "daemon off;"]`, `"cmd": ["nginx", "[redacted]", "[redacted]"]`, 1)
+	s = strings.Replace(s, `"tier": "front"`, `"tier": "[redacted]"`, 1)
 	if owner != "" {
 		s = strings.Replace(s, `"service": "web"`, `"service": "web", "owner": "`+owner+`"`, 1)
-		s = strings.Replace(s, `"tier": "front"`, `"tier": "front", "darkpanel.module": "`+owner+`"`, 1)
-		return s
+		s = strings.Replace(s, `"tier": "[redacted]"`, `"tier": "[redacted]", "darkpanel.module": "`+owner+`"`, 1)
 	}
-	// Darkpanel does not own the container, so only the program and the
-	// Compose labels are shown.
-	s = strings.Replace(s, `"cmd": ["nginx", "-g", "daemon off;"]`, `"cmd": ["nginx", "[redacted]", "[redacted]"]`, 1)
-	return strings.Replace(s, `"tier": "front"`, `"tier": "[redacted]"`, 1)
+	return s
 }
 
 func TestRdInspectReportsTheContainer(t *testing.T) {
@@ -275,20 +274,24 @@ func TestRdRedactLabels(t *testing.T) {
 		"traefik.http.middlewares.auth.basicauth.users": "admin:$apr1$x$y",
 		"com.example.dsn":                  "mysql://root:hunter2@db/app",
 		"com.docker.compose.project":       "shop",
+		"com.docker.compose.extra":         "x1",
+		core.LabelModule:                   "npm",
+		core.LabelModule + ".secret":       "x2",
 		"org.opencontainers.image.authors": "Jane",
+		"org.opencontainers.image.secret":  "x3",
 	}
 	want := map[string]string{
 		"traefik.http.middlewares.auth.basicauth.users": "[redacted]",
 		"com.example.dsn":                  "[redacted]",
 		"com.docker.compose.project":       "shop",
+		"com.docker.compose.extra":         "[redacted]",
+		core.LabelModule:                   "npm",
+		core.LabelModule + ".secret":       "[redacted]",
 		"org.opencontainers.image.authors": "Jane",
+		"org.opencontainers.image.secret":  "[redacted]",
 	}
 	if got := redactLabels(labels); !reflect.DeepEqual(got, want) {
-		t.Errorf("labels of a container Darkpanel does not own = %v, want %v", got, want)
-	}
-	owned := map[string]string{core.LabelModule: "npm", "com.example.dsn": "mysql://root:x@db/app"} //nolint:gosec // G101: a made-up value the test shows, not a credential
-	if got := redactLabels(owned); !reflect.DeepEqual(got, owned) {
-		t.Errorf("labels of an owned container = %v, want them as they are", got)
+		t.Errorf("redactLabels = %v, want %v", got, want)
 	}
 	if got := redactLabels(nil); got != nil {
 		t.Errorf("no labels = %v, want nil", got)

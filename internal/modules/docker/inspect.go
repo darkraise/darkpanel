@@ -83,13 +83,37 @@ func envVars(entries []string, redact bool) []EnvVar {
 	return vars
 }
 
-// shownLabelPrefixes are the label keys whose values inspect shows for a
-// container Darkpanel does not own: those Compose, Darkpanel and the OCI
-// image annotations write, which hold no secret.
-var shownLabelPrefixes = []string{"com.docker.compose.", core.LabelModule, "org.opencontainers.image."}
+// shownLabels are the label keys whose values inspect shows: those Compose
+// and the OCI image annotations define, which hold no secret, and
+// Darkpanel's owner label.
+var shownLabels = map[string]bool{
+	core.LabelModule:                              true,
+	"com.docker.compose.project":                  true,
+	"com.docker.compose.service":                  true,
+	"com.docker.compose.version":                  true,
+	"com.docker.compose.config-hash":              true,
+	"com.docker.compose.oneoff":                   true,
+	"com.docker.compose.container-number":         true,
+	"com.docker.compose.depends_on":               true,
+	"com.docker.compose.image":                    true,
+	"com.docker.compose.project.working_dir":      true,
+	"com.docker.compose.project.config_files":     true,
+	"com.docker.compose.project.environment_file": true,
+	"org.opencontainers.image.title":              true,
+	"org.opencontainers.image.description":        true,
+	"org.opencontainers.image.version":            true,
+	"org.opencontainers.image.revision":           true,
+	"org.opencontainers.image.source":             true,
+	"org.opencontainers.image.url":                true,
+	"org.opencontainers.image.created":            true,
+	"org.opencontainers.image.vendor":             true,
+	"org.opencontainers.image.licenses":           true,
+	"org.opencontainers.image.authors":            true,
+	"org.opencontainers.image.documentation":      true,
+}
 
-// redactArgs is a command line as inspect shows it for a container
-// Darkpanel does not own: the program, then one mask per argument. A
+// redactArgs is a command line as inspect shows it: the program, then one
+// mask per argument. A
 // command line is free text that may hold a secret anywhere, and the spec
 // asks inspect to show none, so no argument is shown.
 func redactArgs(args []string) []string {
@@ -104,28 +128,24 @@ func redactArgs(args []string) []string {
 	return out
 }
 
-// redactLabels masks the values of labels outside shownLabelPrefixes. The
-// labels of a container Darkpanel owns, which its module wrote, are shown.
+// redactLabels masks the values of labels outside shownLabels. It applies
+// to every container: ownership is read from labels an image can set too.
 func redactLabels(labels map[string]string) map[string]string {
-	if labels == nil || ownerOf(labels) != "" {
-		return labels
+	if labels == nil {
+		return nil
 	}
 	out := make(map[string]string, len(labels))
 	for k, v := range labels {
 		out[k] = logfilter.Mask
-		for _, prefix := range shownLabelPrefixes {
-			if strings.HasPrefix(k, prefix) {
-				out[k] = v
-				break
-			}
+		if shownLabels[k] {
+			out[k] = v
 		}
 	}
 	return out
 }
 
 // containerDetailOf renders an inspected container with its environment
-// values redacted and, unless Darkpanel owns it, its arguments and the
-// labels outside shownLabelPrefixes.
+// values, its arguments and the labels outside shownLabels redacted.
 func containerDetailOf(c dockerapi.ContainerJSON) (ContainerDetail, error) {
 	created, err := time.Parse(time.RFC3339Nano, c.Created)
 	if err != nil {
@@ -144,14 +164,11 @@ func containerDetailOf(c dockerapi.ContainerJSON) (ContainerDetail, error) {
 		ID: c.ID, Name: name, Image: c.Config.Image, ImageID: c.Image, Created: created.UTC(),
 		State: c.State.Status, Running: c.State.Running, StartedAt: started, FinishedAt: finished,
 		ExitCode: c.State.ExitCode, RestartPolicy: c.HostConfig.RestartPolicy.Name,
-		Cmd: c.Config.Cmd, Entrypoint: c.Config.Entrypoint, WorkingDir: c.Config.WorkingDir, User: c.Config.User,
+		Cmd: redactArgs(c.Config.Cmd), Entrypoint: redactArgs(c.Config.Entrypoint), WorkingDir: c.Config.WorkingDir, User: c.Config.User,
 		Env: envVars(c.Config.Env, true), Labels: redactLabels(c.Config.Labels),
 		Ports: []Port{}, Mounts: make([]Mount, 0, len(c.Mounts)), Networks: []EndpointView{},
 		Project: c.Config.Labels["com.docker.compose.project"], Service: c.Config.Labels["com.docker.compose.service"],
 		Owner: ownerOf(c.Config.Labels),
-	}
-	if d.Owner == "" {
-		d.Cmd, d.Entrypoint = redactArgs(c.Config.Cmd), redactArgs(c.Config.Entrypoint)
 	}
 	for key, bindings := range c.NetworkSettings.Ports {
 		port, proto, ok := strings.Cut(key, "/")
