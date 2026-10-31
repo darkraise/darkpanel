@@ -692,3 +692,29 @@ func TestHRVerifyFails(t *testing.T) {
 		t.Error("verify passed while the tunnel still has the hostname's rule")
 	}
 }
+
+// TestHRRecoverRefusesTwoRowsMidRemoval: the lock allows one removal at a
+// time, so two rows mid-removal fail the recovery before any write.
+func TestHRRecoverRefusesTwoRowsMidRemoval(t *testing.T) {
+	ctx := context.Background()
+	w := hrNew(t)
+	w.setPhase(t, "removing_record")
+	err := w.h.db.Write(ctx, func(tx *sql.Tx) error {
+		return insertHostname(ctx, tx, hostnameRow{
+			Hostname: "second.example.com", TunnelID: w.tunnel, Service: hrService, ZoneID: w.zone,
+			Phase: "removing_rule", ChangeID: hrAddChange, Health: "unknown", UpdatedAt: w.h.clock.Now(),
+		})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.def.Handler.Recover(ctx, w.h.env("01J00000000000000000000002")); err == nil || !strings.Contains(err.Error(), "2 hostnames are mid-removal") {
+		t.Errorf("recover: %v, want the two rows mid-removal refused", err)
+	}
+	if got := w.writes(); len(got) != 0 {
+		t.Errorf("writes %v, want none", got)
+	}
+	if n := len(w.h.journal.effects()); n != 0 {
+		t.Errorf("%d effects, want none", n)
+	}
+}

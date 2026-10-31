@@ -63,6 +63,9 @@ func TestRegistrationRules(t *testing.T) {
 			if s.Class == core.ClassCompensable && a.Handler.Inverse == nil && !s.ForwardOnly && !names[s.CompensatedBy] {
 				t.Errorf("action %s: compensating action %q is not registered", a.Ref(), s.CompensatedBy)
 			}
+			if s.CompensatedBy != "" && !names[s.CompensatedBy] {
+				t.Errorf("action %s: names compensating action %q, which is not registered", a.Ref(), s.CompensatedBy)
+			}
 			if s.BreakGlass && s.Side != core.SideController {
 				t.Errorf("action %s: break-glass but %s-side", a.Ref(), s.Side)
 			}
