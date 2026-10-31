@@ -109,14 +109,18 @@ var (
 	// urlPassword is the password of a URL's user information, which runs to
 	// the last @ before the host, since a password may hold an @.
 	urlPassword = regexp.MustCompile(`(://[^/:@\s]*):[^/\s]*@`)
-	// secretPair is a NAME=value, NAME: value or "NAME": "value" pair inside a
-	// string, the value a quoted string or running to a space, quote, comma,
-	// semicolon or brace.
-	secretPair = regexp.MustCompile(`(^|[^\w.-])(-{0,2}[\w.-]+)(["']?\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s"',;}]*)`)
+	// secretAssignment is a NAME=value pair inside a string, the value a
+	// quoted string or running to a space or quote. Each value class ends
+	// with the rest of the token, so a value the others cannot read, such as
+	// an unclosed quote, is masked whole.
+	secretAssignment = regexp.MustCompile(`(^|[^\w.-])(-{0,2}[\w.-]+)(=)("[^"]*"|'[^']*'|[^\s"']+|\S*)`)
+	// secretPair is a NAME: value or "NAME": "value" pair, as in YAML or JSON,
+	// whose unquoted value also ends at a comma, semicolon or brace.
+	secretPair = regexp.MustCompile(`(^|[^\w.-])(-{0,2}[\w.-]+)(["']?\s*:\s*)("[^"]*"|'[^']*'|[^\s"',;}]+|\S*)`)
 	// secretFlagValue is a flag and its value separated by spaces inside a
 	// string; the value does not start with a dash, which would be the next
 	// flag.
-	secretFlagValue = regexp.MustCompile(`(^|\s)(-{1,2}[\w.-]+)(\s+)("[^"]*"|'[^']*'|[^\s"'-][^\s"']*)`)
+	secretFlagValue = regexp.MustCompile(`(^|\s)(-{1,2}[\w.-]+)(\s+)("[^"]*"|'[^']*'|[^\s"'-][^\s"']*|["']\S*)`)
 	// flagWord is an argument that is a flag alone, its value the next one.
 	flagWord = regexp.MustCompile(`^-{1,2}[\w.-]+$`)
 )
@@ -136,7 +140,7 @@ var shortSecretFlags = map[string]struct {
 // maskValue is the mask in place of value, keeping the quotes of a quoted
 // value.
 func maskValue(value string) string {
-	if len(value) >= 2 && (value[0] == '"' || value[0] == '\'') {
+	if len(value) >= 2 && (value[0] == '"' || value[0] == '\'') && value[len(value)-1] == value[0] {
 		return value[:1] + logfilter.Mask + value[:1]
 	}
 	return logfilter.Mask
@@ -146,7 +150,7 @@ func maskValue(value string) string {
 // flags whose name is a secret's.
 func redactText(s string) string {
 	s = urlPassword.ReplaceAllString(s, "${1}:"+logfilter.Mask+"@")
-	for _, re := range []*regexp.Regexp{secretPair, secretFlagValue} {
+	for _, re := range []*regexp.Regexp{secretAssignment, secretPair, secretFlagValue} {
 		s = re.ReplaceAllStringFunc(s, func(m string) string {
 			parts := re.FindStringSubmatch(m)
 			if !secretName(parts[2]) || parts[4] == "" {
