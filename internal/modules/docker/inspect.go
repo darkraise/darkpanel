@@ -109,19 +109,10 @@ var (
 	// urlPassword is the password of a URL's user information, which runs to
 	// the last @ before the host, since a password may hold an @.
 	urlPassword = regexp.MustCompile(`(://[^/:@\s]*):[^/\s]*@`)
-	// secretAssignment is a NAME=value pair inside a string, the value a
-	// quoted string or running to a space or quote. Each value class ends
-	// with the rest of the token, so a value the others cannot read, such as
-	// an unclosed quote, is masked whole.
-	secretAssignment = regexp.MustCompile(`(^|[^\w.-])(-{0,2}[\w.-]+)(=)("[^"]*"|'[^']*'|[^\s"']+|\S*)`)
-	// secretPair is a NAME: value or "NAME": "value" pair, as in YAML or JSON,
-	// whose unquoted value also ends at a comma, semicolon or brace.
-	secretPair = regexp.MustCompile(`(^|[^\w.-])(-{0,2}[\w.-]+)(["']?\s*:\s*)("[^"]*"|'[^']*'|[^\s"',;}]+|\S*)`)
-	// secretFlagValue is a flag and its value separated by spaces inside a
-	// string; the value does not start with a dash, which would be the next
-	// flag.
-	secretFlagValue = regexp.MustCompile(`(^|\s)(-{1,2}[\w.-]+)(\s+)("[^"]*"|'[^']*'|[^\s"'-][^\s"']*|["']\S*)`)
-	// flagWord is an argument that is a flag alone, its value the next one.
+	// pairName is a NAME= or NAME: at the start of a piece of a token, the
+	// name possibly quoted.
+	pairName = regexp.MustCompile(`^(["']?)(-{0,2}[\w.-]+)(["']?)([=:])`)
+	// flagWord is a token that is a flag alone, its value the next one.
 	flagWord = regexp.MustCompile(`^-{1,2}[\w.-]+$`)
 )
 
@@ -137,52 +128,208 @@ var shortSecretFlags = map[string]struct {
 	"redis-cli": {"-a", false},
 }
 
-// maskValue is the mask in place of value, keeping the quotes of a quoted
-// value.
-func maskValue(value string) string {
-	if len(value) >= 2 && (value[0] == '"' || value[0] == '\'') && value[len(value)-1] == value[0] {
-		return value[:1] + logfilter.Mask + value[:1]
+const pairSeparators = ",;{}[]()"
+
+func isSpace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f'
+}
+
+// quotedEnd is the index after the quoted segment starting at s[i], or -1
+// when its quote is never closed. A backslash escapes the next byte inside
+// double quotes, as in JSON and the shell.
+func quotedEnd(s string, i int) int {
+	q := s[i]
+	for j := i + 1; j < len(s); j++ {
+		switch {
+		case q == '"' && s[j] == '\\':
+			j++
+		case s[j] == q:
+			return j + 1
+		}
+	}
+	return -1
+}
+
+// tokens splits s at whitespace outside quotes. An unclosed quote runs to
+// the end of s. seps[i] is the whitespace before toks[i]; tail is the
+// whitespace after the last token.
+func tokens(s string) (toks, seps []string, tail string) {
+	i := 0
+	for i < len(s) {
+		j := i
+		for j < len(s) && isSpace(s[j]) {
+			j++
+		}
+		if j == len(s) {
+			return toks, seps, s[i:]
+		}
+		k := j
+		for k < len(s) && !isSpace(s[k]) {
+			if s[k] == '"' || s[k] == '\'' {
+				if e := quotedEnd(s, k); e >= 0 {
+					k = e
+					continue
+				}
+				k = len(s)
+				break
+			}
+			k++
+		}
+		seps, toks = append(seps, s[i:j]), append(toks, s[j:k])
+		i = k
+	}
+	return toks, seps, ""
+}
+
+// maskWhole is the mask in place of a whole value. A value that is one
+// closed quoted string, followed by nothing but separators, keeps its
+// quotes and separators; anything else becomes the bare mask.
+func maskWhole(v string) string {
+	if v != "" && (v[0] == '"' || v[0] == '\'') {
+		if e := quotedEnd(v, 0); e >= 0 && strings.Trim(v[e:], pairSeparators) == "" {
+			return v[:1] + logfilter.Mask + v[:1] + v[e:]
+		}
 	}
 	return logfilter.Mask
 }
 
-// redactText masks the URL passwords in s and the values of its pairs and
-// flags whose name is a secret's.
-func redactText(s string) string {
-	s = urlPassword.ReplaceAllString(s, "${1}:"+logfilter.Mask+"@")
-	for _, re := range []*regexp.Regexp{secretAssignment, secretPair, secretFlagValue} {
-		s = re.ReplaceAllStringFunc(s, func(m string) string {
-			parts := re.FindStringSubmatch(m)
-			if !secretName(parts[2]) || parts[4] == "" {
-				return m
+// redactToken masks the secrets inside one token: a URL password, and the
+// value of each NAME=value or NAME: value pair, JSON style pairs included,
+// whose name is a secret's. A NAME= value runs to the end of the token. A
+// NAME: value that is one closed quoted string is masked alone, so the pairs
+// after it are read too; any other is masked to the end of the token.
+// maskNext reports a secret NAME: with its value in the next token.
+func redactToken(tok string) (out string, maskNext bool) {
+	tok = urlPassword.ReplaceAllString(tok, "${1}:"+logfilter.Mask+"@")
+	var b strings.Builder
+	i := 0
+	for i < len(tok) {
+		if strings.IndexByte(pairSeparators, tok[i]) >= 0 {
+			b.WriteByte(tok[i])
+			i++
+			continue
+		}
+		if m := pairName.FindStringSubmatch(tok[i:]); m != nil {
+			b.WriteString(m[0])
+			i += len(m[0])
+			if !secretName(m[2]) {
+				continue
 			}
-			return parts[1] + parts[2] + parts[3] + maskValue(parts[4])
-		})
+			rest := tok[i:]
+			switch {
+			case rest == "":
+				return b.String(), m[4] == ":"
+			case m[4] == ":" && (rest[0] == '"' || rest[0] == '\'') && quotedEnd(rest, 0) >= 0:
+				e := quotedEnd(rest, 0)
+				b.WriteString(rest[:1] + logfilter.Mask + rest[:1])
+				i += e
+				continue
+			}
+			b.WriteString(maskWhole(rest))
+			return b.String(), false
+		}
+		if tok[i] == '"' || tok[i] == '\'' {
+			e := quotedEnd(tok, i)
+			if e < 0 {
+				b.WriteString(tok[i:])
+				break
+			}
+			b.WriteString(tok[i:e])
+			i = e
+			continue
+		}
+		j := i
+		for j < len(tok) && strings.IndexByte(pairSeparators, tok[j]) < 0 && tok[j] != '"' && tok[j] != '\'' {
+			j++
+		}
+		b.WriteString(tok[i:j])
+		i = j
 	}
-	return s
+	return b.String(), false
+}
+
+// redactSeq masks the secrets of a sequence of tokens: the arguments of a
+// command, or the tokens of one string. Besides each token's own pairs it
+// masks the token after a flag or NAME: named like a secret, unless that
+// token is the next long flag, and the short password flags of the programs
+// in shortSecretFlags. An argument holding whitespace, or a token that is
+// one quoted string, is itself read as a string.
+func redactSeq(toks []string, args bool) []string {
+	out := make([]string, len(toks))
+	maskNext := false
+	prev := ""
+	var short *struct {
+		flag     string
+		attached bool
+	}
+	for i, tok := range toks {
+		// A NAME and its = or : may stand apart: "password" : "x".
+		if (tok == ":" || tok == "=") && secretName(strings.Trim(prev, `"'`+pairSeparators)) {
+			out[i], maskNext, prev = tok, true, tok
+			continue
+		}
+		prev = tok
+		if tok == "" {
+			continue
+		}
+		if maskNext {
+			maskNext = false
+			if !strings.HasPrefix(tok, "--") {
+				out[i] = maskWhole(tok)
+				continue
+			}
+		}
+		if short != nil {
+			switch {
+			case short.attached && len(tok) > len(short.flag) && strings.HasPrefix(tok, short.flag):
+				out[i] = short.flag + logfilter.Mask
+				continue
+			case !short.attached && tok == short.flag:
+				out[i], maskNext = tok, true
+				continue
+			}
+		}
+		if spec, ok := shortSecretFlags[path.Base(strings.Trim(tok, `"'`))]; ok {
+			short = &spec
+		}
+		spaced := strings.ContainsAny(tok, " \t\n\r\v\f")
+		if args && spaced {
+			out[i] = redactText(tok)
+			continue
+		}
+		if flagWord.MatchString(tok) && secretName(tok) {
+			out[i], maskNext = tok, true
+			continue
+		}
+		r, next := redactToken(tok)
+		maskNext = next
+		if q := tok[0]; r == tok && !next && spaced && (q == '"' || q == '\'') && len(tok) >= 2 && tok[len(tok)-1] == q {
+			r = tok[:1] + redactText(tok[1:len(tok)-1]) + tok[:1]
+		}
+		out[i] = r
+	}
+	return out
+}
+
+// redactText masks the secrets of a string read as whitespace-separated
+// tokens, keeping its whitespace.
+func redactText(s string) string {
+	toks, seps, tail := tokens(s)
+	masked := redactSeq(toks, false)
+	var b strings.Builder
+	for i := range masked {
+		b.WriteString(seps[i] + masked[i])
+	}
+	return b.String() + tail
 }
 
 // redactArgs masks the secrets of a command line, which inspect shows to
-// every reader: URL passwords, named pairs, the argument after a flag named
-// like a secret, and the short password flags of shortSecretFlags.
+// every reader (redactSeq).
 func redactArgs(args []string) []string {
 	if args == nil {
 		return nil
 	}
-	short, hasShort := shortSecretFlags[path.Base(args[0])]
-	out := make([]string, len(args))
-	for i, a := range args {
-		switch {
-		case i > 0 && flagWord.MatchString(args[i-1]) && secretName(args[i-1]) && !strings.HasPrefix(a, "-"),
-			i > 0 && hasShort && !short.attached && args[i-1] == short.flag:
-			out[i] = logfilter.Mask
-		case hasShort && short.attached && len(a) > len(short.flag) && strings.HasPrefix(a, short.flag):
-			out[i] = short.flag + logfilter.Mask
-		default:
-			out[i] = redactText(a)
-		}
-	}
-	return out
+	return redactSeq(args, true)
 }
 
 // redactLabels masks the values of labels named like a secret and the URL
