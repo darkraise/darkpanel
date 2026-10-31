@@ -7,10 +7,10 @@ import "github.com/darkraise/darkpanel/internal/core"
 // ID is the module id.
 const ID = "tailnet"
 
-type module struct{}
+type module struct{ t tn }
 
 // Module returns the tailnet module.
-func Module() core.Module { return module{} }
+func Module() core.Module { return module{t: productionTN()} }
 
 // Manifest declares the module. Every module is enabled by default;
 // preflight decides whether it is available on a host (R9). The manifest
