@@ -48,6 +48,7 @@ func TestM4(t *testing.T) {
 		{"compose-refuse-git", false, func(t *testing.T) { m4cRefuseGit(ctx, t, f) }},
 		{"compose-refuse-build", false, func(t *testing.T) { m4cRefuseBuild(ctx, t, f) }},
 		{"compose-no-programs", false, func(t *testing.T) { m4cNoPrograms(ctx, t, f) }},
+		{"dockerapi-live", false, func(t *testing.T) { m4lLive(ctx, t, f) }},
 	}
 	for _, s := range steps {
 		if !t.Run(s.name, s.run) && s.gate {
