@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/modules/tailnet/policy"
 )
 
@@ -102,27 +103,14 @@ func (h policyPatchHandler) Apply(ctx context.Context, env core.Env, in PolicyPa
 // Verify checks that the live policy still holds the edits: applying them
 // again leaves its content unchanged.
 func (h policyPatchHandler) Verify(ctx context.Context, env core.Env, in PolicyPatchInput, _ PolicyWritten) error {
-	a, _, err := h.t.connected(ctx, env.DB, env.Sealer, env.Clock)
+	p, err := h.read(ctx, env, in)
 	if err != nil {
+		if errcode.From(err).Code == errcode.InvalidInput {
+			return fmt.Errorf("tailnet: the policy file no longer holds the patch's edits: %w", err)
+		}
 		return err
 	}
-	current, _, err := a.Policy(ctx)
-	if err != nil {
-		return err
-	}
-	patched, err := policy.Apply(current, in.Edits)
-	if err != nil {
-		return fmt.Errorf("tailnet: the policy file no longer holds the patch's edits: %w", err)
-	}
-	got, err := policy.Canonical(current)
-	if err != nil {
-		return fmt.Errorf("tailnet: read the policy file: %w", err)
-	}
-	want, err := policy.Canonical(patched)
-	if err != nil {
-		return fmt.Errorf("tailnet: read the patched policy file: %w", err)
-	}
-	if !bytes.Equal(got, want) {
+	if p.changed {
 		return fmt.Errorf("tailnet: the policy file no longer holds the patch's edits")
 	}
 	return nil
