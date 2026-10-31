@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"path"
 	"regexp"
 	"slices"
 	"strconv"
@@ -85,8 +86,11 @@ func envVars(entries []string, redact bool) []EnvVar {
 }
 
 // secretWord matches a name whose value is a secret: a password, token,
-// key or credential, written in any case and with any separator.
-var secretWord = regexp.MustCompile(`(?i)pass(word|wd)|secret|token|api[-_.]?key|credential|basic[-_.]?auth|private[-_.]?key|access[-_.]?key|auth[-_.]?key`)
+// key or credential, written in any case and with any separator. The short
+// words auth, pass and pwd count only as a whole word of the name, so that
+// author or compass do not.
+var secretWord = regexp.MustCompile(`(?i)pass(word|wd|phrase)|secret|token|api[-_.]?key|credential|basic[-_.]?auth|` +
+	`private[-_.]?key|access[-_.]?key|auth[-_.]?key|requirepass|masterauth|(^|[^a-z])(auth|pass|pwd)([^a-z]|$)`)
 
 // secretName reports whether a flag, variable or label named name holds a
 // secret. A name ending in file, path or dir holds where a secret is, which
@@ -102,42 +106,77 @@ func secretName(name string) bool {
 }
 
 var (
-	// urlPassword is the password of a URL's user information.
-	urlPassword = regexp.MustCompile(`(://[^/:@\s]*):[^/@\s]+@`)
-	// secretAssignment is a NAME=value pair inside an argument, the value
-	// running to the next space or quote.
-	secretAssignment = regexp.MustCompile(`(^|[\s"'])(-{0,2}[\w.-]+)=("[^"]*"|'[^']*'|[^\s"']*)`)
+	// urlPassword is the password of a URL's user information, which runs to
+	// the last @ before the host, since a password may hold an @.
+	urlPassword = regexp.MustCompile(`(://[^/:@\s]*):[^/\s]*@`)
+	// secretPair is a NAME=value, NAME: value or "NAME": "value" pair inside a
+	// string, the value a quoted string or running to a space, quote, comma,
+	// semicolon or brace.
+	secretPair = regexp.MustCompile(`(^|[^\w.-])(-{0,2}[\w.-]+)(["']?\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s"',;}]*)`)
+	// secretFlagValue is a flag and its value separated by spaces inside a
+	// string; the value does not start with a dash, which would be the next
+	// flag.
+	secretFlagValue = regexp.MustCompile(`(^|\s)(-{1,2}[\w.-]+)(\s+)("[^"]*"|'[^']*'|[^\s"'-][^\s"']*)`)
 	// flagWord is an argument that is a flag alone, its value the next one.
 	flagWord = regexp.MustCompile(`^-{1,2}[\w.-]+$`)
 )
 
-// redactText masks the URL passwords in s and the values of its NAME=value
-// pairs whose name is a secret's.
+// shortSecretFlags are the one-letter password flags of common programs
+// whose names say nothing: mysql's -p<password>, attached, and redis-cli's
+// -a <password>.
+var shortSecretFlags = map[string]struct {
+	flag     string
+	attached bool
+}{
+	"mysql": {"-p", true}, "mysqladmin": {"-p", true}, "mysqldump": {"-p", true},
+	"mariadb": {"-p", true}, "mariadb-admin": {"-p", true}, "mariadb-dump": {"-p", true},
+	"redis-cli": {"-a", false},
+}
+
+// maskValue is the mask in place of value, keeping the quotes of a quoted
+// value.
+func maskValue(value string) string {
+	if len(value) >= 2 && (value[0] == '"' || value[0] == '\'') {
+		return value[:1] + logfilter.Mask + value[:1]
+	}
+	return logfilter.Mask
+}
+
+// redactText masks the URL passwords in s and the values of its pairs and
+// flags whose name is a secret's.
 func redactText(s string) string {
 	s = urlPassword.ReplaceAllString(s, "${1}:"+logfilter.Mask+"@")
-	return secretAssignment.ReplaceAllStringFunc(s, func(m string) string {
-		parts := secretAssignment.FindStringSubmatch(m)
-		if !secretName(parts[2]) {
-			return m
-		}
-		return parts[1] + parts[2] + "=" + logfilter.Mask
-	})
+	for _, re := range []*regexp.Regexp{secretPair, secretFlagValue} {
+		s = re.ReplaceAllStringFunc(s, func(m string) string {
+			parts := re.FindStringSubmatch(m)
+			if !secretName(parts[2]) || parts[4] == "" {
+				return m
+			}
+			return parts[1] + parts[2] + parts[3] + maskValue(parts[4])
+		})
+	}
+	return s
 }
 
 // redactArgs masks the secrets of a command line, which inspect shows to
-// every reader: URL passwords, NAME=value pairs and the argument after a
-// flag named like a secret.
+// every reader: URL passwords, named pairs, the argument after a flag named
+// like a secret, and the short password flags of shortSecretFlags.
 func redactArgs(args []string) []string {
 	if args == nil {
 		return nil
 	}
+	short, hasShort := shortSecretFlags[path.Base(args[0])]
 	out := make([]string, len(args))
 	for i, a := range args {
-		if i > 0 && flagWord.MatchString(args[i-1]) && secretName(args[i-1]) && !strings.HasPrefix(a, "-") {
+		switch {
+		case i > 0 && flagWord.MatchString(args[i-1]) && secretName(args[i-1]) && !strings.HasPrefix(a, "-"),
+			i > 0 && hasShort && !short.attached && args[i-1] == short.flag:
 			out[i] = logfilter.Mask
-			continue
+		case hasShort && short.attached && len(a) > len(short.flag) && strings.HasPrefix(a, short.flag):
+			out[i] = short.flag + logfilter.Mask
+		default:
+			out[i] = redactText(a)
 		}
-		out[i] = redactText(a)
 	}
 	return out
 }

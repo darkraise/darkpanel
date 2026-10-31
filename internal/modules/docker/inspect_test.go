@@ -259,7 +259,18 @@ func TestRdRedactArgs(t *testing.T) {
 		{[]string{"tunnel", "run", "--token-file", "/run/darkpanel/token"}, []string{"tunnel", "run", "--token-file", "/run/darkpanel/token"}},
 		{[]string{"env", "DB_PASSWORD=hunter2", "PORT=80", "run"}, []string{"env", "DB_PASSWORD=[redacted]", "PORT=80", "run"}},
 		{[]string{"sh", "-c", "exec app --secret='s 3' --name=web postgres://app:hunter2@db:5432/app"},
-			[]string{"sh", "-c", "exec app --secret=[redacted] --name=web postgres://app:[redacted]@db:5432/app"}},
+			[]string{"sh", "-c", "exec app --secret='[redacted]' --name=web postgres://app:[redacted]@db:5432/app"}},
+		{[]string{"sh", "-c", "app --verbose --db-password hunter2 --name web"}, []string{"sh", "-c", "app --verbose --db-password [redacted] --name web"}},
+		{[]string{"app", "postgres://app:p@ss@db/x"}, []string{"app", "postgres://app:[redacted]@db/x"}},
+		{[]string{"app", `{"password": "hunter2", "user": "u"}`, "auth: hunter2"}, []string{"app", `{"password": "[redacted]", "user": "u"}`, "auth: [redacted]"}},
+		{[]string{"redis-server", "--requirepass", "hunter2", "--masterauth", "hunter3"},
+			[]string{"redis-server", "--requirepass", "[redacted]", "--masterauth", "[redacted]"}},
+		{[]string{"app", "--passphrase=x", "--pwd", "y", "--auth", "z", "--author", "me"},
+			[]string{"app", "--passphrase=[redacted]", "--pwd", "[redacted]", "--auth", "[redacted]", "--author", "me"}},
+		{[]string{"/usr/bin/mysql", "-uroot", "-phunter2", "-p", "db"}, []string{"/usr/bin/mysql", "-uroot", "-p[redacted]", "-p", "db"}},
+		{[]string{"redis-cli", "-a", "hunter2", "ping"}, []string{"redis-cli", "-a", "[redacted]", "ping"}},
+		{[]string{"nginx", "-p", "/etc/nginx", "-g", "daemon off;"}, []string{"nginx", "-p", "/etc/nginx", "-g", "daemon off;"}},
+		{[]string{"app", "--listen", "0.0.0.0:8080", "http://host:8080/a@b"}, []string{"app", "--listen", "0.0.0.0:8080", "http://host:8080/a@b"}},
 	} {
 		if got := redactArgs(tc.in); !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("redactArgs(%q) = %q, want %q", tc.in, got, tc.want)
@@ -274,6 +285,7 @@ func TestRdRedactLabels(t *testing.T) {
 		"com.example.dsn":                               "mysql://root:hunter2@db/app",
 		"com.docker.compose.project":                    "shop",
 		"org.opencontainers.image.authors":              "Jane",
+		"com.example.config":                            `{"apiKey":"k1","port":80}`,
 	})
 	want := map[string]string{
 		"traefik.http.middlewares.auth.basicauth.users": "[redacted]",
@@ -281,6 +293,7 @@ func TestRdRedactLabels(t *testing.T) {
 		"com.example.dsn":                               "mysql://root:[redacted]@db/app",
 		"com.docker.compose.project":                    "shop",
 		"org.opencontainers.image.authors":              "Jane",
+		"com.example.config":                            `{"apiKey":"[redacted]","port":80}`,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("redactLabels = %v, want %v", got, want)
