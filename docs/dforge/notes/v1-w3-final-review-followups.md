@@ -1,0 +1,301 @@
+# v1 wave 3 follow-ups from the final review
+
+Plan: `docs/dforge/plans/2026-10-30-v1-w3-docker-tailnet-cloudflare.md`, merged into `main` at c5a5f1c.
+The execution ledger is deleted when the worktree is cleaned up, so this note keeps what it left open.
+Nothing here blocks the merge; the confirmed residuals also have register rows in `docs/dforge/registers/2026-10-21-v1-completion.md`.
+
+## Confirmed residuals after the final fix wave
+
+- [Important] internal/modules/cloudflare/hostname_remove.go:75 — the remove-side guard now resolves the stored service's name, so a user-added hostname whose name later resolves into 172.31.255.0/24 can be removed only by panel.exposure.remove. The refusal keeps alive exactly the route that reaches the panel, leaves the row stuck (blocking tunnel delete through `busy`) until DNS changes, and TestHRReserved pins this behaviour for a name. The refusal on remove should rest on whether the panel exposure made the row (or on the IP-literal and legacy-numeric forms the exposure writes), not on current DNS
+- [Minor] internal/modules/cloudflare/client.go:252 — with no usable total, list() loops while every page is full and has no page cap, so a provider answer that ignores `page` loops until the context ends; cap the pages (for example by the size of the largest listing spec 7.1 expects) and fail when the cap is reached
+- [Minor] internal/modules/cloudflare/hostname.go:59 — every lookup error, including a timeout or SERVFAIL, makes the host not reserved; only a not-found answer is evidence the name does not reach the panel, so a temporary resolver failure could fail the plan as cloud.unavailable instead of passing the guard
+- [Minor] internal/modules/docker/compose_check.go:360 — the shadow-plugin check only lstats `<dir>/docker-compose` and does not check that the three directories are root-owned and not writable by others, so a docker-compose added to such a directory after the check still runs as root
+- [Minor] test/harness/m4_live_test.go:173 — the `at < 0` fix for the build-step order check has no unit test (m4_live_unit_test.go is unchanged), so nothing fails if it regresses
+- [Minor] internal/modules/docker/dstate/object.go:88 — out of scope: network and volume effect state documents keep raw label values (also line 72), while the docker.volumes resource now masks them
+
+Ruling on the first (Important) item: hostname.remove should refuse only IP-literal and legacy-numeric forms, with no DNS lookup; the add-side check keeps its lookup; TestHRReserved to match.
+
+## Findings the final fix wave deferred
+
+- FR `internal/modules/cloudflare/hostname_remove.go:98` (resumed removal adopts the live configuration without a drift check) — needs reconstructing the pre-removal configuration; a wrong reconstruction would strand removals behind false conflicts.
+- FR `internal/modules/cloudflare/hostname.go:424` and `hostname_remove.go:363` (second Recover reports a misleading terminal state) — needs recovery to decide from the journal first; a recovery redesign.
+- FR `internal/modules/cloudflare/hostname.go:217` (`observeCreation` errors when the row is gone) — without the row the zone is unknown; answering needs a search of every zone by marker.
+- FR `internal/modules/cloudflare/store.go:330` (`setHostnamePhase` cannot clear `record_id`) — cosmetic; the "" means keep convention is shared by every caller.
+- FR `internal/modules/cloudflare/hostnames_service.go:200` (audit rows lost after the commit; re-check and cancelled-DNS paths untested) — needs an audit outbox; tests to come with it.
+- FR `internal/modules/cloudflare/tunnel_lifecycle.go:180` (`busy` read outside the delete transaction) — safe under the cloudflare lock and the foreign key; moving it is a refactor.
+- FR `internal/modules/cloudflare/tunnel_read.go` (2N sequential provider calls; a 404 tunnel shows status "unknown") — performance and a new status value are design decisions.
+- SF `internal/modules/cloudflare/hostnames_service.go:122` (failed configuration read not logged) — "once per transition" needs the previous state stored.
+- FR `internal/modules/tailnet/oauth.go:34` (mutex held across the fetch, ignores ctx) — a per-key singleflight is a concurrency change beyond a local fix.
+- SF `internal/modules/tailnet/authkey_resolve.go:144` (Inverse logs a failed row write and succeeds) — returning the error changes the undo outcome in the frozen engine; needs a decision.
+- FR `internal/modules/tailnet/devices_routes.go:131` (Apply re-check untested) — test gap only.
+- FR `hostname.go` panel range fixed at /24 while spec 8 says the /29 is chosen "from 172.31.255.0/24 downwards" — spec ambiguity for the panel-exposure wave; the panel should also refuse traffic not from its exposure's peer (spec 8 already allows only `.2`).
+- residual of the cloudflare guard — DNS rebinding after the check and names that resolve only inside Docker's resolver cannot be caught by a controller-side check.
+- FR `internal/modules/docker/logfilter/logfilter.go:52` (Flush emits a held partial secret) — `TestLfFilter...` and `TestLfStreamsAreIndependent` pin emitting the partial prefix ("a", "to"); masking it needs a decision on a minimum length.
+- FR `internal/modules/docker/store.go:164` (FIFO swap blocks the read; hashes reread every read) — needs a non-blocking open in the files seam.
+- SF `internal/modules/docker/store.go:158` / `projects.go:53` (unreadable files show no change) — projects_test.go:106-110 pins "an unreadable file is not reported as a change"; a design choice.
+- FR `internal/modules/docker/logs_read.go:84` (no byte cap) — needs a truncated flag in the output, a wire change.
+- FR `internal/modules/docker/container_remove.go:104` (404 after inspect fails the action) — changes the action's outcome semantics.
+- FR `internal/modules/docker/network_connect.go:245/370/284` (IPv6 zone, second resolve, unmapped run error) — not investigated in this wave.
+- FR `internal/modules/docker/network_manage.go:24` (one-character volume names; 4xx mapping in four places) — network and volume name rules differ; the helper merge is a four-file refactor.
+- FR `internal/modules/docker/image_prune.go:102` (removed list dropped on partial failure) — output shape on failure is a design decision.
+- FR `internal/modules/docker/preflight.go:262` (duplicate `parseVersion`) — needs exporting it from `dockerapi`.
+- SF `internal/modules/docker/deps.go:132` (secrets seam returns nil) — recorded in the register for waves 6a/6b.
+- SF `internal/modules/docker/compose_run.go:187` (Verify nil for pull and restart) — what pull should verify is a design decision; restart effects are settled by the engine.
+- SEC `internal/modules/docker/compose_check.go:176` (include, extends, secrets and bind sources unchecked) — extending the checks to the resolved file set is a design change to spec 3's trust boundary.
+- SEC `internal/modules/docker/compose_check.go:472` (stderr line in details may quote an env value) — inferred from upstream behaviour, not reproduced.
+- FR `compose_check.go:177` (`Facts.Owner` tested only for networks) — containers now covered by `TestCCOwnerOfAContainerByIDPrefix`; volumes still untested.
+- inspect residual — argv[0], WorkingDir, User, environment names and the values of the listed label keys stay shown; a secret placed in a program path or in an allowlisted image annotation would show. A command line is free text, so this masking is by position, not by content.
+- FR `test/harness/m4_helpers_test.go:202/115/209` (`m4Stream` deadline, 20-minute retry of definite refusals, APIError without Code) and FR `m4_live_test.go:44` (`m4lVerdict` prefix) — harness behaviour that needs a VM run to validate.
+- TQ `compose_run_test.go:549` (restart Inverse error paths), `m4_objects_test.go:348` (prune never applied), `m4_objects_test.go:140` (volumes read unchecked), `m4_compose_test.go:445` (refusal detail), `types.test.ts:49` (runtime asserts of types), `m4_compose_unit_test.go:135` (skip without compose; vacuous pins test) — test-quality improvements, harness ones unverifiable here.
+- FR web Minors `logs-panel.tsx:35` (Follow does not scroll), `tailnet/account-panel.tsx:131` (abandon box stays ticked), `policy-page.tsx:312` (refetch error replaces the editor), `projects-tab.tsx:42` and `cloudflare/hostnames-page.tsx:87` (stale form state), `capability-list.test.tsx:80` (jsdom notices), SF `stream.ts:24` (parse errors dropped) — UI behaviour changes each needing their own tests and UX decision.
+- FR spec over-long lines (3404, 3619, 3727) — cosmetic doc edit.
+- BASH `capture.sh:17` (Git Bash paths) — goldens are captured on Linux; Windows capture is out of scope.
+
+## Minor findings deferred by task reviews
+
+- Task 2: minor (deferred): internal/platform/dockerapi/images.go:268 — removed the `ref == "" ||` term from the existing condition
+- Task 2: minor (deferred): internal/platform/dockerapi/guards_test.go:0 — the repository-wide `go test -count=1 ./...` gate was not run
+- Task 3: minor (deferred): .dforge/sdd/2026-10-30-v1-w3-docker-tailnet-cloudflare/task-3-report.md:15 — the gate results are paraphrased, not quoted
+- Task 3: minor (deferred): internal/modules/docker/dstate/dstate_test.go:128 — no test checks that the constructors leave their arguments unchanged (requirement 4)
+- Task 3: minor (deferred): internal/modules/docker/dstate/dstate_test.go:199 — the rejection tests check only that an error is returned, not its text
+- Task 3: minor (deferred): report quotes '1 passed, 0 failed' instead of real output; no test that constructors leave inputs unchanged; rejection tests check only that an error returns
+- Task 2: minor (deferred): the implementer removed the now-unreachable ref == "" term from checkImageRef's condition, which the brief did not ask for
+- Task 2: minor (deferred): the report lacks the whole-repository go test run (the controller ran it, see the cannot-verify ruling)
+- Task 1: minor (deferred): docs/dforge/specs/2026-10-21-v1-completion-design.md:4229 — "Zone: Zone: Read" is given as the dashboard label without a source
+- Task 1: minor (deferred): docs/dforge/specs/2026-10-21-v1-completion-design.md:3727 — the third Tailnet divergence entry is not precise enough to apply without reading the spec bullet
+- Task 1: minor (deferred): docs/dforge/specs/2026-10-21-v1-completion-design.md:3404 — the Compose "Basis" text is a nested bullet among the divergence entries
+- Task 1: minor (deferred): docs/dforge/specs/2026-10-21-v1-completion-design.md:3619 — several recorded-contract bullets run well past the brief's "at most about eight lines"
+- Task 1: minor (deferred): docs/dforge/specs/2026-10-21-v1-completion-design.md:0 — the report quotes no real command output
+- Task 4: minor (deferred): internal/modules/docker/compose/config_test.go:175 — duplicate-key refusal is tested only at the top level, among services and within a service
+- Task 4: minor (deferred): .dforge/sdd/2026-10-30-v1-w3-docker-tailnet-cloudflare/task-4-report.md:15 — the test evidence is paraphrased, not quoted
+- Task 5: minor (deferred): internal/modules/docker/host_test.go:1377 — dkHost's Run, WriteManaged and RemoveManaged change `cmds` and `managed` without a lock
+- Task 5: minor (deferred): internal/modules/docker/wire.go:125 — the `// id or name` comment ended up on ContainerInput's closing brace, with no blank line before ContainerState's doc comment
+- Task 5: minor (deferred): internal/modules/docker/fake_docker_test.go:400 — top-level helpers added beyond those the brief names
+- Task 6: minor (deferred): internal/modules/tailnet/policy/policy.go:157 — `hujson.Minimize` is applied to the edit's Value, but the brief says to pass the value "as the raw JSON".
+- Task 6: minor (deferred): internal/modules/tailnet/policy/policy_test.go:63 — `edInvalid` checks the code and the field path but not `Detail` ("edit <i>: <message>") or `Fields[0].Message`. A future regression in the detail format would therefore go unnoticed.
+- Task 6: minor (deferred): .dforge/sdd/2026-10-30-v1-w3-docker-tailnet-cloudflare/task-6-report.md:22-28 — the Verified section reports counts ("66 passed") instead of quoting the commands' output.
+- Task 7: minor (deferred): internal/modules/cloudflare/ingress/ingress.go:121 — `Rule.UnmarshalJSON` rejects `null`, which breaks the `json.Unmarshaler` convention that `null` is a no-op.
+- Task 7: minor (deferred): internal/modules/cloudflare/ingress/ingress.go:19 — the package comment says unnamed members are "kept byte for byte", but `encoding/json` compacts every `json.RawMessage` it writes.
+- Task 7: minor (deferred): internal/modules/cloudflare/ingress/ingress.go:139-154 — an `originRequest` that is `null` or `{}`, and a `"hostname":null`, are silently dropped on a round trip.
+- Task 8: minor (deferred): web/src/modules/docker/stream.ts:422 — any JSON object is accepted as a `StreamEnd` without checking `reason`
+- Task 8: minor (deferred): web/src/modules/docker/stream.ts:415 — `max <= 0` keeps every event, because `.slice(-0)` is `.slice(0)`
+- Task 8: minor (deferred): .dforge/sdd/2026-10-30-v1-w3-docker-tailnet-cloudflare/task-8-report.md:14 — the brief's typecheck RED was not run, and step 5's `go build`, `go vet`, `golangci-lint` and `go mod tidy -diff` were skipped
+- Task 9: minor (deferred): web/src/components/capability-list.tsx:108 — exported `CapabilityList` and `TailnetChange` (web/src/modules/tailnet/tailnet-change.tsx:379) have no doc comment
+- Task 9: minor (deferred): web/src/components/capability-list.test.tsx:80 — test output is not pristine: the full web run prints four `Not implemented: HTMLCanvasElement's getContext()` lines
+- Task 9: minor (deferred): web/src/components/capability-list.tsx:115 — `key={c.name}` assumes capability names are unique within a list
+- Task 10: minor (deferred): web/src/modules/cloudflare/fixtures.ts:269 — `cfHostname`'s default `tunnel` repeats the tunnel id literal instead of deriving it from the `cfTunnel` default
+- Task 10: minor (deferred): web/src/modules/cloudflare/cloudflare-change.test.tsx:0 — the reported full `pnpm -C web test` output is not clean: it contains four `Not implemented: HTMLCanvasElement's getContext()` lines
+- Task 10: minor (deferred): web/src/modules/cloudflare/types.ts:0 — the report shows no output for `go vet ./...`, `golangci-lint run`, or `go test -race` on the task's packages, which Global Constraints require after every task
+- Task 11: minor (deferred): internal/modules/docker/logfilter/logfilter.go:72 — [lens:security] Flush emits a held partial secret unmasked
+- Task 12: minor (deferred): internal/modules/tailnet/store.go:194 — `listKeys` returns a nil slice when the table is empty
+- Task 12: minor (deferred): internal/modules/tailnet/store.go:36 — `parseStoreTime` errors do not say which row or column is bad
+- Task 13: minor (deferred): internal/modules/cloudflare/store.go:613 — the cleanup message for a blocking effect differs between the two modules
+- Task 13: minor (deferred): internal/modules/cloudflare/store.go:303 — the `hostnameRow` struct text in Contracts is not gofmt-aligned
+- Task 14: minor (deferred): internal/modules/docker/preflight.go:262 — `parseAPIVersion` repeats dockerapi's unexported `parseVersion` (internal/platform/dockerapi/client.go:208-216) almost line for line
+- Task 15: minor (deferred): internal/modules/docker/effects.go:98 — two of run's journal-failure paths have no test
+- Task 15: minor (deferred): internal/modules/docker/observe_test.go:627 — plan-mandated: efAPI's comment says inspectErr also fails InspectNetwork and InspectVolume, but only InspectContainer applies it
+- Task 15: minor (deferred): internal/modules/docker/observe.go:447 — an endpoint identity with a second `@` is accepted
+- Task 16: minor (deferred): internal/modules/docker/resources.go:234 — `resError`'s doc comment says "a list call", but the function also maps the inspect failure at line 183.
+- Task 16: minor (deferred): internal/modules/docker/resources_test.go:400 — no test reaches the `Next()` failure path or the 8-way concurrency bound.
+- Task 16: minor (deferred): .dforge/sdd/2026-10-30-v1-w3-docker-tailnet-cloudflare/task-16-report.md:20 — the Verified lines are templated as "pass: 1 passed, 0 failed" instead of quoting command output.
+- Task 17: minor (deferred): internal/modules/tailnet/fake/policy.go:64 — a GET of the policy without an `Accept` header answers JSON, but spec 4.2a says the provider answers HuJSON
+- Task 17: minor (deferred): internal/modules/tailnet/fake/policy.go:56 — `errors.New("the policy must be a JSON object")` lacks the `fake:` prefix the Global Constraints require on error strings
+- Task 17: minor (deferred): .dforge/sdd/2026-10-30-v1-w3-docker-tailnet-cloudflare/task-17-report.md:27 — the Verified section paraphrases the command results instead of recording their real output, which the brief requires
+- Task 18: minor (deferred): internal/modules/cloudflare/fake/fake.go:173 — the envelope encoder HTML-escapes, so the config that GET returns is not byte-identical to the config `Configuration` returns
+- Task 18: minor (deferred): internal/modules/cloudflare/fake/tunnels.go:90 — after `SetConfiguration` stores invalid JSON, GET answers 200 with an empty body, and the encode error is discarded at fake.go:173
+- Task 18: minor (deferred): internal/modules/cloudflare/fake/tunnels_test.go:71 — the tests assert the status but not the error code for codes 1022, 1013 (line 29), 1003 and 7003 (dns_test.go:55)
+- Task 19: minor (deferred): web/src/modules/docker/projects-tab.tsx:42 — Profiles field state never resyncs with refetched stored profiles
+- Task 19: minor (deferred): web/src/modules/docker/networks-tab.tsx:54 — The `Text` field component and the `Pending` interface are duplicated across the tab files
+- Task 19: minor (deferred): web/src/modules/docker/networks-tab.test.tsx:144 — The reported test output is not clean
+- Task 20: minor (deferred): web/src/modules/docker/logs-panel.tsx:35 — the log region never scrolls to the newest line while Follow is ticked
+- Task 20: minor (deferred): web/src/modules/docker/logs-panel.tsx:0 — the full `pnpm -C web test` run is not pristine
+- Task 20: minor (deferred): web/src/modules/docker/stats-panel.tsx:0 — the verification output is summarized rather than recorded
+- Task 21: minor (deferred): web/src/modules/tailnet/account-panel.tsx:131 — "Abandon pending cleanup" stays ticked after the change dialog closes
+- Task 21: minor (deferred): .dforge/sdd/2026-10-30-v1-w3-docker-tailnet-cloudflare/task-21-report.md:15 — test evidence is mostly paraphrased, and the reported jsdom noise is passed over
+- Task 22: minor (deferred): web/src/modules/cloudflare/account-panel.tsx:44 — the submit guard checks the untrimmed token, so a whitespace-only API token is planned
+- Task 22: minor (deferred): web/src/modules/cloudflare/account-panel.test.tsx:158 — no test pins that closing the change dialog unticks "Abandon pending cleanup"
+- Task 22: minor (deferred): .dforge/sdd/2026-10-30-v1-w3-docker-tailnet-cloudflare/task-22-report.md:15 — check output is paraphrased for lint, typecheck and the Go commands, and four jsdom canvas notices are passed over
+- Task 21: minor (deferred): web/src/modules/tailnet/account-panel.tsx:131 — Abandon pending cleanup stays ticked after the change dialog closes, unlike the Cloudflare panel
+- Task 23: minor (deferred): web/src/modules/tailnet/keys-page.tsx:644 — `Option` and `NotConnected` repeat `RouteOption` and `NotConnected` of devices-page.tsx verbatim
+- Task 23: minor (deferred): .dforge/sdd/2026-10-30-v1-w3-docker-tailnet-cloudflare/task-23-report.md:15 — the Go gate results are recorded as "1 passed, 0 failed" summaries instead of their real output, and the web suite output is not clean
+- Task 23: minor (deferred): web/src/modules/tailnet/devices-page.tsx:298 — the routes dialog text says "Tick the routes this device may advertise", but the dialog approves routes the device already advertises
+- Task 24: minor (deferred): internal/modules/docker/compose/validate.go:27 — the allowlist admits service keys that reach the host (use_api_socket, privileged, pid, network_mode, devices, cap_add, plus bind mounts through volumes)
+- Task 24: minor (deferred): internal/modules/docker/compose/validate_test.go:91 — no case covers an External object or a volume that has no resolved name
+- Task 25: minor (deferred): internal/modules/docker/streams.go:92 — no test covers an emit failure while flushing at `io.EOF`
+- Task 25: minor (deferred): internal/modules/docker/streams_test.go:350 — no test pins chunking of flushed bytes
+- Task 25: minor (deferred): .dforge/sdd/2026-10-30-v1-w3-docker-tailnet-cloudflare/task-25-report.md:33 — Verified lines are templated as "1 passed, 0 failed"
+- Task 26: minor (deferred): internal/modules/docker/store.go:412 — `configHash` reads label-named paths with no size or file-type bound on every `docker.projects` read
+- Task 26: minor (deferred): internal/modules/docker/store.go:299 — `projectLabelName` duplicates Task 16's `resComposeProject` constant
+- Task 26: minor (deferred): .dforge/sdd/2026-10-30-v1-w3-docker-tailnet-cloudflare/task-26-report.md:23 — the full `go test ./...` and `go vet ./...` ran before the final gofmt fix, and the report gives pass counts instead of raw output
+- Task 26: minor (deferred): internal/modules/docker/store.go:164 — a path swapped for a FIFO between lstat and readFile can still block the read (the implementer notes this); closing it needs an O_NONBLOCK open plus fstat through a new seam
+- Task 27: minor (deferred): internal/modules/docker/container_run.go:189 — a malformed effect is refused with an error that is not Definite
+- Task 27: minor (deferred): internal/modules/docker/container_run_test.go:652 — the 4xx-or-5xx boundary in Inverse is not tested
+- Task 27: minor (deferred): internal/modules/docker/container_run.go:103 — the `min(len(c.ID), 12)` guard is speculative
+- Task 28: minor (deferred): internal/modules/docker/container_remove.go:104 — if the container disappears between the inspect and the remove (a 404 from RemoveContainer), the effect is journaled as skipped and the action fails with not_found, even though the requested end state (no container) has been reached.
+- Task 28: minor (deferred): internal/modules/docker/container_remove.go:105 — the not_found detail at removal names `in.Container`, which can be a 64-character id, while the diff and the output use the container name. `containerName(c)` would give clearer client text. The brief dictates `in.Container` here, so this is polish only.
+- Task 29: minor (deferred): internal/modules/docker/image_prune.go:102 — Apply throws away the list of images it already removed when it fails partway
+- Task 29: minor (deferred): internal/modules/docker/image_remove.go:61 — container names come from `resContainerName`, not from `Names[0]` with the leading `/` trimmed as the brief says
+- Task 30: minor (deferred): internal/modules/docker/network_manage.go:232 — a copy of the 4xx-means-Definite mapping that `imageCallError` already provides
+- Task 30: minor (deferred): internal/modules/docker/network_manage.go:24 — `manageNamePattern` accepts one-character volume names, which Docker's volume name rule refuses
+- Task 30: minor (deferred): internal/modules/docker/network_manage.go:232 — the inverses repeat the imageCallError 4xx-to-Definite mapping (also volume_manage.go:149, container_run.go:193)
+- Task 30: minor (deferred): internal/modules/docker/network_manage.go:24 — manageNamePattern accepts one-character volume names that Docker refuses at apply
+- Task 31: minor (deferred): internal/modules/docker/network_connect.go:370 — the disconnect Apply skips the second resolve that step 6 describes
+- Task 31: minor (deferred): internal/modules/docker/network_connect.go:245 — an IPv6 address with a zone passes the connect check
+- Task 31: minor (deferred): internal/modules/docker/network_connect.go:284 — a failed `run` reaches the client unmapped
+- Task 32: minor (deferred): internal/modules/cloudflare/client.go:324 — single-object methods accept an empty id
+- Task 32: minor (deferred): internal/modules/cloudflare/client.go:376-379 — a connector element without a `conns` member is read as a flat connection
+- Task 32: minor (deferred): internal/modules/cloudflare/client.go:191-196 — the `total_pages` fallback and the page-number bound in the loop have no test
+- Task 32: minor (deferred): internal/modules/cloudflare/client.go:324 — single-object methods (Tunnel, DeleteTunnel, DNSRecord, DeleteDNSRecord) accept an empty id and send a request to a collection path; a cloudflare ErrEmptyID guard would match the dockerapi one
+- Task 32: minor (deferred): internal/modules/cloudflare/client.go — an element of the connections answer with no conns member would be read as a phantom connection
+- Task 32: minor (deferred): internal/modules/cloudflare/client_test.go — the page-count fallback from total_count and per_page has no test
+- Task 33: minor (deferred): web/src/modules/docker/containers-tab.tsx:25 — no test pins the formatter's rounding-boundary rule
+- Task 33: minor (deferred): web/src/modules/docker/containers-tab.test.tsx:0 — the TDD constraint was not followed: there is no recorded RED run
+- Task 33: minor (deferred): web/src/modules/docker/images-tab.test.tsx:0 — test output is not pristine
+- Task 35: minor (deferred): web/src/modules/cloudflare/hostnames-page.tsx:87 — the chosen tunnel id is kept after that tunnel leaves the list, and the form is not cleared after an add
+- Task 35: minor (deferred): web/src/modules/cloudflare/tunnels-page.tsx:15 — the `Pending` interface is declared twice, here and at hostnames-page.tsx:20
+- Task 35: minor (deferred): .dforge/sdd/2026-10-30-v1-w3-docker-tailnet-cloudflare/task-35-report.md:19 — the Go gates in Step 5 and the Global Constraints were not run
+- Task 34: minor (deferred): web/src/modules/tailnet/policy-page.tsx:312 — a failed background refetch replaces the editor with an alert
+- Task 34: minor (deferred): web/src/modules/tailnet/policy-page.tsx:0 — TDD RED step skipped; verification evidence is summaries, not quoted output
+- Task 34: minor (deferred): web/src/modules/tailnet/policy-page.test.tsx:0 — reported `pnpm -C web test` output is not pristine
+- Task 36: minor (deferred): internal/modules/docker/logs_read.go:513 — a line that never ends has no byte limit
+- Task 36: minor (deferred): internal/modules/docker/logs_read.go:524 — a frame on a stream other than stdout or stderr loses its last partial line silently
+- Task 36: minor (deferred): internal/modules/docker/inspect.go:0 — the full-suite gate from step 5 was not run
+- Task 37: minor (deferred): internal/modules/docker/image_pull.go:167 — the code depends on `streamInvalid` from streams.go:173, which Task 25 owns, but Task 37 declares only Task 15 as a dependency
+- Task 37: minor (deferred): internal/modules/docker/pull.go:653 — the `clock.AfterFunc` timer handle is discarded
+- Task 38: minor (deferred): internal/modules/docker/compose_check.go:192 — [lens:security] The project directory and its parent directories get no group or other write-bit check.
+- Task 38: minor (deferred): internal/modules/docker/compose_check.go:139 — A project row with an empty `Files` list passes every check and then fails at line 165 as an uncoded `docker: run compose config: …` error.
+- Task 38: minor (deferred): internal/modules/docker/compose_check_test.go:978 — `Facts.Owner` is tested only for networks.
+- Task 38: minor (deferred): internal/modules/docker/compose_check.go:115 — out of scope: ancestors are checked for write bits but not ownership, so a non-root user who owns an intermediate prefix such as /srv (mode 0755) can still rename the project directory away; the ruling asked only for write bits
+- Task 39: minor (deferred): internal/modules/tailnet/client.go:379 — `CreateKey` accepts a 2xx answer with an empty `id` or `key`
+- Task 39: minor (deferred): internal/modules/tailnet/client.go:129 — An `expires_in` of 0 or less makes the token expire at once
+- Task 39: minor (deferred): internal/modules/tailnet/oauth.go:34 — The cache mutex is held across a network fetch and does not watch `ctx`
+- Task 40: minor (deferred): web/src/modules/docker/container-page.test.tsx:256 — test output not pristine: jsdom "HTMLCanvasElement's getContext()" noise passed over
+- Task 40: minor (deferred): web/src/modules/docker/container-page.tsx:0 — Step 4's full gates not run: `pnpm -C web test` (which includes registry.test.tsx rendering docker/routes) and the Go gates
+- Task 40: minor (deferred): web/src/modules/docker/container-page.tsx:459 — a failed hosts query shows as "The firewall module is not enabled on this host." and hides the Actions card without an error
+- Task 41: minor (deferred): internal/modules/docker/compose_run.go:250 — one container disappearing mid-listing fails the whole action
+- Task 41: minor (deferred): internal/modules/docker/compose_run.go:278 — `lastStderrLine` was not declared; the code reuses Task 38's `composeLastLine` instead
+- Task 41: minor (deferred): internal/modules/docker/compose_run.go:217 — a malformed effect resource gets an uncertain error even though nothing was called
+- Task 42: minor (deferred): internal/modules/tailnet/account.go:54 — [lens:injection] the tailnet pattern accepts `.` and `..`, and `url.PathEscape` leaves dots unescaped
+- Task 42: minor (deferred): internal/modules/tailnet/account_actions.go:305-313 — no test covers the conflict found by the in-transaction re-check after Intend
+- Task 42: minor (deferred): internal/modules/tailnet/account.go:171 — the loop variable `c` shadows the api client `c` declared at line 157
+- Task 43: minor (deferred): internal/modules/cloudflare/account_test.go:742 — no test reaches the 512-byte or control-character token branches, the `Skipped` path, or Observe's no-match path
+- Task 43: minor (deferred): internal/modules/cloudflare/account_connect.go:248 — Apply calls VerifyToken and both probes before discovering an existing row
+- Task 43: minor (deferred): internal/modules/cloudflare/account_connect.go:265 — `ConnectedAt` is `env.Clock.Now().UTC()` where the brief says `env.Clock.Now()`
+- Task 44: minor (deferred): internal/modules/docker/register_test.go:214 — `_ = stream.Run(...)` discards the stream's error
+- Task 45: minor (deferred): internal/modules/tailnet/devices_routes.go:152 — the block that marks an effect Skipped on a definite error, or leaves it intended otherwise, is copied verbatim from devices_authorize.go:71-80
+- Task 45: minor (deferred): internal/modules/tailnet/devices_routes.go:131 — set-routes Apply re-checks that every wanted route is still advertised, which the brief's Apply text does not ask for, and no test covers that refusal
+- Task 45: minor (deferred): internal/modules/tailnet/devices_routes.go:170 — set-routes Verify returns `parseRoutes`' plain error instead of the definite `/routes` refusal that Plan and Apply use
+- Task 46: minor (deferred): internal/modules/tailnet/device_expire_delete.go:104 — depends on Task 45's `requireDevice` and `observedDevice`, which neither the Depends-on line (Task 42 only) nor the Consumes list declares
+- Task 46: minor (deferred): internal/modules/tailnet/device_expire_delete.go:134 — the delete diff line reads "with addresses  leaves tailnet" when the device has no addresses
+- Task 46: minor (deferred): internal/modules/tailnet/device_expire_delete_test.go:129 — no test covers the `never` expiry wording or the tailnet name in the diff lines
+- Task 47: minor (deferred): internal/modules/cloudflare/tunnel_lifecycle_test.go:519 — no test pins the tunnelNameOf fallback for a provider-deletion effect
+- Task 47: minor (deferred): internal/modules/cloudflare/tunnel_lifecycle.go:180 — `busy` reads the hostname table outside the write transaction that deletes the row (line 336)
+- Task 48: minor (deferred): internal/modules/cloudflare/tunnel_read.go:505 — every provider-read error, including a cancelled or expired request context, turns into a successful list with status "unknown"
+- Task 48: minor (deferred): internal/modules/cloudflare/tunnel_adopt.go:133 — Apply does not re-check that the row exists inside its write transaction, unlike Inverse at :207
+- Task 48: minor (deferred): internal/modules/cloudflare/tunnel_adopt_test.go:353 — no test covers Apply's database-error path (effect left intended), or a list where the `Tunnel` read fails but the `Connections` read succeeds
+- Task 49: minor (deferred): internal/modules/tailnet/authkey.go:104 — a failed `insertKey` returns an error not marked definite although nothing was sent and no effect was intended
+- Task 49: minor (deferred): internal/modules/tailnet/authkey_test.go:351 — no test covers Inverse's error paths, Observe's several-matches path, or the `Intend` failure path
+- Task 49: minor (deferred): internal/modules/tailnet/authkey_resolve.go:19 — `describedKeys` is in authkey_resolve.go, but Contracts "Tailnet internals" places it in authkey.go
+- Task 50: minor (deferred): internal/modules/tailnet/keysweep.go:53 — a pass error is not logged when `ctx` has already ended [lens:silent-failures]
+- Task 50: minor (deferred): internal/modules/tailnet/keysweep.go:192 — a 404 from `DeleteKey` is audited as a sweep deletion with result `ok` [lens:silent-failures]
+- Task 50: minor (deferred): internal/modules/tailnet/keysweep_test.go:215 — `f.audit.List` error discarded (`entries, _, _ :=`) [lens:silent-failures]
+- Task 50: minor (deferred): internal/modules/tailnet/keysweep.go:259 — no test covers the conditional `retired`→`deleted` write in `sweepKey`; dropping its `cur.State == "retired"` predicate would pass every test (the fix report acknowledges this gap)
+- Task 51: minor (deferred): internal/modules/tailnet/policy_effects.go:203 — when `Intend` fails, the error is returned without `core.Definite`, although nothing was sent to the provider
+- Task 51: minor (deferred): internal/modules/tailnet/policy.go:104-107 — when Apply's read of the current policy (`a.Policy`) fails, the error is returned without `core.Definite`, although no write has happened
+- Task 51: minor (deferred): internal/modules/tailnet/policy.go:71 — the `tailnet.policy_invalid` detail is the raw hujson parse message, which can quote a fragment of the submitted text
+- Task 52: minor (deferred): internal/modules/cloudflare/hostname.go:403 — a second Recover run after a rollback that already deleted the row reports `RecoveryFailed` with "the ingress rule was not written"
+- Task 52: minor (deferred): internal/modules/cloudflare/hostname.go:298 — the DNS record inverse cannot clear `record_id` as the brief asks, because `setHostnamePhase` ignores `""` (store.go:330)
+- Task 52: minor (deferred): internal/modules/cloudflare/hostname.go:217 — `observeCreation` returns an error when the change's hostname row is gone, but the brief says the same code serves undoing and undone effects
+- Task 53: minor (deferred): internal/modules/cloudflare/hostnames_service.go:200 — a failed audit after commit is lost for good
+- Task 53: minor (deferred): internal/modules/cloudflare/hostnames_service.go:143 — the in-transaction re-check and the cancelled-DNS-read path have no tests
+- Task 53: minor (deferred): internal/modules/cloudflare/hostnames_service.go:146 — `cur.ID != t.ID` is always false after loadTunnel by t.ID
+- Task 54: minor (deferred): test/harness/m4_helpers_test.go:202 — m4Stream has no deadline of its own, so a stream that never sends a frame blocks until the 60-minute TestM4 context expires
+- Task 54: minor (deferred): test/harness/m4_helpers_test.go:115 — m4Settle retries every m3Change error, including a definite 404 or 403, for the full 20 minutes
+- Task 54: minor (deferred): test/harness/m4_helpers_test.go:209 — m4Stream's APIError on a non-2xx answer carries no Code, so `errors.As(err, &ae) && ae.Code == ...` can never match a stream refusal
+- Task 55: minor (deferred): internal/modules/tailnet/policy_patch.go:130 — the path where `policy.Apply` fails on the live text in Verify (for example, a parent object removed since the apply) has no test
+- Task 55: minor (deferred): internal/modules/tailnet/policy_patch.go:107 — Apply wraps every read error in `core.Definite`, while policySet.Apply leaves its `a.Policy` read error unwrapped
+- Task 55: minor (deferred): internal/modules/tailnet/policy_patch_test.go:0 — no test covers an empty edit list
+- Task 56: minor (deferred): internal/modules/cloudflare/hostname_remove.go:96 — [lens:silent-failures] a removal cut off midway writes over foreign configuration changes without a drift check and stores the result as Darkpanel's
+- Task 56: minor (deferred): internal/modules/cloudflare/hostname_remove.go:331 — recovery returns failed for a removal that finished when the rule was already absent
+- Task 57: minor (deferred): internal/modules/tailnet/tailnet.go:277 — plan-mandated: the doc comment on actions says spec 5's rows are "all ... under the tailnet lock", but device.list and policy.get are spec-5 reads that take no lock
+- Task 58: minor (deferred): internal/modules/cloudflare/cloudflare.go:72 — The `actions()` doc comment says every action runs "under the cloudflare lock", but the four read actions take no lock.
+- Task 58: minor (deferred): internal/modules/registry_test.go:105 — plan-mandated: The subject of commit c4016a1, "allow undo and internal actions", describes more than the commit contains.
+- Task 58: minor (deferred): internal/modules/cloudflare/register_test.go:283 — plan-mandated: `TestRegHostnamesService` cancels the context right after starting the goroutine, so it usually tests a service that receives an already-cancelled context.
+- Task 59: minor (deferred): test/harness/m4_compose_test.go:80 — `install_shim` runs `rm -f "$target"` even when the target is not a shim and an original is already kept aside, so it deletes that program without keeping it
+- Task 59: minor (deferred): test/harness/m4_compose_unit_test.go:16 — `TestM4cShims` never tests the symlink case or the case where the target exists and an original is already kept aside
+- Task 59: minor (deferred): test/harness/m4_compose_test.go:320 — the pull iteration also checks Running and LastRun, which the brief asks for only after restart
+- Task 60: minor (deferred): test/harness/m4_live_test.go:159 — the build-step order check passes when the step text is not found in the job
+- Task 60: minor (deferred): test/harness/m4_live_unit_test.go:183 — plan-mandated: the 60-minute deadline is a literal that TestM4's context does not share
+- Task 60: minor (deferred): test/harness/m4_live_test.go:44 — `m4lVerdict` also accepts `--- PASS: TestDockerLiveX`
+
+## Parked rulings
+
+- Task 2: Ruling: cannot-verify — PARK: the requirement is met, so no change is needed. The suite log shows the repository-wide go test -count=1 ./... passing in the Task 2 worktree, and the wave's merged check still runs once Tasks 1-3 are merged. — if wrong, a regression from the empty-id guards in another package would surface at the wave's merged check; risk low because ErrEmptyID is new and nothing else calls 
+- Task 1: Ruling: cv-1-3 — PARK: compose-go v2.16.1 adds jobs and pre_start, both already exempt (header amendment A2); any other key is refused by Task 24's 5.1.4 allowlists, which fails safe — a project using an undetected 5.6.0 key is refused at check time
+- Task 4: Ruling: cannot-verify — PARK: the plan and spec make no Compose version a checked requirement of Task 4, and Task 24 reads its allowlists from the installed plugin schema, not from these golden files; the unedited Keys tests corroborate v5.1.4. — if wrong, the golden files come from a slightly different Compose version whose keys happen to match; Task 24 is unaffected
+- Task 5: Ruling: cannot-verify — CONFIRMED-GAP: the repository-wide go test -count=1 ./... was not run for Task 5; the Task 2 PARK does not carry over because no suite log exists for Task 5. Smallest fix applied by the controller: run it in the Task 5 worktree at head 95afaad before merging — if wrong, a regression outside the docker package would surface only at the Integration check on the merged tree
+- Task 15: Ruling: cannot-verify — PARK: no docker Inverse in Tasks 27-31, 36, 37 or 41 sets an UndoResource different from e.Resource or relies on InverseRecovery, checked by the ruling seat against the plan lines — if wrong, same as the parked observe finding
+- Task 17: Ruling: cannot-verify — PARK: cloudfake.Handle registers method-and-wildcard patterns on an http.ServeMux and forwards the same request, so r.PathValue(t) and r.PathValue(id) are set in the guard and the handlers; go.mod declares go 1.27 and nothing re-enables the old mux; the implementer report lists the 11 tests passing with race — if wrong, the other-tailnet 404 test would fail at once
+- Task 18: Ruling: cannot-verify — PARK: the fake serves GET /accounts/a/tokens/verify and the user-path fallback from amendment A9 with no permission, and the three permission constants cover all 8 tunnel routes, the 4 DNS record routes and GET /zones, matching spec 7.1 — if wrong, a later cloudflare task would test token verification against a mismatched fake
+- Task 20: Ruling: cannot-verify — PARK: Task 40 mounts LogsPanel and StatsPanel with hostId and containerId=detail.id (plan line 20122) and both panels declare hostId and containerId strings, no amendment touches them — if wrong, Task 40 would fail typecheck at once; Task 40 reviewer should confirm containerId is detail.id, not the route segment
+- Task 21: Ruling: cannot-verify — PARK: TailnetChange invalidates the tailnet query key whenever its dialog closes (tailnet-change.test.tsx) and ChangeDialog shows a plan refusal in its own alert with the server message (change-dialog.test.tsx covers lock.held, not cleanup_pending itself) — if wrong, a refused plan would show no alert or the panel would not refetch after close
+- Task 23: Ruling: cannot-verify — PARK: tailnet.authkey.create is a plain compensable action with no long-running flag and no recovery handler (Task 49), so apply always answers completed, failed or needs_repair and the keys page cannot lose the one-time key; failed and needs_repair return no output — if wrong, a later change making the action long-running would lose the key and Task 23 handling would need to chan
+- Task 26: Ruling: cannot-verify (docker_projects migration wired by Task 44) — PARK: carry to Task 44 review; its Implement item 2 has Manifest() return Migrations {SideAgent: agentMigrations()} and its manifest test fails otherwise — if wrong, the table is missing on a real agent but Task 44 test catches it before merge
+- Task 26: Ruling: security note on configHash — CONFIRMED-GAP (Important, hash-oracle half PARKED as Docker socket access is already root): guard each label path before reading (absolute, clean, lstat regular file, size at most compose.MaxConfigBytes, else empty hash; also cap data read) with four new TestPjConfigHash cases, run as Task 26 fix round 1 — if wrong, a few lines in one helper plus test cases
+- Task 27: Ruling: cannot-verify (containerName and runWord clash with a later docker task) — PARK: both names are declared only in internal/modules/docker/container_run.go, no later task declares or requires either — if wrong, a redeclared compile error at merge fixed by renaming the later identifier
+- Task 29: Ruling: plan-conflict (prune partial failure marked Definite) — AMEND (A31 and A32 in amendments.md): imageCallError only while no image has been removed in the run, engineError alone afterwards, plus two subtests (first refusal definite, refusal after one removal uncertain); second Minor (return out with the error) PARKED as the engine drops Apply output on error; resContainerName deviation not ruled on �
+- Task 29: Ruling: cannot-verify (engine re-plans and compares StateHash before Apply) — PARK: Engine apply calls recheck (apply.go:193) and checkReplan refuses with plan.state_changed on a hash mismatch (apply.go:333-336), the prune hash covers every listed image — if wrong, an image that turned dangling between recheck and Apply list is pruned without being shown
+- Task 31: Ruling: cannot-verify (Task 44 lists networkConnect and networkDisconnect in Manifest().Actions) — PARK: Task 44 step 3 item 3 lists both, its regActions table declares docker.network.connect and docker.network.disconnect, and TestRegManifestDeclaresTheActions and TestRegRegistryAcceptsTheModule fail if either is missing — if wrong, the module ships without the two actions registered, caught by Task 44 o
+- Task 32: Ruling: cannot-verify (VerifyToken ignores the token status) — PARK: spec 7.1 defines the token as valid when the verify call answers success and Task 43 adds no status check; a dead token shows as cloud.auth_failed and the user reconnects — if wrong, connect stores a dead token that fails visibly
+- Task 34: Ruling: cannot-verify (TailnetChange invalidation, Planned changes label, 422 alert with Apply disabled; frozen registry loading ./tailnet/global) — PARK: met by reading tailnet-change.tsx and change-dialog.tsx, and the wave 17 make lint-web test-web check runs the merged tests — if wrong, that check fails before any later task builds on it
+- Task 35: Ruling: cannot-verify (baseline vitest run of src/modules/cloudflare and registry.test.tsx at base 27bedcc, command not named in the plan) — PARK: the requirement is that the registry test passes at head, recorded at 45 tests and 570 web tests after the A48 fix, and a base run compares against a skeleton; the wave 17 check runs it again — if wrong, the wave 17 check fails on registry.test.tsx before merg
+- Task 37: Ruling: cannot-verify (full go test not run by the implementer) — PARK: the dispatch file tells the implementer to leave the suite to the controller and the controller own run at 5d793f8 passed (exit 0, 70 packages ok, log .dforge/suites/1793420630-504268.log); the suite runs again at the fix head — if wrong, a regression shows in that run
+- Task 38: Ruling: cannot-verify (repository-wide go test at head not run by the implementer) — PARK: the controller own go build, vet and go test at 6c76e6a exited 0 (log .dforge/suites/1793422101-585716.log); the suite runs again at the fix head — if wrong, a regression shows in that run
+- Task 39: Ruling: cannot-verify (repository-wide go test not run by the implementer) — PARK: the dispatch file leaves the suite to the controller and the controller own go build, vet and go test at 815cfe3 exited 0 (all packages ok, including internal/modules and the tailnet packages); the suite runs again at the fix head — if wrong, a regression shows in that run
+- Task 41: Ruling: cannot-verify (repository-wide go test not run by the implementer) — PARK: the dispatch leaves the suite to the controller and the controller own run at dab8dff exited 0 (log .dforge/suites/1793424909-712947.log); the suite runs again at the fix head — if wrong, a regression shows in that run
+- Task 41: Ruling: cannot-verify (silent-failures lens result: no swallowed errors or lost exit statuses) — PARK: confirmed by the ruling seat, nothing to meet — none
+- Task 44: Ruling: cannot-verify — PARK ×3 (rulings-cannot-verify-44-report.md): green is required per task and the head passes, so no run at be13d4e; no task from 45 to 60 sends follow to docker.logs; lint and web gates are re-run by the wave integration check — if wrong, a lint or web failure surfaces at the wave 26 integration check
+- Task 52: Ruling: plan-conflict record-id — PARK: setHostnamePhase keeps record_id on an empty id (store.go, Task 13, outside Task 52 Files); nothing downstream reads it harmfully and A69 aligns the brief wording — if wrong, a removing_rule row shows a stale recordId in the list until the rollback ends (cosmetic)
+- Task 52: Ruling: cannot-verify recover — PARK: settled() never marks a non-Local effect made on its own (lifecycle/settle.go:44-45); Recover is reached after repair observation, a crash or a database error, which the drift fix covers — if wrong, only the estimate of how often the drift case occurs changes
+- Task 53: Ruling: ruling seat dforge:judge-sonnet-high wrote no report file (rulings-cannot-verify-53-report.md is absent) — took its verdict from its reply, a PARK that needs no action, instead of re-dispatching — if wrong, the PARK is unrecorded in a file but the ledger line below carries it
+- Task 53: Ruling: cannot-verify prefix — PARK: the cloudflare: prefix holds for every helper Task 53 calls; only DB.Write own begin, rollback and commit errors start with store:, which is core code outside Task 53 Files and correct under the package-name rule — if wrong, one fmt.Errorf wrap around the Write call in checkTunnel changes only the text of a rare error
+- Task 54: Ruling: cannot-verify wire — PARK: the five wire names (docker.engine apiVersion, images containers, pull output id, pull stream changeId, prune confirmation prune) match the Go struct tags and registrations of Task 44 (no schemas/docker* snapshot files were found by the glob, so the tags were the source); Task 60 first VM run stays the end-to-end proof — if wrong, a failed harness scenario in Task 60 is
+- Task 54: Ruling: ruling seat dforge:judge-sonnet-high wrote no report file (rulings-cannot-verify-54-report.md is absent) although the dispatch named its absolute path — took its PARK verdict from its reply, which needs no action — if wrong, the PARK is recorded only in the ledger
+- Task 57: Ruling: cannot-verify guards — PARK: the controller own repository-wide go test at 678cfad (70 pass, 0 fail, log .dforge/suites/1793443320-45635.log) runs TestRegistrationRules, TestSnapshotsCurrent, TestPointerOutputsAreNullable and TestEveryActionHasACLICommand, and the implementer recorded the Step 4 race command passing — if wrong, a registry guard fails at the next integration check
+- Task 59: Ruling: plan-conflict plan-helper — PARK: m4cPlan duplicates about 12 lines of Task 54 m4Plan but the brief requires it by name and nothing later builds on it — if wrong, a later change to m4Plan is not mirrored in m4cPlan
+- Task 59: Ruling: cannot-verify vm — PARK: the VM scenarios run only on harness VMs; the check is the gate 7 harness.yml run on the pushed branch — if wrong, a failing VM scenario surfaces at that run
+- Task 59: Ruling: cannot-verify buildx — PARK: provisioning installs only the pinned packages with --no-install-recommends and none is buildx, so the harness image has no real buildx plugin — if wrong, the final docker-buildx absence check fails on the first VM run
+- Task 59: Ruling: cannot-verify state — PARK: m4ApplyAsync fails the test unless the change completed (m4_helpers_test.go:134-139), which meets the brief completed requirement — none
+- Task 60: Ruling: cannot-verify network — PARK: the harness VMs already pull from outside registries and nothing limits egress; that the pinned digest resolves to a linux/amd64 manifest on public.ecr.aws cannot be checked statically, so the gate 7 vm-m4 run settles it — if wrong, replace m4lImage in m4_live_test.go with a digest read from the registry
+- Task 60: Ruling: cannot-verify m2dir — PARK: m2Flag is only joined to exact filenames (darkpanel-<version> and install.sh) and no code lists the directory, so the extra dockerapi.test file is ignored — none
+- Task 60: Ruling: cannot-verify suite — PARK: the commit adds only harness-tagged files and the workflow, and the controller untagged go test -count=1 ./... at 7f6025d (70 pass, 0 fail) is the run the brief Step 4 asked for — none
+- Ruling: final-residual-2 web/src/modules/docker/stream.ts (max <= 0 and StreamEnd shape) — PARK: both halves are latent, no caller passes max <= 0 and a malformed end event can come only from the panel server and would show an empty warning with a working Reconnect — if wrong, a future caller passing max <= 0 keeps every event
+
+## Discovered during tasks
+
+- Task 13: complete discovered: the hostnameRow struct text in Contracts is not gofmt-aligned, later tasks copying struct text from Contracts may hit the same lint failure 
+- Task 14: complete discovered: strace is not installed so the guard effect on the server tests is indirect evidence only 
+- Task 24: complete discovered: the brief counted 30 PASS lines but its own tests give 34 
+- Task 35: complete discovered: the brief tunnels test used fixture defaults that contradicted its expected counts (fixed by A48 
+- Task 34: complete discovered: jsdom getContext not implemented noise from existing web tests 
+- Task 38: complete discovered: the brief test TestCCPrepareRefusesUnknownAndReservedProjects needed h.db = pjDB(t 
+- Task 39: complete discovered: a 401 from the main API does not evict the cached token, so a revoked token stays in use until its 50-minute renewal 
+- Task 40: complete discovered: jsdom getContext noise from the axe tests 
+- Task 41: complete discovered: a container that disappears between the list call and its inspect makes composeContainersOf fail with not_found 
+- Task 42: complete discovered: connected returns cloud.not_connected without core.Definite so Tasks 45 and later that call it from Plan or Apply must add it 
+- Task 44: complete discovered: the plan Contracts sentence that every handler implements Observe disagreed with Tasks 29 and 41 (A56 
+- Task 46: complete discovered: endResourcePrefix equals 
+- Task 47: complete discovered: busy reads the hostnames table outside the write transaction that deletes the row (safe today through the cloudflare lock and the foreign key 
+- Task 48: complete discovered: tunnel.list makes two sequential Cloudflare reads per stored tunnel (2N provider calls, prescribed by the brief 
+- Task 49: complete discovered: Contracts places describedKeys in authkey.go but step 7 puts it in authkey_resolve.go (same package, harmless 
+- Task 50: complete discovered: the tailnet controller migrations are not yet applied to the server controller database, so each keysweep pass logs a no such table warning until 
+- Task 51: complete discovered: deviceAuthorize.Apply in devices_authorize.go returns cloud.not_connected without core.Definite (low impact, deferred 
+- Task 52: complete discovered: setHostnamePhase in store.go cannot clear record_id (parked, cosmetic 
+- Task 53: complete discovered: an active hostname row with an empty record_id would be read as DNSRecord(zone, "" 
+- Task 54: complete discovered: the VM scenarios have never run (first run is the 
+- Task 55: complete discovered: Apply wraps read errors in core.Definite while policy.set does not, Verify returns the plain policy parse error for an unparsable live policy, no test for an empty edit list (Minors, deferred 
+- Task 56: complete discovered: a removal cut off midway stores the live configuration hash with no drift check, and recovery reports failed for a removal that finished when the rule was already gone (both Minors the brief specifies, deferred 
+- Task 57: complete discovered: the doc comment on actions says every action is under the tailnet lock though the read actions take none (Minor, deferred 
+- Task 58: complete discovered: actions( 
+- Task 59: complete discovered: the shim install can delete a reinstalled program without keeping a copy, the symlink and already-kept-original cases have no unit test, the pull check goes beyond the brief (Minors, deferred 
+- Task 60: complete discovered: the workflow check that the build step precedes the artifact upload passes when it cannot find the step, the 60-minute deadline literal in the workflow test is separate from TestM4 context, m4lVerdict accepts a test name that merely starts with TestDockerLive (Minors, deferred
