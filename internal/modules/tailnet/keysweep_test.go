@@ -218,6 +218,73 @@ func TestSwProviderFailureDoesNotStopThePass(t *testing.T) {
 	}
 }
 
+// onUncertain installs a trigger that runs stmt when the row of description
+// becomes uncertain, standing in for a create or a resolution that commits
+// after the pass has read its rows.
+func (f swFix) onUncertain(t *testing.T, description, stmt string) {
+	t.Helper()
+	err := f.h.db.Write(context.Background(), func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(context.Background(), fmt.Sprintf(`CREATE TRIGGER sw_race AFTER UPDATE OF state ON tailnet_keys
+			WHEN NEW.description = '%s' AND NEW.state = 'uncertain' BEGIN %s; END`, description, stmt))
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSwRowWrittenDuringThePass(t *testing.T) {
+	cases := []struct {
+		name      string
+		state     string // "" records no row
+		age       time.Duration
+		withKey   bool
+		stmt      string // %[1]s is the description, %[2]s the key id, %[3]s now
+		wantState string
+	}{
+		{"uncertain row becomes live", "uncertain", time.Hour, true,
+			`UPDATE tailnet_keys SET state = 'live' WHERE description = '%[1]s'`, "live"},
+		{"orphan gains a row", "", 0, true,
+			`INSERT INTO tailnet_keys (description, kind, owner_id, requested_at, expiry_seconds, tags_json, state, updated_at)
+				VALUES ('%[1]s', 'change', 'x', '%[3]s', 3600, '[]', 'requested', '%[3]s')`, "requested"},
+		{"old requested row becomes live", "requested", 10 * time.Minute, true,
+			`UPDATE tailnet_keys SET state = 'live', key_id = '%[2]s' WHERE description = '%[1]s'`, "live"},
+		{"retired row without a key becomes live", "retired", 48 * time.Hour, false,
+			`UPDATE tailnet_keys SET state = 'live' WHERE description = '%[1]s'`, "live"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := swSetup(t)
+			// The first row the pass moves to uncertain fires the trigger;
+			// rows are read oldest first, so it is moved before the target.
+			first := "darkpanel-" + swChange(10)
+			f.row(t, first, "requested", "", 20*time.Minute)
+			desc := "darkpanel-" + swChange(11)
+			id := ""
+			if tc.withKey {
+				id = f.key(t, desc)
+			}
+			if tc.state != "" {
+				f.row(t, desc, tc.state, id, tc.age)
+			}
+			f.onUncertain(t, first, fmt.Sprintf(tc.stmt, desc, id, formatStoreTime(f.h.clock.Now())))
+
+			if err := f.t.sweep(context.Background(), f.deps, f.h.clock.Now(), true); err != nil {
+				t.Fatal(err)
+			}
+			if got := f.state(t, first); got != "uncertain" {
+				t.Fatalf("first row %q, want uncertain: the trigger never fired", got)
+			}
+			if tc.withKey && !f.alive(id) {
+				t.Error("the pass deleted a key whose row changed after it was read")
+			}
+			if got := f.state(t, desc); got != tc.wantState {
+				t.Errorf("row %q, want %q", got, tc.wantState)
+			}
+		})
+	}
+}
+
 func TestSwNoAccountDoesNothing(t *testing.T) {
 	srv := fake.New(t)
 	h := newTNHost(t)

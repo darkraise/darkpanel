@@ -12,6 +12,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/core/ext"
+	"github.com/darkraise/darkpanel/internal/core/store"
 )
 
 const (
@@ -104,41 +105,53 @@ func (t tn) sweep(ctx context.Context, deps ext.Deps, now time.Time, orphans boo
 		}
 		return err
 	}
+	// The keys are listed before the rows are read: a create records its row
+	// before it asks for its key, so every listed key of Darkpanel's already
+	// has its row in the read below.
+	keys, listErr := describedKeys(ctx, a)
 	rows, err := listKeys(ctx, deps.DB.Read())
 	if err != nil {
-		return err
+		return errors.Join(listErr, err)
 	}
 	var errs []error
 	byDescription := make(map[string]keyRow, len(rows))
 	for _, r := range rows {
-		if orphans && r.State == "requested" && now.Sub(r.RequestedAt) > keyRequestGrace {
-			err := deps.DB.Write(ctx, func(tx *sql.Tx) error {
-				return setKeyState(ctx, tx, r.Description, "uncertain", "", now)
+		if orphans && keyRequestLapsed(r, now) {
+			moved, err := moveKey(ctx, deps.DB, r.Description, "uncertain", "", now, func(cur keyRow) bool {
+				return keyRequestLapsed(cur, now)
 			})
 			if err != nil {
 				errs = append(errs, err)
-			} else {
+			} else if moved {
 				r.State = "uncertain"
 			}
 		}
 		byDescription[r.Description] = r
 	}
-
-	keys, err := describedKeys(ctx, a)
-	if err != nil {
-		return errors.Join(append(errs, err)...)
+	if listErr != nil {
+		return errors.Join(append(errs, listErr)...)
 	}
+
 	listed := make(map[string]bool, len(keys))
 	for _, k := range keys {
 		if !keyNamespace.MatchString(k.Description) {
 			continue
 		}
 		listed[k.Description] = true
-		r, ok := byDescription[k.Description]
+		if r, ok := byDescription[k.Description]; !keySweepable(r, ok, now, orphans) {
+			continue
+		}
+		// A create or a resolution may have written the row since it was
+		// read, so the delete follows the row as it is now.
+		r, ok, err := currentKey(ctx, deps.DB, k.Description)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
 		if !keySweepable(r, ok, now, orphans) {
 			continue
 		}
-		if err := t.sweepKey(ctx, deps, a, k, r.State == "retired", now); err != nil {
+		if err := t.sweepKey(ctx, deps, a, k, ok && r.State == "retired", now); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -150,14 +163,51 @@ func (t tn) sweep(ctx context.Context, deps ext.Deps, now time.Time, orphans boo
 		if r.State != "retired" || listed[r.Description] || !now.After(keyWindowEnd(r)) {
 			continue
 		}
-		err := deps.DB.Write(ctx, func(tx *sql.Tx) error {
-			return setKeyState(ctx, tx, r.Description, "deleted", "", now)
+		_, err := moveKey(ctx, deps.DB, r.Description, "deleted", "", now, func(cur keyRow) bool {
+			return cur.State == "retired" && now.After(keyWindowEnd(cur))
 		})
 		if err != nil {
 			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// keyRequestLapsed reports whether r is a requested row whose create can no
+// longer be answered.
+func keyRequestLapsed(r keyRow, now time.Time) bool {
+	return r.State == "requested" && now.Sub(r.RequestedAt) > keyRequestGrace
+}
+
+// currentKey reads the row of description in a write transaction, so a write
+// already under way commits before the row is read.
+func currentKey(ctx context.Context, db *store.DB, description string) (r keyRow, ok bool, err error) {
+	err = db.Write(ctx, func(tx *sql.Tx) error {
+		var lerr error
+		r, ok, lerr = loadKey(ctx, tx, description)
+		return lerr
+	})
+	return r, ok, err
+}
+
+// moveKey sets the row of description to state (keyID "" keeps the stored
+// key id) only when allow accepts the row as read in the same transaction,
+// and reports whether it did. Creates and resolutions write rows while a pass
+// runs, so the sweep never writes over a state it has not seen.
+func moveKey(ctx context.Context, db *store.DB, description, state, keyID string, now time.Time, allow func(keyRow) bool) (bool, error) {
+	moved := false
+	err := db.Write(ctx, func(tx *sql.Tx) error {
+		cur, ok, err := loadKey(ctx, tx, description)
+		if err != nil || !ok || !allow(cur) {
+			return err
+		}
+		if err := setKeyState(ctx, tx, description, state, keyID, now); err != nil {
+			return err
+		}
+		moved = true
+		return nil
+	})
+	return moved && err == nil, err
 }
 
 // keySweepable reports whether a pass deletes a key whose row is r (ok false
@@ -184,8 +234,8 @@ func keyWindowEnd(r keyRow) time.Time {
 	return r.RequestedAt.Add(time.Duration(r.ExpirySeconds)*time.Second + keyWindowSlack)
 }
 
-// sweepKey deletes one key, audits the deletion and, for a retired row,
-// marks the row deleted.
+// sweepKey deletes one key, audits the deletion and, for a row still
+// retired, marks the row deleted.
 func (t tn) sweepKey(ctx context.Context, deps ext.Deps, a *api, k KeyInfo, retired bool, now time.Time) error {
 	// A not-found answer counts as deleted: the cloud client resends a DELETE
 	// whose answer was lost, so a delete that committed can come back 404.
@@ -206,8 +256,8 @@ func (t tn) sweepKey(ctx context.Context, deps ext.Deps, a *api, k KeyInfo, reti
 		errs = append(errs, fmt.Errorf("tailnet: audit the sweep of key %s: %w", k.ID, err))
 	}
 	if retired {
-		err := deps.DB.Write(record, func(tx *sql.Tx) error {
-			return setKeyState(record, tx, k.Description, "deleted", k.ID, now)
+		_, err := moveKey(record, deps.DB, k.Description, "deleted", k.ID, now, func(cur keyRow) bool {
+			return cur.State == "retired"
 		})
 		if err != nil {
 			errs = append(errs, err)
