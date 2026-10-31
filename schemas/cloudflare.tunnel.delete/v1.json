@@ -1,0 +1,46 @@
+{
+  "name": "cloudflare.tunnel.delete",
+  "version": 1,
+  "class": "irreversible",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/TunnelInput",
+    "$defs": {
+      "TunnelInput": {
+        "properties": {
+          "tunnel": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "tunnel"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/TunnelRef",
+    "$defs": {
+      "TunnelRef": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,105 @@
+{
+  "name": "cloudflare.tunnel.list",
+  "version": 1,
+  "class": "read",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/TunnelListInput",
+    "$defs": {
+      "TunnelListInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/TunnelList",
+    "$defs": {
+      "ConnectionView": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "colo": {
+            "type": "string"
+          },
+          "originIp": {
+            "type": "string"
+          },
+          "openedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "colo",
+          "originIp",
+          "openedAt",
+          "version"
+        ]
+      },
+      "TunnelList": {
+        "properties": {
+          "tunnels": {
+            "items": {
+              "$ref": "#/$defs/TunnelView"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tunnels"
+        ]
+      },
+      "TunnelView": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "connections": {
+            "items": {
+              "$ref": "#/$defs/ConnectionView"
+            },
+            "type": "array"
+          },
+          "drift": {
+            "type": "boolean"
+          },
+          "hostnames": {
+            "type": "integer"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "status",
+          "connections",
+          "drift",
+          "hostnames",
+          "createdAt"
+        ]
+      }
+    }
+  }
+}

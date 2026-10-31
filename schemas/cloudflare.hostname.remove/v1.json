@@ -1,0 +1,72 @@
+{
+  "name": "cloudflare.hostname.remove",
+  "version": 1,
+  "class": "compensable",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/HostnameInput",
+    "$defs": {
+      "HostnameInput": {
+        "properties": {
+          "hostname": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "hostname"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/HostnameView",
+    "$defs": {
+      "HostnameView": {
+        "properties": {
+          "hostname": {
+            "type": "string"
+          },
+          "tunnel": {
+            "type": "string"
+          },
+          "service": {
+            "type": "string"
+          },
+          "recordId": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "health": {
+            "type": "string"
+          },
+          "checkedAt": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "hostname",
+          "tunnel",
+          "service",
+          "phase",
+          "health"
+        ]
+      }
+    }
+  }
+}
