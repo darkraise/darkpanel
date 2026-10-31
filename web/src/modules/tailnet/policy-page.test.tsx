@@ -103,6 +103,7 @@ test("applying reads the policy again and shows the stored text", async () => {
   expect(((await ppEditor()).value)).toBe(ppEdited)
   expect(screen.getByRole("button", { name: "Review changes" }).hasAttribute("disabled")).toBe(true)
   expect(calls.filter((c) => c.path.endsWith("tailnet.policy.get/v1/read"))).toHaveLength(2)
+  expect(screen.queryByText(/your edits were replaced/)).toBeNull()
 })
 
 test("discarding the edits restores the stored text", async () => {
@@ -125,6 +126,10 @@ test("a policy that changes on the provider replaces an edit made on the old ver
   await client.invalidateQueries({ queryKey: ["tailnet"] })
   await waitFor(() => expect(screen.getByText("Version etag-9").textContent).toBe("Version etag-9"))
   expect((await ppEditor()).value).toBe('{"acls": []}\n')
+  const notice = "The policy changed on Tailscale since you began editing, so your edits were replaced by version etag-9."
+  expect(screen.getByText(notice).textContent).toBe(notice)
+  await user.click(screen.getByRole("button", { name: "Dismiss" }))
+  expect(screen.queryByText(/your edits were replaced/)).toBeNull()
 })
 
 test("a tailnet with no account shows the reason instead of an editor", async () => {

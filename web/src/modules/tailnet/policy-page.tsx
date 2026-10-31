@@ -34,6 +34,7 @@ export function PolicyPage() {
   const stored = query.data
   const text = draft !== null && draft.etag === stored.etag ? draft.text : stored.text
   const unchanged = text === stored.text
+  const replaced = draft !== null && draft.etag !== stored.etag && draft.text !== stored.text
 
   function submit(e: FormEvent) {
     e.preventDefault()
@@ -50,6 +51,16 @@ export function PolicyPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {replaced && (
+            <Alert role="status" className="mb-4">
+              <AlertDescription>
+                {`The policy changed on Tailscale since you began editing, so your edits were replaced by version ${stored.etag}.`}
+              </AlertDescription>
+              <Button type="button" variant="outline" size="sm" onClick={() => setDraft(null)}>
+                Dismiss
+              </Button>
+            </Alert>
+          )}
           <form aria-label="Policy file" className="flex flex-col gap-4" onSubmit={submit}>
             <div className="flex flex-col gap-2">
               <Label htmlFor="pp-text">Policy file (HuJSON)</Label>
