@@ -53,7 +53,8 @@ var m4cShimPrograms = []struct{ path, name string }{
 // m4cShimScript is the text of the shim of the program name.
 func m4cShimScript(name, log string) string {
 	head := "#!/bin/sh\n# " + m4cShimMarker + "\n"
-	run := "echo \"" + name + " $*\" >> " + m3Quote(log) + "\nexit 97\n"
+	// printf, not echo: dash's echo reads backslashes in the arguments.
+	run := "printf '%s\\n' \"" + name + " $*\" >> " + m3Quote(log) + "\nexit 97\n"
 	if name != "docker-buildx" {
 		return head + run
 	}
@@ -62,7 +63,8 @@ func m4cShimScript(name, log string) string {
 
 // m4cShimInstall is a bash script that replaces git, ssh and the buildx
 // plugin below root with logging shims that exit 97. It keeps an existing
-// program once in the aside directory and never stores a shim as an original.
+// program once in the aside directory and never stores a shim as an original;
+// it fails rather than delete a program when one is kept already.
 func m4cShimInstall(root, log string) string {
 	aside := root + "/var/lib/dp-m4c-real"
 	var b strings.Builder
@@ -73,7 +75,11 @@ func m4cShimInstall(root, log string) string {
   target=$1
   name=$2
   if [ -e "$target" ] || [ -L "$target" ]; then
-    if ! grep -qa ` + m4cShimMarker + ` "$target" && [ ! -e "$aside/$name" ]; then
+    if ! grep -qa ` + m4cShimMarker + ` "$target" 2>/dev/null; then
+      if [ -e "$aside/$name" ] || [ -L "$aside/$name" ]; then
+        echo "$target is not a shim and $aside/$name is kept already" >&2
+        exit 1
+      fi
       mv "$target" "$aside/$name"
     fi
   fi
@@ -101,7 +107,7 @@ func m4cShimRemove(root string) string {
   if [ -e "$target" ] && grep -qa ` + m4cShimMarker + ` "$target"; then
     rm -f "$target"
   fi
-  if [ -e "$aside/$name" ]; then
+  if [ -e "$aside/$name" ] || [ -L "$aside/$name" ]; then
     mv "$aside/$name" "$target"
   fi
 }
@@ -331,12 +337,6 @@ func m4cLifecycle(ctx context.Context, t *testing.T, f *fleet) {
 		if !res.Containers[0].Running {
 			t.Errorf("%s: container %s is not reported running", action, container)
 		}
-		if got := strings.TrimSpace(m4Docker(ctx, t, f.agent, "inspect", "-f", "{{.State.Running}}", container)); got != "true" {
-			t.Errorf("%s: container %s Running = %q, want true", action, container, got)
-		}
-		if err := m4Undo(ctx, f.api, ch.ID); err != nil {
-			t.Errorf("undo of %s: %v", action, err)
-		}
 		// A restart that did nothing, or a pull that restarted, would
 		// otherwise pass: the container runs before and after either way.
 		switch after := m4dStartedAt(ctx, t, f, container); {
@@ -344,6 +344,12 @@ func m4cLifecycle(ctx context.Context, t *testing.T, f *fleet) {
 			t.Errorf("StartedAt of %s is still %s after docker.compose.restart", container, before)
 		case action == "docker.compose.pull" && after != before:
 			t.Errorf("StartedAt of %s moved from %s to %s during docker.compose.pull", container, before, after)
+		}
+		if got := strings.TrimSpace(m4Docker(ctx, t, f.agent, "inspect", "-f", "{{.State.Running}}", container)); got != "true" {
+			t.Errorf("%s: container %s Running = %q, want true", action, container, got)
+		}
+		if err := m4Undo(ctx, f.api, ch.ID); err != nil {
+			t.Errorf("undo of %s: %v", action, err)
 		}
 		if got := strings.TrimSpace(m4Docker(ctx, t, f.agent, "inspect", "-f", "{{.State.Running}}", container)); got != "true" {
 			t.Errorf("after the undo of %s container %s Running = %q, want true", action, container, got)

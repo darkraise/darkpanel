@@ -97,6 +97,70 @@ func TestM4cShims(t *testing.T) {
 	}
 }
 
+// TestM4cShimsKeepSymlinksAndNeverDeleteAProgram: a relative symlink kept
+// aside is put back although it dangles meanwhile, a program found where a
+// kept one would go fails the install instead of being deleted, and the log
+// keeps an argument's backslashes.
+func TestM4cShimsKeepSymlinksAndNeverDeleteAProgram(t *testing.T) {
+	root := t.TempDir()
+	log := filepath.Join(root, "var", "log", "shims.log")
+	bin := filepath.Join(root, "usr", "bin")
+	if err := os.MkdirAll(bin, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "ssh-real"), []byte("#!/bin/sh\n"), 0o755); err != nil { //nolint:gosec // G306: a stand-in program
+		t.Fatal(err)
+	}
+	if err := os.Symlink("ssh-real", filepath.Join(bin, "ssh")); err != nil {
+		t.Fatal(err)
+	}
+	run := func(s string) error {
+		out, err := exec.Command("bash", "-c", s).CombinedOutput() //nolint:gosec // G204: the test's own script
+		if err != nil {
+			return fmt.Errorf("%w\n%s", err, out)
+		}
+		return nil
+	}
+	if err := run(m4cShimInstall(root, log)); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(filepath.Join(bin, "git"), `a\cb`, `c\nd`).CombinedOutput(); err == nil { //nolint:gosec // G204: the shim the test installed
+		t.Fatalf("the git shim exited 0 with %q, want 97", out)
+	}
+	b, err := os.ReadFile(log) //nolint:gosec // G304: the test's own file
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := m4cShimRuns(string(b)), []string{`git a\cb c\nd`}; !slices.Equal(got, want) {
+		t.Errorf("logged runs %q, want %q", got, want)
+	}
+
+	if err := run(m4cShimRemove(root)); err != nil {
+		t.Fatal(err)
+	}
+	if dest, err := os.Readlink(filepath.Join(bin, "ssh")); err != nil || dest != "ssh-real" {
+		t.Errorf("ssh after the removal links to %q (%v), want the relative symlink back", dest, err)
+	}
+
+	if err := run(m4cShimInstall(root, log)); err != nil {
+		t.Fatal(err)
+	}
+	const upgraded = "#!/bin/sh\necho upgraded ssh\n"
+	ssh := filepath.Join(bin, "ssh")
+	if err := os.Remove(ssh); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ssh, []byte(upgraded), 0o755); err != nil { //nolint:gosec // G306: a stand-in program
+		t.Fatal(err)
+	}
+	if err := run(m4cShimInstall(root, log)); err == nil {
+		t.Error("an install over a program while one is kept aside succeeded, want it to fail")
+	}
+	if b, err := os.ReadFile(ssh); err != nil || string(b) != upgraded { //nolint:gosec // G304: the test's own file
+		t.Errorf("ssh after the refused install = %q, %v; want the upgraded program kept", b, err)
+	}
+}
+
 func TestM4cNoShimRuns(t *testing.T) {
 	for _, log := range []string{"", "\n", "  \n\n"} {
 		if err := m4cNoShimRuns(log); err != nil {
