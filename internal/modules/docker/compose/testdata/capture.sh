@@ -27,9 +27,12 @@ export COMPOSE_EXPERIMENTAL_GIT_REMOTE=false COMPOSE_EXPERIMENTAL_OCI_REMOTE=fal
 capture() {
 	local name=$1
 	shift
-	local dir=$scratch/$name
-	docker compose --project-directory "$dir" -p "$name" -f "$dir/compose.yaml" "$@" config --format json |
-		sed "s#$dir#/srv/compose/$name#g" >"$out/$name.json"
+	local dir=$scratch/$name json
+	json=$(docker compose --project-directory "$dir" -p "$name" -f "$dir/compose.yaml" "$@" config --format json)
+	# A quoted pattern is replaced literally, and the golden is replaced only
+	# once the run has succeeded.
+	printf '%s\n' "${json//"$dir"/"/srv/compose/$name"}" >"$scratch/$name.json.new"
+	mv "$scratch/$name.json.new" "$out/$name.json"
 }
 
 mkdir -p "$scratch/simple/conf"
