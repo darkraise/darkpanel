@@ -25,6 +25,9 @@ type pullHub struct {
 	clock core.Clock
 	mu    sync.Mutex
 	feeds map[string]*pullFeed
+	// laggedSubs holds the channels publish dropped for falling behind,
+	// until their subscription stops.
+	laggedSubs map[<-chan PullEvent]struct{}
 }
 
 // pullFeed is one change's events.
@@ -43,7 +46,16 @@ type pullSub struct {
 
 // newPullHub returns an empty hub whose finished backlogs expire on clock.
 func newPullHub(clock core.Clock) *pullHub {
-	return &pullHub{clock: clock, feeds: map[string]*pullFeed{}}
+	return &pullHub{clock: clock, feeds: map[string]*pullFeed{}, laggedSubs: map[<-chan PullEvent]struct{}{}}
+}
+
+// lagged reports whether publish closed ch because its reader fell behind,
+// rather than because the change finished or the subscription stopped.
+func (h *pullHub) lagged(ch <-chan PullEvent) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	_, ok := h.laggedSubs[ch]
+	return ok
 }
 
 // feed returns the change's feed, creating it when absent. The caller holds
@@ -80,6 +92,7 @@ func (h *pullHub) publish(changeID string, e PullEvent) {
 			s.closed = true
 			close(s.ch)
 			delete(f.subs, s)
+			h.laggedSubs[s.ch] = struct{}{}
 		}
 	}
 }
@@ -139,6 +152,7 @@ func (h *pullHub) subscribe(ctx context.Context, changeID string) (<-chan PullEv
 func (h *pullHub) unsubscribe(changeID string, f *pullFeed, s *pullSub) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	delete(h.laggedSubs, s.ch)
 	s.unregister()
 	if s.closed {
 		return

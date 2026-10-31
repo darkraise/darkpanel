@@ -154,6 +154,13 @@ func (k dk) pullStreamDef(h *pullHub) core.StreamDef {
 				return err
 			}
 		}
-		return ctx.Err()
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		// Checked before the deferred stop, which forgets the lag.
+		if h.lagged(ch) {
+			return &errcode.Error{Code: errcode.Unavailable, Detail: "the reader fell behind the pull; open the stream again to replay its latest events"}
+		}
+		return nil
 	})
 }

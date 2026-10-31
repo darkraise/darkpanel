@@ -2,11 +2,14 @@ package docker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/core/coretest"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
 )
 
 func plClock() *coretest.FakeClock {
@@ -206,5 +209,68 @@ func TestPLHubStopAndContextEndCloseTheChannel(t *testing.T) {
 	cancel()
 	if got := plDrain(t, byCtx); len(got) != 0 {
 		t.Errorf("a subscription whose context ended delivered %v", plStatuses(got))
+	}
+}
+
+func TestPLHubMarksADroppedSubscriberLagged(t *testing.T) {
+	h := newPullHub(plClock())
+	slow, stop := h.subscribe(context.Background(), "c1")
+	for i := 0; i < 5000; i++ {
+		h.publish("c1", plEvent(i))
+	}
+	if !h.lagged(slow) {
+		t.Error("a subscriber dropped for falling behind is not lagged")
+	}
+	stop()
+	if h.lagged(slow) {
+		t.Error("a stopped subscriber is still lagged")
+	}
+
+	done, stopDone := h.subscribe(context.Background(), "c2")
+	defer stopDone()
+	h.publish("c2", plEvent(1))
+	h.finish("c2")
+	plDrain(t, done)
+	if h.lagged(done) {
+		t.Error("a subscriber closed by finish is lagged")
+	}
+}
+
+func TestPLStreamEndsWithUnavailableWhenTheReaderFallsBehind(t *testing.T) {
+	h := newDKHost(t)
+	hub := newPullHub(h.clock)
+	def := h.dk().pullStreamDef(hub)
+	hub.publish("c1", plEvent(0))
+
+	first := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	done := make(chan error, 1)
+	go func() {
+		done <- def.Run(context.Background(), h.env(""), json.RawMessage(`{"changeId":"c1"}`), func(any) error {
+			once.Do(func() {
+				close(first)
+				<-release
+			})
+			return nil
+		})
+	}()
+	select {
+	case <-first:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stream emitted nothing within 5 seconds")
+	}
+	for i := 1; i <= 2000; i++ {
+		hub.publish("c1", plEvent(i))
+	}
+	close(release)
+
+	select {
+	case err := <-done:
+		if got := plCode(t, err); got != errcode.Unavailable {
+			t.Errorf("Run = %v (code %s), want %s", err, got, errcode.Unavailable)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return within 5 seconds of a dropped reader")
 	}
 }
