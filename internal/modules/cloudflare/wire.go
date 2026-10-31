@@ -35,7 +35,7 @@ type AccountGetInput struct{}
 // AccountStatus is the output of cloudflare.account.get.
 type AccountStatus struct {
 	Connected bool         `json:"connected"`
-	Account   *AccountView `json:"account,omitempty"`
+	Account   *AccountView `json:"account,omitempty" jsonschema:"nullable"`
 }
 
 // TunnelCreateInput is the input of cloudflare.tunnel.create.
@@ -106,7 +106,7 @@ type HostnameView struct {
 	RecordID  string     `json:"recordId,omitempty"`
 	Phase     string     `json:"phase"` // a stored cloudflare_hostnames phase; "removed" only in hostname.remove's output
 	Health    string     `json:"health"`
-	CheckedAt *time.Time `json:"checkedAt,omitempty"`
+	CheckedAt *time.Time `json:"checkedAt,omitempty" jsonschema:"nullable"`
 }
 
 // HostnameListInput is the input of cloudflare.hostname.list.
