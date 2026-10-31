@@ -3,8 +3,11 @@ package cloudflare
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"reflect"
 	"strings"
@@ -23,9 +26,20 @@ import (
 func apNoSleep(context.Context, time.Duration) error { return nil }
 
 // cfWith is the module's dependencies pointed at the fake server, with
-// retries that do not wait.
+// retries that do not wait and names resolved by cfLookup.
 func cfWith(srv *fake.Server) cf {
-	return cf{d: deps{baseURL: srv.URL(), http: srv.Client(), sleep: apNoSleep}}
+	return cf{d: deps{baseURL: srv.URL(), http: srv.Client(), sleep: apNoSleep, lookup: cfLookup}}
+}
+
+// cfInPanel is the domain whose names cfLookup resolves into the panel
+// network; every other name is not found.
+const cfInPanel = ".in-panel.test"
+
+func cfLookup(_ context.Context, host string) ([]netip.Addr, error) {
+	if strings.HasSuffix(host, cfInPanel) {
+		return []netip.Addr{netip.MustParseAddr("203.0.113.9"), netip.MustParseAddr("172.31.255.1")}, nil
+	}
+	return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
 }
 
 var apClock = coretest.NewFakeClock(time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC))
@@ -144,6 +158,40 @@ func TestAPListsFollowEveryPage(t *testing.T) {
 	}
 }
 
+func TestAPListsWithoutATotalReadUntilAShortPage(t *testing.T) {
+	for name, info := range map[string]any{
+		"no result_info": nil,
+		"no total":       map[string]any{"page": 1, "per_page": 50},
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv, a := apRaw(t)
+			srv.Handle(http.MethodGet, "/zones", func(w http.ResponseWriter, r *http.Request) {
+				n := 50
+				if r.URL.Query().Get("page") == "2" {
+					n = 1
+				}
+				zones := make([]any, n)
+				for i := range zones {
+					zones[i] = map[string]string{"id": fmt.Sprintf("z%s-%d", r.URL.Query().Get("page"), i), "name": "example.com"}
+				}
+				body := map[string]any{"success": true, "errors": []any{}, "messages": []any{}, "result": zones}
+				if info != nil {
+					body["result_info"] = info
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(body)
+			})
+			zones, err := a.Zones(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(zones) != 51 || len(srv.Requests()) != 2 {
+				t.Errorf("%d zones in %d requests, want 51 in 2", len(zones), len(srv.Requests()))
+			}
+		})
+	}
+}
+
 func TestAPTunnelDecodesTheProvidersFields(t *testing.T) {
 	srv, a := apRaw(t)
 	srv.Handle(http.MethodGet, "/accounts/"+apAccount+"/cfd_tunnel/t1", apOK(map[string]any{
@@ -186,6 +234,7 @@ func TestAPConnectionsReadBothAnswerShapes(t *testing.T) {
 			[]string{"conn1 FRA 203.0.113.5 2026.9.0", "conn2 AMS 203.0.113.5 2026.9.0"}},
 		{"flat connections", []any{flat}, []string{"conn1 FRA 203.0.113.5 2026.9.0"}},
 		{"none", []any{}, nil},
+		{"a connector without connections", []any{map[string]any{"id": "client1", "version": "2026.9.0"}}, nil},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -206,6 +255,26 @@ func TestAPConnectionsReadBothAnswerShapes(t *testing.T) {
 				t.Errorf("connections %q, want %q", lines, tc.want)
 			}
 		})
+	}
+}
+
+func TestAPRefusesAnEmptyID(t *testing.T) {
+	srv, a := apRaw(t)
+	ctx := context.Background()
+	for name, call := range map[string]func() error{
+		"tunnel":        func() error { _, err := a.Tunnel(ctx, ""); return err },
+		"delete tunnel": func() error { return a.DeleteTunnel(ctx, "") },
+		"token":         func() error { _, err := a.TunnelToken(ctx, ""); return err },
+		"record":        func() error { _, err := a.DNSRecord(ctx, "z1", ""); return err },
+		"delete record": func() error { return a.DeleteDNSRecord(ctx, "z1", "") },
+		"records":       func() error { _, err := a.DNSRecords(ctx, "", "", ""); return err },
+	} {
+		if err := call(); err == nil || !core.IsDefinite(err) {
+			t.Errorf("%s with an empty id: %v, want a definite refusal", name, err)
+		}
+	}
+	if n := len(srv.Requests()); n != 0 {
+		t.Errorf("%d requests sent, want none", n)
 	}
 }
 

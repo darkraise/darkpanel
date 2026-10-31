@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -25,6 +26,7 @@ type deps struct {
 	baseURL string                                           // "https://api.cloudflare.com/client/v4"
 	http    *http.Client                                     // nil: cloud's default client
 	sleep   func(ctx context.Context, d time.Duration) error // nil: cloud's default
+	lookup  func(ctx context.Context, host string) ([]netip.Addr, error) // nil: the system resolver
 }
 
 func productionCF() cf {
@@ -181,6 +183,11 @@ func (i resultInfo) pages() int {
 // which committed nothing or may be retried, and cloud.uncertain_outcome for a
 // write, which may have committed.
 func (a *api) call(ctx context.Context, method, path string, query url.Values, body []byte, out any) (*resultInfo, error) {
+	// An empty id leaves an empty path segment, which would name the
+	// collection instead of one object.
+	if strings.HasSuffix(path, "/") || strings.Contains(path, "//") {
+		return nil, core.Definite(fmt.Errorf("cloudflare: the request path %s names an empty id", path))
+	}
 	req := cloud.Request{Method: method, Path: path, Query: query, Header: http.Header{"Accept": {"application/json"}}}
 	if body != nil {
 		req.Body = body
@@ -232,9 +239,17 @@ func list[T any](ctx context.Context, a *api, path string, query url.Values, siz
 			return err
 		}
 		*out = append(*out, items...)
-		// The request's own page number bounds the loop even when an answer
-		// does not advance its page.
-		if info == nil || info.Page >= info.pages() || page >= info.pages() {
+		if info != nil && info.pages() > 0 {
+			// The request's own page number bounds the loop even when an
+			// answer does not advance its page.
+			if info.Page >= info.pages() || page >= info.pages() {
+				return nil
+			}
+			continue
+		}
+		// An answer with no usable total ends only with a short page, so a
+		// longer list is never read as complete.
+		if len(items) < size {
 			return nil
 		}
 	}
@@ -355,6 +370,10 @@ func (a *api) Connections(ctx context.Context, id string) ([]Connection, error) 
 	var out []Connection
 	for _, e := range raw {
 		if e.Conns == nil {
+			// A connector answered without its connections holds none.
+			if e.ColoName == "" {
+				continue
+			}
 			out = append(out, e.connection(e.ClientVersion))
 			continue
 		}
