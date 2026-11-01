@@ -43,6 +43,7 @@ func m5pSteps(ctx context.Context, f *fleet) []m5pStep {
 		{"install", true, func(t *testing.T) { scenarioInstall(ctx, t, f) }},
 		{"package-install", true, func(t *testing.T) { m5pPackage(ctx, t, f) }},
 		{"pin-rollback", false, func(t *testing.T) { m5pRollback(ctx, t, f) }},
+		{"tailscaled-live", false, func(t *testing.T) { m5lLive(ctx, t, f) }},
 	}
 }
 
