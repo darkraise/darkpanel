@@ -1,0 +1,36 @@
+{
+  "name": "tailscale.package.install",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/PackageInstallInput",
+    "$defs": {
+      "PackageInstallInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/PackageInstalled",
+    "$defs": {
+      "PackageInstalled": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "description": "The installed tailscale version."
+          }
+        },
+        "type": "object",
+        "required": [
+          "version"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "name": "tailscale.cert.get",
+  "version": 1,
+  "class": "read",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/CertGetInput",
+    "$defs": {
+      "CertGetInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/CertPair",
+    "$defs": {
+      "CertPair": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The node's MagicDNS name, without the trailing dot."
+          },
+          "certPem": {
+            "type": "string",
+            "description": "The certificate chain, PEM-encoded."
+          },
+          "keyPem": {
+            "type": "string",
+            "description": "The certificate's private key, PEM-encoded.",
+            "x-secret": true
+          },
+          "notAfter": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the certificate expires."
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "certPem",
+          "keyPem",
+          "notAfter"
+        ]
+      }
+    }
+  }
+}

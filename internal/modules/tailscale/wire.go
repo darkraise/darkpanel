@@ -65,13 +65,13 @@ type Measurement struct {
 
 // PrefsFields is a masked set of the node's preferences: a nil field is not set and stays unchanged.
 type PrefsFields struct {
-	WantRunning       *bool     `json:"wantRunning,omitempty" jsonschema_description:"Whether the node should be connected."`
-	AdvertiseRoutes   *[]string `json:"advertiseRoutes,omitempty" jsonschema_description:"The subnet routes the node advertises, as prefixes; never 0.0.0.0/0 or ::/0."`
-	ExitNode          *string   `json:"exitNode,omitempty" jsonschema_description:"The exit node in use, by stable id or Tailscale address; empty clears it."`
-	AdvertiseExitNode *bool     `json:"advertiseExitNode,omitempty" jsonschema_description:"Whether the node offers itself as an exit node."`
-	AcceptRoutes      *bool     `json:"acceptRoutes,omitempty" jsonschema_description:"Whether the node accepts the subnet routes other nodes advertise."`
-	ShieldsUp         *bool     `json:"shieldsUp,omitempty" jsonschema_description:"Whether the node refuses every incoming connection."`
-	RunSSH            *bool     `json:"runSSH,omitempty" jsonschema_description:"Whether the node runs Tailscale SSH."`
+	WantRunning       *bool     `json:"wantRunning,omitempty" jsonschema:"nullable" jsonschema_description:"Whether the node should be connected."`
+	AdvertiseRoutes   *[]string `json:"advertiseRoutes,omitempty" jsonschema:"nullable" jsonschema_description:"The subnet routes the node advertises, as prefixes; never 0.0.0.0/0 or ::/0."`
+	ExitNode          *string   `json:"exitNode,omitempty" jsonschema:"nullable" jsonschema_description:"The exit node in use, by stable id or Tailscale address; empty clears it."`
+	AdvertiseExitNode *bool     `json:"advertiseExitNode,omitempty" jsonschema:"nullable" jsonschema_description:"Whether the node offers itself as an exit node."`
+	AcceptRoutes      *bool     `json:"acceptRoutes,omitempty" jsonschema:"nullable" jsonschema_description:"Whether the node accepts the subnet routes other nodes advertise."`
+	ShieldsUp         *bool     `json:"shieldsUp,omitempty" jsonschema:"nullable" jsonschema_description:"Whether the node refuses every incoming connection."`
+	RunSSH            *bool     `json:"runSSH,omitempty" jsonschema:"nullable" jsonschema_description:"Whether the node runs Tailscale SSH."`
 }
 
 // PrefsSetInput is the input of tailscale.prefs.set.
