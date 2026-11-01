@@ -252,13 +252,16 @@ func (h packagePinHandler) txFail(ctx context.Context, env core.Env, seq int, pr
 
 // rollback restores the prior version and hold state of pin p, each step journaled with addPinStep: set phase
 // rolling_back; "rollback-unhold" (apt-mark unhold tailscale, only when held); "rollback-configure"
-// (dpkg --configure -a, only when p.Phase is installed, i.e. the install may have been interrupted);
-// "rollback-install" (APT-5 with p.StagedDeb after checking its SHA-256 against p.StagedSHA256);
-// "rollback-hold" (apt-mark hold tailscale, only when p.PriorHeld); "rollback-restart" (env.Units restart
-// tailscaled.service); "rollback-verify" (installedVersion == p.PriorVersion, held == p.PriorHeld, and the backend
-// state back to p.PriorBackend within pinCheckWindow). The install, the restart and the configure run only when
-// the install may have started. It ends in phase rolled_back, or failed with the error of the first failing step
-// (which it returns). A pin row in phase recorded changed nothing: rollback sets rolled_back and runs no step.
+// (dpkg --configure -a, only when phase 4 may have been interrupted: p.Phase is installed, or rolling_back with
+// p.StagedDeb set); "rollback-install" (APT-5 with p.StagedDeb after checking its SHA-256 against p.StagedSHA256,
+// only when the install may have started: p.Phase is installed, held, checking or done, or rolling_back with
+// p.StagedDeb set); "rollback-hold" (apt-mark hold tailscale, only when p.PriorHeld); "rollback-restart"
+// (env.Units restart tailscaled.service, only when the install may have started); "rollback-verify"
+// (installedVersion == p.PriorVersion, held == p.PriorHeld, and the backend state back to p.PriorBackend within
+// pinCheckWindow). A rolling_back row with p.StagedDeb empty installed nothing, because copy-prior records it
+// before phase installed is written. It ends in phase rolled_back, or failed with the error of the
+// first failing step (which it returns). A pin row in phase recorded changed nothing: rollback sets rolled_back and
+// runs no step.
 func (h packagePinHandler) rollback(ctx context.Context, env core.Env, p pinRow) error {
 	if p.Phase == "recorded" {
 		return setPinPhase(ctx, env.DB, p.ChangeID, "rolled_back", env.Clock.Now())
@@ -266,7 +269,8 @@ func (h packagePinHandler) rollback(ctx context.Context, env core.Env, p pinRow)
 	if err := setPinPhase(ctx, env.DB, p.ChangeID, "rolling_back", env.Clock.Now()); err != nil {
 		return err
 	}
-	installStarted := slices.Contains([]string{"installed", "held", "checking", "done", "rolling_back"}, p.Phase)
+	staged := p.StagedDeb != ""
+	installStarted := slices.Contains([]string{"installed", "held", "checking", "done"}, p.Phase) || (p.Phase == "rolling_back" && staged)
 	type step struct {
 		name string
 		run  func() error
@@ -281,7 +285,7 @@ func (h packagePinHandler) rollback(ctx context.Context, env core.Env, p pinRow)
 			return txRun(ctx, env, txAptMark, "unhold", "tailscale")
 		}})
 	}
-	if p.Phase == "installed" {
+	if p.Phase == "installed" || (p.Phase == "rolling_back" && staged) {
 		steps = append(steps, step{"rollback-configure", func() error { return txRun(ctx, env, txDpkg, "--configure", "-a") }})
 	}
 	if installStarted {

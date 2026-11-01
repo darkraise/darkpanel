@@ -789,7 +789,7 @@ func pnRollbackHost(t *testing.T, held bool, row pinRow, stage bool) *pnSetup {
 	t.Helper()
 	s := pnNewSetup(t, held)
 	s.apt.backend[pnPrior] = "Running"
-	if row.Phase != "recorded" && row.Phase != "unheld" && row.Phase != "staged" {
+	if row.Phase != "recorded" && row.Phase != "unheld" && row.Phase != "staged" && (row.Phase != "rolling_back" || stage) {
 		s.apt.install(pnTarget)
 	}
 	row.ChangeID, row.Version, row.Arch, row.PriorVersion, row.PriorBackend = "c1", pnTarget, "amd64", pnPrior, "Running"
@@ -838,6 +838,10 @@ func TestPnRollbackByPhase(t *testing.T) {
 			[][]string{showhold, unhold, install, showhold}, []string{"rollback-unhold", "rollback-install", "rollback-restart", "rollback-verify"}, 1},
 		{"done restores a prior hold", "done", true, true, true, "",
 			[][]string{showhold, unhold, install, hold, showhold}, []string{"rollback-unhold", "rollback-install", "rollback-hold", "rollback-restart", "rollback-verify"}, 1},
+		{"rolling_back with nothing staged restores only the hold", "rolling_back", false, true, false, "",
+			[][]string{showhold, hold, showhold}, []string{"rollback-hold", "rollback-verify"}, 0},
+		{"rolling_back after an install configures dpkg first", "rolling_back", false, false, true, "",
+			[][]string{showhold, configure, install, showhold}, []string{"rollback-configure", "rollback-install", "rollback-restart", "rollback-verify"}, 1},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
