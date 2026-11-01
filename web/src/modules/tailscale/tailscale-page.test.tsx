@@ -92,7 +92,7 @@ test("the Latency tab mounts the latency panel for the host", async () => {
   tpRender("/hosts/h1/tailscale")
   await userEvent.setup().click(await screen.findByRole("tab", { name: "Latency" }))
   expect(tpProps("latency-panel")).toEqual({ hostId: "h1" })
-  expect(screen.queryByTestId("status-panel")).toBeNull()
+  await waitFor(() => expect(screen.queryByTestId("status-panel")).toBeNull())
 })
 
 test("the Package tab tells the panel that tailscaled answers", async () => {
