@@ -15,7 +15,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/darkraise/darkpanel/internal/controller/dispatch"
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/modules/tailscale"
 	"github.com/darkraise/darkpanel/internal/paths"
 	"github.com/darkraise/darkpanel/internal/platform/tslocal"
@@ -294,6 +296,38 @@ func m5pArm(ctx context.Context, t *testing.T, v *vm.VM) {
 	m3Run(ctx, t, v, "sudo touch "+m5pProductionHooks.Flag)
 }
 
+// m5pPlanWait bounds the retries of the pin's plan. The controller keeps a
+// host's availability answer for up to dispatch.AvailabilityMaxAge (spec
+// 1.7), and the answer it took when package-install was planned, while the
+// package was removed and tailscaled absent, lists the pin unavailable.
+const m5pPlanWait = dispatch.AvailabilityMaxAge + 2*time.Minute
+
+// m5pPlanRetries reports whether a plan refused with err may pass once the
+// controller asks the host again: only module.unavailable comes from the
+// cached availability answer.
+func m5pPlanRetries(err error) bool {
+	var ae *APIError
+	return errors.As(err, &ae) && ae.Code == string(errcode.ModuleUnavailable)
+}
+
+// m5pPlanPin plans the pin of target, again while the refusal is
+// module.unavailable; any other refusal ends it at once.
+func m5pPlanPin(ctx context.Context, f *fleet, target string) (m4PlanView, error) {
+	var p m4PlanView
+	var planErr error
+	err := eventually(ctx, m5pPlanWait, func(ctx context.Context) error {
+		p, planErr = m4Plan(ctx, f.api, f.agentID, "tailscale.package.pin", tailscale.PinInput{Version: target})
+		if m5pPlanRetries(planErr) {
+			return planErr
+		}
+		return nil
+	})
+	if err != nil {
+		return m4PlanView{}, err
+	}
+	return p, planErr
+}
+
 var m5pSHAPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 // m5pRollback pins another version with the agent's link to the controller
@@ -325,7 +359,7 @@ func m5pRollback(ctx context.Context, t *testing.T, f *fleet) {
 		}
 	})
 
-	p, err := m4Plan(ctx, f.api, f.agentID, "tailscale.package.pin", tailscale.PinInput{Version: target})
+	p, err := m5pPlanPin(ctx, f, target)
 	if err != nil {
 		t.Fatal(err)
 	}

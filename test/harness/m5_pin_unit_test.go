@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/paths"
@@ -126,6 +127,30 @@ func TestM5pUnitSettled(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("%q", state)) {
 			t.Errorf("m5pSettled(%q) = %v, want an error naming the state", state, err)
 		}
+	}
+}
+
+func TestM5pUnitPlanRetries(t *testing.T) {
+	stale := &APIError{Status: 409, Code: "module.unavailable", Detail: "action tailscale.package.pin is unavailable"}
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"a cached unavailable answer", stale, true},
+		{"wrapped by m4Plan", fmt.Errorf("plan tailscale.package.pin: %w", stale), true},
+		{"the handler's own refusal", &APIError{Status: 409, Code: "tailscale.unavailable"}, false},
+		{"another refusal", &APIError{Status: 400, Code: "invalid_input"}, false},
+		{"not an API answer", errors.New("connection refused"), false},
+		{"no error", nil, false},
+	}
+	for _, tc := range cases {
+		if got := m5pPlanRetries(tc.err); got != tc.want {
+			t.Errorf("%s: m5pPlanRetries(%v) = %v, want %v", tc.name, tc.err, got, tc.want)
+		}
+	}
+	if m5pPlanWait <= 60*time.Second {
+		t.Errorf("m5pPlanWait = %s, want longer than the controller's 60 s availability cache", m5pPlanWait)
 	}
 }
 
