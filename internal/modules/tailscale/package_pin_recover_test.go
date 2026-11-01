@@ -321,18 +321,27 @@ func TestRbRecoverSettlesTheRowOfAPinWithNothingStaged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, _, _ := loadPin(ctx, h.db.Read(), "c1")
-	switch out.State {
-	case core.RecoveryRolledBack:
-		if got.Phase != "rolled_back" {
-			t.Errorf("rolled back, but the pin is in phase %q", got.Phase)
+	// Neither held before nor after, and nothing installed: the rollback only verifies the host is as before.
+	if out.State != core.RecoveryRolledBack || out.Reason != "" {
+		t.Errorf("outcome %+v, want %s with no reason", out, core.RecoveryRolledBack)
+	}
+	if got, ok, err := loadPin(ctx, h.db.Read(), "c1"); err != nil || !ok || got.Phase != "rolled_back" {
+		t.Errorf("pin %+v, %v, %v; want phase rolled_back", got, ok, err)
+	}
+	for _, v := range h.ran {
+		if !slices.Equal(v, []string{rbAptMark, "showhold"}) {
+			t.Errorf("ran %v, want only reads of the hold: an unheld pin installed nothing", h.ran)
+			break
 		}
-	case core.RecoveryNeedsRepair:
-		if got.Phase != "failed" || out.Reason == "" {
-			t.Errorf("needs repair with phase %q and reason %q, want phase failed and a reason", got.Phase, out.Reason)
-		}
-	default:
-		t.Errorf("outcome %+v, want rolled_back or needs_repair", out)
+	}
+	if len(h.units.Restarts) != 0 {
+		t.Errorf("restarts %v, want none: an unheld pin installed nothing", h.units.Restarts)
+	}
+	if *held {
+		t.Error("the package is held after the rollback, want the pin's prior state: not held")
+	}
+	if steps := rbSteps(t, h, "c1"); !slices.Equal(steps, []string{"rollback-verify ok"}) {
+		t.Errorf("steps %v, want only rollback-verify ok", steps)
 	}
 }
 
