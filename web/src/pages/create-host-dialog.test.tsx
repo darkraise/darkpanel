@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event"
 import { Info } from "lucide-react"
 import { expect, test } from "vitest"
 import type { Change, Host, Plan } from "@/api/types"
+import { formatTime } from "@/lib/format"
 import type { ModuleEntry } from "@/modules/types"
 import { renderWithProviders, stubFetch } from "@/test/utils"
 import { CreateHostDialog } from "./create-host-dialog"
@@ -148,4 +149,52 @@ test("hosts cannot be added until the host list has loaded", async () => {
   await waitFor(() => expect(screen.getByRole("button", { name: "Add host" }).hasAttribute("disabled")).toBe(true))
   await userEvent.setup().click(screen.getByRole("button", { name: "Add host" }))
   expect(screen.queryByRole("dialog")).toBeNull()
+})
+
+async function chdApply(output: unknown) {
+  stubFetch({
+    [HOSTS]: { body: { output: { hosts: [chdHost([])] } } },
+    [PLAN]: { body: chdPlan },
+    [APPLY]: { body: chdChange(output) },
+  })
+  renderWithProviders(<CreateHostDialog />)
+  const user = userEvent.setup()
+  const form = await chdFill(user, "web-2")
+  await user.click(within(form).getByRole("button", { name: "Continue" }))
+  const plan = await screen.findByRole("dialog", { name: "Add a host" })
+  await user.click(await within(plan).findByRole("button", { name: "Apply" }))
+  return screen.findByRole("dialog", { name: "Host added" })
+}
+
+test("a grant with a bootstrap bundle shows the bundle in place of the token", async () => {
+  const done = await chdApply({ ...chdGrant, bundle: "dpb2.example-bootstrap" })
+  expect(within(done).getByDisplayValue("dpb2.example-bootstrap")).toBeTruthy()
+  expect(within(done).queryByDisplayValue("dpe_example_enrollment")).toBeNull()
+  expect(within(done).getByText("Bootstrap bundle for web-2")).toBeTruthy()
+  expect(within(done).getByText("Copy the bootstrap bundle now. It will not be shown again.")).toBeTruthy()
+  expect(
+    within(done).getByText(`On the new host, run install.sh --role agent --token-file <file> with this bundle before ${formatTime(chdGrant.expiresAt)}.`),
+  ).toBeTruthy()
+})
+
+test("an empty bundle counts as none and the token is shown", async () => {
+  const done = await chdApply({ ...chdGrant, bundle: "" })
+  expect(within(done).getByDisplayValue("dpe_example_enrollment")).toBeTruthy()
+  expect(within(done).getByText("Enrollment token for web-2")).toBeTruthy()
+})
+
+test("the tailnet join input adds tailnetJoin and tags to the planned input", async () => {
+  const calls = stubFetch({
+    [HOSTS]: { body: { output: { hosts: [chdHost([{ id: "tailnet", version: 1, enabled: true, available: true, reason: null, checkedAt: null }])] } } },
+    [PLAN]: { body: chdPlan },
+  })
+  renderWithProviders(<CreateHostDialog />)
+  const user = userEvent.setup()
+  const form = await chdFill(user, "web-2")
+  await user.click(await within(form).findByRole("checkbox", { name: "Join the tailnet" }))
+  await user.type(within(form).getByLabelText("Tags (comma-separated)"), "tag:server")
+  await user.click(within(form).getByRole("button", { name: "Continue" }))
+  await waitFor(() =>
+    expect(calls.find((c) => c.path.endsWith("/plan"))?.body).toEqual({ input: { name: "web-2", tailnetJoin: true, tags: ["tag:server"] } }),
+  )
 })

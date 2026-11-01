@@ -20,6 +20,7 @@ interface Grant {
   host: { id: string; name: string }
   token: string
   expiresAt: string
+  bundle?: string
 }
 
 type Phase = "closed" | "form" | "plan" | "grant"
@@ -43,6 +44,7 @@ export function CreateHostDialog({ entries = moduleRegistry }: { entries?: Modul
   const [grant, setGrant] = useState<Grant | null>(null)
   const [grantMissing, setGrantMissing] = useState(false)
 
+  const bundle = typeof grant?.bundle === "string" && grant.bundle !== "" ? grant.bundle : null
   const localHost = hosts.data?.hosts.find((h) => h.isLocal)
   const extensions = localHost === undefined ? [] : hostCreateExtensions(entries, localHost)
 
@@ -126,7 +128,11 @@ export function CreateHostDialog({ entries = moduleRegistry }: { entries?: Modul
           <DialogHeader>
             <DialogTitle>Host added</DialogTitle>
             <DialogDescription>
-              {grantMissing ? "The host exists, but it cannot enroll with this answer." : "Copy the enrollment token now. It will not be shown again."}
+              {grantMissing
+                ? "The host exists, but it cannot enroll with this answer."
+                : bundle !== null
+                  ? "Copy the bootstrap bundle now. It will not be shown again."
+                  : "Copy the enrollment token now. It will not be shown again."}
             </DialogDescription>
           </DialogHeader>
           {grantMissing && (
@@ -141,15 +147,17 @@ export function CreateHostDialog({ entries = moduleRegistry }: { entries?: Modul
           )}
           {grant !== null && (
             <div className="flex flex-col gap-4">
-              <Clipboard value={grant.token}>
-                <ClipboardLabel>{`Enrollment token for ${grant.host.name}`}</ClipboardLabel>
+              <Clipboard value={bundle ?? grant.token}>
+                <ClipboardLabel>{bundle !== null ? `Bootstrap bundle for ${grant.host.name}` : `Enrollment token for ${grant.host.name}`}</ClipboardLabel>
                 <ClipboardControl>
                   <ClipboardInput className="font-mono" />
                   <ClipboardTrigger>Copy</ClipboardTrigger>
                 </ClipboardControl>
               </Clipboard>
               <p className="text-sm text-muted-foreground">
-                {`On the new host, run sudo darkpanel agent enroll and paste the token before ${formatTime(grant.expiresAt)}.`}
+                {bundle !== null
+                  ? `On the new host, run install.sh --role agent --token-file <file> with this bundle before ${formatTime(grant.expiresAt)}.`
+                  : `On the new host, run sudo darkpanel agent enroll and paste the token before ${formatTime(grant.expiresAt)}.`}
               </p>
               <DialogFooter>
                 <Button onClick={reset}>Done</Button>
