@@ -1,6 +1,9 @@
 package core
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // Host states.
 const (
@@ -102,8 +105,10 @@ type HostList struct {
 
 // HostCreateInput is the input of core.host.create/v1.
 type HostCreateInput struct {
-	Name              string `json:"name" jsonschema:"pattern=^[a-z0-9][a-z0-9.-]{0\\,62}$" jsonschema_description:"Host name: lower-case letters, digits, dots and hyphens, starting with a letter or digit."`
-	ControllerAddress string `json:"controllerAddress,omitempty" jsonschema:"pattern=^(\\[[0-9A-Fa-f:.]+\\]|[A-Za-z0-9.-]+):[0-9]{1\\,5}$" jsonschema_description:"host:port the agent dials; the controller's --agent-advertise address when omitted."`
+	Name              string   `json:"name" jsonschema:"pattern=^[a-z0-9][a-z0-9.-]{0\\,62}$" jsonschema_description:"Host name: lower-case letters, digits, dots and hyphens, starting with a letter or digit."`
+	ControllerAddress string   `json:"controllerAddress,omitempty" jsonschema:"pattern=^(\\[[0-9A-Fa-f:.]+\\]|[A-Za-z0-9.-]+):[0-9]{1\\,5}$" jsonschema_description:"host:port the agent dials; the controller's --agent-advertise address when omitted."`
+	TailnetJoin       bool     `json:"tailnetJoin,omitempty" jsonschema_description:"Join the new host to the tailnet before it enrolls: the answer carries a dpb2. bootstrap bundle instead of only the token."`
+	Tags              []string `json:"tags,omitempty" jsonschema:"maxItems=16,uniqueItems=true,pattern=^tag:[a-z0-9][a-z0-9-]{0\\,62}$" jsonschema_description:"Tailscale tags of the new node, each tag:<name>; only with tailnetJoin, and each within the tailnet account's tagsAllowed."`
 }
 
 // HostTokenInput is the input of core.host.token/v1.
@@ -122,6 +127,27 @@ type EnrollmentGrant struct {
 	Host      Host      `json:"host" jsonschema_description:"The host the token enrolls."`
 	Token     string    `json:"token" secret:"true" jsonschema_description:"Single-use enrollment token for darkpanel agent enroll; shown only once."`
 	ExpiresAt time.Time `json:"expiresAt" jsonschema_description:"When the token stops working, one hour after it was made."`
+	Bundle    string    `json:"bundle,omitempty" secret:"true" jsonschema_description:"Single-use dpb2. bootstrap bundle holding the token and a tailnet auth key; set only when tailnetJoin was asked; shown only once."`
+}
+
+// EnrollJoiner is the optional controller-side part of a module that joins a
+// new host to a network before it enrolls (the tailnet module, spec 4.2),
+// found on a Module by type assertion.
+type EnrollJoiner interface {
+	// PlanJoin checks req without writing: the account is connected, every
+	// tag is within tagsAllowed. It returns the diff lines the host create
+	// plan shows and a state string that goes into the plan's StateHash.
+	PlanJoin(ctx context.Context, env Env, req JoinRequest) (diff []DiffLine, state string, err error)
+	// PrepareJoin creates the one-use auth key for req.HostID, recording its
+	// key row before the provider call.
+	PrepareJoin(ctx context.Context, env Env, req JoinRequest) (authKey string, err error)
+}
+
+// JoinRequest is one host's join.
+type JoinRequest struct {
+	HostID  string // "" in PlanJoin: the id is chosen at apply
+	Tags    []string
+	Expires time.Time // the enrollment token's expiry; the key expires with it
 }
 
 // UpdateApplyInput is the input of core.update.apply/v1.

@@ -145,9 +145,9 @@ func TestCoreActionSecrets(t *testing.T) {
 	}
 	wantOut := map[string]map[string]bool{
 		"core.token.create":      {"token": false},
-		"core.host.create":       {"token": false},
-		"core.host.token":        {"token": false},
-		"core.host.enroll-local": {"token": false},
+		"core.host.create":       {"token": false, "bundle": false},
+		"core.host.token":        {"token": false, "bundle": false},
+		"core.host.enroll-local": {"token": false, "bundle": false},
 		"core.user.create":       {"totpSecret": false},
 		"core.user.reset-totp":   {"totpSecret": false},
 	}

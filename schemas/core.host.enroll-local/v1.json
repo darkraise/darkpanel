@@ -34,6 +34,11 @@
             "type": "string",
             "format": "date-time",
             "description": "When the token stops working, one hour after it was made."
+          },
+          "bundle": {
+            "type": "string",
+            "description": "Single-use dpb2. bootstrap bundle holding the token and a tailnet auth key; set only when tailnetJoin was asked; shown only once.",
+            "x-secret": true
           }
         },
         "type": "object",

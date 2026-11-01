@@ -2,10 +2,12 @@ package core_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/core/schema"
+	"github.com/darkraise/darkpanel/internal/core/secret"
 )
 
 var fleetInputs = []any{
@@ -99,6 +102,19 @@ func TestFleetInputPatterns(t *testing.T) {
 		{core.HostCreateInput{}, `{"name":"-web"}`, false},
 		{core.HostCreateInput{}, `{"name":"` + strings.Repeat("a", 63) + `"}`, true},
 		{core.HostCreateInput{}, `{"name":"` + strings.Repeat("a", 64) + `"}`, false},
+		{core.HostCreateInput{}, `{"name":"web-1","tailnetJoin":true}`, true},
+		{core.HostCreateInput{}, `{"name":"web-1","tailnetJoin":true,"tags":["tag:server","tag:db-1"]}`, true},
+		{core.HostCreateInput{}, `{"name":"web-1","tailnetJoin":"yes"}`, false},
+		{core.HostCreateInput{}, `{"name":"web-1","tailnetJoin":true,"tags":["server"]}`, false},
+		{core.HostCreateInput{}, `{"name":"web-1","tailnetJoin":true,"tags":["tag:Server"]}`, false},
+		{core.HostCreateInput{}, `{"name":"web-1","tailnetJoin":true,"tags":["tag:"]}`, false},
+		{core.HostCreateInput{}, `{"name":"web-1","tailnetJoin":true,"tags":["tag:-x"]}`, false},
+		{core.HostCreateInput{}, `{"name":"web-1","tailnetJoin":true,"tags":["tag:a b"]}`, false},
+		{core.HostCreateInput{}, `{"name":"web-1","tailnetJoin":true,"tags":["tag:` + strings.Repeat("a", 63) + `"]}`, true},
+		{core.HostCreateInput{}, `{"name":"web-1","tailnetJoin":true,"tags":["tag:` + strings.Repeat("a", 64) + `"]}`, false},
+		{core.HostCreateInput{}, `{"name":"web-1","tailnetJoin":true,"tags":["tag:a","tag:a"]}`, false},
+		{core.HostCreateInput{}, `{"name":"web-1","tailnetJoin":true,"tags":[` + ejTags(16) + `]}`, true},
+		{core.HostCreateInput{}, `{"name":"web-1","tailnetJoin":true,"tags":[` + ejTags(17) + `]}`, false},
 		{core.HostIDInput{}, `{"hostId":""}`, false},
 		{core.UpdateApplyInput{}, `{"version":"1.3.0","channel":"stable","force":false}`, true},
 		{core.UpdateApplyInput{}, `{"version":"1.3.0-beta.1","channel":"beta","force":true}`, true},
@@ -129,5 +145,128 @@ func TestFleetInputPatterns(t *testing.T) {
 		case !tt.valid && (!errors.As(err, &coded) || coded.Code != errcode.InvalidInput):
 			t.Errorf("%T %s: %v, want %s", tt.in, tt.raw, err, errcode.InvalidInput)
 		}
+	}
+}
+
+// ejTags is n distinct, valid tags as the inside of a JSON array.
+func ejTags(n int) string {
+	tags := make([]string, n)
+	for i := range tags {
+		tags[i] = `"tag:t` + strings.Repeat("x", i) + `"`
+	}
+	return strings.Join(tags, ",")
+}
+
+func TestEjGrantBundleIsSecretAndOptional(t *testing.T) {
+	f, ok := reflect.TypeFor[core.EnrollmentGrant]().FieldByName("Bundle")
+	if !ok || f.Tag.Get("secret") != "true" {
+		t.Fatal(`EnrollmentGrant.Bundle is not tagged secret:"true"`)
+	}
+	out, err := schema.Output(reflect.TypeFor[core.EnrollmentGrant]())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Defs map[string]struct {
+			Properties map[string]map[string]any `json:"properties"`
+			Required   []string                  `json:"required"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(out, &doc); err != nil {
+		t.Fatal(err)
+	}
+	grant := doc.Defs["EnrollmentGrant"]
+	if grant.Properties["bundle"]["x-secret"] != true {
+		t.Errorf("the bundle property has no x-secret: %v", grant.Properties["bundle"])
+	}
+	if slices.Contains(grant.Required, "bundle") || !slices.Contains(grant.Required, "token") {
+		t.Errorf("required = %v; want token required and bundle optional", grant.Required)
+	}
+}
+
+func TestEjRedactionHidesTheBundle(t *testing.T) {
+	raw := json.RawMessage(`{"token":"dpt1.secret","bundle":"dpb2.secret","expiresAt":"2026-10-31T10:00:00Z"}`)
+	var got map[string]string
+	if err := json.Unmarshal(schema.Redact(reflect.TypeFor[core.EnrollmentGrant](), raw), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["bundle"] != secret.Redacted || got["token"] != secret.Redacted || got["expiresAt"] != "2026-10-31T10:00:00Z" {
+		t.Errorf("redacted grant = %v; want token and bundle redacted and the expiry kept", got)
+	}
+}
+
+func TestEjJoinFieldsAreOmittedWhenUnset(t *testing.T) {
+	tests := []struct {
+		name string
+		v    any
+		has  []string
+		not  []string
+	}{
+		{"plain input", core.HostCreateInput{Name: "web-1"}, nil, []string{"tailnetJoin", "tags"}},
+		{"join input", core.HostCreateInput{Name: "web-1", TailnetJoin: true, Tags: []string{"tag:server"}}, []string{`"tailnetJoin":true`, `"tags":["tag:server"]`}, nil},
+		{"plain grant", core.EnrollmentGrant{Token: "t"}, nil, []string{"bundle"}},
+		{"join grant", core.EnrollmentGrant{Token: "t", Bundle: "dpb2.x"}, []string{`"bundle":"dpb2.x"`, `"token":"t"`}, nil},
+	}
+	for _, tt := range tests {
+		b, err := json.Marshal(tt.v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range tt.has {
+			if !strings.Contains(string(b), want) {
+				t.Errorf("%s: %s lacks %s", tt.name, b, want)
+			}
+		}
+		for _, no := range tt.not {
+			if strings.Contains(string(b), no) {
+				t.Errorf("%s: %s holds %s", tt.name, b, no)
+			}
+		}
+	}
+}
+
+// ejJoinModule is a module that also joins hosts to a network.
+type ejJoinModule struct{ prepared []core.JoinRequest }
+
+func (*ejJoinModule) Manifest() core.Manifest { return core.Manifest{} }
+
+func (*ejJoinModule) PlanJoin(context.Context, core.Env, core.JoinRequest) ([]core.DiffLine, string, error) {
+	return []core.DiffLine{{Op: "+", Text: "tailnet auth key"}}, "state-1", nil
+}
+
+func (m *ejJoinModule) PrepareJoin(_ context.Context, _ core.Env, req core.JoinRequest) (string, error) {
+	m.prepared = append(m.prepared, req)
+	return "tskey-auth-x", nil
+}
+
+// ejPlainModule is a module with no join step.
+type ejPlainModule struct{}
+
+func (ejPlainModule) Manifest() core.Manifest { return core.Manifest{} }
+
+func TestEjEnrollJoinerIsFoundOnAModuleByTypeAssertion(t *testing.T) {
+	joiner := &ejJoinModule{}
+	var found []core.EnrollJoiner
+	for _, m := range []core.Module{ejPlainModule{}, joiner} {
+		if j, ok := m.(core.EnrollJoiner); ok {
+			found = append(found, j)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("%d modules are EnrollJoiners; want only the one that implements both methods", len(found))
+	}
+	ctx := context.Background()
+	expires := time.Date(2026, 10, 31, 10, 0, 0, 0, time.UTC)
+	diff, state, err := found[0].PlanJoin(ctx, core.Env{}, core.JoinRequest{Tags: []string{"tag:server"}, Expires: expires})
+	if err != nil || state != "state-1" || len(diff) != 1 || diff[0].Op != "+" {
+		t.Fatalf("PlanJoin = %v, %q, %v", diff, state, err)
+	}
+	req := core.JoinRequest{HostID: "h1", Tags: []string{"tag:server"}, Expires: expires}
+	key, err := found[0].PrepareJoin(ctx, core.Env{}, req)
+	if err != nil || key != "tskey-auth-x" {
+		t.Fatalf("PrepareJoin = %q, %v", key, err)
+	}
+	if !reflect.DeepEqual(joiner.prepared, []core.JoinRequest{req}) {
+		t.Errorf("PrepareJoin saw %+v", joiner.prepared)
 	}
 }
