@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -15,6 +16,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/controller/fleet"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/transport"
 )
 
 // LocalAgentAddress is the address the controller's own agent dials: the
@@ -109,11 +111,44 @@ func nameTaken(ctx context.Context, q querier, name string) (bool, error) {
 
 type hostCreate struct{ m module }
 
+// target returns the address the token carries and, for a tailnet join, the
+// joiner; joiner is nil for a plain create.
+func (h hostCreate) target(ctx context.Context, env core.Env, in core.HostCreateInput) (joiner core.EnrollJoiner, addr string, err error) {
+	if in.TailnetJoin || len(in.Tags) > 0 {
+		return h.joinTarget(ctx, env, in)
+	}
+	addr, err = h.m.address(in.ControllerAddress)
+	return nil, addr, err
+}
+
+// joinTarget never reads the advertise address, so a controller without
+// --agent-advertise can still create a host that joins the tailnet.
+func (h hostCreate) joinTarget(ctx context.Context, env core.Env, in core.HostCreateInput) (joiner core.EnrollJoiner, addr string, err error) {
+	if !in.TailnetJoin {
+		return nil, "", joinRefusal("/tags", "tags need tailnetJoin")
+	}
+	if in.ControllerAddress != "" {
+		return nil, "", joinRefusal("/controllerAddress",
+			"a tailnet join uses the controller's tailnet address; leave controllerAddress out")
+	}
+	if joiner, err = h.m.joiner(ctx, env.DB.Read()); err != nil {
+		return nil, "", err
+	}
+	if addr, err = controllerTailnetAddr(ctx, env.DB); err != nil {
+		return nil, "", err
+	}
+	return joiner, addr, nil
+}
+
+func errNameTaken(name string) error {
+	return errcode.New(errcode.PlanStateChanged, fmt.Sprintf("a host named %s was created since the plan; plan again", name))
+}
+
 func (h hostCreate) Plan(ctx context.Context, env core.Env, in core.HostCreateInput) (core.PlanOutcome, error) {
 	if _, err := h.m.authority(); err != nil {
 		return core.PlanOutcome{}, err
 	}
-	addr, err := h.m.address(in.ControllerAddress)
+	joiner, addr, err := h.target(ctx, env, in)
 	if err != nil {
 		return core.PlanOutcome{}, err
 	}
@@ -125,29 +160,59 @@ func (h hostCreate) Plan(ctx context.Context, env core.Env, in core.HostCreateIn
 	if taken {
 		guard.Message = "a host named " + in.Name + " already exists"
 	}
+	diff := []core.DiffLine{
+		{Op: "+", Text: fmt.Sprintf("host %s: pending, with an enrollment token for %s, shown once and valid for one hour", in.Name, addr)},
+	}
+	hash := stateHash(in.Name, strconv.FormatBool(taken))
+	if joiner != nil {
+		lines, state, err := joiner.PlanJoin(ctx, env, core.JoinRequest{Tags: in.Tags, Expires: env.Clock.Now().Add(fleet.TokenTTL)})
+		if err != nil {
+			return core.PlanOutcome{}, err
+		}
+		diff = append(diff, lines...)
+		diff = append(diff, core.DiffLine{Op: "+",
+			Text: "bootstrap bundle: the token plus a one-use tailnet auth key for " + joinTags(in.Tags) + ", shown once"})
+		hash = stateHash(in.Name, strconv.FormatBool(taken), addr, strings.Join(in.Tags, ","), state)
+	}
 	return core.PlanOutcome{
-		Diff: []core.DiffLine{
-			{Op: "+", Text: fmt.Sprintf("host %s: pending, with an enrollment token for %s, shown once and valid for one hour", in.Name, addr)},
-			{Op: " ", Text: "compensated by core.host.delete"},
-		},
+		Diff:      append(diff, core.DiffLine{Op: " ", Text: "compensated by core.host.delete"}),
 		Guards:    []core.Guard{guard},
-		StateHash: stateHash(in.Name, strconv.FormatBool(taken)),
+		StateHash: hash,
 	}, nil
 }
 
+// Apply of a tailnet join requests the auth key before it writes the host, so
+// a refused key leaves nothing behind here; a key whose host write then fails
+// has no host and is the tailnet module's to retire.
 func (h hostCreate) Apply(ctx context.Context, env core.Env, in core.HostCreateInput) (core.EnrollmentGrant, error) {
 	a, err := h.m.authority()
 	if err != nil {
 		return core.EnrollmentGrant{}, err
 	}
-	addr, err := h.m.address(in.ControllerAddress)
+	joiner, addr, err := h.target(ctx, env, in)
 	if err != nil {
 		return core.EnrollmentGrant{}, err
+	}
+	if joiner != nil {
+		taken, err := nameTaken(ctx, env.DB.Read(), in.Name)
+		if err != nil {
+			return core.EnrollmentGrant{}, err
+		}
+		if taken {
+			return core.EnrollmentGrant{}, errNameTaken(in.Name)
+		}
 	}
 	now := env.Clock.Now()
 	id, err := ulid.New(ulid.Timestamp(now), rand.Reader)
 	if err != nil {
 		return core.EnrollmentGrant{}, fmt.Errorf("coreactions: host id: %w", err)
+	}
+	var authKey string
+	if joiner != nil {
+		authKey, err = joiner.PrepareJoin(ctx, env, core.JoinRequest{HostID: id.String(), Tags: in.Tags, Expires: now.Add(fleet.TokenTTL)})
+		if err != nil {
+			return core.EnrollmentGrant{}, err
+		}
 	}
 	var token string
 	var expires time.Time
@@ -157,7 +222,7 @@ func (h hostCreate) Apply(ctx context.Context, env core.Env, in core.HostCreateI
 			return err
 		}
 		if taken {
-			return errcode.New(errcode.PlanStateChanged, fmt.Sprintf("a host named %s was created since the plan; plan again", in.Name))
+			return errNameTaken(in.Name)
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO core_hosts (id, name, is_local, state, created_at) VALUES (?, ?, 0, ?, ?)`,
 			id.String(), in.Name, core.HostPending, formatTime(now)); err != nil {
@@ -169,7 +234,16 @@ func (h hostCreate) Apply(ctx context.Context, env core.Env, in core.HostCreateI
 	if err != nil {
 		return core.EnrollmentGrant{}, err
 	}
-	return h.m.grant(ctx, env, id.String(), token, expires)
+	g, err := h.m.grant(ctx, env, id.String(), token, expires)
+	if err != nil || joiner == nil {
+		return g, err
+	}
+	parsed, err := transport.ParseToken(token)
+	if err != nil {
+		return core.EnrollmentGrant{}, fmt.Errorf("coreactions: read the issued token: %w", err)
+	}
+	g.Bundle = transport.Bundle{Token: parsed, TailnetKey: authKey, ControllerTailnetAddr: addr}.String()
+	return g, nil
 }
 
 // Verify checks the name alone: recovery passes no output, so the id the
