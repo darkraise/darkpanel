@@ -56,6 +56,9 @@ type deps struct {
 	arch      string                                                                  // production: runtime.GOARCH
 	hostname  func() (string, error)                                                  // production: os.Hostname
 	readFile  func(name string) ([]byte, error)                                       // production: os.ReadFile; /var/lib/dpkg/status, /etc/os-release, /var/cache/apt/archives/*.deb, staged files
+	// session is the agent's controller session as the pin's transient unit sees it, from outside the agent
+	// process. production: agentSession.
+	session func(ctx context.Context) (up, viaTailnet bool, err error)
 }
 
 // localAPI is the part of tailscaled's local API the module uses.
@@ -117,6 +120,7 @@ func productionTS() ts {
 		arch:      runtime.GOARCH,
 		hostname:  os.Hostname,
 		readFile:  os.ReadFile,
+		session:   agentSession,
 	}}
 }
 

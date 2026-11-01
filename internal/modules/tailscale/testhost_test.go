@@ -72,6 +72,7 @@ type tsHost struct {
 	journal *tsJournal
 	clock   *coretest.FakeClock
 	owned   map[string]bool // paths Files recorded as owned
+	session *tsSession      // the fake of deps.session
 
 	mu sync.Mutex
 }
@@ -138,6 +139,7 @@ func newTSHost(t *testing.T) *tsHost {
 		journal: &tsJournal{},
 		clock:   coretest.NewFakeClock(start),
 		owned:   map[string]bool{},
+		session: &tsSession{},
 	}
 }
 
@@ -166,6 +168,7 @@ func (h *tsHost) ts() ts {
 		arch:      "amd64",
 		hostname:  func() (string, error) { return thHostname, nil },
 		readFile:  h.readFile,
+		session:   h.session.answer,
 	}}
 }
 
@@ -477,4 +480,30 @@ func (j *tsJournal) Secret(_ context.Context, seq int) ([]byte, error) {
 		return nil, fmt.Errorf("fake: no effect %d", seq)
 	}
 	return bytes.Clone(j.secrets[seq]), nil
+}
+
+// tsSession is the fake of deps.session: the agent's session to the controller as the pin's transient unit sees it.
+// Call i answers Answers[min(i, len(Answers)-1)]; with no answers every call answers Up true.
+type tsSession struct {
+	Answers []tsSessionAnswer
+	Calls   int
+
+	mu sync.Mutex
+}
+
+// tsSessionAnswer is one answer of the fake session.
+type tsSessionAnswer struct {
+	Up, ViaTailnet bool
+	Err            error
+}
+
+func (s *tsSession) answer(context.Context) (up, viaTailnet bool, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a := tsSessionAnswer{Up: true}
+	if len(s.Answers) > 0 {
+		a = s.Answers[min(s.Calls, len(s.Answers)-1)]
+	}
+	s.Calls++
+	return a.Up, a.ViaTailnet, a.Err
 }
