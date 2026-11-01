@@ -71,6 +71,30 @@ test("a failed read and an answer that is not a measurement are errors", async (
   expect((await screen.findByRole("alert")).textContent).toBe("The host answered with an unexpected latency measurement.")
 })
 
+test("a failed Measure again keeps the button so it can be retried", async () => {
+  let reads = 0
+  const calls = stubFetch({
+    [LP_LATENCY]: () => {
+      reads++
+      if (reads === 2) {
+        return {
+          status: 503,
+          body: { type: "about:blank", title: "Unavailable", status: 503, detail: "tailscaled does not answer on its socket", code: "tailscale.unavailable" },
+        }
+      }
+      return { body: lpLatency }
+    },
+  })
+  renderWithProviders(<LatencyPanel hostId="h1" />)
+  await screen.findByRole("table", { name: "DERP latency" })
+  const user = userEvent.setup()
+  await user.click(screen.getByRole("button", { name: "Measure again" }))
+  expect((await screen.findByRole("alert")).textContent).toBe("tailscaled does not answer on its socket")
+  await user.click(await screen.findByRole("button", { name: "Measure again" }))
+  await waitFor(() => expect(calls.filter((c) => c.path.endsWith("/latency"))).toHaveLength(3))
+  expect(await screen.findByRole("table", { name: "DERP latency" })).toBeTruthy()
+})
+
 test("the latency panel has no accessibility violations", async () => {
   stubFetch({ [LP_LATENCY]: { body: lpLatency } })
   const { container } = renderWithProviders(<LatencyPanel hostId="h1" />)

@@ -32,9 +32,16 @@ export function LatencyPanel({ hostId }: { hostId: string }) {
   if (query.isError) {
     const message = query.error instanceof ApiError ? errorMessage(query.error) : query.error.message
     return (
-      <Alert variant="destructive" role="alert">
-        <AlertDescription>{message}</AlertDescription>
-      </Alert>
+      <div className="flex flex-col gap-3">
+        <Alert variant="destructive" role="alert">
+          <AlertDescription>{message}</AlertDescription>
+        </Alert>
+        <div>
+          <Button variant="outline" disabled={query.isFetching} onClick={() => void query.refetch()}>
+            Measure again
+          </Button>
+        </div>
+      </div>
     )
   }
   if (query.data.regions.length === 0) return <EmptyState title="No DERP regions" />
