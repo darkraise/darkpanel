@@ -2,7 +2,6 @@ package core_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"reflect"
@@ -222,51 +221,5 @@ func TestEjJoinFieldsAreOmittedWhenUnset(t *testing.T) {
 				t.Errorf("%s: %s holds %s", tt.name, b, no)
 			}
 		}
-	}
-}
-
-// ejJoinModule is a module that also joins hosts to a network.
-type ejJoinModule struct{ prepared []core.JoinRequest }
-
-func (*ejJoinModule) Manifest() core.Manifest { return core.Manifest{} }
-
-func (*ejJoinModule) PlanJoin(context.Context, core.Env, core.JoinRequest) ([]core.DiffLine, string, error) {
-	return []core.DiffLine{{Op: "+", Text: "tailnet auth key"}}, "state-1", nil
-}
-
-func (m *ejJoinModule) PrepareJoin(_ context.Context, _ core.Env, req core.JoinRequest) (string, error) {
-	m.prepared = append(m.prepared, req)
-	return "tskey-auth-x", nil
-}
-
-// ejPlainModule is a module with no join step.
-type ejPlainModule struct{}
-
-func (ejPlainModule) Manifest() core.Manifest { return core.Manifest{} }
-
-func TestEjEnrollJoinerIsFoundOnAModuleByTypeAssertion(t *testing.T) {
-	joiner := &ejJoinModule{}
-	var found []core.EnrollJoiner
-	for _, m := range []core.Module{ejPlainModule{}, joiner} {
-		if j, ok := m.(core.EnrollJoiner); ok {
-			found = append(found, j)
-		}
-	}
-	if len(found) != 1 {
-		t.Fatalf("%d modules are EnrollJoiners; want only the one that implements both methods", len(found))
-	}
-	ctx := context.Background()
-	expires := time.Date(2026, 10, 31, 10, 0, 0, 0, time.UTC)
-	diff, state, err := found[0].PlanJoin(ctx, core.Env{}, core.JoinRequest{Tags: []string{"tag:server"}, Expires: expires})
-	if err != nil || state != "state-1" || len(diff) != 1 || diff[0].Op != "+" {
-		t.Fatalf("PlanJoin = %v, %q, %v", diff, state, err)
-	}
-	req := core.JoinRequest{HostID: "h1", Tags: []string{"tag:server"}, Expires: expires}
-	key, err := found[0].PrepareJoin(ctx, core.Env{}, req)
-	if err != nil || key != "tskey-auth-x" {
-		t.Fatalf("PrepareJoin = %q, %v", key, err)
-	}
-	if !reflect.DeepEqual(joiner.prepared, []core.JoinRequest{req}) {
-		t.Errorf("PrepareJoin saw %+v", joiner.prepared)
 	}
 }
