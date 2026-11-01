@@ -103,7 +103,8 @@ func (h packageUnpinHandler) Plan(ctx context.Context, env core.Env, _ UnpinInpu
 }
 
 // Task restores the active pin's prior hold state and then marks the pin unpinned, so a crash in between leaves
-// the hold right and the pin active, and a rerun finishes without another apt-mark.
+// the hold right and the pin active. The engine does not run Task again for this change; a new unpin change
+// finishes the pin without another apt-mark, and still journals Before {"held":true}.
 func (h packageUnpinHandler) Task(ctx context.Context, env core.Env, _ UnpinInput) (Unpinned, error) {
 	p, ok, err := activePin(ctx, env.DB.Read())
 	if err != nil {
