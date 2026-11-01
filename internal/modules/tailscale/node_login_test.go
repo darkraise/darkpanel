@@ -238,7 +238,7 @@ func TestLiLoginRefusals(t *testing.T) {
 		{"a host name with a dot", "NeedsLogin", `{"authKey":"` + liKey + `","hostname":"web.1"}`, errcode.InvalidInput, "/hostname", false},
 		{"a tag without the prefix", "NeedsLogin", `{"authKey":"` + liKey + `","advertiseTags":["tag:ok","server"]}`, errcode.InvalidInput, "/advertiseTags/1", false},
 		{"a node that is logged in", "Running", `{"authKey":"` + liKey + `"}`, errcode.InvalidInput, "/relogin", true},
-		{"a node whose backend has not started", "NoState", `{"authKey":"` + liKey + `"}`, errcode.TailscaleUnavailable, "", true},
+		{"a node whose backend has not started", "NoState", `{"authKey":"` + liKey + `"}`, errcode.TailscaleUnavailable, "", false},
 	}
 	for _, tc := range tests {
 		for _, phase := range []string{"plan", "apply"} {

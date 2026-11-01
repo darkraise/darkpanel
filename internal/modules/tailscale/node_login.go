@@ -205,7 +205,12 @@ func (h nodeLoginHandler) Apply(ctx context.Context, env core.Env, in LoginInput
 	if err != nil {
 		return LoginResult{}, err
 	}
-	was, _ := nodeLoginLoggedIn(st)
+	// The engine planned again just before, but tailscaled may have restarted since: an unknown login journaled as
+	// logged out would make the undo log out a node that was logged in.
+	was, known := nodeLoginLoggedIn(st)
+	if !known {
+		return LoginResult{}, nodeLoginNotStarted()
+	}
 	p, err := local.Prefs(ctx)
 	if err != nil {
 		return LoginResult{}, fmt.Errorf("tailscale: read the preferences: %w", err)
