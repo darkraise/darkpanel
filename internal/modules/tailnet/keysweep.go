@@ -96,8 +96,14 @@ func (t tn) runKeySweep(ctx context.Context, deps ext.Deps) error {
 // the keys their rows leave to the sweep, and with orphans also keys with no
 // row or a deleted one; it never settles an effect and never creates a key.
 // A failure is collected and the pass goes on, so one provider failure does
-// not hide the others.
+// not hide the others. It settles the enroll keys' rows first.
 func (t tn) sweep(ctx context.Context, deps ext.Deps, now time.Time, orphans bool) error {
+	settleErr := settleEnrollKeys(ctx, deps.DB, now)
+	return errors.Join(settleErr, t.sweepKeys(ctx, deps, now, orphans))
+}
+
+// sweepKeys is the provider part of a sweep pass.
+func (t tn) sweepKeys(ctx context.Context, deps ext.Deps, now time.Time, orphans bool) error {
 	a, _, err := t.connected(ctx, deps.DB, deps.Sealer, deps.Clock)
 	if err != nil {
 		if errcode.From(err).Code == errcode.CloudNotConnected {
