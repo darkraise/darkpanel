@@ -133,6 +133,7 @@ func TestBdParseBootstrapRefuses(t *testing.T) {
 		{"trailing JSON", bdEncode(good + "{}")},
 		{"missing tailnetKey", bdEncode(`{"v":2,"token":` + tok + `,"controllerTailnetAddr":` + addr + `}`)},
 		{"extra member", bdEncode(strings.TrimSuffix(good, "}") + `,"x":1}`)},
+		{"duplicate member", bdEncode(strings.TrimSuffix(good, "}") + `,"tailnetKey":` + bdQuote("tskey-auth-other") + `}`)},
 		{"member v is 3", withVersion("3")},
 		{"member v is a string", withVersion(`"2"`)},
 		{"member v is null", withVersion("null")},

@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -170,7 +171,7 @@ func parseBundle(body string) (Bundle, bool) {
 		return Bundle{}, false
 	}
 	var members map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &members); err != nil || len(members) != 4 {
+	if err := json.Unmarshal(raw, &members); err != nil || len(members) != 4 || !distinctMembers(raw) {
 		return Bundle{}, false
 	}
 	var version int
@@ -199,6 +200,29 @@ func parseBundle(body string) (Bundle, bool) {
 		return Bundle{}, false
 	}
 	return Bundle{Token: tok, TailnetKey: key, ControllerTailnetAddr: values["controllerTailnetAddr"]}, true
+}
+
+// distinctMembers reports whether raw, a JSON object, names each member once: json.Unmarshal keeps the last of two
+// equal names, so a duplicate would pass the member count.
+func distinctMembers(raw []byte) bool {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return false
+	}
+	seen := map[string]bool{}
+	for dec.More() {
+		t, err := dec.Token()
+		name, ok := t.(string)
+		if err != nil || !ok || seen[name] {
+			return false
+		}
+		seen[name] = true
+		var value json.RawMessage
+		if err := dec.Decode(&value); err != nil {
+			return false
+		}
+	}
+	return true
 }
 
 // isTailnetHostPort reports whether s is an IP literal inside a Tailscale range with a port from 1 to 65535.
