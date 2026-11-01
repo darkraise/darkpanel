@@ -326,6 +326,46 @@ func TestTcFailedRefreshIsNotRetriedForAMinute(t *testing.T) {
 	}
 }
 
+// TestTcDuePairIsReadAgainOnlyAfterAMinute: tailscaled can hand back a pair
+// already past two thirds of its life while its own renewal runs or fails,
+// and every read writes an audit entry on the agent.
+func TestTcDuePairIsReadAgainOnlyAfterAMinute(t *testing.T) {
+	body, der := tcPair(t, tcName, testStart.Add(-60*time.Hour), testStart.Add(30*time.Hour))
+	r := &tcReader{answer: tcAlways(body)}
+	c, clock := tcNewCache(r, nil)
+	if names, err := c.names(context.Background()); err != nil || !slices.Equal(names, []string{tcName}) {
+		t.Fatalf("names = %v, %v; want [%s]", names, err, tcName)
+	}
+	for range 3 {
+		if got := tcServed(t, c, tcName); !bytes.Equal(got, der) {
+			t.Fatal("the due pair is not served")
+		}
+		c.wait()
+		if names, _ := c.names(context.Background()); !slices.Equal(names, []string{tcName}) {
+			t.Fatalf("names = %v; want the cached name", names)
+		}
+	}
+	if r.count() != 1 {
+		t.Fatalf("%d reads of a pair that came back due; want 1 until a minute passes", r.count())
+	}
+	clock.Advance(time.Minute - time.Second)
+	tcServed(t, c, tcName)
+	c.wait()
+	_, _ = c.names(context.Background())
+	if r.count() != 1 {
+		t.Fatalf("%d reads before the minute passed; want 1", r.count())
+	}
+	clock.Advance(time.Second)
+	tcServed(t, c, tcName)
+	c.wait()
+	if r.count() != 2 {
+		t.Fatalf("%d reads after the minute passed; want 2", r.count())
+	}
+	if names, _ := c.names(context.Background()); !slices.Equal(names, []string{tcName}) || r.count() != 2 {
+		t.Errorf("names = %v after %d reads; want the cached name and no third read within the next minute", names, r.count())
+	}
+}
+
 func TestTcReadErrorsFallThroughAndLogOncePerDistinctError(t *testing.T) {
 	body, _ := tcPair(t, tcName, testStart, testStart.Add(90*time.Hour))
 	failures := []string{"tailscaled does not answer", "tailscaled does not answer", "the agent is offline", "the agent is offline", "tailscaled does not answer"}

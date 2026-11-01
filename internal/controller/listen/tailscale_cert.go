@@ -127,17 +127,19 @@ func (c *pairCache) refresh() {
 }
 
 // names returns the cached pair's name, reading the pair first when there is
-// none, when it is due for renewal, or when it was read certRecheck ago: an
-// address change can give the node a new MagicDNS name.
+// none, when it was read certRecheck ago (an address change can give the node
+// a new MagicDNS name), or when it is due for renewal and nextTry has passed.
+// Only a due pair waits for nextTry, so a missing pair or a recheck is read
+// even right after a failure.
 func (c *pairCache) names(ctx context.Context) ([]string, error) {
 	if c.d.Dispatch == nil {
 		return nil, nil
 	}
 	now := c.clock.Now()
 	c.mu.Lock()
-	p := c.pair
+	p, nextTry := c.pair, c.nextTry
 	c.mu.Unlock()
-	if p == nil || !now.Before(p.renewAt) || now.Sub(p.readAt) >= certRecheck {
+	if p == nil || now.Sub(p.readAt) >= certRecheck || (!now.Before(p.renewAt) && !now.Before(nextTry)) {
 		rctx, cancel := context.WithTimeout(ctx, c.timeout)
 		c.read(rctx)
 		cancel()
@@ -159,8 +161,15 @@ func (c *pairCache) read(ctx context.Context) {
 	if err == nil {
 		p.readAt = now
 		c.pair = p
-		c.nextTry = time.Time{}
 		c.lastErr = ""
+		// tailscaled can answer with a pair that is already due while its own
+		// renewal runs or fails, and every internal read writes an audit entry
+		// on the agent, so a due pair is read again only after certRetryAfter.
+		if now.Before(p.renewAt) {
+			c.nextTry = time.Time{}
+		} else {
+			c.nextTry = now.Add(certRetryAfter)
+		}
 		return
 	}
 	c.nextTry = now.Add(certRetryAfter)
