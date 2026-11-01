@@ -1908,6 +1908,132 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
   certificate pair endpoint and the DERP-region debug endpoint (4.3). Wire
   types are plain Go structs with only the fields used; a contract test runs
   them against the tailscaled in the harness pins.
+- **Recorded contract (tailscaled local API, checked 2026-11-01).**
+  - **Sources:** unauthenticated GETs of
+    `https://raw.githubusercontent.com/tailscale/tailscale/<tag>/<path>`, as
+    `tag path`. At both `v1.82.0` and `v1.104.1`: `ipn/localapi/localapi.go`,
+    `ipn/localapi/cert.go`, `ipn/localapi/debugderp.go`, `ipn/prefs.go`,
+    `ipn/backend.go`, `ipn/ipnlocal/local.go`, `ipn/ipnlocal/cert.go`,
+    `ipn/ipnserver/server.go`, `ipn/ipnserver/actor.go`,
+    `cmd/tailscale/cli/up.go`, `client/local/local.go`, `tailcfg/derpmap.go`,
+    `cmd/derper/derper.go`, `control/controlclient/auto.go`. Only `v1.82.0`:
+    `derp/derphttp/derphttp_server.go`. Only `v1.104.1`:
+    `ipn/localapi/debug.go`, `client/local/cert.go`, `feature/acme/cert.go`,
+    `feature/acme/errors.go`, `derp/derpserver/handler.go`. `v1.82.0
+    client/local/cert.go` and `v1.82.0 ipn/localapi/debug.go` answer 404 (the
+    GitHub contents listings `api.github.com/repos/tailscale/tailscale/contents/<dir>?ref=<tag>`
+    of `client/local` at `v1.82.0` and `ipn/localapi` at both tags, and of
+    `derp/derphttp`, `derp/derpserver` and `feature/acme`, name the files above).
+  - **Endpoints:** every handler rejects a request that carries a `Referer` or
+    `Origin` header or a `Host` other than `local-tailscaled.sock` with 403
+    (`v1.82.0`, `v1.104.1`; tslocal sends that `Host`). Permissions are
+    `PermitRead`, `PermitWrite` and `PermitCert`; `ipnserver` gives a unix
+    socket caller `PermitRead` true and `PermitWrite` true unless the
+    connection is read-only for it (`v1.82.0`, `v1.104.1`, `server.go`
+    `Permissions`), and the `PermitWrite` comment says it "effectively means
+    that the user is root or the admin (operator user)" and that "everything
+    is allowed" with it; the root test itself is in `ipn/ipnauth`, which was
+    not read. `PermitCert` is true only for the uid in `TS_PERMIT_CERT_UID`.
+    - `GET /localapi/v0/status`: any method is accepted; 200 JSON; read; in the
+      handler table at `v1.82.0` and `v1.104.1`.
+    - `GET /localapi/v0/prefs`: `GET` and `HEAD`; 200 JSON; read; other
+      methods 405 `unsupported method`; in the table at both tags.
+    - `PATCH /localapi/v0/prefs`: write (and read); 200 JSON of the edited
+      prefs; a body that does not decode 400; a refused edit 400 with
+      `{"Error": ...}`; in the table at both tags.
+    - `POST /localapi/v0/start`: `POST` only (else 400 `want POST`); write;
+      204; a body that does not decode 400, a `Start` error 500; at `v1.104.1`
+      also 500 `cannot start backend when state store is unhealthy`; in the
+      table at both tags.
+    - `POST /localapi/v0/logout`: `POST` only (else 400 `want POST`); write;
+      204, also when the node has no node key (nothing is done); a failure
+      500; in the table at both tags.
+    - `GET /localapi/v0/derpmap`: `GET` only (else 400 `want GET`); no
+      permission check; 200 JSON of `LocalBackend.DERPMap()`, which is nil
+      "if not connected", so the body is `null` (`v1.82.0`, `v1.104.1`); in
+      the table at both tags.
+    - `GET /localapi/v0/cert/<domain>?type=pair`: any method is accepted;
+      write or cert (`PermitWrite || PermitCert`, else 403 `cert access
+      denied`), so root holds it; 200 `text/plain`; the prefix entry `cert/`
+      is in the table at `v1.82.0` and is registered by `init` in `cert.go`
+      at `v1.104.1` (build tags `!ios && !android && !js && !ts_omit_acme`).
+    - `GET /localapi/v0/whois?addr=`: any method is accepted; read; 200 JSON;
+      400 `missing 'addr' parameter` without `addr`; 404 `no match for
+      IP:port` when no node holds it; in the table at both tags.
+    - `POST /localapi/v0/debug-derp-region?region=`: `POST` only (else 405
+      `POST required`); write (else 403 `debug access denied`); 200 JSON
+      `{Info, Warnings, Errors}` whatever the findings; `region` is a region
+      id or code; in the table at `v1.82.0` and registered by `init` in
+      `debug.go` at `v1.104.1` (build tag `!ts_omit_debug`).
+  - **Masked prefs:** `ipn.MaskedPrefs` embeds `Prefs`, so a patch is one flat
+    object of the prefs' fields plus `<Field>Set` booleans (`v1.82.0`,
+    `v1.104.1`): `WantRunning`/`WantRunningSet`, `RouteAll`/`RouteAllSet`,
+    `ShieldsUp`/`ShieldsUpSet`, `RunSSH`/`RunSSHSet`, `ExitNodeID`
+    (`tailcfg.StableNodeID`)/`ExitNodeIDSet`, `ExitNodeIP`
+    (`netip.Addr`)/`ExitNodeIPSet`, `AdvertiseRoutes`/`AdvertiseRoutesSet`.
+    Neither tag has an advertise-exit-node field or flag: the only way is
+    `AdvertiseRoutes` holding `0.0.0.0/0` and `::/0` (`Prefs.AdvertisesExitNode`
+    and `SetAdvertiseExitNode` read and write that field). A patch that sets
+    `ExitNodeID` and `ExitNodeIP` together is not refused at `v1.82.0` or
+    `v1.104.1`: `Prefs` says "at most one of these should be non-zero", but
+    no edit check enforces it (only `SetExitNodeIP`, which a patch does not
+    call, returns `ErrExitNodeIDAlreadySet`), and the backend then "clears ID"
+    because the IP takes precedence. An edit whose result uses an exit node
+    and advertises both /0 routes is refused with 400 `Cannot advertise an exit
+    node and use an exit node at the same time.` (`v1.82.0`, `v1.104.1`).
+  - **Login by key:** `tailscale up --auth-key=<key>` on a node whose
+    `Status.HaveNodeKey` is false calls, in order, at `v1.82.0`: `GET status`,
+    `GET prefs`, `POST check-prefs`, `POST start` with `ipn.Options{AuthKey,
+    UpdatePrefs}`, `POST login-interactive`, `GET watch-ipn-bus` until
+    `Running`; at `v1.104.1` the same, with `watch-ipn-bus` opened before
+    `check-prefs`. `login-interactive` follows `Start` whenever `forceReauth`
+    or `!HaveNodeKey`, key or not, so it is called when a key is given to such
+    a node. `Start` calls the control client's `Login` only when the prefs
+    are not `LoggedOut` and the node has a node key (or a config file wants it
+    running), and a control client takes a login goal only from `Login`
+    (`control/controlclient/auto.go`; without one the state is `NeedsLogin`).
+    So `Start` with `{AuthKey, UpdatePrefs}` and `WantRunning` true does not
+    take a node without a node key from `NeedsLogin` to `Running` (`v1.82.0`,
+    `v1.104.1`). On a node that already has a node key, `Start` rebuilds the
+    control client with the `AuthKey`, replaces the prefs with `UpdatePrefs`
+    except `Persist`, and calls `Login`; whether the server then uses the key:
+    not documented (`direct.go` not read). An `EditPrefs` turning `WantRunning`
+    from false to true also calls `Login` (`setPrefsLockedOnEntry`, both
+    tags). `Prefs.Hostname` and `Prefs.AdvertiseTags` carry the host name and
+    the tags.
+  - **Cert pair:** `GET /localapi/v0/cert/<domain>?type=pair`; the handler
+    reads `min_validity` with `time.ParseDuration` (400 when it does not
+    parse) and tslocal sends none (`v1.82.0`, `v1.104.1`). The answer is
+    `KeyPEM` then `CertPEM` concatenated (`serveKeyPair`); the Tailscale client
+    splits at the first `--\n--` and rejects a private key in the second part
+    (`v1.82.0` `client/local/local.go`, `v1.104.1` `client/local/cert.go`).
+    Errors from obtaining the certificate are 500 with the text as body, except an ACME rate limit at
+    `v1.104.1`, which is 429 with `Retry-After`. HTTPS disabled for the tailnet
+    (no `CertDomains`): `your Tailscale account does not support getting TLS
+    certs` (`v1.82.0` only on the issuing path, so a valid cached certificate
+    is still returned; `v1.104.1` checks first). A domain outside `CertDomains`:
+    `invalid domain "<d>"; must be one of [...]` (both tags). Node not running:
+    no backend-state check at `v1.82.0`; `no netmap available` at `v1.104.1`
+    without a netmap. The call blocks while a certificate is obtained: a
+    missing, expired or too short-lived certificate is issued synchronously
+    under the request context (`v1.82.0`, `v1.104.1`).
+  - **Latency check:** `/derp/latency-check` is mounted in the derper's mux
+    next to `/derp`, so it is served on the DERP port (`-a`, default `:443`;
+    `v1.82.0` `cmd/derper/derper.go` with `derphttp.ProbeHandler`, `v1.104.1`
+    with `derpserver.ProbeHandler`): `GET` and `HEAD` answer 200 with an empty
+    body and `Access-Control-Allow-Origin: *`; any other method answers 405
+    `bogus probe method`. `tailcfg/derpmap.go` (identical in meaning at both
+    tags): `STUNPort` 0 is 3478, a positive value is the STUN port, -1
+    disables STUN; `STUNOnly` marks a STUN-only node that is not a DERP server;
+    `DERPPort` 0 is 443, another value is the alternate TLS port of the DERP
+    HTTPS server; `HostName` is required; `IPv4` and `IPv6` force an address
+    instead of DNS, empty means use DNS, a string that is not an address of
+    that family disables that family, conventionally `none`. The probe URL for
+    a `DERPPort` other than 443 is not documented in `derpmap.go`; the port
+    and the shared mux imply `https://<HostName>:<DERPPort>/derp/latency-check`.
+  - **Divergences:**
+    - Tailscale installer join — Join logs in with authKey through the local API (Start with AuthKey and WantRunning) → on a node without a node key (Status.HaveNodeKey false, a fresh or logged-out tailscaled) Start does not call the control client's Login, so the node stays in NeedsLogin; tailscale up --auth-key follows Start with POST /localapi/v0/login-interactive in that case — https://raw.githubusercontent.com/tailscale/tailscale/v1.104.1/cmd/tailscale/cli/up.go
+    - Tailscale internals — localAPI has no call for POST /localapi/v0/login-interactive (Status, Prefs, EditPrefs, Start, Logout, DERPMap, CertPair) → logging in a node without a node key needs that call after Start, and tslocal does not make it — https://raw.githubusercontent.com/tailscale/tailscale/v1.104.1/ipn/ipnlocal/local.go
 - **Socket table and routes** (`internal/platform/netstat`, wave 0b):
   listening and established sockets from `/proc/net/{tcp,tcp6,udp,udp6}`
   joined to owning processes through `/proc/<pid>/fd`; interface addresses
@@ -3574,6 +3700,58 @@ empty list or map as equal, addresses in canonical `netip` form.
     repository line uses the OS codename and the `stable` track; unsupported
     OS or architecture refuses. Package installs and updates are
     long-running (1.3).
+- **Recorded contract (tailscale node, checked 2026-11-01).**
+  - **Sources:** `v1.82.0` and `v1.104.1` of `ipn/ipnstate/ipnstate.go`,
+    `ipn/ipnlocal/local.go`, `ipn/prefs.go`, `wgengine/magicsock/magicsock.go`,
+    `wgengine/magicsock/endpoint.go` and `wgengine/magicsock/derp.go`, each as
+    `https://raw.githubusercontent.com/tailscale/tailscale/<tag>/<path>`, and
+    the four keyrings
+    `https://pkgs.tailscale.com/stable/ubuntu/jammy.noarmor.gpg`,
+    `https://pkgs.tailscale.com/stable/ubuntu/noble.noarmor.gpg`,
+    `https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg` and
+    `https://pkgs.tailscale.com/stable/debian/trixie.noarmor.gpg`.
+  - **Connection:** `PeerStatus.CurAddr` ("one of Addrs, or unique if
+    roaming") is the UDP endpoint in use, `Relay` ("DERP region") is a region
+    code and `PeerRelay` ("peer relay address (ip:port:vni)") exists only at
+    `v1.104.1`; at `v1.82.0` the field is absent and a tslocal `PeerStatus`
+    decodes it empty. `populatePeerStatus` (`v1.82.0`, `v1.104.1`) sets
+    `Relay` for every peer to the region code of the peer's DERP address
+    (empty when unknown), whether or not DERP carries the traffic, so it can
+    be set together with `CurAddr` or `PeerRelay`; it sets `CurAddr` (at
+    `v1.104.1` `CurAddr` or `PeerRelay`, never both: `PeerRelay` when the UDP
+    address has a VNI) only after something was sent to the peer and only when
+    the send address is UDP without a DERP address. A peer never written to
+    therefore has neither, and shows `Relay` alone. `Self.Relay` is the region
+    code of the node's own home DERP (`c.myDerp`), empty without a DERP map or
+    region (`v1.82.0`, `v1.104.1`). The plan's mapping holds at both tags:
+    `direct` when `CurAddr` is set (endpoint `CurAddr`), else `peer-relay`
+    when `PeerRelay` is set, else `derp` when `Relay` is set (region `Relay`),
+    else `none`; `preferredDerp` is `Self.Relay`.
+  - **Identifiers:** `PeerStatus.ID` is `tailcfg.StableNodeID` set from the
+    node's `StableID()`, the type `Prefs.ExitNodeID` takes; for `Self` it is
+    set only while a netmap exists (`v1.82.0`, `v1.104.1`). `DNSName` "ends
+    with a dot" (`v1.82.0`, `v1.104.1`). `TailscaleIPs` keep the order of the
+    node's `Addresses` (a peer's filtered to single Tailscale IPs, `Self`'s
+    to single IPs), with no sorting (`v1.82.0`, `v1.104.1`); the order itself
+    is not documented. `Online` of a
+    peer is the control plane's "whether node is connected" flag; of `Self` it
+    is `GetInPollNetMap()`; `ExitNodeStatus.Online`, present only with a
+    netmap and an `ExitNodeID` found in it, is that exit peer's flag. A peer
+    without a handshake has `LastHandshake` the zero `time.Time`, encoded
+    `0001-01-01T00:00:00Z` (no `omitempty`; `PeerStatusLite` says the zero
+    value means none). `Tags` is `*views.Slice[string]` with `omitempty`:
+    absent when the node has none, else a JSON array of strings (their `tag:`
+    form is not stated in `ipnstate.go`). `Status.Peer` is keyed by the peer's
+    node public key (`key.NodePublic`), not by ID. `Self` is always present,
+    also logged out (then without `ID` and `DNSName`, `HostName` the OS host
+    name). `MagicDNSSuffix` is the tailnet's suffix without surrounding dots
+    (the top-level field is the legacy name of `CurrentTailnet.MagicDNSSuffix`;
+    `CurrentTailnet` is nil when not connected); `CurrentTailnet.Name` is
+    "the name of the network that's currently in use" (the netmap domain);
+    `CertDomains` are FQDNs without trailing periods and without any
+    `_acme-challenge.` prefix.
+  - **Keyring:** URL form `https://pkgs.tailscale.com/stable/<os>/<codename>.noarmor.gpg`; identical on ubuntu/jammy, ubuntu/noble, debian/bookworm and debian/trixie, sha256 3e03dacf222698c60b8e2f990b809ca1b3e104de127767864284e6c228f1fb39, one primary key, fingerprint 2596A99EAAB33821893C0A79458CA832957F5868, user id "Tailscale Inc. (Package repository signing key) <info@tailscale.com>", created 2020-02-25, does not expire, saved as internal/modules/tailscale/repo_keyring.gpg
+  - **Divergences:** none
 - **Module preflight** checks only the OS; `tailscale.status` and every action
   except `package.install` report `tailscale.unavailable` through per-action
   availability when the socket does not answer.
@@ -3796,7 +3974,7 @@ empty list or map as equal, addresses in canonical `netip` form.
      description; an uncertain key creation is swept as in 1.9.
   4. `install.sh --role agent` and `darkpanel system install --role agent`,
      given a `dpb2.` bundle, install tailscale (the same code as
-     `tailscale.package.install`), log in through the local API with the key,
+     `tailscale.package.install`), log in through the local API with the key (the calls are recorded in 1.8, Login by key),
      wait up to 60 s for a tailnet address, and then enroll over the tailnet
      to `controllerTailnetAddr`. A failure leaves the host un-enrolled and
      prints the reason; rerunning with a fresh bundle is the retry.
