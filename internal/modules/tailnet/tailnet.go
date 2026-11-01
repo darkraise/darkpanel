@@ -32,7 +32,8 @@ func (m module) Manifest() core.Manifest {
 
 // actions are spec 5's tailnet rows, all controller-side, the mutating ones
 // under the tailnet lock, plus the read actions account.get and authkey.list
-// that spec 5 lets the building wave add.
+// that spec 5 lets the building wave add, and the node.join composite, which
+// holds composite:tailnet while its steps take their own locks.
 func (t tn) actions() []core.ActionDef {
 	return []core.ActionDef{
 		t.accountConnect(),
@@ -48,5 +49,6 @@ func (t tn) actions() []core.ActionDef {
 		t.policyGet(),
 		t.policySet(),
 		t.policyPatch(),
+		t.nodeJoin(),
 	}
 }

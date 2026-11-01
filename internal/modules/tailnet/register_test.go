@@ -20,13 +20,13 @@ import (
 
 // TestRegManifestActions: the module declares section 5's tailnet rows plus
 // the two read actions the plan adds, in the order of the wire-shape table,
-// all controller-side at version 1. Mutating actions lock tailnet and reads
-// take no lock; the compensable ones carry an undo handler (and so an
-// observer), the irreversible ones none; only authkey.create resolves
-// uncertain effects, only policy.patch converges, and no action names a
-// compensating action or is forward-only. The module migrates its
-// controller tables, has no resources, and the registry accepts it with a
-// schema for every action.
+// all controller-side at version 1. Mutating actions lock tailnet, the join
+// composite holds composite:tailnet and reads take no lock; the compensable
+// ones carry an undo handler (and so an observer), the irreversible ones
+// none; only authkey.create resolves uncertain effects, only policy.patch
+// converges, and no action names a compensating action or is forward-only.
+// The module migrates its controller tables, has no resources, and the
+// registry accepts it with a schema for every action.
 func TestRegManifestActions(t *testing.T) {
 	m := Module().Manifest()
 	if m.ID != ID || m.Version != 1 || !m.DefaultEnabled || len(m.Resources) != 0 {
@@ -58,6 +58,7 @@ func TestRegManifestActions(t *testing.T) {
 		{"tailnet.policy.get", core.ClassRead, false, false, false},
 		{"tailnet.policy.set", core.ClassCompensable, true, false, false},
 		{"tailnet.policy.patch", core.ClassCompensable, true, false, true},
+		{"tailnet.node.join", core.ClassComposite, false, false, false},
 	}
 	if len(m.Actions) != len(want) {
 		var names []string
@@ -73,8 +74,11 @@ func TestRegManifestActions(t *testing.T) {
 			t.Errorf("action %d: %s v%d %s on %s, want %s v1 %s on the controller", i, s.Name, s.Version, s.Class, s.Side, w.name, w.class)
 		}
 		wantLocks := []string{"tailnet"}
-		if w.class == core.ClassRead {
+		switch w.class {
+		case core.ClassRead:
 			wantLocks = nil
+		case core.ClassComposite:
+			wantLocks = []string{"composite:tailnet"}
 		}
 		if !slices.Equal(s.LockKeys, wantLocks) {
 			t.Errorf("%s locks %v, want %v", s.Name, s.LockKeys, wantLocks)
@@ -141,6 +145,11 @@ func TestRegInputs(t *testing.T) {
 		{"tailnet.policy.patch", `{"edits":[{"op":"set","path":"/randomizeClientPort","value":true},{"op":"addItem","path":"/grants","value":{"src":["*"],"dst":["*"]}}]}`, ""},
 		{"tailnet.policy.patch", `{}`, "/edits"},
 		{"tailnet.policy.patch", `{"edits":[{"path":"/grants"}]}`, "/edits/0/op"},
+		{"tailnet.node.join", `{"hostId":"h1","tags":["tag:a"]}`, ""},
+		{"tailnet.node.join", `{"hostId":"h1","tags":["tag:a"],"install":true}`, ""},
+		{"tailnet.node.join", `{"tags":["tag:a"]}`, "/hostId"},
+		{"tailnet.node.join", `{"hostId":""}`, "/hostId"},
+		{"tailnet.node.join", `{"hostId":"h1","install":"yes"}`, "/install"},
 	}
 	for _, tt := range tests {
 		def, ok := defs[tt.action]
