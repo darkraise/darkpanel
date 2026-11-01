@@ -5,8 +5,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net"
+	"net/netip"
 	"regexp"
+	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 )
@@ -93,6 +96,128 @@ func ParseToken(s string) (Token, error) {
 
 func malformed() error {
 	return errcode.New(errcode.EnrollTokenInvalid, "the enrollment token is malformed")
+}
+
+// BundlePrefix starts a version-2 bootstrap bundle; "dpb" and the digit are the format and its version.
+const BundlePrefix = "dpb2."
+
+var bundleVersionPattern = regexp.MustCompile(`^dpb([0-9]+)\.`)
+
+// The Tailscale address ranges; this package cannot import the tailscale module's link package.
+var (
+	tailnetIPv4 = netip.MustParsePrefix("100.64.0.0/10")
+	tailnetIPv6 = netip.MustParsePrefix("fd7a:115c:a1e0::/48")
+)
+
+// Bundle is a bootstrap bundle: an enrollment token plus what a host needs to join the tailnet first (spec 4.2).
+// JSON members: {"v": 2, "token": <Token.String()>, "tailnetKey": <auth key>, "controllerTailnetAddr": <host:port>}.
+type Bundle struct {
+	Token                 Token
+	TailnetKey            string // a Tailscale auth key, "tskey-auth-..."; never empty
+	ControllerTailnetAddr string // host:port inside 100.64.0.0/10 or fd7a:115c:a1e0::/48 (IPv6 in brackets)
+}
+
+type bundleJSON struct {
+	V                     int    `json:"v"`
+	Token                 string `json:"token"`
+	TailnetKey            string `json:"tailnetKey"`
+	ControllerTailnetAddr string `json:"controllerTailnetAddr"`
+}
+
+// String is the bundle as the operator copies it: BundlePrefix + base64url (no padding) of the JSON above.
+func (b Bundle) String() string {
+	// A struct of strings and an int always encodes.
+	raw, _ := json.Marshal(bundleJSON{
+		V:                     2,
+		Token:                 b.Token.String(),
+		TailnetKey:            b.TailnetKey,
+		ControllerTailnetAddr: b.ControllerTailnetAddr,
+	})
+	return BundlePrefix + base64.RawURLEncoding.EncodeToString(raw)
+}
+
+// ParseBootstrap reads what the operator pasted: a plain token (TokenPrefix) gives (token, nil, nil);
+// a BundlePrefix bundle gives (bundle.Token, &bundle, nil). "dpb<digits>." with a version other than 2 is refused
+// with enroll.token_invalid and the detail "bootstrap bundle version <n> is not supported by this darkpanel";
+// every other malformed input is refused with ParseToken's own error (enroll.token_invalid, "the enrollment token is malformed").
+// A bundle must hold exactly the four members, v == 2, a token ParseToken accepts, a non-empty tailnetKey without
+// whitespace, and a controllerTailnetAddr that net.SplitHostPort accepts, whose host is a Tailscale address and
+// whose port is 1-65535.
+func ParseBootstrap(s string) (Token, *Bundle, error) {
+	s = strings.TrimSpace(s)
+	switch {
+	case strings.HasPrefix(s, TokenPrefix):
+		t, err := ParseToken(s)
+		return t, nil, err
+	case strings.HasPrefix(s, BundlePrefix):
+		b, ok := parseBundle(strings.TrimPrefix(s, BundlePrefix))
+		if !ok {
+			return Token{}, nil, malformed()
+		}
+		return b.Token, &b, nil
+	}
+	if m := bundleVersionPattern.FindStringSubmatch(s); m != nil {
+		return Token{}, nil, errcode.New(errcode.EnrollTokenInvalid,
+			"bootstrap bundle version "+m[1]+" is not supported by this darkpanel")
+	}
+	return Token{}, nil, malformed()
+}
+
+// parseBundle reads a version-2 bundle's body; it reports no reason, so no refusal can echo the input.
+func parseBundle(body string) (Bundle, bool) {
+	raw, err := base64.RawURLEncoding.Strict().DecodeString(body)
+	if err != nil {
+		return Bundle{}, false
+	}
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil || len(members) != 4 {
+		return Bundle{}, false
+	}
+	var version int
+	if m, ok := members["v"]; !ok || json.Unmarshal(m, &version) != nil || version != 2 {
+		return Bundle{}, false
+	}
+	values := make(map[string]string, 3)
+	for _, key := range []string{"token", "tailnetKey", "controllerTailnetAddr"} {
+		m, ok := members[key]
+		if !ok {
+			return Bundle{}, false
+		}
+		// A null member decodes without error and leaves v empty, which the checks below refuse.
+		var v string
+		if err := json.Unmarshal(m, &v); err != nil {
+			return Bundle{}, false
+		}
+		values[key] = v
+	}
+	tok, err := ParseToken(values["token"])
+	if err != nil {
+		return Bundle{}, false
+	}
+	key := values["tailnetKey"]
+	if key == "" || strings.IndexFunc(key, unicode.IsSpace) >= 0 || !isTailnetHostPort(values["controllerTailnetAddr"]) {
+		return Bundle{}, false
+	}
+	return Bundle{Token: tok, TailnetKey: key, ControllerTailnetAddr: values["controllerTailnetAddr"]}, true
+}
+
+// isTailnetHostPort reports whether s is an IP literal inside a Tailscale range with a port from 1 to 65535.
+func isTailnetHostPort(s string) bool {
+	host, port, err := net.SplitHostPort(s)
+	if err != nil {
+		return false
+	}
+	addr, err := netip.ParseAddr(host)
+	// Unmap drops the zone of an IPv4-mapped address, so the zone is refused before it.
+	if err != nil || addr.Zone() != "" {
+		return false
+	}
+	addr = addr.Unmap()
+	if !tailnetIPv4.Contains(addr) && !tailnetIPv6.Contains(addr) {
+		return false
+	}
+	n, err := strconv.ParseUint(port, 10, 16)
+	return err == nil && n != 0
 }
 
 // EnrollRequest is the body of POST EnrollPath.
