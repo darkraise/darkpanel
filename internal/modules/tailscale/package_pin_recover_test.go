@@ -234,6 +234,22 @@ func TestRbRecoverWithoutARollback(t *testing.T) {
 	}
 }
 
+func TestRbRecoverNamesAFailedPinWithoutSteps(t *testing.T) {
+	ctx := context.Background()
+	h, tt, held := rbSetup(t, true)
+	rbAdd(t, h, rbPin("c1", "failed", h.clock.Now()))
+	out, err := rbDef(t, tt).Recover(ctx, rbEnv(h, held, "c1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (core.RecoveryOutcome{State: core.RecoveryNeedsRepair, Reason: "the pin of 1.102.0 failed"}); out.State != want.State || out.Reason != want.Reason {
+		t.Errorf("outcome %+v, want %+v", out, want)
+	}
+	if len(h.ran) != 0 || len(h.units.Restarts) != 0 {
+		t.Errorf("recover ran %v and restarted %v, want nothing", h.ran, h.units.Restarts)
+	}
+}
+
 func TestRbRecoverRollsAnInterruptedPinBack(t *testing.T) {
 	tests := []struct {
 		phase         string
