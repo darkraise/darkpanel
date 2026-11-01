@@ -327,6 +327,33 @@ func TestJEPrepareJoinFailures(t *testing.T) {
 	}
 }
 
+// TestJEPrepareJoinSettleFails: a created key whose live write fails is returned to no one, and its row stays
+// requested, which the sweep retires by description once keyRequestGrace has passed.
+func TestJEPrepareJoinSettleFails(t *testing.T) {
+	e := jeSetup(t)
+	err := e.h.db.Write(context.Background(), func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(context.Background(),
+			`CREATE TRIGGER je_fail_live BEFORE UPDATE ON tailnet_keys WHEN NEW.state = 'live' BEGIN SELECT RAISE(FAIL, 'je: disk full'); END`)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := e.prepare("tag:ci")
+	if err == nil || !strings.Contains(err.Error(), "je: disk full") {
+		t.Fatalf("error %v, want the failed write", err)
+	}
+	if key != "" {
+		t.Error("a key was returned with the failure")
+	}
+	if r := jeRow(t, e); r.State != "requested" || r.KeyID != "" {
+		t.Errorf("row %+v, want requested with no key id", r)
+	}
+	if n := len(e.srv.Keys()); n != 1 {
+		t.Errorf("provider holds %d keys, want the created one, for the sweep to delete", n)
+	}
+}
+
 // TestJEPrepareJoinRefusesBeforeAnyWrite: a request the account cannot serve records no row and sends nothing.
 func TestJEPrepareJoinRefusesBeforeAnyWrite(t *testing.T) {
 	e := jeSetup(t)
