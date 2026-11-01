@@ -1903,11 +1903,13 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
 - **Tailscale local client** (`internal/platform/tslocal`, wave 0b):
   `GET /localapi/v0/status`, `GET` and `PATCH /localapi/v0/prefs` (body
   `ipn.MaskedPrefs`: the prefs plus a `<Field>Set` boolean per field),
-  `POST /localapi/v0/start` with `ipn.Options{AuthKey, UpdatePrefs}` for
-  login, `POST /localapi/v0/logout`, `GET /localapi/v0/derpmap`, the
-  certificate pair endpoint and the DERP-region debug endpoint (4.3). Wire
-  types are plain Go structs with only the fields used; a contract test runs
-  them against the tailscaled in the harness pins.
+  `POST /localapi/v0/start` with `ipn.Options{AuthKey, UpdatePrefs}` followed
+  by `POST /localapi/v0/login-interactive` for a login by key (the recorded
+  contract's Login by key), `POST /localapi/v0/logout`,
+  `GET /localapi/v0/derpmap`, the certificate pair endpoint and the
+  DERP-region debug endpoint (4.3). Wire types are plain Go structs with only
+  the fields used; a contract test runs them against the tailscaled in the
+  harness pins.
 - **Recorded contract (tailscaled local API, checked 2026-11-01).**
   - **Sources:** unauthenticated GETs of
     `https://raw.githubusercontent.com/tailscale/tailscale/<tag>/<path>`, as
@@ -1948,6 +1950,10 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
     - `POST /localapi/v0/logout`: `POST` only (else 400 `want POST`); write;
       204, also when the node has no node key (nothing is done); a failure
       500; in the table at both tags.
+    - `POST /localapi/v0/login-interactive`: write (else 403 `login access
+      denied`), then `POST` only (else 400 `want POST`); 204; a
+      `StartLoginInteractiveAs` error 500; in the table at `v1.82.0` and
+      `v1.104.1` (checked 2026-11-01).
     - `GET /localapi/v0/derpmap`: `GET` only (else 400 `want GET`); no
       permission check; 200 JSON of `LocalBackend.DERPMap()`, which is nil
       "if not connected", so the body is `null` (`v1.82.0`, `v1.104.1`); in
