@@ -25,3 +25,4 @@
 - 2026-10-28 `docs/dforge/plans/2026-10-24-v1-w1-firewall-core.md` — merged into `main` at 2e07a58
 - 2026-10-29 `docs/dforge/plans/2026-10-28-v1-w2-firewall-docker.md` — merged into `main` at 721e40b
 - 2026-10-31 `docs/dforge/plans/2026-10-30-v1-w3-docker-tailnet-cloudflare.md` — merged into `main` at c5a5f1c
+- 2026-11-01 `docs/dforge/plans/2026-10-31-v1-w4-tailscale-node-and-join.md` — merged into `main` at 02a9b4e
