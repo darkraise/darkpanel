@@ -328,6 +328,14 @@ func TestLgLinkGuard(t *testing.T) {
 					ListenerAddr: netip.MustParseAddrPort("172.30.0.1:8080")}}},
 		},
 		{
+			name: "an exposure without a listener address cannot be classified", cur: lgPrefs(nil), change: lgLogout,
+			w: lgWorld{controller: true},
+			in: core.Guarded{Guard: &core.GuardContext{Complete: true,
+				Client: &core.Peer{Addr: netip.MustParseAddr("172.30.0.2")},
+				Via:    &core.ProxyPath{ExposureID: "e1", Kind: "npm", ProxyAddr: netip.MustParseAddr("172.30.0.2")}}},
+			wantIn: []string{"panel", "the exposure has no proxy or listener address"},
+		},
+		{
 			name: "turning Tailscale SSH off passes when the agent link of a remote controller is over eth0", wantOK: true,
 			cur:    lgPrefs(func(p *link.Prefs) { p.RunSSH = true }),
 			change: lgPrefsChange(lgPrefs(func(p *link.Prefs) { p.RunSSH = true }), func(p *link.Prefs) { p.RunSSH = false }),

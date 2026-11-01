@@ -180,6 +180,8 @@ func linkRawFlows(f linkFacts, plan, refresh *core.GuardContext) []linkRaw {
 				if g.Via.ListenerAddr.Addr().IsValid() && g.Via.ProxyAddr.IsValid() {
 					add(linkRaw{label: "panel", inbound: true, local: g.Via.ListenerAddr.Addr().Unmap(),
 						remote: g.Via.ProxyAddr.Unmap(), request: isRequest})
+				} else {
+					add(linkRaw{label: "panel", unknown: "the exposure has no proxy or listener address"})
 				}
 			case g.Client != nil && g.Client.Addr.IsValid():
 				client := g.Client.Addr.Unmap()
