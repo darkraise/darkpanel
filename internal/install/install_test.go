@@ -492,6 +492,33 @@ func TestIjBundleJoinFailureLeavesTheHostUnenrolled(t *testing.T) {
 	}
 }
 
+func TestIjBundleEnrollFailureAfterTheJoin(t *testing.T) {
+	h := newTestHost(t)
+	h.agent.enrollErr = errcode.New(errcode.EnrollTokenInvalid, "the enrollment token is not valid")
+	cfg := h.config(RoleAgent)
+	cfg.Token = ijBundle(ijKey)
+	err := Install(context.Background(), cfg)
+	if err == nil || !strings.HasPrefix(err.Error(), "install: enrollment: the controller refused the enrollment token: ") ||
+		!strings.HasSuffix(err.Error(), ": the enrollment token is not valid") {
+		t.Fatalf("Install = %v, want the refused-token advice wrapping the controller's answer", err)
+	}
+	if strings.Contains(err.Error(), ijKey) {
+		t.Errorf("the error carries the auth key: %v", err)
+	}
+	if !reflect.DeepEqual(h.tailnet.keys, []string{ijKey}) {
+		t.Errorf("joined with %v, want the bundle's key once", h.tailnet.keys)
+	}
+	if want := []string{ijToken().String()}; !reflect.DeepEqual(h.agent.tokens, want) {
+		t.Errorf("enrolled with %v, want the plain token %v after the join", h.agent.tokens, want)
+	}
+	if _, statErr := os.Lstat(h.layout.Paths.AgentTLSCurrent()); !errors.Is(statErr, fs.ErrNotExist) {
+		t.Errorf("credentials exist after a failed enrollment: %v", statErr)
+	}
+	if got := h.systemd.recorded(); slices.Contains(got, "Restart darkpanel-agent.service") {
+		t.Errorf("systemd calls %v, want the agent left unstarted", got)
+	}
+}
+
 func TestIjBundleRefusals(t *testing.T) {
 	tests := []struct {
 		name   string
