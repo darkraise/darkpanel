@@ -172,7 +172,7 @@ func (h packageInstallHandler) Observe(ctx context.Context, env core.Env, e core
 	if err != nil {
 		return core.Observation{}, err
 	}
-	absent := core.Observation{Current: core.StateDoc{State: json.RawMessage("null")}, Matches: 1, Exclusive: true}
+	absent := core.Observation{Current: core.StateDoc{State: json.RawMessage("null")}, Matches: 0, Exclusive: true}
 	if pkg {
 		version, err := h.t.installedVersion(ctx, env)
 		if err != nil {

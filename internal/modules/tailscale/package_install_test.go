@@ -348,30 +348,30 @@ func TestPiPackageInstallVerify(t *testing.T) {
 func TestPiPackageInstallObserve(t *testing.T) {
 	s := piNewSetup(t)
 	h := s.t.packageInstall().Handler
-	observe := func(resource string) core.Observation {
+	observe := func(resource string, matches int, made string) core.Observation {
 		t.Helper()
 		obs, err := h.Observe(context.Background(), s.env, core.Effect{Resource: resource, State: core.EffectIntended})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if obs.Matches != 1 || !obs.Exclusive {
-			t.Errorf("observation of %s %+v, want one exclusive match", resource, obs)
+		if obs.Matches != matches || !obs.Exclusive || obs.Resource != made {
+			t.Errorf("observation of %s %+v, want %d exclusive matches naming %q", resource, obs, matches, made)
 		}
 		return obs
 	}
-	if got := observe("tailscale.package:tailscale").Current; string(got.State) != "null" {
+	if got := observe("tailscale.package:tailscale", 0, "").Current; string(got.State) != "null" {
 		t.Errorf("absent package observed as %s, want null", got.State)
 	}
 	s.installed()
-	obs := observe("tailscale.package:tailscale")
+	obs := observe("tailscale.package:tailscale", 1, installPackageResource)
 	if string(obs.Current.State) != `{"installed":true}` || !strings.Contains(string(obs.Current.Version), piVersion) {
 		t.Errorf("installed package observed as %+v", obs.Current)
 	}
-	if got := observe("tailscale.file:" + sourcesPath).Current; string(got.State) != "null" {
+	if got := observe("tailscale.file:"+sourcesPath, 0, "").Current; string(got.State) != "null" {
 		t.Errorf("absent file observed as %s, want null", got.State)
 	}
 	s.h.reads[sourcesPath] = []byte(piSources("ubuntu", "noble"))
-	if got := observe("tailscale.file:" + sourcesPath).Current; got.State == nil || string(got.State) == "null" || !strings.Contains(string(got.State), "sha256") {
+	if got := observe("tailscale.file:"+sourcesPath, 1, repoFileResource(sourcesPath)).Current; got.State == nil || string(got.State) == "null" || !strings.Contains(string(got.State), "sha256") {
 		t.Errorf("present file observed as %s, want its digest", got.State)
 	}
 	// What the task records after a write is what an observation finds.
