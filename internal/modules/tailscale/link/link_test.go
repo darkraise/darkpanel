@@ -235,6 +235,17 @@ func lkCases() []lkCase {
 			"ssh flow with 100.64.0.9 depends on Tailscale; agent link flow with an unknown address cannot be classified: no route to the controller",
 		},
 
+		// an unknown change kind
+		{
+			"an empty change kind fails", lkPrefs(nil), Change{}, []Flow{lanSSH},
+			`the change kind "" is not prefs, logout or relogin, so no rule could check it`,
+		},
+		{
+			"a misspelled change kind fails and still names unknown flows", lkPrefs(nil), Change{Kind: "pref", After: lkPrefs(nil)},
+			[]Flow{{Label: "agent link", Unknown: "no route to the controller"}},
+			`the change kind "pref" is not prefs, logout or relogin, so no rule could check it; agent link flow with an unknown address cannot be classified: no route to the controller`,
+		},
+
 		// several rules
 		{
 			"one flow can break two rules", lkPrefs(func(p *Prefs) { p.AcceptRoutes = true }), lkPrefsChange(Prefs{}),

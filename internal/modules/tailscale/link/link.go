@@ -66,7 +66,8 @@ type Change struct {
 //   - After.ExitNode differs from cur.ExitNode (cur non-empty): fails when a flow's OutIface is Interface and Default is true;
 //   - a prefix in cur.AdvertiseRoutes missing from After: fails when an Inbound flow with OutIface Interface has Local inside it;
 //   - cur.AdvertiseExitNode true, After false: fails when an Inbound flow with OutIface Interface has a Local that is neither a Tailscale address nor inside any of cur.AdvertiseRoutes;
-//   - a flow with Unknown set fails whatever the change.
+//   - a flow with Unknown set fails whatever the change;
+//   - a Kind other than "prefs", "logout" or "relogin" fails, so a caller's typo cannot skip the rules.
 //
 // The result is core.Guard{ID: GuardID, Overridable: true, OK, Message}; Message names every failing flow by
 // Label, Remote and the rule (one sentence each, joined with "; "), or "no protected flow depends on what this change removes".
@@ -93,6 +94,8 @@ func Check(cur Prefs, c Change, flows []Flow) core.Guard {
 		sentences = append(sentences, exitNodeRule(cur, after, known)...)
 		sentences = append(sentences, advertisedRoutesRule(cur, after, known)...)
 		sentences = append(sentences, advertisedExitNodeRule(cur, after, known)...)
+	default:
+		sentences = append(sentences, fmt.Sprintf("the change kind %q is not prefs, logout or relogin, so no rule could check it", c.Kind))
 	}
 	sentences = append(sentences, unknownRule(flows)...)
 
