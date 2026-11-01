@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/netip"
 	"reflect"
+	"slices"
 	"sync"
 	"testing"
 
@@ -27,6 +28,7 @@ type hjJoiner struct {
 	state      string
 	planErr    error
 	prepareErr error
+	onPrepare  func() // runs inside PrepareJoin, before it answers
 
 	mu       sync.Mutex
 	plans    []core.JoinRequest
@@ -57,6 +59,9 @@ func (j *hjJoiner) PrepareJoin(ctx context.Context, env core.Env, req core.JoinR
 	defer j.mu.Unlock()
 	j.prepares = append(j.prepares, req)
 	j.hostSeen = append(j.hostSeen, n > 0)
+	if j.onPrepare != nil {
+		j.onPrepare()
+	}
 	if j.prepareErr != nil {
 		return "", j.prepareErr
 	}
@@ -357,6 +362,31 @@ func TestHJHostCreateJoinTakenName(t *testing.T) {
 	wantCode(t, e.applyDirect("core.host.create", core.HostCreateInput{Name: "alpha", TailnetJoin: true}), errcode.PlanStateChanged)
 	if _, prepares := j.calls(); prepares != 0 {
 		t.Errorf("PrepareJoin ran %d times for a name that is taken", prepares)
+	}
+}
+
+// The name is checked again in the write: a host named the same while the key was requested refuses the apply,
+// and no host row exists for the id the key was requested for, so the key is the tailnet module's to retire.
+func TestHJHostCreateJoinNameTakenAfterTheKey(t *testing.T) {
+	j := newHJJoiner()
+	e := hjEnv(t, j, testAdvertise, "100.64.0.7")
+	j.onPrepare = func() { e.addHost("h-other", "web1", false) }
+	wantCode(t, e.applyDirect("core.host.create", core.HostCreateInput{Name: "web1", TailnetJoin: true}), errcode.PlanStateChanged)
+	j.mu.Lock()
+	prepares := slices.Clone(j.prepares)
+	j.mu.Unlock()
+	if len(prepares) != 1 {
+		t.Fatalf("PrepareJoin ran %d times, want once", len(prepares))
+	}
+	var keyed, named int
+	if err := e.db.Read().QueryRow(`SELECT count(*) FROM core_hosts WHERE id = ?`, prepares[0].HostID).Scan(&keyed); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.db.Read().QueryRow(`SELECT count(*) FROM core_hosts WHERE name = 'web1'`).Scan(&named); err != nil {
+		t.Fatal(err)
+	}
+	if keyed != 0 || named != 1 {
+		t.Errorf("%d hosts with the keyed id and %d named web1, want none and the other change's one", keyed, named)
 	}
 }
 
