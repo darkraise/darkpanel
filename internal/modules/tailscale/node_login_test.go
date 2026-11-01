@@ -356,6 +356,98 @@ func TestLiLoginGivesUpWaiting(t *testing.T) {
 	}
 }
 
+// liPollLocal answers the status reads after Start from poll, numbered from 1.
+type liPollLocal struct {
+	localAPI
+	started bool
+	reads   int
+	poll    func(n int) (*tslocal.Status, error)
+}
+
+func (l *liPollLocal) Start(ctx context.Context, o tslocal.StartOptions) error {
+	if err := l.localAPI.Start(ctx, o); err != nil {
+		return err
+	}
+	l.started = true
+	return nil
+}
+
+func (l *liPollLocal) Status(ctx context.Context) (*tslocal.Status, error) {
+	if !l.started {
+		return l.localAPI.Status(ctx)
+	}
+	l.reads++
+	return l.poll(l.reads)
+}
+
+// liPollSetup is a logged-out node whose status reads after Start come from poll.
+func liPollSetup(t *testing.T, poll func(n int) (*tslocal.Status, error)) (*tsHost, ts, *liPollLocal) {
+	t.Helper()
+	h, tt := liSetup(t, "NeedsLogin", tslocal.Prefs{}, -1)
+	l := &liPollLocal{localAPI: tt.d.local(), poll: poll}
+	tt.d.local = func() localAPI { return l }
+	return h, tt, l
+}
+
+func TestLiLoginSettlesAwaitingMachineAuth(t *testing.T) {
+	h, tt, _ := liPollSetup(t, func(n int) (*tslocal.Status, error) {
+		if n < 2 {
+			return liStatus("Starting"), nil
+		}
+		return liStatus("NeedsMachineAuth"), nil
+	})
+	var res json.RawMessage
+	var err error
+	liDrive(t, h, func() { res, err = tt.nodeLogin().Handler.Apply(context.Background(), h.env("c1"), liLoginIn("")) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(res), `"backendState":"NeedsMachineAuth"`) {
+		t.Errorf("output %s, want the NeedsMachineAuth backend: the login waits for an admin's approval", res)
+	}
+	effects := liEffects(t, h)
+	if len(effects) != 1 || effects[0].State != core.EffectMade || effects[0].Post == nil ||
+		!liSame(t, effects[0].Post.Version, []byte(`{"backendState":"NeedsMachineAuth"}`)) {
+		t.Errorf("effects %+v, want one made with the NeedsMachineAuth backend", effects)
+	}
+}
+
+func TestLiLoginStatusFailsWhilePolling(t *testing.T) {
+	h, tt, _ := liPollSetup(t, func(n int) (*tslocal.Status, error) {
+		if n < 2 {
+			return liStatus("Starting"), nil
+		}
+		return nil, errors.New("connection reset")
+	})
+	var err error
+	liDrive(t, h, func() { _, err = tt.nodeLogin().Handler.Apply(context.Background(), h.env("c1"), liLoginIn("")) })
+	if err == nil || core.IsDefinite(err) || !strings.Contains(err.Error(), "connection reset") {
+		t.Fatalf("err = %v, want an uncertain error carrying the failed read", err)
+	}
+	if effects := liEffects(t, h); len(effects) != 1 || effects[0].State != core.EffectIntended {
+		t.Errorf("effects %+v, want one still intended: the login may yet complete", effects)
+	}
+}
+
+func TestLiLoginStopsWhenTheContextEnds(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	h, tt, l := liPollSetup(t, func(int) (*tslocal.Status, error) {
+		cancel()
+		return liStatus("Starting"), nil
+	})
+	_, err := tt.nodeLogin().Handler.Apply(ctx, h.env("c1"), liLoginIn(""))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if l.reads != 1 {
+		t.Errorf("%d status reads after Start, want 1: the poll stops once the context ends", l.reads)
+	}
+	if effects := liEffects(t, h); len(effects) != 1 || effects[0].State != core.EffectIntended {
+		t.Errorf("effects %+v, want one still intended", effects)
+	}
+}
+
 func TestLiLoginApplyRefusals(t *testing.T) {
 	tests := []struct {
 		name     string
