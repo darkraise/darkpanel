@@ -15,6 +15,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/modules/tailscale/link"
+	"github.com/darkraise/darkpanel/internal/platform/netstat"
 	"github.com/darkraise/darkpanel/internal/platform/tslocal"
 )
 
@@ -488,5 +489,48 @@ func TestPfObserve(t *testing.T) {
 	h.local.Errs["Prefs"] = errors.New("boom")
 	if _, err := def.Handler.Observe(ctx, h.env("c1"), e); err == nil {
 		t.Error("observed with the preferences unreadable, want an error")
+	}
+}
+
+func TestPfExitNodeAddressResolvesToThePeer(t *testing.T) {
+	ctx := context.Background()
+	h, tt := pfSetup(t, tslocal.Prefs{WantRunning: true})
+	h.local.Status.Peer = map[string]*tslocal.PeerStatus{
+		"nodekey:e9": {ID: "nExit9", TailscaleIPs: []netip.Addr{netip.MustParseAddr("100.64.0.9")}},
+	}
+	def, in := tt.prefsSet(), json.RawMessage(`{"exitNode":"100.64.0.9"}`)
+	out, err := def.Handler.Apply(ctx, h.env("c1"), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zero := netip.Addr{}
+	if want := (tslocal.PrefsPatch{ExitNodeID: pfString("nExit9"), ExitNodeIP: &zero}); len(h.local.Edits) != 1 || !reflect.DeepEqual(h.local.Edits[0], want) {
+		t.Errorf("edits %+v, want exactly %+v: the address is sent as the peer's stable ID", h.local.Edits, want)
+	}
+	if effects := pfEffects(t, h); len(effects) != 1 || effects[0].After == nil || !pfSame(t, effects[0].After.State, []byte(`{"exitNode":"nExit9"}`)) {
+		t.Errorf("effects %+v, want one whose after state names the peer's stable ID", effects)
+	}
+	if err := def.Handler.Verify(ctx, h.env("c1"), in, out); err != nil {
+		t.Errorf("verify after setting the exit node by address: %v", err)
+	}
+}
+
+func TestPfPlanGuardSeesALoneDefaultRouteDropped(t *testing.T) {
+	h, tt := pfSetup(t, tslocal.Prefs{WantRunning: true, AdvertiseRoutes: pfPrefixes("0.0.0.0/0")})
+	h.link.Sockets = lgSSH("192.0.2.1:22", "203.0.113.7:50000")
+	h.link.Ifaces = lgIfaces()
+	h.link.Pid = lgAgentPID
+	h.link.Routes = map[netip.Addr]netstat.Route{netip.MustParseAddr("203.0.113.7"): {Type: "unicast", OutIface: link.Interface}}
+	routes := []string{"10.2.0.0/16"}
+	patch, err := prefsSetPatch(h.local.Prefs, PrefsFields{AdvertiseRoutes: &routes})
+	if err != nil || patch.AdvertiseRoutes == nil || !reflect.DeepEqual(*patch.AdvertiseRoutes, pfPrefixes("10.2.0.0/16")) {
+		t.Fatalf("patch %+v (%v), want the routes without the lone default route", patch, err)
+	}
+	out, err := tt.prefsSet().Handler.Plan(context.Background(), h.env(""), json.RawMessage(`{"advertiseRoutes":["10.2.0.0/16"]}`))
+	if err != nil || len(out.Guards) != 1 {
+		t.Fatalf("plan: guards %+v, err %v", out.Guards, err)
+	}
+	if g := out.Guards[0]; g.OK || !strings.Contains(g.Message, "advertised exit node") {
+		t.Errorf("guard %+v, want a failure for the ssh session that arrives through the advertised exit node the patch drops", g)
 	}
 }

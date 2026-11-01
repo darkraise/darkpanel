@@ -65,6 +65,9 @@ func (h prefsSetHandler) Plan(ctx context.Context, env core.Env, in PrefsSetInpu
 	if err != nil {
 		return core.PlanOutcome{}, err
 	}
+	if want, err = prefsSetResolve(ctx, h.t.d.local(), want); err != nil {
+		return core.PlanOutcome{}, err
+	}
 	lp, raw, err := h.t.currentLinkPrefs(ctx)
 	if err != nil {
 		return core.PlanOutcome{}, err
@@ -107,6 +110,9 @@ func (h prefsSetHandler) Apply(ctx context.Context, env core.Env, in PrefsSetInp
 	if err != nil {
 		return PrefsResult{}, err
 	}
+	if want, err = prefsSetResolve(ctx, h.t.d.local(), want); err != nil {
+		return PrefsResult{}, core.Definite(err)
+	}
 	p, err := h.read(ctx)
 	if err != nil {
 		return PrefsResult{}, err
@@ -145,6 +151,9 @@ func (h prefsSetHandler) Apply(ctx context.Context, env core.Env, in PrefsSetInp
 func (h prefsSetHandler) Verify(ctx context.Context, _ core.Env, in PrefsSetInput, _ PrefsResult) error {
 	want, err := prefsSetNormalize(in.PrefsFields)
 	if err != nil {
+		return err
+	}
+	if want, err = prefsSetResolve(ctx, h.t.d.local(), want); err != nil {
 		return err
 	}
 	p, err := h.read(ctx)
@@ -212,6 +221,9 @@ func (h prefsSetHandler) Revert(ctx context.Context, env core.Env, snapshot []by
 		restorable = append(restorable, e.Seq)
 	}
 	if len(restorable) > 0 {
+		if prior, err = prefsSetResolve(ctx, h.t.d.local(), prior); err != nil {
+			return core.RevertOutcome{}, err
+		}
 		p, err := h.read(ctx)
 		if err != nil {
 			return core.RevertOutcome{}, err
@@ -317,6 +329,32 @@ func prefsSetNormalize(f PrefsFields) (PrefsFields, error) {
 	return out, nil
 }
 
+// prefsSetResolve replaces an exit node given by address with the stable ID of the peer that owns it, because
+// tailscaled makes the same rewrite on every edit and the preferences read back hold the ID. An address no peer
+// owns is kept, as tailscaled keeps it.
+func prefsSetResolve(ctx context.Context, local localAPI, f PrefsFields) (PrefsFields, error) {
+	if f.ExitNode == nil {
+		return f, nil
+	}
+	a, err := netip.ParseAddr(*f.ExitNode)
+	if err != nil {
+		return f, nil
+	}
+	st, err := local.Status(ctx)
+	if err != nil {
+		return PrefsFields{}, fmt.Errorf("tailscale: read the status: %w", err)
+	}
+	a = a.Unmap()
+	for _, peer := range st.Peer {
+		if peer != nil && slices.ContainsFunc(peer.TailscaleIPs, func(ip netip.Addr) bool { return ip.Unmap() == a }) {
+			id := peer.ID
+			f.ExitNode = &id
+			return f, nil
+		}
+	}
+	return f, nil
+}
+
 // prefsSetPatch is the tslocal patch that sets exactly the fields want sets, given the current preferences. An
 // exit node sets both the ID and the address, so one clears the other. The advertised routes carry the exit-node
 // advertisement as the two default routes, so setting either field rewrites the whole list.
@@ -356,8 +394,8 @@ func prefsSetPatch(cur *tslocal.Prefs, want PrefsFields) (tslocal.PrefsPatch, er
 }
 
 // prefsSetLinkAfter is the node's preferences after want applies, as the guard reads them: a copy of lp with the
-// masked fields applied, ExitNode replaced only when want's exitNode differs from cur's (cur is prefsFieldsOf of
-// the current preferences).
+// masked fields applied, the advertised routes and exit-node flag as prefsSetPatch writes them, and ExitNode
+// replaced only when want's exitNode differs from cur's (cur is prefsFieldsOf of the current preferences).
 func prefsSetLinkAfter(lp link.Prefs, cur, want PrefsFields) link.Prefs {
 	after := lp
 	after.AdvertiseRoutes = slices.Clone(lp.AdvertiseRoutes)
@@ -373,15 +411,24 @@ func prefsSetLinkAfter(lp link.Prefs, cur, want PrefsFields) link.Prefs {
 	if want.RunSSH != nil {
 		after.RunSSH = *want.RunSSH
 	}
-	if want.AdvertiseExitNode != nil {
-		after.AdvertiseExitNode = *want.AdvertiseExitNode
-	}
-	if want.AdvertiseRoutes != nil {
-		// An entry that does not parse is left out, which the guard reads as a route removed: the stricter check.
+	if want.AdvertiseRoutes != nil || want.AdvertiseExitNode != nil {
+		// prefsSetPatch rewrites the whole route list from these same values, and it reads the exit-node flag from
+		// cur, which needs both default routes, where lp is true for either one alone.
+		routes, exit := cur.AdvertiseRoutes, cur.AdvertiseExitNode
+		if want.AdvertiseRoutes != nil {
+			routes = want.AdvertiseRoutes
+		}
+		if want.AdvertiseExitNode != nil {
+			exit = want.AdvertiseExitNode
+		}
+		after.AdvertiseExitNode = exit != nil && *exit
 		after.AdvertiseRoutes = nil
-		for _, s := range *want.AdvertiseRoutes {
-			if p, err := netip.ParsePrefix(s); err == nil && p.Bits() != 0 {
-				after.AdvertiseRoutes = append(after.AdvertiseRoutes, p)
+		if routes != nil {
+			// An entry that does not parse is left out, which the guard reads as a route removed: the stricter check.
+			for _, s := range *routes {
+				if p, err := netip.ParsePrefix(s); err == nil && p.Bits() != 0 {
+					after.AdvertiseRoutes = append(after.AdvertiseRoutes, p)
+				}
 			}
 		}
 	}
