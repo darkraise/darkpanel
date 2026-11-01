@@ -19,6 +19,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/secret"
 	"github.com/darkraise/darkpanel/internal/core/store"
 	"github.com/darkraise/darkpanel/internal/platform"
+	"github.com/darkraise/darkpanel/internal/transport"
 	"github.com/darkraise/darkpanel/internal/update"
 )
 
@@ -62,6 +63,11 @@ type Agent interface {
 	Enroll(ctx context.Context, token string) error
 }
 
+// TailnetJoiner joins this host to the tailnet before it enrolls (spec 4.2 step 4).
+type TailnetJoiner interface {
+	Join(ctx context.Context, authKey string) error
+}
+
 // Users looks up system users.
 type Users interface {
 	// Lookup returns name's uid and gid; found is false when there is no
@@ -99,8 +105,8 @@ type Config struct {
 	Role           Role
 	AgentListen    []string // controller role: the --agent-listen values
 	AgentAdvertise string   // controller role: the --agent-advertise value
-	// Token is the agent role's enrollment token from standard input,
-	// trimmed; empty when none was given.
+	// Token is the agent role's enrollment token or bootstrap bundle from
+	// standard input, trimmed; empty when none was given.
 	Token string
 	// Modules are the compiled-in modules, whose agent migrations agent.db
 	// gets as the agent would apply them.
@@ -111,6 +117,7 @@ type Config struct {
 	Users         Users
 	Controller    Controller // controller role only
 	Agent         Agent
+	Tailnet       TailnetJoiner // required only when Token is a bootstrap bundle
 	Clock         core.Clock
 	Out           io.Writer
 	// Chown gives path to uid and gid; nil means os.Chown.
@@ -141,10 +148,32 @@ func (c Config) check() error {
 	if c.Role == RoleController && c.Token != "" {
 		return errors.New("install: an enrollment token is only for the agent role")
 	}
+	bundle, err := c.bootstrap()
+	if err != nil {
+		return err
+	}
+	if bundle != nil && c.Tailnet == nil {
+		return errors.New("install: Config.Tailnet is required when the token is a bootstrap bundle")
+	}
 	// Rendering the units checks the flags; doing it here refuses them before
 	// anything on the host changes.
-	_, err := Units(c.Layout, c.Role, c.AgentListen, c.AgentAdvertise)
+	_, err = Units(c.Layout, c.Role, c.AgentListen, c.AgentAdvertise)
 	return err
+}
+
+// bootstrap returns the agent role's bootstrap bundle, or nil when Token is
+// not one.
+func (c Config) bootstrap() (*transport.Bundle, error) {
+	// The prefix tested is "dpb" and not BundlePrefix so that a bundle of
+	// another version reaches the parser and is refused by name.
+	if c.Role != RoleAgent || !strings.HasPrefix(c.Token, "dpb") {
+		return nil, nil
+	}
+	_, bundle, err := transport.ParseBootstrap(c.Token)
+	if err != nil {
+		return nil, fmt.Errorf("install: bootstrap bundle: %w", err)
+	}
+	return bundle, nil
 }
 
 // installer is one run of system install.
@@ -475,6 +504,17 @@ func (in *installer) enroll(ctx context.Context) (string, error) {
 	case token == "":
 		return "", errors.New("this agent has no saved credentials and no enrollment token was given; rerun install.sh with --token-file, or on a terminal to be prompted")
 	}
+	bundle, err := in.cfg.bootstrap()
+	if err != nil {
+		return "", err
+	}
+	done := "enrolled"
+	if bundle != nil {
+		if err := in.cfg.Tailnet.Join(ctx, bundle.TailnetKey); err != nil {
+			return "", fmt.Errorf("tailnet join failed: %w; rerun with a fresh bundle", err)
+		}
+		token, done = bundle.Token.String(), "joined the tailnet and enrolled"
+	}
 	if err := in.cfg.Agent.Enroll(ctx, token); err != nil {
 		var e *errcode.Error
 		if errors.As(err, &e) && e.Code == errcode.EnrollTokenInvalid {
@@ -482,7 +522,7 @@ func (in *installer) enroll(ctx context.Context) (string, error) {
 		}
 		return "", err
 	}
-	return "enrolled", nil
+	return done, nil
 }
 
 // startAgent starts the agent with the installed binary.

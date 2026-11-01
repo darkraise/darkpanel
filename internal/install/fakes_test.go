@@ -3,6 +3,7 @@ package install
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"os"
 	"path"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/coretest"
 	"github.com/darkraise/darkpanel/internal/platform"
+	"github.com/darkraise/darkpanel/internal/transport"
 )
 
 // fakeSystemd is a platform.Systemd that records every call except State and
@@ -291,6 +293,7 @@ type testHost struct {
 	runner     *fakeRunner
 	controller *fakeController
 	agent      *fakeAgent
+	tailnet    *ijTailnet
 	chowns     *chowns
 	clock      *coretest.FakeClock
 	out        *bytes.Buffer
@@ -302,13 +305,15 @@ func newTestHost(t *testing.T) *testHost {
 	t.Helper()
 	l := Rooted(t.TempDir())
 	users := &fakeUsers{users: map[string][2]int{}}
+	agent := &fakeAgent{layout: l, check: CheckAccepted}
 	return &testHost{
 		layout:     l,
 		systemd:    newFakeSystemd(),
 		users:      users,
 		runner:     &fakeRunner{users: users},
 		controller: &fakeController{},
-		agent:      &fakeAgent{layout: l, check: CheckAccepted},
+		agent:      agent,
+		tailnet:    &ijTailnet{agent: agent},
 		chowns:     &chowns{owners: map[string][2]int{}},
 		clock:      coretest.NewFakeClock(installTime),
 		out:        &bytes.Buffer{},
@@ -319,7 +324,48 @@ func newTestHost(t *testing.T) *testHost {
 func (h *testHost) config(role Role) Config {
 	return Config{
 		Layout: h.layout, Role: role, BinaryVersion: "0.2.0", Systemd: h.systemd, Exec: h.runner, Users: h.users,
-		Controller: h.controller, Agent: h.agent, Clock: h.clock, Out: h.out, Chown: h.chowns.chown,
+		Controller: h.controller, Agent: h.agent, Tailnet: h.tailnet, Clock: h.clock, Out: h.out, Chown: h.chowns.chown,
 		PollInterval: time.Millisecond, HealthTimeout: time.Second,
 	}
+}
+
+// ijKey is the tailnet auth key the bundles of these tests carry.
+const ijKey = "tskey-auth-kIjTest1CNTRL-0123456789abcdefghij"
+
+// ijToken is a well-formed enrollment token whose address is a tailnet address.
+func ijToken() transport.Token {
+	return transport.Token{
+		Address:       "100.64.0.9:7443",
+		Fingerprint:   strings.Repeat("ab", 32),
+		ControllerSAN: transport.ControllerURI("01J0IJCONTROLLER"),
+		HostID:        "01J0IJHOST",
+		Secret:        base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{7}, 16)),
+	}
+}
+
+// ijBundle is the dpb2 bootstrap bundle of ijToken and the auth key key.
+func ijBundle(key string) string {
+	return transport.Bundle{Token: ijToken(), TailnetKey: key, ControllerTailnetAddr: "100.64.0.9:7443"}.String()
+}
+
+var _ TailnetJoiner = (*ijTailnet)(nil)
+
+// ijTailnet is the tailnet joiner: it records the auth keys it is given and how many enrollments the agent had
+// made when each join ran, and fails with err when that is set.
+type ijTailnet struct {
+	mu       sync.Mutex
+	agent    *fakeAgent
+	err      error
+	keys     []string
+	enrolled []int
+}
+
+func (j *ijTailnet) Join(_ context.Context, authKey string) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.keys = append(j.keys, authKey)
+	j.agent.mu.Lock()
+	j.enrolled = append(j.enrolled, len(j.agent.tokens))
+	j.agent.mu.Unlock()
+	return j.err
 }

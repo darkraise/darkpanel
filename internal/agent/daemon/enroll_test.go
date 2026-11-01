@@ -241,3 +241,38 @@ func TestReadTokenFile(t *testing.T) {
 		}
 	}
 }
+
+func TestIjEnrollRefusesABootstrapBundle(t *testing.T) {
+	ctrl := newTestController(t, time.Now().UTC().Truncate(time.Second))
+	ctrl.addHost("H1", "pending")
+	tok, err := transport.ParseToken(ctrl.token("H1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := transport.Bundle{Token: tok, TailnetKey: "tskey-auth-kEnrollTest1CNTRL-abcdefghij", ControllerTailnetAddr: "100.64.0.7:7443"}.String()
+	dir := filepath.Join(t.TempDir(), "agent")
+	tests := []struct{ name, input, detail string }{
+		{"a version 2 bundle", " " + bundle + "\n",
+			"this is a bootstrap bundle; install the agent with install.sh --role agent --token-file or darkpanel system install --role agent"},
+		{"a bundle of another version", "dpb3.e30", "bootstrap bundle version 3 is not supported by this darkpanel"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Enroll(context.Background(), dir, tt.input)
+			wantCode(t, err, errcode.EnrollTokenInvalid)
+			var e *errcode.Error
+			if !errors.As(err, &e) || e.Detail != tt.detail {
+				t.Errorf("err = %v, want the detail %q", err, tt.detail)
+			}
+			if strings.Contains(err.Error(), "tskey-") {
+				t.Errorf("the error %q carries the tailnet key", err)
+			}
+			if _, err := os.Stat(dir); !os.IsNotExist(err) {
+				t.Errorf("a refused bundle created %s: %v", dir, err)
+			}
+		})
+	}
+	if st := ctrl.hostState("H1"); st != "pending" {
+		t.Errorf("host state %q, want pending: the token inside the bundle was not consumed", st)
+	}
+}

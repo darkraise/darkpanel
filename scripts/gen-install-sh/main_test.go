@@ -593,7 +593,7 @@ func TestInstallWithoutATerminal(t *testing.T) {
 	// A new session has no controlling terminal, whatever runs the test.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	out, err := cmd.CombinedOutput()
-	if err == nil || !strings.Contains(string(out), "no terminal to read the enrollment token from; pass --token-file") {
+	if err == nil || !strings.Contains(string(out), "no terminal to read the enrollment token or bootstrap bundle from; pass --token-file") {
 		t.Errorf("err %v, output %q; want the no-terminal refusal", err, out)
 	}
 	if strings.Contains(string(out), "/dev/tty") {
@@ -769,5 +769,28 @@ func rename(t *testing.T, from, to string) {
 	t.Helper()
 	if err := os.Rename(from, to); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestIjInstallNamesTheBootstrapBundle(t *testing.T) {
+	f := newFixture(t)
+	bundle := "dpb2." + strings.Repeat("eyJ2IjoyfQ", 60)
+	if out, err := f.run("--role", "agent", "--token-file", f.tokenFile(t, bundle+"\n"), "--base-url", f.srv.URL); err != nil {
+		t.Fatalf("install.sh: %v\n%s", err, out)
+	}
+	if got := readFile(t, f.logBase+".stdin"); got != bundle+"\n" {
+		t.Errorf("darkpanel read %q on standard input, want the bundle passed on unchanged", got)
+	}
+	writeFile(t, filepath.Join(f.root, "etc", "darkpanel", "agent", "current", "agent.crt"), "cert\n")
+	out, err := f.run("--role", "agent")
+	if err != nil {
+		t.Fatalf("install.sh with saved credentials: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "installing without an enrollment token or bootstrap bundle") {
+		t.Errorf("output %q does not name the bundle next to the token", out)
+	}
+	out, err = f.run()
+	if err == nil || !strings.Contains(string(out), "enrollment token or bootstrap bundle") {
+		t.Errorf("usage: err %v, output %q; want a usage line that names the bundle", err, out)
 	}
 }

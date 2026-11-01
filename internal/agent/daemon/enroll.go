@@ -38,11 +38,16 @@ const maxTokenFile = 4096
 // the token's controller SAN before anything is sent; and the answer's root
 // must be that root and its certificate must name the token's host and chain
 // to it. A malformed token and every refusal by the controller keep the
-// controller's code (enroll.token_invalid, enroll.rate_limited).
+// controller's code (enroll.token_invalid, enroll.rate_limited). A bootstrap
+// bundle is refused with enroll.token_invalid before anything is created or
+// sent: only the installer joins the tailnet and enrolls with one.
 func Enroll(ctx context.Context, dir, token string) (*Credentials, error) {
-	tok, err := transport.ParseToken(token)
+	tok, bundle, err := transport.ParseBootstrap(token)
 	if err != nil {
 		return nil, err
+	}
+	if bundle != nil {
+		return nil, errcode.New(errcode.EnrollTokenInvalid, "this is a bootstrap bundle; install the agent with install.sh --role agent --token-file or darkpanel system install --role agent")
 	}
 	_, key, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {

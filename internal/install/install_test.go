@@ -438,3 +438,126 @@ func TestInstallRefusals(t *testing.T) {
 		t.Errorf("Install over a symlinked directory = %v", err)
 	}
 }
+
+func TestIjBundleJoinsBeforeEnrolling(t *testing.T) {
+	h := newTestHost(t)
+	cfg := h.config(RoleAgent)
+	cfg.Token = ijBundle(ijKey)
+	if err := Install(context.Background(), cfg); err != nil {
+		t.Fatalf("Install: %v\n%s", err, h.out)
+	}
+	if !reflect.DeepEqual(h.tailnet.keys, []string{ijKey}) || !reflect.DeepEqual(h.tailnet.enrolled, []int{0}) {
+		t.Errorf("joined with %v after %v enrollments, want the bundle's key once, before any enrollment", h.tailnet.keys, h.tailnet.enrolled)
+	}
+	if want := []string{ijToken().String()}; !reflect.DeepEqual(h.agent.tokens, want) {
+		t.Errorf("enrolled with %v, want the plain token %v: the agent never sees the bundle", h.agent.tokens, want)
+	}
+	if !strings.Contains(h.out.String(), "enrollment: joined the tailnet and enrolled") {
+		t.Errorf("output lacks the join and the enrollment:\n%s", h.out)
+	}
+	if strings.Contains(h.out.String(), ijKey) || strings.Contains(h.out.String(), "dpb2.") || strings.Contains(h.out.String(), ijToken().Secret) {
+		t.Errorf("output carries a secret of the bundle:\n%s", h.out)
+	}
+	if got := h.systemd.recorded(); got[len(got)-1] != "Restart darkpanel-agent.service" {
+		t.Errorf("the install ended with %q, want the agent started", got[len(got)-1])
+	}
+}
+
+func TestIjBundleJoinFailureLeavesTheHostUnenrolled(t *testing.T) {
+	h := newTestHost(t)
+	h.tailnet.err = errors.New("the node did not get a tailnet address within 1m0s")
+	cfg := h.config(RoleAgent)
+	cfg.Token = ijBundle(ijKey)
+	ctx := context.Background()
+	err := Install(ctx, cfg)
+	want := "install: enrollment: tailnet join failed: the node did not get a tailnet address within 1m0s; rerun with a fresh bundle"
+	if err == nil || err.Error() != want {
+		t.Fatalf("Install = %v, want %q", err, want)
+	}
+	if len(h.agent.tokens) != 0 {
+		t.Errorf("the agent enrolled with %v after a failed join", h.agent.tokens)
+	}
+	if _, statErr := os.Lstat(h.layout.Paths.AgentTLSCurrent()); !errors.Is(statErr, fs.ErrNotExist) {
+		t.Errorf("credentials exist after a failed join: %v", statErr)
+	}
+	if got := h.systemd.recorded(); slices.Contains(got, "Restart darkpanel-agent.service") {
+		t.Errorf("systemd calls %v, want the agent left unstarted", got)
+	}
+	h.tailnet.err = nil
+	if err := Install(ctx, cfg); err != nil {
+		t.Fatalf("rerun with the join working: %v\n%s", err, h.out)
+	}
+	if want := []string{ijToken().String()}; !reflect.DeepEqual(h.agent.tokens, want) {
+		t.Errorf("enrolled with %v after the rerun, want %v", h.agent.tokens, want)
+	}
+}
+
+func TestIjBundleRefusals(t *testing.T) {
+	tests := []struct {
+		name   string
+		token  string
+		joiner bool
+		want   string
+	}{
+		{"no joiner", ijBundle(ijKey), false, "Config.Tailnet is required"},
+		{"a bundle of another version", "dpb3.e30", true, "bootstrap bundle version 3 is not supported by this darkpanel"},
+		{"a malformed bundle", "dpb2.!!!", true, "the enrollment token is malformed"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newTestHost(t)
+			cfg := h.config(RoleAgent)
+			cfg.Token = tt.token
+			if !tt.joiner {
+				cfg.Tailnet = nil
+			}
+			err := Install(context.Background(), cfg)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Install = %v, want an error containing %q", err, tt.want)
+			}
+			if strings.Contains(err.Error(), ijKey) {
+				t.Errorf("the error %q carries the tailnet key", err)
+			}
+			if _, statErr := os.Lstat(h.layout.DataDir); !errors.Is(statErr, fs.ErrNotExist) {
+				t.Error("a refused bundle changed the host")
+			}
+			if len(h.tailnet.keys) != 0 || len(h.agent.tokens) != 0 || len(h.systemd.recorded()) != 0 {
+				t.Errorf("joined %v, enrolled %v, systemd %v; want nothing", h.tailnet.keys, h.agent.tokens, h.systemd.recorded())
+			}
+		})
+	}
+}
+
+func TestIjSavedCredentialsSkipTheJoin(t *testing.T) {
+	h := newTestHost(t)
+	if err := h.agent.Enroll(context.Background(), "earlier"); err != nil {
+		t.Fatal(err)
+	}
+	h.agent.tokens = nil
+	cfg := h.config(RoleAgent)
+	cfg.Token = ijBundle(ijKey)
+	if err := Install(context.Background(), cfg); err != nil {
+		t.Fatalf("Install: %v\n%s", err, h.out)
+	}
+	if len(h.tailnet.keys) != 0 || len(h.agent.tokens) != 0 {
+		t.Errorf("joined %v and enrolled %v although the saved credentials are valid", h.tailnet.keys, h.agent.tokens)
+	}
+	if !strings.Contains(h.out.String(), "the enrollment token was not used") {
+		t.Errorf("output lacks the note that the token was not used:\n%s", h.out)
+	}
+}
+
+func TestIjPlainTokenIsNotJoined(t *testing.T) {
+	h := newTestHost(t)
+	cfg := h.config(RoleAgent)
+	cfg.Token = "dpe1.plain"
+	if err := Install(context.Background(), cfg); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if len(h.tailnet.keys) != 0 || !reflect.DeepEqual(h.agent.tokens, []string{"dpe1.plain"}) {
+		t.Errorf("joined %v, enrolled with %v; want no join and the token unchanged", h.tailnet.keys, h.agent.tokens)
+	}
+	if !strings.Contains(h.out.String(), "enrollment: enrolled") {
+		t.Errorf("output lacks the plain enrollment line:\n%s", h.out)
+	}
+}

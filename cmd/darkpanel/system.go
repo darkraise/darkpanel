@@ -18,13 +18,18 @@ import (
 	"github.com/darkraise/darkpanel/internal/agent/api"
 	"github.com/darkraise/darkpanel/internal/buildinfo"
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/store"
 	"github.com/darkraise/darkpanel/internal/install"
 	"github.com/darkraise/darkpanel/internal/modules"
+	"github.com/darkraise/darkpanel/internal/modules/tailscale"
 	"github.com/darkraise/darkpanel/internal/platform"
 )
 
 // runInstall is system install's installer; tests replace it.
 var runInstall = install.Install
+
+// joinTailnet is the agent role's tailnet join; tests replace it.
+var joinTailnet = tailscale.Join
 
 // socketRequestTimeout bounds one request on the controller socket, as the
 // CLI's own socket client does.
@@ -56,7 +61,8 @@ func newSystemInstallCmd() *cobra.Command {
 		Short: "Install or repair the controller or agent role on this host",
 		Long: "Install or repair the controller or agent role on this host: directories, users, keys, units, " +
 			"enrollment and the started services. Rerun it to finish or repair an install. For the agent role " +
-			"the enrollment token is read from standard input when it is not a terminal; install.sh pipes it.",
+			"the enrollment token or bootstrap bundle is read from standard input when it is not a terminal; " +
+			"install.sh pipes it. A bootstrap bundle joins this host to the tailnet before it enrolls.",
 		Args: cobra.NoArgs,
 		// cli marks only RunE errors as run errors, so these refusals of the
 		// command line exit 2 like cobra's own flag errors.
@@ -106,8 +112,11 @@ func newSystemInstallCmd() *cobra.Command {
 				Agent: installAgent{socket: l.Paths.AgentSocket, tlsDir: l.Paths.AgentTLSDir},
 				Clock: core.SystemClock{}, Out: cmd.OutOrStdout(),
 			}
-			if role == install.RoleController {
+			switch role {
+			case install.RoleController:
 				cfg.Controller = newSocketController(l.Paths.ControllerSocket)
+			case install.RoleAgent:
+				cfg.Tailnet = installTailnet{dbPath: l.Paths.AgentDB(), modules: cfg.Modules, out: cmd.OutOrStdout()}
 			}
 			return errors.Join(runInstall(cmd.Context(), cfg), sd.Close())
 		},
@@ -268,4 +277,30 @@ func (a installAgent) Check(ctx context.Context) (install.CheckResult, error) {
 func (a installAgent) Enroll(ctx context.Context, token string) error {
 	_, err := daemonEnroll(ctx, a.tlsDir, token)
 	return err
+}
+
+// installTailnet is install.TailnetJoiner over the tailscale module, writing
+// to the agent database the installer has migrated.
+type installTailnet struct {
+	dbPath  string
+	modules []core.Manifest
+	out     io.Writer
+}
+
+func (j installTailnet) Join(ctx context.Context, authKey string) error {
+	db, err := store.Open(ctx, j.dbPath)
+	if err != nil {
+		return fmt.Errorf("open agent.db: %w", err)
+	}
+	deps := tailscale.JoinDeps{
+		Exec: platform.NewRunner(platform.ProductionRules()),
+		Files: platform.NewFiles(platform.FilesConfig{
+			Owned: platform.OwnedPaths(j.modules), Ownership: platform.NewOwnership(db), Clock: core.SystemClock{},
+		}),
+		DB:    db,
+		Clock: core.SystemClock{},
+		Out:   j.out,
+	}
+	_, err = joinTailnet(ctx, deps, authKey)
+	return errors.Join(err, db.Close())
 }

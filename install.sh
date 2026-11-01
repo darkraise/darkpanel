@@ -9,6 +9,9 @@
 #   sudo sh install.sh --role agent [--version X.Y.Z] [--base-url URL]
 #       [--token-file PATH]
 #
+# With --role agent, PATH holds an enrollment token or a bootstrap bundle from
+# darkpanel host create --tailnet-join; the script passes it on unchanged.
+#
 # The script trusts no transport: it installs a release only when one of the
 # embedded keys signed its checksums.txt for exactly that version, so
 # --base-url may point at any mirror.
@@ -163,11 +166,11 @@ install_binary() {
 	ln -sfn "$bindir/darkpanel" "$ROOT/usr/local/bin/darkpanel"
 }
 
-# read_token_file reads the enrollment token from $1, refusing a file other
-# users could read or replace. The owner and mode checks and the read go
-# through one open descriptor, so a file swapped in after the checks is never
-# read. A failed redirection of exec ends the shell with a raw error that no
-# || catches, so the path is tested before it is opened.
+# read_token_file reads the enrollment token or bootstrap bundle from $1,
+# refusing a file other users could read or replace. The owner and mode checks
+# and the read go through one open descriptor, so a file swapped in after the
+# checks is never read. A failed redirection of exec ends the shell with a raw
+# error that no || catches, so the path is tested before it is opened.
 read_token_file() {
 	if ! { [ -f "$1" ] && [ -r "$1" ]; }; then
 		die "token file $1 does not exist or cannot be read"
@@ -191,14 +194,14 @@ read_token_file() {
 	[ -n "$token" ] || die "token file $1 is empty"
 }
 
-# read_token prompts for the enrollment token on the terminal without echo.
-# /dev/tty exists without a controlling terminal too, so only opening it
-# tells whether there is one.
+# read_token prompts for the enrollment token or bootstrap bundle on the
+# terminal without echo. /dev/tty exists without a controlling terminal too,
+# so only opening it tells whether there is one.
 read_token() {
 	if ! (: </dev/tty) 2>/dev/null; then
-		die "no terminal to read the enrollment token from; pass --token-file"
+		die "no terminal to read the enrollment token or bootstrap bundle from; pass --token-file"
 	fi
-	printf 'Enrollment token: ' >/dev/tty
+	printf 'Enrollment token or bootstrap bundle: ' >/dev/tty
 	trap 'stty echo </dev/tty; exit 130' INT
 	trap 'stty echo </dev/tty; exit 143' TERM
 	stty -echo </dev/tty
@@ -207,11 +210,11 @@ read_token() {
 	trap 'exit 130' INT
 	trap 'exit 143' TERM
 	printf '\n' >/dev/tty
-	[ -n "$token" ] || die "no enrollment token entered"
+	[ -n "$token" ] || die "no enrollment token or bootstrap bundle entered"
 }
 
 usage() {
-	die "usage: install.sh --role controller|agent [--version X.Y.Z] [--base-url URL] [--token-file PATH] [--agent-listen ADDR:PORT]... [--agent-advertise HOST:PORT]"
+	die "usage: install.sh --role controller|agent [--version X.Y.Z] [--base-url URL] [--token-file PATH] [--agent-listen ADDR:PORT]... [--agent-advertise HOST:PORT]; with --role agent, the token file holds an enrollment token or bootstrap bundle"
 }
 
 # check_address refuses an address that is not a plain host:port, since
@@ -309,7 +312,7 @@ main() {
 	elif [ -n "$token" ]; then
 		printf '%s\n' "$token" | "$bin" system install --role agent
 	elif [ -e "$ROOT/etc/darkpanel/agent/current" ]; then
-		echo "Saved agent credentials found; installing without an enrollment token."
+		echo "Saved agent credentials found; installing without an enrollment token or bootstrap bundle."
 		echo "If this agent was revoked, rerun install.sh with --token-file."
 		"$bin" system install --role agent </dev/null
 	else

@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -18,6 +20,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/install"
 	"github.com/darkraise/darkpanel/internal/modules"
+	"github.com/darkraise/darkpanel/internal/modules/tailscale"
 )
 
 // fakeInstall replaces the installer and the systemd provider for one test
@@ -260,5 +263,87 @@ func TestInstallAgentCheck(t *testing.T) {
 	}
 	if want := []string{"/tls dpe1.token"}; !slices.Equal(s.enrolls, want) {
 		t.Errorf("enrolled %q, want %q", s.enrolls, want)
+	}
+}
+
+func TestIjSystemInstallWiresTheTailnetJoin(t *testing.T) {
+	const bundle = "dpb2.example-bundle"
+	for _, role := range []string{"agent", "controller"} {
+		t.Run(role, func(t *testing.T) {
+			got, s := fakeInstall(t, 0, false)
+			args := []string{"system", "install", "--role", role}
+			if stdout, stderr, code := runStdin(strings.NewReader("  "+bundle+" \n"), args...); code != cli.ExitOK {
+				t.Fatalf("exit %d: %s%s", code, stdout, stderr)
+			}
+			if len(*got) != 1 {
+				t.Fatalf("the installer ran %d times, want once", len(*got))
+			}
+			cfg := (*got)[0]
+			if role == "controller" {
+				if cfg.Tailnet != nil {
+					t.Errorf("the controller role got a tailnet joiner %#v", cfg.Tailnet)
+				}
+				return
+			}
+			j, ok := cfg.Tailnet.(installTailnet)
+			if !ok || j.dbPath != s.layout.Paths.AgentDB() || j.out != cfg.Out || len(j.modules) != len(modules.All()) {
+				t.Errorf("Tailnet = %#v, want the installed agent.db, the installer's output and the compiled-in manifests", cfg.Tailnet)
+			}
+			if cfg.Token != bundle {
+				t.Errorf("Token = %q, want the bundle passed on unchanged", cfg.Token)
+			}
+		})
+	}
+}
+
+func TestIjInstallTailnetJoinBuildsTheHostDependencies(t *testing.T) {
+	ctx := context.Background()
+	s := fakeAgent(t, 0)
+	if err := os.MkdirAll(s.layout.Paths.AgentDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var (
+		gotDeps tailscale.JoinDeps
+		gotKey  string
+		pingErr error
+		calls   int
+	)
+	old := joinTailnet
+	t.Cleanup(func() { joinTailnet = old })
+	joinTailnet = func(ctx context.Context, d tailscale.JoinDeps, authKey string) ([]netip.Addr, error) {
+		calls++
+		gotDeps, gotKey = d, authKey
+		pingErr = d.DB.Read().PingContext(ctx)
+		return []netip.Addr{netip.MustParseAddr("100.64.0.7")}, nil
+	}
+	var out bytes.Buffer
+	j := installTailnet{dbPath: s.layout.Paths.AgentDB(), modules: manifests(modules.All()), out: &out}
+	if err := j.Join(ctx, "tskey-auth-k1"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	if calls != 1 || gotKey != "tskey-auth-k1" {
+		t.Errorf("tailscale.Join ran %d times with key %q, want once with the key passed on", calls, gotKey)
+	}
+	if gotDeps.Exec == nil || gotDeps.Files == nil || gotDeps.Clock == nil || gotDeps.Out != io.Writer(&out) || gotDeps.Socket != "" {
+		t.Errorf("deps %+v, want the production runner, a file writer, the system clock, the installer's output and the default socket", gotDeps)
+	}
+	if gotDeps.DB == nil || gotDeps.DB.Path() != s.layout.Paths.AgentDB() || pingErr != nil {
+		t.Errorf("deps database %v (ping %v), want agent.db open during the join", gotDeps.DB, pingErr)
+	}
+	if err := gotDeps.DB.Read().PingContext(ctx); err == nil {
+		t.Error("agent.db is still open after Join returned")
+	}
+
+	boom := errors.New("boom")
+	joinTailnet = func(context.Context, tailscale.JoinDeps, string) ([]netip.Addr, error) { return nil, boom }
+	if err := j.Join(ctx, "tskey-auth-k1"); !errors.Is(err, boom) {
+		t.Errorf("Join = %v, want the failure of tailscale.Join unchanged", err)
+	}
+
+	calls = 0
+	joinTailnet = func(context.Context, tailscale.JoinDeps, string) ([]netip.Addr, error) { calls++; return nil, nil }
+	j.dbPath = filepath.Join(t.TempDir(), "missing", "agent.db")
+	if err := j.Join(ctx, "tskey-auth-k1"); err == nil || calls != 0 {
+		t.Errorf("Join without a database = %v after %d joins, want an error and no join", err, calls)
 	}
 }
