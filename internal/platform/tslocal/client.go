@@ -350,6 +350,14 @@ func (c *Client) Start(ctx context.Context, opts StartOptions) error {
 	return err
 }
 
+// LoginInteractive is POST /localapi/v0/login-interactive. After Start with
+// an AuthKey it makes tailscaled log in with that key: Start alone does not
+// log in a node that has no node key.
+func (c *Client) LoginInteractive(ctx context.Context) error {
+	_, err := c.send(ctx, http.MethodPost, "/localapi/v0/login-interactive", nil, http.StatusNoContent)
+	return err
+}
+
 // Logout logs the node out of its tailnet.
 func (c *Client) Logout(ctx context.Context) error {
 	_, err := c.send(ctx, http.MethodPost, "/localapi/v0/logout", nil, http.StatusNoContent)

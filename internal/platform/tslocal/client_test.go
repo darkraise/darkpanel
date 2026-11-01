@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -285,5 +286,28 @@ func TestStartAndLogout(t *testing.T) {
 	}
 	if err := c.Logout(t.Context()); err != nil || !loggedOut {
 		t.Fatalf("logout = %v (called %v)", err, loggedOut)
+	}
+}
+
+func TestLoginInteractive(t *testing.T) {
+	mux := http.NewServeMux()
+	var calls atomic.Int32
+	var refuse atomic.Bool
+	mux.HandleFunc("POST /localapi/v0/login-interactive", func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		if refuse.Load() {
+			http.Error(w, "login access denied", http.StatusForbidden)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	c := newFakeTailscaled(t, mux)
+	if err := c.LoginInteractive(t.Context()); err != nil || calls.Load() != 1 {
+		t.Fatalf("login-interactive = %v (calls %d)", err, calls.Load())
+	}
+	refuse.Store(true)
+	var ae *APIError
+	if err := c.LoginInteractive(t.Context()); !errors.As(err, &ae) || ae.StatusCode != http.StatusForbidden || ae.Message != "login access denied" || calls.Load() != 2 {
+		t.Fatalf("refused login-interactive = %v (calls %d), want an APIError 403 with the message", err, calls.Load())
 	}
 }
