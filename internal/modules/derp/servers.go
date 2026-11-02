@@ -239,10 +239,12 @@ func serversReadFailure(err error) string {
 
 // serversRegions is the derpMap a pass takes regions from: the policy's when a tailnet is connected, an empty map
 // (every region 0) when none is. ok is false when the connected check, the policy read or its parse failed; the
-// stored regions then stand, since a provider outage says nothing about the published regions.
+// stored regions then stand, since a provider outage says nothing about the published regions. Each failure is
+// logged with its code only: the raw text of a provider error may carry credentials.
 func (d dp) serversRegions(ctx context.Context, env core.Env) (regions derpMap, ok bool) {
 	connected, err := d.d.connected(ctx, env.DB)
 	if err != nil {
+		env.Log.Warn("derp: the tailnet connected check failed; keeping the stored regions", "code", errcode.From(err).Code)
 		return derpMap{}, false
 	}
 	if !connected {
@@ -250,10 +252,12 @@ func (d dp) serversRegions(ctx context.Context, env core.Env) (regions derpMap, 
 	}
 	p, err := d.d.policy(ctx, env)
 	if err != nil {
+		env.Log.Warn("derp: the tailnet policy read failed; keeping the stored regions", "code", errcode.From(err).Code)
 		return derpMap{}, false
 	}
 	regions, err = parseDERPMap(p.Text)
 	if err != nil {
+		env.Log.Warn("derp: the tailnet policy does not parse; keeping the stored regions", "code", errcode.From(err).Code)
 		return derpMap{}, false
 	}
 	return regions, true

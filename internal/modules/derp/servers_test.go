@@ -257,6 +257,57 @@ func TestSrPassKeepsTheRegionWhenTheTailnetCheckFails(t *testing.T) {
 	}
 }
 
+// srLogs is a slog.Handler that keeps every record it is given.
+type srLogs struct{ records []slog.Record }
+
+func (l *srLogs) Enabled(context.Context, slog.Level) bool { return true }
+
+func (l *srLogs) Handle(_ context.Context, r slog.Record) error {
+	l.records = append(l.records, r.Clone())
+	return nil
+}
+
+func (l *srLogs) WithAttrs([]slog.Attr) slog.Handler { return l }
+
+func (l *srLogs) WithGroup(string) slog.Handler { return l }
+
+// TestSrPassWarnsWhenThePolicyReadFails: a failed policy read keeps the stored region and logs one warning that
+// does not carry the provider's error text.
+func TestSrPassWarnsWhenThePolicyReadFails(t *testing.T) {
+	const secret = "provider down: token tskey-api-secret"
+	h := srWorld(t)
+	h.tailnet, h.policyErr = true, errors.New(secret)
+	srPut(t, h, serverRecord{HostID: "h2", Mode: "letsencrypt", HostName: "derp.example.com", RegionID: 901, RegionCode: "old",
+		DerperVersion: "v1.100.0", UnitActive: true, CheckedAt: h.clock.Now().Add(-time.Minute)})
+	logs := &srLogs{}
+	deps := srDeps(h)
+	deps.Log = slog.New(logs)
+	if err := h.dp().checkServers(context.Background(), deps, h.clock.Now()); err != nil {
+		t.Fatalf("checkServers: %v", err)
+	}
+	if got, ok := srLoad(t, h, "h2"); !ok || got.RegionID != 901 || got.RegionCode != "old" {
+		t.Errorf("record of h2 = %+v (found %v), want the stored region 901 old", got, ok)
+	}
+	warnings := 0
+	for _, r := range logs.records {
+		if r.Level != slog.LevelWarn {
+			continue
+		}
+		warnings++
+		text := r.Message
+		r.Attrs(func(a slog.Attr) bool {
+			text += " " + a.String()
+			return true
+		})
+		if strings.Contains(text, "tskey") || strings.Contains(text, "provider down") {
+			t.Errorf("warning %q carries the provider's error text", text)
+		}
+	}
+	if warnings != 1 {
+		t.Errorf("%d warnings, want 1; records %+v", warnings, logs.records)
+	}
+}
+
 // TestSrPassReadsThePolicyAtMostOnce: one policy read serves every server of a pass, and a pass that found no
 // server reads none, so a tailnet without DERP costs the provider no call.
 func TestSrPassReadsThePolicyAtMostOnce(t *testing.T) {
