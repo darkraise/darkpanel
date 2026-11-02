@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
 )
 
@@ -36,8 +37,8 @@ func TestDKProductionDK(t *testing.T) {
 	if b, err := k.d.readFile(file); err != nil || string(b) != "data" {
 		t.Errorf("readFile = %q, %v", b, err)
 	}
-	if s, err := k.d.secrets(context.Background(), core.Env{}, "abc"); s != nil || err != nil {
-		t.Errorf("secrets = %v, %v; want none", s, err)
+	if s, err := k.d.secrets(context.Background(), core.Env{}, "abc"); s != nil || errcode.From(err).Code != errcode.DockerEngineUnavailable {
+		t.Errorf("secrets = %v, %v; want no secrets and docker.engine_unavailable, because the owner is read from the container", s, err)
 	}
 }
 

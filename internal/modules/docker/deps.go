@@ -28,7 +28,7 @@ type deps struct {
 	docker   dockerAPI
 	lstat    func(name string) (fs.FileInfo, error)                                        // os.Lstat; Sys() is *syscall.Stat_t in production
 	readFile func(name string) ([]byte, error)                                             // os.ReadFile
-	secrets  func(ctx context.Context, env core.Env, containerID string) ([][]byte, error) // production: none, nil error
+	secrets  func(ctx context.Context, env core.Env, containerID string) ([][]byte, error) // production: the source registered for the container's module
 }
 
 // dockerAPI is the part of the Engine API client the module uses.
@@ -125,12 +125,11 @@ func productionDK() dk {
 	if testing.Testing() {
 		socket = absentSocket
 	}
+	client := newDockerClient(socket)
 	return dk{d: deps{
-		docker:   newDockerClient(socket),
+		docker:   client,
 		lstat:    os.Lstat,
 		readFile: os.ReadFile,
-		secrets: func(context.Context, core.Env, string) ([][]byte, error) {
-			return nil, nil
-		},
+		secrets:  logSecretRegistry.secretsVia(client),
 	}}
 }
