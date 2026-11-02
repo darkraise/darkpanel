@@ -34,7 +34,6 @@ import (
 	"github.com/darkraise/darkpanel/internal/update/trustedkeys"
 )
 
-//nolint:unused // the module's shared values; each is read once the action that uses it is declared
 const (
 	// lockKey is the lock every mutating agent-side derp action takes.
 	lockKey = "derp"
