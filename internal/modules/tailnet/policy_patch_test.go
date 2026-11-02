@@ -3,6 +3,8 @@ package tailnet
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"reflect"
 	"slices"
@@ -12,7 +14,10 @@ import (
 	"github.com/darkraise/darkpanel/internal/controller/cloud"
 	"github.com/darkraise/darkpanel/internal/controller/cloud/cloudfake"
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/coretest"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/core/lifecycle"
+	"github.com/darkraise/darkpanel/internal/core/schema"
 	"github.com/darkraise/darkpanel/internal/modules/tailnet/fake"
 )
 
@@ -364,5 +369,81 @@ func TestPPNotConnected(t *testing.T) {
 	_, err := tnWith(srv).policyPatch().Handler.Plan(context.Background(), h.env(""), ppInput(ppAddGrant))
 	if got := errcode.From(err).Code; got != errcode.CloudNotConnected {
 		t.Errorf("plan error %v, want %s", err, errcode.CloudNotConnected)
+	}
+}
+
+// TestExPatchWithNoEditsIsANoOp: an empty edits list, which a composite's
+// edits step answers when the policy already holds the result, plans an empty
+// diff and applies without a provider validation or write.
+func TestExPatchWithNoEditsIsANoOp(t *testing.T) {
+	w := ppNew(t, ppPolicy)
+	ctx := context.Background()
+	in := ppInput()
+	out, err := w.def.Handler.Plan(ctx, w.h.env(""), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Diff) != 0 || out.StateHash == "" {
+		t.Errorf("plan diff %+v hash %q, want an empty diff and a state hash", out.Diff, out.StateHash)
+	}
+	raw, err := w.apply(t, "01J00000000000000000000001", in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var written PolicyWritten
+	if err := json.Unmarshal(raw, &written); err != nil {
+		t.Fatal(err)
+	}
+	if text, etag := w.srv.Policy(); written.ETag != etag || text != ppPolicy {
+		t.Errorf("apply answered etag %q; the fake holds etag %q and the original text %v, want the live ETag and the text kept",
+			written.ETag, etag, text == ppPolicy)
+	}
+	if n := len(w.requests(http.MethodPost, ppValidate)) + len(w.requests(http.MethodPost, ppACL)); n != 0 {
+		t.Errorf("%d validate or write requests, want none", n)
+	}
+	if n := len(w.h.journal.effects()); n != 0 {
+		t.Errorf("%d effects journaled, want none", n)
+	}
+	if err := w.def.Handler.Verify(ctx, w.h.env("01J00000000000000000000001"), in, raw); err != nil {
+		t.Errorf("verify after the no-op: %v", err)
+	}
+}
+
+// TestExPatchWithNoEditsCompletesThroughTheEngine: the engine accepts the
+// empty edits list against the action's input schema and completes the change
+// with nothing written.
+func TestExPatchWithNoEditsCompletesThroughTheEngine(t *testing.T) {
+	srv := fake.New(t)
+	srv.SetPolicy(ppPolicy)
+	h := newTNHost(t)
+	acConnect(t, h, srv)
+	reg, err := core.NewRegistry(dvModule{[]core.ActionDef{tnWith(srv).policyPatch()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := lifecycle.New(lifecycle.Config{
+		Side: core.SideController, Registry: reg, Validator: schema.NewValidator(), Journal: &coretest.MemJournal{}, Redact: schema.Redact,
+		Base: core.Env{DB: h.db, Sealer: coretest.Sealer{}, Clock: h.clock, Log: slog.New(slog.NewTextHandler(io.Discard, nil))},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(eng.Close)
+	ctx := context.Background()
+	pv, err := eng.Plan(ctx, dvAdmin, core.ActionRef{Name: "tailnet.policy.patch", Version: 1}, ppInput(), core.PlanOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pv.Diff) != 0 {
+		t.Errorf("plan diff %+v, want it empty", pv.Diff)
+	}
+	cv, err := eng.Apply(ctx, dvAdmin, pv.PlanID, core.ApplyOptions{})
+	if err != nil || cv.State != core.StateCompleted {
+		t.Fatalf("apply = %v, %v (%+v), want a completed change", cv.State, err, cv.Error)
+	}
+	for _, r := range srv.Cloud().Requests() {
+		if r.Method == http.MethodPost && (r.Path == ppACL || r.Path == ppValidate) {
+			t.Errorf("provider request %s %s during an empty patch", r.Method, r.Path)
+		}
 	}
 }

@@ -21,15 +21,7 @@ func (t tn) policyGet() core.ActionDef {
 type policyGetHandler struct{ t tn }
 
 func (h policyGetHandler) Read(ctx context.Context, env core.Env, _ PolicyGetInput) (Policy, error) {
-	a, _, err := h.t.connected(ctx, env.DB, env.Sealer, env.Clock)
-	if err != nil {
-		return Policy{}, err
-	}
-	text, etag, err := a.Policy(ctx)
-	if err != nil {
-		return Policy{}, err
-	}
-	return Policy{Text: string(text), ETag: etag}, nil
+	return h.t.readPolicy(ctx, env)
 }
 
 func (t tn) policySet() core.ActionDef {
