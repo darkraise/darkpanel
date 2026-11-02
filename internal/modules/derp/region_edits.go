@@ -454,8 +454,11 @@ func (d dp) editRotate(ctx context.Context, env core.Env, in RegionEditsInput) (
 	if err != nil {
 		return RegionEdits{}, err
 	}
+	// This edit is the only way the new pin reaches the policy, so finding nothing to edit refuses: the rotation's
+	// unwind then puts the old certificate back, which the policy still pins.
 	if _, ok := m.Regions[in.RegionID]; !ok {
-		return RegionEdits{}, nil
+		return RegionEdits{}, editNotReady(fmt.Sprintf("the tailnet policy has no region %d to publish the new pin of %s in",
+			in.RegionID, rec.HostName))
 	}
 	key := strconv.Itoa(in.RegionID)
 	dm, _ := doc["derpMap"].(map[string]any)
@@ -476,7 +479,7 @@ func (d dp) editRotate(ctx context.Context, env core.Env, in RegionEditsInput) (
 		}
 	}
 	if !found {
-		return RegionEdits{Warnings: []string{fmt.Sprintf("region %d holds no node for %s", in.RegionID, rec.HostName)}}, nil
+		return RegionEdits{}, editNotReady(fmt.Sprintf("region %d holds no node for %s to publish the new pin in", in.RegionID, rec.HostName))
 	}
 	if !changed {
 		return RegionEdits{}, nil

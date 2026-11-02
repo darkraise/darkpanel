@@ -719,26 +719,25 @@ func TestReRotate(t *testing.T) {
 	}
 }
 
-func TestReRotateWithNothingToChange(t *testing.T) {
+// TestReRotateRefusesWithoutTheServersNode: the rotation publishes the new pin only through this edit, so a region
+// the policy lacks, or one with no node of the server, refuses with derp.not_ready rather than leave the old pin
+// published; the composite then undoes the renewal.
+func TestReRotateRefusesWithoutTheServersNode(t *testing.T) {
 	absent := reRotateInput()
 	absent.RegionID = 901
 	tests := []struct {
-		name    string
-		host    string
-		in      RegionEditsInput
-		warning string
+		name  string
+		host  string
+		in    RegionEditsInput
+		named string
 	}{
-		{"the region is absent", reIP, absent, ""},
+		{"the region is absent", reIP, absent, "901"},
 		{"the region has no node of the server", "203.0.113.77", reRotateInput(), "203.0.113.77"},
 	}
 	for _, tt := range tests {
-		out, err := reRun(t, reRotateHost(t, tt.host), tt.in)
-		if err != nil || out.Edits == nil || len(out.Edits) != 0 || out.Warnings == nil {
-			t.Errorf("%s: %+v, %v; want empty edits", tt.name, out, err)
-			continue
-		}
-		if tt.warning == "" && len(out.Warnings) != 0 || tt.warning != "" && (len(out.Warnings) != 1 || !strings.Contains(out.Warnings[0], tt.warning)) {
-			t.Errorf("%s: warnings %q, want one naming %q (none when empty)", tt.name, out.Warnings, tt.warning)
+		_, err := reRun(t, reRotateHost(t, tt.host), tt.in)
+		if coded := errcode.From(err); err == nil || coded.Code != errcode.DERPNotReady || !core.IsDefinite(err) || !strings.Contains(coded.Detail, tt.named) {
+			t.Errorf("%s: err = %#v, want a definite derp.not_ready naming %s", tt.name, err, tt.named)
 		}
 	}
 }
