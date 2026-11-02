@@ -10,7 +10,11 @@ import (
 	"github.com/darkraise/darkpanel/internal/modules/derp/artifact"
 )
 
-const serversService = ID + ".servers"
+const (
+	serversService = ID + ".servers"
+	// serversRegionUnknown is the record error of a pass that read the server but not the regions.
+	serversRegionUnknown = "the tailnet policy could not be read, so the region may be out of date"
+)
 
 var serversPrincipal = core.Principal{Actor: "system:" + serversService, Scope: core.ScopeAdmin}
 
@@ -85,7 +89,11 @@ func serverHealth(r serverRecord, now time.Time) (health string, reasons []strin
 	if now.Sub(r.CheckedAt) > staleAfter {
 		reasons = append(reasons, "the last check was at "+r.CheckedAt.UTC().Format(time.RFC3339))
 	}
-	if r.Error != "" {
+	switch r.Error {
+	case "":
+	case serversRegionUnknown:
+		reasons = append(reasons, r.Error)
+	default:
 		reasons = append(reasons, "the host could not be read: "+r.Error)
 	}
 	switch {
@@ -213,6 +221,8 @@ func (d dp) checkServers(ctx context.Context, deps ext.Deps, now time.Time) erro
 		if regionsKnown {
 			region, _ := regions.regionOf(st.HostName)
 			next.RegionID, next.RegionCode = region.RegionID, region.RegionCode
+		} else {
+			next.Error = serversRegionUnknown
 		}
 		if err := upsertServerRecord(ctx, deps.DB, next); err != nil {
 			return err
@@ -239,7 +249,8 @@ func serversReadFailure(err error) string {
 
 // serversRegions is the derpMap a pass takes regions from: the policy's when a tailnet is connected, an empty map
 // (every region 0) when none is. ok is false when the connected check, the policy read or its parse failed; the
-// stored regions then stand, since a provider outage says nothing about the published regions. Each failure is
+// stored regions then stand, since a provider outage says nothing about the published regions, and each record
+// carries serversRegionUnknown so its server is degraded until a pass reads them again. Each failure is
 // logged with its code only: the raw text of a provider error may carry credentials.
 func (d dp) serversRegions(ctx context.Context, env core.Env) (regions derpMap, ok bool) {
 	connected, err := d.d.connected(ctx, env.DB)

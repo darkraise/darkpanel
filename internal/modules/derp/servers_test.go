@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -308,7 +309,48 @@ func TestSrPassWarnsWhenThePolicyReadFails(t *testing.T) {
 	}
 }
 
-// TestSrPassReadsThePolicyAtMostOnce: one policy read serves every server of a pass, and a pass that found no
+// TestSrPassMarksTheRegionUnknownWhenThePolicyFails: a pass that cannot learn the regions, because the connected
+// check, the policy read or its parse failed, keeps the stored region but records why, so the server is degraded
+// instead of listed as ok with a region that may be stale; the next good pass clears it.
+func TestSrPassMarksTheRegionUnknownWhenThePolicyFails(t *testing.T) {
+	const want = "the tailnet policy could not be read, so the region may be out of date"
+	for _, tt := range []struct {
+		name  string
+		setup func(h *dpHost, d *dp)
+	}{
+		{"the connected check fails", func(_ *dpHost, d *dp) {
+			d.d.connected = func(context.Context, *store.DB) (bool, error) { return false, errors.New("database busy") }
+		}},
+		{"the policy read fails", func(h *dpHost, _ *dp) { h.tailnet, h.policyErr = true, errors.New("provider down") }},
+		{"the policy does not parse", func(h *dpHost, _ *dp) { h.tailnet, h.policy = true, tailnet.Policy{Text: `{"derpMap": 7}`} }},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			h := srWorld(t)
+			srServe(h, "h2", ServerStatus{Installed: true, Mode: "letsencrypt", HostName: "derp.example.com", DerperVersion: "v1.104.1", UnitActive: true})
+			srPut(t, h, serverRecord{HostID: "h2", Mode: "letsencrypt", HostName: "derp.example.com", RegionID: 901, RegionCode: "old",
+				DerperVersion: "v1.100.0", UnitActive: true, CheckedAt: h.clock.Now().Add(-time.Minute)})
+			d := h.dp()
+			tt.setup(h, &d)
+			if err := d.checkServers(context.Background(), srDeps(h), h.clock.Now()); err != nil {
+				t.Fatalf("checkServers: %v", err)
+			}
+			got, ok := srLoad(t, h, "h2")
+			if !ok || got.RegionID != 901 || got.Error != want {
+				t.Fatalf("record of h2 = %+v (found %v), want the stored region 901 and the error %q", got, ok, want)
+			}
+			if health, reasons := serverHealth(got, h.clock.Now()); health != "degraded" || !slices.Equal(reasons, []string{want}) {
+				t.Errorf("health %s %q, want degraded for %q alone", health, reasons, want)
+			}
+			h.tailnet, h.policyErr, h.policy = false, nil, tailnet.Policy{}
+			srPass(t, h)
+			if got, _ := srLoad(t, h, "h2"); got.Error != "" {
+				t.Errorf("after a good pass the error is %q, want none", got.Error)
+			}
+		})
+	}
+}
+
+// TestSrPassReadsThePolicyAtMostOnce:one policy read serves every server of a pass, and a pass that found no
 // server reads none, so a tailnet without DERP costs the provider no call.
 func TestSrPassReadsThePolicyAtMostOnce(t *testing.T) {
 	const text = `{"derpMap": {"Regions": {"900": {"RegionID": 900, "RegionCode": "eu-derp",
