@@ -229,6 +229,11 @@ func TestLtProbeURLs(t *testing.T) {
 			{Name: "1c", HostName: "c.example.net", DERPPort: 65535},
 			{Name: "1d", HostName: "d.example.net", DERPPort: 443},
 		}, []string{"https://c.example.net:65535/derp/latency-check", ltURL("d.example.net")}},
+		{"an IPv6 literal with a zone is skipped", []*tslocal.DERPNode{
+			{Name: "1a", HostName: "fe80::1%eth0"},
+			{Name: "1b", HostName: "fe80::1%a/b"},
+			{Name: "1c", HostName: "ok.example.net"},
+		}, []string{ltURL("ok.example.net")}},
 	}
 	for _, tt := range tests {
 		got := latencyProbeURLs(&tslocal.DERPRegion{Nodes: tt.nodes})

@@ -166,9 +166,9 @@ func latencyProbeURLs(r *tslocal.DERPRegion) []string {
 	return urls
 }
 
-// latencyHostValid reports whether host is an IP literal or a bare host name: not empty and free of the characters
-// that would end the host part of a URL, white space, control characters and colons (a colon belongs only to an
-// IPv6 literal).
+// latencyHostValid reports whether host is an IP literal without a zone or a bare host name: not empty and free
+// of the characters that would end the host part of a URL, white space, control characters and colons (a colon
+// belongs only to an IPv6 literal).
 func latencyHostValid(host string) bool {
 	if a, err := netip.ParseAddr(host); err == nil {
 		return a.Zone() == ""
