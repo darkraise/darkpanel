@@ -380,6 +380,30 @@ func TestCrApplyTimeout(t *testing.T) {
 	}
 }
 
+// TestCrRefusesAMissingKey: a certificate without its key file is refused at plan and at apply, before the
+// certificate is renamed, so the renewal never strands a pair half moved.
+func TestCrRefusesAMissingKey(t *testing.T) {
+	for _, phase := range []string{"plan", "apply"} {
+		t.Run(phase, func(t *testing.T) {
+			h := crInstalled(t)
+			delete(h.files, crKey)
+			def := h.dp().certRenew()
+			var err error
+			if phase == "plan" {
+				_, err = def.Handler.Plan(context.Background(), h.env(""), json.RawMessage(`{}`))
+			} else {
+				_, err = def.Handler.Apply(context.Background(), h.env("c1"), json.RawMessage(`{}`))
+			}
+			if coded := errcode.From(err); err == nil || coded.Code != errcode.DERPNotReady || !core.IsDefinite(err) || !strings.Contains(coded.Detail, "key") {
+				t.Fatalf("err = %v, want a definite derp.not_ready naming the key file", err)
+			}
+			if _, moved := h.files[crCrt+".prev"]; moved || len(h.units.Calls) != 0 || len(crEffects(t, h.dpHost)) != 0 {
+				t.Errorf("files %v, unit calls %q: want nothing renamed, restarted or journaled", h.files, h.units.Calls)
+			}
+		})
+	}
+}
+
 func TestCrInverse(t *testing.T) {
 	ctx := context.Background()
 	t.Run("the old pair comes back and the old pin is stored again", func(t *testing.T) {

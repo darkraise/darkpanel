@@ -90,11 +90,16 @@ func certRenewCheck(ctx context.Context, env core.Env, d dp) (localServer, certR
 	if row.Mode != server.ModeIP {
 		return localServer{}, certRenewCert{}, core.Definite(errcode.New(errcode.InvalidInput, "derper renews a Let's Encrypt certificate itself"))
 	}
-	crt, _ := certRenewNames(row.HostName)
+	crt, key := certRenewNames(row.HostName)
 	cur, err := certRenewRead(d, crt)
 	if err != nil {
 		return localServer{}, certRenewCert{}, core.Definite(errcode.New(errcode.DERPNotReady,
 			"derper has not written a certificate for "+row.HostName+" yet"))
+	}
+	// Only the key's presence matters: its bytes are dropped here, never logged or stored.
+	if _, err := d.d.readFile(server.CertDir + "/" + key); err != nil {
+		return localServer{}, certRenewCert{}, core.Definite(errcode.New(errcode.DERPNotReady,
+			"derper's certificate for "+row.HostName+" has no readable key file "+key))
 	}
 	return row, cur, nil
 }
