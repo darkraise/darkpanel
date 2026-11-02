@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"net"
 	"net/netip"
 	"os"
@@ -22,16 +23,32 @@ const (
 
 	attrMappedAddress    = 0x0001
 	attrXORMappedAddress = 0x0020
+	attrSoftware         = 0x8022
+	attrFingerprint      = 0x8028
+
+	software       = "tailnode"
+	fingerprintXOR = 0x5354554e
 
 	defaultWait = 3 * time.Second
 )
 
-// Request encodes a Binding request with transaction id tx.
+// Request encodes a Binding request with transaction id tx. derper answers only a Binding request that carries
+// the SOFTWARE attribute "tailnode" and ends in a FINGERPRINT attribute, and silently drops any other.
 func Request(tx [12]byte) []byte {
-	b := binary.BigEndian.AppendUint16(make([]byte, 0, headerSize), typeBindingRequest)
-	b = binary.BigEndian.AppendUint16(b, 0)
+	const attrsSize uint16 = 4 + uint16(len(software)) + 8
+	b := binary.BigEndian.AppendUint16(make([]byte, 0, headerSize+attrsSize), typeBindingRequest)
+	b = binary.BigEndian.AppendUint16(b, attrsSize)
 	b = binary.BigEndian.AppendUint32(b, magicCookie)
-	return append(b, tx[:]...)
+	b = append(b, tx[:]...)
+
+	b = binary.BigEndian.AppendUint16(b, attrSoftware)
+	b = binary.BigEndian.AppendUint16(b, uint16(len(software)))
+	b = append(b, software...)
+
+	fingerprint := crc32.ChecksumIEEE(b) ^ fingerprintXOR
+	b = binary.BigEndian.AppendUint16(b, attrFingerprint)
+	b = binary.BigEndian.AppendUint16(b, 4)
+	return binary.BigEndian.AppendUint32(b, fingerprint)
 }
 
 // Parse decodes a Binding success response, returning its transaction id and mapped address,
@@ -116,7 +133,7 @@ func decodeAddress(typ uint16, v []byte, tx *[12]byte) (netip.AddrPort, error) {
 	return netip.AddrPortFrom(a, port), nil
 }
 
-// Probe sends one RFC 5389 Binding request (a random 96-bit transaction id, no attributes) to server over a
+// Probe sends one RFC 5389 Binding request (a random 96-bit transaction id, in tailscale's request form, SOFTWARE and FINGERPRINT) to server over a
 // UDP socket it opens with net.ListenPacket("udp", ""), and returns the round-trip time of the first Binding
 // success response with the same transaction id and a valid XOR-MAPPED-ADDRESS (or MAPPED-ADDRESS) attribute.
 // It honours ctx's deadline; with none it waits at most 3 s. Any other datagram is ignored.

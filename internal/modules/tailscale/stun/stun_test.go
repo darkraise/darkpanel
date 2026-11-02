@@ -3,9 +3,12 @@ package stun
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"hash/crc32"
 	"net"
 	"net/netip"
 	"slices"
@@ -21,6 +24,7 @@ const (
 	snMapped         = 0x0001
 	snXorMapped      = 0x0020
 	snSoftware       = 0x8022
+	snFingerprint    = 0x8028
 )
 
 // snTx is the transaction id of RFC 5769's sample responses.
@@ -75,11 +79,33 @@ func snHex(t *testing.T, s string) []byte {
 	return b
 }
 
+// The expected bytes are the output of tailscale's own stun.Request at v1.104.1 for snTx, which is the form
+// derper accepts: a SOFTWARE attribute "tailnode" and a trailing FINGERPRINT.
 func TestSnRequestEncodesABindingRequest(t *testing.T) {
 	got := Request(snTx)
-	want := snHex(t, "0001 0000 2112a442 b7e7a701 bc34d686 fa87dfae")
+	want := snHex(t, "0001 0014 2112a442 b7e7a701 bc34d686 fa87dfae 8022 0008 7461696c 6e6f6465 8028 0004 9e8df0ce")
 	if !bytes.Equal(got, want) {
 		t.Fatalf("Request = %x, want %x", got, want)
+	}
+}
+
+// TestSnRequestIsWhatDerperAccepts applies the checks of tailscale's ParseBindingRequest, which derper uses to
+// decide whether to answer.
+func TestSnRequestIsWhatDerperAccepts(t *testing.T) {
+	var random [12]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		t.Fatal(err)
+	}
+	for name, tx := range map[string][12]byte{"fixed": snTx, "random": random} {
+		t.Run(name, func(t *testing.T) {
+			req := Request(tx)
+			if err := snDerperAccepts(req); err != nil {
+				t.Fatalf("Request(%x) = %x: %v", tx, req, err)
+			}
+			if got := [12]byte(req[8:20]); got != tx {
+				t.Fatalf("transaction id = %x, want %x", got, tx)
+			}
+		})
 	}
 }
 
@@ -102,6 +128,18 @@ func TestSnParseAcceptsBindingSuccess(t *testing.T) {
 			// RFC 5769 section 2.3 without its MESSAGE-INTEGRITY and FINGERPRINT attributes.
 			"RFC 5769 IPv6 response",
 			snHex(t, "0101 0018 2112a442 b7e7a701 bc34d686 fa87dfae  0020 0014 0002 a147 0113a9fa a5d3f179 bc25f4b5 bed2b9d9"),
+			v6,
+		},
+		{
+			// Tailscale's stun.Response at v1.104.1 for snTx and 192.0.2.1:32853.
+			"derper's IPv4 response",
+			snHex(t, "0101000c 2112a442 b7e7a701 bc34d686 fa87dfae 0020 0008 0001 a147 e112a643"),
+			v4,
+		},
+		{
+			// Tailscale's stun.Response at v1.104.1 for snTx and [2001:db8:1234:5678:11:2233:4455:6677]:32853.
+			"derper's IPv6 response",
+			snHex(t, "01010018 2112a442 b7e7a701 bc34d686 fa87dfae 0020 0014 0002 a147 0113a9fa a5d3f179 bc25f4b5 bed2b9d9"),
 			v6,
 		},
 		{"mapped address only", snMessage(snBindingSuccess, snTx, snAttr(snMapped, snAddress(v4, nil))), v4},
@@ -207,13 +245,59 @@ func snListen(t *testing.T, reply func(conn net.PacketConn, req []byte, from net
 	return netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port())
 }
 
-// snTxOf returns the transaction id of a request, failing the test when it is not a bare Binding request.
-func snTxOf(t *testing.T, req []byte) [12]byte {
-	t.Helper()
-	if len(req) != 20 || req[0] != 0x00 || req[1] != 0x01 || req[2] != 0x00 || req[3] != 0x00 || !bytes.Equal(req[4:8], []byte{0x21, 0x12, 0xa4, 0x42}) {
-		t.Errorf("request = %x, want a 20-byte Binding request with no attributes", req)
+// snDerperAccepts applies tailscale's ParseBindingRequest rule to req: a 40-byte Binding request whose header
+// length covers its attributes, with a SOFTWARE attribute "tailnode" and, as its last attribute, a FINGERPRINT
+// that is the CRC-32 of everything before it XORed with 0x5354554e.
+func snDerperAccepts(req []byte) error {
+	if len(req) != 40 {
+		return fmt.Errorf("%d bytes, want 40", len(req))
 	}
-	return [12]byte(req[8:20])
+	if !bytes.Equal(req[0:2], []byte{0x00, 0x01}) || !bytes.Equal(req[4:8], []byte{0x21, 0x12, 0xa4, 0x42}) {
+		return errors.New("not a Binding request with the magic cookie")
+	}
+	if n := binary.BigEndian.Uint16(req[2:4]); n != 20 {
+		return fmt.Errorf("header length %d, want 20", n)
+	}
+	var software bool
+	var lastType uint16
+	var lastValue []byte
+	for body := req[20:]; len(body) > 0; {
+		if len(body) < 4 {
+			return errors.New("truncated attribute header")
+		}
+		typ, n := binary.BigEndian.Uint16(body[0:2]), int(binary.BigEndian.Uint16(body[2:4]))
+		padded := (n + 3) &^ 3
+		if len(body)-4 < padded {
+			return fmt.Errorf("attribute 0x%04x overruns the message", typ)
+		}
+		if typ == snSoftware && string(body[4:4+n]) == "tailnode" {
+			software = true
+		}
+		lastType, lastValue = typ, body[4:4+n]
+		body = body[4+padded:]
+	}
+	if !software {
+		return errors.New(`no SOFTWARE attribute "tailnode"`)
+	}
+	if lastType != snFingerprint || len(lastValue) != 4 {
+		return fmt.Errorf("last attribute is 0x%04x of length %d, want FINGERPRINT of length 4", lastType, len(lastValue))
+	}
+	if got, want := binary.BigEndian.Uint32(lastValue), crc32.ChecksumIEEE(req[:32])^0x5354554e; got != want {
+		return fmt.Errorf("FINGERPRINT is 0x%08x, want 0x%08x", got, want)
+	}
+	return nil
+}
+
+// snTxOf returns the transaction id of a request and true. Like derper, it does not accept a request that
+// lacks SOFTWARE "tailnode" or a valid trailing FINGERPRINT: it fails the test and returns false, and the
+// caller must not answer.
+func snTxOf(t *testing.T, req []byte) ([12]byte, bool) {
+	t.Helper()
+	if err := snDerperAccepts(req); err != nil {
+		t.Errorf("request = %x: %v; derper would drop it", req, err)
+		return [12]byte{}, false
+	}
+	return [12]byte(req[8:20]), true
 }
 
 // snAnswer writes the Binding success response that reports from as the mapped address.
@@ -227,7 +311,10 @@ func TestSnProbeMeasuresARoundTrip(t *testing.T) {
 	var mu sync.Mutex
 	var txs [][12]byte
 	server := snListen(t, func(conn net.PacketConn, req []byte, from net.Addr) {
-		tx := snTxOf(t, req)
+		tx, ok := snTxOf(t, req)
+		if !ok {
+			return
+		}
 		mu.Lock()
 		txs = append(txs, tx)
 		mu.Unlock()
@@ -253,7 +340,10 @@ func TestSnProbeIgnoresDatagramsThatAreNotItsAnswer(t *testing.T) {
 	const delay = 60 * time.Millisecond
 	v4 := netip.MustParseAddrPort("192.0.2.1:32853")
 	server := snListen(t, func(conn net.PacketConn, req []byte, from net.Addr) {
-		tx := snTxOf(t, req)
+		tx, ok := snTxOf(t, req)
+		if !ok {
+			return
+		}
 		other := tx
 		other[0] ^= 0xff
 		for _, junk := range [][]byte{
