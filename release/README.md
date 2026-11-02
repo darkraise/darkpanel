@@ -43,9 +43,13 @@ The workflow:
   `main`, and that `schemas/released/<tag>/` equals the current schemas.
 - `build` checks the committed `install.sh` is current, runs `make release`
   (tarballs, SBOM, `install.sh` and a `checksums.txt` over all of them),
-  writes the release notes with git-cliff (a stable release's notes cover
-  every commit since the previous stable release, a beta's since the
-  previous tag), and attests every file.
+  then builds `tailscale.com/cmd/derper` at the version in
+  `release/derper.version` for amd64 and arm64 with `releasetool derper`,
+  adds the two `derper-<version>-linux-<arch>` binaries and `derper.json` to
+  the release directory and rewrites `checksums.txt` so that the signature
+  covers them, writes the release notes with git-cliff (a stable release's
+  notes cover every commit since the previous stable release, a beta's since
+  the previous tag), and attests every file.
 - `sign` (environment `release`) verifies the attestations against this
   repository and the tag's commit, checks every file against `checksums.txt`,
   checks the amd64 binary reports the tag's version, is not a test build and
@@ -68,6 +72,14 @@ Leave GitHub's immutable releases setting off for this repository: every
 `publish` replaces `releases.json` on the published `index` release with
 `gh release upload --clobber`, and an immutable release's files can be
 neither replaced nor deleted.
+
+## The derper version
+
+`release/derper.version` holds the derper release Darkpanel builds,
+publishes and installs. A DERP host's tailscaled is pinned to the same
+version, so a host receives a Tailscale update only when a Darkpanel release
+bumps `release/derper.version`. Bumping it promptly after a Tailscale
+security release is part of the release routine.
 
 ## Rotating the signing key
 

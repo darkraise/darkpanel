@@ -43,4 +43,5 @@ files=()
 while IFS= read -r f; do
   files+=("$f")
 done < <(find . -maxdepth 1 -type f ! -name checksums.txt ! -name '*.minisig' -printf '%f\n' | LC_ALL=C sort)
+# releasetool derper (release/releasetool/derper.go) rewrites checksums.txt in this format after adding the derper files, so the two must stay the same.
 sha256sum -- "${files[@]}" >checksums.txt

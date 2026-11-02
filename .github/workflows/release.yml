@@ -97,6 +97,8 @@ jobs:
           make install-sh
           git diff --exit-code -- install.sh
       - run: make release VERSION="$VERSION"
+      - name: Build derper and its manifest
+        run: go run ./release/releasetool derper "$VERSION" bin/release
       - name: Write the release notes
         run: |
           # Stable notes cover every commit since the previous stable release,
