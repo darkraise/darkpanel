@@ -102,7 +102,7 @@ func TestSvCheckConfig(t *testing.T) {
 		{"ip with a Tailscale IPv4 address", Config{Mode: ModeIP, HostName: "100.64.0.9"}, []string{"/hostName"}},
 		{"ip with a Tailscale IPv6 address", Config{Mode: ModeIP, HostName: "fd7a:115c:a1e0::1"}, []string{"/hostName"}},
 		{"ip with an IPv4-mapped IPv6 address", Config{Mode: ModeIP, HostName: "::ffff:203.0.113.7"}, []string{"/hostName"}},
-		{"ip with an upper-case IPv6 literal",Config{Mode: ModeIP, HostName: "2001:DB8::1"}, []string{"/hostName"}},
+		{"ip with an upper-case IPv6 literal", Config{Mode: ModeIP, HostName: "2001:DB8::1"}, []string{"/hostName"}},
 		{"ip with an IPv6 literal that is not shortened", Config{Mode: ModeIP, HostName: "2001:db8:0:0:0:0:0:1"}, []string{"/hostName"}},
 		{"ip with a prefix length", Config{Mode: ModeIP, HostName: "203.0.113.7/32"}, []string{"/hostName"}},
 		{"ip with a space", Config{Mode: ModeIP, HostName: "203.0.113.7 "}, []string{"/hostName"}},
