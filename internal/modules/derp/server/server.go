@@ -66,7 +66,7 @@ const (
 	invalidDetail   = "the DERP server configuration is invalid"
 	modeMessage     = "mode must be letsencrypt or ip"
 	dnsNameMessage  = "the host name must be a lower-case DNS name of at most 253 bytes with at least two labels, not an IP address"
-	ipAddrMessage   = "the host name must be a public IP address in canonical form, not private, loopback, link-local, multicast, unspecified or a Tailscale address"
+	ipAddrMessage   = "the host name must be a public IP address in canonical form, not private, loopback, link-local, multicast, unspecified, IPv4-mapped IPv6 or a Tailscale address"
 	maxDNSNameBytes = 253
 	maxLabelBytes   = 63
 )
@@ -74,7 +74,8 @@ const (
 // CheckConfig refuses, as request.invalid_input with a field error: a Mode other than the two (/mode); for
 // letsencrypt, a HostName that is not a lower-case DNS name of at most 253 bytes with at least two labels, or is an
 // IP literal (/hostName); for ip, a HostName that is not a canonical IP literal, or is not global unicast, or is
-// private, loopback, link-local, unspecified or a Tailscale address (100.64.0.0/10, fd7a:115c:a1e0::/48) (/hostName).
+// private, loopback, link-local, unspecified, IPv4-mapped IPv6 (::ffff:0:0/96) or a Tailscale address
+// (100.64.0.0/10, fd7a:115c:a1e0::/48) (/hostName).
 func CheckConfig(c Config) error {
 	var field errcode.FieldError
 	switch c.Mode {
@@ -131,7 +132,9 @@ func validPublicIP(s string) bool {
 	if err != nil {
 		return false
 	}
-	return a.Zone() == "" && a.String() == s && a.IsGlobalUnicast() && !a.IsPrivate() && !link.IsTailscaleAddr(a)
+	// The class checks see a mapped address as its IPv4 address, but derper and the DERP map would carry the mapped
+	// form: an IPv6 node address and certificate file names derper strips to "ffff<IPv4>".
+	return a.Zone() == "" && !a.Is4In6() && a.String() == s && a.IsGlobalUnicast() && !a.IsPrivate() && !link.IsTailscaleAddr(a)
 }
 
 // Flags is derper's argument vector after the program path, in this order:
