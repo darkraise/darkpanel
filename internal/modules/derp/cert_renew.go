@@ -175,19 +175,26 @@ func (h certRenewHandler) Apply(ctx context.Context, env core.Env, _ CertRenewIn
 }
 
 // certRenewAwait reads derper's files at once and then every certRenewPoll until the certificate crt decodes with
-// a pin other than old and the key file key exists, for at most certWait.
+// a pin other than old and the key file key exists, for at most certWait. A timeout names what the last look found.
 func certRenewAwait(ctx context.Context, env core.Env, d dp, crt, key, old string) (certRenewCert, error) {
 	deadline := env.Clock.Now().Add(certWait)
 	for {
-		if cur, err := certRenewRead(d, crt); err == nil && cur.pin != old {
+		cur, last := certRenewRead(d, crt)
+		switch {
+		case last != nil:
+		case cur.pin == old:
+			last = errors.New("the certificate is still the old one")
+		default:
 			// Only the key's presence matters: its bytes are dropped here, never logged or stored.
-			if _, err := d.d.readFile(server.CertDir + "/" + key); err == nil {
-				return cur, nil
+			if _, err := d.d.readFile(server.CertDir + "/" + key); err != nil {
+				last = fmt.Errorf("derp: read %s: %w", server.CertDir+"/"+key, err)
+				break
 			}
+			return cur, nil
 		}
 		if !env.Clock.Now().Before(deadline) {
-			return certRenewCert{}, errcode.New(errcode.DERPVerifyFailed,
-				fmt.Sprintf("derper did not write a new certificate within %s", certWait))
+			return certRenewCert{}, errcode.Wrap(errcode.DERPVerifyFailed, last,
+				fmt.Sprintf("derper did not write a new certificate within %s (%s)", certWait, last))
 		}
 		tick := make(chan struct{})
 		timer := env.Clock.AfterFunc(certRenewPoll, func() { close(tick) })

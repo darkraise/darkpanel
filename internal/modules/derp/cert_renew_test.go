@@ -404,6 +404,15 @@ func TestCrRefusesAMissingKey(t *testing.T) {
 	}
 }
 
+// TestCrApplyTimeoutNamesTheLastFailure: a wait that ends without a new pair says what it last found.
+func TestCrApplyTimeoutNamesTheLastFailure(t *testing.T) {
+	h := crInstalled(t)
+	_, err := crApply(t, h.dpHost, func() { h.files[crCrt] = []byte("not a certificate") })
+	if coded := errcode.From(err); err == nil || coded.Code != errcode.DERPVerifyFailed || !strings.Contains(coded.Detail, "CERTIFICATE") {
+		t.Errorf("err = %v, want derp.verify_failed naming the undecodable certificate", err)
+	}
+}
+
 func TestCrInverse(t *testing.T) {
 	ctx := context.Background()
 	t.Run("the old pair comes back and the old pin is stored again", func(t *testing.T) {
