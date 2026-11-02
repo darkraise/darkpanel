@@ -127,6 +127,29 @@ func TestEDApplyEdits(t *testing.T) {
 			in:    `{"a/b": {"c~d": 1}}`,
 			edits: []Edit{{Op: "set", Path: "/a~1b/c~0d", Value: edVal(`2`)}},
 			want:  `{"a/b":{"c~d":2}}`},
+		{name: "set adds a region whose member name is digits",
+			edits: []Edit{{Op: "set", Path: "/derpMap/Regions/901", Value: edVal(`{"RegionID":901,"RegionCode":"b"}`)}},
+			want: `{"acls":[{"action":"accept","src":["*"],"dst":["*:*"]}],"tagOwners":{"tag:web":["autogroup:admin"]},` +
+				`"derpMap":{"Regions":{"900":{"RegionID":900},"901":{"RegionID":901,"RegionCode":"b"}}}}`,
+			wantExact: "// allow all|// web servers"},
+		{name: "set replaces a region whose member name is digits",
+			edits: []Edit{{Op: "set", Path: "/derpMap/Regions/900", Value: edVal(
+				`{"RegionID":900,"RegionCode":"a","Nodes":[{"Name":"900a","RegionID":900,"HostName":"203.0.113.9","CertName":"sha256-raw:ab"}]}`)}},
+			want: `{"acls":[{"action":"accept","src":["*"],"dst":["*:*"]}],"tagOwners":{"tag:web":["autogroup:admin"]},` +
+				`"derpMap":{"Regions":{"900":{"RegionID":900,"RegionCode":"a","Nodes":[{"Name":"900a","RegionID":900,` +
+				`"HostName":"203.0.113.9","CertName":"sha256-raw:ab"}]}}}}`,
+			wantExact: "// allow all|// web servers"},
+		{name: "set creates an absent derpMap holding a digit-named region",
+			in:    `{"acls": []}`,
+			edits: []Edit{{Op: "set", Path: "/derpMap", Value: edVal(`{"Regions":{"900":{"RegionID":900}}}`)}},
+			want:  `{"acls":[],"derpMap":{"Regions":{"900":{"RegionID":900}}}}`},
+		{name: "set OmitDefaultRegions on and off",
+			edits: []Edit{
+				{Op: "set", Path: "/derpMap/OmitDefaultRegions", Value: edVal(`true`)},
+				{Op: "set", Path: "/derpMap/OmitDefaultRegions", Value: edVal(`false`)},
+			},
+			want: `{"acls":[{"action":"accept","src":["*"],"dst":["*:*"]}],"tagOwners":{"tag:web":["autogroup:admin"]},` +
+				`"derpMap":{"Regions":{"900":{"RegionID":900}},"OmitDefaultRegions":false}}`},
 		{name: "no edits",
 			edits: nil},
 	}

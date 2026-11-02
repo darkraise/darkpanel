@@ -1,7 +1,6 @@
 package tailnet
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -89,18 +88,9 @@ func (t tn) deviceList() core.ActionDef {
 type deviceListHandler struct{ t tn }
 
 func (h deviceListHandler) Read(ctx context.Context, env core.Env, _ DeviceListInput) (DeviceList, error) {
-	a, _, err := h.t.connected(ctx, env.DB, env.Sealer, env.Clock)
+	devices, err := h.t.listDevices(ctx, env)
 	if err != nil {
 		return DeviceList{}, err
 	}
-	devices, err := a.Devices(ctx)
-	if err != nil {
-		return DeviceList{}, err
-	}
-	out := make([]Device, 0, len(devices))
-	for _, d := range devices {
-		out = append(out, deviceView(d))
-	}
-	slices.SortFunc(out, func(x, y Device) int { return cmp.Or(cmp.Compare(x.Name, y.Name), cmp.Compare(x.ID, y.ID)) })
-	return DeviceList{Devices: out}, nil
+	return DeviceList{Devices: devices}, nil
 }
