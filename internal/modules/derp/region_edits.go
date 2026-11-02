@@ -27,6 +27,8 @@ const (
 var (
 	editCodePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 	editPinPattern  = regexp.MustCompile(`^` + regexp.QuoteMeta(server.PinPrefix) + `[0-9a-f]{64}$`)
+	// editTagPattern accepts the tags the fleet and tailnet modules accept, and no wildcard, autogroup or address.
+	editTagPattern = regexp.MustCompile(`^tag:[A-Za-z0-9][A-Za-z0-9-]{0,62}$`)
 )
 
 // regionEdits declares derp.region.edits: the tailnet policy edits that publish, withdraw or re-pin a DERP region,
@@ -139,11 +141,15 @@ func editNotReady(detail string) error {
 
 // editSet computes the edits that publish the server of in.HostID as region in.RegionID with its visibility grant.
 func (d dp) editSet(ctx context.Context, env core.Env, in RegionEditsInput) (RegionEdits, error) {
-	if err := editDeployConfirmed(ctx, env, in.HostID); err != nil {
+	deploy, err := editDeployConfirmed(ctx, env, in.HostID)
+	if err != nil {
 		return RegionEdits{}, err
 	}
 	probe, err := d.probeServer(ctx, env, ServerProbeInput{HostID: in.HostID})
 	if err != nil {
+		return RegionEdits{}, err
+	}
+	if err := editServerCheck(probe.Server, deploy); err != nil {
 		return RegionEdits{}, err
 	}
 	ready, reason, warnings := probeReady(probe)
@@ -167,43 +173,93 @@ func (d dp) editSet(ctx context.Context, env core.Env, in RegionEditsInput) (Reg
 			return RegionEdits{}, err
 		}
 	}
-	if len(probe.Server.Tags) == 0 {
-		return RegionEdits{}, editNotReady("the DERP host's node has no tag; the visibility grant needs one")
+	tag, err := d.editServerTag(ctx, env, probe.Server)
+	if err != nil {
+		return RegionEdits{}, err
 	}
-	edits, err := editSetEdits(m, doc, editRegion(probe.Server, in), visibilityGrant(slices.Min(probe.Server.Tags)), in)
+	edits, err := editSetEdits(m, doc, editRegion(probe.Server, in), visibilityGrant(tag), in)
 	if err != nil {
 		return RegionEdits{}, err
 	}
 	return RegionEdits{Edits: edits, Warnings: warnings}, nil
 }
 
-// editDeployConfirmed refuses unless the newest derp.server.deploy change of hostID is completed.
-func editDeployConfirmed(ctx context.Context, env core.Env, hostID string) error {
+// editServerCheck refuses a server status the set op must not publish. The status is the DERP host agent's report,
+// so its mode and host name must be the confirmed deploy's and pass server.CheckConfig, and an ip-mode pin must be
+// a pin.
+func editServerCheck(s ServerStatus, deploy DeployInput) error {
+	if err := server.CheckConfig(server.Config{Mode: s.Mode, HostName: s.HostName}); err != nil {
+		return editNotReady(fmt.Sprintf("the DERP host reports the %s-mode host name %q: %s", s.Mode, s.HostName, errcode.From(err).Fields[0].Message))
+	}
+	if s.Mode != deploy.Mode || s.HostName != deploy.HostName {
+		return editNotReady(fmt.Sprintf("the DERP host reports a %s-mode server for %s, but its confirmed deploy installed a %s-mode server for %s",
+			s.Mode, s.HostName, deploy.Mode, deploy.HostName))
+	}
+	if s.Mode == server.ModeIP && !editPinPattern.MatchString(s.CertName) {
+		return editNotReady(fmt.Sprintf("the DERP host reports the certificate pin %q, which is not %s followed by 64 lower-case hex digits",
+			s.CertName, server.PinPrefix))
+	}
+	return nil
+}
+
+// editServerTag is the tag the visibility grant addresses: the lexically smallest tag of the DERP host's node. The
+// tags come from the DERP host's agent, so each must be a tag name, and the tailnet's device that holds one of the
+// node's addresses must carry the chosen tag.
+func (d dp) editServerTag(ctx context.Context, env core.Env, s ServerStatus) (string, error) {
+	if len(s.Tags) == 0 {
+		return "", editNotReady("the DERP host's node has no tag; the visibility grant needs one")
+	}
+	for _, t := range s.Tags {
+		if !editTagPattern.MatchString(t) {
+			return "", editNotReady(fmt.Sprintf("the DERP host reports the node tag %q, which is not a tag name", t))
+		}
+	}
+	tag := slices.Min(s.Tags)
+	devices, err := d.d.devices(ctx, env)
+	if err != nil {
+		return "", err
+	}
+	for _, dev := range devices {
+		if !slices.ContainsFunc(s.Addresses, func(a string) bool { return slices.Contains(dev.Addresses, a) }) {
+			continue
+		}
+		if !slices.Contains(dev.Tags, tag) {
+			return "", editNotReady(fmt.Sprintf("the tailnet's device %s does not carry the tag %s that the DERP host reports", dev.Name, tag))
+		}
+		return tag, nil
+	}
+	return "", editNotReady(fmt.Sprintf("no device of the tailnet holds the DERP host's node addresses (%s)", strings.Join(s.Addresses, ", ")))
+}
+
+// editDeployConfirmed returns the input of the newest derp.server.deploy change of hostID, and refuses unless that
+// change is completed.
+func editDeployConfirmed(ctx context.Context, env core.Env, hostID string) (DeployInput, error) {
 	rows, err := env.DB.Read().QueryContext(ctx,
 		`SELECT state, input_json FROM core_changes WHERE action = ? ORDER BY created_at DESC, id DESC`, ID+".server.deploy")
 	if err != nil {
-		return fmt.Errorf("derp: read the deploy changes: %w", err)
+		return DeployInput{}, fmt.Errorf("derp: read the deploy changes: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 	state := "no deploy found"
+	var found DeployInput
 	for rows.Next() {
 		var st, input string
 		if err := rows.Scan(&st, &input); err != nil {
-			return fmt.Errorf("derp: read the deploy changes: %w", err)
+			return DeployInput{}, fmt.Errorf("derp: read the deploy changes: %w", err)
 		}
 		var deploy DeployInput
 		if json.Unmarshal([]byte(input), &deploy) == nil && deploy.HostID == hostID {
-			state = st
+			state, found = st, deploy
 			break
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("derp: read the deploy changes: %w", err)
+		return DeployInput{}, fmt.Errorf("derp: read the deploy changes: %w", err)
 	}
 	if state != core.StateCompleted {
-		return editNotReady("the deploy of the DERP server on " + hostID + " is not confirmed (" + state + ")")
+		return DeployInput{}, editNotReady("the deploy of the DERP server on " + hostID + " is not confirmed (" + state + ")")
 	}
-	return nil
+	return found, nil
 }
 
 // editOmitAllowed refuses dropping the default regions unless another custom region's server passes the probe or

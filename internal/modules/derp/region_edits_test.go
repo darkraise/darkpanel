@@ -62,7 +62,8 @@ func reUseServer(h *dpHost, s ServerStatus, addr netip.Addr) {
 }
 
 // reHost is a controller with the DERP host h1 (alpha) running reStatus, a probe host h2 (bravo) whose probes
-// pass, a connected tailnet without devices and the policy reBase. No deploy change exists yet.
+// pass, a connected tailnet whose one device is h1's node with reStatus's tags, and the policy reBase. No deploy
+// change exists yet.
 func reHost(t *testing.T) *dpHost {
 	t.Helper()
 	h := newDPHost(t)
@@ -72,6 +73,7 @@ func reHost(t *testing.T) *dpHost {
 	reAgent(h, "h2").Reads["derp.node.probe/v1"] = func(json.RawMessage) (any, error) {
 		return NodeProbe{TLS: ProbeResult{OK: true, LatencyMs: 20}, STUN: ProbeResult{OK: true, LatencyMs: 30}}, nil
 	}
+	h.devices = []tailnet.Device{{ID: "d1", Name: "alpha", Addresses: []string{"100.64.0.10"}, Tags: []string{"tag:derp", "tag:web"}}}
 	h.tailnet = true
 	h.policy = tailnet.Policy{Text: reBase, ETag: "e1"}
 	return h
@@ -430,7 +432,52 @@ func TestReSetRefusals(t *testing.T) {
 	}
 }
 
-// TestReSetOmitNeedsNoAcknowledgementWithAnotherReadyRegion: another custom region whose server passes the probe
+// TestReSetChecksWhatTheAgentReports: the server's status is the DERP host agent's report, so the set op refuses
+// it unless its host name and mode are the confirmed deploy's and pass server.CheckConfig, its ip-mode pin is a pin,
+// every tag is a tag name, and the tailnet's device holding the node's address carries the grant's tag.
+func TestReSetChecksWhatTheAgentReports(t *testing.T) {
+	with := func(f func(s *ServerStatus)) ServerStatus {
+		s := reStatus()
+		f(&s)
+		return s
+	}
+	tests := []struct {
+		name    string
+		status  ServerStatus
+		devices []tailnet.Device
+		detail  string
+	}{
+		{"a wildcard tag", with(func(s *ServerStatus) { s.Tags = []string{"*", "tag:derp"} }), nil, `"*"`},
+		{"an autogroup as a tag", with(func(s *ServerStatus) { s.Tags = []string{"autogroup:member"} }), nil, "autogroup:member"},
+		{"an IPv4-mapped host name", with(func(s *ServerStatus) { s.HostName = "::ffff:" + reIP }), nil, "::ffff:" + reIP},
+		{"a private host name", with(func(s *ServerStatus) { s.HostName = "10.0.0.5" }), nil, "10.0.0.5"},
+		{"a malformed pin", with(func(s *ServerStatus) { s.CertName = "sha256-raw:xyz" }), nil, "sha256-raw:xyz"},
+		{"another host name than the deploy's", with(func(s *ServerStatus) { s.HostName = "203.0.113.99" }), nil, "203.0.113.99"},
+		{"another mode than the deploy's", with(func(s *ServerStatus) { s.Mode, s.HostName, s.CertName = "letsencrypt", "derp.example.com", "" }), nil, "letsencrypt"},
+		{"a device without the tag", reStatus(), []tailnet.Device{{ID: "d1", Name: "alpha", Addresses: []string{"100.64.0.10"}, Tags: []string{"tag:web"}}}, "tag:derp"},
+		{"no device with the node's address", reStatus(), []tailnet.Device{{ID: "d9", Name: "other", Addresses: []string{"100.64.0.99"}, Tags: []string{"tag:derp"}}}, "100.64.0.10"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := reReady(t)
+			addr := netip.MustParseAddr(reIP)
+			if a, err := netip.ParseAddr(tt.status.HostName); err == nil {
+				addr = a
+			}
+			reUseServer(h, tt.status, addr)
+			if tt.devices != nil {
+				h.devices = tt.devices
+			}
+			_, err := reRun(t, h, reSetInput())
+			coded := errcode.From(err)
+			if err == nil || coded.Code != errcode.DERPNotReady || !core.IsDefinite(err) || !strings.Contains(coded.Detail, tt.detail) {
+				t.Errorf("err = %#v, want a definite derp.not_ready naming %s", err, tt.detail)
+			}
+		})
+	}
+}
+
+// TestReSetOmitNeedsNoAcknowledgementWithAnotherReadyRegion:another custom region whose server passes the probe
 // makes the acknowledgement unnecessary; when that server stops answering it is required again.
 func TestReSetOmitNeedsNoAcknowledgementWithAnotherReadyRegion(t *testing.T) {
 	h := reReady(t)
