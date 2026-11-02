@@ -496,7 +496,7 @@ func TestInTaskInstalls(t *testing.T) {
 				{"derp.file:" + server.BinaryPath, server.BinaryPath, `{"sha256":"` + inSum(inBinary) + `"}`},
 				{"derp.file:" + server.UnitPath, server.UnitPath, `{"sha256":"` + inSum(unit) + `"}`},
 				{"derp.dir:" + server.StateDir, server.StateDir, `{"exists":true}`},
-				{"derp.unit:" + server.UnitName, server.UnitName, `{"enabled":true,"active":true}`},
+				{"derp.unit:" + server.UnitName, server.UnitName, `{"enabled":true}`},
 				{"derp.server:this", "this", fmt.Sprintf(`{"mode":%q,"hostName":%q,"verifyClients":%t}`, tc.mode, tc.host, tc.cfg.VerifyClients)},
 			}
 			effects := s.effects(t)
@@ -640,7 +640,12 @@ func TestInTaskGivesUpWhenDerperDoesNotComeUp(t *testing.T) {
 			}
 			effects := s.effects(t)
 			if len(effects) != 5 || effects[4].State != core.EffectMade {
-				t.Errorf("effects %+v, want the five up to the unit, made, so the undo removes them", effects)
+				t.Fatalf("effects %+v, want the five up to the unit, made, so the undo removes them", effects)
+			}
+			s.h.reads[installWantsLink] = []byte{} // the fake systemd makes no enablement link
+			obs, err := s.d.serverInstall().Handler.Observe(context.Background(), s.env, effects[4])
+			if err != nil || effects[4].Post == nil || string(obs.Current.State) != string(effects[4].Post.State) {
+				t.Errorf("the enabled unit observed as %+v (error %v), want its post %+v, so the undo does not stop at it", obs, err, effects[4].Post)
 			}
 			if _, ok := s.row(t); ok {
 				t.Error("a derp_server row exists for an install that did not verify")
@@ -654,6 +659,7 @@ func TestInObserve(t *testing.T) {
 	t.Run("what the install made", func(t *testing.T) {
 		s := inInstalled(t)
 		s.h.reads[server.StateDir] = []byte{}
+		s.h.reads[installWantsLink] = []byte{} // the fake systemd makes no enablement link
 		h := s.d.serverInstall().Handler
 		for _, e := range s.effects(t) {
 			obs, err := h.Observe(ctx, s.env, e)
@@ -680,6 +686,26 @@ func TestInObserve(t *testing.T) {
 			if string(obs.Current.State) != "null" || obs.Matches != 0 || !obs.Exclusive {
 				t.Errorf("%s observed as %+v, want state null, no match and an exclusive identity", resource, obs)
 			}
+		}
+	})
+	t.Run("an enabled unit, whatever its state, and a disabled one", func(t *testing.T) {
+		if want := "/etc/systemd/system/multi-user.target.wants/" + server.UnitName; installWantsLink != want {
+			t.Errorf("installWantsLink is %q, want %q, the link systemctl enable makes for WantedBy=multi-user.target", installWantsLink, want)
+		}
+		s := inInstalled(t)
+		h := s.d.serverInstall().Handler
+		unit := core.Effect{Kind: core.EffectCreate, Resource: "derp.unit:" + server.UnitName}
+		s.h.reads[installWantsLink] = []byte{}
+		s.setUnit(core.UnitState{LoadState: "loaded", ActiveState: "failed", SubState: "failed"})
+		obs, err := h.Observe(ctx, s.env, unit)
+		if err != nil || string(obs.Current.State) != `{"enabled":true}` || obs.Matches != 1 {
+			t.Errorf("an enabled unit that failed observed as %+v (error %v), want {\"enabled\":true} and one match", obs, err)
+		}
+		delete(s.h.reads, installWantsLink)
+		s.setUnit(core.UnitState{LoadState: "loaded", ActiveState: "inactive", SubState: "dead"})
+		obs, err = h.Observe(ctx, s.env, unit)
+		if err != nil || string(obs.Current.State) != "null" || obs.Matches != 0 {
+			t.Errorf("a loaded unit without its link observed as %+v (error %v), want null and no match, the state the undo of a creation must reach", obs, err)
 		}
 	})
 	t.Run("a resource the install does not make", func(t *testing.T) {

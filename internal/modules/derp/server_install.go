@@ -26,6 +26,9 @@ const (
 	// installUseradd and installUserdel are the programs that add and delete the module's system user.
 	installUseradd = "/usr/sbin/useradd"
 	installUserdel = "/usr/sbin/userdel"
+	// installWantsLink is the link Enable makes for the unit's WantedBy=multi-user.target and Disable removes.
+	// The unit API reports no enablement, so Observe reads this link instead.
+	installWantsLink = "/etc/systemd/system/multi-user.target.wants/" + server.UnitName
 )
 
 // serverInstall is derp.server.install: it fetches the derper of this agent's release and installs it as a
@@ -42,7 +45,7 @@ func (d dp) serverInstall() core.ActionDef {
 // interrupted install through Observe.
 type installHandler struct{ d dp }
 
-// config is the server configuration in asks for; an absent VerifyClients means true.
+// config is the server configuration the input asks for; an absent VerifyClients means true.
 func (installHandler) config(in ServerInstallInput) server.Config {
 	return server.Config{Mode: in.Mode, HostName: in.HostName, VerifyClients: in.VerifyClients == nil || *in.VerifyClients}
 }
@@ -210,7 +213,7 @@ func (h installHandler) Task(ctx context.Context, env core.Env, in ServerInstall
 	}); err != nil {
 		return ServerInstalled{}, err
 	}
-	if err := h.create(ctx, env, "unit", server.UnitName, h.unitDoc(true), func() error {
+	if err := h.create(ctx, env, "unit", server.UnitName, h.unitDoc(), func() error {
 		if err := env.Units.Reload(ctx); err != nil {
 			return err
 		}
@@ -391,12 +394,9 @@ func (h installHandler) current(ctx context.Context, env core.Env, noun, identit
 	case "dir":
 		return h.existsDoc(), h.exists(identity), nil
 	case "unit":
-		st, err := env.Units.State(ctx, identity)
-		if err != nil {
-			return core.StateDoc{}, false, err
-		}
-		// The unit API reports no enablement, so a loaded unit counts as enabled.
-		return h.unitDoc(st.ActiveState == "active"), st.LoadState == "loaded", nil
+		// The undo compares this with Post before the inverse and with null after it, so it must not depend on
+		// whether derper runs: an enabled unit that failed to start still matches, a disabled one is absent.
+		return h.unitDoc(), h.exists(installWantsLink), nil
 	default:
 		row, ok, err := loadLocalServer(ctx, env.DB.Read())
 		return h.serverDoc(row.Mode, row.HostName, row.VerifyClients), ok, err
@@ -476,12 +476,11 @@ func (h installHandler) fileDoc(b []byte) core.StateDoc {
 	}{hex.EncodeToString(sum[:])})
 }
 
-// unitDoc is the state of derper's loaded unit.
-func (h installHandler) unitDoc(active bool) core.StateDoc {
+// unitDoc is the state of derper's enabled unit.
+func (h installHandler) unitDoc() core.StateDoc {
 	return h.doc(struct {
 		Enabled bool `json:"enabled"`
-		Active  bool `json:"active"`
-	}{true, active})
+	}{true})
 }
 
 // serverDoc is the state of the derp_server row.
