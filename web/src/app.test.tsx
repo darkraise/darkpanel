@@ -80,7 +80,7 @@ describe("app routes", () => {
 
   test.each([
     ["/tailnet", "Tailnet"],
-    ["/derp/regions", "DERP"],
+    ["/derp", "DERP"],
     ["/cloudflare", "Cloudflare"],
   ])("%s mounts the %s global page inside the shell", async (path, label) => {
     stubServer({ body: session })
