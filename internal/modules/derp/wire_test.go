@@ -216,7 +216,7 @@ func TestSdWireSchemas(t *testing.T) {
 		props["regionName"]["maxLength"] != float64(64) {
 		t.Errorf("region edits op %v, regionCode %v, regionName %v", props["op"], props["regionCode"], props["regionName"])
 	}
-	for _, v := range []any{RegionEditsInput{}, RegionSetInput{}, RegionRemoveInput{}, FallbackCheckInput{}} {
+	for _, v := range []any{RegionEditsInput{}, RegionSetInput{}, RegionRemoveInput{}, FallbackCheckInput{}, NodeProbeInput{}} {
 		props, _ := sdProps(t, v)
 		if props["regionId"]["minimum"] != float64(900) || props["regionId"]["maximum"] != float64(999) {
 			t.Errorf("%T regionId = %v, want 900 to 999", v, props["regionId"])

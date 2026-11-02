@@ -84,7 +84,7 @@ type NodeProbeInput struct {
 	HostName string `json:"hostName" jsonschema:"maxLength=253" jsonschema_description:"The server's DNS name or public IP literal."`
 	Address  string `json:"address,omitempty" jsonschema_description:"The address to connect to; absent resolves hostName."`
 	CertName string `json:"certName,omitempty" jsonschema_description:"The certificate pin in ip mode; absent verifies the chain."`
-	RegionID int    `json:"regionId,omitempty" jsonschema_description:"The server's region id, 900 to 999; absent skips the region diagnostics."`
+	RegionID int    `json:"regionId,omitempty" jsonschema:"minimum=900,maximum=999" jsonschema_description:"The server's region id, 900 to 999; absent skips the region diagnostics."`
 }
 
 // NodeProbe is the output of derp.node.probe.

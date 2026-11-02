@@ -25,6 +25,8 @@
           },
           "regionId": {
             "type": "integer",
+            "maximum": 999,
+            "minimum": 900,
             "description": "The server's region id, 900 to 999; absent skips the region diagnostics."
           }
         },
