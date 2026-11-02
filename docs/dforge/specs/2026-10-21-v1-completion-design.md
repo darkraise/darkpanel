@@ -4332,7 +4332,8 @@ a spec change.
   completes:
   1. requires `setup: false` (a fresh volume);
   2. creates the admin through `POST /api/users` from the agent over
-     127.0.0.1:81: email `acmeEmail` (NPM uses the user's email as the ACME
+     127.0.0.1:81: email `acmeEmail` lower-cased (NPM's login lower-cases the
+     identity and compares it case-sensitively; NPM uses the user's email as the ACME
      contact, and Let's Encrypt rejects reserved domains), password 32 random
      bytes, journaled sealed before the request and stored sealed in
      `npm_instances`;
@@ -4372,9 +4373,12 @@ a spec change.
   journal), `npm.certificate.request` (compensable; undo deletes the
   certificate it created; HTTP-01 through NPM's `provider: letsencrypt`),
   `npm.certificate.remove` (irreversible). Read actions list each.
-  `npm.certificate.request` sends `meta.letsencrypt_email` = the stored
-  `acmeEmail` and `meta.letsencrypt_agree: true` (the 6a spike confirms the
-  field names against the pinned image) and is long-running.
+  `npm.certificate.request` sends `{"provider": "letsencrypt",
+  "domain_names": [...]}` with no `meta` and is long-running: NPM 2.13.0 to
+  2.16.0 refuse `meta.letsencrypt_email` and `meta.letsencrypt_agree` with 400
+  (`meta` has `additionalProperties: false`), take the ACME contact from the
+  creating user's email, which is the stored, lower-cased `acmeEmail`, and
+  pass `--agree-tos` to certbot themselves (the 6a spike, D1).
 - **Recovery identities (1.2).** This section is the authority for NPM;
   1.2 defers to it. NPM assigns ids on creation and has no idempotency key,
   so each create persists, with the effect's intent and before the call,
