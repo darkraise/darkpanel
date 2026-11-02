@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/core/schema"
 	"github.com/darkraise/darkpanel/internal/core/store"
 	"github.com/darkraise/darkpanel/internal/modules/derp/server"
@@ -99,6 +100,7 @@ func TestCMSteps(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newDPHost(t)
 			h.tailnet = tc.connected
+			cmServe(h, ServerStatus{Installed: true, Mode: server.ModeIP, HostName: "203.0.113.9"}, `{}`)
 			if tc.seed {
 				cmSeed(t, h, tc.regionID)
 			}
@@ -141,7 +143,69 @@ func TestCMSteps(t *testing.T) {
 	}
 }
 
-// TestCMConnectedIsAskedOnlyForARegion: a server with no region never needs the tailnet account, and an error while
+// cmServe makes cmHost's agent report s and the tailnet policy read policy.
+func cmServe(h *dpHost, s ServerStatus, policy string) {
+	h.agent(cmHost).Reads["derp.server.status/v1"] = func(json.RawMessage) (any, error) { return s, nil }
+	h.policy = tailnet.Policy{Text: policy}
+}
+
+// TestCMStepsWithoutARecord: for a host the controller has no record of yet, the removal asks the host's agent for
+// its server and withdraws the policy's region whose node that server is; a host whose status cannot be read is
+// refused rather than removed with its region left published, and without a connected tailnet nothing is asked.
+func TestCMStepsWithoutARecord(t *testing.T) {
+	const policy = `{"derpMap": {"Regions": {"905": {"RegionID": 905, "RegionCode": "dp-eu", "RegionName": "EU",
+		"Nodes": [{"Name": "905a", "RegionID": 905, "HostName": "203.0.113.9"}]}}}}`
+	installed := ServerStatus{Installed: true, Mode: server.ModeIP, HostName: "203.0.113.9"}
+	for _, tc := range []struct {
+		name      string
+		status    *ServerStatus
+		policy    string
+		connected bool
+		ids       []string
+		region    float64
+	}{
+		{"the policy publishes the host's server", &installed, policy, true, []string{"edits", "region", "uninstall", "unpin", "ports"}, 905},
+		{"the policy publishes another server", &installed, `{}`, true, []string{"uninstall", "unpin", "ports"}, 0},
+		{"the host has no server", &ServerStatus{}, policy, true, []string{"uninstall", "unpin", "ports"}, 0},
+		{"no connected tailnet", nil, policy, false, []string{"uninstall", "unpin", "ports"}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newDPHost(t)
+			h.tailnet = tc.connected
+			h.policy = tailnet.Policy{Text: tc.policy}
+			if tc.status != nil {
+				cmServe(h, *tc.status, tc.policy)
+			}
+			steps, err := cmSteps(t, h.dp(), h)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var ids []string
+			for _, s := range steps {
+				ids = append(ids, s.ID)
+			}
+			if !slices.Equal(ids, tc.ids) {
+				t.Fatalf("steps %v, want %v", ids, tc.ids)
+			}
+			if tc.region != 0 {
+				if got, want := cmJSON(t, steps[0].Input), (map[string]any{"op": "remove", "regionId": tc.region}); !reflect.DeepEqual(got, want) {
+					t.Errorf("edits input %s, want %v", steps[0].Input, want)
+				}
+			}
+		})
+	}
+	t.Run("the host's status cannot be read", func(t *testing.T) {
+		h := newDPHost(t)
+		h.tailnet = true
+		h.policy = tailnet.Policy{Text: policy}
+		_, err := cmSteps(t, h.dp(), h)
+		if coded := errcode.From(err); err == nil || coded.Code != errcode.DERPNotReady || !core.IsDefinite(err) || !strings.Contains(coded.Detail, cmHost) {
+			t.Errorf("err = %#v, want a definite derp.not_ready naming %s", err, cmHost)
+		}
+	})
+}
+
+// TestCMConnectedIsAskedOnlyForARegion:a server with no region never needs the tailnet account, and an error while
 // asking whether it is connected fails the steps rather than skipping the region.
 func TestCMConnectedIsAskedOnlyForARegion(t *testing.T) {
 	boom := errors.New("boom")

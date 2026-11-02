@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/modules/derp/server"
 )
 
@@ -29,21 +30,31 @@ type serverRemoveComposer struct{ d dp }
 
 // Steps returns the removal's steps for the server on in.HostID.
 func (c serverRemoveComposer) Steps(ctx context.Context, env core.Env, in ServerRemoveInput) ([]core.Step, error) {
-	// A host the controller has not read yet has no record; it has no region
-	// the controller knows of, and the uninstall converges either way.
-	rec, _, err := loadServerRecord(ctx, env.DB.Read(), in.HostID)
+	rec, known, err := loadServerRecord(ctx, env.DB.Read(), in.HostID)
 	if err != nil {
 		return nil, err
 	}
 	var steps []core.Step
 	var uninstallAfter []string
-	if rec.RegionID != 0 {
-		connected, err := c.d.d.connected(ctx, env.DB)
-		if err != nil {
+	regionID, connected := rec.RegionID, false
+	switch {
+	case !known:
+		if connected, err = c.d.d.connected(ctx, env.DB); err != nil {
 			return nil, err
 		}
 		if connected {
-			edits, err := json.Marshal(RegionEditsInput{Op: "remove", RegionID: rec.RegionID})
+			if regionID, err = c.unrecordedRegion(ctx, env, in.HostID); err != nil {
+				return nil, err
+			}
+		}
+	case regionID != 0:
+		if connected, err = c.d.d.connected(ctx, env.DB); err != nil {
+			return nil, err
+		}
+	}
+	if regionID != 0 {
+		if connected {
+			edits, err := json.Marshal(RegionEditsInput{Op: "remove", RegionID: regionID})
 			if err != nil {
 				return nil, fmt.Errorf("derp: %w", err)
 			}
@@ -83,6 +94,33 @@ func (c serverRemoveComposer) Steps(ctx context.Context, env core.Env, in Server
 			Input: ports, After: []string{"unpin"},
 		},
 	), nil
+}
+
+// unrecordedRegion is the region to withdraw for a host the derp.servers service has not recorded yet: the policy's
+// region whose node is the server the host's agent reports, else 0. A host whose status cannot be read is refused,
+// since removing its server could leave its region published.
+func (c serverRemoveComposer) unrecordedRegion(ctx context.Context, env core.Env, hostID string) (int, error) {
+	st, err := readStatus(ctx, env, hostID, nil)
+	if err != nil {
+		if cerr := ctx.Err(); cerr != nil {
+			return 0, cerr
+		}
+		return 0, core.Definite(errcode.New(errcode.DERPNotReady, "the controller has no record of the DERP server on "+hostID+
+			" and cannot read its status, so whether it publishes a region is not known"))
+	}
+	if !st.Installed {
+		return 0, nil
+	}
+	p, err := c.d.d.policy(ctx, env)
+	if err != nil {
+		return 0, err
+	}
+	m, err := parseDERPMap(p.Text)
+	if err != nil {
+		return 0, err
+	}
+	region, _ := m.regionOf(st.HostName)
+	return region.RegionID, nil
 }
 
 // Output is what the uninstall step removed.
