@@ -3,12 +3,20 @@ package main
 import (
 	"bytes"
 	"cmp"
+	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
+
+	"github.com/darkraise/darkpanel/internal/modules/derp/artifact"
 )
 
 func TestParseVersion(t *testing.T) {
@@ -286,5 +294,218 @@ func TestRunUsage(t *testing.T) {
 		if err := run(args, strings.NewReader(""), &bytes.Buffer{}); err == nil || !strings.HasPrefix(err.Error(), "usage:") {
 			t.Errorf("run(%q) = %v, want the usage error", args, err)
 		}
+	}
+}
+
+// drCall is one call of the fake builder.
+type drCall struct{ version, arch, dst string }
+
+// drFake returns a builder that writes "derper <arch>" to dst, and the calls it received. An arch in failArch makes it
+// fail after the other arch was built.
+func drFake(failArch string) (derperBuilder, *[]drCall) {
+	var calls []drCall
+	build := func(_ context.Context, version, arch, dst string) error {
+		calls = append(calls, drCall{version, arch, dst})
+		if arch == failArch {
+			return errors.New("go build failed")
+		}
+		return os.WriteFile(dst, []byte("derper "+arch), 0o755) //nolint:gosec // G306: a test binary
+	}
+	return build, &calls
+}
+
+func drSum(b []byte) string {
+	s := sha256.Sum256(b)
+	return hex.EncodeToString(s[:])
+}
+
+func drName(arch string) string { return artifact.BinaryName(artifact.DerperVersion, arch) }
+
+func drRead(t *testing.T, path string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(path) //nolint:gosec // G304: a path under the test's temporary directory
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func drMissing(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("%s exists (stat error %v), want it absent", path, err)
+	}
+}
+
+func TestDrBuildsEveryArchAndWritesTheManifest(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "out")
+	build, calls := drFake("")
+	var stdout bytes.Buffer
+	if err := runDerper(context.Background(), []string{"1.4.0", out}, &stdout, build); err != nil {
+		t.Fatalf("runDerper: %v", err)
+	}
+	wantCalls := []drCall{
+		{artifact.DerperVersion, "amd64", filepath.Join(out, drName("amd64"))},
+		{artifact.DerperVersion, "arm64", filepath.Join(out, drName("arm64"))},
+	}
+	if len(*calls) != len(wantCalls) || (*calls)[0] != wantCalls[0] || (*calls)[1] != wantCalls[1] {
+		t.Errorf("builder calls %+v, want %+v", *calls, wantCalls)
+	}
+	m := artifact.Manifest{
+		DarkpanelVersion: "1.4.0",
+		DerperVersion:    artifact.DerperVersion,
+		Artifacts:        map[string]string{"amd64": drSum([]byte("derper amd64")), "arm64": drSum([]byte("derper arm64"))},
+	}
+	want, err := m.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := drRead(t, filepath.Join(out, artifact.ManifestName))
+	if !bytes.Equal(got, want) {
+		t.Errorf("derper.json =\n%s\nwant\n%s", got, want)
+	}
+	if parsed, err := artifact.ParseManifest(got); err != nil || parsed.Artifacts["amd64"] != m.Artifacts["amd64"] {
+		t.Errorf("ParseManifest = %+v, %v", parsed, err)
+	}
+	wantOut := fmt.Sprintf("%s  %s\n%s  %s\n", m.Artifacts["amd64"], drName("amd64"), m.Artifacts["arm64"], drName("arm64"))
+	if stdout.String() != wantOut {
+		t.Errorf("stdout = %q, want %q", stdout.String(), wantOut)
+	}
+	drMissing(t, filepath.Join(out, "checksums.txt"))
+}
+
+func TestDrOneArchWritesNoManifest(t *testing.T) {
+	out := t.TempDir()
+	build, calls := drFake("")
+	var stdout bytes.Buffer
+	if err := runDerper(context.Background(), []string{"1.4.0", out, "-arch", "arm64"}, &stdout, build); err != nil {
+		t.Fatalf("runDerper: %v", err)
+	}
+	if len(*calls) != 1 || (*calls)[0].arch != "arm64" {
+		t.Errorf("builder calls %+v, want one call for arm64", *calls)
+	}
+	if string(drRead(t, filepath.Join(out, drName("arm64")))) != "derper arm64" {
+		t.Error("the arm64 binary was not written to the output directory")
+	}
+	drMissing(t, filepath.Join(out, drName("amd64")))
+	drMissing(t, filepath.Join(out, artifact.ManifestName))
+	if want := drSum([]byte("derper arm64")) + "  " + drName("arm64") + "\n"; stdout.String() != want {
+		t.Errorf("stdout = %q, want %q", stdout.String(), want)
+	}
+}
+
+func TestDrRewritesChecksumsAsPackageShWritesThem(t *testing.T) {
+	out := t.TempDir()
+	files := map[string]string{
+		"ZZ-first.txt":                           "upper case sorts before lower case in byte order",
+		"darkpanel_1.4.0.cdx.json":               "{}",
+		"darkpanel_1.4.0_linux_amd64.tar.gz":     "tarball",
+		"install.sh":                             "#!/bin/sh\n",
+		"checksums.txt":                          "stale\n",
+		"checksums.txt.0123456789ABCDEF.minisig": "signature",
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(out, name), []byte(body), 0o644); err != nil { //nolint:gosec // G306: test files
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(out, "subdir"), 0o755); err != nil { //nolint:gosec // G301: a test directory
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(out, "subdir", "inner.txt"), []byte("inner"), 0o644); err != nil { //nolint:gosec // G306: test files
+		t.Fatal(err)
+	}
+
+	build, _ := drFake("")
+	if err := runDerper(context.Background(), []string{"1.4.0", out}, &bytes.Buffer{}, build); err != nil {
+		t.Fatalf("runDerper: %v", err)
+	}
+
+	bodies := map[string][]byte{
+		"ZZ-first.txt":                       []byte(files["ZZ-first.txt"]),
+		"darkpanel_1.4.0.cdx.json":           []byte("{}"),
+		"darkpanel_1.4.0_linux_amd64.tar.gz": []byte("tarball"),
+		"install.sh":                         []byte("#!/bin/sh\n"),
+		drName("amd64"):                      []byte("derper amd64"),
+		drName("arm64"):                      []byte("derper arm64"),
+		artifact.ManifestName:                drRead(t, filepath.Join(out, artifact.ManifestName)),
+	}
+	names := make([]string, 0, len(bodies))
+	for n := range bodies {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	var want strings.Builder
+	for _, n := range names {
+		fmt.Fprintf(&want, "%s  %s\n", drSum(bodies[n]), n)
+	}
+	if got := string(drRead(t, filepath.Join(out, "checksums.txt"))); got != want.String() {
+		t.Errorf("checksums.txt =\n%s\nwant\n%s", got, want.String())
+	}
+	if want := names[0]; want != "ZZ-first.txt" {
+		t.Fatalf("test setup: first name is %s", want)
+	}
+}
+
+func TestDrFailedBuildLeavesTheOutputUntouched(t *testing.T) {
+	out := t.TempDir()
+	if err := os.WriteFile(filepath.Join(out, "checksums.txt"), []byte("old\n"), 0o644); err != nil { //nolint:gosec // G306: test files
+		t.Fatal(err)
+	}
+	build, _ := drFake("arm64")
+	err := runDerper(context.Background(), []string{"1.4.0", out}, &bytes.Buffer{}, build)
+	if err == nil || !strings.Contains(err.Error(), "arm64") {
+		t.Fatalf("runDerper = %v, want an error naming arm64", err)
+	}
+	drMissing(t, filepath.Join(out, artifact.ManifestName))
+	if got := string(drRead(t, filepath.Join(out, "checksums.txt"))); got != "old\n" {
+		t.Errorf("checksums.txt = %q after a failed build, want it unchanged", got)
+	}
+}
+
+func TestDrRefusals(t *testing.T) {
+	out := t.TempDir()
+	tests := []struct {
+		name  string
+		args  []string
+		usage bool
+	}{
+		{"a tag instead of a version", []string{"v1.4.0", out}, false},
+		{"a development version", []string{"dev", out}, false},
+		{"an unknown architecture", []string{"1.4.0", out, "-arch", "riscv64"}, false},
+		{"no output directory", []string{"1.4.0"}, true},
+		{"no arguments", nil, true},
+		{"an architecture flag without a value", []string{"1.4.0", out, "-arch"}, true},
+		{"an unknown flag", []string{"1.4.0", out, "-march", "amd64"}, true},
+		{"a trailing word", []string{"1.4.0", out, "-arch", "amd64", "extra"}, true},
+	}
+	for _, tt := range tests {
+		build, calls := drFake("")
+		err := runDerper(context.Background(), tt.args, &bytes.Buffer{}, build)
+		if err == nil {
+			t.Errorf("%s: runDerper = nil, want an error", tt.name)
+			continue
+		}
+		if tt.usage && !strings.HasPrefix(err.Error(), "usage:") {
+			t.Errorf("%s: error %q, want the usage text", tt.name, err)
+		}
+		if len(*calls) != 0 {
+			t.Errorf("%s: the builder was called %d times, want none", tt.name, len(*calls))
+		}
+	}
+	entries, err := os.ReadDir(out)
+	if err != nil || len(entries) != 0 {
+		t.Errorf("a refused run wrote %v (read error %v), want an empty directory", entries, err)
+	}
+}
+
+func TestDrRunDispatchesTheSubcommand(t *testing.T) {
+	for _, args := range [][]string{{"derper"}, {"derper", "1.4.0"}, {"derper", "1.4.0", t.TempDir(), "-arch"}} {
+		if err := run(args, strings.NewReader(""), &bytes.Buffer{}); err == nil || !strings.HasPrefix(err.Error(), "usage:") {
+			t.Errorf("run(%q) = %v, want the usage error", args, err)
+		}
+	}
+	if !strings.Contains(usage, "releasetool derper <darkpanel version> <out dir> [-arch amd64|arm64]") {
+		t.Errorf("the usage text lacks the derper subcommand:\n%s", usage)
 	}
 }

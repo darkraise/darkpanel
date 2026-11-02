@@ -6,6 +6,7 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -22,7 +23,8 @@ const usage = `usage: releasetool check-tag <tag>
        releasetool index < release-list.json > releases.json
        releasetool latest <version> < release-list.json
        releasetool keyid <file.minisig>
-       releasetool check-build <version> <key id>[,<key id>] < version.json`
+       releasetool check-build <version> <key id>[,<key id>] < version.json
+       releasetool derper <darkpanel version> <out dir> [-arch amd64|arm64]`
 
 func main() {
 	if err := run(os.Args[1:], os.Stdin, os.Stdout); err != nil {
@@ -84,6 +86,8 @@ func run(args []string, stdin io.Reader, stdout io.Writer) error {
 		}
 		keys := strings.FieldsFunc(rest[1], func(r rune) bool { return r == ',' })
 		return checkBuild(info, rest[0], keys)
+	case cmd == "derper":
+		return runDerper(context.Background(), rest, stdout, buildDerper)
 	}
 	return errors.New(usage)
 }
