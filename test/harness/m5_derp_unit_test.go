@@ -131,6 +131,87 @@ func TestM5dUnitCommands(t *testing.T) {
 	}
 }
 
+func TestM5dUnitStunDiagnostics(t *testing.T) {
+	diags := m5dStunDiagnostics()
+	byLabel := map[string]m5dDiagnostic{}
+	counts := map[string]int{}
+	for _, d := range diags {
+		if d.Role != "agent" && d.Role != "scanner" {
+			t.Errorf("diagnostic %q has role %q, want agent or scanner", d.Label, d.Role)
+		}
+		if d.Label == "" || d.Command == "" {
+			t.Errorf("diagnostic %+v has an empty label or command", d)
+		}
+		if _, dup := byLabel[d.Role+"/"+d.Label]; dup {
+			t.Errorf("label %q is used twice on %s", d.Label, d.Role)
+		}
+		byLabel[d.Role+"/"+d.Label] = d
+		counts[d.Role]++
+	}
+	if counts["agent"] != 10 || counts["scanner"] != 4 {
+		t.Errorf("%d agent and %d scanner diagnostics, want 10 and 4", counts["agent"], counts["scanner"])
+	}
+	const request = "000100002112a4420102030405060708090a0b0c"
+	selfStun := 0
+	for _, d := range diags {
+		if !strings.HasPrefix(d.Command, "python3 -c ") {
+			continue
+		}
+		selfStun++
+		if d.Role != "agent" {
+			t.Errorf("STUN diagnostic %q runs on %q, want agent", d.Label, d.Role)
+		}
+		if !strings.HasSuffix(d.Command, " "+request+" 127.0.0.1 3478") && !strings.HasSuffix(d.Command, " "+request+" 198.18.0.11 3478") {
+			t.Errorf("STUN diagnostic %q is %q, want it to end with the request, 127.0.0.1 or 198.18.0.11, and 3478", d.Label, d.Command)
+		}
+	}
+	if selfStun != 2 {
+		t.Errorf("%d STUN diagnostics, want 2 (loopback and the agent's own address)", selfStun)
+	}
+	for _, want := range []struct{ role, command string }{
+		{"agent", "sudo ufw status verbose"},
+		{"agent", "sudo nft list ruleset"},
+		{"agent", "sudo iptables-save"},
+		{"agent", "ip -br addr"},
+		{"agent", "ip route"},
+		{"agent", "sudo ss -H -lunp"},
+		{"agent", "sysctl net.ipv4.conf.all.rp_filter net.ipv4.conf.default.rp_filter"},
+		{"agent", "sudo journalctl -u darkpanel-derper.service --no-pager -n 40"},
+		{"scanner", "ip -br addr"},
+		{"scanner", "ip route get 198.18.0.11"},
+		{"scanner", "sudo nft list ruleset"},
+		{"scanner", "sudo iptables-save"},
+	} {
+		found := false
+		for _, d := range diags {
+			found = found || (d.Role == want.role && d.Command == want.command)
+		}
+		if !found {
+			t.Errorf("no %s diagnostic runs %q", want.role, want.command)
+		}
+	}
+	for _, d := range diags {
+		if strings.Contains(d.Command, "tcpdump") {
+			t.Errorf("diagnostic %q uses tcpdump, which the images do not have", d.Label)
+		}
+	}
+}
+
+func TestM5dUnitCapDiagnostic(t *testing.T) {
+	if got := m5dCapDiagnostic("short", false); got != "short" {
+		t.Errorf("short output became %q", got)
+	}
+	long := strings.Repeat("a", 5000) + strings.Repeat("b", 5000)
+	head := m5dCapDiagnostic(long, false)
+	if len(head) > m5dDiagnosticCap+64 || !strings.HasPrefix(head, "a") || strings.Contains(head, "b") {
+		t.Errorf("head-capped output has %d bytes and does not keep the start", len(head))
+	}
+	tail := m5dCapDiagnostic(long, true)
+	if len(tail) > m5dDiagnosticCap+64 || !strings.HasSuffix(tail, "b") || strings.Contains(tail, "a") {
+		t.Errorf("tail-capped output has %d bytes and does not keep the end", len(tail))
+	}
+}
+
 func TestM5dUnitFlags(t *testing.T) {
 	on := flag.CommandLine.Lookup("m5d")
 	if on == nil || on.DefValue != "false" {

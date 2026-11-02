@@ -182,6 +182,30 @@ func (r *m5dRun) stun(t *testing.T) {
 	target := netip.AddrPortFrom(netip.MustParseAddr(r.cfg.HostName), server.STUNPort)
 	err := eventually(r.ctx, 30*time.Second, func(ctx context.Context) error { return m5dStun(ctx, r.f.scanner, target) })
 	if err != nil {
+		r.logStunDiagnostics(t)
 		t.Errorf("STUN binding to %s from the scanner: %v", target, err)
+	}
+}
+
+// m5dDiagnosticTimeout bounds each command of logStunDiagnostics.
+const m5dDiagnosticTimeout = 15 * time.Second
+
+// logStunDiagnostics logs what m5dStunDiagnostics collects. A command that fails is logged with its error and
+// never fails the test.
+func (r *m5dRun) logStunDiagnostics(t *testing.T) {
+	for _, d := range m5dStunDiagnostics() {
+		v := r.f.agent
+		if d.Role == "scanner" {
+			v = r.f.scanner
+		}
+		ctx, cancel := context.WithTimeout(r.ctx, m5dDiagnosticTimeout)
+		out, err := v.Run(ctx, d.Command)
+		cancel()
+		out = m5dCapDiagnostic(out, strings.Contains(d.Command, "journalctl"))
+		if err != nil {
+			t.Logf("diagnostic %s: %s\n$ %s\n%s\nerror: %v", d.Role, d.Label, d.Command, out, err)
+			continue
+		}
+		t.Logf("diagnostic %s: %s\n$ %s\n%s", d.Role, d.Label, d.Command, out)
 	}
 }

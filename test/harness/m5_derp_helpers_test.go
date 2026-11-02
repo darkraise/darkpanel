@@ -79,6 +79,49 @@ func m5dStunCommand(requestHex, address string, port int) string {
 	return "python3 -c " + m3dxShell(m5dStunScript, requestHex, address, strconv.Itoa(port))
 }
 
+// m5dDiagnosticCap is the most characters of one diagnostic's output that the log keeps.
+const m5dDiagnosticCap = 4000
+
+// m5dDiagnostic is one command that m5dStunDiagnostics runs on the VM of the given role, agent or scanner.
+type m5dDiagnostic struct {
+	Role    string
+	Label   string
+	Command string
+}
+
+// m5dStunDiagnostics are what a failed STUN step logs. The two self-requests tell "derper does not answer"
+// apart from "the network or the firewall drops the packet".
+func m5dStunDiagnostics() []m5dDiagnostic {
+	const request = "000100002112a4420102030405060708090a0b0c"
+	return []m5dDiagnostic{
+		{"agent", "STUN to loopback from the agent", m5dStunCommand(request, "127.0.0.1", server.STUNPort)},
+		{"agent", "STUN to the agent address from the agent", m5dStunCommand(request, agentIPv4, server.STUNPort)},
+		{"agent", "ufw status", "sudo ufw status verbose"},
+		{"agent", "nft ruleset", "sudo nft list ruleset"},
+		{"agent", "iptables rules", "sudo iptables-save"},
+		{"agent", "addresses", "ip -br addr"},
+		{"agent", "routes", "ip route"},
+		{"agent", "UDP listeners", "sudo ss -H -lunp"},
+		{"agent", "reverse path filter", "sysctl net.ipv4.conf.all.rp_filter net.ipv4.conf.default.rp_filter"},
+		{"agent", "derper journal", "sudo journalctl -u " + server.UnitName + " --no-pager -n 40"},
+		{"scanner", "addresses", "ip -br addr"},
+		{"scanner", "route to the agent", "ip route get " + agentIPv4},
+		{"scanner", "nft ruleset", "sudo nft list ruleset"},
+		{"scanner", "iptables rules", "sudo iptables-save"},
+	}
+}
+
+// m5dCapDiagnostic keeps at most m5dDiagnosticCap characters of out: its start, or its end when tail is set.
+func m5dCapDiagnostic(out string, tail bool) string {
+	if len(out) <= m5dDiagnosticCap {
+		return out
+	}
+	if tail {
+		return "[...cut]\n" + out[len(out)-m5dDiagnosticCap:]
+	}
+	return out[:m5dDiagnosticCap] + "\n[cut...]"
+}
+
 // m5dParseListeners reads the output of ss -H -ltunp, keeping the order of its lines.
 func m5dParseListeners(out string) ([]m5dListener, error) {
 	var ls []m5dListener
