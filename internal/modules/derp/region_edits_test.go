@@ -577,6 +577,7 @@ func TestReRemove(t *testing.T) {
 		h := reReady(t)
 		h.policy.Text = tt.policy
 		reSetUp(t, h, tt.set)
+		reRecord(t, h)
 		out, err := reRun(t, h, RegionEditsInput{Op: "remove", RegionID: 900})
 		if err != nil {
 			t.Errorf("%s: %v", tt.name, err)
@@ -601,7 +602,57 @@ func TestReRemove(t *testing.T) {
 	}
 }
 
-// TestReRemoveOfAnAbsentRegion: nothing to remove is an empty list, and the read needs no server, deploy or probe.
+// reRecord stores h1's server record with reStatus's host name, as the derp.servers service does.
+func reRecord(t *testing.T, h *dpHost) {
+	t.Helper()
+	err := upsertServerRecord(context.Background(), h.ctlDB, serverRecord{
+		HostID: "h1", Mode: "ip", HostName: reIP, RegionID: 900, RegionCode: "eu-derp", DerperVersion: "v1.104.1",
+		CertName: rePin, UnitActive: true, CheckedAt: h.clock.Now(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestReRemoveTakesOnlyTheServersGrant: the last region's removal takes only the grant of its own server's tag; an
+// operator's grant of the same shape for another tag stays, and when the server cannot be told the grant stays too,
+// with a warning.
+func TestReRemoveTakesOnlyTheServersGrant(t *testing.T) {
+	operator := `{"src": ["*"], "dst": ["tag:web"], "ip": ["tcp:443"]}`
+	base := `{"grants": [` + operator + `]}`
+	derpGrant := reJSON(t, visibilityGrant("tag:derp"))
+	del := reEdit{"delete", "/derpMap/Regions/900", nil}
+	t.Run("an operator grant for another tag", func(t *testing.T) {
+		h := reReady(t)
+		h.policy.Text = base
+		reSetUp(t, h, reSetInput())
+		reRecord(t, h)
+		out, err := reRun(t, h, RegionEditsInput{Op: "remove", RegionID: 900})
+		if err != nil {
+			t.Fatal(err)
+		}
+		reCheck(t, "remove", out.Edits, []reEdit{del, {"removeItem", "/grants", derpGrant}})
+		grants := reGrants(t, reApply(t, h.policy.Text, out.Edits))
+		if want := []any{reJSON(t, []byte(operator))}; !reflect.DeepEqual(grants, want) {
+			t.Errorf("grants after the removal %v, want only the operator's %v", grants, want)
+		}
+	})
+	t.Run("no record of the region's server", func(t *testing.T) {
+		h := reReady(t)
+		h.policy.Text = base
+		reSetUp(t, h, reSetInput())
+		out, err := reRun(t, h, RegionEditsInput{Op: "remove", RegionID: 900})
+		if err != nil {
+			t.Fatal(err)
+		}
+		reCheck(t, "remove", out.Edits, []reEdit{del})
+		if len(out.Warnings) != 1 || !strings.Contains(out.Warnings[0], "grant") || !strings.Contains(out.Warnings[0], reIP) {
+			t.Errorf("warnings %q, want one saying the grant of %s's server stays", out.Warnings, reIP)
+		}
+	})
+}
+
+// TestReRemoveOfAnAbsentRegion:nothing to remove is an empty list, and the read needs no server, deploy or probe.
 func TestReRemoveOfAnAbsentRegion(t *testing.T) {
 	h := newDPHost(t)
 	h.tailnet = true

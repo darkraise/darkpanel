@@ -362,13 +362,14 @@ func editSetEdits(m derpMap, doc map[string]any, region map[string]any, grant js
 }
 
 // editRemove computes the edits that withdraw region in.RegionID; the last custom region also takes the omit flag
-// and the module's visibility grants with it.
+// and its own server's visibility grant with it.
 func (d dp) editRemove(ctx context.Context, env core.Env, in RegionEditsInput) (RegionEdits, error) {
 	m, doc, err := d.editPolicy(ctx, env)
 	if err != nil {
 		return RegionEdits{}, err
 	}
-	if _, ok := m.Regions[in.RegionID]; !ok {
+	region, ok := m.Regions[in.RegionID]
+	if !ok {
 		return RegionEdits{}, nil
 	}
 	edits := []policy.Edit{{Op: "delete", Path: "/derpMap/Regions/" + strconv.Itoa(in.RegionID)}}
@@ -384,32 +385,59 @@ func (d dp) editRemove(ctx context.Context, env core.Env, in RegionEditsInput) (
 		edits = append(edits, e)
 	}
 	items, _ := doc["grants"].([]any)
-	for _, item := range items {
-		tag, ok := editGrantTag(item)
-		if !ok {
-			continue
+	if len(items) == 0 {
+		return RegionEdits{Edits: edits}, nil
+	}
+	tag, err := d.editRemovedTag(ctx, env, region)
+	if err != nil {
+		if cerr := ctx.Err(); cerr != nil {
+			return RegionEdits{}, cerr
 		}
-		grant := visibilityGrant(tag)
+		// An uncoded error's text may carry provider internals, so only a coded refusal's detail is shown.
+		why := "its tag could not be read"
+		if coded := errcode.From(err); coded.Code != errcode.Internal && coded.Detail != "" {
+			why = coded.Detail
+		}
+		return RegionEdits{Edits: edits, Warnings: []string{"the visibility grant of region " + strconv.Itoa(in.RegionID) +
+			"'s server stays in the policy: " + why}}, nil
+	}
+	grant := visibilityGrant(tag)
+	for _, item := range items {
 		same, err := editEqual(item, grant)
 		if err != nil {
 			return RegionEdits{}, err
 		}
 		if same {
 			edits = append(edits, policy.Edit{Op: "removeItem", Path: "/grants", Value: grant})
+			break
 		}
 	}
 	return RegionEdits{Edits: edits}, nil
 }
 
-// editGrantTag is the single string of a grant's dst; ok is false for any other shape.
-func editGrantTag(item any) (tag string, ok bool) {
-	obj, _ := item.(map[string]any)
-	dst, _ := obj["dst"].([]any)
-	if len(dst) != 1 {
-		return "", false
+// editRemovedTag is the tag of the visibility grant the set op added for region r's server: the server whose record
+// carries the host name of one of r's nodes, and the tag its status reports, checked as the set op checks it. A grant
+// of the same shape for another tag may be the operator's, so only this one is removed; when the server cannot be
+// found or read, none is.
+func (d dp) editRemovedTag(ctx context.Context, env core.Env, r derpRegion) (string, error) {
+	records, err := loadServerRecords(ctx, env.DB.Read())
+	if err != nil {
+		return "", err
 	}
-	tag, ok = dst[0].(string)
-	return tag, ok
+	var names []string
+	for _, n := range r.Nodes {
+		names = append(names, n.HostName)
+		i := slices.IndexFunc(records, func(rec serverRecord) bool { return strings.EqualFold(rec.HostName, n.HostName) })
+		if i < 0 {
+			continue
+		}
+		status, err := readStatus(ctx, env, records[i].HostID, nil)
+		if err != nil {
+			return "", editNotReady("the DERP status of host " + records[i].HostID + " cannot be read")
+		}
+		return d.editServerTag(ctx, env, status)
+	}
+	return "", editNotReady("no DERP server known to the controller serves " + strings.Join(names, ", "))
 }
 
 // editRotate computes the edit that puts the pin in.CertName on the server's nodes of region in.RegionID, keeping
