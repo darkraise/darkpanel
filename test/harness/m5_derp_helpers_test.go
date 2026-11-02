@@ -92,7 +92,7 @@ type m5dDiagnostic struct {
 // m5dStunDiagnostics are what a failed STUN step logs. The two self-requests tell "derper does not answer"
 // apart from "the network or the firewall drops the packet".
 func m5dStunDiagnostics() []m5dDiagnostic {
-	const request = "000100002112a4420102030405060708090a0b0c"
+	request := hex.EncodeToString(stun.Request([12]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}))
 	return []m5dDiagnostic{
 		{"agent", "STUN to loopback from the agent", m5dStunCommand(request, "127.0.0.1", server.STUNPort)},
 		{"agent", "STUN to the agent address from the agent", m5dStunCommand(request, agentIPv4, server.STUNPort)},

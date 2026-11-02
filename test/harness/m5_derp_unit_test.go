@@ -25,6 +25,7 @@ import (
 
 	"github.com/darkraise/darkpanel/internal/modules/derp/artifact"
 	"github.com/darkraise/darkpanel/internal/modules/derp/server"
+	"github.com/darkraise/darkpanel/internal/modules/tailscale/stun"
 )
 
 const m5dUnitSS = `tcp   LISTEN 0      4096               *:443              *:*    users:(("derper",pid=1058,fd=7))
@@ -151,7 +152,7 @@ func TestM5dUnitStunDiagnostics(t *testing.T) {
 	if counts["agent"] != 10 || counts["scanner"] != 4 {
 		t.Errorf("%d agent and %d scanner diagnostics, want 10 and 4", counts["agent"], counts["scanner"])
 	}
-	const request = "000100002112a4420102030405060708090a0b0c"
+	request := hex.EncodeToString(stun.Request([12]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}))
 	selfStun := 0
 	for _, d := range diags {
 		if !strings.HasPrefix(d.Command, "python3 -c ") {
