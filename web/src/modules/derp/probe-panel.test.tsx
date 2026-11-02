@@ -83,6 +83,11 @@ test("labels the region report as connectivity diagnostics and shows it only for
   expect(within(report).getByText("no STUN reply")).toBeTruthy()
   expect(within(report).getByText("TLS name mismatch")).toBeTruthy()
   expect(screen.queryByRole("region", { name: "Connectivity diagnostics from controller" })).toBeNull()
+  expect(within(report).getByText("Information")).toBeTruthy()
+  expect(within(report).getByText("Warnings")).toBeTruthy()
+  expect(within(report).getByText("Errors")).toBeTruthy()
+  expect(within(within(report).getByRole("list", { name: "Errors from web-1" })).getAllByRole("listitem").map((i) => i.textContent)).toEqual(["TLS name mismatch"])
+  expect(within(within(report).getByRole("list", { name: "Information from web-1" })).getAllByRole("listitem").map((i) => i.textContent)).toEqual(["DERP server answered"])
   expect(screen.getByText(/do not prove that two nodes can relay through it/)).toBeTruthy()
 })
 

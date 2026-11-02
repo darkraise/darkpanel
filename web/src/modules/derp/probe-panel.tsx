@@ -24,25 +24,28 @@ function yesNo(v: boolean): string {
   return v ? "Yes" : "No"
 }
 
-function ReportList({ items }: { items: string[] }) {
+function ReportList({ label, name, items }: { label: string; name: string; items: string[] }) {
   if (items.length === 0) return null
   return (
-    <ul className="list-disc pl-4 text-sm">
-      {items.map((item, i) => (
-        <li key={i}>{item}</li>
-      ))}
-    </ul>
+    <div className="flex flex-col gap-1">
+      <p className="text-sm font-medium">{label}</p>
+      <ul aria-label={name} className="list-disc pl-4 text-sm">
+        {items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    </div>
   )
 }
 
 function RegionReport({ name, report }: { name: string; report: RegionDiagnostics }) {
   const title = `Connectivity diagnostics from ${name}`
   return (
-    <section aria-label={title} className="flex flex-col gap-1">
+    <section aria-label={title} className="flex flex-col gap-2">
       <h3 className="text-sm font-medium">{title}</h3>
-      <ReportList items={report.info} />
-      <ReportList items={report.warnings} />
-      <ReportList items={report.errors} />
+      <ReportList label="Information" name={`Information from ${name}`} items={report.info} />
+      <ReportList label="Warnings" name={`Warnings from ${name}`} items={report.warnings} />
+      <ReportList label="Errors" name={`Errors from ${name}`} items={report.errors} />
     </section>
   )
 }
@@ -108,13 +111,7 @@ export function ProbePanel({ hostId }: { hostId: string }) {
       </div>
       <p>{probe.regionId === 0 ? "Region: not published" : `Region: ${probe.regionCode} (${probe.regionId})`}</p>
       <p>{`${probe.server.hostName}, derper ${probe.server.derperVersion}, ${probe.server.unitActive ? "unit active" : "unit inactive"}`}</p>
-      {probe.warnings.length > 0 && (
-        <ul aria-label="Warnings" className="list-disc pl-4 text-sm">
-          {probe.warnings.map((w, i) => (
-            <li key={i}>{w}</li>
-          ))}
-        </ul>
-      )}
+      <ReportList label="Warnings" name="Warnings" items={probe.warnings} />
       <SourcesTable sources={probe.sources} />
       {probe.sources.map((s) => s.region !== null && <RegionReport key={s.source} name={s.name} report={s.region} />)}
       {probe.sources.some((s) => s.region !== null) && (
