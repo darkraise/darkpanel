@@ -4385,7 +4385,7 @@ a spec change.
   |---|---|---|
   | proxy host | its exact `domain_names` set, plus `created_on` not before the intent's time | plan and apply both check that no proxy host has any of the domains, and NPM refuses a second proxy host for a domain |
   | access list | name `darkpanel-<change id>-<seq>` | the name contains the change id |
-  | certificate | `nice_name` `darkpanel-<change id>-<seq>` if the 6a spike shows NPM keeps a given `nice_name` for Let's Encrypt certificates; otherwise its exact `domain_names` set plus `created_on` not before the intent's time | the name (first form); the second form is **not** exclusive |
+  | certificate | its exact `domain_names` set, plus `created_on` not before the intent's time | **not** exclusive: NPM overwrites a given `nice_name` for Let's Encrypt certificates |
 
   **Settlement.** NPM calls are not `Local` (1.2): `CommitBy` is the
   call's start plus 2 minutes (proxy hosts, access lists) or 10 minutes
@@ -4404,10 +4404,12 @@ a spec change.
 
   Darkpanel never deletes an object it cannot tie to the change by an
   exclusive identity unless the operator has resolved that match with
-  `reconcile`. The 6a spike confirms against the pinned image that
-  proxy-host domains are enforced unique, that access-list names are kept
-  as given, whether a certificate's `nice_name` is kept as given, and that
-  `created_on` is returned; its result is recorded in this table.
+  `reconcile`. The 6a spike confirmed against `2.16.0` that proxy-host
+  domains are enforced unique, that access-list names are kept as given,
+  that a Let's Encrypt certificate's `nice_name` is not kept as given (NPM
+  overwrites it with its domains), and that `created_on` is returned; its
+  result is recorded in this table and in
+  `docs/dforge/notes/v1-w6a-npm-spike.md`.
 - **Reserved resources.** Proxy hosts, access lists and certificates
   created by `npm.admin.expose` or `panel.exposure.add` are recorded in
   `npm_reserved` (object id, owning exposure). `npm.proxyhost.add` and
@@ -4437,9 +4439,12 @@ a spec change.
   A target only on the default `bridge`, on `host`, `none`, or a
   non-bridge driver is refused in the preview with `npm.unsupported_target`
   (`cloudflare.unsupported_target` for a tunnel exposure) and the reason "connect the container to a user-defined network". The 6a
-  spike checks that a container with a Docker-generated name resolves by
-  that name on a user-defined network; if it does not, such targets are
-  refused the same way.
+  spike could not settle from sources whether a container with a
+  Docker-generated name resolves by that name on a user-defined network
+  (Docker's bridge documentation says automatic service discovery resolves
+  only custom container names; the moby source registers the container's
+  name whether or not it was generated); the wave 6a harness exercises it,
+  and if it does not resolve, such targets are refused the same way.
 - **Expose container (R67).** `npm.expose.container` (composite) requires a
   confirmed public instance (`npm.not_public` otherwise). Steps: `network`
   (`npm.network.attach`: attach `darkpanel-npm` to the target's network),
@@ -4480,9 +4485,11 @@ a spec change.
     server rejects). A client-sent `X-Darkpanel-Client` is replaced, because
     a `proxy_set_header` for a field redefines it.
 
-  The 6a spike renders the configuration from the pinned digest and checks
-  the result against this list (a template change in a later image fails
-  the spike, and the list is updated here); the harness sends an ordinary
+  The 6a spike re-checked this list against `2.16.0` (the templates and
+  `backend/internal/nginx.js` at that tag, recorded in
+  `docs/dforge/notes/v1-w6a-npm-spike.md`) and found no difference that
+  changes what Darkpanel puts in `advanced_config` (a template change in a
+  later image fails the spike, and the list is updated here); the harness sends an ordinary
   request that must succeed with exactly one `Host` header, and requests
   with a missing and a forged `X-Darkpanel-Client`, which must arrive
   overwritten.
