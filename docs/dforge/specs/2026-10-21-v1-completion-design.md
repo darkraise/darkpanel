@@ -4127,7 +4127,8 @@ empty list or map as equal, addresses in canonical `netip` form.
   (`derper` → `derper.prev`, then `derper.new` → `derper`, all
   declared kind `file` paths, 1.8), restart, and
   health-check for up to 60 s (the unit active, TLS `/derp/probe`, STUN, and
-  derper's log showing that it reached tailscaled for client verification);
+  tailscaled answering its local API Status in place of derper's log, which no
+  allowlisted command reads: see the recorded contract below);
   a failed check or an interrupted swap restores `derper.prev` from the
   journal, locally, without the controller.
 - **Probe (R64).** `derp.server.probe` (read): TLS `/derp/probe` and STUN
@@ -4141,6 +4142,108 @@ empty list or map as equal, addresses in canonical `netip` form.
   live-step demonstration (12): two test-tailnet nodes with direct UDP
   blocked between them, the custom region the only one in the map, and
   `tailscale ping` traffic shown relayed through it.
+- **Recorded contract (DERP, checked 2026-11-02).** What Tailscale's public
+  sources, two documentation pages and a build of `cmd/derper` show, recorded
+  for the tasks that build this module; nothing was installed or run.
+  - **Sources:** tag `v1.104.1`: `cmd/derper/derper.go`, `cmd/derper/cert.go`,
+    `cmd/derper/mesh.go`, `cmd/derper/bootstrap_dns.go`,
+    `derp/derpserver/derpserver.go`, `derp/derpserver/handler.go`,
+    `tailcfg/derpmap.go`, `net/tlsdial/tlsdial.go`, `ipn/localapi/localapi.go`,
+    `ipn/ipnserver/actor.go`, `ipn/ipnserver/server.go`,
+    `safesocket/unixsocket.go`, `safesocket/safesocket.go`,
+    `client/local/local.go`, `paths/paths.go`, `go.mod`; tag `v1.82.0`:
+    `ipn/localapi/localapi.go`; https://tailscale.com/kb/1118/custom-derp-servers
+    and https://tailscale.com/kb/1337/policy-syntax; the Go module proxy
+    (`tailscale.com@v1.104.1`). `derp/derp_server.go` is 404 at `v1.104.1`:
+    the server is in `derp/derpserver`.
+  - **Flags:** `cmd/derper/derper.go` defines each flag under the plan's name:
+    `-c` string (""), `-a` string (":443"), `-http-port` int (80; -1
+    disables), `-stun` bool (true), `-stun-port` int (3478), `-hostname`
+    string ("derp.tailscale.com"), `-certmode` string ("letsencrypt"),
+    `-certdir` string, `-verify-clients` bool (false); booleans take no value.
+    `-certmode` accepts `letsencrypt`, `gcp` and `manual`. `letsencrypt` serves
+    the ACME challenge through the `-http-port` listener's root handler,
+    `certManager.HTTPHandler`. `GET` and `HEAD` of `/derp/probe` answer 200
+    with an empty body (other methods 405) on the mux that the `-a` listener
+    serves over TLS when its port is 443 or `-certmode` is `manual`.
+    `-verify-client-url` (string, "") and `-verify-client-url-fail-open` (bool,
+    true) exist; neither is used. Without `-c` a non-root derper exits; derper
+    itself creates the key file at first start with mode 0600 (and its
+    directory if missing). Matches the plan: yes
+  - **Verify clients:** (a) `Server.verifyClient` calls `WhoIsNodeKey` of
+    `client/local`, which sends `GET /localapi/v0/whois?addr=nodekey:...`; a
+    404 is `ErrPeerNotFound` and refuses the client. (b) The socket is
+    `paths.DefaultTailscaledSocket()`, `/var/run/tailscale/tailscaled.sock` on
+    Linux; `-socket <path>` replaces it. (c) The handler demands `PermitRead`.
+    `ipnserver` grants read to every connection on the Unix socket and write
+    only to root or the operator; tailscaled makes the socket mode 0666 on
+    Linux (peer credentials), so a user that is neither can connect and read.
+    (d) With tailscaled silent the client is refused ("failed to query local
+    tailscaled status"); derper still starts, as only per-client checks and
+    `/debug/check` use the local client. (e) `-verify-client-url-fail-open`
+    governs only the `-verify-client-url` POST. Conclusion: non-root works
+    (read from the source, not run). Fail-open: no flag makes `-verify-clients`
+    fail open; any error from tailscaled refuses the client.
+  - **Version coupling:** Outcome: unbacked. The custom-DERP page
+    (https://tailscale.com/kb/1118/custom-derp-servers) says only "To stay
+    compatible with Tailscale client updates, you might need to update DERP
+    servers periodically" and to run tailscaled on the same device with
+    `--verify-clients`; no source comment ties derper's version to
+    tailscaled's. `derpserver.go` refuses a client with "tailscaled version is
+    too old (out of sync with derper binary)" when tailscaled rejects the
+    `nodekey:` form of `addr` (Issue 12617): a runtime message, not a
+    same-version statement. The pin and hold stay on an unbacked assumption.
+    Supporting facts, not proof: the whois handler's `nodekey:` branch, through
+    its 404, is identical at `v1.82.0` and `v1.104.1`.
+  - **Certificate:** With `-certmode manual` and an IP `-hostname`, derper
+    reads `<certdir>/<name>.crt` and `<name>.key`, `<name>` being the hostname
+    with every character outside `[a-zA-Z0-9-.]` removed: the address itself
+    for IPv4, but `2001db81` for `2001:db8::1`. When loading fails with a
+    not-exist error it makes a self-signed ECDSA P-256 certificate (subject CN
+    the address, one IP SAN, NotBefore now, NotAfter now plus one year); `.crt`
+    mode 0644, `.key` 0600, the directory made (0700) if missing. The files are
+    read once at start and no expiry is checked. The pin is `sha256-raw:` plus
+    the lower-case hex SHA-256 of the leaf DER; `tlsdial` accepts exactly one
+    non-meta certificate, compares that hex, checks the hostname when one is
+    dialed, then rejects it after NotAfter or before NotBefore. derper appends
+    a meta certificate to the chain. Starts without a tailnet: yes
+    Matches the plan: no (IPv6 file names only; IPv4 matches)
+  - **Region node:** JSON names are the Go field names. `DERPNode`: `Name`
+    (unique across all regions, not a host name, typically region id plus a
+    suffix such as "2a"), `RegionID`, `HostName` (required), `CertName`
+    (expected certificate name, default `HostName`; `sha256-raw:` plus hex
+    SHA-256 pins a self-signed certificate, `HostName` then an IP literal),
+    `IPv4` and `IPv6` (force an address instead of DNS; a string that is not
+    an address of that family disables it, conventionally "none"), `STUNPort`
+    (0 means 3478, -1 disables STUN), `STUNOnly`, `DERPPort` (0 means 443).
+    `DERPRegion`: `RegionID` (positive; 900-999 reserved for end users),
+    `RegionCode` (short code), `RegionName` (long English name), `Nodes`.
+    `Regions` (keyed by id) and `OmitDefaultRegions` sit side by side under
+    `derpMap` (custom-DERP page); the page spells the latter as the plan does,
+    the Go struct tag as `omitDefaultRegions`; policy-syntax lists no fields.
+    Matches the plan: yes
+  - **Visibility grant:** `{"src": ["*"], "dst": ["<tag>"], "ip": ["tcp:443"]}` not documented; the provisional grant stands.
+    Neither https://tailscale.com/kb/1118/custom-derp-servers nor
+    https://tailscale.com/kb/1337/policy-syntax says what makes a client
+    visible to the DERP host's tailscaled; the first only says to run
+    tailscaled on the same device and start derper with `--verify-clients`.
+    The grant shape (`src`, `dst`, `ip`) is the policy page's; its examples use
+    only `"ip": ["*"]`, so `tcp:443` is unconfirmed, and minimality and
+    sufficiency rest on the live demonstration (12).
+  - **Build:** Built: CGO_ENABLED=0 go1.27.3, amd64 17662112 bytes, arm64 16449696 bytes
+    (`go get tailscale.com/cmd/derper@v1.104.1` in a temporary module, then
+    `go build -trimpath -ldflags "-s -w"`, `GOTOOLCHAIN=local`); both under the
+    128 MiB limit of 134217728. `go version -m` reports `build CGO_ENABLED=0`
+    and `mod tailscale.com v1.104.1` for both architectures. tailscale.com
+    `v1.104.1`'s `go.mod` says `go 1.27.1` (no `toolchain` line); this
+    repository has `go 1.27` and `toolchain go1.27.3`. Not run.
+  - **Health check:** The binary update's health check uses
+    "tailscaled answers `Status` on its socket" in place of "derper's log
+    showing that it reached tailscaled": the exec allowlist has no command
+    that reads a journal.
+  - **Divergences:**
+    - DERP server unit — CertFiles returns "<ip>.crt" and "<ip>.key" for the ip mode's address, an IPv4 or IPv6 literal → derper names the files after the hostname with every character outside [a-zA-Z0-9-.] removed, so an IPv4 literal is unchanged but an IPv6 literal loses its colons (2001:db8::1 gives 2001db81.crt and 2001db81.key) — https://raw.githubusercontent.com/tailscale/tailscale/v1.104.1/cmd/derper/cert.go
+    - DERP install, update and renewal effects — install waits for, and cert.renew renames, certs/<ip>.crt and certs/<ip>.key for the ip mode's address → for an IPv6 address derper writes those files without the address's colons (certs/2001db81.crt for 2001:db8::1), so those waits and RenameIn calls name files that do not exist — https://raw.githubusercontent.com/tailscale/tailscale/v1.104.1/cmd/derper/cert.go
 - Controller table `derp_servers` (host, mode, hostname or address, region
   id, derper version, certificate pin). Web: `/derp`.
 
