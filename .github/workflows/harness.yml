@@ -47,14 +47,14 @@ jobs:
       - name: Build the tslocal live test
         run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go test -c -o bin/harness/tslocal.test ./internal/platform/tslocal
       # The derper that TestM5DERP installs on a VM, built for amd64 only. The
-      # cache key is the derper version, so a bump of release/derper.version
-      # rebuilds it.
+      # cache key covers the derper version, the build code and go.mod's
+      # toolchain, so a change to any of them rebuilds it.
       - name: Cache the derper build
         id: derper-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: bin/harness/derper-*
-          key: harness-derper-${{ hashFiles('release/derper.version') }}
+          key: harness-derper-${{ hashFiles('release/derper.version', 'release/releasetool/derper.go', 'go.mod') }}
       - name: Build derper
         if: steps.derper-cache.outputs.cache-hit != 'true'
         run: go run ./release/releasetool derper 0.0.0 bin/harness -arch amd64

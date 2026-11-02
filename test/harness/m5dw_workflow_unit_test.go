@@ -48,7 +48,7 @@ func m5dwWorkflow(yml string) error {
 		name string
 		want []string
 	}{
-		{m5dwCacheStep, []string{"id: derper-cache", "actions/cache@", "path: bin/harness/derper-*", "key: harness-derper-${{ hashFiles('release/derper.version') }}"}},
+		{m5dwCacheStep, []string{"id: derper-cache", "actions/cache@", "path: bin/harness/derper-*", "key: harness-derper-${{ hashFiles('release/derper.version', 'release/releasetool/derper.go', 'go.mod') }}"}},
 		{m5dwBuildStep, []string{"if: steps.derper-cache.outputs.cache-hit != 'true'", "go run ./release/releasetool derper 0.0.0 bin/harness -arch amd64"}},
 	} {
 		step, ok := m4lStep(build, s.name)
@@ -135,7 +135,7 @@ const (
         uses: actions/cache@x
         with:
           path: bin/harness/derper-*
-          key: harness-derper-${{ hashFiles('release/derper.version') }}
+          key: harness-derper-${{ hashFiles('release/derper.version', 'release/releasetool/derper.go', 'go.mod') }}
       - name: Build derper
         if: steps.derper-cache.outputs.cache-hit != 'true'
         run: go run ./release/releasetool derper 0.0.0 bin/harness -arch amd64
@@ -207,7 +207,9 @@ func TestM5dwUnitWorkflow(t *testing.T) {
 	for _, tc := range []struct{ name, from, to, want string }{
 		{"no cache step", "Cache the derper build", "Cache something", `no step named "Cache the derper build"`},
 		{"cache of everything", "path: bin/harness/derper-*", "path: bin/harness/*", "path: bin/harness/derper-*"},
-		{"key not the version", "hashFiles('release/derper.version')", "hashFiles('go.sum')", "hashFiles('release/derper.version')"},
+		{"key not the version", "hashFiles('release/derper.version',", "hashFiles('go.sum',", "release/derper.version"},
+		{"key not the build source", ", 'release/releasetool/derper.go'", "", "release/releasetool/derper.go"},
+		{"key not the toolchain", ", 'go.mod'", "", "go.mod"},
 		{"no cache id", "        id: derper-cache\n", "", "id: derper-cache"},
 		{"no build step", "Build derper", "Build something", `no step named "Build derper"`},
 		{"build on every run", "        if: steps.derper-cache.outputs.cache-hit != 'true'\n", "", "cache-hit"},
