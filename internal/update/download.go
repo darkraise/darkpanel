@@ -59,32 +59,8 @@ func Download(ctx context.Context, client *http.Client, baseURL string, keys []t
 		return "", fmt.Errorf("update: %q is not an architecture", arch)
 	}
 	base := strings.TrimSuffix(baseURL, "/") + "/v" + rel.Version + "/"
-	checksums, err := fetchBytes(ctx, client, base+"checksums.txt", maxChecksumsBytes)
-	if errors.Is(err, errNotServed) {
-		return "", errcode.Wrap(errcode.UpdateNotFound, err, fmt.Sprintf("release %s is not published", rel.Version))
-	}
+	checksums, err := verifiedChecksums(ctx, client, base, keys, rel)
 	if err != nil {
-		return "", err
-	}
-	sigs := map[string][]byte{}
-	var fetchErr error
-	for _, k := range keys {
-		sig, err := fetchBytes(ctx, client, base+"checksums.txt."+k.ID+".minisig", maxSignatureBytes)
-		switch {
-		case err == nil:
-			sigs[k.ID] = sig
-		case !errors.Is(err, errNotServed) && fetchErr == nil:
-			fetchErr = err
-		}
-	}
-	// A cancelled download must not be reported as a bad signature.
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	if err := VerifyChecksums(checksums, sigs, keys, rel.Version, rel.Channel); err != nil {
-		if fetchErr != nil {
-			return "", fetchErr
-		}
 		return "", err
 	}
 	name := TarballName(rel.Version, arch)
@@ -108,6 +84,42 @@ func Download(ctx context.Context, client *http.Client, baseURL string, keys []t
 		return "", errors.Join(err, removeIfExists(binary))
 	}
 	return binary, nil
+}
+
+// verifiedChecksums fetches base's checksums.txt and one signature file per
+// trusted key (a missing one is skipped) and returns checksums.txt once it
+// verifies against rel's version and channel. A signature file that cannot be
+// fetched is reported only when no other signature verifies.
+func verifiedChecksums(ctx context.Context, client *http.Client, base string, keys []trustedkeys.Key, rel Release) ([]byte, error) {
+	checksums, err := fetchBytes(ctx, client, base+"checksums.txt", maxChecksumsBytes)
+	if errors.Is(err, errNotServed) {
+		return nil, errcode.Wrap(errcode.UpdateNotFound, err, fmt.Sprintf("release %s is not published", rel.Version))
+	}
+	if err != nil {
+		return nil, err
+	}
+	sigs := map[string][]byte{}
+	var fetchErr error
+	for _, k := range keys {
+		sig, err := fetchBytes(ctx, client, base+"checksums.txt."+k.ID+".minisig", maxSignatureBytes)
+		switch {
+		case err == nil:
+			sigs[k.ID] = sig
+		case !errors.Is(err, errNotServed) && fetchErr == nil:
+			fetchErr = err
+		}
+	}
+	// A cancelled download must not be reported as a bad signature.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := VerifyChecksums(checksums, sigs, keys, rel.Version, rel.Channel); err != nil {
+		if fetchErr != nil {
+			return nil, fetchErr
+		}
+		return nil, err
+	}
+	return checksums, nil
 }
 
 // checksumFor returns the hash checksums.txt lists for name, in sha256sum's
