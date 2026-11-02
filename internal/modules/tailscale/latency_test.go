@@ -194,6 +194,46 @@ func TestLtProbeURLs(t *testing.T) {
 			{Name: "1d", HostName: "d.example.net"},
 		}, []string{ltURL("d.example.net")}},
 		{"no node", nil, nil},
+		{"a host name that changes the meaning of the URL is skipped", []*tslocal.DERPNode{
+			{Name: "1a", HostName: "a.example.net/admin"},
+			{Name: "1b", HostName: "a.example.net?x=1"},
+			{Name: "1c", HostName: "a.example.net#x"},
+			{Name: "1d", HostName: "user@a.example.net"},
+			{Name: "1e", HostName: `a.example.net\x`},
+			{Name: "1f", HostName: "a.example .net"},
+			{Name: "1g", HostName: "a.example.net\t"},
+			{Name: "1h", HostName: "a.example.net\n"},
+			{Name: "1i", HostName: "a.example\x00.net"},
+			{Name: "1j", HostName: "a.example\x7f.net"},
+			{Name: "1k", HostName: "ok.example.net"},
+		}, []string{ltURL("ok.example.net")}},
+		{"a colon outside an IPv6 literal is skipped", []*tslocal.DERPNode{
+			{Name: "1a", HostName: "a.example.net:8080"},
+			{Name: "1b", HostName: "10.0.0.1:80"},
+			{Name: "1c", HostName: "[2001:db8::1]"},
+			{Name: "1d", HostName: "2001:db8::1:zz"},
+			{Name: "1e", HostName: "ok.example.net"},
+		}, []string{ltURL("ok.example.net")}},
+		{"IP literals: IPv6 in brackets, a port after the brackets", []*tslocal.DERPNode{
+			{Name: "1a", HostName: "192.0.2.1", DERPPort: 8443},
+			{Name: "1b", HostName: "2001:db8::1"},
+			{Name: "1c", HostName: "2001:db8::2", DERPPort: 8443},
+		}, []string{
+			"https://192.0.2.1:8443/derp/latency-check",
+			"https://[2001:db8::1]/derp/latency-check",
+			"https://[2001:db8::2]:8443/derp/latency-check",
+		}},
+		{"a port above 65535 is skipped and 65535 is kept", []*tslocal.DERPNode{
+			{Name: "1a", HostName: "a.example.net", DERPPort: 65536},
+			{Name: "1b", HostName: "b.example.net", DERPPort: 70000},
+			{Name: "1c", HostName: "c.example.net", DERPPort: 65535},
+			{Name: "1d", HostName: "d.example.net", DERPPort: 443},
+		}, []string{"https://c.example.net:65535/derp/latency-check", ltURL("d.example.net")}},
+		{"an IPv6 literal with a zone is skipped", []*tslocal.DERPNode{
+			{Name: "1a", HostName: "fe80::1%eth0"},
+			{Name: "1b", HostName: "fe80::1%a/b"},
+			{Name: "1c", HostName: "ok.example.net"},
+		}, []string{ltURL("ok.example.net")}},
 	}
 	for _, tt := range tests {
 		got := latencyProbeURLs(&tslocal.DERPRegion{Nodes: tt.nodes})
