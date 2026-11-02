@@ -526,6 +526,67 @@ func TestDrChecksumsFlagNeedsTheReleaseChecksums(t *testing.T) {
 	}
 }
 
+// drReleaseYML is the release workflow the release job runs.
+const drReleaseYML = "../../.github/workflows/release.yml"
+
+// drReleaseWorkflow checks that release.yml's build job runs `releasetool derper` with -checksums after `make
+// release` writes bin/release and its checksums.txt, and before the build job attests and uploads bin/release for
+// the sign job.
+func drReleaseWorkflow(yml string) error {
+	_, rest, ok := strings.Cut(yml, "\n  build:\n")
+	if !ok {
+		return errors.New("the workflow has no build job")
+	}
+	job, after, _ := strings.Cut(rest, "\n  sign:\n")
+	if !strings.Contains(after, "needs: [verify, build]") {
+		return errors.New("the sign job does not need the build job")
+	}
+	steps := []string{
+		`- run: make release VERSION="$VERSION"`,
+		`run: go run ./release/releasetool derper "$VERSION" bin/release -checksums`,
+		`subject-path: bin/release/*`,
+		`name: release-files`,
+	}
+	last := -1
+	for _, s := range steps {
+		i := strings.Index(job, s)
+		if i < 0 {
+			return fmt.Errorf("the build job lacks %s", s)
+		}
+		if i < last {
+			return fmt.Errorf("the build job has %s before the step it must follow", s)
+		}
+		last = i
+	}
+	return nil
+}
+
+// TestDrReleaseWorkflowBuildsDerper checks the committed release.yml, which is the only place a released derper and
+// its derper.json are built, and that the check fails when the step is dropped or moved after the upload.
+func TestDrReleaseWorkflowBuildsDerper(t *testing.T) {
+	b, err := os.ReadFile(drReleaseYML)
+	if err != nil {
+		t.Fatal(err)
+	}
+	yml := string(b)
+	if err := drReleaseWorkflow(yml); err != nil {
+		t.Fatal(err)
+	}
+	const step = "      - name: Build derper and its manifest\n        run: go run ./release/releasetool derper \"$VERSION\" bin/release -checksums\n"
+	if !strings.Contains(yml, step) {
+		t.Fatalf("test setup: the workflow does not hold the step as %q", step)
+	}
+	dropped := strings.Replace(yml, step, "", 1)
+	if err := drReleaseWorkflow(dropped); err == nil {
+		t.Error("the check passed a workflow without the derper step")
+	}
+	const upload = "          name: release-files\n"
+	moved := strings.Replace(strings.Replace(dropped, upload, upload+"__STEP__", 1), "__STEP__", step, 1)
+	if err := drReleaseWorkflow(moved); err == nil {
+		t.Error("the check passed a workflow that builds derper after the upload")
+	}
+}
+
 func TestDrRunDispatchesTheSubcommand(t *testing.T) {
 	for _, args := range [][]string{{"derper"}, {"derper", "1.4.0"}, {"derper", "1.4.0", t.TempDir(), "-arch"}} {
 		if err := run(args, strings.NewReader(""), &bytes.Buffer{}); err == nil || !strings.HasPrefix(err.Error(), "usage:") {
