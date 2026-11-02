@@ -1,0 +1,347 @@
+{
+  "name": "derp.server.probe",
+  "version": 1,
+  "class": "read",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ServerProbeInput",
+    "$defs": {
+      "ServerProbeInput": {
+        "properties": {
+          "hostId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Id of the host running the DERP server."
+          },
+          "agents": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 8,
+            "description": "Ids of the hosts that probe it; absent picks the other hosts."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "hostId"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ServerProbe",
+    "$defs": {
+      "NodeUse": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The device name, or the host name when the tailnet is not connected."
+          },
+          "address": {
+            "type": "string",
+            "description": "The node's Tailscale address."
+          },
+          "hostId": {
+            "type": "string",
+            "description": "Id of the Darkpanel host of the node; empty when it is none."
+          },
+          "visible": {
+            "type": "boolean",
+            "description": "Whether the DERP host's tailscaled knows the node."
+          },
+          "preferred": {
+            "type": "string",
+            "description": "The node's home region code; empty when unknown."
+          },
+          "observed": {
+            "type": "boolean",
+            "description": "Whether a peer of the node is relayed through this region now."
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "address",
+          "hostId",
+          "visible",
+          "preferred",
+          "observed"
+        ]
+      },
+      "ProbeResult": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the probe succeeded."
+          },
+          "latencyMs": {
+            "type": "number",
+            "description": "The round trip in milliseconds; 0 when not OK."
+          },
+          "error": {
+            "type": "string",
+            "description": "Why the probe failed; empty when OK."
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "latencyMs",
+          "error"
+        ]
+      },
+      "ProbeSource": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "description": "controller, or the id of the probing host."
+          },
+          "name": {
+            "type": "string",
+            "description": "controller, or the name of the probing host."
+          },
+          "tls": {
+            "$ref": "#/$defs/ProbeResult",
+            "description": "The TLS probe of /derp/probe."
+          },
+          "stun": {
+            "$ref": "#/$defs/ProbeResult",
+            "description": "The STUN probe."
+          },
+          "region": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/RegionDiagnostics",
+                "description": "The source's region diagnostics; null when none were read."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "type": "string",
+            "description": "Why the agent read failed; empty when it succeeded."
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "name",
+          "tls",
+          "stun",
+          "region",
+          "error"
+        ]
+      },
+      "RegionDiagnostics": {
+        "properties": {
+          "info": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The report's informational lines."
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The report's warnings."
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The report's errors."
+          }
+        },
+        "type": "object",
+        "required": [
+          "info",
+          "warnings",
+          "errors"
+        ]
+      },
+      "ServerProbe": {
+        "properties": {
+          "hostId": {
+            "type": "string",
+            "description": "Id of the host running the DERP server."
+          },
+          "regionId": {
+            "type": "integer",
+            "description": "The server's region id; 0 when the region is not published."
+          },
+          "regionCode": {
+            "type": "string",
+            "description": "The server's region code; empty when the region is not published."
+          },
+          "server": {
+            "$ref": "#/$defs/ServerStatus",
+            "description": "The DERP host's status."
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/$defs/ProbeSource"
+            },
+            "type": "array",
+            "description": "The probes: the controller first, then the agents in input order."
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/$defs/NodeUse"
+            },
+            "type": "array",
+            "description": "The tailnet's nodes and how they use the region."
+          },
+          "ready": {
+            "type": "boolean",
+            "description": "Whether the probes back publishing the region."
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Warnings about the probes."
+          }
+        },
+        "type": "object",
+        "required": [
+          "hostId",
+          "regionId",
+          "regionCode",
+          "server",
+          "sources",
+          "nodes",
+          "ready",
+          "warnings"
+        ]
+      },
+      "ServerStatus": {
+        "properties": {
+          "installed": {
+            "type": "boolean",
+            "description": "Whether a DERP server is installed on the host."
+          },
+          "mode": {
+            "type": "string",
+            "description": "The server's certificate mode; empty when not installed."
+          },
+          "hostName": {
+            "type": "string",
+            "description": "The server's DNS name or public IP literal."
+          },
+          "verifyClients": {
+            "type": "boolean",
+            "description": "Whether derper admits only nodes of this tailnet."
+          },
+          "derperVersion": {
+            "type": "string",
+            "description": "The derper version installed."
+          },
+          "unitActive": {
+            "type": "boolean",
+            "description": "Whether derper's unit is active."
+          },
+          "certName": {
+            "type": "string",
+            "description": "The certificate pin in ip mode; empty for letsencrypt."
+          },
+          "certNotAfter": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "When the ip certificate expires; null for letsencrypt."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "availableVersion": {
+            "type": "string",
+            "description": "The derper version this agent's release carries."
+          },
+          "linkViaTailnet": {
+            "type": "boolean",
+            "description": "Whether the agent reaches its controller over a Tailscale address."
+          },
+          "onTailnet": {
+            "type": "boolean",
+            "description": "Whether tailscaled answers with BackendState Running."
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The node's tags, sorted; empty when none."
+          },
+          "addresses": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The node's Tailscale addresses, IPv4 first."
+          },
+          "visible": {
+            "items": {
+              "$ref": "#/$defs/Visibility"
+            },
+            "type": "array",
+            "description": "One entry per looked-up address, in input order."
+          }
+        },
+        "type": "object",
+        "required": [
+          "installed",
+          "mode",
+          "hostName",
+          "verifyClients",
+          "derperVersion",
+          "unitActive",
+          "certName",
+          "certNotAfter",
+          "availableVersion",
+          "linkViaTailnet",
+          "onTailnet",
+          "tags",
+          "addresses",
+          "visible"
+        ]
+      },
+      "Visibility": {
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "The address looked up."
+          },
+          "visible": {
+            "type": "boolean",
+            "description": "Whether a node holds the address."
+          },
+          "node": {
+            "type": "string",
+            "description": "The node's MagicDNS name without the trailing dot; empty when not visible."
+          }
+        },
+        "type": "object",
+        "required": [
+          "address",
+          "visible",
+          "node"
+        ]
+      }
+    }
+  }
+}

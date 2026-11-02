@@ -1,0 +1,52 @@
+{
+  "name": "derp.fallback.check",
+  "version": 1,
+  "class": "read",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/FallbackCheckInput",
+    "$defs": {
+      "FallbackCheckInput": {
+        "properties": {
+          "hostId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Id of the host running the server."
+          },
+          "regionId": {
+            "type": "integer",
+            "maximum": 999,
+            "minimum": 900,
+            "description": "The server's region id, 900 to 999."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "hostId",
+          "regionId"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/FallbackCheck",
+    "$defs": {
+      "FallbackCheck": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The DERP host's other path: link, default-regions or region:\u003cid\u003e."
+          }
+        },
+        "type": "object",
+        "required": [
+          "path"
+        ]
+      }
+    }
+  }
+}

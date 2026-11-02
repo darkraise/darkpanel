@@ -1,0 +1,51 @@
+{
+  "name": "derp.cert.rotate",
+  "version": 1,
+  "class": "composite",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/CertRotateInput",
+    "$defs": {
+      "CertRotateInput": {
+        "properties": {
+          "hostId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Id of the host running the server."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "hostId"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/CertRotated",
+    "$defs": {
+      "CertRotated": {
+        "properties": {
+          "certName": {
+            "type": "string",
+            "description": "The new certificate's pin."
+          },
+          "certNotAfter": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the new certificate expires."
+          }
+        },
+        "type": "object",
+        "required": [
+          "certName",
+          "certNotAfter"
+        ]
+      }
+    }
+  }
+}

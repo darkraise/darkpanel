@@ -1,0 +1,50 @@
+{
+  "name": "derp.server.upgrade",
+  "version": 1,
+  "class": "composite",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/UpgradeInput",
+    "$defs": {
+      "UpgradeInput": {
+        "properties": {
+          "hostId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Id of the host running the server."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "hostId"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Upgraded",
+    "$defs": {
+      "Upgraded": {
+        "properties": {
+          "from": {
+            "type": "string",
+            "description": "The derper version replaced."
+          },
+          "to": {
+            "type": "string",
+            "description": "The derper version now installed."
+          }
+        },
+        "type": "object",
+        "required": [
+          "from",
+          "to"
+        ]
+      }
+    }
+  }
+}

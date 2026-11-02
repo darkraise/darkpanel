@@ -2,7 +2,11 @@
 // host and its region in the tailnet policy.
 package derp
 
-import "github.com/darkraise/darkpanel/internal/core"
+import (
+	"io/fs"
+
+	"github.com/darkraise/darkpanel/internal/core"
+)
 
 // ID is the module id.
 const ID = "derp"
@@ -14,9 +18,42 @@ type module struct{ d dp }
 // the tailnet policy from the controller.
 func Module() core.Module { return module{d: productionDP()} }
 
-// Manifest declares the module. Every module is enabled by default;
-// preflight decides whether it is available on a host (R9). The manifest
-// declares no action, resource or check yet.
-func (module) Manifest() core.Manifest {
-	return core.Manifest{ID: ID, Version: 1, DefaultEnabled: true}
+// Manifest declares the module: its agent and controller actions, the paths
+// and the unit it owns, and both sides' migrations. Every module is enabled
+// by default; each action's own availability check decides whether it can
+// run on a host (R9). The derp.servers service comes from module.Controller
+// in servers.go.
+func (m module) Manifest() core.Manifest {
+	return core.Manifest{
+		ID:             ID,
+		Version:        1,
+		DefaultEnabled: true,
+		Actions:        m.d.actions(),
+		OwnedPaths:     ownedPaths(),
+		Migrations: map[core.Side]fs.FS{
+			core.SideAgent:      agentMigrations(),
+			core.SideController: controllerMigrations(),
+		},
+	}
+}
+
+func (d dp) actions() []core.ActionDef {
+	return []core.ActionDef{
+		d.serverInstall(),
+		d.binaryUpdate(),
+		d.serverStatus(),
+		d.nodeProbe(),
+		d.serverUninstall(),
+		d.certRenew(),
+		d.serverProbe(),
+		d.serverList(),
+		d.regionEdits(),
+		d.fallbackCheck(),
+		d.serverDeploy(),
+		d.serverUpgrade(),
+		d.certRotate(),
+		d.regionSet(),
+		d.regionRemove(),
+		d.serverRemove(),
+	}
 }
