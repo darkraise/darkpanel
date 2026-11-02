@@ -22,13 +22,18 @@ type derperBuilder func(ctx context.Context, version, arch, dst string) error
 // runDerper builds derper for one architecture or for all of artifact.Arches
 // into an output directory, writes derper.json when every architecture was
 // built, and rewrites an existing checksums.txt so the signature over it
-// covers the new files. args are the words after "derper".
+// covers the new files. With -checksums, which the release workflow passes,
+// a missing checksums.txt is an error before anything is built. args are the
+// words after "derper".
 func runDerper(ctx context.Context, args []string, stdout io.Writer, build derperBuilder) error {
 	var dpVersion, out string
 	arches := artifact.Arches
+	needSums := false
 	switch {
 	case len(args) == 2:
 		dpVersion, out = args[0], args[1] //nolint:gosec // G602: the case checks the length
+	case len(args) == 3 && args[2] == "-checksums":
+		dpVersion, out, needSums = args[0], args[1], true //nolint:gosec // G602: the case checks the length
 	case len(args) == 4 && args[2] == "-arch":
 		dpVersion, out, arches = args[0], args[1], []string{args[3]} //nolint:gosec // G602: the case checks the length
 	default:
@@ -40,6 +45,12 @@ func runDerper(ctx context.Context, args []string, stdout io.Writer, build derpe
 	for _, arch := range arches {
 		if !slices.Contains(artifact.Arches, arch) {
 			return fmt.Errorf("architecture %q is not one of %s", arch, strings.Join(artifact.Arches, ", "))
+		}
+	}
+	if needSums {
+		//nolint:gosec // G703: the release directory named on the command line
+		if _, err := os.Stat(filepath.Join(out, "checksums.txt")); err != nil {
+			return fmt.Errorf("-checksums: the release directory's checksums.txt, which make release writes: %w", err)
 		}
 	}
 

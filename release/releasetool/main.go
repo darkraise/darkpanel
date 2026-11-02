@@ -24,7 +24,8 @@ const usage = `usage: releasetool check-tag <tag>
        releasetool latest <version> < release-list.json
        releasetool keyid <file.minisig>
        releasetool check-build <version> <key id>[,<key id>] < version.json
-       releasetool derper <darkpanel version> <out dir> [-arch amd64|arm64]`
+       releasetool derper <darkpanel version> <out dir> [-arch amd64|arm64]
+       releasetool derper <darkpanel version> <release dir> -checksums`
 
 func main() {
 	if err := run(os.Args[1:], os.Stdin, os.Stdout); err != nil {

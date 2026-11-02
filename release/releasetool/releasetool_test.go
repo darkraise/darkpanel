@@ -499,6 +499,33 @@ func TestDrRefusals(t *testing.T) {
 	}
 }
 
+// TestDrChecksumsFlagNeedsTheReleaseChecksums: with -checksums a missing checksums.txt is an error before anything is
+// built, so a release directory that lacks it never gains derper files outside the signed list; a present one is
+// rewritten to cover them.
+func TestDrChecksumsFlagNeedsTheReleaseChecksums(t *testing.T) {
+	out := t.TempDir()
+	build, calls := drFake("")
+	err := runDerper(context.Background(), []string{"1.4.0", out, "-checksums"}, &bytes.Buffer{}, build)
+	if err == nil || !strings.Contains(err.Error(), "checksums.txt") {
+		t.Errorf("runDerper = %v, want an error naming checksums.txt", err)
+	}
+	if entries, err := os.ReadDir(out); len(*calls) != 0 || err != nil || len(entries) != 0 {
+		t.Errorf("builder calls %d, directory %v (read error %v); want no build and an empty directory", len(*calls), entries, err)
+	}
+	if err := os.WriteFile(filepath.Join(out, "checksums.txt"), []byte("stale\n"), 0o644); err != nil { //nolint:gosec // G306: test files
+		t.Fatal(err)
+	}
+	if err := runDerper(context.Background(), []string{"1.4.0", out, "-checksums"}, &bytes.Buffer{}, build); err != nil {
+		t.Fatalf("runDerper with checksums.txt present: %v", err)
+	}
+	got := string(drRead(t, filepath.Join(out, "checksums.txt")))
+	for _, name := range []string{drName("amd64"), drName("arm64"), artifact.ManifestName} {
+		if !strings.Contains(got, "  "+name+"\n") {
+			t.Errorf("checksums.txt =\n%s\nwant a line for %s", got, name)
+		}
+	}
+}
+
 func TestDrRunDispatchesTheSubcommand(t *testing.T) {
 	for _, args := range [][]string{{"derper"}, {"derper", "1.4.0"}, {"derper", "1.4.0", t.TempDir(), "-arch"}} {
 		if err := run(args, strings.NewReader(""), &bytes.Buffer{}); err == nil || !strings.HasPrefix(err.Error(), "usage:") {
