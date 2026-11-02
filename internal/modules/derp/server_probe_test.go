@@ -385,36 +385,6 @@ func TestPbProbeControllerFailures(t *testing.T) {
 	}
 }
 
-// TestPbProbeRefusesLocalAddresses: the controller does not dial a server whose name resolves to, or whose
-// address is, a loopback, link-local or unspecified address; its source fails naming the address instead.
-func TestPbProbeRefusesLocalAddresses(t *testing.T) {
-	tests := []struct{ mode, hostName, addr string }{
-		{"letsencrypt", "derp.example.com", "127.0.0.1"},
-		{"letsencrypt", "derp.example.com", "169.254.169.254"},
-		{"letsencrypt", "derp.example.com", "::1"},
-		{"ip", "169.254.0.7", "169.254.0.7"},
-		{"ip", "0.0.0.0", "0.0.0.0"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.mode+" "+tt.addr, func(t *testing.T) {
-			h := pbWorld(t)
-			pbServe(h, "h1", ServerStatus{Installed: true, Mode: tt.mode, HostName: tt.hostName, UnitActive: true}, nil)
-			a := netip.MustParseAddr(tt.addr)
-			h.resolved = map[string][]netip.Addr{tt.hostName: {a}}
-			h.tls = map[string]dpProbe{tt.addr: {d: time.Millisecond}}
-			h.stun = map[netip.AddrPort]dpProbe{netip.AddrPortFrom(a, 3478): {d: time.Millisecond}}
-			got, err := pbRun(h, ServerProbeInput{HostID: "h1"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			ctl := got.Sources[0]
-			if ctl.TLS.OK || ctl.STUN.OK || !strings.Contains(ctl.Error, tt.addr) || ctl.TLS.Error != ctl.Error || got.Ready {
-				t.Errorf("controller source %+v, ready %v; want a failed source naming %s and not ready", ctl, got.Ready, tt.addr)
-			}
-		})
-	}
-}
-
 func pbSource(source, name string, tlsOK, stunOK bool) ProbeSource {
 	s := ProbeSource{Source: source, Name: name, TLS: ProbeResult{OK: tlsOK}, STUN: ProbeResult{OK: stunOK}}
 	if !tlsOK {

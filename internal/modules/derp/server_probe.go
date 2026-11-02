@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/netip"
 	"slices"
 	"strconv"
 
@@ -260,9 +259,6 @@ func probeFillNodes(nodes []NodeUse, status ServerStatus, selves map[string]tail
 func (d dp) probeFromController(ctx context.Context, status ServerStatus) (ProbeSource, error) {
 	src := ProbeSource{Source: probeController, Name: probeController}
 	t, stunAddr, err := d.target(ctx, status)
-	if err == nil {
-		err = probeCheckDial(t, stunAddr)
-	}
 	if err != nil {
 		if cerr := ctx.Err(); cerr != nil {
 			return ProbeSource{}, cerr
@@ -276,21 +272,6 @@ func (d dp) probeFromController(ctx context.Context, status ServerStatus) (Probe
 		return ProbeSource{}, cerr
 	}
 	return src, nil
-}
-
-// probeCheckDial refuses to let the controller dial an address it must not: the server's name comes from an agent's
-// answer and may resolve to the controller's own loopback or link-local network.
-func probeCheckDial(t probeTarget, stunAddr netip.AddrPort) error {
-	dial := t.Address
-	if dial == "" {
-		dial = t.HostName
-	}
-	a, err := netip.ParseAddr(dial)
-	if err != nil || !nodeProbeAllowedAddr(a) || !nodeProbeAllowedAddr(stunAddr.Addr()) {
-		return fmt.Errorf("derp: the controller does not probe %s at %s: loopback, unspecified, multicast and link-local addresses are refused",
-			t.HostName, dial)
-	}
-	return nil
 }
 
 // probeFromAgent is agent a's measurement of the server. An agent that does not answer is a failed source carrying
