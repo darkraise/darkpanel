@@ -6,6 +6,7 @@ import (
 	"errors"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -105,11 +106,53 @@ func TestRunTaskFenceRefusesWhileUninstalling(t *testing.T) {
 	if err := AbortUninstall(ctx, f.db, "local:root@h1"); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.eng.RunTask(ctx, v.ID, core.TaskOpApply, 1); err != nil {
-		t.Fatal(err)
+
+	// A task process's unit is active for as long as the process runs, so a
+	// follower poll between the claim and the result must not read it as dead.
+	f.units.set(TaskUnitName(v.ID, core.TaskOpApply, 1), true)
+	f.taskArmed()
+	polled := make(chan struct{}, 16)
+	f.units.mu.Lock()
+	f.units.onState = func(int) {
+		select {
+		case polled <- struct{}{}:
+		default:
+		}
+	}
+	f.units.mu.Unlock()
+	f.tsk.mu.Lock()
+	release := sync.OnceFunc(f.tsk.mu.Unlock)
+	defer release()
+	done := make(chan error, 1)
+	go func() { done <- f.eng.RunTask(ctx, v.ID, core.TaskOpApply, 1) }()
+	until := func(what string, cond func() bool) {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for !cond() {
+			if time.Now().After(deadline) {
+				t.Fatalf("timed out waiting for %s", what)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+	until("the second RunTask to claim the row", func() bool {
+		return f.taskRowState(v.ID, core.TaskOpApply, 1) == taskRowRunning
+	})
+	f.clock.Advance(TaskPoll)
+	select {
+	case <-polled:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the task follower did not poll")
+	}
+	until("the follower's decision on the running row", func() bool {
+		return f.taskRowState(v.ID, core.TaskOpApply, 1) == taskRowFailed || f.clock.Pending() > 0
+	})
+	release()
+	if err := <-done; err != nil {
+		t.Fatalf("second RunTask = %v", err)
 	}
 	if got := f.taskRowState(v.ID, core.TaskOpApply, 1); got != taskRowSucceeded {
-		t.Errorf("row after the abort = %s, want succeeded", got)
+		t.Errorf("row after the abort = %s, want succeeded: a poll while the task process runs must find its unit active", got)
 	}
 }
 
