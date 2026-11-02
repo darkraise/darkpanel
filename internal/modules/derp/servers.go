@@ -1,0 +1,260 @@
+package derp
+
+import (
+	"context"
+	"time"
+
+	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/core/ext"
+	"github.com/darkraise/darkpanel/internal/modules/derp/artifact"
+)
+
+const serversService = ID + ".servers"
+
+var serversPrincipal = core.Principal{Actor: "system:" + serversService, Scope: core.ScopeAdmin}
+
+// serverList declares derp.server.list: the DERP servers the derp.servers service found, with their health.
+func (d dp) serverList() core.ActionDef {
+	return core.DefineRead[ServerListInput, Servers](core.ActionSpec{
+		Name:    ID + ".server.list",
+		Summary: "List the DERP servers the controller found, with their health.",
+		Version: 1,
+		Side:    core.SideController,
+	}, serverListReader{})
+}
+
+// serverListReader lists the stored server records; it calls no agent and no provider.
+type serverListReader struct{}
+
+// Read answers every server record whose host still exists, by host id, with its health as of now.
+func (serverListReader) Read(ctx context.Context, env core.Env, _ ServerListInput) (Servers, error) {
+	records, err := loadServerRecords(ctx, env.DB.Read())
+	if err != nil {
+		return Servers{}, err
+	}
+	hosts, err := probeHosts(ctx, env)
+	if err != nil {
+		return Servers{}, err
+	}
+	names := make(map[string]string, len(hosts))
+	for _, h := range hosts {
+		names[h.ID] = h.Name
+	}
+	now := env.Clock.Now()
+	views := make([]ServerView, 0, len(records))
+	for _, r := range records {
+		name, ok := names[r.HostID]
+		if !ok {
+			continue
+		}
+		health, reasons := serverHealth(r, now)
+		v := ServerView{
+			HostID: r.HostID, Host: name, Mode: r.Mode, HostName: r.HostName, RegionID: r.RegionID, RegionCode: r.RegionCode,
+			DerperVersion: r.DerperVersion, CertName: r.CertName, UnitActive: r.UnitActive, Health: health, Reasons: reasons,
+			CheckedAt: r.CheckedAt, Error: r.Error,
+		}
+		if !r.CertNotAfter.IsZero() {
+			notAfter := r.CertNotAfter.UTC()
+			v.CertNotAfter = &notAfter
+		}
+		views = append(views, v)
+	}
+	return Servers{Servers: views, AvailableVersion: artifact.DerperVersion}, nil
+}
+
+// serverHealth grades a server record at now: broken when derper is stopped or its certificate has expired, degraded
+// for any other reason, else ok. reasons holds one sentence per condition found and is never nil.
+func serverHealth(r serverRecord, now time.Time) (health string, reasons []string) {
+	reasons = []string{}
+	broken := false
+	if !r.UnitActive {
+		reasons = append(reasons, "derper is not running")
+		broken = true
+	}
+	if !r.CertNotAfter.IsZero() {
+		day := r.CertNotAfter.UTC().Format(time.DateOnly)
+		switch {
+		case now.After(r.CertNotAfter):
+			reasons = append(reasons, "the certificate expired on "+day)
+			broken = true
+		case r.CertNotAfter.Sub(now) <= expiryWarning:
+			reasons = append(reasons, "the certificate expires on "+day)
+		}
+	}
+	if now.Sub(r.CheckedAt) > staleAfter {
+		reasons = append(reasons, "the last check was at "+r.CheckedAt.UTC().Format(time.RFC3339))
+	}
+	if r.Error != "" {
+		reasons = append(reasons, "the host could not be read: "+r.Error)
+	}
+	switch {
+	case broken:
+		return "broken", reasons
+	case len(reasons) > 0:
+		return "degraded", reasons
+	}
+	return "ok", reasons
+}
+
+// Controller contributes the derp.servers service. It reads deps only from the service's Run, since the server
+// calls it with whatever deps it has.
+func (m module) Controller(deps ext.Deps) ([]ext.Route, []ext.Service, error) {
+	return nil, []ext.Service{{
+		Name: serversService,
+		Run:  func(ctx context.Context) error { return m.d.runServers(ctx, deps) },
+	}}, nil
+}
+
+// runServers runs a pass at start, then one every servicePeriod until ctx ends. The timer is armed again only after
+// its pass, so passes never overlap. A pass's error ends the service for the supervisor to restart.
+func (d dp) runServers(ctx context.Context, deps ext.Deps) error {
+	pass := func() error {
+		if err := d.checkServers(ctx, deps, deps.Clock.Now()); err != nil && ctx.Err() == nil {
+			return err
+		}
+		return nil
+	}
+	if err := pass(); err != nil {
+		return err
+	}
+	due := make(chan struct{}, 1)
+	arm := func() core.Timer {
+		return deps.Clock.AfterFunc(servicePeriod, func() {
+			select {
+			case due <- struct{}{}:
+			default:
+			}
+		})
+	}
+	timer := arm()
+	defer func() { timer.Stop() }()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-due:
+			if err := pass(); err != nil {
+				return err
+			}
+			timer = arm()
+		}
+	}
+}
+
+// checkServers is one pass: it reads every host's DERP status and stores what it found. Every read comes before the
+// first write, so a pass cancelled during its reads changes nothing. A host that cannot be read is data, not an error.
+func (d dp) checkServers(ctx context.Context, deps ext.Deps, now time.Time) error {
+	env := core.Env{Principal: serversPrincipal, DB: deps.DB, Sealer: deps.Sealer, Clock: deps.Clock, Log: deps.Log, Agents: deps.Hosts}
+	hosts, err := probeHosts(ctx, env)
+	if err != nil {
+		return err
+	}
+	records, err := loadServerRecords(ctx, deps.DB.Read())
+	if err != nil {
+		return err
+	}
+	stored := make(map[string]serverRecord, len(records))
+	for _, r := range records {
+		stored[r.HostID] = r
+	}
+
+	statuses := make(map[string]ServerStatus, len(hosts))
+	unreadable := map[string]string{}
+	anyInstalled := false
+	for _, h := range hosts {
+		st, err := readStatus(ctx, env, h.ID, nil)
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			unreadable[h.ID] = serversReadFailure(err)
+			continue
+		}
+		statuses[h.ID] = st
+		anyInstalled = anyInstalled || st.Installed
+	}
+
+	var (
+		regions      derpMap
+		regionsKnown bool
+	)
+	if anyInstalled {
+		regions, regionsKnown = d.serversRegions(ctx, env)
+	}
+
+	known := make(map[string]bool, len(hosts))
+	for _, h := range hosts {
+		known[h.ID] = true
+		rec, had := stored[h.ID]
+		if msg, failed := unreadable[h.ID]; failed {
+			if had {
+				rec.Error = msg
+				if err := upsertServerRecord(ctx, deps.DB, rec); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+		st := statuses[h.ID]
+		if !st.Installed {
+			if err := deleteServerRecord(ctx, deps.DB, h.ID); err != nil {
+				return err
+			}
+			continue
+		}
+		next := serverRecord{
+			HostID: h.ID, Mode: st.Mode, HostName: st.HostName, RegionID: rec.RegionID, RegionCode: rec.RegionCode,
+			DerperVersion: st.DerperVersion, CertName: st.CertName, UnitActive: st.UnitActive, CheckedAt: now,
+		}
+		if st.CertNotAfter != nil {
+			next.CertNotAfter = st.CertNotAfter.UTC()
+		}
+		if regionsKnown {
+			region, _ := regions.regionOf(st.HostName)
+			next.RegionID, next.RegionCode = region.RegionID, region.RegionCode
+		}
+		if err := upsertServerRecord(ctx, deps.DB, next); err != nil {
+			return err
+		}
+	}
+	for _, r := range records {
+		if !known[r.HostID] {
+			if err := deleteServerRecord(ctx, deps.DB, r.HostID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// serversReadFailure is the client-safe text stored for a host whose status read failed: the detail of a coded
+// refusal, else a generic sentence, since an uncoded error may carry transport internals.
+func serversReadFailure(err error) string {
+	if coded := errcode.From(err); coded.Code != errcode.Internal && coded.Detail != "" {
+		return coded.Detail
+	}
+	return probeAgentNoAnswer
+}
+
+// serversRegions is the derpMap a pass takes regions from: the policy's when a tailnet is connected, an empty map
+// (every region 0) when none is. ok is false when the connected check, the policy read or its parse failed; the
+// stored regions then stand, since a provider outage says nothing about the published regions.
+func (d dp) serversRegions(ctx context.Context, env core.Env) (regions derpMap, ok bool) {
+	connected, err := d.d.connected(ctx, env.DB)
+	if err != nil {
+		return derpMap{}, false
+	}
+	if !connected {
+		return derpMap{}, true
+	}
+	p, err := d.d.policy(ctx, env)
+	if err != nil {
+		return derpMap{}, false
+	}
+	regions, err = parseDERPMap(p.Text)
+	if err != nil {
+		return derpMap{}, false
+	}
+	return regions, true
+}
