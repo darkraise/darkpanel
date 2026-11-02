@@ -4051,7 +4051,9 @@ empty list or map as equal, addresses in canonical `netip` form.
     certificate (tailscale `net/tlsdial`, `SetConfigExpectedCertHash`, at
     v1.102.0: the hash comparison is followed by `NotAfter` and `NotBefore`
     checks), and derper generates the self-signed certificate only when its
-    files (`<certdir>/<ip>.crt` and `.key`) are absent and reads them only
+    files (`<certdir>/<name>.crt` and `.key`, `<name>` being the address
+    with every character outside `[a-zA-Z0-9-.]` removed, so an IPv6
+    address loses its colons) are absent and reads them only
     at start (`cmd/derper/cert.go` at v1.102.0). Without rotation the
     region therefore stops working one year after install. The DERP page
     and health warn (`degraded`) 30 days before `NotAfter` and report
