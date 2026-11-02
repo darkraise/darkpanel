@@ -85,7 +85,7 @@ type localAPI interface {
 // probeTarget is one DERP server as a prober reaches it.
 type probeTarget struct {
 	HostName string // the server's -hostname: a DNS name or, in ip mode, the IP literal
-	Address  string // the address to connect to; "" resolves HostName
+	Address  string // the IP literal to connect to; "" only when HostName is itself the IP literal
 	Port     int    // 443
 	CertName string // ip mode: the pin (PinPrefix...); "" verifies the chain against the system roots for HostName
 }
@@ -177,6 +177,8 @@ func linkViaTailnetIn(dir string) (bool, error) {
 // ServerName is HostName unless it is an IP literal; with a CertName it checks only the leaf, the first certificate
 // served, which must have the pinned SHA-256 and NotBefore/NotAfter that contain now; the certificates after it
 // (derper appends its meta certificate) are ignored; else it verifies the chain. Any answer but 200 is an error.
+// It connects only to an IP literal and never resolves a name: the caller checked the address it resolved, and a
+// second lookup could answer another one.
 func probeTLS(ctx context.Context, t probeTarget) (time.Duration, error) {
 	fail := func(err error) (time.Duration, error) { return 0, fmt.Errorf("derp: probe %s: %w", t.HostName, err) }
 	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
@@ -198,6 +200,9 @@ func probeTLS(ctx context.Context, t probeTarget) (time.Duration, error) {
 	host := t.Address
 	if host == "" {
 		host = t.HostName
+	}
+	if _, err := netip.ParseAddr(host); err != nil {
+		return fail(errors.New("no IP address to connect to"))
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+net.JoinHostPort(host, strconv.Itoa(t.Port))+"/derp/probe", nil)
 	if err != nil {

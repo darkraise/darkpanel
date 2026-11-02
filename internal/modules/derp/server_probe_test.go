@@ -385,6 +385,57 @@ func TestPbProbeControllerFailures(t *testing.T) {
 	}
 }
 
+// TestPbProbeControllerReachesOnlyCheckedAddresses: through derp.server.probe, the controller never probes a
+// loopback address an agent reports, and probes a name whose first answer is loopback at its public address only,
+// over TLS and STUN alike.
+func TestPbProbeControllerReachesOnlyCheckedAddresses(t *testing.T) {
+	loopback := errors.New("pb: the probe reached loopback")
+	read := func(t *testing.T, h *dpHost) ServerProbe {
+		t.Helper()
+		raw, err := h.dp().serverProbe().Handler.Read(context.Background(), h.ctlEnv(""), json.RawMessage(`{"hostId":"h1"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got ServerProbe
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	t.Run("an ip-mode status of 127.0.0.1", func(t *testing.T) {
+		h := pbWorld(t)
+		s := pbStatus()
+		s.HostName = "127.0.0.1"
+		pbServe(h, "h1", s, nil)
+		h.tls = map[string]dpProbe{"127.0.0.1": {d: time.Millisecond}}
+		h.stun = map[netip.AddrPort]dpProbe{netip.MustParseAddrPort("127.0.0.1:3478"): {d: time.Millisecond}}
+		got := read(t, h)
+		if ctl := got.Sources[0]; ctl.TLS.OK || ctl.STUN.OK || ctl.Error == "" || !strings.Contains(ctl.Error, "127.0.0.1") {
+			t.Errorf("controller source %+v, want both probes refused with an error naming 127.0.0.1", ctl)
+		}
+		if got.Ready {
+			t.Error("ready, want not ready")
+		}
+	})
+	t.Run("a name answering loopback first", func(t *testing.T) {
+		h := pbWorld(t)
+		pbServe(h, "h1", ServerStatus{Installed: true, Mode: "letsencrypt", HostName: "derp.example.com", UnitActive: true}, nil)
+		h.resolved = map[string][]netip.Addr{"derp.example.com": {netip.MustParseAddr("127.0.0.1"), netip.MustParseAddr("203.0.113.7")}}
+		h.tls = map[string]dpProbe{"127.0.0.1": {err: loopback}, "203.0.113.7": {d: 10 * time.Millisecond}}
+		h.stun = map[netip.AddrPort]dpProbe{
+			netip.MustParseAddrPort("127.0.0.1:3478"):   {err: loopback},
+			netip.MustParseAddrPort("203.0.113.7:3478"): {d: 5 * time.Millisecond},
+		}
+		got := read(t, h)
+		if ctl := got.Sources[0]; !ctl.TLS.OK || !ctl.STUN.OK || ctl.Error != "" {
+			t.Errorf("controller source %+v, want TLS and STUN passing at 203.0.113.7", ctl)
+		}
+		if !got.Ready {
+			t.Error("not ready, want ready")
+		}
+	})
+}
+
 func pbSource(source, name string, tlsOK, stunOK bool) ProbeSource {
 	s := ProbeSource{Source: source, Name: name, TLS: ProbeResult{OK: tlsOK}, STUN: ProbeResult{OK: stunOK}}
 	if !tlsOK {

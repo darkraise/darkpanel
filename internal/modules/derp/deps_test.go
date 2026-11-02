@@ -425,3 +425,18 @@ func TestSdProbeTLSEndsWithItsContext(t *testing.T) {
 		t.Error("probeTLS answered under a cancelled context")
 	}
 }
+
+// TestSdProbeTLSNeverResolvesAName: probeTLS connects only to an IP literal, the checked Address or an IP HostName;
+// a name without an address is refused before any lookup, so no second resolution can reach another address.
+func TestSdProbeTLSNeverResolvesAName(t *testing.T) {
+	now := time.Now()
+	cert, der := sdCert(t, now.Add(-time.Hour), now.Add(time.Hour))
+	hits := &sdHits{}
+	port := sdTLSServer(t, cert, hits.handler(http.StatusOK))
+	if _, err := probeTLS(context.Background(), probeTarget{HostName: "localhost", Port: port, CertName: server.Pin(der)}); err == nil {
+		t.Error("probeTLS reached a name it resolved itself")
+	}
+	if got := hits.seen(); len(got) != 0 {
+		t.Errorf("the server saw %v, want nothing", got)
+	}
+}

@@ -160,6 +160,101 @@ func TestNpTargetRefusals(t *testing.T) {
 	}
 }
 
+// TestNpTargetRefusesAStatusTheProbeMustNotReach: the controller checks the status an agent reports as the agent
+// checks a probe input, so a reported loopback, link-local, private or Tailscale address, a name that is not a
+// lower-case DNS name, or a malformed pin is refused before anything is resolved or probed.
+func TestNpTargetRefusesAStatusTheProbeMustNotReach(t *testing.T) {
+	for _, s := range []ServerStatus{
+		{Mode: server.ModeIP, HostName: "127.0.0.1", CertName: npPin},
+		{Mode: server.ModeIP, HostName: "::1", CertName: npPin},
+		{Mode: server.ModeIP, HostName: "169.254.169.254", CertName: npPin},
+		{Mode: server.ModeIP, HostName: "fe80::1", CertName: npPin},
+		{Mode: server.ModeIP, HostName: "10.0.0.5", CertName: npPin},
+		{Mode: server.ModeIP, HostName: "100.64.0.10", CertName: npPin},
+		{Mode: server.ModeIP, HostName: "::ffff:127.0.0.1", CertName: npPin},
+		{Mode: server.ModeIP, HostName: "203.0.113.9", CertName: "sha256-raw:xyz"},
+		{Mode: server.ModeLetsEncrypt, HostName: "localhost"},
+		{Mode: server.ModeLetsEncrypt, HostName: "Derp.Example.com"},
+		{Mode: server.ModeLetsEncrypt, HostName: "203.0.113.9"},
+	} {
+		t.Run(s.Mode+" "+s.HostName, func(t *testing.T) {
+			d := npNoProbe(t, newDPHost(t).dp())
+			s.Installed = true
+			if _, _, err := d.target(context.Background(), s); err == nil {
+				t.Fatal("target succeeded, want a refusal")
+			}
+		})
+	}
+}
+
+// TestNpResolveKeepsOnlyAddressesTheProbeMayReach: a name's loopback, link-local, unspecified and multicast answers
+// are dropped before the first remaining address is chosen, IPv4 preferred; a name with nothing left, such as a
+// DERP host's own name that /etc/hosts maps to 127.0.1.1, is refused with that cause, and neither probe runs.
+func TestNpResolveKeepsOnlyAddressesTheProbeMayReach(t *testing.T) {
+	addrs := func(ss ...string) []netip.Addr {
+		var out []netip.Addr
+		for _, s := range ss {
+			out = append(out, netip.MustParseAddr(s))
+		}
+		return out
+	}
+	le := ServerStatus{Installed: true, Mode: server.ModeLetsEncrypt, HostName: "derp.example.com"}
+	for _, tc := range []struct {
+		name     string
+		resolved []netip.Addr
+		want     string
+	}{
+		{"loopback before a public address", addrs("127.0.0.1", "2001:db8::7", "203.0.113.7"), "203.0.113.7"},
+		{"link-local IPv6 before a public IPv6 address", addrs("fe80::1", "::1", "2001:db8::7"), "2001:db8::7"},
+		{"a mapped loopback before a public address", addrs("::ffff:127.0.0.1", "198.51.100.4"), "198.51.100.4"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := npNoProbe(t, newDPHost(t).dp())
+			d.d.resolve = func(context.Context, string) ([]netip.Addr, error) { return tc.resolved, nil }
+			got, stunAddr, err := d.target(context.Background(), le)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := (probeTarget{HostName: "derp.example.com", Address: tc.want, Port: 443}); got != want {
+				t.Errorf("target %+v, want %+v", got, want)
+			}
+			if want := netip.AddrPortFrom(netip.MustParseAddr(tc.want), server.STUNPort); stunAddr != want {
+				t.Errorf("STUN address %v, want %v", stunAddr, want)
+			}
+		})
+	}
+	for _, tc := range []struct {
+		name     string
+		resolved []netip.Addr
+		named    []string
+	}{
+		{"the DERP host's own name in /etc/hosts", addrs("127.0.1.1"), []string{"derp.example.com", "127.0.1.1", "/etc/hosts"}},
+		{"only refused classes", addrs("::1", "fe80::1%eth0", "0.0.0.0", "224.0.0.1"), []string{"derp.example.com", "fe80::1%eth0"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newDPHost(t)
+			d := npNoProbe(t, h.dp())
+			d.d.resolve = func(context.Context, string) ([]netip.Addr, error) { return tc.resolved, nil }
+			_, _, err := d.target(context.Background(), le)
+			if err == nil {
+				t.Fatal("target succeeded, want a refusal")
+			}
+			got, rerr := npRead(t, d, h.env(""), `{"hostName":"derp.example.com"}`)
+			if rerr != nil {
+				t.Fatal(rerr)
+			}
+			for _, part := range tc.named {
+				if !strings.Contains(err.Error(), part) {
+					t.Errorf("target: err = %v, want it to name %s", err, part)
+				}
+				if !strings.Contains(got.TLS.Error, part) || !strings.Contains(got.STUN.Error, part) {
+					t.Errorf("read: tls %+v and stun %+v, want both failing with an error naming %s", got.TLS, got.STUN, part)
+				}
+			}
+		})
+	}
+}
+
 func TestNpProbeOnce(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
@@ -221,9 +316,14 @@ func TestNpReadProbes(t *testing.T) {
 			probeTarget{HostName: "derp.example.com", Address: "198.51.100.4", Port: 443}, "198.51.100.4:3478", "",
 		},
 		{
-			"a name this agent resolves for STUN", `{"hostName":"derp.example.com"}`,
+			"a name this agent resolves once for both probes", `{"hostName":"derp.example.com"}`,
 			[]netip.Addr{netip.MustParseAddr("2001:db8::7"), netip.MustParseAddr("203.0.113.7")},
-			probeTarget{HostName: "derp.example.com", Port: 443}, "203.0.113.7:3478", "derp.example.com",
+			probeTarget{HostName: "derp.example.com", Address: "203.0.113.7", Port: 443}, "203.0.113.7:3478", "derp.example.com",
+		},
+		{
+			"a name whose first answer is loopback", `{"hostName":"derp.example.com"}`,
+			[]netip.Addr{netip.MustParseAddr("127.0.0.1"), netip.MustParseAddr("203.0.113.7")},
+			probeTarget{HostName: "derp.example.com", Address: "203.0.113.7", Port: 443}, "203.0.113.7:3478", "derp.example.com",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -266,21 +366,19 @@ func TestNpReadProbes(t *testing.T) {
 }
 
 // TestNpReadProbeFailures: a failed measurement is a result, not a failed read; a name this agent cannot resolve
-// costs only the STUN measurement, because the TLS probe resolves the name itself.
+// fails both measurements without probing, because the TLS probe never resolves a name itself.
 func TestNpReadProbeFailures(t *testing.T) {
 	h := newDPHost(t)
-	h.tls = map[string]dpProbe{"derp.example.com": {d: 5 * time.Millisecond}}
-	d := h.dp()
+	d := npNoProbe(t, h.dp())
 	d.d.resolve = func(context.Context, string) ([]netip.Addr, error) { return nil, errNpBoom }
 	got, err := npRead(t, d, h.env(""), `{"hostName":"derp.example.com"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := (ProbeResult{OK: true, LatencyMs: 5}); got.TLS != want {
-		t.Errorf("tls %+v, want %+v", got.TLS, want)
-	}
-	if got.STUN.OK || got.STUN.LatencyMs != 0 || !strings.Contains(got.STUN.Error, "derp.example.com") {
-		t.Errorf("stun %+v, want a failure naming derp.example.com", got.STUN)
+	for name, r := range map[string]ProbeResult{"tls": got.TLS, "stun": got.STUN} {
+		if r.OK || r.LatencyMs != 0 || !strings.Contains(r.Error, "derp.example.com") {
+			t.Errorf("%s %+v, want a failure naming derp.example.com", name, r)
+		}
 	}
 
 	h = newDPHost(t)

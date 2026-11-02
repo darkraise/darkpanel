@@ -45,12 +45,14 @@ func (h nodeProbeHandler) Read(ctx context.Context, env core.Env, in NodeProbeIn
 	d := h.d
 	t := probeTarget{HostName: in.HostName, Address: in.Address, Port: server.HTTPSPort, CertName: in.CertName}
 	var out NodeProbe
-	if stunAddr, err := d.nodeProbeSTUNAddr(ctx, in); err != nil {
-		// tlsProbe resolves the name itself, so only the STUN measurement is lost.
-		out.TLS = d.nodeProbeTLS(ctx, t)
-		out.STUN = ProbeResult{Error: err.Error()}
+	if a, err := d.nodeProbeAddr(ctx, in); err != nil {
+		out.TLS = ProbeResult{Error: err.Error()}
+		out.STUN = out.TLS
 	} else {
-		out.TLS, out.STUN = d.probeOnce(ctx, t, stunAddr)
+		if _, err := netip.ParseAddr(in.HostName); err != nil {
+			t.Address = a.String()
+		}
+		out.TLS, out.STUN = d.probeOnce(ctx, t, netip.AddrPortFrom(a, server.STUNPort))
 	}
 	if in.RegionID != 0 {
 		region, err := d.nodeProbeRegion(ctx, env, in.RegionID)
@@ -64,7 +66,7 @@ func (h nodeProbeHandler) Read(ctx context.Context, env core.Env, in NodeProbeIn
 
 // nodeProbeCheck refuses an input this host must not probe. The input makes this host send a request to the named
 // address, so loopback, unspecified, multicast and link-local addresses are refused: the controller's own servers
-// are never on them.
+// are never on them. nodeProbeResolve refuses the same classes among the addresses a name resolves to.
 func nodeProbeCheck(in NodeProbeInput) error {
 	if in.HostName == "" {
 		return nodeProbeRefuse("/hostName", "the host name is required")
@@ -145,23 +147,22 @@ func nodeProbePin(s string) bool {
 	return true
 }
 
-// nodeProbeSTUNAddr is where the read sends its STUN binding: the given address, else the host name when it is an
-// IP literal, else the first address the name resolves to.
-func (d dp) nodeProbeSTUNAddr(ctx context.Context, in NodeProbeInput) (netip.AddrPort, error) {
+// nodeProbeAddr is the one address the read probes over both TLS and STUN: the given address, else the host name
+// when it is an IP literal, else the first address the name resolves to that a probe may reach.
+func (d dp) nodeProbeAddr(ctx context.Context, in NodeProbeInput) (netip.Addr, error) {
 	if in.Address != "" {
-		return netip.AddrPortFrom(netip.MustParseAddr(in.Address), server.STUNPort), nil
+		return netip.MustParseAddr(in.Address), nil
 	}
 	if a, err := netip.ParseAddr(in.HostName); err == nil {
-		return netip.AddrPortFrom(a, server.STUNPort), nil
+		return a, nil
 	}
-	a, err := d.nodeProbeResolve(ctx, in.HostName)
-	if err != nil {
-		return netip.AddrPort{}, err
-	}
-	return netip.AddrPortFrom(a, server.STUNPort), nil
+	return d.nodeProbeResolve(ctx, in.HostName)
 }
 
-// nodeProbeResolve returns the first address host resolves to, IPv4 preferred.
+// nodeProbeResolve returns the first address host resolves to that nodeProbeAllowedAddr accepts, IPv4 preferred. A
+// name with no such address is refused, naming what it resolved to. On the DERP host itself this is the usual
+// outcome for its own name: /etc/hosts maps a host's own name to 127.0.1.1, and the resolver then answers from that
+// file alone. Such a host cannot probe its own server by name; the probe refuses rather than reach loopback.
 func (d dp) nodeProbeResolve(ctx context.Context, host string) (netip.Addr, error) {
 	addrs, err := d.d.resolve(ctx, host)
 	if err != nil {
@@ -170,13 +171,28 @@ func (d dp) nodeProbeResolve(ctx context.Context, host string) (netip.Addr, erro
 	if len(addrs) == 0 {
 		return netip.Addr{}, fmt.Errorf("derp: cannot resolve %s: no address", host)
 	}
-	// The resolver may answer an A record as an IPv4-mapped IPv6 address.
+	var allowed []netip.Addr
 	for _, a := range addrs {
-		if a = a.Unmap(); a.Is4() {
+		if nodeProbeAllowedAddr(a) {
+			// The resolver may answer an A record as an IPv4-mapped IPv6 address.
+			allowed = append(allowed, a.Unmap())
+		}
+	}
+	if len(allowed) == 0 {
+		refused := make([]string, 0, len(addrs))
+		for _, a := range addrs {
+			refused = append(refused, a.String())
+		}
+		return netip.Addr{}, fmt.Errorf("derp: %s resolves only to loopback, unspecified, multicast or link-local addresses (%s), "+
+			"which a probe does not reach; if it is this host's own name, /etc/hosts maps it to loopback, and only a host "+
+			"that resolves it to its public address can probe it", host, strings.Join(refused, ", "))
+	}
+	for _, a := range allowed {
+		if a.Is4() {
 			return a, nil
 		}
 	}
-	return addrs[0].Unmap(), nil
+	return allowed[0], nil
 }
 
 // nodeProbeRegion is this host's tailscaled diagnosis of the region; a failed diagnosis is reported in it, and only
@@ -206,15 +222,22 @@ func (d dp) nodeProbeRegion(ctx context.Context, env core.Env, regionID int) (*R
 }
 
 // target is the probe target and STUN address of the server s describes: ip mode reaches its address and checks
-// the pin; letsencrypt resolves the name (first address, IPv4 preferred) and verifies the chain against the system
-// roots.
+// the pin; letsencrypt resolves the name (first address a probe may reach, IPv4 preferred) and verifies the chain
+// against the system roots. s is an agent's report, so it is held to the rules its install input met
+// (server.CheckConfig: a public IP or a lower-case DNS name) and to the pin format before anything is resolved.
 func (d dp) target(ctx context.Context, s ServerStatus) (probeTarget, netip.AddrPort, error) {
+	if s.Mode == server.ModeIP || s.Mode == server.ModeLetsEncrypt {
+		if err := server.CheckConfig(server.Config{Mode: s.Mode, HostName: s.HostName}); err != nil {
+			return probeTarget{}, netip.AddrPort{}, fmt.Errorf("derp: the %s-mode server's host name %q is not probed: %s",
+				s.Mode, s.HostName, errcode.From(err).Fields[0].Message)
+		}
+	}
 	switch s.Mode {
 	case server.ModeIP:
-		a, err := netip.ParseAddr(s.HostName)
-		if err != nil {
-			return probeTarget{}, netip.AddrPort{}, fmt.Errorf("derp: the ip-mode server's host name %s is not an IP address", s.HostName)
+		if s.CertName != "" && !nodeProbePin(s.CertName) {
+			return probeTarget{}, netip.AddrPort{}, fmt.Errorf("derp: the ip-mode server's certificate name %q is not a pin", s.CertName)
 		}
+		a := netip.MustParseAddr(s.HostName)
 		return probeTarget{HostName: s.HostName, Port: server.HTTPSPort, CertName: s.CertName},
 			netip.AddrPortFrom(a, server.STUNPort), nil
 	case server.ModeLetsEncrypt:
