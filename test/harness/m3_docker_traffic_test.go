@@ -231,17 +231,28 @@ func m3dTrafficAllowed(selector string, port uint16, from string) map[string]any
 	return in
 }
 
+// m3drApply plans, applies and confirms action, trying again while a
+// background reconcile refuses it. A container or network a traffic scenario
+// creates wakes firewall.reconcile, whose file writes and ufw reload overlap a
+// plan that takes no lock, and an apply meets lock.held while it runs.
+func m3drApply(ctx context.Context, t *testing.T, f *fleet, action string, input any) {
+	t.Helper()
+	if err := m3dDockSettle(ctx, t, f, action, input, m3dxCleanupRetryable); err != nil {
+		t.Fatalf("%s: %v", action, err)
+	}
+}
+
 // m3dTrafficAllow allows the binding of selector and port from from (any
 // source when empty).
 func m3dTrafficAllow(ctx context.Context, t *testing.T, f *fleet, selector string, port uint16, from string) {
 	t.Helper()
-	m3dDockApply(ctx, t, f, "firewall.container.allow", m3dTrafficAllowed(selector, port, from))
+	m3drApply(ctx, t, f, "firewall.container.allow", m3dTrafficAllowed(selector, port, from))
 }
 
 // m3dTrafficDeny denies from on the binding of selector and port.
 func m3dTrafficDeny(ctx context.Context, t *testing.T, f *fleet, selector string, port uint16, from string) {
 	t.Helper()
-	m3dDockApply(ctx, t, f, "firewall.container.deny", m3dTrafficAllowed(selector, port, from))
+	m3drApply(ctx, t, f, "firewall.container.deny", m3dTrafficAllowed(selector, port, from))
 }
 
 // m3dTrafficRemove removes the stored rule of the binding, kind and source.
@@ -255,7 +266,7 @@ func m3dTrafficRemove(ctx context.Context, t *testing.T, f *fleet, selector stri
 	if err != nil {
 		t.Fatal(err)
 	}
-	m3dDockApply(ctx, t, f, "firewall.container.remove", map[string]any{"id": id})
+	m3drApply(ctx, t, f, "firewall.container.remove", map[string]any{"id": id})
 }
 
 // m3dTrafficAddr returns field (IPAddress or GlobalIPv6Address) of container
@@ -426,7 +437,7 @@ func m3dTrafficDisjoint(ctx context.Context, t *testing.T, f *fleet) {
 	bind := func(port uint16) m3dDockBinding {
 		return m3dDockBinding{Selector: "m3d-d1", HostPort: port, Proto: "tcp"}
 	}
-	m3dDockApply(ctx, t, f, "firewall.containers.apply", map[string]any{"ops": []map[string]any{
+	m3drApply(ctx, t, f, "firewall.containers.apply", map[string]any{"ops": []map[string]any{
 		{"op": "allow", "binding": bind(18203), "from": scannerIPv4 + "/32"},
 		{"op": "allow", "binding": bind(18204), "from": m3dTrafficSrcB + "/32"},
 	}})

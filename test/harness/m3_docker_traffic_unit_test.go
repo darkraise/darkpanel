@@ -3,8 +3,13 @@
 package harness
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestM3xTrafficExpect(t *testing.T) {
@@ -156,6 +161,90 @@ func TestM3xTrafficRuleID(t *testing.T) {
 		got, err := m3dxTrafficRuleID(st, tc.selector, tc.port, tc.kind, tc.from)
 		if tc.want == "" && err == nil || tc.want != "" && (err != nil || got != tc.want) {
 			t.Errorf("m3dxTrafficRuleID(%s, %d, %s, %q) = %q, %v, want %q", tc.selector, tc.port, tc.kind, tc.from, got, err, tc.want)
+		}
+	}
+}
+
+// m3drServer stands in for the controller's API for host h1: it plans,
+// applies and confirms any firewall action, answers the first plan of every
+// action with the refusal named by first, and counts what it was asked.
+type m3drServer struct {
+	mu      sync.Mutex
+	first   string // "out of sync": a failing firewall.lockout guard; "locked": 423 lock.held
+	plans   map[string]int
+	applies map[string]int
+}
+
+func (s *m3drServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	w.Header().Set("Content-Type", "application/json")
+	switch {
+	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/plan"):
+		action := parts[len(parts)-3]
+		s.plans[action]++
+		if s.plans[action] == 1 {
+			switch s.first {
+			case "out of sync":
+				_, _ = w.Write([]byte(`{"planId":"p-` + action + `","guards":[{"id":"firewall.lockout","ok":false,` + //nolint:gosec // G705: a JSON body of a test server, not HTML
+					`"message":"the host is out of sync with UFW's configuration (v6 filter/INPUT)"}]}`))
+				return
+			case "locked":
+				w.WriteHeader(http.StatusLocked)
+				_, _ = w.Write([]byte(`{"code":"lock.held","detail":"lock firewall is held by change 01M6E7FXQ4D8N2R5T7V9W1Y3Z6"}`))
+				return
+			}
+		}
+		_, _ = w.Write([]byte(`{"planId":"p-` + action + `","guards":[{"id":"firewall.lockout","ok":true,"message":""}]}`)) //nolint:gosec // G705: a JSON body of a test server, not HTML
+	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/apply"):
+		action := parts[len(parts)-3]
+		s.applies[action]++
+		_, _ = w.Write([]byte(`{"id":"c-` + action + `","state":"pending"}`)) //nolint:gosec // G705: a JSON body of a test server, not HTML
+	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/confirm"):
+		_, _ = w.Write([]byte(`{"id":"` + parts[len(parts)-2] + `","state":"confirmed"}`)) //nolint:gosec // G705: a JSON body of a test server, not HTML
+	case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/resources/firewall/docker"):
+		_, _ = w.Write([]byte(`{"rules":[{"id":"01J00000000000000000000001","binding":{"selector":"m3d-n1","hostPort":18202,"proto":"tcp"},"kind":"allow"}]}`))
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+// TestM3drUnitTrafficApply: the allow, deny and remove steps of the traffic
+// scenarios try the plan again when a background reconcile makes the host
+// read out of sync or holds the firewall lock, and then apply and confirm
+// once.
+func TestM3drUnitTrafficApply(t *testing.T) {
+	steps := []struct {
+		name, action string
+		run          func(ctx context.Context, t *testing.T, f *fleet)
+	}{
+		{"allow", "firewall.container.allow", func(ctx context.Context, t *testing.T, f *fleet) {
+			m3dTrafficAllow(ctx, t, f, "m3d-n1", 18202, "")
+		}},
+		{"deny", "firewall.container.deny", func(ctx context.Context, t *testing.T, f *fleet) {
+			m3dTrafficDeny(ctx, t, f, "m3d-n1", 18202, "198.18.0.20/32")
+		}},
+		{"remove", "firewall.container.remove", func(ctx context.Context, t *testing.T, f *fleet) {
+			m3dTrafficRemove(ctx, t, f, "m3d-n1", 18202, "allow", "")
+		}},
+	}
+	for _, refusal := range []string{"out of sync", "locked"} {
+		for _, s := range steps {
+			t.Run(refusal+"/"+s.name, func(t *testing.T) {
+				srv := &m3drServer{first: refusal, plans: map[string]int{}, applies: map[string]int{}}
+				ts := httptest.NewServer(srv)
+				t.Cleanup(ts.Close)
+				f := &fleet{api: m4TestAPI(t, ts), agentID: "h1"}
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				s.run(ctx, t, f)
+				srv.mu.Lock()
+				defer srv.mu.Unlock()
+				if srv.plans[s.action] != 2 || srv.applies[s.action] != 1 {
+					t.Errorf("%s: %d plans and %d applies, want 2 plans (the first refused) and 1 apply", s.action, srv.plans[s.action], srv.applies[s.action])
+				}
+			})
 		}
 	}
 }

@@ -313,7 +313,9 @@ func m3dxLockHeld(err error) bool {
 // change causes and outlives: lock.held while the change applies, or a
 // failing lockout guard. Plans take no lock, so a plan can read the host
 // while that change's ufw reload has loaded IPv4 but not yet IPv6, which the
-// guard reports as out of sync.
+// guard reports as out of sync. The traffic scenarios' steps use it as well as
+// the cleanups, because both follow a container or network change that wakes
+// firewall.reconcile.
 func m3dxCleanupRetryable(err error) bool {
 	var guardErr *m3GuardError
 	return m3dxLockHeld(err) || errors.As(err, &guardErr) && guardErr.Guard.ID == "firewall.lockout"
