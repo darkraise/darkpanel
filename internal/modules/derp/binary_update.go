@@ -155,6 +155,8 @@ func (h binaryUpdateHandler) Task(ctx context.Context, env core.Env, in BinaryUp
 // fail rolls back an update whose step failed with cause and returns the update's derp.verify_failed error. It is
 // never Definite: the host changed before the step failed.
 func (h binaryUpdateHandler) fail(ctx context.Context, env core.Env, from, step string, cause error) error {
+	// The step may have failed because ctx ended, and the previous binary must still be restored.
+	ctx = context.WithoutCancel(ctx)
 	u, ok, err := loadUpdate(ctx, env.DB.Read(), env.ChangeID)
 	if err == nil && !ok {
 		err = fmt.Errorf("derp: update %s is not recorded", env.ChangeID)
@@ -201,11 +203,15 @@ func (binaryUpdateHandler) unitActive(ctx context.Context, env core.Env) error {
 }
 
 // await runs probe at once and then every binaryUpdatePoll on env.Clock until it succeeds, and fails with the last
-// probe's error once healthWindow has passed since the first.
+// probe's error once healthWindow has passed since the first. Each probe is bounded by the time left in the window,
+// and by at least one poll, so a probe that hangs ends with the window.
 func (binaryUpdateHandler) await(ctx context.Context, env core.Env, probe func(ctx context.Context) error) error {
 	deadline := env.Clock.Now().Add(healthWindow)
 	for {
-		err := probe(ctx)
+		// The bound is real time: it limits one call to a socket, while env.Clock measures the wait between probes.
+		pctx, cancel := context.WithTimeout(ctx, max(deadline.Sub(env.Clock.Now()), binaryUpdatePoll))
+		err := probe(pctx)
+		cancel()
 		if err == nil {
 			return nil
 		}

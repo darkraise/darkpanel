@@ -20,6 +20,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/modules/derp/artifact"
 	"github.com/darkraise/darkpanel/internal/modules/derp/server"
+	"github.com/darkraise/darkpanel/internal/platform/tslocal"
 )
 
 const (
@@ -546,6 +547,86 @@ func TestBuTaskRollsBackAFailedHealthCheck(t *testing.T) {
 			}
 		})
 	}
+}
+
+// buHung is one Status call that hung: how long its context allowed it, and the error it ended with.
+type buHung struct {
+	bound time.Duration // 0 when the context had no deadline
+	err   error
+}
+
+// buHungLocal is a local API whose Status fails at once until hang reports true, and then blocks until its context
+// ends, sending each such call to hung.
+type buHungLocal struct {
+	localAPI
+	hang func() bool
+	hung chan buHung
+}
+
+func (l buHungLocal) Status(ctx context.Context) (*tslocal.Status, error) {
+	if !l.hang() {
+		return nil, errors.New("not answering yet")
+	}
+	var bound time.Duration
+	if d, ok := ctx.Deadline(); ok {
+		bound = time.Until(d)
+	}
+	<-ctx.Done()
+	l.hung <- buHung{bound, ctx.Err()}
+	return nil, ctx.Err()
+}
+
+func TestBuTaskEndsAHungPoll(t *testing.T) {
+	hungLocal := func(s *buSetup, hang func() bool) chan buHung {
+		hung := make(chan buHung, 16)
+		local := s.d.d.local()
+		s.d.d.local = func() localAPI { return buHungLocal{localAPI: local, hang: hang, hung: hung} }
+		return hung
+	}
+	t.Run("at the end of the window", func(t *testing.T) {
+		s := buNewSetup(t)
+		start := s.h.clock.Now()
+		hung := hungLocal(s, func() bool { return !s.h.clock.Now().Before(start.Add(healthWindow - binaryUpdatePoll)) })
+		_, err := s.run(t)
+		buRolledBack(t, s, err, "tailscaled")
+		if waited := s.h.clock.Now().Sub(start); waited < healthWindow || waited > healthWindow+binaryUpdatePoll {
+			t.Errorf("gave up after %v, want the %v window", waited, healthWindow)
+		}
+		if len(hung) == 0 {
+			t.Fatal("no poll hung")
+		}
+		for len(hung) > 0 {
+			// A poll started a poll or less before the window ends is allowed one poll.
+			if c := <-hung; c.bound <= 0 || c.bound > binaryUpdatePoll || !errors.Is(c.err, context.DeadlineExceeded) {
+				t.Errorf("a hung poll was bounded to %v and ended with %v, want at most %v and the deadline", c.bound, c.err, binaryUpdatePoll)
+			}
+		}
+	})
+	t.Run("when the task's context ends", func(t *testing.T) {
+		s := buNewSetup(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		entered := make(chan struct{})
+		hung := hungLocal(s, func() bool {
+			close(entered)
+			return true
+		})
+		go func() {
+			<-entered
+			cancel()
+		}()
+		var err error
+		buDrive(t, s.h, func() {
+			_, err = s.d.binaryUpdate().Handler.Task(ctx, s.env, buInput(artifact.DerperVersion))
+		})
+		buRolledBack(t, s, err, "tailscaled")
+		if c := <-hung; !errors.Is(c.err, context.Canceled) {
+			t.Errorf("the hung poll ended with %v, want the task's cancellation", c.err)
+		}
+		if want := []string{"restart " + server.UnitName, "restart " + server.UnitName}; !slices.Equal(s.h.units.Calls, want) {
+			t.Errorf("unit calls %v, want the restart and the rollback's restart", s.h.units.Calls)
+		}
+	})
 }
 
 func TestBuTaskReportsAFailedRollback(t *testing.T) {
