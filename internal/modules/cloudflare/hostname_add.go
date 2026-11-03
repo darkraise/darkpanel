@@ -132,9 +132,16 @@ func (h hostnameAddHandler) inspect(ctx context.Context, env core.Env, in Hostna
 	if !found {
 		return hostnameAddition{}, core.Definite(errcode.New(errcode.NotFound, "no managed tunnel "+in.Tunnel))
 	}
-	if env.Call.ParentAction != exposureParent && h.c.reserved(ctx, in.Service) {
-		return hostnameAddition{}, core.Definite(errcode.New(errcode.CloudflareReserved, fmt.Sprintf(
-			"service %s is in the panel network %s, which only %s routes to", in.Service, panelNetwork, exposureParent)))
+	if env.Call.ParentAction != exposureParent {
+		reserved, err := h.c.reserved(ctx, in.Service)
+		if err != nil {
+			return hostnameAddition{}, core.Definite(errcode.Wrap(errcode.CloudflareReserved, err, fmt.Sprintf(
+				"cannot tell whether service %s routes into the panel network %s: its host could not be resolved", in.Service, panelNetwork)))
+		}
+		if reserved {
+			return hostnameAddition{}, core.Definite(errcode.New(errcode.CloudflareReserved, fmt.Sprintf(
+				"service %s is in the panel network %s, which only %s routes to", in.Service, panelNetwork, exposureParent)))
+		}
 	}
 	a, _, err := h.c.connected(ctx, env.DB, env.Sealer, env.Clock)
 	if err != nil {

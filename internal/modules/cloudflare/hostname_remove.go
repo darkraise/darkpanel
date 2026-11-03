@@ -72,7 +72,7 @@ func (h hostnameRemoveHandler) inspectRow(ctx context.Context, env core.Env, row
 	if row.Phase == "adding_rule" || row.Phase == "adding_record" {
 		return hostnameRemoval{}, hostnameConflict("hostname %s is still being added by change %s", row.Hostname, row.ChangeID)
 	}
-	if env.Call.ParentAction != exposureRemoveParent && h.c.reserved(ctx, row.Service) {
+	if env.Call.ParentAction != exposureRemoveParent && reservedLiteral(row.Service) {
 		return hostnameRemoval{}, core.Definite(errcode.New(errcode.CloudflareReserved, fmt.Sprintf(
 			"hostname %s routes into the panel network %s, which only %s removes", row.Hostname, panelNetwork, exposureRemoveParent)))
 	}

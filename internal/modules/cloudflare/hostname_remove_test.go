@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/netip"
 	"reflect"
 	"slices"
 	"strings"
@@ -406,12 +407,38 @@ func TestHRRefusals(t *testing.T) {
 	}
 }
 
-// TestHRReserved: a hostname whose service is in the panel network, by
-// address or by a name that resolves into it, is removed only as a step of
+// TestHRReserved: a hostname whose service is an address of the panel
+// network, in canonical or legacy numeric form, is removed only as a step of
 // panel.exposure.remove.
 func TestHRReserved(t *testing.T) {
-	for _, service := range []string{"http://172.31.255.1:8080", "http://gw" + cfInPanel + ":9443"} {
+	for _, service := range []string{"http://172.31.255.1:8080", "http://2887778049:8080"} {
 		t.Run(service, func(t *testing.T) { hrReserved(t, service) })
+	}
+}
+
+// TestRsRemoveNeverResolvesTheServiceName: a name that now resolves into the
+// panel network does not stop its hostname from being removed, and the removal
+// does not look the name up.
+func TestRsRemoveNeverResolvesTheServiceName(t *testing.T) {
+	ctx := context.Background()
+	w := hrNew(t, func(o *hrOpts) { o.service = "http://gw" + cfInPanel + ":9443" })
+	lookups := 0
+	w.c.d.lookup = func(ctx context.Context, host string) ([]netip.Addr, error) {
+		lookups++
+		return cfLookup(ctx, host)
+	}
+	w.def = w.c.hostnameRemove()
+	if _, err := w.def.Handler.Plan(ctx, w.h.env(""), hrIn); err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if _, err := w.def.Handler.Apply(ctx, w.h.env("01J00000000000000000000002"), hrIn); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if _, ok := w.row(t); ok {
+		t.Error("the hostname row remains")
+	}
+	if lookups != 0 {
+		t.Errorf("%d name lookups, want none", lookups)
 	}
 }
 

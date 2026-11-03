@@ -35,36 +35,64 @@ const (
 // cloudflare lock.
 const lookupTimeout = 5 * time.Second
 
+// serviceHost reads the host of service, without one trailing dot; host is ""
+// when service is not a URL with a host. When the host is an address, in
+// canonical form (unmapped from IPv4-in-IPv6) or in a legacy numeric form,
+// literal is true and addr is that address.
+func serviceHost(service string) (host string, addr netip.Addr, literal bool) {
+	u, err := url.Parse(service)
+	if err != nil || u.Host == "" {
+		return "", netip.Addr{}, false
+	}
+	host = strings.TrimSuffix(u.Hostname(), ".")
+	if a, err := netip.ParseAddr(host); err == nil {
+		return host, a.Unmap(), true
+	}
+	if a, ok := legacyIPv4(host); ok {
+		return host, a, true
+	}
+	return host, netip.Addr{}, false
+}
+
+// reservedLiteral reports whether the host of service is an address of the
+// panel network spelled as an address. It resolves no name.
+func reservedLiteral(service string) bool {
+	_, addr, literal := serviceHost(service)
+	return literal && panelNetwork.Contains(addr)
+}
+
 // reserved reports whether service routes to an address of the panel
 // network: its host is such an address in canonical or legacy numeric form,
 // or is a name the controller resolves to any such address. A name the
-// controller cannot resolve, such as a container name only Docker's resolver
-// knows, is not reserved. The check is best effort, because cloudflared
-// resolves names on its own host.
-func (c cf) reserved(ctx context.Context, service string) bool {
-	u, err := url.Parse(service)
-	if err != nil || u.Host == "" {
-		return false
+// resolver answers as not found, such as a container name only Docker's
+// resolver knows, is not reserved; any other lookup error is returned,
+// because only a not-found answer is evidence that the name does not reach
+// the panel. The check stays best effort, because cloudflared resolves names
+// on its own host.
+func (c cf) reserved(ctx context.Context, service string) (bool, error) {
+	host, addr, literal := serviceHost(service)
+	if literal {
+		return panelNetwork.Contains(addr), nil
 	}
-	host := strings.TrimSuffix(u.Hostname(), ".")
-	if addr, err := netip.ParseAddr(host); err == nil {
-		return panelNetwork.Contains(addr.Unmap())
-	}
-	if addr, ok := legacyIPv4(host); ok {
-		return panelNetwork.Contains(addr)
+	if host == "" {
+		return false, nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, lookupTimeout)
 	defer cancel()
 	addrs, err := c.lookup(ctx, host)
-	if err != nil {
-		return false
+	var dnsErr *net.DNSError
+	switch {
+	case errors.As(err, &dnsErr) && dnsErr.IsNotFound:
+		return false, nil
+	case err != nil:
+		return false, err
 	}
 	for _, a := range addrs {
 		if panelNetwork.Contains(a.Unmap()) {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
 // lookup resolves host to its addresses.

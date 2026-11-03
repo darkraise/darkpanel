@@ -4,9 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -466,10 +469,128 @@ func TestHAReserved(t *testing.T) {
 		"http://172.31.65281:80": true, "http://172.2096897:80": true, "http://2887777793:80": false,
 		"http://gw" + cfInPanel + ":80": true, "http://gw" + cfInPanel + ".:80": true,
 	} {
-		if got := c.reserved(context.Background(), service); got != want {
-			t.Errorf("reserved(%q) = %t, want %t", service, got, want)
+		if got, err := c.reserved(context.Background(), service); err != nil || got != want {
+			t.Errorf("reserved(%q) = %t, %v; want %t, nil", service, got, err, want)
 		}
 	}
+}
+
+// rsLookupFailure is a name lookup that fails with err, and counts its calls.
+type rsLookupFailure struct {
+	err   error
+	calls int
+}
+
+func (l *rsLookupFailure) lookup(context.Context, string) ([]netip.Addr, error) {
+	l.calls++
+	return nil, l.err
+}
+
+// TestRsReservedLookupErrors: only a not-found answer from the resolver lets a
+// name pass the guard; a timeout, a server failure or any other error is
+// returned, and an address literal never reaches the resolver.
+func TestRsReservedLookupErrors(t *testing.T) {
+	notFound := &net.DNSError{Err: "no such host", Name: "web.app.test", IsNotFound: true}
+	for name, tc := range map[string]struct {
+		err     error
+		service string
+		want    bool // the answer when the lookup error is nil
+		failed  bool
+		lookups int
+	}{
+		"not found":                {err: notFound, service: "http://web.app.test:80", lookups: 1},
+		"not found, wrapped":       {err: fmt.Errorf("resolve: %w", notFound), service: "http://web.app.test:80", lookups: 1},
+		"timeout":                  {err: &net.DNSError{Err: "i/o timeout", Name: "web.app.test", IsTimeout: true}, service: "http://web.app.test:80", failed: true, lookups: 1},
+		"server failure":           {err: &net.DNSError{Err: "server misbehaving", Name: "web.app.test", IsTemporary: true}, service: "http://web.app.test:80", failed: true, lookups: 1},
+		"deadline":                 {err: context.DeadlineExceeded, service: "http://web.app.test:80", failed: true, lookups: 1},
+		"another error":            {err: errors.New("resolver gone"), service: "http://web.app.test:80", failed: true, lookups: 1},
+		"a panel address literal":  {err: errors.New("resolver gone"), service: "http://172.31.255.4:80", want: true},
+		"an other address literal": {err: errors.New("resolver gone"), service: "http://10.1.2.3:80"},
+		"a legacy numeric literal": {err: errors.New("resolver gone"), service: "http://0xac1fff01:80", want: true},
+		"no host":                  {err: errors.New("resolver gone"), service: "http_status:404"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			l := &rsLookupFailure{err: tc.err}
+			c := cf{d: deps{lookup: l.lookup}}
+			got, err := c.reserved(context.Background(), tc.service)
+			if (err != nil) != tc.failed {
+				t.Fatalf("reserved(%q) error = %v, want an error: %t", tc.service, err, tc.failed)
+			}
+			if tc.failed && !errors.Is(err, tc.err) {
+				t.Errorf("reserved(%q) error = %v, want the lookup's error", tc.service, err)
+			}
+			if got != tc.want {
+				t.Errorf("reserved(%q) = %t, want %t", tc.service, got, tc.want)
+			}
+			if l.calls != tc.lookups {
+				t.Errorf("%d lookups, want %d", l.calls, tc.lookups)
+			}
+		})
+	}
+}
+
+// TestRsReservedAnswersWithAnAddress: a name that resolves to an address
+// outside the panel network is not reserved, and one that resolves to the panel
+// network among other addresses is.
+func TestRsReservedAnswersWithAnAddress(t *testing.T) {
+	for name, tc := range map[string]struct {
+		addrs []netip.Addr
+		want  bool
+	}{
+		"outside":        {addrs: []netip.Addr{netip.MustParseAddr("203.0.113.9")}},
+		"no addresses":   {},
+		"among others":   {addrs: []netip.Addr{netip.MustParseAddr("203.0.113.9"), netip.MustParseAddr("172.31.255.8")}, want: true},
+		"mapped address": {addrs: []netip.Addr{netip.MustParseAddr("::ffff:172.31.255.8")}, want: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := cf{d: deps{lookup: func(context.Context, string) ([]netip.Addr, error) { return tc.addrs, nil }}}
+			if got, err := c.reserved(context.Background(), "http://web.app.test:80"); err != nil || got != tc.want {
+				t.Errorf("reserved = %t, %v; want %t, nil", got, err, tc.want)
+			}
+		})
+	}
+}
+
+// TestRsAddPlanWhenTheServiceHostCannotBeResolved: a plan whose service names a
+// host the resolver fails on, other than by not finding it, is refused with
+// cloudflare.reserved and sends no write; a host the resolver does not find
+// passes, as a container name does, and so does any host under the panel
+// exposure.
+func TestRsAddPlanWhenTheServiceHostCannotBeResolved(t *testing.T) {
+	const service = "http://web.app.test:8080"
+	run := func(t *testing.T, err error, call *core.CallContext) (*haFixture, *rsLookupFailure, error) {
+		t.Helper()
+		f := newHAFixture(t)
+		l := &rsLookupFailure{err: err}
+		f.c.d.lookup = l.lookup
+		f.eng.Close()
+		f.eng = haEngine(t, f.h, f.c)
+		t.Cleanup(f.eng.Close)
+		_, planErr := f.plan(haInputWith(haTunnelName, "app.example.com", service), call)
+		return f, l, planErr
+	}
+	t.Run("a timeout is refused", func(t *testing.T) {
+		f, l, err := run(t, &net.DNSError{Err: "i/o timeout", Name: "web.app.test", IsTimeout: true}, nil)
+		if got := errcode.From(err); got.Code != errcode.CloudflareReserved || !strings.Contains(got.Detail, "web.app.test") {
+			t.Fatalf("plan error = %v, want %s naming the host", err, errcode.CloudflareReserved)
+		}
+		if l.calls != 1 || len(f.writes()) != 0 {
+			t.Errorf("%d lookups and writes %v, want one lookup and no write", l.calls, f.writes())
+		}
+	})
+	t.Run("not found passes", func(t *testing.T) {
+		_, l, err := run(t, &net.DNSError{Err: "no such host", Name: "web.app.test", IsNotFound: true}, nil)
+		if err != nil || l.calls != 1 {
+			t.Errorf("plan error = %v after %d lookups, want it accepted after one", err, l.calls)
+		}
+	})
+	t.Run("the panel exposure does not look up", func(t *testing.T) {
+		call := &core.CallContext{ParentChangeID: "01HPARENT", ParentAction: "panel.exposure.add", StepID: "hostname"}
+		_, l, err := run(t, errors.New("resolver gone"), call)
+		if err != nil || l.calls != 0 {
+			t.Errorf("plan error = %v after %d lookups, want it accepted without a lookup", err, l.calls)
+		}
+	})
 }
 
 func TestHACheckDrift(t *testing.T) {
