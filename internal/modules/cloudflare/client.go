@@ -226,15 +226,22 @@ func answerError(method string, err error, detail string) error {
 	return errcode.Wrap(errcode.CloudUncertainOutcome, err, detail+"; the request may have committed")
 }
 
+// maxListPages is how many pages list reads before giving up: 20000 items at
+// the largest page size, far beyond the largest listing spec 7.1 expects, so
+// reaching it means the provider ignores the page number or claims an endless
+// listing.
+const maxListPages = 200
+
 // list reads every page of a list call, size items per page, appending each
-// page's results to *out.
+// page's results to *out. A listing that has not ended after maxListPages
+// pages fails as cloud.unavailable.
 func list[T any](ctx context.Context, a *api, path string, query url.Values, size int, out *[]T) error {
 	q := url.Values{}
 	for k, v := range query {
 		q[k] = v
 	}
 	q.Set("per_page", strconv.Itoa(size))
-	for page := 1; ; page++ {
+	for page := 1; page <= maxListPages; page++ {
 		q.Set("page", strconv.Itoa(page))
 		var items []T
 		info, err := a.call(ctx, http.MethodGet, path, q, nil, &items)
@@ -256,6 +263,7 @@ func list[T any](ctx context.Context, a *api, path string, query url.Values, siz
 			return nil
 		}
 	}
+	return answerError(http.MethodGet, nil, fmt.Sprintf("cloudflare listed more than %d pages of %s", maxListPages, path))
 }
 
 // notFound turns the 404 of a call that names one object into not_found,

@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"net/url"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -187,6 +188,90 @@ func TestAPListsWithoutATotalReadUntilAShortPage(t *testing.T) {
 			}
 			if len(zones) != 51 || len(srv.Requests()) != 2 {
 				t.Errorf("%d zones in %d requests, want 51 in 2", len(zones), len(srv.Requests()))
+			}
+		})
+	}
+}
+
+// rsZonesPages makes GET /zones answer page after page: pageSize gives how many
+// zones the page holds and info the answer's result_info (nil for none).
+func rsZonesPages(srv *cloudfake.Server, pageSize func(page int) int, info func(page int) any) {
+	srv.Handle(http.MethodGet, "/zones", func(w http.ResponseWriter, r *http.Request) {
+		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+		zones := make([]any, pageSize(page))
+		for i := range zones {
+			zones[i] = map[string]string{"id": fmt.Sprintf("z%d-%d", page, i), "name": "example.com"}
+		}
+		body := map[string]any{"success": true, "errors": []any{}, "messages": []any{}, "result": zones}
+		if info != nil {
+			body["result_info"] = info(page)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(body)
+	})
+}
+
+// TestRsListsStopAtThePageCap: a listing that does not end within maxListPages
+// pages fails as cloud.unavailable after exactly that many requests, whether
+// the answers give no total or a total of a million pages.
+func TestRsListsStopAtThePageCap(t *testing.T) {
+	full := func(int) int { return 50 }
+	for name, info := range map[string]func(page int) any{
+		"no result_info": nil,
+		"no total":       func(page int) any { return map[string]any{"page": page, "per_page": 50} },
+		"a million pages": func(page int) any {
+			return map[string]any{"page": page, "per_page": 50, "total_pages": 1000000, "total_count": 50000000}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv, a := apRaw(t)
+			rsZonesPages(srv, full, info)
+			zones, err := a.Zones(context.Background())
+			_ = apWantCode(t, err, errcode.CloudUnavailable)
+			if zones != nil {
+				t.Errorf("%d zones returned with the error", len(zones))
+			}
+			if n := len(srv.Requests()); n != maxListPages {
+				t.Errorf("%d requests, want %d", n, maxListPages)
+			}
+		})
+	}
+}
+
+// TestRsListsReadUpToThePageCap: a listing that ends on page maxListPages is
+// read whole, by a short last page or by its stated total.
+func TestRsListsReadUpToThePageCap(t *testing.T) {
+	for name, tc := range map[string]struct {
+		size func(page int) int
+		info func(page int) any
+		want int
+	}{
+		"a short last page": {
+			size: func(page int) int {
+				if page == maxListPages {
+					return 1
+				}
+				return 50
+			},
+			want: (maxListPages-1)*50 + 1,
+		},
+		"the stated total": {
+			size: func(int) int { return 50 },
+			info: func(page int) any {
+				return map[string]any{"page": page, "per_page": 50, "total_pages": maxListPages, "total_count": maxListPages * 50}
+			},
+			want: maxListPages * 50,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv, a := apRaw(t)
+			rsZonesPages(srv, tc.size, tc.info)
+			zones, err := a.Zones(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(zones) != tc.want || len(srv.Requests()) != maxListPages {
+				t.Errorf("%d zones in %d requests, want %d in %d", len(zones), len(srv.Requests()), tc.want, maxListPages)
 			}
 		})
 	}
