@@ -92,8 +92,6 @@ function ConnectorsCard({
   tunnels: Tunnels
   onPlan: (pending: Pending) => void
 }) {
-  // The names come with the tunnel list, so the table waits for it rather than flash ids.
-  const loading = connectors.isPending || tunnels.isPending
   return (
     <Card>
       <CardHeader>
@@ -102,7 +100,7 @@ function ConnectorsCard({
       <CardContent>
         {connectors.isError ? (
           <ErrorAlert error={connectors.error} />
-        ) : loading ? (
+        ) : connectors.isPending ? (
           <Spinner aria-label="Loading the connectors" />
         ) : connectors.data.connectors.length === 0 ? (
           <EmptyState title="No connectors on this host" description="Deploy a connector to serve a tunnel from this host." />

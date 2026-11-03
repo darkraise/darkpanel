@@ -204,6 +204,13 @@ describe("ConnectorsPage", () => {
     expect(within(form).getByRole("radio", { name: "Create a new tunnel" })).toBeTruthy()
   })
 
+  test("a tunnel list that is still pending does not hold back the connectors", async () => {
+    cnRender([cnHost("h1", "web-1")], { [TUNNELS]: () => new Promise(() => {}) })
+    const rows = within(await cnTable()).getAllByRole("row").slice(1)
+    expect(rows.map((r) => within(r).getAllByRole("cell")[0]?.textContent)).toEqual(["t1"])
+    expect(screen.getByLabelText("Loading the tunnels")).toBeTruthy()
+  })
+
   test("has no accessibility violations", async () => {
     const { container } = cnRender([cnHost("h1", "web-1"), cnHost("h2", "web-2")])
     await userEvent.setup().click(await screen.findByRole("radio", { name: "web-1" }))
