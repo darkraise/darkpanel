@@ -171,16 +171,25 @@ func isNPMAddr(addrs []netip.Addr, addr netip.Addr) bool {
 	return false
 }
 
+// isNPMName also matches the name cut at each of its dots, last dot first, because Docker's embedded DNS
+// resolves a.b.c as a.b.c, as a.b in network c and as a in network b.c (moby libnetwork Sandbox.ResolveName).
+// The network part is not compared with NPM's networks, since NPM may join another network after the check.
 func isNPMName(names []string, name string) bool {
-	if name == npmContainerName {
-		return true
-	}
-	for _, n := range names {
-		if normaliseHost(n) == name {
+	for {
+		if name == npmContainerName {
 			return true
 		}
+		for _, n := range names {
+			if normaliseHost(n) == name {
+				return true
+			}
+		}
+		i := strings.LastIndex(name, ".")
+		if i < 0 {
+			return false
+		}
+		name = name[:i]
 	}
-	return false
 }
 
 func reserved(host string, port int, exposure string) error {
