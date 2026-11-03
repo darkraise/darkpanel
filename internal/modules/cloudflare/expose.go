@@ -64,9 +64,9 @@ func (exposeContainerComposer) Steps(ctx context.Context, env core.Env, in Expos
 	// white space and "|" out of it.
 	switch {
 	case !networkNamePattern.MatchString(in.Container):
-		return nil, hostnameInvalid("/container", "the container must be a container name of 1 to 128 letters, digits, '_', '.' or '-'")
+		return nil, hostnameInvalid("/container", "the container must be a container name of 1 to 128 letters, digits, '_', '.' or '-' that starts with a letter or digit")
 	case !networkNamePattern.MatchString(in.Network):
-		return nil, hostnameInvalid("/network", "the network must be a network name of 1 to 128 letters, digits, '_', '.' or '-'")
+		return nil, hostnameInvalid("/network", "the network must be a network name of 1 to 128 letters, digits, '_', '.' or '-' that starts with a letter or digit")
 	case in.Port < 1 || in.Port > 65535:
 		return nil, hostnameInvalid("/port", "the port must be from 1 to 65535")
 	case in.Hostname == "":
@@ -154,10 +154,13 @@ func (exposeRemoveComposer) Steps(ctx context.Context, env core.Env, in ExposeRe
 
 // Output is the removed exposure's hostname.
 func (exposeRemoveComposer) Output(_ context.Context, _ core.Env, in ExposeRemoveInput, steps map[string]json.RawMessage) (ExposeRemoveOutput, error) {
-	for _, id := range []string{"hostname", "network"} {
-		if _, ok := steps[id]; !ok {
-			return ExposeRemoveOutput{}, errors.New("cloudflare: the removal has no output of its " + id + " step")
-		}
+	var hostname HostnameView
+	if err := exposeStepOutput(steps, "hostname", &hostname); err != nil {
+		return ExposeRemoveOutput{}, err
+	}
+	var attachment NetworkAttachment
+	if err := exposeStepOutput(steps, "network", &attachment); err != nil {
+		return ExposeRemoveOutput{}, err
 	}
 	return ExposeRemoveOutput{Hostname: in.Hostname}, nil
 }

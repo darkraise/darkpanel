@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strings"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -121,19 +122,17 @@ func attachSupported(network dockerapi.Network, target *dockerapi.ContainerJSON)
 	return nil
 }
 
-// attachAddressOf is the address the endpoint has in want's family: its fixed address when it has one, else the one
-// the Engine assigned.
-func attachAddressOf(ep *dockerapi.EndpointSettings, want netip.Addr) netip.Addr {
-	if want.Is4() {
-		if ep.IPAMConfig != nil && ep.IPAMConfig.IPv4Address.IsValid() {
-			return ep.IPAMConfig.IPv4Address
+// attachFixedOf is the fixed addresses of the endpoint, IPv4 first; an address the Engine assigned is not fixed.
+func attachFixedOf(ep *dockerapi.EndpointSettings) []netip.Addr {
+	var fixed []netip.Addr
+	if ep.IPAMConfig != nil {
+		for _, a := range []netip.Addr{ep.IPAMConfig.IPv4Address, ep.IPAMConfig.IPv6Address} {
+			if a.IsValid() {
+				fixed = append(fixed, a)
+			}
 		}
-		return ep.IPAddress
 	}
-	if ep.IPAMConfig != nil && ep.IPAMConfig.IPv6Address.IsValid() {
-		return ep.IPAMConfig.IPv6Address
-	}
-	return ep.GlobalIPv6Address
+	return fixed
 }
 
 // attachHashClaim is a claim as a plan's state hash covers it.
@@ -249,8 +248,8 @@ func (h networkAttachHandler) check(ctx context.Context, env core.Env, in Networ
 	}
 	ep := c.NetworkSettings.Networks[network.Name]
 	if in.Address.IsValid() && ep != nil {
-		if has := attachAddressOf(ep, in.Address); has != in.Address {
-			msg := fmt.Sprintf("%s is already on network %s with address %s, not %s", name, network.Name, has, in.Address)
+		if fixed := attachFixedOf(ep); len(fixed) > 0 && !slices.Contains(fixed, in.Address) {
+			msg := fmt.Sprintf("%s is already on network %s with the fixed address %v, not %s", name, network.Name, fixed, in.Address)
 			return networkAttachCheck{}, attachInvalid([]errcode.FieldError{{Path: "/address", Message: msg}})
 		}
 	}

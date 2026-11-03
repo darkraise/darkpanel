@@ -34,6 +34,9 @@ type connectorDeployComposer struct{}
 
 // Steps returns the deployment's steps for in.
 func (connectorDeployComposer) Steps(ctx context.Context, env core.Env, in ConnectorDeployInput) ([]core.Step, error) {
+	if in.HostID == "" {
+		return nil, hostnameInvalid("/hostId", "the host id is required")
+	}
 	// The engine refuses a literal in a secret field and stores a template in clear, so the token reaches the run only
 	// as a reference to the token step's sealed output.
 	token := "${steps.token.output.token}" //nolint:gosec // G101: a reference to the token step's output, not a credential
@@ -103,7 +106,7 @@ func (connectorDeployComposer) Output(ctx context.Context, env core.Env, in Conn
 		if ref.ID == "" {
 			return ConnectorDeployOutput{}, errors.New("cloudflare: the deployment's tunnel output holds no id")
 		}
-		return ConnectorDeployOutput{Tunnel: ref.ID, Created: true, Connector: conn}, nil
+		return deployOutput(ref.ID, true, conn)
 	}
 	row, found, err := loadTunnel(ctx, env.DB.Read(), in.Tunnel)
 	if err != nil {
@@ -112,5 +115,13 @@ func (connectorDeployComposer) Output(ctx context.Context, env core.Env, in Conn
 	if !found {
 		return ConnectorDeployOutput{}, errors.New("cloudflare: the deployment's tunnel " + in.Tunnel + " is no longer managed")
 	}
-	return ConnectorDeployOutput{Tunnel: row.ID, Connector: conn}, nil
+	return deployOutput(row.ID, false, conn)
+}
+
+// deployOutput is the deployment's output for the tunnel, refused when the run step started another tunnel's connector.
+func deployOutput(tunnel string, created bool, conn Connector) (ConnectorDeployOutput, error) {
+	if conn.Tunnel != tunnel {
+		return ConnectorDeployOutput{}, fmt.Errorf("cloudflare: the deployment's run step started the connector of tunnel %q, not %s", conn.Tunnel, tunnel)
+	}
+	return ConnectorDeployOutput{Tunnel: tunnel, Created: created, Connector: conn}, nil
 }

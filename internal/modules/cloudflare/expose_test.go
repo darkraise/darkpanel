@@ -327,6 +327,40 @@ func TestExExposeContainerRefusals(t *testing.T) {
 	}
 }
 
+// TestExExposeContainerRefusalsNameTheFirstCharacter: a name that starts with a separator is refused with a detail
+// that says a name starts with a letter or digit.
+func TestExExposeContainerRefusalsNameTheFirstCharacter(t *testing.T) {
+	h := newCFHost(t)
+	exSeed(t, h)
+	for path, in := range map[string]ExposeInput{
+		"/container": func() ExposeInput { in := exBase(); in.Container = "-web"; return in }(),
+		"/network":   func() ExposeInput { in := exBase(); in.Network = ".net"; return in }(),
+	} {
+		_, err := exSteps(t, h, cf{}.exposeContainer(), in)
+		coded := exRefused(t, err, errcode.InvalidInput)
+		if len(coded.Fields) != 1 || coded.Fields[0].Path != path || !strings.Contains(coded.Detail, "starts with a letter or digit") {
+			t.Errorf("%s: fields %+v, detail %q; want one refusal of %s that says a name starts with a letter or digit", path, coded.Fields, coded.Detail, path)
+		}
+	}
+}
+
+// TestExExposeRemoveOutputDecodesItsSteps: the removal's output reads its steps' outputs as the exposure's does, so
+// one that is not its step's output is an error naming the step.
+func TestExExposeRemoveOutputDecodesItsSteps(t *testing.T) {
+	in := exJSON(t, ExposeRemoveInput{HostID: exHost, Hostname: "app.example.com"})
+	for _, bad := range []string{"hostname", "network"} {
+		steps := map[string]json.RawMessage{
+			"hostname": exJSON(t, HostnameView{Hostname: "app.example.com", Phase: "removed"}),
+			"network":  exJSON(t, NetworkAttachment{Tunnel: exTunnelID, Claimant: "expose:app.example.com"}),
+		}
+		steps[bad] = json.RawMessage(`"not an object"`)
+		_, err := cf{}.exposeRemove().Handler.Output(context.Background(), core.Env{}, in, steps)
+		if err == nil || !strings.Contains(err.Error(), "exposure's "+bad+" output") {
+			t.Errorf("a malformed %s output: %v, want an error naming it", bad, err)
+		}
+	}
+}
+
 func TestExExposeContainerOutput(t *testing.T) {
 	def := cf{}.exposeContainer()
 	in := exJSON(t, exBase())

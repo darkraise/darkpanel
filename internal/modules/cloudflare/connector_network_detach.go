@@ -71,9 +71,8 @@ func detachClaimsOf(ctx context.Context, q queryer, tunnel, network, claimant st
 	return mine, nil
 }
 
-// detachCheck decides everything a detach does and changes nothing; every failure is Definite. A missing connector
-// container or network counts as the connector not being on the network.
-func (h networkDetachHandler) detachCheck(ctx context.Context, env core.Env, in NetworkDetachInput) (detachDecision, error) {
+// detachInvalid is the Definite invalid_input refusal of every bad field of in, nil when there is none.
+func detachInvalid(in NetworkDetachInput) error {
 	var fields []errcode.FieldError
 	if p := tunnelIDProblem(in.Tunnel); p != "" {
 		fields = append(fields, errcode.FieldError{Path: "/tunnel", Message: p})
@@ -85,11 +84,47 @@ func (h networkDetachHandler) detachCheck(ctx context.Context, env core.Env, in 
 		fields = append(fields, errcode.FieldError{Path: "/claimant", Message: p})
 	}
 	if len(fields) > 0 {
-		return detachDecision{}, attachInvalid(fields)
+		return attachInvalid(fields)
+	}
+	return nil
+}
+
+// detachClaimsNamed returns the claimant's claims the input names: on the network, or on every network when it is "".
+// An attach records a claim under the network's name, so a network named by id is resolved through the Engine; the
+// Engine is asked only when the claimant holds a claim of the tunnel that the input's text does not name.
+func (h networkDetachHandler) detachClaimsNamed(ctx context.Context, q queryer, in NetworkDetachInput) ([]claimRow, error) {
+	mine, err := detachClaimsOf(ctx, q, in.Tunnel, in.Network, in.Claimant)
+	if err != nil || len(mine) > 0 || in.Network == "" {
+		return mine, err
+	}
+	held, err := detachClaimsOf(ctx, q, in.Tunnel, "", in.Claimant)
+	if err != nil || len(held) == 0 {
+		return nil, err
+	}
+	network, err := h.c.a.docker.InspectNetwork(ctx, in.Network)
+	switch {
+	case dockerapi.IsNotFound(err):
+		return nil, nil
+	case err != nil:
+		return nil, attachEngine("inspect network "+in.Network, err)
+	}
+	for _, c := range held {
+		if c.Network == network.Name {
+			mine = append(mine, c)
+		}
+	}
+	return mine, nil
+}
+
+// detachCheck decides everything a detach does and changes nothing; every failure is Definite. A missing connector
+// container or network counts as the connector not being on the network.
+func (h networkDetachHandler) detachCheck(ctx context.Context, env core.Env, in NetworkDetachInput) (detachDecision, error) {
+	if err := detachInvalid(in); err != nil {
+		return detachDecision{}, err
 	}
 
 	db := env.DB.Read()
-	removed, err := detachClaimsOf(ctx, db, in.Tunnel, in.Network, in.Claimant)
+	removed, err := h.detachClaimsNamed(ctx, db, in)
 	if err != nil {
 		return detachDecision{}, core.Definite(err)
 	}
@@ -190,7 +225,7 @@ func (h networkDetachHandler) Apply(ctx context.Context, env core.Env, in Networ
 			resource := resourceOf(nounEndpoint, in.Tunnel+"|"+network)
 			obs, err := h.Observe(ctx, env, core.Effect{Kind: core.EffectModify, Resource: resource, State: core.EffectIntended})
 			if err != nil {
-				return NetworkAttachment{}, err
+				return NetworkAttachment{}, core.Definite(fmt.Errorf("cloudflare: observe %s: %w", resource, err))
 			}
 			e := connectorEffect(core.EffectModify, resource, obs.Current.State, engineCommitWait)
 			e.InverseRecovery = &core.RecoveryID{Kind: "name", Value: name + "@" + network}
@@ -227,11 +262,17 @@ func (h networkDetachHandler) Apply(ctx context.Context, env core.Env, in Networ
 // Verify checks from the host alone that the claimant holds no claim for the tunnel on the network, or on any network
 // when the input names none.
 func (h networkDetachHandler) Verify(ctx context.Context, env core.Env, in NetworkDetachInput, _ NetworkAttachment) error {
-	left, err := detachClaimsOf(ctx, env.DB.Read(), in.Tunnel, in.Network, in.Claimant)
+	if err := detachInvalid(in); err != nil {
+		return err
+	}
+	left, err := h.detachClaimsNamed(ctx, env.DB.Read(), in)
 	if err != nil {
 		return err
 	}
-	if len(left) > 0 {
+	switch {
+	case len(left) == 1:
+		return fmt.Errorf("cloudflare: 1 claim of %s for tunnel %s is still recorded, on network %s", in.Claimant, in.Tunnel, left[0].Network)
+	case len(left) > 1:
 		return fmt.Errorf("cloudflare: %d claims of %s for tunnel %s are still recorded, the first on network %s", len(left), in.Claimant, in.Tunnel, left[0].Network)
 	}
 	return nil

@@ -268,6 +268,45 @@ func TestCdStepsUnknownTunnel(t *testing.T) {
 	cdRefused(t, err, errcode.NotFound)
 }
 
+// TestCdStepsRefuseAnEmptyHost: a deployment that names no host is refused as an invalid /hostId before any step,
+// with or without a named tunnel.
+func TestCdStepsRefuseAnEmptyHost(t *testing.T) {
+	h := newCFHost(t)
+	cdSeedTunnel(t, h)
+	for _, tunnel := range []string{"", cdTunnelID} {
+		steps, err := cdSteps(t, h, ConnectorDeployInput{Tunnel: tunnel})
+		cdRefused(t, err, errcode.InvalidInput)
+		if fields := errcode.From(err).Fields; len(fields) != 1 || fields[0].Path != "/hostId" || steps != nil {
+			t.Errorf("tunnel %q: fields %+v, steps %v; want one field error at /hostId and no step", tunnel, fields, steps)
+		}
+	}
+}
+
+// TestCdOutputRefusesAnotherTunnel: an output whose run step started another tunnel's connector than the deployment's
+// is an error, whether the deployment created the tunnel or named it.
+func TestCdOutputRefusesAnotherTunnel(t *testing.T) {
+	other := Connector{Tunnel: "7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d", Container: "x", ContainerID: "c0ffee", State: "running"}
+	def := cf{}.connectorDeploy()
+	for _, tc := range []struct {
+		name  string
+		in    ConnectorDeployInput
+		steps map[string]json.RawMessage
+	}{
+		{"created", ConnectorDeployInput{HostID: cdHost},
+			map[string]json.RawMessage{"tunnel": cdJSON(t, TunnelRef{ID: cdTunnelID, Name: cdTunnelName}), "run": cdJSON(t, other)}},
+		{"named", ConnectorDeployInput{HostID: cdHost, Tunnel: cdTunnelName}, map[string]json.RawMessage{"run": cdJSON(t, other)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newCFHost(t)
+			cdSeedTunnel(t, h)
+			_, err := def.Handler.Output(context.Background(), h.env(""), cdJSON(t, tc.in), tc.steps)
+			if err == nil || !strings.Contains(err.Error(), other.Tunnel) || !strings.Contains(err.Error(), cdTunnelID) {
+				t.Errorf("error %v, want one naming both tunnels", err)
+			}
+		})
+	}
+}
+
 func TestCdOutput(t *testing.T) {
 	conn := Connector{Tunnel: cdTunnelID, Container: "darkpanel-cloudflared-" + cdTunnelID, ContainerID: "c0ffee", State: "running"}
 	tests := []struct {

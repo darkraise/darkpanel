@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -686,6 +687,75 @@ func TestNdApplyFailsOnTheSecondNetwork(t *testing.T) {
 	}
 	if effs := ndEffects(t, h, "c5"); len(effs) != 0 || len(h.docker.calls()[mark:]) != 0 {
 		t.Errorf("a third detach journaled %+v and called %v, want nothing", effs, h.docker.calls()[mark:])
+	}
+}
+
+// TestNdNetworkByID: a network the input names by its id releases the claim the attach recorded under its name, and
+// Verify judges it the same way.
+func TestNdNetworkByID(t *testing.T) {
+	ctx := context.Background()
+	h := newND(t)
+	ndAttach(t, h, "c1", "web", ndClaimant)
+	web, ok := h.docker.network("web")
+	if !ok {
+		t.Fatal("no network web")
+	}
+	byID := func(in *NetworkDetachInput) { in.Network = web.ID }
+	verify := func() error {
+		return h.cf().networkDetach().Handler.Verify(ctx, h.env("c2"), ndInput(byID), ndJSON(t, NetworkAttachment{}))
+	}
+	if verify() == nil {
+		t.Error("Verify by id passed while the claim is held")
+	}
+	plan, err := h.cf().networkDetach().Handler.Plan(ctx, h.env(""), ndInput(byID))
+	if err != nil || len(plan.Diff) != 2 {
+		t.Fatalf("plan by id: diff %+v, error %v; want the claim and the leave", plan.Diff, err)
+	}
+	if _, err := ndApply(t, h, "c2", byID); err != nil {
+		t.Fatal(err)
+	}
+	if ndOn(t, h, "web") || len(ndClaims(t, h, ndTunnel)) != 0 {
+		t.Errorf("on web %t, claims %+v; want the connector off web and no claim", ndOn(t, h, "web"), ndClaims(t, h, ndTunnel))
+	}
+	if err := verify(); err != nil {
+		t.Errorf("Verify by id after the detach: %v", err)
+	}
+}
+
+// TestNdApplyObserveFailure: a failed read of the endpoint before the disconnect changed nothing, so it is Definite,
+// keeps the Engine's code and journals nothing.
+func TestNdApplyObserveFailure(t *testing.T) {
+	h := newND(t)
+	ndAttach(t, h, "c1", "web", ndClaimant)
+	h.docker.Fail("InspectContainer", nil)
+	h.docker.Fail("InspectContainer", dockerapi.ErrUnavailable)
+	_, err := ndApply(t, h, "c2")
+	if err == nil || !core.IsDefinite(err) || errcode.From(err).Code != errcode.DockerEngineUnavailable || !strings.HasPrefix(err.Error(), "cloudflare: ") {
+		t.Errorf("error %v, want a Definite docker.engine_unavailable with the cloudflare: prefix", err)
+	}
+	if effs := ndEffects(t, h, "c2"); len(effs) != 0 || len(ndClaims(t, h, ndTunnel)) != 1 || !ndOn(t, h, "web") {
+		t.Errorf("effects %+v, claims %+v; want nothing journaled and the claim and attachment kept", effs, ndClaims(t, h, ndTunnel))
+	}
+}
+
+// TestNdVerifyInputAndWording: Verify refuses a bad input as the plan does and counts one claim as one.
+func TestNdVerifyInputAndWording(t *testing.T) {
+	ctx := context.Background()
+	h := newND(t)
+	ndAttach(t, h, "c1", "web", ndClaimant)
+	verify := func(mutate ...func(*NetworkDetachInput)) error {
+		return h.cf().networkDetach().Handler.Verify(ctx, h.env("c2"), ndInput(mutate...), ndJSON(t, NetworkAttachment{}))
+	}
+	coded := ndRefused(t, verify(func(in *NetworkDetachInput) { in.Tunnel, in.Claimant = "x", "a b" }), errcode.InvalidInput)
+	if len(coded.Fields) != 2 {
+		t.Errorf("fields %+v, want /tunnel and /claimant", coded.Fields)
+	}
+	if err := verify(); err == nil || !strings.Contains(err.Error(), "1 claim of "+ndClaimant+" ") || strings.Contains(err.Error(), "claims") {
+		t.Errorf("Verify with one claim left: %v, want it to count 1 claim", err)
+	}
+	ndAttach(t, h, "c1b", "web2", ndClaimant)
+	if err := verify(ndAllNetworks); err == nil || !strings.Contains(err.Error(), "2 claims of ") {
+		t.Errorf("Verify with two claims left: %v, want it to count 2 claims", err)
 	}
 }
 

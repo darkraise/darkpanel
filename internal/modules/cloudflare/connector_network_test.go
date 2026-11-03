@@ -58,6 +58,7 @@ func naOnNetwork(t *testing.T, h *agHost, network, ip string) {
 		t.Fatal(err)
 	}
 	agOnNetwork(network, ip)(&c)
+	c.NetworkSettings.Networks[network].IPAMConfig = &dockerapi.EndpointIPAMConfig{IPv4Address: netip.MustParseAddr(ip)}
 	h.docker.putContainer(c)
 }
 
@@ -496,6 +497,45 @@ func TestNaRefusesAnotherAddressFamily(t *testing.T) {
 			_ = naRefused(t, err, errcode.InvalidInput)
 			if got := naMutated(h, mark); len(got) != 0 || len(naClaims(t, h)) != 1 {
 				t.Errorf("the refusal changed the host: calls %v, claims %+v", got, naClaims(t, h))
+			}
+		})
+	}
+}
+
+// TestNaAddressOfADynamicEndpoint: only a fixed address conflicts. A connector on the network at an address the Engine
+// assigned is claimed with no Engine call whatever address the input asks for, and the plan shows no address.
+func TestNaAddressOfADynamicEndpoint(t *testing.T) {
+	ctx := context.Background()
+	for _, addr := range []string{"172.20.0.9", "172.20.0.10", "fd00::10"} {
+		t.Run(addr, func(t *testing.T) {
+			h := newNA(t)
+			c, err := h.docker.InspectContainer(ctx, connectorName(naTunnel))
+			if err != nil {
+				t.Fatal(err)
+			}
+			agOnNetwork("web", "172.20.0.9")(&c)
+			h.docker.putContainer(c)
+			fixed := func(in *NetworkAttachInput) { in.Address = netip.MustParseAddr(addr) }
+			plan, err := h.cf().networkAttach().Handler.Plan(ctx, h.env(""), naInput(fixed))
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := []core.DiffLine{
+				{Op: "+", Text: "claim of " + naClaimant + " on network web"},
+				{Op: " ", Text: connectorName(naTunnel) + " is already on network web; detaching leaves it there"},
+			}
+			if !slices.Equal(plan.Diff, want) {
+				t.Errorf("diff %+v, want %+v", plan.Diff, want)
+			}
+			out, err := naApply(t, h, "c1", fixed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !out.Attached || !out.Preexisting || len(naClaims(t, h)) != 1 {
+				t.Errorf("output %+v, claims %+v; want a preexisting attachment claimed", out, naClaims(t, h))
+			}
+			if got := naMutated(h, 0); len(got) != 0 {
+				t.Errorf("Engine calls %v, want none", got)
 			}
 		})
 	}
