@@ -2,19 +2,27 @@
 // Darkpanel-owned proxy container and its proxy hosts and certificates.
 package npm
 
-import "github.com/darkraise/darkpanel/internal/core"
+import (
+	"io/fs"
+
+	"github.com/darkraise/darkpanel/internal/core"
+)
 
 // ID is the module id.
 const ID = "npm"
 
-type module struct{}
-
-// Module returns the Nginx Proxy Manager module.
-func Module() core.Module { return module{} }
+type module struct{ n nm }
 
 // Manifest declares the module. Every module is enabled by default;
-// preflight decides whether it is available on a host (R9). The manifest
-// declares no action, resource or check yet.
+// preflight decides whether it is available on a host (R9). The module owns
+// the managed directory of its upgrade archives and keeps its tables on the
+// agent.
 func (module) Manifest() core.Manifest {
-	return core.Manifest{ID: ID, Version: 1, DefaultEnabled: true}
+	return core.Manifest{
+		ID:             ID,
+		Version:        1,
+		DefaultEnabled: true,
+		OwnedPaths:     ownedPaths(),
+		Migrations:     map[core.Side]fs.FS{core.SideAgent: agentMigrations()},
+	}
 }
