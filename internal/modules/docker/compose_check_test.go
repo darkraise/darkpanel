@@ -624,3 +624,39 @@ func TestCCPrepareRefusesAShadowingPlugin(t *testing.T) {
 		}
 	}
 }
+
+func TestCCPrepareChecksTheShadowPluginDirectories(t *testing.T) {
+	cases := []struct {
+		name   string
+		dir    dkFile
+		detail string // "" when the directory is accepted
+	}{
+		{"root-owned and closed", dkFile{Mode: ccDirMode}, ""},
+		{"owned by another user", dkFile{Mode: ccDirMode, UID: 1000}, "owned by uid 1000"},
+		{"writable by its group", dkFile{Mode: fs.ModeDir | 0o775}, "writable by its group or others"},
+		{"writable by others", dkFile{Mode: fs.ModeDir | 0o757}, "writable by its group or others"},
+		{"a symlink", dkFile{Mode: ccDirMode, Symlink: true}, "is a symlink"},
+		{"not a directory", dkFile{Mode: 0o755}, "is not a directory"},
+	}
+	for _, dir := range shadowPluginDirs {
+		for _, tc := range cases {
+			t.Run(dir+" "+tc.name, func(t *testing.T) {
+				h := newDKHost(t)
+				p := ccProject(t, h, "shop")
+				ccConfig(h, p, nil, ccSimple)
+				h.files[dir] = tc.dir
+				_, err := ccPrepare(h, "shop", nil)
+				if tc.detail == "" {
+					if err != nil {
+						t.Fatalf("a %s directory was refused: %v", tc.name, err)
+					}
+					return
+				}
+				ccRefused(t, err, errcode.DockerComposeUnavailable, dir, tc.detail)
+				if len(h.cmds) != 0 {
+					t.Errorf("ran %v after refusing %s", h.cmds, dir)
+				}
+			})
+		}
+	}
+}

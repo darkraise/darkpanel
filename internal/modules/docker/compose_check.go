@@ -353,8 +353,10 @@ func (k dk) checkDockerConfig() error {
 var shadowPluginDirs = []string{"/usr/local/lib/docker/cli-plugins", "/usr/local/libexec/docker/cli-plugins", "/usr/lib/docker/cli-plugins"}
 
 // checkPlugins checks the plugin directory and the Compose plugin, which the
-// root CLI runs: only root may be able to replace either, and no other
-// system plugin directory may hold a docker-compose the CLI would run first.
+// root CLI runs: only root may be able to replace either. Every system plugin
+// directory the CLI searches first must hold no docker-compose and, when it
+// exists, be root-owned and closed to its group and others, so that no other
+// user can place a docker-compose there that the CLI would run first.
 func (k dk) checkPlugins() error {
 	for _, dir := range shadowPluginDirs {
 		_, err := k.d.lstat(dir + "/docker-compose")
@@ -363,6 +365,16 @@ func (k dk) checkPlugins() error {
 		}
 		if !errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("docker: check %s/docker-compose: %w", dir, err)
+		}
+		_, err = k.d.lstat(dir)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("docker: check %s: %w", dir, err)
+		}
+		if err = k.composeSystemPath(dir, true, ""); err != nil {
+			return err
 		}
 	}
 	if err := k.composeSystemPath(pluginDir, true, ""); err != nil {
