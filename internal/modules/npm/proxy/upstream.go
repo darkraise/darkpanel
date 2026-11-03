@@ -3,6 +3,7 @@ package proxy
 import (
 	"net"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -16,43 +17,130 @@ const (
 	panelOwner       = "panel.exposure.add"
 )
 
-// Reserved holds the addresses whose upstreams only an exposure's own composite may create.
-// A zero PanelNetwork or PanelGateway matches nothing.
+// loopbackNames are the names Docker writes for the loopback into the NPM container's /etc/hosts,
+// which nginx's getaddrinfo reads.
+var loopbackNames = []string{"localhost", "ip6-localhost", "ip6-loopback"}
+
+// Reserved holds the addresses and names whose upstreams only an exposure's own composite may create.
+// NPMNames are the NPM container's other names (id, short id, hostname, network aliases), which Docker
+// resolves to the container. A zero PanelNetwork or PanelGateway matches nothing.
 type Reserved struct {
 	NPMAddrs     []netip.Addr
+	NPMNames     []string
 	PanelNetwork netip.Prefix
 	PanelGateway netip.Addr
 }
 
 // CheckUpstream refuses with npm.reserved an upstream that points at the local host, or at NPM's own
 // admin port, unless parent is npm.admin.expose, and one inside the panel network or at the panel
-// gateway unless parent is panel.exposure.add. A host name other than localhost and the NPM container's
-// name is allowed: it resolves nothing.
+// gateway unless parent is panel.exposure.add. host is read as nginx reads a proxy_pass host; a name
+// other than the loopback names and the NPM container's names is allowed, because it resolves nothing.
 func CheckUpstream(r Reserved, host string, port int, parent string) error {
 	name := normaliseHost(host)
-	addr, err := netip.ParseAddr(name)
-	isAddr := err == nil
-	if isAddr {
-		addr = addr.Unmap()
-	}
+	addr, isAddr := upstreamAddr(host, name)
 
 	if parent != adminOwner {
 		// Linux connects the unspecified address to the local host, so it reaches the loopback too.
-		if name == "localhost" || isAddr && (addr.IsLoopback() || addr.IsUnspecified()) {
+		if !isAddr && slices.Contains(loopbackNames, name) || isAddr && (addr.IsLoopback() || addr.IsUnspecified()) {
 			return reserved(host, port, "admin")
 		}
-		if port == npmAdminPort && (name == npmContainerName || isAddr && isNPMAddr(r.NPMAddrs, addr)) {
+		if port == npmAdminPort && (!isAddr && isNPMName(r.NPMNames, name) || isAddr && isNPMAddr(r.NPMAddrs, addr)) {
 			return reserved(host, port, "admin")
 		}
 	}
 	if parent != panelOwner && isAddr {
 		inNetwork := r.PanelNetwork.IsValid() && r.PanelNetwork.Contains(addr)
-		isGateway := r.PanelGateway.IsValid() && r.PanelGateway.Unmap() == addr
+		isGateway := r.PanelGateway.IsValid() && plainAddr(r.PanelGateway) == addr
 		if inNetwork || isGateway {
 			return reserved(host, port, "panel")
 		}
 	}
 	return nil
+}
+
+// upstreamAddr reads host as an address the way nginx does. nginx resolves a custom location's static
+// proxy_pass host itself: first with its own four-part decimal parser, then through getaddrinfo,
+// whose glibc numeric form accepts shortened, octal and hex addresses such as 127.1 or 0x7f.1.
+// A host neither accepts is a name.
+func upstreamAddr(host, name string) (netip.Addr, bool) {
+	if a, err := netip.ParseAddr(name); err == nil {
+		return plainAddr(a), true
+	}
+	if a, ok := parseNginxIPv4(strings.ToLower(trimBrackets(host))); ok {
+		return a, true
+	}
+	return parseInetAton(name)
+}
+
+// parseNginxIPv4 follows nginx's ngx_inet_addr: decimal digits and exactly three dots, each part at
+// most 255, leading zeros read as decimal and an empty part read as zero.
+func parseNginxIPv4(s string) (netip.Addr, bool) {
+	var b [4]byte
+	part, dots := 0, 0
+	for i := range len(s) {
+		switch c := s[i]; {
+		case '0' <= c && c <= '9':
+			part = part*10 + int(c-'0')
+			if part > 255 {
+				return netip.Addr{}, false
+			}
+		case c == '.':
+			if dots == 3 {
+				return netip.Addr{}, false
+			}
+			b[dots] = byte(part) //nolint:gosec // G115: part is at most 255, checked above
+			part = 0
+			dots++
+		default:
+			return netip.Addr{}, false
+		}
+	}
+	if dots != 3 {
+		return netip.Addr{}, false
+	}
+	b[3] = byte(part)
+	return netip.AddrFrom4(b), true
+}
+
+// parseInetAton follows glibc's inet_aton: one to four non-empty parts, each decimal, octal after a
+// leading 0 or hex after 0x; every part but the last is one byte and the last fills the low bytes left.
+func parseInetAton(s string) (netip.Addr, bool) {
+	parts := strings.Split(s, ".")
+	if len(parts) > 4 {
+		return netip.Addr{}, false
+	}
+	var v uint32
+	for i, p := range parts {
+		n, ok := parseInetAtonPart(p)
+		if !ok {
+			return netip.Addr{}, false
+		}
+		shift := 8 * (3 - i)
+		if i == len(parts)-1 {
+			shift = 0
+			if n>>(8*(5-len(parts))) != 0 {
+				return netip.Addr{}, false
+			}
+		} else if n > 255 {
+			return netip.Addr{}, false
+		}
+		v |= uint32(n) << shift //nolint:gosec // G115: ParseUint bounds n to 32 bits
+	}
+	return netip.AddrFrom4([4]byte{byte(v >> 24), byte(v >> 16), byte(v >> 8), byte(v)}), true
+}
+
+func parseInetAtonPart(p string) (uint64, bool) {
+	base, digits := 10, p
+	if rest, ok := strings.CutPrefix(p, "0x"); ok {
+		base, digits = 16, rest
+	} else if len(p) > 1 && p[0] == '0' {
+		base, digits = 8, p[1:]
+	}
+	if digits == "" {
+		return 0, false
+	}
+	n, err := strconv.ParseUint(digits, base, 32)
+	return n, err == nil
 }
 
 func normaliseHost(host string) string {
@@ -70,9 +158,25 @@ func trimBrackets(host string) string {
 	return host
 }
 
+func plainAddr(a netip.Addr) netip.Addr {
+	return a.Unmap().WithZone("")
+}
+
 func isNPMAddr(addrs []netip.Addr, addr netip.Addr) bool {
 	for _, a := range addrs {
-		if a.Unmap() == addr {
+		if plainAddr(a) == addr {
+			return true
+		}
+	}
+	return false
+}
+
+func isNPMName(names []string, name string) bool {
+	if name == npmContainerName {
+		return true
+	}
+	for _, n := range names {
+		if normaliseHost(n) == name {
 			return true
 		}
 	}
