@@ -3,6 +3,7 @@ package cloudflare
 import (
 	"context"
 	"errors"
+	"os"
 	"regexp"
 	"testing"
 	"time"
@@ -71,7 +72,8 @@ func ownedPaths() []core.OwnedPath {
 
 // agentDeps are the host functions the module's agent actions reach through.
 type agentDeps struct {
-	docker connectorDocker
+	docker   connectorDocker
+	readFile func(name string) ([]byte, error) // os.ReadFile
 }
 
 // connectorDocker is the part of the Engine API client the connector actions use.
@@ -113,7 +115,7 @@ func productionAgentDeps() agentDeps {
 	if testing.Testing() {
 		socket = absentSocket
 	}
-	return agentDeps{docker: engineClient{dockerapi.New(socket)}}
+	return agentDeps{docker: engineClient{dockerapi.New(socket)}, readFile: os.ReadFile}
 }
 
 // engineCoded maps an unreachable Engine to docker.engine_unavailable, keeping err as the cause, and returns any other
