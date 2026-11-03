@@ -628,13 +628,13 @@ func (r *m6nRun) harnessSettings(t *testing.T) {
 	r.npmIP = m6nContainerIP(r.ctx, t, v, m6nNPMName, m6nNPMName)
 
 	m3Run(r.ctx, t, v, m6nRunCmd(m6nRunSpec{
-		Name: m6nChallName, Image: r.image(t, "pebble-challtestsrv"), Network: m6nNPMName, Entrypoint: "pebble-challtestsrv",
+		Name: m6nChallName, Image: r.image(t, "pebble-challtestsrv"), Network: m6nNPMName,
 		Args: []string{"-defaultIPv4", r.npmIP, "-defaultIPv6", "", "-http01", "", "-https01", "", "-tlsalpn01", ""},
 	}))
 	m3dWaitRunning(r.ctx, t, v, m6nChallName)
 	dns := m6nContainerIP(r.ctx, t, v, m6nChallName, m6nNPMName) + ":8053"
 	m3Run(r.ctx, t, v, m6nRunCmd(m6nRunSpec{
-		Name: m6nPebbleName, Image: r.image(t, "pebble"), Network: m6nNPMName, Alias: "pebble", Entrypoint: "pebble",
+		Name: m6nPebbleName, Image: r.image(t, "pebble"), Network: m6nNPMName, Alias: "pebble",
 		Publish: []string{"127.0.0.1:15000:15000"},
 		Env:     []string{"PEBBLE_VA_NOSLEEP=1", "PEBBLE_WFE_NONCEREJECT=0"},
 		Volumes: []string{m6nDir + "/pebble-config.json:/m6n/pebble-config.json:ro"},
@@ -754,8 +754,8 @@ func m6nHasDomain(hosts []npm.ProxyHostView, domain string) bool {
 func (r *m6nRun) unsupportedTarget(t *testing.T) {
 	v := r.f.agent
 	m3Run(r.ctx, t, v, m6nRunCmd(m6nRunSpec{
-		Name: m6nBridgeName, Image: r.image(t, "pebble-challtestsrv"), Entrypoint: "pebble-challtestsrv",
-		Args: []string{"-dns01", "", "-http01", "", "-https01", "", "-tlsalpn01", ""},
+		Name: m6nBridgeName, Image: r.image(t, "pebble-challtestsrv"),
+		Args: []string{"-dnsserver", "", "-http01", "", "-https01", "", "-tlsalpn01", ""},
 	}))
 	m3dWaitRunning(r.ctx, t, v, m6nBridgeName)
 	_, err := m4Plan(r.ctx, r.f.api, "", "npm.expose.container", npm.ExposeInput{
@@ -804,8 +804,8 @@ func (r *m6nRun) expose(t *testing.T) {
 	v := r.f.agent
 	m3dDocker(r.ctx, t, v, "network", "create", m6nAppNet)
 	m3Run(r.ctx, t, v, m6nRunCmd(m6nRunSpec{
-		Name: m6nAppName, Image: r.image(t, "pebble-challtestsrv"), Network: m6nAppNet, Entrypoint: "pebble-challtestsrv",
-		Args: []string{"-dns01", "", "-http01", "", "-https01", "", "-tlsalpn01", ""},
+		Name: m6nAppName, Image: r.image(t, "pebble-challtestsrv"), Network: m6nAppNet,
+		Args: []string{"-dnsserver", "", "-http01", "", "-https01", "", "-tlsalpn01", ""},
 	}))
 	m3Run(r.ctx, t, v, m6nRunCmd(m6nRunSpec{
 		Name: m6nEchoName, Image: npm.Image, Network: m6nAppNet, Entrypoint: "node", Args: []string{"-e", m6nEchoScript},
