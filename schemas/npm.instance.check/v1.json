@@ -1,0 +1,46 @@
+{
+  "name": "npm.instance.check",
+  "version": 1,
+  "class": "read",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/CheckInput",
+    "$defs": {
+      "CheckInput": {
+        "properties": {
+          "hostId": {
+            "type": "string"
+          },
+          "integration": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "hostId",
+          "integration"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/CheckResult",
+    "$defs": {
+      "CheckResult": {
+        "properties": {
+          "integration": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "integration"
+        ]
+      }
+    }
+  }
+}

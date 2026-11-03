@@ -1,0 +1,39 @@
+{
+  "name": "npm.instance.confirm-public",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ConfirmPublicInput",
+    "$defs": {
+      "ConfirmPublicInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/PublicMark",
+    "$defs": {
+      "PublicMark": {
+        "properties": {
+          "public": {
+            "type": "string",
+            "enum": [
+              "no",
+              "confirmed"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "public"
+        ]
+      }
+    }
+  }
+}

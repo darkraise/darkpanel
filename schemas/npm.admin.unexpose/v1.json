@@ -1,0 +1,46 @@
+{
+  "name": "npm.admin.unexpose",
+  "version": 1,
+  "class": "composite",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/AdminUnexposeInput",
+    "$defs": {
+      "AdminUnexposeInput": {
+        "properties": {
+          "hostId": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "hostId",
+          "hostname"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/AdminUnexposeOutput",
+    "$defs": {
+      "AdminUnexposeOutput": {
+        "properties": {
+          "hostname": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hostname"
+        ]
+      }
+    }
+  }
+}

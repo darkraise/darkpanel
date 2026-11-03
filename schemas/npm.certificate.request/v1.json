@@ -1,0 +1,68 @@
+{
+  "name": "npm.certificate.request",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/CertificateInput",
+    "$defs": {
+      "CertificateInput": {
+        "properties": {
+          "domains": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "domains"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/CertificateView",
+    "$defs": {
+      "CertificateView": {
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "domains": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "expiresOn": {
+            "type": "string"
+          },
+          "reserved": {
+            "type": "string"
+          },
+          "unclaimed": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "domains",
+          "expiresOn",
+          "reserved",
+          "unclaimed"
+        ]
+      }
+    }
+  }
+}

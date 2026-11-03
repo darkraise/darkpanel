@@ -1,0 +1,65 @@
+{
+  "name": "npm.certificate.remove",
+  "version": 1,
+  "class": "irreversible",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/CertificateRemoveInput",
+    "$defs": {
+      "CertificateRemoveInput": {
+        "properties": {
+          "id": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/CertificateView",
+    "$defs": {
+      "CertificateView": {
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "domains": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "expiresOn": {
+            "type": "string"
+          },
+          "reserved": {
+            "type": "string"
+          },
+          "unclaimed": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "domains",
+          "expiresOn",
+          "reserved",
+          "unclaimed"
+        ]
+      }
+    }
+  }
+}

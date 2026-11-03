@@ -1,0 +1,56 @@
+{
+  "name": "npm.instance.deploy-public",
+  "version": 1,
+  "class": "composite",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/DeployPublicInput",
+    "$defs": {
+      "DeployPublicInput": {
+        "properties": {
+          "hostId": {
+            "type": "string"
+          },
+          "acmeEmail": {
+            "type": "string",
+            "maxLength": 254,
+            "minLength": 3
+          },
+          "integration": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "hostId",
+          "acmeEmail",
+          "integration"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/DeployPublicOutput",
+    "$defs": {
+      "DeployPublicOutput": {
+        "properties": {
+          "containerId": {
+            "type": "string"
+          },
+          "portsOpened": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "containerId",
+          "portsOpened"
+        ]
+      }
+    }
+  }
+}

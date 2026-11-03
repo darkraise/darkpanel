@@ -1,0 +1,50 @@
+{
+  "name": "npm.public.check",
+  "version": 1,
+  "class": "read",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/PublicInput",
+    "$defs": {
+      "PublicInput": {
+        "properties": {
+          "hostId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "hostId"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/PublicResult",
+    "$defs": {
+      "PublicResult": {
+        "properties": {
+          "public": {
+            "type": "boolean"
+          },
+          "via": {
+            "type": "string",
+            "enum": [
+              "mark",
+              "ports"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "public",
+          "via"
+        ]
+      }
+    }
+  }
+}

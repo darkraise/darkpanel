@@ -1,0 +1,91 @@
+{
+  "name": "npm.accesslist.list",
+  "version": 1,
+  "class": "read",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/AccessListListInput",
+    "$defs": {
+      "AccessListListInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/AccessListList",
+    "$defs": {
+      "AccessClientInput": {
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "directive": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "deny"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "address",
+          "directive"
+        ]
+      },
+      "AccessListList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/$defs/AccessListView"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ]
+      },
+      "AccessListView": {
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "satisfyAny": {
+            "type": "boolean"
+          },
+          "clients": {
+            "items": {
+              "$ref": "#/$defs/AccessClientInput"
+            },
+            "type": "array"
+          },
+          "reserved": {
+            "type": "string"
+          },
+          "unclaimed": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "satisfyAny",
+          "clients",
+          "reserved",
+          "unclaimed"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,101 @@
+{
+  "name": "npm.instance.status",
+  "version": 1,
+  "class": "read",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/StatusInput",
+    "$defs": {
+      "StatusInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/InstanceStatus",
+    "$defs": {
+      "AdminExposure": {
+        "properties": {
+          "hostname": {
+            "type": "string"
+          },
+          "proxyHostId": {
+            "type": "integer"
+          },
+          "certificateId": {
+            "type": "integer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hostname",
+          "proxyHostId",
+          "certificateId"
+        ]
+      },
+      "InstanceStatus": {
+        "properties": {
+          "deployed": {
+            "type": "boolean"
+          },
+          "containerId": {
+            "type": "string"
+          },
+          "image": {
+            "type": "string"
+          },
+          "pinnedImage": {
+            "type": "string"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "apiReady": {
+            "type": "boolean"
+          },
+          "public": {
+            "type": "string",
+            "enum": [
+              "no",
+              "confirmed"
+            ]
+          },
+          "adminEmail": {
+            "type": "string"
+          },
+          "adminExposure": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/AdminExposure"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "upgradeAvailable": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "deployed",
+          "containerId",
+          "image",
+          "pinnedImage",
+          "running",
+          "apiReady",
+          "public",
+          "adminEmail",
+          "adminExposure",
+          "upgradeAvailable"
+        ]
+      }
+    }
+  }
+}

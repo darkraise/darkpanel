@@ -1,0 +1,53 @@
+{
+  "name": "npm.admin.expose",
+  "version": 1,
+  "class": "composite",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/AdminExposeInput",
+    "$defs": {
+      "AdminExposeInput": {
+        "properties": {
+          "hostId": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "accessListId": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "hostId",
+          "hostname"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/AdminExposeOutput",
+    "$defs": {
+      "AdminExposeOutput": {
+        "properties": {
+          "proxyHostId": {
+            "type": "integer"
+          },
+          "certificateId": {
+            "type": "integer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "proxyHostId",
+          "certificateId"
+        ]
+      }
+    }
+  }
+}
