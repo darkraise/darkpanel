@@ -2,6 +2,7 @@ import { NavLink, Route, Routes } from "react-router"
 import { PageHeader } from "darkraise-ui/layout"
 import { EmptyState } from "darkraise-ui/components/empty-state"
 import { AccountPanel } from "./account-panel"
+import { ConnectorsPage } from "./connectors-page"
 import { HostnamesPage } from "./hostnames-page"
 import { TunnelsPage } from "./tunnels-page"
 
@@ -9,6 +10,7 @@ import { TunnelsPage } from "./tunnels-page"
 const LINKS = [
   { to: "/cloudflare", label: "Account", end: true },
   { to: "/cloudflare/tunnels", label: "Tunnels", end: false },
+  { to: "/cloudflare/connectors", label: "Connectors", end: false },
   { to: "/cloudflare/hostnames", label: "Hostnames", end: false },
 ]
 
@@ -31,6 +33,7 @@ export default function CloudflareGlobal() {
       <Routes>
         <Route index element={<AccountPanel />} />
         <Route path="tunnels" element={<TunnelsPage />} />
+        <Route path="connectors" element={<ConnectorsPage />} />
         <Route path="hostnames" element={<HostnamesPage />} />
         <Route path="*" element={<EmptyState title="Page not found" description="Nothing lives at this address." />} />
       </Routes>

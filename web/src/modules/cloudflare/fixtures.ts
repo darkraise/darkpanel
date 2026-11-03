@@ -1,8 +1,9 @@
+import type { Connector } from "./connector-types"
 import type { CloudflareAccountView, HostnameView, TunnelView } from "./types"
 
 // Test fixtures of the Cloudflare pages: a connected account, one healthy
-// tunnel with a single connection and one active hostname on it, with the
-// fields each test overrides.
+// tunnel with a single connection, one active hostname on it and the running
+// connector of that tunnel, with the fields each test overrides.
 
 export function cfAccount(over: Partial<CloudflareAccountView> = {}): CloudflareAccountView {
   return {
@@ -41,6 +42,16 @@ export function cfHostname(over: Partial<HostnameView> = {}): HostnameView {
     phase: "active",
     health: "ok",
     checkedAt: "2026-10-30T12:10:00Z",
+    ...over,
+  }
+}
+
+export function cfConnector(over: Partial<Connector> = {}): Connector {
+  return {
+    tunnel: "9f1c2e3a-4b5d-4c6e-8f70-1a2b3c4d5e6f",
+    container: "darkpanel-cloudflared-9f1c2e3a-4b5d-4c6e-8f70-1a2b3c4d5e6f",
+    containerId: "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00",
+    state: "running",
     ...over,
   }
 }
