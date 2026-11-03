@@ -498,6 +498,116 @@ func TestCrApplyFailures(t *testing.T) {
 	})
 }
 
+// crPullReportsAnError is the host's Engine whose pull streams report msg as an error message.
+type crPullReportsAnError struct {
+	*agDocker
+	msg string
+}
+
+func (d crPullReportsAnError) PullImage(_ context.Context, ref string) (pullStream, error) {
+	return &agPull{msgs: []dockerapi.PullMessage{{Status: "Pulling from " + ref}, {Error: d.msg}}}, nil
+}
+
+// crStates are the journal states of the change's effects, in order.
+func crStates(t *testing.T, h *crHost, changeID string) []core.EffectState {
+	t.Helper()
+	effs, err := h.env(changeID).Effects.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []core.EffectState
+	for _, e := range effs {
+		got = append(got, e.State)
+	}
+	return got
+}
+
+// crGone fails the test unless the run left neither its container, its token file nor its row.
+func crGone(t *testing.T, h *crHost) {
+	t.Helper()
+	if _, err := h.docker.InspectContainer(context.Background(), connectorName(crTunnel)); !dockerapi.IsNotFound(err) {
+		t.Errorf("the container is still there: %v", err)
+	}
+	if _, err := h.rec.read(tokenDir + "/" + tokenFileName(crTunnel)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the token file is still there: %v", err)
+	}
+	if crHasRow(t, h, crTunnel) {
+		t.Error("the row is still there")
+	}
+}
+
+// TestCrApplyFailuresAfterTheContainer: a run that fails once its container exists keeps what it made journaled as
+// made, never starts a container without its row, and the undo of the made effects removes all of it.
+func TestCrApplyFailuresAfterTheContainer(t *testing.T) {
+	ctx := context.Background()
+	made := core.EffectMade
+	t.Run("a refused start is Definite and skipped", func(t *testing.T) {
+		h := newCR(t)
+		h.docker.putImage(Image)
+		h.docker.Fail("StartContainer", &dockerapi.APIError{StatusCode: http.StatusConflict, Message: "port is already allocated"})
+		_, err := crApply(t, h, "c1", crTunnel)
+		if err == nil || !core.IsDefinite(err) {
+			t.Errorf("error %v, want a Definite refusal", err)
+		}
+		if got, want := crStates(t, h, "c1"), []core.EffectState{made, made, made, core.EffectSkipped}; !slices.Equal(got, want) {
+			t.Errorf("effect states %v, want %v", got, want)
+		}
+		if c, ok := h.docker.container(connectorName(crTunnel)); !ok || c.State.Running || !crHasRow(t, h, crTunnel) {
+			t.Errorf("container %+v (%t), row %t: want the created, stopped container and its row", c.State, ok, crHasRow(t, h, crTunnel))
+		}
+		crUndo(t, h, "c1")
+		crGone(t, h)
+	})
+	t.Run("an unknown start failure stays intended", func(t *testing.T) {
+		h := newCR(t)
+		h.docker.putImage(Image)
+		h.docker.Fail("StartContainer", errors.New("timeout"))
+		_, err := crApply(t, h, "c1", crTunnel)
+		if err == nil || core.IsDefinite(err) {
+			t.Errorf("error %v, want a failure that is not Definite", err)
+		}
+		if got, want := crStates(t, h, "c1"), []core.EffectState{made, made, made, core.EffectIntended}; !slices.Equal(got, want) {
+			t.Errorf("effect states %v, want %v", got, want)
+		}
+		crUndo(t, h, "c1")
+		crGone(t, h)
+	})
+	t.Run("a failed row write starts nothing", func(t *testing.T) {
+		h := newCR(t)
+		h.docker.putImage(Image)
+		err := h.env("").DB.Write(ctx, func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, `CREATE TRIGGER cr_fail BEFORE INSERT ON cloudflare_connectors BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`)
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = crApply(t, h, "c1", crTunnel)
+		if err == nil || core.IsDefinite(err) {
+			t.Errorf("error %v, want a failure that is not Definite", err)
+		}
+		if got, want := crStates(t, h, "c1"), []core.EffectState{made, made, core.EffectIntended}; !slices.Equal(got, want) {
+			t.Errorf("effect states %v, want %v", got, want)
+		}
+		if slices.Contains(h.docker.calls(), "StartContainer") || crHasRow(t, h, crTunnel) {
+			t.Errorf("calls %v, row %t: a container was started without its row", h.docker.calls(), crHasRow(t, h, crTunnel))
+		}
+		crUndo(t, h, "c1")
+		crGone(t, h)
+	})
+	t.Run("a pull stream that reports an error changes nothing", func(t *testing.T) {
+		h := newCR(t)
+		h.cfg.a.docker = crPullReportsAnError{agDocker: h.docker, msg: "manifest unknown"}
+		_, err := crApply(t, h, "c1", crTunnel)
+		if err == nil || !core.IsDefinite(err) || !strings.Contains(err.Error(), "manifest unknown") {
+			t.Errorf("error %v, want a Definite failure that carries the Engine's message", err)
+		}
+		if got := crStates(t, h, "c1"); len(got) != 0 || len(h.rec.writes) != 0 || slices.Contains(h.docker.calls(), "CreateContainer") {
+			t.Errorf("effects %v, files %+v, calls %v: want nothing made", got, h.rec.writes, h.docker.calls())
+		}
+	})
+}
+
 func TestCrVerify(t *testing.T) {
 	ctx := context.Background()
 	token := agToken(crTunnel)

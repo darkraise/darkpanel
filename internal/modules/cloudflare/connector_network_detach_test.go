@@ -642,6 +642,53 @@ func TestNdApplyFailures(t *testing.T) {
 	})
 }
 
+// TestNdApplyFailsOnTheSecondNetwork: when the disconnect from the second of two networks fails, what the detach did
+// on the first stays made, the second claim is kept, and applying again finishes the work and then converges.
+func TestNdApplyFailsOnTheSecondNetwork(t *testing.T) {
+	h := newND(t)
+	ndAttach(t, h, "c1", "web", ndClaimant)
+	ndAttach(t, h, "c2", "web2", ndClaimant)
+	h.docker.Fail("DisconnectNetwork", nil)
+	h.docker.Fail("DisconnectNetwork", &dockerapi.APIError{StatusCode: http.StatusForbidden, Message: "no"})
+	_, err := ndApply(t, h, "c3", ndAllNetworks)
+	if err == nil || !core.IsDefinite(err) {
+		t.Fatalf("error %v, want a Definite refusal", err)
+	}
+	var got []string
+	for _, e := range ndEffects(t, h, "c3") {
+		got = append(got, e.Resource+" "+string(e.State))
+	}
+	want := []string{
+		"cloudflare.endpoint:" + ndTunnel + "|web made",
+		"cloudflare.claim:" + ndTunnel + "|web|" + ndClaimant + " made",
+		"cloudflare.endpoint:" + ndTunnel + "|web2 skipped",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("effects %v, want %v", got, want)
+	}
+	if claims := ndClaims(t, h, ndTunnel); len(claims) != 1 || claims[0].Network != "web2" || ndOn(t, h, "web") || !ndOn(t, h, "web2") {
+		t.Fatalf("claims %+v, on web %t, on web2 %t; want only the web2 claim and the connector on web2 only", claims, ndOn(t, h, "web"), ndOn(t, h, "web2"))
+	}
+
+	out, err := ndApply(t, h, "c4", ndAllNetworks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Attached || ndOn(t, h, "web2") || len(ndClaims(t, h, ndTunnel)) != 0 {
+		t.Errorf("output %+v, on web2 %t, claims %+v; want the connector off web2 and no claim", out, ndOn(t, h, "web2"), ndClaims(t, h, ndTunnel))
+	}
+	if effs := ndEffects(t, h, "c4"); len(effs) != 2 || effs[0].State != core.EffectMade || effs[1].State != core.EffectMade {
+		t.Errorf("effects of the repeat %+v, want the web2 disconnect and claim made", effs)
+	}
+	mark := len(h.docker.calls())
+	if _, err := ndApply(t, h, "c5", ndAllNetworks); err != nil {
+		t.Fatal(err)
+	}
+	if effs := ndEffects(t, h, "c5"); len(effs) != 0 || len(h.docker.calls()[mark:]) != 0 {
+		t.Errorf("a third detach journaled %+v and called %v, want nothing", effs, h.docker.calls()[mark:])
+	}
+}
+
 func TestNdVerify(t *testing.T) {
 	ctx := context.Background()
 	h := newND(t)

@@ -441,6 +441,83 @@ func TestNaApplyWithAFixedAddress(t *testing.T) {
 	}
 }
 
+// TestNaApplyTheSameFixedAddressAgain: a connector already on the network at the fixed address the input asks for is
+// claimed again with no Engine call, by another claimant or the same one.
+func TestNaApplyTheSameFixedAddressAgain(t *testing.T) {
+	for _, addr := range []string{"172.20.0.10", "fd00::10"} {
+		t.Run(addr, func(t *testing.T) {
+			h := newNA(t)
+			fixed := func(in *NetworkAttachInput) { in.Address = netip.MustParseAddr(addr) }
+			if _, err := naApply(t, h, "c1", fixed); err != nil {
+				t.Fatal(err)
+			}
+			mark := len(h.docker.calls())
+			out, err := naApply(t, h, "c2", fixed, naClaimant2)
+			if err != nil {
+				t.Fatalf("a second claimant at the same address: %v", err)
+			}
+			if !out.Attached || out.Preexisting {
+				t.Errorf("output %+v, want attached and not preexisting", out)
+			}
+			if _, err := naApply(t, h, "c3", fixed); err != nil {
+				t.Fatalf("the same claimant at the same address: %v", err)
+			}
+			if got := naMutated(h, mark); len(got) != 0 {
+				t.Errorf("Engine calls %v, want none", got)
+			}
+			if got := naClaims(t, h); len(got) != 2 {
+				t.Errorf("claims %+v, want the two claimants'", got)
+			}
+			if effs := naEffects(t, h, "c3"); len(effs) != 0 {
+				t.Errorf("the repeated attach journaled %+v, want nothing", effs)
+			}
+		})
+	}
+}
+
+// TestNaRefusesAnotherAddressFamily: a connector fixed at an IPv4 address on the network is refused an IPv6 address
+// there, and the other way round.
+func TestNaRefusesAnotherAddressFamily(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct{ has, want string }{{"172.20.0.10", "fd00::10"}, {"fd00::10", "172.20.0.10"}} {
+		t.Run(tc.has+" then "+tc.want, func(t *testing.T) {
+			h := newNA(t)
+			if _, err := naApply(t, h, "c1", func(in *NetworkAttachInput) { in.Address = netip.MustParseAddr(tc.has) }); err != nil {
+				t.Fatal(err)
+			}
+			mark := len(h.docker.calls())
+			in := naInput(naClaimant2, func(in *NetworkAttachInput) { in.Address = netip.MustParseAddr(tc.want) })
+			_, err := h.cf().networkAttach().Handler.Plan(ctx, h.env(""), in)
+			coded := naRefused(t, err, errcode.InvalidInput)
+			if len(coded.Fields) != 1 || coded.Fields[0].Path != "/address" {
+				t.Errorf("fields %+v, want one at /address", coded.Fields)
+			}
+			_, err = h.cf().networkAttach().Handler.Apply(ctx, h.env("c2"), in)
+			_ = naRefused(t, err, errcode.InvalidInput)
+			if got := naMutated(h, mark); len(got) != 0 || len(naClaims(t, h)) != 1 {
+				t.Errorf("the refusal changed the host: calls %v, claims %+v", got, naClaims(t, h))
+			}
+		})
+	}
+}
+
+// TestNaJudgesTheNetworkBeforeAMissingTarget: a network the connector cannot use is refused as such even when the
+// target does not exist either.
+func TestNaJudgesTheNetworkBeforeAMissingTarget(t *testing.T) {
+	ctx := context.Background()
+	h := newNA(t)
+	in := naInput(func(in *NetworkAttachInput) { in.Network, in.Target = "lan", "ghost" })
+	_, err := h.cf().networkAttach().Handler.Plan(ctx, h.env(""), in)
+	if coded := naRefused(t, err, errcode.CloudflareUnsupportedTarget); coded.Detail != naReason {
+		t.Errorf("detail %q, want %q", coded.Detail, naReason)
+	}
+	_, err = h.cf().networkAttach().Handler.Apply(ctx, h.env("c1"), in)
+	_ = naRefused(t, err, errcode.CloudflareUnsupportedTarget)
+	if got := naMutated(h, 0); len(got) != 0 || len(naClaims(t, h)) != 0 {
+		t.Errorf("the refusal changed the host: calls %v, claims %+v", got, naClaims(t, h))
+	}
+}
+
 func TestNaApplyClaimsThatShareANetwork(t *testing.T) {
 	t.Run("the connector was on the network before", func(t *testing.T) {
 		h := newNA(t)
