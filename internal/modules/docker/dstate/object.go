@@ -1,6 +1,8 @@
 package dstate
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/netip"
 	"slices"
@@ -52,6 +54,24 @@ func addrText(a netip.Addr) string {
 	return a.String()
 }
 
+// labelDigests keeps the keys of labels and replaces each value by
+// "sha256:" and the hex SHA-256 of the value. A state document is only ever
+// compared, never used to recreate an object, so a digest still tells a
+// changed value apart while a secret placed in a label never reaches the
+// effects journal.
+func labelDigests(labels map[string]string) map[string]string {
+	if len(labels) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(labels))
+	for k, v := range labels {
+		sum := sha256.Sum256([]byte(v))
+		out[k] = "sha256:" + hex.EncodeToString(sum[:])
+	}
+	return out
+}
+
+// networkDoc is the state of a created network; its label values are digests.
 type networkDoc struct {
 	ID      string            `json:"id"`
 	Created string            `json:"created,omitempty"`
@@ -60,7 +80,8 @@ type networkDoc struct {
 }
 
 // NetworkCreated renders a network that an action created, as InspectNetwork
-// reports it; nil renders null. Unused is true when no container is attached.
+// reports it; nil renders null. Label values are recorded as their SHA-256
+// digests, never as given. Unused is true when no container is attached.
 func NetworkCreated(n *dockerapi.Network) (json.RawMessage, error) {
 	if n == nil {
 		return json.RawMessage("null"), nil
@@ -69,9 +90,10 @@ func NetworkCreated(n *dockerapi.Network) (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(networkDoc{ID: n.ID, Created: created, Labels: n.Labels, Unused: len(n.Containers) == 0})
+	return json.Marshal(networkDoc{ID: n.ID, Created: created, Labels: labelDigests(n.Labels), Unused: len(n.Containers) == 0})
 }
 
+// volumeDoc is the state of a created volume; its label values are digests.
 type volumeDoc struct {
 	Name   string            `json:"name"`
 	Labels map[string]string `json:"labels,omitempty"`
@@ -79,11 +101,12 @@ type volumeDoc struct {
 }
 
 // VolumeCreated renders a volume that an action created; nil renders null.
-// The Engine does not report which containers use a volume, so the caller says
+// Label values are recorded as their SHA-256 digests, never as given. The
+// Engine does not report which containers use a volume, so the caller says
 // whether it is unused.
 func VolumeCreated(v *dockerapi.Volume, unused bool) (json.RawMessage, error) {
 	if v == nil {
 		return json.RawMessage("null"), nil
 	}
-	return json.Marshal(volumeDoc{Name: v.Name, Labels: v.Labels, Unused: unused})
+	return json.Marshal(volumeDoc{Name: v.Name, Labels: labelDigests(v.Labels), Unused: unused})
 }

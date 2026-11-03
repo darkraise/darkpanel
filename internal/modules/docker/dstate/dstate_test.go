@@ -1,8 +1,12 @@
 package dstate
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/netip"
+	"strings"
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
@@ -163,7 +167,7 @@ func TestDsNetworkCreated(t *testing.T) {
 		Containers: map[string]dockerapi.NetworkContainer{"c1": {Name: "web"}},
 	}
 	raw, err = NetworkCreated(used)
-	want := `{"id":"n1","created":"2026-10-23T09:15:00Z","labels":{"a":"1","b":"2"},"unused":false}`
+	want := fmt.Sprintf(`{"id":"n1","created":"2026-10-23T09:15:00Z","labels":{"a":%q,"b":%q},"unused":false}`, dsDigest("1"), dsDigest("2"))
 	if got := dsText(t, raw, err); got != want {
 		t.Errorf("got  %s\nwant %s", got, want)
 	}
@@ -188,7 +192,7 @@ func TestDsVolumeCreated(t *testing.T) {
 		t.Errorf("VolumeCreated(nil) = %s, want null", got)
 	}
 	raw, err = VolumeCreated(&dockerapi.Volume{Name: "data", Labels: map[string]string{"x": "y"}}, true)
-	want := `{"name":"data","labels":{"x":"y"},"unused":true}`
+	want := fmt.Sprintf(`{"name":"data","labels":{"x":%q},"unused":true}`, dsDigest("y"))
 	if got := dsText(t, raw, err); got != want {
 		t.Errorf("got  %s\nwant %s", got, want)
 	}
@@ -198,5 +202,51 @@ func TestDsVolumeCreated(t *testing.T) {
 		if got := dsText(t, raw, err); got != want {
 			t.Errorf("got  %s\nwant %s", got, want)
 		}
+	}
+}
+
+// dsDigest is how a label value appears in a state document.
+func dsDigest(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func TestDsLabelValuesAreDigestedNotRecorded(t *testing.T) {
+	const secret = "s3cr3t-value-in-a-label"
+	network := func(value string) *dockerapi.Network {
+		return &dockerapi.Network{ID: "n1", Created: "2026-10-23T09:15:00Z", Labels: map[string]string{"token": value}}
+	}
+	volume := func(value string) *dockerapi.Volume {
+		return &dockerapi.Volume{Name: "data", Labels: map[string]string{"token": value}}
+	}
+	render := map[string]func(value string) (json.RawMessage, error){
+		"network": func(value string) (json.RawMessage, error) { return NetworkCreated(network(value)) },
+		"volume":  func(value string) (json.RawMessage, error) { return VolumeCreated(volume(value), true) },
+	}
+	for name, f := range render {
+		t.Run(name, func(t *testing.T) {
+			raw, err := f(secret)
+			text := dsText(t, raw, err)
+			if strings.Contains(text, secret) {
+				t.Errorf("the document %s holds the raw label value", text)
+			}
+			var doc struct {
+				Labels map[string]string `json:"labels"`
+			}
+			if err := json.Unmarshal(raw, &doc); err != nil {
+				t.Fatal(err)
+			}
+			if len(doc.Labels) != 1 || doc.Labels["token"] != dsDigest(secret) {
+				t.Errorf("labels %v, want the key token with the digest %s", doc.Labels, dsDigest(secret))
+			}
+			same, _ := f(secret)
+			other, _ := f("another-value")
+			if string(same) != text {
+				t.Errorf("one value rendered as %s and as %s", text, same)
+			}
+			if string(other) == text {
+				t.Errorf("two label values rendered as the same document %s", text)
+			}
+		})
 	}
 }
