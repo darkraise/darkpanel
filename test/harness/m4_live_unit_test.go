@@ -184,3 +184,22 @@ func TestM4lWorkflowFile(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+func TestM4lStepBefore(t *testing.T) {
+	const job = "    steps:\n      - name: Build\n        run: make\n      - uses: actions/upload-artifact@x\n        with:\n          path: bin/harness\n"
+	const build = "      - name: Build\n        run: make\n"
+	const upload = "      - uses: actions/upload-artifact@x\n        with:\n          path: bin/harness\n"
+	for _, tc := range []struct {
+		name, step, marker string
+		want               bool
+	}{
+		{"the step comes before the marker", build, "path: bin/harness", true},
+		{"the step comes after the marker", upload, "- name: Build", false},
+		{"the step text is not in the job", "      - name: Other\n        run: make\n", "path: bin/harness", false},
+		{"the marker is not in the job", build, "path: bin/other", false},
+	} {
+		if got := m4lStepBefore(job, tc.step, tc.marker); got != tc.want {
+			t.Errorf("%s: m4lStepBefore = %t, want %t", tc.name, got, tc.want)
+		}
+	}
+}

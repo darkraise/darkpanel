@@ -139,6 +139,14 @@ func m4lStep(job, name string) (string, bool) {
 	return "", false
 }
 
+// m4lStepBefore reports whether the text of step, without its trailing
+// newlines, occurs in job at or before the first occurrence of marker; it is
+// false when either text is absent from job.
+func m4lStepBefore(job, step, marker string) bool {
+	upload, at := strings.Index(job, marker), strings.Index(job, strings.TrimRight(step, "\n"))
+	return upload >= 0 && at >= 0 && at <= upload
+}
+
 // m4lWorkflow checks the text of harness.yml: the build job compiles the
 // dockerapi test binary into the uploaded bin/harness, the vm job leaves M4
 // alone, and the vm-m4 job runs TestM4 with the vm job's setup, a -timeout
@@ -157,8 +165,7 @@ func m4lWorkflow(yml string, deadline time.Duration) error {
 			return fmt.Errorf("harness: the step %q lacks %s", m4lBuildStep, want)
 		}
 	}
-	upload, at := strings.Index(build, "path: bin/harness"), strings.Index(build, strings.TrimRight(step, "\n"))
-	if upload < 0 || at < 0 || at > upload {
+	if !m4lStepBefore(build, step, "path: bin/harness") {
 		return fmt.Errorf("harness: the build job does not run the step %q before it uploads path: bin/harness", m4lBuildStep)
 	}
 
