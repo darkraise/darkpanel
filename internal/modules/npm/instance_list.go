@@ -45,7 +45,13 @@ func (ctlInstanceListReader) Read(ctx context.Context, env core.Env, _ InstanceL
 		go func() {
 			defer func() { <-sem; wg.Done() }()
 			st, err := ctlInstanceStatus(ctx, env, h.ID)
-			statuses[i], read[i] = st, err == nil
+			if err != nil {
+				if ctx.Err() == nil {
+					env.Log.Warn("npm: the instance list leaves out a host whose status cannot be read", "host", h.ID, "error", err)
+				}
+				return
+			}
+			statuses[i], read[i] = st, true
 		}()
 	}
 	wg.Wait()
