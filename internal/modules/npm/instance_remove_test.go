@@ -133,8 +133,24 @@ func rmWeb(onNetwork, mountsData bool) func(t *testing.T, h *thHost, inst thInst
 	}
 }
 
+// rmUnlabelVolume drops the module label from the volume name.
+func rmUnlabelVolume(name string) func(t *testing.T, h *thHost, inst thInstance) {
+	return func(_ *testing.T, h *thHost, _ thInstance) {
+		v, _ := h.docker.volume(name)
+		delete(v.Labels, core.LabelModule)
+		h.docker.putVolume(v)
+	}
+}
+
+// rmEngineDown makes the next call of the Engine method op find the Engine unreachable.
+func rmEngineDown(op string) func(t *testing.T, h *thHost, inst thInstance) {
+	return func(_ *testing.T, h *thHost, _ thInstance) {
+		h.docker.Fail(op, dockerapi.ErrUnavailable)
+	}
+}
+
 var (
-	rmVolumeDiff = []core.DiffLine{
+	rmVolumeDiff =[]core.DiffLine{
 		{Op: "-", Text: "volume darkpanel-npm-data"},
 		{Op: "-", Text: "volume darkpanel-npm-letsencrypt"},
 		{Op: " ", Text: "the proxy hosts, access lists, certificates and users in the volumes are deleted and cannot be restored"},
@@ -204,6 +220,7 @@ func TestRmPlan(t *testing.T) {
 		setup func(t *testing.T, h *thHost, inst thInstance)
 		code  errcode.Code
 		has   string
+		msg   string
 	}{
 		{name: "no instance", fresh: true, code: errcode.NotFound, has: "no Nginx Proxy Manager instance"},
 		{name: "an exposure reserves an object", setup: rmReserve, code: errcode.NPMReserved, has: "npm.example.com"},
@@ -217,6 +234,26 @@ func TestRmPlan(t *testing.T) {
 		{name: "engine unavailable", setup: func(_ *testing.T, h *thHost, _ thInstance) {
 			h.docker.Fail("InspectContainer", dockerapi.ErrUnavailable)
 		}, code: errcode.DockerEngineUnavailable},
+		{name: "another container is attached under the network's name with another id", setup: func(_ *testing.T, h *thHost, _ thInstance) {
+			h.docker.putContainer(thContainer("web", func(c *dockerapi.ContainerJSON) {
+				c.NetworkSettings.Networks = map[string]*dockerapi.EndpointSettings{networkName: {NetworkID: thID("network:other")}}
+			}))
+		}, code: errcode.DockerInUse, has: "network darkpanel-npm is used by container web"},
+		{name: "network not labelled", setup: func(_ *testing.T, h *thHost, _ thInstance) {
+			nw, _ := h.docker.network(networkName)
+			delete(nw.Labels, core.LabelModule)
+			h.docker.putNetwork(nw)
+		}, code: errcode.InvalidInput, has: "network darkpanel-npm is not labelled darkpanel.module=npm"},
+		{name: "data volume not labelled", setup: rmUnlabelVolume(dataVolume), code: errcode.InvalidInput,
+			has: "volume darkpanel-npm-data is not labelled darkpanel.module=npm"},
+		{name: "certificate volume not labelled", setup: rmUnlabelVolume(certVolume), code: errcode.InvalidInput,
+			has: "volume darkpanel-npm-letsencrypt is not labelled darkpanel.module=npm"},
+		{name: "engine unavailable while inspecting the network", setup: rmEngineDown("InspectNetwork"),
+			code: errcode.DockerEngineUnavailable, msg: "inspect network darkpanel-npm"},
+		{name: "engine unavailable while inspecting a volume", setup: rmEngineDown("InspectVolume"),
+			code: errcode.DockerEngineUnavailable, msg: "inspect volume darkpanel-npm-data"},
+		{name: "engine unavailable while listing the containers", setup: rmEngineDown("ListContainers"),
+			code: errcode.DockerEngineUnavailable, msg: "list containers"},
 	}
 	for _, tt := range refusals {
 		t.Run(tt.name, func(t *testing.T) {
@@ -235,8 +272,13 @@ func TestRmPlan(t *testing.T) {
 			if !strings.Contains(coded.Detail, tt.has) {
 				t.Errorf("detail %q does not hold %q", coded.Detail, tt.has)
 			}
-			if slices.Contains(h.docker.calls(), "RemoveContainer") {
-				t.Error("a refused plan removed the container")
+			if !strings.Contains(err.Error(), tt.msg) {
+				t.Errorf("error %q does not name the failed read %q", err, tt.msg)
+			}
+			for _, call := range []string{"RemoveContainer", "RemoveVolume", "RemoveNetwork"} {
+				if slices.Contains(h.docker.calls(), call) {
+					t.Errorf("a refused plan called %s", call)
+				}
 			}
 		})
 	}
