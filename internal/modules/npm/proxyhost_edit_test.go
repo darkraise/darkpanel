@@ -641,6 +641,30 @@ func TestPuRemoveOfAReservedHost(t *testing.T) {
 	})
 }
 
+func TestPuRemoveOfAnAbsentHostKeepsAnotherOwnersRecords(t *testing.T) {
+	ctx := context.Background()
+	const panel = "panel.example.com"
+	h, _ := puSeed(t, puInput())
+	h.addChange("c1", "npm.proxyhost.remove")
+	puReserve(t, h, "proxy_host", 4242, "panel.exposure.add", panel)
+	puReserve(t, h, "certificate", 77, "panel.exposure.add", panel)
+	raw := puJSON(t, ProxyHostRemoveInput{Domain: panel})
+	def := h.nm().proxyhostRemove()
+
+	if _, err := def.Handler.Apply(ctx, h.child("c1", "npm.admin.unexpose"), raw); err != nil {
+		t.Fatal(err)
+	}
+	if !puReserved(t, h, "proxy_host", 4242) || !puReserved(t, h, "certificate", 77) {
+		t.Error("a removal under npm.admin.unexpose released records that panel.exposure.add owns")
+	}
+	if _, err := def.Handler.Apply(ctx, h.child("c1", "panel.exposure.remove"), raw); err != nil {
+		t.Fatal(err)
+	}
+	if puReserved(t, h, "proxy_host", 4242) || puReserved(t, h, "certificate", 77) {
+		t.Error("the owner's removal did not release its records")
+	}
+}
+
 func TestPuRemoveInverseRecreatesTheHost(t *testing.T) {
 	ctx := context.Background()
 	in := puInput(func(in *ProxyHostInput) { in.Domains = []string{puDomain, "www.example.com"} })
@@ -672,6 +696,28 @@ func TestPuRemoveInverseRecreatesTheHost(t *testing.T) {
 		obs, err := def.Handler.Observe(ctx, h.env("c1"), e)
 		if err != nil || obs.Matches != 1 || !obs.Exclusive || obs.Resource != res.Resource || !puSameJSON(obs.Current.State, e.UndoTo.State) {
 			t.Errorf("%s: observation %+v (%v), want one match, %s, in the restored state", name, obs, err, res.Resource)
+		}
+	}
+}
+
+func TestPuRemoveInverseRefusesAReservedUpstream(t *testing.T) {
+	ctx := context.Background()
+	h, _ := puSeed(t, puInput())
+	h.addChange("c1", "npm.proxyhost.remove")
+	body := proxyHostBody(puInput(func(in *ProxyHostInput) {
+		in.Domains = []string{"admin.example.com"}
+		in.ForwardHost = "127.0.0.1"
+		in.ForwardPort = 81
+	}), "npm.admin.expose")
+	e := core.Effect{ChangeID: "c1", Seq: 1, Kind: core.EffectDelete, Resource: "npm.proxyhost:4242", State: core.EffectMade,
+		Before: core.StateDoc{State: puJSON(t, body)}}
+	before := puHosts(t, h)
+	for _, parent := range []string{"", "npm.admin.unexpose"} {
+		_, err := h.nm().proxyhostRemove().Handler.Inverse(ctx, h.child("c1", parent), e)
+		puCoded(t, err, errcode.NPMReserved)
+		if !core.IsDefinite(err) || !reflect.DeepEqual(puHosts(t, h), before) {
+			t.Errorf("under %q: error %v (definite %v), hosts %+v; want a definite refusal that created nothing",
+				parent, err, core.IsDefinite(err), puHosts(t, h))
 		}
 	}
 }

@@ -485,9 +485,9 @@ func (h proxyHostRemoveHandler) Plan(ctx context.Context, env core.Env, in Proxy
 	}, nil
 }
 
-// Apply deletes the host and, under its owner's removal, releases every object of its exposure. A host already gone
-// changes nothing in NPM, but under an exposure's removal by domain the exposure's records are still released, so a
-// removal cut off before its bookkeeping is completed by running it again.
+// Apply deletes the host and, under its owner's removal, releases that owner's records of the exposure. A host already
+// gone changes nothing in NPM, but under an exposure's removal by domain the removing owner's records are still
+// released, so a removal cut off before its bookkeeping is completed by running it again.
 func (h proxyHostRemoveHandler) Apply(ctx context.Context, env core.Env, in ProxyHostRemoveInput) (ProxyHostView, error) {
 	t, err := h.target(ctx, env, in)
 	if err != nil {
@@ -499,9 +499,9 @@ func (h proxyHostRemoveHandler) Apply(ctx context.Context, env core.Env, in Prox
 			return view, nil
 		}
 		view.Domains = []string{in.Domain}
-		for _, removal := range proxyHostEditRemoval {
+		for owner, removal := range proxyHostEditRemoval {
 			if env.Call.ParentAction == removal {
-				if err := env.DB.Write(ctx, func(tx *sql.Tx) error { return dropReservedExposure(ctx, tx, in.Domain) }); err != nil {
+				if err := env.DB.Write(ctx, func(tx *sql.Tx) error { return proxyHostEditRelease(ctx, tx, in.Domain, owner) }); err != nil {
 					return ProxyHostView{}, err
 				}
 				break
@@ -524,11 +524,22 @@ func (h proxyHostRemoveHandler) Apply(ctx context.Context, env core.Env, in Prox
 		return ProxyHostView{}, err
 	}
 	if t.reserved {
-		if err := env.DB.Write(ctx, func(tx *sql.Tx) error { return dropReservedExposure(ctx, tx, t.row.Exposure) }); err != nil {
+		if err := env.DB.Write(ctx, func(tx *sql.Tx) error {
+			return proxyHostEditRelease(ctx, tx, t.row.Exposure, t.row.Owner)
+		}); err != nil {
 			return ProxyHostView{}, err
 		}
 	}
 	return proxyHostEditView(t.host, t.row.Owner), nil
+}
+
+// proxyHostEditRelease drops the reservation records owner holds under exposure. Another owner's records under the same
+// hostname are kept: only the owning exposure's removal may release them.
+func proxyHostEditRelease(ctx context.Context, tx *sql.Tx, exposure, owner string) error {
+	if _, err := tx.ExecContext(ctx, "DELETE FROM npm_reserved WHERE exposure = ? AND owner = ?", exposure, owner); err != nil {
+		return fmt.Errorf("npm: release the objects of exposure %s: %w", exposure, err)
+	}
+	return nil
 }
 
 // Verify checks from in alone that no host has the id or lists the domain.
@@ -558,12 +569,22 @@ func (h proxyHostRemoveHandler) Verify(ctx context.Context, env core.Env, in Pro
 }
 
 // Inverse recreates the removed host from the state the journal holds; NPM gives it a new id. It does not restore the
-// exposure's reservation records: only a forward composite's step drops them, and the engine never undoes such a step
-// on its own.
+// exposure's reservation records. A composite's step in needs_repair is undone directly with the step's stored call,
+// under which the upstream check refuses the admin port and the panel network, so no undo recreates a reserved-upstream
+// host that no reservation tracks.
 func (h proxyHostRemoveHandler) Inverse(ctx context.Context, env core.Env, e core.Effect) (core.InverseResult, error) {
 	body, err := h.undoBody(e)
 	if err != nil {
 		return core.InverseResult{}, err
+	}
+	targets := []ProxyHostInput{{ForwardHost: body.ForwardHost, ForwardPort: body.ForwardPort}}
+	for _, l := range body.Locations {
+		targets = append(targets, ProxyHostInput{ForwardHost: l.ForwardHost, ForwardPort: l.ForwardPort})
+	}
+	for _, target := range targets {
+		if err := h.n.checkUpstream(ctx, env, target); err != nil {
+			return core.InverseResult{}, core.Definite(err)
+		}
 	}
 	api, err := h.client(ctx, env)
 	if err != nil {
