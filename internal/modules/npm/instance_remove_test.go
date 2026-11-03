@@ -150,7 +150,7 @@ func rmEngineDown(op string) func(t *testing.T, h *thHost, inst thInstance) {
 }
 
 var (
-	rmVolumeDiff =[]core.DiffLine{
+	rmVolumeDiff = []core.DiffLine{
 		{Op: "-", Text: "volume darkpanel-npm-data"},
 		{Op: "-", Text: "volume darkpanel-npm-letsencrypt"},
 		{Op: " ", Text: "the proxy hosts, access lists, certificates and users in the volumes are deleted and cannot be restored"},
