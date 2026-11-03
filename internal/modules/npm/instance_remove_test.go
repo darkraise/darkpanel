@@ -176,6 +176,7 @@ func TestRmPlan(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(t, h, inst)
 			}
+			before := len(h.docker.calls())
 			out, err := h.nm().instanceRemove().Handler.Plan(ctx, h.env(""), json.RawMessage(`{}`))
 			if err != nil {
 				t.Fatal(err)
@@ -190,7 +191,7 @@ func TestRmPlan(t *testing.T) {
 				t.Error("empty state hash")
 			}
 			for _, call := range []string{"RemoveContainer", "RemoveVolume", "RemoveNetwork"} {
-				if slices.Contains(h.docker.calls(), call) {
+				if slices.Contains(h.docker.calls()[before:], call) {
 					t.Errorf("a plan called %s", call)
 				}
 			}
