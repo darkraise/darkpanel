@@ -110,9 +110,9 @@ func naOnWeb(t *testing.T, h *agHost) bool {
 
 var naMutations = []string{"ConnectNetwork", "DisconnectNetwork", "CreateContainer", "StartContainer", "StopContainer", "RemoveContainer", "PullImage"}
 
-func naMutated(h *agHost) []string {
+func naMutated(h *agHost, mark int) []string {
 	var got []string
-	for _, c := range h.docker.calls() {
+	for _, c := range h.docker.calls()[mark:] {
 		if slices.Contains(naMutations, c) {
 			got = append(got, c)
 		}
@@ -266,6 +266,7 @@ func TestNaRefuses(t *testing.T) {
 				if tc.seed != nil {
 					tc.seed(t, h)
 				}
+				mark := len(h.docker.calls())
 				def := h.cf().networkAttach()
 				var err error
 				if stage == "plan" {
@@ -285,7 +286,7 @@ func TestNaRefuses(t *testing.T) {
 				if tc.detail != "" && coded.Detail != tc.detail {
 					t.Errorf("detail %q, want %q", coded.Detail, tc.detail)
 				}
-				if got := naMutated(h); len(got) != 0 || len(naClaims(t, h)) != 0 {
+				if got := naMutated(h, mark); len(got) != 0 || len(naClaims(t, h)) != 0 {
 					t.Errorf("the refusal changed the host: calls %v, claims %+v", got, naClaims(t, h))
 				}
 			})
@@ -327,7 +328,7 @@ func TestNaPlanShowsTheJoinAndTheClaim(t *testing.T) {
 	if got := plan(h, func(in *NetworkAttachInput) { in.Address = netip.MustParseAddr("fd00::10") }).Diff; !slices.Equal(got, []core.DiffLine{join, {Op: "+", Text: "ipv6 fd00::10"}, claim}) {
 		t.Errorf("diff with an IPv6 address %+v", got)
 	}
-	if got := naMutated(h); len(got) != 0 {
+	if got := naMutated(h, 0); len(got) != 0 {
 		t.Errorf("the plan changed the Engine: %v", got)
 	}
 
@@ -377,7 +378,7 @@ func TestNaApplyJoinsAndClaims(t *testing.T) {
 	if got := naClaims(t, h); len(got) != 1 || got[0] != wantClaim {
 		t.Errorf("claims %+v, want %+v", got, wantClaim)
 	}
-	if got := naMutated(h); !slices.Equal(got, []string{"ConnectNetwork"}) {
+	if got := naMutated(h, 0); !slices.Equal(got, []string{"ConnectNetwork"}) {
 		t.Errorf("Engine calls %v, want one ConnectNetwork", got)
 	}
 
@@ -451,7 +452,7 @@ func TestNaApplyClaimsThatShareANetwork(t *testing.T) {
 		if !out.Preexisting || !out.Attached {
 			t.Errorf("output %+v, want preexisting and attached", out)
 		}
-		if got := naMutated(h); len(got) != 0 {
+		if got := naMutated(h, 0); len(got) != 0 {
 			t.Errorf("Engine calls %v, want none", got)
 		}
 		if got := naClaims(t, h); len(got) != 1 || !got[0].Preexisting {
@@ -553,7 +554,7 @@ func TestNaVerify(t *testing.T) {
 				t.Fatal(err)
 			}
 		}, true},
-		{"the network is gone", func(t *testing.T, h *agHost) {
+		{"the network is gone", func(_ *testing.T, h *agHost) {
 			h.docker.Fail("InspectNetwork", &dockerapi.APIError{StatusCode: http.StatusNotFound, Message: "no such network"})
 		}, true},
 	} {
@@ -613,7 +614,7 @@ func TestNaUndo(t *testing.T) {
 		}
 		join.State = core.EffectUndoing
 		_, err := def.Handler.Inverse(ctx, env, join)
-		naRefused(t, err, errcode.InvalidInput)
+		_ = naRefused(t, err, errcode.InvalidInput)
 		if !naOnWeb(t, h) {
 			t.Error("the connector left a network another change still claims")
 		}
@@ -629,7 +630,7 @@ func TestNaUndo(t *testing.T) {
 		claim := naEffects(t, h, "c1")[1]
 		claim.ChangeID, claim.State = "c9", core.EffectUndoing
 		_, err := h.cf().networkAttach().Handler.Inverse(ctx, h.env("c1"), claim)
-		naRefused(t, err, errcode.InvalidInput)
+		_ = naRefused(t, err, errcode.InvalidInput)
 		if len(naClaims(t, h)) != 1 {
 			t.Error("the claim of another change was dropped")
 		}
@@ -680,10 +681,10 @@ func TestNaInverseOfWhatADetachJournals(t *testing.T) {
 		otherDoc, _ := claimDocument(other)
 		e.Before = core.StateDoc{State: otherDoc}
 		_, err = def.Handler.Inverse(ctx, h.env("c9"), e)
-		naRefused(t, err, errcode.InvalidInput)
+		_ = naRefused(t, err, errcode.InvalidInput)
 		e.Before = core.StateDoc{State: json.RawMessage(`{"tunnel":"x"}`)}
 		_, err = def.Handler.Inverse(ctx, h.env("c9"), e)
-		naRefused(t, err, errcode.InvalidInput)
+		_ = naRefused(t, err, errcode.InvalidInput)
 	})
 
 	t.Run("a left network is joined again", func(t *testing.T) {
