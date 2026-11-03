@@ -4,6 +4,8 @@ import { Route, Routes } from "react-router"
 import { expect, test, vi } from "vitest"
 import type { Host, ListenerState, Session } from "@/api/types"
 import { applyBrand } from "@/brand"
+import { npInstance } from "@/modules/npm/fixtures"
+import type { InstancesOutput } from "@/modules/npm/types"
 import { RequireSession, SessionProvider } from "@/session/session"
 import { EvtSource } from "@/test/evt-source"
 import { renderWithProviders, stubFetch, type StubResponse } from "@/test/utils"
@@ -29,12 +31,14 @@ function renderShell(
   logout: StubResponse = { status: 204 },
   hosts: Host[] = [],
   hostList: StubResponse = { body: { output: { hosts } } },
+  extra: Record<string, StubResponse> = {},
 ) {
   const calls = stubFetch({
     "GET /api/v1/auth/session": { body: session },
     "GET /api/v1/controller/listeners": listeners,
     "POST /api/v1/auth/logout": logout,
     "POST /api/v1/actions/core.host.list/v1/read": hostList,
+    ...extra,
   })
   renderWithProviders(
     <SessionProvider>
@@ -185,4 +189,22 @@ test("the signed-in shell keeps one event stream open while it is mounted", asyn
   expect(EvtSource.instances[0]?.closed).toBe(false)
   cleanup()
   expect(EvtSource.instances[0]?.closed).toBe(true)
+})
+
+const shExposure: InstancesOutput = {
+  instances: [
+    { hostId: "h1", hostName: "web-1", status: npInstance({ deployed: true, adminExposure: { hostname: "npm.example.com", proxyHostId: 4, certificateId: 5 } }) },
+    { hostId: "h2", hostName: "web-2", status: npInstance({ deployed: true }) },
+  ],
+}
+
+test("every page shows the admin-exposure banner above its content", async () => {
+  renderShell({ body: bound }, "/audit", { status: 204 }, [], undefined, {
+    "POST /api/v1/actions/npm.instance.list/v1/read": { body: { output: shExposure } },
+  })
+  const banner = await screen.findByText("The NPM admin interface of web-1 is exposed at https://npm.example.com.")
+  const content = await screen.findByText("Audit content")
+  expect(banner.compareDocumentPosition(content) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(screen.getByRole("link", { name: "Open Nginx Proxy Manager on web-1" }).getAttribute("href")).toBe("/hosts/h1/npm")
+  expect(screen.queryByText(/web-2/)).toBeNull()
 })

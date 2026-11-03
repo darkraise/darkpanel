@@ -7,6 +7,7 @@ import { SidebarLayout, type NavGroup, type NavItem } from "darkraise-ui/layout"
 import { HOSTS_QUERY_KEY, errorMessage, getListenerState, listHosts } from "@/api/client"
 import { connectEvents } from "@/api/events"
 import type { Host } from "@/api/types"
+import { AdminExposureBanner } from "@/modules/npm/banner"
 import { enabledModules, moduleRegistry } from "@/modules/registry"
 import { useSession } from "@/session/use-session"
 
@@ -96,6 +97,7 @@ export function Shell() {
           <AlertDescription>{logoutError}</AlertDescription>
         </Alert>
       )}
+      <AdminExposureBanner />
       <Outlet />
     </SidebarLayout>
   )
