@@ -3,7 +3,6 @@ package npm
 import (
 	"context"
 	"fmt"
-	"slices"
 	"sort"
 	"strings"
 
@@ -133,13 +132,6 @@ func (m listMarks) of(ctx context.Context, id int, identity string) (reserved st
 	return reserved, m.watched[identity], nil
 }
 
-// listDomainsIdentity is the sorted domain set joined by commas, the identity a creation effect recovers by.
-func listDomainsIdentity(domains []string) string {
-	s := slices.Clone(domains)
-	sort.Strings(s)
-	return strings.Join(s, ",")
-}
-
 func listUnhealthy(err error) error {
 	return errcode.Wrap(errcode.NPMUnhealthy, err, "the Nginx Proxy Manager API is not available")
 }
@@ -156,7 +148,7 @@ func (n nm) listProxyHostItems(ctx context.Context, env core.Env, api npmAPI) ([
 	sort.Slice(hosts, func(i, j int) bool { return hosts[i].ID < hosts[j].ID })
 	items := make([]ProxyHostView, 0, len(hosts))
 	for _, h := range hosts {
-		reserved, unclaimed, err := marks.of(ctx, h.ID, listDomainsIdentity(h.DomainNames))
+		reserved, unclaimed, err := marks.of(ctx, h.ID, strings.Join(proxyhostAddSorted(h.DomainNames), ","))
 		if err != nil {
 			return nil, err
 		}
@@ -211,7 +203,7 @@ func (n nm) listCertificateItems(ctx context.Context, env core.Env, api npmAPI) 
 	sort.Slice(certs, func(i, j int) bool { return certs[i].ID < certs[j].ID })
 	items := make([]CertificateView, 0, len(certs))
 	for _, c := range certs {
-		reserved, unclaimed, err := marks.of(ctx, c.ID, listDomainsIdentity(c.DomainNames))
+		reserved, unclaimed, err := marks.of(ctx, c.ID, certificateIdentity(c.DomainNames))
 		if err != nil {
 			return nil, err
 		}
