@@ -57,7 +57,8 @@ func (h connectorStopHandler) inspect(ctx context.Context, env core.Env, tunnel 
 			held[i] = cl.Claimant + " on " + cl.Network
 		}
 		return connectorStopTarget{}, core.Definite(errcode.New(errcode.DockerInUse, fmt.Sprintf(
-			"connector %s is attached for %s; remove those exposures first", connectorName(tunnel), strings.Join(held, ", "))))
+			"connector %s is attached for %s; remove those exposures first with cloudflare.expose.remove, or release a claim whose hostname is already removed with cloudflare.network.detach on this host",
+			connectorName(tunnel), strings.Join(held, ", "))))
 	}
 	var t connectorStopTarget
 	if t.row, t.stored, err = loadConnector(ctx, env.DB.Read(), tunnel); err != nil {

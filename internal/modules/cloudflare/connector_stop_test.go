@@ -255,7 +255,7 @@ func TestCpPlan(t *testing.T) {
 		{"the connector holds claims", cpTunnel, func(t *testing.T, h *agHost, _ Connector) {
 			cpClaim(t, h, cpTunnel, "appnet", "expose:app.example.com")
 			cpClaim(t, h, cpTunnel, "backend", "expose:api.example.com")
-		}, errcode.DockerInUse, "", []string{"expose:app.example.com", "appnet", "expose:api.example.com", "backend"}},
+		}, errcode.DockerInUse, "", []string{"expose:app.example.com", "appnet", "expose:api.example.com", "backend", "cloudflare.expose.remove", "cloudflare.network.detach"}},
 		{"the Engine is unavailable", cpTunnel, func(_ *testing.T, h *agHost, _ Connector) {
 			h.docker.Fail("InspectContainer", dockerapi.ErrUnavailable)
 		}, errcode.DockerEngineUnavailable, "", nil},
