@@ -39,8 +39,8 @@ type connectorStopTarget struct {
 	running     bool
 }
 
-// inspect reads what the stop removes and refuses a bad tunnel id or a connector an exposure still claims. It only
-// reads, so every failure is Definite.
+// inspect reads what the stop removes and refuses a bad tunnel id, a connector an exposure still claims or a container
+// of the connector's name the module did not label. It only reads, so every failure is Definite.
 func (h connectorStopHandler) inspect(ctx context.Context, env core.Env, tunnel string) (connectorStopTarget, error) {
 	if p := tunnelIDProblem(tunnel); p != "" {
 		return connectorStopTarget{}, core.Definite(&errcode.Error{
@@ -70,6 +70,9 @@ func (h connectorStopHandler) inspect(ctx context.Context, env core.Env, tunnel 
 	case err != nil:
 		return connectorStopTarget{}, core.Definite(fmt.Errorf("cloudflare: inspect container %s: %w", name, engineCoded(err)))
 	default:
+		if err := foreignConnector(ctr, name); err != nil {
+			return connectorStopTarget{}, err
+		}
 		t.containerID, t.running = ctr.ID, ctr.State.Running
 	}
 	return t, nil

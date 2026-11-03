@@ -399,6 +399,49 @@ func TestCpApply(t *testing.T) {
 	})
 }
 
+// TestCpForeignContainer: a container of the connector's name that does not carry darkpanel.module=cloudflare is
+// refused with docker.owned at plan and at apply, with or without the connector's record, and nothing is removed.
+func TestCpForeignContainer(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		labels map[string]string
+		deploy bool
+		detail string
+	}{
+		{"an unlabelled container and no record", nil, false, "is not labelled darkpanel.module=cloudflare"},
+		{"a container of another module and no record", map[string]string{core.LabelModule: "npm"}, false, "belongs to module npm"},
+		{"an unlabelled container in place of the connector's", map[string]string{"k": "v"}, true, "is not labelled darkpanel.module=cloudflare"},
+		{"a container of another module in place of the connector's", map[string]string{core.LabelModule: "npm"}, true, "belongs to module npm"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newAGHost(t)
+			ctr := agContainer(connectorName(cpTunnel), agRunning, agLabelled(tt.labels))
+			if tt.deploy {
+				cpDeploy(t, h, cpTunnel)
+				deployed, err := h.docker.InspectContainer(context.Background(), connectorName(cpTunnel))
+				if err != nil {
+					t.Fatal(err)
+				}
+				deployed.Config.Labels = tt.labels
+				ctr = deployed
+			}
+			h.docker.putContainer(ctr)
+			_, err := cpPlan(t, h, cpTunnel)
+			if coded := cpRefused(t, err, errcode.DockerOwned); !strings.Contains(coded.Detail, tt.detail) || !strings.Contains(coded.Detail, connectorName(cpTunnel)) {
+				t.Errorf("plan detail %q, want the container's name and %q", coded.Detail, tt.detail)
+			}
+			_, err = cpApply(t, h, "stop1", cpTunnel)
+			_ = cpRefused(t, err, errcode.DockerOwned)
+			if slices.Contains(h.docker.calls(), "RemoveContainer") || !cpEngineHas(t, h, cpTunnel) {
+				t.Error("the stop removed a container the module did not label")
+			}
+			if tt.deploy && (!cpFileStored(h, cpTunnel) || !cpRowStored(t, h, cpTunnel)) {
+				t.Error("a refused stop removed the token file or the record")
+			}
+		})
+	}
+}
+
 // TestCpVerify: the stop passes only when neither the container nor the record is left.
 func TestCpVerify(t *testing.T) {
 	ctx := context.Background()

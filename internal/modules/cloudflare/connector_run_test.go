@@ -755,10 +755,79 @@ func TestCrRemoveConnector(t *testing.T) {
 	})
 	t.Run("only the container", func(t *testing.T) {
 		h := newCR(t)
-		h.docker.putContainer(agContainer(connectorName(crTunnel)))
+		h.docker.putContainer(agContainer(connectorName(crTunnel), agLabelled(map[string]string{core.LabelModule: ID})))
 		removed, err := removeConnector(ctx, h.env("c2"), h.cfg, crTunnel)
 		if _, ierr := h.docker.InspectContainer(ctx, connectorName(crTunnel)); err != nil || !removed || !dockerapi.IsNotFound(ierr) {
 			t.Errorf("removed %t, %v, inspect %v", removed, err, ierr)
 		}
 	})
+	for _, foreign := range []struct {
+		name   string
+		labels map[string]string
+	}{
+		{"an unlabelled container is refused", nil},
+		{"a container of another module is refused", map[string]string{core.LabelModule: "npm"}},
+	} {
+		t.Run(foreign.name, func(t *testing.T) {
+			h := newCR(t)
+			crSeedRow(t, h, crTunnel, "existing-container")
+			h.docker.putContainer(agContainer(connectorName(crTunnel), agRunning, agLabelled(foreign.labels)))
+			removed, err := removeConnector(ctx, h.env("c2"), h.cfg, crTunnel)
+			_ = crRefused(t, err, errcode.DockerOwned)
+			if removed || slices.Contains(h.docker.calls(), "RemoveContainer") {
+				t.Errorf("removed %t, calls %v: want the container left alone", removed, h.docker.calls())
+			}
+			if _, ierr := h.docker.InspectContainer(ctx, connectorName(crTunnel)); ierr != nil {
+				t.Errorf("the container is gone: %v", ierr)
+			}
+			if len(h.rec.removes) != 0 || !crHasRow(t, h, crTunnel) {
+				t.Errorf("removed files %v, row present %t: want the refusal to remove nothing", h.rec.removes, crHasRow(t, h, crTunnel))
+			}
+		})
+	}
+}
+
+// TestCrUndoLeavesAForeignContainer: the run's recovery does not adopt a container of the connector's name the module
+// did not label, and the undo of the container's creation refuses, not removes, one that has lost the label.
+func TestCrUndoLeavesAForeignContainer(t *testing.T) {
+	ctx := context.Background()
+	for _, foreign := range []struct {
+		name   string
+		labels map[string]string
+	}{
+		{"unlabelled", nil},
+		{"another module's", map[string]string{core.LabelModule: "npm"}},
+	} {
+		t.Run(foreign.name+" container at recovery", func(t *testing.T) {
+			h := newCR(t)
+			h.docker.putContainer(agContainer(connectorName(crTunnel), agLabelled(foreign.labels)))
+			e := core.Effect{Kind: core.EffectCreate, Resource: "cloudflare.container:?" + connectorName(crTunnel), State: core.EffectIntended}
+			obs, err := h.cfg.connectorRun().Handler.Observe(ctx, h.env("c1"), e)
+			if err != nil || obs.Matches != 0 || obs.Resource != "" || string(obs.Current.State) != "null" {
+				t.Errorf("matches %d resource %q state %s (%v), want no match and the null state", obs.Matches, obs.Resource, obs.Current.State, err)
+			}
+		})
+		t.Run(foreign.name+" container at undo", func(t *testing.T) {
+			h := newCR(t)
+			out, err := crApply(t, h, "c1", crTunnel)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c, err := h.docker.InspectContainer(ctx, out.ContainerID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c.Config.Labels = foreign.labels
+			h.docker.putContainer(c)
+			e := core.Effect{ChangeID: "c1", Kind: core.EffectCreate, Resource: "cloudflare.container:" + out.ContainerID, State: core.EffectUndoing}
+			_, err = h.cfg.connectorRun().Handler.Inverse(ctx, h.env("c1"), e)
+			_ = crRefused(t, err, errcode.DockerOwned)
+			if slices.Contains(h.docker.calls(), "RemoveContainer") {
+				t.Error("the undo removed a container the module did not label")
+			}
+			if _, err := h.docker.InspectContainer(ctx, out.ContainerID); err != nil {
+				t.Errorf("the container is gone: %v", err)
+			}
+		})
+	}
 }

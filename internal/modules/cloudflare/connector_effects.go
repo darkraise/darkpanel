@@ -243,6 +243,11 @@ func (c cf) effContainer(ctx context.Context, name string, creation bool, phase 
 	if err != nil {
 		return core.Observation{}, fmt.Errorf("cloudflare: inspect container %s: %w", name, engineCoded(err))
 	}
+	if creation && ctr.Config.Labels[core.LabelModule] != ID {
+		// The run refuses a name already taken, so an unlabelled container of the name is not its creation and must not
+		// be adopted, and later undone, as one.
+		return effObservation(nil, "", true), nil
+	}
 	doc, err := dstate.ContainerRun(ctr, phase)
 	if err != nil {
 		return core.Observation{}, fmt.Errorf("cloudflare: render container %s: %w", name, err)
@@ -251,7 +256,7 @@ func (c cf) effContainer(ctx context.Context, name string, creation bool, phase 
 }
 
 // Inverse undoes one effect of the connector's run. An object already gone is undone; an Engine refusal changed
-// nothing.
+// nothing. A container the module did not label is refused, not removed.
 func (h connectorRunHandler) Inverse(ctx context.Context, env core.Env, e core.Effect) (core.InverseResult, error) {
 	noun, name, creation, err := effCreationOf(e.Resource)
 	if err != nil {
@@ -288,7 +293,13 @@ func (h connectorRunHandler) Inverse(ctx context.Context, env core.Env, e core.E
 		_, err = docker.StopContainer(ctx, name, connectorStopGrace)
 	case noun == nounContainer && e.Kind == core.EffectCreate:
 		what = "remove container " + name
-		err = docker.RemoveContainer(ctx, name, dockerapi.RemoveContainerOptions{Force: true})
+		var ctr dockerapi.ContainerJSON
+		if ctr, err = docker.InspectContainer(ctx, name); err == nil {
+			if err := foreignConnector(ctr, name); err != nil {
+				return core.InverseResult{}, err
+			}
+			err = docker.RemoveContainer(ctx, name, dockerapi.RemoveContainerOptions{Force: true})
+		}
 	default:
 		return core.InverseResult{}, fmt.Errorf("cloudflare: %s %s is not an effect of a connector's run", e.Kind, e.Resource)
 	}

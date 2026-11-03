@@ -286,17 +286,46 @@ func connectorProblem(ctr dockerapi.ContainerJSON, row connectorRow, tunnel, tok
 	return ""
 }
 
+// foreignConnector refuses a container of a connector's name that does not carry the label darkpanel.module=cloudflare:
+// the module did not create it, so Darkpanel does not remove it.
+func foreignConnector(ctr dockerapi.ContainerJSON, name string) error {
+	switch owner := ctr.Config.Labels[core.LabelModule]; owner {
+	case ID:
+		return nil
+	case "":
+		return core.Definite(errcode.New(errcode.DockerOwned, fmt.Sprintf(
+			"container %s is not labelled %s=%s; Darkpanel does not remove it", name, core.LabelModule, ID)))
+	default:
+		return core.Definite(errcode.New(errcode.DockerOwned, fmt.Sprintf(
+			"container %s belongs to module %s, not %s; Darkpanel does not remove it", name, owner, ID)))
+	}
+}
+
 // removeConnector removes the tunnel's connector from this host: its container, its token file and its row. Parts
-// already gone are not errors; removed reports whether the container or the row existed.
+// already gone are not errors; removed reports whether the container or the row existed. A container of the
+// connector's name the module did not label is refused before anything is removed.
 func removeConnector(ctx context.Context, env core.Env, c cf, tunnel string) (bool, error) {
+	docker := c.a.docker
 	name := connectorName(tunnel)
 	removed := true
-	err := c.a.docker.RemoveContainer(ctx, name, dockerapi.RemoveContainerOptions{Force: true})
+	ctr, err := docker.InspectContainer(ctx, name)
 	switch {
 	case dockerapi.IsNotFound(err):
 		removed = false
 	case err != nil:
-		return false, fmt.Errorf("cloudflare: remove container %s: %w", name, engineCoded(err))
+		return false, core.Definite(fmt.Errorf("cloudflare: inspect container %s: %w", name, engineCoded(err)))
+	default:
+		if err := foreignConnector(ctr, name); err != nil {
+			return false, err
+		}
+		// Removing by id leaves alone a container that took the name after the inspection.
+		err = docker.RemoveContainer(ctx, ctr.ID, dockerapi.RemoveContainerOptions{Force: true})
+		switch {
+		case dockerapi.IsNotFound(err):
+			removed = false
+		case err != nil:
+			return false, fmt.Errorf("cloudflare: remove container %s: %w", name, engineCoded(err))
+		}
 	}
 	if err := env.Files.RemoveManaged(ctx, ID, tokenDir, tokenFileName(tunnel)); err != nil {
 		return false, fmt.Errorf("cloudflare: remove the token file of tunnel %s: %w", tunnel, err)
