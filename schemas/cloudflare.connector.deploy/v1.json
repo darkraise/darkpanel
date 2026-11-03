@@ -1,0 +1,76 @@
+{
+  "name": "cloudflare.connector.deploy",
+  "version": 1,
+  "class": "composite",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ConnectorDeployInput",
+    "$defs": {
+      "ConnectorDeployInput": {
+        "properties": {
+          "hostId": {
+            "type": "string"
+          },
+          "tunnel": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "hostId"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ConnectorDeployOutput",
+    "$defs": {
+      "Connector": {
+        "properties": {
+          "tunnel": {
+            "type": "string"
+          },
+          "container": {
+            "type": "string"
+          },
+          "containerId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tunnel",
+          "container",
+          "containerId",
+          "state"
+        ]
+      },
+      "ConnectorDeployOutput": {
+        "properties": {
+          "tunnel": {
+            "type": "string"
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "connector": {
+            "$ref": "#/$defs/Connector"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tunnel",
+          "created",
+          "connector"
+        ]
+      }
+    }
+  }
+}

@@ -17,11 +17,14 @@ type module struct{ c cf }
 func Module() core.Module { return module{c: productionCF()} }
 
 // Manifest declares the module: its controller-side account, tunnel and
-// hostname actions, the controller migrations that hold the account, tunnel
-// and hostname rows, the token directory it owns on the host and the agent
-// migrations that hold its connectors and their network claims. Every module
-// is enabled by default; preflight decides whether it is available on a host
-// (R9).
+// hostname actions, its agent-side connector actions (run, stop, list) and
+// attachment claims (attach, detach), the controller composites that deploy a
+// connector and expose a container through a tunnel, the controller
+// migrations that hold the account, tunnel and hostname rows, the agent
+// migrations that hold the connectors and their network claims, and the
+// managed directory of the tunnel token files it owns on the host. Every
+// module is enabled by default; preflight decides whether it is available on
+// a host (R9).
 func (m module) Manifest() core.Manifest {
 	return core.Manifest{
 		ID:             ID,
@@ -36,8 +39,11 @@ func (m module) Manifest() core.Manifest {
 	}
 }
 
-// actions are spec 5's cloudflare account, tunnel and hostname rows, all
-// controller-side, the mutating ones under the cloudflare lock.
+// actions are spec 5's cloudflare rows: the controller-side account, tunnel
+// and hostname actions, the agent-side connector actions (run, stop, list)
+// and attachment claims (attach, detach), each mutating one under the
+// cloudflare lock, and the controller composites that deploy a connector and
+// expose a container through a tunnel or remove that exposure.
 func (c cf) actions() []core.ActionDef {
 	return []core.ActionDef{
 		c.accountConnect(),
@@ -51,5 +57,13 @@ func (c cf) actions() []core.ActionDef {
 		c.hostnameAdd(),
 		c.hostnameRemove(),
 		c.hostnameList(),
+		c.connectorRun(),
+		c.connectorStop(),
+		c.connectorList(),
+		c.networkAttach(),
+		c.networkDetach(),
+		c.connectorDeploy(),
+		c.exposeContainer(),
+		c.exposeRemove(),
 	}
 }
