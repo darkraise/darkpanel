@@ -23,6 +23,7 @@
 **Worktree setup:** `timeout 600 make web-deps`
 
 **Wave check:** `mkdir -p /root/.cache/w6b-tmp/wave && export TMPDIR=/root/.cache/w6b-tmp/wave GOTOOLCHAIN=local && timeout 600 go build ./... && timeout 300 go vet ./... && timeout 900 go test -count=1 ./internal/modules/... ./internal/core/... ./schemas/... && timeout 300 go vet -tags harness ./test/... && timeout 1200 make lint-web test-web`
+**Plan review:** 2026-11-03 — dforge:judge-opus — executability 17 / coherence 18 / coverage 18 / assumptions 18 (round 2)
 
 ## Global Constraints
 
@@ -164,8 +165,8 @@
   - `agHost.env(changeID)` gives `Env.DB` (writable and readable), `Env.Sealer`, `Env.Clock` and, when changeID is set, `Env.Effects`, whose `List` and `Secret` the tests read.
 - **Agent effects** (Task 6 creates `internal/modules/cloudflare/connector_effects.go`, mirroring `internal/modules/npm/effects.go`; Tasks 8, 12 and 13 consume it): nouns `nounTokenFile = "cloudflare.tokenfile"`, `nounContainer = "cloudflare.container"`, `nounConnector = "cloudflare.connector"` (Task 8 adds `nounClaim` and `nounEndpoint` in its own file); `const engineCommitWait = 2 * time.Minute`; `func resourceOf(noun, identity string) string` (`noun + ":" + identity`); `func identityOf(resource string) string`; `func connectorEffect(kind core.EffectKind, resource string, before json.RawMessage, wait time.Duration) core.Effect` (not Local; a Create gets the null before-state and, when its identity starts with `?`, the recovery identity `{Kind: "name", Value: <identity without ?>}`); `func refused(err error) bool` (a 4xx `*dockerapi.APIError`); `func (c cf) journal(ctx context.Context, env core.Env, e core.Effect, observe func(context.Context, core.Env, core.Effect) (core.Observation, error), do func(ctx context.Context) (resource string, err error)) error` (npm's `run`: `Intend`, the call, `Skipped` plus a Definite error on `refused` or a Definite error, the effect left intended on any other failure, otherwise `Made` with the observed state of the resource `do` names, or of `e.Resource` when it names none; a resource still starting with `?` is an error); `func nullState() core.StateDoc`; `func named(state json.RawMessage) core.Observation`. A local effect (the token file, a row, a claim) is built by the caller from `connectorEffect` with `Local` and `InverseLocal` set and `After` filled.
 - **Agent actions** (names exact; `Side: core.SideAgent`, `LockKeys: []string{"cloudflare"}` on the mutations):
-  - `cloudflare.connector.run` v1 (Task 6, `connector_run.go`): `ClassCompensable`, an `Undoer` (its undo removes the container, the token file and the row), `LongRunning`, `ApplyTimeout` 10 minutes; `DefineMutating[ConnectorRunInput, Connector]`. Plan refuses (Definite `request.invalid_input`) a bad tunnel id or an empty token, and when a `cloudflare_connectors` row or a container named `connectorName(tunnel)` already exists. Apply pulls `Image` when `InspectImage` reports it absent, writes the token file with `Env.Files.WriteManaged(ctx, "cloudflare", tokenDir, tokenFileName(t), token, 0o400, imageUID, imageUID)`, inserts the row with the sealed token, creates and starts the container (label, restart policy, command, read-only bind mount `<tokenDir>/<file>:/run/darkpanel/token`, no environment beyond the image's), and journals the file, the row and the container. Verify checks the container's image, label, command, mount and a state of `running` or `restarting`. Shared helpers Task 12 consumes: `removeConnector(ctx context.Context, env core.Env, c cf, tunnel string) (bool, error)` (container, file, row; absent parts are not errors).
-  - `cloudflare.connector.stop` v1 (Task 12, `connector_stop.go`): `ClassCompensable`, `CompensatedBy: "cloudflare.connector.run"`, `Converges: true`; `DefineMutating[ConnectorStopInput, ConnectorStopped]`; refuses (Definite `docker.in_use`, detail naming the claimants) while `cloudflare_attachments` holds a claim for the tunnel; otherwise removes through `removeConnector`. Run again on an absent connector, it plans an empty diff.
+  - `cloudflare.connector.run` v1 (Task 6, `connector_run.go`): `ClassCompensable`, an `Undoer` (its undo removes the container, the token file and the row), `LongRunning`, `ApplyTimeout` 10 minutes; `DefineMutating[ConnectorRunInput, Connector]`. Plan refuses (Definite `request.invalid_input`) a bad tunnel id or an empty token, and when a `cloudflare_connectors` row or a container named `connectorName(tunnel)` already exists. Apply pulls `Image` when `InspectImage` reports it absent, writes the token file with `Env.Files.WriteManaged(ctx, "cloudflare", tokenDir, tokenFileName(t), token, 0o400, imageUID, imageUID)`, creates the container (label, restart policy, command, read-only bind mount `<tokenDir>/<file>:/run/darkpanel/token`, no environment beyond the image's), inserts the row with the sealed token (its `container_id` is NOT NULL, so the row follows the create), starts the container, and journals the file, the container and the row. Verify checks the container's image, label, command, mount and a state of `running` or `restarting`. Shared helpers Task 12 consumes: `removeConnector(ctx context.Context, env core.Env, c cf, tunnel string) (bool, error)` (container, file, row; absent parts are not errors).
+  - `cloudflare.connector.stop` v1 (Task 12, `connector_stop.go`): `ClassCompensable`, `CompensatedBy: "cloudflare.connector.run"`, `Converges: true`; `DefineMutating[ConnectorStopInput, ConnectorStopped]`; refuses (Definite `docker.in_use`, detail naming the claimants) while `cloudflare_attachments` holds a claim for the tunnel; otherwise removes through `removeConnector`. It journals no effect and its handler has no `Observe` (Task 14's `TestRegActions` expects none). Run again on an absent connector, it plans an empty diff.
   - `cloudflare.connector.list` v1 (Task 7, `connector_list.go`): `ClassRead`, `DefineRead[ConnectorListInput, ConnectorList]`: every row with its container's state (`missing` on a not-found inspect).
   - Log-secret source (Task 7, `connector_logsecrets.go`): an `init` calls `docker.RegisterLogSecrets(ID, connectorLogSecrets)`; `connectorLogSecrets(ctx, env, containerID)` returns the opened token of the row whose `container_id` equals containerID, and no secret (nil, nil) for any other container.
   - `cloudflare.network.attach` v1 (Task 8, `connector_network.go`): `ClassCompensable` with an `Undoer` that drops only the claim this change made and disconnects only when no claim is left and the attachment was not pre-existing; `DefineMutating[NetworkAttachInput, NetworkAttachment]`. Plan refuses: no connector row or container for the tunnel → Definite `cloudflare.connector_missing`; a network that is not a user-defined bridge, or a `Target` not attached to `Network` or attached only to `bridge`, `host`, `none` or a non-bridge driver → Definite `cloudflare.unsupported_target` with the reason `connect the container to a user-defined network`; a bad name or claimant → Definite `request.invalid_input`. Apply connects (with `Address` as the endpoint's IPv4 or IPv6 address when set) only when the connector is not already on the network, recording `preexisting: true` when it was there before the first claim, and inserts the claim. Shared names Task 13 consumes, all in `connector_network.go`: constants `nounClaim = "cloudflare.claim"` and `nounEndpoint = "cloudflare.endpoint"`; effect resources `cloudflare.claim:<tunnel>|<network>|<claimant>` (creation form `cloudflare.claim:?<tunnel>|<network>|<claimant>`) and `cloudflare.endpoint:<tunnel>|<network>` (creation form with `?`), the container always being `connectorName(<tunnel>)`; `type claimDoc struct` with JSON members `tunnel`, `network`, `claimant`, `preexisting`, `changeId` in that order, rendered by `claimDocument(c claimRow) (json.RawMessage, error)`; and `type networkClaims struct{ c cf }`, which implements `Observe` and `Inverse` for all four effect kinds the attach and detach journal: claim create (undo drops the claim when its change id is the effect's), claim delete (undo restores it from `Before`), endpoint modify without `InverseRecovery` (undo disconnects, refused while a claim of another change is left) and endpoint modify with `InverseRecovery` set (undo reconnects with a dynamic address and returns the endpoint resource). Task 13's detach handler embeds `networkClaims`.
@@ -197,6 +198,10 @@
 - Ruling for register row 296's lookup case (Task 4): `cloudflare.hostname.add`'s reserved check treats a not-found lookup as "not reserved" (so a container name, which the controller cannot resolve, still passes, which `expose.container` needs) and refuses with `cloudflare.reserved` on any other lookup error; register row 295's ruling (hostname.remove refuses only IP-literal and legacy-numeric forms in the panel range, with no DNS lookup) is quoted in the row.
 - The cloudflared image's digest, its user (UID 65532 per the spec's Versions table), the `--token-file` flag in the pinned version, the token's format, the log lines that show the file was read, and the container's behaviour on an unknown token: unverified — Task 1 verifies them.
 - The harness VMs run Docker 29.9.1 on all four OSes (`test/harness/images.json`, `pins.go:26`) and pull images from Docker Hub, as `TestM6NPM` does (`m6_npm_test.go` `prepare`); `vm-m6n` is the job pattern (`.github/workflows/harness.yml:427-490`).
+- No Darkpanel version has been released: `git tag` and `gh release list` both printed nothing (2026-11-03). Task 5 therefore changes the network and volume effect documents without a legacy form.
+- The agent runs as root with no capability bounding set, so `os.ReadFile` (Task 6's production `readFile`) can read the 0400 token file owned by UID 65532: only the controller unit sets `User=` (`internal/install/units/darkpanel-controller.service:12`), `internal/install/units_test.go:87` asserts the agent unit has none, and no unit under `internal/install` sets `CapabilityBoundingSet` (rg, 2026-11-03).
+- Ruling: the spec's M6 evidence "a default-bridge-only target refused in preview" is shown by `TestM6Cloudflare` planning `cloudflare.network.attach` on the agent (Task 15 step 9) and by Task 8's plan tests, not by an engine preview of `cloudflare.expose.container`, which needs the Cloudflare API the harness cannot fake (ruling above).
+- Ruling: the web gains Expose via tunnel but no button for `cloudflare.expose.remove`; the spec does not require one, and the operator runs it from the generated CLI command. Removing an exposed hostname from the hostnames page runs `hostname.remove` and leaves the `expose:<hostname>` claim, so `connector.stop` then refuses with `docker.in_use` naming that claim until `cloudflare.network.detach` (or `expose.remove`) runs. Follow-up outside this plan.
 - No task carries an **Executor:** line: the owner answered the executor-lane offer (agy) with "Claude only" on 2026-11-03, so plan-lint's lane-eligible warnings are expected.
 - Scoring follows the programme's convention (plans w1-w6a): the files axis counts kinds of file (Go source, Go test, SQL, TypeScript, workflow YAML, generated schema, Markdown note), not instances.
 
@@ -2307,7 +2312,7 @@ CREATE TABLE cloudflare_attachments (
    - `loadConnector` and `connectorByContainer` select the five columns `tunnel_id, container_id, token_ct, change_id, created_at` (one shared `connectorColumns` constant and one scan helper) for the tunnel or the container; `sql.ErrNoRows` is `(zero, false, nil)`, any other error is wrapped as `cloudflare: read the connector of tunnel <id>: %w` (or `of container`).
    - `listConnectors` returns every row ordered by `tunnel_id` and an empty, non-nil slice for an empty table; `rows.Err` and `rows.Close` are handled.
    - `insertConnector` inserts the five columns and `deleteConnector` deletes the row of the tunnel and only that row, an absent row not being an error; both take the `*sql.Tx` of a write and wrap their errors with the `cloudflare:` prefix and the tunnel id. A second insert for a tunnel fails (the primary key).
-   - `connectorClaims` returns the claims of the tunnel ordered by network then claimant, restricted to one network when `network` is not `""`, and an empty non-nil slice when there are none; `insertClaim` and `deleteClaim` as for the connector (a claimant holding a claim on a network cannot insert a second; deleting an absent claim is not an error).
+   - `connectorClaims` returns the claims of the tunnel ordered by network then claimant, restricted to one network when `network` is not `""`, and an empty non-nil slice when there are none; `insertClaim` and `deleteClaim` as for the connector, except that their errors name the tunnel, the network and the claimant (`cloudflare: claim of <claimant> on <network> for tunnel <id>: %w`), since `TestCsClaims` looks for the claimant in the duplicate-claim error and SQLite's UNIQUE message does not carry it (a claimant holding a claim on a network cannot insert a second; deleting an absent claim is not an error).
 5. `connector_deps.go`: per Contracts "Names" and "Agent dependencies".
    - Constants `tokenDir = "/var/lib/darkpanel/agent/cloudflare-tokens"` and `tokenMount = "/run/darkpanel/token"`, each with a trailing `//nolint:gosec // G101: a directory path, not a credential` (and `a mount path, not a credential`) because gosec reads the word "token" in a constant name as a credential. A third constant `absentSocket = "/nonexistent/darkpanel/docker.sock"` with a comment that test binaries that link the module open a runtime that may call the Engine and must never reach the host's daemon, so a path that never exists makes every call fail as a missing socket.
    - `tunnelIDPattern` (`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`) and `networkNamePattern` (`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`), package variables.
@@ -2722,6 +2727,7 @@ This task discharges three of the five cases of register row 296 (the shadow-plu
 
 - The shadow-plugin check refuses a system plugin directory that exists but is not root-owned or is writable by its group or others, exactly as `composeSystemPath` judges `pluginDir`. A directory that does not exist is accepted: it holds nothing the Docker CLI could run. The ancestors of the three directories stay unchecked, as the ancestors of `pluginDir` do.
 - A network or volume effect document records each label value as `sha256:<64 hex digits>` of the value, keeping the keys. The documents are only compared (never read back to recreate an object), and the digest keeps a changed value a changed document while a secret placed in a label never reaches the journal.
+- Effects journaled before this change (raw label values in their states) are not supported: no Darkpanel version has been released (see Assumptions), so no such journal exists outside development hosts. Add no legacy-form comparison.
 - The `at < 0` branch of the build-step order check cannot be reached through `m4lWorkflow` (the step text always comes from the job it is searched in), so it is made testable by moving the comparison into `m4lStepBefore`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -4478,12 +4484,12 @@ func TestNaApplyJoinsAndClaims(t *testing.T) {
 		t.Errorf("claim post-state %s, want %s", claim.Post.State, want)
 	}
 
-	if err := h.cf().networkAttach().Handler.Verify(ctx, h.env("c1"), naInput(), mustJSON(t, out)); err != nil {
+	if err := h.cf().networkAttach().Handler.Verify(ctx, h.env("c1"), naInput(), naJSON(t, out)); err != nil {
 		t.Errorf("Verify: %v", err)
 	}
 }
 
-func mustJSON(t *testing.T, v any) json.RawMessage {
+func naJSON(t *testing.T, v any) json.RawMessage {
 	t.Helper()
 	raw, err := json.Marshal(v)
 	if err != nil {
@@ -4642,7 +4648,7 @@ func TestNaVerify(t *testing.T) {
 				t.Fatal(err)
 			}
 			tc.damage(t, h)
-			err = h.cf().networkAttach().Handler.Verify(ctx, h.env("c1"), naInput(), mustJSON(t, out))
+			err = h.cf().networkAttach().Handler.Verify(ctx, h.env("c1"), naInput(), naJSON(t, out))
 			if tc.fails != (err != nil) {
 				t.Errorf("Verify error %v, want failure %t", err, tc.fails)
 			}
@@ -4827,7 +4833,7 @@ Create `connector_network.go` with the behaviour of the decisions above, structu
 1. `func (c cf) networkAttach() core.ActionDef` returns `core.DefineMutating[NetworkAttachInput, NetworkAttachment]` with `Name: ID + ".network.attach"`, a one-sentence `Summary`, `Version: 1`, `Class: core.ClassCompensable`, `Side: core.SideAgent`, `LockKeys: []string{"cloudflare"}` and a `networkAttachHandler` that embeds `networkClaims{c}`.
 2. A check function, used by Plan and Apply, that makes every decision and changes nothing, every failure Definite except a database or Engine read failure (those are returned wrapped, an unreachable Engine through `engineCoded`, and are Definite only as npm's `networkEngine` makes them, since the Engine changed nothing). It returns the network, the connector container, the connector's endpoint on the network (`NetworkSettings.Networks[network.Name]`, nil when absent), the target's id, the network's claims, and whether to connect, whether to add a claim and the claim's `Preexisting`.
 3. The supported-target rule as a small function of the network and the optional target container, returning the `cloudflare.unsupported_target` error with the detail `connect the container to a user-defined network`.
-4. Plan, Apply and Verify as the decisions describe. Apply journals through a helper modelled on npm's `run` (intend, call, skip on a refusal, otherwise made with the observed state), using the effect shapes in the decisions; the endpoint effect's `Before` is the state `Observe` reports before the connect.
+4. Plan, Apply and Verify as the decisions describe. Apply journals through Task 6's `c.journal` (Contracts "Agent effects"; write no second journaling helper), using the effect shapes in the decisions; the endpoint effect's `Before` is the state `Observe` reports before the connect.
 5. `type claimDoc` and `claimDocument` with the JSON of the decisions; `networkClaims` with `Observe` and `Inverse`; the identity helpers that split `<tunnel>|<network>|<claimant>` (at most three parts, so a claimant may hold `|`) and `<tunnel>|<network>`.
 6. Do not register the action in `Manifest()` (Task 14 does). No message, diff line or effect carries a token; this action never reads one.
 
@@ -6220,7 +6226,7 @@ git commit -m "feat(web): expose a container via a tunnel"
 
 - [ ] **Step 1: Write the failing test**
 
-Create `internal/modules/cloudflare/connector_stop_test.go`. The tests start connectors by applying `cloudflare.connector.run` on the test host (Contracts: it pulls the pinned image when the Engine lacks it, and writes the token file, the row and the container); if Task 3's in-memory Engine needs the image registered first, register it inside `cpDeploy` with Task 3's own helper and change nothing else. They hold claims by inserting rows with `insertClaim`, drop a container from the Engine with the `RemoveContainer` method of `h.cf().a.docker`, and read the host with `loadConnector`, `InspectContainer` and the in-memory file store. The tests do not look at the effects journal: whatever `removeConnector` journals is Task 6's contract.
+Create `internal/modules/cloudflare/connector_stop_test.go`. The tests start connectors by applying `cloudflare.connector.run` on the test host (Contracts: it pulls the pinned image when the Engine lacks it, and writes the token file, the row and the container); if Task 3's in-memory Engine needs the image registered first, register it inside `cpDeploy` with Task 3's own helper and change nothing else. They hold claims by inserting rows with `insertClaim`, build every `cf` with `cpCF(h)` (Task 3's `h.cf()` leaves `agentDeps.readFile` nil, and Task 6's Apply observes the token file through it), drop a container from the Engine with the `RemoveContainer` method of `cpCF(h).a.docker`, and read the host with `loadConnector`, `InspectContainer` and the in-memory file store. The tests do not look at the effects journal: whatever `removeConnector` journals is Task 6's contract.
 
 ```go
 package cloudflare
@@ -6230,6 +6236,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"io/fs"
+	"path"
 	"slices"
 	"strings"
 	"testing"
@@ -6261,11 +6269,25 @@ func cpJSON(t *testing.T, v any) json.RawMessage {
 	return raw
 }
 
+// cpCF is the host's cf with agentDeps.readFile serving the files the host's FileWriter holds: connector.run observes
+// its token file through readFile, which h.cf() leaves nil.
+func cpCF(h *agHost) cf {
+	c := h.cf()
+	c.a.readFile = func(name string) ([]byte, error) {
+		f, ok := h.files.file(path.Dir(name), path.Base(name))
+		if !ok {
+			return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
+		}
+		return f.Data, nil
+	}
+	return c
+}
+
 // cpDeploy runs cloudflare.connector.run for tunnel on the host and answers the connector it started.
 func cpDeploy(t *testing.T, h *agHost, tunnel string) Connector {
 	t.Helper()
 	in := cpJSON(t, ConnectorRunInput{Tunnel: tunnel, Token: agToken(tunnel)})
-	raw, err := h.cf().connectorRun().Handler.Apply(context.Background(), h.env("run-"+tunnel[:8]), in)
+	raw, err := cpCF(h).connectorRun().Handler.Apply(context.Background(), h.env("run-"+tunnel[:8]), in)
 	if err != nil {
 		t.Fatalf("connector.run for %s: %v", tunnel, err)
 	}
@@ -6291,7 +6313,7 @@ func cpClaim(t *testing.T, h *agHost, tunnel, network, claimant string) {
 // cpDropContainer removes the connector's container from the Engine and leaves its record and file.
 func cpDropContainer(t *testing.T, h *agHost, c Connector) {
 	t.Helper()
-	err := h.cf().a.docker.RemoveContainer(context.Background(), c.ContainerID, dockerapi.RemoveContainerOptions{Force: true})
+	err := cpCF(h).a.docker.RemoveContainer(context.Background(), c.ContainerID, dockerapi.RemoveContainerOptions{Force: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -6308,7 +6330,7 @@ func cpRowStored(t *testing.T, h *agHost, tunnel string) bool {
 
 func cpEngineHas(t *testing.T, h *agHost, tunnel string) bool {
 	t.Helper()
-	_, err := h.cf().a.docker.InspectContainer(context.Background(), connectorName(tunnel))
+	_, err := cpCF(h).a.docker.InspectContainer(context.Background(), connectorName(tunnel))
 	switch {
 	case err == nil:
 		return true
@@ -6326,12 +6348,12 @@ func cpFileStored(h *agHost, tunnel string) bool {
 
 func cpPlan(t *testing.T, h *agHost, tunnel string) (core.PlanOutcome, error) {
 	t.Helper()
-	return h.cf().connectorStop().Handler.Plan(context.Background(), h.env(""), cpJSON(t, ConnectorStopInput{Tunnel: tunnel}))
+	return cpCF(h).connectorStop().Handler.Plan(context.Background(), h.env(""), cpJSON(t, ConnectorStopInput{Tunnel: tunnel}))
 }
 
 func cpApply(t *testing.T, h *agHost, change, tunnel string) (ConnectorStopped, error) {
 	t.Helper()
-	raw, err := h.cf().connectorStop().Handler.Apply(context.Background(), h.env(change), cpJSON(t, ConnectorStopInput{Tunnel: tunnel}))
+	raw, err := cpCF(h).connectorStop().Handler.Apply(context.Background(), h.env(change), cpJSON(t, ConnectorStopInput{Tunnel: tunnel}))
 	if err != nil {
 		return ConnectorStopped{}, err
 	}
@@ -6368,7 +6390,7 @@ func cpDiff(c Connector, tunnel string) []core.DiffLine {
 // removes, with no undo of its own.
 func TestCpDefinition(t *testing.T) {
 	h := newAGHost(t)
-	def := h.cf().connectorStop()
+	def := cpCF(h).connectorStop()
 	s := def.Spec
 	if s.Name != "cloudflare.connector.stop" || s.Version != 1 || s.Summary == "" || s.Class != core.ClassCompensable || s.Side != core.SideAgent ||
 		s.CompensatedBy != "cloudflare.connector.run" || !s.Converges || !slices.Equal(s.LockKeys, []string{"cloudflare"}) {
@@ -6377,7 +6399,7 @@ func TestCpDefinition(t *testing.T) {
 	if def.Handler.Inverse != nil {
 		t.Error("the stop has an inverse, want CompensatedBy as its one compensation")
 	}
-	if _, err := core.NewRegistry(cpModule{[]core.ActionDef{h.cf().connectorRun(), def}}); err != nil {
+	if _, err := core.NewRegistry(cpModule{[]core.ActionDef{cpCF(h).connectorRun(), def}}); err != nil {
 		t.Errorf("the registry refuses the action: %v", err)
 	}
 	v := schema.NewValidator()
@@ -6614,7 +6636,7 @@ func TestCpVerify(t *testing.T) {
 	verify := func(t *testing.T, h *agHost) error {
 		t.Helper()
 		in := cpJSON(t, ConnectorStopInput{Tunnel: cpTunnel})
-		return h.cf().connectorStop().Handler.Verify(ctx, h.env("stop1"), in, cpJSON(t, ConnectorStopped{Tunnel: cpTunnel, Removed: true}))
+		return cpCF(h).connectorStop().Handler.Verify(ctx, h.env("stop1"), in, cpJSON(t, ConnectorStopped{Tunnel: cpTunnel, Removed: true}))
 	}
 
 	t.Run("a stopped connector", func(t *testing.T) {
@@ -6661,7 +6683,7 @@ mkdir -p /root/.cache/w6b-tmp/12 && export TMPDIR=/root/.cache/w6b-tmp/12 GOTOOL
 timeout 600 go test -count=1 -run 'TestCp' ./internal/modules/cloudflare/
 ```
 
-Expected: FAIL to build, with `h.cf().connectorStop undefined (type cf has no field or method connectorStop)`. Quote that output in the report.
+Expected: FAIL to build, with `cpCF(h).connectorStop undefined (type cf has no field or method connectorStop)`. Quote that output in the report.
 
 - [ ] **Step 3: Implement**
 
@@ -7668,9 +7690,11 @@ func TestRegActions(t *testing.T) {
 		if (h.Inverse != nil) != tt.undo || (h.Recover != nil) != tt.recover {
 			t.Errorf("%s: undo handler %t recovery handler %t, want %t %t", tt.name, h.Inverse != nil, h.Recover != nil, tt.undo, tt.recover)
 		}
-		// account.disconnect journals no effect, and an Observer is required only of an action that journals; a
-		// composite is run by the engine and has none.
-		journals := tt.class != core.ClassComposite && tt.name != "cloudflare.account.disconnect"
+		// account.disconnect and connector.stop journal no effect (the stop is compensated by connector.run, not
+		// undone), and an Observer is required only of an action that journals; a composite is run by the engine and
+		// has none.
+		journals := tt.class != core.ClassComposite && tt.name != "cloudflare.account.disconnect" &&
+			tt.name != "cloudflare.connector.stop"
 		if tt.class != core.ClassRead && (h.Observe != nil) != journals {
 			t.Errorf("%s: Observe handler %t, want %t", tt.name, h.Observe != nil, journals)
 		}
