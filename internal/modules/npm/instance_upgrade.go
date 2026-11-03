@@ -35,6 +35,11 @@ const (
 	instanceUpgradeResultMax = 200
 )
 
+// instanceUpgradeArchiveMax is the most bytes an upgrade reads for the archive of one volume. The archive is held in
+// memory whole, because the managed file writer takes a byte slice; NPM's data apart from /data/logs is a few MB.
+// It is a variable so that a test can lower it.
+var instanceUpgradeArchiveMax int64 = 256 << 20
+
 // instanceUpgradeVolumes are the archived volumes in archive order, each with the path its archive is read from and the
 // directory it is copied back into: the archive of /data holds the entries under data/.
 var instanceUpgradeVolumes = []struct{ volume, from, to string }{
@@ -296,20 +301,26 @@ func (h instanceUpgradeHandler) archive(ctx context.Context, env core.Env, conta
 	if err != nil {
 		return "", fmt.Errorf("npm: copy %s from container %s: %w", path, containerName, engineCoded(err))
 	}
-	data, err := io.ReadAll(rc)
+	data, err := io.ReadAll(io.LimitReader(rc, instanceUpgradeArchiveMax+1))
 	_ = rc.Close()
 	if err != nil {
 		return "", fmt.Errorf("npm: copy %s from container %s: %w", path, containerName, err)
 	}
+	if int64(len(data)) > instanceUpgradeArchiveMax {
+		return "", fmt.Errorf("npm: the archive of %s in container %s is larger than %d MiB, the most an upgrade archives; remove old logs from /data/logs and upgrade again",
+			path, containerName, instanceUpgradeArchiveMax>>20)
+	}
 	if err := env.Files.WriteManaged(ctx, ID, backupDir, name, data, 0o600, 0, 0); err != nil {
 		return "", fmt.Errorf("npm: write the archive %s: %w", name, err)
 	}
+	// Hashing here makes this the last use of data, so the collector may free it while the file is read back and only
+	// one full copy of the archive is held at a time.
+	want := sha256.Sum256(data)
 	back, err := h.n.d.readFile(backupDir + "/" + name)
 	if err != nil {
 		return "", fmt.Errorf("npm: read the archive %s back: %w", name, err)
 	}
-	want, got := sha256.Sum256(data), sha256.Sum256(back)
-	if want != got {
+	if got := sha256.Sum256(back); want != got {
 		return "", fmt.Errorf("npm: the archive %s does not read back as written", name)
 	}
 	return hex.EncodeToString(want[:]), nil

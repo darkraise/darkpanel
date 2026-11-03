@@ -790,6 +790,36 @@ func TestUpRollbackFailureIsRecorded(t *testing.T) {
 	}
 }
 
+// TestUpRefusesAnArchiveAboveTheLimit: an archive larger than instanceUpgradeArchiveMax fails the upgrade before
+// anything is written, and the rollback starts the original container again.
+func TestUpRefusesAnArchiveAboveTheLimit(t *testing.T) {
+	s := upNewSetup(t, upFromImage, true)
+	limit := instanceUpgradeArchiveMax
+	instanceUpgradeArchiveMax = int64(len(upTars["/data"]) - 1)
+	t.Cleanup(func() { instanceUpgradeArchiveMax = limit })
+	var writes []string
+	s.files.trace = func(call string) { writes = append(writes, call) }
+	_, err := s.apply()
+	if err == nil || core.IsDefinite(err) || !strings.Contains(err.Error(), "larger than") {
+		t.Fatalf("error %v (definite %v), want an error that is not definite and says the archive is too large", err, core.IsDefinite(err))
+	}
+	if len(writes) != 0 {
+		t.Errorf("managed writes %v, want none: the archive is refused before it is written", writes)
+	}
+	if got := s.phase(); got != "rolled_back" {
+		t.Errorf("phase %q, want rolled_back", got)
+	}
+	c, ok := s.h.docker.container(s.inst.ContainerID)
+	if !ok || !c.State.Running || s.dock.counts["StopContainer"] != 1 || s.dock.counts["StartContainer"] != 1 ||
+		s.dock.counts["RemoveContainer"] != 0 || s.dock.counts["CreateContainer"] != 0 {
+		t.Errorf("original present %v, running %v, calls %v; want the original stopped once and started again, nothing removed or created",
+			ok, c.State.Running, s.dock.counts)
+	}
+	if effects := s.effects(); len(effects) != 1 || effects[0].State != core.EffectSkipped {
+		t.Errorf("journal %+v, want one skipped effect", effects)
+	}
+}
+
 // TestUpRollbackVerifiesTheArchivesBeforeRemovingAnything: an archive that no longer matches its checksum stops the
 // restore before the new container or the volumes are touched.
 func TestUpRollbackVerifiesTheArchivesBeforeRemovingAnything(t *testing.T) {
