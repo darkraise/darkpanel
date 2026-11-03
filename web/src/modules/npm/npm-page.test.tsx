@@ -1,10 +1,10 @@
-import { screen, waitFor, within } from "@testing-library/react"
+import { act, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { Route, Routes } from "react-router"
+import { Link, Route, Routes, useParams } from "react-router"
 import { expect, test } from "vitest"
 import { axe } from "vitest-axe"
 import { fwDocker } from "@/modules/firewall/fixtures"
-import { renderWithProviders, stubFetch, type StubHandler } from "@/test/utils"
+import { renderWithProviders, stubFetch, type StubHandler, type StubResponse } from "@/test/utils"
 import { npAccessList, npCertificate, npInstance, npProxyHost } from "./fixtures"
 import NpmRoutes from "./routes"
 import type { InstanceStatus } from "./types"
@@ -87,4 +87,41 @@ test("each list tab reads its list only when opened", async () => {
     await screen.findByRole("table", { name: table })
     await waitFor(() => expect(reads(action)).toBe(1))
   }
+})
+
+function PgHostRoutes() {
+  const { hostId = "" } = useParams()
+  return <NpmRoutes hostId={hostId} />
+}
+
+test("drops an admin password still being revealed for the previous host", async () => {
+  let answer: (response: StubResponse) => void = () => undefined
+  stubFetch({
+    [PG_STATUS]: { body: { output: pgStatus() } },
+    "POST /api/v1/hosts/h2/actions/npm.instance.status/v1/read": { body: { output: pgStatus({ adminEmail: "other@example.com" }) } },
+    "POST /api/v1/hosts/h1/actions/npm.admin.reveal-password/v1/reveal": () =>
+      new Promise<StubResponse>((resolve) => {
+        answer = resolve
+      }),
+  })
+  renderWithProviders(
+    <>
+      <Link to="/hosts/h2/npm">Other host</Link>
+      <Routes>
+        <Route path="/hosts/:hostId/npm/*" element={<PgHostRoutes />} />
+      </Routes>
+    </>,
+    { path: "/hosts/h1/npm" },
+  )
+  const user = userEvent.setup()
+  await user.click(await screen.findByRole("button", { name: "Reveal admin password" }))
+  await user.click(screen.getByRole("link", { name: "Other host" }))
+  expect((await screen.findByText("other@example.com")).tagName).toBe("DD")
+  await act(async () => {
+    answer({ body: { value: { email: "admin@example.com", password: "s3cret-Pa55" } } })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  })
+  expect(screen.queryByRole("dialog")).toBeNull()
+  expect(screen.queryByText("s3cret-Pa55")).toBeNull()
+  expect(screen.getByRole("button", { name: "Reveal admin password" }).hasAttribute("disabled")).toBe(false)
 })
