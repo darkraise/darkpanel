@@ -1,7 +1,10 @@
 import { useQuery } from "@tanstack/react-query"
 import { Alert, AlertDescription, AlertTitle } from "darkraise-ui/components/alert"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "darkraise-ui/components/tabs"
+import { AccessListsTab } from "./access-lists-tab"
+import { CertificatesTab } from "./certificates-tab"
 import { InstancePanel } from "./instance-panel"
+import { ProxyHostsTab } from "./proxy-hosts-tab"
 import { readInstanceStatus } from "./status"
 import { npmKey } from "./types"
 
@@ -22,9 +25,21 @@ export function NpmPage({ hostId }: { hostId: string }) {
       <Tabs defaultValue="instance">
         <TabsList aria-label="Nginx Proxy Manager">
           <TabsTrigger value="instance">Instance</TabsTrigger>
+          <TabsTrigger value="proxyhosts">Proxy hosts</TabsTrigger>
+          <TabsTrigger value="accesslists">Access lists</TabsTrigger>
+          <TabsTrigger value="certificates">Certificates</TabsTrigger>
         </TabsList>
         <TabsContent value="instance">
           <InstancePanel hostId={hostId} />
+        </TabsContent>
+        <TabsContent value="proxyhosts">
+          <ProxyHostsTab hostId={hostId} />
+        </TabsContent>
+        <TabsContent value="accesslists">
+          <AccessListsTab hostId={hostId} />
+        </TabsContent>
+        <TabsContent value="certificates">
+          <CertificatesTab hostId={hostId} />
         </TabsContent>
       </Tabs>
     </div>
