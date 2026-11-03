@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"reflect"
 	"regexp"
 	"slices"
@@ -401,6 +402,13 @@ func TestCxExposeContainerOutput(t *testing.T) {
 		}
 		if _, err := def.Handler.Output(context.Background(), core.Env{}, in, partial); err == nil || !strings.Contains(err.Error(), missing) {
 			t.Errorf("output without the %s step: %v, want an error naming it", missing, err)
+		}
+	}
+	for _, noID := range []string{"proxy", "cert"} {
+		partial := maps.Clone(steps)
+		partial[noID] = json.RawMessage(`{}`)
+		if _, err := def.Handler.Output(context.Background(), core.Env{}, in, partial); err == nil || !strings.Contains(err.Error(), noID) {
+			t.Errorf("output with a %s step that holds no id: %v, want an error naming it", noID, err)
 		}
 	}
 }

@@ -64,6 +64,9 @@ func exposeStepID(steps map[string]json.RawMessage, id string) (int, error) {
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return 0, fmt.Errorf("npm: the exposure's %s output: %w", id, err)
 	}
+	if out.ID < 1 {
+		return 0, errors.New("npm: the exposure's " + id + " output holds no id")
+	}
 	return out.ID, nil
 }
 
