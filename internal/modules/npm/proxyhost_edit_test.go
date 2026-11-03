@@ -713,7 +713,7 @@ func TestPuVerifyChecksTheUpdatedHost(t *testing.T) {
 	next := puInput(func(in *ProxyHostInput) { in.ForwardPort = 9090 })
 	raw := puJSON(t, ProxyHostUpdateInput{ID: host.ID, ProxyHostInput: next})
 
-	if err := def.Handler.Verify(ctx, h.env("c1"), raw, nil); err == nil {
+	if err := def.Handler.Verify(ctx, h.env("c1"), raw, json.RawMessage("null")); err == nil {
 		t.Error("verify before the update succeeded, want an error: the host still forwards to port 8080")
 	}
 	out, err := def.Handler.Apply(ctx, h.env("c1"), raw)
@@ -723,7 +723,7 @@ func TestPuVerifyChecksTheUpdatedHost(t *testing.T) {
 	if err := def.Handler.Verify(ctx, h.env("c1"), raw, out); err != nil {
 		t.Errorf("verify after the update: %v", err)
 	}
-	if err := def.Handler.Verify(ctx, h.env("c1"), raw, nil); err != nil {
+	if err := def.Handler.Verify(ctx, h.env("c1"), raw, json.RawMessage("null")); err != nil {
 		t.Errorf("verify without an output, as recovery calls it: %v", err)
 	}
 	api, err := h.nm().d.api(ctx, h.env(""))
