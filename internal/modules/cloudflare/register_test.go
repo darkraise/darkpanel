@@ -211,24 +211,31 @@ func TestRegSecretFields(t *testing.T) {
 	}
 }
 
-// TestRegManifest: the module is enabled by default, owns its controller
-// tables through its migrations and no agent state, declares no resource
-// (controller modules have none), and the registry accepts the whole
-// manifest.
+// TestRegManifest: the module is enabled by default, owns its controller and
+// agent tables through its migrations, owns the token directory of the
+// connectors, declares no resource or preflight check, and the registry
+// accepts the whole manifest.
 func TestRegManifest(t *testing.T) {
 	m := Module().Manifest()
 	if m.ID != ID || m.Version != 1 || !m.DefaultEnabled {
 		t.Errorf("manifest id %q version %d default-enabled %t, want %q 1 true", m.ID, m.Version, m.DefaultEnabled, ID)
 	}
-	if len(m.Resources) != 0 || len(m.Preflight) != 0 || len(m.OwnedPaths) != 0 {
-		t.Errorf("manifest declares %d resources, %d preflight checks and %d owned paths, want none", len(m.Resources), len(m.Preflight), len(m.OwnedPaths))
+	if len(m.Resources) != 0 || len(m.Preflight) != 0 {
+		t.Errorf("manifest declares %d resources and %d preflight checks, want none", len(m.Resources), len(m.Preflight))
+	}
+	if len(m.OwnedPaths) != 1 || m.OwnedPaths[0].Path != tokenDir || m.OwnedPaths[0].Kind != core.OwnedManagedDir ||
+		m.OwnedPaths[0].Pattern != `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.token$` {
+		t.Errorf("owned paths %+v, want the token directory as a managed directory of <uuid>.token files", m.OwnedPaths)
 	}
 	mig := m.Migrations[core.SideController]
-	if len(m.Migrations) != 1 || mig == nil {
-		t.Fatalf("migrations %v, want the controller's only", m.Migrations)
+	if len(m.Migrations) != 2 || mig == nil || m.Migrations[core.SideAgent] == nil {
+		t.Fatalf("migrations %v, want the controller's and the agent's", m.Migrations)
 	}
 	if b, err := fs.ReadFile(mig, "0001_cloudflare.sql"); err != nil || !strings.Contains(string(b), "cloudflare_hostnames") {
 		t.Errorf("0001_cloudflare.sql = %q, %v, want the migration that creates cloudflare_hostnames", b, err)
+	}
+	if b, err := fs.ReadFile(m.Migrations[core.SideAgent], "0001_cloudflare.sql"); err != nil || !strings.Contains(string(b), "cloudflare_connectors") {
+		t.Errorf("agent 0001_cloudflare.sql = %q, %v, want the migration that creates cloudflare_connectors", b, err)
 	}
 	if _, err := core.NewRegistry(Module()); err != nil {
 		t.Errorf("core.NewRegistry: %v", err)

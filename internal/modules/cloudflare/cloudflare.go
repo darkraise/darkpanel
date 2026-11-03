@@ -17,16 +17,22 @@ type module struct{ c cf }
 func Module() core.Module { return module{c: productionCF()} }
 
 // Manifest declares the module: its controller-side account, tunnel and
-// hostname actions and the controller migrations that hold the account,
-// tunnel and hostname rows. Every module is enabled by default; preflight
-// decides whether it is available on a host (R9).
+// hostname actions, the controller migrations that hold the account, tunnel
+// and hostname rows, the token directory it owns on the host and the agent
+// migrations that hold its connectors and their network claims. Every module
+// is enabled by default; preflight decides whether it is available on a host
+// (R9).
 func (m module) Manifest() core.Manifest {
 	return core.Manifest{
 		ID:             ID,
 		Version:        1,
 		DefaultEnabled: true,
 		Actions:        m.c.actions(),
-		Migrations:     map[core.Side]fs.FS{core.SideController: controllerMigrations()},
+		OwnedPaths:     ownedPaths(),
+		Migrations: map[core.Side]fs.FS{
+			core.SideController: controllerMigrations(),
+			core.SideAgent:      agentMigrations(),
+		},
 	}
 }
 

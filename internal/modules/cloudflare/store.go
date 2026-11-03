@@ -13,7 +13,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/controller/cloud"
 )
 
-//go:embed migrations/controller/*.sql
+//go:embed migrations/controller/*.sql migrations/agent/*.sql
 var storeMigrationsFS embed.FS
 
 // controllerMigrations returns the module's controller-side migrations, the

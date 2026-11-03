@@ -18,8 +18,11 @@ import (
 	"github.com/darkraise/darkpanel/internal/modules/cloudflare/ingress"
 )
 
-// cf carries the module's provider dependencies; tests replace them.
-type cf struct{ d deps }
+// cf carries the module's provider and agent dependencies; tests replace them.
+type cf struct {
+	d deps
+	a agentDeps
+}
 
 // deps say where and how the module reaches Cloudflare.
 type deps struct {
@@ -30,7 +33,7 @@ type deps struct {
 }
 
 func productionCF() cf {
-	return cf{d: deps{baseURL: "https://api.cloudflare.com/client/v4"}}
+	return cf{d: deps{baseURL: "https://api.cloudflare.com/client/v4"}, a: productionAgentDeps()}
 }
 
 // The page sizes the list calls ask for. Spec 7.1 records zones as taking 5
