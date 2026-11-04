@@ -32,7 +32,7 @@ func newNA(t *testing.T) *agHost {
 	for _, n := range []dockerapi.Network{agNetwork("web", "bridge"), agNetwork("other", "bridge"), agNetwork("bridge", "bridge"), agNetwork("lan", "macvlan")} {
 		h.docker.putNetwork(n)
 	}
-	conn := agContainer(connectorName(naTunnel), func(c *dockerapi.ContainerJSON) { c.State.Status, c.State.Running = "running", true })
+	conn := agContainer(connectorName(naTunnel), agRunning, agLabelled(map[string]string{core.LabelModule: ID}))
 	h.docker.putContainer(conn)
 	h.docker.putContainer(agContainer("app", agOnNetwork("web", "172.20.0.5")))
 	ctx := context.Background()
@@ -502,11 +502,10 @@ func TestNaRefusesAnotherAddressFamily(t *testing.T) {
 	}
 }
 
-// TestNaAddressOfADynamicEndpoint: only a fixed address conflicts. A connector on the network at an address the Engine
-// assigned is claimed with no Engine call whatever address the input asks for, and the plan shows no address.
+// TestNaAddressOfADynamicEndpoint: a connector on the network at the address the Engine assigned is claimed with no Engine call when the input asks for that same address, and the plan shows no address.
 func TestNaAddressOfADynamicEndpoint(t *testing.T) {
 	ctx := context.Background()
-	for _, addr := range []string{"172.20.0.9", "172.20.0.10", "fd00::10"} {
+	for _, addr := range []string{"172.20.0.9"} {
 		t.Run(addr, func(t *testing.T) {
 			h := newNA(t)
 			c, err := h.docker.InspectContainer(ctx, connectorName(naTunnel))
@@ -847,5 +846,102 @@ func TestNaObserveCreations(t *testing.T) {
 	want, _ := claimDocument(claimRow{TunnelID: naTunnel, Network: "web", Claimant: naClaimant, ChangeID: "c1"})
 	if err != nil || obs.Matches != 1 || obs.Resource != "cloudflare.claim:"+id || string(obs.Current.State) != string(want) || !strings.Contains(string(obs.Current.State), `"changeId":"c1"`) {
 		t.Errorf("after the attach: matches %d resource %q state %s (%v)", obs.Matches, obs.Resource, obs.Current.State, err)
+	}
+}
+
+// alRelabel gives the container of the tunnel's connector the labels.
+func alRelabel(t *testing.T, h *agHost, tunnel string, labels map[string]string) {
+	t.Helper()
+	c, err := h.docker.InspectContainer(context.Background(), connectorName(tunnel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Config.Labels = labels
+	h.docker.putContainer(c)
+}
+
+// alForeign are the connector containers the module did not label, and what their refusal says.
+var alForeign = []struct {
+	name   string
+	labels map[string]string
+	detail string
+}{
+	{"an unlabelled container", nil, "is not labelled darkpanel.module=cloudflare"},
+	{"a container of another module", map[string]string{core.LabelModule: "npm"}, "belongs to module npm"},
+}
+
+// TestAlAttachRefusesAForeignConnector: a container of the connector's name that does not carry the label
+// darkpanel.module=cloudflare is refused with docker.owned at plan and at apply, and nothing is connected or claimed.
+func TestAlAttachRefusesAForeignConnector(t *testing.T) {
+	ctx := context.Background()
+	for _, foreign := range alForeign {
+		t.Run(foreign.name, func(t *testing.T) {
+			h := newNA(t)
+			alRelabel(t, h, naTunnel, foreign.labels)
+			mark := len(h.docker.calls())
+			_, err := h.cf().networkAttach().Handler.Plan(ctx, h.env(""), naInput())
+			coded := naRefused(t, err, errcode.DockerOwned)
+			if !strings.Contains(coded.Detail, foreign.detail) || !strings.Contains(coded.Detail, connectorName(naTunnel)) {
+				t.Errorf("plan detail %q, want the container's name and %q", coded.Detail, foreign.detail)
+			}
+			_, err = h.cf().networkAttach().Handler.Apply(ctx, h.env("c1"), naInput())
+			_ = naRefused(t, err, errcode.DockerOwned)
+			if got := naMutated(h, mark); len(got) != 0 || len(naClaims(t, h)) != 0 || naOnWeb(t, h) {
+				t.Errorf("the refusal changed the host: calls %v, claims %+v, on web %t", got, naClaims(t, h), naOnWeb(t, h))
+			}
+		})
+	}
+}
+
+// TestAlAttachAddressOfAnExistingEndpoint: a connector already on the network at addresses the Engine assigned is
+// refused any other address with invalid_input at /address, whichever family, and keeps its endpoint and claims; it is
+// claimed with no Engine call when the input asks for one of its addresses.
+func TestAlAttachAddressOfAnExistingEndpoint(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name   string
+		v6     string // the IPv6 address the Engine assigned, "" for none
+		ask    string
+		refuse bool
+	}{
+		{"another IPv4 address", "", "172.20.0.10", true},
+		{"an IPv6 address when only IPv4 is assigned", "", "fd00::10", true},
+		{"another IPv6 address", "fd00::9", "fd00::10", true},
+		{"the assigned IPv6 address", "fd00::9", "fd00::9", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newNA(t)
+			c, err := h.docker.InspectContainer(ctx, connectorName(naTunnel))
+			if err != nil {
+				t.Fatal(err)
+			}
+			agOnNetwork("web", "172.20.0.9")(&c)
+			if tc.v6 != "" {
+				c.NetworkSettings.Networks["web"].GlobalIPv6Address = netip.MustParseAddr(tc.v6)
+			}
+			h.docker.putContainer(c)
+			ask := func(in *NetworkAttachInput) { in.Address = netip.MustParseAddr(tc.ask) }
+			mark := len(h.docker.calls())
+			_, planErr := h.cf().networkAttach().Handler.Plan(ctx, h.env(""), naInput(ask))
+			_, applyErr := naApply(t, h, "c1", ask)
+			if !tc.refuse {
+				if planErr != nil || applyErr != nil {
+					t.Fatalf("plan error %v, apply error %v; want both to accept", planErr, applyErr)
+				}
+				if got := naMutated(h, mark); len(got) != 0 || len(naClaims(t, h)) != 1 {
+					t.Errorf("calls %v, claims %+v; want no Engine call and one claim", got, naClaims(t, h))
+				}
+				return
+			}
+			for stage, err := range map[string]error{"plan": planErr, "apply": applyErr} {
+				coded := naRefused(t, err, errcode.InvalidInput)
+				if len(coded.Fields) != 1 || coded.Fields[0].Path != "/address" {
+					t.Errorf("%s fields %+v, want one at /address", stage, coded.Fields)
+				}
+			}
+			if got := naMutated(h, mark); len(got) != 0 || len(naClaims(t, h)) != 0 {
+				t.Errorf("the refusal changed the host: calls %v, claims %+v", got, naClaims(t, h))
+			}
+		})
 	}
 }

@@ -122,17 +122,19 @@ func attachSupported(network dockerapi.Network, target *dockerapi.ContainerJSON)
 	return nil
 }
 
-// attachFixedOf is the fixed addresses of the endpoint, IPv4 first; an address the Engine assigned is not fixed.
-func attachFixedOf(ep *dockerapi.EndpointSettings) []netip.Addr {
-	var fixed []netip.Addr
+// attachAddrsOf is every address of the endpoint, assigned by the Engine or fixed, without duplicates.
+func attachAddrsOf(ep *dockerapi.EndpointSettings) []netip.Addr {
+	candidates := []netip.Addr{ep.IPAddress, ep.GlobalIPv6Address}
 	if ep.IPAMConfig != nil {
-		for _, a := range []netip.Addr{ep.IPAMConfig.IPv4Address, ep.IPAMConfig.IPv6Address} {
-			if a.IsValid() {
-				fixed = append(fixed, a)
-			}
+		candidates = append(candidates, ep.IPAMConfig.IPv4Address, ep.IPAMConfig.IPv6Address)
+	}
+	var addrs []netip.Addr
+	for _, a := range candidates {
+		if a.IsValid() && !slices.Contains(addrs, a) {
+			addrs = append(addrs, a)
 		}
 	}
-	return fixed
+	return addrs
 }
 
 // attachHashClaim is a claim as a plan's state hash covers it.
@@ -216,6 +218,9 @@ func (h networkAttachHandler) check(ctx context.Context, env core.Env, in Networ
 	if err != nil {
 		return networkAttachCheck{}, attachEngine("inspect container "+name, err)
 	}
+	if err := foreignConnector(c, name); err != nil {
+		return networkAttachCheck{}, err
+	}
 	network, err := docker.InspectNetwork(ctx, in.Network)
 	if dockerapi.IsNotFound(err) {
 		return networkAttachCheck{}, core.Definite(errcode.New(errcode.NotFound, "network "+in.Network+" does not exist"))
@@ -248,8 +253,8 @@ func (h networkAttachHandler) check(ctx context.Context, env core.Env, in Networ
 	}
 	ep := c.NetworkSettings.Networks[network.Name]
 	if in.Address.IsValid() && ep != nil {
-		if fixed := attachFixedOf(ep); len(fixed) > 0 && !slices.Contains(fixed, in.Address) {
-			msg := fmt.Sprintf("%s is already on network %s with the fixed address %v, not %s", name, network.Name, fixed, in.Address)
+		if addrs := attachAddrsOf(ep); len(addrs) > 0 && !slices.Contains(addrs, in.Address) {
+			msg := fmt.Sprintf("%s is already on network %s at %v, not %s", name, network.Name, addrs, in.Address)
 			return networkAttachCheck{}, attachInvalid([]errcode.FieldError{{Path: "/address", Message: msg}})
 		}
 	}
