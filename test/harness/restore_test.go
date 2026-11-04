@@ -582,9 +582,10 @@ func (r *m7rRun) refusedWhileRunning(t *testing.T) {
 // stopServices stops both services of the restored controller.
 func (r *m7rRun) stopServices(t *testing.T) {
 	v := r.restored
-	m3Run(r.ctx, t, v, "sudo systemctl stop "+update.ControllerUnit+" "+update.AgentUnit)
+	units := []string{update.ControllerUnit, update.AgentUnit}
+	m3Run(r.ctx, t, v, "sudo systemctl stop "+strings.Join(units, " "))
 	err := eventually(r.ctx, time.Minute, func(ctx context.Context) error {
-		for _, u := range []string{update.ControllerUnit, update.AgentUnit} {
+		for _, u := range units {
 			if state := unitState(ctx, v, u); state != "inactive" {
 				return fmt.Errorf("%s is %q", u, state)
 			}
@@ -592,7 +593,35 @@ func (r *m7rRun) stopServices(t *testing.T) {
 		return nil
 	})
 	if err != nil {
+		r.logUnits(t, "restored controller", v, units...)
 		t.Fatal(err)
+	}
+}
+
+// m7rUnitDiagnostics are the commands whose output explains why each unit of
+// units is not in the state a step waits for.
+func m7rUnitDiagnostics(units ...string) []string {
+	var cmds []string
+	for _, u := range units {
+		cmds = append(cmds, "sudo systemctl status "+u+" --no-pager", "sudo journalctl -u "+u+" --no-pager -n 40")
+	}
+	return cmds
+}
+
+// logUnits logs the m7rUnitDiagnostics of units on v, the VM name names.
+// systemctl status exits non-zero for a unit that is not active, so a
+// command's output is logged with its error and never fails the test.
+func (r *m7rRun) logUnits(t *testing.T, name string, v *vm.VM, units ...string) {
+	t.Helper()
+	for _, cmd := range m7rUnitDiagnostics(units...) {
+		ctx, cancel := context.WithTimeout(r.ctx, m7rDiagnosticTimeout)
+		out, err := v.Run(ctx, cmd)
+		cancel()
+		if err != nil {
+			t.Logf("diagnostic %s\n$ %s\n%s\nerror: %v", name, cmd, out, err)
+			continue
+		}
+		t.Logf("diagnostic %s\n$ %s\n%s", name, cmd, out)
 	}
 }
 

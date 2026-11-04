@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -277,7 +278,8 @@ func TestM7rUnitExecStartPre(t *testing.T) {
 // TestM7rUnitLab: the restored controller's addresses are the next ones of
 // the M2 fleet and are valid agent addresses, and the commands that install
 // the binary and the role are the ones install.sh runs, and the agent is
-// enrolled again with agent enroll and a restart.
+// enrolled again with agent enroll and a restart; a unit that misses its
+// state is explained by its status and journal.
 func TestM7rUnitLab(t *testing.T) {
 	if want := net.JoinHostPort(m7rRestoredPriv, strconv.Itoa(listen.AgentPort)); m7rRestoredAddress != want {
 		t.Errorf("m7rRestoredAddress = %q, want %q", m7rRestoredAddress, want)
@@ -309,6 +311,15 @@ func TestM7rUnitLab(t *testing.T) {
 	enroll, restart := m7rReEnrollCommands()
 	if enroll != "sudo darkpanel agent enroll" || restart != "sudo systemctl restart darkpanel-agent.service" {
 		t.Errorf("m7rReEnrollCommands = %q, %q; want agent enroll, not system install, and an agent restart", enroll, restart)
+	}
+	wantDiag := []string{
+		"sudo systemctl status darkpanel-controller.service --no-pager",
+		"sudo journalctl -u darkpanel-controller.service --no-pager -n 40",
+		"sudo systemctl status darkpanel-agent.service --no-pager",
+		"sudo journalctl -u darkpanel-agent.service --no-pager -n 40",
+	}
+	if got := m7rUnitDiagnostics("darkpanel-controller.service", "darkpanel-agent.service"); !slices.Equal(got, wantDiag) {
+		t.Errorf("m7rUnitDiagnostics = %q, want %q", got, wantDiag)
 	}
 	if m7rDeadline < 30*time.Minute || m7rDeadline > 60*time.Minute {
 		t.Errorf("m7rDeadline = %v, want 30 to 60 minutes: three VMs boot, install and restore", m7rDeadline)
