@@ -10,6 +10,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/controller/quarantine"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/store"
+	"github.com/darkraise/darkpanel/internal/modules/panel"
 )
 
 // NonTerminal are the change states restore quarantines (spec 1.3 "Locks across restarts" without quarantined).
@@ -22,7 +23,8 @@ const markStampLayout = "2006-01-02T15:04:05.000000000Z"
 
 // Mark quarantines db in one transaction (spec 10 Marking): it writes the
 // marker, moves every unfinished change and rollout to quarantined, closes
-// open listeners and drops every lock a quarantined change does not own.
+// open listeners, sets every live panel exposure to needs_repair and drops
+// every lock a quarantined change does not own.
 // The locks of quarantined records stay so that a new change on one of
 // their keys fails with lock.held naming the record, until the operator
 // resolves it.
@@ -71,6 +73,19 @@ func Mark(ctx context.Context, db *store.DB, m quarantine.Marker) error {
 			`UPDATE core_listeners SET state = ?, updated_at = ? WHERE state = ?`,
 			core.ListenerClosed, at, core.ListenerOpen); err != nil {
 			return fmt.Errorf("backup: mark core_listeners: %w", err)
+		}
+
+		var exposures int
+		if err := tx.QueryRowContext(ctx,
+			`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'panel_exposures'`).Scan(&exposures); err != nil {
+			return fmt.Errorf("backup: mark look up panel_exposures: %w", err)
+		}
+		if exposures > 0 {
+			if _, err := tx.ExecContext(ctx,
+				`UPDATE panel_exposures AS e SET state = ?, updated_at = ? WHERE e.state IN (?, ?) AND NOT (`+panel.GoneSQL+`)`, //nolint:gosec // G202: GoneSQL is a constant
+				panel.StateNeedsRepair, at, panel.StateOpen, panel.StateRevoked); err != nil {
+				return fmt.Errorf("backup: mark panel_exposures: %w", err)
+			}
 		}
 
 		if _, err := tx.ExecContext(ctx,

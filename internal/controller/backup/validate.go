@@ -21,6 +21,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/secret"
 	"github.com/darkraise/darkpanel/internal/core/store"
 	"github.com/darkraise/darkpanel/internal/modules"
+	"github.com/darkraise/darkpanel/internal/modules/panel"
 )
 
 // CanaryKey is the core_meta key of the backup canary.
@@ -216,8 +217,8 @@ func validateCanary(ctx context.Context, db *store.DB, sealer *secret.Sealer) (t
 
 // VerifyInstalled opens dbPath read-only ("file:<path>?mode=ro" plus query_only) and checks spec 10
 // phase 7: core_meta.restore_quarantine decodes with Tx == tx, no core_changes row is in a
-// NonTerminal state, no core_rollouts row is running or draining, and every core_locks owner is a
-// core_changes row in state quarantined.
+// NonTerminal state, no core_rollouts row is running or draining, every core_locks owner is a
+// core_changes row in state quarantined, and every live panel exposure is in state needs_repair.
 func VerifyInstalled(ctx context.Context, dbPath, tx string) (err error) {
 	if strings.ContainsAny(dbPath, "?#%") {
 		return fmt.Errorf("backup: installed database path %q must not contain ?, # or %%", dbPath)
@@ -289,6 +290,24 @@ func VerifyInstalled(ctx context.Context, dbPath, tx string) (err error) {
 		return fmt.Errorf("%w: lock %s is owned by %s, which is not a quarantined change", ErrNotQuarantined, key, owner)
 	case !errors.Is(err, sql.ErrNoRows):
 		return fmt.Errorf("backup: installed database: read core_locks: %w", err)
+	}
+
+	var exposures int
+	if err := db.QueryRowContext(ctx,
+		`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'panel_exposures'`).Scan(&exposures); err != nil {
+		return fmt.Errorf("backup: installed database: look up panel_exposures: %w", err)
+	}
+	if exposures == 0 {
+		return nil
+	}
+	err = db.QueryRowContext(ctx,
+		`SELECT e.id, e.state FROM panel_exposures AS e WHERE e.state <> ? AND NOT (`+panel.GoneSQL+`) ORDER BY e.id LIMIT 1`, //nolint:gosec // G202: GoneSQL is a constant
+		panel.StateNeedsRepair).Scan(&id, &state)
+	switch {
+	case err == nil:
+		return fmt.Errorf("%w: exposure %s is %s, not %s", ErrNotQuarantined, id, state, panel.StateNeedsRepair)
+	case !errors.Is(err, sql.ErrNoRows):
+		return fmt.Errorf("backup: installed database: read panel_exposures: %w", err)
 	}
 	return nil
 }
