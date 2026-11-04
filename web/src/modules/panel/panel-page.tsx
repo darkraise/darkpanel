@@ -141,9 +141,16 @@ function ExposeForm({ hostId, onPlan }: { hostId: string; onPlan: (pending: NonN
 // own host offers the form; the removal is offered on every host's page,
 // because it does not depend on the host.
 export function PanelPage({ hostId }: { hostId: string }) {
+  // pending outlives the dialog's close, so its title stays while it animates closed.
   const [pending, setPending] = useState<Pending>(null)
+  const [open, setOpen] = useState(false)
   const status = useQuery({ queryKey: panelStatusKey, queryFn: readExposureStatus })
   const hosts = useQuery({ queryKey: HOSTS_QUERY_KEY, queryFn: listHosts })
+
+  function plan(next: NonNullable<Pending>) {
+    setPending(next)
+    setOpen(true)
+  }
 
   function body() {
     if (status.isPending) return <Spinner aria-label="Loading the panel exposure" />
@@ -163,7 +170,7 @@ export function PanelPage({ hostId }: { hostId: string }) {
             <Button
               variant="destructive"
               onClick={() =>
-                setPending({ action: "panel.exposure.remove", title: `Remove the panel exposure at ${exposure.hostname}`, input: {} })
+                plan({ action: "panel.exposure.remove", title: `Remove the panel exposure at ${exposure.hostname}`, input: {} })
               }
             >
               Remove exposure
@@ -180,7 +187,7 @@ export function PanelPage({ hostId }: { hostId: string }) {
         </Alert>
       )
     }
-    if (hosts.data.hosts.some((h) => h.id === hostId && h.isLocal)) return <ExposeForm hostId={hostId} onPlan={setPending} />
+    if (hosts.data.hosts.some((h) => h.id === hostId && h.isLocal)) return <ExposeForm hostId={hostId} onPlan={plan} />
     return <p>The panel can be exposed only from the controller&apos;s own host. Open the panel page of that host.</p>
   }
 
@@ -191,8 +198,8 @@ export function PanelPage({ hostId }: { hostId: string }) {
         hostId={hostId}
         action={pending?.action ?? ""}
         title={pending?.title ?? ""}
-        input={pending?.input ?? null}
-        onClose={() => setPending(null)}
+        input={open ? (pending?.input ?? null) : null}
+        onClose={() => setOpen(false)}
       />
     </div>
   )
