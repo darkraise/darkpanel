@@ -615,6 +615,40 @@ func TestRtRestoreKeepsPreFilesNoRestoreNamed(t *testing.T) {
 	}
 }
 
+// rtFailRemoveOps fails the removal of one path.
+type rtFailRemoveOps struct {
+	Ops
+	path string
+}
+
+func (o *rtFailRemoveOps) Remove(path string) error {
+	if path == o.path {
+		return errors.New("injected remove failure")
+	}
+	return o.Ops.Remove(path)
+}
+
+func TestRtFailedCleanupOfOldAsidesReportsAFinishedRestore(t *testing.T) {
+	tx1, tx2 := rtTx(1), rtTx(2)
+	l := rtNewLayout(t, tx1)
+	bk := rtMakeBackup(t)
+	p := l.paths
+	rtRestore(t, l, bk)
+	l.host.NewTx = func() string { return tx2 }
+	l.host.Ops = &rtFailRemoveOps{Ops: OSOps(), path: AsideName(p.ControllerDB(), tx1)}
+
+	_, err := Restore(context.Background(), l.host, bytes.NewReader(bk.file), []byte(rtPass))
+	if err == nil || !strings.Contains(err.Error(), "restore "+tx2+" finished") || strings.Contains(err.Error(), "--recover") {
+		t.Fatalf("Restore error = %v, want one saying restore %s finished and not asking for --recover", err, tx2)
+	}
+	if js, lerr := ListJournals(p.ControllerDir); lerr != nil || len(js) != 0 {
+		t.Errorf("journals = %v (error %v), want none: the restore finished", js, lerr)
+	}
+	if got := rtMarker(t, rtOpenRO(t, p.ControllerDB())).Tx; got != tx2 {
+		t.Errorf("installed marker tx = %s, want %s", got, tx2)
+	}
+}
+
 func TestRtRestoreMigratesAnOlderBackupWithoutAnotherCopy(t *testing.T) {
 	tx := rtTx(1)
 	l := rtNewLayout(t, tx)

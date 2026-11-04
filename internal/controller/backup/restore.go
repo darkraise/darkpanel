@@ -66,6 +66,9 @@ func Restore(ctx context.Context, h Host, in io.Reader, passphrase []byte) (Rest
 		return RestoreResult{}, errors.Join(err, removeTx(h, tx))
 	}
 	if err := restoreSwap(ctx, h, journalPath, &j); err != nil {
+		if errors.Is(err, errOldAside) {
+			return RestoreResult{}, fmt.Errorf("backup: restore %s finished and its database is installed, but %w", tx, err)
+		}
 		return RestoreResult{}, fmt.Errorf("backup: restore %s stopped after it began to move the installation aside; run darkpanel controller restore --recover: %w",
 			tx, err)
 	}
@@ -354,8 +357,15 @@ func finishTx(ctx context.Context, h Host, journalPath string, j *Journal) error
 	if err := removeTx(h, j.Tx); err != nil {
 		return err
 	}
-	return dropOldAside(h, j.Tx)
+	if err := dropOldAside(h, j.Tx); err != nil {
+		return fmt.Errorf("%w: %w", errOldAside, err)
+	}
+	return nil
 }
+
+// errOldAside marks a dropOldAside failure. It comes after the journal is removed, so the
+// transaction is complete and nothing is left for --recover to do.
+var errOldAside = errors.New("removing earlier restores' set-aside files failed")
 
 // dropOldAside removes every <target>.pre-<tx'> of Targets with tx' an upper-case ULID other than tx,
 // and fsyncs each directory that lost a file. Any other .pre- name, such as an operator's own copy,
