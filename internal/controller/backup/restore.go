@@ -357,8 +357,9 @@ func finishTx(ctx context.Context, h Host, journalPath string, j *Journal) error
 	return dropOldAside(h, j.Tx)
 }
 
-// dropOldAside removes every <target>.pre-<tx'> of Targets with tx' other than tx, and fsyncs each
-// directory that lost a file.
+// dropOldAside removes every <target>.pre-<tx'> of Targets with tx' an upper-case ULID other than tx,
+// and fsyncs each directory that lost a file. Any other .pre- name, such as an operator's own copy,
+// is not a restore's and stays.
 func dropOldAside(h Host, tx string) error {
 	for _, target := range Targets(h.Paths) {
 		dir := filepath.Dir(target)
@@ -370,7 +371,7 @@ func dropOldAside(h Host, tx string) error {
 		removed := false
 		for _, e := range entries {
 			other, ok := strings.CutPrefix(e.Name(), prefix)
-			if !ok || other == tx {
+			if !ok || other == tx || !canonicalTx(other) {
 				continue
 			}
 			name := filepath.Join(dir, e.Name())

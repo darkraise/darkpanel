@@ -555,6 +555,39 @@ func TestRtSecondRestoreRemovesTheFirstRestoresAsides(t *testing.T) {
 	}
 }
 
+func TestRtRestoreKeepsPreFilesNoRestoreNamed(t *testing.T) {
+	tx1, tx2 := rtTx(1), rtTx(2)
+	l := rtNewLayout(t, tx1)
+	bk := rtMakeBackup(t)
+	p := l.paths
+	rtRestore(t, l, bk)
+
+	keep := []string{
+		p.ControllerDB() + ".pre-restore",
+		p.ControllerKey + ".pre-rotation",
+		AsideName(p.ControllerDB(), strings.ToLower(tx1)),
+		AsideName(p.ControllerKey, tx1+"0"),
+	}
+	for _, f := range keep {
+		if err := os.WriteFile(f, []byte("operator copy"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	l.host.NewTx = func() string { return tx2 }
+	rtRestore(t, l, bk)
+
+	for _, f := range keep {
+		if b, err := os.ReadFile(f); err != nil || string(b) != "operator copy" { //nolint:gosec // G304: a path under t.TempDir()
+			t.Errorf("%s: %q, error %v; want it kept as it was", filepath.Base(f), b, err)
+		}
+	}
+	for _, f := range Targets(p) {
+		if _, err := os.Lstat(AsideName(f, tx1)); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("%s: error %v, want the first restore's set-aside file removed", filepath.Base(AsideName(f, tx1)), err)
+		}
+	}
+}
+
 func TestRtRestoreMigratesAnOlderBackupWithoutAnotherCopy(t *testing.T) {
 	tx := rtTx(1)
 	l := rtNewLayout(t, tx)
