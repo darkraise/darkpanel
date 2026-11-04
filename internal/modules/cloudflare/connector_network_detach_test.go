@@ -38,7 +38,7 @@ func newND(t *testing.T) *agHost {
 	h := newAGHost(t)
 	h.docker.putNetwork(agNetwork("web", "bridge"))
 	h.docker.putNetwork(agNetwork("web2", "bridge"))
-	conn := agContainer(connectorName(ndTunnel), func(c *dockerapi.ContainerJSON) { c.State.Status, c.State.Running = "running", true })
+	conn := agContainer(connectorName(ndTunnel), agRunning, agLabelled(map[string]string{core.LabelModule: ID}))
 	h.docker.putContainer(conn)
 	ctx := context.Background()
 	env := h.env("")
@@ -847,4 +847,29 @@ func TestNdUndo(t *testing.T) {
 			t.Errorf("claims %+v, want the original %+v back", got, original)
 		}
 	})
+}
+
+// TestAlDetachRefusesAForeignConnector: a container of the connector's name that does not carry the label
+// darkpanel.module=cloudflare is refused with docker.owned at plan and at apply, and the claim and the endpoint stay.
+func TestAlDetachRefusesAForeignConnector(t *testing.T) {
+	ctx := context.Background()
+	for _, foreign := range alForeign {
+		t.Run(foreign.name, func(t *testing.T) {
+			h := newND(t)
+			ndJoin(t, h, "web", "172.20.0.5")
+			ndAddClaim(t, h, claimRow{TunnelID: ndTunnel, Network: "web", Claimant: ndClaimant, ChangeID: "c0"})
+			alRelabel(t, h, ndTunnel, foreign.labels)
+			mark := len(h.docker.calls())
+			_, err := h.cf().networkDetach().Handler.Plan(ctx, h.env(""), ndInput())
+			coded := ndRefused(t, err, errcode.DockerOwned)
+			if !strings.Contains(coded.Detail, foreign.detail) || !strings.Contains(coded.Detail, connectorName(ndTunnel)) {
+				t.Errorf("plan detail %q, want the container's name and %q", coded.Detail, foreign.detail)
+			}
+			_, err = h.cf().networkDetach().Handler.Apply(ctx, h.env("c1"), ndInput())
+			_ = ndRefused(t, err, errcode.DockerOwned)
+			if got := ndMutatedAfter(h, mark); len(got) != 0 || len(ndClaims(t, h, ndTunnel)) != 1 || !ndOn(t, h, "web") {
+				t.Errorf("the refusal changed the host: calls %v, claims %+v, on web %t", got, ndClaims(t, h, ndTunnel), ndOn(t, h, "web"))
+			}
+		})
+	}
 }

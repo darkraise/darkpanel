@@ -287,17 +287,17 @@ func connectorProblem(ctr dockerapi.ContainerJSON, row connectorRow, tunnel, tok
 }
 
 // foreignConnector refuses a container of a connector's name that does not carry the label darkpanel.module=cloudflare:
-// the module did not create it, so Darkpanel does not remove it.
+// the module did not create it, so Darkpanel does not change or remove it.
 func foreignConnector(ctr dockerapi.ContainerJSON, name string) error {
 	switch owner := ctr.Config.Labels[core.LabelModule]; owner {
 	case ID:
 		return nil
 	case "":
 		return core.Definite(errcode.New(errcode.DockerOwned, fmt.Sprintf(
-			"container %s is not labelled %s=%s; Darkpanel does not remove it", name, core.LabelModule, ID)))
+			"container %s is not labelled %s=%s; Darkpanel does not manage it", name, core.LabelModule, ID)))
 	default:
 		return core.Definite(errcode.New(errcode.DockerOwned, fmt.Sprintf(
-			"container %s belongs to module %s, not %s; Darkpanel does not remove it", name, owner, ID)))
+			"container %s belongs to module %s, not %s; Darkpanel does not manage it", name, owner, ID)))
 	}
 }
 

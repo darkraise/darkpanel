@@ -140,6 +140,9 @@ func (h networkDetachHandler) detachCheck(ctx context.Context, env core.Env, in 
 	case err != nil:
 		return detachDecision{}, attachEngine("inspect container "+name, err)
 	default:
+		if err := foreignConnector(c, name); err != nil {
+			return detachDecision{}, err
+		}
 		d.containerID = c.ID
 	}
 	for _, claim := range removed {
