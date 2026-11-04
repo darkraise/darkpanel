@@ -10,6 +10,7 @@ OnFailure=darkpanel-rollback.service
 
 [Service]
 User=darkpanel
+ExecStartPre=+{{.Binary}} controller restore --recover
 ExecStart={{.Binary}} serve
 RuntimeDirectory=darkpanel-controller
 Restart=on-failure

@@ -4,12 +4,14 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/core/lifecycle"
+	"github.com/darkraise/darkpanel/internal/update"
 )
 
 // unitsByPath renders the units of role for the production layout.
@@ -212,5 +214,59 @@ func TestWriteIfChanged(t *testing.T) {
 	entries, err := os.ReadDir(filepath.Dir(p))
 	if err != nil || len(entries) != 1 {
 		t.Errorf("directory holds %v, %v; want only the unit, no temporary file", entries, err)
+	}
+}
+
+// TestRuControllerUnitRecoversBeforeStart: the controller unit runs the
+// restore recovery as root, with the unit's own binary, directly before it
+// starts the controller.
+func TestRuControllerUnitRecoversBeforeStart(t *testing.T) {
+	for name, l := range map[string]Layout{"production": Production(), "rooted": Rooted(t.TempDir())} {
+		files, err := Units(l, RoleController, nil, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var text string
+		for _, f := range files {
+			if f.Path == l.UnitPath(update.ControllerUnit) {
+				text = string(f.Content)
+			}
+		}
+		lines := strings.Split(text, "\n")
+		pre := slices.Index(lines, "ExecStartPre=+"+l.Paths.Binary()+" controller restore --recover")
+		start := slices.Index(lines, "ExecStart="+l.Paths.Binary()+" serve")
+		if pre < 0 || start != pre+1 {
+			t.Errorf("%s: ExecStartPre is at line %d and ExecStart at %d; want the recovery line directly above ExecStart:\n%s", name, pre, start, text)
+		}
+		n := 0
+		for _, line := range lines {
+			if strings.HasPrefix(line, "ExecStartPre=") {
+				n++
+			}
+		}
+		if n != 1 {
+			t.Errorf("%s: the controller unit has %d ExecStartPre lines, want 1", name, n)
+		}
+		if !slices.Contains(lines, "User=darkpanel") || !slices.Contains(lines, "TimeoutStartSec=30s") {
+			t.Errorf("%s: the controller unit lost User=darkpanel or TimeoutStartSec=30s:\n%s", name, text)
+		}
+	}
+}
+
+// TestRuOnlyTheControllerUnitRecovers: the agent does not read the
+// controller's files, and a drop-in that reset ExecStartPre= would silence
+// the recovery.
+func TestRuOnlyTheControllerUnitRecovers(t *testing.T) {
+	for _, units := range []map[string]string{
+		unitsByPath(t, RoleController, []string{"10.77.0.10:7443"}, "10.77.0.10:7443"),
+		unitsByPath(t, RoleController, nil, ""),
+		unitsByPath(t, RoleAgent, nil, ""),
+	} {
+		for path, text := range units {
+			has := strings.Contains(text, "ExecStartPre")
+			if want := path == "/etc/systemd/system/darkpanel-controller.service"; has != want {
+				t.Errorf("%s: mentions ExecStartPre = %v, want %v", path, has, want)
+			}
+		}
 	}
 }

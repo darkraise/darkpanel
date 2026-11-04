@@ -3,6 +3,7 @@ package install
 import (
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -131,5 +132,34 @@ func TestOwnedPaths(t *testing.T) {
 	}
 	if !reflect.DeepEqual(CoreOwnedPaths(), controller) {
 		t.Error("CoreOwnedPaths differs from the production controller role's paths")
+	}
+}
+
+// TestRuRestoreFilesLieInOwnedDirs: every file a controller restore makes
+// (the staged and set-aside copies of the database, its two WAL files and
+// the key, the journal and its temporary file) sits inside a directory
+// system install owns, so uninstall removes them. The names are spelled out
+// because the backup package imports this one.
+func TestRuRestoreFilesLieInOwnedDirs(t *testing.T) {
+	const tx = "01JTESTTXTESTTXTESTTXTESTT"
+	for name, l := range map[string]Layout{"production": Production(), "rooted": Rooted(t.TempDir())} {
+		var owned []string
+		for _, op := range OwnedPaths(l, RoleController) {
+			if op.Kind == core.OwnedDir {
+				owned = append(owned, op.Path)
+			}
+		}
+		db := l.Paths.ControllerDB()
+		var files []string
+		for _, target := range []string{db, db + "-wal", db + "-shm", l.Paths.ControllerKey} {
+			files = append(files, target+".restore-"+tx, target+".pre-"+tx)
+		}
+		journal := filepath.Join(l.Paths.ControllerDir, "restore-"+tx+".journal")
+		files = append(files, journal, journal+".new")
+		for _, f := range files {
+			if !slices.ContainsFunc(owned, func(dir string) bool { return strings.HasPrefix(f, dir+"/") }) {
+				t.Errorf("%s layout: %s is outside every owned directory %v", name, f, owned)
+			}
+		}
 	}
 }
