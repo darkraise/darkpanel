@@ -23,7 +23,7 @@ const ROUTES: { value: ExposureVia; label: string }[] = [
 ]
 
 function routeLabel(via: ExposureVia): string {
-  return via === "npm" ? "Nginx Proxy Manager" : "Cloudflare tunnel"
+  return ROUTES.find((r) => r.value === via)?.label ?? via
 }
 
 // listenPort is the whole number typed, or null when it is not one the
