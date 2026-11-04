@@ -185,14 +185,14 @@ func (listenerOpenHandler) Apply(ctx context.Context, env core.Env, in ListenerO
 	})
 	if err != nil {
 		cleanup := context.WithoutCancel(ctx)
-		cerr := env.Listeners.Revoke(cleanup, listenerID)
+		op, cerr := "revoke", env.Listeners.Revoke(cleanup, listenerID)
 		if cerr == nil {
-			cerr = env.Listeners.Close(cleanup, listenerID)
+			op, cerr = "close", env.Listeners.Close(cleanup, listenerID)
 		}
 		if cerr != nil {
 			// The listener may still be open, so the call committed something: the effect stays intended for the
 			// engine's settle rather than skipped.
-			return ListenerOpenOutput{}, errors.Join(err, fmt.Errorf("panel: close the listener %s: %w", listenerID, cerr))
+			return ListenerOpenOutput{}, errors.Join(err, fmt.Errorf("panel: %s the listener %s: %w", op, listenerID, cerr))
 		}
 		return ListenerOpenOutput{}, errors.Join(err, env.Effects.Skipped(ctx, seq))
 	}

@@ -492,6 +492,9 @@ func TestLsOpenCleanupFailure(t *testing.T) {
 	if err == nil || core.IsDefinite(err) || !errors.Is(err, errLsRevoke) {
 		t.Fatalf("apply error %v, want one that is not definite and carries the revoke error", err)
 	}
+	if !strings.Contains(err.Error(), "revoke the listener l1") {
+		t.Errorf("apply error %q does not name the revoke as the failed cleanup", err)
+	}
 	if len(r.j.list) != 1 || r.j.list[0].State != core.EffectIntended {
 		t.Fatalf("effects %+v, want one intended effect", r.j.list)
 	}
