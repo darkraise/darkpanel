@@ -467,6 +467,59 @@ func TestLsOpenFailures(t *testing.T) {
 	})
 }
 
+var errLsRevoke = errors.New("revoke failed")
+
+// lsNoRevoke is fdListeners whose Revoke always fails.
+type lsNoRevoke struct {
+	*fdListeners
+}
+
+func (lsNoRevoke) Revoke(context.Context, string) error { return errLsRevoke }
+
+// TestLsOpenCleanupFailure: when the insert fails and the listener this apply opened cannot be revoked, the effect
+// stays intended and the error is not definite; the observer reports the open listener of that change as a state
+// that is neither null nor the creation's, and the inverse closes it.
+func TestLsOpenCleanupFailure(t *testing.T) {
+	ctx := context.Background()
+	def := listenerOpenAction()
+	r := lsNewRig(t)
+	fdInsertChange(t, r.db, lsRemove, ActionRemove, "completed")
+	fdInsertExposure(t, r.db, lsRow(lsAdd, StateRevoked, lsRemove))
+
+	env := r.env(lsAddCall, lsChild)
+	env.Listeners = lsNoRevoke{fdListeners: r.l}
+	_, err := def.Handler.Apply(ctx, env, lsJSON(t, lsOpenInput(ViaNPM)))
+	if err == nil || core.IsDefinite(err) || !errors.Is(err, errLsRevoke) {
+		t.Fatalf("apply error %v, want one that is not definite and carries the revoke error", err)
+	}
+	if len(r.j.list) != 1 || r.j.list[0].State != core.EffectIntended {
+		t.Fatalf("effects %+v, want one intended effect", r.j.list)
+	}
+	if got := r.l.Rows["l1"].State; got != core.ListenerOpen {
+		t.Errorf("listener l1 is %q, want open", got)
+	}
+
+	at := fdStamp(fdNow)
+	fdExec(t, r.db, `INSERT INTO core_listeners (id, address, port, allowed_peer, client_header, public_host, change_id, state,
+		created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"l1", lsGateway.String(), DefaultPort, lsProxy.String(), core.ClientHeaderNPM, lsName, lsAdd, core.ListenerOpen, at, at)
+	eff := r.j.list[0]
+	obs, err := def.Handler.Observe(ctx, r.env(lsAddCall, lsChild), eff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if obs.Matches != 1 || string(obs.Current.State) == "null" || bytes.Equal(obs.Current.State, eff.After.State) {
+		t.Errorf("observation %+v, want one match in a state that is neither null nor the creation's %s", obs, eff.After.State)
+	}
+
+	if _, err := def.Handler.Inverse(ctx, r.env(lsAddCall, lsChild), eff); err != nil {
+		t.Fatalf("inverse: %v", err)
+	}
+	if got := r.l.Rows["l1"].State; got != core.ListenerClosed {
+		t.Errorf("listener l1 is %q after the inverse, want closed", got)
+	}
+}
+
 // TestLsOpenObserveAndInverse: the observer finds the exposure by the id in the resource, as a made object or as a
 // creation not yet named, and answers the null state for any other id; the inverse revokes and closes the listener
 // and deletes the row, touches no other exposure, and may run again.

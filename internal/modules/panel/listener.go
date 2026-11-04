@@ -190,9 +190,11 @@ func (listenerOpenHandler) Apply(ctx context.Context, env core.Env, in ListenerO
 			cerr = env.Listeners.Close(cleanup, listenerID)
 		}
 		if cerr != nil {
-			cerr = fmt.Errorf("panel: close the listener %s: %w", listenerID, cerr)
+			// The listener may still be open, so the call committed something: the effect stays intended for the
+			// engine's settle rather than skipped.
+			return ListenerOpenOutput{}, errors.Join(err, fmt.Errorf("panel: close the listener %s: %w", listenerID, cerr))
 		}
-		return ListenerOpenOutput{}, errors.Join(err, cerr, env.Effects.Skipped(ctx, seq))
+		return ListenerOpenOutput{}, errors.Join(err, env.Effects.Skipped(ctx, seq))
 	}
 	if err := env.Effects.Made(ctx, seq, listenerNoun+":"+id, core.StateDoc{State: state}); err != nil {
 		return ListenerOpenOutput{}, err
@@ -230,8 +232,39 @@ func listenerExposureID(e core.Effect) (string, error) {
 	return id, nil
 }
 
+// listenerOrphans answers the ids of the runtime listeners still open that change id created. core.Listeners has no
+// lookup by change, so it reads core_listeners directly.
+func listenerOrphans(ctx context.Context, q storeQueryer, id string) ([]string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT id FROM core_listeners WHERE change_id = ? AND state = ? ORDER BY created_at, id`,
+		id, core.ListenerOpen)
+	if err != nil {
+		return nil, fmt.Errorf("panel: read the open listeners of change %s: %w", id, err)
+	}
+	defer func() { _ = rows.Close() }()
+	var ids []string
+	for rows.Next() {
+		var l string
+		if err := rows.Scan(&l); err != nil {
+			return nil, fmt.Errorf("panel: read the open listeners of change %s: %w", id, err)
+		}
+		ids = append(ids, l)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("panel: read the open listeners of change %s: %w", id, err)
+	}
+	return ids, nil
+}
+
+// listenerOrphanDoc is the state of an exposure that was never recorded while a listener its change opened is still
+// open.
+type listenerOrphanDoc struct {
+	ID            string   `json:"id"`
+	OpenListeners []string `json:"openListeners"`
+}
+
 // Observe reads the exposure the effect names. Its id tells it apart from any other, so the observation is exclusive;
-// an exposure that is gone, or was undone, reads as the null state.
+// an exposure that is gone, or was undone, reads as the null state. With no exposure of that id, a listener its change
+// left open reads as a state that is neither null nor the creation's, so the change ends needs_repair.
 func (listenerOpenHandler) Observe(ctx context.Context, env core.Env, e core.Effect) (core.Observation, error) {
 	id, err := listenerExposureID(e)
 	if err != nil {
@@ -242,7 +275,18 @@ func (listenerOpenHandler) Observe(ctx context.Context, env core.Env, e core.Eff
 		return core.Observation{}, err
 	}
 	if !ok || row.ID != id {
-		return core.Observation{Current: core.StateDoc{State: json.RawMessage("null")}, Exclusive: true}, nil
+		orphans, err := listenerOrphans(ctx, env.DB.Read(), id)
+		if err != nil {
+			return core.Observation{}, err
+		}
+		if len(orphans) == 0 {
+			return core.Observation{Current: core.StateDoc{State: json.RawMessage("null")}, Exclusive: true}, nil
+		}
+		state, err := json.Marshal(listenerOrphanDoc{ID: id, OpenListeners: orphans})
+		if err != nil {
+			return core.Observation{}, fmt.Errorf("panel: render the open listeners of exposure %s: %w", id, err)
+		}
+		return core.Observation{Current: core.StateDoc{State: state}, Resource: listenerNoun + ":" + id, Matches: 1, Exclusive: true}, nil
 	}
 	state, err := listenerState(row)
 	if err != nil {
@@ -251,8 +295,9 @@ func (listenerOpenHandler) Observe(ctx context.Context, env core.Env, e core.Eff
 	return core.Observation{Current: core.StateDoc{State: state}, Resource: listenerNoun + ":" + id, Matches: 1, Exclusive: true}, nil
 }
 
-// Inverse revokes and closes the listener of the exposure the effect names and deletes the exposure. With no live
-// exposure of that id it changes nothing, so it may run again.
+// Inverse revokes and closes the listener of the exposure the effect names and deletes the exposure, then revokes and
+// closes any listener its change left open. With no live exposure and no open listener of that id it changes nothing,
+// so it may run again.
 func (listenerOpenHandler) Inverse(ctx context.Context, env core.Env, e core.Effect) (core.InverseResult, error) {
 	id, err := listenerExposureID(e)
 	if err != nil {
@@ -262,17 +307,33 @@ func (listenerOpenHandler) Inverse(ctx context.Context, env core.Env, e core.Eff
 	if err != nil {
 		return core.InverseResult{}, err
 	}
-	if !ok || row.ID != id {
-		return core.InverseResult{}, nil
+	if ok && row.ID == id {
+		if err := listenerEnd(ctx, env, row.ListenerID); err != nil {
+			return core.InverseResult{}, err
+		}
+		if err := env.DB.Write(ctx, func(tx *sql.Tx) error { return deleteExposure(ctx, tx, id) }); err != nil {
+			return core.InverseResult{}, err
+		}
 	}
-	if err := env.Listeners.Revoke(ctx, row.ListenerID); err != nil {
-		return core.InverseResult{}, fmt.Errorf("panel: revoke the listener %s: %w", row.ListenerID, err)
-	}
-	if err := env.Listeners.Close(ctx, row.ListenerID); err != nil {
-		return core.InverseResult{}, fmt.Errorf("panel: close the listener %s: %w", row.ListenerID, err)
-	}
-	if err := env.DB.Write(ctx, func(tx *sql.Tx) error { return deleteExposure(ctx, tx, id) }); err != nil {
+	orphans, err := listenerOrphans(ctx, env.DB.Read(), id)
+	if err != nil {
 		return core.InverseResult{}, err
 	}
+	for _, l := range orphans {
+		if err := listenerEnd(ctx, env, l); err != nil {
+			return core.InverseResult{}, err
+		}
+	}
 	return core.InverseResult{}, nil
+}
+
+// listenerEnd revokes and then closes listener id; a revoked or closed listener is fine.
+func listenerEnd(ctx context.Context, env core.Env, id string) error {
+	if err := env.Listeners.Revoke(ctx, id); err != nil {
+		return fmt.Errorf("panel: revoke the listener %s: %w", id, err)
+	}
+	if err := env.Listeners.Close(ctx, id); err != nil {
+		return fmt.Errorf("panel: close the listener %s: %w", id, err)
+	}
+	return nil
 }
