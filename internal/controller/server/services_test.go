@@ -17,6 +17,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/controller/dispatch"
 	"github.com/darkraise/darkpanel/internal/controller/events"
 	"github.com/darkraise/darkpanel/internal/controller/listen"
+	"github.com/darkraise/darkpanel/internal/controller/quarantine"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/coretest"
 	"github.com/darkraise/darkpanel/internal/core/lifecycle"
@@ -598,5 +599,44 @@ func TestServerTopology(t *testing.T) {
 	if len(got.PanelListen) == 0 || !reflect.DeepEqual(got.PanelListen, panel) || len(dropped) != 0 ||
 		len(got.AgentListen) != 0 || len(got.AgentPeers) != 0 || !got.Complete {
 		t.Errorf("topology %+v, want the web listeners %v only, complete", got, s.Listeners())
+	}
+}
+
+// TestXbPurgeInQuarantineKeepsReferencedPlans: the purge is not one of the
+// sources restore quarantine suspends, so an expired plan that no change
+// references is purged while the controller is quarantined, and the expired
+// plan of a quarantined change stays, because the change references it.
+func TestXbPurgeInQuarantineKeepsReferencedPlans(t *testing.T) {
+	opts := testOptions(t)
+	clock := opts.Clock.(*coretest.FakeClock)
+	s := start(t, opts)
+	host := s.LocalHostID()
+	expires := clock.Now().Add(time.Minute).UTC().Format(timeFormat)
+	for _, id := range []string{"01XBKEPT", "01XBUNUSED"} {
+		exec(t, s, `INSERT INTO core_plans (id, host_id, action, version, actor, input_hash, state_hash, diff_json,
+			guards_json, confirmation, created_at, expires_at)
+			VALUES (?, ?, 'core.module.disable', 1, 'user:fixture', 'ih', 'sh', '[]', '[]', '', ?, ?)`,
+			id, host, expires, expires)
+	}
+	exec(t, s, `INSERT INTO core_changes (id, plan_id, host_id, action, version, class, compensated_by, actor, state,
+		input_json, created_at, updated_at)
+		VALUES ('01XBCHANGE', '01XBKEPT', ?, 'core.module.disable', 1, 'compensable', '', 'user:fixture', 'quarantined',
+		'{}', ?, ?)`, host, expires, expires)
+	exec(t, s, `INSERT INTO core_meta (key, value) VALUES (?, ?)`, quarantine.MetaKey,
+		`{"tx":"01XBTX","restoredAt":"2026-10-18T12:00:00Z","backupCreatedAt":"2026-10-17T12:00:00Z"}`)
+	if on, err := s.quarantined(context.Background()); err != nil || !on {
+		t.Fatalf("quarantined = %v, %v; want true", on, err)
+	}
+
+	clock.Advance(PurgeInterval)
+
+	if n := count(t, s, `SELECT count(*) FROM core_plans WHERE id = '01XBUNUSED'`); n != 0 {
+		t.Errorf("the unreferenced expired plan survived a purge in quarantine (%d rows)", n)
+	}
+	if n := count(t, s, `SELECT count(*) FROM core_plans WHERE id = '01XBKEPT'`); n != 1 {
+		t.Errorf("the quarantined change's plan has %d rows after the purge, want 1", n)
+	}
+	if n := count(t, s, `SELECT count(*) FROM core_changes WHERE id = '01XBCHANGE' AND state = 'quarantined'`); n != 1 {
+		t.Errorf("the quarantined change has %d rows after the purge, want 1", n)
 	}
 }

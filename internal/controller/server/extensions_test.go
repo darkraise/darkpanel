@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/darkraise/darkpanel/internal/controller/fleet"
 	"github.com/darkraise/darkpanel/internal/core/ext"
 )
 
@@ -76,5 +77,38 @@ func TestControllerFuncIsAController(t *testing.T) {
 	})
 	if _, _, err := f.Controller(ext.Deps{}); err != nil || !called {
 		t.Errorf("controllerFunc.Controller = %v, called %v", err, called)
+	}
+}
+
+// TestXbBackupConfigCarriesTheServersValues: the backup contribution gets the
+// controller key file, the agent address and the fleet authority as its
+// token issuer.
+func TestXbBackupConfigCarriesTheServersValues(t *testing.T) {
+	opts := testOptions(t)
+	opts.AgentAdvertise = "controller.example.test:7443"
+	s := start(t, opts)
+	cfg := s.backupConfig()
+	if cfg.KeyFile != opts.Paths.ControllerKey {
+		t.Errorf("KeyFile = %q, want %q", cfg.KeyFile, opts.Paths.ControllerKey)
+	}
+	if cfg.AgentAdvertise != opts.AgentAdvertise {
+		t.Errorf("AgentAdvertise = %q, want %q", cfg.AgentAdvertise, opts.AgentAdvertise)
+	}
+	if got, ok := cfg.Tokens.(*fleet.Authority); !ok || got == nil || got != s.authority {
+		t.Errorf("Tokens = %T %v, want the server's fleet authority", cfg.Tokens, cfg.Tokens)
+	}
+}
+
+// TestXbBackupConfigWithoutAuthorityHasNoIssuer: before the fleet authority
+// exists the config holds a nil interface, not a typed nil pointer, so the
+// backup package's nil check refuses enrollment tokens.
+func TestXbBackupConfigWithoutAuthorityHasNoIssuer(t *testing.T) {
+	s := &Server{opts: testOptions(t)}
+	cfg := s.backupConfig()
+	if cfg.Tokens != nil {
+		t.Errorf("Tokens = %T %v, want a nil interface", cfg.Tokens, cfg.Tokens)
+	}
+	if cfg.KeyFile != s.opts.Paths.ControllerKey {
+		t.Errorf("KeyFile = %q, want %q", cfg.KeyFile, s.opts.Paths.ControllerKey)
 	}
 }

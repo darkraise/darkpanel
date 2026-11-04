@@ -7,6 +7,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/controller/backup"
 	"github.com/darkraise/darkpanel/internal/controller/dispatch"
 	"github.com/darkraise/darkpanel/internal/controller/events"
+	"github.com/darkraise/darkpanel/internal/controller/fleet"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/ext"
 	"github.com/darkraise/darkpanel/internal/modules"
@@ -19,10 +20,11 @@ var (
 	_ ext.Dispatcher     = (*dispatch.Dispatcher)(nil)
 	_ core.HostDirectory = (*dispatch.Hosts)(nil)
 	_ core.Audit         = (*audit.Store)(nil)
+	_ backup.TokenIssuer = (*fleet.Authority)(nil)
 )
 
-// controllerFunc is a contribution given as a function, such as
-// backup.Contribute.
+// controllerFunc is a contribution given as a function, such as the
+// Contribute method of a backup.Backup built from the server's backup.Config.
 type controllerFunc func(deps ext.Deps) ([]ext.Route, []ext.Service, error)
 
 func (f controllerFunc) Controller(deps ext.Deps) ([]ext.Route, []ext.Service, error) { return f(deps) }
@@ -31,6 +33,17 @@ func (f controllerFunc) Controller(deps ext.Deps) ([]ext.Route, []ext.Service, e
 type contributor struct {
 	name string
 	c    ext.Controller
+}
+
+// backupConfig is what the server gives the backup package beside ext.Deps.
+// Tokens stays a nil interface while there is no fleet authority: a typed nil
+// pointer would pass the backup package's nil check and look like an issuer.
+func (s *Server) backupConfig() backup.Config {
+	cfg := backup.Config{KeyFile: s.opts.Paths.ControllerKey, AgentAdvertise: s.opts.AgentAdvertise}
+	if s.authority != nil {
+		cfg.Tokens = s.authority
+	}
+	return cfg
 }
 
 // extDeps is what the assembly gives controller contributions (spec 1.12).
@@ -42,8 +55,9 @@ func (s *Server) extDeps() ext.Deps {
 }
 
 // contributions calls Controller on every compiled-in module that has a
-// controller-side contribution, on Options.Contributors, and on
-// backup.Contribute, in that order, and returns their routes and services.
+// controller-side contribution, on Options.Contributors, and on the
+// Contribute method of a backup.Backup built from backupConfig, in that
+// order, and returns their routes and services.
 // A contribution's error fails startup.
 func (s *Server) contributions() ([]ext.Route, []ext.Service, error) {
 	var all []contributor
@@ -55,7 +69,7 @@ func (s *Server) contributions() ([]ext.Route, []ext.Service, error) {
 	for i, c := range s.opts.Contributors {
 		all = append(all, contributor{name: fmt.Sprintf("contributor %d", i), c: c})
 	}
-	all = append(all, contributor{name: "backup", c: controllerFunc(backup.Contribute)})
+	all = append(all, contributor{name: "backup", c: controllerFunc(backup.New(s.backupConfig()).Contribute)})
 	deps := s.extDeps()
 	var routes []ext.Route
 	var services []ext.Service
