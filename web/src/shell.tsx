@@ -8,6 +8,7 @@ import { HOSTS_QUERY_KEY, errorMessage, getListenerState, listHosts } from "@/ap
 import { connectEvents } from "@/api/events"
 import type { Host } from "@/api/types"
 import { AdminExposureBanner } from "@/modules/npm/banner"
+import { PanelExposureBanner } from "@/modules/panel/banner"
 import { enabledModules, moduleRegistry } from "@/modules/registry"
 import { useSession } from "@/session/use-session"
 
@@ -98,6 +99,7 @@ export function Shell() {
         </Alert>
       )}
       <AdminExposureBanner />
+      <PanelExposureBanner />
       <Outlet />
     </SidebarLayout>
   )

@@ -5,6 +5,7 @@ import { expect, test, vi } from "vitest"
 import type { Host, ListenerState, Session } from "@/api/types"
 import { applyBrand } from "@/brand"
 import { npInstance } from "@/modules/npm/fixtures"
+import { paExposure, paStatus } from "@/modules/panel/fixtures"
 import type { InstancesOutput } from "@/modules/npm/types"
 import { RequireSession, SessionProvider } from "@/session/session"
 import { EvtSource } from "@/test/evt-source"
@@ -207,4 +208,14 @@ test("every page shows the admin-exposure banner above its content", async () =>
   expect(banner.compareDocumentPosition(content) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(screen.getByRole("link", { name: "Open Nginx Proxy Manager on web-1" }).getAttribute("href")).toBe("/hosts/h1/npm")
   expect(screen.queryByText(/web-2/)).toBeNull()
+})
+
+test("every page shows the panel-exposure banner above its content, linking to the controller host's panel page", async () => {
+  renderShell({ body: bound }, "/audit", { status: 204 }, [], undefined, {
+    "POST /api/v1/actions/panel.exposure.status/v1/read": { body: { output: paStatus(paExposure({ hostId: "h1" })) } },
+  })
+  const banner = await screen.findByText("Panel exposed via npm at panel.example.org")
+  const content = await screen.findByText("Audit content")
+  expect(banner.compareDocumentPosition(content) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(screen.getByRole("link", { name: "Remove the panel exposure" }).getAttribute("href")).toBe("/hosts/h1/panel")
 })
