@@ -4772,13 +4772,76 @@ a spec change.
   change can retire a path). Every other protected flow is still checked.
   The harness removes the exposure through the exposure itself and expects
   the removal to complete. Break-glass: `sudo darkpanel panel listener
-  revoke --local` over the controller socket runs `panel.listener.revoke`
+  revoke` over the controller socket runs `panel.listener.revoke`
   alone (`BreakGlass`); the operator then runs `panel.exposure.remove`,
   whose `revoke` step plans an empty diff (the listener is already
   revoked; the action is `ForwardOnly` and `Converges`, 1.3) and whose
   later steps complete the removal. An interrupted break-glass revoke is
   completed by running the action again (it has `Converges`).
   `panel.not_exposed` refuses a removal when no exposure exists.
+
+- **Wave 8 rulings.** Wave 8 (plan `v1-w8-panel-exposure`) settles these
+  gaps and underdetermined points of the text above:
+  - **W8-R1 retirement.** `core.Step.Retires` names the exposure a step
+    retires. The runner stores it per step
+    (`core_composite_steps.retires`) and gives later steps `Retired` only
+    once that step is `applied` or `confirmed`; only forward composites may
+    set it.
+  - **W8-R2 exposure id.** The exposure id is the `panel.exposure.add`
+    change id: `panel.listener.open` sets `ListenerSpec.ChangeID` and the
+    row id to `env.Call.ParentChangeID`, so the runtime handler's
+    `Via.ExposureID` and the removal's `Retires` agree.
+  - **W8-R3 exposure rows.** `panel_exposures` keeps one row per exposure.
+    `open` becomes `revoked` (revoke); `open` and `revoked` become
+    `needs_repair` (restore marking), and revoke makes `needs_repair`
+    `revoked` again. The row is deleted only by the undo of
+    `panel.listener.open`. An exposure is gone once a removal that revoked
+    it has completed.
+  - **W8-R4 port.** The setting `exposurePort` is the optional `port` input
+    of `panel.exposure.add` (default 9443), recorded on the exposure; no
+    settings store is added.
+  - **W8-R5 pre-checks.** `via: npm` starts with the read step
+    `npm.public.check`; `via: tunnel` starts with the agent internal read
+    `panel.connector.check`, which refuses `cloudflare.connector_missing`
+    unless `darkpanel-cloudflared-<tunnel>` exists, carries
+    `darkpanel.module=cloudflare` and is running.
+  - **W8-R6 claimant.** Both attachments use the claimant `panel`.
+  - **W8-R7 rule id and ordering.** The firewall rule id is
+    `RuleID(exposure id)`; the add's `ports` step takes it from `listen`'s
+    output and the removal's from `revoke`'s, so the removal's firewall step
+    is planned only after the listener is revoked and closed.
+  - **W8-R8 break-glass command.** The break-glass path is the generated
+    `sudo darkpanel panel listener revoke`, which talks to the controller
+    socket; the wording above that named a `--local` form is replaced.
+  - **W8-R9 network.** `panel.network.create` picks the highest /29 in
+    `172.31.255.0/24` that overlaps no IPv4 subnet of any Docker network on
+    the host, creates `darkpanel-panel` with `EnableIPv6` false and exactly
+    that one IPAM config, and refuses `panel.already_exposed` when a network
+    named `darkpanel-panel` exists. `panel.network.remove` refuses
+    `docker.owned` for a `darkpanel-panel` network without
+    `darkpanel.module=panel`.
+  - **W8-R10 add refusals.** In `Steps`, in this order: input validation;
+    `panel.wrong_host` unless `hostId` is the `is_local` host;
+    `panel.totp_incomplete` while any `core_users` row is `pending`;
+    `panel.already_exposed` while a live exposure exists.
+  - **W8-R11 removal refusal.** `panel.not_exposed` when no live exposure
+    exists; a `needs_repair` exposure is removable.
+  - **W8-R12 step events.** A `composite.step` event of a composite the
+    network listeners hide is not published.
+  - **W8-R13 banner.** `web/src/modules/panel/banner.tsx` renders above
+    every page from `panel.exposure.status`, linking to the controller
+    host's panel page, which offers removal.
+  - **W8-R14 attachments.** `cloudflare.network.attach` and `.detach`
+    refuse `docker.owned` for a connector container without
+    `darkpanel.module=cloudflare`, and attach refuses
+    `request.invalid_input` when the connector is already on the network at
+    an address other than the requested one, whether fixed or
+    Engine-assigned.
+  - **W8-R15 reservation release.** NPM's access-list and certificate
+    releases delete only the releasing owner's `npm_reserved` rows.
+  - **W8-R16 restore.** `backup.Mark` sets every live exposure to
+    `needs_repair`; `backup.VerifyInstalled` fails when a live exposure is
+    in another state.
 
 ### 9. Hardening (R73–R79)
 
