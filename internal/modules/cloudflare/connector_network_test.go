@@ -502,7 +502,8 @@ func TestNaRefusesAnotherAddressFamily(t *testing.T) {
 	}
 }
 
-// TestNaAddressOfADynamicEndpoint: a connector on the network at the address the Engine assigned is claimed with no Engine call when the input asks for that same address, and the plan shows no address.
+// TestNaAddressOfADynamicEndpoint: a connector on the network at the address the Engine assigned is claimed with no
+// Engine call when the input asks for that same address, and the plan shows no address.
 func TestNaAddressOfADynamicEndpoint(t *testing.T) {
 	ctx := context.Background()
 	for _, addr := range []string{"172.20.0.9"} {
