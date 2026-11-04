@@ -75,7 +75,11 @@ func addRefuse(ctx context.Context, env core.Env, in ExposeInput) error {
 		return fmt.Errorf("panel: count the users still to enrol TOTP: %w", err)
 	}
 	if pending > 0 {
-		return errcode.New(errcode.PanelTOTPIncomplete, fmt.Sprintf("every user must enrol TOTP before the panel is exposed, and %d have not", pending))
+		verb := "have"
+		if pending == 1 {
+			verb = "has"
+		}
+		return errcode.New(errcode.PanelTOTPIncomplete, fmt.Sprintf("every user must enrol TOTP before the panel is exposed, and %d %s not", pending, verb))
 	}
 	row, live, err := liveExposure(ctx, db)
 	if err != nil {

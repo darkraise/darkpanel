@@ -365,6 +365,25 @@ func TestEaRefusals(t *testing.T) {
 			t.Errorf("steps beside a gone exposure: %v", err)
 		}
 	})
+
+	t.Run("the TOTP refusal counts the users", func(t *testing.T) {
+		for _, tc := range []struct {
+			users []string
+			want  string
+		}{
+			{[]string{"newcomer"}, "and 1 has not"},
+			{[]string{"newcomer", "latecomer"}, "and 2 have not"},
+		} {
+			env, db := eaEnv(t)
+			for _, u := range tc.users {
+				fdInsertUser(t, db, u, "pending")
+			}
+			_, err := eaSteps(t, env, eaNPMInput(0))
+			if e := errcode.From(err); err == nil || e.Code != errcode.PanelTOTPIncomplete || !strings.HasSuffix(e.Detail, tc.want) {
+				t.Errorf("%d pending: error %v, want %s ending %q", len(tc.users), err, errcode.PanelTOTPIncomplete, tc.want)
+			}
+		}
+	})
 }
 
 // eaExposure is an exposure through NPM with the given id, state and removal change.
