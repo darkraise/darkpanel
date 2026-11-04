@@ -154,6 +154,12 @@ func (e ckEnv) app(out, errb io.Writer) *app {
 
 func (e ckEnv) run(t *testing.T, args ...string) (stdout, stderr string, code int) {
 	t.Helper()
+	return e.runContext(context.Background(), t, args...)
+}
+
+// runContext is run with ctx as the commands' context.
+func (e ckEnv) runContext(ctx context.Context, t *testing.T, args ...string) (stdout, stderr string, code int) {
+	t.Helper()
 	var out, errb bytes.Buffer
 	flow := newBackupFlow(e.app(&out, &errb))
 	flow.fileOwner = e.owner
@@ -173,7 +179,7 @@ func (e ckEnv) run(t *testing.T, args ...string) (stdout, stderr string, code in
 	root.AddCommand(ctl)
 	markRuns(root)
 	root.SetArgs(append([]string{"controller"}, args...))
-	err := root.Execute()
+	err := root.ExecuteContext(ctx)
 	PrintError(&errb, err)
 	return out.String(), errb.String(), ExitCode(err)
 }
@@ -409,6 +415,64 @@ func TestCkBackupFailuresLeaveNothing(t *testing.T) {
 		}
 		if tc.stderr != "" && stderr != ckPrompts+tc.stderr || !strings.Contains(stderr, tc.contains) {
 			t.Errorf("%s: stderr %q, want %q%s", tc.name, stderr, ckPrompts+tc.stderr, tc.contains)
+		}
+		if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
+			t.Errorf("%s: the directory holds %d entries (error %v), want none: no backup and no temporary file", tc.name, len(entries), err)
+		}
+	}
+}
+
+// ckPartialReceived reports whether dir holds a temporary backup file of at
+// least n bytes.
+func ckPartialReceived(dir string, n int64) bool {
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if info, err := e.Info(); err == nil && strings.HasSuffix(e.Name(), ".partial") && info.Size() >= n {
+			return true
+		}
+	}
+	return false
+}
+
+func TestCkBackupInterruptLeavesNothing(t *testing.T) {
+	for _, tc := range []struct {
+		name, cause string
+		interrupt   func(cancel context.CancelFunc) error
+	}{
+		{"the command's context is cancelled", "context canceled", func(cancel context.CancelFunc) error { cancel(); return nil }},
+		{"an interrupt signal", "interrupt signal received", func(context.CancelFunc) error { return syscall.Kill(os.Getpid(), syscall.SIGINT) }},
+	} {
+		sock, _ := ckBackupServer(t, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(bytes.Repeat([]byte("x"), 5000))
+			_ = http.NewResponseController(w).Flush()
+			<-r.Context().Done()
+		})
+		dir := t.TempDir()
+		out := filepath.Join(dir, "b.dpbk")
+		ctx, cancel := context.WithCancel(context.Background())
+		interrupted := make(chan error, 1)
+		go func() {
+			// Interrupt only once the copy is under way: the command catches the
+			// signal only while the backup streams, and earlier it would end the
+			// test binary.
+			for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+				if ckPartialReceived(dir, 5000) {
+					interrupted <- tc.interrupt(cancel)
+					return
+				}
+			}
+			cancel()
+			interrupted <- errors.New("the copy never reached the temporary file")
+		}()
+		stdout, stderr, code := (ckEnv{terminal: true, secrets: []string{ckPass, ckPass}}).runContext(ctx, t, "backup", "--out", out, "--socket", sock)
+		cancel()
+		if err := <-interrupted; err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if want := ckPrompts + "darkpanel: receive the backup: " + tc.cause + "\n"; code != ExitError || stdout != "" || stderr != want {
+			t.Errorf("%s: exit %d, stdout %q, stderr %q; want exit %d and stderr %q", tc.name, code, stdout, stderr, ExitError, want)
 		}
 		if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
 			t.Errorf("%s: the directory holds %d entries (error %v), want none: no backup and no temporary file", tc.name, len(entries), err)

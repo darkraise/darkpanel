@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"syscall"
 	"time"
@@ -19,6 +20,7 @@ import (
 )
 
 const (
+	// backupRoutePath is the controller route that streams a backup.
 	backupRoutePath = "/api/v1/controller/backup"
 	// maxPassphrase is the longest passphrase, in bytes, a backup accepts.
 	maxPassphrase = 1024
@@ -89,6 +91,8 @@ func (f *backupFlow) restoreCommand() *cobra.Command {
 	return cmd
 }
 
+// runBackup checks the flags and --out, reads the passphrase, and writes the
+// backup the controller streams to --out.
 func (f *backupFlow) runBackup(cmd *cobra.Command, _ []string) error {
 	out, _ := cmd.Flags().GetString("out")
 	if out == "" {
@@ -119,6 +123,12 @@ func (f *backupFlow) runBackup(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("encode the request: %w", err)
 	}
 	defer clear(body)
+	// An interrupt or SIGTERM cancels the request, so the copy fails and the
+	// temporary file is removed instead of the process dying with it in place.
+	// It is caught only from here on: the passphrase prompt above cannot be
+	// cancelled, so an interrupt there must still end the process.
+	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	c, err := f.a.connect(cmd)
 	if err != nil {
 		return err
@@ -127,7 +137,7 @@ func (f *backupFlow) runBackup(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(cmd.Context(), http.MethodPost, c.base+backupRoutePath, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+backupRoutePath, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("%s %s: %w", http.MethodPost, backupRoutePath, err)
 	}
@@ -243,7 +253,8 @@ func backupHTTPClient(c *client) (*http.Client, error) {
 		return nil, fmt.Errorf("the controller client's transport is a %T, not an *http.Transport", c.http.Transport)
 	}
 	// A backup streams for as long as the copy takes, so neither a total nor
-	// a header deadline may cut it; the command's context is the only limit.
+	// a header deadline may cut it; only the cancellation of the request's
+	// context ends it.
 	// The clone keeps the socket client's own timeout for every other command.
 	clone := tr.Clone()
 	clone.ResponseHeaderTimeout = 0
@@ -355,6 +366,8 @@ func readPassphraseFile(path string, owner uint32) ([]byte, error) {
 	return pass, nil
 }
 
+// runRestore checks the flags of restore, with no host built and no prompt,
+// then recovers or restores.
 func (f *backupFlow) runRestore(cmd *cobra.Command, _ []string) error {
 	fl := cmd.Flags()
 	in, _ := fl.GetString("in")
