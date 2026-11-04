@@ -488,6 +488,30 @@ func TestNwCreateObserve(t *testing.T) {
 			t.Errorf("observation %+v, %v; want panel.network:n1 with the network's document", obs, err)
 		}
 	})
+	t.Run("creation matches two networks", func(t *testing.T) {
+		d := fdNewDocker()
+		for _, id := range []string{"n2", "n1"} {
+			n := nwPanelNet("172.31.255.248/29")
+			n.ID = id
+			d.AddNetwork(n)
+		}
+		obs, err := observe(d, creation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if obs.Matches != 2 || obs.Resource != "" || obs.Exclusive || string(obs.Current.State) != "null" {
+			t.Errorf("observation %+v; want two matches, no resource and the null state", obs)
+		}
+		if len(obs.Candidates) != 2 {
+			t.Fatalf("candidates %+v, want two", obs.Candidates)
+		}
+		for i, id := range []string{"n1", "n2"} {
+			c := obs.Candidates[i]
+			if c.Resource != networkResource(id) || !bytes.Equal(c.State.State, doc(d, id)) {
+				t.Errorf("candidate %d is %s with %s, want %s with its document", i, c.Resource, c.State.State, networkResource(id))
+			}
+		}
+	})
 	t.Run("made network by id", func(t *testing.T) {
 		d := fdNewDocker()
 		n := nwPanelNet("172.31.255.248/29")
