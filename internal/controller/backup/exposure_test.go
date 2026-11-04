@@ -110,6 +110,9 @@ func TestPxMarkSetsEveryLiveExposureToNeedsRepair(t *testing.T) {
 			pxInsert(t, db, tc.rows...)
 			mkMark(t, db)
 			got := pxRows(t, db)
+			if len(got) != len(tc.want) {
+				t.Errorf("%d exposures after Mark, want %d: %v", len(got), len(tc.want), got)
+			}
 			for id, want := range tc.want {
 				if got[id] != want {
 					t.Errorf("exposure %s after Mark: %q, want %q", id, got[id], want)
