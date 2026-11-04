@@ -4842,6 +4842,14 @@ a spec change.
   - **W8-R16 restore.** `backup.Mark` sets every live exposure to
     `needs_repair`; `backup.VerifyInstalled` fails when a live exposure is
     in another state.
+  - **W8-R17 certificate.** `panel.exposure.remove` does not delete the
+    certificate the add's `cert` step requested: its `proxy` step releases
+    the certificate's `npm_reserved` row, and the certificate stays in NPM
+    unowned, as `npm.admin.unexpose` leaves its own (6); deleting it is the
+    separate, explicitly confirmed `npm.certificate.remove`. Every add
+    orders a new certificate, so repeated add and remove cycles for one
+    hostname count against Let's Encrypt's duplicate-certificate limit; an
+    add refused there fails at `cert` and unwinds.
 
 ### 9. Hardening (R73–R79)
 
