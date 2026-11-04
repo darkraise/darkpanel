@@ -49,8 +49,10 @@ func addStepInput(members map[string]any) (json.RawMessage, error) {
 	return raw, nil
 }
 
-// addLabel is the firewall label of the exposure of hostname, cut to the length the firewall accepts.
-func addLabel(hostname string) string {
+// exposureLabel is the firewall label of the exposure of hostname, cut to the length the firewall accepts. The firewall
+// checks the label even when the input only deletes, so a longer one would fail the removal's last step after the
+// revocation.
+func exposureLabel(hostname string) string {
 	label := "panel exposure " + hostname
 	if len(label) > addLabelMax {
 		label = label[:addLabelMax]
@@ -147,7 +149,7 @@ func (addComposer) Steps(ctx context.Context, env core.Env, in ExposeInput) ([]c
 		)
 	}
 	tmpls = append(tmpls, template{"ports", in.HostID, addFirewallApply, map[string]any{
-		"label": addLabel(in.Hostname),
+		"label": exposureLabel(in.Hostname),
 		"add": []map[string]any{{
 			"id": "${steps.listen.output.ruleId}", "action": "allow", "direction": "in", "proto": "tcp",
 			"from": "${steps.network.output.proxy}", "to": "${steps.network.output.gateway}",

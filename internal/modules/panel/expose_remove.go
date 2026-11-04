@@ -42,16 +42,6 @@ func removeInput(members map[string]any) (json.RawMessage, error) {
 	return raw, nil
 }
 
-// removeLabel is the firewall label of the removal of hostname, cut to the length the firewall accepts. The firewall
-// checks the label even when the input only deletes, so a longer one would fail the last step after the revocation.
-func removeLabel(hostname string) string {
-	label := "panel exposure " + hostname
-	if len(label) > addLabelMax {
-		label = label[:addLabelMax]
-	}
-	return label
-}
-
 // Steps returns the removal's steps for the live exposure, or refuses when there is none.
 func (removeComposer) Steps(ctx context.Context, env core.Env, _ RemoveInput) ([]core.Step, error) {
 	e, live, err := liveExposure(ctx, env.DB.Read())
@@ -81,7 +71,7 @@ func (removeComposer) Steps(ctx context.Context, env core.Env, _ RemoveInput) ([
 	tmpls = append(tmpls,
 		template{"network", e.HostID, ActionNetRemove, map[string]any{}},
 		template{"ports", e.HostID, removeFirewallApply, map[string]any{
-			"label": removeLabel(e.Hostname), "delete": []string{"${steps.revoke.output.ruleId}"},
+			"label": exposureLabel(e.Hostname), "delete": []string{"${steps.revoke.output.ruleId}"},
 		}},
 	)
 
