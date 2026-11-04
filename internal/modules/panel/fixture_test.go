@@ -284,6 +284,7 @@ func fdDB(t *testing.T) *store.DB {
 // revoked (and succeeds on revoked or closed), Close moves revoked to closed (and succeeds on closed; an open listener is
 // refused), Get answers the row; FailOpen, when set, is returned by Open.
 type fdListeners struct {
+	mu       sync.Mutex
 	Rows     map[string]core.ListenerInfo
 	FailOpen error
 	next     int
@@ -292,6 +293,8 @@ type fdListeners struct {
 func fdNewListeners() *fdListeners { return &fdListeners{Rows: map[string]core.ListenerInfo{}} }
 
 func (l *fdListeners) Open(_ context.Context, spec core.ListenerSpec) (string, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.FailOpen != nil {
 		return "", l.FailOpen
 	}
@@ -302,6 +305,8 @@ func (l *fdListeners) Open(_ context.Context, spec core.ListenerSpec) (string, e
 }
 
 func (l *fdListeners) Revoke(_ context.Context, id string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	row, ok := l.Rows[id]
 	if !ok {
 		return fmt.Errorf("fake: no listener %s", id)
@@ -314,6 +319,8 @@ func (l *fdListeners) Revoke(_ context.Context, id string) error {
 }
 
 func (l *fdListeners) Close(_ context.Context, id string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	row, ok := l.Rows[id]
 	if !ok {
 		return fmt.Errorf("fake: no listener %s", id)
@@ -327,6 +334,8 @@ func (l *fdListeners) Close(_ context.Context, id string) error {
 }
 
 func (l *fdListeners) Get(_ context.Context, id string) (core.ListenerInfo, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	row, ok := l.Rows[id]
 	if !ok {
 		return core.ListenerInfo{}, fmt.Errorf("fake: no listener %s", id)
