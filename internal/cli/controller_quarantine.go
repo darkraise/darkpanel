@@ -63,7 +63,7 @@ func (a *app) quarantineCommand() *cobra.Command {
 	resolve := &cobra.Command{
 		Use:   "resolve <record> <done|never|repair>",
 		Short: "Settle a quarantined record by what happened to its work",
-		Long: "Settle a quarantined record: done means the work finished, never means it never started, " +
+		Long: "Settle a quarantined record: done means the work finished, never means it was never applied, " +
 			"and repair means it needs repair after the quarantine is released. " +
 			"A record resolved as done or never releases its locks; one resolved as repair keeps them.",
 		Args: cobra.ExactArgs(2),
