@@ -254,7 +254,11 @@ func (h networkAttachHandler) check(ctx context.Context, env core.Env, in Networ
 	ep := c.NetworkSettings.Networks[network.Name]
 	if in.Address.IsValid() && ep != nil {
 		if addrs := attachAddrsOf(ep); len(addrs) > 0 && !slices.Contains(addrs, in.Address) {
-			msg := fmt.Sprintf("%s is already on network %s at %v, not %s", name, network.Name, addrs, in.Address)
+			shown := make([]string, len(addrs))
+			for i, a := range addrs {
+				shown[i] = a.String()
+			}
+			msg := fmt.Sprintf("%s is already on network %s at %s, not %s", name, network.Name, strings.Join(shown, ", "), in.Address)
 			return networkAttachCheck{}, attachInvalid([]errcode.FieldError{{Path: "/address", Message: msg}})
 		}
 	}
