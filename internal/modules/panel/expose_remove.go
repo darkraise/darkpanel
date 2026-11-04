@@ -56,7 +56,7 @@ func removeLabel(hostname string) string {
 func (removeComposer) Steps(ctx context.Context, env core.Env, _ RemoveInput) ([]core.Step, error) {
 	e, live, err := liveExposure(ctx, env.DB.Read())
 	if err != nil {
-		return nil, fmt.Errorf("panel: plan the removal: %w", err)
+		return nil, err
 	}
 	if !live {
 		return nil, core.Definite(errcode.New(errcode.PanelNotExposed, "the panel is not exposed"))
