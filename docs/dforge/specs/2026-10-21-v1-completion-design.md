@@ -5045,6 +5045,91 @@ a spec change.
   the harness restores a controller backup onto a fresh VM and re-enrolls
   an agent with a quarantine enrollment token. Wave 7 edits the unit
   templates in `internal/install`.
+- **Wave 7 rulings.** Wave 7 (plan `v1-w7-backup-restore`) settles these
+  gaps and underdetermined points of the text above:
+  - **W7-R1 schema.** Wave 0 built neither `quarantined_from` nor a
+    `quarantined` rollout state. Migration
+    `controller/0013_restore_quarantine.sql` adds
+    `core_changes.quarantined_from` and rebuilds `core_rollouts` (its
+    `state` also accepts `quarantined`, and it gains `quarantined_from`) and
+    `core_rollout_hosts`, keeping every row, every index and the `ON DELETE
+    CASCADE` reference. Both tables are copied before either is dropped and
+    the child is dropped first, because foreign keys are enforced.
+  - **W7-R2 call site.** `ext.Deps` carries no key file path, token issuer
+    or agent address, so the server hands them to the backup contribution as
+    `backup.Config` beside `ext.Deps`. `ext.Deps` and the modules'
+    contributions do not change.
+  - **W7-R3 record kinds.** `rollout` is a `core_rollouts` row; `composite`
+    is a change of class composite; `cloud` is another change whose action's
+    module (the part before the first dot) is `tailnet` or `cloudflare`;
+    `change` is every other change. Cloudflare hostname phases and uncertain
+    cloud effects belong to the change that owns them, so quarantining that
+    change quarantines them. Auth-key sweeps are a service suspended until
+    release, not records.
+  - **W7-R4 resolve outcomes.** A `change` or `cloud` record resolves only
+    `repair` (state `needs_repair`, error `core.needs_repair`, locks kept),
+    because no agent executes it and only its effects' Observe can read the
+    provider; `done` and `never` are refused. A `composite` resolves
+    `repair`, or `done` and `never` only when every step's child is on an
+    agent, judged from each child's lookup: an agent that is not connected
+    refuses with its own error; `running` or `recovering` answers `409
+    core.change_busy`; applied means terminal `confirmed`, `completed`,
+    `repaired` or `kept`; not applied means `absent`, `retired`, or terminal
+    `reverted`, `failed`, `interrupted` or `abandoned` having made nothing;
+    a step with no child plan is not applied; a read step counts as neither.
+    `done` needs every other step applied and a forward composite and sets
+    `completed`; `never` needs every other step not applied, retires each
+    `absent` child plan, and sets `abandoned` with "restore: never applied";
+    any other mix is refused ("the composite is partly applied; resolve it
+    repair"). A `rollout` resolves only `never`, which sets `cancelled`,
+    because each agent's update runs its own transaction (ADR 0007). Every
+    outcome runs in one transaction that re-reads the record's state
+    (`quarantined`, else `409 plan.state_changed`) and deletes the record's
+    lock rows on `done` and `never`.
+  - **W7-R5 migrate, then mark.** `store.Migrate` runs each migration in its
+    own transaction, so phase 3 migrates the staged database and then marks
+    it in one transaction, checkpoints it, switches it to
+    `journal_mode=DELETE`, closes and fsyncs it, and only then journals
+    `quarantined`. A crash before that write rolls the transaction back and
+    discards the staged file, so nothing unmarked is ever installed.
+  - **W7-R6 begun phase.** The journal is first saved with phase `begun`,
+    before the first staged file is created, so recovery can remove a partly
+    written staging.
+  - **W7-R7 canary.** The backup route upserts a sealed
+    `core_meta.backup_canary` (`{"createdAt"}`) before each copy; its
+    `createdAt` is the marker's `backupCreatedAt`, because the file format
+    carries no timestamp.
+  - **W7-R8 enrollment token.** `quarantine enroll-token` works only while
+    the quarantine is active, for an existing host other than the local one,
+    and only when the controller has an agent address (`--agent-advertise`).
+    A restored host is `enrolled`, but enrollment accepts only `pending` or
+    `revoked`, so the route sets the host `pending` in the transaction that
+    issues the token.
+  - **W7-R9 release.** With the quarantine not active, release answers with
+    the held locks of the remaining quarantined records. While it is active,
+    release is refused with `409 core.quarantined` if any record is
+    quarantined and `--keep-unresolved` is not given; otherwise one
+    transaction deletes the flag and reads the held locks. The suspended
+    sources then start on their own at their next poll.
+  - **W7-R10 exposures.** No exposure table exists before wave 8, so marking
+    closes runtime listeners only; wave 8 adds each exposure's
+    `needs_repair` marking to marking and to verification.
+  - **W7-R11 set-aside files.** A successful restore removes the `.pre-<tx>`
+    files of earlier transactions after its own journal is removed; this
+    wave adds no separate cleanup command.
+  - **W7-R12 purge.** The purge of expired plans, sessions and tokens stays
+    ungated: it is not among the suspended sources. A plan that a change
+    references is never purged, because `core_changes.plan_id` references
+    `core_plans` and foreign keys are enforced.
+  - **W7-R13 audit.** Each backup, enroll-token, resolve and release writes
+    one audit row, because each is a root operation on the controller.
+  - **W7-R14 service check.** Restore reads both units' states through
+    `core.Units` over D-Bus, so no exec allowlist rule is added.
+  - **W7-R15 unit rollback.** `ExecStartPre` names a command only binaries
+    from wave 7 on have. A unit file is written only by `system install`, so
+    a unit never runs an older binary, except after a manual binary rollback
+    below this wave, which the reinstall boundary of the release candidate
+    (0.x → 1.0 is a reinstall) excludes.
 - **Runbook (R81).** `docs/runbook.md`: lockout (firewall break-glass,
   Tailscale prefs revert, panel listener revoke), failed update (rollback,
   recover), lost controller (restore from backup, re-enroll agents).
