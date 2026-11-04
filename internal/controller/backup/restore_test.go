@@ -489,6 +489,33 @@ func TestRtRestoreRefusals(t *testing.T) {
 	}
 }
 
+func TestRtRestoreRechecksJournalsUnderTheLock(t *testing.T) {
+	l := rtNewLayout(t, rtTx(2))
+	bk := rtMakeBackup(t)
+	planted := JournalPath(l.paths.ControllerDir, rtTx(1))
+	var before map[string]string
+	// Restore calls Owner after checkRestore releases the lock and before it
+	// takes the lock again: the window in which another restore can stop and
+	// leave its journal behind.
+	l.host.Owner = func() (int, int, error) {
+		if before == nil {
+			if err := SaveJournal(OSOps(), planted, Journal{Format: 1, Tx: rtTx(1), Phase: PhaseMovedAside}); err != nil {
+				return 0, 0, err
+			}
+			before = l.digest(t)
+		}
+		return os.Getuid(), os.Getgid(), nil
+	}
+
+	_, err := Restore(context.Background(), l.host, bytes.NewReader(bk.file), []byte(rtPass))
+	if err == nil || !strings.Contains(err.Error(), "an unfinished restore exists ("+planted+")") {
+		t.Fatalf("Restore error = %v, want the refusal naming %s", err, planted)
+	}
+	if diff := rtDiff(before, l.digest(t)); diff != "" {
+		t.Errorf("the refused restore changed the installation: %s", diff)
+	}
+}
+
 func TestRtRestoreRejectsABadBackup(t *testing.T) {
 	good := rtMakeBackup(t)
 	_, otherKey, _ := fxKey(t, t.TempDir())
