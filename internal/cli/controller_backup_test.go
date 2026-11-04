@@ -249,7 +249,7 @@ func ckHost(t *testing.T, euid int) backup.Host {
 		Owner: func() (int, int, error) { return os.Getuid(), os.Getgid(), nil },
 		Ops:   backup.OSOps(), Clock: coretest.NewFakeClock(time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)),
 		NewTx: func() string { return ulid.Make().String() },
-		Log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Log:   slog.New(slog.NewTextHandler(io.Discard, nil)), JournalUID: os.Getuid(),
 	}
 }
 

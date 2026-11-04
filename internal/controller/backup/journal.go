@@ -136,6 +136,12 @@ func ReadJournal(path string) (Journal, error) {
 	if err != nil {
 		return Journal{}, fmt.Errorf("backup: read journal: %w", err)
 	}
+	return decodeJournal(path, data)
+}
+
+// decodeJournal decodes the journal read from path; a format other than 1 or an unknown phase is an
+// error.
+func decodeJournal(path string, data []byte) (Journal, error) {
 	var j Journal
 	if err := json.Unmarshal(data, &j); err != nil {
 		return Journal{}, fmt.Errorf("backup: decode journal %s: %w", path, err)

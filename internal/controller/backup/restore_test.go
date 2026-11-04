@@ -112,7 +112,7 @@ func rtNewLayout(t *testing.T, tx string) *rtLayout {
 		Euid:  func() int { return 0 },
 		Owner: func() (int, int, error) { return os.Getuid(), os.Getgid(), nil },
 		Ops:   OSOps(), Clock: clock, NewTx: func() string { return tx },
-		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil)), JournalUID: os.Getuid(),
 	}}
 }
 

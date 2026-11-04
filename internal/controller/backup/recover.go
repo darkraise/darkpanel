@@ -2,8 +2,12 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
+	"syscall"
 
 	"github.com/oklog/ulid/v2"
 )
@@ -42,7 +46,7 @@ func Recover(ctx context.Context, h Host) error {
 // recoverOne completes the transaction of the journal at journalPath once phase 6 has begun, and
 // rolls it back otherwise.
 func recoverOne(ctx context.Context, h Host, journalPath string) error {
-	j, err := ReadJournal(journalPath)
+	j, err := readTrustedJournal(h, journalPath)
 	if err != nil {
 		return fmt.Errorf("backup: read journal %s: %w", journalPath, err)
 	}
@@ -61,15 +65,49 @@ func recoverOne(ctx context.Context, h Host, journalPath string) error {
 	}
 }
 
+// maxJournalBytes bounds what recovery reads of one journal; a real one is a few kilobytes.
+const maxJournalBytes = 1 << 20
+
+// readTrustedJournal reads the journal at path only when it is a regular file owned by h.JournalUID
+// with one link and at most maxJournalBytes. The controller service can create, link and rename
+// files in its directory but cannot make one root's, so this refuses any journal it wrote.
+// O_NOFOLLOW refuses a symbolic link and O_NONBLOCK keeps a FIFO from blocking before the check.
+func readTrustedJournal(h Host, path string) (Journal, error) {
+	untrusted := fmt.Errorf("backup: journal %s is not a single regular file owned by uid %d of at most %d bytes; it is kept",
+		path, h.JournalUID, maxJournalBytes)
+	f, err := os.OpenFile(path, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0) //nolint:gosec // G304: the path is a journal ListJournals found in the controller directory
+	if errors.Is(err, syscall.ELOOP) {
+		return Journal{}, untrusted
+	}
+	if err != nil {
+		return Journal{}, fmt.Errorf("backup: open journal: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	fi, err := f.Stat()
+	if err != nil {
+		return Journal{}, fmt.Errorf("backup: stat journal: %w", err)
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok || !fi.Mode().IsRegular() || st.Nlink != 1 || int64(st.Uid) != int64(h.JournalUID) || fi.Size() > maxJournalBytes {
+		return Journal{}, untrusted
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxJournalBytes))
+	if err != nil {
+		return Journal{}, fmt.Errorf("backup: read journal: %w", err)
+	}
+	return decodeJournal(path, data)
+}
+
 // checkJournal refuses a journal recovery must not act on: one whose tx is not a canonical ULID,
-// whose name does not carry its tx, or whose files are not this controller's Targets in order. The
-// controller service can write its own directory, so a journal there is not trusted to name the
-// paths a root recovery renames or removes. A refused journal is left as it is.
+// whose name does not carry its tx, whose files are not this controller's Targets in order, or that
+// records the key as missing. The controller service can write its own directory, so a journal there
+// is not trusted to name the paths a root recovery renames or removes. A refused journal is left as
+// it is.
 func checkJournal(h Host, journalPath string, j Journal) error {
 	refuse := func(reason string) error {
 		return fmt.Errorf("backup: journal %s does not belong to this controller (%s); it is kept", journalPath, reason)
 	}
-	if id, err := ulid.ParseStrict(j.Tx); err != nil || id.String() != j.Tx {
+	if !canonicalTx(j.Tx) {
 		return refuse(fmt.Sprintf("tx %q is not an upper-case ULID", j.Tx))
 	}
 	if JournalPath(h.Paths.ControllerDir, j.Tx) != journalPath {
@@ -86,8 +124,19 @@ func checkJournal(h Host, journalPath string, j Journal) error {
 		if f.Path != targets[i] {
 			return refuse(fmt.Sprintf("file %d is %s, not %s", i+1, f.Path, targets[i]))
 		}
+		// A restore refuses a host without the key, so a real journal records
+		// it as present; recorded as missing, a rollback would remove the key.
+		if f.Path == h.Paths.ControllerKey && !f.Existed {
+			return refuse("it records the key " + f.Path + " as missing")
+		}
 	}
 	return nil
+}
+
+// canonicalTx reports whether s is an upper-case ULID, the only form a restore's tx takes.
+func canonicalTx(s string) bool {
+	id, err := ulid.ParseStrict(s)
+	return err == nil && id.String() == s
 }
 
 // rollbackTx puts every original of j back under its own name, removes what the transaction

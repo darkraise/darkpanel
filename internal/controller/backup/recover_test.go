@@ -11,7 +11,9 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // rcFile is a saved file.
@@ -662,5 +664,123 @@ func TestRcInstallRefusesALinkedStagedFile(t *testing.T) {
 				t.Errorf("a refused install changed the installation: %s", diff)
 			}
 		})
+	}
+}
+
+// rcRecoverWithin runs Recover and fails the test if it does not return within
+// ten seconds, so a journal read that blocks shows as a failure.
+func rcRecoverWithin(t *testing.T, h Host) error {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() { done <- Recover(context.Background(), h) }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(10 * time.Second):
+		t.Fatal("Recover blocked on the journal")
+		return nil
+	}
+}
+
+func TestRcRefusesAJournalFileTheServiceCouldHaveWritten(t *testing.T) {
+	tx := rtTx(1)
+	saved := func(t *testing.T, path string) {
+		t.Helper()
+		if err := SaveJournal(OSOps(), path, Journal{Format: 1, Tx: tx, Phase: PhaseBegun}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cases := []struct {
+		name    string
+		arrange func(t *testing.T, l *rtLayout, journalPath string)
+		fifo    bool
+	}{
+		{"symbolic link", func(t *testing.T, _ *rtLayout, journalPath string) {
+			elsewhere := filepath.Join(t.TempDir(), filepath.Base(journalPath))
+			saved(t, elsewhere)
+			if err := os.Symlink(elsewhere, journalPath); err != nil {
+				t.Fatal(err)
+			}
+		}, false},
+		{"hard link", func(t *testing.T, _ *rtLayout, journalPath string) {
+			saved(t, journalPath)
+			if err := os.Link(journalPath, filepath.Join(t.TempDir(), "second-link")); err != nil {
+				t.Fatal(err)
+			}
+		}, false},
+		{"another owner", func(t *testing.T, l *rtLayout, journalPath string) {
+			saved(t, journalPath)
+			l.host.JournalUID = os.Getuid() + 1
+		}, false},
+		{"over the size cap", func(t *testing.T, _ *rtLayout, journalPath string) {
+			saved(t, journalPath)
+			f, err := os.OpenFile(journalPath, os.O_WRONLY|os.O_APPEND, 0) //nolint:gosec // G304: a path under t.TempDir()
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = f.Write(bytes.Repeat([]byte(" "), maxJournalBytes))
+			if err := errors.Join(err, f.Close()); err != nil {
+				t.Fatal(err)
+			}
+		}, false},
+		{"FIFO", func(t *testing.T, _ *rtLayout, journalPath string) {
+			if err := syscall.Mkfifo(journalPath, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			l := rtNewLayout(t, tx)
+			// A rollback of the journal would remove this file.
+			staged := StagedName(l.paths.ControllerKey, tx)
+			if err := os.WriteFile(staged, []byte("staged"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			journalPath := JournalPath(l.paths.ControllerDir, tx)
+			tc.arrange(t, l, journalPath)
+			var before map[string]string
+			if !tc.fifo { // reading a FIFO for the digest would block
+				before = l.digest(t)
+			}
+
+			err := rcRecoverWithin(t, l.host)
+			if err == nil || !strings.Contains(err.Error(), journalPath) || !strings.Contains(err.Error(), "is not a single regular file owned by uid") {
+				t.Fatalf("Recover = %v, want a refusal naming %s", err, journalPath)
+			}
+			if !rcExists(staged) || !rcExists(journalPath) {
+				t.Error("recovery acted on a journal it must not trust")
+			}
+			if !tc.fifo {
+				if diff := rtDiff(before, l.digest(t)); diff != "" {
+					t.Errorf("a refused journal changed the installation: %s", diff)
+				}
+			}
+		})
+	}
+}
+
+func TestRcRefusesAJournalThatRecordsTheKeyMissing(t *testing.T) {
+	tx := rtTx(1)
+	l := rtNewLayout(t, tx)
+	j := Journal{Format: 1, Tx: tx, Phase: PhaseJournaled}
+	for _, f := range Targets(l.paths) {
+		j.Files = append(j.Files, JournalFile{Path: f, Existed: f != l.paths.ControllerKey})
+	}
+	journalPath := JournalPath(l.paths.ControllerDir, tx)
+	if err := SaveJournal(OSOps(), journalPath, j); err != nil {
+		t.Fatal(err)
+	}
+	before := l.digest(t)
+
+	err := Recover(context.Background(), l.host)
+	if err == nil || !strings.Contains(err.Error(), "does not belong to this controller") || !strings.Contains(err.Error(), "as missing") {
+		t.Fatalf("Recover = %v, want the journal refused", err)
+	}
+	if !rcExists(l.paths.ControllerKey) {
+		t.Error("recovery removed the controller key")
+	}
+	if diff := rtDiff(before, l.digest(t)); diff != "" {
+		t.Errorf("a refused journal changed the installation: %s", diff)
 	}
 }

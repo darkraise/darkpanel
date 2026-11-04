@@ -38,6 +38,9 @@ type Host struct {
 	Clock    core.Clock
 	NewTx    func() string // a fresh upper-case ULID
 	Log      *slog.Logger
+	// JournalUID is the uid every journal recovery reads must belong to: 0 in production, where only
+	// root restores and recovers, so a journal the controller service wrote is refused.
+	JournalUID int
 }
 
 // ProductionHost returns the production Host over p; its Close releases the D-Bus connection.
@@ -65,6 +68,9 @@ func ProductionHost(ctx context.Context, p paths.Paths, withUnits bool) (Host, f
 		Clock:    clock,
 		NewTx:    ulidTx(clock),
 		Log:      slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		// The journal owner is root even when a non-root caller builds the
+		// host: os.Geteuid would let such a caller's own files pass.
+		JournalUID: 0,
 	}, closeUnits, nil
 }
 
