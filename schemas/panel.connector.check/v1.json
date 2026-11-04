@@ -1,0 +1,46 @@
+{
+  "name": "panel.connector.check",
+  "version": 1,
+  "class": "read",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ConnectorCheckInput",
+    "$defs": {
+      "ConnectorCheckInput": {
+        "properties": {
+          "tunnel": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "tunnel"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ConnectorCheckOutput",
+    "$defs": {
+      "ConnectorCheckOutput": {
+        "properties": {
+          "container": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "container",
+          "state"
+        ]
+      }
+    }
+  }
+}

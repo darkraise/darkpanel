@@ -1,0 +1,97 @@
+{
+  "name": "panel.exposure.add",
+  "version": 1,
+  "class": "composite",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ExposeInput",
+    "$defs": {
+      "ExposeInput": {
+        "properties": {
+          "via": {
+            "type": "string",
+            "enum": [
+              "npm",
+              "tunnel"
+            ]
+          },
+          "hostname": {
+            "type": "string",
+            "maxLength": 253
+          },
+          "hostId": {
+            "type": "string"
+          },
+          "tunnel": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer",
+            "maximum": 65535,
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "via",
+          "hostname",
+          "hostId"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ExposeOutput",
+    "$defs": {
+      "ExposeOutput": {
+        "properties": {
+          "exposureId": {
+            "type": "string"
+          },
+          "via": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "hostId": {
+            "type": "string"
+          },
+          "tunnel": {
+            "type": "string"
+          },
+          "subnet": {
+            "type": "string",
+            "format": "ip-prefix"
+          },
+          "gateway": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "proxy": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "port": {
+            "type": "integer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "exposureId",
+          "via",
+          "hostname",
+          "hostId",
+          "subnet",
+          "gateway",
+          "proxy",
+          "port"
+        ]
+      }
+    }
+  }
+}

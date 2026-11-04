@@ -307,3 +307,54 @@ func (w *nullWalker) fields(typ reflect.Type, props map[string]any, path string)
 		w.walk(f.Type, p, path+name+".")
 	}
 }
+
+// TestPanelCLICommands is the parity test for the panel: every panel action but the internal connector check has its
+// generated command, and listener revoke, the break-glass action, takes the controller socket's flags in place of
+// --url and --host and refuses --local. The agent-side network commands take --host and the others --url.
+func TestPanelCLICommands(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	root, err := cli.NewRoot(cli.Options{
+		Registry: built(t), Stdout: &stdout, Stderr: &stderr,
+		Commands: []*cobra.Command{{Use: "serve"}, {Use: "version"}},
+	})
+	if err != nil {
+		t.Fatalf("cli.NewRoot: %v", err)
+	}
+	tests := []struct {
+		action   string
+		path     string
+		socket   bool // the break-glass flags --socket and --dev instead of --url
+		hostFlag bool // an agent-side command
+	}{
+		{"panel.exposure.add", "darkpanel panel exposure add", false, false},
+		{"panel.exposure.remove", "darkpanel panel exposure remove", false, false},
+		{"panel.exposure.status", "darkpanel panel exposure status", false, false},
+		{"panel.listener.open", "darkpanel panel listener open", false, false},
+		{"panel.listener.revoke", "darkpanel panel listener revoke", true, false},
+		{"panel.network.create", "darkpanel panel network create", false, true},
+		{"panel.network.remove", "darkpanel panel network remove", false, true},
+	}
+	for _, tc := range tests {
+		cmd, ok := cli.FindCommand(root, tc.action)
+		if !ok {
+			t.Errorf("action %s has no generated command %s", tc.action, tc.path)
+			continue
+		}
+		if cmd.CommandPath() != tc.path {
+			t.Errorf("action %s: command %q, want %q", tc.action, cmd.CommandPath(), tc.path)
+		}
+		flags := cmd.Flags()
+		hasSocket := flags.Lookup("socket") != nil && flags.Lookup("dev") != nil
+		if hasSocket != tc.socket || (flags.Lookup("url") != nil) == tc.socket || (flags.Lookup("host") != nil) != tc.hostFlag {
+			t.Errorf("%s: socket flags %v, url flag %v, host flag %v; want socket flags %v and host flag %v",
+				tc.path, hasSocket, flags.Lookup("url") != nil, flags.Lookup("host") != nil, tc.socket, tc.hostFlag)
+		}
+	}
+	if _, ok := cli.FindCommand(root, "panel.connector.check"); ok {
+		t.Error("the internal action panel.connector.check has a generated command")
+	}
+	root.SetArgs([]string{"panel", "listener", "revoke", "--local"})
+	if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "--local reaches only this host's agent") {
+		t.Errorf("darkpanel panel listener revoke --local: %v, want it refused because the action is not agent-side", err)
+	}
+}

@@ -147,3 +147,17 @@ func TestAllListsTheModuleSkeletons(t *testing.T) {
 		t.Errorf("core.NewRegistry(modules.All()...): %v", err)
 	}
 }
+
+// TestPanelActionsAreRegistered shows that the registry registry.Build() returns holds the eight panel actions, each
+// at version 1.
+func TestPanelActionsAreRegistered(t *testing.T) {
+	reg := built(t)
+	for _, name := range []string{
+		"panel.network.create", "panel.network.remove", "panel.connector.check", "panel.listener.open",
+		"panel.listener.revoke", "panel.exposure.status", "panel.exposure.add", "panel.exposure.remove",
+	} {
+		if _, ok := reg.Action(core.ActionRef{Name: name, Version: 1}); !ok {
+			t.Errorf("the registry has no %s", name)
+		}
+	}
+}
