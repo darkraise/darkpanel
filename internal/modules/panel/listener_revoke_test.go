@@ -3,6 +3,7 @@ package panel
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -106,10 +107,48 @@ func TestLsRevokeApply(t *testing.T) {
 		})
 	}
 
+	failing := []struct {
+		name     string
+		wrap     func(*fdListeners) core.Listeners
+		want     error
+		listener string // the listener's state after the failed apply
+	}{
+		{"the listener cannot be revoked", func(l *fdListeners) core.Listeners { return lsNoRevoke{fdListeners: l} }, errLsRevoke, core.ListenerOpen},
+		{"the listener cannot be closed", func(l *fdListeners) core.Listeners { return lsNoClose{fdListeners: l} }, errLsClose, core.ListenerRevoked},
+	}
+	for _, tc := range failing {
+		t.Run(tc.name, func(t *testing.T) {
+			r := lsNewRig(t)
+			row := r.expose(StateOpen, lsOther, core.ListenerOpen)
+			env := r.env(lsRmCall, "")
+			env.Listeners = tc.wrap(r.l)
+			_, err := def.Handler.Apply(ctx, env, lsEmptyInput)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("apply error %v, want %v", err, tc.want)
+			}
+			if got := r.l.Rows[row.ListenerID].State; got != tc.listener {
+				t.Errorf("listener %s is %q, want %q", row.ListenerID, got, tc.listener)
+			}
+			live, ok := r.live()
+			if !ok || live.State != StateOpen || live.RemovalChangeID != lsOther {
+				t.Errorf("exposure %+v (found %t), want it still open with removal %q", live, ok, lsOther)
+			}
+		})
+	}
+
 	none := lsNewRig(t)
 	_, err := def.Handler.Apply(ctx, none.env(lsRmCall, ""), lsEmptyInput)
 	lsWantRefusal(t, "apply without an exposure", err, errcode.PanelNotExposed)
 }
+
+var errLsClose = errors.New("close failed")
+
+// lsNoClose is fdListeners whose Close always fails.
+type lsNoClose struct {
+	*fdListeners
+}
+
+func (lsNoClose) Close(context.Context, string) error { return errLsClose }
 
 // TestLsRevokeVerify: the verification wants the exposure revoked and its listener no longer open.
 func TestLsRevokeVerify(t *testing.T) {
