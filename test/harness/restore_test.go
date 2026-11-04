@@ -266,6 +266,14 @@ func m7rControllerInstall(addr string) string {
 	return "sudo darkpanel system install --role controller --agent-listen " + addr + " --agent-advertise " + addr
 }
 
+// m7rReEnrollCommands enroll an enrolled agent again with a token on standard
+// input, then restart it. system install --role agent cannot do this: it keeps
+// saved credentials that a controller still accepts and ignores the token. A
+// running agent takes the new credentials up only when its live session ends.
+func m7rReEnrollCommands() (enroll, restart string) {
+	return "sudo darkpanel agent enroll", "sudo systemctl restart " + update.AgentUnit
+}
+
 // m7rRestoreCommand restores m7rBackupFile with the passphrase in passFile.
 func m7rRestoreCommand(passFile string) string {
 	return "sudo darkpanel controller restore --in " + m7rBackupFile + " --passphrase-file " + passFile
@@ -716,7 +724,13 @@ func (r *m7rRun) reEnroll(t *testing.T) {
 	if err := m7rCheckToken(res, time.Unix(vmNow(r.ctx, t, v), 0)); err != nil {
 		t.Fatal(err)
 	}
-	r.enrollAgent(t, res.Token)
+	a := r.f.agent
+	enroll, restart := m7rReEnrollCommands()
+	if out, err := a.RunInput(r.ctx, enroll, strings.NewReader(res.Token+"\n")); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	m3Run(r.ctx, t, a, restart)
+	r.waitActive(t, a, update.AgentUnit)
 	waitHosts(r.ctx, t, r.g, 3*time.Minute, m7rOnline(r.f.agentID))
 }
 
