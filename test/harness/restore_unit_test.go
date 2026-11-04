@@ -275,6 +275,37 @@ func TestM7rUnitExecStartPre(t *testing.T) {
 	}
 }
 
+func TestM7rUnitLocalOnline(t *testing.T) {
+	const local, other = "01M6K3DN93GSK0R76HMSM5QF70", "01M6K3DHQAF5MPBPCV7RZ1603G"
+	line := func(msg, attrs string) string {
+		return "Nov 04 10:59:34 restored darkpanel[9074]: time=2026-11-04T10:59:34.681Z level=INFO msg=\"" + msg + "\" " + attrs + "\n"
+	}
+	started := "Nov 04 10:59:33 restored systemd[1]: Started Darkpanel controller.\n"
+	enrolled := line("fleet: host enrolled", "source=127.0.0.1 host="+local)
+	for _, tc := range []struct {
+		name, journal string
+		online        bool
+	}{
+		{"no line", started + enrolled, false},
+		{"nothing", "", false},
+		{"the line present", started + enrolled + line("fleet: host online", "host="+local), true},
+		{"the line without a newline", strings.TrimSuffix(started+enrolled+line("fleet: host online", "host="+local), "\n"), true},
+		{"a line for another host only", started + enrolled + line("fleet: host online", "host="+other), false},
+		{"online then offline", started + line("fleet: host online", "host="+local) + line("fleet: host offline", "host="+local), false},
+		{"offline then online", started + line("fleet: host offline", "host="+local) + line("fleet: host online", "host="+local), true},
+		{"another host offline after", started + line("fleet: host online", "host="+local) + line("fleet: host offline", "host="+other), true},
+		{"a longer id", started + line("fleet: host online", "host="+local+"X"), false},
+	} {
+		err := m7rLocalOnline(tc.journal, local)
+		switch {
+		case tc.online && err != nil:
+			t.Errorf("%s: %v, want it accepted", tc.name, err)
+		case !tc.online && (err == nil || !strings.Contains(err.Error(), "does not show host "+local+" online")):
+			t.Errorf("%s: %v, want an error naming host %s", tc.name, err, local)
+		}
+	}
+}
+
 // TestM7rUnitLab: the restored controller's addresses are the next ones of
 // the M2 fleet and are valid agent addresses, and the commands that install
 // the binary and the role are the ones install.sh runs, and the agent is

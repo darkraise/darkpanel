@@ -534,8 +534,9 @@ func (r *m7rRun) takeBackup(t *testing.T) {
 	r.checkSeed(t, v)
 }
 
-// installRestored installs the restored controller and copies the backup,
-// its passphrase file and a file with another passphrase to it.
+// installRestored installs the restored controller, copies the backup, its
+// passphrase file and a file with another passphrase to it, and waits until
+// its local host is online.
 func (r *m7rRun) installRestored(t *testing.T) {
 	v := r.restored
 	r.installController(t, v, m7rRestoredAddress)
@@ -556,6 +557,45 @@ func (r *m7rRun) installRestored(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// The agent unit is active as soon as its process starts, and a stop that
+	// arrives before its startup ends leaves it failed. stop-services is not
+	// about that window, so wait until the local host has come online.
+	id := r.query(t, v, "SELECT id FROM core_hosts WHERE is_local = 1")
+	if id == "" {
+		t.Fatal("the restored controller lists no local host")
+	}
+	err := eventually(r.ctx, 2*time.Minute, func(ctx context.Context) error {
+		journal, err := v.Run(ctx, "sudo journalctl -u "+update.ControllerUnit+" --no-pager")
+		if err != nil {
+			return err
+		}
+		return m7rLocalOnline(journal, id)
+	})
+	if err != nil {
+		journal, _ := v.Run(r.ctx, "sudo journalctl -u "+update.ControllerUnit+" -u "+update.AgentUnit+" --no-pager -n 80")
+		t.Fatalf("%v\njournal:\n%s", err, journal)
+	}
+}
+
+// m7rLocalOnline accepts a controller journal whose latest fleet: host online
+// or fleet: host offline line for the host id says online.
+func m7rLocalOnline(journal, id string) error {
+	online := false
+	for line := range strings.Lines(journal) {
+		if !slices.Contains(strings.Fields(line), "host="+id) {
+			continue
+		}
+		switch {
+		case strings.Contains(line, `msg="fleet: host online"`):
+			online = true
+		case strings.Contains(line, `msg="fleet: host offline"`):
+			online = false
+		}
+	}
+	if !online {
+		return fmt.Errorf("the controller journal does not show host %s online", id)
+	}
+	return nil
 }
 
 // untouched requires that the restored controller's directory holds no
