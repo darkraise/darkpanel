@@ -12,7 +12,7 @@
 
 **Execution:** subagent — `claude --model sonnet --effort high` — the plan runs parallel waves, and each task's **Implementer:** line chooses its implementer
 
-**Parallelism:** waves — 1 | 2-4 | 5-7 | 8 | 9-11 | 12 | 13 | 14 | 15 | 16 | 17-18 | 19
+**Parallelism:** waves — 1 | 2-3 | 4-6 | 7 | 8-10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19
 
 **Task check:** none — full suite every 3 tasks
 
@@ -24,28 +24,30 @@
 
 **Wave check:** `mkdir -p /root/.cache/w7-tmp/wave && export TMPDIR=/root/.cache/w7-tmp/wave GOTOOLCHAIN=local && timeout 600 go build ./... && timeout 300 go vet ./... && timeout 900 go test -count=1 ./internal/controller/... ./internal/cli/... ./internal/install/... ./internal/core/... ./schemas/... && timeout 300 go vet -tags harness ./test/...`
 
+**Plan review:** 2026-11-04 — dforge:judge-opus — executability 15 / coherence 15 / coverage 14 / assumptions 15 (round 1)
+
 ## Global Constraints
 
-- Scope is spec revision 8 as amended on `main`: section 10's Backup format, Restore (phases 1–8, rename intent, recovery), Restore quarantine (marking, admitted operations, resolve outcomes, release) and Routes; the ExecStartPre line of the controller unit; the wave 7 row of Parallel decomposition; the tests section 10 lists; the plan rulings W7-R1 to W7-R15 under Assumptions, which Task 8 copies into spec section 10; and the register rows the tasks' **Items:** lines name. Out of scope: the runbook, CHANGELOG and versioning (wave 10), the fuzz target for the backup header and frames (wave 9a; Task 1 only keeps the parser fuzzable), panel exposures (wave 8; W7-R10), and the web UI (spec 10 defines none).
+- Scope is spec revision 8 as amended on `main`: section 10's Backup format, Restore (phases 1–8, rename intent, recovery), Restore quarantine (marking, admitted operations, resolve outcomes, release) and Routes; the ExecStartPre line of the controller unit; the wave 7 row of Parallel decomposition; the tests section 10 lists; the plan rulings W7-R1 to W7-R15 under Assumptions, which Task 7 copies into spec section 10; and the register rows the tasks' **Items:** lines name. Out of scope: the runbook, CHANGELOG and versioning (wave 10), the fuzz target for the backup header and frames (wave 9a; Task 1 only keeps the parser fuzzable), panel exposures (wave 8; W7-R10), and the web UI (spec 10 defines none).
 - Host safety (absolute). This host is live: it runs an installed `darkpanel-agent`, `darkpanel-controller` and a Docker daemon. No test or command of this plan reads or writes `/var/lib/darkpanel`, `/etc/darkpanel`, `/run/darkpanel*` or `/run/darkpanel-restore.lock`, talks to D-Bus or systemd, runs `systemctl`, `docker`, `ufw` or `iptables`, or starts, stops or reloads a unit. Every path in a unit test comes from `paths.Under(t.TempDir())` or `t.TempDir()`; every restore and recovery test builds a `backup.Host` (Contracts "Restore host") with a fake `core.Units`, a fake `Euid`, an `Owner` that answers the test process's own uid and gid, and a lock file in `t.TempDir()`. `backup.ProductionHost` is never called from a test. The real restore, recovery and unit run only on harness VMs (Task 19).
 - Every `go`, `golangci-lint`, `make` and `pnpm` command runs with `GOTOOLCHAIN=local`, an explicit `timeout`, and `TMPDIR=/root/.cache/w7-tmp/<task number>` (`mkdir -p` it first; remove it and run `go clean -testcache` when the task ends), also where a step's command omits one of them: `/tmp` is an 8 GiB tmpfs and Unix socket paths over 108 bytes fail. When `df -h /` shows 90 % or more before a task's first build, trim the Go build cache (`go clean -cache` is acceptable).
 - Dependencies: no task changes `go.mod`, `go.sum`, `web/package.json` or `web/pnpm-lock.yaml`. `golang.org/x/crypto/argon2`, `golang.org/x/crypto/chacha20poly1305` and `github.com/oklog/ulid/v2` are already in the module graph; after every task `GOTOOLCHAIN=local timeout 300 go mod tidy -diff` prints nothing.
-- After every task all of these pass, with their real output recorded: `go build ./...`; `go vet ./...` (no output); `go test -count=1 ./...` (every line `ok` or `?`); `go test -race -count=1` on the task's packages; `golangci-lint run --allow-serial-runners ./...` (`0 issues.`); `go mod tidy -diff` (no output). A task that edits `test/harness/` also runs `go vet -tags harness ./test/...`, `golangci-lint run --allow-serial-runners --build-tags harness ./test/...` and `go test -tags harness -count=1 -run 'Unit' ./test/harness/...`. Only Task 8 runs `make schemas` and commits a snapshot.
+- After every task all of these pass, with their real output recorded: `go build ./...`; `go vet ./...` (no output); `go test -count=1 ./...` (every line `ok` or `?`); `go test -race -short -count=1` on the task's packages (`-short` strides Task 15's crash matrices under the race detector; the plain suite runs them in full); `golangci-lint run --allow-serial-runners ./...` (`0 issues.`); `go mod tidy -diff` (no output). A task that edits `test/harness/` also runs `go vet -tags harness ./test/...`, `golangci-lint run --allow-serial-runners --build-tags harness ./test/...` and `go test -tags harness -count=1 -run 'Unit' ./test/harness/...`. Only Task 7 runs `make schemas` and commits a snapshot.
 - TDD: write the test, run it and see the expected RED (usually a build failure naming the first undefined identifier), implement, run GREEN. Quote the RED and GREEN output in the report verbatim, not a paraphrase. A task that skips the full-suite line above says so and why in its report.
-- Frozen files, which no task edits except where a task's **Files:** block names the file: `internal/core/**` (Task 8 names `internal/core/store/migrations/controller/0013_restore_quarantine.sql`, `internal/core/store/migrations_test.go` and `internal/core/fleet.go`), `internal/platform/**`, `internal/modules/**`, `internal/controller/**` except `internal/controller/backup/**` (Task 6 names `internal/controller/server/extensions.go`, `extensions_test.go` and `services_test.go`), `internal/cli/**` except `internal/cli/controller_backup*.go` and `internal/cli/controller_quarantine*.go`, `internal/install/**` except Task 4's files, `cmd/darkpanel/**`, `internal/paths/**`, `internal/update/**`, `internal/transport/**`, `go.mod`, `go.sum`, `web/**`, `schemas/**` except Task 8's regenerated snapshot, `Makefile`, `test/harness/**` except Task 19's files, `.github/workflows/**` except `harness.yml` in Task 19. A task that finds a missing code, field or extension point in a frozen file stops and reports it; it does not edit the file. Tasks 6 and 8 are Integrator tasks: spec 1.12 freezes their files, and the plan rulings W7-R1 and W7-R2 authorise exactly the edits their steps describe.
+- Frozen files, which no task edits except where a task's **Files:** block names the file: `internal/core/**` (Task 7 names `internal/core/store/migrations/controller/0013_restore_quarantine.sql`, `internal/core/store/migrations_test.go` and `internal/core/fleet.go`), `internal/platform/**`, `internal/modules/**`, `internal/controller/**` except `internal/controller/backup/**` (Task 5 names `internal/controller/server/extensions.go`, `extensions_test.go` and `services_test.go`), `internal/cli/**` except `internal/cli/controller_backup*.go` and `internal/cli/controller_quarantine*.go`, `internal/install/**` except Task 18's files, `cmd/darkpanel/**`, `internal/paths/**`, `internal/update/**`, `internal/transport/**`, `go.mod`, `go.sum`, `web/**`, `schemas/**` except Task 7's regenerated snapshot, `Makefile`, `test/harness/**` except Task 19's files, `.github/workflows/**` except `harness.yml` in Task 19. A task that finds a missing code, field or extension point in a frozen file stops and reports it; it does not edit the file. Tasks 5 and 7 are Integrator tasks: spec 1.12 freezes their files, and the plan rulings W7-R1 and W7-R2 authorise exactly the edits their steps describe.
 - A task edits only the files of its own **Files:** block. Each task of a wave runs in its own worktree from the wave's base (`main` plus every merged earlier wave), so a package-wide command sees only merged work plus the task's own files. "The base" in a task's text means the work its **Depends on** line names.
 - Test isolation: `t.TempDir()` for files, databases, journals and lock files; no TCP listener except `httptest` on `127.0.0.1` port 0 or a Unix socket under `t.TempDir()`; `coretest.NewFakeClock` wherever a duration above one second is waited on; no package-level mutable state written by tests (fault injection goes through `backup.Ops` and `backup.Host` fields, never a replaced package variable). Tests that run argon2id use `backup.TestParams` (Contracts "Format") and are not marked `t.Parallel()`, so no more than one 64 MiB derivation runs per test binary at a time. Tasks of one wave therefore share no port, path or global state.
-- Tasks that share a Go package declare no top-level identifier, test helpers included, that another task declares. Every new test identifier in `internal/controller/backup` carries its task's prefix from Contracts "Test prefixes"; only Task 3 declares the shared fixtures of Contracts "Controller database fixture", and only Task 2 declares the crash wrapper of Contracts "Durable file operations".
+- Tasks that share a Go package declare no top-level identifier, test helpers included, that another task declares. Every new test identifier in `internal/controller/backup` carries its task's prefix from Contracts "Test prefixes"; only Task 3 declares the shared fixtures of Contracts "Controller database fixture", and only Task 2 declares the crash wrapper of Contracts "Durable file operations". Non-test code follows the same rule: an unexported top-level identifier a task adds in `internal/controller/backup` that neither Contracts nor the task's own text names starts with its task's word: Task 1 `format`, Task 2 `durable`, Task 3 `config`, Task 4 `journal`, Task 6 `guard`, Task 8 `mark`, Task 9 `quarantine`, Task 11 `validate`, Task 12 `stream`, Task 13 `resolve`, Task 14 `restore`, Task 15 `recover`, Task 16 `route`.
 - Code style: match the surrounding code; a doc comment on every exported identifier; comments only for a non-obvious why, in full sentences, never naming a plan, task, register row or review; `//nolint` names the rule and a reason; gofmt clean. Error strings start with the package name (`backup:`, `cli:` only where the package already does, `server:`, `store:`, `harness:`). Route refusals are `*errcode.Error` with client-safe details using only codes already in `internal/core/errcode/errcode.go` (`core.quarantined`, `core.change_busy`, `plan.state_changed`, `request.invalid_input`, `not_found`); every other failure is a plain wrapped error.
 - Secrets: no log line, error, audit row, problem detail, journal or test failure message carries a passphrase, the controller key, a key file's bytes, a token or decrypted backup bytes. The passphrase is held as `[]byte` and zeroed (`clear`) after the key derivation; the derived key is zeroed after the file is written or read.
 - Durability: every file the restore and the recovery create is written through `backup.Ops` as create (O_EXCL, mode 0600), write, fsync, close, then rename where the step says so, then an fsync of the directory; every rename is followed by an fsync of its directory before the next step. No restore or recovery step writes to a database after phase 3 (spec 10); phase 7 and recovery open the installed database read-only.
 - Values copied from the spec, used exactly: magic `DPBK`, version byte `1`, argon2id bounds t 1–10, m 65536–1048576 KiB, p 1–16, defaults t=3, m=65536, p=4; 16-byte salt, 16-byte nonce prefix, nonce `prefix || uint64 BE chunk index`; chunks of at most 64 KiB plaintext; associated data `header || 0x00` for every chunk but the last and `header || 0x01` for the last; at most 2^32 chunks; tar members exactly `controller.db` then `controller.key`; journal `/var/lib/darkpanel/controller/restore-<tx>.journal` (that is, `<ControllerDir>/restore-<tx>.journal`); staged names `<file>.restore-<tx>`, set-aside names `<file>.pre-<tx>`; lock file `/run/darkpanel-restore.lock`; installed owner `darkpanel` and mode 0600; the refusal text "start the controller or run `darkpanel controller restore --recover` first"; the unit line `ExecStartPre=+{{.Binary}} controller restore --recover`; `core_meta.restore_quarantine` `{"tx", "restoredAt", "backupCreatedAt"}`; the never-applied reason "restore: never applied"; the five routes and their bodies of spec 10 Routes; enrollment tokens valid one hour (`fleet.TokenTTL`).
 - Commits use `<type>(<scope>): <subject>`, type one of feat|fix|docs|style|refactor|test|chore|perf, subject at most 50 characters, imperative, no trailing period, no attribution of any kind. English only.
-- The plan ends with the gates in `docs/dforge/gates.md`. Tasks 4 and 19 touch `internal/install/`, `test/harness/` and `.github/workflows/harness.yml`, so gate 7 (harness) applies to the branch once it is pushed, as well as on `main`; dispatch `harness.yml` on the branch per the owner's standing authorization. No task creates or pushes a tag, and no task runs `release.yml`.
+- The plan ends with the gates in `docs/dforge/gates.md`. Tasks 18 and 19 touch `internal/install/`, `test/harness/` and `.github/workflows/harness.yml`, so gate 7 (harness) applies to the branch once it is pushed, as well as on `main`; dispatch `harness.yml` on the branch per the owner's standing authorization. No task creates or pushes a tag, and no task runs `release.yml`.
 
 ## Contracts
 
-- **Test prefixes** (`internal/controller/backup`): Task 1 `Fm`, Task 2 `Du`, Task 3 `Cb`, Task 5 `Jn`, Task 7 `Rg`, Task 9 `Mk`, Task 10 `Ql`, Task 12 `Vf`, Task 13 `Bs`, Task 14 `Rs`, Task 15 `Rt`, Task 16 `Rc`, Task 17 `Ro`. Elsewhere: Task 6 `Xb` (`internal/controller/server`), Task 8 `Rq` (`internal/core/store`), Task 11 `Cq` and Task 18 `Ck` (`internal/cli`), Task 4 `Ru` (`internal/install`), Task 19 `M7r` (`test/harness`, harness tests `TestM7Restore*`, unit tests `TestM7rUnit*`).
+- **Test prefixes** (`internal/controller/backup`): Task 1 `Fm`, Task 2 `Du`, Task 3 `Cb`, Task 4 `Jn`, Task 6 `Rg`, Task 8 `Mk`, Task 9 `Ql`, Task 11 `Vf`, Task 12 `Bs`, Task 13 `Rs`, Task 14 `Rt`, Task 15 `Rc`, Task 16 `Ro`. Elsewhere: Task 5 `Xb` (`internal/controller/server`), Task 7 `Rq` (`internal/core/store`), Task 10 `Cq` and Task 17 `Ck` (`internal/cli`), Task 18 `Ru` (`internal/install`), Task 19 `M7r` (`test/harness`, harness tests `TestM7Restore*`, unit tests `TestM7rUnit*`).
 
 - **Configuration and contribution** (Task 3, `internal/controller/backup/contribute.go`):
 
@@ -69,13 +71,13 @@
   }
 
   func New(cfg Config) *Backup
-  // Contribute returns the backup and quarantine routes; Task 3 returns nil, nil, nil, Task 17 the five routes.
+  // Contribute returns the backup and quarantine routes; Task 3 returns nil, nil, nil, Task 16 the five routes.
   func (b *Backup) Contribute(deps ext.Deps) ([]ext.Route, []ext.Service, error)
   ```
 
-  The package-level `func Contribute(ext.Deps) ([]ext.Route, []ext.Service, error)` stays, unchanged, until Task 17 deletes it with its test `TestContributeAddsNothingYet`; Task 6 moves the server to `New(...).Contribute`.
+  The package-level `func Contribute(ext.Deps) ([]ext.Route, []ext.Service, error)` stays, unchanged, until Task 16 deletes it with its test `TestContributeAddsNothingYet`; Task 5 moves the server to `New(...).Contribute`.
 
-- **Server call site** (Task 6, `internal/controller/server/extensions.go`, `contributions()`): the backup contributor becomes `contributor{name: "backup", c: controllerFunc(backup.New(backup.Config{KeyFile: s.opts.Paths.ControllerKey, Tokens: s.authority, AgentAdvertise: s.opts.AgentAdvertise}).Contribute)}`. `ext.Deps` is unchanged. If `s.authority` can be nil when `contributions()` runs, Task 6 passes a nil `Tokens` in that case (never a typed nil pointer in the interface).
+- **Server call site** (Task 5, `internal/controller/server/extensions.go`, `contributions()`): the backup contributor becomes `contributor{name: "backup", c: controllerFunc(backup.New(backup.Config{KeyFile: s.opts.Paths.ControllerKey, Tokens: s.authority, AgentAdvertise: s.opts.AgentAdvertise}).Contribute)}`. `ext.Deps` is unchanged. If `s.authority` can be nil when `contributions()` runs, Task 5 passes a nil `Tokens` in that case (never a typed nil pointer in the interface).
 
 - **Controller database fixture** (Task 3, `internal/controller/backup/fixture_test.go`; every helper carries `//nolint:unused // shared helper for this package's tests` until a task uses it):
 
@@ -190,7 +192,7 @@
   func (c *crashOps) Crashed() bool
   ```
 
-- **Journal** (Task 5, `internal/controller/backup/journal.go`):
+- **Journal** (Task 4, `internal/controller/backup/journal.go`):
 
   ```go
   type Phase string
@@ -248,7 +250,7 @@
   var ErrAmbiguousRename = errors.New("backup: a journaled rename cannot be settled")
   ```
 
-- **Restore host** (Task 7, `internal/controller/backup/restore_guard.go`):
+- **Restore host** (Task 6, `internal/controller/backup/restore_guard.go`):
 
   ```go
   const RestoreLockPath = "/run/darkpanel-restore.lock"
@@ -266,16 +268,18 @@
       Log      *slog.Logger
   }
   // ProductionHost returns the production Host over p; its Close releases the D-Bus connection.
-  func ProductionHost(ctx context.Context, p paths.Paths) (Host, func() error, error)
+  // With withUnits false it opens no D-Bus connection, Units is nil and Close does nothing: recovery
+  // runs before every controller start and never checks the services, so it must not depend on D-Bus.
+  func ProductionHost(ctx context.Context, p paths.Paths, withUnits bool) (Host, func() error, error)
   // lock takes an exclusive non-blocking flock on h.LockFile (created 0600) and returns its release.
   func (h Host) lock() (func(), error)
   // checkRestore runs the restore's preconditions in this order and returns the first refusal.
   func (h Host) checkRestore(ctx context.Context) error
   ```
 
-  Refusal messages, exact: not root → `backup: a restore must run as root`; controller not installed (no `UnitFile`, no `Paths.ControllerDir` directory or no `Paths.ControllerKey`) → `backup: no controller is installed here; run darkpanel system install --role controller first`; a service whose `ActiveState` is not `inactive` or `failed` (a unit with `LoadState` `not-found` counts as stopped) → `backup: stop darkpanel-controller.service and darkpanel-agent.service before a restore (<unit> is <ActiveState>)`; a `restore-*.journal` file in `Paths.ControllerDir` (found by Task 7's own unexported `pendingJournals`, because Task 5's `ListJournals` lands in the same wave) → `backup: an unfinished restore exists (<journal path>); start the controller or run ` + "`darkpanel controller restore --recover`" + ` first`; lock held → `backup: another restore or recovery holds <LockFile>`. Units checked: `update.ControllerUnit` then `update.AgentUnit`.
+  Refusal messages, exact: not root → `backup: a restore must run as root`; controller not installed (no `UnitFile`, no `Paths.ControllerDir` directory or no `Paths.ControllerKey`) → `backup: no controller is installed here; run darkpanel system install --role controller first`; a service whose `ActiveState` is not `inactive` or `failed` (a unit with `LoadState` `not-found` counts as stopped) → `backup: stop darkpanel-controller.service and darkpanel-agent.service before a restore (<unit> is <ActiveState>)`; a `restore-*.journal` file in `Paths.ControllerDir` (found by Task 6's own unexported `pendingJournals`, because Task 4's `ListJournals` lands in the same wave) → `backup: an unfinished restore exists (<journal path>); start the controller or run ` + "`darkpanel controller restore --recover`" + ` first`; lock held → `backup: another restore or recovery holds <LockFile>`. Units checked: `update.ControllerUnit` then `update.AgentUnit`.
 
-- **Marking** (Task 9, `internal/controller/backup/mark.go`):
+- **Marking** (Task 8, `internal/controller/backup/mark.go`):
 
   ```go
   // NonTerminal are the change states restore quarantines (spec 1.3 "Locks across restarts" without quarantined).
@@ -287,7 +291,7 @@
 
   In order, in one `db.Write`: upsert `core_meta.restore_quarantine` with `json.Marshal(m)`; every `core_changes` row whose state is in `NonTerminal` gets `quarantined_from = state`, `state = 'quarantined'`, `recovery_owner = ''`, `updated_at = <m.RestoredAt in the lifecycle format 2006-01-02T15:04:05.000000000Z>`; `core_task_runs` rows are deleted when that table exists; every `core_rollouts` row in `running` or `draining` gets `quarantined_from = state`, `state = 'quarantined'`, `updated_at`; every `core_listeners` row in `open` becomes `closed` with `updated_at`; every `core_locks` row whose owner is not the id of a `core_changes` row in state `quarantined` is deleted (update reservations and every other owner), the rest are kept. Records already `quarantined` (a backup taken during an earlier quarantine) keep their state and `quarantined_from`.
 
-- **Validation and verification** (Task 12, `internal/controller/backup/validate.go`):
+- **Validation and verification** (Task 11, `internal/controller/backup/validate.go`):
 
   ```go
   const CanaryKey = "backup_canary"                    // core_meta key
@@ -310,7 +314,7 @@
 
   The canary's value is `base64.StdEncoding` of `Sealer.Seal(CanaryAD, json.Marshal(Canary{CreatedAt}))`. A missing canary, a seal that does not open or a failed integrity check each fail with an error naming which check failed, never with key or database bytes.
 
-- **Backup handler** (Task 13, `internal/controller/backup/stream.go`):
+- **Backup handler** (Task 12, `internal/controller/backup/stream.go`):
 
   ```go
   // BackupRequest is the body of POST /api/v1/controller/backup.
@@ -323,7 +327,7 @@
 
   Body at most 64 KiB, unknown fields refused; passphrase 1–1024 bytes; otherwise `request.invalid_input`. A second backup while one streams → `409 core.change_busy` "another backup is running". Before the copy the handler upserts the canary (Contracts "Validation and verification") with `deps.Clock.Now()`, then `VACUUM INTO` a temporary file `<dir of deps.DB.Path()>/backup-<ULID>.db` (removed when the handler returns, whatever happens), reads `cfg.KeyFile` (regular file, at most `MaxKeyMember` bytes, opened with `O_NOFOLLOW`), and only then answers `200` `application/octet-stream` with `Content-Disposition: attachment; filename="darkpanel-controller-<UTC 20060102T150405Z>.dpbk"`, streaming `Write(w, crypto/rand.Reader, ...)`. A failure after the first body byte aborts the response with `panic(http.ErrAbortHandler)` so the client sees a truncated file. One audit row per backup through `deps.Audit.Record` (Contracts "Audit").
 
-- **Quarantine routes** (Task 10, `internal/controller/backup/quarantine_routes.go`; Task 14, `resolve.go`), wire types exact:
+- **Quarantine routes** (Task 9, `internal/controller/backup/quarantine_routes.go`; Task 13, `resolve.go`), wire types exact:
 
   ```go
   // Record is one quarantined record.
@@ -355,7 +359,7 @@
   }
   type ReleaseResult struct{ HeldLocks []HeldLock `json:"heldLocks"` } // sorted by key; [] when none
 
-  // Task 10:
+  // Task 9:
   func listRecords(ctx context.Context, q queryer) ([]Record, error) // queryer: *sql.DB or *sql.Tx
   func recordByID(ctx context.Context, q queryer, id string) (Record, bool, error)
   type queryer interface {
@@ -365,15 +369,35 @@
   func (b *Backup) quarantineHandler(deps ext.Deps) http.Handler  // GET
   func (b *Backup) enrollTokenHandler(deps ext.Deps) http.Handler // POST
   func (b *Backup) releaseHandler(deps ext.Deps) http.Handler     // POST
-  // Task 14:
+  // Task 13:
   func (b *Backup) resolveHandler(deps ext.Deps) http.Handler     // POST, path value "record"
   ```
 
-  Resolve answers the record after the outcome as `Record` with `QuarantinedFrom` kept and `Kind` unchanged (the state is not part of `Record`; the answer adds nothing else). Every body is at most 64 KiB with unknown fields refused. Problems go through `errcode` as the other contributed routes do (read how `internal/modules/cloudflare` or `tailnet` routes write a problem, or `internal/controller/api` helpers exported for contributions; if none is exported, write `application/problem+json` with `type`, `title`, `status`, `detail` and `code` as `internal/controller/api` does and report the duplication).
+  Resolve answers the record after the outcome as `Record` with `QuarantinedFrom` kept and `Kind` unchanged (the state is not part of `Record`; the answer adds nothing else). Every body is decoded by `decodeBody` and every problem answered by `writeProblem` (Contracts "Route helpers").
 
-- **Routes** (Task 17, `Backup.Contribute`), all `ext.SurfaceSocket`: `POST /api/v1/controller/backup` (`Stream: true`), `GET /api/v1/controller/quarantine`, `POST /api/v1/controller/quarantine/{record}/resolve`, `POST /api/v1/controller/quarantine/enroll-token`, `POST /api/v1/controller/quarantine/release`. No service.
+- **Route helpers** (Task 9, `internal/controller/backup/quarantine_routes.go`; Tasks 12 and 13 call them and declare no copy). No module or `internal/controller/api` helper is exported for contributed routes, so the package declares its own:
 
-- **Restore and recovery** (Task 15, `restore.go`; Task 16, `recover.go`):
+  ```go
+  const maxRouteBody = 64 << 10
+  // writeProblem answers err as application/problem+json with type "about:blank", title, status,
+  // detail, code and errors, as internal/controller/api/wire.go does: it takes the *errcode.Error in
+  // the chain (errcode.From), maps a code outside the registry to internal, and for a 5xx answers only
+  // the code's title as the detail and logs the cause with log.Error.
+  func writeProblem(w http.ResponseWriter, log *slog.Logger, err error)
+  // writeJSON answers v as application/json with status.
+  func writeJSON(w http.ResponseWriter, log *slog.Logger, status int, v any)
+  // decodeBody decodes one JSON object of at most maxRouteBody bytes (http.MaxBytesReader over w) into
+  // dst, unknown members refused and nothing but whitespace after it; every defect is
+  // request.invalid_input with a fixed text that never repeats input.
+  func decodeBody(w http.ResponseWriter, r *http.Request, dst any) error
+  // recordAudit writes one Contracts "Audit" row with Result "ok", At deps.Clock.Now(), no Input and
+  // Source and ID empty; a failed write is logged with deps.Log.Error and never changes the answer.
+  func recordAudit(ctx context.Context, deps ext.Deps, action, phase, changeID, hostID string)
+  ```
+
+- **Routes** (Task 16, `Backup.Contribute`), all `ext.SurfaceSocket`: `POST /api/v1/controller/backup` (`Stream: true`), `GET /api/v1/controller/quarantine`, `POST /api/v1/controller/quarantine/{record}/resolve`, `POST /api/v1/controller/quarantine/enroll-token`, `POST /api/v1/controller/quarantine/release`. No service.
+
+- **Restore and recovery** (Task 14, `restore.go`; Task 15, `recover.go`):
 
   ```go
   type RestoreResult struct {
@@ -383,47 +407,61 @@
   // Restore runs spec 10's phases 1-8 under h.lock() after h.checkRestore.
   func Restore(ctx context.Context, h Host, in io.Reader, passphrase []byte) (RestoreResult, error)
   // Recover processes every journal oldest first under h.lock(); with no journal it returns nil at once
-  // without taking the lock. It never checks the services (spec 10).
+  // without taking the lock. It never checks the services (spec 10) and never uses h.Units, which is nil
+  // in production recovery.
   func Recover(ctx context.Context, h Host) error
+
+  // Unexported, declared by Task 14 in restore.go and consumed by Task 15:
+  // removeTx applies the rollback rule below to tx, the journal last.
+  func removeTx(h Host, tx string) error
+  // installStaged is phase 6 and safe to repeat: for the staged database, then the staged key, it skips
+  // a rename Settle reports done, and otherwise chowns the staged file to h.Owner(), chmods it 0600 and
+  // calls RenameJournaled(h.Ops, journalPath, j, PhaseInstalled, staged, installed).
+  func installStaged(h Host, journalPath string, j *Journal) error
+  // finishTx is phases 7 and 8: VerifyInstalled (a failure keeps the journal), save PhaseVerified,
+  // removeTx, then dropOldAside.
+  func finishTx(ctx context.Context, h Host, journalPath string, j *Journal) error
+  // dropOldAside removes every <target>.pre-<tx'> of Targets with tx' other than tx (W7-R11).
+  func dropOldAside(h Host, tx string) error
   ```
 
-  Rollback of a transaction removes, through `h.Ops`, every name carrying its tx: `StagedName` of `Paths.ControllerDB()`, of `ControllerDB()+"-wal"`, of `ControllerDB()+"-shm"` (SQLite creates the latter two beside the staged database while phases 2 and 3 have it open), of `Paths.ControllerKey`, and finally the journal, each followed by `SyncDir`. Phase 6 installs only the staged database and key; before each rename it chowns the staged file to `h.Owner()` and chmods it 0600. A completed transaction removes every `<target>.pre-<tx'>` with `tx'` different from its own after its journal is removed (W7-R11).
+  Rollback of a transaction removes, through `h.Ops` and in this order, every name carrying its tx: `StagedName(Paths.ControllerDB(), tx)`, then `StagedName(Paths.ControllerDB(), tx)+"-wal"` and `StagedName(Paths.ControllerDB(), tx)+"-shm"` (SQLite creates these two beside the staged database while phases 2 and 3 have it open), `StagedName(Paths.ControllerKey, tx)`, the journal path plus `.new`, and finally the journal, each followed by `SyncDir` of its directory; a missing name is not an error. Phase 6 installs only the staged database and key; before each rename it chowns the staged file to `h.Owner()` and chmods it 0600. A completed transaction removes every `<target>.pre-<tx'>` with `tx'` different from its own after its journal is removed (W7-R11).
 
-- **CLI** (Task 11, `internal/cli/controller_quarantine.go`; Task 18, `internal/cli/controller_backup.go`):
+- **CLI** (Task 10, `internal/cli/controller_quarantine.go`; Task 17, `internal/cli/controller_backup.go`):
 
   ```go
-  // Task 11: the "quarantine" group with list, resolve <record> done|never|repair,
+  // Task 10: the "quarantine" group with list, resolve <record> done|never|repair,
   // enroll-token <host> and release [--keep-unresolved]; each takes the socket flags
   // (addConnFlags(cmd, true, false)) and --json.
   func (a *app) quarantineCommand() *cobra.Command
-  // Task 18: backupCommands returns backup, restore and a.quarantineCommand(), in that order.
+  // Task 17: backupCommands returns backup, restore and a.quarantineCommand(), in that order.
   func backupCommands(a *app) []*cobra.Command
   ```
 
   `darkpanel controller backup --out <file> [--passphrase-file <path>] [--argon2-t N] [--argon2-m KiB] [--argon2-p N]`; `darkpanel controller restore --in <file> [--passphrase-file <path>]`; `darkpanel controller restore --recover` (takes no other flag). A passphrase file must be a regular file owned by uid 0 with no permission bits outside 0600; one trailing newline is stripped. Without `--passphrase-file` the passphrase is read twice through `Options.ReadSecret` on a terminal, and must match.
 
-- **Audit** (Tasks 10, 13, 14): one `deps.Audit.Record` row per backup, enroll-token, resolve and release, with `Actor` `local:root@<deps.LocalHostID>`, `Action` `controller.backup`, `controller.quarantine.enroll-token`, `controller.quarantine.resolve` or `controller.quarantine.release`, `ChangeID` the record id for resolve and `HostID` the host for enroll-token, and the `Phase`, `Result`, `Source` and `ID` values `internal/modules/cloudflare/hostnames_service.go` uses for its own `Record` call; no input, passphrase or token in the row.
+- **Audit** (Tasks 9, 12, 13): one `deps.Audit.Record` row per backup, enroll-token, resolve and release, with `Actor` `local:root@<deps.LocalHostID>`, `At` `deps.Clock.Now()`, `Source` and `ID` empty, and no input, passphrase or token in the row. Action and phase: `controller.backup` with `apply`; `controller.quarantine.enroll-token` with `apply` and `HostID` the host; `controller.quarantine.resolve` with `resolve` and `ChangeID` the record id; `controller.quarantine.release` with `release`. `Result` is `ok`, except a backup stream aborted after its first body byte, which writes `error` with `ErrorCode` `internal`. `core_audit.phase` carries a CHECK list (migrations 0004, 0010, 0011: apply, confirm, revert, recover, interrupt, login, logout, undo, resolve, release, revert-watchdog, reveal, uninstall-abort) that refuses every other phase, `check` and `delete` included, and `core_audit.result` accepts only `ok`, `error` and `override`.
 
-- **Schema** (Task 8, migration `internal/core/store/migrations/controller/0013_restore_quarantine.sql`): `core_changes.quarantined_from TEXT` (NULL unless quarantined); `core_rollouts` and `core_rollout_hosts` rebuilt so `core_rollouts.state` also accepts `quarantined` and `core_rollouts` gains `quarantined_from TEXT`, every row, index and the `ON DELETE CASCADE` reference kept; `internal/core/fleet.go` gains `RolloutQuarantined = "quarantined"` and `enum=quarantined` on the rollout view's `state`.
+- **Schema** (Task 7, migration `internal/core/store/migrations/controller/0013_restore_quarantine.sql`): `core_changes.quarantined_from TEXT` (NULL unless quarantined); `core_rollouts` and `core_rollout_hosts` rebuilt so `core_rollouts.state` also accepts `quarantined` and `core_rollouts` gains `quarantined_from TEXT`, every row, index and the `ON DELETE CASCADE` reference kept; `internal/core/fleet.go` gains `RolloutQuarantined = "quarantined"` and `enum=quarantined` on the rollout view's `state`.
 
-- **Unit** (Task 4, `internal/install/units/darkpanel-controller.service`): the line `ExecStartPre=+{{.Binary}} controller restore --recover` directly above `ExecStart={{.Binary}} serve`.
+- **Unit** (Task 18, `internal/install/units/darkpanel-controller.service`): the line `ExecStartPre=+{{.Binary}} controller restore --recover` directly above `ExecStart={{.Binary}} serve`.
 
 ## Assumptions (evidence)
 
-Plan rulings (each closes a gap or an underdetermined point of spec 10; Task 8 copies them into spec section 10 under a new "Wave 7 rulings" paragraph):
+Plan rulings (each closes a gap or an underdetermined point of spec 10; Task 7 copies them into spec section 10 under a new "Wave 7 rulings" paragraph):
 
-- **W7-R1 Schema gap (wave 0).** Spec Contracts "the `restore_quarantine` marker with its restore transaction id and `quarantined_from` on quarantined records" was not built: no migration adds `quarantined_from` (`rg quarantined_from internal/core/store/migrations` finds nothing, 2026-11-04), and `core_rollouts.state` has `CHECK (state IN ('running', 'draining', 'succeeded', 'failed', 'cancelled'))` (`internal/core/store/migrations/controller/0007_rollout.sql:14`). Task 8 (Integrator) adds migration 0013. `core_rollout_hosts` references `core_rollouts (id) ON DELETE CASCADE` (`0007_rollout.sql:40`), and `store.Open` runs with `foreign_keys(1)` (`internal/core/store/db.go:27`), so dropping `core_rollouts` would delete every rollout host row: the migration rebuilds both tables, children copied before either old table is dropped and the child dropped first. Earlier rebuild precedent: `0010_audit_phases.sql`, `0011_platform_surfaces.sql` (`core_audit_new`).
-- **W7-R2 Call-site gap (wave 0).** `ext.Deps` (`internal/core/ext/ext.go:46-57`) carries no key file path, token issuer or agent address, which the backup route (key member) and enroll-token (`fleet.Authority.IssueToken(ctx, tx, hostID, address)`, `internal/controller/fleet/tokens.go:31`) need. Task 6 (Integrator) changes only the backup contributor in `internal/controller/server/extensions.go:57`; `ext.Deps` and the modules' contributions are unchanged.
+- **W7-R1 Schema gap (wave 0).** Spec Contracts "the `restore_quarantine` marker with its restore transaction id and `quarantined_from` on quarantined records" was not built: no migration adds `quarantined_from` (`rg quarantined_from internal/core/store/migrations` finds nothing, 2026-11-04), and `core_rollouts.state` has `CHECK (state IN ('running', 'draining', 'succeeded', 'failed', 'cancelled'))` (`internal/core/store/migrations/controller/0007_rollout.sql:14`). Task 7 (Integrator) adds migration 0013. `core_rollout_hosts` references `core_rollouts (id) ON DELETE CASCADE` (`0007_rollout.sql:40`), and `store.Open` runs with `foreign_keys(1)` (`internal/core/store/db.go:27`), so dropping `core_rollouts` would delete every rollout host row: the migration rebuilds both tables, children copied before either old table is dropped and the child dropped first. Earlier rebuild precedent: `0010_audit_phases.sql`, `0011_platform_surfaces.sql` (`core_audit_new`).
+- **W7-R2 Call-site gap (wave 0).** `ext.Deps` (`internal/core/ext/ext.go:46-57`) carries no key file path, token issuer or agent address, which the backup route (key member) and enroll-token (`fleet.Authority.IssueToken(ctx, tx, hostID, address)`, `internal/controller/fleet/tokens.go:31`) need. Task 5 (Integrator) changes only the backup contributor in `internal/controller/server/extensions.go:57`; `ext.Deps` and the modules' contributions are unchanged.
 - **W7-R3 Record kinds.** `rollout`: a `core_rollouts` row; `composite`: a `core_changes` row of class `composite`; `cloud`: another `core_changes` row whose action's module (the part before the first dot) is `tailnet` or `cloudflare`; `change`: every other `core_changes` row. Cloudflare hostname phases and uncertain cloud effects belong to the change that owns them (`cloudflare_hostnames.change_id`, `core_effects.change_id`), and the hostnames service leaves an in-flight hostname to its operation (`internal/modules/cloudflare/hostnames_service.go:69-71`), so quarantining that change quarantines them. Auth-key sweeps are the `tailnet.keysweep` service, suspended until release by the service runner (`internal/controller/server/extservices.go:42-48`) and cleanup of keys Darkpanel owns afterwards, not records.
-- **W7-R4 Resolve outcomes.** `change` and `cloud`: only `repair` (state `needs_repair`, `error_code` `core.needs_repair`, `error_message` "restore: quarantined; repair it after release", `recovery_owner` '', locks kept); `done` and `never` are refused with `request.invalid_input` "a controller-side change is reconciled by repair: resolve it repair and run darkpanel change repair <id> after release", because no agent executes it and only its effects' Observe (1.2) can read the provider. `composite`: `repair` as above; `done` and `never` only when every step's child is on an agent (non-empty `host_id`; a step with an empty `host_id` and a child refuses with `request.invalid_input` naming the step and asking for repair), from each child's lookup (`HostDirectory.Agent(ctx, host).Lookup(ctx, planID, false)`): an agent that is not connected refuses with the agent's own error; `running` or `recovering` → `409 core.change_busy` naming the step; applied = `terminal` with state `confirmed`, `completed`, `repaired` or `kept`; not applied = `absent` or `retired`, or `terminal` with state `reverted`, `failed`, `interrupted` or `abandoned` and `made` 0; a step with no child plan is not applied; a read step (state `read`) counts as neither. `done` needs every other step applied and a `forward` composite, and sets `completed`; `never` needs every other step not applied, first retires every `absent` child plan (`Retire`; an answer other than `retired` or `absent` → `409 plan.state_changed`), and sets `abandoned` with `error_message` "restore: never applied"; any other mix refuses with `request.invalid_input` "the composite is partly applied; resolve it repair". `rollout`: only `never`, which sets `cancelled` with `error_message` "restore: never applied" (a rollout only orchestrates; each agent's update runs its own transaction, ADR 0007); `done` and `repair` refuse with `request.invalid_input` "a rollout resolves never; start a new rollout after release". Every outcome runs in one transaction that re-reads the record's state (`quarantined`, else `409 plan.state_changed`) and deletes the record's `core_locks` rows on `done` and `never`.
+- **W7-R4 Resolve outcomes.** `change` and `cloud`: only `repair` (state `needs_repair`, `error_code` `core.needs_repair`, `error_message` "restore: quarantined; repair it after release", `recovery_owner` '', locks kept); `done` and `never` are refused with `request.invalid_input` "a controller-side change is reconciled by repair: resolve it repair and run darkpanel change repair <id> after release", because no agent executes it and only its effects' Observe (1.2) can read the provider. `composite`: `repair` as above; `done` and `never` only when every step's child is on an agent (non-empty `host_id`; a step with an empty `host_id` and a child refuses with `request.invalid_input` naming the step and asking for repair), from each child's lookup (`HostDirectory.Agent(ctx, host).Lookup(ctx, planID, false)`): an agent that is not connected refuses with the agent's own error; `running` or `recovering` → `409 core.change_busy` naming the step; applied = `terminal` with state `confirmed`, `completed`, `repaired` or `kept`; not applied = `absent` or `retired`, or `terminal` with state `reverted`, `failed`, `interrupted` or `abandoned` and `made` 0; a step with no child plan is not applied; a read step (state `read`) counts as neither. `done` needs every other step applied and a `forward` composite, and sets `completed`; `never` needs every other step not applied, first retires every `absent` child plan (`Retire`; an answer other than `retired` or `absent` → `409 plan.state_changed`), and sets `abandoned` with `error_message` "restore: never applied"; any other mix refuses with `request.invalid_input` "the composite is partly applied; resolve it repair". `rollout`: only `never`, which sets `cancelled` with `error_message` "restore: never applied" (a rollout only orchestrates; each agent's update runs its own transaction, ADR 0007); `done` and `repair` refuse with `request.invalid_input` "a rollout resolves never; start a new rollout after release". Every outcome runs in one transaction that re-reads the record's state (`quarantined`, else `409 plan.state_changed`) and deletes the record's `core_locks` rows on `done` and `never`. A non-composite record is always one the controller's own engine executes: an agent-side apply runs in the agent's engine and database (`internal/controller/dispatch/apply.go:40-49`, `c.Apply`), and the controller keeps only a `core_change_index` row for it (`apply.go:172-184`), so agents' single changes are never in the controller's `core_changes` and restore leaves them to their agents.
 - **W7-R5 Migrate, then mark.** Spec 10 phase 3 says migrate and mark "in one SQLite transaction", but `store.Migrate` runs each migration in its own transaction (`internal/core/store/migrate.go:280`, `apply`). Restore runs `store.Migrate` on the staged database, then `Mark` in one transaction, then `PRAGMA wal_checkpoint(TRUNCATE)` and `PRAGMA journal_mode=DELETE` before closing it, then removes a leftover staged `-shm`, fsyncs the file and its directory, and only then journals `quarantined`. A crash before that journal write rolls the transaction back and discards the staged file, so nothing unmarked is ever installed: the spec's guarantee holds. `store.Open` always opens in WAL mode (`db.go:27`), hence the switch.
 - **W7-R6 Begun phase.** The journal is first saved with phase `begun` before the first staged file is created, so recovery can remove a partly written staging; spec 10 lists phases from `staged`.
 - **W7-R7 Canary.** No sealed canary exists (`rg -i canary internal` finds none, 2026-11-04). The backup handler upserts `core_meta.backup_canary` before each copy (Contracts "Validation and verification"); its sealed `createdAt` is the marker's `backupCreatedAt`, since the file format has no timestamp.
 - **W7-R8 Enroll token.** Allowed only while the quarantine is active; otherwise the route refuses with `request.invalid_input` "the controller is not in restore quarantine; use darkpanel host token"; the host must exist (`not_found`) and not be the local host (`request.invalid_input`); `cfg.Tokens` nil or `cfg.AgentAdvertise` empty refuse with `request.invalid_input` "start the controller with --agent-advertise to issue enrollment tokens". `fleet.Authority.Enroll` accepts only a `pending` or `revoked` host (`internal/controller/fleet/tokens.go:96`), and a restored host is `enrolled`, so the route sets an `enrolled` host to `pending` in the transaction it passes to `IssueToken`. The answer's `token` is the string `IssueToken` returns.
 - **W7-R9 Release.** With the quarantine not active, release answers `200` with the held locks of the remaining quarantined records (idempotent). With it active and any record quarantined and `keepUnresolved` false → `409 core.quarantined` "<n> records are still quarantined; resolve each one, or release with --keep-unresolved". Otherwise one transaction deletes `core_meta.restore_quarantine` and reads the held locks. The suspended sources start on their own: the service runner re-checks every 10 s (`extservices.go:19-22`), the rollout loops each pass (`internal/controller/rollout/suspend.go`), and composite recovery has nothing to claim on a marked database (every unfinished composite is quarantined).
-- **W7-R10 Exposures.** No exposure table exists before wave 8 (panel exposure); `Mark` marks runtime listeners only. Wave 8 adds its exposures' `needs_repair` marking to `Mark` and `VerifyInstalled`; Task 8 records a register row for it.
-- **W7-R11 Set-aside files.** A successful restore removes the `.pre-<tx'>` files of earlier transactions after its own journal is removed; this wave adds no separate cleanup command.
-- **W7-R12 Purge (rows 229, 232).** The purge of expired plans, sessions and tokens stays ungated: spec 10's list of suspended sources does not name it, and the comment in `internal/controller/server/services.go` (the `quarantined` doc comment) already says so. A plan referenced by a change cannot be purged, because `core_changes.plan_id REFERENCES core_plans (id)` (`0002_lifecycle.sql:25`) under `foreign_keys(1)`; Task 6 pins that with a test.
+- **W7-R10 Exposures.** No exposure table exists before wave 8 (panel exposure); `Mark` marks runtime listeners only. Wave 8 adds its exposures' `needs_repair` marking to `Mark` and `VerifyInstalled`; Task 7 records a register row for it.
+- **W7-R11 Set-aside files.** A successful restore removes the `.pre-<tx'>` files of earlier transactions after its own journal is removed; this wave adds no separate cleanup command. A `restore-<tx>.journal.new` that a crash inside the very first journal save leaves names no file of the installation, is ignored by `ListJournals` and by the precondition check, and stays until uninstall removes the directory.
+- **W7-R12 Purge (rows 229, 232).** The purge of expired plans, sessions and tokens stays ungated: spec 10's list of suspended sources does not name it, and the comment in `internal/controller/server/services.go` (the `quarantined` doc comment) already says so. A plan referenced by a change cannot be purged, because `core_changes.plan_id REFERENCES core_plans (id)` (`0002_lifecycle.sql:25`) under `foreign_keys(1)`; Task 5 pins that with a test.
 - **W7-R13 Audit.** Spec 10 names no audit rows for the socket routes; this plan writes one per backup, enroll-token, resolve and release (Contracts "Audit") because each is a root operation on the controller.
 - **W7-R14 Service check.** The restore checks both units through `core.Units.State` over D-Bus (`internal/platform/systemd.go`, `NewSystemd`), so no exec allowlist rule is added.
 - **W7-R15 Unit rollback.** `ExecStartPre` names a command only binaries from this wave on have; a unit is written only by `system install` (`internal/install/units.go`), so it never runs a binary older than the one that wrote it, except after a manual binary rollback below this wave, which v1's reinstall boundary (spec 10 Release candidate: 0.x → 1.0 is a reinstall) excludes.
@@ -432,6 +470,9 @@ Facts the tasks rely on:
 
 - `quarantine.Marker`, `MetaKey`, `Read`, `Active`, `Check` exist (`internal/controller/quarantine/quarantine.go`); the dispatcher refuses applies and change mutations in quarantine (`internal/controller/dispatch/quarantine.go`), the engine suspends composite recovery, the child watcher and module recovery handlers (`internal/core/lifecycle/suspend.go`, `composite_watch.go:69-79`), the rollout scheduler and driver skip passes (`internal/controller/server/services.go`, `startRollouts`), and services wait (`extservices.go`); `TestQuarantinedControllerHoldsMutations` (`internal/controller/server/assembly_quarantine_test.go:24`) shows a deleted flag releases them. Wave 7 only sets and clears the flag (spec 1.12 Quarantine gate).
 - Startup recovery keeps the locks of `quarantined` changes (`internal/core/lifecycle/recover.go:277`).
+- `store.DB` has one writer connection and four reader connections (`internal/core/store/db.go:71`, `:81`), so the reader pool must be closed before `journal_mode=DELETE`; `store.Migrate` copies the database only when `core_meta.binary_version` differs from `opts.BinaryVersion` (`internal/core/store/migrate.go:80-82`, `:148`); `buildinfo.Version` is `"dev"` unless the build sets it (`internal/buildinfo`, `Version = "dev"`).
+- The spec 10 test "the update scheduler does not run" in quarantine is wave 0's `TestQuarantineSuspendsSchedulerAndEngine` (`internal/controller/server/assembly_quarantine_test.go:117`); the composite half of "a backup taken mid-composite" is Task 19's seeded composite, with `TestQuarantineHoldsCompositeRecoveryAtStart` (`assembly_quarantine_test.go:158`) for the engine.
+- Unverified — Task 19 verifies it: a composite row inserted into the running source controller's database is left alone until the backup, because composite recovery claims composites only at start (`RecoverComposites`, `internal/core/lifecycle/composite_watch.go:60-70`).
 - The controller socket admits only root (and the service's own uid in dev mode) by `SO_PEERCRED` (`internal/controller/api/socket.go:107-110`).
 - The controller key file is `KeyPrefix + base64(32 bytes) + "\n"`, owned by `darkpanel` 0600 (`internal/core/secret/key.go:60`, ADR 0005), readable by the controller process; `/etc/darkpanel` (`Layout.ConfigDir`) and `ControllerDir` are owned directories that uninstall removes with their contents (`internal/install/layout.go:99-111`), so every staged, set-aside and journal file is already covered for uninstall (spec 10 "declared in the install layout for uninstall only").
 - `store.Backup` already copies a live database with `VACUUM INTO` (`internal/core/store/backup.go:43`); the backup handler uses the same statement on `deps.DB.Writer()`.
@@ -440,28 +481,28 @@ Facts the tasks rely on:
 - Rollout views enumerate `state` (`internal/core/fleet.go:246`), so a quarantined rollout needs `enum=quarantined` there and in `schemas/core.update.rollouts/v1.json`.
 - The full suite last passed in 261 s on 2026-11-04 under wave 6b's Integration check key; this plan's key differs, so the Task check is rule 4.
 - Unverified — Task 19 verifies it: a harness VM can stop both services, run `darkpanel controller restore`, start the controller into quarantine, and re-enroll an agent from `quarantine enroll-token` with the existing install path (`darkpanel system install --role agent` with a token, as `test/harness/m2_test.go` does).
-- No task carries an **Executor:** line unless the owner ticks one in the executor-lane question for this plan.
+- No task carries an **Executor:** line: the agy executor offer timed out with no answer on 2026-11-04.
 
 ## Task index
 
 1. Backup file format
 2. Durable file operations and the crash wrapper
 3. Backup configuration and the controller database fixture
-4. Controller unit recovery hook
-5. Restore journal
-6. Backup call site and the purge ruling
-7. Restore preconditions and lock
-8. Restore-quarantine schema and spec rulings
-9. Quarantine marking
-10. Quarantine list, enrollment token and release routes
-11. Quarantine CLI commands
-12. Staged validation and installed verification
-13. Backup stream route
-14. Quarantine resolve route
-15. Restore transaction
-16. Restore recovery and the crash matrix
-17. Backup routes end to end
-18. Backup and restore CLI commands
+4. Restore journal
+5. Backup call site and the purge ruling
+6. Restore preconditions and lock
+7. Restore-quarantine schema and spec rulings
+8. Quarantine marking
+9. Quarantine list, enrollment token and release routes
+10. Quarantine CLI commands
+11. Staged validation and installed verification
+12. Backup stream route
+13. Quarantine resolve route
+14. Restore transaction
+15. Restore recovery and the crash matrix
+16. Backup routes end to end
+17. Backup and restore CLI commands
+18. Controller unit recovery hook
 19. Harness restore test and workflow step
 
 ---
@@ -480,6 +521,9 @@ Facts the tasks rely on:
 **Items:** 54
 
 **Depends on:** none
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 3 = 8
+**Lenses:** security
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1399,7 +1443,7 @@ mkdir -p /root/.cache/w7-tmp/1 && export TMPDIR=/root/.cache/w7-tmp/1 GOTOOLCHAI
 timeout 300 go build ./...
 timeout 300 go vet ./...
 timeout 600 go test -count=1 ./internal/controller/backup
-timeout 900 go test -race -count=1 ./internal/controller/backup
+timeout 900 go test -race -short -count=1 ./internal/controller/backup
 timeout 1500 go test -count=1 ./...
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
@@ -1429,6 +1473,8 @@ git commit -m "feat(backup): add the encrypted backup format"
 **Items:** 54
 
 **Depends on:** none
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1851,7 +1897,7 @@ mkdir -p /root/.cache/w7-tmp/2 && export TMPDIR=/root/.cache/w7-tmp/2 GOTOOLCHAI
 timeout 300 go build ./...
 timeout 300 go vet ./...
 timeout 600 go test -count=1 ./internal/controller/backup
-timeout 900 go test -race -count=1 ./internal/controller/backup
+timeout 900 go test -race -short -count=1 ./internal/controller/backup
 timeout 1500 go test -count=1 ./...
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
@@ -1876,11 +1922,13 @@ git commit -m "feat(backup): add durable ops and crash wrapper"
 
 **Interfaces:**
 - Consumes: `(*fleet.Authority).IssueToken` (`internal/controller/fleet/tokens.go:31`), which `TokenIssuer` must match; `store.Open`, `store.CoreMigrations`, `store.Migrate`, `store.MigrationSet` (`internal/core/store`); `modules.All()` and each module's `Manifest().Migrations[core.SideController]`, as `migrateController` in `internal/controller/server/server.go` builds the module sets; `secret.LoadOrCreateKey`, `secret.NewSealer` (`internal/core/secret`).
-- Produces: Contracts "Configuration and contribution" (`TokenIssuer`, `Config`, `Backup`, `New`, `(*Backup).Contribute`, with the package-level `Contribute` and `TestContributeAddsNothingYet` unchanged) and Contracts "Controller database fixture" (`fxDB`, `fxChange`, `fxInsertChange`, `fxStep`, `fxInsertComposite`, `fxInsertLock`, `fxInsertRollout`, `fxInsertListener`, `fxInsertHost`, `fxKey`, `fxNow`). Beyond Contracts: `fxKey` returns the key file's bytes (the `KeyPrefix` line, newline included) as `raw`, which Task 12's `ValidateStaged` takes as its `keyFile` argument; the fixed defaults below.
+- Produces: Contracts "Configuration and contribution" (`TokenIssuer`, `Config`, `Backup`, `New`, `(*Backup).Contribute`, with the package-level `Contribute` and `TestContributeAddsNothingYet` unchanged) and Contracts "Controller database fixture" (`fxDB`, `fxChange`, `fxInsertChange`, `fxStep`, `fxInsertComposite`, `fxInsertLock`, `fxInsertRollout`, `fxInsertListener`, `fxInsertHost`, `fxKey`, `fxNow`). Beyond Contracts: `fxKey` returns the key file's bytes (the `KeyPrefix` line, newline included) as `raw`, which Task 11's `ValidateStaged` takes as its `keyFile` argument; the fixed defaults below.
 
 **Items:** 54, 69
 
 **Depends on:** none
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 1 = 6
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2163,7 +2211,7 @@ When `df -h /` shows 90 % or more, run `go clean -cache` first. Expected: FAIL w
    - `fxDB(t, dir)`: `dir` empty means `t.TempDir()`. Open `<dir>/controller.db` with `store.Open`, close it in `t.Cleanup`. Migrate it with `store.Migrate(ctx, db, store.MigrateOptions{Side: store.SideController, BinaryVersion: "test", BackupRoot: t.TempDir(), Keep: 5, Now: fxNow}, coreSet, moduleSets)` where `coreSet` is `store.CoreMigrations(store.SideController)` and `moduleSets` has one `store.MigrationSet{Module: man.ID, FS: fsys}` per module of `modules.All()` that has a controller migration FS. The backup root is a directory of its own, so `dir` holds nothing but the database files. Fail the test when `Migrate` returns an error or `Result.Failed` is not empty.
    - `fxInsertChange`: an empty `Class` becomes `string(core.ClassCompensable)`. Insert a `core_plans` row (`id` = `"plan-"` + change `ID`, `host_id` and `action` from the change, `version` 1, `actor` `user:fixture`, `input_hash`, `state_hash` and `confirmation` empty, `diff_json` `{}`, `guards_json` `[]`, `created_at` and `expires_at` `fxNow`), then a `core_changes` row (`plan_id` that plan, `version` 1, `compensated_by` empty, `actor` `user:fixture`, `input_json` `{}`, `recovery_owner` = `Owner`, `parent_change_id` = `ParentID` or NULL when empty, `created_at` and `updated_at` `fxNow`; `ID`, `HostID`, `Action`, `Class`, `State` as given, empty strings stored as empty).
    - `fxInsertComposite`: an empty `dir` means `forward`. Insert the composite's change through `fxInsertChange` (`Action` `core.fixture.composite`, class `composite`, the given `state`), a `core_composites` row (`direction`, `cursor` 0, `steps_deadline` `fxNow`) and one `core_composite_steps` row per step with `ordinal` = its index, `input_template` `{}`, an empty step `Action` becoming `test.step/v1`, an empty step `State` becoming `pending`, and `child_plan_id` and `child_change_id` NULL when empty.
-   - `fxInsertLock`: one `core_locks` row. `fxInsertRollout`: a `core_rollouts` row (`version` `1.0.0`, `channel` `stable`, `outcome` `failed` when `state` is `draining` and NULL otherwise, times `fxNow`) and one `core_rollout_hosts` row per host (`position` = its index, `state` `waiting`); the state is passed through unchanged, so a state the schema's check refuses fails the test (a rollout state `quarantined` is accepted only once Task 8's migration exists). `fxInsertListener`: a `core_listeners` row (`address` `127.0.0.1`, `port` 8443, `allowed_peer` `100.64.0.1`, `client_header` `X-Darkpanel-Client`, `public_host` `fixture.example.com`, `change_id` empty, the given `state`, times `fxNow`). `fxInsertHost`: a `core_hosts` row (`name` = `"host-"` + `id`, `is_local` 1 or 0, the given `state`, `created_at` `fxNow`).
+   - `fxInsertLock`: one `core_locks` row. `fxInsertRollout`: a `core_rollouts` row (`version` `1.0.0`, `channel` `stable`, `outcome` `failed` when `state` is `draining` and NULL otherwise, times `fxNow`) and one `core_rollout_hosts` row per host (`position` = its index, `state` `waiting`); the state is passed through unchanged, so a state the schema's check refuses fails the test (a rollout state `quarantined` is accepted only once Task 7's migration exists). `fxInsertListener`: a `core_listeners` row (`address` `127.0.0.1`, `port` 8443, `allowed_peer` `100.64.0.1`, `client_header` `X-Darkpanel-Client`, `public_host` `fixture.example.com`, `change_id` empty, the given `state`, times `fxNow`). `fxInsertHost`: a `core_hosts` row (`name` = `"host-"` + `id`, `is_local` 1 or 0, the given `state`, `created_at` `fxNow`).
    - `fxKey(t, dir)`: `secret.LoadOrCreateKey(<dir>/controller.key)` creates the file; `raw` is the file's bytes read back; `sealer` is `secret.NewSealer` over the 32 key bytes it returned.
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -2173,7 +2221,7 @@ mkdir -p /root/.cache/w7-tmp/3 && export TMPDIR=/root/.cache/w7-tmp/3 GOTOOLCHAI
 timeout 300 go build ./...
 timeout 300 go vet ./...
 timeout 600 go test -count=1 ./internal/controller/backup
-timeout 900 go test -race -count=1 ./internal/controller/backup
+timeout 900 go test -race -short -count=1 ./internal/controller/backup
 timeout 1500 go test -count=1 ./...
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
@@ -2189,160 +2237,7 @@ git add internal/controller/backup/contribute.go internal/controller/backup/cont
 git commit -m "feat(backup): add backup config and test fixtures"
 ```
 
-### Task 4: Controller unit recovery hook
-
-**Files:**
-- Modify: `internal/install/units/darkpanel-controller.service`
-- Modify: `internal/install/units_test.go`
-- Modify: `internal/install/layout_test.go`
-
-`internal/install/units.go` and `layout.go` stay as they are: the template is rendered by the existing `Units`, and the directories the layout test checks are already declared by `OwnedPaths`.
-
-**Interfaces:**
-- Consumes: `Units`, `Layout`, `Production`, `Rooted`, `OwnedPaths` and the `unitsByPath` helper of `units_test.go`; `update.ControllerUnit`; `core.OwnedDir`.
-- Produces: Contracts "Unit": the line `ExecStartPre=+{{.Binary}} controller restore --recover` directly above `ExecStart={{.Binary}} serve`, which Task 18's `restore --recover` command and Task 19's harness test rely on. It is the only change to a unit file; the drop-in, the agent unit and the rollback units do not change.
-
-**Items:** 54
-
-**Depends on:** none
-
-- [ ] **Step 1: Write the failing test**
-
-In `internal/install/units_test.go` add `"slices"` to the standard-library imports and `"github.com/darkraise/darkpanel/internal/update"` to the module imports (keep the import blocks sorted), then append the two tests below at the end of the file. They render the controller unit for the production layout and for a rooted one, and require the recovery line directly above `ExecStart` with the layout's own binary, exactly one `ExecStartPre` line, `User=darkpanel` and `TimeoutStartSec=30s` still present, and no `ExecStartPre` in any other unit or in the drop-in (an `ExecStartPre=` line in the drop-in would reset it).
-
-```go
-// TestRuControllerUnitRecoversBeforeStart: the controller unit runs the
-// restore recovery as root, with the unit's own binary, directly before it
-// starts the controller.
-func TestRuControllerUnitRecoversBeforeStart(t *testing.T) {
-	for name, l := range map[string]Layout{"production": Production(), "rooted": Rooted(t.TempDir())} {
-		files, err := Units(l, RoleController, nil, "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		var text string
-		for _, f := range files {
-			if f.Path == l.UnitPath(update.ControllerUnit) {
-				text = string(f.Content)
-			}
-		}
-		lines := strings.Split(text, "\n")
-		pre := slices.Index(lines, "ExecStartPre=+"+l.Paths.Binary()+" controller restore --recover")
-		start := slices.Index(lines, "ExecStart="+l.Paths.Binary()+" serve")
-		if pre < 0 || start != pre+1 {
-			t.Errorf("%s: ExecStartPre is at line %d and ExecStart at %d; want the recovery line directly above ExecStart:\n%s", name, pre, start, text)
-		}
-		n := 0
-		for _, line := range lines {
-			if strings.HasPrefix(line, "ExecStartPre=") {
-				n++
-			}
-		}
-		if n != 1 {
-			t.Errorf("%s: the controller unit has %d ExecStartPre lines, want 1", name, n)
-		}
-		if !slices.Contains(lines, "User=darkpanel") || !slices.Contains(lines, "TimeoutStartSec=30s") {
-			t.Errorf("%s: the controller unit lost User=darkpanel or TimeoutStartSec=30s:\n%s", name, text)
-		}
-	}
-}
-
-// TestRuOnlyTheControllerUnitRecovers: the agent does not read the
-// controller's files, and a drop-in that reset ExecStartPre= would silence
-// the recovery.
-func TestRuOnlyTheControllerUnitRecovers(t *testing.T) {
-	for _, units := range []map[string]string{
-		unitsByPath(t, RoleController, []string{"10.77.0.10:7443"}, "10.77.0.10:7443"),
-		unitsByPath(t, RoleController, nil, ""),
-		unitsByPath(t, RoleAgent, nil, ""),
-	} {
-		for path, text := range units {
-			has := strings.Contains(text, "ExecStartPre")
-			if want := path == "/etc/systemd/system/darkpanel-controller.service"; has != want {
-				t.Errorf("%s: mentions ExecStartPre = %v, want %v", path, has, want)
-			}
-		}
-	}
-}
-```
-
-In `internal/install/layout_test.go` add `"slices"` to the standard-library imports and append the test below. It names the staged, set-aside and journal files of Contracts "Journal" (`StagedName` is `<file>.restore-<tx>`, `AsideName` is `<file>.pre-<tx>`, `JournalPath` is `<ControllerDir>/restore-<tx>.journal`, and `SaveJournal` writes `<journal>.new`) for the four targets (the controller database, its `-wal` and `-shm` files, the controller key) and requires each to lie under a directory that `OwnedPaths(l, RoleController)` marks `core.OwnedDir`, in the production layout and a rooted one. The names are spelled out here because the backup package imports `install` (its production host takes the unit path and the service user from it), so this package's tests cannot import `backup`. This test already passes on the current tree: it pins the property so that a later layout change that moves a directory out of the owned set fails it.
-
-```go
-// TestRuRestoreFilesLieInOwnedDirs: every file a controller restore makes
-// (the staged and set-aside copies of the database, its two WAL files and
-// the key, the journal and its temporary file) sits inside a directory
-// system install owns, so uninstall removes them. The names are spelled out
-// because the backup package imports this one.
-func TestRuRestoreFilesLieInOwnedDirs(t *testing.T) {
-	const tx = "01JTESTTXTESTTXTESTTXTESTT"
-	for name, l := range map[string]Layout{"production": Production(), "rooted": Rooted(t.TempDir())} {
-		var owned []string
-		for _, op := range OwnedPaths(l, RoleController) {
-			if op.Kind == core.OwnedDir {
-				owned = append(owned, op.Path)
-			}
-		}
-		db := l.Paths.ControllerDB()
-		var files []string
-		for _, target := range []string{db, db + "-wal", db + "-shm", l.Paths.ControllerKey} {
-			files = append(files, target+".restore-"+tx, target+".pre-"+tx)
-		}
-		journal := filepath.Join(l.Paths.ControllerDir, "restore-"+tx+".journal")
-		files = append(files, journal, journal+".new")
-		for _, f := range files {
-			if !slices.ContainsFunc(owned, func(dir string) bool { return strings.HasPrefix(f, dir+"/") }) {
-				t.Errorf("%s layout: %s is outside every owned directory %v", name, f, owned)
-			}
-		}
-	}
-}
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-```bash
-mkdir -p /root/.cache/w7-tmp/4 && export TMPDIR=/root/.cache/w7-tmp/4 GOTOOLCHAIN=local
-df -h /
-timeout 300 go test -count=1 -run 'TestRu' -v ./internal/install 2>&1 | tail -30
-```
-
-When `df -h /` shows 90 % or more, run `go clean -cache` first. Expected: `TestRuControllerUnitRecoversBeforeStart` and `TestRuOnlyTheControllerUnitRecovers` FAIL (the first with "ExecStartPre is at line -1", the second with "mentions ExecStartPre = false, want true"); `TestRuRestoreFilesLieInOwnedDirs` PASSES, as its comment says.
-
-- [ ] **Step 3: Implement**
-
-In `internal/install/units/darkpanel-controller.service`, add this line directly above the `ExecStart={{.Binary}} serve` line, and change nothing else in the file:
-
-```ini
-ExecStartPre=+{{.Binary}} controller restore --recover
-```
-
-The `+` prefix makes systemd run the command with full privileges, outside the unit's `User=darkpanel`, `ProtectSystem=strict` and `ReadWritePaths` restrictions, so the recovery can rename the controller's files and the key under `/etc/darkpanel`. `{{.Binary}}` is the same value `ExecStart` uses.
-
-- [ ] **Step 4: Run test to verify it passes**
-
-```bash
-mkdir -p /root/.cache/w7-tmp/4 && export TMPDIR=/root/.cache/w7-tmp/4 GOTOOLCHAIN=local
-timeout 300 go build ./...
-timeout 300 go vet ./...
-timeout 600 go test -count=1 ./internal/install
-timeout 900 go test -race -count=1 ./internal/install
-timeout 1500 go test -count=1 ./...
-timeout 900 golangci-lint run --allow-serial-runners ./...
-timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w7-tmp/4 && go clean -testcache
-```
-
-Expected: every test passes (`ok`), `go vet` prints nothing, golangci-lint prints `0 issues.`, `go mod tidy -diff` prints nothing. This task edits `internal/install/`, so gate 7 (harness) applies to the branch once it is pushed (Global Constraints); no harness command runs here. Record the real output in the report.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add internal/install/units/darkpanel-controller.service internal/install/units_test.go internal/install/layout_test.go
-git commit -m "feat(install): run restore recovery at start"
-```
-
-### Task 5: Restore journal
+### Task 4: Restore journal
 
 **Files:**
 - Create: `internal/controller/backup/journal.go`
@@ -2350,11 +2245,13 @@ git commit -m "feat(install): run restore recovery at start"
 
 **Interfaces:**
 - Consumes: `Ops`, `File` and `OSOps()` (Contracts "Durable file operations", Task 2, `durable.go`); in tests `errCrash`, `newCrashOps` and `(*crashOps).Crashed` (Task 2, `durable_crash_test.go`); `paths.Paths` (`internal/paths`).
-- Produces: every identifier of Contracts "Journal": `Phase` and its nine constants, `RenameIntended`, `RenameDone`, `JournalFile`, `Rename`, `Journal`, `Targets`, `StagedName`, `AsideName`, `JournalPath`, `SaveJournal`, `ReadJournal`, `ListJournals`, `RenameJournaled`, `Settle` and `ErrAmbiguousRename`. Behaviour the Contract leaves open and this task fixes, which Tasks 15 and 16 rely on: `SaveJournal` writes `Format` 1 whatever `j.Format` holds (the caller's value is not changed) and refuses an unknown or empty phase without touching the disk; `ListJournals` matches the names `restore-*.journal`, returns full paths, and answers an empty list and no error for a directory that does not exist; `RenameJournaled` does not change `j.Phase`, and when a step fails the entry stays in `j` and on disk as it was last saved, because recovery settles an `intended` entry from the names that exist.
+- Produces: every identifier of Contracts "Journal": `Phase` and its nine constants, `RenameIntended`, `RenameDone`, `JournalFile`, `Rename`, `Journal`, `Targets`, `StagedName`, `AsideName`, `JournalPath`, `SaveJournal`, `ReadJournal`, `ListJournals`, `RenameJournaled`, `Settle` and `ErrAmbiguousRename`. Behaviour the Contract leaves open and this task fixes, which Tasks 14 and 15 rely on: `SaveJournal` writes `Format` 1 whatever `j.Format` holds (the caller's value is not changed) and refuses an unknown or empty phase without touching the disk; `ListJournals` matches the names `restore-*.journal`, returns full paths, and answers an empty list and no error for a directory that does not exist; `RenameJournaled` does not change `j.Phase`, and when a step fails the entry stays in `j` and on disk as it was last saved, because recovery settles an `intended` entry from the names that exist.
 
 **Items:** 54
 
 **Depends on:** Task 2
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2878,7 +2775,7 @@ func TestJnSettle(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w7-tmp/5 && TMPDIR=/root/.cache/w7-tmp/5 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestJn' ./internal/controller/backup/`
+Run: `mkdir -p /root/.cache/w7-tmp/4 && TMPDIR=/root/.cache/w7-tmp/4 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestJn' ./internal/controller/backup/`
 Expected: FAIL with a build error naming undefined identifiers, for example `undefined: Journal`, `Phase`, `Targets`, `SaveJournal`. Quote the output.
 
 - [ ] **Step 3: Implement**
@@ -2895,17 +2792,17 @@ Create `internal/controller/backup/journal.go`, package `backup`, with a doc com
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `TMPDIR=/root/.cache/w7-tmp/5 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestJn' ./internal/controller/backup/`
+Run: `TMPDIR=/root/.cache/w7-tmp/4 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestJn' ./internal/controller/backup/`
 Expected: PASS. Quote the output.
 
 - [ ] **Step 5: Verify the task**
 
 ```bash
-export TMPDIR=/root/.cache/w7-tmp/5 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w7-tmp/4 GOTOOLCHAIN=local
 mkdir -p "$TMPDIR"
 timeout 600 go build ./...
 timeout 300 go vet ./...
-timeout 900 go test -race -count=1 ./internal/controller/backup/
+timeout 900 go test -race -short -count=1 ./internal/controller/backup/
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
 timeout 1500 go test -count=1 ./...
@@ -2921,7 +2818,7 @@ git add internal/controller/backup/journal.go internal/controller/backup/journal
 git commit -m "feat(backup): add the restore journal"
 ```
 
-### Task 6: Backup call site and the purge ruling
+### Task 5: Backup call site and the purge ruling
 
 **Files:**
 - Modify: `internal/controller/server/extensions.go` (the var block of interface assertions, the `controllerFunc` and `contributions` doc comments, `contributions()`, and a new method `backupConfig`)
@@ -2930,11 +2827,13 @@ git commit -m "feat(backup): add the restore journal"
 
 **Interfaces:**
 - Consumes: `backup.New`, `backup.Config`, `backup.TokenIssuer` and `(*backup.Backup).Contribute` (Contracts "Configuration and contribution", Task 3); `fleet.Authority.IssueToken` (`internal/controller/fleet/tokens.go`), which already has the `TokenIssuer` signature; `Options.Paths.ControllerKey` and `Options.AgentAdvertise`.
-- Produces: the unexported `(*Server).backupConfig() backup.Config`, and the backup contributor of Contracts "Server call site". `ext.Deps` and every other contributor are unchanged. The package-level `backup.Contribute` still exists and is still tested; Task 17 deletes it.
+- Produces: the unexported `(*Server).backupConfig() backup.Config`, and the backup contributor of Contracts "Server call site". `ext.Deps` and every other contributor are unchanged. The package-level `backup.Contribute` still exists and is still tested; Task 16 deletes it.
 
 **Items:** 54, 229, 232
 
 **Depends on:** Task 3
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 This is an Integrator task (plan rulings W7-R2 and W7-R12): it edits `extensions.go` and the two test files above and nothing else in `internal/controller/server`. `startServices` assigns `s.authority` before `startListeners` calls `contributions()`, so a started server always has an authority; only a bare `&Server{...}` built by a unit test has none.
 
@@ -3022,7 +2921,7 @@ func TestXbPurgeInQuarantineKeepsReferencedPlans(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w7-tmp/6 && TMPDIR=/root/.cache/w7-tmp/6 GOTOOLCHAIN=local timeout 600 go test -count=1 -run 'TestXb' ./internal/controller/server/`
+Run: `mkdir -p /root/.cache/w7-tmp/5 && TMPDIR=/root/.cache/w7-tmp/5 GOTOOLCHAIN=local timeout 600 go test -count=1 -run 'TestXb' ./internal/controller/server/`
 Expected: FAIL with a build error, `s.backupConfig undefined (type *Server has no field or method backupConfig)`. Quote the output. `TestXbPurgeInQuarantineKeepsReferencedPlans` pins behaviour the tree already has (W7-R12: the engine's purge deletes only plans no change references, and nothing gates the purge on the quarantine flag), so it is red here only because the package does not build, and it must pass unchanged after Step 3; if it fails after Step 3, report it instead of changing `services.go` or the engine.
 
 - [ ] **Step 3: Implement**
@@ -3038,17 +2937,17 @@ Change nothing in `server.go` or `services.go`: the comment on `quarantined` in 
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `TMPDIR=/root/.cache/w7-tmp/6 GOTOOLCHAIN=local timeout 600 go test -count=1 -run 'TestXb|TestContribution|TestControllerFunc|TestPurges|TestQuarantine' ./internal/controller/server/`
+Run: `TMPDIR=/root/.cache/w7-tmp/5 GOTOOLCHAIN=local timeout 600 go test -count=1 -run 'TestXb|TestContribution|TestControllerFunc|TestPurges|TestQuarantine' ./internal/controller/server/`
 Expected: PASS. Quote the output.
 
 - [ ] **Step 5: Verify the task**
 
 ```bash
-export TMPDIR=/root/.cache/w7-tmp/6 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w7-tmp/5 GOTOOLCHAIN=local
 mkdir -p "$TMPDIR"
 timeout 600 go build ./...
 timeout 300 go vet ./...
-timeout 900 go test -race -count=1 ./internal/controller/server/
+timeout 900 go test -race -short -count=1 ./internal/controller/server/
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
 timeout 1500 go test -count=1 ./...
@@ -3064,7 +2963,7 @@ git add internal/controller/server/extensions.go internal/controller/server/exte
 git commit -m "feat(server): give the backup its config"
 ```
 
-### Task 7: Restore preconditions and lock
+### Task 6: Restore preconditions and lock
 
 **Files:**
 - Create: `internal/controller/backup/restore_guard.go`
@@ -3073,11 +2972,13 @@ git commit -m "feat(server): give the backup its config"
 
 **Interfaces:**
 - Consumes: `Ops` and `OSOps()` (Contracts "Durable file operations", Task 2, merged before this wave); `core.Units`, `core.UnitState`, `core.Clock`, `core.SystemClock`; `update.ControllerUnit` and `update.AgentUnit`; `install.Production()`, `install.ServiceUser`, `install.Users` and `install.SystemUsers`; `platform.NewSystemd`; `paths.Paths`; `coretest.NewFakeClock` in tests.
-- Produces: everything in Contracts "Restore host": `RestoreLockPath`, `Host`, `ProductionHost`, `(Host).lock`, `(Host).checkRestore`, with the refusal messages exactly as written there. Also three unexported helpers: `serviceOwner(users install.Users) func() (uid, gid int, err error)`, `ulidTx(clock core.Clock) func() string` and `pendingJournals(dir string) ([]string, error)`. `pendingJournals` lists `restore-*.journal` itself because `ListJournals` (Task 5) is built in the same wave and this task must not call it; Task 16 may replace `pendingJournals` by `ListJournals`, which has the same ordering. `checkRestore` takes the lock as its last check and releases it at once, so a caller (Task 15) runs `checkRestore` before it takes `lock()` for the restore, never after.
+- Produces: everything in Contracts "Restore host": `RestoreLockPath`, `Host`, `ProductionHost`, `(Host).lock`, `(Host).checkRestore`, with the refusal messages exactly as written there. Also three unexported helpers: `serviceOwner(users install.Users) func() (uid, gid int, err error)`, `ulidTx(clock core.Clock) func() string` and `pendingJournals(dir string) ([]string, error)`. `pendingJournals` lists `restore-*.journal` itself because `ListJournals` (Task 4) is built in the same wave and this task must not call it; Task 15 may replace `pendingJournals` by `ListJournals`, which has the same ordering. `checkRestore` takes the lock as its last check and releases it at once, so a caller (Task 14) runs `checkRestore` before it takes `lock()` for the restore, never after.
 
 **Items:** 54
 
-**Depends on:** none
+**Depends on:** Task 2
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 The restore command and the recovery both start from a `Host`. Host safety applies: no test calls `ProductionHost`, talks to systemd or D-Bus, or touches a path outside `t.TempDir()`.
 
@@ -3434,8 +3335,8 @@ func TestRgRestoreLockPath(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w7-tmp/7 && TMPDIR=/root/.cache/w7-tmp/7 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestRg' ./internal/controller/backup/`
-Expected: FAIL with a build error naming undefined identifiers, for example `undefined: Host`, `serviceOwner`, `ulidTx`, `RestoreLockPath`. The test names journals with its own helper `rgJournal`, so it needs nothing from Task 5. Quote the output.
+Run: `mkdir -p /root/.cache/w7-tmp/6 && TMPDIR=/root/.cache/w7-tmp/6 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestRg' ./internal/controller/backup/`
+Expected: FAIL with a build error naming undefined identifiers, for example `undefined: Host`, `serviceOwner`, `ulidTx`, `RestoreLockPath`. The test names journals with its own helper `rgJournal`, so it needs nothing from Task 4. Quote the output.
 
 - [ ] **Step 3: Implement**
 
@@ -3451,21 +3352,21 @@ Create `internal/controller/backup/restore_guard.go`, package `backup`, doc comm
    5. Lock: `h.lock()`; its error is returned as it is; on success call the release at once.
 4. `serviceOwner(users)` returns a function that calls `users.Lookup(install.ServiceUser)` and returns the ids; a lookup error is wrapped with `%w` under `backup:`; `found == false` returns an error that names the user (`backup: the darkpanel user does not exist`).
 5. `ulidTx(clock)` returns a function that makes `ulid.MustNew(ulid.Timestamp(clock.Now()), crypto/rand.Reader).String()`, a fresh upper-case ULID per call (`github.com/oklog/ulid/v2`).
-6. `ProductionHost(ctx, p)`: `platform.NewSystemd(ctx)` (an error is returned wrapped under `backup:`), a `core.SystemClock{}`, and a `Host` with `Paths: p`, `UnitFile: install.Production().UnitPath(update.ControllerUnit)`, `LockFile: RestoreLockPath`, `Units` the systemd connection, `Euid: os.Geteuid`, `Owner: serviceOwner(install.SystemUsers{})`, `Ops: OSOps()`, `Clock` the system clock, `NewTx: ulidTx(clock)` and `Log: slog.New(slog.NewTextHandler(os.Stderr, nil))`. The second result is the connection's `Close`. It has no unit test (host safety); `go vet`, the linter and Task 19's harness cover it.
+6. `ProductionHost(ctx, p, withUnits)`: when `withUnits` is true, `platform.NewSystemd(ctx)` (an error is returned wrapped under `backup:`); when it is false, no connection, `Units` nil and a close function that returns nil; a `core.SystemClock{}`, and a `Host` with `Paths: p`, `UnitFile: install.Production().UnitPath(update.ControllerUnit)`, `LockFile: RestoreLockPath`, `Units` the systemd connection (or nil), `Euid: os.Geteuid`, `Owner: serviceOwner(install.SystemUsers{})`, `Ops: OSOps()`, `Clock` the system clock, `NewTx: ulidTx(clock)` and `Log: slog.New(slog.NewTextHandler(os.Stderr, nil))`. The second result is the connection's `Close`. It has no unit test (host safety); `go vet`, the linter and Task 19's harness cover it.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `TMPDIR=/root/.cache/w7-tmp/7 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestRg' ./internal/controller/backup/`
+Run: `TMPDIR=/root/.cache/w7-tmp/6 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestRg' ./internal/controller/backup/`
 Expected: PASS. Quote the output.
 
 - [ ] **Step 5: Verify the task**
 
 ```bash
-export TMPDIR=/root/.cache/w7-tmp/7 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w7-tmp/6 GOTOOLCHAIN=local
 mkdir -p "$TMPDIR"
 timeout 600 go build ./...
 timeout 300 go vet ./...
-timeout 900 go test -race -count=1 ./internal/controller/backup/
+timeout 900 go test -race -short -count=1 ./internal/controller/backup/
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
 timeout 1500 go test -count=1 ./...
@@ -3481,7 +3382,7 @@ git add internal/controller/backup/restore_guard.go internal/controller/backup/r
 git commit -m "feat(backup): add restore preconditions and lock"
 ```
 
-### Task 8: Restore-quarantine schema and spec rulings
+### Task 7: Restore-quarantine schema and spec rulings
 
 **Files:**
 - Create: `internal/core/store/migrations/controller/0013_restore_quarantine.sql`
@@ -3494,11 +3395,13 @@ git commit -m "feat(backup): add restore preconditions and lock"
 
 **Interfaces:**
 - Consumes: `store.CoreMigrations`, `store.Migrate` and the test helpers `openTemp`, `migrateOpts`, `coreSetUpTo`, `lifecycleRows`, `surfacesRows` of `internal/core/store`.
-- Produces: Contracts "Schema": `core_changes.quarantined_from TEXT`; `core_rollouts` rebuilt with `state` accepting `quarantined` and a `quarantined_from TEXT` column; `core_rollout_hosts` rebuilt with its reference and cascade; `core.RolloutQuarantined = "quarantined"` and `enum=quarantined` on the rollout view's `state`. Task 9 (`Mark`) and Task 14 (rollout resolve) write `core_rollouts.state = 'quarantined'` and `quarantined_from`; Tasks 9 and 10 read `core_changes.quarantined_from`.
+- Produces: Contracts "Schema": `core_changes.quarantined_from TEXT`; `core_rollouts` rebuilt with `state` accepting `quarantined` and a `quarantined_from TEXT` column; `core_rollout_hosts` rebuilt with its reference and cascade; `core.RolloutQuarantined = "quarantined"` and `enum=quarantined` on the rollout view's `state`. Task 8 (`Mark`) and Task 13 (rollout resolve) write `core_rollouts.state = 'quarantined'` and `quarantined_from`; Tasks 8 and 9 read `core_changes.quarantined_from`.
 
 **Items:** 54, 69
 
 **Depends on:** none
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 2 - spec 1 - coupling 2 - risk 3 = 8
 
 This is an Integrator task (plan ruling W7-R1): it adds a migration and the rollout view's state, which wave 0 left out. `internal/core/store/migrations_test.go` has no table-driven test a new row would fit (each existing migration test is its own function, and `TestCoreMigrationsApply` lists tables, not columns), so the migration gets its own test function with one subtest per active rollout state. SQLite cannot change a CHECK constraint in place, and `store.Open` runs with `foreign_keys(1)`: dropping `core_rollouts` while `core_rollout_hosts` still references it would delete every host row through the cascade, which is why the migration copies both tables first and drops the child first (precedent: `0010_audit_phases.sql`, `0011_platform_surfaces.sql`).
 
@@ -3822,7 +3725,7 @@ func TestRqRolloutViewListsEveryStoredState(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w7-tmp/8 && TMPDIR=/root/.cache/w7-tmp/8 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestRq' ./internal/core/store/`
+Run: `mkdir -p /root/.cache/w7-tmp/7 && TMPDIR=/root/.cache/w7-tmp/7 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestRq' ./internal/core/store/`
 Expected: FAIL. `TestRqRestoreQuarantineMigration/running` and `/draining` fail with `applied [], want 0013_restore_quarantine first`, and `TestRqRolloutViewListsEveryStoredState` fails with the enum `[cancelled draining failed running succeeded]` where it wants `quarantined` as well. Quote the output.
 
 - [ ] **Step 3: Implement**
@@ -3907,7 +3810,7 @@ CREATE UNIQUE INDEX core_rollout_hosts_one_updating ON core_rollout_hosts (rollo
 ```
 
 2. In `internal/core/fleet.go` add `RolloutQuarantined = "quarantined"` to the `// Rollout states.` const block directly after `RolloutDraining` (run `gofmt -w`, which realigns the block's `=` signs), and in the `State` field of `Rollout` add `enum=quarantined` between `enum=draining` and `enum=succeeded` in the `jsonschema` tag, and append `; quarantined means a controller restore stopped it until it is resolved` to the `jsonschema_description` text, before its closing full stop, so it reads "Rollout state; draining means dispatch stopped while a host's update is still running; quarantined means a controller restore stopped it until it is resolved." Change nothing else in the file.
-3. Regenerate the snapshots: `GOTOOLCHAIN=local TMPDIR=/root/.cache/w7-tmp/8 timeout 300 make schemas`. `git status --short schemas` must list exactly the three files named under **Files**, and each diff must add only the `quarantined` enum value and the description text.
+3. Regenerate the snapshots: `GOTOOLCHAIN=local TMPDIR=/root/.cache/w7-tmp/7 timeout 300 make schemas`. `git status --short schemas` must list exactly the three files named under **Files**, and each diff must add only the `quarantined` enum value and the description text.
 4. Add the spec paragraph. Insert the following bullet in section 10 of `docs/dforge/specs/2026-10-21-v1-completion-design.md` directly above the line that begins `- **Runbook (R81).**`, with the text exactly as given, so that the new bullet's last line is followed at once by the `- **Runbook (R81).**` line. Use the Edit tool with that line as the anchor; touch no other line.
 
 ```markdown
@@ -4009,7 +3912,7 @@ bash /root/.claude-alt/plugins/cache/darkraise/dforge/4.11.1/scripts/register ch
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `TMPDIR=/root/.cache/w7-tmp/8 GOTOOLCHAIN=local timeout 600 go test -count=1 -run 'TestRq|TestMigrate|TestCoreMigrations' ./internal/core/store/ && TMPDIR=/root/.cache/w7-tmp/8 GOTOOLCHAIN=local timeout 600 go test -count=1 ./schemas/... ./internal/modules/ ./internal/controller/rollout/`
+Run: `TMPDIR=/root/.cache/w7-tmp/7 GOTOOLCHAIN=local timeout 600 go test -count=1 -run 'TestRq|TestMigrate|TestCoreMigrations' ./internal/core/store/ && TMPDIR=/root/.cache/w7-tmp/7 GOTOOLCHAIN=local timeout 600 go test -count=1 ./schemas/... ./internal/modules/ ./internal/controller/rollout/`
 Expected: PASS (`TestSnapshotsCurrent` in `internal/modules` is the check that the three snapshots match `fleet.go`). Quote the output.
 
 - [ ] **Step 5: Verify the task**
@@ -4019,17 +3922,17 @@ Check the spec edit added lines only, and the register and schemas are as expect
 ```bash
 git diff --numstat docs/dforge/specs/2026-10-21-v1-completion-design.md
 git diff --stat -- schemas docs/dforge/registers
-GOTOOLCHAIN=local TMPDIR=/root/.cache/w7-tmp/8 timeout 300 make schemas && git status --short schemas
+GOTOOLCHAIN=local TMPDIR=/root/.cache/w7-tmp/7 timeout 300 make schemas && git status --short schemas
 ```
 
 Expected: the numstat prints `85` added lines and `0` deleted for the spec file (the second column is `0`); the stat shows the three snapshot files and one added register row; the repeated `make schemas` changes nothing further. Then run the gates:
 
 ```bash
-export TMPDIR=/root/.cache/w7-tmp/8 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w7-tmp/7 GOTOOLCHAIN=local
 mkdir -p "$TMPDIR"
 timeout 600 go build ./...
 timeout 300 go vet ./...
-timeout 900 go test -race -count=1 ./internal/core/ ./internal/core/store/ ./schemas/... ./internal/controller/rollout/ ./internal/modules/
+timeout 900 go test -race -short -count=1 ./internal/core/ ./internal/core/store/ ./schemas/... ./internal/controller/rollout/ ./internal/modules/
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
 timeout 1500 go test -count=1 ./...
@@ -4051,19 +3954,21 @@ git add docs/dforge/registers/2026-10-21-v1-completion.md
 git commit -m "docs(register): add the exposure marking row"
 ```
 
-### Task 9: Quarantine marking
+### Task 8: Quarantine marking
 
 **Files:**
 - Create: `internal/controller/backup/mark.go`
 - Test: `internal/controller/backup/mark_test.go`
 
 **Interfaces:**
-- Consumes: Contracts "Controller database fixture" (Task 3: `fxDB`, `fxInsertChange`, `fxInsertComposite`, `fxInsertLock`, `fxInsertRollout`, `fxInsertListener`, `fxStep`, `fxChange`); Contracts "Schema" (Task 8: `core_changes.quarantined_from`, `core_rollouts.quarantined_from` and the rollout state `quarantined`, `core.RolloutQuarantined`); `quarantine.Marker`, `quarantine.MetaKey` and `quarantine.Read` from `internal/controller/quarantine`; `core.State*`, `core.RolloutRunning`, `core.RolloutDraining`, `core.ListenerOpen`, `core.ListenerClosed`.
-- Produces: `NonTerminal` and `Mark`, exactly as Contracts "Marking" declares them; Task 12's tests mark a fixture database with `Mark`, and Task 15's phase 3 calls it on the staged database.
+- Consumes: Contracts "Controller database fixture" (Task 3: `fxDB`, `fxInsertChange`, `fxInsertComposite`, `fxInsertLock`, `fxInsertRollout`, `fxInsertListener`, `fxStep`, `fxChange`); Contracts "Schema" (Task 7: `core_changes.quarantined_from`, `core_rollouts.quarantined_from` and the rollout state `quarantined`, `core.RolloutQuarantined`); `quarantine.Marker`, `quarantine.MetaKey` and `quarantine.Read` from `internal/controller/quarantine`; `core.State*`, `core.RolloutRunning`, `core.RolloutDraining`, `core.ListenerOpen`, `core.ListenerClosed`.
+- Produces: `NonTerminal` and `Mark`, exactly as Contracts "Marking" declares them; Task 11's tests mark a fixture database with `Mark`, and Task 14's phase 3 calls it on the staged database.
 
 **Items:** 69
 
-**Depends on:** Task 3, Task 8
+**Depends on:** Task 3, Task 7
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 - [ ] **Step 1: Write the failing test**
 
@@ -4484,7 +4389,7 @@ func TestMkWritesTheMarker(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w7-tmp/9 && export TMPDIR=/root/.cache/w7-tmp/9 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'Mk' ./internal/controller/backup/`
+Run: `mkdir -p /root/.cache/w7-tmp/8 && export TMPDIR=/root/.cache/w7-tmp/8 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'Mk' ./internal/controller/backup/`
 Expected: FAIL at build time with `undefined: NonTerminal` and `undefined: Mark`.
 
 - [ ] **Step 3: Implement**
@@ -4502,19 +4407,19 @@ Expected: FAIL at build time with `undefined: NonTerminal` and `undefined: Mark`
 
 - [ ] **Step 4: Run test to verify it passes, then the task's gates**
 
-Run: `export TMPDIR=/root/.cache/w7-tmp/9 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'Mk' -v ./internal/controller/backup/`
+Run: `export TMPDIR=/root/.cache/w7-tmp/8 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'Mk' -v ./internal/controller/backup/`
 Expected: PASS for `TestMkNonTerminalIsTheSevenUnfinishedStates`, `TestMkQuarantinesEveryNonTerminalChangeOnly`, `TestMkLeavesCompositesAndTheirStepsUnwound`, `TestMkKeepsRecordsThatAreAlreadyQuarantined`, `TestMkRollouts` (six subtests), `TestMkClosesOnlyOpenListeners`, `TestMkDisposesOfLocksByOwner`, `TestMkTaskRuns` (absent, present), `TestMkIsAtomic` (two subtests), `TestMkWritesTheMarker`.
 
 Then the gates of Global Constraints:
 
 ```bash
-mkdir -p /root/.cache/w7-tmp/9 && export TMPDIR=/root/.cache/w7-tmp/9 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w7-tmp/8 && export TMPDIR=/root/.cache/w7-tmp/8 GOTOOLCHAIN=local
 timeout 600 go build ./... && timeout 300 go vet ./...
 timeout 1500 go test -count=1 ./...
-timeout 900 go test -race -count=1 ./internal/controller/backup/
+timeout 900 go test -race -short -count=1 ./internal/controller/backup/
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w7-tmp/9 && go clean -testcache
+rm -rf /root/.cache/w7-tmp/8 && go clean -testcache
 ```
 
 Expected: every command exits 0, `go vet` and `go mod tidy -diff` print nothing, every `go test` line is `ok` or `?`, golangci-lint prints `0 issues.`.
@@ -4526,26 +4431,23 @@ git add internal/controller/backup/mark.go internal/controller/backup/mark_test.
 git commit -m "feat(backup): add restore quarantine marking"
 ```
 
-### Task 10: Quarantine list, enrollment token and release routes
+### Task 9: Quarantine list, enrollment token and release routes
 
 **Files:**
 - Create: `internal/controller/backup/quarantine_routes.go`
 - Test: `internal/controller/backup/quarantine_routes_test.go`
 
 **Interfaces:**
-- Consumes: Contracts "Configuration and contribution" (Task 3: `Backup`, `Config`, `TokenIssuer`, `New`); Contracts "Controller database fixture" (Task 3: `fxDB`, `fxInsertChange`, `fxInsertComposite`, `fxInsertLock`, `fxInsertRollout`, `fxInsertHost`); Contracts "Schema" (Task 8); `quarantine.Read`, `quarantine.Marker`, `quarantine.MetaKey`; `ext.Deps` (`DB`, `Clock`, `Log`, `Audit`, `LocalHostID`); `errcode` codes already in the registry; `coretest.MemAudit`, `coretest.NewFakeClock` and `internal/controller/audit` in the tests.
-- Produces: the wire types, `queryer`, `listRecords`, `recordByID`, `quarantineHandler`, `enrollTokenHandler` and `releaseHandler` exactly as Contracts "Quarantine routes" declares them. `recordByID` finds a record by id in `core_changes` or `core_rollouts` whenever its `quarantined_from` is not NULL, whatever its state now, so Task 14 can answer a record it has just resolved with `QuarantinedFrom` kept; `listRecords` returns only records in state `quarantined`.
-- Produces, shared with Tasks 13 and 14 (no module or `internal/controller/api` helper is exported for contributed routes, so the package declares its own; add this entry to Contracts):
-  - `const maxRouteBody = 64 << 10`
-  - `func writeProblem(w http.ResponseWriter, log *slog.Logger, err error)`: `application/problem+json` with `type` (`about:blank`), `title`, `status`, `detail`, `code` and `errors`, as `internal/controller/api/wire.go` writes it; a code outside the registry becomes `internal`, and a 5xx answer carries only the code's title and logs the cause.
-  - `func writeJSON(w http.ResponseWriter, log *slog.Logger, status int, v any)`
-  - `func decodeBody(w http.ResponseWriter, r *http.Request, dst any) error`: one JSON object of at most `maxRouteBody` bytes, unknown members refused, nothing but whitespace after it; every defect is `request.invalid_input`.
-  - `func recordAudit(ctx context.Context, deps ext.Deps, action, phase, changeID, hostID string)`: writes one `deps.Audit.Record` row with `Actor` `local:root@<deps.LocalHostID>`, `Result` `ok`, `At` `deps.Clock.Now()`, no `Input`, `Source` and `ID` empty; a failed write is logged and never changes the answer.
-- Audit phase: Contracts "Audit" says to reuse the `Phase` that `internal/modules/cloudflare/hostnames_service.go` writes (`check`), but `core_audit.phase` has a CHECK (migration `0011_platform_surfaces.sql`) that refuses `check` and `delete`, so the real audit store would reject the row. This task writes `apply` for enroll-token and `release` for release; Task 14 writes `resolve` and Task 13 `apply`; all four are in the table's list.
+- Consumes: Contracts "Configuration and contribution" (Task 3: `Backup`, `Config`, `TokenIssuer`, `New`); Contracts "Controller database fixture" (Task 3: `fxDB`, `fxInsertChange`, `fxInsertComposite`, `fxInsertLock`, `fxInsertRollout`, `fxInsertHost`); Contracts "Schema" (Task 7); `quarantine.Read`, `quarantine.Marker`, `quarantine.MetaKey`; `ext.Deps` (`DB`, `Clock`, `Log`, `Audit`, `LocalHostID`); `errcode` codes already in the registry; `coretest.MemAudit`, `coretest.NewFakeClock` and `internal/controller/audit` in the tests.
+- Produces: the wire types, `queryer`, `listRecords`, `recordByID`, `quarantineHandler`, `enrollTokenHandler` and `releaseHandler` exactly as Contracts "Quarantine routes" declares them. `recordByID` finds a record by id in `core_changes` or `core_rollouts` whenever its `quarantined_from` is not NULL, whatever its state now, so Task 13 can answer a record it has just resolved with `QuarantinedFrom` kept; `listRecords` returns only records in state `quarantined`.
+- Produces: Contracts "Route helpers" (`maxRouteBody`, `writeProblem`, `writeJSON`, `decodeBody`, `recordAudit`) exactly as stated there, in `quarantine_routes.go`; Tasks 12 and 13 call them and declare no copy.
+- Audit: Contracts "Audit" fixes the phases; this task writes `apply` for enroll-token and `release` for release.
 
 **Items:** 69
 
-**Depends on:** Task 3, Task 8
+**Depends on:** Task 3, Task 7
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 - [ ] **Step 1: Write the failing test**
 
@@ -5190,12 +5092,12 @@ func TestQlAuditRowsFitTheAuditTable(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w7-tmp/10 && export TMPDIR=/root/.cache/w7-tmp/10 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'Ql' ./internal/controller/backup/`
+Run: `mkdir -p /root/.cache/w7-tmp/9 && export TMPDIR=/root/.cache/w7-tmp/9 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'Ql' ./internal/controller/backup/`
 Expected: FAIL at build time with `undefined: Status` (then `Record`, `ReleaseResult`, `listRecords`, and the three handler methods).
 
 - [ ] **Step 3: Implement**
 
-1. `quarantine_routes.go`: declare the wire types of Contracts "Quarantine routes" (`Record`, `Status`, `ResolveRequest`, `EnrollTokenRequest`, `EnrollTokenResult`, `ReleaseRequest`, `HeldLock`, `ReleaseResult`) with the JSON tags the Contract gives and a doc comment each, the `queryer` interface, and the shared helpers listed under Interfaces. `ResolveRequest` is used by Task 14 only.
+1. `quarantine_routes.go`: declare the wire types of Contracts "Quarantine routes" (`Record`, `Status`, `ResolveRequest`, `EnrollTokenRequest`, `EnrollTokenResult`, `ReleaseRequest`, `HeldLock`, `ReleaseResult`) with the JSON tags the Contract gives and a doc comment each, the `queryer` interface, and the shared helpers listed under Interfaces. `ResolveRequest` is used by Task 13 only.
 2. `listRecords(ctx, q)` reads, through `q`, the `core_changes` rows and the `core_rollouts` rows whose state is `quarantined`, and every `core_locks` row (key and owner). A change is `composite` when its `class` is `composite` (`core.ClassComposite`), else `cloud` when the part of its `action` before the first `.` is `tailnet` or `cloudflare`, else `change`. A rollout is `rollout` with `Action` `core.update.rollout` and an empty `HostID`; a change's `HostID` is its stored `host_id`. `QuarantinedFrom` is `quarantined_from` (empty when NULL). `Locks` is the sorted keys whose owner is the record's id, a non-nil empty slice when none (the JSON must say `[]`, never `null`). The result is sorted by `ID` across both tables and is non-nil when empty. `recordByID(ctx, q, id)` builds the same `Record` for a row whose `quarantined_from` is not NULL, whatever its state, from `core_changes` first and then `core_rollouts`; it returns `false` for any other id.
 3. `quarantineHandler(deps)`: `Status{Active, Tx, RestoredAt}` from `quarantine.Read(ctx, deps.DB)` (the three fields stay zero, and `tx` and `restoredAt` are omitted from the JSON, when the flag is not set) and `Records` from `listRecords(ctx, deps.DB.Read())`, whether or not the flag is set: records kept by `release --keep-unresolved` still show. Answer 200 `application/json`. A read error is a plain error (500).
 4. `enrollTokenHandler(deps)` (W7-R8), in this order, each refusal an `*errcode.Error` and no audit row on any refusal:
@@ -5209,19 +5111,19 @@ Expected: FAIL at build time with `undefined: Status` (then `Record`, `ReleaseRe
 
 - [ ] **Step 4: Run test to verify it passes, then the task's gates**
 
-Run: `export TMPDIR=/root/.cache/w7-tmp/10 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'Ql' -v ./internal/controller/backup/`
+Run: `export TMPDIR=/root/.cache/w7-tmp/9 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'Ql' -v ./internal/controller/backup/`
 Expected: PASS for every `TestQl*` test and subtest (list kinds and locks, status when not active, `recordByID`, twelve enroll-token refusals, three enroll-token issues, the issuer failure, release refusals, `--keep-unresolved`, nothing to resolve, not active, bad bodies, audit failure, audit table).
 
 Then the gates of Global Constraints:
 
 ```bash
-mkdir -p /root/.cache/w7-tmp/10 && export TMPDIR=/root/.cache/w7-tmp/10 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w7-tmp/9 && export TMPDIR=/root/.cache/w7-tmp/9 GOTOOLCHAIN=local
 timeout 600 go build ./... && timeout 300 go vet ./...
 timeout 1500 go test -count=1 ./...
-timeout 900 go test -race -count=1 ./internal/controller/backup/
+timeout 900 go test -race -short -count=1 ./internal/controller/backup/
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w7-tmp/10 && go clean -testcache
+rm -rf /root/.cache/w7-tmp/9 && go clean -testcache
 ```
 
 Expected: every command exits 0, `go vet` and `go mod tidy -diff` print nothing, every `go test` line is `ok` or `?`, golangci-lint prints `0 issues.`.
@@ -5233,7 +5135,7 @@ git add internal/controller/backup/quarantine_routes.go internal/controller/back
 git commit -m "feat(backup): add quarantine routes"
 ```
 
-### Task 11: Quarantine CLI commands
+### Task 10: Quarantine CLI commands
 
 **Files:**
 - Create: `internal/cli/controller_quarantine.go`
@@ -5241,11 +5143,13 @@ git commit -m "feat(backup): add quarantine routes"
 
 **Interfaces:**
 - Consumes: the wire types of Contracts "Quarantine routes", redeclared here as unexported structs because `internal/cli` does not import the backup package (`quarantineRecord`, `quarantineStatus`, `quarantineHeldLock`, with the same JSON names; the request bodies are small maps or structs); in `internal/cli`: `addConnFlags`, `(*app).connect`, `(*client).do`, `writeTable`, `sanitize`, `usagef`; in the tests `cliEnv`, `newFakeSocket`, `exchange` and `jsonEqual`.
-- Produces: `func (a *app) quarantineCommand() *cobra.Command` as Contracts "CLI" declares it. This task does not edit `controller_backup.go`: Task 18 makes `backupCommands` return `a.quarantineCommand()`, so `darkpanel controller quarantine` exists only after Task 18. The tests mount the group as a top-level `quarantine` command through `cliEnv.commands`.
+- Produces: `func (a *app) quarantineCommand() *cobra.Command` as Contracts "CLI" declares it. This task does not edit `controller_backup.go`: Task 17 makes `backupCommands` return `a.quarantineCommand()`, so `darkpanel controller quarantine` exists only after Task 17. The tests mount the group as a top-level `quarantine` command through `cliEnv.commands`.
 
 **Items:** 69
 
 **Depends on:** none
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 1 = 5
 
 - [ ] **Step 1: Write the failing test**
 
@@ -5513,7 +5417,7 @@ func TestCqPrintsAProblemAnswerLikeOtherCommands(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w7-tmp/11 && export TMPDIR=/root/.cache/w7-tmp/11 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'Cq' ./internal/cli/`
+Run: `mkdir -p /root/.cache/w7-tmp/10 && export TMPDIR=/root/.cache/w7-tmp/10 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'Cq' ./internal/cli/`
 Expected: FAIL at build time with `quarantineCommand undefined (type *app has no field or method quarantineCommand)`.
 
 - [ ] **Step 3: Implement**
@@ -5527,19 +5431,19 @@ Expected: FAIL at build time with `quarantineCommand undefined (type *app has no
 
 - [ ] **Step 4: Run test to verify it passes, then the task's gates**
 
-Run: `export TMPDIR=/root/.cache/w7-tmp/11 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'Cq' -v ./internal/cli/`
+Run: `export TMPDIR=/root/.cache/w7-tmp/10 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'Cq' -v ./internal/cli/`
 Expected: PASS for `TestCqList` (four subtests), `TestCqListJSONPrintsTheAnswerAsSent`, `TestCqListNeverWritesServerControlCharacters`, `TestCqResolve`, `TestCqEnrollToken`, `TestCqRelease`, `TestCqArgumentsAreCheckedBeforeAnyRequest`, `TestCqPrintsAProblemAnswerLikeOtherCommands`.
 
 Then the gates of Global Constraints:
 
 ```bash
-mkdir -p /root/.cache/w7-tmp/11 && export TMPDIR=/root/.cache/w7-tmp/11 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w7-tmp/10 && export TMPDIR=/root/.cache/w7-tmp/10 GOTOOLCHAIN=local
 timeout 600 go build ./... && timeout 300 go vet ./...
 timeout 1500 go test -count=1 ./...
-timeout 900 go test -race -count=1 ./internal/cli/
+timeout 900 go test -race -short -count=1 ./internal/cli/
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w7-tmp/11 && go clean -testcache
+rm -rf /root/.cache/w7-tmp/10 && go clean -testcache
 ```
 
 Expected: every command exits 0, `go vet` and `go mod tidy -diff` print nothing, every `go test` line is `ok` or `?`, golangci-lint prints `0 issues.`.
@@ -5551,19 +5455,22 @@ git add internal/cli/controller_quarantine.go internal/cli/controller_quarantine
 git commit -m "feat(cli): add controller quarantine commands"
 ```
 
-### Task 12: Staged validation and installed verification
+### Task 11: Staged validation and installed verification
 
 **Files:**
 - Create: `internal/controller/backup/validate.go`
 - Test: `internal/controller/backup/validate_test.go`
 
 **Interfaces:**
-- Consumes: Contracts "Controller database fixture" (Task 3: `fxDB`, `fxKey`, `fxInsertChange`, `fxInsertLock`, `fxInsertRollout`, `fxInsertListener`; the tests read the key file from the path `fxKey` returns instead of relying on its second result); `NonTerminal` and `Mark` (Task 9); Contracts "Schema" (Task 8); `MaxKeyMember` (Task 1, Contracts "Format"); `store.Open`, `store.CoreMigrations`, `modules.All()`; `secret.NewSealer`, `secret.KeyPrefix`, `secret.KeySize`; `quarantine.Marker`, `quarantine.MetaKey`.
-- Produces: `CanaryKey`, `CanaryAD`, `Canary`, `ValidateStaged`, `VerifyInstalled` and `ErrNotQuarantined` exactly as Contracts "Validation and verification" declares them. Task 13 seals the canary with `CanaryAD`; Task 15 calls `ValidateStaged` in phase 2 and `VerifyInstalled` in phase 7; Task 16 calls `VerifyInstalled` after a completed recovery.
+- Consumes: Contracts "Controller database fixture" (Task 3: `fxDB`, `fxKey`, `fxInsertChange`, `fxInsertLock`, `fxInsertRollout`, `fxInsertListener`; the tests read the key file from the path `fxKey` returns instead of relying on its second result); `NonTerminal` and `Mark` (Task 8); Contracts "Schema" (Task 7); `MaxKeyMember` (Task 1, Contracts "Format"); `store.Open`, `store.CoreMigrations`, `modules.All()`; `secret.NewSealer`, `secret.KeyPrefix`, `secret.KeySize`; `quarantine.Marker`, `quarantine.MetaKey`.
+- Produces: `CanaryKey`, `CanaryAD`, `Canary`, `ValidateStaged`, `VerifyInstalled` and `ErrNotQuarantined` exactly as Contracts "Validation and verification" declares them. Task 12 seals the canary with `CanaryAD`; Task 14 calls `ValidateStaged` in phase 2 and `VerifyInstalled` in phase 7; Task 15 calls `VerifyInstalled` after a completed recovery.
 
 **Items:** 54, 69
 
-**Depends on:** Task 3, Task 8, Task 9
+**Depends on:** Task 1, Task 3, Task 7, Task 8
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 3 = 8
+**Lenses:** security, silent-failures
 
 - [ ] **Step 1: Write the failing test**
 
@@ -5907,7 +5814,7 @@ func TestVfVerifyInstalledOpensReadOnly(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w7-tmp/12 && export TMPDIR=/root/.cache/w7-tmp/12 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'Vf' ./internal/controller/backup/`
+Run: `mkdir -p /root/.cache/w7-tmp/11 && export TMPDIR=/root/.cache/w7-tmp/11 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'Vf' ./internal/controller/backup/`
 Expected: FAIL at build time with `undefined: Canary` (then `CanaryAD`, `CanaryKey`, `ValidateStaged`, `VerifyInstalled`, `ErrNotQuarantined`).
 
 - [ ] **Step 3: Implement**
@@ -5929,19 +5836,19 @@ Expected: FAIL at build time with `undefined: Canary` (then `CanaryAD`, `CanaryK
 
 - [ ] **Step 4: Run test to verify it passes, then the task's gates**
 
-Run: `export TMPDIR=/root/.cache/w7-tmp/12 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'Vf' -v ./internal/controller/backup/`
+Run: `export TMPDIR=/root/.cache/w7-tmp/11 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'Vf' -v ./internal/controller/backup/`
 Expected: PASS for `TestVfValidateStagedAcceptsAGoodDatabase`, `TestVfValidateStagedAcceptsAnOlderSchema`, `TestVfValidateStagedRefusals` (ten subtests), `TestVfValidateStagedCreatesNothingForAMissingFile`, `TestVfVerifyInstalledAcceptsAMarkedDatabase`, `TestVfVerifyInstalledRefusals` (fourteen subtests), `TestVfVerifyInstalledOpensReadOnly`.
 
 Then the gates of Global Constraints:
 
 ```bash
-mkdir -p /root/.cache/w7-tmp/12 && export TMPDIR=/root/.cache/w7-tmp/12 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w7-tmp/11 && export TMPDIR=/root/.cache/w7-tmp/11 GOTOOLCHAIN=local
 timeout 600 go build ./... && timeout 300 go vet ./...
 timeout 1500 go test -count=1 ./...
-timeout 900 go test -race -count=1 ./internal/controller/backup/
+timeout 900 go test -race -short -count=1 ./internal/controller/backup/
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
-rm -rf /root/.cache/w7-tmp/12 && go clean -testcache
+rm -rf /root/.cache/w7-tmp/11 && go clean -testcache
 ```
 
 Expected: every command exits 0, `go vet` and `go mod tidy -diff` print nothing, every `go test` line is `ok` or `?`, golangci-lint prints `0 issues.`.
@@ -5953,19 +5860,22 @@ git add internal/controller/backup/validate.go internal/controller/backup/valida
 git commit -m "feat(backup): add staged and installed checks"
 ```
 
-### Task 13: Backup stream route
+### Task 12: Backup stream route
 
 **Files:**
 - Create: `internal/controller/backup/stream.go`
 - Test: `internal/controller/backup/stream_test.go`
 
 **Interfaces:**
-- Consumes: Contracts "Backup handler" (the shape of `BackupRequest` and `backupHandler`), "Configuration and contribution" (`Backup`, `Config`, `New`, the `running` flag), "Format" (`Write`, `Params`, `DefaultParams`, `Member`, `MemberDB`, `MemberKey`, `MaxKeyMember`; the tests also use `Read`, `Header`, `TestParams`, `HeaderSize`, `Magic`, `FormatVersion`), "Validation and verification" (`CanaryKey`, `CanaryAD`, `Canary`), "Audit", and in the tests "Controller database fixture" (`fxDB`, `fxKey`, `fxInsertHost`, `fxInsertChange`, `fxNow`). `ext.Deps` fields used: `DB`, `Sealer`, `Clock`, `Log`, `Audit`, `LocalHostID`.
-- Produces: `BackupRequest` and `func (b *Backup) backupHandler(deps ext.Deps) http.Handler` exactly as Contracts "Backup handler" states them; Task 17 mounts the handler on `POST /api/v1/controller/backup` with `Stream: true`. The file declares only `BackupRequest`, `backupHandler` and unexported helpers whose names start with `stream`, so no other task's helper can collide.
+- Consumes: Contracts "Backup handler" (the shape of `BackupRequest` and `backupHandler`), "Configuration and contribution" (`Backup`, `Config`, `New`, the `running` flag), "Format" (`Write`, `Params`, `DefaultParams`, `Member`, `MemberDB`, `MemberKey`, `MaxKeyMember`; the tests also use `Read`, `Header`, `TestParams`, `HeaderSize`, `Magic`, `FormatVersion`), "Validation and verification" (`CanaryKey`, `CanaryAD`, `Canary`), "Audit", "Route helpers" (Task 9: `writeProblem`, `decodeBody`, `recordAudit`), and in the tests "Controller database fixture" (`fxDB`, `fxKey`, `fxInsertHost`, `fxInsertChange`, `fxNow`). `ext.Deps` fields used: `DB`, `Sealer`, `Clock`, `Log`, `Audit`, `LocalHostID`.
+- Produces: `BackupRequest` and `func (b *Backup) backupHandler(deps ext.Deps) http.Handler` exactly as Contracts "Backup handler" states them; Task 16 mounts the handler on `POST /api/v1/controller/backup` with `Stream: true`. The file declares only `BackupRequest`, `backupHandler` and unexported helpers whose names start with `stream`, so no other task's helper can collide.
 
 **Items:** 54
 
-**Depends on:** Task 1, Task 3, Task 12
+**Depends on:** Task 1, Task 3, Task 9, Task 11
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 3 = 8
+**Lenses:** security
 
 - [ ] **Step 1: Write the failing test**
 
@@ -6523,7 +6433,7 @@ func TestBsRefreshesTheCanaryBeforeEachCopy(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w7-tmp/13 && export TMPDIR=/root/.cache/w7-tmp/13 GOTOOLCHAIN=local && timeout 600 go test -count=1 -run '^TestBs' ./internal/controller/backup/`
+Run: `mkdir -p /root/.cache/w7-tmp/12 && export TMPDIR=/root/.cache/w7-tmp/12 GOTOOLCHAIN=local && timeout 600 go test -count=1 -run '^TestBs' ./internal/controller/backup/`
 Expected: FAIL, the build fails with `undefined: BackupRequest` and `b.backupHandler undefined (type *Backup has no field or method backupHandler)`.
 
 - [ ] **Step 3: Implement**
@@ -6531,24 +6441,24 @@ Expected: FAIL, the build fails with `undefined: BackupRequest` and `b.backupHan
 Write `stream.go` in package `backup`:
 
 1. Declare `BackupRequest` (Contracts "Backup handler", JSON tags `passphrase` and `argon2,omitempty`) and `func (b *Backup) backupHandler(deps ext.Deps) http.Handler`, which returns an `http.HandlerFunc`. Declare no other exported name.
-2. Problems. `internal/controller/api` exports no helper for contributed routes, so declare `streamProblem(w http.ResponseWriter, log *slog.Logger, err error)` as a copy of `writeProblem` in `internal/controller/api/wire.go`: it answers `application/problem+json` with `type` "about:blank", `title`, `status`, `detail`, `code` and `errors`; takes the `*errcode.Error` in the chain (`errcode.From`); maps a code outside the registry to `errcode.Internal`; and for a status of 500 or more answers the code's title as the detail and logs the cause with `log.Error`. Its doc comment says it mirrors that function.
-3. Request. Read the body through `http.MaxBytesReader(w, r.Body, 64<<10)` and decode one JSON object into a `BackupRequest` with `DisallowUnknownFields`; nothing but whitespace may follow the object. Every decoding failure (empty body, bad JSON, unknown field, second value, body over 64 KiB) is `errcode.New(errcode.InvalidInput, <fixed text>)`; the text never repeats input. The passphrase must be 1 to 1024 bytes, else `errcode.InvalidInput` "the passphrase must be 1 to 1024 bytes". `Argon2` nil means `DefaultParams`; otherwise `Params.Validate()` must pass and its error (already `request.invalid_input` naming `argon2.t`, `argon2.m` or `argon2.p`) is answered unchanged. All of this happens before anything touches the database or the slot.
+2. Problems. Answer every refusal, and every failure before the body begins, with `writeProblem(w, deps.Log, err)` from `quarantine_routes.go` (Contracts "Route helpers"); declare no copy of it.
+3. Request. `decodeBody(w, r, &req)` into a `BackupRequest` (Contracts "Route helpers": at most `maxRouteBody` bytes, unknown fields refused, nothing but whitespace after the object); every decoding failure (empty body, bad JSON, unknown field, second value, body over 64 KiB) comes back as `request.invalid_input` and is answered unchanged. The passphrase must be 1 to 1024 bytes, else `errcode.InvalidInput` "the passphrase must be 1 to 1024 bytes". `Argon2` nil means `DefaultParams`; otherwise `Params.Validate()` must pass and its error (already `request.invalid_input` naming `argon2.t`, `argon2.m` or `argon2.p`) is answered unchanged. All of this happens before anything touches the database or the slot.
 4. Slot. `b.running.CompareAndSwap(false, true)`; when it fails answer `errcode.New(errcode.ChangeBusy, "another backup is running")`. Release it with `defer b.running.Store(false)` so a panic frees it too.
 5. Canary. Upsert `core_meta` key `CanaryKey` through `deps.DB.Write` with `INSERT ... ON CONFLICT (key) DO UPDATE SET value = excluded.value`. The value is `base64.StdEncoding` of `deps.Sealer.Seal(CanaryAD, json.Marshal(Canary{CreatedAt: deps.Clock.Now().UTC()}))`.
 6. Copy. The temporary file is `filepath.Join(filepath.Dir(deps.DB.Path()), "backup-"+ulid.Make().String()+".db")` (`github.com/oklog/ulid/v2`). Register `defer os.Remove(path)` before the copy and ignore a missing file, so the copy is removed on success, on every error and on a panic. Run `VACUUM INTO ?` on `deps.DB.Writer()` with the path as the bound parameter and the request context, then `os.Chmod(path, 0o600)`.
-7. Key. `streamReadKey(path string) ([]byte, error)` opens `Config.KeyFile` with `syscall.O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_NONBLOCK` (so a symbolic link fails and a FIFO does not block), requires `Stat` on the open file to be a regular file of at most `MaxKeyMember` bytes, and reads at most `MaxKeyMember` bytes. Every refusal is a plain wrapped error `backup: ...` that names the path and the rule but never file content; the handler answers it through `streamProblem` as a 500. `clear` the returned bytes when the handler returns.
+7. Key. `streamReadKey(path string) ([]byte, error)` opens `Config.KeyFile` with `syscall.O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_NONBLOCK` (so a symbolic link fails and a FIFO does not block), requires `Stat` on the open file to be a regular file of at most `MaxKeyMember` bytes, and reads at most `MaxKeyMember` bytes. Every refusal is a plain wrapped error `backup: ...` that names the path and the rule but never file content; the handler answers it through `writeProblem` as a 500. `clear` the returned bytes when the handler returns.
 8. Stream. Open the copy with `os.Open` and `Stat` its size. Members are `{MemberDB, size, file}` then `{MemberKey, len(key), bytes.NewReader(key)}`. Wrap `w` in a `streamWriter` whose first `Write` call, before delegating, sets `Content-Type: application/octet-stream` and `Content-Disposition: attachment; filename="darkpanel-controller-<deps.Clock.Now().UTC().Format("20060102T150405Z")>.dpbk"`, calls `WriteHeader(http.StatusOK)` and records that the body began (set it before the delegated write returns, so a failed first write also counts). Call `Write(sw, rand.Reader, passphraseBytes, params, members)` with `crypto/rand`, where `passphraseBytes` is `[]byte(req.Passphrase)`; the format code clears it.
-9. Outcome. When `Write` returns an error and the body has not begun, answer it through `streamProblem` (a 500). When the body has begun, write the failure audit row (below), then `panic(http.ErrAbortHandler)` so the client sees a truncated file; a normal return writes the success row.
-10. Audit. One `deps.Audit.Record` call per backup that reached step 8, on a context from `context.WithoutCancel(r.Context())`: `Actor` `"local:root@" + deps.LocalHostID`, `Action` `"controller.backup"`, `Phase` `"apply"`, `Result` `"ok"` (or `"error"` with `ErrorCode` `string(errcode.Internal)` for the aborted stream), `At` `deps.Clock.Now()`, and no `Input`, `ChangeID` or `HostID`. `Phase` is `"apply"` because `core_audit.phase` has a CHECK list (migrations 0004, 0010 and 0011: apply, confirm, revert, recover, interrupt, login, logout, undo, resolve, release, revert-watchdog, reveal, uninstall-abort) and `result` accepts only ok, error and override; the phase the cloudflare hostnames service uses for its own rows is not on that list and must not be copied. A failed `Record` is logged with `deps.Log.Error` and does not change the response. Requests refused before step 8 write no row.
+9. Outcome. When `Write` returns an error and the body has not begun, answer it through `writeProblem` (a 500). When the body has begun, write the failure audit row (below), then `panic(http.ErrAbortHandler)` so the client sees a truncated file; a normal return writes the success row.
+10. Audit. One row per backup that reached step 8 (Contracts "Audit"), on a context from `context.WithoutCancel(r.Context())`. A normal return writes it with `recordAudit(ctx, deps, "controller.backup", "apply", "", "")`. The aborted stream writes it with a direct `deps.Audit.Record` call, because `recordAudit` writes only `ok` rows: `Actor` `"local:root@" + deps.LocalHostID`, `Action` `"controller.backup"`, `Phase` `"apply"`, `Result` `"error"`, `ErrorCode` `string(errcode.Internal)`, `At` `deps.Clock.Now()`, and no `Input`, `ChangeID` or `HostID`; a failed `Record` is logged with `deps.Log.Error`. Requests refused before step 8 write no row.
 11. Lint. `os.OpenFile` and `os.Open` of a path that is not a literal need `//nolint:gosec // G304: the path comes from configuration or the database directory, never from a request`; keep error strings starting `backup:`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `mkdir -p /root/.cache/w7-tmp/13 && export TMPDIR=/root/.cache/w7-tmp/13 GOTOOLCHAIN=local && timeout 600 go test -count=1 -v -run '^TestBs' ./internal/controller/backup/`
+Run: `mkdir -p /root/.cache/w7-tmp/12 && export TMPDIR=/root/.cache/w7-tmp/12 GOTOOLCHAIN=local && timeout 600 go test -count=1 -v -run '^TestBs' ./internal/controller/backup/`
 Expected: every `TestBs...` test and subtest PASS, final line `ok  	github.com/darkraise/darkpanel/internal/controller/backup`.
 
-Run: `export TMPDIR=/root/.cache/w7-tmp/13 GOTOOLCHAIN=local && timeout 600 go build ./... && timeout 300 go vet ./... && timeout 1500 go test -count=1 ./... && timeout 900 go test -race -count=1 ./internal/controller/backup/ && timeout 900 golangci-lint run --allow-serial-runners ./... && timeout 300 go mod tidy -diff`
-Expected: build and vet print nothing, every test line is `ok` or `?`, lint prints `0 issues.`, `go mod tidy -diff` prints nothing. Then `rm -rf /root/.cache/w7-tmp/13 && go clean -testcache`.
+Run: `export TMPDIR=/root/.cache/w7-tmp/12 GOTOOLCHAIN=local && timeout 600 go build ./... && timeout 300 go vet ./... && timeout 1500 go test -count=1 ./... && timeout 900 go test -race -short -count=1 ./internal/controller/backup/ && timeout 900 golangci-lint run --allow-serial-runners ./... && timeout 300 go mod tidy -diff`
+Expected: build and vet print nothing, every test line is `ok` or `?`, lint prints `0 issues.`, `go mod tidy -diff` prints nothing. Then `rm -rf /root/.cache/w7-tmp/12 && go clean -testcache`.
 
 - [ ] **Step 5: Commit**
 
@@ -6557,19 +6467,22 @@ git add internal/controller/backup/stream.go internal/controller/backup/stream_t
 git commit -m "feat(backup): stream the encrypted backup"
 ```
 
-### Task 14: Quarantine resolve route
+### Task 13: Quarantine resolve route
 
 **Files:**
 - Create: `internal/controller/backup/resolve.go`
 - Test: `internal/controller/backup/resolve_test.go`
 
 **Interfaces:**
-- Consumes: Contracts "Quarantine routes" (`Record`, `ResolveRequest`, `recordByID`, the `queryer` interface and the three handlers Task 10 wrote, `Backup`, `New`, `Config`), "Configuration and contribution", "Marking" (the `quarantined` state and `quarantined_from` Task 8 and Task 9 define), "Audit", and the helpers Task 10 left in `quarantine_routes.go` for its own handlers: the function that answers an error as RFC 9457 problem details, the one that answers a JSON value with a status, the one that decodes a request body of at most 64 KiB with unknown fields refused, and the one that writes the audit row. In the tests: "Controller database fixture" (`fxDB`, `fxInsertChange`, `fxInsertComposite`, `fxInsertLock`, `fxInsertRollout`, `fxStep`, `fxChange`, `fxNow`), `coretest.FakeAgent` and `coretest.Sealer`, `audit.New`. Core names: `core.HostDirectory`, `core.AgentClient` (`Lookup`, `Retire`), `core.PlanLookup` and the `core.Lookup*` and `core.State*` constants.
-- Produces: `func (b *Backup) resolveHandler(deps ext.Deps) http.Handler` as Contracts "Quarantine routes" states it (path value `record`); Task 17 mounts it on `POST /api/v1/controller/quarantine/{record}/resolve`.
+- Consumes: Contracts "Quarantine routes" (`Record`, `ResolveRequest`, `recordByID`, the `queryer` interface and the three handlers Task 9 wrote, `Backup`, `New`, `Config`), "Configuration and contribution", "Marking" (the `quarantined` state and `quarantined_from` Task 7 and Task 8 define), "Audit", and "Route helpers" (Task 9: `maxRouteBody`, `writeProblem`, `writeJSON`, `decodeBody`, `recordAudit`). In the tests: "Controller database fixture" (`fxDB`, `fxInsertChange`, `fxInsertComposite`, `fxInsertLock`, `fxInsertRollout`, `fxStep`, `fxChange`, `fxNow`), `coretest.FakeAgent` and `coretest.Sealer`, `audit.New`. Core names: `core.HostDirectory`, `core.AgentClient` (`Lookup`, `Retire`), `core.PlanLookup` and the `core.Lookup*` and `core.State*` constants.
+- Produces: `func (b *Backup) resolveHandler(deps ext.Deps) http.Handler` as Contracts "Quarantine routes" states it (path value `record`); Task 16 mounts it on `POST /api/v1/controller/quarantine/{record}/resolve`.
 
 **Items:** 69
 
-**Depends on:** Task 10
+**Depends on:** Task 3, Task 7, Task 8, Task 9
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 3 = 8
+**Lenses:** silent-failures
 
 - [ ] **Step 1: Write the failing test**
 
@@ -7168,12 +7081,12 @@ func TestRsRefusesABadRequest(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w7-tmp/14 && export TMPDIR=/root/.cache/w7-tmp/14 GOTOOLCHAIN=local && timeout 600 go test -count=1 -run '^TestRs' ./internal/controller/backup/`
+Run: `mkdir -p /root/.cache/w7-tmp/13 && export TMPDIR=/root/.cache/w7-tmp/13 GOTOOLCHAIN=local && timeout 600 go test -count=1 -run '^TestRs' ./internal/controller/backup/`
 Expected: FAIL, the build fails with `New(Config{}).resolveHandler undefined (type *Backup has no field or method resolveHandler)`.
 
 - [ ] **Step 3: Implement**
 
-Write `resolve.go` in package `backup` with `func (b *Backup) resolveHandler(deps ext.Deps) http.Handler`. Read `quarantine_routes.go` first and use its four helpers (problem answer, JSON answer, body decode, audit row); declare no second copy of any of them. If one of the four does not exist there, stop and report NEEDS_CONTEXT naming it. Declare in `resolve.go` only the handler and unexported names starting `resolve`.
+Write `resolve.go` in package `backup` with `func (b *Backup) resolveHandler(deps ext.Deps) http.Handler`. Read `quarantine_routes.go` first and use the four functions of Contracts "Route helpers" (`writeProblem`, `writeJSON`, `decodeBody`, `recordAudit`); declare no second copy of any of them. If one of the four does not exist there, stop and report NEEDS_CONTEXT naming it. Declare in `resolve.go` only the handler and unexported names starting `resolve`.
 
 The rules below restate what the implementer cannot see elsewhere. They are the only rules; refusals are `*errcode.Error` with these client-safe texts (substitute the ids):
 
@@ -7193,15 +7106,15 @@ The rules below restate what the implementer cannot see elsewhere. They are the 
    - composite `never`: `state` `abandoned`, `error_message` "restore: never applied", `error_code` and `error_cause` NULL, `recovery_owner` `''`; locks deleted as above.
    - rollout `never`: `core_rollouts` gets `state` `cancelled` and `error_message` "restore: never applied"; locks owned by the id are deleted.
 7. Answer `200` with the `Record` read in rule 2, with `Locks` set to a non-nil empty slice after `done` or `never` and left as read after `repair` (`Kind` and `QuarantinedFrom` unchanged).
-8. Audit, after the commit, on `context.WithoutCancel(r.Context())`: one row with `Actor` `"local:root@" + deps.LocalHostID`, `Action` `"controller.quarantine.resolve"`, `Phase` `"resolve"`, `Result` `"ok"`, `ChangeID` the record id, `At` `deps.Clock.Now()`, and no `Input` and no `HostID`. `Phase` must be one the `core_audit.phase` CHECK list accepts (migrations 0004, 0010 and 0011); `resolve` is on it. A refusal writes no row. A failed `Record` is logged with `deps.Log.Error` and the answer stays `200`.
+8. Audit, after the commit: `recordAudit(context.WithoutCancel(r.Context()), deps, "controller.quarantine.resolve", "resolve", <record id>, "")` (Contracts "Audit"; `resolve` is on the `core_audit.phase` CHECK list). A refusal writes no row. A failed write is logged and the answer stays `200`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `mkdir -p /root/.cache/w7-tmp/14 && export TMPDIR=/root/.cache/w7-tmp/14 GOTOOLCHAIN=local && timeout 600 go test -count=1 -v -run '^TestRs' ./internal/controller/backup/`
+Run: `mkdir -p /root/.cache/w7-tmp/13 && export TMPDIR=/root/.cache/w7-tmp/13 GOTOOLCHAIN=local && timeout 600 go test -count=1 -v -run '^TestRs' ./internal/controller/backup/`
 Expected: every `TestRs...` test and subtest PASS, final line `ok  	github.com/darkraise/darkpanel/internal/controller/backup`.
 
-Run: `export TMPDIR=/root/.cache/w7-tmp/14 GOTOOLCHAIN=local && timeout 600 go build ./... && timeout 300 go vet ./... && timeout 1500 go test -count=1 ./... && timeout 900 go test -race -count=1 ./internal/controller/backup/ && timeout 900 golangci-lint run --allow-serial-runners ./... && timeout 300 go mod tidy -diff`
-Expected: build and vet print nothing, every test line is `ok` or `?`, lint prints `0 issues.`, `go mod tidy -diff` prints nothing. Then `rm -rf /root/.cache/w7-tmp/14 && go clean -testcache`.
+Run: `export TMPDIR=/root/.cache/w7-tmp/13 GOTOOLCHAIN=local && timeout 600 go build ./... && timeout 300 go vet ./... && timeout 1500 go test -count=1 ./... && timeout 900 go test -race -short -count=1 ./internal/controller/backup/ && timeout 900 golangci-lint run --allow-serial-runners ./... && timeout 300 go mod tidy -diff`
+Expected: build and vet print nothing, every test line is `ok` or `?`, lint prints `0 issues.`, `go mod tidy -diff` prints nothing. Then `rm -rf /root/.cache/w7-tmp/13 && go clean -testcache`.
 
 - [ ] **Step 5: Commit**
 
@@ -7210,7 +7123,7 @@ git add internal/controller/backup/resolve.go internal/controller/backup/resolve
 git commit -m "feat(backup): add the quarantine resolve route"
 ```
 
-### Task 15: Restore transaction
+### Task 14: Restore transaction
 
 **Files:**
 - Create: `internal/controller/backup/restore.go`
@@ -7218,16 +7131,19 @@ git commit -m "feat(backup): add the quarantine resolve route"
 
 **Interfaces:**
 - Consumes: Contracts "Restore and recovery" (`Restore`, `RestoreResult`, the rollback rule and the W7-R11 rule), "Restore host" (`Host`, `h.lock`, `h.checkRestore` and their refusal messages), "Journal" (`Journal`, `Phase*`, `Rename*`, `Targets`, `StagedName`, `AsideName`, `JournalPath`, `SaveJournal`, `RenameJournaled`, `Settle`, `ListJournals`), "Durable file operations" (`Ops`, `File`, `OSOps`), "Format" (`Read`, `Member`, `MemberDB`, `MemberKey`, `MaxKeyMember`; the tests use `Write`, `TestParams`), "Marking" (`Mark`), "Validation and verification" (`ValidateStaged`, `VerifyInstalled`, `Canary`, `CanaryKey`, `CanaryAD`), `quarantine.Marker` and `quarantine.MetaKey`, and in the tests "Controller database fixture" (`fxDB`, `fxKey`, `fxInsertChange`, `fxInsertLock`, `fxNow`).
-- Produces: `Restore` and `RestoreResult` exactly as Contracts "Restore and recovery" states them. Task 16 also consumes these unexported functions of `restore.go`, which this task declares with these signatures:
+- Produces: `Restore` and `RestoreResult` exactly as Contracts "Restore and recovery" states them. Task 15 also consumes the unexported `removeTx`, `installStaged`, `finishTx` and `dropOldAside` of Contracts "Restore and recovery", which this task declares in `restore.go` as follows:
   - `func removeTx(h Host, tx string) error`: removes, through `h.Ops`, each of these names (a missing one is not an error) and calls `h.Ops.SyncDir` on its directory after each, stopping at the first error: `StagedName(h.Paths.ControllerDB(), tx)`, that name plus `-wal`, that name plus `-shm` (the files SQLite makes beside a staged database), `StagedName(h.Paths.ControllerKey, tx)`, the journal path plus `.new`, and last the journal `JournalPath(h.Paths.ControllerDir, tx)`.
   - `func installStaged(h Host, journalPath string, j *Journal) error`: phase 6, safe to repeat.
   - `func finishTx(ctx context.Context, h Host, journalPath string, j *Journal) error`: phases 7 and 8.
   - `func dropOldAside(h Host, tx string) error`.
-- Produces (test helpers in `restore_test.go`, consumed by Task 16): `const rtPass, rtChangeID, rtControllerUnit, rtAgentUnit`; `func rtTx(n int) string`; `type rtUnits` (field `active map[string]string`); `type rtLayout struct{ paths paths.Paths; host Host; units *rtUnits; clock *coretest.FakeClock }` with methods `dirs() []string` and `digest(t) map[string]string`; `func rtNewLayout(t *testing.T, tx string) *rtLayout`; `type rtBackup struct{ file, db, key []byte; createdAt time.Time }`; `func rtMakeBackup(t *testing.T, mutate ...func(*testing.T, *store.DB)) rtBackup`; `func rtPack(t, dbBytes, key []byte) []byte`; `func rtRestore(t, l, bk) RestoreResult`; `func rtDiff(want, got map[string]string) string`; `func rtSum([]byte) string`; `func rtRead(t, path) []byte`; `func rtFiles(t, dir) []string`; `func rtOpenRO(t, path) *sql.DB`; `func rtMeta(t, db *sql.DB, key string) string`; `func rtMarker(t, db *sql.DB) quarantine.Marker`.
+- Produces (test helpers in `restore_test.go`, consumed by Task 15): `const rtPass, rtChangeID, rtControllerUnit, rtAgentUnit`; `func rtTx(n int) string`; `type rtUnits` (field `active map[string]string`); `type rtLayout struct{ paths paths.Paths; host Host; units *rtUnits; clock *coretest.FakeClock }` with methods `dirs() []string` and `digest(t) map[string]string`; `func rtNewLayout(t *testing.T, tx string) *rtLayout`; `type rtBackup struct{ file, db, key []byte; createdAt time.Time }`; `func rtMakeBackup(t *testing.T, mutate ...func(*testing.T, *store.DB)) rtBackup`; `func rtPack(t, dbBytes, key []byte) []byte`; `func rtRestore(t, l, bk) RestoreResult`; `func rtDiff(want, got map[string]string) string`; `func rtSum([]byte) string`; `func rtRead(t, path) []byte`; `func rtFiles(t, dir) []string`; `func rtOpenRO(t, path) *sql.DB`; `func rtMeta(t, db *sql.DB, key string) string`; `func rtMarker(t, db *sql.DB) quarantine.Marker`.
 
 **Items:** 54, 69
 
-**Depends on:** Task 1, Task 5, Task 7, Task 9, Task 12
+**Depends on:** Task 1, Task 2, Task 3, Task 4, Task 6, Task 8, Task 11
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 3 = 8
+**Lenses:** silent-failures
 
 - [ ] **Step 1: Write the failing test**
 
@@ -7831,7 +7747,7 @@ func TestRtRestoreMigratesAnOlderBackupWithoutAnotherCopy(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w7-tmp/15 && export TMPDIR=/root/.cache/w7-tmp/15 GOTOOLCHAIN=local && timeout 600 go test -count=1 -run '^TestRt' ./internal/controller/backup/`
+Run: `mkdir -p /root/.cache/w7-tmp/14 && export TMPDIR=/root/.cache/w7-tmp/14 GOTOOLCHAIN=local && timeout 600 go test -count=1 -run '^TestRt' ./internal/controller/backup/`
 Expected: FAIL, the build fails with `undefined: Restore` and `undefined: RestoreResult`.
 
 - [ ] **Step 3: Implement**
@@ -7860,11 +7776,11 @@ Keep exported documentation on `Restore` and `RestoreResult`; comments elsewhere
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `mkdir -p /root/.cache/w7-tmp/15 && export TMPDIR=/root/.cache/w7-tmp/15 GOTOOLCHAIN=local && timeout 600 go test -count=1 -v -run '^TestRt' ./internal/controller/backup/`
+Run: `mkdir -p /root/.cache/w7-tmp/14 && export TMPDIR=/root/.cache/w7-tmp/14 GOTOOLCHAIN=local && timeout 600 go test -count=1 -v -run '^TestRt' ./internal/controller/backup/`
 Expected: every `TestRt...` test and subtest PASS, final line `ok  	github.com/darkraise/darkpanel/internal/controller/backup`.
 
-Run: `export TMPDIR=/root/.cache/w7-tmp/15 GOTOOLCHAIN=local && timeout 600 go build ./... && timeout 300 go vet ./... && timeout 1500 go test -count=1 ./... && timeout 900 go test -race -count=1 ./internal/controller/backup/ && timeout 900 golangci-lint run --allow-serial-runners ./... && timeout 300 go mod tidy -diff`
-Expected: build and vet print nothing, every test line is `ok` or `?`, lint prints `0 issues.`, `go mod tidy -diff` prints nothing. Then `rm -rf /root/.cache/w7-tmp/15 && go clean -testcache`.
+Run: `export TMPDIR=/root/.cache/w7-tmp/14 GOTOOLCHAIN=local && timeout 600 go build ./... && timeout 300 go vet ./... && timeout 1500 go test -count=1 ./... && timeout 900 go test -race -short -count=1 ./internal/controller/backup/ && timeout 900 golangci-lint run --allow-serial-runners ./... && timeout 300 go mod tidy -diff`
+Expected: build and vet print nothing, every test line is `ok` or `?`, lint prints `0 issues.`, `go mod tidy -diff` prints nothing. Then `rm -rf /root/.cache/w7-tmp/14 && go clean -testcache`.
 
 - [ ] **Step 5: Commit**
 
@@ -7873,19 +7789,22 @@ git add internal/controller/backup/restore.go internal/controller/backup/restore
 git commit -m "feat(backup): add the crash-safe restore"
 ```
 
-### Task 16: Restore recovery and the crash matrix
+### Task 15: Restore recovery and the crash matrix
 
 **Files:**
 - Create: `internal/controller/backup/recover.go`
 - Test: `internal/controller/backup/recover_test.go`, `internal/controller/backup/recover_crash_test.go`
 
 **Interfaces:**
-- Consumes: Contracts "Restore and recovery" (`Recover` and the rollback rule), "Restore host" (`Host`, `h.lock` and its refusal message), "Journal" (`Journal`, `JournalFile`, `Rename`, `Phase*`, `Rename*`, `Targets`, `AsideName`, `StagedName`, `JournalPath`, `SaveJournal`, `ReadJournal`, `ListJournals`, `RenameJournaled`, `Settle`, `ErrAmbiguousRename`), "Durable file operations" (`Ops`, `OSOps`; in the tests `newCrashOps`, `crashOps.Calls`, `crashOps.Crashed`), "Validation and verification" (`ErrNotQuarantined`), and from Task 15 `Restore`, `RestoreResult` and the unexported `removeTx(h Host, tx string) error`, `installStaged(h Host, journalPath string, j *Journal) error`, `finishTx(ctx context.Context, h Host, journalPath string, j *Journal) error`. The tests also use Task 15's helpers: `rtPass`, `rtControllerUnit`, `rtAgentUnit`, `rtTx(n)`, `rtLayout` (fields `paths`, `host`, `units`, `clock`; methods `dirs()`, `digest(t)`), `rtNewLayout(t, tx)`, `rtBackup` (fields `file`, `db`, `key`, `createdAt`), `rtMakeBackup(t)`, `rtRestore(t, l, bk)`, `rtDiff`, `rtSum`, `rtRead`, `rtFiles`, `rtOpenRO`, `rtMeta`, `rtMarker`, and `fxDB` from Contracts "Controller database fixture".
-- Produces: `func Recover(ctx context.Context, h Host) error` exactly as Contracts "Restore and recovery" states it; Task 18 calls it from `darkpanel controller restore --recover`. Unexported: `rollbackTx(h Host, journalPath string, j *Journal) error` and `recoverOne(ctx context.Context, h Host, journalPath string) error`.
+- Consumes: Contracts "Restore and recovery" (`Recover` and the rollback rule), "Restore host" (`Host`, `h.lock` and its refusal message), "Journal" (`Journal`, `JournalFile`, `Rename`, `Phase*`, `Rename*`, `Targets`, `AsideName`, `StagedName`, `JournalPath`, `SaveJournal`, `ReadJournal`, `ListJournals`, `RenameJournaled`, `Settle`, `ErrAmbiguousRename`), "Durable file operations" (`Ops`, `OSOps`; in the tests `newCrashOps`, `crashOps.Calls`, `crashOps.Crashed`), "Validation and verification" (`ErrNotQuarantined`), and from Task 14 `Restore`, `RestoreResult` and the unexported `removeTx(h Host, tx string) error`, `installStaged(h Host, journalPath string, j *Journal) error`, `finishTx(ctx context.Context, h Host, journalPath string, j *Journal) error`. The tests also use Task 14's helpers: `rtPass`, `rtControllerUnit`, `rtAgentUnit`, `rtTx(n)`, `rtLayout` (fields `paths`, `host`, `units`, `clock`; methods `dirs()`, `digest(t)`), `rtNewLayout(t, tx)`, `rtBackup` (fields `file`, `db`, `key`, `createdAt`), `rtMakeBackup(t)`, `rtRestore(t, l, bk)`, `rtDiff`, `rtSum`, `rtRead`, `rtFiles`, `rtOpenRO`, `rtMeta`, `rtMarker`, and `fxDB` from Contracts "Controller database fixture".
+- Produces: `func Recover(ctx context.Context, h Host) error` exactly as Contracts "Restore and recovery" states it; Task 17 calls it from `darkpanel controller restore --recover`. Unexported: `rollbackTx(h Host, journalPath string, j *Journal) error` and `recoverOne(ctx context.Context, h Host, journalPath string) error`.
 
 **Items:** 54, 69
 
-**Depends on:** Task 2, Task 5, Task 12, Task 15
+**Depends on:** Task 2, Task 3, Task 4, Task 6, Task 11, Task 14
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 3 = 8
+**Lenses:** silent-failures
 
 - [ ] **Step 1: Write the failing test**
 
@@ -8668,7 +8587,7 @@ func TestRcTwoRestoresWithACrashInTheSecond(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w7-tmp/16 && export TMPDIR=/root/.cache/w7-tmp/16 GOTOOLCHAIN=local && timeout 600 go test -count=1 -run '^TestRc' ./internal/controller/backup/`
+Run: `mkdir -p /root/.cache/w7-tmp/15 && export TMPDIR=/root/.cache/w7-tmp/15 GOTOOLCHAIN=local && timeout 600 go test -count=1 -run '^TestRc' ./internal/controller/backup/`
 Expected: FAIL, the build fails with `undefined: Recover`.
 
 - [ ] **Step 3: Implement**
@@ -8693,11 +8612,11 @@ An entry of `j.Files` is only acted on through the pair of names derived from th
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `mkdir -p /root/.cache/w7-tmp/16 && export TMPDIR=/root/.cache/w7-tmp/16 GOTOOLCHAIN=local && timeout 600 go test -count=1 -v -run '^TestRc' ./internal/controller/backup/`
+Run: `mkdir -p /root/.cache/w7-tmp/15 && export TMPDIR=/root/.cache/w7-tmp/15 GOTOOLCHAIN=local && timeout 600 go test -count=1 -v -run '^TestRc' ./internal/controller/backup/`
 Expected: every `TestRc...` test and subtest PASS, final line `ok  	github.com/darkraise/darkpanel/internal/controller/backup`; the matrix logs the number of Ops calls of one restore. Record that number and the run time in the report.
 
-Run: `export TMPDIR=/root/.cache/w7-tmp/16 GOTOOLCHAIN=local && timeout 600 go build ./... && timeout 300 go vet ./... && timeout 1500 go test -count=1 ./... && timeout 900 go test -race -short -count=1 ./internal/controller/backup/ && timeout 900 golangci-lint run --allow-serial-runners ./... && timeout 300 go mod tidy -diff`
-Expected: build and vet print nothing, every test line is `ok` or `?`, lint prints `0 issues.`, `go mod tidy -diff` prints nothing. The race run uses `-short` because the full matrices under the race detector are slow; say so in the report. Then `rm -rf /root/.cache/w7-tmp/16 && go clean -testcache`.
+Run: `export TMPDIR=/root/.cache/w7-tmp/15 GOTOOLCHAIN=local && timeout 600 go build ./... && timeout 300 go vet ./... && timeout 1500 go test -count=1 ./... && timeout 900 go test -race -short -count=1 ./internal/controller/backup/ && timeout 900 golangci-lint run --allow-serial-runners ./... && timeout 300 go mod tidy -diff`
+Expected: build and vet print nothing, every test line is `ok` or `?`, lint prints `0 issues.`, `go mod tidy -diff` prints nothing. The race run uses `-short` because the full matrices under the race detector are slow; say so in the report. Then `rm -rf /root/.cache/w7-tmp/15 && go clean -testcache`.
 
 - [ ] **Step 5: Commit**
 
@@ -8706,7 +8625,7 @@ git add internal/controller/backup/recover.go internal/controller/backup/recover
 git commit -m "feat(backup): recover an unfinished restore"
 ```
 
-### Task 17: Backup routes end to end
+### Task 16: Backup routes end to end
 
 **Files:**
 - Modify: `internal/controller/backup/contribute.go` (`(*Backup).Contribute` returns the five routes; the package-level `Contribute` and the package comment's mention of it are removed)
@@ -8714,7 +8633,7 @@ git commit -m "feat(backup): recover an unfinished restore"
 - Create: `internal/controller/backup/routes_test.go`
 
 **Interfaces:**
-- Consumes: Contracts "Configuration and contribution" (`Backup`, `Config`, `New`, `TokenIssuer`), "Routes", "Backup handler" (`backupHandler`), "Quarantine routes" (`Status`, `Record`, `EnrollTokenResult`, `ReleaseResult`, `HeldLock`, and the handlers `quarantineHandler`, `enrollTokenHandler`, `releaseHandler` of Task 10 and `resolveHandler` of Task 14), "Marking" (`Mark`), "Format" (`Read`, `MemberDB`, `MemberKey`), "Validation and verification" (`ValidateStaged`), "Audit", and in the tests "Controller database fixture" (`fxDB`, `fxKey`, `fxNow`, `fxInsertHost`, `fxInsertChange`, `fxInsertComposite`, `fxInsertLock`, `fxChange`, `fxStep`). Outside the package: `ext.Route`, `ext.Deps`, `audit.New` and `quarantine.Active`.
+- Consumes: Contracts "Configuration and contribution" (`Backup`, `Config`, `New`, `TokenIssuer`), "Routes", "Backup handler" (`backupHandler`), "Quarantine routes" (`Status`, `Record`, `EnrollTokenResult`, `ReleaseResult`, `HeldLock`, and the handlers `quarantineHandler`, `enrollTokenHandler`, `releaseHandler` of Task 9 and `resolveHandler` of Task 13), "Marking" (`Mark`), "Format" (`Read`, `MemberDB`, `MemberKey`), "Validation and verification" (`ValidateStaged`), "Audit", and in the tests "Controller database fixture" (`fxDB`, `fxKey`, `fxNow`, `fxInsertHost`, `fxInsertChange`, `fxInsertComposite`, `fxInsertLock`, `fxChange`, `fxStep`). Outside the package: `ext.Route`, `ext.Deps`, `audit.New` and `quarantine.Active`.
 - Produces: no new identifier. `(*Backup).Contribute(deps ext.Deps) ([]ext.Route, []ext.Service, error)` returns exactly these five routes, in this order, every one with `Surface: ext.SurfaceSocket`, plus no service and a nil error. The package-level `Contribute` no longer exists.
 
   | Method | Path | Stream | Handler | Summary |
@@ -8727,7 +8646,9 @@ git commit -m "feat(backup): recover an unfinished restore"
 
 **Items:** 54, 69
 
-**Depends on:** Task 10, Task 13, Task 14
+**Depends on:** Task 1, Task 3, Task 8, Task 9, Task 11, Task 12, Task 13
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 - [ ] **Step 1: Write the failing test**
 
@@ -9124,36 +9045,36 @@ func (e *roEnv) checkAudit(t *testing.T) {
 - [ ] **Step 2: Run the test and see it fail**
 
 ```bash
-mkdir -p /root/.cache/w7-tmp/17
-cd "$(git rev-parse --show-toplevel)" && TMPDIR=/root/.cache/w7-tmp/17 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestRo' ./internal/controller/backup/
+mkdir -p /root/.cache/w7-tmp/16
+cd "$(git rev-parse --show-toplevel)" && TMPDIR=/root/.cache/w7-tmp/16 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestRo' ./internal/controller/backup/
 ```
 
-Expected RED, a runtime failure and not a build failure, because every identifier the test uses already exists: `TestRoContributeRoutes` reports `Contribute returned 0 routes, want 5`, and `TestRoRoutesEndToEnd` stops at its first call with `GET quarantine = 404 404 page not found` (the mux has no route). A build failure naming `fxDB`, `Mark`, `Status`, `ValidateStaged` or one of the handlers means the base lacks work of Tasks 3, 9, 10, 12, 13 or 14: stop and report it, do not stub it.
+Expected RED, a runtime failure and not a build failure, because every identifier the test uses already exists: `TestRoContributeRoutes` reports `Contribute returned 0 routes, want 5`, and `TestRoRoutesEndToEnd` stops at its first call with `GET quarantine = 404 404 page not found` (the mux has no route). A build failure naming `fxDB`, `Mark`, `Status`, `ValidateStaged` or one of the handlers means the base lacks work of Tasks 3, 8, 9, 11, 12 or 13: stop and report it, do not stub it.
 
 - [ ] **Step 3: Implement**
 
 All of this is in `contribute.go`; no handler file is edited, because each handler belongs to the task that wrote it.
 
-1. `(*Backup).Contribute` builds the slice of five `ext.Route` values from the table under Interfaces, in that order: `Surface` `ext.SurfaceSocket`, the method and path of the table, `Stream` true only for the backup route, the summary of the table, and the handler of the table built from the `deps` argument. It returns no service and a nil error. It reads no field of `deps` itself, and the first test calls it with an empty `ext.Deps`, so a handler constructor must keep `deps.DB`, `deps.Sealer` and the like for request time. If a constructor of Task 10, 13 or 14 dereferences a `deps` field while it builds the handler, the test panics: report that as a defect of that task, do not work around it here.
-2. Delete the package-level `Contribute`. First run `rg -n 'backup\.Contribute\(' --glob '*.go' .`: Task 6 moved the server to `New(...).Contribute`, so only the old test may call it. If another caller remains, stop and report it.
+1. `(*Backup).Contribute` builds the slice of five `ext.Route` values from the table under Interfaces, in that order: `Surface` `ext.SurfaceSocket`, the method and path of the table, `Stream` true only for the backup route, the summary of the table, and the handler of the table built from the `deps` argument. It returns no service and a nil error. It reads no field of `deps` itself, and the first test calls it with an empty `ext.Deps`, so a handler constructor must keep `deps.DB`, `deps.Sealer` and the like for request time. If a constructor of Task 9, 12 or 13 dereferences a `deps` field while it builds the handler, the test panics: report that as a defect of that task, do not work around it here.
+2. Delete the package-level `Contribute`. First run `rg -n 'backup\.Contribute\(' --glob '*.go' .`: Task 5 moved the server to `New(...).Contribute`, so only the old test may call it. If another caller remains, stop and report it.
 3. Update the doc comments. The package comment says the routes reach the controller through `Backup.Contribute`; the method's comment names the five routes and says it starts no service, and no longer says it returns nothing.
 4. In `contribute_test.go` delete `TestContributeAddsNothingYet` and the imports only it used; keep every other test of the file as it is.
-5. Do not add route logic here. Bodies, status codes, audit rows and quarantine semantics belong to Tasks 10, 13 and 14. If `TestRoRoutesEndToEnd` fails inside a handler after step 1, the report quotes the failing output and names the task whose handler is at fault.
+5. Do not add route logic here. Bodies, status codes, audit rows and quarantine semantics belong to Tasks 9, 12 and 13. If `TestRoRoutesEndToEnd` fails inside a handler after step 1, the report quotes the failing output and names the task whose handler is at fault.
 
 - [ ] **Step 4: Run the tests and see them pass**
 
 ```bash
-cd "$(git rev-parse --show-toplevel)" && TMPDIR=/root/.cache/w7-tmp/17 GOTOOLCHAIN=local timeout 300 go test -count=1 -v -run 'TestRo' ./internal/controller/backup/
+cd "$(git rev-parse --show-toplevel)" && TMPDIR=/root/.cache/w7-tmp/16 GOTOOLCHAIN=local timeout 300 go test -count=1 -v -run 'TestRo' ./internal/controller/backup/
 ```
 
 Expected GREEN: `TestRoContributeRoutes` and `TestRoRoutesEndToEnd` print `--- PASS`. Then run the task's full verification and record the real output of each command:
 
 ```bash
-mkdir -p /root/.cache/w7-tmp/17
-export TMPDIR=/root/.cache/w7-tmp/17 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w7-tmp/16
+export TMPDIR=/root/.cache/w7-tmp/16 GOTOOLCHAIN=local
 timeout 600 go build ./...
 timeout 300 go vet ./...
-timeout 900 go test -race -count=1 ./internal/controller/backup/... ./internal/controller/server/...
+timeout 900 go test -race -short -count=1 ./internal/controller/backup/... ./internal/controller/server/...
 timeout 1500 go test -count=1 ./...
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
@@ -9169,18 +9090,18 @@ git commit -m "feat(backup): mount the backup and quarantine routes"
 ```
 
 ```bash
-rm -rf /root/.cache/w7-tmp/17
+rm -rf /root/.cache/w7-tmp/16
 GOTOOLCHAIN=local timeout 120 go clean -testcache
 ```
 
-### Task 18: Backup and restore CLI commands
+### Task 17: Backup and restore CLI commands
 
 **Files:**
-- Modify: `internal/cli/controller_backup.go` (replace the stub `backupCommands`; this file is Task 18's by the frozen-files rule)
+- Modify: `internal/cli/controller_backup.go` (replace the stub `backupCommands`; this file is Task 17's by the frozen-files rule)
 - Create: `internal/cli/controller_backup_test.go`
 
 **Interfaces:**
-- Consumes: Contracts "CLI", "Restore and recovery" (`Restore`, `Recover`, `RestoreResult`), "Restore host" (`Host`, `ProductionHost`), "Backup handler" (`BackupRequest`), "Format" (`Params`, `DefaultParams`, `TestParams`, `Write`, `Member`, `MemberDB`, `MemberKey`), `backup.OSOps`, and Task 11's `(*app).quarantineCommand`. In `internal/cli`: `addConnFlags`, `(*app).connect`, `newSocketClient`, `client` (fields `base` and `http`), `answerError`, `maxResponseBytes`, `requestTimeout`, `usagef`, `PrintError`, `ExitCode`, `ExitUsage`, `ExitError`, `markRuns`, `Options` (`SelectPaths`, `IsTerminal`, `ReadSecret`), `withDefaults`, `terminal`, `NewRoot` and, in the tests, `testRegistry`. `internal/cli` now imports `internal/controller/backup`; neither `internal/install`, `internal/update` nor `internal/platform` imports `internal/cli`, so there is no cycle.
+- Consumes: Contracts "CLI", "Restore and recovery" (`Restore`, `Recover`, `RestoreResult`), "Restore host" (`Host`, `ProductionHost`), "Backup handler" (`BackupRequest`), "Format" (`Params`, `DefaultParams`, `TestParams`, `Write`, `Member`, `MemberDB`, `MemberKey`), `backup.OSOps`, and Task 10's `(*app).quarantineCommand`. In `internal/cli`: `addConnFlags`, `(*app).connect`, `newSocketClient`, `client` (fields `base` and `http`), `answerError`, `maxResponseBytes`, `requestTimeout`, `usagef`, `PrintError`, `ExitCode`, `ExitUsage`, `ExitError`, `markRuns`, `Options` (`SelectPaths`, `IsTerminal`, `ReadSecret`), `withDefaults`, `terminal`, `NewRoot` and, in the tests, `testRegistry`. `internal/cli` now imports `internal/controller/backup`; neither `internal/install`, `internal/update` nor `internal/platform` imports `internal/cli`, so there is no cycle.
 - Produces, all in `controller_backup.go`:
 
   ```go
@@ -9191,7 +9112,7 @@ GOTOOLCHAIN=local timeout 120 go clean -testcache
   type backupFlow struct {
       a         *app
       fileOwner uint32 // the uid a passphrase file must belong to; the zero value is root
-      newHost   func(cmd *cobra.Command) (backup.Host, func() error, error) // production: SelectPaths(cmd, false), then backup.ProductionHost
+      newHost   func(cmd *cobra.Command) (backup.Host, func() error, error) // production: SelectPaths(cmd, false), then backup.ProductionHost(..., !recover)
   }
   func newBackupFlow(a *app) *backupFlow
   func (f *backupFlow) backupCommand() *cobra.Command
@@ -9204,11 +9125,14 @@ GOTOOLCHAIN=local timeout 120 go clean -testcache
 
 **Items:** 54, 69
 
-**Depends on:** Task 7, Task 11, Task 15, Task 16
+**Depends on:** Task 1, Task 2, Task 6, Task 10, Task 12, Task 14, Task 15
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 3 = 8
+**Lenses:** security
 
 - [ ] **Step 1: Write the failing test**
 
-Create `internal/cli/controller_backup_test.go`. Two seams keep the tests off the live host (Global Constraints, Host safety): `backupFlow.newHost` hands the restore a `backup.Host` over `t.TempDir()` with stopped fake services, so `backup.ProductionHost` is never called, and `backupFlow.fileOwner` lets a test own its passphrase file, because a test cannot create a root-owned file. A successful restore needs a full controller database, which is Task 15's test and Task 19's VM run; here the wiring is proven by what a restore does first: the refusal when not root, the authentication failure with a wrong passphrase against the validation failure of a test archive with the right one (the archive's members are not a database and a key), and the host's close function running on every path. The summary text is a pure function and is tested as one. Argon2id runs only in `ckBackupFile`, with `backup.TestParams`, and the tests do not call `t.Parallel()`. Every identifier starts with `ck` or `Ck`.
+Create `internal/cli/controller_backup_test.go`. Two seams keep the tests off the live host (Global Constraints, Host safety): `backupFlow.newHost` hands the restore a `backup.Host` over `t.TempDir()` with stopped fake services, so `backup.ProductionHost` is never called, and `backupFlow.fileOwner` lets a test own its passphrase file, because a test cannot create a root-owned file. A successful restore needs a full controller database, which is Task 14's test and Task 19's VM run; here the wiring is proven by what a restore does first: the refusal when not root, the authentication failure with a wrong passphrase against the validation failure of a test archive with the right one (the archive's members are not a database and a key), and the host's close function running on every path. The summary text is a pure function and is tested as one. Argon2id runs only in `ckBackupFile`, with `backup.TestParams`, and the tests do not call `t.Parallel()`. Every identifier starts with `ck` or `Ck`.
 
 | Test | What it pins |
 | --- | --- |
@@ -9963,17 +9887,17 @@ func TestCkBackupCommandsMount(t *testing.T) {
 - [ ] **Step 2: Run the test and see it fail**
 
 ```bash
-mkdir -p /root/.cache/w7-tmp/18
-cd "$(git rev-parse --show-toplevel)" && TMPDIR=/root/.cache/w7-tmp/18 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestCk' ./internal/cli/
+mkdir -p /root/.cache/w7-tmp/17
+cd "$(git rev-parse --show-toplevel)" && TMPDIR=/root/.cache/w7-tmp/17 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestCk' ./internal/cli/
 ```
 
-Expected RED: the build fails and its first lines name `undefined: newBackupFlow`, followed by `backupHTTPClient`, `readPassphraseFile` and `restoreSummary`. A failure that names `backup.Host`, `backup.Restore`, `backup.Recover`, `backup.Write` or `quarantineCommand` means the base lacks Task 1, 7, 11, 15 or 16: stop and report it.
+Expected RED: the build fails and its first lines name `undefined: newBackupFlow`, followed by `backupHTTPClient`, `readPassphraseFile` and `restoreSummary`. A failure that names `backup.Host`, `backup.Restore`, `backup.Recover`, `backup.Write` or `quarantineCommand` means the base lacks Task 1, 6, 10, 14 or 15: stop and report it.
 
 - [ ] **Step 3: Implement**
 
 Replace the stub in `controller_backup.go`. The messages below are exact; the tests compare them. A usage error is `usagef`, which exits 2, and every other failure is a plain error, which exits 1; both print as `darkpanel: <message>`.
 
-1. `backupCommands(a)` builds one `backupFlow` with `newBackupFlow(a)` and returns `backupCommand()`, `restoreCommand()` and `a.quarantineCommand()`, in that order. `newBackupFlow` sets `fileOwner` to 0 and `newHost` to a function that resolves the paths with `a.opts.SelectPaths(cmd, false)` (the installed controller, never the development layout) and calls `backup.ProductionHost(cmd.Context(), paths)`.
+1. `backupCommands(a)` builds one `backupFlow` with `newBackupFlow(a)` and returns `backupCommand()`, `restoreCommand()` and `a.quarantineCommand()`, in that order. `newBackupFlow` sets `fileOwner` to 0 and `newHost` to a function that resolves the paths with `a.opts.SelectPaths(cmd, false)` (the installed controller, never the development layout) and calls `backup.ProductionHost(cmd.Context(), paths, !recover)`, where `recover` is the command's `--recover` flag: the recovery runs as the controller unit's `ExecStartPre` before every start and must not depend on D-Bus.
 2. `backup` takes `cobra.NoArgs` and the flags `--out` (string), `--passphrase-file` (string), `--argon2-t` (int, default `backup.DefaultParams.T`), `--argon2-m` (int, default `DefaultParams.M`), `--argon2-p` (int, default `DefaultParams.P`), and the socket flags from `addConnFlags(cmd, true, false)`, so it has `--socket` and `--dev` and no `--url`.
 3. `backup` checks in this order, each failure before the passphrase is asked and before any request:
    1. `--out` empty: usage error `--out is required`.
@@ -9983,7 +9907,7 @@ Replace the stub in `controller_backup.go`. The messages below are exact; the te
 4. The passphrase (rules in item 7) is read after those checks and sent as `backup.BackupRequest` JSON. Marshal it, then clear the passphrase bytes at once. The request is `POST /api/v1/controller/backup` with `Content-Type: application/json` and `Accept: application/octet-stream`, built with `http.NewRequestWithContext(cmd.Context(), ...)` against the base URL of `a.connect(cmd)`, and sent by `backupHTTPClient`.
 5. `backupHTTPClient(c)` returns an `*http.Client` over `Clone()` of `c.http.Transport`, which must be an `*http.Transport` (any other type is an error), with `Timeout` zero and the redirect policy of `c.http`. The clone has no `ResponseHeaderTimeout`; the socket client's own timeout (`requestTimeout`) stays on the shared client for every other command. The backup streams for as long as the copy takes, so no total deadline may apply; the cancellation of `cmd.Context()` is the only limit.
 6. Handling the answer: a status outside 200 to 299 is read with `io.LimitReader(body, maxResponseBytes)` and returned through `answerError(http.MethodPost, path, resp, data)`, which gives `another backup is running (core.change_busy)` for a problem and `unexpected answer 500 Internal Server Error` for anything else. On 2xx the body goes to a temporary file created beside `--out` with `os.CreateTemp(dir, "."+base+".*.partial")` (mode 0600), through `io.Copy`; a copy error is `receive the backup: <err>`. Then `Sync` and `Close` the file, check once more that `--out` does not exist (same refusal as 3.3), `os.Rename` the temporary file to `--out`, and `Sync` the directory. A deferred cleanup closes and removes the temporary file on every path that did not rename it. The success line, on standard output, is `Backup written to <out> (<n> bytes); keep the passphrase, the file cannot be opened without it`, with `<n>` the number of bytes copied.
-7. The passphrase, a method of `backupFlow` used by both commands. With `--passphrase-file`: `readPassphraseFile(path, f.fileOwner)`. Without it: if `a.opts.IsTerminal()` is false, usage error `no terminal to read the passphrase from; pass --passphrase-file`; otherwise write `Passphrase: ` to the command's standard error, call `a.opts.ReadSecret()`, write a newline, then the same with `Repeat passphrase: `; a read failure is `read the passphrase: <err>`; the two values compared with `subtle.ConstantTimeCompare` must be equal, else usage error `the passphrases do not match`. The result is checked by one rule for both sources: empty is usage error `the passphrase is empty`, over 1024 bytes is usage error `the passphrase is longer than 1024 bytes`. Every buffer that is not returned is cleared. The terminal prompts are on standard error, so standard output carries only the success line.
+7. The passphrase, a method of `backupFlow` used by both commands. With `--passphrase-file`: `readPassphraseFile(path, f.fileOwner)`. Without it: if `a.opts.IsTerminal()` is false, usage error `no terminal to read the passphrase from; pass --passphrase-file`; otherwise write `Passphrase: ` to the command's standard error, call `a.opts.ReadSecret()`, write a newline whether or not the read succeeded, then the same with `Repeat passphrase: `; a read failure is `read the passphrase: <err>`; the two values compared with `subtle.ConstantTimeCompare` must be equal, else usage error `the passphrases do not match`. The result is checked by one rule for both sources: empty is usage error `the passphrase is empty`, over 1024 bytes is usage error `the passphrase is longer than 1024 bytes`. Every buffer that is not returned is cleared. The terminal prompts are on standard error, so standard output carries only the success line.
 8. `readPassphraseFile(path, owner)` opens with `O_RDONLY|O_NOFOLLOW|O_NONBLOCK` and judges the open file, not the path, so nothing can change between the check and the read: a symbolic link (`ELOOP`) is `the passphrase file <path> is a symbolic link`; any other open error is `read the passphrase file: <err>`; not a regular file is `the passphrase file <path> is not a regular file`; an owner uid other than `owner` is `the passphrase file <path> must be owned by uid <owner>`; a mode with any bit outside 0600 is `the passphrase file <path> has permission bits outside 0600; run chmod 600 on it`. It then reads at most 1026 bytes; more than 1025 is `the passphrase file <path> is longer than 1024 bytes`. Exactly one trailing `\n` is removed (a `\r` stays). Errors name the path and never the content.
 9. `restore` takes `cobra.NoArgs` and the flags `--in`, `--passphrase-file` and `--recover` (bool); it has no socket flags, because it never talks to the controller. `runRestore` checks the flags first, with no host built and no prompt: `--recover` together with `--in` or `--passphrase-file` is usage error `--recover takes no other flag`; neither `--recover` nor `--in` is usage error `give --in <file> to restore, or --recover to finish an interrupted restore`.
 10. `restore --recover`: `newHost`, `backup.Recover(cmd.Context(), host)`, then the host's close function, and return `errors.Join(recoverErr, closeErr)`. It prints nothing on success, so the unit's `ExecStartPre` stays quiet in the journal, and any error exits 1 so the unit does not start the controller over a half-finished restore.
@@ -9994,17 +9918,17 @@ Replace the stub in `controller_backup.go`. The messages below are exact; the te
 - [ ] **Step 4: Run the tests and see them pass**
 
 ```bash
-cd "$(git rev-parse --show-toplevel)" && TMPDIR=/root/.cache/w7-tmp/18 GOTOOLCHAIN=local timeout 300 go test -count=1 -v -run 'TestCk' ./internal/cli/
+cd "$(git rev-parse --show-toplevel)" && TMPDIR=/root/.cache/w7-tmp/17 GOTOOLCHAIN=local timeout 300 go test -count=1 -v -run 'TestCk' ./internal/cli/
 ```
 
-Expected GREEN: the thirteen `TestCk` tests print `--- PASS`. If `TestCkRestoreUsesTheHostAndThePassphrase` fails only on the wrong-passphrase cases with a message other than `wrong passphrase or damaged backup file`, `backup.Restore` reports the format error differently from Contracts "Format" (`ErrAuth`): report it to Task 15 and do not change the expected text. Then run the task's full verification and record the real output of each command:
+Expected GREEN: the thirteen `TestCk` tests print `--- PASS`. If `TestCkRestoreUsesTheHostAndThePassphrase` fails only on the wrong-passphrase cases with a message other than `wrong passphrase or damaged backup file`, `backup.Restore` reports the format error differently from Contracts "Format" (`ErrAuth`): report it to Task 14 and do not change the expected text. Then run the task's full verification and record the real output of each command:
 
 ```bash
-mkdir -p /root/.cache/w7-tmp/18
-export TMPDIR=/root/.cache/w7-tmp/18 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w7-tmp/17
+export TMPDIR=/root/.cache/w7-tmp/17 GOTOOLCHAIN=local
 timeout 600 go build ./...
 timeout 300 go vet ./...
-timeout 900 go test -race -count=1 ./internal/cli/... ./internal/controller/backup/...
+timeout 900 go test -race -short -count=1 ./internal/cli/... ./internal/controller/backup/...
 timeout 1500 go test -count=1 ./...
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
@@ -10018,8 +9942,163 @@ git commit -m "feat(cli): add controller backup and restore"
 ```
 
 ```bash
-rm -rf /root/.cache/w7-tmp/18
+rm -rf /root/.cache/w7-tmp/17
 GOTOOLCHAIN=local timeout 120 go clean -testcache
+```
+
+### Task 18: Controller unit recovery hook
+
+**Files:**
+- Modify: `internal/install/units/darkpanel-controller.service`
+- Modify: `internal/install/units_test.go`
+- Modify: `internal/install/layout_test.go`
+
+`internal/install/units.go` and `layout.go` stay as they are: the template is rendered by the existing `Units`, and the directories the layout test checks are already declared by `OwnedPaths`.
+
+**Interfaces:**
+- Consumes: `Units`, `Layout`, `Production`, `Rooted`, `OwnedPaths` and the `unitsByPath` helper of `units_test.go`; `update.ControllerUnit`; `core.OwnedDir`.
+- Produces: Contracts "Unit": the line `ExecStartPre=+{{.Binary}} controller restore --recover` directly above `ExecStart={{.Binary}} serve`, which runs Task 17's `restore --recover` command and which Task 19's harness test checks. The line lands only after that command exists, so no commit of the branch installs a controller unit that cannot start. It is the only change to a unit file; the drop-in, the agent unit and the rollback units do not change.
+
+**Items:** 54
+
+**Depends on:** Task 17
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 1 - coupling 1 - risk 2 = 5
+
+- [ ] **Step 1: Write the failing test**
+
+In `internal/install/units_test.go` add `"slices"` to the standard-library imports and `"github.com/darkraise/darkpanel/internal/update"` to the module imports (keep the import blocks sorted), then append the two tests below at the end of the file. They render the controller unit for the production layout and for a rooted one, and require the recovery line directly above `ExecStart` with the layout's own binary, exactly one `ExecStartPre` line, `User=darkpanel` and `TimeoutStartSec=30s` still present, and no `ExecStartPre` in any other unit or in the drop-in (an `ExecStartPre=` line in the drop-in would reset it).
+
+```go
+// TestRuControllerUnitRecoversBeforeStart: the controller unit runs the
+// restore recovery as root, with the unit's own binary, directly before it
+// starts the controller.
+func TestRuControllerUnitRecoversBeforeStart(t *testing.T) {
+	for name, l := range map[string]Layout{"production": Production(), "rooted": Rooted(t.TempDir())} {
+		files, err := Units(l, RoleController, nil, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var text string
+		for _, f := range files {
+			if f.Path == l.UnitPath(update.ControllerUnit) {
+				text = string(f.Content)
+			}
+		}
+		lines := strings.Split(text, "\n")
+		pre := slices.Index(lines, "ExecStartPre=+"+l.Paths.Binary()+" controller restore --recover")
+		start := slices.Index(lines, "ExecStart="+l.Paths.Binary()+" serve")
+		if pre < 0 || start != pre+1 {
+			t.Errorf("%s: ExecStartPre is at line %d and ExecStart at %d; want the recovery line directly above ExecStart:\n%s", name, pre, start, text)
+		}
+		n := 0
+		for _, line := range lines {
+			if strings.HasPrefix(line, "ExecStartPre=") {
+				n++
+			}
+		}
+		if n != 1 {
+			t.Errorf("%s: the controller unit has %d ExecStartPre lines, want 1", name, n)
+		}
+		if !slices.Contains(lines, "User=darkpanel") || !slices.Contains(lines, "TimeoutStartSec=30s") {
+			t.Errorf("%s: the controller unit lost User=darkpanel or TimeoutStartSec=30s:\n%s", name, text)
+		}
+	}
+}
+
+// TestRuOnlyTheControllerUnitRecovers: the agent does not read the
+// controller's files, and a drop-in that reset ExecStartPre= would silence
+// the recovery.
+func TestRuOnlyTheControllerUnitRecovers(t *testing.T) {
+	for _, units := range []map[string]string{
+		unitsByPath(t, RoleController, []string{"10.77.0.10:7443"}, "10.77.0.10:7443"),
+		unitsByPath(t, RoleController, nil, ""),
+		unitsByPath(t, RoleAgent, nil, ""),
+	} {
+		for path, text := range units {
+			has := strings.Contains(text, "ExecStartPre")
+			if want := path == "/etc/systemd/system/darkpanel-controller.service"; has != want {
+				t.Errorf("%s: mentions ExecStartPre = %v, want %v", path, has, want)
+			}
+		}
+	}
+}
+```
+
+In `internal/install/layout_test.go` add `"slices"` to the standard-library imports and append the test below. It names the staged, set-aside and journal files of Contracts "Journal" (`StagedName` is `<file>.restore-<tx>`, `AsideName` is `<file>.pre-<tx>`, `JournalPath` is `<ControllerDir>/restore-<tx>.journal`, and `SaveJournal` writes `<journal>.new`) for the four targets (the controller database, its `-wal` and `-shm` files, the controller key) and requires each to lie under a directory that `OwnedPaths(l, RoleController)` marks `core.OwnedDir`, in the production layout and a rooted one. The names are spelled out here because the backup package imports `install` (its production host takes the unit path and the service user from it), so this package's tests cannot import `backup`. This test already passes on the current tree: it pins the property so that a later layout change that moves a directory out of the owned set fails it.
+
+```go
+// TestRuRestoreFilesLieInOwnedDirs: every file a controller restore makes
+// (the staged and set-aside copies of the database, its two WAL files and
+// the key, the journal and its temporary file) sits inside a directory
+// system install owns, so uninstall removes them. The names are spelled out
+// because the backup package imports this one.
+func TestRuRestoreFilesLieInOwnedDirs(t *testing.T) {
+	const tx = "01JTESTTXTESTTXTESTTXTESTT"
+	for name, l := range map[string]Layout{"production": Production(), "rooted": Rooted(t.TempDir())} {
+		var owned []string
+		for _, op := range OwnedPaths(l, RoleController) {
+			if op.Kind == core.OwnedDir {
+				owned = append(owned, op.Path)
+			}
+		}
+		db := l.Paths.ControllerDB()
+		var files []string
+		for _, target := range []string{db, db + "-wal", db + "-shm", l.Paths.ControllerKey} {
+			files = append(files, target+".restore-"+tx, target+".pre-"+tx)
+		}
+		journal := filepath.Join(l.Paths.ControllerDir, "restore-"+tx+".journal")
+		files = append(files, journal, journal+".new")
+		for _, f := range files {
+			if !slices.ContainsFunc(owned, func(dir string) bool { return strings.HasPrefix(f, dir+"/") }) {
+				t.Errorf("%s layout: %s is outside every owned directory %v", name, f, owned)
+			}
+		}
+	}
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+```bash
+mkdir -p /root/.cache/w7-tmp/18 && export TMPDIR=/root/.cache/w7-tmp/18 GOTOOLCHAIN=local
+df -h /
+timeout 300 go test -count=1 -run 'TestRu' -v ./internal/install 2>&1 | tail -30
+```
+
+When `df -h /` shows 90 % or more, run `go clean -cache` first. Expected: `TestRuControllerUnitRecoversBeforeStart` and `TestRuOnlyTheControllerUnitRecovers` FAIL (the first with "ExecStartPre is at line -1", the second with "mentions ExecStartPre = false, want true"); `TestRuRestoreFilesLieInOwnedDirs` PASSES, as its comment says.
+
+- [ ] **Step 3: Implement**
+
+In `internal/install/units/darkpanel-controller.service`, add this line directly above the `ExecStart={{.Binary}} serve` line, and change nothing else in the file:
+
+```ini
+ExecStartPre=+{{.Binary}} controller restore --recover
+```
+
+The `+` prefix makes systemd run the command with full privileges, outside the unit's `User=darkpanel`, `ProtectSystem=strict` and `ReadWritePaths` restrictions, so the recovery can rename the controller's files and the key under `/etc/darkpanel`. `{{.Binary}}` is the same value `ExecStart` uses.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+```bash
+mkdir -p /root/.cache/w7-tmp/18 && export TMPDIR=/root/.cache/w7-tmp/18 GOTOOLCHAIN=local
+timeout 300 go build ./...
+timeout 300 go vet ./...
+timeout 600 go test -count=1 ./internal/install
+timeout 900 go test -race -short -count=1 ./internal/install
+timeout 1500 go test -count=1 ./...
+timeout 900 golangci-lint run --allow-serial-runners ./...
+timeout 300 go mod tidy -diff
+rm -rf /root/.cache/w7-tmp/18 && go clean -testcache
+```
+
+Expected: every test passes (`ok`), `go vet` prints nothing, golangci-lint prints `0 issues.`, `go mod tidy -diff` prints nothing. This task edits `internal/install/`, so gate 7 (harness) applies to the branch once it is pushed (Global Constraints); no harness command runs here. Record the real output in the report.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/install/units/darkpanel-controller.service internal/install/units_test.go internal/install/layout_test.go
+git commit -m "feat(install): run restore recovery at start"
 ```
 
 ### Task 19: Harness restore test and workflow step
@@ -10031,7 +10110,7 @@ GOTOOLCHAIN=local timeout 120 go clean -testcache
 - Modify: `.github/workflows/harness.yml` (append the job `vm-m7r` after `vm-m6c`)
 
 **Interfaces:**
-- Consumes: Contracts "Quarantine routes" (`backup.Status`, `Record`, `EnrollTokenResult`, `ReleaseResult`), "Format" (`backup.Read`, `Write`, `TestParams`, `MemberDB`, `MemberKey`, `MaxKeyMember`), "Restore host" (the refusal text for running services), "CLI" (the commands and `--json`, which prints the controller's answer unchanged as Task 11 implements it), "Unit" (`ExecStartPre`); `ctlfleet.TokenTTL` (`internal/controller/fleet`), `secret.KeyPrefix`, `install.CheckAgentAddress`, `paths.Production()`, `listen.AgentPort`, `core.StatePending`. In the package `harness`: `osFlag`, `m2Flag`, `binFlag`, `commitFlag`, `workdirFlag`, `fleet`, `NewLab`, `Lab.Boot`, `harnessImages`, `TargetScript`, `bootVMs` through `Lab.Boot`, `createAdmin`, `login`, `nextCode`, `waitHosts`, `findHost`, `eventually`, `unitState`, `vmNow`, `m3Run`, `m3WaitStatus`, `m3Healthy`, `m3PortRule`, `m3RequirePending`, `(*API).m3Apply`, `(*API).Apply`, `APIError`, the address constants `targetIPv4`, `targetIPv6`, `agentIPv4`, `agentIPv6`, `controllerPriv`, `agentPriv`, `agentAddress`, and for the workflow test `m3dxExpoJob`, `m3dxExpoLimitRE`, `m3dxExpoTimeoutRE`, `m4lSetup`, `m4lStep`, `m4lJobMax`.
+- Consumes: Contracts "Quarantine routes" (`backup.Status`, `Record`, `EnrollTokenResult`, `ReleaseResult`), "Format" (`backup.Read`, `Write`, `TestParams`, `MemberDB`, `MemberKey`, `MaxKeyMember`), "Restore host" (the refusal text for running services), "CLI" (the commands and `--json`, which prints the controller's answer unchanged as Task 10 implements it), "Unit" (`ExecStartPre`); `ctlfleet.TokenTTL` (`internal/controller/fleet`), `secret.KeyPrefix`, `install.CheckAgentAddress`, `paths.Production()`, `listen.AgentPort`, `core.StateApplying`, `core.StatePending`; Contracts "Marking" (`backup.Mark`) and `quarantine.Marker`; `store.Open`, `store.CoreMigrations`, `store.Migrate`, `store.MigrateOptions`, `store.MigrationSet`, `modules.All`. In the package `harness`: `osFlag`, `m2Flag`, `binFlag`, `commitFlag`, `workdirFlag`, `fleet`, `NewLab`, `Lab.Boot`, `harnessImages`, `TargetScript`, `bootVMs` through `Lab.Boot`, `createAdmin`, `login`, `nextCode`, `waitHosts`, `findHost`, `eventually`, `unitState`, `vmNow`, `m3Run`, `(*API).Apply`, `APIError`, the address constants `targetIPv4`, `targetIPv6`, `agentIPv4`, `agentIPv6`, `controllerPriv`, `agentPriv`, `agentAddress`, and for the workflow test `m3dxExpoJob`, `m3dxExpoLimitRE`, `m3dxExpoTimeoutRE`, `m4lSetup`, `m4lStep`, `m4lJobMax`.
 - Produces, all unexported and in `restore_test.go`:
 
   ```go
@@ -10043,22 +10122,36 @@ GOTOOLCHAIN=local timeout 120 go clean -testcache
       m7rRestoredPriv = "10.77.0.12"
   )
   var m7rRestoredAddress = net.JoinHostPort(m7rRestoredPriv, strconv.Itoa(listen.AgentPort))
-  const m7rChangeAction = "firewall.rule.add"
+  // The seeded in-flight composite (W7-R3: a controller-side record) and the locks it and an update hold.
+  const (
+      m7rCompositeID      = "01JW7R00000000000000000C0M"
+      m7rCompositePlan    = "01JW7R00000000000000000P1N"
+      m7rCompositeAction  = "derp.server.deploy"
+      m7rLockKey          = "derp.server:m7r"
+      m7rReservationKey   = "core.update:m7r"
+      m7rReservationOwner = "01JW7R00000000000000000RSV"
+  )
+  // m7rSeedStatements are the INSERT statements, without trailing semicolons, that seed the composite.
+  func m7rSeedStatements(agentID string, now time.Time) []string
 
   func m7rDecode[T any](out string) (T, error)
   func m7rCheckBackup(data, passphrase []byte) error
-  func m7rCheckQuarantine(st backup.Status, changeID, hostID string) error
+  func m7rCheckQuarantine(st backup.Status, want backup.Record) error
   func m7rCheckToken(res backup.EnrollTokenResult, now time.Time) error
   func m7rCheckNames(listing, base string) error
   func m7rExecStartPre(show string) error
   func m7rBinaryCommands() (prepare, link string)
   func m7rControllerInstall(addr string) string
+  type m7rRun struct{ /* the scenario's state, see Step 3 */ }
+  func (r *m7rRun) logDiagnostics(t *testing.T)
   func TestM7Restore(t *testing.T)
   ```
 
 **Items:** 54, 69
 
-**Depends on:** Task 4, Task 6, Task 17, Task 18
+**Depends on:** Task 1, Task 5, Task 6, Task 8, Task 9, Task 10, Task 16, Task 17, Task 18
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 - [ ] **Step 1: Write the failing test**
 
@@ -10073,8 +10166,12 @@ package harness
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
+	"database/sql"
+	"fmt"
 	"net"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -10083,9 +10180,12 @@ import (
 	"github.com/darkraise/darkpanel/internal/controller/backup"
 	ctlfleet "github.com/darkraise/darkpanel/internal/controller/fleet"
 	"github.com/darkraise/darkpanel/internal/controller/listen"
+	"github.com/darkraise/darkpanel/internal/controller/quarantine"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/secret"
+	"github.com/darkraise/darkpanel/internal/core/store"
 	"github.com/darkraise/darkpanel/internal/install"
+	"github.com/darkraise/darkpanel/internal/modules"
 	"github.com/darkraise/darkpanel/internal/paths"
 )
 
@@ -10149,13 +10249,16 @@ func TestM7rUnitCheckBackup(t *testing.T) {
 
 func TestM7rUnitCheckQuarantine(t *testing.T) {
 	restored := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
-	good := func() backup.Status {
-		return backup.Status{Active: true, Tx: "01JTX", RestoredAt: &restored, Records: []backup.Record{{
-			ID: "c1", Kind: "change", Action: "firewall.rule.add", HostID: "h1",
-			QuarantinedFrom: core.StatePending, Locks: []string{"firewall.rule:8191"},
-		}}}
+	want := backup.Record{
+		ID: m7rCompositeID, Kind: "composite", Action: m7rCompositeAction, HostID: "",
+		QuarantinedFrom: core.StateApplying, Locks: []string{m7rLockKey},
 	}
-	if err := m7rCheckQuarantine(good(), "c1", "h1"); err != nil {
+	good := func() backup.Status {
+		r := want
+		r.Locks = append([]string(nil), want.Locks...)
+		return backup.Status{Active: true, Tx: "01JTX", RestoredAt: &restored, Records: []backup.Record{r}}
+	}
+	if err := m7rCheckQuarantine(good(), want); err != nil {
 		t.Fatalf("the good status: %v", err)
 	}
 	for _, tc := range []struct {
@@ -10168,18 +10271,95 @@ func TestM7rUnitCheckQuarantine(t *testing.T) {
 		{"no restore time", func(s *backup.Status) { s.RestoredAt = nil }, "restoredAt"},
 		{"no record", func(s *backup.Status) { s.Records = nil }, "0 records"},
 		{"two records", func(s *backup.Status) { s.Records = append(s.Records, s.Records[0]) }, "2 records"},
-		{"another record", func(s *backup.Status) { s.Records[0].ID = "c2" }, "is c2, want c1"},
-		{"a composite", func(s *backup.Status) { s.Records[0].Kind = "composite" }, "kind"},
-		{"another action", func(s *backup.Status) { s.Records[0].Action = "firewall.rule.delete" }, "action"},
-		{"another host", func(s *backup.Status) { s.Records[0].HostID = "h2" }, "host"},
-		{"another prior state", func(s *backup.Status) { s.Records[0].QuarantinedFrom = core.StateApplying }, "quarantinedFrom"},
-		{"null locks", func(s *backup.Status) { s.Records[0].Locks = nil }, "locks"},
+		{"another record", func(s *backup.Status) { s.Records[0].ID = "c2" }, "is c2, want " + m7rCompositeID},
+		{"a single change", func(s *backup.Status) { s.Records[0].Kind = "change" }, "kind"},
+		{"another action", func(s *backup.Status) { s.Records[0].Action = "derp.server.upgrade" }, "action"},
+		{"a host", func(s *backup.Status) { s.Records[0].HostID = "h2" }, "host"},
+		{"another prior state", func(s *backup.Status) { s.Records[0].QuarantinedFrom = core.StatePending }, "quarantinedFrom"},
+		{"null locks", func(s *backup.Status) { s.Records[0].Locks = nil }, "locks are null"},
+		{"another lock", func(s *backup.Status) { s.Records[0].Locks = []string{"other"} }, "locks are [other]"},
 	} {
 		st := good()
 		tc.change(&st)
-		if err := m7rCheckQuarantine(st, "c1", "h1"); err == nil || !strings.Contains(err.Error(), tc.want) {
+		if err := m7rCheckQuarantine(st, want); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: %v, want an error containing %q", tc.name, err, tc.want)
 		}
+	}
+}
+
+// TestM7rUnitSeed runs the seed on a migrated controller database and marks
+// it as a restore does: the rows fit every CHECK and reference, and marking
+// quarantines the composite, keeps its lock and deletes the update's.
+func TestM7rUnitSeed(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	db, err := store.Open(ctx, filepath.Join(dir, "controller.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	coreSet, err := store.CoreMigrations(store.SideController)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sets []store.MigrationSet
+	for _, m := range modules.All() {
+		man := m.Manifest()
+		if fsys, ok := man.Migrations[core.SideController]; ok && fsys != nil {
+			sets = append(sets, store.MigrationSet{Module: man.ID, FS: fsys})
+		}
+	}
+	now := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
+	if _, err := store.Migrate(ctx, db, store.MigrateOptions{
+		Side: store.SideController, BinaryVersion: "dev", BackupRoot: filepath.Join(dir, "backups"), Keep: 1, Now: now,
+	}, coreSet, sets); err != nil {
+		t.Fatal(err)
+	}
+	const agent = "01JW7RAGENT0000000000000AG"
+	if err := db.Write(ctx, func(tx *sql.Tx) error {
+		for _, stmt := range m7rSeedStatements(agent, now) {
+			if strings.HasSuffix(strings.TrimSpace(stmt), ";") {
+				return fmt.Errorf("a statement ends in a semicolon: %s", stmt)
+			}
+			if _, err := tx.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("%s: %w", stmt, err)
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("the seed does not fit the controller schema: %v", err)
+	}
+	q := func(query string, args ...any) string {
+		t.Helper()
+		var v string
+		if err := db.Read().QueryRowContext(ctx, query, args...).Scan(&v); err != nil {
+			t.Fatalf("%s: %v", query, err)
+		}
+		return v
+	}
+	if got := q("SELECT state || '|' || recovery_owner || '|' || class FROM core_changes WHERE id = ?", m7rCompositeID); got != "applying|composite|composite" {
+		t.Errorf("the seeded composite = %q, want applying|composite|composite", got)
+	}
+	if got := q("SELECT count(*) FROM core_locks WHERE (key = ? AND owner = ?) OR (key = ? AND owner = ?)",
+		m7rLockKey, m7rCompositeID, m7rReservationKey, m7rReservationOwner); got != "2" {
+		t.Errorf("seeded lock rows = %s, want 2", got)
+	}
+	if err := backup.Mark(ctx, db, quarantine.Marker{Tx: "01JTX", RestoredAt: now, BackupCreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ name, query, want string }{
+		{"the composite", "SELECT state || '|' || quarantined_from FROM core_changes WHERE id = ?", "quarantined|applying"},
+		{"its position", "SELECT direction || '|' || cursor FROM core_composites WHERE change_id = ?", "forward|0"},
+		{"its step", "SELECT state || '|' || host_id || '|' || coalesce(child_plan_id, '') FROM core_composite_steps WHERE change_id = ?", "pending|" + agent + "|"},
+		{"its children", "SELECT count(*) FROM core_changes WHERE parent_change_id = ?", "0"},
+		{"its locks", "SELECT group_concat(key) FROM core_locks WHERE owner = ?", m7rLockKey},
+	} {
+		if got := q(c.query, m7rCompositeID); got != c.want {
+			t.Errorf("%s after marking = %q, want %q", c.name, got, c.want)
+		}
+	}
+	if got := q("SELECT count(*) FROM core_locks WHERE key = ?", m7rReservationKey); got != "0" {
+		t.Errorf("update reservation rows after marking = %s, want 0: marking deletes a lock whose owner is not a change", got)
 	}
 }
 
@@ -10527,7 +10707,7 @@ mkdir -p /root/.cache/w7-tmp/19
 cd "$(git rev-parse --show-toplevel)" && TMPDIR=/root/.cache/w7-tmp/19 GOTOOLCHAIN=local timeout 600 go test -tags harness -count=1 -run 'TestM7rUnit' ./test/harness/
 ```
 
-Expected RED: the build fails and its first line names `undefined: m7rDecode` in `restore_unit_test.go`, followed by `m7rCheckBackup`, `m7rCheckQuarantine`, `m7rCheckToken`, `m7rCheckNames`, `m7rExecStartPre`, `m7rRestoredAddress`, `m7rBinaryCommands`, `m7rControllerInstall` and `m7rDeadline`. A failure that names `backup.Status`, `backup.Read`, `backup.Write` or `ctlfleet.TokenTTL` means the base lacks Task 1, 10 or 17: stop and report it.
+Expected RED: the build fails and its first line names `undefined: m7rDecode` in `restore_unit_test.go`, followed by `m7rSeedStatements`, `m7rCompositeID`, `m7rCheckBackup`, `m7rCheckQuarantine`, `m7rCheckToken`, `m7rCheckNames`, `m7rExecStartPre`, `m7rRestoredAddress`, `m7rBinaryCommands`, `m7rControllerInstall` and `m7rDeadline`. A failure that names `backup.Status`, `backup.Read`, `backup.Write` or `ctlfleet.TokenTTL` means the base lacks Task 1, 9 or 16, and one that names `backup.Mark` the base lacks Task 8: stop and report it.
 
 - [ ] **Step 3: Implement**
 
@@ -10539,38 +10719,39 @@ Create `restore_test.go` first and run the unit tests (only `TestM7rUnitWorkflow
 
 1. `m7rDecode[T]` decodes the output of a CLI run with `--json`: one JSON document, unknown members refused (`json.Decoder.DisallowUnknownFields`), and nothing after it (`harness: the CLI printed more than one JSON document`). Text before the document, empty output and a decode error are errors that start `harness: decode the CLI's JSON:`. The Go zero value is returned with every error.
 2. `m7rCheckBackup(data, passphrase)`: first, data that contains the passphrase bytes is `harness: the backup file holds the passphrase in the clear`. Then `backup.Read` over `data` with a copy of the passphrase (the format code clears the slice it is given), with a sink that, for each member, reads its first 17 bytes, drains the rest, and records the name. The database member must begin with `SQLite format 3` and a NUL byte (`harness: the database member is not an SQLite database`); the key member must begin with `secret.KeyPrefix` and be at most `backup.MaxKeyMember` bytes (`harness: the key member is not a controller key file`). A `Read` error is returned as `harness: read the backup: %w`, so the wrong-passphrase and truncated-file messages of the format code show through. Afterwards the members must be exactly `backup.MemberDB` then `backup.MemberKey`.
-3. `m7rCheckQuarantine(st, changeID, hostID)` checks, in this order, with these fragments: `the quarantine is not active`; `names no restore transaction`; `has no restoredAt`; `lists <n> records, want the one change <changeID>`; `the quarantined record is <id>, want <changeID>`; `the record's kind is "<kind>", want change`; `the record's action is "<action>", want firewall.rule.add`; `the record's host is "<host>", want <hostID>`; `the record's quarantinedFrom is "<state>", want pending`; `the record's locks are null, want a list`.
+3. `m7rCheckQuarantine(st, want)` checks, in this order, with these fragments: `the quarantine is not active`; `names no restore transaction`; `has no restoredAt`; `lists <n> records, want the one record <want.ID>`; `the quarantined record is <id>, want <want.ID>`; `the record's kind is "<kind>", want <want.Kind>`; `the record's action is "<action>", want <want.Action>`; `the record's host is "<host>", want "<want.HostID>"`; `the record's quarantinedFrom is "<state>", want <want.QuarantinedFrom>`; `the record's locks are null, want a list`; and, when the locks differ from `want.Locks` (`slices.Equal`), `the record's locks are <%v of the locks>, want <%v of want.Locks>`.
 4. `m7rCheckToken(res, now)`: empty token `the enrollment token is empty`; `ExpiresAt` not after `now` `has already expired`; later than `now + ctlfleet.TokenTTL + 5 min` `is valid for more than <TTL>`; earlier than `now + TTL - 5 min` `is valid for less than <TTL>`. The 5 minutes are the clock skew allowed between the runner and the VM.
 5. `m7rCheckNames(listing, base)` reads the whitespace-separated names of a directory listing (`ls -A`) and returns the first of these, scanning the names in order: a name containing `.restore-` is `the restore left the staged file <name>`; a name starting with `restore-` and ending `.journal` is `the restore left the journal <name>`. After the scan: `<base> is missing after the restore` when `base` itself is absent, then `no <base>.pre-<tx> set-aside copy of the original` when no name starts with `base + ".pre-"`. A name such as `controller.db-wal.pre-<tx>` therefore does not count as the set-aside copy of `controller.db`.
 6. `m7rExecStartPre(show)` judges the output of `systemctl show -p ExecStartPre darkpanel-controller.service`: after trimming space, it must start with `ExecStartPre={` (`systemctl show printed no ExecStartPre`); its `argv[]=` field, up to the next `;`, must contain the words `controller restore --recover` (`ExecStartPre runs a command other than controller restore --recover`); and it must contain `code=exited ; status=0` as whole words (`ExecStartPre has not run to a clean exit`). A unit that never ran the line prints `code=(null)` and fails the third check. Use two package-level `regexp.MustCompile` values for the last two.
 7. `m7rBinaryCommands()` returns `sudo install -d -m 0755 ` plus `paths.Production().BinaryDir`, and `sudo ln -sfn ` plus the production binary path, a space and the production link path (`BinaryLink`).
 8. `m7rControllerInstall(addr)` returns `sudo darkpanel system install --role controller --agent-listen <addr> --agent-advertise <addr>`.
+9. `m7rSeedStatements(agentID, now)` returns six `INSERT` statements, without trailing semicolons, in this order, every time `now.UTC()` formatted `2006-01-02T15:04:05.000000000Z` and every string a single-quoted SQL literal with `'` doubled: `core_plans` (`id` `m7rCompositePlan`, `host_id` '', `action` `m7rCompositeAction`, `version` 1, `actor` 'user:m7r', `input_hash` 'm7r', `state_hash` 'm7r', `diff_json` '[]', `guards_json` '[]', `confirmation` '', `created_at` now, `expires_at` now plus 24 hours); `core_changes` (`id` `m7rCompositeID`, `plan_id` `m7rCompositePlan`, `host_id` '', `action` `m7rCompositeAction`, `version` 1, `class` 'composite', `compensated_by` '', `actor` 'user:m7r', `state` 'applying', `input_json` '{}', `recovery_owner` 'composite', `created_at` and `updated_at` now); `core_composites` (`change_id` `m7rCompositeID`, `direction` 'forward', `cursor` 0, `steps_deadline` now plus 24 hours); `core_composite_steps` (`change_id` `m7rCompositeID`, `step_id` 'tailscaled', `ordinal` 0, `host_id` agentID, `action` 'tailscale.package.pin/v1', `after_json` '[]', `input_template` '{}', `state` 'pending', `updated_at` now); `core_locks` (`m7rLockKey`, `m7rCompositeID`); `core_locks` (`m7rReservationKey`, `m7rReservationOwner`). The composite is controller-side and has started no step, so it is in flight without a timing race and no agent work hangs on it.
 
-*`TestM7Restore`.* It skips unless `-os`, `-m2` and `-m7r` are given (the same message as `TestM6Cloudflare`, naming `-m7r`), so the plain `go test` runs and `make test-go` never start a VM. It is a `go test` run of its own: the workflow selects it with `-run '^TestM7Restore$'`. Model it on `TestM6Cloudflare` and its `m6cRun`: a context with `m7rDeadline` cancelled at cleanup, a struct `m7rRun` holding the context, a `*fleet` for the source controller (its `scanner` stays nil because the lab has none), the restored VM, a second `*fleet` `g` for the restored controller's API session, the backup bytes, the passphrase (`rand.Text()`), the change id and the quarantine transaction, and a table of named steps run with `t.Run`. A failed step marked `gate` ends the test; every failed step calls a `logDiagnostics` that logs the last 60 lines of `journalctl -u darkpanel-controller.service --no-pager` of the source and the restored controller.
+*`TestM7Restore`.* It skips unless `-os`, `-m2` and `-m7r` are given (the same message as `TestM6Cloudflare`, naming `-m7r`), so the plain `go test` runs and `make test-go` never start a VM. It is a `go test` run of its own: the workflow selects it with `-run '^TestM7Restore$'`. Model it on `TestM6Cloudflare` and its `m6cRun`: a context with `m7rDeadline` cancelled at cleanup, a struct `m7rRun` holding the context, a `*fleet` for the source controller (its `scanner` stays nil because the lab has none), the restored VM, a second `*fleet` `g` for the restored controller's API session, the backup bytes, the passphrase (`rand.Text()`) and the quarantine transaction, and a table of named steps run with `t.Run`. A failed step marked `gate` ends the test; every failed step calls `(*m7rRun).logDiagnostics(t)`, which logs the last 60 lines of `journalctl -u darkpanel-controller.service --no-pager` of the source and the restored controller.
 
 The lab is three target VMs and no scanner, because the harness limit is three VMs (`-vms`, default 3) and a scanner would be a fourth. `NewLab(t)`, `harnessImages`, `vm.NewKey` and `lab.Boot` are used as `m5dLab` uses them, with three `vm.Config` values built the way the `target` closure of `m5Configs` builds one (2048 MiB, 2 CPUs, the lab's MACs and multicast ports, `TargetScript`, the shared key): `controller` is host 10 with `targetIPv4`/`targetIPv6` and `controllerPriv`, `agent` is host 11 with `agentIPv4`/`agentIPv6` and `agentPriv`, `restored` is host 12 with the three `m7rRestored*` values. Do not edit `m5_helpers_test.go`; the closure is copied, not shared. With no release server, every binary is installed by hand: `m7rBinaryCommands()` prepare command, `VM.CopyFile(ctx, *binFlag, paths.Production().Binary(), 0o755)`, the link command.
 
 The steps, in order (`gate` steps are marked):
 
 1. `install-source` (gate): install the binary on the controller and the agent VMs; run `m7rControllerInstall(agentAddress)` on the controller; wait for both units of the controller (`darkpanel-controller.service`, `darkpanel-agent.service`) to be active, quoting their journals when they are not; `createAdmin`, `login`; wait with `waitHosts` until the local host is listed enrolled and online and keep its id in `fleet.localID`; create the agent's host with `f.api.Apply(ctx, "", "core.host.create/v1", core.HostCreateInput{Name: "agent", ControllerAddress: agentAddress}, &grant)`, keep `grant.Host.ID` as `agentID`, and enroll the agent with `RunInput(ctx, "sudo darkpanel system install --role agent", strings.NewReader(grant.Token+"\n"))` (the token goes through standard input, never into the command line); wait until the agent is enrolled and online.
-2. `seed` (gate): `m3WaitStatus(..., m3Healthy)` on the agent, then `f.api.m3Apply(ctx, f.agentID, m7rChangeAction, m3PortRule(8191), 900)` and `m3RequirePending`: a change pending its confirmation is a record that is in flight in the database without any timing race. Keep its id.
-3. `backup` (gate): write the passphrase to `/root/m7r-pass` on the controller through `RunInput` into `sudo sh -c 'umask 077 && cat > /root/m7r-pass'`; run `sudo darkpanel controller backup --out /var/tmp/m7r.dpbk --passphrase-file /root/m7r-pass`; its output must contain `Backup written to /var/tmp/m7r.dpbk`. Read the file back with `sudo cat`, require its length to equal `sudo stat -c %s`, and run `m7rCheckBackup` on it with the passphrase. A second run to the same `--out` must fail with `refusing to overwrite`, and `ls -A /var/tmp` must show no `.m7r.dpbk.` partial file.
+2. `seed` (gate): on the source controller, while it runs, `RunInput(ctx, "sudo sqlite3 -bail " + paths.Production().ControllerDB(), strings.NewReader(".timeout 10000\nBEGIN IMMEDIATE;\n" + strings.Join(m7rSeedStatements(f.agentID, time.Unix(vmNow(ctx, t, controller), 0)), ";\n") + ";\nCOMMIT;\n"))`. Then `sudo sqlite3 -separator '|' <ControllerDB> "SELECT state, recovery_owner FROM core_changes WHERE id = '<m7rCompositeID>'"` must print `applying|composite`, and `SELECT count(*) FROM core_locks WHERE owner IN ('<m7rCompositeID>', '<m7rReservationOwner>')` must print `2`. Wave 7's own code never writes these rows; the seed stands for a composite and an update that were in flight when the backup was taken.
+3. `backup` (gate): write the passphrase to `/root/m7r-pass` on the controller through `RunInput` into `sudo sh -c 'umask 077 && cat > /root/m7r-pass'`; run `sudo darkpanel controller backup --out /var/tmp/m7r.dpbk --passphrase-file /root/m7r-pass`; its output must contain `Backup written to /var/tmp/m7r.dpbk`. Read the file back with `sudo cat`, require its length to equal `sudo stat -c %s`, and run `m7rCheckBackup` on it with the passphrase. A second run to the same `--out` must fail with `refusing to overwrite`, and `ls -A /var/tmp` must show no `.m7r.dpbk.` partial file. The two `seed` queries, run again on the source controller, must print the same answers: the composite and both locks were in the database before and after the copy, so the backup holds them.
 4. `install-restored` (gate): install the binary on the restored VM, run `m7rControllerInstall(m7rRestoredAddress)`, wait for both units to be active. Copy the backup, the passphrase file and a second file holding a different passphrase to `/var/tmp/m7r.dpbk`, `/root/m7r-pass` and `/root/m7r-wrong` through local files in `t.TempDir()` and `VM.CopyFile` (which writes as root; the mode is 0600).
 5. `refused-while-running`: `sudo darkpanel controller restore --in /var/tmp/m7r.dpbk --passphrase-file /root/m7r-pass` on the restored VM fails, its error text contains `stop darkpanel-controller.service and darkpanel-agent.service before a restore`, and `sudo ls -A` of the controller directory shows no name containing `.pre-` or `.restore-` and no journal.
 6. `stop-services` (gate): `sudo systemctl stop darkpanel-controller.service darkpanel-agent.service`, and wait until `unitState` reports both inactive.
 7. `wrong-passphrase`: the same restore with `--passphrase-file /root/m7r-wrong` fails with `wrong passphrase or damaged backup file`, and the controller directory is still untouched as in step 5.
 8. `restore` (gate): the restore with the right file succeeds; its output contains `Restored the backup taken` and `restore quarantine`. `sudo ls -A` of the controller directory goes through `m7rCheckNames(listing, "controller.db")` and `sudo ls -A` of the directory of the key file through `m7rCheckNames(listing, "controller.key")`. `sudo stat -c '%U %a'` of the installed database and key must each print `darkpanel 600`. The SHA-256 of the key file on the restored VM (`sudo sha256sum`, first field) must equal that on the source controller: the key came from the backup, not from the fresh install.
 9. `start` (gate): `sudo systemctl start darkpanel-controller.service darkpanel-agent.service`; wait for the controller unit to be active, quoting its journal on failure; `sudo systemctl show -p ExecStartPre darkpanel-controller.service` goes through `m7rExecStartPre`. The restored VM's own agent holds credentials of the fresh install, which the restored database does not know, so no step asserts anything about it.
-10. `quarantine` (gate): `sudo darkpanel controller quarantine list --json`, retried with `eventually` for 2 minutes while the controller starts, through `m7rDecode[backup.Status]` and `m7rCheckQuarantine(st, changeID, f.agentID)`. Then read the database with `sudo sqlite3 -separator '|' <ControllerDB> "SELECT state, quarantined_from FROM core_changes WHERE id = '<id>'"`, which must print `quarantined|pending`, and require the number of `core_locks` rows owned by the change to equal the record's `Locks` length.
+10. `quarantine` (gate): `sudo darkpanel controller quarantine list --json`, retried with `eventually` for 2 minutes while the controller starts, through `m7rDecode[backup.Status]` and `m7rCheckQuarantine(st, backup.Record{ID: m7rCompositeID, Kind: "composite", Action: m7rCompositeAction, HostID: "", QuarantinedFrom: core.StateApplying, Locks: []string{m7rLockKey}})`. Then read the database with `sudo sqlite3 -separator '|' <ControllerDB>`: `SELECT state, quarantined_from FROM core_changes WHERE id = '<m7rCompositeID>'` prints `quarantined|applying`; `SELECT count(*) FROM core_locks WHERE owner = '<m7rCompositeID>'` prints `1` (the composite's lock is kept); `SELECT count(*) FROM core_locks WHERE key = '<m7rReservationKey>'` prints `0` (the update reservation is deleted). Nothing is unwound: `SELECT direction, cursor FROM core_composites WHERE change_id = '<m7rCompositeID>'` prints `forward|0`, `SELECT state FROM core_composite_steps WHERE change_id = '<m7rCompositeID>'` prints `pending`, and `SELECT count(*) FROM core_changes WHERE parent_change_id = '<m7rCompositeID>'` prints `0`.
 11. `refused-in-quarantine`: `g := &fleet{controller: restored, password: f.password, totpSecret: f.totpSecret, lastCode: f.lastCode}`, `login(ctx, t, g)` (the restored database holds the admin and its TOTP secret), then `g.api.Apply(ctx, "", "core.host.create/v1", ...)` for a host named `blocked` must fail with an `*APIError` (`errors.As`) whose `Code` is `core.quarantined`.
 12. `re-enroll` (gate): `sudo darkpanel controller quarantine enroll-token <agentID> --json` on the restored VM, through `m7rDecode[backup.EnrollTokenResult]` and `m7rCheckToken(res, time.Unix(vmNow(ctx, t, restored), 0))`; then on the agent VM `RunInput(ctx, "sudo darkpanel system install --role agent", strings.NewReader(res.Token+"\n"))`; then `g.api.Hosts` until the agent's host is `core.HostEnrolled` and `Online` on the restored controller (3 minutes).
-13. `release-refused`: `sudo darkpanel controller quarantine release` fails with `records are still quarantined`, and `quarantine list --json` still reports `Active`.
-14. `resolve` (gate): `quarantine resolve <changeID> repair --json` through `m7rDecode[backup.Record]` must answer that id with kind `change` and `QuarantinedFrom` `pending`; the database now holds `needs_repair` for it.
+13. `release-refused`: `sudo darkpanel controller quarantine release` fails with `records are still quarantined`, and `quarantine list --json` still reports `Active`. The three "nothing is unwound" queries of step 10, run again now that the controller has been up for minutes, print the same answers.
+14. `resolve` (gate): `quarantine resolve <m7rCompositeID> never --json` through `m7rDecode[backup.Record]` must answer that id with kind `composite` and `QuarantinedFrom` `applying` (its one step names the agent and has no child plan, so it is not applied, W7-R4). The database now answers `abandoned|restore: never applied` to `SELECT state, error_message FROM core_changes WHERE id = '<m7rCompositeID>'` and `0` to `SELECT count(*) FROM core_locks WHERE owner = '<m7rCompositeID>'`.
 15. `release` (gate): `quarantine release --json` through `m7rDecode[backup.ReleaseResult]` has an empty `HeldLocks`; `quarantine list --json` is no longer `Active`; and within a minute (`eventually`) `g.api.Apply` of `core.host.create/v1` for a host named `after-release` completes.
 
 Budget: the three VMs boot in parallel, and the longest steps are the two installs and the re-enrollment; the scenario deadline is 40 minutes, the workflow step's `-timeout` 50 and the job's `timeout-minutes` 70, under the 120 minutes of gate 7.
 
-Three points no test of this plan verifies and the first VM run settles; if the run shows one of them wrong, fix a wrong harness expectation in this task and report a product defect as a finding in the task report, never weakening a step to pass. (a) `systemctl show -p ExecStartPre` prints `argv[]=` and `code=exited ; status=0` in this shape on all four images (systemd 249 to 257); if not, change `m7rExecStartPre` and its unit-test fixture together. (b) `system install --role agent` on an agent that already holds credentials accepts a token from another controller and replaces them. (c) A token issued by the restored controller enrolls an agent that is enrolled to the source controller, although the two controllers have different addresses and the restored one starts in quarantine.
+Four points no test of this plan verifies and the first VM run settles; if the run shows one of them wrong, fix a wrong harness expectation in this task and report a product defect as a finding in the task report, never weakening a step to pass. (a) `systemctl show -p ExecStartPre` prints `argv[]=` and `code=exited ; status=0` in this shape on all four images (systemd 249 to 257); if not, change `m7rExecStartPre` and its unit-test fixture together. (b) `system install --role agent` on an agent that already holds credentials accepts a token from another controller and replaces them. (c) A token issued by the restored controller enrolls an agent that is enrolled to the source controller, although the two controllers have different addresses and the restored one starts in quarantine. (d) The running source controller leaves the seeded composite alone until the backup (the `backup` step's repeated queries show it), because composite recovery claims composites only at start; if it does not, stop and report it as a finding rather than changing the seed.
 
 *The workflow.* Append this job to `.github/workflows/harness.yml` after `vm-m6c`, separated by one blank line, as it is (it is `vm-m6c` with its name, limit, comments, step name, flag, work directory and artifact name changed):
 
@@ -10620,8 +10801,8 @@ Three points no test of this plan verifies and the first VM run settles; if the 
           path: ~/.cache/darkpanel-harness
           key: harness-images-${{ matrix.os }}-${{ hashFiles('test/harness/images.json') }}
       - run: go vet -tags harness ./test/...
-      # TestM7Restore installs a controller and an agent, leaves a firewall
-      # change pending, backs the controller up, restores the backup onto a
+      # TestM7Restore installs a controller and an agent, seeds a composite
+      # in flight, backs the controller up, restores the backup onto a
       # third VM, and re-enrolls the agent there through the restore
       # quarantine. Its own deadline is 40 minutes, and the extra 10 leave its
       # VM cleanups time to finish.
