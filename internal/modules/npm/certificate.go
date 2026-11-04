@@ -405,7 +405,7 @@ func (h certificateRemoveHandler) Plan(ctx context.Context, env core.Env, in Cer
 	return core.PlanOutcome{Diff: diff, Guards: []core.Guard{}, StateHash: certificateSum(b), Confirmation: certificateLabel(c)}, nil
 }
 
-// Apply deletes the certificate and, under its owner's removal, releases every object of its exposure.
+// Apply deletes the certificate and, under its owner's removal, releases the objects its owner reserved under the exposure.
 func (h certificateRemoveHandler) Apply(ctx context.Context, env core.Env, in CertificateRemoveInput) (CertificateView, error) {
 	api, c, row, reserved, err := h.target(ctx, env, in)
 	if err != nil {
@@ -429,9 +429,9 @@ func (h certificateRemoveHandler) Apply(ctx context.Context, env core.Env, in Ce
 	}
 	view := certificateView(c)
 	if reserved {
-		err := env.DB.Write(ctx, func(tx *sql.Tx) error { return dropReservedExposure(ctx, tx, row.Exposure) })
+		err := env.DB.Write(ctx, func(tx *sql.Tx) error { return proxyHostEditRelease(ctx, tx, row.Exposure, row.Owner) })
 		if err != nil {
-			return CertificateView{}, fmt.Errorf("npm: %w", err)
+			return CertificateView{}, err
 		}
 		view.Reserved = row.Owner
 	}

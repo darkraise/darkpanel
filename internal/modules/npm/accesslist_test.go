@@ -634,3 +634,54 @@ func TestAlRemoveUndoRecreatesTheList(t *testing.T) {
 		t.Errorf("observation = %+v, want the recreated list found by name, not exclusive", obs)
 	}
 }
+
+// rrReserve reserves an NPM object under the exposure hostname the reservation fixtures share.
+func rrReserve(t *testing.T, h *thHost, kind string, id int, owner string) {
+	t.Helper()
+	ctx := context.Background()
+	err := h.db.Write(ctx, func(tx *sql.Tx) error {
+		return addReserved(ctx, tx, reservedRow{Kind: kind, ObjectID: id, Owner: owner, Exposure: "npm.example.com", ChangeID: "c0"})
+	})
+	if err != nil {
+		t.Fatalf("reserve %s %d: %v", kind, id, err)
+	}
+}
+
+// rrWantReserved checks which of the objects are still reserved, and by whom; an owner "" means released.
+func rrWantReserved(t *testing.T, h *thHost, want []reservedRow) {
+	t.Helper()
+	for _, w := range want {
+		got, held, err := reservedOf(context.Background(), h.db.Read(), w.Kind, w.ObjectID)
+		if err != nil {
+			t.Fatalf("reservedOf(%s, %d): %v", w.Kind, w.ObjectID, err)
+		}
+		if w.Owner == "" && held {
+			t.Errorf("%s %d is still reserved by %s, want it released", w.Kind, w.ObjectID, got.Owner)
+		}
+		if w.Owner != "" && (!held || got.Owner != w.Owner) {
+			t.Errorf("%s %d: reserved = %v by %q, want it kept for %s", w.Kind, w.ObjectID, held, got.Owner, w.Owner)
+		}
+	}
+}
+
+// TestRrAccessListRemoveReleasesOnlyItsOwnersReservations: removing a reserved list as its owner's removal releases the
+// owner's records under the exposure and keeps another owner's records under the same hostname.
+func TestRrAccessListRemoveReleasesOnlyItsOwnersReservations(t *testing.T) {
+	ctx := context.Background()
+	h, n := alSetup(t)
+	list := h.npm.SeedAccessList(npmapi.AccessList{Name: "admin-only", Clients: []npmapi.AccessClient{{Address: "203.0.113.7", Directive: "allow"}}})
+	alReserve(t, h, list.ID, "npm.admin.expose")
+	rrReserve(t, h, "proxy_host", 41, "npm.admin.expose")
+	rrReserve(t, h, "proxy_host", 42, "panel.exposure.add")
+	rrReserve(t, h, "certificate", 43, "panel.exposure.add")
+	h.addChange("c3", "npm.accesslist.remove")
+	if _, err := (accessListRemoveHandler{n: n}).Apply(ctx, h.child("c3", "npm.admin.unexpose"), AccessListRemoveInput{ID: list.ID}); err != nil {
+		t.Fatalf("Apply as the owner's removal: %v", err)
+	}
+	rrWantReserved(t, h, []reservedRow{
+		{Kind: "access_list", ObjectID: list.ID},
+		{Kind: "proxy_host", ObjectID: 41},
+		{Kind: "proxy_host", ObjectID: 42, Owner: "panel.exposure.add"},
+		{Kind: "certificate", ObjectID: 43, Owner: "panel.exposure.add"},
+	})
+}

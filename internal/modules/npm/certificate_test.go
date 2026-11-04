@@ -678,3 +678,25 @@ func TestCeRemoveOfAReservedCertificateNeedsTheOwnersRemoval(t *testing.T) {
 		})
 	}
 }
+
+// TestRrCertificateRemoveReleasesOnlyItsOwnersReservations: removing a reserved certificate as its owner's removal
+// releases the owner's records under the exposure and keeps another owner's records under the same hostname.
+func TestRrCertificateRemoveReleasesOnlyItsOwnersReservations(t *testing.T) {
+	ctx := context.Background()
+	h, n, _ := ceSetup(t)
+	cert := h.npm.SeedCertificate(npmapi.Certificate{NiceName: "panel.example.com", Provider: "letsencrypt", DomainNames: []string{"panel.example.com"}})
+	ceReserve(t, h, cert.ID, "panel.exposure.add")
+	rrReserve(t, h, "proxy_host", 41, "panel.exposure.add")
+	rrReserve(t, h, "proxy_host", 42, "npm.admin.expose")
+	rrReserve(t, h, "access_list", 43, "npm.admin.expose")
+	h.addChange("c3", "npm.certificate.remove")
+	if _, err := (certificateRemoveHandler{n: n}).Apply(ctx, h.child("c3", "panel.exposure.remove"), CertificateRemoveInput{ID: cert.ID}); err != nil {
+		t.Fatalf("Apply as the owner's removal: %v", err)
+	}
+	rrWantReserved(t, h, []reservedRow{
+		{Kind: "certificate", ObjectID: cert.ID},
+		{Kind: "proxy_host", ObjectID: 41},
+		{Kind: "proxy_host", ObjectID: 42, Owner: "npm.admin.expose"},
+		{Kind: "access_list", ObjectID: 43, Owner: "npm.admin.expose"},
+	})
+}

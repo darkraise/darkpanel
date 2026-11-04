@@ -146,14 +146,6 @@ func addReserved(ctx context.Context, tx *sql.Tx, r reservedRow) error {
 	return nil
 }
 
-// dropReservedExposure releases every object the exposure reserved; there being none is not an error.
-func dropReservedExposure(ctx context.Context, tx *sql.Tx, exposure string) error {
-	if _, err := tx.ExecContext(ctx, "DELETE FROM npm_reserved WHERE exposure = ?", exposure); err != nil {
-		return fmt.Errorf("npm: release the objects of exposure %s: %w", exposure, err)
-	}
-	return nil
-}
-
 // claimRow is one npm_attachments row: a claimant that needs the NPM container on a network. Preexisting is true when
 // the container was already attached before the first claim.
 type claimRow struct {

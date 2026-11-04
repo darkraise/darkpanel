@@ -169,7 +169,7 @@ func TestSdReservedRows(t *testing.T) {
 	if err := h.db.Write(ctx, func(tx *sql.Tx) error { return addReserved(ctx, tx, rows[0]) }); err == nil {
 		t.Error("an object reserved twice was accepted")
 	}
-	if err := h.db.Write(ctx, func(tx *sql.Tx) error { return dropReservedExposure(ctx, tx, "npm.example.org") }); err != nil {
+	if err := h.db.Write(ctx, func(tx *sql.Tx) error { return proxyHostEditRelease(ctx, tx, "npm.example.org", "npm.admin.expose") }); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range []struct {
@@ -181,7 +181,7 @@ func TestSdReservedRows(t *testing.T) {
 			t.Errorf("%s %d reserved = %v after releasing npm.example.org, want %v", c.kind, c.id, ok, c.held)
 		}
 	}
-	if err := h.db.Write(ctx, func(tx *sql.Tx) error { return dropReservedExposure(ctx, tx, "nobody.example.org") }); err != nil {
+	if err := h.db.Write(ctx, func(tx *sql.Tx) error { return proxyHostEditRelease(ctx, tx, "nobody.example.org", "npm.admin.expose") }); err != nil {
 		t.Errorf("releasing an exposure with no rows: %v", err)
 	}
 }

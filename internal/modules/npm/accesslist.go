@@ -429,7 +429,7 @@ func (h accessListRemoveHandler) Plan(ctx context.Context, env core.Env, in Acce
 	return core.PlanOutcome{Diff: diff, Guards: []core.Guard{}, StateHash: hash}, nil
 }
 
-// Apply deletes the list and, under its owner's removal, releases every object of its exposure.
+// Apply deletes the list and, under its owner's removal, releases the objects its owner reserved under the exposure.
 func (h accessListRemoveHandler) Apply(ctx context.Context, env core.Env, in AccessListRemoveInput) (AccessListView, error) {
 	api, list, row, reserved, err := h.target(ctx, env, in)
 	if err != nil {
@@ -454,9 +454,9 @@ func (h accessListRemoveHandler) Apply(ctx context.Context, env core.Env, in Acc
 	}
 	view := accessListView(list)
 	if reserved {
-		err := env.DB.Write(ctx, func(tx *sql.Tx) error { return dropReservedExposure(ctx, tx, row.Exposure) })
+		err := env.DB.Write(ctx, func(tx *sql.Tx) error { return proxyHostEditRelease(ctx, tx, row.Exposure, row.Owner) })
 		if err != nil {
-			return AccessListView{}, fmt.Errorf("npm: %w", err)
+			return AccessListView{}, err
 		}
 		view.Reserved = row.Owner
 	}
