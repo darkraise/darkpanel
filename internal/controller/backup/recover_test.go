@@ -429,6 +429,55 @@ func TestRcCompletesFromPhaseSixWithoutCheckingServices(t *testing.T) {
 	}
 }
 
+// rcRecoveryHost is the Host production recovery builds over l's paths, with
+// no units, so any use of them panics. Only the lock file, the owner lookup,
+// the journal owner and the log are the test's, to stay inside the temporary
+// directory and work without root or a darkpanel user.
+func rcRecoveryHost(t *testing.T, l *rtLayout) Host {
+	t.Helper()
+	h, closeHost, err := ProductionHost(context.Background(), l.paths, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := closeHost(); err != nil {
+		t.Fatal(err)
+	}
+	if h.Units != nil {
+		t.Fatalf("the recovery host has units (%T); recovery must not depend on D-Bus", h.Units)
+	}
+	h.LockFile, h.Owner, h.JournalUID, h.Log = l.host.LockFile, l.host.Owner, l.host.JournalUID, l.host.Log
+	return h
+}
+
+func TestRcRecoversOnTheProductionRecoveryHost(t *testing.T) {
+	cases := []struct {
+		name     string
+		crashAt  func(Journal) bool
+		restored bool
+	}{
+		{"rollback", func(j Journal) bool { return j.Phase == PhaseMovedAside && rcDone(j, PhaseMovedAside) == 1 }, false},
+		{"completion", func(j Journal) bool { return j.Phase == PhaseInstalled && rcDone(j, PhaseInstalled) == 1 }, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tx := rtTx(1)
+			l := rtNewLayout(t, tx)
+			bk := rtMakeBackup(t)
+			pristine := rcSave(t, l)
+			rcCrashRestore(t, l, bk, rcFind(t, rcTimeline(t, l, bk, pristine), tc.crashAt), false)
+
+			if err := Recover(context.Background(), rcRecoveryHost(t, l)); err != nil {
+				t.Fatalf("Recover: %v", err)
+			}
+			if tc.restored {
+				rcAssertRestored(t, l, bk, pristine, tx)
+			} else {
+				rcAssertOriginals(t, l, pristine, tx, false)
+			}
+		})
+	}
+}
+
 func TestRcFailedVerificationKeepsTheJournal(t *testing.T) {
 	tx := rtTx(1)
 	l := rtNewLayout(t, tx)

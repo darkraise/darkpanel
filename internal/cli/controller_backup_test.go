@@ -740,6 +740,32 @@ func TestCkRecover(t *testing.T) {
 	}
 }
 
+func TestCkRecoverBuildsItsHostWithoutDBus(t *testing.T) {
+	// A host that connects to D-Bus fails here rather than reach this host's
+	// systemd.
+	t.Setenv("DBUS_SYSTEM_BUS_ADDRESS", "unix:path="+filepath.Join(t.TempDir(), "no-bus"))
+	p := paths.Under(t.TempDir())
+	var out, errb bytes.Buffer
+	a := (ckEnv{}).app(&out, &errb)
+	a.opts.SelectPaths = func(*cobra.Command, bool) (paths.Paths, error) { return p, nil }
+	production := newBackupFlow(a).newHost
+	var built *backup.Host
+	hook := func(cmd *cobra.Command) (backup.Host, func() error, error) {
+		h, closeHost, err := production(cmd)
+		built = &h
+		return h, closeHost, err
+	}
+
+	// With no journal Recover returns before it takes the production lock.
+	stdout, stderr, code := (ckEnv{newHost: hook}).run(t, "restore", "--recover")
+	if code != 0 || stdout != "" || stderr != "" {
+		t.Fatalf("--recover: exit %d, stdout %q, stderr %q; want a silent success without D-Bus", code, stdout, stderr)
+	}
+	if built == nil || built.Units != nil || built.Paths != p {
+		t.Errorf("--recover built %+v, want a host over the selected paths with no units", built)
+	}
+}
+
 func TestCkRestoreSummary(t *testing.T) {
 	want := "Restored the backup taken 2026-11-03T10:00:00Z (restore 01JTESTTX).\n" +
 		"The controller database starts in restore quarantine. Start darkpanel-controller.service and darkpanel-agent.service, then run:\n" +
