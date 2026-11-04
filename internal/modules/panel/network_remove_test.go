@@ -162,6 +162,9 @@ func TestNwRemoveApply(t *testing.T) {
 		if err == nil || !core.IsDefinite(err) || !slices.Equal(nwStates(j), []core.EffectState{core.EffectSkipped}) {
 			t.Errorf("error %v, effects %v; want a definite refusal and a skipped effect", err, nwStates(j))
 		}
+		if err != nil && (!strings.Contains(err.Error(), "still attached") || !strings.Contains(err.Error(), "web")) {
+			t.Errorf("error %q does not name the container still attached", err)
+		}
 		if _, err := d.InspectNetwork(ctx, NetworkName); err != nil {
 			t.Errorf("the network is gone: %v", err)
 		}

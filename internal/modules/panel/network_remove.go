@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
@@ -47,6 +48,17 @@ func networkFind(ctx context.Context, docker panelDocker) (n dockerapi.Network, 
 	return n, true, nil
 }
 
+// networkContainers returns the names of the containers attached to n, sorted; it is never nil, so an empty network
+// hashes as [] and not null.
+func networkContainers(n dockerapi.Network) []string {
+	names := []string{}
+	for _, c := range n.Containers {
+		names = append(names, c.Name)
+	}
+	slices.Sort(names)
+	return names
+}
+
 // Plan reports the removal; the hash covers the network's id and the containers attached to it.
 func (h networkRemoveHandler) Plan(ctx context.Context, _ core.Env, _ NetworkRemoveInput) (core.PlanOutcome, error) {
 	docker, err := networkClient(h.d)
@@ -57,15 +69,10 @@ func (h networkRemoveHandler) Plan(ctx context.Context, _ core.Env, _ NetworkRem
 	if err != nil {
 		return core.PlanOutcome{}, err
 	}
-	containers := []string{}
-	for _, c := range n.Containers {
-		containers = append(containers, c.Name)
-	}
-	slices.Sort(containers)
 	hash, err := networkHash(struct {
 		ID         string   `json:"id"`
 		Containers []string `json:"containers"`
-	}{ID: n.ID, Containers: containers})
+	}{ID: n.ID, Containers: networkContainers(n)})
 	if err != nil {
 		return core.PlanOutcome{}, err
 	}
@@ -104,8 +111,12 @@ func (h networkRemoveHandler) Apply(ctx context.Context, env core.Env, _ Network
 		return NetworkRemoveOutput{}, fmt.Errorf("panel: journal %s: %w", resource, err)
 	}
 	if err := docker.RemoveNetwork(ctx, n.ID); err != nil && !dockerapi.IsNotFound(err) {
+		what := "remove network " + NetworkName
+		if attached := networkContainers(n); len(attached) > 0 {
+			what += " (containers still attached: " + strings.Join(attached, ", ") + ")"
+		}
 		return NetworkRemoveOutput{}, networkFailed(ctx, env, seq, resource,
-			fmt.Errorf("panel: remove network %s: %w", NetworkName, networkEngineCoded(err)))
+			fmt.Errorf("panel: %s: %w", what, networkEngineCoded(err)))
 	}
 	if err := env.Effects.Made(ctx, seq, resource, networkNull()); err != nil {
 		return NetworkRemoveOutput{}, fmt.Errorf("panel: journal %s: %w", resource, err)
