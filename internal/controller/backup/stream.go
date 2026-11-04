@@ -36,6 +36,12 @@ const streamMaxPassphrase = 1024
 // problem; a failure after it aborts the response so the client keeps a
 // truncated file that Read refuses.
 func (b *Backup) backupHandler(deps ext.Deps) http.Handler {
+	return b.streamServe(deps, rand.Reader)
+}
+
+// streamServe is backupHandler with the source of the salt and nonce prefix
+// as a parameter, so a test can make Write fail before the first body byte.
+func (b *Backup) streamServe(deps ext.Deps, rnd io.Reader) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		var req BackupRequest
@@ -106,12 +112,13 @@ func (b *Backup) backupHandler(deps ext.Deps) http.Handler {
 		}
 
 		sw := &streamWriter{w: w, clock: deps.Clock}
-		errWrite := Write(sw, rand.Reader, []byte(req.Passphrase), params, members)
+		errWrite := Write(sw, rnd, []byte(req.Passphrase), params, members)
+		auditCtx := context.WithoutCancel(ctx)
 		if errWrite != nil && !sw.began {
+			streamAuditFailure(auditCtx, deps)
 			writeProblem(w, deps.Log, errWrite)
 			return
 		}
-		auditCtx := context.WithoutCancel(ctx)
 		if errWrite != nil {
 			deps.Log.Error("backup: the backup stream failed after its first byte", "err", errWrite)
 			streamAuditFailure(auditCtx, deps)
@@ -170,8 +177,8 @@ func streamReadKey(path string) ([]byte, error) {
 	return key, nil
 }
 
-// streamAuditFailure records a backup that failed after it began, which
-// recordAudit cannot write because it records only successes.
+// streamAuditFailure records a backup that reached the stream and failed,
+// which recordAudit cannot write because it records only successes.
 func streamAuditFailure(ctx context.Context, deps ext.Deps) {
 	err := deps.Audit.Record(ctx, core.AuditEntry{
 		Actor: "local:root@" + deps.LocalHostID, Action: "controller.backup", Phase: "apply",

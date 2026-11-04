@@ -545,3 +545,38 @@ func TestBsRefreshesTheCanaryBeforeEachCopy(t *testing.T) {
 		}
 	}
 }
+
+// bsFailingReader fails every read, as a random source that is unavailable.
+type bsFailingReader struct{}
+
+func (bsFailingReader) Read([]byte) (int, error) { return 0, errors.New("no randomness") }
+
+func TestBsAuditsAFailureBeforeTheFirstByte(t *testing.T) {
+	e := bsNewEnv(t)
+	deps := ext.Deps{
+		DB: e.db, Sealer: e.sealer, Clock: e.clock, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Audit: e.audit, LocalHostID: "host-local",
+	}
+	rec := httptest.NewRecorder()
+	e.b.streamServe(deps, bsFailingReader{}).ServeHTTP(rec, bsRequest(bsBody(t, "p", &TestParams)))
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 (body %.300s)", rec.Code, rec.Body.String())
+	}
+	if p := bsDecodeProblem(t, rec); p.Code != "internal" {
+		t.Errorf("code = %q, want internal", p.Code)
+	}
+	rows := e.rows(t)
+	if len(rows) != 1 {
+		t.Fatalf("audit rows = %d, want 1", len(rows))
+	}
+	if r := rows[0]; r.Result != "error" || r.ErrorCode != "internal" {
+		t.Errorf("row = %+v, want result error with error code internal", r)
+	}
+	if left := e.copies(t); len(left) != 0 {
+		t.Errorf("temporary copy left after a failed backup: %v", left)
+	}
+	if e.b.running.Load() {
+		t.Error("a failed backup left the backup slot taken")
+	}
+}
