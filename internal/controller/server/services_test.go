@@ -411,6 +411,7 @@ func TestServerEventWiring(t *testing.T) {
 	ctx := context.Background()
 	ch, _ := s.events.Subscribe(t.Context())
 
+	svStepChange(t, s, "C1", "core.module.disable")
 	step := lifecycle.StepEvent{ChangeID: "C1", StepID: "s1", State: core.StepConfirmed, ChildChangeID: "K1"}
 	s.engineConfig(s.registry).Publish(lifecycle.EventCompositeStep, step)
 	pubWant(t, ch, events.TypeCompositeStep, step)
@@ -639,4 +640,34 @@ func TestXbPurgeInQuarantineKeepsReferencedPlans(t *testing.T) {
 	if n := count(t, s, `SELECT count(*) FROM core_changes WHERE id = '01XBCHANGE' AND state = 'quarantined'`); n != 1 {
 		t.Errorf("the quarantined change has %d rows after the purge, want 1", n)
 	}
+}
+
+// svStepChange stores a controller change of action, the row a composite's step events name. Its times are old, so
+// the change watcher never publishes it.
+func svStepChange(t *testing.T, s *Server, id, action string) {
+	t.Helper()
+	const old = "2020-01-01T00:00:00.000000000Z"
+	exec(t, s, `INSERT INTO core_changes (id, plan_id, host_id, action, version, class, compensated_by, actor, state,
+		input_json, created_at, updated_at)
+		VALUES (?, ?, '', ?, 1, 'compensable', '', 'local:root@h', 'completed', '{}', ?, ?)`,
+		id, planDisable(t, s).PlanID, action, old, old)
+}
+
+// TestSvStepEventsHideBreakGlassComposites: the engine's Publish drops the composite.step events of a change the
+// network listeners hide, and of a change it cannot read, and passes every other event on unchanged.
+func TestSvStepEventsHideBreakGlassComposites(t *testing.T) {
+	s := start(t, embeddedOptions(t))
+	ch, _ := s.events.Subscribe(t.Context())
+	const hidden, shown, missing = "01SVHIDDEN0000000000000000", "01SVSHOWN00000000000000000", "01SVMISSING000000000000000"
+	svStepChange(t, s, hidden, "core.user.reset-password")
+	svStepChange(t, s, shown, "core.module.disable")
+
+	publish := s.engineConfig(s.registry).Publish
+	for _, id := range []string{missing, hidden, shown} {
+		publish(lifecycle.EventCompositeStep, lifecycle.StepEvent{ChangeID: id, StepID: "s1", State: core.StepApplied})
+	}
+	publish(events.TypeHost, events.HostEvent{HostID: "h1", Online: true})
+
+	pubWant(t, ch, events.TypeCompositeStep, lifecycle.StepEvent{ChangeID: shown, StepID: "s1", State: core.StepApplied})
+	pubWant(t, ch, events.TypeHost, events.HostEvent{HostID: "h1", Online: true})
 }

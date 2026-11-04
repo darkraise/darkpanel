@@ -186,18 +186,37 @@ func hostOnline(bus *events.Bus) func(hostID string, online bool) {
 }
 
 // engineConfig is the controller engine's configuration. Its Publish hands
-// the composite.step events to the event bus, and restore quarantine
-// suspends its composite recovery, child watcher and module recovery
-// handlers.
+// the composite.step events of the changes the network listeners show to the
+// event bus, and restore quarantine suspends its composite recovery, child
+// watcher and module recovery handlers.
 func (s *Server) engineConfig(reg *core.Registry) lifecycle.Config {
 	return lifecycle.Config{
 		Side: core.SideController, Registry: reg, Validator: schema.NewValidator(), Journal: s.auditLog,
-		Redact: schema.Redact, Publish: s.events.Publish, Suspended: s.quarantined,
+		Redact: schema.Redact, Publish: s.publishEngineEvent, Suspended: s.quarantined,
 		Base: core.Env{
 			DB: s.controllerDB, Sealer: s.controllerSealer, Clock: s.clock, Log: s.log, Agents: s.hosts,
 			Listeners: s.runtimeListeners,
 		},
 	}
+}
+
+// publishEngineEvent is the engine's Publish. A composite.step event of a
+// change the network listeners hide, or whose change cannot be read, is
+// dropped, since the event stream must not show what the change routes hide.
+// It reads s.engine when an event arrives because engineConfig runs before
+// s.engine is assigned.
+func (s *Server) publishEngineEvent(eventType string, data any) {
+	if step, ok := data.(lifecycle.StepEvent); ok && eventType == lifecycle.EventCompositeStep {
+		view, err := s.engine.Change(context.Background(), step.ChangeID)
+		if err != nil {
+			s.log.Warn("server: composite step event dropped; its change is unreadable", "change", step.ChangeID, "error", err)
+			return
+		}
+		if !s.networkVisible(view) {
+			return
+		}
+	}
+	s.events.Publish(eventType, data)
 }
 
 // quarantined reports whether the controller database is in restore
