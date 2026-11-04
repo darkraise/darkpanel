@@ -690,8 +690,12 @@ func TestRrCertificateRemoveReleasesOnlyItsOwnersReservations(t *testing.T) {
 	rrReserve(t, h, "proxy_host", 42, "npm.admin.expose")
 	rrReserve(t, h, "access_list", 43, "npm.admin.expose")
 	h.addChange("c3", "npm.certificate.remove")
-	if _, err := (certificateRemoveHandler{n: n}).Apply(ctx, h.child("c3", "panel.exposure.remove"), CertificateRemoveInput{ID: cert.ID}); err != nil {
+	view, err := (certificateRemoveHandler{n: n}).Apply(ctx, h.child("c3", "panel.exposure.remove"), CertificateRemoveInput{ID: cert.ID})
+	if err != nil {
 		t.Fatalf("Apply as the owner's removal: %v", err)
+	}
+	if view.Reserved != "panel.exposure.add" {
+		t.Errorf("view reserved = %q, want the owner panel.exposure.add", view.Reserved)
 	}
 	rrWantReserved(t, h, []reservedRow{
 		{Kind: "certificate", ObjectID: cert.ID},

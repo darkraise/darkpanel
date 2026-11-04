@@ -675,8 +675,12 @@ func TestRrAccessListRemoveReleasesOnlyItsOwnersReservations(t *testing.T) {
 	rrReserve(t, h, "proxy_host", 42, "panel.exposure.add")
 	rrReserve(t, h, "certificate", 43, "panel.exposure.add")
 	h.addChange("c3", "npm.accesslist.remove")
-	if _, err := (accessListRemoveHandler{n: n}).Apply(ctx, h.child("c3", "npm.admin.unexpose"), AccessListRemoveInput{ID: list.ID}); err != nil {
+	view, err := (accessListRemoveHandler{n: n}).Apply(ctx, h.child("c3", "npm.admin.unexpose"), AccessListRemoveInput{ID: list.ID})
+	if err != nil {
 		t.Fatalf("Apply as the owner's removal: %v", err)
+	}
+	if view.Reserved != "npm.admin.expose" {
+		t.Errorf("view reserved = %q, want the owner npm.admin.expose", view.Reserved)
 	}
 	rrWantReserved(t, h, []reservedRow{
 		{Kind: "access_list", ObjectID: list.ID},
