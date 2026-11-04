@@ -73,11 +73,12 @@
             "enum": [
               "running",
               "draining",
+              "quarantined",
               "succeeded",
               "failed",
               "cancelled"
             ],
-            "description": "Rollout state; draining means dispatch stopped while a host's update is still running."
+            "description": "Rollout state; draining means dispatch stopped while a host's update is still running; quarantined means a controller restore stopped it until it is resolved."
           },
           "error": {
             "oneOf": [

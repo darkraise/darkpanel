@@ -45,11 +45,12 @@ const (
 
 // Rollout states.
 const (
-	RolloutRunning   = "running"
-	RolloutDraining  = "draining"
-	RolloutSucceeded = "succeeded"
-	RolloutFailed    = "failed"
-	RolloutCancelled = "cancelled"
+	RolloutRunning     = "running"
+	RolloutDraining    = "draining"
+	RolloutQuarantined = "quarantined"
+	RolloutSucceeded   = "succeeded"
+	RolloutFailed      = "failed"
+	RolloutCancelled   = "cancelled"
 )
 
 // Rollout host states.
@@ -243,7 +244,7 @@ type Rollout struct {
 	ID        string        `json:"id" jsonschema_description:"Rollout id."`
 	Version   string        `json:"version" jsonschema_description:"Version being rolled out."`
 	Channel   string        `json:"channel" jsonschema:"enum=stable,enum=beta" jsonschema_description:"Channel the version is signed for."`
-	State     string        `json:"state" jsonschema:"enum=running,enum=draining,enum=succeeded,enum=failed,enum=cancelled" jsonschema_description:"Rollout state; draining means dispatch stopped while a host's update is still running."`
+	State     string        `json:"state" jsonschema:"enum=running,enum=draining,enum=quarantined,enum=succeeded,enum=failed,enum=cancelled" jsonschema_description:"Rollout state; draining means dispatch stopped while a host's update is still running; quarantined means a controller restore stopped it until it is resolved."`
 	Error     *ErrorDetail  `json:"error" jsonschema:"nullable" jsonschema_description:"Why the rollout failed; null otherwise."`
 	CreatedAt time.Time     `json:"createdAt" jsonschema_description:"When the rollout was created."`
 	UpdatedAt time.Time     `json:"updatedAt" jsonschema_description:"When the rollout last changed."`

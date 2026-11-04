@@ -2,7 +2,11 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -756,5 +760,317 @@ func TestControllerListenersMigration(t *testing.T) {
 	}
 	if err := exec("L0", 9443, "X-Darkpanel-Client", "open"); err == nil {
 		t.Error("a duplicate id was accepted")
+	}
+}
+
+// rqRolloutStates are the states core_rollouts.state accepts once migration
+// 0013 has run, and the enum of the rollout view's state.
+var rqRolloutStates = []string{"running", "draining", "quarantined", "succeeded", "failed", "cancelled"}
+
+const rqAt = "2026-11-04T00:00:00.000000000Z"
+
+const (
+	rqRolloutRows = `SELECT json_array(id, version, channel, state, outcome, error_code, error_message, change_id,
+		created_at, updated_at) FROM core_rollouts ORDER BY id`
+	rqHostRows = `SELECT json_array(rollout_id, host_id, position, state, plan_id, apply_sent_at, operation_id,
+		error_code, error_message, followed_at) FROM core_rollout_hosts ORDER BY rollout_id, host_id`
+)
+
+// rqSeed fills a database migrated to 0012 with four rollouts, one of them
+// active in state active, and eight hosts in every rollout host state.
+func rqSeed(t *testing.T, db *DB, active string) {
+	t.Helper()
+	ctx := context.Background()
+	activeOutcome := ""
+	if active == "draining" {
+		activeOutcome = "failed"
+	}
+	for _, r := range []struct{ id, state, outcome, code, message, change string }{
+		{"RO1", "succeeded", "", "", "", "C1"},
+		{"RO2", "failed", "failed", "update.failed", "host H2 did not commit", ""},
+		{"RO3", "cancelled", "cancelled", "", "", ""},
+		{"RO4", active, activeOutcome, "", "", "C2"},
+	} {
+		if _, err := db.Writer().ExecContext(ctx, `INSERT INTO core_rollouts (id, version, channel, state, outcome,
+			error_code, error_message, change_id, created_at, updated_at)
+			VALUES (?, '0.2.0', 'stable', ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, ?)`,
+			r.id, r.state, r.outcome, r.code, r.message, r.change, rqAt, rqAt); err != nil {
+			t.Fatalf("rollout %s: %v", r.id, err)
+		}
+	}
+	for _, h := range []struct {
+		rollout, host string
+		position      int
+		state         string
+		plan, op      string
+		code, message string
+	}{
+		{"RO1", "H1", 0, "committed", "P1", "OP1", "", ""},
+		{"RO1", "H2", 1, "skipped", "", "", "", ""},
+		{"RO2", "H1", 0, "committed", "P2", "OP2", "", ""},
+		{"RO2", "H2", 1, "failed", "P3", "OP3", "update.timeout", "the update did not finish"},
+		{"RO2", "H3", 2, "skipped", "", "", "", ""},
+		{"RO3", "H1", 0, "waiting", "", "", "", ""},
+		{"RO4", "H1", 0, "updating", "P4", "OP4", "", ""},
+		{"RO4", "H2", 1, "waiting", "", "", "", ""},
+	} {
+		sent := ""
+		if h.plan != "" {
+			sent = rqAt
+		}
+		if _, err := db.Writer().ExecContext(ctx, `INSERT INTO core_rollout_hosts (rollout_id, host_id, position, state,
+			plan_id, apply_sent_at, operation_id, error_code, error_message, followed_at)
+			VALUES (?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''))`,
+			h.rollout, h.host, h.position, h.state, h.plan, sent, h.op, h.code, h.message, sent); err != nil {
+			t.Fatalf("host %s of %s: %v", h.host, h.rollout, err)
+		}
+	}
+}
+
+// rqCount runs a query that returns one integer.
+func rqCount(t *testing.T, db *DB, query string, args ...any) int {
+	t.Helper()
+	var n int
+	if err := db.Read().QueryRowContext(context.Background(), query, args...).Scan(&n); err != nil {
+		t.Fatalf("%s: %v", query, err)
+	}
+	return n
+}
+
+func TestRqRestoreQuarantineMigration(t *testing.T) {
+	for _, active := range []string{"running", "draining"} {
+		t.Run(active, func(t *testing.T) {
+			ctx := context.Background()
+			db := openTemp(t)
+			opts := migrateOpts(t, "w7", time.Now())
+			opts.Side = SideController
+			if _, err := Migrate(ctx, db, opts, coreSetUpTo(t, SideController, 12), nil); err != nil {
+				t.Fatal(err)
+			}
+			lifecycleRows(t, db)
+			rqSeed(t, db, active)
+			rolloutsBefore, hostsBefore := surfacesRows(t, db, rqRolloutRows), surfacesRows(t, db, rqHostRows)
+			if len(rolloutsBefore) != 4 || len(hostsBefore) != 8 {
+				t.Fatalf("seeded %d rollouts and %d hosts, want 4 and 8", len(rolloutsBefore), len(hostsBefore))
+			}
+
+			set, err := CoreMigrations(SideController)
+			if err != nil {
+				t.Fatal(err)
+			}
+			res, err := Migrate(ctx, db, migrateOpts(t, "w7a", time.Now()), set, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(res.Applied) == 0 || res.Applied[0].Number != 13 || res.Applied[0].Name != "restore_quarantine" {
+				t.Fatalf("applied %+v, want 0013_restore_quarantine first", res.Applied)
+			}
+
+			// Rows, integrity and shape.
+			if after := surfacesRows(t, db, rqRolloutRows); !slices.Equal(after, rolloutsBefore) {
+				t.Errorf("rollouts after the migration = %v, want %v", after, rolloutsBefore)
+			}
+			if after := surfacesRows(t, db, rqHostRows); !slices.Equal(after, hostsBefore) {
+				t.Errorf("rollout hosts after the migration = %v, want %v", after, hostsBefore)
+			}
+			if n := rqCount(t, db, `SELECT count(*) FROM core_rollouts WHERE quarantined_from IS NOT NULL`); n != 0 {
+				t.Errorf("%d migrated rollouts carry quarantined_from, want none", n)
+			}
+			violations, err := db.Read().QueryContext(ctx, "PRAGMA foreign_key_check")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if violations.Next() {
+				t.Error("PRAGMA foreign_key_check reports a violation")
+			}
+			if err := violations.Close(); err != nil {
+				t.Fatal(err)
+			}
+			var integrity string
+			if err := db.Read().QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&integrity); err != nil || integrity != "ok" {
+				t.Errorf("PRAGMA integrity_check = %q, %v; want ok", integrity, err)
+			}
+			for _, table := range []string{"core_rollouts", "core_rollout_hosts"} {
+				var tableSQL string
+				if err := db.Read().QueryRowContext(ctx, "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", table).
+					Scan(&tableSQL); err != nil {
+					t.Fatalf("table %s: %v", table, err)
+				}
+				if !strings.HasSuffix(strings.TrimSpace(tableSQL), "STRICT") {
+					t.Errorf("%s is not STRICT: %s", table, tableSQL)
+				}
+			}
+			if n := rqCount(t, db, `SELECT count(*) FROM sqlite_master WHERE name LIKE '%\_new' ESCAPE '\'`); n != 0 {
+				t.Errorf("%d leftover _new objects", n)
+			}
+			var parent, from, to, onDelete string
+			if err := db.Read().QueryRowContext(ctx,
+				`SELECT "table", "from", "to", on_delete FROM pragma_foreign_key_list('core_rollout_hosts')`).
+				Scan(&parent, &from, &to, &onDelete); err != nil {
+				t.Fatal(err)
+			}
+			if parent != "core_rollouts" || from != "rollout_id" || to != "id" || onDelete != "CASCADE" {
+				t.Errorf("core_rollout_hosts references %s(%s) from %s ON DELETE %s, want core_rollouts(id) from rollout_id ON DELETE CASCADE",
+					parent, to, from, onDelete)
+			}
+			for _, ix := range []struct {
+				table, name     string
+				unique, partial int
+			}{
+				{"core_rollouts", "core_rollouts_one_active", 1, 1},
+				{"core_rollouts", "core_rollouts_created", 0, 0},
+				{"core_rollout_hosts", "core_rollout_hosts_one_updating", 1, 1},
+			} {
+				var unique, partial int
+				if err := db.Read().QueryRowContext(ctx, `SELECT "unique", partial FROM pragma_index_list(?) WHERE name = ?`,
+					ix.table, ix.name).Scan(&unique, &partial); err != nil {
+					t.Errorf("index %s: %v", ix.name, err)
+					continue
+				}
+				if unique != ix.unique || partial != ix.partial {
+					t.Errorf("index %s unique %d partial %d, want %d and %d", ix.name, unique, partial, ix.unique, ix.partial)
+				}
+			}
+
+			// A quarantined rollout is not active; the one-active index still
+			// refuses a second running or draining rollout beside RO4.
+			insert := func(id, state, outcome, quarantinedFrom string) error {
+				_, err := db.Writer().ExecContext(ctx, `INSERT INTO core_rollouts (id, version, channel, state, outcome,
+					quarantined_from, created_at, updated_at) VALUES (?, '0.3.0', 'stable', ?, NULLIF(?, ''), NULLIF(?, ''), ?, ?)`,
+					id, state, outcome, quarantinedFrom, rqAt, rqAt)
+				return err
+			}
+			if err := insert("Q1", "quarantined", "", "running"); err != nil {
+				t.Errorf("a quarantined rollout beside an active one: %v", err)
+			}
+			if err := insert("Q2", "quarantined", "failed", "draining"); err != nil {
+				t.Errorf("a second quarantined rollout: %v", err)
+			}
+			var kept string
+			if err := db.Read().QueryRowContext(ctx, "SELECT quarantined_from FROM core_rollouts WHERE id = 'Q2'").Scan(&kept); err != nil || kept != "draining" {
+				t.Errorf("quarantined_from of Q2 = %q, %v; want draining", kept, err)
+			}
+			refused := []struct{ name, state, outcome string }{
+				{"a second running rollout", "running", ""},
+				{"a second draining rollout", "draining", "failed"},
+				{"an unknown state", "paused", ""},
+				{"an unknown outcome", "succeeded", "bogus"},
+			}
+			for i, r := range refused {
+				if err := insert("X"+strconv.Itoa(i), r.state, r.outcome, ""); err == nil {
+					t.Errorf("%s: accepted", r.name)
+				}
+			}
+
+			// The host table keeps its constraints and its reference.
+			host := func(rollout, host string, position int, state string) error {
+				_, err := db.Writer().ExecContext(ctx, `INSERT INTO core_rollout_hosts (rollout_id, host_id, position, state)
+					VALUES (?, ?, ?, ?)`, rollout, host, position, state)
+				return err
+			}
+			if err := host("Q1", "H1", 0, "updating"); err != nil {
+				t.Errorf("a first updating host: %v", err)
+			}
+			hostRefused := []struct {
+				name, rollout, host string
+				position            int
+				state               string
+			}{
+				{"a second updating host", "Q1", "H2", 1, "updating"},
+				{"a repeated position", "Q1", "H3", 0, "waiting"},
+				{"a repeated host", "Q1", "H1", 2, "waiting"},
+				{"a negative position", "Q1", "H4", -1, "waiting"},
+				{"an unknown host state", "Q1", "H5", 3, "paused"},
+				{"an unknown rollout", "NOPE", "H1", 0, "waiting"},
+			}
+			for _, r := range hostRefused {
+				if err := host(r.rollout, r.host, r.position, r.state); err == nil {
+					t.Errorf("%s: accepted", r.name)
+				}
+			}
+
+			// Deleting a rollout still deletes its hosts and only its hosts.
+			if _, err := db.Writer().ExecContext(ctx, "DELETE FROM core_rollouts WHERE id = 'RO1'"); err != nil {
+				t.Fatal(err)
+			}
+			for rollout, want := range map[string]int{"RO1": 0, "RO2": 3, "RO3": 1, "RO4": 2, "Q1": 1} {
+				if n := rqCount(t, db, "SELECT count(*) FROM core_rollout_hosts WHERE rollout_id = ?", rollout); n != want {
+					t.Errorf("hosts of %s after deleting RO1 = %d, want %d", rollout, n, want)
+				}
+			}
+			if _, err := db.Writer().ExecContext(ctx, "DELETE FROM core_rollouts"); err != nil {
+				t.Fatal(err)
+			}
+			if n := rqCount(t, db, "SELECT count(*) FROM core_rollout_hosts"); n != 0 {
+				t.Errorf("%d host rows are left after every rollout was deleted", n)
+			}
+
+			// Every state of the view is stored, and the draining rule holds.
+			for _, state := range rqRolloutStates {
+				outcome := ""
+				if state == "draining" {
+					outcome = "failed"
+				}
+				if err := insert("S-"+state, state, outcome, ""); err != nil {
+					t.Errorf("state %s refused: %v", state, err)
+				}
+				if _, err := db.Writer().ExecContext(ctx, "DELETE FROM core_rollouts WHERE id = ?", "S-"+state); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := insert("D1", "draining", "", ""); err == nil {
+				t.Error("a draining rollout without an outcome was accepted")
+			}
+			if err := insert("A1", "running", "", ""); err != nil {
+				t.Errorf("a running rollout with none active: %v", err)
+			}
+			if err := insert("A2", "running", "", ""); err == nil {
+				t.Error("a second running rollout was accepted")
+			}
+
+			// core_changes remembers the state a restore quarantined a change from.
+			var changeFrom sql.NullString
+			if err := db.Read().QueryRowContext(ctx, "SELECT quarantined_from FROM core_changes WHERE id = 'C1'").Scan(&changeFrom); err != nil || changeFrom.Valid {
+				t.Errorf("quarantined_from of the old change = %v, %v; want NULL", changeFrom, err)
+			}
+			if _, err := db.Writer().ExecContext(ctx,
+				"UPDATE core_changes SET state = 'quarantined', quarantined_from = 'applying' WHERE id = 'C1'"); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Read().QueryRowContext(ctx, "SELECT quarantined_from FROM core_changes WHERE id = 'C1'").Scan(&changeFrom); err != nil ||
+				changeFrom.String != "applying" {
+				t.Errorf("quarantined_from after the update = %v, %v; want applying", changeFrom, err)
+			}
+		})
+	}
+}
+
+// TestRqRolloutViewListsEveryStoredState: the committed snapshot of the
+// rollout view enumerates the states the table accepts, so a rollout in
+// restore quarantine can be listed.
+func TestRqRolloutViewListsEveryStoredState(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "..", "schemas", "core.update.rollouts", "v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snapshot struct {
+		Output struct {
+			Defs struct {
+				Rollout struct {
+					Properties struct {
+						State struct {
+							Enum []string `json:"enum"`
+						} `json:"state"`
+					} `json:"properties"`
+				} `json:"Rollout"`
+			} `json:"$defs"`
+		} `json:"output"`
+	}
+	if err := json.Unmarshal(data, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	got := slices.Sorted(slices.Values(snapshot.Output.Defs.Rollout.Properties.State.Enum))
+	if want := slices.Sorted(slices.Values(rqRolloutStates)); !slices.Equal(got, want) {
+		t.Errorf("the rollout view's state enum = %v, want %v", got, want)
 	}
 }
