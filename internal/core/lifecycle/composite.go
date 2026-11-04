@@ -189,6 +189,12 @@ func (e *Engine) compositeSteps(ctx context.Context, p core.Principal, def core.
 		case cdef.Spec.Side == core.SideAgent && st.Host == "":
 			return nil, bug("step %s: %s is an agent action and needs a host", st.ID, st.Action)
 		}
+		switch {
+		case st.Retires != "" && def.Spec.Unwind != core.UnwindForward:
+			return nil, bug("step %s: retires is allowed only on a step of a forward composite", st.ID)
+		case st.Retires != "" && cdef.Spec.Class == core.ClassRead:
+			return nil, bug("step %s: retires is not allowed on a read step", st.ID)
+		}
 		switch cdef.Spec.Class {
 		case core.ClassComposite, core.ClassIrreversible:
 			return nil, bug("step %s: a step is never %s", st.ID, cdef.Spec.Class)

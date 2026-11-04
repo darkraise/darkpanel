@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -1072,5 +1073,55 @@ func TestRqRolloutViewListsEveryStoredState(t *testing.T) {
 	got := slices.Sorted(slices.Values(snapshot.Output.Defs.Rollout.Properties.State.Enum))
 	if want := slices.Sorted(slices.Values(rqRolloutStates)); !slices.Equal(got, want) {
 		t.Errorf("the rollout view's state enum = %v, want %v", got, want)
+	}
+}
+
+func TestRtCompositeRetiresMigration(t *testing.T) {
+	ctx := context.Background()
+	db := openTemp(t)
+	opts := migrateOpts(t, "w8", time.Now())
+	opts.Side = SideController
+	if _, err := Migrate(ctx, db, opts, coreSetUpTo(t, SideController, 13), nil); err != nil {
+		t.Fatal(err)
+	}
+	lifecycleRows(t, db)
+	const at = "2026-11-04T00:00:00.000000000Z"
+	const step = `INSERT INTO core_composite_steps (change_id, step_id, ordinal, host_id, action, input_template, state, updated_at%s)
+		VALUES ('C1', ?, ?, 'H1', 'fix.item.add/v1', '{}', 'applied', ?%s)`
+	if _, err := db.Writer().ExecContext(ctx, fmt.Sprintf(step, "", ""), "old", 0, at); err != nil {
+		t.Fatal(err)
+	}
+
+	set, err := CoreMigrations(SideController)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := Migrate(ctx, db, migrateOpts(t, "w8a", time.Now()), set, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Applied) == 0 || res.Applied[0].Number != 14 || res.Applied[0].Name != "composite_retires" {
+		t.Fatalf("applied %+v, want 0014_composite_retires first", res.Applied)
+	}
+
+	retires := func(id string) string {
+		t.Helper()
+		var got string
+		if err := db.Read().QueryRowContext(ctx, `SELECT retires FROM core_composite_steps WHERE step_id = ?`, id).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	if got := retires("old"); got != "" {
+		t.Errorf("a step recorded before the migration retires %q, want the empty default", got)
+	}
+	if _, err := db.Writer().ExecContext(ctx, fmt.Sprintf(step, ", retires", ", ?"), "new", 1, at, "exp1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := retires("new"); got != "exp1" {
+		t.Errorf("a step recorded with retires exp1 reads back %q", got)
+	}
+	if _, err := db.Writer().ExecContext(ctx, `UPDATE core_composite_steps SET retires = NULL WHERE step_id = 'new'`); err == nil {
+		t.Error("a NULL retires was accepted")
 	}
 }

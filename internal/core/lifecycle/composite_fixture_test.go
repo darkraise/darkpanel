@@ -663,10 +663,10 @@ type cfxFixture struct {
 	events                *cfxEvents
 }
 
-func newCfxFixture(t *testing.T) *cfxFixture {
+func newCfxFixture(t *testing.T, extra ...core.Module) *cfxFixture {
 	t.Helper()
 	host, bad := newCstHost(), &cfxSteps{}
-	reg, err := core.NewRegistry(cstModule{host}, cfxModule{bad})
+	reg, err := core.NewRegistry(append([]core.Module{cstModule{host}, cfxModule{bad}}, extra...)...)
 	if err != nil {
 		t.Fatal(err)
 	}

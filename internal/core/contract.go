@@ -291,11 +291,12 @@ type TaskMutator[In, Out any] interface {
 
 // Step is one step of a composite.
 type Step struct {
-	ID     string          `json:"id"`              // [a-z][a-z0-9]*, unique in the composite
-	Host   string          `json:"host"`            // host id; "" for a controller-side action
-	Action ActionRef       `json:"action"`          // "<name>/v<version>"
-	Input  json.RawMessage `json:"input"`           // the child's input, with ${input...} and ${steps...} references
-	After  []string        `json:"after,omitempty"` // steps this one follows
+	ID      string          `json:"id"`                // [a-z][a-z0-9]*, unique in the composite
+	Host    string          `json:"host"`              // host id; "" for a controller-side action
+	Action  ActionRef       `json:"action"`            // "<name>/v<version>"
+	Input   json.RawMessage `json:"input"`             // the child's input, with ${input...} and ${steps...} references
+	After   []string        `json:"after,omitempty"`   // steps this one follows
+	Retires string          `json:"retires,omitempty"` // exposure id this step retires once it has committed (1.5); forward composites only
 }
 
 // Composer is the handler of a composite action. The engine, not the

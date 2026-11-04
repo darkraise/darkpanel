@@ -74,6 +74,7 @@ type stepRow struct {
 	Host            string
 	Action          core.ActionRef
 	After           []string
+	Retires         string
 	Template        json.RawMessage
 	State           string
 	Attempt         int
@@ -106,8 +107,8 @@ func loadComposite(ctx context.Context, q queryer, id string) (compositeRow, []s
 	}
 	rows, err := q.QueryContext(ctx,
 		`SELECT step_id, ordinal, host_id, action, after_json, input_template, state, attempt, child_plan_id,
-		 child_change_id, earlier_child_change_ids, input_ct, output_ct, child_deadline, error_code, error_message
-		 FROM core_composite_steps WHERE change_id = ? ORDER BY ordinal`, id)
+		 child_change_id, earlier_child_change_ids, input_ct, output_ct, child_deadline, error_code, error_message,
+		 retires FROM core_composite_steps WHERE change_id = ? ORDER BY ordinal`, id)
 	if err != nil {
 		return c, nil, fmt.Errorf("lifecycle: read the steps of %s: %w", id, err)
 	}
@@ -118,7 +119,7 @@ func loadComposite(ctx context.Context, q queryer, id string) (compositeRow, []s
 		var action, after, tmpl, earlier string
 		var planID, childID, childDeadline, code, msg sql.NullString
 		if err := rows.Scan(&s.ID, &s.Ordinal, &s.Host, &action, &after, &tmpl, &s.State, &s.Attempt, &planID,
-			&childID, &earlier, &s.InputCT, &s.OutputCT, &childDeadline, &code, &msg); err != nil {
+			&childID, &earlier, &s.InputCT, &s.OutputCT, &childDeadline, &code, &msg, &s.Retires); err != nil {
 			return c, nil, fmt.Errorf("lifecycle: read the steps of %s: %w", id, err)
 		}
 		if err := s.Action.UnmarshalText([]byte(action)); err != nil {
@@ -506,6 +507,23 @@ func (e *Engine) forwardStep(ctx context.Context, c compositeRow, steps []stepRo
 	return fmt.Errorf("lifecycle: composite %s: step %s is %s at the cursor", c.ID, s.ID, s.State)
 }
 
+// stepRetired returns the non-empty Retires values, in ordinal order and
+// without duplicates, of the steps of steps before s that are applied or
+// confirmed; nil when there is none. An exposure is retired only once its
+// retiring step has committed, so a step in any other state does not count.
+func stepRetired(steps []stepRow, s stepRow) []string {
+	var out []string
+	for _, o := range steps {
+		if o.Ordinal >= s.Ordinal || o.Retires == "" || slices.Contains(out, o.Retires) {
+			continue
+		}
+		if o.State == core.StepApplied || o.State == core.StepConfirmed {
+			out = append(out, o.Retires)
+		}
+	}
+	return out
+}
+
 func (e *Engine) stepCall(c compositeRow, s stepRow) *core.CallContext {
 	return &core.CallContext{ParentChangeID: c.ID, ParentAction: c.Action, StepID: s.ID}
 }
@@ -524,6 +542,7 @@ func (e *Engine) startStep(ctx context.Context, c compositeRow, steps []stepRow,
 		return fmt.Errorf("lifecycle: composite %s: step %s: action %s is not registered", c.ID, s.ID, s.Action)
 	}
 	call := e.stepCall(c, s)
+	call.Retired = stepRetired(steps, s)
 	if s.State == core.StepPending {
 		if err := e.setStep(ctx, c.ID, s.ID, []string{core.StepPending}, stepUpdate{State: core.StepPlanning}); err != nil {
 			return err
@@ -1151,9 +1170,9 @@ func (e *Engine) commitComposite(ctx context.Context, p core.Principal, pl planR
 			}
 			if _, err := tx.ExecContext(ctx,
 				`INSERT INTO core_composite_steps (change_id, step_id, ordinal, host_id, action, after_json,
-				 input_template, state, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				 input_template, state, updated_at, retires) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				id, s.Step.ID, s.Ordinal, s.Step.Host, s.Def.Ref().String(), string(after), string(s.Template),
-				core.StepPending, created); err != nil {
+				core.StepPending, created, s.Step.Retires); err != nil {
 				return err
 			}
 		}
