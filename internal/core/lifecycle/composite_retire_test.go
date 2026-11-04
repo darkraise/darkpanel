@@ -158,6 +158,8 @@ func TestRtStepRetired(t *testing.T) {
 		row("f", 5, core.StepUndone, "exp5"),
 		row("g", 6, core.StepRead, ""),
 		row("h", 7, core.StepPending, ""),
+		row("i", 8, core.StepReleased, "exp6"),
+		row("j", 9, core.StepPending, ""),
 	}
 	for _, tc := range []struct {
 		name string
@@ -170,6 +172,7 @@ func TestRtStepRetired(t *testing.T) {
 		{"a planned step does not count", 4, []string{"exp1", "exp2"}},
 		{"an exposure retired twice is listed once, in ordinal order", 5, []string{"exp1", "exp2"}},
 		{"an undone step does not count", 7, []string{"exp1", "exp2"}},
+		{"a released step does not count", 9, []string{"exp1", "exp2"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := stepRetired(steps, steps[tc.step]); !slices.Equal(got, tc.want) {
