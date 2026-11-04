@@ -11,22 +11,12 @@ import (
 
 	"github.com/darkraise/darkpanel/internal/controller/fleet"
 	"github.com/darkraise/darkpanel/internal/core"
-	"github.com/darkraise/darkpanel/internal/core/ext"
 	"github.com/darkraise/darkpanel/internal/core/secret"
 	"github.com/darkraise/darkpanel/internal/core/store"
 )
 
 // The fleet authority is the TokenIssuer the assembly passes.
 var _ TokenIssuer = (*fleet.Authority)(nil)
-
-// TestContributeAddsNothingYet: until the backup routes exist the
-// contribution mounts no route and starts no service.
-func TestContributeAddsNothingYet(t *testing.T) {
-	routes, services, err := Contribute(ext.Deps{})
-	if err != nil || len(routes) != 0 || len(services) != 0 {
-		t.Errorf("Contribute = %v, %v, %v; want nothing", routes, services, err)
-	}
-}
 
 func TestCbNewKeepsTheConfig(t *testing.T) {
 	cfg := Config{KeyFile: "/etc/darkpanel/controller.key", AgentAdvertise: "10.77.0.10:7443"}
@@ -39,13 +29,6 @@ func TestCbNewKeepsTheConfig(t *testing.T) {
 	}
 	if New(Config{}).cfg.Tokens != nil {
 		t.Error("an empty Config gained a token issuer")
-	}
-}
-
-func TestCbBackupContributeAddsNothingYet(t *testing.T) {
-	routes, services, err := New(Config{}).Contribute(ext.Deps{})
-	if err != nil || len(routes) != 0 || len(services) != 0 {
-		t.Errorf("Contribute = %v, %v, %v; want nothing", routes, services, err)
 	}
 }
 

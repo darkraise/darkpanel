@@ -1,12 +1,13 @@
 // Package backup is the controller's backup, restore and restore-quarantine
-// surface (spec 10). Its routes and services reach the controller through
-// Contribute, which the assembly calls at startup beside the modules'
+// surface (spec 10). Its routes reach the controller through
+// Backup.Contribute, which the assembly calls at startup beside the modules'
 // controller contributions; the routes are served on the controller socket.
 package backup
 
 import (
 	"context"
 	"database/sql"
+	"net/http"
 	"sync/atomic"
 	"time"
 
@@ -36,14 +37,34 @@ func New(cfg Config) *Backup {
 	return &Backup{cfg: cfg}
 }
 
-// Contribute returns the backup and quarantine routes and services. It
-// contributes nothing until the backup and restore commands exist.
-func (b *Backup) Contribute(_ ext.Deps) ([]ext.Route, []ext.Service, error) {
-	return nil, nil, nil
-}
-
-// Contribute returns the backup and quarantine routes and services. It
-// contributes nothing until the backup and restore commands exist.
-func Contribute(_ ext.Deps) ([]ext.Route, []ext.Service, error) {
-	return nil, nil, nil
+// Contribute returns the five backup and quarantine routes, all on the
+// controller socket, and starts no service. Only the backup route streams.
+func (b *Backup) Contribute(deps ext.Deps) ([]ext.Route, []ext.Service, error) {
+	return []ext.Route{
+		{
+			Surface: ext.SurfaceSocket, Method: http.MethodPost, Path: "/api/v1/controller/backup", Stream: true,
+			Summary: "Stream an encrypted backup of the controller database and key",
+			Handler: b.backupHandler(deps),
+		},
+		{
+			Surface: ext.SurfaceSocket, Method: http.MethodGet, Path: "/api/v1/controller/quarantine",
+			Summary: "List the records a restore quarantined",
+			Handler: b.quarantineHandler(deps),
+		},
+		{
+			Surface: ext.SurfaceSocket, Method: http.MethodPost, Path: "/api/v1/controller/quarantine/{record}/resolve",
+			Summary: "Resolve one quarantined record",
+			Handler: b.resolveHandler(deps),
+		},
+		{
+			Surface: ext.SurfaceSocket, Method: http.MethodPost, Path: "/api/v1/controller/quarantine/enroll-token",
+			Summary: "Issue an enrollment token for a restored host",
+			Handler: b.enrollTokenHandler(deps),
+		},
+		{
+			Surface: ext.SurfaceSocket, Method: http.MethodPost, Path: "/api/v1/controller/quarantine/release",
+			Summary: "Release the restore quarantine",
+			Handler: b.releaseHandler(deps),
+		},
+	}, nil, nil
 }
