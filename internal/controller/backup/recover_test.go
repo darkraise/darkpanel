@@ -552,3 +552,115 @@ func TestRcProcessesJournalsOldestFirst(t *testing.T) {
 		t.Errorf("removals of the older transaction end at %d, the younger begin at %d; want older first (%v)", last1, first2, ops.removed)
 	}
 }
+
+func TestRcRefusesAJournalItDoesNotTrust(t *testing.T) {
+	tx1, tx2 := rtTx(1), rtTx(2)
+	cases := []struct {
+		name    string
+		journal func(l *rtLayout, canary string) (string, Journal)
+	}{
+		{"tx other than the name's", func(l *rtLayout, _ string) (string, Journal) {
+			return JournalPath(l.paths.ControllerDir, tx1), Journal{Format: 1, Tx: tx2, Phase: PhaseBegun}
+		}},
+		{"tx not a ULID", func(l *rtLayout, _ string) (string, Journal) {
+			return JournalPath(l.paths.ControllerDir, "notaulid"), Journal{Format: 1, Tx: "notaulid", Phase: PhaseBegun}
+		}},
+		{"a file outside the controller", func(l *rtLayout, canary string) (string, Journal) {
+			files := []JournalFile{{Path: canary, Existed: false}}
+			for _, f := range Targets(l.paths)[1:] {
+				files = append(files, JournalFile{Path: f, Existed: true})
+			}
+			return JournalPath(l.paths.ControllerDir, tx1), Journal{Format: 1, Tx: tx1, Phase: PhaseJournaled, Files: files}
+		}},
+		{"the targets out of order", func(l *rtLayout, _ string) (string, Journal) {
+			targets := Targets(l.paths)
+			var files []JournalFile
+			for _, f := range append(targets[3:], targets[:3]...) {
+				files = append(files, JournalFile{Path: f, Existed: true})
+			}
+			return JournalPath(l.paths.ControllerDir, tx1), Journal{Format: 1, Tx: tx1, Phase: PhaseJournaled, Files: files}
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			l := rtNewLayout(t, tx1)
+			canary := filepath.Join(t.TempDir(), "canary")
+			if err := os.WriteFile(canary, []byte("canary"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			journalPath, j := tc.journal(l, canary)
+			if err := SaveJournal(OSOps(), journalPath, j); err != nil {
+				t.Fatal(err)
+			}
+			before := l.digest(t)
+
+			err := Recover(context.Background(), l.host)
+			if err == nil || !strings.Contains(err.Error(), journalPath) || !strings.Contains(err.Error(), "does not belong to this controller") {
+				t.Fatalf("Recover = %v, want a refusal naming %s", err, journalPath)
+			}
+			if !rcExists(canary) {
+				t.Error("recovery removed a file outside the controller")
+			}
+			if js, lerr := ListJournals(l.paths.ControllerDir); lerr != nil || !slices.Contains(js, journalPath) {
+				t.Errorf("journals = %v (error %v), want %s kept", js, lerr, journalPath)
+			}
+			if diff := rtDiff(before, l.digest(t)); diff != "" {
+				t.Errorf("a refused journal changed the installation: %s", diff)
+			}
+		})
+	}
+}
+
+func TestRcInstallRefusesALinkedStagedFile(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		link func(oldname, newname string) error
+	}{{"symbolic link", os.Symlink}, {"hard link", os.Link}} {
+		t.Run(tc.name, func(t *testing.T) {
+			tx := rtTx(1)
+			l := rtNewLayout(t, tx)
+			p := l.paths
+			canary := filepath.Join(t.TempDir(), "canary")
+			if err := os.WriteFile(canary, []byte("canary"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(canary, 0o644); err != nil { //nolint:gosec // G302: a chmod through the link must show on a mode other than 0600
+				t.Fatal(err)
+			}
+			// Phase 6 has begun: every original is at its set-aside name and
+			// nothing is installed yet.
+			j := Journal{Format: 1, Tx: tx, Phase: PhaseInstalled}
+			for _, f := range Targets(p) {
+				if err := os.Rename(f, AsideName(f, tx)); err != nil {
+					t.Fatal(err)
+				}
+				j.Files = append(j.Files, JournalFile{Path: f, Existed: true})
+				j.Renames = append(j.Renames, Rename{Phase: PhaseMovedAside, From: f, To: AsideName(f, tx), State: RenameDone})
+			}
+			if err := os.WriteFile(StagedName(p.ControllerKey, tx), []byte("staged key"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := tc.link(canary, StagedName(p.ControllerDB(), tx)); err != nil {
+				t.Fatal(err)
+			}
+			if err := SaveJournal(OSOps(), JournalPath(p.ControllerDir, tx), j); err != nil {
+				t.Fatal(err)
+			}
+			before := l.digest(t)
+
+			err := Recover(context.Background(), l.host)
+			if err == nil || !strings.Contains(err.Error(), "is not a single regular file") {
+				t.Fatalf("Recover = %v, want the staged database refused", err)
+			}
+			if info, err := os.Stat(canary); err != nil || info.Mode().Perm() != 0o644 {
+				t.Errorf("canary: mode %v, error %v, want 0644", info, err)
+			}
+			if rcExists(p.ControllerDB()) {
+				t.Error("recovery installed the linked staged database as controller.db")
+			}
+			if diff := rtDiff(before, l.digest(t)); diff != "" {
+				t.Errorf("a refused install changed the installation: %s", diff)
+			}
+		})
+	}
+}

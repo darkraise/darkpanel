@@ -314,6 +314,17 @@ func installStaged(h Host, journalPath string, j *Journal) error {
 		if done {
 			continue
 		}
+		// Chmod follows a symbolic link and lchown on a hard link changes the
+		// linked inode, so a file planted under the staged name could hand a
+		// root recovery any file on the host. os.Lstat is called directly so
+		// the check adds no Ops call.
+		fi, err := os.Lstat(from)
+		if err != nil {
+			return fmt.Errorf("backup: look up the staged file %s: %w", from, err)
+		}
+		if st, ok := fi.Sys().(*syscall.Stat_t); !fi.Mode().IsRegular() || !ok || st.Nlink != 1 {
+			return fmt.Errorf("backup: staged file %s is not a single regular file; the journal %s is kept", from, journalPath)
+		}
 		// The owner and mode are set before the rename, so the installed name
 		// never carries the wrong ones, even after a crash.
 		if err := h.Ops.Chown(from, uid, gid); err != nil {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+
+	"github.com/oklog/ulid/v2"
 )
 
 // Recover processes every journal oldest first under h.lock(); with no journal it returns nil at once
@@ -44,6 +46,9 @@ func recoverOne(ctx context.Context, h Host, journalPath string) error {
 	if err != nil {
 		return fmt.Errorf("backup: read journal %s: %w", journalPath, err)
 	}
+	if err := checkJournal(h, journalPath, j); err != nil {
+		return err
+	}
 	h.Log.Info("backup: recovering an unfinished restore", "tx", j.Tx, "phase", string(j.Phase))
 	switch j.Phase {
 	case PhaseInstalled, PhaseVerified:
@@ -54,6 +59,35 @@ func recoverOne(ctx context.Context, h Host, journalPath string) error {
 	default:
 		return rollbackTx(h, journalPath, &j)
 	}
+}
+
+// checkJournal refuses a journal recovery must not act on: one whose tx is not a canonical ULID,
+// whose name does not carry its tx, or whose files are not this controller's Targets in order. The
+// controller service can write its own directory, so a journal there is not trusted to name the
+// paths a root recovery renames or removes. A refused journal is left as it is.
+func checkJournal(h Host, journalPath string, j Journal) error {
+	refuse := func(reason string) error {
+		return fmt.Errorf("backup: journal %s does not belong to this controller (%s); it is kept", journalPath, reason)
+	}
+	if id, err := ulid.ParseStrict(j.Tx); err != nil || id.String() != j.Tx {
+		return refuse(fmt.Sprintf("tx %q is not an upper-case ULID", j.Tx))
+	}
+	if JournalPath(h.Paths.ControllerDir, j.Tx) != journalPath {
+		return refuse("its name does not carry its tx " + j.Tx)
+	}
+	if len(j.Files) == 0 {
+		return nil
+	}
+	targets := Targets(h.Paths)
+	if len(j.Files) != len(targets) {
+		return refuse(fmt.Sprintf("it lists %d files, not the %d controller files", len(j.Files), len(targets)))
+	}
+	for i, f := range j.Files {
+		if f.Path != targets[i] {
+			return refuse(fmt.Sprintf("file %d is %s, not %s", i+1, f.Path, targets[i]))
+		}
+	}
+	return nil
 }
 
 // rollbackTx puts every original of j back under its own name, removes what the transaction
