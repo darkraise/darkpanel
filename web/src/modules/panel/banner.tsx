@@ -1,14 +1,22 @@
 import { Link } from "react-router"
 import { useQuery } from "@tanstack/react-query"
 import { Alert, AlertDescription, AlertTitle } from "darkraise-ui/components/alert"
-import { readExposureStatus } from "./status"
+import { messageOf, readExposureStatus } from "./status"
 import { panelStatusKey } from "./types"
 
 // PanelExposureBanner warns on every page while the panel is exposed beyond
-// the tailnet. It stays silent while the status read is pending or has
-// failed: the banner is a reminder, and the panel page reports the errors.
+// the tailnet. A failed status read is shown too, because staying silent
+// would look the same as "not exposed".
 export function PanelExposureBanner() {
   const status = useQuery({ queryKey: panelStatusKey, queryFn: readExposureStatus, staleTime: 60_000 })
+  if (status.isError) {
+    return (
+      <Alert variant="warning" role="status" className="mb-4">
+        <AlertTitle>The panel exposure status could not be read</AlertTitle>
+        <AlertDescription>{messageOf(status.error)}</AlertDescription>
+      </Alert>
+    )
+  }
   if (!status.isSuccess || !status.data.exposed) return null
   const exposure = status.data.exposure
   if (exposure === null || exposure === undefined) return null

@@ -9,6 +9,7 @@ import { panelStatusKey } from "./types"
 
 const PB_READ = "POST /api/v1/actions/panel.exposure.status/v1/read"
 const PB_TEXT = "Panel exposed via npm at panel.example.org"
+const PB_UNREAD = "The panel exposure status could not be read"
 
 function pbRender(response: StubHandler) {
   const calls = stubFetch({ [PB_READ]: response })
@@ -54,19 +55,29 @@ test("renders nothing while the panel is not exposed", async () => {
   expect(screen.queryByRole("link")).toBeNull()
 })
 
-test("renders nothing when the status read fails", async () => {
+test("warns that the status is unknown when the status read fails", async () => {
   const { client } = pbRender({ status: 503, body: { type: "about:blank", title: "Unavailable", status: 503, detail: "the database is busy", code: "unavailable" } })
   await pbSettled(client)
   expect(client.getQueryState(panelStatusKey)?.status).toBe("error")
+  expect(await screen.findByText(PB_UNREAD)).toBeTruthy()
+  expect(screen.getByText("the database is busy")).toBeTruthy()
   expect(screen.queryByText(/Panel exposed/)).toBeNull()
-  expect(screen.queryByRole("alert")).toBeNull()
+  expect(screen.queryByRole("link")).toBeNull()
 })
 
-test("renders nothing when the controller answers with something that is not a status", async () => {
+test("warns that the status is unknown when the controller answers with something that is not a status", async () => {
   const { client } = pbRender({ body: { output: { exposed: true } } })
   await pbSettled(client)
   expect(client.getQueryState(panelStatusKey)?.status).toBe("error")
+  expect(await screen.findByText(PB_UNREAD)).toBeTruthy()
+  expect(screen.getByText("The controller answered with an unexpected panel exposure status.")).toBeTruthy()
   expect(screen.queryByText(/Panel exposed/)).toBeNull()
+})
+
+test("the unknown-status warning has no accessibility violations", async () => {
+  const { container } = pbRender({ status: 503, body: { type: "about:blank", title: "Unavailable", status: 503, detail: "the database is busy", code: "unavailable" } })
+  await screen.findByText(PB_UNREAD)
+  expect(await axe(container)).toHaveNoViolations()
 })
 
 test("the banner has no accessibility violations", async () => {
