@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useLayoutEffect, useRef, useState } from "react"
 import { Link } from "react-router"
 import { useQuery } from "@tanstack/react-query"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
@@ -16,6 +16,13 @@ interface Pending {
   action: string
   title: string
   container: string
+}
+
+// The request whose dialog has closed, kept until the read that the close
+// started has landed, with the query's dataUpdatedAt at the close.
+interface Closed {
+  pending: Pending
+  updatedAt: number
 }
 
 function portText(p: DockerPort): string {
@@ -56,7 +63,7 @@ function ContainerRow({ container: c, onChange }: { container: DockerContainer; 
     )
   }
   return (
-    <TableRow>
+    <TableRow data-container={c.id}>
       <TableCell>
         <Link to={`containers/${encodeURIComponent(c.id)}`} className="underline-offset-4 hover:underline">
           {c.name}
@@ -97,10 +104,28 @@ function ContainerRow({ container: c, onChange }: { container: DockerContainer; 
 // restarts or removes one through the change dialog.
 export function ContainersTab({ hostId }: { hostId: string }) {
   const [pending, setPending] = useState<Pending | null>(null)
+  const group = useRef<HTMLDivElement>(null)
+  const closed = useRef<Closed | null>(null)
   const query = useQuery({
     queryKey: dockerKey(hostId, "containers"),
     queryFn: () => readResource<{ containers: DockerContainer[] }>(hostId, DOCKER_MODULE, "containers"),
   })
+
+  // The dialog gives focus back to its trigger, but the read that follows a
+  // change can remove that trigger (a stopped container has no Stop, a
+  // removed one has no row) and drop focus to the page body. A layout effect
+  // moves it before the browser paints a frame without focus.
+  useLayoutEffect(() => {
+    const last = closed.current
+    const root = group.current
+    if (last === null || last.updatedAt === query.dataUpdatedAt) return
+    closed.current = null
+    if (root === null || root.contains(document.activeElement)) return
+    const row = Array.from(root.querySelectorAll<HTMLElement>("[data-container]")).find((r) => r.dataset.container === last.pending.container)
+    const actions = Array.from(row?.querySelectorAll<HTMLButtonElement>("button") ?? []).filter((b) => !b.disabled)
+    const target = actions.find((b) => b.getAttribute("aria-label") === last.pending.title) ?? actions[0] ?? root
+    target.focus()
+  }, [query.dataUpdatedAt])
 
   if (query.isPending) return <Spinner aria-label="Loading the containers" />
   if (query.isError) {
@@ -110,32 +135,44 @@ export function ContainersTab({ hostId }: { hostId: string }) {
       </Alert>
     )
   }
-  if (query.data.containers.length === 0) return <EmptyState title="No containers" />
   return (
-    <>
-      <Table aria-label="Docker containers">
-        <TableHeader>
-          <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Image</TableHead>
-            <TableHead>State</TableHead>
-            <TableHead>Ports</TableHead>
-            <TableHead>Project</TableHead>
-            <TableHead>Usage</TableHead>
-            <TableHead>
-              <span className="sr-only">Actions</span>
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {query.data.containers.map((c) => (
-            <ContainerRow key={c.id} container={c} onChange={setPending} />
-          ))}
-        </TableBody>
-      </Table>
+    <div ref={group} role="group" aria-label="Containers" tabIndex={-1}>
+      {query.data.containers.length === 0 ? (
+        <EmptyState title="No containers" />
+      ) : (
+        <Table aria-label="Docker containers">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>Image</TableHead>
+              <TableHead>State</TableHead>
+              <TableHead>Ports</TableHead>
+              <TableHead>Project</TableHead>
+              <TableHead>Usage</TableHead>
+              <TableHead>
+                <span className="sr-only">Actions</span>
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {query.data.containers.map((c) => (
+              <ContainerRow key={c.id} container={c} onChange={setPending} />
+            ))}
+          </TableBody>
+        </Table>
+      )}
       {pending ? (
-        <DockerChange hostId={hostId} action={pending.action} title={pending.title} input={{ container: pending.container }} onClose={() => setPending(null)} />
+        <DockerChange
+          hostId={hostId}
+          action={pending.action}
+          title={pending.title}
+          input={{ container: pending.container }}
+          onClose={() => {
+            closed.current = { pending, updatedAt: query.dataUpdatedAt }
+            setPending(null)
+          }}
+        />
       ) : null}
-    </>
+    </div>
   )
 }

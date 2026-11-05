@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react"
+import { useLayoutEffect, useRef, useState, type FormEvent } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
 import { Button } from "darkraise-ui/components/button"
@@ -69,10 +69,30 @@ function ContainerRuleForm({ kind, container, onDone }: { kind: Kind; container:
   const [picked, setPicked] = useState("")
   const [from, setFrom] = useState("")
   const [pending, setPending] = useState<Pending | null>(null)
+  const formRef = useRef<HTMLFormElement>(null)
+  const planRef = useRef<HTMLButtonElement>(null)
+  // The query's dataUpdatedAt when the dialog closed, kept until the read
+  // that the close started has landed.
+  const closedAt = useRef<number | null>(null)
   const docker = useQuery({
     queryKey: dockerQueryKey(container.hostId),
     queryFn: () => readResource<DockerStatus>(container.hostId, FIREWALL_MODULE, "docker"),
   })
+
+  // The dialog gives focus back to Plan, but a Deny that leaves no allowed
+  // binding disables Plan once the integration is read again, and focus falls
+  // to the page body. A layout effect moves it before the browser paints a
+  // frame without focus.
+  useLayoutEffect(() => {
+    const form = formRef.current
+    if (closedAt.current === null || closedAt.current === docker.dataUpdatedAt) return
+    closedAt.current = null
+    if (form === null || form.contains(document.activeElement)) return
+    const plan = planRef.current
+    if (plan !== null && !plan.disabled) plan.focus()
+    else form.focus()
+  }, [docker.dataUpdatedAt])
+
   if (docker.isPending) return <Spinner aria-label="Loading the Docker integration" />
   if (docker.isError) {
     return (
@@ -101,7 +121,7 @@ function ContainerRuleForm({ kind, container, onDone }: { kind: Kind; container:
 
   return (
     <>
-      <form aria-label={verb} className="flex flex-col gap-3" onSubmit={submit}>
+      <form ref={formRef} aria-label={verb} tabIndex={-1} className="flex flex-col gap-3" onSubmit={submit}>
         {reason !== null && (
           <Alert variant="warning" role="status">
             <AlertDescription>{reason}</AlertDescription>
@@ -130,7 +150,7 @@ function ContainerRuleForm({ kind, container, onDone }: { kind: Kind; container:
           />
         </div>
         <div>
-          <Button type="submit" disabled={reason !== null || selected === undefined || (kind === "deny" && source === "")}>
+          <Button ref={planRef} type="submit" disabled={reason !== null || selected === undefined || (kind === "deny" && source === "")}>
             Plan
           </Button>
         </div>
@@ -141,6 +161,7 @@ function ContainerRuleForm({ kind, container, onDone }: { kind: Kind; container:
         title={pending?.title ?? ""}
         input={pending?.input ?? null}
         onClose={() => {
+          closedAt.current = docker.dataUpdatedAt
           setPending(null)
           onDone()
         }}
