@@ -4875,8 +4875,17 @@ a spec change.
   derper manifests and checksum parsers, the backup archive header and
   frames, the enrollment bundle. `scripts/fuzz.sh` (run by `make fuzz` and by
   `.github/workflows/fuzz.yml`) runs each target for 30 s on every push and
-  10 minutes nightly; a test fails when a parser in the inventory has no
-  target.
+  10 minutes nightly; `bash scripts/fuzz.sh --check`, which `fuzz.yml`'s
+  `inventory` job and `make fuzz` run first, fails when a row names a target
+  that does not exist and when a fuzz function has no row.
+  `docs/security/parsers.md` has the sections `## Fuzzed parsers` (columns
+  Parser, Input, Package, Target, Tags) and `## Not fuzzed` (columns Parser,
+  Input, Reason). Every push runs each target 30 s in four shards and the
+  nightly run runs each target 10 minutes in twelve shards, on GitHub-hosted
+  `ubuntu-24.04`. A defect a target finds in a non-frozen file is fixed in
+  the same task, with the failing input committed under `testdata/fuzz/` and
+  a named unit test; in a frozen file the integrator fixes it on `main`
+  (W9-R1 to W9-R3).
 - **Upgrade matrix (R75, S5).**
   - Supported upgrade graph: within a major version, from any earlier
     release; agents one minor behind the controller. The updater's refusal of
@@ -4887,10 +4896,16 @@ a spec change.
     commit the wave starts from, labelled `1.0.0`, and the build under test
     labelled `1.1.0`, exercise the upgrade path and an agent one minor behind
     on all four OS; a deliberately broken `1.1.1` checks rollback within 2
-    minutes. Once real `v1.*` tags exist, each is added as a source.
-    Pre-release ordering (`-rc.N`) is already handled by the updater and gets
-    a unit test.
-- **Footprint (R76, S6).** Harness `TestFootprint`.
+    minutes. The baseline labelled `1.0.0` is the first line of
+    `test/harness/upgrade_sources.txt`, built from the commit wave 9 starts
+    from, and each later real `v1.*` tag is added as a line. For each source
+    the test installs controller and agent at that version, rolls out
+    `1.1.0` while `hostinfo.summary` answers on the agent host one minor
+    behind, then rolls out `1.1.1`, which rolls back within two minutes and
+    leaves the fleet at `1.1.0` (W9-R7, W9-R8). Pre-release ordering
+    (`-rc.N`) is already handled by the updater and gets a unit test.
+- **Footprint (R76, S6).** Harness `TestFootprint`. Megabytes are decimal
+  (40 000 000 and 150 000 000 bytes of `VmRSS`).
   - Agent: the real agent on an enrolled VM, idle with every module enabled
     and background tasks running; RSS sampled every 10 s for 10 minutes after
     5 minutes of warm-up; the maximum must be at most 40 MB.
@@ -4900,7 +4915,11 @@ a spec change.
     directory under one directory; each runs with only `hostinfo` enabled and
     no background tasks, as its own enrolled host. The controller's RSS is
     sampled the same way while the host list is requested every 15 s; the
-    maximum must be at most 150 MB.
+    maximum must be at most 150 MB. The controller manages its own host, the
+    agent VM and nine extra agents on the agent VM, which makes eleven hosts.
+    `--state-dir` exists only in `harness` builds, binds to a package
+    variable so the nil-command rollback fallback honours it, and refuses
+    `--dev` (W9-R9, W9-R10).
 - **Accessibility (R77).** `docs/accessibility.md` lists the core flows
   (login with TOTP, the first-admin and lockout recovery documentation pages,
   host list, a firewall change with confirm and revert, container actions,
@@ -4909,11 +4928,79 @@ a spec change.
   keyboard-only tests (focus order, focus visible, dialogs trap and return
   focus). Manual, in a browser through Playwright with screenshots kept as
   evidence: contrast in both themes, 200% zoom and 320 px reflow,
-  screen-reader labels on the change dialog.
+  screen-reader labels on the change dialog. The automated checks are the
+  `*.a11y.test.tsx` files using `expectNoAxeViolations`, `tabSequence` and
+  `focusedName`, plus page titles through `usePageTitle`. The manual pass is
+  `web/e2e/a11y.pw.ts`
+  (`pnpm -C web exec playwright test -c playwright.config.ts`), which runs
+  axe's contrast rules in both themes, checks 200 % zoom and 320 px reflow,
+  reads the change dialog's accessible names and saves screenshots under
+  `docs/accessibility/`. Contrast fixes are CSS variable overrides in
+  `web/src/styles/globals.css`, and the first-admin and lockout-recovery
+  pages are checked by hand for heading order and link text (W9-R6).
 - **Documentation (R78, R79).** `docs/user/` (install, first admin, every
   module, lockout recovery, uninstall), `docs/dev/module-guide.md`, and
   `docs/api/` generated from `/api/v1/openapi.json` by `make api-docs`, with
   a CI check that the committed copy is current.
+- **Plan rulings (wave 9).** Wave 9 (plan `v1-w9-hardening`) settles these
+  gaps and underdetermined points of the text above:
+  - **W9-R1 inventory.** `docs/security/parsers.md` lists every parser of
+    host-tool output, config files and untrusted input under
+    `## Fuzzed parsers`, each with its target, and the parsers that are not
+    fuzzed under `## Not fuzzed`, each with a reason; the check fails when a
+    fuzzed row has no target or a target has no row.
+  - **W9-R2 budgets.** Every push runs each target for 30 s in four shards;
+    the nightly run gives each target 10 minutes in twelve shards, so no job
+    exceeds GitHub's six-hour limit; both run on GitHub-hosted
+    `ubuntu-24.04`.
+  - **W9-R3 findings.** A fuzz target that finds a defect in a non-frozen
+    file is fixed in the same task with the failing input committed as a
+    regression seed and a named unit test; in a frozen file the task stops
+    and the integrator fixes it on `main`. The `retryAfter` overflow is
+    fixed by bounding the parsed seconds before converting them, so any
+    value above 60 seconds is refused as longer than `maxRetryAfter`.
+  - **W9-R4 API reference.** `internal/apidocs` renders
+    `docs/api/openapi.json` and one Markdown page per module from
+    `schema.OpenAPI(registry.Build(), api.Routes())`; `make api-docs` writes
+    it; the CI check is `TestAdAPIDocsCurrent` in the existing `go` job, so
+    `ci.yml` does not change.
+  - **W9-R5 documentation checks.** `internal/docs` (tests only) reads the
+    registry and the CLI facts the pages must name — every non-internal
+    action and resource of each module on its page, every flag of
+    `darkpanel uninstall` and every declared module uninstall option, the
+    break-glass user commands, and the identifiers the module guide
+    teaches — so a page goes stale visibly.
+  - **W9-R6 accessibility method.** Automated: `*.a11y.test.tsx` files with
+    `expectNoAxeViolations` and keyboard tests through `tabSequence` and
+    `focusedName` on every page and dialog of the core flows; page titles
+    through `usePageTitle`. Manual: `web/e2e/a11y.pw.ts`, run with
+    `pnpm -C web exec playwright test -c playwright.config.ts`, renders the
+    same flows in Chromium against fixtures, runs axe's contrast rules in
+    both themes, checks 200 % zoom and 320 px reflow for horizontal
+    scrolling, reads the change dialog's accessible names, and saves
+    screenshots under `docs/accessibility/`; contrast fixes are CSS variable
+    overrides in `web/src/styles/globals.css`. The first-admin and
+    lockout-recovery pages are Markdown documents, checked manually for
+    heading order and link text.
+  - **W9-R7 upgrade sources.** `test/harness/upgrade_sources.txt` lists the
+    upgrade sources; its first source is `1.0.0` at the commit wave 9 starts
+    from, `3c5e837d976666d556d0fa1939b7636c67be2a64`, and each later real
+    `v1.*` tag is added as a line. The `build` job builds every source from
+    its commit through a `git worktree` with `fetch-depth: 0`, and the build
+    under test as `1.1.0` and its broken twin as `1.1.1`.
+  - **W9-R8 upgrade scenarios.** For each source: install controller and
+    agent at the source version, roll out `1.1.0` while `hostinfo.summary`
+    answers on the agent host one minor behind, then roll out `1.1.1`, which
+    rolls back within two minutes and leaves the fleet at `1.1.0`.
+  - **W9-R9 footprint.** Megabytes are decimal: the agent's `VmRSS` stays at
+    most 40 000 000 bytes and the controller's at most 150 000 000 bytes.
+    The controller manages its own host, the agent VM and nine extra agents
+    on the agent VM (eleven hosts, more than S6's ten); the extra agents run
+    the `harness`-tagged build under `--state-dir` as `systemd-run` units
+    with only `hostinfo` enabled.
+  - **W9-R10 state directory.** `--state-dir` exists only in `harness`
+    builds, binds to a package variable so the nil-command rollback fallback
+    honours it, and refuses `--dev`.
 
 ### 10. Release (R80, R81)
 
