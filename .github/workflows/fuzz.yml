@@ -53,9 +53,16 @@ jobs:
           # The runner caches an older 1.27.x than go.mod's toolchain line.
           check-latest: true
       - run: bash scripts/fuzz.sh --time "$FUZZ_TIME" --shard "${{ matrix.shard }}/$FUZZ_SHARDS"
+      # go test writes a failing input next to the committed seed corpus, so
+      # only the files git does not track are the new ones.
+      - if: failure()
+        run: |
+          mkdir -p "$RUNNER_TEMP/fuzz-failures"
+          git ls-files -z --others --exclude-standard -- ':(glob)**/testdata/fuzz/**' |
+            xargs -0 -r cp --parents -t "$RUNNER_TEMP/fuzz-failures"
       - if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fuzz-failures-${{ matrix.shard }}
-          path: "**/testdata/fuzz/**"
+          path: ${{ runner.temp }}/fuzz-failures
           if-no-files-found: ignore
