@@ -202,13 +202,13 @@ func printEvents(r io.Reader, w io.Writer) error {
 	return errors.New("the stream closed without an end event")
 }
 
-// jsonSafe escapes the C1 controls and format hazards that sanitize escapes
-// in payload, valid JSON, as \u escapes: encoding/json leaves them raw, and
-// a terminal would act on them, while the escaped JSON means the same.
+// jsonSafe escapes the DEL and C1 controls and format hazards that sanitize
+// escapes in payload, valid JSON, as \u escapes: encoding/json leaves them
+// raw, and a terminal would act on them, while the escaped JSON means the same.
 func jsonSafe(payload string) string {
 	var b strings.Builder
 	for _, r := range payload {
-		if r >= 0x80 && (unicode.IsControl(r) || isFormatHazard(r)) {
+		if r >= 0x7f && (unicode.IsControl(r) || isFormatHazard(r)) {
 			fmt.Fprintf(&b, "\\u%04x", r)
 			continue
 		}
