@@ -4905,10 +4905,10 @@ a spec change.
     leaves the fleet at `1.1.0` (W9-R7, W9-R8). Pre-release ordering
     (`-rc.N`) is already handled by the updater and gets a unit test.
 - **Footprint (R76, S6).** Harness `TestFootprint`. Megabytes are decimal
-  (40 000 000 and 150 000 000 bytes of `VmRSS`).
+  (50 000 000 and 150 000 000 bytes of `VmRSS`).
   - Agent: the real agent on an enrolled VM, idle with every module enabled
     and background tasks running; RSS sampled every 10 s for 10 minutes after
-    5 minutes of warm-up; the maximum must be at most 40 MB.
+    5 minutes of warm-up; the maximum must be at most 50 MB.
   - Controller: 10 enrolled agents. The nine extra agents are harness-only
     processes built with a `harness` build tag that adds `--state-dir`, which
     moves the database, keys, TLS credentials, sockets, lock file and update
@@ -4993,7 +4993,10 @@ a spec change.
     answers on the agent host one minor behind, then roll out `1.1.1`, which
     rolls back within two minutes and leaves the fleet at `1.1.0`.
   - **W9-R9 footprint.** Megabytes are decimal: the agent's `VmRSS` stays at
-    most 40 000 000 bytes and the controller's at most 150 000 000 bytes.
+    most 50 000 000 bytes and the controller's at most 150 000 000 bytes.
+    The owner raised the agent's budget from 40 000 000 to 50 000 000 bytes
+    on 2026-11-05, for all four OS, after the `vm-fp` debian-12 and debian-13
+    legs peaked at 44.8 MB and 43.7 MB (the ubuntu legs at 37.1 and 38.2 MB).
     The controller manages its own host, the agent VM and nine extra agents
     on the agent VM (eleven hosts, more than S6's ten); the extra agents run
     the `harness`-tagged build under `--state-dir` as `systemd-run` units
