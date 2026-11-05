@@ -1,6 +1,6 @@
 import { NavLink, Route, Routes } from "react-router"
 import { PageHeader } from "darkraise-ui/layout"
-import { EmptyState } from "darkraise-ui/components/empty-state"
+import { usePageTitle } from "@/lib/page-title"
 import { AccountPanel } from "./account-panel"
 import { DevicesPage } from "./devices-page"
 import { KeysPage } from "./keys-page"
@@ -14,6 +14,7 @@ const LINKS = [
 ]
 
 export default function TailnetGlobal() {
+  usePageTitle("Tailnet")
   return (
     <div className="flex flex-col gap-6">
       <PageHeader title="Tailnet" description="The Tailscale account, its devices, auth keys and access policy." />
@@ -34,7 +35,15 @@ export default function TailnetGlobal() {
         <Route path="devices" element={<DevicesPage />} />
         <Route path="keys" element={<KeysPage />} />
         <Route path="policy" element={<PolicyPage />} />
-        <Route path="*" element={<EmptyState title="Page not found" description="Nothing lives at this address." />} />
+        <Route
+          path="*"
+          element={
+            <div className="dr-empty-state">
+              <h2 className="dr-empty-state-title">Page not found</h2>
+              <p className="dr-empty-state-description">Nothing lives at this address.</p>
+            </div>
+          }
+        />
       </Routes>
     </div>
   )

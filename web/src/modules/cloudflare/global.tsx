@@ -1,6 +1,6 @@
 import { NavLink, Route, Routes } from "react-router"
 import { PageHeader } from "darkraise-ui/layout"
-import { EmptyState } from "darkraise-ui/components/empty-state"
+import { usePageTitle } from "@/lib/page-title"
 import { AccountPanel } from "./account-panel"
 import { ConnectorsPage } from "./connectors-page"
 import { HostnamesPage } from "./hostnames-page"
@@ -15,6 +15,7 @@ const LINKS = [
 ]
 
 export default function CloudflareGlobal() {
+  usePageTitle("Cloudflare")
   return (
     <div className="flex flex-col gap-6">
       <PageHeader title="Cloudflare" description="The Cloudflare account, its tunnels and the hostnames they serve." />
@@ -35,7 +36,15 @@ export default function CloudflareGlobal() {
         <Route path="tunnels" element={<TunnelsPage />} />
         <Route path="connectors" element={<ConnectorsPage />} />
         <Route path="hostnames" element={<HostnamesPage />} />
-        <Route path="*" element={<EmptyState title="Page not found" description="Nothing lives at this address." />} />
+        <Route
+          path="*"
+          element={
+            <div className="dr-empty-state">
+              <h2 className="dr-empty-state-title">Page not found</h2>
+              <p className="dr-empty-state-description">Nothing lives at this address.</p>
+            </div>
+          }
+        />
       </Routes>
     </div>
   )
