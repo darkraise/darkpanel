@@ -8,7 +8,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 runner="$here/fuzz.sh"
 pass=0; failures=0
 work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
+trap 'cd / && rm -rf "$work"' EXIT
 
 if [ ! -f "$runner" ]; then echo "FAIL: $runner does not exist"; exit 1; fi
 
@@ -50,12 +50,27 @@ fz_tree() {
   echo "$dir"
 }
 
-# fz_fakego <dir>: puts a fake go command in <dir>/bin that logs its
-# arguments to <dir>/go.log and fails when they name FuzzBad.
+# fz_fakego <dir> [reads]: puts a fake go command in <dir>/bin that logs its
+# arguments to <dir>/go.log and fails when they name FuzzBad; with reads it
+# first reads all of its standard input.
 fz_fakego() {
   mkdir -p "$1/bin"
-  printf '#!/usr/bin/env bash\necho "$*" >> "%s/go.log"\ncase "$*" in *FuzzBad*) exit 1;; esac\n' "$1" > "$1/bin/go"
+  {
+    printf '#!/usr/bin/env bash\n'
+    if [ "${2:-}" = reads ]; then printf 'cat >/dev/null\n'; fi
+    printf 'echo "$*" >> "%s/go.log"\ncase "$*" in *FuzzBad*) exit 1;; esac\n' "$1"
+  } > "$1/bin/go"
   chmod +x "$1/bin/go"
+}
+
+# fz_failing_find <dir>: puts a find command in <dir>/bin that fails when it
+# is asked to walk one of the roots the orphan scan walks, and otherwise runs
+# the real find.
+fz_failing_find() {
+  local real; real=$(command -v find)
+  mkdir -p "$1/bin"
+  printf '#!/usr/bin/env bash\ncase "$1" in cmd | internal | release | test) echo "find: walk failed" >&2; exit 1;; esac\nexec %s "$@"\n' "$real" > "$1/bin/find"
+  chmod +x "$1/bin/find"
 }
 
 # fz_expect <name> <want exit> <output substring or -> <command...>: runs the
@@ -119,6 +134,37 @@ fz_check_orphan_target() {
   fz_equal orphan_outside_roots "$(bash "$runner" --check --inventory parsers.md 2>&1 | grep -c 'FuzzIgnored')" 0
 }
 
+fz_check_scan_failure() {
+  local d; d=$(fz_tree check_scan)
+  fz_failing_find "$d"
+  fz_inventory "$d" "./internal/alpha FuzzAlpha -"
+  fz_package "$d" internal/alpha FuzzAlpha
+  cd "$d" || return
+  fz_expect scan_failure 1 "fuzz: the scan for fuzz targets missing from the inventory failed" env PATH="$d/bin:$PATH" bash "$runner" --check --inventory parsers.md
+  fz_equal scan_failure_not_ok "$(env PATH="$d/bin:$PATH" bash "$runner" --check --inventory parsers.md 2>&1 | grep -c 'inventory ok')" 0
+}
+
+fz_check_parameter_names() {
+  local d; d=$(fz_tree check_params)
+  fz_inventory "$d" "./internal/alpha FuzzNamedT -"
+  mkdir -p "$d/internal/alpha" "$d/internal/beta"
+  printf 'package alpha\n\nimport "testing"\n\nfunc FuzzNamedT(t *testing.F) {\n\tt.Fuzz(func(*testing.T, []byte) {})\n}\n' > "$d/internal/alpha/x_test.go"
+  printf 'package beta\n\nimport "testing"\n\nfunc FuzzOther(ff *testing.F) {\n\tff.Fuzz(func(*testing.T, []byte) {})\n}\n' > "$d/internal/beta/x_test.go"
+  cd "$d" || return
+  fz_expect params_orphan 1 "fuzz: ./internal/beta: FuzzOther is not in the inventory" bash "$runner" --check --inventory parsers.md
+  fz_equal params_row_found "$(bash "$runner" --check --inventory parsers.md 2>&1 | grep -c 'no target')" 0
+}
+
+fz_check_crlf_inventory() {
+  local d; d=$(fz_tree check_crlf)
+  fz_inventory "$d" "./internal/alpha FuzzAlpha -"
+  fz_package "$d" internal/alpha FuzzAlpha
+  awk '{ printf "%s\r\n", $0 }' "$d/parsers.md" > "$d/crlf.md"
+  cd "$d" || return
+  fz_expect crlf_check 0 "fuzz: inventory ok (1 targets)" bash "$runner" --check --inventory crlf.md
+  fz_equal crlf_list "$(bash "$runner" --list --inventory crlf.md)" "./internal/alpha FuzzAlpha -"
+}
+
 fz_list_and_shard() {
   local d; d=$(fz_tree list)
   fz_inventory "$d" "./a FuzzA -" "./a FuzzA -" "./b FuzzB harness" "./c FuzzC -" "./d FuzzD -" "./e FuzzE harness,extra"
@@ -138,6 +184,8 @@ fz_usage() {
   fz_inventory "$d" "./a FuzzA -"
   printf '# Parsers\n\n## Not fuzzed\n\n' > "$d/nosection.md"
   printf '# Parsers\n\n## Fuzzed parsers\n\n| Parser | Input | Package | Target | Tags |\n|---|---|---|---|---|\n| `p.A` | input | `./a` |\n' > "$d/short.md"
+  printf '# Parsers\n\n## Fuzzed parsers\n\n| Parser | Input | Package | Target | Tags |\n|---|---|---|---|---|\n| `p.A` | input | `./a` |  | - |\n' > "$d/notarget.md"
+  printf '# Parsers\n\n## Fuzzed parsers\n\n| Parser | Input | Package | Target | Tags |\n|---|---|---|---|---|\n| `p.A` | input | `./a` | `FuzzA` |  |\n' > "$d/notags.md"
   cd "$d" || return
   fz_expect usage_unknown_option 2 "fuzz: usage:" bash "$runner" --nope --inventory parsers.md
   fz_expect usage_shard_zero 2 "fuzz: usage:" bash "$runner" --list --shard 0/3 --inventory parsers.md
@@ -151,6 +199,8 @@ fz_usage() {
   fz_expect usage_inventory_missing 2 "fuzz: usage:" bash "$runner" --list --inventory absent.md
   fz_expect usage_inventory_no_section 2 "fuzz: usage:" bash "$runner" --list --inventory nosection.md
   fz_expect usage_inventory_short_row 2 "fuzz: usage:" bash "$runner" --list --inventory short.md
+  fz_expect usage_inventory_empty_target 2 "inventory row has an empty Package, Target or Tags cell" bash "$runner" --list --inventory notarget.md
+  fz_expect usage_inventory_empty_tags 2 "inventory row has an empty Package, Target or Tags cell" bash "$runner" --list --inventory notags.md
 }
 
 fz_run_arguments_and_continuation() {
@@ -179,6 +229,18 @@ fz_run_arguments_and_continuation() {
     'test -run ^$ -fuzz ^FuzzC$ -fuzztime 30s ./internal/c')"
 }
 
+fz_run_go_reading_stdin() {
+  local d; d=$(fz_tree run_stdin)
+  fz_fakego "$d" reads
+  fz_inventory "$d" "./internal/a FuzzA -" "./internal/b FuzzB -" "./internal/c FuzzC -"
+  fz_package "$d" internal/a FuzzA
+  fz_package "$d" internal/b FuzzB
+  fz_package "$d" internal/c FuzzC
+  cd "$d" || return
+  fz_expect run_stdin 0 - env PATH="$d/bin:$PATH" bash "$runner" --time 1s --inventory parsers.md
+  fz_equal run_stdin_calls "$(wc -l < go.log | tr -d ' ')" 3
+}
+
 fz_run_checks_first() {
   local d; d=$(fz_tree run_check)
   fz_fakego "$d"
@@ -197,8 +259,9 @@ fz_run_real_fuzz_target() {
   fz_expect run_real 0 "elapsed" env GOTOOLCHAIN=local bash "$runner" --time 1s --inventory parsers.md
 }
 
-for t in fz_check_ok fz_check_missing_target fz_check_orphan_target fz_list_and_shard fz_usage \
-  fz_run_arguments_and_continuation fz_run_checks_first fz_run_real_fuzz_target; do
+for t in fz_check_ok fz_check_missing_target fz_check_orphan_target fz_check_scan_failure fz_check_parameter_names \
+  fz_check_crlf_inventory fz_list_and_shard fz_usage fz_run_arguments_and_continuation fz_run_go_reading_stdin \
+  fz_run_checks_first fz_run_real_fuzz_target; do
   cd "$work" || exit 1
   "$t"
 done

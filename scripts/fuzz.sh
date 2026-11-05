@@ -49,6 +49,7 @@ fi
 # '## Fuzzed parsers' table, or a single "ERR <reason>" line.
 read_inventory() {
   awk -F'|' '
+    { sub(/\r$/, "") }
     in_section && /^## / { exit }
     /^## Fuzzed parsers[ \t]*$/ { in_section = 1; found = 1; next }
     in_section && /^\|/ {
@@ -89,7 +90,11 @@ check_inventory() {
     dir=${pkg#./}
     found=
     if [ -d "$dir" ]; then
-      found=$(find "$dir" -maxdepth 1 -type f -name '*_test.go' -exec awk -v s="func $target(f *testing.F)" 'index($0, s) == 1 { print "y"; exit }' {} +)
+      found=$(find "$dir" -maxdepth 1 -type f -name '*_test.go' -exec awk -v t="$target" '
+        /^func Fuzz[A-Za-z0-9_]*\([A-Za-z_][A-Za-z0-9_]* \*testing\.F\)/ {
+          name = $2; sub(/\(.*/, "", name)
+          if (name == t) { print "y"; exit }
+        }' {} +)
     fi
     if [ -z "$found" ]; then
       echo "fuzz: $pkg: no target $target" >&2
@@ -104,14 +109,17 @@ check_inventory() {
     orphans=$({
       printf '%s\n' "$triples" | awk 'NF { print "I " $1 " " $2 }'
       find "${roots[@]}" -type f -name '*_test.go' -exec awk '
-        /^func Fuzz[A-Za-z0-9_]*\(f \*testing\.F\)/ {
+        /^func Fuzz[A-Za-z0-9_]*\([A-Za-z_][A-Za-z0-9_]* \*testing\.F\)/ {
           name = $2; sub(/\(.*/, "", name)
           dir = FILENAME; sub(/\/[^\/]*$/, "", dir)
           print "./" dir " " name
         }' {} + | LC_ALL=C sort -u | awk '{ print "H " $1 " " $2 }'
     } | awk '
       $1 == "I" { inventory[$2 " " $3] = 1; next }
-      $1 == "H" && !(($2 " " $3) in inventory) { print "fuzz: " $2 ": " $3 " is not in the inventory" }')
+      $1 == "H" && !(($2 " " $3) in inventory) { print "fuzz: " $2 ": " $3 " is not in the inventory" }') || {
+      echo "fuzz: the scan for fuzz targets missing from the inventory failed" >&2
+      problems=1
+    }
     if [ -n "$orphans" ]; then
       printf '%s\n' "$orphans" >&2
       problems=1
@@ -131,7 +139,7 @@ while IFS=' ' read -r pkg target tags; do
   [ -n "$pkg" ] || continue
   tag_args=()
   if [ "$tags" != "-" ]; then tag_args=(-tags "$tags"); fi
-  if ! go test -run '^$' -fuzz "^$target\$" -fuzztime "$time" ${tag_args[@]+"${tag_args[@]}"} "$pkg"; then
+  if ! go test -run '^$' -fuzz "^$target\$" -fuzztime "$time" ${tag_args[@]+"${tag_args[@]}"} "$pkg" </dev/null; then
     echo "fuzz: FAIL $pkg $target" >&2
     failed=1
   fi
