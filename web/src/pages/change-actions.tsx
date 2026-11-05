@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react"
+import { useEffect, useRef, useState, type FormEvent } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
 import { Button } from "darkraise-ui/components/button"
@@ -22,7 +22,7 @@ import { undoOffered } from "@/lib/undo"
 
 const MAX_RELEASE_REASON = 500
 
-function UndoDialog({ change, onClose }: { change: Change; onClose: () => void }) {
+function UndoDialog({ change, onClose, onDone }: { change: Change; onClose: () => void; onDone: (message: string) => void }) {
   const client = useQueryClient()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -34,6 +34,7 @@ function UndoDialog({ change, onClose }: { change: Change; onClose: () => void }
       const next = await undoChange(change.id)
       client.setQueryData(changeQueryKey(change.id), next)
       void client.invalidateQueries({ queryKey: effectsQueryKey(change.id) })
+      onDone(`Undo started. The change is now ${next.state}.`)
       onClose()
     } catch (err) {
       setError(errorMessage(err))
@@ -189,9 +190,20 @@ export function ChangeActions({ change }: { change: Change }) {
   const [repairing, setRepairing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [repaired, setRepaired] = useState(false)
+  const noticeRef = useRef<HTMLParagraphElement>(null)
   const needsRepair = change.state === "needs_repair"
 
+  // The button that opened a dialog may be gone once its action has moved
+  // the change on, and the dialog can only give focus back to an element
+  // still on the page, so the notice takes it. This effect runs after the
+  // closing dialog's own focus restore, as cleanups run before effects.
+  useEffect(() => {
+    if (notice !== null) noticeRef.current?.focus()
+  }, [notice])
+
   async function repair() {
+    setRepaired(false)
     setRepairing(true)
     setError(null)
     setNotice(null)
@@ -235,19 +247,28 @@ export function ChangeActions({ change }: { change: Change }) {
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      {notice !== null && <p role="status" className="text-sm">{notice}</p>}
-      {dialog === "undo" && <UndoDialog change={change} onClose={() => setDialog(null)} />}
+      {notice !== null && (
+        <p ref={noticeRef} role="status" tabIndex={-1} className="text-sm">
+          {notice}
+        </p>
+      )}
+      {dialog === "undo" && <UndoDialog change={change} onClose={() => setDialog(null)} onDone={setNotice} />}
       {dialog === "release" && <ReleaseDialog change={change} onClose={() => setDialog(null)} onDone={setNotice} />}
       {repairPlan !== null && (
         <ChangeDialog
           open
           onOpenChange={(next) => {
-            if (!next) setRepairPlan(null)
+            if (next) return
+            setRepairPlan(null)
+            if (repaired) setNotice("The repair was applied.")
           }}
           title="Repair the change"
           target={{ name: repairPlan.action, version: repairPlan.version, hostId: repairPlan.hostId ?? undefined }}
           plan={repairPlan}
-          onApplied={() => void client.invalidateQueries({ queryKey: changeQueryKey(change.id) })}
+          onApplied={() => {
+            setRepaired(true)
+            void client.invalidateQueries({ queryKey: changeQueryKey(change.id) })
+          }}
         />
       )}
     </section>

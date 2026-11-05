@@ -74,13 +74,34 @@ function secondsLeft(deadline: string, now: number): number {
   return Math.max(0, Math.ceil((Date.parse(deadline) - now) / 1000))
 }
 
-function Countdown({ deadline }: { deadline: string }) {
-  const [now, setNow] = useState(() => Date.now())
+// useSecondsLeft is the whole seconds until deadline, counted once a
+// second, or null while there is no deadline.
+function useSecondsLeft(deadline: string | null): number | null {
+  // The time is kept with the deadline it was read for, so a deadline that
+  // appears after mounting is not measured from the time of the mount.
+  const [now, setNow] = useState(() => ({ deadline, at: Date.now() }))
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000)
+    if (deadline === null) return
+    const timer = setInterval(() => setNow({ deadline, at: Date.now() }), 1000)
     return () => clearInterval(timer)
-  }, [])
-  return <p role="timer" aria-live="off">{`Reverts automatically in ${secondsLeft(deadline, now)} s unless confirmed.`}</p>
+  }, [deadline])
+  return deadline !== null && now.deadline === deadline ? secondsLeft(deadline, now.at) : null
+}
+
+// The seconds left at which the countdown is announced again.
+const ANNOUNCE_AT = [30, 10]
+
+// shouldAnnounce reports whether the seconds left have reached a point to
+// announce since spoken was announced, or nothing was announced yet.
+function shouldAnnounce(spoken: number | null, left: number | null): boolean {
+  if (left === null) return false
+  return spoken === null || ANNOUNCE_AT.some((at) => spoken > at && left <= at)
+}
+
+// Countdown is never a live region itself: one that changed every second
+// would be read out every second.
+function Countdown({ left }: { left: number }) {
+  return <p role="timer" aria-live="off">{`Reverts automatically in ${left} s unless confirmed.`}</p>
 }
 
 function GuardList({ guards, overrides, canOverride, onToggle }: {
@@ -143,7 +164,11 @@ function Steps({ changeId }: { changeId: string }) {
 // Applied shows a change after its apply and follows it: the event stream
 // invalidates its query, so a confirmation, a revert by the timer or a
 // composite's progress shows without a reload.
-function Applied({ applied, onError }: { applied: Change; onError: (message: string | null) => void }) {
+function Applied({ applied, onError, onProgress }: {
+  applied: Change
+  onError: (message: string | null) => void
+  onProgress: (text: string) => void
+}) {
   const client = useQueryClient()
   // The apply answer may carry a secret output, such as an enrollment token,
   // that onApplied shows once; the shared query cache must not keep it.
@@ -154,6 +179,17 @@ function Applied({ applied, onError }: { applied: Change; onError: (message: str
   })
   const [busy, setBusy] = useState(false)
   const current = change.data
+  const counting = current.state === "pending"
+  const left = useSecondsLeft(counting ? current.revertDeadline : null)
+  const [spoken, setSpoken] = useState(left)
+  if (shouldAnnounce(spoken, left)) setSpoken(left)
+  const progress =
+    counting && spoken !== null
+      ? `Reverts automatically in ${spoken} ${spoken === 1 ? "second" : "seconds"} unless confirmed.`
+      : `Change ${current.state}.`
+  useEffect(() => {
+    onProgress(progress)
+  }, [progress, onProgress])
 
   async function decide(confirm: boolean) {
     setBusy(true)
@@ -181,9 +217,9 @@ function Applied({ applied, onError }: { applied: Change; onError: (message: str
           <AlertDescription>{failure}</AlertDescription>
         </Alert>
       )}
-      {current.state === "pending" && current.revertDeadline !== null && (
+      {counting && current.revertDeadline !== null && (
         <div className="flex flex-col gap-2">
-          <Countdown deadline={current.revertDeadline} />
+          {left !== null && <Countdown left={left} />}
           <div className="flex gap-2">
             <Button loading={busy} onClick={() => void decide(true)}>
               Confirm
@@ -222,6 +258,7 @@ function ChangeDialogBody({ target, input, plan: given, onApplied, busy, setBusy
   const [timeoutText, setTimeoutText] = useState(String(CONFIRM_TIMEOUT_DEFAULT))
   const [error, setError] = useState<string | null>(null)
   const [applied, setApplied] = useState<Change | null>(null)
+  const [progress, setProgress] = useState("")
   // The overrides are part of the plan's query key, so a toggle starts a
   // query with no data. Showing the last answered plan meanwhile keeps the
   // override checkbox mounted and focused, and lets it be unticked when the
@@ -297,18 +334,18 @@ function ChangeDialogBody({ target, input, plan: given, onApplied, busy, setBusy
     <>
       {unavailable !== null && (
         <Alert variant="warning" role="status">
-          <AlertTitle>Unavailable</AlertTitle>
+          <AlertTitle as="h3">Unavailable</AlertTitle>
           <AlertDescription>{unavailable}</AlertDescription>
         </Alert>
       )}
       {checksAvailability && availability.isError && (
         <Alert variant="warning" role="status">
-          <AlertTitle>Availability unknown</AlertTitle>
+          <AlertTitle as="h3">Availability unknown</AlertTitle>
           <AlertDescription>{`Whether the action is available could not be checked: ${errorMessage(availability.error)}`}</AlertDescription>
         </Alert>
       )}
       {applied !== null ? (
-        <Applied applied={applied} onError={setError} />
+        <Applied applied={applied} onError={setError} onProgress={setProgress} />
       ) : plan === null ? (
         shownError === null && <Spinner aria-label="Planning the change" />
       ) : (
@@ -351,6 +388,11 @@ function ChangeDialogBody({ target, input, plan: given, onApplied, busy, setBusy
           )}
         </div>
       )}
+      {/* Mounted before the first announcement: a live region inserted
+          together with its text is not reliably read out. */}
+      <p role="status" aria-label="Change progress" aria-live="polite" className="sr-only">
+        {progress}
+      </p>
       {shownError !== null && (
         <Alert variant="destructive" role="alert">
           <AlertDescription>{shownError}</AlertDescription>

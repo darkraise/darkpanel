@@ -23,6 +23,7 @@ import {
 } from "@/api/client"
 import type { Change, Effect, StateDoc } from "@/api/types"
 import { formatTime } from "@/lib/format"
+import { usePageTitle } from "@/lib/page-title"
 import { ChangeActions } from "./change-actions"
 
 function stateVariant(state: string): BadgeVariant {
@@ -317,6 +318,7 @@ function Effects({ change }: { change: Change }) {
 // can be resolved.
 export function ChangePage() {
   const { changeId = "" } = useParams()
+  usePageTitle(`Change ${changeId.slice(-8)}`)
   const change = useQuery({ queryKey: changeQueryKey(changeId), queryFn: () => getChange(changeId) })
 
   if (change.isPending) return <Spinner aria-label="Loading the change" />
