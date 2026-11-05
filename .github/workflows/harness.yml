@@ -25,6 +25,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -39,6 +40,26 @@ jobs:
           cache-dependency-path: web/pnpm-lock.yaml
       - run: make build verify-build
       - run: make harness-builds
+      # Every upgrade source is built from its own commit, in a worktree of
+      # its own, with the harness key and stamped with its own version
+      # (test/harness/upgrade_sources.txt); fetch-depth 0 above makes the
+      # commits available. The build under test follows as 1.1.0 and its broken
+      # twin as 1.1.1, which the upgrade matrix rolls back.
+      - name: Build the upgrade sources
+        run: |
+          set -euo pipefail
+          scratch="$(mktemp -d)"
+          while read -r version commit <&3; do
+            case "$version" in '' | '#'*) continue ;; esac
+            worktree="$scratch/src-$version"
+            git worktree add --detach "$worktree" "$commit"
+            make -C "$worktree" harness-builds HARNESS_BUILDS="$version:harnesskeys" HARNESS_DIR="$scratch/out-$version"
+            cp "$scratch/out-$version/darkpanel-$version" "bin/harness/darkpanel-$version"
+            git worktree remove --force "$worktree"
+          done 3< test/harness/upgrade_sources.txt
+          rm -rf "$scratch"
+      - name: Build the upgrade targets
+        run: make harness-builds HARNESS_BUILDS="1.1.0:harnesskeys 1.1.1:harnesskeys,harnessbroken"
       # The dockerapi live test runs on the harness VMs, which have no Go
       # toolchain; a static binary runs on every pinned OS.
       - name: Build the dockerapi live test
@@ -692,5 +713,72 @@ jobs:
         with:
           name: logs-m7r-${{ matrix.os }}
           path: ${{ runner.temp }}/harness-m7r/**/*.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+  vm-upg:
+    # The upgrade matrix's job, beside vm-m7r. The limit is the step's -timeout
+    # plus 20 minutes of setup. TestUpgradeMatrix boots a controller, an agent
+    # and a scanner for each source of test/harness/upgrade_sources.txt, one
+    # source after another, and does not read -derper.
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04, debian-12, debian-13]
+    steps:
+      - name: Enable KVM
+        run: |
+          if [ ! -e /dev/kvm ]; then
+            echo "::error::/dev/kvm is missing on this runner; the harness needs KVM (ADR 0008)"
+            exit 1
+          fi
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install QEMU and cloud-image-utils
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils cloud-image-utils
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: darkpanel-linux-amd64
+          path: bin
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: darkpanel-harness
+          path: bin/harness
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/darkpanel-harness
+          key: harness-images-${{ matrix.os }}-${{ hashFiles('test/harness/images.json') }}
+      - run: go vet -tags harness ./test/...
+      # TestUpgradeMatrix installs each source's controller and agent, updates
+      # them to the build under test while the agent host is one minor behind,
+      # and rolls the broken 1.1.1 back. Its own deadline is 60 minutes, and the
+      # extra 10 leave its VM cleanups time to finish.
+      - name: Run the upgrade matrix
+        run: >-
+          go test -tags harness -timeout 70m -v -run '^TestUpgradeMatrix$' ./test/harness/
+          -args -os ${{ matrix.os }} -upg
+          -bin "$GITHUB_WORKSPACE/bin/darkpanel-linux-amd64"
+          -m2 "$GITHUB_WORKSPACE/bin/harness"
+          -commit "$GITHUB_SHA"
+          -workdir "$RUNNER_TEMP/harness-upg"
+          -cache "$HOME/.cache/darkpanel-harness"
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: logs-upg-${{ matrix.os }}
+          path: ${{ runner.temp }}/harness-upg/**/*.log
           retention-days: 7
           if-no-files-found: ignore

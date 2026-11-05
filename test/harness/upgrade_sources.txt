@@ -1,0 +1,6 @@
+# Upgrade sources of TestUpgradeMatrix, ascending: <version> <commit>.
+# Each source is built from its commit with the harness key and installed at
+# its version, then updated to the build under test (1.1.0). The first source
+# is the baseline, 1.0.0, built from the commit wave 9 started from; add one
+# line for each later release tag.
+1.0.0 3c5e837d976666d556d0fa1939b7636c67be2a64
