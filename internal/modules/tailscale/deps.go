@@ -271,7 +271,7 @@ func (t ts) installedVersion(_ context.Context, _ core.Env) (string, error) {
 	}
 	fields := map[string]string{}
 	installed := func() bool {
-		status := strings.Fields(fields["Status"])
+		status := strings.FieldsFunc(fields["Status"], func(r rune) bool { return r == ' ' })
 		return fields["Package"] == "tailscale" && len(status) == 3 && status[2] == "installed"
 	}
 	for line := range strings.Lines(string(b)) {

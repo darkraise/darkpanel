@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("Package:tailscale\nStatus:0 0\finstalled\nVersion:0")
