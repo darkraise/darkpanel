@@ -52,7 +52,8 @@ function ModuleBody({ view, hostId }: { view: ModuleView; hostId: string }) {
 export function HostPage() {
   const { hostId = "", moduleId } = useParams()
   const hosts = useQuery({ queryKey: HOSTS_QUERY_KEY, queryFn: listHosts })
-  usePageTitle(hostTitle(hosts.isSuccess, hosts.data?.hosts.find((h) => h.id === hostId)?.name, moduleId))
+  const host = hosts.data?.hosts.find((h) => h.id === hostId)
+  usePageTitle(hostTitle(hosts.isSuccess, host?.name, moduleId))
 
   if (hosts.isPending) return <Spinner aria-label="Loading the host" />
   if (hosts.isError) {
@@ -62,7 +63,6 @@ export function HostPage() {
       </Alert>
     )
   }
-  const host = hosts.data.hosts.find((h) => h.id === hostId)
   if (host === undefined) return <EmptyState title="Host not found" description={`No host has the id ${hostId}.`} />
 
   const tabs = enabledModules(moduleRegistry, host).map((m) => ({

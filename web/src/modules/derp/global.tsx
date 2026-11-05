@@ -1,5 +1,6 @@
 import { Route, Routes } from "react-router"
 import { PageHeader } from "darkraise-ui/layout"
+import { PageNotFound } from "@/components/page-not-found"
 import { usePageTitle } from "@/lib/page-title"
 import { DerpPage } from "./derp-page"
 
@@ -10,15 +11,7 @@ export default function DerpGlobal() {
       <PageHeader title="DERP" description="Custom DERP servers and the regions that publish them in the tailnet policy." />
       <Routes>
         <Route index element={<DerpPage />} />
-        <Route
-          path="*"
-          element={
-            <div className="dr-empty-state">
-              <h2 className="dr-empty-state-title">Page not found</h2>
-              <p className="dr-empty-state-description">Nothing lives at this address.</p>
-            </div>
-          }
-        />
+        <Route path="*" element={<PageNotFound />} />
       </Routes>
     </div>
   )

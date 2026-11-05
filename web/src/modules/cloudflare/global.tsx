@@ -1,5 +1,6 @@
 import { NavLink, Route, Routes } from "react-router"
 import { PageHeader } from "darkraise-ui/layout"
+import { PageNotFound } from "@/components/page-not-found"
 import { usePageTitle } from "@/lib/page-title"
 import { AccountPanel } from "./account-panel"
 import { ConnectorsPage } from "./connectors-page"
@@ -36,15 +37,7 @@ export default function CloudflareGlobal() {
         <Route path="tunnels" element={<TunnelsPage />} />
         <Route path="connectors" element={<ConnectorsPage />} />
         <Route path="hostnames" element={<HostnamesPage />} />
-        <Route
-          path="*"
-          element={
-            <div className="dr-empty-state">
-              <h2 className="dr-empty-state-title">Page not found</h2>
-              <p className="dr-empty-state-description">Nothing lives at this address.</p>
-            </div>
-          }
-        />
+        <Route path="*" element={<PageNotFound />} />
       </Routes>
     </div>
   )
