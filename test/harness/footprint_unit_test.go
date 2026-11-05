@@ -116,7 +116,9 @@ func TestFpUnitSchedule(t *testing.T) {
 		t.Errorf("the plan runs from %v to %v, want %v to %v", evs[0].At, evs[len(evs)-1].At, fpSampleEvery, fpWindow)
 	}
 	// At 30 s both are due; the sample comes first, so the host list does not delay it.
-	if i := slices.IndexFunc(evs, func(e fpEvent) bool { return e.At == 30*time.Second }); evs[i].Kind != fpSampleEvent || evs[i+1].Kind != fpHostsEvent {
+	if i := slices.IndexFunc(evs, func(e fpEvent) bool { return e.At == 30*time.Second }); i < 0 || i+1 >= len(evs) {
+		t.Errorf("no sample and host list pair at 30 s in %d events", len(evs))
+	} else if evs[i].Kind != fpSampleEvent || evs[i+1].Kind != fpHostsEvent {
 		t.Errorf("events at 30 s: %+v %+v, want the sample first", evs[i], evs[i+1])
 	}
 	if got := fpSchedule(time.Minute, 0, fpHostsEvery); len(got) != 4 {

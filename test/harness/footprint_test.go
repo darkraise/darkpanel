@@ -68,7 +68,7 @@ func TestFootprint(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), fpDeadline)
 	t.Cleanup(cancel)
 	r := &fpRun{ctx: ctx, f: m5dLab(ctx, t)}
-	t.Cleanup(func() { r.stopExtraAgents() })
+	t.Cleanup(func() { r.stopExtraAgents(t) })
 	steps := []struct {
 		name string
 		gate bool // later steps need this one
@@ -224,16 +224,18 @@ func (r *fpRun) budgets(t *testing.T) {
 	}
 }
 
-// stopExtraAgents stops the extra agents' units, so that a failed run leaves no process on the VM. It runs on a
-// context of its own: the test's may have ended.
-func (r *fpRun) stopExtraAgents() {
+// stopExtraAgents stops the extra agents' units, so that a failed run leaves no process on the VM, and logs each
+// stop that fails for a unit that was loaded. It runs on a context of its own: the test's may have ended.
+func (r *fpRun) stopExtraAgents(t *testing.T) {
 	if r.f == nil || r.f.agent == nil {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	for n := 1; n <= fpExtraAgents; n++ {
-		_, _ = r.f.agent.Run(ctx, fpStopCmd(n))
+		if _, err := r.f.agent.Run(ctx, fpStopCmd(n)); err != nil && !strings.Contains(err.Error(), "not loaded") {
+			t.Logf("stop %s: %v", fpUnit(n), err)
+		}
 	}
 }
 
