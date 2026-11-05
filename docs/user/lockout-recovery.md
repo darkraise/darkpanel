@@ -40,6 +40,10 @@ None of the three can be undone. Each shows its plan, asks `Apply? [y/N]` and
 then asks you to type the confirmation phrase, which is the username. `--yes`
 answers the first question, and `--confirmation <name>` gives the phrase.
 
+On a controller restored from a backup, the three are refused with
+`core.quarantined` until you release the restore quarantine. See
+[Settle the restore quarantine](administration.md#settle-the-restore-quarantine).
+
 After too many failed attempts the controller answers that you should try
 again later. Wait, and the block lifts by itself.
 

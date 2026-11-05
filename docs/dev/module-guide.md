@@ -11,7 +11,7 @@ A module is a Go package under `internal/modules/<id>` whose exported value impl
 - A module runs on the controller, on the agent or on both. Each action says where it runs with `core.SideController` or `core.SideAgent`; the module's migrations and background tasks follow the same two sides.
 - A module never changes another module's resources directly. It calls the owning module's actions, so the owner's locks, snapshots and audit entries apply. A composite action is how one module sequences another module's actions: it returns a list of steps, each naming a child action ([ADR 0014](../adr/0014-v1-core-extensions.md), `docs/adr/0014-v1-core-extensions.md`).
 
-Besides `core.Module`, a module may implement three optional interfaces, which the registry finds with a type assertion: `core.Uninstaller` (an agent-side uninstall step), `core.Streamer` (streams the controller relays as server-sent events) and `core.Background` (background tasks that run on the agent while the module is enabled). The rest of this guide covers `core.Uninstaller`; the other two are declared the same way and checked by the same registry.
+Besides `core.Module`, a module may implement three optional interfaces, each found with a type assertion on the module: `core.Uninstaller` (an agent-side uninstall step), which the uninstall code in `internal/install` finds, and `core.Streamer` (streams the controller relays as server-sent events) and `core.Background` (background tasks that run on the agent while the module is enabled), which the registry finds and checks. The rest of this guide covers `core.Uninstaller`; the other two are declared the same way.
 
 ## Create the module package
 
@@ -64,7 +64,7 @@ An action is a typed, versioned operation. Its name is `<module>.<noun>.<verb>`:
 | Field | Meaning |
 |---|---|
 | `Name`, `Summary`, `Version` | The name, a one-line summary and the version, at least 1. |
-| `Class` | The change class. The constructor sets it, except for `core.DefineMutating`, where you set `compensable` or `irreversible`. |
+| `Class` | The change class. The constructor sets it, except for `core.DefineMutating` and `core.DefineTask`, where you set `compensable` or `irreversible`. |
 | `Side` | `core.SideController` or `core.SideAgent`. |
 | `BreakGlass` | The controller's local socket also serves the action. Controller-side only. |
 | `LockKeys` | The locks the action takes. |
@@ -148,7 +148,7 @@ The function you pass takes the context and the `core.Env` and returns the outpu
 | `core.OwnedSysctl` | A kernel parameter; `Path` is the key relative to `/proc/sys` | `Pattern` is required; a key has at most one `<iface>` segment |
 | `core.OwnedServiceDir` | A directory owned by the module's service user | `User` names an owned user of the module; optional `Subdirs` and `Pattern` |
 
-The registry refuses a field on a kind that does not use it, a `Pattern` that does not compile, and a path or block that two modules both declare. Two modules can share a file when they declare marked blocks with different ids.
+The registry refuses `Pattern` on a kind other than sysctl, managed-dir and service-dir, `User` and `Subdirs` on a kind other than service-dir, a `Pattern` that does not compile, and a path or block that two modules both declare. Two modules can share a file when they declare marked blocks with different ids.
 
 **Docker objects.** Containers, networks and volumes a module creates carry the label `darkpanel.module=<id>`; the key is `core.LabelModule`.
 

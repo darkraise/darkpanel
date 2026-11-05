@@ -18,6 +18,8 @@ Set `E2E_CHROMIUM` to the path of a Chromium executable when the build that Play
 - Container actions: the Docker containers table, its change dialogs and the container page with the firewall allow and deny forms.
 - Expose a container: the expose form of the container page and its change dialog.
 
+The confirm and revert states covered are those of a revertible change. A composite change that waits for confirmation, such as a public deploy of Nginx Proxy Manager with the firewall integration on, gets no Confirm or Revert in the change dialog yet; `darkpanel change confirm` confirms it.
+
 The contrast evidence covers the default accent (blue) and surface (zinc) in both modes. The record does not cover other accent or surface choices of the theme switcher, other browsers, or screen readers other than the accessible-name check of the change dialog.
 
 ## Criteria
@@ -62,7 +64,7 @@ Both pages were read on 2026-11-05 for heading order and for link text that name
 | 2.4.3 Focus order | A | automated | `web/src/pages/audit.a11y.test.tsx`, `web/src/pages/tokens.a11y.test.tsx`, `web/src/pages/create-host-dialog.a11y.test.tsx`, `web/src/pages/change.a11y.test.tsx`, `web/src/pages/change-actions.a11y.test.tsx`, `web/src/modules/tailnet/global.a11y.test.tsx` |
 | 2.1.2 No keyboard trap | A | automated | `web/src/pages/tokens.a11y.test.tsx`, `web/src/pages/create-host-dialog.a11y.test.tsx`, `web/src/pages/change.a11y.test.tsx`, `web/src/pages/change-actions.a11y.test.tsx` |
 | 2.4.2 Page titled | A | automated | `web/src/pages/hosts.a11y.test.tsx`, `web/src/pages/host.a11y.test.tsx`, `web/src/pages/audit.a11y.test.tsx`, `web/src/pages/tokens.a11y.test.tsx`, `web/src/pages/change.a11y.test.tsx`, `web/src/modules/tailnet/global.a11y.test.tsx`, `web/src/modules/derp/global.a11y.test.tsx` |
-| 3.3.1 Error identification | A | automated | `web/src/pages/hosts.a11y.test.tsx`, `web/src/pages/host.a11y.test.tsx`, `web/src/pages/audit.a11y.test.tsx`, `web/src/pages/tokens.a11y.test.tsx`, `web/src/pages/change-actions.a11y.test.tsx` |
+| 3.3.1 Error identification | A | automated | `web/src/pages/hosts.a11y.test.tsx`, `web/src/pages/host.a11y.test.tsx`, `web/src/pages/audit.a11y.test.tsx`, `web/src/pages/tokens.a11y.test.tsx`, `web/src/pages/change-actions.a11y.test.tsx`, `web/src/pages/create-host-dialog.a11y.test.tsx`, `web/src/pages/change.a11y.test.tsx` |
 | 4.1.3 Status messages | AA | automated | `web/src/pages/create-host-dialog.a11y.test.tsx`, `web/src/pages/change-actions.a11y.test.tsx` |
 | 1.4.3 Contrast (minimum) | AA | manual | `web/e2e/a11y.pw.ts`, `docs/accessibility/hosts-light-contrast.png`, `docs/accessibility/hosts-dark-contrast.png` |
 | 1.4.4 Resize text | AA | manual | `web/e2e/a11y.pw.ts`, `docs/accessibility/hosts-light-zoom-200.png`, `docs/accessibility/hosts-dark-zoom-200.png` |
@@ -81,6 +83,7 @@ Both pages were read on 2026-11-05 for heading order and for link text that name
 | 2.1.1 Keyboard | A | automated | `web/src/components/change-dialog.a11y.test.tsx`, `web/src/modules/firewall/firewall-change.a11y.test.tsx`, `web/src/modules/firewall/firewall-page.a11y.test.tsx`, `web/src/modules/firewall/rule-form.a11y.test.tsx`, `web/src/modules/firewall/rules-table.a11y.test.tsx`, `web/src/modules/firewall/snapshots-panel.a11y.test.tsx`, `web/src/modules/firewall/state-controls.a11y.test.tsx`, `web/src/modules/firewall/status-panel.a11y.test.tsx`, `web/src/modules/firewall/exposure-page.a11y.test.tsx` |
 | 2.4.3 Focus order | A | automated | `web/src/components/change-dialog.a11y.test.tsx`, `web/src/modules/firewall/firewall-change.a11y.test.tsx`, `web/src/modules/firewall/firewall-page.a11y.test.tsx`, `web/src/modules/firewall/rule-form.a11y.test.tsx`, `web/src/modules/firewall/rules-table.a11y.test.tsx`, `web/src/modules/firewall/snapshots-panel.a11y.test.tsx`, `web/src/modules/firewall/state-controls.a11y.test.tsx`, `web/src/modules/firewall/status-panel.a11y.test.tsx`, `web/src/modules/firewall/exposure-page.a11y.test.tsx`, `web/src/modules/firewall/docker-panel.a11y.test.tsx` |
 | 2.1.2 No keyboard trap | A | automated | `web/src/components/change-dialog.a11y.test.tsx`, `web/src/modules/firewall/firewall-change.a11y.test.tsx`, `web/src/modules/firewall/rule-form.a11y.test.tsx`, `web/src/modules/firewall/rules-table.a11y.test.tsx`, `web/src/modules/firewall/snapshots-panel.a11y.test.tsx`, `web/src/modules/firewall/state-controls.a11y.test.tsx`, `web/src/modules/firewall/status-panel.a11y.test.tsx` |
+| 2.4.2 Page titled | A | automated | `web/src/pages/host.a11y.test.tsx` |
 | 3.3.1 Error identification | A | automated | `web/src/components/change-dialog.a11y.test.tsx`, `web/src/modules/firewall/exposure-page.a11y.test.tsx` |
 | 4.1.3 Status messages | AA | automated | `web/src/components/change-dialog.a11y.test.tsx` |
 | 1.4.3 Contrast (minimum) | AA | manual | `web/e2e/a11y.pw.ts`, `docs/accessibility/firewall-change-plan-light-contrast.png`, `docs/accessibility/firewall-change-plan-dark-contrast.png`, `docs/accessibility/firewall-change-applied-light-contrast.png`, `docs/accessibility/firewall-change-applied-dark-contrast.png` |
@@ -101,7 +104,8 @@ Both pages were read on 2026-11-05 for heading order and for link text that name
 | 2.1.1 Keyboard | A | automated | `web/src/modules/docker/containers-tab.a11y.test.tsx`, `web/src/modules/docker/container-page.a11y.test.tsx`, `web/src/modules/firewall/container-actions.a11y.test.tsx` |
 | 2.4.3 Focus order | A | automated | `web/src/modules/docker/containers-tab.a11y.test.tsx`, `web/src/modules/docker/docker-change.a11y.test.tsx`, `web/src/modules/docker/container-page.a11y.test.tsx`, `web/src/modules/firewall/container-actions.a11y.test.tsx` |
 | 2.1.2 No keyboard trap | A | automated | `web/src/modules/docker/containers-tab.a11y.test.tsx`, `web/src/modules/docker/docker-change.a11y.test.tsx`, `web/src/modules/firewall/container-actions.a11y.test.tsx` |
-| 3.3.1 Error identification | A | automated | `web/src/components/change-dialog.a11y.test.tsx`, `web/src/modules/docker/containers-tab.a11y.test.tsx`, `web/src/modules/docker/container-page.a11y.test.tsx`, `web/src/modules/docker/docker-change.a11y.test.tsx` |
+| 2.4.2 Page titled | A | automated | `web/src/pages/host.a11y.test.tsx` |
+| 3.3.1 Error identification | A | automated | `web/src/components/change-dialog.a11y.test.tsx`, `web/src/modules/docker/containers-tab.a11y.test.tsx`, `web/src/modules/docker/container-page.a11y.test.tsx`, `web/src/modules/firewall/container-actions.a11y.test.tsx` |
 | 4.1.3 Status messages | AA | automated | `web/src/components/change-dialog.a11y.test.tsx` |
 | 1.4.3 Contrast (minimum) | AA | manual | `web/e2e/a11y.pw.ts`, `docs/accessibility/container-actions-list-light-contrast.png`, `docs/accessibility/container-actions-list-dark-contrast.png`, `docs/accessibility/container-actions-dialog-light-contrast.png`, `docs/accessibility/container-actions-dialog-dark-contrast.png`, `docs/accessibility/container-page-light-contrast.png`, `docs/accessibility/container-page-dark-contrast.png` |
 | 1.4.4 Resize text | AA | manual | `web/e2e/a11y.pw.ts`, `docs/accessibility/container-actions-list-light-zoom-200.png`, `docs/accessibility/container-actions-list-dark-zoom-200.png`, `docs/accessibility/container-actions-dialog-light-zoom-200.png`, `docs/accessibility/container-actions-dialog-dark-zoom-200.png`, `docs/accessibility/container-page-light-zoom-200.png`, `docs/accessibility/container-page-dark-zoom-200.png` |
@@ -134,4 +138,4 @@ Both pages were read on 2026-11-05 for heading order and for link text that name
 ## Known issues
 
 - 1.4.10 Reflow: at 320 px the "Planned changes" block scrolls sideways inside the change dialog. This is an exception WCAG 1.4.10 allows for content that needs two-dimensional layout, and the browser pass accepts it by design. The page and the rest of the dialog do not scroll sideways.
-- 1.4.10 Reflow: at 320 px the title of the expose dialog ends a few pixels from its close button. Nothing is cut off.
+- 1.4.10 Reflow: at 320 px the title of the expose dialog ends a few pixels from its close button. Nothing is cut off at the fixture's domain, but the dialog header reserves no space for the button, so a longer domain could run under it.

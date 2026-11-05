@@ -117,8 +117,9 @@ A host updates to a signed release with `darkpanel update rollout --hosts <id>
 stopping at the first failure; `darkpanel host update-policy` sets a host's
 channel (`stable` or `beta`) and an optional weekly update window. Each update
 takes a database backup before migrating, keeps the previous binary as
-`darkpanel.prev`, and rolls back by itself when the new version is not healthy
-within 80 seconds. [docs/versioning.md](docs/versioning.md) explains the
+`darkpanel.prev`, and rolls back by itself, within two minutes, when the new
+version fails its health check or does not pass it within the deadline.
+[docs/versioning.md](docs/versioning.md) explains the
 version and compatibility rules.
 
 ### Break-glass
