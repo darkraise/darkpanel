@@ -31,7 +31,7 @@ UI_MARKER := <title>Darkpanel</title>
 export GOTOOLCHAIN := local
 
 # release is phony on purpose: the release/ directory would otherwise satisfy it.
-.PHONY: web-deps web build verify-build lint-go lint-web lint-sh lint test-go test-web test-adr test-release test schemas vuln check clean release-check release release-prep install-sh harness-builds fuzz
+.PHONY: web-deps web build verify-build lint-go lint-web lint-sh lint test-go test-web test-adr test-release test schemas vuln check clean release-check release release-prep install-sh harness-builds fuzz api-docs
 
 # The stamp reruns the install only when the manifest, the lockfile or the
 # install policy changes.
@@ -99,6 +99,10 @@ test: test-go test-web test-adr test-release
 
 schemas:
 	go run ./internal/core/schema/schemagen -out schemas
+
+# api-docs regenerates docs/api from the registry; TestAdAPIDocsCurrent fails when it is stale.
+api-docs:
+	go run ./internal/apidocs/apidocsgen -out docs/api
 
 vuln:
 	go run $(GOVULNCHECK) ./...
