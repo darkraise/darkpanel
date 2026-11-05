@@ -572,8 +572,8 @@ func (r *m6pRun) verify(t *testing.T) {
 
 	m6nPull(r.ctx, t, f.controller, npm.Image)
 	// grep exits 1 when nothing matches; the output is what is checked.
-	out, err := f.controller.Run(r.ctx, "sudo docker run --rm --entrypoint grep "+m3dxShell(npm.Image)+" -rhs X-Forwarded-Proto /app /etc/nginx")
-	t.Logf("X-Forwarded-Proto in NPM's templates (grep: %v):\n%s", err, out)
+	out, err := f.controller.Run(r.ctx, "sudo docker run --rm --entrypoint grep "+m3dxShell(npm.Image)+" -rhs X-Forwarded-Proto /app/templates /etc/nginx")
+	t.Logf("X-Forwarded-Proto in NPM's templates (grep: %v):\n%s", err, m5dCapDiagnostic(out, false))
 	if err := m6pForwardedProtoLine(out); err != nil {
 		t.Error(err)
 	}
