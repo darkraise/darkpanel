@@ -63,7 +63,17 @@ test("the unavailable and availability-unknown alerts keep the heading order", a
     [PLAN]: { body: cdaPlan() },
   })
   await within(off.dialog).findByText("UFW is not installed.")
+  expect(within(off.dialog).getByRole("heading", { level: 3, name: "Unavailable" })).toBeTruthy()
   await expectNoAxeViolations(off.dialog)
+})
+
+test("the availability-unknown alert keeps the heading order", async () => {
+  const { dialog } = await cdaOpen({
+    [AVAILABILITY]: { status: 503, body: { type: "about:blank", title: "Unavailable", status: 503, detail: "the agent is offline", code: "host.offline" } },
+    [PLAN]: { body: cdaPlan() },
+  })
+  expect(await within(dialog).findByRole("heading", { level: 3, name: "Availability unknown" })).toBeTruthy()
+  await expectNoAxeViolations(dialog)
 })
 
 afterEach(() => {
@@ -208,6 +218,77 @@ test("the countdown announces itself politely at fixed points, not every second"
     await vi.advanceTimersByTimeAsync(20000)
   })
   expect(progress.textContent).toBe("Reverts automatically in 10 seconds unless confirmed.")
+})
+
+test("a countdown one second from its end is announced in the singular", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  vi.setSystemTime(new Date("2026-10-23T08:00:00Z"))
+  const pending = cdaChange({ state: "pending", revertDeadline: "2026-10-23T08:00:01Z" })
+  const { dialog, user } = await cdaOpen(
+    { [PLAN]: { body: cdaPlan() }, [APPLY]: { body: pending }, "GET /api/v1/changes/c1": { body: pending } },
+    {},
+    { advanceTimers: vi.advanceTimersByTime },
+  )
+  await user.click(await within(dialog).findByRole("button", { name: "Apply" }))
+  await within(dialog).findByRole("timer")
+  expect(within(dialog).getByRole("status", { name: "Change progress" }).textContent).toBe("Reverts automatically in 1 second unless confirmed.")
+})
+
+test("a tick that skips past both points is announced once", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  const start = new Date("2026-10-23T08:00:00Z").getTime()
+  vi.setSystemTime(start)
+  const pending = cdaChange({ state: "pending", revertDeadline: "2026-10-23T08:01:00Z" })
+  const { dialog, user } = await cdaOpen(
+    { [PLAN]: { body: cdaPlan() }, [APPLY]: { body: pending }, "GET /api/v1/changes/c1": { body: pending } },
+    {},
+    { advanceTimers: vi.advanceTimersByTime },
+  )
+  await user.click(await within(dialog).findByRole("button", { name: "Apply" }))
+  const timer = await within(dialog).findByRole("timer")
+  const progress = within(dialog).getByRole("status", { name: "Change progress" })
+  expect(progress.textContent).toBe("Reverts automatically in 60 seconds unless confirmed.")
+  // A suspended tab runs no timer: the next tick comes some 55 seconds in.
+  vi.setSystemTime(start + 55_000)
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1000)
+  })
+  const left = Number(/in (\d+) s /.exec(timer.textContent ?? "")?.[1])
+  expect(left).toBeLessThan(10)
+  expect(progress.textContent).toBe(`Reverts automatically in ${left} seconds unless confirmed.`)
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1000)
+  })
+  expect(timer.textContent).toBe(`Reverts automatically in ${left - 1} s unless confirmed.`)
+  expect(progress.textContent).toBe(`Reverts automatically in ${left} seconds unless confirmed.`)
+})
+
+test("a revert deadline that arrives after the apply shows its countdown at once and is announced once", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  vi.setSystemTime(new Date("2026-10-23T08:00:00Z"))
+  const applying = cdaChange({ state: "applying" })
+  const pending = cdaChange({ state: "pending", revertDeadline: "2026-10-23T08:01:00Z" })
+  const { dialog, user } = await cdaOpen(
+    { [PLAN]: { body: cdaPlan() }, [APPLY]: { status: 202, body: applying }, "GET /api/v1/changes/c1": { body: pending } },
+    {},
+    { advanceTimers: vi.advanceTimersByTime },
+  )
+  const progress = within(dialog).getByRole("status", { name: "Change progress" })
+  const announced: string[] = []
+  const observer = new MutationObserver(() => announced.push(progress.textContent ?? ""))
+  observer.observe(progress, { childList: true, characterData: true, subtree: true })
+  try {
+    await user.click(await within(dialog).findByRole("button", { name: "Apply" }))
+    await within(dialog).findByRole("button", { name: "Confirm" })
+    expect(within(dialog).getByRole("timer").textContent).toBe("Reverts automatically in 60 s unless confirmed.")
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(progress.textContent).toBe("Reverts automatically in 60 seconds unless confirmed.")
+    expect(announced).not.toContain("Change pending.")
+  } finally {
+    observer.disconnect()
+  }
 })
 
 test("the outcome of an apply is announced politely", async () => {

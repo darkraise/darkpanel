@@ -75,17 +75,20 @@ function secondsLeft(deadline: string, now: number): number {
 }
 
 // useSecondsLeft is the whole seconds until deadline, counted once a
-// second, or null while there is no deadline.
-function useSecondsLeft(deadline: string | null): number | null {
-  // The time is kept with the deadline it was read for, so a deadline that
-  // appears after mounting is not measured from the time of the mount.
+// second, or null while there is no deadline. readAt is when the data that
+// carries deadline was read.
+function useSecondsLeft(deadline: string | null, readAt: number): number | null {
+  // The time is kept with the deadline it was read for. Until the first tick
+  // for a deadline that appears after mounting, it is measured from readAt,
+  // so the countdown shows at once rather than a second later.
   const [now, setNow] = useState(() => ({ deadline, at: Date.now() }))
   useEffect(() => {
     if (deadline === null) return
     const timer = setInterval(() => setNow({ deadline, at: Date.now() }), 1000)
     return () => clearInterval(timer)
   }, [deadline])
-  return deadline !== null && now.deadline === deadline ? secondsLeft(deadline, now.at) : null
+  if (deadline === null) return null
+  return secondsLeft(deadline, now.deadline === deadline ? now.at : readAt)
 }
 
 // The seconds left at which the countdown is announced again.
@@ -180,7 +183,7 @@ function Applied({ applied, onError, onProgress }: {
   const [busy, setBusy] = useState(false)
   const current = change.data
   const counting = current.state === "pending"
-  const left = useSecondsLeft(counting ? current.revertDeadline : null)
+  const left = useSecondsLeft(counting ? current.revertDeadline : null, change.dataUpdatedAt)
   const [spoken, setSpoken] = useState(left)
   if (shouldAnnounce(spoken, left)) setSpoken(left)
   const progress =
