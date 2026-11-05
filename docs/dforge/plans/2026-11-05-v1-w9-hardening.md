@@ -4,7 +4,7 @@
 
 **Goal:** Build wave 9 of the v1 completion spec — the parser inventory and a fuzz target for every parser in it, with `scripts/fuzz.sh` and `.github/workflows/fuzz.yml` (9a, R74); WCAG 2.1 AA evidence and fixes for the core flows with `docs/accessibility.md` (9b, R77); the user documentation, the module-developer guide and the API reference generated from the action schemas (9c, R78, R79); and the harness tests `TestUpgradeMatrix` and `TestFootprint` with the harness-only `--state-dir` (9d, R75, R76) — discharging register rows 38–43, 107 and 248.
 
-**Architecture:** Four foundation tasks fix the shared surfaces first: the inventory format and runner script, the web accessibility test helpers and the page-title hook, the API-reference generator together with the docs-check test helpers, and the harness `--state-dir` hook. Six fuzz tasks then add targets package group by package group against the inventory's fixed target names, while the harness upgrade test runs beside them. Four accessibility tasks audit and fix the core flows in jsdom, four documentation tasks write `docs/user/` and `docs/dev/` against tests that read the registry, and the footprint test follows. A browser pass with Playwright then covers what jsdom cannot (contrast, zoom, reflow, screen-reader names), the conformance record cites every test and screenshot, and a closing task runs the real inventory check and copies the plan rulings into the spec.
+**Architecture:** Five foundation tasks fix the shared surfaces first: the inventory format and runner script, the web accessibility test helpers and the page-title hook, the API-reference generator, the docs-check test helpers, and the harness `--state-dir` hook. Six fuzz tasks then add targets package group by package group against the inventory's fixed target names, while the harness upgrade test runs beside them. Four accessibility tasks audit and fix the core flows in jsdom, four documentation tasks write `docs/user/` and `docs/dev/` against tests that read the registry, and the footprint test follows. A browser pass with Playwright then covers what jsdom cannot (contrast, zoom, reflow, screen-reader names), the conformance record cites every test and screenshot, and a closing task adds the fuzz workflow once every target exists, runs the real inventory check and copies the plan rulings into the spec.
 
 **Tech Stack:** Go 1.27 (`go.mod`: `go 1.27`, toolchain `go1.27.3`) with native fuzzing (`testing.F`), Bash 5 for `scripts/fuzz.sh`, React 19 + TypeScript with Vitest 5.0.5, vitest-axe 1.0.0-pre.5 and @testing-library/user-event 14.6.8, @playwright/test 1.64.0 with axe-core 4.14.0 (both already in `web/pnpm-lock.yaml`), the KVM harness in `test/harness` (GitHub Actions `harness.yml`), GitHub Actions for `fuzz.yml`.
 
@@ -12,7 +12,7 @@
 
 **Execution:** subagent — `claude --model sonnet --effort high` — the plan runs parallel waves, and each task's **Implementer:** line chooses its implementer
 
-**Parallelism:** waves — 1-3 | 4-6 | 7-9 | 10-11 | 12-14 | 15-17 | 18-20 | 21 | 22 | 23
+**Parallelism:** waves — 1-3 | 4-6 | 7-9 | 10-12 | 13-15 | 16-18 | 19-21 | 22 | 23 | 24
 
 **Task check:** none — full suite every 3 tasks
 
@@ -24,29 +24,31 @@
 
 **Wave check:** `mkdir -p /root/.cache/w9-tmp/wave && export TMPDIR=/root/.cache/w9-tmp/wave GOTOOLCHAIN=local && timeout 600 go build ./... && timeout 300 go vet ./... && timeout 300 go vet -tags harness ./test/... ./cmd/... && timeout 1500 go test -count=1 ./internal/... ./cmd/... ./release/... && timeout 1200 make lint-web test-web`
 
+**Plan review:** 2026-11-05 — dforge:judge-opus — executability 16 / coherence 15 / coverage 16 / assumptions 16 (round 1)
+
 ## Global Constraints
 
-- Scope is spec revision 8 as amended on `main`: section 9's Fuzzing, Upgrade matrix, Footprint, Accessibility and Documentation bullets (R74–R79), the 9a–9d rows of Parallel decomposition, the path-selection hook of 1.12, the M7 row of Verification except the security register, the plan rulings W9-R1 to W9-R10 under Assumptions (Task 23 copies them into the spec), and the register rows the tasks' **Items:** lines name. Out of scope: the threat model and security review (R73, wave 10), the runbook, `CHANGELOG.md` and release readiness (wave 10), the live demonstrations with owner credentials (register row 55), and every open minor of earlier waves that no **Items:** line names.
-- Host safety (absolute). This host is live: it runs an installed `darkpanel-agent`, `darkpanel-controller` and a Docker daemon. No unit test, fuzz target or command of this plan talks to the Docker daemon, D-Bus or systemd, runs `systemctl`, `docker`, `ufw`, `iptables`, `nft` or `nmap`, binds an address other than `127.0.0.1` (port 0, or the port Playwright's `webServer` picks in Task 21) or a Unix socket under `t.TempDir()`, or reads or writes `/var/lib/darkpanel`, `/etc/darkpanel`, `/run/darkpanel*` or `/proc` of another process. A fuzz target calls a pure function or a function over a fake (`core.Runner`, file reader, `io.Reader`) and never the real host. Real installs, updates, RSS sampling and agents run only on harness VMs (Tasks 11 and 20).
+- Scope is spec revision 8 as amended on `main`: section 9's Fuzzing, Upgrade matrix, Footprint, Accessibility and Documentation bullets (R74–R79), the 9a–9d rows of Parallel decomposition, the path-selection hook of 1.12, the M7 row of Verification except the security register, the plan rulings W9-R1 to W9-R10 under Assumptions (Task 24 copies them into the spec), and the register rows the tasks' **Items:** lines name. Out of scope: the threat model and security review (R73, wave 10), the runbook, `CHANGELOG.md` and release readiness (wave 10), the live demonstrations with owner credentials (register row 55), and every open minor of earlier waves that no **Items:** line names.
+- Host safety (absolute). This host is live: it runs an installed `darkpanel-agent`, `darkpanel-controller` and a Docker daemon. No unit test, fuzz target or command of this plan talks to the Docker daemon, D-Bus or systemd, runs `systemctl`, `docker`, `ufw`, `iptables`, `nft` or `nmap`, binds an address other than `127.0.0.1` (port 0, or the port Playwright's `webServer` picks in Task 22) or a Unix socket under `t.TempDir()`, or reads or writes `/var/lib/darkpanel`, `/etc/darkpanel`, `/run/darkpanel*` or `/proc` of another process. A fuzz target calls a pure function or a function over a fake (`core.Runner`, file reader, `io.Reader`) and never the real host. Real installs, updates, RSS sampling and agents run only on harness VMs (Tasks 11 and 21).
 - Every `go`, `golangci-lint`, `make` and `pnpm` command runs with `GOTOOLCHAIN=local`, an explicit `timeout`, and `TMPDIR=/root/.cache/w9-tmp/<task number>` (`mkdir -p` it first; remove it and run `go clean -testcache` when the task ends), also where a step's command omits one of them: `/tmp` is an 8 GiB tmpfs and Unix socket paths over 108 bytes fail. When `df -h /` shows 90 % or more before a task's first build, trim the Go build cache (`go clean -cache` is acceptable; `go clean -fuzzcache` after a fuzz task is expected).
 - Fuzzing budget on this host: a fuzz task runs each target it adds or extends with `go test -run '^$' -fuzz '^<Target>$' -fuzztime 30s -parallel 4 <package>` (one target per run, anchored), and quotes each run's last line. A run that finds a failure leaves its input under `<package>/testdata/fuzz/<Target>/`; that file is committed as a regression seed together with the fix (W9-R3). No other file under `testdata/fuzz/` is committed.
 - Dependencies: no task changes `go.mod`, `go.sum`, `web/package.json`, `web/pnpm-lock.yaml` or `web/pnpm-workspace.yaml`; after every task `GOTOOLCHAIN=local timeout 300 go mod tidy -diff` prints nothing. The web tooling this plan uses is already locked: vitest-axe, @testing-library/user-event, @playwright/test and (through vitest-axe) axe-core.
-- After every Go task all of these pass, with their real output recorded: `go build ./...`; `go vet ./...` (no output); `go test -count=1 ./...` (every line `ok` or `?`); `go test -race -count=1` on the task's packages; `golangci-lint run --allow-serial-runners ./...` (`0 issues.`); `go mod tidy -diff` (no output). A task that edits `test/harness/` also runs `go vet -tags harness ./test/...`, `golangci-lint run --allow-serial-runners --build-tags harness ./test/...` and `go test -tags harness -count=1 -run 'Unit' ./test/harness/...`; a task that edits `cmd/darkpanel/` also runs `go test -tags harness -count=1 ./cmd/darkpanel/` and `go vet -tags harness ./cmd/...`. A task that edits `web/` runs `make lint-web test-web`. A task that edits a shell script runs `shellcheck` on it (`make lint-sh` covers `release/*.sh` only; run `shellcheck scripts/fuzz.sh scripts/fuzz.test.sh` directly). Only Task 3 and Task 23 run `make api-docs`; no task runs `make schemas` (no task changes an action schema).
+- After every Go task all of these pass, with their real output recorded: `go build ./...`; `go vet ./...` (no output); `go test -count=1 ./...` (every line `ok` or `?`); `go test -race -count=1` on the task's packages; `golangci-lint run --allow-serial-runners ./...` (`0 issues.`); `go mod tidy -diff` (no output). A task that edits `test/harness/` also runs `go vet -tags harness ./test/...`, `golangci-lint run --allow-serial-runners --build-tags harness ./test/...` and `go test -tags harness -count=1 -run 'Unit' ./test/harness/...`; a task that edits `cmd/darkpanel/` also runs `go test -tags harness -count=1 ./cmd/darkpanel/` and `go vet -tags harness ./cmd/...`. A task that edits `web/` runs `make lint-web test-web`. A task that edits a shell script runs `shellcheck` on it (`make lint-sh` covers `release/*.sh` only; run `shellcheck scripts/fuzz.sh scripts/fuzz.test.sh` directly). Only Task 3 and Task 24 run `make api-docs`; no task runs `make schemas` (no task changes an action schema).
 - TDD: write the test, run it and see the expected RED (a build failure naming the first undefined identifier, a failed assertion, or for a fuzz target over existing code the inventory check of Contracts "Fuzz runner" naming the missing target), implement, run GREEN. Quote the RED and GREEN output in the report verbatim, not a paraphrase. A task that skips a line of the full-suite constraint above says so and why in its report.
 - Frozen files (spec 1.12), which no task edits except where a task's **Files:** block names the file: `internal/core/**`, `internal/platform/*.go` (the package's own non-test files), `internal/controller/server/**`, `internal/controller/api/**`, `internal/controller/events/**`, `internal/controller/listen/sources.go`, `internal/modules/modules.go`, `internal/cli/modules.go`, `cmd/darkpanel/paths.go`, `go.mod`, `go.sum`, `web/package.json`, `web/pnpm-lock.yaml`, `web/src/app.tsx`, `web/src/modules/registry.ts`, `web/src/modules/types.ts`, `test/harness/pins.go`, `schemas/**`. New `*_test.go` files in a frozen package are allowed: a test file is not part of the frozen API. Production code outside these paths changes only where a task's **Files:** block names it. A task that finds a missing code, field or extension point in a frozen file stops and reports it; it does not edit the file.
-- File ownership inside wave 9 (spec Parallel decomposition, as the plan's waves refine it): only Task 3 edits `Makefile`; only Tasks 11 and 20 edit `.github/workflows/harness.yml` (in different waves); only Task 1 creates `.github/workflows/fuzz.yml`, `scripts/fuzz.sh`, `scripts/fuzz.test.sh` and `docs/security/parsers.md` (Task 23 may correct a row of `parsers.md`); `.github/workflows/ci.yml` is not edited (W9-R4).
+- File ownership inside wave 9 (spec Parallel decomposition, as the plan's waves refine it): only Task 3 edits `Makefile`; only Tasks 11 and 21 edit `.github/workflows/harness.yml` (in different waves); only Task 1 creates `scripts/fuzz.sh`, `scripts/fuzz.test.sh` and `docs/security/parsers.md` (Task 24 may correct a row of `parsers.md`); only Task 24 creates `.github/workflows/fuzz.yml`, once every target exists, so the workflow's `inventory` job is never red on a merged wave; `.github/workflows/ci.yml` is not edited (W9-R4).
 - A task edits only the files of its own **Files:** block. Each task of a wave runs in its own worktree from the wave's base (`main` plus every merged earlier wave), so a package-wide command sees only merged work plus the task's own files. "The base" in a task's text means the work its **Depends on** line names.
-- Test isolation: `t.TempDir()` for files and databases; no TCP listener except `httptest` on `127.0.0.1` port 0; no package-level mutable state written by tests; a fuzz target keeps no state between inputs. Vitest tests stub `fetch` through `stubFetch` and never reach a network. Task 21's Playwright run starts its own Vite server on `127.0.0.1` with `strictPort: false` and answers every `/api/**` request from in-test fixtures (`page.route`), so no two worktrees share a port or a backend. Harness tests derive VM names, work directories and address ranges from the test name (`NewLab`) and respect the `-vms` limit. Tasks of one wave therefore share no port, path or global state.
+- Test isolation: `t.TempDir()` for files and databases; no TCP listener except `httptest` on `127.0.0.1` port 0; no package-level mutable state written by tests; a fuzz target keeps no state between inputs. Vitest tests stub `fetch` through `stubFetch` and never reach a network. Task 22's Playwright run starts its own Vite server on `127.0.0.1` with `strictPort: false` and answers every `/api/**` request from in-test fixtures (`page.route`), so no two worktrees share a port or a backend. Harness tests derive VM names, work directories and address ranges from the test name (`NewLab`) and respect the `-vms` limit. Tasks of one wave therefore share no port, path or global state.
 - Tasks that share a Go package declare no top-level identifier, test helpers included, that another task declares. Every new Go test identifier and every new unexported helper in a test file carries its task's prefix from Contracts "Test prefixes"; fuzz targets are named exactly as Contracts "Fuzz targets" names them. Web test files are named after their component (`<component>.a11y.test.tsx` for the accessibility tests).
 - Code style: match the surrounding code; a doc comment on every exported identifier and on every fuzz target, stating the property it checks; comments only for a non-obvious why, in full sentences, never naming a plan, task, register row or review; `//nolint` names the rule and a reason; gofmt clean; eslint `--max-warnings 0` and `tsc --noEmit` clean in `web/`. Error strings start with the package name. A fuzz target asserts a property beyond "does not panic" wherever Contracts "Fuzz targets" names one, and fails with `t.Fatalf` quoting at most the first 64 bytes of the input with `%q`.
-- Documentation style (Tasks 15–19, 22): English, plain Markdown (ATX headings, one `#` per file, fenced code blocks tagged `sh`, `json` or `text`, no HTML), sentence-case headings, second person, present tense, commands exactly as the CLI prints them (`sudo darkpanel …`). A page describes what exists on `main`; it never promises future work and never names a plan, wave, task or register row. Every relative link resolves to a file in the repository.
+- Documentation style (Tasks 16–19, 23): English, plain Markdown (ATX headings, one `#` per file, fenced code blocks tagged `sh`, `json` or `text`, no HTML), sentence-case headings, second person, present tense, commands exactly as the CLI prints them (`sudo darkpanel …`). A page describes what exists on `main`; it never promises future work and never names a plan, wave, task or register row. Every relative link resolves to a file in the repository.
 - Secrets: no log line, error, fuzz failure message, document example or screenshot carries a real token, password, TOTP secret, passphrase, tunnel token or private key; examples use obvious placeholders (`<token-file>`, `example.com`, `203.0.113.10`).
 - Commits use `<type>(<scope>): <subject>`, type one of feat|fix|docs|style|refactor|test|chore|perf, subject at most 50 characters, imperative, no trailing period, no attribution of any kind. English only.
-- The plan ends with the gates in `docs/dforge/gates.md`. Tasks 11 and 20 touch `test/harness/` and `.github/workflows/harness.yml`, and Task 4 touches `internal/update/`, so gate 7 (harness) applies to the branch once it is pushed, as well as on `main`; dispatch `harness.yml` on the branch per the owner's standing authorization. Dispatch `fuzz.yml` on the branch as well (`gh workflow run fuzz.yml --ref <branch>`) and record its conclusion. No task creates or pushes a tag, and no task runs `release.yml`.
+- The plan ends with the gates in `docs/dforge/gates.md`. Tasks 11 and 21 touch `test/harness/` and `.github/workflows/harness.yml`, and Task 4 touches `internal/update/`, so gate 7 (harness) applies to the branch once it is pushed, as well as on `main`; dispatch `harness.yml` on the branch per the owner's standing authorization. Dispatch `fuzz.yml` on the branch as well (`gh workflow run fuzz.yml --ref <branch>`) and record its conclusion. No task creates or pushes a tag, and no task runs `release.yml`.
 
 ## Contracts
 
-- **Test prefixes.** Task 1 `fz_` (Bash test functions in `scripts/fuzz.test.sh`); Task 3 `Ad` (`internal/apidocs`) and `Dc` (`internal/docs` helpers); Task 4 `Sd` (`cmd/darkpanel`) and `Rc` (`internal/update`); Tasks 5–10 add only fuzz targets plus helpers prefixed `fz<Task>` (for example `fz5Seeds`); Task 10's regression test for the Retry-After fix is `TestRaRetryAfterOverflow`; Task 11 `Upg` (`test/harness`: `TestUpgradeMatrix`, unit tests `TestUpgUnit*`, workflow tests `TestUpgwUnit*`); Tasks 15–19 `Du` (Task 15), `Dm` (Task 16), `Dn` (Task 17), `Dg` (Task 18) in `internal/docs`; Task 20 `Fp` (`test/harness`: `TestFootprint`, `TestFpUnit*`, `TestFpwUnit*`); Task 22 `accessibility-doc` (web test file name); Task 23 `Wc` (`internal/docs`).
+- **Test prefixes.** Task 1 `fz_` (Bash test functions in `scripts/fuzz.test.sh`); Task 3 `Ad` (`internal/apidocs`); Task 12 `Dc` (`internal/docs` helpers); Task 4 `Sd` (`cmd/darkpanel`) and `Rc` (`internal/update`); Tasks 5–10 add only fuzz targets, regression tests `TestFz<Task>*` and helpers `fz<Task>*` (for example `fz5Seeds`); Task 10's regression test for the Retry-After fix is `TestRaRetryAfterOverflow`; Task 11 `Upg` (`test/harness`: `TestUpgradeMatrix`, unit tests `TestUpgUnit*`, workflow tests `TestUpgwUnit*`); Tasks 16–19: `Du` (Task 16), `Dm` (Task 17), `Dn` (Task 18), `Dg` (Task 19) in `internal/docs`; Task 21 `Fp` (`test/harness`: `TestFootprint`, `TestFpUnit*`, `TestFpwUnit*`); Task 23 `accessibility-doc` (web test file name); Task 24 `Wc` (`internal/docs`).
 
 - **Inventory format** (Task 1, `docs/security/parsers.md`). One `#` title, an introduction, then exactly these two sections in this order:
 
@@ -80,7 +82,7 @@
   - `--shard k/n` (1 ≤ k ≤ n) keeps the triples whose 0-based index `i` satisfies `i % n == k-1`; default `1/1`.
   - Exit 2 with a `fuzz: usage:` line on an unknown option or a malformed `--shard`, `--time` or missing inventory.
 
-- **Fuzz workflow** (Task 1, `.github/workflows/fuzz.yml`): `on: push` (every branch), `schedule` (`cron: "41 2 * * *"`) and `workflow_dispatch`; `permissions: contents: read`; `env: GOTOOLCHAIN: local`; runs on `ubuntu-24.04` with `actions/checkout` and `actions/setup-go` pinned by the same SHAs `ci.yml` uses. Job `inventory`: `bash scripts/fuzz.test.sh` and `bash scripts/fuzz.sh --check`. Job `fuzz` (needs `inventory`): a `strategy.matrix.shard` of `[1, 2, 3, 4]` on push and dispatch, running `bash scripts/fuzz.sh --time 30s --shard <shard>/4`, `timeout-minutes: 60`; on `schedule` the matrix is `[1..12]` with `--time 10m --shard <shard>/12` and `timeout-minutes: 300` (W9-R2); on failure it uploads `**/testdata/fuzz/**` as an artifact.
+- **Fuzz workflow** (Task 24, `.github/workflows/fuzz.yml`): `on: push` (every branch), `schedule` (`cron: "41 2 * * *"`) and `workflow_dispatch`; `permissions: contents: read`; `env: GOTOOLCHAIN: local`; runs on `ubuntu-24.04` with `actions/checkout` and `actions/setup-go` pinned by the same SHAs `ci.yml` uses. Job `inventory`: `bash scripts/fuzz.test.sh` and `bash scripts/fuzz.sh --check`. Job `fuzz` (needs `inventory`): a `strategy.matrix.shard` of `[1, 2, 3, 4]` on push and dispatch, running `bash scripts/fuzz.sh --time 30s --shard <shard>/4`, `timeout-minutes: 60`; on `schedule` the matrix is `[1..12]` with `--time 10m --shard <shard>/12` and `timeout-minutes: 300` (W9-R2); on failure it uploads `**/testdata/fuzz/**` as an artifact.
 
 - **Fuzz targets.** Package, target, tags, the parsers it covers, and the property it asserts besides not panicking. Existing targets keep their names; "extend" means the target gains the seeds or the property named here.
 
@@ -120,7 +122,7 @@
   | 8 | `./internal/modules/derp/server` | `FuzzParseCert` | - | `ParseCert` (certificate PEM) | the error text never contains the input |
   | 8 | `./internal/modules/cloudflare/ingress` | `FuzzConfigJSON` | - | `(*Config).UnmarshalJSON`, `(*Rule).UnmarshalJSON`, `Hash` | round trip is deep-equal and `Hash` is stable |
   | 8 | `./internal/modules/cloudflare` | `FuzzServiceHost` | - | `serviceHost`, `legacyIPv4`, `serviceProblem` (tunnel service URL) | a canonical dotted quad gives the same address as `netip.ParseAddr` |
-  | 8 | `./internal/modules/npm/proxy` | `FuzzCheckUpstream` | - | `CheckUpstream`, `parseNginxIPv4`, `parseInetAton` (forward host) | a host that any of the three readings resolves to loopback is refused |
+  | 8 | `./internal/modules/npm/proxy` | `FuzzCheckUpstream` | - | `CheckUpstream`, `parseNginxIPv4`, `parseInetAton` (forward host) | the reading that counts is the first that succeeds, in `upstreamAddr`'s order; a host whose counting reading is loopback or unspecified, or that is a loopback name, is refused unless the caller is `npm.admin.expose` |
   | 9 | `./internal/update` | `FuzzParseVersion` | - | `ParseVersion`, `Compare` (release index) | `ParseVersion(v.String())` gives `v`; `Compare` is antisymmetric |
   | 9 | `./internal/update` | `FuzzChecksumFor` | - | `checksumFor` (`checksums.txt`) | a result is 64 lower-case hex characters |
   | 9 | `./internal/update` | `FuzzExtractBinary` | - | `extractBinary` (release tarball, written to `t.TempDir()`) | at most one file is written, at the destination |
@@ -163,7 +165,7 @@
   export function usePageTitle(title: string): void
   ```
 
-  Pages that call it: login (`Sign in`), hosts (`Hosts`), host (`<host name> · <tab label>`), change (`Change <short id>`), audit (`Audit log`), tokens (`API tokens`), and every global page entry of a module (its `label`) — Tasks 11 to 14 add the calls in the files they own.
+  Pages that call it: login (`Sign in`), hosts (`Hosts`), host (`<host name> · <tab label>`), change (`Change <short id>`), audit (`Audit log`), tokens (`API tokens`), and every global page entry of a module (its `label`) — Tasks 13-15 and 20 add the calls in the files they own.
 
 - **API reference** (Task 3, package `internal/apidocs`, `internal/apidocs/apidocsgen`):
 
@@ -175,7 +177,7 @@
 
   Keys: `openapi.json` (the `schema.OpenAPI` document re-indented with two spaces and a final newline), `README.md` (the index: authentication, the common `Plan`, `Change`, `ApplyRequest` and `Problem` components, the hand-written routes, and one link per module page) and `<module>.md` for `core` and every module of `reg.Modules()` that has an operation (one `##` section per action or resource in operation-id order, with its method and path, summary, minimum scope, and input and output tables rendered from the component schemas). Output is byte-for-byte deterministic. `go run ./internal/apidocs/apidocsgen -out docs/api` writes every key and deletes any other `.md` or `.json` file directly in the directory. `make api-docs` runs exactly that. The package also exports `func Write(dir string, files map[string][]byte) error`, which writes the files and removes the stale ones, for `apidocsgen` and its test. `TestAdAPIDocsCurrent` (`internal/apidocs/apidocs_test.go`) calls `Generate(registry.Build(), api.Routes())` and fails, naming the file and `run make api-docs`, when a file under `docs/api/` differs, is missing or is not a key.
 
-- **Docs checks** (Task 3, test-only package `internal/docs`, file `internal/docs/helpers_test.go`, package `docs_test`):
+- **Docs checks** (Task 12, test-only package `internal/docs`, file `internal/docs/helpers_test.go`, package `docs_test`):
 
   ```go
   // dcRoot is the repository root, found from the test's working directory.
@@ -190,15 +192,15 @@
   func dcLinks(t *testing.T, rel string)
   ```
 
-- **Documentation paths** (Tasks 15–19): `docs/user/README.md` (index linking every page below), `docs/user/install.md`, `docs/user/first-admin.md`, `docs/user/lockout-recovery.md`, `docs/user/uninstall.md`, `docs/user/administration.md` (the `core` actions: users, tokens, hosts, modules, audit, updates and rollouts, backup and restore), `docs/user/modules/<id>.md` for `hostinfo`, `firewall`, `docker`, `tailscale`, `tailnet` (Task 16) and `derp`, `npm`, `cloudflare`, `panel` (Task 17), `docs/dev/module-guide.md` (Task 18). Task 15 writes `docs/user/README.md` with links to all of them. Each docs task runs `dcLinks` only on the pages it writes, except that Task 15 does not run it on `docs/user/README.md` (it links pages Tasks 16 and 17 write in the same wave); Task 23's `TestWcDocsLinks` runs `dcLinks` on every Markdown file under `docs/user/`, `docs/dev/`, `docs/api/` and on `docs/accessibility.md`.
+- **Documentation paths** (Tasks 16–19): `docs/user/README.md` (index linking every page below), `docs/user/install.md`, `docs/user/first-admin.md`, `docs/user/lockout-recovery.md`, `docs/user/uninstall.md`, `docs/user/administration.md` (the `core` actions: users, tokens, hosts, modules, audit, updates and rollouts, backup and restore), `docs/user/modules/<id>.md` for `hostinfo`, `firewall`, `docker`, `tailscale`, `tailnet` (Task 17) and `derp`, `npm`, `cloudflare`, `panel` (Task 18), `docs/dev/module-guide.md` (Task 19). Task 16 writes `docs/user/README.md` with links to all of them. Each docs task runs `dcLinks` only on the pages it writes, except that Task 16 does not run it on `docs/user/README.md` (it links pages Tasks 17 and 18 write in the same wave); Task 24's `TestWcDocsLinks` runs `dcLinks` on every Markdown file under `docs/user/`, `docs/dev/`, `docs/api/` and on `docs/accessibility.md`.
 
 - **Harness state directory** (Task 4, `cmd/darkpanel/paths_harness.go`, `//go:build harness`): an `init` sets `addRootFlags` to register the persistent string flag `--state-dir` (help `harness only: keep every path under this directory`) bound to the package variable `harnessStateDir`, and sets `selectPaths` to return `paths.Under(harnessStateDir)` whenever `harnessStateDir != ""` — for a nil command too, which is the update rollback fallback — and `paths.Resolve(dev)` otherwise; with `--state-dir` and `--dev` both set it returns the error `--state-dir and --dev cannot be combined` (the CLI prints it after its `darkpanel: ` prefix). A build without the `harness` tag has no `--state-dir` flag.
 
 - **Upgrade matrix** (Task 11): `var upgFlag = flag.Bool("upg", false, "run TestUpgradeMatrix; needs -os and -m2, and is a go test run of its own")`. Sources file `test/harness/upgrade_sources.txt`: `#` comments and blank lines ignored, else one line per source `<version> <commit>` (a semantic version without `v`, a 40-character lower-case commit id), unique versions, ascending; its first line is `1.0.0 <commit>` (W9-R7). Builds under `bin/harness/`: `darkpanel-<source version>` per source (from that commit, tags `harnesskeys`), `darkpanel-1.1.0` (tags `harnesskeys`) and `darkpanel-1.1.1` (tags `harnesskeys,harnessbroken`) from the commit under test. Job `vm-upg` in `harness.yml` with the four-OS matrix, step `go test -tags harness -timeout 70m -v -run '^TestUpgradeMatrix$' ./test/harness/ -args -os <os> -upg -bin … -m2 … -commit … -workdir "$RUNNER_TEMP/harness-upg" -cache …`, `timeout-minutes: 90`.
 
-- **Footprint** (Task 20): `var fpFlag = flag.Bool("fp", false, "run TestFootprint; needs -os and -m2, and is a go test run of its own")`; constants `fpAgentMax = 40_000_000` and `fpControllerMax = 150_000_000` (bytes, W9-R9), `fpWarmup = 5 * time.Minute`, `fpWindow = 10 * time.Minute`, `fpSampleEvery = 10 * time.Second`, `fpHostsEvery = 15 * time.Second`, `fpExtraAgents = 9`. The extra-agent binary `bin/harness/darkpanel-<versionN>-state` is built by the `build` job with tags `harnesskeys,harness` and `-X github.com/darkraise/darkpanel/internal/buildinfo.Version=<versionN>` (`versionN` is `0.2.0`, `test/harness/m2_test.go`). Job `vm-fp` with the four-OS matrix, step `go test -tags harness -timeout 60m -v -run '^TestFootprint$' ./test/harness/ -args -os <os> -fp …`, `timeout-minutes: 80`. Task 20 also adds `go test -tags harness ./cmd/darkpanel/` to the `build` job's harness unit tests step.
+- **Footprint** (Task 21): `var fpFlag = flag.Bool("fp", false, "run TestFootprint; needs -os and -m2, and is a go test run of its own")`; constants `fpAgentMax = 40_000_000` and `fpControllerMax = 150_000_000` (bytes, W9-R9), `fpWarmup = 5 * time.Minute`, `fpWindow = 10 * time.Minute`, `fpSampleEvery = 10 * time.Second`, `fpHostsEvery = 15 * time.Second`, `fpExtraAgents = 9`. The extra-agent binary `bin/harness/darkpanel-<versionN>-state` is built by the `build` job with tags `harnesskeys,harness` and `-X github.com/darkraise/darkpanel/internal/buildinfo.Version=<versionN>` (`versionN` is `0.2.0`, `test/harness/m2_test.go`). Job `vm-fp` with the four-OS matrix, step `go test -tags harness -timeout 60m -v -run '^TestFootprint$' ./test/harness/ -args -os <os> -fp …`, `timeout-minutes: 80`. Task 21 also adds `go test -tags harness ./cmd/darkpanel/` to the `build` job's harness unit tests step.
 
-- **Conformance record** (Task 22, `docs/accessibility.md`): one `#` title; `## Scope` naming the six core flows of spec section 9; `## Criteria`, one table per flow with columns `Criterion | Level | Method | Evidence`, where Method is `automated` or `manual` and Evidence is a repository-relative path (a `*.a11y.test.tsx` file, the Playwright file, or a screenshot under `docs/accessibility/`); `## Known issues` (none open at AA when the plan ends, else each with its criterion). Screenshots from Task 21 live in `docs/accessibility/<flow>-<theme>-<check>.png`.
+- **Conformance record** (Task 23, `docs/accessibility.md`): one `#` title; `## Scope` naming the six core flows of spec section 9; `## Criteria`, one table per flow with columns `Criterion | Level | Method | Evidence`, where Method is `automated` or `manual` and Evidence is a repository-relative path (a `*.a11y.test.tsx` file, the Playwright file, or a screenshot under `docs/accessibility/`); `## Known issues` (none open at AA when the plan ends, else each with its criterion). Screenshots from Task 22 live in `docs/accessibility/<flow>-<theme>-<check>.png`.
 
 ## Assumptions (evidence)
 
@@ -208,18 +210,19 @@ All checked on 2026-11-05 at `3c5e837` unless stated.
 - `go test -fuzz` takes one package and a pattern that must match exactly one target, so the runner anchors every pattern (`^FuzzParse$` would otherwise also match `FuzzParseRestore`) — https://go.dev/doc/security/fuzz/ ("-fuzz … must match exactly one fuzz test").
 - `Makefile` already has a `fuzz` target that runs `bash scripts/fuzz.sh` and fails when the script is missing (`Makefile`, target `fuzz`), so no Makefile change is needed for 9a.
 - `internal/controller/cloud/client.go:241-242` (`retryAfter`) computes `time.Duration(s)*time.Second` from `strconv.Atoi(v)` without a bound, so a `Retry-After` of 9223372037 or more overflows to a negative duration that `max(…, time.Nanosecond)` turns into 1 ns, and `wait > maxRetryAfter` (`:145`) lets the client retry at once instead of refusing. Task 10's `FuzzRetryAfter` and `TestRaRetryAfterOverflow` pin it and Task 10 fixes it (W9-R3); the file is not frozen.
-- `internal/modules/firewall/loaded` `toolVariant` reads the first line of `iptables --version` without `strings.TrimSpace`, while the module's `checkTools` (`internal/modules/firewall/preflight.go`) trims first, so output with a leading blank line is read differently by the two: an adjacent finding, recorded by Task 23 as a register row, not fixed here (Task 7's `FuzzToolVariant` asserts only `toolVariant`'s own property). Likewise the read-only clipboard inputs of `web/src/pages/create-token-dialog.tsx` and `web/src/modules/tailnet/keys-page.tsx` lack a label (drafting audit, 2026-11-05); they are outside the core flows, so Task 23 records them as a row too. Drafting runs also found defects the tasks fix and pin: `releasetool` orders numeric pre-release identifiers above `uint64` by text, unlike `update.Version.Compare` (Task 9); the CLI's `jsonSafe` lets DEL (U+007F) reach the terminal (Task 10); heading-order and label violations in the core pages (Tasks 12, 13); a firewall status refresh remounting the open change dialog (Task 14).
+- `internal/modules/firewall/loaded` `toolVariant` reads the first line of `iptables --version` without `strings.TrimSpace`, while the module's `checkTools` (`internal/modules/firewall/preflight.go`) trims first, so output with a leading blank line is read differently by the two: an adjacent finding, recorded by Task 24 as a register row, not fixed here (Task 7's `FuzzToolVariant` asserts only `toolVariant`'s own property). Likewise the read-only clipboard inputs of `web/src/pages/create-token-dialog.tsx` and `web/src/modules/tailnet/keys-page.tsx` lack a label (drafting audit, 2026-11-05); they are outside the core flows, so Task 24 records them as a row too, together with two findings of drafting runs: `policy.Apply` does not converge on a document that names a member twice (Task 8's `FuzzApply` skips such documents), and the audit log's "Load older entries" button drops the focus to the body when the last page loads (Task 13 leaves it). Drafting runs also found defects the tasks fix and pin: `releasetool` orders numeric pre-release identifiers above `uint64` by text, unlike `update.Version.Compare` (Task 9); the CLI's `jsonSafe` lets DEL (U+007F) reach the terminal (Task 10); heading-order and label violations in the core pages (Tasks 13, 14); a firewall status refresh remounting the open change dialog (Task 15).
 - The OpenAPI document is built offline and deterministically by `schema.OpenAPI(reg, routes)` (`internal/core/schema/openapi.go:93`, `TestOpenAPIDeterministic`) from `registry.Build()` (`internal/registry/registry.go:29`) and `api.Routes()` (`internal/controller/api/routes.go:72`); the server serves the same document plus web-surface extension routes, of which none exist (`internal/controller/backup/contribute.go` contributes socket routes only). No `openapi.json` is committed today. A test in `internal/core/schema` cannot import `internal/registry` (import cycle), hence the new `internal/apidocs` package (W9-R4).
 - `make schemas` regenerates `schemas/` and `TestSnapshotsCurrent` (`internal/modules/modules_test.go:67`) fails when it is stale; `TestAdAPIDocsCurrent` follows the same pattern, so a later schema change needs `make schemas api-docs`.
 - Web: axe already runs in about 56 test files through `expect(await axe(el)).toHaveNoViolations()` with `vitest-axe/extend-expect` in `web/src/test/setup.ts`; none of `pages/login.test.tsx`, `pages/hosts.test.tsx`, `pages/host.test.tsx`, `pages/create-host-dialog.test.tsx`, `pages/change.test.tsx` runs axe; no test checks focus order or focus return. Dialogs come from `darkraise-ui` 6.9.6 (`DialogContent` uses `useFocusTrap(ref, { loop: true, restoreFocus: true })`, which restores focus only to an element still in the document); the shell's `SidebarLayout` provides a skip link, landmarks and route focus; nothing sets `document.title` (`web/index.html` has `<title>Darkpanel</title>` and `lang="en"`). axe in jsdom does not check colour contrast.
-- `@playwright/test` 1.64.0 and `axe-core` 4.14.0 are installed (`web/node_modules/.pnpm/`), Chromium is cached in `~/.cache/ms-playwright`, no `playwright.config.*` exists, and `axe-core` is not resolvable from `web/` directly (only through `vitest-axe`'s own `node_modules`): `createRequire(require.resolve("vitest-axe")).resolve("axe-core/axe.min.js")` finds it (drafting run of 2026-11-05 in a scratch copy). Playwright 1.64 pins Chromium build 1248, while `~/.cache/ms-playwright` holds builds 1217–1243 only, so the default launch fails here; `web/playwright.config.ts` reads an `E2E_CHROMIUM` executable path, and Task 21's first step verifies the launch with the cached 1243 build (CI installs the pinned build with `playwright install chromium` if the pass ever runs there). darkraise-ui writes its colour tokens as inline styles on `<html>`, so contrast overrides in `globals.css` need `!important` (drafting run, 2026-11-05). On `3c5e837` the drafted browser pass fails 27 of 88 checks (text and field-border contrast, the change dialog overflowing at 320 px); the CSS overrides and one `min-w-0` class on the change dialog make all 88 pass. Vitest's default include matches `*.spec.ts` and `*.test.ts`, and ESLint lints every `**/*.{ts,tsx,js}` in `web/` (`web/eslint.config.js`), hence the Playwright file name `web/e2e/a11y.pw.ts` (W9-R6).
+- `@playwright/test` 1.64.0 and `axe-core` 4.14.0 are installed (`web/node_modules/.pnpm/`), Chromium is cached in `~/.cache/ms-playwright`, no `playwright.config.*` exists, and `axe-core` is not resolvable from `web/` directly (only through `vitest-axe`'s own `node_modules`): `createRequire(require.resolve("vitest-axe")).resolve("axe-core/axe.min.js")` finds it (drafting run of 2026-11-05 in a scratch copy). Playwright 1.64 pins Chromium build 1248, while `~/.cache/ms-playwright` holds builds 1217–1243 only, so the default launch fails here; `web/playwright.config.ts` reads an `E2E_CHROMIUM` executable path, and Task 22's first step verifies the launch with the cached 1243 build (CI installs the pinned build with `playwright install chromium` if the pass ever runs there). darkraise-ui writes its colour tokens as inline styles on `<html>`, so contrast overrides in `globals.css` need `!important` (drafting run, 2026-11-05). On `3c5e837` the drafted browser pass fails 27 of 88 checks (text and field-border contrast, the change dialog overflowing at 320 px); the CSS overrides and one `min-w-0` class on the change dialog make all 88 pass. Vitest's default include matches `*.spec.ts` and `*.test.ts`, and ESLint lints every `**/*.{ts,tsx,js}` in `web/` (`web/eslint.config.js`), hence the Playwright file name `web/e2e/a11y.pw.ts` (W9-R6).
 - Harness: the M2 update scenarios use `versionN = 0.2.0` … `versionMigration = 0.3.4` (`test/harness/m2_test.go`), `serveReleases` publishes `m2Versions` only (`m2_test.go:177`), `scenarioInstall` installs `versionN` (`:231`) and `failedUpdate` ends at `requireFleetVersion(versionGood)` (`m2_update_test.go:198`), so Task 11 adds version-parameterised forms. The updater orders pre-releases by semver 2.0 §11 (`internal/update/version.go`, `comparePrerelease`) and refuses a cross-major step (`Steps`); `version_test.go` has no `rc.2` against `rc.10` row and no `1.0.0-rc.1` → `1.0.0` step. `make harness-builds HARNESS_BUILDS=… HARNESS_DIR=…` overrides both variables from the command line. No git tag exists, so the only upgrade source is the baseline.
 - `selectPaths` call sites: `serve` (`cmd/darkpanel/main.go:180`), `agent run`, `enroll`, `check`, `task` (`agent.go:246`, `:302`, `:380`, `:416`), `withUpdater` (`update.go:58`) and the rollback fallback with a nil command (`update.go:229`); `cmd/darkpanel/paths_test.go` swaps the hooks through `psSwap`, but no test pins which command each call site passes (register row 107). `paths.Under(root)` moves every path of `paths.Paths` under one directory (`internal/paths/paths.go:83`). `.golangci.yml` lints with the `harness` build tag.
-- Every module is `DefaultEnabled: true`; `core.module.disable/v1` takes `coreactions.ModuleInput{HostID, ModuleID}` (`internal/controller/coreactions/enablement.go`); the only agent background task is `firewall.reconcile` (`internal/modules/firewall/reconcile.go`). That nine extra agents on the agent VM can enroll under `--state-dir`, run as `systemd-run` units, and have every module but `hostinfo` disabled before their firewall preflight starts a reconcile: unverified — Task 20 verifies it in its first harness step.
-- **Not fuzzed** (each goes in the `## Not fuzzed` table with this reason): typed `encoding/json` decoding of provider API responses (Docker, Tailscale, Cloudflare, NPM) and of the agent's mTLS peer — stdlib decoding into typed structs, no hand-written parser; `systemd` state through D-Bus — typed D-Bus decoding; Darkpanel's own database rows and root-owned state (`auth.parsePHC`, firewall journal state, `update.ReadRecord`, `ValidateStaged`) — written only by Darkpanel; `backup.Read` as a whole — every input runs Argon2id at 64 MiB or more, so its header and frames are fuzzed separately; `netstat` process ownership through `/proc/<pid>/fd` — a file walk without a text grammar; trivial single-call readers (`held`, `lastLine`, `legacyTables`, `readRPFilter`, `readSysctl`) — no grammar beyond `strings.TrimSpace` or `strconv.Atoi`; repository-owned inputs (`LoadPins` of `images.json`, CLI flags parsed by cobra).
-- No task carries an **Executor:** line unless the External executors line below says otherwise (the agy offer of 2026-11-05).
+- Every module is `DefaultEnabled: true`; `core.module.disable/v1` takes `coreactions.ModuleInput{HostID, ModuleID}` (`internal/controller/coreactions/enablement.go`); the only agent background task is `firewall.reconcile` (`internal/modules/firewall/reconcile.go`). That nine extra agents on the agent VM can enroll under `--state-dir`, run as `systemd-run` units, and have every module but `hostinfo` disabled before their firewall preflight starts a reconcile: unverified — Task 21 verifies it in its first harness step.
+- **Not fuzzed** (each goes in the `## Not fuzzed` table with this reason): typed `encoding/json` decoding of provider API responses (Docker, Tailscale, Cloudflare, NPM) and of the agent's mTLS peer — stdlib decoding into typed structs, no hand-written parser; `systemd` state through D-Bus — typed D-Bus decoding; Darkpanel's own database rows and root-owned state (`auth.parsePHC`, firewall journal state, `update.ReadRecord`, `ValidateStaged`) — written only by Darkpanel; the update mirror's release index (`releases.json`) — typed `encoding/json` decoding after a size bound and a format-version check; the minisign signatures that `update.VerifyChecksums` checks — parsed by the third-party `aead.dev/minisign`; `backup.Read` as a whole — every input runs Argon2id at 64 MiB or more, so its header and frames are fuzzed separately; `netstat` process ownership through `/proc/<pid>/fd` — a file walk without a text grammar; trivial single-call readers (`held`, `lastLine`, `legacyTables`, `readRPFilter`, `readSysctl`) — no grammar beyond `strings.TrimSpace` or `strconv.Atoi`; repository-owned inputs (`LoadPins` of `images.json`, CLI flags parsed by cobra).
+- Scoring (ladder.md): Files counts file shapes as the v1 wave 7 and wave 8 plans did, pairing a test file with the file it tests and counting test files that apply one given pattern (the fuzz targets, the `*.a11y.test.tsx` files) as one shape; a generated output counts with the command that writes it. The fuzz tasks score spec 1 because their targets are given whole and only the named fixes are prose. Rule S split two drafted tasks: the fuzz workflow moved from Task 1 to Task 24, and the docs-check helpers moved from Task 3 to Task 12.
+- No task carries an **Executor:** line: codex is off by setting, and the agy offer of 2026-11-05 got no answer within 15 minutes, so the plan is Claude-only.
 
-**Plan rulings** (Task 23 copies them into spec section 9):
+**Plan rulings** (Task 24 copies them into spec section 9):
 
 - **W9-R1 inventory.** `docs/security/parsers.md` lists every parser of host-tool output, config files and untrusted input under `## Fuzzed parsers`, each with its target, and the parsers that are not fuzzed under `## Not fuzzed`, each with a reason; the check fails when a fuzzed row has no target or a target has no row.
 - **W9-R2 budgets.** Every push runs each target for 30 s in four shards; the nightly run gives each target 10 minutes in twelve shards, so no job exceeds GitHub's six-hour limit; both run on GitHub-hosted `ubuntu-24.04`.
@@ -227,16 +230,16 @@ All checked on 2026-11-05 at `3c5e837` unless stated.
 - **W9-R4 API reference.** `internal/apidocs` renders `docs/api/openapi.json` and one Markdown page per module from `schema.OpenAPI(registry.Build(), api.Routes())`; `make api-docs` writes it; the CI check is `TestAdAPIDocsCurrent` in the existing `go` job, so `ci.yml` does not change.
 - **W9-R5 documentation checks.** `internal/docs` (tests only) reads the registry and the CLI facts the pages must name — every non-internal action and resource of each module on its page, every flag of `darkpanel uninstall` and every declared module uninstall option, the break-glass user commands, and the identifiers the module guide teaches — so a page goes stale visibly.
 - **W9-R6 accessibility method.** Automated: `*.a11y.test.tsx` files with `expectNoAxeViolations` and keyboard tests through `tabSequence` and `focusedName` on every page and dialog of the core flows; page titles through `usePageTitle`. Manual: `web/e2e/a11y.pw.ts`, run with `pnpm -C web exec playwright test -c playwright.config.ts`, renders the same flows in Chromium against fixtures, runs axe's contrast rules in both themes, checks 200 % zoom and 320 px reflow for horizontal scrolling, reads the change dialog's accessible names, and saves screenshots under `docs/accessibility/`; contrast fixes are CSS variable overrides in `web/src/styles/globals.css`. The first-admin and lockout-recovery pages are Markdown documents, checked manually for heading order and link text.
-- **W9-R7 upgrade sources.** `test/harness/upgrade_sources.txt` lists the upgrade sources; its first source is `1.0.0` at the commit wave 9 starts from (`git merge-base HEAD main` in Task 11's worktree), and each later real `v1.*` tag is added as a line. The `build` job builds every source from its commit through a `git worktree` with `fetch-depth: 0`, and the build under test as `1.1.0` and its broken twin as `1.1.1`.
+- **W9-R7 upgrade sources.** `test/harness/upgrade_sources.txt` lists the upgrade sources; its first source is `1.0.0` at the commit wave 9 starts from, `3c5e837d976666d556d0fa1939b7636c67be2a64`, and each later real `v1.*` tag is added as a line. The `build` job builds every source from its commit through a `git worktree` with `fetch-depth: 0`, and the build under test as `1.1.0` and its broken twin as `1.1.1`.
 - **W9-R8 upgrade scenarios.** For each source: install controller and agent at the source version, roll out `1.1.0` while `hostinfo.summary` answers on the agent host one minor behind, then roll out `1.1.1`, which rolls back within two minutes and leaves the fleet at `1.1.0`.
 - **W9-R9 footprint.** Megabytes are decimal: the agent's `VmRSS` stays at most 40 000 000 bytes and the controller's at most 150 000 000 bytes. The controller manages its own host, the agent VM and nine extra agents on the agent VM (eleven hosts, more than S6's ten); the extra agents run the `harness`-tagged build under `--state-dir` as `systemd-run` units with only `hostinfo` enabled.
 - **W9-R10 state directory.** `--state-dir` exists only in `harness` builds, binds to a package variable so the nil-command rollback fallback honours it, and refuses `--dev`.
 
 ## Task index
 
-1. fuzz: parser inventory, runner script and workflow
+1. fuzz: parser inventory and runner script
 2. web: accessibility test helpers and page titles
-3. docs: API reference generator and docs check helpers
+3. docs: API reference generator
 4. cmd: harness --state-dir and selectPaths call sites
 5. fuzz: platform clients and parsers
 6. fuzz: docker module parsers
@@ -245,36 +248,38 @@ All checked on 2026-11-05 at `3c5e837` unless stated.
 9. fuzz: update, release, transport, hostinfo and harness parsers
 10. fuzz: backup, secrets, cloud client, events, CLI and install parsers
 11. harness: TestUpgradeMatrix and the vm-upg job
-12. web a11y: login, hosts, host page and create-host dialog
-13. web a11y: change dialog and change pages
-14. web a11y: firewall change flow
-15. docs: install, first admin, lockout recovery, uninstall and administration
-16. docs: module pages for hostinfo, firewall, docker, tailscale and tailnet
-17. docs: module pages for derp, npm, cloudflare and panel
-18. docs: module developer guide
-19. web a11y: container actions and expose flows
-20. harness: TestFootprint and the vm-fp job
-21. web a11y: browser pass for contrast, zoom and reflow
-22. docs: accessibility conformance record
-23. wave close: inventory check, findings and spec rulings
+12. docs: documentation check helpers
+13. web a11y: login, hosts, host page and create-host dialog
+14. web a11y: change dialog and change pages
+15. web a11y: firewall change flow
+16. docs: install, first admin, lockout recovery, uninstall and administration
+17. docs: module pages for hostinfo, firewall, docker, tailscale and tailnet
+18. docs: module pages for derp, npm, cloudflare and panel
+19. docs: module developer guide
+20. web a11y: container actions and expose flows
+21. harness: TestFootprint and the vm-fp job
+22. web a11y: browser pass for contrast, zoom and reflow
+23. docs: accessibility conformance record
+24. wave close: fuzz workflow, inventory check, findings and spec rulings
 
 ---
 
-### Task 1: fuzz: parser inventory, runner script and workflow
+### Task 1: fuzz: parser inventory and runner script
 
 **Files:**
 - Create: `docs/security/parsers.md`
 - Create: `scripts/fuzz.sh`
 - Create: `scripts/fuzz.test.sh`
-- Create: `.github/workflows/fuzz.yml`
 
 **Interfaces:**
-- Consumes: none. The rows of the inventory come from Contracts "Fuzz targets" and Assumptions "Not fuzzed". Read, not edited: `Makefile` (target `fuzz` already runs `bash scripts/fuzz.sh`), `.github/workflows/ci.yml` (the action SHAs), `scripts/check-adrs.sh` and `scripts/check-adrs.test.sh` (the house style of a Bash script and its test: `set -euo pipefail`, awk instead of grep, an `expect` helper, a final `<n> passed, <m> failed` line).
-- Produces: Contracts "Inventory format", "Fuzz runner" and "Fuzz workflow", and the real inventory: 57 distinct `(package, target, tags)` triples, 12 of which exist on the base. Tasks 5-10 add the other 45 targets under the names the inventory fixes; Task 23 runs `bash scripts/fuzz.sh --check` for real.
+- Consumes: none. The rows of the inventory come from Contracts "Fuzz targets" and Assumptions "Not fuzzed". Read, not edited: `Makefile` (target `fuzz` already runs `bash scripts/fuzz.sh`), `scripts/check-adrs.sh` and `scripts/check-adrs.test.sh` (the house style of a Bash script and its test: `set -euo pipefail`, awk instead of grep, an `expect` helper, a final `<n> passed, <m> failed` line).
+- Produces: Contracts "Inventory format" and "Fuzz runner", and the real inventory: 57 distinct `(package, target, tags)` triples, 12 of which exist on the base. Tasks 5-10 add the other 45 targets under the names the inventory fixes; Task 24 runs `bash scripts/fuzz.sh --check` for real.
 
 **Items:** 38
 
 **Depends on:** none
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
 
 - [ ] **Step 1: Write the failing test**
 
@@ -616,6 +621,8 @@ A cell never contains a pipe character. Several rows may name one `(Package, Tar
 | Firewall journal state | the firewall journal rows | written only by Darkpanel |
 | `update.ReadRecord` | update transaction records under the update directory | root-owned state that only Darkpanel writes |
 | `ValidateStaged` | the staged update binary and its record | root-owned state that only Darkpanel writes |
+| Release index decoding (`update` source `releases.json`) | the release index of the update mirror | `encoding/json` decodes into typed structs after a size bound, and the format version is checked; there is no hand-written parser |
+| Signature parsing in `update.VerifyChecksums` | the minisign signatures of `checksums.txt` from the update mirror | parsed and verified by the third-party `aead.dev/minisign`; Darkpanel's own code only compares the parsed algorithm and trusted comment |
 | `backup.Read` as a whole | a `.dpbk` backup file | every input runs Argon2id at 64 MiB or more, so the header and the frames are fuzzed separately by `FuzzReadHeader` and `FuzzFrames` |
 | Process ownership in `netstat` | `/proc/<pid>/fd` links | a file walk without a text grammar |
 | `held` | a single value read from the host | no grammar beyond `strings.TrimSpace` |
@@ -635,68 +642,6 @@ A cell never contains a pipe character. Several rows may name one `(Package, Tar
    - `--check`: a triple is satisfied when a `*_test.go` file directly in the package directory (the package without its leading `./`; subdirectories do not count) has a line matching `^func <target>\(f \*testing\.F\)` (`FuzzParseRestore` does not satisfy `FuzzParse`). Print `fuzz: <package>: no target <target>` to standard error for each unsatisfied triple in inventory order. Then find every `^func Fuzz[A-Za-z0-9_]*\(f \*testing\.F\)` in the `*_test.go` files under those of `cmd`, `internal`, `release` and `test` that exist; the package of a hit is `./` plus the directory of its file; print `fuzz: <package>: <target> is not in the inventory` to standard error for each hit whose `<package> <target>` pair is in no inventory row, in byte order of the pair, without duplicates. Exit 1 when any line was printed. Otherwise print `fuzz: inventory ok (<n> targets)` to standard output, `n` being the number of distinct triples of the whole inventory, and exit 0.
    - Run mode: run the check first and exit 1 with its lines when it fails, running nothing. Then, for each triple of the shard in order, run `go test -run '^$' -fuzz '^<target>$' -fuzztime <time>`, with `-tags <tags>` added when Tags is not `-`, then the package, finding `go` through `PATH`. The output of `go test` passes through. A failing run prints `fuzz: FAIL <package> <target>` to standard error and the loop continues with the next triple. Exit 1 when any run failed, else 0 (an empty shard runs nothing and exits 0).
 
-3. `.github/workflows/fuzz.yml` is configuration (Contracts "Fuzz workflow"); create it with exactly this content. The SHAs are the ones `ci.yml` pins. The matrix and budgets follow W9-R2 and the nightly job's `timeout-minutes` follows the ruling that no job exceeds GitHub's six-hour limit.
-
-```yaml
-name: Fuzz
-
-on:
-  push:
-  schedule:
-    - cron: "41 2 * * *"
-  workflow_dispatch:
-
-permissions:
-  contents: read
-
-env:
-  GOTOOLCHAIN: local
-
-jobs:
-  inventory:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: go.sum
-          # The runner caches an older 1.27.x than go.mod's toolchain line.
-          check-latest: true
-      - run: bash scripts/fuzz.test.sh
-      - run: bash scripts/fuzz.sh --check
-
-  fuzz:
-    needs: inventory
-    runs-on: ubuntu-24.04
-    # Every push runs each target for 30 s in four shards; the nightly run
-    # gives each target 10 minutes in twelve shards, so no job nears GitHub's
-    # six-hour limit.
-    timeout-minutes: ${{ github.event_name == 'schedule' && 300 || 60 }}
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: ${{ fromJSON(github.event_name == 'schedule' && '[1,2,3,4,5,6,7,8,9,10,11,12]' || '[1,2,3,4]') }}
-    env:
-      FUZZ_TIME: ${{ github.event_name == 'schedule' && '10m' || '30s' }}
-      FUZZ_SHARDS: ${{ github.event_name == 'schedule' && '12' || '4' }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: go.sum
-          # The runner caches an older 1.27.x than go.mod's toolchain line.
-          check-latest: true
-      - run: bash scripts/fuzz.sh --time "$FUZZ_TIME" --shard "${{ matrix.shard }}/$FUZZ_SHARDS"
-      - if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: fuzz-failures-${{ matrix.shard }}
-          path: "**/testdata/fuzz/**"
-          if-no-files-found: ignore
-```
-
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run:
@@ -708,16 +653,15 @@ timeout 60 shellcheck scripts/fuzz.sh scripts/fuzz.test.sh
 timeout 60 bash scripts/fuzz.sh --list | wc -l
 timeout 120 bash scripts/fuzz.sh --check 2>&1 | grep -c ': no target '
 timeout 120 bash scripts/fuzz.sh --check 2>&1 | grep -c 'is not in the inventory'
-timeout 60 python3 -c 'import yaml; yaml.safe_load(open(".github/workflows/fuzz.yml"))'
 timeout 300 go mod tidy -diff
 ```
 
-Expected, in order: `fuzz tests: 40 passed, 0 failed`; no shellcheck output; `57`; `45`; `0`; no output from the YAML parse (if PyYAML is not installed, say so in the report and skip it); no output from `go mod tidy -diff`. The real `bash scripts/fuzz.sh --check` exits 1 here and `make fuzz` fails the same way: the 45 targets that Tasks 5-10 add do not exist yet, and the 12 existing ones (`FuzzParseBootstrap`, `FuzzParse`, `FuzzParseRestore`, the five `hostinfo` targets, `FuzzParseTuple`, `FuzzReadFiles`, `FuzzParseNFTTable`, `FuzzEdit`) are in the inventory, so `0` orphans is the check that the inventory names every existing target. Quote the outputs. Then `rm -rf /root/.cache/w9-tmp/1` and `go clean -testcache`.
+Expected, in order: `fuzz tests: 40 passed, 0 failed`; no shellcheck output; `57`; `45`; `0`; no output from `go mod tidy -diff`. The real `bash scripts/fuzz.sh --check` exits 1 here and `make fuzz` fails the same way: the 45 targets that Tasks 5-10 add do not exist yet, and the 12 existing ones (`FuzzParseBootstrap`, `FuzzParse`, `FuzzParseRestore`, the five `hostinfo` targets, `FuzzParseTuple`, `FuzzReadFiles`, `FuzzParseNFTTable`, `FuzzEdit`) are in the inventory, so `0` orphans is the check that the inventory names every existing target. Quote the outputs. Then `rm -rf /root/.cache/w9-tmp/1` and `go clean -testcache`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add docs/security/parsers.md scripts/fuzz.sh scripts/fuzz.test.sh .github/workflows/fuzz.yml
+git add docs/security/parsers.md scripts/fuzz.sh scripts/fuzz.test.sh
 git commit -m "feat(fuzz): add the parser inventory and runner"
 ```
 
@@ -731,11 +675,13 @@ git commit -m "feat(fuzz): add the parser inventory and runner"
 
 **Interfaces:**
 - Consumes: none. Read, not edited: `web/src/test/setup.ts` (loads `vitest-axe/extend-expect`, cleans up after each test), `web/src/test/utils.tsx`, `web/src/test/axe.test.tsx` (the existing axe usage), `web/vitest.config.ts` (jsdom, `@` alias).
-- Produces: Contracts "Accessibility helpers" (`expectNoAxeViolations`, `tabSequence`, `focusedName`) and "Page title" (`usePageTitle`). Tasks 12-14, 19 and 21 import the helpers; Tasks 12-14 and 19 call `usePageTitle`.
+- Produces: Contracts "Accessibility helpers" (`expectNoAxeViolations`, `tabSequence`, `focusedName`) and "Page title" (`usePageTitle`). Tasks 13-15, 20 and 22 import the helpers; Tasks 13-15 and 20 call `usePageTitle`.
 
 **Items:** 41
 
 **Depends on:** none
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
 
 - [ ] **Step 1: Write the failing test**
 
@@ -871,7 +817,7 @@ Expected: both suites fail to load, with `Failed to resolve import "./page-title
 1. `web/src/lib/page-title.ts` exports `usePageTitle(title: string): void`, a hook built on `useEffect` that depends on `title`. When the effect runs it reads `document.title` as the previous title, sets `document.title` to `"<title> · Darkpanel"` (the separator is a space, U+00B7, a space), or to `"Darkpanel"` when `title` is `""`, and returns a cleanup that sets `document.title` back to the previous title. Reading the previous title inside the effect, not at render time, is what keeps a page that replaces another in the same commit correct: React runs every cleanup of a commit before any new effect, so the new page captures the restored title and then overwrites it. Give the export the doc comment of Contracts "Page title".
 2. `web/src/test/a11y.ts` exports the three functions of Contracts "Accessibility helpers", each with its doc comment:
    - `expectNoAxeViolations(el)` runs `axe` from `vitest-axe` on `el`. With no violation it resolves. Otherwise it throws an `Error` whose message is `axe found <n> violation(s):` followed, for each violation, by a newline and `<rule id>: <target>, <target>`, where each target is the node's `target` array joined with a space. It does not use `toHaveNoViolations`, whose message is a long formatted report.
-   - `focusedName()` returns `""` when `document.activeElement` is not an `HTMLElement` or is `document.body`. Otherwise it returns the accessible name of that element. Contracts says the name comes from `@testing-library/dom`'s `computeAccessibleName`, but that package does not export it, and `dom-accessibility-api`, which holds it, is not resolvable from `web/` (pnpm strict layout) and no task may change `web/package.json`. Use what `@testing-library/dom` does export: find the role the element has through `getRoles(document.body)` (the entry whose elements include it), then call `queryAllByRole(document.body, role, { hidden: true, name: (accessibleName, node) => ... })` whose `name` callback records `accessibleName` when `node` is the element and returns `false`. The recorded value is the name that `dom-accessibility-api` computed. An element that has no role returns `""`.
+   - `focusedName()` returns `""` when `document.activeElement` is not an `HTMLElement` or is `document.body`. Otherwise it returns the accessible name of that element. `dom-accessibility-api`, which computes it, is not resolvable from `web/` (pnpm strict layout) and no task may change `web/package.json`. Use what `@testing-library/dom` does export: find the role the element has through `getRoles(document.body)` (the entry whose elements include it), then call `queryAllByRole(document.body, role, { hidden: true, name: (accessibleName, node) => ... })` whose `name` callback records `accessibleName` when `node` is the element and returns `false`. The recorded value is the name that `dom-accessibility-api` computed. An element that has no role returns `""`.
    - `tabSequence(user, count, opts)` presses Tab `count` times with `await user.tab({ shift: opts.backwards === true })` (`opts` defaults to `{}`), pushing `focusedName()` after each press, and returns the names.
 
 - [ ] **Step 4: Run the tests to verify they pass**
@@ -893,7 +839,7 @@ git add web/src/test/a11y.ts web/src/test/a11y.test.tsx web/src/lib/page-title.t
 git commit -m "feat(web): add a11y test helpers and page titles"
 ```
 
-### Task 3: docs: API reference generator and docs check helpers
+### Task 3: docs: API reference generator
 
 **Files:**
 - Create: `internal/apidocs/apidocs.go` (package `apidocs`: `Generate`, `Write`)
@@ -902,16 +848,16 @@ git commit -m "feat(web): add a11y test helpers and page titles"
 - Create: `internal/apidocs/apidocsgen/main.go` (package `main`)
 - Create: `docs/api/**` (generated by `make api-docs`, never written by hand)
 - Modify: `Makefile` (add the `api-docs` target and its name on the `.PHONY` line)
-- Create: `internal/docs/helpers_test.go` (package `docs_test`; the Contracts "Docs checks" helpers)
-- Create: `internal/docs/helpers_check_test.go` (package `docs_test`; tests of the helpers)
 
 **Interfaces:**
 - Consumes: `schema.OpenAPI(reg, routes)`, `schema.Route`, `registry.Build()`, `api.Routes()` and `core.RequiredScope`, all existing. Read, not edited: `internal/core/schema/openapi.go`, `internal/core/schema/schemagen/main.go` (the shape of a generator command), `internal/registry/registry.go`, `internal/controller/api/routes.go`, `internal/modules/modules_test.go` (`TestSnapshotsCurrent`, the pattern of `TestAdAPIDocsCurrent`), `internal/core/contract.go` (`ActionSpec`, `ResourceDef`, `Manifest`), `internal/core/scope.go`.
-- Produces: Contracts "API reference" (`apidocs.Generate`, `docs/api/**`, `make api-docs`, `TestAdAPIDocsCurrent`) and Contracts "Docs checks" (`dcRoot`, `dcRead`, `dcMentions`, `dcModuleNames`, `dcLinks`). The package also exports `apidocs.Write(dir string, files map[string][]byte) error`, which `apidocsgen` and `TestAdWriteReplacesTheGeneratedFiles` use. Tasks 15-19 and 23 use the `dc` helpers; Tasks 15-19 each run them on the pages they write.
+- Produces: Contracts "API reference" (`apidocs.Generate`, `docs/api/**`, `make api-docs`, `TestAdAPIDocsCurrent`). The package also exports `apidocs.Write(dir string, files map[string][]byte) error`, which `apidocsgen` and `TestAdWriteReplacesTheGeneratedFiles` use. Tasks 16, 18, 19 and 24 link to or regenerate `docs/api/`.
 
 **Items:** 43
 
 **Depends on:** none
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 0 = 5
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1331,241 +1277,6 @@ func TestAdAPIDocsCurrent(t *testing.T) {
 }
 ```
 
-Create `internal/docs/helpers_test.go`. These are the Contracts "Docs checks" helpers. `dcMissing` and `dcBroken` hold the logic of `dcMentions` and `dcLinks` as functions that return their findings, so `helpers_check_test.go` can test the failure paths without failing a test. Reference-style Markdown links (`[text][label]`) are not read: pages use inline links.
-
-````go
-package docs_test
-
-import (
-	"os"
-	"path"
-	"path/filepath"
-	"regexp"
-	"slices"
-	"strings"
-	"testing"
-
-	"github.com/darkraise/darkpanel/internal/registry"
-)
-
-// dcRoot is the repository root, found from the test's working directory.
-func dcRoot(t *testing.T) string {
-	t.Helper()
-	dir, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatal("no go.mod in the working directory or any directory above it")
-		}
-		dir = parent
-	}
-}
-
-// dcRead returns the file at the slash path rel under the root, failing when it is missing.
-func dcRead(t *testing.T, rel string) string {
-	t.Helper()
-	b, err := os.ReadFile(filepath.Join(dcRoot(t), filepath.FromSlash(rel))) //nolint:gosec // G304: a path under the repository root
-	if err != nil {
-		t.Fatalf("%s: %v", rel, err)
-	}
-	return string(b)
-}
-
-// dcMissing returns the names that text does not contain verbatim, in order.
-func dcMissing(text string, names []string) []string {
-	var missing []string
-	for _, name := range names {
-		if !strings.Contains(text, name) {
-			missing = append(missing, name)
-		}
-	}
-	return missing
-}
-
-// dcMentions fails once per name that the file at rel does not contain verbatim, naming both.
-func dcMentions(t *testing.T, rel string, names ...string) {
-	t.Helper()
-	for _, name := range dcMissing(dcRead(t, rel), names) {
-		t.Errorf("%s does not mention %q", rel, name)
-	}
-}
-
-// dcModuleNames returns the sorted names of every action and resource of module id in registry.Build() whose Spec is not Internal.
-func dcModuleNames(t *testing.T, id string) []string {
-	t.Helper()
-	reg, err := registry.Build()
-	if err != nil {
-		t.Fatalf("registry.Build: %v", err)
-	}
-	m, ok := reg.Module(id)
-	if !ok {
-		t.Fatalf("the registry has no module %q", id)
-	}
-	var names []string
-	for _, a := range m.Actions {
-		if !a.Spec.Internal {
-			names = append(names, a.Spec.Name)
-		}
-	}
-	for _, r := range m.Resources {
-		names = append(names, r.Name)
-	}
-	slices.Sort(names)
-	return slices.Compact(names)
-}
-
-// dcLinkPattern matches the target of an inline Markdown link or image: the
-// text after "](" up to the closing parenthesis, a space before a title, or
-// the closing angle bracket of a <target>.
-var dcLinkPattern = regexp.MustCompile(`\]\(\s*(<[^>]*>|[^)\s]*)`)
-
-// dcSchemePattern matches a URL scheme such as https: or mailto:.
-var dcSchemePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*:`)
-
-// dcBroken returns, in order of appearance and as written, the relative link
-// targets in text, the content of the file at rel under root, that name no
-// existing file or directory. Links inside fenced code blocks, links with a
-// URL scheme and links to an anchor of the same file are skipped; a leading
-// slash means the repository root.
-func dcBroken(root, rel, text string) []string {
-	var broken []string
-	fenced := false
-	for _, line := range strings.Split(text, "\n") {
-		if strings.HasPrefix(strings.TrimLeft(line, " "), "```") {
-			fenced = !fenced
-			continue
-		}
-		if fenced {
-			continue
-		}
-		for _, m := range dcLinkPattern.FindAllStringSubmatch(line, -1) {
-			written := m[1]
-			target := strings.TrimSuffix(strings.TrimPrefix(written, "<"), ">")
-			if i := strings.IndexAny(target, "#?"); i >= 0 {
-				target = target[:i]
-			}
-			if target == "" || dcSchemePattern.MatchString(target) {
-				continue
-			}
-			var file string
-			if strings.HasPrefix(target, "/") {
-				file = filepath.Join(root, filepath.FromSlash(target))
-			} else {
-				file = filepath.Join(root, filepath.FromSlash(path.Dir(rel)), filepath.FromSlash(target))
-			}
-			if _, err := os.Stat(file); err != nil {
-				broken = append(broken, strings.TrimSuffix(strings.TrimPrefix(written, "<"), ">"))
-			}
-		}
-	}
-	return broken
-}
-
-// dcLinks fails once per relative Markdown link in the file at rel whose target file does not exist.
-func dcLinks(t *testing.T, rel string) {
-	t.Helper()
-	for _, target := range dcBroken(dcRoot(t), rel, dcRead(t, rel)) {
-		t.Errorf("%s links %s, which does not exist", rel, target)
-	}
-}
-````
-
-Create `internal/docs/helpers_check_test.go`:
-
-````go
-package docs_test
-
-import (
-	"os"
-	"path/filepath"
-	"slices"
-	"strings"
-	"testing"
-)
-
-func TestDcRootIsTheRepositoryRoot(t *testing.T) {
-	root := dcRoot(t)
-	for _, rel := range []string{"go.mod", filepath.Join("internal", "docs")} {
-		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
-			t.Errorf("dcRoot = %s, which has no %s: %v", root, rel, err)
-		}
-	}
-}
-
-func TestDcReadReturnsTheFile(t *testing.T) {
-	if got := dcRead(t, "go.mod"); !strings.HasPrefix(got, "module github.com/darkraise/darkpanel\n") {
-		t.Errorf("dcRead(go.mod) starts %.60q, want the module line", got)
-	}
-}
-
-func TestDcMentionsAcceptsAFileThatNamesEveryName(t *testing.T) {
-	dcMentions(t, "go.mod", "module github.com/darkraise/darkpanel", "go 1.27")
-}
-
-func TestDcMissingListsEachAbsentName(t *testing.T) {
-	got := dcMissing("alpha beta", []string{"alpha", "gamma", "Beta", "delta", "gamma"})
-	if want := []string{"gamma", "Beta", "delta", "gamma"}; !slices.Equal(got, want) {
-		t.Errorf("dcMissing = %q, want %q: every absent name in order, matched verbatim and case-sensitively", got, want)
-	}
-	if got := dcMissing("alpha", nil); len(got) != 0 {
-		t.Errorf("dcMissing with no names = %q, want none", got)
-	}
-}
-
-func TestDcModuleNames(t *testing.T) {
-	if got, want := dcModuleNames(t, "hostinfo"), []string{"hostinfo.summary"}; !slices.Equal(got, want) {
-		t.Errorf("dcModuleNames(hostinfo) = %q, want %q: a resource counts", got, want)
-	}
-	cf := dcModuleNames(t, "cloudflare")
-	if !slices.IsSorted(cf) || len(slices.Compact(slices.Clone(cf))) != len(cf) {
-		t.Errorf("dcModuleNames(cloudflare) = %q, want sorted names without duplicates", cf)
-	}
-	if !slices.Contains(cf, "cloudflare.tunnel.list") {
-		t.Errorf("dcModuleNames(cloudflare) = %q, want cloudflare.tunnel.list among them", cf)
-	}
-	if slices.Contains(cf, "cloudflare.tunnel.token") {
-		t.Errorf("dcModuleNames(cloudflare) lists cloudflare.tunnel.token, an Internal action")
-	}
-	if core := dcModuleNames(t, "core"); !slices.Contains(core, "core.token.create") {
-		t.Errorf("dcModuleNames(core) = %q, want core.token.create among them", core)
-	}
-}
-
-func TestDcBrokenLinks(t *testing.T) {
-	root := t.TempDir()
-	for _, rel := range []string{"docs/user/a.md", "docs/user/b.md", "docs/README.md", "docs/api/openapi.json"} {
-		path := filepath.Join(root, filepath.FromSlash(rel))
-		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	text := strings.Join([]string{
-		"[ok](b.md) [up](../README.md#top) [rooted](/docs/README.md) [missing](nope.md) [dir](../api/)",
-		"[web](https://example.com/x) [mail](mailto:a@example.com) [anchor](#here) [titled](b.md \"A title\")",
-		"[angled](<b.md>) [fragment](gone.md#sec) [query](b.md?x=1) [rootless](/docs/gone.md)",
-		"![image](pic.png) and text [not a link] (b.md)",
-		"```sh",
-		"[hidden](hidden.md)",
-		"```",
-		"[after the fence](after.md)",
-	}, "\n")
-	got := dcBroken(root, "docs/user/a.md", text)
-	want := []string{"nope.md", "gone.md#sec", "/docs/gone.md", "pic.png", "after.md"}
-	if !slices.Equal(got, want) {
-		t.Errorf("dcBroken = %q, want %q", got, want)
-	}
-}
-````
-
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run:
@@ -1573,10 +1284,9 @@ Run:
 ```bash
 mkdir -p /root/.cache/w9-tmp/3 && export TMPDIR=/root/.cache/w9-tmp/3 GOTOOLCHAIN=local
 timeout 300 go test -count=1 ./internal/apidocs/
-timeout 300 go test -count=1 -run 'TestDc' ./internal/docs/
 ```
 
-Expected: the first fails with `no non-test Go files in <repository>/internal/apidocs` and `FAIL ... [build failed]`. The second builds and passes: the helpers exist in the same task, and their tests exercise code that is complete in `helpers_test.go`, so they are not red; say so in the report. Quote both outputs.
+Expected: it fails with `no non-test Go files in <repository>/internal/apidocs` and `FAIL ... [build failed]`. Quote the output.
 
 - [ ] **Step 3: Implement**
 
@@ -1618,25 +1328,23 @@ Run:
 
 ```bash
 export TMPDIR=/root/.cache/w9-tmp/3 GOTOOLCHAIN=local
-timeout 300 go test -count=1 -v ./internal/apidocs/ ./internal/docs/
+timeout 300 go test -count=1 -v ./internal/apidocs/
 ls docs/api | wc -l
 cp -r docs/api /root/.cache/w9-tmp/3/api-before && timeout 300 make api-docs && diff -r /root/.cache/w9-tmp/3/api-before docs/api
 timeout 300 go build ./... && timeout 300 go vet ./...
 timeout 1500 go test -count=1 ./...
-timeout 600 go test -race -count=1 ./internal/apidocs/ ./internal/docs/
+timeout 600 go test -race -count=1 ./internal/apidocs/
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
 ```
 
-Expected: every `TestAd*` and `TestDc*` test passes, including `TestAdAPIDocsCurrent`; `12`; the second `make api-docs` leaves `docs/api` identical (`diff -r` prints nothing); `go vet` prints nothing; every line of the full suite is `ok` or `?`; `0 issues.`; no output from `go mod tidy -diff`. Quote the results. Then `rm -rf /root/.cache/w9-tmp/3` and `go clean -testcache`.
+Expected: every `TestAd*` test passes, including `TestAdAPIDocsCurrent`; `12`; the second `make api-docs` leaves `docs/api` identical (`diff -r` prints nothing); `go vet` prints nothing; every line of the full suite is `ok` or `?`; `0 issues.`; no output from `go mod tidy -diff`. Quote the results. Then `rm -rf /root/.cache/w9-tmp/3` and `go clean -testcache`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add internal/apidocs Makefile docs/api
 git commit -m "feat(apidocs): generate the API reference"
-git add internal/docs
-git commit -m "test(docs): add helpers that check documentation"
 ```
 
 ### Task 4: cmd: harness --state-dir and selectPaths call sites
@@ -1649,11 +1357,13 @@ git commit -m "test(docs): add helpers that check documentation"
 
 **Interfaces:**
 - Consumes: read, not edited: `cmd/darkpanel/main.go` (`newRoot`, `newServeCmd`), `agent.go`, `update.go` (`withUpdater`, `rollbackFallback`), `harness_crash.go` (the build-tag file pattern), `internal/paths/paths.go`, `internal/update/version.go`. The frozen hooks `selectPaths func(*cobra.Command, bool) (paths.Paths, error)` and `addRootFlags func(*cobra.Command)` of `cmd/darkpanel/paths.go`, `paths.Under` and `paths.Resolve`.
-- Produces: Contracts "Harness state directory": the package variable `harnessStateDir` and the persistent `--state-dir` flag, present only in a `harness` build. Task 11 and Task 20 start `darkpanel` processes with `--state-dir` and build them with tags `harnesskeys,harness`.
+- Produces: Contracts "Harness state directory": the package variable `harnessStateDir` and the persistent `--state-dir` flag, present only in a `harness` build. Task 21 starts `darkpanel` processes with `--state-dir` and build them with tags `harnesskeys,harness`.
 
 **Items:** 39, 40, 107, 248
 
 **Depends on:** none
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 1 = 6
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1961,6 +1671,8 @@ git commit -m "feat(cmd): add the harness --state-dir flag"
 **Items:** 38
 
 **Depends on:** none
+**Implementer:** dforge:impl-sonnet-medium
+**Evaluation:** files 1 - spec 1 - coupling 1 - risk 1 = 4
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2527,6 +2239,8 @@ git commit -m "test(platform): fuzz clients and parsers"
 **Items:** 38
 
 **Depends on:** none
+**Implementer:** dforge:impl-sonnet-medium
+**Evaluation:** files 1 - spec 1 - coupling 1 - risk 1 = 4
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2790,7 +2504,7 @@ func FuzzParseAPIVersion(f *testing.F) {
 }
 ```
 
-`logfilter/fuzz_test.go`. `Mask` holds the letters of `[redacted]`, so a secret made of those letters can occur in the output without leaking; the leak check skips such secrets, and the split-independence check covers every input:
+`logfilter/fuzz_test.go`. `Mask` (`[redacted]`) can spell a secret made of its letters, so the leak check first replaces every `Mask` in the output with a NUL byte and then looks for the secret; only a secret that itself holds a NUL is left out, and the split-independence check covers every input:
 
 ```go
 package logfilter
@@ -2816,14 +2530,15 @@ func fz6Run(secrets [][]byte, chunks ...[]byte) []byte {
 
 // FuzzFilterChunking feeds arbitrary log bytes and two arbitrary secrets to a
 // Filter: the output is the same whether the bytes arrive whole, in three
-// chunks or one byte at a time, and no secret appears in it. A secret made of
-// characters of Mask is left out of the second check, since Mask itself holds
-// them (R74).
+// chunks or one byte at a time, and no secret appears in it once every Mask
+// is replaced by a NUL byte, so Mask's own letters cannot hide or fake a leak;
+// a secret holding a NUL is left out of that check (R74).
 func FuzzFilterChunking(f *testing.F) {
 	f.Add("hunter2", "tok", []byte("pw=hunter2 and tok\n"), uint16(5), uint16(11))
 	f.Add("ab", "abc", []byte("ababc abab"), uint16(1), uint16(3))
 	f.Add("aab", "b", []byte("aaab aab"), uint16(2), uint16(6))
 	f.Add("", "", []byte("nothing to hide"), uint16(0), uint16(0))
+	f.Add("QX9", "HUNT3R", []byte("key=QX9 pass=HUNT3R QX9HUNT3R\n"), uint16(4), uint16(17))
 	f.Fuzz(func(t *testing.T, s1, s2 string, data []byte, c1, c2 uint16) {
 		secrets := [][]byte{[]byte(s1), []byte(s2)}
 		whole := fz6Run(secrets, data)
@@ -2841,8 +2556,9 @@ func FuzzFilterChunking(f *testing.F) {
 		if got := fz6Run(secrets, bytewise...); !bytes.Equal(got, whole) {
 			t.Fatalf("output of %q depends on a split into single bytes", fz6Head(data))
 		}
+		masked := bytes.ReplaceAll(whole, []byte(Mask), []byte{0})
 		for _, s := range secrets {
-			if len(s) > 0 && !bytes.ContainsAny(s, Mask) && bytes.Contains(whole, s) {
+			if len(s) > 0 && bytes.IndexByte(s, 0) < 0 && bytes.Contains(masked, s) {
 				t.Fatalf("a secret of %d bytes appears in the output for %q", len(s), fz6Head(data))
 			}
 		}
@@ -2921,6 +2637,8 @@ git commit -m "test(docker): fuzz compose, inspect and log filter"
 **Items:** 38
 
 **Depends on:** none
+**Implementer:** dforge:impl-sonnet-medium
+**Evaluation:** files 1 - spec 1 - coupling 1 - risk 1 = 4
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3512,6 +3230,8 @@ git commit -m "test(firewall): fuzz firewall module parsers"
 **Items:** 38
 
 **Depends on:** none
+**Implementer:** dforge:impl-sonnet-medium
+**Evaluation:** files 1 - spec 1 - coupling 1 - risk 1 = 4
 
 - [ ] **Step 1: Write the failing test**
 
@@ -4204,7 +3924,7 @@ func FuzzServiceHost(f *testing.F) {
 }
 ```
 
-`npm/proxy/fuzz_test.go`. The Contracts row asks that a host any of the three readings takes for loopback is refused. The existing row of `TestPxCheckUpstream` for `0177.0.0.1` allows it on purpose: nginx's own parser reads a leading zero as decimal and gives `177.0.0.1`, and only a host that parser rejects reaches `inet_aton`, which would read the same text as octal. The check follows `upstreamAddr`'s order, so the reading that counts is the first one that succeeds, and a host whose counting reading is loopback or unspecified, or that is a loopback name, is refused unless the caller is `npm.admin.expose`; the three readers are cross-checked against `netip.ParseAddr` on canonical dotted quads:
+`npm/proxy/fuzz_test.go`. The Contracts row follows `upstreamAddr`'s order. The existing row of `TestPxCheckUpstream` for `0177.0.0.1` allows it on purpose: nginx's own parser reads a leading zero as decimal and gives `177.0.0.1`, and only a host that parser rejects reaches `inet_aton`, which would read the same text as octal. The check follows `upstreamAddr`'s order, so the reading that counts is the first one that succeeds, and a host whose counting reading is loopback or unspecified, or that is a loopback name, is refused unless the caller is `npm.admin.expose`; the three readers are cross-checked against `netip.ParseAddr` on canonical dotted quads:
 
 ```go
 package proxy
@@ -4353,6 +4073,8 @@ git commit -m "test(modules): fuzz tailscale, derp and npm parsers"
 **Items:** `38`
 
 **Depends on:** none
+**Implementer:** dforge:impl-sonnet-medium
+**Evaluation:** files 1 - spec 1 - coupling 1 - risk 1 = 4
 
 - [ ] **Step 1: Write the failing test**
 
@@ -4904,7 +4626,7 @@ git commit -m "fix(release): order huge numeric prerelease ids"
 git add internal/update/fuzz_test.go
 git commit -m "test(update): fuzz versions, checksums, tarballs"
 git add internal/transport/token_fuzz_test.go test/harness/nmap_fuzz_test.go internal/modules/hostinfo/parse_test.go
-git commit -m "test: fuzz tokens, nmap output and hostinfo files"
+git commit -m "test(fuzz): fuzz tokens, nmap output and hostinfo"
 ```
 
 If a run left a regression seed under a `testdata/fuzz/` directory, commit it with the fix of its defect, in a commit of its own.
@@ -4932,6 +4654,8 @@ The parsers sit where the exploration found them: `formatReadHeader`, `formatEnc
 **Items:** `38`
 
 **Depends on:** none
+**Implementer:** dforge:impl-sonnet-medium
+**Evaluation:** files 1 - spec 1 - coupling 1 - risk 1 = 4
 
 - [ ] **Step 1: Write the failing test**
 
@@ -5671,7 +5395,7 @@ git commit -m "fix(cloud): refuse an overflowing Retry-After"
 git add internal/cli/follow.go internal/cli/follow_fuzz_test.go
 git commit -m "fix(cli): escape DEL in streamed events"
 git add internal/controller/backup/fuzz_test.go internal/core/secret/fuzz_test.go internal/controller/events/id_fuzz_test.go internal/install/units_fuzz_test.go
-git commit -m "test: fuzz backup, secret, event and unit parsers"
+git commit -m "test(fuzz): fuzz backup, secret and event parsers"
 ```
 
 If a run left a regression seed under a `testdata/fuzz/` directory, commit it with the fix of its defect, in a commit of its own.
@@ -5684,17 +5408,19 @@ If a run left a regression seed under a `testdata/fuzz/` directory, commit it wi
 - Create: `test/harness/upgrade_sources.txt` (the sources file, Contracts "Upgrade matrix")
 - Create: `test/harness/upgrade_matrix_unit_test.go` (`TestUpgUnit*`)
 - Create: `test/harness/upgw_workflow_unit_test.go` (`TestUpgwUnitWorkflow`, `TestUpgwUnitWorkflowFile`)
-- Modify: `.github/workflows/harness.yml` (the `build` job and the new `vm-upg` job; only Tasks 11 and 20 edit this file, in different waves)
+- Modify: `.github/workflows/harness.yml` (the `build` job and the new `vm-upg` job; only Tasks 11 and 21 edit this file, in different waves)
 
 No M2 helper is refactored: the version-parameterised forms are the new Upg-prefixed helpers, and `m2_test.go`, `m2_update_test.go` and `lab_helpers_test.go` stay as they are. `hostsAt`, `startRollout`, `followRollout`, `rolloutHost`, `requireSettled`, `requireFleetVersion`, `oneMinorBehind`, `lastRecord`, `newestTransaction`, `requireNoLocks`, `requireRolledBackFor`, `requireBinaryVersion`, `recordTook` and `updateBudget` already take their versions as arguments and are reused as they are.
 
 **Interfaces:**
 - Consumes: Contracts "Upgrade matrix" (flag, sources file format, builds under `bin/harness/`, job `vm-upg`, step and its flags) and W9-R7 and W9-R8; the existing harness test code `fleet`, `m5Configs(lab, o, targetImg, scannerImg, key)` and `Lab.Boot` (the lab pattern of `m5dLab`, which boots the controller, the agent and the scanner on links of the test's own), `harnessImages`, `NewLab`, `copyTree`, `installRole`, `createAdmin`, `login`, `waitHosts`, `localHost`, `writeToken`, `removeToken`, `eventually`, `pollInterval`, `osFlag`, `m2Flag`, `harnessKey`, `releaseURL`, `releaseDir`, `releaseUnit`, `installScript`, `enrollFile`, `agentAddress`, `releaseChannel`, `scannerIPv4`; `release.LoadKey` and `release.Publish`; for the workflow check, the helpers of the existing workflow tests `m3dxExpoJob`, `m3dxExpoLimitRE`, `m3dxExpoTimeoutRE`, `m4lStep`, `m4lStepBefore`, `m4lSetup`, `m4lJobMax` (`m6pw_workflow_unit_test.go` is the newest precedent for the check and its mutation table).
-- Produces: `var upgFlag = flag.Bool("upg", ...)` exactly as in Contracts; `TestUpgradeMatrix`; the sources file `test/harness/upgrade_sources.txt`; the `build` job's builds `bin/harness/darkpanel-<source version>` (from each source's commit, tags `harnesskeys`), `darkpanel-1.1.0` (tags `harnesskeys`) and `darkpanel-1.1.1` (tags `harnesskeys,harnessbroken`); the `vm-upg` job with the four-OS matrix, `timeout-minutes: 90` and the step `go test -tags harness -timeout 70m -v -run '^TestUpgradeMatrix$' ./test/harness/ -args -os <os> -upg -bin ... -m2 ... -commit ... -workdir "$RUNNER_TEMP/harness-upg" -cache ...`. Task 20 later adds its own steps to the `build` job and its own job; it does not change these.
+- Produces: `var upgFlag = flag.Bool("upg", ...)` exactly as in Contracts; `TestUpgradeMatrix`; the sources file `test/harness/upgrade_sources.txt`; the `build` job's builds `bin/harness/darkpanel-<source version>` (from each source's commit, tags `harnesskeys`), `darkpanel-1.1.0` (tags `harnesskeys`) and `darkpanel-1.1.1` (tags `harnesskeys,harnessbroken`); the `vm-upg` job with the four-OS matrix, `timeout-minutes: 90` and the step `go test -tags harness -timeout 70m -v -run '^TestUpgradeMatrix$' ./test/harness/ -args -os <os> -upg -bin ... -m2 ... -commit ... -workdir "$RUNNER_TEMP/harness-upg" -cache ...`. Task 21 later adds its own steps to the `build` job and its own job; it does not change these.
 
 **Items:** `39`
 
 **Depends on:** none
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 2 - spec 2 - coupling 1 - risk 2 = 7
 
 - [ ] **Step 1: Write the failing test**
 
@@ -6529,7 +6255,298 @@ git commit -m "test(harness): add upgrade matrix and vm-upg job"
 ```
 
 
-### Task 12: web a11y: login, hosts, host page and create-host dialog
+### Task 12: docs: documentation check helpers
+
+**Files:**
+- Create: `internal/docs/helpers_check_test.go` (package `docs_test`; tests of the helpers)
+- Create: `internal/docs/helpers_test.go` (package `docs_test`; the Contracts "Docs checks" helpers)
+
+**Interfaces:**
+- Consumes: `registry.Build()` (existing, `internal/registry/registry.go`) and the `Spec.Internal` flag of `core.ActionSpec` (`internal/core/contract.go`), read, not edited. `internal/docs` is a new test-only package: it has no non-test file.
+- Produces: Contracts "Docs checks" (`dcRoot`, `dcRead`, `dcMentions`, `dcModuleNames`, `dcLinks`), plus the unexported `dcMissing` and `dcBroken` behind them. Tasks 16-19 and 24 use the `dc` helpers; Tasks 16-19 each run them on the pages they write.
+
+**Items:** 42
+
+**Depends on:** none
+**Implementer:** dforge:impl-sonnet-medium
+**Evaluation:** files 1 - spec 0 - coupling 2 - risk 0 = 3
+
+- [ ] **Step 1: Write the failing test**
+
+Create `internal/docs/helpers_check_test.go`:
+
+````go
+package docs_test
+
+import (
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+)
+
+func TestDcRootIsTheRepositoryRoot(t *testing.T) {
+	root := dcRoot(t)
+	for _, rel := range []string{"go.mod", filepath.Join("internal", "docs")} {
+		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
+			t.Errorf("dcRoot = %s, which has no %s: %v", root, rel, err)
+		}
+	}
+}
+
+func TestDcReadReturnsTheFile(t *testing.T) {
+	if got := dcRead(t, "go.mod"); !strings.HasPrefix(got, "module github.com/darkraise/darkpanel\n") {
+		t.Errorf("dcRead(go.mod) starts %.60q, want the module line", got)
+	}
+}
+
+func TestDcMentionsAcceptsAFileThatNamesEveryName(t *testing.T) {
+	dcMentions(t, "go.mod", "module github.com/darkraise/darkpanel", "go 1.27")
+}
+
+func TestDcMissingListsEachAbsentName(t *testing.T) {
+	got := dcMissing("alpha beta", []string{"alpha", "gamma", "Beta", "delta", "gamma"})
+	if want := []string{"gamma", "Beta", "delta", "gamma"}; !slices.Equal(got, want) {
+		t.Errorf("dcMissing = %q, want %q: every absent name in order, matched verbatim and case-sensitively", got, want)
+	}
+	if got := dcMissing("alpha", nil); len(got) != 0 {
+		t.Errorf("dcMissing with no names = %q, want none", got)
+	}
+}
+
+func TestDcModuleNames(t *testing.T) {
+	if got, want := dcModuleNames(t, "hostinfo"), []string{"hostinfo.summary"}; !slices.Equal(got, want) {
+		t.Errorf("dcModuleNames(hostinfo) = %q, want %q: a resource counts", got, want)
+	}
+	cf := dcModuleNames(t, "cloudflare")
+	if !slices.IsSorted(cf) || len(slices.Compact(slices.Clone(cf))) != len(cf) {
+		t.Errorf("dcModuleNames(cloudflare) = %q, want sorted names without duplicates", cf)
+	}
+	if !slices.Contains(cf, "cloudflare.tunnel.list") {
+		t.Errorf("dcModuleNames(cloudflare) = %q, want cloudflare.tunnel.list among them", cf)
+	}
+	if slices.Contains(cf, "cloudflare.tunnel.token") {
+		t.Errorf("dcModuleNames(cloudflare) lists cloudflare.tunnel.token, an Internal action")
+	}
+	if core := dcModuleNames(t, "core"); !slices.Contains(core, "core.token.create") {
+		t.Errorf("dcModuleNames(core) = %q, want core.token.create among them", core)
+	}
+}
+
+func TestDcBrokenLinks(t *testing.T) {
+	root := t.TempDir()
+	for _, rel := range []string{"docs/user/a.md", "docs/user/b.md", "docs/README.md", "docs/api/openapi.json"} {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	text := strings.Join([]string{
+		"[ok](b.md) [up](../README.md#top) [rooted](/docs/README.md) [missing](nope.md) [dir](../api/)",
+		"[web](https://example.com/x) [mail](mailto:a@example.com) [anchor](#here) [titled](b.md \"A title\")",
+		"[angled](<b.md>) [fragment](gone.md#sec) [query](b.md?x=1) [rootless](/docs/gone.md)",
+		"![image](pic.png) and text [not a link] (b.md)",
+		"```sh",
+		"[hidden](hidden.md)",
+		"```",
+		"[after the fence](after.md)",
+	}, "\n")
+	got := dcBroken(root, "docs/user/a.md", text)
+	want := []string{"nope.md", "gone.md#sec", "/docs/gone.md", "pic.png", "after.md"}
+	if !slices.Equal(got, want) {
+		t.Errorf("dcBroken = %q, want %q", got, want)
+	}
+}
+````
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run:
+
+```bash
+mkdir -p /root/.cache/w9-tmp/12 && export TMPDIR=/root/.cache/w9-tmp/12 GOTOOLCHAIN=local
+timeout 300 go test -count=1 -run 'TestDc' ./internal/docs/
+```
+
+Expected: a build failure naming the first undefined helper (`undefined: dcRoot`) and `FAIL ... [build failed]`. Quote it.
+
+- [ ] **Step 3: Implement**
+
+The helpers are test code, so the plan gives them whole: create the file below exactly as written.
+
+Create `internal/docs/helpers_test.go`. These are the Contracts "Docs checks" helpers. `dcMissing` and `dcBroken` hold the logic of `dcMentions` and `dcLinks` as functions that return their findings, so `helpers_check_test.go` can test the failure paths without failing a test. Reference-style Markdown links (`[text][label]`) are not read: pages use inline links.
+
+````go
+package docs_test
+
+import (
+	"os"
+	"path"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/darkraise/darkpanel/internal/registry"
+)
+
+// dcRoot is the repository root, found from the test's working directory.
+func dcRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("no go.mod in the working directory or any directory above it")
+		}
+		dir = parent
+	}
+}
+
+// dcRead returns the file at the slash path rel under the root, failing when it is missing.
+func dcRead(t *testing.T, rel string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(dcRoot(t), filepath.FromSlash(rel))) //nolint:gosec // G304: a path under the repository root
+	if err != nil {
+		t.Fatalf("%s: %v", rel, err)
+	}
+	return string(b)
+}
+
+// dcMissing returns the names that text does not contain verbatim, in order.
+func dcMissing(text string, names []string) []string {
+	var missing []string
+	for _, name := range names {
+		if !strings.Contains(text, name) {
+			missing = append(missing, name)
+		}
+	}
+	return missing
+}
+
+// dcMentions fails once per name that the file at rel does not contain verbatim, naming both.
+func dcMentions(t *testing.T, rel string, names ...string) {
+	t.Helper()
+	for _, name := range dcMissing(dcRead(t, rel), names) {
+		t.Errorf("%s does not mention %q", rel, name)
+	}
+}
+
+// dcModuleNames returns the sorted names of every action and resource of module id in registry.Build() whose Spec is not Internal.
+func dcModuleNames(t *testing.T, id string) []string {
+	t.Helper()
+	reg, err := registry.Build()
+	if err != nil {
+		t.Fatalf("registry.Build: %v", err)
+	}
+	m, ok := reg.Module(id)
+	if !ok {
+		t.Fatalf("the registry has no module %q", id)
+	}
+	var names []string
+	for _, a := range m.Actions {
+		if !a.Spec.Internal {
+			names = append(names, a.Spec.Name)
+		}
+	}
+	for _, r := range m.Resources {
+		names = append(names, r.Name)
+	}
+	slices.Sort(names)
+	return slices.Compact(names)
+}
+
+// dcLinkPattern matches the target of an inline Markdown link or image: the
+// text after "](" up to the closing parenthesis, a space before a title, or
+// the closing angle bracket of a <target>.
+var dcLinkPattern = regexp.MustCompile(`\]\(\s*(<[^>]*>|[^)\s]*)`)
+
+// dcSchemePattern matches a URL scheme such as https: or mailto:.
+var dcSchemePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*:`)
+
+// dcBroken returns, in order of appearance and as written, the relative link
+// targets in text, the content of the file at rel under root, that name no
+// existing file or directory. Links inside fenced code blocks, links with a
+// URL scheme and links to an anchor of the same file are skipped; a leading
+// slash means the repository root.
+func dcBroken(root, rel, text string) []string {
+	var broken []string
+	fenced := false
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(strings.TrimLeft(line, " "), "```") {
+			fenced = !fenced
+			continue
+		}
+		if fenced {
+			continue
+		}
+		for _, m := range dcLinkPattern.FindAllStringSubmatch(line, -1) {
+			written := m[1]
+			target := strings.TrimSuffix(strings.TrimPrefix(written, "<"), ">")
+			if i := strings.IndexAny(target, "#?"); i >= 0 {
+				target = target[:i]
+			}
+			if target == "" || dcSchemePattern.MatchString(target) {
+				continue
+			}
+			var file string
+			if strings.HasPrefix(target, "/") {
+				file = filepath.Join(root, filepath.FromSlash(target))
+			} else {
+				file = filepath.Join(root, filepath.FromSlash(path.Dir(rel)), filepath.FromSlash(target))
+			}
+			if _, err := os.Stat(file); err != nil {
+				broken = append(broken, strings.TrimSuffix(strings.TrimPrefix(written, "<"), ">"))
+			}
+		}
+	}
+	return broken
+}
+
+// dcLinks fails once per relative Markdown link in the file at rel whose target file does not exist.
+func dcLinks(t *testing.T, rel string) {
+	t.Helper()
+	for _, target := range dcBroken(dcRoot(t), rel, dcRead(t, rel)) {
+		t.Errorf("%s links %s, which does not exist", rel, target)
+	}
+}
+````
+
+- [ ] **Step 4: Run the test to verify it passes**
+
+Run:
+
+```bash
+export TMPDIR=/root/.cache/w9-tmp/12 GOTOOLCHAIN=local
+timeout 300 go test -count=1 -v -run 'TestDc' ./internal/docs/
+timeout 300 go build ./... && timeout 300 go vet ./...
+timeout 1500 go test -count=1 ./...
+timeout 600 go test -race -count=1 ./internal/docs/
+timeout 900 golangci-lint run --allow-serial-runners ./...
+timeout 300 go mod tidy -diff
+```
+
+Expected: every `TestDc*` test passes; `go vet` prints nothing; every line of the full suite is `ok` or `?`; `0 issues.`; no output from `go mod tidy -diff`. Quote the results. Then `rm -rf /root/.cache/w9-tmp/12` and `go clean -testcache`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/docs
+git commit -m "test(docs): add helpers that check documentation"
+```
+
+### Task 13: web a11y: login, hosts, host page and create-host dialog
 
 **Files:**
 - Create: `web/src/pages/login.a11y.test.tsx`, `web/src/pages/hosts.a11y.test.tsx`, `web/src/pages/host.a11y.test.tsx`, `web/src/pages/create-host-dialog.a11y.test.tsx`, `web/src/pages/audit.a11y.test.tsx`, `web/src/pages/tokens.a11y.test.tsx`
@@ -6538,15 +6555,17 @@ git commit -m "test(harness): add upgrade matrix and vm-upg job"
 
 **Interfaces:**
 - Consumes: Contracts "Accessibility helpers" (`expectNoAxeViolations(el)`, `tabSequence(user, count, opts?)`, `focusedName()` of `web/src/test/a11y.ts`) and "Page title" (`usePageTitle(title)` of `web/src/lib/page-title.ts`, whose result is `<title> · Darkpanel`), both written by Task 2 and part of this task's base; W9-R6. Existing: `renderWithProviders`, `stubFetch`, `SessionProvider`, the pages and `ChangeDialog`.
-- Produces: the page titles `Sign in` (login), `Hosts`, `<host name> · <module label>` (host page; see Step 3 for the states without one), `Audit log` and `API tokens`; axe, keyboard and title tests for the pages that Task 22's conformance record cites (`login.a11y.test.tsx`, `hosts.a11y.test.tsx`, `host.a11y.test.tsx`, `create-host-dialog.a11y.test.tsx`); the fixes below. Nothing else consumes these.
+- Produces: the page titles `Sign in` (login), `Hosts`, `<host name> · <module label>` (host page; see Step 3 for the states without one), `Audit log` and `API tokens`; axe, keyboard and title tests for the pages that Task 23's conformance record cites (`login.a11y.test.tsx`, `hosts.a11y.test.tsx`, `host.a11y.test.tsx`, `create-host-dialog.a11y.test.tsx`); the fixes below. Nothing else consumes these.
 
 **Items:** `41`
 
 **Depends on:** Task 2
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 2 - spec 2 - coupling 1 - risk 1 = 6
 
 - [ ] **Step 1: Write the failing test**
 
-What the six files check (W9-R6): axe on every state of the page (loading, loaded, empty, error, and every dialog state), the keyboard order of the login form and of the Add host form, that Escape and Done in the Add host dialogs return the focus to the "Add host" button, and the page title. `audit` and `tokens` are not among the core flows; they get the title and axe tests only. The checks that pass on the current tree stay as guards: Escape, Done, the focus order and every axe state except the ones below. The failures on the current tree are the page titles, the heading order of the states that render darkraise-ui's `EmptyState` (its title is an `h3` straight under the page's `h1`) or an `AlertTitle` (an `h5`), and the unlabelled input that shows the enrollment token. Axe in jsdom does not check contrast; Task 21 does. If Task 2's `expectNoAxeViolations` runs axe with options other than its defaults, the set of violations named below may differ; the fixes are for what axe reports.
+What the six files check (W9-R6): axe on every state of the page (loading, loaded, empty, error, and every dialog state), the keyboard order of the login form and of the Add host form, that Escape and Done in the Add host dialogs return the focus to the "Add host" button, and the page title. `audit` and `tokens` are not among the core flows; they get the title and axe tests only. The checks that pass on the current tree stay as guards: Escape, Done, the focus order and every axe state except the ones below. The failures on the current tree are the page titles, the heading order of the states that render darkraise-ui's `EmptyState` (its title is an `h3` straight under the page's `h1`) or an `AlertTitle` (an `h5`), and the unlabelled input that shows the enrollment token. Axe in jsdom does not check contrast; Task 22 does. If Task 2's `expectNoAxeViolations` runs axe with options other than its defaults, the set of violations named below may differ; the fixes are for what axe reports.
 
 `web/src/pages/login.a11y.test.tsx`:
 
@@ -7150,7 +7169,7 @@ test("the token list has a level-one heading and the page title API tokens", asy
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-mkdir -p /root/.cache/w9-tmp/12 && export TMPDIR=/root/.cache/w9-tmp/12 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w9-tmp/13 && export TMPDIR=/root/.cache/w9-tmp/13 GOTOOLCHAIN=local
 timeout 600 make web-deps
 timeout 300 pnpm -C web exec vitest run src/pages/login.a11y src/pages/hosts.a11y src/pages/host.a11y src/pages/audit.a11y src/pages/tokens.a11y src/pages/create-host-dialog.a11y
 ```
@@ -7185,17 +7204,17 @@ All six files import `usePageTitle` from `@/lib/page-title`. A hook runs before 
 5. `audit.tsx`: `AuditPage` calls `usePageTitle("Audit log")`; the empty branch of `AuditBody` returns a visually hidden `h2` reading `Audit entries` before its `EmptyState`.
 6. `tokens.tsx`: `TokensPage` calls `usePageTitle("API tokens")`; the empty branch of `TokensBody` returns a visually hidden `h2` reading `Token list` before its `EmptyState`.
 
-Two defects next to these files are outside this task's Files, so do not edit them, and leave them to the wave-close findings (Task 23): the same unlabelled `ClipboardInput` in `web/src/pages/create-token-dialog.tsx` and `web/src/modules/tailnet/keys-page.tsx`, and the audit log's "Load older entries" button, which unmounts when the last page loads and drops the focus to the document body.
+Two defects next to these files are outside this task's Files, so do not edit them, and leave them to the wave-close findings (Task 24): the same unlabelled `ClipboardInput` in `web/src/pages/create-token-dialog.tsx` and `web/src/modules/tailnet/keys-page.tsx`, and the audit log's "Load older entries" button, which unmounts when the last page loads and drops the focus to the document body.
 
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-export TMPDIR=/root/.cache/w9-tmp/12 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w9-tmp/13 GOTOOLCHAIN=local
 timeout 300 pnpm -C web exec vitest run src/pages
 timeout 1200 make lint-web test-web
 ```
 
-Expected: `src/pages` passes in full (the six new files, 48 tests, and every existing page test); `make lint-web test-web` ends with `tsc --noEmit` and eslint (`--max-warnings 0`) silent and every Vitest file passing. Then `rm -rf /root/.cache/w9-tmp/12`. The task changes no Go file, `Makefile`, `package.json` or lock file, so no Go command is needed beyond what `make web-deps` and `make test-web` run.
+Expected: `src/pages` passes in full (the six new files, 48 tests, and every existing page test); `make lint-web test-web` ends with `tsc --noEmit` and eslint (`--max-warnings 0`) silent and every Vitest file passing. Then `rm -rf /root/.cache/w9-tmp/13`. The task changes no Go file, `Makefile`, `package.json` or lock file, so no Go command is needed beyond what `make web-deps` and `make test-web` run.
 
 - [ ] **Step 5: Commit**
 
@@ -7205,7 +7224,7 @@ git commit -m "fix(web): page titles and axe fixes for core pages"
 ```
 
 
-### Task 13: web a11y: change dialog and change pages
+### Task 14: web a11y: change dialog and change pages
 
 **Files:**
 - Create: `web/src/components/change-dialog.a11y.test.tsx`
@@ -7223,8 +7242,10 @@ git commit -m "fix(web): page titles and axe fixes for core pages"
 **Items:** 41
 
 **Depends on:** Task 2
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
-What this audit found, by reading the three files and running the dialog in jsdom: axe reports nothing on the planned, typed-confirmation, overridden-guard, applying, pending (countdown with Confirm and Revert) and failed states; the darkraise-ui focus trap already keeps Tab inside the dialog, Escape closes it and focus returns to the opener. Five things are wrong, and the tests below fail on exactly these: (1) the countdown has `role="timer"` with `aria-live="off"`, so a screen-reader user is never told that the change will revert, and the outcome of an apply ("completed", "reverted") is shown only as a badge nobody announces; (2) the change page sets no document title; (3) after Undo or Release succeeds the button that opened the dialog is gone from the page, the focus trap can restore focus only to an element still in the document, and focus falls to `body`; (4) the same happens when a repair applied through `ChangeDialog` closes; (5) the "Unavailable" and "Availability unknown" alerts render darkraise-ui's `AlertTitle`, an `h5`, straight after the dialog's `h2`, which axe reports as `heading-order` (the Docker, NPM and Cloudflare change wrappers of Task 19 inherit it).
+What this audit found, by reading the three files and running the dialog in jsdom: axe reports nothing on the planned, typed-confirmation, overridden-guard, applying, pending (countdown with Confirm and Revert) and failed states; the darkraise-ui focus trap already keeps Tab inside the dialog, Escape closes it and focus returns to the opener. Five things are wrong, and the tests below fail on exactly these: (1) the countdown has `role="timer"` with `aria-live="off"`, so a screen-reader user is never told that the change will revert, and the outcome of an apply ("completed", "reverted") is shown only as a badge nobody announces; (2) the change page sets no document title; (3) after Undo or Release succeeds the button that opened the dialog is gone from the page, the focus trap can restore focus only to an element still in the document, and focus falls to `body`; (4) the same happens when a repair applied through `ChangeDialog` closes; (5) the "Unavailable" and "Availability unknown" alerts render darkraise-ui's `AlertTitle`, an `h5`, straight after the dialog's `h2`, which axe reports as `heading-order` (the Docker, NPM and Cloudflare change wrappers of Task 20 inherit it).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -7718,7 +7739,7 @@ test("closing a repair that was applied leaves focus on a notice of it", async (
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w9-tmp/13 && export TMPDIR=/root/.cache/w9-tmp/13 GOTOOLCHAIN=local && timeout 300 pnpm -C web exec vitest run src/components/change-dialog.a11y.test.tsx src/pages/change.a11y.test.tsx src/pages/change-actions.a11y.test.tsx`
+Run: `mkdir -p /root/.cache/w9-tmp/14 && export TMPDIR=/root/.cache/w9-tmp/14 GOTOOLCHAIN=local && timeout 300 pnpm -C web exec vitest run src/components/change-dialog.a11y.test.tsx src/pages/change.a11y.test.tsx src/pages/change-actions.a11y.test.tsx`
 
 Expected: exactly eight tests FAIL and the other sixteen pass (the axe, Tab, Escape, focus-return and label tests are guards that pass already; a guard that fails means Task 2's helper is wrong, not this task's code). Quote the output. The eight, with the first line of each failure:
 - `the unavailable and availability-unknown alerts keep the heading order`: `axe found 1 violation(s): heading-order`.
@@ -7733,7 +7754,7 @@ In `web/src/components/change-dialog.tsx`:
 1. Replace `Countdown`'s own interval with a hook `useSecondsLeft(deadline: string | null): number | null` that keeps a `now` state, starts a one-second `setInterval` only while `deadline` is not null (clearing it on cleanup or when the deadline goes), and returns `secondsLeft(deadline, now)` or null. `Countdown` becomes a presentational component taking `left: number` and still renders `<p role="timer" aria-live="off">` with the text `Reverts automatically in {left} s unless confirmed.`: `change-dialog.test.tsx` asserts that text and role, and the timer must never become a live region itself, because a region that changed every second would be read out every second.
 2. In `Applied`, call `useSecondsLeft` with the change's `revertDeadline` only while the change is `pending` (`counting`), and render `Countdown` only when `counting` and the hook returned a number. Add the announcement text `progress`: while `counting` it is `Reverts automatically in <n> seconds unless confirmed.` (`1 second` when n is 1), otherwise `Change <state>.` (for example `Change completed.`, `Change reverted.`). `<n>` is held in a `spoken` state initialised from the seconds left; during render, when a pure helper `shouldAnnounce(spoken, left)` is true, call `setSpoken(left)` (the derived-state pattern, no ref written during render). `shouldAnnounce` is true when `left` has dropped to 30 or below while `spoken` was above 30, or to 10 or below while `spoken` was above 10 (a module constant lists 30 and 10). So the text changes at the start, at 30 s and at 10 s, and when the state changes, never once a second. `Applied` takes a new prop `onProgress(text: string)` and calls it from an effect whenever `progress` changes.
 3. In `ChangeDialogBody`, keep a `progress` state (initially the empty string), pass `setProgress` as `onProgress`, and always render, before the error alert and the footer, `<p role="status" aria-label="Change progress" aria-live="polite" className="sr-only">` holding `progress`. It must be mounted before the first announcement (a live region inserted together with its text is not reliably announced), which is why it lives in the body and not in `Applied`.
-4. In `ChangeDialogBody`, the two availability alerts (`Unavailable`, `Availability unknown`) must not open a heading below the dialog's `h2` at a skipped level: render each title as an `h3` (pass the heading element through `AlertTitle`'s `asChild` when darkraise-ui 6.9.6 supports it — check `node_modules/darkraise-ui/dist/components/alert.d.ts` — else replace `AlertTitle` with `<h3 className="…">` carrying the classes `AlertTitle` renders), keeping the visible text and the alert's `role`. No other `AlertTitle` in this file sits inside the dialog.
+4. In `ChangeDialogBody`, the two availability alerts (`Unavailable`, `Availability unknown`) must not open a heading below the dialog's `h2` at a skipped level: render each title as `<AlertTitle as="h3">` (darkraise-ui 6.9.6 types the prop as `as?: "h2" | "h3" | "h4" | "h5" | "h6"`, `web/node_modules/darkraise-ui/dist/components/alert/Alert.d.ts`), keeping the visible text and the alert's `role`. No other `AlertTitle` in this file sits inside the dialog.
 
 In `web/src/pages/change.tsx`: import `usePageTitle` from `@/lib/page-title` and call ``usePageTitle(`Change ${changeId.slice(-8)}`)`` in `ChangePage` straight after `useParams()`, before the loading and error returns, so the title is right while the change loads and when it is unknown. `slice(-8)` returns the whole id when it is shorter.
 
@@ -7745,8 +7766,8 @@ Release already sets a notice; it now takes focus through item 1.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `export TMPDIR=/root/.cache/w9-tmp/13 GOTOOLCHAIN=local && timeout 300 pnpm -C web exec vitest run src/components src/pages` then `timeout 1200 make lint-web test-web`
-Expected: PASS, with `tsc --noEmit` and `eslint --max-warnings 0` clean. Run the countdown test (`the countdown announces itself politely…`) five times in a row to see it is stable (it uses fake timers with `shouldAdvanceTime`, like the existing countdown test). Quote the output. Then `rm -rf /root/.cache/w9-tmp/13`.
+Run: `export TMPDIR=/root/.cache/w9-tmp/14 GOTOOLCHAIN=local && timeout 300 pnpm -C web exec vitest run src/components src/pages` then `timeout 1200 make lint-web test-web`
+Expected: PASS, with `tsc --noEmit` and `eslint --max-warnings 0` clean. Run the countdown test (`the countdown announces itself politely…`) five times in a row to see it is stable (it uses fake timers with `shouldAdvanceTime`, like the existing countdown test). Quote the output. Then `rm -rf /root/.cache/w9-tmp/14`.
 
 - [ ] **Step 5: Commit**
 
@@ -7755,13 +7776,13 @@ git add web/src/components/change-dialog.a11y.test.tsx web/src/pages/change.a11y
 git commit -m "fix(web): announce and focus the change flow"
 ````
 
-### Task 14: web a11y: firewall change flow
+### Task 15: web a11y: firewall change flow
 
 **Files:**
 - Create: `web/src/modules/firewall/firewall-page.a11y.test.tsx`, `rule-form.a11y.test.tsx`, `rules-table.a11y.test.tsx`, `firewall-change.a11y.test.tsx`, `state-controls.a11y.test.tsx`, `snapshots-panel.a11y.test.tsx`, `status-panel.a11y.test.tsx`, `exposure-page.a11y.test.tsx` (all in `web/src/modules/firewall/`)
 - Modify: `web/src/modules/firewall/firewall-change.tsx`, `rules-table.tsx`, `status-panel.tsx`, `firewall-page.tsx`, `state-controls.tsx`
 - Read, and change only if one of the new tests is red for it: `rule-form.tsx`, `snapshots-panel.tsx`, `exposure-page.tsx`, `routes.tsx`
-- Not edited: `container-actions.tsx` (Task 19), `docker-panel.tsx`, `docker-sources.tsx` and `snapshot-compare.tsx` (they also use `FirewallChange`, which keeps working without the new optional prop)
+- Not edited: `container-actions.tsx` (Task 20), `docker-panel.tsx`, `docker-sources.tsx` and `snapshot-compare.tsx` (they also use `FirewallChange`, which keeps working without the new optional prop)
 - Read for fixtures: `web/src/modules/firewall/fixtures.ts`, the existing `*.test.tsx` beside each component, `web/src/test/utils.tsx`
 
 **Interfaces:**
@@ -7771,6 +7792,8 @@ git commit -m "fix(web): announce and focus the change flow"
 **Items:** 41
 
 **Depends on:** Task 2
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 2 - spec 2 - coupling 1 - risk 1 = 6
 
 What this audit found: the chained dialogs already hand focus back correctly where the opener survives (darkraise-ui keeps the trap disabled while a dialog is closed and restores focus to the element that was focused when it opened, if that is still in the document): "Add rule" to the form to the change dialog and back to "Add rule", the manual-rule questions in `RulesTable`, `FirewallChange` and `SnapshotsPanel`, Escape in every dialog, and axe on every component. Five things are wrong, and the tests below fail on exactly these: (1) `FirewallPage` gives `StateControls` a `key` made of the configured state and `active`, and `FirewallChange` refreshes the host's resources as soon as an apply succeeds, so the status read that follows a state change remounts the card and destroys the open change dialog with its countdown, Confirm and Revert: the operator who just enabled or disabled UFW loses the controls that keep a lockout from becoming permanent, and focus falls to `body`; (2) the same remount replaces the Enable/Disable button, so even a closed dialog would have no opener to return to; (3) after a rule is deleted its Delete button leaves the table, so closing the change dialog drops focus to `body`; (4) after a repair succeeds the "Out of sync" banner and its Repair button are gone, with the same result; (5) `StateControls` has to start its drafts again from the host's settings by itself once the page stops keying it.
 
@@ -8502,7 +8525,7 @@ test("a read that failed is announced as an alert", async () => {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w9-tmp/14 && export TMPDIR=/root/.cache/w9-tmp/14 GOTOOLCHAIN=local && timeout 300 pnpm -C web exec vitest run src/modules/firewall`
+Run: `mkdir -p /root/.cache/w9-tmp/15 && export TMPDIR=/root/.cache/w9-tmp/15 GOTOOLCHAIN=local && timeout 300 pnpm -C web exec vitest run src/modules/firewall`
 
 Expected: exactly five tests FAIL; every other test of the folder passes (the new axe, Tab, Escape and chained-dialog tests are guards for behaviour that already holds, and a guard that fails means a new defect to fix in the file it names). Quote the output. The five:
 - `a state change applied from the page keeps its countdown, and Confirm and Close work by keyboard`: `Unable to find an accessible element with the role "dialog" and name "Enable the firewall"`, at the `expect(screen.getByRole("dialog", …)).toBe(dialog)` line after `UFW is active.` appears.
@@ -8521,8 +8544,8 @@ Expected: exactly five tests FAIL; every other test of the folder passes (the ne
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `export TMPDIR=/root/.cache/w9-tmp/14 GOTOOLCHAIN=local && timeout 300 pnpm -C web exec vitest run src/modules/firewall` then `timeout 1200 make lint-web test-web`
-Expected: PASS (all firewall tests, then the whole web suite), `tsc --noEmit` and `eslint --max-warnings 0` clean. Quote the output. Then `rm -rf /root/.cache/w9-tmp/14`.
+Run: `export TMPDIR=/root/.cache/w9-tmp/15 GOTOOLCHAIN=local && timeout 300 pnpm -C web exec vitest run src/modules/firewall` then `timeout 1200 make lint-web test-web`
+Expected: PASS (all firewall tests, then the whole web suite), `tsc --noEmit` and `eslint --max-warnings 0` clean. Quote the output. Then `rm -rf /root/.cache/w9-tmp/15`.
 
 - [ ] **Step 5: Commit**
 
@@ -8531,7 +8554,7 @@ git add web/src/modules/firewall
 git commit -m "fix(web): keep focus in the firewall change flow"
 ````
 
-### Task 15: docs: install, first admin, lockout recovery, uninstall and administration
+### Task 16: docs: install, first admin, lockout recovery, uninstall and administration
 
 **Files:**
 - Create: `docs/user/README.md`, `docs/user/install.md`, `docs/user/first-admin.md`, `docs/user/lockout-recovery.md`, `docs/user/uninstall.md`, `docs/user/administration.md`
@@ -8539,14 +8562,16 @@ git commit -m "fix(web): keep focus in the firewall change flow"
 - Read: `README.md` (sections Install, Add a host, Updates, Break-glass, Uninstall, The first admin, Trust the web root, Use the CLI with a token), `install.sh.in`, `cmd/darkpanel/uninstall.go`, `cmd/darkpanel/agent.go`, `cmd/darkpanel/system.go`, `cmd/darkpanel/update.go`, `internal/cli/enroll.go`, `internal/cli/firewall.go`, `internal/cli/controller_backup.go`, `internal/cli/controller_quarantine.go`, `internal/controller/coreactions/`, `internal/modules/firewall/uninstall.go`, `internal/modules/tailscale/uninstall.go`, `docs/versioning.md`, `schemas/core.*/v1.json` (class, scope and break-glass flag of each action)
 
 **Interfaces:**
-- Consumes: Contracts "Docs checks" (`dcRead`, `dcMentions`, `dcModuleNames`, `dcLinks` in `internal/docs/helpers_test.go`, Task 3) and "Documentation paths". The registry's `core` module names come from `dcModuleNames(t, "core")`; command paths come from `cli.CommandPath` (`internal/cli/names.go`).
-- Produces: `docs/user/README.md`, the index every other user page is reached from, linking the pages of Tasks 16 and 17, `docs/dev/module-guide.md` (Task 18), `docs/api/README.md` (Task 3) and `docs/versioning.md`; the five pages above. Test identifiers `duPages`, `duIndexed`, `duFlags`, `duDashed`, `duHeadingRE`, `duFenceRE`, `duCodeRE`, `duHTMLRE`, `duLinkRE`, `duPlanRE`, `TestDuIndexLinksEveryPage`, `TestDuPagesLink`, `TestDuInstall`, `TestDuFirstAdmin`, `TestDuLockoutRecovery`, `TestDuUninstall`, `TestDuAdministration`, `TestDuStyle`.
+- Consumes: Contracts "Docs checks" (`dcRead`, `dcMentions`, `dcModuleNames`, `dcLinks` in `internal/docs/helpers_test.go`, Task 12) and "Documentation paths". The registry's `core` module names come from `dcModuleNames(t, "core")`; command paths come from `cli.CommandPath` (`internal/cli/names.go`).
+- Produces: `docs/user/README.md`, the index every other user page is reached from, linking the pages of Tasks 17 and 18, `docs/dev/module-guide.md` (Task 19), `docs/api/README.md` (Task 3) and `docs/versioning.md`; the five pages above. Test identifiers `duPages`, `duIndexed`, `duFlags`, `duDashed`, `duHeadingRE`, `duFenceRE`, `duCodeRE`, `duHTMLRE`, `duLinkRE`, `duPlanRE`, `TestDuIndexLinksEveryPage`, `TestDuPagesLink`, `TestDuInstall`, `TestDuFirstAdmin`, `TestDuLockoutRecovery`, `TestDuUninstall`, `TestDuAdministration`, `TestDuStyle`.
 
 **Items:** 42
 
-**Depends on:** Task 3
+**Depends on:** Task 3, Task 12
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 2 - spec 2 - coupling 1 - risk 0 = 5
 
-The tests make a page go stale visibly: the flags of `install.sh` and of `darkpanel uninstall` are read from their sources and must equal a fixed list (a new flag fails the test until the page and the list are updated together), the module uninstall options come from the modules' own `UninstallOptions()`, the break-glass command paths are generated from the action names, and every core action and resource name must appear on the administration page. `TestDuStyle` holds all six pages to the documentation style of Global Constraints (one `#` title on the first line, no skipped heading level, tagged fences, no HTML, link text that says where the link goes, no mention of the plan) and is the automated half of the heading-order and link-text check that Task 22 cites for the first-admin and lockout-recovery pages.
+The tests make a page go stale visibly: the flags of `install.sh` and of `darkpanel uninstall` are read from their sources and must equal a fixed list (a new flag fails the test until the page and the list are updated together), the module uninstall options come from the modules' own `UninstallOptions()`, the break-glass command paths are generated from the action names, and every core action and resource name must appear on the administration page. `TestDuStyle` holds all six pages to the documentation style of Global Constraints (one `#` title on the first line, no skipped heading level, tagged fences, no HTML, link text that says where the link goes, no mention of the plan) and is the automated half of the heading-order and link-text check that Task 23 cites for the first-admin and lockout-recovery pages.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -8774,7 +8799,7 @@ func TestDuStyle(t *testing.T) {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w9-tmp/15 && export TMPDIR=/root/.cache/w9-tmp/15 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestDu' ./internal/docs/`
+Run: `mkdir -p /root/.cache/w9-tmp/16 && export TMPDIR=/root/.cache/w9-tmp/16 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestDu' ./internal/docs/`
 Expected: FAIL. Every test fails with a `docs:` line naming the first missing page (`docs/user/README.md` or `docs/user/install.md` and so on, from `dcRead`); none fails with a derivation error (`install.sh.in accepts …`, `darkpanel uninstall registers …`), because those checks read files that exist. Quote the output.
 
 - [ ] **Step 3: Write the pages**
@@ -8790,8 +8815,8 @@ The Markdown pages are the implementation. Follow Global Constraints "Documentat
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `export TMPDIR=/root/.cache/w9-tmp/15 GOTOOLCHAIN=local && timeout 300 go test -count=1 -v -run 'TestDu' ./internal/docs/`
-Expected: PASS for all eight tests. Then the Go constraints of Global Constraints, each with its real output: `timeout 600 go build ./...`; `timeout 300 go vet ./...` (no output); `timeout 1500 go test -count=1 ./...` (every line `ok` or `?`); `timeout 300 go test -race -count=1 ./internal/docs/`; `timeout 900 golangci-lint run --allow-serial-runners ./...` (`0 issues.`); `timeout 300 go mod tidy -diff` (no output). Then read each page once for the rules the tests cannot check (sentence-case headings, second person, accurate commands against the sources above). Finally `go clean -testcache && rm -rf /root/.cache/w9-tmp/15`.
+Run: `export TMPDIR=/root/.cache/w9-tmp/16 GOTOOLCHAIN=local && timeout 300 go test -count=1 -v -run 'TestDu' ./internal/docs/`
+Expected: PASS for all eight tests. Then the Go constraints of Global Constraints, each with its real output: `timeout 600 go build ./...`; `timeout 300 go vet ./...` (no output); `timeout 1500 go test -count=1 ./...` (every line `ok` or `?`); `timeout 300 go test -race -count=1 ./internal/docs/`; `timeout 900 golangci-lint run --allow-serial-runners ./...` (`0 issues.`); `timeout 300 go mod tidy -diff` (no output). Then read each page once for the rules the tests cannot check (sentence-case headings, second person, accurate commands against the sources above). Finally `go clean -testcache && rm -rf /root/.cache/w9-tmp/16`.
 
 - [ ] **Step 5: Commit**
 
@@ -8800,7 +8825,7 @@ git add docs/user/README.md docs/user/install.md docs/user/first-admin.md docs/u
 git commit -m "docs(user): add install, admin and recovery pages"
 ````
 
-### Task 16: docs: module pages for hostinfo, firewall, docker, tailscale and tailnet
+### Task 17: docs: module pages for hostinfo, firewall, docker, tailscale and tailnet
 
 **Files:**
 - Create: `docs/user/modules/hostinfo.md`, `docs/user/modules/firewall.md`, `docs/user/modules/docker.md`, `docs/user/modules/tailscale.md`, `docs/user/modules/tailnet.md`
@@ -8808,12 +8833,14 @@ git commit -m "docs(user): add install, admin and recovery pages"
 - Read: each module's manifest and wire types (`internal/modules/hostinfo/hostinfo.go`; `internal/modules/firewall/` including `wire.go`, `uninstall.go` and `guard/guard.go`; `internal/modules/docker/` including `wire.go`, `compose_check.go` and `owned.go`; `internal/modules/tailscale/` including `wire.go` and `link/link.go`; `internal/modules/tailnet/` including `wire.go`, `account.go` and `policy/policy.go`), `internal/core/errcode/errcode.go`, `internal/cli/names.go` and `internal/cli/firewall.go`, `schemas/<action>/v1.json` for the class, scope and side of each action, the root `README.md`, and spec sections 2, 3, 4.1 and 4.2 (`docs/dforge/specs/2026-10-21-v1-completion-design.md`) for behaviour: the lockout guard, auto-revert, snapshots, the Docker integration, the exposure view, Compose refusals, node preferences and the tailnet policy
 
 **Interfaces:**
-- Consumes: Contracts "Docs checks" (`dcRead`, `dcMentions`, `dcModuleNames`, `dcLinks`, Task 3) and "Documentation paths". `dcModuleNames(t, id)` is the sorted list of every non-internal action and resource name of the module: `hostinfo` 1, `firewall` 22, `docker` 26, `tailscale` 10, `tailnet` 14 at the time of writing.
-- Produces: the five pages, linked from `docs/user/README.md` (Task 15). Test identifiers `dmPages`, `dmCodeRE`, `dmHTMLRE`, `dmFields`, `dmInputFields`, `dmUninstallOptions`, `dmCodes`, `TestDmEveryActionAndResourceIsDocumented`, `TestDmHostinfo`, `TestDmFirewall`, `TestDmDocker`, `TestDmTailscale`, `TestDmTailnet`, `TestDmStyle`.
+- Consumes: Contracts "Docs checks" (`dcRead`, `dcMentions`, `dcModuleNames`, `dcLinks`, Task 12) and "Documentation paths". `dcModuleNames(t, id)` is the sorted list of every non-internal action and resource name of the module: `hostinfo` 1, `firewall` 22, `docker` 26, `tailscale` 10, `tailnet` 14 at the time of writing.
+- Produces: the five pages, linked from `docs/user/README.md` (Task 16). Test identifiers `dmPages`, `dmCodeRE`, `dmHTMLRE`, `dmFields`, `dmInputFields`, `dmUninstallOptions`, `dmCodes`, `TestDmEveryActionAndResourceIsDocumented`, `TestDmHostinfo`, `TestDmFirewall`, `TestDmDocker`, `TestDmTailscale`, `TestDmTailnet`, `TestDmStyle`.
 
 **Items:** 42
 
-**Depends on:** Task 3
+**Depends on:** Task 3, Task 12
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 2 - spec 2 - coupling 1 - risk 0 = 5
 
 The test holds each page to the registry and to the code: every action and resource name, and the command the CLI generates for it (`darkpanel firewall rule add`; a resource's command ends in `get`, as in `darkpanel firewall status get`), every field of the inputs and outputs named in the test (read by reflection from the registry's `InputType` and from `hostinfo.Summary`), every error code and guard id of the module (the `errcode` constants and the guard packages' ids), the Docker API floor (`dockerapi.MinAPIVersion`) and each uninstall option the module declares, so a rename or an added action fails the build until the page follows.
 
@@ -9034,7 +9061,7 @@ func TestDmStyle(t *testing.T) {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w9-tmp/16 && export TMPDIR=/root/.cache/w9-tmp/16 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestDm' ./internal/docs/`
+Run: `mkdir -p /root/.cache/w9-tmp/17 && export TMPDIR=/root/.cache/w9-tmp/17 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestDm' ./internal/docs/`
 Expected: FAIL. Every test fails with a `docs:` line naming the first missing page under `docs/user/modules/` (from `dcRead`); the registry reads, the reflection and the uninstall-option lookups in the helpers must not fail first (a `registry has no action` or `declares no uninstall option` failure means a name in the test is wrong). Quote the output.
 
 - [ ] **Step 3: Write the pages**
@@ -9049,8 +9076,8 @@ The Markdown pages are the implementation. Follow Global Constraints "Documentat
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `export TMPDIR=/root/.cache/w9-tmp/16 GOTOOLCHAIN=local && timeout 300 go test -count=1 -v -run 'TestDm' ./internal/docs/`
-Expected: PASS for all seven tests. The failure messages name every missing string; add each to its page rather than loosening the test. Then the Go constraints of Global Constraints, each with its real output: `timeout 600 go build ./...`; `timeout 300 go vet ./...` (no output); `timeout 1500 go test -count=1 ./...` (every line `ok` or `?`); `timeout 300 go test -race -count=1 ./internal/docs/`; `timeout 900 golangci-lint run --allow-serial-runners ./...` (`0 issues.`); `timeout 300 go mod tidy -diff` (no output). Read each page once against its sources (the test checks that names exist, not that the prose is true). Finally `go clean -testcache && rm -rf /root/.cache/w9-tmp/16`.
+Run: `export TMPDIR=/root/.cache/w9-tmp/17 GOTOOLCHAIN=local && timeout 300 go test -count=1 -v -run 'TestDm' ./internal/docs/`
+Expected: PASS for all seven tests. The failure messages name every missing string; add each to its page rather than loosening the test. Then the Go constraints of Global Constraints, each with its real output: `timeout 600 go build ./...`; `timeout 300 go vet ./...` (no output); `timeout 1500 go test -count=1 ./...` (every line `ok` or `?`); `timeout 300 go test -race -count=1 ./internal/docs/`; `timeout 900 golangci-lint run --allow-serial-runners ./...` (`0 issues.`); `timeout 300 go mod tidy -diff` (no output). Read each page once against its sources (the test checks that names exist, not that the prose is true). Finally `go clean -testcache && rm -rf /root/.cache/w9-tmp/17`.
 
 - [ ] **Step 5: Commit**
 
@@ -9059,7 +9086,7 @@ git add docs/user/modules/hostinfo.md docs/user/modules/firewall.md docs/user/mo
 git commit -m "docs(user): add hostinfo to tailnet module pages"
 ````
 
-### Task 17: docs: module pages for derp, npm, cloudflare and panel
+### Task 18: docs: module pages for derp, npm, cloudflare and panel
 
 **Files:**
 - Create: `docs/user/modules/derp.md`
@@ -9069,12 +9096,14 @@ git commit -m "docs(user): add hostinfo to tailnet module pages"
 - Test: `internal/docs/modules_b_test.go`
 
 **Interfaces:**
-- Consumes: Contracts "Docs checks" (`dcRead`, `dcMentions`, `dcModuleNames`, `dcLinks` from `internal/docs/helpers_test.go`, Task 3), "Documentation paths" and Global Constraints "Documentation style" and "Secrets". The test also reads the registry (`registry.Build()`) and the generated CLI (`cli.NewRoot`), and links to `docs/api/<module>.md`, which Task 3 generates.
-- Produces: the four pages at the paths of Contracts "Documentation paths". Task 15's `docs/user/README.md` links to them and Task 23's `TestWcDocsLinks` checks their links. Test identifiers are prefixed `Dn`/`dn`.
+- Consumes: Contracts "Docs checks" (`dcRead`, `dcMentions`, `dcModuleNames`, `dcLinks` from `internal/docs/helpers_test.go`, Task 12), "Documentation paths" and Global Constraints "Documentation style" and "Secrets". The test also reads the registry (`registry.Build()`) and the generated CLI (`cli.NewRoot`), and links to `docs/api/<module>.md`, which Task 3 generates.
+- Produces: the four pages at the paths of Contracts "Documentation paths". Task 16's `docs/user/README.md` links to them and Task 24's `TestWcDocsLinks` checks their links. Test identifiers are prefixed `Dn`/`dn`.
 
 **Items:** 42
 
-**Depends on:** Task 3
+**Depends on:** Task 3, Task 12
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 2 - spec 2 - coupling 1 - risk 0 = 5
 
 - [ ] **Step 1: Write the failing test**
 
@@ -9319,8 +9348,8 @@ func TestDnCommandsExist(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w9-tmp/17 && TMPDIR=/root/.cache/w9-tmp/17 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestDn' ./internal/docs/`
-Expected: FAIL. `TestDnPagesNameEveryAction`, `TestDnPagesStateTheirFacts`, `TestDnPagesLinkOnlyToFiles`, `TestDnPagesHaveTheirSections`, `TestDnPagesFollowTheStyle` and `TestDnCommandsExist` each fail for the four modules with `read docs/user/modules/<module>.md: open ...: no such file or directory`; `TestDnCommandsParse` passes. A build failure here means Task 3's helpers are not in the base: stop and report.
+Run: `mkdir -p /root/.cache/w9-tmp/18 && TMPDIR=/root/.cache/w9-tmp/18 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestDn' ./internal/docs/`
+Expected: FAIL. `TestDnPagesNameEveryAction`, `TestDnPagesStateTheirFacts`, `TestDnPagesLinkOnlyToFiles`, `TestDnPagesHaveTheirSections`, `TestDnPagesFollowTheStyle` and `TestDnCommandsExist` each fail for the four modules with `docs/user/modules/<module>.md: open .../docs/user/modules/<module>.md: no such file or directory`; `TestDnCommandsParse` passes. A build failure here means Task 12's helpers are not in the base: stop and report.
 
 - [ ] **Step 3: Implement**
 
@@ -9369,8 +9398,8 @@ Page contents, with the source of each fact:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `TMPDIR=/root/.cache/w9-tmp/17 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestDn' ./internal/docs/ && GOTOOLCHAIN=local timeout 300 go build ./... && GOTOOLCHAIN=local timeout 300 go vet ./... && GOTOOLCHAIN=local timeout 600 go test -count=1 ./... && GOTOOLCHAIN=local timeout 300 go test -race -count=1 ./internal/docs/ && GOTOOLCHAIN=local timeout 900 golangci-lint run --allow-serial-runners ./... && GOTOOLCHAIN=local timeout 300 go mod tidy -diff`
-Expected: every `go test` line `ok`, `go vet` and `go mod tidy -diff` print nothing, golangci-lint prints `0 issues.`. Quote the output, then `rm -rf /root/.cache/w9-tmp/17 && go clean -testcache`.
+Run: `TMPDIR=/root/.cache/w9-tmp/18 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestDn' ./internal/docs/ && GOTOOLCHAIN=local timeout 300 go build ./... && GOTOOLCHAIN=local timeout 300 go vet ./... && GOTOOLCHAIN=local timeout 600 go test -count=1 ./... && GOTOOLCHAIN=local timeout 300 go test -race -count=1 ./internal/docs/ && GOTOOLCHAIN=local timeout 900 golangci-lint run --allow-serial-runners ./... && GOTOOLCHAIN=local timeout 300 go mod tidy -diff`
+Expected: every `go test` line `ok`, `go vet` and `go mod tidy -diff` print nothing, golangci-lint prints `0 issues.`. Quote the output, then `rm -rf /root/.cache/w9-tmp/18 && go clean -testcache`.
 
 - [ ] **Step 5: Commit**
 
@@ -9379,19 +9408,21 @@ git add docs/user/modules/derp.md docs/user/modules/npm.md docs/user/modules/clo
 git commit -m "docs(user): add derp, npm, cloudflare, panel pages"
 ```
 
-### Task 18: docs: module developer guide
+### Task 19: docs: module developer guide
 
 **Files:**
 - Create: `docs/dev/module-guide.md`
 - Test: `internal/docs/guide_test.go`
 
 **Interfaces:**
-- Consumes: Contracts "Docs checks" (`dcRead`, `dcMentions`, `dcLinks`, Task 3) and "Documentation paths"; the `make api-docs` target and `TestAdAPIDocsCurrent` of Contracts "API reference" (Task 3); Global Constraints "Documentation style". The test compiles against `internal/core`, `internal/modules`, `internal/registry` and `internal/cli`, so a rename of any identifier the guide teaches breaks the build of `internal/docs`.
-- Produces: `docs/dev/module-guide.md`, which Task 23's `TestWcDocsLinks` checks. Test identifiers are prefixed `Dg`/`dg`.
+- Consumes: Contracts "Docs checks" (`dcRead`, `dcMentions`, `dcLinks`, Task 12) and "Documentation paths"; the `make api-docs` target and `TestAdAPIDocsCurrent` of Contracts "API reference" (Task 3); Global Constraints "Documentation style". The test compiles against `internal/core`, `internal/modules`, `internal/registry` and `internal/cli`, so a rename of any identifier the guide teaches breaks the build of `internal/docs`.
+- Produces: `docs/dev/module-guide.md`, which Task 24's `TestWcDocsLinks` checks. Test identifiers are prefixed `Dg`/`dg`.
 
 **Items:** 42
 
-**Depends on:** Task 3
+**Depends on:** Task 3, Task 12
+**Implementer:** dforge:impl-sonnet-medium
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 0 = 4
 
 - [ ] **Step 1: Write the failing test**
 
@@ -9680,8 +9711,8 @@ func TestDgGuideLinksOnlyToFiles(t *testing.T) { dcLinks(t, dgGuide) }
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mkdir -p /root/.cache/w9-tmp/18 && TMPDIR=/root/.cache/w9-tmp/18 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestDg' ./internal/docs/`
-Expected: the package compiles and every `TestDg` test fails with `read docs/dev/module-guide.md: open ...: no such file or directory`. A build failure naming an identifier of `dgNames` means that identifier no longer exists: stop and report. A build failure naming `dcRead` means Task 3's helpers are missing: stop and report.
+Run: `mkdir -p /root/.cache/w9-tmp/19 && TMPDIR=/root/.cache/w9-tmp/19 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestDg' ./internal/docs/`
+Expected: the package compiles and every `TestDg` test fails with `docs/dev/module-guide.md: open .../docs/dev/module-guide.md: no such file or directory`. A build failure naming an identifier of `dgNames` means that identifier no longer exists: stop and report. A build failure naming `dcRead` means Task 12's helpers are missing: stop and report.
 
 - [ ] **Step 3: Implement**
 
@@ -9703,8 +9734,8 @@ Section facts, with the files to read for each:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `TMPDIR=/root/.cache/w9-tmp/18 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestDg' ./internal/docs/ && GOTOOLCHAIN=local timeout 300 go build ./... && GOTOOLCHAIN=local timeout 300 go vet ./... && GOTOOLCHAIN=local timeout 600 go test -count=1 ./... && GOTOOLCHAIN=local timeout 300 go test -race -count=1 ./internal/docs/ && GOTOOLCHAIN=local timeout 900 golangci-lint run --allow-serial-runners ./... && GOTOOLCHAIN=local timeout 300 go mod tidy -diff`
-Expected: every `go test` line `ok`, `go vet` and `go mod tidy -diff` print nothing, golangci-lint prints `0 issues.`. Quote the output, then `rm -rf /root/.cache/w9-tmp/18 && go clean -testcache`.
+Run: `TMPDIR=/root/.cache/w9-tmp/19 GOTOOLCHAIN=local timeout 300 go test -count=1 -run 'TestDg' ./internal/docs/ && GOTOOLCHAIN=local timeout 300 go build ./... && GOTOOLCHAIN=local timeout 300 go vet ./... && GOTOOLCHAIN=local timeout 600 go test -count=1 ./... && GOTOOLCHAIN=local timeout 300 go test -race -count=1 ./internal/docs/ && GOTOOLCHAIN=local timeout 900 golangci-lint run --allow-serial-runners ./... && GOTOOLCHAIN=local timeout 300 go mod tidy -diff`
+Expected: every `go test` line `ok`, `go vet` and `go mod tidy -diff` print nothing, golangci-lint prints `0 issues.`. Quote the output, then `rm -rf /root/.cache/w9-tmp/19 && go clean -testcache`.
 
 - [ ] **Step 5: Commit**
 
@@ -9713,7 +9744,7 @@ git add docs/dev/module-guide.md internal/docs/guide_test.go
 git commit -m "docs(dev): add the module developer guide"
 ```
 
-### Task 19: web a11y: container actions and expose flows
+### Task 20: web a11y: container actions and expose flows
 
 **Files:**
 - Create: `web/src/modules/docker/containers-tab.a11y.test.tsx`
@@ -9741,7 +9772,9 @@ git commit -m "docs(dev): add the module developer guide"
 
 **Items:** 41
 
-**Depends on:** Task 2, Task 13
+**Depends on:** Task 2, Task 14
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 2 - spec 2 - coupling 1 - risk 1 = 6
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -10883,13 +10916,13 @@ test("Tab reaches the four page links in order, named by their text", async () =
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w9-tmp/19 && TMPDIR=/root/.cache/w9-tmp/19 GOTOOLCHAIN=local timeout 600 pnpm -C web exec vitest run src/modules/docker/containers-tab.a11y.test.tsx src/modules/docker/container-page.a11y.test.tsx src/modules/docker/docker-change.a11y.test.tsx src/modules/firewall/container-actions.a11y.test.tsx src/modules/npm/container-actions.a11y.test.tsx src/modules/npm/npm-change.a11y.test.tsx src/modules/cloudflare/container-actions.a11y.test.tsx src/modules/cloudflare/expose-dialog.a11y.test.tsx src/modules/cloudflare/cloudflare-change.a11y.test.tsx src/modules/cloudflare/global.a11y.test.tsx src/modules/derp/global.a11y.test.tsx src/modules/tailnet/global.a11y.test.tsx`
-Expected: 18 failed and 81 passed on this task's base (21 and 78 on `3c5e837`, where the three heading-order failures listed last also fail; Task 13 fixes those). The failures are:
+Run: `mkdir -p /root/.cache/w9-tmp/20 && TMPDIR=/root/.cache/w9-tmp/20 GOTOOLCHAIN=local timeout 600 pnpm -C web exec vitest run src/modules/docker/containers-tab.a11y.test.tsx src/modules/docker/container-page.a11y.test.tsx src/modules/docker/docker-change.a11y.test.tsx src/modules/firewall/container-actions.a11y.test.tsx src/modules/npm/container-actions.a11y.test.tsx src/modules/npm/npm-change.a11y.test.tsx src/modules/cloudflare/container-actions.a11y.test.tsx src/modules/cloudflare/expose-dialog.a11y.test.tsx src/modules/cloudflare/cloudflare-change.a11y.test.tsx src/modules/cloudflare/global.a11y.test.tsx src/modules/derp/global.a11y.test.tsx src/modules/tailnet/global.a11y.test.tsx`
+Expected: 18 failed and 81 passed on this task's base (21 and 78 on `3c5e837`, where the three heading-order failures listed last also fail; Task 14 fixes those). The failures are:
 - the page-title tests of the three global pages (15): `expected '' to be 'Tailnet · Darkpanel'` (and `'DERP · Darkpanel'`, `'Cloudflare · Darkpanel'`), and `expected 'Before' to be ...` for the restore tests;
 - `when an applied Stop leaves the row without that action, focus moves to the row's first enabled action`: `expected '' to be 'Start web'`;
 - `when an applied Remove deletes the row, focus moves to the containers group`: `Unable to find role="group" and name "Containers"`;
 - `when a confirmed Deny leaves nothing to deny, the Plan button is disabled and focus moves to the form`: `expected <body ...> to be <form aria-label="Deny" ...>`;
-- three `... module ... unavailable ... has no axe violations` tests (the Docker, NPM and Cloudflare change wrappers): `axe found 1 violation(s): heading-order: h5`. The source is `AlertTitle` in `web/src/components/change-dialog.tsx` (an h5 after the dialog's h2), a file this task does not own: Task 13 fixes it, and Task 13 is in this task's base, so these three pass at once; if they fail, stop and report.
+- three `... module ... unavailable ... has no axe violations` tests (the Docker, NPM and Cloudflare change wrappers): `axe found 1 violation(s): heading-order: h5`. The source is `AlertTitle` in `web/src/components/change-dialog.tsx` (an h5 after the dialog's h2), a file this task does not own: Task 14 fixes it, and Task 14 is in this task's base, so these three pass at once; if they fail, stop and report.
 
 All other tests pass already; they are the evidence of the audit and guard against regressions. Quote the real output. A test that fails for any other reason means the test or its fixture is wrong: fix it, never weaken an assertion.
 
@@ -10903,7 +10936,7 @@ All other tests pass already; they are the evidence of the audit and guard again
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run the command of Step 2 again.
-Expected: all tests pass, except that the three `unavailable` tests pass only when Task 13's fix of the change dialog's heading level is in the base (see Step 2). Then run `TMPDIR=/root/.cache/w9-tmp/19 GOTOOLCHAIN=local timeout 1200 make lint-web test-web`: eslint with `--max-warnings 0`, `tsc --noEmit` and the whole Vitest suite pass. Quote the output, then `rm -rf /root/.cache/w9-tmp/19`.
+Expected: all tests pass, except that the three `unavailable` tests pass only when Task 14's fix of the change dialog's heading level is in the base (see Step 2). Then run `TMPDIR=/root/.cache/w9-tmp/20 GOTOOLCHAIN=local timeout 1200 make lint-web test-web`: eslint with `--max-warnings 0`, `tsc --noEmit` and the whole Vitest suite pass. Quote the output, then `rm -rf /root/.cache/w9-tmp/20`.
 
 - [ ] **Step 5: Commit**
 
@@ -10919,7 +10952,7 @@ git commit -m "test(web): add a11y tests for container actions"
 ```
 If Step 3 changed one of the conditional files, add it to the third commit.
 
-### Task 20: harness: TestFootprint and the vm-fp job
+### Task 21: harness: TestFootprint and the vm-fp job
 
 **Files:**
 - Create: `test/harness/footprint_test.go`
@@ -10934,6 +10967,8 @@ If Step 3 changed one of the conditional files, add it to the third commit.
 **Items:** 40
 
 **Depends on:** Task 4, Task 11
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 2 - spec 2 - coupling 1 - risk 2 = 7
 
 - [ ] **Step 1: Verify the unverified assumption in the code**
 
@@ -11756,7 +11791,7 @@ func TestFpwUnitWorkflowFile(t *testing.T) {
 
 - [ ] **Step 3: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w9-tmp/20 && TMPDIR=/root/.cache/w9-tmp/20 GOTOOLCHAIN=local timeout 300 go vet -tags harness ./test/harness/`
+Run: `mkdir -p /root/.cache/w9-tmp/21 && TMPDIR=/root/.cache/w9-tmp/21 GOTOOLCHAIN=local timeout 300 go vet -tags harness ./test/harness/`
 Expected: FAIL with a build error naming the first undefined identifier: `undefined: fpBinaryName`.
 
 - [ ] **Step 4: Implement**
@@ -11862,10 +11897,10 @@ Then edit `.github/workflows/harness.yml` (read Task 11's version first and keep
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `export TMPDIR=/root/.cache/w9-tmp/20 GOTOOLCHAIN=local && timeout 300 go vet -tags harness ./test/... && timeout 300 go test -tags harness -count=1 -run 'FpUnit|FpwUnit' -v ./test/harness/ && timeout 600 go test -tags harness -count=1 -run 'Unit' ./test/harness/... && timeout 300 go test -tags harness -count=1 ./cmd/darkpanel/ && timeout 300 go test -tags harness -count=1 -run '^TestFootprint$' -v ./test/harness/`
+Run: `export TMPDIR=/root/.cache/w9-tmp/21 GOTOOLCHAIN=local && timeout 300 go vet -tags harness ./test/... && timeout 300 go test -tags harness -count=1 -run 'FpUnit|FpwUnit' -v ./test/harness/ && timeout 600 go test -tags harness -count=1 -run 'Unit' ./test/harness/... && timeout 300 go test -tags harness -count=1 ./cmd/darkpanel/ && timeout 300 go test -tags harness -count=1 -run '^TestFootprint$' -v ./test/harness/`
 Expected: vet prints nothing; every `TestFpUnit*` and `TestFpwUnit*` passes (`TestFpwUnitWorkflowFile` too, which was the one failing test once the helpers compiled: `harness: the build job has no step named "Build the footprint agent"`); every `Unit` test passes; the `cmd/darkpanel` tests pass; the last command prints `--- SKIP: TestFootprint` (no `-os`, `-m2` or `-fp` given, so it does not touch this host).
 
-Then the lines of Global Constraints for a task that edits `test/harness/`: `go build ./...`, `go vet ./...`, `go test -count=1 ./...`, `go test -race -count=1 ./test/harness/` with the `harness` tag, `golangci-lint run --allow-serial-runners ./...` and `golangci-lint run --allow-serial-runners --build-tags harness ./test/...` (`0 issues.`), `go mod tidy -diff` (nothing). Quote the outputs, then `rm -rf /root/.cache/w9-tmp/20 && go clean -testcache`.
+Then the lines of Global Constraints for a task that edits `test/harness/`: `go build ./...`, `go vet ./...`, `go test -count=1 ./...`, `go test -race -count=1 ./test/harness/` with the `harness` tag, `golangci-lint run --allow-serial-runners ./...` and `golangci-lint run --allow-serial-runners --build-tags harness ./test/...` (`0 issues.`), `go mod tidy -diff` (nothing). Quote the outputs, then `rm -rf /root/.cache/w9-tmp/21 && go clean -testcache`.
 
 `TestFootprint` itself runs only on harness VMs. The plan's closing gates dispatch `harness.yml` on the branch; record the `vm-fp` conclusion of each OS there, with the `extra-agents` step's result, which settles the Assumptions bullet.
 
@@ -11878,7 +11913,7 @@ git add .github/workflows/harness.yml test/harness/fpw_workflow_unit_test.go
 git commit -m "chore(ci): add the footprint job to the harness"
 ```
 
-### Task 21: web a11y: browser pass for contrast, zoom and reflow
+### Task 22: web a11y: browser pass for contrast, zoom and reflow
 
 **Files:**
 - Create: `web/playwright.config.ts`
@@ -11887,23 +11922,25 @@ git commit -m "chore(ci): add the footprint job to the harness"
 - Modify: `web/tsconfig.node.json` (include the config and `e2e/`, add the DOM library and the `@/*` path so `tsc` checks them)
 - Modify: `web/src/styles/globals.css` (append the contrast overrides)
 - Modify: `web/src/components/change-dialog.tsx` (class names only; the browser pass found the plan body of `ChangeDialogBody` clipping at 320 px)
-- Modify: any other file under `web/src/` that Step 3's red run names as failing and that Tasks 12-14 and 19 own, only where the failure is a class name or an ARIA attribute; list each in the report with the rule that failed. No text, markup structure, behaviour or test file changes.
+- Modify: any other file under `web/src/` that Step 3's red run names as failing and that Tasks 13-15 and 20 own, only where the failure is a class name or an ARIA attribute; list each in the report with the rule that failed. No text, markup structure, behaviour or test file changes.
 - Create: `docs/accessibility/<slug>-<theme>-<check>.png` (56 screenshots, see Interfaces)
 
 **Interfaces:**
-- Consumes: the pages and dialogs that Tasks 12-14 and 19 leave, reached through their accessible names: the login form (`Username`, `Password`, `Authentication code`, `Log in`), the firewall page (`Add rule`, `To port`, `Plan`, the change dialog's `Override firewall.lockout`, `Apply`, `Confirm`, `Revert`), the Docker containers table (`Docker containers`, `Stop web`, `Type web to confirm`) and the container page (the `Expose container` form, `Domains`, `Plan`). If a merged task renamed one of them, change the locator in `a11y.pw.ts`, not the component. The wire shapes come from `web/src/api/types.ts` and the modules' `types.ts` files, imported as types only. The theme comes from `darkraise-ui`'s `ThemeProvider`: it reads the `localStorage` key `mode` (`light` or `dark`) and sets `data-mode` on `<html>`, and it writes its colour tokens as inline styles on `<html>` (`web/src/providers.tsx`, `web/src/theme.config.ts`).
-- Produces: `web/e2e/a11y.pw.ts`, run with `pnpm -C web exec playwright test -c playwright.config.ts` (Vite picks a free `127.0.0.1` port and Playwright passes it to the tests as `E2E_PORT`; `E2E_CHROMIUM` names a Chromium executable when the build this Playwright pins is not installed). Its checks, by describe name: `contrast` (axe `color-contrast`, 1.4.3), `reflow-320` (1.4.10), `zoom-200` (1.4.4), `non-text contrast` (text-field boundaries, 1.4.11), `focus visible` (2.4.7) and `change dialog names` (accessible names, 4.1.2). Task 22 cites it and the screenshots `docs/accessibility/<slug>-<theme>-<check>.png` with `<slug>` one of `login`, `hosts`, `firewall-change-plan`, `firewall-change-applied`, `container-actions-list`, `container-actions-dialog`, `container-page`, `expose-plan`; `<theme>` `light` or `dark`; `<check>` `contrast`, `reflow-320` and `zoom-200` for every slug, and `names` for the four slugs that end in a change dialog (`firewall-change-plan`, `firewall-change-applied`, `container-actions-dialog`, `expose-plan`). The contrast overrides in `globals.css` apply to the default accent (blue) and surface (zinc) in both modes.
+- Consumes: the pages and dialogs that Tasks 13-15 and 20 leave, reached through their accessible names: the login form (`Username`, `Password`, `Authentication code`, `Log in`), the firewall page (`Add rule`, `To port`, `Plan`, the change dialog's `Override firewall.lockout`, `Apply`, `Confirm`, `Revert`), the Docker containers table (`Docker containers`, `Stop web`, `Type web to confirm`) and the container page (the `Expose container` form, `Domains`, `Plan`). If a merged task renamed one of them, change the locator in `a11y.pw.ts`, not the component. The wire shapes come from `web/src/api/types.ts` and the modules' `types.ts` files, imported as types only. The theme comes from `darkraise-ui`'s `ThemeProvider`: it reads the `localStorage` key `mode` (`light` or `dark`) and sets `data-mode` on `<html>`, and it writes its colour tokens as inline styles on `<html>` (`web/src/providers.tsx`, `web/src/theme.config.ts`).
+- Produces: `web/e2e/a11y.pw.ts`, run with `pnpm -C web exec playwright test -c playwright.config.ts` (Vite picks a free `127.0.0.1` port and Playwright passes it to the tests as `E2E_PORT`; `E2E_CHROMIUM` names a Chromium executable when the build this Playwright pins is not installed). Its checks, by describe name: `contrast` (axe `color-contrast`, 1.4.3), `reflow-320` (1.4.10), `zoom-200` (1.4.4), `non-text contrast` (text-field boundaries, 1.4.11), `focus visible` (2.4.7) and `change dialog names` (accessible names, 4.1.2). Task 23 cites it and the screenshots `docs/accessibility/<slug>-<theme>-<check>.png` with `<slug>` one of `login`, `hosts`, `firewall-change-plan`, `firewall-change-applied`, `container-actions-list`, `container-actions-dialog`, `container-page`, `expose-plan`; `<theme>` `light` or `dark`; `<check>` `contrast`, `reflow-320` and `zoom-200` for every slug, and `names` for the four slugs that end in a change dialog (`firewall-change-plan`, `firewall-change-applied`, `container-actions-dialog`, `expose-plan`). The contrast overrides in `globals.css` apply to the default accent (blue) and surface (zinc) in both modes.
 
 **Items:** 41
 
-**Depends on:** Task 12, Task 13, Task 14, Task 19
+**Depends on:** Task 13, Task 14, Task 15, Task 20
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 2 - spec 1 - coupling 1 - risk 2 = 6
 
 - [ ] **Step 1: Verify the unverified assumptions**
 
 Run from the repository root:
 
 ```bash
-export TMPDIR=/root/.cache/w9-tmp/21 GOTOOLCHAIN=local && mkdir -p "$TMPDIR"
+export TMPDIR=/root/.cache/w9-tmp/22 GOTOOLCHAIN=local && mkdir -p "$TMPDIR"
 (cd web && timeout 60 node --input-type=module -e 'import { createRequire } from "node:module"; const r = createRequire(import.meta.url); console.log(createRequire(r.resolve("vitest-axe")).resolve("axe-core/axe.min.js"))')
 (cd web && timeout 60 node --input-type=module -e 'import { chromium } from "@playwright/test"; const b = await chromium.launch({ executablePath: process.env.E2E_CHROMIUM || undefined }); console.log(b.version()); await b.close()')
 ```
@@ -12776,7 +12813,7 @@ Replace `web/tsconfig.node.json` with:
 
 Run: `export E2E_CHROMIUM=<from Step 1, when it was needed>; timeout 600 pnpm -C web exec playwright test -c playwright.config.ts --reporter=line`
 
-Expected: FAIL, and only for the reasons Step 4 fixes. On the tree this plan was drafted against, 27 of the 88 tests fail and 61 pass: `contrast` fails in `login`, `hosts`, `firewall-change-plan`, `firewall-change-applied`, `container-actions-list`, `container-actions-dialog`, `container-page` and `expose-plan` in light mode and in `hosts`, `firewall-change-plan` and `container-actions-dialog` in dark mode (11 tests; for example `Element has insufficient color contrast of 3.63 (foreground color: #ffffff, background color: #3c83f6 ...)` on the primary button and badges, `3.01` on the `text-warning` footer text, `2.9` on `text-success`, `3.4` on `text-destructive` in dark mode); `non-text contrast` fails with `input#login-username border 1.27:1, fill 1.10:1` and its siblings in the 12 tests whose view has a text field; `reflow-320` fails in `firewall-change-plan` and `expose-plan` in both themes with `dialog content outside the viewport` (`div.dr-overlay-header spans 25 to 469 of 320` and the dialog's other children). `zoom-200`, `focus visible` and `change dialog names` pass. After Tasks 12-14 and 19 the exact list can differ; quote the red output verbatim and treat each failure the same way. The run writes screenshots before it asserts, so the PNGs exist even while it is red; the green run overwrites them. A failure that names an unfixtured request (`API requests without a fixture`) is a gap in `fixtures.ts`: add the fixture, never skip the assertion.
+Expected: FAIL, and only for the reasons Step 4 fixes. On the tree this plan was drafted against, 27 of the 88 tests fail and 61 pass: `contrast` fails in `login`, `hosts`, `firewall-change-plan`, `firewall-change-applied`, `container-actions-list`, `container-actions-dialog`, `container-page` and `expose-plan` in light mode and in `hosts`, `firewall-change-plan` and `container-actions-dialog` in dark mode (11 tests; for example `Element has insufficient color contrast of 3.63 (foreground color: #ffffff, background color: #3c83f6 ...)` on the primary button and badges, `3.01` on the `text-warning` footer text, `2.9` on `text-success`, `3.4` on `text-destructive` in dark mode); `non-text contrast` fails with `input#login-username border 1.27:1, fill 1.10:1` and its siblings in the 12 tests whose view has a text field; `reflow-320` fails in `firewall-change-plan` and `expose-plan` in both themes with `dialog content outside the viewport` (`div.dr-overlay-header spans 25 to 469 of 320` and the dialog's other children). `zoom-200`, `focus visible` and `change dialog names` pass. After Tasks 13-15 and 20 the exact list can differ; quote the red output verbatim and treat each failure the same way. The run writes screenshots before it asserts, so the PNGs exist even while it is red; the green run overwrites them. A failure that names an unfixtured request (`API requests without a fixture`) is a gap in `fixtures.ts`: add the fixture, never skip the assertion.
 
 - [ ] **Step 4: Implement**
 
@@ -12798,7 +12835,7 @@ Expected: FAIL, and only for the reasons Step 4 fixes. On the tree this plan was
 }
 ```
 
-2. `web/src/components/change-dialog.tsx`, `ChangeDialogBody`: the `div` that wraps the plan (the one whose first child is the `<pre aria-label="Planned changes">`) is a grid item of the dialog's content, and the `pre`'s longest line sets the item's minimum width, so every row of the dialog grows past a 320 px viewport. Add the class `min-w-0` to that `div`'s `className`. Change nothing else in the file. If Tasks 13 reworked this markup, add `min-w-0` to the outermost element the red output lists as spanning past the viewport and re-run.
+2. `web/src/components/change-dialog.tsx`, `ChangeDialogBody`: the `div` that wraps the plan (the one whose first child is the `<pre aria-label="Planned changes">`) is a grid item of the dialog's content, and the `pre`'s longest line sets the item's minimum width, so every row of the dialog grows past a 320 px viewport. Add the class `min-w-0` to that `div`'s `className`. Change nothing else in the file. If Task 14 reworked this markup, add `min-w-0` to the outermost element the red output lists as spanning past the viewport and re-run.
 3. For any other failure of Step 3, fix it in the owning file by class name or ARIA attribute only. A new colour failure that no override above covers gets a new variable in the same two blocks, with at least 4.5:1 for text and 3:1 for control boundaries against that mode's surfaces; check it with the ratio the failing message prints.
 4. Do not edit `a11y.pw.ts` to make a check pass, loosen an assertion or skip a view; a locator renamed by an earlier task is the only edit it may take.
 
@@ -12817,7 +12854,7 @@ Expected: `56`, and no process listed (Playwright stops its Vite server). Open `
 
 - [ ] **Step 6: Run the web checks**
 
-Run: `export TMPDIR=/root/.cache/w9-tmp/21 GOTOOLCHAIN=local; timeout 1200 make lint-web test-web; rm -rf "$TMPDIR"`
+Run: `export TMPDIR=/root/.cache/w9-tmp/22 GOTOOLCHAIN=local; timeout 1200 make lint-web test-web; rm -rf "$TMPDIR"`
 
 Expected: ESLint and both `tsc` projects print no error (`tsconfig.node.json` now checks `playwright.config.ts` and `e2e/`), and Vitest passes without running any `*.pw.ts` file.
 
@@ -12834,7 +12871,7 @@ git commit -m "docs(accessibility): add browser pass screenshots"
 
 Add every other file Step 4 changed to the second commit.
 
-### Task 22: docs: accessibility conformance record
+### Task 23: docs: accessibility conformance record
 
 **Files:**
 - Create: `docs/accessibility.md`
@@ -12842,12 +12879,14 @@ Add every other file Step 4 changed to the second commit.
 - Modify (only when the manual check of Step 3 finds a defect): `docs/user/first-admin.md`, `docs/user/lockout-recovery.md` (heading levels and link text only)
 
 **Interfaces:**
-- Consumes: Contracts "Conformance record" and "Documentation paths"; every `*.a11y.test.tsx` under `web/src` that Tasks 12-14 and 19 add (find them with `rg --files web/src -g '*.a11y.test.tsx'`); `web/e2e/a11y.pw.ts` and the screenshots of Task 21 (names in Task 21's Interfaces); the pages `docs/user/first-admin.md` and `docs/user/lockout-recovery.md` of Task 15.
-- Produces: `docs/accessibility.md`, which Task 23's `TestWcDocsLinks` checks for links. The six flow names below are fixed: the test and the document both use them.
+- Consumes: Contracts "Conformance record" and "Documentation paths"; every `*.a11y.test.tsx` under `web/src` that Tasks 13-15 and 20 add (find them with `rg --files web/src -g '*.a11y.test.tsx'`); `web/e2e/a11y.pw.ts` and the screenshots of Task 22 (names in Task 22's Interfaces); the pages `docs/user/first-admin.md` and `docs/user/lockout-recovery.md` of Task 16.
+- Produces: `docs/accessibility.md`, which Task 24's `TestWcDocsLinks` checks for links. The six flow names below are fixed: the test and the document both use them.
 
 **Items:** 41
 
-**Depends on:** Task 21, Task 15
+**Depends on:** Task 22, Task 16
+**Implementer:** dforge:impl-sonnet-medium
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 0 = 4
 
 - [ ] **Step 1: Write the failing test**
 
@@ -13006,7 +13045,7 @@ describe("docs/accessibility.md", () => {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `export TMPDIR=/root/.cache/w9-tmp/22 GOTOOLCHAIN=local && mkdir -p "$TMPDIR" && timeout 300 pnpm -C web exec vitest run src/test/accessibility-doc.test.ts`
+Run: `export TMPDIR=/root/.cache/w9-tmp/23 GOTOOLCHAIN=local && mkdir -p "$TMPDIR" && timeout 300 pnpm -C web exec vitest run src/test/accessibility-doc.test.ts`
 
 Expected: FAIL, 7 tests, each with `ENOENT: no such file or directory, open '.../docs/accessibility.md'`.
 
@@ -13022,7 +13061,7 @@ Write `docs/accessibility.md` in the documentation style of the Global Constrain
    - manual, for `First-admin and lockout recovery pages`: `1.3.1` (heading order) and `2.4.2` (one `#` title that names the page) citing `docs/user/first-admin.md` and `docs/user/lockout-recovery.md`; after the table add a sentence saying the pages were read for heading order and for link text that names its target, and when.
    Do not cite a file for a criterion it does not assert. A criterion that no test or screenshot supports is not claimed: list it under `## Known issues` with its number and the test it lacks, and say so in the report.
 4. `## Known issues`: `None open at WCAG 2.1 AA.` when every criterion is evidenced, otherwise one bullet per issue that starts with its criterion number. The test requires the section to be non-empty.
-5. The manual check of the two documentation pages, before the rows are written: run `rg -n '^#+ ' docs/user/first-admin.md docs/user/lockout-recovery.md` and confirm each file has one `#` first and no heading level that skips (`##` to `####`); run `rg -n '\]\(' docs/user/first-admin.md docs/user/lockout-recovery.md` and confirm every link's text names its target (never `here`, `this page` or a bare URL). Fix a defect in the page itself (heading level or link text only) and then run `export TMPDIR=/root/.cache/w9-tmp/22 GOTOOLCHAIN=local; timeout 600 go test -count=1 ./internal/docs/ -run 'Du'` so the pages still name what Task 15's tests require.
+5. The manual check of the two documentation pages, before the rows are written: run `rg -n '^#+ ' docs/user/first-admin.md docs/user/lockout-recovery.md` and confirm each file has one `#` first and no heading level that skips (`##` to `####`); run `rg -n '\]\(' docs/user/first-admin.md docs/user/lockout-recovery.md` and confirm every link's text names its target (never `here`, `this page` or a bare URL). Fix a defect in the page itself (heading level or link text only) and then run `export TMPDIR=/root/.cache/w9-tmp/23 GOTOOLCHAIN=local; timeout 600 go test -count=1 ./internal/docs/ -run 'Du'` so the pages still name what Task 16's tests require.
 
 - [ ] **Step 4: Run the test to verify it passes**
 
@@ -13032,7 +13071,7 @@ Expected: PASS, 7 tests. If `accounts for each criterion` fails, the message nam
 
 - [ ] **Step 5: Run the web checks**
 
-Run: `timeout 1200 make lint-web test-web; rm -rf /root/.cache/w9-tmp/22`
+Run: `timeout 1200 make lint-web test-web; rm -rf /root/.cache/w9-tmp/23`
 
 Expected: ESLint and both `tsc` projects print no error (the test file carries the line `/// <reference types="node" />` because `tsconfig.json` loads no Node types), and the Vitest suite passes.
 
@@ -13045,23 +13084,26 @@ git commit -m "docs(accessibility): add the WCAG conformance record"
 
 When Step 3 fixed a page, commit it separately: `git add docs/user/first-admin.md docs/user/lockout-recovery.md && git commit -m "docs(user): fix heading levels and link text"`.
 
-### Task 23: wave close: inventory check, findings and spec rulings
+### Task 24: wave close: fuzz workflow, inventory check, findings and spec rulings
 
 **Files:**
-- Test: `internal/docs/links_test.go` (package `docs_test`, beside Task 3's `helpers_test.go`)
+- Test: `internal/docs/links_test.go` (package `docs_test`, beside Task 12's `helpers_test.go`)
+- Create: `.github/workflows/fuzz.yml`
 - Modify: `docs/dforge/specs/2026-10-21-v1-completion-design.md` (section 9 only)
-- Modify: `docs/dforge/registers/2026-10-21-v1-completion.md` (two new rows, written by the `register` script)
+- Modify: `docs/dforge/registers/2026-10-21-v1-completion.md` (four new rows, written by the `register` script)
 - Modify: `docs/security/parsers.md` (only the inventory rows whose package or target name a fuzz task changed)
 - Modify (only when `make api-docs` regenerates them): files under `docs/api/`
 - Modify (only when `TestWcDocsLinks` names a broken link): the Markdown page that holds it, the link target only
 
 **Interfaces:**
-- Consumes: `dcRoot` and `dcLinks` of Contracts "Docs checks" (Task 3); `scripts/fuzz.sh --check` and `docs/security/parsers.md` (Task 1) with the targets of Tasks 5-10; the pages of Contracts "Documentation paths" (Tasks 15-18) and `docs/accessibility.md` (Task 22); `make api-docs` (Task 3); the plan rulings W9-R1 to W9-R10 in the plan file `docs/dforge/plans/2026-11-05-v1-w9-hardening.md` under Assumptions, **Plan rulings**.
-- Produces: `TestWcDocsLinks`; the spec's section 9 sub-list `Plan rulings (wave 9)`; two register rows for the adjacent findings (`toolVariant`, unlabelled clipboard inputs). No Go identifier other than `TestWcDocsLinks`, `wcRequiredPages` and `wcPages` (prefix `Wc`).
+- Consumes: `dcRoot` and `dcLinks` of Contracts "Docs checks" (Task 12); `scripts/fuzz.sh --check` and `docs/security/parsers.md` (Task 1) with the targets of Tasks 5-10; the pages of Contracts "Documentation paths" (Tasks 16-19) and `docs/accessibility.md` (Task 23); `make api-docs` (Task 3); the action SHAs `.github/workflows/ci.yml` pins (read, not edited); the plan rulings W9-R1 to W9-R10 in the plan file `docs/dforge/plans/2026-11-05-v1-w9-hardening.md` under Assumptions, **Plan rulings**.
+- Produces: Contracts "Fuzz workflow"; `TestWcDocsLinks`; the spec's section 9 sub-list `Plan rulings (wave 9)`; four register rows for the adjacent findings (`toolVariant`, unlabelled clipboard inputs, `policy.Apply` with a repeated member, the audit log's focus drop). No Go identifier other than `TestWcDocsLinks`, `wcRequiredPages` and `wcPages` (prefix `Wc`).
 
 **Items:** 38, 42
 
-**Depends on:** Task 1, Task 5, Task 6, Task 7, Task 8, Task 9, Task 10, Task 15, Task 16, Task 17, Task 18, Task 19, Task 22
+**Depends on:** Task 1, Task 3, Task 5, Task 6, Task 7, Task 8, Task 9, Task 10, Task 12, Task 16, Task 17, Task 18, Task 19, Task 20, Task 23
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 2 - spec 1 - coupling 2 - risk 1 = 6
 
 - [ ] **Step 1: Write the failing test**
 
@@ -13149,7 +13191,7 @@ func TestWcDocsLinks(t *testing.T) {
 On the merged tree every page exists, so the test is red only through a broken link. Prove it by breaking one on purpose and undoing it:
 
 ```bash
-export TMPDIR=/root/.cache/w9-tmp/23 GOTOOLCHAIN=local && mkdir -p "$TMPDIR"
+export TMPDIR=/root/.cache/w9-tmp/24 GOTOOLCHAIN=local && mkdir -p "$TMPDIR"
 printf '\n[broken](missing-page.md)\n' >> docs/user/README.md
 timeout 300 go test -count=1 -run '^TestWcDocsLinks$' ./internal/docs/
 git checkout -- docs/user/README.md
@@ -13169,7 +13211,85 @@ timeout 600 go test -count=1 -run '^TestAdAPIDocsCurrent$' ./internal/apidocs/
 
 Expected: `fuzz: inventory ok (57 targets)`, 57 being the distinct package and target pairs of Contracts "Fuzz targets"; `scripts/fuzz.test.sh` passes; `git status --short docs/api` prints nothing, or the files `make api-docs` regenerated, which this task commits; `TestAdAPIDocsCurrent` passes. When `fuzz.sh --check` prints `fuzz: <package>: no target <target>` or `fuzz: <package>: <target> is not in the inventory`, a fuzz task named a package or target differently from Contracts: correct the row in `docs/security/parsers.md` (the `## Fuzzed parsers` table only; never a test file) until the check prints `inventory ok`. A target that exists in no package is a missing fuzz target: report it BLOCKED.
 
-- [ ] **Step 4: Write the spec rulings**
+- [ ] **Step 4: Add the fuzz workflow**
+
+The check is red now: `test -f .github/workflows/fuzz.yml || echo missing` prints `missing`. `.github/workflows/fuzz.yml` is configuration (Contracts "Fuzz workflow"); create it with exactly this content, now that Step 3 shows every inventory target exists. The SHAs are the ones `ci.yml` pins (`rg -n 'uses: actions/' .github/workflows/ci.yml` shows them; stop and report when they differ from the ones below). The matrix and budgets follow W9-R2, and the nightly job's `timeout-minutes` follows the ruling that no job exceeds GitHub's six-hour limit.
+
+
+```yaml
+name: Fuzz
+
+on:
+  push:
+  schedule:
+    - cron: "41 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GOTOOLCHAIN: local
+
+jobs:
+  inventory:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+          # The runner caches an older 1.27.x than go.mod's toolchain line.
+          check-latest: true
+      - run: bash scripts/fuzz.test.sh
+      - run: bash scripts/fuzz.sh --check
+
+  fuzz:
+    needs: inventory
+    runs-on: ubuntu-24.04
+    # Every push runs each target for 30 s in four shards; the nightly run
+    # gives each target 10 minutes in twelve shards, so no job nears GitHub's
+    # six-hour limit.
+    timeout-minutes: ${{ github.event_name == 'schedule' && 300 || 60 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(github.event_name == 'schedule' && '[1,2,3,4,5,6,7,8,9,10,11,12]' || '[1,2,3,4]') }}
+    env:
+      FUZZ_TIME: ${{ github.event_name == 'schedule' && '10m' || '30s' }}
+      FUZZ_SHARDS: ${{ github.event_name == 'schedule' && '12' || '4' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+          # The runner caches an older 1.27.x than go.mod's toolchain line.
+          check-latest: true
+      - run: bash scripts/fuzz.sh --time "$FUZZ_TIME" --shard "${{ matrix.shard }}/$FUZZ_SHARDS"
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-failures-${{ matrix.shard }}
+          path: "**/testdata/fuzz/**"
+          if-no-files-found: ignore
+```
+
+Then run:
+
+```bash
+timeout 60 python3 -c 'import yaml; yaml.safe_load(open(".github/workflows/fuzz.yml"))'
+test -f .github/workflows/fuzz.yml || echo missing
+```
+
+Expected: no output from either (if PyYAML is not installed, say so in the report and skip the parse).
+
+- [ ] **Step 5: Write the spec rulings**
 
 Run this check first; it prints one line per gap and is red now:
 
@@ -13197,20 +13317,22 @@ Then edit only section 9 of the spec, wrapping lines at about 76 columns like th
 
 Run the check again; it prints nothing. Then `git diff --stat` shows the spec as the only file changed by this step.
 
-- [ ] **Step 5: Record the adjacent finding**
+- [ ] **Step 6: Record the adjacent finding**
 
 Run `bash /root/.claude-alt/plugins/cache/darkraise/dforge/4.11.1/scripts/register --help` first, then look up the current lines with `rg -n 'func toolVariant' internal/modules/firewall/loaded/` and `rg -n 'TrimSpace' internal/modules/firewall/preflight.go`. The check is red now: `grep -c toolVariant docs/dforge/registers/2026-10-21-v1-completion.md` prints `0`. Add one row (use the line numbers just found):
 
 ```bash
 bash /root/.claude-alt/plugins/cache/darkraise/dforge/4.11.1/scripts/register add docs/dforge/registers/2026-10-21-v1-completion.md "w9 firewall (minor): internal/modules/firewall/loaded/read.go:153 — toolVariant reads the first line of iptables --version without strings.TrimSpace, while checkTools in internal/modules/firewall/preflight.go:157 trims first, so output with a leading blank line is read differently by the two; found by FuzzToolVariant, which asserts only toolVariant's own property" --state open
 bash /root/.claude-alt/plugins/cache/darkraise/dforge/4.11.1/scripts/register add docs/dforge/registers/2026-10-21-v1-completion.md "w9 web (minor, a11y): the read-only clipboard inputs in web/src/pages/create-token-dialog.tsx and web/src/modules/tailnet/keys-page.tsx have no accessible label, the defect wave 9 fixed in the Add host dialog; neither page is a core flow of spec section 9" --state open
+bash /root/.claude-alt/plugins/cache/darkraise/dforge/4.11.1/scripts/register add docs/dforge/registers/2026-10-21-v1-completion.md "w9 tailnet (minor): internal/modules/tailnet/policy policy.Apply does not converge on a policy document whose object names a member twice: hujson keeps both members and an edit such as delete reaches only the first, so a second delete /a on {\"a\":1,\"a\":2} still changes the text; found by FuzzApply, which skips such documents in its convergence check" --state open
+bash /root/.claude-alt/plugins/cache/darkraise/dforge/4.11.1/scripts/register add docs/dforge/registers/2026-10-21-v1-completion.md "w9 web (minor, a11y): the Load older entries button of web/src/pages/audit.tsx unmounts when the last page loads, so keyboard focus drops to the document body; the audit log is not a core flow of spec section 9" --state open
 bash /root/.claude-alt/plugins/cache/darkraise/dforge/4.11.1/scripts/register check docs/dforge/registers/2026-10-21-v1-completion.md
 git diff --stat docs/dforge/registers/2026-10-21-v1-completion.md
 ```
 
-Expected: `grep -c toolVariant` now prints `1`, `grep -c create-token-dialog` prints `1`, `register check` exits 0, and the diff shows two inserted lines. Do not run `register set` on any row.
+Expected: `grep -c toolVariant` now prints `1`, `grep -c create-token-dialog` prints `1`, `grep -c 'policy.Apply does not converge'` prints `1`, `grep -c 'Load older entries'` prints `1` (all on the register file), `register check` exits 0, and the diff shows four inserted lines. Do not run `register set` on any row.
 
-- [ ] **Step 6: Run the test to verify it passes, and the full checks**
+- [ ] **Step 7: Run the test to verify it passes, and the full checks**
 
 Run, with `TMPDIR` and `GOTOOLCHAIN` as in Step 2, each under `timeout`:
 
@@ -13227,15 +13349,17 @@ rm -rf "$TMPDIR" && go clean -testcache
 
 Expected: `TestWcDocsLinks` passes with one subtest per page (every `docs/user/`, `docs/dev/` and `docs/api/` page and `docs/accessibility.md`); `go vet`, `go mod tidy -diff` print nothing; every `go test` line is `ok` or `?`; `golangci-lint` prints `0 issues.`. Record the real output.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add internal/docs/links_test.go
 git commit -m "test(docs): check every documentation link"
+git add .github/workflows/fuzz.yml
+git commit -m "chore(ci): run the fuzz targets in CI"
 git add docs/dforge/specs/2026-10-21-v1-completion-design.md
 git commit -m "docs(spec): add the wave 9 rulings to section 9"
 git add docs/dforge/registers/2026-10-21-v1-completion.md
-git commit -m "docs(register): record two wave 9 findings"
+git commit -m "docs(register): record four wave 9 findings"
 ```
 
 Commit `docs/security/parsers.md` as `docs(security): correct the parser inventory` and the regenerated `docs/api/` files as `docs(api): regenerate the API reference` only when Step 3 changed them, and a link fix as `docs(user): fix a broken relative link` with the page it touched.
