@@ -12,13 +12,17 @@ export async function expectNoAxeViolations(el: Element): Promise<void> {
   throw new Error(`axe found ${violations.length} violation(s):\n${lines.join("\n")}`)
 }
 
+// getRoles takes { hidden } at run time (dist/role-helpers.js), but its
+// published type declares the container argument only.
+const getAllRoles = getRoles as (container: HTMLElement, options: { hidden: boolean }) => ReturnType<typeof getRoles>
+
 // The accessible name of document.activeElement, "" when it is body.
 export function focusedName(): string {
   const el = document.activeElement
   if (!(el instanceof HTMLElement) || el === document.body) return ""
   // An element under aria-hidden still has focus to name, and one can be
   // listed under several implicit roles, so every role it has is tried.
-  const roles = Object.entries(getRoles(document.body, { hidden: true }))
+  const roles = Object.entries(getAllRoles(document.body, { hidden: true }))
     .filter(([, elements]) => elements.includes(el))
     .map(([role]) => role)
   // Role queries skip elements that aria-query gives no role, such as password
