@@ -114,13 +114,15 @@ export function ContainersTab({ hostId }: { hostId: string }) {
   // The dialog gives focus back to its trigger, but the read that follows a
   // change can remove that trigger (a stopped container has no Stop, a
   // removed one has no row) and drop focus to the page body. A layout effect
-  // moves it before the browser paints a frame without focus.
+  // moves it before the browser paints a frame without focus. Only focus
+  // that fell to the body moves: a read that lands late, after a failed one,
+  // must not pull focus from where the user has since put it.
   useLayoutEffect(() => {
     const last = closed.current
     const root = group.current
     if (last === null || last.updatedAt === query.dataUpdatedAt) return
     closed.current = null
-    if (root === null || root.contains(document.activeElement)) return
+    if (root === null || (document.activeElement !== null && document.activeElement !== document.body)) return
     const row = Array.from(root.querySelectorAll<HTMLElement>("[data-container]")).find((r) => r.dataset.container === last.pending.container)
     const actions = Array.from(row?.querySelectorAll<HTMLButtonElement>("button") ?? []).filter((b) => !b.disabled)
     const target = actions.find((b) => b.getAttribute("aria-label") === last.pending.title) ?? actions[0] ?? root

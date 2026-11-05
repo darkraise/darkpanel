@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react"
+import { act, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { Route, Routes } from "react-router"
 import { expect, test } from "vitest"
@@ -125,6 +125,30 @@ test("when an applied Stop leaves the row without that action, focus moves to th
   await user.keyboard("{Escape}")
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
   await waitFor(() => expect(focusedName()).toBe("Start web"))
+})
+
+test("a read that lands after the close's read failed leaves focus where the user put it", async () => {
+  let fail = false
+  const { client } = caRender(() => [caWeb, caDb], { [CA_LIST]: () => (fail ? CA_BUSY : { body: { containers: [caWeb, caDb] } }) })
+  const outside = document.createElement("button")
+  outside.textContent = "Elsewhere"
+  document.body.append(outside)
+  try {
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole("button", { name: "Restart web" }))
+    await within(await screen.findByRole("dialog", { name: "Restart web" })).findByLabelText("Planned changes")
+    fail = true
+    await user.keyboard("{Escape}")
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    await screen.findByRole("alert")
+    outside.focus()
+    fail = false
+    await act(() => client.invalidateQueries())
+    await screen.findByRole("table", { name: "Docker containers" })
+    expect(document.activeElement).toBe(outside)
+  } finally {
+    outside.remove()
+  }
 })
 
 test("when an applied Remove deletes the row, focus moves to the containers group", async () => {

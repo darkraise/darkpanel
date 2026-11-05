@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react"
+import { act, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { expect, test, vi } from "vitest"
 import type { ContainerRef } from "@/modules/types"
@@ -107,6 +107,32 @@ test.each(["allow", "deny"] as const)("the %s dialog keeps Tab inside it and Esc
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
   await waitFor(() => expect(dockerReads()).toBeGreaterThan(before))
   expect(document.activeElement).toBe(within(screen.getByRole("form", { name: kind === "allow" ? "Allow" : "Deny" })).getByRole("button", { name: "Plan" }))
+})
+
+test("a read that lands after the close's read failed leaves focus where the user put it", async () => {
+  let fail = false
+  const down = { status: 503, body: { type: "about:blank", title: "Unavailable", status: 503, detail: "the agent is offline", code: "host.offline" } }
+  const { client } = caRender("allow", () => caAllowedWeb(false), caContainer, {
+    [CA_DOCKER]: () => (fail ? down : { body: caAllowedWeb(false) }),
+  })
+  const outside = document.createElement("button")
+  outside.textContent = "Elsewhere"
+  document.body.append(outside)
+  try {
+    const user = userEvent.setup()
+    await caPlan(user, "Allow")
+    fail = true
+    await user.keyboard("{Escape}")
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    await screen.findByRole("alert")
+    outside.focus()
+    fail = false
+    await act(() => client.invalidateQueries())
+    await screen.findByRole("form", { name: "Allow" })
+    expect(document.activeElement).toBe(outside)
+  } finally {
+    outside.remove()
+  }
 })
 
 test("when a confirmed Deny leaves nothing to deny, the Plan button is disabled and focus moves to the form", async () => {

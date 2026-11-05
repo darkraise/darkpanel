@@ -84,11 +84,13 @@ function ContainerRuleForm({ kind, container, onDone }: { kind: Kind; container:
   // after apply already did so, fallbackFocus takes focus at the close; when
   // only the read the close starts does, focus falls to the page body then. A
   // layout effect moves it before the browser paints a frame without focus.
+  // Only focus that fell to the body moves: a read that lands late, after a
+  // failed one, must not pull focus from where the user has since put it.
   useLayoutEffect(() => {
     const form = formRef.current
     if (closedAt.current === null || closedAt.current === docker.dataUpdatedAt) return
     closedAt.current = null
-    if (form === null || form.contains(document.activeElement)) return
+    if (form === null || (document.activeElement !== null && document.activeElement !== document.body)) return
     const plan = planRef.current
     if (plan !== null && !plan.disabled) plan.focus()
     else form.focus()
