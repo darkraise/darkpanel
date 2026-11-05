@@ -31,3 +31,4 @@
 - 2026-11-04 `docs/dforge/plans/2026-11-03-v1-w6b-cloudflare-connector.md` — merged into `main` at 57e1a14
 - 2026-11-04 `docs/dforge/plans/2026-11-04-v1-w7-backup-restore.md` — merged into `main` at a3f4248
 - 2026-11-05 `docs/dforge/plans/2026-11-04-v1-w8-panel-exposure.md` — merged into `main` at 2fa2eb8
+- 2026-11-06 `docs/dforge/plans/2026-11-05-v1-w9-hardening.md` — merged into `main` at 6c424f0
