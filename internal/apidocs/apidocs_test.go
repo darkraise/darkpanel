@@ -116,6 +116,19 @@ func (adQuiet) Manifest() core.Manifest {
 	}
 }
 
+// adMapped has a resource whose output is a map: an object without properties
+// that still holds members, which the field table cannot describe.
+type adMapped struct{}
+
+func (adMapped) Manifest() core.Manifest {
+	return core.Manifest{
+		ID: "mapped", Version: 1,
+		Resources: []core.ResourceDef{
+			core.DefineResource("mapped.labels", func(context.Context, core.Env) (map[string]string, error) { return nil, nil }),
+		},
+	}
+}
+
 var adRoutes = []schema.Route{
 	{Method: "GET", Path: "/healthz", Summary: "Health", Public: true},
 	{Method: "POST", Path: "/api/v1/auth/login", Summary: "Log in", Public: true},
@@ -372,6 +385,16 @@ func TestAdWriteReplacesTheGeneratedFiles(t *testing.T) {
 // TestAdAPIDocsCurrent regenerates the reference in memory and fails when a
 // committed file under docs/api/ differs, is missing, or belongs to no key.
 // make api-docs fixes all three for the .md and .json files it manages.
+func TestAdGenerateRefusesASchemaItCannotTabulate(t *testing.T) {
+	reg, err := core.NewRegistry(adMapped{})
+	if err != nil {
+		t.Fatalf("core.NewRegistry: %v", err)
+	}
+	if _, err := apidocs.Generate(reg, adRoutes); err == nil || !strings.Contains(err.Error(), "has no properties and is not an empty object") {
+		t.Errorf("Generate with a map output = %v, want the refusal that no table describes it", err)
+	}
+}
+
 func TestAdAPIDocsCurrent(t *testing.T) {
 	reg, err := registry.Build()
 	if err != nil {

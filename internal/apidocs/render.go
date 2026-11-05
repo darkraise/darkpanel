@@ -174,13 +174,17 @@ func description(prop, resolved map[string]any) string {
 }
 
 // table renders the properties of the named component, nested objects
-// included, or empty when it has none.
+// included, or empty when it is an object that can hold no field. Any other
+// schema without properties is an error: the table cannot describe it.
 func (r *renderer) table(component, empty string) (string, error) {
 	res, name, err := r.resolve(map[string]any{"$ref": componentRef + component})
 	if err != nil {
 		return "", err
 	}
 	if len(asMap(res["properties"])) == 0 {
+		if !closedEmptyObject(res) {
+			return "", fmt.Errorf("apidocs: component %s has no properties and is not an empty object, so no table describes it", component)
+		}
 		return empty, nil
 	}
 	lines := []string{"| Field | Type | Required | Description |", "|---|---|---|---|"}
@@ -189,6 +193,20 @@ func (r *renderer) table(component, empty string) (string, error) {
 		return "", err
 	}
 	return strings.Join(lines, "\n"), nil
+}
+
+// closedEmptyObject reports whether schema is an object that admits no member:
+// no additional properties and no composition that could add some.
+func closedEmptyObject(schema map[string]any) bool {
+	if schema["type"] != "object" || schema["additionalProperties"] != false {
+		return false
+	}
+	for _, key := range []string{"oneOf", "anyOf", "allOf", "patternProperties"} {
+		if _, ok := schema[key]; ok {
+			return false
+		}
+	}
+	return true
 }
 
 // rows appends one row per property of parent in name order, each followed by
