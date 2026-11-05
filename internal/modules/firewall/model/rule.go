@@ -427,7 +427,7 @@ func ParseTag(comment string) (id, label string, ok bool) {
 		return id, "", true
 	}
 	label, found = strings.CutPrefix(rest, " ")
-	if !found {
+	if !found || label == "" {
 		return "", "", false
 	}
 	return id, label, true
