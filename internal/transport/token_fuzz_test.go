@@ -55,3 +55,38 @@ func FuzzParseBootstrap(f *testing.F) {
 		}
 	})
 }
+
+func fz9Head(s string) string {
+	if len(s) > 64 {
+		return s[:64]
+	}
+	return s
+}
+
+// FuzzParseToken feeds arbitrary input to ParseToken: every refusal is enroll.token_invalid, and an accepted
+// token prints with String and parses back to itself.
+func FuzzParseToken(f *testing.F) {
+	tok := validToken()
+	f.Add(tok.String())
+	f.Add("  " + tok.String() + "\n")
+	f.Add(bdBundle().String())
+	f.Add(TokenPrefix + "e30")
+	f.Add(encode(`{"a":"controller.example:7443"}`))
+	f.Add(encode(`{"a":null,"f":"x","s":"y","h":"z","t":"w"}`))
+	f.Add(encode(`{"a":"a<b>:1","f":"` + strings.Repeat("ab", 32) + `","s":"` + ControllerURI("01JCONTROLLER") + `","h":"01JHOST","t":"MDEyMzQ1Njc4OWFiY2RlZg"}`))
+	f.Add("")
+	f.Fuzz(func(t *testing.T, in string) {
+		got, err := ParseToken(in)
+		if err != nil {
+			var coded *errcode.Error
+			if !errors.As(err, &coded) || coded.Code != errcode.EnrollTokenInvalid {
+				t.Fatalf("ParseToken(%q) error = %v, want enroll.token_invalid", fz9Head(in), err)
+			}
+			return
+		}
+		again, err := ParseToken(got.String())
+		if err != nil || again != got {
+			t.Fatalf("ParseToken(%q) = %+v, which prints as %q and parses as %+v, %v", fz9Head(in), got, got.String(), again, err)
+		}
+	})
+}

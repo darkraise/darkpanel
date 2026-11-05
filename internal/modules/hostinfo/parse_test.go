@@ -1,6 +1,7 @@
 package hostinfo
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,6 +14,26 @@ func readFixture(t *testing.T, path ...string) []byte {
 		t.Fatal(err)
 	}
 	return b
+}
+
+// fz9Seeds adds every file under testdata to f, so each fuzz target starts from the real files of every OS and
+// architecture the fixtures cover.
+func fz9Seeds(f *testing.F) {
+	f.Helper()
+	err := filepath.WalkDir("testdata", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := os.ReadFile(path) //nolint:gosec // G304: a fixture under testdata
+		if err != nil {
+			return err
+		}
+		f.Add(b)
+		return nil
+	})
+	if err != nil {
+		f.Fatal(err)
+	}
 }
 
 func TestParseOSRelease(t *testing.T) {
@@ -122,7 +143,9 @@ func TestParseUptime(t *testing.T) {
 	}
 }
 
+// FuzzParseOSRelease checks that parseOSRelease always returns an ID and a PrettyName, whatever the file holds.
 func FuzzParseOSRelease(f *testing.F) {
+	fz9Seeds(f)
 	f.Add([]byte("ID=debian\nPRETTY_NAME=\"Debian\"\n"))
 	f.Add([]byte(`PRETTY_NAME="a\"b\\"` + "\n"))
 	f.Fuzz(func(t *testing.T, in []byte) {
@@ -132,7 +155,9 @@ func FuzzParseOSRelease(f *testing.F) {
 	})
 }
 
+// FuzzParseCPUInfo checks that parseCPUInfo always returns a model and a processor count of zero or more.
 func FuzzParseCPUInfo(f *testing.F) {
+	fz9Seeds(f)
 	f.Add([]byte("processor\t: 0\nmodel name\t: x\n"))
 	f.Add([]byte("processor\t: 0\nCPU implementer\t: 0x41\nCPU part\t: 0xd0c\n"))
 	f.Fuzz(func(t *testing.T, in []byte) {
@@ -142,7 +167,9 @@ func FuzzParseCPUInfo(f *testing.F) {
 	})
 }
 
+// FuzzParseMemInfo checks that an accepted meminfo never reports more memory or swap available than there is in total.
 func FuzzParseMemInfo(f *testing.F) {
+	fz9Seeds(f)
 	f.Add([]byte("MemTotal: 2 kB\nMemAvailable: 1 kB\nSwapTotal: 0 kB\nSwapFree: 0 kB\n"))
 	f.Fuzz(func(t *testing.T, in []byte) {
 		if m, err := parseMemInfo(in); err == nil && (m.AvailableBytes > m.TotalBytes || m.SwapFreeBytes > m.SwapTotalBytes) {
@@ -151,7 +178,9 @@ func FuzzParseMemInfo(f *testing.F) {
 	})
 }
 
+// FuzzParseLoadAvg checks that an accepted loadavg holds no negative average.
 func FuzzParseLoadAvg(f *testing.F) {
+	fz9Seeds(f)
 	f.Add([]byte("0.08 0.03 0.01 1/123 4567\n"))
 	f.Fuzz(func(t *testing.T, in []byte) {
 		if l, err := parseLoadAvg(in); err == nil && (l.One < 0 || l.Five < 0 || l.Fifteen < 0) {
@@ -160,7 +189,9 @@ func FuzzParseLoadAvg(f *testing.F) {
 	})
 }
 
+// FuzzParseUptime checks that an accepted uptime is not negative.
 func FuzzParseUptime(f *testing.F) {
+	fz9Seeds(f)
 	f.Add([]byte("122610.97 1469212.45\n"))
 	f.Fuzz(func(t *testing.T, in []byte) {
 		if s, err := parseUptime(in); err == nil && s < 0 {
