@@ -238,8 +238,14 @@ func (c *Client) retryAfter(v string) time.Duration {
 	if v == "" {
 		return 0
 	}
-	if s, err := strconv.Atoi(v); err == nil && s >= 0 {
+	s, err := strconv.Atoi(v)
+	if err == nil && s >= 0 {
+		// A large value would overflow Duration when multiplied, so one second over the bound stands for any more.
+		s = min(s, int(maxRetryAfter/time.Second)+1)
 		return max(time.Duration(s)*time.Second, time.Nanosecond)
+	}
+	if errors.Is(err, strconv.ErrRange) && !strings.HasPrefix(v, "-") {
+		return maxRetryAfter + time.Second
 	}
 	if t, err := http.ParseTime(v); err == nil {
 		return max(t.Sub(c.cfg.Clock.Now()), time.Nanosecond)
