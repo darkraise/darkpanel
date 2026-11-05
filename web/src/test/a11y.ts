@@ -16,21 +16,26 @@ export async function expectNoAxeViolations(el: Element): Promise<void> {
 export function focusedName(): string {
   const el = document.activeElement
   if (!(el instanceof HTMLElement) || el === document.body) return ""
-  const role = Object.entries(getRoles(document.body)).find(([, elements]) =>
-    elements.includes(el),
-  )?.[0]
+  // An element under aria-hidden still has focus to name, and one can be
+  // listed under several implicit roles, so every role it has is tried.
+  const roles = Object.entries(getRoles(document.body, { hidden: true }))
+    .filter(([, elements]) => elements.includes(el))
+    .map(([role]) => role)
   // Role queries skip elements that aria-query gives no role, such as password
   // inputs, so those are named from their labels directly.
-  if (role === undefined) return labelName(el)
-  let name = ""
-  queryAllByRole(document.body, role, {
-    hidden: true,
-    name: (accessibleName, node) => {
-      if (node === el) name = accessibleName
-      return false
-    },
-  })
-  return name
+  if (roles.length === 0) return labelName(el)
+  for (const role of roles) {
+    let name = ""
+    queryAllByRole(document.body, role, {
+      hidden: true,
+      name: (accessibleName, node) => {
+        if (node === el) name = accessibleName
+        return false
+      },
+    })
+    if (name !== "") return name
+  }
+  return ""
 }
 
 function labelName(el: HTMLElement): string {

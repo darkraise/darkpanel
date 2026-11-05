@@ -71,6 +71,16 @@ test("focusedName prefers aria-labelledby over the content", () => {
   expect(focusedName()).toBe("Delete host web-1")
 })
 
+test("focusedName names a focused element inside an aria-hidden subtree", () => {
+  render(
+    <div aria-hidden="true">
+      <button type="button">Hidden action</button>
+    </div>,
+  )
+  screen.getByRole("button", { name: "Hidden action", hidden: true }).focus()
+  expect(focusedName()).toBe("Hidden action")
+})
+
 test("focusedName names a labelled field that has no role", () => {
   render(
     <form>
