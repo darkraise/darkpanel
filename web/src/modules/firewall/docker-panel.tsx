@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Alert, AlertDescription, AlertTitle } from "darkraise-ui/components/alert"
 import { Badge } from "darkraise-ui/components/badge"
@@ -89,6 +89,7 @@ function Networks({ networks }: { networks: DockerNetwork[] }) {
 
 function DockerBody({ hostId, docker }: { hostId: string; docker: DockerStatus }) {
   const [pending, setPending] = useState<Pending | null>(null)
+  const region = useRef<HTMLElement>(null)
   const unsupported = docker.unsupported ?? []
   const issues = docker.issues ?? []
   const foreignRules = docker.foreignRules ?? []
@@ -96,7 +97,7 @@ function DockerBody({ hostId, docker }: { hostId: string; docker: DockerStatus }
   const repairable = docker.enabled && (docker.health === "degraded" || docker.health === "broken")
 
   return (
-    <>
+    <section aria-label="Docker integration" tabIndex={-1} ref={region} className="flex flex-col gap-6">
       <Detection docker={docker} />
       {!docker.supported && (
         <Alert variant="warning" role="status">
@@ -179,15 +180,16 @@ function DockerBody({ hostId, docker }: { hostId: string; docker: DockerStatus }
           </Button>
         )}
       </div>
-      <DockerSources hostId={hostId} docker={docker} />
+      <DockerSources hostId={hostId} docker={docker} fallbackFocus={region} />
       <FirewallChange
         hostId={hostId}
         action={pending?.action ?? "firewall.docker.enable"}
         title={pending?.title ?? ""}
         input={pending?.input ?? null}
         onClose={() => setPending(null)}
+        fallbackFocus={region}
       />
-    </>
+    </section>
   )
 }
 

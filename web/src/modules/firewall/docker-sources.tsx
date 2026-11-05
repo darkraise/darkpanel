@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from "react"
+import { useState, type FormEvent, type ReactNode, type RefObject } from "react"
 import { Button } from "darkraise-ui/components/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "darkraise-ui/components/card"
 import { Input } from "darkraise-ui/components/input"
@@ -97,7 +97,11 @@ function Field({ id, label, value, onChange }: { id: string; label: string; valu
 // DockerSources edits the Docker integration's private source ranges and
 // forward exemptions. Each edit plans firewall.docker.set-sources with the
 // one list it changes.
-export function DockerSources({ hostId, docker }: { hostId: string; docker: DockerStatus }) {
+export function DockerSources({ hostId, docker, fallbackFocus }: {
+  hostId: string
+  docker: DockerStatus
+  fallbackFocus?: RefObject<HTMLElement | null>
+}) {
   const sources = docker.settings.privateSources ?? []
   const exemptions = docker.settings.forwardExemptions ?? []
   const proposed = docker.foreignForwards ?? []
@@ -227,6 +231,7 @@ export function DockerSources({ hostId, docker }: { hostId: string; docker: Dock
           setSourcesDraft(null)
           setAdd(EMPTY_ADD)
         }}
+        fallbackFocus={fallbackFocus}
       />
     </>
   )
