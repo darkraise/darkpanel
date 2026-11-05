@@ -3,10 +3,14 @@
 package harness
 
 import (
+	"context"
 	"net/http"
+	"net/http/httptest"
 	"net/netip"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/darkraise/darkpanel/internal/controller/coreactions"
 	"github.com/darkraise/darkpanel/internal/modules/panel"
@@ -285,6 +289,44 @@ func TestM6pUnitCheckStatus(t *testing.T) {
 func TestM6pUnitAgentPortCommand(t *testing.T) {
 	if got, want := m6pAgentPortCommand(), "sudo ufw allow 7443/tcp"; got != want {
 		t.Errorf("m6pAgentPortCommand = %q, want %q", got, want)
+	}
+}
+
+func TestM6pUnitSettleConfirmed(t *testing.T) {
+	tests := []struct {
+		name     string
+		states   []string // what the change reads as, poll by poll, until confirmed; the last repeats
+		want     string
+		confirms int32
+	}{
+		{"a composite awaiting confirmation", []string{"applying", "awaiting_confirmation"}, "completed", 1},
+		{"a change that completes on its own", []string{"applying", "completed"}, "completed", 0},
+		{"a change reverted before any confirm", []string{"applying", "reverted"}, "reverted", 0},
+	}
+	for _, tc := range tests {
+		var polls, confirms atomic.Int32
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case r.Method == http.MethodPost && r.URL.Path == "/api/v1/changes/c1/confirm":
+				confirms.Add(1)
+				_, _ = w.Write([]byte(`{"id":"c1","state":"completed"}`))
+			case r.Method == http.MethodGet && r.URL.Path == "/api/v1/changes/c1":
+				state := "completed"
+				if confirms.Load() == 0 {
+					state = tc.states[min(int(polls.Add(1)), len(tc.states))-1]
+				}
+				_, _ = w.Write([]byte(`{"id":"c1","state":"` + state + `"}`))
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ch, err := m6pSettleConfirmed(ctx, m4TestAPI(t, srv), "c1")
+		cancel()
+		srv.Close()
+		if err != nil || ch.State != tc.want || confirms.Load() != tc.confirms {
+			t.Errorf("%s: m6pSettleConfirmed = %+v, %v after %d confirms, want %s after %d", tc.name, ch, err, confirms.Load(), tc.want, tc.confirms)
+		}
 	}
 }
 

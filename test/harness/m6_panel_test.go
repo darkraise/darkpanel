@@ -411,9 +411,36 @@ func m6pExposureAPI(from *vm.VM, addr, host string, roots *x509.CertPool) *API {
 	return &API{base: "https://" + host, http: &http.Client{Transport: m6pTransport(from, addr, host, roots), Jar: jar, Timeout: apiTimeout}}
 }
 
+// m6pSettleConfirmed polls change id through api until it is terminal or
+// awaits confirmation, confirms it in the latter case, as the web UI's change
+// dialog does, and returns it once terminal. Both panel composites end in a
+// revertible firewall step, so they await confirmation, and their revert
+// timer, 60 s by default, would revert them unconfirmed.
+func m6pSettleConfirmed(ctx context.Context, api *API, id string) (Change, error) {
+	var ch Change
+	err := eventually(ctx, m4SettleTimeout, func(ctx context.Context) error {
+		c, err := api.m3Change(ctx, id)
+		if err != nil {
+			return err
+		}
+		if c.State != core.StateAwaitingConfirmation && !m4xTerminal(c.State) {
+			return fmt.Errorf("harness: change %s is %s", id, c.State)
+		}
+		ch = c
+		return nil
+	})
+	if err != nil || ch.State != core.StateAwaitingConfirmation {
+		return ch, err
+	}
+	if err := api.do(ctx, http.MethodPost, "/api/v1/changes/"+url.PathEscape(id)+"/confirm", nil, nil); err != nil {
+		return Change{}, fmt.Errorf("confirm %s: %w", id, err)
+	}
+	return m4Settle(ctx, api, id)
+}
+
 // m6pApplyThrough plans and applies version 1 of the controller-side action
 // with input through via, as m4ApplyAsync does, settles the change through
-// settle, and fails the test unless it completed.
+// settle with m6pSettleConfirmed, and fails the test unless it completed.
 func m6pApplyThrough(ctx context.Context, t *testing.T, via, settle *API, action string, input any) Change {
 	t.Helper()
 	p, err := m4Plan(ctx, via, "", action, input)
@@ -432,7 +459,7 @@ func m6pApplyThrough(ctx context.Context, t *testing.T, via, settle *API, action
 	if err := via.do(ctx, http.MethodPost, path, body, &applied); err != nil {
 		t.Fatalf("apply %s: %v", action, err)
 	}
-	ch, err := m4Settle(ctx, settle, applied.ID)
+	ch, err := m6pSettleConfirmed(ctx, settle, applied.ID)
 	if err != nil {
 		t.Fatalf("change %s of %s: %v", applied.ID, action, err)
 	}
@@ -654,7 +681,7 @@ func (r *m6pRun) public(t *testing.T) {
 func (r *m6pRun) expose(t *testing.T) {
 	f := r.f
 	in := panel.ExposeInput{Via: panel.ViaNPM, Hostname: m6pHost, HostID: f.localID}
-	ch := m4ApplyAsync(r.ctx, t, f.api, "", panel.ActionAdd, in)
+	ch := m6pApplyThrough(r.ctx, t, f.api, f.api, panel.ActionAdd, in)
 	if err := json.Unmarshal(ch.Output, &r.out); err != nil {
 		t.Fatalf("output of %s: %s: %v", panel.ActionAdd, ch.Output, err)
 	}
