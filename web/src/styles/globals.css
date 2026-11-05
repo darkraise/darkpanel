@@ -9,19 +9,30 @@
   --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-/* WCAG AA contrast for the default accent and surface: text at 4.5:1 and
-   text-field borders at 3:1 against each mode's surfaces. ThemeProvider writes
-   these tokens as inline styles on <html>, which only !important outranks. */
+/* WCAG AA contrast: text at 4.5:1 and text-field borders at 3:1 against each
+   mode's surfaces. --primary-fill is scoped to the blue accent and --input to
+   the zinc surface because the theme switcher offers others; no accent or
+   surface sets the status colours. ThemeProvider writes these tokens as
+   inline styles on <html>, which only !important outranks. */
 [data-mode="light"] {
-  --primary-fill: 217 91% 48% !important;
   --destructive: 0 84% 42% !important;
   --success: 160 84% 24% !important;
   --warning: 38 92% 28% !important;
+}
+
+[data-mode="light"][data-accent="blue"] {
+  --primary-fill: 217 91% 48% !important;
+}
+
+[data-mode="light"][data-surface="zinc"] {
   --input: 240 4% 46% !important;
 }
 
 [data-mode="dark"] {
   --destructive: 0 72% 68% !important;
   --destructive-foreground: 240 10% 4% !important;
+}
+
+[data-mode="dark"][data-surface="zinc"] {
   --input: 240 4% 46% !important;
 }
