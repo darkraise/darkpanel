@@ -38,6 +38,8 @@ func TestSdSelectPathsUnderStateDir(t *testing.T) {
 		{"state dir for a command", dir, cmd, false, paths.Under(dir), ""},
 		{"state dir for the nil command of the rollback fallback", dir, nil, false, paths.Under(dir), ""},
 		{"state dir with --dev", dir, cmd, true, paths.Paths{}, "--state-dir and --dev cannot be combined"},
+		{"relative state dir", "state", cmd, false, paths.Paths{}, `--state-dir must be an absolute path, got "state"`},
+		{"relative state dir for the nil command", "./state", nil, false, paths.Paths{}, `--state-dir must be an absolute path, got "./state"`},
 		{"no state dir, production", "", cmd, false, paths.Production(), ""},
 		{"no state dir, nil command", "", nil, false, paths.Production(), ""},
 		{"no state dir, --dev", "", cmd, true, paths.Under(filepath.Join(state, "darkpanel-dev")), ""},

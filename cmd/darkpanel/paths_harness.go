@@ -4,6 +4,8 @@ package main
 
 import (
 	"errors"
+	"fmt"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -25,6 +27,9 @@ func init() {
 			return paths.Resolve(dev)
 		case dev:
 			return paths.Paths{}, errors.New("--state-dir and --dev cannot be combined")
+		case !filepath.IsAbs(harnessStateDir):
+			// A unit runs from /, so a relative path would not name the directory its caller meant.
+			return paths.Paths{}, fmt.Errorf("--state-dir must be an absolute path, got %q", harnessStateDir)
 		default:
 			return paths.Under(harnessStateDir), nil
 		}
