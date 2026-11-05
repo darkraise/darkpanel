@@ -58,6 +58,17 @@ func TestRaRetryAfterOverflow(t *testing.T) {
 	}
 }
 
+// TestRaRetryAfterNegative pins that a negative Retry-After, even one beyond int64, reads as none given, so the
+// default backoff applies rather than the refusal a number over the bound gets.
+func TestRaRetryAfterNegative(t *testing.T) {
+	c := &Client{cfg: Config{Clock: coretest.NewFakeClock(time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC))}}
+	for _, v := range []string{"-1", "-9223372036854775808", "-99999999999999999999"} {
+		if got := c.retryAfter(v); got != 0 {
+			t.Errorf("retryAfter(%q) = %v, want 0: none given", v, got)
+		}
+	}
+}
+
 func fz10Head(s string) string {
 	if len(s) > 64 {
 		return s[:64]
@@ -71,7 +82,7 @@ func FuzzRetryAfter(f *testing.F) {
 	start := time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)
 	for _, v := range []string{
 		"", "0", "7", "60", "61", "3600", "+61", "0061", "-1", "soon",
-		"9223372036", "9223372037", "9223372036854775807", "9223372036854775808", "99999999999999999999",
+		"9223372036", "9223372037", "9223372036854775807", "9223372036854775808", "99999999999999999999", "-99999999999999999999",
 		start.Add(30 * time.Second).Format(http.TimeFormat), start.Add(-time.Hour).Format(http.TimeFormat),
 		"Fri, 31 Dec 9999 23:59:59 GMT",
 	} {
