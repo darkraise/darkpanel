@@ -169,21 +169,34 @@ checks before it plans and again before it applies. It refuses with
 - a file or an ancestor is owned by anyone other than root and the owner of the
   project directory;
 - the Docker configuration directory
-  `/var/lib/darkpanel/agent/docker-config` sets a credential helper or a plugin
-  directory, or holds a `cli-plugins` entry, or the Compose plugin or its
-  directory is not owned by root and closed to others;
+  `/var/lib/darkpanel/agent/docker-config`, when it exists, is a symlink, is
+  not a directory or is not owned by root; or its `config.json` sets
+  `credsStore`, `credHelpers` or `cliPluginsExtraDirs`; or it holds a
+  `cli-plugins` entry;
+- the Compose plugin `/usr/libexec/docker/cli-plugins/docker-compose` or
+  its directory is a symlink, is not owned by root, or is writable by its
+  group or others; or a `docker-compose` exists in
+  `/usr/local/lib/docker/cli-plugins`,
+  `/usr/local/libexec/docker/cli-plugins` or `/usr/lib/docker/cli-plugins`,
+  which the Docker CLI would run first; or one of those three directories
+  exists and is not owned by root or is writable by its group or others;
 - `docker compose config` fails, which includes a remote `include` or `extends`
   from Git or OCI, because Darkpanel turns both remote loaders off;
 - a service has a `provider` key, which would make Compose run a program on the
   host;
-- the resolved configuration has a top-level key or a service key that
-  Compose's documented schema does not list;
+- the resolved configuration has a key that Compose's documented schema does
+  not list, at the top level, in a service, or in a network, volume, config
+  or secret. Keys that start with `x-` are accepted. The `models` key, at
+  the top level and in a service, is refused too although the schema lists
+  it, because it hands work to a program on the host;
 - a service has a build section and its image is not present locally. `up`
   always runs with `--no-build`, so Compose never starts a build.
 
 It refuses with `docker.owned` when the project is named `darkpanel` or starts
-with it, or when its configuration or its current containers name an object
-labelled `darkpanel.module`.
+with it; when a service, network or volume in its configuration sets the
+`darkpanel.module` label itself; when its configuration names a container,
+network or volume that carries that label; or when one of its current
+containers carries it.
 
 Pulling from a private registry through Compose is not supported, because the
 Compose run has no stored credentials.

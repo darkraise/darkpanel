@@ -164,7 +164,13 @@ It then checks each flow you depend on against that state:
   whether it arrives directly or through an exposure such as Nginx Proxy
   Manager or a tunnel.
 - On the controller's host, the connections of the agents to the agent
-  listener.
+  listener, and each listening port of the controller process (the direct
+  web interface, the runtime listener and the agent listener), reached from
+  an internet address, or for the runtime listener from the proxy
+  container, whether or not a client is connected now. Each connection the
+  controller has accepted is checked too. This is what keeps a change made
+  with `--local` on that host from cutting the web interface or the agent
+  links.
 - On an agent's host, the agent's outbound connection to the controller.
 - Tailscale's own outbound traffic, when tailscaled runs.
 
