@@ -253,6 +253,16 @@ func (p Prefs) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	out := maps.Clone(p.raw)
+	// encoding/json matches member names without regard to case, so a kept
+	// spelling of a modelled member would override the typed value on decode.
+	for name := range out {
+		for field := range typed {
+			if strings.EqualFold(name, field) {
+				delete(out, name)
+				break
+			}
+		}
+	}
 	maps.Copy(out, typed)
 	return json.Marshal(out)
 }
