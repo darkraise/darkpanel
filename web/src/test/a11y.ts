@@ -19,7 +19,9 @@ export function focusedName(): string {
   const role = Object.entries(getRoles(document.body)).find(([, elements]) =>
     elements.includes(el),
   )?.[0]
-  if (role === undefined) return ""
+  // Role queries skip elements that aria-query gives no role, such as password
+  // inputs, so those are named from their labels directly.
+  if (role === undefined) return labelName(el)
   let name = ""
   queryAllByRole(document.body, role, {
     hidden: true,
@@ -29,6 +31,25 @@ export function focusedName(): string {
     },
   })
   return name
+}
+
+function labelName(el: HTMLElement): string {
+  const ids = (el.getAttribute("aria-labelledby") ?? "").split(/\s+/).filter((id) => id !== "")
+  const labelledBy = ids
+    .map((id) => document.getElementById(id))
+    .filter((label) => label !== null)
+    .map((label) => label.textContent.trim())
+    .join(" ")
+    .trim()
+  if (labelledBy !== "") return labelledBy
+  const ariaLabel = (el.getAttribute("aria-label") ?? "").trim()
+  if (ariaLabel !== "") return ariaLabel
+  if ("labels" in el && el.labels !== null) {
+    return Array.from(el.labels as NodeListOf<HTMLLabelElement>, (label) => label.textContent.trim())
+      .join(" ")
+      .trim()
+  }
+  return ""
 }
 
 // Presses Tab (or Shift+Tab when backwards) count times and returns the

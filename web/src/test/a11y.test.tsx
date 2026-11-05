@@ -70,3 +70,14 @@ test("focusedName prefers aria-labelledby over the content", () => {
   screen.getByRole("button").focus()
   expect(focusedName()).toBe("Delete host web-1")
 })
+
+test("focusedName names a labelled field that has no role", () => {
+  render(
+    <form>
+      <label htmlFor="a11y-secret">Password</label>
+      <input id="a11y-secret" type="password" />
+    </form>,
+  )
+  screen.getByLabelText("Password").focus()
+  expect(focusedName()).toBe("Password")
+})
