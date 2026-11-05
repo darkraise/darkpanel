@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, type RefObject } from "react"
 import { Alert, AlertDescription, AlertTitle } from "darkraise-ui/components/alert"
 import { Badge } from "darkraise-ui/components/badge"
 import { Button } from "darkraise-ui/components/button"
@@ -22,8 +22,13 @@ function chainName(d: ChainDifference): string {
 
 // StatusBanners says why changes are refused: an unsupported configuration
 // refuses every change; a host out of sync refuses every change but a
-// repair, which it offers.
-export function StatusBanners({ hostId, status }: { hostId: string; status: FirewallStatus }) {
+// repair, which it offers. fallbackFocus takes focus when the repair dialog
+// closes after a repair that succeeded has taken its Repair button away.
+export function StatusBanners({ hostId, status, fallbackFocus }: {
+  hostId: string
+  status: FirewallStatus
+  fallbackFocus?: RefObject<HTMLElement | null>
+}) {
   const [repairing, setRepairing] = useState(false)
   return (
     <>
@@ -68,6 +73,7 @@ export function StatusBanners({ hostId, status }: { hostId: string; status: Fire
         title="Repair the firewall"
         input={repairing ? {} : null}
         onClose={() => setRepairing(false)}
+        fallbackFocus={fallbackFocus}
       />
     </>
   )

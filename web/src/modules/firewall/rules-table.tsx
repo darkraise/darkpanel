@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { Badge } from "darkraise-ui/components/badge"
 import { Button } from "darkraise-ui/components/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "darkraise-ui/components/dialog"
@@ -63,6 +63,7 @@ function ManualConsent({ rule, onCancel, onConfirm }: { rule: Rule | null; onCan
 export function RulesTable({ hostId, rules }: { hostId: string; rules: Rule[] }) {
   const [asking, setAsking] = useState<Rule | null>(null)
   const [deleting, setDeleting] = useState<{ rule: Rule; manual: boolean } | null>(null)
+  const region = useRef<HTMLElement>(null)
 
   function startDelete(rule: Rule) {
     if (rule.origin === "manual") setAsking(rule)
@@ -71,7 +72,7 @@ export function RulesTable({ hostId, rules }: { hostId: string; rules: Rule[] })
 
   const input = deleting === null ? null : deleting.manual ? { id: deleting.rule.id, manual: true } : { id: deleting.rule.id }
   return (
-    <>
+    <section aria-label="Rules" tabIndex={-1} ref={region}>
       {rules.length === 0 ? (
         <EmptyState title="No rules" description="UFW has no rules on this host." />
       ) : (
@@ -147,7 +148,8 @@ export function RulesTable({ hostId, rules }: { hostId: string; rules: Rule[] })
         title={deleting === null ? "Delete a rule" : `Delete rule: ${ruleSummary(deleting.rule)}`}
         input={input}
         onClose={() => setDeleting(null)}
+        fallbackFocus={region}
       />
-    </>
+    </section>
   )
 }

@@ -54,6 +54,17 @@ export function StateControls({ hostId, status }: { hostId: string; status: Fire
   const [direction, setDirection] = useState<PolicyDirection>("incoming")
   const [policy, setPolicy] = useState<PolicyWord>(() => currentPolicy(status, "incoming"))
   const [level, setLevel] = useState(status.configured.logLevel)
+  // The drafts start again from the host's settings when those change. The
+  // card resets them itself rather than being remounted, since a remount would
+  // take an open change dialog, with its countdown and Revert, along with it.
+  const configured = JSON.stringify(status.configured)
+  const [seen, setSeen] = useState(configured)
+  if (seen !== configured) {
+    setSeen(configured)
+    setDirection("incoming")
+    setPolicy(currentPolicy(status, "incoming"))
+    setLevel(status.configured.logLevel)
+  }
 
   function chooseDirection(d: PolicyDirection) {
     setDirection(d)

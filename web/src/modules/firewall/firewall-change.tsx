@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState, type RefObject } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "darkraise-ui/components/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "darkraise-ui/components/dialog"
@@ -12,6 +12,10 @@ export interface FirewallChangeProps {
   title: string
   input: Record<string, unknown> | null // null keeps the dialog closed
   onClose: () => void
+  // fallbackFocus takes focus when the dialog closes with focus still inside
+  // it, because the control that opened it is gone, such as the row of a
+  // rule just deleted.
+  fallbackFocus?: RefObject<HTMLElement | null>
 }
 
 // What the operator has been asked and answered for one input, found by the
@@ -29,9 +33,11 @@ interface Consent {
 // raises no event that names them. An action that finds a manual rule only
 // while planning is refused with firewall.manual_required; the operator is
 // asked, and the plan is made again with manual: true once they agree.
-export function FirewallChange({ hostId, action, title, input, onClose }: FirewallChangeProps) {
+export function FirewallChange({ hostId, action, title, input, onClose, fallbackFocus }: FirewallChangeProps) {
   const client = useQueryClient()
   const [consent, setConsent] = useState<Consent | null>(null)
+  const wasOpen = useRef(false)
+  const isOpen = input !== null
   const refresh = () => void client.invalidateQueries({ queryKey: ["resource", hostId] })
 
   const key = JSON.stringify(input ?? {})
@@ -55,6 +61,22 @@ export function FirewallChange({ hostId, action, title, input, onClose }: Firewa
       }
     })
   }, [asking, client, action, hostId, key])
+
+  // Every effect cleanup of a commit runs before any of its effects, so the
+  // dialog has already handed focus back to its opener when that is still in
+  // the document, and the fallback is only taken when focus was left behind.
+  useEffect(() => {
+    if (isOpen) {
+      wasOpen.current = true
+      return
+    }
+    if (!wasOpen.current) return
+    wasOpen.current = false
+    const active = document.activeElement
+    if (active === null || active === document.body || active.closest('[role="dialog"]') !== null) {
+      fallbackFocus?.current?.focus()
+    }
+  }, [isOpen, fallbackFocus])
 
   function close() {
     setConsent(null)

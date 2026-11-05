@@ -1,3 +1,4 @@
+import { useRef } from "react"
 import { Link } from "react-router"
 import { useQuery } from "@tanstack/react-query"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
@@ -15,6 +16,7 @@ import { FIREWALL_MODULE, statusQueryKey, type FirewallStatus } from "./types"
 // FirewallPage is /hosts/:hostId/firewall: the configured and loaded
 // state with its banners, the settings, and the rules.
 export function FirewallPage({ hostId }: { hostId: string }) {
+  const stateRegion = useRef<HTMLDivElement>(null)
   const status = useQuery({
     queryKey: statusQueryKey(hostId),
     queryFn: () => readResource<FirewallStatus>(hostId, FIREWALL_MODULE, "status"),
@@ -30,9 +32,11 @@ export function FirewallPage({ hostId }: { hostId: string }) {
   const s = status.data
   return (
     <div className="flex flex-col gap-4">
-      <StatusBanners hostId={hostId} status={s} />
-      <StatusSummary status={s} />
-      <StateControls key={JSON.stringify(s.configured) + String(s.active)} hostId={hostId} status={s} />
+      <div ref={stateRegion} role="region" aria-label="Firewall state" tabIndex={-1} className="flex flex-col gap-4">
+        <StatusBanners hostId={hostId} status={s} fallbackFocus={stateRegion} />
+        <StatusSummary status={s} />
+      </div>
+      <StateControls hostId={hostId} status={s} />
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center justify-between gap-4">
