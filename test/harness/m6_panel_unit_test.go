@@ -282,6 +282,12 @@ func TestM6pUnitCheckStatus(t *testing.T) {
 	}
 }
 
+func TestM6pUnitAgentPortCommand(t *testing.T) {
+	if got, want := m6pAgentPortCommand(), "sudo ufw allow 7443/tcp"; got != want {
+		t.Errorf("m6pAgentPortCommand = %q, want %q", got, want)
+	}
+}
+
 func TestM6pUnitForwardedProtoLine(t *testing.T) {
 	tests := []struct {
 		name, out string

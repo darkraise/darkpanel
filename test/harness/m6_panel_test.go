@@ -26,6 +26,7 @@ import (
 
 	"github.com/darkraise/darkpanel/internal/controller/auth"
 	"github.com/darkraise/darkpanel/internal/controller/coreactions"
+	"github.com/darkraise/darkpanel/internal/controller/listen"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/modules/firewall"
@@ -316,6 +317,16 @@ func m6pListening(out, addr string) bool {
 	return false
 }
 
+// m6pAgentPortCommand admits the controller's agent port on every interface
+// of its host. Provisioning admits it only on dppriv, but under the loose
+// rp_filter the distributions default to, firewall.lockout checks the agent
+// link and the agent listener on every up interface, the listener from an
+// internet address (spec 2.3), so without this every firewall change on that
+// host, the composites' firewall steps among them, fails the guard.
+func m6pAgentPortCommand() string {
+	return "sudo ufw allow " + strconv.Itoa(listen.AgentPort) + "/tcp"
+}
+
 // m6pController returns a copy of f whose agent is the controller's own host,
 // so that the steps of m6nRun act where the panel is exposed. Only the
 // original calls nextCode, which keeps lastCode in one place.
@@ -517,6 +528,7 @@ func TestM6Panel(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), m6pDeadline)
 	t.Cleanup(cancel)
 	f := m5dLab(ctx, t)
+	m3Run(ctx, t, f.controller, m6pAgentPortCommand())
 	r := &m6pRun{ctx: ctx, f: f, n: &m6nRun{ctx: ctx, f: m6pController(f)}}
 	steps := []struct {
 		name string
