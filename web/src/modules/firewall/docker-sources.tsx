@@ -96,7 +96,9 @@ function Field({ id, label, value, onChange }: { id: string; label: string; valu
 
 // DockerSources edits the Docker integration's private source ranges and
 // forward exemptions. Each edit plans firewall.docker.set-sources with the
-// one list it changes.
+// one list it changes. fallbackFocus takes focus when the change dialog
+// closes and the control that opened it is gone, such as the Remove button
+// of the exemption just removed.
 export function DockerSources({ hostId, docker, fallbackFocus }: {
   hostId: string
   docker: DockerStatus
