@@ -130,3 +130,35 @@ test("when a confirmed Deny leaves nothing to deny, the Plan button is disabled 
   await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("form", { name: "Deny" })))
   expect(focusedName()).toBe("Deny")
 })
+
+test("when the read after a Deny has already disabled Plan, focus is on the form as soon as the dialog closes", async () => {
+  let allowed = true
+  let hold: Promise<void> | null = null
+  let release = () => {}
+  caRender("deny", () => caAllowedWeb(allowed), caContainer, {
+    [CA_DOCKER]: async () => {
+      if (hold !== null) await hold
+      return { body: caAllowedWeb(allowed) }
+    },
+  })
+  const user = userEvent.setup()
+  const form = await screen.findByRole("form", { name: "Deny" })
+  await user.type(within(form).getByLabelText("From"), "203.0.113.0/24")
+  await user.click(within(form).getByRole("button", { name: "Plan" }))
+  const dialog = await screen.findByRole("dialog")
+  const apply = await within(dialog).findByRole("button", { name: "Apply" })
+  await waitFor(() => expect(apply.hasAttribute("disabled")).toBe(false))
+  allowed = false
+  await user.click(apply)
+  await user.click(await within(dialog).findByRole("button", { name: "Confirm" }))
+  await within(dialog).findByText("completed")
+  await screen.findByText("web has no allowed binding. Allow one first.")
+  expect(within(form).getByRole("button", { name: "Plan", hidden: true }).hasAttribute("disabled")).toBe(true)
+  hold = new Promise((resolve) => {
+    release = resolve
+  })
+  await user.keyboard("{Escape}")
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+  expect(document.activeElement).toBe(screen.getByRole("form", { name: "Deny" }))
+  release()
+})

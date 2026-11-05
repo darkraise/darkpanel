@@ -80,9 +80,10 @@ function ContainerRuleForm({ kind, container, onDone }: { kind: Kind; container:
   })
 
   // The dialog gives focus back to Plan, but a Deny that leaves no allowed
-  // binding disables Plan once the integration is read again, and focus falls
-  // to the page body. A layout effect moves it before the browser paints a
-  // frame without focus.
+  // binding disables Plan once the integration is read again. When the read
+  // after apply already did so, fallbackFocus takes focus at the close; when
+  // only the read the close starts does, focus falls to the page body then. A
+  // layout effect moves it before the browser paints a frame without focus.
   useLayoutEffect(() => {
     const form = formRef.current
     if (closedAt.current === null || closedAt.current === docker.dataUpdatedAt) return
@@ -160,6 +161,7 @@ function ContainerRuleForm({ kind, container, onDone }: { kind: Kind; container:
         action={`firewall.container.${kind}`}
         title={pending?.title ?? ""}
         input={pending?.input ?? null}
+        fallbackFocus={formRef}
         onClose={() => {
           closedAt.current = docker.dataUpdatedAt
           setPending(null)
