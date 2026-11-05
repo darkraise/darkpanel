@@ -74,7 +74,7 @@ lint-web: web-deps
 	pnpm -C web typecheck
 
 lint-sh:
-	shellcheck release/*.sh $(wildcard install.sh) internal/modules/firewall/testdata/capture.sh \
+	shellcheck release/*.sh $(wildcard install.sh) scripts/fuzz.sh scripts/fuzz.test.sh internal/modules/firewall/testdata/capture.sh \
 		internal/modules/firewall/eval/testdata/docker28/capture.sh internal/platform/netfilter/testdata/ufw/capture.sh \
 		internal/modules/firewall/dockerfw/testdata/capture/capture.sh
 
@@ -94,6 +94,7 @@ test-release:
 	bash release/snapshots.test.sh
 	bash release/package.test.sh
 	bash release/sign.test.sh
+	bash scripts/fuzz.test.sh
 
 test: test-go test-web test-adr test-release
 
@@ -150,6 +151,6 @@ harness-builds:
 	for build in $(HARNESS_BUILDS); do \
 		version=$${build%%:*}; \
 		CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -tags "$${build#*:}" \
-			-ldflags "$(call ldflags,$$version)" -o $(HARNESS_DIR)/darkpanel-$$version ./cmd/darkpanel; \
+			-ldflags "$(call ldflags,$$version)" -o $(HARNESS_DIR)/darkpanel-$$version ./cmd/darkpanel || exit 1; \
 	done
 	go run -tags harnesskeys ./scripts/gen-install-sh -out $(HARNESS_DIR)/install.sh
