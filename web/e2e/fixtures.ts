@@ -255,7 +255,9 @@ const RESOURCES: Record<string, unknown> = {
   "docker.networks": { networks },
 }
 
-function plans(name: string, input: Record<string, unknown>): Reply {
+// plans and applies answer null for an action the fixtures do not cover, so
+// mockApi records the request as unhandled.
+function plans(name: string, input: Record<string, unknown>): Reply | null {
   switch (name) {
     case "firewall.rule.add":
       return { json: firewallPlan(input.overrides) }
@@ -283,11 +285,11 @@ function plans(name: string, input: Record<string, unknown>): Reply {
         }),
       }
     default:
-      return problem(404, "action.unknown", `The fixtures do not plan ${name}.`)
+      return null
   }
 }
 
-function applies(name: string, changes: Map<string, Change>): Reply {
+function applies(name: string, changes: Map<string, Change>): Reply | null {
   let applied: Change
   switch (name) {
     case "firewall.rule.add":
@@ -297,7 +299,7 @@ function applies(name: string, changes: Map<string, Change>): Reply {
       applied = change({ id: EXPOSE_CHANGE_ID, hostId: null, action: "npm.expose.container", class: "composite", state: "completed" })
       break
     default:
-      return problem(404, "action.unknown", `The fixtures do not apply ${name}.`)
+      return null
   }
   changes.set(applied.id, applied)
   return { json: applied }

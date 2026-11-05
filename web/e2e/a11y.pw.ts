@@ -181,11 +181,12 @@ async function scrollExtent(page: Page): Promise<{ scrollWidth: number; clientWi
 
 // The page may not scroll sideways while an open dialog still clips its own
 // content, because a dialog is fixed; this lists what lies outside the
-// viewport, leaving out what a scrolling ancestor inside the dialog holds.
-async function clippedInDialog(page: Page): Promise<string[]> {
-  return page.evaluate(() => {
+// viewport, leaving out what a scrolling ancestor inside the dialog holds. A
+// view that ends in a dialog and has none at this viewport is listed too.
+async function clippedInDialog(page: Page, expected: boolean): Promise<string[]> {
+  return page.evaluate((expected) => {
     const dialog = document.querySelector('[role="dialog"]')
-    if (dialog === null) return []
+    if (dialog === null) return expected ? ["no element with the dialog role"] : []
     const width = document.documentElement.clientWidth
     const clipped: string[] = []
     for (const el of Array.from(dialog.querySelectorAll("*"))) {
@@ -199,7 +200,7 @@ async function clippedInDialog(page: Page): Promise<string[]> {
       if (!scrolls) clipped.push(`${el.tagName.toLowerCase()}.${el.getAttribute("class") ?? ""} spans ${Math.round(box.left)} to ${Math.round(box.right)} of ${width}`)
     }
     return clipped
-  })
+  }, expected)
 }
 
 const CHECKS = [
@@ -221,15 +222,16 @@ for (const { check, viewport, scale } of CHECKS) {
       for (const view of VIEWS) {
         test(`${view.slug} ${theme}`, async ({ page }) => {
           const unhandled = await visit(page, view, theme)
-          await page.screenshot({ path: `${shots}${view.slug}-${theme}-${check}.png` })
           expect(unhandled, "API requests without a fixture").toEqual([])
           if (check === "contrast") {
             expect(await contrastViolations(page)).toEqual([])
           } else {
             const { scrollWidth, clientWidth } = await scrollExtent(page)
             expect(scrollWidth, `scrollWidth ${scrollWidth} against clientWidth ${clientWidth}`).toBeLessThanOrEqual(clientWidth)
-            expect(await clippedInDialog(page), "dialog content outside the viewport").toEqual([])
+            expect(await clippedInDialog(page, view.dialog !== undefined), "dialog content outside the viewport").toEqual([])
           }
+          // Written only after the checks pass, so a failing run leaves the evidence as it was.
+          await page.screenshot({ path: `${shots}${view.slug}-${theme}-${check}.png` })
         })
       }
     }
@@ -246,10 +248,16 @@ async function weakFieldBoundaries(page: Page): Promise<string[]> {
     canvas.height = 1
     const context = canvas.getContext("2d", { willReadFrequently: true })
     if (context === null) return ["no canvas to read colours with"]
+    // A colour the canvas cannot parse leaves the fill style as it was, so it
+    // is set over two different fills and must give the same style both times.
     const rgba = (css: string): number[] => {
       context.clearRect(0, 0, 1, 1)
       context.fillStyle = "#000"
       context.fillStyle = css
+      const first = context.fillStyle
+      context.fillStyle = "#fff"
+      context.fillStyle = css
+      if (context.fillStyle !== first) throw new Error(`the canvas cannot read the colour ${css}`)
       context.fillRect(0, 0, 1, 1)
       const [r = 0, g = 0, b = 0, a = 0] = context.getImageData(0, 0, 1, 1).data
       return [r, g, b, a / 255]
@@ -307,18 +315,24 @@ test.describe("non-text contrast", () => {
 
 // WCAG 2.4.7: every control that Tab reaches must look different while it
 // has focus, which darkraise-ui does with a ring (box-shadow) or an outline.
-// A press that leaves the page puts focus on the body, so four presses reach
-// at least one control from wherever the view left focus.
-async function focusIndicators(page: Page): Promise<{ reached: number; bare: string[] }> {
+// Tab is pressed until focus comes back to a control it already reached, so
+// the whole cycle of the page, or of the dialog that traps focus, is checked;
+// a press that leaves the page puts focus on the body and the next one wraps.
+const FOCUS_PRESSES_MAX = 200
+
+async function focusIndicators(page: Page): Promise<{ reached: number; cycled: boolean; bare: string[] }> {
   // Transitions would leave the styles read right after a blur half-way.
   await page.addStyleTag({ content: "*, *::before, *::after { transition: none !important; animation: none !important; }" })
   let reached = 0
+  let cycled = false
   const bare: string[] = []
-  for (let press = 0; press < 4; press++) {
+  for (let press = 0; press < FOCUS_PRESSES_MAX && !cycled; press++) {
     await page.keyboard.press("Tab")
     const found = await page.evaluate(() => {
       const el = document.activeElement
       if (!(el instanceof HTMLElement) || el === document.body) return null
+      if (el.dataset.a11yReached !== undefined) return "again"
+      el.dataset.a11yReached = ""
       const look = () => {
         const style = getComputedStyle(el)
         return [style.outlineStyle, style.outlineWidth, style.outlineColor, style.boxShadow, style.borderColor].join(" ")
@@ -330,10 +344,14 @@ async function focusIndicators(page: Page): Promise<{ reached: number; bare: str
       return { name: `${el.tagName.toLowerCase()} ${el.getAttribute("aria-label") ?? el.textContent?.trim().slice(0, 40) ?? ""}`, visible: focused !== idle }
     })
     if (found === null) continue
+    if (found === "again") {
+      cycled = true
+      continue
+    }
     reached++
     if (!found.visible) bare.push(found.name)
   }
-  return { reached, bare }
+  return { reached, cycled, bare }
 }
 
 test.describe("focus visible", () => {
@@ -342,8 +360,9 @@ test.describe("focus visible", () => {
     for (const view of VIEWS) {
       test(`${view.slug} ${theme}`, async ({ page }) => {
         const unhandled = await visit(page, view, theme)
-        const { reached, bare } = await focusIndicators(page)
+        const { reached, cycled, bare } = await focusIndicators(page)
         expect(reached, "controls Tab reached").toBeGreaterThan(0)
+        expect(cycled, `Tab came back to a control within ${FOCUS_PRESSES_MAX} presses`).toBe(true)
         expect(bare, "controls without a focus indicator").toEqual([])
         expect(unhandled, "API requests without a fixture").toEqual([])
       })
@@ -375,8 +394,9 @@ test.describe("change dialog names", () => {
             return found !== null && !(found[2] ?? "").trimStart().startsWith('"')
           })
         expect(unnamed, "buttons, fields and links without an accessible name").toEqual([])
-        await page.screenshot({ path: `${shots}${view.slug}-${theme}-names.png` })
         expect(unhandled, "API requests without a fixture").toEqual([])
+        // The dialog alone: the names checked are its controls'.
+        await dialog.screenshot({ path: `${shots}${view.slug}-${theme}-names.png` })
       })
     }
   }
