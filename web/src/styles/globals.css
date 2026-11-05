@@ -8,3 +8,20 @@
   --font-heading: "Hanken Grotesk Variable", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+
+/* WCAG AA contrast for the default accent and surface: text at 4.5:1 and
+   text-field borders at 3:1 against each mode's surfaces. ThemeProvider writes
+   these tokens as inline styles on <html>, which only !important outranks. */
+[data-mode="light"] {
+  --primary-fill: 217 91% 48% !important;
+  --destructive: 0 84% 42% !important;
+  --success: 160 84% 24% !important;
+  --warning: 38 92% 28% !important;
+  --input: 240 4% 46% !important;
+}
+
+[data-mode="dark"] {
+  --destructive: 0 72% 68% !important;
+  --destructive-foreground: 240 10% 4% !important;
+  --input: 240 4% 46% !important;
+}
