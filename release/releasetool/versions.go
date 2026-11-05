@@ -79,19 +79,34 @@ func compare(a, b version) int {
 }
 
 // compareIdentifier compares numeric identifiers numerically and sorts them
-// before alphanumeric ones, which compare in ASCII order.
+// before alphanumeric ones, which compare in ASCII order. A numeric identifier
+// has no leading zero, so it orders by length and then by text, which holds
+// for any length, beyond uint64 too.
 func compareIdentifier(a, b string) int {
-	an, aErr := strconv.ParseUint(a, 10, 64)
-	bn, bErr := strconv.ParseUint(b, 10, 64)
+	aNum, bNum := isDigits(a), isDigits(b)
 	switch {
-	case aErr == nil && bErr == nil:
-		return cmp.Compare(an, bn)
-	case aErr == nil:
+	case aNum && bNum:
+		if c := cmp.Compare(len(a), len(b)); c != 0 {
+			return c
+		}
+	case aNum:
 		return -1
-	case bErr == nil:
+	case bNum:
 		return 1
 	}
 	return strings.Compare(a, b)
+}
+
+func isDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := range len(s) {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // ghRelease is one entry of `gh release list --json tagName,isDraft`.
