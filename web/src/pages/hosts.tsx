@@ -8,6 +8,7 @@ import { Spinner } from "darkraise-ui/components/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
 import { HOSTS_QUERY_KEY, errorMessage, listHosts } from "@/api/client"
 import type { Host, ModuleState } from "@/api/types"
+import { usePageTitle } from "@/lib/page-title"
 import { CreateHostDialog } from "./create-host-dialog"
 
 function moduleStatus(m: ModuleState): { text: string; variant: BadgeVariant } {
@@ -47,7 +48,16 @@ function HostsBody() {
       </Alert>
     )
   }
-  if (hosts.data.hosts.length === 0) return <EmptyState title="No hosts yet" />
+  if (hosts.data.hosts.length === 0) {
+    // darkraise-ui's EmptyState title is an h3, so a hidden h2 keeps the
+    // heading levels under the page's h1 from skipping one.
+    return (
+      <>
+        <h2 className="sr-only">Host list</h2>
+        <EmptyState title="No hosts yet" />
+      </>
+    )
+  }
   return (
     <Table>
       <TableHeader>
@@ -98,6 +108,7 @@ function HostsBody() {
 }
 
 export function HostsPage() {
+  usePageTitle("Hosts")
   return (
     <>
       <PageHeader title="Hosts" description="The servers this controller manages." actions={<CreateHostDialog />} />

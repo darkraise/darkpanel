@@ -148,9 +148,9 @@ export function CreateHostDialog({ entries = moduleRegistry }: { entries?: Modul
           {grant !== null && (
             <div className="flex flex-col gap-4">
               <Clipboard value={bundle ?? grant.token}>
-                <ClipboardLabel>{bundle !== null ? `Bootstrap bundle for ${grant.host.name}` : `Enrollment token for ${grant.host.name}`}</ClipboardLabel>
+                <ClipboardLabel htmlFor="host-grant-secret">{bundle !== null ? `Bootstrap bundle for ${grant.host.name}` : `Enrollment token for ${grant.host.name}`}</ClipboardLabel>
                 <ClipboardControl>
-                  <ClipboardInput className="font-mono" />
+                  <ClipboardInput id="host-grant-secret" className="font-mono" />
                   <ClipboardTrigger>Copy</ClipboardTrigger>
                 </ClipboardControl>
               </Clipboard>

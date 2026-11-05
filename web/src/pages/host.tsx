@@ -6,18 +6,34 @@ import { Alert, AlertDescription, AlertTitle } from "darkraise-ui/components/ale
 import { EmptyState } from "darkraise-ui/components/empty-state"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { HOSTS_QUERY_KEY, errorMessage, listHosts } from "@/api/client"
+import { usePageTitle } from "@/lib/page-title"
 import { enabledModules, moduleRegistry, moduleView, type ModuleView } from "@/modules/registry"
 
+function hostTitle(loaded: boolean, name: string | undefined, moduleId: string | undefined): string {
+  if (!loaded) return "Host"
+  if (name === undefined) return "Host not found"
+  if (moduleId === undefined) return name
+  const label = moduleRegistry.find((m) => m.id === moduleId)?.label ?? moduleId
+  return `${name} · ${label}`
+}
+
+// darkraise-ui's EmptyState title is an h3, so a hidden h2 under the page's h1
+// keeps the heading levels from skipping one.
 function ModuleBody({ view, hostId }: { view: ModuleView; hostId: string }) {
   switch (view.kind) {
     case "not-enabled":
-      return <EmptyState title="Module not enabled" description="This module is not enabled on this host." />
+      return (
+        <>
+          <h2 className="sr-only">Module</h2>
+          <EmptyState title="Module not enabled" description="This module is not enabled on this host." />
+        </>
+      )
     case "unavailable": {
       const Icon = view.entry.icon
       return (
         <Alert variant="warning" role="status">
           <Icon aria-hidden="true" />
-          <AlertTitle>{`${view.entry.label} is unavailable`}</AlertTitle>
+          <AlertTitle as="h2">{`${view.entry.label} is unavailable`}</AlertTitle>
           <AlertDescription>{view.reason}</AlertDescription>
         </Alert>
       )
@@ -36,6 +52,7 @@ function ModuleBody({ view, hostId }: { view: ModuleView; hostId: string }) {
 export function HostPage() {
   const { hostId = "", moduleId } = useParams()
   const hosts = useQuery({ queryKey: HOSTS_QUERY_KEY, queryFn: listHosts })
+  usePageTitle(hostTitle(hosts.isSuccess, hosts.data?.hosts.find((h) => h.id === hostId)?.name, moduleId))
 
   if (hosts.isPending) return <Spinner aria-label="Loading the host" />
   if (hosts.isError) {
@@ -61,6 +78,7 @@ export function HostPage() {
     return (
       <>
         {header}
+        <h2 className="sr-only">Modules</h2>
         <EmptyState title="No modules" description="No modules are enabled on this host." />
       </>
     )

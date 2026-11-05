@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "d
 import { TOKENS_QUERY_KEY, errorMessage, listTokens } from "@/api/client"
 import type { TokenInfo } from "@/api/types"
 import { formatTime } from "@/lib/format"
+import { usePageTitle } from "@/lib/page-title"
 import { CreateTokenDialog } from "./create-token-dialog"
 import { RevokeTokenDialog } from "./revoke-token-dialog"
 
@@ -32,7 +33,16 @@ function TokensBody() {
       </Alert>
     )
   }
-  if (tokens.data.tokens.length === 0) return <EmptyState title="No API tokens yet" />
+  if (tokens.data.tokens.length === 0) {
+    // darkraise-ui's EmptyState title is an h3, so a hidden h2 keeps the
+    // heading levels under the page's h1 from skipping one.
+    return (
+      <>
+        <h2 className="sr-only">Token list</h2>
+        <EmptyState title="No API tokens yet" />
+      </>
+    )
+  }
   return (
     <>
       <Table>
@@ -82,6 +92,7 @@ function TokensBody() {
 }
 
 export function TokensPage() {
+  usePageTitle("API tokens")
   return (
     <>
       <PageHeader title="API tokens" description="Tokens let the CLI and scripts call the API." actions={<CreateTokenDialog />} />

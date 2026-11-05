@@ -7,6 +7,7 @@ import { Input } from "darkraise-ui/components/input"
 import { Label } from "darkraise-ui/components/label"
 import { ApiError, request } from "@/api/client"
 import type { Session } from "@/api/types"
+import { usePageTitle } from "@/lib/page-title"
 import { SessionSpinner } from "@/session/session"
 import { safeNext } from "@/session/safe-next"
 import { useSession } from "@/session/use-session"
@@ -31,6 +32,7 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const next = safeNext(params.get("next"))
+  usePageTitle("Sign in")
 
   if (status === "loading") return <SessionSpinner />
   if (session !== null) return <Navigate to={next} replace />

@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "d
 import { errorMessage, readAction } from "@/api/client"
 import type { AuditList } from "@/api/types"
 import { formatTime } from "@/lib/format"
+import { usePageTitle } from "@/lib/page-title"
 
 const PAGE_SIZE = 50
 
@@ -30,7 +31,16 @@ function AuditBody() {
     )
   }
   const entries = audit.data.pages.flatMap((page) => page.entries)
-  if (entries.length === 0) return <EmptyState title="No audit entries yet" />
+  if (entries.length === 0) {
+    // darkraise-ui's EmptyState title is an h3, so a hidden h2 keeps the
+    // heading levels under the page's h1 from skipping one.
+    return (
+      <>
+        <h2 className="sr-only">Audit entries</h2>
+        <EmptyState title="No audit entries yet" />
+      </>
+    )
+  }
   return (
     <div className="flex flex-col gap-4">
       <Table>
@@ -87,6 +97,7 @@ function AuditBody() {
 }
 
 export function AuditPage() {
+  usePageTitle("Audit log")
   return (
     <>
       <PageHeader title="Audit log" description="Who did what, newest first." />
