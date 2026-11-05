@@ -46,7 +46,7 @@ func TestVersionCompare(t *testing.T) {
 	// Each version has lower precedence than the next (semver 2.0.0 section 11).
 	ordered := []string{
 		"1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta",
-		"1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1", "1.0.0",
+		"1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1", "1.0.0-rc.2", "1.0.0-rc.10", "1.0.0",
 		"1.0.1", "1.2.0-beta.1", "1.2.0", "1.10.0", "2.0.0",
 	}
 	for i, x := range ordered {
@@ -83,6 +83,10 @@ func mustVersion(t *testing.T, s string) Version {
 }
 
 var stepReleases = []Release{
+	{Version: "1.0.0", Channel: "stable"},
+	{Version: "1.0.0-rc.10", Channel: "beta"},
+	{Version: "1.0.0-rc.1", Channel: "beta"},
+	{Version: "1.0.0-rc.2", Channel: "beta"},
 	{Version: "1.5.0", Channel: "stable"},
 	{Version: "1.2.0", Channel: "stable"},
 	{Version: "1.2.4", Channel: "stable"},
@@ -106,8 +110,8 @@ func TestInChannel(t *testing.T) {
 		}
 		return out
 	}
-	stable := []string{"1.2.0", "1.2.4", "1.3.0", "1.3.2", "1.4.0", "1.4.1", "1.5.0", "1.8.0", "2.0.0"}
-	beta := []string{"1.2.0", "1.2.4", "1.3.0", "1.3.2", "1.3.3-beta.1", "1.4.0", "1.4.1", "1.5.0", "1.6.0-beta.1", "1.8.0", "2.0.0"}
+	stable := []string{"1.0.0", "1.2.0", "1.2.4", "1.3.0", "1.3.2", "1.4.0", "1.4.1", "1.5.0", "1.8.0", "2.0.0"}
+	beta := []string{"1.0.0-rc.1", "1.0.0-rc.2", "1.0.0-rc.10", "1.0.0", "1.2.0", "1.2.4", "1.3.0", "1.3.2", "1.3.3-beta.1", "1.4.0", "1.4.1", "1.5.0", "1.6.0-beta.1", "1.8.0", "2.0.0"}
 	if got := versions(InChannel(stepReleases, "stable")); !reflect.DeepEqual(got, stable) {
 		t.Errorf("stable = %v, want %v", got, stable)
 	}
@@ -134,6 +138,9 @@ func TestSteps(t *testing.T) {
 		{"next minor", "1.4.0", "1.5.0", "stable", false, []string{"1.5.0"}, ""},
 		{"beta release on a beta host", "1.5.0", "1.6.0-beta.1", "beta", false, []string{"1.6.0-beta.1"}, ""},
 		{"prerelease to its release", "1.3.3-beta.1", "1.4.0", "beta", false, []string{"1.4.0"}, ""},
+		{"release candidate to the next, numerically", "1.0.0-rc.2", "1.0.0-rc.10", "beta", false, []string{"1.0.0-rc.10"}, ""},
+		{"release candidate to its release", "1.0.0-rc.1", "1.0.0", "beta", false, []string{"1.0.0"}, ""},
+		{"the later release candidate to the earlier", "1.0.0-rc.10", "1.0.0-rc.2", "beta", false, nil, errcode.UpdateDowngradeRefused},
 		{"forced downgrade of one minor", "1.5.0", "1.4.0", "stable", true, []string{"1.4.0"}, ""},
 		{"forced downgrade of a patch", "1.2.4", "1.2.0", "stable", true, []string{"1.2.0"}, ""},
 		{"forced downgrade of two minors", "1.5.0", "1.3.2", "stable", true, nil, errcode.UpdateDowngradeRefused},
