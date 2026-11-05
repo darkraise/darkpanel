@@ -23,20 +23,20 @@ type dnPage struct {
 var dnPages = []dnPage{
 	{"derp", "docs/user/modules/derp.md", []string{
 		"derp.port_in_use", "derp.not_ready", "derp.region_taken", "derp.no_fallback", "derp.verify_failed",
-		"80/tcp", "443/tcp", "3478/udp",
+		"`80/tcp`", "`443/tcp`", "`3478/udp`",
 		"/usr/local/lib/darkpanel/derper", "/etc/systemd/system/darkpanel-derper.service", "/var/lib/darkpanel/derp", "darkpanel-derp",
-		"-verify-clients", "letsencrypt", "sha256-raw:", "30 days", "omitDefaultRegions", "tailscaled", "900", "999",
+		"-verify-clients", "letsencrypt", "sha256-raw:", "30 days", "omitDefaultRegions", "tailscaled", "an id from 900 to 999",
 	}},
 	{"npm", "docs/user/modules/npm.md", []string{
 		"npm.not_public", "npm.unsupported_target", "npm.reserved", "npm.setup_failed", "npm.unhealthy",
 		"darkpanel-npm", "darkpanel-npm-data", "darkpanel-npm-letsencrypt", "127.0.0.1:81",
-		"/var/lib/darkpanel/agent/npm-backups", "Docker 28.0", "user-defined", "--acme-email", "derp.port_in_use",
+		"/var/lib/darkpanel/agent/npm-backups", "Docker 28.0", "user-defined bridge network", "--acme-email", "derp.port_in_use",
 	}},
 	{"cloudflare", "docs/user/modules/cloudflare.md", []string{
 		"cloud.not_connected", "cloud.auth_failed", "cloud.permission_missing", "cloud.rate_limited", "cloud.conflict",
 		"cloud.uncertain_outcome", "cloud.cleanup_pending", "cloudflare.reserved", "cloudflare.unsupported_target",
 		"cloudflare.connector_missing", "Cloudflare Tunnel: Edit", "Zone Read", "DNS: Edit",
-		"darkpanel-cloudflared-", "/var/lib/darkpanel/agent/cloudflare-tokens", "user-defined", "overwritten",
+		"darkpanel-cloudflared-", "/var/lib/darkpanel/agent/cloudflare-tokens", "user-defined bridge network", "its own write is overwritten",
 	}},
 	{"panel", "docs/user/modules/panel.md", []string{
 		"panel.wrong_host", "panel.totp_incomplete", "panel.already_exposed", "panel.not_exposed",
@@ -75,12 +75,6 @@ func TestDnPagesNameEveryAction(t *testing.T) {
 func TestDnPagesStateTheirFacts(t *testing.T) {
 	for _, p := range dnPages {
 		t.Run(p.module, func(t *testing.T) { dcMentions(t, p.path, p.facts...) })
-	}
-}
-
-func TestDnPagesLinkOnlyToFiles(t *testing.T) {
-	for _, p := range dnPages {
-		t.Run(p.module, func(t *testing.T) { dcLinks(t, p.path) })
 	}
 }
 

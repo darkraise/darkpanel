@@ -62,12 +62,6 @@ func TestDuIndexLinksEveryPage(t *testing.T) {
 	dcMentions(t, "docs/user/README.md", links...)
 }
 
-func TestDuPagesLink(t *testing.T) {
-	for _, rel := range duPages {
-		dcLinks(t, rel)
-	}
-}
-
 func TestDuInstall(t *testing.T) {
 	// The flags install.sh accepts are its case labels in main.
 	flags := duFlags(t, "install.sh.in", regexp.MustCompile(`(?m)^\t\t--([a-z][a-z-]*)\)`))

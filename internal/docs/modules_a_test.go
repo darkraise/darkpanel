@@ -101,7 +101,7 @@ func dmCodes(codes ...errcode.Code) []string {
 
 // TestDmEveryActionAndResourceIsDocumented holds each page to naming every
 // action and resource of its module in the registry, with the command the
-// CLI generates for it, and to linking only files that exist.
+// CLI generates for it.
 func TestDmEveryActionAndResourceIsDocumented(t *testing.T) {
 	for id, page := range dmPages {
 		names := dcModuleNames(t, id)
@@ -114,12 +114,16 @@ func TestDmEveryActionAndResourceIsDocumented(t *testing.T) {
 			commands = append(commands, "darkpanel "+strings.Join(cli.CommandPath(n), " "))
 		}
 		dcMentions(t, page, commands...)
-		dcLinks(t, page)
 	}
 }
 
+// TestDmHostinfo holds the page's field table to a row for each field of the summary.
 func TestDmHostinfo(t *testing.T) {
-	dcMentions(t, dmPages["hostinfo"], dmFields(reflect.TypeFor[hostinfo.Summary]())...)
+	var rows []string
+	for _, f := range dmFields(reflect.TypeFor[hostinfo.Summary]()) {
+		rows = append(rows, "\n| `"+f+"` |")
+	}
+	dcMentions(t, dmPages["hostinfo"], rows...)
 }
 
 func TestDmFirewall(t *testing.T) {
@@ -130,7 +134,8 @@ func TestDmFirewall(t *testing.T) {
 		errcode.FirewallDockerUserInUse, errcode.FirewallPredictionMismatch,
 	)...)
 	dcMentions(t, page, dmInputFields(t, "firewall.docker.set-sources")...)
-	dcMentions(t, page, "--confirm-timeout", "--confirm", "900", "baseline", "firewall.reconcile", "darkpanel.module")
+	dcMentions(t, page, "--confirm-timeout", "--confirm", "sets 10 to 900 seconds", "baseline, which is never pruned", "firewall.reconcile",
+		"darkpanel.module")
 	dcMentions(t, page, "sudo darkpanel firewall rollback --local",
 		"sudo darkpanel "+strings.Join(cli.CommandPath("firewall.snapshot.restore"), " ")+" --local")
 	for _, o := range dmUninstallOptions(t, "firewall") {
@@ -141,8 +146,8 @@ func TestDmFirewall(t *testing.T) {
 func TestDmDocker(t *testing.T) {
 	page := dmPages["docker"]
 	dcMentions(t, page, dmCodes(errcode.DockerEngineUnavailable, errcode.DockerInUse, errcode.DockerOwned, errcode.DockerComposeUnavailable)...)
-	dcMentions(t, page, dockerapi.MinAPIVersion, "[redacted]", "darkpanel.module", "provider", "--no-build", "include", "profile",
-		"com.docker.compose.project")
+	dcMentions(t, page, dockerapi.MinAPIVersion, "[redacted]", "darkpanel.module", "has a `provider` key", "--no-build",
+		"a remote `include`", "has a `profile`", "com.docker.compose.project")
 }
 
 func TestDmTailscale(t *testing.T) {

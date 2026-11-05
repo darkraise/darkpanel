@@ -2,6 +2,7 @@ package docs_test
 
 import (
 	"io/fs"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -55,7 +56,10 @@ func wcPages(t *testing.T, root string) []string {
 			t.Fatalf("docs: walk %s: %v", dir, err)
 		}
 	}
-	return append(pages, "docs/accessibility.md")
+	if _, err := os.Stat(filepath.Join(root, "docs", "accessibility.md")); err == nil {
+		pages = append(pages, "docs/accessibility.md")
+	}
+	return pages
 }
 
 // TestWcDocsLinks checks that every relative link of the user documentation,

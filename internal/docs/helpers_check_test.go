@@ -76,9 +76,11 @@ func TestDcBrokenLinks(t *testing.T) {
 		"[hidden](hidden.md)",
 		"```",
 		"[after the fence](after.md)",
+		"`[code](code.md)` and ``[double `x`](double.md)`` and ``` `[mixed](mixed.md)`` ``` [after code](spans.md)",
+		"a lone ` before [open](open.md)",
 	}, "\n")
 	got := dcBroken(root, "docs/user/a.md", text)
-	want := []string{"nope.md", "gone.md#sec", "/docs/gone.md", "pic.png", "after.md"}
+	want := []string{"nope.md", "gone.md#sec", "/docs/gone.md", "pic.png", "after.md", "spans.md", "open.md"}
 	if !slices.Equal(got, want) {
 		t.Errorf("dcBroken = %q, want %q", got, want)
 	}

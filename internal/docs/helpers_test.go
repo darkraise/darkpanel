@@ -94,9 +94,9 @@ var dcSchemePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*:`)
 
 // dcBroken returns, in order of appearance and as written, the relative link
 // targets in text, the content of the file at rel under root, that name no
-// existing file or directory. Links inside fenced code blocks, links with a
-// URL scheme and links to an anchor of the same file are skipped; a leading
-// slash means the repository root.
+// existing file or directory. Links inside fenced code blocks or inline code
+// spans, links with a URL scheme and links to an anchor of the same file are
+// skipped; a leading slash means the repository root.
 func dcBroken(root, rel, text string) []string {
 	var broken []string
 	fenced := false
@@ -108,7 +108,7 @@ func dcBroken(root, rel, text string) []string {
 		if fenced {
 			continue
 		}
-		for _, m := range dcLinkPattern.FindAllStringSubmatch(line, -1) {
+		for _, m := range dcLinkPattern.FindAllStringSubmatch(dcWithoutCode(line), -1) {
 			written := m[1]
 			target := strings.TrimSuffix(strings.TrimPrefix(written, "<"), ">")
 			if i := strings.IndexAny(target, "#?"); i >= 0 {
@@ -131,8 +131,51 @@ func dcBroken(root, rel, text string) []string {
 	return broken
 }
 
+// dcWithoutCode returns line with each inline code span removed: a run of
+// backticks, the text up to the next run of as many backticks, and that run.
+// A run with no closing run is left as it is, as Markdown does.
+func dcWithoutCode(line string) string {
+	var b strings.Builder
+	for {
+		start := strings.IndexByte(line, '`')
+		if start < 0 {
+			b.WriteString(line)
+			return b.String()
+		}
+		n := start
+		for n < len(line) && line[n] == '`' {
+			n++
+		}
+		fence := line[start:n]
+		end := -1
+		for i := n; i < len(line); {
+			j := strings.Index(line[i:], fence)
+			if j < 0 {
+				break
+			}
+			j += i
+			k := j + len(fence)
+			if k == len(line) || line[k] != '`' {
+				end = k
+				break
+			}
+			for k < len(line) && line[k] == '`' {
+				k++
+			}
+			i = k
+		}
+		if end < 0 {
+			b.WriteString(line[:n])
+			line = line[n:]
+			continue
+		}
+		b.WriteString(line[:start])
+		line = line[end:]
+	}
+}
+
 // dcLinks fails once per relative Markdown link in the file at rel whose target file does not exist.
-func dcLinks(t *testing.T, rel string) { //nolint:unused // called by the documentation page tests
+func dcLinks(t *testing.T, rel string) {
 	t.Helper()
 	for _, target := range dcBroken(dcRoot(t), rel, dcRead(t, rel)) {
 		t.Errorf("%s links %s, which does not exist", rel, target)

@@ -274,5 +274,3 @@ func TestDgGuideFollowsTheStyle(t *testing.T) {
 		t.Errorf("%s names %q; a page never names a plan, wave, task or register row", dgGuide, m)
 	}
 }
-
-func TestDgGuideLinksOnlyToFiles(t *testing.T) { dcLinks(t, dgGuide) }
