@@ -347,3 +347,34 @@ func TestLegacyTablesUnreadable(t *testing.T) {
 		t.Fatal("a list that cannot be read is no error")
 	}
 }
+
+// TestW10SfToolVariantSkipsLeadingBlankLines shows that toolVariant reads the
+// first line of the trimmed output, as the install preflight does.
+func TestW10SfToolVariantSkipsLeadingBlankLines(t *testing.T) {
+	tests := []struct {
+		name    string
+		out     string
+		variant string
+		err     string
+	}{
+		{"no blank line", "iptables v1.8.10 (nf_tables)\n", variantNFT, ""},
+		{"a leading blank line", "\niptables v1.8.10 (nf_tables)\n", variantNFT, ""},
+		{"blank lines, spaces and a tab", "\n \n\tiptables v1.8.9 (legacy)\n", variantLegacy, ""},
+		{"a leading blank line before an unknown variant", "\niptables v1.6.1\n", "", `loaded: cannot tell the iptables variant from "iptables v1.6.1"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			x := &ldRunner{answers: map[string]ldResult{"/usr/sbin/iptables --version": {out: tt.out}}}
+			variant, ok, err := toolVariant(context.Background(), x, "iptables")
+			if tt.err != "" {
+				if err == nil || err.Error() != tt.err || ok {
+					t.Fatalf("toolVariant = %q, %v, %v; want the error %q", variant, ok, err, tt.err)
+				}
+				return
+			}
+			if err != nil || !ok || variant != tt.variant {
+				t.Fatalf("toolVariant = %q, %v, %v; want %q", variant, ok, err, tt.variant)
+			}
+		})
+	}
+}

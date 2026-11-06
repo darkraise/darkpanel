@@ -158,7 +158,7 @@ func toolVariant(ctx context.Context, x core.Runner, tool string) (variant strin
 	if err != nil {
 		return "", false, err
 	}
-	line, _, _ := strings.Cut(string(out), "\n")
+	line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
 	switch {
 	case strings.HasSuffix(line, " (nf_tables)"):
 		return variantNFT, true, nil
