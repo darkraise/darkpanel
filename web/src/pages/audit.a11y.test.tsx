@@ -1,8 +1,8 @@
-import { screen } from "@testing-library/react"
+import { screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { expect, test } from "vitest"
 import type { AuditEntry } from "@/api/types"
-import { expectNoAxeViolations, tabSequence } from "@/test/a11y"
+import { expectNoAxeViolations, focusedName, tabSequence } from "@/test/a11y"
 import { renderWithProviders, stubFetch, type FetchCall, type StubResponse } from "@/test/utils"
 import { AuditPage } from "./audit"
 
@@ -79,4 +79,37 @@ test("the audit log has a level-one heading, named columns and the page title Au
   expect(screen.getAllByRole("heading", { level: 1 }).map((h) => h.textContent)).toEqual(["Audit log"])
   expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Time", "Actor", "Host", "Action", "Result"])
   expect(document.title).toBe("Audit log · Darkpanel")
+})
+
+test("loading the last page leaves the keyboard focus in the log, on the end of the list", async () => {
+  stubFetch({ [AUDIT]: pages })
+  renderWithProviders(<AuditPage />)
+  const user = userEvent.setup()
+  await screen.findByText("core.token.create/v1")
+  screen.getByRole("button", { name: "Load older entries" }).focus()
+  await user.keyboard("{Enter}")
+  await screen.findByText("core.auth.login/v1")
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Load older entries" })).toBeNull())
+  expect(document.activeElement).not.toBe(document.body)
+  expect(document.activeElement?.textContent).toBe("No older entries.")
+})
+
+// Whether the browser also keeps focus on a button while it is disabled for loading is up to the browser; this
+// pins that the button has it again when the load ends.
+test("the load button has the focus again after a page that is not the last", async () => {
+  stubFetch({
+    [AUDIT]: (call) => {
+      const before = (call.body as { input: { before?: string } }).input.before
+      if (before === undefined) return { body: { output: { entries: [entry("a3", "core.token.create")], nextBefore: "a3" } } }
+      if (before === "a3") return { body: { output: { entries: [entry("a2", "core.auth.login")], nextBefore: "a2" } } }
+      return { body: { output: { entries: [entry("a1", "core.auth.logout")], nextBefore: null } } }
+    },
+  })
+  renderWithProviders(<AuditPage />)
+  const user = userEvent.setup()
+  await screen.findByText("core.token.create/v1")
+  screen.getByRole("button", { name: "Load older entries" }).focus()
+  await user.keyboard("{Enter}")
+  await screen.findByText("core.auth.login/v1")
+  await waitFor(() => expect(focusedName()).toBe("Load older entries"))
 })

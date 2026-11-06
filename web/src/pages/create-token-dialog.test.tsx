@@ -1,6 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { expect, test } from "vitest"
+import { axe } from "vitest-axe"
 import type { Change, NewToken, Plan } from "@/api/types"
 import { renderWithProviders, stubFetch } from "@/test/utils"
 import { CreateTokenDialog } from "./create-token-dialog"
@@ -137,4 +138,14 @@ test("asks for a name when the name is blank and sends nothing", async () => {
   await user.click(within(dialog).getByRole("button", { name: "Create" }))
   expect((await within(dialog).findByRole("alert")).textContent).toBe("Enter a name for the token.")
   expect(calls).toHaveLength(0)
+})
+
+test("the token the dialog shows is a read-only field named for the token", async () => {
+  stubFetch({ [PLAN]: { body: plan }, [APPLY]: { body: change("completed", created) } })
+  renderWithProviders(<CreateTokenDialog />)
+  const dialog = await fillAndCreate(userEvent.setup())
+  const field = await within(dialog).findByRole("textbox", { name: "Token ci" })
+  expect((field as HTMLInputElement).value).toBe("dpt_example_secret")
+  expect((field as HTMLInputElement).readOnly).toBe(true)
+  expect(await axe(dialog)).toHaveNoViolations()
 })

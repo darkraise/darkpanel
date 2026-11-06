@@ -62,9 +62,9 @@ function CreatedDialog({ created, open, onDone }: { created: CreatedKey | null; 
           ) : (
             <>
               <Clipboard value={created.key}>
-                <ClipboardLabel>{`Auth key ${created.description}`}</ClipboardLabel>
+                <ClipboardLabel htmlFor="authkey-secret">{`Auth key ${created.description}`}</ClipboardLabel>
                 <ClipboardControl>
-                  <ClipboardInput className="font-mono" />
+                  <ClipboardInput id="authkey-secret" className="font-mono" />
                   <ClipboardTrigger>Copy</ClipboardTrigger>
                 </ClipboardControl>
               </Clipboard>

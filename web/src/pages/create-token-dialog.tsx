@@ -145,9 +145,9 @@ export function CreateTokenDialog() {
         ) : (
           <div className="flex flex-col gap-4">
             <Clipboard value={created.token}>
-              <ClipboardLabel>Token {created.name}</ClipboardLabel>
+              <ClipboardLabel htmlFor="token-secret">Token {created.name}</ClipboardLabel>
               <ClipboardControl>
-                <ClipboardInput className="font-mono" />
+                <ClipboardInput id="token-secret" className="font-mono" />
                 <ClipboardTrigger>Copy</ClipboardTrigger>
               </ClipboardControl>
             </Clipboard>

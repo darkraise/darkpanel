@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react"
 import { Link } from "react-router"
 import { useInfiniteQuery } from "@tanstack/react-query"
 import { PageHeader } from "darkraise-ui/layout"
@@ -21,6 +22,17 @@ function AuditBody() {
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.nextBefore,
   })
+  const moreRef = useRef<HTMLButtonElement>(null)
+  const endRef = useRef<HTMLParagraphElement>(null)
+  const [refocus, setRefocus] = useState<"more" | "end" | null>(null)
+
+  useEffect(() => {
+    if (refocus === null || audit.isFetchingNextPage) return
+    const target = refocus === "more" ? moreRef.current : endRef.current
+    if (target === null) return
+    target.focus()
+    setRefocus(null)
+  }, [refocus, audit.isFetchingNextPage, audit.hasNextPage])
 
   if (audit.isPending) return <Spinner aria-label="Loading the audit log" />
   if (audit.data === undefined) {
@@ -87,10 +99,23 @@ function AuditBody() {
           <AlertDescription>{errorMessage(audit.error)}</AlertDescription>
         </Alert>
       )}
-      {audit.hasNextPage && (
-        <Button variant="outline" className="self-start" loading={audit.isFetchingNextPage} onClick={() => void audit.fetchNextPage()}>
+      {audit.hasNextPage ? (
+        <Button
+          ref={moreRef}
+          variant="outline"
+          className="self-start"
+          loading={audit.isFetchingNextPage}
+          onClick={async () => {
+            const result = await audit.fetchNextPage()
+            setRefocus(result.hasNextPage ? "more" : "end")
+          }}
+        >
           Load older entries
         </Button>
+      ) : (
+        <p ref={endRef} tabIndex={-1} className="text-sm text-muted-foreground">
+          No older entries.
+        </p>
       )}
     </div>
   )
