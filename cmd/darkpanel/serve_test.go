@@ -133,3 +133,37 @@ func TestServeProductionOptions(t *testing.T) {
 		t.Errorf("serve passed %+v, want the production paths, the default listeners, agent listen %v and the advertised address", opts, wantAgent)
 	}
 }
+
+// TestW10CsServeCancelledStartup shows that a signal which ends serve while
+// it starts is a clean stop with exit status 0, and that no other error is
+// hidden by it.
+func TestW10CsServeCancelledStartup(t *testing.T) {
+	tests := []struct {
+		name   string
+		signal bool
+		result func(context.Context) error
+		code   int
+		out    string
+	}{
+		{"the signal cancels the startup", true, w10csCancelled, cli.ExitOK, ""},
+		{"a failure that is not the cancellation", true, w10csFailure, cli.ExitError, "darkpanel: the database is locked"},
+		{"a cancellation no signal asked for", false, w10csStrayCancel, cli.ExitError, "context canceled"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("XDG_STATE_HOME", t.TempDir())
+			t.Setenv("XDG_RUNTIME_DIR", "")
+			fakeServe(t, 0, nil)
+			serveRun = func(ctx context.Context, _ server.Options) error {
+				if tt.signal {
+					w10csInterrupt(ctx, t)
+				}
+				return tt.result(ctx)
+			}
+			out, code := runArgs("serve", "--dev")
+			if code != tt.code || !strings.Contains(out, tt.out) {
+				t.Errorf("darkpanel serve --dev: exit %d, output %q; want exit %d and %q", code, out, tt.code, tt.out)
+			}
+		})
+	}
+}

@@ -458,3 +458,57 @@ func TestAgentCheckExit(t *testing.T) {
 		t.Errorf("agent check --help = %q, want exit status 3 documented", out)
 	}
 }
+
+// TestW10CsAgentRunCancelledStartup shows that a signal which ends agent run
+// while openAgent or the daemon is starting is a clean stop with exit status
+// 0, that the opened state is still closed, and that no other error is hidden
+// by it.
+func TestW10CsAgentRunCancelledStartup(t *testing.T) {
+	tests := []struct {
+		name   string
+		inOpen bool // the signal arrives while openAgent connects to systemd
+		signal bool
+		result func(context.Context) error
+		code   int
+		out    string
+	}{
+		{"the signal cancels openAgent", true, true, w10csCancelled, cli.ExitOK, ""},
+		{"the signal cancels the daemon", false, true, w10csCancelled, cli.ExitOK, ""},
+		{"openAgent fails for another reason", true, true, w10csFailure, cli.ExitError, "darkpanel: the database is locked"},
+		{"the daemon fails for another reason", false, true, w10csFailure, cli.ExitError, "darkpanel: the database is locked"},
+		{"a cancellation no signal asked for", false, false, w10csStrayCancel, cli.ExitError, "context canceled"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := fakeAgent(t, 0)
+			interrupt := func(ctx context.Context) {
+				if tt.signal {
+					w10csInterrupt(ctx, t)
+				}
+			}
+			if tt.inOpen {
+				newSystemd = func(ctx context.Context) (systemdConn, error) {
+					interrupt(ctx)
+					return nil, tt.result(ctx)
+				}
+			} else {
+				daemonRun = func(ctx context.Context, cfg daemon.Config) error {
+					s.runs = append(s.runs, cfg)
+					interrupt(ctx)
+					return tt.result(ctx)
+				}
+			}
+			out, code := runArgs("agent", "run")
+			if code != tt.code || !strings.Contains(out, tt.out) {
+				t.Errorf("darkpanel agent run: exit %d, output %q; want exit %d and %q", code, out, tt.code, tt.out)
+			}
+			wantRuns, wantClosed := 1, 1
+			if tt.inOpen {
+				wantRuns, wantClosed = 0, 0
+			}
+			if len(s.runs) != wantRuns || s.systemd.closed != wantClosed {
+				t.Errorf("the daemon ran %d times and the systemd seam closed %d times; want %d and %d", len(s.runs), s.systemd.closed, wantRuns, wantClosed)
+			}
+		})
+	}
+}

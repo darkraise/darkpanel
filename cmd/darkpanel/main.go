@@ -28,6 +28,19 @@ import (
 	"github.com/darkraise/darkpanel/web"
 )
 
+// startupCancelled turns the cancellation of a command that was still starting
+// into a clean stop. The service units treat only exit status 70 as success and
+// start the rollback service through OnFailure= on any other exit, so a stop
+// signal that arrives during startup is a stop, not a failure. Both conditions
+// are needed: a cancellation error from another context, or a real failure
+// after the signal, still exits 1.
+func startupCancelled(ctx context.Context, err error) error {
+	if err != nil && ctx.Err() != nil && errors.Is(err, context.Canceled) {
+		return nil
+	}
+	return err
+}
+
 // serveRun runs the server for serve; tests replace it.
 var serveRun = server.Run
 
@@ -187,11 +200,11 @@ func newServeCmd() *cobra.Command {
 			// interrupt end a shutdown that hangs.
 			context.AfterFunc(ctx, stop)
 			log := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil))
-			return serveRun(ctx, server.Options{
+			return startupCancelled(ctx, serveRun(ctx, server.Options{
 				Paths: p, Listen: specs, Dev: dev, Log: log,
 				EmbeddedAgent: embeddedAgent, AgentListen: agentListen, AgentAdvertise: agentAdvertise,
 				HealthStatus: healthStatus,
-			})
+			}))
 		},
 	}
 	cmd.Flags().BoolVar(&dev, "dev", false, "use per-user development paths under $XDG_STATE_HOME/darkpanel-dev")

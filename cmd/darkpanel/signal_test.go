@@ -18,6 +18,31 @@ import (
 
 const hungServeEnv = "DARKPANEL_TEST_HUNG_SERVE"
 
+// w10csInterrupt sends this test process SIGTERM and waits until ctx, the
+// signal context of the command under test, has ended. Call it only from a
+// seam that runs after the command installed its signal handler: with no
+// handler the signal would end the test binary.
+func w10csInterrupt(ctx context.Context, t *testing.T) {
+	t.Helper()
+	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-ctx.Done():
+	case <-time.After(10 * time.Second):
+		t.Error("the signal context did not end within 10 s of SIGTERM")
+	}
+}
+
+// w10csCancelled is the error a startup step returns when ctx ended under it.
+func w10csCancelled(ctx context.Context) error { return fmt.Errorf("startup: %w", ctx.Err()) }
+
+// w10csStrayCancel is a cancellation error from a context that no signal ended.
+func w10csStrayCancel(context.Context) error { return fmt.Errorf("startup: %w", context.Canceled) }
+
+// w10csFailure is a failure that is not a cancellation.
+func w10csFailure(context.Context) error { return errors.New("the database is locked") }
+
 // TestHungServe is the child of TestSecondInterruptKillsServe: a serve whose
 // shutdown never finishes.
 func TestHungServe(t *testing.T) {

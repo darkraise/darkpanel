@@ -255,7 +255,7 @@ func newAgentRunCmd() *cobra.Command {
 			log := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil))
 			host, err := openAgent(ctx, p, log)
 			if err != nil {
-				return err
+				return startupCancelled(ctx, err)
 			}
 			cfg := daemon.Config{
 				Paths: p,
@@ -278,7 +278,7 @@ func newAgentRunCmd() *cobra.Command {
 				// refuses task actions at apply.
 				cfg.Runtime.Units = nil
 			}
-			return errors.Join(daemonRun(ctx, cfg), host.Close())
+			return errors.Join(startupCancelled(ctx, daemonRun(ctx, cfg)), host.Close())
 		},
 	}
 	addDevFlag(cmd, &dev)
