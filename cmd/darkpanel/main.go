@@ -29,9 +29,11 @@ import (
 )
 
 // startupCancelled turns the cancellation of a command that was still starting
-// into a clean stop. The service units treat only exit status 70 as success and
-// start the rollback service through OnFailure= on any other exit, so a stop
-// signal that arrives during startup is a stop, not a failure. Both conditions
+// into a clean stop. The service units count exit status 0, and 70 through
+// SuccessExitStatus=, as success; any other exit is a failure that systemd
+// restarts and, once the start limit is reached, answers with the rollback
+// service through OnFailure=. So a stop signal that arrives during startup
+// must exit 0: it is a stop, not a failure. Both conditions
 // are needed: a cancellation error from another context, or a real failure
 // after the signal, still exits 1.
 func startupCancelled(ctx context.Context, err error) error {
