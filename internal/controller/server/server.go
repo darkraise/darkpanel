@@ -47,7 +47,9 @@ const BackupsKept = 5
 // ShutdownTimeout bounds the graceful shutdown of the listeners and the
 // controller socket in Run, and in the cleanup of a failed Start. The service
 // stops after them take no deadline: the process exits right after, and a
-// hung revert holds up Close (register row 51).
+// hung revert holds up Close (register row 51). The runtime listeners may use
+// half of the time left when their step starts, so the network listeners that
+// stop after them always keep the rest.
 const ShutdownTimeout = 30 * time.Second
 
 // lockStep names the Shutdown steps that release the locks.

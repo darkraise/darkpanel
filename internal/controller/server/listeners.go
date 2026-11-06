@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/darkraise/darkpanel/internal/controller/api"
 	"github.com/darkraise/darkpanel/internal/controller/listen"
@@ -91,7 +92,11 @@ func (s *Server) startListeners(ctx context.Context) error {
 	if err := s.startRuntimeListeners(ctx, srv.RuntimeHandler, tlsConfig); err != nil {
 		return err
 	}
-	s.onShutdown("runtime listeners", s.runtimeListeners.Shutdown)
+	s.onShutdown("runtime listeners", func(ctx context.Context) error {
+		ctx, cancel := halfOfRemaining(ctx)
+		defer cancel()
+		return s.runtimeListeners.Shutdown(ctx)
+	})
 	// Registered after the listeners, so it runs before their shutdown,
 	// which waits for running requests.
 	s.onShutdown("stream responses", func(context.Context) error { srv.CloseStreams(); return nil })
@@ -150,6 +155,19 @@ func (s *Server) startRuntimeListeners(ctx context.Context, handler listen.Runti
 	}
 	s.topo.setRuntime(s.runtimeListeners.Listening)
 	return nil
+}
+
+// halfOfRemaining bounds a step to half of the time ctx has left. The runtime
+// listeners stop before the network listeners and share one deadline with
+// them, so a runtime listener that does not drain must not use all of it and
+// leave the network listeners no time to stop.
+func halfOfRemaining(ctx context.Context) (context.Context, context.CancelFunc) {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return context.WithCancel(ctx)
+	}
+	now := time.Now()
+	return context.WithDeadline(ctx, now.Add(deadline.Sub(now)/2))
 }
 
 // withUnbound adds to the listener message that unbound runtime listeners

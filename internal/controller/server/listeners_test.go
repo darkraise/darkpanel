@@ -432,3 +432,67 @@ func TestSdTopologyIncompleteAfterShutdown(t *testing.T) {
 		t.Errorf("the topology %+v is complete after Shutdown", got)
 	}
 }
+
+// TestW10PlShutdownKeepsTimeForTheNetworkListeners shows that a runtime
+// listener which does not drain uses only part of Shutdown's time, so the
+// network listeners, which stop after it, still stop before the deadline.
+func TestW10PlShutdownKeepsTimeForTheNetworkListeners(t *testing.T) {
+	opts := testOptions(t)
+	c := &asDeps{}
+	opts.Contributors = []ext.Controller{c}
+	s, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Shutdown(context.Background()) })
+	spec := core.ListenerSpec{
+		Addr: netip.MustParseAddrPort("127.0.0.1:9443"), AllowedPeer: netip.MustParseAddr("127.0.0.1"),
+		ClientHeader: core.ClientHeaderNPM, PublicHost: "panel.example.com", ChangeID: "01W10PLSHUTDOWNCHANGE0000",
+	}
+	if _, err := c.deps.Listeners.Open(context.Background(), spec); err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	addrs, _ := s.runtimeListeners.Addrs()
+	if len(addrs) != 1 {
+		t.Fatalf("runtime listeners bound at %v, want one", addrs)
+	}
+	var dialer net.Dialer
+	held, err := dialer.DialContext(context.Background(), "tcp", addrs[0].String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = held.Close() })
+	// The listener must have accepted the connection before Shutdown starts.
+	time.Sleep(200 * time.Millisecond)
+
+	network := strings.TrimPrefix(baseURL(t, s), "http://")
+	const total = 4 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), total)
+	defer cancel()
+	began := time.Now()
+	done := make(chan error, 1)
+	go func() { done <- s.Shutdown(ctx) }()
+
+	probe := net.Dialer{Timeout: 100 * time.Millisecond}
+	stopped := false
+	for time.Since(began) < 3*time.Second {
+		conn, err := probe.DialContext(context.Background(), "tcp", network)
+		if err != nil {
+			stopped = true
+			break
+		}
+		_ = conn.Close()
+		time.Sleep(25 * time.Millisecond)
+	}
+	if !stopped {
+		t.Errorf("the network listener still accepted connections %v into a Shutdown with a %v budget: the runtime listeners used it all", time.Since(began).Round(time.Millisecond), total)
+	}
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "stop runtime listeners") {
+			t.Errorf("Shutdown = %v, want the error of the runtime listeners step: the held connection must delay it", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Shutdown did not return")
+	}
+}
