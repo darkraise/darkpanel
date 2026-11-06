@@ -11,30 +11,6 @@ import (
 // fz8Head returns at most the first 64 bytes of b, for a failure message.
 func fz8Head(b []byte) []byte { return b[:min(len(b), 64)] }
 
-// fz8Repeats reports whether an object anywhere in v names a member twice.
-// hujson keeps both, and an edit reaches only the first, so such a document
-// is outside the convergence Apply promises.
-func fz8Repeats(v hujson.Value) bool {
-	switch c := v.Value.(type) {
-	case *hujson.Object:
-		seen := map[string]bool{}
-		for _, m := range c.Members {
-			name := m.Name.Value.(hujson.Literal).String()
-			if seen[name] || fz8Repeats(m.Value) {
-				return true
-			}
-			seen[name] = true
-		}
-	case *hujson.Array:
-		for _, e := range c.Elements {
-			if fz8Repeats(e) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // FuzzApply feeds arbitrary HuJSON text and two arbitrary edits to Apply: it
 // never panics, the text is nil on an error and parses as HuJSON otherwise, no
 // edits give the text back byte for byte, and applying either edit to its own
@@ -61,15 +37,11 @@ func FuzzApply(f *testing.F) {
 				t.Fatalf("Apply of %q returned text that does not parse: %v", fz8Head(text), err)
 			}
 		}
-		doc, err := hujson.Parse(bytes.Clone(text))
-		if err != nil {
+		if _, err := hujson.Parse(bytes.Clone(text)); err != nil {
 			return
 		}
 		if same, err := Apply(text, nil); err != nil || !bytes.Equal(same, text) {
 			t.Fatalf("Apply of %q without edits returned %q, %v", fz8Head(text), fz8Head(same), err)
-		}
-		if fz8Repeats(doc) {
-			return
 		}
 		for _, e := range edits {
 			once, err := Apply(text, []Edit{e})

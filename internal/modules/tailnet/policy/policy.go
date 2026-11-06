@@ -29,9 +29,10 @@ func (r refusal) Error() string { return string(r) }
 
 // Apply applies edits in order to HuJSON text, keeping comments and unrelated
 // content; each kind converges as spec 4.2 says. A path through an array index,
-// an unknown op, a missing parent or a value of the wrong kind is
-// *errcode.Error request.invalid_input with the field "/edits/<i>". On any
-// error the returned text is nil.
+// an unknown op, a missing parent, a value of the wrong kind or an object that
+// names a member twice where the edit passes or ends is *errcode.Error
+// request.invalid_input with the field "/edits/<i>". On any error the returned
+// text is nil.
 func Apply(text []byte, edits []Edit) ([]byte, error) {
 	doc, err := hujson.Parse(bytes.Clone(text))
 	if err != nil {
@@ -77,7 +78,10 @@ func applyEdit(doc *hujson.Value, e Edit) error {
 	if err != nil {
 		return err
 	}
-	target := member(parent, tokens[len(tokens)-1])
+	target, err := member(parent, tokens[len(tokens)-1])
+	if err != nil {
+		return err
+	}
 
 	switch e.Op {
 	case "set":
@@ -170,7 +174,10 @@ func walkToParent(doc *hujson.Value, tokens []string) (*hujson.Object, error) {
 		if err != nil {
 			return nil, err
 		}
-		next := member(obj, t)
+		next, err := member(obj, t)
+		if err != nil {
+			return nil, err
+		}
 		if next == nil {
 			return nil, refusal("parent does not exist")
 		}
@@ -190,15 +197,20 @@ func asObject(v *hujson.Value) (*hujson.Object, error) {
 	}
 }
 
-// member is the value of the first member of obj with the given name, nil when
-// there is none.
-func member(obj *hujson.Object, name string) *hujson.Value {
+// member is the value of the one member of obj with the given name, nil when
+// there is none. An object that names the member more than once is a refusal:
+// an edit would reach only one of them and so not converge.
+func member(obj *hujson.Object, name string) (*hujson.Value, error) {
+	var found *hujson.Value
 	for i := range obj.Members {
 		if lit, ok := obj.Members[i].Name.Value.(hujson.Literal); ok && lit.String() == name {
-			return &obj.Members[i].Value
+			if found != nil {
+				return nil, refusal(fmt.Sprintf("the object names %q more than once", name))
+			}
+			found = &obj.Members[i].Value
 		}
 	}
-	return nil
+	return found, nil
 }
 
 func canonicalOf(v *hujson.Value) (string, error) {

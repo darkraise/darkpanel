@@ -256,6 +256,16 @@ func TestEDApplyRefusals(t *testing.T) {
 			edits: []Edit{{Op: "set", Path: "derpMap", Value: edVal(`{}`)}}},
 		{name: "a bad pointer escape", field: "/edits/0",
 			edits: []Edit{{Op: "set", Path: "/a~2b", Value: edVal(`1`)}}},
+		{name: "set on a member named twice", field: "/edits/0", in: `{"a": 1, "a": 2}`,
+			edits: []Edit{{Op: "set", Path: "/a", Value: edVal(`3`)}}},
+		{name: "delete of a member named twice", field: "/edits/0", in: `{"a": 1, "a": 2}`,
+			edits: []Edit{{Op: "delete", Path: "/a"}}},
+		{name: "addItem to a member named twice", field: "/edits/0", in: `{"a": [1], "a": [2]}`,
+			edits: []Edit{{Op: "addItem", Path: "/a", Value: edVal(`3`)}}},
+		{name: "removeItem from a member named twice", field: "/edits/0", in: `{"a": [1], "a": [2]}`,
+			edits: []Edit{{Op: "removeItem", Path: "/a", Value: edVal(`1`)}}},
+		{name: "a path through a member named twice", field: "/edits/0", in: `{"a": {"b": 1}, "a": {"b": 2}}`,
+			edits: []Edit{{Op: "set", Path: "/a/b", Value: edVal(`3`)}}},
 		{name: "the failing edit is named by its index", field: "/edits/2",
 			edits: []Edit{
 				{Op: "set", Path: "/tagOwners/tag:db", Value: edVal(`["group:a"]`)},
@@ -287,5 +297,27 @@ func TestEDApplyRejectsUnparsableText(t *testing.T) {
 		if err == nil || !strings.HasPrefix(err.Error(), "policy:") {
 			t.Errorf("Apply(%q) error %v, want one starting with \"policy:\"", in, err)
 		}
+	}
+}
+
+// TestW10TpApplyNamesTheRepeatedMember: the refusal names the member, and a member named twice elsewhere in the
+// document does not stop an edit of another member.
+func TestW10TpApplyNamesTheRepeatedMember(t *testing.T) {
+	_, err := Apply([]byte(`{"a": 1, "a": 2}`), []Edit{{Op: "delete", Path: "/a"}})
+	var e *errcode.Error
+	if !errors.As(err, &e) || e.Detail != `edit 0: the object names "a" more than once` {
+		t.Errorf("error %v, want the detail %q", err, `edit 0: the object names "a" more than once`)
+	}
+	const doc = `{"a": 1, "a": 2, "b": 3}`
+	once, err := Apply([]byte(doc), []Edit{{Op: "delete", Path: "/b"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(once), `"b"`) || strings.Count(string(once), `"a"`) != 2 {
+		t.Errorf("Apply = %s, want the member b gone and both members a kept", once)
+	}
+	twice, err := Apply(once, []Edit{{Op: "delete", Path: "/b"}})
+	if err != nil || string(twice) != string(once) {
+		t.Errorf("the second delete gave %q, %v; want the text unchanged", twice, err)
 	}
 }
