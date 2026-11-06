@@ -4,7 +4,7 @@
 
 **Goal:** Build the first half of wave 10 of the v1 completion spec. That means fixing every open follow-up row whose fix is already determined: two major bugs, the Important and security findings of waves 0c–9, and the minors that make observable behaviour wrong. It also means writing `docs/security/threat-model.md` (R73's threat model) and `docs/runbook.md` (R81's runbook), and copying this plan's rulings into the spec. The two-reviewer security review then runs against the merged result, and plan `w10b` follows it.
 
-**Architecture:** Every fix is a feature slice with its own regression test, grouped by module and file so that no two tasks of a wave share a file. Eighteen ordinary fixes run in six parallel waves of three. Wave 1 also carries the spec amendments, a trivially independent fourth task. Ten fixes that touch security, a migration or concurrency run alone. The banner, the threat model and the runbook come last, because they describe what the fixes changed.
+**Architecture:** Every fix is a feature slice with its own regression test, grouped by module and file so that no two tasks of a wave share a file. Fifteen ordinary fixes run in five parallel waves of three, and two more (Tasks 11 and 13) run on their own. Wave 1 also carries the spec amendments, a trivially independent fourth task. Thirteen fixes that touch security, a migration or concurrency run alone. The banner runs alone after them, and the threat model and the runbook come last, because they describe what the fixes changed.
 
 **Tech Stack:** Go 1.27 (`go.mod`: `go 1.27`, toolchain `go1.27.3`), SQLite through the existing `internal/core/store` migrations, React 19 + TypeScript with Vitest 5.0.5, vitest-axe 1.0.0-pre.5, @testing-library/user-event 14.6.8 and @playwright/test 1.64.0 (all already in `web/pnpm-lock.yaml`), the KVM harness in `test/harness` (GitHub Actions `harness.yml`), Markdown documentation checked by `internal/docs`.
 
@@ -12,7 +12,7 @@
 
 **Execution:** subagent — `claude --model sonnet --effort high` — the plan runs parallel waves, and each task's **Implementer:** line chooses its implementer
 
-**Parallelism:** waves — 1-4 | 5-7 | 8-10 | 11 | 12 | 13 | 14-16 | 17-19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32-34
+**Parallelism:** waves — 1-4 | 5-7 | 8-10 | 11 | 12 | 13 | 14-16 | 17-19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33-34
 
 **Task check:** none — full suite every 3 tasks
 
@@ -24,9 +24,11 @@
 
 **Wave check:** `mkdir -p /root/.cache/w10a-tmp/wave && export TMPDIR=/root/.cache/w10a-tmp/wave GOTOOLCHAIN=local && timeout 600 go build ./... && timeout 300 go vet ./... && timeout 300 go vet -tags harness ./test/... ./cmd/... && timeout 1500 go test -count=1 ./internal/... ./cmd/... ./release/... && timeout 1200 make lint-web test-web`
 
+**Plan review:** 2026-11-06 — dforge:judge-opus — executability 16 / coherence 17 / coverage 12 / assumptions 14 (round 1)
+
 ## Global Constraints
 
-- Scope is spec revision 8 as amended on `main`. It covers wave 10's row of Parallel decomposition ("fixes anywhere"), the threat model bullet of section 9 (R73) and the runbook bullet of section 10 (R81), the register rows the tasks' **Items:** lines name, and the rulings W10-R1 to W10-R12 under Assumptions. Out of scope, for plan `w10b`: the two-reviewer security review and its register, the fixes of its findings, the security-design rows W10-R10 sends to the panel, `CHANGELOG.md`, `docs/versioning.md`, `make release-check` and release-candidate readiness. Out of scope for the owner: the live demonstrations (row 55), the release prerequisites (row 35) and the 14-day production run (row 44).
+- Scope is spec revision 8 as amended on `main`. It covers wave 10's row of Parallel decomposition ("fixes anywhere"), the threat model bullet of section 9 (R73) and the runbook bullet of section 10 (R81), the register rows the tasks' **Items:** lines name, and the rulings W10-R1 to W10-R14 under Assumptions. Out of scope, for plan `w10b`: the two-reviewer security review and its register, the fixes of its findings, the security-design rows W10-R10 sends to the panel, `CHANGELOG.md`, `docs/versioning.md`, `make release-check` and release-candidate readiness. Out of scope for the owner: the live demonstrations (row 55), the release prerequisites (row 35) and the 14-day production run (row 44).
 - Host safety (absolute). This host is live: it runs an installed `darkpanel-agent`, `darkpanel-controller` and a Docker daemon. No unit test or command of this plan talks to the Docker daemon, D-Bus or systemd, runs `systemctl`, `docker`, `ufw`, `iptables`, `nft`, `useradd`, `userdel` or `nmap`, or binds an address other than `127.0.0.1` (port 0, or the port Playwright's `webServer` picks in Task 5). It binds Unix sockets only under `t.TempDir()`. It never reads or writes `/var/lib/darkpanel`, `/etc/darkpanel`, `/run/darkpanel*` or `/proc` of another process. Host effects are tested through the existing fakes (`core.Runner`, `core.Units`, the Docker and NPM fakes, the file providers). Real installs, services and agents run only on harness VMs.
 - Every `go`, `golangci-lint`, `make` and `pnpm` command runs with `GOTOOLCHAIN=local`, an explicit `timeout`, and `TMPDIR=/root/.cache/w10a-tmp/<task number>`, also where a step's command omits one of them. Run `mkdir -p` on that directory first. When the task ends, remove it and run `go clean -testcache`. The reasons: `/tmp` is an 8 GiB tmpfs, and Unix socket paths over 108 bytes fail. When `df -h /` shows 90 % or more before a task's first build, trim the Go build cache (`go clean -cache` is acceptable).
 - Dependencies: no task changes `go.mod`, `go.sum`, `web/package.json`, `web/pnpm-lock.yaml` or `web/pnpm-workspace.yaml`. After every task, `GOTOOLCHAIN=local timeout 300 go mod tidy -diff` prints nothing.
@@ -55,7 +57,7 @@
 - Test isolation:
   - Files and databases go under `t.TempDir()`.
   - The only TCP listeners are `httptest` on `127.0.0.1` port 0.
-  - Tests write no package-level mutable state.
+  - Tests write no package-level mutable state, except an existing test seam (a package variable such as `serveRun`, `newSystemd` or `daemonRun`) that a helper replaces and restores through `t.Cleanup`; such tests do not call `t.Parallel`.
   - Vitest tests stub `fetch` through `stubFetch` and never reach a network.
   - Task 5's Playwright run starts its own Vite server on `127.0.0.1` with `strictPort: false` and answers every `/api/**` request from in-test fixtures (`page.route`).
   - Harness tests derive VM names, work directories and address ranges from the test name (`NewLab`). Harness unit tests carry `Unit` in their name, so `-run 'Unit'` selects them.
@@ -101,14 +103,15 @@
 | 26 | `internal/modules/npm`, `internal/modules/npm/npmapi` | `TestW10Nc` |
 | 27 | `internal/modules/npm` | `TestW10Nl` |
 | 28 | `internal/modules/npm` | `TestW10Nr` |
-| 29, 30 | `internal/controller/backup` | `TestW10Br` |
+| 29 | `internal/controller/backup` | `TestW10Br` |
+| 30 | `internal/controller/backup` | `TestW10Bc` |
 | 31 | `internal/cli` | `TestW10Br` |
 | 33 | `internal/docs` | `TestW10Tm` |
 | 34 | `internal/docs` | `TestW10Rb` |
 
 Unexported helpers in test files use the lower-case form (`w10cs…`). A test that extends an existing table-driven test adds rows to it and keeps its name.
 
-### Audit phases of system services (Task 20)
+### Audit phases of system services
 
 `internal/core/store/migrations/controller/0015_audit_service_phases.sql` widens the `core_audit.phase` CHECK to the set of `0011_platform_surfaces.sql` plus `'check'` and `'delete'`. These are the phases that `system:cloudflare.hostnames` (`internal/modules/cloudflare/hostnames_service.go`) and `system:tailnet.keysweep` (`internal/modules/tailnet/keysweep.go`) write. The migration rebuilds the table the way `0011` does and keeps every existing row, index and column unchanged. No writer's phase string changes.
 
@@ -152,7 +155,7 @@ Unexported helpers in test files use the lower-case form (`w10cs…`). A test th
 - Every bullet under `#### Mitigations` names, in backticks, a repository path that exists (a package directory or file).
 - `## Known residual risks` lists every security question still open after this plan as a bullet; it never names a register row.
 
-### Runbook outline (Task 34)
+### Runbook outline
 
 `docs/runbook.md` has exactly these headings, in this order:
 
@@ -167,6 +170,7 @@ Unexported helpers in test files use the lower-case form (`w10cs…`). A test th
 ### Recover
 ## Lost controller
 ### Restore from backup
+### Unsettled restore journal
 ### Re-enroll agents
 ```
 
@@ -184,6 +188,8 @@ Unexported helpers in test files use the lower-case form (`w10cs…`). A test th
 - The firewall module holds no lock of its own: `rg 'sync\.(RW)?Mutex|\.Lock\(\)' internal/modules/firewall/*.go` finds nothing outside tests (2026-11-06).
 - `InstancesOutput` is `{Instances []HostInstance}` today (`internal/modules/npm/wire.go:230-232`), so the unreadable-host marker is a wire change.
 - Every file the tasks' **Files:** blocks name as Modify exists on `main` at cdb37e7 (checked with a loop over the paths on 2026-11-06).
+- External executors: the owner answered "none" to the agy lane offer on 2026-11-06, so the lane-eligible tasks (1-11, 13-19, 32-34) carry no Executor line, keep their parallel waves, and the plan is Claude-only.
+- Plan review round 1 scored coverage 12 (borderline) for four unrouted register rows (341, 386, 389, 400) and two procedures the spec sends to the runbook; both were fixed (rulings W10-R11, W10-R13 and W10-R14, and the runbook's "Unsettled restore journal" section), and with no Critical finding and no score of 8 or below no second round ran.
 - The dforge Codex review seat is off by setting (`codex-gate`: `usable=false reason=setting`, 2026-11-06). Whether `codex exec -m gpt-6-astra` runs for the owner's panel is unverified; plan `w10b` checks it before the review.
 
 **Plan rulings** (Task 4 copies them into the spec):
@@ -195,7 +201,7 @@ Unexported helpers in test files use the lower-case form (`w10cs…`). A test th
 - **W10-R2 triage.** An open follow-up row is fixed in `w10a` when it is Important or major, touches security with a fix its text settles, is a spec gap the spec already answers, or makes observable behaviour wrong. Pure tidiness (doc comments, duplicated helpers, redundant or weak-but-correct tests, process records) is deferred to post-v1.
 - **W10-R3 TLS session resumption** (rows 209, 212, 225, 243). Session resumption stays per listener. No shared ticket keys are set: resumption across listeners buys nothing a browser needs.
 - **W10-R4 contributed routes** (rows 218, 247). Route contributions are first-party, and the socket peer check still applies. A literal contributed route that shadows a built-in wildcard route is accepted, not refused.
-- **W10-R5 netlink** (row 287). Spec 1.8 reads "no third-party netlink library". `netstat.Interfaces` keeps `net.Interfaces`, which uses rtnetlink inside the standard library.
+- **W10-R5 netlink** (row 287). Spec 1.8, as Task 4 amends it, states that there is no third-party netlink library. `netstat.Interfaces` keeps `net.Interfaces`, which uses rtnetlink inside the standard library.
 - **W10-R6 module availability** (row 298). A successful apply of a change of module M on host H retires the availability cache entry for (H, M). The next request re-probes it, so an install that brings the module up is seen at once.
 - **W10-R7 tailnet validate** (row 425). Spec 4.2 follows the code: any message or data in the policy validate endpoint's answer is `tailnet.policy_invalid`.
 - **W10-R8 wave 4 follow-ups** (row 301).
@@ -209,7 +215,9 @@ Unexported helpers in test files use the lower-case form (`w10cs…`). A test th
   - A separate break-glass process is not covered: it runs when the agent cannot be reached.
 - **W10-R10 security-design rows go to the panel** (rows 245, 306, 326, 329, 330, 384). Each needs a security design choice: requiring Origin for cookie sessions, DERP probe target ranges, resolving NPM forward hosts, NPM's in-container admin port, NPM's port 3000, and Docker label digests. They stay open, go into the review brief, and are fixed in `w10b`.
 - **W10-R12 the DERP grant warning** (row 303) moves to `w10b`. Carrying the visibility-grant warning into the output of `derp.region.remove` and `derp.server.remove` needs a `warnings` member on `RegionChanged` and `ServerRemoved`. It also needs a way for a composite to see a read step's output, because `internal/core/lifecycle/composite_run.go` skips `ClassRead` steps when it builds the composer's input, and `internal/core` is frozen. Both are interface changes this plan's file ownership does not admit.
-- **W10-R11 deferred to post-v1:** rows 299, 305, 322, 348, 349, 350, 352, 357, 358, 360, 361, 362, 363, 364, 367, 368, 369, 372, 374, 375, 376, 387, 388, 394, 396, 398, 422, 426, 427, 428, 430, 432. Each is tidiness, a process record, an accepted plan mandate, or a decision that changes a wire contract with no defect behind it.
+- **W10-R11 deferred to post-v1:** rows 299, 305, 322, 341, 348, 349, 350, 352, 357, 358, 360, 361, 362, 363, 364, 367, 368, 369, 372, 374, 375, 376, 387, 388, 394, 396, 398, 422, 426, 427, 428, 430, 432. Each is tidiness, a process record, an accepted plan mandate, or a decision that changes a wire contract with no defect behind it.
+- **W10-R13 verified, not fixed** (rows 386, 389, 400). Row 386 is a look at the Cloudflare connectors page and its Expose via tunnel dialog in a running browser, made with the owner's live demonstrations. Rows 389 and 400 are M3 Docker harness flakes and build-cache failures whose cause is unconfirmed; W10-R9's lock removes the torn read that row 400 names as a possible cause. This plan's gate 7 harness runs and full-suite runs show whether they recur, and a recurrence is diagnosed in `w10b`.
+- **W10-R14 NPM password without the controller** (spec 1.x, the "No `--local`" bullet of reveal actions). The runbook covers Darkpanel's own procedures. A root operator without the controller restores the controller and reveals the password again, or resets it with NPM's own procedure, which NPM documents; the spec stops pointing at the runbook for it.
 
 **Task scope.** Row numbers are those of `docs/dforge/registers/2026-10-21-v1-completion.md`, whose Item cell gives each finding with its file and line on `main`. A row split across tasks names the part each task takes; a part not named here is not in the plan.
 
@@ -248,7 +256,7 @@ Unexported helpers in test files use the lower-case form (`w10cs…`). A test th
 | 31 | 397 | 397: the CLI parts |
 | 32 | 333 | 333: the web side |
 | 33 | — | R73's threat model; the review half stays with `w10b` |
-| 34 | 399 | R81's runbook; the 14-day run stays with the owner |
+| 34 | 399 | R81's runbook, including the manual procedure for an unsettled restore journal; the 14-day run stays with the owner |
 
 ## Task index
 
@@ -304,6 +312,9 @@ Unexported helpers in test files use the lower-case form (`w10cs…`). A test th
 **Items:** 392
 
 **Depends on:** none
+
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 0 - risk 2 = 5
 
 Background. Both unit files set `SuccessExitStatus=70` and `OnFailure=darkpanel-rollback.service`. `darkpanel serve` and `darkpanel agent run` end a SIGTERM or SIGINT that arrives while they are still starting with an error that wraps `context.Canceled` (the signal context cancels `openAgent`, `daemon.Run` and `server.Run`'s startup). `main` turns any error into exit status 1, so systemd sees a failed unit and starts the rollback service. A stop signal during startup is a stop, not a failure, and must exit 0.
 
@@ -494,6 +505,9 @@ git commit -m "fix(cmd): exit 0 when a signal ends startup"
 **Items:** 185, 186, 227, 246
 
 **Depends on:** none
+
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 2 - spec 2 - coupling 1 - risk 1 = 6
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -709,6 +723,9 @@ git commit -m "fix(server): bound the runtime listeners' shutdown"
 
 **Depends on:** none
 
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 2 - spec 2 - coupling 0 - risk 1 = 5
+
 Three independent minor fixes that share no code.
 
 - [ ] **Step 1: Write the failing tests**
@@ -882,12 +899,15 @@ git commit -m "docs(dev): say what the registry checks"
 - Read: `docs/dforge/notes/v1-w4-final-review-followups.md`
 
 **Interfaces:**
-- Consumes: the rulings W10-R1 to W10-R12 as written in the block below.
+- Consumes: the rulings W10-R1 to W10-R14 as written in the block below.
 - Produces: the "Plan rulings (wave 10a)" list at the end of spec section 10, which plan `w10b` and the security review brief read, and the four in-place amendments. No Go identifier.
 
 **Items:** 287, 301, 425
 
 **Depends on:** none
+
+**Implementer:** dforge:impl-sonnet-low
+**Evaluation:** files 0 - spec 1 - coupling 0 - risk 0 = 1
 
 This task edits one Markdown file and runs no Go command. Do not touch any other file, and do not run the Go gates of this plan.
 
@@ -996,9 +1016,9 @@ and replace it with
     first-party, and the socket peer check still applies. A literal
     contributed route that shadows a built-in wildcard route is accepted,
     not refused.
-  - **W10-R5 netlink** (row 287). Spec 1.8 reads "no third-party netlink
-    library". `netstat.Interfaces` keeps `net.Interfaces`, which uses
-    rtnetlink inside the standard library.
+  - **W10-R5 netlink** (row 287). Spec 1.8 states that there is
+    no third-party netlink library. `netstat.Interfaces` keeps
+    `net.Interfaces`, which uses rtnetlink inside the standard library.
   - **W10-R6 module availability** (row 298). A successful apply of a
     change of module M on host H retires the availability cache entry for
     (H, M). The next request re-probes it, so an install that brings the
@@ -1032,9 +1052,9 @@ and replace it with
     hosts, NPM's in-container admin port, NPM's port 3000, and Docker label
     digests. They stay open, go into the review brief, and are fixed in
     `w10b`.
-  - **W10-R11 deferred to post-v1:** rows 299, 305, 322, 348, 349, 350,
-    352, 357, 358, 360, 361, 362, 363, 364, 367, 368, 369, 372, 374, 375,
-    376, 387, 388, 394, 396, 398, 422, 426, 427, 428, 430, 432. Each is
+  - **W10-R11 deferred to post-v1:** rows 299, 305, 322, 341, 348, 349,
+    350, 352, 357, 358, 360, 361, 362, 363, 364, 367, 368, 369, 372, 374,
+    375, 376, 387, 388, 394, 396, 398, 422, 426, 427, 428, 430, 432. Each is
     tidiness, a process record, an accepted plan mandate, or a decision that
     changes a wire contract with no defect behind it.
   - **W10-R12 the DERP grant warning** (row 303) moves to `w10b`: carrying
@@ -1043,7 +1063,34 @@ and replace it with
     `ServerRemoved`, and a way for a composite to see a read step's output
     (`internal/core/lifecycle/composite_run.go` skips `ClassRead` steps when
     it builds the composer's input, and `internal/core` is frozen).
+  - **W10-R13 verified, not fixed** (rows 386, 389, 400). Row 386 is a look
+    at the Cloudflare connectors page and its Expose via tunnel dialog in a
+    running browser, made with the owner's live demonstrations. Rows 389 and
+    400 are M3 Docker harness flakes and build-cache failures whose cause is
+    unconfirmed; W10-R9's lock removes the torn read that row 400 names as a
+    possible cause. The harness and full-suite runs of wave 10a show whether
+    they recur, and a recurrence is diagnosed in `w10b`.
+  - **W10-R14 NPM password without the controller.** The runbook covers
+    Darkpanel's own procedures. A root operator without the controller
+    restores the controller and reveals the password again, or resets it
+    with NPM's own procedure, which NPM documents.
 ````
+
+6. **Ruling W10-R14, section 1.** In the "No `--local`." bullet of the reveal actions, find
+
+```text
+  A root operator on the host without the controller recovers NPM's
+  password with NPM's own reset procedure (the runbook, 9), not through
+  Darkpanel.
+```
+
+and replace it with
+
+```text
+  A root operator on the host without the controller restores the
+  controller (the runbook's "Lost controller", 10) and reveals the password
+  again, or resets it with NPM's own procedure, not through Darkpanel.
+```
 
 - [ ] **Step 2: Verify the edits**
 
@@ -1051,20 +1098,22 @@ Run:
 
 ```sh
 S=docs/dforge/specs/2026-10-21-v1-completion-design.md
-for n in 1 2 3 4 5 6 7 8 9 10 11 12; do printf 'W10-R%s: ' "$n"; grep -c "^ *- \*\*W10-R$n " $S; done
+for n in 1 2 3 4 5 6 7 8 9 10 11 12 13 14; do printf 'W10-R%s: ' "$n"; grep -c "^ *- \*\*W10-R$n " $S; done
 grep -n 'Plan rulings (wave 10a)' $S
 grep -n 'open point the' $S
 grep -n 'is split per milestone' $S
 grep -n 'no third-party netlink library\|There is no third-party netlink library' $S
 grep -n 'retires the cache entry for (H, M)' $S
 grep -n '280 minutes in total' $S
+grep -n '(the runbook, 9)' $S
+grep -n 'and reveals the password' $S
 git diff --check
 git diff --name-only
 ```
 
-Expected: each `W10-R<n>` line prints `1`; `Plan rulings (wave 10a)` prints one line, located after the "Release candidate" bullet and before `### 11.`; `open point the` and `is split per milestone` print nothing; the netlink phrase prints two lines (the amended 1.8 bullet and W10-R5); `retires the cache entry for (H, M)` prints one line; `280 minutes in total` prints two lines (the Test isolation bullet and W10-R8); `git diff --check` prints nothing; `git diff --name-only` lists only `docs/dforge/specs/2026-10-21-v1-completion-design.md`.
+Expected: each `W10-R<n>` line prints `1`; `Plan rulings (wave 10a)` prints one line, located after the "Release candidate" bullet and before `### 11.`; `open point the` and `is split per milestone` print nothing; the netlink phrase prints two lines (the amended 1.8 bullet and W10-R5); `retires the cache entry for (H, M)` prints one line; `280 minutes in total` prints two lines (the Test isolation bullet and W10-R8); `(the runbook, 9)` prints nothing; `and reveals the password` prints one line; `git diff --check` prints nothing; `git diff --name-only` lists only `docs/dforge/specs/2026-10-21-v1-completion-design.md`.
 
-Then re-read the four edited sentences in place with `sed -n` over each anchor (1.7's cache sentence, 1.8's "Socket table and routes" bullet, 4.2's "Policy (R59)" bullet, the Test isolation bullet) and the new list from its heading to `### 11.`. Confirm each reads as grammatical English in the spec's style, that no other sentence of the spec still contradicts it (`rg -n 'cached answer|retired by|hello or module enable' $S` shows nothing that says the cache is retired only by `hello` or a module enable), and quote the re-read sentences in the report.
+Then re-read the five edited sentences in place with `sed -n` over each anchor (1.7's cache sentence, 1.8's "Socket table and routes" bullet, 4.2's "Policy (R59)" bullet, the Test isolation bullet, the "No `--local`." bullet) and the new list from its heading to `### 11.`. Confirm each reads as grammatical English in the spec's style, that no other sentence of the spec still contradicts it (`rg -n 'cached answer|retired by|hello or module enable' $S` shows nothing that says the cache is retired only by `hello` or a module enable), and quote the re-read sentences in the report.
 
 - [ ] **Step 3: Commit**
 
@@ -1092,7 +1141,10 @@ git commit -m "docs(spec): record the wave 10a rulings"
 
 **Depends on:** none
 
-The two rows. Row 420: the change dialog offers Confirm and Revert only for state `pending`, so a composite in `awaiting_confirmation` (`derp.server.deploy`, `derp.server.remove`, `panel.exposure.add`, `panel.exposure.remove`, `npm.instance.deploy-public` with the integration on) has no Confirm in the web, although spec 1.2 and 2.4 give it a countdown with Confirm and Revert. A composite change's own `revertDeadline` is `null`; the deadline of the revertible last step is in that step's `childDeadline`, which `GET /api/v1/changes/<id>/steps` returns. Row 431: the dialog's close button sits over the top corner of the content and the header reserves no space for it, so at 320 px a long title runs under the button.
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 2 - spec 2 - coupling 1 - risk 2 = 7
+
+The two rows. Row 420: the change dialog offers Confirm and Revert only for state `pending`, so a composite in `awaiting_confirmation` (`derp.server.deploy`, `derp.server.remove`, `panel.exposure.add`, `panel.exposure.remove`, `npm.instance.deploy-public` with the integration on) has no Confirm in the web, although spec 1.2 and 2.4 give it a countdown with Confirm and Revert. A composite change's own `revertDeadline` is `null`; the deadline of the revertible last step is in that step's `childDeadline`, which `GET /api/v1/changes/<id>/steps` returns. Row 431: the dialog's close button sits over the top corner of the content and the header reserves no space for it, so at 320 px a long title runs under the button. The Playwright pass of `web/e2e/a11y.pw.ts` visits only `/login`, `/` (the hosts page), `/hosts/<id>/firewall` and the `/hosts/<id>/docker` pages, none of which renders a view Task 6 changes in the same wave, so its screenshots stay true after both merge.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1350,6 +1402,9 @@ git commit -m "fix(web): confirm composites awaiting confirmation"
 
 **Depends on:** none
 
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 2 - spec 2 - coupling 0 - risk 1 = 5
+
 Three rows. Row 417: the read-only clipboard inputs that show the created API token and the created auth key have no accessible label (the Add host dialog's was fixed by tying the label to the input with an id). Row 419: when the last page of the audit log loads, the "Load older entries" button unmounts and keyboard focus drops to the document body. Row 424: no test covers the focus that `DockerSources` hands to its `fallbackFocus` after the Remove exemption and Add proposed exemption buttons are gone, or after Set private sources is disabled; a regression that drops focus to the body there would pass.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1581,6 +1636,9 @@ git commit -m "fix(web): label secrets and keep audit focus"
 
 **Depends on:** none
 
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 0 - risk 2 = 5
+
 Rows and parts. Row 309: the rollback of a failed binary update runs on `context.WithoutCancel(ctx)` with no deadline (`binaryUpdateHandler.fail`), so a hung `Restart`, `Rename` or database call blocks the task forever while it holds the `derp` lock. Row 310, the part `binary_update.go:208-214`: `await` bounds each health probe by the time left in the 60 s window, so a probe context always carries a deadline and `stun.Probe`'s own 3 s limit (which applies only when the context has none) is off; a lost STUN datagram then wastes the whole window instead of one poll. The other parts of row 310 belong to other tasks. Row 311: `Inverse` refuses an update in phase `failed`, so the undo cannot be run again after an operator repaired the cause of a failed rollback; and `restore` also runs for phase `done` (an undo of a finished update), which its comment does not say.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1781,6 +1839,9 @@ git commit -m "fix(derp): bound the binary update rollback"
 **Items:** 310, 312, 313, 314, 315
 
 **Depends on:** none
+
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 2 - spec 2 - coupling 0 - risk 2 = 6
 
 Rows and parts. Row 310, the part `servers.go:173-184`: a `derp.servers` pass reads the hosts' DERP status one after another with no deadline of its own, so one silent agent stalls the pass. Row 312, the part `region_edits.go:280-286`: `editOmitAllowed` skips a region whose probe errored and then asks for the acknowledgement without saying why. Row 313: `derp.server.upgrade` and `derp.cert.rotate` plan from the stored `RegionID`, which a pass whose policy read failed leaves in place (the record then carries `serversRegionUnknown`), so a published region can look unpublished and the fallback check is skipped. Row 314, the `region_edits.go` items: `editRemove` reads a non-list `grants` member as empty while `editSetEdits` refuses it. Row 315: a pass runs `deleteServerRecord` for every host without a server even when it has no row, and a context cancelled during the region lookup still reaches the writes.
 
@@ -2113,6 +2174,9 @@ git commit -m "fix(derp): bound passes and refuse stale regions"
 **Items:** 310, 312, 314
 
 **Depends on:** none
+
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 2 - spec 2 - coupling 1 - risk 2 = 7
 
 This task takes only its own parts of three split rows: the reads without a deadline of `server_probe.go` and `server_status.go` (310), the silent fallbacks of `server_status.go`, `server_probe.go` and `fallback_check.go` (312), and the `server/server.go` Flags and `cert_renew.go` items (314). It does not touch `binary_update.go`, `servers.go`, `region_edits.go` or `server_uninstall.go`; other tasks edit them in the same package.
 
@@ -2596,6 +2660,9 @@ git commit -m "fix(derp): refuse unknown modes and file names"
 
 **Depends on:** none
 
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 2 - spec 2 - coupling 1 - risk 2 = 7
+
 This task takes of row 301 only the rollback of `package_pin.go:240` on the forward context; the rest of that row belongs to other tasks. Three independent fixes, in three packages:
 - A pin whose forward steps fail rolls back on a context of its own, so the rollback still runs when the 20-minute apply budget has expired.
 - The tailnet module's actions and its exported readers share one token cache, and a test binary can never reach Tailscale's API through the exported readers.
@@ -2840,6 +2907,9 @@ git commit -m "fix(tailnet): refuse edits to repeated names"
 
 **Depends on:** none
 
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 2 = 6
+
 This task implements ruling W10-R6: a successful apply of a change of module M on host H retires the availability cache entry for (H, M), so the next request asks the agent again and an install that brings the module up is seen at once. Today the 60-second cache keeps answering `module.unavailable` with the reason cached before the install, which is misleading.
 
 - [ ] **Step 1: Write the failing tests**
@@ -2946,6 +3016,34 @@ func TestW10AvFailedApplyKeepsTheModulesCachedAnswer(t *testing.T) {
 		t.Errorf("the agent was asked %d times, want 2", n)
 	}
 }
+
+// TestW10AvPendingApplyRetiresTheModulesCachedAnswer: a revertible change that the agent applied and holds pending
+// for its confirmation is a successful apply, so it retires the cached answer too.
+func TestW10AvPendingApplyRetiresTheModulesCachedAnswer(t *testing.T) {
+	f, install := w10avDown(t)
+	rt := f.h.rt
+	f.h.clients.Add(testHost, &coretest.FakeAgent{
+		HelloFunc: rt.Hello, ReadFunc: rt.Read, PlanFunc: rt.Plan, ChangeFunc: rt.Change,
+		SetModuleEnabledFunc: rt.SetModuleEnabled, AvailabilityFunc: f.agent.availability,
+		ApplyFunc: func(ctx context.Context, p core.Principal, planID string, opts core.ApplyOptions) (core.ChangeView, error) {
+			v, err := rt.Apply(ctx, p, planID, opts)
+			if err == nil {
+				v.State = core.StatePending
+			}
+			return v, err
+		},
+	})
+	if _, err := f.d.Apply(context.Background(), alice, testHost, refW10avInstall, install.PlanID, core.ApplyOptions{}); err != nil {
+		t.Fatalf("Apply of the install: %v", err)
+	}
+	f.agent.set(w10avAnswer(""), nil)
+	if _, err := f.plan(refW10avPin, testHost); err != nil {
+		t.Fatalf("Plan of the pin after a pending install: %v, want the module asked again and the pin available", err)
+	}
+	if n := f.agent.count(); n != 2 {
+		t.Errorf("the agent was asked %d times, want 2: once before the install, once after", n)
+	}
+}
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -2955,7 +3053,7 @@ mkdir -p /root/.cache/w10a-tmp/11 && export TMPDIR=/root/.cache/w10a-tmp/11 GOTO
 timeout 600 go test -count=1 -run 'TestW10Av' ./internal/controller/dispatch/
 ```
 
-Expected: FAIL. `TestW10AvSuccessfulApplyRetiresTheModulesCachedAnswer`: `Plan of the pin after the install: module.unavailable: action w10av.pkg.pin is unavailable on host h1: tailscaled does not answer on its socket`. `TestW10AvFailedApplyKeepsTheModulesCachedAnswer` passes its first half (the refused apply keeps the cache) and fails the same way after its second, successful apply.
+Expected: FAIL. `TestW10AvSuccessfulApplyRetiresTheModulesCachedAnswer`: `Plan of the pin after the install: module.unavailable: action w10av.pkg.pin is unavailable on host h1: tailscaled does not answer on its socket`. `TestW10AvFailedApplyKeepsTheModulesCachedAnswer` passes its first half (the refused apply keeps the cache) and fails the same way after its second, successful apply. `TestW10AvPendingApplyRetiresTheModulesCachedAnswer` fails like the first test, with `Plan of the pin after a pending install: module.unavailable: ...`.
 
 - [ ] **Step 3: Implement**
 
@@ -3007,6 +3105,10 @@ git commit -m "fix(dispatch): retire availability after an apply"
 **Items:** 327, 351, 353, 354, 355
 
 **Depends on:** none
+
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 2 - spec 2 - coupling 0 - risk 3 = 7
+**Lenses:** silent-failures
 
 `store.go` (where `upgradeRow`, `loadUpgrade` and `setUpgradePhase` live) is not edited: the new column is read and written only by the two functions of `upgrade_store.go`, so this task shares no file with the other NPM tasks.
 
@@ -3376,6 +3478,9 @@ git commit -m "fix(npm): restore a failed upgrade by its branch"
 **Items:** 336, 338, 339, 340, 342, 343, 344
 
 **Depends on:** none
+
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 2 - spec 2 - coupling 1 - risk 2 = 7
 
 This task changes several behaviours of the module's agent actions, each with its own test. The fixes are independent of each other; do them in the order of the tests below.
 
@@ -3943,6 +4048,9 @@ git commit -m "fix(npm): tighten proxy, claim and list checks"
 
 **Depends on:** none
 
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 2 - spec 2 - coupling 1 - risk 2 = 7
+
 Row 336 (a second `npm.admin.expose` is refused with `npm.reserved`, the detail naming the existing hostname) is carried out by Task 13, in `proxyhost_add.go`. The composite's `Steps` may read only its input and the controller database, never the host, and the reservations live in the agent's database; the agent-side `npm.proxyhost.add` step is where they can be read before anything is created. This task therefore leaves `composite_admin.go` and its test as they are.
 
 - [ ] **Step 1: Write the failing test**
@@ -4192,6 +4300,9 @@ git commit -m "fix(npm): harden status, login and store reads"
 
 **Depends on:** none
 
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
+
 This is one of the two tasks of the plan (with Task 27) that change a wire type, so it is the only one of Tasks 13 to 15 that runs `make schemas` and `make api-docs`.
 
 Row 359 has two further findings that this task does not change: `cxResolve` and `caResolve` copy the engine's reference resolver, which is unexported in `internal/core/lifecycle` (a frozen package), so the copy stays; and `composite_admin_test.go` is not this task's file.
@@ -4310,6 +4421,9 @@ git commit -m "fix(npm): bound host ids and exposure domains"
 **Items:** 382, 383
 
 **Depends on:** none
+
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 2 - spec 2 - coupling 1 - risk 2 = 7
 
 Row 382's text predates commit 57e1a14 (`fix(cloudflare): close deferred review minors`), which already closed these findings; this task does not repeat them: `connector_deploy.go` refuses an empty `hostId` and checks the run step's tunnel (`deployOutput`), `connector_network_detach.go` has a Definite prefixed read before the disconnect and a `Verify` that validates its input and counts one claim as one, and `expose.go` says a name starts with a letter or digit and reads both outputs through `exposeStepOutput`. What remains of row 382 is below.
 
@@ -4611,6 +4725,9 @@ git commit -m "fix(cloudflare): mark connector reads Definite"
 
 **Depends on:** none
 
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 2 - spec 2 - coupling 1 - risk 1 = 6
+
 - [ ] **Step 1: Write the failing tests**
 
 Create `web/src/modules/npm/list-replies.test.ts` with this content:
@@ -4873,6 +4990,9 @@ git commit -m "fix(web): validate NPM list reads and keep panels"
 
 **Depends on:** none
 
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 2 - spec 2 - coupling 1 - risk 1 = 6
+
 - [ ] **Step 1: Write the failing tests**
 
 In `web/src/modules/derp/probe-panel.test.tsx`, change the vitest import to `import { expect, test, vi } from "vitest"` and add after `lists the probe's warnings and says when the server is not ready`:
@@ -5027,6 +5147,9 @@ git commit -m "fix(web): correct DERP dialogs and connector deploy"
 **Items:** 321, 365, 366
 
 **Depends on:** none
+
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 2 - spec 2 - coupling 0 - risk 1 = 5
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -5236,6 +5359,10 @@ git commit -m "test(harness): fix vacuous checks and probe URL"
 **Items:** 390
 
 **Depends on:** none
+
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 1 - coupling 1 - risk 3 = 6
+**Lenses:** silent-failures
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -5530,6 +5657,10 @@ git commit -m "fix(store): accept service audit phases"
 **Items:** 323
 
 **Depends on:** none
+
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 2 - spec 2 - coupling 1 - risk 3 = 8
+**Lenses:** test-quality
 
 The ruling, restated so this task is self-contained. The firewall module in the agent holds one `sync.RWMutex` per module instance. Every path that changes UFW's files, the loaded rules or the Docker block holds the write lock from its first write until both address families have reloaded. Status reads, plan preparation and the Docker and exposure resource reads hold the read lock for their whole read. Only exported entry points take the lock, and internal helpers a locked path calls take none, so no path takes the lock twice. A separate break-glass process is not covered: it runs when the agent cannot be reached.
 
@@ -6055,6 +6186,10 @@ git commit -m "fix(firewall): lock host-state reads and writes"
 
 **Depends on:** none
 
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 3 = 7
+**Lenses:** security
+
 What the tree already does, so the task adds only what is missing: `validListenerSpec` lower-cases the host and strips one trailing dot before `Open` records it (`TestRuntimeOpenNormalisesThePublicHost`). Two gaps remain. `insertListener` and `scanListener` use the host as given, so a row that holds another form (written by anything but `Open`) reaches `Start` and the API's exact `Origin` comparison unnormalised and refuses every same-origin unsafe request. And only one trailing dot is stripped, so `panel.example.com..` is recorded with a dot. The API file is frozen and stays as it is.
 
 - [ ] **Step 1: Write the failing test**
@@ -6191,6 +6326,10 @@ git commit -m "fix(listen): normalise the stored public host"
 **Items:** 304, 307, 314
 
 **Depends on:** none
+
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 3 = 7
+**Lenses:** security
 
 What each item means in the code:
 - Row 307. `Task` records the ownership of `darkpanel-derp` and then runs `useradd`. A failed `useradd` leaves the record, and a user someone else creates later is then the module's: the uninstall's facts say `user` and its `userdel` deletes it. The record must follow a successful `useradd`, and an undo must delete only a user the module recorded. The undo path matters because a `useradd` that fails with exit 9 (the user appeared between the precheck and the command) leaves the effect intended, `Observe` then finds the user present, the engine settles the effect as made and compensates it with `Inverse`.
@@ -6450,6 +6589,10 @@ git commit -m "fix(derp): record the service user after useradd"
 
 **Depends on:** none
 
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 2 - spec 2 - coupling 1 - risk 3 = 8
+**Lenses:** security
+
 This task does not edit `internal/update/`: row 316's last item (`DownloadAsset` repeating `Download`'s checksum steps) is duplication with no defect behind it, deferred to post-v1 by W10-R2.
 
 What each item means in the code:
@@ -6691,6 +6834,10 @@ git commit -m "fix(derp): harden artifact and derper checks"
 
 **Depends on:** none
 
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 0 - risk 3 = 6
+**Lenses:** security
+
 The parked finding says the DERP map's `HostName` and `DERPPort` reach the probe URL unchecked. Most of its fix is already in `latency.go` and pinned by rows of `TestLtProbeURLs`: nodes whose host holds a slash, question mark, hash, at sign, backslash, white space, control character or a colon outside an IPv6 literal are skipped, the URL is built with `url.URL`, and a port outside 0 to 65535 is skipped. What is left is row 318: `latencyHostValid` only has a deny-list, so a host with brackets (`a[1].example.net`), a percent sign (`a%2fb.example.net`) or non-ASCII characters (`é.example.net`) still becomes a probe URL, and `latencyProbeURLs` parses an IP host twice (once in `latencyHostValid`, once for the IPv6 bracket decision). This task replaces the deny-list with an allow-list and parses once. The tailnet's DERP map is attacker-influenced input, so an allow-list is the safe form: a host that is not an IP literal and not made of host-name characters is never probed.
 
 - [ ] **Step 1: Extend the test `internal/modules/tailscale/latency_test.go::TestLtProbeURLs`**
@@ -6807,6 +6954,10 @@ git commit -m "fix(tailscale): restrict DERP probe host names"
 **Items:** 331, 356
 
 **Depends on:** none
+
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 3 = 7
+**Lenses:** security
 
 Row 331: a successful NPM answer is read without a size limit (`json.NewDecoder(res.Body).Decode`, and `io.Copy(io.Discard, ...)` when no output is wanted), so a compromised NPM can exhaust the agent's memory. A refusal body over 64 KiB is left partly unread and a non-2xx response is closed undrained, so the connection is not reused. Row 356, the parts of this task: `ctlPortOpen` ignores `DockerBinding.Denied`, so the public check counts a binding that denies sources as open to every source; and `ctlDockerMajor` treats a Docker version string with no dot (a bare major such as `29`) as not recognised.
 
@@ -7021,6 +7172,10 @@ git commit -m "fix(npm): honour denied sources in public check"
 
 **Depends on:** none
 
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 3 = 8
+**Lenses:** security, silent-failures
+
 Row 333: `npm.instance.list` leaves a host whose status read fails out of the answer, and the every-page banner renders nothing for it, so the admin-exposure warning is silent for an unreadable host. The wire change below lets the banner (Task 32) say so. Row 334: the reader logs one Warn per unreachable host on every banner refetch (every 60 s), which floods the controller log for an offline host; now that the answer carries the information, the line moves to debug level. Row 356, the part of this task: the fan-out keeps starting host reads after the context is cancelled.
 
 This task is the only one of the four that regenerates `schemas/npm.*` and `docs/api/**`.
@@ -7206,6 +7361,10 @@ git commit -m "fix(npm): list unreadable hosts, stop on cancel"
 **Items:** 332, 347
 
 **Depends on:** none
+
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 3 = 7
+**Lenses:** silent-failures
 
 Row 332: `npm.instance.remove` leaves the upgrade archives (volume archives that hold Let's Encrypt private keys and NPM's database) in `/var/lib/darkpanel/agent/npm-backups` and the `npm_upgrades` rows on the host after the instance is gone. The removal now deletes them: each archive file is a journaled delete effect, and the `npm_upgrades` rows go with the other bookkeeping in the final transaction. The plan states the deletion. Row 347: a failed before-state read in `remove` is returned without `core.Definite` (the effect is not yet intended and nothing of it has changed, so the refusal is definite); the three nearly identical removal blocks of `Apply` become one loop; and the reserved refusal is tested with one exposure only.
 
@@ -7505,6 +7664,10 @@ git commit -m "fix(npm): delete upgrade archives on removal"
 **Items:** 393, 397
 
 **Depends on:** none
+
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 2 - risk 3 = 8
+**Lenses:** security
 
 Two faults in the restore path of the controller, each with a test that fails today:
 
@@ -7873,6 +8036,10 @@ git commit -m "fix(backup): secure staged files through one fd" -m "Set the owne
 
 **Depends on:** none
 
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 2 - spec 2 - coupling 0 - risk 3 = 7
+**Lenses:** security
+
 Three faults in the backup stream and the quarantine routes of the controller, each with a test that fails today:
 
 1. A backup's plaintext copy of the database (`VACUUM INTO`) is created beside the database under the process umask and chmodded afterwards, and a crash leaves it behind. It must live in a private directory, and the controller must remove leftovers at startup.
@@ -7905,33 +8072,33 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/ext"
 )
 
-// w10brSpy is the random source of a backup stream. The stream asks for its
+// w10bcSpy is the random source of a backup stream. The stream asks for its
 // salt after the temporary copy of the database exists and before the first
 // response byte, so look runs while the copy is on disk. It runs once.
-type w10brSpy struct {
+type w10bcSpy struct {
 	once sync.Once
 	look func()
 }
 
-func (s *w10brSpy) Read(p []byte) (int, error) {
+func (s *w10bcSpy) Read(p []byte) (int, error) {
 	s.once.Do(s.look)
 	return rand.Read(p)
 }
 
-type w10brSeen struct {
+type w10bcSeen struct {
 	name string
 	dir  bool
 	perm os.FileMode
 }
 
-func w10brDeps(e *bsEnv) ext.Deps {
+func w10bcDeps(e *bsEnv) ext.Deps {
 	return ext.Deps{
 		DB: e.db, Sealer: e.sealer, Clock: e.clock, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Audit: e.audit, LocalHostID: "host-local",
 	}
 }
 
-func w10brLeftovers(t *testing.T, dir string) []string {
+func w10bcLeftovers(t *testing.T, dir string) []string {
 	t.Helper()
 	names, err := filepath.Glob(filepath.Join(dir, "backup-*"))
 	if err != nil {
@@ -7940,13 +8107,13 @@ func w10brLeftovers(t *testing.T, dir string) []string {
 	return names
 }
 
-func TestW10BrBackupCopyLivesInAPrivateDirectory(t *testing.T) {
+func TestW10BcBackupCopyLivesInAPrivateDirectory(t *testing.T) {
 	e := bsNewEnv(t)
 	var (
-		seen    []w10brSeen
+		seen    []w10bcSeen
 		lookErr error
 	)
-	spy := &w10brSpy{look: func() {
+	spy := &w10bcSpy{look: func() {
 		names, err := filepath.Glob(filepath.Join(e.dir, "backup-*"))
 		if err != nil {
 			lookErr = err
@@ -7958,12 +8125,12 @@ func TestW10BrBackupCopyLivesInAPrivateDirectory(t *testing.T) {
 				lookErr = err
 				return
 			}
-			seen = append(seen, w10brSeen{name: filepath.Base(name), dir: st.IsDir(), perm: st.Mode().Perm()})
+			seen = append(seen, w10bcSeen{name: filepath.Base(name), dir: st.IsDir(), perm: st.Mode().Perm()})
 		}
 	}}
 
 	rec := httptest.NewRecorder()
-	e.b.streamServe(w10brDeps(e), spy).ServeHTTP(rec, bsRequest(bsBody(t, "p", &TestParams)))
+	e.b.streamServe(w10bcDeps(e), spy).ServeHTTP(rec, bsRequest(bsBody(t, "p", &TestParams)))
 
 	if rec.Code != 200 {
 		t.Fatalf("status = %d, want 200 (body %.300s)", rec.Code, rec.Body.String())
@@ -7974,12 +8141,12 @@ func TestW10BrBackupCopyLivesInAPrivateDirectory(t *testing.T) {
 	if len(seen) != 1 || !seen[0].dir || seen[0].perm != 0o700 {
 		t.Errorf("while the stream ran, the database directory held %+v; want one directory of mode 0700 that holds the plaintext copy, so that no other user can read it before the copy is chmodded", seen)
 	}
-	if left := w10brLeftovers(t, e.dir); len(left) != 0 {
+	if left := w10bcLeftovers(t, e.dir); len(left) != 0 {
 		t.Errorf("after the stream, %v is left beside the database", left)
 	}
 }
 
-func TestW10BrContributeSweepsTheCopiesACrashLeft(t *testing.T) {
+func TestW10BcContributeSweepsTheCopiesACrashLeft(t *testing.T) {
 	e := bsNewEnv(t)
 	crashed := filepath.Join(e.dir, "backup-"+ulid.Make().String()+".tmp")
 	if err := os.Mkdir(crashed, 0o700); err != nil {
@@ -7997,7 +8164,7 @@ func TestW10BrContributeSweepsTheCopiesACrashLeft(t *testing.T) {
 		}
 	}
 
-	if _, _, err := e.b.Contribute(w10brDeps(e)); err != nil {
+	if _, _, err := e.b.Contribute(w10bcDeps(e)); err != nil {
 		t.Fatalf("Contribute: %v", err)
 	}
 
@@ -8013,7 +8180,7 @@ func TestW10BrContributeSweepsTheCopiesACrashLeft(t *testing.T) {
 	}
 }
 
-func TestW10BrKeyReadRefusesAFileThatGrew(t *testing.T) {
+func TestW10BcKeyReadRefusesAFileThatGrew(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "controller.key")
 	key := bytes.Repeat([]byte("k"), MaxKeyMember)
 
@@ -8054,12 +8221,12 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 )
 
-// TestW10BrEnrollTokenReadsTheFlagInItsTransaction releases the quarantine in
+// TestW10BcEnrollTokenReadsTheFlagInItsTransaction releases the quarantine in
 // a transaction that commits only after the enroll-token request has passed
 // its first check and is waiting for the database writer. The token must not
 // be issued, because the quarantine is over when the request's transaction
 // runs.
-func TestW10BrEnrollTokenReadsTheFlagInItsTransaction(t *testing.T) {
+func TestW10BcEnrollTokenReadsTheFlagInItsTransaction(t *testing.T) {
 	e := qlNew(t)
 	qlActivate(t, e.db)
 	ctx := context.Background()
@@ -8147,7 +8314,7 @@ export TMPDIR=/root/.cache/w10a-tmp/30 GOTOOLCHAIN=local
 timeout 300 go vet ./internal/controller/backup/ && timeout 900 go test -count=1 -run 'W10Br' ./internal/controller/backup/
 ```
 
-Expected: FAIL: `go vet` reports `undefined: streamReadBounded` (and `undefined: sweepCopies` where the tests call it); once those exist as stubs the `TestW10Br` tests fail on their assertions. Record the output verbatim.
+Expected: FAIL: `go vet` reports `undefined: streamReadBounded` (and `undefined: sweepCopies` where the tests call it); once those exist as stubs the `TestW10Bc` tests fail on their assertions. Record the output verbatim.
 
 - [ ] **Step 3: Implement**
 
@@ -8193,6 +8360,10 @@ git commit -m "fix(backup): guard the backup copy and key read" -m "Keep the pla
 **Items:** 397
 
 **Depends on:** Task 29
+
+**Implementer:** dforge:impl-opus-high
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 3 = 7
+**Lenses:** security
 
 The CLI turns the passphrase into a Go string (`string(pass)`) for `json.Marshal`, which cannot be zeroed; it saves any 2xx answer to `--out` whatever its `Content-Type`; and a restore that finished but could not remove an earlier restore's set-aside files prints no summary, because `Restore` returns an empty result with that error.
 
@@ -8391,6 +8562,9 @@ git commit -m "fix(cli): harden controller backup and restore" -m "Build the bac
 **Items:** 333
 
 **Depends on:** Task 27
+
+**Implementer:** dforge:impl-sonnet-high
+**Evaluation:** files 1 - spec 2 - coupling 1 - risk 1 = 5
 
 The every-page banner warns about an exposed NPM admin interface. Today a host whose status read fails is silently left out of the list and a failed list read renders nothing, so the warning is silent exactly when it cannot be checked. Task 27 makes `npm.instance.list` name the hosts it could not read; this task shows them.
 
@@ -8664,12 +8838,15 @@ git commit -m "fix(web): warn when NPM hosts cannot be checked"
 - Read for style: `docs/security/parsers.md`; for the facts, the files named in each area below, the spec's sections 1 to 10 (`docs/dforge/specs/2026-10-21-v1-completion-design.md`) and `docs/adr/0003-agent-protocol.md`, `0005-storage-and-secrets.md`, `0006-api-and-cli.md`, `0009-host-execution-safety.md`, `0010-web-certificate-authority.md`
 
 **Interfaces:**
-- Consumes: Contracts "Threat model outline" (the headings and the three rules below it). From the existing `internal/docs` test files: `dcRead`, `dcRoot`, `dcMissing` and `dcLinks` (`helpers_test.go`) and `dnFenceTags`, `dnHTMLRE` and `dnInlineRE` (`modules_b_test.go`). The mitigations describe what Tasks 20 to 29 merged.
+- Consumes: Contracts "Threat model outline" (the headings and the three rules below it). From the existing `internal/docs` test files: `dcRead`, `dcRoot`, `dcMissing` and `dcLinks` (`helpers_test.go`) and `dnFenceTags`, `dnHTMLRE` and `dnInlineRE` (`modules_b_test.go`). The mitigations describe what Tasks 10 and 20 to 32 merged.
 - Produces: `docs/security/threat-model.md`, which the two-reviewer security review of plan `w10b` reads as the base of its brief.
 
-**Depends on:** Task 20, Task 21, Task 22, Task 23, Task 24, Task 25, Task 26, Task 27, Task 28, Task 29, Task 30, Task 31
+**Depends on:** Task 10, Task 20, Task 21, Task 22, Task 23, Task 24, Task 25, Task 26, Task 27, Task 28, Task 29, Task 30, Task 31, Task 32
 
-The page is the written threat model of the spec's hardening section: assets, actors, trust boundaries and, per area, threats, mitigations and residual risk. It describes the product as it is on `main` after Tasks 20 to 29; it never promises future work and never names a plan, wave, task or register row. The existing `docs/user` style tests do not read `docs/security`, so the test below applies the style rules to this page itself.
+**Implementer:** dforge:impl-sonnet-low
+**Evaluation:** files 1 - spec 1 - coupling 0 - risk 0 = 2
+
+The page is the written threat model of the spec's hardening section: assets, actors, trust boundaries and, per area, threats, mitigations and residual risk. It describes the product as it is on `main` after Tasks 10 and 20 to 32; it never promises future work and never names a plan, wave, task or register row. The existing `docs/user` style tests do not read `docs/security`, so the test below applies the style rules to this page itself.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -9049,7 +9226,7 @@ Before you write a fact, open the file that implements it and check it; where a 
 - `port 81`: NPM serves its admin login on port 81 inside its container, so any container on a network joined through the attach action can reach it; only the host side is bound to loopback; whether to restrict it inside the container or to accept it is undecided.
 - `port 3000`: the guard covers NPM's port 81 only, while NPM's backend API listens on port 3000 and whether it binds loopback only in the pinned image is unverified.
 - `digest`: the label digest in Docker network and volume effect documents is an unsalted SHA-256, and plan diffs outside the effect document show raw label values.
-- `openpgp`: the `openpgp` package of `golang.org/x/crypto` carries an advisory (GO-2026-5932) with no tagged fix; Darkpanel does not call it; the dependency moves to a tagged release once one carries the fix.
+- `openpgp`: the `openpgp` package of `golang.org/x/crypto` carries an advisory (GO-2026-5932) with no tagged fix; Darkpanel does not call it; the open choice is to keep the current pin until a tagged release carries the fix, or to remove the package from the module graph.
 
 - [ ] **Step 4: Run the test to verify it passes**
 
@@ -9082,7 +9259,7 @@ git commit -m "docs(security): add the threat model"
 - Modify: `docs/user/lockout-recovery.md` (one sentence that links the runbook)
 - Modify: `docs/user/administration.md` (one sentence in "Settle the restore quarantine" that links the runbook's agent re-enrollment)
 - Test (new): `internal/docs/runbook_test.go`
-- Read for the facts: `docs/user/lockout-recovery.md`, `docs/user/administration.md`, `docs/user/install.md`, `docs/user/modules/firewall.md`, `docs/user/modules/tailscale.md`, `docs/user/modules/panel.md`, `docs/versioning.md`, `cmd/darkpanel/agent.go`, `cmd/darkpanel/update.go`, `cmd/darkpanel/system.go`, `internal/cli/controller_backup.go`, `internal/cli/controller_quarantine.go`, `internal/cli/firewall.go`, `test/harness/restore_test.go` (`m7rReEnrollCommands`)
+- Read for the facts: `docs/user/lockout-recovery.md`, `docs/user/administration.md`, `docs/user/install.md`, `docs/user/modules/firewall.md`, `docs/user/modules/tailscale.md`, `docs/user/modules/panel.md`, `docs/versioning.md`, `cmd/darkpanel/agent.go`, `cmd/darkpanel/update.go`, `cmd/darkpanel/system.go`, `internal/cli/controller_backup.go`, `internal/cli/controller_quarantine.go`, `internal/cli/firewall.go`, `test/harness/restore_test.go` (`m7rReEnrollCommands`), `internal/controller/backup/journal.go`, `internal/controller/backup/recover.go`
 
 **Interfaces:**
 - Consumes: Contracts "Runbook outline". Task 1 (stopping a service on purpose ends its unit cleanly and does not start the rollback unit) and Task 29 (a restore whose last cleanup failed still prints its summary) are behaviour the page describes. From the existing `internal/docs` test files: `dnCommands`, `dnFenceTags`, `dnHTMLRE`, `dnInlineRE` (`modules_b_test.go`) and `dcRead`, `dcRoot`, `dcMentions`, `dcLinks` (`helpers_test.go`); from the repository `cli.NewRoot`, `registry.Build`, `update.ActionApply`, `update.ActionRollback`, `update.ActionStatus` and `rollout.ActionRollout`, `rollout.ActionRolloutCancel`, `rollout.ActionRollouts`.
@@ -9091,6 +9268,9 @@ git commit -m "docs(security): add the threat model"
 **Items:** 399
 
 **Depends on:** Task 1, Task 29, Task 31
+
+**Implementer:** dforge:impl-sonnet-low
+**Evaluation:** files 1 - spec 1 - coupling 0 - risk 0 = 2
 
 The runbook is the one page to open when something has already gone wrong: lockout (firewall break-glass, Tailscale preferences revert, panel listener revoke), a failed update (rollback, recover) and a lost controller (restore from backup, re-enroll agents). Row 399 is its regression: the re-enrollment of an agent after a restore uses `darkpanel agent enroll` followed by an agent restart, and never the agent role of `system install`, which keeps saved credentials that the controller still accepts and ignores the new token.
 
@@ -9134,6 +9314,7 @@ var w10rbOutline = []string{
 	"### Recover",
 	"## Lost controller",
 	"### Restore from backup",
+	"### Unsettled restore journal",
 	"### Re-enroll agents",
 }
 
@@ -9180,6 +9361,10 @@ var w10rbWant = map[string][]string{
 		"sudo darkpanel controller quarantine list",
 		"sudo darkpanel controller quarantine resolve <record> done",
 		"sudo darkpanel controller quarantine release",
+	},
+	"Unsettled restore journal": {
+		"sudo journalctl -u darkpanel-controller.service",
+		"sudo darkpanel controller restore --in <backup-file> --passphrase-file <passphrase-file>",
 	},
 	"Re-enroll agents": {
 		"sudo darkpanel controller quarantine enroll-token <host>",
@@ -9504,12 +9689,21 @@ The required lines: `sudo darkpanel panel listener revoke`, `darkpanel panel exp
 
 The required lines: `sudo darkpanel system install --role controller --agent-advertise <host>:<port>`, `sudo systemctl stop darkpanel-controller.service darkpanel-agent.service`, `sudo darkpanel controller restore --in <backup-file> --passphrase-file <passphrase-file>`, `sudo darkpanel controller restore --recover`, `sudo systemctl start darkpanel-controller.service darkpanel-agent.service`, `sudo darkpanel controller quarantine list`, `sudo darkpanel controller quarantine resolve <record> done`, `sudo darkpanel controller quarantine release`.
 
+**`### Unsettled restore journal`.** For the one case `controller restore --recover` cannot settle by itself. Every rename of a restore is journaled before it runs; recovery settles a journaled rename by which of its two names exists, and when both or neither exist it stops, keeps the journal and the controller does not start (`internal/controller/backup/journal.go`, `Settle`). Steps:
+1. Recognise it: the controller unit fails at start, and `sudo journalctl -u darkpanel-controller.service` shows `backup: a journaled rename cannot be settled: <from> exists <true|false>, <to> exists <true|false>`. The journal is `/var/lib/darkpanel/controller/restore-<transaction>.journal`.
+2. Keep both services stopped, and copy everything the restore touched to a root-only directory before you change anything: `/var/lib/darkpanel/controller/` and every `/etc/darkpanel/controller.key*` file (`sudo cp -a`, in an `sh` fence). Nothing below deletes what this copy holds.
+3. End the stuck transaction by hand: remove the journal and the staged files of that transaction, the names ending in `.restore-<transaction>` beside `controller.db` and beside `controller.key`. Leave the `.pre-<transaction>` files, which hold the installation as it was before the restore.
+4. Restore again from the same backup file: `sudo darkpanel controller restore --in <backup-file> --passphrase-file <passphrase-file>`. The backup file is the whole target state, so this works whichever names were present. Then continue with steps 6 and 7 of "Restore from backup" (link `#restore-from-backup`).
+5. If you have no backup file, put the installation back as it was from the `.pre-<transaction>` files instead: rename each to its name without the suffix, then start the services.
+
+The required lines: `sudo journalctl -u darkpanel-controller.service`, `sudo darkpanel controller restore --in <backup-file> --passphrase-file <passphrase-file>`. Check each fact of this section against `internal/controller/backup/journal.go`, `recover.go` and `restore.go` before you write it; where the code differs, the code wins, and the report says what differed.
+
 **`### Re-enroll agents`.** Agents that can still reach the controller with valid credentials come back by themselves; re-enroll each one that stays offline in `darkpanel host list`. Steps:
 1. On the controller's host, as root, while the quarantine is active: `sudo darkpanel controller quarantine enroll-token <host>`. It prints a one-hour, single-use token once for a host already in the restored database, works only during the quarantine and only when the controller runs with an `--agent-advertise` address, and sets the host to pending.
 2. On the agent's host, as root, give the token to the agent: `sudo darkpanel agent enroll --token-file <token-file>` (a file owned by root with mode 0600; without the flag the command prompts, or reads standard input).
 3. Restart the agent: `sudo systemctl restart darkpanel-agent.service`, so that it drops the session it holds and dials with the new credentials at once.
 4. Check with `darkpanel host list` that the host is online.
-5. The controller's own agent cannot be enrolled with a quarantine token. After you release the quarantine, run `sudo darkpanel host enroll-local` on the controller's host, which prints a token for `127.0.0.1:7443`, and repeat steps 2 and 3 there. Confirm this procedure against the `core.host.enroll-local` entry of `docs/user/administration.md` before you write it.
+5. The controller's own agent cannot be enrolled with a quarantine token. After you release the quarantine, run `sudo darkpanel host enroll-local` on the controller's host, which prints a token for `127.0.0.1:7443`, and repeat steps 2 and 3 there. This is what `docs/user/administration.md` (the `core.host.enroll-local` entry) documents: the command needs `admin`, is served only on the controller socket, revokes the local host's agent credentials and issues a new token for `127.0.0.1:7443`.
 
 State that the installer's agent role is not the way to re-enroll: with saved credentials that the controller still accepts it keeps them and ignores the new token. The test refuses the exact phrase `system install --role agent` anywhere in this section, so say it without that phrase (for example: "do not run the installer again for the agent role"). The required lines: `sudo darkpanel controller quarantine enroll-token <host>`, `sudo darkpanel agent enroll --token-file <token-file>` (before) `sudo systemctl restart darkpanel-agent.service`, `sudo darkpanel host enroll-local`, `darkpanel host list`.
 
