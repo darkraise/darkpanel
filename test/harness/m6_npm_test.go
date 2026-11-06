@@ -930,10 +930,18 @@ func (r *m6nRun) exposeRemove(t *testing.T) {
 }
 
 // w10hxGone accepts the reply to a request for a removed exposure's host only
-// when it arrived and is not the removed target's answer. A failed request
-// shows an outage, not the removal.
+// when it arrived and is not the removed target's answer, or when NPM refused
+// the handshake with the TLS unrecognized_name alert: with the proxy host
+// deleted it has no server for that name. Any other failed request shows an
+// outage, not the removal.
 func w10hxGone(resp m6nResponse, err error) error {
 	if err != nil {
+		// crypto/tls reports a received alert as a "remote error" OpError
+		// around its unexported alert type, so only the text identifies it.
+		var opErr *net.OpError
+		if errors.As(err, &opErr) && opErr.Op == "remote error" && opErr.Err != nil && opErr.Err.Error() == "tls: unrecognized name" {
+			return nil
+		}
 		return fmt.Errorf("harness: the request failed, so the removal is not shown: %w", err)
 	}
 	if m6nIsApp(resp) {

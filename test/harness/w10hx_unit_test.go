@@ -5,9 +5,13 @@ package harness
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -52,6 +56,9 @@ func TestW10HxUploadRegexpUnit(t *testing.T) {
 
 func TestW10HxGoneUnit(t *testing.T) {
 	app := m6nResponse{Status: http.StatusNotFound, Body: []byte(m6nAppBody + "\n")}
+	get := func(err error) error {
+		return fmt.Errorf("harness: %w", &url.Error{Op: "Get", URL: "https://" + m6nAppHost + "/", Err: err})
+	}
 	tests := []struct {
 		name string
 		resp m6nResponse
@@ -62,6 +69,10 @@ func TestW10HxGoneUnit(t *testing.T) {
 		{"NPM answers with a page of its own", m6nResponse{Status: http.StatusOK, Body: []byte("Congratulations!")}, nil, ""},
 		{"NPM answers with its own 404", m6nResponse{Status: http.StatusNotFound, Body: []byte("<html>not found</html>")}, nil, ""},
 		{"the request failed", m6nResponse{}, errors.New("connection refused"), "connection refused"},
+		{"NPM refuses the handshake for the removed name", m6nResponse{}, get(&net.OpError{Op: "remote error", Err: errors.New("tls: unrecognized name")}), ""},
+		{"the request timed out", m6nResponse{}, get(context.DeadlineExceeded), "deadline exceeded"},
+		{"the connection was refused", m6nResponse{}, get(&net.OpError{Op: "dial", Net: "tcp", Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)}), "connection refused"},
+		{"NPM sends another TLS alert", m6nResponse{}, get(&net.OpError{Op: "remote error", Err: errors.New("tls: handshake failure")}), "handshake failure"},
 	}
 	for _, tc := range tests {
 		err := w10hxGone(tc.resp, tc.err)
