@@ -133,6 +133,9 @@ func (certRotateComposer) Steps(ctx context.Context, env core.Env, in CertRotate
 	if !ok {
 		return nil, errcode.New(errcode.DERPNotReady, "no DERP server is known on "+in.HostID)
 	}
+	if err := compositeRegionKnown(rec); err != nil {
+		return nil, err
+	}
 	cert := core.Step{ID: "cert", Host: in.HostID, Action: core.ActionRef{Name: ID + ".cert.renew", Version: 1}, Input: json.RawMessage(`{}`)}
 	if rec.RegionID == 0 {
 		return []core.Step{cert}, nil
@@ -154,6 +157,17 @@ func (certRotateComposer) Steps(ctx context.Context, env core.Env, in CertRotate
 		edits,
 		regionCompositeRegion(),
 	}, nil
+}
+
+// compositeRegionKnown refuses to plan from rec's region when the last pass could not read the tailnet policy: the
+// stored region may then be out of date, so a published region could look unpublished and its fallback check be
+// skipped.
+func compositeRegionKnown(rec serverRecord) error {
+	if rec.Error != serversRegionUnknown {
+		return nil
+	}
+	return errcode.New(errcode.DERPNotReady, "the controller could not read the tailnet policy at its last check, so whether the server on "+
+		rec.HostID+" publishes a region is not known; try again after the next check")
 }
 
 // Output is the cert step's new pin and expiry.

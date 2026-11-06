@@ -2,6 +2,7 @@ package derp
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -14,6 +15,10 @@ const (
 	serversService = ID + ".servers"
 	// serversRegionUnknown is the record error of a pass that read the server but not the regions.
 	serversRegionUnknown = "the tailnet policy could not be read, so the region may be out of date"
+	// serversReadWait is the longest one host's status read may take in a pass.
+	serversReadWait = 15 * time.Second
+	// serversReadParallel is the most hosts a pass reads at once.
+	serversReadParallel = 8
 )
 
 var serversPrincipal = core.Principal{Actor: "system:" + serversService, Scope: core.ScopeAdmin}
@@ -167,19 +172,12 @@ func (d dp) checkServers(ctx context.Context, deps ext.Deps, now time.Time) erro
 		stored[r.HostID] = r
 	}
 
-	statuses := make(map[string]ServerStatus, len(hosts))
-	unreadable := map[string]string{}
+	statuses, unreadable, err := d.readServerStatuses(ctx, env, hosts)
+	if err != nil {
+		return err
+	}
 	anyInstalled := false
-	for _, h := range hosts {
-		st, err := readStatus(ctx, env, h.ID, nil)
-		if err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			unreadable[h.ID] = serversReadFailure(err)
-			continue
-		}
-		statuses[h.ID] = st
+	for _, st := range statuses {
 		anyInstalled = anyInstalled || st.Installed
 	}
 
@@ -189,6 +187,9 @@ func (d dp) checkServers(ctx context.Context, deps ext.Deps, now time.Time) erro
 	)
 	if anyInstalled {
 		regions, regionsKnown = d.serversRegions(ctx, env)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 	}
 
 	known := make(map[string]bool, len(hosts))
@@ -206,8 +207,10 @@ func (d dp) checkServers(ctx context.Context, deps ext.Deps, now time.Time) erro
 		}
 		st := statuses[h.ID]
 		if !st.Installed {
-			if err := deleteServerRecord(ctx, deps.DB, h.ID); err != nil {
-				return err
+			if had {
+				if err := deleteServerRecord(ctx, deps.DB, h.ID); err != nil {
+					return err
+				}
 			}
 			continue
 		}
@@ -236,6 +239,48 @@ func (d dp) checkServers(ctx context.Context, deps ext.Deps, now time.Time) erro
 		}
 	}
 	return nil
+}
+
+// readServerStatuses reads every host's DERP status, at most serversReadParallel at a time, and answers the statuses
+// of the hosts that answered and the client-safe failure text of those that did not. Each read has its own bound, so
+// one silent agent costs serversReadWait and not the pass. The bound runs on env.Clock so a pass's clock drives it.
+// When ctx itself ends during the reads, its error is the answer.
+func (d dp) readServerStatuses(ctx context.Context, env core.Env, hosts []probeHost) (map[string]ServerStatus, map[string]string, error) {
+	type result struct {
+		status ServerStatus
+		err    error
+	}
+	results := make([]result, len(hosts))
+	slots := make(chan struct{}, serversReadParallel)
+	var wg sync.WaitGroup
+	for i, h := range hosts {
+		wg.Add(1)
+		slots <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-slots }()
+			rctx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			timer := env.Clock.AfterFunc(serversReadWait, cancel)
+			defer timer.Stop()
+			st, err := readStatus(rctx, env, h.ID, nil)
+			results[i] = result{status: st, err: err}
+		}()
+	}
+	wg.Wait()
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	statuses := make(map[string]ServerStatus, len(hosts))
+	unreadable := map[string]string{}
+	for i, h := range hosts {
+		if err := results[i].err; err != nil {
+			unreadable[h.ID] = serversReadFailure(err)
+			continue
+		}
+		statuses[h.ID] = results[i].status
+	}
+	return statuses, unreadable, nil
 }
 
 // serversReadFailure is the client-safe text stored for a host whose status read failed: the detail of a coded

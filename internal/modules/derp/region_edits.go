@@ -269,6 +269,7 @@ func (d dp) editOmitAllowed(ctx context.Context, env core.Env, m derpMap, in Reg
 	if err != nil {
 		return err
 	}
+	var failed []string
 	for _, id := range m.customRegions() {
 		if id == in.RegionID {
 			continue
@@ -282,6 +283,7 @@ func (d dp) editOmitAllowed(ctx context.Context, env core.Env, m derpMap, in Reg
 			if cerr := ctx.Err(); cerr != nil {
 				return cerr
 			}
+			failed = append(failed, fmt.Sprintf("region %d: %s", id, editProbeFailure(err)))
 			continue
 		}
 		if ready, _, _ := probeReady(p); ready {
@@ -292,7 +294,20 @@ func (d dp) editOmitAllowed(ctx context.Context, env core.Env, m derpMap, in Reg
 	if in.Acknowledge == ack {
 		return nil
 	}
-	return editInvalid("/acknowledge", `omitting the default regions needs the acknowledgement "`+ack+`"`)
+	msg := `omitting the default regions needs the acknowledgement "` + ack + `"`
+	if len(failed) > 0 {
+		msg += "; the probes of other regions failed: " + strings.Join(failed, "; ")
+	}
+	return editInvalid("/acknowledge", msg)
+}
+
+// editProbeFailure is the client-safe reason a region's server could not be probed: the detail of a coded refusal,
+// else a generic sentence, since an uncoded error's text may carry transport internals.
+func editProbeFailure(err error) string {
+	if coded := errcode.From(err); coded.Code != errcode.Internal && coded.Detail != "" {
+		return coded.Detail
+	}
+	return "its server could not be probed"
 }
 
 // editSetEdits are the set op's edits: the region, the omit flag and the grant, each left out when the policy
@@ -384,7 +399,14 @@ func (d dp) editRemove(ctx context.Context, env core.Env, in RegionEditsInput) (
 		}
 		edits = append(edits, e)
 	}
-	items, _ := doc["grants"].([]any)
+	var items []any
+	switch grants := doc["grants"].(type) {
+	case nil:
+	case []any:
+		items = grants
+	default:
+		return RegionEdits{}, errors.New("derp: the policy's grants member is not a list")
+	}
 	if len(items) == 0 {
 		return RegionEdits{Edits: edits}, nil
 	}

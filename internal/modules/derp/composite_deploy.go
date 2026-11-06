@@ -109,6 +109,9 @@ func (serverUpgradeComposer) Steps(ctx context.Context, env core.Env, in Upgrade
 	if !ok {
 		return nil, errcode.New(errcode.DERPNotReady, "no DERP server is known on "+in.HostID)
 	}
+	if err := compositeRegionKnown(rec); err != nil {
+		return nil, err
+	}
 	pin, err := serverDeployPin()
 	if err != nil {
 		return nil, err
