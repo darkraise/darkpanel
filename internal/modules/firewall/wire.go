@@ -3,6 +3,7 @@ package firewall
 import (
 	"context"
 	"errors"
+	"sync"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/conf"
@@ -25,6 +26,12 @@ type fw struct {
 	d           deps
 	ipv6Refusal func(cfg fwstate.Config, cur fwstate.Loaded, tr fwstate.Transition) error
 	check       checkFunc
+	// mu is the module instance's host-state lock: a mutation holds it for
+	// writing from its first write until both address families reloaded, so
+	// a read never sees files the loaded rules do not match yet. Every copy
+	// of fw inside one module instance shares the pointer; a fw built
+	// without it takes no lock.
+	mu *sync.RWMutex
 }
 
 // productionFW is the firewall over this host.
@@ -50,6 +57,7 @@ func productionFW() fw {
 		},
 		ipv6Refusal: predict.IPv6Refusal,
 		check:       guard.Check,
+		mu:          new(sync.RWMutex),
 	}
 	f.d.cleanChains = f.cleanChainsPreserving
 	return f

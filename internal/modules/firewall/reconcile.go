@@ -40,41 +40,59 @@ func (f fw) reconcile(ctx context.Context, tc core.TaskContext) error {
 	env := tc.Env
 	// The first pass after an agent start is what repeats a cleanup a crash
 	// interrupted, so this runs whatever the integration flag says.
-	if err := f.finishCleanups(ctx, env); err != nil {
+	unlock := f.lockWrite()
+	err := f.finishCleanups(ctx, env)
+	unlock()
+	if err != nil {
 		return fmt.Errorf("firewall: reconcile: finish the owned-chain cleanups: %w", err)
 	}
+	cfg, cur, st, skip, err := f.reconcileRead(ctx, env)
+	if err != nil || skip {
+		return err
+	}
+	return f.reconcileWith(ctx, tc, cfg, cur, st)
+}
+
+// reconcileRead reads, under the host-state lock for reading, what a pass
+// decides from: the configuration, the loaded state and the Docker state.
+// skip reports that the pass has nothing to do: the integration is off, UFW
+// is disabled, or DOCKER-USER holds a foreign rule. The lock is released
+// before the pass applies anything, because the change it applies takes the
+// lock again through the engine.
+func (f fw) reconcileRead(ctx context.Context, env core.Env) (cfg fwstate.Config, cur fwstate.Loaded, st dockerState, skip bool, err error) {
+	defer f.lockRead()()
 	dc, err := readDockerConfig(ctx, env.DB)
 	if err != nil {
-		return fmt.Errorf("firewall: reconcile: %w", err)
+		return cfg, cur, st, false, fmt.Errorf("firewall: reconcile: %w", err)
 	}
 	if !dc.Enabled {
-		return nil
+		return cfg, cur, st, true, nil
 	}
-	cfg, err := f.d.readConfig(f.d.root)
+	cfg, err = f.d.readConfig(f.d.root)
 	if err != nil {
-		return fmt.Errorf("firewall: reconcile: %w", err)
+		return cfg, cur, st, false, fmt.Errorf("firewall: reconcile: %w", err)
 	}
 	// With UFW off no block is loaded; firewall.state.enable writes it.
 	if !cfg.Enabled {
-		return nil
+		return cfg, cur, st, true, nil
 	}
-	cur, err := f.d.readLoaded(ctx, env)
+	cur, err = f.d.readLoaded(ctx, env)
 	if err != nil {
-		return fmt.Errorf("firewall: reconcile: %w", err)
+		return cfg, cur, st, false, fmt.Errorf("firewall: reconcile: %w", err)
 	}
 	if err := dockerUserInUse(cur, cfg, true); err != nil {
 		var inUse *errcode.Error
 		if errors.As(err, &inUse) && inUse.Code == errcode.FirewallDockerUserInUse {
 			env.Log.Warn("reconcile skipped: DOCKER-USER holds foreign rules", "error", err)
-			return nil
+			return cfg, cur, st, true, nil
 		}
-		return fmt.Errorf("firewall: reconcile: %w", err)
+		return cfg, cur, st, false, fmt.Errorf("firewall: reconcile: %w", err)
 	}
-	st, err := f.dockerState(ctx, env, cur)
+	st, err = f.dockerState(ctx, env, cur)
 	if err != nil {
-		return fmt.Errorf("firewall: reconcile: %w", err)
+		return cfg, cur, st, false, fmt.Errorf("firewall: reconcile: %w", err)
 	}
-	return f.reconcileWith(ctx, tc, cfg, cur, st)
+	return cfg, cur, st, false, nil
 }
 
 // reconcileWith decides, from the configuration cfg, the loaded state cur

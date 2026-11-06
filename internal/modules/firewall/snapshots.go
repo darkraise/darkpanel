@@ -81,7 +81,10 @@ func (f fw) snapshots(ctx context.Context, env core.Env) (SnapshotList, error) {
 func (f fw) snapshotCompare() core.ActionDef {
 	return core.DefineRead[SnapshotCompareInput, SnapshotComparison](core.ActionSpec{
 		Name: "firewall.snapshot.compare", Summary: "Compare two firewall snapshots, or one with the host now.", Version: 1, Side: core.SideAgent,
-	}, readFunc[SnapshotCompareInput, SnapshotComparison](f.compareSnapshots))
+	}, readFunc[SnapshotCompareInput, SnapshotComparison](func(ctx context.Context, env core.Env, in SnapshotCompareInput) (SnapshotComparison, error) {
+		defer f.lockRead()()
+		return f.compareSnapshots(ctx, env, in)
+	}))
 }
 
 // compareSnapshots compares two snapshots, or one with the host now.

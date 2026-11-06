@@ -71,7 +71,7 @@ var statusAfterFiles = []struct {
 
 // dockerResource is resource firewall.docker.
 func (f fw) dockerResource() core.ResourceDef {
-	return core.DefineResource(ID+".docker", f.dockerStatus)
+	return core.DefineResource(ID+".docker", readLocked(f, f.dockerStatus))
 }
 
 // dockerStatus reads resource firewall.docker. A Docker daemon that cannot be

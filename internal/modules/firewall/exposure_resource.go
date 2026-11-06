@@ -61,7 +61,7 @@ type exposureInput struct {
 
 // exposureResource is resource firewall.exposure.
 func (f fw) exposureResource() core.ResourceDef {
-	return core.DefineResource(ID+".exposure", f.exposureView)
+	return core.DefineResource(ID+".exposure", readLocked(f, f.exposureView))
 }
 
 // exposureView reads resource firewall.exposure. A host that is an

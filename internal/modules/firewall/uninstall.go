@@ -36,6 +36,7 @@ func (module) UninstallOptions() []core.UninstallOption {
 // integration has left nothing. keepData does not change it: rules are the
 // host's firewall, not Darkpanel's data.
 func (m module) Uninstall(ctx context.Context, env core.Env, _ bool, opts map[string]string) error {
+	defer m.f.lockWrite()()
 	v := opts["rules"]
 	if v != rulesRemove && v != rulesKeep && v != rulesBaseline {
 		return fmt.Errorf("firewall: uninstall option rules=%q is not remove, keep or baseline", v)

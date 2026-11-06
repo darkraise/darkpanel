@@ -65,6 +65,7 @@ func defineMutation[In any](spec core.ActionSpec, m mutation[In]) core.ActionDef
 
 // Plan plans the change (fw.plan).
 func (m mutation[In]) Plan(ctx context.Context, env core.Env, in In) (core.PlanOutcome, error) {
+	defer m.f.lockRead()()
 	req := planReq{input: in, guarded: m.guarded(in), build: m.build(ctx, env, in)}
 	if m.manual != nil {
 		req.manual = m.manual(in)
@@ -78,6 +79,7 @@ func (m mutation[In]) Plan(ctx context.Context, env core.Env, in In) (core.PlanO
 // is pinned for the capture; otherwise restoring the oldest retained
 // snapshot would delete it.
 func (m mutation[In]) Snapshot(ctx context.Context, env core.Env, in In) ([]byte, error) {
+	defer m.f.lockRead()()
 	if m.keep != nil {
 		id := m.keep(in)
 		s, err := getSnapshot(ctx, env.DB, id)
@@ -101,6 +103,7 @@ func (m mutation[In]) Snapshot(ctx context.Context, env core.Env, in In) ([]byte
 // Apply attaches the snapshot, makes the change as journaled effects
 // (fw.run) and records the post-apply file hashes.
 func (m mutation[In]) Apply(ctx context.Context, env core.Env, in In) (ChangeOutput, error) {
+	defer m.f.lockWrite()()
 	id, err := attach(ctx, env)
 	if err != nil {
 		return ChangeOutput{}, err
@@ -133,6 +136,7 @@ func (m mutation[In]) Apply(ctx context.Context, env core.Env, in In) (ChangeOut
 // reads only the host, the change's journal and snapshot, so it also serves
 // startup recovery.
 func (m mutation[In]) Verify(ctx context.Context, env core.Env, in In, _ ChangeOutput) error {
+	defer m.f.lockRead()()
 	cfg, err := m.f.d.readConfig(m.f.d.root)
 	if err != nil {
 		return fmt.Errorf("firewall: verify: %w", err)
@@ -196,11 +200,13 @@ func (f fw) verifySysctl(ctx context.Context, env core.Env, cfg fwstate.Config, 
 
 // Revert reverts the change from its snapshot (revert).
 func (m mutation[In]) Revert(ctx context.Context, env core.Env, snapshot []byte) (core.RevertOutcome, error) {
+	defer m.f.lockWrite()()
 	return revert(ctx, env, m.f.d, snapshot)
 }
 
 // Observe reads the resource of one effect (observe).
 func (m mutation[In]) Observe(ctx context.Context, env core.Env, e core.Effect) (core.Observation, error) {
+	defer m.f.lockRead()()
 	return observe(ctx, env, m.f.d, e)
 }
 

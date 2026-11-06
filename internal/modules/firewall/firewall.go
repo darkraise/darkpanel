@@ -82,7 +82,7 @@ func (f fw) actions() []core.ActionDef {
 // firewall.exposure.
 func (f fw) resources() []core.ResourceDef {
 	return []core.ResourceDef{
-		core.DefineResource(ID+".status", f.status), core.DefineResource(ID+".snapshots", f.snapshots),
+		core.DefineResource(ID+".status", readLocked(f, f.status)), core.DefineResource(ID+".snapshots", f.snapshots),
 		f.dockerResource(), f.exposureResource(),
 	}
 }
