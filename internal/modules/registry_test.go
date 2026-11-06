@@ -2,6 +2,7 @@ package modules_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -23,7 +24,7 @@ import (
 var (
 	moduleIDRule   = regexp.MustCompile(`^[a-z][a-z0-9]*$`)
 	actionNameRule = regexp.MustCompile(`^[a-z][a-z0-9]*\.[a-z][a-z0-9]*\.[a-z][a-z0-9-]*$`)
-	resourceRule   = regexp.MustCompile(`^[a-z][a-z0-9]*\.[a-z][a-z0-9-]*$`)
+	resourceRule   = regexp.MustCompile(`^[a-z][a-z0-9]*\.[a-z][a-z0-9]*$`)
 	reservedCLI    = []string{
 		"serve", "agent", "update", "user", "controller", "change", "uninstall", "version",
 		"host", "module", "token", "audit", "help", "completion", "system",
@@ -356,5 +357,38 @@ func TestPanelCLICommands(t *testing.T) {
 	root.SetArgs([]string{"panel", "listener", "revoke", "--local"})
 	if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "--local reaches only this host's agent") {
 		t.Errorf("darkpanel panel listener revoke --local: %v, want it refused because the action is not agent-side", err)
+	}
+}
+
+// w10sfModule is a module whose manifest the test chooses.
+type w10sfModule core.Manifest
+
+func (m w10sfModule) Manifest() core.Manifest { return core.Manifest(m) }
+
+// TestW10SfResourceRuleMatchesCore shows that the resource rule written out
+// in this file accepts exactly the names core.NewRegistry accepts, so the
+// test guards the rule core enforces and no looser one.
+func TestW10SfResourceRuleMatchesCore(t *testing.T) {
+	read := func(context.Context, core.Env) (json.RawMessage, error) { return json.RawMessage(`{}`), nil }
+	tests := []struct {
+		name     string
+		accepted bool
+	}{
+		{"w10sf.status", true},
+		{"w10sf.ports2", true},
+		{"w10sf.docker-ports", false},
+		{"w10sf.Status", false},
+		{"w10sf.2status", false},
+		{"w10sf", false},
+		{"w10sf.a.b", false},
+	}
+	for _, tt := range tests {
+		_, err := core.NewRegistry(w10sfModule{ID: "w10sf", Version: 1, Resources: []core.ResourceDef{{Name: tt.name, Read: read}}})
+		if (err == nil) != tt.accepted {
+			t.Errorf("core.NewRegistry with resource %q: error %v, want accepted = %v", tt.name, err, tt.accepted)
+		}
+		if got := resourceRule.MatchString(tt.name) && strings.HasPrefix(tt.name, "w10sf."); got != tt.accepted {
+			t.Errorf("resourceRule on %q = %v, want %v, as core decides", tt.name, got, tt.accepted)
+		}
 	}
 }
