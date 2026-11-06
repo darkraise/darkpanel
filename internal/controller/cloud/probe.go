@@ -20,7 +20,8 @@ type Capability struct {
 	Detail string `json:"detail,omitempty"` // a missing capability: the error code
 }
 
-// Probe is one harmless read that proves a read capability.
+// Probe is one harmless read that proves a read capability. A nil Read
+// cannot prove it, so ProbeReads reports the capability as missing.
 type Probe struct {
 	Name string
 	Read func(ctx context.Context) error
@@ -32,6 +33,10 @@ type Probe struct {
 func ProbeReads(ctx context.Context, probes []Probe, writes []string) []Capability {
 	out := make([]Capability, 0, len(probes)+len(writes))
 	for _, p := range probes {
+		if p.Read == nil {
+			out = append(out, Capability{Name: p.Name, State: CapabilityMissing, Detail: string(errcode.Internal)})
+			continue
+		}
 		if err := p.Read(ctx); err != nil {
 			out = append(out, Capability{Name: p.Name, State: CapabilityMissing, Detail: string(errcode.From(err).Code)})
 			continue
