@@ -28,6 +28,8 @@ const (
 	pinTxArchive = "/var/cache/apt/archives"
 	// pinTxPoll is the wait between two probes of the check and of the rollback's verification.
 	pinTxPoll = 2 * time.Second
+	// pinRollbackBudget bounds the rollback of a failed pin, which runs on a context of its own.
+	pinRollbackBudget = 10 * time.Minute
 
 	txAptGet  = "/usr/bin/apt-get"
 	txAptMark = "/usr/bin/apt-mark"
@@ -230,8 +232,12 @@ func (h packagePinHandler) txCopyPrior(ctx context.Context, env core.Env, name s
 }
 
 // txFail rolls back a pin whose forward step failed with cause and returns the pin's tailscale.pin_failed error.
-// The pin effect is skipped only when the rollback verified that the host is as before.
+// The pin effect is skipped only when the rollback verified that the host is as before. The rollback runs on a
+// context detached from the forward one and bounded by pinRollbackBudget: a forward step that failed because the
+// apply budget ran out would otherwise leave the host on the new version with nothing restored.
 func (h packagePinHandler) txFail(ctx context.Context, env core.Env, seq int, prior, step string, cause error) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), pinRollbackBudget)
+	defer cancel()
 	p, ok, err := loadPin(ctx, env.DB.Read(), env.ChangeID)
 	if err == nil && !ok {
 		err = fmt.Errorf("tailscale: pin %s is not recorded", env.ChangeID)

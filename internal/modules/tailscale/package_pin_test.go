@@ -31,6 +31,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/paths"
 	"github.com/darkraise/darkpanel/internal/platform"
+	"github.com/darkraise/darkpanel/internal/platform/tslocal"
 	"github.com/darkraise/darkpanel/internal/transport"
 )
 
@@ -937,5 +938,85 @@ func TestPnVerify(t *testing.T) {
 	s.apt.held = true
 	if err := h.Verify(ctx, s.env, pnInput(pnTarget), json.RawMessage(`{}`)); err != nil {
 		t.Errorf("verify of a pinned host: %v", err)
+	}
+}
+
+// w10tpLocal ends the pin's forward context the first time tailscaled is asked for its status while the new
+// version is installed, which is the check step, as the expiry of the apply budget would.
+type w10tpLocal struct {
+	localAPI
+	apt    *pnApt
+	cancel context.CancelFunc
+}
+
+func (l w10tpLocal) Status(ctx context.Context) (*tslocal.Status, error) {
+	if l.apt.version == pnTarget {
+		l.cancel()
+	}
+	return l.localAPI.Status(ctx)
+}
+
+// w10tpCall is one command the runner was given and the state of the context it was given with.
+type w10tpCall struct {
+	vector   string
+	err      error
+	deadline time.Duration // until the context's deadline when it was given; 0 without one
+}
+
+// w10tpExec records the context of every command before it passes the command on.
+type w10tpExec struct {
+	inner core.Runner
+	calls []w10tpCall
+}
+
+func (r *w10tpExec) Run(ctx context.Context, cmd core.Cmd) (core.CmdResult, error) {
+	c := w10tpCall{vector: pnVec(cmd.Path, cmd.Args), err: ctx.Err()}
+	if dl, ok := ctx.Deadline(); ok {
+		c.deadline = time.Until(dl)
+	}
+	r.calls = append(r.calls, c)
+	return r.inner.Run(ctx, cmd)
+}
+
+// TestW10TpPinRollsBackAfterTheForwardContextEnds: the rollback of a pin whose check ran out of the apply budget
+// runs on a context of its own, bounded by 10 minutes, and still restores the prior version and hold.
+func TestW10TpPinRollsBackAfterTheForwardContextEnds(t *testing.T) {
+	s := pnNewSetup(t, true)
+	s.apt.backend[pnTarget], s.apt.backend[pnPrior] = "Stopped", "Running"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	inner := s.t.d.local
+	s.t.d.local = func() localAPI { return w10tpLocal{localAPI: inner(), apt: s.apt, cancel: cancel} }
+	rec := &w10tpExec{inner: s.apt}
+	s.env.Exec = rec
+
+	_, err := s.t.packagePin().Handler.Task(ctx, s.env, pnInput(pnTarget))
+	coded := pnCoded(t, err, errcode.TailscalePinFailed)
+	if !strings.Contains(coded.Detail, "tailscale is back at "+pnPrior) {
+		t.Errorf("detail %q, want it to say the prior version is back", coded.Detail)
+	}
+	if p := pnPin(t, s.h); p.Phase != "rolled_back" {
+		t.Errorf("pin phase %s, want rolled_back", p.Phase)
+	}
+	if s.apt.version != pnPrior || !s.apt.held {
+		t.Errorf("host has version %s, held %v; want %s, held", s.apt.version, s.apt.held, pnPrior)
+	}
+	if e := pnPinEffect(t, s.h); e.State != core.EffectSkipped {
+		t.Errorf("effect state %s, want skipped: the host is as before", e.State)
+	}
+	rollbackInstall := pnVec(pnAptGet, platform.AptInstallDeb(pnDebPath(pnPrior)))
+	found := false
+	for _, c := range rec.calls {
+		if c.vector != rollbackInstall {
+			continue
+		}
+		found = true
+		if c.err != nil || c.deadline <= 0 || c.deadline > 10*time.Minute {
+			t.Errorf("the rollback's install ran with context error %v and %v to its deadline, want a live context bounded by 10 minutes",
+				c.err, c.deadline)
+		}
+	}
+	if !found {
+		t.Errorf("commands %+v, want the rollback to reinstall the staged prior package", rec.calls)
 	}
 }
