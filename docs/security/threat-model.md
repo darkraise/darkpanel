@@ -45,7 +45,7 @@ This page is the written threat model of Darkpanel. It states what the product p
 ### Proxy and controller
 
 - The runtime listeners of a panel exposure accept HTTPS only, on a private bridge address, from one allowed peer address (the proxy).
-- One client-address header is read (`X-Darkpanel-Client` for Nginx Proxy Manager, `Cf-Connecting-IP` for a tunnel) and every other forwarded header is ignored. A request whose forwarded protocol is not https is refused, an unsafe request must carry an Origin that matches the public host, and revocation is durable.
+- One client-address header is read (`X-Darkpanel-Client` for Nginx Proxy Manager, `Cf-Connecting-IP` for a tunnel) and every other forwarded header is ignored. A request whose forwarded protocol is not https is refused, an unsafe request whose Origin is present must match the public host, and revocation is durable.
 
 ### Controller and agent
 
@@ -105,9 +105,9 @@ This page is the written threat model of Darkpanel. It states what the product p
 - The two roles use separate authorities and certificates. Every agent pins the controller SAN and the controller requires a host SAN of every agent (`internal/transport`).
 - The link is TLS 1.3 with a client certificate and ALPN `darkpanel-agent/1`; an enrollment listener on `darkpanel-enroll/1` serves only enrollment (`internal/transport`).
 - An enrollment token holds 128 random bits, is stored hashed, is valid for one hour, is compared in constant time, is consumed atomically, is rate limited and is bound to one host id. The identity the CSR claims is ignored (`internal/controller/fleet`).
-- Certificates last one year and are renewed over the live session. Revocation by serial is checked at every handshake and closes the live session (`internal/transport`, `internal/agent/daemon`).
-- The agent listener binds loopback and the Tailscale interface by default, never all interfaces (`internal/agent/daemon`).
-- A frozen hello and update path lets an agent outside the version window still be updated (`internal/agent/daemon`).
+- Certificates last one year and are renewed over the live session. Revocation by serial is checked at every handshake and closes the live session (`internal/transport`, `internal/controller/fleet`, `internal/controller/coreactions`, `internal/agent/daemon`).
+- The agent listener binds loopback and the Tailscale interface by default, never all interfaces; the agent in `internal/agent/daemon` dials out (`internal/controller/listen/agent.go`).
+- A frozen hello and update path lets an agent outside the version window still be updated (`internal/controller/dispatch`, `internal/controller/coreactions`, `internal/agent/api`).
 - A restored controller issues enrollment tokens only in quarantine and only for existing hosts (`internal/controller/backup`).
 
 #### Residual risk
@@ -128,10 +128,10 @@ This page is the written threat model of Darkpanel. It states what the product p
 
 #### Mitigations
 
-- The exec provider runs only allowlisted absolute binary paths with a fixed minimal environment. It uses an argument vector only, with `--` before values that could be read as options (`internal/platform`).
-- Input schemas constrain every value that reaches a program (`internal/platform`).
+- The exec provider runs only allowlisted absolute binary paths with a fixed minimal environment. It never uses a shell and runs only argument vectors that a rule for that path accepts, mostly exact vectors; where a tool has no `--`, as ufw, the input schema patterns refuse a value that starts with `-` (`internal/platform`).
+- Input schemas constrain every value that reaches a program (`internal/modules`, `internal/core/lifecycle`).
 - The file provider writes only declared paths and marked blocks. It opens the parent with `openat2` and `RESOLVE_NO_SYMLINKS`, requires a root-owned parent that others cannot write, writes through a temporary file and a rename, and refuses duplicated, nested or unterminated markers (`internal/platform`).
-- APIs are preferred to tools: the Docker Engine API, the Tailscale local API and systemd over D-Bus. An ownership manifest drives uninstall, and only `internal/platform` runs programs or writes host files.
+- APIs are preferred to tools: the Docker Engine API, the Tailscale local API and systemd over D-Bus. An ownership manifest drives uninstall, Agent modules run programs and write host files only through `internal/platform`; the update path (`internal/update`, `cmd/darkpanel/update.go`) additionally runs the staged or previous Darkpanel binary itself.
 - Every parser of tool output and untrusted input is listed in `docs/security/parsers.md` with a fuzz target that `scripts/fuzz.sh` runs.
 
 #### Residual risk
@@ -152,9 +152,9 @@ This page is the written threat model of Darkpanel. It states what the product p
 
 #### Mitigations
 
-- Compose files are operator-authored and trusted like any root-run configuration. Darkpanel never writes them, running them is an `admin` action, and the plan says it runs the project's file as root (`internal/modules/docker/compose`).
-- Validation requires absolute paths owned by root or the directory's owner with no symlink. A service with a `provider` key, or any key outside the documented set, is refused (`internal/modules/docker/compose`).
-- Both remote loaders are switched off with `COMPOSE_EXPERIMENTAL_GIT_REMOTE=false` and the OCI equivalent, `up` always runs with `--no-build`, and the environment holds only the Darkpanel-owned `DOCKER_CONFIG` and `HOME` (`internal/modules/docker/compose`).
+- Compose files are operator-authored and trusted like any root-run configuration. Darkpanel never writes them, running them is an `admin` action, and the plan says it runs the project's file as root (`internal/modules/docker`).
+- Validation requires absolute paths owned by root or the directory's owner with no symlink. A service with a `provider` key, or any key outside the documented set, is refused (`internal/modules/docker/compose_check.go`, `internal/modules/docker/compose/validate.go`).
+- Both remote loaders are switched off with `COMPOSE_EXPERIMENTAL_GIT_REMOTE=false` and the OCI equivalent, `up` always runs with `--no-build`, and nothing is inherited from the agent's environment: it holds the runner's fixed base, the Darkpanel-owned `DOCKER_CONFIG` and `HOME`, and the two remote-loader switches (`internal/platform/exec_rules.go`, `internal/modules/docker/compose_run.go`, `internal/modules/docker/compose`).
 - A project named `darkpanel*`, or one that touches an object labelled `darkpanel.module`, is refused with `docker.owned` (`internal/modules/docker/compose_check.go`).
 - The resolved configuration is read as strict JSON and fuzzed (`internal/modules/docker/compose`).
 
@@ -179,8 +179,8 @@ This page is the written threat model of Darkpanel. It states what the product p
 - Secret columns are sealed with XChaCha20-Poly1305 under a per-role key file (mode 0600), with the table, column and row id as associated data. The `secret` tag drives sealing and redaction (`internal/core/secret`).
 - The CLI takes secrets only from a prompt or standard input, never a flag (`internal/cli`).
 - A reveal action returns one stored secret once, needs `admin`, writes its audit entry before it answers and sets `Cache-Control: no-store`. It is never journaled, cached, relayed through server-sent events or stored in a change, and has no `--local` form (`internal/core/lifecycle/reveal.go`, `internal/controller/api/reveal.go`).
-- Container logs and the Nginx Proxy Manager container's logs are filtered for secrets (`internal/modules/docker/logsecrets.go`).
-- A backup is one archive, framed and sealed with a key derived from the operator's passphrase by argon2id and authenticated to its end so truncation is detected. The passphrase is read from the terminal or a root-owned 0600 file (`internal/controller/backup`).
+- The logs of containers a Darkpanel module owns, the Cloudflare connector and the Nginx Proxy Manager container, are masked for the secrets Darkpanel placed in them. The logs of other containers pass unchanged (`internal/modules/docker/logsecrets.go`, `internal/modules/cloudflare`, `internal/modules/npm`).
+- A backup is one archive, framed and sealed with a key derived from the operator's passphrase by argon2id and authenticated to its end so truncation is detected (`internal/controller/backup`). The passphrase is read from the terminal or a root-owned 0600 file (`internal/cli`).
 - A restore stages with mode 0600 and gives owner and mode to each staged file through one descriptor that refuses links. A backup keeps its plaintext copy of the database in a private directory that the controller sweeps at startup, and reads the key file with a bound, so a key that grew is refused (`internal/controller/backup`).
 - The CLI builds the backup request from the passphrase bytes (`internal/cli`).
 - Removing an Nginx Proxy Manager instance deletes its upgrade archives, which hold Let's Encrypt private keys and the NPM database (`internal/modules/npm`).
@@ -191,6 +191,7 @@ This page is the written threat model of Darkpanel. It states what the product p
 - A passphrase typed at a terminal passes through a Go string in the terminal reader before it is copied.
 - The strength of a backup passphrase is the operator's.
 - Losing `controller.key` without a backup loses the sealed data.
+- A secret that an application writes to its own container's logs is not masked.
 
 ### Firewall
 
@@ -204,12 +205,12 @@ This page is the written threat model of Darkpanel. It states what the product p
 
 #### Mitigations
 
-- A lockout guard predicts the effect of a change on the protected flows and refuses it unless explicitly overridden (`internal/modules/firewall/predict`, `internal/modules/firewall/eval`).
-- A change stays pending until confirmed and the host reverts it by itself after the confirmation timeout (60 seconds by default), so the revert happens even when the client disconnects (`internal/modules/firewall`).
+- A lockout guard predicts the effect of a change on the protected flows and refuses it unless explicitly overridden (`internal/modules/firewall/predict`, `internal/modules/firewall/eval`, `internal/modules/firewall/guard`).
+- A change stays pending until confirmed and the host reverts it by itself after the confirmation timeout (60 seconds by default), so the revert happens even when the client disconnects (`internal/core/lifecycle`, `internal/modules/firewall`).
 - A snapshot is taken before every change, and a break-glass rollback and restore through the agent socket work without the controller (`internal/cli`, `internal/modules/firewall`).
 - The module holds one read-write lock per instance. Every path that changes UFW's files, the loaded rules or the Docker block takes it for writing, and every status read and plan preparation takes it for reading, so a plan or a status read never sees a state between a file write and the reload (`internal/modules/firewall`).
 - The Docker integration is a marked block with its own implementation that pins a container's allowance to its published binding (`internal/modules/firewall/dockerfw`).
-- The exposure view computes reachability per port and the harness checks it against an external scanner. The parsers of UFW files and ruleset output are fuzzed (`internal/modules/firewall`).
+- The exposure view computes reachability per port and the harness checks it against an external scanner. The parsers of UFW files and ruleset output are fuzzed (`internal/modules/firewall`, `internal/modules/firewall/exposure`, `test/harness`).
 
 #### Residual risk
 
@@ -231,7 +232,7 @@ This page is the written threat model of Darkpanel. It states what the product p
 
 - Credentials are stored sealed in each module's own table and are write-only through the API, except through secret delivery (`internal/controller/cloud`).
 - One HTTP client with 15-second timeouts retries only reads and deletes (`internal/controller/cloud`).
-- Every write has a procedure for an uncertain outcome: the effect becomes unresolved and the change `needs_repair`, and nothing settles it automatically or re-sends it blindly (`internal/controller/cloud`).
+- Every write has a procedure for an uncertain outcome: the effect becomes unresolved and the change `needs_repair`, and nothing settles it automatically or re-sends it blindly (`internal/controller/cloud`, `internal/core/lifecycle`).
 - A check of pending cleanup runs before any path deletes a credentials row (`internal/modules/cloudflare`, `internal/modules/tailnet`).
 - Every auth key Darkpanel creates is recorded first and swept by description (`internal/modules/tailnet`).
 - Connect probes read capabilities and report write capabilities as unverified until a write succeeds. The cloud fakes test every fault (`internal/controller/cloud`).
@@ -256,8 +257,8 @@ This page is the written threat model of Darkpanel. It states what the product p
 
 #### Mitigations
 
-- Runtime listeners accept only HTTPS from one allowed peer, read exactly one client header set by a proxy Darkpanel configured (`X-Darkpanel-Client` or `Cf-Connecting-IP`) and ignore `X-Forwarded-For` and `X-Real-IP`. They refuse a request whose forwarded protocol is not https, and refuse an unsafe request whose Origin is not the exposure's public host, compared in lower case without a trailing dot (`internal/controller/listen`, `internal/controller/api`).
-- Login over an exposure requires TOTP and every page shows a banner. Revocation is a durable `revoked` state that is checked on every request and stream and that nothing reverses; `sudo darkpanel panel listener revoke` is the break-glass (`internal/modules/panel`).
+- Runtime listeners accept only HTTPS from one allowed peer, read exactly one client header set by a proxy Darkpanel configured (`X-Darkpanel-Client` or `Cf-Connecting-IP`) and ignore `X-Forwarded-For` and `X-Real-IP`. They refuse a request whose forwarded protocol is not https, and refuse an unsafe request whose Origin is not the exposure's public host, compared with the exposure's public host, which is stored in lower case without a trailing dot (`internal/controller/listen`, `internal/controller/api`).
+- Login over an exposure requires TOTP and every page shows a banner. Revocation is a durable `revoked` state that is checked on every request and stream and that nothing reverses; `sudo darkpanel panel listener revoke` is the break-glass (`internal/modules/panel`, `internal/controller/api`, `internal/controller/listen`, `web/src/modules/panel/banner.tsx`).
 - NPM's admin port 81 is published on 127.0.0.1 only, and its HTTPS exposure is an opt-in action. The banner warns about it on every page, and, because it reads the list again, also about each host whose status could not be read (`unreadable`) and about a failed read (`web/src/modules/npm/banner.tsx`, `internal/modules/npm`).
 - Proxy hosts that forward to NPM's own port 81 or to the panel gateway are refused as reserved (`internal/modules/npm/proxy`).
 - The agent's NPM client limits the size of every answer and drains refusals (`internal/modules/npm/npmapi`).
@@ -286,7 +287,7 @@ This page is the written threat model of Darkpanel. It states what the product p
 - The agent installs derper as a systemd service under the system user `darkpanel-derp` with `NoNewPrivileges=yes` and only `CAP_NET_BIND_SERVICE`. It records that it created the user only after `useradd` succeeded, so uninstall never removes an account somebody else made (`internal/modules/derp`).
 - Derper runs with `-verify-clients`, which checks every client's node key against the host's own `tailscaled` and refuses the client when `tailscaled` fails (`internal/modules/derp`).
 - The host's `tailscaled` is pinned and held at the derper version, and a pin that fails rolls the package back on a context of its own, even when the forward step's context has been cancelled (`internal/modules/tailscale`, `internal/modules/tailscale/package_pin.go`).
-- The node key file is mode 0600, the probe uses a throwaway node key, and the latency probe URL is built only from host names made of letters, digits, hyphens and dots (`internal/modules/derp`).
+- Derper writes its node key file with mode 0600 (`internal/modules/derp/server`). The probe uses a throwaway node key (`internal/platform/tslocal/derp.go`). The probe accepts only an IP literal or a lower-case DNS name of at least two labels made of letters, digits and hyphens, and refuses loopback, unspecified, multicast and link-local addresses, including among the addresses a name resolves to (`internal/modules/derp/node_probe.go`).
 
 #### Residual risk
 
