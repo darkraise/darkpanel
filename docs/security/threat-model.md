@@ -106,7 +106,7 @@ This page is the written threat model of Darkpanel. It states what the product p
 - The link is TLS 1.3 with a client certificate and ALPN `darkpanel-agent/1`; an enrollment listener on `darkpanel-enroll/1` serves only enrollment (`internal/transport`).
 - An enrollment token holds 128 random bits, is stored hashed, is valid for one hour, is compared in constant time, is consumed atomically, is rate limited and is bound to one host id. The identity the CSR claims is ignored (`internal/controller/fleet`).
 - Certificates last one year and are renewed over the live session. Revocation by serial is checked at every handshake and closes the live session (`internal/transport`, `internal/controller/fleet`, `internal/controller/coreactions`, `internal/agent/daemon`).
-- The agent listener binds loopback and the Tailscale interface by default, never all interfaces; the agent in `internal/agent/daemon` dials out (`internal/controller/listen/agent.go`).
+- The agent listener binds loopback and the Tailscale interface by default, never all interfaces (`internal/controller/listen/agent.go`). The agent dials out to the controller (`internal/agent/daemon/daemon.go`).
 - A frozen hello and update path lets an agent outside the version window still be updated (`internal/controller/dispatch`, `internal/controller/coreactions`, `internal/agent/api`).
 - A restored controller issues enrollment tokens only in quarantine and only for existing hosts (`internal/controller/backup`).
 
@@ -287,7 +287,7 @@ This page is the written threat model of Darkpanel. It states what the product p
 - The agent installs derper as a systemd service under the system user `darkpanel-derp` with `NoNewPrivileges=yes` and only `CAP_NET_BIND_SERVICE`. It records that it created the user only after `useradd` succeeded, so uninstall never removes an account somebody else made (`internal/modules/derp`).
 - Derper runs with `-verify-clients`, which checks every client's node key against the host's own `tailscaled` and refuses the client when `tailscaled` fails (`internal/modules/derp`).
 - The host's `tailscaled` is pinned and held at the derper version, and a pin that fails rolls the package back on a context of its own, even when the forward step's context has been cancelled (`internal/modules/tailscale`, `internal/modules/tailscale/package_pin.go`).
-- Derper writes its node key file with mode 0600 (`internal/modules/derp/server`). The probe uses a throwaway node key (`internal/platform/tslocal/derp.go`). The probe accepts only an IP literal or a lower-case DNS name of at least two labels made of letters, digits and hyphens, and refuses loopback, unspecified, multicast and link-local addresses, including among the addresses a name resolves to (`internal/modules/derp/node_probe.go`).
+- Derper's node key file lives in `/var/lib/darkpanel/derp`, a directory owned by `darkpanel-derp` that is created and kept at mode 0700 (`internal/modules/derp/server/server.go`, `internal/platform/files_servicedir.go`). Darkpanel does not set the mode of the key file itself, which derper writes. The probe uses a throwaway node key (`internal/platform/tslocal/derp.go`). The probe accepts only an IP literal or a lower-case DNS name of at least two labels made of letters, digits and hyphens, and refuses loopback, unspecified, multicast and link-local addresses, including among the addresses a name resolves to (`internal/modules/derp/node_probe.go`).
 
 #### Residual risk
 
