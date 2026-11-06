@@ -925,3 +925,236 @@ func TestUpVerifyChecksThePinnedImageRuns(t *testing.T) {
 		t.Error("verify without a container succeeded, want an error")
 	}
 }
+
+// w10nuFailedFrom is the failed_from column of the upgrade row of change c1.
+func w10nuFailedFrom(t *testing.T, h *thHost) string {
+	t.Helper()
+	var from string
+	if err := h.db.Read().QueryRow(`SELECT failed_from FROM npm_upgrades WHERE change_id = 'c1'`).Scan(&from); err != nil {
+		t.Fatal(err)
+	}
+	return from
+}
+
+// TestW10NuRollbackOfAFailedRowKeepsItsBranch: an upgrade whose rollback failed records the phase it failed in, and
+// a later rollback of the failed row takes that phase's branch: it starts the original container when it was never
+// removed, and restores it from the archives when it was.
+func TestW10NuRollbackOfAFailedRowKeepsItsBranch(t *testing.T) {
+	tests := []struct {
+		name       string
+		setup      func(s *upSetup)
+		failedFrom string
+		check      func(t *testing.T, s *upSetup)
+	}{
+		{"the original was only stopped", func(s *upSetup) {
+			s.files.failWrite = func(name string) error {
+				if name == "c1-letsencrypt.tar" {
+					return errors.New("disk full")
+				}
+				return nil
+			}
+			s.dock.fail = func(call string, n int) error {
+				if call == "StartContainer" && n == 1 {
+					return errors.New("docker: start refused")
+				}
+				return nil
+			}
+		}, "archiving", func(t *testing.T, s *upSetup) {
+			c, ok := s.h.docker.container(s.inst.ContainerID)
+			if !ok || !c.State.Running || s.dock.counts["RemoveContainer"] != 0 || s.dock.counts["CreateContainer"] != 0 {
+				t.Errorf("original %+v (found %v), removals %d, creates %d; want it running again and nothing removed or created",
+					c, ok, s.dock.counts["RemoveContainer"], s.dock.counts["CreateContainer"])
+			}
+		}},
+		{"the original was removed", func(s *upSetup) {
+			s.apiDown()
+			s.dock.fail = func(call string, n int) error {
+				if call == "CopyToContainer /etc" && n == 1 {
+					return errors.New("docker: no space left on device")
+				}
+				return nil
+			}
+		}, "waiting", func(t *testing.T, s *upSetup) {
+			c, ok := s.h.docker.container(containerName)
+			row := s.instanceRow()
+			if !ok || !c.State.Running || c.Config.Image != upFromImage || c.ID != row.ContainerID || row.Image != upFromImage {
+				t.Errorf("container %+v (found %v) with the instance row at %s %s; want a running container of %s that the row names",
+					c, ok, row.ContainerID, row.Image, upFromImage)
+			}
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := upNewSetup(t, upFromImage, true)
+			tc.setup(s)
+			if _, err := s.apply(); err == nil {
+				t.Fatal("the upgrade succeeded, want it to fail")
+			}
+			if got := s.phase(); got != "failed" {
+				t.Fatalf("phase %q, want failed", got)
+			}
+			if got := w10nuFailedFrom(t, s.h); got != tc.failedFrom {
+				t.Fatalf("failed_from %q, want %q", got, tc.failedFrom)
+			}
+			s.dock.fail, s.files.failWrite = nil, nil
+			if err := (instanceUpgradeHandler{n: s.n}).rollback(context.Background(), s.env, s.upgrade()); err != nil {
+				t.Fatalf("rollback of the failed row: %v", err)
+			}
+			if got := s.phase(); got != "rolled_back" {
+				t.Errorf("phase %q, want rolled_back", got)
+			}
+			tc.check(t, s)
+			if effects := s.effects(); len(effects) != 1 || effects[0].State != core.EffectSkipped {
+				t.Errorf("journal %+v, want one skipped effect", effects)
+			}
+		})
+	}
+}
+
+// TestW10NuRollbackFailuresAreRecordedWithTheirPhase: each step of a rollback that fails ends the transaction in
+// phase failed with the reason and the phase it failed in, whichever branch it was on.
+func TestW10NuRollbackFailuresAreRecordedWithTheirPhase(t *testing.T) {
+	tests := []struct {
+		name       string
+		phase      string
+		fail       string // the Docker method that fails once; empty: none
+		noInstance bool   // the instance row is gone
+		want       string // in the error
+	}{
+		{"the replacement cannot be removed", "waiting", "RemoveContainer", false, "remove container"},
+		{"a volume cannot be removed", "waiting", "RemoveVolume", false, "remove volume"},
+		{"a volume cannot be created", "waiting", "CreateVolume", false, "create volume"},
+		{"the original cannot be created", "waiting", "CreateContainer", false, "create container"},
+		{"an archive cannot be copied back", "waiting", "CopyToContainer", false, "copy the archive"},
+		{"the recreated original cannot be started", "waiting", "StartContainer", false, "start container"},
+		{"the stopped original cannot be started", "stopped", "StartContainer", false, "start container"},
+		{"no instance is recorded", "stopped", "", true, "no Nginx Proxy Manager instance is recorded"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			f := urSetup(t)
+			var refs []archiveRef
+			if tc.phase == "waiting" {
+				f.replace(urTo)
+				refs = f.archives()
+			} else {
+				f.setRunning(f.inst.ContainerID, false)
+			}
+			f.record(tc.phase, "", refs)
+			if tc.fail != "" {
+				f.h.docker.Fail(tc.fail, errors.New("docker refused"))
+			}
+			if tc.noInstance {
+				err := f.h.db.Write(ctx, func(tx *sql.Tx) error { _, err := tx.ExecContext(ctx, `DELETE FROM npm_instances`); return err })
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			u, ok, err := loadUpgrade(ctx, f.h.db.Read(), urChange)
+			if err != nil || !ok {
+				t.Fatalf("upgrade row: found %v, error %v", ok, err)
+			}
+			err = (instanceUpgradeHandler{n: f.n}).rollback(ctx, f.h.env(urChange), u)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("rollback = %v, want an error containing %q", err, tc.want)
+			}
+			got, _, err := loadUpgrade(ctx, f.h.db.Read(), urChange)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Phase != "failed" || got.Result == "" || !strings.Contains(got.Result, tc.want) {
+				t.Errorf("upgrade row %+v, want phase failed with a result containing %q", got, tc.want)
+			}
+			var from string
+			if err := f.h.db.Read().QueryRow(`SELECT failed_from FROM npm_upgrades WHERE change_id = ?`, urChange).Scan(&from); err != nil || from != tc.phase {
+				t.Errorf("failed_from %q (error %v), want %q", from, err, tc.phase)
+			}
+		})
+	}
+}
+
+// TestW10NuInterruptedWaitIsNotReportedAsATimeout: an upgrade whose context ends while it waits for the new
+// container's API says it was interrupted, not that the API did not answer within the wait, and still restores the
+// original.
+func TestW10NuInterruptedWaitIsNotReportedAsATimeout(t *testing.T) {
+	s := upNewSetup(t, upFromImage, true)
+	s.apiDown()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	var err error
+	go func() {
+		defer close(done)
+		_, err = s.n.instanceUpgrade().Handler.Apply(ctx, s.env, json.RawMessage(`{}`))
+	}()
+	timeout := time.After(30 * time.Second)
+wait:
+	for {
+		select {
+		case <-done:
+			break wait
+		case <-timeout:
+			t.Fatal("the upgrade did not end")
+		default:
+			if s.h.clock.Pending() > 0 {
+				cancel()
+			} else {
+				time.Sleep(time.Millisecond)
+			}
+		}
+	}
+	var coded *errcode.Error
+	if !errors.As(err, &coded) || coded.Code != errcode.NPMUnhealthy {
+		t.Fatalf("error %v, want an npm.unhealthy error", err)
+	}
+	const want = "the upgrade was interrupted while waiting for the new Nginx Proxy Manager container; the original container and volumes were restored"
+	if coded.Detail != want {
+		t.Errorf("detail %q, want %q", coded.Detail, want)
+	}
+	s.wantRestored()
+}
+
+// w10nuDefiniteDown is an NPM client whose API fails with an error marked definite.
+type w10nuDefiniteDown struct{ npmAPI }
+
+func (w10nuDefiniteDown) Health(context.Context) (npmapi.Health, error) {
+	return npmapi.Health{}, core.Definite(errors.New("npmapi: refused"))
+}
+
+// TestW10NuFailedUpgradeIsNeverDefinite: the host has changed when a step fails, so a failure is not definite
+// however definite its cause was, whether or not the rollback succeeded.
+func TestW10NuFailedUpgradeIsNeverDefinite(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(s *upSetup)
+	}{
+		{"the API check fails definitely", func(s *upSetup) {
+			inner := s.n.d.anon
+			s.n.d.anon = func() npmAPI { return w10nuDefiniteDown{npmAPI: inner()} }
+		}},
+		{"the API check fails definitely and the rollback fails", func(s *upSetup) {
+			inner := s.n.d.anon
+			s.n.d.anon = func() npmAPI { return w10nuDefiniteDown{npmAPI: inner()} }
+			s.dock.fail = func(call string, _ int) error {
+				if call == "CopyToContainer /etc" {
+					return errors.New("docker: no space left on device")
+				}
+				return nil
+			}
+		}},
+		{"an archive reads back with a definite failure", func(s *upSetup) {
+			s.n.d.readFile = func(string) ([]byte, error) { return nil, core.Definite(errors.New("read refused")) }
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := upNewSetup(t, upFromImage, true)
+			tc.setup(s)
+			_, err := s.apply()
+			if err == nil || core.IsDefinite(err) {
+				t.Errorf("error %v (definite %v), want an error that is not definite", err, core.IsDefinite(err))
+			}
+		})
+	}
+}

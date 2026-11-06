@@ -2,15 +2,10 @@ package npm
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io/fs"
 
 	"github.com/darkraise/darkpanel/internal/core"
-	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
 )
 
@@ -45,26 +40,16 @@ func (h instanceUpgradeHandler) Inverse(ctx context.Context, env core.Env, e cor
 	}
 }
 
-// checkArchives reads every archive of u and checks it against its recorded checksum.
+// checkArchives runs the checks the restore makes of u's archives, their count, volumes and checksums, without
+// keeping their contents.
 func (h instanceUpgradeHandler) checkArchives(u upgradeRow) error {
-	for _, a := range u.Archives {
-		data, err := h.n.d.readFile(backupDir + "/" + a.File)
-		switch {
-		case errors.Is(err, fs.ErrNotExist):
-			return errcode.New(errcode.NotFound, "the backup archive "+a.File+" of the upgrade no longer exists")
-		case err != nil:
-			return err
-		}
-		sum := sha256.Sum256(data)
-		if hex.EncodeToString(sum[:]) != a.SHA256 {
-			return fmt.Errorf("npm: archive %s does not match its recorded checksum", a.File)
-		}
-	}
-	return nil
+	_, err := h.restoreArchives(u)
+	return err
 }
 
-// Recover decides by the transaction row alone, because the engine calls it only once the apply unit has ended. It
-// journals nothing: the engine settles the upgrade's effect through Observe after it returns.
+// Recover decides by the transaction row alone, because the engine calls it only once the apply unit has ended. The
+// rollback it runs from recreating or waiting records the upgrade's effect as skipped; the engine settles every other
+// outcome through Observe after it returns.
 func (h instanceUpgradeHandler) Recover(ctx context.Context, env core.Env) (core.RecoveryOutcome, error) {
 	u, ok, err := loadUpgrade(ctx, env.DB.Read(), env.ChangeID)
 	if err != nil {
@@ -106,11 +91,8 @@ func (h instanceUpgradeHandler) Recover(ctx context.Context, env core.Env) (core
 // runs, so a failed start leaves the row as it was.
 func (h instanceUpgradeHandler) recoverOriginal(ctx context.Context, env core.Env, u upgradeRow) (core.RecoveryOutcome, error) {
 	if u.Phase == "archiving" {
-		for _, v := range instanceUpgradeVolumes {
-			name := archiveName(env.ChangeID, v.volume)
-			if err := env.Files.RemoveManaged(ctx, ID, backupDir, name); err != nil && !errors.Is(err, fs.ErrNotExist) {
-				return core.RecoveryOutcome{}, fmt.Errorf("npm: remove the archive %s: %w", name, err)
-			}
+		if err := h.dropPartialArchives(ctx, env, env.ChangeID); err != nil {
+			return core.RecoveryOutcome{}, err
 		}
 	}
 	docker := h.n.d.docker
@@ -126,7 +108,7 @@ func (h instanceUpgradeHandler) recoverOriginal(ctx context.Context, env core.En
 			return core.RecoveryOutcome{}, fmt.Errorf("npm: start container %s: %w", containerName, engineCoded(err))
 		}
 	}
-	if err := setUpgradePhase(ctx, env.DB, env.ChangeID, "rolled_back", "", u.Archives, env.Clock.Now()); err != nil {
+	if err := setUpgradePhase(ctx, env.DB, env.ChangeID, "rolled_back", "", nil, env.Clock.Now()); err != nil {
 		return core.RecoveryOutcome{}, err
 	}
 	return core.RecoveryOutcome{State: core.RecoveryRolledBack}, nil

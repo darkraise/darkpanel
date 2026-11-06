@@ -200,8 +200,10 @@ func (h instanceUpgradeHandler) Apply(ctx context.Context, env core.Env, _ Upgra
 }
 
 // fail rolls back the transaction a failed step left and returns the step's failure, saying whether the original was
-// restored.
+// restored and, for the wait for the new container, whether the wait ran out or was interrupted. Nothing it returns
+// is definite, because the step had already changed the host, whatever its cause.
 func (h instanceUpgradeHandler) fail(ctx context.Context, env core.Env, step string, cause error) error {
+	cause = notDefinite(cause)
 	ctx = context.WithoutCancel(ctx)
 	u, ok, rbErr := loadUpgrade(ctx, env.DB.Read(), env.ChangeID)
 	if rbErr == nil && !ok {
@@ -210,18 +212,31 @@ func (h instanceUpgradeHandler) fail(ctx context.Context, env core.Env, step str
 	if rbErr == nil {
 		rbErr = h.rollback(ctx, env, u)
 	}
+	rbErr = notDefinite(rbErr)
 	if step == "wait" {
+		lead := "the new Nginx Proxy Manager container did not answer within " + waitText()
+		if errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded) {
+			lead = "the upgrade was interrupted while waiting for the new Nginx Proxy Manager container"
+		}
 		if rbErr != nil {
 			return errcode.Wrap(errcode.NPMUnhealthy, errors.Join(cause, fmt.Errorf("npm: roll back the upgrade: %w", rbErr)),
-				"the new Nginx Proxy Manager container did not answer within "+waitText()+"; restoring the original failed and the instance needs repair")
+				lead+"; restoring the original failed and the instance needs repair")
 		}
-		return errcode.Wrap(errcode.NPMUnhealthy, cause,
-			"the new Nginx Proxy Manager container did not answer within "+waitText()+"; the original container and volumes were restored")
+		return errcode.Wrap(errcode.NPMUnhealthy, cause, lead+"; the original container and volumes were restored")
 	}
 	if rbErr != nil {
 		return fmt.Errorf("npm: upgrade step %s failed: %w; the rollback failed and the instance needs repair: %w", step, cause, rbErr)
 	}
 	return fmt.Errorf("npm: upgrade step %s failed: %w; the original instance was restored", step, cause)
+}
+
+// notDefinite returns err with its text but without the definite mark anywhere in its chain; an error that carries
+// no mark is returned as it is, and nil stays nil.
+func notDefinite(err error) error {
+	if err == nil || !core.IsDefinite(err) {
+		return err
+	}
+	return errors.New(err.Error())
 }
 
 // steps runs the upgrade from the stop of the original container to the bookkeeping of the new one. It returns the
@@ -464,50 +479,30 @@ func (h instanceUpgradeHandler) prune(ctx context.Context, env core.Env) error {
 	return errors.Join(errs...)
 }
 
-// upgradeArchivesInUse returns the archive files of every transaction that is neither done nor rolled back, as a
-// set. A failed transaction still needs its archives.
-func upgradeArchivesInUse(ctx context.Context, q queryer) (map[string]bool, error) {
-	rows, err := q.QueryContext(ctx, "SELECT change_id, archives FROM npm_upgrades WHERE phase NOT IN ('done', 'rolled_back')")
-	if err != nil {
-		return nil, fmt.Errorf("npm: read the unfinished upgrades: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-	out := map[string]bool{}
-	for rows.Next() {
-		var (
-			changeID, text string
-			archives       []archiveRef
-		)
-		if err := rows.Scan(&changeID, &text); err != nil {
-			return nil, fmt.Errorf("npm: read the unfinished upgrades: %w", err)
-		}
-		if err := json.Unmarshal([]byte(text), &archives); err != nil {
-			return nil, fmt.Errorf("npm: decode the archives of upgrade %s: %w", changeID, err)
-		}
-		for _, a := range archives {
-			out[a.File] = true
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("npm: read the unfinished upgrades: %w", err)
-	}
-	return out, nil
-}
-
 // rollback ends the transaction u: before the original container is removed it starts it again, and afterwards it
-// restores the original from u's configuration and verified archives. It works from u alone and records no phase
-// while it runs, so it can run again; it ends in phase rolled_back, or failed with the error returned.
+// restores the original from u's configuration and verified archives. A failed u takes the branch of the phase its
+// rollback failed in; one that failed before that phase was recorded is restored. It works from u alone and records
+// no phase while it runs, so it can run again; it ends in phase rolled_back, or failed with the error returned and
+// the phase it failed in.
 func (h instanceUpgradeHandler) rollback(ctx context.Context, env core.Env, u upgradeRow) error {
+	from := u.Phase
 	var err error
-	switch u.Phase {
+	if u.Phase == "failed" {
+		if from, err = loadUpgradeFailedFrom(ctx, env.DB.Read(), u.ChangeID); err != nil {
+			return err
+		}
+	}
+	switch from {
 	case "rolled_back":
 		return nil
 	case "recorded", "stopped", "archiving", "archived":
-		err = h.resume(ctx, env, u)
-	case "recreating", "waiting", "done", "failed":
+		resumed := u
+		resumed.Phase = from
+		err = h.resume(ctx, env, resumed)
+	case "recreating", "waiting", "done", "":
 		err = h.restore(ctx, env, u)
 	default:
-		err = fmt.Errorf("npm: upgrade %s is in the unknown phase %q", u.ChangeID, u.Phase)
+		err = fmt.Errorf("npm: upgrade %s is in the unknown phase %q", u.ChangeID, from)
 	}
 	if err == nil {
 		err = setUpgradePhase(ctx, env.DB, u.ChangeID, "rolled_back", "", nil, env.Clock.Now())
@@ -516,7 +511,7 @@ func (h instanceUpgradeHandler) rollback(ctx context.Context, env core.Env, u up
 		err = h.skipIntended(ctx, env)
 	}
 	if err != nil {
-		if phaseErr := setUpgradePhase(ctx, env.DB, u.ChangeID, "failed", upgradeResult(err), nil, env.Clock.Now()); phaseErr != nil {
+		if phaseErr := setUpgradeFailed(ctx, env.DB, u.ChangeID, from, upgradeResult(err), env.Clock.Now()); phaseErr != nil {
 			return errors.Join(err, phaseErr)
 		}
 		return err
@@ -554,10 +549,8 @@ func (h instanceUpgradeHandler) skipIntended(ctx context.Context, env core.Env) 
 // archiving may have left half written and starts the original container again.
 func (h instanceUpgradeHandler) resume(ctx context.Context, env core.Env, u upgradeRow) error {
 	if u.Phase == "archiving" {
-		for _, a := range u.Archives {
-			if err := env.Files.RemoveManaged(ctx, ID, backupDir, a.File); err != nil && !errors.Is(err, fs.ErrNotExist) {
-				return fmt.Errorf("npm: remove the archive %s: %w", a.File, err)
-			}
+		if err := h.dropPartialArchives(ctx, env, u.ChangeID); err != nil {
+			return err
 		}
 	}
 	row, ok, err := loadInstance(ctx, env.DB.Read())
@@ -573,8 +566,20 @@ func (h instanceUpgradeHandler) resume(ctx context.Context, env core.Env, u upgr
 	return nil
 }
 
+// dropPartialArchives removes every archive the upgrade of changeID may have written, so that none a cut-off
+// archiving left half written stays behind; an archive that was never written is not an error.
+func (h instanceUpgradeHandler) dropPartialArchives(ctx context.Context, env core.Env, changeID string) error {
+	for _, v := range instanceUpgradeVolumes {
+		name := archiveName(changeID, v.volume)
+		if err := env.Files.RemoveManaged(ctx, ID, backupDir, name); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("npm: remove the archive %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
 // restoreArchives reads both archives of u and checks each against its checksum. It returns their contents in the
-// order of instanceUpgradeVolumes.
+// order of instanceUpgradeVolumes; an archive that no longer exists is a NotFound error.
 func (h instanceUpgradeHandler) restoreArchives(u upgradeRow) ([][]byte, error) {
 	if len(u.Archives) != len(instanceUpgradeVolumes) {
 		return nil, fmt.Errorf("npm: upgrade %s records %d archives, want %d", u.ChangeID, len(u.Archives), len(instanceUpgradeVolumes))
@@ -587,7 +592,10 @@ func (h instanceUpgradeHandler) restoreArchives(u upgradeRow) ([][]byte, error) 
 		}
 		a := u.Archives[j]
 		data, err := h.n.d.readFile(backupDir + "/" + a.File)
-		if err != nil {
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return nil, errcode.New(errcode.NotFound, "the backup archive "+a.File+" of the upgrade no longer exists")
+		case err != nil:
 			return nil, fmt.Errorf("npm: read the archive %s: %w", a.File, err)
 		}
 		sum := sha256.Sum256(data)

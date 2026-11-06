@@ -338,8 +338,8 @@ func TestUrRecoverWhenTheRollbackFails(t *testing.T) {
 	if err != nil || out.State != core.RecoveryNeedsRepair || !strings.Contains(out.Reason, urTo) {
 		t.Fatalf("outcome %+v, %v; want needs_repair naming %s", out, err, urTo)
 	}
-	if got := f.phase(); got == "rolled_back" {
-		t.Errorf("phase %q, want a phase that is not rolled_back", got)
+	if got := f.phase(); got != "failed" {
+		t.Errorf("phase %q, want failed", got)
 	}
 }
 
@@ -440,4 +440,20 @@ func TestUrInverse(t *testing.T) {
 			t.Errorf("error %v after Docker calls %v, want a definite refusal before the host is touched", err, f.callsSince(mark))
 		}
 	})
+}
+
+// TestW10NuInverseArchiveReadErrorsStartWithThePackageName: an archive that cannot be read is a definite refusal
+// whose text starts with "npm:".
+func TestW10NuInverseArchiveReadErrorsStartWithThePackageName(t *testing.T) {
+	f := urSetup(t)
+	f.replace(urTo)
+	f.record("done", "", f.archives())
+	f.n.d.readFile = func(string) ([]byte, error) { return nil, errors.New("disk exploded") }
+	mark := f.mark()
+	err := f.inverse(urResource)
+	if err == nil || !core.IsDefinite(err) || !strings.HasPrefix(err.Error(), "npm:") || !strings.Contains(err.Error(), "disk exploded") ||
+		len(f.callsSince(mark)) != 0 {
+		t.Errorf("error %v (definite %v) after Docker calls %v, want a definite refusal that starts with %q before the host is touched",
+			err, core.IsDefinite(err), f.callsSince(mark), "npm:")
+	}
 }
