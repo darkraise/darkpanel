@@ -322,3 +322,17 @@ func TestSvPortRules(t *testing.T) {
 		}
 	}
 }
+
+// TestW10SpFlagsAndUnitFileRefuseAnUnknownMode: a mode that is neither letsencrypt nor ip gets no flags and no
+// unit, instead of the letsencrypt flags.
+func TestW10SpFlagsAndUnitFileRefuseAnUnknownMode(t *testing.T) {
+	for _, mode := range []string{"", "manual", "IP"} {
+		c := Config{Mode: mode, HostName: "203.0.113.7", VerifyClients: true}
+		if got := Flags(c); got != nil {
+			t.Errorf("Flags with mode %q = %q, want nil", mode, got)
+		}
+		if got := UnitFile(c); len(got) != 0 {
+			t.Errorf("UnitFile with mode %q = %q, want nothing", mode, got)
+		}
+	}
+}

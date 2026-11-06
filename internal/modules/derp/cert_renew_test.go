@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"net"
 	"reflect"
@@ -572,5 +573,84 @@ func TestCrVerify(t *testing.T) {
 	h.units.States[server.UnitName] = core.UnitState{LoadState: "loaded", ActiveState: "inactive", SubState: "dead"}
 	if err := verify(); err == nil || !strings.Contains(err.Error(), server.UnitName) {
 		t.Errorf("err = %v, want the inactive unit named", err)
+	}
+}
+
+// w10spUnits is a unit client whose State fails.
+type w10spUnits struct {
+	core.Units
+	err error
+}
+
+func (u w10spUnits) State(context.Context, string) (core.UnitState, error) {
+	return core.UnitState{}, u.err
+}
+
+// TestW10SpCertRenewRefusesAnAddressDerperNamesNoFileFor: an address none of whose characters derper keeps in a file
+// name has no certificate file, which is an error, not an absent certificate.
+func TestW10SpCertRenewRefusesAnAddressDerperNamesNoFileFor(t *testing.T) {
+	h := crInstalled(t)
+	_, err := h.dp().certRenew().Handler.Observe(context.Background(), h.env(""), core.Effect{Resource: "derp.cert:::", Kind: core.EffectModify})
+	if err == nil || !strings.HasPrefix(err.Error(), "derp:") || !strings.Contains(err.Error(), `"::"`) {
+		t.Errorf("observe of derp.cert::: = %v, want an error naming the address that starts with %q", err, "derp:")
+	}
+}
+
+// TestW10SpCertRenewVerifyErrorsStartWithThePackageName: every way Verify can fail is an error that starts with
+// "derp:".
+func TestW10SpCertRenewVerifyErrorsStartWithThePackageName(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name  string
+		setup func(t *testing.T) (*dpHost, core.Env)
+	}{
+		{"no server is recorded", func(t *testing.T) (*dpHost, core.Env) {
+			h := newDPHost(t)
+			return h, h.env("c1")
+		}},
+		{"the recorded server is not in ip mode", func(t *testing.T) (*dpHost, core.Env) {
+			h := newDPHost(t)
+			at := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
+			err := insertLocalServer(ctx, h.db, localServer{
+				ChangeID: "c0", Mode: server.ModeLetsEncrypt, HostName: "derp.example.com", DerperVersion: "v1.104.1",
+				BinarySHA256: strings.Repeat("a", 64), InstalledAt: at, UpdatedAt: at,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			return h, h.env("c1")
+		}},
+		{"the unit state cannot be read", func(t *testing.T) (*dpHost, core.Env) {
+			h := crInstalled(t)
+			env := h.env("c1")
+			env.Units = w10spUnits{Units: h.units, err: errors.New("bus closed")}
+			return h.dpHost, env
+		}},
+		{"the unit is not active", func(t *testing.T) (*dpHost, core.Env) {
+			h := crInstalled(t)
+			h.units.States[server.UnitName] = core.UnitState{LoadState: "loaded", ActiveState: "inactive", SubState: "dead"}
+			return h.dpHost, h.env("c1")
+		}},
+		{"the certificate cannot be read", func(t *testing.T) (*dpHost, core.Env) {
+			h := crInstalled(t)
+			delete(h.files, crCrt)
+			return h.dpHost, h.env("c1")
+		}},
+		{"the stored pin differs", func(t *testing.T) (*dpHost, core.Env) {
+			h := crInstalled(t)
+			if err := setLocalCert(ctx, h.db, h.newPin, crNewAfter, h.clock.Now()); err != nil {
+				t.Fatal(err)
+			}
+			return h.dpHost, h.env("c1")
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h, env := tc.setup(t)
+			err := h.dp().certRenew().Handler.Verify(ctx, env, json.RawMessage(`{}`), json.RawMessage(`{}`))
+			if err == nil || !strings.HasPrefix(err.Error(), "derp:") {
+				t.Errorf("Verify = %v, want an error that starts with %q", err, "derp:")
+			}
+		})
 	}
 }

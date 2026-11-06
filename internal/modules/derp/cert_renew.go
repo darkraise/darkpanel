@@ -56,10 +56,14 @@ func certRenewDoc(c certRenewCert) core.StateDoc {
 	return core.StateDoc{State: b}
 }
 
-// certRenewNames is derper's certificate and key file names inside CertDir for the address ip.
-func certRenewNames(ip string) (crt, key string) {
-	crt, key, _ = server.CertFiles(server.Config{Mode: server.ModeIP, HostName: ip})
-	return crt, key
+// certRenewNames is derper's certificate and key file names inside CertDir for the address ip. An address derper
+// keeps no character of in a file name, such as "::", has no files and is an error.
+func certRenewNames(ip string) (crt, key string, err error) {
+	crt, key, ok := server.CertFiles(server.Config{Mode: server.ModeIP, HostName: ip})
+	if !ok || crt == ".crt" {
+		return "", "", fmt.Errorf("derp: derper names no certificate file for the address %q", ip)
+	}
+	return crt, key, nil
 }
 
 // certRenewRead reads and decodes the certificate name in CertDir. An absent file is an error that matches
@@ -90,7 +94,10 @@ func certRenewCheck(ctx context.Context, env core.Env, d dp) (localServer, certR
 	if row.Mode != server.ModeIP {
 		return localServer{}, certRenewCert{}, core.Definite(errcode.New(errcode.InvalidInput, "derper renews a Let's Encrypt certificate itself"))
 	}
-	crt, key := certRenewNames(row.HostName)
+	crt, key, err := certRenewNames(row.HostName)
+	if err != nil {
+		return localServer{}, certRenewCert{}, core.Definite(err)
+	}
 	cur, err := certRenewRead(d, crt)
 	if err != nil {
 		return localServer{}, certRenewCert{}, core.Definite(errcode.New(errcode.DERPNotReady,
@@ -152,7 +159,10 @@ func (h certRenewHandler) Apply(ctx context.Context, env core.Env, _ CertRenewIn
 	if err != nil {
 		return CertRenewed{}, err
 	}
-	crt, key := certRenewNames(row.HostName)
+	crt, key, err := certRenewNames(row.HostName)
+	if err != nil {
+		return CertRenewed{}, err
+	}
 	for _, name := range []string{crt, key} {
 		if err := certRenewRename(ctx, env, name, name+".prev"); err != nil {
 			return CertRenewed{}, err
@@ -221,12 +231,15 @@ func (h certRenewHandler) Verify(ctx context.Context, env core.Env, _ CertRenewI
 	}
 	st, err := env.Units.State(ctx, server.UnitName)
 	if err != nil {
-		return err
+		return fmt.Errorf("derp: read the state of %s: %w", server.UnitName, err)
 	}
 	if st.ActiveState != "active" {
 		return fmt.Errorf("derp: %s is %s, not active", server.UnitName, st.ActiveState)
 	}
-	crt, _ := certRenewNames(row.HostName)
+	crt, _, err := certRenewNames(row.HostName)
+	if err != nil {
+		return err
+	}
 	cur, err := certRenewRead(h.d, crt)
 	if err != nil {
 		return err
@@ -244,7 +257,10 @@ func (h certRenewHandler) Observe(_ context.Context, _ core.Env, e core.Effect) 
 	if err != nil {
 		return core.Observation{}, err
 	}
-	crt, _ := certRenewNames(ip)
+	crt, _, err := certRenewNames(ip)
+	if err != nil {
+		return core.Observation{}, err
+	}
 	cur, err := certRenewRead(h.d, crt)
 	if errors.Is(err, fs.ErrNotExist) {
 		cur, err = certRenewCert{}, nil
@@ -273,7 +289,10 @@ func (h certRenewHandler) Inverse(ctx context.Context, env core.Env, e core.Effe
 	if err != nil {
 		return core.InverseResult{}, core.Definite(fmt.Errorf("derp: decode the expiry before the renewal of %s: %w", ip, err))
 	}
-	crt, key := certRenewNames(ip)
+	crt, key, err := certRenewNames(ip)
+	if err != nil {
+		return core.InverseResult{}, core.Definite(err)
+	}
 	if err := certRenewRename(ctx, env, crt+".prev", crt); err != nil {
 		return core.InverseResult{}, core.Definite(err)
 	}

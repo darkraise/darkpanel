@@ -139,11 +139,17 @@ func validPublicIP(s string) bool {
 
 // Flags is derper's argument vector after the program path, in this order:
 // -c KeyPath -a :443 -http-port 80 -stun -stun-port 3478 -hostname <HostName> -certmode <letsencrypt|manual>
-// -certdir CertDir, then -verify-clients when VerifyClients.
+// -certdir CertDir, then -verify-clients when VerifyClients. The -certmode is letsencrypt for ModeLetsEncrypt and
+// manual for ModeIP; any other Mode has no flags, and Flags returns nil.
 func Flags(c Config) []string {
-	certMode := "letsencrypt"
-	if c.Mode == ModeIP {
+	var certMode string
+	switch c.Mode {
+	case ModeLetsEncrypt:
+		certMode = "letsencrypt"
+	case ModeIP:
 		certMode = "manual"
+	default:
+		return nil
 	}
 	flags := []string{
 		"-c", KeyPath,
@@ -161,8 +167,13 @@ func Flags(c Config) []string {
 	return flags
 }
 
-// UnitFile is the unit text (Contracts "DERP unit text").
+// UnitFile is the unit text (Contracts "DERP unit text"), or nil when Flags has none for c's Mode, so no unit with a
+// half-built ExecStart is written.
 func UnitFile(c Config) []byte {
+	flags := Flags(c)
+	if flags == nil {
+		return nil
+	}
 	lines := []string{
 		"[Unit]",
 		"Description=Darkpanel DERP server",
@@ -171,7 +182,7 @@ func UnitFile(c Config) []byte {
 		"",
 		"[Service]",
 		"User=" + ServiceUser,
-		"ExecStart=" + BinaryPath + " " + strings.Join(Flags(c), " "),
+		"ExecStart=" + BinaryPath + " " + strings.Join(flags, " "),
 		"AmbientCapabilities=CAP_NET_BIND_SERVICE",
 		"CapabilityBoundingSet=CAP_NET_BIND_SERVICE",
 		"NoNewPrivileges=yes",
