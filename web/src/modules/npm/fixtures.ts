@@ -65,5 +65,5 @@ export function npCertificate(over: Partial<CertificateView> = {}): CertificateV
 }
 
 export function npInstances(over: Partial<InstancesOutput> = {}): InstancesOutput {
-  return { instances: [{ hostId: "01JD0000000000000000000011", hostName: "edge-1", status: npInstance() }], ...over }
+  return { instances: [{ hostId: "01JD0000000000000000000011", hostName: "edge-1", status: npInstance() }], unreadable: [], ...over }
 }

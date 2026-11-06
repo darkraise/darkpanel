@@ -67,7 +67,8 @@ test("isInstanceStatus refuses what is not a complete status", () => {
 
 test("isInstancesOutput accepts the controller's JSON and an empty fleet", () => {
   expect(isInstancesOutput(JSON.parse(JSON.stringify(npInstances())))).toBe(true)
-  expect(isInstancesOutput({ instances: [] })).toBe(true)
+  expect(isInstancesOutput({ instances: [], unreadable: [] })).toBe(true)
+  expect(isInstancesOutput({ instances: [], unreadable: ["h1", "h2"] })).toBe(true)
 })
 
 test("isInstancesOutput refuses what is not a complete answer", () => {
@@ -75,11 +76,14 @@ test("isInstancesOutput refuses what is not a complete answer", () => {
   const rows: [string, unknown][] = [
     ["null", null],
     ["an empty object", {}],
-    ["instances that are null", { instances: null }],
-    ["an instance that is a string", { instances: ["h1"] }],
-    ["an instance without a hostId", { instances: [{ ...host, hostId: undefined }] }],
-    ["a hostName that is a number", { instances: [{ ...host, hostName: 1 }] }],
-    ["a status that is not a status", { instances: [{ ...host, status: { deployed: true } }] }],
+    ["instances that are null", { instances: null, unreadable: [] }],
+    ["an instance that is a string", { instances: ["h1"], unreadable: [] }],
+    ["an instance without a hostId", { instances: [{ ...host, hostId: undefined }], unreadable: [] }],
+    ["a hostName that is a number", { instances: [{ ...host, hostName: 1 }], unreadable: [] }],
+    ["a status that is not a status", { instances: [{ ...host, status: { deployed: true } }], unreadable: [] }],
+    ["a missing unreadable", { instances: [] }],
+    ["an unreadable that is null", { instances: [], unreadable: null }],
+    ["an unreadable id that is a number", { instances: [], unreadable: [1] }],
   ]
   for (const [name, value] of rows) expect(isInstancesOutput(value), name).toBe(false)
 })
@@ -90,7 +94,7 @@ test("isInstancesOutput refuses what is not a complete answer", () => {
 test("the wire types carry every member the agent and the controller send", () => {
   const exposure: AdminExposure = { hostname: "npm.example.com", proxyHostId: 4, certificateId: 5 }
   const host: HostInstance = { hostId: "h1", hostName: "edge-1", status: npInstance({ adminExposure: exposure }) }
-  const fleet: InstancesOutput = { instances: [host] }
+  const fleet: InstancesOutput = { instances: [host], unreadable: ["h2"] }
   const hosts: ProxyHostList = {
     items: [{
       id: 1, domains: ["app.example.com"], forwardScheme: "https", forwardHost: "web", forwardPort: 443, certificateId: 3, accessListId: 2,

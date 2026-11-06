@@ -1,7 +1,7 @@
 import { Link } from "react-router"
 import { useQuery } from "@tanstack/react-query"
 import { Alert, AlertDescription, AlertTitle } from "darkraise-ui/components/alert"
-import { readAction } from "@/api/client"
+import { HOSTS_QUERY_KEY, listHosts, readAction } from "@/api/client"
 import { isInstancesOutput, NPM_ACTION_VERSION, npmFleetKey, type InstancesOutput } from "./types"
 
 function readInstances(): Promise<InstancesOutput> {
@@ -11,17 +11,30 @@ function readInstances(): Promise<InstancesOutput> {
   })
 }
 
+function NotCheckedAlert({ text }: { text: string }) {
+  return (
+    <Alert variant="warning" role="status" className="mb-4">
+      <AlertTitle>Admin exposure not checked</AlertTitle>
+      <AlertDescription>{text}</AlertDescription>
+    </Alert>
+  )
+}
+
 // AdminExposureBanner warns on every page about each host whose NPM admin
-// interface is exposed. It stays silent while the fleet read is pending or
-// has failed: the banner is a reminder, and the NPM page reports the errors.
+// interface is exposed. It also warns when the exposure of a host could not
+// be checked, or when the whole fleet read failed, so that a missing warning
+// never hides an unchecked host. It shows nothing while the read is pending.
 export function AdminExposureBanner() {
   const fleet = useQuery({ queryKey: npmFleetKey, queryFn: readInstances, staleTime: 60_000 })
+  const unreadable = fleet.isSuccess ? fleet.data.unreadable : []
+  const hosts = useQuery({ queryKey: HOSTS_QUERY_KEY, queryFn: listHosts, enabled: unreadable.length > 0 })
+  if (fleet.isError) return <NotCheckedAlert text="Could not check whether the NPM admin UI is exposed." />
   if (!fleet.isSuccess) return null
   const exposed = fleet.data.instances.flatMap((i) => {
     const exposure = i.status.adminExposure
     return exposure === null || exposure === undefined ? [] : [{ instance: i, hostname: exposure.hostname }]
   })
-  if (exposed.length === 0) return null
+  const names = unreadable.map((id) => hosts.data?.hosts.find((h) => h.id === id)?.name ?? id)
   return (
     <>
       {exposed.map(({ instance, hostname }) => (
@@ -33,6 +46,7 @@ export function AdminExposureBanner() {
           </Link>
         </Alert>
       ))}
+      {names.length > 0 && <NotCheckedAlert text={`Could not check whether the NPM admin UI is exposed on: ${names.join(", ")}.`} />}
     </>
   )
 }

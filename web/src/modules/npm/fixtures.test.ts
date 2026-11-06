@@ -68,6 +68,7 @@ test("npProxyHost, npAccessList and npCertificate describe one exposure that is 
 
 test("npInstances lists one host with the default instance and takes overrides", () => {
   expect(isInstancesOutput(npInstances())).toBe(true)
-  expect(npInstances()).toEqual({ instances: [{ hostId: "01JD0000000000000000000011", hostName: "edge-1", status: npInstance() }] })
-  expect(npInstances({ instances: [] })).toEqual({ instances: [] })
+  expect(npInstances()).toEqual({ instances: [{ hostId: "01JD0000000000000000000011", hostName: "edge-1", status: npInstance() }], unreadable: [] })
+  expect(npInstances({ instances: [] })).toEqual({ instances: [], unreadable: [] })
+  expect(npInstances({ unreadable: ["h2"] }).unreadable).toEqual(["h2"])
 })

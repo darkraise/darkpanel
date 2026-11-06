@@ -34,6 +34,7 @@ export interface HostInstance {
 
 export interface InstancesOutput {
   instances: HostInstance[]
+  unreadable: string[]
 }
 
 export interface AccessClientInput {
@@ -120,5 +121,11 @@ function isHostInstance(v: unknown): v is HostInstance {
 }
 
 export function isInstancesOutput(v: unknown): v is InstancesOutput {
-  return isRecord(v) && Array.isArray(v.instances) && v.instances.every(isHostInstance)
+  return (
+    isRecord(v) &&
+    Array.isArray(v.instances) &&
+    v.instances.every(isHostInstance) &&
+    Array.isArray(v.unreadable) &&
+    v.unreadable.every((id) => typeof id === "string")
+  )
 }

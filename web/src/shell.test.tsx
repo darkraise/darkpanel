@@ -197,6 +197,7 @@ const shExposure: InstancesOutput = {
     { hostId: "h1", hostName: "web-1", status: npInstance({ deployed: true, adminExposure: { hostname: "npm.example.com", proxyHostId: 4, certificateId: 5 } }) },
     { hostId: "h2", hostName: "web-2", status: npInstance({ deployed: true }) },
   ],
+  unreadable: [],
 }
 
 test("every page shows the admin-exposure banner above its content", async () => {

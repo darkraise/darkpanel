@@ -241,7 +241,7 @@ const CHANGE = /^\/api\/v1\/changes\/([^/]+)(?:\/(confirm|revert|steps))?$/
 
 const READS: Record<string, () => unknown> = {
   "core.host.list": () => ({ hosts }),
-  "npm.instance.list": () => ({ instances: [] }),
+  "npm.instance.list": () => ({ instances: [], unreadable: [] }),
   "panel.exposure.status": () => ({ exposed: false }),
   "npm.instance.status": () => npmStatus,
   "docker.container.inspect": () => containerDetail,
