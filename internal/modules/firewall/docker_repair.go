@@ -67,6 +67,7 @@ func (f fw) dockerRepair() core.ActionDef {
 		if json.Unmarshal(raw, &in) != nil || !in.DiscardForeign || !in.Manual {
 			return out, nil
 		}
+		defer f.lockRead()()
 		cfg, err := f.d.readConfig(f.d.root)
 		if err != nil {
 			return core.PlanOutcome{}, fmt.Errorf("firewall: list the foreign rules: %w", err)

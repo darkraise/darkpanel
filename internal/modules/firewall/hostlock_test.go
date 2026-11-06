@@ -404,7 +404,7 @@ func w10flRecvName(e ast.Expr) string {
 func TestW10FlLockSites(t *testing.T) {
 	reads, writes := w10flSites(t)
 	wantWrites := []string{"fw.reconcile", "module.Uninstall", "mutation.Apply", "mutation.Revert"}
-	wantReads := []string{"fw.reconcileRead", "fw.snapshotCompare", "mutation.Observe", "mutation.Plan", "mutation.Snapshot", "mutation.Verify", "readLocked"}
+	wantReads := []string{"fw.dockerRepair", "fw.reconcileRead", "fw.snapshotCompare", "mutation.Observe", "mutation.Plan", "mutation.Snapshot", "mutation.Verify", "readLocked"}
 	if !slices.Equal(writes, wantWrites) {
 		t.Errorf("the write lock is taken in %q, want exactly %q", writes, wantWrites)
 	}
