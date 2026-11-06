@@ -941,3 +941,49 @@ func TestCrUndoLeavesAForeignContainer(t *testing.T) {
 		})
 	}
 }
+
+// w10cfDropTable removes a table of the agent database, so the next read of it fails.
+func w10cfDropTable(t *testing.T, h *agHost, table string) {
+	t.Helper()
+	ctx := context.Background()
+	err := h.env("").DB.Write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, "DROP TABLE "+table)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestW10CfRunRefusesAnUnreadableStore: the plan reads the store before it changes anything, so a failed read is
+// Definite, and it carries the module's prefix.
+func TestW10CfRunRefusesAnUnreadableStore(t *testing.T) {
+	h := newCR(t)
+	w10cfDropTable(t, h.agHost, "cloudflare_connectors")
+	_, err := h.cfg.connectorRun().Handler.Plan(context.Background(), h.env(""), crInput(crTunnel, agToken(crTunnel)))
+	if err == nil || !core.IsDefinite(err) || !strings.HasPrefix(err.Error(), "cloudflare: ") {
+		t.Errorf("error %v, want a Definite error with the cloudflare: prefix", err)
+	}
+	if got := crMutated(h); len(got) != 0 {
+		t.Errorf("a refused plan changed the Engine: %v", got)
+	}
+}
+
+// TestW10CfRemoveConnectorRefusesABadTunnel: removeConnector validates the tunnel id it builds names and paths from,
+// whoever its caller is, and touches nothing when the id is bad.
+func TestW10CfRemoveConnectorRefusesABadTunnel(t *testing.T) {
+	ctx := context.Background()
+	for _, tunnel := range []string{"", "x", "../" + crTunnel, strings.ToUpper(crTunnel)} {
+		t.Run(fmt.Sprintf("%q", tunnel), func(t *testing.T) {
+			h := newCR(t)
+			removed, err := removeConnector(ctx, h.env("c2"), h.cfg, tunnel)
+			coded := crRefused(t, err, errcode.InvalidInput)
+			if !slices.ContainsFunc(coded.Fields, func(f errcode.FieldError) bool { return f.Path == "/tunnel" }) {
+				t.Errorf("fields %+v, want one at /tunnel", coded.Fields)
+			}
+			if removed || len(h.docker.calls()) != 0 || len(h.rec.removes) != 0 {
+				t.Errorf("removed %t, Engine calls %v, removed files %v; want nothing touched", removed, h.docker.calls(), h.rec.removes)
+			}
+		})
+	}
+}

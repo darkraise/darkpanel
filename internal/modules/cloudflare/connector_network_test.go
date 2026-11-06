@@ -946,3 +946,45 @@ func TestAlAttachAddressOfAnExistingEndpoint(t *testing.T) {
 		})
 	}
 }
+
+// TestW10CfAttachRefusesAnUnreadableStore: a failed read of the store before the attach changes anything is Definite,
+// as a failed Engine read is, and carries the module's prefix.
+func TestW10CfAttachRefusesAnUnreadableStore(t *testing.T) {
+	ctx := context.Background()
+	for _, table := range []string{"cloudflare_connectors", "cloudflare_attachments"} {
+		for _, stage := range []string{"plan", "apply"} {
+			t.Run(table+" at "+stage, func(t *testing.T) {
+				h := newNA(t)
+				w10cfDropTable(t, h, table)
+				def := h.cf().networkAttach()
+				var err error
+				if stage == "plan" {
+					_, err = def.Handler.Plan(ctx, h.env(""), naInput())
+				} else {
+					_, err = def.Handler.Apply(ctx, h.env("c1"), naInput())
+				}
+				if err == nil || !core.IsDefinite(err) || !strings.HasPrefix(err.Error(), "cloudflare: ") {
+					t.Errorf("error %v, want a Definite error with the cloudflare: prefix", err)
+				}
+				if naOnWeb(t, h) {
+					t.Error("the connector joined web despite the failed read")
+				}
+			})
+		}
+	}
+}
+
+// TestW10CfAttachObserveFailure: a failed read of the endpoint before the connect changed nothing, so it is Definite,
+// keeps the Engine's code, carries the prefix and journals nothing, as the detach's does.
+func TestW10CfAttachObserveFailure(t *testing.T) {
+	h := newNA(t)
+	h.docker.Fail("InspectContainer", nil)
+	h.docker.Fail("InspectContainer", dockerapi.ErrUnavailable)
+	_, err := naApply(t, h, "c1", func(in *NetworkAttachInput) { in.Target = "" })
+	if err == nil || !core.IsDefinite(err) || errcode.From(err).Code != errcode.DockerEngineUnavailable || !strings.HasPrefix(err.Error(), "cloudflare: ") {
+		t.Errorf("error %v, want a Definite docker.engine_unavailable with the cloudflare: prefix", err)
+	}
+	if effs := ndEffects(t, h, "c1"); len(effs) != 0 || len(naClaims(t, h)) != 0 || naOnWeb(t, h) {
+		t.Errorf("effects %+v, claims %+v, on web %t; want nothing journaled, no claim and no attachment", effs, naClaims(t, h), naOnWeb(t, h))
+	}
+}

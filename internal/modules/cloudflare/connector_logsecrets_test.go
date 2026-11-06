@@ -54,11 +54,15 @@ func TestClLogSecretsFailClosed(t *testing.T) {
 	h := newAGHost(t)
 	clSeed(t, h, clTunnelA, "container-a")
 	env := h.env("")
-	err := env.DB.Write(ctx, func(tx *sql.Tx) error {
+	sealedForAnother, err := env.Sealer.Seal(connectorSealAD(clTunnelB), []byte(agToken(clTunnelA)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = env.DB.Write(ctx, func(tx *sql.Tx) error {
 		if err := deleteConnector(ctx, tx, clTunnelA); err != nil {
 			return err
 		}
-		return insertConnector(ctx, tx, connectorRow{TunnelID: clTunnelA, ContainerID: "container-a", TokenCT: []byte("not a sealed value"),
+		return insertConnector(ctx, tx, connectorRow{TunnelID: clTunnelA, ContainerID: "container-a", TokenCT: sealedForAnother,
 			ChangeID: "c0", CreatedAt: time.Now()})
 	})
 	if err != nil {

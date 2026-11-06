@@ -82,7 +82,7 @@ func (h connectorRunHandler) precheck(ctx context.Context, env core.Env, in Conn
 	}
 	_, ok, err := loadConnector(ctx, env.DB.Read(), in.Tunnel)
 	if err != nil {
-		return err
+		return core.Definite(err)
 	}
 	if ok {
 		return core.Definite(errcode.New(errcode.InvalidInput, fmt.Sprintf("a connector for tunnel %s is already deployed on this host", in.Tunnel)))
@@ -305,6 +305,9 @@ func foreignConnector(ctr dockerapi.ContainerJSON, name string) error {
 // already gone are not errors; removed reports whether the container or the row existed. A container of the
 // connector's name the module did not label is refused before anything is removed.
 func removeConnector(ctx context.Context, env core.Env, c cf, tunnel string) (bool, error) {
+	if problem := tunnelIDProblem(tunnel); problem != "" {
+		return false, hostnameInvalid("/tunnel", problem)
+	}
 	docker := c.a.docker
 	name := connectorName(tunnel)
 	removed := true

@@ -238,7 +238,8 @@ func (h hostnameAddHandler) Apply(ctx context.Context, env core.Env, in Hostname
 		Hostname: in.Hostname, TunnelID: ad.tunnel.ID, Service: in.Service, NoTLSVerify: in.NoTLSVerify, ZoneID: ad.zone.ID,
 		Phase: "adding_rule", ChangeID: env.ChangeID, Health: "unknown", UpdatedAt: env.Clock.Now(),
 	}
-	if err := env.DB.Write(ctx, func(tx *sql.Tx) error { return insertHostname(ctx, tx, row) }); err != nil {
+	err = env.DB.Write(ctx, func(tx *sql.Tx) error { return insertHostname(ctx, tx, row) })
+	if err != nil {
 		return HostnameView{}, err
 	}
 
@@ -256,7 +257,8 @@ func (h hostnameAddHandler) Apply(ctx context.Context, env core.Env, in Hostname
 	if err != nil {
 		return HostnameView{}, err
 	}
-	if err := ad.a.PutConfiguration(ctx, ad.tunnel.ID, ad.next); err != nil {
+	err = ad.a.PutConfiguration(ctx, ad.tunnel.ID, ad.next)
+	if err != nil {
 		return HostnameView{}, hostnameWriteFailed(ctx, env, seq, ruleEff.Resource,
 			fmt.Errorf("cloudflare: write the configuration of tunnel %s: %w", ad.tunnel.Name, err))
 	}
@@ -268,7 +270,8 @@ func (h hostnameAddHandler) Apply(ctx context.Context, env core.Env, in Hostname
 	if err != nil {
 		return HostnameView{}, err
 	}
-	if err := env.Effects.Made(ctx, seq, ruleEff.Resource, core.StateDoc{State: post}); err != nil {
+	err = env.Effects.Made(ctx, seq, ruleEff.Resource, core.StateDoc{State: post})
+	if err != nil {
 		return HostnameView{}, err
 	}
 	err = env.DB.Write(ctx, func(tx *sql.Tx) error {
@@ -298,7 +301,8 @@ func (h hostnameAddHandler) Apply(ctx context.Context, env core.Env, in Hostname
 		// The effect stays intended: the record is found by its marker.
 		return HostnameView{}, fmt.Errorf("cloudflare: the DNS record of %s was answered without an id", in.Hostname)
 	}
-	if err := env.Effects.Made(ctx, seq, dnsRecordResource(ad.zone.ID, rec.ID), core.StateDoc{State: hostnameRecordDoc(&rec)}); err != nil {
+	err = env.Effects.Made(ctx, seq, dnsRecordResource(ad.zone.ID, rec.ID), core.StateDoc{State: hostnameRecordDoc(&rec)})
+	if err != nil {
 		return HostnameView{}, err
 	}
 

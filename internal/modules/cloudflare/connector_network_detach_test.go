@@ -873,3 +873,40 @@ func TestAlDetachRefusesAForeignConnector(t *testing.T) {
 		})
 	}
 }
+
+// TestW10CfDetachEngineReadFailure: a failed Engine read of a network, whether the claim names it or the input names it
+// by id, changed nothing, so it is Definite, keeps the Engine's answer and the module's prefix, and keeps the claim.
+func TestW10CfDetachEngineReadFailure(t *testing.T) {
+	for _, tc := range []struct{ name, network string }{
+		{"a network the claim names", "web"},
+		{"a network named by id", "0123456789ab"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newND(t)
+			ndAttach(t, h, "c1", "web", ndClaimant)
+			h.docker.Fail("InspectNetwork", &dockerapi.APIError{StatusCode: http.StatusInternalServerError, Message: "boom"})
+			_, err := ndApply(t, h, "c2", func(in *NetworkDetachInput) { in.Network = tc.network })
+			var answer *dockerapi.APIError
+			if err == nil || !core.IsDefinite(err) || !errors.As(err, &answer) || answer.StatusCode != http.StatusInternalServerError ||
+				!strings.HasPrefix(err.Error(), "cloudflare: inspect network ") {
+				t.Errorf("error %v, want a Definite error that wraps the Engine's 500 and starts with cloudflare: inspect network", err)
+			}
+			if effs := ndEffects(t, h, "c2"); len(effs) != 0 || len(ndClaims(t, h, ndTunnel)) != 1 || !ndOn(t, h, "web") {
+				t.Errorf("effects %+v, claims %+v; want nothing journaled and the claim and attachment kept", effs, ndClaims(t, h, ndTunnel))
+			}
+		})
+	}
+}
+
+// TestW10CfDetachRefusalDetailJoinsEveryProblem: a refused input names every bad field, and the detail joins their
+// messages in the order tunnel, network, claimant.
+func TestW10CfDetachRefusalDetailJoinsEveryProblem(t *testing.T) {
+	h := newND(t)
+	bad := func(in *NetworkDetachInput) { in.Tunnel, in.Network, in.Claimant = "x", "bad name", "a b" }
+	_, err := h.cf().networkDetach().Handler.Plan(context.Background(), h.env(""), ndInput(bad))
+	coded := ndRefused(t, err, errcode.InvalidInput)
+	want := "tunnel must be a lower-case UUID; network must be a Docker network name; claimant must not contain whitespace or control characters"
+	if coded.Detail != want {
+		t.Errorf("detail %q, want %q", coded.Detail, want)
+	}
+}

@@ -183,8 +183,8 @@ type networkAttachCheck struct {
 	preexisting bool
 }
 
-// check decides everything an attach does and changes nothing. Every refusal is Definite; a failed read of the
-// database is returned as it is, and a failed Engine read is Definite as the Engine changed nothing.
+// check decides everything an attach does and changes nothing, so every failure is Definite: a refusal, a failed
+// read of the database and a failed Engine read alike.
 func (h networkAttachHandler) check(ctx context.Context, env core.Env, in NetworkAttachInput) (networkAttachCheck, error) {
 	var fields []errcode.FieldError
 	if p := tunnelIDProblem(in.Tunnel); p != "" {
@@ -206,7 +206,7 @@ func (h networkAttachHandler) check(ctx context.Context, env core.Env, in Networ
 	db := env.DB.Read()
 	name := connectorName(in.Tunnel)
 	if _, ok, err := loadConnector(ctx, db, in.Tunnel); err != nil {
-		return networkAttachCheck{}, err
+		return networkAttachCheck{}, core.Definite(err)
 	} else if !ok {
 		return networkAttachCheck{}, core.Definite(errcode.New(errcode.CloudflareConnectorMissing, "no connector of tunnel "+in.Tunnel+" is deployed on this host"))
 	}
@@ -264,7 +264,7 @@ func (h networkAttachHandler) check(ctx context.Context, env core.Env, in Networ
 	}
 	all, err := connectorClaims(ctx, db, in.Tunnel, network.Name)
 	if err != nil {
-		return networkAttachCheck{}, err
+		return networkAttachCheck{}, core.Definite(err)
 	}
 	ck := networkAttachCheck{network: network, container: c, endpoint: ep, targetID: targetID, claims: all, connect: ep == nil, claim: true}
 	if len(all) == 0 {
@@ -322,7 +322,7 @@ func (h networkAttachHandler) Apply(ctx context.Context, env core.Env, in Networ
 		resource := resourceOf(nounEndpoint, in.Tunnel+"|"+network)
 		obs, err := h.Observe(ctx, env, core.Effect{Kind: core.EffectModify, Resource: resource, State: core.EffectIntended})
 		if err != nil {
-			return NetworkAttachment{}, err
+			return NetworkAttachment{}, core.Definite(fmt.Errorf("cloudflare: observe %s: %w", resource, err))
 		}
 		var settings *dockerapi.EndpointSettings
 		switch {

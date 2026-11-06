@@ -328,7 +328,7 @@ func (d *agDocker) ListContainers(_ context.Context, o dockerapi.ListContainersO
 	if err := d.enter("ListContainers"); err != nil {
 		return nil, err
 	}
-	var out []dockerapi.ContainerSummary
+	out := []dockerapi.ContainerSummary{}
 	for _, c := range d.containers {
 		name := strings.TrimPrefix(c.Name, "/")
 		if (!o.All && !c.State.Running) || !agMatch(o.Filters, c.Config.Labels, name, c.State.Status) {
@@ -530,6 +530,9 @@ func (d *agDocker) ConnectNetwork(_ context.Context, network, container string, 
 		return d.noContainer(container)
 	}
 	n, c := d.networks[nid], d.containers[cid]
+	if n.Name == "host" || n.Name == "none" {
+		return agAPIError(http.StatusForbidden, "a container cannot be connected to network %s", n.Name)
+	}
 	if c.NetworkSettings.Networks[n.Name] != nil {
 		return agAPIError(http.StatusForbidden, "endpoint with name %s already exists in network %s", strings.TrimPrefix(c.Name, "/"), n.Name)
 	}
@@ -1003,5 +1006,19 @@ func TestAgDockerCreatesInspectsAndConnects(t *testing.T) {
 	}
 	if got := d.calls()[before:]; !slices.Equal(got, []string{"StopContainer", "StopContainer", "RemoveContainer", "InspectContainer"}) {
 		t.Errorf("calls since the failure = %v", got)
+	}
+	none, err := d.ListContainers(ctx, dockerapi.ListContainersOptions{All: true, Filters: dockerapi.Filters{"label": {"no.such=label"}}})
+	if err != nil || none == nil || len(none) != 0 {
+		t.Errorf("ListContainers with no match = %#v, %v; want an empty list that is not nil, as the Engine's [] decodes", none, err)
+	}
+	for _, name := range []string{"host", "none"} {
+		err := d.ConnectNetwork(ctx, name, app.ID, nil)
+		var answer *dockerapi.APIError
+		if !errors.As(err, &answer) || answer.StatusCode < 400 || answer.StatusCode > 499 {
+			t.Errorf("ConnectNetwork to %s = %v, want a 4xx refusal", name, err)
+		}
+		if got, _ := d.container(app.ID); got.NetworkSettings.Networks[name] != nil {
+			t.Errorf("the container joined the %s network", name)
+		}
 	}
 }

@@ -569,6 +569,16 @@ func TestRegCompositeSteps(t *testing.T) {
 					t.Errorf("step id %s appears twice", s.ID)
 				}
 				ids[s.ID] = i
+				// A step follows the steps of its After list and, as the engine reckons it, every step those follow. Only
+				// the outputs of followed steps are offered, so a reference to any other step fails in cdResolve.
+				set := map[string]bool{}
+				for _, a := range s.After {
+					set[a] = true
+					for f := range follows[a] {
+						set[f] = true
+					}
+				}
+				follows[s.ID] = set
 				child, ok := reg.Action(s.Action)
 				if !ok {
 					t.Errorf("step %s: %s is not registered", s.ID, s.Action)
@@ -597,16 +607,6 @@ func TestRegCompositeSteps(t *testing.T) {
 				if i > 0 && len(s.After) == 0 {
 					t.Errorf("step %s follows no step", s.ID)
 				}
-				// A step follows the steps of its After list and, as the engine reckons it, every step those follow. Only
-				// the outputs of followed steps are offered, so a reference to any other step fails in cdResolve.
-				set := map[string]bool{}
-				for _, a := range s.After {
-					set[a] = true
-					for f := range follows[a] {
-						set[f] = true
-					}
-				}
-				follows[s.ID] = set
 				followed := map[string]any{}
 				for a := range set {
 					if o, ok := outputs[a]; ok {

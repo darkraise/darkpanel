@@ -383,8 +383,13 @@ func TestCpApply(t *testing.T) {
 		h := newAGHost(t)
 		cpDeploy(t, h, cpTunnel)
 		h.docker.Fail("RemoveContainer", &dockerapi.APIError{StatusCode: 500, Message: "boom"})
-		if _, err := cpApply(t, h, "stop1", cpTunnel); err == nil {
+		_, err := cpApply(t, h, "stop1", cpTunnel)
+		if err == nil {
 			t.Fatal("the stop succeeded although the Engine failed")
+		}
+		var answer *dockerapi.APIError
+		if core.IsDefinite(err) || !errors.As(err, &answer) || answer.StatusCode != 500 {
+			t.Errorf("error %v, want a failure that is not Definite and wraps the Engine's 500", err)
 		}
 		if !cpRowStored(t, h, cpTunnel) {
 			t.Error("the record is gone although the container was not removed")

@@ -570,9 +570,16 @@ func TestRsAddPlanWhenTheServiceHostCannotBeResolved(t *testing.T) {
 		return f, l, planErr
 	}
 	t.Run("a timeout is refused", func(t *testing.T) {
-		f, l, err := run(t, &net.DNSError{Err: "i/o timeout", Name: "web.app.test", IsTimeout: true}, nil)
+		timeout := &net.DNSError{Err: "i/o timeout", Name: "web.app.test", IsTimeout: true}
+		f, l, err := run(t, timeout, nil)
 		if got := errcode.From(err); got.Code != errcode.CloudflareReserved || !strings.Contains(got.Detail, "web.app.test") {
 			t.Fatalf("plan error = %v, want %s naming the host", err, errcode.CloudflareReserved)
+		}
+		if !core.IsDefinite(err) {
+			t.Errorf("plan error %v is not Definite, though the check changed nothing", err)
+		}
+		if !errors.Is(err, timeout) {
+			t.Errorf("plan error %v does not keep the resolver's error as its cause", err)
 		}
 		if l.calls != 1 || len(f.writes()) != 0 {
 			t.Errorf("%d lookups and writes %v, want one lookup and no write", l.calls, f.writes())
