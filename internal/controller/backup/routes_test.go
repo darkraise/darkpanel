@@ -345,7 +345,7 @@ func (e *roEnv) checkBackup(t *testing.T) {
 	if !createdAt.Equal(fxNow) {
 		t.Errorf("the backup canary says it was created at %s, want %s", createdAt, fxNow)
 	}
-	if left, _ := filepath.Glob(filepath.Join(e.dir, "backup-*.db")); len(left) != 0 {
+	if left, _ := filepath.Glob(filepath.Join(e.dir, "backup-*")); len(left) != 0 {
 		t.Errorf("the backup left %v beside the database", left)
 	}
 }
