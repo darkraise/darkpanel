@@ -7,12 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
@@ -117,10 +119,10 @@ func (f *backupFlow) runBackup(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	body, err := json.Marshal(backup.BackupRequest{Passphrase: string(pass), Argon2: params})
+	body, err := encodeBackupRequest(pass, params)
 	clear(pass)
 	if err != nil {
-		return fmt.Errorf("encode the request: %w", err)
+		return err
 	}
 	defer clear(body)
 	// An interrupt or SIGTERM cancels the request, so the copy fails and the
@@ -155,12 +157,54 @@ func (f *backupFlow) runBackup(cmd *cobra.Command, _ []string) error {
 		}
 		return answerError(http.MethodPost, backupRoutePath, resp, data)
 	}
+	contentType := resp.Header.Get("Content-Type")
+	if mediaType, _, err := mime.ParseMediaType(contentType); err != nil || mediaType != "application/octet-stream" {
+		return fmt.Errorf("%s %s: the answer is %q, not application/octet-stream; no backup was written", http.MethodPost, backupRoutePath, contentType)
+	}
 	n, err := receiveBackup(resp.Body, out)
 	if err != nil {
 		return err
 	}
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Backup written to %s (%d bytes); keep the passphrase, the file cannot be opened without it\n", out, n)
 	return nil
+}
+
+// encodeBackupRequest returns the JSON body of a backup request for pass and
+// params.
+func encodeBackupRequest(pass []byte, params *backup.Params) ([]byte, error) {
+	// JSON would replace bytes that are not UTF-8 with U+FFFD, so the
+	// backup's passphrase would be one restore could never be given.
+	if !utf8.Valid(pass) {
+		return nil, usagef("the passphrase must be valid UTF-8")
+	}
+	var argon2 []byte
+	if params != nil {
+		p, err := json.Marshal(params)
+		if err != nil {
+			return nil, fmt.Errorf("encode the request: %w", err)
+		}
+		argon2 = append([]byte(`,"argon2":`), p...)
+	}
+	// The passphrase is escaped byte by byte into a slice the caller clears,
+	// because a Go string holding it, as json.Marshal needs, cannot be zeroed.
+	const hexDigits = "0123456789abcdef"
+	// The capacity fits the longest escaping, so append never moves the
+	// passphrase into a new array and leaves an uncleared copy behind.
+	body := make([]byte, 0, len(`{"passphrase":""}`)+6*len(pass)+len(argon2))
+	body = append(body, `{"passphrase":"`...)
+	for _, c := range pass {
+		switch {
+		case c == '"' || c == '\\':
+			body = append(body, '\\', c)
+		case c < 0x20:
+			body = append(body, '\\', 'u', '0', '0', hexDigits[c>>4], hexDigits[c&0xf])
+		default:
+			body = append(body, c)
+		}
+	}
+	body = append(body, '"')
+	body = append(body, argon2...)
+	return append(body, '}'), nil
 }
 
 // argon2Params returns the argon2id parameters the flags give, or nil when
@@ -414,11 +458,16 @@ func (f *backupFlow) restore(cmd *cobra.Command, in string) error {
 	}
 	res, err := backup.Restore(cmd.Context(), host, file, pass)
 	clear(pass)
-	if err := errors.Join(err, closeHost()); err != nil {
-		return err
+	return reportRestore(cmd.OutOrStdout(), res, errors.Join(err, closeHost()))
+}
+
+// reportRestore prints the summary of a restore that finished, even one
+// whose cleanup failed afterwards, and returns err unchanged.
+func reportRestore(w io.Writer, res backup.RestoreResult, err error) error {
+	if res.Tx != "" {
+		_, _ = io.WriteString(w, restoreSummary(res))
 	}
-	_, _ = io.WriteString(cmd.OutOrStdout(), restoreSummary(res))
-	return nil
+	return err
 }
 
 // restoreSummary is what a successful restore prints: when the backup was
