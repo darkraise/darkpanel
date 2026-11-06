@@ -1,4 +1,6 @@
-package artifact
+// Package download reads a derper build from a Darkpanel release and verifies it against the release's signed
+// checksums and its derper.json manifest.
+package download
 
 import (
 	"context"
@@ -9,6 +11,7 @@ import (
 	"slices"
 
 	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/modules/derp/artifact"
 	"github.com/darkraise/darkpanel/internal/update"
 	"github.com/darkraise/darkpanel/internal/update/trustedkeys"
 )
@@ -28,13 +31,13 @@ type Source struct {
 
 // Fetch returns derper version want for arch from the release of Darkpanel version dpVersion: it finds dpVersion in
 // Releases (absent: update.not_found, "darkpanel <dpVersion> is not a published release; a DERP server needs a
-// released darkpanel"), reads ManifestName with update.DownloadAsset (at most 64 KiB), checks the manifest's
+// released darkpanel"), reads artifact.ManifestName with update.DownloadAsset (at most 64 KiB), checks the manifest's
 // darkpanelVersion equals dpVersion (else update.signature_invalid) and its derperVersion equals want (else
-// update.not_found, "release <dpVersion> carries derper <v>, not <want>"), reads BinaryName(want, arch) with
+// update.not_found, "release <dpVersion> carries derper <v>, not <want>"), reads artifact.BinaryName(want, arch) with
 // update.DownloadAsset (at most 128 MiB) and checks its SHA-256 against the manifest's artifacts[arch] (else
 // update.signature_invalid). sha is the 64 lower-case hex digits of the binary.
 func Fetch(ctx context.Context, src Source, dpVersion, want, arch string) (bin []byte, sha string, err error) {
-	if !slices.Contains(Arches, arch) {
+	if !slices.Contains(artifact.Arches, arch) {
 		return nil, "", fmt.Errorf("artifact: no derper build for architecture %q", arch)
 	}
 	releases, err := src.Releases(ctx)
@@ -48,24 +51,24 @@ func Fetch(ctx context.Context, src Source, dpVersion, want, arch string) (bin [
 	}
 	rel := releases[i]
 
-	raw, err := update.DownloadAsset(ctx, src.Client, src.BaseURL, src.Keys, rel, ManifestName, maxManifestBytes)
+	raw, err := update.DownloadAsset(ctx, src.Client, src.BaseURL, src.Keys, rel, artifact.ManifestName, maxManifestBytes)
 	if err != nil {
 		return nil, "", err
 	}
-	m, err := ParseManifest(raw)
+	m, err := artifact.ParseManifest(raw)
 	if err != nil {
-		return nil, "", fmt.Errorf("artifact: release %s: %w", dpVersion, err)
+		return nil, "", fmt.Errorf("%w (release %s)", err, dpVersion)
 	}
 	if m.DarkpanelVersion != dpVersion {
 		return nil, "", errcode.New(errcode.UpdateSignatureInvalid,
-			fmt.Sprintf("%s of release %s names darkpanel %s", ManifestName, dpVersion, m.DarkpanelVersion))
+			fmt.Sprintf("%s of release %s names darkpanel %s", artifact.ManifestName, dpVersion, m.DarkpanelVersion))
 	}
 	if m.DerperVersion != want {
 		return nil, "", errcode.New(errcode.UpdateNotFound,
 			fmt.Sprintf("release %s carries derper %s, not %s", dpVersion, m.DerperVersion, want))
 	}
 
-	name := BinaryName(want, arch)
+	name := artifact.BinaryName(want, arch)
 	data, err := update.DownloadAsset(ctx, src.Client, src.BaseURL, src.Keys, rel, name, maxBinaryBytes)
 	if err != nil {
 		return nil, "", err
@@ -75,7 +78,7 @@ func Fetch(ctx context.Context, src Source, dpVersion, want, arch string) (bin [
 	sum := sha256.Sum256(data)
 	digest := hex.EncodeToString(sum[:])
 	if digest != m.Artifacts[arch] {
-		return nil, "", errcode.New(errcode.UpdateSignatureInvalid, fmt.Sprintf("%s does not match %s", name, ManifestName))
+		return nil, "", errcode.New(errcode.UpdateSignatureInvalid, fmt.Sprintf("%s does not match %s", name, artifact.ManifestName))
 	}
 	return data, digest, nil
 }

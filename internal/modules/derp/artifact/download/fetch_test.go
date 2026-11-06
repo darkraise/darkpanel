@@ -1,4 +1,4 @@
-package artifact
+package download
 
 import (
 	"bytes"
@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -20,6 +21,7 @@ import (
 	"aead.dev/minisign"
 
 	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/modules/derp/artifact"
 	"github.com/darkraise/darkpanel/internal/update"
 	"github.com/darkraise/darkpanel/internal/update/trustedkeys"
 )
@@ -146,18 +148,18 @@ func (s *feServer) sign(signer feSigner, dp, channel string) {
 func fePublish(t *testing.T, s *feServer, signer feSigner, dp, derper string) map[string][]byte {
 	t.Helper()
 	builds := map[string][]byte{}
-	m := Manifest{DarkpanelVersion: dp, DerperVersion: derper, Artifacts: map[string]string{}}
-	for _, arch := range Arches {
+	m := artifact.Manifest{DarkpanelVersion: dp, DerperVersion: derper, Artifacts: map[string]string{}}
+	for _, arch := range artifact.Arches {
 		bin := []byte("derper " + derper + " " + arch)
 		builds[arch] = bin
-		s.put("v"+dp+"/"+BinaryName(derper, arch), bin)
+		s.put("v"+dp+"/"+artifact.BinaryName(derper, arch), bin)
 		m.Artifacts[arch] = feSum(bin)
 	}
 	enc, err := m.Encode()
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.put("v"+dp+"/"+ManifestName, enc)
+	s.put("v"+dp+"/"+artifact.ManifestName, enc)
 	s.sign(signer, dp, "stable")
 	return builds
 }
@@ -165,7 +167,7 @@ func fePublish(t *testing.T, s *feServer, signer feSigner, dp, derper string) ma
 // feManifest is the manifest of release dp for derper, listing the hashes of builds.
 func feManifest(t *testing.T, dp, derper string, builds map[string][]byte) []byte {
 	t.Helper()
-	m := Manifest{DarkpanelVersion: dp, DerperVersion: derper, Artifacts: map[string]string{}}
+	m := artifact.Manifest{DarkpanelVersion: dp, DerperVersion: derper, Artifacts: map[string]string{}}
 	for arch, bin := range builds {
 		m.Artifacts[arch] = feSum(bin)
 	}
@@ -200,13 +202,13 @@ func feBinaryAsked(paths []string) bool {
 func TestFeFetch(t *testing.T) {
 	signer, other := feNewSigner(t), feNewSigner(t)
 	srv := newFeServer(t)
-	builds := fePublish(t, srv, signer, feDarkpanel, DerperVersion)
+	builds := fePublish(t, srv, signer, feDarkpanel, artifact.DerperVersion)
 	if bytes.Equal(builds["amd64"], builds["arm64"]) {
 		t.Fatal("the test builds must differ")
 	}
 	src := feSource(srv, other.key, signer.key)
 
-	bin, sha, err := Fetch(context.Background(), src, feDarkpanel, DerperVersion, "amd64")
+	bin, sha, err := Fetch(context.Background(), src, feDarkpanel, artifact.DerperVersion, "amd64")
 	if err != nil {
 		t.Fatalf("Fetch amd64: %v", err)
 	}
@@ -222,7 +224,7 @@ func TestFeFetch(t *testing.T) {
 		}
 	}
 
-	bin, sha, err = Fetch(context.Background(), src, feDarkpanel, DerperVersion, "arm64")
+	bin, sha, err = Fetch(context.Background(), src, feDarkpanel, artifact.DerperVersion, "arm64")
 	if err != nil || !bytes.Equal(bin, builds["arm64"]) || sha != feSum(builds["arm64"]) {
 		t.Errorf("Fetch arm64 = %q, %s, %v; want the arm64 build", bin, sha, err)
 	}
@@ -233,8 +235,8 @@ func TestFeFetch(t *testing.T) {
 
 func TestFeFetchRefuses(t *testing.T) {
 	signer, stranger := feNewSigner(t), feNewSigner(t)
-	manifestPath := "v" + feDarkpanel + "/" + ManifestName
-	binaryPath := "v" + feDarkpanel + "/" + BinaryName(DerperVersion, "amd64")
+	manifestPath := "v" + feDarkpanel + "/" + artifact.ManifestName
+	binaryPath := "v" + feDarkpanel + "/" + artifact.BinaryName(artifact.DerperVersion, "amd64")
 	sigPath := "v" + feDarkpanel + "/checksums.txt." + signer.key.ID + ".minisig"
 	resign := func(s *feServer) { s.sign(signer, feDarkpanel, "stable") }
 
@@ -252,24 +254,24 @@ func TestFeFetchRefuses(t *testing.T) {
 		{name: "development build", dp: "dev", code: errcode.UpdateNotFound,
 			detail: "darkpanel dev is not a published release; a DERP server needs a released darkpanel", noBinary: true},
 		{name: "manifest names another derper", want: "v1.105.0", code: errcode.UpdateNotFound,
-			detail: "release " + feDarkpanel + " carries derper " + DerperVersion + ", not v1.105.0", noBinary: true},
+			detail: "release " + feDarkpanel + " carries derper " + artifact.DerperVersion + ", not v1.105.0", noBinary: true},
 		{name: "manifest not published", tamper: func(_ *testing.T, s *feServer) { s.remove(manifestPath); resign(s) },
 			code: errcode.UpdateNotFound, noBinary: true},
 		{name: "manifest changed after signing", tamper: func(_ *testing.T, s *feServer) { s.put(manifestPath, append(s.get(manifestPath), ' ')) },
 			code: errcode.UpdateSignatureInvalid, detail: "derper.json does not match the signed checksums.txt", noBinary: true},
 		{name: "manifest names another darkpanel", tamper: func(t *testing.T, s *feServer) {
-			s.put(manifestPath, feManifest(t, "1.3.0", DerperVersion, map[string][]byte{"amd64": s.get(binaryPath), "arm64": []byte("x")}))
+			s.put(manifestPath, feManifest(t, "1.3.0", artifact.DerperVersion, map[string][]byte{"amd64": s.get(binaryPath), "arm64": []byte("x")}))
 			resign(s)
 		}, code: errcode.UpdateSignatureInvalid, noBinary: true},
 		{name: "manifest with an unknown member", tamper: func(t *testing.T, s *feServer) {
-			doc := strings.TrimSuffix(strings.TrimSpace(string(feManifest(t, feDarkpanel, DerperVersion, map[string][]byte{"amd64": []byte("a"), "arm64": []byte("b")}))), "}")
+			doc := strings.TrimSuffix(strings.TrimSpace(string(feManifest(t, feDarkpanel, artifact.DerperVersion, map[string][]byte{"amd64": []byte("a"), "arm64": []byte("b")}))), "}")
 			s.put(manifestPath, []byte(doc+`,"surprise":1}`))
 			resign(s)
 		}, detail: "surprise", noBinary: true},
 		{name: "manifest over its limit", tamper: func(_ *testing.T, s *feServer) { s.put(manifestPath, bytes.Repeat([]byte(" "), 64<<10+1)); resign(s) },
 			detail: "65536", noBinary: true},
 		{name: "binary changed after signing", tamper: func(_ *testing.T, s *feServer) { s.put(binaryPath, []byte("evil")) },
-			code: errcode.UpdateSignatureInvalid, detail: BinaryName(DerperVersion, "amd64") + " does not match the signed checksums.txt"},
+			code: errcode.UpdateSignatureInvalid, detail: artifact.BinaryName(artifact.DerperVersion, "amd64") + " does not match the signed checksums.txt"},
 		{name: "binary that the manifest does not list by hash", tamper: func(_ *testing.T, s *feServer) { s.put(binaryPath, []byte("evil")); resign(s) },
 			code: errcode.UpdateSignatureInvalid},
 		{name: "binary not listed in checksums.txt", tamper: func(_ *testing.T, s *feServer) { s.remove(binaryPath); resign(s) },
@@ -285,11 +287,11 @@ func TestFeFetchRefuses(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := newFeServer(t)
-			fePublish(t, srv, signer, feDarkpanel, DerperVersion)
+			fePublish(t, srv, signer, feDarkpanel, artifact.DerperVersion)
 			if tt.tamper != nil {
 				tt.tamper(t, srv)
 			}
-			dp, want, arch := cmp.Or(tt.dp, feDarkpanel), cmp.Or(tt.want, DerperVersion), cmp.Or(tt.arch, "amd64")
+			dp, want, arch := cmp.Or(tt.dp, feDarkpanel), cmp.Or(tt.want, artifact.DerperVersion), cmp.Or(tt.arch, "amd64")
 			bin, sha, err := Fetch(context.Background(), feSource(srv, signer.key), dp, want, arch)
 			if err == nil {
 				t.Fatalf("Fetch accepted the release and returned %d bytes", len(bin))
@@ -319,13 +321,13 @@ func TestFeFetchRefuses(t *testing.T) {
 func TestFeFetchReadsTheIndexChannel(t *testing.T) {
 	signer := feNewSigner(t)
 	srv := newFeServer(t)
-	builds := fePublish(t, srv, signer, feDarkpanel, DerperVersion)
+	builds := fePublish(t, srv, signer, feDarkpanel, artifact.DerperVersion)
 	srv.sign(signer, feDarkpanel, "beta")
 	src := feSource(srv, signer.key)
 	src.Releases = func(context.Context) ([]update.Release, error) {
 		return []update.Release{{Version: feDarkpanel, Channel: "beta"}}, nil
 	}
-	bin, _, err := Fetch(context.Background(), src, feDarkpanel, DerperVersion, "amd64")
+	bin, _, err := Fetch(context.Background(), src, feDarkpanel, artifact.DerperVersion, "amd64")
 	if err != nil || !bytes.Equal(bin, builds["amd64"]) {
 		t.Fatalf("Fetch of a release the index lists as beta and the signature says beta = %q, %v", bin, err)
 	}
@@ -334,11 +336,11 @@ func TestFeFetchReadsTheIndexChannel(t *testing.T) {
 func TestFeFetchIndexFailure(t *testing.T) {
 	signer := feNewSigner(t)
 	srv := newFeServer(t)
-	fePublish(t, srv, signer, feDarkpanel, DerperVersion)
+	fePublish(t, srv, signer, feDarkpanel, artifact.DerperVersion)
 	boom := errors.New("index down")
 	src := feSource(srv, signer.key)
 	src.Releases = func(context.Context) ([]update.Release, error) { return nil, boom }
-	if _, _, err := Fetch(context.Background(), src, feDarkpanel, DerperVersion, "amd64"); !errors.Is(err, boom) {
+	if _, _, err := Fetch(context.Background(), src, feDarkpanel, artifact.DerperVersion, "amd64"); !errors.Is(err, boom) {
 		t.Fatalf("Fetch = %v, want the index error", err)
 	}
 	if got := srv.paths(); len(got) != 0 {
@@ -352,12 +354,12 @@ func TestFeFetchBoundsTheBinary(t *testing.T) {
 	}
 	signer := feNewSigner(t)
 	srv := newFeServer(t)
-	fePublish(t, srv, signer, feDarkpanel, DerperVersion)
-	name := "v" + feDarkpanel + "/" + BinaryName(DerperVersion, "amd64")
+	fePublish(t, srv, signer, feDarkpanel, artifact.DerperVersion)
+	name := "v" + feDarkpanel + "/" + artifact.BinaryName(artifact.DerperVersion, "amd64")
 	srv.mu.Lock()
 	srv.endless[name] = true
 	srv.mu.Unlock()
-	_, _, err := Fetch(context.Background(), feSource(srv, signer.key), feDarkpanel, DerperVersion, "amd64")
+	_, _, err := Fetch(context.Background(), feSource(srv, signer.key), feDarkpanel, artifact.DerperVersion, "amd64")
 	if err == nil || !strings.Contains(err.Error(), "134217728") {
 		t.Fatalf("Fetch of an endless binary = %v, want an error naming the 128 MiB limit", err)
 	}
@@ -366,5 +368,40 @@ func TestFeFetchBoundsTheBinary(t *testing.T) {
 	srv.mu.Unlock()
 	if sent >= 200<<20 {
 		t.Errorf("the server streamed %d bytes: the client did not stop at its limit", sent)
+	}
+}
+
+// TestW10DaFetchNamesThePackageOnce: a manifest that does not parse is reported with the package name once, and
+// names the release.
+func TestW10DaFetchNamesThePackageOnce(t *testing.T) {
+	signer := feNewSigner(t)
+	srv := newFeServer(t)
+	fePublish(t, srv, signer, feDarkpanel, artifact.DerperVersion)
+	srv.put("v"+feDarkpanel+"/"+artifact.ManifestName, []byte(`{"surprise":1}`))
+	srv.sign(signer, feDarkpanel, "stable")
+	_, _, err := Fetch(context.Background(), feSource(srv, signer.key), feDarkpanel, artifact.DerperVersion, "amd64")
+	if err == nil {
+		t.Fatal("Fetch accepted a manifest with an unknown member")
+	}
+	if got := strings.Count(err.Error(), "artifact:"); got != 1 || !strings.HasPrefix(err.Error(), "artifact:") ||
+		!strings.Contains(err.Error(), feDarkpanel) || !strings.Contains(err.Error(), "surprise") {
+		t.Errorf("error %q, want one leading \"artifact:\", the release %s and the unknown member", err, feDarkpanel)
+	}
+}
+
+// TestW10DaManifestVersionGrammarMatchesTheUpdater: derper.json accepts a darkpanelVersion exactly when the
+// updater accepts it as a version, although the manifest no longer imports the updater.
+func TestW10DaManifestVersionGrammarMatchesTheUpdater(t *testing.T) {
+	hash := strings.Repeat("a", 64)
+	for _, v := range []string{
+		"1.4.0", "0.0.0", "1.5.0-beta.1", "1.5.0-rc-1", "01.4.0", "1.4", "v1.4.0", "1.4.0+build", "1.4.0-",
+		"1.4.0-beta..1", "dev", "", "18446744073709551616.0.0", "18446744073709551615.0.0",
+	} {
+		doc := `{"darkpanelVersion":` + strconv.Quote(v) + `,"derperVersion":"v1.104.1","artifacts":{"amd64":"` + hash + `","arm64":"` + hash + `"}}`
+		_, upErr := update.ParseVersion(v)
+		_, mfErr := artifact.ParseManifest([]byte(doc))
+		if (upErr == nil) != (mfErr == nil) {
+			t.Errorf("version %q: the updater says %v, the manifest says %v", v, upErr, mfErr)
+		}
 	}
 }

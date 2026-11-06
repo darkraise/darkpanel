@@ -64,6 +64,14 @@ func runDerper(ctx context.Context, args []string, stdout io.Writer, build derpe
 		if err := build(ctx, artifact.DerperVersion, arch, dst); err != nil {
 			return fmt.Errorf("derper %s: %w", arch, err)
 		}
+		//nolint:gosec // G703: the release directory named on the command line
+		info, err := os.Stat(dst)
+		if err != nil {
+			return fmt.Errorf("derper %s: %w", arch, err)
+		}
+		if info.Size() == 0 {
+			return fmt.Errorf("derper %s: the build wrote an empty %s", arch, dst)
+		}
 		sum, err := fileSHA256(dst)
 		if err != nil {
 			return fmt.Errorf("derper %s: %w", arch, err)
@@ -125,8 +133,8 @@ func rewriteChecksums(dir string) error {
 	return os.WriteFile(filepath.Join(dir, "checksums.txt"), []byte(b.String()), 0o644)
 }
 
-// fileSHA256 returns the lower-case hex SHA-256 of the file at path, which
-// must exist and not be empty.
+// fileSHA256 returns the lower-case hex SHA-256 of the file at path, an empty
+// file included, as sha256sum does.
 func fileSHA256(path string) (string, error) {
 	f, err := os.Open(path) //nolint:gosec // G304: a file of the release directory named on the command line
 	if err != nil {
@@ -134,14 +142,39 @@ func fileSHA256(path string) (string, error) {
 	}
 	defer func() { _ = f.Close() }()
 	h := sha256.New()
-	n, err := io.Copy(h, f)
-	if err != nil {
+	if _, err := io.Copy(h, f); err != nil {
 		return "", err
 	}
-	if n == 0 {
-		return "", fmt.Errorf("%s is empty", path)
-	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// derperBuildPassThrough are the runner's variables the derper build keeps:
+// where go, its caches and its temporary files live, and how it reaches the
+// network.
+var derperBuildPassThrough = []string{
+	"PATH", "HOME", "TMPDIR", "GOCACHE", "GOMODCACHE", "GOPATH", "GOROOT",
+	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
+	"SSL_CERT_FILE", "SSL_CERT_DIR",
+}
+
+// derperBuildEnv is the environment of the go commands that build derper for
+// linux/arch: the variables of environ named in derperBuildPassThrough, in
+// that order, then a fixed Go configuration, so the runner's GOFLAGS,
+// GOPROXY, GOSUMDB, GONOSUMDB, GOENV or GOWORK cannot change how the derper
+// source is fetched and verified.
+func derperBuildEnv(environ []string, arch string) []string {
+	var env []string
+	for _, name := range derperBuildPassThrough {
+		for _, kv := range environ {
+			if k, _, ok := strings.Cut(kv, "="); ok && k == name {
+				env = append(env, kv)
+				break
+			}
+		}
+	}
+	return append(env,
+		"CGO_ENABLED=0", "GOOS=linux", "GOARCH="+arch, "GOFLAGS=",
+		"GOPROXY=https://proxy.golang.org", "GOSUMDB=sum.golang.org", "GOENV=off", "GOWORK=off")
 }
 
 // buildDerper builds tailscale.com/cmd/derper at version in a temporary
@@ -159,7 +192,7 @@ func buildDerper(ctx context.Context, version, arch, dst string) error {
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 
-	env := append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+arch)
+	env := derperBuildEnv(os.Environ(), arch)
 	for _, argv := range [][]string{
 		{"go", "mod", "init", "derperbuild"},
 		{"go", "get", "tailscale.com/cmd/derper@" + version},

@@ -22,7 +22,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/core/store"
-	"github.com/darkraise/darkpanel/internal/modules/derp/artifact"
+	"github.com/darkraise/darkpanel/internal/modules/derp/artifact/download"
 	"github.com/darkraise/darkpanel/internal/modules/derp/server"
 	"github.com/darkraise/darkpanel/internal/modules/tailnet"
 	"github.com/darkraise/darkpanel/internal/modules/tailscale/link"
@@ -59,7 +59,7 @@ type dp struct{ d deps }
 // deps are the host functions the module reaches through.
 type deps struct {
 	local          func() localAPI                                                                 // production: tslocal client on tslocal.DefaultSocket
-	fetch          func(ctx context.Context, dpVersion, want, arch string) ([]byte, string, error) // production: artifact.Fetch with the production Source (30 s index client, 5 min download client)
+	fetch          func(ctx context.Context, dpVersion, want, arch string) ([]byte, string, error) // production: download.Fetch with the production Source (30 s index client, 5 min download client)
 	version        string                                                                          // production: buildinfo.Version
 	arch           string                                                                          // production: runtime.GOARCH
 	readFile       func(name string) ([]byte, error)                                               // production: os.ReadFile (certificate files under CertDir)
@@ -104,7 +104,7 @@ func productionDP() dp {
 	}
 	client := tslocal.New(socket)
 	index := update.NewIndexSource(trustedkeys.BaseURL(), &http.Client{Timeout: 30 * time.Second}, core.SystemClock{})
-	src := artifact.Source{
+	src := download.Source{
 		Client:   &http.Client{Timeout: 5 * time.Minute},
 		BaseURL:  trustedkeys.BaseURL(),
 		Keys:     trustedkeys.Keys(),
@@ -113,7 +113,7 @@ func productionDP() dp {
 	return dp{d: deps{
 		local: func() localAPI { return client },
 		fetch: func(ctx context.Context, dpVersion, want, arch string) ([]byte, string, error) {
-			return artifact.Fetch(ctx, src, dpVersion, want, arch)
+			return download.Fetch(ctx, src, dpVersion, want, arch)
 		},
 		version:        buildinfo.Version,
 		arch:           runtime.GOARCH,

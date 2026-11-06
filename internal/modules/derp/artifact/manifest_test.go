@@ -1,6 +1,8 @@
 package artifact
 
 import (
+	"go/parser"
+	"go/token"
 	"os"
 	"reflect"
 	"regexp"
@@ -132,6 +134,10 @@ func TestMfParseManifestRefuses(t *testing.T) {
 		{"an upper-case hash", mfDoc(mfDarkpanel, mfDerper, arts(`"amd64":"`+strings.ToUpper(mfHashAMD)+`",`+arm)), "amd64"},
 		{"a short hash", mfDoc(mfDarkpanel, mfDerper, arts(amd+`,"arm64":"`+mfHashARM[:63]+`"`)), "arm64"},
 		{"a hash that is not a string", mfDoc(mfDarkpanel, mfDerper, arts(amd+`,"arm64":7`)), "artifacts"},
+		{"a repeated member", mfDoc(mfDarkpanel, mfDerper, `"derperVersion":"v1.105.0"`, mfArtifacts), `"derperVersion" twice`},
+		{"a repeated architecture", mfDoc(mfDarkpanel, mfDerper, arts(amd+`,`+arm+`,"amd64":"`+mfHashARM+`"`)), `"amd64" twice`},
+		{"a repeated architecture spelled with escapes", mfDoc(mfDarkpanel, mfDerper, arts(amd+`,`+arm+`,"amd\u0036\u0034":"`+mfHashARM+`"`)), `"amd64" twice`},
+		{"a bad hash and a missing architecture", mfDoc(mfDarkpanel, mfDerper, arts(`"amd64":"`+mfHashAMD[:63]+`"`)), `lacks the architecture "arm64"`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -159,6 +165,7 @@ func TestMfEncodeValidatesTheManifest(t *testing.T) {
 		{"extra arch", func(m *Manifest) { m.Artifacts["s390x"] = mfHashAMD }, "s390x"},
 		{"bad hash", func(m *Manifest) { m.Artifacts["amd64"] = "xyz" }, "amd64"},
 		{"nil artifacts", func(m *Manifest) { m.Artifacts = nil }, "amd64"},
+		{"a bad hash and a missing arch", func(m *Manifest) { delete(m.Artifacts, "arm64"); m.Artifacts["amd64"] = "xyz" }, `lacks the architecture "arm64"`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -172,5 +179,29 @@ func TestMfEncodeValidatesTheManifest(t *testing.T) {
 				t.Errorf("Encode = %q, %v, want no bytes and an \"artifact:\" error mentioning %q", b, err, tt.want)
 			}
 		})
+	}
+}
+
+// TestW10DaPackageImportsNoUpdater: the package the release tool imports for derper's names and manifest does not
+// import the updater, which would link the agent's runtime into every release tool run.
+func TestW10DaPackageImportsNoUpdater(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fset := token.NewFileSet()
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, e.Name(), nil, parser.ImportsOnly)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, imp := range file.Imports {
+			if path := strings.Trim(imp.Path.Value, `"`); strings.HasPrefix(path, "github.com/darkraise/darkpanel/internal/update") {
+				t.Errorf("%s imports %s", e.Name(), path)
+			}
+		}
 	}
 }

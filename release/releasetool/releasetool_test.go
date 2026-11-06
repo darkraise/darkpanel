@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -595,5 +596,77 @@ func TestDrRunDispatchesTheSubcommand(t *testing.T) {
 	}
 	if !strings.Contains(usage, "releasetool derper <darkpanel version> <out dir> [-arch amd64|arm64]") {
 		t.Errorf("the usage text lacks the derper subcommand:\n%s", usage)
+	}
+}
+
+// TestW10DaChecksumsCoverAnEmptyFile: the rewrite of checksums.txt lists a file with no content by its hash, as
+// sha256sum does, instead of failing on it.
+func TestW10DaChecksumsCoverAnEmptyFile(t *testing.T) {
+	dir := t.TempDir()
+	for name, body := range map[string]string{"empty.txt": "", "full.txt": "data", "full.txt.minisig": "signature"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil { //nolint:gosec // G306: test files
+			t.Fatal(err)
+		}
+	}
+	if err := rewriteChecksums(dir); err != nil {
+		t.Fatalf("rewriteChecksums: %v", err)
+	}
+	want := drSum(nil) + "  empty.txt\n" + drSum([]byte("data")) + "  full.txt\n"
+	if got := string(drRead(t, filepath.Join(dir, "checksums.txt"))); got != want {
+		t.Errorf("checksums.txt =\n%s\nwant\n%s", got, want)
+	}
+}
+
+// TestW10DaRunDerperRefusesABuildThatWritesNothing: a builder that leaves an empty file or no file is an error
+// naming the architecture, and no manifest is written.
+func TestW10DaRunDerperRefusesABuildThatWritesNothing(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		write bool
+		want  string
+	}{
+		{"an empty file", true, "empty"},
+		{"no file", false, "no such file"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out := filepath.Join(t.TempDir(), "out")
+			build := func(_ context.Context, _, _, dst string) error {
+				if tc.write {
+					return os.WriteFile(dst, nil, 0o755) //nolint:gosec // G306: a test binary
+				}
+				return nil
+			}
+			err := runDerper(context.Background(), []string{"1.4.0", out}, &bytes.Buffer{}, build)
+			if err == nil || !strings.Contains(err.Error(), "amd64") || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("runDerper = %v, want an error naming amd64 and %q", err, tc.want)
+			}
+			drMissing(t, filepath.Join(out, artifact.ManifestName))
+		})
+	}
+}
+
+// TestW10DaDerperBuildEnv: the go commands that build derper get a fixed environment, whatever the runner's:
+// the checksum database and the public module proxy, no Go configuration file or workspace, no flags, and none
+// of the runner's other variables.
+func TestW10DaDerperBuildEnv(t *testing.T) {
+	environ := []string{
+		"PATH=/usr/bin", "HOME=/home/runner", "GOFLAGS=-mod=vendor", "GOPROXY=off", "GOSUMDB=off", "GONOSUMDB=*",
+		"GOINSECURE=*", "GOPRIVATE=*", "GONOPROXY=*", "GOENV=/tmp/evil", "GOWORK=/tmp/go.work", "GOOS=windows",
+		"CGO_ENABLED=1", "GITHUB_TOKEN=placeholder",
+	}
+	got := map[string]string{}
+	for _, kv := range derperBuildEnv(environ, "arm64") {
+		name, value, _ := strings.Cut(kv, "=")
+		if _, twice := got[name]; twice {
+			t.Errorf("%s is set twice", name)
+		}
+		got[name] = value
+	}
+	want := map[string]string{
+		"PATH": "/usr/bin", "HOME": "/home/runner", "CGO_ENABLED": "0", "GOOS": "linux", "GOARCH": "arm64",
+		"GOFLAGS": "", "GOPROXY": "https://proxy.golang.org", "GOSUMDB": "sum.golang.org", "GOENV": "off", "GOWORK": "off",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("environment %v, want %v", got, want)
 	}
 }
