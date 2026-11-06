@@ -41,6 +41,8 @@ Each module has a page of its own:
 
 - [Recover from a lockout](lockout-recovery.md) gets you back in after a lost
   password, a firewall change that cut you off, or an update that broke a host.
+- [Follow the runbook](../runbook.md) lists the procedures for a lockout, a failed
+  update and a lost controller, in the order you need them.
 
 ## Reference
 

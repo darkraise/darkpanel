@@ -114,4 +114,6 @@ it again safely.
 If the controller's database or key is lost or damaged, restore a backup with
 `darkpanel controller restore`. A restore needs both services stopped and
 leaves unfinished work in quarantine until you settle it. The
-[administration page](administration.md) explains the whole procedure.
+[administration page](administration.md) explains the whole procedure. The
+[runbook](../runbook.md) lists every recovery procedure, including how to
+re-enroll agents after a restore.

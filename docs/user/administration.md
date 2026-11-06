@@ -225,3 +225,6 @@ sudo darkpanel controller quarantine release
   with their locks, and prints every lock that stays held and by which record.
 
 Every `quarantine` command accepts `--json`, which prints the raw answer.
+
+To bring agents back after a restore, see
+[Re-enroll agents](../runbook.md#re-enroll-agents).
