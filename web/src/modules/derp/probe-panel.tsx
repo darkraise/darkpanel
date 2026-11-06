@@ -30,8 +30,8 @@ function ReportList({ label, name, items }: { label: string; name: string; items
     <div className="flex flex-col gap-1">
       <p className="text-sm font-medium">{label}</p>
       <ul aria-label={name} className="list-disc pl-4 text-sm">
-        {items.map((item) => (
-          <li key={item}>{item}</li>
+        {items.map((item, i) => (
+          <li key={i}>{item}</li>
         ))}
       </ul>
     </div>

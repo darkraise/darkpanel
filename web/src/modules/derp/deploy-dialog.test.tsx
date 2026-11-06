@@ -126,6 +126,7 @@ test("Cancel closes the dialog and plans nothing", async () => {
   const { user, dialog } = await ddOpen()
   await user.click(within(dialog).getByRole("button", { name: "Cancel" }))
   expect(onClose).toHaveBeenCalledTimes(1)
+  expect(onClose).toHaveBeenCalledWith()
   expect(ddPlans(calls)).toEqual([])
 })
 

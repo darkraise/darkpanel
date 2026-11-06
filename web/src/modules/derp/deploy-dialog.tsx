@@ -91,7 +91,7 @@ export function DeployDialog({ onClose }: { onClose: () => void }) {
             </Alert>
           )}
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>
+            <Button type="button" variant="outline" onClick={() => onClose()}>
               Cancel
             </Button>
             <Button type="submit" disabled={!ready}>

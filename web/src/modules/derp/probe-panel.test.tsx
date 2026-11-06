@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { expect, test } from "vitest"
+import { expect, test, vi } from "vitest"
 import { axe } from "vitest-axe"
 import { renderWithProviders, stubFetch } from "@/test/utils"
 import { probeFixture } from "./fixtures"
@@ -63,6 +63,19 @@ test("lists the probe's warnings and says when the server is not ready", async (
   expect(screen.getByText("Region: not published")).toBeTruthy()
   expect(within(screen.getByRole("list", { name: "Warnings" })).getAllByRole("listitem").map((i) => i.textContent)).toEqual([warning])
   expect(screen.queryByText("Ready to publish")).toBeNull()
+})
+
+test("lists repeated warnings without a duplicate key", async () => {
+  const errors = vi.spyOn(console, "error").mockImplementation(() => {})
+  try {
+    stubFetch({ [PP_PROBE]: { body: { output: { ...ppProbe, ready: false, regionId: 0, regionCode: "", warnings: ["same", "same"] } } } })
+    renderWithProviders(<ProbePanel hostId="h2" />)
+    const list = await screen.findByRole("list", { name: "Warnings" })
+    expect(within(list).getAllByRole("listitem").map((i) => i.textContent)).toEqual(["same", "same"])
+    expect(errors.mock.calls.flat().join(" ")).not.toContain("same key")
+  } finally {
+    errors.mockRestore()
+  }
 })
 
 test("shows the TLS and STUN result of each source", async () => {

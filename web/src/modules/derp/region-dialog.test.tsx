@@ -105,6 +105,27 @@ test.each(rdInvalid)("Review stays off for $what", async ({ field, value }) => {
   await waitFor(() => expect(within(dialog).getByRole("button", { name: "Review" }).hasAttribute("disabled")).toBe(true))
 })
 
+test("marks an empty region code and a region name over 64 characters invalid", async () => {
+  stubFetch({ [RD_PLAN]: rdPlan() })
+  const dialog = await rdOpen()
+  const user = userEvent.setup()
+  const code = within(dialog).getByLabelText("Region code")
+  const name = within(dialog).getByLabelText("Region name")
+  expect(code.getAttribute("aria-invalid")).toBe("true")
+  await user.type(code, "fra-x")
+  expect(code.getAttribute("aria-invalid")).toBe("false")
+
+  await user.type(name, "n".repeat(65))
+  expect(name.getAttribute("aria-invalid")).toBe("true")
+  expect(within(dialog).getByText("Use 1 to 64 characters.").className).toContain("text-destructive")
+  expect(within(dialog).getByRole("button", { name: "Review" }).hasAttribute("disabled")).toBe(true)
+
+  await user.clear(name)
+  await user.type(name, "Frankfurt X")
+  expect(name.getAttribute("aria-invalid")).toBe("false")
+  expect(within(dialog).getByText("Use 1 to 64 characters.").className).not.toContain("text-destructive")
+})
+
 test("omitting the default regions asks for the acknowledgement and sends what was typed", async () => {
   const calls = stubFetch({ [RD_PLAN]: rdPlan() })
   const dialog = await rdOpen()
@@ -176,6 +197,7 @@ test("Cancel closes the dialog and plans nothing", async () => {
   const user = userEvent.setup()
   await user.click(within(dialog).getByRole("button", { name: "Cancel" }))
   expect(onClose).toHaveBeenCalledTimes(1)
+  expect(onClose).toHaveBeenCalledWith()
   expect(rdPlans(calls)).toEqual([])
 })
 

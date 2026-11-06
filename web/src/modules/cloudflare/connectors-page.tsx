@@ -153,7 +153,17 @@ function DeployForm({ host, tunnels, taken, onPlan }: { host: Host; tunnels: Tun
   )
 }
 
-function DeployCard({ host, tunnels, taken, onPlan }: { host: Host; tunnels: Tunnels; taken: Set<string>; onPlan: (pending: Pending) => void }) {
+function DeployCard({
+  host,
+  tunnels,
+  connectors,
+  onPlan,
+}: {
+  host: Host
+  tunnels: Tunnels
+  connectors: UseQueryResult<ConnectorList>
+  onPlan: (pending: Pending) => void
+}) {
   return (
     <Card>
       <CardHeader>
@@ -163,8 +173,17 @@ function DeployCard({ host, tunnels, taken, onPlan }: { host: Host; tunnels: Tun
         {tunnels.isError && <ErrorAlert error={tunnels.error} />}
         {tunnels.isPending ? (
           <Spinner aria-label="Loading the tunnels" />
+        ) : connectors.data !== undefined ? (
+          <DeployForm
+            host={host}
+            tunnels={tunnels.data?.tunnels ?? []}
+            taken={new Set(connectors.data.connectors.map((c) => c.tunnel))}
+            onPlan={onPlan}
+          />
+        ) : connectors.isPending ? (
+          <Spinner aria-label="Checking which tunnels have a connector" />
         ) : (
-          <DeployForm host={host} tunnels={tunnels.data?.tunnels ?? []} taken={taken} onPlan={onPlan} />
+          <DeployForm host={host} tunnels={[]} taken={new Set()} onPlan={onPlan} />
         )}
       </CardContent>
     </Card>
@@ -177,12 +196,11 @@ function HostConnectors({ host, tunnels }: { host: Host; tunnels: Tunnels }) {
     queryFn: () => readAction<ConnectorList>("cloudflare.connector.list", CLOUDFLARE_ACTION_VERSION, {}, host.id),
   })
   const [pending, setPending] = useState<Pending | null>(null)
-  const taken = new Set(connectors.data?.connectors.map((c) => c.tunnel))
 
   return (
     <>
       <ConnectorsCard host={host} connectors={connectors} tunnels={tunnels} onPlan={(p) => setPending({ ...p, hostId: host.id })} />
-      <DeployCard host={host} tunnels={tunnels} taken={taken} onPlan={setPending} />
+      <DeployCard host={host} tunnels={tunnels} connectors={connectors} onPlan={setPending} />
       {pending !== null && (
         <CloudflareChange action={pending.action} title={pending.title} input={pending.input} hostId={pending.hostId} onClose={() => setPending(null)} />
       )}

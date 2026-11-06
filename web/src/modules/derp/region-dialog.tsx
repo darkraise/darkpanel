@@ -30,7 +30,8 @@ export function RegionDialog({ server, probe, onClose }: { server: DerpServerVie
   const trimmedName = name.trim()
   const nameOk = trimmedName.length >= 1 && trimmedName.length <= 64
   const ready = idOk && codeOk && nameOk
-  const codeInvalid = code !== "" && !codeOk
+  const codeInvalid = !codeOk
+  const nameInvalid = name !== "" && !nameOk
 
   function setOmitDefaults(checked: boolean) {
     setOmit(checked)
@@ -108,7 +109,17 @@ export function RegionDialog({ server, probe, onClose }: { server: DerpServerVie
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="derp-region-name">Region name</Label>
-            <Input id="derp-region-name" value={name} onChange={(event) => setName(event.target.value)} autoComplete="off" />
+            <Input
+              id="derp-region-name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              aria-invalid={nameInvalid}
+              aria-describedby="derp-region-name-help"
+              autoComplete="off"
+            />
+            <span id="derp-region-name-help" className={nameInvalid ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>
+              Use 1 to 64 characters.
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <Checkbox id="derp-region-omit" checked={omit} onCheckedChange={(checked) => setOmitDefaults(checked === true)} />
@@ -130,7 +141,7 @@ export function RegionDialog({ server, probe, onClose }: { server: DerpServerVie
             </div>
           )}
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>
+            <Button type="button" variant="outline" onClick={() => onClose()}>
               Cancel
             </Button>
             <Button type="submit" disabled={!ready}>

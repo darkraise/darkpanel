@@ -211,6 +211,26 @@ describe("ConnectorsPage", () => {
     expect(screen.getByLabelText("Loading the tunnels")).toBeTruthy()
   })
 
+  test("while the connector list is pending no tunnel is offered", async () => {
+    cnRender([cnHost("h1", "web-1")], { [cnList("h1")]: () => new Promise(() => {}) })
+    expect(await screen.findByLabelText("Checking which tunnels have a connector")).toBeTruthy()
+    expect(screen.queryByRole("form", { name: "Deploy a connector" })).toBeNull()
+    expect(screen.queryByRole("radio", { name: "darkpanel-c2" })).toBeNull()
+  })
+
+  test("a connector list that cannot be read leaves only a new tunnel on offer", async () => {
+    cnRender([cnHost("h1", "web-1")], {
+      [cnList("h1")]: {
+        status: 503,
+        body: { type: "about:blank", title: "Unavailable", status: 503, detail: "the Docker Engine is not reachable", code: "docker.engine_unavailable" },
+      },
+    })
+    expect((await screen.findByRole("alert")).textContent).toBe("the Docker Engine is not reachable")
+    const form = await screen.findByRole("form", { name: "Deploy a connector" })
+    expect(within(form).getAllByRole("radio")).toHaveLength(1)
+    expect(within(form).getByRole("radio", { name: "Create a new tunnel" })).toBeTruthy()
+  })
+
   test("has no accessibility violations", async () => {
     const { container } = cnRender([cnHost("h1", "web-1"), cnHost("h2", "web-2")])
     await userEvent.setup().click(await screen.findByRole("radio", { name: "web-1" }))
