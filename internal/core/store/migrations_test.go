@@ -702,6 +702,99 @@ func TestControllerPlatformSurfacesMigration(t *testing.T) {
 	}
 }
 
+func TestW10AuServicePhasesMigration(t *testing.T) {
+	ctx := context.Background()
+	db := openTemp(t)
+	if _, err := Migrate(ctx, db, migrateOpts(t, "w9", time.Now()), coreSetUpTo(t, SideController, 14), nil); err != nil {
+		t.Fatal(err)
+	}
+	const at = "2026-11-06T00:00:00.000000000Z"
+	insert := `INSERT INTO core_audit (id, seq, epoch, at, actor, host_id, action, version, phase, change_id, input_json,
+		result, error_code, source) VALUES (?, ?, ?, ?, ?, ?, 'fix.item.add', 1, ?, ?, ?, ?, ?, ?)`
+	exec := func(args ...any) error {
+		_, err := db.Writer().ExecContext(ctx, insert, args...)
+		return err
+	}
+	for _, args := range [][]any{
+		{"A1", nil, "", at, "user:alice", nil, "apply", "C1", `{"name":"a"}`, "ok", nil, "127.0.0.1"},
+		{"A2", 7, "E1", at, "system:recovery", "H1", "interrupt", "C2", nil, "error", "core.interrupted", nil},
+		{"A3", 8, "E1", at, "user:alice", "H1", "reveal", "C2", nil, "ok", nil, "192.0.2.7"},
+		{"A4", 9, "E1", at, "user:alice", "H1", "revert", "C2", nil, "override", nil, nil},
+	} {
+		if err := exec(args...); err != nil {
+			t.Fatalf("audit row %v: %v", args[0], err)
+		}
+	}
+	for i, phase := range []string{"check", "delete"} {
+		if err := exec(fmt.Sprintf("B%d", i), nil, "", at, "system:fix.service", nil, phase, nil, nil, "ok", nil, nil); err == nil {
+			t.Fatalf("phase %s was accepted before the migration", phase)
+		}
+	}
+	const audit = `SELECT json_array(id, seq, epoch, at, actor, host_id, action, version, phase, change_id, input_json,
+		result, error_code, source) FROM core_audit ORDER BY id`
+	before := surfacesRows(t, db, audit)
+
+	set, err := CoreMigrations(SideController)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := Migrate(ctx, db, migrateOpts(t, "w10a", time.Now()), set, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Applied) == 0 || res.Applied[0].Number != 15 || res.Applied[0].Name != "audit_service_phases" {
+		t.Fatalf("applied %+v, want 0015_audit_service_phases first", res.Applied)
+	}
+	if after := surfacesRows(t, db, audit); !slices.Equal(after, before) {
+		t.Errorf("audit rows after the migration = %v, want %v", after, before)
+	}
+	var tableSQL, indexSQL string
+	if err := db.Read().QueryRowContext(ctx, "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'core_audit'").
+		Scan(&tableSQL); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(strings.TrimSpace(tableSQL), "STRICT") {
+		t.Errorf("core_audit is not STRICT: %s", tableSQL)
+	}
+	if err := db.Read().QueryRowContext(ctx,
+		"SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'core_audit_host_epoch_seq' AND tbl_name = 'core_audit'").
+		Scan(&indexSQL); err != nil {
+		t.Fatalf("index core_audit_host_epoch_seq: %v", err)
+	}
+	if !strings.Contains(indexSQL, "UNIQUE") {
+		t.Errorf("core_audit_host_epoch_seq is not unique: %s", indexSQL)
+	}
+
+	phases := []string{
+		"apply", "confirm", "revert", "recover", "interrupt", "login", "logout", "undo", "resolve", "release",
+		"revert-watchdog", "reveal", "uninstall-abort", "check", "delete",
+	}
+	for i, phase := range phases {
+		if err := exec(fmt.Sprintf("N%02d", i), i+1, "E2", at, "system:fix.service", "H1", phase, nil, nil, "ok", nil, nil); err != nil {
+			t.Errorf("phase %s refused: %v", phase, err)
+		}
+	}
+	if err := exec("N90", 90, "E2", at, "system:fix.service", "H1", "check", nil, nil, "error", "fix.failed", nil); err != nil {
+		t.Errorf("phase check with result error refused: %v", err)
+	}
+	if err := exec("N91", 91, "E2", at, "user:alice", "H1", "revert", nil, nil, "override", nil, nil); err != nil {
+		t.Errorf("result override refused: %v", err)
+	}
+	refused := []struct {
+		name string
+		args []any
+	}{
+		{"unknown phase", []any{"R1", nil, "", at, "system:fix.service", nil, "bogus", nil, nil, "ok", nil, nil}},
+		{"unknown result", []any{"R2", nil, "", at, "system:fix.service", nil, "check", nil, nil, "partial", nil, nil}},
+		{"duplicate host, epoch and seq", []any{"R3", 7, "E1", at, "system:fix.service", "H1", "delete", nil, nil, "ok", nil, nil}},
+	}
+	for _, r := range refused {
+		if err := exec(r.args...); err == nil {
+			t.Errorf("%s: accepted", r.name)
+		}
+	}
+}
+
 func TestControllerListenersMigration(t *testing.T) {
 	ctx := context.Background()
 	db := openTemp(t)
