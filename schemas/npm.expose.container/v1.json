@@ -11,7 +11,8 @@
       "ExposeInput": {
         "properties": {
           "hostId": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "container": {
             "type": "string"
@@ -28,7 +29,8 @@
             "items": {
               "type": "string"
             },
-            "type": "array"
+            "type": "array",
+            "minItems": 1
           },
           "websockets": {
             "type": "boolean"

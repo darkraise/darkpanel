@@ -11,7 +11,8 @@
       "AdminExposeInput": {
         "properties": {
           "hostId": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "hostname": {
             "type": "string"

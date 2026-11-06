@@ -457,3 +457,19 @@ func TestCxExposeRemoveOutput(t *testing.T) {
 		t.Errorf("output without the network step: %v, want an error naming network", err)
 	}
 }
+
+// TestW10NbExposeContainerRefusesNoDomains: npm.expose.container with an empty domain list is refused as an invalid
+// input at the schema, before Steps would name a claimant from a domain that does not exist.
+func TestW10NbExposeContainerRefusesNoDomains(t *testing.T) {
+	def := newTHHost(t).nm().exposeContainer()
+	v := schema.NewValidator()
+	empty := ExposeInput{HostID: cxHost, Container: "web", Port: 8080, Network: "appnet", Domains: []string{}}
+	if err := v.ValidateInput(def, cxJSON(t, empty)); !regRefusal(err, "/domains") {
+		t.Errorf("input with no domains: %v, want request.invalid_input naming /domains", err)
+	}
+	one := empty
+	one.Domains = []string{"app.example.com"}
+	if err := v.ValidateInput(def, cxJSON(t, one)); err != nil {
+		t.Errorf("input with one domain: %v, want it accepted", err)
+	}
+}

@@ -199,7 +199,7 @@ type Upgraded struct {
 
 // CheckInput is the input of npm.instance.check: the host and whether the Docker integration is expected to be on.
 type CheckInput struct {
-	HostID      string `json:"hostId"`
+	HostID      string `json:"hostId" jsonschema:"minLength=1"`
 	Integration bool   `json:"integration"`
 }
 
@@ -210,7 +210,7 @@ type CheckResult struct {
 
 // PublicInput is the input of npm.public.check.
 type PublicInput struct {
-	HostID string `json:"hostId"`
+	HostID string `json:"hostId" jsonschema:"minLength=1"`
 }
 
 // PublicResult is the output of npm.public.check; Via says what makes the instance public.
@@ -233,38 +233,38 @@ type InstancesOutput struct {
 
 // DeployPublicInput is the input of npm.instance.deploy-public.
 type DeployPublicInput struct {
-	HostID      string `json:"hostId"`
+	HostID      string `json:"hostId" jsonschema:"minLength=1"`
 	AcmeEmail   string `json:"acmeEmail" jsonschema:"minLength=3,maxLength=254"`
 	Integration bool   `json:"integration"`
 }
 
 // ExposeInput is the input of npm.expose.container: the container's port to serve on Domains, reached over Network.
 type ExposeInput struct {
-	HostID       string   `json:"hostId"`
+	HostID       string   `json:"hostId" jsonschema:"minLength=1"`
 	Container    string   `json:"container"`
 	Port         int      `json:"port" jsonschema:"minimum=1,maximum=65535"`
 	Network      string   `json:"network"`
-	Domains      []string `json:"domains"`
+	Domains      []string `json:"domains" jsonschema:"minItems=1"`
 	Websockets   bool     `json:"websockets,omitempty"`
 	AccessListID int      `json:"accessListId,omitempty"`
 }
 
 // ExposeRemoveInput is the input of npm.expose.remove.
 type ExposeRemoveInput struct {
-	HostID string `json:"hostId"`
+	HostID string `json:"hostId" jsonschema:"minLength=1"`
 	Domain string `json:"domain"`
 }
 
 // AdminExposeInput is the input of npm.admin.expose.
 type AdminExposeInput struct {
-	HostID       string `json:"hostId"`
+	HostID       string `json:"hostId" jsonschema:"minLength=1"`
 	Hostname     string `json:"hostname"`
 	AccessListID int    `json:"accessListId,omitempty"`
 }
 
 // AdminUnexposeInput is the input of npm.admin.unexpose.
 type AdminUnexposeInput struct {
-	HostID   string `json:"hostId"`
+	HostID   string `json:"hostId" jsonschema:"minLength=1"`
 	Hostname string `json:"hostname"`
 }
 

@@ -11103,6 +11103,7 @@
             "type": "integer"
           },
           "hostId": {
+            "minLength": 1,
             "type": "string"
           },
           "hostname": {
@@ -11167,6 +11168,7 @@
         "additionalProperties": false,
         "properties": {
           "hostId": {
+            "minLength": 1,
             "type": "string"
           },
           "hostname": {
@@ -11375,9 +11377,11 @@
             "items": {
               "type": "string"
             },
+            "minItems": 1,
             "type": "array"
           },
           "hostId": {
+            "minLength": 1,
             "type": "string"
           },
           "network": {
@@ -11429,6 +11433,7 @@
             "type": "string"
           },
           "hostId": {
+            "minLength": 1,
             "type": "string"
           }
         },
@@ -11490,6 +11495,7 @@
             "type": "string"
           },
           "hostId": {
+            "minLength": 1,
             "type": "string"
           },
           "integration": {
