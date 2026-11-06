@@ -26,7 +26,7 @@ const (
 
 // m5dwUploadRE finds the line of the step that uploads the bin/harness
 // directory, and not the cache step's path of derper files inside it.
-var m5dwUploadRE = regexp.MustCompile(`(?m)^\s*path: bin/harness$`)
+var m5dwUploadRE = regexp.MustCompile(`(?m)^[ \t]*path: bin/harness$`)
 
 // m5dwWorkflow checks the text of harness.yml for TestM5DERP: the build job
 // caches the derper build under the derper version and builds it for amd64

@@ -581,6 +581,24 @@ func (r *m6nRun) deploy(t *testing.T) {
 	}
 }
 
+// w10hxSetContainerCmd returns the command that writes id as the container of
+// the NPM instance row in the agent database db. It prints the number of rows
+// the update changed. The caller has checked that id is 64 hexadecimal
+// characters.
+func w10hxSetContainerCmd(db, id string) string {
+	return "sudo sqlite3 -cmd '.timeout 10000' " + db + " \"UPDATE npm_instances SET container_id = '" + id + "' WHERE id = 1; SELECT changes();\""
+}
+
+// w10hxChanged accepts the output of w10hxSetContainerCmd only when exactly
+// one row changed, so an update that matched no row is not mistaken for a
+// write.
+func w10hxChanged(out string) error {
+	if strings.TrimSpace(out) != "1" {
+		return fmt.Errorf("harness: the update of the instance row printed %q, want 1 changed row", out)
+	}
+	return nil
+}
+
 // harnessSettings is what only a harness deployment has (spec 6, Verification):
 // NPM's certbot talks to Pebble. The image takes the ACME directory and the CA
 // file from its environment, which a deployed container cannot be given, so the
@@ -605,7 +623,9 @@ func (r *m6nRun) harnessSettings(t *testing.T) {
 	if len(id) != 64 || strings.Trim(id, "0123456789abcdef") != "" {
 		t.Fatalf("harness: the recreated container's id is %q", id)
 	}
-	m3Run(r.ctx, t, v, "sudo sqlite3 -cmd '.timeout 10000' "+paths.Production().AgentDB()+" \"UPDATE npm_instances SET container_id = '"+id+"' WHERE id = 1\"")
+	if err := w10hxChanged(m3Run(r.ctx, t, v, w10hxSetContainerCmd(paths.Production().AgentDB(), id))); err != nil {
+		t.Fatal(err)
+	}
 	err = eventually(r.ctx, 3*time.Minute, func(ctx context.Context) error {
 		out, err := v.Run(ctx, "curl -fsS --max-time 10 http://127.0.0.1:81/api/")
 		if err != nil {
@@ -669,12 +689,12 @@ func (r *m6nRun) admin(t *testing.T) {
 	if !st.Deployed || !st.Running || !st.APIReady || st.Image != npm.Image || st.PinnedImage != npm.Image || st.AdminEmail != m6nAcmeEmail || st.Public != "no" {
 		t.Errorf("npm.instance.status %+v, want a running, ready instance of %s with admin %s that is not public yet", st, npm.Image, m6nAcmeEmail)
 	}
-	var fleet npm.InstancesOutput
-	if err := r.f.api.Read(r.ctx, "", "npm.instance.list/v1", struct{}{}, &fleet); err != nil {
+	var instances npm.InstancesOutput
+	if err := r.f.api.Read(r.ctx, "", "npm.instance.list/v1", struct{}{}, &instances); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.ContainsFunc(fleet.Instances, func(i npm.HostInstance) bool { return i.HostID == r.f.agentID && i.Status.Deployed }) {
-		t.Errorf("npm.instance.list %+v, want the agent's host with a deployed instance", fleet.Instances)
+	if !slices.ContainsFunc(instances.Instances, func(i npm.HostInstance) bool { return i.HostID == r.f.agentID && i.Status.Deployed }) {
+		t.Errorf("npm.instance.list %+v, want the agent's host with a deployed instance", instances.Instances)
 	}
 	var pw npm.AdminPassword
 	if err := m4Reveal(r.ctx, r.f.api, r.f.agentID, "npm.admin.reveal-password", npm.RevealInput{}, &pw); err != nil {
@@ -892,10 +912,7 @@ func (r *m6nRun) exposeRemove(t *testing.T) {
 		t.Errorf("proxy hosts %+v after removing %s, want only the one for %s", hosts, m6nAppHost, m6nEchoHost)
 	}
 	err := eventually(r.ctx, 30*time.Second, func(ctx context.Context) error {
-		if resp, err := m6nGet(ctx, r.f.scanner, m6nAppHost, "/", nil); err == nil && m6nIsApp(resp) {
-			return errors.New("harness: the host still reaches the removed target")
-		}
-		return nil
+		return w10hxGone(m6nGet(ctx, r.f.scanner, m6nAppHost, "/", nil))
 	})
 	if err != nil {
 		t.Errorf("GET https://%s/ after the removal: %v", m6nAppHost, err)
@@ -904,15 +921,48 @@ func (r *m6nRun) exposeRemove(t *testing.T) {
 		t.Errorf("network %s holds %v, want %s kept for the exposure that remains", m6nAppNet, members, m6nNPMName)
 	}
 	resp, err := m6nGet(r.ctx, r.f.scanner, m6nEchoHost, "/", nil)
-	if err != nil || resp.Status != http.StatusOK {
-		t.Errorf("GET https://%s/ after the removal: %v %d, want 200", m6nEchoHost, err, resp.Status)
+	switch {
+	case err != nil:
+		t.Errorf("GET https://%s/ after the removal: %v", m6nEchoHost, err)
+	case resp.Status != http.StatusOK:
+		t.Errorf("GET https://%s/ after the removal answered %d, want 200", m6nEchoHost, resp.Status)
 	}
 }
 
+// w10hxGone accepts the reply to a request for a removed exposure's host only
+// when it arrived and is not the removed target's answer. A failed request
+// shows an outage, not the removal.
+func w10hxGone(resp m6nResponse, err error) error {
+	if err != nil {
+		return fmt.Errorf("harness: the request failed, so the removal is not shown: %w", err)
+	}
+	if m6nIsApp(resp) {
+		return errors.New("harness: the host still reaches the removed target")
+	}
+	return nil
+}
+
+// w10hxRecreated checks that the upgrade replaced the container: the upgrade
+// stops, removes and recreates it, so the id changes.
+func w10hxRecreated(before, after string) error {
+	if before == "" || after == "" {
+		return fmt.Errorf("harness: no container id to compare: %q before the upgrade, %q after", before, after)
+	}
+	if before == after {
+		return fmt.Errorf("harness: the container id %s did not change over the upgrade", after)
+	}
+	return nil
+}
+
 // upgrade: npm.instance.upgrade to the pinned image, which the instance
-// already runs, completes, leaves the instance ready and keeps the proxy host.
+// already runs, completes, recreates the container, leaves the instance ready
+// and keeps the proxy host.
 func (r *m6nRun) upgrade(t *testing.T) {
 	before := r.listProxyHosts(t)
+	var prev npm.InstanceStatus
+	if err := r.f.api.Read(r.ctx, r.f.agentID, "npm.instance.status/v1", npm.StatusInput{}, &prev); err != nil {
+		t.Fatal(err)
+	}
 	ch := m4ApplyAsync(r.ctx, t, r.f.api, r.f.agentID, "npm.instance.upgrade", npm.UpgradeInput{})
 	var out npm.Upgraded
 	if err := json.Unmarshal(ch.Output, &out); err != nil || out.ToImage != npm.Image {
@@ -924,6 +974,9 @@ func (r *m6nRun) upgrade(t *testing.T) {
 	}
 	if !st.Running || !st.APIReady || st.Image != npm.Image {
 		t.Errorf("npm.instance.status %+v after the upgrade, want a running, ready instance of %s", st, npm.Image)
+	}
+	if err := w10hxRecreated(prev.ContainerID, st.ContainerID); err != nil {
+		t.Error(err)
 	}
 	after := r.listProxyHosts(t)
 	if len(after) != len(before) || !m6nHasDomain(after, m6nEchoHost) {
@@ -960,11 +1013,18 @@ func (r *m6nRun) exposeRemoveLast(t *testing.T) {
 // m6nDiagnosticTimeout bounds each command of logDiagnostics.
 const m6nDiagnosticTimeout = 15 * time.Second
 
+// w10hxDiagnosticContext returns the context of one diagnostic command. It
+// keeps the values of parent and drops its cancellation, because the
+// diagnostics are wanted most when the test context has already expired.
+func w10hxDiagnosticContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(parent), m6nDiagnosticTimeout)
+}
+
 // logDiagnostics logs what m6nDiagnostics collects. A command that fails is
 // logged with its error and never fails the test.
 func (r *m6nRun) logDiagnostics(t *testing.T) {
 	for _, d := range m6nDiagnostics() {
-		ctx, cancel := context.WithTimeout(r.ctx, m6nDiagnosticTimeout)
+		ctx, cancel := w10hxDiagnosticContext(r.ctx)
 		out, err := r.f.agent.Run(ctx, d.Command)
 		cancel()
 		out = m5dCapDiagnostic(out, strings.Contains(d.Command, "logs"))

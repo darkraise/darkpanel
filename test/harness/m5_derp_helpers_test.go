@@ -236,13 +236,21 @@ func m5dStunCheck(tx [12]byte, answerHex string, scanner netip.Addr) error {
 	return nil
 }
 
+// w10hxProbeURL returns the URL m5dProbe requests, with an IPv6 literal in the square brackets a URL host needs.
+func w10hxProbeURL(host string) string {
+	if addr, err := netip.ParseAddr(host); err == nil && addr.Is6() {
+		host = "[" + host + "]"
+	}
+	return (&url.URL{Scheme: "https", Host: host, Path: "/derp/probe"}).String()
+}
+
 // m5dProbe GETs https://host/derp/probe through the network of from and returns the status and the DER of the
 // first certificate the server presented.
 func m5dProbe(ctx context.Context, from *vm.VM, host string) (status int, leaf []byte, err error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	u := url.URL{Scheme: "https", Host: host, Path: "/derp/probe"}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	probeURL := w10hxProbeURL(host)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, probeURL, nil)
 	if err != nil {
 		return 0, nil, fmt.Errorf("harness: %w", err)
 	}
@@ -258,7 +266,7 @@ func m5dProbe(ctx context.Context, from *vm.VM, host string) (status int, leaf [
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.TLS == nil || len(resp.TLS.PeerCertificates) == 0 {
-		return 0, nil, fmt.Errorf("harness: GET %s answered without a peer certificate", u.String())
+		return 0, nil, fmt.Errorf("harness: GET %s answered without a peer certificate", probeURL)
 	}
 	return resp.StatusCode, resp.TLS.PeerCertificates[0].Raw, nil
 }
