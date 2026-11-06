@@ -267,6 +267,16 @@ func (b *Backup) enrollTokenHandler(deps ext.Deps) http.Handler {
 			expires time.Time
 		)
 		err = deps.DB.Write(ctx, func(tx *sql.Tx) error {
+			// A release can commit between the check above and this
+			// transaction, so the flag is read again where the token is issued.
+			var n int
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM core_meta WHERE key = ?`, quarantine.MetaKey).Scan(&n); err != nil {
+				return fmt.Errorf("backup: read core_meta %s: %w", quarantine.MetaKey, err)
+			}
+			if n == 0 {
+				return errcode.New(errcode.InvalidInput,
+					"the controller is not in restore quarantine; use darkpanel host token")
+			}
 			var (
 				local bool
 				state string

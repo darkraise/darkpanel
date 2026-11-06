@@ -8,6 +8,7 @@ import (
 	"context"
 	"database/sql"
 	"net/http"
+	"path/filepath"
 	"sync/atomic"
 	"time"
 
@@ -39,7 +40,12 @@ func New(cfg Config) *Backup {
 
 // Contribute returns the five backup and quarantine routes, all on the
 // controller socket, and starts no service. Only the backup route streams.
+// It also removes the temporary database copies a crashed backup left beside
+// the database.
 func (b *Backup) Contribute(deps ext.Deps) ([]ext.Route, []ext.Service, error) {
+	if deps.DB != nil {
+		sweepCopies(filepath.Dir(deps.DB.Path()), deps.Log)
+	}
 	return []ext.Route{
 		{
 			Surface: ext.SurfaceSocket, Method: http.MethodPost, Path: "/api/v1/controller/backup", Stream: true,

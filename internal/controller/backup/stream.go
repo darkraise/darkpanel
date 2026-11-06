@@ -7,13 +7,13 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"syscall"
 
 	"github.com/oklog/ulid/v2"
@@ -30,6 +30,10 @@ type BackupRequest struct { //nolint:revive // the wire type is named after its 
 }
 
 const streamMaxPassphrase = 1024
+
+// copyDirSuffix ends the name of the private directory that holds a backup's
+// temporary copy of the database.
+const copyDirSuffix = ".tmp"
 
 // backupHandler streams an encrypted backup of the controller database and
 // key. Everything that can fail before the first body byte is answered as a
@@ -73,12 +77,19 @@ func (b *Backup) streamServe(deps ext.Deps, rnd io.Reader) http.Handler {
 			return
 		}
 
-		path := filepath.Join(filepath.Dir(deps.DB.Path()), "backup-"+ulid.Make().String()+".db")
+		dir := filepath.Join(filepath.Dir(deps.DB.Path()), "backup-"+ulid.Make().String()+copyDirSuffix)
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			writeProblem(w, deps.Log, fmt.Errorf("backup: create the temporary directory %s: %w", dir, err))
+			return
+		}
 		defer func() {
-			if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-				deps.Log.Error("backup: remove the temporary copy", "path", path, "err", err)
+			if err := os.RemoveAll(dir); err != nil {
+				deps.Log.Error("backup: remove the temporary copy", "path", dir, "err", err)
 			}
 		}()
+		// SQLite creates the copy under the process umask, so the private
+		// directory is what keeps other users from reading it before the chmod.
+		path := filepath.Join(dir, "backup.db")
 		if _, err := deps.DB.Writer().ExecContext(ctx, `VACUUM INTO ?`, path); err != nil {
 			writeProblem(w, deps.Log, fmt.Errorf("backup: copy the controller database to %s: %w", path, err))
 			return
@@ -169,12 +180,49 @@ func streamReadKey(path string) ([]byte, error) {
 	if st.Size() > MaxKeyMember {
 		return nil, fmt.Errorf("backup: the controller key file %s is larger than %d bytes", path, MaxKeyMember)
 	}
-	key, err := io.ReadAll(io.LimitReader(f, MaxKeyMember))
+	return streamReadBounded(f, path)
+}
+
+// streamReadBounded reads a controller key of at most MaxKeyMember bytes from
+// r. It reads one byte more than the limit because a file that grew after
+// streamReadKey's Stat must be refused, not cut off. No error carries the
+// bytes read.
+func streamReadBounded(r io.Reader, path string) ([]byte, error) {
+	key, err := io.ReadAll(io.LimitReader(r, MaxKeyMember+1))
 	if err != nil {
 		clear(key)
 		return nil, fmt.Errorf("backup: read the controller key file %s: %w", path, err)
 	}
+	if len(key) > MaxKeyMember {
+		clear(key)
+		return nil, fmt.Errorf("backup: the controller key file %s is larger than %d bytes", path, MaxKeyMember)
+	}
 	return key, nil
+}
+
+// copyName matches the temporary copies a backup makes beside the database:
+// backup-<ULID> with copyDirSuffix, or with .db as earlier versions named it.
+var copyName = regexp.MustCompile(`^backup-[0-9A-HJKMNP-TV-Z]{26}(` + regexp.QuoteMeta(copyDirSuffix) + `|\.db)$`)
+
+// sweepCopies removes from dir the temporary copies of the database that
+// backups left behind. A crash leaves the copy behind because the deferred
+// removal in streamServe does not run. Every other name stays, and a failure
+// is logged without stopping anything.
+func sweepCopies(dir string, log *slog.Logger) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		log.Error("backup: list the database directory for leftover copies", "dir", dir, "err", err)
+		return
+	}
+	for _, e := range entries {
+		if !copyName.MatchString(e.Name()) {
+			continue
+		}
+		path := filepath.Join(dir, e.Name())
+		if err := os.RemoveAll(path); err != nil {
+			log.Error("backup: remove a leftover copy", "path", path, "err", err)
+		}
+	}
 }
 
 // streamAuditFailure records a backup that reached the stream and failed,

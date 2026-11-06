@@ -84,7 +84,7 @@ func (e *bsEnv) post(body string) *httptest.ResponseRecorder {
 // copies lists the temporary database copies left beside controller.db.
 func (e *bsEnv) copies(t *testing.T) []string {
 	t.Helper()
-	names, err := filepath.Glob(filepath.Join(e.dir, "backup-*.db"))
+	names, err := filepath.Glob(filepath.Join(e.dir, "backup-*"))
 	if err != nil {
 		t.Fatal(err)
 	}
