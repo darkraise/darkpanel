@@ -16,9 +16,11 @@ import (
 // authorized a, so a plan of another action must not run. An agent apply also
 // needs a's module to be usable on hostID; its change is recorded in
 // core_change_index and the host's journal is ingested, and its call context
-// carries the guard context now (spec 1.5). A returned view of another host,
-// action or version is refused before it is recorded. A repair plan whose
-// target is a step of a composite being released is core.change_busy.
+// carries the guard context now (spec 1.5). A successful agent apply retires
+// the host's cached availability of a's module, so the next request asks the
+// agent again. A returned view of another host, action or version is refused
+// before it is recorded. A repair plan whose target is a step of a composite
+// being released is core.change_busy.
 func (d *Dispatcher) Apply(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, planID string, opts core.ApplyOptions) (core.ChangeView, error) {
 	if err := d.admitMutation(ctx); err != nil {
 		return core.ChangeView{}, err
@@ -80,6 +82,9 @@ func (d *Dispatcher) Apply(ctx context.Context, p core.Principal, hostID string,
 	if v.ID != "" && def.Spec.Side == core.SideAgent {
 		d.index(ctx, hostID, v)
 		d.ingest(ctx, hostID)
+		if err == nil && applySucceeded(v) {
+			d.avail.retire(availabilityKey{hostID, moduleOf(a.Name)})
+		}
 	}
 	return v, err
 }

@@ -51,11 +51,30 @@ func (c *availabilityCache) put(k availabilityKey, e availabilityEntry) {
 	c.entries[k] = e
 }
 
+// retire drops the cached answer for k, so the next request asks again.
+func (c *availabilityCache) retire(k availabilityKey) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.entries, k)
+}
+
+// applySucceeded reports whether v is a change its apply carried out: one
+// completed, one applied and pending its confirmation, or one confirmed.
+func applySucceeded(v core.ChangeView) bool {
+	switch v.State {
+	case core.StateCompleted, core.StatePending, core.StateConfirmed:
+		return true
+	}
+	return false
+}
+
 // Availability is hostID's answer about the actions of moduleID, from the
 // cache while it is younger than AvailabilityMaxAge and the module's
 // core_module_state.checked_at is the one it was asked under, otherwise
-// asked again. An agent that answers not_found, one without the route, has
-// every action available. A module the registry lacks is not_found.
+// asked again. An answer is also dropped when an apply of a change of the
+// module succeeds on the host. An agent that answers not_found, one without
+// the route, has every action available. A module the registry lacks is
+// not_found.
 func (d *Dispatcher) Availability(ctx context.Context, hostID, moduleID string) (core.ModuleAvailability, error) {
 	if _, ok := d.cfg.Registry.Module(moduleID); !ok {
 		return core.ModuleAvailability{}, errcode.New(errcode.NotFound, fmt.Sprintf("no module %s", moduleID))

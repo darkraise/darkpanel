@@ -315,3 +315,131 @@ func TestDispatcherAvailability(t *testing.T) {
 		t.Error("Availability of an agent that cannot answer succeeded")
 	}
 }
+
+var (
+	refW10avInstall = core.ActionRef{Name: "w10av.pkg.install", Version: 1}
+	refW10avPin     = core.ActionRef{Name: "w10av.pkg.pin", Version: 1}
+)
+
+// w10avModule has two agent actions: install, which a host can always run, and pin, which the fake agent reports
+// unavailable until the install has brought the module up.
+type w10avModule struct{}
+
+func (w10avModule) Manifest() core.Manifest {
+	spec := func(ref core.ActionRef) core.ActionSpec {
+		return core.ActionSpec{Name: ref.Name, Version: 1, Class: core.ClassCompensable, Side: core.SideAgent, ForwardOnly: true, Converges: true}
+	}
+	return core.Manifest{ID: "w10av", Version: 1, DefaultEnabled: true, Actions: []core.ActionDef{
+		core.DefineMutating(spec(refW10avInstall), davHandler{}),
+		core.DefineMutating(spec(refW10avPin), davHandler{}),
+	}}
+}
+
+// w10avAnswer has w10av.pkg.install available and w10av.pkg.pin unavailable with pinReason, available when it is empty.
+func w10avAnswer(pinReason string) core.ModuleAvailability {
+	return core.ModuleAvailability{Available: true, Actions: []core.ActionAvailability{
+		{Name: refW10avInstall.Name, Available: true},
+		{Name: refW10avPin.Name, Available: pinReason == "", Reason: pinReason},
+	}}
+}
+
+// w10avDown is a fixture whose agent reports pin unavailable, with that answer cached and an install planned.
+func w10avDown(t *testing.T) (*davFixture, core.PlanView) {
+	t.Helper()
+	f := newDav(t, w10avModule{})
+	f.agent.set(w10avAnswer("tailscaled does not answer on its socket"), nil)
+	install, err := f.plan(refW10avInstall, testHost)
+	if err != nil {
+		t.Fatalf("Plan of the install: %v", err)
+	}
+	_, err = f.plan(refW10avPin, testHost)
+	_ = wantCode(t, err, errcode.ModuleUnavailable)
+	if n := f.agent.count(); n != 1 {
+		t.Fatalf("the agent was asked %d times, want 1", n)
+	}
+	return f, install
+}
+
+// TestW10AvSuccessfulApplyRetiresTheModulesCachedAnswer: once an apply of a change of the module succeeds on the
+// host, the next request asks the agent again instead of using the answer cached before the apply.
+func TestW10AvSuccessfulApplyRetiresTheModulesCachedAnswer(t *testing.T) {
+	f, install := w10avDown(t)
+	v, err := f.d.Apply(context.Background(), alice, testHost, refW10avInstall, install.PlanID, core.ApplyOptions{})
+	if err != nil {
+		t.Fatalf("Apply of the install: %v", err)
+	}
+	if v.State != core.StateCompleted {
+		t.Fatalf("the install ended in state %q, want completed", v.State)
+	}
+	f.agent.set(w10avAnswer(""), nil)
+	if _, err := f.plan(refW10avPin, testHost); err != nil {
+		t.Fatalf("Plan of the pin after the install: %v, want the module asked again and the pin available", err)
+	}
+	if n := f.agent.count(); n != 2 {
+		t.Errorf("the agent was asked %d times, want 2: once before the install, once after", n)
+	}
+}
+
+// TestW10AvFailedApplyKeepsTheModulesCachedAnswer: an apply the agent refuses leaves the cached answer in place; the
+// same plan applied again and succeeding retires it.
+func TestW10AvFailedApplyKeepsTheModulesCachedAnswer(t *testing.T) {
+	f, install := w10avDown(t)
+	rt := f.h.rt
+	client := func(apply func(context.Context, core.Principal, string, core.ApplyOptions) (core.ChangeView, error)) *coretest.FakeAgent {
+		return &coretest.FakeAgent{
+			HelloFunc: rt.Hello, ReadFunc: rt.Read, PlanFunc: rt.Plan, ChangeFunc: rt.Change,
+			SetModuleEnabledFunc: rt.SetModuleEnabled, AvailabilityFunc: f.agent.availability, ApplyFunc: apply,
+		}
+	}
+	f.h.clients.Add(testHost, client(func(context.Context, core.Principal, string, core.ApplyOptions) (core.ChangeView, error) {
+		return core.ChangeView{}, errcode.New(errcode.LockHeld, "w10av is locked")
+	}))
+	ctx := context.Background()
+	_, err := f.d.Apply(ctx, alice, testHost, refW10avInstall, install.PlanID, core.ApplyOptions{})
+	_ = wantCode(t, err, errcode.LockHeld)
+	f.agent.set(w10avAnswer(""), nil)
+	_, err = f.plan(refW10avPin, testHost)
+	_ = wantCode(t, err, errcode.ModuleUnavailable)
+	if n := f.agent.count(); n != 1 {
+		t.Fatalf("the agent was asked %d times, want 1: the failed apply keeps the cached answer", n)
+	}
+
+	f.h.clients.Add(testHost, client(rt.Apply))
+	if _, err := f.d.Apply(ctx, alice, testHost, refW10avInstall, install.PlanID, core.ApplyOptions{}); err != nil {
+		t.Fatalf("second Apply of the install: %v", err)
+	}
+	if _, err := f.plan(refW10avPin, testHost); err != nil {
+		t.Fatalf("Plan of the pin after the install succeeded: %v", err)
+	}
+	if n := f.agent.count(); n != 2 {
+		t.Errorf("the agent was asked %d times, want 2", n)
+	}
+}
+
+// TestW10AvPendingApplyRetiresTheModulesCachedAnswer: a revertible change that the agent applied and holds pending
+// for its confirmation is a successful apply, so it retires the cached answer too.
+func TestW10AvPendingApplyRetiresTheModulesCachedAnswer(t *testing.T) {
+	f, install := w10avDown(t)
+	rt := f.h.rt
+	f.h.clients.Add(testHost, &coretest.FakeAgent{
+		HelloFunc: rt.Hello, ReadFunc: rt.Read, PlanFunc: rt.Plan, ChangeFunc: rt.Change,
+		SetModuleEnabledFunc: rt.SetModuleEnabled, AvailabilityFunc: f.agent.availability,
+		ApplyFunc: func(ctx context.Context, p core.Principal, planID string, opts core.ApplyOptions) (core.ChangeView, error) {
+			v, err := rt.Apply(ctx, p, planID, opts)
+			if err == nil {
+				v.State = core.StatePending
+			}
+			return v, err
+		},
+	})
+	if _, err := f.d.Apply(context.Background(), alice, testHost, refW10avInstall, install.PlanID, core.ApplyOptions{}); err != nil {
+		t.Fatalf("Apply of the install: %v", err)
+	}
+	f.agent.set(w10avAnswer(""), nil)
+	if _, err := f.plan(refW10avPin, testHost); err != nil {
+		t.Fatalf("Plan of the pin after a pending install: %v, want the module asked again and the pin available", err)
+	}
+	if n := f.agent.count(); n != 2 {
+		t.Errorf("the agent was asked %d times, want 2: once before the install, once after", n)
+	}
+}
