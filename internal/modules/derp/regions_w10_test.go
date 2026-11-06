@@ -15,8 +15,9 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/store"
 )
 
-// w10rgDrive runs call and advances the host's clock by one second whenever a timer waits on it.
-func w10rgDrive(t *testing.T, h *dpHost, call func()) {
+// w10rgDrive runs call and, once ready reports true, advances the host's clock by one second whenever a timer
+// waits on it. Advancing before ready would let a bound expire before the goroutines under test have run at all.
+func w10rgDrive(t *testing.T, h *dpHost, ready func() bool, call func()) {
 	t.Helper()
 	done := make(chan struct{})
 	go func() {
@@ -29,12 +30,16 @@ func w10rgDrive(t *testing.T, h *dpHost, call func()) {
 			return
 		default:
 		}
-		if h.clock.Pending() > 0 {
+		isReady := ready()
+		if isReady && h.clock.Pending() > 0 {
 			h.clock.Advance(time.Second)
 		} else {
 			time.Sleep(time.Millisecond)
 		}
 		if time.Now().After(deadline) {
+			if !isReady {
+				t.Fatal("the pass never reached the state the clock waits for")
+			}
 			t.Fatal("the pass did not finish")
 		}
 	}
@@ -212,7 +217,14 @@ func TestW10RgPassReadsHostsTogetherAndBoundsEachRead(t *testing.T) {
 	deps.Hosts = hosts
 	begin := h.clock.Now()
 	var err error
-	w10rgDrive(t, h, func() { err = h.dp().checkServers(context.Background(), deps, h.clock.Now()) })
+	// A pass that read the hosts one at a time would block on h1 before starting the others, so the clock never
+	// moves and the drive fails at its deadline.
+	allStarted := func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(started) == len(hosts)
+	}
+	w10rgDrive(t, h, allStarted, func() { err = h.dp().checkServers(context.Background(), deps, h.clock.Now()) })
 	if err != nil {
 		t.Fatalf("checkServers: %v", err)
 	}
