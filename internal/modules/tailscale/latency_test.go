@@ -234,6 +234,24 @@ func TestLtProbeURLs(t *testing.T) {
 			{Name: "1b", HostName: "fe80::1%a/b"},
 			{Name: "1c", HostName: "ok.example.net"},
 		}, []string{ltURL("ok.example.net")}},
+		{"brackets, percent signs and non-ASCII characters are skipped", []*tslocal.DERPNode{
+			{Name: "1a", HostName: "a[1].example.net"},
+			{Name: "1b", HostName: "a].example.net"},
+			{Name: "1c", HostName: "a%2fb.example.net"},
+			{Name: "1d", HostName: "a%41.example.net"},
+			{Name: "1e", HostName: "é.example.net"},
+			{Name: "1f", HostName: "例え.example.net"},
+			{Name: "1g", HostName: "ok.example.net"},
+		}, []string{ltURL("ok.example.net")}},
+		{"letters, digits, hyphens and dots are kept as they are, case included", []*tslocal.DERPNode{
+			{Name: "1a", HostName: "derp-1.Example.NET"},
+			{Name: "1b", HostName: "xn--e1afmkfd.example.net"},
+			{Name: "1c", HostName: "derp1"},
+		}, []string{ltURL("derp-1.Example.NET"), ltURL("xn--e1afmkfd.example.net"), ltURL("derp1")}},
+		{"an empty host name is skipped", []*tslocal.DERPNode{
+			{Name: "1a", HostName: ""},
+			{Name: "1b", HostName: "ok.example.net"},
+		}, []string{ltURL("ok.example.net")}},
 	}
 	for _, tt := range tests {
 		got := latencyProbeURLs(&tslocal.DERPRegion{Nodes: tt.nodes})
@@ -457,6 +475,34 @@ func TestLtRegionsRunTogether(t *testing.T) {
 	for _, r := range got.Regions {
 		if !r.STUN.Available {
 			t.Errorf("region %d STUN = %+v, want available", r.RegionID, r.STUN)
+		}
+	}
+}
+
+// TestW10LpUnsafeHostIsNeverProbed: a DERP node whose host name could change the meaning of the probe URL gets no
+// HTTPS probe at all, and its region reports that it has no DERP node.
+func TestW10LpUnsafeHostIsNeverProbed(t *testing.T) {
+	h := newTSHost(t)
+	var nodes []*tslocal.DERPNode
+	for _, host := range []string{
+		"a.example.net/admin", "a.example.net:8080", "a.example.net?x=1", "user@a.example.net",
+		"a%2fb.example.net", "a[1].example.net", "é.example.net",
+	} {
+		nodes = append(nodes, &tslocal.DERPNode{Name: host, HostName: host})
+	}
+	h.local.DERP = ltMap(ltRegion(1, "x", "Unsafe", nodes...))
+	f := ltNew()
+
+	got, _ := ltRead(t, h, f)
+
+	if len(got.Regions) != 1 || got.Regions[0].HTTPS != (Measurement{Reason: "the region has no DERP node"}) {
+		t.Errorf("regions %+v, want one region whose HTTPS measurement says it has no DERP node", got.Regions)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for target, n := range f.calls {
+		if strings.HasPrefix(target, "https://") {
+			t.Errorf("%d HTTPS probe(s) of %s, want none", n, target)
 		}
 	}
 }
