@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -20,13 +21,19 @@ const listenerTimeFormat = "2006-01-02T15:04:05.000000000Z"
 
 const listenerColumns = `id, address, port, allowed_peer, client_header, public_host, change_id, state`
 
+// normalPublicHost returns host in the one form the API's Origin check
+// compares exactly: lower case with every trailing dot removed.
+func normalPublicHost(host string) string {
+	return strings.TrimRight(strings.ToLower(host), ".")
+}
+
 // insertListener records spec as listener id in state open.
 func insertListener(ctx context.Context, tx *sql.Tx, id string, spec core.ListenerSpec, now time.Time) error {
 	at := now.UTC().Format(listenerTimeFormat)
 	_, err := tx.ExecContext(ctx, `INSERT INTO core_listeners (`+listenerColumns+`, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, spec.Addr.Addr().String(), int(spec.Addr.Port()), spec.AllowedPeer.String(), spec.ClientHeader,
-		spec.PublicHost, spec.ChangeID, core.ListenerOpen, at, at)
+		normalPublicHost(spec.PublicHost), spec.ChangeID, core.ListenerOpen, at, at)
 	if err != nil {
 		return fmt.Errorf("listen: record runtime listener %s: %w", id, err)
 	}
@@ -112,5 +119,6 @@ func scanListener(row listenerScanner) (core.ListenerInfo, error) {
 	if info.Spec.AllowedPeer, err = netip.ParseAddr(peer); err != nil {
 		return core.ListenerInfo{}, fmt.Errorf("listen: runtime listener %s has a bad allowed peer %q", info.ID, peer)
 	}
+	info.Spec.PublicHost = normalPublicHost(info.Spec.PublicHost)
 	return info, nil
 }

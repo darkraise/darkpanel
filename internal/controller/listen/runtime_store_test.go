@@ -141,3 +141,40 @@ func TestRuntimeStoreRefusesBadRows(t *testing.T) {
 		t.Error("state paused accepted")
 	}
 }
+
+// TestW10OgStoreKeepsOnePublicHostForm: a public host is recorded and read
+// in one form, lower case without a trailing dot, whatever form the caller
+// gives it and whatever form a row already has.
+func TestW10OgStoreKeepsOnePublicHostForm(t *testing.T) {
+	ctx := context.Background()
+	for _, host := range []string{"Panel.Example.COM.", "PANEL.example.com", "panel.example.com.", "panel.example.com.."} {
+		t.Run(host, func(t *testing.T) {
+			db := openControllerDB(t)
+			spec := rsSpec
+			spec.PublicHost = host
+			rsInsert(t, db, "L1", spec, testStart)
+			var stored string
+			if err := db.Read().QueryRowContext(ctx, `SELECT public_host FROM core_listeners WHERE id = 'L1'`).Scan(&stored); err != nil {
+				t.Fatal(err)
+			}
+			if stored != "panel.example.com" {
+				t.Errorf("insertListener stored %q, want panel.example.com", stored)
+			}
+			err := db.Write(ctx, func(tx *sql.Tx) error {
+				_, err := tx.ExecContext(ctx, `UPDATE core_listeners SET public_host = ? WHERE id = 'L1'`, host)
+				return err
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := getListener(ctx, db, "L1")
+			if err != nil || got.Spec.PublicHost != "panel.example.com" {
+				t.Errorf("getListener of a row holding %q = %+v, %v; want the public host panel.example.com", host, got.Spec, err)
+			}
+			open, err := listListeners(ctx, db, core.ListenerOpen)
+			if err != nil || len(open) != 1 || open[0].Spec.PublicHost != "panel.example.com" {
+				t.Errorf("listListeners of a row holding %q = %+v, %v; want the public host panel.example.com", host, open, err)
+			}
+		})
+	}
+}

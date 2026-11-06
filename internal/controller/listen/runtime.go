@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"net/netip"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -415,7 +414,7 @@ func validListenerSpec(spec core.ListenerSpec) (core.ListenerSpec, error) {
 	bad := func(detail string) (core.ListenerSpec, error) {
 		return core.ListenerSpec{}, errcode.New(errcode.InvalidInput, "runtime listener: "+detail)
 	}
-	spec.PublicHost = strings.TrimSuffix(strings.ToLower(spec.PublicHost), ".")
+	spec.PublicHost = normalPublicHost(spec.PublicHost)
 	switch {
 	case !spec.Addr.IsValid() || spec.Addr.Port() == 0 || spec.Addr.Addr().Zone() != "":
 		return bad("the address needs an IP address without a zone and a port")

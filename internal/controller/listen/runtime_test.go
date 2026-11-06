@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -213,6 +214,7 @@ func TestRuntimeOpenValidates(t *testing.T) {
 		{"no allowed peer", func(s *core.ListenerSpec) { s.AllowedPeer = netip.Addr{} }},
 		{"a forwarded header", func(s *core.ListenerSpec) { s.ClientHeader = "X-Forwarded-For" }},
 		{"no public host", func(s *core.ListenerSpec) { s.PublicHost = "" }},
+		{"a public host of dots only", func(s *core.ListenerSpec) { s.PublicHost = ".." }},
 		{"no change", func(s *core.ListenerSpec) { s.ChangeID = "" }},
 	} {
 		spec := rtSpec
@@ -242,7 +244,7 @@ func TestRuntimeOpenNormalisesThePublicHost(t *testing.T) {
 	ctx := context.Background()
 	f := newRtFixture(t)
 	f.start(t)
-	for _, host := range []string{"Panel.Example.COM.", "PANEL.example.com", "panel.example.com."} {
+	for _, host := range []string{"Panel.Example.COM.", "PANEL.example.com", "panel.example.com.", "Panel.Example.COM.."} {
 		spec := rtSpec
 		spec.PublicHost = host
 		id, _ := f.open(t, spec)
@@ -720,5 +722,28 @@ func TestTxRuntimeListening(t *testing.T) {
 	}
 	if want, _ := f.rt.Addrs(); !slices.Equal(addrs, want) {
 		t.Errorf("Listening addresses %v differ from Addrs %v", addrs, want)
+	}
+}
+
+// TestW10OgStartBindsRowsWithTheNormalHost: Start builds the handler of an
+// open row with the public host in the one form the API's Origin check
+// compares exactly, also when the row holds another form.
+func TestW10OgStartBindsRowsWithTheNormalHost(t *testing.T) {
+	ctx := context.Background()
+	f := newRtFixture(t)
+	rsInsert(t, f.db, "L1", rtSpec, testStart)
+	err := f.db.Write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE core_listeners SET public_host = ? WHERE id = 'L1'`, "Panel.Example.COM.")
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.start(t)
+	f.mu.Lock()
+	built := slices.Clone(f.built)
+	f.mu.Unlock()
+	if len(built) != 1 || built[0].Spec.PublicHost != "panel.example.com" {
+		t.Errorf("handler built for %+v, want one listener with the public host panel.example.com", built)
 	}
 }
