@@ -96,6 +96,9 @@ func loadInstance(ctx context.Context, q queryer) (instanceRow, bool, error) {
 
 // saveInstance writes the instance row, inserting it or replacing every column of the stored one.
 func saveInstance(ctx context.Context, tx *sql.Tx, r instanceRow) error {
+	if r.CreatedAt.IsZero() || r.UpdatedAt.IsZero() {
+		return errors.New("npm: record the instance: the created and updated times must be set")
+	}
 	_, err := tx.ExecContext(ctx, "INSERT INTO npm_instances (id, "+instanceColumns+") VALUES (1, ?, ?, ?, ?, ?, ?, ?) "+
 		"ON CONFLICT (id) DO UPDATE SET container_id = excluded.container_id, image = excluded.image, admin_email = excluded.admin_email, "+
 		"password_ct = excluded.password_ct, public = excluded.public, created_at = excluded.created_at, updated_at = excluded.updated_at",
@@ -226,6 +229,9 @@ const upgradeColumns = "change_id, from_image, to_image, config, archives, phase
 
 // insertUpgrade records a new upgrade in phase recorded with no archives; a second upgrade of one change is an error.
 func insertUpgrade(ctx context.Context, db *store.DB, u upgradeRow) error {
+	if u.UpdatedAt.IsZero() {
+		return fmt.Errorf("npm: record upgrade %s: the updated time must be set", u.ChangeID)
+	}
 	config, err := json.Marshal(u.Config)
 	if err != nil {
 		return fmt.Errorf("npm: encode the container configuration of upgrade %s: %w", u.ChangeID, err)
@@ -286,6 +292,9 @@ func loadUpgrade(ctx context.Context, q queryer, changeID string) (upgradeRow, b
 // setUpgradePhase moves an upgrade to phase with result. A nil archives keeps the stored list and a non-nil one
 // replaces it. An unknown change id is an error.
 func setUpgradePhase(ctx context.Context, db *store.DB, changeID, phase, result string, archives []archiveRef, at time.Time) error {
+	if at.IsZero() {
+		return fmt.Errorf("npm: set the phase of upgrade %s: the updated time must be set", changeID)
+	}
 	query := "UPDATE npm_upgrades SET phase = ?, result = ?, updated_at = ? WHERE change_id = ?"
 	args := []any{phase, result, storeTime(at), changeID}
 	if archives != nil {

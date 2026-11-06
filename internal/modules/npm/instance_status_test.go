@@ -225,29 +225,28 @@ func TestStStatus(t *testing.T) {
 func TestStStatusAdminExposure(t *testing.T) {
 	const admin, panel = "npm.admin.expose", "panel.exposure.add"
 	for _, c := range []struct {
-		name  string
-		rows  func(t *testing.T, h *thHost)
-		want  *AdminExposure
-		other bool
+		name string
+		rows func(t *testing.T, h *thHost)
+		want *AdminExposure
 	}{
-		{"none", func(*testing.T, *thHost) {}, nil, false},
+		{"none", func(*testing.T, *thHost) {}, nil},
 		{"an exposure of the admin interface", func(t *testing.T, h *thHost) {
 			stReserve(t, h, "proxy_host", 5, admin, "npm.darkpanel.dev")
 			stReserve(t, h, "certificate", 9, admin, "npm.darkpanel.dev")
-		}, &AdminExposure{Hostname: "npm.darkpanel.dev", ProxyHostID: 5, CertificateID: 9}, false},
+		}, &AdminExposure{Hostname: "npm.darkpanel.dev", ProxyHostID: 5, CertificateID: 9}},
 		{"a proxy host without its certificate", func(t *testing.T, h *thHost) {
 			stReserve(t, h, "proxy_host", 5, admin, "npm.darkpanel.dev")
-		}, &AdminExposure{Hostname: "npm.darkpanel.dev", ProxyHostID: 5}, false},
+		}, &AdminExposure{Hostname: "npm.darkpanel.dev", ProxyHostID: 5}},
 		{"only the panel's exposure", func(t *testing.T, h *thHost) {
 			stReserve(t, h, "proxy_host", 6, panel, "panel.darkpanel.dev")
 			stReserve(t, h, "certificate", 7, panel, "panel.darkpanel.dev")
-		}, nil, false},
+		}, nil},
 		{"both owners", func(t *testing.T, h *thHost) {
 			stReserve(t, h, "proxy_host", 6, panel, "panel.darkpanel.dev")
 			stReserve(t, h, "certificate", 7, panel, "panel.darkpanel.dev")
 			stReserve(t, h, "proxy_host", 5, admin, "npm.darkpanel.dev")
 			stReserve(t, h, "certificate", 9, admin, "npm.darkpanel.dev")
-		}, &AdminExposure{Hostname: "npm.darkpanel.dev", ProxyHostID: 5, CertificateID: 9}, false},
+		}, &AdminExposure{Hostname: "npm.darkpanel.dev", ProxyHostID: 5, CertificateID: 9}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			h := newTHHost(t)
@@ -276,4 +275,69 @@ func stSetRow(t *testing.T, h *thHost, change func(r *instanceRow)) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+// w10nsHookDocker is the test Engine that runs onInspect before every container inspection, so a test can act as
+// another request or fail the call.
+type w10nsHookDocker struct {
+	*thDocker
+	onInspect func() error
+}
+
+func (d *w10nsHookDocker) InspectContainer(ctx context.Context, id string) (dockerapi.ContainerJSON, error) {
+	if err := d.onInspect(); err != nil {
+		return dockerapi.ContainerJSON{}, err
+	}
+	return d.thDocker.InspectContainer(ctx, id)
+}
+
+// TestW10NsStatusReadsTheStoreBeforeTheEngine: the instance row and the admin exposure come from one read of the
+// store, made before any Engine or NPM call, so a change another request makes while the Engine answers cannot give
+// a status whose two parts belong to different moments.
+func TestW10NsStatusReadsTheStoreBeforeTheEngine(t *testing.T) {
+	ctx := context.Background()
+	h := newTHHost(t)
+	h.deployed()
+	stReserve(t, h, "proxy_host", 5, "npm.admin.expose", "npm.example.com")
+	n := h.nm()
+	n.d.docker = &w10nsHookDocker{thDocker: h.docker, onInspect: func() error {
+		err := h.db.Write(ctx, func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, "DELETE FROM npm_reserved")
+			return err
+		})
+		if err != nil {
+			t.Error(err)
+		}
+		return nil
+	}}
+	st := stRead(t, h, n)
+	if st.AdminExposure == nil || st.AdminExposure.Hostname != "npm.example.com" {
+		t.Errorf("admin exposure %+v, want the one the store held when the read began", st.AdminExposure)
+	}
+}
+
+// TestW10NsStatusReturnsACancellation: a request that ended is an error of the read, not an instance that does not run
+// or an API that is not ready.
+func TestW10NsStatusReturnsACancellation(t *testing.T) {
+	t.Run("the Engine call", func(t *testing.T) {
+		h := newTHHost(t)
+		h.deployed()
+		n := h.nm()
+		n.d.docker = &w10nsHookDocker{thDocker: h.docker, onInspect: func() error { return context.Canceled }}
+		_, err := n.instanceStatus().Handler.Read(context.Background(), h.env(""), json.RawMessage(`{}`))
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("error %v, want context.Canceled", err)
+		}
+	})
+	t.Run("the probe of NPM", func(t *testing.T) {
+		h := newTHHost(t)
+		h.deployed()
+		n := h.nm()
+		probe := &stHealth{npmAPI: n.d.anon(), err: context.Canceled}
+		n.d.anon = func() npmAPI { return probe }
+		_, err := n.instanceStatus().Handler.Read(context.Background(), h.env(""), json.RawMessage(`{}`))
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("error %v, want context.Canceled", err)
+		}
+	})
 }

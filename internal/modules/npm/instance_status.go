@@ -2,6 +2,7 @@ package npm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -26,9 +27,10 @@ func (n nm) instanceStatus() core.ActionDef {
 type statusReader struct{ n nm }
 
 // Read never fails because the instance is unhealthy: an Engine that does not answer reads as a container that does
-// not run, and an NPM that does not answer as an API that is not ready. Only a database error fails it.
+// not run, and an NPM that does not answer as an API that is not ready. A database error fails it, and so does a
+// cancelled request, which is the read's error rather than an unhealthy instance.
 func (r statusReader) Read(ctx context.Context, env core.Env, _ StatusInput) (InstanceStatus, error) {
-	row, ok, err := loadInstance(ctx, env.DB.Read())
+	row, ok, exposure, err := statusStored(ctx, env)
 	if err != nil {
 		return InstanceStatus{}, err
 	}
@@ -43,20 +45,48 @@ func (r statusReader) Read(ctx context.Context, env core.Env, _ StatusInput) (In
 		Public:           row.Public,
 		AdminEmail:       row.AdminEmail,
 		UpgradeAvailable: row.Image != Image,
+		AdminExposure:    exposure,
 	}
-	if c, err := r.n.d.docker.InspectContainer(ctx, row.ContainerID); err == nil {
+	c, err := r.n.d.docker.InspectContainer(ctx, row.ContainerID)
+	switch {
+	case err == nil:
 		st.Running = c.State.Running
+	case cancelled(ctx, err):
+		return InstanceStatus{}, err
 	}
 	if st.Running {
 		probe, cancel := context.WithTimeout(ctx, statusProbeTimeout)
 		_, err := r.n.d.anon().Health(probe)
 		cancel()
+		if err != nil && cancelled(ctx, err) {
+			return InstanceStatus{}, err
+		}
 		st.APIReady = err == nil
 	}
-	if st.AdminExposure, err = statusAdminExposure(ctx, env.DB.Read()); err != nil {
-		return InstanceStatus{}, err
-	}
 	return st, nil
+}
+
+// statusStored reads the instance row and, when one is deployed, the admin exposure in one read transaction, so the
+// two belong to the same moment. ok is false when no instance is deployed.
+func statusStored(ctx context.Context, env core.Env) (row instanceRow, ok bool, exposure *AdminExposure, err error) {
+	tx, err := env.DB.Read().BeginTx(ctx, nil)
+	if err != nil {
+		return instanceRow{}, false, nil, fmt.Errorf("npm: begin a read: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if row, ok, err = loadInstance(ctx, tx); err != nil || !ok {
+		return instanceRow{}, false, nil, err
+	}
+	if exposure, err = statusAdminExposure(ctx, tx); err != nil {
+		return instanceRow{}, false, nil, err
+	}
+	return row, true, exposure, nil
+}
+
+// cancelled reports whether a failed call ended because the request did: its context is done or the call says it was
+// cancelled.
+func cancelled(ctx context.Context, err error) bool {
+	return ctx.Err() != nil || errors.Is(err, context.Canceled)
 }
 
 // statusAdminExposure is the exposure of NPM's admin interface: the first host name in sort order among the

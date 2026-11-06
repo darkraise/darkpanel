@@ -128,6 +128,7 @@ func phaseOf(e core.Effect) dstate.Phase {
 // found is the observation of a creation whose recovery identity matched candidates: the null state when none did,
 // the one match as the creation's object, or every match for the operator.
 func found(candidates []core.Candidate) core.Observation {
+	candidates = slices.Clone(candidates)
 	slices.SortFunc(candidates, func(a, b core.Candidate) int { return strings.Compare(a.Resource, b.Resource) })
 	switch len(candidates) {
 	case 0:

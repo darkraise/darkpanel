@@ -317,3 +317,51 @@ func TestSdWatch(t *testing.T) {
 		t.Errorf("watched(proxy_host) = %#v, %v; want an empty, non-nil map", got, err)
 	}
 }
+
+// TestW10NsWritersRefuseAZeroTime: a time column holds a real time. storeTime turns the zero time into "", which the
+// NOT NULL columns accept, so the writers refuse a zero time before it is stored.
+func TestW10NsWritersRefuseAZeroTime(t *testing.T) {
+	ctx := context.Background()
+	row := instanceRow{ContainerID: "c1", Image: "img1", AdminEmail: "ops@darkpanel.dev", PasswordCT: []byte{1}, Public: "no", CreatedAt: thStart, UpdatedAt: thStart}
+	for name, mutate := range map[string]func(*instanceRow){
+		"no created time": func(r *instanceRow) { r.CreatedAt = time.Time{} },
+		"no updated time": func(r *instanceRow) { r.UpdatedAt = time.Time{} },
+	} {
+		t.Run("instance with "+name, func(t *testing.T) {
+			h := newTHHost(t)
+			r := row
+			mutate(&r)
+			err := h.db.Write(ctx, func(tx *sql.Tx) error { return saveInstance(ctx, tx, r) })
+			if err == nil {
+				t.Fatal("saveInstance stored a zero time")
+			}
+			if _, ok, _ := loadInstance(ctx, h.db.Read()); ok {
+				t.Error("a refused save left an instance row")
+			}
+		})
+	}
+	t.Run("an upgrade with no time", func(t *testing.T) {
+		h := newTHHost(t)
+		err := insertUpgrade(ctx, h.db, upgradeRow{ChangeID: "c1", FromImage: "img1", ToImage: "img2", Config: containerConfig{Name: containerName}})
+		if err == nil {
+			t.Fatal("insertUpgrade stored a zero time")
+		}
+		if _, ok, _ := loadUpgrade(ctx, h.db.Read(), "c1"); ok {
+			t.Error("a refused insert left an upgrade row")
+		}
+	})
+	t.Run("a phase change with no time", func(t *testing.T) {
+		h := newTHHost(t)
+		u := upgradeRow{ChangeID: "c1", FromImage: "img1", ToImage: "img2", Config: containerConfig{Name: containerName}, UpdatedAt: thStart}
+		if err := insertUpgrade(ctx, h.db, u); err != nil {
+			t.Fatal(err)
+		}
+		if err := setUpgradePhase(ctx, h.db, "c1", "archived", "", nil, time.Time{}); err == nil {
+			t.Fatal("setUpgradePhase stored a zero time")
+		}
+		got, _, _ := loadUpgrade(ctx, h.db.Read(), "c1")
+		if got.Phase != "recorded" || !got.UpdatedAt.Equal(thStart) {
+			t.Errorf("after a refused change the upgrade is %+v, want phase recorded at %v", got, thStart)
+		}
+	})
+}

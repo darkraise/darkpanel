@@ -15,6 +15,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
+	"github.com/darkraise/darkpanel/internal/modules/npm/fake"
 	"github.com/darkraise/darkpanel/internal/modules/npm/proxy"
 	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
 	"github.com/darkraise/darkpanel/internal/platform/netfilter"
@@ -162,6 +163,27 @@ func TestSdAPIVia(t *testing.T) {
 		}
 		if _, err := h.nm().d.api(ctx, h.env("")); err == nil || sdCode(t, err) != errcode.NPMUnhealthy {
 			t.Errorf("error %v, want %s", err, errcode.NPMUnhealthy)
+		}
+	})
+	t.Run("the wording of a failed login follows its status", func(t *testing.T) {
+		for _, tc := range []struct {
+			status  int
+			refused bool
+		}{{401, true}, {500, false}} {
+			h := newTHHost(t)
+			h.deployed()
+			h.npm.Fail("POST", "/api/tokens", fake.Fault{Status: tc.status})
+			_, err := h.nm().d.api(ctx, h.env(""))
+			var coded *errcode.Error
+			if !errors.As(err, &coded) || coded.Code != errcode.NPMUnhealthy {
+				t.Fatalf("status %d: error %v, want %s", tc.status, err, errcode.NPMUnhealthy)
+			}
+			if want := fmt.Sprintf("(HTTP %d)", tc.status); !strings.Contains(coded.Detail, want) {
+				t.Errorf("status %d: detail %q does not name %s", tc.status, coded.Detail, want)
+			}
+			if got := strings.Contains(coded.Detail, "refused"); got != tc.refused {
+				t.Errorf("status %d: detail %q says refused: %t, want %t; only a 4xx is a refused login", tc.status, coded.Detail, got, tc.refused)
+			}
 		}
 	})
 }

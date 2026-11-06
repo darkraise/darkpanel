@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -302,5 +303,26 @@ func TestSdRunSettlesThroughObserve(t *testing.T) {
 	}
 	if made.CommitWait != 2*time.Minute || made.Local {
 		t.Errorf("effect commit wait %v, local %v; want 2m and not local", made.CommitWait, made.Local)
+	}
+}
+
+// TestW10NsFoundLeavesTheCallersSliceAlone: found orders the candidates it reports, not the slice the caller passed.
+func TestW10NsFoundLeavesTheCallersSliceAlone(t *testing.T) {
+	second := core.Candidate{Resource: "npm.proxyhost:2"}
+	first := core.Candidate{Resource: "npm.proxyhost:1"}
+	candidates := []core.Candidate{second, first}
+	obs := found(candidates)
+	resources := func(cs []core.Candidate) []string {
+		out := make([]string, len(cs))
+		for i, c := range cs {
+			out[i] = c.Resource
+		}
+		return out
+	}
+	if got := resources(candidates); !slices.Equal(got, []string{"npm.proxyhost:2", "npm.proxyhost:1"}) {
+		t.Errorf("the caller's slice is now %v, want it in the order it was passed", got)
+	}
+	if got := resources(obs.Candidates); obs.Matches != 2 || !slices.Equal(got, []string{"npm.proxyhost:1", "npm.proxyhost:2"}) {
+		t.Errorf("observation %+v, want two matches reported in resource order", obs)
 	}
 }

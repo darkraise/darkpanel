@@ -207,7 +207,10 @@ func apiVia(newClient func() *npmapi.Client) func(ctx context.Context, env core.
 		if err != nil {
 			var answer *npmapi.APIError
 			if errors.As(err, &answer) {
-				return nil, errcode.Wrap(errcode.NPMUnhealthy, err, fmt.Sprintf("NPM refused the stored administrator's login (HTTP %d)", answer.Status))
+				if npmapi.IsClientError(err) {
+					return nil, errcode.Wrap(errcode.NPMUnhealthy, err, fmt.Sprintf("NPM refused the stored administrator's login (HTTP %d)", answer.Status))
+				}
+				return nil, errcode.Wrap(errcode.NPMUnhealthy, err, fmt.Sprintf("Nginx Proxy Manager failed while logging in the stored administrator (HTTP %d)", answer.Status))
 			}
 			return nil, errcode.Wrap(errcode.NPMUnhealthy, err, "the Nginx Proxy Manager API is not reachable")
 		}
