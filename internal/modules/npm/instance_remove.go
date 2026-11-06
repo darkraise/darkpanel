@@ -315,8 +315,8 @@ func (h instanceRemoveHandler) Apply(ctx context.Context, env core.Env, _ Remove
 			return nil
 		}})
 	}
-	for _, r := range removals {
-		if err := h.remove(ctx, env, r.resource, r.call); err != nil {
+	for i, r := range removals {
+		if err := h.remove(ctx, env, r.resource, i == 0, r.call); err != nil {
 			return Removed{}, err
 		}
 	}
@@ -347,12 +347,16 @@ func (h instanceRemoveHandler) Apply(ctx context.Context, env core.Env, _ Remove
 
 // remove journals the deletion of the object resource, an Engine object or an upgrade archive, and makes it with
 // call. Its before-state is read as a settlement of the intended effect would read it, so the two compare equal while
-// the object is untouched. A failed before-state read is Definite: the effect is not yet intended and nothing of it
-// has changed.
-func (h instanceRemoveHandler) remove(ctx context.Context, env core.Env, resource string, call func(ctx context.Context) error) error {
+// the object is untouched. A failed before-state read is Definite only for the first step of an Apply, when nothing
+// of the call has changed the host yet; for a later step it is returned unmarked, as the earlier steps have already
+// removed objects.
+func (h instanceRemoveHandler) remove(ctx context.Context, env core.Env, resource string, first bool, call func(ctx context.Context) error) error {
 	obs, err := h.observe(ctx, env, core.Effect{Kind: core.EffectDelete, Resource: resource, State: core.EffectIntended})
 	if err != nil {
-		return core.Definite(err)
+		if first {
+			return core.Definite(err)
+		}
+		return err
 	}
 	e := npmEffect(core.EffectDelete, resource, obs.Current.State, commitWait)
 	return h.n.run(ctx, env, e, h.observe, func(ctx context.Context) (string, error) {

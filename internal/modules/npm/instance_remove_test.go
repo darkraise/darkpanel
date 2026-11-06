@@ -701,6 +701,29 @@ func TestW10NrFailedBeforeStateReadIsDefinite(t *testing.T) {
 	}
 }
 
+// TestW10NrLaterBeforeStateReadIsNotDefinite: when the before-state read of the network fails after the container
+// and the volumes are removed, the removal has already changed the host, so the error is not definite.
+func TestW10NrLaterBeforeStateReadIsNotDefinite(t *testing.T) {
+	h, _ := rmDeployed(t)
+	// The first InspectNetwork is the check of the target; the second is the before-state read of the network removal.
+	h.docker.Fail("InspectNetwork", nil)
+	h.docker.Fail("InspectNetwork", dockerapi.ErrUnavailable)
+	err := w10nrApply(t, h, "c1")
+	if err == nil || core.IsDefinite(err) {
+		t.Fatalf("error %v (definite %v), want an error that is not definite", err, core.IsDefinite(err))
+	}
+	calls := h.docker.calls()
+	if !slices.Contains(calls, "RemoveContainer") || !slices.Contains(calls, "RemoveVolume") || slices.Contains(calls, "RemoveNetwork") {
+		t.Errorf("calls %v, want the container and the volumes removed and the network kept", calls)
+	}
+	if n := len(h.journal.effects()); n != 3 {
+		t.Errorf("%d effects journaled, want the container and the two volumes", n)
+	}
+	if n := rmCount(t, h, "npm_instances"); n != 1 {
+		t.Errorf("npm_instances holds %d rows, want the instance kept", n)
+	}
+}
+
 // TestW10NrReservedRefusalNamesEveryExposure: the refusal lists each exposure that reserves an object once, in name
 // order, however many objects an exposure reserves. It pins the existing behaviour for more than one exposure.
 func TestW10NrReservedRefusalNamesEveryExposure(t *testing.T) {
