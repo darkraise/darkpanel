@@ -21,6 +21,14 @@ import (
 const (
 	// binaryUpdatePoll is the wait between two looks at derper during the health check and the rollback.
 	binaryUpdatePoll = time.Second
+	// binaryRollbackWindow is how long the rollback of a failed update may take: one restart, the wait for the unit up
+	// to healthWindow, file moves and database writes.
+	binaryRollbackWindow = 3 * time.Minute
+	// binaryRecordWindow is how long one write of the rollback's bookkeeping may take.
+	binaryRecordWindow = 30 * time.Second
+	// binaryProbeWait is the bound of one look at derper in the health check, the limit stun.Probe applies to a
+	// context that has no deadline.
+	binaryProbeWait = 3 * time.Second
 	// binaryEffectResource is the one effect of a binary update: the derper version and binary the server runs.
 	binaryEffectResource = "derp.binary:derper"
 )
@@ -38,6 +46,26 @@ func (d dp) binaryUpdate() core.ActionDef {
 // binaryUpdateHandler is derp.binary.update's handler. Every phase of the update is recorded in its derp_updates
 // row before the change it covers, so a crash leaves the row naming the last phase that may be half done.
 type binaryUpdateHandler struct{ d dp }
+
+// binaryBound returns a child of ctx that ends after window, and the function that stops it. The window is on the
+// host's clock so that tests can advance it.
+func binaryBound(ctx context.Context, env core.Env, window time.Duration) (context.Context, func()) {
+	bound, cancel := context.WithCancel(ctx)
+	timer := env.Clock.AfterFunc(window, cancel)
+	return bound, func() {
+		timer.Stop()
+		cancel()
+	}
+}
+
+// binaryRecord runs write, one piece of the rollback's bookkeeping, within its own window. It is detached from
+// ctx's cancellation because the bookkeeping must be recorded after ctx has ended or its window has run out. The
+// window is real time, not env.Clock, because it bounds one call to the database, just as await bounds one probe.
+func binaryRecord(ctx context.Context, write func(ctx context.Context) error) error {
+	bound, cancel := context.WithTimeout(context.WithoutCancel(ctx), binaryRecordWindow)
+	defer cancel()
+	return write(bound)
+}
 
 // binaryDoc is the state of derper at version with the binary of SHA-256 sha.
 func binaryDoc(version, sha string) core.StateDoc {
@@ -156,7 +184,8 @@ func (h binaryUpdateHandler) Task(ctx context.Context, env core.Env, in BinaryUp
 // never Definite: the host changed before the step failed.
 func (h binaryUpdateHandler) fail(ctx context.Context, env core.Env, from, step string, cause error) error {
 	// The step may have failed because ctx ended, and the previous binary must still be restored.
-	ctx = context.WithoutCancel(ctx)
+	ctx, stop := binaryBound(context.WithoutCancel(ctx), env, binaryRollbackWindow)
+	defer stop()
 	u, ok, err := loadUpdate(ctx, env.DB.Read(), env.ChangeID)
 	if err == nil && !ok {
 		err = fmt.Errorf("derp: update %s is not recorded", env.ChangeID)
@@ -204,12 +233,13 @@ func (binaryUpdateHandler) unitActive(ctx context.Context, env core.Env) error {
 
 // await runs probe at once and then every binaryUpdatePoll on env.Clock until it succeeds, and fails with the last
 // probe's error once healthWindow has passed since the first. Each probe is bounded by the time left in the window,
-// and by at least one poll, so a probe that hangs ends with the window.
+// and by at least one poll, so a probe that hangs ends with the window; it is also bounded to binaryProbeWait, so a
+// lost STUN answer costs one probe and not the window.
 func (binaryUpdateHandler) await(ctx context.Context, env core.Env, probe func(ctx context.Context) error) error {
 	deadline := env.Clock.Now().Add(healthWindow)
 	for {
 		// The bound is real time: it limits one call to a socket, while env.Clock measures the wait between probes.
-		pctx, cancel := context.WithTimeout(ctx, max(deadline.Sub(env.Clock.Now()), binaryUpdatePoll))
+		pctx, cancel := context.WithTimeout(ctx, min(max(deadline.Sub(env.Clock.Now()), binaryUpdatePoll), binaryProbeWait))
 		err := probe(pctx)
 		cancel()
 		if err == nil {
@@ -233,7 +263,12 @@ func (binaryUpdateHandler) await(ctx context.Context, env core.Env, probe func(c
 // it was entered in. It ends in phase rolled_back with the update's effect skipped, or in phase failed with the
 // error of the first failing step, which it returns.
 func (h binaryUpdateHandler) rollback(ctx context.Context, env core.Env, u updateRow) error {
-	if err := setUpdatePhase(ctx, env.DB, u.ChangeID, "rolling_back", "", env.Clock.Now()); err != nil {
+	phase := func(phase, result string) error {
+		return binaryRecord(ctx, func(ctx context.Context) error {
+			return setUpdatePhase(ctx, env.DB, u.ChangeID, phase, result, env.Clock.Now())
+		})
+	}
+	if err := phase("rolling_back", ""); err != nil {
 		return err
 	}
 	if err := h.restore(ctx, env, u); err != nil {
@@ -241,30 +276,34 @@ func (h binaryUpdateHandler) rollback(ctx context.Context, env core.Env, u updat
 		if len(reason) > 200 {
 			reason = reason[:200]
 		}
-		if perr := setUpdatePhase(ctx, env.DB, u.ChangeID, "failed", string(reason), env.Clock.Now()); perr != nil {
+		if perr := phase("failed", string(reason)); perr != nil {
 			return errors.Join(err, perr)
 		}
 		return err
 	}
-	if err := setUpdatePhase(ctx, env.DB, u.ChangeID, "rolled_back", "", env.Clock.Now()); err != nil {
+	if err := phase("rolled_back", ""); err != nil {
 		return err
 	}
-	effects, err := env.Effects.List(ctx)
-	if err != nil {
-		return err
-	}
-	for _, e := range effects {
-		if e.Resource == binaryEffectResource && e.State == core.EffectIntended {
-			if err := env.Effects.Skipped(ctx, e.Seq); err != nil {
-				return err
+	return binaryRecord(ctx, func(ctx context.Context) error {
+		effects, err := env.Effects.List(ctx)
+		if err != nil {
+			return err
+		}
+		for _, e := range effects {
+			if e.Resource == binaryEffectResource && e.State == core.EffectIntended {
+				if err := env.Effects.Skipped(ctx, e.Seq); err != nil {
+					return err
+				}
 			}
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 // restore puts the previous binary back in place, records it, restarts derper and waits for its unit, unless the
-// update only staged the new binary; in every phase it then removes a staged derper.new.
+// update only staged the new binary; in every phase it then removes a staged derper.new. It runs in every phase but
+// staged, including done, which is the undo of a finished update that Inverse runs, and a binary already back in
+// place is left alone.
 func (h binaryUpdateHandler) restore(ctx context.Context, env core.Env, u updateRow) error {
 	if u.Phase != "staged" {
 		current, err := h.fileSHA256(server.BinaryPath)

@@ -232,6 +232,8 @@ func buDrive(t *testing.T, h *dpHost, call func()) {
 		}
 		if h.clock.Pending() > 0 {
 			h.clock.Advance(binaryUpdatePoll)
+			// A window timer stays pending while the code under test does real I/O; pacing keeps the clock from passing the window during one write.
+			time.Sleep(2 * time.Millisecond)
 		} else {
 			time.Sleep(time.Millisecond)
 		}
@@ -586,10 +588,15 @@ func TestBuTaskEndsAHungPoll(t *testing.T) {
 	t.Run("at the end of the window", func(t *testing.T) {
 		s := buNewSetup(t)
 		start := s.h.clock.Now()
-		hung := hungLocal(s, func() bool { return !s.h.clock.Now().Before(start.Add(healthWindow - binaryUpdatePoll)) })
+		var last time.Time
+		hung := hungLocal(s, func() bool {
+			last = s.h.clock.Now()
+			return !last.Before(start.Add(healthWindow - binaryUpdatePoll))
+		})
 		_, err := s.run(t)
 		buRolledBack(t, s, err, "tailscaled")
-		if waited := s.h.clock.Now().Sub(start); waited < healthWindow || waited > healthWindow+binaryUpdatePoll {
+		// The rollback after the health check also takes time on the clock, so the window is read at the last poll.
+		if waited := last.Sub(start); waited < healthWindow || waited > healthWindow+binaryUpdatePoll {
 			t.Errorf("gave up after %v, want the %v window", waited, healthWindow)
 		}
 		if len(hung) == 0 {

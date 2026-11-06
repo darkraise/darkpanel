@@ -109,6 +109,8 @@ func rcDrive(t *testing.T, h *dpHost, call func()) {
 		}
 		if h.clock.Pending() > 0 {
 			h.clock.Advance(time.Second)
+			// A window timer stays pending while the code under test does real I/O; pacing keeps the clock from passing the window during one write.
+			time.Sleep(2 * time.Millisecond)
 		} else {
 			time.Sleep(time.Millisecond)
 		}

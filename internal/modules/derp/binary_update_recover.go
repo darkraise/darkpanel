@@ -45,7 +45,7 @@ func (h binaryUpdateHandler) Observe(ctx context.Context, env core.Env, e core.E
 }
 
 // Inverse undoes the update of change e.ChangeID through the same rollback a failed check runs. It refuses, having
-// changed nothing, an update that never swapped the binary in.
+// changed nothing, only an update that never swapped the binary in; a failed update runs the rollback again.
 func (h binaryUpdateHandler) Inverse(ctx context.Context, env core.Env, e core.Effect) (core.InverseResult, error) {
 	if err := binaryUpdateRecoverTarget(e); err != nil {
 		return core.InverseResult{}, core.Definite(err)
@@ -60,7 +60,7 @@ func (h binaryUpdateHandler) Inverse(ctx context.Context, env core.Env, e core.E
 	switch u.Phase {
 	case "rolled_back":
 		return core.InverseResult{}, nil
-	case "done", "rolling_back":
+	case "done", "rolling_back", "failed":
 		if err := h.rollback(ctx, env, u); err != nil {
 			return core.InverseResult{}, err
 		}
