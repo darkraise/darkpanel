@@ -235,8 +235,7 @@ sudo systemctl start darkpanel-controller.service darkpanel-agent.service
    operations and rollouts are history, and nothing replays them. Logins and
    reads work, and changes are refused with `core.quarantined`. Re-enroll the
    agents that are not connected first, as
-   [Re-enroll agents](#re-enroll-agents) explains: a token for them can be
-   issued only while the quarantine is active, and a record that names an
+   [Re-enroll agents](#re-enroll-agents) explains: a record that names an
    agent that is not connected cannot be resolved as `done` or `never`. Then
    list the records:
 
@@ -372,7 +371,10 @@ sudo darkpanel host enroll-local
 If you already released the quarantine, `quarantine enroll-token` is refused
 with "the controller is not in restore quarantine; use darkpanel host token".
 Issue the token with `darkpanel host token --host-id <id>` instead. It needs
-`admin` and works for a pending or revoked host other than the local one. Then
+`admin` and works for a pending or revoked host other than the local one. A
+host that `darkpanel host list` shows as enrolled is refused with "is enrolled;
+revoke it before issuing a new token": run
+`darkpanel host revoke --host-id <id>` first, which also needs `admin`. Then
 continue with steps 2 and 3.
 
 Do not run the installer again for the agent role to re-enroll an agent. With
