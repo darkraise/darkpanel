@@ -2,6 +2,7 @@ package backup
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -25,10 +26,11 @@ type Ops interface {
 	Remove(path string) error
 	// SyncDir fsyncs the directory dir.
 	SyncDir(dir string) error
-	// Chown changes the owner of path without following a symbolic link (lchown).
-	Chown(path string, uid, gid int) error
-	// Chmod changes the mode of path.
-	Chmod(path string, perm fs.FileMode) error
+	// Secure opens path read-only without following a symbolic link, requires the open
+	// descriptor to be a regular file with one link, and then sets owner and mode through that
+	// descriptor. Anything else is refused with an error saying the path is not a single
+	// regular file.
+	Secure(path string, uid, gid int, perm fs.FileMode) error
 	// Exists reports whether path exists, by Lstat: a symbolic link exists.
 	Exists(path string) (bool, error)
 }
@@ -73,12 +75,32 @@ func (osOps) SyncDir(dir string) error {
 	return errClose
 }
 
-func (osOps) Chown(path string, uid, gid int) error {
-	return os.Lchown(path, uid, gid)
-}
-
-func (osOps) Chmod(path string, perm fs.FileMode) error {
-	return os.Chmod(path, perm)
+func (osOps) Secure(path string, uid, gid int, perm fs.FileMode) error {
+	// The check and both changes use this one descriptor, so nothing can be swapped in under
+	// path between them. O_NONBLOCK keeps a named pipe from blocking the open until the Stat
+	// below refuses it.
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0) //nolint:gosec // G304: restore paths come from paths.Paths, never from a request
+	if errors.Is(err, syscall.ELOOP) {
+		return fmt.Errorf("backup: %s is not a single regular file", path)
+	}
+	if err != nil {
+		return fmt.Errorf("backup: secure %s: %w", path, err)
+	}
+	defer func() { _ = f.Close() }()
+	fi, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("backup: secure %s: %w", path, err)
+	}
+	if st, ok := fi.Sys().(*syscall.Stat_t); !fi.Mode().IsRegular() || !ok || st.Nlink != 1 {
+		return fmt.Errorf("backup: %s is not a single regular file", path)
+	}
+	if err := f.Chown(uid, gid); err != nil {
+		return fmt.Errorf("backup: secure %s: %w", path, err)
+	}
+	if err := f.Chmod(perm); err != nil {
+		return fmt.Errorf("backup: secure %s: %w", path, err)
+	}
+	return nil
 }
 
 func (osOps) Exists(path string) (bool, error) {

@@ -130,27 +130,9 @@ func TestDuOSOpsDirectoryAndMetadata(t *testing.T) {
 
 	p := filepath.Join(dir, "f")
 	duWriteFile(t, ops, p, "x")
-	if err := ops.Chmod(p, 0o640); err != nil {
-		t.Fatal(err)
-	}
-	if st, err := os.Stat(p); err != nil || st.Mode().Perm() != 0o640 {
-		t.Errorf("mode after Chmod = %v, %v; want 0640", st.Mode().Perm(), err)
-	}
-	if err := ops.Chmod(filepath.Join(dir, "missing"), 0o600); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("Chmod of a missing path = %v, want fs.ErrNotExist", err)
-	}
-	if err := ops.Chown(p, os.Getuid(), os.Getgid()); err != nil {
-		t.Errorf("Chown to the owner's own ids = %v", err)
-	}
-	if err := ops.Chown(filepath.Join(dir, "missing"), os.Getuid(), os.Getgid()); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("Chown of a missing path = %v, want fs.ErrNotExist", err)
-	}
 	dangling := filepath.Join(dir, "dangling")
 	if err := os.Symlink(filepath.Join(dir, "nowhere"), dangling); err != nil {
 		t.Fatal(err)
-	}
-	if err := ops.Chown(dangling, os.Getuid(), os.Getgid()); err != nil {
-		t.Errorf("Chown of a dangling link = %v; it must change the link, not follow it", err)
 	}
 
 	for _, tt := range []struct {
@@ -166,8 +148,8 @@ func TestDuOSOpsDirectoryAndMetadata(t *testing.T) {
 }
 
 // duScript makes one call of each kind in a fixed order and stops at the
-// first error: Create, Write, Sync, Close, Rename, Exists, Chmod, Chown,
-// SyncDir, Remove.
+// first error: Create, Write, Sync, Close, Rename, Exists, Secure, SyncDir,
+// Remove.
 func duScript(ops Ops, dir string) error {
 	a, b := filepath.Join(dir, "a"), filepath.Join(dir, "b")
 	f, err := ops.Create(a, 0o600)
@@ -189,10 +171,7 @@ func duScript(ops Ops, dir string) error {
 	if _, err := ops.Exists(b); err != nil {
 		return err
 	}
-	if err := ops.Chmod(b, 0o640); err != nil {
-		return err
-	}
-	if err := ops.Chown(b, os.Getuid(), os.Getgid()); err != nil {
+	if err := ops.Secure(b, os.Getuid(), os.Getgid(), 0o640); err != nil {
 		return err
 	}
 	if err := ops.SyncDir(dir); err != nil {
@@ -201,7 +180,7 @@ func duScript(ops Ops, dir string) error {
 	return ops.Remove(b)
 }
 
-const duScriptCalls = 10
+const duScriptCalls = 9
 
 // duState lists dir as sorted "name=content:mode" words.
 func duState(t *testing.T, dir string) string {
@@ -282,16 +261,15 @@ func TestDuCrashOpsErrorsOfTheInnerOpsPass(t *testing.T) {
 func TestDuCrashOpsEveryCall(t *testing.T) {
 	type outcome struct{ before, after string }
 	want := map[int]outcome{
-		1:  {"", "a=:-rw-------"},
-		2:  {"a=:-rw-------", "a=data:-rw-------"},
-		3:  {"a=data:-rw-------", "a=data:-rw-------"},
-		4:  {"a=data:-rw-------", "a=data:-rw-------"},
-		5:  {"a=data:-rw-------", "b=data:-rw-------"},
-		6:  {"b=data:-rw-------", "b=data:-rw-------"},
-		7:  {"b=data:-rw-------", "b=data:-rw-r-----"},
-		8:  {"b=data:-rw-r-----", "b=data:-rw-r-----"},
-		9:  {"b=data:-rw-r-----", "b=data:-rw-r-----"},
-		10: {"b=data:-rw-r-----", ""},
+		1: {"", "a=:-rw-------"},
+		2: {"a=:-rw-------", "a=data:-rw-------"},
+		3: {"a=data:-rw-------", "a=data:-rw-------"},
+		4: {"a=data:-rw-------", "a=data:-rw-------"},
+		5: {"a=data:-rw-------", "b=data:-rw-------"},
+		6: {"b=data:-rw-------", "b=data:-rw-------"},
+		7: {"b=data:-rw-------", "b=data:-rw-r-----"},
+		8: {"b=data:-rw-r-----", "b=data:-rw-r-----"},
+		9: {"b=data:-rw-r-----", ""},
 	}
 	for k := 1; k <= duScriptCalls; k++ {
 		for _, before := range []bool{true, false} {
@@ -349,11 +327,8 @@ func TestDuCrashOpsDeadAfterCrash(t *testing.T) {
 	if err := c.SyncDir(dir); !errors.Is(err, errCrash) {
 		t.Errorf("SyncDir after the crash = %v, want errCrash", err)
 	}
-	if err := c.Chmod(a, 0o644); !errors.Is(err, errCrash) {
-		t.Errorf("Chmod after the crash = %v, want errCrash", err)
-	}
-	if err := c.Chown(a, os.Getuid(), os.Getgid()); !errors.Is(err, errCrash) {
-		t.Errorf("Chown after the crash = %v, want errCrash", err)
+	if err := c.Secure(a, os.Getuid(), os.Getgid(), 0o644); !errors.Is(err, errCrash) {
+		t.Errorf("Secure after the crash = %v, want errCrash", err)
 	}
 	if ok, err := c.Exists(a); !errors.Is(err, errCrash) || ok {
 		t.Errorf("Exists after the crash = %v, %v; want false and errCrash", ok, err)

@@ -308,8 +308,9 @@ func rtRestore(t *testing.T, l *rtLayout, bk rtBackup) RestoreResult {
 	return res
 }
 
-// rtOps records the renames, chowns and chmods of a restore. Chown only
-// records: the test process cannot give a file to another user.
+// rtOps records the renames and secures of a restore. Secure records the
+// owner it was asked for but applies the test process's own: the test process
+// cannot give a file to another user.
 type rtOps struct {
 	Ops
 	mu     sync.Mutex
@@ -322,14 +323,9 @@ func (o *rtOps) note(format string, args ...any) {
 	o.events = append(o.events, fmt.Sprintf(format, args...))
 }
 
-func (o *rtOps) Chown(path string, uid, gid int) error {
-	o.note("chown %s %d %d", filepath.Base(path), uid, gid)
-	return nil
-}
-
-func (o *rtOps) Chmod(path string, perm fs.FileMode) error {
-	o.note("chmod %s %v", filepath.Base(path), perm)
-	return o.Ops.Chmod(path, perm)
+func (o *rtOps) Secure(path string, uid, gid int, perm fs.FileMode) error {
+	o.note("secure %s %d %d %v", filepath.Base(path), uid, gid, perm)
+	return o.Ops.Secure(path, os.Getuid(), os.Getgid(), perm)
 }
 
 func (o *rtOps) Rename(from, to string) error {
@@ -422,11 +418,9 @@ func TestRtRestoreInstallsTheBackup(t *testing.T) {
 	}
 	owner := fmt.Sprintf("%d %d", rtOwnerUID, rtOwnerGID)
 	wantEvents := []string{
-		"chown controller.db.restore-" + tx + " " + owner,
-		"chmod controller.db.restore-" + tx + " -rw-------",
+		"secure controller.db.restore-" + tx + " " + owner + " -rw-------",
 		"rename controller.db.restore-" + tx + " controller.db",
-		"chown controller.key.restore-" + tx + " " + owner,
-		"chmod controller.key.restore-" + tx + " -rw-------",
+		"secure controller.key.restore-" + tx + " " + owner + " -rw-------",
 		"rename controller.key.restore-" + tx + " controller.key",
 	}
 	if !slices.Equal(staged, wantEvents) {
@@ -637,9 +631,12 @@ func TestRtFailedCleanupOfOldAsidesReportsAFinishedRestore(t *testing.T) {
 	l.host.NewTx = func() string { return tx2 }
 	l.host.Ops = &rtFailRemoveOps{Ops: OSOps(), path: AsideName(p.ControllerDB(), tx1)}
 
-	_, err := Restore(context.Background(), l.host, bytes.NewReader(bk.file), []byte(rtPass))
+	res, err := Restore(context.Background(), l.host, bytes.NewReader(bk.file), []byte(rtPass))
 	if err == nil || !strings.Contains(err.Error(), "restore "+tx2+" finished") || strings.Contains(err.Error(), "--recover") {
 		t.Fatalf("Restore error = %v, want one saying restore %s finished and not asking for --recover", err, tx2)
+	}
+	if res.Tx != tx2 || !res.BackupCreatedAt.Equal(bk.createdAt) {
+		t.Errorf("Restore result = %+v, want tx %s and the backup's createdAt %s: the restore finished, so its caller can report it", res, tx2, bk.createdAt)
 	}
 	if js, lerr := ListJournals(p.ControllerDir); lerr != nil || len(js) != 0 {
 		t.Errorf("journals = %v (error %v), want none: the restore finished", js, lerr)

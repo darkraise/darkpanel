@@ -95,12 +95,8 @@ func (c *crashOps) SyncDir(dir string) error {
 	return c.duCall(func() error { return c.inner.SyncDir(dir) })
 }
 
-func (c *crashOps) Chown(path string, uid, gid int) error {
-	return c.duCall(func() error { return c.inner.Chown(path, uid, gid) })
-}
-
-func (c *crashOps) Chmod(path string, perm fs.FileMode) error {
-	return c.duCall(func() error { return c.inner.Chmod(path, perm) })
+func (c *crashOps) Secure(path string, uid, gid int, perm fs.FileMode) error {
+	return c.duCall(func() error { return c.inner.Secure(path, uid, gid, perm) })
 }
 
 func (c *crashOps) Exists(path string) (bool, error) {

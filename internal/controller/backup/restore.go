@@ -31,7 +31,8 @@ type RestoreResult struct {
 // originals aside, installs the staged database and key, verifies the installed database and
 // removes the transaction's files and every earlier restore's set-aside files. A failure before the
 // originals begin to move leaves the installation as it was; a later one keeps the journal for
-// recovery. The passphrase is cleared before Restore returns.
+// recovery. A finished restore whose cleanup of earlier restores' set-aside files failed returns its
+// result together with that error. The passphrase is cleared before Restore returns.
 func Restore(ctx context.Context, h Host, in io.Reader, passphrase []byte) (RestoreResult, error) {
 	defer clear(passphrase)
 	if err := h.checkRestore(ctx); err != nil {
@@ -67,7 +68,7 @@ func Restore(ctx context.Context, h Host, in io.Reader, passphrase []byte) (Rest
 	}
 	if err := restoreSwap(ctx, h, journalPath, &j); err != nil {
 		if errors.Is(err, errOldAside) {
-			return RestoreResult{}, fmt.Errorf("backup: restore %s finished and its database is installed, but %w", tx, err)
+			return RestoreResult{Tx: tx, BackupCreatedAt: createdAt}, fmt.Errorf("backup: restore %s finished and its database is installed, but %w", tx, err)
 		}
 		return RestoreResult{}, fmt.Errorf("backup: restore %s stopped after it began to move the installation aside; run darkpanel controller restore --recover: %w",
 			tx, err)
@@ -301,8 +302,9 @@ func removeTx(h Host, tx string) error {
 }
 
 // installStaged is phase 6 and safe to repeat: for the staged database, then the staged key, it skips
-// a rename Settle reports done, and otherwise chowns the staged file to h.Owner(), chmods it 0600 and
-// calls RenameJournaled(h.Ops, journalPath, j, PhaseInstalled, staged, installed).
+// a rename Settle reports done, and otherwise gives the staged file h.Owner() and mode 0600 through
+// h.Ops.Secure, which refuses a link or anything but a single regular file, and calls
+// RenameJournaled(h.Ops, journalPath, j, PhaseInstalled, staged, installed).
 func installStaged(h Host, journalPath string, j *Journal) error {
 	uid, gid, err := h.Owner()
 	if err != nil {
@@ -317,24 +319,10 @@ func installStaged(h Host, journalPath string, j *Journal) error {
 		if done {
 			continue
 		}
-		// Chmod follows a symbolic link and lchown on a hard link changes the
-		// linked inode, so a file planted under the staged name could hand a
-		// root recovery any file on the host. os.Lstat is called directly so
-		// the check adds no Ops call.
-		fi, err := os.Lstat(from)
-		if err != nil {
-			return fmt.Errorf("backup: look up the staged file %s: %w", from, err)
-		}
-		if st, ok := fi.Sys().(*syscall.Stat_t); !fi.Mode().IsRegular() || !ok || st.Nlink != 1 {
-			return fmt.Errorf("backup: staged file %s is not a single regular file; the journal %s is kept", from, journalPath)
-		}
 		// The owner and mode are set before the rename, so the installed name
 		// never carries the wrong ones, even after a crash.
-		if err := h.Ops.Chown(from, uid, gid); err != nil {
-			return fmt.Errorf("backup: chown %s: %w", from, err)
-		}
-		if err := h.Ops.Chmod(from, 0o600); err != nil {
-			return fmt.Errorf("backup: chmod %s: %w", from, err)
+		if err := h.Ops.Secure(from, uid, gid, 0o600); err != nil {
+			return fmt.Errorf("%w; the journal %s is kept", err, journalPath)
 		}
 		if err := RenameJournaled(h.Ops, journalPath, j, PhaseInstalled, from, to); err != nil {
 			return err
