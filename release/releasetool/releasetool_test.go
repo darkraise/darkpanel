@@ -652,7 +652,7 @@ func TestW10DaDerperBuildEnv(t *testing.T) {
 	environ := []string{
 		"PATH=/usr/bin", "HOME=/home/runner", "GOFLAGS=-mod=vendor", "GOPROXY=off", "GOSUMDB=off", "GONOSUMDB=*",
 		"GOINSECURE=*", "GOPRIVATE=*", "GONOPROXY=*", "GOENV=/tmp/evil", "GOWORK=/tmp/go.work", "GOOS=windows",
-		"CGO_ENABLED=1", "GITHUB_TOKEN=placeholder",
+		"CGO_ENABLED=1", "GOTOOLCHAIN=auto", "GITHUB_TOKEN=placeholder",
 	}
 	got := map[string]string{}
 	for _, kv := range derperBuildEnv(environ, "arm64") {
@@ -665,6 +665,7 @@ func TestW10DaDerperBuildEnv(t *testing.T) {
 	want := map[string]string{
 		"PATH": "/usr/bin", "HOME": "/home/runner", "CGO_ENABLED": "0", "GOOS": "linux", "GOARCH": "arm64",
 		"GOFLAGS": "", "GOPROXY": "https://proxy.golang.org", "GOSUMDB": "sum.golang.org", "GOENV": "off", "GOWORK": "off",
+		"GOTOOLCHAIN": "local",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("environment %v, want %v", got, want)

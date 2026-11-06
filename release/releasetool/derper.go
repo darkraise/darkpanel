@@ -160,8 +160,10 @@ var derperBuildPassThrough = []string{
 // derperBuildEnv is the environment of the go commands that build derper for
 // linux/arch: the variables of environ named in derperBuildPassThrough, in
 // that order, then a fixed Go configuration, so the runner's GOFLAGS,
-// GOPROXY, GOSUMDB, GONOSUMDB, GOENV or GOWORK cannot change how the derper
-// source is fetched and verified.
+// GOPROXY, GOSUMDB, GONOSUMDB, GOENV, GOWORK or GOTOOLCHAIN cannot change how
+// the derper source is fetched, verified and built. GOTOOLCHAIN is pinned to
+// local because without it go falls back to the auto of $GOROOT/go.env and
+// may download a toolchain.
 func derperBuildEnv(environ []string, arch string) []string {
 	var env []string
 	for _, name := range derperBuildPassThrough {
@@ -174,7 +176,8 @@ func derperBuildEnv(environ []string, arch string) []string {
 	}
 	return append(env,
 		"CGO_ENABLED=0", "GOOS=linux", "GOARCH="+arch, "GOFLAGS=",
-		"GOPROXY=https://proxy.golang.org", "GOSUMDB=sum.golang.org", "GOENV=off", "GOWORK=off")
+		"GOPROXY=https://proxy.golang.org", "GOSUMDB=sum.golang.org", "GOENV=off", "GOWORK=off",
+		"GOTOOLCHAIN=local")
 }
 
 // buildDerper builds tailscale.com/cmd/derper at version in a temporary
