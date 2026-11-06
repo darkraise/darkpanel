@@ -187,11 +187,13 @@ func (h installHandler) Task(ctx context.Context, env core.Env, in ServerInstall
 	}
 	if !userExists {
 		err := h.create(ctx, env, "user", server.ServiceUser, h.existsDoc(), func() error {
-			entry := core.OwnedEntry{Path: server.ServiceUser, Module: ID, Kind: core.OwnedUser, CreatedAt: env.Clock.Now()}
-			if err := platform.NewOwnership(env.DB).Record(ctx, entry); err != nil {
+			if err := installRun(ctx, env, installUseradd, "--system", "--no-create-home", "--shell", "/usr/sbin/nologin", server.ServiceUser); err != nil {
 				return err
 			}
-			return installRun(ctx, env, installUseradd, "--system", "--no-create-home", "--shell", "/usr/sbin/nologin", server.ServiceUser)
+			// The record is the only proof the module created the user. Recorded before useradd, it would survive a
+			// failed useradd and make a user someone else creates later the module's to delete.
+			entry := core.OwnedEntry{Path: server.ServiceUser, Module: ID, Kind: core.OwnedUser, CreatedAt: env.Clock.Now()}
+			return platform.NewOwnership(env.DB).Record(ctx, entry)
 		})
 		if err != nil {
 			return ServerInstalled{}, err
@@ -268,6 +270,7 @@ func (installHandler) create(ctx context.Context, env core.Env, noun, identity s
 func (h installHandler) await(ctx context.Context, env core.Env, cfg server.Config) (pin string, notAfter time.Time, err error) {
 	crt, _, ipMode := server.CertFiles(cfg)
 	deadline := env.Clock.Now().Add(certWait)
+	var parseErr error
 	for {
 		st, err := env.Units.State(ctx, server.UnitName)
 		if err != nil {
@@ -278,18 +281,21 @@ func (h installHandler) await(ctx context.Context, env core.Env, cfg server.Conf
 			return "", time.Time{}, nil
 		}
 		if active {
-			der, at, ok, err := h.readCert(crt)
+			der, at, ok, pErr, err := h.readCert(crt)
 			if err != nil {
 				return "", time.Time{}, err
 			}
 			if ok {
 				return server.Pin(der), at, nil
 			}
+			parseErr = pErr
 		}
 		if !env.Clock.Now().Before(deadline) {
 			detail := fmt.Sprintf("derper did not create its certificate within %s", certWait)
 			if !active {
 				detail = fmt.Sprintf("%s did not become active within %s", server.UnitName, certWait)
+			} else if parseErr != nil {
+				detail += fmt.Sprintf("; the file it wrote does not parse: %v", parseErr)
 			}
 			return "", time.Time{}, errcode.New(errcode.DERPVerifyFailed, detail)
 		}
@@ -305,21 +311,21 @@ func (h installHandler) await(ctx context.Context, env core.Env, cfg server.Conf
 }
 
 // readCert reads the ip certificate derper keeps as name in CertDir; ok is false while it is absent or does not
-// parse, as derper may not have finished writing it.
-func (h installHandler) readCert(name string) (der []byte, notAfter time.Time, ok bool, err error) {
+// parse, as derper may not have finished writing it. parseErr is why a file that is there does not parse.
+func (h installHandler) readCert(name string) (der []byte, notAfter time.Time, ok bool, parseErr, err error) {
 	path := server.CertDir + "/" + name
 	b, err := h.d.d.readFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, time.Time{}, false, nil
+		return nil, time.Time{}, false, nil, nil
 	}
 	if err != nil {
-		return nil, time.Time{}, false, fmt.Errorf("derp: read %s: %w", path, err)
+		return nil, time.Time{}, false, nil, fmt.Errorf("derp: read %s: %w", path, err)
 	}
-	der, notAfter, err = server.ParseCert(b)
-	if err != nil {
-		return nil, time.Time{}, false, nil
+	der, notAfter, parseErr = server.ParseCert(b)
+	if parseErr != nil {
+		return nil, time.Time{}, false, parseErr, nil
 	}
-	return der, notAfter, true, nil
+	return der, notAfter, true, nil, nil
 }
 
 // Verify checks the host from the input alone, as recovery calls it without an output: the server row of the
@@ -441,13 +447,18 @@ func (installHandler) removeUnit(ctx context.Context, env core.Env) error {
 	return env.Units.Disable(ctx, server.UnitName)
 }
 
-// removeUser deletes the module's user when it exists and forgets it in every case.
+// removeUser deletes the user when it exists and the module recorded it, and forgets the record in every case. A user
+// the module did not record is someone else's, also when it appeared while the install ran.
 func (h installHandler) removeUser(ctx context.Context, env core.Env) error {
 	_, _, exists, err := h.d.d.lookupUser(server.ServiceUser)
 	if err != nil {
 		return err
 	}
-	if exists {
+	owned, err := platform.NewOwnership(env.DB).Owns(ctx, ID, server.ServiceUser)
+	if err != nil {
+		return err
+	}
+	if exists && owned {
 		if err := installRun(ctx, env, installUserdel, server.ServiceUser); err != nil {
 			return err
 		}

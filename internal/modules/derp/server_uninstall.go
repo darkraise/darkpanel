@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"strconv"
 	"strings"
 	"time"
@@ -39,13 +41,14 @@ type serverUninstallHandler struct{ d dp }
 // uninstallFacts is what of derp.server.install's work exists on the host, read from the module's records. A file,
 // directory or user the module did not record is someone else's and does not count.
 type uninstallFacts struct {
-	unitLoaded bool   // systemd knows derper's unit
-	unitActive bool   // derper's unit is neither inactive nor failed
-	unitFile   bool   // the module records the unit file
-	binary     string // the first of the binary, its .new and its .prev copy the module records; "" when none
-	dir        bool   // the module records the service directory
-	user       bool   // the ownership store records the service user
-	server     bool   // the derp_server row exists
+	unitLoaded  bool   // systemd knows derper's unit
+	unitActive  bool   // derper's unit is neither inactive nor failed
+	unitEnabled bool   // derper's unit is loaded and its enablement link exists
+	unitFile    bool   // the module records the unit file
+	binary      string // the first of the binary, its .new and its .prev copy the module records; "" when none
+	dir         bool   // the module records the service directory
+	user        bool   // the ownership store records the service user
+	server      bool   // the derp_server row exists
 }
 
 // uninstallRemoval is one of the six removals, in the order uninstall makes them.
@@ -88,7 +91,8 @@ func (r uninstallRemoval) resource() string {
 func (f uninstallFacts) exists(r uninstallRemoval) bool {
 	switch r {
 	case uninstallUnit:
-		return f.unitLoaded
+		// A loaded unit that neither runs nor is enabled has nothing to stop or disable.
+		return f.unitActive || f.unitEnabled
 	case uninstallUnitFile:
 		return f.unitFile
 	case uninstallBinary:
@@ -102,23 +106,32 @@ func (f uninstallFacts) exists(r uninstallRemoval) bool {
 	}
 }
 
-// doc is the state document of r's object: the unit's active flag, or every other object's presence.
+// doc is the state document of r's object: the unit's active and enabled flags, or every other object's presence.
 func (f uninstallFacts) doc(r uninstallRemoval) core.StateDoc {
 	if r == uninstallUnit {
-		return r.doc(f.unitActive)
+		return unitDoc(f.unitActive, f.unitEnabled)
 	}
 	return r.doc(f.exists(r))
 }
 
-// doc is the state document of r's object with its one member, "active" for the unit and "present" for every
-// other object, set to v.
-func (r uninstallRemoval) doc(v bool) core.StateDoc {
-	key := "present"
-	if r == uninstallUnit {
-		key = "active"
-	}
-	b, _ := json.Marshal(map[string]bool{key: v})
+// unitDoc is the state document of derper's unit with its active and enabled flags.
+func unitDoc(active, enabled bool) core.StateDoc {
+	b, _ := json.Marshal(map[string]bool{"active": active, "enabled": enabled})
 	return core.StateDoc{State: b}
+}
+
+// doc is the state document of r's object with its one member, "present", set to v.
+func (r uninstallRemoval) doc(v bool) core.StateDoc {
+	b, _ := json.Marshal(map[string]bool{"present": v})
+	return core.StateDoc{State: b}
+}
+
+// removed is the state document of r's object once r removed it.
+func (r uninstallRemoval) removed() core.StateDoc {
+	if r == uninstallUnit {
+		return unitDoc(false, false)
+	}
+	return r.doc(false)
 }
 
 // facts reads what exists. It only reads.
@@ -130,6 +143,11 @@ func (h serverUninstallHandler) facts(ctx context.Context, env core.Env) (uninst
 	}
 	f.unitLoaded = st.LoadState != "not-found"
 	f.unitActive = f.unitLoaded && st.ActiveState != "inactive" && st.ActiveState != "failed"
+	if f.unitLoaded {
+		// Any error but a missing link counts as enabled, as installHandler.exists reads it.
+		_, err := h.d.d.readFile(installWantsLink)
+		f.unitEnabled = !errors.Is(err, fs.ErrNotExist)
+	}
 	if f.unitFile, err = env.Files.Owns(ctx, ID, server.UnitPath); err != nil {
 		return f, err
 	}
@@ -167,7 +185,7 @@ func (h serverUninstallHandler) Plan(ctx context.Context, env core.Env, _ Server
 		diff = append(diff, core.DiffLine{Op: "-", Text: f.planText(r)})
 		state = append(state, r.resource())
 	}
-	state = append(state, "active="+strconv.FormatBool(f.unitActive))
+	state = append(state, "active="+strconv.FormatBool(f.unitActive), "enabled="+strconv.FormatBool(f.unitEnabled))
 	sum := sha256.Sum256([]byte(strings.Join(state, "\n")))
 	return core.PlanOutcome{Diff: diff, StateHash: hex.EncodeToString(sum[:])}, nil
 }
@@ -198,14 +216,14 @@ func (f uninstallFacts) planText(r uninstallRemoval) string {
 func (h serverUninstallHandler) Apply(ctx context.Context, env core.Env, _ ServerUninstallInput) (ServerUninstalled, error) {
 	f, err := h.facts(ctx, env)
 	if err != nil {
-		return ServerUninstalled{}, err
+		return ServerUninstalled{}, core.Definite(err)
 	}
 	out := ServerUninstalled{Removed: []string{}}
 	for _, r := range uninstallRemovals {
 		if !f.exists(r) {
 			continue
 		}
-		after := r.doc(false)
+		after := r.removed()
 		seq, err := env.Effects.Intend(ctx, core.Effect{
 			Kind: core.EffectDelete, Resource: r.resource(), Local: true, Before: f.doc(r), After: &after,
 		}, nil)
@@ -338,8 +356,8 @@ func (h serverUninstallHandler) Verify(ctx context.Context, env core.Env, _ Serv
 	return nil
 }
 
-// Observe reads the object of one of the six effects uninstall journals: the unit's active flag, or the presence
-// of every other object, as the facts define them.
+// Observe reads the object of one of the six effects uninstall journals: the unit's active and enabled flags, or
+// the presence of every other object, as the facts define them.
 func (h serverUninstallHandler) Observe(ctx context.Context, env core.Env, e core.Effect) (core.Observation, error) {
 	for _, r := range uninstallRemovals {
 		if r.resource() != e.Resource {

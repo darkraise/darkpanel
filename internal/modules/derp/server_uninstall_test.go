@@ -3,7 +3,10 @@ package derp
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -96,6 +99,7 @@ func unInstalled(t *testing.T, h *dpHost) {
 	h.files[server.BinaryPrevPath] = []byte("derper-prev")
 	h.files[server.KeyPath] = []byte("node key")
 	h.files[server.CertDir+"/"+unIP+".crt"] = []byte("certificate")
+	h.reads[installWantsLink] = []byte{} // the fake systemd makes no enablement link
 	h.users[server.ServiceUser] = [2]int{990, 990}
 	unOwnUser(t, h)
 	at := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
@@ -192,16 +196,13 @@ func unSame(t *testing.T, got json.RawMessage, want string) bool {
 	return reflect.DeepEqual(a, b)
 }
 
-// unDoc is the state document of resource: the unit's is its active flag, every other one its presence.
+// unDoc is the state document of resource: the unit's holds its active and enabled flags, every other one its
+// presence.
 func unDoc(resource string, on bool) string {
-	key := "present"
 	if resource == unUnitRes {
-		key = "active"
+		return fmt.Sprintf(`{"active":%t,"enabled":%t}`, on, on)
 	}
-	if on {
-		return `{"` + key + `":true}`
-	}
-	return `{"` + key + `":false}`
+	return fmt.Sprintf(`{"present":%t}`, on)
 }
 
 func TestUnDefinition(t *testing.T) {
@@ -487,6 +488,7 @@ func TestUnObserve(t *testing.T) {
 	if _, err := unApply(t, h, unStops(h)); err != nil {
 		t.Fatal(err)
 	}
+	delete(h.reads, installWantsLink) // systemctl disable removed the enablement link
 	check(false)
 	if _, err := h.dp().serverUninstall().Handler.Observe(context.Background(), h.env(""), core.Effect{Resource: "derp.file:/etc/passwd"}); err == nil {
 		t.Error("observe of a resource the action never journals succeeded")
@@ -518,4 +520,85 @@ func TestUnVerify(t *testing.T) {
 	if err := verify(); err == nil || !strings.Contains(err.Error(), server.UnitName) {
 		t.Errorf("err = %v, want the unit named", err)
 	}
+}
+
+// TestW10DuUninstallLeavesAUserItDidNotCreate: an install whose useradd failed records no ownership, so the user
+// someone else creates afterwards is not the module's to delete.
+func TestW10DuUninstallLeavesAUserItDidNotCreate(t *testing.T) {
+	ctx := context.Background()
+	s := inNewSetup(t)
+	s.h.script(inUseradd, dpRun{res: core.CmdResult{ExitCode: 9, Stderr: []byte("useradd: cannot lock /etc/passwd")}})
+	if _, err := s.d.serverInstall().Handler.Task(ctx, s.env, inInput("ip", inIP, nil)); err == nil {
+		t.Fatal("the install succeeded although useradd failed")
+	}
+	s.h.users[server.ServiceUser] = [2]int{900, 900}
+	unMaps(s.h)
+	s.h.units.States[server.UnitName] = unGone
+	if out := unPlan(t, s.h); len(out.Diff) != 0 {
+		t.Errorf("plan %+v, want nothing to remove", out.Diff)
+	}
+	out, err := unApply(t, s.h, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.h.users[server.ServiceUser]; !ok || len(out.Removed) != 0 ||
+		slices.ContainsFunc(s.h.ran, func(v []string) bool { return v[0] == installUserdel }) {
+		t.Errorf("user kept: %v, removed %v, commands run %q, want the user kept and no userdel", ok, out.Removed, s.h.ran)
+	}
+}
+
+// w10duFailingUnits is a systemd that cannot be reached.
+type w10duFailingUnits struct{ core.Units }
+
+func (w10duFailingUnits) State(context.Context, string) (core.UnitState, error) {
+	return core.UnitState{}, errors.New("w10du: systemd is unreachable")
+}
+
+// TestW10DuUninstallApplyReadFailureIsDefinite: a failed read of the facts changed nothing, so Apply reports it
+// as definite, as Plan does.
+func TestW10DuUninstallApplyReadFailureIsDefinite(t *testing.T) {
+	h := newDPHost(t)
+	unInstalled(t, h)
+	env := h.env("c1")
+	env.Units = w10duFailingUnits{env.Units}
+	_, err := h.dp().serverUninstall().Handler.Apply(context.Background(), env, json.RawMessage(`{}`))
+	if err == nil || !core.IsDefinite(err) {
+		t.Errorf("Apply = %v, want a definite error", err)
+	}
+	if effects := unEffects(t, h); len(effects) != 0 {
+		t.Errorf("effects %+v, want none journaled", effects)
+	}
+}
+
+// TestW10DuUninstallUnitEffect: the unit's effect changes the unit's document also when the unit is loaded but not
+// running, and a unit that is neither running nor enabled has nothing to remove.
+func TestW10DuUninstallUnitEffect(t *testing.T) {
+	t.Run("a loaded unit that is not running", func(t *testing.T) {
+		h := newDPHost(t)
+		unInstalled(t, h)
+		h.units.States[server.UnitName] = unInactive
+		if _, err := unApply(t, h, nil); err != nil {
+			t.Fatal(err)
+		}
+		e := unEffects(t, h)[0]
+		if e.Resource != unUnitRes || e.After == nil || !unSame(t, e.Before.State, `{"active":false,"enabled":true}`) ||
+			!unSame(t, e.After.State, `{"active":false,"enabled":false}`) {
+			t.Errorf("effect %s: before %s, after %+v, want enabled before and not after, neither running", e.Resource, e.Before.State, e.After)
+		}
+	})
+	t.Run("a loaded unit that is neither running nor enabled", func(t *testing.T) {
+		h := newDPHost(t)
+		unInstalled(t, h)
+		h.units.States[server.UnitName] = unInactive
+		delete(h.reads, installWantsLink)
+		if out := unPlan(t, h); !reflect.DeepEqual(out.Diff, unFullDiff[1:]) {
+			t.Errorf("diff\n got %+v\nwant %+v", out.Diff, unFullDiff[1:])
+		}
+		if _, err := unApply(t, h, nil); err != nil {
+			t.Fatal(err)
+		}
+		if want := []string{"reload"}; !reflect.DeepEqual(h.units.Calls, want) {
+			t.Errorf("unit calls %q, want %q", h.units.Calls, want)
+		}
+	})
 }

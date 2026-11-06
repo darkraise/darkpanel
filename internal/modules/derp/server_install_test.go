@@ -479,7 +479,7 @@ func TestInTaskInstalls(t *testing.T) {
 				t.Errorf("ran %v, want only useradd", s.h.ran)
 			}
 			wantCalls := []inCall{
-				{inUseradd + " (recorded as owned: true)", "derp.user:?darkpanel-derp intended"},
+				{inUseradd + " (recorded as owned: false)", "derp.user:?darkpanel-derp intended"},
 				{"write /usr/local/lib/darkpanel/derper 0755", "derp.file:?/usr/local/lib/darkpanel/derper intended"},
 				{"write /etc/systemd/system/darkpanel-derper.service 0644", "derp.file:?/etc/systemd/system/darkpanel-derper.service intended"},
 				{"ensure /var/lib/darkpanel/derp", "derp.dir:?/var/lib/darkpanel/derp intended"},
@@ -573,6 +573,9 @@ func TestInTaskFailedUseraddLeavesItsEffectIntended(t *testing.T) {
 	effects := s.effects(t)
 	if len(effects) != 1 || effects[0].Resource != "derp.user:?darkpanel-derp" || effects[0].State != core.EffectIntended || len(s.h.files) != 0 || len(s.h.units.Calls) != 0 {
 		t.Errorf("effects %+v, files %v and unit calls %v, want only the user's effect, still intended, and nothing after it", effects, s.h.files, s.h.units.Calls)
+	}
+	if owned, err := platform.NewOwnership(s.h.db).Owns(context.Background(), ID, server.ServiceUser); err != nil || owned {
+		t.Errorf("the user is recorded as the module's after a failed useradd: %v (error %v)", owned, err)
 	}
 }
 
@@ -851,4 +854,63 @@ func TestInVerify(t *testing.T) {
 			t.Error("verify accepted a server installed for another address")
 		}
 	})
+}
+
+// TestW10DuTaskReportsAnUnparsableCertificate: a certificate that does not parse is waited out, as derper may be
+// writing it, and when the wait runs out the error names why it does not parse.
+func TestW10DuTaskReportsAnUnparsableCertificate(t *testing.T) {
+	crtPath := server.CertDir + "/" + inIP + ".crt"
+	t.Run("a certificate that never parses", func(t *testing.T) {
+		s := inNewSetup(t)
+		s.active()
+		s.h.reads[crtPath] = []byte("not a certificate")
+		var err error
+		inDrive(t, s.h, func() {
+			_, err = s.d.serverInstall().Handler.Task(context.Background(), s.env, inInput("ip", inIP, nil))
+		})
+		coded := inCoded(t, err, errcode.DERPVerifyFailed)
+		for _, want := range []string{"certificate", "no CERTIFICATE block in the PEM data"} {
+			if !strings.Contains(coded.Detail, want) {
+				t.Errorf("detail %q, want it to contain %q", coded.Detail, want)
+			}
+		}
+	})
+	t.Run("a half-written certificate that parses later", func(t *testing.T) {
+		s := inNewSetup(t)
+		s.active()
+		der, _ := s.certFile(t)
+		reads := 0
+		readFile := s.d.d.readFile
+		s.d.d.readFile = func(name string) ([]byte, error) {
+			if name == crtPath {
+				if reads++; reads < 4 {
+					return []byte("-----BEGIN CERTIFICATE-----\nMIIB"), nil
+				}
+			}
+			return readFile(name)
+		}
+		var out json.RawMessage
+		var err error
+		inDrive(t, s.h, func() {
+			out, err = s.d.serverInstall().Handler.Task(context.Background(), s.env, inInput("ip", inIP, nil))
+		})
+		var got ServerInstalled
+		if err != nil || json.Unmarshal(out, &got) != nil || got.CertName != server.Pin(der) {
+			t.Errorf("output %s (error %v), want the pin of the certificate that parsed in the end", out, err)
+		}
+	})
+}
+
+// TestW10DuInverseLeavesAUserItDidNotRecord: the undo of a user effect deletes the user only when the module
+// recorded it, so a user someone else created while the install ran is not deleted.
+func TestW10DuInverseLeavesAUserItDidNotRecord(t *testing.T) {
+	s := inNewSetup(t)
+	s.h.users[server.ServiceUser] = [2]int{900, 900}
+	effect := core.Effect{Kind: core.EffectCreate, Resource: "derp.user:" + server.ServiceUser}
+	if _, err := s.d.serverInstall().Handler.Inverse(context.Background(), s.env, effect); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.h.users[server.ServiceUser]; !ok || len(s.h.ran) != 0 {
+		t.Errorf("user kept: %v, commands run %v, want the user kept and no userdel", ok, s.h.ran)
+	}
 }
