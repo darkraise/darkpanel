@@ -10,10 +10,12 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/coretest"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/modules/tailnet"
 	"github.com/darkraise/darkpanel/internal/modules/tailscale"
@@ -97,7 +99,7 @@ func pbCalls[T any](t *testing.T, a *dpAgent, read string) []T {
 }
 
 // pbWorld is a controller with the DERP host h1 (alpha, a row in region 900), the probe hosts h2 (bravo) and h3
-// (charlie), a connected tailnet without devices, and every probe answering OK.
+// (charlie), a connected tailnet without devices, and every probe answering OK and every host's node logged out.
 func pbWorld(t *testing.T) *dpHost {
 	t.Helper()
 	h := newDPHost(t)
@@ -110,6 +112,9 @@ func pbWorld(t *testing.T) *dpHost {
 	h.tls = map[string]dpProbe{pbIP: {d: 10 * time.Millisecond}}
 	h.stun = map[netip.AddrPort]dpProbe{netip.MustParseAddrPort(pbIP + ":3478"): {d: 5 * time.Millisecond}}
 	h.tailnet = true
+	for _, id := range []string{"h1", "h2", "h3"} {
+		pbAgent(h, id).Resources["tailscale.status"] = tailscale.Status{BackendState: "NeedsLogin"}
+	}
 	err := upsertServerRecord(context.Background(), h.ctlDB, serverRecord{
 		HostID: "h1", Mode: "ip", HostName: pbIP, RegionID: 900, RegionCode: "eu-derp", DerperVersion: "v1.104.1",
 		CertName: pbPin, UnitActive: true, CheckedAt: h.clock.Now(),
@@ -476,6 +481,121 @@ func TestPbProbeReady(t *testing.T) {
 		ready, reason, warnings := probeReady(p)
 		if ready != tt.ready || reason != tt.reason || !reflect.DeepEqual(warnings, tt.warnings) {
 			t.Errorf("%s: ready %v, reason %q, warnings %#v; want %v, %q, %#v", tt.name, ready, reason, warnings, tt.ready, tt.reason, tt.warnings)
+		}
+	}
+}
+
+// w10spBarrier is how long a faked agent read waits for the other reads before it gives up.
+const w10spBarrier = 2 * time.Second
+
+// TestW10SpProbeReadsAgentsConcurrently: the agents' probes are in flight at the same time, and their sources
+// still come back in input order.
+func TestW10SpProbeReadsAgentsConcurrently(t *testing.T) {
+	h := pbWorld(t)
+	h.addHost("h4", "delta", false)
+	pbAgent(h, "h4").Resources["tailscale.status"] = tailscale.Status{BackendState: "NeedsLogin"}
+	var arrived atomic.Int32
+	all := make(chan struct{})
+	gate := func(json.RawMessage) (any, error) {
+		if arrived.Add(1) == 3 {
+			close(all)
+		}
+		select {
+		case <-all:
+			return NodeProbe{TLS: ProbeResult{OK: true, LatencyMs: 1}, STUN: ProbeResult{OK: true, LatencyMs: 1}}, nil
+		case <-time.After(w10spBarrier):
+			return nil, errors.New("the other agents were not read at the same time")
+		}
+	}
+	for _, id := range []string{"h2", "h3", "h4"} {
+		pbAgent(h, id).Reads["derp.node.probe/v1"] = gate
+	}
+	got, err := pbRun(h, ServerProbeInput{HostID: "h1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"controller=controller", "h2=bravo", "h3=charlie", "h4=delta"}; !slices.Equal(pbNames(got), want) {
+		t.Fatalf("sources %v, want %v", pbNames(got), want)
+	}
+	for _, s := range got.Sources {
+		if s.Error != "" {
+			t.Errorf("source %s failed with %q, want every agent read to run while the others waited", s.Source, s.Error)
+		}
+	}
+}
+
+// TestW10SpProbeBoundsEveryAgentRead: an agent that never answers fails its own source once 30 s have passed on
+// the controller's clock, whatever it was asked, and the probe still answers from the others.
+func TestW10SpProbeBoundsEveryAgentRead(t *testing.T) {
+	h := pbWorld(t)
+	env := h.ctlEnv("")
+	hung := &coretest.FakeAgent{
+		ReadFunc: func(ctx context.Context, _ core.Principal, _ core.ActionRef, _ json.RawMessage) (json.RawMessage, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+		ResourceFunc: func(ctx context.Context, _ core.Principal, _ string) (json.RawMessage, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	}
+	env.Agents.(coretest.MapHosts)["h3"] = hung
+	done := make(chan struct{})
+	var got ServerProbe
+	var err error
+	go func() {
+		defer close(done)
+		got, err = h.dp().probeServer(context.Background(), env, ServerProbeInput{HostID: "h1"})
+	}()
+	timeout := time.After(10 * time.Second)
+wait:
+	for {
+		select {
+		case <-done:
+			break wait
+		case <-timeout:
+			t.Fatal("the probe of a silent agent did not end")
+		default:
+			if h.clock.Pending() > 0 {
+				h.clock.Advance(30 * time.Second)
+			} else {
+				time.Sleep(time.Millisecond)
+			}
+		}
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"controller=controller", "h2=bravo", "h3=charlie"}; !slices.Equal(pbNames(got), want) {
+		t.Fatalf("sources %v, want %v", pbNames(got), want)
+	}
+	if charlie := got.Sources[2]; charlie.Error != "the agent did not answer" || charlie.TLS.OK || charlie.STUN.OK {
+		t.Errorf("charlie source %+v, want a failed source saying %q", charlie, "the agent did not answer")
+	}
+	if bravo := got.Sources[1]; bravo.Error != "" || !bravo.TLS.OK || !got.Ready {
+		t.Errorf("bravo source %+v, ready %v; want it to pass and back the region", bravo, got.Ready)
+	}
+}
+
+// TestW10SpProbeWarnsAboutAHostWhoseTailscaleStatusCannotBeRead: a host whose status cannot be read is named in
+// the warnings; a host whose node is not on the tailnet is not.
+func TestW10SpProbeWarnsAboutAHostWhoseTailscaleStatusCannotBeRead(t *testing.T) {
+	h := pbWorld(t)
+	h.tailnet = false
+	pbNodeWorld(h)
+	delete(pbAgent(h, "h3").Resources, "tailscale.status")
+	pbAgent(h, "h2").Resources["tailscale.status"] = tailscale.Status{BackendState: "NeedsLogin"}
+	got, err := pbRun(h, ServerProbeInput{HostID: "h1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = "the tailscale status of host charlie could not be read, so its node use is not reported"
+	if !slices.Contains(got.Warnings, want) {
+		t.Errorf("warnings %q, want %q", got.Warnings, want)
+	}
+	for _, w := range got.Warnings {
+		if strings.Contains(w, "bravo") || strings.Contains(w, "alpha") {
+			t.Errorf("warning %q names a host whose status was read", w)
 		}
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/netip"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -190,7 +191,7 @@ func TestFbPaths(t *testing.T) {
 			}
 			var coded *errcode.Error
 			wantDetail := "the DERP host's link depends on region 900 and no other region is reachable; add a second region or clear omitDefaultRegions"
-			if !errors.As(err, &coded) || coded.Code != errcode.DERPNoFallback || coded.Detail != wantDetail || !core.IsDefinite(err) {
+			if !errors.As(err, &coded) || coded.Code != errcode.DERPNoFallback || !strings.HasPrefix(coded.Detail, wantDetail) || !core.IsDefinite(err) {
 				t.Fatalf("answer %+v, %v; want a definite %s refusal saying %q", got, err, errcode.DERPNoFallback, wantDetail)
 			}
 		})
@@ -222,5 +223,30 @@ func TestFbDeclaration(t *testing.T) {
 	}
 	if _, err := schema.ActionSnapshot(def); err != nil {
 		t.Errorf("schema: %v", err)
+	}
+}
+
+// TestW10SpFallbackNamesWhyEachRegionWasRuledOut: the refusal says, for every other region it tried, why that
+// region does not count: the failing check of its probe, or that its probe could not be read.
+func TestW10SpFallbackNamesWhyEachRegionWasRuledOut(t *testing.T) {
+	down := fbRegion{id: 901, host: "h2", ip: "203.0.113.20", row: true}
+	failing := fbRegion{id: 902, host: "h3", ip: "203.0.113.30", row: true, statusErr: true}
+	h := fbSetup(t, true, false, true, []fbRegion{down, failing})
+	_, err := fbRun(t, h, FallbackCheckInput{HostID: fbHost, RegionID: 900})
+	var coded *errcode.Error
+	if !errors.As(err, &coded) || coded.Code != errcode.DERPNoFallback || !core.IsDefinite(err) {
+		t.Fatalf("err = %v, want a definite %s refusal", err, errcode.DERPNoFallback)
+	}
+	const base = "the DERP host's link depends on region 900 and no other region is reachable; add a second region or clear omitDefaultRegions"
+	if !strings.HasPrefix(coded.Detail, base+": ") {
+		t.Errorf("detail %q, want it to start with %q", coded.Detail, base+": ")
+	}
+	for _, want := range []string{"region 901: controller: tls: ", "region 902: the probe could not be read"} {
+		if !strings.Contains(coded.Detail, want) {
+			t.Errorf("detail %q, want it to contain %q", coded.Detail, want)
+		}
+	}
+	if strings.Contains(coded.Detail, "the agent does not answer") {
+		t.Errorf("detail %q repeats the transport error of an uncoded failure", coded.Detail)
 	}
 }

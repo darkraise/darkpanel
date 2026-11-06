@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
@@ -48,6 +49,7 @@ func (d dp) fallbackRead(ctx context.Context, env core.Env, in FallbackCheckInpu
 	if err != nil {
 		return core.Revealed[FallbackCheck]{}, err
 	}
+	var reasons []string
 	for _, id := range m.customRegions() {
 		if id == in.RegionID {
 			continue
@@ -62,15 +64,31 @@ func (d dp) fallbackRead(ctx context.Context, env core.Env, in FallbackCheckInpu
 			if ctx.Err() != nil {
 				return core.Revealed[FallbackCheck]{}, ctx.Err()
 			}
+			reasons = append(reasons, "region "+strconv.Itoa(id)+": "+fallbackWhy(err))
 			continue
 		}
-		if ready, _, _ := probeReady(p); ready {
+		ready, reason, _ := probeReady(p)
+		if ready {
 			return answer("region:" + strconv.Itoa(id))
 		}
+		reasons = append(reasons, "region "+strconv.Itoa(id)+": "+reason)
 	}
-	return core.Revealed[FallbackCheck]{}, core.Definite(errcode.New(errcode.DERPNoFallback, fmt.Sprintf(
+	detail := fmt.Sprintf(
 		"the DERP host's link depends on region %d and no other region is reachable; add a second region or clear omitDefaultRegions",
-		in.RegionID)))
+		in.RegionID)
+	if len(reasons) > 0 {
+		detail += ": " + strings.Join(reasons, "; ")
+	}
+	return core.Revealed[FallbackCheck]{}, core.Definite(errcode.New(errcode.DERPNoFallback, detail))
+}
+
+// fallbackWhy is the client-safe reason a probe error rules out its region: the detail of a coded refusal, else a
+// generic sentence, since an uncoded error may carry transport internals.
+func fallbackWhy(err error) string {
+	if coded := errcode.From(err); coded.Code != errcode.Internal && coded.Detail != "" {
+		return coded.Detail
+	}
+	return "the probe could not be read"
 }
 
 // fallbackHost returns the host of the first record serving region id other than the checked host.

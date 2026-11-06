@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"sync"
+	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
@@ -18,6 +20,47 @@ const (
 	probeAgentNoAnswer  = "the agent did not answer"
 	probeTailscaleState = "tailscale.status"
 )
+
+const (
+	// serverProbeReadWait is the bound of each read of an agent during a probe.
+	serverProbeReadWait = 30 * time.Second
+	// serverProbeParallel is the most reads of agents a probe has in flight at once.
+	serverProbeParallel = 8
+)
+
+// serverProbeEach runs f(0) to f(n-1), at most serverProbeParallel at once, and answers their results in input
+// order once all have ended.
+func serverProbeEach[T any](n int, f func(i int) T) []T {
+	results := make([]T, n)
+	slots := make(chan struct{}, serverProbeParallel)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		slots <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-slots }()
+			results[i] = f(i)
+		}()
+	}
+	wg.Wait()
+	return results
+}
+
+// serverProbeBounded is a child of ctx that is cancelled once serverProbeReadWait has passed on env.Clock, so a test
+// drives the bound, and the function that stops the timer and cancels the child.
+func serverProbeBounded(ctx context.Context, env core.Env) (context.Context, func()) {
+	clock := env.Clock
+	if clock == nil {
+		clock = core.SystemClock{}
+	}
+	bounded, cancel := context.WithCancel(ctx)
+	timer := clock.AfterFunc(serverProbeReadWait, cancel)
+	return bounded, func() {
+		timer.Stop()
+		cancel()
+	}
+}
 
 // serverProbe declares derp.server.probe: the controller and chosen agents probe one DERP server, and the read
 // shows which nodes see and use its region.
@@ -57,7 +100,7 @@ func (d dp) probeServer(ctx context.Context, env core.Env, in ServerProbeInput) 
 	if err != nil {
 		return ServerProbe{}, err
 	}
-	selves, err := probeSelves(ctx, env, hosts)
+	selves, unreadable, err := probeSelves(ctx, env, hosts)
 	if err != nil {
 		return ServerProbe{}, err
 	}
@@ -88,16 +131,32 @@ func (d dp) probeServer(ctx context.Context, env core.Env, in ServerProbeInput) 
 	}
 	out.Sources = []ProbeSource{ctl}
 	nodeIn := NodeProbeInput{HostName: status.HostName, CertName: status.CertName, RegionID: rec.RegionID}
-	for _, a := range agents {
-		src, err := probeFromAgent(ctx, env, a, nodeIn)
-		if err != nil {
-			return ServerProbe{}, err
+	type agentResult struct {
+		src ProbeSource
+		err error
+	}
+	results := serverProbeEach(len(agents), func(i int) agentResult {
+		src, err := probeFromAgent(ctx, env, agents[i], nodeIn)
+		return agentResult{src: src, err: err}
+	})
+	for _, r := range results {
+		if r.err != nil {
+			return ServerProbe{}, r.err
 		}
-		out.Sources = append(out.Sources, src)
+		out.Sources = append(out.Sources, r.src)
 	}
 	ready, _, warnings := probeReady(out)
-	out.Ready, out.Warnings = ready, append(warnings, capWarnings...)
+	warnings = append(warnings, capWarnings...)
+	for _, h := range unreadable {
+		warnings = append(warnings, probeUnreadableWarning(h))
+	}
+	out.Ready, out.Warnings = ready, warnings
 	return out, nil
+}
+
+// probeUnreadableWarning is the warning for host h, whose tailscale.status could not be read.
+func probeUnreadableWarning(h probeHost) string {
+	return "the tailscale status of host " + h.Name + " could not be read, so its node use is not reported"
 }
 
 // probeHosts lists the core_hosts rows by id.
@@ -150,32 +209,45 @@ func probeAgents(hosts []probeHost, in ServerProbeInput) ([]probeHost, error) {
 	return agents, nil
 }
 
-// probeSelves reads each host's tailscale.status, one after another. A host whose status cannot be read, or whose
-// node has no address, is left out: only the caller's own cancellation fails the read.
-func probeSelves(ctx context.Context, env core.Env, hosts []probeHost) (map[string]tailscale.Status, error) {
-	selves := map[string]tailscale.Status{}
-	for _, h := range hosts {
-		st, err := probeSelf(ctx, env, h.ID)
-		if err != nil {
-			if cerr := ctx.Err(); cerr != nil {
-				return nil, cerr
-			}
+// probeSelves reads every host's tailscale.status, at most serverProbeParallel at once and each within
+// serverProbeReadWait. selves holds the hosts whose node has an address; a host whose node has none is in neither
+// result, and one whose status cannot be read is in unreadable, in host order. Only the caller's own cancellation
+// fails the read.
+func probeSelves(ctx context.Context, env core.Env, hosts []probeHost) (selves map[string]tailscale.Status, unreadable []probeHost, err error) {
+	type result struct {
+		st  tailscale.Status
+		err error
+	}
+	results := serverProbeEach(len(hosts), func(i int) result {
+		st, err := probeSelf(ctx, env, hosts[i].ID)
+		return result{st: st, err: err}
+	})
+	if cerr := ctx.Err(); cerr != nil {
+		return nil, nil, cerr
+	}
+	selves = map[string]tailscale.Status{}
+	for i, h := range hosts {
+		r := results[i]
+		if r.err != nil {
+			unreadable = append(unreadable, h)
 			continue
 		}
-		if st.Self != nil && len(st.Self.Addresses) > 0 {
-			selves[h.ID] = st
+		if r.st.Self != nil && len(r.st.Self.Addresses) > 0 {
+			selves[h.ID] = r.st
 		}
 	}
-	return selves, nil
+	return selves, unreadable, nil
 }
 
-// probeSelf reads host hostID's tailscale.status resource through its agent.
+// probeSelf reads host hostID's tailscale.status resource through its agent, within serverProbeReadWait.
 func probeSelf(ctx context.Context, env core.Env, hostID string) (tailscale.Status, error) {
 	agent, err := env.Agents.Agent(ctx, hostID)
 	if err != nil {
 		return tailscale.Status{}, err
 	}
-	raw, err := agent.Resource(ctx, env.Principal, probeTailscaleState)
+	bounded, cancel := serverProbeBounded(ctx, env)
+	defer cancel()
+	raw, err := agent.Resource(bounded, env.Principal, probeTailscaleState)
 	if err != nil {
 		return tailscale.Status{}, err
 	}
@@ -274,11 +346,13 @@ func (d dp) probeFromController(ctx context.Context, status ServerStatus) (Probe
 	return src, nil
 }
 
-// probeFromAgent is agent a's measurement of the server. An agent that does not answer is a failed source carrying
-// its client-safe detail; only the caller's own cancellation is an error.
+// probeFromAgent is agent a's measurement of the server, read within serverProbeReadWait. An agent that does not
+// answer in time is a failed source carrying its client-safe detail; only the caller's own cancellation is an error.
 func probeFromAgent(ctx context.Context, env core.Env, a probeHost, in NodeProbeInput) (ProbeSource, error) {
 	src := ProbeSource{Source: a.ID, Name: a.Name}
-	p, err := readNodeProbe(ctx, env, a.ID, in)
+	bounded, cancel := serverProbeBounded(ctx, env)
+	defer cancel()
+	p, err := readNodeProbe(bounded, env, a.ID, in)
 	if err != nil {
 		if cerr := ctx.Err(); cerr != nil {
 			return ProbeSource{}, cerr
