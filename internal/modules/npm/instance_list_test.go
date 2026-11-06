@@ -1,11 +1,15 @@
 package npm
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
 	"reflect"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -150,5 +154,104 @@ func TestCkInstanceListCancelled(t *testing.T) {
 	}}
 	if _, _, err := ckList(ctx, h); !errors.Is(err, context.Canceled) {
 		t.Errorf("error %v, want context.Canceled", err)
+	}
+}
+
+// TestW10NlUnreadableHostsAreListed: a host whose status read fails, whose agent answers something that is not a
+// status, or that has no agent is named in Unreadable, in id order, and is not among the instances.
+func TestW10NlUnreadableHostsAreListed(t *testing.T) {
+	h := newTHHost(t)
+	for _, id := range []string{"h5", "h1", "h3", "h2", "h4"} {
+		ckAddHost(t, h, id, "host "+id)
+	}
+	h.agents = map[string]*coretest.FakeAgent{
+		"h1": (&ckAgent{status: ckExposed()}).fake(),
+		"h2": (&ckAgent{statusErr: errors.New("the agent does not answer")}).fake(),
+		"h3": (&ckAgent{status: InstanceStatus{}}).fake(),
+		"h4": {ReadFunc: func(context.Context, core.Principal, core.ActionRef, json.RawMessage) (json.RawMessage, error) {
+			return json.RawMessage(`[`), nil
+		}},
+	}
+	got, _, err := ckList(context.Background(), h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantInstances := []HostInstance{
+		{HostID: "h1", HostName: "host h1", Status: ckExposed()},
+		{HostID: "h3", HostName: "host h3", Status: InstanceStatus{}},
+	}
+	if !reflect.DeepEqual(got.Instances, wantInstances) {
+		t.Errorf("instances %+v, want %+v", got.Instances, wantInstances)
+	}
+	if want := []string{"h2", "h4", "h5"}; !reflect.DeepEqual(got.Unreadable, want) {
+		t.Errorf("unreadable %v, want %v: the failing agent, the agent that answers garbage and the host without an agent", got.Unreadable, want)
+	}
+}
+
+// TestW10NlUnreadableIsNeverNull: with no unreadable host, the answer carries an empty array, whether there is no
+// host at all or every host reads.
+func TestW10NlUnreadableIsNeverNull(t *testing.T) {
+	empty := newTHHost(t)
+	readable := newTHHost(t)
+	ckAddHost(t, readable, "h1", "alpha")
+	readable.agents = map[string]*coretest.FakeAgent{"h1": (&ckAgent{status: ckExposed()}).fake()}
+	for name, h := range map[string]*thHost{"no host": empty, "every host readable": readable} {
+		_, raw, err := ckList(context.Background(), h)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil || string(fields["unreadable"]) != "[]" {
+			t.Errorf("%s: output %s (%v), want an unreadable member of []", name, raw, err)
+		}
+	}
+}
+
+// TestW10NlUnreadableHostLogsAtDebug: a host that cannot be read is in the answer, so reading it again every minute
+// writes nothing at info level; the debug line names the host.
+func TestW10NlUnreadableHostLogsAtDebug(t *testing.T) {
+	h := newTHHost(t)
+	ckAddHost(t, h, "h1", "alpha")
+	h.agents = map[string]*coretest.FakeAgent{"h1": (&ckAgent{statusErr: errors.New("the agent does not answer")}).fake()}
+	for _, tc := range []struct {
+		level    slog.Level
+		wantLine bool
+	}{{slog.LevelInfo, false}, {slog.LevelDebug, true}} {
+		var buf bytes.Buffer
+		env := h.ctlEnv("")
+		env.Log = slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: tc.level}))
+		if _, err := h.nm().instanceList().Handler.Read(context.Background(), env, json.RawMessage(`{}`)); err != nil {
+			t.Fatal(err)
+		}
+		if logged := buf.String(); tc.wantLine != strings.Contains(logged, "host=h1") || (!tc.wantLine && logged != "") {
+			t.Errorf("at level %v the log is %q, want a line naming host h1: %v", tc.level, logged, tc.wantLine)
+		}
+	}
+}
+
+// TestW10NlCancelledListStartsNoMoreReads: once the context is cancelled, no further host read is started. Every read
+// waits for the cancellation, which the ctlListParallel-th read causes, so all the slots are busy when it happens.
+func TestW10NlCancelledListStartsNoMoreReads(t *testing.T) {
+	h := newTHHost(t)
+	h.agents = map[string]*coretest.FakeAgent{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var reads atomic.Int32
+	for i := range ctlListParallel + 4 {
+		id := fmt.Sprintf("h%02d", i)
+		ckAddHost(t, h, id, "host "+id)
+		h.agents[id] = &coretest.FakeAgent{ReadFunc: func(context.Context, core.Principal, core.ActionRef, json.RawMessage) (json.RawMessage, error) {
+			if reads.Add(1) == ctlListParallel {
+				cancel()
+			}
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}}
+	}
+	if _, _, err := ckList(ctx, h); !errors.Is(err, context.Canceled) {
+		t.Errorf("error %v, want context.Canceled", err)
+	}
+	if n := reads.Load(); n != ctlListParallel {
+		t.Errorf("%d host reads started, want %d: none after the cancellation", n, ctlListParallel)
 	}
 }

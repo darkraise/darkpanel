@@ -82,9 +82,13 @@ func TestSdWireJSON(t *testing.T) {
 		{"check result", CheckResult{Integration: true}, `{"integration":true}`},
 		{"public input", PublicInput{HostID: "h1"}, `{"hostId":"h1"}`},
 		{"public result", PublicResult{Public: true, Via: "mark"}, `{"public":true,"via":"mark"}`},
-		{"instances output", InstancesOutput{Instances: []HostInstance{{HostID: "h1", HostName: "alpha", Status: InstanceStatus{PinnedImage: "i2", Public: "no"}}}},
+		{"instances output", InstancesOutput{
+			Instances:  []HostInstance{{HostID: "h1", HostName: "alpha", Status: InstanceStatus{PinnedImage: "i2", Public: "no"}}},
+			Unreadable: []string{"h2"},
+		},
 			`{"instances":[{"hostId":"h1","hostName":"alpha","status":{"deployed":false,"containerId":"","image":"","pinnedImage":"i2","running":false,` +
-				`"apiReady":false,"public":"no","adminEmail":"","adminExposure":null,"upgradeAvailable":false}}]}`},
+				`"apiReady":false,"public":"no","adminEmail":"","adminExposure":null,"upgradeAvailable":false}}],"unreadable":["h2"]}`},
+		{"instances output without unreadable hosts", InstancesOutput{Instances: []HostInstance{}, Unreadable: []string{}}, `{"instances":[],"unreadable":[]}`},
 		{"deploy public input", DeployPublicInput{HostID: "h1", AcmeEmail: "ops@darkpanel.dev", Integration: true},
 			`{"hostId":"h1","acmeEmail":"ops@darkpanel.dev","integration":true}`},
 		{"expose input", ExposeInput{HostID: "h1", Container: "web", Port: 8080, Network: "app", Domains: hosts},

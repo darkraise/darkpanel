@@ -464,6 +464,7 @@ Returned in the `output` field of the response.
 | `instances[].status.public` | string | yes | Values: no, confirmed. |
 | `instances[].status.running` | boolean | yes |  |
 | `instances[].status.upgradeAvailable` | boolean | yes |  |
+| `unreadable` | array of string | yes |  |
 
 ## npm.instance.remove v1
 

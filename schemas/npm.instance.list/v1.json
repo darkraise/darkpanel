@@ -122,11 +122,18 @@
               "$ref": "#/$defs/HostInstance"
             },
             "type": "array"
+          },
+          "unreadable": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "type": "object",
         "required": [
-          "instances"
+          "instances",
+          "unreadable"
         ]
       }
     }

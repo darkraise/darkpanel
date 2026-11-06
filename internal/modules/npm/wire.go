@@ -229,6 +229,8 @@ type HostInstance struct {
 // InstancesOutput is the output of npm.instance.list.
 type InstancesOutput struct {
 	Instances []HostInstance `json:"instances"`
+	// Unreadable holds the ids of the hosts whose instance status could not be read, which are not in Instances.
+	Unreadable []string `json:"unreadable"`
 }
 
 // DeployPublicInput is the input of npm.instance.deploy-public.

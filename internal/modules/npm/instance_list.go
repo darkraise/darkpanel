@@ -28,8 +28,9 @@ type ctlInstanceListReader struct{}
 // ctlHost is one row of core_hosts.
 type ctlHost struct{ ID, Name string }
 
-// Read lists the hosts whose status could be read, in id order. A host that cannot be read is left out, but a
-// cancelled request fails the list, because a list thinned by the cancellation would claim that nothing is exposed.
+// Read lists the hosts whose status could be read, in id order, and names the hosts whose status could not be read
+// in Unreadable, in id order. A cancelled request fails the list, because a list thinned by the cancellation would
+// claim that nothing is exposed.
 func (ctlInstanceListReader) Read(ctx context.Context, env core.Env, _ InstanceListInput) (InstancesOutput, error) {
 	hosts, err := ctlListHosts(ctx, env.DB.Read())
 	if err != nil {
@@ -39,15 +40,28 @@ func (ctlInstanceListReader) Read(ctx context.Context, env core.Env, _ InstanceL
 	read := make([]bool, len(hosts))
 	sem := make(chan struct{}, ctlListParallel)
 	var wg sync.WaitGroup
+fanOut:
 	for i, h := range hosts {
-		sem <- struct{}{}
+		if ctx.Err() != nil {
+			break
+		}
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			break fanOut
+		}
+		// A free slot and a cancelled context can both be ready, and select may have chosen the slot.
+		if ctx.Err() != nil {
+			<-sem
+			break
+		}
 		wg.Add(1)
 		go func() {
 			defer func() { <-sem; wg.Done() }()
 			st, err := ctlInstanceStatus(ctx, env, h.ID)
 			if err != nil {
 				if ctx.Err() == nil {
-					env.Log.Warn("npm: the instance list leaves out a host whose status cannot be read", "host", h.ID, "error", err)
+					env.Log.Debug("npm: the instance list leaves out a host whose status cannot be read", "host", h.ID, "error", err)
 				}
 				return
 			}
@@ -58,10 +72,12 @@ func (ctlInstanceListReader) Read(ctx context.Context, env core.Env, _ InstanceL
 	if err := ctx.Err(); err != nil {
 		return InstancesOutput{}, err
 	}
-	out := InstancesOutput{Instances: []HostInstance{}}
+	out := InstancesOutput{Instances: []HostInstance{}, Unreadable: []string{}}
 	for i, h := range hosts {
 		if read[i] {
 			out.Instances = append(out.Instances, HostInstance{HostID: h.ID, HostName: h.Name, Status: statuses[i]})
+		} else {
+			out.Unreadable = append(out.Unreadable, h.ID)
 		}
 	}
 	return out, nil

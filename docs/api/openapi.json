@@ -11680,10 +11680,17 @@
               "$ref": "#/components/schemas/npm.instance.list.v1.output.HostInstance"
             },
             "type": "array"
+          },
+          "unreadable": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "required": [
-          "instances"
+          "instances",
+          "unreadable"
         ],
         "type": "object"
       },
