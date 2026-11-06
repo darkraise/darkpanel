@@ -9,11 +9,12 @@ import { Label } from "darkraise-ui/components/label"
 import { RadioGroup, RadioGroupItem } from "darkraise-ui/components/radio-group"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
-import { errorMessage, readAction } from "@/api/client"
 import { Field, MarkBadges } from "./list-parts"
+import { readProxyHostList } from "./list-replies"
 import { NpmChange } from "./npm-change"
 import { parseDomains, parseOptionalId, parsePort } from "./parse"
-import { NPM_ACTION_VERSION, npmKey, type ProxyHostView } from "./types"
+import { messageOf } from "./status"
+import { npmKey, type ProxyHostView } from "./types"
 
 interface Pending {
   action: string
@@ -78,7 +79,7 @@ function Flag({ id, label, checked, onChange }: { id: string; label: string; che
 
 // ProxyHostForm holds one opening's draft; it mounts when the dialog opens,
 // so the next opening starts from its own initial values.
-function ProxyHostForm({ initial, onPlan }: { initial: Draft; onPlan: (input: Record<string, unknown>) => void }) {
+function ProxyHostForm({ initial, onPlan }: { initial: Draft; onPlan: (domains: string[], input: Record<string, unknown>) => void }) {
   const [draft, setDraft] = useState<Draft>(initial)
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft((d) => ({ ...d, [key]: value }))
 
@@ -92,7 +93,7 @@ function ProxyHostForm({ initial, onPlan }: { initial: Draft; onPlan: (input: Re
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!ready) return
-    onPlan({
+    onPlan(domains, {
       domains,
       forwardScheme: draft.scheme,
       forwardHost: host,
@@ -187,12 +188,12 @@ export function ProxyHostsTab({ hostId }: { hostId: string }) {
   const [dialog, setDialog] = useState<{ editing: ProxyHostView | null } | null>(null)
   const query = useQuery({
     queryKey: npmKey(hostId, "proxyhost.list"),
-    queryFn: () => readAction<{ items: ProxyHostView[] }>("npm.proxyhost.list", NPM_ACTION_VERSION, {}, hostId),
+    queryFn: () => readProxyHostList(hostId),
   })
 
-  function plan(input: Record<string, unknown>) {
+  function plan(domains: string[], input: Record<string, unknown>) {
     const editing = dialog?.editing ?? null
-    const names = (input.domains as string[]).join(", ")
+    const names = domains.join(", ")
     setDialog(null)
     if (editing === null) {
       setPending({ action: "npm.proxyhost.add", title: `Add proxy host ${names}`, input })
@@ -207,7 +208,7 @@ export function ProxyHostsTab({ hostId }: { hostId: string }) {
   } else if (query.isError) {
     content = (
       <Alert variant="destructive" role="alert">
-        <AlertDescription>{errorMessage(query.error)}</AlertDescription>
+        <AlertDescription>{messageOf(query.error)}</AlertDescription>
       </Alert>
     )
   } else {

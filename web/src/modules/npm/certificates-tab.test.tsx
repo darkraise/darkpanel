@@ -70,6 +70,15 @@ test("shows the reason when the certificates cannot be read", async () => {
   expect((await screen.findByRole("alert")).textContent).toBe("Nginx Proxy Manager is not running")
 })
 
+test.each([
+  ["no items", {}],
+  ["an item without domains", { items: [{ id: 5, name: "app.example.com" }] }],
+])("shows an error and no table when the reply has %s", async (_, output) => {
+  ceRender([], { [CE_LIST]: { body: { output } } })
+  expect((await screen.findByRole("alert")).textContent).toBe("The host answered with an unexpected list of NPM certificates.")
+  expect(screen.queryByRole("table")).toBeNull()
+})
+
 test("a reserved certificate cannot be removed here", async () => {
   ceRender()
   await screen.findByRole("table", { name: "Certificates" })

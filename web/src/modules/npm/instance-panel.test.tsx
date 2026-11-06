@@ -6,7 +6,7 @@ import { fwDocker } from "@/modules/firewall/fixtures"
 import { renderWithProviders, stubFetch, type FetchCall, type StubHandler } from "@/test/utils"
 import { npInstance } from "./fixtures"
 import { InstancePanel } from "./instance-panel"
-import type { InstanceStatus } from "./types"
+import { npmKey, type InstanceStatus } from "./types"
 
 const IP_HOST = "/api/v1/hosts/h1"
 const IP_STATUS = `POST ${IP_HOST}/actions/npm.instance.status/v1/read`
@@ -247,6 +247,26 @@ test("shows the reason when the status cannot be read", async () => {
     [IP_STATUS]: { status: 503, body: { type: "about:blank", title: "Unavailable", status: 503, detail: "the NPM module is unavailable", code: "module.unavailable" } },
   })
   expect((await screen.findByRole("alert")).textContent).toBe("the NPM module is unavailable")
+})
+
+test("a failed background refetch keeps the panel and an open change dialog", async () => {
+  let reads = 0
+  const { client } = ipRender(ipRunning(), {
+    [IP_STATUS]: () => {
+      reads += 1
+      if (reads === 1) return { body: { output: ipRunning() } }
+      return { status: 503, body: { type: "about:blank", title: "Unavailable", status: 503, detail: "the NPM module is unavailable", code: "module.unavailable" } }
+    },
+  })
+  const user = userEvent.setup()
+  await user.click(await screen.findByRole("button", { name: "Upgrade" }))
+  const dialog = await screen.findByRole("dialog", { name: "Upgrade Nginx Proxy Manager" })
+  await within(dialog).findByLabelText("Planned changes")
+  await client.invalidateQueries({ queryKey: npmKey("h1", "instance.status") })
+  await waitFor(() => expect(client.getQueryState(npmKey("h1", "instance.status"))?.status).toBe("error"))
+  expect(screen.getByRole("dialog", { name: "Upgrade Nginx Proxy Manager" })).toBeTruthy()
+  expect(screen.getByText("Admin email")).toBeTruthy()
+  expect(screen.queryByText("the NPM module is unavailable")).toBeNull()
 })
 
 test("shows an error when the host answers with something that is not an instance status", async () => {

@@ -6,11 +6,12 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { EmptyState } from "darkraise-ui/components/empty-state"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
-import { errorMessage, readAction } from "@/api/client"
 import { Field, MarkBadges } from "./list-parts"
+import { readCertificateList } from "./list-replies"
 import { NpmChange } from "./npm-change"
 import { parseDomains } from "./parse"
-import { NPM_ACTION_VERSION, npmKey, type CertificateView } from "./types"
+import { messageOf } from "./status"
+import { npmKey, type CertificateView } from "./types"
 
 interface Pending {
   action: string
@@ -86,7 +87,7 @@ export function CertificatesTab({ hostId }: { hostId: string }) {
   const [open, setOpen] = useState(false)
   const query = useQuery({
     queryKey: npmKey(hostId, "certificate.list"),
-    queryFn: () => readAction<{ items: CertificateView[] }>("npm.certificate.list", NPM_ACTION_VERSION, {}, hostId),
+    queryFn: () => readCertificateList(hostId),
   })
 
   let content
@@ -95,7 +96,7 @@ export function CertificatesTab({ hostId }: { hostId: string }) {
   } else if (query.isError) {
     content = (
       <Alert variant="destructive" role="alert">
-        <AlertDescription>{errorMessage(query.error)}</AlertDescription>
+        <AlertDescription>{messageOf(query.error)}</AlertDescription>
       </Alert>
     )
   } else {

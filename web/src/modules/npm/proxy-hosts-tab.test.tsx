@@ -77,6 +77,15 @@ test("shows the reason when the proxy hosts cannot be read", async () => {
   expect((await screen.findByRole("alert")).textContent).toBe("Nginx Proxy Manager is not running")
 })
 
+test.each([
+  ["no items", {}],
+  ["an item without domains", { items: [{ id: 3 }] }],
+])("shows an error and no table when the reply has %s", async (_, output) => {
+  phRender([], { [PH_LIST]: { body: { output } } })
+  expect((await screen.findByRole("alert")).textContent).toBe("The host answered with an unexpected list of NPM proxy hosts.")
+  expect(screen.queryByRole("table")).toBeNull()
+})
+
 test("a reserved proxy host cannot be edited or removed here", async () => {
   phRender()
   await screen.findByRole("table", { name: "Proxy hosts" })

@@ -215,8 +215,8 @@ export function InstancePanel({ hostId }: { hostId: string }) {
     }
   }
 
-  if (query.isPending) return <Spinner aria-label="Loading the NPM instance" />
-  if (query.isError) {
+  if (query.data === undefined) {
+    if (query.isPending) return <Spinner aria-label="Loading the NPM instance" />
     return (
       <Alert variant="destructive" role="alert">
         <AlertDescription>{messageOf(query.error)}</AlertDescription>

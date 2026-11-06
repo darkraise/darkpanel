@@ -6,7 +6,7 @@ import { Checkbox } from "darkraise-ui/components/checkbox"
 import { Label } from "darkraise-ui/components/label"
 import { RadioGroup, RadioGroupItem } from "darkraise-ui/components/radio-group"
 import { Spinner } from "darkraise-ui/components/spinner"
-import { errorMessage, readAction, readResource } from "@/api/client"
+import { readAction, readResource } from "@/api/client"
 import { DOCKER_ACTION_VERSION, DOCKER_MODULE, dockerKey, type ContainerDetail, type DockerNetwork } from "@/modules/docker/types"
 import type { ContainerRef } from "@/modules/types"
 import { Field } from "./list-parts"
@@ -31,6 +31,40 @@ function targetNetworks(endpoints: string[], networks: DockerNetwork[]): string[
   return endpoints.filter((name) => bridges.has(name)).sort()
 }
 
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v)
+}
+
+// The two guards below check only the fields ExposeForm reads; the replies
+// stay whole because the Docker pages share these query keys.
+function hasExposeDetail(v: unknown): v is ContainerDetail {
+  return (
+    isRecord(v) &&
+    Array.isArray(v.networks) &&
+    v.networks.every((e) => isRecord(e) && typeof e.network === "string") &&
+    Array.isArray(v.ports) &&
+    v.ports.every((p) => isRecord(p) && typeof p.privatePort === "number")
+  )
+}
+
+function hasExposeNetworks(v: unknown): v is { networks: DockerNetwork[] } {
+  return isRecord(v) && Array.isArray(v.networks) && v.networks.every((n) => isRecord(n) && typeof n.name === "string" && typeof n.driver === "string")
+}
+
+function readExposeDetail(hostId: string, containerId: string): Promise<ContainerDetail> {
+  return readAction<unknown>("docker.container.inspect", DOCKER_ACTION_VERSION, { container: containerId }, hostId).then((body) => {
+    if (!hasExposeDetail(body)) throw new Error("The host answered with an unexpected container.")
+    return body
+  })
+}
+
+function readExposeNetworks(hostId: string): Promise<{ networks: DockerNetwork[] }> {
+  return readResource<unknown>(hostId, DOCKER_MODULE, "networks").then((body) => {
+    if (!hasExposeNetworks(body)) throw new Error("The host answered with an unexpected list of Docker networks.")
+    return body
+  })
+}
+
 function lowestPort(ports: number[]): string {
   return ports.length === 0 ? "" : String(Math.min(...ports))
 }
@@ -52,6 +86,9 @@ function ExposeForm({ container, endpoints, networks, ports, onDone }: ExposeFor
   const [websockets, setWebsockets] = useState(false)
   const [accessListText, setAccessListText] = useState("")
   const [pending, setPending] = useState<Pending | null>(null)
+  // A pick that leaves the supported set is forgotten, so a later read that
+  // brings the network back does not select it again by itself.
+  if (picked !== "" && !supported.includes(picked)) setPicked("")
 
   // Without a supported network the plan still goes to the controller, so
   // its own refusal shows in the preview.
@@ -120,17 +157,17 @@ function ExposeLoader({ container, onDone }: { container: ContainerRef; onDone: 
   const { hostId, containerId } = container
   const detail = useQuery({
     queryKey: ["resource", hostId, "docker.container", containerId],
-    queryFn: () => readAction<ContainerDetail>("docker.container.inspect", DOCKER_ACTION_VERSION, { container: containerId }, hostId),
+    queryFn: () => readExposeDetail(hostId, containerId),
   })
   const networks = useQuery({
     queryKey: dockerKey(hostId, "networks"),
-    queryFn: () => readResource<{ networks: DockerNetwork[] }>(hostId, DOCKER_MODULE, "networks"),
+    queryFn: () => readExposeNetworks(hostId),
   })
   if (detail.isPending || networks.isPending) return <Spinner aria-label="Loading the container's networks" />
   if (detail.isError || networks.isError) {
     return (
       <Alert variant="destructive" role="alert">
-        <AlertDescription>{errorMessage(detail.error ?? networks.error)}</AlertDescription>
+        <AlertDescription>{messageOf(detail.error ?? networks.error)}</AlertDescription>
       </Alert>
     )
   }

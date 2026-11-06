@@ -70,6 +70,15 @@ test("shows the reason when the access lists cannot be read", async () => {
   expect((await screen.findByRole("alert")).textContent).toBe("Nginx Proxy Manager is not running")
 })
 
+test.each([
+  ["no items", {}],
+  ["an item without clients", { items: [{ id: 2, name: "office" }] }],
+])("shows an error and no table when the reply has %s", async (_, output) => {
+  alRender([], { [AL_LIST]: { body: { output } } })
+  expect((await screen.findByRole("alert")).textContent).toBe("The host answered with an unexpected list of NPM access lists.")
+  expect(screen.queryByRole("table")).toBeNull()
+})
+
 test("a reserved access list cannot be removed here", async () => {
   alRender()
   await screen.findByRole("table", { name: "Access lists" })

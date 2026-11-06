@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { expect, test, vi } from "vitest"
 import { axe } from "vitest-axe"
 import { dkDetail, dkNetwork } from "@/modules/docker/fixtures"
-import type { ContainerDetail, EndpointView } from "@/modules/docker/types"
+import { dockerKey, type ContainerDetail, type EndpointView } from "@/modules/docker/types"
 import type { ContainerRef } from "@/modules/types"
 import { renderWithProviders, stubFetch, type FetchCall, type StubHandler } from "@/test/utils"
 import { ExposeAction } from "./container-actions"
@@ -94,6 +94,43 @@ test("shows the reason when the container cannot be read", async () => {
   expect((await screen.findByRole("alert")).textContent).toBe("the Docker daemon is not reachable")
 })
 
+test("shows the reason when the networks cannot be read", async () => {
+  caRender({ [CA_NETWORKS]: { status: 503, body: { type: "about:blank", title: "Unavailable", status: 503, detail: "the Docker daemon is not reachable", code: "docker.engine_unavailable" } } })
+  expect((await screen.findByRole("alert")).textContent).toBe("the Docker daemon is not reachable")
+  expect(screen.queryByRole("form")).toBeNull()
+})
+
+test.each([
+  ["a container reply without networks", CA_INSPECT, { output: { id: "c1" } }, "The host answered with an unexpected container."],
+  ["a networks reply that is not a list", CA_NETWORKS, { networks: "none" }, "The host answered with an unexpected list of Docker networks."],
+])("shows an error and no form for %s", async (_, route, body, message) => {
+  caRender({ [route]: { body } })
+  expect((await screen.findByRole("alert")).textContent).toBe(message)
+  expect(screen.queryByRole("form")).toBeNull()
+})
+
+test("a network picked earlier is not selected again when it returns to the supported set", async () => {
+  let backend = "bridge"
+  const { client } = caRender({
+    [CA_NETWORKS]: () => ({ body: { networks: caNetworks().map((n) => (n.name === "backend" ? { ...n, driver: backend } : n)) } }),
+  })
+  const user = userEvent.setup()
+  const form = await caForm()
+  await user.click(within(form).getByRole("radio", { name: "backend" }))
+  expect(within(form).getByRole("radio", { name: "backend", checked: true })).toBeTruthy()
+
+  backend = "overlay"
+  await client.invalidateQueries({ queryKey: dockerKey("h1", "networks") })
+  await waitFor(() => expect(within(form).getAllByRole("radio")).toHaveLength(1))
+  expect(within(form).getByRole("radio", { name: "alpha", checked: true })).toBeTruthy()
+
+  backend = "bridge"
+  await client.invalidateQueries({ queryKey: dockerKey("h1", "networks") })
+  await waitFor(() => expect(within(form).getAllByRole("radio")).toHaveLength(2))
+  expect(within(form).getByRole("radio", { name: "alpha", checked: true })).toBeTruthy()
+  expect(within(form).getByRole("radio", { name: "backend", checked: false })).toBeTruthy()
+})
+
 test("offers only the user-defined bridge networks, selects the first in name order and defaults to the lowest port", async () => {
   const { calls } = caRender()
   const user = userEvent.setup()
@@ -151,6 +188,7 @@ test.each([
   ["Port", ""],
   ["Port", "http"],
   ["Access list ID (optional)", "abc"],
+  ["Access list ID (optional)", "0"],
 ])("%s %j keeps Plan off", async (label, typed) => {
   caRender()
   const user = userEvent.setup()

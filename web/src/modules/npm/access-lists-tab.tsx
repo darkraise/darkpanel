@@ -9,11 +9,12 @@ import { Label } from "darkraise-ui/components/label"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
 import { Textarea } from "darkraise-ui/components/textarea"
-import { errorMessage, readAction } from "@/api/client"
 import { MarkBadges } from "./list-parts"
+import { readAccessListList } from "./list-replies"
 import { NpmChange } from "./npm-change"
 import { parseRules } from "./parse"
-import { NPM_ACTION_VERSION, npmKey, type AccessClientInput, type AccessListView } from "./types"
+import { messageOf } from "./status"
+import { npmKey, type AccessClientInput, type AccessListView } from "./types"
 
 interface Pending {
   action: string
@@ -107,7 +108,7 @@ export function AccessListsTab({ hostId }: { hostId: string }) {
   const [open, setOpen] = useState(false)
   const query = useQuery({
     queryKey: npmKey(hostId, "accesslist.list"),
-    queryFn: () => readAction<{ items: AccessListView[] }>("npm.accesslist.list", NPM_ACTION_VERSION, {}, hostId),
+    queryFn: () => readAccessListList(hostId),
   })
 
   let content
@@ -116,7 +117,7 @@ export function AccessListsTab({ hostId }: { hostId: string }) {
   } else if (query.isError) {
     content = (
       <Alert variant="destructive" role="alert">
-        <AlertDescription>{errorMessage(query.error)}</AlertDescription>
+        <AlertDescription>{messageOf(query.error)}</AlertDescription>
       </Alert>
     )
   } else {
