@@ -274,3 +274,28 @@ func TestDgGuideFollowsTheStyle(t *testing.T) {
 		t.Errorf("%s names %q; a page never names a plan, wave, task or register row", dgGuide, m)
 	}
 }
+
+// TestW10SfGuideStatesWhatTheRegistryChecksOfMigrations shows that the guide
+// says which part of the migration layout is a convention and which part the
+// registry checks, so it does not promise more than internal/core enforces.
+func TestW10SfGuideStatesWhatTheRegistryChecksOfMigrations(t *testing.T) {
+	var paragraph string
+	for _, line := range strings.Split(dcRead(t, dgGuide), "\n") {
+		if strings.HasPrefix(line, "**Migrations.**") {
+			paragraph = line
+		}
+	}
+	if paragraph == "" {
+		t.Fatalf("%s has no **Migrations.** paragraph", dgGuide)
+	}
+	for _, want := range []string{
+		"By convention",
+		"The registry checks only that the keys of `Migrations` are `core.SideController` and `core.SideAgent`",
+		"the directory layout is not checked",
+		"`NNNN_<name>.sql`",
+	} {
+		if !strings.Contains(paragraph, want) {
+			t.Errorf("the Migrations paragraph of %s does not contain %q", dgGuide, want)
+		}
+	}
+}
