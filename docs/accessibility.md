@@ -7,7 +7,7 @@ pnpm -C web test
 pnpm -C web exec playwright test -c playwright.config.ts
 ```
 
-Set `E2E_CHROMIUM` to the path of a Chromium executable when the build that Playwright pins is not installed. The browser pass covers the default theme (blue accent, zinc surface) in light and dark mode, in Chromium only. The last run, on 2026-11-05 with Chromium 153.0.8010.12, passed all 88 checks.
+Set `E2E_CHROMIUM` to the path of a Chromium executable when the build that Playwright pins is not installed. The browser pass covers the default theme (blue accent, zinc surface) in light and dark mode, in Chromium only. The last run, on 2026-11-06 with Chromium 153.0.8010.12, passed all 88 checks.
 
 ## Scope
 
@@ -18,7 +18,7 @@ Set `E2E_CHROMIUM` to the path of a Chromium executable when the build that Play
 - Container actions: the Docker containers table, its change dialogs and the container page with the firewall allow and deny forms.
 - Expose a container: the expose form of the container page and its change dialog.
 
-The confirm and revert states covered are those of a revertible change. A composite change that waits for confirmation, such as a public deploy of Nginx Proxy Manager with the firewall integration on, gets no Confirm or Revert in the change dialog yet; `darkpanel change confirm` confirms it.
+The confirm and revert states covered are those of a revertible change. A composite change that waits for confirmation, such as a public deploy of Nginx Proxy Manager with the firewall integration on, shows the same countdown with Confirm and Revert in the change dialog, counted to the deadline of its last step. The Vitest tests of the change dialog (`web/src/components/change-dialog.test.tsx` and `web/src/components/change-dialog.a11y.test.tsx`) check that state; the browser pass does not render it.
 
 The contrast evidence covers the default accent (blue) and surface (zinc) in both modes. The record does not cover other accent or surface choices of the theme switcher, other browsers, or screen readers other than the accessible-name check of the change dialog.
 
@@ -138,4 +138,3 @@ Both pages were read on 2026-11-05 for heading order and for link text that name
 ## Known issues
 
 - 1.4.10 Reflow: at 320 px the "Planned changes" block scrolls sideways inside the change dialog. This is an exception WCAG 1.4.10 allows for content that needs two-dimensional layout, and the browser pass accepts it by design. The page and the rest of the dialog do not scroll sideways.
-- 1.4.10 Reflow: at 320 px the title of the expose dialog ends a few pixels from its close button. Nothing is cut off at the fixture's domain, but the dialog header reserves no space for the button, so a longer domain could run under it.

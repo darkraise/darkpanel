@@ -374,3 +374,99 @@ test("the revert timeout field has no accessibility violations", async () => {
   await within(dialog).findByLabelText("Revert after (seconds)")
   expect(await axe(dialog)).toHaveNoViolations()
 })
+
+function cdxStep(over: Partial<Step> = {}): Step {
+  return {
+    id: "ports", ordinal: 1, host: "h1", action: "cdx.ports.open/v1", state: "applied", attempt: 1, childChangeId: "k1",
+    earlierChildChangeIds: null, childDeadline: null, error: null, ...over,
+  }
+}
+
+const cdxAwaiting = () => cdxChange({ class: "composite", state: "awaiting_confirmation" })
+
+test("a composite awaiting confirmation counts down to its last step's deadline and can be confirmed", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  vi.setSystemTime(new Date("2026-10-23T08:00:00Z"))
+  const steps = [
+    cdxStep({ id: "network", ordinal: 1, action: "cdx.net.create/v1", childDeadline: "2026-10-23T08:00:10Z" }),
+    cdxStep({ id: "ports", ordinal: 2, childDeadline: "2026-10-23T08:01:00Z" }),
+  ]
+  const completed = cdxChange({ class: "composite", state: "completed" })
+  const { calls } = cdxRender({
+    [PLAN]: { body: cdxPlan() },
+    [APPLY]: { status: 202, body: cdxAwaiting() },
+    "GET /api/v1/changes/c1": () => ({ body: calls.some((c) => c.path.endsWith("/confirm")) ? completed : cdxAwaiting() }),
+    "GET /api/v1/changes/c1/steps": { body: { steps } },
+    "POST /api/v1/changes/c1/confirm": { body: completed },
+  })
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+  const dialog = await screen.findByRole("dialog")
+  await user.click(await within(dialog).findByRole("button", { name: "Apply" }))
+  expect((await within(dialog).findByRole("timer")).textContent).toBe("Reverts automatically in 60 s unless confirmed.")
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5000)
+  })
+  expect(within(dialog).getByRole("timer").textContent).toBe("Reverts automatically in 55 s unless confirmed.")
+  await user.click(within(dialog).getByRole("button", { name: "Confirm" }))
+  expect((await within(dialog).findByText("completed")).textContent).toBe("completed")
+  expect(calls.some((c) => c.method === "POST" && c.path === "/api/v1/changes/c1/confirm")).toBe(true)
+  expect(within(dialog).queryByRole("timer")).toBeNull()
+  expect(within(dialog).queryByRole("button", { name: "Confirm" })).toBeNull()
+})
+
+test("a composite awaiting confirmation can be reverted", async () => {
+  const undoing = cdxChange({ class: "composite", state: "undoing" })
+  const { calls } = cdxRender({
+    [PLAN]: { body: cdxPlan() },
+    [APPLY]: { status: 202, body: cdxAwaiting() },
+    "GET /api/v1/changes/c1": () => ({ body: calls.some((c) => c.path.endsWith("/revert")) ? undoing : cdxAwaiting() }),
+    "GET /api/v1/changes/c1/steps": { body: { steps: [cdxStep({ childDeadline: "2099-01-01T00:00:00Z" })] } },
+    "POST /api/v1/changes/c1/revert": { body: undoing },
+  })
+  const user = userEvent.setup()
+  const dialog = await screen.findByRole("dialog")
+  await user.click(await within(dialog).findByRole("button", { name: "Apply" }))
+  await user.click(await within(dialog).findByRole("button", { name: "Revert" }))
+  expect((await within(dialog).findByText("undoing")).textContent).toBe("undoing")
+  expect(calls.some((c) => c.method === "POST" && c.path === "/api/v1/changes/c1/revert")).toBe(true)
+  expect(within(dialog).queryByRole("button", { name: "Revert" })).toBeNull()
+  expect(within(dialog).queryByRole("button", { name: "Confirm" })).toBeNull()
+})
+
+test("a composite awaiting confirmation whose last step has no deadline offers Confirm and Revert without a countdown", async () => {
+  cdxRender({
+    [PLAN]: { body: cdxPlan() },
+    [APPLY]: { status: 202, body: cdxAwaiting() },
+    "GET /api/v1/changes/c1": { body: cdxAwaiting() },
+    "GET /api/v1/changes/c1/steps": { body: { steps: [cdxStep()] } },
+  })
+  const dialog = await screen.findByRole("dialog")
+  await userEvent.setup().click(await within(dialog).findByRole("button", { name: "Apply" }))
+  await within(dialog).findByRole("button", { name: "Confirm" })
+  expect(within(dialog).getByRole("button", { name: "Revert" })).toBeTruthy()
+  await within(dialog).findByRole("list", { name: "Steps" })
+  expect(within(dialog).queryByRole("timer")).toBeNull()
+})
+
+test("a composite that is still applying offers neither Confirm nor Revert", async () => {
+  const applying = cdxChange({ class: "composite", state: "applying" })
+  cdxRender({
+    [PLAN]: { body: cdxPlan() },
+    [APPLY]: { status: 202, body: applying },
+    "GET /api/v1/changes/c1": { body: applying },
+    "GET /api/v1/changes/c1/steps": { body: { steps: [cdxStep({ state: "applying", childDeadline: "2099-01-01T00:00:00Z" })] } },
+  })
+  const dialog = await screen.findByRole("dialog")
+  await userEvent.setup().click(await within(dialog).findByRole("button", { name: "Apply" }))
+  await within(dialog).findByRole("list", { name: "Steps" })
+  expect(within(dialog).queryByRole("button", { name: "Confirm" })).toBeNull()
+  expect(within(dialog).queryByRole("button", { name: "Revert" })).toBeNull()
+  expect(within(dialog).queryByRole("timer")).toBeNull()
+})
+
+test("the header reserves room for the close button at its end", async () => {
+  cdxRender({ [PLAN]: { body: cdxPlan() } })
+  const dialog = await screen.findByRole("dialog")
+  const header = within(dialog).getByRole("heading", { name: "Allow HTTPS" }).parentElement
+  expect(header?.classList.contains("pe-7")).toBe(true)
+})

@@ -298,3 +298,22 @@ test("the outcome of an apply is announced politely", async () => {
   expect(progress.getAttribute("aria-live")).toBe("polite")
   expect(progress.textContent).toBe("Change completed.")
 })
+
+test("a composite awaiting confirmation with its steps, countdown, Confirm and Revert has no violations", async () => {
+  const steps: Step[] = [
+    { id: "ports", ordinal: 1, host: "h1", action: "cda.ports.open/v1", state: "applied", attempt: 1, childChangeId: "k1", earlierChildChangeIds: null, childDeadline: "2099-01-01T00:00:00Z", error: null },
+  ]
+  const awaiting = cdaChange({ class: "composite", state: "awaiting_confirmation" })
+  const { dialog, user } = await cdaOpen({
+    [PLAN]: { body: cdaPlan() },
+    [APPLY]: { status: 202, body: awaiting },
+    "GET /api/v1/changes/c1": { body: awaiting },
+    "GET /api/v1/changes/c1/steps": { body: { steps } },
+  })
+  await user.click(await within(dialog).findByRole("button", { name: "Apply" }))
+  await within(dialog).findByRole("timer")
+  expect(within(dialog).getByRole("button", { name: "Confirm" })).toBeTruthy()
+  expect(within(dialog).getByRole("button", { name: "Revert" })).toBeTruthy()
+  await within(dialog).findByRole("list", { name: "Steps" })
+  await expectNoAxeViolations(dialog)
+})

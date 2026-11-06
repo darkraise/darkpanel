@@ -203,6 +203,30 @@ async function clippedInDialog(page: Page, expected: boolean): Promise<string[]>
   }, expected)
 }
 
+// The dialog's close button is positioned over the top corner of its content, so a header that reserves no
+// space for it lets a long title run under it. This lists every child of the dialog's header whose box reaches
+// the button's box.
+async function headerUnderCloseButton(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const dialog = document.querySelector('[role="dialog"]')
+    if (dialog === null) return []
+    const titleId = dialog.getAttribute("aria-labelledby")
+    const header = titleId === null ? null : (document.getElementById(titleId)?.parentElement ?? null)
+    const close = Array.from(dialog.querySelectorAll("button")).find((el) => getComputedStyle(el).position === "absolute")
+    if (header === null || close === undefined) return ["the dialog has no header or no corner close button"]
+    const button = close.getBoundingClientRect()
+    const reached: string[] = []
+    for (const child of Array.from(header.children)) {
+      const box = child.getBoundingClientRect()
+      const sharesRows = box.top < button.bottom && box.bottom > button.top
+      if (sharesRows && box.right > button.left + 0.5) {
+        reached.push(`${child.tagName.toLowerCase()} ends at ${Math.round(box.right)}, the close button starts at ${Math.round(button.left)}`)
+      }
+    }
+    return reached
+  })
+}
+
 const CHECKS = [
   // Axe's contrast rules at the size of a desktop window.
   { check: "contrast", viewport: { width: 1280, height: 800 }, scale: 1 },
@@ -229,6 +253,7 @@ for (const { check, viewport, scale } of CHECKS) {
             const { scrollWidth, clientWidth } = await scrollExtent(page)
             expect(scrollWidth, `scrollWidth ${scrollWidth} against clientWidth ${clientWidth}`).toBeLessThanOrEqual(clientWidth)
             expect(await clippedInDialog(page, view.dialog !== undefined), "dialog content outside the viewport").toEqual([])
+            expect(await headerUnderCloseButton(page), "dialog header content under the close button").toEqual([])
           }
           // Written only after the checks pass, so a failing run leaves the evidence as it was.
           await page.screenshot({ path: `${shots}${view.slug}-${theme}-${check}.png` })

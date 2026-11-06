@@ -22,7 +22,7 @@ import {
   revertChange,
   stepsQueryKey,
 } from "@/api/client"
-import type { Change, Guard, Plan } from "@/api/types"
+import type { Change, Guard, Plan, Step } from "@/api/types"
 
 export interface ChangeTarget {
   name: string
@@ -89,6 +89,14 @@ function useSecondsLeft(deadline: string | null, readAt: number): number | null 
   }, [deadline])
   if (deadline === null) return null
   return secondsLeft(deadline, now.deadline === deadline ? now.at : readAt)
+}
+
+// lastStepDeadline is the revert deadline of a composite change: that of the
+// child of its last step while that step is applied or confirming, else null.
+function lastStepDeadline(steps: Step[] | undefined): string | null {
+  if (steps === undefined || steps.length === 0) return null
+  const last = steps.reduce((a, b) => (b.ordinal > a.ordinal ? b : a))
+  return last.state === "applied" || last.state === "confirming" ? last.childDeadline : null
 }
 
 // The seconds left at which the countdown is announced again.
@@ -182,8 +190,16 @@ function Applied({ applied, onError, onProgress }: {
   })
   const [busy, setBusy] = useState(false)
   const current = change.data
-  const counting = current.state === "pending"
-  const left = useSecondsLeft(counting ? current.revertDeadline : null, change.dataUpdatedAt)
+  const steps = useQuery({
+    queryKey: stepsQueryKey(applied.id),
+    queryFn: () => listSteps(applied.id),
+    enabled: current.class === "composite",
+  })
+  const awaitingComposite = current.class === "composite" && current.state === "awaiting_confirmation"
+  const deadline = current.state === "pending" ? current.revertDeadline : awaitingComposite ? lastStepDeadline(steps.data) : null
+  const readAt = awaitingComposite ? steps.dataUpdatedAt : change.dataUpdatedAt
+  const counting = deadline !== null
+  const left = useSecondsLeft(deadline, readAt)
   const [spoken, setSpoken] = useState(left)
   if (shouldAnnounce(spoken, left)) setSpoken(left)
   const progress =
@@ -200,6 +216,7 @@ function Applied({ applied, onError, onProgress }: {
     try {
       const next = await (confirm ? confirmChange(current.id) : revertChange(current.id))
       client.setQueryData(changeQueryKey(current.id), { ...next, output: null })
+      if (current.class === "composite") void client.invalidateQueries({ queryKey: stepsQueryKey(current.id) })
       onError(changeError(next))
     } catch (err) {
       onError(errorMessage(err))
@@ -220,7 +237,7 @@ function Applied({ applied, onError, onProgress }: {
           <AlertDescription>{failure}</AlertDescription>
         </Alert>
       )}
-      {counting && current.revertDeadline !== null && (
+      {((current.state === "pending" && current.revertDeadline !== null) || awaitingComposite) && (
         <div className="flex flex-col gap-2">
           {left !== null && <Countdown left={left} />}
           <div className="flex gap-2">
@@ -433,7 +450,7 @@ export function ChangeDialog({ open, onOpenChange, title, ...body }: ChangeDialo
   return (
     <Dialog open={open} onOpenChange={changeOpen}>
       <DialogContent>
-        <DialogHeader>
+        <DialogHeader className="pe-7">
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{`${body.target.name}/v${body.target.version} ${where}`}</DialogDescription>
         </DialogHeader>
