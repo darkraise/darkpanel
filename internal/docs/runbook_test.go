@@ -83,6 +83,7 @@ var w10rbWant = map[string][]string{
 	},
 	"Unsettled restore journal": {
 		"sudo journalctl -u darkpanel-controller.service",
+		"sudo systemctl stop darkpanel-controller.service darkpanel-agent.service",
 		"sudo darkpanel controller restore --in <backup-file> --passphrase-file <passphrase-file>",
 	},
 	"Re-enroll agents": {
@@ -94,7 +95,15 @@ var w10rbWant = map[string][]string{
 	},
 }
 
+// w10rbQuoted are the refusals the runbook quotes, each with the file that
+// writes it.
+var w10rbQuoted = map[string]string{
+	"the controller is not in restore quarantine; use darkpanel host token": "internal/controller/backup/quarantine_routes.go",
+	"is enrolled; revoke it before issuing a new token":                     "internal/controller/coreactions/hostenroll.go",
+}
+
 var (
+	w10rbInlineRE   = regexp.MustCompile("`((?:sudo )?darkpanel [^`]*)`")
 	w10rbHeadingRE  = regexp.MustCompile(`^(#{1,6}) +(\S.*?)\s*$`)
 	w10rbInternalRE = regexp.MustCompile(`(?i)\b(wave [0-9]+|register row|W[0-9]+-R[0-9]+|task [0-9]+|plan [0-9]+|coming soon|will be added)\b`)
 )
@@ -243,6 +252,57 @@ func w10rbProblems(t *testing.T, root *cobra.Command, md string) []string {
 		}
 	}
 	return problems
+}
+
+// w10rbInline returns the darkpanel commands that the prose of md writes as
+// inline code, as one sh block, so that w10rbProblems checks them as well.
+// The prose lines are joined first because an inline span may wrap.
+func w10rbInline(md string) string {
+	var prose []string
+	fenced := false
+	for _, line := range strings.Split(md, "\n") {
+		if strings.HasPrefix(line, "```") {
+			fenced = !fenced
+			continue
+		}
+		if !fenced {
+			prose = append(prose, line)
+		}
+	}
+	cmds := []string{"```sh"}
+	for _, m := range w10rbInlineRE.FindAllStringSubmatch(strings.Join(prose, " "), -1) {
+		cmds = append(cmds, m[1])
+	}
+	return strings.Join(append(cmds, "```"), "\n")
+}
+
+func TestW10RbInlineCommandsExistAndCarryOnlyTheirFlags(t *testing.T) {
+	root := w10rbRoot(t)
+	md := strings.Join([]string{
+		"Run `darkpanel host token --bogus` and then",
+		"`sudo darkpanel host",
+		"list`, but not `quarantine enroll-token`.",
+		"```sh",
+		"darkpanel nothing here",
+		"```",
+	}, "\n")
+	want := []string{"darkpanel host token --bogus: darkpanel host token has no flag --bogus"}
+	if got := w10rbProblems(t, root, w10rbInline(md)); !slices.Equal(got, want) {
+		t.Errorf("problems of the fixture = %q, want %q", got, want)
+	}
+	for _, p := range w10rbProblems(t, root, w10rbInline(dcRead(t, w10rbPage))) {
+		t.Errorf("%s: inline %s", w10rbPage, p)
+	}
+}
+
+func TestW10RbQuotedRefusalsAreTheCodesOwn(t *testing.T) {
+	page := strings.Join(strings.Fields(dcRead(t, w10rbPage)), " ")
+	for msg, file := range w10rbQuoted {
+		if !strings.Contains(page, `"`+msg+`"`) {
+			t.Errorf("%s does not quote %q", w10rbPage, msg)
+		}
+		dcMentions(t, file, msg)
+	}
 }
 
 func TestW10RbCheckerFindsWhatItShould(t *testing.T) {

@@ -198,7 +198,7 @@ sudo darkpanel system install --role controller --agent-advertise <host>:<port>
 
 2. Put the backup file and a passphrase file on the host. The passphrase file is
    owned by root with mode 0600. Without `--passphrase-file`, the restore asks
-   for the passphrase.
+   for the passphrase. Remove the passphrase file once the restore is done.
 3. Stop both services. A restore refuses while either runs. A stop you ask for
    ends the unit cleanly and does not start `darkpanel-rollback.service`.
 
@@ -266,12 +266,20 @@ reports that the quarantine is no longer active.
 
 ### Unsettled restore journal
 
-This is the one case that `controller restore --recover` cannot settle by
-itself. A restore journals every rename before it runs. Recovery settles a
-journaled rename by which of its two names exists. When both exist or neither
-exists, it stops, keeps the journal, and the controller does not start.
+This section covers one refusal of `controller restore --recover`: a journaled
+rename it cannot settle. A restore journals every rename before it runs.
+Recovery settles a journaled rename by which of its two names exists. When both
+exist or neither exists, it stops, keeps the journal, and the controller does
+not start.
 
-1. Recognise it. The controller unit fails at start, and the journal of the unit
+Recovery also stops, keeps the journal and keeps the controller from starting
+when the installed database fails verification (`the installed database failed
+verification`), when a staged file is not a single regular file (`is not a
+single regular file`), and when it does not trust the journal itself (`is not a
+single regular file owned by uid` or `does not belong to this controller`).
+This section does not cover those refusals.
+
+1. Recognise it. The controller unit fails at start, and the unit's systemd log
    shows that a journaled rename cannot be settled:
 
 ```sh
@@ -281,8 +289,16 @@ sudo journalctl -u darkpanel-controller.service
    Look for `backup: a journaled rename cannot be settled`, followed by the two
    names and whether each exists. The journal is
    `/var/lib/darkpanel/controller/restore-<transaction>.journal`.
-2. Keep both services stopped. Before you change anything, copy everything the
-   restore touched to a directory that only root can read: the directory
+2. Stop both services. The controller unit restarts after a failure, and each
+   start runs the recovery again, so a restart could act on the files while you
+   change them:
+
+```sh
+sudo systemctl stop darkpanel-controller.service darkpanel-agent.service
+```
+
+   Before you change anything, copy everything the restore touched to a
+   directory that only root can read: the directory
    `/var/lib/darkpanel/controller/` and every `/etc/darkpanel/controller.key*`
    file.
 
@@ -294,7 +310,8 @@ sudo cp -a /etc/darkpanel/controller.key* /root/restore-copy/
 
    A later successful restore removes the `.pre-` files of earlier restores, so
    this copy is the only record of them. Nothing below deletes what the copy
-   holds.
+   holds. It includes the controller keys, so once the controller runs again
+   and you no longer need it, move it off the host or remove it.
 3. End the stuck transaction by hand. Remove the journal
    `restore-<transaction>.journal` and `restore-<transaction>.journal.new`, and
    the staged files of that transaction, the names ending in
@@ -333,8 +350,8 @@ sudo darkpanel controller quarantine enroll-token <host>
 
    The command prints a one-hour, single-use token once. It works for a host
    that is already in the restored database, only during the quarantine, and only
-   when the controller runs with an `--agent-advertise` address. It sets the host
-   to pending.
+   when the controller runs with an `--agent-advertise` address. If the host is
+   enrolled, it sets it to pending.
 2. On the agent's host, as root, give the token to the agent. The token file is
    owned by root with mode 0600. Without `--token-file`, the command prompts, or
    reads standard input.
@@ -343,8 +360,10 @@ sudo darkpanel controller quarantine enroll-token <host>
 sudo darkpanel agent enroll --token-file <token-file>
 ```
 
-3. Restart the agent, so that it drops the session it holds and dials with the
-   new credentials at once:
+3. `agent enroll` prints that a running agent needs no restart, because it uses
+   the new credentials from its next connection attempt. Restart it anyway, so
+   that it drops the session it holds and dials with the new credentials at
+   once:
 
 ```sh
 sudo systemctl restart darkpanel-agent.service
