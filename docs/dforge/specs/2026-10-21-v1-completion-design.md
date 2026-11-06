@@ -1711,7 +1711,10 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
   caches the answer per `hello` and per module enable, re-asks before
   dispatching an action whose cached answer is older than 60 s, and refuses
   an unavailable action with `module.unavailable` and the reason; the UI
-  greys it out from the cached answer. Module preflight stays module-wide.
+  greys it out from the cached answer. A successful apply of a change of
+  module M on host H retires the cache entry for (H, M), so the next
+  request re-probes it and an install that brings the module up is seen at
+  once. Module preflight stays module-wide.
   `core.AgentClient` gains `Availability(ctx context.Context, moduleID
   string) (ModuleAvailability, error)` with `ModuleAvailability{Module
   string; Available bool; Reason string; Actions []ActionAvailability}` and
@@ -2043,8 +2046,10 @@ Lockout guards (2.3, 4.1) need the paths that must survive a change.
 - **Socket table and routes** (`internal/platform/netstat`, wave 0b):
   listening and established sockets from `/proc/net/{tcp,tcp6,udp,udp6}`
   joined to owning processes through `/proc/<pid>/fd`; interface addresses
-  and route lookups (`RTM_GETROUTE`, including the reverse lookup for an
-  incoming flow) through hand-written netlink on `golang.org/x/sys/unix`.
+  through `net.Interfaces`, which uses rtnetlink inside the standard
+  library; and route lookups (`RTM_GETROUTE`, including the reverse lookup
+  for an incoming flow) through hand-written netlink on
+  `golang.org/x/sys/unix`. There is no third-party netlink library.
 - **Netfilter save parser** (`internal/platform/netfilter`, wave 0b): parses
   `*-save` output for the `filter`, `nat`, `raw`, `mangle` and `security`
   tables into tables, chains and rules; an unknown match or target is kept
@@ -2671,9 +2676,9 @@ only. v1 has two: `npm.admin.reveal-password` (6) and
   `Internal`, 1.7): the agent's local socket answers `action.unknown` for
   them and the CLI generates no `--local` form, because a reveal must be
   authorized by an `admin` principal of the controller and audited there.
-  A root operator on the host without the controller recovers NPM's
-  password with NPM's own reset procedure (the runbook, 9), not through
-  Darkpanel.
+  A root operator on the host without the controller restores the
+  controller (the runbook's "Lost controller", 10) and reveals the password
+  again, or resets it with NPM's own procedure, not through Darkpanel.
 
 ### 2. Firewall (R37–R49)
 
@@ -3920,11 +3925,11 @@ empty list or map as equal, addresses in canonical `netip` form.
 - **Policy (R59).** `tailnet.policy.set` (compensable): input is the full
   HuJSON text. Plan fetches `GET /api/v2/tailnet/{t}/acl` with `Accept:
   application/hujson` and its `ETag`, validates the new text with `POST
-  .../acl/validate` (a 200 with an empty body or `{}` is valid; a 200 with
-  `{"message":"test(s) failed","data"}` or a 400 with `{message}` becomes
-  `tailnet.policy_invalid`; whether a 200 with `{"message":"warning(s)
-  found","data"}` also becomes `tailnet.policy_invalid` is an open point the
-  integrator confirms before Tasks 17 and 39), and renders a line diff. Apply posts with
+  .../acl/validate` (a 200 with an empty body or `{}` is valid; any other
+  200 that carries a message or data, including `{"message":"test(s)
+  failed","data"}` and `{"message":"warning(s) found","data"}`, and a 400
+  with `{message}` become `tailnet.policy_invalid`), and renders a line
+  diff. Apply posts with
   `If-Match` on that ETag; a 412 fails with `tailnet.policy_conflict`. The
   effects journal stores the before-text and the after-ETag. Undo posts the
   before-text with `If-Match` on the after-ETag; if the policy changed since,
@@ -5298,6 +5303,91 @@ a spec change.
   (0.x → 1.0 is a reinstall); `make release-check` green; the commit ready to
   tag `v1.0.0-rc.1`. Tagging is the owner's (section 12).
 
+- **Plan rulings (wave 10a).** Wave 10a (plan
+  `v1-w10a-known-fixes-threat-model-runbook`) settles these gaps and
+  underdetermined points of the text above:
+  - **W10-R1 two plans.** Wave 10 runs as two plans, because the security
+    review's findings cannot be planned before the review runs.
+    - `w10a` fixes what is known and writes the threat model and the
+      runbook.
+    - The owner's two-reviewer panel (`dforge:judge-fable` and Codex
+      `gpt-6-astra`, one shared brief built on
+      `docs/security/threat-model.md`) then reviews `main`. Its findings go
+      into `docs/dforge/registers/<date>-v1-security-review.md`.
+    - `w10b` fixes them, re-reviews the critical and high ones, and writes
+      `CHANGELOG.md` and `docs/versioning.md`. It also turns
+      `make release-check` green.
+  - **W10-R2 triage.** An open follow-up row is fixed in `w10a` when it is
+    Important or major, touches security with a fix its text settles, is a
+    spec gap the spec already answers, or makes observable behaviour wrong.
+    Pure tidiness (doc comments, duplicated helpers, redundant or
+    weak-but-correct tests, process records) is deferred to post-v1.
+  - **W10-R3 TLS session resumption** (rows 209, 212, 225, 243). Session
+    resumption stays per listener. No shared ticket keys are set:
+    resumption across listeners buys nothing a browser needs.
+  - **W10-R4 contributed routes** (rows 218, 247). Route contributions are
+    first-party, and the socket peer check still applies. A literal
+    contributed route that shadows a built-in wildcard route is accepted,
+    not refused.
+  - **W10-R5 netlink** (row 287). Spec 1.8 states that there is
+    no third-party netlink library. `netstat.Interfaces` keeps
+    `net.Interfaces`, which uses rtnetlink inside the standard library.
+  - **W10-R6 module availability** (row 298). A successful apply of a
+    change of module M on host H retires the availability cache entry for
+    (H, M). The next request re-probes it, so an install that brings the
+    module up is seen at once.
+  - **W10-R7 tailnet validate** (row 425). Spec 4.2 follows the code: any
+    message or data in the policy validate endpoint's answer is
+    `tailnet.policy_invalid`.
+  - **W10-R8 wave 4 follow-ups** (row 301).
+    - Fixed: the latency probe URL built from the DERP map, and
+      `package_pin.go`'s rollback on the forward context.
+    - The spec states the `vm` job's budget as the sum of its milestone
+      budgets: 120 minutes for M1 and M2, 80 for the M3 firewall and 80 for
+      M3 Docker, so 280 minutes in total.
+    - The other items of `docs/dforge/notes/v1-w4-final-review-followups.md`
+      are deferred to post-v1.
+  - **W10-R9 firewall host-state lock** (row 323). The firewall module in
+    the agent holds one `sync.RWMutex` per module instance.
+    - Every path that changes UFW's files, the loaded rules or the Docker
+      block holds the write lock, from its first write until both address
+      families have reloaded. These paths are apply, revert, the revert
+      watchdog, repair, reconcile, snapshot restore and Docker cleanup.
+    - Status reads, plan preparation and the Docker and exposure resource
+      reads hold the read lock for their whole read.
+    - Only the exported entry points take the lock. Internal helpers that a
+      locked path calls take none, so no path takes the lock twice.
+    - A separate break-glass process is not covered: it runs when the agent
+      cannot be reached.
+  - **W10-R10 security-design rows go to the panel** (rows 245, 306, 326,
+    329, 330, 384). Each needs a security design choice: requiring Origin
+    for cookie sessions, DERP probe target ranges, resolving NPM forward
+    hosts, NPM's in-container admin port, NPM's port 3000, and Docker label
+    digests. They stay open, go into the review brief, and are fixed in
+    `w10b`.
+  - **W10-R11 deferred to post-v1:** rows 299, 305, 322, 341, 348, 349,
+    350, 352, 357, 358, 360, 361, 362, 363, 364, 367, 368, 369, 372, 374,
+    375, 376, 387, 388, 394, 396, 398, 422, 426, 427, 428, 430, 432. Each is
+    tidiness, a process record, an accepted plan mandate, or a decision that
+    changes a wire contract with no defect behind it.
+  - **W10-R12 the DERP grant warning** (row 303) moves to `w10b`: carrying
+    the visibility-grant warning into the output of `derp.region.remove` and
+    `derp.server.remove` needs a `warnings` member on `RegionChanged` and
+    `ServerRemoved`, and a way for a composite to see a read step's output
+    (`internal/core/lifecycle/composite_run.go` skips `ClassRead` steps when
+    it builds the composer's input, and `internal/core` is frozen).
+  - **W10-R13 verified, not fixed** (rows 386, 389, 400). Row 386 is a look
+    at the Cloudflare connectors page and its Expose via tunnel dialog in a
+    running browser, made with the owner's live demonstrations. Rows 389 and
+    400 are M3 Docker harness flakes and build-cache failures whose cause is
+    unconfirmed; W10-R9's lock removes the torn read that row 400 names as a
+    possible cause. The harness and full-suite runs of wave 10a show whether
+    they recur, and a recurrence is diagnosed in `w10b`.
+  - **W10-R14 NPM password without the controller.** The runbook covers
+    Darkpanel's own procedures. A root operator without the controller
+    restores the controller and reveals the password again, or resets it
+    with NPM's own procedure, which NPM documents.
+
 ### 11. Error codes, actors and dependencies
 
 - **Error codes** (wave 0 adds all): `firewall.manual_required`,
@@ -5619,8 +5709,11 @@ a spec change.
 - Test isolation: unit tests use `t.TempDir()`, in-process fakes on random
   ports or temporary Unix sockets and no global state; harness tests derive
   VM names, work directories and network ranges from the test name (wave 0
-  helper) and respect the VM concurrency limit; a job whose total passes its
-  120-minute limit is split per milestone.
+  helper) and respect the VM concurrency limit; a job whose total passes 120
+  minutes runs its milestones as separate steps, each with its own budget,
+  and the job's limit is the sum of those budgets: for the harness `vm` job
+  120 minutes for M1 and M2, 80 for the M3 firewall run and 80 for the M3
+  Docker run, so 280 minutes in total.
 
 ## Plans
 
