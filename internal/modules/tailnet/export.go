@@ -9,8 +9,8 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/store"
 )
 
-// exportTN is one value so every module reading through the exported
-// functions shares one token cache, and so one access token per account.
+// exportTN is the one value the module's actions and the exported readers
+// share, so one token cache and one access token per account.
 var exportTN = productionTN()
 
 // readPolicy reads the policy file as tailnet.policy.get answers it.

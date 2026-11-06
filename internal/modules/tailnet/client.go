@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"testing"
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/controller/cloud"
@@ -33,7 +34,21 @@ type deps struct {
 }
 
 func productionTN() tn {
-	return tn{d: deps{baseURL: "https://api.tailscale.com"}, tokens: newTokenCache()}
+	d := deps{baseURL: "https://api.tailscale.com"}
+	if testing.Testing() {
+		d.http = &http.Client{Transport: absentTransport{}}
+	}
+	return tn{d: d, tokens: newTokenCache()}
+}
+
+// absentTransport is the transport of a test binary's production client. Test
+// binaries that link the module, such as the controller's server tests, must
+// never reach the real Tailscale API, whether or not a test connects an
+// account, so every request fails without touching the network.
+type absentTransport struct{}
+
+func (absentTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("tailnet: a test binary never reaches the Tailscale API")
 }
 
 const (

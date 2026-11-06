@@ -116,3 +116,35 @@ func TestExConnectedReadsOnlyTheAccountRow(t *testing.T) {
 		t.Errorf("%d provider requests from Connected, want none", n)
 	}
 }
+
+// TestW10TpModuleSharesTheExportedTokenCache: the module's actions and the exported readers use one token cache,
+// so one account has one access token.
+func TestW10TpModuleSharesTheExportedTokenCache(t *testing.T) {
+	m, ok := Module().(module)
+	if !ok {
+		t.Fatalf("Module() is %T, want the tailnet module", Module())
+	}
+	if m.t.tokens != exportTN.tokens {
+		t.Error("the module's actions and the exported readers keep separate token caches")
+	}
+}
+
+// TestW10TpProductionTailnetCannotReachTheProviderInTests: the exported readers and the module's actions send
+// nothing to Tailscale's API from a test binary, whether or not a test connects an account.
+func TestW10TpProductionTailnetCannotReachTheProviderInTests(t *testing.T) {
+	m, ok := Module().(module)
+	if !ok {
+		t.Fatalf("Module() is %T, want the tailnet module", Module())
+	}
+	for name, tt := range map[string]tn{"the exported readers": exportTN, "the module's actions": m.t} {
+		if tt.d.http == nil {
+			t.Errorf("%s use cloud's default client, which reaches %s", name, tt.d.baseURL)
+			continue
+		}
+		res, err := tt.d.http.Get(tt.d.baseURL + oauthPath)
+		if err == nil {
+			_ = res.Body.Close()
+			t.Errorf("%s: a request to %s was answered", name, tt.d.baseURL)
+		}
+	}
+}

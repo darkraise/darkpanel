@@ -14,7 +14,7 @@ const ID = "tailnet"
 type module struct{ t tn }
 
 // Module returns the tailnet module.
-func Module() core.Module { return module{t: productionTN()} }
+func Module() core.Module { return module{t: exportTN} }
 
 // Manifest declares the module: its controller-side actions and the
 // controller migrations that hold the account and the auth-key rows. Every
