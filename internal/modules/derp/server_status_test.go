@@ -12,11 +12,13 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"math/big"
 	"net"
 	"net/netip"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -160,8 +162,7 @@ func TestSsNotInstalled(t *testing.T) {
 	}
 }
 
-// TestSsInstalledIPMode: the certificate is read from derper's file; the stored pin and time answer only when the
-// file cannot be read as a certificate.
+// TestSsInstalledIPMode: the certificate is read from derper's file.
 func TestSsInstalledIPMode(t *testing.T) {
 	livePEM, livePin := ssCert(t, ssIP, ssLiveAfter)
 	crt := server.CertDir + "/" + ssIP + ".crt"
@@ -172,8 +173,6 @@ func TestSsInstalledIPMode(t *testing.T) {
 		wantAfter time.Time
 	}{
 		{"the live certificate wins over the stored one", livePEM, livePin, ssLiveAfter},
-		{"no certificate file falls back to the stored values", nil, ssStoredPin, ssStoredAfter},
-		{"an unreadable certificate file falls back to the stored values", []byte("not a certificate"), ssStoredPin, ssStoredAfter},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newDPHost(t)
@@ -240,7 +239,7 @@ func TestSsLetsEncrypt(t *testing.T) {
 	}
 }
 
-// TestSsOffTailnet: a node that is not Running, or tailscaled not answering, is no error; the node's identity is
+// TestSsOffTailnet: a node that is not Running, or tailscaled not running, is no error; the node's identity is
 // withheld.
 func TestSsOffTailnet(t *testing.T) {
 	for _, tc := range []struct {
@@ -250,7 +249,7 @@ func TestSsOffTailnet(t *testing.T) {
 	}{
 		{"logged out", "NeedsLogin", nil},
 		{"stopped", "Stopped", nil},
-		{"tailscaled not answering", "Running", errSsBoom},
+		{"tailscaled not running", "Running", fmt.Errorf("%w: no such socket", tslocal.ErrUnavailable)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newDPHost(t)
@@ -383,5 +382,107 @@ func TestSsReadStatusOverAgents(t *testing.T) {
 	ag.Reads["derp.server.status/v1"] = func(json.RawMessage) (any, error) { return "oops", nil }
 	if _, err := readStatus(ctx, h.ctlEnv(""), "h2", nil); err == nil || !strings.Contains(err.Error(), "h2") {
 		t.Errorf("err = %v, want a decode failure naming host h2", err)
+	}
+}
+
+// w10spLocal wraps the fake local API and records the deadline of the context of every call, in call order.
+type w10spLocal struct {
+	localAPI
+	mu        sync.Mutex
+	deadlines []time.Time
+}
+
+func (l *w10spLocal) note(ctx context.Context) {
+	dl, _ := ctx.Deadline()
+	l.mu.Lock()
+	l.deadlines = append(l.deadlines, dl)
+	l.mu.Unlock()
+	time.Sleep(2 * time.Millisecond)
+}
+
+func (l *w10spLocal) Status(ctx context.Context) (*tslocal.Status, error) {
+	l.note(ctx)
+	return l.localAPI.Status(ctx)
+}
+
+func (l *w10spLocal) WhoIs(ctx context.Context, addr netip.Addr) (*tslocal.WhoIs, error) {
+	l.note(ctx)
+	return l.localAPI.WhoIs(ctx, addr)
+}
+
+// TestW10SpStatusGivesEachLocalCallItsOwnDeadline: the Status call and each WhoIs call run under a deadline of
+// their own, so a slow answer does not use up the time of the lookups after it.
+func TestW10SpStatusGivesEachLocalCallItsOwnDeadline(t *testing.T) {
+	h := newDPHost(t)
+	ssTailnet(h, "Running", []string{"tag:derp"}, "100.64.0.10")
+	rec := &w10spLocal{localAPI: thLocal{h.local}}
+	d := h.dp()
+	d.d.local = func() localAPI { return rec }
+	if _, _, err := ssRead(t, d, h.env(""), `{"whois":["100.64.0.20","100.64.0.21","100.64.0.22"]}`); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.deadlines) != 4 {
+		t.Fatalf("%d local API calls, want one Status and three WhoIs", len(rec.deadlines))
+	}
+	for i, dl := range rec.deadlines {
+		if dl.IsZero() {
+			t.Errorf("call %d ran without a deadline", i)
+		}
+		if i > 0 && dl.Sub(rec.deadlines[i-1]) < time.Millisecond {
+			t.Errorf("call %d shares the deadline of call %d (%v and %v), want a deadline of its own", i, i-1, dl, rec.deadlines[i-1])
+		}
+	}
+}
+
+// TestW10SpStatusRefusesAnIPServerWhoseCertificateCannotBeRead: the stored pin is not shown as the current
+// certificate when derper's file is absent or is not a certificate.
+func TestW10SpStatusRefusesAnIPServerWhoseCertificateCannotBeRead(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		file []byte
+	}{
+		{"no certificate file", nil},
+		{"a file that is not a certificate", []byte("not a certificate")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newDPHost(t)
+			ssMaps(h)
+			row := ssRow(server.ModeIP, ssIP)
+			row.CertName, row.CertNotAfter = ssStoredPin, ssStoredAfter
+			ssInstall(t, h, row)
+			h.units.States[server.UnitName] = core.UnitState{LoadState: "loaded", ActiveState: "active", SubState: "running", MainPID: 700}
+			if tc.file != nil {
+				h.files[server.CertDir+"/"+ssIP+".crt"] = tc.file
+			}
+			_, _, err := ssRead(t, h.dp(), h.env(""), `{}`)
+			coded := errcode.From(err)
+			wantDetail := "derper's certificate for " + ssIP + " cannot be read"
+			if err == nil || coded.Code != errcode.DERPNotReady || coded.Detail != wantDetail {
+				t.Errorf("err = %v, want derp.not_ready saying %q", err, wantDetail)
+			}
+		})
+	}
+}
+
+// TestW10SpStatusRefusesASilentTailscaled: a tailscaled that is running but fails or does not answer is an error,
+// not a node that is off the tailnet; only a socket that cannot be reached at all is no error.
+func TestW10SpStatusRefusesASilentTailscaled(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{"the call times out", context.DeadlineExceeded},
+		{"tailscaled answers with an error", &tslocal.APIError{StatusCode: 500, Message: "boom"}},
+		{"the answer cannot be read", errSsBoom},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newDPHost(t)
+			ssTailnet(h, "Running", []string{"tag:derp"}, "100.64.0.10")
+			h.local.Errs = map[string]error{"Status": tc.err}
+			_, _, err := ssRead(t, h.dp(), h.env(""), `{}`)
+			if !errors.Is(err, tc.err) || errcode.From(err).Code != errcode.TailscaleUnavailable {
+				t.Errorf("err = %v, want tailscale.unavailable wrapping %v", err, tc.err)
+			}
+		})
 	}
 }

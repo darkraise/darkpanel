@@ -46,13 +46,11 @@ func (h serverStatusHandler) Read(ctx context.Context, env core.Env, in ServerSt
 	if st.LinkViaTailnet, err = h.d.d.linkViaTailnet(); err != nil {
 		return ServerStatus{}, fmt.Errorf("derp: read the controller address: %w", err)
 	}
-	tctx, cancel := context.WithTimeout(ctx, availableWait)
-	defer cancel()
-	if err := h.readTailnet(ctx, tctx, &st); err != nil {
+	if err := h.readTailnet(ctx, &st); err != nil {
 		return ServerStatus{}, err
 	}
 	for _, addr := range addrs {
-		v, err := h.visibility(ctx, tctx, addr)
+		v, err := h.visibility(ctx, addr)
 		if err != nil {
 			return ServerStatus{}, err
 		}
@@ -93,33 +91,46 @@ func (h serverStatusHandler) readServer(ctx context.Context, env core.Env, st *S
 	}
 	st.UnitActive = unit.ActiveState == "active"
 	if crt, _, ok := server.CertFiles(server.Config{Mode: row.Mode, HostName: row.HostName}); ok {
-		st.CertName, st.CertNotAfter = h.certificate(row, crt)
+		if st.CertName, st.CertNotAfter, err = h.certificate(row.HostName, crt); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-// certificate is the pin and expiry of the ip-mode certificate in file crt: derper's file when it parses, else what the
-// server row stored when the certificate was last read.
-func (h serverStatusHandler) certificate(row localServer, crt string) (string, *time.Time) {
-	if b, err := h.d.d.readFile(server.CertDir + "/" + crt); err == nil {
-		if der, notAfter, err := server.ParseCert(b); err == nil {
-			return server.Pin(der), &notAfter
-		}
+// certificate is the pin and expiry of host hostName's ip-mode certificate, read from derper's file crt. A file that
+// cannot be read or parsed is derp.not_ready: the pin the server row stored may no longer be the one derper serves.
+func (h serverStatusHandler) certificate(hostName, crt string) (pin string, notAfter *time.Time, err error) {
+	fail := func(err error) (string, *time.Time, error) {
+		return "", nil, errcode.Wrap(errcode.DERPNotReady, err, "derper's certificate for "+hostName+" cannot be read")
 	}
-	var notAfter *time.Time
-	if !row.CertNotAfter.IsZero() {
-		t := row.CertNotAfter.UTC()
-		notAfter = &t
+	b, err := h.d.d.readFile(server.CertDir + "/" + crt)
+	if err != nil {
+		return fail(err)
 	}
-	return row.CertName, notAfter
+	der, after, err := server.ParseCert(b)
+	if err != nil {
+		return fail(err)
+	}
+	return server.Pin(der), &after, nil
 }
 
-// readTailnet fills st with the node's identity when tailscaled answers and the node is Running. A tailscaled that
-// does not answer is not an error of this read; the caller's own cancellation is.
-func (h serverStatusHandler) readTailnet(ctx, tctx context.Context, st *ServerStatus) error {
+// readTailnet fills st with the node's identity when tailscaled answers and the node is Running; the Status call has a
+// bound of its own, availableWait. A tailscaled whose socket cannot be reached leaves the node off the tailnet without
+// an error, so a host without tailscale keeps answering. A tailscaled that fails or does not answer in time is
+// tailscale.unavailable, and the caller's own cancellation is its error.
+func (h serverStatusHandler) readTailnet(ctx context.Context, st *ServerStatus) error {
+	tctx, cancel := context.WithTimeout(ctx, availableWait)
+	defer cancel()
 	ts, err := h.d.d.local().Status(tctx)
 	if err != nil {
-		return ctx.Err()
+		if cerr := ctx.Err(); cerr != nil {
+			return cerr
+		}
+		if errors.Is(err, tslocal.ErrUnavailable) {
+			return nil
+		}
+		return errcode.Wrap(errcode.TailscaleUnavailable, err, "tailscaled does not answer on its socket")
 	}
 	if ts.BackendState != "Running" || ts.Self == nil {
 		return nil
@@ -141,8 +152,11 @@ func (h serverStatusHandler) readTailnet(ctx, tctx context.Context, st *ServerSt
 	return nil
 }
 
-// visibility asks tailscaled which node holds addr. A tailscaled that cannot answer is an error, never "not visible".
-func (h serverStatusHandler) visibility(ctx, tctx context.Context, addr netip.Addr) (Visibility, error) {
+// visibility asks tailscaled which node holds addr, within a bound of its own, availableWait. A tailscaled that cannot
+// answer is an error, never "not visible".
+func (h serverStatusHandler) visibility(ctx context.Context, addr netip.Addr) (Visibility, error) {
+	tctx, cancel := context.WithTimeout(ctx, availableWait)
+	defer cancel()
 	who, err := h.d.d.local().WhoIs(tctx, addr)
 	switch {
 	case errors.Is(err, tslocal.ErrPeerNotFound):
