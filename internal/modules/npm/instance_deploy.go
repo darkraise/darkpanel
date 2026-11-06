@@ -90,7 +90,8 @@ func (n nm) deployAvailable(ctx context.Context, env core.Env) error {
 }
 
 // checkAcmeEmail refuses an acmeEmail Let's Encrypt cannot register: anything but a bare address, and an address whose
-// domain is an IP literal, has no dot, or is a reserved name or under one.
+// domain is an IP literal, has no dot, has a last label that does not start with a letter, or is a reserved name or
+// under one.
 func checkAcmeEmail(email string) error {
 	invalid := func(msg string) error {
 		return core.Definite(&errcode.Error{Code: errcode.InvalidInput, Detail: msg,
@@ -106,6 +107,9 @@ func checkAcmeEmail(email string) error {
 	}
 	if !strings.Contains(domain, ".") {
 		return invalid(fmt.Sprintf("acmeEmail's domain %s is not a public domain: it has no dot", domain))
+	}
+	if last := domain[strings.LastIndexByte(domain, '.')+1:]; last == "" || last[0] < 'a' || last[0] > 'z' {
+		return invalid(fmt.Sprintf("acmeEmail's domain %s is not a public domain: its last label must start with a letter", domain))
 	}
 	for _, r := range deployReservedDomains {
 		if domain == r || strings.HasSuffix(domain, "."+r) {
@@ -174,23 +178,35 @@ func (h deployHandler) checkEngine(ctx context.Context) error {
 	}
 }
 
-// checkPorts refuses a host where another program listens on 80/tcp or 443/tcp, as the derp install does.
+// checkPorts refuses a host where another program listens on 80/tcp or 443/tcp, as the derp install does. Each port is
+// reported once, in the order it first appears, with the process of its first listener that names one.
 func (h deployHandler) checkPorts() error {
 	sockets, err := h.n.d.sockets()
 	if err != nil {
 		return err
 	}
-	var busy []string
+	var ports []uint16
+	who := map[uint16]string{}
 	for _, s := range sockets {
 		port := s.Local.Port()
 		if s.Proto != netstat.ProtoTCP || !s.Listening() || (port != 80 && port != 443) {
 			continue
 		}
-		who := "an unknown process"
-		if len(s.Processes) > 0 {
-			who = s.Processes[0].Comm
+		if _, seen := who[port]; !seen {
+			ports = append(ports, port)
+			who[port] = ""
 		}
-		busy = append(busy, fmt.Sprintf("%d/%s is in use by %s", port, s.Proto, who))
+		if who[port] == "" && len(s.Processes) > 0 {
+			who[port] = s.Processes[0].Comm
+		}
+	}
+	var busy []string
+	for _, port := range ports {
+		name := who[port]
+		if name == "" {
+			name = "an unknown process"
+		}
+		busy = append(busy, fmt.Sprintf("%d/%s is in use by %s", port, netstat.ProtoTCP, name))
 	}
 	if len(busy) > 0 {
 		return core.Definite(errcode.New(errcode.DERPPortInUse, strings.Join(busy, "; ")))
@@ -239,6 +255,11 @@ func (h deployHandler) Apply(ctx context.Context, env core.Env, in DeployInput) 
 	}
 	email := strings.ToLower(in.AcmeEmail)
 	if err := h.ensureImage(ctx); err != nil {
+		return Deployed{}, err
+	}
+	// Another client may have created an object of the module's names while the image downloaded; adopting it would
+	// let the undo delete it.
+	if err := h.checkEngine(ctx); err != nil {
 		return Deployed{}, err
 	}
 	raw, err := h.n.d.random(32)

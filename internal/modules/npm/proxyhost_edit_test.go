@@ -312,6 +312,14 @@ func TestPuUpdateRefusals(t *testing.T) {
 			})
 			return "", ProxyHostUpdateInput{ID: host.ID, ProxyHostInput: in}
 		}, errcode.NPMReserved},
+		{"a forward host with an IPv6 zone", func(_ *testing.T, _ *thHost, host npmapi.ProxyHost) (string, ProxyHostUpdateInput) {
+			in := puInput(func(in *ProxyHostInput) { in.ForwardHost = "fe80::1%eth0" })
+			return "", ProxyHostUpdateInput{ID: host.ID, ProxyHostInput: in}
+		}, errcode.InvalidInput},
+		{"an IPv6 literal as forward host", func(_ *testing.T, _ *thHost, host npmapi.ProxyHost) (string, ProxyHostUpdateInput) {
+			in := puInput(func(in *ProxyHostInput) { in.ForwardHost = "2001:db8::1" })
+			return "", ProxyHostUpdateInput{ID: host.ID, ProxyHostInput: in}
+		}, errcode.InvalidInput},
 		{"a domain another proxy host serves", func(_ *testing.T, h *thHost, host npmapi.ProxyHost) (string, ProxyHostUpdateInput) {
 			other := puInput(func(in *ProxyHostInput) { in.Domains = []string{"other.example.com"} })
 			h.npm.SeedProxyHost(puHostOf(proxyHostBody(other, "")))
@@ -781,5 +789,59 @@ func TestPuVerifyChecksTheUpdatedHost(t *testing.T) {
 	}
 	if err := def.Handler.Verify(ctx, h.env("c1"), raw, out); err == nil {
 		t.Error("verify of a vanished host succeeded, want an error")
+	}
+}
+
+// TestW10NvRemoveTreatsAMissingHostAsDeleted: NPM answering 404 to the delete means the host is gone, which is what the
+// removal wants, so the effect is made, the reservation is released and no refusal is raised.
+func TestW10NvRemoveTreatsAMissingHostAsDeleted(t *testing.T) {
+	ctx := context.Background()
+	h, host := puSeed(t, puInput())
+	h.addChange("c1", "npm.proxyhost.remove")
+	puReserve(t, h, "proxy_host", host.ID, "npm.admin.expose", puDomain)
+	n := puFaulty(h, &puFaults{remove: puFault{err: &npmapi.APIError{Status: 404, Message: "Not Found"}}})
+
+	out, err := n.proxyhostRemove().Handler.Apply(ctx, h.child("c1", "npm.admin.unexpose"), puJSON(t, ProxyHostRemoveInput{ID: host.ID}))
+	if err != nil {
+		t.Fatalf("the removal of a host NPM no longer holds failed: %v", err)
+	}
+	var view ProxyHostView
+	if err := json.Unmarshal(out, &view); err != nil || view.ID != host.ID {
+		t.Errorf("view %+v (%v), want the host that was removed", view, err)
+	}
+	if effects := puEffects(t, h); len(effects) != 1 || effects[0].State != core.EffectMade {
+		t.Errorf("journal %+v, want one made effect, not a skipped one", effects)
+	}
+	if puReserved(t, h, "proxy_host", host.ID) {
+		t.Error("the reservation of the removed host was not released")
+	}
+}
+
+// TestW10NvRemoveByIDOfAnAbsentHostReleasesItsOwnersRecords: a removal by id that was cut off after NPM deleted the host
+// is finished by running it again, as one by domain is; only the owner's removal releases the records.
+func TestW10NvRemoveByIDOfAnAbsentHostReleasesItsOwnersRecords(t *testing.T) {
+	ctx := context.Background()
+	h, _ := puSeed(t, puInput())
+	h.addChange("c1", "npm.proxyhost.remove")
+	puReserve(t, h, "proxy_host", 4242, "npm.admin.expose", "npm.example.com")
+	puReserve(t, h, "certificate", 77, "npm.admin.expose", "npm.example.com")
+	puReserve(t, h, "proxy_host", 4343, "panel.exposure.add", "panel.example.com")
+	def := h.nm().proxyhostRemove()
+	raw := puJSON(t, ProxyHostRemoveInput{ID: 4242})
+
+	if _, err := def.Handler.Apply(ctx, h.child("c1", "panel.exposure.remove"), raw); err != nil {
+		t.Fatal(err)
+	}
+	if !puReserved(t, h, "proxy_host", 4242) || !puReserved(t, h, "certificate", 77) {
+		t.Fatal("a removal under panel.exposure.remove released records that npm.admin.expose owns")
+	}
+	if _, err := def.Handler.Apply(ctx, h.child("c1", "npm.admin.unexpose"), raw); err != nil {
+		t.Fatal(err)
+	}
+	if puReserved(t, h, "proxy_host", 4242) || puReserved(t, h, "certificate", 77) {
+		t.Error("the owner's removal by id did not release its records")
+	}
+	if !puReserved(t, h, "proxy_host", 4343) {
+		t.Error("the removal released the records of another owner")
 	}
 }

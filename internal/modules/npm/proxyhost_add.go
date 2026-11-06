@@ -82,11 +82,15 @@ func proxyhostAddDomainProblem(d string) string {
 }
 
 // proxyhostAddHostProblem says what is wrong with a forward host, or "" when it is acceptable. An address with a zone
-// is refused: netip accepts any characters in a zone.
+// is refused: netip accepts any characters in a zone. Any other IPv6 address is refused because NPM writes the forward
+// host into proxy_pass without brackets, which nginx cannot parse.
 func proxyhostAddHostProblem(host string) string {
 	if a, err := netip.ParseAddr(host); err == nil {
 		if a.Zone() != "" {
 			return "forwardHost must not carry an IPv6 zone"
+		}
+		if a.Is6() {
+			return "forwardHost must not be an IPv6 address: Nginx Proxy Manager writes it into the nginx configuration without brackets"
 		}
 		return ""
 	}
@@ -260,7 +264,7 @@ func (n nm) checkUpstream(ctx context.Context, env core.Env, in ProxyHostInput) 
 	switch {
 	case dockerapi.IsNotFound(err):
 	case err != nil:
-		return fmt.Errorf("npm: inspect container %s: %w", containerName, engineCoded(err))
+		return engineCoded(err)
 	default:
 		r.NPMAddrs, r.NPMNames = slices.Clone(r.NPMAddrs), slices.Clone(r.NPMNames)
 		names := []string{c.ID, c.Config.Hostname}
@@ -312,14 +316,27 @@ type proxyhostAddFound struct {
 	Parent        string          `json:"parent"`
 }
 
-// check decides whether the add may run and changes nothing; every failure is Definite. It returns what it found and
-// the NPM client it used.
+// check decides whether the add may run and changes nothing; every failure but a failed Engine read is Definite. It
+// returns what it found and the NPM client it used.
 func (h proxyhostAddHandler) check(ctx context.Context, env core.Env, in ProxyHostInput) (proxyhostAddFound, npmAPI, error) {
 	if err := validateProxyHostInput(in); err != nil {
 		return proxyhostAddFound{}, nil, err
 	}
 	if err := h.n.checkUpstream(ctx, env, in); err != nil {
-		return proxyhostAddFound{}, nil, core.Definite(err)
+		return proxyhostAddFound{}, nil, err
+	}
+	if env.Call.ParentAction == proxyhostAddAdminOwner {
+		var exposed string
+		err := env.DB.Read().QueryRowContext(ctx,
+			"SELECT exposure FROM npm_reserved WHERE owner = ? AND kind = 'proxy_host' ORDER BY exposure LIMIT 1", proxyhostAddAdminOwner).Scan(&exposed)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+		case err != nil:
+			return proxyhostAddFound{}, nil, core.Definite(fmt.Errorf("npm: read the exposures of the admin UI: %w", err))
+		default:
+			return proxyhostAddFound{}, nil, core.Definite(errcode.New(errcode.NPMReserved,
+				fmt.Sprintf("the admin UI of Nginx Proxy Manager is already exposed on %s", exposed)))
+		}
 	}
 	api, err := h.n.d.api(ctx, env)
 	if err != nil {
@@ -526,7 +543,8 @@ func (h proxyhostAddHandler) Observe(ctx context.Context, env core.Env, e core.E
 	return obs, nil
 }
 
-// Inverse deletes the proxy host the add made and drops every reservation of its change.
+// Inverse deletes the proxy host the add made and drops the reservations that add made: the host's, and the
+// certificate's the add recorded under the host's exposure. Reservations other adds of the change made are kept.
 func (h proxyhostAddHandler) Inverse(ctx context.Context, env core.Env, e core.Effect) (core.InverseResult, error) {
 	noun, name, creation, err := creationOf(e.Resource)
 	if err != nil {
@@ -549,8 +567,16 @@ func (h proxyhostAddHandler) Inverse(ctx context.Context, env core.Env, e core.E
 		return core.InverseResult{}, err
 	}
 	err = env.DB.Write(ctx, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, "DELETE FROM npm_reserved WHERE change_id = ?", e.ChangeID); err != nil {
-			return fmt.Errorf("npm: release the objects reserved by change %s: %w", e.ChangeID, err)
+		row, ok, err := reservedOf(ctx, tx, "proxy_host", id)
+		if err != nil || !ok || row.ChangeID != e.ChangeID {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "DELETE FROM npm_reserved WHERE kind = 'proxy_host' AND object_id = ?", id); err != nil {
+			return fmt.Errorf("npm: release proxy host %d: %w", id, err)
+		}
+		if _, err := tx.ExecContext(ctx, "DELETE FROM npm_reserved WHERE kind = 'certificate' AND change_id = ? AND exposure = ?",
+			e.ChangeID, row.Exposure); err != nil {
+			return fmt.Errorf("npm: release the certificate of exposure %s: %w", row.Exposure, err)
 		}
 		return nil
 	})

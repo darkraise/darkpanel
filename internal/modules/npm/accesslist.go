@@ -290,8 +290,8 @@ func (h accessListAddHandler) Apply(ctx context.Context, env core.Env, in Access
 	return accessListView(created), nil
 }
 
-// Verify checks that the list holds the input's mode and rules. Without an id in out it finds the list by the
-// change's name prefix, and exactly one list must carry it.
+// Verify checks that the list holds the input's mode and rules. Without an id in out it reads the change's lists, those
+// named darkpanel-<change id>-<seq> with seq all digits, and one of them must hold them.
 func (h accessListAddHandler) Verify(ctx context.Context, env core.Env, in AccessListInput, out AccessListView) error {
 	rules, err := accessListRules(in)
 	if err != nil {
@@ -301,33 +301,34 @@ func (h accessListAddHandler) Verify(ctx context.Context, env core.Env, in Acces
 	if err != nil {
 		return err
 	}
-	var list npmapi.AccessList
+	holds := func(l npmapi.AccessList) bool { return l.SatisfyAny == in.SatisfyAny && slices.Equal(l.Clients, rules) }
 	if out.ID != 0 {
-		list, err = api.AccessList(ctx, out.ID)
+		list, err := api.AccessList(ctx, out.ID)
 		if err != nil {
 			return fmt.Errorf("npm: read access list %d: %w", out.ID, err)
 		}
-	} else {
-		lists, err := api.AccessLists(ctx)
-		if err != nil {
-			return fmt.Errorf("npm: list the access lists: %w", err)
+		if !holds(list) {
+			return fmt.Errorf("npm: access list %d does not hold the requested mode and rules", list.ID)
 		}
-		prefix := "darkpanel-" + env.ChangeID + "-"
-		var mine []npmapi.AccessList
-		for _, l := range lists {
-			if strings.HasPrefix(l.Name, prefix) {
-				mine = append(mine, l)
-			}
-		}
-		if len(mine) != 1 {
-			return fmt.Errorf("npm: %d access lists are named %s<seq>, want one", len(mine), prefix)
-		}
-		list = mine[0]
+		return nil
 	}
-	if list.SatisfyAny != in.SatisfyAny || !slices.Equal(list.Clients, rules) {
-		return fmt.Errorf("npm: access list %d does not hold the requested mode and rules", list.ID)
+	lists, err := api.AccessLists(ctx)
+	if err != nil {
+		return fmt.Errorf("npm: list the access lists: %w", err)
 	}
-	return nil
+	prefix := "darkpanel-" + env.ChangeID + "-"
+	read := 0
+	for _, l := range lists {
+		seq, ok := strings.CutPrefix(l.Name, prefix)
+		if !ok || seq == "" || strings.Trim(seq, "0123456789") != "" {
+			continue
+		}
+		read++
+		if holds(l) {
+			return nil
+		}
+	}
+	return fmt.Errorf("npm: none of the %d access lists named %s<seq> holds the requested mode and rules", read, prefix)
 }
 
 // Observe reads the list of the effect.

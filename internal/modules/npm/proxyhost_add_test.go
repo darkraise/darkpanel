@@ -127,6 +127,9 @@ func TestPaValidate(t *testing.T) {
 		{name: "scheme", mutate: func(in *ProxyHostInput) { in.ForwardScheme = "ftp" }, field: "/forwardScheme"},
 		{name: "empty host", mutate: func(in *ProxyHostInput) { in.ForwardHost = "" }, field: "/forwardHost"},
 		{name: "host with a scheme", mutate: func(in *ProxyHostInput) { in.ForwardHost = "http://web" }, field: "/forwardHost"},
+		{name: "an IPv6 literal host", mutate: func(in *ProxyHostInput) { in.ForwardHost = "2001:db8::1" }, field: "/forwardHost"},
+		{name: "the IPv6 loopback host", mutate: func(in *ProxyHostInput) { in.ForwardHost = "::1" }, field: "/forwardHost"},
+		{name: "an IPv6 host with a zone", mutate: func(in *ProxyHostInput) { in.ForwardHost = "fe80::1%eth0" }, field: "/forwardHost"},
 		{name: "port zero", mutate: func(in *ProxyHostInput) { in.ForwardPort = 0 }, field: "/forwardPort"},
 		{name: "port too high", mutate: func(in *ProxyHostInput) { in.ForwardPort = 65536 }, field: "/forwardPort"},
 		{name: "forced ssl without a certificate", mutate: func(in *ProxyHostInput) { in.SSLForced = true }, field: "*"},
@@ -691,5 +694,166 @@ func TestPaDefinition(t *testing.T) {
 	var coded *errcode.Error
 	if !errors.As(err, &coded) || !slices.ContainsFunc(coded.Fields, func(f errcode.FieldError) bool { return f.Path == "/x" }) {
 		t.Errorf("an unknown field: %v, want a refusal naming /x", err)
+	}
+}
+
+// TestW10NvHostProblemSaysWhyAHostIsRefused: an IPv6 literal is refused because NPM writes the forward host into
+// proxy_pass without brackets, and a zone is refused for its own reason.
+func TestW10NvHostProblemSaysWhyAHostIsRefused(t *testing.T) {
+	tests := []struct {
+		host string
+		want string // a word the problem holds; "" accepted
+	}{
+		{"fe80::1%eth0", "zone"},
+		{"2001:db8::1", "brackets"},
+		{"::1", "brackets"},
+		{"::ffff:10.0.0.5", "brackets"},
+		{"10.0.0.5", ""},
+		{"web", ""},
+		{"web.internal", ""},
+	}
+	for _, tc := range tests {
+		got := proxyhostAddHostProblem(tc.host)
+		if (tc.want == "") != (got == "") || !strings.Contains(got, tc.want) {
+			t.Errorf("proxyhostAddHostProblem(%q) = %q, want a problem naming %q (none when empty)", tc.host, got, tc.want)
+		}
+	}
+}
+
+// TestW10NvAddEngineReadFailureIsNotARefusal: a failed read of the Engine says nothing about the upstream, so neither
+// the plan nor the apply marks it as a refusal.
+func TestW10NvAddEngineReadFailureIsNotARefusal(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name string
+		err  error
+		code errcode.Code // "": the error carries the Engine's own answer
+	}{
+		{"the Engine is unreachable", dockerapi.ErrUnavailable, errcode.DockerEngineUnavailable},
+		{"the Engine answers 500", thAPIError(500, "boom"), ""},
+	}
+	for _, tc := range tests {
+		for _, stage := range []string{"plan", "apply"} {
+			t.Run(tc.name+" at "+stage, func(t *testing.T) {
+				h, n := paHost(t)
+				h.docker.Fail("InspectContainer", tc.err)
+				var err error
+				if stage == "plan" {
+					_, err = n.proxyhostAdd().Handler.Plan(ctx, h.env(""), paJSON(t, paInput("a.example.com")))
+				} else {
+					_, err = paApply(t, h, n, "c1", "", paInput("a.example.com"))
+				}
+				if err == nil {
+					t.Fatal("the read failure was swallowed")
+				}
+				if core.IsDefinite(err) {
+					t.Errorf("error %v is marked Definite, though a failed read refuses nothing", err)
+				}
+				var coded *errcode.Error
+				var answer *dockerapi.APIError
+				switch {
+				case tc.code != "" && (!errors.As(err, &coded) || coded.Code != tc.code):
+					t.Errorf("error %v, want code %s", err, tc.code)
+				case tc.code == "" && !errors.As(err, &answer):
+					t.Errorf("error %v does not carry the Engine's answer", err)
+				}
+				if len(h.npm.ProxyHosts()) != 0 || len(h.journal.effects()) != 0 {
+					t.Error("a failed read created a proxy host or journaled an effect")
+				}
+			})
+		}
+	}
+}
+
+// TestW10NvAddRefusesASecondAdminExposure: while one exposure of NPM's admin UI is recorded, another npm.admin.expose
+// is refused with npm.reserved naming the hostname already exposed, and nothing is created for it. The panel's own
+// exposure is not an admin exposure, and the refusal ends with the exposure it names.
+func TestW10NvAddRefusesASecondAdminExposure(t *testing.T) {
+	ctx := context.Background()
+	admin := func(domain string) ProxyHostInput {
+		return ProxyHostInput{Domains: []string{domain}, ForwardScheme: "http", ForwardHost: "127.0.0.1", ForwardPort: 81}
+	}
+	h, n := paHost(t)
+	if _, err := paApply(t, h, n, "c1", paAdmin, admin("npm.example.com")); err != nil {
+		t.Fatal(err)
+	}
+	effects, reserved := len(h.journal.effects()), reservedCount(t, h)
+
+	for _, stage := range []string{"plan", "apply"} {
+		t.Run("a second admin exposure at "+stage, func(t *testing.T) {
+			var err error
+			if stage == "plan" {
+				_, err = n.proxyhostAdd().Handler.Plan(ctx, paEnv(h, "", paAdmin), paJSON(t, admin("npm2.example.com")))
+			} else {
+				_, err = paApply(t, h, n, "c2", paAdmin, admin("npm2.example.com"))
+			}
+			coded := paRefused(t, err, errcode.NPMReserved)
+			if !strings.Contains(coded.Detail, "npm.example.com") {
+				t.Errorf("detail %q does not name the hostname already exposed", coded.Detail)
+			}
+			if len(h.npm.ProxyHosts()) != 1 || len(h.journal.effects()) != effects || reservedCount(t, h) != reserved {
+				t.Error("a refused exposure created a proxy host, journaled an effect or reserved an object")
+			}
+		})
+	}
+
+	t.Run("the panel's exposure is allowed", func(t *testing.T) {
+		panel := ProxyHostInput{Domains: []string{"panel.example.com"}, ForwardScheme: "http", ForwardHost: "172.31.255.1", ForwardPort: 9443}
+		if _, err := paApply(t, h, n, "c3", paPanel, panel); err != nil {
+			t.Errorf("the panel exposure was refused: %v", err)
+		}
+	})
+
+	t.Run("a released exposure allows another", func(t *testing.T) {
+		err := h.db.Write(ctx, func(tx *sql.Tx) error { return proxyHostEditRelease(ctx, tx, "npm.example.com", paAdmin) })
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := paApply(t, h, n, "c4", paAdmin, admin("npm2.example.com")); err != nil {
+			t.Errorf("the admin exposure was refused after the first was released: %v", err)
+		}
+	})
+}
+
+// TestW10NvInverseReleasesOnlyItsOwnReservations: the undo of one add drops the reservations that add made, and
+// keeps those other exposures hold, even when they were recorded under the same change.
+func TestW10NvInverseReleasesOnlyItsOwnReservations(t *testing.T) {
+	ctx := context.Background()
+	h, n := paHost(t)
+	cert := h.npm.SeedCertificate(npmapi.Certificate{NiceName: "c", Provider: "letsencrypt", DomainNames: []string{"npm.example.com"}})
+	in := ProxyHostInput{Domains: []string{"npm.example.com"}, ForwardScheme: "http", ForwardHost: "127.0.0.1", ForwardPort: 81,
+		CertificateID: cert.ID, SSLForced: true}
+	out, err := paApply(t, h, n, "c1", paAdmin, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	others := []reservedRow{
+		{Kind: "proxy_host", ObjectID: out.ID + 100, Owner: paPanel, Exposure: "panel.example.com", ChangeID: "c1"},
+		{Kind: "certificate", ObjectID: cert.ID + 100, Owner: paPanel, Exposure: "panel.example.com", ChangeID: "c1"},
+	}
+	err = h.db.Write(ctx, func(tx *sql.Tx) error {
+		for _, r := range others {
+			if err := addReserved(ctx, tx, r); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := n.proxyhostAdd().Handler.Inverse(ctx, h.env("u1"), h.journal.effects()[0]); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := reservedOf(ctx, h.db.Read(), "proxy_host", out.ID); ok {
+		t.Error("the undone host is still reserved")
+	}
+	if _, ok, _ := reservedOf(ctx, h.db.Read(), "certificate", cert.ID); ok {
+		t.Error("the certificate the undone add reserved is still reserved")
+	}
+	for _, r := range others {
+		if _, ok, _ := reservedOf(ctx, h.db.Read(), r.Kind, r.ObjectID); !ok {
+			t.Errorf("the undo dropped the reservation of %s %d, which another exposure holds", r.Kind, r.ObjectID)
+		}
 	}
 }

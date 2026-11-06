@@ -302,11 +302,11 @@ func (h networkAttachHandler) check(ctx context.Context, env core.Env, in Attach
 		return networkAttachCheck{}, core.Definite(err)
 	}
 	ck := networkAttachCheck{network: network, container: c, endpoint: ep, targetID: targetID, claims: all, connect: ep == nil, claim: true}
-	switch {
-	case len(all) == 0:
-		ck.preexisting = ep != nil
-	default:
-		ck.preexisting = all[0].Preexisting
+	// Claims that disagree on the mark take the answer under which a detach never removes NPM from a network it may
+	// have been on before the first claim.
+	ck.preexisting = len(all) == 0 && ep != nil
+	for _, existing := range all {
+		ck.preexisting = ck.preexisting || existing.Preexisting
 	}
 	for _, existing := range all {
 		if existing.Claimant == in.Claimant {
@@ -722,7 +722,8 @@ func (c networkClaims) claimRestore(ctx context.Context, env core.Env, e core.Ef
 	})
 }
 
-// networkUndoConnect disconnects NPM from the network e joined, refused while a claim of another change needs it.
+// networkUndoConnect disconnects NPM from the network e joined, refused while a claim of another change needs it. A
+// refused disconnect while NPM is not on the network is done: an earlier run whose answer was lost already made it.
 func (c networkClaims) networkUndoConnect(ctx context.Context, env core.Env, e core.Effect, network string) error {
 	all, err := claims(ctx, env.DB.Read(), network)
 	if err != nil {
@@ -739,6 +740,9 @@ func (c networkClaims) networkUndoConnect(ctx context.Context, env core.Env, e c
 	case err == nil, dockerapi.IsNotFound(err):
 		return nil
 	case refused(err):
+		if on, inspectErr := c.npmOnNetwork(ctx, network); inspectErr == nil && !on {
+			return nil
+		}
 		return core.Definite(fmt.Errorf("npm: disconnect %s from network %s: %w", containerName, network, err))
 	default:
 		return fmt.Errorf("npm: disconnect %s from network %s: %w", containerName, network, engineCoded(err))
@@ -746,15 +750,31 @@ func (c networkClaims) networkUndoConnect(ctx context.Context, env core.Env, e c
 }
 
 // networkUndoDisconnect reconnects NPM to the network e left. The Engine assigns the address; a static address the
-// endpoint had is not restored.
+// endpoint had is not restored. A refused reconnect while NPM is on the network is done: an earlier run whose answer
+// was lost already made it.
 func (c networkClaims) networkUndoDisconnect(ctx context.Context, network string) (core.InverseResult, error) {
 	err := c.n.d.docker.ConnectNetwork(ctx, network, containerName, nil)
 	switch {
 	case err == nil:
 		return core.InverseResult{Resource: resourceOf(nounEndpoint, network)}, nil
 	case refused(err):
+		if on, inspectErr := c.npmOnNetwork(ctx, network); inspectErr == nil && on {
+			return core.InverseResult{Resource: resourceOf(nounEndpoint, network)}, nil
+		}
 		return core.InverseResult{}, core.Definite(fmt.Errorf("npm: connect %s to network %s: %w", containerName, network, err))
 	default:
 		return core.InverseResult{}, fmt.Errorf("npm: connect %s to network %s: %w", containerName, network, engineCoded(err))
 	}
+}
+
+// npmOnNetwork reports whether the NPM container is on the network; a missing container is not on it.
+func (c networkClaims) npmOnNetwork(ctx context.Context, network string) (bool, error) {
+	ct, err := c.n.d.docker.InspectContainer(ctx, containerName)
+	switch {
+	case dockerapi.IsNotFound(err):
+		return false, nil
+	case err != nil:
+		return false, err
+	}
+	return ct.NetworkSettings.Networks[network] != nil, nil
 }

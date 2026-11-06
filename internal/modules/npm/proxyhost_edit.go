@@ -259,7 +259,7 @@ func (h proxyHostUpdateHandler) check(ctx context.Context, env core.Env, in Prox
 		return nil, npmapi.ProxyHost{}, npmapi.ProxyHostBody{}, err
 	}
 	if err := h.n.checkUpstream(ctx, env, in.ProxyHostInput); err != nil {
-		return nil, npmapi.ProxyHost{}, npmapi.ProxyHostBody{}, core.Definite(err)
+		return nil, npmapi.ProxyHost{}, npmapi.ProxyHostBody{}, err
 	}
 	hosts, err := api.ProxyHosts(ctx)
 	if err != nil {
@@ -454,6 +454,11 @@ func (h proxyHostRemoveHandler) target(ctx context.Context, env core.Env, in Pro
 		t.host, t.exists = proxyHostRemoveFind(hosts, in.Domain)
 	}
 	if !t.exists {
+		if in.ID > 0 {
+			if t.row, _, err = reservedOf(ctx, env.DB.Read(), "proxy_host", in.ID); err != nil {
+				return proxyHostRemoveTarget{}, core.Definite(err)
+			}
+		}
 		return t, nil
 	}
 	t.row, t.reserved, err = h.refuseReserved(ctx, env, t.host.ID)
@@ -487,7 +492,8 @@ func (h proxyHostRemoveHandler) Plan(ctx context.Context, env core.Env, in Proxy
 
 // Apply deletes the host and, under its owner's removal, releases that owner's records of the exposure. A host already
 // gone changes nothing in NPM, but under an exposure's removal by domain the removing owner's records are still
-// released, so a removal cut off before its bookkeeping is completed by running it again.
+// released, as are the records of a host's reservation under its owner's removal by id, so a removal cut off before
+// its bookkeeping is completed by running it again.
 func (h proxyHostRemoveHandler) Apply(ctx context.Context, env core.Env, in ProxyHostRemoveInput) (ProxyHostView, error) {
 	t, err := h.target(ctx, env, in)
 	if err != nil {
@@ -496,6 +502,12 @@ func (h proxyHostRemoveHandler) Apply(ctx context.Context, env core.Env, in Prox
 	if !t.exists {
 		view := ProxyHostView{ID: in.ID, Domains: []string{}}
 		if in.Domain == "" {
+			// A zero row has no owner, so no removal matches it.
+			if removal, known := proxyHostEditRemoval[t.row.Owner]; known && env.Call.ParentAction == removal {
+				if err := env.DB.Write(ctx, func(tx *sql.Tx) error { return proxyHostEditRelease(ctx, tx, t.row.Exposure, t.row.Owner) }); err != nil {
+					return ProxyHostView{}, err
+				}
+			}
 			return view, nil
 		}
 		view.Domains = []string{in.Domain}
@@ -515,10 +527,13 @@ func (h proxyHostRemoveHandler) Apply(ctx context.Context, env core.Env, in Prox
 	e.After = &after
 	e.InverseRecovery = &core.RecoveryID{Kind: "name", Value: proxyHostEditKey(t.host.DomainNames)}
 	err = h.n.run(ctx, env, e, h.Observe, func(ctx context.Context) (string, error) {
-		if err := t.api.DeleteProxyHost(ctx, t.host.ID); err != nil {
+		err := t.api.DeleteProxyHost(ctx, t.host.ID)
+		switch {
+		case err == nil, npmapi.IsNotFound(err):
+			return resource, nil
+		default:
 			return "", proxyhostAddAnswer(err)
 		}
-		return resource, nil
 	})
 	if err != nil {
 		return ProxyHostView{}, err

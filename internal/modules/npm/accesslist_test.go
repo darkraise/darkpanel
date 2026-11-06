@@ -175,6 +175,7 @@ func TestAlAddPlanRefusesInvalidInput(t *testing.T) {
 	}{
 		{"no clients", AccessListInput{}, "/clients"},
 		{"not an address", AccessListInput{Clients: []AccessClientInput{{Address: "ten", Directive: "allow"}}}, "/clients/0/address"},
+		{"an address with an IPv6 zone", AccessListInput{Clients: []AccessClientInput{{Address: "fe80::1%eth0", Directive: "allow"}}}, "/clients/0/address"},
 		{"unmasked prefix", AccessListInput{Clients: []AccessClientInput{{Address: "10.0.0.5/8", Directive: "allow"}}}, "/clients/0/address"},
 		{"unknown directive", AccessListInput{Clients: []AccessClientInput{{Address: "10.0.0.1", Directive: "allow"}, {Address: "10.0.0.2", Directive: "permit"}}}, "/clients/1/directive"},
 	} {
@@ -289,8 +290,8 @@ func TestAlAddVerifyFindsTheListFromTheChangeAlone(t *testing.T) {
 		t.Errorf("Verify with the zero output: %v", err)
 	}
 	h.npm.SeedAccessList(npmapi.AccessList{Name: "darkpanel-c1-9", Clients: []npmapi.AccessClient{{Address: "10.1.1.1", Directive: "allow"}}})
-	if err := handler.Verify(ctx, env, alInput(), AccessListView{}); err == nil {
-		t.Error("Verify with the zero output passed although two lists carry the change id")
+	if err := handler.Verify(ctx, env, alInput(), AccessListView{}); err != nil {
+		t.Errorf("Verify with the zero output failed although one of the change's two lists holds the rules: %v", err)
 	}
 }
 
@@ -687,5 +688,36 @@ func TestRrAccessListRemoveReleasesOnlyItsOwnersReservations(t *testing.T) {
 		{Kind: "proxy_host", ObjectID: 41},
 		{Kind: "proxy_host", ObjectID: 42, Owner: "panel.exposure.add"},
 		{Kind: "certificate", ObjectID: 43, Owner: "panel.exposure.add"},
+	})
+}
+
+// TestW10NvAddVerifyReadsOnlyTheChangesLists: with no id in the output, Verify looks at the lists named
+// darkpanel-<change id>-<sequence number>, no others, and wants one of them to hold the requested rules.
+func TestW10NvAddVerifyReadsOnlyTheChangesLists(t *testing.T) {
+	ctx := context.Background()
+	rules := []npmapi.AccessClient{{Address: "10.0.0.0/8", Directive: "allow"}, {Address: "10.9.0.5", Directive: "deny"}}
+
+	t.Run("no list of the change holds the rules", func(t *testing.T) {
+		h, n := alSetup(t)
+		h.addChange("c1", "npm.accesslist.add")
+		env := h.env("c1")
+		handler := accessListAddHandler{n: n}
+		if _, err := handler.Apply(ctx, env, alInput()); err != nil {
+			t.Fatal(err)
+		}
+		h.npm.SeedAccessList(npmapi.AccessList{Name: "darkpanel-c1-9", Clients: []npmapi.AccessClient{{Address: "10.1.1.1", Directive: "allow"}}})
+		other := AccessListInput{Clients: []AccessClientInput{{Address: "192.0.2.1", Directive: "allow"}}}
+		if err := handler.Verify(ctx, env, other, AccessListView{}); err == nil {
+			t.Error("Verify passed for rules none of the change's lists holds")
+		}
+	})
+
+	t.Run("a list of another change whose id extends this one", func(t *testing.T) {
+		h, n := alSetup(t)
+		h.npm.SeedAccessList(npmapi.AccessList{Name: "darkpanel-c1-2-1", Clients: rules})
+		handler := accessListAddHandler{n: n}
+		if err := handler.Verify(ctx, h.env("c1"), alInput(), AccessListView{}); err == nil {
+			t.Error("Verify of change c1 passed on the list darkpanel-c1-2-1, which belongs to change c1-2")
+		}
 	})
 }

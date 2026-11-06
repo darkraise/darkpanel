@@ -230,7 +230,8 @@ func TestDpPlan(t *testing.T) {
 		}
 		for _, email := range []string{"", "ops", "ops@", "@darkpanel.dev", "Ops <ops@darkpanel.dev>", "ops@darkpanel.dev, a@b.dev",
 			"ops@localhost", "ops@box", "ops@example.com", "ops@mail.example.org", "ops@example.net",
-			"ops@192.0.2.1", "ops@[192.0.2.1]", "ops@[2001:db8::1]", "ops@corp.internal", "ops@server.lan", "ops@printer.local", "ops@x.invalid", "ops@harness.test", "ops@x.example", "ops@router.home.arpa"} {
+			"ops@192.0.2.1", "ops@[192.0.2.1]", "ops@[2001:db8::1]", "ops@corp.internal", "ops@server.lan", "ops@printer.local", "ops@x.invalid", "ops@harness.test", "ops@x.example", "ops@router.home.arpa",
+			"ops@127.1", "ops@1.2.3", "ops@mail.123"} {
 			h := newTHHost(t)
 			_, err := plan(h, h.nm(), email)
 			var coded *errcode.Error
@@ -294,6 +295,15 @@ func TestDpPlan(t *testing.T) {
 			{"port 443", []netstat.Socket{sock(netstat.ProtoTCP, 443, netstat.StateListen, "")}, []string{"443/tcp is in use by an unknown process"}},
 			{"both", []netstat.Socket{sock(netstat.ProtoTCP, 80, netstat.StateListen, "apache2"), sock(netstat.ProtoTCP, 443, netstat.StateListen, "apache2")},
 				[]string{"80/tcp is in use by apache2", "443/tcp is in use by apache2"}},
+			{"the same port on both address families", []netstat.Socket{
+				sock(netstat.ProtoTCP, 80, netstat.StateListen, "nginx"),
+				{Proto: netstat.ProtoTCP, Local: netip.AddrPortFrom(netip.IPv6Unspecified(), 80), State: netstat.StateListen,
+					Processes: []netstat.Process{{PID: 7, Comm: "nginx"}}},
+			}, []string{"80/tcp is in use by nginx"}},
+			{"a port whose first listener has no process", []netstat.Socket{
+				sock(netstat.ProtoTCP, 80, netstat.StateListen, ""),
+				sock(netstat.ProtoTCP, 80, netstat.StateListen, "nginx"),
+			}, []string{"80/tcp is in use by nginx"}},
 			{"an established connection", []netstat.Socket{sock(netstat.ProtoTCP, 80, netstat.StateEstablished, "curl")}, nil},
 			{"udp", []netstat.Socket{sock(netstat.ProtoUDP, 443, netstat.StateClose, "quic")}, nil},
 			{"the admin port", []netstat.Socket{sock(netstat.ProtoTCP, 81, netstat.StateListen, "other")}, nil},
@@ -533,6 +543,23 @@ func TestDpApplyRefuses(t *testing.T) {
 		}
 		if len(h.journal.effects()) != 0 || len(dpMutated(h)) != 0 {
 			t.Errorf("a refused deploy changed something: %v", dpMutated(h))
+		}
+	})
+	t.Run("an Engine object created during the image pull", func(t *testing.T) {
+		h := newTHHost(t)
+		n := h.nm()
+		n.d.docker = &w10nvPullDocker{thDocker: h.docker, during: func() {
+			h.docker.putVolume(dockerapi.Volume{Name: certVolume})
+		}}
+		_, err := dpApply(h, n, "c1")
+		if err == nil || !core.IsDefinite(err) || dpCode(t, err) != errcode.DockerInUse {
+			t.Errorf("error %v, want a Definite docker.in_use", err)
+		}
+		if got := dpMutated(h); !slices.Equal(got, []string{"PullImage"}) {
+			t.Errorf("Engine changes %v, want the pull alone: nothing may be created or adopted after it", got)
+		}
+		if len(h.journal.effects()) != 0 {
+			t.Errorf("effects %+v, want none", h.journal.effects())
 		}
 	})
 	t.Run("a port taken since the plan", func(t *testing.T) {
@@ -1037,4 +1064,17 @@ func TestDpNoSecrets(t *testing.T) {
 	if len(c.Config.Env) != 0 {
 		t.Errorf("the container has an environment %v: the password must not reach it", c.Config.Env)
 	}
+}
+
+// w10nvPullDocker is the test Engine whose image pull runs a hook before it answers, as another client acts while the
+// image downloads.
+type w10nvPullDocker struct {
+	*thDocker
+	during func()
+}
+
+func (d *w10nvPullDocker) PullImage(ctx context.Context, ref string) (pullStream, error) {
+	s, err := d.thDocker.PullImage(ctx, ref)
+	d.during()
+	return s, err
 }

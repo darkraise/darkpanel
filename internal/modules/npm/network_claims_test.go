@@ -885,3 +885,111 @@ func TestNwDefinition(t *testing.T) {
 		}
 	}
 }
+
+// TestW10NvUndoRepeatedAfterALostResponse: the undo of a connection or a disconnection that an earlier run already made
+// is done, not refused; a refusal while the endpoint is still as it was stays a refusal.
+func TestW10NvUndoRepeatedAfterALostResponse(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("a reconnect repeated is done", func(t *testing.T) {
+		h, user := nwSetup(t)
+		nwSeedAttached(t, h, user, nwClaimant, false)
+		if _, err := nwApplyDetach(t, h, "c2", DetachInput{Network: nwNet, Claimant: nwClaimant}); err != nil {
+			t.Fatal(err)
+		}
+		var endpoint core.Effect
+		for _, e := range h.journal.effects() {
+			if e.Kind == core.EffectModify {
+				endpoint = e
+			}
+		}
+		for i := 1; i <= 2; i++ {
+			res, err := h.nm().networkDetach().Handler.Inverse(ctx, h.env("u1"), endpoint)
+			if err != nil {
+				t.Fatalf("inverse %d: %v", i, err)
+			}
+			if res.Resource != "npm.endpoint:appnet" {
+				t.Errorf("inverse %d names %q, want npm.endpoint:appnet", i, res.Resource)
+			}
+		}
+		if nwEndpoint(t, h, user.ID) == nil {
+			t.Error("NPM is not on the network")
+		}
+	})
+
+	t.Run("a disconnect repeated is done", func(t *testing.T) {
+		h, user := nwSetup(t)
+		if _, err := nwApplyAttach(t, h, "c1", AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"}); err != nil {
+			t.Fatal(err)
+		}
+		endpoint := h.journal.effects()[0]
+		for i := 1; i <= 2; i++ {
+			if _, err := h.nm().networkAttach().Handler.Inverse(ctx, h.env("u1"), endpoint); err != nil {
+				t.Fatalf("inverse %d: %v", i, err)
+			}
+		}
+		if nwEndpoint(t, h, user.ID) != nil {
+			t.Error("NPM is still on the network")
+		}
+	})
+
+	t.Run("a refused reconnect stays refused", func(t *testing.T) {
+		h, user := nwSetup(t)
+		nwSeedAttached(t, h, user, nwClaimant, false)
+		if _, err := nwApplyDetach(t, h, "c2", DetachInput{Network: nwNet, Claimant: nwClaimant}); err != nil {
+			t.Fatal(err)
+		}
+		var endpoint core.Effect
+		for _, e := range h.journal.effects() {
+			if e.Kind == core.EffectModify {
+				endpoint = e
+			}
+		}
+		h.docker.Fail("ConnectNetwork", thAPIError(403, "forbidden"))
+		_, err := h.nm().networkDetach().Handler.Inverse(ctx, h.env("u1"), endpoint)
+		if err == nil || !core.IsDefinite(err) {
+			t.Errorf("error %v, want a Definite refusal while NPM is not on the network", err)
+		}
+		if nwEndpoint(t, h, user.ID) != nil {
+			t.Error("NPM joined the network despite the refusal")
+		}
+	})
+
+	t.Run("a refused disconnect stays refused", func(t *testing.T) {
+		h, user := nwSetup(t)
+		if _, err := nwApplyAttach(t, h, "c1", AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"}); err != nil {
+			t.Fatal(err)
+		}
+		h.docker.Fail("DisconnectNetwork", thAPIError(403, "forbidden"))
+		_, err := h.nm().networkAttach().Handler.Inverse(ctx, h.env("u1"), h.journal.effects()[0])
+		if err == nil || !core.IsDefinite(err) {
+			t.Errorf("error %v, want a Definite refusal while NPM is on the network", err)
+		}
+		if nwEndpoint(t, h, user.ID) == nil {
+			t.Error("NPM left the network despite the refusal")
+		}
+	})
+}
+
+// TestW10NvAttachFollowsEveryClaimsPreexistingMark: when the claims on a network disagree on whether NPM was there
+// before the first claim, a new claim takes the safe answer, that it was, so a later detach never removes NPM from a
+// network it may have been on.
+func TestW10NvAttachFollowsEveryClaimsPreexistingMark(t *testing.T) {
+	h, user := nwSetup(t)
+	nwConnect(t, h, user, nil)
+	nwClaim(t, h, nwNet, "a-claimant", "c0", false)
+	nwClaim(t, h, nwNet, "b-claimant", "c0", true)
+
+	out, err := nwApplyAttach(t, h, "c1", AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !out.Preexisting {
+		t.Errorf("attachment %+v, want Preexisting, as the claim of b-claimant says", out)
+	}
+	for _, c := range nwClaims(t, h, nwNet) {
+		if c.Claimant == nwClaimant && !c.Preexisting {
+			t.Errorf("the new claim %+v was recorded as not preexisting", c)
+		}
+	}
+}
