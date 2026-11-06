@@ -204,6 +204,7 @@ func (h instanceUpgradeHandler) Apply(ctx context.Context, env core.Env, _ Upgra
 // is definite, because the step had already changed the host, whatever its cause.
 func (h instanceUpgradeHandler) fail(ctx context.Context, env core.Env, step string, cause error) error {
 	cause = notDefinite(cause)
+	interrupted := ctx.Err() != nil
 	ctx = context.WithoutCancel(ctx)
 	u, ok, rbErr := loadUpgrade(ctx, env.DB.Read(), env.ChangeID)
 	if rbErr == nil && !ok {
@@ -215,7 +216,7 @@ func (h instanceUpgradeHandler) fail(ctx context.Context, env core.Env, step str
 	rbErr = notDefinite(rbErr)
 	if step == "wait" {
 		lead := "the new Nginx Proxy Manager container did not answer within " + waitText()
-		if errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded) {
+		if interrupted {
 			lead = "the upgrade was interrupted while waiting for the new Nginx Proxy Manager container"
 		}
 		if rbErr != nil {

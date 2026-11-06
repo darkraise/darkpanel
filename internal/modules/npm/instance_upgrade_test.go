@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/netip"
@@ -1157,4 +1158,29 @@ func TestW10NuFailedUpgradeIsNeverDefinite(t *testing.T) {
 			}
 		})
 	}
+}
+
+// w10nuHungDown is an NPM client whose every probe runs out its own deadline.
+type w10nuHungDown struct{ npmAPI }
+
+func (w10nuHungDown) Health(context.Context) (npmapi.Health, error) {
+	return npmapi.Health{}, fmt.Errorf("npmapi: %w", context.DeadlineExceeded)
+}
+
+// TestW10NuHungProbeIsReportedAsATimeout: a wait that runs out because every probe hangs until its own deadline is a
+// timeout, not an interruption, because the upgrade's own context is still live.
+func TestW10NuHungProbeIsReportedAsATimeout(t *testing.T) {
+	s := upNewSetup(t, upFromImage, true)
+	inner := s.n.d.anon
+	s.n.d.anon = func() npmAPI { return w10nuHungDown{npmAPI: inner()} }
+	_, err := s.apply()
+	var coded *errcode.Error
+	if !errors.As(err, &coded) || coded.Code != errcode.NPMUnhealthy {
+		t.Fatalf("error %v, want an npm.unhealthy error", err)
+	}
+	const want = "the new Nginx Proxy Manager container did not answer within 120 s; the original container and volumes were restored"
+	if coded.Detail != want {
+		t.Errorf("detail %q, want %q", coded.Detail, want)
+	}
+	s.wantRestored()
 }
