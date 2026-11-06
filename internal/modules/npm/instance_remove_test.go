@@ -506,3 +506,225 @@ func TestRmDefinition(t *testing.T) {
 		}
 	}
 }
+
+// w10nrSeedUpgrade records a finished upgrade of change id with one archive of each volume on the host, and returns
+// the archive names in order.
+func w10nrSeedUpgrade(t *testing.T, h *thHost, id string) []string {
+	t.Helper()
+	ctx := context.Background()
+	h.addChange(id, "npm.instance.upgrade")
+	err := insertUpgrade(ctx, h.db, upgradeRow{ChangeID: id, FromImage: "jc21/nginx-proxy-manager:2.12.0", ToImage: Image, UpdatedAt: h.clock.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := []string{id + "-data.tar", id + "-letsencrypt.tar"}
+	refs := []archiveRef{{Volume: dataVolume, File: names[0], SHA256: "x"}, {Volume: certVolume, File: names[1], SHA256: "x"}}
+	for _, name := range names {
+		if err := h.WriteManaged(ctx, ID, backupDir, name, []byte("archive "+name), 0o600, 0, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := setUpgradePhase(ctx, h.db, id, "done", "", refs, h.clock.Now()); err != nil {
+		t.Fatal(err)
+	}
+	return names
+}
+
+// w10nrApply applies npm.instance.remove as change.
+func w10nrApply(t *testing.T, h *thHost, change string) error {
+	t.Helper()
+	h.addChange(change, "npm.instance.remove")
+	_, err := h.nm().instanceRemove().Handler.Apply(context.Background(), h.env(change), json.RawMessage(`{}`))
+	return err
+}
+
+// w10nrArchivesLeft lists the files the host still holds in the backup directory.
+func w10nrArchivesLeft(h *thHost) []string {
+	var left []string
+	for name := range h.files {
+		if rest, ok := strings.CutPrefix(name, backupDir+"/"); ok {
+			left = append(left, rest)
+		}
+	}
+	slices.Sort(left)
+	return left
+}
+
+// w10nrUpgradeRows counts the npm_upgrades rows.
+func w10nrUpgradeRows(t *testing.T, h *thHost) int {
+	t.Helper()
+	var n int
+	if err := h.db.Read().QueryRowContext(context.Background(), "SELECT count(*) FROM npm_upgrades").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// TestW10NrApplyDeletesTheUpgradeArchives: the removal deletes every archive in the backup directory, each as a
+// journaled delete after the Engine objects, and the npm_upgrades rows.
+func TestW10NrApplyDeletesTheUpgradeArchives(t *testing.T) {
+	h, _ := rmDeployed(t)
+	names := slices.Concat(w10nrSeedUpgrade(t, h, "u1"), w10nrSeedUpgrade(t, h, "u2"))
+	if err := w10nrApply(t, h, "c1"); err != nil {
+		t.Fatal(err)
+	}
+	if left := w10nrArchivesLeft(h); len(left) != 0 {
+		t.Errorf("files %v are left in %s, want none", left, backupDir)
+	}
+	if n := w10nrUpgradeRows(t, h); n != 0 {
+		t.Errorf("npm_upgrades holds %d rows, want 0", n)
+	}
+	effects := h.journal.effects()
+	if len(effects) != 4+len(names) {
+		t.Fatalf("%d effects, want the four Engine objects and %d archives: %+v", len(effects), len(names), effects)
+	}
+	for i, name := range names {
+		e := effects[4+i]
+		if e.Kind != core.EffectDelete || e.Resource != "npm.archive:"+name || e.State != core.EffectMade {
+			t.Errorf("effect %d is %+v, want a made delete of npm.archive:%s", 4+i, e, name)
+		}
+		if want := `{"file":"` + name + `"}`; string(e.Before.State) != want {
+			t.Errorf("effect %d before-state %s, want %s", 4+i, e.Before.State, want)
+		}
+		if e.Post == nil || string(e.Post.State) != "null" {
+			t.Errorf("effect %d post %+v, want the absent state null", 4+i, e.Post)
+		}
+	}
+}
+
+// TestW10NrPlanStatesTheArchiveDeletion: the plan names every archive and the records that go with the instance,
+// and a plan made before an archive appeared is stale.
+func TestW10NrPlanStatesTheArchiveDeletion(t *testing.T) {
+	ctx := context.Background()
+	h, inst := rmDeployed(t)
+	def := h.nm().instanceRemove()
+	plan := func() core.PlanOutcome {
+		t.Helper()
+		out, err := def.Handler.Plan(ctx, h.env(""), json.RawMessage(`{}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	before := plan()
+	names := w10nrSeedUpgrade(t, h, "u1")
+	after := plan()
+	want := slices.Concat(rmContainerDiff(inst, true), rmVolumeDiff, []core.DiffLine{
+		{Op: "-", Text: "network darkpanel-npm"},
+		{Op: "-", Text: "upgrade archive " + names[0]},
+		{Op: "-", Text: "upgrade archive " + names[1]},
+		{Op: " ", Text: "the upgrade archives hold copies of the instance's data and certificates, private keys included, and are deleted with it"},
+		{Op: "-", Text: "the records of the instance's past upgrades"},
+		{Op: "-", Text: "the stored admin password and the attachment claims of this instance"},
+	})
+	if !slices.Equal(after.Diff, want) {
+		t.Errorf("diff %v, want %v", after.Diff, want)
+	}
+	if after.StateHash == before.StateHash {
+		t.Error("the hash did not change when archives and upgrade records appeared")
+	}
+}
+
+// TestW10NrVerifyFindsLeftoverArchivesAndRecords: after a removal, an archive in the backup directory or an
+// npm_upgrades row is something the removal left.
+func TestW10NrVerifyFindsLeftoverArchivesAndRecords(t *testing.T) {
+	ctx := context.Background()
+	h, _ := rmDeployed(t)
+	def := h.nm().instanceRemove()
+	if err := w10nrApply(t, h, "c1"); err != nil {
+		t.Fatal(err)
+	}
+	verify := func() error {
+		return def.Handler.Verify(ctx, h.env("c1"), json.RawMessage(`{}`), json.RawMessage(`{}`))
+	}
+	if err := verify(); err != nil {
+		t.Fatalf("verify after the removal: %v", err)
+	}
+	if err := h.WriteManaged(ctx, ID, backupDir, "u9-data.tar", []byte("x"), 0o600, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := verify(); err == nil || !strings.Contains(err.Error(), "the upgrade archive u9-data.tar") {
+		t.Errorf("verify with an archive left: %v, want an error naming the upgrade archive u9-data.tar", err)
+	}
+	if err := h.RemoveManaged(ctx, ID, backupDir, "u9-data.tar"); err != nil {
+		t.Fatal(err)
+	}
+	h.addChange("u8", "npm.instance.upgrade")
+	if err := insertUpgrade(ctx, h.db, upgradeRow{ChangeID: "u8", FromImage: "a", ToImage: "b", UpdatedAt: h.clock.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := verify(); err == nil || !strings.Contains(err.Error(), "the upgrade records") {
+		t.Errorf("verify with an upgrade row left: %v, want an error naming the upgrade records", err)
+	}
+}
+
+// TestW10NrObserveReadsAnArchive: an archive's effect reads as its file while the file exists and as the null state
+// once it is gone.
+func TestW10NrObserveReadsAnArchive(t *testing.T) {
+	ctx := context.Background()
+	h, _ := rmDeployed(t)
+	def := h.nm().instanceRemove()
+	names := w10nrSeedUpgrade(t, h, "u1")
+	e := core.Effect{Kind: core.EffectDelete, Resource: "npm.archive:" + names[0], State: core.EffectIntended}
+	obs, err := def.Handler.Observe(ctx, h.env("c1"), e)
+	if want := `{"file":"u1-data.tar"}`; err != nil || string(obs.Current.State) != want {
+		t.Errorf("observation %s (%v), want %s while the file exists", obs.Current.State, err, want)
+	}
+	if err := h.RemoveManaged(ctx, ID, backupDir, names[0]); err != nil {
+		t.Fatal(err)
+	}
+	obs, err = def.Handler.Observe(ctx, h.env("c1"), e)
+	if err != nil || string(obs.Current.State) != "null" {
+		t.Errorf("observation %s (%v), want null once the file is gone", obs.Current.State, err)
+	}
+}
+
+// TestW10NrFailedBeforeStateReadIsDefinite: when the Engine cannot be read for the before-state of the first removal,
+// nothing was changed, so the refusal is definite and no effect is journaled.
+func TestW10NrFailedBeforeStateReadIsDefinite(t *testing.T) {
+	h, _ := rmDeployed(t)
+	// The first InspectContainer is the check of the target; the second is the before-state read of the removal.
+	h.docker.Fail("InspectContainer", nil)
+	h.docker.Fail("InspectContainer", dockerapi.ErrUnavailable)
+	err := w10nrApply(t, h, "c1")
+	if err == nil || !core.IsDefinite(err) {
+		t.Fatalf("error %v, want a definite refusal", err)
+	}
+	if slices.Contains(h.docker.calls(), "RemoveContainer") {
+		t.Error("the container was removed after its before-state could not be read")
+	}
+	if n := len(h.journal.effects()); n != 0 {
+		t.Errorf("%d effects journaled, want none", n)
+	}
+	if n := rmCount(t, h, "npm_instances"); n != 1 {
+		t.Errorf("npm_instances holds %d rows, want the instance kept", n)
+	}
+}
+
+// TestW10NrReservedRefusalNamesEveryExposure: the refusal lists each exposure that reserves an object once, in name
+// order, however many objects an exposure reserves. It pins the existing behaviour for more than one exposure.
+func TestW10NrReservedRefusalNamesEveryExposure(t *testing.T) {
+	ctx := context.Background()
+	h, inst := rmDeployed(t)
+	rmReserve(t, h, inst)
+	err := h.db.Write(ctx, func(tx *sql.Tx) error {
+		for _, r := range []reservedRow{
+			{Kind: "access_list", ObjectID: 3, Owner: "npm.admin.expose", Exposure: "npm.example.com", ChangeID: "c0"},
+			{Kind: "proxy_host", ObjectID: 8, Owner: "panel.exposure.add", Exposure: "app.example.com", ChangeID: "c0"},
+		} {
+			if err := addReserved(ctx, tx, r); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = h.nm().instanceRemove().Handler.Plan(ctx, h.env(""), json.RawMessage(`{}`))
+	coded := rmRefused(t, err, errcode.NPMReserved)
+	want := "the exposures app.example.com, npm.example.com reserve objects of this Nginx Proxy Manager instance; remove them first"
+	if coded.Detail != want {
+		t.Errorf("detail %q, want %q", coded.Detail, want)
+	}
+}

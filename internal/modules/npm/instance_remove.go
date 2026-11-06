@@ -5,7 +5,12 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -30,13 +35,20 @@ func (n nm) instanceRemove() core.ActionDef {
 // instanceRemoveHandler is the handler of npm.instance.remove.
 type instanceRemoveHandler struct{ n nm }
 
-// instanceRemoveTarget is what a removal finds: the instance row and the Engine objects of the instance that exist.
+// nounUpgradeArchive is the resource noun of an upgrade archive the removal deletes; a resource is
+// "npm.archive:<file name>".
+const nounUpgradeArchive = "npm.archive"
+
+// instanceRemoveTarget is what a removal finds: the instance row, the Engine objects of the instance that exist, the
+// upgrade archives on the host and the number of upgrade records.
 type instanceRemoveTarget struct {
 	row         instanceRow
 	containerID string // "" when the container does not exist
 	running     bool
 	volumes     []string // the existing volumes, the data volume first
 	networkID   string   // "" when the network does not exist
+	archives    []string // the file names of the upgrade archives in backupDir, sorted
+	upgrades    int      // the number of npm_upgrades rows
 }
 
 // instanceRemoveEngine marks a failed Engine read of the removal's checks Definite, as the Engine changed nothing,
@@ -53,9 +65,10 @@ func instanceRemoveName(c dockerapi.ContainerSummary) string {
 	return strings.TrimPrefix(c.Names[0], "/")
 }
 
-// target reads what the removal deletes and refuses a removal Darkpanel must not make: no instance, an exposure that
-// still reserves an object of it, an object of the module's names it did not label, or another container that uses
-// the network or a volume. It changes nothing, and every failure is Definite.
+// target reads what the removal deletes, the upgrade archives and the upgrade records included, and refuses a removal
+// Darkpanel must not make: no instance, an exposure that still reserves an object of it, an object of the module's
+// names it did not label, or another container that uses the network or a volume. It changes nothing, and every
+// failure is Definite.
 func (h instanceRemoveHandler) target(ctx context.Context, env core.Env) (instanceRemoveTarget, error) {
 	row, ok, err := loadInstance(ctx, env.DB.Read())
 	if err != nil {
@@ -116,7 +129,43 @@ func (h instanceRemoveHandler) target(ctx context.Context, env core.Env) (instan
 	if err := h.checkUsers(ctx, t); err != nil {
 		return instanceRemoveTarget{}, err
 	}
+	if t.archives, err = h.upgradeArchives(); err != nil {
+		return instanceRemoveTarget{}, core.Definite(err)
+	}
+	if t.upgrades, err = countUpgrades(ctx, env); err != nil {
+		return instanceRemoveTarget{}, core.Definite(err)
+	}
 	return t, nil
+}
+
+// upgradeArchives lists, sorted, the regular files in backupDir whose name the module's owned path admits. The
+// directory belongs to the module alone, so each is an upgrade archive; a missing directory holds none.
+func (h instanceRemoveHandler) upgradeArchives() ([]string, error) {
+	entries, err := h.n.d.readDir(backupDir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("npm: list %s: %w", backupDir, err)
+	}
+	pattern := regexp.MustCompile(ownedPaths()[0].Pattern)
+	var names []string
+	for _, e := range entries {
+		if e.Type().IsRegular() && pattern.MatchString(e.Name()) {
+			names = append(names, e.Name())
+		}
+	}
+	slices.Sort(names)
+	return names, nil
+}
+
+// countUpgrades is the number of npm_upgrades rows.
+func countUpgrades(ctx context.Context, env core.Env) (int, error) {
+	var n int
+	if err := env.DB.Read().QueryRowContext(ctx, "SELECT count(*) FROM npm_upgrades").Scan(&n); err != nil {
+		return 0, fmt.Errorf("npm: read the upgrade records: %w", err)
+	}
+	return n, nil
 }
 
 // checkReserved refuses while an exposure reserves an object of the instance, naming every such exposure.
@@ -174,8 +223,9 @@ func (h instanceRemoveHandler) checkUsers(ctx context.Context, t instanceRemoveT
 	return nil
 }
 
-// Plan lists what the removal deletes. The hash covers the instance row and every object found, so a plan made before
-// any of them changes, the container stopping included, is refused.
+// Plan lists what the removal deletes, the upgrade archives and the upgrade records included. The hash covers the
+// instance row, every object and archive found and the number of upgrade records, so a plan made before any of them
+// changes, the container stopping included, is refused.
 func (h instanceRemoveHandler) Plan(ctx context.Context, env core.Env, _ RemoveInput) (core.PlanOutcome, error) {
 	t, err := h.target(ctx, env)
 	if err != nil {
@@ -197,9 +247,19 @@ func (h instanceRemoveHandler) Plan(ctx context.Context, env core.Env, _ RemoveI
 	if t.networkID != "" {
 		diff = append(diff, core.DiffLine{Op: "-", Text: "network " + networkName})
 	}
+	for _, name := range t.archives {
+		diff = append(diff, core.DiffLine{Op: "-", Text: "upgrade archive " + name})
+	}
+	if len(t.archives) > 0 {
+		diff = append(diff, core.DiffLine{Op: " ", Text: "the upgrade archives hold copies of the instance's data and certificates, private keys included, and are deleted with it"})
+	}
+	if t.upgrades > 0 {
+		diff = append(diff, core.DiffLine{Op: "-", Text: "the records of the instance's past upgrades"})
+	}
 	diff = append(diff, core.DiffLine{Op: "-", Text: "the stored admin password and the attachment claims of this instance"})
 	sum := sha256.Sum256([]byte(strings.Join([]string{
 		storeTime(t.row.UpdatedAt), t.containerID, strconv.FormatBool(t.running), strings.Join(t.volumes, ","), t.networkID,
+		strings.Join(t.archives, ","), strconv.Itoa(t.upgrades),
 	}, "\n")))
 	return core.PlanOutcome{
 		Diff:         diff,
@@ -209,44 +269,54 @@ func (h instanceRemoveHandler) Plan(ctx context.Context, env core.Env, _ RemoveI
 	}, nil
 }
 
-// Apply removes the container, the volumes and the network, each its own effect, and then the instance's bookkeeping.
-// A failed removal keeps the instance row, so applying again continues with what is left.
+// Apply removes the container, the volumes, the network and then the upgrade archives, each its own effect, and then
+// the instance's bookkeeping with the upgrade records. The archives go last because until the data is gone they are
+// the only way back. A failed removal keeps the instance row, so applying again continues with what is left.
 func (h instanceRemoveHandler) Apply(ctx context.Context, env core.Env, _ RemoveInput) (Removed, error) {
 	t, err := h.target(ctx, env)
 	if err != nil {
 		return Removed{}, err
 	}
 	docker := h.n.d.docker
+	type removal struct {
+		resource string
+		call     func(ctx context.Context) error
+	}
+	var removals []removal
 	if t.containerID != "" {
-		err := h.remove(ctx, env, resourceOf(nounContainer, t.containerID), func(ctx context.Context) error {
+		removals = append(removals, removal{resourceOf(nounContainer, t.containerID), func(ctx context.Context) error {
 			if err := docker.RemoveContainer(ctx, t.containerID, dockerapi.RemoveContainerOptions{Force: true}); err != nil {
 				return fmt.Errorf("npm: remove container %s: %w", containerName, engineCoded(err))
 			}
 			return nil
-		})
-		if err != nil {
-			return Removed{}, err
-		}
+		}})
 	}
 	for _, name := range t.volumes {
-		err := h.remove(ctx, env, resourceOf(nounVolume, name), func(ctx context.Context) error {
+		removals = append(removals, removal{resourceOf(nounVolume, name), func(ctx context.Context) error {
 			if err := docker.RemoveVolume(ctx, name, false); err != nil {
 				return fmt.Errorf("npm: remove volume %s: %w", name, engineCoded(err))
 			}
 			return nil
-		})
-		if err != nil {
-			return Removed{}, err
-		}
+		}})
 	}
 	if t.networkID != "" {
-		err := h.remove(ctx, env, resourceOf(nounNetwork, t.networkID), func(ctx context.Context) error {
+		removals = append(removals, removal{resourceOf(nounNetwork, t.networkID), func(ctx context.Context) error {
 			if err := docker.RemoveNetwork(ctx, t.networkID); err != nil {
 				return fmt.Errorf("npm: remove network %s: %w", networkName, engineCoded(err))
 			}
 			return nil
-		})
-		if err != nil {
+		}})
+	}
+	for _, name := range t.archives {
+		removals = append(removals, removal{resourceOf(nounUpgradeArchive, name), func(ctx context.Context) error {
+			if err := env.Files.RemoveManaged(ctx, ID, backupDir, name); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return fmt.Errorf("npm: remove the archive %s: %w", name, err)
+			}
+			return nil
+		}})
+	}
+	for _, r := range removals {
+		if err := h.remove(ctx, env, r.resource, r.call); err != nil {
 			return Removed{}, err
 		}
 	}
@@ -260,6 +330,9 @@ func (h instanceRemoveHandler) Apply(ctx context.Context, env core.Env, _ Remove
 		if _, err := tx.ExecContext(ctx, "DELETE FROM npm_watch"); err != nil {
 			return fmt.Errorf("npm: delete the watched identities: %w", err)
 		}
+		if _, err := tx.ExecContext(ctx, "DELETE FROM npm_upgrades"); err != nil {
+			return fmt.Errorf("npm: delete the upgrade records: %w", err)
+		}
 		return nil
 	})
 	if err != nil {
@@ -272,21 +345,60 @@ func (h instanceRemoveHandler) Apply(ctx context.Context, env core.Env, _ Remove
 	return Removed{ContainerID: id}, nil
 }
 
-// remove journals the deletion of the Engine object resource and makes it with call. Its before-state is read as a
-// settlement of the intended effect would read it, so the two compare equal while the object is untouched.
+// remove journals the deletion of the object resource, an Engine object or an upgrade archive, and makes it with
+// call. Its before-state is read as a settlement of the intended effect would read it, so the two compare equal while
+// the object is untouched. A failed before-state read is Definite: the effect is not yet intended and nothing of it
+// has changed.
 func (h instanceRemoveHandler) remove(ctx context.Context, env core.Env, resource string, call func(ctx context.Context) error) error {
-	obs, err := h.n.observeEngine(ctx, env, core.Effect{Kind: core.EffectDelete, Resource: resource, State: core.EffectIntended})
+	obs, err := h.observe(ctx, env, core.Effect{Kind: core.EffectDelete, Resource: resource, State: core.EffectIntended})
 	if err != nil {
-		return err
+		return core.Definite(err)
 	}
 	e := npmEffect(core.EffectDelete, resource, obs.Current.State, commitWait)
-	return h.n.run(ctx, env, e, h.n.observeEngine, func(ctx context.Context) (string, error) {
+	return h.n.run(ctx, env, e, h.observe, func(ctx context.Context) (string, error) {
 		return resource, call(ctx)
 	})
 }
 
+// observe reads the object of an effect of the removal: an upgrade archive from backupDir, any other from the Engine.
+func (h instanceRemoveHandler) observe(ctx context.Context, env core.Env, e core.Effect) (core.Observation, error) {
+	noun, name, _, err := creationOf(e.Resource)
+	if err != nil {
+		return core.Observation{}, err
+	}
+	if noun != nounUpgradeArchive {
+		return h.n.observeEngine(ctx, env, e)
+	}
+	return h.observeArchive(name)
+}
+
+// observeArchive reads the upgrade archive name: its file name while backupDir lists it as a regular file, the null
+// state otherwise.
+func (h instanceRemoveHandler) observeArchive(name string) (core.Observation, error) {
+	entries, err := h.n.d.readDir(backupDir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return named(nullState().State), nil
+	}
+	if err != nil {
+		return core.Observation{}, fmt.Errorf("npm: read %s: %w", backupDir, err)
+	}
+	for _, e := range entries {
+		if e.Name() != name || !e.Type().IsRegular() {
+			continue
+		}
+		doc, err := json.Marshal(struct {
+			File string `json:"file"`
+		}{File: name})
+		if err != nil {
+			return core.Observation{}, fmt.Errorf("npm: render the archive %s: %w", name, err)
+		}
+		return named(doc), nil
+	}
+	return named(nullState().State), nil
+}
+
 // Verify checks from the host alone that nothing of the instance is left: no container, volume or network of the
-// module's names and no instance row.
+// module's names, no upgrade archive, no instance row and no upgrade record.
 func (h instanceRemoveHandler) Verify(ctx context.Context, env core.Env, _ RemoveInput, _ Removed) error {
 	docker := h.n.d.docker
 	var left []string
@@ -320,13 +432,27 @@ func (h instanceRemoveHandler) Verify(ctx context.Context, env core.Env, _ Remov
 	if ok {
 		left = append(left, "the instance row")
 	}
+	archives, err := h.upgradeArchives()
+	if err != nil {
+		return err
+	}
+	for _, name := range archives {
+		left = append(left, "the upgrade archive "+name)
+	}
+	upgrades, err := countUpgrades(ctx, env)
+	if err != nil {
+		return err
+	}
+	if upgrades > 0 {
+		left = append(left, "the upgrade records")
+	}
 	if len(left) > 0 {
 		return fmt.Errorf("npm: the removal left %s", strings.Join(left, ", "))
 	}
 	return nil
 }
 
-// Observe reads the Engine object of an effect of the removal.
+// Observe reads the Engine object or the upgrade archive of an effect of the removal.
 func (h instanceRemoveHandler) Observe(ctx context.Context, env core.Env, e core.Effect) (core.Observation, error) {
-	return h.n.observeEngine(ctx, env, e)
+	return h.observe(ctx, env, e)
 }
