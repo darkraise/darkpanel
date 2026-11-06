@@ -20,6 +20,9 @@ const (
 
 	// errorBodyLimit bounds how much of a refusal is read.
 	errorBodyLimit = 64 << 10
+	// answerBodyLimit is the most bytes of a successful answer the client reads. It equals the agent API's body
+	// limit because a larger answer could not be returned to the controller.
+	answerBodyLimit = 4 << 20
 )
 
 // Client talks to one NPM instance. It is safe for concurrent use.
@@ -211,15 +214,26 @@ func (c *Client) do(ctx context.Context, method, path, query string, body, out a
 	if err != nil {
 		return fmt.Errorf("npmapi: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
+	// A short remainder is drained so the connection can be reused; a longer one is abandoned and the connection
+	// closed, so a hostile NPM cannot keep the client reading.
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, errorBodyLimit))
+		_ = res.Body.Close()
+	}()
 	if res.StatusCode < 200 || res.StatusCode > 299 {
 		return apiError(res)
 	}
 	if out == nil {
-		_, _ = io.Copy(io.Discard, res.Body)
 		return nil
 	}
-	if err := json.NewDecoder(res.Body).Decode(out); err != nil {
+	b, err := io.ReadAll(io.LimitReader(res.Body, answerBodyLimit+1))
+	if err != nil {
+		return fmt.Errorf("npmapi: read %s answer: %w", path, err)
+	}
+	if len(b) > answerBodyLimit {
+		return fmt.Errorf("npmapi: %s answer exceeds %d bytes", path, answerBodyLimit)
+	}
+	if err := json.Unmarshal(b, out); err != nil {
 		return fmt.Errorf("npmapi: decode %s answer: %w", path, err)
 	}
 	return nil

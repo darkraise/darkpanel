@@ -1,12 +1,16 @@
 package npmapi
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -336,4 +340,104 @@ func TestApListsAreNeverNil(t *testing.T) {
 			t.Errorf("answer %s gave %#v, %#v, %#v, want empty non-nil slices", answer, hosts, lists, certs)
 		}
 	}
+}
+
+// w10ncBody is a response body that counts the bytes read from it and records how many were left when it was closed.
+type w10ncBody struct {
+	r      *bytes.Reader
+	read   int
+	unread int
+	closed bool
+}
+
+func (b *w10ncBody) Read(p []byte) (int, error) {
+	n, err := b.r.Read(p)
+	b.read += n
+	return n, err
+}
+
+func (b *w10ncBody) Close() error {
+	b.unread, b.closed = b.r.Len(), true
+	return nil
+}
+
+// w10ncTransport answers every request with one status and body.
+type w10ncTransport struct {
+	status int
+	body   *w10ncBody
+}
+
+func (t w10ncTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	return &http.Response{StatusCode: t.status, Header: http.Header{}, Body: t.body, Request: r}, nil
+}
+
+// TestW10NcBodiesAreDrainedWithinALimit: a body the client does not decode is read to its end when it is short enough,
+// so the connection can be reused, and is never read further than a fixed bound, so a hostile NPM cannot make the
+// client read without end.
+func TestW10NcBodiesAreDrainedWithinALimit(t *testing.T) {
+	refusal := func(size int) []byte {
+		doc := `{"error":{"message":"boom"}}`
+		return []byte(doc + strings.Repeat(" ", size-len(doc)))
+	}
+	tests := []struct {
+		name    string
+		status  int
+		body    []byte
+		drained bool // the whole body must have been read when the client closed it
+		maxRead int
+	}{
+		{"a refusal over the read limit is drained", 500, refusal(100 << 10), true, 2 * errorBodyLimit},
+		{"a huge refusal is read only to a bound", 500, refusal(1 << 20), false, 2 * errorBodyLimit},
+		{"an answer nobody decodes is drained", 200, bytes.Repeat([]byte(" "), 50<<10), true, errorBodyLimit},
+		{"a huge answer nobody decodes is read only to a bound", 200, bytes.Repeat([]byte(" "), 1<<20), false, errorBodyLimit},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := &w10ncBody{r: bytes.NewReader(tt.body)}
+			c := New("http://npm.invalid", &http.Client{Transport: w10ncTransport{status: tt.status, body: body}})
+			err := c.DeleteProxyHost(t.Context(), 3)
+			if tt.status == 200 {
+				if err != nil {
+					t.Fatalf("DeleteProxyHost: %v", err)
+				}
+			} else {
+				var ae *APIError
+				if !errors.As(err, &ae) || ae.Status != tt.status || ae.Message != "boom" {
+					t.Fatalf("error %#v, want an APIError %d with the message boom", err, tt.status)
+				}
+			}
+			if !body.closed {
+				t.Error("the body was not closed")
+			}
+			if tt.drained && body.unread != 0 {
+				t.Errorf("%d bytes were left unread at close, want the body read to its end", body.unread)
+			}
+			if body.read > tt.maxRead {
+				t.Errorf("%d bytes were read, want at most %d", body.read, tt.maxRead)
+			}
+		})
+	}
+}
+
+// TestW10NcAnswerOverTheLimitIsRefused: an answer of exactly answerBodyLimit bytes decodes, and one byte more fails
+// with an error that names the limit.
+func TestW10NcAnswerOverTheLimitIsRefused(t *testing.T) {
+	const skeleton = `{"status":""}`
+	doc := func(size int) string { return `{"status":"` + strings.Repeat("a", size-len(skeleton)) + `"}` }
+
+	t.Run("an answer of exactly the limit decodes", func(t *testing.T) {
+		s := apStart(t, 200, doc(answerBodyLimit))
+		h, err := s.client().Health(t.Context())
+		if err != nil || len(h.Status) != answerBodyLimit-len(skeleton) {
+			t.Fatalf("Health = %d status bytes, %v; want %d and no error", len(h.Status), err, answerBodyLimit-len(skeleton))
+		}
+	})
+	t.Run("an answer one byte over the limit is refused", func(t *testing.T) {
+		s := apStart(t, 200, doc(answerBodyLimit+1))
+		_, err := s.client().Health(t.Context())
+		want := fmt.Sprintf("exceeds %d bytes", answerBodyLimit)
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("Health error %v, want one that says the answer %s", err, want)
+		}
+	})
 }
