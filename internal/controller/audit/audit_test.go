@@ -87,7 +87,7 @@ func TestAuditTables(t *testing.T) {
 	}
 	if _, err := db.Writer().ExecContext(ctx,
 		`INSERT INTO core_audit (id, at, actor, action, version, phase, result)
-		 VALUES ('01F', '2026-10-17T12:00:00.000000000Z', 'user:u1', 'a.b.c', 1, 'delete', 'ok')`); err == nil {
+		 VALUES ('01F', '2026-10-17T12:00:00.000000000Z', 'user:u1', 'a.b.c', 1, 'bogus', 'ok')`); err == nil {
 		t.Error("an unknown phase was accepted")
 	}
 	if _, err := db.Writer().ExecContext(ctx, `INSERT INTO core_plan_index (plan_id, host_id, action, version, expires_at)
