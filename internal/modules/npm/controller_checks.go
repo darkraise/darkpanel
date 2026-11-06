@@ -109,13 +109,13 @@ func (n nm) publicCheckRead(ctx context.Context, env core.Env, in PublicInput) (
 		in.HostID)))
 }
 
-// ctlPortOpen reports whether a stored binding publishes the NPM container's TCP port on every host address and
-// allows it from every source.
+// ctlPortOpen reports whether a stored binding publishes the NPM container's TCP port on every host address,
+// allows it from every source and denies it to none.
 func ctlPortOpen(bindings []firewall.DockerBinding, port uint16) bool {
 	for _, b := range bindings {
 		addr := b.Binding.HostAddr
 		if b.Binding.Selector == containerName && b.Binding.HostPort == port && b.Binding.Proto == "tcp" &&
-			(!addr.IsValid() || addr.IsUnspecified()) && slices.Contains(b.Allowed, "any") {
+			(!addr.IsValid() || addr.IsUnspecified()) && slices.Contains(b.Allowed, "any") && len(b.Denied) == 0 {
 			return true
 		}
 	}
@@ -130,10 +130,11 @@ func ctlOnOff(on bool) string {
 	return "off"
 }
 
-// ctlDockerMajor returns the major version of a Docker version string: the digits before its first dot.
+// ctlDockerMajor returns the major version of a Docker version string: the digits before its first dot, or the whole
+// string when it has none.
 func ctlDockerMajor(version string) (int, bool) {
-	digits, _, found := strings.Cut(version, ".")
-	if !found || digits == "" || strings.Trim(digits, "0123456789") != "" {
+	digits, _, _ := strings.Cut(version, ".")
+	if digits == "" || strings.Trim(digits, "0123456789") != "" {
 		return 0, false
 	}
 	major, err := strconv.Atoi(digits)

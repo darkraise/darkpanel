@@ -182,6 +182,10 @@ func TestCkInstanceCheck(t *testing.T) {
 			*d = firewall.DockerStatus{Available: false, Reason: "the Docker socket is missing"}
 		}, false, errcode.ModuleUnavailable, "the Docker socket is missing"},
 		{"an unusable host is reported before a changed integration", func(d *firewall.DockerStatus) { d.Version, d.Supported = "27.5.1", false }, true, errcode.ModuleUnavailable, "28.0"},
+		{"a bare major version is recognised", func(d *firewall.DockerStatus) { d.Version = "29" }, true, "", ""},
+		{"a bare major below 28 is older than 28.0", func(d *firewall.DockerStatus) { d.Version, d.Supported = "27", false }, false, errcode.ModuleUnavailable, "older than 28.0"},
+		{"a major with a suffix instead of a dot is not recognised", func(d *firewall.DockerStatus) { d.Version = "28-ce" }, false, errcode.ModuleUnavailable, "not recognised"},
+		{"an empty major is not recognised", func(d *firewall.DockerStatus) { d.Version = ".5" }, false, errcode.ModuleUnavailable, "not recognised"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -252,6 +256,10 @@ func TestCkPublicCheck(t *testing.T) {
 		b.Binding.HostAddr = netip.MustParseAddr("203.0.113.5")
 		return b
 	}
+	denying := func(b firewall.DockerBinding, sources ...string) firewall.DockerBinding {
+		b.Denied = sources
+		return b
+	}
 	tests := []struct {
 		name      string
 		status    InstanceStatus
@@ -281,6 +289,15 @@ func TestCkPublicCheck(t *testing.T) {
 			func() firewall.DockerStatus { d := withBindings(ckPorts()...); d.Supported = false; return d }(), PublicResult{}, true, 1},
 		{"no mark and no bindings", deployed("no"), ckDockerOK(), PublicResult{}, true, 1},
 		{"no instance", InstanceStatus{}, withBindings(ckPorts()...), PublicResult{}, true, 0},
+		{"port 80 denied to a range while allowed from every source", deployed("no"),
+			withBindings(denying(ckBinding("darkpanel-npm", 80, "tcp", "any"), "203.0.113.0/24"), ckBinding("darkpanel-npm", 443, "tcp", "any")),
+			PublicResult{}, true, 1},
+		{"port 443 denied from every source", deployed("no"),
+			withBindings(ckBinding("darkpanel-npm", 80, "tcp", "any"), denying(ckBinding("darkpanel-npm", 443, "tcp", "any"), "any")),
+			PublicResult{}, true, 1},
+		{"a denial on another container's binding does not matter", deployed("no"),
+			withBindings(append(ckPorts(), denying(ckBinding("web", 80, "tcp", "any"), "10.0.0.0/8"))...),
+			PublicResult{Public: true, Via: "ports"}, false, 1},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
