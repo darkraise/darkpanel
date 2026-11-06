@@ -24,8 +24,12 @@ func TestW10HxProbeURLUnit(t *testing.T) {
 			t.Errorf("w10hxProbeURL(%q) = %s, want %s", tc.host, got, tc.want)
 		}
 		u, err := url.Parse(got)
-		if err != nil || u.Hostname() != tc.host {
-			t.Errorf("%s parses to host %q (%v), want %q", got, u.Hostname(), err, tc.host)
+		if err != nil {
+			t.Errorf("%s does not parse: %v", got, err)
+			continue
+		}
+		if u.Hostname() != tc.host {
+			t.Errorf("%s parses to host %q, want %q", got, u.Hostname(), tc.host)
 		}
 	}
 }
