@@ -45,12 +45,12 @@ func v1r20Cells(spans ...string) []Cell {
 }
 
 const (
-	v1r20Whole4 = "0.0.0.1-255.255.255.254"
+	v1r20Whole4 = "1.0.0.0-223.255.255.255"
 	v1r20Whole6 = "2000::-3fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"
 )
 
 func TestV1r20InternetCells(t *testing.T) {
-	around8 := []string{"0.0.0.1-8.8.7.255", "8.8.8.0-8.8.8.255", "8.8.9.0-255.255.255.254"}
+	around8 := []string{"1.0.0.0-8.8.7.255", "8.8.8.0-8.8.8.255", "8.8.9.0-223.255.255.255"}
 	tests := []struct {
 		name string
 		rs   *netfilter.Ruleset
@@ -62,19 +62,19 @@ func TestV1r20InternetCells(t *testing.T) {
 		{"a destination prefix", v1r20Set(v1r20Dst("8.8.8.0/24")), false, around8},
 		{"a source prefix with host bits set", v1r20Set(v1r20Src("8.8.8.9/24", false)), false, around8},
 		{"a negated address", v1r20Set(v1r20Src("1.1.1.1/32", true)), false,
-			[]string{"0.0.0.1-1.1.1.0", "1.1.1.1-1.1.1.1", "1.1.1.2-255.255.255.254"}},
+			[]string{"1.0.0.0-1.1.1.0", "1.1.1.1-1.1.1.1", "1.1.1.2-223.255.255.255"}},
 		{"a conntrack original destination address", v1r20Set(v1r20Orig("9.9.9.9")), false,
-			[]string{"0.0.0.1-9.9.9.8", "9.9.9.9-9.9.9.9", "9.9.9.10-255.255.255.254"}},
+			[]string{"1.0.0.0-9.9.9.8", "9.9.9.9-9.9.9.9", "9.9.9.10-223.255.255.255"}},
 		{"a conntrack original destination prefix", v1r20Set(v1r20Orig("9.9.9.0/24")), false,
-			[]string{"0.0.0.1-9.9.8.255", "9.9.9.0-9.9.9.255", "9.9.10.0-255.255.255.254"}},
+			[]string{"1.0.0.0-9.9.8.255", "9.9.9.0-9.9.9.255", "9.9.10.0-223.255.255.255"}},
 		{"two prefixes in two tables", v1r20Set(v1r20Dst("198.41.192.0/24"), v1r20Dst("104.16.0.0/13")), false,
-			[]string{"0.0.0.1-104.15.255.255", "104.16.0.0-104.23.255.255", "104.24.0.0-198.41.191.255",
-				"198.41.192.0-198.41.192.255", "198.41.193.0-255.255.255.254"}},
+			[]string{"1.0.0.0-104.15.255.255", "104.16.0.0-104.23.255.255", "104.24.0.0-198.41.191.255",
+				"198.41.192.0-198.41.192.255", "198.41.193.0-223.255.255.255"}},
 		{"a prefix inside a private range", v1r20Set(v1r20Dst("10.1.0.0/16")), false,
-			[]string{"0.0.0.1-9.255.255.255", "11.0.0.0-255.255.255.254"}},
+			[]string{"1.0.0.0-9.255.255.255", "11.0.0.0-223.255.255.255"}},
 		{"a prefix of the whole space", v1r20Set(v1r20Dst("0.0.0.0/0")), false, []string{v1r20Whole4}},
-		{"a prefix at the top of the space", v1r20Set(v1r20Dst("255.255.255.254/31")), false,
-			[]string{"0.0.0.1-255.255.255.253", "255.255.255.254-255.255.255.254"}},
+		{"a prefix at the top of the space", v1r20Set(v1r20Dst("255.255.255.254/31")), false, []string{v1r20Whole4}},
+		{"a bogon prefix", v1r20Set(v1r20Src("240.0.0.0/4", false), v1r20Src("0.0.0.0/8", false)), false, []string{v1r20Whole4}},
 		{"an IPv6 prefix in an IPv4 call", v1r20Set(v1r20Dst("2001:db8:1::/48")), false, []string{v1r20Whole4}},
 		{"an IPv4 prefix in an IPv6 call", v1r20Set(v1r20Dst("8.8.8.0/24")), true, []string{v1r20Whole6}},
 		{"an IPv6 prefix", v1r20Set(v1r20Dst("2606:4700::/32")), true,
@@ -98,7 +98,8 @@ func TestV1r20InternetCells(t *testing.T) {
 
 // v1r20Public is the Contracts definition of a public unicast address.
 func v1r20Public(a netip.Addr) bool {
-	for _, p := range []string{"100.64.0.0/10", "192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24", "2001:db8::/32"} {
+	for _, p := range []string{"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", "198.18.0.0/15", "198.51.100.0/24",
+		"203.0.113.0/24", "240.0.0.0/4", "2001:db8::/32"} {
 		if netip.MustParsePrefix(p).Contains(a) {
 			return false
 		}
@@ -122,9 +123,9 @@ func TestV1r20CellsPartitionThePublicSpace(t *testing.T) {
 		true:  {"2606:4700::/32", "2001:db8:1::/48", "2a00::/12", "::/0"},
 	}
 	samples := map[bool][]string{
-		false: {"0.0.0.1", "1.1.1.1", "8.8.8.8", "9.255.255.255", "11.0.0.0", "100.128.0.0", "126.255.255.255", "128.0.0.1",
-			"169.253.255.255", "169.255.0.0", "172.15.255.255", "172.32.0.0", "192.0.1.255", "192.0.3.0", "198.51.99.255",
-			"198.51.101.0", "203.0.112.255", "203.0.114.0", "223.255.255.255", "240.0.0.1", "255.255.255.254"},
+		false: {"1.0.0.0", "1.1.1.1", "8.8.8.8", "9.255.255.255", "11.0.0.0", "100.128.0.0", "126.255.255.255", "128.0.0.1",
+			"169.253.255.255", "169.255.0.0", "172.15.255.255", "172.32.0.0", "192.0.1.255", "192.0.3.0", "198.17.255.255",
+			"198.20.0.0", "198.51.99.255", "198.51.101.0", "203.0.112.255", "203.0.114.0", "223.255.255.255"},
 		true: {"2000::", "2001:db7::1", "2001:db9::1", "2606:4700::1", "2a00::1", "3fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"},
 	}
 	for _, v6 := range []bool{false, true} {

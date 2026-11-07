@@ -52,7 +52,7 @@ func v1r21Tunnel() *core.GuardContext {
 func TestV1r21TunnelFlowNamesTheFirstBlockedCell(t *testing.T) {
 	st := v1r21State(t, v1r21Table("-A FORWARD -d 198.41.192.0/24 -j DROP", "-A FORWARD -d 104.16.0.0/13 -j DROP"), v1r21Table())
 	h := &gHost{ifaces: ckIfaces(), routes: map[netstat.RouteQuery]netstat.Route{}}
-	for _, rep := range []string{"0.0.0.1", "104.16.0.0", "104.24.0.0", "198.41.192.0", "198.41.193.0"} {
+	for _, rep := range []string{"1.0.0.0", "104.16.0.0", "104.24.0.0", "198.41.192.0", "198.41.193.0"} {
 		h.routes[rtQuery(rep, "172.30.0.3", "dp-panel")] = rtVia("eth0", "")
 	}
 	g := v1r21Check(t, h, st, v1r21Tunnel())
@@ -76,7 +76,7 @@ func TestV1r21TunnelFlowNamesTheFirstBlockedCell(t *testing.T) {
 
 func TestV1r21TunnelFlowIsEvaluatedInEveryCell(t *testing.T) {
 	st := v1r21State(t, v1r21Table("-A FORWARD -d 198.41.192.0/24 -j ACCEPT"), v1r21Table())
-	reps := []string{"0.0.0.1", "198.41.192.0", "198.41.193.0"}
+	reps := []string{"1.0.0.0", "198.41.192.0", "198.41.193.0"}
 	h := &gHost{ifaces: ckIfaces(), routes: map[netstat.RouteQuery]netstat.Route{}}
 	for _, rep := range reps {
 		h.routes[rtQuery(rep, "172.30.0.3", "dp-panel")] = rtVia("eth0", "")
