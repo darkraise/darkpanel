@@ -424,9 +424,14 @@ func validListenerSpec(spec core.ListenerSpec) (core.ListenerSpec, error) {
 		return bad("the client header must be " + core.ClientHeaderNPM + " or " + core.ClientHeaderTunnel)
 	case spec.PublicHost == "" || spec.ChangeID == "":
 		return bad("the public host and the change id are required")
+	case spec.PublicBinding.IsValid() && (spec.PublicBinding.Port() == 0 || spec.PublicBinding.Addr().Zone() != ""):
+		return bad("the public binding needs an IP address without a zone and a port")
 	}
 	spec.Addr = netip.AddrPortFrom(spec.Addr.Addr().Unmap(), spec.Addr.Port())
 	spec.AllowedPeer = spec.AllowedPeer.Unmap()
+	if spec.PublicBinding.IsValid() {
+		spec.PublicBinding = netip.AddrPortFrom(spec.PublicBinding.Addr().Unmap(), spec.PublicBinding.Port())
+	}
 	return spec, nil
 }
 

@@ -38,6 +38,9 @@ type ListenerSpec struct {
 	ClientHeader string // "X-Darkpanel-Client" or "Cf-Connecting-IP"
 	PublicHost   string // accepted by the CSRF origin check
 	ChangeID     string
+	// PublicBinding is the host binding NPM publishes its HTTPS port on, the
+	// public leg of an NPM exposure; the zero value for a tunnel.
+	PublicBinding netip.AddrPort
 }
 
 // ListenerInfo is one core_listeners row.

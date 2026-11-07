@@ -19,7 +19,7 @@ import (
 // time, so the text order of created_at is its time order.
 const listenerTimeFormat = "2006-01-02T15:04:05.000000000Z"
 
-const listenerColumns = `id, address, port, allowed_peer, client_header, public_host, change_id, state`
+const listenerColumns = `id, address, port, allowed_peer, client_header, public_host, change_id, state, public_binding`
 
 // normalPublicHost returns host in the one form the API's Origin check
 // compares exactly: lower case with every trailing dot removed.
@@ -30,10 +30,15 @@ func normalPublicHost(host string) string {
 // insertListener records spec as listener id in state open.
 func insertListener(ctx context.Context, tx *sql.Tx, id string, spec core.ListenerSpec, now time.Time) error {
 	at := now.UTC().Format(listenerTimeFormat)
+	// A zero AddrPort prints "invalid AddrPort", so a tunnel's binding is stored as "".
+	binding := ""
+	if spec.PublicBinding.IsValid() {
+		binding = spec.PublicBinding.String()
+	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO core_listeners (`+listenerColumns+`, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, spec.Addr.Addr().String(), int(spec.Addr.Port()), spec.AllowedPeer.String(), spec.ClientHeader,
-		normalPublicHost(spec.PublicHost), spec.ChangeID, core.ListenerOpen, at, at)
+		normalPublicHost(spec.PublicHost), spec.ChangeID, core.ListenerOpen, binding, at, at)
 	if err != nil {
 		return fmt.Errorf("listen: record runtime listener %s: %w", id, err)
 	}
@@ -101,10 +106,10 @@ type listenerScanner interface {
 
 func scanListener(row listenerScanner) (core.ListenerInfo, error) {
 	var info core.ListenerInfo
-	var addr, peer string
+	var addr, peer, binding string
 	var port int
 	err := row.Scan(&info.ID, &addr, &port, &peer, &info.Spec.ClientHeader, &info.Spec.PublicHost,
-		&info.Spec.ChangeID, &info.State)
+		&info.Spec.ChangeID, &info.State, &binding)
 	if errors.Is(err, sql.ErrNoRows) {
 		return core.ListenerInfo{}, err
 	}
@@ -118,6 +123,11 @@ func scanListener(row listenerScanner) (core.ListenerInfo, error) {
 	info.Spec.Addr = netip.AddrPortFrom(ip, uint16(port)) //nolint:gosec // G115: checked to be within 1-65535
 	if info.Spec.AllowedPeer, err = netip.ParseAddr(peer); err != nil {
 		return core.ListenerInfo{}, fmt.Errorf("listen: runtime listener %s has a bad allowed peer %q", info.ID, peer)
+	}
+	if binding != "" {
+		if info.Spec.PublicBinding, err = netip.ParseAddrPort(binding); err != nil {
+			return core.ListenerInfo{}, fmt.Errorf("listen: runtime listener %s has a bad public binding %q", info.ID, binding)
+		}
 	}
 	info.Spec.PublicHost = normalPublicHost(info.Spec.PublicHost)
 	return info, nil
