@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"math/big"
 	"net"
 	"net/http"
@@ -1018,5 +1019,73 @@ func TestW10TpPinRollsBackAfterTheForwardContextEnds(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("commands %+v, want the rollback to reinstall the staged prior package", rec.calls)
+	}
+}
+
+// v1r06Files ends the pin's forward context as soon as it is asked to write a file, as the expiry of the apply budget
+// would while the repository files are written.
+type v1r06Files struct {
+	core.FileWriter
+	cancel context.CancelFunc
+}
+
+func (f v1r06Files) WriteFile(ctx context.Context, _, _ string, _ []byte, _ fs.FileMode) error {
+	f.cancel()
+	return ctx.Err()
+}
+
+// v1r06Journal ends the pin's forward context as soon as it is asked to journal an effect.
+type v1r06Journal struct {
+	core.EffectJournal
+	cancel context.CancelFunc
+}
+
+func (j v1r06Journal) Intend(ctx context.Context, _ core.Effect, _ []byte) (int, error) {
+	j.cancel()
+	return 0, ctx.Err()
+}
+
+// TestV1r06PinRollsBackAnEarlyFailureAfterTheForwardContextEnds: a pin whose forward context ends while it writes the
+// repository files, or while it journals its effect, still records the rollback and settles the effect.
+func TestV1r06PinRollsBackAnEarlyFailureAfterTheForwardContextEnds(t *testing.T) {
+	tests := []struct {
+		name       string
+		arm        func(s *pnSetup, cancel context.CancelFunc)
+		wantEffect bool
+	}{
+		{"repository file write", func(s *pnSetup, cancel context.CancelFunc) {
+			delete(s.h.reads, keyringPath)
+			delete(s.h.reads, sourcesPath)
+			s.env.Files = v1r06Files{FileWriter: s.h, cancel: cancel}
+		}, true},
+		{"effect journal", func(s *pnSetup, cancel context.CancelFunc) {
+			s.env.Effects = v1r06Journal{EffectJournal: s.h.journal, cancel: cancel}
+		}, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := pnNewSetup(t, true)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			tc.arm(s, cancel)
+
+			_, err := s.t.packagePin().Handler.Task(ctx, s.env, pnInput(pnTarget))
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("Task = %v, want the cancellation that ended the forward context", err)
+			}
+			if p := pnPin(t, s.h); p.Phase != "rolled_back" {
+				t.Errorf("pin phase %s, want rolled_back: the rollback must not run on the ended forward context", p.Phase)
+			}
+			if tc.wantEffect {
+				if e := pnPinEffect(t, s.h); e.State != core.EffectSkipped {
+					t.Errorf("effect state %s, want skipped: nothing was installed", e.State)
+				}
+			} else if n := len(s.h.journal.effects()); n != 0 {
+				t.Errorf("%d effects journaled, want none: the journal refused the pin's effect", n)
+			}
+			if s.apt.version != pnPrior || !s.apt.held {
+				t.Errorf("host has version %s, held %v; want %s, held", s.apt.version, s.apt.held, pnPrior)
+			}
+		})
 	}
 }

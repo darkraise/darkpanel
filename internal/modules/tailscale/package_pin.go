@@ -162,7 +162,9 @@ func (h packagePinHandler) Task(ctx context.Context, env core.Env, in PinInput) 
 		Before: txPackageDoc(prior, held), After: &after,
 	}, nil)
 	if err != nil {
-		if rerr := h.rollback(ctx, env, p); rerr != nil {
+		rctx, cancel := h.rollbackContext(ctx)
+		defer cancel()
+		if rerr := h.rollback(rctx, env, p); rerr != nil {
 			err = errors.Join(err, rerr)
 		}
 		return Pinned{}, err
@@ -172,10 +174,12 @@ func (h packagePinHandler) Task(ctx context.Context, env core.Env, in PinInput) 
 	noJournal := env
 	noJournal.Effects = nil
 	if _, err := h.t.ensureRepo(ctx, noJournal); err != nil {
-		if rerr := h.rollback(ctx, env, p); rerr != nil {
+		rctx, cancel := h.rollbackContext(ctx)
+		defer cancel()
+		if rerr := h.rollback(rctx, env, p); rerr != nil {
 			return Pinned{}, errors.Join(err, rerr)
 		}
-		if serr := env.Effects.Skipped(ctx, seq); serr != nil {
+		if serr := env.Effects.Skipped(rctx, seq); serr != nil {
 			return Pinned{}, errors.Join(err, serr)
 		}
 		return Pinned{}, err
@@ -231,12 +235,19 @@ func (h packagePinHandler) txCopyPrior(ctx context.Context, env core.Env, name s
 	return setPinStaged(ctx, env.DB, env.ChangeID, name, hex.EncodeToString(sum[:]), env.Clock.Now())
 }
 
+// rollbackContext returns a context detached from the forward one and bounded by pinRollbackBudget: a pin's
+// rollback must still run when the forward context has ended, and the budget keeps a stuck rollback from running
+// forever.
+func (h packagePinHandler) rollbackContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), pinRollbackBudget)
+}
+
 // txFail rolls back a pin whose forward step failed with cause and returns the pin's tailscale.pin_failed error.
 // The pin effect is skipped only when the rollback verified that the host is as before. The rollback runs on a
 // context detached from the forward one and bounded by pinRollbackBudget: a forward step that failed because the
 // apply budget ran out would otherwise leave the host on the new version with nothing restored.
 func (h packagePinHandler) txFail(ctx context.Context, env core.Env, seq int, prior, step string, cause error) error {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), pinRollbackBudget)
+	ctx, cancel := h.rollbackContext(ctx)
 	defer cancel()
 	p, ok, err := loadPin(ctx, env.DB.Read(), env.ChangeID)
 	if err == nil && !ok {
