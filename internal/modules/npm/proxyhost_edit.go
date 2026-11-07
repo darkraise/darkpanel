@@ -181,6 +181,21 @@ func (p proxyHostEdit) undoBody(e core.Effect) (npmapi.ProxyHostBody, error) {
 	return *b, nil
 }
 
+// checkRestored runs the forward host check on every forward host body writes back: the host's and each custom
+// location's. It returns the first error as checkForward returns it.
+func (p proxyHostEdit) checkRestored(ctx context.Context, env core.Env, body npmapi.ProxyHostBody) error {
+	targets := []ProxyHostInput{{ForwardHost: body.ForwardHost, ForwardPort: body.ForwardPort}}
+	for _, l := range body.Locations {
+		targets = append(targets, ProxyHostInput{ForwardHost: l.ForwardHost, ForwardPort: l.ForwardPort})
+	}
+	for _, target := range targets {
+		if _, err := p.n.checkForward(ctx, env, target); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Observe reads the proxy host of the effect. The undo of a removal is found by the id of the host the inverse
 // recreated or, when the inverse was cut off before it returned, by the removed host's domain set.
 func (p proxyHostEdit) Observe(ctx context.Context, env core.Env, e core.Effect) (core.Observation, error) {
@@ -236,34 +251,35 @@ func (p proxyHostEdit) Observe(ctx context.Context, env core.Env, e core.Effect)
 }
 
 // check decides whether the update may run and changes nothing; every refusal is Definite. It returns the client, the
-// host as NPM holds it and the body the update sends.
-func (h proxyHostUpdateHandler) check(ctx context.Context, env core.Env, in ProxyHostUpdateInput) (npmAPI, npmapi.ProxyHost, npmapi.ProxyHostBody, error) {
+// host as NPM holds it, the body the update sends and the sorted addresses the forward host resolves to.
+func (h proxyHostUpdateHandler) check(ctx context.Context, env core.Env, in ProxyHostUpdateInput) (npmAPI, npmapi.ProxyHost, npmapi.ProxyHostBody, []string, error) {
 	if in.ID <= 0 {
-		return nil, npmapi.ProxyHost{}, npmapi.ProxyHostBody{}, proxyhostAddInvalid([]errcode.FieldError{{Path: "/id", Message: "id must be a proxy host id above 0"}})
+		return nil, npmapi.ProxyHost{}, npmapi.ProxyHostBody{}, nil, proxyhostAddInvalid([]errcode.FieldError{{Path: "/id", Message: "id must be a proxy host id above 0"}})
 	}
 	if err := validateProxyHostInput(in.ProxyHostInput); err != nil {
-		return nil, npmapi.ProxyHost{}, npmapi.ProxyHostBody{}, err
+		return nil, npmapi.ProxyHost{}, npmapi.ProxyHostBody{}, nil, err
 	}
 	api, err := h.client(ctx, env)
 	if err != nil {
-		return nil, npmapi.ProxyHost{}, npmapi.ProxyHostBody{}, err
+		return nil, npmapi.ProxyHost{}, npmapi.ProxyHostBody{}, nil, err
 	}
 	host, ok, err := h.fetch(ctx, api, in.ID)
 	if err != nil {
-		return nil, npmapi.ProxyHost{}, npmapi.ProxyHostBody{}, err
+		return nil, npmapi.ProxyHost{}, npmapi.ProxyHostBody{}, nil, err
 	}
 	if !ok {
-		return nil, npmapi.ProxyHost{}, npmapi.ProxyHostBody{}, core.Definite(errcode.New(errcode.NotFound, fmt.Sprintf("proxy host %d does not exist", in.ID)))
+		return nil, npmapi.ProxyHost{}, npmapi.ProxyHostBody{}, nil, core.Definite(errcode.New(errcode.NotFound, fmt.Sprintf("proxy host %d does not exist", in.ID)))
 	}
 	if _, _, err := h.refuseReserved(ctx, env, in.ID); err != nil {
-		return nil, npmapi.ProxyHost{}, npmapi.ProxyHostBody{}, err
+		return nil, npmapi.ProxyHost{}, npmapi.ProxyHostBody{}, nil, err
 	}
-	if err := h.n.checkUpstream(ctx, env, in.ProxyHostInput); err != nil {
-		return nil, npmapi.ProxyHost{}, npmapi.ProxyHostBody{}, err
+	resolved, err := h.n.checkForward(ctx, env, in.ProxyHostInput)
+	if err != nil {
+		return nil, npmapi.ProxyHost{}, npmapi.ProxyHostBody{}, nil, err
 	}
 	hosts, err := api.ProxyHosts(ctx)
 	if err != nil {
-		return nil, npmapi.ProxyHost{}, npmapi.ProxyHostBody{}, proxyHostEditUnhealthy(err)
+		return nil, npmapi.ProxyHost{}, npmapi.ProxyHostBody{}, nil, proxyHostEditUnhealthy(err)
 	}
 	var fields []errcode.FieldError
 	for _, d := range in.Domains {
@@ -275,9 +291,9 @@ func (h proxyHostUpdateHandler) check(ctx context.Context, env core.Env, in Prox
 		}
 	}
 	if len(fields) > 0 {
-		return nil, npmapi.ProxyHost{}, npmapi.ProxyHostBody{}, proxyhostAddInvalid(fields)
+		return nil, npmapi.ProxyHost{}, npmapi.ProxyHostBody{}, nil, proxyhostAddInvalid(fields)
 	}
-	return api, host, proxyHostBody(in.ProxyHostInput, env.Call.ParentAction), nil
+	return api, host, proxyHostBody(in.ProxyHostInput, env.Call.ParentAction), resolved, nil
 }
 
 // proxyHostEditDiff is a "-" and a "+" line for each shown member that differs between from and to.
@@ -313,9 +329,10 @@ func proxyHostEditDiff(from, to npmapi.ProxyHostBody) []core.DiffLine {
 	return diff
 }
 
-// Plan shows what the update changes; the hash covers the host's current state and the state the update sends.
+// Plan shows what the update changes; the hash covers the host's current state, the state the update sends and the
+// addresses its forward host resolves to.
 func (h proxyHostUpdateHandler) Plan(ctx context.Context, env core.Env, in ProxyHostUpdateInput) (core.PlanOutcome, error) {
-	_, host, body, err := h.check(ctx, env, in)
+	_, host, body, resolved, err := h.check(ctx, env, in)
 	if err != nil {
 		return core.PlanOutcome{}, err
 	}
@@ -323,13 +340,13 @@ func (h proxyHostUpdateHandler) Plan(ctx context.Context, env core.Env, in Proxy
 	return core.PlanOutcome{
 		Diff:      proxyHostEditDiff(current, body),
 		Guards:    []core.Guard{},
-		StateHash: proxyHostEditSum(proxyHostEditState(current), proxyHostEditState(body)),
+		StateHash: proxyHostEditSum(proxyHostEditState(current), proxyHostEditState(body), []byte("\n"+strings.Join(resolved, ","))),
 	}, nil
 }
 
 // Apply replaces the host's settings with the input's.
 func (h proxyHostUpdateHandler) Apply(ctx context.Context, env core.Env, in ProxyHostUpdateInput) (ProxyHostView, error) {
-	api, host, body, err := h.check(ctx, env, in)
+	api, host, body, _, err := h.check(ctx, env, in)
 	if err != nil {
 		return ProxyHostView{}, err
 	}
@@ -373,7 +390,8 @@ func (h proxyHostUpdateHandler) Verify(ctx context.Context, env core.Env, in Pro
 	return nil
 }
 
-// Inverse sends the host the body it had before the update.
+// Inverse sends the host the body it had before the update. It checks the forward hosts it restores as the removal's
+// undo does.
 func (h proxyHostUpdateHandler) Inverse(ctx context.Context, env core.Env, e core.Effect) (core.InverseResult, error) {
 	id, err := proxyHostEditID(e.Resource)
 	if err != nil {
@@ -381,6 +399,9 @@ func (h proxyHostUpdateHandler) Inverse(ctx context.Context, env core.Env, e cor
 	}
 	body, err := h.undoBody(e)
 	if err != nil {
+		return core.InverseResult{}, err
+	}
+	if err := h.checkRestored(ctx, env, body); err != nil {
 		return core.InverseResult{}, err
 	}
 	api, err := h.client(ctx, env)
@@ -585,21 +606,15 @@ func (h proxyHostRemoveHandler) Verify(ctx context.Context, env core.Env, in Pro
 
 // Inverse recreates the removed host from the state the journal holds; NPM gives it a new id. It does not restore the
 // exposure's reservation records. A composite's step in needs_repair is undone directly with the step's stored call,
-// under which the upstream check refuses the admin port and the panel network, so no undo recreates a reserved-upstream
-// host that no reservation tracks.
+// under which the forward host check refuses every reserved upstream and resolves each name again, so no undo recreates
+// a reserved-upstream host that no reservation tracks.
 func (h proxyHostRemoveHandler) Inverse(ctx context.Context, env core.Env, e core.Effect) (core.InverseResult, error) {
 	body, err := h.undoBody(e)
 	if err != nil {
 		return core.InverseResult{}, err
 	}
-	targets := []ProxyHostInput{{ForwardHost: body.ForwardHost, ForwardPort: body.ForwardPort}}
-	for _, l := range body.Locations {
-		targets = append(targets, ProxyHostInput{ForwardHost: l.ForwardHost, ForwardPort: l.ForwardPort})
-	}
-	for _, target := range targets {
-		if err := h.n.checkUpstream(ctx, env, target); err != nil {
-			return core.InverseResult{}, core.Definite(err)
-		}
+	if err := h.checkRestored(ctx, env, body); err != nil {
+		return core.InverseResult{}, err
 	}
 	api, err := h.client(ctx, env)
 	if err != nil {

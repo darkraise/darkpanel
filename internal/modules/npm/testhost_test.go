@@ -1050,7 +1050,7 @@ func thOpenDB(t *testing.T, dir, side string, sets ...store.MigrationSet) *store
 }
 
 // nm returns an nm whose deps all point at the host's fakes: Docker 29.9.1 with raw protection loaded, no socket
-// bound, the bytes 1..n as random, and a panel with nothing reserved.
+// bound, the bytes 1..n as random, a panel with nothing reserved, and every name resolving to 203.0.113.7.
 func (h *thHost) nm() nm {
 	hc := &http.Client{Timeout: 10 * time.Second}
 	newClient := func() *npmapi.Client { return npmapi.New(h.npm.URL(), hc) }
@@ -1065,6 +1065,9 @@ func (h *thHost) nm() nm {
 		readDir:  h.readDir,
 		panel:    func(context.Context, core.Env) (proxy.Reserved, error) { return proxy.Reserved{}, nil },
 		sockets:  func() ([]netstat.Socket, error) { return nil, nil },
+		resolve: func(context.Context, string) ([]netip.Addr, error) {
+			return []netip.Addr{netip.MustParseAddr("203.0.113.7")}, nil
+		},
 	}}
 }
 

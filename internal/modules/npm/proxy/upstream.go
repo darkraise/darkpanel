@@ -33,8 +33,8 @@ type Reserved struct {
 // CheckUpstream refuses with npm.reserved, unless parent is npm.admin.expose, an upstream that points at
 // the local host or at any port of NPM's own names and addresses, and, unless parent is
 // panel.exposure.add, one inside the panel network or at the panel gateway. host is read as nginx reads
-// a proxy_pass host; a name other than the loopback names and the NPM container's names is allowed,
-// because it resolves nothing.
+// a proxy_pass host; a name other than the loopback names and the NPM container's names passes here,
+// and the caller resolves it and checks each answer with CheckResolved.
 func CheckUpstream(r Reserved, host string, port int, parent string) error {
 	name := normaliseHost(host)
 	addr, isAddr := upstreamAddr(host, name)
@@ -55,6 +55,24 @@ func CheckUpstream(r Reserved, host string, port int, parent string) error {
 		isGateway := r.PanelGateway.IsValid() && plainAddr(r.PanelGateway) == addr
 		if inNetwork || isGateway {
 			return reserved(host, port, "panel")
+		}
+	}
+	return nil
+}
+
+// LiteralAddr reports whether nginx reads host as an address, so that a lookup of it would be pointless, and
+// returns that address, unmapped and without a zone.
+func LiteralAddr(host string) (netip.Addr, bool) {
+	return upstreamAddr(host, normaliseHost(host))
+}
+
+// CheckResolved runs CheckUpstream on each answer the forward host name host resolved to, in order, and
+// returns the first refusal as npm.reserved naming the host and the offending answer. No answers pass.
+func CheckResolved(r Reserved, host string, answers []netip.Addr, port int, parent string) error {
+	for _, a := range answers {
+		text := plainAddr(a).String()
+		if err := CheckUpstream(r, text, port, parent); err != nil {
+			return errcode.New(errcode.NPMReserved, "forward host "+host+" resolves to "+text+": "+errcode.From(err).Detail)
 		}
 	}
 	return nil

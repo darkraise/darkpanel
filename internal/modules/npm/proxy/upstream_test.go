@@ -163,3 +163,82 @@ func TestV1r08ReservesEveryPortOfNPMsNamesAndAddresses(t *testing.T) {
 		}
 	})
 }
+
+func TestV1r09CheckResolved(t *testing.T) {
+	const admin, panel = "npm.admin.expose", "panel.exposure.add"
+	addrs := func(s ...string) []netip.Addr {
+		out := make([]netip.Addr, len(s))
+		for i, a := range s {
+			out[i] = netip.MustParseAddr(a)
+		}
+		return out
+	}
+	const host = "web.example.net"
+	for _, tc := range []struct {
+		name    string
+		answers []netip.Addr
+		port    int
+		parent  string
+		show    string // the offending answer, as the detail must show it; "" when nothing is refused
+	}{
+		{"a public answer", addrs("203.0.113.7"), 8080, "", ""},
+		{"no answer", nil, 8080, "", ""},
+		{"the loopback", addrs("127.0.0.1"), 8080, "", "127.0.0.1"},
+		{"the loopback from the admin exposure", addrs("127.0.0.1"), 81, admin, ""},
+		{"the IPv6 loopback", addrs("::1"), 8080, "", "::1"},
+		{"an IPv4-mapped loopback", addrs("::ffff:127.0.0.1"), 8080, "", "127.0.0.1"},
+		{"the unspecified address", addrs("0.0.0.0"), 8080, "", "0.0.0.0"},
+		{"an NPM address on its API port", addrs("172.18.0.2"), 3000, "", "172.18.0.2"},
+		{"an NPM IPv6 address", addrs("fd00:18::2"), 3000, "", "fd00:18::2"},
+		{"the panel gateway", addrs("172.31.255.1"), 9443, "", "172.31.255.1"},
+		{"the panel gateway from its owner", addrs("172.31.255.1"), 9443, panel, ""},
+		{"a panel network address from the admin exposure", addrs("172.31.255.2"), 9443, admin, "172.31.255.2"},
+		{"a reserved second answer", addrs("203.0.113.7", "127.0.0.1"), 8080, "", "127.0.0.1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := CheckResolved(pxReserved(), host, tc.answers, tc.port, tc.parent)
+			if tc.show == "" {
+				if err != nil {
+					t.Fatalf("CheckResolved = %v, want nil", err)
+				}
+				return
+			}
+			e := errcode.From(err)
+			if e.Code != errcode.NPMReserved {
+				t.Fatalf("CheckResolved = %v, want npm.reserved", err)
+			}
+			if want := "forward host " + host + " resolves to " + tc.show + ": "; !strings.HasPrefix(e.Detail, want) {
+				t.Errorf("detail %q does not start with %q", e.Detail, want)
+			}
+		})
+	}
+}
+
+func TestV1r09LiteralAddr(t *testing.T) {
+	for _, tc := range []struct {
+		host string
+		want string // "" when nginx reads the host as a name
+	}{
+		{"10.0.0.5", "10.0.0.5"},
+		{"127.1", "127.0.0.1"},
+		{"0x7f.1", "127.0.0.1"},
+		{"2130706433", "127.0.0.1"},
+		{"[::1]", "::1"},
+		{"::ffff:10.0.0.5", "10.0.0.5"},
+		{"web", ""},
+		{"web.1", ""},
+		{"app.example.com", ""},
+		{"LocalHost.", ""},
+	} {
+		got, ok := LiteralAddr(tc.host)
+		if tc.want == "" {
+			if ok {
+				t.Errorf("LiteralAddr(%q) = %v, true; want a name", tc.host, got)
+			}
+			continue
+		}
+		if !ok || got != netip.MustParseAddr(tc.want) {
+			t.Errorf("LiteralAddr(%q) = %v, %v; want %s", tc.host, got, ok, tc.want)
+		}
+	}
+}

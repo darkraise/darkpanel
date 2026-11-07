@@ -252,19 +252,18 @@ func proxyhostAddAnswer(err error) error {
 	return errcode.Wrap(errcode.NPMUnhealthy, err, "Nginx Proxy Manager did not answer")
 }
 
-// checkUpstream refuses with a Definite npm.reserved an upstream the input may not forward to under its parent. It
-// adds to the reserved set every address of the NPM container and every name Docker resolves to it. A failed Engine
-// read is not a refusal and is returned as it is.
-func (n nm) checkUpstream(ctx context.Context, env core.Env, in ProxyHostInput) error {
+// reservedSet is the set of upstreams no proxy host may forward to outside their owners: the panel's, with every
+// address of the NPM container and every name Docker resolves to it added. A missing NPM container adds nothing.
+func (n nm) reservedSet(ctx context.Context, env core.Env) (proxy.Reserved, error) {
 	r, err := n.d.panel(ctx, env)
 	if err != nil {
-		return err
+		return proxy.Reserved{}, err
 	}
 	c, err := n.d.docker.InspectContainer(ctx, containerName)
 	switch {
 	case dockerapi.IsNotFound(err):
 	case err != nil:
-		return engineCoded(err)
+		return proxy.Reserved{}, engineCoded(err)
 	default:
 		r.NPMAddrs, r.NPMNames = slices.Clone(r.NPMAddrs), slices.Clone(r.NPMNames)
 		names := []string{c.ID, c.Config.Hostname}
@@ -293,10 +292,115 @@ func (n nm) checkUpstream(ctx context.Context, env core.Env, in ProxyHostInput) 
 			}
 		}
 	}
-	if err := proxy.CheckUpstream(r, in.ForwardHost, in.ForwardPort, env.Call.ParentAction); err != nil {
-		return core.Definite(err)
+	return r, nil
+}
+
+// dockerAnswers returns the addresses Docker's embedded DNS gives host on the user-defined networks of the NPM
+// container, and whether any container there answers to it. Docker's DNS serves no default network, and holds no record
+// for an endpoint without an address, so neither answers.
+func (n nm) dockerAnswers(ctx context.Context, host string) ([]netip.Addr, bool, error) {
+	c, err := n.d.docker.InspectContainer(ctx, containerName)
+	switch {
+	case dockerapi.IsNotFound(err):
+		return nil, false, nil
+	case err != nil:
+		return nil, false, engineCoded(err)
 	}
-	return nil
+	name := strings.TrimSuffix(host, ".")
+	var answers []netip.Addr
+	for network := range c.NetworkSettings.Networks {
+		if network == "bridge" || network == "host" || network == "none" {
+			continue
+		}
+		nw, err := n.d.docker.InspectNetwork(ctx, network)
+		if err != nil {
+			return nil, false, engineCoded(err)
+		}
+		for id := range nw.Containers {
+			if id == c.ID {
+				continue
+			}
+			member, err := n.d.docker.InspectContainer(ctx, id)
+			switch {
+			case dockerapi.IsNotFound(err):
+				continue
+			case err != nil:
+				return nil, false, engineCoded(err)
+			}
+			ep := member.NetworkSettings.Networks[network]
+			if ep == nil {
+				continue
+			}
+			names := []string{strings.TrimPrefix(member.Name, "/"), member.ID}
+			if len(member.ID) > 12 {
+				names = append(names, member.ID[:12])
+			}
+			names = append(names, ep.Aliases...)
+			names = append(names, ep.DNSNames...)
+			if !slices.ContainsFunc(names, func(held string) bool { return held != "" && strings.EqualFold(held, name) }) {
+				continue
+			}
+			for _, a := range []netip.Addr{ep.IPAddress, ep.GlobalIPv6Address} {
+				if a.IsValid() {
+					answers = append(answers, a)
+				}
+			}
+		}
+	}
+	return answers, len(answers) > 0, nil
+}
+
+// resolveTimeout bounds one lookup of a forward host with the host's resolver, so that a DNS server that does not
+// answer cannot hold the module's lock through the resolver's own retries.
+const resolveTimeout = 5 * time.Second
+
+// checkForward refuses with a Definite npm.reserved an upstream the input may not forward to under its parent, and
+// resolves a forward host that is a name as nginx in the NPM container would: through Docker's embedded DNS when a
+// container on one of its networks answers to it, through the host's resolver otherwise. Every answer must pass the
+// check too, and a name with no answer is a Definite invalid_input. It returns the sorted answers, empty for an address
+// literal. A failed Engine read or an ended context is not a refusal and is returned as it is.
+func (n nm) checkForward(ctx context.Context, env core.Env, in ProxyHostInput) ([]string, error) {
+	r, err := n.reservedSet(ctx, env)
+	if err != nil {
+		return nil, err
+	}
+	parent := env.Call.ParentAction
+	if err := proxy.CheckUpstream(r, in.ForwardHost, in.ForwardPort, parent); err != nil {
+		return nil, core.Definite(err)
+	}
+	if _, ok := proxy.LiteralAddr(in.ForwardHost); ok {
+		return []string{}, nil
+	}
+	answers, ok, err := n.dockerAnswers(ctx, in.ForwardHost)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		lookupCtx, cancel := context.WithTimeout(ctx, resolveTimeout)
+		answers, err = n.d.resolve(lookupCtx, in.ForwardHost)
+		cancel()
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if err != nil || len(answers) == 0 {
+			return nil, proxyhostAddInvalid([]errcode.FieldError{{Path: "/forwardHost",
+				Message: fmt.Sprintf("forward host %s does not resolve to an address on this host", in.ForwardHost)}})
+		}
+	}
+	plain := make([]netip.Addr, len(answers))
+	for i, a := range answers {
+		plain[i] = a.Unmap().WithZone("")
+	}
+	slices.SortFunc(plain, netip.Addr.Compare)
+	plain = slices.Compact(plain)
+	if err := proxy.CheckResolved(r, in.ForwardHost, plain, in.ForwardPort, parent); err != nil {
+		return nil, core.Definite(err)
+	}
+	out := make([]string, len(plain))
+	for i, a := range plain {
+		out[i] = a.String()
+	}
+	return out, nil
 }
 
 // proxyhostAddRef is an object a proxy host refers to, as a plan's state hash covers it.
@@ -314,6 +418,7 @@ type proxyhostAddFound struct {
 	Certificate   proxyhostAddRef `json:"certificate"`
 	AccessList    proxyhostAddRef `json:"accessList"`
 	Parent        string          `json:"parent"`
+	Resolved      []string        `json:"resolved"`
 }
 
 // check decides whether the add may run and changes nothing; every failure but a failed Engine read is Definite. It
@@ -322,7 +427,8 @@ func (h proxyhostAddHandler) check(ctx context.Context, env core.Env, in ProxyHo
 	if err := validateProxyHostInput(in); err != nil {
 		return proxyhostAddFound{}, nil, err
 	}
-	if err := h.n.checkUpstream(ctx, env, in); err != nil {
+	resolved, err := h.n.checkForward(ctx, env, in)
+	if err != nil {
 		return proxyhostAddFound{}, nil, err
 	}
 	if env.Call.ParentAction == proxyhostAddAdminOwner {
@@ -361,6 +467,7 @@ func (h proxyhostAddHandler) check(ctx context.Context, env core.Env, in ProxyHo
 	found := proxyhostAddFound{
 		Domains: proxyhostAddSorted(in.Domains), ForwardScheme: in.ForwardScheme, ForwardHost: in.ForwardHost, ForwardPort: in.ForwardPort,
 		Certificate: proxyhostAddRef{ID: in.CertificateID}, AccessList: proxyhostAddRef{ID: in.AccessListID}, Parent: env.Call.ParentAction,
+		Resolved: resolved,
 	}
 	if in.CertificateID != 0 {
 		_, err := api.Certificate(ctx, in.CertificateID)
@@ -385,8 +492,8 @@ func (h proxyhostAddHandler) check(ctx context.Context, env core.Env, in ProxyHo
 	return found, api, nil
 }
 
-// Plan shows the proxy host the add creates. The hash covers the domains, the forward target, the certificate and
-// access list it refers to and the parent action.
+// Plan shows the proxy host the add creates. The hash covers the domains, the forward target and the addresses its host
+// resolves to, the certificate and access list it refers to and the parent action.
 func (h proxyhostAddHandler) Plan(ctx context.Context, env core.Env, in ProxyHostInput) (core.PlanOutcome, error) {
 	found, _, err := h.check(ctx, env, in)
 	if err != nil {

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/netip"
 	"os"
@@ -81,6 +82,7 @@ type deps struct {
 	readDir  func(name string) ([]os.DirEntry, error)                        // os.ReadDir
 	panel    func(ctx context.Context, env core.Env) (proxy.Reserved, error) // the upstreams a proxy host may not forward to
 	sockets  func() ([]netstat.Socket, error)                                // the host's listening sockets
+	resolve  func(ctx context.Context, host string) ([]netip.Addr, error)    // the host's resolver
 }
 
 // dockerAPI is the part of the Engine API client the module uses.
@@ -151,9 +153,10 @@ func Module() core.Module { return module{n: productionNM()} }
 
 // productionNM wires the module to the host's Docker daemon, its NPM instance and its file system.
 func productionNM() nm {
-	socket, base := dockerapi.DefaultSocket, apiURL
+	socket, base, resolve := dockerapi.DefaultSocket, apiURL, resolveVia(net.DefaultResolver)
+	// A test binary must never reach the host's DNS, as it must never reach its Docker daemon or NPM.
 	if testing.Testing() {
-		socket, base = absentSocket, absentURL
+		socket, base, resolve = absentSocket, absentURL, absentResolve
 	}
 	docker := dockerClient{dockerapi.New(socket)}
 	// A certificate request waits for NPM's ACME order, hence the long timeout. NPM's admin port answers a bare /api
@@ -174,7 +177,20 @@ func productionNM() nm {
 		readDir:  os.ReadDir,
 		panel:    reservedVia(docker),
 		sockets:  netstat.Sockets,
+		resolve:  resolve,
 	}}
+}
+
+// resolveVia builds deps.resolve: the IPv4 and IPv6 addresses r finds for host, as r returns them.
+func resolveVia(r *net.Resolver) func(ctx context.Context, host string) ([]netip.Addr, error) {
+	return func(ctx context.Context, host string) ([]netip.Addr, error) {
+		return r.LookupNetIP(ctx, "ip", host)
+	}
+}
+
+// absentResolve is the resolver of a test binary: it answers no name and never touches the network.
+func absentResolve(context.Context, string) ([]netip.Addr, error) {
+	return nil, errors.New("npm: no resolver is available in a test binary")
 }
 
 // randomBytes returns n bytes from crypto/rand.
