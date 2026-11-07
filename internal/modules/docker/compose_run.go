@@ -146,7 +146,7 @@ func (v composeVerb) Apply(ctx context.Context, env core.Env, in ComposeInput) (
 		// Not Definite: Compose may have created, stopped or removed
 		// containers before it failed, and restart's intended effects stay
 		// for the engine to settle as uncertain.
-		return ComposeResult{}, composeFailure(v.word, res)
+		return ComposeResult{}, composeFailure(v.word, r.Project, res)
 	}
 
 	for _, e := range effects {
@@ -277,11 +277,7 @@ func composeStateHash(r composeRun, cs []dockerapi.ContainerJSON) string {
 }
 
 // composeFailure is the error of a Compose run that exited non-zero: the
-// verb, the exit status and the last non-empty stderr line.
-func composeFailure(word string, res core.CmdResult) error {
-	detail := "compose " + word + " exited with status " + strconv.Itoa(res.ExitCode)
-	if line := composeLastLine(res.Stderr); line != "" {
-		detail += ": " + line
-	}
-	return errcode.New(errcode.DockerComposeUnavailable, detail)
+// verb and the exit status, never stderr.
+func composeFailure(word string, p projectRow, res core.CmdResult) error {
+	return errcode.New(errcode.DockerComposeUnavailable, composeFailureDetail(word, p, res.ExitCode))
 }

@@ -1,7 +1,6 @@
 package docker
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"unicode/utf8"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
@@ -29,11 +27,7 @@ const (
 	pluginDir = "/usr/libexec/docker/cli-plugins"
 )
 
-const (
-	composeDockerPath = "/usr/bin/docker"
-	// composeStderrMax bounds the stderr a refusal quotes.
-	composeStderrMax = 300
-)
+const composeDockerPath = "/usr/bin/docker"
 
 var (
 	composeProjectPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
@@ -151,11 +145,7 @@ func (k dk) prepareCompose(ctx context.Context, env core.Env, in ComposeInput) (
 		return composeRun{}, fmt.Errorf("docker: run compose config: %w", err)
 	}
 	if res.ExitCode != 0 {
-		msg := "docker compose config failed with exit status " + strconv.Itoa(res.ExitCode)
-		if line := composeLastLine(res.Stderr); line != "" {
-			msg += ": " + line
-		}
-		return composeRun{}, composeUnavailable("%s", msg)
+		return composeRun{}, composeUnavailable("%s", composeFailureDetail("config", row, res.ExitCode))
 	}
 	cfg, err := compose.Parse(res.Stdout)
 	if err != nil {
@@ -530,24 +520,17 @@ func (k dk) composeObjectLabels(ctx context.Context, kind, name string) (map[str
 	}
 }
 
-// composeLastLine is the last non-empty line of a program's stderr, cut to at
-// most composeStderrMax bytes on a character boundary.
-func composeLastLine(stderr []byte) string {
-	lines := bytes.Split(stderr, []byte("\n"))
-	for i := len(lines) - 1; i >= 0; i-- {
-		line := bytes.TrimSpace(lines[i])
-		if len(line) == 0 {
-			continue
-		}
-		if len(line) > composeStderrMax {
-			line = line[:composeStderrMax]
-			for len(line) > 0 && !utf8.Valid(line) {
-				line = line[:len(line)-1]
-			}
-		}
-		return string(line)
+// composeFailureDetail describes a Compose command that exited non-zero by
+// its verb and exit status, and names the command the operator can run on the
+// host to see why. Compose's diagnostics can quote values it resolved from env
+// files, so none of its output is ever reported.
+func composeFailureDetail(verb string, p projectRow, exit int) string {
+	files := make([]string, 0, len(p.Files))
+	for _, f := range p.Files {
+		files = append(files, "-f "+f)
 	}
-	return ""
+	return "docker compose " + verb + " failed with exit status " + strconv.Itoa(exit) +
+		`; run "docker compose ` + strings.Join(files, " ") + " " + verb + `" on the host to see why`
 }
 
 // planCompose renders the diff every Compose action shows: "runs the

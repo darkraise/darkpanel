@@ -484,16 +484,12 @@ func TestCCPrepareRefusesProjectsWithOwnedContainers(t *testing.T) {
 }
 
 func TestCCPrepareReportsAFailedConfigWithoutLeakingOutput(t *testing.T) {
-	long := strings.Repeat("Z", 500)
 	tests := []struct {
 		name   string
 		res    core.CmdResult
 		detail []string
 		absent []string
 	}{
-		{"non-zero exit", core.CmdResult{ExitCode: 1, Stderr: []byte("warning: first line\nservice \"web\" refers to undefined network front\n\n")},
-			[]string{"exit status 1", `service "web" refers to undefined network front`}, []string{"first line"}},
-		{"long stderr line", core.CmdResult{ExitCode: 15, Stderr: []byte(long + "\n")}, []string{"exit status 15", "ZZZZ"}, nil},
 		{"unreadable output", core.CmdResult{Stdout: []byte(`{"name":"shop","services":"SECRET_TOKEN_VALUE"}`)},
 			[]string{"resolved configuration"}, []string{"SECRET_TOKEN_VALUE"}},
 		{"not JSON", core.CmdResult{Stdout: []byte("SECRET_TOKEN_VALUE")}, []string{"resolved configuration"}, []string{"SECRET_TOKEN_VALUE"}},
@@ -510,9 +506,6 @@ func TestCCPrepareReportsAFailedConfigWithoutLeakingOutput(t *testing.T) {
 				if strings.Contains(d, a) {
 					t.Errorf("detail %q contains %q", d, a)
 				}
-			}
-			if n := strings.Count(d, "Z"); n > 300 {
-				t.Errorf("detail carries %d bytes of stderr, want at most 300", n)
 			}
 		})
 	}

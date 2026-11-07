@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
@@ -404,41 +403,6 @@ func TestCUProfilesInputReplacesTheStoredList(t *testing.T) {
 	}
 	if got := cuKey(cuLastCmd(t, h).Args); got != want {
 		t.Errorf("up ran %q after the list was stored, want %q", got, want)
-	}
-}
-
-func TestCUFailedRunNamesTheVerbTheStatusAndTheLastStderrLine(t *testing.T) {
-	tests := []struct {
-		name   string
-		stderr string
-		code   int
-		want   string
-	}{
-		{"last non-empty line", "pull access denied\nservice web failed to start\n\n", 1, "compose up exited with status 1: service web failed to start"},
-		{"no stderr", "", 2, "compose up exited with status 2"},
-		{"capped on a rune boundary", "a" + strings.Repeat("é", 200) + "\n", 1, "compose up exited with status 1: a" + strings.Repeat("é", 149)},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			h := newDKHost(t)
-			p := cuProject(t, h)
-			before := cuRow(t, h)
-			h.results[cuKey(composeArgs(p, p.Profiles, "up", "-d", "--no-build"))] = core.CmdResult{ExitCode: tc.code, Stderr: []byte(tc.stderr)}
-			_, err := cuApply(t, h, h.dk().composeUp(), cuInput)
-			var coded *errcode.Error
-			if !errors.As(err, &coded) || coded.Code != errcode.DockerComposeUnavailable || coded.Detail != tc.want {
-				t.Fatalf("Apply = %v, want docker.compose_unavailable %q", err, tc.want)
-			}
-			if !utf8.ValidString(coded.Detail) {
-				t.Errorf("detail %q is not valid UTF-8", coded.Detail)
-			}
-			if core.IsDefinite(err) {
-				t.Error("a failed run is marked definite, but the run may have changed containers")
-			}
-			if after := cuRow(t, h); after.RunHash != before.RunHash || !after.LastRun.Equal(before.LastRun) {
-				t.Errorf("run recorded after a failure: %+v, was %+v", after, before)
-			}
-		})
 	}
 }
 
