@@ -23,8 +23,8 @@ func TestFkProxyHostDomainsAreUnique(t *testing.T) {
 		t.Errorf("created %+v, want id 1 with created_on and modified_on", a)
 	}
 	_, err = c.CreateProxyHost(ctx, fkHost("c.example.com", "b.example.com"))
-	if ae := fkAPIError(t, err); ae.Status != http.StatusBadRequest || ae.Message != "b.example.com is already in use" || !npmapi.IsClientError(err) {
-		t.Errorf("a create with a taken domain: %v, want 400 \"b.example.com is already in use\"", err)
+	if ae := fkAPIError(t, err); ae.Status != http.StatusBadRequest || !npmapi.IsClientError(err) {
+		t.Errorf("a create with a taken domain: %v, want 400", err)
 	}
 	if n := len(s.ProxyHosts()); n != 1 {
 		t.Errorf("%d proxy hosts after a refused create, want 1", n)

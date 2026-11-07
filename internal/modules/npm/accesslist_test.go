@@ -300,7 +300,7 @@ func TestAlAddRefusedByNPMIsDefiniteAndSkipped(t *testing.T) {
 	h, n := alSetup(t)
 	h.addChange("c1", "npm.accesslist.add")
 	n = alReplaceCreate(n, func(context.Context, npmAPI, npmapi.AccessListBody) (npmapi.AccessList, error) {
-		return npmapi.AccessList{}, &npmapi.APIError{Status: 400, Message: "name is invalid"}
+		return npmapi.AccessList{}, &npmapi.APIError{Status: 400}
 	})
 	_, err := accessListAddHandler{n: n}.Apply(ctx, h.env("c1"), alInput())
 	if !core.IsDefinite(err) {

@@ -242,12 +242,12 @@ func proxyHostCreatedOn(s string) (time.Time, error) {
 	return t, nil
 }
 
-// proxyhostAddAnswer maps a failed NPM call: a 4xx is invalid_input with NPM's status and message, anything else
+// proxyhostAddAnswer maps a failed NPM call: a 4xx is invalid_input with NPM's status only, anything else
 // npm.unhealthy. err stays the cause, so refused still sees NPM's answer.
 func proxyhostAddAnswer(err error) error {
 	var answer *npmapi.APIError
 	if errors.As(err, &answer) && npmapi.IsClientError(err) {
-		return errcode.Wrap(errcode.InvalidInput, err, fmt.Sprintf("Nginx Proxy Manager refused the request (HTTP %d): %s", answer.Status, answer.Message))
+		return errcode.Wrap(errcode.InvalidInput, err, fmt.Sprintf("Nginx Proxy Manager refused the request (HTTP %d)", answer.Status))
 	}
 	return errcode.Wrap(errcode.NPMUnhealthy, err, "Nginx Proxy Manager did not answer")
 }

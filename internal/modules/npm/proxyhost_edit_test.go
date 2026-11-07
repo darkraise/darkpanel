@@ -359,7 +359,7 @@ func TestPuUpdateTheOutcomeOfAFailedCall(t *testing.T) {
 		definite bool
 		wantPort int
 	}{
-		{"refused by NPM", puFault{err: &npmapi.APIError{Status: 400, Message: "forward_port must be valid"}}, core.EffectSkipped, true, 8080},
+		{"refused by NPM", puFault{err: &npmapi.APIError{Status: 400}}, core.EffectSkipped, true, 8080},
 		{"the response is lost after NPM committed", puFault{err: errors.New("npmapi: connection reset"), commit: true}, core.EffectIntended, false, 9090},
 	}
 	for _, tc := range tests {
@@ -743,7 +743,7 @@ func TestPuRemoveTheOutcomeOfAFailedCall(t *testing.T) {
 		definite bool
 		held     int
 	}{
-		{"refused by NPM", puFault{err: &npmapi.APIError{Status: 400, Message: "in use"}}, core.EffectSkipped, true, 1},
+		{"refused by NPM", puFault{err: &npmapi.APIError{Status: 400}}, core.EffectSkipped, true, 1},
 		{"the response is lost after NPM committed", puFault{err: errors.New("npmapi: connection reset"), commit: true}, core.EffectIntended, false, 0},
 	}
 	for _, tc := range tests {
@@ -803,7 +803,7 @@ func TestW10NvRemoveTreatsAMissingHostAsDeleted(t *testing.T) {
 	h, host := puSeed(t, puInput())
 	h.addChange("c1", "npm.proxyhost.remove")
 	puReserve(t, h, "proxy_host", host.ID, "npm.admin.expose", puDomain)
-	n := puFaulty(h, &puFaults{remove: puFault{err: &npmapi.APIError{Status: 404, Message: "Not Found"}}})
+	n := puFaulty(h, &puFaults{remove: puFault{err: &npmapi.APIError{Status: 404}}})
 
 	out, err := n.proxyhostRemove().Handler.Apply(ctx, h.child("c1", "npm.admin.unexpose"), puJSON(t, ProxyHostRemoveInput{ID: host.ID}))
 	if err != nil {

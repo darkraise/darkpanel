@@ -8,49 +8,68 @@ import (
 	"testing"
 )
 
-func TestApErrorsCarryNPMsMessageAndNeverTheBody(t *testing.T) {
+func TestV1r11AnswersKeepOnlyTheStatusAndAnAllowlistedCode(t *testing.T) {
+	const secret = "placeholder-secret"
 	for _, tc := range []struct {
 		name     string
 		status   int
 		body     string
-		message  string
+		code     int
+		text     string
 		notFound bool
 		client   bool
 	}{
-		{"a refused duplicate", 400, `{"error":{"code":400,"message":"app.example.com is already in use"}}`, "app.example.com is already in use", false, true},
-		{"a missing object", 404, `{"error":{"code":404,"message":"Not Found"}}`, "Not Found", true, true},
-		{"an unauthorized call", 401, `{"error":{"code":401,"message":"Unauthorized"}}`, "Unauthorized", false, true},
-		{"a server failure with NPM's message", 500, `{"error":{"code":500,"message":"database is locked"}}`, "database is locked", false, false},
-		{"an HTML body from a proxy", 502, `<html>token=leak-hunter2</html>`, "Bad Gateway", false, false},
-		{"an empty body", 503, ``, "Service Unavailable", false, false},
-		{"JSON without error.message", 400, `{"password":"leak-hunter2"}`, "Bad Request", false, true},
+		{"a refused duplicate", 400, `{"error":{"code":400,"message":"placeholder-secret is already in use"}}`, 400, "npmapi: NPM answered 400", false, true},
+		{"a missing object", 404, `{"error":{"code":404,"message":"placeholder-secret"}}`, 404, "npmapi: NPM answered 404", true, true},
+		{"an unauthorized call", 401, `{"error":{"code":401,"message":"placeholder-secret"}}`, 401, "npmapi: NPM answered 401", false, true},
+		{"a server failure", 500, `{"error":{"code":500,"message":"placeholder-secret"}}`, 500, "npmapi: NPM answered 500", false, false},
+		{"a code that differs from the status", 403, `{"error":{"code":400,"message":"placeholder-secret"}}`, 400, "npmapi: NPM answered 403 (error code 400)", false, true},
+		{"a code outside the allowlist", 400, `{"error":{"code":12345,"message":"placeholder-secret"}}`, 0, "npmapi: NPM answered 400", false, true},
+		{"a code below the allowlist", 400, `{"error":{"code":200,"message":"placeholder-secret"}}`, 0, "npmapi: NPM answered 400", false, true},
+		{"a code that is text", 400, `{"error":{"code":"placeholder-secret","message":"x"}}`, 0, "npmapi: NPM answered 400", false, true},
+		{"an HTML body from a proxy", 502, `<html>token=placeholder-secret</html>`, 0, "npmapi: NPM answered 502", false, false},
+		{"an empty body", 503, ``, 0, "npmapi: NPM answered 503", false, false},
+		{"JSON without an error member", 400, `{"password":"placeholder-secret"}`, 0, "npmapi: NPM answered 400", false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := apStart(t, tc.status, tc.body)
 			err := s.client().DeleteProxyHost(t.Context(), 3)
 			var ae *APIError
-			if !errors.As(err, &ae) || ae.Status != tc.status || ae.Message != tc.message {
-				t.Fatalf("error %v, want an *APIError with status %d and message %q", err, tc.status, tc.message)
+			if !errors.As(err, &ae) || ae.Status != tc.status || ae.Code != tc.code {
+				t.Fatalf("error %#v, want an *APIError with status %d and code %d", err, tc.status, tc.code)
+			}
+			if got := err.Error(); got != tc.text {
+				t.Errorf("error text %q, want %q", got, tc.text)
+			}
+			for _, shown := range []string{err.Error(), fmt.Sprintf("%v", err), fmt.Sprintf("%+v", err), fmt.Sprintf("%#v", err)} {
+				if strings.Contains(shown, secret) {
+					t.Errorf("%q carries the answer text", shown)
+				}
 			}
 			if IsNotFound(err) != tc.notFound || IsClientError(err) != tc.client {
 				t.Errorf("IsNotFound %t and IsClientError %t, want %t and %t", IsNotFound(err), IsClientError(err), tc.notFound, tc.client)
-			}
-			if strings.Contains(err.Error(), "leak") {
-				t.Errorf("error text %q carries the response body", err.Error())
 			}
 		})
 	}
 }
 
-func TestApAPIErrorText(t *testing.T) {
-	err := &APIError{Status: 400, Message: "app.example.com is already in use"}
-	if got, want := err.Error(), "npmapi: NPM answered 400: app.example.com is already in use"; got != want {
-		t.Errorf("Error() = %q, want %q", got, want)
+func TestV1r11APIErrorText(t *testing.T) {
+	for _, tc := range []struct {
+		err  APIError
+		want string
+	}{
+		{APIError{Status: 400}, "npmapi: NPM answered 400"},
+		{APIError{Status: 500, Code: 500}, "npmapi: NPM answered 500"},
+		{APIError{Status: 403, Code: 400}, "npmapi: NPM answered 403 (error code 400)"},
+	} {
+		if got := tc.err.Error(); got != tc.want {
+			t.Errorf("%+v: Error() = %q, want %q", tc.err, got, tc.want)
+		}
 	}
 }
 
 func TestApPredicatesSeeThroughWrappingAndIgnoreOtherErrors(t *testing.T) {
-	wrapped := fmt.Errorf("npm: remove the proxy host: %w", &APIError{Status: 404, Message: "Not Found"})
+	wrapped := fmt.Errorf("npm: remove the proxy host: %w", &APIError{Status: 404})
 	if !IsNotFound(wrapped) || !IsClientError(wrapped) {
 		t.Error("a wrapped 404 is not recognised")
 	}

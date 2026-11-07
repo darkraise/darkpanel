@@ -5,16 +5,20 @@ import (
 	"fmt"
 )
 
-// APIError is NPM's refusal of a request. Message is NPM's error.message, or the status text when the answer has none;
-// it never holds any other part of the answer.
+// APIError is NPM's refusal of a request. It holds the HTTP status, and Code is NPM's error.code when that is a number
+// from 400 to 599 and 0 otherwise. It never holds any text of the answer, because a compromised NPM can place a secret
+// it was sent, such as the administrator's password or the bearer token, in that text.
 type APIError struct {
-	Status  int
-	Message string
+	Status int
+	Code   int
 }
 
 // Error implements error.
 func (e *APIError) Error() string {
-	return fmt.Sprintf("npmapi: NPM answered %d: %s", e.Status, e.Message)
+	if e.Code != 0 && e.Code != e.Status {
+		return fmt.Sprintf("npmapi: NPM answered %d (error code %d)", e.Status, e.Code)
+	}
+	return fmt.Sprintf("npmapi: NPM answered %d", e.Status)
 }
 
 // IsNotFound reports whether err is NPM's 404.

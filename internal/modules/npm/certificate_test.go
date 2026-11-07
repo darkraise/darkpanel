@@ -307,7 +307,7 @@ func TestCeRequestRefusedByNPMIsDefiniteAndSkipped(t *testing.T) {
 	h, n, _ := ceSetup(t)
 	h.addChange("c1", "npm.certificate.request")
 	n = ceReplaceCreate(n, func(context.Context, npmAPI, npmapi.CertificateBody) (npmapi.Certificate, error) {
-		return npmapi.Certificate{}, &npmapi.APIError{Status: 400, Message: "domain is invalid"}
+		return npmapi.Certificate{}, &npmapi.APIError{Status: 400}
 	})
 	_, err := certificateRequestHandler{n: n}.Apply(ctx, h.env("c1"), CertificateInput{Domains: []string{"a.example.com"}})
 	if !core.IsDefinite(err) {

@@ -93,7 +93,7 @@ func (a *dpHealth) Health(ctx context.Context) (npmapi.Health, error) {
 	fail := a.failing < 0 || a.calls <= a.failing
 	a.mu.Unlock()
 	if fail {
-		return npmapi.Health{}, &npmapi.APIError{Status: http.StatusBadGateway, Message: "not up yet"}
+		return npmapi.Health{}, &npmapi.APIError{Status: http.StatusBadGateway}
 	}
 	return a.npmAPI.Health(ctx)
 }

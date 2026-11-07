@@ -402,8 +402,8 @@ func TestW10NcBodiesAreDrainedWithinALimit(t *testing.T) {
 				}
 			} else {
 				var ae *APIError
-				if !errors.As(err, &ae) || ae.Status != tt.status || ae.Message != "boom" {
-					t.Fatalf("error %#v, want an APIError %d with the message boom", err, tt.status)
+				if !errors.As(err, &ae) || ae.Status != tt.status {
+					t.Fatalf("error %#v, want an APIError %d", err, tt.status)
 				}
 			}
 			if !body.closed {

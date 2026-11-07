@@ -185,7 +185,7 @@ func (c *Client) DeleteCertificate(ctx context.Context, id int) error {
 }
 
 // do sends one request. A 2xx answer is decoded into out when out is not nil and otherwise dropped; any other status
-// becomes an *APIError.
+// becomes an *APIError, which never keeps the answer's text.
 func (c *Client) do(ctx context.Context, method, path, query string, body, out any) error {
 	var rd io.Reader
 	if body != nil {
@@ -239,19 +239,19 @@ func (c *Client) do(ctx context.Context, method, path, query string, body, out a
 	return nil
 }
 
-// apiError builds the error of a refusal from NPM's error.message, never from any other part of the answer.
+// apiError builds the error of a refusal from its status and NPM's error.code when that is a number from 400 to 599.
+// The answer's text is never decoded or kept.
 func apiError(res *http.Response) *APIError {
 	ae := &APIError{Status: res.StatusCode}
 	var envelope struct {
 		Error struct {
-			Message string `json:"message"`
+			Code json.RawMessage `json:"code"`
 		} `json:"error"`
 	}
 	if b, err := io.ReadAll(io.LimitReader(res.Body, errorBodyLimit)); err == nil && json.Unmarshal(b, &envelope) == nil {
-		ae.Message = envelope.Error.Message
-	}
-	if ae.Message == "" {
-		ae.Message = http.StatusText(res.StatusCode)
+		if code, err := strconv.Atoi(string(bytes.TrimSpace(envelope.Error.Code))); err == nil && code >= 400 && code <= 599 {
+			ae.Code = code
+		}
 	}
 	return ae
 }

@@ -86,7 +86,7 @@ func TestSdNpmEffect(t *testing.T) {
 
 func TestSdRun(t *testing.T) {
 	dockerErr := func(code int) error { return &dockerapi.APIError{StatusCode: code, Message: "no"} }
-	npmErr := func(code int) error { return &npmapi.APIError{Status: code, Message: "no"} }
+	npmErr := func(code int) error { return &npmapi.APIError{Status: code} }
 	creation := npmEffect(core.EffectCreate, resourceOf(nounNetwork, "?darkpanel-npm"), nil, commitWait)
 	modify := npmEffect(core.EffectModify, resourceOf(nounContainer, "abc"), json.RawMessage(`{"running":false}`), commitWait)
 	boom := errors.New("connection reset")
