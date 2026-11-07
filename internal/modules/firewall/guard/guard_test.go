@@ -61,9 +61,9 @@ func ckHost() *gHost {
 			flSock(netstat.ProtoUDP, netstat.StateClose, "0.0.0.0:41641", "", "tailscaled", 300),
 		},
 		routes: map[netstat.RouteQuery]netstat.Route{
-			rtQuery("198.51.100.9", "192.0.2.1", ""):              rtVia("eth0", "192.0.2.1"),
-			gxQueryMark(rtQuery("198.51.100.1", "", ""), 0x80000): rtVia("eth0", "192.0.2.1"),
-			rtQuery("198.51.100.1", "172.30.0.3", "dp-panel"):     rtVia("eth0", ""),
+			rtQuery("198.51.100.9", "192.0.2.1", ""):         rtVia("eth0", "192.0.2.1"),
+			gxQueryMark(rtQuery("0.0.0.1", "", ""), 0x80000): rtVia("eth0", "192.0.2.1"),
+			rtQuery("0.0.0.1", "172.30.0.3", "dp-panel"):     rtVia("eth0", ""),
 		},
 	}
 }
@@ -97,15 +97,15 @@ var ckAllFlows = []string{
 	"panel from 203.0.113.7 to 192.0.2.1:443 on eth1",
 	"panel from 203.0.113.7 to 192.0.2.1:443 on dp-panel",
 	"exposure exp2 proxy from 172.30.0.3 to 172.30.0.1:8080 on dp-panel",
-	"exposure exp2 tunnel udp from 172.30.0.3 to 198.51.100.1:7844 on dp-panel out eth0",
-	"exposure exp2 tunnel from 172.30.0.3 to 198.51.100.1:7844 on dp-panel out eth0",
-	"exposure exp2 tunnel from 172.30.0.3 to 198.51.100.1:443 on dp-panel out eth0",
+	"exposure exp2 tunnel udp from 172.30.0.3 to 0.0.0.1-255.255.255.254:7844 on dp-panel out eth0",
+	"exposure exp2 tunnel from 172.30.0.3 to 0.0.0.1-255.255.255.254:7844 on dp-panel out eth0",
+	"exposure exp2 tunnel from 172.30.0.3 to 0.0.0.1-255.255.255.254:443 on dp-panel out eth0",
 	"agent link from 198.51.100.7 to 192.0.2.1:7443 on eth0",
 	"agent link from 198.51.100.7 to 192.0.2.1:7443 on eth1",
 	"agent link from 198.51.100.7 to 192.0.2.1:7443 on dp-panel",
 	"controller link from 192.0.2.1 to 198.51.100.9:7443 out eth0",
-	"tailscale udp from 192.0.2.1 to 198.51.100.1:41641 out eth0",
-	"tailscale from 192.0.2.1 to 198.51.100.1:443 out eth0",
+	"tailscale udp from 192.0.2.1 to 0.0.0.1-255.255.255.254:41641 out eth0",
+	"tailscale from 192.0.2.1 to 0.0.0.1-255.255.255.254:443 out eth0",
 }
 
 // ckRunning makes the controller unit of env run with main PID 4242.
@@ -307,8 +307,8 @@ func TestCheckRouterGiven(t *testing.T) {
 	env, _, _ := ckEnv()
 	ckRunning(env)
 	h := &gHost{ifaces: ckIfaces(), routes: map[netstat.RouteQuery]netstat.Route{
-		rtQuery("172.17.0.5", "198.51.100.1", "eth0"):     rtVia("docker0", ""),
-		rtQuery("172.17.0.5", "198.51.100.1", "dp-panel"): rtVia("docker0", ""),
+		rtQuery("172.17.0.5", "0.0.0.1", "eth0"):     rtVia("docker0", ""),
+		rtQuery("172.17.0.5", "0.0.0.1", "dp-panel"): rtVia("docker0", ""),
 	}}
 	in := Input{
 		Plan: &core.GuardContext{Via: &core.ProxyPath{ExposureID: "exp1", Kind: "npm", ProxyAddr: netip.MustParseAddr("172.30.0.2"),
@@ -332,7 +332,7 @@ func TestCheckRouterGiven(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "exposure exp1 public from 198.51.100.1 to 192.0.2.1:80 on eth1: unknown (firewall: route to 172.17.0.5 from 198.51.100.1 on eth1: netstat: no route)"
+	want := "exposure exp1 public from 0.0.0.1-255.255.255.254 to 192.0.2.1:80 on eth1: unknown (firewall: route to 172.17.0.5 from 0.0.0.1 on eth1: netstat: no route)"
 	if g.OK || g.Message != "the change would cut "+want {
 		t.Errorf("guard = %+v, want only eth1 failing with %q", g, want)
 	}
@@ -346,8 +346,8 @@ func TestGxCheckTailscaleMark(t *testing.T) {
 	h := &gHost{ifaces: gIfaces(), sockets: []netstat.Socket{
 		flSock(netstat.ProtoUDP, netstat.StateClose, "0.0.0.0:41641", "", "tailscaled", 300),
 	}, routes: map[netstat.RouteQuery]netstat.Route{
-		rtQuery("198.51.100.1", "", ""):                       rtVia("eth1", "10.0.0.1"),
-		gxQueryMark(rtQuery("198.51.100.1", "", ""), 0x80000): rtVia("eth0", "192.0.2.1"),
+		rtQuery("0.0.0.1", "", ""):                       rtVia("eth1", "10.0.0.1"),
+		gxQueryMark(rtQuery("0.0.0.1", "", ""), 0x80000): rtVia("eth0", "192.0.2.1"),
 	}}
 	var seen []fwstate.Packet
 	eval := func(_ *netfilter.Ruleset, p fwstate.Packet, _ fwstate.Router) fwstate.Result {
@@ -363,8 +363,8 @@ func TestGxCheckTailscaleMark(t *testing.T) {
 		flows = append(flows, r.Flow)
 	}
 	want := []string{
-		"tailscale udp from 192.0.2.1 to 198.51.100.1:41641 out eth0",
-		"tailscale from 192.0.2.1 to 198.51.100.1:443 out eth0",
+		"tailscale udp from 192.0.2.1 to 0.0.0.1-255.255.255.254:41641 out eth0",
+		"tailscale from 192.0.2.1 to 0.0.0.1-255.255.255.254:443 out eth0",
 	}
 	if !g.OK || !reflect.DeepEqual(flows, want) {
 		t.Errorf("guard %+v, flows %q; want tailscaled's flows routed by its bypass mark %q", g, flows, want)
@@ -381,7 +381,7 @@ func TestGxCheckControllerListeners(t *testing.T) {
 		return &gHost{ifaces: gIfaces(), sockets: []netstat.Socket{
 			flSock(netstat.ProtoTCP, netstat.StateListen, "0.0.0.0:7443", "", "darkpanel-contr", 4242),
 		}, routes: map[netstat.RouteQuery]netstat.Route{
-			rtQuery("198.51.100.1", "", ""): rtVia("eth0", "192.0.2.1"),
+			rtQuery("0.0.0.1", "", ""): rtVia("eth0", "192.0.2.1"),
 		}}
 	}
 	env, _, _ := ckEnv()
@@ -392,8 +392,8 @@ func TestGxCheckControllerListeners(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := core.Guard{ID: "firewall.lockout", Message: "the change would cut " +
-		"controller listener from 198.51.100.1 to 192.0.2.1:7443 on eth0: drop (filter/ufw-user-input#1); " +
-		"controller listener from 198.51.100.1 to 192.0.2.1:7443 on eth1: drop (filter/ufw-user-input#1)"}
+		"controller listener from 0.0.0.1-255.255.255.254 to 192.0.2.1:7443 on eth0: drop (filter/ufw-user-input#1); " +
+		"controller listener from 0.0.0.1-255.255.255.254 to 192.0.2.1:7443 on eth1: drop (filter/ufw-user-input#1)"}
 	if g != want || len(results) != 2 {
 		t.Errorf("guard = %+v with %d results\nwant %+v", g, len(results), want)
 	}

@@ -126,10 +126,10 @@ func TestBuildFlows(t *testing.T) {
 			f:    facts{ifaces: gIfaces(), controller: 4242},
 			want: []flow{
 				{label: "exposure exp1 proxy", pkt: flOn("dp-panel", flPkt("input", "172.30.0.2", 0, "172.30.0.1", 8080, "tcp"))},
-				{label: "exposure exp1 public", pkt: flPkt("input", "198.51.100.1", 0, "192.0.2.1", 443, "tcp")},
-				{label: "exposure exp1 public", pkt: flPkt("input", "2001:db8:ffff::1", 0, "2001:db8::1", 443, "tcp")},
-				{label: "exposure exp1 public", pkt: flPkt("input", "198.51.100.1", 0, "0.0.0.0", 443, "tcp")},
-				{label: "exposure exp1 public", pkt: flPkt("input", "2001:db8:ffff::1", 0, "::", 443, "tcp")},
+				{label: "exposure exp1 public", pkt: flPkt("input", "0.0.0.0", 0, "192.0.2.1", 443, "tcp"), wild: wildSrc},
+				{label: "exposure exp1 public", pkt: flPkt("input", "::", 0, "2001:db8::1", 443, "tcp"), wild: wildSrc},
+				{label: "exposure exp1 public", pkt: flPkt("input", "0.0.0.0", 0, "0.0.0.0", 443, "tcp"), wild: wildSrc},
+				{label: "exposure exp1 public", pkt: flPkt("input", "::", 0, "::", 443, "tcp"), wild: wildSrc},
 			},
 		},
 		{
@@ -138,9 +138,9 @@ func TestBuildFlows(t *testing.T) {
 			f:    facts{ifaces: gIfaces(), controller: 4242},
 			want: []flow{
 				{label: "exposure exp2 proxy", pkt: flOn("dp-panel", flPkt("input", "172.30.0.3", 0, "172.30.0.1", 8080, "tcp"))},
-				{label: "exposure exp2 tunnel", pkt: flOn("dp-panel", flPkt("forward", "172.30.0.3", 0, "198.51.100.1", 7844, "udp")), standIn: true},
-				{label: "exposure exp2 tunnel", pkt: flOn("dp-panel", flPkt("forward", "172.30.0.3", 0, "198.51.100.1", 7844, "tcp")), standIn: true},
-				{label: "exposure exp2 tunnel", pkt: flOn("dp-panel", flPkt("forward", "172.30.0.3", 0, "198.51.100.1", 443, "tcp")), standIn: true},
+				{label: "exposure exp2 tunnel", pkt: flOn("dp-panel", flPkt("forward", "172.30.0.3", 0, "0.0.0.0", 7844, "udp")), wild: wildDst, standIn: true},
+				{label: "exposure exp2 tunnel", pkt: flOn("dp-panel", flPkt("forward", "172.30.0.3", 0, "0.0.0.0", 7844, "tcp")), wild: wildDst, standIn: true},
+				{label: "exposure exp2 tunnel", pkt: flOn("dp-panel", flPkt("forward", "172.30.0.3", 0, "0.0.0.0", 443, "tcp")), wild: wildDst, standIn: true},
 			},
 		},
 		{
@@ -182,8 +182,8 @@ func TestBuildFlows(t *testing.T) {
 			}},
 			want: []flow{
 				{label: "controller session", pkt: flPkt("input", "203.0.113.9", 0, "192.0.2.1", 443, "tcp")},
-				{label: "controller listener", pkt: flPkt("input", "198.51.100.1", 0, "0.0.0.0", 443, "tcp")},
-				{label: "controller listener", pkt: flPkt("input", "2001:db8:ffff::1", 0, "::", 443, "tcp")},
+				{label: "controller listener", pkt: flPkt("input", "0.0.0.0", 0, "0.0.0.0", 443, "tcp"), wild: wildSrc},
+				{label: "controller listener", pkt: flPkt("input", "::", 0, "::", 443, "tcp"), wild: wildSrc},
 			},
 		},
 		{
@@ -201,9 +201,9 @@ func TestBuildFlows(t *testing.T) {
 				flSock(tcp, listen, "0.0.0.0:7443", "", "darkpanel-contr", 4242),
 			}},
 			want: []flow{
-				{label: "controller listener", pkt: flPkt("input", "198.51.100.1", 0, "0.0.0.0", 7443, "tcp")},
-				{label: "controller listener", pkt: flPkt("input", "198.51.100.1", 0, "192.0.2.1", 9443, "tcp")},
-				{label: "controller listener", pkt: flPkt("input", "2001:db8:ffff::1", 0, "2001:db8::1", 9444, "tcp")},
+				{label: "controller listener", pkt: flPkt("input", "0.0.0.0", 0, "0.0.0.0", 7443, "tcp"), wild: wildSrc},
+				{label: "controller listener", pkt: flPkt("input", "0.0.0.0", 0, "192.0.2.1", 9443, "tcp"), wild: wildSrc},
+				{label: "controller listener", pkt: flPkt("input", "::", 0, "2001:db8::1", 9444, "tcp"), wild: wildSrc},
 				{label: "controller listener", pkt: flOn("dp-panel", flPkt("input", "172.30.0.2", 0, "172.30.0.1", 9445, "tcp"))},
 			},
 		},
@@ -240,10 +240,10 @@ func TestBuildFlows(t *testing.T) {
 				flSock(tcp, est, "100.64.0.1:41002", "100.64.0.2:443", "tailscaled", 300),
 			}},
 			want: []flow{
-				{label: "tailscale", pkt: gxMark(flPkt("output", "0.0.0.0", 41641, "198.51.100.1", 41641, "udp"), 0x80000), standIn: true},
-				{label: "tailscale", pkt: gxMark(flPkt("output", "0.0.0.0", 0, "198.51.100.1", 443, "tcp"), 0x80000), standIn: true},
-				{label: "tailscale", pkt: gxMark(flPkt("output", "::", 41641, "2001:db8:ffff::1", 41641, "udp"), 0x80000), standIn: true},
-				{label: "tailscale", pkt: gxMark(flPkt("output", "::", 0, "2001:db8:ffff::1", 443, "tcp"), 0x80000), standIn: true},
+				{label: "tailscale", pkt: gxMark(flPkt("output", "0.0.0.0", 41641, "0.0.0.0", 41641, "udp"), 0x80000), wild: wildDst, standIn: true},
+				{label: "tailscale", pkt: gxMark(flPkt("output", "0.0.0.0", 0, "0.0.0.0", 443, "tcp"), 0x80000), wild: wildDst, standIn: true},
+				{label: "tailscale", pkt: gxMark(flPkt("output", "::", 41641, "::", 41641, "udp"), 0x80000), wild: wildDst, standIn: true},
+				{label: "tailscale", pkt: gxMark(flPkt("output", "::", 0, "::", 443, "tcp"), 0x80000), wild: wildDst, standIn: true},
 			},
 		},
 		{
@@ -252,8 +252,8 @@ func TestBuildFlows(t *testing.T) {
 				flSock(tcp, est, "100.64.0.1:41002", "100.64.0.2:443", "tailscaled", 300),
 			}},
 			want: []flow{
-				{label: "tailscale", pkt: gxMark(flPkt("output", "0.0.0.0", 0, "198.51.100.1", 443, "tcp"), 0x80000), standIn: true},
-				{label: "tailscale", pkt: gxMark(flPkt("output", "::", 0, "2001:db8:ffff::1", 443, "tcp"), 0x80000), standIn: true},
+				{label: "tailscale", pkt: gxMark(flPkt("output", "0.0.0.0", 0, "0.0.0.0", 443, "tcp"), 0x80000), wild: wildDst, standIn: true},
+				{label: "tailscale", pkt: gxMark(flPkt("output", "::", 0, "::", 443, "tcp"), 0x80000), wild: wildDst, standIn: true},
 			},
 		},
 		{

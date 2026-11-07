@@ -25,12 +25,6 @@ const panelBridge = "dp-panel"
 // the evaluator treats a source-port match against it as undecidable.
 const unknownPort uint16 = 0
 
-// The documentation addresses that stand in for "any internet address".
-var (
-	internet4 = netip.MustParseAddr("198.51.100.1")
-	internet6 = netip.MustParseAddr("2001:db8:ffff::1")
-)
-
 // sshComms are the process names that hold an OpenSSH session's socket:
 // OpenSSH before 9.8 keeps it in sshd, later releases in sshd-session, and
 // 10.0 authenticates in sshd-auth.
@@ -43,13 +37,27 @@ const tailscaled = "tailscaled"
 // policy routing sends its traffic around the tailnet's routes.
 const tailscaleMark uint32 = 0x80000
 
+// wildEnd names the end of a flow's packet that stands for every public
+// address of its family.
+type wildEnd int
+
+const (
+	wildNone wildEnd = iota
+	wildSrc
+	wildDst
+)
+
 // flow is one protected flow before routing: pkt has no in- or
 // out-interface yet unless the flow fixes its in-interface. A flow with a
-// non-empty unknown is not evaluated and fails with that reason.
+// non-empty unknown is not evaluated and fails with that reason. The wild
+// end of pkt holds its family's unspecified address until a cell of the
+// internet is chosen for it.
 type flow struct {
 	label   string
 	pkt     fwstate.Packet
-	standIn bool // pkt.Dst stands in for any destination: with no route of its family there is nothing to protect
+	wild    wildEnd
+	span    string // "<From>-<To>" of the cell this copy of the flow is checked in
+	standIn bool   // a wild destination whose cell has no route of its family has nothing to protect
 	unknown string
 }
 
@@ -62,11 +70,12 @@ type flowSet struct {
 
 type flowKey struct {
 	pkt            fwstate.Packet
+	wild           wildEnd
 	label, unknown string // set only for a flow that is not evaluated
 }
 
 func (s *flowSet) add(f flow) {
-	k := flowKey{pkt: f.pkt}
+	k := flowKey{pkt: f.pkt, wild: f.wild}
 	if f.unknown != "" {
 		k = flowKey{label: f.label, unknown: f.unknown}
 	}
@@ -263,16 +272,16 @@ func viaFlows(s *flowSet, ctxs []*core.GuardContext, retired []string, local map
 				default:
 					dst = netip.IPv6Unspecified()
 				}
-				s.add(flow{label: label + " public", pkt: newPacket("input", internetFor(pub.Addr()), unknownPort, dst, pub.Port(), "tcp")})
+				s.add(flow{label: label + " public", pkt: newPacket("input", anyAddr(pub.Addr()), unknownPort, dst, pub.Port(), "tcp"), wild: wildSrc})
 			}
 		case "tunnel":
 			for _, out := range []struct {
 				proto string
 				port  uint16
 			}{{"udp", 7844}, {"tcp", 7844}, {"tcp", 443}} {
-				p := newPacket("forward", v.ProxyAddr, unknownPort, internetFor(v.ProxyAddr), out.port, out.proto)
+				p := newPacket("forward", v.ProxyAddr, unknownPort, anyAddr(v.ProxyAddr), out.port, out.proto)
 				p.InIface = panelBridge
-				s.add(flow{label: label + " tunnel", pkt: p, standIn: true})
+				s.add(flow{label: label + " tunnel", pkt: p, wild: wildDst, standIn: true})
 			}
 		default:
 			s.add(flow{label: label, unknown: "the exposure kind " + v.Kind + " is not npm or tunnel"})
@@ -280,12 +289,12 @@ func viaFlows(s *flowSet, ctxs []*core.GuardContext, retired []string, local map
 	}
 }
 
-// internetFor is the stand-in internet address of a's family.
-func internetFor(a netip.Addr) netip.Addr {
+// anyAddr is the unspecified address of a's family.
+func anyAddr(a netip.Addr) netip.Addr {
 	if a.Unmap().Is4() {
-		return internet4
+		return netip.IPv4Unspecified()
 	}
-	return internet6
+	return netip.IPv6Unspecified()
 }
 
 // agentLinkFlows is flow 4 from the guard context: every live agent's
@@ -355,9 +364,9 @@ func controllerListenFlows(s *flowSet, f facts, local map[netip.Addr]bool) {
 			s.add(flow{label: "controller listener", pkt: p})
 			continue
 		}
-		for _, src := range []netip.Addr{internet4, internet6} {
+		for _, src := range []netip.Addr{netip.IPv4Unspecified(), netip.IPv6Unspecified()} {
 			if dst, ok := listenFor(src, l, local); ok {
-				s.add(flow{label: "controller listener", pkt: newPacket("input", src, unknownPort, dst, so.Local.Port(), "tcp")})
+				s.add(flow{label: "controller listener", pkt: newPacket("input", src, unknownPort, dst, so.Local.Port(), "tcp"), wild: wildSrc})
 			}
 		}
 	}
@@ -415,14 +424,14 @@ func tailscaleFlows(s *flowSet, f facts) {
 	}
 	slices.Sort(ports)
 	for _, src := range []netip.Addr{netip.IPv4Unspecified(), netip.IPv6Unspecified()} {
-		dst := internetFor(src)
+		dst := anyAddr(src)
 		for _, port := range ports {
 			p := newPacket("output", src, port, dst, 41641, "udp")
 			p.Mark = tailscaleMark
-			s.add(flow{label: "tailscale", pkt: p, standIn: true})
+			s.add(flow{label: "tailscale", pkt: p, wild: wildDst, standIn: true})
 		}
 		p := newPacket("output", src, unknownPort, dst, 443, "tcp")
 		p.Mark = tailscaleMark
-		s.add(flow{label: "tailscale", pkt: p, standIn: true})
+		s.add(flow{label: "tailscale", pkt: p, wild: wildDst, standIn: true})
 	}
 }

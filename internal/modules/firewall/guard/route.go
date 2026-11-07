@@ -50,7 +50,7 @@ func (r *router) probes(fl flow) []probe {
 		return []probe{{desc: fl.label, unknown: fl.unknown}}
 	}
 	p := fl.pkt
-	fail := func(reason string) []probe { return []probe{{desc: describe(fl.label, p), unknown: reason}} }
+	fail := func(reason string) []probe { return []probe{{desc: describeFlow(fl, p), unknown: reason}} }
 	lookup := func(q netstat.RouteQuery) (netstat.Route, bool, []probe) {
 		rt, err := r.host.RouteGet(q)
 		switch {
@@ -80,7 +80,7 @@ func (r *router) probes(fl flow) []probe {
 			p.Src = rt.PrefSrc.Unmap()
 		}
 		p.OutIface = rt.OutIface
-		return []probe{{desc: describe(fl.label, p), pkt: p}}
+		return []probe{{desc: describeFlow(fl, p), pkt: p}}
 	case "forward":
 		if off := r.forwardingOff(p.Family); off != "" {
 			return fail(off)
@@ -94,7 +94,7 @@ func (r *router) probes(fl flow) []probe {
 		} else {
 			p.OutIface = rt.OutIface
 		}
-		return []probe{{desc: describe(fl.label, p), pkt: p}}
+		return []probe{{desc: describeFlow(fl, p), pkt: p}}
 	}
 	if p.Dst.IsUnspecified() {
 		rt, err := r.host.RouteGet(netstat.RouteQuery{Dst: p.Src, Mark: p.Mark})
@@ -110,7 +110,7 @@ func (r *router) probes(fl flow) []probe {
 		return fail(p.Dst.String() + " is not an address of this host")
 	}
 	if p.InIface != "" {
-		return []probe{{desc: describe(fl.label, p), pkt: p}}
+		return []probe{{desc: describeFlow(fl, p), pkt: p}}
 	}
 	ifaces, err := r.eligible(p)
 	if err != nil {
@@ -123,7 +123,7 @@ func (r *router) probes(fl flow) []probe {
 	for _, name := range ifaces {
 		q := p
 		q.InIface = name
-		out = append(out, probe{desc: describe(fl.label, q), pkt: q})
+		out = append(out, probe{desc: describeFlow(fl, q), pkt: q})
 	}
 	return out
 }
@@ -277,6 +277,37 @@ func describe(label string, p fwstate.Packet) string {
 		s += " " + p.Proto
 	}
 	s += " from " + p.Src.String() + " to " + netip.AddrPortFrom(p.Dst, p.DstPort).String()
+	if p.InIface != "" {
+		s += " on " + p.InIface
+	}
+	if p.OutIface != "" {
+		s += " out " + p.OutIface
+	}
+	return s
+}
+
+// describeFlow is describe for a probe of fl, except that a copy of a flow
+// checked in one cell of the internet names the cell's range in place of
+// the address of its wild end.
+func describeFlow(fl flow, p fwstate.Packet) string {
+	if fl.span == "" {
+		return describe(fl.label, p)
+	}
+	src, dst := p.Src.String(), netip.AddrPortFrom(p.Dst, p.DstPort).String()
+	port := strconv.Itoa(int(p.DstPort))
+	switch {
+	case fl.wild == wildSrc:
+		src = fl.span
+	case fl.wild == wildDst && p.Family == fwstate.V6:
+		dst = "[" + fl.span + "]:" + port
+	case fl.wild == wildDst:
+		dst = fl.span + ":" + port
+	}
+	s := fl.label
+	if p.Proto != "tcp" {
+		s += " " + p.Proto
+	}
+	s += " from " + src + " to " + dst
 	if p.InIface != "" {
 		s += " on " + p.InIface
 	}

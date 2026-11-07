@@ -57,9 +57,7 @@ func (c Checker) Check(ctx context.Context, env core.Env, st fwstate.Loaded, in 
 	r := newRouter(h, f, st)
 	var results []FlowResult
 	for _, fl := range append(flows, ra...) {
-		for _, p := range r.probes(fl) {
-			results = append(results, FlowResult{Flow: p.desc, Result: evaluate(r, p, in.Eval)})
-		}
+		results = append(results, r.checkFlow(fl, in.Eval)...)
 	}
 	return verdict(results), results, nil
 }
