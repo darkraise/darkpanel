@@ -204,8 +204,8 @@ func sessionCookieName(r *http.Request) string {
 // clientAddr is the host part of the peer address. Forwarded headers are
 // ignored; only a runtime listener names the client, from the one header
 // its proxy sets (spec 1.10), and then the address keeps both ends as
-// "<client> via <proxy>": the audit log records both, and login rate
-// limiting keys on it without the proxy's changing source port.
+// "<client> via <proxy>": that text is what the audit log and the principal
+// record, and the login limits key on the client address in core.Proxied.
 func clientAddr(r *http.Request) string {
 	if p, ok := core.ProxiedFrom(r.Context()); ok {
 		return p.Client.String() + " via " + p.Transport.Addr().String()

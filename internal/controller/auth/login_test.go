@@ -170,7 +170,7 @@ func TestLoginRateLimit(t *testing.T) {
 	}
 	before, _, _ := audit.List(ctx, core.AuditQuery{})
 	hashes := countHashes(s)
-	_, err := s.Login(ctx, LoginRequest{Username: "alice", Password: testPassword, Code: code(t, secret, clock), Source: "10.0.0.2"})
+	_, err := s.Login(ctx, LoginRequest{Username: "alice", Password: testPassword, Code: code(t, secret, clock), Source: "10.0.0.1"})
 	wantCode(t, err, errcode.RateLimited)
 	var ra *RetryAfterError
 	if !errors.As(err, &ra) || ra.Seconds() != int(LockDuration/time.Second) {
@@ -410,7 +410,7 @@ func TestLoginFaultAfterPasswordCounts(t *testing.T) {
 			t.Fatalf("attempt %d: error = %v, want the sealer's error, answered internal", i, err)
 		}
 		// The last failure locks the username and clears its count.
-		if n, want := failures(s, usernameKey("alice")), (i+1)%UsernameFailureLimit; n != want {
+		if n, want := failures(s, pairKey("alice", "10.0.0.1")), (i+1)%UsernameFailureLimit; n != want {
 			t.Fatalf("attempt %d: %d failures counted for alice, want %d", i, n, want)
 		}
 		entries, _, _ := audit.List(ctx, core.AuditQuery{Limit: 1})
@@ -442,7 +442,7 @@ func TestLoginAuditFaultCounts(t *testing.T) {
 	if !errors.Is(err, errAuditDown) || errcode.From(err).Code != errcode.Internal {
 		t.Fatalf("error = %v, want the audit's error, answered internal", err)
 	}
-	if n := failures(s, usernameKey("alice")); n != 1 {
+	if n := failures(s, pairKey("alice", "10.0.0.1")); n != 1 {
 		t.Errorf("%d failures counted for alice, want 1", n)
 	}
 	entries, _, _ := audit.List(ctx, core.AuditQuery{})
@@ -458,7 +458,7 @@ func TestLoginAuditFaultCounts(t *testing.T) {
 	if !errors.Is(err, errSealerDown) || errors.Is(err, errAuditDown) {
 		t.Errorf("error = %v, want the sealer's error alone when the audit row also fails", err)
 	}
-	if n := failures(s, usernameKey("alice")); n != 2 {
+	if n := failures(s, pairKey("alice", "10.0.0.1")); n != 2 {
 		t.Errorf("%d failures counted for alice, want 2", n)
 	}
 }

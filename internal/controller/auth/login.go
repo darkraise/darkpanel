@@ -67,7 +67,7 @@ func (s *Service) Login(ctx context.Context, r LoginRequest) (LoginResult, error
 	if checkUsername(r.Username) != nil {
 		return LoginResult{}, errInvalidCredentials()
 	}
-	if d := s.limiter.blocked(r.Username, r.Source); d > 0 {
+	if d := s.limiter.blocked(r.Username, limitSource(ctx, r.Source)); d > 0 {
 		return LoginResult{}, errRateLimited(d)
 	}
 	if err := s.hasher.acquire(ctx); err != nil {
@@ -87,11 +87,21 @@ func (s *Service) Login(ctx context.Context, r LoginRequest) (LoginResult, error
 		return LoginResult{}, err
 	}
 	if err := s.recordLogin(ctx, r, userID, ""); err != nil {
-		s.limiter.fail(r.Username, r.Source)
+		s.limiter.fail(r.Username, limitSource(ctx, r.Source))
 		_ = s.recordLogin(ctx, r, userID, errcode.Internal)
 		return LoginResult{}, err
 	}
 	return res, nil
+}
+
+// limitSource is the source the login limits key on. Behind a runtime
+// listener source is the audit text "<client> via <proxy>", which is not an
+// address, so the client the listener parsed is used instead.
+func limitSource(ctx context.Context, source string) string {
+	if p, ok := core.ProxiedFrom(ctx); ok {
+		return p.Client.String()
+	}
+	return source
 }
 
 func errRateLimited(d time.Duration) error {
@@ -105,12 +115,12 @@ func errRateLimited(d time.Duration) error {
 // evaluated before any of their failures counted. Invalid credentials and
 // any error after the password verified count as failures.
 func (s *Service) evaluate(ctx context.Context, r LoginRequest) (LoginResult, string, bool, error) {
-	if d := s.limiter.blocked(r.Username, r.Source); d > 0 {
+	if d := s.limiter.blocked(r.Username, limitSource(ctx, r.Source)); d > 0 {
 		return LoginResult{}, "", false, errRateLimited(d)
 	}
 	res, userID, verified, err := s.attempt(ctx, r)
 	if err != nil && (verified || errcode.From(err).Code == errcode.InvalidCredentials) {
-		s.limiter.fail(r.Username, r.Source)
+		s.limiter.fail(r.Username, limitSource(ctx, r.Source))
 	}
 	return res, userID, verified, err
 }

@@ -13,26 +13,26 @@ var t0 = time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC)
 func TestUsernameLock(t *testing.T) {
 	clock := coretest.NewFakeClock(t0)
 	l := newLimiter(clock)
-	for i := range UsernameFailureLimit - 1 {
-		l.fail("alice", "10.0.0."+string(rune('1'+i)))
+	for range UsernameFailureLimit - 1 {
+		l.fail("alice", "10.0.0.1")
 	}
-	if d := l.blocked("alice", "10.0.0.9"); d != 0 {
+	if d := l.blocked("alice", "10.0.0.1"); d != 0 {
 		t.Fatalf("blocked after %d failures for %s, want allowed", UsernameFailureLimit-1, d)
 	}
 	clock.Advance(time.Minute)
-	l.fail("alice", "10.0.0.9")
-	if d := l.blocked("alice", "10.0.0.200"); d != LockDuration {
-		t.Fatalf("after %d failures blocked for %s, want %s from any source", UsernameFailureLimit, d, LockDuration)
+	l.fail("alice", "10.0.0.1")
+	if d := l.blocked("alice", "10.0.0.1"); d != LockDuration {
+		t.Fatalf("after %d failures blocked for %s, want %s from the same source", UsernameFailureLimit, d, LockDuration)
 	}
-	if d := l.blocked("bob", "10.0.0.9"); d != 0 {
+	if d := l.blocked("bob", "10.0.0.1"); d != 0 {
 		t.Errorf("another username is blocked for %s", d)
 	}
 	clock.Advance(LockDuration - time.Second)
-	if d := l.blocked("alice", "10.0.0.9"); d != time.Second {
+	if d := l.blocked("alice", "10.0.0.1"); d != time.Second {
 		t.Errorf("one second before the lock ends: blocked for %s, want 1s", d)
 	}
 	clock.Advance(time.Second)
-	if d := l.blocked("alice", "10.0.0.9"); d != 0 {
+	if d := l.blocked("alice", "10.0.0.1"); d != 0 {
 		t.Errorf("lock outlived %s: blocked for %s", LockDuration, d)
 	}
 }
@@ -72,10 +72,10 @@ func TestBlockedReturnsTheLongerWait(t *testing.T) {
 	}
 	clock.Advance(5 * time.Minute)
 	for range UsernameFailureLimit {
-		l.fail("alice", "10.0.0.2")
+		l.fail("alice", "10.0.0.1")
 	}
 	if d := l.blocked("alice", "10.0.0.1"); d != LockDuration {
-		t.Errorf("blocked for %s, want the username's %s", d, LockDuration)
+		t.Errorf("blocked for %s, want the pair's %s", d, LockDuration)
 	}
 	if d := l.blocked("bob", "10.0.0.1"); d != LockDuration-5*time.Minute {
 		t.Errorf("blocked for %s, want the source's remaining %s", d, LockDuration-5*time.Minute)
@@ -93,17 +93,17 @@ func TestStaleKeysArePruned(t *testing.T) {
 	l.fail("other", "10.0.0.3")
 	clock.Advance(time.Minute)
 	l.fail("new", "10.0.0.4")
-	for _, k := range []string{"u:stale", "s:10.0.0.2"} {
+	for _, k := range []string{pairKey("stale", "10.0.0.2"), "s:10.0.0.2"} {
 		if _, ok := l.keys[k]; ok {
 			t.Errorf("key %s survived its window", k)
 		}
 	}
-	for _, k := range []string{"u:other", "s:10.0.0.3", "u:new", "s:10.0.0.4"} {
+	for _, k := range []string{pairKey("other", "10.0.0.3"), "s:10.0.0.3", pairKey("new", "10.0.0.4"), "s:10.0.0.4"} {
 		if _, ok := l.keys[k]; !ok {
 			t.Errorf("key %s was pruned inside its window", k)
 		}
 	}
-	if _, ok := l.keys["u:locked"]; ok {
+	if _, ok := l.keys[pairKey("locked", "10.0.0.1")]; ok {
 		t.Error("a key whose lock ended was kept")
 	}
 }
@@ -116,7 +116,7 @@ func TestLockedKeyIsKeptAfterItsFailuresAge(t *testing.T) {
 	}
 	clock.Advance(LockDuration - time.Minute)
 	l.fail("bob", "10.0.0.2")
-	if d := l.blocked("alice", "10.0.0.3"); d != time.Minute {
+	if d := l.blocked("alice", "10.0.0.1"); d != time.Minute {
 		t.Errorf("lock dropped by pruning: blocked for %s, want 1m", d)
 	}
 }
@@ -125,18 +125,18 @@ func TestKeyCapDropsTheOldest(t *testing.T) {
 	clock := coretest.NewFakeClock(t0)
 	l := newLimiter(clock)
 	l.max = 3
-	l.fail("a", "x") // u:a, s:x at t0
+	l.fail("a", "x") // the pair (a, x) and s:x at t0
 	clock.Advance(time.Second)
-	l.fail("a", "y") // u:a and s:y at t0+1s
+	l.fail("b", "x") // the pair (b, x) is new and fits; s:x is refreshed
 	clock.Advance(time.Second)
-	l.fail("b", "y") // u:b is new: s:x, the oldest, is dropped
+	l.fail("c", "x") // the pair (c, x) is new: the oldest, the pair (a, x), is dropped
 	if len(l.keys) != 3 {
 		t.Fatalf("%d keys kept, want the cap of 3", len(l.keys))
 	}
-	if _, ok := l.keys["s:x"]; ok {
+	if _, ok := l.keys[pairKey("a", "x")]; ok {
 		t.Error("the oldest key was kept")
 	}
-	for _, k := range []string{"u:a", "s:y", "u:b"} {
+	for _, k := range []string{pairKey("b", "x"), "s:x", pairKey("c", "x")} {
 		if _, ok := l.keys[k]; !ok {
 			t.Errorf("key %s was dropped", k)
 		}
@@ -159,7 +159,7 @@ func TestLockSurvivesAFloodOfNewKeys(t *testing.T) {
 	if len(l.keys) > MaxLimiterKeys {
 		t.Fatalf("%d keys kept, above the cap of %d", len(l.keys), MaxLimiterKeys)
 	}
-	if d := l.blocked("alice", "192.0.2.1"); d != LockDuration-time.Minute {
+	if d := l.blocked("alice", "10.0.0.1"); d != LockDuration-time.Minute {
 		t.Errorf("after %d other failing usernames alice is blocked for %s, want %s", MaxLimiterKeys, d, LockDuration-time.Minute)
 	}
 }
@@ -181,12 +181,12 @@ func TestFullOfLockedKeysFailsClosed(t *testing.T) {
 	if d := l.blocked("carol", "10.0.0.9"); d != 10*time.Minute {
 		t.Errorf("new keys while every key is locked: blocked for %s, want the shortest lock, 10m", d)
 	}
-	if d := l.blocked("bob", "10.0.0.9"); d != LockDuration {
-		t.Errorf("known locked username with a new source: blocked for %s, want %s", d, LockDuration)
+	if d := l.blocked("bob", "10.0.0.1"); d != LockDuration {
+		t.Errorf("known locked username from its source: blocked for %s, want %s", d, LockDuration)
 	}
 	l.fail("carol", "10.0.0.9")
-	if len(l.keys) != 3 || l.keys["u:carol"] != nil {
-		t.Errorf("a failure displaced a locked key: %d keys, carol recorded %v", len(l.keys), l.keys["u:carol"] != nil)
+	if carol := l.keys[pairKey("carol", "10.0.0.9")]; len(l.keys) != 3 || carol != nil {
+		t.Errorf("a failure displaced a locked key: %d keys, carol recorded %v", len(l.keys), carol != nil)
 	}
 	clock.Advance(10 * time.Minute)
 	if d := l.blocked("carol", "10.0.0.9"); d != 0 {
@@ -210,7 +210,7 @@ func TestOneFailureKeepsItsOwnKeys(t *testing.T) {
 	if d := l.blocked("carol", "10.0.0.9"); d != LockDuration {
 		t.Errorf("after %d failures with one free slot: blocked for %s, want %s", UsernameFailureLimit, d, LockDuration)
 	}
-	if c := l.keys["u:carol"]; c == nil || !c.locked(clock.Now()) {
+	if c := l.keys[pairKey("carol", "10.0.0.9")]; c == nil || !c.locked(clock.Now()) {
 		t.Error("the username's counter was evicted by its own failures")
 	}
 }

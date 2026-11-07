@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"fmt"
 	"net/netip"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,10 +45,11 @@ type counter struct {
 
 func (c *counter) locked(now time.Time) bool { return now.Before(c.lockedUntil) }
 
-// limiter counts failed logins per username ("u:" keys) and per source
-// address ("s:" keys) in memory. At the key cap it evicts only unlocked keys,
-// so flooding it with fresh keys cannot clear a running lock; when every key
-// is locked, attempts that would need a new key are refused instead.
+// limiter counts failed logins per username from one source key ("u:" keys)
+// and per source key ("s:" keys) in memory. At the key cap it evicts only
+// unlocked keys, so flooding it with fresh keys cannot clear a running lock;
+// when every key is locked, attempts that would need a new key are refused
+// instead.
 //
 // order holds the counters least recently failed first. A lock starts at a
 // failure and lasts as long as the window, so a locked counter's last failure
@@ -86,7 +88,11 @@ func sourceKey(source string) string {
 	return "s:" + addr.String()
 }
 
-func usernameKey(username string) string { return "u:" + username }
+// pairKey is the key of username's failures from source. A username holds no
+// "@", so the key is unambiguous.
+func pairKey(username, source string) string {
+	return "u:" + username + "@" + strings.TrimPrefix(sourceKey(source), "s:")
+}
 
 // blocked returns how long username or source stays locked, the longer of
 // the two, or 0 when the attempt may be evaluated. When the table is full of
@@ -101,7 +107,7 @@ func (l *limiter) blocked(username, source string) time.Duration {
 	}
 	var wait time.Duration
 	unknown := false
-	for _, k := range []string{usernameKey(username), sourceKey(source)} {
+	for _, k := range []string{pairKey(username, source), sourceKey(source)} {
 		c, ok := l.keys[k]
 		switch {
 		case !ok:
@@ -142,7 +148,7 @@ func (l *limiter) fail(username, source string) {
 	defer l.mu.Unlock()
 	now := l.clock.Now()
 	l.prune(now)
-	u, s := usernameKey(username), sourceKey(source)
+	u, s := pairKey(username, source), sourceKey(source)
 	l.record(u, UsernameFailureLimit, now, s)
 	l.record(s, SourceFailureLimit, now, u)
 }
