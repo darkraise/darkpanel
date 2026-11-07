@@ -497,20 +497,34 @@ func TestExtensionRouteRefusedByTheDocument(t *testing.T) {
 	}
 }
 
+// v1r02StartLag is how long xrEvents waits before it writes its response header, as a handler that starts late
+// does under load. v1r02Wait bounds each wait for something that must happen; only a failing run reaches it.
+const (
+	v1r02StartLag = 30 * time.Millisecond
+	v1r02Wait     = 30 * time.Second
+)
+
 // xrEvents is a server-sent event stream handler that ignores its context:
-// it writes a frame every millisecond until a write fails, sends that error
-// on failed, and, with ownEnd, first writes an end frame of its own.
-func xrEvents(contentType string, ownEnd bool, failed chan<- error) http.HandlerFunc {
+// after v1r02StartLag it writes a frame every millisecond until a write
+// fails, sends that error on failed, and, with ownEnd, first writes an end
+// frame of its own. It closes began once its first frame was written.
+func xrEvents(contentType string, ownEnd bool, began chan<- struct{}, failed chan<- error) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(v1r02StartLag)
 		w.Header().Set("Content-Type", contentType)
 		w.WriteHeader(http.StatusOK)
 		if ownEnd {
 			_, _ = w.Write([]byte("event: end\ndata: {\"reason\":\"done\"}\n\n"))
 		}
+		first := true
 		for {
 			if _, err := w.Write([]byte("event: data\ndata: {}\n\n")); err != nil {
 				failed <- err
 				return
+			}
+			if first {
+				first = false
+				close(began)
 			}
 			time.Sleep(time.Millisecond)
 		}
@@ -520,7 +534,9 @@ func xrEvents(contentType string, ownEnd bool, failed chan<- error) http.Handler
 // TestExtensionStreamEndFrame: once a contributed stream must end, the
 // handler's writes fail even when it ignores its context, and a
 // server-sent event stream gets one end frame naming why, unless it wrote
-// its own.
+// its own. The stream is ended only after the handler has written its first
+// frame, because a stream that ends before the response header gets no end
+// frame.
 func TestExtensionStreamEndFrame(t *testing.T) {
 	const end = "event: end\ndata: {\"reason\":"
 	for _, tc := range []struct {
@@ -537,9 +553,10 @@ func TestExtensionStreamEndFrame(t *testing.T) {
 		{"not server-sent events", "application/x-ndjson", false, func(_ *harness, revoked chan struct{}) { close(revoked) }, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			began := make(chan struct{})
 			failed := make(chan error, 1)
 			h := xrHarness(t, ext.Route{Surface: ext.SurfaceWeb, Method: "GET", Path: "/api/v1/xr/follow", Scope: core.ScopeRead,
-				Stream: true, Handler: xrEvents(tc.contentType, tc.ownEnd, failed)})
+				Stream: true, Handler: xrEvents(tc.contentType, tc.ownEnd, began, failed)})
 			revoked := make(chan struct{})
 			r := withToken(request("GET", "/api/v1/xr/follow", ""), h.token(core.ScopeRead))
 			r = r.WithContext(core.WithProxied(r.Context(), pxProxied(revoked)))
@@ -550,6 +567,13 @@ func TestExtensionStreamEndFrame(t *testing.T) {
 				h.srv.Handler().ServeHTTP(rec, r)
 				close(done)
 			}()
+			select {
+			case <-began:
+			case err := <-failed:
+				t.Fatalf("the handler's write failed with %v before its first frame, so the stream ended before the test ended it", err)
+			case <-time.After(v1r02Wait):
+				t.Fatal("the handler never wrote its first frame")
+			}
 			sseWait(t, "the stream's timers", func() bool { return h.clock.Pending() >= base+2 })
 			tc.end(h, revoked)
 			select {
@@ -557,7 +581,7 @@ func TestExtensionStreamEndFrame(t *testing.T) {
 				if !errors.Is(err, context.Canceled) {
 					t.Errorf("the handler's write failed with %v, want context.Canceled", err)
 				}
-			case <-time.After(5 * time.Second):
+			case <-time.After(v1r02Wait):
 				t.Fatal("the handler kept writing after its stream ended")
 			}
 			<-done
