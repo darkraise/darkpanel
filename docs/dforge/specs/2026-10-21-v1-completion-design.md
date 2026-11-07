@@ -618,7 +618,7 @@ changes of other modules' actions on one or more hosts.
       // database, never a host.
       Steps(ctx context.Context, env Env, in In) ([]Step, error)
       // Output builds the composite's output from its steps' redacted
-      // outputs, keyed by step id; read steps are not among them.
+      // outputs, keyed by step id; read steps are included.
       Output(ctx context.Context, env Env, in In, steps map[string]json.RawMessage) (Out, error)
   }
 
@@ -719,9 +719,11 @@ changes of other modules' actions on one or more hosts.
 - **Read steps.** Executed by the controller's read dispatch (for an
   `Internal` read, 1.7's controller-only path) when the cursor reaches
   them; no plan, no change, no effects. The result is sealed into the step
-  row and never appears in the composite's output, the lookup, audit or
-  the API. A read step that is not yet `read` is read again when the
-  cursor reaches it; unwind skips read steps.
+  row and never appears in the lookup, audit or the API. The composer's
+  `Output` receives its redacted form with every other step's, and the
+  composite's output carries only what that composer builds from it. A read
+  step that is not yet `read` is read again when the cursor reaches it;
+  unwind skips read steps.
 - **Asynchronous apply.** Every composite and every `LongRunning` action
   (section 5 marks them `L`) answers `202` once the change and its intent
   are persisted (state `applying`); progress comes from the change, the
@@ -2429,6 +2431,7 @@ stub (returning nothing), and the owning wave replaces the stub's body.
       ClientHeader string // "X-Darkpanel-Client" or "Cf-Connecting-IP"
       PublicHost   string // accepted by the CSRF origin check
       ChangeID     string
+      PublicBinding netip.AddrPort // the host binding NPM publishes its HTTPS port on; zero for a tunnel
   }
   type ListenerInfo struct {
       ID    string
@@ -5299,9 +5302,11 @@ a spec change.
 - **Runbook (R81).** `docs/runbook.md`: lockout (firewall break-glass,
   Tailscale prefs revert, panel listener revoke), failed update (rollback,
   recover), lost controller (restore from backup, re-enroll agents).
-- **Release candidate.** `CHANGELOG.md` and `docs/versioning.md` updated
-  (0.x → 1.0 is a reinstall); `make release-check` green; the commit ready to
-  tag `v1.0.0-rc.1`. Tagging is the owner's (section 12).
+- **Release candidate.** `docs/versioning.md` updated (0.x → 1.0 is a
+  reinstall); `CHANGELOG.md` written by `make release-prep` from the
+  conventional commits when the owner cuts the tag (W10b-R13);
+  `make release-check` green; the commit ready to tag `v1.0.0-rc.1`.
+  Tagging is the owner's (section 12).
 
 - **Plan rulings (wave 10a).** Wave 10a (plan
   `v1-w10a-known-fixes-threat-model-runbook`) settles these gaps and
@@ -5387,6 +5392,64 @@ a spec change.
     Darkpanel's own procedures. A root operator without the controller
     restores the controller and reveals the password again, or resets it
     with NPM's own procedure, which NPM documents.
+
+- **Plan rulings (wave 10b).** Wave 10b (plan
+  `v1-w10b-security-fixes-rc`) settles these gaps and underdetermined points
+  of the text above:
+  - **W10b-R1 review result.** The R73 review ran on 2026-11-06. Its 23
+    findings are in
+    `docs/dforge/registers/2026-11-06-v1-security-review.md`: 7 high, 8
+    medium, 8 low, none critical. Every high and medium finding is fixed in
+    `w10b`. The owner accepted four low findings: NPM's ports inside its
+    container, the `openpgp` advisory, the absent Origin header, and the
+    global enrollment budget. The four other low findings are inaccurate
+    threat-model claims, which are corrected. The two reviewers re-review
+    the high findings before `w10b` merges.
+  - **W10b-R2 NPM self-targets.** Outside the `npm.admin.expose` composite,
+    a proxy host may not forward to any port of NPM's own container names or
+    addresses. NPM's backend API listens on 3000 on every interface of its
+    container.
+  - **W10b-R3 forward hosts.** A forward host that is a DNS name is resolved at plan and again at apply. A name that a container on one of NPM's user-defined networks answers to resolves to that container's addresses there, as Docker's embedded DNS answers it inside NPM's container. Any other name is resolved with the agent host's resolver. Each answer is checked as an address. No answer is invalid input, and answers that changed between plan and apply are `plan.state_changed`. The undo of a proxy host's update or removal checks every forward host it writes back the same way. A name that is re-pointed after apply, and a name that NPM's nginx resolves differently from the agent's host, are residual risks, which the threat model records.
+  - **W10b-R4 container inspection.** Every element of a container's `Cmd`
+    is masked. An element of `Entrypoint` keeps its existing rule.
+  - **W10b-R5 effect documents.** An effect document holds a value it only
+    compares as a keyed fingerprint (`hmac-sha256:` over a key derived from
+    the role key). A value it restores lives in the effect's sealed secret.
+    This covers NPM proxy-host configurations, custom locations included,
+    and Docker network and volume labels.
+  - **W10b-R6 Docker labels.** Network and volume label values are secret
+    inputs. A plan diff shows a label's key and whether it is added, changed
+    or removed, never its value.
+  - **W10b-R7 NPM update.** `npm.proxyhost.update` keeps the advanced
+    configuration the operator wrote in NPM, unless its input sets one.
+  - **W10b-R8 NPM answers.** The NPM API client keeps only the status and an
+    allowlisted error code of an NPM answer. NPM's message text never
+    reaches an error, its cause, a log line or a change record.
+  - **W10b-R9 NPM bootstrap.** When the first-admin creation finds an admin it did not create, the deploy stops and removes the container, the data volumes and the network this deploy created before it fails. The failed change's effects stay recorded as made, so an undo of it finds the objects gone and ends in `needs_repair`. The user guide says not to undo it, and how to settle it with `darkpanel change resolve` if it was undone.
+  - **W10b-R10 DERP files.** The agent reads DERP certificate and key files
+    through the platform's descriptor-based reads: no symlink anywhere on
+    the path, a regular file only, at most 1 MiB.
+  - **W10b-R11 DERP probe.** `derp.node.probe` needs `operate`. It refuses
+    RFC 1918, CGNAT (`100.64.0.0/10`) and ULA (`fc00::/7`) targets, both as
+    literals and among resolved answers, after unmapping IPv4-mapped IPv6
+    addresses. A failed probe reports one value of a fixed vocabulary:
+    `timeout`, `connection_refused`, `unreachable`, `tls_handshake_failed`,
+    `certificate_not_trusted`, `pin_mismatch`, `bad_answer`,
+    `no_stun_answer` or `failed`.
+  - **W10b-R12 lockout guard and logins.**
+    - The panel exposure's public bindings come from the exposure's own
+      record, and a request through an NPM exposure without them fails
+      closed.
+    - "Any internet address" is evaluated once per cell of the public
+      unicast space that the ruleset's prefixes cut, and holds only when
+      every cell passes.
+    - The per-username login lock is keyed by username and source (IPv4
+      address, IPv6 /64). Behind an exposure, the source is the client
+      address the listener parsed.
+  - **W10b-R13 changelog.** `CHANGELOG.md` is written by `make release-prep` from the conventional commits when the owner cuts `v1.0.0-rc.1` (`release/README.md`, "Cutting a release"; owner checklist item 3). No plan hand-writes it. This replaces the clause of W10-R1 that has wave 10b write `CHANGELOG.md`.
+  - **W10b-R14 Compose diagnostics.** A failed Compose config or run reports
+    its exit status and the command to run on the host, never Compose's
+    stderr.
 
 ### 11. Error codes, actors and dependencies
 
