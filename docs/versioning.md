@@ -86,6 +86,40 @@ the first failure.
   deadline, is rolled back automatically to the previous binary within two
   minutes.
 
+## Upgrade from 0.x
+
+0.x does not upgrade to 1.0. Moving from a 0.x release to any 1.0 release,
+release candidates included, is a reinstall. The updater refuses an update
+between major versions, and its refusal says that the two versions
+`cross a major version, which is not supported`. Darkpanel provides no way to
+carry the data of a 0.x install over to 1.0.
+
+To move to 1.0, first remove 0.x from every host, the controller's host
+included. Leave out `--keep-data`, so that nothing of the 0.x install is left
+for the new one:
+
+```sh
+sudo darkpanel uninstall
+```
+
+Then install 1.0 on the controller's host as
+[Install Darkpanel](user/install.md) describes:
+
+```sh
+sudo sh install.sh --role controller --agent-advertise <address agents reach>:7443
+```
+
+Create each host again on the new controller, and enroll it with the token
+that the first command prints, by running the second command on that host:
+
+```sh
+darkpanel host create --name <name>
+sudo sh install.sh --role agent
+```
+
+[Uninstall Darkpanel](user/uninstall.md) lists the steps that
+`darkpanel uninstall` runs and the options it takes.
+
 ## Databases
 
 Each service migrates its own database when it starts. Before applying a
