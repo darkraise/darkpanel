@@ -51,8 +51,12 @@ func TestCompositeConfirmCompletes(t *testing.T) {
 	if err := json.Unmarshal(got.Output, &out); err != nil {
 		t.Fatal(err)
 	}
-	if _, hasRead := out.Steps["r"]; hasRead || len(out.Steps) != 2 {
-		t.Errorf("output steps = %v, want a and g without the read step", out.Steps)
+	if len(out.Steps) != 3 {
+		t.Fatalf("output steps = %v, want r, a and g", out.Steps)
+	}
+	var read cstView
+	if err := json.Unmarshal(out.Steps["r"], &read); err != nil || read != (cstView{Name: "web-a"}) {
+		t.Errorf("output of read step r = %s (%v), want the item web-a as the read saw it, absent", out.Steps["r"], err)
 	}
 	if v, _ := f.host.gate("web"); v != "web-a" {
 		t.Errorf("gate web = %q, want web-a from step a's output", v)

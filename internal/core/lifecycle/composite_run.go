@@ -961,7 +961,7 @@ func (e *Engine) betweenSteps(ctx context.Context, c compositeRow, s stepRow) er
 	return e.stepFailed(ctx, c, s, s.Ordinal-1, stepFailure(s, "the controller restarted before the step was applied"))
 }
 
-// completeComposite builds the output from every non-read step's redacted
+// completeComposite builds the output from every step's redacted
 // output and records the composite completed, releasing its lock.
 func (e *Engine) completeComposite(ctx context.Context, c compositeRow, steps []stepRow, run *compositeRun) error {
 	def, err := e.compositeDef(c)
@@ -973,9 +973,6 @@ func (e *Engine) completeComposite(ctx context.Context, c compositeRow, steps []
 		sdef, ok := e.cfg.Registry.Action(s.Action)
 		if !ok {
 			return fmt.Errorf("lifecycle: composite %s: step %s: action %s is not registered", c.ID, s.ID, s.Action)
-		}
-		if sdef.Spec.Class == core.ClassRead {
-			continue
 		}
 		raw := json.RawMessage("null")
 		if len(s.OutputCT) > 0 {

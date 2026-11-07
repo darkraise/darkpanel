@@ -306,7 +306,7 @@ type Composer[In, Out any] interface {
 	// database, never a host.
 	Steps(ctx context.Context, env Env, in In) ([]Step, error)
 	// Output builds the composite's output from its steps' redacted
-	// outputs, keyed by step id; read steps are not among them.
+	// outputs, read steps included, keyed by step id.
 	Output(ctx context.Context, env Env, in In, steps map[string]json.RawMessage) (Out, error)
 }
 
