@@ -15,8 +15,12 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/store"
 )
 
+// v1r02AnswerLag is how long the agents that answer take to do so, in real time.
+const v1r02AnswerLag = 20 * time.Millisecond
+
 // w10rgDrive runs call and, once ready reports true, advances the host's clock by one second whenever a timer
-// waits on it. Advancing before ready would let a bound expire before the goroutines under test have run at all.
+// waits on it, pausing after each step. Advancing before ready would let a bound expire before the goroutines
+// under test have run at all.
 func w10rgDrive(t *testing.T, h *dpHost, ready func() bool, call func()) {
 	t.Helper()
 	done := make(chan struct{})
@@ -33,6 +37,8 @@ func w10rgDrive(t *testing.T, h *dpHost, ready func() bool, call func()) {
 		isReady := ready()
 		if isReady && h.clock.Pending() > 0 {
 			h.clock.Advance(time.Second)
+			// A bound stays armed while the code under test does real work; pacing keeps the clock from passing it during one step.
+			time.Sleep(2 * time.Millisecond)
 		} else {
 			time.Sleep(time.Millisecond)
 		}
@@ -210,6 +216,11 @@ func TestW10RgPassReadsHostsTogetherAndBoundsEachRead(t *testing.T) {
 				<-ctx.Done()
 				return nil, ctx.Err()
 			}
+			select {
+			case <-time.After(v1r02AnswerLag):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
 			return json.Marshal(answers[id])
 		}}
 	}
@@ -224,7 +235,10 @@ func TestW10RgPassReadsHostsTogetherAndBoundsEachRead(t *testing.T) {
 		defer mu.Unlock()
 		return len(started) == len(hosts)
 	}
-	w10rgDrive(t, h, allStarted, func() { err = h.dp().checkServers(context.Background(), deps, h.clock.Now()) })
+	// The reads of h2 and h3 stop their bounds when they end, so once only h1's bound is armed, the clock may move.
+	armed := h.clock.Pending()
+	onlyH1Waits := func() bool { return allStarted() && h.clock.Pending() == armed+1 }
+	w10rgDrive(t, h, onlyH1Waits, func() { err = h.dp().checkServers(context.Background(), deps, h.clock.Now()) })
 	if err != nil {
 		t.Fatalf("checkServers: %v", err)
 	}
@@ -239,8 +253,8 @@ func TestW10RgPassReadsHostsTogetherAndBoundsEachRead(t *testing.T) {
 	if r, ok := srLoad(t, h, "h1"); !ok || r.Error != probeAgentNoAnswer {
 		t.Errorf("record of h1 = %+v, %v; want its error to be %q", r, ok, probeAgentNoAnswer)
 	}
-	if _, ok := srLoad(t, h, "h2"); !ok {
-		t.Error("no record of h2, whose read answered at once")
+	if r, ok := srLoad(t, h, "h2"); !ok || r.Error != "" {
+		t.Errorf("record of h2 = %+v, %v; want a record without an error, since its read answered", r, ok)
 	}
 	if _, ok := srLoad(t, h, "h3"); ok {
 		t.Error("a record of h3, which has no server")
