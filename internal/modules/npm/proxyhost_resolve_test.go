@@ -271,6 +271,8 @@ func TestV1r09DockerAnswersNamesOnNPMNetworks(t *testing.T) {
 		{"a container name in capitals with a trailing dot", "SHOP.", 8080, false},
 		{"a network alias", "shop-alias", 8080, false},
 		{"a container whose address is in the panel network", "panelweb", 9443, true},
+		{"a container name qualified by its network", "shop." + networkName, 8080, false},
+		{"a qualified name whose address is in the panel network", "panelweb." + networkName, 9443, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h, n := paHost(t)

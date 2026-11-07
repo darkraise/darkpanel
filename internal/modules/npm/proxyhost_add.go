@@ -297,7 +297,8 @@ func (n nm) reservedSet(ctx context.Context, env core.Env) (proxy.Reserved, erro
 
 // dockerAnswers returns the addresses Docker's embedded DNS gives host on the user-defined networks of the NPM
 // container, and whether any container there answers to it. Docker's DNS serves no default network, and holds no record
-// for an endpoint without an address, so neither answers.
+// for an endpoint without an address, so neither answers. A member answers to each of its names and to each followed by
+// "." and the network's name, as Docker's DNS does (moby Sandbox.ResolveName).
 func (n nm) dockerAnswers(ctx context.Context, host string) ([]netip.Addr, bool, error) {
 	c, err := n.d.docker.InspectContainer(ctx, containerName)
 	switch {
@@ -337,7 +338,9 @@ func (n nm) dockerAnswers(ctx context.Context, host string) ([]netip.Addr, bool,
 			}
 			names = append(names, ep.Aliases...)
 			names = append(names, ep.DNSNames...)
-			if !slices.ContainsFunc(names, func(held string) bool { return held != "" && strings.EqualFold(held, name) }) {
+			if !slices.ContainsFunc(names, func(held string) bool {
+				return held != "" && (strings.EqualFold(held, name) || strings.EqualFold(held+"."+network, name))
+			}) {
 				continue
 			}
 			for _, a := range []netip.Addr{ep.IPAddress, ep.GlobalIPv6Address} {
