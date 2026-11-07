@@ -251,6 +251,9 @@ func viaFlows(s *flowSet, ctxs []*core.GuardContext, retired []string, local map
 		s.add(flow{label: label + " proxy", pkt: proxy})
 		switch v.Kind {
 		case "npm":
+			if len(v.Public) == 0 {
+				s.add(flow{label: label + " public", unknown: "the exposure has no public bindings"})
+			}
 			for _, pub := range v.Public {
 				dst := pub.Addr().Unmap()
 				switch {

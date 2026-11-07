@@ -28,6 +28,9 @@ func (s *Server) RuntimeHandler(info core.ListenerInfo, revoked <-chan struct{},
 		kind = "tunnel"
 	}
 	path := core.ProxyPath{ExposureID: info.Spec.ChangeID, Kind: kind, ProxyAddr: info.Spec.AllowedPeer, ListenerAddr: info.Spec.Addr}
+	if info.Spec.PublicBinding.IsValid() {
+		path.Public = []netip.AddrPort{info.Spec.PublicBinding}
+	}
 	return securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := runtimeRevoked(r.Context(), revoked, isRevoked); err != nil {
 			writeProblem(w, s.log, err)

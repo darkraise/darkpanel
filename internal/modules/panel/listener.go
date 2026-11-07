@@ -19,6 +19,10 @@ import (
 // panel.exposure:?<exposure id> before the creation is named.
 const listenerNoun = "panel.exposure"
 
+// npmHTTPSPort is NPM's HTTPS port, which it publishes as 443/tcp on every address of the host (spec section 6,
+// Deploy).
+const npmHTTPSPort = 443
+
 // listenerOpenAction declares panel.listener.open: a step of panel.exposure.add that opens the runtime listener and
 // records the exposure. Its undo revokes and closes the listener and deletes the exposure.
 func listenerOpenAction() core.ActionDef {
@@ -161,12 +165,18 @@ func (listenerOpenHandler) Apply(ctx context.Context, env core.Env, in ListenerO
 		return ListenerOpenOutput{}, err
 	}
 	header := core.ClientHeaderNPM
+	// IPv4 only: whether Docker also publishes [::]:443 depends on the daemon's ip6tables setting, which the
+	// controller cannot see, and an IPv6 public flow on a host without IPv6 routes would be unknown and refuse every
+	// change made through the exposure.
+	public := netip.AddrPortFrom(netip.IPv4Unspecified(), npmHTTPSPort)
 	if in.Via == ViaTunnel {
 		header = core.ClientHeaderTunnel
+		public = netip.AddrPort{}
 	}
 	addr := listenerAddr(in)
 	listenerID, err := env.Listeners.Open(ctx, core.ListenerSpec{
 		Addr: addr, AllowedPeer: in.Proxy, ClientHeader: header, PublicHost: in.Hostname, ChangeID: id,
+		PublicBinding: public,
 	})
 	if err != nil {
 		err = fmt.Errorf("panel: open the listener on %s: %w", addr, err)
