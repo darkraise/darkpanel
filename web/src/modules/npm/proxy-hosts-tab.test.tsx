@@ -5,7 +5,7 @@ import { axe } from "vitest-axe"
 import { renderWithProviders, stubFetch, type FetchCall, type StubHandler } from "@/test/utils"
 import { npProxyHost } from "./fixtures"
 import { ProxyHostsTab } from "./proxy-hosts-tab"
-import type { ProxyHostView } from "./types"
+import { npmKey, type ProxyHostView } from "./types"
 
 const PH_HOST = "/api/v1/hosts/h1"
 const PH_LIST = `POST ${PH_HOST}/actions/npm.proxyhost.list/v1/read`
@@ -218,4 +218,23 @@ test("the table has no accessibility violations", async () => {
   phRender()
   const table = await screen.findByRole("table", { name: "Proxy hosts" })
   expect(await axe(table)).toHaveNoViolations()
+})
+
+test("keeps the table and shows the reason when a refetch fails", async () => {
+  let failing = false
+  const { client } = phRender(phHosts(), {
+    [PH_LIST]: () =>
+      failing
+        ? { status: 409, body: { type: "about:blank", title: "Unhealthy", status: 409, detail: "Nginx Proxy Manager is not running", code: "npm.unhealthy" } }
+        : { body: { output: { items: phHosts() } } },
+  })
+  await screen.findByRole("table", { name: "Proxy hosts" })
+  failing = true
+  await client.invalidateQueries({ queryKey: npmKey("h1", "proxyhost.list") })
+  expect((await screen.findByRole("alert")).textContent).toBe("Nginx Proxy Manager is not running")
+  expect(phCells(1).slice(0, 2)).toEqual(["3", PH_NAMES])
+  failing = false
+  await client.invalidateQueries({ queryKey: npmKey("h1", "proxyhost.list") })
+  await waitFor(() => expect(screen.queryByRole("alert")).toBeNull())
+  expect(phCells(1).slice(0, 2)).toEqual(["3", PH_NAMES])
 })

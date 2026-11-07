@@ -9,10 +9,10 @@ import { Spinner } from "darkraise-ui/components/spinner"
 import { readAction, readResource } from "@/api/client"
 import { DOCKER_ACTION_VERSION, DOCKER_MODULE, dockerKey, type ContainerDetail, type DockerNetwork } from "@/modules/docker/types"
 import type { ContainerRef } from "@/modules/types"
-import { Field } from "./list-parts"
+import { Field, ReadFailure } from "./list-parts"
 import { NpmControllerChange } from "./npm-change"
 import { parseDomains, parseOptionalId, parsePort } from "./parse"
-import { messageOf, readInstanceStatus } from "./status"
+import { readInstanceStatus } from "./status"
 import { npmKey } from "./types"
 
 const UNSUPPORTED =
@@ -163,22 +163,21 @@ function ExposeLoader({ container, onDone }: { container: ContainerRef; onDone: 
     queryKey: dockerKey(hostId, "networks"),
     queryFn: () => readExposeNetworks(hostId),
   })
-  if (detail.isPending || networks.isPending) return <Spinner aria-label="Loading the container's networks" />
-  if (detail.isError || networks.isError) {
-    return (
-      <Alert variant="destructive" role="alert">
-        <AlertDescription>{messageOf(detail.error ?? networks.error)}</AlertDescription>
-      </Alert>
-    )
+  if (detail.data === undefined || networks.data === undefined) {
+    if (detail.isPending || networks.isPending) return <Spinner aria-label="Loading the container's networks" />
+    return <ReadFailure error={detail.error ?? networks.error} />
   }
   return (
-    <ExposeForm
-      container={container}
-      endpoints={detail.data.networks.map((e) => e.network)}
-      networks={networks.data.networks}
-      ports={detail.data.ports.map((p) => p.privatePort)}
-      onDone={onDone}
-    />
+    <>
+      {(detail.isError || networks.isError) && <ReadFailure error={detail.error ?? networks.error} />}
+      <ExposeForm
+        container={container}
+        endpoints={detail.data.networks.map((e) => e.network)}
+        networks={networks.data.networks}
+        ports={detail.data.ports.map((p) => p.privatePort)}
+        onDone={onDone}
+      />
+    </>
   )
 }
 
@@ -186,14 +185,15 @@ function ExposeLoader({ container, onDone }: { container: ContainerRef; onDone: 
 // with npm.expose.container, once the host shows a deployed instance.
 export function ExposeAction({ container, onDone }: { container: ContainerRef; onDone: () => void }) {
   const status = useQuery({ queryKey: npmKey(container.hostId, "instance.status"), queryFn: () => readInstanceStatus(container.hostId) })
-  if (status.isPending) return <Spinner aria-label="Loading Nginx Proxy Manager" />
-  if (status.isError) {
-    return (
-      <Alert variant="destructive" role="alert">
-        <AlertDescription>{messageOf(status.error)}</AlertDescription>
-      </Alert>
-    )
+  if (status.data === undefined) {
+    if (status.isPending) return <Spinner aria-label="Loading Nginx Proxy Manager" />
+    return <ReadFailure error={status.error} />
   }
   if (!status.data.deployed) return <p>Nginx Proxy Manager is not deployed on this host. Deploy it first.</p>
-  return <ExposeLoader container={container} onDone={onDone} />
+  return (
+    <>
+      {status.isError && <ReadFailure error={status.error} />}
+      <ExposeLoader container={container} onDone={onDone} />
+    </>
+  )
 }

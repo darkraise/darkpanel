@@ -1,6 +1,5 @@
 import { useState, type FormEvent } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Alert, AlertDescription } from "darkraise-ui/components/alert"
 import { Button } from "darkraise-ui/components/button"
 import { Checkbox } from "darkraise-ui/components/checkbox"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "darkraise-ui/components/dialog"
@@ -9,11 +8,10 @@ import { Label } from "darkraise-ui/components/label"
 import { RadioGroup, RadioGroupItem } from "darkraise-ui/components/radio-group"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
-import { Field, MarkBadges } from "./list-parts"
+import { Field, MarkBadges, ReadFailure } from "./list-parts"
 import { readProxyHostList } from "./list-replies"
 import { NpmChange } from "./npm-change"
 import { parseDomains, parseOptionalId, parsePort } from "./parse"
-import { messageOf } from "./status"
 import { npmKey, type ProxyHostView } from "./types"
 
 interface Pending {
@@ -203,21 +201,18 @@ export function ProxyHostsTab({ hostId }: { hostId: string }) {
   }
 
   let content
-  if (query.isPending) {
-    content = <Spinner aria-label="Loading proxy hosts" />
-  } else if (query.isError) {
-    content = (
-      <Alert variant="destructive" role="alert">
-        <AlertDescription>{messageOf(query.error)}</AlertDescription>
-      </Alert>
-    )
+  if (query.data === undefined) {
+    content = query.isPending ? <Spinner aria-label="Loading proxy hosts" /> : <ReadFailure error={query.error} />
   } else {
     content = (
-      <ProxyHostTable
-        items={query.data.items}
-        onEdit={(h) => setDialog({ editing: h })}
-        onRemove={(h) => setPending({ action: "npm.proxyhost.remove", title: `Remove proxy host ${namesOf(h)}`, input: { id: h.id } })}
-      />
+      <>
+        {query.isError && <ReadFailure error={query.error} />}
+        <ProxyHostTable
+          items={query.data.items}
+          onEdit={(h) => setDialog({ editing: h })}
+          onRemove={(h) => setPending({ action: "npm.proxyhost.remove", title: `Remove proxy host ${namesOf(h)}`, input: { id: h.id } })}
+        />
+      </>
     )
   }
 

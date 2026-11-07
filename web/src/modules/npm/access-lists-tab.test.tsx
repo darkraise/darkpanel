@@ -1,11 +1,11 @@
-import { screen, within } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { expect, test } from "vitest"
 import { axe } from "vitest-axe"
 import { renderWithProviders, stubFetch, type FetchCall, type StubHandler } from "@/test/utils"
 import { AccessListsTab } from "./access-lists-tab"
 import { npAccessList } from "./fixtures"
-import type { AccessListView } from "./types"
+import { npmKey, type AccessListView } from "./types"
 
 const AL_HOST = "/api/v1/hosts/h1"
 const AL_LIST = `POST ${AL_HOST}/actions/npm.accesslist.list/v1/read`
@@ -129,4 +129,23 @@ test("the table has no accessibility violations", async () => {
   alRender()
   const table = await screen.findByRole("table", { name: "Access lists" })
   expect(await axe(table)).toHaveNoViolations()
+})
+
+test("keeps the table and shows the reason when a refetch fails", async () => {
+  let failing = false
+  const { client } = alRender(alLists(), {
+    [AL_LIST]: () =>
+      failing
+        ? { status: 409, body: { type: "about:blank", title: "Unhealthy", status: 409, detail: "Nginx Proxy Manager is not running", code: "npm.unhealthy" } }
+        : { body: { output: { items: alLists() } } },
+  })
+  await screen.findByRole("table", { name: "Access lists" })
+  failing = true
+  await client.invalidateQueries({ queryKey: npmKey("h1", "accesslist.list") })
+  expect((await screen.findByRole("alert")).textContent).toBe("Nginx Proxy Manager is not running")
+  expect(alCells(1).slice(0, 2)).toEqual(["2", "darkpanel-01jd-1"])
+  failing = false
+  await client.invalidateQueries({ queryKey: npmKey("h1", "accesslist.list") })
+  await waitFor(() => expect(screen.queryByRole("alert")).toBeNull())
+  expect(alCells(1).slice(0, 2)).toEqual(["2", "darkpanel-01jd-1"])
 })

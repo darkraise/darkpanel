@@ -8,7 +8,7 @@ import type { ContainerRef } from "@/modules/types"
 import { renderWithProviders, stubFetch, type FetchCall, type StubHandler } from "@/test/utils"
 import { ExposeAction } from "./container-actions"
 import { npInstance } from "./fixtures"
-import type { InstanceStatus } from "./types"
+import { npmKey, type InstanceStatus } from "./types"
 
 const CA_HOST = "/api/v1/hosts/h1"
 const CA_STATUS = `POST ${CA_HOST}/actions/npm.instance.status/v1/read`
@@ -244,4 +244,29 @@ test("the form has no accessibility violations", async () => {
   caRender()
   const form = await caForm()
   expect(await axe(form)).toHaveNoViolations()
+})
+
+const CA_DOWN = { type: "about:blank", title: "Unavailable", status: 503, detail: "the Docker daemon is not reachable", code: "docker.engine_unavailable" }
+
+test.each([
+  ["the NPM status", CA_STATUS, npmKey("h1", "instance.status"), { body: { output: caStatus() } }],
+  ["the container", CA_INSPECT, ["resource", "h1", "docker.container", "c1"], { body: { output: caDetail() } }],
+  ["the networks", CA_NETWORKS, dockerKey("h1", "networks"), { body: { networks: caNetworks() } }],
+])("keeps the form and what was typed in it when a refetch of %s fails", async (_, route, key, answer) => {
+  let failing = false
+  const { client } = caRender({ [route]: () => (failing ? { status: 503, body: CA_DOWN } : answer) })
+  const user = userEvent.setup()
+  const form = await caForm()
+  await user.type(within(form).getByLabelText("Domains"), "app.example.com")
+
+  failing = true
+  await client.invalidateQueries({ queryKey: key })
+  expect((await screen.findByRole("alert")).textContent).toBe("the Docker daemon is not reachable")
+  expect(form.isConnected).toBe(true)
+  expect((within(form).getByLabelText("Domains") as HTMLInputElement).value).toBe("app.example.com")
+
+  failing = false
+  await client.invalidateQueries({ queryKey: key })
+  await waitFor(() => expect(screen.queryByRole("alert")).toBeNull())
+  expect(form.isConnected).toBe(true)
 })

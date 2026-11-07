@@ -1,6 +1,5 @@
 import { useState, type FormEvent } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Alert, AlertDescription } from "darkraise-ui/components/alert"
 import { Button } from "darkraise-ui/components/button"
 import { Checkbox } from "darkraise-ui/components/checkbox"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "darkraise-ui/components/dialog"
@@ -9,11 +8,10 @@ import { Label } from "darkraise-ui/components/label"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
 import { Textarea } from "darkraise-ui/components/textarea"
-import { MarkBadges } from "./list-parts"
+import { MarkBadges, ReadFailure } from "./list-parts"
 import { readAccessListList } from "./list-replies"
 import { NpmChange } from "./npm-change"
 import { parseRules } from "./parse"
-import { messageOf } from "./status"
 import { npmKey, type AccessClientInput, type AccessListView } from "./types"
 
 interface Pending {
@@ -112,20 +110,17 @@ export function AccessListsTab({ hostId }: { hostId: string }) {
   })
 
   let content
-  if (query.isPending) {
-    content = <Spinner aria-label="Loading access lists" />
-  } else if (query.isError) {
-    content = (
-      <Alert variant="destructive" role="alert">
-        <AlertDescription>{messageOf(query.error)}</AlertDescription>
-      </Alert>
-    )
+  if (query.data === undefined) {
+    content = query.isPending ? <Spinner aria-label="Loading access lists" /> : <ReadFailure error={query.error} />
   } else {
     content = (
-      <AccessListTable
-        items={query.data.items}
-        onRemove={(a) => setPending({ action: "npm.accesslist.remove", title: `Remove access list ${a.name}`, input: { id: a.id } })}
-      />
+      <>
+        {query.isError && <ReadFailure error={query.error} />}
+        <AccessListTable
+          items={query.data.items}
+          onRemove={(a) => setPending({ action: "npm.accesslist.remove", title: `Remove access list ${a.name}`, input: { id: a.id } })}
+        />
+      </>
     )
   }
 

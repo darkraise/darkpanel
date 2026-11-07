@@ -1,16 +1,14 @@
 import { useState, type FormEvent } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Alert, AlertDescription } from "darkraise-ui/components/alert"
 import { Button } from "darkraise-ui/components/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "darkraise-ui/components/dialog"
 import { EmptyState } from "darkraise-ui/components/empty-state"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
-import { Field, MarkBadges } from "./list-parts"
+import { Field, MarkBadges, ReadFailure } from "./list-parts"
 import { readCertificateList } from "./list-replies"
 import { NpmChange } from "./npm-change"
 import { parseDomains } from "./parse"
-import { messageOf } from "./status"
 import { npmKey, type CertificateView } from "./types"
 
 interface Pending {
@@ -91,20 +89,17 @@ export function CertificatesTab({ hostId }: { hostId: string }) {
   })
 
   let content
-  if (query.isPending) {
-    content = <Spinner aria-label="Loading certificates" />
-  } else if (query.isError) {
-    content = (
-      <Alert variant="destructive" role="alert">
-        <AlertDescription>{messageOf(query.error)}</AlertDescription>
-      </Alert>
-    )
+  if (query.data === undefined) {
+    content = query.isPending ? <Spinner aria-label="Loading certificates" /> : <ReadFailure error={query.error} />
   } else {
     content = (
-      <CertificateTable
-        items={query.data.items}
-        onRemove={(c) => setPending({ action: "npm.certificate.remove", title: `Remove certificate ${certLabel(c)}`, input: { id: c.id } })}
-      />
+      <>
+        {query.isError && <ReadFailure error={query.error} />}
+        <CertificateTable
+          items={query.data.items}
+          onRemove={(c) => setPending({ action: "npm.certificate.remove", title: `Remove certificate ${certLabel(c)}`, input: { id: c.id } })}
+        />
+      </>
     )
   }
 

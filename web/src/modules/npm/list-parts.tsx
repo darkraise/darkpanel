@@ -1,6 +1,18 @@
+import { Alert, AlertDescription } from "darkraise-ui/components/alert"
 import { Badge } from "darkraise-ui/components/badge"
 import { Input } from "darkraise-ui/components/input"
 import { Label } from "darkraise-ui/components/label"
+import { messageOf } from "./status"
+
+// ReadFailure renders the alert for a failed read; a panel that holds data
+// from an earlier read shows the failure above that data.
+export function ReadFailure({ error }: { error: unknown }) {
+  return (
+    <Alert variant="destructive" role="alert">
+      <AlertDescription>{messageOf(error)}</AlertDescription>
+    </Alert>
+  )
+}
 
 // MarkBadges shows who owns an object and whether Darkpanel lost track of it.
 export function MarkBadges({ reserved, unclaimed }: { reserved: string; unclaimed: boolean }) {
