@@ -197,8 +197,8 @@ func TestPbProbeReportsEverySource(t *testing.T) {
 		bravo.Region == nil || !slices.Equal(bravo.Region.Info, []string{"region reachable from h2"}) {
 		t.Errorf("bravo source %+v, want TLS 20 ms, STUN 30 ms and its region diagnostics", bravo)
 	}
-	if charlie.Error != failed || charlie.TLS.OK || charlie.TLS.Error != failed || charlie.STUN.OK || charlie.STUN.Error != failed {
-		t.Errorf("charlie source %+v, want the failure %q on the source, its TLS and its STUN", charlie, failed)
+	if charlie.Error != failed || charlie.TLS.OK || charlie.TLS.Error != "failed" || charlie.STUN.OK || charlie.STUN.Error != "failed" {
+		t.Errorf("charlie source %+v, want the failure %q on the source and \"failed\" on its TLS and its STUN", charlie, failed)
 	}
 	if !got.Ready || got.Warnings == nil || len(got.Warnings) != 0 || got.Nodes == nil {
 		t.Errorf("ready %v, warnings %#v, nodes %#v; want ready, empty warnings and an empty node list, none null", got.Ready, got.Warnings, got.Nodes)
@@ -224,8 +224,8 @@ func TestPbProbeAgentsInInputOrder(t *testing.T) {
 	if want := []string{"controller=controller", "h3=charlie", "h1=alpha", "h2=bravo"}; !slices.Equal(pbNames(got), want) {
 		t.Fatalf("sources %v, want %v", pbNames(got), want)
 	}
-	if e := got.Sources[3].Error; e != "the agent did not answer" || got.Sources[3].TLS.Error != e || got.Sources[3].STUN.Error != e {
-		t.Errorf("bravo source %+v, want the plain failure reported as %q", got.Sources[3], "the agent did not answer")
+	if s := got.Sources[3]; s.Error != "the agent did not answer" || s.TLS.Error != "failed" || s.STUN.Error != "failed" {
+		t.Errorf("bravo source %+v, want the plain failure reported as %q and \"failed\" on its TLS and its STUN", s, "the agent did not answer")
 	}
 	if !got.Ready {
 		t.Error("not ready, want ready: charlie, an agent other than the DERP host, passes")
@@ -380,8 +380,9 @@ func TestPbProbeControllerFailures(t *testing.T) {
 			if tt.tlsFail && ctl.TLS.Error == "" || tt.stunBad && ctl.STUN.Error == "" {
 				t.Errorf("controller source %+v, want an error text on each failing probe", ctl)
 			}
-			if tt.srcErr == "" && ctl.Error != "" || tt.srcErr != "" && (!strings.Contains(ctl.Error, tt.srcErr) || ctl.TLS.Error != ctl.Error || ctl.STUN.Error != ctl.Error) {
-				t.Errorf("controller source error %q, want one naming %q carried by both results (empty when the probes themselves failed)", ctl.Error, tt.srcErr)
+			if tt.srcErr == "" && ctl.Error != "" || tt.srcErr != "" && (!strings.Contains(ctl.Error, tt.srcErr) || ctl.TLS.Error != "failed" || ctl.STUN.Error != "failed") {
+				t.Errorf("controller source error %q with TLS %q and STUN %q, want one naming %q and \"failed\" on both results (empty when the probes themselves failed)",
+					ctl.Error, ctl.TLS.Error, ctl.STUN.Error, tt.srcErr)
 			}
 			if got.Ready {
 				t.Error("ready, want not ready with the controller failing")

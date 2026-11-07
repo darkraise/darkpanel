@@ -336,7 +336,7 @@ func (d dp) probeFromController(ctx context.Context, status ServerStatus) (Probe
 			return ProbeSource{}, cerr
 		}
 		src.Error = err.Error()
-		src.TLS, src.STUN = ProbeResult{Error: src.Error}, ProbeResult{Error: src.Error}
+		src.TLS, src.STUN = ProbeResult{Error: "failed"}, ProbeResult{Error: "failed"}
 		return src, nil
 	}
 	src.TLS, src.STUN = d.probeOnce(ctx, t, stunAddr)
@@ -362,7 +362,7 @@ func probeFromAgent(ctx context.Context, env core.Env, a probeHost, in NodeProbe
 		if errors.As(err, &coded) && coded.Code != errcode.Internal && coded.Detail != "" {
 			src.Error = coded.Detail
 		}
-		src.TLS, src.STUN = ProbeResult{Error: src.Error}, ProbeResult{Error: src.Error}
+		src.TLS, src.STUN = ProbeResult{Error: "failed"}, ProbeResult{Error: "failed"}
 		return src, nil
 	}
 	src.TLS, src.STUN, src.Region = p.TLS, p.STUN, p.Region
