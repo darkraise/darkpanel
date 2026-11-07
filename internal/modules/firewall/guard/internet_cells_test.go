@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/eval"
@@ -115,5 +116,106 @@ func TestV1r21TailscaleFlowChecksEveryIPv6Cell(t *testing.T) {
 	want := "tailscale udp from 2001:db8::1 to [2606:4700::-2606:4700:ffff:ffff:ffff:ffff:ffff:ffff]:41641 out eth0: drop"
 	if g.OK || !strings.Contains(g.Message, want) {
 		t.Errorf("guard = %+v, want a refusal containing %q", g, want)
+	}
+}
+
+// v1r21Bans are n rules "-A <chain> -s <addr>/32<match> -j DROP" for public
+// addresses no two of which are adjacent, so each one would cut two cells.
+func v1r21Bans(n int, chain, match string) []string {
+	rules := make([]string, n)
+	a := netip.MustParseAddr("45.0.0.0")
+	for i := range rules {
+		rules[i] = "-A " + chain + " -s " + a.String() + "/32" + match + " -j DROP"
+		a = a.Next().Next()
+	}
+	return rules
+}
+
+// v1r21Jail is save output with the rules of a fail2ban chain f2b-sshd that
+// INPUT jumps to for the ports of dports, and nat rules if any.
+func v1r21Jail(dports string, jail []string, nat ...string) string {
+	s := "*filter\n:INPUT ACCEPT [0:0]\n:FORWARD ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n:f2b-sshd - [0:0]\n" +
+		"-A INPUT -p tcp -m multiport --dports " + dports + " -j f2b-sshd\n" +
+		strings.Join(jail, "\n") + "\n-A f2b-sshd -j RETURN\nCOMMIT\n"
+	if len(nat) > 0 {
+		s += "*nat\n:PREROUTING ACCEPT [0:0]\n:INPUT ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n:POSTROUTING ACCEPT [0:0]\n" +
+			strings.Join(nat, "\n") + "\nCOMMIT\n"
+	}
+	return s
+}
+
+// v1r21AnyRoute answers every route lookup through eth0 from 192.0.2.1.
+type v1r21AnyRoute struct {
+	*gHost
+	n int
+}
+
+func (h *v1r21AnyRoute) RouteGet(netstat.RouteQuery) (netstat.Route, error) {
+	h.n++
+	return rtVia("eth0", "192.0.2.1"), nil
+}
+
+// v1r21Listener checks the IPv4 save output v4 for a host whose controller
+// listens on 0.0.0.0:443 and that has three interfaces up, and returns the
+// guard with the number of route lookups.
+func v1r21Listener(t *testing.T, v4 string) (core.Guard, int) {
+	t.Helper()
+	h := &v1r21AnyRoute{gHost: &gHost{ifaces: ckIfaces(), sockets: []netstat.Socket{
+		flSock(netstat.ProtoTCP, netstat.StateListen, "0.0.0.0:443", "", "darkpanel-contr", 4242),
+	}}}
+	env, _, _ := ckEnv()
+	ckRunning(env)
+	g, _, err := Checker{Host: h}.Check(context.Background(), env, v1r21State(t, v4, v1r21Table()), Input{Eval: eval.Evaluate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return g, h.n
+}
+
+func TestV1r21BansOnAnotherPortCutNoCell(t *testing.T) {
+	const bans = 5000
+	for _, tt := range []struct{ name, v4 string }{
+		{"rules of INPUT", v1r21Table(v1r21Bans(bans, "INPUT", " -p tcp -m tcp --dport 22")...)},
+		{"a chain only port 22 jumps to", v1r21Jail("22", v1r21Bans(bans, "f2b-sshd", ""))},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			start := time.Now()
+			g, lookups := v1r21Listener(t, tt.v4)
+			t.Logf("%d bans: Check took %s with %d route lookups", bans, time.Since(start), lookups)
+			if !g.OK {
+				t.Fatalf("guard = %+v, want OK: no ban matches port 443", g)
+			}
+			// The controller listener's flow looks up the route back once per cell.
+			if lookups != 1 {
+				t.Errorf("%d route lookups, want 1: bans that cannot match port 443 cut cells", lookups)
+			}
+		})
+	}
+}
+
+func TestV1r21OnlyRulesThatCanMatchCutCells(t *testing.T) {
+	const ban = "-A INPUT -s 8.8.8.8/32 -p tcp -m tcp --dport "
+	jail := []string{"-A f2b-sshd -s 8.8.8.8/32 -j REJECT --reject-with icmp-port-unreachable"}
+	for _, tt := range []struct {
+		name, v4 string
+		blocked  bool
+	}{
+		{"a ban on another port", v1r21Table(ban + "22 -j DROP"), false},
+		{"a ban on another protocol", v1r21Table("-A INPUT -s 8.8.8.8/32 -p udp -j DROP"), false},
+		{"a ban on the flow's port", v1r21Table(ban + "443 -j DROP"), true},
+		{"a ban on every port but another", v1r21Table("-A INPUT -s 8.8.8.8/32 -p tcp -m tcp ! --dport 22 -j DROP"), true},
+		{"a ban on a port range", v1r21Table("-A INPUT -s 8.8.8.8/32 -p tcp -m multiport --dports 80,400:500 -j DROP"), true},
+		{"a chain only another port jumps to", v1r21Jail("22", jail), false},
+		{"a chain the flow's port jumps to", v1r21Jail("22,443", jail), true},
+		{"a ban on the port DNAT rewrites to", v1r21Jail("22", []string{ban + "8443 -j DROP"},
+			"-A PREROUTING -p tcp -m tcp --dport 443 -j DNAT --to-destination 192.0.2.1:8443"), true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			g, _ := v1r21Listener(t, tt.v4)
+			const want = "controller listener from 8.8.8.8-8.8.8.8 to 192.0.2.1:"
+			if got := !g.OK && strings.Contains(g.Message, want); got != tt.blocked {
+				t.Errorf("guard = %+v, want a refusal containing %q: %v", g, want, tt.blocked)
+			}
+		})
 	}
 }
