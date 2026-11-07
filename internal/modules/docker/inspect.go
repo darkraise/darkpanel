@@ -112,10 +112,24 @@ var shownLabels = map[string]bool{
 	"org.opencontainers.image.documentation":      true,
 }
 
-// redactArgs is a command line as inspect shows it: the program, then one
-// mask per argument. A
-// command line is free text that may hold a secret anywhere, and the spec
-// asks inspect to show none, so no argument is shown.
+// redactCmd is a container's command as inspect shows it: one mask per
+// element. A command line is free text that may hold a secret anywhere, and
+// Docker hands the command to the entrypoint as its arguments, so even the
+// first element is not known to be a program and none is shown.
+func redactCmd(args []string) []string {
+	if len(args) == 0 {
+		return args
+	}
+	out := make([]string, len(args))
+	for i := range out {
+		out[i] = logfilter.Mask
+	}
+	return out
+}
+
+// redactArgs is an entrypoint as inspect shows it: the first element, which
+// is the program, then one mask per argument. An argument is free text that
+// may hold a secret anywhere, and the spec asks inspect to show none.
 func redactArgs(args []string) []string {
 	if len(args) == 0 {
 		return args
@@ -145,7 +159,8 @@ func redactLabels(labels map[string]string) map[string]string {
 }
 
 // containerDetailOf renders an inspected container with its environment
-// values, its arguments and the labels outside shownLabels redacted.
+// values, its command, its entrypoint's arguments and the labels outside
+// shownLabels redacted.
 func containerDetailOf(c dockerapi.ContainerJSON) (ContainerDetail, error) {
 	created, err := time.Parse(time.RFC3339Nano, c.Created)
 	if err != nil {
@@ -164,7 +179,7 @@ func containerDetailOf(c dockerapi.ContainerJSON) (ContainerDetail, error) {
 		ID: c.ID, Name: name, Image: c.Config.Image, ImageID: c.Image, Created: created.UTC(),
 		State: c.State.Status, Running: c.State.Running, StartedAt: started, FinishedAt: finished,
 		ExitCode: c.State.ExitCode, RestartPolicy: c.HostConfig.RestartPolicy.Name,
-		Cmd: redactArgs(c.Config.Cmd), Entrypoint: redactArgs(c.Config.Entrypoint), WorkingDir: c.Config.WorkingDir, User: c.Config.User,
+		Cmd: redactCmd(c.Config.Cmd), Entrypoint: redactArgs(c.Config.Entrypoint), WorkingDir: c.Config.WorkingDir, User: c.Config.User,
 		Env: envVars(c.Config.Env, true), Labels: redactLabels(c.Config.Labels),
 		Ports: []Port{}, Mounts: make([]Mount, 0, len(c.Mounts)), Networks: []EndpointView{},
 		Project: c.Config.Labels["com.docker.compose.project"], Service: c.Config.Labels["com.docker.compose.service"],

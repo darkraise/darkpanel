@@ -107,8 +107,8 @@ const rdWebDetail = `{
 
 func rdExpectedDetail(owner string) string {
 	s := strings.NewReplacer("%ID%", dkID("web"), "%APP%", dkID("app"), "%BRIDGE%", dkID("bridge")).Replace(rdWebDetail)
-	// Owned or not, only the program and the listed labels are shown.
-	s = strings.Replace(s, `"cmd": ["nginx", "-g", "daemon off;"]`, `"cmd": ["nginx", "[redacted]", "[redacted]"]`, 1)
+	// Owned or not, no command argument and only the listed labels are shown.
+	s = strings.Replace(s, `"cmd": ["nginx", "-g", "daemon off;"]`, `"cmd": ["[redacted]", "[redacted]", "[redacted]"]`, 1)
 	s = strings.Replace(s, `"tier": "front"`, `"tier": "[redacted]"`, 1)
 	if owner != "" {
 		s = strings.Replace(s, `"service": "web"`, `"service": "web", "owner": "`+owner+`"`, 1)

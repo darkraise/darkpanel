@@ -97,8 +97,9 @@ dangling images are removed.
 
 `docker.container.inspect` shows each environment variable's name and replaces
 its value with `[redacted]`, for every container. It also replaces every
-argument of the command and the entrypoint after the first, and the value of
-every label other than the ones Compose and Darkpanel set, with `[redacted]`.
+element of the command and every argument of the entrypoint after its first
+element, and the value of every label other than the ones Compose and
+Darkpanel set, with `[redacted]`.
 
 `docker.container.reveal-env` returns the values. It needs the `admin` scope,
 delivers them once, as secrets are delivered, and records who asked in the

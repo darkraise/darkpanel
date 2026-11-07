@@ -29,17 +29,17 @@ func fz6Scrub(c dockerapi.ContainerJSON) dockerapi.ContainerJSON {
 			out.Config.Env[i] = e
 		}
 	}
-	args := func(in []string) []string {
+	args := func(in []string, from int) []string {
 		if in == nil {
 			return nil
 		}
 		scrubbed := slices.Clone(in)
-		for i := 1; i < len(scrubbed); i++ {
+		for i := from; i < len(scrubbed); i++ {
 			scrubbed[i] = "scrubbed"
 		}
 		return scrubbed
 	}
-	out.Config.Cmd, out.Config.Entrypoint = args(c.Config.Cmd), args(c.Config.Entrypoint)
+	out.Config.Cmd, out.Config.Entrypoint = args(c.Config.Cmd, 0), args(c.Config.Entrypoint, 1)
 	if c.Config.Labels != nil {
 		out.Config.Labels = make(map[string]string, len(c.Config.Labels))
 		for k, v := range c.Config.Labels {
@@ -54,9 +54,10 @@ func fz6Scrub(c dockerapi.ContainerJSON) dockerapi.ContainerJSON {
 
 // FuzzContainerDetail feeds arbitrary inspect JSON to containerDetailOf: it
 // never panics, every environment value of the answer is the mask, every
-// argument after the first is the mask, every label outside shownLabels has
-// the mask for its value, and the answer does not change when those values
-// are replaced by others, so no such value reaches any other member (R74).
+// command element and every entrypoint element after the first is the mask,
+// every label outside shownLabels has the mask for its value, and the answer
+// does not change when those values are replaced by others, so no such value
+// reaches any other member (R74).
 func FuzzContainerDetail(f *testing.F) {
 	for _, c := range []dockerapi.ContainerJSON{rdWeb(), rdWeb(rdOwned), dkContainer("bare")} {
 		b, err := json.Marshal(c)
@@ -85,12 +86,15 @@ func FuzzContainerDetail(f *testing.F) {
 				fail("an environment entry is not name and mask")
 			}
 		}
-		for _, p := range [][2][]string{{d.Cmd, c.Config.Cmd}, {d.Entrypoint, c.Config.Entrypoint}} {
-			if len(p[0]) != len(p[1]) {
+		for _, p := range []struct {
+			got, want   []string
+			keepProgram bool
+		}{{d.Cmd, c.Config.Cmd, false}, {d.Entrypoint, c.Config.Entrypoint, true}} {
+			if len(p.got) != len(p.want) {
 				fail("an argument list changed length")
 			}
-			for i := range p[0] {
-				if (i == 0 && p[0][i] != p[1][i]) || (i > 0 && p[0][i] != logfilter.Mask) {
+			for i := range p.got {
+				if keep := p.keepProgram && i == 0; (keep && p.got[i] != p.want[i]) || (!keep && p.got[i] != logfilter.Mask) {
 					fail("an argument is shown or masked wrongly")
 				}
 			}
