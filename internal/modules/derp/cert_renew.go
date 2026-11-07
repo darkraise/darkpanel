@@ -70,7 +70,7 @@ func certRenewNames(ip string) (crt, key string, err error) {
 // fs.ErrNotExist.
 func certRenewRead(d dp, name string) (certRenewCert, error) {
 	path := server.CertDir + "/" + name
-	b, err := d.d.readFile(path)
+	b, err := d.d.readCertFile(path)
 	if err != nil {
 		return certRenewCert{}, fmt.Errorf("derp: read %s: %w", path, err)
 	}
@@ -104,7 +104,7 @@ func certRenewCheck(ctx context.Context, env core.Env, d dp) (localServer, certR
 			"derper has not written a certificate for "+row.HostName+" yet"))
 	}
 	// Only the key's presence matters: its bytes are dropped here, never logged or stored.
-	if _, err := d.d.readFile(server.CertDir + "/" + key); err != nil {
+	if _, err := d.d.readCertFile(server.CertDir + "/" + key); err != nil {
 		return localServer{}, certRenewCert{}, core.Definite(errcode.New(errcode.DERPNotReady,
 			"derper's certificate for "+row.HostName+" has no readable key file "+key))
 	}
@@ -196,7 +196,7 @@ func certRenewAwait(ctx context.Context, env core.Env, d dp, crt, key, old strin
 			last = errors.New("the certificate is still the old one")
 		default:
 			// Only the key's presence matters: its bytes are dropped here, never logged or stored.
-			if _, err := d.d.readFile(server.CertDir + "/" + key); err != nil {
+			if _, err := d.d.readCertFile(server.CertDir + "/" + key); err != nil {
 				last = fmt.Errorf("derp: read %s: %w", server.CertDir+"/"+key, err)
 				break
 			}

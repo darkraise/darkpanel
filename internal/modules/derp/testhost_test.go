@@ -177,6 +177,7 @@ func (h *dpHost) dp() dp {
 		version:        thDPVersion,
 		arch:           thArch,
 		readFile:       h.readFile,
+		readCertFile:   h.readFile,
 		lookupUser:     h.lookupUser,
 		sockets:        h.listSockets,
 		linkViaTailnet: h.linkViaTailnet,

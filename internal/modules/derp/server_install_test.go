@@ -585,14 +585,14 @@ func TestInTaskWaitsForTheCertificate(t *testing.T) {
 	der, _ := s.certFile(t)
 	crtPath := server.CertDir + "/" + inIP + ".crt"
 	reads := 0
-	readFile := s.d.d.readFile
-	s.d.d.readFile = func(name string) ([]byte, error) {
+	readCertFile := s.d.d.readCertFile
+	s.d.d.readCertFile = func(name string) ([]byte, error) {
 		if name == crtPath {
 			if reads++; reads < 5 {
 				return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
 			}
 		}
-		return readFile(name)
+		return readCertFile(name)
 	}
 	start := s.h.clock.Now()
 	var out json.RawMessage
@@ -880,14 +880,14 @@ func TestW10DuTaskReportsAnUnparsableCertificate(t *testing.T) {
 		s.active()
 		der, _ := s.certFile(t)
 		reads := 0
-		readFile := s.d.d.readFile
-		s.d.d.readFile = func(name string) ([]byte, error) {
+		readCertFile := s.d.d.readCertFile
+		s.d.d.readCertFile = func(name string) ([]byte, error) {
 			if name == crtPath {
 				if reads++; reads < 4 {
 					return []byte("-----BEGIN CERTIFICATE-----\nMIIB"), nil
 				}
 			}
-			return readFile(name)
+			return readCertFile(name)
 		}
 		var out json.RawMessage
 		var err error

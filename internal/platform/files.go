@@ -201,6 +201,47 @@ func openBeneath(dirfd int, name string, flags uint64, mode uint64) (int, error)
 	return -1, err
 }
 
+// ReadRegularFile returns the content of the regular file path, of at most
+// limit bytes. A service account can write the directory it reads (ADR 0009),
+// so it could plant a symlink to another file or a FIFO there: a symlink in
+// any component of path, the last included, is refused, and so is anything
+// but a regular file. No error carries file content.
+func ReadRegularFile(path string, limit int64) ([]byte, error) {
+	// O_NONBLOCK keeps a FIFO planted at path from blocking the open.
+	fd, err := unix.Openat2(unix.AT_FDCWD, path, &unix.OpenHow{
+		Flags:   unix.O_RDONLY | unix.O_NONBLOCK | unix.O_CLOEXEC,
+		Resolve: unix.RESOLVE_NO_SYMLINKS,
+	})
+	switch {
+	case errors.Is(err, unix.ELOOP):
+		return nil, fmt.Errorf("platform: %s has a symbolic link in its path: %w", path, err)
+	case err != nil:
+		return nil, fmt.Errorf("platform: open %s: %w", path, err)
+	}
+	file := os.NewFile(uintptr(fd), path)
+	defer func() { _ = file.Close() }()
+	var st unix.Stat_t
+	if err := unix.Fstat(fd, &st); err != nil {
+		return nil, fmt.Errorf("platform: stat %s: %w", path, err)
+	}
+	if st.Mode&unix.S_IFMT != unix.S_IFREG {
+		return nil, fmt.Errorf("platform: %s is not a regular file", path)
+	}
+	tooLarge := fmt.Errorf("platform: %s is larger than %d bytes", path, limit)
+	if st.Size > limit {
+		return nil, tooLarge
+	}
+	// The limit holds also for a file that grew after the Fstat.
+	data, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil {
+		return nil, fmt.Errorf("platform: read %s: %w", path, err)
+	}
+	if int64(len(data)) > limit {
+		return nil, tooLarge
+	}
+	return data, nil
+}
+
 func (p *parent) close() {
 	_ = unix.Close(p.fd)
 	p.mu.Unlock()

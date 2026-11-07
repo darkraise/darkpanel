@@ -40,7 +40,7 @@ import (
 func TestSdProductionDP(t *testing.T) {
 	d := productionDP().d
 	for name, ok := range map[string]bool{
-		"local": d.local != nil, "fetch": d.fetch != nil, "readFile": d.readFile != nil, "lookupUser": d.lookupUser != nil,
+		"local": d.local != nil, "fetch": d.fetch != nil, "readFile": d.readFile != nil, "readCertFile": d.readCertFile != nil, "lookupUser": d.lookupUser != nil,
 		"sockets": d.sockets != nil, "linkViaTailnet": d.linkViaTailnet != nil, "tlsProbe": d.tlsProbe != nil, "stun": d.stun != nil,
 		"resolve": d.resolve != nil, "policy": d.policy != nil, "devices": d.devices != nil, "connected": d.connected != nil,
 	} {

@@ -314,7 +314,7 @@ func (h installHandler) await(ctx context.Context, env core.Env, cfg server.Conf
 // parse, as derper may not have finished writing it. parseErr is why a file that is there does not parse.
 func (h installHandler) readCert(name string) (der []byte, notAfter time.Time, ok bool, parseErr, err error) {
 	path := server.CertDir + "/" + name
-	b, err := h.d.d.readFile(path)
+	b, err := h.d.d.readCertFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, time.Time{}, false, nil, nil
 	}

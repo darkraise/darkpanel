@@ -28,6 +28,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/modules/tailscale/link"
 	"github.com/darkraise/darkpanel/internal/modules/tailscale/stun"
 	"github.com/darkraise/darkpanel/internal/paths"
+	"github.com/darkraise/darkpanel/internal/platform"
 	"github.com/darkraise/darkpanel/internal/platform/netstat"
 	"github.com/darkraise/darkpanel/internal/platform/tslocal"
 	"github.com/darkraise/darkpanel/internal/update"
@@ -51,6 +52,8 @@ const (
 	expiryWarning = 30 * 24 * time.Hour
 	// maxProbeAgents is the most agents derp.server.probe asks to probe a server.
 	maxProbeAgents = 8
+	// certFileLimit is the most bytes a certificate or key file of derper's may hold.
+	certFileLimit = 1 << 20
 )
 
 // dp carries the module's host dependencies; tests replace them.
@@ -62,7 +65,8 @@ type deps struct {
 	fetch          func(ctx context.Context, dpVersion, want, arch string) ([]byte, string, error) // production: download.Fetch with the production Source (30 s index client, 5 min download client)
 	version        string                                                                          // production: buildinfo.Version
 	arch           string                                                                          // production: runtime.GOARCH
-	readFile       func(name string) ([]byte, error)                                               // production: os.ReadFile (certificate files under CertDir)
+	readFile       func(name string) ([]byte, error)                                               // production: os.ReadFile (the binary, the unit link and existence checks)
+	readCertFile   func(name string) ([]byte, error)                                               // production: platform.ReadRegularFile with certFileLimit (certificate and key files under CertDir)
 	lookupUser     func(name string) (uid, gid int, ok bool, err error)                            // production: os/user.Lookup; an unknown user is ok false, nil error
 	sockets        func() ([]netstat.Socket, error)                                                // production: netstat.Sockets
 	linkViaTailnet func() (bool, error)                                                            // production: the saved controller address is an IP literal inside a Tailscale range; not enrolled: false
@@ -118,6 +122,7 @@ func productionDP() dp {
 		version:        buildinfo.Version,
 		arch:           runtime.GOARCH,
 		readFile:       os.ReadFile,
+		readCertFile:   func(name string) ([]byte, error) { return platform.ReadRegularFile(name, certFileLimit) },
 		lookupUser:     lookupSystemUser,
 		sockets:        netstat.Sockets,
 		linkViaTailnet: func() (bool, error) { return linkViaTailnetIn(paths.Production().AgentTLSDir) },

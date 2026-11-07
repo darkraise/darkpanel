@@ -104,7 +104,7 @@ func (h serverStatusHandler) certificate(hostName, crt string) (pin string, notA
 	fail := func(err error) (string, *time.Time, error) {
 		return "", nil, errcode.Wrap(errcode.DERPNotReady, err, "derper's certificate for "+hostName+" cannot be read")
 	}
-	b, err := h.d.d.readFile(server.CertDir + "/" + crt)
+	b, err := h.d.d.readCertFile(server.CertDir + "/" + crt)
 	if err != nil {
 		return fail(err)
 	}
