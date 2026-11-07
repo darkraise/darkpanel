@@ -4,15 +4,15 @@
 
 **Goal:** Build the second half of wave 10 of the v1 completion spec. That means fixing every high and medium finding of the R73 security review, correcting the threat model and recording the risks the owner accepted, and fixing the leftover rows 303, 389, 435 and 436. It also means documenting the 0.x to 1.0 reinstall boundary, so that `main` is ready to tag `v1.0.0-rc.1`.
 
-**Architecture:** Every fix is a feature slice with its own regression test, at the lowest layer that can fail. The fixes touch the NPM, Docker, DERP and firewall modules, the login limiter, the runtime listener and one core lifecycle function. Fixes that touch security run alone, in the order their shared files require. Ordinary fixes and documentation run in parallel waves, with no two tasks of a wave naming the same file. The threat model is updated last, because it describes what the fixes changed. After the last wave, the owner's two-reviewer panel re-reviews the high findings before the final whole-branch review.
+**Architecture:** Every fix is a feature slice with its own regression test, at the lowest layer that can fail. The fixes touch the NPM, Docker, DERP and firewall modules, the login limiter, the runtime listener and one core lifecycle function. The tasks run one after another, in an order that puts every task after the tasks whose output it consumes. The threat model is updated last, because it describes what the fixes changed. After the last task, the owner's two-reviewer panel re-reviews the high findings before the final whole-branch review.
 
 **Tech Stack:** Go 1.27 (`go.mod`: `go 1.27`, toolchain `go1.27.3`), SQLite through the existing `internal/core/store` migrations, React 19 + TypeScript with Vitest 5.0.5 and @testing-library/user-event 14.6.8 (already in `web/pnpm-lock.yaml`), the KVM harness in `test/harness` (GitHub Actions `harness.yml`), Markdown documentation checked by `internal/docs`.
 
 **Spec:** docs/dforge/specs/2026-10-21-v1-completion-design.md
 
-**Execution:** subagent — `claude --model sonnet --effort high` — the plan runs parallel waves, and each task's **Implementer:** line chooses its implementer
+**Execution:** subagent — `claude --model sonnet --effort high` — 20 of 25 tasks are heavy, and each task's **Implementer:** or **Executor:** line chooses its implementer
 
-**Parallelism:** waves — 1-4 | 5 | 6-7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23-24 | 25
+**Parallelism:** sequential — no independent tasks: every task is risk 3 or carries an **Executor:** line, so each would run alone in its wave
 
 **Task check:** none — full suite every 3 tasks
 
@@ -20,9 +20,9 @@
 
 **CI:** `.github/workflows/ci.yml .github/workflows/fuzz.yml .github/workflows/harness.yml .github/workflows/release.yml .github/workflows/runner-probe.yml` — platforms: ubuntu-24.04, self-hosted — local: `make test-adr`; `make lint-sh test-release`; `make lint-go test-go vuln`; `make lint-web test-web`; `make build verify-build` — uncovered: none
 
-**Worktree setup:** `timeout 600 make web-deps`
+> **External executors:** agy
 
-**Wave check:** `mkdir -p /root/.cache/w10b-tmp/wave && export TMPDIR=/root/.cache/w10b-tmp/wave GOTOOLCHAIN=local && timeout 600 go build ./... && timeout 300 go vet ./... && timeout 300 go vet -tags harness ./test/... ./cmd/... && timeout 1500 go test -count=1 ./internal/... ./cmd/... ./release/... && timeout 1200 make lint-web test-web`
+**Plan review:** 2026-11-07 — dforge:judge-opus — executability 17 / coherence 18 / coverage 17 / assumptions 16 (round 2)
 
 ## Global Constraints
 
@@ -46,7 +46,7 @@
   - `go mod tidy -diff` (no output)
 
   A task that edits `test/harness/` also runs `go vet -tags harness ./test/...`, `golangci-lint run --allow-serial-runners --build-tags harness ./test/...` and `go test -tags harness -count=1 -run 'Unit' ./test/harness/...`. A task that edits `cmd/darkpanel/` also runs `go test -tags harness -count=1 ./cmd/darkpanel/` and `go vet -tags harness ./cmd/...`. A task that edits `web/` runs `make lint-web test-web`.
-- Generated files: a task that changes a wire type (an exported type in a module's `wire.go`, or a `jsonschema` tag or description on one) runs `make schemas` and `make api-docs`, and commits the regenerated `schemas/<module>.*` and `docs/api/**`. That includes `docs/api/openapi.json`. Such tasks never share a wave. Every other task leaves `schemas/**` and `docs/api/**` unchanged, so `TestAdAPIDocsCurrent` stays green.
+- Generated files: a task that changes a wire type (an exported type in a module's `wire.go`, or a `jsonschema` tag or description on one) runs `make schemas` and `make api-docs`, and commits the regenerated `schemas/<module>.*` and `docs/api/**`. That includes `docs/api/openapi.json`. Every other task leaves `schemas/**` and `docs/api/**` unchanged, so `TestAdAPIDocsCurrent` stays green.
 - TDD: write the test, run it and see the expected RED (a build failure naming the first undefined identifier, or a failed assertion), then implement and run GREEN. Quote the RED and GREEN output in the report verbatim, not as a paraphrase. A security fix's test reproduces the review's failure scenario and fails on `main` for the reason the finding gives. A task that skips a line of the full-suite constraint above says so and why in its report.
 - Frozen files (spec 1.12). No task edits them except where its **Files:** block names the file:
   - `internal/core/**`
@@ -58,15 +58,15 @@
   - `test/harness/pins.go`, `schemas/**` (regeneration under the Generated files rule excepted)
 
   New `*_test.go` files in a frozen package are allowed. Production code outside these paths changes only where a task's **Files:** block names it. A task that finds it needs an unlisted file stops and reports it; it does not edit the file.
-- File ownership: only Task 1 edits the spec; only Task 4 edits `docs/versioning.md`; only Task 25 edits `docs/security/threat-model.md`. No task edits `.github/workflows/**`, `Makefile`, `docs/runbook.md` or `CHANGELOG.md`. A task edits only the files of its own **Files:** block. Each task of a wave runs in its own worktree from the wave's base (`main` plus every merged earlier wave).
+- File ownership: only Task 1 edits the spec; only Task 4 edits `docs/versioning.md`; only Task 25 edits `docs/security/threat-model.md`. No task edits `.github/workflows/**`, `Makefile`, `docs/runbook.md` or `CHANGELOG.md`. A task edits only the files of its own **Files:** block. The plan runs in one worktree; run `timeout 600 make web-deps` in it once, before the first check that builds or tests `web/`.
 - Test isolation:
   - Files and databases go under `t.TempDir()`.
-  - The only TCP listeners are `httptest` on `127.0.0.1` port 0.
+  - The only TCP listeners are `httptest` servers and `net.Listen("tcp", "127.0.0.1:0")`, both on `127.0.0.1` port 0.
   - Tests write no package-level mutable state, except an existing test seam (a package variable such as `serveRun`, `newSystemd` or `daemonRun`) that a helper replaces and restores through `t.Cleanup`; such tests do not call `t.Parallel`.
   - Vitest tests stub `fetch` through `stubFetch` and never reach a network.
   - Harness tests derive VM names, work directories and address ranges from the test name (`NewLab`). Harness unit tests carry `Unit` in their name, so `-run 'Unit'` selects them.
 
-  Tasks of one wave therefore share no port, path or global state.
+  Tests therefore share no port, path or global state with each other or with the host.
 - Go identifiers: every new Go test function carries its task's prefix from Contracts "Test prefixes", and every new unexported helper in a test file carries the same prefix in lower case (`TestV1r08…`, `v1r08…`). Tasks that share a package therefore declare no identifier another task declares. Web test cases join the component's existing test file, or a new one named after the component.
 - Code style:
   - Match the surrounding code. Put a doc comment on every exported identifier.
@@ -77,7 +77,7 @@
 - Secrets: no log line, error, test failure message, document example or screenshot carries a real token, password, TOTP secret, passphrase, tunnel token or private key. Tests use obvious placeholders (`placeholder-secret`, `example.com`, `203.0.113.10`). A test that proves a secret does not leak asserts that the placeholder is absent from the output, the log buffer, the effect document or the error.
 - Commits use `<type>(<scope>): <subject>`, type one of feat|fix|docs|style|refactor|test|chore|perf, subject at most 50 characters, imperative, no trailing period, no attribution of any kind. English only.
 - The plan ends with the gates in `docs/dforge/gates.md`. Gate 7 (harness) applies to the branch once it is pushed, as well as on `main`, because Task 24 edits `test/harness/` and Tasks 8, 9, 12, 18 and 19 change a module's host behaviour. Dispatch `harness.yml` on the branch per the owner's standing authorization. No task creates or pushes a tag, runs `release.yml` or runs `make release-prep`.
-- Re-review (spec 9: "every critical and high finding is fixed and re-reviewed"). After the last wave and before the final whole-branch review, the controller runs the owner's two-reviewer panel again: `dforge:judge-fable`, and `codex exec -m gpt-6-astra -c model_reasoning_effort=high -s read-only`. Both get one shared brief: `docs/dforge/notes/v1-security-review-brief.md`, narrowed to security-review rows 1-7 and to the code their tasks changed. A row closes only when both reviewers find it closed. A finding the re-review raises is a new register row, and a critical or high one is fixed on the branch before the merge.
+- Re-review (spec 9: "every critical and high finding is fixed and re-reviewed"). After the last task and before the final whole-branch review, the controller runs the owner's two-reviewer panel again: `dforge:judge-fable`, and `codex exec -m gpt-6-astra -c model_reasoning_effort=high -s read-only`. Both get one shared brief: `docs/dforge/notes/v1-security-review-brief.md`, narrowed to security-review rows 1-7 and to the code their tasks changed. A row closes only when both reviewers find it closed. A finding the re-review raises is a new register row, and a critical or high one is fixed on the branch before the merge.
 
 ## Contracts
 
@@ -108,7 +108,7 @@
 | 21 | `internal/modules/firewall/guard` | `TestV1r21` |
 | 22 | `internal/controller/backup` | `TestV1r22` |
 | 23 | `internal/modules/npm` | `TestV1r23` |
-| 24 | `test/harness` and the package its root cause lies in | `TestV1r24…Unit…` in `test/harness` (the name contains `Unit`), `TestV1r24` elsewhere |
+| 24 | `test/harness` | `TestV1r24…Unit…` (the name contains `Unit`) |
 | 25 | `internal/docs` | `TestV1r25` |
 
 ### Keyed fingerprints
@@ -122,18 +122,20 @@ An effect document never holds a value that the change's plan, input or effect w
 - `label` is `npm.effect.fingerprint/v1` in the NPM module (Task 10) and `docker.effect.fingerprint/v1` in the Docker module (Task 14);
 - a value needed to restore the before-state goes into the effect's sealed secret (`EffectJournal`'s secret, `internal/core/lifecycle/effects.go`), never into the effect document.
 
-Each module keeps its own unexported helper. No shared package is added.
+No shared package is added. The NPM module keeps its helper unexported. The Docker module's helper is `dstate.LabelFingerprints` (Task 14), exported from `internal/modules/docker/dstate` because the `npm` and `panel` modules render their Docker effects through `dstate` too. Called with a nil key, it records each label key with the value `""`, which those two modules use for objects that carry only the fixed `darkpanel.module` label.
 
 ### NPM forward-host refusals
 
 Used by Tasks 8, 9, 1.
 
 - Task 8: outside the `npm.admin.expose` composite's parent, `CheckUpstream` refuses with `npm.reserved` every port of NPM's own container names, its addresses (`r.NPMAddrs`) and `darkpanel-npm`. Port 81 under that parent stays allowed.
-- Task 9: the agent resolves a forward host that is not an IP literal with the host's resolver (`net.Resolver.LookupNetIP`, network `ip`), at plan and again at apply. A test replaces the resolver through a seam on the NPM module's dependencies.
+- Task 9: the agent resolves a forward host that is not an IP literal at plan and again at apply.
+  - A name that a container on one of the user-defined networks of NPM's container answers to (its name, its ID or the ID's first 12 characters, or an alias or DNS name of its endpoint on that network) takes that container's endpoint addresses on those networks, read through the Engine API. The host's resolver is not asked for it.
+  - Every other name is resolved with the host's resolver (`net.Resolver.LookupNetIP`, network `ip`). A test replaces the resolver through a seam on the NPM module's dependencies.
   - Every answer runs the address branch of `CheckUpstream`. A reserved answer refuses with `npm.reserved`.
   - A name with no answer refuses with `request.invalid_input`, on field `forwardHost`.
   - The sorted answer set is stored in the plan. At apply, a set that differs from it refuses with `plan.state_changed`.
-  - `npm.proxyhost.add` and `npm.proxyhost.update` both apply this rule.
+  - `npm.proxyhost.add` and `npm.proxyhost.update` both apply this rule, and so do the inverses of `npm.proxyhost.update` and `npm.proxyhost.remove`, to every forward host they write back (the host's and each custom location's).
 
 ### Probe errors
 
@@ -151,9 +153,9 @@ A failed `docker compose config` or run returns, and journals, exactly `docker c
 
 Used by Tasks 17, 1.
 
-- The per-source lock is unchanged.
+- The per-source lock keeps its rule and its limits.
 - The per-username lock becomes a lock on the pair (username, source key). The source key is the client's IPv4 address, or the /64 that holds its IPv6 address.
-- Behind a runtime listener, the source key comes from the client address the listener parsed (`core.Proxied.Client`), never from the audit source text `<client> via <proxy>`. That text stays as it is in audit rows.
+- Behind a runtime listener, both locks take their source key from the client address the listener parsed (`core.Proxied.Client`), never from the audit source text `<client> via <proxy>`. That text stays as it is in audit rows.
 
 ### Composite read-step outputs
 
@@ -203,26 +205,27 @@ func InternetCells(rs *netfilter.Ruleset, v6 bool) []Cell
 - `completeComposite` skips read steps when it builds the composer's outputs (`internal/core/lifecycle/composite_run.go:977`). The spec says so too (spec line 621: "read steps are not among them"). Read-step outputs are sealed into their step rows, and `stepInput` opens them for references (`composite_run.go:603-622`). The DERP region step is `tailnet.policy.patch`, another module's action (`internal/modules/derp/composite_region.go:42-49`), so the warning cannot ride on that step's output.
 - `core.ProxyPath.Public` exists (`internal/core/guard.go:47`), and dispatch copies it (`internal/controller/dispatch/guard.go:55`). `RuntimeHandler` never sets it (`internal/controller/api/runtime.go:30`), and the guard's flow 3 reads it (`internal/modules/firewall/guard/flows.go:238-260`).
 - The guard's stand-ins are `198.51.100.1` and `2001:db8:ffff::1` (`internal/modules/firewall/guard/flows.go:28-31`), a deliberate v1-w1 choice (verifier, w1 plan lines 397-415). The owner chose to replace it.
+- A forward host can be a container name that only Docker's DNS knows. The `npm.expose.container` composite forwards to `${input.container}` (`internal/modules/npm/composite_deploy_expose.go:159`). The composite's own plan dry-runs every step whose input references no earlier step's output, and defers a step that does (`internal/core/lifecycle/composite.go:99-118`); a deferred step is planned when it runs, after the steps it waits for (`internal/core/lifecycle/composite_run.go:546-565`). The `proxy` step is deferred only because its input references `${steps.cert.output.id}`, and it waits for the `network` step that attaches NPM to the container's network (`composite_deploy_expose.go:180-183`). The other two composites that plan `npm.proxyhost.add`, `npm.admin.expose` and `panel.exposure.add`, also reference the certificate step and forward to an address literal (`internal/modules/npm/composite_admin.go:77`, `internal/modules/panel/expose_add.go:146`). A composite step that forwards to a container name without referencing an earlier step would be planned before NPM joins the network, and refused. Docker's documentation (https://docs.docker.com/engine/network/, read 2026-11-07) says: containers on a user-defined network reach each other by name through the embedded DNS server at `127.0.0.11`; the default `bridge` network has no name resolution; and "the embedded DNS server forwards external DNS lookups to the DNS servers configured on the host". That the embedded server also answers network aliases is unverified; Task 9 treats an alias as a name the container answers to, which errs towards checking more.
 - Existing records: 0.x does not upgrade to 1.0 (spec 12 item 4), so no task migrates plaintext labels or configurations already stored in a 0.x database.
 
 **Plan rulings** (Task 1 copies them into the spec):
 
 - **W10b-R1 review result.** The R73 review ran on 2026-11-06. Its 23 findings are in `docs/dforge/registers/2026-11-06-v1-security-review.md`: 7 high, 8 medium, 8 low, none critical. Every high and medium finding is fixed in `w10b`. The owner accepted four low findings: NPM's ports inside its container, the `openpgp` advisory, the absent Origin header, and the global enrollment budget. The four other low findings are inaccurate threat-model claims, which are corrected. The two reviewers re-review the high findings before `w10b` merges.
 - **W10b-R2 NPM self-targets.** Outside the `npm.admin.expose` composite, a proxy host may not forward to any port of NPM's own container names or addresses. NPM's backend API listens on 3000 on every interface of its container.
-- **W10b-R3 forward hosts.** A forward host that is a DNS name is resolved on the agent's host at plan and again at apply. Each answer is checked as an address. No answer is invalid input, and answers that changed between plan and apply are `plan.state_changed`. A name that is re-pointed after apply is a residual risk, which the threat model records.
+- **W10b-R3 forward hosts.** A forward host that is a DNS name is resolved at plan and again at apply. A name that a container on one of NPM's user-defined networks answers to resolves to that container's addresses there, as Docker's embedded DNS answers it inside NPM's container. Any other name is resolved with the agent host's resolver. Each answer is checked as an address. No answer is invalid input, and answers that changed between plan and apply are `plan.state_changed`. The undo of a proxy host's update or removal checks every forward host it writes back the same way. A name that is re-pointed after apply, and a name that NPM's nginx resolves differently from the agent's host, are residual risks, which the threat model records.
 - **W10b-R4 container inspection.** Every element of a container's `Cmd` is masked. An element of `Entrypoint` keeps its existing rule.
 - **W10b-R5 effect documents.** An effect document holds a value it only compares as a keyed fingerprint (`hmac-sha256:` over a key derived from the role key). A value it restores lives in the effect's sealed secret. This covers NPM proxy-host configurations, custom locations included, and Docker network and volume labels.
 - **W10b-R6 Docker labels.** Network and volume label values are secret inputs. A plan diff shows a label's key and whether it is added, changed or removed, never its value.
 - **W10b-R7 NPM update.** `npm.proxyhost.update` keeps the advanced configuration the operator wrote in NPM, unless its input sets one.
 - **W10b-R8 NPM answers.** The NPM API client keeps only the status and an allowlisted error code of an NPM answer. NPM's message text never reaches an error, its cause, a log line or a change record.
-- **W10b-R9 NPM bootstrap.** When the first-admin creation finds an admin it did not create, the deploy stops and removes the container and the data volumes this deploy created before it fails.
+- **W10b-R9 NPM bootstrap.** When the first-admin creation finds an admin it did not create, the deploy stops and removes the container, the data volumes and the network this deploy created before it fails. The failed change's effects stay recorded as made, so an undo of it finds the objects gone and ends in `needs_repair`. The user guide says not to undo it, and how to settle it with `darkpanel change resolve` if it was undone.
 - **W10b-R10 DERP files.** The agent reads DERP certificate and key files through the platform's descriptor-based reads: no symlink anywhere on the path, a regular file only, at most 1 MiB.
 - **W10b-R11 DERP probe.** `derp.node.probe` needs `operate`. It refuses RFC 1918, CGNAT (`100.64.0.0/10`) and ULA (`fc00::/7`) targets, both as literals and among resolved answers, after unmapping IPv4-mapped IPv6 addresses. A failed probe reports one value of a fixed vocabulary: `timeout`, `connection_refused`, `unreachable`, `tls_handshake_failed`, `certificate_not_trusted`, `pin_mismatch`, `bad_answer`, `no_stun_answer` or `failed`.
 - **W10b-R12 lockout guard and logins.**
   - The panel exposure's public bindings come from the exposure's own record, and a request through an NPM exposure without them fails closed.
   - "Any internet address" is evaluated once per cell of the public unicast space that the ruleset's prefixes cut, and holds only when every cell passes.
   - The per-username login lock is keyed by username and source (IPv4 address, IPv6 /64). Behind an exposure, the source is the client address the listener parsed.
-- **W10b-R13 changelog.** `CHANGELOG.md` is written by `make release-prep` from the conventional commits when the owner cuts `v1.0.0-rc.1` (`release/README.md`, "Cutting a release"; owner checklist item 3). No plan hand-writes it.
+- **W10b-R13 changelog.** `CHANGELOG.md` is written by `make release-prep` from the conventional commits when the owner cuts `v1.0.0-rc.1` (`release/README.md`, "Cutting a release"; owner checklist item 3). No plan hand-writes it. This replaces the clause of W10-R1 that has wave 10b write `CHANGELOG.md`.
 - **W10b-R14 Compose diagnostics.** A failed Compose config or run reports its exit status and the command to run on the host, never Compose's stderr.
 
 ## Task index
@@ -268,8 +271,8 @@ func InternetCells(rs *netfilter.Ruleset, v6 bool) []Cell
 - Consumes: Contracts "Composite read-step outputs" (the first sentence is the new meaning of the `Composer` comment) and the ruling W10b-R13 (the new text of the "Release candidate" bullet). The wave 10b rulings W10b-R1 to W10b-R14 are the bullets of the plan's Assumptions under "Plan rulings"; this task copies them word for word, and the text to insert is given in full in Step 3.
 - Produces: the spec text the later tasks and reviews cite as W10b-R1 to W10b-R14. No code, no name.
 
-**Depends on:** none
 **Implementer:** dforge:impl-sonnet-low
+**Executor:** agy gemini-3.8-flash / medium
 **Evaluation:** files 0 - spec 1 - coupling 0 - risk 0 = 1
 
 This task has no Go or web test. The spec is not read by any test of the repository, so Step 1 is a check script that fails on the current tree and passes once the four edits are made. Run the commands with `mkdir -p /root/.cache/w10b-tmp/1 && export TMPDIR=/root/.cache/w10b-tmp/1 GOTOOLCHAIN=local`.
@@ -385,12 +388,7 @@ Edit `docs/dforge/specs/2026-10-21-v1-completion-design.md` in these four places
        a proxy host may not forward to any port of NPM's own container names or
        addresses. NPM's backend API listens on 3000 on every interface of its
        container.
-     - **W10b-R3 forward hosts.** A forward host that is a DNS name is resolved
-       on the agent's host at plan and again at apply. Each answer is checked
-       as an address. No answer is invalid input, and answers that changed
-       between plan and apply are `plan.state_changed`. A name that is
-       re-pointed after apply is a residual risk, which the threat model
-       records.
+     - **W10b-R3 forward hosts.** A forward host that is a DNS name is resolved at plan and again at apply. A name that a container on one of NPM's user-defined networks answers to resolves to that container's addresses there, as Docker's embedded DNS answers it inside NPM's container. Any other name is resolved with the agent host's resolver. Each answer is checked as an address. No answer is invalid input, and answers that changed between plan and apply are `plan.state_changed`. The undo of a proxy host's update or removal checks every forward host it writes back the same way. A name that is re-pointed after apply, and a name that NPM's nginx resolves differently from the agent's host, are residual risks, which the threat model records.
      - **W10b-R4 container inspection.** Every element of a container's `Cmd`
        is masked. An element of `Entrypoint` keeps its existing rule.
      - **W10b-R5 effect documents.** An effect document holds a value it only
@@ -406,9 +404,7 @@ Edit `docs/dforge/specs/2026-10-21-v1-completion-design.md` in these four places
      - **W10b-R8 NPM answers.** The NPM API client keeps only the status and an
        allowlisted error code of an NPM answer. NPM's message text never
        reaches an error, its cause, a log line or a change record.
-     - **W10b-R9 NPM bootstrap.** When the first-admin creation finds an admin
-       it did not create, the deploy stops and removes the container and the
-       data volumes this deploy created before it fails.
+     - **W10b-R9 NPM bootstrap.** When the first-admin creation finds an admin it did not create, the deploy stops and removes the container, the data volumes and the network this deploy created before it fails. The failed change's effects stay recorded as made, so an undo of it finds the objects gone and ends in `needs_repair`. The user guide says not to undo it, and how to settle it with `darkpanel change resolve` if it was undone.
      - **W10b-R10 DERP files.** The agent reads DERP certificate and key files
        through the platform's descriptor-based reads: no symlink anywhere on
        the path, a regular file only, at most 1 MiB.
@@ -429,10 +425,7 @@ Edit `docs/dforge/specs/2026-10-21-v1-completion-design.md` in these four places
        - The per-username login lock is keyed by username and source (IPv4
          address, IPv6 /64). Behind an exposure, the source is the client
          address the listener parsed.
-     - **W10b-R13 changelog.** `CHANGELOG.md` is written by `make release-prep`
-       from the conventional commits when the owner cuts `v1.0.0-rc.1`
-       (`release/README.md`, "Cutting a release"; owner checklist item 3). No
-       plan hand-writes it.
+     - **W10b-R13 changelog.** `CHANGELOG.md` is written by `make release-prep` from the conventional commits when the owner cuts `v1.0.0-rc.1` (`release/README.md`, "Cutting a release"; owner checklist item 3). No plan hand-writes it. This replaces the clause of W10-R1 that has wave 10b write `CHANGELOG.md`.
      - **W10b-R14 Compose diagnostics.** A failed Compose config or run reports
        its exit status and the command to run on the host, never Compose's
        stderr.
@@ -477,8 +470,8 @@ git commit -m "docs(spec): record the wave 10b plan rulings"
 
 **Items:** 2026-10-21-v1-completion#436
 
-**Depends on:** none
 **Implementer:** dforge:impl-sonnet-medium
+**Executor:** agy gemini-4-argon / low
 **Evaluation:** files 1 - spec 2 - coupling 0 - risk 1 = 4
 
 Both fixes are to the tests' timing. The production code is right in both cases, so no production file changes. Run the commands with `mkdir -p /root/.cache/w10b-tmp/2 && export TMPDIR=/root/.cache/w10b-tmp/2 GOTOOLCHAIN=local`.
@@ -762,8 +755,8 @@ git commit -m "test(api): end the stream after the first frame"
 
 **Items:** 2026-10-21-v1-completion#435
 
-**Depends on:** none
 **Implementer:** dforge:impl-sonnet-high
+**Executor:** agy gemini-4-argon / high
 **Evaluation:** files 2 - spec 2 - coupling 0 - risk 1 = 5
 
 Row 435 lists five hazards. This task fixes the NPM list tabs and the `ExposeLoader` one; the cloud repository file, `nm.run`, the backup `chmod` and the path-test limitation belong to other tasks or are deferred by the owner.
@@ -921,8 +914,8 @@ git commit -m "fix(web): keep NPM data when a refetch fails"
 - Consumes: `update.Steps` and `update.Release` (`internal/update/version.go`), `core.ChannelBeta`, and the helpers of the `internal/docs` tests: `dcRead`, `dcMissing`, `dcLinks`, `duFenceRE`, `duHeadingRE`, `duCodeRE`, `duHTMLRE`, `duPlanRE` (`helpers_test.go`, `user_test.go`).
 - Produces: the section "Upgrade from 0.x" of `docs/versioning.md`. The tests `TestV1r04VersioningStatesTheReinstallBoundary` and `TestV1r04VersioningFollowsTheDocumentationStyle` keep it in place. No other task links to it.
 
-**Depends on:** none
 **Implementer:** dforge:impl-sonnet-low
+**Executor:** agy gemini-3.8-flash / medium
 **Evaluation:** files 1 - spec 1 - coupling 0 - risk 0 = 2
 
 Spec section 12, item 4: 0.x does not upgrade to 1.0, so moving to a 1.0 release is a reinstall. The updater already refuses it: `update.Steps` answers an update between major versions with `updates from <current> to <target> cross a major version, which is not supported`. The page's existing style tests (`TestDuStyle`, `TestWcDocsLinks`) cover `docs/user`, `docs/dev` and `docs/api` only, not `docs/versioning.md`, so the second test below holds this page to the same style. This task does not write `CHANGELOG.md` and does not edit the `Makefile`: `make release-prep` writes the changelog when the owner cuts the tag. Run the commands with `mkdir -p /root/.cache/w10b-tmp/4 && export TMPDIR=/root/.cache/w10b-tmp/4 GOTOOLCHAIN=local`.
@@ -1138,7 +1131,6 @@ git commit -m "docs(versioning): state the 0.x reinstall boundary"
 
 **Items:** 2026-11-06-v1-security-review#12
 
-**Depends on:** none
 **Implementer:** dforge:impl-opus-high
 **Evaluation:** files 1 - spec 2 - coupling 0 - risk 3 = 6
 **Lenses:** security
@@ -1326,8 +1318,8 @@ git commit -m "fix(docker): report Compose failures by status"
 
 **Items:** 2026-10-21-v1-completion#435
 
-**Depends on:** none
 **Implementer:** dforge:impl-sonnet-high
+**Executor:** agy gemini-4-argon / high
 **Evaluation:** files 1 - spec 2 - coupling 0 - risk 2 = 5
 
 The hazard (`docs/dforge/notes/v1-w10a-known-fixes-minors.md`, "Hazards discovered during execution", Task 10): the pin's forward steps already roll back on a detached context (`txFail`, `package_pin.go`), but `Task` still rolls back on the forward `ctx` when `h.t.ensureRepo` fails, and when journaling the pin's effect fails. If the forward context has ended (the 20-minute apply budget ran out, or the agent is stopping) while the repository files are written, `h.rollback` writes `rolled_back` into the pin row with a dead context, fails, and `env.Effects.Skipped` is never reached. The pin row stays in phase `recorded` and its effect stays intended. The branch that journals the effect has the same defect and is fixed with it.
@@ -1453,8 +1445,8 @@ git commit -m "fix(tailscale): detach early pin rollbacks"
 
 **Items:** 2026-10-21-v1-completion#303
 
-**Depends on:** none
 **Implementer:** dforge:impl-opus-high
+**Executor:** agy gemini-4-argon / high
 **Evaluation:** files 1 - spec 2 - coupling 2 - risk 2 = 7
 
 `derp.region.remove` and `derp.server.remove` compute their policy edits in a read step, `edits`, whose result carries the warning that the visibility grant of the removed server stays in the policy. `completeComposite` skips read steps when it builds the composer's outputs, so `Output` never sees the warning and the operator never learns that a grant stays. The region step cannot carry it, because it is another module's action, `tailnet.policy.patch`, whose output is only an ETag. The fix passes read-step outputs to every composer, then has the two DERP composers copy the edits step's `warnings` into their output. Wire types change, so the task regenerates `schemas/` and `docs/api/` (Global Constraints, "Generated files").
@@ -1632,7 +1624,6 @@ git commit -m "feat(derp): carry edits warnings in outputs"
 
 **Items:** 2026-11-06-v1-security-review#1, 2026-10-21-v1-completion#330
 
-**Depends on:** none
 **Implementer:** dforge:impl-sonnet-high
 **Evaluation:** files 0 - spec 2 - coupling 0 - risk 3 = 5
 **Lenses:** security
@@ -1783,7 +1774,8 @@ git commit -m "fix(npm): reserve every port of NPM's own names"
 - Modify: `internal/modules/npm/proxy/upstream.go` (add `LiteralAddr` and `CheckResolved` after `CheckUpstream`; adjust the doc comment of `CheckUpstream`)
 - Modify: `internal/modules/npm/deps.go` (`deps` struct, `productionNM`, new `resolveVia` and `absentResolve`)
 - Modify: `internal/modules/npm/proxyhost_add.go` (`checkUpstream`, lines 255-298, is split; `proxyhostAddFound` and `check`, lines 308-390, store the answers; the constants at line 37 and the validators at lines 87-101 are read only)
-- Modify: `internal/modules/npm/proxyhost_edit.go` (`proxyHostUpdateHandler.check`, `Plan`, `Apply`)
+- Modify: `internal/modules/npm/proxyhost_edit.go` (`proxyHostUpdateHandler.check`, `Plan`, `Apply` and `Inverse`; `proxyHostRemoveHandler.Inverse` and its doc comment)
+- Read only: `internal/modules/npm/composite_deploy_expose.go` (the expose composite forwards to the container's name, line 159), `internal/modules/npm/network_claims_test.go` (`nwSetup`, how a test puts a container on a network)
 - Test: `internal/modules/npm/proxy/upstream_test.go` (new tests)
 - Test: `internal/modules/npm/proxyhost_resolve_test.go` (create)
 - Test: `internal/modules/npm/testhost_test.go` (`thHost.nm`: a default fake resolver)
@@ -1795,18 +1787,19 @@ git commit -m "fix(npm): reserve every port of NPM's own names"
   - `proxy.CheckResolved(r Reserved, host string, answers []netip.Addr, port int, parent string) error`: runs `CheckUpstream` on each answer's text. A refusal is `npm.reserved` whose detail is `forward host <host> resolves to <answer>: ` followed by `CheckUpstream`'s detail.
   - `deps.resolve func(ctx context.Context, host string) ([]netip.Addr, error)`: the resolver seam. Production sets it with `resolveVia(net.DefaultResolver)`. A test binary gets `absentResolve`. Tests replace it with a fake.
   - `(nm).reservedSet(ctx, env) (proxy.Reserved, error)`: the first half of today's `checkUpstream`, which reads NPM's container and the panel network.
-  - `(nm).checkUpstream(ctx, env, in) error`: unchanged behaviour (names and literals only, no resolution). `npm.proxyhost.remove`'s inverse keeps calling it.
-  - `(nm).checkForward(ctx, env, in ProxyHostInput) ([]string, error)`: `checkUpstream`'s check, then the resolution. It returns the sorted answer set as text, `[]string{}` for a literal host. `npm.proxyhost.add` and `npm.proxyhost.update` call it.
+  - `(nm).dockerAnswers(ctx, host string) ([]netip.Addr, bool, error)`: the addresses Docker's embedded DNS gives `host` on the user-defined networks of NPM's container, and whether any container there answers to it.
+  - `(nm).checkForward(ctx, env, in ProxyHostInput) ([]string, error)`: today's `checkUpstream` check, then the resolution. It returns the sorted answer set as text, `[]string{}` for a literal host. `npm.proxyhost.add`, `npm.proxyhost.update` and the inverses of `npm.proxyhost.update` and `npm.proxyhost.remove` call it. `checkUpstream` has no caller left and is deleted.
   - `proxyhostAddFound.Resolved []string` (`json:"resolved"`), which the plan's state hash covers.
 
 **Items:** 2026-11-06-v1-security-review#2, 2026-10-21-v1-completion#326
 
-**Depends on:** Task 8
 **Implementer:** dforge:impl-opus-high
 **Evaluation:** files 2 - spec 2 - coupling 1 - risk 3 = 8
 **Lenses:** security
 
-The finding: a forward host that is a DNS name is checked as a name only, so a name the caller controls and that resolves to `127.0.0.1`, to NPM's address or to the panel gateway passes with port 81 (and, after Task 8, with any port) and publishes NPM's admin UI or the panel. The fix resolves the name on the agent's host at plan and again at apply and runs every answer through the address branch. The sorted answer set is part of the plan's state hash. At apply the engine plans again and compares that hash (`checkReplan`, `internal/core/lifecycle/apply.go`), so an answer set that changed makes the engine refuse with `plan.state_changed`. This task writes no code for that code. Its test pins the hash, and the handler's own check at apply refuses a reserved answer.
+The finding: a forward host that is a DNS name is checked as a name only, so a name the caller controls and that resolves to `127.0.0.1`, to NPM's address or to the panel gateway passes with port 81 (and, after Task 8, with any port) and publishes NPM's admin UI or the panel. The fix resolves the name on the agent's host at plan and again at apply and runs every answer through the address branch. The sorted answer set is part of the plan's state hash. At apply the engine plans again and compares that hash (`checkReplan`, `internal/core/lifecycle/apply.go`), so an answer set that changed makes the engine refuse with `plan.state_changed`. This task writes no code for that comparison. Its test pins the hash, and the handler's own check at apply refuses a reserved answer.
+
+A name is not always one the host's resolver knows. The `npm.expose.container` composite forwards to the container's name (`internal/modules/npm/composite_deploy_expose.go:159`), and nginx in NPM's container resolves it through Docker's embedded DNS, which the host cannot ask. So a name that a container on one of NPM's user-defined networks answers to takes its answers from the Engine API, and only other names go to the host's resolver. The composite plans its `proxy` step only after its `network` step has attached NPM to the container's network, so the container is found. The undo of an update or a removal writes a forward host back to NPM, so it runs the same check: otherwise a caller could remove a host, re-point its name at the loopback and undo the removal.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1908,6 +1901,7 @@ import (
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
 )
 
 // v1r09Resolver answers every name with answers.
@@ -2142,6 +2136,202 @@ func TestV1r09UpdateResolvesForwardHosts(t *testing.T) {
 	})
 }
 
+// v1r09Container puts a running container on NPM's network with the address and the aliases.
+func v1r09Container(h *thHost, name, addr string, aliases ...string) {
+	h.docker.putContainer(thContainer(name, thRunning, thEndpoint(networkName, addr), func(c *dockerapi.ContainerJSON) {
+		c.NetworkSettings.Networks[networkName].Aliases = aliases
+	}))
+}
+
+// v1r09NoLookup fails the test when the host's resolver is asked.
+func v1r09NoLookup(t *testing.T) func(context.Context, string) ([]netip.Addr, error) {
+	return func(_ context.Context, host string) ([]netip.Addr, error) {
+		t.Errorf("resolved %q with the host's resolver, though Docker answers it on NPM's network", host)
+		return nil, errors.New("unexpected lookup")
+	}
+}
+
+func TestV1r09DockerAnswersNamesOnNPMNetworks(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name, host string
+		port       int
+		refuse     bool
+	}{
+		{"a container name", "shop", 8080, false},
+		{"a container name in capitals with a trailing dot", "SHOP.", 8080, false},
+		{"a network alias", "shop-alias", 8080, false},
+		{"a container whose address is in the panel network", "panelweb", 9443, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, n := paHost(t)
+			v1r09Container(h, "shop", "172.18.0.5", "shop-alias")
+			v1r09Container(h, "panelweb", "172.31.255.2")
+			n.d.resolve = v1r09NoLookup(t)
+			in := paInput("x.example.com")
+			in.ForwardHost, in.ForwardPort = tc.host, tc.port
+
+			_, planErr := n.proxyhostAdd().Handler.Plan(ctx, h.env(""), paJSON(t, in))
+			_, applyErr := paApply(t, h, n, "c1", "", in)
+			if tc.refuse {
+				_ = paRefused(t, planErr, errcode.NPMReserved)
+				_ = paRefused(t, applyErr, errcode.NPMReserved)
+				if len(h.npm.ProxyHosts()) != 0 {
+					t.Error("a refused apply created a proxy host")
+				}
+				return
+			}
+			if planErr != nil || applyErr != nil {
+				t.Fatalf("plan error %v, apply error %v; want both to pass", planErr, applyErr)
+			}
+		})
+	}
+
+	t.Run("the plan hash covers the container's address", func(t *testing.T) {
+		h, n := paHost(t)
+		n.d.resolve = v1r09NoLookup(t)
+		in := paInput("x.example.com")
+		in.ForwardHost = "shop"
+		hash := func(addr string) string {
+			v1r09Container(h, "shop", addr)
+			out, err := n.proxyhostAdd().Handler.Plan(ctx, h.env(""), paJSON(t, in))
+			if err != nil {
+				t.Fatal(err)
+			}
+			return out.StateHash
+		}
+		if first, moved := hash("172.18.0.5"), hash("172.18.0.6"); first == moved {
+			t.Error("a container that moved to another address left the plan hash unchanged")
+		}
+	})
+
+	t.Run("the short ID and a DNS name of the endpoint", func(t *testing.T) {
+		h, n := paHost(t)
+		shop := thContainer("shop", thRunning, thEndpoint(networkName, "172.18.0.5"), func(c *dockerapi.ContainerJSON) {
+			c.NetworkSettings.Networks[networkName].DNSNames = []string{"shop", "shop-dns"}
+		})
+		h.docker.putContainer(shop)
+		n.d.resolve = v1r09NoLookup(t)
+		for _, host := range []string{shop.ID[:12], "shop-dns"} {
+			in := paInput("x.example.com")
+			in.ForwardHost = host
+			if _, err := n.proxyhostAdd().Handler.Plan(ctx, h.env(""), paJSON(t, in)); err != nil {
+				t.Errorf("plan with forward host %q: %v", host, err)
+			}
+		}
+	})
+
+	t.Run("a container on the default bridge goes to the host's resolver", func(t *testing.T) {
+		h, n := paHost(t)
+		h.docker.putNetwork(thNetwork("bridge"))
+		npmC, ok := h.docker.container(containerName)
+		if !ok {
+			t.Fatal("paHost left no NPM container")
+		}
+		npmC.NetworkSettings.Networks["bridge"] = &dockerapi.EndpointSettings{IPAddress: netip.MustParseAddr("172.17.0.2")}
+		h.docker.putContainer(npmC)
+		h.docker.putContainer(thContainer("bridged", thRunning, thEndpoint("bridge", "172.17.0.9")))
+		asked := ""
+		n.d.resolve = func(_ context.Context, host string) ([]netip.Addr, error) {
+			asked = host
+			return []netip.Addr{netip.MustParseAddr("203.0.113.7")}, nil
+		}
+		in := paInput("x.example.com")
+		in.ForwardHost = "bridged"
+		if _, err := n.proxyhostAdd().Handler.Plan(ctx, h.env(""), paJSON(t, in)); err != nil {
+			t.Fatal(err)
+		}
+		if asked != "bridged" {
+			t.Errorf("the host's resolver was asked %q, want bridged: Docker's DNS does not serve the default bridge", asked)
+		}
+	})
+
+	t.Run("a container off NPM's networks goes to the host's resolver", func(t *testing.T) {
+		h, n := paHost(t)
+		h.docker.putContainer(thContainer("lonely", thRunning, thEndpoint("elsewhere", "10.9.0.5")))
+		asked := ""
+		n.d.resolve = func(_ context.Context, host string) ([]netip.Addr, error) {
+			asked = host
+			return []netip.Addr{netip.MustParseAddr("203.0.113.7")}, nil
+		}
+		in := paInput("x.example.com")
+		in.ForwardHost = "lonely"
+		if _, err := n.proxyhostAdd().Handler.Plan(ctx, h.env(""), paJSON(t, in)); err != nil {
+			t.Fatal(err)
+		}
+		if asked != "lonely" {
+			t.Errorf("the host's resolver was asked %q, want lonely", asked)
+		}
+	})
+}
+
+func TestV1r09UndoesCheckTheForwardHostTheyRestore(t *testing.T) {
+	ctx := context.Background()
+	const name = "web.example.net"
+	for _, tc := range []struct {
+		label   string
+		resolve func(context.Context, string) ([]netip.Addr, error)
+		code    errcode.Code // "" when the undo goes through
+	}{
+		{"a public answer", v1r09Resolver("203.0.113.7"), ""},
+		{"a name re-pointed at the loopback", v1r09Resolver("127.0.0.1"), errcode.NPMReserved},
+		{"a name with no answer", func(context.Context, string) ([]netip.Addr, error) {
+			return nil, errors.New("no such host")
+		}, errcode.InvalidInput},
+	} {
+		t.Run("remove: "+tc.label, func(t *testing.T) {
+			h, host := puSeed(t, puInput(func(in *ProxyHostInput) { in.ForwardHost = name }))
+			h.addChange("c1", "npm.proxyhost.remove")
+			n := h.nm()
+			if _, err := n.proxyhostRemove().Handler.Apply(ctx, h.env("c1"), puJSON(t, ProxyHostRemoveInput{ID: host.ID})); err != nil {
+				t.Fatal(err)
+			}
+			e := puEffects(t, h)[0]
+			e.UndoTo = &core.StateDoc{State: e.Before.State}
+			n.d.resolve = tc.resolve
+
+			_, err := n.proxyhostRemove().Handler.Inverse(ctx, h.env("c1"), e)
+			hosts := puHosts(t, h)
+			if tc.code == "" {
+				if err != nil || len(hosts) != 1 || hosts[0].ForwardHost != name {
+					t.Fatalf("inverse error %v, NPM holds %+v; want the host back with forward host %s", err, hosts, name)
+				}
+				return
+			}
+			puCoded(t, err, tc.code)
+			if !core.IsDefinite(err) || len(hosts) != 0 {
+				t.Errorf("error %v (definite %v), hosts %+v; want a definite refusal that created nothing", err, core.IsDefinite(err), hosts)
+			}
+		})
+		t.Run("update: "+tc.label, func(t *testing.T) {
+			h, host := puSeed(t, puInput(func(in *ProxyHostInput) { in.ForwardHost = name }))
+			h.addChange("c1", "npm.proxyhost.update")
+			n := h.nm()
+			next := puInput(func(in *ProxyHostInput) { in.ForwardHost = "other" })
+			raw := puJSON(t, ProxyHostUpdateInput{ID: host.ID, ProxyHostInput: next})
+			if _, err := n.proxyhostUpdate().Handler.Apply(ctx, h.env("c1"), raw); err != nil {
+				t.Fatal(err)
+			}
+			e := puEffects(t, h)[0]
+			e.UndoTo = &core.StateDoc{State: e.Before.State}
+			n.d.resolve = tc.resolve
+
+			_, err := n.proxyhostUpdate().Handler.Inverse(ctx, h.env("c1"), e)
+			hosts := puHosts(t, h)
+			if tc.code == "" {
+				if err != nil || len(hosts) != 1 || hosts[0].ForwardHost != name {
+					t.Fatalf("inverse error %v, NPM holds %+v; want the host back at forward host %s", err, hosts, name)
+				}
+				return
+			}
+			puCoded(t, err, tc.code)
+			if !core.IsDefinite(err) || len(hosts) != 1 || hosts[0].ForwardHost != "other" {
+				t.Errorf("error %v (definite %v), hosts %+v; want a definite refusal that left forward host other", err, core.IsDefinite(err), hosts)
+			}
+		})
+	}
+}
+
 func TestV1r09ProductionResolverIsAbsentInATestBinary(t *testing.T) {
 	got := reflect.ValueOf(productionNM().d.resolve)
 	if !got.IsValid() || got.IsNil() {
@@ -2177,19 +2367,27 @@ Expected: FAIL at build. The first names `undefined: CheckResolved` and `undefin
    - `absentResolve(ctx, host)` is a top-level function that returns `nil` and an error whose text starts `npm:` and says no resolver is available in a test binary. It never touches the network.
    - `productionNM`: next to the existing `testing.Testing()` branch that picks `absentSocket` and `absentURL`, choose `resolveVia(net.DefaultResolver)` normally and `absentResolve` when `testing.Testing()`. Set `resolve:` in the `deps` literal. Explain in a comment that a test binary must never reach the host's DNS.
 3. `internal/modules/npm/proxyhost_add.go`:
-   - Split today's `checkUpstream`. `reservedSet(ctx, env)` holds everything before the `proxy.CheckUpstream` call: `n.d.panel`, the container inspection, the clones and the collected addresses and names; it returns the `proxy.Reserved` and the same errors as before (a missing container is not an error; any other Engine error goes through `engineCoded`). `checkUpstream` becomes: `reservedSet`, then `proxy.CheckUpstream` with `env.Call.ParentAction`, a refusal wrapped by `core.Definite`. Its behaviour and doc comment stay.
+   - Split today's `checkUpstream`. `reservedSet(ctx, env)` holds everything before the `proxy.CheckUpstream` call: `n.d.panel`, the container inspection, the clones and the collected addresses and names; it returns the `proxy.Reserved` and the same errors as before (a missing container is not an error; any other Engine error goes through `engineCoded`). `checkUpstream` itself is deleted once `checkForward` replaces it at its three call sites.
+   - Add `dockerAnswers(ctx, host)`:
+     1. Inspect NPM's container (`containerName`). A missing container gives no answer: `nil, false, nil`.
+     2. For each network the container's `NetworkSettings.Networks` names, except `bridge`, `host` and `none` (Docker's embedded DNS serves only user-defined networks), call `InspectNetwork`, then `InspectContainer` on every member of its `Containers` other than NPM's own container. A member that is gone by then (`dockerapi.IsNotFound`) is skipped. Any other Engine error goes through `engineCoded` and is returned.
+     3. A member answers to `host` when `host`, with one trailing dot removed, equals, ignoring case, the member's name without its leading `/`, its ID, the first 12 characters of its ID, or one of the `Aliases` or `DNSNames` of its endpoint on that network.
+     4. The answers are the valid `IPAddress` and `GlobalIPv6Address` of that endpoint. A member whose endpoint has neither does not answer: Docker's DNS holds no record for it and forwards the query to the host's servers. Return the answers of every network, and `true` when there is at least one.
    - Add `checkForward(ctx, env, in)`:
      1. `r` from `reservedSet`, then `proxy.CheckUpstream` as `checkUpstream` does (Definite on refusal), so a loopback name, an NPM name or a literal is refused exactly as before.
      2. When `proxy.LiteralAddr(in.ForwardHost)` is true, return `[]string{}` and no error. No lookup happens.
-     3. Otherwise call `n.d.resolve` under a context with a 5 second timeout (a named constant with a comment). If the outer `ctx` has ended (`ctx.Err() != nil`), return `ctx.Err()` unchanged and not Definite. Any other error, or an empty answer, is `proxyhostAddInvalid` with one `errcode.FieldError{Path: "/forwardHost", Message: ...}` saying the name does not resolve to an address on this host. The message names the host but not the resolver's error text. It is Definite, as `proxyhostAddInvalid` already makes it.
-     4. Normalise every answer with `Unmap()` and `WithZone("")`, sort with `netip.Addr.Compare`, remove duplicates with `slices.Compact`.
-     5. `proxy.CheckResolved(r, in.ForwardHost, answers, in.ForwardPort, env.Call.ParentAction)`; a refusal is Definite.
-     6. Return the answers as `[]string` (`Addr.String()`), never nil.
+     3. Call `dockerAnswers`. When a container answered, its answers are the answer set and the host's resolver is not asked: Docker's DNS answers such a name itself, and nginx in NPM's container resolves through it. An Engine error is returned as it is, not Definite.
+     4. When no container answered, call `n.d.resolve` under a context with a 5 second timeout (a named constant with a comment). If the outer `ctx` has ended (`ctx.Err() != nil`), return `ctx.Err()` unchanged and not Definite.
+     5. A resolver error, or an empty answer set from the resolver, is `proxyhostAddInvalid` with one `errcode.FieldError{Path: "/forwardHost", Message: ...}` saying the name does not resolve to an address on this host. The message names the host but not the resolver's error text. It is Definite, as `proxyhostAddInvalid` already makes it.
+     6. Normalise every answer with `Unmap()` and `WithZone("")`, sort with `netip.Addr.Compare`, remove duplicates with `slices.Compact`.
+     7. `proxy.CheckResolved(r, in.ForwardHost, answers, in.ForwardPort, env.Call.ParentAction)`; a refusal is Definite.
+     8. Return the answers as `[]string` (`Addr.String()`), never nil.
    - `proxyhostAddFound` gains `Resolved []string` tagged `json:"resolved"`. `check` calls `checkForward` instead of `checkUpstream` and stores the answers in `Resolved`. `Plan` already hashes the whole struct, and `Apply` already calls `check` again, which is the second resolution.
 4. `internal/modules/npm/proxyhost_edit.go`, `proxyHostUpdateHandler`:
    - `check` calls `checkForward` where it called `checkUpstream` and returns the answer set as one more result.
    - `Plan` appends the answer set to the parts of `proxyHostEditSum`: a final part that is a newline followed by the answers joined by `,`. `Apply` ignores the extra result.
-   - `proxyHostRemoveHandler.Inverse` keeps calling `checkUpstream`. A removal's undo recreates the host the operator removed and asks no resolver.
+   - `proxyHostUpdateHandler.Inverse` and `proxyHostRemoveHandler.Inverse`: after reading the body to restore and before any write to NPM, run `checkForward` on the body's forward host and port and on each custom location's (the list `proxyHostRemoveHandler.Inverse` builds today; build the same list in the update's inverse) and return the first error. A refusal or a name with no answer is already Definite; an Engine error or an ended context is returned as `checkForward` returns it. The answers are not used.
+   - Rewrite the last sentence of the doc comment of `proxyHostRemoveHandler.Inverse`: under the step's stored call the forward host check refuses every reserved upstream and resolves each name again, so no undo recreates a reserved-upstream host that no reservation tracks. Add one sentence to the doc comment of `proxyHostUpdateHandler.Inverse` saying it checks the forward hosts it restores the same way.
 5. The wire types, the schemas and `docs/api` do not change. `make schemas` is not needed.
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -2207,7 +2405,7 @@ git status --short
 rm -rf /root/.cache/w10b-tmp/9 && go clean -testcache
 ```
 
-Expected: every line `ok`, `go vet` and `go mod tidy -diff` print nothing, `golangci-lint` prints `0 issues.`, and `git status --short` lists only this task's files. No command of this step resolves a real name: `absentResolve` and the fakes answer every lookup.
+Expected: every line `ok`, `go vet` and `go mod tidy -diff` print nothing, `golangci-lint` prints `0 issues.`, and `git status --short` lists only this task's files. No command of this step resolves a real name or reaches a Docker daemon: `absentResolve` and the fakes answer every lookup.
 
 - [ ] **Step 5: Commit**
 
@@ -2237,7 +2435,6 @@ git commit -m "fix(npm): resolve forward hosts at plan and apply"
 
 **Items:** 2026-11-06-v1-security-review#4, 2026-11-06-v1-security-review#15
 
-**Depends on:** Task 9
 **Implementer:** dforge:impl-opus-high
 **Evaluation:** files 1 - spec 2 - coupling 1 - risk 3 = 7
 **Lenses:** security
@@ -2627,7 +2824,6 @@ git commit -m "fix(npm): protect proxy host config in effects"
 - Produces (no Contracts entry; nothing else in this plan reads it): `npmapi.APIError` becomes `struct { Status int; Code int }`. `Message` is removed. `Code` is NPM's `error.code` when it is a JSON number from 400 to 599, and `0` otherwise. `IsNotFound` and `IsClientError` keep their behaviour. `Error()` is `npmapi: NPM answered <Status>`, followed by ` (error code <Code>)` only when `Code` is not 0 and differs from `Status`. No `APIError` text, field or cause holds any part of NPM's `error.message` or body.
 
 **Items:** 2026-11-06-v1-security-review#10
-**Depends on:** Task 9
 **Implementer:** dforge:impl-opus-high
 **Evaluation:** files 1 - spec 2 - coupling 1 - risk 3 = 7
 **Lenses:** security
@@ -2861,7 +3057,6 @@ git commit -m "fix(npm): drop NPM answer text from errors"
 - Produces: nothing a later task reads. `deployHandler.bootstrap` gains a second result, `conflict bool`.
 
 **Items:** 2026-11-06-v1-security-review#14
-**Depends on:** Task 11
 **Implementer:** dforge:impl-opus-high
 **Evaluation:** files 1 - spec 2 - coupling 0 - risk 3 = 6
 **Lenses:** security
@@ -3035,11 +3230,11 @@ Expected: the first three subtests of `TestV1r12BootstrapConflictRemovesTheInsta
    - It runs on `context.WithoutCancel(ctx)` bounded by `context.WithTimeout` of twice `deployStop`, so a cancelled apply still removes the instance.
    - It attempts, in this order and always all of them, on `h.n.d.docker`: `StopContainer(containerID, deployStop)`, `RemoveContainer(containerID, dockerapi.RemoveContainerOptions{Force: true})`, `RemoveVolume(dataVolume, false)`, `RemoveVolume(certVolume, false)`, `RemoveNetwork(networkName)`. An error for which `dockerapi.IsNotFound` is true counts as removed. Any other error is collected as `fmt.Errorf("npm: <what>: %w", err)` with `<what>` the words `Inverse` uses (`stop container <id>`, `remove container <id>`, `remove volume <name>`, `remove network <name>`).
    - It returns `errcode.Wrap(errcode.NPMSetupFailed, <cause, joined with the collected errors when there are any>, <detail>)`, never Definite. `<detail>` is the `Detail` of the `*errcode.Error` in `cause` (find it with `errors.As`), then `; the deploy removed what it created` when nothing failed, or `; the deploy could not remove what it created: remove the Docker container, volumes and network whose names start with darkpanel-npm` when something did.
-4. Leave `instanceCreate` in `deps.go`, the journal, the `Inverse` method and `Verify` as they are. State in the report that a later `darkpanel change undo` of this failed change observes objects that are already gone and stops on the first effect as a conflict, which the owner accepted in ruling W10b-R9, and that the host is ready for a new deploy at once.
+4. Leave `instanceCreate` in `deps.go`, the journal, the `Inverse` method and `Verify` as they are. The engine releases a failed change's locks (`failure`, `internal/core/lifecycle/settle.go:81-109`), so the host is ready for a new deploy at once. A later `darkpanel change undo` of this failed change observes objects that are already gone: `runInverse` (`internal/core/lifecycle/undo.go`) records that as an unresolved conflict, and the change goes to `needs_repair`, which keeps its locks until the operator resolves it. Ruling W10b-R9 states this; Step 3.5 tells the operator. Say so in the report.
 5. `docs/user/modules/npm.md`, section "Deploy": change the sentence `If the administrator cannot be created, the change fails with` to `If the administrator cannot be created for another reason, the change fails with`, and insert this paragraph after that one (the inner code span is `npm.setup_failed`, as in the neighbouring paragraphs):
 
    ````text
-   If NPM already has an administrator when the deploy reaches that step, or refuses to create the first one, someone else created it first. The deploy then removes the container, both volumes and the network it created, so that no instance keeps running under another administrator, and the change fails with `npm.setup_failed`. The message says whether the removal succeeded. Find out who can reach port 81 on the host, then deploy again.
+   If NPM already has an administrator when the deploy reaches that step, or refuses to create the first one, someone else created it first. The deploy then removes the container, both volumes and the network it created, so that no instance keeps running under another administrator, and the change fails with `npm.setup_failed`. The message says whether the removal succeeded. Find out who can reach port 81 on the host, then deploy again. Do not undo the failed change: what it created is already gone, so the undo ends in `needs_repair` and holds the change's locks. If you undid it, run `darkpanel change effects <id>`, then `darkpanel change resolve <id> accept`.
    ````
 
    In the error table, the `npm.setup_failed` row: append to its second cell the sentence `A deploy that found another administrator has already removed what it created.` Keep the row's other cells.
@@ -3090,7 +3285,6 @@ git commit -m "fix(npm): remove instance on bootstrap conflict"
 - Produces: `redactCmd(args []string) []string`, unexported in package `docker`: every element is the mask `logfilter.Mask`. `redactArgs` keeps its rule for an entrypoint: the first element, then one mask per argument. Nothing else in this plan reads either.
 
 **Items:** 2026-11-06-v1-security-review#3
-**Depends on:** none
 **Implementer:** dforge:impl-opus-high
 **Evaluation:** files 1 - spec 2 - coupling 0 - risk 3 = 6
 **Lenses:** security
@@ -3287,7 +3481,6 @@ git commit -m "fix(docker): mask every inspect command argument"
 
 **Items:** 2026-11-06-v1-security-review#5, 2026-10-21-v1-completion#384
 
-**Depends on:** Task 13
 **Implementer:** dforge:impl-opus-high
 **Evaluation:** files 2 - spec 2 - coupling 1 - risk 3 = 8
 **Lenses:** security
@@ -3712,7 +3905,6 @@ git commit -m "fix(docker): keep label values out of plans and effects"
 
 **Items:** 2026-11-06-v1-security-review#7
 
-**Depends on:** none
 **Implementer:** dforge:impl-opus-high
 **Evaluation:** files 1 - spec 2 - coupling 2 - risk 3 = 8
 **Lenses:** security
@@ -4134,7 +4326,6 @@ git commit -m "fix(derp): read certificate files without links"
 
 **Items:** 2026-11-06-v1-security-review#9, 2026-10-21-v1-completion#306
 
-**Depends on:** Task 7, Task 15
 **Implementer:** dforge:impl-opus-high
 **Evaluation:** files 1 - spec 2 - coupling 1 - risk 3 = 7
 **Lenses:** security
@@ -4570,6 +4761,8 @@ Expected: the package builds, and these fail on assertions. Record the output ve
 - `TestV1r16ProbeResolveDropsPrivateAnswers`: the probe runs at `10.0.0.7`.
 - `TestV1r16ProbeErrorsUseTheFixedVocabulary`: results such as `Error:"derp: probe derp.example.com: x509: certificate is valid for intranet.corp.example, not derp.example.com"`.
 - `TestV1r16RawProbeErrorsAreLoggedAtDebugOnly`: the answer carries the raw error.
+- `TestV1r16RealTLSFailuresUseTheVocabulary`: each failure carries the raw error text instead of its vocabulary value.
+- `TestV1r16PinnedLeafFailuresUseTheVocabulary`: each result carries the raw error text instead of `pin_mismatch` or `certificate_not_trusted`.
 
 - [ ] **Step 3: Implement**
 
@@ -4648,7 +4841,6 @@ git commit -m "fix(derp): refuse private probe targets and raw errors"
 
 **Items:** 2026-11-06-v1-security-review#8, 2026-11-06-v1-security-review#13
 
-**Depends on:** none
 **Implementer:** dforge:impl-opus-high
 **Evaluation:** files 1 - spec 2 - coupling 1 - risk 3 = 7
 **Lenses:** security
@@ -4956,7 +5148,6 @@ Expected: every `go test` line is `ok` or `?`, `golangci-lint` prints `0 issues.
 
 **Items:** 2026-11-06-v1-security-review#6
 
-**Depends on:** none
 **Implementer:** dforge:impl-opus-high
 **Evaluation:** files 1 - spec 2 - coupling 2 - risk 3 = 8
 **Lenses:** security
@@ -5173,7 +5364,6 @@ Expected: every `go test` line is `ok` or `?` (the backup, server and dispatch p
 
 **Items:** 2026-11-06-v1-security-review#6
 
-**Depends on:** Task 18
 **Implementer:** dforge:impl-opus-high
 **Evaluation:** files 1 - spec 2 - coupling 1 - risk 3 = 7
 **Lenses:** security
@@ -5355,8 +5545,8 @@ Expected: every `go test` line is `ok` or `?`, `golangci-lint` prints `0 issues.
 
 **Items:** 2026-11-06-v1-security-review#11
 
-**Depends on:** none
 **Implementer:** dforge:impl-opus-high
+**Executor:** agy gemini-4-argon / high
 **Evaluation:** files 0 - spec 2 - coupling 2 - risk 2 = 6
 
 - [ ] **Step 1: Write the failing tests**
@@ -5542,7 +5732,7 @@ func TestV1r20CellsPartitionThePublicSpace(t *testing.T) {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 ```sh
-mkdir -p /root/.cache/w10b-tmp/19 && export TMPDIR=/root/.cache/w10b-tmp/19 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w10b-tmp/20 && export TMPDIR=/root/.cache/w10b-tmp/20 GOTOOLCHAIN=local
 timeout 300 go test -count=1 -run 'TestV1r20' ./internal/modules/firewall/eval/
 ```
 
@@ -5562,7 +5752,7 @@ Create `internal/modules/firewall/eval/cells.go`. Declare `Cell` and `InternetCe
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```sh
-export TMPDIR=/root/.cache/w10b-tmp/19 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w10b-tmp/20 GOTOOLCHAIN=local
 timeout 300 go test -count=1 -run 'TestV1r20' ./internal/modules/firewall/eval/
 timeout 600 go test -race -count=1 ./internal/modules/firewall/eval/
 ```
@@ -5579,14 +5769,14 @@ git commit -m "feat(firewall): partition the internet by prefixes"
 - [ ] **Step 6: Run the task's gates**
 
 ```sh
-export TMPDIR=/root/.cache/w10b-tmp/19 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w10b-tmp/20 GOTOOLCHAIN=local
 timeout 600 go build ./...
 timeout 300 go vet ./...
 timeout 1500 go test -count=1 ./...
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
 git status --short
-rm -rf /root/.cache/w10b-tmp/19 && go clean -testcache
+rm -rf /root/.cache/w10b-tmp/20 && go clean -testcache
 ```
 
 Expected: every `go test` line is `ok` or `?`, `golangci-lint` prints `0 issues.`, `go vet` and `go mod tidy -diff` print nothing, and `git status --short` prints nothing.
@@ -5613,7 +5803,6 @@ Expected: every `go test` line is `ok` or `?`, `golangci-lint` prints `0 issues.
 
 **Items:** 2026-11-06-v1-security-review#11
 
-**Depends on:** Task 19, Task 20
 **Implementer:** dforge:impl-opus-high
 **Evaluation:** files 2 - spec 2 - coupling 1 - risk 3 = 8
 **Lenses:** security
@@ -5747,7 +5936,7 @@ func TestV1r21TailscaleFlowChecksEveryIPv6Cell(t *testing.T) {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 ```sh
-mkdir -p /root/.cache/w10b-tmp/20 && export TMPDIR=/root/.cache/w10b-tmp/20 GOTOOLCHAIN=local
+mkdir -p /root/.cache/w10b-tmp/21 && export TMPDIR=/root/.cache/w10b-tmp/21 GOTOOLCHAIN=local
 timeout 300 go test -count=1 -run 'TestV1r21' ./internal/modules/firewall/guard/
 ```
 
@@ -5832,7 +6021,7 @@ Expected: FAIL by assertion on the current tree (the package builds, because `ev
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```sh
-export TMPDIR=/root/.cache/w10b-tmp/20 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w10b-tmp/21 GOTOOLCHAIN=local
 timeout 300 go test -count=1 -run 'TestV1r21' ./internal/modules/firewall/guard/
 timeout 900 go test -race -count=1 ./internal/modules/firewall/...
 ```
@@ -5849,14 +6038,14 @@ git commit -m "fix(firewall): check internet flows in every cell"
 - [ ] **Step 6: Run the task's gates**
 
 ```sh
-export TMPDIR=/root/.cache/w10b-tmp/20 GOTOOLCHAIN=local
+export TMPDIR=/root/.cache/w10b-tmp/21 GOTOOLCHAIN=local
 timeout 600 go build ./...
 timeout 300 go vet ./...
 timeout 1500 go test -count=1 ./...
 timeout 900 golangci-lint run --allow-serial-runners ./...
 timeout 300 go mod tidy -diff
 git status --short
-rm -rf /root/.cache/w10b-tmp/20 && go clean -testcache
+rm -rf /root/.cache/w10b-tmp/21 && go clean -testcache
 ```
 
 Expected: every `go test` line is `ok` or `?`, `golangci-lint` prints `0 issues.`, `go vet` and `go mod tidy -diff` print nothing, and `git status --short` prints nothing. The harness covers the same guard on real hosts (Gate 7), so a ruleset with many prefixes must still finish the check within the action's timeout there.
@@ -5874,7 +6063,6 @@ Expected: every `go test` line is `ok` or `?`, `golangci-lint` prints `0 issues.
 
 **Items:** 2026-10-21-v1-completion#435
 
-**Depends on:** none
 **Implementer:** dforge:impl-opus-high
 **Evaluation:** files 1 - spec 2 - coupling 0 - risk 3 = 6
 **Lenses:** security
@@ -5973,7 +6161,7 @@ func TestV1r22BackupCopyIsPrivateWhenTheStreamStarts(t *testing.T) {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w10b-tmp/21 && export TMPDIR=/root/.cache/w10b-tmp/21 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestV1r22' ./internal/controller/backup/`
+Run: `mkdir -p /root/.cache/w10b-tmp/22 && export TMPDIR=/root/.cache/w10b-tmp/22 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestV1r22' ./internal/controller/backup/`
 Expected: build failure `e.b.afterCopy undefined (type *Backup has no field or method afterCopy)`. Then add only the `afterCopy` field to `Backup` and the one call of it in `streamServe` (Step 3, items 1 and 2), change nothing else, and rerun the same command. Expected: `TestV1r22BackupRefusesACopySwappedForALink` FAILS on `the file the link names has mode -rw-------, want 0400` and on `status = 200, want 500`, and `TestV1r22BackupCopyIsPrivateWhenTheStreamStarts` PASSES (it guards the new code against a dropped chmod). Quote both outputs in the report.
 
 - [ ] **Step 3: Implement**
@@ -5992,10 +6180,10 @@ Expected: build failure `e.b.afterCopy undefined (type *Backup has no field or m
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `export TMPDIR=/root/.cache/w10b-tmp/21 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestV1r22|TestW10Bc' ./internal/controller/backup/ && ! rg -n 'os\.Chmod' internal/controller/backup --glob '!*_test.go'`
+Run: `export TMPDIR=/root/.cache/w10b-tmp/22 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestV1r22|TestW10Bc' ./internal/controller/backup/ && ! rg -n 'os\.Chmod' internal/controller/backup --glob '!*_test.go'`
 Expected: `ok` and no match from `rg`.
 
-Then run the plan's full Go checks with their real output: `timeout 600 go build ./... && timeout 300 go vet ./... && timeout 1500 go test -count=1 ./... && timeout 600 go test -race -count=1 ./internal/controller/backup/... && timeout 900 golangci-lint run --allow-serial-runners ./... && timeout 300 go mod tidy -diff`. Expected: every test line `ok` or `?`, `0 issues.`, and no output from `go vet` and `go mod tidy -diff`. Finish with `rm -rf /root/.cache/w10b-tmp/21 && GOTOOLCHAIN=local go clean -testcache`.
+Then run the plan's full Go checks with their real output: `timeout 600 go build ./... && timeout 300 go vet ./... && timeout 1500 go test -count=1 ./... && timeout 600 go test -race -count=1 ./internal/controller/backup/... && timeout 900 golangci-lint run --allow-serial-runners ./... && timeout 300 go mod tidy -diff`. Expected: every test line `ok` or `?`, `0 issues.`, and no output from `go vet` and `go mod tidy -diff`. Finish with `rm -rf /root/.cache/w10b-tmp/22 && GOTOOLCHAIN=local go clean -testcache`.
 
 - [ ] **Step 5: Commit**
 
@@ -6018,8 +6206,8 @@ git commit -m "fix(backup): set the copy's mode on its descriptor"
 
 **Items:** 2026-10-21-v1-completion#435
 
-**Depends on:** Task 10
 **Implementer:** dforge:impl-sonnet-medium
+**Executor:** agy gemini-4-argon / low
 **Evaluation:** files 0 - spec 2 - coupling 0 - risk 2 = 4
 
 Hazard: `nm.run` marks every refusal `Definite`, a 4xx of the Engine or of NPM or an error its callback already marked, and `Definite` promises that the call, and so the change, committed nothing. That holds for the first journaled step of a change. It is false for a later step. `npm.instance.remove` removes the container, then the volumes; a 409 on `RemoveVolume` after the container is gone is returned as `Definite` although the host already changed, and `npm.instance.deploy` does the same when the second volume or the start is refused after the network exists. W10a Task 29 removed the same mark for the before-state read of a later removal. The fix keeps the refusal's effect `skipped`, which is true of the one call, and drops the mark from the error when an earlier effect of the change is not `skipped`. `notDefinite` would also drop the error's `errcode` code and its cause, so the helper unwraps the mark layer and keeps everything beneath it.
@@ -6147,7 +6335,7 @@ with
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w10b-tmp/22 && export TMPDIR=/root/.cache/w10b-tmp/22 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestV1r23|TestSdRun|TestDpApplyFailsAtEachStep|TestRmApply' ./internal/modules/npm/`
+Run: `mkdir -p /root/.cache/w10b-tmp/23 && export TMPDIR=/root/.cache/w10b-tmp/23 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestV1r23|TestSdRun|TestDpApplyFailsAtEachStep|TestRmApply' ./internal/modules/npm/`
 Expected: FAIL. `TestV1r23RunMarksOnlyTheFirstRefusalDefinite` fails its rows `a made step before`, `an intended step before` and `a made step before, a refusal the call marked` with `Definite = true, want false`; `TestDpApplyFailsAtEachStep` fails the refused rows of every step but the network with `definite true, want false: only a refusal of the first step proves that nothing changed`; `TestRmApply/the_daemon_refuses_a_volume_removal` fails with `want the daemon's 409 as an error that is not definite`. `TestSdRun` still passes. If Task 10 changed the parameters of `nm.run`, `v1r23Run` is the one place that calls it: give it the call form `TestSdRun` uses. Quote the output in the report.
 
 - [ ] **Step 3: Implement**
@@ -6160,10 +6348,10 @@ Expected: FAIL. `TestV1r23RunMarksOnlyTheFirstRefusalDefinite` fails its rows `a
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `export TMPDIR=/root/.cache/w10b-tmp/22 GOTOOLCHAIN=local && timeout 600 go test -count=1 ./internal/modules/npm/...`
+Run: `export TMPDIR=/root/.cache/w10b-tmp/23 GOTOOLCHAIN=local && timeout 600 go test -count=1 ./internal/modules/npm/...`
 Expected: `ok` for every package.
 
-Then run the plan's full Go checks with their real output: `timeout 600 go build ./... && timeout 300 go vet ./... && timeout 1500 go test -count=1 ./... && timeout 600 go test -race -count=1 ./internal/modules/npm/... && timeout 900 golangci-lint run --allow-serial-runners ./... && timeout 300 go mod tidy -diff`. Expected: every test line `ok` or `?`, `0 issues.`, and no output from `go vet` and `go mod tidy -diff`. Finish with `rm -rf /root/.cache/w10b-tmp/22 && GOTOOLCHAIN=local go clean -testcache`.
+Then run the plan's full Go checks with their real output: `timeout 600 go build ./... && timeout 300 go vet ./... && timeout 1500 go test -count=1 ./... && timeout 600 go test -race -count=1 ./internal/modules/npm/... && timeout 900 golangci-lint run --allow-serial-runners ./... && timeout 300 go mod tidy -diff`. Expected: every test line `ok` or `?`, `0 issues.`, and no output from `go vet` and `go mod tidy -diff`. Finish with `rm -rf /root/.cache/w10b-tmp/23 && GOTOOLCHAIN=local go clean -testcache`.
 
 - [ ] **Step 5: Commit**
 
@@ -6178,19 +6366,19 @@ git commit -m "fix(npm): mark only a first refusal as definite"
 - Modify: `test/harness/m3_docker_traffic_test.go` (`m3dTrafficProbeScript`, `m3dxTrafficCount`, `m3dxTrafficLeaks`, `m3dTrafficRecreate`)
 - Create: `test/harness/m3_docker_window_unit_test.go`
 - Read, and change only if the diagnosis names them: `test/harness/m3_docker_test.go`, `test/harness/m3_docker_helpers_test.go`
-- Modify only if the cause is in the product: the non-test files `internal/modules/firewall/reconcile.go`, `internal/modules/firewall/actions_container.go`, `internal/modules/firewall/docker_*.go`, plus the new test `internal/modules/firewall/reconcile_window_test.go`. A fix that needs any other file stops the task and is reported.
+- Read only: `internal/modules/firewall/reconcile.go`, `internal/modules/firewall/actions_container.go`, `internal/modules/firewall/docker_*.go`, `internal/modules/firewall/predict/predict.go`. This task changes no product code: a cause in the product is recorded and becomes a register row of its own.
 
 **Interfaces:**
-- Consumes: the harness helpers `m3dTrafficProbe`, `m3dxTrafficProbed`, `m3dxShell`, `m3dTrafficPublish`, `m3drApply`, `waitHosts`, and `update.AgentUnit`; for a product fix, the fakes of `reconcile_test.go` (`rcHost`, `rcState`, `rcWriteBlock`, `rcTask`) and of `docker_e2e_host_test.go`. None changes.
+- Consumes: the harness helpers `m3dTrafficProbe`, `m3dxTrafficProbed`, `m3dxShell`, `m3dTrafficPublish`, `m3drApply`, `waitHosts`, and `update.AgentUnit`; for the scratch test of Step 4, the fakes of `reconcile_test.go` (`rcHost`, `rcState`, `rcWriteBlock`, `rcTask`). None changes.
 - Produces: nothing another task consumes. The probe log line grows an optional third field, the start of the attempt in Unix nanoseconds (`<port> <ok|fail> <ns>`); a line of two fields stays valid. `v1r24Window` and `v1r24Windows(log string) ([]v1r24Window, error)` are test-only helpers.
 
 **Items:** 2026-10-21-v1-completion#389
 
-**Depends on:** none
 **Implementer:** dforge:impl-opus-high
+**Executor:** agy gemini-4-argon / high
 **Evaluation:** files 3 - spec 2 - coupling 0 - risk 2 = 7
 
-The failure (row 389; row 400 lists the same scenario): harness run 42231106496 (2026-11-06, branch `worktree-v1-w10a-known-fixes`, job `vm (ubuntu-22.04)`) failed `TestM3Docker/traffic-recreate-under-scan` with `IPv6 probe: harness: port 18209 connected in 3 of 23 attempts` (`m3_docker_traffic_test.go:519`). The scenario publishes `m3d-r1` on 18208 (allowed) and `m3d-r2` on 18209 (never allowed), probes `agentIPv4:18209` and `agentIPv6:18209` from the scanner VM in a loop, recreates both containers four times (once after an agent restart), and requires that 18209 never connects. The next run, 42237150792, passed, so the failure is intermittent. This task finds the cause before it changes anything. The tests below are the one deliverable certain in advance; the fix follows from what Steps 1 to 4 establish.
+The failure (row 389; row 400 lists the same scenario): harness run 42231106496 (2026-11-06, branch `worktree-v1-w10a-known-fixes`, job `vm (ubuntu-22.04)`) failed `TestM3Docker/traffic-recreate-under-scan` with `IPv6 probe: harness: port 18209 connected in 3 of 23 attempts` (`m3_docker_traffic_test.go:519`). The scenario publishes `m3d-r1` on 18208 (allowed) and `m3d-r2` on 18209 (never allowed), probes `agentIPv4:18209` and `agentIPv6:18209` from the scanner VM in a loop, recreates both containers four times (once after an agent restart), and requires that 18209 never connects. The next run, 42237150792, passed, so the failure is intermittent. This task finds the cause before it changes anything. The tests below are the one deliverable certain in advance. A cause in the harness is fixed here; a cause in the product touches the firewall reload path, where the lockout guard and the revert timer live, so this task records it with its evidence and the options, and the fix becomes a register row of its own.
 
 - [ ] **Step 1: Read the evidence (no code change)**
 
@@ -6339,7 +6527,7 @@ func TestV1r24UnitLeakNamesTheWindows(t *testing.T) {
 
 - [ ] **Step 6: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w10b-tmp/23 && export TMPDIR=/root/.cache/w10b-tmp/23 GOTOOLCHAIN=local && timeout 300 go vet -tags harness ./test/harness/`
+Run: `mkdir -p /root/.cache/w10b-tmp/24 && export TMPDIR=/root/.cache/w10b-tmp/24 GOTOOLCHAIN=local && timeout 300 go vet -tags harness ./test/harness/`
 Expected: build failure `undefined: v1r24Window` (the first undefined identifier of `TestV1r24UnitProbeWindows`). Quote it. After the stubs of Step 7 exist, `timeout 300 go test -tags harness -count=1 -run 'TestV1r24Unit' ./test/harness/` fails on `malformed probe log line` for the timed lines, because `m3dxTrafficCount` takes only two fields today.
 
 - [ ] **Step 7: Implement the probe's time stamps**
@@ -6355,17 +6543,17 @@ Expected: build failure `undefined: v1r24Window` (the first undefined identifier
 
 Apply this rule to what Steps 1 to 4 established; write the cause, the evidence and the branch taken into the report.
 - **The cause is in the harness test** (H3 or H4 stands, or a defect in the probe or the scenario that I did not list): fix it in `test/harness`, with a test whose name contains `Unit` that fails on `main` for that defect and passes after (`TestV1r24Unit…`, in `m3_docker_window_unit_test.go` or the unit file of the file you changed).
-- **The cause is in the product** (H1 or H2 stands): fix it in the files listed above, with a unit regression test `TestV1r24…` in `internal/modules/firewall/reconcile_window_test.go`, written on the fakes of `reconcile_test.go` (`rcHost`, `rcState`, `rcWriteBlock`, `rcTask`) or of `docker_e2e_host_test.go`. The test drives a reconcile pass over a recreated container whose address changed, records the host's commands, and asserts the property the cause names. For H1 the assertion is that the pass changes the block without ever leaving the loaded built-in INPUT policy at ACCEPT, in either family: it records no `ufw reload` (or whatever mechanism the fix chooses that keeps the policy at DROP throughout) and the rules loaded afterwards equal what `blockFiles` rendered. It fails on `main` because `main` records `ufw reload`. The fix must remove the window, not shorten it, and must keep the lockout guard, the revert timer and the predictor's agreement with the loaded state; `reloadDockerUser` in `docker_preserve.go` already loads the Darkpanel chains without stopping UFW and is the first mechanism to consider. If the only fix is a design decision the spec does not make (for example replacing `ufw reload` for every block-file change), stop after recording the cause and the options, and report NEEDS_CONTEXT with the decision you need.
+- **The cause is in the product** (H1 or H2 stands): change no product code. Write into the report the cause, the evidence that rules it in (the scratch test of Step 4, described step by step so it can be rerun), the property a fix must hold (for H1: a reconcile pass that changes the block never leaves the loaded built-in INPUT policy at ACCEPT in either family, while the lockout guard, the revert timer and the predictor's agreement with the loaded state stay), and the options you see, with `reloadDockerUser` in `docker_preserve.go` first among them. Report the status DONE_WITH_CONCERNS with the line `register row needed: <one-sentence finding with file and function>`; the controller adds that row to `docs/dforge/registers/2026-10-21-v1-completion.md` with `scripts/register add` and leaves row 389 at `planned`, its Note naming the new row. Keep the Step 7 instrumentation either way.
 - **Neither can be shown from the evidence** (the Step 4 checks are inconclusive): change no product code and do not guess a fix. Keep the Step 7 instrumentation, report the cause as unproven, state which check would settle it, and say that the next harness failure now carries the time stamps and the agent journal to settle it. Gate 7 will then show whether it recurs.
 
 - [ ] **Step 9: Verify**
 
-Run: `export TMPDIR=/root/.cache/w10b-tmp/23 GOTOOLCHAIN=local && timeout 300 go vet -tags harness ./test/... && timeout 600 golangci-lint run --allow-serial-runners --build-tags harness ./test/... && timeout 600 go test -tags harness -count=1 -run 'Unit' ./test/harness/...`
-Expected: no output from `go vet`, `0 issues.`, and `ok` for the `Unit` tests, including `TestV1r24Unit…`. If the product changed, also run `timeout 600 go test -count=1 -race ./internal/modules/firewall/...`; expected `ok`.
+Run: `export TMPDIR=/root/.cache/w10b-tmp/24 GOTOOLCHAIN=local && timeout 300 go vet -tags harness ./test/... && timeout 600 golangci-lint run --allow-serial-runners --build-tags harness ./test/... && timeout 600 go test -tags harness -count=1 -run 'Unit' ./test/harness/...`
+Expected: no output from `go vet`, `0 issues.`, and `ok` for the `Unit` tests, including `TestV1r24Unit…`.
 
-Then run the plan's full Go checks with their real output: `timeout 600 go build ./... && timeout 300 go vet ./... && timeout 1500 go test -count=1 ./... && timeout 900 golangci-lint run --allow-serial-runners ./... && timeout 300 go mod tidy -diff`. Expected: every test line `ok` or `?`, `0 issues.`, and no output from `go vet` and `go mod tidy -diff`. Finish with `rm -rf /root/.cache/w10b-tmp/23 && GOTOOLCHAIN=local go clean -testcache`.
+Then run the plan's full Go checks with their real output: `timeout 600 go build ./... && timeout 300 go vet ./... && timeout 1500 go test -count=1 ./... && timeout 900 golangci-lint run --allow-serial-runners ./... && timeout 300 go mod tidy -diff`. Expected: every test line `ok` or `?`, `0 issues.`, and no output from `go vet` and `go mod tidy -diff`. Finish with `rm -rf /root/.cache/w10b-tmp/24 && GOTOOLCHAIN=local go clean -testcache`.
 
-The scenario itself runs only on VMs. Report it as not run here: gate 7's harness run on the pushed branch is the verification, and `TestM3Docker` must pass on all four OS there. A single green run does not prove an intermittent fault is gone, so the report states the cause and the unit test that pins it rather than the green run.
+The scenario itself runs only on VMs. Report it as not run here: gate 7's harness run on the pushed branch is the verification, and `TestM3Docker` must pass on all four OS there. A single green run does not prove an intermittent fault is gone, so the report states the cause and, for a harness cause, the unit test that pins it, rather than the green run.
 
 - [ ] **Step 10: Commit**
 
@@ -6374,7 +6562,7 @@ git add test/harness/m3_docker_traffic_test.go test/harness/m3_docker_window_uni
 git commit -m "test(harness): time-stamp the recreate probe log"
 ```
 
-If the diagnosis changed other files, add them with the cause in the commit as a second commit, with the type the change has (`fix(firewall): ...` or `fix(harness): ...`), one concern per commit.
+If the diagnosis found a harness defect and changed other files under `test/harness`, commit that fix as a second commit, `fix(harness): ...`, with the cause in its body.
 
 ### Task 25: Update the threat model to the reviewed state
 
@@ -6389,8 +6577,8 @@ If the diagnosis changed other files, add them with the cause in the commit as a
 
 **Items:** 2026-11-06-v1-security-review#16, 2026-11-06-v1-security-review#17, 2026-11-06-v1-security-review#18, 2026-11-06-v1-security-review#19, 2026-11-06-v1-security-review#20, 2026-11-06-v1-security-review#21, 2026-11-06-v1-security-review#22, 2026-11-06-v1-security-review#23, 2026-10-21-v1-completion#37, 2026-10-21-v1-completion#245, 2026-10-21-v1-completion#329
 
-**Depends on:** Task 1, Task 2, Task 3, Task 4, Task 5, Task 6, Task 7, Task 8, Task 9, Task 10, Task 11, Task 12, Task 13, Task 14, Task 15, Task 16, Task 17, Task 18, Task 19, Task 20, Task 21, Task 22, Task 23, Task 24
 **Implementer:** dforge:impl-sonnet-low
+**Executor:** agy gemini-3.8-flash / medium
 **Evaluation:** files 1 - spec 1 - coupling 0 - risk 0 = 2
 
 The page describes what exists on `main` after the fixes of this plan, and the open risks the owner accepted on 2026-11-06. Three changes in kind: the Mitigations and Residual risk bullets that the fixes of Tasks 5 to 21 changed say what the code now does; four claims that the review found inaccurate are corrected (a `ufw` argument is protected by `withComment` and the tag prefix, not by the comment pattern; the DERP directory is created at mode 0700 but an existing directory is accepted; `-verify-clients` has a supported opt-out; the CLI also reads secrets from a JSON input file); and `## Known residual risks` holds only what stays open: the four accepted risks (NPM's ports inside its container, the `openpgp` advisory, the missing Origin header, the global enrollment budget) and the rebinding of a forward host after it was applied. The fixed questions (RFC 1918 probe targets, the unsalted label digest, the unresolved forward host, port 3000) leave the section.
@@ -6536,7 +6724,7 @@ func TestV1r25PageStatesWhatTheCodeNowDoes(t *testing.T) {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `mkdir -p /root/.cache/w10b-tmp/24 && export TMPDIR=/root/.cache/w10b-tmp/24 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestV1r25|TestW10Tm' ./internal/docs/`
+Run: `mkdir -p /root/.cache/w10b-tmp/25 && export TMPDIR=/root/.cache/w10b-tmp/25 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestV1r25|TestW10Tm' ./internal/docs/`
 Expected: FAIL. `TestV1r25KnownResidualRisksAreWhatStaysOpen` reports 7 bullets where 5 are wanted, `TestV1r25PageStatesWhatTheCodeNowDoes` reports each missing statement (for example `Authentication/Mitigations does not state "a lock on the pair of user name and source"`), and `TestW10TmKnownResidualRisks` reports `Known residual risks does not mention "enrollment budget"`. The other `TestW10Tm*` tests pass. Quote the output in the report.
 
 - [ ] **Step 3: Implement**
@@ -6602,13 +6790,12 @@ Edit `docs/security/threat-model.md` in the page's style (English, present tense
    - A lockout guard predicts the effect of a change on the protected flows and refuses it unless explicitly overridden. It checks the public leg of a panel exposure, the browser to NPM binding, from the exposure's own record, and a request through an NPM exposure without those bindings fails closed. It evaluates "any internet address" once for each cell of the public unicast space that the ruleset's prefixes cut and holds only when every cell passes, and a refusal names the first blocked cell (`internal/modules/firewall/predict`, `internal/modules/firewall/eval`, `internal/modules/firewall/guard`, `internal/controller/api`, `internal/modules/panel`).
    ```
 
-   Then run `rg -l 'TestV1r24' internal/modules/firewall`. When it lists a test, Task 24 fixed a product cause: read that test's doc comment and add one sentence stating the property it asserts to the Docker-integration bullet of the same part, and keep the bullet's path list. When it lists nothing, Task 24 changed no product code and the part needs no further edit.
 7. `### Exposure`
    - Threats: replace `A proxy host that points at the panel or at NPM itself.` with `A proxy host that points at the panel or at NPM itself, by address or through a DNS name.`, and add the bullet `A local user who creates Nginx Proxy Manager's first administrator before Darkpanel does.`
    - Mitigations: replace the bullet that begins `Proxy hosts that forward to NPM's own port 81` with
 
      ```text
-     - Outside the admin-exposure composite, a proxy host may not forward to any port of NPM's own container names or addresses, or to the panel gateway; the refusal is `npm.reserved`, and port 81 stays allowed inside that composite. A forward host that is a DNS name is resolved on the agent's host at plan and again at apply: every answer is checked as an address, a name with no answer is invalid input, and a set of answers that changed between the two is refused as `plan.state_changed` (`internal/modules/npm/proxy`, `internal/modules/npm`).
+     - Outside the admin-exposure composite, a proxy host may not forward to any port of NPM's own container names or addresses, or to the panel gateway; the refusal is `npm.reserved`, and port 81 stays allowed inside that composite. A forward host that is a DNS name is resolved at plan and again at apply: a name that a container on one of NPM's networks answers to takes that container's addresses from Docker, any other name is resolved on the agent's host; every answer is checked as an address, a name with no answer is invalid input, and a set of answers that changed between the two is refused as `plan.state_changed`. The undo of a proxy host's update or removal checks every forward host it writes back the same way (`internal/modules/npm/proxy`, `internal/modules/npm`).
      ```
 
      Replace the bullet that begins `The agent's NPM client limits the size` with
@@ -6626,7 +6813,7 @@ Edit `docs/security/threat-model.md` in the page's style (English, present tense
    - Residual risk: replace the bullet that begins `The open questions about Origin` with
 
      ```text
-     - A forward host that is a DNS name and is re-pointed after it was applied is not checked again. The accepted risk is listed in Known residual risks.
+     - A forward host that is a DNS name and is re-pointed after it was applied is not checked again, and nginx in NPM's container may resolve a name differently from the agent's host. The accepted risk is listed in Known residual risks.
      ```
 
      Replace the bullet that begins `A container on a network joined through the NPM attach action` with
@@ -6671,17 +6858,17 @@ Edit `docs/security/threat-model.md` in the page's style (English, present tense
    - `port 81`: NPM serves its admin login on port 81 and its API on port 3000 inside its container, on every interface, so any container on a network joined through the attach action reaches both; only the host side of port 81 is bound to loopback. The admin password is 32 random bytes and the pinned image offers no way to bind the ports to loopback, so a joined container gains an authentication surface and nothing more. The owner accepted this.
    - `openpgp`: the `openpgp` package of `golang.org/x/crypto` carries advisory GO-2026-5932 and no tagged release carries the fix. Darkpanel imports nothing from it. The pin stays until a tagged release carries the fix. The owner accepted this.
    - `enrollment budget`: the global enrollment budget is 60 requests a minute across all sources, so a peer that reaches the agent listener, on the tailnet by design, can use it up and block further enrollment for the rest of the minute. It affects enrollment only, and an enrollment token lasts one hour, so a sustained flood forces a new token. The owner accepted this.
-   - `forward host`: a forward host that is a DNS name is checked when the plan is made and again when it is applied, and a name that is re-pointed after it was applied is not checked again, so a name the caller controls can later resolve to an address that was refused at apply.
+   - `forward host`: a forward host that is a DNS name is checked when the plan is made and again when it is applied, and a name that is re-pointed after it was applied is not checked again, so a name the caller controls can later resolve to an address that was refused at apply. nginx in NPM's container resolves a name that no container answers to through the DNS servers configured on the host, which can answer differently from the agent's own resolver, for example for a name only the host's `/etc/hosts` holds.
    ```
 
 Keep the page's other sections as they are.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `export TMPDIR=/root/.cache/w10b-tmp/24 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestV1r25|TestW10Tm' ./internal/docs/ && timeout 300 go test -count=1 ./internal/docs/`
+Run: `export TMPDIR=/root/.cache/w10b-tmp/25 GOTOOLCHAIN=local && timeout 300 go test -count=1 -run 'TestV1r25|TestW10Tm' ./internal/docs/ && timeout 300 go test -count=1 ./internal/docs/`
 Expected: `ok` for both. The whole package covers the style, link and path tests of the page.
 
-Then run the plan's full Go checks with their real output: `timeout 600 go build ./... && timeout 300 go vet ./... && timeout 1500 go test -count=1 ./... && timeout 600 go test -race -count=1 ./internal/docs/... && timeout 900 golangci-lint run --allow-serial-runners ./... && timeout 300 go mod tidy -diff`. Expected: every test line `ok` or `?`, `0 issues.`, and no output from `go vet` and `go mod tidy -diff`. Also run `rg -n 'open question|undecided|register|row [0-9]' docs/security/threat-model.md` and expect no match. Finish with `rm -rf /root/.cache/w10b-tmp/24 && GOTOOLCHAIN=local go clean -testcache`.
+Then run the plan's full Go checks with their real output: `timeout 600 go build ./... && timeout 300 go vet ./... && timeout 1500 go test -count=1 ./... && timeout 600 go test -race -count=1 ./internal/docs/... && timeout 900 golangci-lint run --allow-serial-runners ./... && timeout 300 go mod tidy -diff`. Expected: every test line `ok` or `?`, `0 issues.`, and no output from `go vet` and `go mod tidy -diff`. Also run `rg -n 'open question|undecided|register|row [0-9]' docs/security/threat-model.md` and expect no match. Finish with `rm -rf /root/.cache/w10b-tmp/25 && GOTOOLCHAIN=local go clean -testcache`.
 
 - [ ] **Step 5: Commit**
 
