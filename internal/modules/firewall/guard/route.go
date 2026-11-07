@@ -272,11 +272,16 @@ func (r *router) route(p fwstate.Packet) (string, string, error) {
 // describe names a flow for the guard's message: label, protocol when not
 // TCP, addresses and the interfaces known so far.
 func describe(label string, p fwstate.Packet) string {
+	return describeEnds(label, p, p.Src.String(), netip.AddrPortFrom(p.Dst, p.DstPort).String())
+}
+
+// describeEnds is describe with the source and destination already written.
+func describeEnds(label string, p fwstate.Packet, src, dst string) string {
 	s := label
 	if p.Proto != "tcp" {
 		s += " " + p.Proto
 	}
-	s += " from " + p.Src.String() + " to " + netip.AddrPortFrom(p.Dst, p.DstPort).String()
+	s += " from " + src + " to " + dst
 	if p.InIface != "" {
 		s += " on " + p.InIface
 	}
@@ -303,16 +308,5 @@ func describeFlow(fl flow, p fwstate.Packet) string {
 	case fl.wild == wildDst:
 		dst = fl.span + ":" + port
 	}
-	s := fl.label
-	if p.Proto != "tcp" {
-		s += " " + p.Proto
-	}
-	s += " from " + src + " to " + dst
-	if p.InIface != "" {
-		s += " on " + p.InIface
-	}
-	if p.OutIface != "" {
-		s += " out " + p.OutIface
-	}
-	return s
+	return describeEnds(fl.label, p, src, dst)
 }
