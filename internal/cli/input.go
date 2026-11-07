@@ -85,10 +85,11 @@ var scalarTypes = []string{"string", "integer", "number", "boolean"}
 
 // inputFields reads the properties of t's input schema (schema.Input) in
 // schema order. Scalars and arrays of scalars get a flag; anything else is
-// nested and comes from --input; secret fields get no flag and must be
-// strings. The guard and overrides of a type embedding core.Guarded are
-// left out: the controller fills the guard, and --override sets the
-// overrides.
+// nested and comes from --input. Secret fields get no flag: a secret scalar
+// or array must be a string, and a secret nested value comes only from
+// --input, never from a prompt or standard input. The guard and overrides
+// of a type embedding core.Guarded are left out: the controller fills the
+// guard, and --override sets the overrides.
 func inputFields(t reflect.Type) ([]inputField, error) {
 	raw, err := schema.Input(t)
 	if err != nil {
@@ -144,7 +145,7 @@ func inputFields(t reflect.Type) ([]inputField, error) {
 			}
 		}
 		switch {
-		case f.Secret && f.Type != "string":
+		case f.Secret && f.Type != "string" && f.Type != "":
 			return nil, fmt.Errorf("input of %s: secret field %s must be a string", t, f.Name)
 		case f.Secret || f.Type == "":
 		case slices.Contains(reservedFlags, f.Flag):
@@ -257,7 +258,7 @@ func flagValue(cmd *cobra.Command, f inputField) (any, error) {
 }
 
 // collectInput builds the input object: the --input document, overridden
-// by the flags that were set, then every secret still missing, read in
+// by the flags that were set, then every secret string still missing, read in
 // schema order from the terminal or standard input. A required boolean that
 // is missing is false; any other missing required field is a usage error.
 func collectInput(cmd *cobra.Command, fields []inputField, term *terminal) (json.RawMessage, error) {
@@ -281,7 +282,7 @@ func collectInput(cmd *cobra.Command, fields []inputField, term *terminal) (json
 		}
 	}
 	for _, f := range fields {
-		if _, ok := obj[f.Name]; ok || !f.Required || f.Secret {
+		if _, ok := obj[f.Name]; ok || !f.Required || (f.Secret && f.Type != "") {
 			continue
 		}
 		switch f.Type {
@@ -294,7 +295,7 @@ func collectInput(cmd *cobra.Command, fields []inputField, term *terminal) (json
 		}
 	}
 	for _, f := range fields {
-		if _, ok := obj[f.Name]; ok || !f.Secret {
+		if _, ok := obj[f.Name]; ok || !f.Secret || f.Type == "" {
 			continue
 		}
 		s, err := term.secret(f.Name + ": ")
