@@ -103,8 +103,9 @@ func TestSdWireJSON(t *testing.T) {
 			`{"hostId":"h2","regionId":900,"regionCode":"fra-x","regionName":"Frankfurt X","omitDefaultRegions":true,"acknowledge":"nodes will relay only through fra-x"}`},
 		{"region remove input", RegionRemoveInput{RegionID: 900}, `{"regionId":900}`},
 		{"server remove input", ServerRemoveInput{HostID: "h2"}, `{"hostId":"h2"}`},
-		{"region changed", RegionChanged{ETag: "e1"}, `{"etag":"e1"}`},
-		{"server removed", ServerRemoved{Removed: []string{"a", "b"}}, `{"removed":["a","b"]}`},
+		{"region changed", RegionChanged{ETag: "e1", Warnings: []string{}}, `{"etag":"e1","warnings":[]}`},
+		{"region changed with a warning", RegionChanged{ETag: "e1", Warnings: []string{"w"}}, `{"etag":"e1","warnings":["w"]}`},
+		{"server removed", ServerRemoved{Removed: []string{"a", "b"}, Warnings: []string{}}, `{"removed":["a","b"],"warnings":[]}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

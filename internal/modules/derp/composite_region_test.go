@@ -343,27 +343,47 @@ func TestCGStepsMatchTheActions(t *testing.T) {
 
 func TestCGRegionOutput(t *testing.T) {
 	h := newDPHost(t)
-	steps := map[string]json.RawMessage{"region": json.RawMessage(`{"etag":"\"abc123\""}`)}
+	region := json.RawMessage(`{"etag":"\"abc123\""}`)
+	const grant = "the visibility grant of region 900's server stays in the policy: its tag could not be read"
+	const setIn = `{"hostId":"h7","regionId":900,"regionCode":"dp-eu","regionName":"Frankfurt"}`
+	const removeIn = `{"regionId":900}`
+	const removeEdits = `[{"op":"delete","path":"/derpMap/Regions/900"}]`
 	tests := []struct {
-		name string
-		def  core.ActionDef
-		in   string
+		name     string
+		def      core.ActionDef
+		in       string
+		edits    string // the edits step's output; "" leaves the step out of the map
+		warnings []any
 	}{
-		{"set", h.dp().regionSet(), `{"hostId":"h7","regionId":900,"regionCode":"dp-eu","regionName":"Frankfurt"}`},
-		{"remove", h.dp().regionRemove(), `{"regionId":900}`},
+		{"set without warnings", h.dp().regionSet(), setIn, `{"edits":[],"warnings":[]}`, []any{}},
+		{"set with a warning", h.dp().regionSet(), setIn,
+			`{"edits":[],"warnings":["the STUN probe of the server got no answer"]}`, []any{"the STUN probe of the server got no answer"}},
+		{"remove without warnings", h.dp().regionRemove(), removeIn, `{"edits":` + removeEdits + `,"warnings":[]}`, []any{}},
+		{"remove that leaves the grant", h.dp().regionRemove(), removeIn, `{"edits":` + removeEdits + `,"warnings":["` + grant + `"]}`, []any{grant}},
+		{"remove whose edits step has a null output", h.dp().regionRemove(), removeIn, `null`, []any{}},
+		{"remove without an edits step", h.dp().regionRemove(), removeIn, "", []any{}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			steps := map[string]json.RawMessage{"region": region}
+			if tc.edits != "" {
+				steps["edits"] = json.RawMessage(tc.edits)
+			}
 			out, err := tc.def.Handler.Output(context.Background(), h.ctlEnv(""), json.RawMessage(tc.in), steps)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got, want := cgJSON(t, out), map[string]any{"etag": `"abc123"`}; !reflect.DeepEqual(got, want) {
+			if got, want := cgJSON(t, out), map[string]any{"etag": `"abc123"`, "warnings": tc.warnings}; !reflect.DeepEqual(got, want) {
 				t.Errorf("output %s, want %v", out, want)
 			}
 			_, err = tc.def.Handler.Output(context.Background(), h.ctlEnv(""), json.RawMessage(tc.in), map[string]json.RawMessage{})
 			if err == nil || !strings.Contains(err.Error(), "region") {
 				t.Errorf("output without the region step: %v, want an error naming region", err)
+			}
+			steps["edits"] = json.RawMessage(`"not an object"`)
+			_, err = tc.def.Handler.Output(context.Background(), h.ctlEnv(""), json.RawMessage(tc.in), steps)
+			if err == nil || !strings.Contains(err.Error(), "edits") {
+				t.Errorf("output with an unreadable edits step: %v, want an error naming edits", err)
 			}
 		})
 	}

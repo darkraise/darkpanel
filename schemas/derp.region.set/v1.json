@@ -60,11 +60,19 @@
           "etag": {
             "type": "string",
             "description": "The policy's ETag after the change; empty when nothing changed."
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Warnings of the step that computed the policy edits, such as a visibility grant that stays in the policy; empty when there are none."
           }
         },
         "type": "object",
         "required": [
-          "etag"
+          "etag",
+          "warnings"
         ]
       }
     }

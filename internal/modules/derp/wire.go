@@ -259,12 +259,14 @@ type ServerRemoveInput struct {
 	HostID string `json:"hostId" jsonschema:"minLength=1" jsonschema_description:"Id of the host running the server."`
 }
 
-// RegionChanged is the output of a composite that changes the DERP region in the tailnet policy.
+// RegionChanged is the output of derp.region.set and derp.region.remove.
 type RegionChanged struct {
-	ETag string `json:"etag" jsonschema_description:"The policy's ETag after the change; empty when nothing changed."`
+	ETag     string   `json:"etag" jsonschema_description:"The policy's ETag after the change; empty when nothing changed."`
+	Warnings []string `json:"warnings" jsonschema_description:"Warnings of the step that computed the policy edits, such as a visibility grant that stays in the policy; empty when there are none."`
 }
 
 // ServerRemoved is the output of derp.server.remove.
 type ServerRemoved struct {
-	Removed []string `json:"removed" jsonschema_description:"The effect resources removed, in order."`
+	Removed  []string `json:"removed" jsonschema_description:"The effect resources removed, in order."`
+	Warnings []string `json:"warnings" jsonschema_description:"Warnings of the step that computed the policy edits to withdraw the server's region, such as a visibility grant that stays in the policy; empty when there are none."`
 }

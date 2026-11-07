@@ -4536,10 +4536,18 @@
           "etag": {
             "description": "The policy's ETag after the change; empty when nothing changed.",
             "type": "string"
+          },
+          "warnings": {
+            "description": "Warnings of the step that computed the policy edits, such as a visibility grant that stays in the policy; empty when there are none.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "required": [
-          "etag"
+          "etag",
+          "warnings"
         ],
         "type": "object"
       },
@@ -4595,10 +4603,18 @@
           "etag": {
             "description": "The policy's ETag after the change; empty when nothing changed.",
             "type": "string"
+          },
+          "warnings": {
+            "description": "Warnings of the step that computed the policy edits, such as a visibility grant that stays in the policy; empty when there are none.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "required": [
-          "etag"
+          "etag",
+          "warnings"
         ],
         "type": "object"
       },
@@ -5230,10 +5246,18 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "warnings": {
+            "description": "Warnings of the step that computed the policy edits to withdraw the server's region, such as a visibility grant that stays in the policy; empty when there are none.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "required": [
-          "removed"
+          "removed",
+          "warnings"
         ],
         "type": "object"
       },

@@ -148,6 +148,7 @@ Returned in the `output` field of the change that apply returns.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `etag` | string | yes | The policy's ETag after the change; empty when nothing changed. |
+| `warnings` | array of string | yes | Warnings of the step that computed the policy edits, such as a visibility grant that stays in the policy; empty when there are none. |
 
 ## derp.region.set v1
 
@@ -180,6 +181,7 @@ Returned in the `output` field of the change that apply returns.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `etag` | string | yes | The policy's ETag after the change; empty when nothing changed. |
+| `warnings` | array of string | yes | Warnings of the step that computed the policy edits, such as a visibility grant that stays in the policy; empty when there are none. |
 
 ## derp.server.deploy v1
 
@@ -378,6 +380,7 @@ Returned in the `output` field of the change that apply returns.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `removed` | array of string | yes | The effect resources removed, in order. |
+| `warnings` | array of string | yes | Warnings of the step that computed the policy edits to withdraw the server's region, such as a visibility grant that stays in the policy; empty when there are none. |
 
 ## derp.server.status v1
 

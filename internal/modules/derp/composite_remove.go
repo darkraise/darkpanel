@@ -123,7 +123,7 @@ func (c serverRemoveComposer) unrecordedRegion(ctx context.Context, env core.Env
 	return region.RegionID, nil
 }
 
-// Output is what the uninstall step removed.
+// Output is what the uninstall step removed and any warnings of the edits step.
 func (serverRemoveComposer) Output(_ context.Context, _ core.Env, _ ServerRemoveInput, steps map[string]json.RawMessage) (ServerRemoved, error) {
 	raw, ok := steps["uninstall"]
 	if !ok {
@@ -136,5 +136,9 @@ func (serverRemoveComposer) Output(_ context.Context, _ core.Env, _ ServerRemove
 	if out.Removed == nil {
 		out.Removed = []string{}
 	}
-	return ServerRemoved(out), nil
+	warnings, err := compositeEditWarnings(steps)
+	if err != nil {
+		return ServerRemoved{}, err
+	}
+	return ServerRemoved{Removed: out.Removed, Warnings: warnings}, nil
 }

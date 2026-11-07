@@ -269,18 +269,30 @@ func TestCMOutput(t *testing.T) {
 	h := newDPHost(t)
 	def := h.dp().serverRemove()
 	in := json.RawMessage(`{"hostId":"h7"}`)
+	const grant = "the visibility grant of region 900's server stays in the policy: its tag could not be read"
+	const removed = `["derp.unit:darkpanel-derper.service","derp.user:darkpanel-derp"]`
+	const edits = `[{"op":"delete","path":"/derpMap/Regions/900"}]`
 	tests := []struct {
 		name      string
 		uninstall string
+		edits     string // the edits step's output; "" when the removal has no edits step
 		want      string
 	}{
-		{"what was removed", `{"removed":["derp.unit:darkpanel-derper.service","derp.user:darkpanel-derp"]}`, `{"removed":["derp.unit:darkpanel-derper.service","derp.user:darkpanel-derp"]}`},
-		{"nothing was installed", `{"removed":[]}`, `{"removed":[]}`},
-		{"no list at all is still a list", `{}`, `{"removed":[]}`},
+		{"what was removed", `{"removed":` + removed + `}`, "", `{"removed":` + removed + `,"warnings":[]}`},
+		{"nothing was installed", `{"removed":[]}`, "", `{"removed":[],"warnings":[]}`},
+		{"no list at all is still a list", `{}`, "", `{"removed":[],"warnings":[]}`},
+		{"the region was withdrawn cleanly", `{"removed":` + removed + `}`, `{"edits":` + edits + `,"warnings":[]}`,
+			`{"removed":` + removed + `,"warnings":[]}`},
+		{"the grant of the region's server stays in the policy", `{"removed":` + removed + `}`,
+			`{"edits":` + edits + `,"warnings":["` + grant + `"]}`, `{"removed":` + removed + `,"warnings":["` + grant + `"]}`},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			steps := map[string]json.RawMessage{"uninstall": json.RawMessage(tc.uninstall), "unpin": json.RawMessage(`{"version":"1.104.1","held":false}`), "ports": json.RawMessage(`{}`)}
+			if tc.edits != "" {
+				steps["edits"] = json.RawMessage(tc.edits)
+				steps["region"] = json.RawMessage(`{"etag":"x"}`)
+			}
 			out, err := def.Handler.Output(context.Background(), h.ctlEnv(""), in, steps)
 			if err != nil {
 				t.Fatal(err)

@@ -36,11 +36,19 @@
             },
             "type": "array",
             "description": "The effect resources removed, in order."
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Warnings of the step that computed the policy edits to withdraw the server's region, such as a visibility grant that stays in the policy; empty when there are none."
           }
         },
         "type": "object",
         "required": [
-          "removed"
+          "removed",
+          "warnings"
         ]
       }
     }

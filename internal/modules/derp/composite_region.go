@@ -58,17 +58,40 @@ func regionCompositeEdits(in any, after []string) (core.Step, error) {
 	return core.Step{ID: "edits", Action: core.ActionRef{Name: ID + ".region.edits", Version: 1}, Input: raw, After: after}, nil
 }
 
-// regionCompositeOutput is the region step's output: the policy's ETag as the patch reported it.
+// compositeEditWarnings returns the warnings of the edits step, or an empty
+// slice when the composite has no edits step or the step reported none.
+func compositeEditWarnings(steps map[string]json.RawMessage) ([]string, error) {
+	raw, ok := steps["edits"]
+	if !ok {
+		return []string{}, nil
+	}
+	var edits RegionEdits
+	if err := json.Unmarshal(raw, &edits); err != nil {
+		return nil, fmt.Errorf("derp: the edits step's output: %w", err)
+	}
+	if edits.Warnings == nil {
+		return []string{}, nil
+	}
+	return edits.Warnings, nil
+}
+
+// regionCompositeOutput is the region step's ETag and the edits step's warnings.
 func regionCompositeOutput(steps map[string]json.RawMessage) (RegionChanged, error) {
 	raw, ok := steps["region"]
 	if !ok {
 		return RegionChanged{}, errors.New("derp: the region change has no output of its region step")
 	}
-	var out RegionChanged
-	if err := json.Unmarshal(raw, &out); err != nil {
+	var region struct {
+		ETag string `json:"etag"`
+	}
+	if err := json.Unmarshal(raw, &region); err != nil {
 		return RegionChanged{}, fmt.Errorf("derp: the region step's output: %w", err)
 	}
-	return out, nil
+	warnings, err := compositeEditWarnings(steps)
+	if err != nil {
+		return RegionChanged{}, err
+	}
+	return RegionChanged{ETag: region.ETag, Warnings: warnings}, nil
 }
 
 // regionSetComposer publishes a region in two steps: compute the edits, then patch the policy.
