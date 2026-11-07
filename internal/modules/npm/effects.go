@@ -2,6 +2,9 @@ package npm
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -105,6 +108,37 @@ func (n nm) run(ctx context.Context, env core.Env, e core.Effect, observe func(c
 		return fmt.Errorf("npm: journal %s: %w", resource, err)
 	}
 	return nil
+}
+
+// npmFingerprintLabel is the label of the role key the module's effect fingerprints are keyed with.
+const npmFingerprintLabel = "npm.effect.fingerprint/v1"
+
+// npmFingerprint is the keyed fingerprint of value: "hmac-sha256:" and the lower-case hex HMAC-SHA256 of value under
+// the role key derived for npmFingerprintLabel. An effect document is served at scope read, and a plain hash of a
+// low-entropy value such as a header credential could be checked against guesses offline; the keyed fingerprint
+// cannot be without the role key.
+func npmFingerprint(env core.Env, value string) string {
+	m := hmac.New(sha256.New, env.Sealer.Derive(npmFingerprintLabel))
+	m.Write([]byte(value))
+	return "hmac-sha256:" + hex.EncodeToString(m.Sum(nil))
+}
+
+// sealedJournal is a journal that seals secret with every effect intended through it.
+type sealedJournal struct {
+	core.EffectJournal
+	secret []byte
+}
+
+// Intend records e as intended with the held secret sealed with it.
+func (j sealedJournal) Intend(ctx context.Context, e core.Effect, _ []byte) (int, error) {
+	return j.EffectJournal.Intend(ctx, e, j.secret)
+}
+
+// withEffectSecret is a copy of env whose journal seals secret with the next effect intended through it. It exists so
+// that run, whose signature many actions share, journals an effect with a secret without changing.
+func withEffectSecret(env core.Env, secret []byte) core.Env {
+	env.Effects = sealedJournal{EffectJournal: env.Effects, secret: secret}
+	return env
 }
 
 // nullState is the state of an object that does not exist.

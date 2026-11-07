@@ -192,22 +192,22 @@ func TestPaState(t *testing.T) {
 		Locations: []npmapi.Location{{Path: "/", ForwardScheme: "http", ForwardHost: "web", ForwardPort: 8080, AdvancedConfig: "x"}},
 	}
 	var got map[string]any
-	if err := json.Unmarshal(proxyHostState(host), &got); err != nil {
+	if err := json.Unmarshal(proxyHostState(v1r10Env(), host), &got); err != nil {
 		t.Fatal(err)
 	}
 	want := map[string]any{
 		"domains": []any{"a.example.com", "b.example.com"}, "forwardScheme": "http", "forwardHost": "web", "forwardPort": float64(8080),
 		"certificateId": float64(3), "accessListId": float64(2), "sslForced": true, "hsts": true, "websockets": false,
 		"locations": []any{map[string]any{
-			"path": "/", "forwardScheme": "http", "forwardHost": "web", "forwardPort": float64(8080), "advancedConfig": "x",
+			"path": "/", "forwardScheme": "http", "forwardHost": "web", "forwardPort": float64(8080), "advancedConfig": v1r10Fingerprint("x"),
 		}},
-		"advancedConfig": "",
+		"advancedConfig": v1r10Fingerprint(""),
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("state %v, want %v", got, want)
 	}
 	host.Locations = nil
-	if err := json.Unmarshal(proxyHostState(host), &got); err != nil || !reflect.DeepEqual(got["locations"], []any{}) {
+	if err := json.Unmarshal(proxyHostState(v1r10Env(), host), &got); err != nil || !reflect.DeepEqual(got["locations"], []any{}) {
 		t.Errorf("a host without locations: locations %v (%v), want an empty array", got["locations"], err)
 	}
 }
@@ -402,7 +402,7 @@ func TestPaApply(t *testing.T) {
 		if e.Recovery == nil || e.Recovery.Kind != "name" || e.Recovery.Value != "a.example.com,b.example.com" || string(e.Before.State) != "null" {
 			t.Errorf("recovery %+v before %s, want the sorted domain set and the null state", e.Recovery, e.Before.State)
 		}
-		if e.Post == nil || string(e.Post.State) != string(proxyHostState(created)) {
+		if e.Post == nil || string(e.Post.State) != string(proxyHostState(h.env(""), created)) {
 			t.Errorf("post %+v, want the proxy host's state document", e.Post)
 		}
 		if rows := reservedCount(t, h); rows != 0 {
@@ -512,7 +512,7 @@ func TestPaLostResponse(t *testing.T) {
 	e.CommitBy = created.Add(-time.Second).Add(e.CommitWait)
 	obs, err := def.Handler.Observe(ctx, h.env("c1"), e)
 	wantResource := "npm.proxyhost:" + strconv.Itoa(hosts[0].ID)
-	if err != nil || obs.Matches != 1 || obs.Resource != wantResource || !obs.Exclusive || string(obs.Current.State) != string(proxyHostState(hosts[0])) {
+	if err != nil || obs.Matches != 1 || obs.Resource != wantResource || !obs.Exclusive || string(obs.Current.State) != string(proxyHostState(h.env(""), hosts[0])) {
 		t.Errorf("observation %+v (%v), want one exclusive match of %s", obs, err, wantResource)
 	}
 
@@ -540,7 +540,7 @@ func TestPaObserveMade(t *testing.T) {
 	def := n.proxyhostAdd()
 	e := core.Effect{ChangeID: "c1", Kind: core.EffectCreate, Resource: "npm.proxyhost:" + strconv.Itoa(out.ID), State: core.EffectMade}
 	obs, err := def.Handler.Observe(ctx, h.env("c1"), e)
-	if err != nil || obs.Matches != 1 || string(obs.Current.State) != string(proxyHostState(h.npm.ProxyHosts()[0])) {
+	if err != nil || obs.Matches != 1 || string(obs.Current.State) != string(proxyHostState(h.env(""), h.npm.ProxyHosts()[0])) {
 		t.Errorf("observation %+v (%v), want the host's state document", obs, err)
 	}
 	e.Resource = "npm.proxyhost:999"

@@ -197,8 +197,8 @@ type proxyhostAddState struct {
 }
 
 // proxyHostState is the state document of a proxy host: what an update sets and an undo restores, without its id and
-// times.
-func proxyHostState(h npmapi.ProxyHost) json.RawMessage {
+// times, and with every advanced configuration, the host's and each location's, replaced by its fingerprint.
+func proxyHostState(env core.Env, h npmapi.ProxyHost) json.RawMessage {
 	doc := proxyhostAddState{
 		Domains:        proxyhostAddSorted(h.DomainNames),
 		ForwardScheme:  h.ForwardScheme,
@@ -210,11 +210,11 @@ func proxyHostState(h npmapi.ProxyHost) json.RawMessage {
 		HSTS:           h.HSTSEnabled,
 		Websockets:     h.AllowWebsocketUpgrade,
 		Locations:      make([]proxyhostAddLocation, len(h.Locations)),
-		AdvancedConfig: h.AdvancedConfig,
+		AdvancedConfig: npmFingerprint(env, h.AdvancedConfig),
 	}
 	for i, l := range h.Locations {
 		doc.Locations[i] = proxyhostAddLocation{Path: l.Path, ForwardScheme: l.ForwardScheme, ForwardHost: l.ForwardHost,
-			ForwardPort: l.ForwardPort, AdvancedConfig: l.AdvancedConfig}
+			ForwardPort: l.ForwardPort, AdvancedConfig: npmFingerprint(env, l.AdvancedConfig)}
 	}
 	// Marshal cannot fail on strings, numbers and booleans.
 	b, _ := json.Marshal(doc)
@@ -222,12 +222,12 @@ func proxyHostState(h npmapi.ProxyHost) json.RawMessage {
 }
 
 // proxyhostAddDoc is the state document of a proxy host with its times as the version.
-func proxyhostAddDoc(h npmapi.ProxyHost) core.StateDoc {
+func proxyhostAddDoc(env core.Env, h npmapi.ProxyHost) core.StateDoc {
 	version, _ := json.Marshal(struct {
 		CreatedOn  string `json:"createdOn"`
 		ModifiedOn string `json:"modifiedOn"`
 	}{h.CreatedOn, h.ModifiedOn})
-	return core.StateDoc{State: proxyHostState(h), Version: version}
+	return core.StateDoc{State: proxyHostState(env, h), Version: version}
 }
 
 // proxyHostCreatedOn parses NPM's created_on: RFC 3339, or "2006-01-02 15:04:05" read as UTC.
@@ -626,7 +626,7 @@ func (h proxyhostAddHandler) Observe(ctx context.Context, env core.Env, e core.E
 		if err != nil {
 			return core.Observation{}, proxyhostAddAnswer(err)
 		}
-		return core.Observation{Current: proxyhostAddDoc(host), Matches: 1, Exclusive: true}, nil
+		return core.Observation{Current: proxyhostAddDoc(env, host), Matches: 1, Exclusive: true}, nil
 	}
 	hosts, err := api.ProxyHosts(ctx)
 	if err != nil {
@@ -645,7 +645,7 @@ func (h proxyhostAddHandler) Observe(ctx context.Context, env core.Env, e core.E
 		if createdOn.Before(intent) {
 			continue
 		}
-		candidates = append(candidates, core.Candidate{Resource: resourceOf(nounProxyHost, strconv.Itoa(host.ID)), State: proxyhostAddDoc(host)})
+		candidates = append(candidates, core.Candidate{Resource: resourceOf(nounProxyHost, strconv.Itoa(host.ID)), State: proxyhostAddDoc(env, host)})
 	}
 	// The domain set is unique among NPM's proxy hosts, so even several matches are told apart from every other host.
 	obs := found(candidates)

@@ -65,22 +65,41 @@ func proxyHostEditBody(h npmapi.ProxyHost) npmapi.ProxyHostBody {
 	}
 }
 
-// proxyHostEditState is the state of a body: its JSON with the domains sorted. The inverses decode it back into a
-// body.
-func proxyHostEditState(b npmapi.ProxyHostBody) json.RawMessage {
+// proxyHostEditState is the effect document of a body: its JSON with the domains sorted and every advanced
+// configuration, the host's and each location's, replaced by its fingerprint. It is compared, never sent: the body an
+// undo restores is sealed with the effect.
+func proxyHostEditState(env core.Env, b npmapi.ProxyHostBody) json.RawMessage {
 	b.DomainNames = proxyhostAddSorted(b.DomainNames)
+	b.AdvancedConfig = npmFingerprint(env, b.AdvancedConfig)
+	b.Locations = slices.Clone(b.Locations)
+	for i := range b.Locations {
+		b.Locations[i].AdvancedConfig = npmFingerprint(env, b.Locations[i].AdvancedConfig)
+	}
 	// Marshal cannot fail on strings, numbers and booleans.
 	s, _ := json.Marshal(b)
 	return s
 }
 
 // proxyHostEditDoc is the effect document of a proxy host, with its times as the version.
-func proxyHostEditDoc(h npmapi.ProxyHost) core.StateDoc {
+func proxyHostEditDoc(env core.Env, h npmapi.ProxyHost) core.StateDoc {
 	version, _ := json.Marshal(struct {
 		CreatedOn  string `json:"createdOn"`
 		ModifiedOn string `json:"modifiedOn"`
 	}{h.CreatedOn, h.ModifiedOn})
-	return core.StateDoc{State: proxyHostEditState(proxyHostEditBody(h)), Version: version}
+	return core.StateDoc{State: proxyHostEditState(env, proxyHostEditBody(h)), Version: version}
+}
+
+// proxyHostEditKeep is body with what the operator wrote in NPM kept from host: the host's advanced configuration, and
+// every location whose path is not "/", in NPM's order and unchanged, after the module's own "/" location.
+func proxyHostEditKeep(body npmapi.ProxyHostBody, host npmapi.ProxyHost) npmapi.ProxyHostBody {
+	body.AdvancedConfig = host.AdvancedConfig
+	body.Locations = slices.Clone(body.Locations)
+	for _, l := range host.Locations {
+		if l.Path != "/" {
+			body.Locations = append(body.Locations, l)
+		}
+	}
+	return body
 }
 
 // proxyHostEditKey is the sorted domains joined by ",", the identity a recreated proxy host is found by.
@@ -168,15 +187,17 @@ func (p proxyHostEdit) refuseReserved(ctx context.Context, env core.Env, id int)
 	return row, true, nil
 }
 
-// undoBody is the body an inverse sends: the state the undo leaves, or the state the effect found.
-func (p proxyHostEdit) undoBody(e core.Effect) (npmapi.ProxyHostBody, error) {
-	state := e.Before.State
-	if e.UndoTo != nil {
-		state = e.UndoTo.State
+// undoBody is the body an inverse sends: the body the host had, sealed with the effect. The effect's documents hold
+// only fingerprints of the advanced configurations, so an inverse never restores from them.
+func (p proxyHostEdit) undoBody(ctx context.Context, env core.Env, e core.Effect) (npmapi.ProxyHostBody, error) {
+	secret, err := env.Effects.Secret(ctx, e.Seq)
+	if err != nil {
+		return npmapi.ProxyHostBody{}, core.Definite(fmt.Errorf("npm: read the sealed proxy host of effect %d of change %s: %w", e.Seq, e.ChangeID, err))
 	}
 	var b *npmapi.ProxyHostBody
-	if err := json.Unmarshal(state, &b); err != nil || b == nil {
-		return npmapi.ProxyHostBody{}, core.Definite(fmt.Errorf("npm: effect %d of change %s holds no proxy host to restore", e.Seq, e.ChangeID))
+	// The decode error is dropped: its text can quote the sealed body.
+	if len(secret) == 0 || json.Unmarshal(secret, &b) != nil || b == nil {
+		return npmapi.ProxyHostBody{}, core.Definite(fmt.Errorf("npm: effect %d of change %s holds no sealed proxy host to restore", e.Seq, e.ChangeID))
 	}
 	return *b, nil
 }
@@ -220,7 +241,7 @@ func (p proxyHostEdit) Observe(ctx context.Context, env core.Env, e core.Effect)
 				return core.Observation{}, err
 			}
 			if ok {
-				candidates = append(candidates, core.Candidate{Resource: resourceOf(nounProxyHost, strconv.Itoa(host.ID)), State: proxyHostEditDoc(host)})
+				candidates = append(candidates, core.Candidate{Resource: resourceOf(nounProxyHost, strconv.Itoa(host.ID)), State: proxyHostEditDoc(env, host)})
 			}
 		case e.InverseRecovery != nil:
 			hosts, err := api.ProxyHosts(ctx)
@@ -229,7 +250,7 @@ func (p proxyHostEdit) Observe(ctx context.Context, env core.Env, e core.Effect)
 			}
 			for _, host := range hosts {
 				if proxyHostEditKey(host.DomainNames) == e.InverseRecovery.Value {
-					candidates = append(candidates, core.Candidate{Resource: resourceOf(nounProxyHost, strconv.Itoa(host.ID)), State: proxyHostEditDoc(host)})
+					candidates = append(candidates, core.Candidate{Resource: resourceOf(nounProxyHost, strconv.Itoa(host.ID)), State: proxyHostEditDoc(env, host)})
 				}
 			}
 		default:
@@ -247,7 +268,7 @@ func (p proxyHostEdit) Observe(ctx context.Context, env core.Env, e core.Effect)
 	if !ok {
 		return named(nullState().State), nil
 	}
-	return core.Observation{Current: proxyHostEditDoc(host), Resource: e.Resource, Matches: 1, Exclusive: true}, nil
+	return core.Observation{Current: proxyHostEditDoc(env, host), Resource: e.Resource, Matches: 1, Exclusive: true}, nil
 }
 
 // check decides whether the update may run and changes nothing; every refusal is Definite. It returns the client, the
@@ -293,7 +314,7 @@ func (h proxyHostUpdateHandler) check(ctx context.Context, env core.Env, in Prox
 	if len(fields) > 0 {
 		return nil, npmapi.ProxyHost{}, npmapi.ProxyHostBody{}, nil, proxyhostAddInvalid(fields)
 	}
-	return api, host, proxyHostBody(in.ProxyHostInput, env.Call.ParentAction), resolved, nil
+	return api, host, proxyHostEditKeep(proxyHostBody(in.ProxyHostInput, env.Call.ParentAction), host), resolved, nil
 }
 
 // proxyHostEditDiff is a "-" and a "+" line for each shown member that differs between from and to.
@@ -340,7 +361,7 @@ func (h proxyHostUpdateHandler) Plan(ctx context.Context, env core.Env, in Proxy
 	return core.PlanOutcome{
 		Diff:      proxyHostEditDiff(current, body),
 		Guards:    []core.Guard{},
-		StateHash: proxyHostEditSum(proxyHostEditState(current), proxyHostEditState(body), []byte("\n"+strings.Join(resolved, ","))),
+		StateHash: proxyHostEditSum(proxyHostEditState(env, current), proxyHostEditState(env, body), []byte("\n"+strings.Join(resolved, ","))),
 	}, nil
 }
 
@@ -350,10 +371,11 @@ func (h proxyHostUpdateHandler) Apply(ctx context.Context, env core.Env, in Prox
 	if err != nil {
 		return ProxyHostView{}, err
 	}
-	e := npmEffect(core.EffectModify, resourceOf(nounProxyHost, strconv.Itoa(host.ID)), proxyHostEditState(proxyHostEditBody(host)), commitWait)
-	e.After = &core.StateDoc{State: proxyHostEditState(body)}
+	e := npmEffect(core.EffectModify, resourceOf(nounProxyHost, strconv.Itoa(host.ID)), proxyHostEditState(env, proxyHostEditBody(host)), commitWait)
+	e.After = &core.StateDoc{State: proxyHostEditState(env, body)}
+	secret, _ := json.Marshal(proxyHostEditBody(host))
 	var updated npmapi.ProxyHost
-	err = h.n.run(ctx, env, e, h.Observe, func(ctx context.Context) (string, error) {
+	err = h.n.run(ctx, withEffectSecret(env, secret), e, h.Observe, func(ctx context.Context) (string, error) {
 		u, err := api.UpdateProxyHost(ctx, host.ID, body)
 		if err != nil {
 			return "", proxyhostAddAnswer(err)
@@ -397,7 +419,7 @@ func (h proxyHostUpdateHandler) Inverse(ctx context.Context, env core.Env, e cor
 	if err != nil {
 		return core.InverseResult{}, core.Definite(err)
 	}
-	body, err := h.undoBody(e)
+	body, err := h.undoBody(ctx, env, e)
 	if err != nil {
 		return core.InverseResult{}, err
 	}
@@ -507,7 +529,7 @@ func (h proxyHostRemoveHandler) Plan(ctx context.Context, env core.Env, in Proxy
 	return core.PlanOutcome{
 		Diff:      []core.DiffLine{{Op: "-", Text: text}},
 		Guards:    []core.Guard{},
-		StateHash: proxyHostEditSum([]byte(strconv.Itoa(t.host.ID)+"\n"), proxyHostEditState(proxyHostEditBody(t.host))),
+		StateHash: proxyHostEditSum([]byte(strconv.Itoa(t.host.ID)+"\n"), proxyHostEditState(env, proxyHostEditBody(t.host))),
 	}, nil
 }
 
@@ -543,11 +565,12 @@ func (h proxyHostRemoveHandler) Apply(ctx context.Context, env core.Env, in Prox
 		return view, nil
 	}
 	resource := resourceOf(nounProxyHost, strconv.Itoa(t.host.ID))
-	e := npmEffect(core.EffectDelete, resource, proxyHostEditState(proxyHostEditBody(t.host)), commitWait)
+	e := npmEffect(core.EffectDelete, resource, proxyHostEditState(env, proxyHostEditBody(t.host)), commitWait)
 	after := nullState()
 	e.After = &after
 	e.InverseRecovery = &core.RecoveryID{Kind: "name", Value: proxyHostEditKey(t.host.DomainNames)}
-	err = h.n.run(ctx, env, e, h.Observe, func(ctx context.Context) (string, error) {
+	secret, _ := json.Marshal(proxyHostEditBody(t.host))
+	err = h.n.run(ctx, withEffectSecret(env, secret), e, h.Observe, func(ctx context.Context) (string, error) {
 		err := t.api.DeleteProxyHost(ctx, t.host.ID)
 		switch {
 		case err == nil, npmapi.IsNotFound(err):
@@ -604,12 +627,12 @@ func (h proxyHostRemoveHandler) Verify(ctx context.Context, env core.Env, in Pro
 	return nil
 }
 
-// Inverse recreates the removed host from the state the journal holds; NPM gives it a new id. It does not restore the
+// Inverse recreates the removed host from the body sealed with the effect; NPM gives it a new id. It does not restore the
 // exposure's reservation records. A composite's step in needs_repair is undone directly with the step's stored call,
 // under which the forward host check refuses every reserved upstream and resolves each name again, so no undo recreates
 // a reserved-upstream host that no reservation tracks.
 func (h proxyHostRemoveHandler) Inverse(ctx context.Context, env core.Env, e core.Effect) (core.InverseResult, error) {
-	body, err := h.undoBody(e)
+	body, err := h.undoBody(ctx, env, e)
 	if err != nil {
 		return core.InverseResult{}, err
 	}

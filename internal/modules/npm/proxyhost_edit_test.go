@@ -273,10 +273,10 @@ func TestPuUpdateAppliesTheInput(t *testing.T) {
 		e.CommitWait != 2*time.Minute || e.Recovery != nil || e.After == nil {
 		t.Errorf("effect %+v, want a made non-local modify of npm.proxyhost:%d with a 2 minute commit wait", e, host.ID)
 	}
-	if got := puStateBody(t, e.Before.State); !reflect.DeepEqual(got, puBodyOf(host)) {
-		t.Errorf("before %+v, want the body the host had: %+v", got, puBodyOf(host))
+	if got := puStateBody(t, e.Before.State); !reflect.DeepEqual(got, v1r10Doc(puBodyOf(host))) {
+		t.Errorf("before %+v, want the body the host had: %+v", got, v1r10Doc(puBodyOf(host)))
 	}
-	if got := puStateBody(t, e.After.State); !reflect.DeepEqual(got, wantBody) {
+	if got := puStateBody(t, e.After.State); !reflect.DeepEqual(got, v1r10Doc(wantBody)) {
 		t.Errorf("after %+v, want the requested body %+v", got, wantBody)
 	}
 }
@@ -434,7 +434,7 @@ func TestPuObserveReadsTheHostById(t *testing.T) {
 	e := core.Effect{ChangeID: "c1", Seq: 1, Kind: core.EffectModify, Resource: "npm.proxyhost:" + strconv.Itoa(host.ID), State: core.EffectMade}
 
 	obs, err := def.Handler.Observe(ctx, h.env(""), e)
-	if err != nil || obs.Matches != 1 || !obs.Exclusive || obs.Resource != e.Resource || !reflect.DeepEqual(puStateBody(t, obs.Current.State), puBodyOf(host)) {
+	if err != nil || obs.Matches != 1 || !obs.Exclusive || obs.Resource != e.Resource || !reflect.DeepEqual(puStateBody(t, obs.Current.State), v1r10Doc(puBodyOf(host))) {
 		t.Errorf("observation %+v (%v), want the body of host %d", obs, err, host.ID)
 	}
 	e.Resource = "npm.proxyhost:" + strconv.Itoa(host.ID+50)
@@ -501,7 +501,7 @@ func TestPuRemoveDeletesTheHost(t *testing.T) {
 				e.After == nil || string(e.After.State) != "null" {
 				t.Errorf("effect %+v, want a made non-local delete of the host, ending null, whose inverse is found by %+v", e, wantRecovery)
 			}
-			if got := puStateBody(t, e.Before.State); !reflect.DeepEqual(got, puBodyOf(host)) {
+			if got := puStateBody(t, e.Before.State); !reflect.DeepEqual(got, v1r10Doc(puBodyOf(host))) {
 				t.Errorf("before %+v, want the body the host had: %+v", got, puBodyOf(host))
 			}
 			if err := def.Handler.Verify(ctx, h.env("c1"), raw, out); err != nil {
@@ -717,8 +717,12 @@ func TestPuRemoveInverseRefusesAReservedUpstream(t *testing.T) {
 		in.ForwardHost = "127.0.0.1"
 		in.ForwardPort = 81
 	}), "npm.admin.expose")
-	e := core.Effect{ChangeID: "c1", Seq: 1, Kind: core.EffectDelete, Resource: "npm.proxyhost:4242", State: core.EffectMade,
-		Before: core.StateDoc{State: puJSON(t, body)}}
+	h.env("c1")
+	seq, err := h.journal.Intend(ctx, core.Effect{Kind: core.EffectDelete, Resource: "npm.proxyhost:4242"}, puJSON(t, body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := core.Effect{ChangeID: "c1", Seq: seq, Kind: core.EffectDelete, Resource: "npm.proxyhost:4242", State: core.EffectMade}
 	before := puHosts(t, h)
 	for _, parent := range []string{"", "npm.admin.unexpose"} {
 		_, err := h.nm().proxyhostRemove().Handler.Inverse(ctx, h.child("c1", parent), e)
