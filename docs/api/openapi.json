@@ -6636,7 +6636,9 @@
             "additionalProperties": {
               "type": "string"
             },
-            "type": "object"
+            "type": "object",
+            "writeOnly": true,
+            "x-secret": true
           },
           "name": {
             "type": "string"
@@ -6931,7 +6933,9 @@
             "additionalProperties": {
               "type": "string"
             },
-            "type": "object"
+            "type": "object",
+            "writeOnly": true,
+            "x-secret": true
           },
           "name": {
             "type": "string"

@@ -41,10 +41,12 @@ func manageLabels(labels map[string]string) error {
 	return nil
 }
 
+// manageLabelLines adds one line per label, keys sorted. The diff never shows
+// a label value, which can hold a secret.
 func manageLabelLines(labels map[string]string) []core.DiffLine {
 	var lines []core.DiffLine
 	for _, k := range slices.Sorted(maps.Keys(labels)) {
-		lines = append(lines, core.DiffLine{Op: " ", Text: "label " + k + "=" + labels[k]})
+		lines = append(lines, core.DiffLine{Op: "+", Text: "label " + k})
 	}
 	return lines
 }
@@ -166,11 +168,13 @@ func (h networkCreateHandler) request(ctx context.Context, in NetworkCreateInput
 	return req, diff, nil
 }
 
-func (h networkCreateHandler) Plan(ctx context.Context, _ core.Env, in NetworkCreateInput) (core.PlanOutcome, error) {
+func (h networkCreateHandler) Plan(ctx context.Context, env core.Env, in NetworkCreateInput) (core.PlanOutcome, error) {
 	req, diff, err := h.request(ctx, in)
 	if err != nil {
 		return core.PlanOutcome{}, err
 	}
+	// A plain hash of the label values would confirm a guessed one.
+	req.Labels = dstate.LabelFingerprints(labelFingerprintKey(env), req.Labels)
 	hash, err := manageHash(req)
 	if err != nil {
 		return core.PlanOutcome{}, err
@@ -293,12 +297,12 @@ func (h networkRemoveHandler) target(ctx context.Context, in NetworkInput) (dock
 	return n, nil
 }
 
-func (h networkRemoveHandler) Plan(ctx context.Context, _ core.Env, in NetworkInput) (core.PlanOutcome, error) {
+func (h networkRemoveHandler) Plan(ctx context.Context, env core.Env, in NetworkInput) (core.PlanOutcome, error) {
 	n, err := h.target(ctx, in)
 	if err != nil {
 		return core.PlanOutcome{}, err
 	}
-	doc, err := dstate.NetworkCreated(&n)
+	doc, err := dstate.NetworkCreatedKeyed(&n, labelFingerprintKey(env))
 	if err != nil {
 		return core.PlanOutcome{}, fmt.Errorf("docker: render network %s: %w", n.ID, err)
 	}
@@ -320,7 +324,7 @@ func (h networkRemoveHandler) Apply(ctx context.Context, env core.Env, in Networ
 	if err != nil {
 		return Removed{}, err
 	}
-	before, err := dstate.NetworkCreated(&n)
+	before, err := dstate.NetworkCreatedKeyed(&n, labelFingerprintKey(env))
 	if err != nil {
 		return Removed{}, fmt.Errorf("docker: render network %s: %w", n.ID, err)
 	}

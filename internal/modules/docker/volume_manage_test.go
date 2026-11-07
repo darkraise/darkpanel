@@ -33,7 +33,7 @@ func TestObVolumeCreatePlan(t *testing.T) {
 	}{
 		{name: "defaults", input: `{"name":"data"}`, diff: []core.DiffLine{{Op: "+", Text: "volume data"}, {Op: " ", Text: "driver local"}}},
 		{name: "labels", input: `{"name":"data","driver":"local","labels":{"team":"a","env":"x"}}`, diff: []core.DiffLine{
-			{Op: "+", Text: "volume data"}, {Op: " ", Text: "driver local"}, {Op: " ", Text: "label env=x"}, {Op: " ", Text: "label team=a"},
+			{Op: "+", Text: "volume data"}, {Op: " ", Text: "driver local"}, {Op: "+", Text: "label env"}, {Op: "+", Text: "label team"},
 		}},
 		{name: "empty name", input: `{"name":""}`, field: "/name"},
 		{name: "bad name", input: `{"name":"a/b"}`, field: "/name"},
@@ -84,7 +84,7 @@ func TestObVolumeCreateApply(t *testing.T) {
 			t.Errorf("output %s (%v), want id data name data", raw, err)
 		}
 		made, _ := h.docker.InspectVolume(ctx, "data")
-		wantPost, _ := dstate.VolumeCreated(&made, true)
+		wantPost, _ := dstate.VolumeCreatedKeyed(&made, true, v1r14Key())
 		effects := h.journal.effects()
 		if len(effects) != 1 {
 			t.Fatalf("%d effects, want 1", len(effects))

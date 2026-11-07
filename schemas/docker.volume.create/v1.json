@@ -20,7 +20,9 @@
             "additionalProperties": {
               "type": "string"
             },
-            "type": "object"
+            "type": "object",
+            "writeOnly": true,
+            "x-secret": true
           }
         },
         "additionalProperties": false,

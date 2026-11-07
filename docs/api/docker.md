@@ -604,7 +604,7 @@ Sent in the `input` field of the request body.
 | `gateway` | string | no |  |
 | `internal` | boolean | no |  |
 | `ipv6` | boolean | no |  |
-| `labels` | map of string | no |  |
+| `labels` | map of string | no | Secret. |
 | `name` | string | yes |  |
 | `subnet` | string | no |  |
 
@@ -755,7 +755,7 @@ Sent in the `input` field of the request body.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `driver` | string | no |  |
-| `labels` | map of string | no |  |
+| `labels` | map of string | no | Secret. |
 | `name` | string | yes |  |
 
 ### Output

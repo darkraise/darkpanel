@@ -273,14 +273,14 @@ type NetworkCreateInput struct {
 	IPv6       bool              `json:"ipv6,omitempty"`
 	Subnet     string            `json:"subnet,omitempty"`
 	Gateway    string            `json:"gateway,omitempty"`
-	Labels     map[string]string `json:"labels,omitempty"` // never darkpanel.module
+	Labels     map[string]string `json:"labels,omitempty" secret:"true"` // never darkpanel.module
 }
 
 // VolumeCreateInput is the input of the volume creation action.
 type VolumeCreateInput struct {
 	Name   string            `json:"name"`
-	Driver string            `json:"driver,omitempty"` // default local
-	Labels map[string]string `json:"labels,omitempty"` // never darkpanel.module
+	Driver string            `json:"driver,omitempty"`               // default local
+	Labels map[string]string `json:"labels,omitempty" secret:"true"` // never darkpanel.module
 }
 
 // Created names the network or volume an action created.

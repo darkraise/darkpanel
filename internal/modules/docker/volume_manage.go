@@ -74,11 +74,13 @@ func (h volumeCreateHandler) request(ctx context.Context, in VolumeCreateInput) 
 	return req, append(diff, manageLabelLines(in.Labels)...), nil
 }
 
-func (h volumeCreateHandler) Plan(ctx context.Context, _ core.Env, in VolumeCreateInput) (core.PlanOutcome, error) {
+func (h volumeCreateHandler) Plan(ctx context.Context, env core.Env, in VolumeCreateInput) (core.PlanOutcome, error) {
 	req, diff, err := h.request(ctx, in)
 	if err != nil {
 		return core.PlanOutcome{}, err
 	}
+	// A plain hash of the label values would confirm a guessed one.
+	req.Labels = dstate.LabelFingerprints(labelFingerprintKey(env), req.Labels)
 	hash, err := manageHash(req)
 	if err != nil {
 		return core.PlanOutcome{}, err
@@ -188,12 +190,12 @@ func (h volumeRemoveHandler) target(ctx context.Context, in VolumeInput) (docker
 	return v, nil
 }
 
-func (h volumeRemoveHandler) Plan(ctx context.Context, _ core.Env, in VolumeInput) (core.PlanOutcome, error) {
+func (h volumeRemoveHandler) Plan(ctx context.Context, env core.Env, in VolumeInput) (core.PlanOutcome, error) {
 	v, err := h.target(ctx, in)
 	if err != nil {
 		return core.PlanOutcome{}, err
 	}
-	doc, err := dstate.VolumeCreated(&v, true)
+	doc, err := dstate.VolumeCreatedKeyed(&v, true, labelFingerprintKey(env))
 	if err != nil {
 		return core.PlanOutcome{}, fmt.Errorf("docker: render volume %s: %w", v.Name, err)
 	}
@@ -215,7 +217,7 @@ func (h volumeRemoveHandler) Apply(ctx context.Context, env core.Env, in VolumeI
 	if err != nil {
 		return Removed{}, err
 	}
-	before, err := dstate.VolumeCreated(&v, true)
+	before, err := dstate.VolumeCreatedKeyed(&v, true, labelFingerprintKey(env))
 	if err != nil {
 		return Removed{}, fmt.Errorf("docker: render volume %s: %w", v.Name, err)
 	}

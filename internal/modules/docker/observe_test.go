@@ -267,7 +267,7 @@ func TestEFObserveVolume(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	efSame(t, "unused", obs.Current.State, efMust(dstate.VolumeCreated(&v, true)))
+	efSame(t, "unused", obs.Current.State, efMust(dstate.VolumeCreatedKeyed(&v, true, v1r14Key())))
 
 	mounts = []dockerapi.ContainerSummary{
 		{Names: []string{"/other"}, Mounts: []dockerapi.MountPoint{{Type: "volume", Name: "elsewhere"}}},
@@ -277,7 +277,7 @@ func TestEFObserveVolume(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	efSame(t, "used", obs.Current.State, efMust(dstate.VolumeCreated(&v, false)))
+	efSame(t, "used", obs.Current.State, efMust(dstate.VolumeCreatedKeyed(&v, false, v1r14Key())))
 
 	creation := core.Effect{Kind: core.EffectCreate, Resource: volumeResource("?data"), State: core.EffectIntended,
 		Recovery: &core.RecoveryID{Kind: "name", Value: "data"}}

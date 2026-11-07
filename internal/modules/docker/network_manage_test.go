@@ -112,7 +112,7 @@ func TestObNetworkCreatePlan(t *testing.T) {
 			diff: []core.DiffLine{
 				{Op: "+", Text: "network app"}, {Op: " ", Text: "driver bridge"}, {Op: " ", Text: "internal"}, {Op: " ", Text: "attachable"},
 				{Op: " ", Text: "IPv6 enabled"}, {Op: " ", Text: "subnet 10.9.0.0/24"}, {Op: " ", Text: "gateway 10.9.0.1"},
-				{Op: " ", Text: "label env=x"}, {Op: " ", Text: "label team=a"},
+				{Op: "+", Text: "label env"}, {Op: "+", Text: "label team"},
 			}},
 		{name: "empty name", input: `{"name":""}`, field: "/name"},
 		{name: "bad name", input: `{"name":"-x"}`, field: "/name"},
@@ -208,7 +208,7 @@ func TestObNetworkCreateApply(t *testing.T) {
 			t.Fatalf("%d effects, want 1", len(effects))
 		}
 		e := effects[0]
-		wantPost, err := dstate.NetworkCreated(&made)
+		wantPost, err := dstate.NetworkCreatedKeyed(&made, v1r14Key())
 		if err != nil {
 			t.Fatal(err)
 		}

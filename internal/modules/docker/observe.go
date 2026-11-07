@@ -30,8 +30,17 @@ func named(state json.RawMessage) core.Observation {
 	return core.Observation{Current: core.StateDoc{State: state}, Matches: 1, Exclusive: true}
 }
 
+// labelFingerprintLabel is the label of the role key that network and volume
+// documents fingerprint their label values with.
+const labelFingerprintLabel = "docker.effect.fingerprint/v1"
+
+// labelFingerprintKey is the key network and volume documents fingerprint
+// their label values under. An effect document is served at scope read, and
+// a plain digest of a label value could be checked against guesses offline.
+func labelFingerprintKey(env core.Env) []byte { return env.Sealer.Derive(labelFingerprintLabel) }
+
 // observe is every docker handler's Observer. It only reads the Docker Engine.
-func (k dk) observe(ctx context.Context, _ core.Env, e core.Effect) (core.Observation, error) {
+func (k dk) observe(ctx context.Context, env core.Env, e core.Effect) (core.Observation, error) {
 	noun, identity, ok := strings.Cut(e.Resource, ":")
 	if !ok {
 		return core.Observation{}, fmt.Errorf("docker: %q is not a docker resource", e.Resource)
@@ -57,11 +66,11 @@ func (k dk) observe(ctx context.Context, _ core.Env, e core.Effect) (core.Observ
 		return k.observeEndpoint(ctx, containerID, networkID, phaseOf(e))
 	case nounNetwork:
 		if creation {
-			return k.findNetworks(ctx, name)
+			return k.findNetworks(ctx, name, labelFingerprintKey(env))
 		}
-		return k.observeNetwork(ctx, name)
+		return k.observeNetwork(ctx, name, labelFingerprintKey(env))
 	case nounVolume:
-		return k.observeVolume(ctx, name, creation)
+		return k.observeVolume(ctx, name, creation, labelFingerprintKey(env))
 	default:
 		return core.Observation{}, fmt.Errorf("docker: %q is not a docker resource", e.Resource)
 	}
@@ -112,7 +121,7 @@ func (k dk) observeEndpoint(ctx context.Context, containerID, networkID string, 
 
 // networkState inspects a network, because only the inspect answer lists the
 // containers that use it; found is false when the network is gone.
-func (k dk) networkState(ctx context.Context, id string) (doc json.RawMessage, found bool, err error) {
+func (k dk) networkState(ctx context.Context, id string, key []byte) (doc json.RawMessage, found bool, err error) {
 	n, err := k.d.docker.InspectNetwork(ctx, id)
 	if dockerapi.IsNotFound(err) {
 		return nullState().State, false, nil
@@ -120,15 +129,15 @@ func (k dk) networkState(ctx context.Context, id string) (doc json.RawMessage, f
 	if err != nil {
 		return nil, false, engineError("network", id, err)
 	}
-	doc, err = dstate.NetworkCreated(&n)
+	doc, err = dstate.NetworkCreatedKeyed(&n, key)
 	if err != nil {
 		return nil, false, fmt.Errorf("docker: render network %s: %w", id, err)
 	}
 	return doc, true, nil
 }
 
-func (k dk) observeNetwork(ctx context.Context, id string) (core.Observation, error) {
-	doc, _, err := k.networkState(ctx, id)
+func (k dk) observeNetwork(ctx context.Context, id string, key []byte) (core.Observation, error) {
+	doc, _, err := k.networkState(ctx, id, key)
 	if err != nil {
 		return core.Observation{}, err
 	}
@@ -137,7 +146,7 @@ func (k dk) observeNetwork(ctx context.Context, id string) (core.Observation, er
 
 // findNetworks finds a creation's network by its exact name. Network names
 // are not unique, so a single match is not exclusive.
-func (k dk) findNetworks(ctx context.Context, name string) (core.Observation, error) {
+func (k dk) findNetworks(ctx context.Context, name string, key []byte) (core.Observation, error) {
 	list, err := k.d.docker.ListNetworks(ctx, dockerapi.Filters{"name": {name}})
 	if err != nil {
 		return core.Observation{}, engineError("network", name, err)
@@ -148,7 +157,7 @@ func (k dk) findNetworks(ctx context.Context, name string) (core.Observation, er
 		if n.Name != name {
 			continue
 		}
-		doc, ok, err := k.networkState(ctx, n.ID)
+		doc, ok, err := k.networkState(ctx, n.ID, key)
 		if err != nil {
 			return core.Observation{}, err
 		}
@@ -169,7 +178,7 @@ func (k dk) findNetworks(ctx context.Context, name string) (core.Observation, er
 
 // observeVolume reads a volume by its name, which Docker keeps unique, so a
 // creation found by name is exclusive too.
-func (k dk) observeVolume(ctx context.Context, name string, creation bool) (core.Observation, error) {
+func (k dk) observeVolume(ctx context.Context, name string, creation bool, key []byte) (core.Observation, error) {
 	v, err := k.d.docker.InspectVolume(ctx, name)
 	if dockerapi.IsNotFound(err) {
 		if creation {
@@ -191,7 +200,7 @@ func (k dk) observeVolume(ctx context.Context, name string, creation bool) (core
 			break
 		}
 	}
-	doc, err := dstate.VolumeCreated(&v, unused)
+	doc, err := dstate.VolumeCreatedKeyed(&v, unused, key)
 	if err != nil {
 		return core.Observation{}, fmt.Errorf("docker: render volume %s: %w", name, err)
 	}
