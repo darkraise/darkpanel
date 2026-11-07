@@ -12,7 +12,6 @@ import (
 
 const (
 	npmContainerName = "darkpanel-npm"
-	npmAdminPort     = 81
 	adminOwner       = "npm.admin.expose"
 	panelOwner       = "panel.exposure.add"
 )
@@ -31,10 +30,11 @@ type Reserved struct {
 	PanelGateway netip.Addr
 }
 
-// CheckUpstream refuses with npm.reserved an upstream that points at the local host, or at NPM's own
-// admin port, unless parent is npm.admin.expose, and one inside the panel network or at the panel
-// gateway unless parent is panel.exposure.add. host is read as nginx reads a proxy_pass host; a name
-// other than the loopback names and the NPM container's names is allowed, because it resolves nothing.
+// CheckUpstream refuses with npm.reserved, unless parent is npm.admin.expose, an upstream that points at
+// the local host or at any port of NPM's own names and addresses, and, unless parent is
+// panel.exposure.add, one inside the panel network or at the panel gateway. host is read as nginx reads
+// a proxy_pass host; a name other than the loopback names and the NPM container's names is allowed,
+// because it resolves nothing.
 func CheckUpstream(r Reserved, host string, port int, parent string) error {
 	name := normaliseHost(host)
 	addr, isAddr := upstreamAddr(host, name)
@@ -44,7 +44,9 @@ func CheckUpstream(r Reserved, host string, port int, parent string) error {
 		if !isAddr && slices.Contains(loopbackNames, name) || isAddr && (addr.IsLoopback() || addr.IsUnspecified()) {
 			return reserved(host, port, "admin")
 		}
-		if port == npmAdminPort && (!isAddr && isNPMName(r.NPMNames, name) || isAddr && isNPMAddr(r.NPMAddrs, addr)) {
+		// NPM's backend API listens on port 3000 on every interface of its container, so every port of NPM's
+		// names and addresses is reachable, not only the admin port.
+		if !isAddr && isNPMName(r.NPMNames, name) || isAddr && isNPMAddr(r.NPMAddrs, addr) {
 			return reserved(host, port, "admin")
 		}
 	}

@@ -1,7 +1,9 @@
 package proxy
 
 import (
+	"net"
 	"net/netip"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -54,21 +56,21 @@ func TestPxCheckUpstream(t *testing.T) {
 		{"an NPM address on the admin port", "172.18.0.2", 81, "", true},
 		{"an NPM address on the admin port from its owner", "172.18.0.2", 81, admin, false},
 		{"an NPM IPv6 address on the admin port", "fd00:18::2", 81, "", true},
-		{"an NPM address on another port", "172.18.0.2", 80, "", false},
+		{"an NPM address on another port", "172.18.0.2", 80, "", true},
 		{"the NPM container's name on the admin port", "darkpanel-npm", 81, "", true},
-		{"the NPM container's name on another port", "darkpanel-npm", 8080, "", false},
+		{"the NPM container's name on another port", "darkpanel-npm", 8080, "", true},
 		{"the hosts file's ip6-localhost on any port", "ip6-localhost", 8080, "", true},
 		{"the hosts file's ip6-loopback in capitals with a trailing dot", "IP6-Loopback.", 81, "", true},
 		{"ip6-localhost from its owner", "ip6-localhost", 81, admin, false},
 		{"the NPM container's short id on the admin port", "4fa6e0f0c678", 81, "", true},
 		{"an NPM alias in capitals on the admin port", "NPM", 81, "", true},
 		{"an NPM name on the admin port from its owner", "4fa6e0f0c678", 81, admin, false},
-		{"an NPM alias on another port", "npm", 8080, "", false},
+		{"an NPM alias on another port", "npm", 8080, "", true},
 		{"the NPM container's name with its network on the admin port", "darkpanel-npm.darkpanel-npm", 81, "", true},
 		{"the NPM container's short id with a network on the admin port", "4fa6e0f0c678.darkpanel-npm", 81, "", true},
 		{"an NPM alias with a dotted network in capitals and a trailing dot", "NPM.apps.internal.", 81, "", true},
 		{"the NPM container's name with a network from its owner", "darkpanel-npm.darkpanel-npm", 81, admin, false},
-		{"the NPM container's name with a network on another port", "darkpanel-npm.darkpanel-npm", 8080, "", false},
+		{"the NPM container's name with a network on another port", "darkpanel-npm.darkpanel-npm", 8080, "", true},
 		{"a container name with a network on the admin port", "web.darkpanel-npm", 81, "", false},
 		{"a name that only ends with an NPM name", "web.npm", 81, "", false},
 		{"an address inside the panel network", "172.31.255.2", 9443, "", true},
@@ -101,11 +103,63 @@ func TestPxCheckUpstream(t *testing.T) {
 	}
 }
 
-func TestPxCheckUpstreamWithNothingKnownRefusesOnlyTheLoopback(t *testing.T) {
+func TestPxCheckUpstreamWithNothingKnownRefusesTheLoopbackAndNPMsName(t *testing.T) {
 	if err := CheckUpstream(Reserved{}, "172.31.255.2", 9443, ""); err != nil {
 		t.Errorf("an empty Reserved refused a private address: %v", err)
 	}
 	if err := CheckUpstream(Reserved{}, "127.0.0.1", 81, ""); errcode.From(err).Code != errcode.NPMReserved {
 		t.Errorf("an empty Reserved let the loopback through: %v", err)
 	}
+	for _, port := range []int{80, 3000, 8080} {
+		if err := CheckUpstream(Reserved{}, "darkpanel-npm", port, ""); errcode.From(err).Code != errcode.NPMReserved {
+			t.Errorf("an empty Reserved let NPM's container name through on port %d: %v", port, err)
+		}
+	}
+}
+
+func TestV1r08ReservesEveryPortOfNPMsNamesAndAddresses(t *testing.T) {
+	const admin, panel = "npm.admin.expose", "panel.exposure.add"
+	ports := []int{22, 80, 81, 443, 3000, 8080, 65535}
+
+	t.Run("NPM's own identities are refused on every port", func(t *testing.T) {
+		for _, host := range []string{
+			"172.18.0.2", "fd00:18::2", "[fd00:18::2]", "172.18.2", "darkpanel-npm", "4fa6e0f0c678", "NPM",
+			"NPM.apps.internal.", "darkpanel-npm.darkpanel-npm",
+		} {
+			for _, port := range ports {
+				for _, parent := range []string{"", panel, "other.action"} {
+					err := CheckUpstream(pxReserved(), host, port, parent)
+					e := errcode.From(err)
+					if e.Code != errcode.NPMReserved {
+						t.Errorf("CheckUpstream(%q, %d, %q) = %v, want npm.reserved", host, port, parent, err)
+						continue
+					}
+					want := net.JoinHostPort(strings.Trim(host, "[]"), strconv.Itoa(port))
+					if !strings.Contains(e.Detail, want) {
+						t.Errorf("detail %q does not name the upstream %s", e.Detail, want)
+					}
+				}
+			}
+		}
+	})
+
+	t.Run("the admin exposure's own composite may reach NPM on any port", func(t *testing.T) {
+		for _, host := range []string{"172.18.0.2", "darkpanel-npm", "npm", "127.0.0.1"} {
+			for _, port := range ports {
+				if err := CheckUpstream(pxReserved(), host, port, admin); err != nil {
+					t.Errorf("CheckUpstream(%q, %d, %q) = %v, want nil", host, port, admin, err)
+				}
+			}
+		}
+	})
+
+	t.Run("other upstreams stay allowed on every port", func(t *testing.T) {
+		for _, host := range []string{"web", "web.npm", "darkpanel-npm-data", "npm2", "10.0.0.5", "172.18.0.3", "app.example.com"} {
+			for _, port := range ports {
+				if err := CheckUpstream(pxReserved(), host, port, ""); err != nil {
+					t.Errorf("CheckUpstream(%q, %d, %q) = %v, want nil", host, port, "", err)
+				}
+			}
+		}
+	})
 }

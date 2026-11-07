@@ -19,8 +19,8 @@ func fz8Head(s string) string { return s[:min(len(s), 64)] }
 // npm.admin.expose. nginx tries its own parser first and getaddrinfo's
 // inet_aton form only when that fails, so the reading that counts is the first
 // one that succeeds; a host the later reading takes for loopback is left to the
-// first. With nothing reserved and a port other than NPM's admin port, the
-// loopback rule is the only one that refuses. A canonical dotted quad is read
+// first. With nothing reserved, only the loopback rule and NPM's own
+// container name refuse, on every port. A canonical dotted quad is read
 // alike by both parsers and by netip.ParseAddr (R74).
 func FuzzCheckUpstream(f *testing.F) {
 	for _, h := range []string{
@@ -51,10 +51,9 @@ func FuzzCheckUpstream(f *testing.F) {
 				t.Fatalf("CheckUpstream(%q, %d, %q) lets a loopback host through", fz8Head(host), port, parent)
 			}
 		}
-		if port != npmAdminPort {
-			if err := CheckUpstream(Reserved{}, host, int(port), parent); (err != nil) != (loopback && parent != adminOwner) {
-				t.Fatalf("CheckUpstream(%q, %d, %q) with nothing reserved = %v, loopback %v", fz8Head(host), port, parent, err, loopback)
-			}
+		nothingKnown := loopback || !isAddr && isNPMName(nil, name)
+		if err := CheckUpstream(Reserved{}, host, int(port), parent); (err != nil) != (nothingKnown && parent != adminOwner) {
+			t.Fatalf("CheckUpstream(%q, %d, %q) with nothing reserved = %v, refusable %v", fz8Head(host), port, parent, err, nothingKnown)
 		}
 		if want, err := netip.ParseAddr(host); err == nil && want.Is4() {
 			if got, ok := parseNginxIPv4(host); !ok || got != want {
