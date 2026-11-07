@@ -221,10 +221,10 @@ func probeTLS(ctx context.Context, t probeTarget) (time.Duration, error) {
 	defer func() { _ = res.Body.Close() }()
 	_, err = io.Copy(io.Discard, io.LimitReader(res.Body, 64<<10))
 	if res.StatusCode != http.StatusOK {
-		return fail(fmt.Errorf("status %d", res.StatusCode))
+		return fail(fmt.Errorf("%w: status %d", errProbeBadAnswer, res.StatusCode))
 	}
 	if err != nil {
-		return fail(err)
+		return fail(fmt.Errorf("%w: %w", errProbeBadAnswer, err))
 	}
 	return elapsed, nil
 }
@@ -234,18 +234,18 @@ func probeTLS(ctx context.Context, t probeTarget) (time.Duration, error) {
 func pinnedLeaf(pin string) func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
 	return func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
 		if len(rawCerts) == 0 {
-			return errors.New("the server sent no certificate")
+			return fmt.Errorf("%w: the server sent no certificate", errProbeCertInvalid)
 		}
 		leaf, err := x509.ParseCertificate(rawCerts[0])
 		if err != nil {
-			return fmt.Errorf("parse the leaf certificate: %w", err)
+			return fmt.Errorf("%w: parse the leaf certificate: %w", errProbeCertInvalid, err)
 		}
 		if got := server.Pin(leaf.Raw); got != pin {
-			return fmt.Errorf("the leaf certificate is %s, not the pinned %s", got, pin)
+			return fmt.Errorf("%w: the leaf certificate is %s, not the pinned %s", errProbePinMismatch, got, pin)
 		}
 		if now := time.Now(); now.Before(leaf.NotBefore) || now.After(leaf.NotAfter) {
-			return fmt.Errorf("the leaf certificate is valid from %s to %s, not now", leaf.NotBefore.UTC().Format(time.RFC3339),
-				leaf.NotAfter.UTC().Format(time.RFC3339))
+			return fmt.Errorf("%w: the leaf certificate is valid from %s to %s, not now", errProbeCertInvalid,
+				leaf.NotBefore.UTC().Format(time.RFC3339), leaf.NotAfter.UTC().Format(time.RFC3339))
 		}
 		return nil
 	}

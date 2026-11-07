@@ -110,8 +110,12 @@ func TestRegManifestDeclaresTheActions(t *testing.T) {
 		case core.ClassComposite:
 			wantLocks = []string{"composite:derp"}
 		}
+		wantMin := core.Scope("")
+		if want.name == "derp.node.probe" {
+			wantMin = core.ScopeOperate
+		}
 		if s.Version != 1 || s.Class != want.class || s.Side != want.side || !slices.Equal(s.LockKeys, wantLocks) ||
-			s.LongRunning != want.task || s.Task != want.task || timeout != wantTimeout || s.MinScope != "" ||
+			s.LongRunning != want.task || s.Task != want.task || timeout != wantTimeout || s.MinScope != wantMin ||
 			s.Internal != want.internal || s.Reveal || s.Converges != want.converges || s.RepairedBy != "" ||
 			s.CompensatedBy != want.comp || s.ForwardOnly || s.BreakGlass || s.Unwind != want.unwind || len(s.Guards) != 0 {
 			t.Errorf("%s: spec %+v; want class %s on the %s, locks %v, task %v, timeout %s, internal %v, converges %v, compensated by %q, unwind %q, no guard",

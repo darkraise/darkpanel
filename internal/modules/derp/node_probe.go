@@ -2,12 +2,18 @@ package derp
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
 	"net/netip"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -24,20 +30,33 @@ const (
 	nodeProbeMaxRegion    = 999
 )
 
-// nodeProbe declares derp.node.probe: this agent measures one DERP server over TLS and STUN.
+// nodeProbeShared is the shared address space of CGNAT (RFC 6598), which netip.Addr.IsPrivate does not cover.
+var nodeProbeShared = netip.MustParsePrefix("100.64.0.0/10")
+
+// The TLS probe marks these failures so that nodeProbeFailure can name them.
+var (
+	errProbePinMismatch = errors.New("pin mismatch")
+	errProbeBadAnswer   = errors.New("bad answer")
+	errProbeCertInvalid = errors.New("certificate not valid")
+)
+
+// nodeProbe declares derp.node.probe: this agent measures one DERP server over TLS and STUN. The caller names the
+// target, so the action reaches the network from the agent's host, and the lowest scope may not call it.
 func (d dp) nodeProbe() core.ActionDef {
 	return core.DefineRead[NodeProbeInput, NodeProbe](core.ActionSpec{
-		Name:    nodeProbeAction,
-		Summary: "Probe a DERP server over TLS and STUN from this host.",
-		Version: 1,
-		Side:    core.SideAgent,
+		Name:     nodeProbeAction,
+		Summary:  "Probe a DERP server over TLS and STUN from this host.",
+		Version:  1,
+		Side:     core.SideAgent,
+		MinScope: core.ScopeOperate,
 	}, nodeProbeHandler{d: d})
 }
 
 // nodeProbeHandler is derp.node.probe's handler.
 type nodeProbeHandler struct{ d dp }
 
-// Read checks the input, then measures the server; a failed measurement is part of the answer, not an error.
+// Read checks the input, then measures the server; a failed measurement is part of the answer, not an error. The
+// answer names a failure only by its class, and the raw error goes to the agent's debug log.
 func (h nodeProbeHandler) Read(ctx context.Context, env core.Env, in NodeProbeInput) (NodeProbe, error) {
 	if err := nodeProbeCheck(in); err != nil {
 		return NodeProbe{}, err
@@ -46,13 +65,14 @@ func (h nodeProbeHandler) Read(ctx context.Context, env core.Env, in NodeProbeIn
 	t := probeTarget{HostName: in.HostName, Address: in.Address, Port: server.HTTPSPort, CertName: in.CertName}
 	var out NodeProbe
 	if a, err := d.nodeProbeAddr(ctx, in); err != nil {
-		out.TLS = ProbeResult{Error: err.Error()}
+		nodeProbeLogFailure(env.Log, "target", in.HostName, err)
+		out.TLS = ProbeResult{Error: "failed"}
 		out.STUN = out.TLS
 	} else {
 		if _, err := netip.ParseAddr(in.HostName); err != nil {
 			t.Address = a.String()
 		}
-		out.TLS, out.STUN = d.probeOnce(ctx, t, netip.AddrPortFrom(a, server.STUNPort))
+		out.TLS, out.STUN = d.probeOnceLogged(ctx, env.Log, t, netip.AddrPortFrom(a, server.STUNPort))
 	}
 	if in.RegionID != 0 {
 		region, err := d.nodeProbeRegion(ctx, env, in.RegionID)
@@ -65,16 +85,17 @@ func (h nodeProbeHandler) Read(ctx context.Context, env core.Env, in NodeProbeIn
 }
 
 // nodeProbeCheck refuses an input this host must not probe. The input makes this host send a request to the named
-// address, so loopback, unspecified, multicast and link-local addresses are refused: the controller's own servers
-// are never on them. nodeProbeResolve refuses the same classes among the addresses a name resolves to.
+// address, so loopback, unspecified, multicast, link-local, private (RFC 1918 or ULA) and shared (CGNAT) addresses
+// are refused: the controller's own servers are never on them, and a probe must not reach into the networks behind
+// the agent's host. nodeProbeResolve refuses the same classes among the addresses a name resolves to.
 func nodeProbeCheck(in NodeProbeInput) error {
 	if in.HostName == "" {
 		return nodeProbeRefuse("/hostName", "the host name is required")
 	}
 	if a, err := netip.ParseAddr(in.HostName); err == nil {
 		if !nodeProbeAllowedAddr(a) {
-			return nodeProbeRefuse("/hostName",
-				"the host name must be an IP address without a zone that is not loopback, unspecified, multicast or link-local")
+			return nodeProbeRefuse("/hostName", "the host name must be an IP address without a zone that is not loopback, "+
+				"unspecified, multicast, link-local, private (RFC 1918 or ULA) or shared (CGNAT)")
 		}
 	} else if !nodeProbeDNSName(in.HostName) {
 		return nodeProbeRefuse("/hostName",
@@ -83,8 +104,8 @@ func nodeProbeCheck(in NodeProbeInput) error {
 	if in.Address != "" {
 		a, err := netip.ParseAddr(in.Address)
 		if err != nil || !nodeProbeAllowedAddr(a) {
-			return nodeProbeRefuse("/address",
-				"the address must be an IP address without a zone that is not loopback, unspecified, multicast or link-local")
+			return nodeProbeRefuse("/address", "the address must be an IP address without a zone that is not loopback, "+
+				"unspecified, multicast, link-local, private (RFC 1918 or ULA) or shared (CGNAT)")
 		}
 	}
 	if in.CertName != "" && !nodeProbePin(in.CertName) {
@@ -102,13 +123,16 @@ func nodeProbeRefuse(path, message string) error {
 		Fields: []errcode.FieldError{{Path: path, Message: message}}})
 }
 
-// nodeProbeAllowedAddr reports whether a is an IP literal without a zone outside the refused classes.
+// nodeProbeAllowedAddr reports whether a is an IP literal without a zone outside the refused classes: loopback,
+// unspecified, multicast, link-local, private (RFC 1918 or ULA fc00::/7) and shared (CGNAT 100.64.0.0/10), in their
+// IPv4-mapped forms too.
 func nodeProbeAllowedAddr(a netip.Addr) bool {
 	if a.Zone() != "" {
 		return false
 	}
 	a = a.Unmap()
-	return !a.IsLoopback() && !a.IsUnspecified() && !a.IsMulticast() && !a.IsLinkLocalUnicast()
+	return !a.IsLoopback() && !a.IsUnspecified() && !a.IsMulticast() && !a.IsLinkLocalUnicast() && !a.IsPrivate() &&
+		!nodeProbeShared.Contains(a)
 }
 
 // nodeProbeDNSName reports whether s is a lower-case DNS name of at most 253 bytes with at least two labels.
@@ -183,9 +207,9 @@ func (d dp) nodeProbeResolve(ctx context.Context, host string) (netip.Addr, erro
 		for _, a := range addrs {
 			refused = append(refused, a.String())
 		}
-		return netip.Addr{}, fmt.Errorf("derp: %s resolves only to loopback, unspecified, multicast or link-local addresses (%s), "+
-			"which a probe does not reach; if it is this host's own name, /etc/hosts maps it to loopback, and only a host "+
-			"that resolves it to its public address can probe it", host, strings.Join(refused, ", "))
+		return netip.Addr{}, fmt.Errorf("derp: %s resolves only to loopback, unspecified, multicast, link-local, private or "+
+			"shared addresses (%s), which a probe does not reach; if it is this host's own name, /etc/hosts maps it to "+
+			"loopback, and only a host that resolves it to its public address can probe it", host, strings.Join(refused, ", "))
 	}
 	for _, a := range allowed {
 		if a.Is4() {
@@ -254,29 +278,87 @@ func (d dp) target(ctx context.Context, s ServerStatus) (probeTarget, netip.Addr
 	}
 }
 
-// probeOnce takes one TLS and then one STUN measurement of a server.
+// probeOnce takes one TLS and then one STUN measurement of a server, and logs nothing.
 func (d dp) probeOnce(ctx context.Context, t probeTarget, stunAddr netip.AddrPort) (tls, stun ProbeResult) {
-	tls = d.nodeProbeTLS(ctx, t)
-	stun = d.nodeProbeSTUN(ctx, stunAddr)
+	return d.probeOnceLogged(ctx, nil, t, stunAddr)
+}
+
+// probeOnceLogged is probeOnce that logs the raw error of each failed measurement to log at debug level.
+func (d dp) probeOnceLogged(ctx context.Context, log *slog.Logger, t probeTarget, stunAddr netip.AddrPort) (tls, stun ProbeResult) {
+	tls = d.nodeProbeTLS(ctx, log, t)
+	stun = d.nodeProbeSTUN(ctx, log, stunAddr)
 	return tls, stun
 }
 
 // nodeProbeTLS is one TLS probe of t as a result.
-func (d dp) nodeProbeTLS(ctx context.Context, t probeTarget) ProbeResult {
-	return nodeProbeResult(d.d.tlsProbe(ctx, t))
+func (d dp) nodeProbeTLS(ctx context.Context, log *slog.Logger, t probeTarget) ProbeResult {
+	latency, err := d.d.tlsProbe(ctx, t)
+	if err != nil {
+		nodeProbeLogFailure(log, "tls", t.HostName, err)
+	}
+	return nodeProbeResult(latency, err, false)
 }
 
 // nodeProbeSTUN is one STUN binding with addr as a result.
-func (d dp) nodeProbeSTUN(ctx context.Context, addr netip.AddrPort) ProbeResult {
-	return nodeProbeResult(d.d.stun(ctx, addr))
+func (d dp) nodeProbeSTUN(ctx context.Context, log *slog.Logger, addr netip.AddrPort) ProbeResult {
+	latency, err := d.d.stun(ctx, addr)
+	if err != nil {
+		nodeProbeLogFailure(log, "stun", addr.String(), err)
+	}
+	return nodeProbeResult(latency, err, true)
 }
 
-// nodeProbeResult is a measurement as a result: its latency in milliseconds, or its failure.
-func nodeProbeResult(latency time.Duration, err error) ProbeResult {
+// nodeProbeLogFailure logs the raw error of a failed probe at debug level; a nil log logs nothing. The raw error can
+// name what the target served, such as the internal names of a certificate, so it never goes into an answer.
+func nodeProbeLogFailure(log *slog.Logger, kind, host string, err error) {
+	if log == nil {
+		return
+	}
+	log.Debug("derp: a probe failed", "probe", kind, "host", host, "err", err)
+}
+
+// nodeProbeResult is a measurement as a result: its latency in milliseconds, or the class of its failure.
+func nodeProbeResult(latency time.Duration, err error, stun bool) ProbeResult {
 	if err != nil {
-		return ProbeResult{Error: err.Error()}
+		return ProbeResult{Error: nodeProbeFailure(err, stun)}
 	}
 	return ProbeResult{OK: true, LatencyMs: float64(latency) / float64(time.Millisecond)}
+}
+
+// nodeProbeFailure is the class of a failed TLS or STUN measurement, the first that matches, else "failed". It sees
+// through the wrappers of the probes, net/url and net.
+func nodeProbeFailure(err error, stun bool) string {
+	var (
+		verify    *tls.CertificateVerificationError
+		authority x509.UnknownAuthorityError
+		hostname  x509.HostnameError
+		invalid   x509.CertificateInvalidError
+		alert     tls.AlertError
+		record    tls.RecordHeaderError
+		netErr    net.Error
+	)
+	switch {
+	case errors.Is(err, errProbePinMismatch):
+		return "pin_mismatch"
+	case errors.Is(err, errProbeBadAnswer):
+		return "bad_answer"
+	case errors.Is(err, errProbeCertInvalid), errors.As(err, &verify), errors.As(err, &authority),
+		errors.As(err, &hostname), errors.As(err, &invalid):
+		return "certificate_not_trusted"
+	case errors.As(err, &alert), errors.As(err, &record), errors.Is(err, http.ErrSchemeMismatch):
+		return "tls_handshake_failed"
+	case errors.Is(err, syscall.ECONNREFUSED):
+		return "connection_refused"
+	case errors.Is(err, syscall.ENETUNREACH), errors.Is(err, syscall.EHOSTUNREACH):
+		return "unreachable"
+	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &netErr) && netErr.Timeout():
+		if stun {
+			return "no_stun_answer"
+		}
+		return "timeout"
+	default:
+		return "failed"
+	}
 }
 
 // readNodeProbe asks host hostID's agent to probe the server in describes, through its derp.node.probe/v1.

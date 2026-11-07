@@ -4460,7 +4460,7 @@
       "derp.node.probe.v1.output.ProbeResult": {
         "properties": {
           "error": {
-            "description": "Why the probe failed; empty when OK.",
+            "description": "Why the probe failed: timeout, connection_refused, unreachable, tls_handshake_failed, certificate_not_trusted, pin_mismatch, bad_answer, no_stun_answer or failed; empty when OK.",
             "type": "string"
           },
           "latencyMs": {
@@ -4952,7 +4952,7 @@
       "derp.server.probe.v1.output.ProbeResult": {
         "properties": {
           "error": {
-            "description": "Why the probe failed; empty when OK.",
+            "description": "Why the probe failed: timeout, connection_refused, unreachable, tls_handshake_failed, certificate_not_trusted, pin_mismatch, bad_answer, no_stun_answer or failed; empty when OK.",
             "type": "string"
           },
           "latencyMs": {

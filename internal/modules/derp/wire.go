@@ -98,7 +98,7 @@ type NodeProbe struct {
 type ProbeResult struct {
 	OK        bool    `json:"ok" jsonschema_description:"Whether the probe succeeded."`
 	LatencyMs float64 `json:"latencyMs" jsonschema_description:"The round trip in milliseconds; 0 when not OK."`
-	Error     string  `json:"error" jsonschema_description:"Why the probe failed; empty when OK."`
+	Error     string  `json:"error" jsonschema_description:"Why the probe failed: timeout, connection_refused, unreachable, tls_handshake_failed, certificate_not_trusted, pin_mismatch, bad_answer, no_stun_answer or failed; empty when OK."`
 }
 
 // RegionDiagnostics is the local API's DERP-region debug report: connectivity diagnostics only (spec 4.3).

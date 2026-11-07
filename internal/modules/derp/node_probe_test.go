@@ -247,9 +247,9 @@ func TestNpResolveKeepsOnlyAddressesTheProbeMayReach(t *testing.T) {
 				if !strings.Contains(err.Error(), part) {
 					t.Errorf("target: err = %v, want it to name %s", err, part)
 				}
-				if !strings.Contains(got.TLS.Error, part) || !strings.Contains(got.STUN.Error, part) {
-					t.Errorf("read: tls %+v and stun %+v, want both failing with an error naming %s", got.TLS, got.STUN, part)
-				}
+			}
+			if got.TLS != (ProbeResult{Error: "failed"}) || got.STUN != (ProbeResult{Error: "failed"}) {
+				t.Errorf("read: tls %+v and stun %+v, want both failing as \"failed\"", got.TLS, got.STUN)
 			}
 		})
 	}
@@ -276,13 +276,13 @@ func TestNpProbeOnce(t *testing.T) {
 			npAddrPort("198.51.100.4:3478"),
 			map[string]dpProbe{"198.51.100.4": {err: errNpBoom}},
 			map[netip.AddrPort]dpProbe{npAddrPort("198.51.100.4:3478"): {d: 2 * time.Millisecond}},
-			ProbeResult{Error: "np: boom"}, ProbeResult{OK: true, LatencyMs: 2},
+			ProbeResult{Error: "failed"}, ProbeResult{OK: true, LatencyMs: 2},
 		},
 		{
 			"the STUN probe fails", probeTarget{HostName: "203.0.113.9", Port: 443}, npAddrPort("203.0.113.9:3478"),
 			map[string]dpProbe{"203.0.113.9": {d: 3 * time.Millisecond}},
 			map[netip.AddrPort]dpProbe{npAddrPort("203.0.113.9:3478"): {err: errNpBoom}},
-			ProbeResult{OK: true, LatencyMs: 3}, ProbeResult{Error: "np: boom"},
+			ProbeResult{OK: true, LatencyMs: 3}, ProbeResult{Error: "failed"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -376,8 +376,8 @@ func TestNpReadProbeFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, r := range map[string]ProbeResult{"tls": got.TLS, "stun": got.STUN} {
-		if r.OK || r.LatencyMs != 0 || !strings.Contains(r.Error, "derp.example.com") {
-			t.Errorf("%s %+v, want a failure naming derp.example.com", name, r)
+		if r.OK || r.LatencyMs != 0 || r.Error != "failed" {
+			t.Errorf("%s %+v, want a failure \"failed\"", name, r)
 		}
 	}
 
@@ -388,7 +388,7 @@ func TestNpReadProbeFailures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := NodeProbe{TLS: ProbeResult{Error: "np: boom"}, STUN: ProbeResult{Error: "np: boom"}}
+	want := NodeProbe{TLS: ProbeResult{Error: "failed"}, STUN: ProbeResult{Error: "failed"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("probe\n got %+v\nwant %+v", got, want)
 	}

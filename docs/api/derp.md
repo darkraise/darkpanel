@@ -93,7 +93,7 @@ Probe a DERP server over TLS and STUN from this host.
 |---|---|
 | read | `POST /api/v1/hosts/{host}/actions/derp.node.probe/v1/read` |
 
-Minimum scope: `read`.
+Minimum scope: `operate`.
 
 ### Input
 
@@ -114,11 +114,11 @@ Returned in the `output` field of the response.
 |---|---|---|---|
 | `region` | object or null | yes |  |
 | `stun` | object | yes | The STUN probe. |
-| `stun.error` | string | yes | Why the probe failed; empty when OK. |
+| `stun.error` | string | yes | Why the probe failed: timeout, connection_refused, unreachable, tls_handshake_failed, certificate_not_trusted, pin_mismatch, bad_answer, no_stun_answer or failed; empty when OK. |
 | `stun.latencyMs` | number | yes | The round trip in milliseconds; 0 when not OK. |
 | `stun.ok` | boolean | yes | Whether the probe succeeded. |
 | `tls` | object | yes | The TLS probe of /derp/probe. |
-| `tls.error` | string | yes | Why the probe failed; empty when OK. |
+| `tls.error` | string | yes | Why the probe failed: timeout, connection_refused, unreachable, tls_handshake_failed, certificate_not_trusted, pin_mismatch, bad_answer, no_stun_answer or failed; empty when OK. |
 | `tls.latencyMs` | number | yes | The round trip in milliseconds; 0 when not OK. |
 | `tls.ok` | boolean | yes | Whether the probe succeeded. |
 
@@ -345,11 +345,11 @@ Returned in the `output` field of the response.
 | `sources[].region` | object or null | yes |  |
 | `sources[].source` | string | yes | controller, or the id of the probing host. |
 | `sources[].stun` | object | yes | The STUN probe. |
-| `sources[].stun.error` | string | yes | Why the probe failed; empty when OK. |
+| `sources[].stun.error` | string | yes | Why the probe failed: timeout, connection_refused, unreachable, tls_handshake_failed, certificate_not_trusted, pin_mismatch, bad_answer, no_stun_answer or failed; empty when OK. |
 | `sources[].stun.latencyMs` | number | yes | The round trip in milliseconds; 0 when not OK. |
 | `sources[].stun.ok` | boolean | yes | Whether the probe succeeded. |
 | `sources[].tls` | object | yes | The TLS probe of /derp/probe. |
-| `sources[].tls.error` | string | yes | Why the probe failed; empty when OK. |
+| `sources[].tls.error` | string | yes | Why the probe failed: timeout, connection_refused, unreachable, tls_handshake_failed, certificate_not_trusted, pin_mismatch, bad_answer, no_stun_answer or failed; empty when OK. |
 | `sources[].tls.latencyMs` | number | yes | The round trip in milliseconds; 0 when not OK. |
 | `sources[].tls.ok` | boolean | yes | Whether the probe succeeded. |
 | `warnings` | array of string | yes | Warnings about the probes. |
