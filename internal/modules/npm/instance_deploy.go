@@ -284,7 +284,11 @@ func (h deployHandler) Apply(ctx context.Context, env core.Env, in DeployInput) 
 	if err != nil {
 		return Deployed{}, fmt.Errorf("npm: journal %s: %w", e.Resource, err)
 	}
-	if err := h.bootstrap(ctx, env, email, password); err != nil {
+	conflict, err := h.bootstrap(ctx, env, email, password)
+	if conflict {
+		return Deployed{}, h.discardDeploy(ctx, containerID, err)
+	}
+	if err != nil {
 		return Deployed{}, err
 	}
 	sealed, err := env.Sealer.Seal("npm_instances.password_ct.1", []byte(password))
@@ -406,42 +410,78 @@ func (h deployHandler) createEngineObjects(ctx context.Context, env core.Env) (s
 }
 
 // bootstrap waits for NPM to answer and creates its administrator, then proves the login works. A failure is
-// npm.setup_failed and not Definite: the container runs and the administrator may exist.
-func (h deployHandler) bootstrap(ctx context.Context, env core.Env, email, password string) error {
+// npm.setup_failed and not Definite: the container runs and the administrator may exist. conflict is true only when
+// an administrator the deploy did not create exists: NPM reported one before the deploy created its own, or refused
+// the creation with a 4xx, which commits no user. A poll that times out, a 5xx or a lost answer to the creation, a
+// missing setup flag after it and a refused login are no conflict, since the administrator may hold the sealed
+// password.
+func (h deployHandler) bootstrap(ctx context.Context, env core.Env, email, password string) (conflict bool, err error) {
 	api := h.n.d.anon()
 	deadline := env.Clock.Now().Add(deployReady)
 	for {
 		health, err := api.Health(ctx)
 		if err == nil {
 			if health.Setup {
-				return errcode.New(errcode.NPMSetupFailed, "Nginx Proxy Manager already has an administrator")
+				return true, errcode.New(errcode.NPMSetupFailed, "Nginx Proxy Manager already has an administrator")
 			}
 			break
 		}
 		if cerr := ctx.Err(); cerr != nil {
-			return cerr
+			return false, cerr
 		}
 		if !env.Clock.Now().Before(deadline) {
-			return deploySetupFailed(ctx, err, fmt.Sprintf("did not answer within %s", deployReady))
+			return false, deploySetupFailed(ctx, err, fmt.Sprintf("did not answer within %s", deployReady))
 		}
 		if err := deploySleep(ctx, env.Clock, deployPoll); err != nil {
-			return err
+			return false, err
 		}
 	}
 	if err := api.CreateAdmin(ctx, email, password); err != nil {
-		return deploySetupFailed(ctx, err, "did not create the administrator")
+		return npmapi.IsClientError(err) && ctx.Err() == nil, deploySetupFailed(ctx, err, "did not create the administrator")
 	}
 	health, err := api.Health(ctx)
 	if err != nil {
-		return deploySetupFailed(ctx, err, "did not answer after creating the administrator")
+		return false, deploySetupFailed(ctx, err, "did not answer after creating the administrator")
 	}
 	if !health.Setup {
-		return errcode.New(errcode.NPMSetupFailed, "Nginx Proxy Manager does not report the administrator it created")
+		return false, errcode.New(errcode.NPMSetupFailed, "Nginx Proxy Manager does not report the administrator it created")
 	}
 	if _, err := api.Token(ctx, email, password); err != nil {
-		return deploySetupFailed(ctx, err, "refused the new administrator's login")
+		return false, deploySetupFailed(ctx, err, "refused the new administrator's login")
 	}
-	return nil
+	return false, nil
+}
+
+// discardDeploy stops and removes the container, both volumes and the network the deploy created, so that no
+// instance runs under an administrator another client created, and returns cause as npm.setup_failed saying whether
+// the removal succeeded. It runs past the apply's cancellation. The journal is left as it is.
+func (h deployHandler) discardDeploy(ctx context.Context, containerID string, cause error) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*deployStop)
+	defer cancel()
+	docker := h.n.d.docker
+	var failed []error
+	attempt := func(what string, err error) {
+		if err != nil && !dockerapi.IsNotFound(err) {
+			failed = append(failed, fmt.Errorf("npm: %s: %w", what, err))
+		}
+	}
+	_, err := docker.StopContainer(ctx, containerID, deployStop)
+	attempt("stop container "+containerID, err)
+	attempt("remove container "+containerID, docker.RemoveContainer(ctx, containerID, dockerapi.RemoveContainerOptions{Force: true}))
+	attempt("remove volume "+dataVolume, docker.RemoveVolume(ctx, dataVolume, false))
+	attempt("remove volume "+certVolume, docker.RemoveVolume(ctx, certVolume, false))
+	attempt("remove network "+networkName, docker.RemoveNetwork(ctx, networkName))
+
+	var detail string
+	var coded *errcode.Error
+	if errors.As(cause, &coded) {
+		detail = coded.Detail
+	}
+	if len(failed) == 0 {
+		return errcode.Wrap(errcode.NPMSetupFailed, cause, detail+"; the deploy removed what it created")
+	}
+	return errcode.Wrap(errcode.NPMSetupFailed, errors.Join(append([]error{cause}, failed...)...),
+		detail+"; the deploy could not remove what it created: remove the Docker container, volumes and network whose names start with darkpanel-npm")
 }
 
 // deploySetupFailed is the npm.setup_failed of an NPM call that failed doing what, with NPM's HTTP status when it
