@@ -145,7 +145,7 @@ func (k dk) prepareCompose(ctx context.Context, env core.Env, in ComposeInput) (
 		return composeRun{}, fmt.Errorf("docker: run compose config: %w", err)
 	}
 	if res.ExitCode != 0 {
-		return composeRun{}, composeUnavailable("%s", composeFailureDetail("config", row, res.ExitCode))
+		return composeRun{}, composeUnavailable("%s", composeFailureDetail("config", composeArgs(row, profiles, "config"), res.ExitCode))
 	}
 	cfg, err := compose.Parse(res.Stdout)
 	if err != nil {
@@ -521,16 +521,33 @@ func (k dk) composeObjectLabels(ctx context.Context, kind, name string) (map[str
 }
 
 // composeFailureDetail describes a Compose command that exited non-zero by
-// its verb and exit status, and names the command the operator can run on the
-// host to see why. Compose's diagnostics can quote values it resolved from env
-// files, so none of its output is ever reported.
-func composeFailureDetail(verb string, p projectRow, exit int) string {
-	files := make([]string, 0, len(p.Files))
-	for _, f := range p.Files {
-		files = append(files, "-f "+f)
+// its verb and exit status, and names the exact command, args without the
+// program path, that the operator can run on the host to see why. Compose's
+// diagnostics can quote values it resolved from env files, so none of its
+// output is ever reported. The command is shell-quoted because its paths come
+// from container labels.
+func composeFailureDetail(verb string, args []string, exit int) string {
+	words := make([]string, len(args))
+	for i, a := range args {
+		words[i] = composeShellWord(a)
 	}
 	return "docker compose " + verb + " failed with exit status " + strconv.Itoa(exit) +
-		`; run "docker compose ` + strings.Join(files, " ") + " " + verb + `" on the host to see why`
+		`; run "docker ` + strings.Join(words, " ") + `" on the host to see why`
+}
+
+// composeShellWord is s as one POSIX shell word: unchanged when it is
+// non-empty and made only of A-Za-z0-9/._+-, else in single quotes.
+func composeShellWord(s string) string {
+	safe := s != ""
+	for i := 0; i < len(s) && safe; i++ {
+		c := s[i]
+		safe = c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
+			c == '/' || c == '.' || c == '_' || c == '+' || c == '-'
+	}
+	if safe {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // planCompose renders the diff every Compose action shows: "runs the

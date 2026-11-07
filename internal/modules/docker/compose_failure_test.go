@@ -45,7 +45,8 @@ func TestV1r05FailedConfigReportsOnlyTheExitStatus(t *testing.T) {
 			h.results[strings.Join(composeArgs(p, nil, "config", "--format", "json"), " ")] = core.CmdResult{ExitCode: tc.code, Stderr: tc.stderr}
 			_, err := ccPrepare(h, "shop", nil)
 			ccRefused(t, err, errcode.DockerComposeUnavailable)
-			want := fmt.Sprintf(`docker compose config failed with exit status %d; run "docker compose -f /srv/shop/compose.yaml config" on the host to see why`, tc.code)
+			want := fmt.Sprintf(`docker compose config failed with exit status %d; run "docker %s" on the host to see why`,
+				tc.code, strings.Join(composeArgs(p, nil, "config"), " "))
 			if got := errcode.From(err).Detail; got != want {
 				t.Errorf("detail %q, want %q", got, want)
 			}
@@ -74,8 +75,8 @@ func TestV1r05FailedRunReportsOnlyTheVerbAndStatus(t *testing.T) {
 			before := cuRow(t, h)
 			h.results[cuKey(composeArgs(p, p.Profiles, tc.args...))] = core.CmdResult{ExitCode: tc.code, Stderr: tc.stderr}
 			_, err := cuApply(t, h, tc.def(h.dk()), cuInput)
-			want := fmt.Sprintf(`docker compose %s failed with exit status %d; run "docker compose -f /srv/shop/compose.yaml %s" on the host to see why`,
-				tc.verb, tc.code, tc.verb)
+			want := fmt.Sprintf(`docker compose %s failed with exit status %d; run "docker %s" on the host to see why`,
+				tc.verb, tc.code, strings.Join(composeArgs(p, p.Profiles, tc.args...), " "))
 			var coded *errcode.Error
 			if !errors.As(err, &coded) || coded.Code != errcode.DockerComposeUnavailable || coded.Detail != want {
 				t.Fatalf("Apply = %v, want docker.compose_unavailable %q", err, want)
@@ -91,11 +92,23 @@ func TestV1r05FailedRunReportsOnlyTheVerbAndStatus(t *testing.T) {
 	}
 }
 
-func TestV1r05FailureDetailRepeatsTheFlagForEveryComposeFile(t *testing.T) {
-	p := projectRow{Name: "shop", Files: []string{"/srv/shop/compose.yaml", "/srv/shop/override.yaml"}}
-	got := composeFailureDetail("up", p, 3)
-	want := `docker compose up failed with exit status 3; run "docker compose -f /srv/shop/compose.yaml -f /srv/shop/override.yaml up" on the host to see why`
-	if got != want {
-		t.Errorf("composeFailureDetail = %q, want %q", got, want)
+func TestV1r05FailureDetailNamesTheAgentsCommand(t *testing.T) {
+	tests := []struct {
+		verb string
+		args []string
+		exit int
+		want string
+	}{
+		{"up", strings.Fields("compose --project-directory /srv/shop -p shop -f /srv/shop/compose.yaml -f /srv/shop/override.yaml --env-file /srv/shop/.env --profile debug up -d --no-build"), 3,
+			`docker compose up failed with exit status 3; run "docker compose --project-directory /srv/shop -p shop -f /srv/shop/compose.yaml -f /srv/shop/override.yaml --env-file /srv/shop/.env --profile debug up -d --no-build" on the host to see why`},
+		{"config", []string{"compose", "--project-directory", "/srv/my app", "-p", "shop", "-f", "/srv/my app/$(id)/it's.yaml", "config"}, 1,
+			`docker compose config failed with exit status 1; run "docker compose --project-directory '/srv/my app' -p shop -f '/srv/my app/$(id)/it'\''s.yaml' config" on the host to see why`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.verb, func(t *testing.T) {
+			if got := composeFailureDetail(tc.verb, tc.args, tc.exit); got != tc.want {
+				t.Errorf("composeFailureDetail = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
