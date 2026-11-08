@@ -150,16 +150,20 @@ func TestMutationsIPv6NoManual(t *testing.T) {
 		}
 		return 0
 	}
-	h.ufw["logging high"] = func(s *fhState) int { s.LogLevel = "high"; return 0 }
-	h.ufw["default allow incoming"] = func(s *fhState) int { s.Input = "ACCEPT"; return 0 }
+	// logging rewrites both rule files and default restarts UFW, so with
+	// IPv6 off both empty user6.rules even though neither runs a reload.
+	h.ufw["logging high"] = func(s *fhState) int { s.LogLevel = "high"; s.Rules6 = nil; return 0 }
+	h.ufw["default allow incoming"] = func(s *fhState) int { s.Input = "ACCEPT"; s.Rules6 = nil; return 0 }
 	rule := `"rule":{"action":"allow","direction":"in","proto":"tcp","from":"any","to":"any","toPort":"8080","family":"v4","comment":"web"}`
+	if _, err := f.ruleAdd().Handler.Plan(ctx, env, json.RawMessage(`{`+rule+`}`)); err != nil {
+		t.Errorf("plan of a v4 rule applied live = %v, want no manual refusal: it rewrites only user.rules", err)
+	}
 	for _, c := range []struct {
 		def       core.ActionDef
 		raw, with string
 	}{
 		{f.loggingSet(), `{"level":"high"}`, `{"level":"high","manual":true}`},
 		{f.defaultsSet(), `{"incoming":"ACCEPT"}`, `{"incoming":"ACCEPT","manual":true}`},
-		{f.ruleAdd(), `{` + rule + `}`, `{` + rule + `,"manual":true}`},
 	} {
 		t.Run(c.def.Spec.Name, func(t *testing.T) {
 			_, err := c.def.Handler.Plan(ctx, env, json.RawMessage(c.raw))
@@ -181,13 +185,13 @@ func TestMutationsIPv6NoManual(t *testing.T) {
 }
 
 // TestDefaultsAndLogging: the defaults and the logging level are set for
-// what changes, then an active UFW reloads; nothing to change is a no-op;
+// what changes, which an active UFW applies itself; nothing to change is a no-op;
 // a request without any direction is refused.
 func TestDefaultsAndLogging(t *testing.T) {
 	h, f := acHost(t, true)
 	out, ran := acRun(t, h, f.defaultsSet(), `{"incoming":"ACCEPT","outgoing":"ACCEPT","routed":"REJECT"}`)
 	wantDiff := []string{"- default incoming DROP", "+ default incoming ACCEPT", "- default routed DROP", "+ default routed REJECT"}
-	if !reflect.DeepEqual(acDiff(out), wantDiff) || !reflect.DeepEqual(ran, []string{"default allow incoming", "default reject routed", "reload"}) {
+	if !reflect.DeepEqual(acDiff(out), wantDiff) || !reflect.DeepEqual(ran, []string{"default allow incoming", "default reject routed"}) {
 		t.Errorf("defaults: diff %q ran %q", acDiff(out), ran)
 	}
 	if out, ran = acRun(t, h, f.defaultsSet(), `{"routed":"REJECT"}`); len(out.Diff) != 0 || len(ran) != 0 {
@@ -202,7 +206,7 @@ func TestDefaultsAndLogging(t *testing.T) {
 	}
 
 	out, ran = acRun(t, h, f.loggingSet(), `{"level":"high"}`)
-	if !reflect.DeepEqual(acDiff(out), []string{"- logging low", "+ logging high"}) || !reflect.DeepEqual(ran, []string{"logging high", "reload"}) {
+	if !reflect.DeepEqual(acDiff(out), []string{"- logging low", "+ logging high"}) || !reflect.DeepEqual(ran, []string{"logging high"}) {
 		t.Errorf("logging: diff %q ran %q", acDiff(out), ran)
 	}
 	h, f = acHost(t, false)

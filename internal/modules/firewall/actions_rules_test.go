@@ -68,7 +68,7 @@ func TestRulesApply(t *testing.T) {
 	}
 	wantRan := []string{"allow in proto tcp from 0.0.0.0/0 to 0.0.0.0/0 port 8080 comment darkpanel:" + apID1 + " npm",
 		"allow in proto tcp from 0.0.0.0/0 to 0.0.0.0/0 port 8443 comment darkpanel:" + apID2 + " npm",
-		"delete allow in proto tcp from any to any port 22", "reload"}
+		"delete allow in proto tcp from any to any port 22"}
 	if !reflect.DeepEqual(ran, wantRan) {
 		t.Errorf("ran\n%q\nwant\n%q", ran, wantRan)
 	}

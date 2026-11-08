@@ -14,23 +14,32 @@ import (
 // values: whether the change started UFW, whose start applies UFW's sysctl
 // file, and the values the change wrote itself (a restore's, spec 2.5).
 type sysctlRecord struct {
-	started bool
-	written map[string]string // /proc/sys key to the value its effect observed
+	started   bool
+	restarted bool              // the change ran "ufw default", which restarts an enabled UFW itself
+	written   map[string]string // /proc/sys key to the value its effect observed
 }
 
 // sysctlRecordOf reads a record from the effects of one change. Only made
 // effects count; a change started UFW when its last made effect on the
-// enabled state left UFW enabled (an enable, or a reload). A made effect on
+// enabled state left UFW enabled (an enable, or a reload), and restarted it
+// when it made a default policy effect ("ufw default" restarts an enabled
+// UFW without a reload). A made effect on
 // the enabled state or a sysctl key whose Post cannot be read is an error,
 // since skipping it could skip the whole sysctl verification.
 func sysctlRecordOf(effects []core.Effect) (sysctlRecord, error) {
 	r := sysctlRecord{written: map[string]string{}}
 	for _, e := range effects {
-		if e.State != core.EffectMade || e.Post == nil {
+		if e.State != core.EffectMade {
 			continue
 		}
 		noun, ident, err := splitResource(e.Resource)
 		if err != nil {
+			continue
+		}
+		if noun == nounDefault {
+			r.restarted = true
+		}
+		if e.Post == nil {
 			continue
 		}
 		switch noun {

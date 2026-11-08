@@ -198,7 +198,8 @@ func TestW10FlReadsWaitForTheReload(t *testing.T) {
 				ctx := t.Context()
 				r := newW10flRig(t)
 				env := r.env()
-				m := hkMutation(r.f, nil)
+				// A repair keeps its ufw reload (rule and logging changes apply live).
+				m := hkMutation(r.f, func(fwstate.Config, fwstate.Loaded) (change, error) { return change{repair: true}, nil })
 				snap, err := m.Snapshot(ctx, env, hkInput{})
 				if err != nil {
 					t.Fatal(err)

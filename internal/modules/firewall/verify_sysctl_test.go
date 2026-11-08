@@ -53,7 +53,9 @@ func TestSysctlRecordOf(t *testing.T) {
 		{"disable", []core.Effect{vsEffect(enabled, core.EffectMade, "false")}, sysctlRecord{written: map[string]string{}}},
 		{"skipped and intended effects do not count", []core.Effect{vsEffect(enabled, core.EffectSkipped, ""), vsEffect(enabled, core.EffectIntended, "")},
 			sysctlRecord{written: map[string]string{}}},
-		{"other resources", []core.Effect{vsEffect("firewall.default:incoming", core.EffectMade, `"DROP"`), vsEffect("firewall.file:/etc/ufw/user.rules", core.EffectMade, `"sha256:aa"`)},
+		{"a default command restarts UFW", []core.Effect{vsEffect("firewall.default:incoming", core.EffectMade, `"DROP"`)},
+			sysctlRecord{restarted: true, written: map[string]string{}}},
+		{"other resources", []core.Effect{vsEffect("firewall.file:/etc/ufw/user.rules", core.EffectMade, `"sha256:aa"`)},
 			sysctlRecord{written: map[string]string{}}},
 		{"sysctl writes", []core.Effect{vsEffect("firewall.sysctl:net/ipv4/ip_forward", core.EffectMade, `"1"`), vsEffect("firewall.sysctl:net/ipv4/conf/eth0/rp_filter", core.EffectMade, "null")},
 			sysctlRecord{written: map[string]string{"net/ipv4/ip_forward": "1"}}},
@@ -150,7 +152,8 @@ func vsHost(t *testing.T) (*fakeHost, fw) {
 func TestVerifySysctl(t *testing.T) {
 	ctx := context.Background()
 	h, f := vsHost(t)
-	m := hkMutation(f, nil)
+	// A repair reloads, which applies UFW's sysctl file; a live rule change does not.
+	m := hkMutation(f, func(fwstate.Config, fwstate.Loaded) (change, error) { return change{repair: true}, nil })
 	env := h.env()
 	if _, err := m.Snapshot(ctx, env, hkInput{}); err != nil {
 		t.Fatal(err)

@@ -91,7 +91,7 @@ func TestE2EApplyVerifyRevert(t *testing.T) {
 	if cv.State != core.StatePending || cv.Error != nil {
 		t.Fatalf("change %+v, want pending after verify", cv)
 	}
-	want := []string{"allow in proto tcp from any to any port 8080 comment darkpanel:" + cv.ID + " web", "reload"}
+	want := []string{"allow in proto tcp from any to any port 8080 comment darkpanel:" + cv.ID + " web"}
 	if !reflect.DeepEqual(h.ran, want) {
 		t.Errorf("ufw ran %q, want %q", h.ran, want)
 	}
@@ -189,9 +189,16 @@ type eeSkewed struct {
 	key, value string
 }
 
+// eeRestartsUFW reports whether cmd restarts an active UFW: "ufw reload",
+// or "ufw default …", which restarts it without a reload.
+func eeRestartsUFW(cmd core.Cmd) bool {
+	return cmd.Path == ufwPath && len(cmd.Args) > 0 &&
+		((len(cmd.Args) == 1 && cmd.Args[0] == "reload") || cmd.Args[0] == "default")
+}
+
 func (s eeSkewed) Run(ctx context.Context, cmd core.Cmd) (core.CmdResult, error) {
 	res, err := s.e2eHost.Run(ctx, cmd)
-	if cmd.Path == ufwPath && len(cmd.Args) == 1 && cmd.Args[0] == "reload" {
+	if eeRestartsUFW(cmd) {
 		s.sysctl[s.key] = s.value
 	}
 	return res, err
@@ -199,7 +206,7 @@ func (s eeSkewed) Run(ctx context.Context, cmd core.Cmd) (core.CmdResult, error)
 
 // TestE2EVerifySysctl: UFW's sysctl file of the golden "sysctl" scenario
 // sets ip_forward and IPv6's default forwarding to 1 while the kernel holds
-// 0. A reload that applies the file passes verify; one the kernel does not
+// 0. A UFW restart that applies the file passes verify; one the kernel does not
 // apply fails it with the key, the predicted and the live value, and the
 // engine reverts the change.
 func TestE2EVerifySysctl(t *testing.T) {
@@ -212,7 +219,7 @@ func TestE2EVerifySysctl(t *testing.T) {
 			exec = eeSkewed{e2eHost: h, key: key, value: "0"}
 		}
 		eng := eeEngineRunning(t, h, exec)
-		pv, cv, err := eePlanApply(t, eng, "firewall.logging.set", `{"level":"high"}`)
+		pv, cv, err := eePlanApply(t, eng, "firewall.defaults.set", `{"incoming":"REJECT"}`)
 		if !slices.Contains(pv.Diff, core.DiffLine{Op: "+", Text: "sysctl " + key + "=1"}) {
 			t.Errorf("applied %v: plan diff %+v, want the sysctl change", applied, pv.Diff)
 		}
@@ -230,12 +237,12 @@ func TestE2EVerifySysctl(t *testing.T) {
 }
 
 // ayNoNat is a host whose kernel does not apply the nat rules of
-// before.rules when ufw reloads.
+// before.rules when ufw restarts.
 type ayNoNat struct{ *e2eHost }
 
 func (s ayNoNat) Run(ctx context.Context, cmd core.Cmd) (core.CmdResult, error) {
 	res, err := s.e2eHost.Run(ctx, cmd)
-	if cmd.Path == ufwPath && len(cmd.Args) == 1 && cmd.Args[0] == "reload" {
+	if eeRestartsUFW(cmd) {
 		if c := chainOf(s.loaded.V4, "nat", "POSTROUTING"); c != nil {
 			c.Rules = nil
 		}
@@ -264,7 +271,7 @@ func TestE2EVerifyNatRule(t *testing.T) {
 			exec = ayNoNat{h}
 		}
 		eng := eeEngineRunning(t, h, exec)
-		_, cv, err := eePlanApply(t, eng, "firewall.logging.set", `{"level":"high"}`)
+		_, cv, err := eePlanApply(t, eng, "firewall.defaults.set", `{"incoming":"REJECT"}`)
 		if applied {
 			if err != nil || cv.State != core.StatePending || natRules(h) != 1 {
 				t.Fatalf("applied: change %+v, %v, %d nat rules; want pending with the rule loaded once", cv, err, natRules(h))
@@ -272,8 +279,8 @@ func TestE2EVerifyNatRule(t *testing.T) {
 			if cv, err = eng.Confirm(context.Background(), eeUser, cv.ID); err != nil || cv.State != core.StateConfirmed {
 				t.Fatalf("confirm = %+v, %v", cv, err)
 			}
-			if _, cv, err = eePlanApply(t, eng, "firewall.logging.set", `{"level":"low"}`); err != nil || cv.State != core.StatePending || natRules(h) != 2 {
-				t.Errorf("second reload: change %+v, %v, %d nat rules; want pending with the rule loaded twice", cv, err, natRules(h))
+			if _, cv, err = eePlanApply(t, eng, "firewall.defaults.set", `{"incoming":"DROP"}`); err != nil || cv.State != core.StatePending || natRules(h) != 2 {
+				t.Errorf("second restart: change %+v, %v, %d nat rules; want pending with the rule loaded twice", cv, err, natRules(h))
 			}
 			continue
 		}

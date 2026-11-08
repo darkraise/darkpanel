@@ -161,7 +161,7 @@ func (h *e2eHost) ufw(args []string) core.CmdResult {
 			h.write(p, e.Data)
 		}
 	}
-	tr := fwstate.TransNone
+	tr, predCfg := fwstate.TransNone, cfg
 	switch strings.Join(args, " ") {
 	case "reload":
 		if cfg.Enabled {
@@ -173,11 +173,20 @@ func (h *e2eHost) ufw(args []string) core.CmdResult {
 		}
 	case "disable":
 		tr = fwstate.TransDisable
+	default:
+		// A running UFW applies a rule or logging command live, and restarts
+		// itself for "default", in both cases from the edited configuration.
+		if cfg.Enabled && chainOf(h.loaded.V4, "filter", "ufw-user-input") != nil {
+			tr, predCfg = fwstate.TransLive, next
+			if args[0] == "default" {
+				tr = fwstate.TransReload
+			}
+		}
 	}
 	if tr == fwstate.TransNone {
 		return core.CmdResult{}
 	}
-	pred, err := predict.Predict(cfg, h.loaded, tr)
+	pred, err := predict.Predict(predCfg, h.loaded, tr)
 	if err != nil {
 		return core.CmdResult{ExitCode: 1, Stderr: []byte("ERROR: " + err.Error() + "\n")}
 	}

@@ -111,11 +111,11 @@ func TestMutationLifecycle(t *testing.T) {
 	if out.Snapshot != string(raw) || !reflect.DeepEqual(out.Rules, []string{planRuleID}) {
 		t.Errorf("output %+v, want the snapshot and the finish's fields", out)
 	}
-	if got, want := hkEffects(h), []string{"firewall.rule:" + planRuleID + " made", "firewall.state:enabled made"}; !reflect.DeepEqual(got, want) {
+	if got, want := hkEffects(h), []string{"firewall.rule:" + planRuleID + " made"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("effects %v, want %v", got, want)
 	}
-	if !strings.HasSuffix(h.calls[len(h.calls)-1], "/usr/sbin/ufw reload") {
-		t.Errorf("calls %v, want a reload last", h.calls)
+	if !strings.HasSuffix(h.calls[len(h.calls)-1], "/usr/sbin/ufw allow in proto tcp from any to any port 80 comment darkpanel:"+planRuleID) {
+		t.Errorf("calls %v, want the rule's own ufw command last", h.calls)
 	}
 	if snap, _ = getSnapshot(ctx, h.db, string(raw)); snap.ChangeID != "c1" || snap.PostHashes == nil {
 		t.Errorf("snapshot change %q post hashes %v, want attached with post hashes", snap.ChangeID, snap.PostHashes)
@@ -127,8 +127,8 @@ func TestMutationLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rev.Effects) != 2 || rev.Effects[0].State != core.EffectUndone || rev.Effects[1].State != core.EffectUndone || rev.Override {
-		t.Errorf("revert %+v, want both effects undone", rev)
+	if len(rev.Effects) != 1 || rev.Effects[0].State != core.EffectUndone || rev.Override {
+		t.Errorf("revert %+v, want the effect undone", rev)
 	}
 	if !reflect.DeepEqual(h.state(), before) {
 		t.Errorf("state after revert %+v, want %+v", h.state(), before)

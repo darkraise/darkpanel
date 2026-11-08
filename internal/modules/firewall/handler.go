@@ -177,6 +177,9 @@ func (f fw) verifySysctl(ctx context.Context, env core.Env, cfg fwstate.Config, 
 	if err != nil {
 		return fmt.Errorf("firewall: verify: %w", err)
 	}
+	if rec.restarted && cfg.Enabled {
+		rec.started = true
+	}
 	if !rec.started && len(rec.written) == 0 {
 		return nil
 	}

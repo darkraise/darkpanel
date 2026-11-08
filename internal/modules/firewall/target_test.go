@@ -14,6 +14,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/guard"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/model"
+	"github.com/darkraise/darkpanel/internal/platform/netfilter"
 )
 
 // fwStub is the plan-time guard and IPv6 refusal of a test fw: check
@@ -80,6 +81,7 @@ func newTGHost(t *testing.T, save string, enabled bool) *tgHost {
 	h.ufw["--force enable"] = func(s *fhState) int { s.Enabled = true; return 0 }
 	h.ufw["disable"] = func(s *fhState) int { s.Enabled = false; return 0 }
 	h.ufw["reload"] = func(*fhState) int { return 0 }
+	h.ufw["default reject incoming"] = func(*fhState) int { return 0 }
 	h.ufw["allow in proto tcp from any to any port 80 comment darkpanel:01J00000000000000000000002"] = func(s *fhState) int {
 		s.Rules4 = append(s.Rules4, strings.Replace(fhRule22v4, "22", "80", 1))
 		return 0
@@ -144,6 +146,10 @@ func TestTargetTransitions(t *testing.T) {
 		final   bool
 	}{
 		{"rule on an active UFW", tgRunning, true, func(t *testing.T) change { return change{ops: []ufwOp{tgAllow80(t)}} },
+			fwstate.TransLive, nil, "nft|live", true},
+		{"a default command on an active UFW restarts UFW itself", tgRunning, true, func(t *testing.T) change { return change{ops: []ufwOp{w11a05Default(t)}} },
+			fwstate.TransReload, nil, "nft|reload", true},
+		{"a rule on an enabled but stopped UFW still reloads", tgStopped, true, func(t *testing.T) change { return change{ops: []ufwOp{tgAllow80(t)}} },
 			fwstate.TransReload, []string{"reload"}, "nft|reload", true},
 		{"rule on an inactive UFW", tgStopped, false, func(t *testing.T) change { return change{ops: []ufwOp{tgAllow80(t)}} },
 			fwstate.TransNone, nil, "nft|none", false},
@@ -194,8 +200,8 @@ func TestTargetCommands(t *testing.T) {
 	if len(tg.cfgN.Rules4) != 3 || len(tg.final.Rules4) != 3 || !strings.Contains(tg.cfgN.Rules4[2].Raw, "allow tcp 80 ") {
 		t.Errorf("rules after the change %+v, want the new rule appended", tg.cfgN.Rules4)
 	}
-	if !reflect.DeepEqual(h.ipv6Args, []fwstate.Transition{fwstate.TransReload}) {
-		t.Errorf("IPv6 refusal asked for %v, want reload", h.ipv6Args)
+	if !reflect.DeepEqual(h.ipv6Args, []fwstate.Transition{fwstate.TransLive}) {
+		t.Errorf("IPv6 refusal asked for %v, want live", h.ipv6Args)
 	}
 
 	h.stub.ipv6Err = errcode.New(errcode.FirewallUnsupportedConfiguration, "chain DOCKER-USER; set IPV6=yes in /etc/default/ufw")
@@ -290,5 +296,45 @@ func TestTargetRestore(t *testing.T) {
 	}
 	if cur.Sysctl["net/ipv4/conf/eth0/rp_filter"] != "1" {
 		t.Error("the snapshot's sysctl values overwrote the loaded state's")
+	}
+}
+
+func w11a05Default(t *testing.T) ufwOp {
+	t.Helper()
+	op, err := defaultOp("incoming", "REJECT")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return op
+}
+
+// TestW11a05LiveChangesKeepTheInputPolicy: with the real predictor, a rule
+// and a logging change on a running UFW apply without a reload, verify
+// against the live prediction, and leave the INPUT policy as it was.
+func TestW11a05LiveChangesKeepTheInputPolicy(t *testing.T) {
+	for _, tc := range []struct{ action, input, rule string }{
+		{"firewall.rule.add", `{"rule":{"action":"allow","direction":"in","proto":"tcp","from":"any","to":"any","toPort":"8097","family":"both","comment":"w11a"}}`, "--dport 8097"},
+		{"firewall.logging.set", `{"level":"high"}`, ""},
+	} {
+		t.Run(tc.action, func(t *testing.T) {
+			h := newE2EHost(t, "rules", "rules")
+			eng := eeEngine(t, h)
+			h.ran = nil
+			if _, cv, err := eePlanApply(t, eng, tc.action, tc.input); err != nil || cv.State != core.StatePending || cv.Error != nil {
+				t.Fatalf("%s = %+v, %v; want pending after verify", tc.action, cv, err)
+			}
+			if len(h.ran) == 0 || slices.Contains(h.ran, "reload") {
+				t.Errorf("ufw commands %q, want the change's own and no reload", h.ran)
+			}
+			if c := chainOf(h.loaded.V4, "filter", "INPUT"); c == nil || c.Policy != "DROP" {
+				t.Errorf("INPUT = %+v after the apply, want policy DROP", c)
+			}
+			if tc.rule == "" {
+				return
+			}
+			if c := chainOf(h.loaded.V4, "filter", "ufw-user-input"); c == nil || !slices.ContainsFunc(c.Rules, func(r netfilter.Rule) bool { return strings.Contains(r.Text, tc.rule) }) {
+				t.Errorf("ufw-user-input = %+v, want the %s rule loaded live", c, tc.rule)
+			}
+		})
 	}
 }

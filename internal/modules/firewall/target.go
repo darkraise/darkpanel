@@ -58,8 +58,12 @@ var (
 // edits the configuration; then the IPv6 refusal and the prediction of the
 // transition use the configuration from before the transition's own
 // command, whose edit gives the final configuration. The transition
-// follows UFW's state before and after: a start, a stop, a reload when the
-// commands, a restore or a repair change an active UFW, or none. After
+// follows UFW's state before and after: a start, a stop, a live apply when
+// only ufw commands change a running UFW that stays active (UFW loads its
+// user rules itself, without the stop of a reload that leaves the built-in
+// policies at ACCEPT; a "default" command restarts UFW itself, so it
+// predicts a reload that Darkpanel does not run), a reload when a restore,
+// a repair or the Docker block's files change an active UFW, or none. After
 // "ufw --force enable", Apply also reloads when UFW never started (its
 // first start loads the package's template files, which it rewrites only
 // afterwards) and when UFW's chains are loaded already (ufw-init then loads
@@ -115,6 +119,13 @@ func (f fw) predictTarget(cfg0 fwstate.Config, cur fwstate.Loaded, c change) (ta
 	case !want && (cfg0.Enabled || (c.repair && running)):
 		tg.tr, sysctlTr = fwstate.TransDisable, fwstate.TransDisable
 		err = f.transition(&tg, cur, fwstate.TransDisable, disableArgs)
+	case want && cfg0.Enabled && running && len(c.ops) > 0 && c.restore == nil && !c.repair && !c.reload:
+		tr := fwstate.TransLive
+		if hasDefaultOp(c) {
+			tr = fwstate.TransReload
+		}
+		tg.tr, sysctlTr = tr, tr
+		err = f.selfTransition(&tg, cur, tr)
 	case want && (len(c.ops) > 0 || c.restore != nil || c.repair || c.reload):
 		tg.tr, sysctlTr = fwstate.TransReload, fwstate.TransReload
 		err = f.transition(&tg, cur, fwstate.TransReload, reloadArgs)
@@ -155,6 +166,28 @@ func (f fw) transition(tg *target, cur fwstate.Loaded, tr fwstate.Transition, ar
 	}
 	tg.pred, tg.final, tg.cmds = pred, final, append(tg.cmds, args)
 	return nil
+}
+
+// selfTransition predicts a transition that no Darkpanel command runs: UFW
+// applying its own rule and logging commands live, or the restart that
+// "ufw default" makes itself on an active UFW. It adds no command.
+func (f fw) selfTransition(tg *target, cur fwstate.Loaded, tr fwstate.Transition) error {
+	if err := f.ipv6Refusal(tg.cfgN, cur, tr); err != nil {
+		return err
+	}
+	pred, err := f.d.predict(tg.cfgN, cur, tr)
+	if err != nil {
+		return fmt.Errorf("firewall: predict ufw %s: %w", tr, err)
+	}
+	tg.pred, tg.final = pred, tg.cfgN
+	return nil
+}
+
+// hasDefaultOp reports whether some command of c is "ufw default …".
+func hasDefaultOp(c change) bool {
+	return slices.ContainsFunc(c.ops, func(op ufwOp) bool {
+		return len(op.Args) > 0 && op.Args[0] == "default"
+	})
 }
 
 // start predicts "ufw --force enable" and the reload that may follow it.
