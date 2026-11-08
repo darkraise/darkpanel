@@ -541,17 +541,25 @@ func TestV1r21RoutesWithoutAPathCutNoCell(t *testing.T) {
 // v1r21Throw answers lookups as a host whose first routing table sends every
 // address out of eth0 from 192.0.2.1 and throws thrown on to the tables after
 // it. With later, one of them routes thrown out of eth1 from 10.0.0.1;
-// without, none routes it.
+// without, none routes it. With from, a source rule routes replies from that
+// address to thrown out of eth0. A non-nil fail answers every lookup in
+// thrown.
 type v1r21Throw struct {
 	*gHost
 	thrown netip.Prefix
 	later  bool
+	from   netip.Addr
+	fail   error
 }
 
 func (h v1r21Throw) RouteGet(q netstat.RouteQuery) (netstat.Route, error) {
 	switch {
 	case !h.thrown.Contains(q.Dst):
 		return rtVia("eth0", "192.0.2.1"), nil
+	case h.fail != nil:
+		return netstat.Route{}, h.fail
+	case h.from.IsValid() && q.Src == h.from:
+		return rtVia("eth0", h.from.String()), nil
 	case h.later:
 		return rtVia("eth1", "10.0.0.1"), nil
 	}
@@ -563,13 +571,13 @@ func TestV1r21ThrowRoutesCutCells(t *testing.T) {
 	thrown := netip.MustParsePrefix("45.33.0.0/16")
 	st := v1r21State(t, v1r21Table("-A FORWARD -s 172.30.0.3/32 -i dp-panel -o eth1 -j DROP"), v1r21Table())
 	throw := v1r21Route("throw", thrown.String(), "", "-", 52)
-	g := v1r21CheckHost(t, v1r21Throw{&gHost{ifaces: ckIfaces(), table: append(v1r21HostRoutes(), throw)}, thrown, true}, st, v1r21Tunnel())
+	g := v1r21CheckHost(t, v1r21Throw{gHost: &gHost{ifaces: ckIfaces(), table: append(v1r21HostRoutes(), throw)}, thrown: thrown, later: true}, st, v1r21Tunnel())
 	for _, want := range []string{"45.33.0.0-45.33.255.255", "out eth1: drop"} {
 		if g.OK || !strings.Contains(g.Message, want) {
 			t.Errorf("guard = %+v, want a refusal containing %q: the later table routes the thrown range out of eth1, where the rule drops it", g, want)
 		}
 	}
-	if g := v1r21CheckHost(t, v1r21Throw{&gHost{ifaces: ckIfaces(), table: v1r21HostRoutes()}, thrown, true}, st, v1r21Tunnel()); !g.OK {
+	if g := v1r21CheckHost(t, v1r21Throw{gHost: &gHost{ifaces: ckIfaces(), table: v1r21HostRoutes()}, thrown: thrown, later: true}, st, v1r21Tunnel()); !g.OK {
 		t.Errorf("guard = %+v, want OK: without the throw route no cell routes out of eth1", g)
 	}
 }
@@ -579,9 +587,9 @@ func TestV1r21ThrowCellWithoutARouteBackHasNothingToProtect(t *testing.T) {
 	table := append(v1r21HostRoutes(), v1r21Route("throw", thrown.String(), "", "-", 52))
 	check := func(later bool, st fwstate.Loaded, plan *core.GuardContext) core.Guard {
 		t.Helper()
-		h := v1r21Throw{&gHost{ifaces: ckIfaces(), table: table, sockets: []netstat.Socket{
+		h := v1r21Throw{gHost: &gHost{ifaces: ckIfaces(), table: table, sockets: []netstat.Socket{
 			flSock(netstat.ProtoTCP, netstat.StateListen, "0.0.0.0:443", "", "darkpanel-contr", 4242),
-		}}, thrown, later}
+		}}, thrown: thrown, later: later}
 		return v1r21CheckHost(t, h, st, plan)
 	}
 	open := v1r21State(t, v1r21Table(), v1r21Table())
@@ -604,5 +612,40 @@ func TestV1r21ThrowCellWithoutARouteBackHasNothingToProtect(t *testing.T) {
 		if g := check(tt.later, v1r21State(t, v1r21Table(tt.rule), v1r21Table()), v1r21Tunnel()); g.OK || !strings.Contains(g.Message, tt.want) {
 			t.Errorf("guard with %q = %+v, want a refusal containing %q", tt.rule, g, tt.want)
 		}
+	}
+}
+
+// v1r21ThrowListener checks st under the tunnel plan on h, set up as a host
+// whose table 52 throws 45.33.0.0/16 and whose controller listens on
+// 0.0.0.0:443.
+func v1r21ThrowListener(t *testing.T, h v1r21Throw, st fwstate.Loaded) core.Guard {
+	t.Helper()
+	h.thrown = netip.MustParsePrefix("45.33.0.0/16")
+	h.gHost = &gHost{ifaces: ckIfaces(), table: append(v1r21HostRoutes(), v1r21Route("throw", h.thrown.String(), "", "-", 52)),
+		sockets: []netstat.Socket{flSock(netstat.ProtoTCP, netstat.StateListen, "0.0.0.0:443", "", "darkpanel-contr", 4242)}}
+	return v1r21CheckHost(t, h, st, v1r21Tunnel())
+}
+
+func TestV1r21ThrowCellWithASourceRouteBackIsChecked(t *testing.T) {
+	const rule = "-A INPUT -s 45.33.0.0/16 -p tcp --dport 443 -j DROP"
+	st := v1r21State(t, v1r21Table(rule), v1r21Table())
+	g := v1r21ThrowListener(t, v1r21Throw{from: netip.MustParseAddr("192.0.2.1")}, st)
+	for _, want := range []string{"controller listener from 45.33.0.0-45.33.255.255", "cannot be resolved"} {
+		if g.OK || !strings.Contains(g.Message, want) {
+			t.Errorf("guard with %q = %+v, want a refusal containing %q: replies from 192.0.2.1 route back to the range the rule drops", rule, g, want)
+		}
+	}
+	if g := v1r21ThrowListener(t, v1r21Throw{}, st); !g.OK {
+		t.Errorf("guard with %q and no source rule = %+v, want OK: no address of this host routes back to the thrown range", rule, g)
+	}
+}
+
+func TestV1r21ThrowCellWhoseLookupFailsIsUnknown(t *testing.T) {
+	// The tunnel's cell in the range is unknown as well, so only the
+	// listener's own reason shows that its cell was not skipped.
+	const want = "controller listener from 45.33.0.0-45.33.255.255 to 0.0.0.0:443: unknown (the route back to 45.33.0.0 cannot be resolved"
+	g := v1r21ThrowListener(t, v1r21Throw{fail: errors.New("netstat: invalid argument")}, v1r21State(t, v1r21Table(), v1r21Table()))
+	if g.OK || !strings.Contains(g.Message, want) {
+		t.Errorf("guard = %+v, want a refusal containing %q: only a missing route skips a cell", g, want)
 	}
 }

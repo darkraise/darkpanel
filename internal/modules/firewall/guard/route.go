@@ -47,8 +47,9 @@ func newRouter(h Host, f facts, st fwstate.Loaded) *router {
 // unspecified destination is checked once for every address it may reach
 // (wildcardDsts). A route that cannot be resolved makes the flow unknown,
 // except that a stand-in destination without a route of its family, or a
-// stand-in source without a route back, has nothing to protect. Every lookup
-// carries the packet's mark, which policy rules may match.
+// stand-in source without a route back from any address of this host, has
+// nothing to protect. Every lookup carries the packet's mark, which policy
+// rules may match.
 func (r *router) probes(fl flow) []probe {
 	if fl.unknown != "" {
 		return []probe{{desc: fl.label, unknown: fl.unknown}}
@@ -105,7 +106,7 @@ func (r *router) probes(fl flow) []probe {
 	}
 	rt, err := r.host.RouteGet(netstat.RouteQuery{Dst: p.Src, Mark: p.Mark})
 	switch {
-	case err != nil && fl.standIn && errors.Is(err, netstat.ErrNoRoute):
+	case err != nil && fl.standIn && errors.Is(err, netstat.ErrNoRoute) && r.noReplyFrom(p.Src, p.Mark):
 		return nil
 	case err != nil:
 		return fail(fmt.Sprintf("the route back to %s cannot be resolved: %v", p.Src, err))
@@ -120,6 +121,24 @@ func (r *router) probes(fl flow) []probe {
 		out = append(out, r.inputProbes(fl, q)...)
 	}
 	return out
+}
+
+// noReplyFrom reports whether no address of this host of src's family has a
+// route back to src: policy rules may route replies by source address, which
+// a lookup without one does not match.
+func (r *router) noReplyFrom(src netip.Addr, mark uint32) bool {
+	v4 := src.Unmap().Is4()
+	checked := false
+	for a := range r.local {
+		if a.Is4() != v4 {
+			continue
+		}
+		if _, err := r.host.RouteGet(netstat.RouteQuery{Dst: src, Src: a, Mark: mark}); !errors.Is(err, netstat.ErrNoRoute) {
+			return false
+		}
+		checked = true
+	}
+	return checked
 }
 
 // wildcardDsts are the destinations of a packet to an unspecified address
