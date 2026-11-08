@@ -5463,6 +5463,13 @@ a spec change.
   - **W10b-R14 Compose diagnostics.** A failed Compose config or run reports
     its exit status and the command to run on the host, never Compose's
     stderr.
+- **Plan rulings (wave 11a).** Wave 11a (plan `v1-w11a-live-apply`) settles these points:
+  - **W11-R1 three plans.** Wave 11 fixes every row left open after wave 10 (owner, 2026-11-08). It runs as three sequential plans: `v1-w11a-live-apply` (rows 437, 438), `v1-w11b-lockout-guard` (security-review rows 27, 28, 46, 47, 48, 51, 53) and `v1-w11c-module-fixes` (security-review rows 26, 30-45, 49, 50, 52, 54).
+  - **W11-R2 live apply.** On an active UFW that stays active, Darkpanel runs no `ufw reload`. UFW applies rule and logging commands live. The Docker block is written to `after.rules` and `after6.rules` and its chains load through one `iptables-restore -n` per family that declares DOCKER-USER and Darkpanel's own chains, never `ufw-user-forward`, and removes Darkpanel chains the block no longer has. The prediction is `TransLive` (Contracts). Owner decision 2026-11-08.
+  - **W11-R3 where UFW still restarts.** `state.enable`, `state.disable`, `state.repair`, a `firewall.docker.repair` whose differences reach a chain outside Darkpanel's own, and snapshot restore keep their UFW transition. Their revert keeps it too.
+  - **W11-R4 default policies.** `ufw default` restarts an active UFW itself, so `firewall.defaults.set` keeps a window in which the built-in policies are ACCEPT for about a second. Darkpanel adds no reload of its own after it: a change with a `default` command predicts `TransReload` and runs no `ufw reload` command. The threat model records the window as a residual.
+  - **W11-R5 revert.** The snapshot taken before a change that UFW applies live, and before a `default` change on an active UFW, carries the loaded-state before-image, marked live. Reverting such a change whole restores the files and loads that image with `iptables-restore -n` per family, as a repair snapshot is restored, and removes Darkpanel chains the image lacks. An effect-by-effect revert runs the inverse ufw commands live, loads the Docker chains from the image, and loads no other part of it. Neither runs `ufw reload` while UFW stays active; an effect-by-effect revert of a `default` command restarts UFW only through `ufw default` itself. An uninstall restores its baseline snapshot without a live image, with the transition it chooses today.
+  - **W11-R6 row 437 acceptance.** Row 437's acceptance (no reconcile pass or container rule change leaves INPUT at ACCEPT) is evidenced by the harness: Task 2's live-apply step, and `TestM3Docker`'s traffic-recreate scenario with no leak window, on all four images.
 
 ### 11. Error codes, actors and dependencies
 
@@ -5771,6 +5778,7 @@ a spec change.
 | 9c | Docs and API reference | `docs/user/**`, `docs/dev/**`, `docs/api/**`, the `api-docs` target in `Makefile`, `.github/workflows/ci.yml` | 0–8 | parallel |
 | 9d | Upgrade matrix and footprint | `test/harness/upgrade_matrix_test.go`, `footprint_test.go`, the `harness` build-tag files `cmd/darkpanel/paths_harness.go` (the wave 0 path-selection hook, 1.12) and any in `internal/agent/`, `.github/workflows/harness.yml` | 0–8 | parallel |
 | 10 | Security review, fixes, runbook, RC readiness | `docs/security/threat-model.md`, `docs/runbook.md`, `CHANGELOG.md`, `docs/versioning.md`; fixes anywhere | 0–9 | alone |
+| 11 | Follow-ups: live apply (11a), lockout guard (11b), module fixes (11c) | 11a: `internal/modules/firewall/**` except `guard/**` and `eval/**`, `test/harness/m3_firewall*`, `docs/user/modules/firewall.md`; 11b: `internal/modules/firewall/guard/**`, `eval/**`, `internal/platform/netstat/**`, `internal/modules/panel/listener*.go`, `test/harness/m3_docker_traffic*`; 11c: fixes in the modules the rows name; each plan edits `docs/security/threat-model.md` and `internal/docs/threat_model_test.go` | 0–10 | alone |
 
 - Wave 0's frozen, handed-over and not-frozen files are listed in 1.12;
   a row above never contradicts that list. Before wave 9, a change to `harness.yml` (a job split or a CI secret) belongs to
@@ -5806,6 +5814,8 @@ Wave 0's file-ownership row covers all three. Every plan ends with the gates in
 `docs/dforge/gates.md`, including the harness gate when it touches the
 harness, a module's host behaviour or the paths gate 7 lists (waves 0, 4, 7
 and 9d touch `test/harness/`, `install.sh.in` or `internal/install/`).
+
+Wave 11 is planned as three sequential plans (W11-R1), each written after the previous one merges.
 
 ## Verification
 
