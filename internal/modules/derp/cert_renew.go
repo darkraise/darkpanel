@@ -98,15 +98,26 @@ func certRenewCheck(ctx context.Context, env core.Env, d dp) (localServer, certR
 	if err != nil {
 		return localServer{}, certRenewCert{}, core.Definite(err)
 	}
+	// A read refused for a link or a file that is not regular is named, so that a planted file is not taken for a
+	// certificate still to come. The read's errors carry no file content.
 	cur, err := certRenewRead(d, crt)
-	if err != nil {
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
 		return localServer{}, certRenewCert{}, core.Definite(errcode.New(errcode.DERPNotReady,
 			"derper has not written a certificate for "+row.HostName+" yet"))
+	case err != nil:
+		return localServer{}, certRenewCert{}, core.Definite(errcode.New(errcode.DERPNotReady,
+			"derper's certificate for "+row.HostName+" cannot be used: "+err.Error()))
 	}
 	// Only the key's presence matters: its bytes are dropped here, never logged or stored.
-	if _, err := d.d.readCertFile(server.CertDir + "/" + key); err != nil {
+	_, err = d.d.readCertFile(server.CertDir + "/" + key)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
 		return localServer{}, certRenewCert{}, core.Definite(errcode.New(errcode.DERPNotReady,
 			"derper's certificate for "+row.HostName+" has no readable key file "+key))
+	case err != nil:
+		return localServer{}, certRenewCert{}, core.Definite(errcode.New(errcode.DERPNotReady,
+			"derper's key file "+key+" for "+row.HostName+" cannot be used: "+err.Error()))
 	}
 	return row, cur, nil
 }

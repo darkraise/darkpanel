@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -184,6 +185,49 @@ func TestV1r15CertRenewReadsCertificateAndKeyThroughReadCertFile(t *testing.T) {
 			t.Errorf("unit calls %q and %d effects, want none", h.units.Calls, len(crEffects(t, h.dpHost)))
 		}
 	})
+}
+
+// TestV1r15CertRenewNamesAFileTheReadRefuses: a certificate or key file derper has not written is not ready yet, but
+// one the read refuses is named as refused, so a planted link is not mistaken for a wait.
+func TestV1r15CertRenewNamesAFileTheReadRefuses(t *testing.T) {
+	link := func(name string) error {
+		return fmt.Errorf("platform: %s has a symbolic link in its path: %w", name, syscall.ELOOP)
+	}
+	for _, tc := range []struct {
+		name      string
+		refused   string // the file the read refuses, or "" to delete crCrt
+		err       func(name string) error
+		want, not string
+	}{
+		{"a certificate derper has not written", "", nil, "derper has not written a certificate for " + crIP + " yet", ""},
+		{"a certificate behind a link", crCrt, link, "symbolic link", "has not written"},
+		{"a certificate that is not a regular file", crCrt, func(name string) error {
+			return fmt.Errorf("platform: %s is not a regular file", name)
+		}, "not a regular file", "has not written"},
+		{"a key behind a link", crKey, link, "symbolic link", "no readable key file"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := crInstalled(t)
+			d := v1r15Split(t, h.dpHost)
+			if tc.refused == "" {
+				delete(h.files, crCrt)
+			}
+			d.d.readCertFile = func(name string) ([]byte, error) {
+				if name == tc.refused {
+					return nil, tc.err(name)
+				}
+				return h.readFile(name)
+			}
+			_, err := d.certRenew().Handler.Plan(context.Background(), h.env(""), json.RawMessage(`{}`))
+			coded := errcode.From(err)
+			if err == nil || coded.Code != errcode.DERPNotReady || !core.IsDefinite(err) {
+				t.Fatalf("err = %v, want a definite derp.not_ready", err)
+			}
+			if !strings.Contains(coded.Detail, tc.want) || (tc.not != "" && strings.Contains(coded.Detail, tc.not)) {
+				t.Errorf("detail %q, want it to contain %q and not %q", coded.Detail, tc.want, tc.not)
+			}
+		})
+	}
 }
 
 // TestV1r15InstallReadsTheCertificateThroughReadCertFile: the install task's wait for derper's certificate goes
