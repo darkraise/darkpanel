@@ -146,7 +146,7 @@ func (f fw) planGuard(ctx context.Context, env core.Env, gd core.Guarded, p prep
 			return core.Guard{ID: guard.GuardID, Message: outOfSyncMessage(diffs, p.c.repair)}, nil
 		}
 	}
-	in := guard.Input{Plan: gd.Guard, Refresh: env.Call.GuardRefresh, Retired: env.Call.Retired, Eval: eval.Evaluate}
+	in := guard.Input{Plan: gd.Guard, Refresh: env.Call.GuardRefresh, Retired: env.Call.Retired, Before: &p.cur, Eval: eval.Evaluate}
 	g, _, err := f.check(ctx, env, p.tg.pred, in)
 	if err != nil {
 		return core.Guard{}, fmt.Errorf("firewall: the lockout guard: %w", err)

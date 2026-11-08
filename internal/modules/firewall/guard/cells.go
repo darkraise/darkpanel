@@ -14,9 +14,12 @@ import (
 // cellFlows is fl once per cell of the internet that the checked ruleset
 // of its family partitions the public space into, with the wild end set
 // to the cell's representative address. Only the rules that can match fl
-// cut cells. A flow without a wild end, or one that is not evaluated, is
-// returned as it is.
-func (r *router) cellFlows(fl flow) []flow {
+// cut cells. A flow to any internet address needs every cell to pass. A flow
+// from any internet address, given a before-state, fails only on a cell the
+// before-state neither drops nor rejects, so its cells are cut by the
+// prefixes of both states. A flow without a wild end, or one that is not
+// evaluated, is returned as it is.
+func (r *router) cellFlows(fl flow, before *fwstate.Loaded) []flow {
 	if fl.wild == wildNone || fl.unknown != "" {
 		return []flow{fl}
 	}
@@ -25,7 +28,15 @@ func (r *router) cellFlows(fl flow) []flow {
 	if v6 {
 		rs = r.st.V6
 	}
-	cells := eval.InternetCells(cutters(rs, v6, fl.pkt.Proto, fl.pkt.DstPort), v6)
+	cut := cutters(rs, v6, fl.pkt.Proto, fl.pkt.DstPort)
+	if fl.wild == wildSrc && before != nil {
+		brs := before.V4
+		if v6 {
+			brs = before.V6
+		}
+		cut = joinTables(cut, cutters(brs, v6, fl.pkt.Proto, fl.pkt.DstPort))
+	}
+	cells := eval.InternetCells(cut, v6)
 	out := make([]flow, 0, len(cells))
 	for _, c := range cells {
 		cf := fl
@@ -40,19 +51,45 @@ func (r *router) cellFlows(fl flow) []flow {
 	return out
 }
 
-// checkFlow evaluates fl in every cell of its wild end. Every cell must let
-// the flow through, so the results of the first blocked cell are returned
-// and later cells are not evaluated. When no cell is blocked, the results
-// of the first cell that produced any stand for all of them; a cell without
-// a route of its family produces none.
-func (r *router) checkFlow(fl flow, ev func(*netfilter.Ruleset, fwstate.Packet, fwstate.Router) fwstate.Result) []FlowResult {
+// joinTables is a ruleset holding a's tables followed by b's. The joined
+// ruleset only cuts cells and is never evaluated, as it may hold two tables
+// of one name.
+func joinTables(a, b *netfilter.Ruleset) *netfilter.Ruleset {
+	if a == nil && b == nil {
+		return nil
+	}
+	out := &netfilter.Ruleset{}
+	for _, rs := range []*netfilter.Ruleset{a, b} {
+		if rs != nil {
+			out.Tables = append(out.Tables, rs.Tables...)
+		}
+	}
+	return out
+}
+
+// checkFlow evaluates fl in every cell of its wild end and returns the
+// results of the first blocked cell; later cells are not evaluated. When no
+// cell is blocked, the results of the first cell that produced any stand for
+// all of them; a cell without a route of its family produces none. A flow to
+// any internet address needs every cell to pass. A flow from any internet
+// address, given a before-state, fails only on a cell the before-state
+// neither drops nor rejects: a probe the before-state already blocked is
+// left out, while one it cannot decide still blocks the cell.
+func (r *router) checkFlow(fl flow, before *fwstate.Loaded, ev func(*netfilter.Ruleset, fwstate.Packet, fwstate.Router) fwstate.Result) []FlowResult {
 	var first []FlowResult
-	for _, cf := range r.cellFlows(fl) {
+	for _, cf := range r.cellFlows(fl, before) {
 		var results []FlowResult
 		blocked := false
 		for _, p := range r.probes(cf) {
-			res := evaluate(r, p, ev)
-			blocked = blocked || res.Verdict != fwstate.Accept
+			res := evaluate(r, r.st, p, ev)
+			if res.Verdict != fwstate.Accept {
+				if fl.wild == wildSrc && before != nil {
+					if v := evaluate(r, *before, p, ev).Verdict; v == fwstate.Drop || v == fwstate.Reject {
+						continue
+					}
+				}
+				blocked = true
+			}
 			results = append(results, FlowResult{Flow: p.desc, Result: res})
 		}
 		if blocked {

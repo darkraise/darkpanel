@@ -62,8 +62,8 @@ func TestLockoutVia(t *testing.T) {
 	if ok || detail != answer.Message || err != nil {
 		t.Errorf("lockout = %v, %q, %v; want false, %q, nil", ok, detail, err, answer.Message)
 	}
-	if len(got) != 1 || got[0].Plan != gc || got[0].Refresh != nil || got[0].Retired != nil {
-		t.Fatalf("inputs %+v, want one with Plan the snapshot's context and no refresh", got)
+	if len(got) != 1 || got[0].Plan != gc || got[0].Refresh != nil || got[0].Retired != nil || got[0].Before != nil {
+		t.Fatalf("inputs %+v, want one with Plan the snapshot's context, no refresh and no before-state", got)
 	}
 	wrSameFunc(t, "Eval", got[0].Eval, eval.Evaluate)
 

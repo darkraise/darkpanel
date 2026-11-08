@@ -15,6 +15,7 @@ type Input struct {
 	Plan    *core.GuardContext // the plan input's guard (nil for break-glass and system plans)
 	Refresh *core.GuardContext // env.Call.GuardRefresh at apply; nil at plan
 	Retired []string           // env.Call.Retired
+	Before  *fwstate.Loaded    // the loaded state the change starts from; nil when there is none, and then a flow from any internet address must pass in every cell
 	Eval    func(rs *netfilter.Ruleset, p fwstate.Packet, route fwstate.Router) fwstate.Result
 }
 

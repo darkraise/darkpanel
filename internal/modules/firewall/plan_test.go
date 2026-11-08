@@ -59,6 +59,9 @@ func TestPlanPasses(t *testing.T) {
 	gc := &core.GuardContext{Complete: true, Client: &core.Peer{Port: 50000}}
 	refresh := &core.GuardContext{Complete: true}
 	env := h.env()
+	pred := h.loaded
+	pred.V4, pred.V6 = fhParse(t, fhSave), fhParse(t, fhSave)
+	h.predicted = &pred
 	env.Call = core.CallContext{GuardRefresh: refresh, Retired: []string{"exp1"}}
 	out, err := f.plan(ctx, env, pnReq(t, core.Guarded{Guard: gc}))
 	if err != nil {
@@ -76,6 +79,9 @@ func TestPlanPasses(t *testing.T) {
 	in := stub.inputs[0]
 	if in.Plan != gc || in.Refresh != refresh || !reflect.DeepEqual(in.Retired, []string{"exp1"}) {
 		t.Errorf("guard input %+v, want the plan's guard, the apply's refresh and the retired exposures", in)
+	}
+	if in.Before == nil || in.Before.V4 != h.loaded.V4 || in.Before.V4 == stub.states[0].V4 {
+		t.Errorf("guard before-state %+v, want the loaded state the plan read, not the prediction", in.Before)
 	}
 	wrSameFunc(t, "Eval", in.Eval, eval.Evaluate)
 	if stub.states[0].Sysctl == nil {

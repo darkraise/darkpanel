@@ -34,9 +34,11 @@ func Check(ctx context.Context, env core.Env, st fwstate.Loaded, in Input) (core
 // them and from in, evaluates each flow with in.Eval against st on every
 // eligible in-interface, and returns the firewall.lockout guard with one
 // FlowResult per flow and interface. The guard fails when any flow is not
-// accepted. A change of IPv6 forwarding that stops router advertisements
-// adds one unknown flow (raFlows). Check never decides overridability or hard
-// refusals; a fact it cannot read is an error.
+// accepted, except that a flow from any internet address, given in.Before,
+// fails only on a cell that in.Before neither drops nor rejects. A change of
+// IPv6 forwarding that stops router advertisements adds one unknown flow
+// (raFlows). Check never decides overridability or hard refusals; a fact it
+// cannot read is an error.
 func (c Checker) Check(ctx context.Context, env core.Env, st fwstate.Loaded, in Input) (core.Guard, []FlowResult, error) {
 	if in.Eval == nil {
 		return core.Guard{}, nil, errors.New("firewall: the guard has no evaluator")
@@ -57,19 +59,19 @@ func (c Checker) Check(ctx context.Context, env core.Env, st fwstate.Loaded, in 
 	r := newRouter(h, f, st)
 	var results []FlowResult
 	for _, fl := range append(flows, ra...) {
-		results = append(results, r.checkFlow(fl, in.Eval)...)
+		results = append(results, r.checkFlow(fl, in.Before, in.Eval)...)
 	}
 	return verdict(results), results, nil
 }
 
-// evaluate walks one probe through the ruleset of its family.
-func evaluate(r *router, p probe, eval func(*netfilter.Ruleset, fwstate.Packet, fwstate.Router) fwstate.Result) fwstate.Result {
+// evaluate walks one probe through st's ruleset of its family, routed by r.
+func evaluate(r *router, st fwstate.Loaded, p probe, eval func(*netfilter.Ruleset, fwstate.Packet, fwstate.Router) fwstate.Result) fwstate.Result {
 	if p.unknown != "" {
 		return fwstate.Result{Verdict: fwstate.Unknown, Reason: p.unknown}
 	}
-	rs := r.st.V4
+	rs := st.V4
 	if p.pkt.Family == fwstate.V6 {
-		rs = r.st.V6
+		rs = st.V6
 	}
 	if rs == nil {
 		return fwstate.Result{Verdict: fwstate.Unknown, Reason: "no " + string(p.pkt.Family) + " ruleset was read"}

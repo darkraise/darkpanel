@@ -36,9 +36,16 @@ func v1r21State(t *testing.T, v4, v6 string) fwstate.Loaded {
 // v1r21Check runs the guard with the real evaluator.
 func v1r21Check(t *testing.T, h *gHost, st fwstate.Loaded, plan *core.GuardContext) core.Guard {
 	t.Helper()
+	return v1r21CheckFrom(t, h, nil, st, plan)
+}
+
+// v1r21CheckFrom runs the guard with the real evaluator on st, with before
+// as the loaded state the change starts from.
+func v1r21CheckFrom(t *testing.T, h *gHost, before *fwstate.Loaded, st fwstate.Loaded, plan *core.GuardContext) core.Guard {
+	t.Helper()
 	env, _, _ := ckEnv()
 	ckRunning(env)
-	g, _, err := Checker{Host: h}.Check(context.Background(), env, st, Input{Plan: plan, Eval: eval.Evaluate})
+	g, _, err := Checker{Host: h}.Check(context.Background(), env, st, Input{Plan: plan, Before: before, Eval: eval.Evaluate})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,6 +55,14 @@ func v1r21Check(t *testing.T, h *gHost, st fwstate.Loaded, plan *core.GuardConte
 func v1r21Tunnel() *core.GuardContext {
 	return &core.GuardContext{Complete: true, Via: &core.ProxyPath{ExposureID: "exp2", Kind: "tunnel",
 		ProxyAddr: netip.MustParseAddr("172.30.0.3"), ListenerAddr: netip.MustParseAddrPort("172.30.0.1:8080")}}
+}
+
+// v1r21Public is the guard context of an NPM exposure whose public
+// binding is 192.0.2.1:443.
+func v1r21Public() *core.GuardContext {
+	return &core.GuardContext{Complete: true, Via: &core.ProxyPath{ExposureID: "exp1", Kind: "npm",
+		ProxyAddr: netip.MustParseAddr("172.30.0.2"), ListenerAddr: netip.MustParseAddrPort("172.30.0.1:8080"),
+		Public: []netip.AddrPort{netip.MustParseAddrPort("192.0.2.1:443")}}}
 }
 
 func TestV1r21TunnelFlowNamesTheFirstBlockedCell(t *testing.T) {
@@ -94,10 +109,7 @@ func TestV1r21TunnelFlowIsEvaluatedInEveryCell(t *testing.T) {
 
 func TestV1r21PublicFlowChecksEverySourceCell(t *testing.T) {
 	st := v1r21State(t, v1r21Table("-A INPUT -s 8.8.8.0/24 -p tcp -j DROP"), v1r21Table())
-	plan := &core.GuardContext{Complete: true, Via: &core.ProxyPath{ExposureID: "exp1", Kind: "npm",
-		ProxyAddr: netip.MustParseAddr("172.30.0.2"), ListenerAddr: netip.MustParseAddrPort("172.30.0.1:8080"),
-		Public: []netip.AddrPort{netip.MustParseAddrPort("192.0.2.1:443")}}}
-	g := v1r21Check(t, &gHost{ifaces: ckIfaces()}, st, plan)
+	g := v1r21Check(t, &gHost{ifaces: ckIfaces()}, st, v1r21Public())
 	want := "exposure exp1 public from 8.8.8.0-8.8.8.255 to 192.0.2.1:443 on eth0: drop"
 	if g.OK || !strings.Contains(g.Message, want) {
 		t.Errorf("guard = %+v, want a refusal containing %q", g, want)
@@ -116,6 +128,66 @@ func TestV1r21TailscaleFlowChecksEveryIPv6Cell(t *testing.T) {
 	want := "tailscale udp from 2001:db8::1 to [2606:4700::-2606:4700:ffff:ffff:ffff:ffff:ffff:ffff]:41641 out eth0: drop"
 	if g.OK || !strings.Contains(g.Message, want) {
 		t.Errorf("guard = %+v, want a refusal containing %q", g, want)
+	}
+}
+
+func TestV1r21SourceBlockedBeforeTheChangeDoesNotRefuseIt(t *testing.T) {
+	const ban = "-A INPUT -s 8.8.8.0/24 -p tcp -j DROP"
+	before := v1r21State(t, v1r21Table(ban), v1r21Table())
+	after := v1r21State(t, v1r21Table(ban, "-A INPUT -p tcp -m tcp --dport 2222 -j ACCEPT"), v1r21Table())
+	if g := v1r21CheckFrom(t, &gHost{ifaces: ckIfaces()}, &before, after, v1r21Public()); !g.OK {
+		t.Errorf("guard = %+v, want OK: the change does not block the source the loaded rules already drop", g)
+	}
+	const want = "exposure exp1 public from 8.8.8.0-8.8.8.255 to 192.0.2.1:443 on eth0: drop"
+	if g := v1r21Check(t, &gHost{ifaces: ckIfaces()}, after, v1r21Public()); g.OK || !strings.Contains(g.Message, want) {
+		t.Errorf("guard without a before-state = %+v, want a refusal containing %q", g, want)
+	}
+}
+
+func TestV1r21ChangeThatBlocksASourceCellIsRefused(t *testing.T) {
+	for _, tt := range []struct {
+		name, before string // the IPv4 rule loaded before the change; "" reads no ruleset
+		after        []string
+		want, not    string
+	}{
+		{"a new ban", "-A INPUT -s 8.8.8.0/24 -p tcp -j DROP",
+			[]string{"-A INPUT -s 8.8.8.0/24 -p tcp -j DROP", "-A INPUT -s 9.9.9.0/24 -p tcp -j DROP"},
+			"exposure exp1 public from 9.9.9.0-9.9.9.255 to 192.0.2.1:443 on eth0: drop", "8.8.8.0-8.8.8.255"},
+		// Cut by the new rules alone, 8.8.0.0/16 would be one cell whose
+		// lowest address was already dropped.
+		{"a ban widened past the old one", "-A INPUT -s 8.8.0.0/24 -p tcp -j DROP",
+			[]string{"-A INPUT -s 8.8.0.0/16 -p tcp -j DROP"},
+			"exposure exp1 public from 8.8.1.0-8.8.255.255 to 192.0.2.1:443 on eth0: drop", "8.8.0.0-8.8.0.255"},
+		{"a source the before-state cannot decide", "",
+			[]string{"-A INPUT -s 8.8.8.0/24 -p tcp -j DROP"},
+			"exposure exp1 public from 8.8.8.0-8.8.8.255 to 192.0.2.1:443 on eth0: drop", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			before := fwstate.Loaded{Variant: "nft"}
+			if tt.before != "" {
+				before = v1r21State(t, v1r21Table(tt.before), v1r21Table())
+			}
+			g := v1r21CheckFrom(t, &gHost{ifaces: ckIfaces()}, &before, v1r21State(t, v1r21Table(tt.after...), v1r21Table()), v1r21Public())
+			if g.OK || !strings.Contains(g.Message, tt.want) {
+				t.Errorf("guard = %+v, want a refusal containing %q", g, tt.want)
+			}
+			if tt.not != "" && strings.Contains(g.Message, tt.not) {
+				t.Errorf("message %q names %s, which the loaded rules already drop", g.Message, tt.not)
+			}
+		})
+	}
+}
+
+func TestV1r21WildDestinationIgnoresTheBeforeState(t *testing.T) {
+	st := v1r21State(t, v1r21Table("-A FORWARD -d 104.16.0.0/13 -j DROP"), v1r21Table())
+	h := &gHost{ifaces: ckIfaces(), routes: map[netstat.RouteQuery]netstat.Route{}}
+	for _, rep := range []string{"1.0.0.0", "104.16.0.0", "104.24.0.0"} {
+		h.routes[rtQuery(rep, "172.30.0.3", "dp-panel")] = rtVia("eth0", "")
+	}
+	g := v1r21CheckFrom(t, h, &st, st, v1r21Tunnel())
+	const want = "exposure exp2 tunnel from 172.30.0.3 to 104.16.0.0-104.23.255.255:443 on dp-panel out eth0: drop"
+	if g.OK || !strings.Contains(g.Message, want) {
+		t.Errorf("guard = %+v, want a refusal containing %q: a flow to any internet address needs every cell", g, want)
 	}
 }
 
