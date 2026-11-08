@@ -157,7 +157,10 @@ func routeCutters(routes []netstat.Route, v6 bool) (cuts *netfilter.Ruleset, noP
 // checkFlow evaluates fl in every cell of its wild end and returns the
 // results of the first blocked cell; later cells are not evaluated. When no
 // cell is blocked, the results of the first cell that produced any stand for
-// all of them; a cell without a route of its family produces none. A flow to
+// all of them. A cell produces none only where a missing route has nothing
+// to protect: a wild destination without a route of its family, or a wild
+// source in a cell of a route without a path that no reply reaches; a
+// missing route anywhere else makes the flow unknown. A flow to
 // any internet address needs every cell to pass. A flow from any internet
 // address, given a before-state, fails only on a cell the before-state
 // neither drops nor rejects: a probe the before-state already blocked is

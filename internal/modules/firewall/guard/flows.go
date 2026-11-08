@@ -58,7 +58,7 @@ type flow struct {
 	pkt       fwstate.Packet
 	wild      wildEnd
 	span      string     // "<From>-<To>" of the cell this copy of the flow is checked in
-	standIn   bool       // a wild destination whose cell has no route of its family, or a wild source without a route back, has nothing to protect
+	standIn   bool       // a missing route skips it rather than failing: a wild destination with no route of its family, or a wild source in a cell of a route without a path that no reply reaches, has nothing to protect
 	blackhole bool       // the cell lies in a blackhole route, whose lookup the kernel answers with EINVAL
 	fwdReply  netip.Addr // the DNAT target that answers this flow; its reply is routed with that source, arriving on panelBridge
 	unknown   string
