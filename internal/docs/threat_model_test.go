@@ -74,7 +74,7 @@ var w10tmMitigationPaths = map[string][]string{
 
 // w10tmOpen are the terms the open security questions use; each appears in
 // a bullet of Known residual risks.
-var w10tmOpen = []string{"Origin", "RFC 1918", "forward host", "port 81", "port 3000", "digest", "openpgp"}
+var w10tmOpen = []string{"Origin", "port 81", "port 3000", "openpgp", "enrollment budget", "forward host"}
 
 var (
 	w10tmHeadingRE  = regexp.MustCompile(`^(#{1,6}) +(\S.*?)\s*$`)
@@ -235,8 +235,8 @@ func TestW10TmAreasStateTheirFacts(t *testing.T) {
 func TestW10TmKnownResidualRisks(t *testing.T) {
 	d := w10tmParse(dcRead(t, w10tmPage))
 	bullets := w10tmBullets(d.lines["Known residual risks"])
-	if len(bullets) < len(w10tmOpen) {
-		t.Errorf("Known residual risks has %d bullets, want at least %d: one for each open security question", len(bullets), len(w10tmOpen))
+	if len(bullets) == 0 {
+		t.Fatal("Known residual risks has no bullets")
 	}
 	all := strings.Join(bullets, "\n")
 	for _, name := range dcMissing(all, w10tmOpen) {

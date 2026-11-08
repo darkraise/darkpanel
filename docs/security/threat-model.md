@@ -77,7 +77,7 @@ This page is the written threat model of Darkpanel. It states what the product p
 #### Mitigations
 
 - Users have argon2id password hashes, and only a bounded number of hashes run at a time. TOTP (RFC 6238) is required to sign in and a code is never accepted twice (`internal/controller/auth`).
-- A login rate limit by user name and by source address applies a lock, and a flood of new keys cannot clear a running lock (`internal/controller/auth`).
+- A login rate limit applies a lock by source address and a lock on the pair of user name and source, where the source is the client's IPv4 address or the /64 of its IPv6 address. Behind a runtime listener the source is the client address the listener parsed, not the text the audit log keeps. A flood of new keys cannot clear a running lock (`internal/controller/auth`, `internal/controller/api`).
 - Sessions have an idle and an absolute lifetime and only their hash is stored. API tokens carry a `read`, `operate` or `admin` scope and an expiry, and only their hash is stored (`internal/controller/auth`).
 - One authentication middleware on every listener applies to every method and denies unless the route is public. Cookies are SameSite=Strict and HttpOnly, a CSRF token guards unsafe methods, and runtime listeners check the Origin (`internal/controller/api`).
 - Break-glass user commands run only on the controller socket, which is root-only through `SO_PEERCRED` (`internal/controller/api`).
@@ -88,7 +88,8 @@ This page is the written threat model of Darkpanel. It states what the product p
 - The rate limiter's counters live in memory, so a restart clears them.
 - TOTP uses SHA-1 because authenticator apps implement it.
 - The web listeners accept TLS 1.2 for browsers; the agent transport requires TLS 1.3.
-- An admin whose session and CSRF token are both stolen acts as that admin until the session ends. The open question about the Origin header is listed in Known residual risks.
+- An admin whose session and CSRF token are both stolen acts as that admin until the session ends. The accepted risk of a request without an Origin header is listed in Known residual risks.
+- A lock on the pair of user name and source gives each source its own attempts against a user name, so an attacker who uses many sources, many IPv6 /64 networks included, makes more guesses than one who uses few. A correct password is still not enough to sign in without a TOTP code.
 
 ### Agent protocol
 
@@ -115,6 +116,7 @@ This page is the written threat model of Darkpanel. It states what the product p
 - A stolen agent key acts as that host until it is revoked.
 - A compromised controller can send any declared action to every enrolled agent. The declared schemas and the allowlist on the agent limit its power but do not remove it.
 - A host offline for longer than a certificate's life must enroll again.
+- The global enrollment budget is shared by every source, so a peer that reaches the agent listener can use it up and delay enrollment. The accepted risk is listed in Known residual risks.
 
 ### Command execution
 
@@ -128,7 +130,7 @@ This page is the written threat model of Darkpanel. It states what the product p
 
 #### Mitigations
 
-- The exec provider runs only allowlisted absolute binary paths with a fixed minimal environment. It never uses a shell and runs only argument vectors that a rule for that path accepts, mostly exact vectors; where a tool has no `--`, as ufw, the input schema patterns refuse a value that starts with `-` (`internal/platform`).
+- The exec provider runs only allowlisted absolute binary paths with a fixed minimal environment. It never uses a shell and runs only argument vectors that a rule for that path accepts, mostly exact vectors. ufw has no `--`, so a value that starts with `-` must never reach it as an argument: the input schema patterns of an address, a port and an interface refuse such a value, and a comment reaches ufw only after the tag prefix `darkpanel:` that every rule a client adds carries, because `withComment` drops the comment of a manual rule that starts with `-` (`internal/platform`, `internal/modules/firewall/model`).
 - Input schemas constrain every value that reaches a program (`internal/modules`, `internal/core/lifecycle`).
 - The file provider writes only declared paths and marked blocks. It opens the parent with `openat2` and `RESOLVE_NO_SYMLINKS`, requires a root-owned parent that others cannot write, writes through a temporary file and a rename, and refuses duplicated, nested or unterminated markers (`internal/platform`).
 - APIs are preferred to tools: the Docker Engine API, the Tailscale local API and systemd over D-Bus. An ownership manifest drives uninstall, Agent modules run programs and write host files only through `internal/platform`; the update path (`internal/update`, `cmd/darkpanel/update.go`) additionally runs the staged or previous Darkpanel binary itself.
@@ -157,6 +159,7 @@ This page is the written threat model of Darkpanel. It states what the product p
 - Both remote loaders are switched off with `COMPOSE_EXPERIMENTAL_GIT_REMOTE=false` and the OCI equivalent, `up` always runs with `--no-build`, and nothing is inherited from the agent's environment: it holds the runner's fixed base, the Darkpanel-owned `DOCKER_CONFIG` and `HOME`, and the two remote-loader switches (`internal/platform/exec_rules.go`, `internal/modules/docker/compose_run.go`, `internal/modules/docker/compose`).
 - A project named `darkpanel*`, or one that touches an object labelled `darkpanel.module`, is refused with `docker.owned` (`internal/modules/docker/compose_check.go`).
 - The resolved configuration is read as strict JSON and fuzzed (`internal/modules/docker/compose`).
+- A failed `docker compose config` or run reports its exit status and the command to run on the host to see why, and no byte of Compose's stderr reaches an error, a change record or a log line, because Compose can quote values it resolved from env files (`internal/modules/docker`).
 
 #### Residual risk
 
@@ -177,13 +180,16 @@ This page is the written threat model of Darkpanel. It states what the product p
 #### Mitigations
 
 - Secret columns are sealed with XChaCha20-Poly1305 under a per-role key file (mode 0600), with the table, column and row id as associated data. The `secret` tag drives sealing and redaction (`internal/core/secret`).
-- The CLI takes secrets only from a prompt or standard input, never a flag (`internal/cli`).
+- The CLI takes a secret from a prompt, from standard input or from a JSON input file named with `--input`, and never from a flag; the file's path is on the command line and its content is not (`internal/cli`).
 - A reveal action returns one stored secret once, needs `admin`, writes its audit entry before it answers and sets `Cache-Control: no-store`. It is never journaled, cached, relayed through server-sent events or stored in a change, and has no `--local` form (`internal/core/lifecycle/reveal.go`, `internal/controller/api/reveal.go`).
 - The logs of containers a Darkpanel module owns, the Cloudflare connector and the Nginx Proxy Manager container, are masked for the secrets Darkpanel placed in them. The logs of other containers pass unchanged (`internal/modules/docker/logsecrets.go`, `internal/modules/cloudflare`, `internal/modules/npm`).
 - A backup is one archive, framed and sealed with a key derived from the operator's passphrase by argon2id and authenticated to its end so truncation is detected (`internal/controller/backup`). The passphrase is read from the terminal or a root-owned 0600 file (`internal/cli`).
-- A restore stages with mode 0600 and gives owner and mode to each staged file through one descriptor that refuses links. A backup keeps its plaintext copy of the database in a private directory that the controller sweeps at startup, and reads the key file with a bound, so a key that grew is refused (`internal/controller/backup`).
+- A restore stages with mode 0600 and gives owner and mode to each staged file through one descriptor that refuses links. A backup keeps its plaintext copy of the database in a private directory that the controller sweeps at startup, opens the copy without following a link, sets its mode 0600 through that descriptor and streams from the same descriptor, and reads the key file with a bound, so a key that grew is refused (`internal/controller/backup`).
 - The CLI builds the backup request from the passphrase bytes (`internal/cli`).
 - Removing an Nginx Proxy Manager instance deletes its upgrade archives, which hold Let's Encrypt private keys and the NPM database (`internal/modules/npm`).
+- An effect document holds a value it only compares as a keyed fingerprint, `hmac-sha256:` followed by the HMAC-SHA-256 of the value under a key derived from the role key, so nobody can check the fingerprint against a guess without that key. A value an undo restores goes into the effect's sealed secret instead. This covers the settings of Nginx Proxy Manager proxy hosts, custom locations included, and the labels of Docker networks and volumes (`internal/modules/npm`, `internal/modules/docker`, `internal/core/lifecycle`).
+- Network and volume label values are secret inputs: a plan shows a label's key and whether it is added, changed or removed, and never its value (`internal/modules/docker`).
+- Container inspection masks every element of a container's `Cmd`, because an image with an `Entrypoint` makes the first element an argument and not a program. An element of `Entrypoint` keeps the masking rule it had (`internal/modules/docker`).
 
 #### Residual risk
 
@@ -205,7 +211,7 @@ This page is the written threat model of Darkpanel. It states what the product p
 
 #### Mitigations
 
-- A lockout guard predicts the effect of a change on the protected flows and refuses it unless explicitly overridden (`internal/modules/firewall/predict`, `internal/modules/firewall/eval`, `internal/modules/firewall/guard`).
+- A lockout guard predicts the effect of a change on the protected flows and refuses it unless explicitly overridden. It checks the public leg of a panel exposure, the browser to NPM binding, from the exposure's own record, and a request through an NPM exposure without those bindings fails closed. It evaluates "any internet address" once for each cell of the public unicast space that the ruleset's prefixes cut. A flow to any internet address, the tunnel connector's or tailscaled's, holds only when every cell passes. A flow from any internet address, to the controller listener or to NPM's public binding, fails only on a cell the change itself blocks: a source the loaded rules already drop or reject does not refuse a later change, and the guard does not report it, while a source the guard cannot decide still refuses. A refusal names the first blocked cell (`internal/modules/firewall/predict`, `internal/modules/firewall/eval`, `internal/modules/firewall/guard`, `internal/controller/api`, `internal/modules/panel`).
 - A change stays pending until confirmed and the host reverts it by itself after the confirmation timeout (60 seconds by default), so the revert happens even when the client disconnects (`internal/core/lifecycle`, `internal/modules/firewall`).
 - A snapshot is taken before every change, and a break-glass rollback and restore through the agent socket work without the controller (`internal/cli`, `internal/modules/firewall`).
 - The module holds one read-write lock per instance. Every path that changes UFW's files, the loaded rules or the Docker block takes it for writing, and every status read and plan preparation takes it for reading, so a plan or a status read never sees a state between a file write and the reload (`internal/modules/firewall`).
@@ -251,7 +257,8 @@ This page is the written threat model of Darkpanel. It states what the product p
 - Spoofed client-address or protocol headers.
 - Cross-site requests through an exposure.
 - Nginx Proxy Manager's admin UI exposed by mistake or unchecked.
-- A proxy host that points at the panel or at NPM itself.
+- A proxy host that points at the panel or at NPM itself, by address or through a DNS name.
+- A local user who creates Nginx Proxy Manager's first administrator before Darkpanel does.
 - A compromised NPM exhausting an agent.
 - A revoked exposure coming back.
 
@@ -260,15 +267,16 @@ This page is the written threat model of Darkpanel. It states what the product p
 - Runtime listeners accept only HTTPS from one allowed peer, read exactly one client header set by a proxy Darkpanel configured (`X-Darkpanel-Client` or `Cf-Connecting-IP`) and ignore `X-Forwarded-For` and `X-Real-IP`. They refuse a request whose forwarded protocol is not https, and refuse an unsafe request whose Origin is not the exposure's public host, compared with the exposure's public host, which is stored in lower case without a trailing dot (`internal/controller/listen`, `internal/controller/api`).
 - Login over an exposure requires TOTP and every page shows a banner. Revocation is a durable `revoked` state that is checked on every request and stream and that nothing reverses; `sudo darkpanel panel listener revoke` is the break-glass (`internal/modules/panel`, `internal/controller/api`, `internal/controller/listen`, `web/src/modules/panel/banner.tsx`).
 - NPM's admin port 81 is published on 127.0.0.1 only, and its HTTPS exposure is an opt-in action. The banner warns about it on every page, and, because it reads the list again, also about each host whose status could not be read (`unreadable`) and about a failed read (`web/src/modules/npm/banner.tsx`, `internal/modules/npm`).
-- Proxy hosts that forward to NPM's own port 81 or to the panel gateway are refused as reserved (`internal/modules/npm/proxy`).
-- The agent's NPM client limits the size of every answer and drains refusals (`internal/modules/npm/npmapi`).
+- Outside the admin-exposure composite, a proxy host may not forward to any port of NPM's own container names or addresses, or to the panel gateway; the refusal is `npm.reserved`, and port 81 stays allowed inside that composite. A forward host that is a DNS name is resolved at plan and again at apply: a name that a container on one of NPM's networks answers to takes that container's addresses from Docker, any other name is resolved on the agent's host; every answer is checked as an address, a name with no answer is invalid input, and a set of answers that changed between the two is refused as `plan.state_changed`. The undo of a proxy host's update or removal checks every forward host it writes back the same way (`internal/modules/npm/proxy`, `internal/modules/npm`).
+- The agent's NPM client limits the size of every answer and drains refusals. It keeps only the status and an allowlisted error code of a refusal, so NPM's message text never reaches an error, a log line or a change record (`internal/modules/npm/npmapi`).
 - The public check honours the sources a Docker binding denies (`internal/modules/npm`).
 - Each runtime listener keeps its own TLS session tickets, so a session resumed on one listener is not accepted by another (`internal/controller/listen`).
+- When the creation of NPM's first administrator finds one that Darkpanel did not create, the deploy stops and removes the container, the data volumes and the network it created before it fails (`internal/modules/npm`).
 
 #### Residual risk
 
-- The open questions about Origin, forward hosts and NPM's ports are listed in Known residual risks.
-- A container on a network joined through the NPM attach action shares that network with NPM.
+- A forward host that is a DNS name and is re-pointed after it was applied is not checked again, and nginx in NPM's container may resolve a name differently from the agent's host. The accepted risk is listed in Known residual risks.
+- A container on a network joined through the NPM attach action shares that network with NPM and reaches its admin login on port 81 and its API on port 3000 inside the container; the admin password is 32 random bytes.
 - Let's Encrypt's duplicate-certificate limit can refuse a repeated add.
 
 ### DERP host
@@ -280,29 +288,31 @@ This page is the written threat model of Darkpanel. It states what the product p
 - A version mismatch that makes client verification fail open or closed wrongly.
 - A service account that Darkpanel did not create being removed.
 - The probe used against internal targets.
+- A compromised `darkpanel-derp` account that redirects or blocks a read the agent makes as root.
 
 #### Mitigations
 
 - Derper is built by the release workflow from upstream at a pinned version with a pinned module environment, and is listed in a manifest of per-architecture SHA-256 digests that is verified through the release's signature. The manifest parser refuses duplicate members (`internal/modules/derp/artifact`, `release/releasetool`).
 - The agent installs derper as a systemd service under the system user `darkpanel-derp` with `NoNewPrivileges=yes` and only `CAP_NET_BIND_SERVICE`. It records that it created the user only after `useradd` succeeded, so uninstall never removes an account somebody else made (`internal/modules/derp`).
-- Derper runs with `-verify-clients`, which checks every client's node key against the host's own `tailscaled` and refuses the client when `tailscaled` fails (`internal/modules/derp`).
-- The host's `tailscaled` is pinned and held at the derper version, and a pin that fails rolls the package back on a context of its own, even when the forward step's context has been cancelled (`internal/modules/tailscale`, `internal/modules/tailscale/package_pin.go`).
-- Derper's node key file lives in `/var/lib/darkpanel/derp`, a directory owned by `darkpanel-derp` that is created and kept at mode 0700 (`internal/modules/derp/server/server.go`, `internal/platform/files_servicedir.go`). Darkpanel does not set the mode of the key file itself, which derper writes. The probe uses a throwaway node key (`internal/platform/tslocal/derp.go`). The probe accepts only an IP literal or a lower-case DNS name of at least two labels made of letters, digits and hyphens, and refuses loopback, unspecified, multicast and link-local addresses, including among the addresses a name resolves to (`internal/modules/derp/node_probe.go`).
+- Derper runs with `-verify-clients` unless the install input sets `verifyClients: false`, a supported opt-out whose plan warns that any node that knows the region can relay through the server. With the flag, derper checks every client's node key against the host's own `tailscaled` and refuses the client when `tailscaled` fails (`internal/modules/derp`).
+- The host's `tailscaled` is pinned and held at the derper version, and a pin that fails rolls the package back, and so does a failed step that writes the repository file, on a context of its own, even when the forward step's context has been cancelled (`internal/modules/tailscale`, `internal/modules/tailscale/package_pin.go`).
+- Derper's node key file lives in `/var/lib/darkpanel/derp`, a directory owned by `darkpanel-derp`. Darkpanel creates it at mode 0700 and gives it to the service user at that mode; a directory the service user already owns is accepted as it is, without a mode check (`internal/modules/derp/server/server.go`, `internal/platform/files_servicedir.go`). Darkpanel does not set the mode of the key file itself, which derper writes.
+- The agent reads DERP certificate and key files through the platform's descriptor-based reads: no symlink anywhere on the path, a regular file only, and at most 1 MiB, so a compromised `darkpanel-derp` account cannot redirect a root read or block the agent with a FIFO or a huge file (`internal/platform`, `internal/modules/derp`).
+- `derp.node.probe` needs the `operate` scope. The probe uses a throwaway node key (`internal/platform/tslocal/derp.go`). It accepts only an IP literal or a lower-case DNS name of at least two labels made of letters, digits and hyphens, and refuses loopback, unspecified, multicast, link-local, RFC 1918, CGNAT (`100.64.0.0/10`) and ULA (`fc00::/7`) addresses, as literals and among the addresses a name resolves to, after it unmaps IPv4-mapped IPv6 addresses. A failed probe reports one value of a fixed set (`timeout`, `connection_refused`, `unreachable`, `tls_handshake_failed`, `certificate_not_trusted`, `pin_mismatch`, `bad_answer`, `no_stun_answer`, `failed`), and the raw error appears only in the agent's debug log (`internal/modules/derp/node_probe.go`).
 
 #### Residual risk
 
 - Holding `tailscaled` at derper's version delays its security updates on that host.
-- The probe's target ranges and the error text of a failed probe are an open question listed in Known residual risks.
+- A failed probe reports only a fixed error value, so finding the cause of a failure needs the agent's debug log.
+- The probe refuses the address classes named above and no others: NAT64 addresses (`64:ff9b::/96`), which a NAT64 gateway can translate to an IPv4 address on an internal network, `0.0.0.0/8` other than `0.0.0.0` itself, and the reserved and benchmarking IPv4 ranges (`240.0.0.0/4`, `198.18.0.0/15`) are not refused. Only a caller with the `operate` scope can choose the target.
 - Derper itself answers unauthenticated STUN and HTTPS probes from the internet.
 
 ## Known residual risks
 
-These are the security questions that remain open. None is described as accepted.
+These risks stay open. The owner accepted the first four for this release after the security review; the last is inherent in resolving a name at a point in time.
 
-- `Origin`: a request without an Origin header is accepted for a cookie session on an unsafe method through a runtime listener, so only the CSRF token guards it. Whether to require Origin for sessions is undecided.
-- `RFC 1918`: the DERP node probe accepts RFC 1918 and CGNAT targets and returns raw TLS error text that can name internal certificate names. Whether to refuse those ranges or to record the decision is undecided.
-- `forward host`: the reserved-target check of a proxy host resolves no names, so a forward host that resolves to loopback, to NPM's admin port or to the panel gateway passes. Whether to resolve it as NPM does is undecided.
-- `port 81`: NPM serves its admin login on port 81 inside its container, so any container on a network joined through the attach action can reach it, and only the host side is bound to loopback. Whether to restrict it inside the container or to accept it is undecided.
-- `port 3000`: the guard covers NPM's port 81 only, while NPM's backend API listens on port 3000, and whether it binds loopback only in the pinned image is unverified.
-- `digest`: the label digest in Docker network and volume effect documents is an unsalted SHA-256, and plan diffs outside the effect document show raw label values. Whether to salt the digest or to redact the diffs is undecided.
-- `openpgp`: the `openpgp` package of `golang.org/x/crypto` carries an advisory (GO-2026-5932) with no tagged fix, and Darkpanel does not call it. The open choice is to keep the current pin until a tagged release carries the fix, or to remove the package from the module graph.
+- `Origin`: a request without an Origin header is accepted for a cookie session on an unsafe method through a runtime listener. The SameSite=Strict cookie and the HMAC CSRF token that every unsafe request must carry still guard it, and requiring Origin would add no attacker that those checks let through. The owner accepted this.
+- `port 81`: NPM serves its admin login on port 81 and its API on port 3000 inside its container, on every interface, so any container on a network joined through the attach action reaches both; only the host side of port 81 is bound to loopback. The admin password is 32 random bytes and the pinned image offers no way to bind the ports to loopback, so a joined container gains an authentication surface and nothing more. The owner accepted this.
+- `openpgp`: the `openpgp` package of `golang.org/x/crypto` carries advisory GO-2026-5932 and no tagged release carries the fix. Darkpanel imports nothing from it. The pin stays until a tagged release carries the fix. The owner accepted this.
+- `enrollment budget`: the global enrollment budget is 60 requests a minute across all sources, so a peer that reaches the agent listener, on the tailnet by design, can use it up and block further enrollment for the rest of the minute. It affects enrollment only, and an enrollment token lasts one hour, so a sustained flood forces a new token. The owner accepted this.
+- `forward host`: a forward host that is a DNS name is checked when the plan is made and again when it is applied, and a name that is re-pointed after it was applied is not checked again, so a name the caller controls can later resolve to an address that was refused at apply. nginx in NPM's container resolves a name that no container answers to through the DNS servers configured on the host, which can answer differently from the agent's own resolver, for example for a name only the host's `/etc/hosts` holds.
