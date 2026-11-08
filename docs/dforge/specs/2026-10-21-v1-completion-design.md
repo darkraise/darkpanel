@@ -5441,8 +5441,17 @@ a spec change.
       record, and a request through an NPM exposure without them fails
       closed.
     - "Any internet address" is evaluated once per cell of the public
-      unicast space that the ruleset's prefixes cut, and holds only when
-      every cell passes.
+      unicast space that the ruleset's prefixes cut. A flow to any
+      internet address (the tunnel connector's, tailscaled's) holds only
+      when every cell passes. A flow from any internet address (to the
+      controller listener, to NPM's public binding) fails only on a cell
+      the change itself newly blocks: one that fails after the change and
+      that the loaded state before the change neither drops nor rejects.
+      Its cells are cut by the prefixes of both states. A cell the loaded
+      state already drops or rejects does not refuse the change; one it
+      cannot decide still does. Where no before-state exists (a revert's
+      connectivity exception), every cell must pass
+      (owner decision, 2026-11-08).
     - The per-username login lock is keyed by username and source (IPv4
       address, IPv6 /64). Behind an exposure, the source is the client
       address the listener parsed.
