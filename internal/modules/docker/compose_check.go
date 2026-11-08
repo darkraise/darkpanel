@@ -525,14 +525,15 @@ func (k dk) composeObjectLabels(ctx context.Context, kind, name string) (map[str
 // program path, that the operator can run on the host to see why. Compose's
 // diagnostics can quote values it resolved from env files, so none of its
 // output is ever reported. The command is shell-quoted because its paths come
-// from container labels.
+// from container labels, and it comes last with no surrounding ", so neither
+// pasting it nor pasting the whole message expands them.
 func composeFailureDetail(verb string, args []string, exit int) string {
 	words := make([]string, len(args))
 	for i, a := range args {
 		words[i] = composeShellWord(a)
 	}
-	return "docker compose " + verb + " failed with exit status " + strconv.Itoa(exit) +
-		`; run "docker ` + strings.Join(words, " ") + `" on the host to see why`
+	return "the docker compose " + verb + " command failed with exit status " + strconv.Itoa(exit) +
+		"; to see why, run this on the host: docker " + strings.Join(words, " ")
 }
 
 // composeShellWord is s as one POSIX shell word: unchanged when it is
