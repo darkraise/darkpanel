@@ -49,9 +49,8 @@ func newRouter(h Host, f facts, st fwstate.Loaded) *router {
 // unspecified destination is checked once for every address it may reach
 // (wildcardDsts). A route that cannot be resolved makes the flow unknown,
 // except that a stand-in destination without a route of its family, or a
-// stand-in source without a route back from any address of this host, has
-// nothing to protect. Every lookup carries the packet's mark, which policy
-// rules may match.
+// stand-in source that no reply reaches (noReply), has nothing to protect.
+// Every lookup carries the packet's mark, which policy rules may match.
 func (r *router) probes(fl flow) []probe {
 	if fl.unknown != "" {
 		return []probe{{desc: fl.label, unknown: fl.unknown}}
@@ -108,7 +107,7 @@ func (r *router) probes(fl flow) []probe {
 	}
 	rt, err := r.host.RouteGet(netstat.RouteQuery{Dst: p.Src, Mark: p.Mark})
 	switch {
-	case err != nil && fl.standIn && noRoute(fl, err) && r.noReplyFrom(fl, p.Src, p.Mark):
+	case err != nil && fl.standIn && noRoute(fl, err) && r.noReply(fl, p.Src, p.Mark, netip.Addr{}):
 		return nil
 	case err != nil:
 		return fail(fmt.Sprintf("the route back to %s cannot be resolved: %v", p.Src, err))
@@ -130,6 +129,26 @@ func (r *router) probes(fl flow) []probe {
 // in a cell the route dump places inside one.
 func noRoute(fl flow, err error) bool {
 	return errors.Is(err, netstat.ErrNoRoute) || (fl.blackhole && errors.Is(err, unix.EINVAL))
+}
+
+// noReply reports whether no reply of fl reaches src. The host's own reply
+// leaves from from, or when from is unset from any address of the host. The
+// reply of fl's DNAT target, when it has one, is forwarded: it is routed
+// with the target's source, arriving on panelBridge, before the reverse
+// translation, so its route back must fail too.
+func (r *router) noReply(fl flow, src netip.Addr, mark uint32, from netip.Addr) bool {
+	if from.IsValid() {
+		if _, err := r.host.RouteGet(netstat.RouteQuery{Dst: src, Src: from, Mark: mark}); !noRoute(fl, err) {
+			return false
+		}
+	} else if !r.noReplyFrom(fl, src, mark) {
+		return false
+	}
+	if fl.fwdReply.IsValid() {
+		_, err := r.host.RouteGet(netstat.RouteQuery{Dst: src, Src: fl.fwdReply, IIF: panelBridge, Mark: mark})
+		return noRoute(fl, err)
+	}
+	return true
 }
 
 // noReplyFrom reports whether no address of this host of src's family has a
@@ -174,7 +193,8 @@ func (r *router) wildcardDsts(pref netip.Addr, iface string) []netip.Addr {
 
 // inputProbes are the probes of an incoming packet p of fl to an address of
 // this host: once on its fixed in-interface, or on every eligible one. A
-// stand-in source without a route back from p's destination has none.
+// stand-in source that no reply reaches, from p's destination or from fl's
+// DNAT target, has none.
 func (r *router) inputProbes(fl flow, p fwstate.Packet) []probe {
 	fail := func(reason string) []probe { return []probe{{desc: describeFlow(fl, p), unknown: reason}} }
 	if !r.local[p.Dst] {
@@ -183,7 +203,7 @@ func (r *router) inputProbes(fl flow, p fwstate.Packet) []probe {
 	if fl.standIn && fl.wild == wildSrc {
 		// Under rp_filter the kernel drops such a packet, or fails the lookup
 		// of one that DNAT forwards; without it, the reply finds no route.
-		if _, err := r.host.RouteGet(netstat.RouteQuery{Dst: p.Src, Src: p.Dst, Mark: p.Mark}); noRoute(fl, err) {
+		if r.noReply(fl, p.Src, p.Mark, p.Dst) {
 			return nil
 		}
 	}

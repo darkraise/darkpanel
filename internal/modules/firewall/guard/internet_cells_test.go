@@ -566,14 +566,16 @@ func TestV1r21RouteWithoutAPathCutsTheCellItStarts(t *testing.T) {
 // address out of eth0 from 192.0.2.1 and throws thrown on to the tables after
 // it. With later, one of them routes thrown out of eth1 from 10.0.0.1;
 // without, none routes it. With from, a source rule routes replies from that
-// address to thrown out of eth0. A non-nil fail answers every lookup in
-// thrown.
+// address to thrown out of eth0. With container, a policy rule routes the
+// replies of the NPM container 172.30.0.2, arriving on dp-panel, to thrown
+// out of eth0. A non-nil fail answers every lookup in thrown.
 type v1r21Throw struct {
 	*gHost
-	thrown netip.Prefix
-	later  bool
-	from   netip.Addr
-	fail   error
+	thrown    netip.Prefix
+	later     bool
+	from      netip.Addr
+	fail      error
+	container bool
 }
 
 func (h v1r21Throw) RouteGet(q netstat.RouteQuery) (netstat.Route, error) {
@@ -584,6 +586,8 @@ func (h v1r21Throw) RouteGet(q netstat.RouteQuery) (netstat.Route, error) {
 		return netstat.Route{}, h.fail
 	case h.from.IsValid() && q.Src == h.from:
 		return rtVia("eth0", h.from.String()), nil
+	case h.container && q.Src == netip.MustParseAddr("172.30.0.2") && q.IIF == "dp-panel":
+		return rtVia("eth0", ""), nil
 	case h.later:
 		return rtVia("eth1", "10.0.0.1"), nil
 	}
@@ -671,5 +675,33 @@ func TestV1r21ThrowCellWhoseLookupFailsIsUnknown(t *testing.T) {
 	g := v1r21ThrowListener(t, v1r21Throw{fail: errors.New("netstat: invalid argument")}, v1r21State(t, v1r21Table(), v1r21Table()))
 	if g.OK || !strings.Contains(g.Message, want) {
 		t.Errorf("guard = %+v, want a refusal containing %q: only a missing route skips a cell", g, want)
+	}
+}
+
+// v1r21ThrowPublic checks st on h, set up as a host whose main table throws
+// 45.33.0.0/16, under the plan of an NPM exposure published on bind.
+func v1r21ThrowPublic(t *testing.T, h v1r21Throw, st fwstate.Loaded, bind string) core.Guard {
+	t.Helper()
+	h.thrown = netip.MustParsePrefix("45.33.0.0/16")
+	h.gHost = &gHost{ifaces: ckIfaces(), table: append(v1r21HostRoutes(), v1r21Route("throw", h.thrown.String(), "", "-", 254))}
+	plan := v1r21Public()
+	plan.Via.Public = []netip.AddrPort{netip.MustParseAddrPort(bind)}
+	return v1r21CheckHost(t, h, st, plan)
+}
+
+func TestV1r21ThrowCellTheProxyAnswersIsChecked(t *testing.T) {
+	const rule = "-A FORWARD -s 45.33.0.0/16 -d 172.30.0.2/32 -p tcp -m tcp --dport 443 -j DROP"
+	st := v1r21State(t, "*nat\n:PREROUTING ACCEPT [0:0]\n:INPUT ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n:POSTROUTING ACCEPT [0:0]\n"+
+		"-A PREROUTING -p tcp -m tcp --dport 443 -j DNAT --to-destination 172.30.0.2:443\nCOMMIT\n"+v1r21Table(rule), v1r21Table())
+	const want = "exposure exp1 public from 45.33.0.0-45.33.255.255"
+	for _, bind := range []string{"0.0.0.0:443", "192.0.2.1:443"} {
+		t.Run(bind, func(t *testing.T) {
+			if g := v1r21ThrowPublic(t, v1r21Throw{container: true}, st, bind); g.OK || !strings.Contains(g.Message, want) {
+				t.Errorf("guard with %q = %+v, want a refusal containing %q: the proxy's replies route back to the range the rule drops", rule, g, want)
+			}
+			if g := v1r21ThrowPublic(t, v1r21Throw{}, st, bind); !g.OK {
+				t.Errorf("guard with %q and no route for the proxy's replies = %+v, want OK: nothing routes a reply to the thrown range", rule, g)
+			}
+		})
 	}
 }
