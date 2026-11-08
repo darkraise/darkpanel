@@ -71,12 +71,34 @@ func refused(err error) bool {
 	return npmapi.IsClientError(err)
 }
 
+// withoutDefiniteMark returns err without the definite mark and with everything beneath it, so errors.As still finds
+// the errcode code and errors.Is the cause. An error with no mark is returned as it is.
+func withoutDefiniteMark(err error) error {
+	for core.IsDefinite(err) {
+		next := errors.Unwrap(err)
+		if next == nil {
+			return notDefinite(err)
+		}
+		err = next
+	}
+	return err
+}
+
 // run journals one call: it records e as intended, makes the call, and records it made with the state observe reads
 // of the resource do names (or of e.Resource when do names none). A refusal (refused, or an error do marked Definite
-// because a precondition failed before anything changed) skips the effect and returns a Definite error; any other
-// failure leaves the effect intended for the engine to settle as uncertain.
+// because a precondition failed before anything changed) skips the effect; the error is Definite only for the first
+// kept step of the change, because only then does the refusal prove that the change committed nothing, and later it
+// carries no mark, since the earlier effects already changed the host. Any other failure leaves the effect intended
+// for the engine to settle as uncertain.
 func (n nm) run(ctx context.Context, env core.Env, e core.Effect, observe func(context.Context, core.Env, core.Effect) (core.Observation, error),
 	do func(ctx context.Context) (resource string, err error)) error {
+	effects, err := env.Effects.List(ctx)
+	if err != nil {
+		return fmt.Errorf("npm: journal %s: %w", e.Resource, err)
+	}
+	first := !slices.ContainsFunc(effects, func(prior core.Effect) bool {
+		return prior.State != core.EffectSkipped
+	})
 	seq, err := env.Effects.Intend(ctx, e, nil)
 	if err != nil {
 		return fmt.Errorf("npm: journal %s: %w", e.Resource, err)
@@ -89,7 +111,10 @@ func (n nm) run(ctx context.Context, env core.Env, e core.Effect, observe func(c
 		if skipErr := env.Effects.Skipped(ctx, seq); skipErr != nil {
 			return errors.Join(err, fmt.Errorf("npm: journal %s: %w", e.Resource, skipErr))
 		}
-		return core.Definite(err)
+		if first {
+			return core.Definite(err)
+		}
+		return withoutDefiniteMark(err)
 	}
 	if resource == "" {
 		resource = e.Resource

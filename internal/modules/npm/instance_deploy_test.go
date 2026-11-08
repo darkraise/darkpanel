@@ -650,8 +650,9 @@ func TestDpApplyFailsAtEachStep(t *testing.T) {
 				}
 				h.docker.Fail(s.op, failure)
 				_, err := dpApply(h, h.nm(), "c1")
-				if err == nil || core.IsDefinite(err) != refused {
-					t.Fatalf("error %v (definite %t), want definite %t", err, core.IsDefinite(err), refused)
+				wantDefinite := refused && s.index == 0
+				if err == nil || core.IsDefinite(err) != wantDefinite {
+					t.Fatalf("error %v (definite %t), want definite %t: only a refusal of the first step proves that nothing changed", err, core.IsDefinite(err), wantDefinite)
 				}
 				effs := h.journal.effects()
 				if len(effs) != s.index+1 {

@@ -326,3 +326,82 @@ func TestW10NsFoundLeavesTheCallersSliceAlone(t *testing.T) {
 		t.Errorf("observation %+v, want two matches reported in resource order", obs)
 	}
 }
+
+// v1r23Run journals one step of change c1 through nm.run. Its observation
+// reads back the resource it is asked about.
+func v1r23Run(h *thHost, effect core.Effect, do func(context.Context) (string, error)) error {
+	observe := func(_ context.Context, _ core.Env, got core.Effect) (core.Observation, error) {
+		return named(json.RawMessage(`{"seen":"` + got.Resource + `"}`)), nil
+	}
+	return h.nm().run(context.Background(), h.env("c1"), effect, observe, do)
+}
+
+// TestV1r23RunMarksOnlyTheFirstRefusalDefinite: a refusal proves that nothing
+// of the change committed only while no earlier effect of the change was kept.
+// A refusal after a made or an intended effect leaves the call skipped but is
+// not definite, and it keeps its code and its cause.
+func TestV1r23RunMarksOnlyTheFirstRefusalDefinite(t *testing.T) {
+	refusal := &dockerapi.APIError{StatusCode: 409, Message: "refused"}
+	lost := &dockerapi.APIError{StatusCode: 500, Message: "daemon error"}
+	precondition := errcode.New(errcode.InvalidInput, "npm: a precondition failed")
+	step := func(name string) core.Effect {
+		return npmEffect(core.EffectModify, resourceOf(nounContainer, name), json.RawMessage(`{"running":false}`), commitWait)
+	}
+	made := func(t *testing.T, h *thHost) {
+		t.Helper()
+		if err := v1r23Run(h, step("earlier"), func(context.Context) (string, error) { return "", nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	skipped := func(t *testing.T, h *thHost) {
+		t.Helper()
+		if err := v1r23Run(h, step("earlier"), func(context.Context) (string, error) { return "", refusal }); err == nil {
+			t.Fatal("the earlier step was not refused")
+		}
+	}
+	intended := func(t *testing.T, h *thHost) {
+		t.Helper()
+		if err := v1r23Run(h, step("earlier"), func(context.Context) (string, error) { return "", lost }); err == nil {
+			t.Fatal("the earlier step did not fail")
+		}
+	}
+	tests := []struct {
+		name     string
+		before   func(*testing.T, *thHost)
+		cause    error // what the call returns
+		keep     error // what the result must still wrap
+		definite bool
+		state    core.EffectState // of the effect under test
+	}{
+		{"nothing journaled before", nil, refusal, refusal, true, core.EffectSkipped},
+		{"only a skipped step before", skipped, refusal, refusal, true, core.EffectSkipped},
+		{"a made step before", made, refusal, refusal, false, core.EffectSkipped},
+		{"an intended step before", intended, refusal, refusal, false, core.EffectSkipped},
+		{"nothing before, a refusal the call marked", nil, core.Definite(precondition), precondition, true, core.EffectSkipped},
+		{"a made step before, a refusal the call marked", made, core.Definite(precondition), precondition, false, core.EffectSkipped},
+		{"a made step before, an answer lost", made, lost, lost, false, core.EffectIntended},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newTHHost(t)
+			if tc.before != nil {
+				tc.before(t, h)
+			}
+			prior := len(h.journal.effects())
+			err := v1r23Run(h, step("later"), func(context.Context) (string, error) { return "", tc.cause })
+			if err == nil {
+				t.Fatal("run succeeded")
+			}
+			if core.IsDefinite(err) != tc.definite {
+				t.Errorf("Definite = %v, want %v (error %v)", core.IsDefinite(err), tc.definite, err)
+			}
+			if !errors.Is(err, tc.keep) {
+				t.Errorf("error %v lost %v", err, tc.keep)
+			}
+			effects := h.journal.effects()
+			if len(effects) != prior+1 || effects[prior].State != tc.state {
+				t.Fatalf("effects %+v, want the effect under test after %d earlier ones to be %s", effects, prior, tc.state)
+			}
+		})
+	}
+}

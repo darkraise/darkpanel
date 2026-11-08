@@ -373,8 +373,9 @@ func TestRmApply(t *testing.T) {
 		h, _ := rmDeployed(t)
 		h.docker.Fail("RemoveVolume", &dockerapi.APIError{StatusCode: 409, Message: "volume is in use"})
 		_, err := apply(h, "c1")
-		if err == nil || !core.IsDefinite(err) {
-			t.Fatalf("error %v, want a definite refusal", err)
+		var answer *dockerapi.APIError
+		if err == nil || core.IsDefinite(err) || !errors.As(err, &answer) || answer.StatusCode != 409 {
+			t.Fatalf("error %v (definite %v), want the daemon's 409 as an error that is not definite: the container is already gone", err, err != nil && core.IsDefinite(err))
 		}
 		effects := h.journal.effects()
 		if len(effects) != 2 || effects[0].State != core.EffectMade || effects[1].State != core.EffectSkipped {
