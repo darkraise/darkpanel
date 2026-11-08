@@ -125,7 +125,7 @@ func (d dp) probeServer(ctx context.Context, env core.Env, in ServerProbeInput) 
 	}
 	probeFillNodes(nodes, status, selves, rec.RegionCode)
 	out := ServerProbe{HostID: in.HostID, RegionID: rec.RegionID, RegionCode: rec.RegionCode, Server: status, Nodes: nodes}
-	ctl, err := d.probeFromController(ctx, status)
+	ctl, err := d.probeFromController(ctx, env, status)
 	if err != nil {
 		return ServerProbe{}, err
 	}
@@ -327,8 +327,8 @@ func probeFillNodes(nodes []NodeUse, status ServerStatus, selves map[string]tail
 }
 
 // probeFromController is the controller's own measurement of the server. A server it cannot reach is a failed
-// source; only the caller's own cancellation is an error.
-func (d dp) probeFromController(ctx context.Context, status ServerStatus) (ProbeSource, error) {
+// source, whose raw errors go to env's debug log only; only the caller's own cancellation is an error.
+func (d dp) probeFromController(ctx context.Context, env core.Env, status ServerStatus) (ProbeSource, error) {
 	src := ProbeSource{Source: probeController, Name: probeController}
 	t, stunAddr, err := d.target(ctx, status)
 	if err != nil {
@@ -339,7 +339,7 @@ func (d dp) probeFromController(ctx context.Context, status ServerStatus) (Probe
 		src.TLS, src.STUN = ProbeResult{Error: "failed"}, ProbeResult{Error: "failed"}
 		return src, nil
 	}
-	src.TLS, src.STUN = d.probeOnce(ctx, t, stunAddr)
+	src.TLS, src.STUN = d.probeOnceLogged(ctx, env.Log, t, stunAddr)
 	if cerr := ctx.Err(); cerr != nil {
 		return ProbeSource{}, cerr
 	}

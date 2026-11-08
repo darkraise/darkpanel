@@ -1,10 +1,12 @@
 package derp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"net/netip"
 	"reflect"
@@ -388,6 +390,27 @@ func TestPbProbeControllerFailures(t *testing.T) {
 				t.Error("ready, want not ready with the controller failing")
 			}
 		})
+	}
+}
+
+// TestV1r16ControllerProbeLogsTheRawErrorAtDebug: the controller's own probe keeps the raw error of a failed
+// measurement in its debug log, while its answer names only the class.
+func TestV1r16ControllerProbeLogsTheRawErrorAtDebug(t *testing.T) {
+	const internal = "intranet.corp.example"
+	h := pbWorld(t)
+	h.tls = map[string]dpProbe{pbIP: {err: errors.New("derp: probe: certificate is valid for " + internal)}}
+	var buf bytes.Buffer
+	env := h.ctlEnv("")
+	env.Log = slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	got, err := h.dp().probeServer(context.Background(), env, ServerProbeInput{HostID: "h1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ctl := got.Sources[0]; ctl.TLS.OK || strings.Contains(ctl.TLS.Error, internal) {
+		t.Errorf("controller TLS %+v, want a failure named by its class only", ctl.TLS)
+	}
+	if !strings.Contains(buf.String(), internal) {
+		t.Errorf("the debug log %q does not keep the raw error of the controller's probe", buf.String())
 	}
 }
 
