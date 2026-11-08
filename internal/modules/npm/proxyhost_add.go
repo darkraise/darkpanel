@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
 	"regexp"
 	"slices"
@@ -361,7 +362,8 @@ const resolveTimeout = 5 * time.Second
 // resolves a forward host that is a name as nginx in the NPM container would: through Docker's embedded DNS when a
 // container on one of its networks answers to it, through the host's resolver otherwise. Every answer must pass the
 // check too, and a name with no answer is a Definite invalid_input. It returns the sorted answers, empty for an address
-// literal. A failed Engine read or an ended context is not a refusal and is returned as it is.
+// literal. A failed Engine read, an ended context, and a lookup that timed out or failed temporarily are not refusals
+// and are returned as they are.
 func (n nm) checkForward(ctx context.Context, env core.Env, in ProxyHostInput) ([]string, error) {
 	r, err := n.reservedSet(ctx, env)
 	if err != nil {
@@ -385,6 +387,9 @@ func (n nm) checkForward(ctx context.Context, env core.Env, in ProxyHostInput) (
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+		if transientLookup(err) {
+			return nil, fmt.Errorf("npm: resolve forward host %s: %w", in.ForwardHost, err)
+		}
 		if err != nil || len(answers) == 0 {
 			return nil, proxyhostAddInvalid([]errcode.FieldError{{Path: "/forwardHost",
 				Message: fmt.Sprintf("forward host %s does not resolve to an address on this host", in.ForwardHost)}})
@@ -404,6 +409,15 @@ func (n nm) checkForward(ctx context.Context, env core.Env, in ProxyHostInput) (
 		out[i] = a.String()
 	}
 	return out, nil
+}
+
+// transientLookup reports whether a resolver error is a failure to get an answer rather than an answer of none.
+func transientLookup(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var dnsErr *net.DNSError
+	return errors.As(err, &dnsErr) && (dnsErr.IsTimeout || dnsErr.IsTemporary) && !dnsErr.IsNotFound
 }
 
 // proxyhostAddRef is an object a proxy host refers to, as a plan's state hash covers it.

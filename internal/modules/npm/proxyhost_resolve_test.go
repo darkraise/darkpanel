@@ -3,6 +3,7 @@ package npm
 import (
 	"context"
 	"errors"
+	"net"
 	"net/netip"
 	"reflect"
 	"slices"
@@ -441,6 +442,74 @@ func TestV1r09UndoesCheckTheForwardHostTheyRestore(t *testing.T) {
 			}
 		})
 	}
+}
+
+// v1r09Transient asserts that err is a resolver failure passed through: not an invalid_input refusal, not Definite,
+// with the *net.DNSError in its chain.
+func v1r09Transient(t *testing.T, err error) {
+	t.Helper()
+	var coded *errcode.Error
+	var dnsErr *net.DNSError
+	switch {
+	case err == nil:
+		t.Error("error nil, want the resolver's failure")
+	case errors.As(err, &coded) && coded.Code == errcode.InvalidInput:
+		t.Errorf("error %v is invalid_input, want the resolver's failure: no answer was given", err)
+	case core.IsDefinite(err):
+		t.Errorf("error %v is definite, want a retryable failure", err)
+	case !errors.As(err, &dnsErr):
+		t.Errorf("error %v does not carry the *net.DNSError", err)
+	}
+}
+
+func TestV1r09TransientLookupIsNotARefusal(t *testing.T) {
+	ctx := context.Background()
+	const name = "web.example.net"
+	failing := func(e *net.DNSError) func(context.Context, string) ([]netip.Addr, error) {
+		return func(context.Context, string) ([]netip.Addr, error) { return nil, e }
+	}
+	timeout := failing(&net.DNSError{Err: "i/o timeout", Name: name, IsTimeout: true})
+	for _, tc := range []struct {
+		label   string
+		resolve func(context.Context, string) ([]netip.Addr, error)
+	}{
+		{"a timeout", timeout},
+		{"a temporary failure", failing(&net.DNSError{Err: "server misbehaving", Name: name, IsTemporary: true})},
+	} {
+		t.Run(tc.label, func(t *testing.T) {
+			h, n := paHost(t)
+			n.d.resolve = tc.resolve
+			in := paInput("x.example.com")
+			in.ForwardHost = name
+
+			_, planErr := n.proxyhostAdd().Handler.Plan(ctx, h.env(""), paJSON(t, in))
+			v1r09Transient(t, planErr)
+			_, applyErr := paApply(t, h, n, "c1", "", in)
+			v1r09Transient(t, applyErr)
+			if len(h.npm.ProxyHosts()) != 0 || len(h.journal.effects()) != 0 {
+				t.Error("an apply whose lookup failed created a proxy host or journaled an effect")
+			}
+		})
+	}
+	t.Run("the undo of a removal", func(t *testing.T) {
+		h, host := puSeed(t, puInput(func(in *ProxyHostInput) { in.ForwardHost = name }))
+		h.addChange("c1", "npm.proxyhost.remove")
+		n := h.nm()
+		if _, err := n.proxyhostRemove().Handler.Apply(ctx, h.env("c1"), puJSON(t, ProxyHostRemoveInput{ID: host.ID})); err != nil {
+			t.Fatal(err)
+		}
+		e := puEffects(t, h)[0]
+		e.UndoTo = &core.StateDoc{State: e.Before.State}
+		n.d.resolve = timeout
+
+		_, err := n.proxyhostRemove().Handler.Inverse(ctx, h.env("c1"), e)
+		if err == nil || core.IsDefinite(err) {
+			t.Errorf("inverse error %v (definite %v), want a retryable failure", err, core.IsDefinite(err))
+		}
+		if hosts := puHosts(t, h); len(hosts) != 0 {
+			t.Errorf("NPM holds %+v, want no host while the lookup fails", hosts)
+		}
+	})
 }
 
 func TestV1r09ProductionResolverIsAbsentInATestBinary(t *testing.T) {
