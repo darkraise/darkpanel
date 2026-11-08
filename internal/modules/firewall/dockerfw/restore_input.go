@@ -128,17 +128,12 @@ func CleanupInput(loaded *netfilter.Ruleset) []byte {
 func ChainsInput(block []byte, loaded *netfilter.Ruleset) []byte {
 	var declared []string
 	declaredSet := map[string]bool{}
-	var rules []netfilter.Rule
-	if rs, err := BlockRules(block); err == nil {
-		if ft := rs.Table("filter"); ft != nil {
-			for _, c := range ft.Chains {
-				rules = append(rules, c.Rules...)
-			}
-		}
-	}
-	slices.SortFunc(rules, func(a, b netfilter.Rule) int { return a.Line - b.Line })
+	var rules []string
 	for _, raw := range strings.Split(string(block), "\n") {
 		line := strings.TrimRight(raw, " \t\r")
+		if strings.HasPrefix(line, "-A ") {
+			rules = append(rules, line)
+		}
 		if strings.HasPrefix(line, ":") {
 			if f := strings.Fields(line[1:]); len(f) > 0 && !declaredSet[f[0]] {
 				declaredSet[f[0]] = true
@@ -155,7 +150,7 @@ func ChainsInput(block []byte, loaded *netfilter.Ruleset) []byte {
 		}
 	}
 	for _, r := range rules {
-		b.WriteString(r.Text + "\n")
+		b.WriteString(r + "\n")
 	}
 
 	if loaded != nil {

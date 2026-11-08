@@ -321,3 +321,21 @@ func TestW11a04ChainsInputKeepsReferencedDockerUser(t *testing.T) {
 		t.Error("the load created a DOCKER-USER that was not loaded before")
 	}
 }
+
+func TestW11a04ChainsInputKeepsRulesOfAnUnparsableBlock(t *testing.T) {
+	block := strings.TrimSuffix(w11a04Block, "COMMIT\n")
+	if _, err := BlockRules([]byte(block)); err == nil {
+		t.Fatal("the block without COMMIT parses; the test needs a block BlockRules rejects")
+	}
+	in := string(ChainsInput([]byte(block), nil))
+	want := "-A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN\n" +
+		"-A DOCKER-USER -m conntrack --ctstate DNAT -j darkpanel-docker-bindings\n" +
+		"-A DOCKER-USER -j RETURN\n" +
+		"-A darkpanel-docker-bindings -j dp-b-new\n" +
+		"-A dp-b-new -j ufw-user-forward\n" +
+		"-A dp-b-new -j darkpanel-docker-deny\n" +
+		"-A darkpanel-docker-deny -j DROP\n"
+	if !strings.Contains(in, want) {
+		t.Errorf("input lacks the block's -A lines in order:\n%s", in)
+	}
+}
