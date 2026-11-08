@@ -137,6 +137,11 @@ func noRoute(fl flow, err error) bool {
 // with the target's source, arriving on panelBridge, before the reverse
 // translation, so its route back must fail too.
 func (r *router) noReply(fl flow, src netip.Addr, mark uint32, from netip.Addr) bool {
+	// A mark set on the reply may select a policy route that no lookup here
+	// carries.
+	if r.marksReplies(fl) {
+		return false
+	}
 	if from.IsValid() {
 		if _, err := r.host.RouteGet(netstat.RouteQuery{Dst: src, Src: from, Mark: mark}); !noRoute(fl, err) {
 			return false
@@ -149,6 +154,30 @@ func (r *router) noReply(fl flow, src netip.Addr, mark uint32, from netip.Addr) 
 		return noRoute(fl, err)
 	}
 	return true
+}
+
+// marksReplies reports whether the mangle table of the checked ruleset of
+// fl's family has a MARK or CONNMARK rule that may match fl's protocol.
+func (r *router) marksReplies(fl flow) bool {
+	rs := r.st.V4
+	if fl.pkt.Family == fwstate.V6 {
+		rs = r.st.V6
+	}
+	if rs == nil {
+		return false
+	}
+	t := rs.Table("mangle")
+	if t == nil {
+		return false
+	}
+	for _, c := range t.Chains {
+		for _, rule := range c.Rules {
+			if (rule.Target.Name == "MARK" || rule.Target.Name == "CONNMARK") && protoMayMatch(rule.Proto, fl.pkt.Proto) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // noReplyFrom reports whether no address of this host of src's family has a

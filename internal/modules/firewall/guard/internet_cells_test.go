@@ -705,3 +705,24 @@ func TestV1r21ThrowCellTheProxyAnswersIsChecked(t *testing.T) {
 		})
 	}
 }
+
+func TestV1r21ThrowCellWithMarkedRepliesIsUnknown(t *testing.T) {
+	const rule = "-A INPUT -s 45.33.0.0/16 -p tcp --dport 443 -j DROP"
+	mangle := func(rules ...string) string {
+		return "*mangle\n:PREROUTING ACCEPT [0:0]\n:INPUT ACCEPT [0:0]\n:FORWARD ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n:POSTROUTING ACCEPT [0:0]\n" +
+			strings.Join(rules, "\n") + "\nCOMMIT\n"
+	}
+	marked := v1r21State(t, mangle("-A OUTPUT -j CONNMARK --restore-mark")+v1r21Table(rule), v1r21Table())
+	g := v1r21ThrowListener(t, v1r21Throw{}, marked)
+	for _, want := range []string{"controller listener from 45.33.0.0-45.33.255.255", "cannot be resolved"} {
+		if g.OK || !strings.Contains(g.Message, want) {
+			t.Errorf("guard with %q = %+v, want a refusal containing %q: a restored mark may route replies to the range the rule drops", rule, g, want)
+		}
+	}
+	// wg-quick marks only UDP.
+	udp := v1r21State(t, mangle("-A PREROUTING -p udp -j CONNMARK --restore-mark --nfmask 0xffffffff --ctmask 0xffffffff",
+		"-A POSTROUTING -p udp -m mark --mark 0xca6c -j CONNMARK --save-mark --nfmask 0xffffffff --ctmask 0xffffffff")+v1r21Table(rule), v1r21Table())
+	if g := v1r21ThrowListener(t, v1r21Throw{}, udp); !g.OK {
+		t.Errorf("guard with %q and UDP marks only = %+v, want OK: no mark rule matches the listener's TCP replies", rule, g)
+	}
+}
