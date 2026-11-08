@@ -291,3 +291,58 @@ func TestV1r21OnlyRulesThatCanMatchCutCells(t *testing.T) {
 		})
 	}
 }
+
+// v1r21Bindings is IPv4 save output for NPM published on 0.0.0.0:443, with
+// one binding allowance per host address in allowed.
+func v1r21Bindings(allowed ...string) string {
+	s := "*nat\n:PREROUTING ACCEPT [0:0]\n:INPUT ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n:POSTROUTING ACCEPT [0:0]\n" +
+		"-A PREROUTING -p tcp -m tcp --dport 443 -j DNAT --to-destination 172.30.0.2:443\nCOMMIT\n" +
+		"*filter\n:INPUT ACCEPT [0:0]\n:FORWARD ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n:darkpanel-docker-bindings - [0:0]\n" +
+		"-A FORWARD -m conntrack --ctstate DNAT -j darkpanel-docker-bindings\n"
+	for _, a := range allowed {
+		s += "-A darkpanel-docker-bindings -d 172.30.0.2/32 -p tcp -m tcp --dport 443 -m conntrack --ctorigdst " + a + " --ctorigdstport 443 -j ACCEPT\n"
+	}
+	return s + "-A darkpanel-docker-bindings -j DROP\nCOMMIT\n"
+}
+
+// v1r21TwoAddrs is a host whose eth0 holds 10.0.0.10/24 and 10.0.0.11/24.
+// It routes 172.30.0.0/16 out of dp-panel and every other address out of
+// eth0 with the preferred source 10.0.0.10.
+type v1r21TwoAddrs struct{ *gHost }
+
+func (h v1r21TwoAddrs) RouteGet(q netstat.RouteQuery) (netstat.Route, error) {
+	if netip.MustParsePrefix("172.30.0.0/16").Contains(q.Dst) {
+		return rtVia("dp-panel", "172.30.0.1"), nil
+	}
+	return rtVia("eth0", "10.0.0.10"), nil
+}
+
+func TestV1r21WildcardBindIsCheckedOnEveryAddress(t *testing.T) {
+	check := func(before, st fwstate.Loaded) core.Guard {
+		t.Helper()
+		h := v1r21TwoAddrs{&gHost{ifaces: []netstat.Interface{
+			{Index: 1, Name: "lo", Up: true, Running: true, Loopback: true, Addrs: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/8")}},
+			{Index: 2, Name: "eth0", Up: true, Running: true, Addrs: []netip.Prefix{
+				netip.MustParsePrefix("10.0.0.10/24"), netip.MustParsePrefix("10.0.0.11/24")}},
+			{Index: 6, Name: "dp-panel", Up: true, Running: true, Addrs: []netip.Prefix{netip.MustParsePrefix("172.30.0.1/16")}},
+		}}}
+		plan := &core.GuardContext{Complete: true, Via: &core.ProxyPath{ExposureID: "exp1", Kind: "npm",
+			ProxyAddr: netip.MustParseAddr("172.30.0.2"), ListenerAddr: netip.MustParseAddrPort("172.30.0.1:8080"),
+			Public: []netip.AddrPort{netip.MustParseAddrPort("0.0.0.0:443")}}}
+		env, _, _ := ckEnv()
+		ckRunning(env)
+		g, _, err := Checker{Host: h}.Check(context.Background(), env, st, Input{Plan: plan, Before: &before, Eval: eval.Evaluate})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return g
+	}
+	both := v1r21State(t, v1r21Bindings("10.0.0.10", "10.0.0.11"), v1r21Table())
+	const want = "exposure exp1 public from 1.0.0.0-9.255.255.255 to 10.0.0.11:443 on eth0: drop"
+	if g := check(both, v1r21State(t, v1r21Bindings("10.0.0.10"), v1r21Table())); g.OK || !strings.Contains(g.Message, want) {
+		t.Errorf("guard = %+v, want a refusal containing %q: the allowance of an address the wildcard bind takes is gone", g, want)
+	}
+	if g := check(both, both); !g.OK {
+		t.Errorf("guard = %+v, want OK with both allowances kept", g)
+	}
+}

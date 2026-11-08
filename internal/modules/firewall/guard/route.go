@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strconv"
 
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
@@ -41,10 +42,12 @@ func newRouter(h Host, f facts, st fwstate.Loaded) *router {
 
 // probes turns a flow into the packets to evaluate: an incoming flow
 // without a fixed in-interface on every eligible in-interface, any other
-// flow once with the out-interface its route gives. A route that cannot be
-// resolved makes the flow unknown, except that a stand-in destination
-// without a route of its family has nothing to protect. Every lookup
-// carries the packet's mark, which policy rules may match.
+// flow once with the out-interface its route gives. An incoming flow to an
+// unspecified destination is checked once for every address it may reach
+// (wildcardDsts). A route that cannot be resolved makes the flow unknown,
+// except that a stand-in destination without a route of its family has
+// nothing to protect. Every lookup carries the packet's mark, which policy
+// rules may match.
 func (r *router) probes(fl flow) []probe {
 	if fl.unknown != "" {
 		return []probe{{desc: fl.label, unknown: fl.unknown}}
@@ -96,16 +99,51 @@ func (r *router) probes(fl flow) []probe {
 		}
 		return []probe{{desc: describeFlow(fl, p), pkt: p}}
 	}
-	if p.Dst.IsUnspecified() {
-		rt, err := r.host.RouteGet(netstat.RouteQuery{Dst: p.Src, Mark: p.Mark})
-		if err != nil {
-			return fail(fmt.Sprintf("the route back to %s cannot be resolved: %v", p.Src, err))
-		}
-		if !rt.PrefSrc.IsValid() {
-			return fail(fmt.Sprintf("the route back to %s has no source address", p.Src))
-		}
-		p.Dst = rt.PrefSrc.Unmap()
+	if !p.Dst.IsUnspecified() {
+		return r.inputProbes(fl, p)
 	}
+	rt, err := r.host.RouteGet(netstat.RouteQuery{Dst: p.Src, Mark: p.Mark})
+	if err != nil {
+		return fail(fmt.Sprintf("the route back to %s cannot be resolved: %v", p.Src, err))
+	}
+	if !rt.PrefSrc.IsValid() {
+		return fail(fmt.Sprintf("the route back to %s has no source address", p.Src))
+	}
+	var out []probe
+	for _, dst := range r.wildcardDsts(rt.PrefSrc.Unmap(), rt.OutIface) {
+		q := p
+		q.Dst = dst
+		out = append(out, r.inputProbes(fl, q)...)
+	}
+	return out
+}
+
+// wildcardDsts are the destinations of a packet to an unspecified address
+// whose route back leaves through iface with the preferred source pref:
+// pref, then every other address of its family on iface, without IPv6
+// link-local addresses. An upstream translation may deliver to any of them,
+// and the firewall may allow each one differently.
+func (r *router) wildcardDsts(pref netip.Addr, iface string) []netip.Addr {
+	out := []netip.Addr{pref}
+	for _, i := range r.f.ifaces {
+		if i.Name != iface {
+			continue
+		}
+		for _, p := range i.Addrs {
+			a := p.Addr().Unmap()
+			if a.Is4() != pref.Is4() || (a.Is6() && a.IsLinkLocalUnicast()) || slices.Contains(out, a) {
+				continue
+			}
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// inputProbes are the probes of an incoming packet p of fl to an address of
+// this host: once on its fixed in-interface, or on every eligible one.
+func (r *router) inputProbes(fl flow, p fwstate.Packet) []probe {
+	fail := func(reason string) []probe { return []probe{{desc: describeFlow(fl, p), unknown: reason}} }
 	if !r.local[p.Dst] {
 		return fail(p.Dst.String() + " is not an address of this host")
 	}
