@@ -31,7 +31,8 @@ var (
 // in Loaded.Sysctl) after tr, starting from cur. UFW applies its sysctl
 // file only when it starts: on TransEnable, and on TransReload while
 // cfg.Enabled (ufw reload stops and starts UFW, and skips both when UFW is
-// not enabled). Any other transition returns a copy of cur.
+// not enabled). Any other transition, TransLive included, returns a copy of
+// cur.
 //
 // The file's supported settings apply in file order; a key that cur does
 // not hold (an absent interface, IPv6 disabled) is

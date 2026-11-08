@@ -13,12 +13,13 @@ import (
 
 // IPv6Refusal returns nil, or a firewall.unsupported_configuration error
 // (a hard refusal) when tr starts UFW with IPV6=no (TransEnable, or
-// TransReload of an enabled UFW) while cur's IPv6 filter table holds a
-// chain or rule UFW did not create (spec 2.3). Such a start replaces the
-// whole IPv6 filter table with UFW's plain one, which no snapshot can
-// undo. UFW's own items are its ufw6- chains, bare jumps to them from
-// INPUT, OUTPUT and FORWARD, and the plain table's loopback rules; the
-// error's detail names every other chain and rule and suggests IPV6=yes.
+// TransReload of an enabled UFW; not TransLive, which leaves a disabled
+// IPv6 table alone) while cur's IPv6 filter table holds a chain or rule UFW
+// did not create (spec 2.3). Such a start replaces the whole IPv6 filter
+// table with UFW's plain one, which no snapshot can undo. UFW's own items
+// are its ufw6- chains, bare jumps to them from INPUT, OUTPUT and FORWARD,
+// and the plain table's loopback rules; the error's detail names every
+// other chain and rule and suggests IPV6=yes.
 func IPv6Refusal(cfg fwstate.Config, cur fwstate.Loaded, tr fwstate.Transition) error {
 	starts := tr == fwstate.TransEnable || (tr == fwstate.TransReload && cfg.Enabled)
 	if cfg.IPv6 || !starts || cur.V6 == nil {

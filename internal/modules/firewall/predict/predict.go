@@ -57,6 +57,12 @@ var (
 //     secondary chains deleted, its empty primary chains and their jumps
 //     kept, and the built-in filter policies set to ACCEPT, in each family
 //     ip6tables serves.
+//   - TransLive applies rule and logging commands to a running UFW without a
+//     stop: in IPv4, and in IPv6 when IPv6 is enabled and ip6tables is
+//     present, the three user logging chains are flushed, the family's user
+//     rules file is loaded into the filter table as iptables-restore -n
+//     loads it, and startLogging runs when cfg.LiveLogging is set; when cfg
+//     is not enabled it returns cur.
 //   - TransNone returns cur.
 //
 // Sysctl and Unsupported are copied from cur. An unsupported
@@ -88,6 +94,22 @@ func Predict(cfg fwstate.Config, cur fwstate.Loaded, tr fwstate.Transition) (fws
 			return fwstate.Loaded{}, fmt.Errorf("predict: UFW is already running, so a start would change nothing; reload it instead")
 		}
 		start = true
+	case fwstate.TransLive:
+		if !cfg.Enabled {
+			return out, nil
+		}
+		if len(cfg.Unsupported) > 0 {
+			return fwstate.Loaded{}, fmt.Errorf("predict: the configuration is unsupported: %s", strings.Join(cfg.Unsupported, "; "))
+		}
+		if err := liveFamily(cfg, out.V4, false); err != nil {
+			return fwstate.Loaded{}, err
+		}
+		if cfg.IPv6 && out.V6 != nil {
+			if err := liveFamily(cfg, out.V6, true); err != nil {
+				return fwstate.Loaded{}, err
+			}
+		}
+		return out, nil
 	default:
 		return fwstate.Loaded{}, fmt.Errorf("predict: unknown transition %q", tr)
 	}
@@ -173,6 +195,44 @@ func startFamily(cfg fwstate.Config, rs *netfilter.Ruleset, v6 bool) error {
 		}
 	}
 	return startLogging(cfg, rs.Table("filter"), v6)
+}
+
+// liveFamily applies UFW's live rule and logging commands for one family:
+// the user logging chains are flushed, the user rules file is loaded into
+// the filter table as iptables-restore -n loads it, and startLogging runs
+// when cfg.LiveLogging is set.
+func liveFamily(cfg fwstate.Config, rs *netfilter.Ruleset, v6 bool) error {
+	if err := checkRenderable(cfg); err != nil {
+		return err
+	}
+	u := chainPrefix(v6)
+	f := filterTable(rs)
+	for _, d := range directions {
+		if c := f.Chain(u + "-user-logging-" + d); c != nil {
+			c.Rules = nil
+		}
+	}
+	path := userRules
+	if v6 {
+		path = userRules6
+	}
+	e := cfg.Files[path]
+	if !e.Present || len(e.Data) == 0 {
+		return fmt.Errorf("predict: %s is missing or empty, so UFW cannot start", path)
+	}
+	user, err := netfilter.ParseRestore(strings.NewReader(string(e.Data)))
+	if err != nil {
+		return fmt.Errorf("predict: UFW's rules do not load: %w", err)
+	}
+	if uf := user.Table("filter"); uf != nil {
+		for _, c := range uf.Chains {
+			loadChain(f, c)
+		}
+	}
+	if cfg.LiveLogging {
+		return startLogging(cfg, f, v6)
+	}
+	return nil
 }
 
 // startLogging is the live part of update_logging, which start_firewall

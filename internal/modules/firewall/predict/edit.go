@@ -124,6 +124,9 @@ func (e editor) setLogging(level string) error {
 		return err
 	}
 	e.cfg.LogLevel = level
+	if e.cfg.Enabled {
+		e.cfg.LiveLogging = true
+	}
 	return e.updateLogging()
 }
 

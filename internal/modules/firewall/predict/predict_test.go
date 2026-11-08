@@ -32,6 +32,8 @@ func TestPredictGolden(t *testing.T) {
 			{"logging", "rules", "rules", fwstate.TransReload},
 			{"rules", "rules", "rules", fwstate.TransNone},
 			{"fresh", "fresh", "fresh", fwstate.TransDisable},
+			{"enabled", "rules", "rules", fwstate.TransLive},
+			{"rules", "rules", "rules", fwstate.TransLive},
 		} {
 			cur := predictLoaded(t, img, tc.from)
 			before := predictLoadedClone(cur)
@@ -316,4 +318,63 @@ func TestPxBuiltinRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	check("enable again", st, "DROP", 3)
+}
+
+// TestW11a03LiveKeepsPoliciesAndOtherChains: a live apply changes only the
+// chains the user rules file declares and the user logging chains.
+func TestW11a03LiveKeepsPoliciesAndOtherChains(t *testing.T) {
+	for _, img := range predictImages {
+		cur := predictLoaded(t, img, "enabled")
+		f := cur.V4.Table("filter")
+		f.Chain("INPUT").Policy = "DROP"
+		f.Chains = append(f.Chains, netfilter.Chain{Name: "DOCKER-USER", Rules: []netfilter.Rule{{Text: "-A DOCKER-USER -j RETURN"}}})
+		before := predictLoadedClone(cur)
+		got, err := Predict(predictConfig(t, img, "rules"), cur, fwstate.TransLive)
+		if err != nil {
+			t.Fatalf("%s: %v", img, err)
+		}
+		gf, bf := got.V4.Table("filter"), before.V4.Table("filter")
+		if p := gf.Chain("INPUT").Policy; p != "DROP" {
+			t.Errorf("%s: INPUT policy %q after a live apply, want DROP", img, p)
+		}
+		predictTestSame(t, img+" DOCKER-USER", gf.Chain("DOCKER-USER"), bf.Chain("DOCKER-USER"))
+		predictTestSame(t, img+" ufw-before-input", gf.Chain("ufw-before-input"), bf.Chain("ufw-before-input"))
+		if reflect.DeepEqual(gf.Chain("ufw-user-input"), bf.Chain("ufw-user-input")) {
+			t.Errorf("%s: ufw-user-input unchanged by a live apply of the rules configuration", img)
+		}
+	}
+}
+
+// TestW11a03LiveLoggingMatchesTheLoggingCapture: a live "ufw logging"
+// command refreshes the logging chains as update_logging does.
+func TestW11a03LiveLoggingMatchesTheLoggingCapture(t *testing.T) {
+	for _, img := range predictImages {
+		cfg := predictConfig(t, img, "logging")
+		cfg.LiveLogging = true
+		got, err := Predict(cfg, predictLoaded(t, img, "rules"), fwstate.TransLive)
+		if err != nil {
+			t.Fatalf("%s: %v", img, err)
+		}
+		want := predictLoaded(t, img, "logging")
+		for _, d := range predictDiff(got.V4, want.V4, false) {
+			t.Errorf("%s v4: %s", img, d)
+		}
+		for _, d := range predictDiff(got.V6, want.V6, true) {
+			t.Errorf("%s v6: %s", img, d)
+		}
+	}
+}
+
+// TestW11a03LiveOnADisabledConfigurationChangesNothing: ufw applies
+// nothing live while it is disabled.
+func TestW11a03LiveOnADisabledConfigurationChangesNothing(t *testing.T) {
+	img := predictImages[0]
+	cur := predictLoaded(t, img, "disabled")
+	got, err := Predict(predictConfig(t, img, "disabled"), cur, fwstate.TransLive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range predictDiff(got.V4, cur.V4, false) {
+		t.Errorf("v4: %s", d)
+	}
 }

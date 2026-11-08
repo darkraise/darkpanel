@@ -46,6 +46,7 @@ type Config struct {
 	Files          map[string]core.RestoreEntry // StateFiles plus /etc/ufw/sysctl.conf, by absolute path; Present false when absent
 	Sysctl         []SysctlSetting              // SysctlFile's settings, in file order
 	Unsupported    []string                     // why the configuration cannot be predicted (2.1); empty when supported
+	LiveLogging    bool                         // set by predict.Edit on an enabled logging command; never stored
 }
 
 // SysctlSetting is one key = value line of UFW's sysctl file, the key in
@@ -70,6 +71,7 @@ const (
 	TransReload  Transition = "reload" // a rule change with reload, or a reload after a file change
 	TransEnable  Transition = "enable"
 	TransDisable Transition = "disable"
+	TransLive    Transition = "live" // UFW is active and stays active; its rule and logging commands apply live, without a stop
 )
 
 // Packet is one packet tuple the evaluator walks (spec 2.3).
