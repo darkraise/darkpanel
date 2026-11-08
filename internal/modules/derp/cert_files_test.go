@@ -11,7 +11,6 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
@@ -34,8 +33,9 @@ func v1r15Split(t *testing.T, h *dpHost) dp {
 	return d
 }
 
-// TestV1r15ProductionCertReadRefusesPlantedFiles: the production read follows no link, blocks on no FIFO, refuses
-// a file over 1 MiB and reads one of exactly 1 MiB.
+// TestV1r15ProductionCertReadRefusesPlantedFiles: the production read is platform.ReadRegularFile with a 1 MiB
+// limit: it follows no link, refuses a file over 1 MiB and reads one of exactly 1 MiB. The other planted files are
+// TestV1r15ReadRegularFile's.
 func TestV1r15ProductionCertReadRefusesPlantedFiles(t *testing.T) {
 	const secret = "placeholder-secret-content"
 	dir, err := filepath.EvalSymlinks(t.TempDir())
@@ -54,21 +54,8 @@ func TestV1r15ProductionCertReadRefusesPlantedFiles(t *testing.T) {
 	outside := put("outside", []byte(secret))
 	exact := put("exact", bytes.Repeat([]byte("a"), 1<<20))
 	over := put("over", bytes.Repeat([]byte("a"), 1<<20+1))
-	realDir := filepath.Join(dir, "real")
-	if err := os.Mkdir(realDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	put(filepath.Join("real", "crt"), []byte(secret))
 	link := filepath.Join(dir, "link")
-	dirLink := filepath.Join(dir, "dirlink")
-	fifo := filepath.Join(dir, "fifo")
 	if err := os.Symlink(outside, link); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(realDir, dirLink); err != nil {
-		t.Fatal(err)
-	}
-	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -86,29 +73,13 @@ func TestV1r15ProductionCertReadRefusesPlantedFiles(t *testing.T) {
 		{"exactly 1 MiB", exact, 1 << 20, false},
 		{"one byte over 1 MiB", over, 0, true},
 		{"a symlink to another file", link, 0, true},
-		{"a symlinked directory", filepath.Join(dirLink, "crt"), 0, true},
-		{"a FIFO", fifo, 0, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			type result struct {
-				data []byte
-				err  error
+			data, err := read(tc.path)
+			if tc.refused != (err != nil) || len(data) != tc.wantLen {
+				t.Errorf("read %d bytes, error %v; want refused=%v and %d bytes", len(data), err, tc.refused, tc.wantLen)
 			}
-			done := make(chan result, 1)
-			go func() {
-				data, err := read(tc.path)
-				done <- result{data, err}
-			}()
-			var got result
-			select {
-			case got = <-done:
-			case <-time.After(5 * time.Second):
-				t.Fatal("the read blocked")
-			}
-			if tc.refused != (got.err != nil) || len(got.data) != tc.wantLen {
-				t.Errorf("read %d bytes, error %v; want refused=%v and %d bytes", len(got.data), got.err, tc.refused, tc.wantLen)
-			}
-			if strings.Contains(string(got.data), secret) || (got.err != nil && strings.Contains(got.err.Error(), secret)) {
+			if strings.Contains(string(data), secret) || (err != nil && strings.Contains(err.Error(), secret)) {
 				t.Error("the read returned the content of a file behind a link")
 			}
 		})
