@@ -224,6 +224,12 @@ This page is the written threat model of Darkpanel. It states what the product p
 - An overridden guard can still cut the operator off, and the revert timer is the only net.
 - Docker network modes the integration cannot protect are reported as unprotected.
 - Manual rules are shown and never removed.
+- The lockout guard checks only the IPv4 public leg of an NPM exposure (`0.0.0.0:443`). Docker usually publishes the port on `[::]` as well, so a change that blocks only the exposure's IPv6 clients passes the guard (`internal/modules/panel`).
+- The cells cover the public unicast space only. The special-purpose IPv4 ranges `0.0.0.0/8`, `192.0.0.0/24`, `198.18.0.0/15` and `240.0.0.0/4` are left out of it, so the guard does not protect a source or destination there (`internal/modules/firewall/eval`).
+- The guard does not read `ip rule` policy routing. Each route lookup goes through the kernel and so follows the policy rules, but cells are cut only at the prefixes of the rulesets and of the route tables, and a wildcard bind is checked only on the addresses of the out-interface of the route back without a source. On a host that routes by source address, through a second uplink for example, a change can pass the guard while it blocks a flow that a policy rule sends another way (`internal/modules/firewall/guard`).
+- The reply lookups that decide whether a source cell inside a route without a path is skipped carry the destination, the source, the mark and the in-interface, but no protocol, port or user. A policy rule selecting replies by `ipproto`, `sport`, `dport` or `uidrange` is therefore never matched, and on a host that routes replies by source port such a cell can be skipped although its replies have a route (`internal/modules/firewall/guard`).
+- Inside a cell that the route dump places in a blackhole route, the guard takes any EINVAL from a route lookup as "no route", because the kernel answers a lookup there with EINVAL. An EINVAL there for another reason also skips the cell (`internal/modules/firewall/guard`).
+- The open follow-up rows of the security-review register (`docs/dforge/registers/2026-11-06-v1-security-review.md`) for the guard are row 27, wildcard binds under source-based policy routing, and row 28, the guard's deferred minor items; row 26, the third open row, is the NPM undo item.
 
 ### Cloud credentials
 
