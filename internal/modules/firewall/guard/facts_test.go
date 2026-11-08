@@ -16,6 +16,7 @@ import (
 
 // gHost is the fake Host every test of the package uses. routes maps a
 // lookup to its answer; a lookup it does not hold fails with ErrNoRoute.
+// Routes lists the entries of table of the family asked, none by default.
 type gHost struct {
 	sockets    []netstat.Socket
 	socketsErr error
@@ -23,6 +24,7 @@ type gHost struct {
 	ifacesErr  error
 	routes     map[netstat.RouteQuery]netstat.Route
 	routeErrs  map[netstat.RouteQuery]error
+	table      []netstat.Route
 	pid        int
 	lookups    []netstat.RouteQuery
 }
@@ -40,6 +42,16 @@ func (h *gHost) RouteGet(q netstat.RouteQuery) (netstat.Route, error) {
 		return r, nil
 	}
 	return netstat.Route{}, netstat.ErrNoRoute
+}
+
+func (h *gHost) Routes(family netstat.Family) ([]netstat.Route, error) {
+	var out []netstat.Route
+	for _, r := range h.table {
+		if r.Dst.Addr().Is6() == (family == netstat.IPv6) {
+			out = append(out, r)
+		}
+	}
+	return out, nil
 }
 
 func (h *gHost) PID() int { return h.pid }

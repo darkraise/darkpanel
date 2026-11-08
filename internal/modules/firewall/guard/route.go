@@ -30,14 +30,15 @@ var tailnetRanges = []netip.Prefix{netip.MustParsePrefix("100.64.0.0/10"), netip
 // router places flows on this host's interfaces and routes. Its route
 // method is the fwstate.Router the evaluator calls.
 type router struct {
-	host  Host
-	f     facts
-	st    fwstate.Loaded
-	local map[netip.Addr]bool
+	host   Host
+	f      facts
+	st     fwstate.Loaded
+	local  map[netip.Addr]bool
+	routes map[bool]routeCut // by v6: the host's routes, read once per check
 }
 
 func newRouter(h Host, f facts, st fwstate.Loaded) *router {
-	return &router{host: h, f: f, st: st, local: localAddrs(f.ifaces)}
+	return &router{host: h, f: f, st: st, local: localAddrs(f.ifaces), routes: map[bool]routeCut{}}
 }
 
 // probes turns a flow into the packets to evaluate: an incoming flow

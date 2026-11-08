@@ -346,3 +346,76 @@ func TestV1r21WildcardBindIsCheckedOnEveryAddress(t *testing.T) {
 		t.Errorf("guard = %+v, want OK with both allowances kept", g)
 	}
 }
+
+// v1r21Edge routes 198.41.192.0/24 out of eth1 and every other address out
+// of eth0.
+type v1r21Edge struct{ *gHost }
+
+func (h v1r21Edge) RouteGet(q netstat.RouteQuery) (netstat.Route, error) {
+	if netip.MustParsePrefix("198.41.192.0/24").Contains(q.Dst) {
+		return rtVia("eth1", ""), nil
+	}
+	return rtVia("eth0", ""), nil
+}
+
+// v1r21CheckHost runs the guard with the real evaluator on st against h.
+func v1r21CheckHost(t *testing.T, h Host, st fwstate.Loaded, plan *core.GuardContext) core.Guard {
+	t.Helper()
+	env, _, _ := ckEnv()
+	ckRunning(env)
+	g, _, err := Checker{Host: h}.Check(context.Background(), env, st, Input{Plan: plan, Eval: eval.Evaluate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return g
+}
+
+func TestV1r21RoutesCutInternetCells(t *testing.T) {
+	st := v1r21State(t, v1r21Table("-A FORWARD -s 172.30.0.3/32 -i dp-panel -o eth1 -j DROP"), v1r21Table())
+	def := netstat.Route{Type: "unicast", Table: 254, Dst: netip.MustParsePrefix("0.0.0.0/0"), Gateway: netip.MustParseAddr("192.0.2.254"), OutIface: "eth0"}
+	edge := netstat.Route{Type: "unicast", Table: 254, Dst: netip.MustParsePrefix("198.41.192.0/24"), Gateway: netip.MustParseAddr("10.0.0.254"), OutIface: "eth1"}
+	g := v1r21CheckHost(t, v1r21Edge{&gHost{ifaces: ckIfaces(), table: []netstat.Route{def, edge}}}, st, v1r21Tunnel())
+	for _, want := range []string{"198.41.192.0-198.41.192.255", "out eth1: drop"} {
+		if g.OK || !strings.Contains(g.Message, want) {
+			t.Errorf("guard = %+v, want a refusal containing %q: the connector's edge routes out of eth1, where the rule drops it", g, want)
+		}
+	}
+	if g := v1r21CheckHost(t, v1r21Edge{&gHost{ifaces: ckIfaces(), table: []netstat.Route{def}}}, st, v1r21Tunnel()); !g.OK {
+		t.Errorf("guard = %+v, want OK: without the /24 route no cell routes out of eth1", g)
+	}
+}
+
+func TestV1r21HostThatCannotListRoutes(t *testing.T) {
+	g := v1r21CheckHost(t, struct{ Host }{&gHost{ifaces: ckIfaces()}}, v1r21State(t, v1r21Table(), v1r21Table()), v1r21Tunnel())
+	const want = "exposure exp2 tunnel: unknown (the host cannot list routes)"
+	if g.OK || !strings.Contains(g.Message, want) {
+		t.Errorf("guard = %+v, want a refusal containing %q", g, want)
+	}
+}
+
+func TestV1r21ManyRoutesStayCheap(t *testing.T) {
+	const n = 500
+	table := []netstat.Route{{Type: "unicast", Table: 254, Dst: netip.MustParsePrefix("0.0.0.0/0"), OutIface: "eth0"}}
+	a := netip.MustParseAddr("45.0.0.0")
+	for range n {
+		table = append(table, netstat.Route{Type: "unicast", Table: 254, Dst: netip.PrefixFrom(a, 24), OutIface: "eth0"})
+		for range 512 {
+			a = a.Next()
+		}
+	}
+	h := &v1r21AnyRoute{gHost: &gHost{ifaces: ckIfaces(), table: table, sockets: []netstat.Socket{
+		flSock(netstat.ProtoTCP, netstat.StateListen, "0.0.0.0:443", "", "darkpanel-contr", 4242),
+	}}}
+	st := v1r21State(t, v1r21Table(v1r21Bans(1000, "INPUT", " -p tcp -m tcp --dport 22")...), v1r21Table())
+	start := time.Now()
+	g := v1r21CheckHost(t, h, st, v1r21Tunnel())
+	t.Logf("%d routes: Check took %s with %d route lookups", n, time.Since(start), h.n)
+	if !g.OK {
+		t.Fatalf("guard = %+v, want OK: no rule blocks a cell", g)
+	}
+	// The controller listener's flow alone looks up the route back once per
+	// cell, and each route adds two cells.
+	if h.n < 2*n+1 {
+		t.Errorf("%d route lookups, want at least %d: the routes did not cut cells", h.n, 2*n+1)
+	}
+}

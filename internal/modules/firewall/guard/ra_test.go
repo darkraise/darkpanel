@@ -99,7 +99,7 @@ func TestGxCheckIPv6ForwardingFacts(t *testing.T) {
 			st.Sysctl = map[string]string{key: "1"}
 			var h Host = &gxDumpHost{gHost: &gHost{ifaces: gIfaces()}, dump: ra, err: tc.dumpErr}
 			if tc.noDump {
-				h = &gHost{ifaces: gIfaces()}
+				h = struct{ Host }{&gHost{ifaces: gIfaces()}}
 			}
 			g, results, err := Checker{Host: h}.Check(context.Background(), env, st, Input{Eval: ckEval(t, nil)})
 			if tc.wantErr != "" {

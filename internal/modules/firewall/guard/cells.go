@@ -2,6 +2,7 @@ package guard
 
 import (
 	"cmp"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -9,21 +10,30 @@ import (
 	"github.com/darkraise/darkpanel/internal/modules/firewall/eval"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
 	"github.com/darkraise/darkpanel/internal/platform/netfilter"
+	"github.com/darkraise/darkpanel/internal/platform/netstat"
 )
 
 // cellFlows is fl once per cell of the internet that the checked ruleset
 // of its family partitions the public space into, with the wild end set
 // to the cell's representative address. Only the rules that can match fl
-// cut cells. A flow to any internet address needs every cell to pass. A flow
-// from any internet address, given a before-state, fails only on a cell the
+// cut cells, and so does every route of the host's family, since a rule
+// that matches an interface sets apart the addresses routed through it. A
+// flow to any internet address needs every cell to pass. A flow from any
+// internet address, given a before-state, fails only on a cell the
 // before-state neither drops nor rejects, so its cells are cut by the
 // prefixes of both states. A flow without a wild end, or one that is not
-// evaluated, is returned as it is.
+// evaluated, is returned as it is; one whose host routes cannot be read is
+// unknown.
 func (r *router) cellFlows(fl flow, before *fwstate.Loaded) []flow {
 	if fl.wild == wildNone || fl.unknown != "" {
 		return []flow{fl}
 	}
 	v6 := fl.pkt.Family == fwstate.V6
+	routes := r.routeCuts(v6)
+	if routes.why != "" {
+		fl.unknown = routes.why
+		return []flow{fl}
+	}
 	rs := r.st.V4
 	if v6 {
 		rs = r.st.V6
@@ -36,7 +46,7 @@ func (r *router) cellFlows(fl flow, before *fwstate.Loaded) []flow {
 		}
 		cut = joinTables(cut, cutters(brs, v6, fl.pkt.Proto, fl.pkt.DstPort))
 	}
-	cells := eval.InternetCells(cut, v6)
+	cells := eval.InternetCells(joinTables(cut, routes.rs), v6)
 	out := make([]flow, 0, len(cells))
 	for _, c := range cells {
 		cf := fl
@@ -65,6 +75,48 @@ func joinTables(a, b *netfilter.Ruleset) *netfilter.Ruleset {
 		}
 	}
 	return out
+}
+
+// routeCut is routeCutters of the host's routes of one family, or why they
+// cannot be read.
+type routeCut struct {
+	rs  *netfilter.Ruleset
+	why string
+}
+
+// routeCuts is the route cut of one family. The routes of every table are
+// dumped on the first call for the family and kept for the check.
+func (r *router) routeCuts(v6 bool) routeCut {
+	if c, ok := r.routes[v6]; ok {
+		return c
+	}
+	var c routeCut
+	fam := netstat.IPv4
+	if v6 {
+		fam = netstat.IPv6
+	}
+	if d, ok := r.host.(routeDumper); !ok {
+		c.why = "the host cannot list routes"
+	} else if routes, err := d.Routes(fam); err != nil {
+		c.why = fmt.Sprintf("the routes cannot be read: %v", err)
+	} else {
+		c.rs = routeCutters(routes, v6)
+	}
+	r.routes[v6] = c
+	return c
+}
+
+// routeCutters is a ruleset of one table with one chain that holds one rule
+// per route of the family, matching the route's destination. Like
+// joinTables' result it only cuts cells and is never evaluated.
+func routeCutters(routes []netstat.Route, v6 bool) *netfilter.Ruleset {
+	ch := netfilter.Chain{Name: "routes"}
+	for _, rt := range routes {
+		if rt.Dst.IsValid() && rt.Dst.Addr().Is6() == v6 {
+			ch.Rules = append(ch.Rules, netfilter.Rule{Dest: netfilter.AddrMatch{Prefix: rt.Dst}})
+		}
+	}
+	return &netfilter.Ruleset{Tables: []netfilter.Table{{Name: "routes", Chains: []netfilter.Chain{ch}}}}
 }
 
 // checkFlow evaluates fl in every cell of its wild end and returns the
