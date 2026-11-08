@@ -76,6 +76,7 @@ func TestM3Firewall(t *testing.T) {
 		{"ipv6-ssh-session", false, func(t *testing.T) { m3IPv6SSHSession(ctx, t, f) }},
 		{"asymmetric-rp-filter", false, func(t *testing.T) { m3AsymmetricRoute(ctx, t, f) }},
 		{"sysctl-revert", false, func(t *testing.T) { m3SysctlRevert(ctx, t, f) }},
+		{"live-apply", false, func(t *testing.T) { m3LiveApply(ctx, t, f) }},
 		// The golden re-check resets UFW's rules on the agent host, so it runs last.
 		{"golden-recheck", false, func(t *testing.T) { m3GoldenRecheck(ctx, t, f) }},
 	}
