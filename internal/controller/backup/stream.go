@@ -94,7 +94,26 @@ func (b *Backup) streamServe(deps ext.Deps, rnd io.Reader) http.Handler {
 			writeProblem(w, deps.Log, fmt.Errorf("backup: copy the controller database to %s: %w", path, err))
 			return
 		}
-		if err := os.Chmod(path, 0o600); err != nil {
+		if b.afterCopy != nil {
+			b.afterCopy(path)
+		}
+
+		f, err := os.OpenFile(path, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC|syscall.O_NONBLOCK, 0) //nolint:gosec // G304: the path comes from configuration or the database directory, never from a request
+		if err != nil {
+			writeProblem(w, deps.Log, fmt.Errorf("backup: open the temporary copy %s: %w", path, err))
+			return
+		}
+		defer func() { _ = f.Close() }()
+		st, err := f.Stat()
+		if err != nil {
+			writeProblem(w, deps.Log, fmt.Errorf("backup: stat the temporary copy %s: %w", path, err))
+			return
+		}
+		if !st.Mode().IsRegular() {
+			writeProblem(w, deps.Log, fmt.Errorf("backup: the temporary copy %s is not a regular file", path))
+			return
+		}
+		if err := f.Chmod(0o600); err != nil {
 			writeProblem(w, deps.Log, fmt.Errorf("backup: chmod %s: %w", path, err))
 			return
 		}
@@ -106,17 +125,6 @@ func (b *Backup) streamServe(deps ext.Deps, rnd io.Reader) http.Handler {
 		}
 		defer clear(key)
 
-		f, err := os.Open(path) //nolint:gosec // G304: the path comes from configuration or the database directory, never from a request
-		if err != nil {
-			writeProblem(w, deps.Log, fmt.Errorf("backup: open the temporary copy %s: %w", path, err))
-			return
-		}
-		defer func() { _ = f.Close() }()
-		st, err := f.Stat()
-		if err != nil {
-			writeProblem(w, deps.Log, fmt.Errorf("backup: stat the temporary copy %s: %w", path, err))
-			return
-		}
 		members := []Member{
 			{Name: MemberDB, Size: st.Size(), Body: f},
 			{Name: MemberKey, Size: int64(len(key)), Body: bytes.NewReader(key)},

@@ -31,6 +31,11 @@ type Config struct {
 type Backup struct {
 	cfg     Config
 	running atomic.Bool // true while a backup streams; at most one at a time
+
+	// afterCopy is a test seam: it runs once the temporary copy of the
+	// database exists and before the copy is opened, so a test can swap the
+	// file. It is always nil in production.
+	afterCopy func(path string)
 }
 
 // New returns a Backup over cfg with no backup running.
