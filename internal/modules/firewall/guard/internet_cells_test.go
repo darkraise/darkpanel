@@ -537,3 +537,72 @@ func TestV1r21RoutesWithoutAPathCutNoCell(t *testing.T) {
 		}
 	}
 }
+
+// v1r21Throw answers lookups as a host whose first routing table sends every
+// address out of eth0 from 192.0.2.1 and throws thrown on to the tables after
+// it. With later, one of them routes thrown out of eth1 from 10.0.0.1;
+// without, none routes it.
+type v1r21Throw struct {
+	*gHost
+	thrown netip.Prefix
+	later  bool
+}
+
+func (h v1r21Throw) RouteGet(q netstat.RouteQuery) (netstat.Route, error) {
+	switch {
+	case !h.thrown.Contains(q.Dst):
+		return rtVia("eth0", "192.0.2.1"), nil
+	case h.later:
+		return rtVia("eth1", "10.0.0.1"), nil
+	}
+	return netstat.Route{}, fmt.Errorf("%w to %s: network is unreachable", netstat.ErrNoRoute, q.Dst)
+}
+
+func TestV1r21ThrowRoutesCutCells(t *testing.T) {
+	// Tailscale's table 52 throws ranges on to the tables after it.
+	thrown := netip.MustParsePrefix("45.33.0.0/16")
+	st := v1r21State(t, v1r21Table("-A FORWARD -s 172.30.0.3/32 -i dp-panel -o eth1 -j DROP"), v1r21Table())
+	throw := v1r21Route("throw", thrown.String(), "", "-", 52)
+	g := v1r21CheckHost(t, v1r21Throw{&gHost{ifaces: ckIfaces(), table: append(v1r21HostRoutes(), throw)}, thrown, true}, st, v1r21Tunnel())
+	for _, want := range []string{"45.33.0.0-45.33.255.255", "out eth1: drop"} {
+		if g.OK || !strings.Contains(g.Message, want) {
+			t.Errorf("guard = %+v, want a refusal containing %q: the later table routes the thrown range out of eth1, where the rule drops it", g, want)
+		}
+	}
+	if g := v1r21CheckHost(t, v1r21Throw{&gHost{ifaces: ckIfaces(), table: v1r21HostRoutes()}, thrown, true}, st, v1r21Tunnel()); !g.OK {
+		t.Errorf("guard = %+v, want OK: without the throw route no cell routes out of eth1", g)
+	}
+}
+
+func TestV1r21ThrowCellWithoutARouteBackHasNothingToProtect(t *testing.T) {
+	thrown := netip.MustParsePrefix("45.33.0.0/16")
+	table := append(v1r21HostRoutes(), v1r21Route("throw", thrown.String(), "", "-", 52))
+	check := func(later bool, st fwstate.Loaded, plan *core.GuardContext) core.Guard {
+		t.Helper()
+		h := v1r21Throw{&gHost{ifaces: ckIfaces(), table: table, sockets: []netstat.Socket{
+			flSock(netstat.ProtoTCP, netstat.StateListen, "0.0.0.0:443", "", "darkpanel-contr", 4242),
+		}}, thrown, later}
+		return v1r21CheckHost(t, h, st, plan)
+	}
+	open := v1r21State(t, v1r21Table(), v1r21Table())
+	if g := check(false, open, v1r21Tunnel()); !g.OK {
+		t.Errorf("guard = %+v, want OK: no table routes back to the thrown range, and nothing blocks the rest", g)
+	}
+	strict := v1r21State(t, v1r21Table(), v1r21Table())
+	strict.Sysctl = map[string]string{"net/ipv4/conf/all/rp_filter": "1"}
+	if g := check(false, strict, v1r21Public()); !g.OK {
+		t.Errorf("guard under strict rp_filter = %+v, want OK: no table routes back to the thrown range, and nothing blocks the rest", g)
+	}
+	for _, tt := range []struct {
+		later      bool
+		rule, want string
+	}{
+		{false, "-A INPUT -s 8.8.8.0/24 -p tcp -j DROP", "controller listener from 8.8.8.0-8.8.8.255 to 192.0.2.1:443 on eth0: drop"},
+		// The later table answers the thrown range from eth1's address.
+		{true, "-A INPUT -d 10.0.0.1/32 -p tcp -j DROP", "controller listener from 45.33.0.0-45.33.255.255 to 10.0.0.1:443 on eth0: drop"},
+	} {
+		if g := check(tt.later, v1r21State(t, v1r21Table(tt.rule), v1r21Table()), v1r21Tunnel()); g.OK || !strings.Contains(g.Message, tt.want) {
+			t.Errorf("guard with %q = %+v, want a refusal containing %q", tt.rule, g, tt.want)
+		}
+	}
+}

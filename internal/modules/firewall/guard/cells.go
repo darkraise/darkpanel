@@ -3,6 +3,7 @@ package guard
 import (
 	"cmp"
 	"fmt"
+	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,14 +19,16 @@ import (
 // cellFlows is fl once per cell of the internet that the checked ruleset
 // of its family partitions the public space into, with the wild end set
 // to the cell's representative address. Only the rules that can match fl
-// cut cells, and so does every unicast route of the host's family outside
-// the local table, since a rule that matches an interface sets apart the
-// addresses routed through it. A flow to any internet address needs every
+// cut cells, and so does every unicast and throw route of the host's family
+// outside the local table, since a rule that matches an interface sets apart
+// the addresses routed through it. A flow to any internet address needs every
 // cell to pass. A flow from any internet address, given a before-state,
 // fails only on a cell the before-state neither drops nor rejects, so its
-// cells are cut by the prefixes of both states. A flow without a wild end,
-// or one that is not evaluated, is returned as it is; one whose host routes
-// cannot be read is unknown.
+// cells are cut by the prefixes of both states. Its copy in a cell of a throw
+// route is a stand-in: when no later table routes back to the cell, this host
+// cannot answer a source there. A flow without a wild end, or one that is not
+// evaluated, is returned as it is; one whose host routes cannot be read is
+// unknown.
 func (r *router) cellFlows(fl flow, before *fwstate.Loaded) []flow {
 	if fl.wild == wildNone || fl.unknown != "" {
 		return []flow{fl}
@@ -54,6 +57,9 @@ func (r *router) cellFlows(fl flow, before *fwstate.Loaded) []flow {
 		cf := fl
 		if fl.wild == wildSrc {
 			cf.pkt.Src = c.Rep
+			if slices.ContainsFunc(routes.throws, func(p netip.Prefix) bool { return p.Contains(c.Rep) }) {
+				cf.standIn = true
+			}
 		} else {
 			cf.pkt.Dst = c.Rep
 		}
@@ -82,8 +88,9 @@ func joinTables(a, b *netfilter.Ruleset) *netfilter.Ruleset {
 // routeCut is routeCutters of the host's routes of one family, or why they
 // cannot be read.
 type routeCut struct {
-	rs  *netfilter.Ruleset
-	why string
+	rs     *netfilter.Ruleset
+	throws []netip.Prefix
+	why    string
 }
 
 // routeCuts is the route cut of one family. The routes of every table are
@@ -102,28 +109,35 @@ func (r *router) routeCuts(v6 bool) routeCut {
 	} else if routes, err := d.Routes(fam); err != nil {
 		c.why = fmt.Sprintf("the routes cannot be read: %v", err)
 	} else {
-		c.rs = routeCutters(routes, v6)
+		c.rs, c.throws = routeCutters(routes, v6)
 	}
 	r.routes[v6] = c
 	return c
 }
 
 // routeCutters is a ruleset of one table with one chain that holds one rule
-// per unicast route of the family outside the local table, matching the
-// route's destination. Like joinTables' result it only cuts cells and is
-// never evaluated. The local table holds the host's own addresses, which
-// are no internet address a flow reaches out to or comes from; a cell of
-// one would turn the flow into input to the host. Unreachable, prohibit,
-// blackhole and throw routes carry no packet out, so a cell of one would
-// only hold a representative without a route and leave the flow unknown.
-func routeCutters(routes []netstat.Route, v6 bool) *netfilter.Ruleset {
+// per unicast or throw route of the family outside the local table, matching
+// the route's destination, and the destinations of the throw routes. Like
+// joinTables' result it only cuts cells and is never evaluated. The local
+// table holds the host's own addresses, which are no internet address a flow
+// reaches out to or comes from; a cell of one would turn the flow into input
+// to the host. Unreachable, prohibit and blackhole routes carry no packet, so
+// a cell of one would only hold a representative without a route and leave
+// the flow unknown, while a throw route hands its range on to a later table,
+// which may route it out of another interface.
+func routeCutters(routes []netstat.Route, v6 bool) (*netfilter.Ruleset, []netip.Prefix) {
 	ch := netfilter.Chain{Name: "routes"}
+	var throws []netip.Prefix
 	for _, rt := range routes {
-		if rt.Type == "unicast" && rt.Table != unix.RT_TABLE_LOCAL && rt.Dst.IsValid() && rt.Dst.Addr().Is6() == v6 {
-			ch.Rules = append(ch.Rules, netfilter.Rule{Dest: netfilter.AddrMatch{Prefix: rt.Dst}})
+		if (rt.Type != "unicast" && rt.Type != "throw") || rt.Table == unix.RT_TABLE_LOCAL || !rt.Dst.IsValid() || rt.Dst.Addr().Is6() != v6 {
+			continue
+		}
+		ch.Rules = append(ch.Rules, netfilter.Rule{Dest: netfilter.AddrMatch{Prefix: rt.Dst}})
+		if rt.Type == "throw" {
+			throws = append(throws, rt.Dst)
 		}
 	}
-	return &netfilter.Ruleset{Tables: []netfilter.Table{{Name: "routes", Chains: []netfilter.Chain{ch}}}}
+	return &netfilter.Ruleset{Tables: []netfilter.Table{{Name: "routes", Chains: []netfilter.Chain{ch}}}}, throws
 }
 
 // checkFlow evaluates fl in every cell of its wild end and returns the

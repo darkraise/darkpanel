@@ -46,9 +46,9 @@ func newRouter(h Host, f facts, st fwstate.Loaded) *router {
 // flow once with the out-interface its route gives. An incoming flow to an
 // unspecified destination is checked once for every address it may reach
 // (wildcardDsts). A route that cannot be resolved makes the flow unknown,
-// except that a stand-in destination without a route of its family has
-// nothing to protect. Every lookup carries the packet's mark, which policy
-// rules may match.
+// except that a stand-in destination without a route of its family, or a
+// stand-in source without a route back, has nothing to protect. Every lookup
+// carries the packet's mark, which policy rules may match.
 func (r *router) probes(fl flow) []probe {
 	if fl.unknown != "" {
 		return []probe{{desc: fl.label, unknown: fl.unknown}}
@@ -104,7 +104,10 @@ func (r *router) probes(fl flow) []probe {
 		return r.inputProbes(fl, p)
 	}
 	rt, err := r.host.RouteGet(netstat.RouteQuery{Dst: p.Src, Mark: p.Mark})
-	if err != nil {
+	switch {
+	case err != nil && fl.standIn && errors.Is(err, netstat.ErrNoRoute):
+		return nil
+	case err != nil:
 		return fail(fmt.Sprintf("the route back to %s cannot be resolved: %v", p.Src, err))
 	}
 	if !rt.PrefSrc.IsValid() {
@@ -142,11 +145,19 @@ func (r *router) wildcardDsts(pref netip.Addr, iface string) []netip.Addr {
 }
 
 // inputProbes are the probes of an incoming packet p of fl to an address of
-// this host: once on its fixed in-interface, or on every eligible one.
+// this host: once on its fixed in-interface, or on every eligible one. A
+// stand-in source without a route back from p's destination has none.
 func (r *router) inputProbes(fl flow, p fwstate.Packet) []probe {
 	fail := func(reason string) []probe { return []probe{{desc: describeFlow(fl, p), unknown: reason}} }
 	if !r.local[p.Dst] {
 		return fail(p.Dst.String() + " is not an address of this host")
+	}
+	if fl.standIn && fl.wild == wildSrc {
+		// Under rp_filter the kernel drops such a packet, or fails the lookup
+		// of one that DNAT forwards; without it, the reply finds no route.
+		if _, err := r.host.RouteGet(netstat.RouteQuery{Dst: p.Src, Src: p.Dst, Mark: p.Mark}); errors.Is(err, netstat.ErrNoRoute) {
+			return nil
+		}
 	}
 	if p.InIface != "" {
 		return []probe{{desc: describeFlow(fl, p), pkt: p}}

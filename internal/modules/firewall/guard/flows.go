@@ -58,7 +58,7 @@ type flow struct {
 	pkt     fwstate.Packet
 	wild    wildEnd
 	span    string // "<From>-<To>" of the cell this copy of the flow is checked in
-	standIn bool   // a wild destination whose cell has no route of its family has nothing to protect
+	standIn bool   // a wild destination whose cell has no route of its family, or a wild source without a route back, has nothing to protect
 	unknown string
 }
 
