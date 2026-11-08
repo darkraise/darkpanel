@@ -25,8 +25,9 @@ const (
 )
 
 // m3dTrafficProbeScript connects to every port in a loop and logs one line per
-// attempt, "<port> ok" or "<port> fail". It takes the log path, the host and
-// the ports from its arguments.
+// attempt, "<port> <ok|fail> <ns>", with the start of the attempt in Unix
+// nanoseconds. It takes the log path, the host and the ports from its
+// arguments.
 const m3dTrafficProbeScript = `import socket, sys, time
 log, host = sys.argv[1], sys.argv[2]
 ports = [int(p) for p in sys.argv[3:]]
@@ -36,6 +37,7 @@ with open(log, "a") as out:
         for port in ports:
             s = socket.socket(family, socket.SOCK_STREAM)
             s.settimeout(0.4)
+            t0 = time.time_ns()
             try:
                 s.connect((host, port))
                 result = "ok"
@@ -43,7 +45,7 @@ with open(log, "a") as out:
                 result = "fail"
             finally:
                 s.close()
-            out.write("%d %s\n" % (port, result))
+            out.write("%d %s %d\n" % (port, result, t0))
             out.flush()
         time.sleep(0.1)
 `
@@ -95,9 +97,24 @@ func m3dxTrafficLeaks(log string, unallowed []uint16, minAttempts int) error {
 	if err != nil {
 		return err
 	}
+	windows, err := v1r24Windows(log)
+	if err != nil {
+		return err
+	}
 	for _, p := range unallowed {
 		if oks[p] > 0 {
-			return fmt.Errorf("harness: port %d connected in %d of %d attempts", p, oks[p], attempts[p])
+			var parts []string
+			for _, w := range windows {
+				if w.Port != p {
+					continue
+				}
+				s := fmt.Sprintf("%d attempts", w.Attempts)
+				if !w.First.IsZero() && !w.Last.IsZero() {
+					s += " from " + w.First.UTC().Format(time.RFC3339Nano) + " to " + w.Last.UTC().Format(time.RFC3339Nano)
+				}
+				parts = append(parts, s)
+			}
+			return fmt.Errorf("harness: port %d connected in %d of %d attempts (%s)", p, oks[p], attempts[p], strings.Join(parts, "; "))
 		}
 	}
 	return m3dxTrafficProbed(log, unallowed, minAttempts)
@@ -118,6 +135,74 @@ func m3dxTrafficProbed(log string, ports []uint16, minAttempts int) error {
 	return nil
 }
 
+// v1r24Window is one contiguous run of connected probe attempts at Port.
+type v1r24Window struct {
+	Port        uint16
+	Attempts    int
+	First, Last time.Time
+}
+
+// v1r24ParseLine parses one non-empty probe log line into its port, whether it
+// connected, and its optional start time in UTC.
+func v1r24ParseLine(line string) (port uint16, ok bool, at time.Time, err error) {
+	f := strings.Fields(line)
+	if len(f) != 2 && len(f) != 3 || f[1] != "ok" && f[1] != "fail" {
+		return 0, false, time.Time{}, fmt.Errorf("harness: malformed probe log line %q", line)
+	}
+	p, err := strconv.ParseUint(f[0], 10, 16)
+	if err != nil {
+		return 0, false, time.Time{}, fmt.Errorf("harness: malformed probe log line %q", line)
+	}
+	if len(f) == 3 {
+		ns, err := strconv.ParseInt(f[2], 10, 64)
+		if err != nil || ns <= 0 {
+			return 0, false, time.Time{}, fmt.Errorf("harness: malformed probe log line %q", line)
+		}
+		at = time.Unix(0, ns).UTC()
+	}
+	return uint16(p), f[1] == "ok", at, nil
+}
+
+// v1r24Windows returns each run of consecutive connected attempts per port in
+// log, sorted by port and then by order of appearance.
+func v1r24Windows(log string) ([]v1r24Window, error) {
+	open := map[uint16]*v1r24Window{}
+	byPort := map[uint16][]v1r24Window{}
+	for _, line := range strings.Split(log, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		port, ok, at, err := v1r24ParseLine(line)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			if w := open[port]; w == nil {
+				open[port] = &v1r24Window{Port: port, Attempts: 1, First: at, Last: at}
+			} else {
+				w.Attempts++
+				w.Last = at
+			}
+		} else if w := open[port]; w != nil {
+			byPort[port] = append(byPort[port], *w)
+			delete(open, port)
+		}
+	}
+	for port, w := range open {
+		byPort[port] = append(byPort[port], *w)
+	}
+	ports := make([]uint16, 0, len(byPort))
+	for p := range byPort {
+		ports = append(ports, p)
+	}
+	slices.Sort(ports)
+	var out []v1r24Window
+	for _, p := range ports {
+		out = append(out, byPort[p]...)
+	}
+	return out, nil
+}
+
 // m3dxTrafficCount counts the attempts, and the connected ones, per port of a
 // probe log.
 func m3dxTrafficCount(log string) (attempts, oks map[uint16]int, err error) {
@@ -127,17 +212,13 @@ func m3dxTrafficCount(log string) (attempts, oks map[uint16]int, err error) {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		f := strings.Fields(line)
-		if len(f) != 2 || f[1] != "ok" && f[1] != "fail" {
-			return nil, nil, fmt.Errorf("harness: malformed probe log line %q", line)
-		}
-		p, err := strconv.ParseUint(f[0], 10, 16)
+		port, ok, _, err := v1r24ParseLine(line)
 		if err != nil {
-			return nil, nil, fmt.Errorf("harness: malformed probe log line %q", line)
+			return nil, nil, err
 		}
-		attempts[uint16(p)]++
-		if f[1] == "ok" {
-			oks[uint16(p)]++
+		attempts[port]++
+		if ok {
+			oks[port]++
 		}
 	}
 	return attempts, oks, nil
@@ -485,6 +566,14 @@ func m3dTrafficProxied(ctx context.Context, t *testing.T, f *fleet) {
 // m3dTrafficRecreate requires containers recreated under continuous
 // scanning, across an agent restart too, never to expose an unallowed binding.
 func m3dTrafficRecreate(ctx context.Context, t *testing.T, f *fleet) {
+	since := time.Now().UTC().Format("2006-01-02 15:04:05")
+	for _, vm := range []struct {
+		name string
+		run  func(context.Context, string) (string, error)
+	}{{"scanner", f.scanner.Run}, {"agent", f.agent.Run}} {
+		out, err := vm.run(ctx, "date +%s%N")
+		t.Logf("%s date +%%s%%N at %s: %s (err: %v)", vm.name, time.Now().UTC().Format(time.RFC3339Nano), strings.TrimSpace(out), err)
+	}
 	m3dDockEnable(ctx, t, f)
 	v4 := ScanOpts{Family: "-4"}
 	m3dTrafficPublish(ctx, t, f, "m3d-r1", "bridge", "18208:14000")
@@ -501,22 +590,37 @@ func m3dTrafficRecreate(ctx context.Context, t *testing.T, f *fleet) {
 		m3dDockRemove(ctx, f.agent, "m3d-r1")
 		m3dTrafficPublish(ctx, t, f, "m3d-r1", "bridge", "18208:14000")
 	}
-	for range 3 {
+	for i := range 3 {
+		t.Logf("recreation %d begin: %s", i+1, time.Now().UTC().Format(time.RFC3339Nano))
 		recreate()
 		m3dTrafficWant(ctx, t, f, v4, map[uint16]string{18208: "open"})
+		t.Logf("recreation %d end: %s", i+1, time.Now().UTC().Format(time.RFC3339Nano))
 	}
+	t.Logf("agent restart begin: %s", time.Now().UTC().Format(time.RFC3339Nano))
 	m3Run(ctx, t, f.agent, "sudo systemctl restart "+update.AgentUnit)
 	recreate()
 	waitHosts(ctx, t, f, 3*time.Minute, hostsAt(versionN, f.agentID))
 	m3dTrafficWant(ctx, t, f, v4, map[uint16]string{18208: "open"})
 	m3dTrafficWant(ctx, t, f, v4, map[uint16]string{18209: "notopen"})
+	t.Logf("agent restart end: %s", time.Now().UTC().Format(time.RFC3339Nano))
 	const minAttempts = 20
+	leaked := false
 	for _, p := range []struct {
 		name string
 		log  string
 	}{{"IPv4", stop4(minAttempts)}, {"IPv6", stop6(minAttempts)}} {
 		if err := m3dxTrafficLeaks(p.log, []uint16{18209}, minAttempts); err != nil {
 			t.Errorf("%s probe: %v\n%s", p.name, err, p.log)
+			leaked = true
+		}
+	}
+	if leaked {
+		journalCmd := m3dxShell("sudo", "journalctl", "-u", update.AgentUnit, "--utc", "-o", "short-iso-precise", "--no-pager", "--since", since)
+		journal, err := f.agent.Run(ctx, journalCmd)
+		if err != nil {
+			t.Logf("agent journal (%s): %v\n%s", journalCmd, err, journal)
+		} else {
+			t.Logf("agent journal (%s):\n%s", journalCmd, journal)
 		}
 	}
 }
