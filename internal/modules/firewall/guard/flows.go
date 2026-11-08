@@ -54,12 +54,13 @@ const (
 // end of pkt holds its family's unspecified address until a cell of the
 // internet is chosen for it.
 type flow struct {
-	label   string
-	pkt     fwstate.Packet
-	wild    wildEnd
-	span    string // "<From>-<To>" of the cell this copy of the flow is checked in
-	standIn bool   // a wild destination whose cell has no route of its family, or a wild source without a route back, has nothing to protect
-	unknown string
+	label     string
+	pkt       fwstate.Packet
+	wild      wildEnd
+	span      string // "<From>-<To>" of the cell this copy of the flow is checked in
+	standIn   bool   // a wild destination whose cell has no route of its family, or a wild source without a route back, has nothing to protect
+	blackhole bool   // the cell lies in a blackhole route, whose lookup the kernel answers with EINVAL
+	unknown   string
 }
 
 // flowSet collects flows in order without duplicates. Two flows with the

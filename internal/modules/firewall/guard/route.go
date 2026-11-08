@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strconv"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
 	"github.com/darkraise/darkpanel/internal/platform/netstat"
 )
@@ -59,7 +61,7 @@ func (r *router) probes(fl flow) []probe {
 	lookup := func(q netstat.RouteQuery) (netstat.Route, bool, []probe) {
 		rt, err := r.host.RouteGet(q)
 		switch {
-		case err != nil && fl.standIn && errors.Is(err, netstat.ErrNoRoute):
+		case err != nil && fl.standIn && noRoute(fl, err):
 			return rt, false, nil
 		case err != nil:
 			return rt, false, fail(fmt.Sprintf("the route to %s cannot be resolved: %v", q.Dst, err))
@@ -106,7 +108,7 @@ func (r *router) probes(fl flow) []probe {
 	}
 	rt, err := r.host.RouteGet(netstat.RouteQuery{Dst: p.Src, Mark: p.Mark})
 	switch {
-	case err != nil && fl.standIn && errors.Is(err, netstat.ErrNoRoute) && r.noReplyFrom(p.Src, p.Mark):
+	case err != nil && fl.standIn && noRoute(fl, err) && r.noReplyFrom(fl, p.Src, p.Mark):
 		return nil
 	case err != nil:
 		return fail(fmt.Sprintf("the route back to %s cannot be resolved: %v", p.Src, err))
@@ -123,17 +125,24 @@ func (r *router) probes(fl flow) []probe {
 	return out
 }
 
+// noRoute reports whether a lookup for fl failed for want of a route. The
+// kernel answers a lookup in a blackhole route with EINVAL, which counts only
+// in a cell the route dump places inside one.
+func noRoute(fl flow, err error) bool {
+	return errors.Is(err, netstat.ErrNoRoute) || (fl.blackhole && errors.Is(err, unix.EINVAL))
+}
+
 // noReplyFrom reports whether no address of this host of src's family has a
-// route back to src: policy rules may route replies by source address, which
-// a lookup without one does not match.
-func (r *router) noReplyFrom(src netip.Addr, mark uint32) bool {
+// route back to src for fl: policy rules may route replies by source
+// address, which a lookup without one does not match.
+func (r *router) noReplyFrom(fl flow, src netip.Addr, mark uint32) bool {
 	v4 := src.Unmap().Is4()
 	checked := false
 	for a := range r.local {
 		if a.Is4() != v4 {
 			continue
 		}
-		if _, err := r.host.RouteGet(netstat.RouteQuery{Dst: src, Src: a, Mark: mark}); !errors.Is(err, netstat.ErrNoRoute) {
+		if _, err := r.host.RouteGet(netstat.RouteQuery{Dst: src, Src: a, Mark: mark}); !noRoute(fl, err) {
 			return false
 		}
 		checked = true
@@ -174,7 +183,7 @@ func (r *router) inputProbes(fl flow, p fwstate.Packet) []probe {
 	if fl.standIn && fl.wild == wildSrc {
 		// Under rp_filter the kernel drops such a packet, or fails the lookup
 		// of one that DNAT forwards; without it, the reply finds no route.
-		if _, err := r.host.RouteGet(netstat.RouteQuery{Dst: p.Src, Src: p.Dst, Mark: p.Mark}); errors.Is(err, netstat.ErrNoRoute) {
+		if _, err := r.host.RouteGet(netstat.RouteQuery{Dst: p.Src, Src: p.Dst, Mark: p.Mark}); noRoute(fl, err) {
 			return nil
 		}
 	}

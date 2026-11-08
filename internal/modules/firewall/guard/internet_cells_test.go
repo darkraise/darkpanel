@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/eval"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
@@ -456,7 +458,7 @@ func (h v1r21Fib) RouteGet(q netstat.RouteQuery) (netstat.Route, error) {
 		answer.PrefSrc, answer.OutIface = dst, "lo"
 		return answer, nil
 	case "blackhole":
-		return netstat.Route{}, errors.New("netstat: route lookup: invalid argument")
+		return netstat.Route{}, fmt.Errorf("netstat: route lookup: %w", unix.EINVAL)
 	}
 	return netstat.Route{}, fmt.Errorf("%w to %s: %s", netstat.ErrNoRoute, dst, best.Type)
 }
@@ -535,6 +537,28 @@ func TestV1r21RoutesWithoutAPathCutNoCell(t *testing.T) {
 		if g := check(v1r21Table(tt.rule)); g.OK || !strings.Contains(g.Message, tt.want) {
 			t.Errorf("guard with %q = %+v, want a refusal containing %q", tt.rule, g, tt.want)
 		}
+	}
+}
+
+func TestV1r21RouteWithoutAPathCutsTheCellItStarts(t *testing.T) {
+	// The connector's edges in 198.41.192.0/24 route out of eth1, but the
+	// first address of the /24 has no path.
+	edge := v1r21Route("unicast", "198.41.192.0/24", "eth1", "10.0.0.1", 254)
+	block := v1r21State(t, v1r21Table("-A FORWARD -s 172.30.0.3/32 -i dp-panel -o eth1 -j DROP"), v1r21Table())
+	open := v1r21State(t, v1r21Table(), v1r21Table())
+	for _, typ := range []string{"unreachable", "blackhole"} {
+		t.Run(typ, func(t *testing.T) {
+			h := v1r21Fib{&gHost{ifaces: ckIfaces(), table: append(v1r21HostRoutes(), edge, v1r21Route(typ, "198.41.192.0/32", "", "-", 254))}}
+			g := v1r21CheckHost(t, h, block, v1r21Tunnel())
+			for _, want := range []string{"198.41.192.1-198.41.192.255", "out eth1: drop"} {
+				if g.OK || !strings.Contains(g.Message, want) {
+					t.Errorf("guard = %+v, want a refusal containing %q: the rest of the /24 routes out of eth1, where the rule drops it", g, want)
+				}
+			}
+			if g := v1r21CheckHost(t, h, open, v1r21Tunnel()); !g.OK {
+				t.Errorf("guard = %+v, want OK: nothing blocks the connector", g)
+			}
+		})
 	}
 }
 

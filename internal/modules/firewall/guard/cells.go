@@ -19,14 +19,16 @@ import (
 // cellFlows is fl once per cell of the internet that the checked ruleset
 // of its family partitions the public space into, with the wild end set
 // to the cell's representative address. Only the rules that can match fl
-// cut cells, and so does every unicast and throw route of the host's family
-// outside the local table, since a rule that matches an interface sets apart
-// the addresses routed through it. A flow to any internet address needs every
-// cell to pass. A flow from any internet address, given a before-state,
-// fails only on a cell the before-state neither drops nor rejects, so its
-// cells are cut by the prefixes of both states. Its copy in a cell of a throw
-// route is a stand-in: when no later table routes back to the cell, this host
-// cannot answer a source there. A flow without a wild end, or one that is not
+// cut cells, and so does every route of the host's family outside the local
+// table that sends or refuses a range (routeCutters), since a rule that
+// matches an interface sets apart the addresses routed through it. A flow to
+// any internet address needs every cell to pass. A flow from any internet
+// address, given a before-state, fails only on a cell the before-state
+// neither drops nor rejects, so its cells are cut by the prefixes of both
+// states. Its copy in a cell of a route without a path is a stand-in: when
+// no reply reaches the cell, this host cannot answer a source there. A copy
+// in a cell of a blackhole route is marked as such, since the kernel answers
+// a lookup there with EINVAL. A flow without a wild end, or one that is not
 // evaluated, is returned as it is; one whose host routes cannot be read is
 // unknown.
 func (r *router) cellFlows(fl flow, before *fwstate.Loaded) []flow {
@@ -55,14 +57,18 @@ func (r *router) cellFlows(fl flow, before *fwstate.Loaded) []flow {
 	out := make([]flow, 0, len(cells))
 	for _, c := range cells {
 		cf := fl
+		within := func(ps []netip.Prefix) bool {
+			return slices.ContainsFunc(ps, func(p netip.Prefix) bool { return p.Contains(c.Rep) })
+		}
 		if fl.wild == wildSrc {
 			cf.pkt.Src = c.Rep
-			if slices.ContainsFunc(routes.throws, func(p netip.Prefix) bool { return p.Contains(c.Rep) }) {
+			if within(routes.noPath) {
 				cf.standIn = true
 			}
 		} else {
 			cf.pkt.Dst = c.Rep
 		}
+		cf.blackhole = within(routes.blackholes)
 		cf.span = c.From.String() + "-" + c.To.String()
 		out = append(out, cf)
 	}
@@ -88,9 +94,10 @@ func joinTables(a, b *netfilter.Ruleset) *netfilter.Ruleset {
 // routeCut is routeCutters of the host's routes of one family, or why they
 // cannot be read.
 type routeCut struct {
-	rs     *netfilter.Ruleset
-	throws []netip.Prefix
-	why    string
+	rs         *netfilter.Ruleset
+	noPath     []netip.Prefix
+	blackholes []netip.Prefix
+	why        string
 }
 
 // routeCuts is the route cut of one family. The routes of every table are
@@ -109,35 +116,42 @@ func (r *router) routeCuts(v6 bool) routeCut {
 	} else if routes, err := d.Routes(fam); err != nil {
 		c.why = fmt.Sprintf("the routes cannot be read: %v", err)
 	} else {
-		c.rs, c.throws = routeCutters(routes, v6)
+		c.rs, c.noPath, c.blackholes = routeCutters(routes, v6)
 	}
 	r.routes[v6] = c
 	return c
 }
 
+// cutRouteTypes are the types of the routes that cut cells: unicast and the
+// routes without a path, which hand a range on to a later table (throw) or
+// refuse it.
+var cutRouteTypes = []string{"unicast", "throw", "unreachable", "prohibit", "blackhole"}
+
 // routeCutters is a ruleset of one table with one chain that holds one rule
-// per unicast or throw route of the family outside the local table, matching
-// the route's destination, and the destinations of the throw routes. Like
-// joinTables' result it only cuts cells and is never evaluated. The local
-// table holds the host's own addresses, which are no internet address a flow
-// reaches out to or comes from; a cell of one would turn the flow into input
-// to the host. Unreachable, prohibit and blackhole routes carry no packet, so
-// a cell of one would only hold a representative without a route and leave
-// the flow unknown, while a throw route hands its range on to a later table,
-// which may route it out of another interface.
-func routeCutters(routes []netstat.Route, v6 bool) (*netfilter.Ruleset, []netip.Prefix) {
+// per route of a type in cutRouteTypes and of the family outside the local
+// table, matching the route's destination; the destinations of the routes
+// without a path among them; and those of the blackhole routes. Like
+// joinTables' result the ruleset only cuts cells and is never evaluated.
+// Every route that sends or refuses a range cuts it, so no cell mixes routed
+// and unrouted addresses, and the lowest address of a cell takes the route
+// every address of it takes. The local table holds the host's own
+// addresses, which are no internet address a flow reaches out to or comes
+// from; a cell of one would turn the flow into input to the host.
+func routeCutters(routes []netstat.Route, v6 bool) (cuts *netfilter.Ruleset, noPath, blackholes []netip.Prefix) {
 	ch := netfilter.Chain{Name: "routes"}
-	var throws []netip.Prefix
 	for _, rt := range routes {
-		if (rt.Type != "unicast" && rt.Type != "throw") || rt.Table == unix.RT_TABLE_LOCAL || !rt.Dst.IsValid() || rt.Dst.Addr().Is6() != v6 {
+		if !slices.Contains(cutRouteTypes, rt.Type) || rt.Table == unix.RT_TABLE_LOCAL || !rt.Dst.IsValid() || rt.Dst.Addr().Is6() != v6 {
 			continue
 		}
 		ch.Rules = append(ch.Rules, netfilter.Rule{Dest: netfilter.AddrMatch{Prefix: rt.Dst}})
-		if rt.Type == "throw" {
-			throws = append(throws, rt.Dst)
+		if rt.Type != "unicast" {
+			noPath = append(noPath, rt.Dst)
+		}
+		if rt.Type == "blackhole" {
+			blackholes = append(blackholes, rt.Dst)
 		}
 	}
-	return &netfilter.Ruleset{Tables: []netfilter.Table{{Name: "routes", Chains: []netfilter.Chain{ch}}}}, throws
+	return &netfilter.Ruleset{Tables: []netfilter.Table{{Name: "routes", Chains: []netfilter.Chain{ch}}}}, noPath, blackholes
 }
 
 // checkFlow evaluates fl in every cell of its wild end and returns the
