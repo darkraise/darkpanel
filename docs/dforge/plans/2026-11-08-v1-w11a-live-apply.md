@@ -22,7 +22,7 @@
 
 > **External executors:** agy
 
-**Plan review:** 2026-11-08 — dforge:judge-opus — executability 8 / coherence 10 / coverage 14 / assumptions 9 (round 2)
+**Plan review:** 2026-11-08 — dforge:judge-opus — executability 8 / coherence 13 / coverage 16 / assumptions 12 (round 3)
 
 ## Global Constraints
 
@@ -87,7 +87,7 @@ Produced by Task 6, consumed by Tasks 7 and 8.
 
 - The resource `firewall.chains:block` (constant `blockChainsResource` in `docker_effects.go`). Its state is a JSON object mapping each loaded family (`"v4"`, `"v6"`) to an object mapping DOCKER-USER and every `dockerfw.Owned` chain of the filter table to the list of `netfilter.Key(rule, v6)` of its rules, in order. Before is that state of the loaded rulesets; After is that state of `dockerfw.ApplyChains(loaded, input)`; the observation after apply is that state of the loaded rulesets again. Keys, not rule text, make the prediction and the kernel's save output compare equal, as `verifyDiffs` does.
 - `loadBlockChains(ctx context.Context, env core.Env, d deps, variant string, inputs map[fwstate.Family][]byte) error` (`docker_effects.go`): runs `restoreProgram(fam, variant)` with `-n` and the family's input, IPv4 first, through `runDockerEffect` on `blockChainsResource`.
-- Its inverse (`inverse.go`, `undoDocker`, the `blockChainsResource` case). Task 6: runs `ufw reload` when the configuration says UFW is active, as the existing `firewall.chains:docker` "loaded" case does. Task 8 adds the image branch (Contracts "Live snapshot").
+- Its inverse (`inverse.go`, `undoDocker`, the `blockChainsResource` case). Task 6: runs `ufw reload` when the configuration says UFW is active, as the existing `firewall.chains:docker` "loaded" case does. While the change's after files are still written, that reload reloads the change's own block and fails the inverse's after-check against Before; only an image-less snapshot reaches this branch once Task 7 images every live change. Task 8 adds the image branch (Contracts "Live snapshot").
 - The block of a family is `dockerfw.BlockOf(<after file bytes>)` (`block, ok, err`): from `c.files[path]` when the change writes the file, otherwise from the configured `cfgN.Files[path]`. The chain step runs only when `c.reload` is set and `ok` is true; a file without a block (`firewall.docker.disable`) gets no chain step, because the cleanup step removes the chains.
 - `change.reload` keeps its name and now means "the Docker block's files changed"; on a running UFW that stays active, Apply runs the chain load step after the ufw commands instead of `ufw reload`.
 
@@ -104,7 +104,8 @@ Produced by Tasks 5, 7 and 8 as marked; consumed by Tasks 7 and 8.
 - `restoreBaseline` (`uninstall.go`, Task 7) clears `snap.State.Image` before `restore` when `snap.State.Live` is set, so an uninstall keeps the UFW transition it chooses today.
 - `imageBlock(img *beforeImage, fam fwstate.Family) ([]byte, bool)` (`image.go`, Task 8): the image's filter-table DOCKER-USER and `dockerfw.Owned` chains of family `fam` as a `*filter` … `COMMIT` block (a declaration `:<chain> - [0:0]` per chain, then each chain's rule `Text` lines in order); false when the image holds none of them for that family.
 - `planFamily` (`image.go`, Task 8): after the filter table's rule lines, `-F <chain>` and `-X <chain>` for every chain of `cur`'s filter table whose name starts with `darkpanel-` or `dp-b-` and that the image's filter table lacks, sorted by name. A chain that a chain left out of the load still jumps to is not deleted and goes to `Excluded`. `imageMismatch` also reports a `darkpanel-` or `dp-b-` chain that is loaded, absent from the image and not excluded.
-- `undoDocker(ctx, env, d, snap snapshot, noun, ident string, e core.Effect) error` (`inverse.go`, Task 8): gains `snap`, passed by `inverse`. When `snap.State.Image` is set, the `blockChainsResource` case and the `firewall.chains:docker` "loaded" case load each family with `-n` and `dockerfw.ChainsInput(<imageBlock of that family>, <loaded ruleset of that family>)` and run no `ufw reload`; without an image they keep the reload.
+- `undoDocker(ctx, env, d, snap snapshot, noun, ident string, e core.Effect) error` (`inverse.go`, Task 8): gains `snap`, passed by `inverse`. When `snap.State.Image` is set, the `blockChainsResource` case and the `firewall.chains:docker` "loaded" case load each family with `-n` and `dockerfw.ChainsInput(<imageBlock of that family>, <loaded ruleset of that family>)` and run no `ufw reload`. When `imageBlock` returns false, the block is `*filter\nCOMMIT\n`, so the input removes every loaded Owned chain. Without an image they keep the reload.
+- `change.liveRepair bool` (`target.go`, Task 8): set by `firewall.docker.repair`'s `build` closure, beside `repair: true, reload: true`, when every sync difference is a filter-table `dockerfw.Owned` chain. `planGuard`'s repair exemption still applies, because `repair` stays set. `predictTarget`'s live case accepts `c.repair` when `c.liveRepair` is set.
 
 ### Refusal and log texts
 
@@ -125,7 +126,9 @@ Produced by Tasks 5, 7 and 8 as marked; consumed by Tasks 7 and 8.
 - A live Docker change's image holds no foreign DOCKER-USER rule: prepare refuses the change while one is loaded (bullet above), so `imageBlock` reloads none; foreign rules added after the apply are kept by the existing `keepForeign` wrapping of the revert.
 - `cleanupSteps` reloads only outside a change (`docker_cleanup.go:228-231`). Uninstall cleans up in `cleanupRefuse` mode (`uninstall.go:86`); the inverse of `firewall.chains:docker` and the pre-cleanup of `restore` use `cleanupPreserve` (`wire.go:62`, `restore.go:199-204`).
 - `e2eHost.Run` models no `*-restore` program (`e2e_guard_test.go:130-150`); `deeRestore` models `-n` input on a ruleset (`docker_e2e_host_test.go:390-396`) and serves `deeHost`, which embeds `e2eHost`.
-- Plan review round 2 (the cap) scored coherence 10 and assumptions 9 (borderline) and executability 8; its 2 Critical and 3 Important findings were fixed after the round (image capture moved into `Snapshot`, the default revert and the conflict revert covered, stale chains deleted, stale tests staged; the revert task split into Tasks 7 and 8). No review round ran on those fixes, so the owner decides whether the plan executes as it stands.
+- Plan review: round 2 (the cap) scored coherence 10 and assumptions 9 (borderline) and executability 8. The owner approved an extra delta round 3 (2026-11-08); it found 1 Critical and 1 Important defect, both fixed after it (the repair keeps `repair` and gains `liveRepair`; the default snapshot row scripts its vector). Its borderline scores (coherence 13, assumptions 12) are accepted on those fixes.
+- `planGuard` exempts only a change with `repair` set from the out-of-sync refusal (`internal/modules/firewall/plan.go:137-147`), so a live repair keeps `repair` and says "live" through `liveRepair`.
+- The unit fake host's `edit` refuses a ufw vector its test has not scripted (`internal/modules/firewall/host_test.go:337-340`); `pnHost` scripts only the pnRule add and `reload` (`plan_test.go:24-33`).
 - Rulings (Task 1 copies them into the spec as "Plan rulings (wave 11a)"):
   - **W11-R1 three plans.** Wave 11 fixes every row left open after wave 10 (owner, 2026-11-08). It runs as three sequential plans: `v1-w11a-live-apply` (rows 437, 438), `v1-w11b-lockout-guard` (security-review rows 27, 28, 46, 47, 48, 51, 53) and `v1-w11c-module-fixes` (security-review rows 26, 30-45, 49, 50, 52, 54).
   - **W11-R2 live apply.** On an active UFW that stays active, Darkpanel runs no `ufw reload`. UFW applies rule and logging commands live. The Docker block is written to `after.rules` and `after6.rules` and its chains load through one `iptables-restore -n` per family that declares DOCKER-USER and Darkpanel's own chains, never `ufw-user-forward`, and removes Darkpanel chains the block no longer has. The prediction is `TransLive` (Contracts). Owner decision 2026-11-08.
@@ -790,7 +793,7 @@ git commit -m "fix(firewall): load the Docker chains without reload"
 - Modify: `internal/modules/firewall/uninstall.go` (`restoreBaseline`)
 - Modify: `internal/modules/firewall/e2e_guard_test.go` (`(*e2eHost).Run`: model `*-restore -n`)
 - Test: `internal/modules/firewall/handler_test.go`, `internal/modules/firewall/e2e_engine_test.go`, `internal/modules/firewall/docker_e2e_test.go`
-- Test (update): every `capture(…, false|true)` call in `snapshot_test.go`, `docker_snapshot_test.go`, `docker_revert_test.go` and `revert_test.go`; `TestMutationLifecycle` in `handler_test.go`; `TestE2EApplyVerifyRevert` in `e2e_engine_test.go`; the `revert_test.go` reload assertions of reverts by inverses whose change ran no UFW transition
+- Test (update): every `capture(…, false|true)` call in `snapshot_test.go`, `docker_snapshot_test.go`, `docker_revert_test.go`, `revert_test.go`, `restore_test.go` and `actions_snapshot_test.go`; `TestMutationLifecycle` in `handler_test.go`; `TestE2EApplyVerifyRevert` in `e2e_engine_test.go`; the `revert_test.go` reload assertions of reverts by inverses whose change ran no UFW transition
 
 **Interfaces:**
 - Consumes: Contracts "TransLive", "Live snapshot" (`hasDefaultOp`, Task 5)
@@ -831,6 +834,7 @@ func TestW11a07SnapshotImagesALiveChange(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h, f, _ := pnHost(t)
+			h.ufw["default reject incoming"] = func(*fhState) int { return 0 }
 			m := hkMutation(f, tc.build)
 			m.image = tc.image
 			raw, err := m.Snapshot(ctx, h.env(), hkInput{Guarded: core.Guarded{Guard: &core.GuardContext{Complete: true}}})
@@ -937,11 +941,11 @@ The defaults input is the shape `e2e_guard_test.go:359` sends.
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `GOTOOLCHAIN=local timeout 600 go test -count=1 -run 'TestW11a07' ./internal/modules/firewall/`
-Expected: FAIL, a build error naming `Live` (`snapshotState` has no field `Live`). After adding only the field, each test fails on its assertion: the snapshot subtests report `image false live false`, and the three revert tests report a reload in `h.ran` (a whole restore of a snapshot without an image chooses `TransReload`; the revert by inverses reloads after the rule's inverse).
+Expected: FAIL, a build error naming `Live` (`snapshotState` has no field `Live`). After adding only the field, each test fails on its assertion: the subtests "a rule applies live" and "a default restarts UFW itself" report `image false live false` (the two repair rows already pass), and the three revert tests report a reload in `h.ran` (a whole restore of a snapshot without an image chooses `TransReload`; the revert by inverses reloads after the rule's inverse).
 
 - [ ] **Step 3: Implement**
 
-1. `snapshot.go`: `imageKind` and the new `capture` parameter per Contracts "Live snapshot"; update every call site (`handler.go` and the test files listed above: `false` → `imageNone`, `true` → `imageRepair`, the `withImage` loop variable of `docker_snapshot_test.go:57` mapped the same way).
+1. `snapshot.go`: `imageKind` and the new `capture` parameter per Contracts "Live snapshot"; update every call site (`handler.go` and the test files listed above: `false` → `imageNone`, `true` → `imageRepair`, the `withImage` variables of `docker_snapshot_test.go:57` and `restore_test.go:21` mapped the same way).
 2. `store.go`: `snapshotState.Live` per Contracts, with a field comment.
 3. `handler.go`: `liveTarget` and `(mutation).Snapshot` per Contracts. Keep the existing pin of a `keep` snapshot around the capture.
 4. `docker_revert.go` `undoKeepingForeign`: after `undoNewestFirst`, return nil when `snap.State.Image == nil || snap.State.Live`; the image of a repair keeps its current handling.
@@ -969,12 +973,13 @@ git commit -m "fix(firewall): revert live changes from an image"
 - Modify: `internal/modules/firewall/inverse.go` (`inverse`, `undoDocker`: the `blockChainsResource` case and the `firewall.chains:docker` "loaded" case)
 - Modify: `internal/modules/firewall/docker_cleanup.go` (`cleanupChains`, `cleanupSteps`: the trailing reload)
 - Modify: `internal/modules/firewall/docker_repair.go` (the `build` closure of `firewall.docker.repair`)
-- Test: `internal/modules/firewall/docker_e2e_test.go`
+- Modify: `internal/modules/firewall/target.go` (`change.liveRepair`; `predictTarget`'s live case)
+- Test: `internal/modules/firewall/docker_e2e_test.go`, `internal/modules/firewall/target_docker_test.go`
 - Test (update): the direct `undoDocker` call in `docker_revert_test.go:534`; the reload assertions of `docker_cleanup_test.go` for a cleanup in `cleanupPreserve` mode; any `revert_test.go` or `image_test.go` expectation of a restore input that a stale `darkpanel-`/`dp-b-` chain now extends
 
 **Interfaces:**
 - Consumes: Contracts "Docker chains input", "Chain load step", "Live snapshot"
-- Produces: Contracts "Live snapshot" (`imageBlock`, `planFamily`, `imageMismatch`, `undoDocker`)
+- Produces: Contracts "Live snapshot" (`imageBlock`, `planFamily`, `imageMismatch`, `undoDocker`, `change.liveRepair`)
 
 **Items:** 2026-10-21-v1-completion#437, 2026-10-21-v1-completion#438
 
@@ -983,6 +988,12 @@ git commit -m "fix(firewall): revert live changes from an image"
 **Lenses:** security, silent-failures
 
 - [ ] **Step 1: Write the failing tests**
+
+In `target_docker_test.go::TestDtgReload`, add after the row "a repair still reloads":
+
+```go
+		{"an owned-chain repair applies live", tgRunning, true, change{repair: true, reload: true, liveRepair: true}, fwstate.TransLive, nil},
+```
 
 Add to `docker_e2e_test.go`:
 
@@ -1088,14 +1099,15 @@ func TestW11a08OwnedChainRepairRunsNoReload(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `GOTOOLCHAIN=local timeout 600 go test -count=1 -run 'TestW11a08' ./internal/modules/firewall/`
-Expected: FAIL: `TestW11a08RevertLeavesNoStaleChain` lists the allow's `dp-b-` chain still loaded; `TestW11a08ByInversesRevertOfAContainerAllowRunsNoReload` reports the reload of the `blockChainsResource` inverse; `TestW11a08RevertOfADockerEnableRunsNoReload` reports the reload of the restore's pre-cleanup (`cleanupSteps`); `TestW11a08OwnedChainRepairRunsNoReload` reports the repair's reload.
+Expected: FAIL: `TestW11a08RevertLeavesNoStaleChain` lists the allow's `dp-b-` chain still loaded; the `TestDtgReload` build fails on the unknown field `liveRepair` (after adding the field, its row reports `reload ["reload"]`); `TestW11a08ByInversesRevertOfAContainerAllowRunsNoReload` stops at `revert = …; want reverted`, because Task 6's reload inverse of the chain load runs first and fails its after-check; `TestW11a08RevertOfADockerEnableRunsNoReload` reports the reload of the restore's pre-cleanup (`cleanupSteps`); `TestW11a08OwnedChainRepairRunsNoReload` reports the repair's reload.
 
 - [ ] **Step 3: Implement**
 
 1. `image.go`: `planFamily`'s stale-chain lines, `imageMismatch`'s check and `imageBlock`, per Contracts "Live snapshot".
 2. `inverse.go`: `undoDocker` gains `snap` and `inverse` passes it; the image branch of the `blockChainsResource` case and of the `firewall.chains:docker` "loaded" case, per Contracts. Each family's input is built from the loaded state read just before the load. Update the direct call at `docker_revert_test.go:534`.
-3. `docker_cleanup.go`: `cleanupSteps` gains a `reload bool` parameter, passed by `cleanupChains` as `mode == cleanupRefuse`, and runs its trailing reload only when it is true. Uninstall cleans up in `cleanupRefuse` mode and keeps its reload, and `uninstall.go:150` keeps its own; the preserve-mode cleanups of an inverse and of a restore's pre-cleanup no longer reload, and `verifyCleanup` stays their check.
-4. `docker_repair.go`: in the `build` closure, compute `f.syncDiffs(cfg, cur)`; when it returns no error and every difference has `Table == "filter"` and `dockerfw.Owned(Chain)`, return `dockerRepairChange`'s change with `repair` cleared, so it applies live through Task 6's chain load step; otherwise keep `repair: true, reload: true` (W11-R3).
+3. `docker_cleanup.go`: `cleanupSteps` gains a `reload bool` parameter and runs its trailing reload only when it is true. `runCleanup(ctx, env, owner, mode, repeat)` passes `mode == cleanupRefuse || owner == "uninstall"`, so uninstall, and the startup repeat of an interrupted uninstall cleanup that `finishCleanups` runs in `cleanupPreserve` mode, keep their reload. Uninstall cleans up in `cleanupRefuse` mode and keeps its reload, and `uninstall.go:150` keeps its own; the preserve-mode cleanups of an inverse and of a restore's pre-cleanup no longer reload, and `verifyCleanup` stays their check.
+4. `docker_repair.go`: in the `build` closure, compute `f.syncDiffs(cfg, cur)`; when it returns no error and every difference has `Table == "filter"` and `dockerfw.Owned(Chain)`, set `liveRepair` on `dockerRepairChange`'s change (it keeps `repair: true, reload: true`), so it applies live through Task 6's chain load step; otherwise leave it unset (W11-R3).
+5. `target.go`: add `change.liveRepair` with a field comment, and let `predictTarget`'s live case (Tasks 5 and 6) accept a change with `repair` set when `liveRepair` is set too. Every other repair keeps the reload, and the row "a repair still reloads" keeps holding.
 
 - [ ] **Step 4: Run test to verify it passes**
 
