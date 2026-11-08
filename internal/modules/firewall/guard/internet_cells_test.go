@@ -285,12 +285,76 @@ func TestV1r21OnlyRulesThatCanMatchCutCells(t *testing.T) {
 		{"a chain the flow's port jumps to", v1r21Jail("22,443", jail), true},
 		{"a ban on the port DNAT rewrites to", v1r21Jail("22", []string{ban + "8443 -j DROP"},
 			"-A PREROUTING -p tcp -m tcp --dport 443 -j DNAT --to-destination 192.0.2.1:8443"), true},
+		{"a ban on a range open below", v1r21Table(ban + ":500 -j DROP"), true},
+		{"a ban on a range open above", v1r21Table(ban + "443: -j DROP"), true},
+		{"a ban on a range open below that ends under the port", v1r21Table(ban + ":442 -j DROP"), false},
+		{"a ban on ports the walk cannot read", v1r21Table("-A INPUT -s 8.8.8.8/32 -p tcp -m multiport --dports 22,https -j DROP"), true},
+		{"a ban on the flow's protocol number", v1r21Table("-A INPUT -s 8.8.8.8/32 -p 6 -j DROP"), true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			g, _ := v1r21Listener(t, tt.v4)
 			const want = "controller listener from 8.8.8.8-8.8.8.8 to 192.0.2.1:"
 			if got := !g.OK && strings.Contains(g.Message, want); got != tt.blocked {
 				t.Errorf("guard = %+v, want a refusal containing %q: %v", g, want, tt.blocked)
+			}
+		})
+	}
+}
+
+// v1r21Rule is the first INPUT rule of the IPv4 save output of rule.
+func v1r21Rule(t *testing.T, rule string) netfilter.Rule {
+	t.Helper()
+	return v1r21State(t, v1r21Table(rule), v1r21Table()).V4.Table("filter").Chain("INPUT").Rules[0]
+}
+
+func TestV1r21MayMatchTellsWhatCannotMatch(t *testing.T) {
+	const ban = "-A INPUT -s 8.8.8.8/32 -p tcp -m tcp --dport "
+	for _, tt := range []struct {
+		name, rule string
+		ports      []uint16
+		may        bool
+	}{
+		{"a udp match on a tcp packet", "-A INPUT -s 8.8.8.8/32 -m udp --dport 443 -j DROP", []uint16{443}, false},
+		{"a tcp match on a tcp packet", "-A INPUT -s 8.8.8.8/32 -m tcp --dport 443 -j DROP", []uint16{443}, true},
+		{"a range open below that holds the port", ban + ":500 -j DROP", []uint16{443}, true},
+		{"a range open below that ends under the port", ban + ":442 -j DROP", []uint16{443}, false},
+		{"a range open above that starts at the port", ban + "443: -j DROP", []uint16{443}, true},
+		{"a range open above that starts past the port", ban + "444: -j DROP", []uint16{443}, false},
+		{"every port but a range that holds the port", "-A INPUT -s 8.8.8.8/32 -p tcp -m tcp ! --dport 400:500 -j DROP", []uint16{443}, false},
+		{"a list the walk cannot read", "-A INPUT -s 8.8.8.8/32 -p tcp -m multiport --dports 22,https -j DROP", []uint16{443}, true},
+		{"the packet's protocol number", "-A INPUT -s 8.8.8.8/32 -p 6 -j DROP", []uint16{443}, true},
+		{"another protocol number", "-A INPUT -s 8.8.8.8/32 -p 17 -j DROP", []uint16{443}, false},
+		{"every protocol but the packet's", "-A INPUT -s 8.8.8.8/32 ! -p tcp -j DROP", []uint16{443}, false},
+		{"a port a DNAT target names", ban + "8443 -j DROP", []uint16{443, 8443}, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := mayMatch(v1r21Rule(t, tt.rule), "tcp", tt.ports); got != tt.may {
+				t.Errorf("mayMatch(%q, tcp, %v) = %v, want %v", tt.rule, tt.ports, got, tt.may)
+			}
+		})
+	}
+}
+
+func TestV1r21NatPortsReadEveryDNATTarget(t *testing.T) {
+	for _, tt := range []struct {
+		name, target string
+		v6           bool
+		want         []uint16
+	}{
+		{"an IPv4 target", "192.0.2.1:8443", false, []uint16{8443}},
+		{"an IPv4 target without a port", "192.0.2.1", false, nil},
+		{"an IPv6 target", "[2001:db8::2]:8443", true, []uint16{8443}},
+		{"an IPv6 target without a port", "[2001:db8::2]", true, nil},
+		{"an IPv6 address alone", "2001:db8::2", true, nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rs, err := netfilter.Parse(strings.NewReader("*nat\n:PREROUTING ACCEPT [0:0]\n:INPUT ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n:POSTROUTING ACCEPT [0:0]\n" +
+				"-A PREROUTING -p tcp -m tcp --dport 443 -j DNAT --to-destination " + tt.target + "\nCOMMIT\n"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := natPorts(rs, tt.v6); !slices.Equal(got, tt.want) {
+				t.Errorf("natPorts of --to-destination %s = %v, want %v", tt.target, got, tt.want)
 			}
 		})
 	}
@@ -397,6 +461,70 @@ func TestV1r21HostThatCannotListRoutes(t *testing.T) {
 	}
 }
 
+// v1r21RoutesFail is a host whose route dump fails.
+type v1r21RoutesFail struct{ *gHost }
+
+func (v1r21RoutesFail) Routes(netstat.Family) ([]netstat.Route, error) {
+	return nil, errors.New("netlink: dump interrupted")
+}
+
+func TestV1r21HostWhoseRoutesCannotBeRead(t *testing.T) {
+	g := v1r21CheckHost(t, v1r21RoutesFail{&gHost{ifaces: ckIfaces()}}, v1r21State(t, v1r21Table(), v1r21Table()), v1r21Tunnel())
+	const want = "exposure exp2 tunnel: unknown (the routes cannot be read: netlink: dump interrupted)"
+	if g.OK || !strings.Contains(g.Message, want) {
+		t.Errorf("guard = %+v, want a refusal containing %q", g, want)
+	}
+}
+
+func TestV1r21IPv6RoutesCutInternetCells(t *testing.T) {
+	st := v1r21State(t, v1r21Table(), v1r21Table("-A OUTPUT -o eth1 -p udp -j DROP"))
+	def := v1r21Route("unicast", "::/0", "eth0", "2001:db8::1", 254)
+	edge := v1r21Route("unicast", "2606:4700::/32", "eth1", "2001:db8::1", 254)
+	check := func(table ...netstat.Route) core.Guard {
+		t.Helper()
+		h := v1r21Fib{&gHost{ifaces: gIfaces(), table: append(v1r21HostRoutes(), table...), sockets: []netstat.Socket{
+			flSock(netstat.ProtoUDP, netstat.StateClose, "[::]:41641", "", "tailscaled", 300),
+		}}}
+		return v1r21CheckHost(t, h, st, nil)
+	}
+	const want = "tailscale udp from 2001:db8::1 to [2606:4700::-2606:4700:ffff:ffff:ffff:ffff:ffff:ffff]:41641 out eth1: drop"
+	if g := check(def, edge); g.OK || !strings.Contains(g.Message, want) {
+		t.Errorf("guard = %+v, want a refusal containing %q: the /32 routes out of eth1, where the rule drops it", g, want)
+	}
+	if g := check(def); !g.OK {
+		t.Errorf("guard = %+v, want OK: without the /32 route no cell routes out of eth1", g)
+	}
+}
+
+func TestV1r21RouteCuttersKeepOnlyTheirFamily(t *testing.T) {
+	routes := []netstat.Route{
+		v1r21Route("unicast", "2606:4700::/32", "eth1", "-", 254),
+		v1r21Route("unreachable", "2001:db8:dead::/48", "", "-", 254),
+		v1r21Route("unicast", "198.41.192.0/24", "eth1", "-", 254),
+		v1r21Route("blackhole", "45.9.0.0/16", "", "-", 254),
+	}
+	cuts, noPath, blackholes := routeCutters(routes, true)
+	var dsts []netip.Prefix
+	for _, rule := range cuts.Table("routes").Chain("routes").Rules {
+		dsts = append(dsts, rule.Dest.Prefix)
+	}
+	want := []netip.Prefix{netip.MustParsePrefix("2606:4700::/32"), netip.MustParsePrefix("2001:db8:dead::/48")}
+	if !slices.Equal(dsts, want) || !slices.Equal(noPath, want[1:]) || len(blackholes) != 0 {
+		t.Errorf("IPv6 cuts %v, no path %v, blackholes %v; want cuts %v and no path %v, with no IPv4 route", dsts, noPath, blackholes, want, want[1:])
+	}
+}
+
+func TestV1r21WildcardDestinationsSkipIPv6LinkLocal(t *testing.T) {
+	r := newRouter(&gHost{}, facts{ifaces: []netstat.Interface{{Index: 2, Name: "eth0", Up: true, Running: true, Addrs: []netip.Prefix{
+		netip.MustParsePrefix("192.0.2.1/24"), netip.MustParsePrefix("fe80::1/64"),
+		netip.MustParsePrefix("2001:db8::1/64"), netip.MustParsePrefix("2001:db8::2/64"),
+	}}}}, fwstate.Loaded{})
+	want := []netip.Addr{netip.MustParseAddr("2001:db8::1"), netip.MustParseAddr("2001:db8::2")}
+	if got := r.wildcardDsts(want[0], "eth0"); !slices.Equal(got, want) {
+		t.Errorf("wildcardDsts = %v, want %v: a translation from a public address never reaches a link-local one", got, want)
+	}
+}
+
 func TestV1r21ManyRoutesStayCheap(t *testing.T) {
 	const n = 500
 	table := []netstat.Route{{Type: "unicast", Table: 254, Dst: netip.MustParsePrefix("0.0.0.0/0"), OutIface: "eth0"}}
@@ -421,6 +549,11 @@ func TestV1r21ManyRoutesStayCheap(t *testing.T) {
 	// cell, and each route adds two cells.
 	if h.n < 2*n+1 {
 		t.Errorf("%d route lookups, want at least %d: the routes did not cut cells", h.n, 2*n+1)
+	}
+	// The listener and the connector's three flows each look up one route per
+	// cell; more means a cell costs more than one evaluation per flow.
+	if limit := 4 * (2*n + 1); h.n > limit {
+		t.Errorf("%d route lookups, want at most %d", h.n, limit)
 	}
 }
 
@@ -514,29 +647,33 @@ func TestV1r21LocalRoutesCutNoCell(t *testing.T) {
 	}
 }
 
-func TestV1r21RoutesWithoutAPathCutNoCell(t *testing.T) {
-	// A ban by fail2ban's route action, and a blackholed range.
-	table := append(v1r21HostRoutes(),
-		v1r21Route("unreachable", "45.1.2.3/32", "", "-", 254),
-		v1r21Route("blackhole", "45.9.0.0/16", "", "-", 254),
-	)
-	check := func(v4 string) core.Guard {
-		t.Helper()
-		h := v1r21Fib{&gHost{ifaces: ckIfaces(), table: table, sockets: []netstat.Socket{
-			flSock(netstat.ProtoTCP, netstat.StateListen, "0.0.0.0:443", "", "darkpanel-contr", 4242),
-		}}}
-		return v1r21CheckHost(t, h, v1r21State(t, v4, v1r21Table()), v1r21Tunnel())
-	}
-	if g := check(v1r21Table()); !g.OK {
-		t.Errorf("guard = %+v, want OK: nothing blocks the listener or the connector", g)
-	}
-	for _, tt := range []struct{ rule, want string }{
-		{"-A INPUT -s 8.8.8.0/24 -p tcp -j DROP", "controller listener from 8.8.8.0-8.8.8.255 to 192.0.2.1:443 on eth0: drop"},
-		{"-A FORWARD -d 104.16.0.0/13 -j DROP", "exposure exp2 tunnel from 172.30.0.3 to 104.16.0.0-104.23.255.255:443 on dp-panel out eth0: drop"},
+func TestV1r21SourceCellsOfRoutesWithoutAPathAreSkipped(t *testing.T) {
+	// A ban by fail2ban's route action, whose lookup finds no route, and a
+	// blackholed range, whose lookup the kernel answers with EINVAL.
+	for _, tt := range []struct {
+		route      netstat.Route
+		rule, want string
+	}{
+		{v1r21Route("unreachable", "45.1.2.3/32", "", "-", 254), "-A INPUT -s 45.1.2.3/32 -p tcp -j DROP",
+			"controller listener from 45.1.2.3-45.1.2.3 to 192.0.2.1:443 on eth0: drop"},
+		{v1r21Route("blackhole", "45.9.0.0/16", "", "-", 254), "-A INPUT -s 45.9.0.0/16 -p tcp -j DROP",
+			"controller listener from 45.9.0.0-45.9.255.255 to 192.0.2.1:443 on eth0: drop"},
 	} {
-		if g := check(v1r21Table(tt.rule)); g.OK || !strings.Contains(g.Message, tt.want) {
-			t.Errorf("guard with %q = %+v, want a refusal containing %q", tt.rule, g, tt.want)
-		}
+		t.Run(tt.route.Type, func(t *testing.T) {
+			check := func(table []netstat.Route) core.Guard {
+				t.Helper()
+				h := v1r21Fib{&gHost{ifaces: ckIfaces(), table: table, sockets: []netstat.Socket{
+					flSock(netstat.ProtoTCP, netstat.StateListen, "0.0.0.0:443", "", "darkpanel-contr", 4242),
+				}}}
+				return v1r21CheckHost(t, h, v1r21State(t, v1r21Table(tt.rule), v1r21Table()), v1r21Tunnel())
+			}
+			if g := check(append(v1r21HostRoutes(), tt.route)); !g.OK {
+				t.Errorf("guard with %q = %+v, want OK: no reply reaches a source in the %s route, so its cell is skipped", tt.rule, g, tt.route.Type)
+			}
+			if g := check(v1r21HostRoutes()); g.OK || !strings.Contains(g.Message, tt.want) {
+				t.Errorf("guard with %q and no %s route = %+v, want a refusal containing %q", tt.rule, tt.route.Type, g, tt.want)
+			}
+		})
 	}
 }
 
