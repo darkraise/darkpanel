@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/darkraise/darkpanel/internal/modules/firewall/eval"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
 	"github.com/darkraise/darkpanel/internal/platform/netfilter"
@@ -16,14 +18,14 @@ import (
 // cellFlows is fl once per cell of the internet that the checked ruleset
 // of its family partitions the public space into, with the wild end set
 // to the cell's representative address. Only the rules that can match fl
-// cut cells, and so does every route of the host's family, since a rule
-// that matches an interface sets apart the addresses routed through it. A
-// flow to any internet address needs every cell to pass. A flow from any
-// internet address, given a before-state, fails only on a cell the
-// before-state neither drops nor rejects, so its cells are cut by the
-// prefixes of both states. A flow without a wild end, or one that is not
-// evaluated, is returned as it is; one whose host routes cannot be read is
-// unknown.
+// cut cells, and so does every unicast route of the host's family outside
+// the local table, since a rule that matches an interface sets apart the
+// addresses routed through it. A flow to any internet address needs every
+// cell to pass. A flow from any internet address, given a before-state,
+// fails only on a cell the before-state neither drops nor rejects, so its
+// cells are cut by the prefixes of both states. A flow without a wild end,
+// or one that is not evaluated, is returned as it is; one whose host routes
+// cannot be read is unknown.
 func (r *router) cellFlows(fl flow, before *fwstate.Loaded) []flow {
 	if fl.wild == wildNone || fl.unknown != "" {
 		return []flow{fl}
@@ -107,12 +109,17 @@ func (r *router) routeCuts(v6 bool) routeCut {
 }
 
 // routeCutters is a ruleset of one table with one chain that holds one rule
-// per route of the family, matching the route's destination. Like
-// joinTables' result it only cuts cells and is never evaluated.
+// per unicast route of the family outside the local table, matching the
+// route's destination. Like joinTables' result it only cuts cells and is
+// never evaluated. The local table holds the host's own addresses, which
+// are no internet address a flow reaches out to or comes from; a cell of
+// one would turn the flow into input to the host. Unreachable, prohibit,
+// blackhole and throw routes carry no packet out, so a cell of one would
+// only hold a representative without a route and leave the flow unknown.
 func routeCutters(routes []netstat.Route, v6 bool) *netfilter.Ruleset {
 	ch := netfilter.Chain{Name: "routes"}
 	for _, rt := range routes {
-		if rt.Dst.IsValid() && rt.Dst.Addr().Is6() == v6 {
+		if rt.Type == "unicast" && rt.Table != unix.RT_TABLE_LOCAL && rt.Dst.IsValid() && rt.Dst.Addr().Is6() == v6 {
 			ch.Rules = append(ch.Rules, netfilter.Rule{Dest: netfilter.AddrMatch{Prefix: rt.Dst}})
 		}
 	}

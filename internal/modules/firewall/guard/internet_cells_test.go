@@ -2,6 +2,8 @@ package guard
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/netip"
 	"slices"
 	"strings"
@@ -417,5 +419,121 @@ func TestV1r21ManyRoutesStayCheap(t *testing.T) {
 	// cell, and each route adds two cells.
 	if h.n < 2*n+1 {
 		t.Errorf("%d route lookups, want at least %d: the routes did not cut cells", h.n, 2*n+1)
+	}
+}
+
+// v1r21Fib answers each route lookup from its route dump the way the
+// kernel does: the local table first, then the longest matching prefix of
+// the other tables. A local route answers out of lo from the address
+// itself, a blackhole route fails with EINVAL, and any other route that is
+// not unicast has no route.
+type v1r21Fib struct{ *gHost }
+
+func (h v1r21Fib) RouteGet(q netstat.RouteQuery) (netstat.Route, error) {
+	h.lookups = append(h.lookups, q)
+	dst := q.Dst.Unmap()
+	var best *netstat.Route
+	for _, local := range []bool{true, false} {
+		for i := range h.table {
+			r := &h.table[i]
+			if (r.Table == 255) == local && r.Dst.Contains(dst) && (best == nil || r.Dst.Bits() > best.Dst.Bits()) {
+				best = r
+			}
+		}
+		if best != nil {
+			break
+		}
+	}
+	if best == nil {
+		return netstat.Route{}, netstat.ErrNoRoute
+	}
+	answer := *best
+	answer.Dst = netip.PrefixFrom(dst, dst.BitLen())
+	switch best.Type {
+	case "unicast":
+		return answer, nil
+	case "local":
+		answer.PrefSrc, answer.OutIface = dst, "lo"
+		return answer, nil
+	case "blackhole":
+		return netstat.Route{}, errors.New("netstat: route lookup: invalid argument")
+	}
+	return netstat.Route{}, fmt.Errorf("%w to %s: %s", netstat.ErrNoRoute, dst, best.Type)
+}
+
+// v1r21Route is a route of a dump: "<typ> <dst> dev <iface> src <src>
+// table <table>", with "-" for no preferred source.
+func v1r21Route(typ, dst, iface, src string, table uint32) netstat.Route {
+	r := netstat.Route{Type: typ, Table: table, Dst: netip.MustParsePrefix(dst), OutIface: iface}
+	if src != "-" {
+		r.PrefSrc = netip.MustParseAddr(src)
+	}
+	return r
+}
+
+// v1r21HostRoutes are the main and local table routes of a host with
+// ckIfaces whose default route leaves eth0.
+func v1r21HostRoutes() []netstat.Route {
+	return []netstat.Route{
+		v1r21Route("unicast", "0.0.0.0/0", "eth0", "192.0.2.1", 254),
+		v1r21Route("unicast", "192.0.2.0/24", "eth0", "192.0.2.1", 254),
+		v1r21Route("unicast", "10.0.0.0/24", "eth1", "10.0.0.1", 254),
+		v1r21Route("unicast", "172.30.0.0/16", "dp-panel", "172.30.0.1", 254),
+		v1r21Route("local", "127.0.0.0/8", "lo", "127.0.0.1", 255),
+		v1r21Route("local", "192.0.2.1/32", "eth0", "192.0.2.1", 255),
+		v1r21Route("local", "10.0.0.1/32", "eth1", "10.0.0.1", 255),
+		v1r21Route("local", "172.30.0.1/32", "dp-panel", "172.30.0.1", 255),
+	}
+}
+
+func TestV1r21LocalRoutesCutNoCell(t *testing.T) {
+	// The host's own public address, 45.33.0.9 on eth0, as on a typical
+	// VPS. UFW denies incoming traffic by default; the proxy's listener is
+	// allowed.
+	ifaces := ckIfaces()
+	ifaces[1].Addrs = append(ifaces[1].Addrs, netip.MustParsePrefix("45.33.0.9/24"))
+	table := append(v1r21HostRoutes(),
+		v1r21Route("unicast", "45.33.0.0/24", "eth0", "45.33.0.9", 254),
+		v1r21Route("local", "45.33.0.9/32", "eth0", "45.33.0.9", 255),
+		v1r21Route("broadcast", "45.33.0.255/32", "eth0", "45.33.0.9", 255),
+	)
+	st := v1r21State(t, "*filter\n:INPUT DROP [0:0]\n:FORWARD ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n"+
+		"-A INPUT -s 172.30.0.3/32 -d 172.30.0.1/32 -i dp-panel -p tcp -m tcp --dport 8080 -j ACCEPT\n"+
+		"-A FORWARD -s 172.30.0.3/32 -i dp-panel -o eth1 -j DROP\nCOMMIT\n", v1r21Table())
+	if g := v1r21CheckHost(t, v1r21Fib{&gHost{ifaces: ifaces, table: table}}, st, v1r21Tunnel()); !g.OK {
+		t.Errorf("guard = %+v, want OK: the host's own address is no internet cell the connector reaches", g)
+	}
+	edge := v1r21Route("unicast", "198.41.192.0/24", "eth1", "10.0.0.1", 254)
+	g := v1r21CheckHost(t, v1r21Fib{&gHost{ifaces: ifaces, table: append(table, edge)}}, st, v1r21Tunnel())
+	for _, want := range []string{"198.41.192.0-198.41.192.255", "out eth1: drop"} {
+		if g.OK || !strings.Contains(g.Message, want) {
+			t.Errorf("guard = %+v, want a refusal containing %q: the connector's edge routes out of eth1, where the rule drops it", g, want)
+		}
+	}
+}
+
+func TestV1r21RoutesWithoutAPathCutNoCell(t *testing.T) {
+	// A ban by fail2ban's route action, and a blackholed range.
+	table := append(v1r21HostRoutes(),
+		v1r21Route("unreachable", "45.1.2.3/32", "", "-", 254),
+		v1r21Route("blackhole", "45.9.0.0/16", "", "-", 254),
+	)
+	check := func(v4 string) core.Guard {
+		t.Helper()
+		h := v1r21Fib{&gHost{ifaces: ckIfaces(), table: table, sockets: []netstat.Socket{
+			flSock(netstat.ProtoTCP, netstat.StateListen, "0.0.0.0:443", "", "darkpanel-contr", 4242),
+		}}}
+		return v1r21CheckHost(t, h, v1r21State(t, v4, v1r21Table()), v1r21Tunnel())
+	}
+	if g := check(v1r21Table()); !g.OK {
+		t.Errorf("guard = %+v, want OK: nothing blocks the listener or the connector", g)
+	}
+	for _, tt := range []struct{ rule, want string }{
+		{"-A INPUT -s 8.8.8.0/24 -p tcp -j DROP", "controller listener from 8.8.8.0-8.8.8.255 to 192.0.2.1:443 on eth0: drop"},
+		{"-A FORWARD -d 104.16.0.0/13 -j DROP", "exposure exp2 tunnel from 172.30.0.3 to 104.16.0.0-104.23.255.255:443 on dp-panel out eth0: drop"},
+	} {
+		if g := check(v1r21Table(tt.rule)); g.OK || !strings.Contains(g.Message, tt.want) {
+			t.Errorf("guard with %q = %+v, want a refusal containing %q", tt.rule, g, tt.want)
+		}
 	}
 }
