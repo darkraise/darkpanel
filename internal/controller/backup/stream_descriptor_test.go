@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 )
 
@@ -45,9 +46,45 @@ func TestV1r22BackupRefusesACopySwappedForALink(t *testing.T) {
 	}
 }
 
-// TestV1r22BackupCopyIsPrivateWhenTheStreamStarts guards the other half of the
-// change: the descriptor the backup streams from belongs to a regular file of
-// mode 0600, whatever the process umask made it.
+// TestV1r22BackupRefusesACopySwappedForAFileThatIsNotRegular replaces the
+// temporary copy with a FIFO or a directory, which the open does not refuse.
+// The backup must refuse to stream it and remove it.
+func TestV1r22BackupRefusesACopySwappedForAFileThatIsNotRegular(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		make func(path string) error
+	}{
+		{"a FIFO", func(path string) error { return syscall.Mkfifo(path, 0o600) }},
+		{"a directory", func(path string) error { return os.Mkdir(path, 0o700) }},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			e := bsNewEnv(t)
+			e.b.afterCopy = func(path string) {
+				if err := os.Remove(path); err != nil {
+					t.Errorf("remove the copy: %v", err)
+					return
+				}
+				if err := tt.make(path); err != nil {
+					t.Errorf("replace the copy with %s: %v", tt.name, err)
+				}
+			}
+
+			rec := e.post(bsBody(t, "placeholder-secret", &TestParams))
+
+			if rec.Code != http.StatusInternalServerError {
+				t.Errorf("status = %d, want 500: a copy that is %s must be refused, not streamed (body %.120s)", rec.Code, tt.name, rec.Body.String())
+			}
+			if left := e.copies(t); len(left) != 0 {
+				t.Errorf("after the refusal, %v is left beside the database", left)
+			}
+		})
+	}
+}
+
+// TestV1r22BackupCopyIsPrivateWhenTheStreamStarts checks that the copy is a
+// regular file of mode 0600, whatever the process umask made it, before the
+// first byte is streamed. It reads the mode by path, so it cannot tell a chmod
+// through the descriptor from one by path; the link test above does.
 func TestV1r22BackupCopyIsPrivateWhenTheStreamStarts(t *testing.T) {
 	e := bsNewEnv(t)
 	var (
