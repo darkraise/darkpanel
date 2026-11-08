@@ -5441,7 +5441,11 @@ a spec change.
       record, and a request through an NPM exposure without them fails
       closed.
     - "Any internet address" is evaluated once per cell of the public
-      unicast space that the ruleset's prefixes cut. A flow to any
+      unicast space that the ruleset's prefixes and the destinations of
+      the host's routes cut, so that every address of a cell takes the
+      same route. A flow to a wildcard bind (NPM's `0.0.0.0:443`, a
+      wildcard controller listener) is checked on every address of its
+      family on the interface its route back leaves through. A flow to any
       internet address (the tunnel connector's, tailscaled's) holds only
       when every cell passes. A flow from any internet address (to the
       controller listener, to NPM's public binding) fails only on a cell
