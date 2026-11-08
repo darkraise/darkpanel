@@ -204,3 +204,120 @@ func TestChCleanupInput(t *testing.T) {
 		})
 	}
 }
+
+const w11a04Block = `*filter
+:ufw-user-forward - [0:0]
+:DOCKER-USER - [0:0]
+:darkpanel-docker-bindings - [0:0]
+:darkpanel-docker-deny - [0:0]
+:dp-b-new - [0:0]
+-A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
+-A DOCKER-USER -m conntrack --ctstate DNAT -j darkpanel-docker-bindings
+-A DOCKER-USER -j RETURN
+-A darkpanel-docker-bindings -j dp-b-new
+-A dp-b-new -j ufw-user-forward
+-A dp-b-new -j darkpanel-docker-deny
+-A darkpanel-docker-deny -j DROP
+COMMIT
+`
+
+const w11a04Loaded = `*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+:DOCKER-USER - [0:0]
+:ufw-user-forward - [0:0]
+:darkpanel-docker-bindings - [0:0]
+:darkpanel-docker-deny - [0:0]
+:dp-b-old - [0:0]
+-A DOCKER-USER -j darkpanel-docker-bindings
+-A ufw-user-forward -d 172.17.0.2/32 -p tcp -m tcp --dport 80 -j ACCEPT
+-A darkpanel-docker-bindings -j dp-b-old
+-A dp-b-old -j ufw-user-forward
+-A darkpanel-docker-deny -j DROP
+COMMIT
+`
+
+func w11a04Parse(t *testing.T, s string) *netfilter.Ruleset {
+	t.Helper()
+	rs, err := netfilter.Parse(strings.NewReader(s))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rs
+}
+
+func TestW11a04ChainsInputNeverDeclaresUFWForward(t *testing.T) {
+	in := string(ChainsInput([]byte(w11a04Block), w11a04Parse(t, w11a04Loaded)))
+	for _, bad := range []string{":ufw-user-forward", ":ufw6-user-forward"} {
+		if strings.Contains(in, bad) {
+			t.Errorf("input declares %s, which would flush UFW's route rules:\n%s", bad, in)
+		}
+	}
+	for _, want := range []string{":DOCKER-USER - [0:0]", ":dp-b-new - [0:0]", "-A dp-b-new -j ufw-user-forward", "-F dp-b-old", "-X dp-b-old"} {
+		if !strings.Contains(in, want) {
+			t.Errorf("input lacks %q:\n%s", want, in)
+		}
+	}
+	if strings.Index(in, "-X dp-b-old") < strings.Index(in, "-A darkpanel-docker-bindings -j dp-b-new") {
+		t.Errorf("the stale chain is deleted before the bindings chain stops jumping to it:\n%s", in)
+	}
+}
+
+func TestW11a04ApplyChainsReplacesOnlyOwnedChains(t *testing.T) {
+	loaded := w11a04Parse(t, w11a04Loaded)
+	got, err := ApplyChains(loaded, ChainsInput([]byte(w11a04Block), loaded))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := got.Table("filter")
+	if f.Chain("dp-b-old") != nil || f.Chain("dp-b-new") == nil {
+		t.Errorf("chains after the load: old %v, new %v; want the old one gone and the new one loaded", f.Chain("dp-b-old"), f.Chain("dp-b-new"))
+	}
+	if uf := f.Chain("ufw-user-forward"); uf == nil || len(uf.Rules) != 1 {
+		t.Errorf("ufw-user-forward = %+v, want its one route rule kept", uf)
+	}
+	if p := f.Chain("INPUT").Policy; p != "DROP" {
+		t.Errorf("INPUT policy %q, want DROP", p)
+	}
+	if du := f.Chain("DOCKER-USER"); du == nil || len(du.Rules) != 3 {
+		t.Errorf("DOCKER-USER = %+v, want the block's three lines", du)
+	}
+	if loaded.Table("filter").Chain("dp-b-old") == nil {
+		t.Error("ApplyChains modified its input ruleset")
+	}
+}
+
+func TestW11a04ChainsInputKeepsReferencedDockerUser(t *testing.T) {
+	const emptyBlock = "*filter\nCOMMIT\n"
+	withJump := w11a04Parse(t, "*filter\n:FORWARD DROP [0:0]\n:DOCKER-USER - [0:0]\n-A FORWARD -j DOCKER-USER\n-A DOCKER-USER -j RETURN\nCOMMIT\n")
+	in := ChainsInput([]byte(emptyBlock), withJump)
+	if strings.Contains(string(in), "-X DOCKER-USER") {
+		t.Errorf("input deletes referenced DOCKER-USER:\n%s", in)
+	}
+	if _, err := ApplyChains(withJump, in); err != nil {
+		t.Errorf("ApplyChains with referenced DOCKER-USER: %v", err)
+	}
+
+	withoutJump := w11a04Parse(t, "*filter\n:FORWARD DROP [0:0]\n:DOCKER-USER - [0:0]\n-A DOCKER-USER -j RETURN\nCOMMIT\n")
+	inNoJump := string(ChainsInput([]byte(emptyBlock), withoutJump))
+	if !strings.HasSuffix(inNoJump, "-X DOCKER-USER\nCOMMIT\n") {
+		t.Errorf("input without FORWARD jump should end with -X DOCKER-USER before COMMIT:\n%s", inNoJump)
+	}
+	got, err := ApplyChains(withoutJump, []byte(inNoJump))
+	if err != nil {
+		t.Fatalf("ApplyChains without referenced DOCKER-USER: %v", err)
+	}
+	if got.Table("filter").Chain("DOCKER-USER") != nil {
+		t.Error("expected DOCKER-USER to be deleted")
+	}
+
+	notLoaded := w11a04Parse(t, "*filter\n:FORWARD DROP [0:0]\nCOMMIT\n")
+	got, err = ApplyChains(notLoaded, ChainsInput([]byte(emptyBlock), notLoaded))
+	if err != nil {
+		t.Fatalf("ApplyChains without a loaded DOCKER-USER: %v", err)
+	}
+	if got.Table("filter").Chain("DOCKER-USER") != nil {
+		t.Error("the load created a DOCKER-USER that was not loaded before")
+	}
+}
