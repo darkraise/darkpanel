@@ -464,3 +464,31 @@ func TestAxRestoreOverUnreadableChains(t *testing.T) {
 		t.Errorf("the retry ran %v, want %v", got, want)
 	}
 }
+
+// TestW11a07ForeignDriftOnly: only a built-in chain whose policy and own
+// jumps match the image counts as changed by other programs alone.
+func TestW11a07ForeignDriftOnly(t *testing.T) {
+	const head = "*filter\n:INPUT DROP [0:0]\n:FORWARD DROP [0:0]\n:OUTPUT ACCEPT [0:0]\n:ufw-user-input - [0:0]\n"
+	clean := head + "-A INPUT -j ufw-user-input\nCOMMIT\n"
+	drifted := head + "-A INPUT -j ufw-user-input\n-A INPUT -s 192.0.2.9/32 -j DROP\nCOMMIT\n"
+	img := takeImage(fwstate.Loaded{V4: fhParse(t, clean)})
+	input := chainRef{fwstate.V4, "filter", "INPUT"}
+	for _, tc := range []struct {
+		name string
+		cur  string
+		ref  chainRef
+		want bool
+	}{
+		{"another program's rule", drifted, input, true},
+		{"a changed policy", strings.Replace(drifted, ":INPUT DROP", ":INPUT ACCEPT", 1), input, false},
+		{"UFW's jump gone", head + "COMMIT\n", input, false},
+		{"a user chain", clean, chainRef{fwstate.V4, "filter", "ufw-user-input"}, false},
+		{"an absent family", clean, chainRef{fwstate.V6, "filter", "INPUT"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := foreignDriftOnly(img, []chainRef{tc.ref}, fwstate.Loaded{V4: fhParse(t, tc.cur)}); got != tc.want {
+				t.Errorf("foreignDriftOnly = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

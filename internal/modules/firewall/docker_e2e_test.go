@@ -835,3 +835,29 @@ func TestW11a07ForeignRuleSurvivesWholeRevertWithoutTheBlock(t *testing.T) {
 		t.Errorf("DOCKER-USER = %q, want the foreign rule %q kept", got, deeForeign)
 	}
 }
+
+// TestW11a07ForeignBuiltinRuleDoesNotFailAWholeRevert: a rule another
+// program added to a built-in chain during the confirm window does not fail
+// the whole revert of a live change, and stays loaded.
+func TestW11a07ForeignBuiltinRuleDoesNotFailAWholeRevert(t *testing.T) {
+	const foreign = "-A FORWARD -s 198.51.100.0/24 -j DROP"
+	ctx := context.Background()
+	h := deeNewHost(t)
+	eng := deeEngine(t, h)
+	deeConfirm(t, eng, "firewall.docker.enable", `{}`)
+	_, cv, err := deePlanApply(t, eng, "firewall.container.allow", `{"binding":`+deeBinding+`}`)
+	if err != nil || cv.State != core.StatePending {
+		t.Fatalf("allow = %+v, %v; want pending", cv, err)
+	}
+	h.addForeign(t, foreign)
+	h.ran = nil
+	if cv, err = eng.Revert(ctx, eeUser, cv.ID); err != nil || cv.State != core.StateReverted {
+		t.Fatalf("revert = %+v, %+v, %v; want reverted", cv.State, cv.Error, err)
+	}
+	if slices.Contains(h.ran, "reload") {
+		t.Errorf("ufw commands of the revert %q include a reload", h.ran)
+	}
+	if got := deeTexts(h, fwstate.V4, "FORWARD"); !slices.Contains(got, foreign) {
+		t.Errorf("FORWARD = %q, want the foreign rule %q kept", got, foreign)
+	}
+}

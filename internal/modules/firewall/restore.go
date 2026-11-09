@@ -13,6 +13,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/modules/firewall/conf"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/predict"
+	"github.com/darkraise/darkpanel/internal/platform/netfilter"
 )
 
 // restoreReport is what a restore did besides restoring.
@@ -260,9 +261,57 @@ func restoreOver(ctx context.Context, env core.Env, d deps, snap snapshot, emerg
 		return rep, err
 	}
 	if len(rep.Excluded) > 0 {
-		return rep, excludedError(rep.Excluded)
+		if !snap.State.Live || !foreignDriftOnly(snap.State.Image, rep.Excluded, after) {
+			return rep, excludedError(rep.Excluded)
+		}
+		env.Log.Warn("firewall: the restore left built-in chains as they are: another program changed their rules",
+			"snapshot", snap.ID, "chains", joinRefs(rep.Excluded))
 	}
 	return rep, nil
+}
+
+// foreignDriftOnly reports whether every excluded chain is a built-in chain
+// of img that differs from the loaded state st only in other programs'
+// rules. A live change does not alter a built-in chain's rules, so such a
+// chain has nothing to bring back.
+func foreignDriftOnly(img *beforeImage, excluded []chainRef, st fwstate.Loaded) bool {
+	for _, ref := range excluded {
+		tables := img.V4
+		if ref.Family == fwstate.V6 {
+			tables = img.V6
+		}
+		ipv6 := ref.Family == fwstate.V6
+		var ic *imageChain
+		for i := range tables {
+			if tables[i].Name != ref.Table {
+				continue
+			}
+			for j := range tables[i].Chains {
+				if tables[i].Chains[j].Name == ref.Chain {
+					ic = &tables[i].Chains[j]
+				}
+			}
+		}
+		cur := chainOf(familyRules(st, ref.Family), ref.Table, ref.Chain)
+		if ic == nil || !ic.Builtin || cur == nil || cur.Policy != ic.Policy {
+			return false
+		}
+		var want, got []string
+		for _, r := range ic.Rules {
+			if r.Own {
+				want = append(want, r.Key)
+			}
+		}
+		for _, r := range cur.Rules {
+			if ownJump(r, ipv6) {
+				got = append(got, netfilter.Key(r, ipv6))
+			}
+		}
+		if !slices.Equal(want, got) {
+			return false
+		}
+	}
+	return true
 }
 
 // restoreTransition chooses the transition of a restore of snap that no
