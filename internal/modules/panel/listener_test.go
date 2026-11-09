@@ -178,7 +178,7 @@ func lsRow(id, state, removal string) exposureRow {
 // lsSpec is the runtime listener the open action asks for.
 func lsSpec(via string) core.ListenerSpec {
 	header := core.ClientHeaderNPM
-	public := netip.MustParseAddrPort("0.0.0.0:443")
+	public := netip.MustParseAddrPort("[::]:443")
 	if via == ViaTunnel {
 		header = core.ClientHeaderTunnel
 		public = netip.AddrPort{}

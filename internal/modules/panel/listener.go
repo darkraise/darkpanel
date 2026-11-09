@@ -165,10 +165,9 @@ func (listenerOpenHandler) Apply(ctx context.Context, env core.Env, in ListenerO
 		return ListenerOpenOutput{}, err
 	}
 	header := core.ClientHeaderNPM
-	// IPv4 only: whether Docker also publishes [::]:443 depends on the daemon's ip6tables setting, which the
-	// controller cannot see, and an IPv6 public flow on a host without IPv6 routes would be unknown and refuse every
-	// change made through the exposure.
-	public := netip.AddrPortFrom(netip.IPv4Unspecified(), npmHTTPSPort)
+	// The guard reads the unspecified IPv6 address as dual-stack, because whether Docker also publishes [::]:443
+	// depends on the daemon's ip6tables setting, which the controller cannot see.
+	public := netip.AddrPortFrom(netip.IPv6Unspecified(), npmHTTPSPort)
 	if in.Via == ViaTunnel {
 		header = core.ClientHeaderTunnel
 		public = netip.AddrPort{}

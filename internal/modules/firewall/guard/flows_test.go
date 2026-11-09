@@ -66,6 +66,14 @@ func TestBuildFlows(t *testing.T) {
 		ListenerAddr: netip.MustParseAddrPort("172.30.0.1:8080"), Public: flAddrPorts("192.0.2.1:443", "[2001:db8::1]:443", "203.0.113.80:443", "[2001:db8:77::80]:443")}
 	tunnel := &core.ProxyPath{ExposureID: "exp2", Kind: "tunnel", ProxyAddr: netip.MustParseAddr("172.30.0.3"),
 		ListenerAddr: netip.MustParseAddrPort("172.30.0.1:8080")}
+	npmDual := &core.ProxyPath{ExposureID: "exp1", Kind: "npm", ProxyAddr: netip.MustParseAddr("172.30.0.2"),
+		ListenerAddr: netip.MustParseAddrPort("172.30.0.1:8080"), Public: flAddrPorts("[::]:443")}
+	npmIPv6Proxy := &core.ProxyPath{ExposureID: "exp1", Kind: "npm", ProxyAddr: netip.MustParseAddr("fd00::2"),
+		ListenerAddr: netip.MustParseAddrPort("[fd00::1]:8080"), Public: flAddrPorts("[::]:443")}
+	noGlobalIPv6 := []netstat.Interface{
+		{Index: 1, Name: "lo", Up: true, Running: true, Loopback: true, Addrs: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/8"), netip.MustParsePrefix("::1/128")}},
+		{Index: 2, Name: "eth0", Up: true, Running: true, Addrs: []netip.Prefix{netip.MustParsePrefix("192.0.2.1/24"), netip.MustParsePrefix("fe80::1/64")}},
+	}
 	for _, tc := range []struct {
 		name string
 		in   Input
@@ -128,9 +136,9 @@ func TestBuildFlows(t *testing.T) {
 			want: []flow{
 				{label: "exposure exp1 proxy", pkt: flOn("dp-panel", flPkt("input", "172.30.0.2", 0, "172.30.0.1", 8080, "tcp"))},
 				{label: "exposure exp1 public", pkt: flPkt("input", "0.0.0.0", 0, "192.0.2.1", 443, "tcp"), wild: wildSrc, fwdReplies: []netip.Addr{npm.ProxyAddr}},
-				{label: "exposure exp1 public", pkt: flPkt("input", "::", 0, "2001:db8::1", 443, "tcp"), wild: wildSrc, fwdReplies: []netip.Addr{npm.ProxyAddr}},
+				{label: "exposure exp1 public", pkt: flPkt("input", "::", 0, "2001:db8::1", 443, "tcp"), wild: wildSrc},
 				{label: "exposure exp1 public", pkt: flPkt("input", "0.0.0.0", 0, "0.0.0.0", 443, "tcp"), wild: wildSrc, fwdReplies: []netip.Addr{npm.ProxyAddr}},
-				{label: "exposure exp1 public", pkt: flPkt("input", "::", 0, "::", 443, "tcp"), wild: wildSrc, fwdReplies: []netip.Addr{npm.ProxyAddr}},
+				{label: "exposure exp1 public", pkt: flPkt("input", "::", 0, "::", 443, "tcp"), wild: wildSrc},
 			},
 		},
 		{
@@ -273,6 +281,35 @@ func TestBuildFlows(t *testing.T) {
 			want: []flow{
 				{label: "panel", pkt: flPkt("input", "203.0.113.7", 0, "192.0.2.1", 443, "tcp")},
 				{label: "panel", pkt: flPkt("input", "203.0.113.7", 0, "10.0.0.1", 443, "tcp")},
+			},
+		},
+		{
+			name: "an unspecified IPv6 binding is both families on a host with IPv6",
+			in:   Input{Plan: &core.GuardContext{Via: npmDual, Complete: true}},
+			f:    facts{ifaces: gIfaces(), controller: 4242},
+			want: []flow{
+				{label: "exposure exp1 proxy", pkt: flOn("dp-panel", flPkt("input", "172.30.0.2", 0, "172.30.0.1", 8080, "tcp"))},
+				{label: "exposure exp1 public", pkt: flPkt("input", "0.0.0.0", 0, "0.0.0.0", 443, "tcp"), wild: wildSrc, fwdReplies: []netip.Addr{npmDual.ProxyAddr}},
+				{label: "exposure exp1 public", pkt: flPkt("input", "::", 0, "::", 443, "tcp"), wild: wildSrc, standIn: true},
+			},
+		},
+		{
+			name: "an unspecified IPv6 binding is IPv4 only on a host without routable IPv6",
+			in:   Input{Plan: &core.GuardContext{Via: npmDual, Complete: true}},
+			f:    facts{ifaces: noGlobalIPv6, controller: 4242},
+			want: []flow{
+				{label: "exposure exp1 proxy", pkt: flOn("dp-panel", flPkt("input", "172.30.0.2", 0, "172.30.0.1", 8080, "tcp"))},
+				{label: "exposure exp1 public", pkt: flPkt("input", "0.0.0.0", 0, "0.0.0.0", 443, "tcp"), wild: wildSrc, fwdReplies: []netip.Addr{npmDual.ProxyAddr}},
+			},
+		},
+		{
+			name: "a forwarded reply belongs to the flow of the proxy's family",
+			in:   Input{Plan: &core.GuardContext{Via: npmIPv6Proxy, Complete: true}},
+			f:    facts{ifaces: gIfaces(), controller: 4242},
+			want: []flow{
+				{label: "exposure exp1 proxy", pkt: flOn("dp-panel", flPkt("input", "fd00::2", 0, "fd00::1", 8080, "tcp"))},
+				{label: "exposure exp1 public", pkt: flPkt("input", "0.0.0.0", 0, "0.0.0.0", 443, "tcp"), wild: wildSrc},
+				{label: "exposure exp1 public", pkt: flPkt("input", "::", 0, "::", 443, "tcp"), wild: wildSrc, standIn: true, fwdReplies: []netip.Addr{npmIPv6Proxy.ProxyAddr}},
 			},
 		},
 	} {

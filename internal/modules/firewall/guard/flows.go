@@ -273,15 +273,7 @@ func viaFlows(s *flowSet, ctxs []*core.GuardContext, retired []string, local map
 				s.add(flow{label: label + " public", unknown: "the exposure has no public bindings"})
 			}
 			for _, pub := range v.Public {
-				dst := pub.Addr().Unmap()
-				switch {
-				case dst.IsUnspecified() || local[dst]:
-				case dst.Is4():
-					dst = netip.IPv4Unspecified()
-				default:
-					dst = netip.IPv6Unspecified()
-				}
-				s.add(flow{label: label + " public", pkt: newPacket("input", anyAddr(pub.Addr()), unknownPort, dst, pub.Port(), "tcp"), wild: wildSrc, fwdReplies: []netip.Addr{v.ProxyAddr}})
+				npmPublicFlows(s, label, v, pub, local)
 			}
 		case "tunnel":
 			for _, out := range []struct {
@@ -296,6 +288,41 @@ func viaFlows(s *flowSet, ctxs []*core.GuardContext, retired []string, local map
 			s.add(flow{label: label, unknown: "the exposure kind " + v.Kind + " is not npm or tunnel"})
 		}
 	}
+}
+
+// npmPublicFlows adds the flows of one public binding of an NPM exposure. A
+// forwarded reply is kept only on a flow of the proxy's family, so a reply
+// lookup never mixes families.
+func npmPublicFlows(s *flowSet, label string, v *core.ProxyPath, pub netip.AddrPort, local map[netip.Addr]bool) {
+	replies := func(a netip.Addr) []netip.Addr {
+		if a.Unmap().Is4() == v.ProxyAddr.Unmap().Is4() {
+			return []netip.Addr{v.ProxyAddr}
+		}
+		return nil
+	}
+	if pub.Addr() == netip.IPv6Unspecified() {
+		v4, v6 := netip.IPv4Unspecified(), netip.IPv6Unspecified()
+		s.add(flow{label: label + " public", pkt: newPacket("input", v4, unknownPort, v4, pub.Port(), "tcp"), wild: wildSrc, fwdReplies: replies(v4)})
+		// The record cannot say whether Docker publishes the port on IPv6, so a
+		// host without an IPv6 route skips those cells.
+		for a := range local {
+			if a.Is6() && !a.IsLoopback() && !a.IsLinkLocalUnicast() {
+				s.add(flow{label: label + " public", pkt: newPacket("input", v6, unknownPort, v6, pub.Port(), "tcp"), wild: wildSrc, standIn: true, fwdReplies: replies(v6)})
+				break
+			}
+		}
+		return
+	}
+	dst := pub.Addr().Unmap()
+	switch {
+	case dst.IsUnspecified() || local[dst]:
+	case dst.Is4():
+		dst = netip.IPv4Unspecified()
+	default:
+		dst = netip.IPv6Unspecified()
+	}
+	src := anyAddr(pub.Addr())
+	s.add(flow{label: label + " public", pkt: newPacket("input", src, unknownPort, dst, pub.Port(), "tcp"), wild: wildSrc, fwdReplies: replies(src)})
 }
 
 // anyAddr is the unspecified address of a's family.
