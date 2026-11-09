@@ -25,12 +25,15 @@ import (
 // any internet address needs every cell to pass. A flow from any internet
 // address, given a before-state, fails only on a cell the before-state
 // neither drops nor rejects, so its cells are cut by the prefixes of both
-// states. Its copy in a cell of a route without a path is a stand-in: when
-// no reply reaches the cell, this host cannot answer a source there. A copy
-// in a cell of a blackhole route is marked as such, since the kernel answers
-// a lookup there with EINVAL. A flow without a wild end, or one that is not
-// evaluated, is returned as it is; one whose host routes cannot be read is
-// unknown.
+// states. The longest route that contains a cell decides what the cell is.
+// Its copy in a cell of a route without a path is a stand-in: when no reply
+// reaches the cell, this host cannot answer a source there. A copy in a cell
+// of a blackhole route is marked as such, since the kernel answers a lookup
+// there with EINVAL. A flow without a wild end, or one that is not evaluated,
+// is returned as it is; one whose host routes cannot be read is unknown. So is
+// one over the cell limit: every cell is evaluated against the whole ruleset,
+// so an unbounded check would hold the request, and a check that is not made
+// must not pass.
 func (r *router) cellFlows(fl flow, before *fwstate.Loaded) []flow {
 	if fl.wild == wildNone || fl.unknown != "" {
 		return []flow{fl}
@@ -54,25 +57,75 @@ func (r *router) cellFlows(fl flow, before *fwstate.Loaded) []flow {
 		cut = joinTables(cut, cutters(brs, v6, fl.pkt.Proto, fl.pkt.DstPort))
 	}
 	cells := eval.InternetCells(joinTables(cut, routes.rs), v6)
+	rules := ruleCount(rs)
+	if limit, over := overCellLimit(len(cells), rules); over {
+		fl.unknown = fmt.Sprintf("the rules and routes split the internet into %d ranges for this flow; checking them against %d rules is more than the guard evaluates (limit %d)", len(cells), rules, limit)
+		return []flow{fl}
+	}
+	refused := slices.DeleteFunc(slices.Clone(routes.noPath), func(p netip.Prefix) bool {
+		return slices.Contains(routes.blackholes, p)
+	})
 	out := make([]flow, 0, len(cells))
 	for _, c := range cells {
 		cf := fl
-		within := func(ps []netip.Prefix) bool {
-			return slices.ContainsFunc(ps, func(p netip.Prefix) bool { return p.Contains(c.Rep) })
-		}
+		path := longestContaining(routes.paths, c.Rep)
 		if fl.wild == wildSrc {
 			cf.pkt.Src = c.Rep
-			if within(routes.noPath) {
+			if n := longestContaining(routes.noPath, c.Rep); n >= 0 && n >= path {
 				cf.standIn = true
 			}
 		} else {
 			cf.pkt.Dst = c.Rep
 		}
-		cf.blackhole = within(routes.blackholes)
+		n := longestContaining(routes.blackholes, c.Rep)
+		cf.blackhole = n >= 0 && n >= path && n >= longestContaining(refused, c.Rep)
 		cf.span = c.From.String() + "-" + c.To.String()
 		out = append(out, cf)
 	}
 	return out
+}
+
+// longestContaining is the length of the longest of ps that contains a, or
+// -1 when none does.
+func longestContaining(ps []netip.Prefix, a netip.Addr) int {
+	longest := -1
+	for _, p := range ps {
+		if p.Bits() > longest && p.Contains(a) {
+			longest = p.Bits()
+		}
+	}
+	return longest
+}
+
+const (
+	maxCells           = 65536
+	maxCellEvaluations = 10_000_000
+)
+
+// overCellLimit reports whether a flow of cells cells against rules rules
+// costs more than the guard evaluates, and the limit it exceeds.
+func overCellLimit(cells, rules int) (limit int, over bool) {
+	if cells > maxCells {
+		return maxCells, true
+	}
+	if cells*(rules+1) > maxCellEvaluations {
+		return maxCellEvaluations, true
+	}
+	return 0, false
+}
+
+// ruleCount is the number of rules in every chain of every table of rs.
+func ruleCount(rs *netfilter.Ruleset) int {
+	if rs == nil {
+		return 0
+	}
+	n := 0
+	for ti := range rs.Tables {
+		for ci := range rs.Tables[ti].Chains {
+			n += len(rs.Tables[ti].Chains[ci].Rules)
+		}
+	}
+	return n
 }
 
 // joinTables is a ruleset holding a's tables followed by b's. The joined
@@ -92,11 +145,13 @@ func joinTables(a, b *netfilter.Ruleset) *netfilter.Ruleset {
 }
 
 // routeCut is routeCutters of the host's routes of one family, or why they
-// cannot be read.
+// cannot be read. Its prefix lists are compared by length, since the longest
+// route containing an address decides that address.
 type routeCut struct {
 	rs         *netfilter.Ruleset
 	noPath     []netip.Prefix
 	blackholes []netip.Prefix
+	paths      []netip.Prefix
 	why        string
 }
 
@@ -116,42 +171,48 @@ func (r *router) routeCuts(v6 bool) routeCut {
 	} else if routes, err := d.Routes(fam); err != nil {
 		c.why = fmt.Sprintf("the routes cannot be read: %v", err)
 	} else {
-		c.rs, c.noPath, c.blackholes = routeCutters(routes, v6)
+		c = routeCutters(routes, v6)
 	}
 	r.routes[v6] = c
 	return c
 }
 
-// cutRouteTypes are the types of the routes that cut cells: unicast and the
-// routes without a path, which hand a range on to a later table (throw) or
-// refuse it.
-var cutRouteTypes = []string{"unicast", "throw", "unreachable", "prohibit", "blackhole"}
+// cutRouteTypes are the types of the routes that cut cells: unicast and local
+// routes, which give a range a path, and the routes without a path, which
+// hand a range on to a later table (throw) or refuse it.
+var cutRouteTypes = []string{"unicast", "local", "throw", "unreachable", "prohibit", "blackhole"}
 
-// routeCutters is a ruleset of one table with one chain that holds one rule
-// per route of a type in cutRouteTypes and of the family outside the local
-// table, matching the route's destination; the destinations of the routes
-// without a path among them; and those of the blackhole routes. Like
-// joinTables' result the ruleset only cuts cells and is never evaluated.
-// Every route that sends or refuses a range cuts it, so no cell mixes routed
-// and unrouted addresses, and the lowest address of a cell takes the route
-// every address of it takes. The local table holds the host's own
-// addresses, which are no internet address a flow reaches out to or comes
-// from; a cell of one would turn the flow into input to the host.
-func routeCutters(routes []netstat.Route, v6 bool) (cuts *netfilter.Ruleset, noPath, blackholes []netip.Prefix) {
+// routeCutters is the route cut of the routes of a type in cutRouteTypes and
+// of the family outside the local table: a ruleset of one table with one
+// chain that holds one rule per route, matching the route's destination; the
+// destinations of the routes with a path (unicast and local); those of the
+// routes without one; and those of the blackhole routes. Like joinTables'
+// result the ruleset only cuts cells and is never evaluated. Every route that
+// sends or refuses a range cuts it, so no cell mixes routed and unrouted
+// addresses, and the lowest address of a cell takes the route every address
+// of it takes. The local table holds the host's own addresses, which are no
+// internet address a flow reaches out to or comes from; a cell of one would
+// turn the flow into input to the host.
+func routeCutters(routes []netstat.Route, v6 bool) routeCut {
+	var c routeCut
 	ch := netfilter.Chain{Name: "routes"}
 	for _, rt := range routes {
 		if !slices.Contains(cutRouteTypes, rt.Type) || rt.Table == unix.RT_TABLE_LOCAL || !rt.Dst.IsValid() || rt.Dst.Addr().Is6() != v6 {
 			continue
 		}
 		ch.Rules = append(ch.Rules, netfilter.Rule{Dest: netfilter.AddrMatch{Prefix: rt.Dst}})
-		if rt.Type != "unicast" {
-			noPath = append(noPath, rt.Dst)
-		}
-		if rt.Type == "blackhole" {
-			blackholes = append(blackholes, rt.Dst)
+		switch rt.Type {
+		case "unicast", "local":
+			c.paths = append(c.paths, rt.Dst)
+		case "blackhole":
+			c.noPath = append(c.noPath, rt.Dst)
+			c.blackholes = append(c.blackholes, rt.Dst)
+		default:
+			c.noPath = append(c.noPath, rt.Dst)
 		}
 	}
-	return &netfilter.Ruleset{Tables: []netfilter.Table{{Name: "routes", Chains: []netfilter.Chain{ch}}}}, noPath, blackholes
+	c.rs = &netfilter.Ruleset{Tables: []netfilter.Table{{Name: "routes", Chains: []netfilter.Chain{ch}}}}
+	return c
 }
 
 // checkFlow evaluates fl in every cell of its wild end and returns the
@@ -202,12 +263,15 @@ var hookChains = []string{"PREROUTING", "INPUT", "FORWARD", "OUTPUT", "POSTROUTI
 // not cut cells; thousands of bans on another port would otherwise multiply
 // the cells, and every cell is evaluated against the whole ruleset. A DNAT
 // rule may rewrite the port before later rules see it, so every port a
-// DNAT target names counts as the packet's too.
+// DNAT target names counts as the packet's too. An unmodelled target may
+// rewrite the packet in a way the port filter cannot see, so while rs holds
+// one every rule of a reached chain is kept.
 func cutters(rs *netfilter.Ruleset, v6 bool, proto string, port uint16) *netfilter.Ruleset {
 	if rs == nil {
 		return nil
 	}
 	ports := append([]uint16{port}, natPorts(rs, v6)...)
+	filter := targetsModelled(rs)
 	out := &netfilter.Ruleset{Tables: make([]netfilter.Table, 0, len(rs.Tables))}
 	for ti := range rs.Tables {
 		t := &rs.Tables[ti]
@@ -232,7 +296,7 @@ func cutters(rs *netfilter.Ruleset, v6 bool, proto string, port uint16) *netfilt
 				continue
 			}
 			for _, rule := range c.Rules {
-				if !mayMatch(rule, proto, ports) {
+				if filter && !mayMatch(rule, proto, ports) {
 					continue
 				}
 				kept[c.Name] = append(kept[c.Name], rule)
@@ -252,6 +316,25 @@ func cutters(rs *netfilter.Ruleset, v6 bool, proto string, port uint16) *netfilt
 		out.Tables = append(out.Tables, nt)
 	}
 	return out
+}
+
+// modelledTargets are the targets whose effect on a packet's port the port
+// filter of cutters accounts for.
+var modelledTargets = []string{"", "ACCEPT", "DROP", "REJECT", "RETURN", "LOG", "TCPMSS", "MARK", "CONNMARK", "DNAT", "SNAT", "MASQUERADE"}
+
+// targetsModelled reports whether every rule of rs jumps to a chain or has a
+// target in modelledTargets.
+func targetsModelled(rs *netfilter.Ruleset) bool {
+	for ti := range rs.Tables {
+		for ci := range rs.Tables[ti].Chains {
+			for _, rule := range rs.Tables[ti].Chains[ci].Rules {
+				if !rule.Target.Chain && !slices.Contains(modelledTargets, rule.Target.Name) {
+					return false
+				}
+			}
+		}
+	}
+	return true
 }
 
 // mayMatch reports whether rule can match a packet of proto to one of

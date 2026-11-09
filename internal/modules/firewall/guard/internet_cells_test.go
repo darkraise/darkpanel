@@ -533,14 +533,14 @@ func TestV1r21RouteCuttersKeepOnlyTheirFamily(t *testing.T) {
 		v1r21Route("unicast", "198.41.192.0/24", "eth1", "-", 254),
 		v1r21Route("blackhole", "45.9.0.0/16", "", "-", 254),
 	}
-	cuts, noPath, blackholes := routeCutters(routes, true)
+	c := routeCutters(routes, true)
 	var dsts []netip.Prefix
-	for _, rule := range cuts.Table("routes").Chain("routes").Rules {
+	for _, rule := range c.rs.Table("routes").Chain("routes").Rules {
 		dsts = append(dsts, rule.Dest.Prefix)
 	}
 	want := []netip.Prefix{netip.MustParsePrefix("2606:4700::/32"), netip.MustParsePrefix("2001:db8:dead::/48")}
-	if !slices.Equal(dsts, want) || !slices.Equal(noPath, want[1:]) || len(blackholes) != 0 {
-		t.Errorf("IPv6 cuts %v, no path %v, blackholes %v; want cuts %v and no path %v, with no IPv4 route", dsts, noPath, blackholes, want, want[1:])
+	if !slices.Equal(dsts, want) || !slices.Equal(c.noPath, want[1:]) || len(c.blackholes) != 0 {
+		t.Errorf("IPv6 cuts %v, no path %v, blackholes %v; want cuts %v and no path %v, with no IPv4 route", dsts, c.noPath, c.blackholes, want, want[1:])
 	}
 }
 
