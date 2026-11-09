@@ -339,3 +339,25 @@ func TestW11a04ChainsInputKeepsRulesOfAnUnparsableBlock(t *testing.T) {
 		t.Errorf("input lacks the block's -A lines in order:\n%s", in)
 	}
 }
+
+func TestW11a04ApplyChainsRefusals(t *testing.T) {
+	rs := w11a04Parse(t, "*filter\n:FORWARD DROP [0:0]\n:DOCKER-USER - [0:0]\n:dp-b-x - [0:0]\n-A FORWARD -j DOCKER-USER\n-A dp-b-x -j RETURN\nCOMMIT\n")
+	for _, c := range []struct{ input, want string }{
+		{"COMMIT\n", "COMMIT outside a table"},
+		{"-F dp-b-x\n", "outside a table"},
+		{"*filter\n-A nope -j RETURN\nCOMMIT\n", "-A: no chain nope"},
+		{"*filter\n-F nope\nCOMMIT\n", "-F: no chain nope"},
+		{"*filter\n-X FORWARD\nCOMMIT\n", "is not a user chain"},
+		{"*filter\n-X dp-b-x\nCOMMIT\n", "is not empty"},
+		{"*filter\n-F DOCKER-USER\n-X DOCKER-USER\nCOMMIT\n", "still referenced"},
+		{"*filter\n-Z\nCOMMIT\n", "unexpected line"},
+		{"*filter\n:dp-b-x - [0:0]\n", "has no COMMIT"},
+	} {
+		if _, err := ApplyChains(rs, []byte(c.input)); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("ApplyChains(%q) = %v, want an error naming %q", c.input, err, c.want)
+		}
+	}
+	if _, err := ApplyChains(nil, []byte("*filter\nCOMMIT\n")); err == nil || !strings.Contains(err.Error(), "nil ruleset") {
+		t.Errorf("ApplyChains(nil) = %v, want the nil ruleset refused", err)
+	}
+}

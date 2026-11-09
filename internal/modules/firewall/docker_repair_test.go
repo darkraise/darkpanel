@@ -286,3 +286,23 @@ func TestDreVerifyBrokenMarkers(t *testing.T) {
 		t.Errorf("verify = %v, want the marker error of %s", err, denAfter4)
 	}
 }
+
+// TestW11a08OwnedChainDiffs: only differences confined to Darkpanel's filter
+// chains allow a live repair.
+func TestW11a08OwnedChainDiffs(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		diffs []fwstate.ChainDiff
+		want  bool
+	}{
+		{"none", nil, true},
+		{"owned chain", []fwstate.ChainDiff{{Table: "filter", Chain: "darkpanel-docker-deny"}}, true},
+		{"DOCKER-USER", []fwstate.ChainDiff{{Table: "filter", Chain: "DOCKER-USER"}}, true},
+		{"a UFW chain", []fwstate.ChainDiff{{Table: "filter", Chain: "darkpanel-docker-deny"}, {Table: "filter", Chain: "ufw-user-input"}}, false},
+		{"another table", []fwstate.ChainDiff{{Table: "nat", Chain: "darkpanel-nat"}}, false},
+	} {
+		if got := ownedChainDiffs(c.diffs); got != c.want {
+			t.Errorf("%s: ownedChainDiffs = %t, want %t", c.name, got, c.want)
+		}
+	}
+}

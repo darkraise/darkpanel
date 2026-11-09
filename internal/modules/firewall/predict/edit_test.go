@@ -358,3 +358,17 @@ func FuzzEdit(f *testing.F) {
 		}
 	})
 }
+
+// TestW11a03EditSetsLiveLoggingOnlyWhenEnabled: a logging command refreshes
+// the running chains only on an enabled configuration.
+func TestW11a03EditSetsLiveLoggingOnlyWhenEnabled(t *testing.T) {
+	for scenario, want := range map[string]bool{"rules": true, "disabled": false} {
+		got, err := Edit(predictConfig(t, predictImages[0], scenario), []string{"logging", "low"})
+		if err != nil {
+			t.Fatalf("%s: %v", scenario, err)
+		}
+		if got.LiveLogging != want {
+			t.Errorf("%s: LiveLogging = %t, want %t", scenario, got.LiveLogging, want)
+		}
+	}
+}

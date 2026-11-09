@@ -378,3 +378,31 @@ func TestW11a03LiveOnADisabledConfigurationChangesNothing(t *testing.T) {
 		t.Errorf("v4: %s", d)
 	}
 }
+
+// TestW11a03LiveNeedsTheUserRulesOfItsFamilies: the IPv4 file must hold rules,
+// and the IPv6 file only while IPv6 is on.
+func TestW11a03LiveNeedsTheUserRulesOfItsFamilies(t *testing.T) {
+	img := predictImages[0]
+	gone := func(cfg fwstate.Config, path string) fwstate.Config {
+		e := cfg.Files[path]
+		e.Present = false
+		cfg.Files[path] = e
+		return cfg
+	}
+	cur := predictLoaded(t, img, "rules")
+	if _, err := Predict(gone(predictConfig(t, img, "rules"), userRules), cur, fwstate.TransLive); err == nil || !strings.Contains(err.Error(), "missing or empty") {
+		t.Errorf("no user.rules = %v, want the missing file named", err)
+	}
+	if _, err := Predict(gone(predictConfig(t, img, "rules"), userRules6), cur, fwstate.TransLive); err == nil || !strings.Contains(err.Error(), "missing or empty") {
+		t.Errorf("no user6.rules with IPv6 on = %v, want the missing file named", err)
+	}
+	cfg := gone(predictConfig(t, img, "rules"), userRules6)
+	cfg.IPv6 = false
+	got, err := Predict(cfg, cur, fwstate.TransLive)
+	if err != nil {
+		t.Fatalf("no user6.rules with IPv6 off: %v", err)
+	}
+	for _, d := range predictDiff(got.V6, cur.V6, true) {
+		t.Errorf("v6 changed with IPv6 off: %s", d)
+	}
+}
