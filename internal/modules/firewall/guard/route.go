@@ -57,7 +57,8 @@ func (r *router) forState(st fwstate.Loaded) *router {
 // (wildcardDsts). A route that cannot be resolved makes the flow unknown,
 // except that a stand-in destination without a route of its family, or a
 // stand-in source that no reply reaches (noReply), has nothing to protect.
-// Every lookup carries the packet's mark, which policy rules may match.
+// Every lookup carries the packet's mark, which policy rules may match, and
+// its protocol and ports when a policy rule selects by them (selectors).
 func (r *router) probes(fl flow) []probe {
 	if fl.unknown != "" {
 		return []probe{{desc: fl.label, unknown: fl.unknown}}
@@ -82,7 +83,7 @@ func (r *router) probes(fl flow) []probe {
 		if !p.Src.IsUnspecified() {
 			q.Src = p.Src
 		}
-		rt, ok, out := lookup(q)
+		rt, ok, out := lookup(r.selectors(q, p.Proto, p.SrcPort, p.DstPort))
 		if !ok {
 			return out
 		}
@@ -98,7 +99,7 @@ func (r *router) probes(fl flow) []probe {
 		if off := r.forwardingOff(p.Family); off != "" {
 			return fail(off)
 		}
-		rt, ok, out := lookup(netstat.RouteQuery{Dst: p.Dst, Src: p.Src, IIF: p.InIface, Mark: p.Mark})
+		rt, ok, out := lookup(r.selectors(netstat.RouteQuery{Dst: p.Dst, Src: p.Src, IIF: p.InIface, Mark: p.Mark}, p.Proto, p.SrcPort, p.DstPort))
 		if !ok {
 			return out
 		}
@@ -112,7 +113,7 @@ func (r *router) probes(fl flow) []probe {
 	if !p.Dst.IsUnspecified() {
 		return r.inputProbes(fl, p)
 	}
-	rt, err := r.host.RouteGet(netstat.RouteQuery{Dst: p.Src, Mark: p.Mark})
+	rt, err := r.host.RouteGet(r.selectors(netstat.RouteQuery{Dst: p.Src, Mark: p.Mark}, p.Proto, p.DstPort, 0))
 	switch {
 	case err != nil && fl.standIn && noRoute(fl, err) && r.noReply(fl, p.Src, p.Mark, netip.Addr{}):
 		return nil
@@ -144,28 +145,55 @@ func noRoute(fl flow, err error) bool {
 // target's source, arriving on panelBridge, before the reverse translation,
 // so its route back must fail too.
 func (r *router) noReply(fl flow, src netip.Addr, mark uint32, from netip.Addr) bool {
-	// A mark set on the reply may select a policy route that no lookup here
-	// carries.
-	if r.marksReplies(fl) {
-		return false
+	// A reply's destination port is the client's and its TOS the socket's,
+	// both unknown here, and no lookup can state a uid. A mark set on the
+	// reply may select a policy route that no lookup here carries. A policy
+	// rule selecting by any of these may route a reply that the lookups miss.
+	for _, rule := range r.routeCuts(fl.pkt.Family == fwstate.V6).rules {
+		if rule.DstPort || rule.TOS || rule.UID || (rule.Mark && r.marksReplies(fl)) {
+			return false
+		}
 	}
 	if from.IsValid() {
-		if _, err := r.host.RouteGet(netstat.RouteQuery{Dst: src, Src: from, Mark: mark}); !noRoute(fl, err) {
+		q := netstat.RouteQuery{Dst: src, Src: from, Mark: mark}
+		if _, err := r.host.RouteGet(r.selectors(q, fl.pkt.Proto, fl.pkt.DstPort, 0)); !noRoute(fl, err) {
 			return false
 		}
 	} else if !r.noReplyFrom(fl, src, mark) {
 		return false
 	}
 	for _, a := range fl.fwdReplies {
-		if _, err := r.host.RouteGet(netstat.RouteQuery{Dst: src, Src: a, IIF: panelBridge, Mark: mark}); !noRoute(fl, err) {
+		q := netstat.RouteQuery{Dst: src, Src: a, IIF: panelBridge, Mark: mark}
+		if _, err := r.host.RouteGet(r.selectors(q, fl.pkt.Proto, fl.pkt.DstPort, 0)); !noRoute(fl, err) {
 			return false
 		}
 	}
 	return true
 }
 
-// marksReplies reports whether the mangle table of the checked ruleset of
-// fl's family has a MARK or CONNMARK rule that may match fl's protocol.
+// selectors is q with the protocol and ports of its packet when a policy
+// rule of q's family selects by a protocol or port, and q unchanged
+// otherwise. The protocol is set only for tcp and udp: the kernel accepts no
+// other in a lookup.
+func (r *router) selectors(q netstat.RouteQuery, proto string, srcPort, dstPort uint16) netstat.RouteQuery {
+	if !slices.ContainsFunc(r.routeCuts(q.Dst.Unmap().Is6()).rules, func(rule netstat.Rule) bool {
+		return rule.Proto != 0 || rule.SrcPort || rule.DstPort
+	}) {
+		return q
+	}
+	switch proto {
+	case "tcp":
+		q.Proto = unix.IPPROTO_TCP
+	case "udp":
+		q.Proto = unix.IPPROTO_UDP
+	}
+	q.SrcPort, q.DstPort = srcPort, dstPort
+	return q
+}
+
+// marksReplies reports whether the raw or mangle table of the checked ruleset
+// of fl's family has a MARK or CONNMARK rule that may match fl's protocol. A
+// mark the filter table sets comes after the reply's route is chosen.
 func (r *router) marksReplies(fl flow) bool {
 	rs := r.st.V4
 	if fl.pkt.Family == fwstate.V6 {
@@ -174,14 +202,16 @@ func (r *router) marksReplies(fl flow) bool {
 	if rs == nil {
 		return false
 	}
-	t := rs.Table("mangle")
-	if t == nil {
-		return false
-	}
-	for _, c := range t.Chains {
-		for _, rule := range c.Rules {
-			if (rule.Target.Name == "MARK" || rule.Target.Name == "CONNMARK") && protoMayMatch(rule.Proto, fl.pkt.Proto) {
-				return true
+	for _, name := range []string{"raw", "mangle"} {
+		t := rs.Table(name)
+		if t == nil {
+			continue
+		}
+		for _, c := range t.Chains {
+			for _, rule := range c.Rules {
+				if (rule.Target.Name == "MARK" || rule.Target.Name == "CONNMARK") && protoMayMatch(rule.Proto, fl.pkt.Proto) {
+					return true
+				}
 			}
 		}
 	}
@@ -198,7 +228,8 @@ func (r *router) noReplyFrom(fl flow, src netip.Addr, mark uint32) bool {
 		if a.Is4() != v4 {
 			continue
 		}
-		if _, err := r.host.RouteGet(netstat.RouteQuery{Dst: src, Src: a, Mark: mark}); !noRoute(fl, err) {
+		q := netstat.RouteQuery{Dst: src, Src: a, Mark: mark}
+		if _, err := r.host.RouteGet(r.selectors(q, fl.pkt.Proto, fl.pkt.DstPort, 0)); !noRoute(fl, err) {
 			return false
 		}
 		checked = true
@@ -291,7 +322,7 @@ func (r *router) eligible(p fwstate.Packet) ([]string, error) {
 					if r.local[p.Dst] {
 						q.Src = p.Dst
 					}
-					rt, err := r.host.RouteGet(q)
+					rt, err := r.host.RouteGet(r.selectors(q, p.Proto, p.DstPort, 0))
 					if err != nil {
 						return nil, fmt.Errorf("the route back to %s cannot be resolved: %w", p.Src, err)
 					}
@@ -369,8 +400,9 @@ func (r *router) forwardingOff(fam fwstate.Family) string {
 
 // route is the evaluator's fwstate.Router: where a packet goes once nat
 // PREROUTING has set its destination. Every lookup carries the packet's
-// mark, which policy rules may match. A locally generated packet to an
-// address of this host leaves through lo.
+// mark, which policy rules may match, and its protocol and ports when a
+// policy rule selects by them. A locally generated packet to an address of
+// this host leaves through lo.
 func (r *router) route(p fwstate.Packet) (string, string, error) {
 	dst := p.Dst.Unmap()
 	if dst.IsLoopback() || r.local[dst] {
@@ -380,7 +412,7 @@ func (r *router) route(p fwstate.Packet) (string, string, error) {
 		return "input", "", nil
 	}
 	if p.Path == "output" {
-		rt, err := r.host.RouteGet(netstat.RouteQuery{Dst: dst, Src: p.Src, Mark: p.Mark})
+		rt, err := r.host.RouteGet(r.selectors(netstat.RouteQuery{Dst: dst, Src: p.Src, Mark: p.Mark}, p.Proto, p.SrcPort, p.DstPort))
 		switch {
 		case err != nil:
 			return "", "", fmt.Errorf("firewall: route to %s: %w", dst, err)
@@ -392,7 +424,7 @@ func (r *router) route(p fwstate.Packet) (string, string, error) {
 	if off := r.forwardingOff(p.Family); off != "" {
 		return "", "", errors.New("firewall: " + off)
 	}
-	rt, err := r.host.RouteGet(netstat.RouteQuery{Dst: dst, Src: p.Src, IIF: p.InIface, Mark: p.Mark})
+	rt, err := r.host.RouteGet(r.selectors(netstat.RouteQuery{Dst: dst, Src: p.Src, IIF: p.InIface, Mark: p.Mark}, p.Proto, p.SrcPort, p.DstPort))
 	switch {
 	case err != nil:
 		return "", "", fmt.Errorf("firewall: route to %s from %s on %s: %w", dst, p.Src, p.InIface, err)

@@ -27,6 +27,7 @@ type gHost struct {
 	table      []netstat.Route
 	pid        int
 	lookups    []netstat.RouteQuery
+	rules      []netstat.Rule
 }
 
 func (h *gHost) Sockets() ([]netstat.Socket, error) { return h.sockets, h.socketsErr }
@@ -48,6 +49,16 @@ func (h *gHost) Routes(family netstat.Family) ([]netstat.Route, error) {
 	var out []netstat.Route
 	for _, r := range h.table {
 		if r.Dst.Addr().Is6() == (family == netstat.IPv6) {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+func (h *gHost) Rules(family netstat.Family) ([]netstat.Rule, error) {
+	var out []netstat.Rule
+	for _, r := range h.rules {
+		if r.Family == family {
 			out = append(out, r)
 		}
 	}

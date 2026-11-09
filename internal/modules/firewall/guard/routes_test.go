@@ -20,4 +20,5 @@ var (
 	_ Host        = (*gxDumpHost)(nil)
 	_ routeDumper = (*gxDumpHost)(nil)
 	_ routeDumper = LiveHost{}
+	_ ruleDumper  = LiveHost{}
 )

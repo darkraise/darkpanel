@@ -771,7 +771,8 @@ func TestV1r21RouteWithoutAPathCutsTheCellItStarts(t *testing.T) {
 // without, none routes it. With from, a source rule routes replies from that
 // address to thrown out of eth0. With container, a policy rule routes the
 // replies of the NPM container 172.30.0.2, arriving on dp-panel, to thrown
-// out of eth0. A non-nil fail answers every lookup in thrown.
+// out of eth0. A non-nil fail answers every lookup in thrown. policy holds
+// the host's policy rules.
 type v1r21Throw struct {
 	*gHost
 	thrown    netip.Prefix
@@ -779,6 +780,7 @@ type v1r21Throw struct {
 	from      netip.Addr
 	fail      error
 	container bool
+	policy    []netstat.Rule
 }
 
 func (h v1r21Throw) RouteGet(q netstat.RouteQuery) (netstat.Route, error) {
@@ -853,7 +855,8 @@ func v1r21ThrowListener(t *testing.T, h v1r21Throw, st fwstate.Loaded) core.Guar
 	t.Helper()
 	h.thrown = netip.MustParsePrefix("45.33.0.0/16")
 	h.gHost = &gHost{ifaces: ckIfaces(), table: append(v1r21HostRoutes(), v1r21Route("throw", h.thrown.String(), "", "-", 52)),
-		sockets: []netstat.Socket{flSock(netstat.ProtoTCP, netstat.StateListen, "0.0.0.0:443", "", "darkpanel-contr", 4242)}}
+		sockets: []netstat.Socket{flSock(netstat.ProtoTCP, netstat.StateListen, "0.0.0.0:443", "", "darkpanel-contr", 4242)},
+		rules:   h.policy}
 	return v1r21CheckHost(t, h, st, v1r21Tunnel())
 }
 
@@ -917,17 +920,50 @@ func TestV1r21ThrowCellWithMarkedRepliesIsUnknown(t *testing.T) {
 		return "*mangle\n:PREROUTING ACCEPT [0:0]\n:INPUT ACCEPT [0:0]\n:FORWARD ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n:POSTROUTING ACCEPT [0:0]\n" +
 			strings.Join(rules, "\n") + "\nCOMMIT\n"
 	}
-	marked := v1r21State(t, mangle("-A OUTPUT -j CONNMARK --restore-mark")+v1r21Table(rule), v1r21Table())
-	g := v1r21ThrowListener(t, v1r21Throw{}, marked)
-	for _, want := range []string{"controller listener from 45.33.0.0-45.33.255.255", "cannot be resolved"} {
-		if g.OK || !strings.Contains(g.Message, want) {
-			t.Errorf("guard with %q = %+v, want a refusal containing %q: a restored mark may route replies to the range the rule drops", rule, g, want)
-		}
+	raw := func(rules ...string) string {
+		return "*raw\n:PREROUTING ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n" + strings.Join(rules, "\n") + "\nCOMMIT\n"
 	}
-	// wg-quick marks only UDP.
-	udp := v1r21State(t, mangle("-A PREROUTING -p udp -j CONNMARK --restore-mark --nfmask 0xffffffff --ctmask 0xffffffff",
-		"-A POSTROUTING -p udp -m mark --mark 0xca6c -j CONNMARK --save-mark --nfmask 0xffffffff --ctmask 0xffffffff")+v1r21Table(rule), v1r21Table())
-	if g := v1r21ThrowListener(t, v1r21Throw{}, udp); !g.OK {
-		t.Errorf("guard with %q and UDP marks only = %+v, want OK: no mark rule matches the listener's TCP replies", rule, g)
+	policy := func(r netstat.Rule) []netstat.Rule {
+		r.Family, r.Priority, r.Table, r.Action = netstat.IPv4, 100, 200, unix.FR_ACT_TO_TBL
+		return []netstat.Rule{r}
+	}
+	byMark := policy(netstat.Rule{Mark: true})
+	tcpMark := mangle("-A OUTPUT -j CONNMARK --restore-mark")
+	for _, tt := range []struct {
+		name, tables string
+		filter       []string
+		policy       []netstat.Rule
+		unknown      bool
+	}{
+		{name: "a mangle mark a policy rule selects", tables: tcpMark, policy: byMark, unknown: true},
+		{name: "a raw mark a policy rule selects", tables: raw("-A OUTPUT -j MARK --set-xmark 0x40000/0xffffffff"), policy: byMark, unknown: true},
+		{name: "a mark no policy rule selects", tables: tcpMark},
+		{name: "a policy mark rule and no mark set", policy: byMark},
+		// wg-quick marks only UDP.
+		{name: "UDP marks only", tables: mangle("-A PREROUTING -p udp -j CONNMARK --restore-mark --nfmask 0xffffffff --ctmask 0xffffffff",
+			"-A POSTROUTING -p udp -m mark --mark 0xca6c -j CONNMARK --save-mark --nfmask 0xffffffff --ctmask 0xffffffff"), policy: byMark},
+		// Tailscale's ts-forward marks every forwarded packet in filter.
+		{name: "a mark in the filter table", filter: []string{"-A FORWARD -j MARK --set-xmark 0x40000/0xff0000"}, policy: byMark},
+		{name: "a destination port selector", policy: policy(netstat.Rule{DstPort: true}), unknown: true},
+		{name: "a uid selector", policy: policy(netstat.Rule{UID: true}), unknown: true},
+		{name: "a tos selector", policy: policy(netstat.Rule{TOS: true}), unknown: true},
+		{name: "a protocol selector, which lookups carry", policy: policy(netstat.Rule{Proto: unix.IPPROTO_TCP})},
+		{name: "a source port selector, which lookups carry", policy: policy(netstat.Rule{SrcPort: true})},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			st := v1r21State(t, tt.tables+v1r21Table(append([]string{rule}, tt.filter...)...), v1r21Table())
+			g := v1r21ThrowListener(t, v1r21Throw{policy: tt.policy}, st)
+			if !tt.unknown {
+				if !g.OK {
+					t.Errorf("guard = %+v, want OK: nothing routes a reply to the thrown range", g)
+				}
+				return
+			}
+			for _, want := range []string{"controller listener from 45.33.0.0-45.33.255.255", "cannot be resolved"} {
+				if g.OK || !strings.Contains(g.Message, want) {
+					t.Errorf("guard = %+v, want a refusal containing %q: the selector may route replies to the range the rule drops", g, want)
+				}
+			}
+		})
 	}
 }

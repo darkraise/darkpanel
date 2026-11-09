@@ -20,8 +20,9 @@ import (
 // of its family partitions the public space into, with the wild end set
 // to the cell's representative address. Only the rules that can match fl
 // cut cells, and so does every route of the host's family outside the local
-// table that sends or refuses a range (routeCutters), since a rule that
-// matches an interface sets apart the addresses routed through it. A flow to
+// table that sends or refuses a range (routeCutters) and every prefix of a
+// policy rule, since a rule that matches an interface sets apart the addresses
+// routed through it. A flow to
 // any internet address needs every cell to pass. A flow from any internet
 // address, given a before-state, fails only on a cell the before-state
 // neither drops nor rejects, so its cells are cut by the prefixes of both
@@ -146,12 +147,14 @@ func joinTables(a, b *netfilter.Ruleset) *netfilter.Ruleset {
 
 // routeCut is routeCutters of the host's routes of one family, or why they
 // cannot be read. Its prefix lists are compared by length, since the longest
-// route containing an address decides that address.
+// route containing an address decides that address. rules holds the family's
+// policy rules, whose prefixes cut cells as well.
 type routeCut struct {
 	rs         *netfilter.Ruleset
 	noPath     []netip.Prefix
 	blackholes []netip.Prefix
 	paths      []netip.Prefix
+	rules      []netstat.Rule
 	why        string
 }
 
@@ -172,9 +175,33 @@ func (r *router) routeCuts(v6 bool) routeCut {
 		c.why = fmt.Sprintf("the routes cannot be read: %v", err)
 	} else {
 		c = routeCutters(routes, v6)
+		if d, ok := r.host.(ruleDumper); ok {
+			if rules, err := d.Rules(fam); err != nil {
+				c.why = fmt.Sprintf("the policy rules cannot be read: %v", err)
+			} else {
+				r.addPolicyCuts(&c, rules)
+			}
+		}
 	}
 	r.routes[v6] = c
 	return c
+}
+
+// addPolicyCuts records rules in c and cuts cells at their prefixes, since a
+// policy rule sets apart the addresses it sends to another table.
+func (r *router) addPolicyCuts(c *routeCut, rules []netstat.Rule) {
+	c.rules = rules
+	chain := &c.rs.Tables[0].Chains[0]
+	for _, rule := range rules {
+		for _, p := range []netip.Prefix{rule.Src, rule.Dst} {
+			// A cell of one of the host's own addresses would turn the flow
+			// into input to the host.
+			if !p.IsValid() || (p.IsSingleIP() && r.local[p.Addr().Unmap()]) {
+				continue
+			}
+			chain.Rules = append(chain.Rules, netfilter.Rule{Dest: netfilter.AddrMatch{Prefix: p}})
+		}
+	}
 }
 
 // cutRouteTypes are the types of the routes that cut cells: unicast and local
