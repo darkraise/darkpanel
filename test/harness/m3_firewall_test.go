@@ -275,13 +275,13 @@ func m3RevertOnReboot(ctx context.Context, t *testing.T, f *fleet) {
 }
 
 // m3MismatchWrapper replaces /usr/sbin/ufw: once /run/m3-mismatch exists,
-// the next ufw reload also adds a rule no prediction holds, so the change
-// that reloads fails verify.
+// the next "ufw allow" also adds a rule no prediction holds, so the change
+// that runs it fails verify.
 const m3MismatchWrapper = `#!/bin/sh
 /usr/sbin/ufw.distrib "$@"
 rc=$?
 case " $* " in
-*" reload "*)
+*" allow "*)
 	if [ -e /run/m3-mismatch ]; then
 		rm -f /run/m3-mismatch
 		iptables -A ufw-user-input -s 192.0.2.99/32 -j ACCEPT
@@ -292,7 +292,7 @@ exit $rc
 `
 
 // m3PredictionMismatch makes the loaded state differ from the prediction
-// right after a change reloads UFW: verify fails with
+// right after a change's own ufw command: verify fails with
 // firewall.prediction_mismatch and the change is reverted, which also
 // removes the stray rule.
 func m3PredictionMismatch(ctx context.Context, t *testing.T, f *fleet) {
@@ -557,28 +557,34 @@ func m3AsymmetricRoute(ctx context.Context, t *testing.T, f *fleet) {
 }
 
 // m3SysctlRevert makes UFW's sysctl.conf change a supported key: the plan
-// shows it, the change applies it, and the revert writes the old value
-// back.
+// of a default policy change, whose "ufw default" restarts UFW, shows it,
+// the restart applies it, and the revert writes the old value back and
+// restores the policy.
 func m3SysctlRevert(ctx context.Context, t *testing.T, f *fleet) {
 	const key = "net.ipv4.conf.all.accept_source_route"
 	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3Healthy)
 	read := func() string { return strings.TrimSpace(m3Run(ctx, t, f.agent, "sudo sysctl -n "+key)) }
+	policy := func() string {
+		return strings.TrimSpace(m3Run(ctx, t, f.agent, "sudo grep '^DEFAULT_INPUT_POLICY=' /etc/default/ufw"))
+	}
 	if v := read(); v != "0" {
 		t.Fatalf("%s is %s before the scenario, want 0", key, v)
 	}
+	before := policy()
 	t.Cleanup(func() {
 		_, _ = f.agent.Run(ctx, "sudo cp -p /root/m3-sysctl.conf /etc/ufw/sysctl.conf && sudo rm -f /root/m3-sysctl.conf; sudo sysctl -w "+key+"=0")
 	})
 	m3Run(ctx, t, f.agent, "sudo cp -p /etc/ufw/sysctl.conf /root/m3-sysctl.conf && "+
 		"echo net/ipv4/conf/all/accept_source_route=1 | sudo tee -a /etc/ufw/sysctl.conf >/dev/null")
-	p, err := f.api.m3Plan(ctx, f.agentID, "firewall.rule.add", m3PortRule(8096))
+	reject := map[string]any{"incoming": "REJECT"}
+	p, err := f.api.m3Plan(ctx, f.agentID, "firewall.defaults.set", reject)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(p.m3DiffText(), "accept_source_route") {
 		t.Errorf("the plan does not show the sysctl change:\n%s", p.m3DiffText())
 	}
-	ch, err := f.api.m3Apply(ctx, f.agentID, "firewall.rule.add", m3PortRule(8096), 30)
+	ch, err := f.api.m3Apply(ctx, f.agentID, "firewall.defaults.set", reject, 30)
 	m3RequirePending(t, ch, err)
 	if v := read(); v != "1" {
 		t.Errorf("%s is %s while the change is pending, want 1", key, v)
@@ -587,7 +593,10 @@ func m3SysctlRevert(ctx context.Context, t *testing.T, f *fleet) {
 	if v := read(); v != "0" {
 		t.Errorf("%s is %s after the revert, want 0", key, v)
 	}
-	m3RequireGone(ctx, t, f, 8096)
+	m3WaitStatus(ctx, t, f.api, f.agentID, 2*time.Minute, m3Healthy)
+	if got := policy(); got != before {
+		t.Errorf("/etc/default/ufw has %s after the revert, want %s", got, before)
+	}
 }
 
 // m3GoldenRecheck replays the golden "rules" scenario on the agent host's
