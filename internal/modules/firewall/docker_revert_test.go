@@ -595,6 +595,33 @@ func TestW11a08ImageLoadSkipsIPv6WhenOff(t *testing.T) {
 	}
 }
 
+// TestW11a08ImageLoadRunsNothingWithUfwOff: with UFW off nothing keeps a
+// foreign DOCKER-USER rule around the load, so the load does not run.
+func TestW11a08ImageLoadRunsNothingWithUfwOff(t *testing.T) {
+	h, d := kfwHost(t, true)
+	h.writeFile("/etc/ufw/ufw.conf", []byte("ENABLED=no\nLOGLEVEL=low\n"))
+	if h.config().Enabled {
+		t.Fatal("the rig still has UFW enabled")
+	}
+	var restores int
+	prev := h.onRun
+	h.onRun = func(h *fakeHost, cmd core.Cmd) core.CmdResult {
+		if strings.HasSuffix(cmd.Path, "-restore") {
+			restores++
+		}
+		return prev(h, cmd)
+	}
+	e := core.Effect{Seq: 1, Kind: core.EffectModify, Resource: blockChainsResource,
+		Before: core.StateDoc{State: json.RawMessage(`{"v4":{"darkpanel-docker-deny":[]}}`)}}
+	img := takeImage(h.loaded)
+	if err := undoDocker(context.Background(), h.env(), d, snapshot{State: snapshotState{Image: img}}, nounChains, "block", e); err != nil {
+		t.Fatal(err)
+	}
+	if restores != 0 {
+		t.Errorf("%d restores ran with UFW off, want none", restores)
+	}
+}
+
 // TestW11a08ImageLoadRefusesALineBreak: a damaged image row could add lines
 // of its own to the restore input, so nothing runs.
 func TestW11a08ImageLoadRefusesALineBreak(t *testing.T) {

@@ -234,6 +234,11 @@ func loadImageChains(ctx context.Context, env core.Env, d deps, img *beforeImage
 	if err != nil {
 		return err
 	}
+	// With UFW off nothing keeps foreign rules around the load, and the input
+	// always flushes DOCKER-USER.
+	if !cfg.Enabled {
+		return nil
+	}
 	st, err := d.readLoaded(ctx, env)
 	if err != nil {
 		return err
