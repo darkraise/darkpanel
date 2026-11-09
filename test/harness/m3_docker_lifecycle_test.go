@@ -312,7 +312,7 @@ func m3dxLockHeld(err error) bool {
 // m3dxCleanupRetryable reports whether err is a refusal that a background
 // change causes and outlives: lock.held while the change applies, or a
 // failing lockout guard. Plans take no lock, so a plan can read the host
-// while that change's ufw reload has loaded IPv4 but not yet IPv6, which the
+// while that change's load has reached IPv4 but not yet IPv6, which the
 // guard reports as out of sync. The traffic scenarios' steps use it as well as
 // the cleanups, because both follow a container or network change that wakes
 // firewall.reconcile.
@@ -549,7 +549,9 @@ func m3dDockEnable(ctx context.Context, t *testing.T, f *fleet) {
 			m3dDockTry(ctx, t, f, "firewall.docker.disable", map[string]any{})
 		}
 	})
-	m3dDockApply(ctx, t, f, "firewall.docker.enable", map[string]any{})
+	if err := m3dDockSettle(ctx, t, f, "firewall.docker.enable", map[string]any{}, m3dxCleanupRetryable); err != nil {
+		t.Fatalf("enable the integration: %v", err)
+	}
 	m3dDockWait(ctx, t, f.api, f.agentID, 2*time.Minute, m3dxDockHealth("ok"))
 }
 

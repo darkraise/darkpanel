@@ -314,7 +314,7 @@ func m3dTrafficAllowed(selector string, port uint16, from string) map[string]any
 
 // m3drApply plans, applies and confirms action, trying again while a
 // background reconcile refuses it. A container or network a traffic scenario
-// creates wakes firewall.reconcile, whose file writes and ufw reload overlap a
+// creates wakes firewall.reconcile, whose file writes and chain loads overlap a
 // plan that takes no lock, and an apply meets lock.held while it runs.
 func m3drApply(ctx context.Context, t *testing.T, f *fleet, action string, input any) {
 	t.Helper()

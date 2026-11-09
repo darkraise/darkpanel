@@ -64,6 +64,18 @@ func w11a02PolicyLeaks(log string) []string {
 	return out
 }
 
+// w11a02PolicyUnsampled returns each of families with no INPUT policy sample
+// in log, since an empty poll would otherwise read as no leak.
+func w11a02PolicyUnsampled(log string, families ...string) []string {
+	var out []string
+	for _, fam := range families {
+		if !strings.Contains(log, fam+" -P INPUT ") {
+			out = append(out, fam)
+		}
+	}
+	return out
+}
+
 func m3LiveApply(ctx context.Context, t *testing.T, f *fleet) {
 	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3Healthy)
 	t.Cleanup(func() {
@@ -121,5 +133,8 @@ func m3LiveApply(ctx context.Context, t *testing.T, f *fleet) {
 	log := m3Run(ctx, t, f.agent, "sudo cat /run/w11a-poll.log")
 	for _, fam := range w11a02PolicyLeaks(log) {
 		t.Errorf("live ufw commands left INPUT policy ACCEPT in %s", fam)
+	}
+	for _, fam := range w11a02PolicyUnsampled(log, "v4", "v6") {
+		t.Errorf("the policy poll recorded no INPUT policy of %s", fam)
 	}
 }

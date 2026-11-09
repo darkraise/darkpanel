@@ -4,6 +4,7 @@ package harness
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -43,5 +44,14 @@ func TestW11a02UnitPolicyLeaksNamesEveryAcceptLine(t *testing.T) {
 	}
 	if got := w11a02PolicyLeaks("v4 -P INPUT DROP\nv6 -P INPUT DROP\n"); len(got) != 0 {
 		t.Errorf("w11a02PolicyLeaks on a clean log = %q, want none", got)
+	}
+}
+
+func TestW11a02UnitPolicyUnsampled(t *testing.T) {
+	if got, want := w11a02PolicyUnsampled("v4 -P INPUT DROP\nv6 \n", "v4", "v6"), []string{"v6"}; !slices.Equal(got, want) {
+		t.Errorf("w11a02PolicyUnsampled = %q, want %q", got, want)
+	}
+	if got := w11a02PolicyUnsampled("v4 -P INPUT DROP\nv6 -P INPUT DROP\n", "v4", "v6"); len(got) != 0 {
+		t.Errorf("w11a02PolicyUnsampled on a full log = %q, want none", got)
 	}
 }
