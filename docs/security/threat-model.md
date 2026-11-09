@@ -211,6 +211,7 @@ This page is the written threat model of Darkpanel. It states what the product p
 
 #### Mitigations
 
+- Darkpanel does not reload an active UFW for rule, logging, container or Docker block changes: UFW applies those commands live and Darkpanel loads its Docker chains atomically per family (`internal/modules/firewall/dockerfw/restore_input.go`).
 - A lockout guard predicts the effect of a change on the protected flows and refuses it unless explicitly overridden. It checks the public leg of a panel exposure, the browser to NPM binding, from the exposure's own record, and a request through an NPM exposure without those bindings fails closed. It evaluates "any internet address" once for each cell of the public unicast space that the ruleset's prefixes and the host's routes cut. A flow to any internet address, the tunnel connector's or tailscaled's, holds only when every cell passes. A flow from any internet address, to the controller listener or to NPM's public binding, fails only on a cell the change itself blocks: a source the loaded rules already drop or reject does not refuse a later change, and the guard does not report it, while a source the guard cannot decide still refuses. A refusal names the first blocked cell (`internal/modules/firewall/predict`, `internal/modules/firewall/eval`, `internal/modules/firewall/guard`, `internal/controller/api`, `internal/modules/panel`).
 - A change stays pending until confirmed and the host reverts it by itself after the confirmation timeout (60 seconds by default), so the revert happens even when the client disconnects (`internal/core/lifecycle`, `internal/modules/firewall`).
 - A snapshot is taken before every change, and a break-glass rollback and restore through the agent socket work without the controller (`internal/cli`, `internal/modules/firewall`).
@@ -220,6 +221,7 @@ This page is the written threat model of Darkpanel. It states what the product p
 
 #### Residual risk
 
+- `ufw default` restarts an active UFW, and enabling, disabling and repairing UFW, a Docker repair whose differences reach outside Darkpanel's chains, and restoring a snapshot, restart it; the built-in policies are ACCEPT for about a second in that window.
 - A break-glass process outside the agent is not covered by the lock, because it runs when the agent cannot be reached.
 - An overridden guard can still cut the operator off, and the revert timer is the only net.
 - Docker network modes the integration cannot protect are reported as unprotected.

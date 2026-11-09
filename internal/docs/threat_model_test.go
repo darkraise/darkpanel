@@ -278,3 +278,25 @@ func TestW10TmFollowsTheDocumentationStyle(t *testing.T) {
 	}
 	dcLinks(t, w10tmPage)
 }
+
+// TestW11a09FirewallStatesLiveApply: the firewall area says which changes
+// apply live and which still restart UFW.
+func TestW11a09FirewallStatesLiveApply(t *testing.T) {
+	d := w10tmParse(dcRead(t, w10tmPage))
+	for key, phrases := range map[string][]string{
+		"Firewall/Mitigations": {
+			"Darkpanel does not reload an active UFW for rule, logging, container or Docker block changes",
+		},
+		"Firewall/Residual risk": {
+			"`ufw default` restarts an active UFW",
+			"enabling, disabling and repairing UFW, a Docker repair whose differences reach outside Darkpanel's chains, and restoring a snapshot, restart it",
+		},
+	} {
+		text := strings.Join(d.parts[key], "\n")
+		for _, p := range phrases {
+			if !strings.Contains(text, p) {
+				t.Errorf("%s lacks %q", key, p)
+			}
+		}
+	}
+}

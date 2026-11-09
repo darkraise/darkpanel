@@ -151,6 +151,7 @@ as one change with one label.
   "Auto-revert" describes.
 - `firewall.defaults.set` sets the default policies for incoming, outgoing
   and routed traffic to `ACCEPT`, `DROP` or `REJECT`. You can set one or all.
+  Changing a default policy restarts UFW briefly.
 - `firewall.logging.set` sets the logging level to `off`, `low`, `medium`,
   `high` or `full`.
 
@@ -280,7 +281,7 @@ now.
 
 ### Turning it on and off
 
-`firewall.docker.enable` writes the block and reloads UFW. It refuses when:
+`firewall.docker.enable` writes the block and loads its chains live. It refuses when:
 
 - `DOCKER-USER` holds rules that are not Docker's own `-j RETURN` or the
   block's. The refusal is `firewall.docker_user_in_use` and lists the rules.
