@@ -22,6 +22,8 @@
 
 > **External executors:** agy
 
+**Plan review:** 2026-11-09 — dforge:judge-opus — executability 15 / coherence 18 / coverage 17 / assumptions 17 (round 1)
+
 ## Global Constraints
 
 - Scope is spec revision 8 as amended on `main`, plus the rulings W11-R7 to W11-R12 that Task 11 copies into the spec. It covers register rows `2026-11-06-v1-security-review#27`, `#28`, `#46`, `#47`, `#48`, `#51` and `#53`. Wave 11c's rows are not in this plan.
@@ -42,7 +44,7 @@
 - A test this plan supplies that fails after the implementation matches the task's text is reported, not rewritten to pass: state the expected and the actual message in the ledger and stop the task.
 - File ownership: only Task 11 edits the spec, `docs/security/threat-model.md` and `internal/docs/`. No task edits `.github/workflows/**`, `Makefile`, `docs/runbook.md` or `CHANGELOG.md`. The plan runs on branch `v1-w11b-lockout-guard` in the base repository (no worktree).
 - Test isolation: files under `t.TempDir()`; no TCP listener; no package-level mutable state. Harness tests carry `Unit` in the name of every VM-free test.
-- Go identifiers: every new test function carries its task's prefix from Contracts "Test prefixes", and every new unexported test helper the same prefix in lower case.
+- Go identifiers: every new test function carries its task's prefix from Contracts "Test prefixes", and every new unexported test helper the same prefix in lower case. The one exception is `TestV1r21WildcardDestinations` (Task 4), which keeps the name register row 27 cites.
 - Code style: match the surrounding code; a doc comment on every exported identifier; comments only for a non-obvious why, never naming a plan, task, register row or review; gofmt clean; error strings start with the package name; a changed refusal keeps its error code.
 - Documentation style (Task 11): English, plain Markdown, sentence-case headings, present tense. A page describes what exists on `main` and never names a plan, wave, task or register row (the spec's "Plan rulings" bullets are exempt). Every relative link resolves.
 - Commits use `<type>(<scope>): <subject>`, type one of feat|fix|docs|style|refactor|test|chore|perf, subject at most 50 characters, imperative, no trailing period, no attribution of any kind.
@@ -66,6 +68,7 @@ Produced by Tasks 1 and 2, consumed by Task 8.
 
 - `RouteQuery` gains `Proto uint8`, `SrcPort uint16`, `DstPort uint16`. `routeRequest` encodes `RTA_IP_PROTO` (1 byte), `RTA_SPORT` and `RTA_DPORT` (big-endian 16 bits), each only when non-zero.
 - `retryDump(dump func() ([][]byte, error)) ([][]byte, error)`: at most 3 attempts, retrying only on `errDumpInterrupted`.
+- `type netlinkDump func(typ, flags uint16, body []byte) ([][]byte, error)`, the shape of `netlinkRequest` (Task 1). `routesFrom(family Family, request netlinkDump) ([]Route, error)` holds the body of `Routes`, which calls it with `netlinkRequest` (Task 1). `rulesFrom(family Family, request netlinkDump) ([]Rule, error)` does the same for `Rules` (Task 2). Both exist so a test can interrupt a dump.
 - `netstat.Rule` (comparable), in `internal/platform/netstat/rules.go`:
 
   ```go
@@ -80,6 +83,7 @@ Produced by Tasks 1 and 2, consumed by Task 8.
       SrcPort  bool         // FRA_SPORT_RANGE present
       DstPort  bool         // FRA_DPORT_RANGE present
       UID      bool         // FRA_UID_RANGE present
+      TOS      bool         // the header's tos byte is non-zero
   }
   ```
 - `netstat.Rules(family Family) ([]Rule, error)`: `RTM_GETRULE` dump through `retryDump`, request body `rtMsg(af, 0, 0, 0)`. `parseRule(m []byte) (Rule, error)`.
@@ -106,7 +110,7 @@ Produced by Tasks 1 and 2, consumed by Task 8.
 - `x/sys` already holds every constant used: `RTA_IP_PROTO`, `RTA_SPORT`, `RTA_DPORT`, `RTM_GETRULE`, `FRA_DST`, `FRA_SRC`, `FRA_PRIORITY`, `FRA_FWMARK`, `FRA_TABLE`, `FRA_FWMASK`, `FRA_UID_RANGE`, `FRA_IP_PROTO`, `FRA_SPORT_RANGE`, `FRA_DPORT_RANGE`, `FR_ACT_TO_TBL` (`rg` over `zerrors_linux.go` and `ztypes_linux.go` of the module-cache version, 2026-11-09).
 - The row 27 change makes exactly four existing tests stale (scratch-copy trial, 2026-11-09, recorded in `docs/dforge/notes/v1-w11b-guard-factsheet.md`). Task 4 lists them.
 - `netfilter.Parse` yields `Target.Name` `REDIRECT` and a `raw` `MARK` rule, and a route error in `reroute` gives `Unknown` (same trial; `internal/modules/firewall/eval/hooks.go` `reroute`).
-- The kernel emits no `FRA_UID_RANGE` for a rule without a uid selector and no `FRA_PRIORITY` for priority 0. `unverified — Task 2 verifies it` through `TestW11b02RulesLive` on the main rule.
+- The kernel emits no `FRA_UID_RANGE` for a rule without a uid selector. `unverified — Task 2 verifies it` through `TestW11b02RulesLive` on the main rule.
 - A flow with a before-state skips what that state already blocks (`internal/modules/firewall/plan.go`: `Before: &p.cur`). The revert path passes none (`internal/modules/firewall/wire.go` `lockoutVia`), but `revert.go` reaches it only after a revert with blocked effects, conflicts or a write error, so a `[::]:443` record on a host whose IPv6 rules drop 443 affects only such troubled reverts.
 - Listener rows stored before this plan keep `0.0.0.0:443` (migration `0016_listener_public_binding.sql`) and are checked as IPv4 only until the exposure is recreated. v1.0 has not shipped, so no released controller holds such a row.
 - Tasks 1, 2, 5 and 7 carry `agy` executor lines because the lane gate admits them (total at most 8, risk at most 2); the fact sheet named a rung only for Tasks 3, 10 and 11.
@@ -134,7 +138,7 @@ Produced by Tasks 1 and 2, consumed by Task 8.
 - Test: `internal/platform/netstat/routes_test.go`
 
 **Interfaces:**
-- Produces: `RouteQuery.Proto`, `.SrcPort`, `.DstPort`; `retryDump` (Contracts "netstat")
+- Produces: `RouteQuery.Proto`, `.SrcPort`, `.DstPort`; `retryDump`; `netlinkDump`; `routesFrom` (Contracts "netstat")
 
 **Items:** 2026-11-06-v1-security-review#28, 2026-11-06-v1-security-review#53
 
@@ -196,7 +200,31 @@ func TestW11b01RetryDump(t *testing.T) {
 		})
 	}
 }
+
+func TestW11b01RoutesRetriesAnInterruptedDump(t *testing.T) {
+	calls := 0
+	_, err := routesFrom(IPv4, func(uint16, uint16, []byte) ([][]byte, error) {
+		calls++
+		if calls == 1 {
+			return nil, errDumpInterrupted
+		}
+		return nil, nil
+	})
+	if err != nil || calls != 2 {
+		t.Fatalf("routesFrom = %v after %d calls, want success after 2", err, calls)
+	}
+	calls = 0
+	_, err = routesFrom(IPv4, func(uint16, uint16, []byte) ([][]byte, error) {
+		calls++
+		return nil, errDumpInterrupted
+	})
+	if !errors.Is(err, errDumpInterrupted) || calls != 3 || !strings.Contains(err.Error(), "netstat: route dump:") {
+		t.Fatalf("routesFrom = %v after %d calls, want the wrapped interruption after 3", err, calls)
+	}
+}
 ```
+
+Add the imports `"reflect"` and `"strings"` to the file if they are absent.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
@@ -208,7 +236,7 @@ Expected: FAIL, a build error naming `unknown field Proto` or `undefined: retryD
 1. `RouteQuery` gains the three fields of Contracts, each with a short comment naming it optional.
 2. `routeRequest`: after the mark attribute, when `q.Proto != 0` append `nlAttr(unix.RTA_IP_PROTO, []byte{q.Proto})`; when a port is non-zero append `RTA_SPORT` or `RTA_DPORT` with `binary.BigEndian.AppendUint16(nil, port)`. The attribute order does not matter. Update the function's doc comment.
 3. Add `retryDump` with a named constant for the 3 attempts. It returns the last result, and returns at once for anything but `errors.Is(err, errDumpInterrupted)`.
-4. `Routes`: wrap its `netlinkRequest` call in `retryDump`, keeping the `netstat: route dump: %w` wrapping.
+4. Add `netlinkDump` and move the body of `Routes` into `routesFrom`, which wraps its `request` call in `retryDump` and keeps the `netstat: route dump: %w` wrapping. `Routes` becomes `return routesFrom(family, netlinkRequest)`.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -231,8 +259,8 @@ git commit -m "feat(netstat): add lookup selectors and dump retry"
 - Test: `internal/platform/netstat/rules_test.go`
 
 **Interfaces:**
-- Consumes: `retryDump` (Contracts "netstat")
-- Produces: `netstat.Rule`, `netstat.Rules`, `parseRule` (Contracts "netstat")
+- Consumes: `retryDump`, `netlinkDump` (Contracts "netstat")
+- Produces: `netstat.Rule`, `netstat.Rules`, `rulesFrom`, `parseRule` (Contracts "netstat")
 
 **Items:** 2026-11-06-v1-security-review#53
 
@@ -299,6 +327,8 @@ func TestW11b02ParseRule(t *testing.T) {
 			Rule{Family: IPv4, Table: 200, Action: act, Proto: unix.IPPROTO_TCP, SrcPort: true, DstPort: true}},
 		{"a uid range", w11b02Msg(unix.AF_INET, 0, 0, 200, act, nlAttr(unix.FRA_UID_RANGE, make([]byte, 8))),
 			Rule{Family: IPv4, Table: 200, Action: act, UID: true}},
+		{"a tos selector", func() []byte { m := w11b02Msg(unix.AF_INET, 0, 0, 200, act); m[3] = 0x10; return m }(),
+			Rule{Family: IPv4, Table: 200, Action: act, TOS: true}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := parseRule(tt.m)
@@ -326,6 +356,21 @@ func TestW11b02ParseRuleRefusesMalformedMessages(t *testing.T) {
 	}
 }
 
+func TestW11b02RulesRetriesAnInterruptedDump(t *testing.T) {
+	calls := 0
+	got, err := rulesFrom(IPv4, func(uint16, uint16, []byte) ([][]byte, error) {
+		calls++
+		if calls == 1 {
+			return nil, errDumpInterrupted
+		}
+		return [][]byte{w11b02Msg(unix.AF_INET, 0, 0, 200, unix.FR_ACT_TO_TBL)}, nil
+	})
+	want := []Rule{{Family: IPv4, Table: 200, Action: unix.FR_ACT_TO_TBL}}
+	if err != nil || calls != 2 || !slices.Equal(got, want) {
+		t.Fatalf("rulesFrom = %+v, %v after %d calls, want %+v after 2", got, err, calls, want)
+	}
+}
+
 func TestW11b02RulesLive(t *testing.T) {
 	rules, err := Rules(IPv4)
 	if err != nil {
@@ -347,13 +392,13 @@ func TestW11b02RulesLive(t *testing.T) {
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `go test -count=1 -run 'TestW11b02' ./internal/platform/netstat/`
-Expected: FAIL with `undefined: parseRule`.
+Expected: FAIL with `undefined: Rule`.
 
 - [ ] **Step 3: Implement**
 
 1. Create `rules.go` with `Rule` as Contracts states it, with a doc comment saying what a set field means.
-2. `Rules(family Family) ([]Rule, error)`: `af` as in `Routes`; `retryDump` around `netlinkRequest(unix.RTM_GETRULE, unix.NLM_F_DUMP, rtMsg(af, 0, 0, 0))`, because `struct fib_rule_hdr` has the layout of `struct rtmsg`; wrap errors as `netstat: rule dump: %w`; parse every message.
-3. `parseRule(m []byte) (Rule, error)`: refuse `len(m) < unix.SizeofRtMsg` with `netstat: rule message of %d bytes`. `Family` is `IPv6` when `m[0] == unix.AF_INET6`, else `IPv4`. `Table` starts as `uint32(m[4])` and `FRA_TABLE` (4 bytes) overrides it; `Action` is `m[7]`. Walk the attributes as `parseRoute` does, with `netstat: rule attribute of length %d in %d bytes` for a bad length. `FRA_DST` and `FRA_SRC` become prefixes of `m[1]` and `m[2]` bits via `addr.Prefix(bits)`, an error being `netstat: rule prefix %s/%d: %w`. `FRA_PRIORITY` (4 bytes) sets `Priority`; `FRA_FWMARK` and `FRA_FWMASK` set `Mark`; `FRA_IP_PROTO` (1 byte) sets `Proto`; `FRA_SPORT_RANGE`, `FRA_DPORT_RANGE` and `FRA_UID_RANGE` set their booleans. Other attributes are ignored.
+2. `Rules(family Family) ([]Rule, error)` is `return rulesFrom(family, netlinkRequest)`. `rulesFrom`: `af` as in `routesFrom`; `retryDump` around `request(unix.RTM_GETRULE, unix.NLM_F_DUMP, rtMsg(af, 0, 0, 0))`, because `struct fib_rule_hdr` has the layout of `struct rtmsg`; wrap errors as `netstat: rule dump: %w`; parse every message.
+3. `parseRule(m []byte) (Rule, error)`: refuse `len(m) < unix.SizeofRtMsg` with `netstat: rule message of %d bytes`. `Family` is `IPv6` when `m[0] == unix.AF_INET6`, else `IPv4`. `Table` starts as `uint32(m[4])` and `FRA_TABLE` (4 bytes) overrides it; `Action` is `m[7]`; `TOS` is `m[3] != 0`. Walk the attributes as `parseRoute` does, with `netstat: rule attribute of length %d in %d bytes` for a bad length. `FRA_DST` and `FRA_SRC` become prefixes of `m[1]` and `m[2]` bits via `addr.Prefix(bits)`, an error being `netstat: rule prefix %s/%d: %w`. `FRA_PRIORITY` (4 bytes) sets `Priority`; `FRA_FWMARK` and `FRA_FWMASK` set `Mark`; `FRA_IP_PROTO` (1 byte) sets `Proto`; `FRA_SPORT_RANGE`, `FRA_DPORT_RANGE` and `FRA_UID_RANGE` set their booleans. Other attributes are ignored.
 
 - [ ] **Step 4: Run the test to verify it passes**
 
@@ -374,7 +419,8 @@ git commit -m "feat(netstat): dump policy routing rules"
 **Files:**
 - Modify: `internal/modules/firewall/eval/match.go` (`conntrackOption`)
 - Modify: `internal/modules/firewall/eval/cells.go` (`InternetCells`, remove `parsePrefixOrAddr`)
-- Test: `internal/modules/firewall/eval/cells_test.go`, `internal/modules/firewall/eval/match_test.go`
+- Modify: `internal/modules/firewall/eval/unsupported.go` (`matchGap`)
+- Test: `internal/modules/firewall/eval/cells_test.go`, `internal/modules/firewall/eval/match_test.go`, `internal/modules/firewall/eval/unsupported_test.go`
 
 **Interfaces:**
 - Produces: `origDstPrefix(s string) (netip.Prefix, bool)`, used only inside package `eval`
@@ -395,6 +441,12 @@ Add these rows to the `tests` table of `TestV1r20InternetCells`. They pin branch
 	[]string{"1.0.0.0-126.255.255.255", "128.0.0.0-223.255.255.255"}},
 {"a conntrack original destination without a value", v1r20Set(netfilter.Rule{Matches: []netfilter.Match{{Module: "conntrack",
 	Options: []netfilter.Option{{Name: "ctorigdst"}}}}}), false, []string{v1r20Whole4}},
+```
+
+Add this row to the table of `unsupported_test.go::TestUnmodelledAgreesWithEvaluate`. It pins that `matchGap` refuses what the parser refuses, and passes before the change:
+
+```go
+{"-A INPUT -m conntrack --ctorigdst 9.9.9.9-9.9.9.20 -j DROP", "tcp", true},
 ```
 
 Append to `internal/modules/firewall/eval/match_test.go`:
@@ -430,6 +482,7 @@ Expected: FAIL with `undefined: origDstPrefix`.
 1. In `match.go` add `origDstPrefix`: `netip.ParsePrefix`, else `netip.ParseAddr` as a full-length prefix, else `netip.Prefix{}, false`.
 2. `conntrackOption`'s `ctorigdst` case calls it, and keeps the refusal text `original destination <quoted value> is not an address` on `false`.
 3. `InternetCells` calls `addPrefix` only when `origDstPrefix` answers true. Delete `parsePrefixOrAddr`.
+4. `matchGap`'s `ctorigdst` case in `unsupported.go` calls it, and keeps the return text `match conntrack original destination <value>` on `false`. Remove the `net/netip` import of that file, which nothing else there uses.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -439,7 +492,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add internal/modules/firewall/eval/match.go internal/modules/firewall/eval/cells.go internal/modules/firewall/eval/cells_test.go internal/modules/firewall/eval/match_test.go
+git add internal/modules/firewall/eval/match.go internal/modules/firewall/eval/cells.go internal/modules/firewall/eval/unsupported.go internal/modules/firewall/eval/cells_test.go internal/modules/firewall/eval/match_test.go internal/modules/firewall/eval/unsupported_test.go
 git commit -m "refactor(firewall): share the origdst parser"
 ```
 
@@ -938,7 +991,6 @@ git commit -m "fix(firewall): bound cells and match longest routes"
 - Test: `internal/modules/firewall/guard/guard_test.go` (`TestVerdict`), `internal/modules/firewall/guard/cells_test.go`
 
 **Interfaces:**
-- Consumes: `routeCuts` caching (Task 6)
 - Produces: `forState`, `checkFlow`'s skipped count, `verdict(results, skipped)` (Contracts)
 
 **Items:** 2026-11-06-v1-security-review#48
@@ -1118,6 +1170,7 @@ func TestV1r21ThrowCellWithMarkedRepliesIsUnknown(t *testing.T) {
 		{name: "a mark in the filter table", filter: []string{"-A FORWARD -j MARK --set-xmark 0x40000/0xff0000"}, policy: byMark},
 		{name: "a destination port selector", policy: policy(netstat.Rule{DstPort: true}), unknown: true},
 		{name: "a uid selector", policy: policy(netstat.Rule{UID: true}), unknown: true},
+		{name: "a tos selector", policy: policy(netstat.Rule{TOS: true}), unknown: true},
 		{name: "a protocol selector, which lookups carry", policy: policy(netstat.Rule{Proto: unix.IPPROTO_TCP})},
 		{name: "a source port selector, which lookups carry", policy: policy(netstat.Rule{SrcPort: true})},
 	} {
@@ -1329,8 +1382,8 @@ Expected: FAIL, a build error naming `undefined: ruleDumper`, since the `var` bl
 1. **`routes.go`.** `ruleDumper` with a comment saying it is optional, as a host that cannot dump rules has none to report; and `func (LiveHost) Rules(family netstat.Family) ([]netstat.Rule, error)`.
 2. **`routeCuts`.** Once the routes are read without error and the host implements `ruleDumper`, read the family's rules. An error sets `c.why` to the Contracts text. Otherwise `c.rules` holds them, and each `Src` and `Dst` prefix that `IsValid()` is appended to the `routes` chain of `c.rs` as a `netfilter.Rule{Dest: netfilter.AddrMatch{Prefix: p}}`, except a prefix where `p.IsSingleIP() && r.local[p.Addr().Unmap()]`. A short comment gives the reason: such a cell would turn the flow into input to the host.
 3. **`selectors`.** Returns `q` unchanged unless `r.routeCuts(q.Dst.Unmap().Is6()).rules` holds a rule with `Proto != 0 || SrcPort || DstPort`. Otherwise it sets `q.Proto` from `protoNum(proto)` only for `tcp` and `udp`, because the kernel accepts no other protocol in a lookup, and sets `q.SrcPort` and `q.DstPort` from its arguments.
-4. **Lookups.** Pass through `selectors`: the output lookup of `probes` and `route` and the forward lookup of `probes` and `route` with `p.Proto, p.SrcPort, p.DstPort`; the reply lookups with `fl.pkt.Proto` (or `p.Proto`), `fl.pkt.DstPort` as source port and `0` as destination port: the route-back lookup in `probes`, the two in `noReply`, the one in `noReplyFrom`, and the one in `eligible`. Do not change `fromTailnet`.
-5. **Stand-in off.** `noReply` starts by returning false when any of the family's policy rules has `DstPort` or `UID`, or when any has `Mark` and `marksReplies(fl)` holds. Rewrite the comment: a reply's destination port is the client's, unknown here, and no lookup can state a uid. `marksReplies` scans the `raw` and `mangle` tables, not `filter` or `nat`.
+4. **Lookups.** Pass through `selectors`: the output lookup of `probes` and `route` and the forward lookup of `probes` and `route` with `p.Proto, p.SrcPort, p.DstPort`; the reply lookups with the flow's protocol, the flow's destination port as source port and `0` as destination port: `p.Proto` and `p.DstPort` for the route-back lookup in `probes` and the one in `eligible(p)`, and `fl.pkt.Proto` and `fl.pkt.DstPort` for the two in `noReply` and the one in `noReplyFrom`. Do not change `fromTailnet`.
+5. **Stand-in off.** `noReply` starts by returning false when any of the family's policy rules has `DstPort`, `TOS` or `UID`, or when any has `Mark` and `marksReplies(fl)` holds. Rewrite the comment: a reply's destination port is the client's and its TOS the socket's, both unknown here, and no lookup can state a uid. `marksReplies` scans the `raw` and `mangle` tables, not `filter` or `nat`.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -1354,7 +1407,7 @@ git commit -m "fix(firewall): read policy rules in the guard"
 - Test: `internal/modules/firewall/guard/flows_test.go`, `internal/modules/firewall/guard/exposure_test.go`, `internal/modules/panel/listener_test.go` (`lsSpec`)
 
 **Interfaces:**
-- Consumes: `flow.fwdReplies` (Task 5), `wildcardDsts` (Task 4)
+- Consumes: `flow.fwdReplies` (Task 5)
 
 **Items:** 2026-11-06-v1-security-review#28, 2026-11-06-v1-security-review#46, 2026-11-06-v1-security-review#53
 
@@ -1467,7 +1520,7 @@ func TestW11b09IPv6LegOfADualStackBinding(t *testing.T) {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `go test -count=1 -run 'TestW11b09|TestBuildFlows' ./internal/modules/firewall/guard/; go test -count=1 ./internal/modules/panel/`
-Expected: both FAIL. In the guard package the new `TestBuildFlows` rows report the wrong flows and `TestW11b09IPv6LegOfADualStackBinding` reports a guard without the IPv6 refusal. In the panel package the open action's listener differs from `lsSpec` in its public binding.
+Expected: both FAIL. In the guard package the new `TestBuildFlows` rows report the wrong flows, and `TestW11b09IPv6LegOfADualStackBinding` fails at least on its last assertion (`want OK: a host without an IPv6 route has nothing to protect on that leg`), because a `[::]:443` binding already yields a flow that is not a stand-in. `TestW11b09BlockedPublicBindingIsRefused` pins the IPv4 leg and passes before the change. In the panel package the open action's listener differs from `lsSpec` in its public binding.
 
 - [ ] **Step 3: Implement**
 
@@ -1552,13 +1605,13 @@ Expected: FAIL with `undefined: m3dxJournalSince`.
 
 1. Add `m3dxJournalSince`: trim, `strconv.ParseInt` base 10; an error or a value under `2e9` returns `harness: agent time %q is not Unix nanoseconds`. Otherwise `"@" + strconv.FormatInt(ns/1e9-2, 10)`. A comment gives the reason: the agent's clock, not the runner's, decides which journal lines the window holds, and two seconds cover the scenario's first log line.
 2. Add `m3dxTrafficAttempt{Port uint16; OK bool; At time.Time}` and `m3dxTrafficParse`, which walks the lines as today (blank lines skipped) through `v1r24ParseLine`.
-3. Split `v1r24Windows`, `m3dxTrafficCount` and `m3dxTrafficProbed` into their current string-taking forms, which parse and delegate, and inner forms over `[]m3dxTrafficAttempt`. `m3dxTrafficLeaks` parses once and calls only the inner forms. Their error messages do not change.
-4. In `m3dTrafficRecreate`, keep the two `date +%s%N` log lines. From the agent's output set `since` through `m3dxJournalSince`, calling `t.Fatal` on its error, and drop the runner-clock `since`. The `journalctl` call is otherwise unchanged.
+3. Split `v1r24Windows` and `m3dxTrafficProbed` into their current string-taking forms, which parse and delegate, and inner forms over `[]m3dxTrafficAttempt`. `m3dxTrafficCount` changes to take only `[]m3dxTrafficAttempt`: a string form would have no caller and fail the `unused` lint. `m3dxTrafficLeaks` parses once and calls only the inner forms. Their error messages do not change.
+4. In `m3dTrafficRecreate`, keep the two `date +%s%N` log lines. In the loop, when `vm.name == "agent"` and the command succeeded, set `since` through `m3dxJournalSince`, logging its error with `t.Logf`; drop the runner-clock `since`. `since` serves only the leak diagnostic, so a failure leaves it empty and does not abort the scenario. The `journalctl` call is otherwise unchanged.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `go test -tags harness -count=1 -run 'TestM3xTraffic|TestV1r24Unit|TestW11b10Unit' ./test/harness/`
-Expected: PASS. `TestM3xTrafficLeaks`, `TestM3xTrafficProbed` and `TestV1r24UnitLeakNamesTheWindows` pin that the refactor changes nothing; they have no `Unit` in the first two names, so this filter is the one that runs them.
+Expected: PASS. `TestM3xTrafficLeaks`, `TestM3xTrafficProbed` and `TestV1r24UnitLeakNamesTheWindows` pin that the refactor changes nothing; they have no `Unit` in the first two names, so this filter is the one that runs them. No test can tell one parse from three, so the "parses once" half of row 51 is confirmed by reading `m3dxTrafficLeaks`, which is accepted.
 
 - [ ] **Step 5: Commit**
 
@@ -1621,7 +1674,23 @@ Expected: FAIL, naming the first missing term.
 
 - [ ] **Step 3: Edit the documents**
 
-1. In the spec's W10b-R12 bullet, replace "is checked on every address of its family on the interface its route back leaves through." with "is checked on every non-link-local address of its family on every up, non-loopback interface (W11-R7)."
+1. In the spec's W10b-R12 bullet, the sentence is wrapped with a six-space indent. Replace these three lines:
+
+   ```
+         same route. A flow to a wildcard bind (NPM's `0.0.0.0:443`, a
+         wildcard controller listener) is checked on every address of its
+         family on the interface its route back leaves through. A flow to any
+   ```
+
+   with these four, keeping the six-space indent:
+
+   ```
+         same route. A flow to a wildcard bind (NPM's `[::]:443` or
+         `0.0.0.0:443`, a wildcard controller listener) is checked on every
+         non-link-local address of its family on every up, non-loopback
+         interface (W11-R7). A flow to any
+   ```
+
 2. After the W11-R6 bullet, insert exactly:
 
 ```markdown
@@ -1629,7 +1698,7 @@ Expected: FAIL, naming the first missing term.
   - **W11-R7 wildcard binds.** A flow to a wildcard bind is checked on the preferred source of the route back, then on every non-link-local address of its family on every up, non-loopback interface (owner, 2026-11-08). Bridge and tailnet addresses join the set, so a hand-written binding allowance that names only the uplinks fails the guard of a revert that had blocked effects, conflicts or a write error; other reverts do not reach the guard.
   - **W11-R8 cell limit.** The guard fails closed on cost: a flow is unknown when its cells number more than 65536, or when the cells times the rules of the family's ruleset plus one exceed 10,000,000. About 2,200 bans that can match the flow's port, or a full BGP table, refuse guarded changes until overridden.
   - **W11-R9 IPv6 public leg.** The panel records `[::]:443` for every NPM exposure, keeping W10b-R12's "bindings come from the exposure's own record". The guard reads an unspecified IPv6 binding as dual-stack: the IPv4 flow always, and the IPv6 flow as a stand-in only when the host has an IPv6 address that is neither loopback nor link-local. A forwarded reply is checked only on a flow of the proxy address's family. Rows stored earlier keep `0.0.0.0:443` until the exposure is recreated.
-  - **W11-R10 policy routing.** The guard reads `ip rule`. A rule's source and destination prefixes cut cells, except a single address of the host. Lookups carry the protocol and ports only while a rule of the family selects by them, so a host without such rules sends the queries it always sent. Stand-in skipping turns off while a rule selects by destination port or uid, which no reply lookup can state, or by mark while `raw` or `mangle` holds a MARK or CONNMARK rule that may match. Unreadable rules make every wild flow unknown.
+  - **W11-R10 policy routing.** The guard reads `ip rule`. A rule's source and destination prefixes cut cells, except a single address of the host. Lookups carry the protocol and ports only while a rule of the family selects by them, so a host without such rules sends the queries it always sent. Stand-in skipping turns off while a rule selects by destination port, TOS or uid, which no reply lookup can state, or by mark while `raw` or `mangle` holds a MARK or CONNMARK rule that may match. Unreadable rules make every wild flow unknown.
   - **W11-R11 special-purpose ranges.** The cell space keeps leaving out the ranges of `eval.holes4` and `holes6`; the threat model lists them all. No code changes.
   - **W11-R12 guard details.** Local routes outside the local table cut cells. An unmodelled target in any table keeps every rule as a cutter. A cell is no-path or blackhole only when its longest matching route says so. The before-state is routed with its own sysctl values. A pass reports the probes the before-state already blocked.
 ```
@@ -1637,7 +1706,7 @@ Expected: FAIL, naming the first missing term.
 3. In the threat model's Firewall mitigation that begins "A lockout guard predicts", append before its closing path list: "A flow to a wildcard bind is checked on every non-link-local address of its family on every up, non-loopback interface, and an NPM exposure recorded on `[::]:443` is checked on both families. The guard reads the policy rules: their prefixes cut the cells, and their protocol and port selectors are carried on route lookups."
 4. In Firewall Residual risk, delete the bullets beginning "The lockout guard checks only the IPv4 public leg", "The reply lookups that decide" and "The open follow-up rows", and replace these three:
    - The bullet beginning "The cells cover the public unicast space only." becomes: "The cells cover the public unicast space only. `0.0.0.0/8`, `10.0.0.0/8`, `100.64.0.0/10`, `127.0.0.0/8`, `169.254.0.0/16`, `172.16.0.0/12`, `192.0.0.0/24`, `192.0.2.0/24`, `192.168.0.0/16`, `198.18.0.0/15`, `198.51.100.0/24`, `203.0.113.0/24`, `224.0.0.0/4`, `240.0.0.0/4`, `2001:db8::/32` and all IPv6 outside `2000::/3` are left out, so an any-address flow is not protected from or to an address there. A protected flow with a concrete address, such as an SSH session from a private network, is checked whatever its range (`internal/modules/firewall/eval`)."
-   - The bullet beginning "The guard does not read" becomes: "A lookup cannot state a reply's destination port or a user. While a policy rule selects by `dport` or `uidrange`, or by a firewall mark while a `raw` or `mangle` rule may set one, a missing route no longer skips a source cell, so such a host refuses guarded changes until overridden (`internal/modules/firewall/guard`)."
+   - The bullet beginning "The guard does not read" becomes: "A lookup cannot state a reply's destination port, TOS or user. While a policy rule selects by `dport`, `tos` or `uidrange`, or by a firewall mark while a `raw` or `mangle` rule may set one, a missing route no longer skips a source cell, so such a host refuses guarded changes until overridden (`internal/modules/firewall/guard`)."
    - The bullet beginning "Inside a cell that the route dump" becomes: "Inside a cell whose longest route is a blackhole, the guard takes any EINVAL from a route lookup as \"no route\", because the kernel answers a lookup there with EINVAL. An EINVAL there for another reason also skips the cell (`internal/modules/firewall/guard`)."
 5. Add these two bullets to Firewall Residual risk:
    - "A check that would cost too much fails closed: more than 65,536 cells, or cells times rules above 10,000,000. About 2,200 bans that can match a protected flow's port, or a full BGP table, refuse guarded changes until overridden (`internal/modules/firewall/guard`)."
