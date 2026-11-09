@@ -30,6 +30,8 @@ func TestW11b08ProbeLookupsCarrySelectorsOnlyUnderAPolicyRule(t *testing.T) {
 	tunnel := flOn("dp-panel", flPkt("forward", "172.30.0.3", 0, "198.51.100.1", 7844, "udp"))
 	linkQ := rtQuery("198.51.100.9", "192.0.2.1", "")
 	tunnelQ := rtQuery("198.51.100.1", "172.30.0.3", "dp-panel")
+	link6 := flPkt("output", "2001:db8::1", 40100, "2606:4700::9", 7443, "tcp")
+	link6Q := rtQuery("2606:4700::9", "2001:db8::1", "")
 	for _, tt := range []struct {
 		name  string
 		fl    flow
@@ -43,6 +45,8 @@ func TestW11b08ProbeLookupsCarrySelectorsOnlyUnderAPolicyRule(t *testing.T) {
 		{"a source port rule", flow{label: "l", pkt: link}, w11b08Rule(netstat.IPv4, netstat.Rule{SrcPort: true}), w11b08Selected(linkQ, 6, 40100, 7443)},
 		{"a destination port rule", flow{label: "l", pkt: link}, w11b08Rule(netstat.IPv4, netstat.Rule{DstPort: true}), w11b08Selected(linkQ, 6, 40100, 7443)},
 		{"a forwarded flow", flow{label: "t", pkt: tunnel, standIn: true}, w11b08Rule(netstat.IPv4, netstat.Rule{Proto: 17}), w11b08Selected(tunnelQ, 17, 0, 7844)},
+		{"an IPv6 flow under an IPv6 protocol rule", flow{label: "l", pkt: link6}, w11b08Rule(netstat.IPv6, netstat.Rule{Proto: 6}), w11b08Selected(link6Q, 6, 40100, 7443)},
+		{"an IPv6 flow under a rule of the other family", flow{label: "l", pkt: link6}, w11b08Rule(netstat.IPv4, netstat.Rule{Proto: 6}), link6Q},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			h := &gHost{ifaces: gIfaces(), routes: map[netstat.RouteQuery]netstat.Route{tt.want: rtVia("eth0", "192.0.2.1")}, rules: tt.rules}
@@ -140,6 +144,67 @@ func TestW11b08PolicyPrefixesJoinTheRouteCuts(t *testing.T) {
 	want := []netip.Prefix{netip.MustParsePrefix("8.8.8.0/24"), netip.MustParsePrefix("9.9.9.9/32"), netip.MustParsePrefix("45.33.0.0/24")}
 	if !slices.Equal(got, want) {
 		t.Errorf("cuts = %v, want %v: a host's own single address turns the flow into input", got, want)
+	}
+	var got6 []netip.Prefix
+	for _, cut := range r.routeCuts(true).rs.Table("routes").Chain("routes").Rules {
+		got6 = append(got6, cut.Dest.Prefix)
+	}
+	if want6 := []netip.Prefix{netip.MustParsePrefix("2606:4700::/32")}; !slices.Equal(got6, want6) {
+		t.Errorf("IPv6 cuts = %v, want %v", got6, want6)
+	}
+}
+
+// w11b08V6RulesFail is a host whose IPv6 rule dump alone fails.
+type w11b08V6RulesFail struct{ *gHost }
+
+func (h w11b08V6RulesFail) Rules(f netstat.Family) ([]netstat.Rule, error) {
+	if f == netstat.IPv6 {
+		return nil, errors.New("netlink: dump interrupted")
+	}
+	return h.gHost.Rules(f)
+}
+
+func TestW11b08RuleDumpIsReadForTheFlowsFamily(t *testing.T) {
+	const why = "the policy rules cannot be read: netlink: dump interrupted"
+	for _, tt := range []struct {
+		name string
+		pkt  fwstate.Packet
+		want string
+	}{
+		{"an IPv6 flow", flOn("eth0", flPkt("input", "2606:4700::1", 51000, "2001:db8::1", 443, "tcp")), why},
+		{"an IPv4 flow", flOn("eth0", flPkt("input", "203.0.113.7", 51000, "192.0.2.1", 443, "tcp")), ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			h := w11b08V6RulesFail{&gHost{ifaces: gIfaces()}}
+			got := newRouter(h, facts{ifaces: gIfaces()}, fwstate.Loaded{}).probes(flow{label: "panel", pkt: tt.pkt})
+			if len(got) != 1 || got[0].unknown != tt.want {
+				t.Errorf("probes = %+v, want one with unknown %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestW11b08StandInReadsTheRulesOfTheFlowsFamily(t *testing.T) {
+	v4 := flPkt("input", "45.33.0.0", 0, "192.0.2.1", 443, "tcp")
+	v6 := flPkt("input", "2606:4700::1", 0, "2001:db8::1", 443, "tcp")
+	for _, tt := range []struct {
+		name  string
+		pkt   fwstate.Packet
+		rules []netstat.Rule
+		want  bool
+	}{
+		{"an IPv4 flow under an IPv4 uid rule", v4, w11b08Rule(netstat.IPv4, netstat.Rule{UID: true}), false},
+		{"an IPv4 flow under an IPv6 uid rule", v4, w11b08Rule(netstat.IPv6, netstat.Rule{UID: true}), true},
+		{"an IPv6 flow under an IPv6 uid rule", v6, w11b08Rule(netstat.IPv6, netstat.Rule{UID: true}), false},
+		{"an IPv6 flow under an IPv4 uid rule", v6, w11b08Rule(netstat.IPv4, netstat.Rule{UID: true}), true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			h := &gHost{ifaces: gIfaces(), rules: tt.rules}
+			fl := flow{pkt: tt.pkt, wild: wildSrc, standIn: true}
+			if got := newRouter(h, facts{ifaces: gIfaces()}, fwstate.Loaded{}).noReply(fl, tt.pkt.Src, 0, tt.pkt.Dst); got != tt.want {
+				t.Errorf("noReply = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 

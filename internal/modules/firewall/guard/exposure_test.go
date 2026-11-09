@@ -56,17 +56,21 @@ func w11b09Plan(bind string) *core.GuardContext {
 }
 
 func TestW11b09BlockedPublicBindingIsRefused(t *testing.T) {
-	check := func(rules ...string) core.Guard {
-		t.Helper()
-		h := v1r21Fib{&gHost{ifaces: ckIfaces(), table: v1r21HostRoutes()}}
-		return v1r21CheckHost(t, h, v1r21State(t, w11b09Nat+v1r21Table(rules...), v1r21Table()), w11b09Plan("0.0.0.0:443"))
-	}
 	const want = "exposure exp1 public from"
-	if g := check(w11b09Drop); g.OK || !strings.Contains(g.Message, want) {
-		t.Errorf("guard = %+v, want a refusal containing %q", g, want)
-	}
-	if g := check(); !g.OK {
-		t.Errorf("guard = %+v, want OK without the drop", g)
+	for _, bind := range []string{"0.0.0.0:443", "[::]:443"} {
+		t.Run(bind, func(t *testing.T) {
+			check := func(rules ...string) core.Guard {
+				t.Helper()
+				h := v1r21Fib{&gHost{ifaces: ckIfaces(), table: v1r21HostRoutes()}}
+				return v1r21CheckHost(t, h, v1r21State(t, w11b09Nat+v1r21Table(rules...), v1r21Table()), w11b09Plan(bind))
+			}
+			if g := check(w11b09Drop); g.OK || !strings.Contains(g.Message, want) {
+				t.Errorf("guard = %+v, want a refusal containing %q", g, want)
+			}
+			if g := check(); !g.OK {
+				t.Errorf("guard = %+v, want OK without the drop", g)
+			}
+		})
 	}
 }
 

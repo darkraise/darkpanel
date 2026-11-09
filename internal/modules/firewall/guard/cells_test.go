@@ -107,9 +107,43 @@ func TestW11b06LongestRouteDecidesACell(t *testing.T) {
 				got[cf.pkt.Src.String()] = mark{cf.standIn, cf.blackhole}
 			}
 			for rep, want := range map[string]mark{"45.9.0.0": tt.rest, "45.9.1.0": tt.inside, "45.9.2.0": tt.rest} {
-				if got[rep] != want {
-					t.Errorf("cell at %s = %+v, want %+v", rep, got[rep], want)
+				if m, ok := got[rep]; !ok || m != want {
+					t.Errorf("cell at %s = %+v (present: %v), want %+v", rep, m, ok, want)
 				}
+			}
+		})
+	}
+}
+
+func TestW11b06EqualLengthRouteWithoutAPathDecidesACell(t *testing.T) {
+	type mark struct{ noPath, blackhole bool }
+	const prefix = "45.9.0.0/16"
+	route := func(typ string, table uint32) netstat.Route { return v1r21Route(typ, prefix, "", "-", table) }
+	for _, tt := range []struct {
+		name   string
+		routes []netstat.Route
+		want   mark
+	}{
+		{"a unicast route and a throw", []netstat.Route{route("unicast", 254), route("throw", 200)}, mark{true, false}},
+		{"a unicast route and an unreachable route", []netstat.Route{route("unicast", 254), route("unreachable", 200)}, mark{true, false}},
+		{"a unicast route and a blackhole", []netstat.Route{route("unicast", 254), route("blackhole", 200)}, mark{true, true}},
+		{"a blackhole and a unicast route in the other order", []netstat.Route{route("blackhole", 200), route("unicast", 254)}, mark{true, true}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := newRouter(&gHost{table: tt.routes}, facts{ifaces: ckIfaces()}, fwstate.Loaded{})
+			fl := flow{label: "x", pkt: flPkt("input", "0.0.0.0", 0, "192.0.2.1", 443, "tcp"), wild: wildSrc}
+			found := false
+			for _, cf := range r.cellFlows(fl, nil) {
+				if cf.pkt.Src.String() != "45.9.0.0" {
+					continue
+				}
+				found = true
+				if got := (mark{cf.standIn, cf.blackhole}); got != tt.want {
+					t.Errorf("cell = %+v, want %+v", got, tt.want)
+				}
+			}
+			if !found {
+				t.Error("no cell starts at 45.9.0.0")
 			}
 		})
 	}

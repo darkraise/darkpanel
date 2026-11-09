@@ -133,6 +133,12 @@ func TestProbes(t *testing.T) {
 			want:   []probe{{desc: sshDesc, unknown: "no interface can receive the flow"}},
 		},
 		{
+			name: "a multipath route back leaves no eligible interface under strict rp_filter",
+			fl:   flow{label: "ssh", pkt: ssh4}, f: rtFacts(1, 0, 0),
+			routes: map[netstat.RouteQuery]netstat.Route{rtQuery("203.0.113.7", "192.0.2.1", ""): rtVia("", "")},
+			want:   []probe{{desc: sshDesc, unknown: "no interface can receive the flow"}},
+		},
+		{
 			name: "an unspecified destination is the source the host answers from",
 			fl:   flow{label: "panel", pkt: panel}, f: rtFacts(0, 0, 0),
 			routes: map[netstat.RouteQuery]netstat.Route{rtQuery("203.0.113.7", "", ""): rtVia("eth0", "192.0.2.1")},
