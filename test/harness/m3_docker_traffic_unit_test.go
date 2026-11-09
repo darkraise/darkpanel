@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -246,5 +247,38 @@ func TestM3drUnitTrafficApply(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestW11b10UnitJournalSince(t *testing.T) {
+	for _, tt := range []struct {
+		name, in, want string
+		bad            bool
+	}{
+		{"two seconds before the agent's clock", "1762700000123456789\n", "@1762699998", false},
+		{"no trailing newline", "1762700000000000000", "@1762699998", false},
+		{"a fraction of a second rounds down", "1762700000999999999", "@1762699998", false},
+		{"empty output", "", "", true},
+		{"not a number", "date: invalid\n", "", true},
+		{"a clock under two seconds", "1000000000", "", true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := m3dxJournalSince(tt.in)
+			if (err != nil) != tt.bad || got != tt.want {
+				t.Errorf("m3dxJournalSince(%q) = %q, %v; want %q, error %v", tt.in, got, err, tt.want, tt.bad)
+			}
+		})
+	}
+}
+
+func TestW11b10UnitTrafficParse(t *testing.T) {
+	at := time.Unix(0, 1762700000000000000).UTC()
+	got, err := m3dxTrafficParse("18209 ok 1762700000000000000\n\n18210 fail\n")
+	want := []m3dxTrafficAttempt{{Port: 18209, OK: true, At: at}, {Port: 18210}}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("m3dxTrafficParse = %+v, %v; want %+v", got, err, want)
+	}
+	if _, err := m3dxTrafficParse("18209 ok\nbad\n"); err == nil || !strings.Contains(err.Error(), "malformed") {
+		t.Errorf("a malformed line: %v, want an error naming it", err)
 	}
 }

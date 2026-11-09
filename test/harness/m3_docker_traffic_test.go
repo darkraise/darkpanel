@@ -93,14 +93,12 @@ func m3dxTrafficExpectAll(states []PortState, want map[uint16]string) error {
 // ever connected and that each was probed at least minAttempts times, so a
 // probe that never ran cannot pass as one that saw nothing.
 func m3dxTrafficLeaks(log string, unallowed []uint16, minAttempts int) error {
-	attempts, oks, err := m3dxTrafficCount(log)
+	parsed, err := m3dxTrafficParse(log)
 	if err != nil {
 		return err
 	}
-	windows, err := v1r24Windows(log)
-	if err != nil {
-		return err
-	}
+	attempts, oks := m3dxTrafficCount(parsed)
+	windows := v1r24WindowsOf(parsed)
 	for _, p := range unallowed {
 		if oks[p] > 0 {
 			var parts []string
@@ -117,16 +115,22 @@ func m3dxTrafficLeaks(log string, unallowed []uint16, minAttempts int) error {
 			return fmt.Errorf("harness: port %d connected in %d of %d attempts (%s)", p, oks[p], attempts[p], strings.Join(parts, "; "))
 		}
 	}
-	return m3dxTrafficProbed(log, unallowed, minAttempts)
+	return m3dxTrafficProbedOf(parsed, unallowed, minAttempts)
 }
 
 // m3dxTrafficProbed requires a probe log to hold at least minAttempts
 // attempts for every port of ports, whatever their results.
 func m3dxTrafficProbed(log string, ports []uint16, minAttempts int) error {
-	attempts, _, err := m3dxTrafficCount(log)
+	parsed, err := m3dxTrafficParse(log)
 	if err != nil {
 		return err
 	}
+	return m3dxTrafficProbedOf(parsed, ports, minAttempts)
+}
+
+// m3dxTrafficProbedOf is m3dxTrafficProbed over parsed attempts.
+func m3dxTrafficProbedOf(parsed []m3dxTrafficAttempt, ports []uint16, minAttempts int) error {
+	attempts, _ := m3dxTrafficCount(parsed)
 	for _, p := range ports {
 		if attempts[p] < minAttempts {
 			return fmt.Errorf("harness: port %d had %d attempts, want at least %d", p, attempts[p], minAttempts)
@@ -166,26 +170,28 @@ func v1r24ParseLine(line string) (port uint16, ok bool, at time.Time, err error)
 // v1r24Windows returns each run of consecutive connected attempts per port in
 // log, sorted by port and then by order of appearance.
 func v1r24Windows(log string) ([]v1r24Window, error) {
+	parsed, err := m3dxTrafficParse(log)
+	if err != nil {
+		return nil, err
+	}
+	return v1r24WindowsOf(parsed), nil
+}
+
+// v1r24WindowsOf is v1r24Windows over parsed attempts.
+func v1r24WindowsOf(parsed []m3dxTrafficAttempt) []v1r24Window {
 	open := map[uint16]*v1r24Window{}
 	byPort := map[uint16][]v1r24Window{}
-	for _, line := range strings.Split(log, "\n") {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		port, ok, at, err := v1r24ParseLine(line)
-		if err != nil {
-			return nil, err
-		}
-		if ok {
-			if w := open[port]; w == nil {
-				open[port] = &v1r24Window{Port: port, Attempts: 1, First: at, Last: at}
+	for _, a := range parsed {
+		if a.OK {
+			if w := open[a.Port]; w == nil {
+				open[a.Port] = &v1r24Window{Port: a.Port, Attempts: 1, First: a.At, Last: a.At}
 			} else {
 				w.Attempts++
-				w.Last = at
+				w.Last = a.At
 			}
-		} else if w := open[port]; w != nil {
-			byPort[port] = append(byPort[port], *w)
-			delete(open, port)
+		} else if w := open[a.Port]; w != nil {
+			byPort[a.Port] = append(byPort[a.Port], *w)
+			delete(open, a.Port)
 		}
 	}
 	for port, w := range open {
@@ -200,28 +206,56 @@ func v1r24Windows(log string) ([]v1r24Window, error) {
 	for _, p := range ports {
 		out = append(out, byPort[p]...)
 	}
-	return out, nil
+	return out
 }
 
-// m3dxTrafficCount counts the attempts, and the connected ones, per port of a
-// probe log.
-func m3dxTrafficCount(log string) (attempts, oks map[uint16]int, err error) {
+// m3dxTrafficCount counts the attempts, and the connected ones, per port of
+// parsed attempts.
+func m3dxTrafficCount(parsed []m3dxTrafficAttempt) (attempts, oks map[uint16]int) {
 	attempts = map[uint16]int{}
 	oks = map[uint16]int{}
+	for _, a := range parsed {
+		attempts[a.Port]++
+		if a.OK {
+			oks[a.Port]++
+		}
+	}
+	return attempts, oks
+}
+
+// m3dxTrafficAttempt is one parsed probe log line.
+type m3dxTrafficAttempt struct {
+	Port uint16
+	OK   bool
+	At   time.Time
+}
+
+// m3dxTrafficParse parses every non-empty line of a probe log.
+func m3dxTrafficParse(log string) ([]m3dxTrafficAttempt, error) {
+	var parsed []m3dxTrafficAttempt
 	for _, line := range strings.Split(log, "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		port, ok, _, err := v1r24ParseLine(line)
+		port, ok, at, err := v1r24ParseLine(line)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
-		attempts[port]++
-		if ok {
-			oks[port]++
-		}
+		parsed = append(parsed, m3dxTrafficAttempt{Port: port, OK: ok, At: at})
 	}
-	return attempts, oks, nil
+	return parsed, nil
+}
+
+// m3dxJournalSince turns the agent's `date +%s%N` output into a journalctl
+// --since value. The agent's clock, not the runner's, decides which journal
+// lines the window holds, and two seconds cover the scenario's first log line.
+func m3dxJournalSince(agentNs string) (string, error) {
+	s := strings.TrimSpace(agentNs)
+	ns, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || ns < 2e9 {
+		return "", fmt.Errorf("harness: agent time %q is not Unix nanoseconds", s)
+	}
+	return "@" + strconv.FormatInt(ns/1e9-2, 10), nil
 }
 
 // m3dxTrafficConnect returns the command that opens a TCP connection to
@@ -566,13 +600,18 @@ func m3dTrafficProxied(ctx context.Context, t *testing.T, f *fleet) {
 // m3dTrafficRecreate requires containers recreated under continuous
 // scanning, across an agent restart too, never to expose an unallowed binding.
 func m3dTrafficRecreate(ctx context.Context, t *testing.T, f *fleet) {
-	since := time.Now().UTC().Format("2006-01-02 15:04:05")
+	var since string
 	for _, vm := range []struct {
 		name string
 		run  func(context.Context, string) (string, error)
 	}{{"scanner", f.scanner.Run}, {"agent", f.agent.Run}} {
 		out, err := vm.run(ctx, "date +%s%N")
 		t.Logf("%s date +%%s%%N at %s: %s (err: %v)", vm.name, time.Now().UTC().Format(time.RFC3339Nano), strings.TrimSpace(out), err)
+		if vm.name == "agent" && err == nil {
+			if since, err = m3dxJournalSince(out); err != nil {
+				t.Logf("agent journal window: %v", err)
+			}
+		}
 	}
 	m3dDockEnable(ctx, t, f)
 	v4 := ScanOpts{Family: "-4"}
