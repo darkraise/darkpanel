@@ -84,6 +84,24 @@ func kfwPlanOf(now, after map[string]core.RestoreEntry, enabled, ipv6, flush boo
 	return p
 }
 
+// dropNextWithoutChains removes the block's DOCKER-USER lines of each family
+// whose image holds no bindings chain: the image load removes the chains
+// those lines jump to, and iptables-restore refuses a jump to a missing
+// chain, so such a family reloads Docker's -j RETURN with its foreign rules.
+func (p kfwPlan) dropNextWithoutChains(img *beforeImage) {
+	if img == nil {
+		return
+	}
+	for fam, tables := range map[fwstate.Family][]imageTable{fwstate.V4: img.V4, fwstate.V6: img.V6} {
+		holds := slices.ContainsFunc(tables, func(t imageTable) bool {
+			return t.Name == "filter" && slices.ContainsFunc(t.Chains, func(c imageChain) bool { return c.Name == dockerfw.ChainBindings })
+		})
+		if !holds {
+			delete(p.next, fam)
+		}
+	}
+}
+
 // kfwBlockRules returns the DOCKER-USER rules of file's Docker block; ok is
 // false when file holds no block or one that does not parse.
 func kfwBlockRules(file []byte) (rules []netfilter.Rule, ok bool) {
@@ -370,6 +388,9 @@ func (f fw) undoKeepingForeign(ctx context.Context, env core.Env, snap snapshot,
 		}
 	}
 	p := kfwPlanOf(cfg.Files, after, enabled, cfg.IPv6, flush, cur)
+	if slices.ContainsFunc(undone, func(e core.Effect) bool { return e.Resource == blockChainsResource }) {
+		p.dropNextWithoutChains(snap.State.Image)
+	}
 	owner := "revert:" + env.ChangeID
 	// A record an earlier attempt left that failed to load holds rules no
 	// longer in the chain, so only keepForeign's merge loads them again.

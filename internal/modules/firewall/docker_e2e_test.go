@@ -987,3 +987,70 @@ func TestW11a08OwnedChainRepairRunsNoReload(t *testing.T) {
 		t.Errorf("darkpanel-docker-deny = %+v after the repair, want its rules loaded again", c)
 	}
 }
+
+// TestW11a08RevertOfARepairOfLostChainsKeepsTheBlock: a live repair of chains
+// that were all lost has an empty Before, and its after files still hold the
+// block, which the revert must leave there.
+func TestW11a08RevertOfARepairOfLostChainsKeepsTheBlock(t *testing.T) {
+	const lose = "*filter\n:DOCKER-USER - [0:0]\n-A DOCKER-USER -j RETURN\n-F darkpanel-docker-bindings\n-F darkpanel-docker-deny\n-X darkpanel-docker-bindings\n-X darkpanel-docker-deny\nCOMMIT\n"
+	for _, c := range []struct {
+		name                string
+		byInverses, foreign bool
+	}{
+		{"by inverses", true, false},
+		{"by inverses with a foreign rule", true, true},
+		{"whole with a foreign rule", false, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			ctx := context.Background()
+			h := deeNewHost(t)
+			eng := deeEngine(t, h)
+			deeConfirm(t, eng, "firewall.docker.enable", `{}`)
+			for _, fam := range []fwstate.Family{fwstate.V4, fwstate.V6} {
+				if res := h.restore(fam, []byte(lose)); res.ExitCode != 0 {
+					t.Fatalf("losing the %s chains = %s", fam, res.Stderr)
+				}
+			}
+			kept := map[string][]byte{}
+			for _, p := range cleanupFiles {
+				kept[p] = bytes.Clone(h.config().Files[p].Data)
+			}
+			_, cv, err := deePlanApply(t, eng, "firewall.docker.repair", `{}`)
+			if err != nil || cv.State != core.StatePending {
+				t.Fatalf("repair = %+v, %v; want pending", cv, err)
+			}
+			if c.foreign {
+				h.addForeign(t, deeForeign)
+			}
+			if c.byInverses {
+				if res, err := h.Run(ctx, core.Cmd{Path: ufwPath, Args: strings.Fields("allow in proto tcp from any to any port 8098")}); err != nil || res.ExitCode != 0 {
+					t.Fatalf("the manual ufw allow = %+v, %v", res, err)
+				}
+			}
+			h.ran = nil
+			if cv, err = eng.Revert(ctx, eeUser, cv.ID); err != nil || cv.State != core.StateReverted {
+				t.Fatalf("revert = %+v, %v; want reverted", cv, err)
+			}
+			if slices.Contains(h.ran, "reload") {
+				t.Errorf("ufw commands of the revert %q include a reload", h.ran)
+			}
+			for _, p := range cleanupFiles {
+				if got := h.config().Files[p].Data; !bytes.Equal(got, kept[p]) {
+					t.Errorf("%s = %q after the revert, want it as it was before the repair", p, got)
+				}
+			}
+			if owned := deeOwnedChains(h); len(owned) != 0 {
+				t.Errorf("the revert left the chains %v loaded", owned)
+			}
+			if c.foreign {
+				got := deeTexts(h, fwstate.V4, "DOCKER-USER")
+				if !slices.Contains(got, deeForeign) {
+					t.Errorf("DOCKER-USER = %q, want the foreign rule %q kept", got, deeForeign)
+				}
+				if slices.ContainsFunc(got, func(l string) bool { return strings.Contains(l, "darkpanel-") }) {
+					t.Errorf("DOCKER-USER = %q, want no jump to a removed chain", got)
+				}
+			}
+		})
+	}
+}

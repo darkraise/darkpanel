@@ -105,15 +105,15 @@ func beforeValue(e core.Effect, v any) error {
 }
 
 // undoDocker undoes a made Docker effect through the writes of the forward
-// ops, each in one transaction as there. Chains that were absent are
-// cleaned up again under the change's id, whether or not snap has an image:
-// the cleanup keeps a foreign DOCKER-USER rule, which an image load would
-// flush. Chains that were loaded come back from snap's before-image when it
-// has one, with no UFW restart; without one they come back with a ufw reload,
-// which only an active UFW runs, so with UFW inactive nothing runs and the
-// caller's observation reports them absent. A load of the block's chains is
-// undone the same way. An identity outside these resources is refused before
-// anything is written.
+// ops, each in one transaction as there. Chains that were absent, when
+// snap's after files hold no block, are cleaned up again under the change's
+// id, whether or not snap has an image: the cleanup keeps a foreign
+// DOCKER-USER rule, which an image load would flush. Chains that were
+// loaded come back from snap's before-image when it has one, with no UFW
+// restart; without one they come back with a ufw reload, which only an active
+// UFW runs, so with UFW inactive nothing runs and the caller's observation
+// reports them absent. A load of the block's chains is undone the same way.
+// An identity outside these resources is refused before anything is written.
 func undoDocker(ctx context.Context, env core.Env, d deps, snap snapshot, noun, ident string, e core.Effect) error {
 	switch {
 	case e.Resource == deResourceFlag:
@@ -174,7 +174,10 @@ func undoDocker(ctx context.Context, env core.Env, d deps, snap snapshot, noun, 
 		if err := beforeValue(e, &before); err != nil {
 			return err
 		}
-		if holdsNoChain(before) {
+		// The cleanup rewrites the after files unjournaled, so when the
+		// snapshot's files hold the block nothing would write it back, and
+		// the chains come out through the image load instead.
+		if holdsNoChain(before) && !snapshotHoldsBlock(snap) {
 			return cleanChainsAgain(ctx, env, d)
 		}
 		if snap.State.Image != nil {
@@ -194,6 +197,18 @@ func holdsNoChain(state map[fwstate.Family]map[string][]string) bool {
 		}
 	}
 	return true
+}
+
+// snapshotHoldsBlock reports whether one of snap's after files holds the
+// Docker block.
+func snapshotHoldsBlock(snap snapshot) bool {
+	return slices.ContainsFunc(snap.Entries, func(e core.RestoreEntry) bool {
+		if !e.Present || !slices.Contains(cleanupFiles, e.Path) {
+			return false
+		}
+		_, ok := kfwBlockRules(e.Data)
+		return ok
+	})
 }
 
 // cleanChainsAgain runs the owned-chain cleanup for the change being undone.

@@ -189,6 +189,7 @@ func restoreOver(ctx context.Context, env core.Env, d deps, snap snapshot, emerg
 	if snap.State.Live && !kp.loads {
 		snap.State.Image = imageWithoutDockerUser(snap.State.Image)
 	}
+	kp.dropNextWithoutChains(snap.State.Image)
 	if kp.cleanup {
 		// The cleanup learns which DOCKER-USER rules are the block's from the
 		// after files on disk. Run after the snapshot's block-free files are
