@@ -53,7 +53,7 @@ from 10 to 900; "Auto-revert" explains both.
 | `firewall.docker` | `darkpanel firewall docker get` | Read | `read` | Shows what the Docker integration sees, whether it is on and healthy, and its container rules. |
 | `firewall.docker.enable` | `darkpanel firewall docker enable` | Revertible | `operate` | Turns the Docker integration on. |
 | `firewall.docker.disable` | `darkpanel firewall docker disable` | Revertible | `operate` | Turns the Docker integration off and removes its chains. |
-| `firewall.docker.repair` | `darkpanel firewall docker repair` | Revertible | `operate` | Rewrites and reloads the integration's block. |
+| `firewall.docker.repair` | `darkpanel firewall docker repair` | Revertible | `operate` | Rewrites the integration's block, loads its chains live, and restarts UFW when the differences reach outside Darkpanel's chains. |
 | `firewall.docker.set-sources` | `darkpanel firewall docker set-sources` | Revertible | `operate` | Sets the private sources and the forward exemptions. |
 | `firewall.container.allow` | `darkpanel firewall container allow` | Revertible | `operate` | Allows a source to a published container port. |
 | `firewall.container.deny` | `darkpanel firewall container deny` | Revertible | `operate` | Denies a source range on an allowed container port. |
@@ -306,7 +306,8 @@ The integration stays switched on when you turn UFW off with
 `firewall.state.disable`. Turning UFW on again writes the block before UFW
 starts.
 
-`firewall.docker.repair` rewrites the block and reloads UFW. The status shows
+`firewall.docker.repair` rewrites the block, loads its chains live, and restarts
+UFW when the differences reach outside Darkpanel's chains. The status shows
 the integration's health: `off`, `ok`, `degraded`, `broken` or `unsupported`,
 with the issues. Offer `firewall.docker.repair` when it is `broken`.
 
