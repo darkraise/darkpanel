@@ -3,9 +3,11 @@ package firewall
 import (
 	"bytes"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
+	"github.com/darkraise/darkpanel/internal/modules/firewall/dockerfw"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
 	"github.com/darkraise/darkpanel/internal/platform/netfilter"
 )
@@ -147,7 +149,8 @@ func (img *beforeImage) check() error {
 // listed in Excluded, so no other program's rule is overwritten. A chain
 // that jumps to a chain the load would leave missing is excluded too. A family
 // the current state lacks is left out with all its built-in chains
-// excluded.
+// excluded. A Darkpanel chain loaded now that the image lacks is deleted,
+// unless a chain left out of the load still jumps to it.
 func planImage(img *beforeImage, st fwstate.Loaded) imagePlan {
 	var p imagePlan
 	p.Restore4 = planFamily(img.V4, st.V4, fwstate.V4, false, &p.Excluded)
@@ -186,11 +189,26 @@ func planFamily(tables []imageTable, cur *netfilter.Ruleset, fam fwstate.Family,
 				rules = append(rules, r.Text)
 			}
 		}
-		if len(decl) == 0 {
+		var remove []string
+		if t.Name == "filter" {
+			stale, kept := staleChains(t, cur, skip)
+			for _, name := range kept {
+				*excluded = append(*excluded, chainRef{fam, t.Name, name})
+			}
+			// Every -F comes before the first -X: a stale chain may jump to
+			// another, and the kernel refuses -X of a referenced chain.
+			for _, name := range stale {
+				remove = append(remove, "-F "+name)
+			}
+			for _, name := range stale {
+				remove = append(remove, "-X "+name)
+			}
+		}
+		if len(decl) == 0 && len(remove) == 0 {
 			continue
 		}
 		b.WriteString("*" + t.Name + "\n")
-		for _, l := range slices.Concat(decl, flush, rules) {
+		for _, l := range slices.Concat(decl, flush, rules, remove) {
 			b.WriteString(l + "\n")
 		}
 		b.WriteString("COMMIT\n")
@@ -231,6 +249,82 @@ func skippedChains(t imageTable, cur *netfilter.Ruleset, ipv6 bool) map[string]b
 	return skip
 }
 
+// staleChains splits the Darkpanel chains of cur's filter table that the
+// image table t lacks into those a load may delete and those it must keep,
+// each sorted by name. A chain is kept while a chain left out of the load,
+// another kept one included, still jumps or goes to it.
+func staleChains(t imageTable, cur *netfilter.Ruleset, skip map[string]bool) (stale, kept []string) {
+	owned := cleanupOwned(cur)
+	if len(owned) == 0 {
+		return nil, nil
+	}
+	imaged, loading := map[string]bool{}, map[string]bool{}
+	for _, c := range t.Chains {
+		imaged[c.Name] = true
+		loading[c.Name] = !skip[c.Name]
+	}
+	deleting := map[string]bool{}
+	for _, name := range owned {
+		if !imaged[name] {
+			deleting[name] = true
+		}
+	}
+	for changed := true; changed; {
+		changed = false
+		for _, c := range cur.Table("filter").Chains {
+			if loading[c.Name] || deleting[c.Name] {
+				continue
+			}
+			for _, r := range c.Rules {
+				for _, j := range []string{r.Target.Name, r.Goto} {
+					if deleting[j] {
+						delete(deleting, j)
+						kept = append(kept, j)
+						changed = true
+					}
+				}
+			}
+		}
+	}
+	stale = slices.Sorted(maps.Keys(deleting))
+	slices.Sort(kept)
+	return stale, kept
+}
+
+// imageBlock returns the image's DOCKER-USER and Darkpanel chains of fam as
+// a *filter ... COMMIT block, or false when it holds none of them.
+func imageBlock(img *beforeImage, fam fwstate.Family) ([]byte, bool) {
+	tables := img.V4
+	if fam == fwstate.V6 {
+		tables = img.V6
+	}
+	var decl, rules []string
+	for _, t := range tables {
+		if t.Name != "filter" {
+			continue
+		}
+		for _, c := range t.Chains {
+			if !dockerfw.Owned(c.Name) {
+				continue
+			}
+			decl = append(decl, ":"+c.Name+" - [0:0]")
+			for _, r := range c.Rules {
+				rules = append(rules, r.Text)
+			}
+		}
+	}
+	if len(decl) == 0 {
+		return nil, false
+	}
+	var b bytes.Buffer
+	b.WriteString("*filter\n")
+	for _, l := range slices.Concat(decl, rules) {
+		b.WriteString(l + "\n")
+	}
+	b.WriteString("COMMIT\n")
+	return b.Bytes(), true
+}
+
 // foreignEqual reports whether the current built-in chain's rules other
 // than bare jumps to UFW and Darkpanel chains equal, in order, the image's.
 func foreignEqual(c imageChain, cur *netfilter.Ruleset, table string, ipv6 bool) bool {
@@ -263,15 +357,24 @@ func chainOf(rs *netfilter.Ruleset, table, chain string) *netfilter.Chain {
 }
 
 // imageMismatch lists the chains of img, except those excluded, whose
-// policy or rules in st differ from the image. A chain of st that the image
-// lacks, created after the image was taken, is not listed: *-restore -n
-// cannot remove a chain, and once the image's built-in chains are loaded
-// nothing jumps to it. A built-in chain that keeps a jump to it is in
-// excluded, which fails the restore on its own.
+// policy or rules in st differ from the image, and any Darkpanel chain of
+// st's filter table that the image lacks and that is not excluded, since
+// the load deletes those. A UFW chain of st that the image lacks, created
+// after the image was taken, is not listed: once the image's built-in chains
+// are loaded nothing jumps to it. A built-in chain that keeps a jump to it
+// is in excluded, which fails the restore on its own.
 func imageMismatch(img *beforeImage, st fwstate.Loaded, excluded []chainRef) []chainRef {
 	var out []chainRef
 	check := func(tables []imageTable, cur *netfilter.Ruleset, fam fwstate.Family, ipv6 bool) {
 		for _, t := range tables {
+			if t.Name == "filter" {
+				for _, name := range cleanupOwned(cur) {
+					ref := chainRef{fam, t.Name, name}
+					if !slices.ContainsFunc(t.Chains, func(c imageChain) bool { return c.Name == name }) && !slices.Contains(excluded, ref) {
+						out = append(out, ref)
+					}
+				}
+			}
 			for _, c := range t.Chains {
 				ref := chainRef{fam, t.Name, c.Name}
 				if slices.Contains(excluded, ref) {

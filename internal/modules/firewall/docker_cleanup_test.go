@@ -161,6 +161,9 @@ func TestClPreserve(t *testing.T) {
 	if got := clChains(r); len(got) != 0 {
 		t.Errorf("chains %q are still loaded", got)
 	}
+	if got := clRan(r); slices.Contains(got, clReload) {
+		t.Errorf("ran %q, want no reload from a preserving cleanup outside uninstall", got)
+	}
 	if got := clPending(t, r); len(got) != 0 || kfRecordHeld(t, r, "c1") {
 		t.Errorf("intents %q or a record left", got)
 	}

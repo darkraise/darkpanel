@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/netip"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -859,5 +860,130 @@ func TestW11a07ForeignBuiltinRuleDoesNotFailAWholeRevert(t *testing.T) {
 	}
 	if got := deeTexts(h, fwstate.V4, "FORWARD"); !slices.Contains(got, foreign) {
 		t.Errorf("FORWARD = %q, want the foreign rule %q kept", got, foreign)
+	}
+}
+
+// TestW11a08RevertLeavesNoStaleChain: the image load of a reverted allow
+// deletes the binding's chain the allow created.
+func TestW11a08RevertLeavesNoStaleChain(t *testing.T) {
+	h := deeNewHost(t)
+	eng := deeEngine(t, h)
+	deeConfirm(t, eng, "firewall.docker.enable", `{}`)
+	before := deeOwnedChains(h)
+	_, cv, err := deePlanApply(t, eng, "firewall.container.allow", `{"binding":`+deeBinding+`}`)
+	if err != nil || cv.State != core.StatePending {
+		t.Fatalf("allow = %+v, %v; want pending", cv, err)
+	}
+	if cv, err = eng.Revert(context.Background(), eeUser, cv.ID); err != nil || cv.State != core.StateReverted {
+		t.Fatalf("revert = %+v, %v; want reverted", cv, err)
+	}
+	if got := deeOwnedChains(h); !reflect.DeepEqual(got, before) {
+		t.Errorf("Darkpanel chains after the revert %v, want %v as before the allow", got, before)
+	}
+}
+
+// TestW11a08ByInversesRevertOfAContainerAllowRunsNoReload: a manual ufw
+// rule after an allow sends its revert by inverses; the Docker chains load
+// from the snapshot's image and UFW is never reloaded.
+func TestW11a08ByInversesRevertOfAContainerAllowRunsNoReload(t *testing.T) {
+	ctx := context.Background()
+	h := deeNewHost(t)
+	eng := deeEngine(t, h)
+	deeConfirm(t, eng, "firewall.docker.enable", `{}`)
+	before := deeOwnedChains(h)
+	_, cv, err := deePlanApply(t, eng, "firewall.container.allow", `{"binding":`+deeBinding+`}`)
+	if err != nil || cv.State != core.StatePending {
+		t.Fatalf("allow = %+v, %v; want pending", cv, err)
+	}
+	if res, err := h.Run(ctx, core.Cmd{Path: ufwPath, Args: strings.Fields("allow in proto tcp from any to any port 8098")}); err != nil || res.ExitCode != 0 {
+		t.Fatalf("the manual ufw allow = %+v, %v", res, err)
+	}
+	h.ran = nil
+	if cv, err = eng.Revert(ctx, eeUser, cv.ID); err != nil || cv.State != core.StateReverted {
+		t.Fatalf("revert = %+v, %v; want reverted", cv, err)
+	}
+	if slices.Contains(h.ran, "reload") {
+		t.Errorf("ufw commands of the revert %q include a reload", h.ran)
+	}
+	if got := deeOwnedChains(h); !reflect.DeepEqual(got, before) {
+		t.Errorf("Darkpanel chains after the revert %v, want %v as before the allow", got, before)
+	}
+	if got := deeInternet(t, h, "tcp", "0.0.0.0", 8080); got != "filtered" {
+		t.Errorf("port 8080 is %s after the revert, want filtered", got)
+	}
+}
+
+// TestW11a08RevertOfADockerEnableRunsNoReload: reverting an unconfirmed
+// enable removes Darkpanel's chains without reloading UFW.
+func TestW11a08RevertOfADockerEnableRunsNoReload(t *testing.T) {
+	h := deeNewHost(t)
+	eng := deeEngine(t, h)
+	_, cv, err := deePlanApply(t, eng, "firewall.docker.enable", `{}`)
+	if err != nil || cv.State != core.StatePending {
+		t.Fatalf("enable = %+v, %v; want pending", cv, err)
+	}
+	h.ran = nil
+	if cv, err = eng.Revert(context.Background(), eeUser, cv.ID); err != nil || cv.State != core.StateReverted {
+		t.Fatalf("revert = %+v, %v; want reverted", cv, err)
+	}
+	if slices.Contains(h.ran, "reload") {
+		t.Errorf("ufw commands of the revert %q include a reload", h.ran)
+	}
+	if owned := deeOwnedChains(h); len(owned) != 0 {
+		t.Errorf("the revert left the chains %v loaded", owned)
+	}
+}
+
+// TestW11a08ForeignRuleSurvivesByInversesRevertOfADockerEnable: the chains
+// were absent before the enable, so its by-inverses revert cleans them up,
+// which keeps a foreign DOCKER-USER rule an image load would flush.
+func TestW11a08ForeignRuleSurvivesByInversesRevertOfADockerEnable(t *testing.T) {
+	ctx := context.Background()
+	h := deeNewHost(t)
+	eng := deeEngine(t, h)
+	_, cv, err := deePlanApply(t, eng, "firewall.docker.enable", `{}`)
+	if err != nil || cv.State != core.StatePending {
+		t.Fatalf("enable = %+v, %v; want pending", cv, err)
+	}
+	h.addForeign(t, deeForeign)
+	if res, err := h.Run(ctx, core.Cmd{Path: ufwPath, Args: strings.Fields("allow in proto tcp from any to any port 8098")}); err != nil || res.ExitCode != 0 {
+		t.Fatalf("the manual ufw allow = %+v, %v", res, err)
+	}
+	h.ran = nil
+	if cv, err = eng.Revert(ctx, eeUser, cv.ID); err != nil || cv.State != core.StateReverted {
+		t.Fatalf("revert = %+v, %v; want reverted", cv, err)
+	}
+	if slices.Contains(h.ran, "reload") {
+		t.Errorf("ufw commands of the revert %q include a reload", h.ran)
+	}
+	if got := deeTexts(h, fwstate.V4, "DOCKER-USER"); !slices.Contains(got, deeForeign) {
+		t.Errorf("DOCKER-USER = %q, want the foreign rule %q kept", got, deeForeign)
+	}
+	if owned := deeOwnedChains(h); len(owned) != 0 {
+		t.Errorf("the revert left the chains %v loaded", owned)
+	}
+}
+
+// TestW11a08OwnedChainRepairRunsNoReload: a repair whose differences lie
+// only in Darkpanel's chains loads them live.
+func TestW11a08OwnedChainRepairRunsNoReload(t *testing.T) {
+	h := deeNewHost(t)
+	eng := deeEngine(t, h)
+	deeConfirm(t, eng, "firewall.docker.enable", `{}`)
+	deeConfirm(t, eng, "firewall.container.allow", `{"binding":`+deeBinding+`}`)
+	v4, err := deeRestore(h.loaded.V4, []byte("*filter\n-F darkpanel-docker-deny\nCOMMIT\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.loaded.V4 = v4
+	h.ran = nil
+	if _, cv, err := deePlanApply(t, eng, "firewall.docker.repair", `{}`); err != nil || cv.State != core.StatePending {
+		t.Fatalf("repair = %+v, %v; want pending", cv, err)
+	}
+	if slices.Contains(h.ran, "reload") {
+		t.Errorf("ufw commands of the repair %q include a reload", h.ran)
+	}
+	if c := chainOf(h.loaded.V4, "filter", "darkpanel-docker-deny"); c == nil || len(c.Rules) == 0 {
+		t.Errorf("darkpanel-docker-deny = %+v after the repair, want its rules loaded again", c)
 	}
 }

@@ -286,6 +286,44 @@ func TestImageMismatch(t *testing.T) {
 	}
 }
 
+// TestW11a08PlanStaleChains: a Darkpanel chain the image lacks is deleted,
+// every flush before the first delete; while a chain left out of the load
+// jumps to it, it and what it jumps to stay and are excluded.
+func TestW11a08PlanStaleChains(t *testing.T) {
+	const last = "-A ufw-user-input -p tcp -m tcp --dport 22 -j ACCEPT\n"
+	img := takeImage(imTestLoaded(t, imTestSave4, imTestSave6))
+	stale := func(rules string) string {
+		text := strings.Replace(imTestSave4, ":fw-foreign - [0:0]\n", ":fw-foreign - [0:0]\n:dp-b-aaa - [0:0]\n:dp-b-bbb - [0:0]\n", 1)
+		return strings.Replace(text, last, last+rules, 1)
+	}
+	aaa, bbb := chainRef{fwstate.V4, "filter", "dp-b-aaa"}, chainRef{fwstate.V4, "filter", "dp-b-bbb"}
+
+	cur := imTestLoaded(t, stale("-A dp-b-aaa -j dp-b-bbb\n"), imTestSave6)
+	p := planImage(img, cur)
+	if len(p.Excluded) != 0 {
+		t.Errorf("Excluded = %v, want none", p.Excluded)
+	}
+	want := "-F dp-b-aaa\n-F dp-b-bbb\n-X dp-b-aaa\n-X dp-b-bbb\nCOMMIT\n"
+	if !strings.HasSuffix(string(p.Restore4), want) {
+		t.Errorf("Restore4 = %q, want it to end with %q", p.Restore4, want)
+	}
+	if got := imageMismatch(img, cur, nil); !reflect.DeepEqual(got, []chainRef{aaa, bbb}) {
+		t.Errorf("imageMismatch = %v, want the two stale chains", got)
+	}
+
+	cur = imTestLoaded(t, stale("-A dp-b-aaa -j dp-b-bbb\n-A fw-foreign -j dp-b-aaa\n"), imTestSave6)
+	p = planImage(img, cur)
+	if !reflect.DeepEqual(p.Excluded, []chainRef{aaa, bbb}) {
+		t.Errorf("Excluded = %v, want the referenced chain and the chain it jumps to", p.Excluded)
+	}
+	if strings.Contains(string(p.Restore4), "dp-b-") {
+		t.Errorf("Restore4 = %q, want the referenced chains left alone", p.Restore4)
+	}
+	if got := imageMismatch(img, cur, p.Excluded); len(got) != 0 {
+		t.Errorf("imageMismatch = %v, want the excluded chains left out", got)
+	}
+}
+
 func TestRestoreProgram(t *testing.T) {
 	for _, c := range []struct {
 		fam     fwstate.Family

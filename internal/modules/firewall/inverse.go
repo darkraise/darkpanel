@@ -77,7 +77,7 @@ func inverse(ctx context.Context, env core.Env, d deps, snap snapshot, e core.Ef
 			err = env.Files.WriteSysctl(ctx, ID, ident, value)
 		}
 	case nounSetting, nounContainer, nounChains:
-		err = undoDocker(ctx, env, d, noun, ident, e)
+		err = undoDocker(ctx, env, d, snap, noun, ident, e)
 	default:
 		err = fmt.Errorf("firewall: effect resource %q has no firewall noun", e.Resource)
 	}
@@ -106,13 +106,15 @@ func beforeValue(e core.Effect, v any) error {
 
 // undoDocker undoes a made Docker effect through the writes of the forward
 // ops, each in one transaction as there. Chains that were absent are
-// cleaned up again under the change's id; chains that were loaded come
-// back with a ufw reload, which only an active UFW runs, so with UFW
-// inactive nothing runs and the caller's observation reports them absent. A
-// load of the block's chains is undone by the same reload.
-// An identity outside these resources is refused before anything is
-// written.
-func undoDocker(ctx context.Context, env core.Env, d deps, noun, ident string, e core.Effect) error {
+// cleaned up again under the change's id, whether or not snap has an image:
+// the cleanup keeps a foreign DOCKER-USER rule, which an image load would
+// flush. Chains that were loaded come back from snap's before-image when it
+// has one, with no UFW restart; without one they come back with a ufw reload,
+// which only an active UFW runs, so with UFW inactive nothing runs and the
+// caller's observation reports them absent. A load of the block's chains is
+// undone the same way. An identity outside these resources is refused before
+// anything is written.
+func undoDocker(ctx context.Context, env core.Env, d deps, snap snapshot, noun, ident string, e core.Effect) error {
 	switch {
 	case e.Resource == deResourceFlag:
 		var on bool
@@ -152,14 +154,11 @@ func undoDocker(ctx context.Context, env core.Env, d deps, noun, ident string, e
 		}
 		switch state {
 		case "absent":
-			if d.cleanChains == nil {
-				return errors.New("no owned-chain cleanup: cleanChains is not set")
-			}
-			// A revert settles only the effects it read before it began, so an effect journaled here would stay made.
-			clean := env
-			clean.Effects = nil
-			return d.cleanChains(ctx, clean, env.ChangeID)
+			return cleanChainsAgain(ctx, env, d)
 		case "loaded":
+			if snap.State.Image != nil {
+				return loadImageChains(ctx, env, d, snap.State.Image)
+			}
 			cfg, err := d.readConfig(d.root)
 			if err != nil {
 				return err
@@ -171,9 +170,75 @@ func undoDocker(ctx context.Context, env core.Env, d deps, noun, ident string, e
 		}
 		return fmt.Errorf("chains state %q is neither loaded nor absent", state)
 	case e.Resource == blockChainsResource:
+		var before map[fwstate.Family]map[string][]string
+		if err := beforeValue(e, &before); err != nil {
+			return err
+		}
+		if holdsNoChain(before) {
+			return cleanChainsAgain(ctx, env, d)
+		}
+		if snap.State.Image != nil {
+			return loadImageChains(ctx, env, d, snap.State.Image)
+		}
 		return reloadIfActive(ctx, env, d)
 	}
 	return fmt.Errorf("effect resource %q is not a Docker resource", e.Resource)
+}
+
+// holdsNoChain reports whether a block chains state names no chain in any
+// family.
+func holdsNoChain(state map[fwstate.Family]map[string][]string) bool {
+	for _, chains := range state {
+		if len(chains) > 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// cleanChainsAgain runs the owned-chain cleanup for the change being undone.
+func cleanChainsAgain(ctx context.Context, env core.Env, d deps) error {
+	if d.cleanChains == nil {
+		return errors.New("no owned-chain cleanup: cleanChains is not set")
+	}
+	// A revert settles only the effects it read before it began, so an effect journaled here would stay made.
+	clean := env
+	clean.Effects = nil
+	return d.cleanChains(ctx, clean, env.ChangeID)
+}
+
+// loadImageChains loads img's DOCKER-USER and Darkpanel chains with
+// *-restore -n into the families the forward load covers: IPv4 when loaded,
+// IPv6 when loaded and configured on. A family whose image holds none of
+// those chains has every loaded Darkpanel chain removed.
+func loadImageChains(ctx context.Context, env core.Env, d deps, img *beforeImage) error {
+	if err := img.check(); err != nil {
+		return err
+	}
+	cfg, err := d.readConfig(d.root)
+	if err != nil {
+		return err
+	}
+	st, err := d.readLoaded(ctx, env)
+	if err != nil {
+		return err
+	}
+	for _, fam := range preserveFamilies {
+		rs := familyRules(st, fam)
+		if rs == nil || (fam == fwstate.V6 && !cfg.IPv6) {
+			continue
+		}
+		block, ok := imageBlock(img, fam)
+		if !ok {
+			block = []byte("*filter\nCOMMIT\n")
+		}
+		cmd := core.Cmd{Path: restoreProgram(fam, st.Variant), Args: []string{"-n"}, Stdin: dockerfw.ChainsInput(block, rs)}
+		res, err := env.Exec.Run(ctx, cmd)
+		if err != nil || res.ExitCode != 0 {
+			return fmt.Errorf("firewall: load the %s Docker chains from the before-image: %w", fam, runFailure(cmd, res, err))
+		}
+	}
+	return nil
 }
 
 // ufw runs one ufw vector and fails on a non-zero exit.

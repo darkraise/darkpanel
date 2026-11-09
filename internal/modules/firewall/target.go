@@ -18,18 +18,19 @@ import (
 // change is what one mutating action asks of UFW, computed from its input
 // and the configured state.
 type change struct {
-	ops     []ufwOp                  // rule, default and logging commands, in order
-	enable  *bool                    // the UFW state the action sets; nil keeps it
-	restore *snapshot                // a snapshot whose files, UFW state and sysctl values the action brings back
-	repair  bool                     // from the actual loaded state to the target (spec 2.3, the repair path)
-	files   map[string][]byte        // whole after.rules / after6.rules contents to write before the ufw commands
-	flag    *bool                    // the Docker integration flag to store; nil keeps it
-	sources *dockerfw.Settings       // settings to store; nil keeps them
-	rowsAdd []dockerfw.ContainerRule // container rules to insert
-	rowsDel []string                 // container rule ids to delete
-	cleanup bool                     // run the owned-chain cleanup before the transition commands
-	reload  bool                     // the change needs `ufw reload` when UFW stays active (block files changed)
-	notes   []core.DiffLine          // extra plan lines a builder adds
+	ops        []ufwOp                  // rule, default and logging commands, in order
+	enable     *bool                    // the UFW state the action sets; nil keeps it
+	restore    *snapshot                // a snapshot whose files, UFW state and sysctl values the action brings back
+	repair     bool                     // from the actual loaded state to the target (spec 2.3, the repair path)
+	liveRepair bool                     // a repair whose differences all lie in Darkpanel's chains, loaded without a UFW restart
+	files      map[string][]byte        // whole after.rules / after6.rules contents to write before the ufw commands
+	flag       *bool                    // the Docker integration flag to store; nil keeps it
+	sources    *dockerfw.Settings       // settings to store; nil keeps them
+	rowsAdd    []dockerfw.ContainerRule // container rules to insert
+	rowsDel    []string                 // container rule ids to delete
+	cleanup    bool                     // run the owned-chain cleanup before the transition commands
+	reload     bool                     // the change needs `ufw reload` when UFW stays active (block files changed)
+	notes      []core.DiffLine          // extra plan lines a builder adds
 	// discardForeign is true only for a change that discards the foreign
 	// DOCKER-USER rules on purpose (firewall.docker.repair with
 	// DiscardForeign and Manual both set); prepare then skips
@@ -120,7 +121,7 @@ func (f fw) predictTarget(cfg0 fwstate.Config, cur fwstate.Loaded, c change) (ta
 	case !want && (cfg0.Enabled || (c.repair && running)):
 		tg.tr, sysctlTr = fwstate.TransDisable, fwstate.TransDisable
 		err = f.transition(&tg, cur, fwstate.TransDisable, disableArgs)
-	case want && cfg0.Enabled && running && (len(c.ops) > 0 || c.reload) && c.restore == nil && !c.repair && (!c.reload || !hasDefaultOp(c)):
+	case want && cfg0.Enabled && running && (len(c.ops) > 0 || c.reload) && c.restore == nil && (!c.repair || c.liveRepair) && (!c.reload || !hasDefaultOp(c)):
 		tr := fwstate.TransLive
 		if hasDefaultOp(c) {
 			tr = fwstate.TransReload

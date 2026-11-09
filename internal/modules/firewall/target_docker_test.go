@@ -141,6 +141,7 @@ func TestDtgReload(t *testing.T) {
 		{"reload alone on an active UFW", tgRunning, true, change{reload: true}, fwstate.TransLive, nil},
 		{"reload with enable on an active UFW", tgRunning, true, change{enable: &yes, reload: true}, fwstate.TransLive, nil},
 		{"a repair still reloads", tgRunning, true, change{repair: true, reload: true}, fwstate.TransReload, []string{"reload"}},
+		{"an owned-chain repair applies live", tgRunning, true, change{repair: true, reload: true, liveRepair: true}, fwstate.TransLive, nil},
 		{"files without reload", tgRunning, true, change{files: files}, fwstate.TransNone, nil},
 		{"the flag and the rows are not predicted", tgRunning, true, change{flag: &yes, rowsDel: []string{"01J00000000000000000000009"}}, fwstate.TransNone, nil},
 		{"reload on a stopped UFW", tgStopped, false, change{files: files, reload: true}, fwstate.TransNone, nil},

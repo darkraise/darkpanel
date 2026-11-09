@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -22,7 +23,9 @@ type DockerRepairInput struct {
 
 // dockerRepair is firewall.docker.repair: rewrite the Docker block into both
 // after files, realize the stored rows and reload UFW, as a repair of UFW's
-// loaded state. Its plan lists each foreign DOCKER-USER rule it discards.
+// loaded state, or load the block's chains live when every difference lies
+// in Darkpanel's own chains. Its plan lists each foreign DOCKER-USER rule it
+// discards.
 func (f fw) dockerRepair() core.ActionDef {
 	def := defineMutation(core.ActionSpec{Name: "firewall.docker.repair", Summary: "Rewrite and reload the Docker integration's block."}, mutation[DockerRepairInput]{
 		f:       f,
@@ -34,7 +37,13 @@ func (f fw) dockerRepair() core.ActionDef {
 				if err != nil {
 					return change{}, err
 				}
-				return dockerRepairChange(cfg, in, st, newULID(env))
+				c, err := dockerRepairChange(cfg, in, st, newULID(env))
+				if err != nil {
+					return change{}, err
+				}
+				diffs, err := f.syncDiffs(cfg, cur)
+				c.liveRepair = err == nil && ownedChainDiffs(diffs)
+				return c, nil
 			}
 		},
 		check: func(ctx context.Context, env core.Env, _ DockerRepairInput, cfg fwstate.Config) error {
@@ -115,6 +124,15 @@ func dockerRepairChange(cfg fwstate.Config, in DockerRepairInput, st dockerState
 		return change{}, fmt.Errorf("firewall: repair the container rules: %w", err)
 	}
 	return change{repair: true, reload: true, files: files, ops: ops, discardForeign: in.DiscardForeign && in.Manual}, nil
+}
+
+// ownedChainDiffs reports whether every difference is in a filter-table
+// chain of Darkpanel's, so loading those chains settles them without a UFW
+// restart.
+func ownedChainDiffs(diffs []fwstate.ChainDiff) bool {
+	return !slices.ContainsFunc(diffs, func(d fwstate.ChainDiff) bool {
+		return d.Table != "filter" || !dockerfw.Owned(d.Chain)
+	})
 }
 
 // repairDiscards lists, for a repair that discards foreign rules (both

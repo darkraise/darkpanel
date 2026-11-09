@@ -1,6 +1,7 @@
 package firewall
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -531,11 +532,119 @@ func TestKfwCleanupUnjournaled(t *testing.T) {
 		n := kfwJournaled(t, env)
 		e := core.Effect{Seq: 1, Kind: core.EffectModify, Resource: deResourceChains,
 			Before: core.StateDoc{State: json.RawMessage(`"absent"`)}}
-		if err := undoDocker(ctx, env, d, nounChains, "docker", e); err != nil {
+		if err := undoDocker(ctx, env, d, snapshot{}, nounChains, "docker", e); err != nil {
 			t.Fatal(err)
 		}
 		check(t, h, env, n)
 	})
+}
+
+// TestW11a08ImageLoadSkipsAnUnloadedFamily: an image load covers the families
+// the forward load covers, so a host without an IPv6 ruleset runs no
+// ip6tables restore.
+func TestW11a08ImageLoadSkipsAnUnloadedFamily(t *testing.T) {
+	h, d := kfwHost(t, true)
+	h.loaded.V6 = nil
+	var paths []string
+	prev := h.onRun
+	h.onRun = func(h *fakeHost, cmd core.Cmd) core.CmdResult {
+		paths = append(paths, cmd.Path)
+		if prev != nil {
+			return prev(h, cmd)
+		}
+		return core.CmdResult{}
+	}
+	e := core.Effect{Seq: 1, Kind: core.EffectModify, Resource: blockChainsResource,
+		Before: core.StateDoc{State: json.RawMessage(`{"v4":{"darkpanel-docker-deny":[]}}`)}}
+	snap := snapshot{State: snapshotState{Image: &beforeImage{}}}
+	if err := undoDocker(context.Background(), h.env(), d, snap, nounChains, "block", e); err != nil {
+		t.Fatal(err)
+	}
+	restored := slices.ContainsFunc(paths, func(p string) bool { return strings.HasSuffix(p, "-restore") })
+	v6 := slices.ContainsFunc(paths, func(p string) bool { return strings.Contains(p, "ip6tables") })
+	if !restored || v6 {
+		t.Errorf("ran %q, want an IPv4 restore and no ip6tables restore", paths)
+	}
+}
+
+// TestW11a08ImageLoadSkipsIPv6WhenOff: a ruleset loaded for a family UFW has
+// turned off gets no restore either, as the forward load gets none.
+func TestW11a08ImageLoadSkipsIPv6WhenOff(t *testing.T) {
+	h, d := kfwHost(t, true)
+	if h.loaded.V6 == nil {
+		h.loaded.V6 = h.loaded.V4
+	}
+	h.writeFile("/etc/default/ufw", bytes.Replace(h.config().Files["/etc/default/ufw"].Data, []byte("IPV6=yes"), []byte("IPV6=no"), 1))
+	if h.config().IPv6 {
+		t.Fatal("the rig still has IPv6 on")
+	}
+	var paths []string
+	prev := h.onRun
+	h.onRun = func(h *fakeHost, cmd core.Cmd) core.CmdResult {
+		paths = append(paths, cmd.Path)
+		return prev(h, cmd)
+	}
+	e := core.Effect{Seq: 1, Kind: core.EffectModify, Resource: blockChainsResource,
+		Before: core.StateDoc{State: json.RawMessage(`{"v4":{"darkpanel-docker-deny":[]}}`)}}
+	snap := snapshot{State: snapshotState{Image: &beforeImage{}}}
+	if err := undoDocker(context.Background(), h.env(), d, snap, nounChains, "block", e); err != nil {
+		t.Fatal(err)
+	}
+	if slices.ContainsFunc(paths, func(p string) bool { return strings.Contains(p, "ip6tables") }) {
+		t.Errorf("ran %q, want no ip6tables restore", paths)
+	}
+}
+
+// TestW11a08ImageLoadRefusesALineBreak: a damaged image row could add lines
+// of its own to the restore input, so nothing runs.
+func TestW11a08ImageLoadRefusesALineBreak(t *testing.T) {
+	h, d := kfwHost(t, true)
+	var restores int
+	prev := h.onRun
+	h.onRun = func(h *fakeHost, cmd core.Cmd) core.CmdResult {
+		if strings.HasSuffix(cmd.Path, "-restore") {
+			restores++
+		}
+		return prev(h, cmd)
+	}
+	e := core.Effect{Seq: 1, Kind: core.EffectModify, Resource: blockChainsResource,
+		Before: core.StateDoc{State: json.RawMessage(`{"v4":{"darkpanel-docker-deny":[]}}`)}}
+	img := &beforeImage{V4: []imageTable{{Name: "filter", Chains: []imageChain{{Name: "DOCKER-USER", Rules: []imageRule{{Text: kfwReturn + "\n-F INPUT"}}}}}}}
+	err := undoDocker(context.Background(), h.env(), d, snapshot{State: snapshotState{Image: img}}, nounChains, "block", e)
+	if err == nil || !strings.Contains(err.Error(), "line break") {
+		t.Fatalf("undoDocker = %v, want the line-break refusal", err)
+	}
+	if restores != 0 {
+		t.Errorf("%d restores ran, want none", restores)
+	}
+}
+
+// TestW11a08LoadedChainsComeBackFromTheImage: the inverse of a removal of
+// loaded chains loads them from the image and does not reload UFW.
+func TestW11a08LoadedChainsComeBackFromTheImage(t *testing.T) {
+	h, d := kfwHost(t, true)
+	var paths []string
+	var input string
+	prev := h.onRun
+	h.onRun = func(h *fakeHost, cmd core.Cmd) core.CmdResult {
+		paths = append(paths, cmd.Path)
+		if strings.Contains(cmd.Path, "iptables") && !strings.Contains(cmd.Path, "ip6tables") {
+			input = string(cmd.Stdin)
+		}
+		return prev(h, cmd)
+	}
+	e := core.Effect{Seq: 1, Kind: core.EffectModify, Resource: deResourceChains,
+		Before: core.StateDoc{State: json.RawMessage(`"loaded"`)}}
+	img := takeImage(h.loaded)
+	if err := undoDocker(context.Background(), h.env(), d, snapshot{State: snapshotState{Image: img}}, nounChains, "docker", e); err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(paths, ufwPath) {
+		t.Errorf("ran %q, want no ufw command", paths)
+	}
+	if !strings.Contains(input, ":darkpanel-docker-deny - [0:0]") || !strings.Contains(input, kfwReturn) {
+		t.Errorf("the IPv4 input %q does not load the image's chains", input)
+	}
 }
 
 // kfwCleanReal gives d the production cleanup and makes the fake host drop

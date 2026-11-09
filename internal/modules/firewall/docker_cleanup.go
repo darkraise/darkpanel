@@ -138,7 +138,10 @@ func (f fw) runCleanup(ctx context.Context, env core.Env, owner string, mode cle
 			return fmt.Errorf("firewall: record the cleanup of %s: %w", owner, err)
 		}
 	}
-	steps := func() error { return f.cleanupSteps(ctx, env, cfg, cur) }
+	// Only uninstall reloads: a change's inverse or a restore's pre-cleanup
+	// runs on a UFW that stays active, and verifyCleanup is its check.
+	reload := mode == cleanupRefuse || owner == "uninstall"
+	steps := func() error { return f.cleanupSteps(ctx, env, cfg, cur, reload) }
 	// A held record means an earlier attempt was cut off after it read
 	// DOCKER-USER, and the files may no longer hold the block. keepForeign
 	// judges the chain against the files that attempt recorded too, so the
@@ -163,11 +166,11 @@ func (f fw) runCleanup(ctx context.Context, env core.Env, owner string, mode cle
 }
 
 // cleanupSteps writes the files of cfg that hold the block without it,
-// removes the block's chains from each family that has them and, outside a
-// change, reloads UFW when it was active (before) and something changed.
-// Inside a change the files and the chains are journaled effects, and the
-// change's own transition reloads UFW.
-func (f fw) cleanupSteps(ctx context.Context, env core.Env, cfg fwstate.Config, before fwstate.Loaded) error {
+// removes the block's chains from each family that has them and, when reload
+// is set and outside a change, reloads UFW when it was active (before) and
+// something changed. Inside a change the files and the chains are journaled
+// effects, and the change's own transition reloads UFW.
+func (f fw) cleanupSteps(ctx context.Context, env core.Env, cfg fwstate.Config, before fwstate.Loaded, reload bool) error {
 	changed := false
 	for _, p := range cleanupFiles {
 		entry := cfg.Files[p]
@@ -227,7 +230,7 @@ func (f fw) cleanupSteps(ctx context.Context, env core.Env, cfg fwstate.Config, 
 	}
 	// UFW's chains stay loaded after its package is removed, until a reboot,
 	// so the loaded state alone does not show that its program exists.
-	if changed && env.Effects == nil && ufwRunning(before) && f.regular(ufwPath) == nil {
+	if reload && changed && env.Effects == nil && ufwRunning(before) && f.regular(ufwPath) == nil {
 		return ufw(ctx, env, reloadArgs)
 	}
 	return nil
