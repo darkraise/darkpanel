@@ -3,6 +3,7 @@ package guard
 import (
 	"net/netip"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -126,10 +127,10 @@ func TestBuildFlows(t *testing.T) {
 			f:    facts{ifaces: gIfaces(), controller: 4242},
 			want: []flow{
 				{label: "exposure exp1 proxy", pkt: flOn("dp-panel", flPkt("input", "172.30.0.2", 0, "172.30.0.1", 8080, "tcp"))},
-				{label: "exposure exp1 public", pkt: flPkt("input", "0.0.0.0", 0, "192.0.2.1", 443, "tcp"), wild: wildSrc, fwdReply: npm.ProxyAddr},
-				{label: "exposure exp1 public", pkt: flPkt("input", "::", 0, "2001:db8::1", 443, "tcp"), wild: wildSrc, fwdReply: npm.ProxyAddr},
-				{label: "exposure exp1 public", pkt: flPkt("input", "0.0.0.0", 0, "0.0.0.0", 443, "tcp"), wild: wildSrc, fwdReply: npm.ProxyAddr},
-				{label: "exposure exp1 public", pkt: flPkt("input", "::", 0, "::", 443, "tcp"), wild: wildSrc, fwdReply: npm.ProxyAddr},
+				{label: "exposure exp1 public", pkt: flPkt("input", "0.0.0.0", 0, "192.0.2.1", 443, "tcp"), wild: wildSrc, fwdReplies: []netip.Addr{npm.ProxyAddr}},
+				{label: "exposure exp1 public", pkt: flPkt("input", "::", 0, "2001:db8::1", 443, "tcp"), wild: wildSrc, fwdReplies: []netip.Addr{npm.ProxyAddr}},
+				{label: "exposure exp1 public", pkt: flPkt("input", "0.0.0.0", 0, "0.0.0.0", 443, "tcp"), wild: wildSrc, fwdReplies: []netip.Addr{npm.ProxyAddr}},
+				{label: "exposure exp1 public", pkt: flPkt("input", "::", 0, "::", 443, "tcp"), wild: wildSrc, fwdReplies: []netip.Addr{npm.ProxyAddr}},
 			},
 		},
 		{
@@ -281,5 +282,18 @@ func TestBuildFlows(t *testing.T) {
 				t.Errorf("buildFlows =\n%+v\nwant\n%+v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestW11b05FlowSetKeepsEveryForwardedReply(t *testing.T) {
+	a, b := netip.MustParseAddr("172.30.0.2"), netip.MustParseAddr("172.30.0.3")
+	pkt := flPkt("input", "0.0.0.0", 0, "0.0.0.0", 443, "tcp")
+	s := &flowSet{seen: map[flowKey]int{}}
+	s.add(flow{label: "first", pkt: pkt, wild: wildSrc, fwdReplies: []netip.Addr{a}})
+	s.add(flow{label: "second", pkt: pkt, wild: wildSrc, fwdReplies: []netip.Addr{b}})
+	s.add(flow{label: "third", pkt: pkt, wild: wildSrc, fwdReplies: []netip.Addr{a}})
+	s.add(flow{label: "fourth", pkt: pkt, wild: wildSrc})
+	if len(s.flows) != 1 || !slices.Equal(s.flows[0].fwdReplies, []netip.Addr{a, b}) {
+		t.Errorf("flows = %+v, want one flow with the forwarded replies %v and %v", s.flows, a, b)
 	}
 }

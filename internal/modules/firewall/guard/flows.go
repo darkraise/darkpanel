@@ -54,20 +54,19 @@ const (
 // end of pkt holds its family's unspecified address until a cell of the
 // internet is chosen for it.
 type flow struct {
-	label     string
-	pkt       fwstate.Packet
-	wild      wildEnd
-	span      string     // "<From>-<To>" of the cell this copy of the flow is checked in
-	standIn   bool       // a missing route skips it rather than failing: a wild destination with no route of its family, or a wild source in a cell of a route without a path that no reply reaches, has nothing to protect
-	blackhole bool       // the cell lies in a blackhole route, whose lookup the kernel answers with EINVAL
-	fwdReply  netip.Addr // the DNAT target that answers this flow; its reply is routed with that source, arriving on panelBridge
-	unknown   string
+	label      string
+	pkt        fwstate.Packet
+	wild       wildEnd
+	span       string       // "<From>-<To>" of the cell this copy of the flow is checked in
+	standIn    bool         // a missing route skips it rather than failing: a wild destination with no route of its family, or a wild source in a cell of a route without a path that no reply reaches, has nothing to protect
+	blackhole  bool         // the cell lies in a blackhole route, whose lookup the kernel answers with EINVAL
+	fwdReplies []netip.Addr // the DNAT targets that answer this flow; their replies are routed with those sources, arriving on panelBridge
+	unknown    string
 }
 
 // flowSet collects flows in order without duplicates. Two flows with the
-// same packet are one flow, whichever label came first. It keeps the
-// forwarded reply of a later one, as checking that reply too only skips
-// fewer cells.
+// same packet are one flow, whichever label came first. It keeps every
+// forwarded reply, as checking every reply only skips fewer cells.
 type flowSet struct {
 	flows []flow
 	seen  map[flowKey]int // the index of the kept flow
@@ -85,8 +84,10 @@ func (s *flowSet) add(f flow) {
 		k = flowKey{label: f.label, unknown: f.unknown}
 	}
 	if i, ok := s.seen[k]; ok {
-		if f.fwdReply.IsValid() {
-			s.flows[i].fwdReply = f.fwdReply
+		for _, a := range f.fwdReplies {
+			if !slices.Contains(s.flows[i].fwdReplies, a) {
+				s.flows[i].fwdReplies = append(s.flows[i].fwdReplies, a)
+			}
 		}
 		return
 	}
@@ -280,7 +281,7 @@ func viaFlows(s *flowSet, ctxs []*core.GuardContext, retired []string, local map
 				default:
 					dst = netip.IPv6Unspecified()
 				}
-				s.add(flow{label: label + " public", pkt: newPacket("input", anyAddr(pub.Addr()), unknownPort, dst, pub.Port(), "tcp"), wild: wildSrc, fwdReply: v.ProxyAddr})
+				s.add(flow{label: label + " public", pkt: newPacket("input", anyAddr(pub.Addr()), unknownPort, dst, pub.Port(), "tcp"), wild: wildSrc, fwdReplies: []netip.Addr{v.ProxyAddr}})
 			}
 		case "tunnel":
 			for _, out := range []struct {

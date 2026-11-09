@@ -390,3 +390,54 @@ func TestDescribe(t *testing.T) {
 		t.Errorf("describe = %q, want %q", got, want)
 	}
 }
+
+func TestW11b05NoReplyChecksEveryForwardedReply(t *testing.T) {
+	src, from := netip.MustParseAddr("45.33.0.0"), netip.MustParseAddr("192.0.2.1")
+	a, b := netip.MustParseAddr("172.30.0.2"), netip.MustParseAddr("172.30.0.3")
+	fl := flow{pkt: flPkt("input", "45.33.0.0", 0, "192.0.2.1", 443, "tcp"), wild: wildSrc, fwdReplies: []netip.Addr{a, b}}
+	for _, tt := range []struct {
+		name   string
+		routes map[netstat.RouteQuery]netstat.Route
+		want   bool
+	}{
+		{"neither reply has a route", nil, true},
+		{"the first reply has a route", map[netstat.RouteQuery]netstat.Route{rtQuery("45.33.0.0", "172.30.0.2", "dp-panel"): rtVia("eth0", "")}, false},
+		{"the second reply has a route", map[netstat.RouteQuery]netstat.Route{rtQuery("45.33.0.0", "172.30.0.3", "dp-panel"): rtVia("eth0", "")}, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := newRouter(&gHost{routes: tt.routes}, facts{ifaces: gIfaces()}, fwstate.Loaded{})
+			if got := r.noReply(fl, src, 0, from); got != tt.want {
+				t.Errorf("noReply = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestW11b05NoReplyFrom(t *testing.T) {
+	deadline := fmt.Errorf("netstat: route lookup: %w", os.ErrDeadlineExceeded)
+	v4Only := []netstat.Interface{{Index: 2, Name: "eth0", Up: true, Running: true, Addrs: []netip.Prefix{netip.MustParsePrefix("192.0.2.1/24")}}}
+	for _, tt := range []struct {
+		name      string
+		src       string
+		ifaces    []netstat.Interface
+		routes    map[netstat.RouteQuery]netstat.Route
+		routeErrs map[netstat.RouteQuery]error
+		want      bool
+	}{
+		{name: "no address of the host has a route", src: "45.33.0.1", ifaces: gIfaces(), want: true},
+		{name: "one address has a route", src: "45.33.0.1", ifaces: gIfaces(),
+			routes: map[netstat.RouteQuery]netstat.Route{rtQuery("45.33.0.1", "10.0.0.1", ""): rtVia("eth1", "")}},
+		{name: "a lookup that fails for another reason", src: "45.33.0.1", ifaces: gIfaces(),
+			routeErrs: map[netstat.RouteQuery]error{rtQuery("45.33.0.1", "10.0.0.1", ""): deadline}},
+		{name: "no address of the source's family", src: "2606:4700::1", ifaces: v4Only},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			h := &gHost{routes: tt.routes, routeErrs: tt.routeErrs}
+			r := newRouter(h, facts{ifaces: tt.ifaces}, fwstate.Loaded{})
+			fl := flow{pkt: flPkt("input", tt.src, 0, tt.src, 443, "tcp"), wild: wildSrc}
+			if got := r.noReplyFrom(fl, netip.MustParseAddr(tt.src), 0); got != tt.want {
+				t.Errorf("noReplyFrom = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

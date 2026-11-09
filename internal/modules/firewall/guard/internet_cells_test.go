@@ -875,9 +875,11 @@ func TestV1r21ThrowCellWhoseLookupFailsIsUnknown(t *testing.T) {
 	// The tunnel's cell in the range is unknown as well, so only the
 	// listener's own reason shows that its cell was not skipped.
 	const want = "controller listener from 45.33.0.0-45.33.255.255 to 0.0.0.0:443: unknown (the route back to 45.33.0.0 cannot be resolved"
-	g := v1r21ThrowListener(t, v1r21Throw{fail: errors.New("netstat: invalid argument")}, v1r21State(t, v1r21Table(), v1r21Table()))
-	if g.OK || !strings.Contains(g.Message, want) {
-		t.Errorf("guard = %+v, want a refusal containing %q: only a missing route skips a cell", g, want)
+	for _, fail := range []error{errors.New("netstat: invalid argument"), fmt.Errorf("netstat: route lookup: %w", unix.EINVAL)} {
+		g := v1r21ThrowListener(t, v1r21Throw{fail: fail}, v1r21State(t, v1r21Table(), v1r21Table()))
+		if g.OK || !strings.Contains(g.Message, want) {
+			t.Errorf("lookup failing with %v: guard = %+v, want a refusal containing %q: outside a blackhole only a missing route skips a cell", fail, g, want)
+		}
 	}
 }
 

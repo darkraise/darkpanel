@@ -133,9 +133,9 @@ func noRoute(fl flow, err error) bool {
 
 // noReply reports whether no reply of fl reaches src. The host's own reply
 // leaves from from, or when from is unset from any address of the host. The
-// reply of fl's DNAT target, when it has one, is forwarded: it is routed
-// with the target's source, arriving on panelBridge, before the reverse
-// translation, so its route back must fail too.
+// reply of each DNAT target of fl is forwarded: it is routed with the
+// target's source, arriving on panelBridge, before the reverse translation,
+// so its route back must fail too.
 func (r *router) noReply(fl flow, src netip.Addr, mark uint32, from netip.Addr) bool {
 	// A mark set on the reply may select a policy route that no lookup here
 	// carries.
@@ -149,9 +149,10 @@ func (r *router) noReply(fl flow, src netip.Addr, mark uint32, from netip.Addr) 
 	} else if !r.noReplyFrom(fl, src, mark) {
 		return false
 	}
-	if fl.fwdReply.IsValid() {
-		_, err := r.host.RouteGet(netstat.RouteQuery{Dst: src, Src: fl.fwdReply, IIF: panelBridge, Mark: mark})
-		return noRoute(fl, err)
+	for _, a := range fl.fwdReplies {
+		if _, err := r.host.RouteGet(netstat.RouteQuery{Dst: src, Src: a, IIF: panelBridge, Mark: mark}); !noRoute(fl, err) {
+			return false
+		}
 	}
 	return true
 }
