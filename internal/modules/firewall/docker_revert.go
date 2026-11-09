@@ -145,6 +145,24 @@ func (p kfwPlan) withoutImage(img *beforeImage) *beforeImage {
 	return &beforeImage{V4: p.withoutImageIn(img.V4, fwstate.V4), V6: p.withoutImageIn(img.V6, fwstate.V6)}
 }
 
+// imageWithoutDockerUser returns a copy of img with DOCKER-USER left out of
+// the filter table of both families; img itself is left unchanged.
+func imageWithoutDockerUser(img *beforeImage) *beforeImage {
+	if img == nil {
+		return nil
+	}
+	strip := func(tables []imageTable) []imageTable {
+		out := slices.Clone(tables)
+		for i := range out {
+			if out[i].Name == "filter" {
+				out[i].Chains = slices.DeleteFunc(slices.Clone(out[i].Chains), func(c imageChain) bool { return c.Name == dockerfw.ChainDockerUser })
+			}
+		}
+		return out
+	}
+	return &beforeImage{V4: strip(img.V4), V6: strip(img.V6)}
+}
+
 func (p kfwPlan) withoutImageIn(tables []imageTable, fam fwstate.Family) []imageTable {
 	v6 := fam == fwstate.V6
 	known := map[string]bool{"-j RETURN": true}
@@ -305,7 +323,7 @@ func (f fw) undoKeepingForeign(ctx context.Context, env core.Env, snap snapshot,
 		if err := undoNewestFirst(ctx, env, f.d, snap, kfwUndoOrder(made), conflicts); err != nil {
 			return err
 		}
-		if snap.State.Image == nil {
+		if snap.State.Image == nil || snap.State.Live {
 			return nil
 		}
 		switch changed, err := imageFilesChanged(f.d, snap); {

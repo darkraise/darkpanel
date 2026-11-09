@@ -24,7 +24,7 @@ func rvTestSetup(t *testing.T) (*fakeHost, snapshot) {
 	ctx := context.Background()
 	h := newFakeHost(t)
 	env, d := h.env(), h.deps()
-	raw, err := capture(ctx, env, d, &core.GuardContext{Complete: true}, false)
+	raw, err := capture(ctx, env, d, &core.GuardContext{Complete: true}, imageNone)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,13 +144,13 @@ func TestRevert(t *testing.T) {
 			name:        "manual edit elsewhere: inverses newest first",
 			set:         func(_ *testing.T, h *fakeHost, _ snapshot) { rvTestManualEdit(h) },
 			wantEffects: undone, wantManual: true,
-			wantRuns: []string{"default allow outgoing", strings.Join(model.DeleteArgs(efTestRule), " "), "reload"},
+			wantRuns: []string{"default allow outgoing", strings.Join(model.DeleteArgs(efTestRule), " ")},
 		},
 		{
 			name:        "conflict, guard passes: the rest undone, the conflict left",
 			set:         func(_ *testing.T, h *fakeHost, _ snapshot) { rvTestRemoveOwnRule(h) },
 			wantEffects: []rvTestEffect{{1, core.EffectUnresolved, core.ReasonConflict, "null"}, {2, core.EffectUndone, "", ""}},
-			wantRuns:    []string{"default allow outgoing", "reload"}, wantGuard: 1, wantPinned: true,
+			wantRuns:    []string{"default allow outgoing"}, wantGuard: 1, wantPinned: true,
 			// The operator's removal of the change's rule and the undone
 			// default leave the files as the snapshot holds them.
 			wantRestored: true,
@@ -234,7 +234,7 @@ func TestRevert(t *testing.T) {
 				h.journal.effects[0].Resource = "firewall.thing:x"
 			},
 			wantEffects: []rvTestEffect{{1, core.EffectUnresolved, core.ReasonUncertain, ""}, {2, core.EffectUndone, "", ""}},
-			wantRuns:    []string{"default allow outgoing", "reload"}, wantGuard: 1, wantPinned: true,
+			wantRuns:    []string{"default allow outgoing"}, wantGuard: 1, wantPinned: true,
 		},
 		{
 			name: "interrupted restore: finished whatever the checks say",
@@ -566,7 +566,7 @@ func TestRevertReaddsAManualRuleWithoutItsComment(t *testing.T) {
 	s.Rules4 = append(s.Rules4, withDash)
 	h.setState(s)
 	env, d := h.env(), h.deps()
-	raw, err := capture(ctx, env, d, &core.GuardContext{Complete: true}, false)
+	raw, err := capture(ctx, env, d, &core.GuardContext{Complete: true}, imageNone)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -673,7 +673,7 @@ func axImageRepair(t *testing.T) (h *fakeHost, snap snapshot, imaged fwstate.Loa
 	h.loaded.V4 = fhParse(t, rsTestSave4)
 	imaged = h.loaded
 	env, d := h.env(), h.deps()
-	raw, err := capture(ctx, env, d, &core.GuardContext{Complete: true}, true)
+	raw, err := capture(ctx, env, d, &core.GuardContext{Complete: true}, imageRepair)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -774,7 +774,7 @@ func TestAxRevertOfARestoreRepair(t *testing.T) {
 	h.loaded.V4 = fhParse(t, rsTestSave4)
 	imaged := h.loaded
 	env, d := h.env(), h.deps()
-	raw, err := capture(ctx, env, d, &core.GuardContext{Complete: true}, true)
+	raw, err := capture(ctx, env, d, &core.GuardContext{Complete: true}, imageRepair)
 	if err != nil {
 		t.Fatal(err)
 	}

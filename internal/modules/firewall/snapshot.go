@@ -53,14 +53,27 @@ func fileHashes(files map[string]core.RestoreEntry) map[string]string {
 // count against the system snapshots' retention.
 func systemActor(actor string) bool { return strings.HasPrefix(actor, "system:"+ID+".") }
 
+// imageKind says which loaded-state before-image a snapshot takes.
+type imageKind int
+
+const (
+	imageNone imageKind = iota
+	// imageRepair is taken before a repair, whose reload an inverse cannot
+	// take back.
+	imageRepair
+	// imageLive is taken before a change UFW applies live, so that a whole
+	// revert restores the chains without a reload.
+	imageLive
+)
+
 // capture takes the firewall's logical snapshot before a change (spec 2.5)
 // and returns the snapshot bytes the engine stores: the snapshot's id. The
 // engine calls it before the change exists, so the snapshot is attached
 // later (attach). gc is the guard context of the change's plan, kept for
-// the connectivity exception of a revert; withImage also takes a repair's
-// loaded-state before-image (spec 2.3). The host's first snapshot becomes
+// the connectivity exception of a revert; kind says whether to take the
+// loaded-state before-image too (spec 2.3). The host's first snapshot becomes
 // its baseline, and retention prunes in the same transaction.
-func capture(ctx context.Context, env core.Env, d deps, gc *core.GuardContext, withImage bool) ([]byte, error) {
+func capture(ctx context.Context, env core.Env, d deps, gc *core.GuardContext, kind imageKind) ([]byte, error) {
 	cfg, err := d.readConfig(d.root)
 	if err != nil {
 		return nil, fmt.Errorf("firewall: snapshot: %w", err)
@@ -94,8 +107,9 @@ func capture(ctx context.Context, env core.Env, d deps, gc *core.GuardContext, w
 	if state.Sysctl == nil {
 		state.Sysctl = map[string]string{}
 	}
-	if withImage {
+	if kind != imageNone {
 		state.Image = takeImage(st)
+		state.Live = kind == imageLive
 	}
 	now := env.Clock.Now()
 	s := snapshot{

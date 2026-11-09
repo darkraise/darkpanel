@@ -100,8 +100,15 @@ func TestMutationLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	snap, err := getSnapshot(ctx, h.db, string(raw))
-	if err != nil || snap.State.Guard == nil || !snap.State.Guard.Complete || snap.State.Image != nil {
-		t.Fatalf("snapshot %+v (%v), want the plan's guard context and no before-image", snap.State, err)
+	if err != nil || snap.State.Guard == nil || !snap.State.Guard.Complete || snap.State.Image == nil || !snap.State.Live {
+		t.Fatalf("snapshot %+v (%v), want the plan's guard context and a live before-image", snap.State, err)
+	}
+	imaged := h.loaded
+	h.onRun = func(h *fakeHost, cmd core.Cmd) core.CmdResult {
+		if strings.HasSuffix(cmd.Path, "-restore") {
+			h.loaded = imaged
+		}
+		return core.CmdResult{}
 	}
 	before := h.state()
 	out, err := m.Apply(ctx, env, in)
@@ -217,5 +224,47 @@ func TestMutationRestore(t *testing.T) {
 	}
 	if got := h.state(); !got.Enabled || len(got.Rules4) != 2 || h.sysctl["net/ipv4/ip_forward"] != "1" {
 		t.Errorf("state %+v, ip_forward %s; want the snapshot's", got, h.sysctl["net/ipv4/ip_forward"])
+	}
+}
+
+// TestW11a07SnapshotImagesALiveChange: the snapshot of a change UFW
+// applies live, or of a default change on a running UFW, holds the
+// before-image marked live; a repair's change holds none unless its
+// action asks for its repair image.
+func TestW11a07SnapshotImagesALiveChange(t *testing.T) {
+	ctx := context.Background()
+	defaultIncoming := func(fwstate.Config, fwstate.Loaded) (change, error) {
+		op, err := defaultOp("incoming", "REJECT")
+		return change{ops: []ufwOp{op}}, err
+	}
+	repair := func(fwstate.Config, fwstate.Loaded) (change, error) { return change{repair: true}, nil }
+	for _, tc := range []struct {
+		name            string
+		build           buildFunc
+		image           bool
+		wantImage, live bool
+	}{
+		{"a rule applies live", nil, false, true, true},
+		{"a default restarts UFW itself", defaultIncoming, false, true, true},
+		{"a repair reloads", repair, false, false, false},
+		{"a repair action keeps its repair image", repair, true, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, f, _ := pnHost(t)
+			h.ufw["default reject incoming"] = func(*fhState) int { return 0 }
+			m := hkMutation(f, tc.build)
+			m.image = tc.image
+			raw, err := m.Snapshot(ctx, h.env(), hkInput{Guarded: core.Guarded{Guard: &core.GuardContext{Complete: true}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			snap, err := getSnapshot(ctx, h.db, string(raw))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (snap.State.Image != nil) != tc.wantImage || snap.State.Live != tc.live {
+				t.Errorf("image %v live %v, want image %v live %v", snap.State.Image != nil, snap.State.Live, tc.wantImage, tc.live)
+			}
+		})
 	}
 }

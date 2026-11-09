@@ -23,7 +23,7 @@ func snCapture(t *testing.T, h *fakeHost, f fw) string {
 	t.Helper()
 	env := h.env()
 	env.ChangeID = ""
-	raw, err := capture(context.Background(), env, f.d, nil, false)
+	raw, err := capture(context.Background(), env, f.d, nil, imageNone)
 	if err != nil {
 		t.Fatal(err)
 	}

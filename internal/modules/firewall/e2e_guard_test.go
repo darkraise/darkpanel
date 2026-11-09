@@ -145,6 +145,17 @@ func (h *e2eHost) Run(_ context.Context, cmd core.Cmd) (core.CmdResult, error) {
 		return core.CmdResult{Stdout: out}, err
 	case cmd.Path == ufwPath:
 		return h.ufw(cmd.Args), nil
+	case strings.HasSuffix(cmd.Path, "-restore") && len(cmd.Args) == 1 && cmd.Args[0] == "-n":
+		rs := &h.loaded.V4
+		if strings.Contains(cmd.Path, "ip6tables") {
+			rs = &h.loaded.V6
+		}
+		next, err := deeRestore(*rs, cmd.Stdin)
+		if err != nil {
+			return core.CmdResult{ExitCode: 1, Stderr: []byte(err.Error() + "\n")}, nil
+		}
+		*rs = next
+		return core.CmdResult{}, nil
 	}
 	return core.CmdResult{}, fmt.Errorf("e2e: %s %v is not modelled: %w", cmd.Path, cmd.Args, fs.ErrNotExist)
 }

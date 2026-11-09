@@ -180,6 +180,9 @@ func (f fw) restoreBaseline(ctx context.Context, env core.Env) error {
 	if err != nil {
 		return fmt.Errorf("firewall: uninstall: %w", err)
 	}
+	if snap.State.Live {
+		snap.State.Image = nil
+	}
 	cfgB, err := f.snapshotConfig(snap)
 	if err != nil {
 		return fmt.Errorf("firewall: uninstall: %w", err)

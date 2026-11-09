@@ -183,6 +183,11 @@ func restoreOver(ctx context.Context, env core.Env, d deps, snap snapshot, emerg
 	}
 	cfgS, startErr := snapshotStart(snap)
 	kp := kfwPlanOf(onDisk, restored, snap.State.Enabled, startErr == nil && cfgS.IPv6, true, before)
+	// A declaration of DOCKER-USER flushes the chain, and with no block loaded
+	// afterwards nothing would load its foreign rules back.
+	if snap.State.Live && !kp.loads {
+		snap.State.Image = imageWithoutDockerUser(snap.State.Image)
+	}
 	if kp.cleanup {
 		// The cleanup learns which DOCKER-USER rules are the block's from the
 		// after files on disk. Run after the snapshot's block-free files are

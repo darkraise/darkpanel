@@ -291,6 +291,9 @@ func expectedHashes(snap snapshot, made []core.Effect) map[string]string {
 // when a ufw inverse ran.
 func undoNewestFirst(ctx context.Context, env core.Env, d deps, snap snapshot, made []core.Effect, conflicts map[int]core.EffectOutcome) error {
 	reload := false
+	// A live change and a default change make no such effect: their inverses
+	// run live, or restart UFW through "ufw default" itself.
+	transition := slices.ContainsFunc(made, func(e core.Effect) bool { return e.Resource == resourceEnabled })
 	for i := len(made) - 1; i >= 0; i-- {
 		e := made[i]
 		if _, ok := conflicts[e.Seq]; ok {
@@ -301,7 +304,7 @@ func undoNewestFirst(ctx context.Context, env core.Env, d deps, snap snapshot, m
 		}
 		reload = reload || ufwEffect(e)
 	}
-	if reload {
+	if reload && transition {
 		return reloadIfActive(ctx, env, d)
 	}
 	return nil

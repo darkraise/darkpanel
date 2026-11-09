@@ -97,7 +97,26 @@ func (m mutation[In]) Snapshot(ctx context.Context, env core.Env, in In) ([]byte
 			}()
 		}
 	}
-	return capture(ctx, env, m.f.d, m.guarded(in).Guard, m.image)
+	return capture(ctx, env, m.f.d, m.guarded(in).Guard, m.imageFor(ctx, env, in))
+}
+
+// imageFor is the before-image the snapshot of this change takes. A change
+// that cannot be prepared takes the plain one: Apply's own prepare then
+// returns the same error.
+func (m mutation[In]) imageFor(ctx context.Context, env core.Env, in In) imageKind {
+	if m.image {
+		return imageRepair
+	}
+	if p, err := m.f.prepare(ctx, env, m.build(ctx, env, in)); err == nil && liveTarget(p) {
+		return imageLive
+	}
+	return imageNone
+}
+
+// liveTarget reports whether UFW applies p without a command of Darkpanel's
+// that restarts it: live, or through the restart "ufw default" makes itself.
+func liveTarget(p prepared) bool {
+	return p.tg.tr == fwstate.TransLive || (hasDefaultOp(p.c) && p.tg.tr == fwstate.TransReload && len(p.tg.cmds) == 0)
 }
 
 // Apply attaches the snapshot, makes the change as journaled effects

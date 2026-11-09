@@ -18,7 +18,11 @@ import (
 // rsTestSnap captures a snapshot of h and reads it back.
 func rsTestSnap(t *testing.T, h *fakeHost, withImage bool) snapshot {
 	t.Helper()
-	raw, err := capture(context.Background(), h.env(), h.deps(), nil, withImage)
+	kind := imageNone
+	if withImage {
+		kind = imageRepair
+	}
+	raw, err := capture(context.Background(), h.env(), h.deps(), nil, kind)
 	if err != nil {
 		t.Fatal(err)
 	}

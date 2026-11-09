@@ -768,3 +768,70 @@ func (e w11a06Exec) Run(ctx context.Context, cmd core.Cmd) (core.CmdResult, erro
 	e.seen(cmd)
 	return res, err
 }
+
+// TestW11a07RevertOfAContainerAllowRunsNoReload: an unconfirmed allow is
+// reverted from its snapshot's before-image: the binding closes again and
+// UFW is never reloaded.
+func TestW11a07RevertOfAContainerAllowRunsNoReload(t *testing.T) {
+	h := deeNewHost(t)
+	h.deePublishV6(t)
+	eng := deeEngine(t, h)
+	deeConfirm(t, eng, "firewall.docker.enable", `{}`)
+	_, cv, err := deePlanApply(t, eng, "firewall.container.allow", `{"binding":`+deeBinding+`}`)
+	if err != nil || cv.State != core.StatePending {
+		t.Fatalf("allow = %+v, %v; want pending", cv, err)
+	}
+	h.ran = nil
+	if cv, err = eng.Revert(context.Background(), eeUser, cv.ID); err != nil || cv.State != core.StateReverted {
+		t.Fatalf("revert = %+v, %v; want reverted", cv, err)
+	}
+	if slices.Contains(h.ran, "reload") {
+		t.Errorf("ufw commands of the revert %q include a reload", h.ran)
+	}
+	for addr, want := range map[string]string{"0.0.0.0": "filtered", "::": "filtered"} {
+		if got := deeInternet(t, h, "tcp", addr, 8080); got != want {
+			t.Errorf("port 8080 on %s is %s after the revert, want %s", addr, got, want)
+		}
+	}
+}
+
+// TestW11a07RevertOfADefaultAddsNoReload: the revert of a default-policy
+// change loads its snapshot's before-image and runs no reload.
+func TestW11a07RevertOfADefaultAddsNoReload(t *testing.T) {
+	h := deeNewHost(t)
+	eng := deeEngine(t, h)
+	_, cv, err := deePlanApply(t, eng, "firewall.defaults.set", `{"incoming":"REJECT"}`)
+	if err != nil || cv.State != core.StatePending {
+		t.Fatalf("defaults.set = %+v, %v; want pending", cv, err)
+	}
+	h.ran = nil
+	if cv, err = eng.Revert(context.Background(), eeUser, cv.ID); err != nil || cv.State != core.StateReverted {
+		t.Fatalf("revert = %+v, %v; want reverted", cv, err)
+	}
+	if slices.Contains(h.ran, "reload") {
+		t.Errorf("ufw commands of the revert %q include a reload", h.ran)
+	}
+}
+
+// TestW11a07ForeignRuleSurvivesWholeRevertWithoutTheBlock: a whole revert of
+// a live change on a host with no block loaded keeps a foreign DOCKER-USER
+// rule, which a load of the image's copy of that chain would flush.
+func TestW11a07ForeignRuleSurvivesWholeRevertWithoutTheBlock(t *testing.T) {
+	h := deeNewHost(t)
+	eng := deeEngine(t, h)
+	_, cv, err := deePlanApply(t, eng, "firewall.defaults.set", `{"incoming":"REJECT"}`)
+	if err != nil || cv.State != core.StatePending {
+		t.Fatalf("defaults.set = %+v, %v; want pending", cv, err)
+	}
+	h.addForeign(t, deeForeign)
+	h.ran = nil
+	if cv, err = eng.Revert(context.Background(), eeUser, cv.ID); err != nil || cv.State != core.StateReverted {
+		t.Fatalf("revert = %+v, %v; want reverted", cv, err)
+	}
+	if slices.Contains(h.ran, "reload") {
+		t.Errorf("ufw commands of the revert %q include a reload", h.ran)
+	}
+	if got := deeTexts(h, fwstate.V4, "DOCKER-USER"); !slices.Contains(got, deeForeign) {
+		t.Errorf("DOCKER-USER = %q, want the foreign rule %q kept", got, deeForeign)
+	}
+}

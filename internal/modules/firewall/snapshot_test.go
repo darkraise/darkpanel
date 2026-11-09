@@ -19,7 +19,7 @@ func TestCaptureRecordsTheLogicalState(t *testing.T) {
 	ctx := context.Background()
 	h := newFakeHost(t)
 	gc := &core.GuardContext{AgentPeers: []netip.Addr{netip.MustParseAddr("192.0.2.7")}, Complete: true}
-	raw, err := capture(ctx, h.env(), h.deps(), gc, false)
+	raw, err := capture(ctx, h.env(), h.deps(), gc, imageNone)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestCaptureRecordsTheLogicalState(t *testing.T) {
 func TestCaptureRepairBeforeImage(t *testing.T) {
 	ctx := context.Background()
 	h := newFakeHost(t)
-	raw, err := capture(ctx, h.env(), h.deps(), nil, true)
+	raw, err := capture(ctx, h.env(), h.deps(), nil, imageRepair)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestCaptureAbsentFileAndSystemActor(t *testing.T) {
 	}
 	env := h.env()
 	env.Principal.Actor = "system:firewall.reconcile"
-	raw, err := capture(ctx, env, h.deps(), nil, false)
+	raw, err := capture(ctx, env, h.deps(), nil, imageNone)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,14 +117,14 @@ func TestCaptureFailsWithoutSaving(t *testing.T) {
 	ctx := context.Background()
 	h := newFakeHost(t)
 	h.loadErr = errors.New("save failed")
-	if _, err := capture(ctx, h.env(), h.deps(), nil, false); err == nil {
+	if _, err := capture(ctx, h.env(), h.deps(), nil, imageNone); err == nil {
 		t.Error("capture succeeded without the loaded state")
 	}
 	h.loadErr = nil
 	if err := os.Remove(filepath.Join(h.root, "/etc/ufw/ufw.conf")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := capture(ctx, h.env(), h.deps(), nil, false); err == nil {
+	if _, err := capture(ctx, h.env(), h.deps(), nil, imageNone); err == nil {
 		t.Error("capture succeeded without ufw.conf")
 	}
 	if ids := stTestIDs(t, h.db); len(ids) != 0 {
@@ -157,7 +157,7 @@ func TestAttachAndPostHashes(t *testing.T) {
 	ctx := context.Background()
 	h := newFakeHost(t)
 	env, d := h.env(), h.deps()
-	raw, err := capture(ctx, env, d, nil, false)
+	raw, err := capture(ctx, env, d, nil, imageNone)
 	if err != nil {
 		t.Fatal(err)
 	}

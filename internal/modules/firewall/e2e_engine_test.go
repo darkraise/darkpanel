@@ -116,8 +116,8 @@ func TestE2EApplyVerifyRevert(t *testing.T) {
 	if diffs := loaded.Compare(beforeLoaded, h.loaded, restoreKeep); len(diffs) != 0 {
 		t.Errorf("the kernel's tables differ from before the change: %+v", diffs)
 	}
-	if h.ran[len(h.ran)-1] != "reload" {
-		t.Errorf("ufw ran %q, want the restore's reload last", h.ran)
+	if slices.Contains(h.ran, "reload") {
+		t.Errorf("ufw ran %q, want no reload: the revert loads the before-image", h.ran)
 	}
 }
 
@@ -288,5 +288,34 @@ func TestE2EVerifyNatRule(t *testing.T) {
 			!strings.Contains(cv.Error.Message, "v4 nat/POSTROUTING: 1 rule only predicted") {
 			t.Errorf("not applied: change %+v, %v; want reverted by the prediction mismatch naming nat/POSTROUTING", cv, err)
 		}
+	}
+}
+
+// TestW11a07ManualRuleAfterALiveChangeRevertsByInverses: a rule added by
+// hand after a live change sends its revert by inverses: the change's rule
+// is deleted live, the manual one stays, and UFW is never reloaded.
+func TestW11a07ManualRuleAfterALiveChangeRevertsByInverses(t *testing.T) {
+	ctx := context.Background()
+	h := newE2EHost(t, "rules", "rules")
+	eng := eeEngine(t, h)
+	_, cv, err := eePlanApply(t, eng, "firewall.rule.add",
+		`{"rule":{"action":"allow","direction":"in","proto":"tcp","from":"any","to":"any","toPort":"8097","family":"both","comment":"w11a"}}`)
+	if err != nil || cv.State != core.StatePending {
+		t.Fatalf("rule.add = %+v, %v; want pending", cv, err)
+	}
+	if res := h.ufw(strings.Fields("allow in proto tcp from any to any port 8098")); res.ExitCode != 0 {
+		t.Fatalf("the manual ufw allow failed: %s", res.Stderr)
+	}
+	h.ran = nil
+	cv, err = eng.Revert(ctx, eeUser, cv.ID)
+	if err != nil || cv.State != core.StateReverted {
+		t.Fatalf("revert = %+v, %v; want reverted", cv, err)
+	}
+	if slices.Contains(h.ran, "reload") {
+		t.Errorf("ufw commands of the revert %q include a reload", h.ran)
+	}
+	keys := strings.Join(eeUserChain(h), "\n")
+	if strings.Contains(keys, "--dport 8097") || !strings.Contains(keys, "--dport 8098") {
+		t.Errorf("the kernel's user chain after the revert:\n%s\nwant the 8098 rule kept and the 8097 rule gone", keys)
 	}
 }

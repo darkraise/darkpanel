@@ -49,12 +49,12 @@ func dsnSeed(t *testing.T, h *fakeHost, cfg dockerConfig, rows ...dockerfw.Conta
 }
 
 func TestDsnCaptureRecordsRowsSettingsAndFlag(t *testing.T) {
-	for _, withImage := range []bool{false, true} {
-		t.Run(map[bool]string{false: "change snapshot", true: "repair snapshot"}[withImage], func(t *testing.T) {
+	for _, kind := range []imageKind{imageNone, imageRepair} {
+		t.Run(map[imageKind]string{imageNone: "change snapshot", imageRepair: "repair snapshot"}[kind], func(t *testing.T) {
 			ctx := context.Background()
 			h := newFakeHost(t)
 			dsnSeed(t, h, dockerConfig{Enabled: true, Settings: dsnSettings()}, dsnRules()...)
-			raw, err := capture(ctx, h.env(), h.deps(), nil, withImage)
+			raw, err := capture(ctx, h.env(), h.deps(), nil, kind)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -78,7 +78,7 @@ func TestDsnCaptureRecordsRowsSettingsAndFlag(t *testing.T) {
 func TestDsnCaptureWithoutDockerConfig(t *testing.T) {
 	ctx := context.Background()
 	h := newFakeHost(t)
-	raw, err := capture(ctx, h.env(), h.deps(), nil, false)
+	raw, err := capture(ctx, h.env(), h.deps(), nil, imageNone)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestDsnCaptureFailsWithoutDockerState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := capture(ctx, h.env(), h.deps(), nil, false); err == nil {
+	if _, err := capture(ctx, h.env(), h.deps(), nil, imageNone); err == nil {
 		t.Error("capture succeeded without the container rows, so a restore of its snapshot would delete them")
 	}
 	if ids := stTestIDs(t, h.db); len(ids) != 0 {

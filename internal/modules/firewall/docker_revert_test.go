@@ -146,7 +146,7 @@ func kfwSnapshot(t *testing.T, h *fakeHost, d deps) snapshot {
 	t.Helper()
 	env := h.env()
 	env.ChangeID = ""
-	raw, err := capture(context.Background(), env, d, nil, false)
+	raw, err := capture(context.Background(), env, d, nil, imageNone)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +288,7 @@ func kfwRevertHost(t *testing.T) (*fakeHost, deps, snapshot) {
 	ctx := context.Background()
 	h, d := kfwHost(t, true)
 	env := h.env()
-	raw, err := capture(ctx, env, d, &core.GuardContext{Complete: true}, false)
+	raw, err := capture(ctx, env, d, &core.GuardContext{Complete: true}, imageNone)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,7 +366,7 @@ func TestKfwRevert(t *testing.T) {
 	t.Run("inverses of a cleanup", func(t *testing.T) {
 		h, d := kfwHost(t, true)
 		env := h.env()
-		raw, err := capture(ctx, env, d, &core.GuardContext{Complete: true}, false)
+		raw, err := capture(ctx, env, d, &core.GuardContext{Complete: true}, imageNone)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -614,7 +614,7 @@ func TestKfwImageWithForeign(t *testing.T) {
 	kfwSet(t, h, kfwWith(kfwBlockLines, 3, kfwForeign), true)
 	env := h.env()
 	env.ChangeID = ""
-	raw, err := capture(ctx, env, d, nil, true)
+	raw, err := capture(ctx, env, d, nil, imageRepair)
 	if err != nil {
 		t.Fatal(err)
 	}

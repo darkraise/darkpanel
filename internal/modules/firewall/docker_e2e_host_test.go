@@ -390,7 +390,8 @@ func deeBuild(tables []deeTable) (*netfilter.Ruleset, error) {
 // deeRestore applies iptables-restore --noflush input to rs and returns the
 // new ruleset, leaving rs as it was: a declared chain that exists is flushed
 // when it is a user chain and takes the declared policy when it is built-in,
-// -A appends, -F flushes, and -X deletes a user chain only when it is empty
+// -A appends, -I inserts at the head (a save prints it as -A, as the kernel
+// does), -F flushes, and -X deletes a user chain only when it is empty
 // and no rule jumps to it. Only these lines are modelled; anything else is an
 // error, as is the failure of any line, which loads nothing.
 func deeRestore(rs *netfilter.Ruleset, input []byte) (*netfilter.Ruleset, error) {
@@ -440,6 +441,12 @@ func deeRestore(rs *netfilter.Ruleset, input []byte) (*netfilter.Ruleset, error)
 				return nil, fmt.Errorf("-A: no chain %s", f[1])
 			}
 			(*chains)[i].rules = append((*chains)[i].rules, line)
+		case f[0] == "-I" && len(f) >= 2:
+			i := find(f[1])
+			if i < 0 {
+				return nil, fmt.Errorf("-I: no chain %s", f[1])
+			}
+			(*chains)[i].rules = slices.Insert((*chains)[i].rules, 0, "-A"+line[2:])
 		case f[0] == "-F" && len(f) == 2:
 			i := find(f[1])
 			if i < 0 {
