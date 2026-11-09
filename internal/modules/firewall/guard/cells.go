@@ -225,32 +225,37 @@ func routeCutters(routes []netstat.Route, v6 bool) routeCut {
 // any internet address needs every cell to pass. A flow from any internet
 // address, given a before-state, fails only on a cell the before-state
 // neither drops nor rejects: a probe the before-state already blocked is
-// left out, while one it cannot decide still blocks the cell.
-func (r *router) checkFlow(fl flow, before *fwstate.Loaded, ev func(*netfilter.Ruleset, fwstate.Packet, fwstate.Router) fwstate.Result) []FlowResult {
-	var first []FlowResult
+// left out and counted in skipped, while one it cannot decide still blocks
+// the cell. The before-state is routed by its own sysctl values.
+func (r *router) checkFlow(fl flow, before *fwstate.Loaded, ev func(*netfilter.Ruleset, fwstate.Packet, fwstate.Router) fwstate.Result) (results []FlowResult, skipped int) {
+	var prior *router
+	if fl.wild == wildSrc && before != nil {
+		prior = r.forState(*before)
+	}
 	for _, cf := range r.cellFlows(fl, before) {
-		var results []FlowResult
+		var cell []FlowResult
 		blocked := false
 		for _, p := range r.probes(cf) {
 			res := evaluate(r, r.st, p, ev)
 			if res.Verdict != fwstate.Accept {
-				if fl.wild == wildSrc && before != nil {
-					if v := evaluate(r, *before, p, ev).Verdict; v == fwstate.Drop || v == fwstate.Reject {
+				if prior != nil {
+					if v := evaluate(prior, *before, p, ev).Verdict; v == fwstate.Drop || v == fwstate.Reject {
+						skipped++
 						continue
 					}
 				}
 				blocked = true
 			}
-			results = append(results, FlowResult{Flow: p.desc, Result: res})
+			cell = append(cell, FlowResult{Flow: p.desc, Result: res})
 		}
 		if blocked {
-			return results
+			return cell, skipped
 		}
-		if first == nil {
-			first = results
+		if results == nil {
+			results = cell
 		}
 	}
-	return first
+	return results, skipped
 }
 
 // hookChains are the chains the kernel runs packets through; every other

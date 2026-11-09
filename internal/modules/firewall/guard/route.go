@@ -43,6 +43,13 @@ func newRouter(h Host, f facts, st fwstate.Loaded) *router {
 	return &router{host: h, f: f, st: st, local: localAddrs(f.ifaces), routes: map[bool]routeCut{}}
 }
 
+// forState is a copy of r that routes by st and shares r's caches.
+func (r *router) forState(st fwstate.Loaded) *router {
+	c := *r
+	c.st = st
+	return &c
+}
+
 // probes turns a flow into the packets to evaluate: an incoming flow
 // without a fixed in-interface on every eligible in-interface, any other
 // flow once with the out-interface its route gives. An incoming flow to an

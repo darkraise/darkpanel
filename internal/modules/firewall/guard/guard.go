@@ -58,10 +58,13 @@ func (c Checker) Check(ctx context.Context, env core.Env, st fwstate.Loaded, in 
 	}
 	r := newRouter(h, f, st)
 	var results []FlowResult
+	skipped := 0
 	for _, fl := range append(flows, ra...) {
-		results = append(results, r.checkFlow(fl, in.Before, in.Eval)...)
+		res, n := r.checkFlow(fl, in.Before, in.Eval)
+		results = append(results, res...)
+		skipped += n
 	}
-	return verdict(results), results, nil
+	return verdict(results, skipped), results, nil
 }
 
 // evaluate walks one probe through st's ruleset of its family, routed by r.
@@ -81,8 +84,10 @@ func evaluate(r *router, st fwstate.Loaded, p probe, eval func(*netfilter.Rulese
 
 // verdict is the guard for the results: OK only when every flow is
 // accepted, so a drop, a reject, an unknown and any verdict the guard does
-// not know all fail it.
-func verdict(results []FlowResult) core.Guard {
+// not know all fail it. skipped counts the probes left out because the
+// before-state already blocked them; the message reports them, since a pass
+// that left probes out says less than one that checked every probe.
+func verdict(results []FlowResult, skipped int) core.Guard {
 	var failed []string
 	for _, fr := range results {
 		if fr.Result.Verdict == fwstate.Accept {
@@ -101,8 +106,10 @@ func verdict(results []FlowResult) core.Guard {
 	switch {
 	case len(failed) > 0:
 		return core.Guard{ID: GuardID, Message: "the change would cut " + strings.Join(failed, "; ")}
-	case len(results) == 0:
+	case len(results) == 0 && skipped == 0:
 		return core.Guard{ID: GuardID, OK: true, Message: "no protected flow to check"}
+	case skipped > 0:
+		return core.Guard{ID: GuardID, OK: true, Message: fmt.Sprintf("every protected flow passes (%d checked, %d already blocked before the change)", len(results), skipped)}
 	}
 	return core.Guard{ID: GuardID, OK: true, Message: fmt.Sprintf("every protected flow passes (%d checked)", len(results))}
 }

@@ -1,11 +1,14 @@
 package guard
 
 import (
+	"context"
 	"net/netip"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/eval"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
 	"github.com/darkraise/darkpanel/internal/platform/netfilter"
 	"github.com/darkraise/darkpanel/internal/platform/netstat"
@@ -109,5 +112,53 @@ func TestW11b06LongestRouteDecidesACell(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestW11b07BeforeStateIsRoutedWithItsOwnForwarding(t *testing.T) {
+	const v4 = "*nat\n:PREROUTING ACCEPT [0:0]\n:INPUT ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n:POSTROUTING ACCEPT [0:0]\n" +
+		"-A PREROUTING -p tcp -m tcp --dport 443 -j DNAT --to-destination 172.30.0.2:443\nCOMMIT\n"
+	const drop = "-A FORWARD -d 172.30.0.2/32 -p tcp -m tcp --dport 443 -j DROP"
+	after := v1r21State(t, v4+v1r21Table(drop), v1r21Table())
+	check := func(sysctl map[string]string) core.Guard {
+		t.Helper()
+		before := v1r21State(t, v4+v1r21Table(drop), v1r21Table())
+		before.Sysctl = sysctl
+		env, _, _ := ckEnv()
+		ckRunning(env)
+		h := v1r21Fib{&gHost{ifaces: ckIfaces(), table: v1r21HostRoutes()}}
+		g, _, err := Checker{Host: h}.Check(context.Background(), env, after, Input{Plan: v1r21Public(), Before: &before, Eval: eval.Evaluate})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return g
+	}
+	if g := check(nil); !g.OK {
+		t.Errorf("guard = %+v, want OK: the loaded rules already drop the forwarded flow", g)
+	}
+	const want = "exposure exp1 public from"
+	if g := check(map[string]string{"net/ipv4/ip_forward": "0"}); g.OK || !strings.Contains(g.Message, want) {
+		t.Errorf("guard = %+v, want a refusal containing %q: the before-state does not forward, so it cannot decide the flow", g, want)
+	}
+}
+
+func TestW11b07ForStateSharesTheCaches(t *testing.T) {
+	h := &gxDumpHost{gHost: &gHost{}}
+	r := newRouter(h, facts{}, fwstate.Loaded{})
+	r.routeCuts(false)
+	c := r.forState(fwstate.Loaded{Variant: "other"})
+	c.routeCuts(false)
+	if len(h.dumps) != 1 || c.st.Variant != "other" || r.st.Variant != "" {
+		t.Errorf("%d dumps, copy state %q, original state %q; want 1 dump and only the copy changed", len(h.dumps), c.st.Variant, r.st.Variant)
+	}
+}
+
+func TestW11b07ProbesAlreadyBlockedAreCounted(t *testing.T) {
+	const ban = "-A INPUT -s 8.8.8.0/24 -p tcp -j DROP"
+	st := v1r21State(t, v1r21Table(ban), v1r21Table())
+	g := v1r21CheckFrom(t, &gHost{ifaces: ckIfaces()}, &st, st, v1r21Public())
+	const want = "every protected flow passes (4 checked, 3 already blocked before the change)"
+	if !g.OK || g.Message != want {
+		t.Errorf("guard = %+v, want OK with %q", g, want)
 	}
 }

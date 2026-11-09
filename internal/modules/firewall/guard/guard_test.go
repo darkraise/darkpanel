@@ -422,7 +422,7 @@ func TestCheckErrors(t *testing.T) {
 }
 
 func TestVerdict(t *testing.T) {
-	if g := verdict(nil); g != (core.Guard{ID: "firewall.lockout", OK: true, Message: "no protected flow to check"}) {
+	if g := verdict(nil, 0); g != (core.Guard{ID: "firewall.lockout", OK: true, Message: "no protected flow to check"}) {
 		t.Errorf("no flows: %+v", g)
 	}
 	g := verdict([]FlowResult{
@@ -430,10 +430,24 @@ func TestVerdict(t *testing.T) {
 		{Flow: "b", Result: fwstate.Result{Verdict: fwstate.Reject, Reason: "filter/ufw-user-input#2"}},
 		{Flow: "c", Result: fwstate.Result{Verdict: fwstate.Unknown, Reason: "limit on a deciding rule"}},
 		{Flow: "d", Result: fwstate.Result{}},
-	})
+	}, 0)
 	want := core.Guard{ID: "firewall.lockout",
 		Message: "the change would cut b: reject (filter/ufw-user-input#2); c: unknown (limit on a deciding rule); d: no verdict"}
 	if g != want {
 		t.Errorf("verdict = %+v\nwant %+v", g, want)
+	}
+	accepted := []FlowResult{{Flow: "a", Result: fwstate.Result{Verdict: fwstate.Accept}}}
+	for _, tt := range []struct {
+		results []FlowResult
+		skipped int
+		want    string
+	}{
+		{accepted, 0, "every protected flow passes (1 checked)"},
+		{accepted, 2, "every protected flow passes (1 checked, 2 already blocked before the change)"},
+		{nil, 3, "every protected flow passes (0 checked, 3 already blocked before the change)"},
+	} {
+		if g := verdict(tt.results, tt.skipped); !g.OK || g.Message != tt.want {
+			t.Errorf("verdict(%d results, %d skipped) = %+v, want OK with %q", len(tt.results), tt.skipped, g, tt.want)
+		}
 	}
 }
