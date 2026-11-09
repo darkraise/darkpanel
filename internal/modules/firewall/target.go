@@ -62,8 +62,9 @@ var (
 // only ufw commands change a running UFW that stays active (UFW loads its
 // user rules itself, without the stop of a reload that leaves the built-in
 // policies at ACCEPT; a "default" command restarts UFW itself, so it
-// predicts a reload that Darkpanel does not run), a reload when a restore,
-// a repair or the Docker block's files change an active UFW, or none. After
+// predicts a reload that Darkpanel does not run), the same live apply with
+// the Docker block's chains loaded when its files change a running UFW, a
+// reload when a restore or a repair changes an active UFW, or none. After
 // "ufw --force enable", Apply also reloads when UFW never started (its
 // first start loads the package's template files, which it rewrites only
 // afterwards) and when UFW's chains are loaded already (ufw-init then loads
@@ -74,8 +75,8 @@ var (
 // The after files a change writes replace the configured ones, also over a
 // restore's configuration, since Apply writes them after a restore's files
 // and before the ufw commands. Writing them changes nothing loaded until
-// UFW reloads, so only reload, never files alone, makes a change to an
-// active UFW a reload. The owned-chain cleanup runs before the transition
+// their chains load, so only reload, never files alone, makes a change to
+// an active UFW load them. The owned-chain cleanup runs before the transition
 // commands, so every prediction starts from the loaded state without
 // Darkpanel's chains, which a reload alone leaves loaded.
 func (f fw) predictTarget(cfg0 fwstate.Config, cur fwstate.Loaded, c change) (target, error) {
@@ -119,13 +120,16 @@ func (f fw) predictTarget(cfg0 fwstate.Config, cur fwstate.Loaded, c change) (ta
 	case !want && (cfg0.Enabled || (c.repair && running)):
 		tg.tr, sysctlTr = fwstate.TransDisable, fwstate.TransDisable
 		err = f.transition(&tg, cur, fwstate.TransDisable, disableArgs)
-	case want && cfg0.Enabled && running && len(c.ops) > 0 && c.restore == nil && !c.repair && !c.reload:
+	case want && cfg0.Enabled && running && (len(c.ops) > 0 || c.reload) && c.restore == nil && !c.repair && (!c.reload || !hasDefaultOp(c)):
 		tr := fwstate.TransLive
 		if hasDefaultOp(c) {
 			tr = fwstate.TransReload
 		}
 		tg.tr, sysctlTr = tr, tr
 		err = f.selfTransition(&tg, cur, tr)
+		if err == nil && c.reload {
+			err = predictBlockChains(&tg, cur)
+		}
 	case want && (len(c.ops) > 0 || c.restore != nil || c.repair || c.reload):
 		tg.tr, sysctlTr = fwstate.TransReload, fwstate.TransReload
 		err = f.transition(&tg, cur, fwstate.TransReload, reloadArgs)

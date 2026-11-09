@@ -9,12 +9,14 @@ import (
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/dockerfw"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
 	"github.com/darkraise/darkpanel/internal/platform/netfilter"
 )
 
 // The resource nouns of the Docker integration's logical state: a stored
 // setting ("docker" for the flag, "sources" for the settings), a stored
-// container rule by its id, and Darkpanel's Docker chains ("docker").
+// container rule by its id, Darkpanel's Docker chains ("docker"), and the
+// rules a live load of the Docker block leaves in them ("block").
 const (
 	nounSetting   = "firewall.setting"
 	nounContainer = "firewall.container"
@@ -25,6 +27,8 @@ const (
 	deResourceFlag    = nounSetting + ":docker"
 	deResourceSources = nounSetting + ":sources"
 	deResourceChains  = nounChains + ":docker"
+
+	blockChainsResource = nounChains + ":block"
 )
 
 // dockerOp is one change to the Docker integration's state that
@@ -32,7 +36,7 @@ const (
 // apply has run; nil is the JSON null.
 type dockerOp struct {
 	Kind     core.EffectKind
-	Resource string // firewall.setting:docker, firewall.setting:sources, firewall.container:<rule id> or firewall.chains:docker
+	Resource string // firewall.setting:docker, firewall.setting:sources, firewall.container:<rule id>, firewall.chains:docker or firewall.chains:block
 	After    any
 	apply    func(ctx context.Context, env core.Env) error
 }
@@ -137,6 +141,12 @@ func dockerDoc(ctx context.Context, env core.Env, d deps, resource string) (json
 			return mustJSON("loaded"), nil
 		}
 		return mustJSON("absent"), nil
+	case resource == blockChainsResource:
+		st, err := d.readLoaded(ctx, env)
+		if err != nil {
+			return nil, fmt.Errorf("firewall: %s: %w", resource, err)
+		}
+		return mustJSON(blockChainsState(st)), nil
 	}
 	return nil, fmt.Errorf("firewall: effect resource %q is not a Docker resource", resource)
 }
@@ -208,4 +218,138 @@ func deObserve(ctx context.Context, env core.Env, d deps, e core.Effect, noun, i
 		}
 	}
 	return obs, nil
+}
+
+// blockChainsState is the State of blockChainsResource: per loaded family,
+// the rule keys of every Darkpanel chain of the filter table. DOCKER-USER is
+// left out because another program may append to it after the apply, and a
+// State that held its rule would make the effect a revert conflict; verify
+// checks that chain after the apply. Keys, not rule text, compare a
+// prediction with the kernel's save output, which normalizes what a block
+// spells differently.
+func blockChainsState(st fwstate.Loaded) map[fwstate.Family]map[string][]string {
+	out := map[fwstate.Family]map[string][]string{}
+	for _, fam := range preserveFamilies {
+		rs := familyRules(st, fam)
+		if rs == nil {
+			continue
+		}
+		chains := map[string][]string{}
+		if t := rs.Table("filter"); t != nil {
+			for _, c := range t.Chains {
+				if c.Name == dockerfw.ChainDockerUser || !dockerfw.Owned(c.Name) {
+					continue
+				}
+				keys := make([]string, 0, len(c.Rules))
+				for _, r := range c.Rules {
+					keys = append(keys, netfilter.Key(r, fam == fwstate.V6))
+				}
+				chains[c.Name] = keys
+			}
+		}
+		out[fam] = chains
+	}
+	return out
+}
+
+// blockChainInputs returns the iptables-restore -n input of each family
+// whose after file in cfg holds the Docker block and whose rules st has
+// loaded. IPv6 also needs cfg to have IPv6 on. A family without a block gets
+// no input: firewall.docker.disable's cleanup removes its chains instead.
+func blockChainInputs(cfg fwstate.Config, st fwstate.Loaded) (map[fwstate.Family][]byte, error) {
+	inputs := map[fwstate.Family][]byte{}
+	for _, f := range statusAfterFiles {
+		rs := familyRules(st, f.family)
+		if rs == nil || (f.family == fwstate.V6 && !cfg.IPv6) {
+			continue
+		}
+		block, ok, err := dockerfw.BlockOf(cfg.Files[f.path].Data)
+		if err != nil {
+			return nil, fmt.Errorf("firewall: read the Docker block of %s: %w", f.path, err)
+		}
+		if ok {
+			inputs[f.family] = dockerfw.ChainsInput(block, rs)
+		}
+	}
+	return inputs, nil
+}
+
+// predictBlockChains makes tg's prediction the loaded state after its
+// configuration's Docker block has loaded over cur.
+func predictBlockChains(tg *target, cur fwstate.Loaded) error {
+	inputs, err := blockChainInputs(tg.cfgN, cur)
+	if err != nil {
+		return err
+	}
+	return applyBlockInputs(&tg.pred, inputs)
+}
+
+// applyBlockInputs replaces each family of st that inputs names with the
+// ruleset its input leaves.
+func applyBlockInputs(st *fwstate.Loaded, inputs map[fwstate.Family][]byte) error {
+	for _, fam := range preserveFamilies {
+		input, ok := inputs[fam]
+		if !ok {
+			continue
+		}
+		rs := &st.V4
+		if fam == fwstate.V6 {
+			rs = &st.V6
+		}
+		next, err := dockerfw.ApplyChains(*rs, input)
+		if err != nil {
+			return fmt.Errorf("firewall: predict the %s Docker chains: %w", fam, err)
+		}
+		*rs = next
+	}
+	return nil
+}
+
+// loadChains loads the Docker block of cfg into the running firewall from
+// the state loaded now, for a change that UFW otherwise applies live.
+func (f fw) loadChains(ctx context.Context, env core.Env, cfg fwstate.Config) error {
+	st, err := f.d.readLoaded(ctx, env)
+	if err != nil {
+		return fmt.Errorf("firewall: %s: %w", blockChainsResource, err)
+	}
+	inputs, err := blockChainInputs(cfg, st)
+	if err != nil {
+		return err
+	}
+	if len(inputs) == 0 {
+		return nil
+	}
+	return loadBlockChains(ctx, env, f.d, st.Variant, inputs)
+}
+
+// loadBlockChains runs each family's input through iptables-restore -n,
+// IPv4 first, as one journaled effect on blockChainsResource.
+func loadBlockChains(ctx context.Context, env core.Env, d deps, variant string, inputs map[fwstate.Family][]byte) error {
+	st, err := d.readLoaded(ctx, env)
+	if err != nil {
+		return fmt.Errorf("firewall: %s: %w", blockChainsResource, err)
+	}
+	after := st
+	if err := applyBlockInputs(&after, inputs); err != nil {
+		return err
+	}
+	return runDockerEffect(ctx, env, d, dockerOp{
+		Kind:     core.EffectModify,
+		Resource: blockChainsResource,
+		After:    blockChainsState(after),
+		apply: func(ctx context.Context, env core.Env) error {
+			for _, fam := range preserveFamilies {
+				input, ok := inputs[fam]
+				if !ok {
+					continue
+				}
+				cmd := core.Cmd{Path: restoreProgram(fam, variant), Args: []string{"-n"}, Stdin: input}
+				res, err := env.Exec.Run(ctx, cmd)
+				if err != nil || res.ExitCode != 0 {
+					return fmt.Errorf("firewall: load the %s Docker chains: %w", fam, runFailure(cmd, res, err))
+				}
+			}
+			return nil
+		},
+	})
 }

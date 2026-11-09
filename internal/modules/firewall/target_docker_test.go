@@ -124,8 +124,9 @@ func TestDtgFilesRefused(t *testing.T) {
 	}
 }
 
-// TestDtgReload: reload makes an action on an active UFW a reload, which no
-// other field does; with UFW stopped or being stopped it adds nothing.
+// TestDtgReload: reload makes an action on an active UFW load the block live
+// and a repair reload UFW, which no other field does; with UFW stopped or
+// being stopped it adds nothing.
 func TestDtgReload(t *testing.T) {
 	files := map[string][]byte{dtgAfter4: dtgAfterWith()}
 	cases := []struct {
@@ -136,9 +137,10 @@ func TestDtgReload(t *testing.T) {
 		tr      fwstate.Transition
 		cmds    []string
 	}{
-		{"reload on an active UFW", tgRunning, true, change{files: files, reload: true}, fwstate.TransReload, []string{"reload"}},
-		{"reload alone on an active UFW", tgRunning, true, change{reload: true}, fwstate.TransReload, []string{"reload"}},
-		{"reload with enable on an active UFW", tgRunning, true, change{enable: &yes, reload: true}, fwstate.TransReload, []string{"reload"}},
+		{"reload on an active UFW", tgRunning, true, change{files: files, reload: true}, fwstate.TransLive, nil},
+		{"reload alone on an active UFW", tgRunning, true, change{reload: true}, fwstate.TransLive, nil},
+		{"reload with enable on an active UFW", tgRunning, true, change{enable: &yes, reload: true}, fwstate.TransLive, nil},
+		{"a repair still reloads", tgRunning, true, change{repair: true, reload: true}, fwstate.TransReload, []string{"reload"}},
 		{"files without reload", tgRunning, true, change{files: files}, fwstate.TransNone, nil},
 		{"the flag and the rows are not predicted", tgRunning, true, change{flag: &yes, rowsDel: []string{"01J00000000000000000000009"}}, fwstate.TransNone, nil},
 		{"reload on a stopped UFW", tgStopped, false, change{files: files, reload: true}, fwstate.TransNone, nil},
@@ -248,8 +250,8 @@ func TestDtgCleanup(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if tg.tr != fwstate.TransReload {
-			t.Errorf("transition %s, want reload", tg.tr)
+		if tg.tr != fwstate.TransLive {
+			t.Errorf("transition %s, want live", tg.tr)
 		}
 		assertClean(t, "predictor input v4", from.V4, 1)
 		assertClean(t, "predictor input v6", from.V6, 1)

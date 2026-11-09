@@ -108,7 +108,8 @@ func beforeValue(e core.Effect, v any) error {
 // ops, each in one transaction as there. Chains that were absent are
 // cleaned up again under the change's id; chains that were loaded come
 // back with a ufw reload, which only an active UFW runs, so with UFW
-// inactive nothing runs and the caller's observation reports them absent.
+// inactive nothing runs and the caller's observation reports them absent. A
+// load of the block's chains is undone by the same reload.
 // An identity outside these resources is refused before anything is
 // written.
 func undoDocker(ctx context.Context, env core.Env, d deps, noun, ident string, e core.Effect) error {
@@ -169,6 +170,8 @@ func undoDocker(ctx context.Context, env core.Env, d deps, noun, ident string, e
 			return ufw(ctx, env, reloadArgs)
 		}
 		return fmt.Errorf("chains state %q is neither loaded nor absent", state)
+	case e.Resource == blockChainsResource:
+		return reloadIfActive(ctx, env, d)
 	}
 	return fmt.Errorf("effect resource %q is not a Docker resource", e.Resource)
 }

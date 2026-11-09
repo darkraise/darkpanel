@@ -688,3 +688,83 @@ func TestDeeStateDisableCleansTheChains(t *testing.T) {
 		t.Errorf("the kernel's chains differ from before the disable: %+v", diffs)
 	}
 }
+
+// TestW11a06ContainerAllowRunsNoReload: allowing a binding on a running
+// UFW loads the Docker chains with -n and never reloads UFW.
+func TestW11a06ContainerAllowRunsNoReload(t *testing.T) {
+	h := deeNewHost(t)
+	h.deePublishV6(t)
+	var restores []string
+	eng := deeEngineWith(t, h, w11a06Exec{h: h, seen: func(cmd core.Cmd) {
+		if strings.HasSuffix(cmd.Path, "-restore") {
+			restores = append(restores, cmd.Path+" "+strings.Join(cmd.Args, " "))
+		}
+	}})
+	deeConfirm(t, eng, "firewall.docker.enable", `{}`)
+	h.ran, restores = nil, nil
+	_, cv, err := deePlanApply(t, eng, "firewall.container.allow", `{"binding":`+deeBinding+`}`)
+	if err != nil || cv.State != core.StatePending || cv.Error != nil {
+		t.Fatalf("allow = %+v, %v; want pending after verify", cv, err)
+	}
+	if slices.Contains(h.ran, "reload") {
+		t.Errorf("ufw commands %q include a reload", h.ran)
+	}
+	if !slices.ContainsFunc(restores, func(s string) bool { return strings.Contains(s, "ip6tables") && strings.HasSuffix(s, " -n") }) {
+		t.Errorf("restores %q, want an ip6tables restore with -n", restores)
+	}
+	for addr, want := range map[string]string{"0.0.0.0": "open", "::": "open"} {
+		if got := deeInternet(t, h, "tcp", addr, 8080); got != want {
+			t.Errorf("port 8080 on %s is %s after the allow, want %s", addr, got, want)
+		}
+	}
+}
+
+// TestW11a06ReconcileAfterARecreateRunsNoReload: the reconcile pass that
+// follows a recreated container updates the block live.
+func TestW11a06ReconcileAfterARecreateRunsNoReload(t *testing.T) {
+	ctx := context.Background()
+	h := deeNewHost(t)
+	eng := deeEngine(t, h)
+	deeConfirm(t, eng, "firewall.docker.enable", `{}`)
+	deeConfirm(t, eng, "firewall.container.allow", `{"binding":`+deeBinding+`}`)
+	a := h.deeAddr(t, "web").As4()
+	h.recreate(t, "web", netip.AddrFrom4([4]byte{a[0], a[1], a[2], 9}))
+	h.ran = nil
+	system := core.Principal{Actor: "system:firewall.reconcile", Scope: core.ScopeAdmin}
+	env := h.env()
+	env.Principal = system
+	var applied []string
+	tc := core.TaskContext{Env: env, Apply: func(ctx context.Context, action string, input any) (core.ChangeView, error) {
+		raw, err := json.Marshal(input)
+		if err != nil {
+			return core.ChangeView{}, err
+		}
+		applied = append(applied, action)
+		return eng.ApplySystem(ctx, system, core.ActionRef{Name: action, Version: 1}, raw)
+	}}
+	if err := (module{f: h.fw()}).BackgroundTasks()[0].Run(ctx, tc); err != nil {
+		t.Fatal(err)
+	}
+	if len(applied) == 0 {
+		t.Fatal("the pass applied nothing although web's address changed")
+	}
+	if slices.Contains(h.ran, "reload") {
+		t.Errorf("ufw commands of the reconcile %q include a reload", h.ran)
+	}
+	if got := deeInternet(t, h, "tcp", "0.0.0.0", 8080); got != "open" {
+		t.Errorf("port 8080 is %s after the reconcile, want open", got)
+	}
+}
+
+// w11a06Exec runs every command on the end-to-end host and reports each
+// one to seen after it ran.
+type w11a06Exec struct {
+	h    *deeHost
+	seen func(core.Cmd)
+}
+
+func (e w11a06Exec) Run(ctx context.Context, cmd core.Cmd) (core.CmdResult, error) {
+	res, err := e.h.Run(ctx, cmd)
+	e.seen(cmd)
+	return res, err
+}
