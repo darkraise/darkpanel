@@ -300,3 +300,26 @@ func TestW11a09FirewallStatesLiveApply(t *testing.T) {
 		}
 	}
 }
+
+func TestW11b11GuardDocumentation(t *testing.T) {
+	residual := strings.Join(w10tmParse(dcRead(t, w10tmPage)).parts["Firewall/Residual risk"], "\n")
+	for _, want := range []string{"`100.64.0.0/10`", "`2001:db8::/32`", "2,200 bans", "`uidrange`", "bridge"} {
+		if !strings.Contains(residual, want) {
+			t.Errorf("Firewall residual risk does not state %q", want)
+		}
+	}
+	for _, gone := range []string{"checks only the IPv4 public leg", "does not read `ip rule`", "open follow-up rows"} {
+		if strings.Contains(residual, gone) {
+			t.Errorf("Firewall residual risk still states %q", gone)
+		}
+	}
+	spec := dcRead(t, "docs/dforge/specs/2026-10-21-v1-completion-design.md")
+	for _, want := range []string{"W11-R7 wildcard binds", "W11-R8 cell limit", "W11-R9 IPv6 public leg", "W11-R10 policy routing", "W11-R11 special-purpose ranges", "W11-R12 guard details"} {
+		if !strings.Contains(spec, want) {
+			t.Errorf("the spec has no ruling %q", want)
+		}
+	}
+	if strings.Contains(spec, "on the interface its route back leaves through") {
+		t.Error("the spec still limits a wildcard bind to the interface of the route back")
+	}
+}

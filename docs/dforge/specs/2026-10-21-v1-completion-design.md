@@ -5443,9 +5443,10 @@ a spec change.
     - "Any internet address" is evaluated once per cell of the public
       unicast space that the ruleset's prefixes and the destinations of
       the host's routes cut, so that every address of a cell takes the
-      same route. A flow to a wildcard bind (NPM's `0.0.0.0:443`, a
-      wildcard controller listener) is checked on every address of its
-      family on the interface its route back leaves through. A flow to any
+      same route. A flow to a wildcard bind (NPM's `[::]:443` or
+      `0.0.0.0:443`, a wildcard controller listener) is checked on every
+      non-link-local address of its family on every up, non-loopback
+      interface (W11-R7). A flow to any
       internet address (the tunnel connector's, tailscaled's) holds only
       when every cell passes. A flow from any internet address (to the
       controller listener, to NPM's public binding) fails only on a cell
@@ -5470,6 +5471,13 @@ a spec change.
   - **W11-R4 default policies.** `ufw default` restarts an active UFW itself, so `firewall.defaults.set` keeps a window in which the built-in policies are ACCEPT for about a second. Darkpanel adds no reload of its own after it: a change with a `default` command predicts `TransReload` and runs no `ufw reload` command. The threat model records the window as a residual.
   - **W11-R5 revert.** The snapshot taken before a change that UFW applies live, and before a `default` change on an active UFW, carries the loaded-state before-image, marked live. Reverting such a change whole restores the files and loads that image with `iptables-restore -n` per family, as a repair snapshot is restored, and removes Darkpanel chains the image lacks. An effect-by-effect revert runs the inverse ufw commands live, loads the Docker chains from the image, and loads no other part of it. Neither runs `ufw reload` while UFW stays active; an effect-by-effect revert of a `default` command restarts UFW only through `ufw default` itself. An uninstall restores its baseline snapshot without a live image, with the transition it chooses today.
   - **W11-R6 row 437 acceptance.** Row 437's acceptance (no reconcile pass or container rule change leaves INPUT at ACCEPT) is evidenced by the harness: Task 2's live-apply step, and `TestM3Docker`'s traffic-recreate scenario with no leak window, on all four images.
+- **Plan rulings (wave 11b).** Wave 11b (plan `v1-w11b-lockout-guard`) settles these points:
+  - **W11-R7 wildcard binds.** A flow to a wildcard bind is checked on the preferred source of the route back, then on every non-link-local address of its family on every up, non-loopback interface (owner, 2026-11-08). Bridge and tailnet addresses join the set, so a hand-written binding allowance that names only the uplinks fails the guard of a revert that had blocked effects, conflicts or a write error; other reverts do not reach the guard.
+  - **W11-R8 cell limit.** The guard fails closed on cost: a flow is unknown when its cells number more than 65536, or when the cells times the rules of the family's ruleset plus one exceed 10,000,000. About 2,200 bans that can match the flow's port, or a full BGP table, refuse guarded changes until overridden.
+  - **W11-R9 IPv6 public leg.** The panel records `[::]:443` for every NPM exposure, keeping W10b-R12's "bindings come from the exposure's own record". The guard reads an unspecified IPv6 binding as dual-stack: the IPv4 flow always, and the IPv6 flow as a stand-in only when the host has an IPv6 address that is neither loopback nor link-local. A forwarded reply is checked only on a flow of the proxy address's family. Rows stored earlier keep `0.0.0.0:443` until the exposure is recreated.
+  - **W11-R10 policy routing.** The guard reads `ip rule`. A rule's source and destination prefixes cut cells, except a single address of the host. Lookups carry the protocol and ports only while a rule of the family selects by them, so a host without such rules sends the queries it always sent. Stand-in skipping turns off while a rule selects by destination port, TOS or uid, which no reply lookup can state, or by mark while `raw` or `mangle` holds a MARK or CONNMARK rule that may match. Unreadable rules make every wild flow unknown.
+  - **W11-R11 special-purpose ranges.** The cell space keeps leaving out the ranges of `eval.holes4` and `holes6`; the threat model lists them all. No code changes.
+  - **W11-R12 guard details.** Local routes outside the local table cut cells. An unmodelled target in any table keeps every rule as a cutter. A cell is no-path or blackhole only when its longest matching route says so. The before-state is routed with its own sysctl values. A pass reports the probes the before-state already blocked.
 
 ### 11. Error codes, actors and dependencies
 
