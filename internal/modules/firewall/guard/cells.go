@@ -259,7 +259,7 @@ func routeCutters(routes []netstat.Route, v6 bool) routeCut {
 // address, given a before-state, fails only on a cell the before-state
 // neither drops nor rejects: a probe the before-state already blocked is
 // left out and counted in skipped, while one it cannot decide still blocks
-// the cell. The before-state is routed by its own sysctl values.
+// the cell. The before-state is routed by its own forwarding sysctl values.
 func (r *router) checkFlow(fl flow, before *fwstate.Loaded, ev func(*netfilter.Ruleset, fwstate.Packet, fwstate.Router) fwstate.Result) (results []FlowResult, skipped int) {
 	var prior *router
 	if fl.wild == wildSrc && before != nil {

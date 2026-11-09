@@ -149,7 +149,7 @@ func noRoute(fl flow, err error) bool {
 // so its route back must fail too.
 func (r *router) noReply(fl flow, src netip.Addr, mark uint32, from netip.Addr) bool {
 	// A reply's destination port is the client's and its TOS the socket's,
-	// both unknown here, and no lookup can state a uid. A mark set on the
+	// both unknown here, and these lookups carry no uid. A mark set on the
 	// reply may select a policy route that no lookup here carries. A policy
 	// rule selecting by any of these may route a reply that the lookups miss.
 	for _, rule := range r.routeCuts(fl.pkt.Family == fwstate.V6).rules {
@@ -176,8 +176,8 @@ func (r *router) noReply(fl flow, src netip.Addr, mark uint32, from netip.Addr) 
 
 // selectors is q with the protocol and ports of its packet when a policy
 // rule of q's family selects by a protocol or port, and q unchanged
-// otherwise. The protocol is set only for tcp and udp: the kernel accepts no
-// other in a lookup.
+// otherwise. The protocol is set only for tcp and udp, the protocols of the
+// guard's flows.
 func (r *router) selectors(q netstat.RouteQuery, proto string, srcPort, dstPort uint16) netstat.RouteQuery {
 	if !slices.ContainsFunc(r.routeCuts(q.Dst.Unmap().Is6()).rules, func(rule netstat.Rule) bool {
 		return rule.Proto != 0 || rule.SrcPort || rule.DstPort
