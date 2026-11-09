@@ -274,7 +274,8 @@ func TestRouteGetRefusals(t *testing.T) {
 }
 
 func TestRouteRequest(t *testing.T) {
-	q := RouteQuery{Dst: netip.MustParseAddr("::ffff:192.0.2.1"), Src: netip.MustParseAddr("192.0.2.2"), Mark: 0x40000}
+	q := RouteQuery{Dst: netip.MustParseAddr("::ffff:192.0.2.1"), Src: netip.MustParseAddr("192.0.2.2"), Mark: 0x40000,
+		Proto: unix.IPPROTO_TCP, SrcPort: 443, DstPort: 8443}
 	b, err := routeRequest(q, 7, 9)
 	if err != nil {
 		t.Fatal(err)
@@ -289,11 +290,14 @@ func TestRouteRequest(t *testing.T) {
 		a = a[nlAlign(l):]
 	}
 	want := map[uint16][]byte{
-		unix.RTA_DST:  {192, 0, 2, 1},
-		unix.RTA_SRC:  {192, 0, 2, 2},
-		unix.RTA_IIF:  nlUint32(7),
-		unix.RTA_OIF:  nlUint32(9),
-		unix.RTA_MARK: nlUint32(0x40000),
+		unix.RTA_DST:      {192, 0, 2, 1},
+		unix.RTA_SRC:      {192, 0, 2, 2},
+		unix.RTA_IIF:      nlUint32(7),
+		unix.RTA_OIF:      nlUint32(9),
+		unix.RTA_MARK:     nlUint32(0x40000),
+		unix.RTA_IP_PROTO: {unix.IPPROTO_TCP},
+		unix.RTA_SPORT:    {0x01, 0xbb},
+		unix.RTA_DPORT:    {0x20, 0xfb},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("attributes = %v, want %v", got, want)
@@ -406,4 +410,61 @@ func lrHasIPv6Loopback(t *testing.T) bool {
 		}
 	}
 	return false
+}
+
+func TestW11b01RetryDump(t *testing.T) {
+	msgs := [][]byte{{1}}
+	other := errors.New("netstat: netlink receive: boom")
+	for _, tt := range []struct {
+		name  string
+		seq   []error // the outcome of each dump in turn, nil for a complete one
+		calls int
+		want  error
+	}{
+		{"a complete dump", []error{nil}, 1, nil},
+		{"interrupted once", []error{errDumpInterrupted, nil}, 2, nil},
+		{"interrupted twice", []error{errDumpInterrupted, errDumpInterrupted, nil}, 3, nil},
+		{"interrupted on every attempt", []error{errDumpInterrupted, errDumpInterrupted, errDumpInterrupted, nil}, 3, errDumpInterrupted},
+		{"another error is not retried", []error{other, nil}, 1, other},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			got, err := retryDump(func() ([][]byte, error) {
+				e := tt.seq[calls]
+				calls++
+				if e != nil {
+					return nil, e
+				}
+				return msgs, nil
+			})
+			if !errors.Is(err, tt.want) || calls != tt.calls {
+				t.Fatalf("retryDump = %v after %d calls, want %v after %d", err, calls, tt.want, tt.calls)
+			}
+			if tt.want == nil && !reflect.DeepEqual(got, msgs) {
+				t.Errorf("retryDump = %v, want %v", got, msgs)
+			}
+		})
+	}
+}
+
+func TestW11b01RoutesRetriesAnInterruptedDump(t *testing.T) {
+	calls := 0
+	_, err := routesFrom(IPv4, func(uint16, uint16, []byte) ([][]byte, error) {
+		calls++
+		if calls == 1 {
+			return nil, errDumpInterrupted
+		}
+		return nil, nil
+	})
+	if err != nil || calls != 2 {
+		t.Fatalf("routesFrom = %v after %d calls, want success after 2", err, calls)
+	}
+	calls = 0
+	_, err = routesFrom(IPv4, func(uint16, uint16, []byte) ([][]byte, error) {
+		calls++
+		return nil, errDumpInterrupted
+	})
+	if !errors.Is(err, errDumpInterrupted) || calls != 3 || !strings.Contains(err.Error(), "netstat: route dump:") {
+		t.Fatalf("routesFrom = %v after %d calls, want the wrapped interruption after 3", err, calls)
+	}
 }

@@ -35,11 +35,14 @@ var routeTypes = []string{
 // RouteQuery is one route lookup, as `ip route get` makes it: the kernel
 // applies its policy rules and answers the route a packet would take.
 type RouteQuery struct {
-	Dst  netip.Addr // required
-	Src  netip.Addr // optional: the packet's source address
-	IIF  string     // optional: look up as for a packet received on this interface
-	OIF  string     // optional: only routes through this interface
-	Mark uint32     // optional: the packet's firewall mark
+	Dst     netip.Addr // required
+	Src     netip.Addr // optional: the packet's source address
+	IIF     string     // optional: look up as for a packet received on this interface
+	OIF     string     // optional: only routes through this interface
+	Mark    uint32     // optional: the packet's firewall mark
+	Proto   uint8      // optional: the packet's IP protocol
+	SrcPort uint16     // optional: the packet's source port
+	DstPort uint16     // optional: the packet's destination port
 }
 
 // Route is a route entry, or the answer to a lookup (whose Dst is the
@@ -109,8 +112,8 @@ func routeLookupResult(dst netip.Addr, msgs [][]byte, err error) (Route, error) 
 }
 
 // routeRequest encodes q as an RTM_GETROUTE body: struct rtmsg, then the
-// destination, source, input and output interface indexes (0: none) and
-// mark as attributes.
+// destination, source, input and output interface indexes (0: none), mark,
+// IP protocol and ports as attributes.
 func routeRequest(q RouteQuery, iif, oif uint32) ([]byte, error) {
 	dst, src := q.Dst.Unmap(), q.Src.Unmap()
 	family, bits := familyOf(dst)
@@ -132,16 +135,51 @@ func routeRequest(q RouteQuery, iif, oif uint32) ([]byte, error) {
 	if q.Mark != 0 {
 		attrs = append(attrs, nlAttr(unix.RTA_MARK, nlUint32(q.Mark))...)
 	}
+	if q.Proto != 0 {
+		attrs = append(attrs, nlAttr(unix.RTA_IP_PROTO, []byte{q.Proto})...)
+	}
+	if q.SrcPort != 0 {
+		attrs = append(attrs, nlAttr(unix.RTA_SPORT, binary.BigEndian.AppendUint16(nil, q.SrcPort))...)
+	}
+	if q.DstPort != 0 {
+		attrs = append(attrs, nlAttr(unix.RTA_DPORT, binary.BigEndian.AppendUint16(nil, q.DstPort))...)
+	}
 	return append(rtMsg(family, bits, srcLen, unix.RTM_F_LOOKUP_TABLE), attrs...), nil
+}
+
+// netlinkDump is the shape of netlinkRequest.
+type netlinkDump func(typ, flags uint16, body []byte) ([][]byte, error)
+
+// dumpAttempts is how many times an interrupted dump is tried.
+const dumpAttempts = 3
+
+// retryDump runs dump again when the kernel reports that a table changed
+// while it was being read, and returns the last result.
+func retryDump(dump func() ([][]byte, error)) ([][]byte, error) {
+	var msgs [][]byte
+	var err error
+	for range dumpAttempts {
+		msgs, err = dump()
+		if !errors.Is(err, errDumpInterrupted) {
+			return msgs, err
+		}
+	}
+	return msgs, err
 }
 
 // Routes lists every route of every table for one family.
 func Routes(family Family) ([]Route, error) {
+	return routesFrom(family, netlinkRequest)
+}
+
+func routesFrom(family Family, request netlinkDump) ([]Route, error) {
 	af := uint8(unix.AF_INET)
 	if family == IPv6 {
 		af = unix.AF_INET6
 	}
-	msgs, err := netlinkRequest(unix.RTM_GETROUTE, unix.NLM_F_DUMP, rtMsg(af, 0, 0, 0))
+	msgs, err := retryDump(func() ([][]byte, error) {
+		return request(unix.RTM_GETROUTE, unix.NLM_F_DUMP, rtMsg(af, 0, 0, 0))
+	})
 	if err != nil {
 		return nil, fmt.Errorf("netstat: route dump: %w", err)
 	}
