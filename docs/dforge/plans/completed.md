@@ -34,3 +34,4 @@
 - 2026-11-06 `docs/dforge/plans/2026-11-05-v1-w9-hardening.md` — merged into `main` at 6c424f0
 - 2026-11-06 `docs/dforge/plans/2026-11-06-v1-w10a-known-fixes-threat-model-runbook.md` — merged into `main` at 47c6db8
 - 2026-11-08 `docs/dforge/plans/2026-11-06-v1-w10b-security-fixes-rc.md` — merged into `main` at 2363d92
+- 2026-11-09 `docs/dforge/plans/2026-11-08-v1-w11a-live-apply.md` — merged into `main` at 9d5f3ef
