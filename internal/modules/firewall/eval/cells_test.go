@@ -88,6 +88,11 @@ func TestV1r20InternetCells(t *testing.T) {
 		{"an IPv6 prefix of the whole space", v1r20Set(v1r20Dst("::/0")), true, []string{v1r20Whole6}},
 		{"an IPv6 prefix at the top of the space", v1r20Set(v1r20Dst("3fff::/16")), true,
 			[]string{"2000::-3ffe:ffff:ffff:ffff:ffff:ffff:ffff:ffff", "3fff::-3fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}},
+		{"an IPv4-mapped prefix in an IPv6 call", v1r20Set(v1r20Dst("::ffff:8.8.8.0/120")), true, []string{v1r20Whole6}},
+		{"a prefix from the bottom of the space", v1r20Set(v1r20Dst("0.0.0.0/1")), false,
+			[]string{"1.0.0.0-126.255.255.255", "128.0.0.0-223.255.255.255"}},
+		{"a conntrack original destination without a value", v1r20Set(netfilter.Rule{Matches: []netfilter.Match{{Module: "conntrack",
+			Options: []netfilter.Option{{Name: "ctorigdst"}}}}}), false, []string{v1r20Whole4}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

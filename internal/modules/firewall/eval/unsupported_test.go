@@ -112,6 +112,7 @@ func TestUnmodelledAgreesWithEvaluate(t *testing.T) {
 		{"-A INPUT -m mark --mark zz -j DROP", "tcp", true},
 		{"-A INPUT -m limit --limit 1/second -j LOG", "tcp", false},
 		{"-A INPUT -m statistic --mode random --probability 0.5 -j CONNMARK --save-mark", "tcp", false},
+		{"-A INPUT -m conntrack --ctorigdst 9.9.9.9-9.9.9.20 -j DROP", "tcp", true},
 	} {
 		rs := evalRuleset(t, ayTables(c.rule+"\n", ""))
 		p := evalPacket()

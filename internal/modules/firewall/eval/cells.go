@@ -75,7 +75,9 @@ func InternetCells(rs *netfilter.Ruleset, v6 bool) []Cell {
 					for _, m := range r.Matches {
 						for _, o := range m.Options {
 							if o.Name == "ctorigdst" && len(o.Values) > 0 {
-								addPrefix(parsePrefixOrAddr(o.Values[0]))
+								if p, ok := origDstPrefix(o.Values[0]); ok {
+									addPrefix(p)
+								}
 							}
 						}
 					}
@@ -104,16 +106,6 @@ func InternetCells(rs *netfilter.Ruleset, v6 bool) []Cell {
 		cells = append(cells, Cell{From: from, To: to, Rep: from})
 	}
 	return cells
-}
-
-func parsePrefixOrAddr(s string) netip.Prefix {
-	if p, err := netip.ParsePrefix(s); err == nil {
-		return p
-	}
-	if a, err := netip.ParseAddr(s); err == nil {
-		return netip.PrefixFrom(a, a.BitLen())
-	}
-	return netip.Prefix{}
 }
 
 func lastAddr(p netip.Prefix) netip.Addr {

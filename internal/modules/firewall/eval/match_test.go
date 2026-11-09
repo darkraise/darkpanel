@@ -131,3 +131,22 @@ func TestMatchConntrackInRaw(t *testing.T) {
 		t.Fatalf("conntrack in filter = %v, want yes", got)
 	}
 }
+
+func TestW11b03OrigDstPrefix(t *testing.T) {
+	for _, tt := range []struct {
+		in   string
+		want netip.Prefix
+		ok   bool
+	}{
+		{"9.9.9.0/24", netip.MustParsePrefix("9.9.9.0/24"), true},
+		{"9.9.9.9", netip.MustParsePrefix("9.9.9.9/32"), true},
+		{"2606:4700::/32", netip.MustParsePrefix("2606:4700::/32"), true},
+		{"2606:4700::1", netip.MustParsePrefix("2606:4700::1/128"), true},
+		{"9.9.9.9-9.9.9.20", netip.Prefix{}, false},
+		{"", netip.Prefix{}, false},
+	} {
+		if got, ok := origDstPrefix(tt.in); got != tt.want || ok != tt.ok {
+			t.Errorf("origDstPrefix(%q) = %v, %v; want %v, %v", tt.in, got, ok, tt.want, tt.ok)
+		}
+	}
+}

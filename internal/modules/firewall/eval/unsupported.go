@@ -2,7 +2,6 @@ package eval
 
 import (
 	"fmt"
-	"net/netip"
 	"strings"
 
 	"github.com/darkraise/darkpanel/internal/platform/netfilter"
@@ -99,10 +98,8 @@ func matchGap(m netfilter.Match) string {
 				}
 			}
 		case "ctorigdst":
-			if _, err := netip.ParsePrefix(o.Values[0]); err != nil {
-				if _, err := netip.ParseAddr(o.Values[0]); err != nil {
-					return "match conntrack original destination " + o.Values[0]
-				}
+			if _, ok := origDstPrefix(o.Values[0]); !ok {
+				return "match conntrack original destination " + o.Values[0]
 			}
 		}
 	}

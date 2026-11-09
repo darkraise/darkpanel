@@ -190,13 +190,9 @@ func (w *walker) conntrackOption(o netfilter.Option) (tri, string) {
 		if !isNew {
 			return maybe, "the original destination is known only for a new connection"
 		}
-		pfx, err := netip.ParsePrefix(o.Values[0])
-		if err != nil {
-			a, err := netip.ParseAddr(o.Values[0])
-			if err != nil {
-				return maybe, "original destination " + strconv.Quote(o.Values[0]) + " is not an address"
-			}
-			pfx = netip.PrefixFrom(a, a.BitLen())
+		pfx, ok := origDstPrefix(o.Values[0])
+		if !ok {
+			return maybe, "original destination " + strconv.Quote(o.Values[0]) + " is not an address"
 		}
 		return toTri(pfx.Contains(w.origDst)), ""
 	case "ctorigdstport":
@@ -206,6 +202,16 @@ func (w *walker) conntrackOption(o netfilter.Option) (tri, string) {
 		return portIn(o.Values[0], w.origPort)
 	}
 	return maybe, "option --" + o.Name + " is not modelled"
+}
+
+func origDstPrefix(s string) (netip.Prefix, bool) {
+	if p, err := netip.ParsePrefix(s); err == nil {
+		return p, true
+	}
+	if a, err := netip.ParseAddr(s); err == nil {
+		return netip.PrefixFrom(a, a.BitLen()), true
+	}
+	return netip.Prefix{}, false
 }
 
 // ctstate matches a conntrack state list. The DNAT and SNAT states say
