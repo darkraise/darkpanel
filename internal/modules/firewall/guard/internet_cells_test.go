@@ -415,6 +415,36 @@ func TestV1r21WildcardBindIsCheckedOnEveryAddress(t *testing.T) {
 	}
 }
 
+func TestW11b04WildcardBindCoversEveryUplink(t *testing.T) {
+	check := func(before, st fwstate.Loaded) core.Guard {
+		t.Helper()
+		h := v1r21TwoAddrs{&gHost{ifaces: []netstat.Interface{
+			{Index: 1, Name: "lo", Up: true, Running: true, Loopback: true, Addrs: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/8")}},
+			{Index: 2, Name: "eth0", Up: true, Running: true, Addrs: []netip.Prefix{netip.MustParsePrefix("10.0.0.10/24")}},
+			{Index: 3, Name: "eth1", Up: true, Running: true, Addrs: []netip.Prefix{netip.MustParsePrefix("10.1.0.10/24")}},
+			{Index: 6, Name: "dp-panel", Up: true, Running: true, Addrs: []netip.Prefix{netip.MustParsePrefix("172.30.0.1/16")}},
+		}}}
+		plan := &core.GuardContext{Complete: true, Via: &core.ProxyPath{ExposureID: "exp1", Kind: "npm",
+			ProxyAddr: netip.MustParseAddr("172.30.0.2"), ListenerAddr: netip.MustParseAddrPort("172.30.0.1:8080"),
+			Public: []netip.AddrPort{netip.MustParseAddrPort("0.0.0.0:443")}}}
+		env, _, _ := ckEnv()
+		ckRunning(env)
+		g, _, err := Checker{Host: h}.Check(context.Background(), env, st, Input{Plan: plan, Before: &before, Eval: eval.Evaluate})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return g
+	}
+	both := v1r21State(t, v1r21Bindings("10.0.0.10", "10.1.0.10"), v1r21Table())
+	const want = "exposure exp1 public from 1.0.0.0-9.255.255.255 to 10.1.0.10:443 on eth0: drop"
+	if g := check(both, v1r21State(t, v1r21Bindings("10.0.0.10"), v1r21Table())); g.OK || !strings.Contains(g.Message, want) {
+		t.Errorf("guard = %+v, want a refusal containing %q: the second uplink's allowance is gone", g, want)
+	}
+	if g := check(both, both); !g.OK {
+		t.Errorf("guard = %+v, want OK with both allowances kept", g)
+	}
+}
+
 // v1r21Edge routes 198.41.192.0/24 out of eth1 and every other address out
 // of eth0.
 type v1r21Edge struct{ *gHost }
@@ -514,14 +544,50 @@ func TestV1r21RouteCuttersKeepOnlyTheirFamily(t *testing.T) {
 	}
 }
 
-func TestV1r21WildcardDestinationsSkipIPv6LinkLocal(t *testing.T) {
-	r := newRouter(&gHost{}, facts{ifaces: []netstat.Interface{{Index: 2, Name: "eth0", Up: true, Running: true, Addrs: []netip.Prefix{
-		netip.MustParsePrefix("192.0.2.1/24"), netip.MustParsePrefix("fe80::1/64"),
-		netip.MustParsePrefix("2001:db8::1/64"), netip.MustParsePrefix("2001:db8::2/64"),
-	}}}}, fwstate.Loaded{})
-	want := []netip.Addr{netip.MustParseAddr("2001:db8::1"), netip.MustParseAddr("2001:db8::2")}
-	if got := r.wildcardDsts(want[0], "eth0"); !slices.Equal(got, want) {
-		t.Errorf("wildcardDsts = %v, want %v: a translation from a public address never reaches a link-local one", got, want)
+func TestV1r21WildcardDestinations(t *testing.T) {
+	iface := func(index int, name string, up bool, addrs ...string) netstat.Interface {
+		i := netstat.Interface{Index: index, Name: name, Up: up, Running: up}
+		for _, a := range addrs {
+			i.Addrs = append(i.Addrs, netip.MustParsePrefix(a))
+		}
+		return i
+	}
+	lo := iface(1, "lo", true, "127.0.0.1/8", "::1/128")
+	lo.Loopback = true
+	for _, tt := range []struct {
+		name, pref string
+		ifaces     []netstat.Interface
+		want       []string
+	}{
+		{"IPv6 skips link-local addresses", "2001:db8::1",
+			[]netstat.Interface{lo, iface(2, "eth0", true, "192.0.2.1/24", "fe80::1/64", "2001:db8::1/64", "2001:db8::2/64")},
+			[]string{"2001:db8::1", "2001:db8::2"}},
+		{"IPv4 skips link-local addresses", "192.0.2.1",
+			[]netstat.Interface{lo, iface(2, "eth0", true, "192.0.2.1/24", "169.254.7.7/16")},
+			[]string{"192.0.2.1"}},
+		{"every up interface counts", "10.0.0.10",
+			[]netstat.Interface{lo, iface(2, "eth0", true, "10.0.0.10/24"), iface(3, "eth1", true, "10.1.0.10/24")},
+			[]string{"10.0.0.10", "10.1.0.10"}},
+		{"the preferred address comes first", "10.1.0.10",
+			[]netstat.Interface{lo, iface(2, "eth0", true, "10.0.0.10/24"), iface(3, "eth1", true, "10.1.0.10/24")},
+			[]string{"10.1.0.10", "10.0.0.10"}},
+		{"a down interface adds nothing", "10.0.0.10",
+			[]netstat.Interface{lo, iface(2, "eth0", true, "10.0.0.10/24"), iface(3, "eth1", false, "10.1.0.10/24")},
+			[]string{"10.0.0.10"}},
+		{"an address on two interfaces counts once", "10.0.0.10",
+			[]netstat.Interface{lo, iface(2, "eth0", true, "10.0.0.10/24"), iface(3, "eth1", true, "10.0.0.10/24")},
+			[]string{"10.0.0.10"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := newRouter(&gHost{}, facts{ifaces: tt.ifaces}, fwstate.Loaded{})
+			var want []netip.Addr
+			for _, a := range tt.want {
+				want = append(want, netip.MustParseAddr(a))
+			}
+			if got := r.wildcardDsts(netip.MustParseAddr(tt.pref)); !slices.Equal(got, want) {
+				t.Errorf("wildcardDsts = %v, want %v", got, want)
+			}
+		})
 	}
 }
 
@@ -772,7 +838,7 @@ func TestV1r21ThrowCellWithoutARouteBackHasNothingToProtect(t *testing.T) {
 	}{
 		{false, "-A INPUT -s 8.8.8.0/24 -p tcp -j DROP", "controller listener from 8.8.8.0-8.8.8.255 to 192.0.2.1:443 on eth0: drop"},
 		// The later table answers the thrown range from eth1's address.
-		{true, "-A INPUT -d 10.0.0.1/32 -p tcp -j DROP", "controller listener from 45.33.0.0-45.33.255.255 to 10.0.0.1:443 on eth0: drop"},
+		{true, "-A INPUT -s 45.33.0.0/16 -d 10.0.0.1/32 -p tcp -j DROP", "controller listener from 45.33.0.0-45.33.255.255 to 10.0.0.1:443 on eth0: drop"},
 	} {
 		if g := check(tt.later, v1r21State(t, v1r21Table(tt.rule), v1r21Table()), v1r21Tunnel()); g.OK || !strings.Contains(g.Message, tt.want) {
 			t.Errorf("guard with %q = %+v, want a refusal containing %q", tt.rule, g, tt.want)

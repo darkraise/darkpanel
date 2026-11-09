@@ -393,8 +393,10 @@ func TestGxCheckControllerListeners(t *testing.T) {
 	}
 	want := core.Guard{ID: "firewall.lockout", Message: "the change would cut " +
 		"controller listener from 1.0.0.0-223.255.255.255 to 192.0.2.1:7443 on eth0: drop (filter/ufw-user-input#1); " +
-		"controller listener from 1.0.0.0-223.255.255.255 to 192.0.2.1:7443 on eth1: drop (filter/ufw-user-input#1)"}
-	if g != want || len(results) != 2 {
+		"controller listener from 1.0.0.0-223.255.255.255 to 192.0.2.1:7443 on eth1: drop (filter/ufw-user-input#1); " +
+		"controller listener from 1.0.0.0-223.255.255.255 to 10.0.0.1:7443 on eth0: drop (filter/ufw-user-input#1); " +
+		"controller listener from 1.0.0.0-223.255.255.255 to 10.0.0.1:7443 on eth1: drop (filter/ufw-user-input#1)"}
+	if g != want || len(results) != 4 {
 		t.Errorf("guard = %+v with %d results\nwant %+v", g, len(results), want)
 	}
 	g, _, err = Checker{Host: host()}.Check(context.Background(), env, ckState(), Input{Eval: ckEval(t, nil)})

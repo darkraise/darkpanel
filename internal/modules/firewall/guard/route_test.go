@@ -63,6 +63,7 @@ func TestProbes(t *testing.T) {
 	ssh6 := flPkt("input", "2001:db8:9::9", 50004, "2001:db8::1", 22, "tcp")
 	panel := flPkt("input", "203.0.113.7", 51000, "0.0.0.0", 443, "tcp")
 	panelResolved := flPkt("input", "203.0.113.7", 51000, "192.0.2.1", 443, "tcp")
+	panelOther := flPkt("input", "203.0.113.7", 51000, "10.0.0.1", 443, "tcp")
 	link := flPkt("output", "192.0.2.1", 40100, "198.51.100.9", 7443, "tcp")
 	tsUDP := flPkt("output", "0.0.0.0", 41641, "198.51.100.1", 41641, "udp")
 	tsUDPResolved := flPkt("output", "192.0.2.1", 41641, "198.51.100.1", 41641, "udp")
@@ -138,6 +139,8 @@ func TestProbes(t *testing.T) {
 			want: []probe{
 				rtProbe("panel from 203.0.113.7 to 192.0.2.1:443 on eth0", panelResolved, "eth0", ""),
 				rtProbe("panel from 203.0.113.7 to 192.0.2.1:443 on eth1", panelResolved, "eth1", ""),
+				rtProbe("panel from 203.0.113.7 to 10.0.0.1:443 on eth0", panelOther, "eth0", ""),
+				rtProbe("panel from 203.0.113.7 to 10.0.0.1:443 on eth1", panelOther, "eth1", ""),
 			},
 		},
 		{
@@ -195,9 +198,17 @@ func TestProbes(t *testing.T) {
 			routes: map[netstat.RouteQuery]netstat.Route{
 				gxQueryMark(rtQuery("203.0.113.7", "", ""), 0x10):          rtVia("eth0", "192.0.2.1"),
 				gxQueryMark(rtQuery("203.0.113.7", "192.0.2.1", ""), 0x10): rtVia("eth0", "192.0.2.1"),
+				gxQueryMark(rtQuery("203.0.113.7", "10.0.0.1", ""), 0x10):  rtVia("eth0", "192.0.2.1"),
 			},
-			want:    []probe{rtProbe("panel from 203.0.113.7 to 192.0.2.1:443 on eth0", gxMark(panelResolved, 0x10), "eth0", "")},
-			lookups: []netstat.RouteQuery{gxQueryMark(rtQuery("203.0.113.7", "", ""), 0x10), gxQueryMark(rtQuery("203.0.113.7", "192.0.2.1", ""), 0x10)},
+			want: []probe{
+				rtProbe("panel from 203.0.113.7 to 192.0.2.1:443 on eth0", gxMark(panelResolved, 0x10), "eth0", ""),
+				rtProbe("panel from 203.0.113.7 to 10.0.0.1:443 on eth0", gxMark(panelOther, 0x10), "eth0", ""),
+			},
+			lookups: []netstat.RouteQuery{
+				gxQueryMark(rtQuery("203.0.113.7", "", ""), 0x10),
+				gxQueryMark(rtQuery("203.0.113.7", "192.0.2.1", ""), 0x10),
+				gxQueryMark(rtQuery("203.0.113.7", "10.0.0.1", ""), 0x10),
+			},
 		},
 		{
 			name: "a stand-in destination without a route has nothing to protect",

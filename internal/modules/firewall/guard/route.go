@@ -116,7 +116,7 @@ func (r *router) probes(fl flow) []probe {
 		return fail(fmt.Sprintf("the route back to %s has no source address", p.Src))
 	}
 	var out []probe
-	for _, dst := range r.wildcardDsts(rt.PrefSrc.Unmap(), rt.OutIface) {
+	for _, dst := range r.wildcardDsts(rt.PrefSrc.Unmap()) {
 		q := p
 		q.Dst = dst
 		out = append(out, r.inputProbes(fl, q)...)
@@ -199,19 +199,19 @@ func (r *router) noReplyFrom(fl flow, src netip.Addr, mark uint32) bool {
 }
 
 // wildcardDsts are the destinations of a packet to an unspecified address
-// whose route back leaves through iface with the preferred source pref:
-// pref, then every other address of its family on iface, without IPv6
-// link-local addresses. An upstream translation may deliver to any of them,
-// and the firewall may allow each one differently.
-func (r *router) wildcardDsts(pref netip.Addr, iface string) []netip.Addr {
+// whose route back prefers the source pref: pref, then every other address
+// of its family on every up, non-loopback interface, without link-local
+// addresses. An upstream translation or a source-based route may deliver to
+// any of them, and the firewall may allow each one differently.
+func (r *router) wildcardDsts(pref netip.Addr) []netip.Addr {
 	out := []netip.Addr{pref}
 	for _, i := range r.f.ifaces {
-		if i.Name != iface {
+		if !i.Up || i.Loopback {
 			continue
 		}
 		for _, p := range i.Addrs {
 			a := p.Addr().Unmap()
-			if a.Is4() != pref.Is4() || (a.Is6() && a.IsLinkLocalUnicast()) || slices.Contains(out, a) {
+			if a.Is4() != pref.Is4() || a.IsLinkLocalUnicast() || slices.Contains(out, a) {
 				continue
 			}
 			out = append(out, a)
