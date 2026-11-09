@@ -988,6 +988,25 @@ func TestW11a08OwnedChainRepairRunsNoReload(t *testing.T) {
 	}
 }
 
+// TestW11a08ForeignChainRepairReloads: a repair whose differences reach a
+// chain outside Darkpanel's restarts UFW, which removes the stray rule.
+func TestW11a08ForeignChainRepairReloads(t *testing.T) {
+	h := deeNewHost(t)
+	eng := deeEngine(t, h)
+	deeConfirm(t, eng, "firewall.docker.enable", `{}`)
+	h.addForeign(t, "-A ufw-user-input -s 192.0.2.98/32 -j ACCEPT")
+	h.ran = nil
+	if _, cv, err := deePlanApply(t, eng, "firewall.docker.repair", `{}`); err != nil || cv.State != core.StatePending {
+		t.Fatalf("repair = %+v, %v; want pending", cv, err)
+	}
+	if !slices.Contains(h.ran, "reload") {
+		t.Errorf("ufw commands of the repair %q hold no reload", h.ran)
+	}
+	if got := deeTexts(h, fwstate.V4, "ufw-user-input"); slices.ContainsFunc(got, func(l string) bool { return strings.Contains(l, "192.0.2.98") }) {
+		t.Errorf("ufw-user-input = %q, want the stray rule gone", got)
+	}
+}
+
 // TestW11a08RevertOfARepairOfLostChainsKeepsTheBlock: a live repair of chains
 // that were all lost has an empty Before, and its after files still hold the
 // block, which the revert must leave there.
