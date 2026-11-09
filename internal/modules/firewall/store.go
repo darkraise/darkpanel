@@ -70,7 +70,7 @@ type snapshotState struct {
 	Guard   *core.GuardContext `json:"guard,omitempty"`       // the guard context of the change's plan, for the connectivity exception
 	Image   *beforeImage       `json:"beforeImage,omitempty"` // a repair's loaded-state before-image
 	Docker  bool               `json:"docker"`                // the Docker integration flag at capture
-	Live    bool               `json:"live,omitempty"`        // Image was taken before a change UFW applies live; a whole restore loads it, a revert by inverses does not
+	Live    bool               `json:"live,omitempty"`        // Image was taken before a change on an active UFW that runs no ufw reload; a whole restore loads it, a revert by inverses does not
 
 	// DockerSettings is the module's Docker settings at capture. It is nil
 	// in a snapshot taken before the integration existed; a restore then

@@ -238,6 +238,7 @@ func TestW11a07SnapshotImagesALiveChange(t *testing.T) {
 		return change{ops: []ufwOp{op}}, err
 	}
 	repair := func(fwstate.Config, fwstate.Loaded) (change, error) { return change{repair: true}, nil }
+	noChange := func(fwstate.Config, fwstate.Loaded) (change, error) { return change{}, nil }
 	for _, tc := range []struct {
 		name            string
 		build           buildFunc
@@ -248,6 +249,7 @@ func TestW11a07SnapshotImagesALiveChange(t *testing.T) {
 		{"a default restarts UFW itself", defaultIncoming, false, true, true},
 		{"a repair reloads", repair, false, false, false},
 		{"a repair action keeps its repair image", repair, true, true, false},
+		{"a change with no transition on a running UFW", noChange, false, true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h, f, _ := pnHost(t)
@@ -266,5 +268,32 @@ func TestW11a07SnapshotImagesALiveChange(t *testing.T) {
 				t.Errorf("image %v live %v, want image %v live %v", snap.State.Image != nil, snap.State.Live, tc.wantImage, tc.live)
 			}
 		})
+	}
+}
+
+// TestW11a07LiveTargetOfANoTransitionChange: a change with no transition
+// counts as live only on a running UFW that stays enabled.
+func TestW11a07LiveTargetOfANoTransitionChange(t *testing.T) {
+	const (
+		running = "*filter\n:ufw-user-input - [0:0]\nCOMMIT\n"
+		stopped = "*filter\n:INPUT DROP [0:0]\nCOMMIT\n"
+	)
+	for _, c := range []struct {
+		name    string
+		tr      fwstate.Transition
+		enabled bool
+		save    string
+		cmds    [][]string
+		want    bool
+	}{
+		{"running and enabled", fwstate.TransNone, true, running, nil, true},
+		{"enabled but stopped", fwstate.TransNone, true, stopped, nil, false},
+		{"disabled", fwstate.TransNone, false, running, nil, false},
+		{"a reload is not live", fwstate.TransReload, true, running, [][]string{reloadArgs}, false},
+	} {
+		got := liveTarget(prepared{cur: fwstate.Loaded{V4: fhParse(t, c.save)}, tg: target{tr: c.tr, final: fwstate.Config{Enabled: c.enabled}, cmds: c.cmds}})
+		if got != c.want {
+			t.Errorf("%s: liveTarget = %t, want %t", c.name, got, c.want)
+		}
 	}
 }

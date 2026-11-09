@@ -1054,3 +1054,54 @@ func TestW11a08RevertOfARepairOfLostChainsKeepsTheBlock(t *testing.T) {
 		})
 	}
 }
+
+// TestW11a07RevertOfADockerDisableWithoutRowsRunsNoReload: a disable with no
+// container rows runs no UFW transition, so its revert runs none either.
+func TestW11a07RevertOfADockerDisableWithoutRowsRunsNoReload(t *testing.T) {
+	for _, c := range []struct {
+		name                string
+		byInverses, foreign bool
+	}{
+		{"whole", false, false},
+		{"by inverses", true, false},
+		{"whole with a foreign rule", false, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			ctx := context.Background()
+			h := deeNewHost(t)
+			eng := deeEngine(t, h)
+			deeConfirm(t, eng, "firewall.docker.enable", `{}`)
+			before := deeOwnedChains(h)
+			if len(before) == 0 {
+				t.Fatal("the enable loaded no Darkpanel chain")
+			}
+			_, cv, err := deePlanApply(t, eng, "firewall.docker.disable", `{}`)
+			if err != nil || cv.State != core.StatePending {
+				t.Fatalf("disable = %+v, %v; want pending", cv, err)
+			}
+			if c.foreign {
+				h.addForeign(t, deeForeign)
+			}
+			if c.byInverses {
+				if res, err := h.Run(ctx, core.Cmd{Path: ufwPath, Args: strings.Fields("allow in proto tcp from any to any port 8098")}); err != nil || res.ExitCode != 0 {
+					t.Fatalf("the manual ufw allow = %+v, %v", res, err)
+				}
+			}
+			h.ran = nil
+			if cv, err = eng.Revert(ctx, eeUser, cv.ID); err != nil || cv.State != core.StateReverted {
+				t.Fatalf("revert = %+v, %v; want reverted", cv, err)
+			}
+			if slices.Contains(h.ran, "reload") {
+				t.Errorf("ufw commands of the revert %q include a reload", h.ran)
+			}
+			if got := deeOwnedChains(h); !reflect.DeepEqual(got, before) {
+				t.Errorf("Darkpanel chains after the revert %v, want %v", got, before)
+			}
+			if c.foreign {
+				if got := deeTexts(h, fwstate.V4, "DOCKER-USER"); !slices.Contains(got, deeForeign) {
+					t.Errorf("DOCKER-USER = %q, want the foreign rule %q kept", got, deeForeign)
+				}
+			}
+		})
+	}
+}

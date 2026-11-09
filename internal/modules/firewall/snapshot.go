@@ -61,8 +61,8 @@ const (
 	// imageRepair is taken before a repair, whose reload an inverse cannot
 	// take back.
 	imageRepair
-	// imageLive is taken before a change UFW applies live, so that a whole
-	// revert restores the chains without a reload.
+	// imageLive is taken before a change on an active UFW that runs no ufw
+	// reload, so that a whole revert restores the chains without one.
 	imageLive
 )
 

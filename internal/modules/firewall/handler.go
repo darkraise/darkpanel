@@ -114,9 +114,12 @@ func (m mutation[In]) imageFor(ctx context.Context, env core.Env, in In) imageKi
 }
 
 // liveTarget reports whether UFW applies p without a command of Darkpanel's
-// that restarts it: live, or through the restart "ufw default" makes itself.
+// that restarts it: live, through the restart "ufw default" makes itself, or
+// with no transition at all on a running UFW that stays active.
 func liveTarget(p prepared) bool {
-	return p.tg.tr == fwstate.TransLive || (hasDefaultOp(p.c) && p.tg.tr == fwstate.TransReload && len(p.tg.cmds) == 0)
+	return p.tg.tr == fwstate.TransLive ||
+		(hasDefaultOp(p.c) && p.tg.tr == fwstate.TransReload && len(p.tg.cmds) == 0) ||
+		(p.tg.tr == fwstate.TransNone && p.tg.final.Enabled && ufwRunning(p.cur))
 }
 
 // Apply attaches the snapshot, makes the change as journaled effects
