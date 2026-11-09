@@ -34,3 +34,40 @@ Read-only investigation of `main` at 735d16a on 2026-11-08, for the wave 11b pla
 ## Suggested task order
 
 1 netstat (retry, selectors) · 2 eval (`origDstPrefix`, rows) · 3 wildcard destinations, spec and threat-model sentence · 4 reply lookups (mixed family, raw marks, `fwdReplies`, tests) · 5 cells (cap, local routes, rewrites, blackhole longest match) · 6 before-router and skipped count · 7 `ip rule` dump and fail-closed stand-in skips · 8 panel IPv6 public binding · 9 row 46 test · 10 harness · 11 threat model.
+
+## Plan design settled on 2026-11-09 (main at 091547c; the plan file is not written yet)
+
+Owner ticked `agy` for this plan. Execution is inline, `claude --model opus --effort high`. Header lines follow `2026-11-08-v1-w11a-live-apply.md` with `TMPDIR=/root/.cache/w11b-tmp/<task>`; `**Task check:** none — full suite every 3 tasks`; branch `v1-w11b-lockout-guard` in the base repository. Gate 7 applies. Write `> **External executors:** agy`.
+
+Changes to the fact sheet above, each with its reason:
+
+- **IPv6 public leg.** `ListenerSpec.PublicBinding` holds one value and `firewall.DockerStatus` bindings carry no family, so the controller cannot tell "when Docker publishes IPv6". The panel records `[::]:443` for every NPM exposure (`listener.go`, and `lsSpec` in `listener_test.go`). `viaFlows` reads an unspecified IPv6 binding as dual-stack: the IPv4 flow always, and the IPv6 flow only when the host has an IPv6 address that is neither loopback nor link-local. That IPv6 flow has `standIn: true`, so a host without IPv6 routes skips its cells instead of refusing every change. No wire type or schema changes.
+- **Row 28.9 mixed families.** `viaFlows` attaches the forwarded reply only to a flow of the proxy address's family, instead of returning false in `noReply`. Returning false would make every no-route IPv6 cell unknown.
+- **`RouteQuery`.** Add `Proto uint8`, `SrcPort uint16`, `DstPort uint16`, encoded only when non-zero. No `UID`/`HasUID`: no lookup can know it, so any rule with a uid range turns stand-in skipping off, for local replies too.
+- **Lookups carry selectors only when a policy rule of the family selects by protocol or port**, so hosts without such rules send the same queries as today and `rtQuery` test keys stay valid. Apply to reply lookups (`Proto`, `SrcPort` = the flow's `DstPort`) and to the output and forward lookups in `probes` and `route` (`Proto`, `DstPort`, `SrcPort` unless `unknownPort`).
+- **Policy rule prefixes also cut cells.** `FRA_SRC` and `FRA_DST` prefixes join `routeCuts`, except a single-address prefix that is one of the host's own addresses (it would turn the flow into input). Unreadable rules set `routeCut.why` to `the policy rules cannot be read: %v`.
+- **Stand-in off** (`noReply`) when a rule has a destination port or uid selector, or when a rule selects by mark (`FRA_FWMARK` or `FRA_FWMASK`) and `raw` or `mangle` holds a MARK/CONNMARK rule that may match. `netstat.Rule`: `Family, Priority, Table, Action uint8, Src, Dst netip.Prefix, Mark bool, Proto uint8, SrcPort, DstPort, UID bool`. `Rules(family)` dumps with `RTM_GETRULE`, `rtMsg(af,0,0,0)` and `retryDump`; `guard/routes.go` adds an optional `ruleDumper` and `LiveHost.Rules`; `gHost` gains `rules`.
+- **Cell limit consequence.** About 2,200 port-matching bans reach the limit (2n cells times n rules), not 1,400. Helper `overCellLimit(cells, rules int) (limit int, over bool)`; print 65536 as the limit when the cell cap is the one hit.
+- **Longest match.** `routeCutters` returns `routeCut` with a `paths` list (unicast and local routes outside the local table). A cell is no-path only when no longer path route contains it; blackhole only when no longer non-blackhole route contains it.
+- **Row 48.5.** Add `func (r *router) forState(st fwstate.Loaded) *router` (a copy sharing the caches), so later caches need no edit.
+- **Row 27 hazard is narrower than stated.** `revert.go` reaches `d.lockout` only after a revert with blocked effects, conflicts or a write error, so it affects troubled reverts, not every revert.
+
+Trial on a scratch copy (2026-11-09): the row 27 change makes exactly four existing tests stale. `TestProbes` rows "an unspecified destination…" (4 probes) and "every lookup of an incoming flow…" (needs `gxQueryMark(rtQuery("203.0.113.7","10.0.0.1",""),0x10)`); `TestGxCheckControllerListeners` (adds the two `10.0.0.1:7443` lines, 4 results); `TestV1r21ThrowCellWithoutARouteBack…` (its rule becomes `-A INPUT -s 45.33.0.0/16 -d 10.0.0.1/32 -p tcp -j DROP`). Also verified: `netfilter.Parse` gives `Target.Name` REDIRECT and raw MARK; a route error in `reroute` gives `Unknown`, so the before-router test expects a refusal.
+
+Tasks, with scores (files-spec-coupling-risk):
+
+1. netstat lookup selectors and `retryDump` (1-2-2-1 = 6).
+2. netstat `Rules` dump, `rules.go`; its live test asserts the main rule carries no selectors (1-2-2-0 = 5).
+3. eval `origDstPrefix` and rows (1-2-0-1 = 4, agy gemini-4-argon low).
+4. wildcard destinations and the four stale tests (1-2-0-3 = 6).
+5. `fwdReplies`, `noReplyFrom` and EINVAL tests (2-2-0-2 = 6).
+6. cells: cap, local routes, rewrites, longest match (1-2-1-3 = 7).
+7. before-router and skipped count (2-2-0-2 = 6).
+8. policy rules in the guard, raw mark scan, `TestV1r21ThrowCellWithMarkedRepliesIsUnknown` rewritten with a `policy` field on `v1r21Throw` (2-2-1-3 = 8).
+9. dual-stack binding in `viaFlows`, panel record, row 46 test (2-2-1-3 = 8).
+10. harness journal since and single parse (1-2-0-1 = 4, agy gemini-4-argon low).
+11. spec rulings W11-R7 onward, the W10b-R12 sentence, threat-model bullets including removing the open-rows bullet, docs test (1-1-0-0 = 2, agy gemini-3.8-flash medium).
+
+Risk-3 tasks carry `**Lenses:** security`. Register rows 27, 28, 46, 47, 48, 51, 53 of the security review are still `open`: set them `planned` when the plan is written.
+
+The 20 wave 11a minor rows (v1-completion 447-466) are in no plan of W11-R1; wave 11c or a follow-up must take them.
