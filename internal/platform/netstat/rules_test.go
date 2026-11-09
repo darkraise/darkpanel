@@ -72,6 +72,7 @@ func TestW11b02ParseRuleRefusesMalformedMessages(t *testing.T) {
 		{"shorter than the header", make([]byte, 4)},
 		{"an attribute past the end", append(rtMsg(unix.AF_INET, 0, 0, 0), nlAttr(unix.FRA_TABLE, nlUint32(1))[:6]...)},
 		{"a prefix longer than the family", w11b02Msg(unix.AF_INET, 40, 0, 200, 1, nlAttr(unix.FRA_DST, []byte{8, 8, 8, 8}))},
+		{"a prefix of no address length", w11b02Msg(unix.AF_INET, 8, 0, 200, 1, nlAttr(unix.FRA_DST, []byte{8, 8, 8}))},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if _, err := parseRule(tt.m); err == nil || !strings.Contains(err.Error(), "netstat: rule") {

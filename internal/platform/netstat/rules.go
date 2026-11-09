@@ -9,8 +9,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Rule is one entry of the kernel's policy routing rule table; a non-zero
-// selector field means the rule requires a packet to match that selector.
+// Rule is one entry of the kernel's policy routing rule table. A non-zero
+// value of Src, Dst, Mark, Proto, SrcPort, DstPort, UID or TOS means the rule
+// requires a packet to match that selector.
 type Rule struct {
 	Family   Family
 	Priority uint32
@@ -124,7 +125,10 @@ func parseRule(m []byte) (Rule, error) {
 }
 
 func rulePrefix(b []byte, bits int) (netip.Prefix, error) {
-	addr, _ := netip.AddrFromSlice(b)
+	addr, ok := netip.AddrFromSlice(b)
+	if !ok {
+		return netip.Prefix{}, fmt.Errorf("netstat: rule prefix of %d bytes", len(b))
+	}
 	p, err := addr.Prefix(bits)
 	if err != nil {
 		return netip.Prefix{}, fmt.Errorf("netstat: rule prefix %s/%d: %w", addr, bits, err)
