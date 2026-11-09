@@ -156,6 +156,7 @@ type routeCut struct {
 	paths      []netip.Prefix
 	rules      []netstat.Rule
 	why        string
+	rulesWhy   string
 }
 
 // routeCuts is the route cut of one family. The routes of every table are
@@ -169,28 +170,33 @@ func (r *router) routeCuts(v6 bool) routeCut {
 	if v6 {
 		fam = netstat.IPv6
 	}
+	var rules []netstat.Rule
+	rulesWhy := ""
+	if d, ok := r.host.(ruleDumper); ok {
+		var err error
+		if rules, err = d.Rules(fam); err != nil {
+			// Unlike why, this also makes a flow without a wild end unknown,
+			// because that flow's route lookups depend on the rules.
+			rulesWhy = fmt.Sprintf("the policy rules cannot be read: %v", err)
+		}
+	}
 	if d, ok := r.host.(routeDumper); !ok {
 		c.why = "the host cannot list routes"
 	} else if routes, err := d.Routes(fam); err != nil {
 		c.why = fmt.Sprintf("the routes cannot be read: %v", err)
 	} else {
 		c = routeCutters(routes, v6)
-		if d, ok := r.host.(ruleDumper); ok {
-			if rules, err := d.Rules(fam); err != nil {
-				c.why = fmt.Sprintf("the policy rules cannot be read: %v", err)
-			} else {
-				r.addPolicyCuts(&c, rules)
-			}
-		}
+		c.why = rulesWhy
+		r.addPolicyCuts(&c, rules)
 	}
+	c.rules, c.rulesWhy = rules, rulesWhy
 	r.routes[v6] = c
 	return c
 }
 
-// addPolicyCuts records rules in c and cuts cells at their prefixes, since a
-// policy rule sets apart the addresses it sends to another table.
+// addPolicyCuts cuts cells at the prefixes of rules, since a policy rule sets
+// apart the addresses it sends to another table.
 func (r *router) addPolicyCuts(c *routeCut, rules []netstat.Rule) {
-	c.rules = rules
 	chain := &c.rs.Tables[0].Chains[0]
 	for _, rule := range rules {
 		for _, p := range []netip.Prefix{rule.Src, rule.Dst} {

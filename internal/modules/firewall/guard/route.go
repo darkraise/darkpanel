@@ -63,6 +63,9 @@ func (r *router) probes(fl flow) []probe {
 	if fl.unknown != "" {
 		return []probe{{desc: fl.label, unknown: fl.unknown}}
 	}
+	if why := r.routeCuts(fl.pkt.Family == fwstate.V6).rulesWhy; why != "" {
+		return []probe{{desc: fl.label, unknown: why}}
+	}
 	p := fl.pkt
 	fail := func(reason string) []probe { return []probe{{desc: describeFlow(fl, p), unknown: reason}} }
 	lookup := func(q netstat.RouteQuery) (netstat.Route, bool, []probe) {

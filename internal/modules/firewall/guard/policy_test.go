@@ -172,3 +172,31 @@ func TestW11b08HostWhosePolicyRulesCannotBeRead(t *testing.T) {
 		t.Errorf("guard = %+v, want a refusal containing %q", g, want)
 	}
 }
+
+// w11b08DumpsFail is a host whose route and rule dumps both fail.
+type w11b08DumpsFail struct{ w11b08RulesFail }
+
+func (w11b08DumpsFail) Routes(netstat.Family) ([]netstat.Route, error) {
+	return nil, errors.New("netlink: dump interrupted")
+}
+
+func TestW11b08FlowWithoutAWildEndNeedsThePolicyRules(t *testing.T) {
+	fl := flow{label: "panel", pkt: flOn("eth0", flPkt("input", "203.0.113.7", 51000, "192.0.2.1", 443, "tcp"))}
+	unknown := []probe{{desc: "panel", unknown: "the policy rules cannot be read: netlink: dump interrupted"}}
+	for _, tt := range []struct {
+		name string
+		h    Host
+		want []probe
+	}{
+		{"the rule dump fails", w11b08RulesFail{&gHost{ifaces: gIfaces()}}, unknown},
+		{"both dumps fail", w11b08DumpsFail{w11b08RulesFail{&gHost{ifaces: gIfaces()}}}, unknown},
+		{"only the route dump fails", v1r21RoutesFail{&gHost{ifaces: gIfaces()}},
+			[]probe{rtProbe("panel from 203.0.113.7 to 192.0.2.1:443 on eth0", fl.pkt, "eth0", "")}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := newRouter(tt.h, rtFacts(0, 0, 0), fwstate.Loaded{}).probes(fl); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("probes = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
