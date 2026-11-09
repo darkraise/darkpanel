@@ -169,7 +169,7 @@ func (f fw) runCleanup(ctx context.Context, env core.Env, owner string, mode cle
 // removes the block's chains from each family that has them and, when reload
 // is set and outside a change, reloads UFW when it was active (before) and
 // something changed. Inside a change the files and the chains are journaled
-// effects, and the change's own transition reloads UFW.
+// effects, and the change's own chain load or transition completes them.
 func (f fw) cleanupSteps(ctx context.Context, env core.Env, cfg fwstate.Config, before fwstate.Loaded, reload bool) error {
 	changed := false
 	for _, p := range cleanupFiles {

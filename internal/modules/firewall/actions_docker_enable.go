@@ -154,7 +154,7 @@ func denUncoveredForwards(cur fwstate.Loaded, ex []dockerfw.Exemption) ([]string
 // dockerDisableChange is the change that turns the integration off. It reads
 // none of Docker's facts, so it works with the daemon unreachable, and it
 // keeps the stored rows and settings, so a later enable restores the same
-// policy. The owned-chain cleanup reloads UFW itself when it must.
+// policy. The owned-chain cleanup removes the loaded chains itself.
 func dockerDisableChange(env core.Env, cfg fwstate.Config, st dockerState) (change, error) {
 	if !st.cfg.Enabled {
 		return change{}, nil

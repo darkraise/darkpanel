@@ -72,7 +72,8 @@ type effectOverwrite struct {
 //     recorded, never).
 //  3. Otherwise the inverses of the made effects, newest first, skipping
 //     conflicts and stopping at the first failure, then "ufw reload" when
-//     a rule, default or logging inverse ran on an active UFW, and, for a
+//     a rule, default or logging inverse ran on an active UFW after a change
+//     that ran a UFW transition, and, for a
 //     repair's snapshot, the before-image loaded over the loaded chains
 //     while every state file is as the snapshot captured it. A changed
 //     file is an edit whose rules the image would drop from the loaded
@@ -288,7 +289,7 @@ func expectedHashes(snap snapshot, made []core.Effect) map[string]string {
 
 // undoNewestFirst runs the inverses of the made effects not in conflicts,
 // newest first, stopping at the first failure, then reloads an active UFW
-// when a ufw inverse ran.
+// when a ufw inverse ran and the change ran a UFW transition.
 func undoNewestFirst(ctx context.Context, env core.Env, d deps, snap snapshot, made []core.Effect, conflicts map[int]core.EffectOutcome) error {
 	reload := false
 	// A live change and a default change make no such effect: their inverses
@@ -311,7 +312,7 @@ func undoNewestFirst(ctx context.Context, env core.Env, d deps, snap snapshot, m
 }
 
 // ufwEffect reports whether undoing e runs ufw for a rule, a default or the
-// logging level, which a running UFW loads completely only on a reload.
+// logging level.
 func ufwEffect(e core.Effect) bool {
 	noun, _, err := splitResource(e.Resource)
 	return err == nil && (noun == nounRule || noun == nounDefault || noun == nounLogging)

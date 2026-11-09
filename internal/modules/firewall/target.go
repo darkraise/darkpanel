@@ -29,7 +29,7 @@ type change struct {
 	rowsAdd    []dockerfw.ContainerRule // container rules to insert
 	rowsDel    []string                 // container rule ids to delete
 	cleanup    bool                     // run the owned-chain cleanup before the transition commands
-	reload     bool                     // the change needs `ufw reload` when UFW stays active (block files changed)
+	reload     bool                     // the Docker block's files changed, so its chains load, live or by UFW's restart
 	notes      []core.DiffLine          // extra plan lines a builder adds
 	// discardForeign is true only for a change that discards the foreign
 	// DOCKER-USER rules on purpose (firewall.docker.repair with
