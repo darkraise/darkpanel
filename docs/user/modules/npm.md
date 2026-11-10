@@ -176,8 +176,9 @@ the container, both volumes and the network, and forgets the instance. Then
 deploy again.
 
 If NPM already has an administrator when the deploy reaches that step, or
-refuses to create the first one, someone else created it first. The deploy then
-removes the container, both volumes and the network it created, so that no
+answers a 4xx status other than 400 to the request that creates the first one,
+the deploy treats it as another administrator having got there first. The deploy
+then removes the container, both volumes and the network it created, so that no
 instance keeps running under another administrator, and the change fails with
 `npm.setup_failed`. The message says whether the removal succeeded. Find out who
 can reach port 81 on the host, then deploy again. Do not undo the failed change:
