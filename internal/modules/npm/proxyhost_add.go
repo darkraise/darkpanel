@@ -197,8 +197,9 @@ type proxyhostAddState struct {
 	AdvancedConfig string                 `json:"advancedConfig"`
 }
 
-// proxyHostState is the state document of a proxy host: what an update sets and an undo restores, without its id and
-// times, and with every advanced configuration, the host's and each location's, replaced by its fingerprint.
+// proxyHostState is the state document of a proxy host: what an update sets and an undo compares with; the undo restores
+// the sealed body. It holds no id or times, and every advanced configuration, the host's and each location's, is
+// replaced by its fingerprint.
 func proxyHostState(env core.Env, h npmapi.ProxyHost) json.RawMessage {
 	doc := proxyhostAddState{
 		Domains:        proxyhostAddSorted(h.DomainNames),

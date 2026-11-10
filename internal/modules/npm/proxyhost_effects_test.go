@@ -236,9 +236,15 @@ func TestV1r10InverseNeverRestoresFromTheDocument(t *testing.T) {
 			}
 			before := puHosts(t, h)
 
+			if _, err := tc.def(h.nm()).Handler.Inverse(ctx, h.env("c1"), e); err == nil || !core.IsDefinite(err) || !strings.Contains(err.Error(), "read the sealed proxy host") {
+				t.Fatalf("inverse of an effect whose secret cannot be read = %v, want a definite refusal", err)
+			}
+			if _, err := h.journal.Intend(ctx, e, nil); err != nil {
+				t.Fatal(err)
+			}
 			_, err := tc.def(h.nm()).Handler.Inverse(ctx, h.env("c1"), e)
-			if err == nil || !core.IsDefinite(err) {
-				t.Fatalf("inverse without a sealed body = %v, want a definite refusal", err)
+			if err == nil || !core.IsDefinite(err) || !strings.Contains(err.Error(), "holds no sealed proxy host") {
+				t.Fatalf("inverse without a sealed body = %v, want a definite refusal for the missing sealed body", err)
 			}
 			if got := puHosts(t, h); !reflect.DeepEqual(got, before) {
 				t.Errorf("a refused inverse changed NPM to %+v", got)

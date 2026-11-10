@@ -90,7 +90,8 @@ func proxyHostEditDoc(env core.Env, h npmapi.ProxyHost) core.StateDoc {
 }
 
 // proxyHostEditKeep is body with what the operator wrote in NPM kept from host: the host's advanced configuration, and
-// every location whose path is not "/", in NPM's order and unchanged, after the module's own "/" location.
+// every location whose path is not "/", in NPM's order and unchanged, after the module's own "/" location. Kept locations
+// are written back unchecked: a custom location is the operator's and the update only keeps what NPM held.
 func proxyHostEditKeep(body npmapi.ProxyHostBody, host npmapi.ProxyHost) npmapi.ProxyHostBody {
 	body.AdvancedConfig = host.AdvancedConfig
 	body.Locations = slices.Clone(body.Locations)
@@ -202,19 +203,32 @@ func (p proxyHostEdit) undoBody(ctx context.Context, env core.Env, e core.Effect
 	return *b, nil
 }
 
-// checkRestored runs the forward host check on every forward host body writes back: the host's and each custom
-// location's. It returns the first error as checkForward returns it.
+// checkRestored runs the forward host check on the host's forward host and, as checkRestoredLocation does, on each
+// custom location's. It returns the first error as those checks return it.
 func (p proxyHostEdit) checkRestored(ctx context.Context, env core.Env, body npmapi.ProxyHostBody) error {
-	targets := []ProxyHostInput{{ForwardHost: body.ForwardHost, ForwardPort: body.ForwardPort}}
-	for _, l := range body.Locations {
-		targets = append(targets, ProxyHostInput{ForwardHost: l.ForwardHost, ForwardPort: l.ForwardPort})
+	if _, err := p.n.checkForward(ctx, env, ProxyHostInput{ForwardHost: body.ForwardHost, ForwardPort: body.ForwardPort}); err != nil {
+		return err
 	}
-	for _, target := range targets {
-		if _, err := p.n.checkForward(ctx, env, target); err != nil {
+	for _, l := range body.Locations {
+		if err := p.checkRestoredLocation(ctx, env, l); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// checkRestoredLocation refuses a custom location the forward host check can show is reserved. A custom location is
+// the operator's and the undo only restores what NPM held, so one whose forward host is empty, holds an nginx variable
+// or is a name with no answer is written back as it was.
+func (p proxyHostEdit) checkRestoredLocation(ctx context.Context, env core.Env, l npmapi.Location) error {
+	if l.ForwardHost == "" || strings.Contains(l.ForwardHost, "$") {
+		return nil
+	}
+	_, err := p.n.checkForward(ctx, env, ProxyHostInput{ForwardHost: l.ForwardHost, ForwardPort: l.ForwardPort})
+	if core.IsDefinite(err) && errcode.From(err).Code == errcode.InvalidInput {
+		return nil
+	}
+	return err
 }
 
 // Observe reads the proxy host of the effect. The undo of a removal is found by the id of the host the inverse
