@@ -14,12 +14,21 @@ func TestW11c04ProbeRefusesInternalAddressForms(t *testing.T) {
 		"0.1.2.3", "192.0.0.1", "198.18.0.1", "198.19.255.254", "240.0.0.1", "255.255.255.255",
 		"::1.2.3.4", "64:ff9b::7f00:1", "64:ff9b:1::1", "2001:0:1::1", "2002:7f00:1::1",
 		"::ffff:0:7f00:1", "fec0::1",
+		"::ffff:0.1.2.3", "::ffff:192.0.0.1", "::ffff:198.18.0.1", "::ffff:240.0.0.1",
+		"0.255.255.255", "192.0.0.255", "198.19.255.255",
+		"::ffff:ffff", "64:ff9b::ffff:ffff", "64:ff9b:1:ffff:ffff:ffff:ffff:ffff",
+		"2001:0:ffff:ffff:ffff:ffff:ffff:ffff", "2002:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+		"::ffff:0:ffff:ffff", "feff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
 	} {
 		if nodeProbeAllowedAddr(netip.MustParseAddr(s)) {
 			t.Errorf("%s is allowed, want it refused", s)
 		}
 	}
-	for _, s := range []string{"93.184.216.34", "203.0.113.9", "2606:4700::1"} {
+	for _, s := range []string{
+		"93.184.216.34", "203.0.113.9", "2606:4700::1",
+		"1.0.0.1", "192.0.1.1", "198.20.0.1", "223.255.255.255", "::ffff:93.184.216.34",
+		"64:ff9b:2::1", "2001:1::1", "2003::1",
+	} {
 		if !nodeProbeAllowedAddr(netip.MustParseAddr(s)) {
 			t.Errorf("%s is refused, want it allowed", s)
 		}

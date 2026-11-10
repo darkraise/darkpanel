@@ -315,7 +315,7 @@ func TestW11c08OutputRefusesUndecodableEdits(t *testing.T) {
 		"edits":     json.RawMessage(`not json`),
 		"region":    json.RawMessage(`{"etag":"x"}`),
 	}
-	if _, err := def.Handler.Output(context.Background(), h.ctlEnv(""), json.RawMessage(`{"hostId":"h7"}`), steps); err == nil {
-		t.Fatal("Output accepted an edits output it cannot decode")
+	if _, err := def.Handler.Output(context.Background(), h.ctlEnv(""), json.RawMessage(`{"hostId":"h7"}`), steps); err == nil || !strings.Contains(err.Error(), "the edits step's output") {
+		t.Fatalf("Output on an undecodable edits output: %v, want the error to name the edits step", err)
 	}
 }
