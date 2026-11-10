@@ -169,10 +169,11 @@ image if the host lacks it, creates the network and the volumes, starts the
 container, waits up to 120 seconds for NPM to answer, creates the administrator
 and proves that its login works.
 
-If the administrator cannot be created for another reason, the change fails
-with `npm.setup_failed`: the container runs and the administrator may exist. Run
-`darkpanel change undo <id>`. The undo removes the container, both volumes and
-the network, and forgets the instance. Then deploy again.
+If the administrator cannot be created for any reason but an existing
+administrator, the change fails with `npm.setup_failed`: the container runs and
+the administrator may exist. Run `darkpanel change undo <id>`. The undo removes
+the container, both volumes and the network, and forgets the instance. Then
+deploy again.
 
 If NPM already has an administrator when the deploy reaches that step, or
 refuses to create the first one, someone else created it first. The deploy then

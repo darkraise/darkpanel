@@ -245,7 +245,7 @@ func proxyHostCreatedOn(s string) (time.Time, error) {
 }
 
 // proxyhostAddAnswer maps a failed NPM call: a 4xx is invalid_input with NPM's status only, anything else
-// npm.unhealthy. err stays the cause, so refused still sees NPM's answer.
+// npm.unhealthy. err stays the cause, so refused can still read NPM's status.
 func proxyhostAddAnswer(err error) error {
 	var answer *npmapi.APIError
 	if errors.As(err, &answer) && npmapi.IsClientError(err) {

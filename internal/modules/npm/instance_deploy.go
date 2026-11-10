@@ -412,9 +412,9 @@ func (h deployHandler) createEngineObjects(ctx context.Context, env core.Env) (s
 // bootstrap waits for NPM to answer and creates its administrator, then proves the login works. A failure is
 // npm.setup_failed and not Definite: the container runs and the administrator may exist. conflict is true only when
 // an administrator the deploy did not create exists: NPM reported one before the deploy created its own, or refused
-// the creation with a 4xx, which commits no user. A poll that times out, a 5xx or a lost answer to the creation, a
-// missing setup flag after it and a refused login are no conflict, since the administrator may hold the sealed
-// password.
+// the creation with a 4xx other than 400. A poll that times out, a 400, a 5xx or a lost answer to the creation, a
+// missing setup flag after it and a refused login are no conflict, since no other administrator was found or the
+// administrator may hold the sealed password.
 func (h deployHandler) bootstrap(ctx context.Context, env core.Env, email, password string) (conflict bool, err error) {
 	api := h.n.d.anon()
 	deadline := env.Clock.Now().Add(deployReady)
@@ -437,7 +437,9 @@ func (h deployHandler) bootstrap(ctx context.Context, env core.Env, email, passw
 		}
 	}
 	if err := api.CreateAdmin(ctx, email, password); err != nil {
-		return npmapi.IsClientError(err) && ctx.Err() == nil, deploySetupFailed(ctx, err, "did not create the administrator")
+		var answer *npmapi.APIError
+		return npmapi.IsClientError(err) && errors.As(err, &answer) && answer.Status != 400 && ctx.Err() == nil,
+			deploySetupFailed(ctx, err, "did not create the administrator")
 	}
 	health, err := api.Health(ctx)
 	if err != nil {
@@ -476,8 +478,12 @@ func (h deployHandler) discardDeploy(ctx context.Context, containerID string, ca
 	var coded *errcode.Error
 	if errors.As(cause, &coded) {
 		detail = coded.Detail
+		cause = errors.Unwrap(coded)
 	}
 	if len(failed) == 0 {
+		if cause == nil {
+			return errcode.New(errcode.NPMSetupFailed, detail+"; the deploy removed what it created")
+		}
 		return errcode.Wrap(errcode.NPMSetupFailed, cause, detail+"; the deploy removed what it created")
 	}
 	return errcode.Wrap(errcode.NPMSetupFailed, errors.Join(append([]error{cause}, failed...)...),

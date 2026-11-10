@@ -71,15 +71,28 @@ func refused(err error) bool {
 	return npmapi.IsClientError(err)
 }
 
+// unmarkedError keeps an outer wrapper's text after withoutDefiniteMark strips a definite mark beneath it.
+type unmarkedError struct {
+	text string
+	err  error
+}
+
+func (e unmarkedError) Error() string { return e.text }
+func (e unmarkedError) Unwrap() error { return e.err }
+
 // withoutDefiniteMark returns err without the definite mark and with everything beneath it, so errors.As still finds
 // the errcode code and errors.Is the cause. An error with no mark is returned as it is.
 func withoutDefiniteMark(err error) error {
+	text := err.Error()
 	for core.IsDefinite(err) {
 		next := errors.Unwrap(err)
 		if next == nil {
 			return notDefinite(err)
 		}
 		err = next
+	}
+	if err.Error() != text {
+		return unmarkedError{text: text, err: err}
 	}
 	return err
 }
