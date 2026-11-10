@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 )
 
 func w11a02UFWChains(save string) map[string]string {
@@ -77,9 +76,9 @@ func w11a02PolicyUnsampled(log string, families ...string) []string {
 }
 
 func m3LiveApply(ctx context.Context, t *testing.T, f *fleet) {
-	m3WaitStatus(ctx, t, f.api, f.agentID, time.Minute, m3Healthy)
 	t.Cleanup(func() {
-		_, _ = f.agent.Run(ctx, "sudo ufw delete allow 8097/tcp; "+
+		_, _ = f.agent.Run(ctx, "sudo touch /run/w11a-stop; sleep 1; "+
+			"sudo ufw delete allow 8097/tcp; "+
 			"sudo ufw route delete allow in on eth0 out on eth0 to 192.0.2.10 port 8097 proto tcp; "+
 			"sudo ufw delete deny from 198.51.100.7; "+
 			"sudo ufw logging low; "+
@@ -125,7 +124,7 @@ func m3LiveApply(ctx context.Context, t *testing.T, f *fleet) {
 			slices.Sort(keys)
 			for _, k := range keys {
 				if live[fam.name][k] != reloaded[k] {
-					t.Errorf("live ufw %s and a reload disagree on %s chain %s", cmd, fam.name, k)
+					t.Errorf("live %s and a reload disagree on %s chain %s", cmd, fam.name, k)
 				}
 			}
 		}
