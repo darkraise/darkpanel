@@ -32,8 +32,8 @@ const (
 )
 
 // nodeProbeRefused holds the ranges that reach internal networks and that netip.Addr's own predicates do not cover:
-// shared CGNAT space (RFC 6598), the IPv4 special-purpose forms, and the IPv6 forms that carry an IPv4 address or
-// tunnel to one.
+// shared CGNAT space (RFC 6598), the IPv4 special-purpose forms, the IPv6 forms that carry an IPv4 address or tunnel
+// to one, and deprecated site-local space.
 var nodeProbeRefused = []netip.Prefix{
 	netip.MustParsePrefix("100.64.0.0/10"),
 	netip.MustParsePrefix("0.0.0.0/8"),
@@ -45,6 +45,8 @@ var nodeProbeRefused = []netip.Prefix{
 	netip.MustParsePrefix("64:ff9b:1::/48"),
 	netip.MustParsePrefix("2001::/32"),
 	netip.MustParsePrefix("2002::/16"),
+	netip.MustParsePrefix("::ffff:0:0:0/96"),
+	netip.MustParsePrefix("fec0::/10"),
 }
 
 // The TLS probe marks these failures so that nodeProbeFailure can name them.
@@ -99,9 +101,9 @@ func (h nodeProbeHandler) Read(ctx context.Context, env core.Env, in NodeProbeIn
 }
 
 // nodeProbeCheck refuses an input this host must not probe. The input makes this host send a request to the named
-// address, so loopback, unspecified, multicast, link-local, private (RFC 1918 or ULA) and shared (CGNAT) addresses
-// are refused: the controller's own servers are never on them, and a probe must not reach into the networks behind
-// the agent's host. nodeProbeResolve refuses the same classes among the addresses a name resolves to.
+// address, so every class nodeProbeAllowedAddr lists is refused: the controller's own servers are never on them, and
+// a probe must not reach into the networks behind the agent's host. nodeProbeResolve refuses the same classes among
+// the addresses a name resolves to.
 func nodeProbeCheck(in NodeProbeInput) error {
 	if in.HostName == "" {
 		return nodeProbeRefuse("/hostName", "the host name is required")
@@ -109,7 +111,7 @@ func nodeProbeCheck(in NodeProbeInput) error {
 	if a, err := netip.ParseAddr(in.HostName); err == nil {
 		if !nodeProbeAllowedAddr(a) {
 			return nodeProbeRefuse("/hostName", "the host name must be an IP address without a zone that is not loopback, "+
-				"unspecified, multicast, link-local, private (RFC 1918 or ULA) or shared (CGNAT)")
+				"unspecified, multicast, link-local, private (RFC 1918 or ULA), shared (CGNAT) or another special-purpose form")
 		}
 	} else if !nodeProbeDNSName(in.HostName) {
 		return nodeProbeRefuse("/hostName",
@@ -119,7 +121,7 @@ func nodeProbeCheck(in NodeProbeInput) error {
 		a, err := netip.ParseAddr(in.Address)
 		if err != nil || !nodeProbeAllowedAddr(a) {
 			return nodeProbeRefuse("/address", "the address must be an IP address without a zone that is not loopback, "+
-				"unspecified, multicast, link-local, private (RFC 1918 or ULA) or shared (CGNAT)")
+				"unspecified, multicast, link-local, private (RFC 1918 or ULA), shared (CGNAT) or another special-purpose form")
 		}
 	}
 	if in.CertName != "" && !nodeProbePin(in.CertName) {
@@ -140,7 +142,8 @@ func nodeProbeRefuse(path, message string) error {
 // nodeProbeAllowedAddr reports whether a is an IP literal without a zone outside the refused classes: loopback,
 // unspecified, multicast, link-local, private (RFC 1918 or ULA fc00::/7), shared (CGNAT 100.64.0.0/10), this-network
 // 0.0.0.0/8, IETF protocol assignments 192.0.0.0/24, benchmarking 198.18.0.0/15, reserved 240.0.0.0/4, IPv4-compatible
-// ::/96, NAT64 64:ff9b::/96 and 64:ff9b:1::/48, Teredo 2001::/32 and 6to4 2002::/16, in their IPv4-mapped forms too.
+// ::/96, NAT64 64:ff9b::/96 and 64:ff9b:1::/48, Teredo 2001::/32, 6to4 2002::/16, IPv4-translated ::ffff:0:0:0/96 and
+// deprecated site-local fec0::/10, in their IPv4-mapped forms too.
 func nodeProbeAllowedAddr(a netip.Addr) bool {
 	if a.Zone() != "" {
 		return false
@@ -222,8 +225,8 @@ func (d dp) nodeProbeResolve(ctx context.Context, host string) (netip.Addr, erro
 		for _, a := range addrs {
 			refused = append(refused, a.String())
 		}
-		return netip.Addr{}, fmt.Errorf("derp: %s resolves only to loopback, unspecified, multicast, link-local, private or "+
-			"shared addresses (%s), which a probe does not reach; if it is this host's own name, /etc/hosts maps it to "+
+		return netip.Addr{}, fmt.Errorf("derp: %s resolves only to loopback, unspecified, multicast, link-local, private, "+
+			"shared or other special-purpose addresses (%s), which a probe does not reach; if it is this host's own name, /etc/hosts maps it to "+
 			"loopback, and only a host that resolves it to its public address can probe it", host, strings.Join(refused, ", "))
 	}
 	for _, a := range allowed {
