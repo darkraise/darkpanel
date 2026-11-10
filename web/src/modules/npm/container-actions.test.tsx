@@ -273,7 +273,7 @@ test.each([
 
 const caDown = (detail: string) => ({ status: 503, body: { type: "about:blank", title: "Unavailable", status: 503, detail } })
 
-// In both tests below, invalidateQueries resolves before TanStack Query's
+// In the tests below, invalidateQueries resolves before TanStack Query's
 // zero-delay timer hands the results to React, so the act waits one timer turn.
 // A findBy or waitFor could pass while only one of two alerts has rendered.
 test("shows one alert when the status and the container both fail to refetch", async () => {
@@ -283,6 +283,21 @@ test("shows one alert when the status and the container both fail to refetch", a
     [CA_INSPECT]: () => (failing ? caDown("the Docker daemon is not reachable") : { body: { output: caDetail() } }),
   })
   await caForm()
+  failing = true
+  await act(async () => {
+    await client.invalidateQueries()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+  expect(screen.getAllByRole("alert").map((a) => a.textContent)).toEqual(["the NPM module is unavailable"])
+})
+
+test("shows one alert when the status refetch fails and the container never loaded", async () => {
+  let failing = false
+  const { client } = caRender({
+    [CA_STATUS]: () => (failing ? caDown("the NPM module is unavailable") : { body: { output: caStatus() } }),
+    [CA_INSPECT]: () => caDown("the Docker daemon is not reachable"),
+  })
+  await screen.findByRole("alert")
   failing = true
   await act(async () => {
     await client.invalidateQueries()

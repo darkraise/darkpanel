@@ -165,7 +165,7 @@ function ExposeLoader({ container, showFailure, onDone }: { container: Container
   })
   if (detail.data === undefined || networks.data === undefined) {
     if (detail.isPending || networks.isPending) return <Spinner aria-label="Loading the container's networks" />
-    return <ReadFailure error={detail.error ?? networks.error} />
+    return showFailure ? <ReadFailure error={detail.error ?? networks.error} /> : null
   }
   return (
     <>
@@ -189,18 +189,14 @@ export function ExposeAction({ container, onDone }: { container: ContainerRef; o
     if (status.isPending) return <Spinner aria-label="Loading Nginx Proxy Manager" />
     return <ReadFailure error={status.error} />
   }
-  if (!status.data.deployed) {
-    return (
-      <>
-        {status.isError && <ReadFailure error={status.error} />}
-        <p>Nginx Proxy Manager is not deployed on this host. Deploy it first.</p>
-      </>
-    )
-  }
   return (
     <>
       {status.isError && <ReadFailure error={status.error} />}
-      <ExposeLoader container={container} showFailure={!status.isError} onDone={onDone} />
+      {status.data.deployed ? (
+        <ExposeLoader container={container} showFailure={!status.isError} onDone={onDone} />
+      ) : (
+        <p>Nginx Proxy Manager is not deployed on this host. Deploy it first.</p>
+      )}
     </>
   )
 }
