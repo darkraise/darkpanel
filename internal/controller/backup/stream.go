@@ -113,6 +113,10 @@ func (b *Backup) streamServe(deps ext.Deps, rnd io.Reader) http.Handler {
 			writeProblem(w, deps.Log, fmt.Errorf("backup: the temporary copy %s is not a regular file", path))
 			return
 		}
+		if sys, ok := st.Sys().(*syscall.Stat_t); !ok || sys.Nlink != 1 {
+			writeProblem(w, deps.Log, fmt.Errorf("backup: the temporary copy %s has more than one name", path))
+			return
+		}
 		if err := f.Chmod(0o600); err != nil {
 			writeProblem(w, deps.Log, fmt.Errorf("backup: chmod %s: %w", path, err))
 			return

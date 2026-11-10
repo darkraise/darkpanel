@@ -747,3 +747,19 @@ func TestW10OgStartBindsRowsWithTheNormalHost(t *testing.T) {
 		t.Errorf("handler built for %+v, want one listener with the public host panel.example.com", built)
 	}
 }
+
+func TestW11c07StoredBindingIsValidated(t *testing.T) {
+	for _, bad := range []string{"203.0.113.5:0", "[fe80::1%dp-panel]:443"} {
+		f := newRtFixture(t)
+		f.start(t)
+		spec := rtSpec
+		spec.PublicBinding = netip.MustParseAddrPort("203.0.113.5:443")
+		id, _ := f.open(t, spec)
+		if _, err := f.db.Writer().ExecContext(context.Background(), `UPDATE core_listeners SET public_binding = ? WHERE id = ?`, bad, id); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := getListener(context.Background(), f.db, id); err == nil || !strings.Contains(err.Error(), "bad public binding") {
+			t.Errorf("stored binding %s: getListener = %v, want a bad public binding error", bad, err)
+		}
+	}
+}

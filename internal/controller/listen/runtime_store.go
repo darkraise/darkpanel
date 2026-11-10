@@ -125,7 +125,8 @@ func scanListener(row listenerScanner) (core.ListenerInfo, error) {
 		return core.ListenerInfo{}, fmt.Errorf("listen: runtime listener %s has a bad allowed peer %q", info.ID, peer)
 	}
 	if binding != "" {
-		if info.Spec.PublicBinding, err = netip.ParseAddrPort(binding); err != nil {
+		info.Spec.PublicBinding, err = netip.ParseAddrPort(binding)
+		if err != nil || info.Spec.PublicBinding.Port() == 0 || info.Spec.PublicBinding.Addr().Zone() != "" {
 			return core.ListenerInfo{}, fmt.Errorf("listen: runtime listener %s has a bad public binding %q", info.ID, binding)
 		}
 	}

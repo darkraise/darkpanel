@@ -56,6 +56,13 @@ func TestV1r22BackupRefusesACopySwappedForAFileThatIsNotRegular(t *testing.T) {
 	}{
 		{"a FIFO", func(path string) error { return syscall.Mkfifo(path, 0o600) }},
 		{"a directory", func(path string) error { return os.Mkdir(path, 0o700) }},
+		{"a hard link", func(path string) error {
+			other := path + ".held"
+			if err := os.WriteFile(other, []byte("held"), 0o600); err != nil {
+				return err
+			}
+			return os.Link(other, path)
+		}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			e := bsNewEnv(t)
@@ -93,8 +100,12 @@ func TestV1r22BackupCopyIsPrivateWhenTheStreamStarts(t *testing.T) {
 	)
 	spy := &w10bcSpy{look: func() {
 		names, err := filepath.Glob(filepath.Join(e.dir, "backup-*", "backup.db"))
-		if err != nil || len(names) != 1 {
-			lookErr = fmt.Errorf("found %v, error %v", names, err) //nolint:errorlint // err is usually nil here, which %w would print as %!w(<nil>)
+		if err != nil {
+			lookErr = fmt.Errorf("look for the copy: %w", err)
+			return
+		}
+		if len(names) != 1 {
+			lookErr = fmt.Errorf("found %v", names)
 			return
 		}
 		st, err := os.Lstat(names[0])
