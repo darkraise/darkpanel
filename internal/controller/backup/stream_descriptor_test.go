@@ -46,10 +46,11 @@ func TestV1r22BackupRefusesACopySwappedForALink(t *testing.T) {
 	}
 }
 
-// TestV1r22BackupRefusesACopySwappedForAFileThatIsNotRegular replaces the
-// temporary copy with a FIFO or a directory, which the open does not refuse.
-// The backup must refuse to stream it and remove it.
-func TestV1r22BackupRefusesACopySwappedForAFileThatIsNotRegular(t *testing.T) {
+// TestV1r22BackupRefusesACopySwappedForAnUnsafeFile replaces the
+// temporary copy with a FIFO, a directory or a hard link to another file,
+// none of which the open refuses. The backup must refuse to stream it and
+// remove it.
+func TestV1r22BackupRefusesACopySwappedForAnUnsafeFile(t *testing.T) {
 	for _, tt := range []struct {
 		name string
 		make func(path string) error

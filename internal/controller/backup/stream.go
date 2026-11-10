@@ -114,7 +114,7 @@ func (b *Backup) streamServe(deps ext.Deps, rnd io.Reader) http.Handler {
 			return
 		}
 		if sys, ok := st.Sys().(*syscall.Stat_t); !ok || sys.Nlink != 1 {
-			writeProblem(w, deps.Log, fmt.Errorf("backup: the temporary copy %s has more than one name", path))
+			writeProblem(w, deps.Log, fmt.Errorf("backup: the temporary copy %s does not have exactly one name", path))
 			return
 		}
 		if err := f.Chmod(0o600); err != nil {
