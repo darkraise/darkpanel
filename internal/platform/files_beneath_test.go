@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -36,8 +37,14 @@ func TestW11c05ReadRegularFileBeneath(t *testing.T) {
 	if _, err := ReadRegularFileBeneath(through, "missing", 64); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("a missing file = %v, want fs.ErrNotExist", err)
 	}
-	if _, err := ReadRegularFileBeneath(through, "../certs/a.crt", 64); err == nil {
-		t.Error("a name climbing out of the directory was read")
+	if _, err := ReadRegularFileBeneath(through, "../certs/a.crt", 64); err == nil || !strings.Contains(err.Error(), "is outside its directory") {
+		t.Errorf("a name climbing out of the directory = %v, want a refusal naming it as outside", err)
+	}
+	if err := syscall.Mkfifo(filepath.Join(certs, "fifo"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadRegularFileBeneath(through, "fifo", 64); err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Errorf("a planted FIFO = %v, want a refusal without blocking", err)
 	}
 	if _, err := ReadRegularFileBeneath(through, "a.crt", 2); err == nil || !strings.Contains(err.Error(), "larger than") {
 		t.Errorf("a file over the limit = %v, want a size refusal", err)
