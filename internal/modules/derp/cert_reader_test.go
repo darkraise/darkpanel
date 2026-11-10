@@ -40,3 +40,21 @@ func TestW11c05CertFileReaderWiring(t *testing.T) {
 		t.Error("a path outside the directory was read")
 	}
 }
+
+func TestW11c05CertFileReaderRefusesALinkAtTheDirectory(t *testing.T) {
+	root := t.TempDir()
+	elsewhere := filepath.Join(root, "elsewhere")
+	if err := os.Mkdir(elsewhere, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(elsewhere, "a.crt"), []byte("cert"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "certs")
+	if err := os.Symlink(elsewhere, dir); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := certFileReader(dir)(dir + "/a.crt"); err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		t.Errorf("a link at the directory = %q, %v, want a refusal naming the link", got, err)
+	}
+}

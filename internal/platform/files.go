@@ -222,10 +222,10 @@ func ReadRegularFile(path string, limit int64) ([]byte, error) {
 }
 
 // ReadRegularFileBeneath returns the content of the regular file name below
-// dir, of at most limit bytes. A symbolic link above dir is the host owner's
-// and only dir is writable by the service, so dir is opened following links,
-// while a link in any component of name, a name that leaves dir, and anything
-// but a regular file are refused. No error carries file content.
+// dir, of at most limit bytes. dir is opened following symbolic links, so the
+// caller must pass a directory whose path the service account cannot alter; a
+// link in any component of name, a name that leaves dir, and anything but a
+// regular file are refused. No error carries file content.
 func ReadRegularFileBeneath(dir, name string, limit int64) ([]byte, error) {
 	dirfd, err := unix.Open(dir, unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if err != nil {

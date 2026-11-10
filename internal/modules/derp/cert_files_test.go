@@ -34,7 +34,7 @@ func v1r15Split(t *testing.T, h *dpHost) dp {
 }
 
 // TestV1r15ProductionCertReadRefusesPlantedFiles: the production read is certFileReader over CertDir with a 1 MiB
-// limit: it follows no link beneath CertDir, refuses a file over 1 MiB and reads one of exactly 1 MiB. The other
+// limit: it follows no link at or beneath CertDir, refuses a file over 1 MiB and reads one of exactly 1 MiB. The other
 // planted files are TestV1r15ReadRegularFile's.
 func TestV1r15ProductionCertReadRefusesPlantedFiles(t *testing.T) {
 	const secret = "placeholder-secret-content"

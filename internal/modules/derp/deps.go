@@ -12,6 +12,7 @@ import (
 	"net/netip"
 	"os"
 	"os/user"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -287,14 +288,15 @@ func ownedPaths() []core.OwnedPath {
 	}
 }
 
-// certFileReader reads a certificate or key file named by its full path under dir. Only links beneath dir are refused:
-// the service account can write dir, and a link above it is the host owner's.
+// certFileReader reads a certificate or key file named by its full path under dir. The service account owns the parent
+// of dir and can replace dir with a link, so the read starts at that parent: a link at dir or beneath it is refused, and
+// a link at or above the parent is the host owner's.
 func certFileReader(dir string) func(name string) ([]byte, error) {
 	return func(name string) ([]byte, error) {
 		rel, ok := strings.CutPrefix(name, dir+"/")
 		if !ok {
 			return nil, fmt.Errorf("derp: %s is not under %s", name, dir)
 		}
-		return platform.ReadRegularFileBeneath(dir, rel, certFileLimit)
+		return platform.ReadRegularFileBeneath(filepath.Dir(dir), filepath.Base(dir)+"/"+rel, certFileLimit)
 	}
 }
