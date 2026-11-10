@@ -81,7 +81,8 @@ func (e unmarkedError) Error() string { return e.text }
 func (e unmarkedError) Unwrap() error { return e.err }
 
 // withoutDefiniteMark returns err without the definite mark and with everything beneath it, so errors.As still finds
-// the errcode code and errors.Is the cause. An error with no mark is returned as it is.
+// the errcode code and errors.Is the cause. A join that holds the mark cannot be unwrapped to one error and keeps only
+// its text. An error with no mark is returned as it is.
 func withoutDefiniteMark(err error) error {
 	text := err.Error()
 	for core.IsDefinite(err) {
