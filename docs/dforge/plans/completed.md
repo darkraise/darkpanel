@@ -36,3 +36,4 @@
 - 2026-11-08 `docs/dforge/plans/2026-11-06-v1-w10b-security-fixes-rc.md` — merged into `main` at 2363d92
 - 2026-11-09 `docs/dforge/plans/2026-11-08-v1-w11a-live-apply.md` — merged into `main` at 9d5f3ef
 - 2026-11-10 `docs/dforge/plans/2026-11-09-v1-w11b-lockout-guard.md` — merged into `main` at 7838ba4
+- 2026-11-10 `docs/dforge/plans/2026-11-10-v1-w11c-module-fixes.md` — merged into `main` at 1f72920
