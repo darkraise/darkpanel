@@ -182,7 +182,7 @@ func (f fw) selfTransition(tg *target, cur fwstate.Loaded, tr fwstate.Transition
 	}
 	pred, err := f.d.predict(tg.cfgN, cur, tr)
 	if err != nil {
-		return fmt.Errorf("firewall: predict ufw %s: %w", tr, err)
+		return fmt.Errorf("firewall: predict UFW's own %s transition: %w", tr, err)
 	}
 	tg.pred, tg.final = pred, tg.cfgN
 	return nil

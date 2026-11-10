@@ -71,7 +71,7 @@ func eeUserChain(h *e2eHost) []string {
 }
 
 // TestE2EApplyVerifyRevert: through the engine, a rule is added as
-// journaled effects with UFW reloaded, verify finds the kernel as the
+// journaled effects with the live apply, verify finds the kernel as the
 // prediction said, and the revert restores the snapshot whole: UFW's files
 // and the kernel's tables are as before.
 func TestE2EApplyVerifyRevert(t *testing.T) {
@@ -183,7 +183,7 @@ func TestE2ETimerReverts(t *testing.T) {
 }
 
 // eeSkewed is a host whose kernel does not apply UFW's sysctl file when
-// ufw reloads: the key keeps value.
+// defaults.set restarts UFW: the key keeps value.
 type eeSkewed struct {
 	*e2eHost
 	key, value string
@@ -206,9 +206,9 @@ func (s eeSkewed) Run(ctx context.Context, cmd core.Cmd) (core.CmdResult, error)
 
 // TestE2EVerifySysctl: UFW's sysctl file of the golden "sysctl" scenario
 // sets ip_forward and IPv6's default forwarding to 1 while the kernel holds
-// 0. A UFW restart that applies the file passes verify; one the kernel does not
-// apply fails it with the key, the predicted and the live value, and the
-// engine reverts the change.
+// 0. A defaults.set restart that applies the file passes verify; one the
+// kernel does not apply fails it with the key, the predicted and the live
+// value, and the engine reverts the change.
 func TestE2EVerifySysctl(t *testing.T) {
 	const key = "net/ipv4/ip_forward"
 	for _, applied := range []bool{true, false} {
@@ -251,9 +251,10 @@ func (s ayNoNat) Run(ctx context.Context, cmd core.Cmd) (core.CmdResult, error) 
 }
 
 // TestE2EVerifyNatRule: UFW's before.rules appends a nat rule to
-// POSTROUTING on every start. A reload that applies it passes verify, also
-// when an earlier reload appended it already; one the kernel does not apply
-// fails it with the chain named, and the engine reverts the change.
+// POSTROUTING on every start. A defaults.set restart that applies it passes
+// verify, also when an earlier defaults.set appended it already; one the
+// kernel does not apply fails it with the chain named, and the engine
+// reverts the change.
 func TestE2EVerifyNatRule(t *testing.T) {
 	const masq = "-A POSTROUTING -s 10.8.0.0/24 -o eth0 -j MASQUERADE"
 	natRules := func(h *e2eHost) int {

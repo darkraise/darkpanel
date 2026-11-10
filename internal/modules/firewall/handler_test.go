@@ -85,8 +85,8 @@ func (m fwTestModule) Manifest() core.Manifest {
 }
 
 // TestMutationLifecycle: snapshot, apply as journaled effects with the
-// reload of an active UFW, post-apply hashes, the action's output, verify,
-// and a revert that restores the snapshot whole.
+// live apply, post-apply hashes, the action's output, verify, and a revert
+// that restores the snapshot whole.
 func TestMutationLifecycle(t *testing.T) {
 	ctx := context.Background()
 	h, f, _ := pnHost(t)

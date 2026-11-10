@@ -35,14 +35,17 @@ var routeTypes = []string{
 // RouteQuery is one route lookup, as `ip route get` makes it: the kernel
 // applies its policy rules and answers the route a packet would take.
 type RouteQuery struct {
-	Dst     netip.Addr // required
-	Src     netip.Addr // optional: the packet's source address
-	IIF     string     // optional: look up as for a packet received on this interface
-	OIF     string     // optional: only routes through this interface
-	Mark    uint32     // optional: the packet's firewall mark
-	Proto   uint8      // optional: the packet's IP protocol
-	SrcPort uint16     // optional: the packet's source port
-	DstPort uint16     // optional: the packet's destination port
+	Dst  netip.Addr // required
+	Src  netip.Addr // optional: the packet's source address
+	IIF  string     // optional: look up as for a packet received on this interface
+	OIF  string     // optional: only routes through this interface
+	Mark uint32     // optional: the packet's firewall mark
+	// Proto is the packet's IP protocol (optional). The kernel answers a
+	// lookup only for TCP, UDP and, per family, ICMP or ICMPv6, and refuses
+	// any other with EINVAL.
+	Proto   uint8
+	SrcPort uint16 // optional: the packet's source port
+	DstPort uint16 // optional: the packet's destination port
 }
 
 // Route is a route entry, or the answer to a lookup (whose Dst is the

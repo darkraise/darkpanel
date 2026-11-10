@@ -319,16 +319,12 @@ func (f fw) loadChains(ctx context.Context, env core.Env, cfg fwstate.Config) er
 	if len(inputs) == 0 {
 		return nil
 	}
-	return loadBlockChains(ctx, env, f.d, st.Variant, inputs)
+	return loadBlockChains(ctx, env, f.d, st, inputs)
 }
 
 // loadBlockChains runs each family's input through iptables-restore -n,
 // IPv4 first, as one journaled effect on blockChainsResource.
-func loadBlockChains(ctx context.Context, env core.Env, d deps, variant string, inputs map[fwstate.Family][]byte) error {
-	st, err := d.readLoaded(ctx, env)
-	if err != nil {
-		return fmt.Errorf("firewall: %s: %w", blockChainsResource, err)
-	}
+func loadBlockChains(ctx context.Context, env core.Env, d deps, st fwstate.Loaded, inputs map[fwstate.Family][]byte) error {
 	after := st
 	if err := applyBlockInputs(&after, inputs); err != nil {
 		return err
@@ -343,7 +339,7 @@ func loadBlockChains(ctx context.Context, env core.Env, d deps, variant string, 
 				if !ok {
 					continue
 				}
-				cmd := core.Cmd{Path: restoreProgram(fam, variant), Args: []string{"-n"}, Stdin: input}
+				cmd := core.Cmd{Path: restoreProgram(fam, st.Variant), Args: []string{"-n"}, Stdin: input}
 				res, err := env.Exec.Run(ctx, cmd)
 				if err != nil || res.ExitCode != 0 {
 					return fmt.Errorf("firewall: load the %s Docker chains: %w", fam, runFailure(cmd, res, err))

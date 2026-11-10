@@ -373,9 +373,9 @@ func v1r21Bindings(allowed ...string) string {
 	return s + "-A darkpanel-docker-bindings -j DROP\nCOMMIT\n"
 }
 
-// v1r21TwoAddrs is a host whose eth0 holds 10.0.0.10/24 and 10.0.0.11/24.
-// It routes 172.30.0.0/16 out of dp-panel and every other address out of
-// eth0 with the preferred source 10.0.0.10.
+// v1r21TwoAddrs is the host shared by the wildcard-bind tests: it routes
+// 172.30.0.0/16 out of dp-panel and every other address out of eth0 with
+// the preferred source 10.0.0.10.
 type v1r21TwoAddrs struct{ *gHost }
 
 func (h v1r21TwoAddrs) RouteGet(q netstat.RouteQuery) (netstat.Route, error) {

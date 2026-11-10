@@ -49,16 +49,19 @@ func (r *router) cellFlows(fl flow, before *fwstate.Loaded) []flow {
 	if v6 {
 		rs = r.st.V6
 	}
-	cut := cutters(rs, v6, fl.pkt.Proto, fl.pkt.DstPort)
-	if fl.wild == wildSrc && before != nil {
-		brs := before.V4
+	var brs *netfilter.Ruleset
+	if before != nil {
+		brs = before.V4
 		if v6 {
 			brs = before.V6
 		}
+	}
+	cut := cutters(rs, v6, fl.pkt.Proto, fl.pkt.DstPort)
+	if fl.wild == wildSrc && brs != nil {
 		cut = joinTables(cut, cutters(brs, v6, fl.pkt.Proto, fl.pkt.DstPort))
 	}
 	cells := eval.InternetCells(joinTables(cut, routes.rs), v6)
-	rules := ruleCount(rs)
+	rules := flowRules(fl, rs, brs)
 	if limit, over := overCellLimit(len(cells), rules); over {
 		fl.unknown = fmt.Sprintf("the rules and routes split the internet into %d ranges for this flow; checking them against %d rules is more than the guard evaluates (limit %d)", len(cells), rules, limit)
 		return []flow{fl}
@@ -113,6 +116,15 @@ func overCellLimit(cells, rules int) (limit int, over bool) {
 		return maxCellEvaluations, true
 	}
 	return 0, false
+}
+
+// flowRules is the number of rules a cell of fl is evaluated against.
+func flowRules(fl flow, rs, before *netfilter.Ruleset) int {
+	n := ruleCount(rs)
+	if fl.wild == wildSrc {
+		n += ruleCount(before)
+	}
+	return n
 }
 
 // ruleCount is the number of rules in every chain of every table of rs.
