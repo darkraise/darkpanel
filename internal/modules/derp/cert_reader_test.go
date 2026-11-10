@@ -39,6 +39,12 @@ func TestW11c05CertFileReaderWiring(t *testing.T) {
 	if _, err := read(filepath.Join(root, "disk", "certs", "a.crt")); err == nil {
 		t.Error("a path outside the directory was read")
 	}
+	if err := os.WriteFile(filepath.Join(root, "disk", "derper.key"), []byte("key"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := read(dir + "/../derper.key"); err == nil || !strings.Contains(err.Error(), "is not under") {
+		t.Errorf("a name climbing to the parent = %q, %v, want it refused as not under the directory", got, err)
+	}
 }
 
 func TestW11c05CertFileReaderRefusesALinkAtTheDirectory(t *testing.T) {

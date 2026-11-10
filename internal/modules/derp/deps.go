@@ -14,6 +14,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -294,7 +295,7 @@ func ownedPaths() []core.OwnedPath {
 func certFileReader(dir string) func(name string) ([]byte, error) {
 	return func(name string) ([]byte, error) {
 		rel, ok := strings.CutPrefix(name, dir+"/")
-		if !ok {
+		if !ok || slices.Contains(strings.Split(rel, "/"), "..") {
 			return nil, fmt.Errorf("derp: %s is not under %s", name, dir)
 		}
 		return platform.ReadRegularFileBeneath(filepath.Dir(dir), filepath.Base(dir)+"/"+rel, certFileLimit)
