@@ -42,7 +42,7 @@ type RouteQuery struct {
 	Mark uint32     // optional: the packet's firewall mark
 	// Proto is the packet's IP protocol (optional). The kernel answers a
 	// lookup only for TCP, UDP and, per family, ICMP or ICMPv6, and refuses
-	// any other with EINVAL.
+	// any other with EOPNOTSUPP.
 	Proto   uint8
 	SrcPort uint16 // optional: the packet's source port
 	DstPort uint16 // optional: the packet's destination port
