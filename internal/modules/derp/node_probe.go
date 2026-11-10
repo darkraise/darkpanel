@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -30,8 +31,21 @@ const (
 	nodeProbeMaxRegion    = 999
 )
 
-// nodeProbeShared is the shared address space of CGNAT (RFC 6598), which netip.Addr.IsPrivate does not cover.
-var nodeProbeShared = netip.MustParsePrefix("100.64.0.0/10")
+// nodeProbeRefused holds the ranges that reach internal networks and that netip.Addr's own predicates do not cover:
+// shared CGNAT space (RFC 6598), the IPv4 special-purpose forms, and the IPv6 forms that carry an IPv4 address or
+// tunnel to one.
+var nodeProbeRefused = []netip.Prefix{
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("::/96"),
+	netip.MustParsePrefix("64:ff9b::/96"),
+	netip.MustParsePrefix("64:ff9b:1::/48"),
+	netip.MustParsePrefix("2001::/32"),
+	netip.MustParsePrefix("2002::/16"),
+}
 
 // The TLS probe marks these failures so that nodeProbeFailure can name them.
 var (
@@ -124,15 +138,16 @@ func nodeProbeRefuse(path, message string) error {
 }
 
 // nodeProbeAllowedAddr reports whether a is an IP literal without a zone outside the refused classes: loopback,
-// unspecified, multicast, link-local, private (RFC 1918 or ULA fc00::/7) and shared (CGNAT 100.64.0.0/10), in their
-// IPv4-mapped forms too.
+// unspecified, multicast, link-local, private (RFC 1918 or ULA fc00::/7), shared (CGNAT 100.64.0.0/10), this-network
+// 0.0.0.0/8, IETF protocol assignments 192.0.0.0/24, benchmarking 198.18.0.0/15, reserved 240.0.0.0/4, IPv4-compatible
+// ::/96, NAT64 64:ff9b::/96 and 64:ff9b:1::/48, Teredo 2001::/32 and 6to4 2002::/16, in their IPv4-mapped forms too.
 func nodeProbeAllowedAddr(a netip.Addr) bool {
 	if a.Zone() != "" {
 		return false
 	}
 	a = a.Unmap()
 	return !a.IsLoopback() && !a.IsUnspecified() && !a.IsMulticast() && !a.IsLinkLocalUnicast() && !a.IsPrivate() &&
-		!nodeProbeShared.Contains(a)
+		!slices.ContainsFunc(nodeProbeRefused, func(p netip.Prefix) bool { return p.Contains(a) })
 }
 
 // nodeProbeDNSName reports whether s is a lower-case DNS name of at most 253 bytes with at least two labels.
@@ -279,15 +294,15 @@ func (d dp) target(ctx context.Context, s ServerStatus) (probeTarget, netip.Addr
 }
 
 // probeOnce takes one TLS and then one STUN measurement of a server, and logs nothing.
-func (d dp) probeOnce(ctx context.Context, t probeTarget, stunAddr netip.AddrPort) (tls, stun ProbeResult) {
+func (d dp) probeOnce(ctx context.Context, t probeTarget, stunAddr netip.AddrPort) (tlsResult, stunResult ProbeResult) {
 	return d.probeOnceLogged(ctx, nil, t, stunAddr)
 }
 
 // probeOnceLogged is probeOnce that logs the raw error of each failed measurement to log at debug level.
-func (d dp) probeOnceLogged(ctx context.Context, log *slog.Logger, t probeTarget, stunAddr netip.AddrPort) (tls, stun ProbeResult) {
-	tls = d.nodeProbeTLS(ctx, log, t)
-	stun = d.nodeProbeSTUN(ctx, log, stunAddr)
-	return tls, stun
+func (d dp) probeOnceLogged(ctx context.Context, log *slog.Logger, t probeTarget, stunAddr netip.AddrPort) (tlsResult, stunResult ProbeResult) {
+	tlsResult = d.nodeProbeTLS(ctx, log, t)
+	stunResult = d.nodeProbeSTUN(ctx, log, stunAddr)
+	return tlsResult, stunResult
 }
 
 // nodeProbeTLS is one TLS probe of t as a result.

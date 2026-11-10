@@ -12,6 +12,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 	"log/slog"
 	"math/big"
 	"net"
@@ -259,7 +261,9 @@ func TestV1r16RealTLSFailuresUseTheVocabulary(t *testing.T) {
 		return got
 	}
 	tlsServer := func(status int) (hostPort, pin string) {
-		srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(status) }))
+		srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(status) }))
+		srv.Config.ErrorLog = log.New(io.Discard, "", 0)
+		srv.StartTLS()
 		t.Cleanup(srv.Close)
 		return strings.TrimPrefix(srv.URL, "https://"), server.Pin(srv.Certificate().Raw)
 	}
