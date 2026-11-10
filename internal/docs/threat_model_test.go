@@ -338,7 +338,12 @@ func TestW11c13ThreatModelRecordsTheRulings(t *testing.T) {
 	if strings.Contains(text, "no symlink anywhere on the path") {
 		t.Error("the threat model still says no symlink anywhere on the path")
 	}
-	if strings.Contains(text, "are not refused. Only a caller") {
-		t.Error("the threat model still says the special-purpose forms are not refused")
+	d := w10tmParse(text)
+	const refusal = "The probe refuses the special-purpose forms"
+	if !strings.Contains(strings.Join(d.parts["DERP host/Mitigations"], "\n"), refusal) {
+		t.Errorf("the DERP mitigations do not say %q", refusal)
+	}
+	if strings.Contains(strings.Join(d.parts["DERP host/Residual risk"], "\n"), refusal) {
+		t.Errorf("the DERP residual risk still states the mitigation %q", refusal)
 	}
 }

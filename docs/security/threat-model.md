@@ -308,12 +308,13 @@ This page is the written threat model of Darkpanel. It states what the product p
 - The agent reads DERP certificate and key files through the platform's descriptor-based reads: no symlink beneath the service directory, a regular file only, and at most 1 MiB, so a compromised `darkpanel-derp` account cannot redirect a root read or block the agent with a FIFO or a huge file (`internal/platform`, `internal/modules/derp`).
 - Certificate reads refuse symbolic links only beneath the service directory that holds the certificates, so a link the host owner placed at or above that directory keeps working for reads (`internal/modules/derp/deps.go`). Installing the DERP server and renewing its certificate still refuse such a link, because they open the parent of the service directory with no symbolic link allowed at any level: a host with `/var/lib` linked to another disk can read its certificates but cannot install or renew them (`internal/platform/files.go`, `internal/platform/files_servicedir.go`).
 - `derp.node.probe` needs the `operate` scope. The probe uses a throwaway node key (`internal/platform/tslocal/derp.go`). It accepts only an IP literal or a lower-case DNS name of at least two labels made of letters, digits and hyphens, and refuses loopback, unspecified, multicast, link-local, RFC 1918, CGNAT (`100.64.0.0/10`) and ULA (`fc00::/7`) addresses, as literals and among the addresses a name resolves to, after it unmaps IPv4-mapped IPv6 addresses. A failed probe reports one value of a fixed set (`timeout`, `connection_refused`, `unreachable`, `tls_handshake_failed`, `certificate_not_trusted`, `pin_mismatch`, `bad_answer`, `no_stun_answer`, `failed`), and the raw error appears only in the agent's debug log (`internal/modules/derp/node_probe.go`).
+- The probe refuses the special-purpose forms that reach internal networks, among them `64:ff9b::/96`, `0.0.0.0/8`, `240.0.0.0/4` and `198.18.0.0/15` (`internal/modules/derp/node_probe.go`).
 
 #### Residual risk
 
 - Holding `tailscaled` at derper's version delays its security updates on that host.
 - A failed probe reports only a fixed error value, so finding the cause of a failure needs the agent's debug log.
-- The probe refuses the special-purpose forms that reach internal networks, among them `64:ff9b::/96`, `0.0.0.0/8`, `240.0.0.0/4` and `198.18.0.0/15` (`internal/modules/derp/node_probe.go`). Documentation ranges stay allowed and there is no allowlist. Only a caller with the `operate` scope can choose the target.
+- Documentation ranges stay allowed as probe targets and there is no allowlist. Only a caller with the `operate` scope can choose the target.
 - Derper itself answers unauthenticated STUN and HTTPS probes from the internet.
 
 ## Known residual risks
