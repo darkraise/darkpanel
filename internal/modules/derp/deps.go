@@ -14,6 +14,7 @@ import (
 	"os/user"
 	"runtime"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -66,7 +67,7 @@ type deps struct {
 	version        string                                                                          // production: buildinfo.Version
 	arch           string                                                                          // production: runtime.GOARCH
 	readFile       func(name string) ([]byte, error)                                               // production: os.ReadFile (the binary, the unit link and existence checks)
-	readCertFile   func(name string) ([]byte, error)                                               // production: platform.ReadRegularFile with certFileLimit (certificate and key files under CertDir)
+	readCertFile   func(name string) ([]byte, error)                                               // production: certFileReader over CertDir (certificate and key files)
 	lookupUser     func(name string) (uid, gid int, ok bool, err error)                            // production: os/user.Lookup; an unknown user is ok false, nil error
 	sockets        func() ([]netstat.Socket, error)                                                // production: netstat.Sockets
 	linkViaTailnet func() (bool, error)                                                            // production: the saved controller address is an IP literal inside a Tailscale range; not enrolled: false
@@ -122,7 +123,7 @@ func productionDP() dp {
 		version:        buildinfo.Version,
 		arch:           runtime.GOARCH,
 		readFile:       os.ReadFile,
-		readCertFile:   func(name string) ([]byte, error) { return platform.ReadRegularFile(name, certFileLimit) },
+		readCertFile:   certFileReader(server.CertDir),
 		lookupUser:     lookupSystemUser,
 		sockets:        netstat.Sockets,
 		linkViaTailnet: func() (bool, error) { return linkViaTailnetIn(paths.Production().AgentTLSDir) },
@@ -283,5 +284,17 @@ func ownedPaths() []core.OwnedPath {
 		{Path: server.BinaryPrevPath, Kind: core.OwnedFile},
 		{Path: server.UnitPath, Kind: core.OwnedUnit},
 		{Path: server.StateDir, Kind: core.OwnedServiceDir, User: server.ServiceUser, Subdirs: []string{server.CertSubdir}},
+	}
+}
+
+// certFileReader reads a certificate or key file named by its full path under dir. Only links beneath dir are refused:
+// the service account can write dir, and a link above it is the host owner's.
+func certFileReader(dir string) func(name string) ([]byte, error) {
+	return func(name string) ([]byte, error) {
+		rel, ok := strings.CutPrefix(name, dir+"/")
+		if !ok {
+			return nil, fmt.Errorf("derp: %s is not under %s", name, dir)
+		}
+		return platform.ReadRegularFileBeneath(dir, rel, certFileLimit)
 	}
 }

@@ -218,6 +218,37 @@ func ReadRegularFile(path string, limit int64) ([]byte, error) {
 	case err != nil:
 		return nil, fmt.Errorf("platform: open %s: %w", path, err)
 	}
+	return readOpenRegular(fd, path, limit)
+}
+
+// ReadRegularFileBeneath returns the content of the regular file name below
+// dir, of at most limit bytes. A symbolic link above dir is the host owner's
+// and only dir is writable by the service, so dir is opened following links,
+// while a link in any component of name, a name that leaves dir, and anything
+// but a regular file are refused. No error carries file content.
+func ReadRegularFileBeneath(dir, name string, limit int64) ([]byte, error) {
+	dirfd, err := unix.Open(dir, unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, fmt.Errorf("platform: open %s: %w", dir, err)
+	}
+	defer func() { _ = unix.Close(dirfd) }()
+	path := dir + "/" + name
+	// O_NONBLOCK keeps a FIFO planted at name from blocking the open.
+	fd, err := openBeneath(dirfd, name, unix.O_RDONLY|unix.O_NONBLOCK, 0)
+	switch {
+	case errors.Is(err, unix.ELOOP):
+		return nil, fmt.Errorf("platform: %s has a symbolic link in its path: %w", path, err)
+	case errors.Is(err, unix.EXDEV):
+		return nil, fmt.Errorf("platform: %s is outside its directory: %w", path, err)
+	case err != nil:
+		return nil, fmt.Errorf("platform: open %s: %w", path, err)
+	}
+	return readOpenRegular(fd, path, limit)
+}
+
+// readOpenRegular reads the open descriptor fd, named path in errors, and closes
+// it. Anything but a regular file of at most limit bytes is refused.
+func readOpenRegular(fd int, path string, limit int64) ([]byte, error) {
 	file := os.NewFile(uintptr(fd), path)
 	defer func() { _ = file.Close() }()
 	var st unix.Stat_t

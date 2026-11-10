@@ -33,9 +33,9 @@ func v1r15Split(t *testing.T, h *dpHost) dp {
 	return d
 }
 
-// TestV1r15ProductionCertReadRefusesPlantedFiles: the production read is platform.ReadRegularFile with a 1 MiB
-// limit: it follows no link, refuses a file over 1 MiB and reads one of exactly 1 MiB. The other planted files are
-// TestV1r15ReadRegularFile's.
+// TestV1r15ProductionCertReadRefusesPlantedFiles: the production read is certFileReader over CertDir with a 1 MiB
+// limit: it follows no link beneath CertDir, refuses a file over 1 MiB and reads one of exactly 1 MiB. The other
+// planted files are TestV1r15ReadRegularFile's.
 func TestV1r15ProductionCertReadRefusesPlantedFiles(t *testing.T) {
 	const secret = "placeholder-secret-content"
 	dir, err := filepath.EvalSymlinks(t.TempDir())
@@ -59,10 +59,10 @@ func TestV1r15ProductionCertReadRefusesPlantedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	read := productionDP().d.readCertFile
-	if read == nil {
-		t.Fatal("productionDP leaves deps.readCertFile unset")
+	if _, err := productionDP().d.readCertFile("/nonexistent/a.crt"); err == nil || !strings.Contains(err.Error(), server.CertDir) {
+		t.Fatalf("the production read of a path outside CertDir = %v, want a refusal naming %s", err, server.CertDir)
 	}
+	read := certFileReader(dir)
 	for _, tc := range []struct {
 		name    string
 		path    string
