@@ -153,7 +153,7 @@ function ExposeForm({ container, endpoints, networks, ports, onDone }: ExposeFor
   )
 }
 
-function ExposeLoader({ container, onDone }: { container: ContainerRef; onDone: () => void }) {
+function ExposeLoader({ container, showFailure, onDone }: { container: ContainerRef; showFailure: boolean; onDone: () => void }) {
   const { hostId, containerId } = container
   const detail = useQuery({
     queryKey: ["resource", hostId, "docker.container", containerId],
@@ -169,7 +169,7 @@ function ExposeLoader({ container, onDone }: { container: ContainerRef; onDone: 
   }
   return (
     <>
-      {(detail.isError || networks.isError) && <ReadFailure error={detail.error ?? networks.error} />}
+      {showFailure && (detail.isError || networks.isError) && <ReadFailure error={detail.error ?? networks.error} />}
       <ExposeForm
         container={container}
         endpoints={detail.data.networks.map((e) => e.network)}
@@ -189,11 +189,18 @@ export function ExposeAction({ container, onDone }: { container: ContainerRef; o
     if (status.isPending) return <Spinner aria-label="Loading Nginx Proxy Manager" />
     return <ReadFailure error={status.error} />
   }
-  if (!status.data.deployed) return <p>Nginx Proxy Manager is not deployed on this host. Deploy it first.</p>
+  if (!status.data.deployed) {
+    return (
+      <>
+        {status.isError && <ReadFailure error={status.error} />}
+        <p>Nginx Proxy Manager is not deployed on this host. Deploy it first.</p>
+      </>
+    )
+  }
   return (
     <>
       {status.isError && <ReadFailure error={status.error} />}
-      <ExposeLoader container={container} onDone={onDone} />
+      <ExposeLoader container={container} showFailure={!status.isError} onDone={onDone} />
     </>
   )
 }

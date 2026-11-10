@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react"
+import { act, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { expect, test, vi } from "vitest"
 import { axe } from "vitest-axe"
@@ -269,4 +269,42 @@ test.each([
   await client.invalidateQueries({ queryKey: key })
   await waitFor(() => expect(screen.queryByRole("alert")).toBeNull())
   expect(form.isConnected).toBe(true)
+})
+
+const caDown = (detail: string) => ({ status: 503, body: { type: "about:blank", title: "Unavailable", status: 503, detail } })
+
+// In both tests below, invalidateQueries resolves before TanStack Query's
+// zero-delay timer hands the results to React, so the act waits one timer turn.
+// A findBy or waitFor could pass while only one of two alerts has rendered.
+test("shows one alert when the status and the container both fail to refetch", async () => {
+  let failing = false
+  const { client } = caRender({
+    [CA_STATUS]: () => (failing ? caDown("the NPM module is unavailable") : { body: { output: caStatus() } }),
+    [CA_INSPECT]: () => (failing ? caDown("the Docker daemon is not reachable") : { body: { output: caDetail() } }),
+  })
+  await caForm()
+  failing = true
+  await act(async () => {
+    await client.invalidateQueries()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+  expect(screen.getAllByRole("alert").map((a) => a.textContent)).toEqual(["the NPM module is unavailable"])
+})
+
+test("shows a failed status refetch when the last status said not deployed", async () => {
+  let failing = false
+  const { client } = caRender({
+    [CA_STATUS]: () =>
+      failing
+        ? caDown("the NPM module is unavailable")
+        : { body: { output: caStatus({ deployed: false, containerId: "", running: false, apiReady: false, public: "no", adminEmail: "" }) } },
+  })
+  await screen.findByText("Nginx Proxy Manager is not deployed on this host. Deploy it first.")
+  failing = true
+  await act(async () => {
+    await client.invalidateQueries()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+  expect(screen.getByRole("alert").textContent).toBe("the NPM module is unavailable")
+  expect(screen.getByText("Nginx Proxy Manager is not deployed on this host. Deploy it first.")).toBeTruthy()
 })
