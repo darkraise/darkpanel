@@ -170,13 +170,20 @@ func (h packagePinHandler) Task(ctx context.Context, env core.Env, in PinInput) 
 		return Pinned{}, err
 	}
 	// The pin's Observe and Inverse cover only the package, so the repository files are written as owned
-	// (uninstall removes them) but not journaled.
+	// (uninstall removes them) but not journaled; they are removed when this step fails and stay owned
+	// otherwise.
 	noJournal := env
 	noJournal.Effects = nil
-	if _, err := h.t.ensureRepo(ctx, noJournal); err != nil {
+	if written, err := h.t.ensureRepo(ctx, noJournal); err != nil {
 		rctx, cancel := h.rollbackContext(ctx)
 		defer cancel()
-		if rerr := h.rollback(rctx, env, p); rerr != nil {
+		rerr := h.rollback(rctx, env, p)
+		for _, path := range written {
+			if ferr := noJournal.Files.Remove(rctx, ID, path); ferr != nil {
+				err = errors.Join(err, ferr)
+			}
+		}
+		if rerr != nil {
 			return Pinned{}, errors.Join(err, rerr)
 		}
 		if serr := env.Effects.Skipped(rctx, seq); serr != nil {
