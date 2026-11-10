@@ -306,3 +306,16 @@ func TestCMOutput(t *testing.T) {
 		t.Errorf("output without the uninstall step: %v, want an error naming uninstall", err)
 	}
 }
+
+func TestW11c08OutputRefusesUndecodableEdits(t *testing.T) {
+	h := newDPHost(t)
+	def := h.dp().serverRemove()
+	steps := map[string]json.RawMessage{
+		"uninstall": json.RawMessage(`{"removed":[]}`),
+		"edits":     json.RawMessage(`not json`),
+		"region":    json.RawMessage(`{"etag":"x"}`),
+	}
+	if _, err := def.Handler.Output(context.Background(), h.ctlEnv(""), json.RawMessage(`{"hostId":"h7"}`), steps); err == nil {
+		t.Fatal("Output accepted an edits output it cannot decode")
+	}
+}

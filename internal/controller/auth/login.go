@@ -53,8 +53,8 @@ func errInvalidCredentials() *errcode.Error {
 }
 
 // Login checks username, password and TOTP code and opens a session. Every
-// failure is the same auth.invalid_credentials error. A username or source
-// address locked by the rate limits is auth.rate_limited, with a
+// failure is the same auth.invalid_credentials error. A lock on the pair of
+// username and source, or on the source alone, is auth.rate_limited, with a
 // *RetryAfterError cause, and is not evaluated. Evaluated attempts are
 // audited; a username that fails the pattern is refused before anything
 // else, unaudited.

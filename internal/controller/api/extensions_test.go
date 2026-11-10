@@ -517,7 +517,7 @@ func xrEvents(contentType string, ownEnd bool, began chan<- struct{}, failed cha
 			_, _ = w.Write([]byte("event: end\ndata: {\"reason\":\"done\"}\n\n"))
 		}
 		first := true
-		for {
+		for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); {
 			if _, err := w.Write([]byte("event: data\ndata: {}\n\n")); err != nil {
 				failed <- err
 				return

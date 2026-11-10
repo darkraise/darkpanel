@@ -168,11 +168,11 @@ func TestFullOfLockedKeysFailsClosed(t *testing.T) {
 	clock := coretest.NewFakeClock(t0)
 	l := newLimiter(clock)
 	for range UsernameFailureLimit {
-		l.fail("alice", "10.0.0.1") // u:alice locked until t0+15m
+		l.fail("alice", "10.0.0.1") // u:alice@10.0.0.1 locked until t0+15m
 	}
 	clock.Advance(5 * time.Minute)
 	for range SourceFailureLimit - UsernameFailureLimit {
-		l.fail("bob", "10.0.0.1") // u:bob and s:10.0.0.1 locked until t0+20m
+		l.fail("bob", "10.0.0.1") // u:bob@10.0.0.1 and s:10.0.0.1 locked until t0+20m
 	}
 	l.max = 3
 	if len(l.keys) != 3 {
@@ -198,7 +198,7 @@ func TestOneFailureKeepsItsOwnKeys(t *testing.T) {
 	clock := coretest.NewFakeClock(t0)
 	l := newLimiter(clock)
 	for range SourceFailureLimit {
-		l.fail("bob", "10.0.0.1") // u:bob and s:10.0.0.1 locked until t0+15m
+		l.fail("bob", "10.0.0.1") // u:bob@10.0.0.1 and s:10.0.0.1 locked until t0+15m
 	}
 	l.max = 3
 	for i := range UsernameFailureLimit {

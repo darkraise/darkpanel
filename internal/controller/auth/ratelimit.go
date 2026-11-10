@@ -94,10 +94,10 @@ func pairKey(username, source string) string {
 	return "u:" + username + "@" + strings.TrimPrefix(sourceKey(source), "s:")
 }
 
-// blocked returns how long username or source stays locked, the longer of
-// the two, or 0 when the attempt may be evaluated. When the table is full of
-// locked keys and either key is new, the attempt could not be counted, so it
-// is refused until the first lock ends.
+// blocked returns how long the pair of username and source, or the source
+// alone, stays locked, the longer of the two, or 0 when the attempt may be
+// evaluated. When the table is full of locked keys and either key is new, the
+// attempt could not be counted, so it is refused until the first lock ends.
 func (l *limiter) blocked(username, source string) time.Duration {
 	l.mu.Lock()
 	defer l.mu.Unlock()
