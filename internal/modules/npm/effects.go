@@ -87,7 +87,7 @@ func withoutDefiniteMark(err error) error {
 	for core.IsDefinite(err) {
 		next := errors.Unwrap(err)
 		if next == nil {
-			return notDefinite(err)
+			return errors.New(text)
 		}
 		err = next
 	}

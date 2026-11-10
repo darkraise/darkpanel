@@ -51,14 +51,31 @@ func TestW11c02OnlyAnExistingAdminIsAConflict(t *testing.T) {
 }
 
 func TestW11c02ExistingAdministratorIsStatedOnce(t *testing.T) {
-	h := newTHHost(t)
-	h.npm.SeedAdmin(v1r12Intruder, v1r12IntruderPassword)
-	_, err := dpApply(h, h.nm(), "c1")
-	if errcode.From(err).Code != errcode.NPMSetupFailed {
-		t.Fatalf("error %v, want npm.setup_failed", err)
-	}
-	if n := strings.Count(err.Error(), "already has an administrator"); n != 1 {
-		t.Errorf("the error states its detail %d times, want once: %v", n, err)
+	for _, tc := range []struct {
+		name    string
+		fail    bool
+		outcome string
+	}{
+		{"the removal succeeds", false, "the deploy removed what it created"},
+		{"the removal fails", true, "the deploy could not remove what it created"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newTHHost(t)
+			h.npm.SeedAdmin(v1r12Intruder, v1r12IntruderPassword)
+			if tc.fail {
+				h.docker.Fail("RemoveVolume", thAPIError(409, "volume is in use"))
+			}
+			_, err := dpApply(h, h.nm(), "c1")
+			if errcode.From(err).Code != errcode.NPMSetupFailed {
+				t.Fatalf("error %v, want npm.setup_failed", err)
+			}
+			if n := strings.Count(err.Error(), "already has an administrator"); n != 1 {
+				t.Errorf("the error states its detail %d times, want once: %v", n, err)
+			}
+			if !strings.Contains(err.Error(), tc.outcome) {
+				t.Errorf("error %v, want it to say %q", err, tc.outcome)
+			}
+		})
 	}
 }
 
@@ -71,5 +88,9 @@ func TestW11c02WithoutDefiniteMarkKeepsWrapperText(t *testing.T) {
 	joined := withoutDefiniteMark(errors.Join(core.Definite(cause), errors.New("and more")))
 	if core.IsDefinite(joined) || !strings.Contains(joined.Error(), "and more") {
 		t.Errorf("a joined mark gave %v (definite %v)", joined, core.IsDefinite(joined))
+	}
+	outer := withoutDefiniteMark(fmt.Errorf("outer: %w", errors.Join(core.Definite(cause), errors.New("and more"))))
+	if core.IsDefinite(outer) || !strings.Contains(outer.Error(), "outer: ") || !strings.Contains(outer.Error(), "and more") {
+		t.Errorf("a joined mark beneath a wrapper gave %v (definite %v)", outer, core.IsDefinite(outer))
 	}
 }
