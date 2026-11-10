@@ -1,6 +1,7 @@
 package netstat
 
 import (
+	"errors"
 	"net/netip"
 	"slices"
 	"strings"
@@ -120,5 +121,15 @@ func TestW11b02RulesOfAFamilyWithoutPolicyRouting(t *testing.T) {
 	})
 	if err != nil || len(got) != 0 {
 		t.Fatalf("rulesFrom = %+v, %v; want no rules and no error", got, err)
+	}
+}
+
+func TestW11c11RulesFromErrors(t *testing.T) {
+	boom := errors.New("boom")
+	if _, err := rulesFrom(IPv4, func(uint16, uint16, []byte) ([][]byte, error) { return nil, boom }); !errors.Is(err, boom) {
+		t.Errorf("a failed dump = %v, want it wrapped", err)
+	}
+	if _, err := rulesFrom(IPv4, func(uint16, uint16, []byte) ([][]byte, error) { return [][]byte{{1, 2}}, nil }); err == nil {
+		t.Error("a malformed message was accepted")
 	}
 }
