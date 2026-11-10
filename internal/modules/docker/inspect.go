@@ -117,26 +117,23 @@ var shownLabels = map[string]bool{
 // Docker hands the command to the entrypoint as its arguments, so even the
 // first element is not known to be a program and none is shown.
 func redactCmd(args []string) []string {
-	if len(args) == 0 {
-		return args
-	}
-	out := make([]string, len(args))
-	for i := range out {
-		out[i] = logfilter.Mask
-	}
-	return out
+	return maskFrom(args, 0)
 }
 
 // redactArgs is an entrypoint as inspect shows it: the first element, which
 // is the program, then one mask per argument. An argument is free text that
 // may hold a secret anywhere, and the spec asks inspect to show none.
 func redactArgs(args []string) []string {
+	return maskFrom(args, 1)
+}
+
+func maskFrom(args []string, first int) []string {
 	if len(args) == 0 {
 		return args
 	}
 	out := make([]string, len(args))
-	out[0] = args[0]
-	for i := 1; i < len(out); i++ {
+	copy(out, args[:first])
+	for i := first; i < len(out); i++ {
 		out[i] = logfilter.Mask
 	}
 	return out

@@ -16,8 +16,9 @@ import (
 func fz6Head(s string) string { return s[:min(len(s), 64)] }
 
 // fz6Scrub is c with every value that inspect must not show replaced by
-// another: the value of each environment entry, each argument after the
-// first and each label value outside shownLabels.
+// another: the value of each environment entry, each element of the command,
+// each argument of the entrypoint after the first and each label value
+// outside shownLabels.
 func fz6Scrub(c dockerapi.ContainerJSON) dockerapi.ContainerJSON {
 	out := c
 	if c.Config.Env != nil {

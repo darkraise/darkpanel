@@ -147,6 +147,9 @@ func TestV1r14LabelInputsAreRedacted(t *testing.T) {
 			if strings.Contains(got, v1r14Secret) {
 				t.Errorf("the recorded input %s holds the label value", got)
 			}
+			if !strings.Contains(got, `"labels":"[redacted]"`) {
+				t.Errorf("the recorded input %s does not show the labels as [redacted]", got)
+			}
 			if !strings.Contains(got, tc.name) {
 				t.Errorf("the recorded input %s lost %s, which is no secret", got, tc.name)
 			}
