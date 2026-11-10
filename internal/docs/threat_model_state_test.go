@@ -94,7 +94,7 @@ func TestV1r25PageStatesWhatTheCodeNowDoes(t *testing.T) {
 		{"DERP host/Threats", []string{"compromised `darkpanel-derp` account"}, nil},
 		{"DERP host/Mitigations", []string{
 			"`verifyClients: false`", "supported opt-out", "repository file", "a directory the service user already owns",
-			"no symlink anywhere on the path", "1 MiB", "`operate`", "CGNAT", "ULA", "`no_stun_answer`",
+			"no symlink beneath the service directory", "1 MiB", "`operate`", "CGNAT", "ULA", "`no_stun_answer`",
 		}, []string{"created and kept at mode 0700"}},
 		{"DERP host/Residual risk", []string{"debug log"}, nil},
 	} {

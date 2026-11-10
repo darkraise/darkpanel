@@ -281,7 +281,8 @@ now.
 
 ### Turning it on and off
 
-`firewall.docker.enable` writes the block and loads its chains live. It refuses when:
+`firewall.docker.enable` writes the block and loads its chains live. It refuses
+when:
 
 - `DOCKER-USER` holds rules that are not Docker's own `-j RETURN` or the
   block's. The refusal is `firewall.docker_user_in_use` and lists the rules.

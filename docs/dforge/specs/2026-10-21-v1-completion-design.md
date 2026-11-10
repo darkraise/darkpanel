@@ -2426,11 +2426,11 @@ stub (returning nothing), and the owning wave replaces the stub's body.
       Get(ctx context.Context, id string) (ListenerInfo, error)
   }
   type ListenerSpec struct {
-      Addr         netip.AddrPort
-      AllowedPeer  netip.Addr
-      ClientHeader string // "X-Darkpanel-Client" or "Cf-Connecting-IP"
-      PublicHost   string // accepted by the CSRF origin check
-      ChangeID     string
+      Addr          netip.AddrPort
+      AllowedPeer   netip.Addr
+      ClientHeader  string         // "X-Darkpanel-Client" or "Cf-Connecting-IP"
+      PublicHost    string         // accepted by the CSRF origin check
+      ChangeID      string
       PublicBinding netip.AddrPort // the host binding NPM publishes its HTTPS port on; zero for a tunnel
   }
   type ListenerInfo struct {
@@ -5409,7 +5409,7 @@ a spec change.
     a proxy host may not forward to any port of NPM's own container names or
     addresses. NPM's backend API listens on 3000 on every interface of its
     container.
-  - **W10b-R3 forward hosts.** A forward host that is a DNS name is resolved at plan and again at apply. A name that a container on one of NPM's user-defined networks answers to resolves to that container's addresses there, as Docker's embedded DNS answers it inside NPM's container. Any other name is resolved with the agent host's resolver. Each answer is checked as an address. No answer is invalid input, and answers that changed between plan and apply are `plan.state_changed`. The undo of a proxy host's update or removal checks every forward host it writes back the same way. A name that is re-pointed after apply, and a name that NPM's nginx resolves differently from the agent's host, are residual risks, which the threat model records.
+  - **W10b-R3 forward hosts.** A forward host that is a DNS name is resolved at plan and again at apply. A name that a container on one of NPM's user-defined networks answers to resolves to that container's addresses there, as Docker's embedded DNS answers it inside NPM's container. Any other name is resolved with the agent host's resolver. Each answer is checked as an address. No answer is invalid input, and answers that changed between plan and apply are `plan.state_changed`. The undo of a proxy host's update or removal checks the host's forward host the same way, and each custom location as W11-R13 says. A name that is re-pointed after apply, and a name that NPM's nginx resolves differently from the agent's host, are residual risks, which the threat model records.
   - **W10b-R4 container inspection.** Every element of a container's `Cmd`
     is masked. An element of `Entrypoint` keeps its existing rule.
   - **W10b-R5 effect documents.** An effect document holds a value it only
@@ -5427,8 +5427,7 @@ a spec change.
     reaches an error, its cause, a log line or a change record.
   - **W10b-R9 NPM bootstrap.** When the first-admin creation finds an admin it did not create, the deploy stops and removes the container, the data volumes and the network this deploy created before it fails. The failed change's effects stay recorded as made, so an undo of it finds the objects gone and ends in `needs_repair`. The user guide says not to undo it, and how to settle it with `darkpanel change resolve` if it was undone.
   - **W10b-R10 DERP files.** The agent reads DERP certificate and key files
-    through the platform's descriptor-based reads: no symlink anywhere on
-    the path, a regular file only, at most 1 MiB.
+    through the platform's descriptor-based reads: no symlink beneath the service directory (W11-R15), a regular file only, at most 1 MiB.
   - **W10b-R11 DERP probe.** `derp.node.probe` needs `operate`. It refuses
     RFC 1918, CGNAT (`100.64.0.0/10`) and ULA (`fc00::/7`) targets, both as
     literals and among resolved answers, after unmapping IPv4-mapped IPv6
@@ -5465,7 +5464,7 @@ a spec change.
     its exit status and the command to run on the host, never Compose's
     stderr.
 - **Plan rulings (wave 11a).** Wave 11a (plan `v1-w11a-live-apply`) settles these points:
-  - **W11-R1 three plans.** Wave 11 fixes every row left open after wave 10 (owner, 2026-11-08). It runs as three sequential plans: `v1-w11a-live-apply` (rows 437, 438), `v1-w11b-lockout-guard` (security-review rows 27, 28, 46, 47, 48, 51, 53) and `v1-w11c-module-fixes` (security-review rows 26, 30-45, 49, 50, 52, 54).
+  - **W11-R1 three plans.** Wave 11 fixes every row left open after wave 10 (owner, 2026-11-08). It runs as three sequential plans: `v1-w11a-live-apply` (rows 437, 438), `v1-w11b-lockout-guard` (security-review rows 27, 28, 46, 47, 48, 51, 53) and `v1-w11c-module-fixes` (security-review rows 26, 30-45, 49, 50, 52, 54, 55, 56, 57, 58, 78; v1-completion rows 447-451, 453, 454, 457, 458, 460, 464-466).
   - **W11-R2 live apply.** On an active UFW that stays active, Darkpanel runs no `ufw reload`. UFW applies rule and logging commands live. The Docker block is written to `after.rules` and `after6.rules` and its chains load through one `iptables-restore -n` per family that declares DOCKER-USER and Darkpanel's own chains, never `ufw-user-forward`, and removes Darkpanel chains the block no longer has. The prediction is `TransLive` (Contracts). Owner decision 2026-11-08.
   - **W11-R3 where UFW still restarts.** `state.enable`, `state.disable`, `state.repair`, a `firewall.docker.repair` whose differences reach a chain outside Darkpanel's own, and snapshot restore keep their UFW transition. Their revert keeps it too.
   - **W11-R4 default policies.** `ufw default` restarts an active UFW itself, so `firewall.defaults.set` keeps a window in which the built-in policies are ACCEPT for about a second. Darkpanel adds no reload of its own after it: a change with a `default` command predicts `TransReload` and runs no `ufw reload` command. The threat model records the window as a residual.
@@ -5478,6 +5477,13 @@ a spec change.
   - **W11-R10 policy routing.** The guard reads `ip rule`. A rule's source and destination prefixes cut cells, except a single address of the host. Lookups carry the protocol and ports only while a rule of the family selects by them, so a host without such rules sends the queries it always sent. Stand-in skipping turns off while a rule selects by destination port, TOS or uid, which no reply lookup can state, or by mark while `raw` or `mangle` holds a MARK or CONNMARK rule that may match. Unreadable rules make every flow of the family unknown.
   - **W11-R11 special-purpose ranges.** The cell space keeps leaving out the ranges of `eval.holes4` and `holes6`; the threat model lists them all. No code changes.
   - **W11-R12 guard details.** Local routes outside the local table cut cells. An unmodelled target in any table keeps every rule as a cutter. A cell is no-path or blackhole only when its longest matching route says so. The before-state is routed with its own forwarding sysctl values. A pass reports the probes the before-state already blocked.
+- **Plan rulings (wave 11c).**
+  - W11-R13 custom locations (rows 26, 36, 37): the undo of `npm.proxyhost.update` or `remove` keeps W10b-R3's check on the host's forward host. For a custom location it still refuses a reserved upstream, but a location whose forward host is empty, holds an nginx variable, or is a name with no answer is restored as it was: Darkpanel never authors a custom location, and an undo only puts back what NPM already held. An update keeps operator locations without checking them, for the same reason. Owner did not object when offered, 2026-11-10.
+  - W11-R14 CreateAdmin (row 39): only a 4xx other than 400 is a conflict. A 400 rejects the payload, so it fails the deploy without removing the instance.
+  - W11-R15 certificate reads (rows 42, 54): the DERP certificate reads refuse symbolic links only beneath `server.StateDir`, so a link at `certs` or below it is refused: the service account owns `server.StateDir` and can replace `certs`. Links at or above `server.StateDir` are the host owner's and cannot be planted by the service account, which cannot write its parent. Before this ruling `internal/modules/derp/deps.go` was the only caller of `platform.ReadRegularFile`.
+  - W11-R16 probe addresses (row 43): `nodeProbeAllowedAddr` also refuses the special-purpose forms that reach internal networks (`0.0.0.0/8`, `192.0.0.0/24`, `198.18.0.0/15`, `240.0.0.0/4`, `::/96`, `64:ff9b::/96`, `64:ff9b:1::/48`, `2001::/32`, `2002::/16`, `::ffff:0:0:0/96`, `fec0::/10`). The documentation ranges stay allowed; 55 lines of `node_probe*_test.go` use them. An allowlist stays out of scope, as W10b-R11 holds it.
+  - W11-R17 repository files (row 52): a failed `ensureRepo` step removes the files that attempt wrote. A later failed pin step leaves them, because uninstall owns them (`internal/modules/tailscale/package_pin.go`).
+  - W11-R18 closures: rows closed with no code carry their reason in the register, set when this plan was written (security review 33, 34, 79; v1-completion 452, 455, 459, 461; deferred 456, 462, 463). Row-part closures: 31's clock pacing, 38's `4e2` parse, 41's journal digests and nil Sealer (every production `core.Env` sets `Sealer`: `internal/controller/server/services.go`, `internal/agent/runtime/runtime.go`, `internal/install/uninstall.go`), 43's reason text, 44's per-pair lock (threat model), 36's DNS rebinding (W10b-R3), 54's label render (no production caller of `NetworkCreated` or `VolumeCreated`) and its A26 wording (a closed plan's assumption).
 
 ### 11. Error codes, actors and dependencies
 
@@ -5785,7 +5791,7 @@ a spec change.
 | 9b | Accessibility | `web/src/**` except the frozen `web/src/app.tsx`, `web/src/modules/registry.ts` and `web/src/modules/types.ts` (1.12; a fix they need goes through the integrator) (fixes and `.a11y.test.tsx`), `docs/accessibility.md` | 0–8 | parallel |
 | 9c | Docs and API reference | `docs/user/**`, `docs/dev/**`, `docs/api/**`, the `api-docs` target in `Makefile`, `.github/workflows/ci.yml` | 0–8 | parallel |
 | 9d | Upgrade matrix and footprint | `test/harness/upgrade_matrix_test.go`, `footprint_test.go`, the `harness` build-tag files `cmd/darkpanel/paths_harness.go` (the wave 0 path-selection hook, 1.12) and any in `internal/agent/`, `.github/workflows/harness.yml` | 0–8 | parallel |
-| 10 | Security review, fixes, runbook, RC readiness | `docs/security/threat-model.md`, `docs/runbook.md`, `CHANGELOG.md`, `docs/versioning.md`; fixes anywhere | 0–9 | alone |
+| 10 | Security review, fixes, runbook, RC readiness | `docs/security/threat-model.md`, `docs/runbook.md`, `docs/versioning.md`; fixes anywhere | 0–9 | alone |
 | 11 | Follow-ups: live apply (11a), lockout guard (11b), module fixes (11c) | 11a: `internal/modules/firewall/**` except `guard/**` and `eval/**`, `test/harness/m3_firewall*`, `docs/user/modules/firewall.md`; 11b: `internal/modules/firewall/guard/**`, `eval/**`, `internal/platform/netstat/**`, `internal/modules/panel/listener*.go`, `test/harness/m3_docker_traffic*`; 11c: fixes in the modules the rows name; each plan edits `docs/security/threat-model.md` and `internal/docs/threat_model_test.go` | 0–10 | alone |
 
 - Wave 0's frozen, handed-over and not-frozen files are listed in 1.12;

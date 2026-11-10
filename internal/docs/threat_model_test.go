@@ -323,3 +323,22 @@ func TestW11b11GuardDocumentation(t *testing.T) {
 		t.Error("the spec still limits a wildcard bind to the interface of the route back")
 	}
 }
+
+func TestW11c13ThreatModelRecordsTheRulings(t *testing.T) {
+	text := dcRead(t, w10tmPage)
+	for _, want := range []string{
+		"restores a custom location it cannot check",
+		"symbolic links only beneath",
+		"The probe refuses the special-purpose forms",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the threat model does not say %q", want)
+		}
+	}
+	if strings.Contains(text, "no symlink anywhere on the path") {
+		t.Error("the threat model still says no symlink anywhere on the path")
+	}
+	if strings.Contains(text, "are not refused. Only a caller") {
+		t.Error("the threat model still says the special-purpose forms are not refused")
+	}
+}

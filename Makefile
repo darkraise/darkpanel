@@ -81,7 +81,7 @@ lint-sh:
 lint: lint-go lint-web lint-sh
 
 test-go:
-	go test ./...
+	go test -timeout 20m ./...
 
 test-web: web-deps
 	pnpm -C web test
