@@ -85,7 +85,7 @@ func restoreText(cfg fwstate.Config, v6 bool) (string, error) {
 		path := "/etc/ufw/" + name + typ + ".rules"
 		e := cfg.Files[path]
 		if !e.Present || len(e.Data) == 0 {
-			return fmt.Errorf("predict: %s is missing or empty, so UFW cannot start", path)
+			return fmt.Errorf("predict: %s is missing or empty, so the rules cannot be predicted", path)
 		}
 		b.Write(e.Data)
 		if e.Data[len(e.Data)-1] != '\n' {

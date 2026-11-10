@@ -240,3 +240,13 @@ func TestTranslateLoadsTheFiles(t *testing.T) {
 		t.Errorf("missing user6.rules: err = %v", err)
 	}
 }
+
+func TestW11d03AMissingFileIsAPredictionFailure(t *testing.T) {
+	cfg := predictConfig(t, "debian-13", "fresh")
+	cfg.Files = maps.Clone(cfg.Files)
+	delete(cfg.Files, "/etc/ufw/before.rules")
+	_, err := translate(cfg, false)
+	if err == nil || !strings.Contains(err.Error(), "so the rules cannot be predicted") {
+		t.Errorf("error %v, want it to say the rules cannot be predicted", err)
+	}
+}
