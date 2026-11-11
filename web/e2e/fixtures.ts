@@ -1,11 +1,14 @@
 import type { Page, Route } from "@playwright/test"
-import type { Change, Host, Plan, Session } from "../src/api/types"
+import type { Change, Host, Plan, Rollout, RolloutHost, Session, UpdateTransaction } from "../src/api/types"
 import type { ContainerDetail, DockerContainer, DockerNetwork } from "../src/modules/docker/types"
 import type { DockerStatus, ExposureView, FirewallStatus } from "../src/modules/firewall/types"
 import type { InstanceStatus } from "../src/modules/npm/types"
 
 export const HOST_ID = "01JE00000000000000000000H1"
 export const OFFLINE_HOST_ID = "01JE00000000000000000000H2"
+export const PENDING_HOST_ID = "01JE00000000000000000000P1"
+export const REVOKED_HOST_ID = "01JE00000000000000000000R1"
+export const LONG_HOST_ID = "01JE00000000000000000000L1"
 export const CONTAINER_ID = "c0ffee0123456789abcdef"
 export const FIREWALL_CHANGE_ID = "01JE000000000000000000C001"
 export const EXPOSE_CHANGE_ID = "01JE000000000000000000C002"
@@ -58,6 +61,115 @@ const hosts: Host[] = [
     ],
     ingestion: { ok: false, since: NOW, error: "The agent has not answered since 08:12." },
   },
+]
+
+function fleetHost(id: string, name: string, over: Partial<Host> = {}): Host {
+  return {
+    id,
+    name,
+    isLocal: false,
+    state: "enrolled",
+    online: true,
+    lastSeenAt: NOW,
+    agentVersion: "1.0.0",
+    protocolVersion: 1,
+    os: "debian-12",
+    arch: "amd64",
+    supported: true,
+    modules: [moduleState("hostinfo")],
+    ingestion: { ok: true, since: NOW, error: null },
+    ...over,
+  }
+}
+
+const worstHosts: Host[] = [
+  ...hosts,
+  fleetHost(LONG_HOST_ID, `web-${"x".repeat(59)}`, { agentVersion: `1.0.0-beta.1+${"a".repeat(27)}` }),
+  fleetHost(PENDING_HOST_ID, "new-1", {
+    state: "pending",
+    online: false,
+    lastSeenAt: null,
+    agentVersion: null,
+    protocolVersion: null,
+    os: null,
+    arch: null,
+    modules: [],
+    ingestion: null,
+  }),
+  fleetHost(REVOKED_HOST_ID, "old-1", { state: "revoked", online: false, supported: false, agentVersion: "0.9.0" }),
+  ...Array.from({ length: 45 }, (_, i) => {
+    const n = String(i + 1).padStart(2, "0")
+    return fleetHost(`01JE000000000000000000N0${n}`, `node-${n}`)
+  }),
+]
+
+function hoursBefore(hours: number): string {
+  return new Date(Date.parse(NOW) - hours * 3_600_000).toISOString()
+}
+
+function transaction(n: number, fromVersion: string, toVersion: string, state: string, error: string | null): UpdateTransaction {
+  return {
+    id: `tx-${n}`,
+    operationId: `op-${n}`,
+    parentId: null,
+    kind: "update",
+    fromVersion,
+    toVersion,
+    targetVersion: toVersion,
+    state,
+    error: error === null ? null : { code: "update.health", message: error },
+    startedAt: hoursBefore(24 * n),
+    updatedAt: hoursBefore(24 * n - 1),
+  }
+}
+
+const worstTransactions: UpdateTransaction[] = [
+  transaction(1, "1.0.0", "1.1.0", "rolled-back", "the health check failed"),
+  transaction(2, "0.9.0", "1.0.0", "committed", null),
+  transaction(3, "0.8.0", "0.9.0", "committed", null),
+]
+
+function rolloutHosts(stateAt: (position: number) => string, error: (position: number) => string | null = () => null): RolloutHost[] {
+  return worstHosts.map((h, position) => {
+    const message = error(position)
+    return {
+      hostId: h.id,
+      position,
+      state: stateAt(position),
+      planId: null,
+      operationId: null,
+      error: message === null ? null : { code: "update.health", message },
+    }
+  })
+}
+
+function rollout(n: number, over: Partial<Rollout>): Rollout {
+  return {
+    id: `rollout-${String(n).padStart(2, "0")}`,
+    version: `1.2.${20 - n}`,
+    channel: "stable",
+    state: "succeeded",
+    error: null,
+    createdAt: hoursBefore(n),
+    updatedAt: hoursBefore(n - 0.5),
+    hosts: rolloutHosts(() => "committed"),
+    ...over,
+  }
+}
+
+const HEALTH = "web-1 failed its health check"
+
+const worstRollouts: Rollout[] = [
+  rollout(1, { version: "1.3.0", state: "running", updatedAt: NOW, hosts: rolloutHosts((p) => (p < 10 ? "committed" : p === 10 ? "updating" : "waiting")) }),
+  rollout(2, {
+    version: "1.2.9",
+    channel: "beta",
+    state: "failed",
+    error: { code: "rollout.failed", message: HEALTH },
+    hosts: rolloutHosts((p) => (p === 0 ? "failed" : "skipped"), (p) => (p === 0 ? HEALTH : null)),
+  }),
+  rollout(3, { state: "cancelled", hosts: rolloutHosts((p) => (p === 0 ? "committed" : "skipped")) }),
+  ...Array.from({ length: 17 }, (_, i) => rollout(i + 4, {})),
 ]
 
 const firewallStatus: FirewallStatus = {
@@ -253,8 +365,10 @@ const STREAM = /^\/api\/v1\/hosts\/[^/]+\/streams\/docker\/(logs|stats)$/
 const AVAILABILITY = /^\/api\/v1\/hosts\/[^/]+\/modules\/([^/]+)\/availability$/
 const CHANGE = /^\/api\/v1\/changes\/([^/]+)(?:\/(confirm|revert|steps))?$/
 
-const READS: Record<string, () => unknown> = {
-  "core.host.list": () => ({ hosts }),
+const READS: Record<string, (worstCase: boolean) => unknown> = {
+  "core.host.list": (worstCase) => ({ hosts: worstCase ? worstHosts : hosts }),
+  "core.update.status": (worstCase) => ({ transactions: worstCase ? worstTransactions : [] }),
+  "core.update.rollouts": (worstCase) => ({ rollouts: worstCase ? worstRollouts : [] }),
   "npm.instance.list": () => ({ instances: [], unreadable: [] }),
   "panel.exposure.status": () => ({ exposed: false }),
   "npm.instance.status": () => npmStatus,
@@ -271,8 +385,40 @@ const RESOURCES: Record<string, unknown> = {
 
 // plans and applies answer null for an action the fixtures do not cover, so
 // mockApi records the request as unhandled.
-function plans(name: string, input: Record<string, unknown>): Reply | null {
+function hostNamed(fleet: Host[], id: unknown): Host {
+  return fleet.find((h) => h.id === id) ?? fleet[0]!
+}
+
+function scheduleText(schedule: unknown): string {
+  if (schedule === null || typeof schedule !== "object") return "on demand"
+  const { days, time } = schedule as { days: string[]; time: string }
+  return `on ${days.join(", ")} at ${time}`
+}
+
+function plans(name: string, input: Record<string, unknown>, fleet: Host[]): Reply | null {
   switch (name) {
+    case "core.host.revoke":
+    case "core.host.delete":
+    case "core.host.token": {
+      const host = hostNamed(fleet, input.hostId)
+      return { json: plan({ planId: `plan-${name}`, hostId: null, action: name, diff: [{ op: "-", text: `host ${host.name}: ${host.state}` }], confirmation: host.name }) }
+    }
+    case "core.host.update-policy":
+      return {
+        json: plan({
+          planId: "plan-core.host.update-policy",
+          hostId: null,
+          action: name,
+          diff: [
+            { op: "-", text: "web-1 follows stable, on demand" },
+            { op: "+", text: `web-1 follows ${String(input.channel)}, ${scheduleText(input.schedule)}` },
+          ],
+        }),
+      }
+    case "core.update.rollout":
+      return { json: plan({ planId: "plan-core.update.rollout", hostId: null, action: name, diff: [{ op: "+", text: `rollout of ${String(input.version)}` }] }) }
+    case "core.update.rollout-cancel":
+      return { json: plan({ planId: "plan-core.update.rollout-cancel", hostId: null, action: name, diff: [{ op: "-", text: `rollout ${String(input.rolloutId)}` }] }) }
     case "firewall.rule.add":
       return { json: firewallPlan(input.overrides) }
     case "docker.container.stop":
@@ -303,8 +449,44 @@ function plans(name: string, input: Record<string, unknown>): Reply | null {
   }
 }
 
-function applies(name: string, changes: Map<string, Change>): Reply | null {
+function coreOutput(name: string, input: Record<string, unknown>, fleet: Host[]): unknown {
+  switch (name) {
+    case "core.host.revoke":
+      return { ...hostNamed(fleet, input.hostId), state: "revoked" }
+    case "core.host.delete":
+      return hostNamed(fleet, input.hostId)
+    case "core.host.token":
+      return { host: hostNamed(worstHosts, PENDING_HOST_ID), token: "dpe_fixture_token", expiresAt: NOW }
+    case "core.host.update-policy":
+      return { hostId: input.hostId, channel: input.channel, schedule: input.schedule }
+    case "core.update.rollout": {
+      const ids = (input.hosts as string[] | undefined) ?? []
+      return {
+        id: "rollout-new",
+        version: input.version,
+        channel: input.channel,
+        state: "running",
+        error: null,
+        createdAt: NOW,
+        updatedAt: NOW,
+        hosts: ids.map((hostId, position) => ({ hostId, position, state: "waiting", planId: null, operationId: null, error: null })),
+      }
+    }
+    case "core.update.rollout-cancel":
+      return { ...worstRollouts[0]!, state: "cancelled" }
+    default:
+      return undefined
+  }
+}
+
+function applies(name: string, changes: Map<string, Change>, input: Record<string, unknown>, fleet: Host[]): Reply | null {
   let applied: Change
+  const output = coreOutput(name, input, fleet)
+  if (output !== undefined) {
+    applied = change({ id: `change-${name}`, hostId: null, action: name, class: "irreversible", state: "completed", output })
+    changes.set(applied.id, applied)
+    return { json: applied }
+  }
   switch (name) {
     case "firewall.rule.add":
       applied = change({ state: "pending", revertDeadline: new Date(Date.now() + 60_000).toISOString() })
@@ -329,16 +511,20 @@ export interface Fixtures {
 // mockApi answers every /api/ request of page from the fixtures above, so a
 // browser pass needs no controller. A signed-out page gets auth.required from
 // the session probe and the login form answers auth.invalid.
-export async function mockApi(page: Page, opts: { signedIn: boolean }): Promise<Fixtures> {
+// worstCase answers with the longest lists and names the host and rollout
+// pages must hold: 50 hosts, three update transactions and 20 rollouts.
+export async function mockApi(page: Page, opts: { signedIn: boolean; worstCase?: boolean }): Promise<Fixtures> {
   const fixtures: Fixtures = { unhandled: [] }
   const changes = new Map<string, Change>()
+  const planned = new Map<string, Record<string, unknown>>()
+  const worstCase = opts.worstCase ?? false
   await page.route(
     (url) => url.pathname.startsWith("/api/"),
     async (route) => {
       const request = route.request()
       const method = request.method()
       const path = new URL(request.url()).pathname
-      const reply = answer(method, path, route, opts.signedIn, changes)
+      const reply = answer(method, path, route, opts.signedIn, changes, planned, worstCase)
       if (reply === null) {
         fixtures.unhandled.push(`${method} ${path}`)
         await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify(problem(404, "not_found", "No fixture").json) })
@@ -358,7 +544,17 @@ export async function mockApi(page: Page, opts: { signedIn: boolean }): Promise<
   return fixtures
 }
 
-function answer(method: string, path: string, route: Route, signedIn: boolean, changes: Map<string, Change>): Reply | null {
+// planned keeps each action's last planned input, because an apply carries
+// only the plan id.
+function answer(
+  method: string,
+  path: string,
+  route: Route,
+  signedIn: boolean,
+  changes: Map<string, Change>,
+  planned: Map<string, Record<string, unknown>>,
+  worstCase: boolean,
+): Reply | null {
   if (path === "/api/v1/auth/session") {
     return signedIn ? { json: session } : problem(401, "auth.required", "Sign in to continue.")
   }
@@ -371,15 +567,19 @@ function answer(method: string, path: string, route: Route, signedIn: boolean, c
   const action = ACTION.exec(path)
   if (action !== null && method === "POST") {
     const name = action[2] ?? ""
+    const fleet = worstCase ? worstHosts : hosts
     switch (action[3]) {
       case "read": {
         const read = READS[name]
-        return read === undefined ? null : { json: { output: read() } }
+        return read === undefined ? null : { json: { output: read(worstCase) } }
       }
-      case "plan":
-        return plans(name, bodyOf(route).input ?? {})
+      case "plan": {
+        const input = bodyOf(route).input ?? {}
+        planned.set(name, input)
+        return plans(name, input, fleet)
+      }
       default:
-        return applies(name, changes)
+        return applies(name, changes, planned.get(name) ?? {}, fleet)
     }
   }
   const resource = RESOURCE.exec(path)
