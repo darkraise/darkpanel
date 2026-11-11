@@ -1002,11 +1002,14 @@ milestone closes, the rule ADRs 0010 and 0011 follow for M1.
   updated times, the rollout error when set, and an ordered table of its
   hosts (position + 1, host name, host state `Badge`, host error).
   Board: `docs/dforge/ui-ux/boards/rollouts.png`.
-- **UI-4** — Badge variants: host and rollout states `committed` and
-  `succeeded` use `default`; `updating`, `running`, `draining` and
-  `waiting` use `secondary`; `failed` and `quarantined` use `destructive`;
-  `skipped` and `cancelled` use `outline`. Every badge carries its state as
-  text, never colour alone.
+- **UI-4** — Badge variants: host, rollout and update transaction states
+  `committed` and `succeeded` use `default`; `updating`, `running`,
+  `draining`, `waiting`, and the in-progress transaction states `pending`,
+  `downloading`, `staged`, `swapped` and `rolling-back` use `secondary`;
+  `failed`, `quarantined` and `rolled-back` use `destructive`; `skipped`,
+  `cancelled` and any other state use `outline`. Every badge carries its
+  state as text, never colour alone. (Transaction states extended by the
+  owner 2026-11-11, core register row 117.)
 
 ### UX
 
