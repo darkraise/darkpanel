@@ -200,6 +200,7 @@ func TestTaskProcessGetsModuleUnits(t *testing.T) {
 	f.moduleUnits = muModuleUnits
 	f.restartTask()
 	v := f.taskApplyStart(refTskInstall, `{"name":"a","value":"1"}`)
+	f.units.set(TaskUnitName(v.ID, core.TaskOpApply, 1), true)
 	if err := f.eng.RunTask(context.Background(), v.ID, core.TaskOpApply, 1); err != nil {
 		t.Fatal(err)
 	}
