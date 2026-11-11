@@ -123,6 +123,12 @@ for (const theme of THEMES) {
                 expect(await error.evaluate((el) => el.scrollWidth <= el.clientWidth), "the error wraps inside its block").toBe(true)
               }
             }
+            if (!narrow) {
+              const rows = page.locator("table[aria-label='Update history'] tbody tr")
+              for (const cell of [...(await rows.locator("td:nth-child(2)").all()), ...(await rows.locator("[data-variant]").all())]) {
+                expect(await cell.evaluate((n) => { const r = document.createRange(); r.selectNodeContents(n); return r.getClientRects().length === 1 }), "the cell text stays whole").toBe(true)
+              }
+            }
           }
           if (s.state === "disabled") await expect(shown).toBeDisabled()
           if (s.state === "transactions") {

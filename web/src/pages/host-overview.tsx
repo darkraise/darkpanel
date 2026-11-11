@@ -93,9 +93,9 @@ function UpdateHistory({ hostId }: { hostId: string }) {
             {status.data.transactions.map((t) => (
               <TableRow key={t.id}>
                 <TableCell>{formatTime(t.startedAt)}</TableCell>
-                <TableCell>{t.kind}</TableCell>
+                <TableCell className="whitespace-nowrap">{t.kind}</TableCell>
                 <TableCell className="break-all">{`${t.fromVersion} → ${t.toVersion}`}</TableCell>
-                <TableCell>
+                <TableCell className="whitespace-nowrap">
                   <Badge variant={stateVariant(t.state)} size="sm">
                     {t.state}
                   </Badge>
