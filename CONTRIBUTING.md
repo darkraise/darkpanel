@@ -23,7 +23,8 @@
 | `make test-web` | the Vitest suite |
 | `make test-adr` | the ADR checker's tests and the ADR structural check |
 | `make test-release` | the release scripts' tests |
-| `make test` | `test-go`, `test-web`, `test-adr` and `test-release` |
+| `make test-race` | `go test -race` on `internal/agent/daemon` |
+| `make test` | `test-go`, `test-race`, `test-web`, `test-adr` and `test-release` |
 | `make schemas` | regenerates the action and resource schema snapshots in `schemas/` |
 | `make vuln` | govulncheck v1.9.0 on every Go package |
 | `make check` | `lint`, `test`, `build`, `verify-build` and `vuln` |
