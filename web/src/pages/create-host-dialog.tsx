@@ -1,35 +1,19 @@
 import { Suspense, useState, type FormEvent } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Alert, AlertDescription } from "darkraise-ui/components/alert"
 import { Button } from "darkraise-ui/components/button"
-import { Clipboard, ClipboardControl, ClipboardInput, ClipboardLabel, ClipboardTrigger } from "darkraise-ui/components/clipboard"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "darkraise-ui/components/dialog"
 import { Input } from "darkraise-ui/components/input"
 import { Label } from "darkraise-ui/components/label"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { HOSTS_QUERY_KEY, changeError, changeInProgress, listHosts } from "@/api/client"
-import type { Change } from "@/api/types"
+import type { Change, EnrollmentGrant } from "@/api/types"
 import { ChangeDialog } from "@/components/change-dialog"
-import { formatTime } from "@/lib/format"
+import { isGrant } from "@/lib/grant"
 import { hostCreateExtensions, moduleRegistry } from "@/modules/registry"
 import type { ModuleEntry } from "@/modules/types"
-
-// The enrollment grant core.host.create answers; its token is in the apply
-// response only, so it is shown here once and then forgotten.
-interface Grant {
-  host: { id: string; name: string }
-  token: string
-  expiresAt: string
-  bundle?: string
-}
+import { GrantDialog } from "./grant-dialog"
 
 type Phase = "closed" | "form" | "plan" | "grant"
-
-function isGrant(output: unknown): output is Grant {
-  if (typeof output !== "object" || output === null) return false
-  const o = output as Record<string, unknown>
-  return typeof o.token === "string" && typeof o.expiresAt === "string" && typeof o.host === "object" && o.host !== null
-}
 
 // CreateHostDialog adds a host: it asks for the name, renders the host
 // creation inputs of every module enabled on the controller's own host,
@@ -41,10 +25,9 @@ export function CreateHostDialog({ entries = moduleRegistry }: { entries?: Modul
   const [phase, setPhase] = useState<Phase>("closed")
   const [values, setValues] = useState<Record<string, Record<string, unknown>>>({})
   const [input, setInput] = useState<Record<string, unknown>>({})
-  const [grant, setGrant] = useState<Grant | null>(null)
+  const [grant, setGrant] = useState<EnrollmentGrant | null>(null)
   const [grantMissing, setGrantMissing] = useState(false)
 
-  const bundle = typeof grant?.bundle === "string" && grant.bundle !== "" ? grant.bundle : null
   const localHost = hosts.data?.hosts.find((h) => h.isLocal)
   const extensions = localHost === undefined ? [] : hostCreateExtensions(entries, localHost)
 
@@ -123,49 +106,13 @@ export function CreateHostDialog({ entries = moduleRegistry }: { entries?: Modul
         input={input}
         onApplied={applied}
       />
-      <Dialog open={phase === "grant"} onOpenChange={(next) => (next ? undefined : reset())}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Host added</DialogTitle>
-            <DialogDescription>
-              {grantMissing
-                ? "The host exists, but it cannot enroll with this answer."
-                : bundle !== null
-                  ? "Copy the bootstrap bundle now. It will not be shown again."
-                  : "Copy the enrollment token now. It will not be shown again."}
-            </DialogDescription>
-          </DialogHeader>
-          {grantMissing && (
-            <div className="flex flex-col gap-4">
-              <Alert variant="destructive" role="alert">
-                <AlertDescription>The host was created, but the controller did not return its enrollment token.</AlertDescription>
-              </Alert>
-              <DialogFooter>
-                <Button onClick={reset}>Done</Button>
-              </DialogFooter>
-            </div>
-          )}
-          {grant !== null && (
-            <div className="flex flex-col gap-4">
-              <Clipboard value={bundle ?? grant.token}>
-                <ClipboardLabel htmlFor="host-grant-secret">{bundle !== null ? `Bootstrap bundle for ${grant.host.name}` : `Enrollment token for ${grant.host.name}`}</ClipboardLabel>
-                <ClipboardControl>
-                  <ClipboardInput id="host-grant-secret" className="font-mono" />
-                  <ClipboardTrigger>Copy</ClipboardTrigger>
-                </ClipboardControl>
-              </Clipboard>
-              <p className="text-sm text-muted-foreground">
-                {bundle !== null
-                  ? `On the new host, run install.sh --role agent --token-file <file> with this bundle before ${formatTime(grant.expiresAt)}.`
-                  : `On the new host, run sudo darkpanel agent enroll and paste the token before ${formatTime(grant.expiresAt)}.`}
-              </p>
-              <DialogFooter>
-                <Button onClick={reset}>Done</Button>
-              </DialogFooter>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      <GrantDialog
+        grant={phase === "grant" ? grant : null}
+        missing={phase === "grant" && grantMissing}
+        title="Host added"
+        missingMessage="The host was created, but the controller did not return its enrollment token."
+        onClose={reset}
+      />
     </>
   )
 }

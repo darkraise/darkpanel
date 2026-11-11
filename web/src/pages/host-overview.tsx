@@ -10,6 +10,7 @@ import { errorMessage, readAction } from "@/api/client"
 import type { Host, HostState, UpdateStatus } from "@/api/types"
 import { stateVariant } from "@/lib/badges"
 import { formatTime } from "@/lib/format"
+import { HostRemoval } from "./host-removal"
 
 const STATE_LABEL: Record<HostState, string> = { pending: "Pending", enrolled: "Enrolled", revoked: "Revoked" }
 
@@ -117,7 +118,9 @@ export function HostOverview({ host }: { host: Host }) {
         )}
       </OverviewCard>
       <OverviewCard title="Enrollment and removal">
-        <div className="flex flex-wrap gap-2"></div>
+        <div className="flex flex-wrap gap-2">
+          <HostRemoval host={host} />
+        </div>
       </OverviewCard>
     </div>
   )
