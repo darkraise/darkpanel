@@ -40,3 +40,4 @@
 - 2026-11-10 `docs/dforge/plans/2026-11-10-v1-w11d-followups.md` — merged into `main` at 5d6bc27
 - 2026-11-11 `docs/dforge/plans/2026-11-11-m2-audit-gaps.md` — merged into `main` at 65f4ea7
 - 2026-11-11 `docs/dforge/plans/2026-11-11-m2-web-hosts.md` — merged into `main` at 4e5fd58
+- 2026-11-12 `docs/dforge/plans/2026-11-11-m2-badge-states.md` — merged into `main` at e5c04bb
