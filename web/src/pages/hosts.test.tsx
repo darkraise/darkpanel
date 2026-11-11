@@ -8,7 +8,7 @@ const HOSTS = "POST /api/v1/actions/core.host.list/v1/read"
 
 const hosts: Host[] = [
   {
-    id: "h1", name: "web-1", isLocal: true, online: true,
+    id: "h1", name: "web-1", isLocal: true, state: "enrolled", online: true, lastSeenAt: "2026-11-11T08:00:00Z", agentVersion: "1.0.0", protocolVersion: 1, os: "debian-12", arch: "amd64", supported: true,
     modules: [
       { id: "hostinfo", version: 1, enabled: true, available: true, reason: null, checkedAt: null },
       { id: "docker", version: 1, enabled: true, available: false, reason: "docker is not installed", checkedAt: null },
@@ -16,7 +16,7 @@ const hosts: Host[] = [
     ],
     ingestion: { ok: true, since: "2026-10-21T08:00:00Z", error: null },
   },
-  { id: "h2", name: "db-1", isLocal: false, online: false, modules: [], ingestion: null },
+  { id: "h2", name: "db-1", isLocal: false, state: "enrolled", online: false, lastSeenAt: null, agentVersion: "1.0.0", protocolVersion: 1, os: "debian-12", arch: "amd64", supported: true, modules: [], ingestion: null },
 ]
 
 test("lists hosts with the local marker and module states", async () => {
@@ -43,7 +43,7 @@ test("lists hosts with the local marker and module states", async () => {
 
 test("marks only a host whose journal ingestion fails, with the error beside it", async () => {
   const failing: Host = {
-    id: "h3", name: "cache-1", isLocal: false, online: true, modules: [],
+    id: "h3", name: "cache-1", isLocal: false, state: "enrolled", online: true, lastSeenAt: "2026-11-11T08:00:00Z", agentVersion: "1.0.0", protocolVersion: 1, os: "debian-12", arch: "amd64", supported: true, modules: [],
     ingestion: { ok: false, since: "2026-10-21T08:05:00Z", error: "agent unreachable" },
   }
   stubFetch({ [HOSTS]: { body: { output: { hosts: [...hosts, failing] } } } })

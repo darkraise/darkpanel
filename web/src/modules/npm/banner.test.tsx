@@ -27,7 +27,7 @@ function bnFleet(instances: HostInstance[], unreadable: string[] = []) {
 }
 
 function bnHost(id: string, name: string): Host {
-  return { id, name, isLocal: false, online: true, modules: [], ingestion: null }
+  return { id, name, isLocal: false, state: "enrolled", online: true, lastSeenAt: "2026-11-11T08:00:00Z", agentVersion: "1.0.0", protocolVersion: 1, os: "debian-12", arch: "amd64", supported: true, modules: [], ingestion: null }
 }
 
 function bnHosts(...hosts: Host[]) {

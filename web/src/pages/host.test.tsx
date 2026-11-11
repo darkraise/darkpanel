@@ -15,7 +15,7 @@ function state(id: string, enabled: boolean, available: boolean, reason: string 
 }
 
 function host(modules: ModuleState[]): Host {
-  return { id: "h1", name: "web-1", isLocal: true, online: true, modules, ingestion: null }
+  return { id: "h1", name: "web-1", isLocal: true, state: "enrolled", online: true, lastSeenAt: "2026-11-11T08:00:00Z", agentVersion: "1.0.0", protocolVersion: 1, os: "debian-12", arch: "amd64", supported: true, modules, ingestion: null }
 }
 
 function entry(id: string): ModuleEntry {

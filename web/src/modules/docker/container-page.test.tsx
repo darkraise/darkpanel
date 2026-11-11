@@ -57,7 +57,7 @@ const cpFirewallOk = cpState("firewall", true)
 function cpHost(firewall: ModuleState | null = cpFirewallOk): Host {
   const modules = [cpState("docker", true), cpState("alpha", true), cpState("beta", false)]
   if (firewall !== null) modules.push(firewall)
-  return { id: "h1", name: "web-1", isLocal: true, online: true, modules, ingestion: null }
+  return { id: "h1", name: "web-1", isLocal: true, state: "enrolled", online: true, lastSeenAt: "2026-11-11T08:00:00Z", agentVersion: "1.0.0", protocolVersion: 1, os: "debian-12", arch: "amd64", supported: true, modules, ingestion: null }
 }
 
 function cpRow(over: Partial<ExposureRow> & { name: string; port: number }): ExposureRow {

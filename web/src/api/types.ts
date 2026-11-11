@@ -6,7 +6,18 @@ export interface NewToken extends TokenInfo { token: string }
 export interface TokenList { tokens: TokenInfo[] }
 export interface Session { user: User; csrfToken: string | null; expiresAt: string | null; token: TokenInfo | null }
 export interface ModuleState { id: string; version: number; enabled: boolean; available: boolean; reason: string | null; checkedAt: string | null }
-export interface Host { id: string; name: string; isLocal: boolean; online: boolean; modules: ModuleState[]; ingestion: { ok: boolean; since: string; error: string | null } | null }
+export type HostState = "pending" | "enrolled" | "revoked"
+export interface Host { id: string; name: string; isLocal: boolean; state: HostState; online: boolean; lastSeenAt: string | null; agentVersion: string | null; protocolVersion: number | null; os: string | null; arch: string | null; supported: boolean; modules: ModuleState[]; ingestion: { ok: boolean; since: string; error: string | null } | null }
+export interface ErrorDetail { code: string; message: string }
+export interface EnrollmentGrant { host: Host; token: string; expiresAt: string; bundle?: string }
+export type Channel = "stable" | "beta"
+export interface UpdateSchedule { days: string[]; time: string }
+export interface UpdatePolicy { hostId: string; channel: Channel; schedule: UpdateSchedule | null }
+export interface UpdateTransaction { id: string; operationId: string; parentId: string | null; kind: "update" | "rollback"; fromVersion: string; toVersion: string; targetVersion: string; state: string; error: ErrorDetail | null; startedAt: string; updatedAt: string }
+export interface UpdateStatus { transactions: UpdateTransaction[] }
+export interface RolloutHost { hostId: string; position: number; state: string; planId: string | null; operationId: string | null; error: ErrorDetail | null }
+export interface Rollout { id: string; version: string; channel: Channel; state: string; error: ErrorDetail | null; createdAt: string; updatedAt: string; hosts: RolloutHost[] }
+export interface RolloutList { rollouts: Rollout[] }
 export interface HostList { hosts: Host[] }
 export interface DiffLine { op: string; text: string }
 export interface Guard { id: string; ok: boolean; message: string; overridable: boolean; overridden: boolean }

@@ -100,7 +100,7 @@ test("shows the navigation with the current page marked", async () => {
 })
 
 const webHost: Host = {
-  id: "h1", name: "web-1", isLocal: true, online: true, ingestion: null,
+  id: "h1", name: "web-1", isLocal: true, state: "enrolled", online: true, lastSeenAt: "2026-11-11T08:00:00Z", agentVersion: "1.0.0", protocolVersion: 1, os: "debian-12", arch: "amd64", supported: true, ingestion: null,
   modules: ["hostinfo", "firewall", "tailnet", "docker"].map((id) => ({
     id, version: 1, enabled: id !== "docker", available: true, reason: null, checkedAt: null,
   })),

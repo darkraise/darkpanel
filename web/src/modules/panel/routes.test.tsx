@@ -8,7 +8,7 @@ function prRender(path: string) {
   const calls = stubFetch({
     "POST /api/v1/actions/panel.exposure.status/v1/read": { body: { output: { exposed: false } } },
     "POST /api/v1/actions/core.host.list/v1/read": {
-      body: { output: { hosts: [{ id: "h1", name: "controller", isLocal: true, online: true, modules: [], ingestion: null }] } },
+      body: { output: { hosts: [{ id: "h1", name: "controller", isLocal: true, state: "enrolled", online: true, lastSeenAt: "2026-11-11T08:00:00Z", agentVersion: "1.0.0", protocolVersion: 1, os: "debian-12", arch: "amd64", supported: true, modules: [], ingestion: null }] } },
     },
   })
   renderWithProviders(

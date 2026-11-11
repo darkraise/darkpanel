@@ -13,7 +13,7 @@ const session: Session = {
 }
 
 const host: Host = {
-  id: "h1", name: "web-1", isLocal: true, online: true,
+  id: "h1", name: "web-1", isLocal: true, state: "enrolled", online: true, lastSeenAt: "2026-11-11T08:00:00Z", agentVersion: "1.0.0", protocolVersion: 1, os: "debian-12", arch: "amd64", supported: true,
   modules: [{ id: "hostinfo", version: 1, enabled: true, available: true, reason: null, checkedAt: null }],
   ingestion: null,
 }

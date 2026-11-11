@@ -16,7 +16,7 @@ const PP_REMOVE_APPLY = "POST /api/v1/actions/panel.exposure.remove/v1/apply"
 const PP_TUNNEL = "0123abcd-0123-4abc-8def-0123456789ab"
 
 function ppHost(id: string, isLocal: boolean): Host {
-  return { id, name: id === "h1" ? "controller" : "web-2", isLocal, online: true, modules: [], ingestion: null }
+  return { id, name: id === "h1" ? "controller" : "web-2", isLocal, state: "enrolled", online: true, lastSeenAt: "2026-11-11T08:00:00Z", agentVersion: "1.0.0", protocolVersion: 1, os: "debian-12", arch: "amd64", supported: true, modules: [], ingestion: null }
 }
 
 function ppPlan(call: FetchCall) {

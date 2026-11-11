@@ -13,8 +13,8 @@ const ddHosts: StubResponse = {
   body: {
     output: {
       hosts: [
-        { id: "h1", name: "controller", isLocal: true, online: true, modules: [], ingestion: null },
-        { id: "h2", name: "web-1", isLocal: false, online: true, modules: [], ingestion: null },
+        { id: "h1", name: "controller", isLocal: true, state: "enrolled", online: true, lastSeenAt: "2026-11-11T08:00:00Z", agentVersion: "1.0.0", protocolVersion: 1, os: "debian-12", arch: "amd64", supported: true, modules: [], ingestion: null },
+        { id: "h2", name: "web-1", isLocal: false, state: "enrolled", online: true, lastSeenAt: "2026-11-11T08:00:00Z", agentVersion: "1.0.0", protocolVersion: 1, os: "debian-12", arch: "amd64", supported: true, modules: [], ingestion: null },
       ],
     },
   },
