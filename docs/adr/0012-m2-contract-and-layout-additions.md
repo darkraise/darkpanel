@@ -20,9 +20,11 @@ not name. Accepted ADRs are not edited, so the additions are recorded here.
 - **Install script verification.** `install.sh` verifies a release with
   OpenSSL 3 alone, against the trusted public keys embedded in the script when
   it is generated from `install.sh.in`; it downloads nothing but the release
-  files. It hashes `checksums.txt` with BLAKE2b-512, checks one minisign
-  hashed-mode (`ED`) signature over that digest and the global signature over
-  the signature and its trusted comment with `openssl pkeyutl -verify -rawin`,
+  index `index/releases.json`, when no version is given, and the chosen
+  version's tarball, `checksums.txt` and signature files. It hashes
+  `checksums.txt` with BLAKE2b-512, checks one minisign hashed-mode (`ED`)
+  signature over that digest and the global signature over the signature and
+  its trusted comment with `openssl pkeyutl -verify -rawin`,
   requires the trusted comment
   `version=<version> channel=<stable|beta> purpose=checksums` for the version
   being installed, then checks the tarball against `checksums.txt`. Any one
@@ -55,13 +57,13 @@ not name. Accepted ADRs are not edited, so the additions are recorded here.
   the hello runs both ways. The agent accepts `Darkpanel-Principal` only from
   the authenticated controller; on its local socket the principal is always
   `local:root@<host id>`.
-- **Schema hashes.** A schema hash is the hex SHA-256 of a snapshot's `input`
-  or `output` member re-encoded with Go's `encoding/json` `Marshal` after
-  decoding it into `any`. Hello reports one input and output hash per
-  agent-side action version, keyed `<name>@<version>`. The binary embeds
-  `schemas/`, including released snapshots. Per action version the
-  dispatcher sends as is when the hash equals its own; when the hash matches
-  a released snapshot it validates the input against that older schema with
+- **Schema hashes.** A schema hash is the lower-case hex SHA-256 of a
+  snapshot's `input` or `output` member re-encoded with Go's `encoding/json`
+  `Marshal` after decoding it into `any`. Hello reports one input and output
+  hash per agent-side action version, keyed `<name>@<version>`. The binary
+  embeds `schemas/`, including released snapshots. Per action version the
+  dispatcher sends as is when the hash equals its own; when the hash matches a
+  released snapshot it validates the input against that older schema with
   unknown properties refused, then sends; an unknown hash makes the action
   version unavailable on that host.
 - **Journal epoch.** The agent stores a ULID `journal_epoch`, replaced only
@@ -69,11 +71,15 @@ not name. Accepted ADRs are not edited, so the additions are recorded here.
   re-enrollment. The controller's journal cursor and audit rows carry the
   epoch; a new epoch restarts the host's cursor at zero, and the audit's
   uniqueness is `(host, epoch, seq)`.
-- **Operation reservation.** `lifecycle.Reserve` takes the lock key `*` for
-  an owner `op:<operation id>` in its own write transaction, refused while any
+- **Operation reservation.** `lifecycle.Reserve` takes the lock key `*` for an
+  owner `op:<operation id>` in its own write transaction, refused while any
   lock is held or a revertible change is unconfirmed; while `*` is held, every
-  other lock is refused. The refusal is made when a change takes its lock
-  keys, so it covers only changes whose action declares at least one. The
+  other lock is refused. A second `Reserve` by the owner that already holds
+  `*` succeeds and changes nothing. `Reserve` is refused with
+  `core.uninstalling` while the uninstall barrier is set, and `BeginUninstall`
+  is refused with `update.in_progress` while any owner holds `*`, so an update
+  and an uninstall never overlap. The refusal is made when a change takes its
+  lock keys, so it covers only changes whose action declares at least one. The
   registry refuses an agent-side revertible action without a lock key, so no
   revertible change can start, and stay unconfirmed, while `*` is held; a
   keyless compensable or irreversible change may. Any other action that must
