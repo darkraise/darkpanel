@@ -185,8 +185,8 @@ func TestUninstallRemovesEverything(t *testing.T) {
 		t.Errorf("commands %v, want %v", got, want)
 	}
 	want := []string{
-		"Stop darkpanel-controller.service", "Stop darkpanel-agent.service",
-		"Disable darkpanel-controller.service darkpanel-agent.service darkpanel-update-recover.service",
+		"Stop darkpanel-controller.service", "Stop darkpanel-agent.service", "Stop darkpanel-rollback.service",
+		"Disable darkpanel-controller.service darkpanel-agent.service darkpanel-rollback.service darkpanel-update-recover.service",
 		"Stop demo.service", "Disable demo.service", "Reload",
 	}
 	if got := h.systemd.recorded(); !reflect.DeepEqual(got, want) {
@@ -665,8 +665,8 @@ func TestUninstallStopsModuleUnits(t *testing.T) {
 		t.Errorf("%s is left", unit)
 	}
 	want := []string{
-		"Stop darkpanel-controller.service", "Stop darkpanel-agent.service",
-		"Disable darkpanel-controller.service darkpanel-agent.service darkpanel-update-recover.service",
+		"Stop darkpanel-controller.service", "Stop darkpanel-agent.service", "Stop darkpanel-rollback.service",
+		"Disable darkpanel-controller.service darkpanel-agent.service darkpanel-rollback.service darkpanel-update-recover.service",
 		"Stop darkpanel-kinds.service", "Disable darkpanel-kinds.service", "Stop demo.service", "Disable demo.service", "Reload",
 	}
 	if got := h.systemd.recorded(); !reflect.DeepEqual(got, want) {

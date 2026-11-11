@@ -248,7 +248,7 @@ func (u *Uninstall) plan() []uninstallStep {
 	modUnits := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedUnit && !isCore(e) })
 	unitDirs := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedDir && within(e.Path, l.UnitDir) })
 	users := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedUser })
-	services := []string{update.ControllerUnit, update.AgentUnit, RecoverUnit}
+	services := []string{update.ControllerUnit, update.AgentUnit, update.RollbackUnit, RecoverUnit}
 
 	servicePlan := []string{"stop and disable " + strings.Join(services, ", ")}
 	for _, line := range describe(modUnits) {

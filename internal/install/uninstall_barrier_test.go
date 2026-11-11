@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -219,5 +220,33 @@ func TestInstallAbortUninstall(t *testing.T) {
 	cfg.Actor = ""
 	if _, err := AbortUninstall(ctx, cfg); err == nil || !strings.Contains(err.Error(), "UninstallConfig.Actor is required") {
 		t.Errorf("AbortUninstall without an actor = %v", err)
+	}
+}
+
+func TestUninstallRefusesWhileAnUpdateRuns(t *testing.T) {
+	for _, stopTasks := range []bool{false, true} {
+		h, m := installHost(t, RoleController)
+		barDB(t, h, func(db *store.DB) error {
+			return lifecycle.Reserve(context.Background(), db, lifecycle.ReserveAll, lifecycle.ReservationOwner("01BARUPDATE"))
+		})
+		cfg := h.uninstallConfig(m, false)
+		cfg.StopTasks = stopTasks
+		_, err := runUninstall(t, cfg)
+		if e := errcode.From(err); e == nil || e.Code != errcode.UpdateInProgress ||
+			!strings.Contains(e.Detail, "op:01BARUPDATE") {
+			t.Fatalf("stopTasks=%v: Run = %v, want update.in_progress naming op:01BARUPDATE", stopTasks, err)
+		}
+		if !strings.Contains(err.Error(), "uninstall: barrier: ") {
+			t.Errorf("stopTasks=%v: Run = %v, want the barrier step named", stopTasks, err)
+		}
+		if got := h.systemd.recorded(); slices.ContainsFunc(got, func(c string) bool { return strings.HasPrefix(c, "Stop ") }) {
+			t.Errorf("stopTasks=%v: systemd calls %v, want no unit stopped while an update runs", stopTasks, got)
+		}
+		if len(m.calls) != 0 || !exists(t, h.layout.Paths.Binary()) {
+			t.Errorf("stopTasks=%v: a refused uninstall changed the host", stopTasks)
+		}
+		if n := barRows(t, h); n != 0 {
+			t.Errorf("stopTasks=%v: barrier rows after the refusal = %d, want 0", stopTasks, n)
+		}
 	}
 }
