@@ -969,6 +969,136 @@ milestone closes, the rule ADRs 0010 and 0011 follow for M1.
 - `sqlite3` joins the provisioned packages so scenarios can read
   `core_locks`.
 
+## UI/UX contract
+
+**UI/UX depth:** feature — the hosts page gains the R27 columns, the host page gains an Overview tab with host management and updates, and a new Rollouts page (section 10, work package P7)
+
+### UI
+
+- **UI-1** — Hosts page (`/`): the existing darkraise-ui `Table` with columns
+  Name, Status, Version, Platform, Modules. Name keeps the link, the
+  "This controller" badge, and adds a `Badge` "Pending" (`outline`) or
+  "Revoked" (`destructive`) when `state` is not `enrolled`. Status shows
+  "Online" or "Offline", then "Last seen <formatTime(lastSeenAt)>" or
+  "Never seen" in `text-xs text-muted-foreground`, then the existing ingestion
+  badge. Version shows `agentVersion` and "protocol <protocolVersion>", or
+  "—" for each null, and a `destructive` `Badge` "Unsupported" when
+  `supported` is false and `agentVersion` is not null. Platform shows
+  "<os> / <arch>", or "—" when either is null.
+  Board: `docs/dforge/ui-ux/boards/hosts.png`.
+- **UI-2** — Host page Overview tab: the host page's tabs start with
+  "Overview" at `/hosts/:hostId`, before the module tabs, replacing the
+  redirect to the first module. The tab holds three darkraise-ui `Card`s in
+  one column: "Host" (a description list of state, status with last seen,
+  agent version, protocol version, OS, architecture, supported), "Updates"
+  (the "Update now" and "Change update policy" buttons above the update
+  history table) and "Enrollment and removal" ("New enrollment token",
+  "Revoke host", "Delete host"). Card titles are `h2`.
+  Board: `docs/dforge/ui-ux/boards/host-overview.png`.
+- **UI-3** — Rollouts page (`/rollouts`), linked as "Rollouts" in the
+  sidebar's first group after "Audit log": a `PageHeader` "Rollouts" with
+  the "Start rollout" button as its action, then one `Card` per rollout,
+  newest first: title "<version> (<channel>)", a state `Badge`, created and
+  updated times, the rollout error when set, and an ordered table of its
+  hosts (position + 1, host name, host state `Badge`, host error).
+  Board: `docs/dforge/ui-ux/boards/rollouts.png`.
+- **UI-4** — Badge variants: host and rollout states `committed` and
+  `succeeded` use `default`; `updating`, `running`, `draining` and
+  `waiting` use `secondary`; `failed` and `quarantined` use `destructive`;
+  `skipped` and `cancelled` use `outline`. Every badge carries its state as
+  text, never colour alone.
+
+### UX
+
+- **UX-1** — Hosts page state matrix:
+
+  | State | Shows |
+  |---|---|
+  | loading | the existing "Loading the hosts" spinner |
+  | error | the existing destructive alert with the error message |
+  | empty | the existing "No hosts yet" empty state and the "Add host" button |
+  | pending host | "Pending", "Offline", "Never seen", and "—" for version and platform |
+  | revoked host | "Revoked" |
+  | unsupported agent | "Unsupported" beside the version |
+  | worst case | a 63-character host name and a 40-character version wrap inside their cells; 50 hosts render without layout shift |
+
+- **UX-2** — Host page Overview state matrix: loading and error as the hosts
+  page (the page reads `core.host.list`); "Host not found" for an unknown id
+  (unchanged); the update history shows "Loading the update history",
+  then a table (started, kind, from → to, state badge, error) newest first,
+  "No updates yet" when empty, and "The update history is unavailable while
+  the host is offline." when the host is offline (the read is not sent).
+  A read error shows its message in a destructive alert inside the card.
+- **UX-3** — Flow "revoke a host": "Revoke host" (shown when `state` is
+  not `revoked` and the host is not the controller's own) opens
+  `ChangeDialog` for `core.host.revoke/v1` with `{hostId}`; the plan asks
+  for the typed confirmation the plan names; applying refreshes the host
+  list, and the Name cell shows "Revoked". Cancel or Escape closes the
+  dialog and returns focus to "Revoke host".
+- **UX-4** — Flow "delete a host": "Delete host" (shown when `state` is
+  `pending` or `revoked` and the host is not the controller's own) opens `ChangeDialog` for `core.host.delete/v1` with
+  `{hostId}` and typed confirmation; after it applies the app navigates to
+  `/` and the host is gone from the list.
+- **UX-5** — Flow "new enrollment token": "New enrollment token" (shown when
+  `state` is `pending` or `revoked` and the host is not the controller's
+  own) opens a form with an optional
+  controller address (the `host:port` pattern of `core.host.token/v1`,
+  checked on submit, with the error under the field), then `ChangeDialog`
+  with typed confirmation; the token dialog shows the token once with a Copy
+  button and the `darkpanel agent enroll` instruction and expiry, exactly as
+  the "Add host" dialog does. Closing it discards the token.
+- **UX-6** — Flow "change update policy": "Change update policy" opens a
+  form: channel (radio "Stable" / "Beta", default Stable), "Update on a
+  schedule" checkbox, and when checked seven day checkboxes (Monday to
+  Sunday) and a UTC time field `HH:MM`. Submit is refused with an error by
+  the field when the schedule has no day or the time does not match
+  `HH:MM`. Submit opens `ChangeDialog` for `core.host.update-policy/v1`
+  with `{hostId, channel, schedule}` (`schedule` null when unchecked); the
+  plan's diff shows the stored policy beside the new one.
+- **UX-7** — Flow "update now": "Update now" (shown when `state` is
+  `enrolled`) opens a form with "Version" (required, the semantic-version
+  pattern of `core.update.rollout/v1`, checked on submit) and "Channel"
+  (Stable / Beta); submit opens `ChangeDialog` for `core.update.rollout/v1`
+  with `{hosts: [hostId], version, channel}`; after it applies, a link
+  "Follow the rollout" goes to `/rollouts`.
+- **UX-8** — Rollouts page state matrix and refresh: loading spinner
+  "Loading the rollouts"; error alert; empty state "No rollouts yet" with
+  "Start rollout"; while any rollout is `running` or `draining` the list
+  re-reads `core.update.rollouts/v1` every 5 seconds and stops when none is;
+  a host id with no host in the list shows the id itself; worst case 20
+  rollouts of 50 hosts each render without horizontal page scroll.
+- **UX-9** — Flow "start a rollout": "Start rollout" opens a form listing
+  every enrolled host as a checkbox (the controller's own host marked
+  "updates first"), "Version" and "Channel" as UX-7; submit is refused with
+  "Choose at least one host." when none is checked; submit opens
+  `ChangeDialog` for `core.update.rollout/v1` with the checked host ids in
+  list order; after it applies the list refreshes and shows the new rollout
+  first.
+- **UX-10** — Flow "cancel a rollout": a rollout in `running` or `draining`
+  shows "Cancel rollout", which opens a form with a "Cancel without waiting
+  for the host that is updating" checkbox (`force`), then `ChangeDialog` for
+  `core.update.rollout-cancel/v1` with `{rolloutId, force}`; after it
+  applies the rollout shows "cancelled", or "draining" until the running
+  host finishes.
+- **UX-11** — Keyboard and focus: every flow above runs by keyboard alone;
+  each form dialog moves focus to its first field on open, closes on
+  Escape and returns focus to the button that opened it; on a refused
+  submit focus moves to the first invalid field.
+- **UX-12** — Responsive: at 375 px the hosts table and the rollout host
+  tables scroll horizontally inside their own container and the page does
+  not; the Overview cards stack full width; dialogs fit the viewport with
+  their actions visible.
+
+### Output promise
+
+| ID | Promise |
+|---|---|
+| OP-1 | The built screens match boards UI-1, UI-2 and UI-3 in components, hierarchy, states and copy; pixel offsets may differ. |
+| OP-2 | Proven at 375x812, 768x1024 and 1440x900, in light and dark themes. |
+| OP-3 | WCAG 2.1 AA: each new or changed page has a vitest-axe test with no violations, and every control has an accessible name. |
+| OP-4 | Declared deviation: the host page does not show the stored update policy, because no action reads it; the update-policy plan's diff shows it before apply. |
+| OP-5 | Declared deviation: "Update now" and "Start rollout" take a typed version, because no action lists the published releases. |
+
 ## Contracts
 
 Cross-part contracts: the paths and flags of section 1; the token format,
@@ -1069,6 +1199,10 @@ Plans 2, 3 and 4 run in parallel sessions after plan 1.
 
 - Gates 1–7 green on the branch and on `main`; gate 7 includes the M2
   scenarios on all four operating systems.
+- Web host pages (section 10): every `UI-` and `UX-` item of the UI/UX
+  contract has a Vitest test whose name starts with its ID, each new or
+  changed page has a vitest-axe test, and `ui-proof check` passes on a proof
+  report that covers every item, `OP-` items included.
 - Unit tests required beside the code:
   - enrollment: token reuse, expiry and wrong secret all answering
     `enroll.token_invalid`; concurrent token replacement and revocation
