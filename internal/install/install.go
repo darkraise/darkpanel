@@ -124,8 +124,9 @@ type Config struct {
 	Out           io.Writer
 	// Chown gives path to uid and gid; nil means os.Chown.
 	Chown func(path string, uid, gid int) error
-	// PollInterval and HealthTimeout pace the wait for the controller; zero
-	// means 1 s and HealthTimeout.
+	// PollInterval and HealthTimeout pace the wait for the controller, and
+	// PollInterval also the wait for a stopped agent; zero means 1 s and
+	// HealthTimeout.
 	PollInterval  time.Duration
 	HealthTimeout time.Duration
 }
