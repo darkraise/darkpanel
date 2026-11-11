@@ -136,6 +136,7 @@ export function UpdateNowButton({ host }: { host: Host }) {
           if (changeError(change) !== null || changeInProgress(change)) return
           setStarted(true)
           void client.invalidateQueries({ queryKey: ROLLOUTS_QUERY_KEY })
+          void client.invalidateQueries({ queryKey: ["update-status", host.id] })
         }}
       />
     </>
