@@ -96,7 +96,10 @@ export function FirewallChange({ hostId, action, title, input, onClose, fallback
         input={planned ?? undefined}
         onApplied={refresh}
       />
-      <Dialog open={refused !== null} onOpenChange={(open) => !open && close()}>
+      {/* A closed dialog stays mounted until its exit animation ends, and
+          darkraise-ui still reports pointer-downs outside it, such as the
+          click on Apply in the change dialog that replaced it. */}
+      <Dialog open={refused !== null} onOpenChange={(open) => !open && refused !== null && close()}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Change a manual rule?</DialogTitle>

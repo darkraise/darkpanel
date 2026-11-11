@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { expect, test } from "vitest"
+import { expect, test, vi } from "vitest"
 import { axe } from "vitest-axe"
 import type { Plan } from "@/api/types"
 import { renderWithProviders, stubFetch, type FetchCall, type StubHandler, type StubResponse } from "@/test/utils"
@@ -89,6 +89,28 @@ test("confirming plans again with manual: true and applies that plan", async () 
   await user.click(apply)
   await waitFor(() => expect(calls.some((c) => c.path.endsWith("/apply"))).toBe(true))
   expect(calls.find((c) => c.path.endsWith("/apply"))?.body).toEqual({ planId: "p-manual", confirmTimeoutSeconds: 60 })
+})
+
+// A closed dialog stays mounted until its exit animation ends, and its layer
+// still reports pointer-downs outside it; with no animation frame, the
+// closing dialogs never finish leaving.
+test("a dialog still leaving does not cancel the change when the other one is clicked", async () => {
+  vi.stubGlobal("requestAnimationFrame", () => 0)
+  vi.stubGlobal("cancelAnimationFrame", () => {})
+  const { calls, closed } = fcRender({
+    [FC_PLAN]: fcPlansWhenManual,
+    [FC_APPLY]: { body: { id: "c1", state: "completed", class: "revertible", error: null, output: null, revertDeadline: null } },
+  })
+  const user = userEvent.setup()
+  await user.click(screen.getByRole("button", { name: "Open" }))
+  const ask = await screen.findByRole("dialog", { name: "Change a manual rule?" })
+  await user.click(within(ask).getByRole("button", { name: "Change it anyway" }))
+  const dialog = await screen.findByRole("dialog", { name: "Delete rule 2" })
+  const apply = await within(dialog).findByRole("button", { name: "Apply" })
+  await waitFor(() => expect(apply.hasAttribute("disabled")).toBe(false))
+  await user.click(apply)
+  await waitFor(() => expect(calls.some((c) => c.path.endsWith("/apply"))).toBe(true))
+  expect(closed.count).toBe(0)
 })
 
 test("cancelling the question closes the change without planning again", async () => {
