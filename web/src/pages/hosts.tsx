@@ -61,7 +61,9 @@ function HostsBody() {
   }
   return (
     <div className="overflow-x-auto">
-      <Table>
+      {/* darkraise-ui lets table cells break anywhere, so without a minimum width
+          a narrow table squeezes its words apart instead of scrolling. */}
+      <Table className="min-w-[44rem]">
         <TableHeader>
           <TableRow>
             <TableHead>Name</TableHead>

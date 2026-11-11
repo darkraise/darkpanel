@@ -100,7 +100,9 @@ function RolloutCard({ rollout, names }: { rollout: Rollout; names: Map<string, 
             </Alert>
           )}
           <div className="overflow-x-auto">
-            <Table>
+            {/* darkraise-ui lets table cells break anywhere, so without a minimum width
+                a narrow table squeezes its words apart instead of scrolling. */}
+            <Table className="min-w-[32rem]">
               <TableHeader>
                 <TableRow>
                   <TableHead>#</TableHead>
@@ -112,7 +114,7 @@ function RolloutCard({ rollout, names }: { rollout: Rollout; names: Map<string, 
               <TableBody>
                 {rollout.hosts.map((h) => (
                   <TableRow key={h.hostId}>
-                    <TableCell>{h.position + 1}</TableCell>
+                    <TableCell className="whitespace-nowrap">{h.position + 1}</TableCell>
                     <TableCell className="break-all">{names.get(h.hostId) ?? h.hostId}</TableCell>
                     <TableCell>
                       <Badge variant={stateVariant(h.state)} size="sm">

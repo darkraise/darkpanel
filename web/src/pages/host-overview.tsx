@@ -75,7 +75,9 @@ function UpdateHistory({ hostId }: { hostId: string }) {
   if (status.data.transactions.length === 0) return <EmptyState title="No updates yet" />
   return (
     <div className="overflow-x-auto">
-      <Table aria-label="Update history">
+      {/* darkraise-ui lets table cells break anywhere, so without a minimum width
+          a narrow table squeezes its words apart instead of scrolling. */}
+      <Table aria-label="Update history" className="min-w-[40rem]">
         <TableHeader>
           <TableRow>
             <TableHead>Started</TableHead>
