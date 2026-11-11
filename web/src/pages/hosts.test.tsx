@@ -1,7 +1,8 @@
 import { screen, within } from "@testing-library/react"
 import { expect, test } from "vitest"
 import type { Host } from "@/api/types"
-import { renderWithProviders, stubFetch } from "@/test/utils"
+import { formatTime } from "@/lib/format"
+import { makeHost, renderWithProviders, stubFetch } from "@/test/utils"
 import { HostsPage } from "./hosts"
 
 const HOSTS = "POST /api/v1/actions/core.host.list/v1/read"
@@ -59,4 +60,49 @@ test("says so when there are no hosts", async () => {
   stubFetch({ [HOSTS]: { body: { output: { hosts: [] } } } })
   renderWithProviders(<HostsPage />)
   expect((await screen.findByText("No hosts yet")).textContent).toBe("No hosts yet")
+})
+
+test("UI-1: shows last seen, versions, platform and the enrollment state", async () => {
+  stubFetch({ [HOSTS]: { body: { output: { hosts: [
+    makeHost({ id: "a", name: "web-1", lastSeenAt: "2026-11-11T08:00:00Z", agentVersion: "1.2.0", protocolVersion: 3, os: "debian-12", arch: "arm64" }),
+    makeHost({ id: "b", name: "new-1", state: "pending", online: false, lastSeenAt: null, agentVersion: null, protocolVersion: null, os: null, arch: null }),
+    makeHost({ id: "c", name: "old-1", state: "revoked", online: false, supported: false, agentVersion: "0.9.0" }),
+  ] } } } })
+  renderWithProviders(<HostsPage />)
+  const row = async (name: string) => {
+    const tr = (await screen.findByRole("link", { name })).closest("tr")
+    if (tr === null) throw new Error("no row")
+    return within(tr)
+  }
+  const web = await row("web-1")
+  web.getByText(`Last seen ${formatTime("2026-11-11T08:00:00Z")}`)
+  web.getByText("1.2.0")
+  web.getByText("protocol 3")
+  web.getByText("debian-12 / arm64")
+  expect(web.queryByText("Pending")).toBeNull()
+  const fresh = await row("new-1")
+  fresh.getByText("Pending")
+  fresh.getByText("Never seen")
+  expect(fresh.getAllByText("—")).toHaveLength(3)
+  const old = await row("old-1")
+  old.getByText("Revoked")
+  old.getByText("Unsupported")
+  expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Name", "Status", "Version", "Platform", "Modules"])
+})
+
+test("UX-1: a worst-case name and version wrap inside their cells", async () => {
+  const name = `web-${"x".repeat(59)}`
+  const version = `1.0.0-beta.1+${"a".repeat(27)}`
+  stubFetch({ [HOSTS]: { body: { output: { hosts: [makeHost({ name, agentVersion: version })] } } } })
+  renderWithProviders(<HostsPage />)
+  const link = await screen.findByRole("link", { name })
+  expect(link.className).toContain("break-all")
+  expect(screen.getByText(version).closest(".break-all")).not.toBeNull()
+})
+
+test("UX-12: the table scrolls inside its own container", async () => {
+  stubFetch({ [HOSTS]: { body: { output: { hosts: [makeHost()] } } } })
+  renderWithProviders(<HostsPage />)
+  const table = await screen.findByRole("table")
+  expect(table.closest(".overflow-x-auto")).not.toBeNull()
 })

@@ -8,6 +8,7 @@ import { Spinner } from "darkraise-ui/components/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
 import { HOSTS_QUERY_KEY, errorMessage, listHosts } from "@/api/client"
 import type { Host, ModuleState } from "@/api/types"
+import { formatTime } from "@/lib/format"
 import { usePageTitle } from "@/lib/page-title"
 import { CreateHostDialog } from "./create-host-dialog"
 
@@ -59,51 +60,82 @@ function HostsBody() {
     )
   }
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Name</TableHead>
-          <TableHead>Status</TableHead>
-          <TableHead>Modules</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {hosts.data.hosts.map((h) => (
-          <TableRow key={h.id}>
-            <TableCell>
-              <div className="flex items-center gap-2">
-                <Link to={`/hosts/${encodeURIComponent(h.id)}`} className="font-medium underline-offset-4 hover:underline">
-                  {h.name}
-                </Link>
-                {h.isLocal && (
-                  <Badge variant="secondary" size="sm">
-                    This controller
-                  </Badge>
-                )}
-              </div>
-            </TableCell>
-            <TableCell>
-              <div className="flex flex-col items-start gap-1">
-                <span>{h.online ? "Online" : "Offline"}</span>
-                {h.ingestion !== null && !h.ingestion.ok && (
-                  <>
-                    <Badge variant="destructive" size="sm">
-                      Journal ingestion failing
-                    </Badge>
-                    {h.ingestion.error !== null && (
-                      <p className="text-xs text-muted-foreground">{h.ingestion.error}</p>
-                    )}
-                  </>
-                )}
-              </div>
-            </TableCell>
-            <TableCell>
-              <ModuleStates host={h} />
-            </TableCell>
+    <div className="overflow-x-auto">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Name</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>Version</TableHead>
+            <TableHead>Platform</TableHead>
+            <TableHead>Modules</TableHead>
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {hosts.data.hosts.map((h) => (
+            <TableRow key={h.id}>
+              <TableCell>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Link to={`/hosts/${encodeURIComponent(h.id)}`} className="font-medium break-all underline-offset-4 hover:underline">
+                    {h.name}
+                  </Link>
+                  {h.isLocal && (
+                    <Badge variant="secondary" size="sm">
+                      This controller
+                    </Badge>
+                  )}
+                  {h.state === "pending" && (
+                    <Badge variant="outline" size="sm">
+                      Pending
+                    </Badge>
+                  )}
+                  {h.state === "revoked" && (
+                    <Badge variant="destructive" size="sm">
+                      Revoked
+                    </Badge>
+                  )}
+                </div>
+              </TableCell>
+              <TableCell>
+                <div className="flex flex-col items-start gap-1">
+                  <span>{h.online ? "Online" : "Offline"}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {h.lastSeenAt === null ? "Never seen" : `Last seen ${formatTime(h.lastSeenAt)}`}
+                  </span>
+                  {h.ingestion !== null && !h.ingestion.ok && (
+                    <>
+                      <Badge variant="destructive" size="sm">
+                        Journal ingestion failing
+                      </Badge>
+                      {h.ingestion.error !== null && (
+                        <p className="text-xs text-muted-foreground">{h.ingestion.error}</p>
+                      )}
+                    </>
+                  )}
+                </div>
+              </TableCell>
+              <TableCell>
+                <div className="flex flex-col items-start gap-1">
+                  <span className="break-all">{h.agentVersion ?? "—"}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {h.protocolVersion === null ? "—" : `protocol ${h.protocolVersion}`}
+                  </span>
+                  {!h.supported && h.agentVersion !== null && (
+                    <Badge variant="destructive" size="sm">
+                      Unsupported
+                    </Badge>
+                  )}
+                </div>
+              </TableCell>
+              <TableCell>{h.os === null || h.arch === null ? "—" : `${h.os} / ${h.arch}`}</TableCell>
+              <TableCell>
+                <ModuleStates host={h} />
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
   )
 }
 

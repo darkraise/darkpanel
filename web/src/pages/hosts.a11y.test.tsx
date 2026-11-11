@@ -3,25 +3,24 @@ import userEvent from "@testing-library/user-event"
 import { expect, test } from "vitest"
 import type { Host } from "@/api/types"
 import { expectNoAxeViolations } from "@/test/a11y"
-import { renderWithProviders, stubFetch, type StubResponse } from "@/test/utils"
+import { makeHost, renderWithProviders, stubFetch, type StubResponse } from "@/test/utils"
 import { HostsPage } from "./hosts"
 
 const HOSTS = "POST /api/v1/actions/core.host.list/v1/read"
 
 const hosts: Host[] = [
-  {
-    id: "h1", name: "web-1", isLocal: true, state: "enrolled", online: true, lastSeenAt: "2026-11-11T08:00:00Z", agentVersion: "1.0.0", protocolVersion: 1, os: "debian-12", arch: "amd64", supported: true,
+  makeHost({
+    id: "h1", name: "web-1", isLocal: true,
     modules: [
       { id: "hostinfo", version: 1, enabled: true, available: true, reason: null, checkedAt: null },
       { id: "docker", version: 1, enabled: true, available: false, reason: "docker is not installed", checkedAt: null },
       { id: "ufw", version: 1, enabled: false, available: true, reason: null, checkedAt: null },
     ],
     ingestion: { ok: true, since: "2026-10-21T08:00:00Z", error: null },
-  },
-  {
-    id: "h2", name: "db-1", isLocal: false, state: "enrolled", online: false, lastSeenAt: null, agentVersion: "1.0.0", protocolVersion: 1, os: "debian-12", arch: "amd64", supported: true, modules: [],
-    ingestion: { ok: false, since: "2026-10-21T08:05:00Z", error: "agent unreachable" },
-  },
+  }),
+  makeHost({ id: "h2", name: "db-1", online: false, lastSeenAt: null, ingestion: { ok: false, since: "2026-10-21T08:05:00Z", error: "agent unreachable" } }),
+  makeHost({ id: "h3", name: "new-1", state: "pending", online: false, lastSeenAt: null, agentVersion: null, protocolVersion: null, os: null, arch: null }),
+  makeHost({ id: "h4", name: "old-1", state: "revoked", online: false, supported: false, agentVersion: "0.9.0" }),
 ]
 
 test("the host list passes axe with local, offline and failing-ingestion hosts", async () => {
@@ -65,6 +64,6 @@ test("the host list has one level-one heading, the page title and a table with n
   renderWithProviders(<HostsPage />)
   await screen.findByRole("link", { name: "web-1" })
   expect(screen.getAllByRole("heading", { level: 1 }).map((h) => h.textContent)).toEqual(["Hosts"])
-  expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Name", "Status", "Modules"])
+  expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Name", "Status", "Version", "Platform", "Modules"])
   expect(document.title).toBe("Hosts · Darkpanel")
 })
