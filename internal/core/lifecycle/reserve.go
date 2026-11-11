@@ -33,9 +33,14 @@ type rowQuerier interface {
 // holds key and nothing else is locked. It fails with update.in_progress
 // while another owner holds ReserveAll, and with update.unconfirmed_changes,
 // naming the first held lock, its owner and that owner's state, while any
-// other lock is held or a revertible change is applying or pending.
+// other lock is held or a revertible change is applying or pending. While
+// the uninstall barrier is set it fails with core.uninstalling before any
+// other check.
 func Reserve(ctx context.Context, db *store.DB, key, owner string) error {
 	err := db.Write(ctx, func(tx *sql.Tx) error {
+		if err := uninstallingErr(ctx, tx); err != nil {
+			return err
+		}
 		var holder string
 		err := tx.QueryRowContext(ctx,
 			"SELECT owner FROM core_locks WHERE key = ? AND owner <> ?", ReserveAll, owner).Scan(&holder)

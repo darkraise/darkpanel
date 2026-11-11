@@ -35,10 +35,22 @@ const (
 // BeginUninstall sets the uninstall barrier in the agent database db in one
 // transaction. Without stopTasks it refuses with core.change_busy, naming
 // them, while any change is owned or any task run is starting or running;
-// with stopTasks the caller stops those task units afterwards. Setting a
-// barrier that is already set succeeds.
+// with stopTasks the caller stops those task units afterwards. Either way it
+// refuses with update.in_progress, naming the operation, while an update
+// holds ReserveAll. Setting a barrier that is already set succeeds.
 func BeginUninstall(ctx context.Context, db *store.DB, stopTasks bool) error {
 	err := db.Write(ctx, func(tx *sql.Tx) error {
+		var holder string
+		err := tx.QueryRowContext(ctx,
+			"SELECT owner FROM core_locks WHERE key = ? ORDER BY owner LIMIT 1", ReserveAll).Scan(&holder)
+		switch {
+		case err == nil:
+			return errcode.New(errcode.UpdateInProgress, "update operation "+holder+" is in progress; wait for it to "+
+				"finish, or roll it back with darkpanel update rollback --local; a finished operation's reservation "+
+				"is cleared by darkpanel update recover")
+		case !errors.Is(err, sql.ErrNoRows):
+			return err
+		}
 		if !stopTasks {
 			busy, err := uninstallBusy(ctx, tx)
 			if err != nil {
@@ -50,7 +62,7 @@ func BeginUninstall(ctx context.Context, db *store.DB, stopTasks bool) error {
 					"cleared by the agent's start-up recovery once no uninstall barrier is set")
 			}
 		}
-		_, err := tx.ExecContext(ctx,
+		_, err = tx.ExecContext(ctx,
 			"INSERT INTO core_meta (key, value) VALUES (?, '1') ON CONFLICT (key) DO NOTHING", MetaUninstalling)
 		return err
 	})

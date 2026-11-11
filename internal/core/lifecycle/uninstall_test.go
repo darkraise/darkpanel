@@ -429,3 +429,33 @@ func TestAbortUninstallAudited(t *testing.T) {
 		t.Errorf("barrier rows after a failed abort = %d, want 1", n)
 	}
 }
+
+func TestBeginUninstallRefusesWhileAnUpdateHoldsTheReservation(t *testing.T) {
+	for _, stopTasks := range []bool{false, true} {
+		f := newFixture(t)
+		if err := f.reserve(opA); err != nil {
+			t.Fatal(err)
+		}
+		err := BeginUninstall(context.Background(), f.db, stopTasks)
+		wantCode(t, err, errcode.UpdateInProgress)
+		want := "update operation " + opA + " is in progress; wait for it to finish, or roll it back with darkpanel update rollback --local; " +
+			"a finished operation's reservation is cleared by darkpanel update recover"
+		if msg := errcode.From(err).Detail; msg != want {
+			t.Errorf("stopTasks=%v: refusal = %q, want %q", stopTasks, msg, want)
+		}
+		if n := f.uninstalling(); n != 0 {
+			t.Errorf("stopTasks=%v: a refused BeginUninstall left %d barrier rows", stopTasks, n)
+		}
+	}
+}
+
+func TestReserveRefusedWhileUninstalling(t *testing.T) {
+	f := newFixture(t)
+	if err := BeginUninstall(context.Background(), f.db, false); err != nil {
+		t.Fatal(err)
+	}
+	wantCode(t, f.reserve(opA), errcode.Uninstalling)
+	if n := f.count("SELECT count(*) FROM core_locks"); n != 0 {
+		t.Errorf("lock rows after the refused Reserve = %d, want 0", n)
+	}
+}
