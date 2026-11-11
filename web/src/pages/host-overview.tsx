@@ -98,7 +98,7 @@ function UpdateHistory({ hostId }: { hostId: string }) {
                   {t.state}
                 </Badge>
               </TableCell>
-              <TableCell>{t.error?.message ?? ""}</TableCell>
+              <TableCell>{t.error?.message ?? "—"}</TableCell>
             </TableRow>
           ))}
         </TableBody>

@@ -92,7 +92,7 @@ function RolloutCard({ rollout, names }: { rollout: Rollout; names: Map<string, 
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <p className="text-xs text-muted-foreground">
-            {`Started ${formatTime(rollout.createdAt)}`} · {`Updated ${formatTime(rollout.updatedAt)}`}
+            {`Created ${formatTime(rollout.createdAt)} · updated ${formatTime(rollout.updatedAt)}`}
           </p>
           {rollout.error !== null && (
             <Alert variant="destructive">
@@ -121,7 +121,7 @@ function RolloutCard({ rollout, names }: { rollout: Rollout; names: Map<string, 
                         {h.state}
                       </Badge>
                     </TableCell>
-                    <TableCell>{h.error?.message ?? ""}</TableCell>
+                    <TableCell>{h.error?.message ?? "—"}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
