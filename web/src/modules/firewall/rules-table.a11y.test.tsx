@@ -58,7 +58,8 @@ test("the change dialog that follows the manual-rule question returns focus to t
   await user.keyboard("{Enter}")
   const dialog = await screen.findByRole("dialog", { name: /^Delete rule:/ })
   await within(dialog).findByLabelText("Planned changes")
-  expect(ask.isConnected).toBe(false)
+  // A closed dialog stays mounted until its exit finishes, one animation frame under jsdom.
+  await waitFor(() => expect(ask.isConnected).toBe(false))
   await expectNoAxeViolations(dialog)
   await user.keyboard("{Escape}")
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
