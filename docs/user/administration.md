@@ -92,6 +92,12 @@ A host is pending until its agent enrolls, then enrolled, and revoked after
   `beta`, and its weekly two-hour update window in UTC, or none for updates on
   demand only. Undo it by setting the old policy.
 
+In the web, the Hosts page lists every host with its status, agent version,
+platform and modules, and marks pending, revoked and unsupported hosts. A
+host's Overview tab holds its removal actions: "New enrollment token" and
+"Delete host" on a pending or revoked host, and "Revoke host" on any host not
+yet revoked. The local host shows none of them.
+
 ## Modules on a host
 
 A module is enabled per host. A disabled module's actions and resources answer
@@ -140,6 +146,13 @@ host first, and stops at the first failure.
   rollouts with their hosts, newest first.
 - `core.update.status`: `darkpanel update status --host <host>` needs `read`. It
   lists the host's update and rollback transactions, newest first.
+
+In the web, a host's Overview tab offers "Change update policy", whose plan
+shows the stored policy beside the new one, and on an enrolled host "Update
+now", which updates that one host as a rollout. The tab also shows the host's
+update history while the host is online. The Rollouts page lists every rollout
+with its hosts, starts one with "Start rollout" and stops a running one with
+"Cancel rollout". It refreshes every 5 seconds while a rollout is in progress.
 
 ## Backup and restore
 
