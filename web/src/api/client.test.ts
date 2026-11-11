@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest"
 import {
   ApiError,
+  ROLLOUTS_QUERY_KEY,
   applyPlan,
   changeError,
   changeInProgress,
@@ -9,6 +10,7 @@ import {
   getAvailability,
   getChange,
   listEffects,
+  listRollouts,
   listSteps,
   observeEffect,
   readAction,
@@ -23,6 +25,7 @@ import {
   setUnauthorizedHandler,
   undoChange,
 } from "./client"
+import { stubFetch } from "@/test/utils"
 import type { Change, Plan } from "./types"
 
 function respond(status: number, body?: unknown, headers: Record<string, string> = {}): Response {
@@ -284,4 +287,11 @@ describe("messages", () => {
     const change = { state, error } as Change
     expect(changeError(change)).toBe(want)
   })
+})
+
+test("listRollouts reads core.update.rollouts with no input", async () => {
+  const calls = stubFetch({ "POST /api/v1/actions/core.update.rollouts/v1/read": { body: { output: { rollouts: [] } } } })
+  expect(await listRollouts()).toEqual({ rollouts: [] })
+  expect(calls[0]?.body).toEqual({ input: {} })
+  expect(ROLLOUTS_QUERY_KEY).toEqual(["rollouts"])
 })

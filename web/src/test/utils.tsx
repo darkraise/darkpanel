@@ -3,6 +3,7 @@ import { render, type RenderResult } from "@testing-library/react"
 import { QueryClient } from "@tanstack/react-query"
 import { MemoryRouter } from "react-router"
 import { vi } from "vitest"
+import type { Change, Host, Plan } from "@/api/types"
 import { Providers } from "@/providers"
 import { LocationProbe } from "./location-probe"
 
@@ -68,4 +69,62 @@ export function renderWithProviders(ui: ReactElement, { path = "/" }: { path?: s
     </MemoryRouter>,
   )
   return { ...result, client }
+}
+
+export function makeHost(over: Partial<Host> = {}): Host {
+  return {
+    id: "h1",
+    name: "web-1",
+    isLocal: false,
+    state: "enrolled",
+    online: true,
+    lastSeenAt: "2026-11-11T08:00:00Z",
+    agentVersion: "1.0.0",
+    protocolVersion: 1,
+    os: "debian-12",
+    arch: "amd64",
+    supported: true,
+    modules: [],
+    ingestion: null,
+    ...over,
+  }
+}
+
+export function makePlan(action: string, over: Partial<Plan> = {}): Plan {
+  return {
+    planId: "p1",
+    hostId: null,
+    action,
+    version: 1,
+    inputHash: "h",
+    diff: [{ op: "+", text: action }],
+    guards: [],
+    expiresAt: "2026-11-11T09:00:00Z",
+    confirmation: null,
+    ...over,
+  }
+}
+
+export function makeChange(action: string, output: unknown, over: Partial<Change> = {}): Change {
+  return {
+    id: "c1",
+    hostId: null,
+    action,
+    version: 1,
+    class: "irreversible",
+    state: "completed",
+    actor: "user:u1",
+    createdAt: "2026-11-11T08:00:00Z",
+    updatedAt: "2026-11-11T08:00:00Z",
+    revertDeadline: null,
+    output,
+    error: null,
+    compensatedBy: null,
+    parentChangeId: null,
+    owner: null,
+    repairedBy: null,
+    repairOutcome: null,
+    override: null,
+    ...over,
+  }
 }

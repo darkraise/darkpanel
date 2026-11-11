@@ -1,7 +1,7 @@
 import { screen } from "@testing-library/react"
 import { expect, test } from "vitest"
 import { ApiError, request } from "@/api/client"
-import { renderWithProviders, stubFetch } from "./utils"
+import { makeChange, makeHost, makePlan, renderWithProviders, stubFetch } from "./utils"
 
 test("stubFetch answers by method and path and records each call", async () => {
   const calls = stubFetch({
@@ -54,4 +54,17 @@ test("renderWithProviders renders at the path with a location probe", () => {
   renderWithProviders(<p>hello</p>, { path: "/audit?x=1" })
   expect(screen.getByText("hello").textContent).toBe("hello")
   expect(screen.getByTestId("location").textContent).toBe("/audit?x=1")
+})
+
+test("makeHost fills every Host field and applies overrides", () => {
+  const h = makeHost({ id: "h9", state: "pending", lastSeenAt: null })
+  expect(h).toEqual({
+    id: "h9", name: "web-1", isLocal: false, state: "pending", online: true, lastSeenAt: null,
+    agentVersion: "1.0.0", protocolVersion: 1, os: "debian-12", arch: "amd64", supported: true, modules: [], ingestion: null,
+  })
+})
+
+test("makePlan and makeChange build a plan and a completed change for an action", () => {
+  expect(makePlan("core.host.revoke", { confirmation: "web-1" })).toMatchObject({ planId: "p1", action: "core.host.revoke", confirmation: "web-1", guards: [] })
+  expect(makeChange("core.host.revoke", { id: "h1" })).toMatchObject({ id: "c1", action: "core.host.revoke", state: "completed", output: { id: "h1" } })
 })

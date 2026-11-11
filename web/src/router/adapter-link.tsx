@@ -1,7 +1,7 @@
 import type { AnchorHTMLAttributes, Ref } from "react"
 import { Link, matchPath, useLocation } from "react-router"
 import type { RouterLinkProps } from "darkraise-ui/router"
-import { activeByPrefix } from "./active-prefixes"
+import { activeByPrefix, activeExactly } from "./active-prefixes"
 
 // darkraise-ui passes more than RouterLinkProps at run time (a tooltip
 // trigger's handlers, ids and ref through asChild), so everything but the
@@ -10,7 +10,7 @@ type AdapterLinkProps = RouterLinkProps & AnchorHTMLAttributes<HTMLAnchorElement
 
 // "/" is always exact, as in NavLink: a prefix match on it would mark every page.
 function matchesOwnPath(to: string, pathname: string, exact: boolean | undefined): boolean {
-  return matchPath({ path: to, end: exact === true || to === "/" }, pathname) !== null
+  return matchPath({ path: to, end: exact === true || to === "/" || activeExactly(to) }, pathname) !== null
 }
 
 // Always one Link, never a switch to NavLink: changing the element type

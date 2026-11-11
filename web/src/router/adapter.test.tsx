@@ -25,6 +25,7 @@ function Links() {
     <>
       <Link to="/" activeClassName="active" activeExact>Hosts</Link>
       <Link to="/audit" className="nav" activeClassName="active">Audit</Link>
+      <Link to="/hosts/h1" activeClassName="active">Overview</Link>
       <button type="button" onClick={() => navigate("/settings/tokens")}>Go</button>
       <output data-testid="path">{pathname}</output>
     </>
@@ -116,4 +117,13 @@ test("the link forwards every other prop and its ref to the anchor", async () =>
   expect(link.getAttribute("data-state")).toBe("closed")
   await userEvent.setup().tab()
   expect(onFocus).toHaveBeenCalledTimes(1)
+})
+
+test.each([
+  ["/hosts/h1", "page"],
+  ["/hosts/h1/hostinfo", null],
+  ["/hosts/h1/hostinfo/summary", null],
+])("a host's Overview link on %s has aria-current %s", (path, current) => {
+  renderAt(path)
+  expect(screen.getByRole("link", { name: "Overview" }).getAttribute("aria-current")).toBe(current)
 })

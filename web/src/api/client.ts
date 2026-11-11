@@ -12,6 +12,7 @@ import type {
   RepairBody,
   RepairResult,
   Resolution,
+  RolloutList,
   Step,
   TokenList,
 } from "./types"
@@ -19,6 +20,7 @@ import type {
 export const CSRF_HEADER = "X-CSRF-Token"
 
 export const HOSTS_QUERY_KEY = ["hosts"] as const
+export const ROLLOUTS_QUERY_KEY = ["rollouts"] as const
 export const TOKENS_QUERY_KEY = ["tokens"] as const
 
 // The query keys of one change; connectEvents invalidates them on the
@@ -159,6 +161,10 @@ export function readResource<O>(hostId: string, module: string, resource: string
 
 export function listHosts(): Promise<HostList> {
   return readAction<HostList>("core.host.list", 1)
+}
+
+export function listRollouts(): Promise<RolloutList> {
+  return readAction<RolloutList>("core.update.rollouts", 1, {})
 }
 
 export function listTokens(): Promise<TokenList> {
