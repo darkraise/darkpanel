@@ -51,6 +51,15 @@ test("UX-2: the update history lists transactions newest first with state and er
   expect(calls.find((c) => c.path.endsWith("/read"))?.body).toEqual({ input: {} })
 })
 
+test("UI-4: each history badge carries the variant of its transaction state", async () => {
+  const states: [string, string][] = [["pending", "secondary"], ["rolled-back", "destructive"], ["committed", "default"]]
+  const transactions = states.map(([state], i) => ({ ...tx, id: `t${i}`, operationId: `t${i}`, state }))
+  stubFetch({ [STATUS]: { body: { output: { transactions } } } })
+  renderWithProviders(<HostOverview host={makeHost({ id: "h1" })} />)
+  const table = await screen.findByRole("table", { name: "Update history" })
+  for (const [state, variant] of states) expect(within(table).getByText(state).closest("[data-variant]")?.getAttribute("data-variant")).toBe(variant)
+})
+
 test("UX-2: an empty history says so", async () => {
   stubFetch({ [STATUS]: { body: { output: { transactions: [] } } } })
   renderWithProviders(<HostOverview host={makeHost({ id: "h1" })} />)
