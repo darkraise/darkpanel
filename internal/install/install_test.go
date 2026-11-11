@@ -690,3 +690,30 @@ func TestInstallRefusesAnAgentItCannotStop(t *testing.T) {
 		t.Errorf("systemd calls %v: the refused install went on past the database step", got)
 	}
 }
+
+func TestInstallStopsWhenTheAgentWillNotStop(t *testing.T) {
+	h := newTestHost(t)
+	ctx := context.Background()
+	if err := Install(ctx, h.config(RoleController)); err != nil {
+		t.Fatalf("Install: %v\n%s", err, h.out)
+	}
+	db := h.layout.Paths.AgentDB()
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		if err := os.Remove(db + suffix); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			t.Fatal(err)
+		}
+	}
+	boom := errors.New("boom")
+	h.systemd.failOn("Stop darkpanel-agent.service", boom)
+	h.systemd.calls = nil
+	err := Install(ctx, h.config(RoleController))
+	if !errors.Is(err, boom) || !strings.HasPrefix(err.Error(), "install: database: ") {
+		t.Fatalf("Install = %v, want the database step to fail with the stop error", err)
+	}
+	if exists(t, db) {
+		t.Errorf("install opened %s although the agent could not be stopped", db)
+	}
+	if got := h.systemd.recorded(); slices.Contains(got, "Reload") {
+		t.Errorf("systemd calls %v: install went on past the database step", got)
+	}
+}
