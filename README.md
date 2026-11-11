@@ -17,7 +17,7 @@ yet; do not use it on a server you care about.
 
 ## Prerequisites
 
-- Go 1.27.3
+- Go 1.27.4
 - Node 24
 - pnpm 11.17.0
 - GNU make
