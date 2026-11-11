@@ -75,35 +75,51 @@ function UpdateHistory({ hostId }: { hostId: string }) {
   }
   if (status.data.transactions.length === 0) return <EmptyState title="No updates yet" />
   return (
-    <div className="overflow-x-auto">
-      {/* darkraise-ui lets table cells break anywhere, so without a minimum width
-          a narrow table squeezes its words apart instead of scrolling. */}
-      <Table aria-label="Update history" className="min-w-[40rem]" ref={focusableScroller("Update history")}>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Started</TableHead>
-            <TableHead>Kind</TableHead>
-            <TableHead>Version</TableHead>
-            <TableHead>State</TableHead>
-            <TableHead>Error</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {status.data.transactions.map((t) => (
-            <TableRow key={t.id}>
-              <TableCell>{formatTime(t.startedAt)}</TableCell>
-              <TableCell>{t.kind}</TableCell>
-              <TableCell className="break-all">{`${t.fromVersion} → ${t.toVersion}`}</TableCell>
-              <TableCell>
-                <Badge variant={stateVariant(t.state)} size="sm">
-                  {t.state}
-                </Badge>
-              </TableCell>
-              <TableCell>{t.error?.message ?? "—"}</TableCell>
+    <div className="@container">
+      <div className="hidden overflow-x-auto @min-[40rem]:block">
+        {/* darkraise-ui lets table cells break anywhere, so without a minimum width
+            a narrow table squeezes its words apart instead of scrolling. */}
+        <Table aria-label="Update history" className="min-w-[40rem]" ref={focusableScroller("Update history")}>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Started</TableHead>
+              <TableHead>Kind</TableHead>
+              <TableHead>Version</TableHead>
+              <TableHead>State</TableHead>
+              <TableHead>Error</TableHead>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {status.data.transactions.map((t) => (
+              <TableRow key={t.id}>
+                <TableCell>{formatTime(t.startedAt)}</TableCell>
+                <TableCell>{t.kind}</TableCell>
+                <TableCell className="break-all">{`${t.fromVersion} → ${t.toVersion}`}</TableCell>
+                <TableCell>
+                  <Badge variant={stateVariant(t.state)} size="sm">
+                    {t.state}
+                  </Badge>
+                </TableCell>
+                <TableCell>{t.error?.message ?? "—"}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      <ul aria-label="Update history" className="flex flex-col divide-y rounded-md border @min-[40rem]:hidden">
+        {status.data.transactions.map((t) => (
+          <li key={t.id} className="flex flex-col gap-1 px-3 py-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={stateVariant(t.state)} size="sm">
+                {t.state}
+              </Badge>
+              <span className="break-all">{`${t.fromVersion} → ${t.toVersion}`}</span>
+            </div>
+            <p className="text-xs text-muted-foreground">{`${formatTime(t.startedAt)} · ${t.kind}`}</p>
+            {t.error !== null && <p className="text-sm wrap-anywhere">{`Error: ${t.error.message}`}</p>}
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

@@ -50,17 +50,21 @@ interface State {
 
 const none = async () => {}
 
+const LONG_VERSION = `1.1.0-beta.1+${"a".repeat(27)}`
+const LONG_ERROR = `the health check failed: GET https://127.0.0.1:7443/api/v1/health/${"x".repeat(60)} answered 503 after 30 s, so the agent rolled back to 1.0.0 and restarted darkpanel-agent.service`
 const TX_STATES = ["pending", "downloading", "staged", "swapped", "rolling-back", "rolled-back", "committed", "failed"]
 const TRANSACTIONS = TX_STATES.map((state, i) => {
   const at = new Date(Date.UTC(2026, 10, 11, 8 - i)).toISOString()
   const failed = state === "rolled-back" || state === "failed"
   return {
     id: `tx-${i}`, operationId: `tx-${i}`, parentId: null, kind: "update",
-    fromVersion: "1.0.0", toVersion: `1.1.${i}`, targetVersion: `1.1.${i}`, state,
-    error: failed ? { code: "update.health_failed", message: "the health check failed" } : null,
+    fromVersion: "1.0.0", toVersion: i === 0 ? LONG_VERSION : `1.1.${i}`, targetVersion: i === 0 ? LONG_VERSION : `1.1.${i}`, state,
+    error: failed ? { code: "update.health_failed", message: state === "rolled-back" ? LONG_ERROR : "the health check failed" } : null,
     startedAt: at, updatedAt: at,
   }
 })
+
+const history = (p: Page) => p.getByRole("table", { name: "Update history" }).or(p.getByRole("list", { name: "Update history" }))
 
 const STATES: State[] = [
   { id: "UX-1", state: "loading", path: "/", worstCase: true, setup: (p) => answerRead(p, "core.host.list", "hang"), shows: (p) => p.getByLabel("Loading the hosts") },
@@ -72,8 +76,8 @@ const STATES: State[] = [
   { id: "UX-2", state: "history-loading", path: `/hosts/${HOST_ID}`, worstCase: true, setup: (p) => answerRead(p, "core.update.status", "hang"), shows: (p) => p.getByLabel("Loading the update history") },
   { id: "UX-2", state: "history-error", path: `/hosts/${HOST_ID}`, worstCase: true, setup: (p) => answerRead(p, "core.update.status", "fail"), shows: (p) => p.getByRole("alert").filter({ hasText: FAILURE }) },
   { id: "UX-2", state: "history-empty", path: `/hosts/${HOST_ID}`, worstCase: false, setup: none, shows: (p) => p.getByText("No updates yet") },
-  { id: "UX-2", state: "history", path: `/hosts/${HOST_ID}`, worstCase: true, setup: none, shows: (p) => p.getByRole("table", { name: "Update history" }) },
-  { id: "UI-4", state: "transactions", path: `/hosts/${HOST_ID}`, worstCase: true, setup: (p) => answerRead(p, "core.update.status", { output: { transactions: TRANSACTIONS } }), shows: (p) => p.getByRole("table", { name: "Update history" }) },
+  { id: "UX-2", state: "history", path: `/hosts/${HOST_ID}`, worstCase: true, setup: none, shows: history },
+  { id: "UI-4", state: "transactions", path: `/hosts/${HOST_ID}`, worstCase: true, setup: (p) => answerRead(p, "core.update.status", { output: { transactions: TRANSACTIONS } }), shows: history },
   { id: "UX-2", state: "offline", path: `/hosts/${PENDING_HOST_ID}`, worstCase: true, setup: none, shows: (p) => p.getByText("The update history is unavailable while the host is offline.") },
   { id: "UI-3", state: "failed", path: "/rollouts", worstCase: true, setup: none, shows: (p) => p.getByRole("region", { name: "1.2.9 (beta)" }).getByText("web-1 failed its health check").first() },
   { id: "UX-8", state: "loading", path: "/rollouts", worstCase: true, setup: (p) => answerRead(p, "core.update.rollouts", "hang"), shows: (p) => p.getByLabel("Loading the rollouts") },
@@ -108,6 +112,18 @@ for (const theme of THEMES) {
           await page.goto(url(s.path))
           const shown = s.shows(page)
           await expect(shown).toBeVisible()
+          if (s.state === "history" || s.state === "transactions") {
+            const narrow = vp.width < 1440
+            await expect(page.locator(narrow ? "ul[aria-label='Update history']" : "table[aria-label='Update history']")).toBeVisible()
+            await expect(page.locator(narrow ? "table[aria-label='Update history']" : "ul[aria-label='Update history']")).toBeHidden()
+            await expect(page.locator(narrow ? "table[aria-label='Update history']" : "ul[aria-label='Update history']")).toHaveCount(1)
+            if (narrow) {
+              expect(await shown.evaluate((el) => el.scrollWidth <= el.clientWidth), "the list does not scroll sideways").toBe(true)
+              for (const error of await shown.getByText(/^Error: /).all()) {
+                expect(await error.evaluate((el) => el.scrollWidth <= el.clientWidth), "the error wraps inside its block").toBe(true)
+              }
+            }
+          }
           if (s.state === "disabled") await expect(shown).toBeDisabled()
           if (s.state === "transactions") {
             for (const t of TX_STATES) await expect(shown.getByText(t, { exact: true })).toBeVisible()
@@ -142,7 +158,7 @@ for (const theme of THEMES) {
         const fixtures = await open(page, theme, true)
         for (const [path, ready] of [
           ["/", (p: Page) => p.getByRole("table").getByRole("link", { name: "node-45" })],
-          [`/hosts/${HOST_ID}`, (p: Page) => p.getByRole("table", { name: "Update history" })],
+          [`/hosts/${HOST_ID}`, history],
           [`/hosts/${PENDING_HOST_ID}`, (p: Page) => p.getByText("The update history is unavailable while the host is offline.")],
           ["/rollouts", (p: Page) => p.getByRole("heading", { name: "1.3.0 (stable)" })],
         ] as const) {

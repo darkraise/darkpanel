@@ -51,6 +51,24 @@ test("UX-2: the update history lists transactions newest first with state and er
   expect(calls.find((c) => c.path.endsWith("/read"))?.body).toEqual({ input: {} })
 })
 
+test("UX-2: the narrow update history lists each transaction with its state, versions, time, kind and error", async () => {
+  const committed = { ...tx, id: "t2", operationId: "t2", state: "committed", error: null, startedAt: "2026-11-10T07:00:00Z" }
+  stubFetch({ [STATUS]: { body: { output: { transactions: [tx, committed] } } } })
+  renderWithProviders(<HostOverview host={makeHost({ id: "h1" })} />)
+  const list = await screen.findByRole("list", { name: "Update history" })
+  const items = within(list).getAllByRole("listitem")
+  expect(items).toHaveLength(2)
+  const [first, second] = items
+  if (first === undefined || second === undefined) throw new Error("no items")
+  within(first).getByText("rolled-back")
+  within(first).getByText("1.0.0 → 1.1.0")
+  within(first).getByText(`${formatTime("2026-11-11T07:00:00Z")} · update`)
+  within(first).getByText("Error: the health check failed")
+  within(second).getByText("committed")
+  within(second).getByText(`${formatTime("2026-11-10T07:00:00Z")} · update`)
+  expect(within(second).queryByText(/^Error:/)).toBeNull()
+})
+
 test("UI-4: each history badge carries the variant of its transaction state", async () => {
   const states: [string, string][] = [["pending", "secondary"], ["rolled-back", "destructive"], ["committed", "default"]]
   const transactions = states.map(([state], i) => ({ ...tx, id: `t${i}`, operationId: `t${i}`, state }))
@@ -58,6 +76,8 @@ test("UI-4: each history badge carries the variant of its transaction state", as
   renderWithProviders(<HostOverview host={makeHost({ id: "h1" })} />)
   const table = await screen.findByRole("table", { name: "Update history" })
   for (const [state, variant] of states) expect(within(table).getByText(state).closest("[data-variant]")?.getAttribute("data-variant")).toBe(variant)
+  const list = screen.getByRole("list", { name: "Update history" })
+  for (const [state, variant] of states) expect(within(list).getByText(state).closest("[data-variant]")?.getAttribute("data-variant")).toBe(variant)
 })
 
 test("UX-2: an empty history says so", async () => {
