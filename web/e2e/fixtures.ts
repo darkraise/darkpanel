@@ -365,8 +365,10 @@ const STREAM = /^\/api\/v1\/hosts\/[^/]+\/streams\/docker\/(logs|stats)$/
 const AVAILABILITY = /^\/api\/v1\/hosts\/[^/]+\/modules\/([^/]+)\/availability$/
 const CHANGE = /^\/api\/v1\/changes\/([^/]+)(?:\/(confirm|revert|steps))?$/
 
-const READS: Record<string, (worstCase: boolean) => unknown> = {
-  "core.host.list": (worstCase) => ({ hosts: worstCase ? worstHosts : hosts }),
+const READS: Record<string, (worstCase: boolean, revoked: Set<string>) => unknown> = {
+  "core.host.list": (worstCase, revoked) => ({
+    hosts: (worstCase ? worstHosts : hosts).map((h) => (revoked.has(h.id) ? { ...h, state: "revoked" } : h)),
+  }),
   "core.update.status": (worstCase) => ({ transactions: worstCase ? worstTransactions : [] }),
   "core.update.rollouts": (worstCase) => ({ rollouts: worstCase ? worstRollouts : [] }),
   "npm.instance.list": () => ({ instances: [], unreadable: [] }),
@@ -517,6 +519,7 @@ export async function mockApi(page: Page, opts: { signedIn: boolean; worstCase?:
   const fixtures: Fixtures = { unhandled: [] }
   const changes = new Map<string, Change>()
   const planned = new Map<string, Record<string, unknown>>()
+  const revoked = new Set<string>()
   const worstCase = opts.worstCase ?? false
   await page.route(
     (url) => url.pathname.startsWith("/api/"),
@@ -524,7 +527,7 @@ export async function mockApi(page: Page, opts: { signedIn: boolean; worstCase?:
       const request = route.request()
       const method = request.method()
       const path = new URL(request.url()).pathname
-      const reply = answer(method, path, route, opts.signedIn, changes, planned, worstCase)
+      const reply = answer(method, path, route, opts.signedIn, changes, planned, revoked, worstCase)
       if (reply === null) {
         fixtures.unhandled.push(`${method} ${path}`)
         await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify(problem(404, "not_found", "No fixture").json) })
@@ -553,6 +556,7 @@ function answer(
   signedIn: boolean,
   changes: Map<string, Change>,
   planned: Map<string, Record<string, unknown>>,
+  revoked: Set<string>,
   worstCase: boolean,
 ): Reply | null {
   if (path === "/api/v1/auth/session") {
@@ -571,15 +575,18 @@ function answer(
     switch (action[3]) {
       case "read": {
         const read = READS[name]
-        return read === undefined ? null : { json: { output: read(worstCase) } }
+        return read === undefined ? null : { json: { output: read(worstCase, revoked) } }
       }
       case "plan": {
         const input = bodyOf(route).input ?? {}
         planned.set(name, input)
         return plans(name, input, fleet)
       }
-      default:
-        return applies(name, changes, planned.get(name) ?? {}, fleet)
+      default: {
+        const input = planned.get(name) ?? {}
+        if (name === "core.host.revoke" && typeof input.hostId === "string") revoked.add(input.hostId)
+        return applies(name, changes, input, fleet)
+      }
     }
   }
   const resource = RESOURCE.exec(path)
