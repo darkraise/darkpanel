@@ -24,6 +24,21 @@ test("UI-2: shows the Host, Updates and Enrollment and removal cards with the ho
   facts.getByText(`Online, last seen ${formatTime("2026-11-11T08:00:00Z")}`)
 })
 
+test("UI-2: a pending host shows — for every fact its agent has not reported", () => {
+  stubFetch({})
+  renderWithProviders(<HostOverview host={makeHost({ state: "pending", online: false, lastSeenAt: null, agentVersion: null, protocolVersion: null, os: null, arch: null })} />)
+  const facts = within(screen.getByRole("region", { name: "Host" }))
+  ;["Agent version", "Protocol version", "OS", "Architecture", "Supported"].forEach((label) => expect(facts.getByText(label).nextElementSibling?.textContent).toBe("—"))
+})
+
+test("UI-2: the controller's own host says why it has no removal controls", () => {
+  stubFetch({ [STATUS]: { body: { output: { transactions: [] } } } })
+  renderWithProviders(<HostOverview host={makeHost({ isLocal: true })} />)
+  const card = within(screen.getByRole("region", { name: "Enrollment and removal" }))
+  card.getByText("The controller's own host cannot be revoked, deleted or given a new enrollment token.")
+  expect(card.queryAllByRole("button")).toHaveLength(0)
+})
+
 test("UX-2: the update history lists transactions newest first with state and error", async () => {
   const calls = stubFetch({ [STATUS]: { body: { output: { transactions: [tx] } } } })
   renderWithProviders(<HostOverview host={makeHost({ id: "h1" })} />)

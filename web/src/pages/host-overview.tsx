@@ -10,6 +10,7 @@ import { errorMessage, readAction } from "@/api/client"
 import type { Host, HostState, UpdateStatus } from "@/api/types"
 import { stateVariant } from "@/lib/badges"
 import { formatTime } from "@/lib/format"
+import { focusableScroller } from "@/lib/table"
 import { HostRemoval } from "./host-removal"
 import { UpdateNowButton } from "./update-now-dialog"
 import { UpdatePolicyButton } from "./update-policy-dialog"
@@ -45,7 +46,7 @@ function HostFacts({ host }: { host: Host }) {
     ["Protocol version", host.protocolVersion === null ? "—" : String(host.protocolVersion)],
     ["OS", host.os ?? "—"],
     ["Architecture", host.arch ?? "—"],
-    ["Supported", host.supported ? "Yes" : "No"],
+    ["Supported", host.agentVersion === null ? "—" : host.supported ? "Yes" : "No"],
   ]
   return (
     <dl className="grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-[max-content_1fr]">
@@ -77,7 +78,7 @@ function UpdateHistory({ hostId }: { hostId: string }) {
     <div className="overflow-x-auto">
       {/* darkraise-ui lets table cells break anywhere, so without a minimum width
           a narrow table squeezes its words apart instead of scrolling. */}
-      <Table aria-label="Update history" className="min-w-[40rem]">
+      <Table aria-label="Update history" className="min-w-[40rem]" ref={focusableScroller("Update history")}>
         <TableHeader>
           <TableRow>
             <TableHead>Started</TableHead>
@@ -125,9 +126,13 @@ export function HostOverview({ host }: { host: Host }) {
         )}
       </OverviewCard>
       <OverviewCard title="Enrollment and removal">
-        <div className="flex flex-wrap gap-2">
-          <HostRemoval host={host} />
-        </div>
+        {host.isLocal ? (
+          <p className="text-sm text-muted-foreground">The controller's own host cannot be revoked, deleted or given a new enrollment token.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            <HostRemoval host={host} />
+          </div>
+        )}
       </OverviewCard>
     </div>
   )

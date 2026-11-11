@@ -16,6 +16,7 @@ import type { Rollout } from "@/api/types"
 import { ChangeDialog } from "@/components/change-dialog"
 import { stateVariant } from "@/lib/badges"
 import { formatTime } from "@/lib/format"
+import { focusableScroller } from "@/lib/table"
 import { usePageTitle } from "@/lib/page-title"
 import { StartRolloutButton } from "./start-rollout-dialog"
 
@@ -102,7 +103,7 @@ function RolloutCard({ rollout, names }: { rollout: Rollout; names: Map<string, 
           <div className="overflow-x-auto">
             {/* darkraise-ui lets table cells break anywhere, so without a minimum width
                 a narrow table squeezes its words apart instead of scrolling. */}
-            <Table className="min-w-[32rem]">
+            <Table className="min-w-[32rem]" ref={focusableScroller(`Hosts of the ${rollout.version} rollout`)}>
               <TableHeader>
                 <TableRow>
                   <TableHead>#</TableHead>
