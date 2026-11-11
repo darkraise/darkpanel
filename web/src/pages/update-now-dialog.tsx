@@ -9,6 +9,7 @@ import { RadioGroup, RadioGroupItem } from "darkraise-ui/components/radio-group"
 import { ROLLOUTS_QUERY_KEY, changeError, changeInProgress } from "@/api/client"
 import type { Channel, Host } from "@/api/types"
 import { ChangeDialog } from "@/components/change-dialog"
+import { useReturnFocus } from "@/lib/return-focus"
 
 const SEMVER = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/
 
@@ -80,6 +81,7 @@ export function UpdateNowButton({ host }: { host: Host }) {
   const [release, setRelease] = useState<Release>(EMPTY)
   const [errors, setErrors] = useState<{ version?: string }>({})
   const [started, setStarted] = useState(false)
+  const opener = useReturnFocus(phase !== "closed")
 
   if (host.state !== "enrolled") return null
 
@@ -102,7 +104,9 @@ export function UpdateNowButton({ host }: { host: Host }) {
 
   return (
     <>
-      <Button onClick={() => setPhase("form")}>Update now</Button>
+      <Button ref={opener} onClick={() => setPhase("form")}>
+        Update now
+      </Button>
       {started && (
         <Link to="/rollouts" className="self-center text-sm font-medium underline underline-offset-4">
           Follow the rollout

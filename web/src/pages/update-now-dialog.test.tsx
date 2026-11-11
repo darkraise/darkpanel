@@ -50,3 +50,15 @@ test("UX-7: update now shows only for an enrolled host", () => {
   renderWithProviders(<UpdateNowButton host={makeHost({ state: "pending" })} />)
   expect(screen.queryByRole("button", { name: "Update now" })).toBeNull()
 })
+
+test("UX-11: Escape closes the form and returns focus to Update now", async () => {
+  stubFetch({})
+  renderWithProviders(<UpdateNowButton host={makeHost({ id: "h1" })} />)
+  const user = userEvent.setup()
+  const button = screen.getByRole("button", { name: "Update now" })
+  await user.click(button)
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Version")))
+  await user.keyboard("{Escape}")
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+  await waitFor(() => expect(document.activeElement).toBe(button))
+})

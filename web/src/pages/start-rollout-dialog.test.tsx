@@ -65,3 +65,16 @@ test("UX-8, UX-9: the Rollouts page offers Start rollout in its header and its e
   await screen.findByText("No rollouts yet")
   expect(screen.getAllByRole("button", { name: "Start rollout" })).toHaveLength(2)
 })
+
+test("UX-11: Escape closes the form and returns focus to Start rollout", async () => {
+  stubFetch({ [HOSTS]: { body: { output: { hosts: fleet } } } })
+  renderWithProviders(<StartRolloutButton />)
+  const user = userEvent.setup()
+  const start = screen.getByRole("button", { name: "Start rollout" })
+  await waitFor(() => expect(start.hasAttribute("disabled")).toBe(false))
+  await user.click(start)
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("checkbox", { name: "controller (updates first)" })))
+  await user.keyboard("{Escape}")
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+  await waitFor(() => expect(document.activeElement).toBe(start))
+})

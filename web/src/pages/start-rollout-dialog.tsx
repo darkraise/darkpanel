@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "darkraise-ui/components/label"
 import { HOSTS_QUERY_KEY, ROLLOUTS_QUERY_KEY, changeError, changeInProgress, listHosts } from "@/api/client"
 import { ChangeDialog } from "@/components/change-dialog"
+import { useReturnFocus } from "@/lib/return-focus"
 import { ReleaseFields, releaseError, type Release } from "./update-now-dialog"
 
 type Phase = "closed" | "form" | "plan"
@@ -21,6 +22,7 @@ export function StartRolloutButton() {
   const [release, setRelease] = useState<Release>(EMPTY)
   const [errors, setErrors] = useState<{ hosts?: string; version?: string }>({})
   const [firstHost, setFirstHost] = useState<HTMLButtonElement | null>(null)
+  const opener = useReturnFocus(phase !== "closed")
 
   // darkraise-ui's focus trap focuses the first tabbable on mount and the
   // release fields autofocus the version, so the first host is focused a frame
@@ -67,7 +69,7 @@ export function StartRolloutButton() {
 
   return (
     <>
-      <Button disabled={hosts.data === undefined} onClick={() => setPhase("form")}>
+      <Button ref={opener} disabled={hosts.data === undefined} onClick={() => setPhase("form")}>
         Start rollout
       </Button>
       <Dialog open={phase === "form"} onOpenChange={(next) => (next ? undefined : reset())}>
