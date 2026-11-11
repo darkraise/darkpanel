@@ -362,3 +362,12 @@ func TestModuleList(t *testing.T) {
 	wantCode(t, e.read(root, "core.module.list", ModuleListInput{HostID: "nope"}, &got), errcode.NotFound)
 	wantCode(t, e.read(root, "core.module.list", ModuleListInput{}, &got), errcode.InvalidInput)
 }
+
+func TestManifestCopiesTheOwnedPaths(t *testing.T) {
+	d := Deps{OwnedPaths: []core.OwnedPath{{Path: "/etc/darkpanel", Kind: core.OwnedDir}}}
+	m := Module(d).Manifest()
+	m.OwnedPaths[0].Path = "/changed"
+	if got := d.OwnedPaths[0].Path; got != "/etc/darkpanel" {
+		t.Errorf("changing the manifest's owned paths changed Deps.OwnedPaths to %q", got)
+	}
+}

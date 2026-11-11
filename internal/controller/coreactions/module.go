@@ -4,6 +4,8 @@
 package coreactions
 
 import (
+	"slices"
+
 	"github.com/darkraise/darkpanel/internal/controller/auth"
 	"github.com/darkraise/darkpanel/internal/controller/fleet"
 	"github.com/darkraise/darkpanel/internal/core"
@@ -86,7 +88,7 @@ func (m module) Manifest() core.Manifest {
 		actions = append(actions, group...)
 	}
 	actions = append(actions, m.d.Extra...)
-	return core.Manifest{ID: core.ModuleIDCore, Version: 1, Actions: actions, OwnedPaths: m.d.OwnedPaths, DefaultEnabled: true}
+	return core.Manifest{ID: core.ModuleIDCore, Version: 1, Actions: actions, OwnedPaths: slices.Clone(m.d.OwnedPaths), DefaultEnabled: true}
 }
 
 // NoInput is the input of an action that takes none.
