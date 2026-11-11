@@ -17,6 +17,7 @@ import { ChangeDialog } from "@/components/change-dialog"
 import { stateVariant } from "@/lib/badges"
 import { formatTime } from "@/lib/format"
 import { usePageTitle } from "@/lib/page-title"
+import { StartRolloutButton } from "./start-rollout-dialog"
 
 const ACTIVE = new Set(["running", "draining"])
 
@@ -151,7 +152,7 @@ function RolloutsBody() {
     return (
       <>
         <h2 className="sr-only">Rollout list</h2>
-        <EmptyState title="No rollouts yet" />
+        <EmptyState title="No rollouts yet" action={<StartRolloutButton />} />
       </>
     )
   }
@@ -169,7 +170,14 @@ export function RolloutsPage() {
   usePageTitle("Rollouts")
   return (
     <>
-      <PageHeader title="Rollouts" actions={<div className="flex flex-wrap gap-2"></div>} />
+      <PageHeader
+        title="Rollouts"
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <StartRolloutButton />
+          </div>
+        }
+      />
       <RolloutsBody />
     </>
   )
