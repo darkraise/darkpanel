@@ -18,7 +18,8 @@ host's ownership manifest lists them. Then it asks `Proceed? [y/N]`. Answer
 
 The steps run in this order:
 
-1. `barrier` makes the agent refuse new changes.
+1. `barrier` makes the agent refuse new changes. It refuses to start while an
+   update runs; see [Unfinished changes](#unfinished-changes).
 2. `services` stops and disables the Darkpanel services and the units of
    modules.
 3. `agent lock` makes sure that no agent is running.
@@ -30,7 +31,9 @@ The steps run in this order:
 8. `binary` removes `/usr/local/lib/darkpanel` and the link
    `/usr/local/bin/darkpanel`.
 9. `data` removes `/etc/darkpanel` and `/var/lib/darkpanel`, with the
-   `darkpanel` user, or keeps them with `--keep-data`.
+   `darkpanel` user when `darkpanel system install` created it, or keeps them
+   with `--keep-data`. A `darkpanel` user that existed before the install is
+   kept.
 
 It prints one line for each finished step. If a step fails, the command stops
 and names the steps that did not run. Run `sudo darkpanel uninstall` again
@@ -117,6 +120,12 @@ sudo darkpanel uninstall --stop-tasks
 
 This sets the barrier first, so no new task starts, and then stops every active
 task unit.
+
+An update that is still running holds the update reservation. With or without
+`--stop-tasks`, the uninstall refuses to start while it does, names the update
+operation, and changes nothing. Wait for the update to finish, or roll it back
+with `sudo darkpanel update rollback --local`. If the update already finished
+but its reservation was left behind, `sudo darkpanel update recover` clears it.
 
 ## Abort an uninstall
 
