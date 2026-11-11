@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from "react"
+import { useEffect, useId, useState, type FormEvent } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Button } from "darkraise-ui/components/button"
 import { Checkbox } from "darkraise-ui/components/checkbox"
@@ -20,15 +20,16 @@ export function StartRolloutButton() {
   const [chosen, setChosen] = useState<Set<string>>(new Set())
   const [release, setRelease] = useState<Release>(EMPTY)
   const [errors, setErrors] = useState<{ hosts?: string; version?: string }>({})
-  const firstHost = useRef<HTMLButtonElement>(null)
+  const [firstHost, setFirstHost] = useState<HTMLButtonElement | null>(null)
 
   // darkraise-ui's focus trap focuses the first tabbable on mount and the
-  // release fields autofocus the version, so the first host is focused a frame later.
+  // release fields autofocus the version, so the first host is focused a frame
+  // later, scheduled once the dialog's portal has mounted the checkbox.
   useEffect(() => {
-    if (phase !== "form") return
-    const frame = requestAnimationFrame(() => firstHost.current?.focus())
+    if (phase !== "form" || firstHost === null) return
+    const frame = requestAnimationFrame(() => firstHost.focus())
     return () => cancelAnimationFrame(frame)
-  }, [phase])
+  }, [phase, firstHost])
 
   const enrolled = (hosts.data?.hosts ?? []).filter((h) => h.state === "enrolled")
   const selected = enrolled.filter((h) => chosen.has(h.id)).map((h) => h.id)
@@ -54,7 +55,7 @@ export function StartRolloutButton() {
     const next = { hosts: selected.length === 0 ? "Choose at least one host." : undefined, version: releaseError(release.version) }
     setErrors(next)
     if (next.hosts !== undefined) {
-      firstHost.current?.focus()
+      firstHost?.focus()
       return
     }
     if (next.version !== undefined) {
@@ -83,7 +84,7 @@ export function StartRolloutButton() {
                   <div key={h.id} className="flex items-center gap-2">
                     <Checkbox
                       id={`${id}-host-${h.id}`}
-                      ref={i === 0 ? firstHost : undefined}
+                      ref={i === 0 ? setFirstHost : undefined}
                       checked={chosen.has(h.id)}
                       onCheckedChange={(c) => toggle(h.id, c === true)}
                       aria-invalid={errors.hosts !== undefined}

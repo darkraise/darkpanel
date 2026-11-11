@@ -35,16 +35,18 @@ export function UpdatePolicyButton({ host }: { host: Host }) {
   const [input, setInput] = useState<Record<string, unknown>>({})
   const firstDay = useRef<HTMLButtonElement>(null)
   const timeField = useRef<HTMLInputElement>(null)
-  const stable = useRef<HTMLButtonElement>(null)
+  const [stable, setStable] = useState<HTMLButtonElement | null>(null)
 
   // darkraise-ui's focus trap focuses the first tabbable control when the
   // dialog mounts, before the radio group makes its checked radio tabbable,
   // so it lands on the schedule checkbox; the channel is focused a frame later.
+  // The dialog's portal mounts its content a render after it opens, so the
+  // frame is scheduled once the radio exists, not when the phase changes.
   useEffect(() => {
-    if (phase !== "form") return
-    const frame = requestAnimationFrame(() => stable.current?.focus())
+    if (phase !== "form" || stable === null) return
+    const frame = requestAnimationFrame(() => stable.focus())
     return () => cancelAnimationFrame(frame)
-  }, [phase])
+  }, [phase, stable])
 
   function reset() {
     setPhase("closed")
@@ -85,7 +87,7 @@ export function UpdatePolicyButton({ host }: { host: Host }) {
               <legend className="text-sm font-medium">Channel</legend>
               <RadioGroup value={channel} onValueChange={(v) => setChannel(v as Channel)} aria-label="Channel" className="flex flex-wrap gap-4">
                 <div className="flex items-center gap-2">
-                  <RadioGroupItem ref={stable} id="policy-channel-stable" value="stable" />
+                  <RadioGroupItem ref={setStable} id="policy-channel-stable" value="stable" />
                   <Label htmlFor="policy-channel-stable">Stable</Label>
                 </div>
                 <div className="flex items-center gap-2">
