@@ -1,0 +1,56 @@
+import { screen, within } from "@testing-library/react"
+import { expect, test } from "vitest"
+import { formatTime } from "@/lib/format"
+import { makeHost, renderWithProviders, stubFetch } from "@/test/utils"
+import { HostOverview } from "./host-overview"
+
+const STATUS = "POST /api/v1/hosts/h1/actions/core.update.status/v1/read"
+const tx = {
+  id: "t1", operationId: "t1", parentId: null, kind: "update", fromVersion: "1.0.0", toVersion: "1.1.0", targetVersion: "1.1.0",
+  state: "rolled-back", error: { code: "update.health_failed", message: "the health check failed" },
+  startedAt: "2026-11-11T07:00:00Z", updatedAt: "2026-11-11T07:05:00Z",
+}
+
+test("UI-2: shows the Host, Updates and Enrollment and removal cards with the host's facts", async () => {
+  stubFetch({ [STATUS]: { body: { output: { transactions: [] } } } })
+  renderWithProviders(<HostOverview host={makeHost({ id: "h1", agentVersion: "1.2.0", protocolVersion: 3, os: "ubuntu-24.04", arch: "amd64" })} />)
+  expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual(["Host", "Updates", "Enrollment and removal"])
+  const facts = within(screen.getByRole("region", { name: "Host" }))
+  facts.getByText("Enrolled")
+  facts.getByText("1.2.0")
+  facts.getByText("3")
+  facts.getByText("ubuntu-24.04")
+  facts.getByText("amd64")
+  facts.getByText(`Online, last seen ${formatTime("2026-11-11T08:00:00Z")}`)
+})
+
+test("UX-2: the update history lists transactions newest first with state and error", async () => {
+  const calls = stubFetch({ [STATUS]: { body: { output: { transactions: [tx] } } } })
+  renderWithProviders(<HostOverview host={makeHost({ id: "h1" })} />)
+  const table = await screen.findByRole("table", { name: "Update history" })
+  const row = within(table).getAllByRole("row")[1]
+  if (row === undefined) throw new Error("no row")
+  within(row).getByText("1.0.0 → 1.1.0")
+  within(row).getByText("rolled-back")
+  within(row).getByText("the health check failed")
+  expect(calls.find((c) => c.path.endsWith("/read"))?.body).toEqual({ input: {} })
+})
+
+test("UX-2: an empty history says so", async () => {
+  stubFetch({ [STATUS]: { body: { output: { transactions: [] } } } })
+  renderWithProviders(<HostOverview host={makeHost({ id: "h1" })} />)
+  await screen.findByText("No updates yet")
+})
+
+test("UX-2: an offline host's history is not read", async () => {
+  const calls = stubFetch({})
+  renderWithProviders(<HostOverview host={makeHost({ id: "h1", online: false })} />)
+  screen.getByText("The update history is unavailable while the host is offline.")
+  expect(calls).toHaveLength(0)
+})
+
+test("UX-2: a failed history read shows its message in the card", async () => {
+  stubFetch({ [STATUS]: { status: 503, body: { type: "about:blank", title: "Unavailable", status: 503, detail: "no updater on this host", code: "unavailable" } } })
+  renderWithProviders(<HostOverview host={makeHost({ id: "h1" })} />)
+  expect((await screen.findByRole("alert")).textContent).toContain("no updater on this host")
+})

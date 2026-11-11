@@ -9,6 +9,7 @@ import { HostPage } from "./host"
 
 const HOSTS = "POST /api/v1/actions/core.host.list/v1/read"
 const SUMMARY = "GET /api/v1/hosts/h1/resources/hostinfo/summary"
+const STATUS = "POST /api/v1/hosts/h1/actions/core.update.status/v1/read"
 
 const summary: Summary = {
   hostname: "web-1", os: { id: "debian", versionId: "13", prettyName: "Debian GNU/Linux 13 (trixie)" }, kernel: "6.12.0",
@@ -26,7 +27,7 @@ function host(modules: ModuleState[]): Host {
 }
 
 function renderHost(path: string, list: StubResponse | (() => Promise<StubResponse>)) {
-  stubFetch({ [HOSTS]: list, [SUMMARY]: { body: summary } })
+  stubFetch({ [HOSTS]: list, [SUMMARY]: { body: summary }, [STATUS]: { body: { output: { transactions: [] } } } })
   return renderWithProviders(
     <Routes>
       <Route path="/hosts/:hostId" element={<HostPage />} />
@@ -63,9 +64,9 @@ test("the host page passes axe for an unknown host", async () => {
   await expectNoAxeViolations(container)
 })
 
-test("the host page passes axe for a host without modules", async () => {
+test("OP-3: the host page passes axe on the Overview tab", async () => {
   const { container } = renderHost("/hosts/h1", withModules([state("hostinfo", false, true)]))
-  await screen.findByText("No modules are enabled on this host.")
+  await screen.findByText("No updates yet")
   await expectNoAxeViolations(container)
 })
 
@@ -92,7 +93,7 @@ test.each([
   ["a module page", "/hosts/h1/hostinfo", withModules([state("hostinfo", true, true)]), "web-1 · Host information · Darkpanel"],
   ["an unavailable module", "/hosts/h1/hostinfo", withModules([state("hostinfo", true, false, "/proc is not mounted")]), "web-1 · Host information · Darkpanel"],
   ["a module that is not enabled", "/hosts/h1/hostinfo", withModules([state("hostinfo", false, true)]), "web-1 · Host information · Darkpanel"],
-  ["a host without modules", "/hosts/h1", withModules([state("hostinfo", false, true)]), "web-1 · Darkpanel"],
+  ["the Overview tab", "/hosts/h1", withModules([state("hostinfo", false, true)]), "web-1 · Darkpanel"],
   ["an unknown host", "/hosts/nope/hostinfo", withModules([state("hostinfo", true, true)]), "Host not found · Darkpanel"],
 ])("the page title of %s", async (_name, path, list, title) => {
   renderHost(path, list)

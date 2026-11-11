@@ -1,5 +1,5 @@
 import { lazy } from "react"
-import { screen } from "@testing-library/react"
+import { screen, within } from "@testing-library/react"
 import { Server } from "lucide-react"
 import { Route, Routes } from "react-router"
 import { describe, expect, test } from "vitest"
@@ -31,9 +31,10 @@ const summary: Summary = {
 
 const HOSTS = "POST /api/v1/actions/core.host.list/v1/read"
 const SUMMARY = "GET /api/v1/hosts/h1/resources/hostinfo/summary"
+const STATUS = "POST /api/v1/hosts/h1/actions/core.update.status/v1/read"
 
 function renderHost(path: string, modules: ModuleState[]) {
-  const calls = stubFetch({ [HOSTS]: { body: { output: { hosts: [host(modules)] } } }, [SUMMARY]: { body: summary } })
+  const calls = stubFetch({ [HOSTS]: { body: { output: { hosts: [host(modules)] } } }, [SUMMARY]: { body: summary }, [STATUS]: { body: { output: { transactions: [] } } } })
   renderWithProviders(
     <Routes>
       <Route path="/hosts/:hostId" element={<HostPage />} />
@@ -115,6 +116,7 @@ describe("host page", () => {
     const tab = await screen.findByRole("link", { name: "Host information" })
     expect(tab.getAttribute("href")).toBe("/hosts/h1/hostinfo")
     expect(tab.getAttribute("aria-current")).toBe("page")
+    expect(screen.getByRole("link", { name: "Overview" }).getAttribute("aria-current")).toBeNull()
     expect((await screen.findByText("Debian GNU/Linux 13 (trixie)")).textContent).toBe("Debian GNU/Linux 13 (trixie)")
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("web-1")
   })
@@ -133,15 +135,21 @@ describe("host page", () => {
     expect(screen.queryByRole("link", { name: "Host information" })).toBeNull()
   })
 
-  test("the host index opens the first enabled module", async () => {
+  test("UI-2: the host index opens the Overview tab, listed before the module tabs", async () => {
     renderHost("/hosts/h1", [state("hostinfo", true, true)])
-    expect((await screen.findByText("Debian GNU/Linux 13 (trixie)")).textContent).toBe("Debian GNU/Linux 13 (trixie)")
-    expect(screen.getByTestId("location").textContent).toBe("/hosts/h1/hostinfo")
+    await screen.findByRole("heading", { level: 2, name: "Host" })
+    const nav = within(screen.getByRole("navigation", { name: "Page sections" }))
+    expect(nav.getAllByRole("link").map((l) => l.textContent)).toEqual(["Overview", "Host information"])
+    expect(nav.getByRole("link", { name: "Overview" }).getAttribute("aria-current")).toBe("page")
+    expect(nav.getByRole("link", { name: "Host information" }).getAttribute("aria-current")).toBeNull()
+    expect(screen.getByTestId("location").textContent).toBe("/hosts/h1")
   })
 
-  test("the host index says so when no module is enabled", async () => {
+  test("UI-2: a host with no module enabled still opens the Overview tab", async () => {
     renderHost("/hosts/h1", [state("hostinfo", false, true)])
-    expect((await screen.findByText("No modules are enabled on this host.")).textContent).toBe("No modules are enabled on this host.")
+    await screen.findByRole("heading", { level: 2, name: "Host" })
+    const nav = within(screen.getByRole("navigation", { name: "Page sections" }))
+    expect(nav.getAllByRole("link").map((l) => l.textContent)).toEqual(["Overview"])
   })
 
   test("an unknown host is reported", async () => {

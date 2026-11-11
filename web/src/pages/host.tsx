@@ -1,5 +1,5 @@
 import { Suspense } from "react"
-import { Navigate, useParams } from "react-router"
+import { useParams } from "react-router"
 import { useQuery } from "@tanstack/react-query"
 import { PageHeader } from "darkraise-ui/layout"
 import { Alert, AlertDescription, AlertTitle } from "darkraise-ui/components/alert"
@@ -8,6 +8,7 @@ import { Spinner } from "darkraise-ui/components/spinner"
 import { HOSTS_QUERY_KEY, errorMessage, listHosts } from "@/api/client"
 import { usePageTitle } from "@/lib/page-title"
 import { enabledModules, moduleRegistry, moduleView, type ModuleView } from "@/modules/registry"
+import { HostOverview } from "./host-overview"
 
 function hostTitle(loaded: boolean, name: string | undefined, moduleId: string | undefined): string {
   if (!loaded) return "Host"
@@ -65,21 +66,18 @@ export function HostPage() {
   }
   if (host === undefined) return <EmptyState title="Host not found" description={`No host has the id ${hostId}.`} />
 
-  const tabs = enabledModules(moduleRegistry, host).map((m) => ({
-    label: m.label,
-    value: m.id,
-    href: `/hosts/${encodeURIComponent(host.id)}/${m.id}`,
-  }))
+  const base = `/hosts/${encodeURIComponent(host.id)}`
+  const tabs = [
+    { label: "Overview", value: "overview", href: base },
+    ...enabledModules(moduleRegistry, host).map((m) => ({ label: m.label, value: m.id, href: `${base}/${m.id}` })),
+  ]
   const header = <PageHeader breadcrumbs={[{ label: "Hosts", href: "/" }, { label: host.name }]} title={host.name} tabs={tabs} />
 
   if (moduleId === undefined) {
-    const first = tabs[0]
-    if (first !== undefined) return <Navigate to={first.href} replace />
     return (
       <>
         {header}
-        <h2 className="sr-only">Modules</h2>
-        <EmptyState title="No modules" description="No modules are enabled on this host." />
+        <HostOverview host={host} />
       </>
     )
   }

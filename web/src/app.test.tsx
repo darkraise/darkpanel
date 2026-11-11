@@ -23,6 +23,7 @@ function stubServer(sessionResponse: StubResponse) {
     "GET /api/v1/auth/session": sessionResponse,
     "GET /api/v1/controller/listeners": { body: { tailscaleBound: false, message: "No Tailscale address found; serving loopback only." } },
     "POST /api/v1/actions/core.host.list/v1/read": { body: { output: { hosts: [host] } } },
+    "POST /api/v1/hosts/h1/actions/core.update.status/v1/read": { body: { output: { transactions: [] } } },
     "POST /api/v1/actions/core.audit.list/v1/read": { body: { output: { entries: [], nextBefore: null } } },
     "POST /api/v1/actions/core.token.list/v1/read": { body: { output: { tokens: [] } } },
     "GET /api/v1/changes/c1": {
@@ -59,13 +60,13 @@ describe("app routes", () => {
     expect(screen.getByTestId("location").textContent).toBe("/login?next=%2Fsettings%2Ftokens")
   })
 
-  test("the hosts overview is the home page and links to the host", async () => {
+  test("the hosts overview is the home page and links to the host's Overview tab", async () => {
     stubServer({ body: session })
     renderWithProviders(<App />, { path: "/" })
     expect((await heading("Hosts")).textContent).toBe("Hosts")
     await userEvent.setup().click(within(await screen.findByRole("table")).getByRole("link", { name: "web-1" }))
-    expect((await screen.findByText("Ubuntu 22.04.5 LTS")).textContent).toBe("Ubuntu 22.04.5 LTS")
-    expect(screen.getByTestId("location").textContent).toBe("/hosts/h1/hostinfo")
+    await screen.findByRole("heading", { level: 2, name: "Host" })
+    expect(screen.getByTestId("location").textContent).toBe("/hosts/h1")
   })
 
   test.each([
