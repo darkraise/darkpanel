@@ -112,7 +112,7 @@ jobs:
         with:
           version: v2.15.0
           install-only: true
-      - run: make lint-go test-go vuln
+      - run: make lint-go test-go test-race vuln
 
   web:
     needs: runner

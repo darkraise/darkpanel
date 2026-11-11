@@ -23,7 +23,7 @@ Command: `make test`
 Green: every Go package line starts with `ok`, the Vitest `Tests` line has no `failed`, and the ADR checker reports `0 failed`
 Evidence: output
 Applies: always
-Why: the unit tests for the CLI, the embedded UI package, the web app and the ADR checker
+Why: the unit tests for the CLI, the embedded UI package, the web app and the ADR checker; test-race runs the agent daemon's credential-writer tests under the race detector
 
 ## 4. Build
 Command: `make build verify-build`

@@ -31,7 +31,7 @@ UI_MARKER := <title>Darkpanel</title>
 export GOTOOLCHAIN := local
 
 # release is phony on purpose: the release/ directory would otherwise satisfy it.
-.PHONY: web-deps web build verify-build lint-go lint-web lint-sh lint test-go test-web test-adr test-release test schemas vuln check clean release-check release release-prep install-sh harness-builds fuzz api-docs
+.PHONY: web-deps web build verify-build lint-go lint-web lint-sh lint test-go test-race test-web test-adr test-release test schemas vuln check clean release-check release release-prep install-sh harness-builds fuzz api-docs
 
 # The stamp reruns the install only when the manifest, the lockfile or the
 # install policy changes.
@@ -83,6 +83,9 @@ lint: lint-go lint-web lint-sh
 test-go:
 	go test -timeout 20m ./...
 
+test-race:
+	go test -race -timeout 10m -count=1 ./internal/agent/daemon/
+
 test-web: web-deps
 	pnpm -C web test
 
@@ -96,7 +99,7 @@ test-release:
 	bash release/sign.test.sh
 	bash scripts/fuzz.test.sh
 
-test: test-go test-web test-adr test-release
+test: test-go test-race test-web test-adr test-release
 
 schemas:
 	go run ./internal/core/schema/schemagen -out schemas
