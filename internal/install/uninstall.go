@@ -89,6 +89,7 @@ type Uninstall struct {
 	own     core.Ownership // nil without db
 	files   *platform.Files
 	sealer  core.Sealer
+	keyErr  error // why an existing agent key could not be loaded
 	entries []core.OwnedEntry
 	steps   []uninstallStep
 	lockFD  int // the agent lock, -1 until taken
@@ -132,7 +133,8 @@ func PlanUninstall(ctx context.Context, cfg UninstallConfig) (*Uninstall, error)
 
 // load opens agent.db and the agent key when they exist and collects the
 // entries to remove. The service user is removed only when the manifest
-// records it, never because a role declares it.
+// records it, never because a role declares it. A damaged agent key is
+// remembered rather than failing the plan; the modules step reports it.
 func (u *Uninstall) load(ctx context.Context) error {
 	p := u.cfg.Layout.Paths
 	if _, err := os.Lstat(p.AgentDB()); err == nil {
@@ -157,14 +159,15 @@ func (u *Uninstall) load(ctx context.Context) error {
 	}
 	if _, err := os.Lstat(p.AgentKey); err == nil {
 		key, err := secret.LoadOrCreateKey(p.AgentKey)
-		if err != nil {
-			return err
+		var s *secret.Sealer
+		if err == nil {
+			s, err = secret.NewSealer(key)
 		}
-		s, err := secret.NewSealer(key)
 		if err != nil {
-			return err
+			u.keyErr = err
+		} else {
+			u.sealer = s
 		}
-		u.sealer = s
 	}
 	if u.db != nil {
 		u.files = platform.NewFiles(platform.FilesConfig{
@@ -308,8 +311,9 @@ func (u *Uninstall) plan() []uninstallStep {
 			}})
 	} else {
 		steps = append(steps, uninstallStep{name: "data",
-			plan: append([]string{"remove " + l.ConfigDir + " and " + l.DataDir + ", agent.db last"}, describe(users)...),
-			run:  func(ctx context.Context) (string, error) { return u.removeData(ctx, users) }})
+			plan: append([]string{"remove the users, then " + l.DataDir + " except agent.db, then " + l.ConfigDir +
+				" with the agent key, and agent.db last"}, describe(users)...),
+			run: func(ctx context.Context) (string, error) { return u.removeData(ctx, users) }})
 	}
 	return steps
 }
@@ -574,8 +578,12 @@ func (u *Uninstall) runModules(ctx context.Context) (string, error) {
 	if u.db == nil {
 		return "no agent database; no module installed anything", nil
 	}
+	key := u.cfg.Layout.Paths.AgentKey
+	if u.keyErr != nil {
+		return "", fmt.Errorf("the agent key %s cannot be read (%w); restore it, or delete it to skip the module steps", key, u.keyErr)
+	}
 	if u.sealer == nil {
-		return "no agent key; an earlier run already ran the module steps", nil
+		return "no agent key at " + key + "; skipped the module steps, which need it", nil
 	}
 	env := core.Env{DB: u.db, Exec: u.cfg.Exec, Files: u.files, Sealer: u.sealer, Clock: u.cfg.Clock, Log: u.cfg.Log}
 	var ran []string

@@ -208,8 +208,8 @@ func TestUninstallAgentRole(t *testing.T) {
 	if exists(t, h.layout.DataDir) || exists(t, h.layout.Paths.BinaryDir) || exists(t, h.layout.UnitPath("darkpanel-agent.service")) {
 		t.Error("the agent role's paths are left")
 	}
-	if got := h.systemd.recorded(); got[0] != "Stop darkpanel-agent.service" {
-		t.Errorf("first call %q, want the agent stopped; the controller unit does not exist", got[0])
+	if got := h.systemd.recorded(); len(got) == 0 || got[0] != "Stop darkpanel-agent.service" {
+		t.Fatalf("systemd calls %v, want the agent stopped first; the controller unit does not exist", got)
 	}
 	if got := h.runner.commands(); !reflect.DeepEqual(got, []string{"/usr/sbin/userdel demo"}) {
 		t.Errorf("commands %v: the agent role has no darkpanel user to remove", got)
@@ -479,6 +479,17 @@ func TestDescribeUninstall(t *testing.T) {
 	if strings.Contains(out.String(), "file "+h.layout.Paths.AgentKey) {
 		t.Errorf("the --keep-data plan removes the agent key:\n%s", out.String())
 	}
+	u2, err := PlanUninstall(context.Background(), h.uninstallConfig(m, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = u2.Close() }()
+	var full bytes.Buffer
+	u2.Describe(&full)
+	if want := "remove the users, then " + h.layout.DataDir + " except agent.db, then " + h.layout.ConfigDir +
+		" with the agent key, and agent.db last"; !strings.Contains(full.String(), want) {
+		t.Errorf("plan lacks %q:\n%s", want, full.String())
+	}
 }
 
 // kindsModule declares a managed directory outside the data directory and one
@@ -723,5 +734,46 @@ func TestUninstallKeepsAUserItDidNotCreate(t *testing.T) {
 		if _, _, found, _ := h.users.Lookup(ServiceUser); !found {
 			t.Errorf("%s: the pre-existing user %s was removed", role, ServiceUser)
 		}
+	}
+}
+
+func TestUninstallWithADamagedAgentKey(t *testing.T) {
+	h, m := installHost(t, RoleController)
+	key := h.layout.Paths.AgentKey
+	if err := os.WriteFile(key, []byte("damaged\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runUninstall(t, h.uninstallConfig(m, false))
+	if err == nil || !strings.Contains(err.Error(), "uninstall: modules: the agent key "+key+" cannot be read") ||
+		!strings.Contains(err.Error(), "restore it, or delete it to skip the module steps") {
+		t.Fatalf("Run = %v, want the modules step to name the damaged key %s\n%s", err, key, out)
+	}
+	if len(m.calls) != 0 || !exists(t, key) {
+		t.Error("a module step ran, or the damaged key was removed")
+	}
+	if err := os.Remove(key); err != nil {
+		t.Fatal(err)
+	}
+	out, err = runUninstall(t, h.uninstallConfig(m, false))
+	if err != nil {
+		t.Fatalf("second Run: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "modules: no agent key at "+key+"; skipped the module steps, which need it") {
+		t.Errorf("output does not say the module steps were skipped:\n%s", out)
+	}
+	if exists(t, h.layout.DataDir) || exists(t, h.layout.ConfigDir) {
+		t.Error("the data or configuration directory is left")
+	}
+}
+
+func TestUninstallStopsAtAFailingUserdel(t *testing.T) {
+	h, m := installHost(t, RoleController)
+	h.runner.exit = 1
+	_, err := runUninstall(t, h.uninstallConfig(m, false))
+	if err == nil || !strings.Contains(err.Error(), "uninstall: data: userdel darkpanel exited 1: refused") {
+		t.Fatalf("Run = %v, want the data step to stop at the failing userdel", err)
+	}
+	if !exists(t, h.layout.ConfigDir) || !exists(t, h.layout.Paths.AgentKey) {
+		t.Error("the data step removed the configuration directory or the agent key after a failed userdel")
 	}
 }
