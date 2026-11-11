@@ -1,0 +1,91 @@
+{
+  "name": "core.module.disable",
+  "version": 1,
+  "class": "compensable",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ModuleInput",
+    "$defs": {
+      "ModuleInput": {
+        "properties": {
+          "hostId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Id of the host."
+          },
+          "moduleId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Id of a compiled-in module other than core."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "hostId",
+          "moduleId"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ModuleState",
+    "$defs": {
+      "ModuleState": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Module id."
+          },
+          "version": {
+            "type": "integer",
+            "description": "Module version compiled into this binary."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether an operator enabled the module on the host."
+          },
+          "available": {
+            "type": "boolean",
+            "description": "Whether the module's migrations and preflight checks passed on the host."
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "Why the module is unavailable; null when it is available."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "checkedAt": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "When availability was last checked; null when it never was."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "version",
+          "enabled",
+          "available",
+          "reason",
+          "checkedAt"
+        ]
+      }
+    }
+  }
+}

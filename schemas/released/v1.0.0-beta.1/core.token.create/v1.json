@@ -1,0 +1,109 @@
+{
+  "name": "core.token.create",
+  "version": 1,
+  "class": "compensable",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/TokenCreateInput",
+    "$defs": {
+      "TokenCreateInput": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "description": "A name to recognise the token by, 1 to 64 characters."
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "read",
+              "operate",
+              "admin"
+            ],
+            "description": "What the token may do: read, operate or admin."
+          },
+          "expiresInDays": {
+            "type": "integer",
+            "maximum": 365,
+            "minimum": 1,
+            "description": "Days until the token expires, 1 to 365; 90 when omitted."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "scope"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/NewToken",
+    "$defs": {
+      "NewToken": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastUsedAt": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revokedAt": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "token": {
+            "type": "string",
+            "description": "The token, sent as Authorization: Bearer \u003ctoken\u003e; shown only once.",
+            "x-secret": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "scope",
+          "createdAt",
+          "expiresAt",
+          "lastUsedAt",
+          "revokedAt",
+          "token"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,153 @@
+{
+  "name": "core.host.update-policy",
+  "version": 1,
+  "class": "compensable",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/UpdatePolicy",
+    "$defs": {
+      "UpdatePolicy": {
+        "properties": {
+          "hostId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Host id."
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "stable",
+              "beta"
+            ],
+            "description": "Release channel the host follows."
+          },
+          "schedule": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/UpdateSchedule",
+                "description": "Weekly update window; null for on-demand updates only."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "hostId",
+          "channel",
+          "schedule"
+        ]
+      },
+      "UpdateSchedule": {
+        "properties": {
+          "days": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "mon",
+                "tue",
+                "wed",
+                "thu",
+                "fri",
+                "sat",
+                "sun"
+              ]
+            },
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "description": "Days the window opens."
+          },
+          "time": {
+            "type": "string",
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+            "description": "UTC time the window opens, HH:MM."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "days",
+          "time"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/UpdatePolicy",
+    "$defs": {
+      "UpdatePolicy": {
+        "properties": {
+          "hostId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Host id."
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "stable",
+              "beta"
+            ],
+            "description": "Release channel the host follows."
+          },
+          "schedule": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/UpdateSchedule",
+                "description": "Weekly update window; null for on-demand updates only."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "hostId",
+          "channel",
+          "schedule"
+        ]
+      },
+      "UpdateSchedule": {
+        "properties": {
+          "days": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "mon",
+                "tue",
+                "wed",
+                "thu",
+                "fri",
+                "sat",
+                "sun"
+              ]
+            },
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "description": "Days the window opens."
+          },
+          "time": {
+            "type": "string",
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+            "description": "UTC time the window opens, HH:MM."
+          }
+        },
+        "type": "object",
+        "required": [
+          "days",
+          "time"
+        ]
+      }
+    }
+  }
+}

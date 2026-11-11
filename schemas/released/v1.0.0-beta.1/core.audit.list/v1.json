@@ -1,0 +1,178 @@
+{
+  "name": "core.audit.list",
+  "version": 1,
+  "class": "read",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/AuditListInput",
+    "$defs": {
+      "AuditListInput": {
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "maximum": 500,
+            "minimum": 1,
+            "description": "Most entries to return, 1 to 500; 100 when omitted."
+          },
+          "before": {
+            "type": "string",
+            "description": "The nextBefore of a previous page: only older entries are returned."
+          },
+          "actor": {
+            "type": "string",
+            "description": "Only entries of this actor, such as user:\u003cid\u003e or local:root@\u003chost id\u003e."
+          },
+          "hostId": {
+            "type": "string",
+            "description": "Only entries of agent actions on this host."
+          },
+          "action": {
+            "type": "string",
+            "description": "Only entries of this action, such as core.token.create."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/AuditList",
+    "$defs": {
+      "AuditEntry": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Entry id."
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the event happened."
+          },
+          "actor": {
+            "type": "string",
+            "description": "Who acted, such as user:\u003cid\u003e, token:\u003cid\u003e, local:root@\u003chost id\u003e, anonymous or system:recovery."
+          },
+          "hostId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "The host of an agent action; null for controller-side events."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "action": {
+            "type": "string",
+            "description": "The action, or core.auth.login and core.auth.logout."
+          },
+          "version": {
+            "type": "integer",
+            "description": "The action version."
+          },
+          "phase": {
+            "type": "string",
+            "description": "apply, confirm, revert, recover, interrupt, login or logout."
+          },
+          "changeId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "The change; null for logins and logouts."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "input": {
+            "$ref": "#/$defs/AuditInput",
+            "description": "The input, with secret fields redacted when it was recorded."
+          },
+          "result": {
+            "type": "string",
+            "description": "ok or error."
+          },
+          "errorCode": {
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "The error code of a failed event; null when it succeeded."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source": {
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "The client address, or socket; null when it was not recorded."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "at",
+          "actor",
+          "hostId",
+          "action",
+          "version",
+          "phase",
+          "changeId",
+          "input",
+          "result",
+          "errorCode",
+          "source"
+        ]
+      },
+      "AuditInput": {
+        "items": {
+          "$ref": "#/$defs/AuditInput"
+        },
+        "additionalProperties": {
+          "$ref": "#/$defs/AuditInput"
+        }
+      },
+      "AuditList": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/$defs/AuditEntry"
+            },
+            "type": "array",
+            "description": "Matching entries, newest first."
+          },
+          "nextBefore": {
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "Pass as before to read the next page; null on the last page."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "entries",
+          "nextBefore"
+        ]
+      }
+    }
+  }
+}

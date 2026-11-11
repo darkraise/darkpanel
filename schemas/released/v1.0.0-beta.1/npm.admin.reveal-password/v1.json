@@ -1,0 +1,40 @@
+{
+  "name": "npm.admin.reveal-password",
+  "version": 1,
+  "class": "read",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/RevealInput",
+    "$defs": {
+      "RevealInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/AdminPassword",
+    "$defs": {
+      "AdminPassword": {
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string",
+            "x-secret": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,237 @@
+{
+  "name": "docker.container.inspect",
+  "version": 1,
+  "class": "read",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ContainerInput",
+    "$defs": {
+      "ContainerInput": {
+        "properties": {
+          "container": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "container"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ContainerDetail",
+    "$defs": {
+      "ContainerDetail": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "image": {
+            "type": "string"
+          },
+          "imageId": {
+            "type": "string"
+          },
+          "created": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "state": {
+            "type": "string"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "finishedAt": {
+            "type": "string"
+          },
+          "exitCode": {
+            "type": "integer"
+          },
+          "restartPolicy": {
+            "type": "string"
+          },
+          "cmd": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "entrypoint": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "workingDir": {
+            "type": "string"
+          },
+          "user": {
+            "type": "string"
+          },
+          "env": {
+            "items": {
+              "$ref": "#/$defs/EnvVar"
+            },
+            "type": "array"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "ports": {
+            "items": {
+              "$ref": "#/$defs/Port"
+            },
+            "type": "array"
+          },
+          "mounts": {
+            "items": {
+              "$ref": "#/$defs/Mount"
+            },
+            "type": "array"
+          },
+          "networks": {
+            "items": {
+              "$ref": "#/$defs/EndpointView"
+            },
+            "type": "array"
+          },
+          "project": {
+            "type": "string"
+          },
+          "service": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "image",
+          "imageId",
+          "created",
+          "state",
+          "running",
+          "exitCode",
+          "env",
+          "ports",
+          "mounts",
+          "networks"
+        ]
+      },
+      "EndpointView": {
+        "properties": {
+          "network": {
+            "type": "string"
+          },
+          "networkId": {
+            "type": "string"
+          },
+          "container": {
+            "type": "string"
+          },
+          "endpointId": {
+            "type": "string"
+          },
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "ipv4": {
+            "type": "string"
+          },
+          "ipv6": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "network",
+          "networkId",
+          "container"
+        ]
+      },
+      "EnvVar": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "value"
+        ]
+      },
+      "Mount": {
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "destination": {
+            "type": "string"
+          },
+          "rw": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "source",
+          "destination",
+          "rw"
+        ]
+      },
+      "Port": {
+        "properties": {
+          "ip": {
+            "type": "string"
+          },
+          "privatePort": {
+            "type": "integer"
+          },
+          "publicPort": {
+            "type": "integer"
+          },
+          "proto": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "privatePort",
+          "proto"
+        ]
+      }
+    }
+  }
+}

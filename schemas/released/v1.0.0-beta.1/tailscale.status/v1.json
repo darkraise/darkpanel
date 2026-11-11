@@ -1,0 +1,293 @@
+{
+  "name": "tailscale.status",
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Status",
+    "$defs": {
+      "Node": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The node's stable id."
+          },
+          "hostName": {
+            "type": "string",
+            "description": "The node's host name."
+          },
+          "dnsName": {
+            "type": "string",
+            "description": "The node's MagicDNS name, without the trailing dot."
+          },
+          "os": {
+            "type": "string",
+            "description": "The node's operating system."
+          },
+          "addresses": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The node's Tailscale addresses, IPv4 first."
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The node's ACL tags."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "hostName",
+          "dnsName",
+          "os",
+          "addresses",
+          "tags"
+        ]
+      },
+      "Peer": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The node's stable id."
+          },
+          "hostName": {
+            "type": "string",
+            "description": "The node's host name."
+          },
+          "dnsName": {
+            "type": "string",
+            "description": "The node's MagicDNS name, without the trailing dot."
+          },
+          "os": {
+            "type": "string",
+            "description": "The node's operating system."
+          },
+          "addresses": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The node's Tailscale addresses, IPv4 first."
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The node's ACL tags."
+          },
+          "online": {
+            "type": "boolean",
+            "description": "Whether the peer is connected to the coordination server."
+          },
+          "connection": {
+            "type": "string",
+            "description": "How this node reaches the peer: direct, derp, peer-relay or none."
+          },
+          "endpoint": {
+            "type": "string",
+            "description": "The UDP endpoint in use for a direct connection; empty otherwise."
+          },
+          "region": {
+            "type": "string",
+            "description": "The DERP region code for a DERP connection; empty otherwise."
+          },
+          "exitNode": {
+            "type": "boolean",
+            "description": "Whether the peer is this node's exit node."
+          },
+          "exitNodeOption": {
+            "type": "boolean",
+            "description": "Whether the peer offers itself as an exit node."
+          },
+          "lastHandshake": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "The last WireGuard handshake with the peer; null when there was none."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "hostName",
+          "dnsName",
+          "os",
+          "addresses",
+          "tags",
+          "online",
+          "connection",
+          "endpoint",
+          "region",
+          "exitNode",
+          "exitNodeOption",
+          "lastHandshake"
+        ]
+      },
+      "PrefsFields": {
+        "properties": {
+          "wantRunning": {
+            "oneOf": [
+              {
+                "type": "boolean",
+                "description": "Whether the node should be connected."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "advertiseRoutes": {
+            "oneOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "description": "The subnet routes the node advertises, as prefixes; never 0.0.0.0/0 or ::/0."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "exitNode": {
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "The exit node in use, by stable id or Tailscale address; empty clears it."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "advertiseExitNode": {
+            "oneOf": [
+              {
+                "type": "boolean",
+                "description": "Whether the node offers itself as an exit node."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "acceptRoutes": {
+            "oneOf": [
+              {
+                "type": "boolean",
+                "description": "Whether the node accepts the subnet routes other nodes advertise."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "shieldsUp": {
+            "oneOf": [
+              {
+                "type": "boolean",
+                "description": "Whether the node refuses every incoming connection."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "runSSH": {
+            "oneOf": [
+              {
+                "type": "boolean",
+                "description": "Whether the node runs Tailscale SSH."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "Status": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "description": "The tailscaled version."
+          },
+          "backendState": {
+            "type": "string",
+            "description": "The backend state: NoState, NeedsLogin, NeedsMachineAuth, Stopped, Starting or Running."
+          },
+          "self": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/Node",
+                "description": "This node; null while logged out."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tailnet": {
+            "type": "string",
+            "description": "The tailnet's name; empty when the node belongs to none."
+          },
+          "magicDNSSuffix": {
+            "type": "string",
+            "description": "The tailnet's MagicDNS suffix."
+          },
+          "preferredDerp": {
+            "type": "string",
+            "description": "The region code of the node's home DERP; empty when none."
+          },
+          "runSSH": {
+            "type": "boolean",
+            "description": "Whether the node runs Tailscale SSH."
+          },
+          "prefs": {
+            "$ref": "#/$defs/PrefsFields",
+            "description": "The node's current preferences, every field set."
+          },
+          "peers": {
+            "items": {
+              "$ref": "#/$defs/Peer"
+            },
+            "type": "array",
+            "description": "The tailnet's other nodes, sorted by DNS name, then id."
+          },
+          "health": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The health warnings tailscaled reports."
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "backendState",
+          "self",
+          "tailnet",
+          "magicDNSSuffix",
+          "preferredDerp",
+          "runSSH",
+          "prefs",
+          "peers",
+          "health"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "name": "tailnet.account.connect",
+  "version": 1,
+  "class": "compensable",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ConnectInput",
+    "$defs": {
+      "ConnectInput": {
+        "properties": {
+          "tailnet": {
+            "type": "string"
+          },
+          "clientId": {
+            "type": "string"
+          },
+          "clientSecret": {
+            "type": "string",
+            "writeOnly": true,
+            "x-secret": true
+          },
+          "tagsAllowed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "tailnet",
+          "clientId",
+          "clientSecret",
+          "tagsAllowed"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/AccountView",
+    "$defs": {
+      "AccountView": {
+        "properties": {
+          "tailnet": {
+            "type": "string"
+          },
+          "clientId": {
+            "type": "string"
+          },
+          "tagsAllowed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "capabilities": {
+            "items": {
+              "$ref": "#/$defs/Capability"
+            },
+            "type": "array"
+          },
+          "connectedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tailnet",
+          "clientId",
+          "tagsAllowed",
+          "capabilities",
+          "connectedAt"
+        ]
+      },
+      "Capability": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "state"
+        ]
+      }
+    }
+  }
+}

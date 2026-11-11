@@ -1,0 +1,65 @@
+{
+  "name": "npm.network.attach",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/AttachInput",
+    "$defs": {
+      "AttachInput": {
+        "properties": {
+          "network": {
+            "type": "string"
+          },
+          "claimant": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string",
+            "format": "ip-address"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "network",
+          "claimant"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Attachment",
+    "$defs": {
+      "Attachment": {
+        "properties": {
+          "network": {
+            "type": "string"
+          },
+          "claimant": {
+            "type": "string"
+          },
+          "preexisting": {
+            "type": "boolean"
+          },
+          "attached": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "network",
+          "claimant",
+          "preexisting",
+          "attached"
+        ]
+      }
+    }
+  }
+}

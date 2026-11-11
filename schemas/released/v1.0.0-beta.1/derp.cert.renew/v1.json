@@ -1,0 +1,47 @@
+{
+  "name": "derp.cert.renew",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/CertRenewInput",
+    "$defs": {
+      "CertRenewInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/CertRenewed",
+    "$defs": {
+      "CertRenewed": {
+        "properties": {
+          "certName": {
+            "type": "string",
+            "description": "The new certificate's pin."
+          },
+          "certNotAfter": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the new certificate expires."
+          },
+          "priorCertName": {
+            "type": "string",
+            "description": "The replaced certificate's pin."
+          }
+        },
+        "type": "object",
+        "required": [
+          "certName",
+          "certNotAfter",
+          "priorCertName"
+        ]
+      }
+    }
+  }
+}

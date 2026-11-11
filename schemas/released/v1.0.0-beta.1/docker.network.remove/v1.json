@@ -1,0 +1,46 @@
+{
+  "name": "docker.network.remove",
+  "version": 1,
+  "class": "irreversible",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/NetworkInput",
+    "$defs": {
+      "NetworkInput": {
+        "properties": {
+          "network": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "network"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Removed",
+    "$defs": {
+      "Removed": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ]
+      }
+    }
+  }
+}

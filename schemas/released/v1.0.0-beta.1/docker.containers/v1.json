@@ -1,0 +1,131 @@
+{
+  "name": "docker.containers",
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ContainerList",
+    "$defs": {
+      "Container": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "image": {
+            "type": "string"
+          },
+          "imageId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "created": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "ports": {
+            "items": {
+              "$ref": "#/$defs/Port"
+            },
+            "type": "array"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "project": {
+            "type": "string"
+          },
+          "service": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "usage": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/Usage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "image",
+          "imageId",
+          "state",
+          "status",
+          "created",
+          "ports"
+        ]
+      },
+      "ContainerList": {
+        "properties": {
+          "containers": {
+            "items": {
+              "$ref": "#/$defs/Container"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "containers"
+        ]
+      },
+      "Port": {
+        "properties": {
+          "ip": {
+            "type": "string"
+          },
+          "privatePort": {
+            "type": "integer"
+          },
+          "publicPort": {
+            "type": "integer"
+          },
+          "proto": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "privatePort",
+          "proto"
+        ]
+      },
+      "Usage": {
+        "properties": {
+          "cpuPercent": {
+            "type": "number"
+          },
+          "memUsage": {
+            "type": "integer"
+          },
+          "memLimit": {
+            "type": "integer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cpuPercent",
+          "memUsage",
+          "memLimit"
+        ]
+      }
+    }
+  }
+}

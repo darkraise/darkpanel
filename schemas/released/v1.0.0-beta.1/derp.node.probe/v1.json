@@ -1,0 +1,129 @@
+{
+  "name": "derp.node.probe",
+  "version": 1,
+  "class": "read",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/NodeProbeInput",
+    "$defs": {
+      "NodeProbeInput": {
+        "properties": {
+          "hostName": {
+            "type": "string",
+            "maxLength": 253,
+            "description": "The server's DNS name or public IP literal."
+          },
+          "address": {
+            "type": "string",
+            "description": "The address to connect to; absent resolves hostName."
+          },
+          "certName": {
+            "type": "string",
+            "description": "The certificate pin in ip mode; absent verifies the chain."
+          },
+          "regionId": {
+            "type": "integer",
+            "maximum": 999,
+            "minimum": 900,
+            "description": "The server's region id, 900 to 999; absent skips the region diagnostics."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "hostName"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/NodeProbe",
+    "$defs": {
+      "NodeProbe": {
+        "properties": {
+          "tls": {
+            "$ref": "#/$defs/ProbeResult",
+            "description": "The TLS probe of /derp/probe."
+          },
+          "stun": {
+            "$ref": "#/$defs/ProbeResult",
+            "description": "The STUN probe."
+          },
+          "region": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/RegionDiagnostics",
+                "description": "The local API's region diagnostics; null when no region was given."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "tls",
+          "stun",
+          "region"
+        ]
+      },
+      "ProbeResult": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the probe succeeded."
+          },
+          "latencyMs": {
+            "type": "number",
+            "description": "The round trip in milliseconds; 0 when not OK."
+          },
+          "error": {
+            "type": "string",
+            "description": "Why the probe failed: timeout, connection_refused, unreachable, tls_handshake_failed, certificate_not_trusted, pin_mismatch, bad_answer, no_stun_answer or failed; empty when OK."
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "latencyMs",
+          "error"
+        ]
+      },
+      "RegionDiagnostics": {
+        "properties": {
+          "info": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The report's informational lines."
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The report's warnings."
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The report's errors."
+          }
+        },
+        "type": "object",
+        "required": [
+          "info",
+          "warnings",
+          "errors"
+        ]
+      }
+    }
+  }
+}

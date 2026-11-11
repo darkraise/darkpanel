@@ -1,0 +1,55 @@
+{
+  "name": "tailscale.package.pin",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/PinInput",
+    "$defs": {
+      "PinInput": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "pattern": "^[0-9][0-9A-Za-z.+~-]{0,63}$",
+            "description": "The tailscale version to install and hold."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "version"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Pinned",
+    "$defs": {
+      "Pinned": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "description": "The tailscale version now installed and held."
+          },
+          "priorVersion": {
+            "type": "string",
+            "description": "The tailscale version before the pin."
+          },
+          "priorHeld": {
+            "type": "boolean",
+            "description": "Whether the package was held before the pin."
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "priorVersion",
+          "priorHeld"
+        ]
+      }
+    }
+  }
+}

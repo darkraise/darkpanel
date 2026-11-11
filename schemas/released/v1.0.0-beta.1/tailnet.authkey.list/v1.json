@@ -1,0 +1,74 @@
+{
+  "name": "tailnet.authkey.list",
+  "version": 1,
+  "class": "read",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/AuthKeyListInput",
+    "$defs": {
+      "AuthKeyListInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/AuthKeyList",
+    "$defs": {
+      "AuthKeyList": {
+        "properties": {
+          "keys": {
+            "items": {
+              "$ref": "#/$defs/AuthKeyRow"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "keys"
+        ]
+      },
+      "AuthKeyRow": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": "string"
+          },
+          "keyId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "requestedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "type": "object",
+        "required": [
+          "description",
+          "kind",
+          "ownerId",
+          "state",
+          "requestedAt",
+          "expires"
+        ]
+      }
+    }
+  }
+}

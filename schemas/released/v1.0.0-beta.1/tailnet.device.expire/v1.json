@@ -1,0 +1,46 @@
+{
+  "name": "tailnet.device.expire",
+  "version": 1,
+  "class": "irreversible",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/DeviceInput",
+    "$defs": {
+      "DeviceInput": {
+        "properties": {
+          "device": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "device"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/DeviceRef",
+    "$defs": {
+      "DeviceRef": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ]
+      }
+    }
+  }
+}

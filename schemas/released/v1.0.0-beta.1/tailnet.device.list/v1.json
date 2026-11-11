@@ -1,0 +1,115 @@
+{
+  "name": "tailnet.device.list",
+  "version": 1,
+  "class": "read",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/DeviceListInput",
+    "$defs": {
+      "DeviceListInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/DeviceList",
+    "$defs": {
+      "Device": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "os": {
+            "type": "string"
+          },
+          "user": {
+            "type": "string"
+          },
+          "addresses": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "authorized": {
+            "type": "boolean"
+          },
+          "lastSeen": {
+            "type": "string"
+          },
+          "expires": {
+            "type": "string"
+          },
+          "keyExpiryDisabled": {
+            "type": "boolean"
+          },
+          "advertisedRoutes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "enabledRoutes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "exitNode": {
+            "type": "boolean"
+          },
+          "exitNodeEnabled": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "hostname",
+          "os",
+          "user",
+          "addresses",
+          "tags",
+          "authorized",
+          "keyExpiryDisabled",
+          "advertisedRoutes",
+          "enabledRoutes",
+          "exitNode",
+          "exitNodeEnabled"
+        ]
+      },
+      "DeviceList": {
+        "properties": {
+          "devices": {
+            "items": {
+              "$ref": "#/$defs/Device"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "devices"
+        ]
+      }
+    }
+  }
+}

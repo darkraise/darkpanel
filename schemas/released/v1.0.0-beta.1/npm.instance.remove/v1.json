@@ -1,0 +1,35 @@
+{
+  "name": "npm.instance.remove",
+  "version": 1,
+  "class": "irreversible",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/RemoveInput",
+    "$defs": {
+      "RemoveInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Removed",
+    "$defs": {
+      "Removed": {
+        "properties": {
+          "containerId": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "containerId"
+        ]
+      }
+    }
+  }
+}

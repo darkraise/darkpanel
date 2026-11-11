@@ -1,0 +1,47 @@
+{
+  "name": "docker.engine",
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Engine",
+    "$defs": {
+      "Engine": {
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "apiVersion": {
+            "type": "string"
+          },
+          "os": {
+            "type": "string"
+          },
+          "arch": {
+            "type": "string"
+          },
+          "containers": {
+            "type": "integer"
+          },
+          "running": {
+            "type": "integer"
+          },
+          "images": {
+            "type": "integer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "available",
+          "containers",
+          "running",
+          "images"
+        ]
+      }
+    }
+  }
+}

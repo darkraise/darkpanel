@@ -1,0 +1,1641 @@
+# Changelog
+
+All notable changes to Darkpanel. Versions follow docs/versioning.md.
+
+## 1.0.0-beta.1 - 2026-11-11
+
+### Features
+
+- **web:** add embedded UI package
+- **cli:** add version command
+- **web:** scaffold web app from darkraise-ui
+- **web:** add placeholder page, lint and tests
+- **store:** open SQLite with durable pragmas
+- **errcode:** add the stable error code registry
+- **cli:** move version to buildinfo, stub serve
+- **paths:** resolve production and dev paths
+- **core:** declare the module contract
+- **modules:** add the module list and core stub
+- **core:** add action definitions and registry
+- **registry:** build the registry from modules
+- **store:** back up databases with VACUUM INTO
+- **store:** apply forward-only migrations
+- **store:** add the core 0001 migrations
+- **schema:** reflect action types into schemas
+- **hostinfo:** parse os-release and /proc files
+- **platform:** edit DARKPANEL marked blocks
+- **schema:** check snapshot compatibility
+- **hostinfo:** add the host-information module
+- **lifecycle:** add lifecycle tables and journal
+- **schema:** validate inputs against schemas
+- **schema:** build the OpenAPI document
+- **schema:** write schema snapshots
+- **secret:** load and create role key files
+- **schema:** add the schemas Make target
+- **lifecycle:** store plans and serve reads
+- **secret:** seal secrets with XChaCha20-Poly1305
+- **lifecycle:** apply plans with ADR 0004 order
+- **secret:** redact secret fields by schema
+- **lifecycle:** confirm, revert and revert timers
+- **platform:** run allowlisted programs
+- **platform:** record owned files and blocks
+- **platform:** write declared files and blocks
+- **lifecycle:** recover unfinished changes
+- **auth:** hash passwords with argon2id
+- **auth:** check RFC 6238 TOTP codes
+- **auth:** rate-limit failed logins in memory
+- **auth:** store users with sealed TOTP secrets
+- **auth:** add sessions and CSRF tokens
+- **auth:** add scoped API tokens and purge
+- **auth:** log in, log out and authenticate
+- **listen:** parse listen values into endpoints
+- **listen:** bind sockets with IP_FREEBIND
+- **api:** add problem details and headers
+- **listen:** find and save Tailscale addresses
+- **listen:** create the web certificate root
+- **listen:** issue the in-memory web leaf
+- **listen:** serve the handler on a listener set
+- **listen:** follow Tailscale and renew the leaf
+- **api:** map action class and side to scope
+- **api:** serve the embedded web UI
+- **coreactions:** list hosts and module states
+- **api:** authenticate every non-public request
+- **api:** add login, logout and session routes
+- **api:** add action, resource and change routes
+- **coreactions:** enable and disable modules
+- **api:** add health and OpenAPI routes
+- **coreactions:** create, list and revoke tokens
+- **api:** serve break-glass routes on the socket
+- **coreactions:** list the audit log
+- **api:** check OpenAPI route coverage
+- **coreactions:** list, reset and delete users
+- **coreactions:** create and activate users
+- **cli:** add exit codes and error reporting
+- **schema:** add Redact adapter for the engine
+- **lifecycle:** record the source in the journal
+- **lifecycle:** journal the principal's source
+- **cli:** name generated commands and refuse clashes
+- **lifecycle:** turn handler panics into errors
+- **lifecycle:** bound Verify with a deadline
+- **audit:** store the audit log in core_audit
+- **audit:** ingest agent journals
+- **agent:** open the agent runtime
+- **cli:** pin the web CA by fingerprint
+- **cli:** add API and controller socket clients
+- **cli:** map action inputs to flags and prompts
+- **cli:** render outputs as tables and key lines
+- **agent:** serve the agent client in process
+- **cli:** generate read and resource commands
+- **cli:** plan, confirm and apply changes
+- **dispatch:** track hosts and module state
+- **cli:** add the change commands
+- **dispatch:** route reads, resources and plans
+- **dispatch:** apply plans and index changes
+- **dispatch:** find, settle and list changes
+- **cli:** print the web CA through the socket
+- **cli:** enroll TOTP on user create and reset
+- **api:** add a late-bound listener state source
+- **api:** serve the listener state for the footer
+- **modules:** register hostinfo, commit schemas
+- **server:** open stores and the local host
+- **server:** start the services and purges
+- **server:** serve the listeners and the socket
+- **cmd:** run the CLI and serve the controller
+- **listen:** report a server that stops serving
+- **web:** add the router adapter and providers
+- **web:** add formatting helpers and module types
+- **web:** add the controller API client
+- **web:** self-host fonts and move pre-paint script
+- **web:** add the host-information page
+- **web:** add TOTP login and the session guard
+- **web:** add the audit log page
+- **web:** add the module route registry
+- **web:** add the token creation dialog
+- **web:** add the hosts overview page
+- **web:** add the tokens page with revoke
+- **web:** add the application shell
+- **web:** wire the routes and the entry point
+- **core:** add hello fields, uninstaller and kinds
+- **errcode:** add fleet update and rollout codes
+- **paths:** add agent, update and binary paths
+- **core:** refuse duplicate owned paths
+- **core:** add fleet and update action types
+- **lifecycle:** pass the change id to apply and verify
+- **lifecycle:** add the operation reservation
+- **coreactions:** add extra action and owned path slots
+- **dispatch:** add agent client source
+- **cli:** add group adoption and local fallbacks
+- **wire:** add the agent API wire types
+- **platform:** add the systemd D-Bus provider
+- **schemas:** embed snapshots and hash schemas
+- **update:** add trusted release keys
+- **install:** add install.sh template and generator
+- **release:** freeze and check schema snapshots
+- **release:** package tarballs and checksums
+- **release:** add the releasetool command
+- **release:** sign checksums with every release key
+- **fleet:** add the enrollment rate limiter
+- **update:** add versions and update steps
+- **update:** add the update health probes
+- **update:** add the release index source
+- **transport:** add identities and enrollment token
+- **transport:** add the controller TLS policy
+- **transport:** add agent TLS, dial and backoff
+- **transport:** add the yamux session with limits
+- **transport:** add the session heartbeat
+- **store:** add the fleet migration
+- **fleet:** add the agent certificate authority
+- **fleet:** issue, check and revoke agent certificates
+- **fleet:** issue and consume enrollment tokens
+- **update:** add transaction records and the lock
+- **update:** stage, swap and restore binaries
+- **update:** download and verify releases
+- **update:** start updates and report status
+- **update:** add update rollback
+- **update:** add the update runner
+- **update:** recover interrupted updates
+- **install:** add install layout and owned paths
+- **agent:** add the agent API handler
+- **install:** add systemd unit templates
+- **agent:** add the agent API client
+- **platform:** widen owned file kinds
+- **agent:** add agent socket rules
+- **install:** add system install
+- **install:** add uninstall
+- **schemas:** hash action schemas for hello
+- **update:** add the update actions
+- **runtime:** keep a journal epoch in agent.db
+- **coreactions:** add agent support window
+- **coreactions:** list hosts with agent state
+- **dispatch:** record hello and skip offline hosts
+- **runtime:** report arch, controller and core
+- **dispatch:** enforce the agent version window
+- **dispatch:** negotiate agent action schemas
+- **rollout:** add the rollout tables and Create
+- **coreactions:** revoke and delete hosts
+- **coreactions:** create hosts and enrollment tokens
+- **coreactions:** set host update policies
+- **rollout:** add the rollout actions
+- **rollout:** add the rollout driver
+- **daemon:** add agent credential generations
+- **socket:** serve the agent socket to root only
+- **daemon:** enroll the agent with a token
+- **daemon:** check the saved agent credentials
+- **rollout:** add the update window scheduler
+- **audit:** key agent journals by epoch
+- **fleet:** add the agent session registry
+- **fleet:** serve agent sessions and renewals
+- **fleet:** serve agent enrollment
+- **listen:** add the agent listener
+- **daemon:** run the agent daemon
+- **daemon:** renew the agent certificate
+- **registry:** register the core update actions
+- **core:** refuse keyless revertible agent actions
+- **errcode:** add the unavailable code
+- **api:** report a configured status in /healthz
+- **cli:** run agent commands on the agent socket
+- **harness:** add VM private link and guest dialing
+- **harness:** publish signed test releases
+- **server:** run serve as the controller alone
+- **server:** drive rollouts and scheduled updates
+- **cmd:** add selftest and release key fields
+- **cmd:** add the agent listener flags to serve
+- **cmd:** add the agent run, enroll and check commands
+- **cmd:** add the update run, recover and direct rollback
+- **cmd:** add system install and uninstall
+- **cmd:** add the harness build variants
+- **harness:** add M2 provisioning and builds
+- **hosts:** report journal ingestion health
+- **web:** show journal ingestion health
+- **core:** declare the lifecycle contract
+- **core:** add ActionRef text form and Definite errors
+- **errcode:** add the lifecycle error codes
+- **store:** add the lifecycle core migrations
+- **core:** return a RevertOutcome from Revert
+- **core:** add DefineComposite and DefineTask
+- **core:** enforce lifecycle registry rules
+- **lifecycle:** add the effects journal
+- **lifecycle:** add deadlines and async apply
+- **lifecycle:** track lock epochs for undo
+- **lifecycle:** add ownership claims
+- **lifecycle:** store the call context of plans
+- **lifecycle:** settle effects of failed applies
+- **lifecycle:** add revert outcomes and watchdog
+- **lifecycle:** undo a change from its journal
+- **lifecycle:** observe and resolve unresolved effects
+- **lifecycle:** add release, effects and steps
+- **lifecycle:** route repairs and plan repairs
+- **lifecycle:** run repair changes under locks
+- **lifecycle:** look up and retire plans
+- **lifecycle:** keep private outputs, purge secrets
+- **runtime:** serve the change operations
+- **agent:** carry the call context in a header
+- **agent:** add client change operations
+- **core:** add change ops to AgentClient
+- **agent:** serve the change operation routes
+- **dispatch:** route the change operations
+- **core:** add change operations to Dispatcher
+- **api:** add change routes and 202 answers
+- **lifecycle:** resolve composite references
+- **cli:** add change commands and apply wait
+- **lifecycle:** plan and preview composites
+- **lifecycle:** run and unwind composites
+- **lifecycle:** confirm and revert composites
+- **lifecycle:** watch and recover composites
+- **lifecycle:** repair, decide and release composites
+- **dispatch:** reach composite children
+- **server:** run and recover composites
+- **lifecycle:** run module recovery handlers
+- **lifecycle:** claim changes and gate admission
+- **lifecycle:** background startup recovery pass
+- **lifecycle:** apply task actions in units
+- **lifecycle:** undo and recover task changes
+- **lifecycle:** add the agent task process
+- **lifecycle:** add the uninstall barrier
+- **store:** add system column and owned kinds
+- **platform:** exec rules over argument vectors
+- **events:** add the controller event bus
+- **auth:** authenticate streams passively
+- **fleet:** report host online changes
+- **core:** declare platform and surface contracts
+- **errcode:** add core.stream_limit
+- **dispatch:** gate change ops on the window
+- **fleet:** list the live agents' addresses
+- **platform:** add the production exec table
+- **api:** refuse a supplied guard context
+- **api:** add the server-sent event writer
+- **events:** add change and module watchers
+- **transport:** reserve module stream slots
+- **lifecycle:** audit an aborted uninstall
+- **platform:** list units and read main PIDs
+- **core:** validate owned-path kinds in registry
+- **lifecycle:** give handlers their module units
+- **schema:** describe netip types as string formats
+- **api:** record the client peer of requests
+- **install:** validate and fill uninstall options
+- **platform:** add file provider surface and Owns
+- **agent:** add the module enablement client
+- **agent:** add the availability client
+- **platform:** write unit files and rename files
+- **platform:** scope unit clients to a module
+- **api:** stream controller events
+- **cli:** add uninstall --module-option
+- **lifecycle:** ask an action's availability
+- **core:** add scope rules and guard declarations
+- **schema:** decode stream query parameters
+- **platform:** restore snapshot files
+- **platform:** read and write kernel parameters
+- **platform:** write files in managed directories
+- **platform:** manage service-user directories
+- **api:** enforce MinScope on actions and changes
+- **core:** declare reveal and internal reads
+- **lifecycle:** validate guard overrides
+- **runtime:** scope module units in the runtime
+- **cmd:** scope module units in the task process
+- **server:** serve the event bus and end streams
+- **web:** refetch queries on controller events
+- **lifecycle:** reveal and read internal actions
+- **install:** remove module dirs and units
+- **runtime:** store the pushed module flag
+- **runtime:** answer per-action availability
+- **lifecycle:** hand guard refresh to applies
+- **core:** declare module streams and their hash
+- **server:** publish controller events
+- **cli:** add --override for guarded actions
+- **api:** serve module availability
+- **schema:** document reveal operations
+- **runtime:** serve module streams
+- **install:** set the uninstall barrier first
+- **dispatch:** fill the guard context
+- **core:** AgentClient includes enablement
+- **lifecycle:** apply system changes
+- **core:** register module background tasks
+- **runtime:** serve reveals and internal reads
+- **server:** wire the dispatcher topology
+- **runtime:** run module background tasks
+- **agent:** serve the module enablement route
+- **cli:** add uninstall --stop-tasks and --abort
+- **controller:** push module enablement to agents
+- **core:** AgentClient includes Availability
+- **agent:** serve module availability
+- **dispatch:** refuse unavailable actions
+- **agent:** add the reveal client and header
+- **server:** wire module availability
+- **core:** embed AgentReveal in AgentClient
+- **agent:** serve the reveal route on the session
+- **dispatch:** add reveal and internal reads
+- **dispatch:** read internal composite steps
+- **api:** agent client for module streams
+- **core:** embed DispatcherReveal in Dispatcher
+- **api:** hide internal actions from every route
+- **api:** serve module streams to the controller
+- **api:** serve the reveal routes
+- **dispatch:** open module streams within limits
+- **fleet:** dial module streams with OpenModule
+- **api:** relay module streams as SSE
+- **cli:** generate reveal commands
+- **cli:** follow module streams
+- **core:** add the runtime listener types
+- **errcode:** add the v1 module and quarantine codes
+- **core:** carry proxied requests in the context
+- **cli:** add module command hooks and stubs
+- **cmd:** route path resolution through selectPaths
+- **modules:** add the eight v1 module skeletons
+- **web:** add module extension point types
+- **web:** add change lifecycle API calls
+- **lifecycle:** suspend automatic work on a hook
+- **rollout:** skip passes while suspended
+- **store:** add the runtime listener table
+- **ext:** add the controller extension package
+- **web:** register the module stubs
+- **cli:** mount hand-written module commands
+- **cloud:** add the provider HTTP client
+- **dispatch:** carry the proxy path in guard contexts
+- **controller:** read the restore quarantine flag
+- **dispatch:** refuse mutations in restore quarantine
+- **web:** add the change dialog
+- **listen:** store runtime listeners
+- **api:** serve runtime listeners behind a proxy
+- **api:** trust a runtime listener's client header
+- **cli:** select socket paths and add fuzz target
+- **web:** mount global pages and module navigation
+- **cloud:** seal credentials and probe capabilities
+- **listen:** ask certificate sources for the web leaf
+- **web:** add hosts from the hosts page
+- **server:** collect controller contributions
+- **server:** run controller services with backoff
+- **listen:** run runtime listeners
+- **api:** mount contributed web routes
+- **listen:** share the web TLS configuration
+- **web:** add the change page with effects
+- **api:** mount contributed socket routes
+- **web:** offer undo, repair and release
+- **server:** serve contributed routes and services
+- **server:** wire runtime listeners and cert sources
+- **server:** honour the restore quarantine flag
+- **platform:** add the Docker Engine client core
+- **platform:** add the Tailscale local client core
+- **platform:** parse netfilter save output
+- **platform:** read the socket table from proc
+- **platform:** add Docker container calls
+- **platform:** add Docker log, stats and event streams
+- **platform:** add Tailscale DERP, cert and WhoIs calls
+- **platform:** look up routes over rtnetlink
+- **platform:** classify netfilter rules by contract
+- **platform:** add Docker image and volume calls
+- **platform:** add Docker network calls
+- **core:** mark a complete guard context
+- **netfilter:** export ErrNoTables
+- **cli:** add the --confirm-timeout flag
+- **web:** ask for the revert timeout on apply
+- **firewall:** add the rule model and validation
+- **netfilter:** parse iptables-restore input
+- **cli:** add --confirm-timeout to change repair
+- **firewall:** parse and merge UFW rule tuples
+- **web:** show the firewall's state and banners
+- **dispatch:** fill guard context completeness
+- **firewall:** gather the guard's live facts
+- **firewall:** add the shared firewall state types
+- **web:** add a firewall rule from a form
+- **web:** list firewall rules with their origin
+- **web:** enable the firewall and set its defaults
+- **web:** list and restore firewall snapshots
+- **server:** report guard topology completeness
+- **netfilter:** add a canonical rule key
+- **firewall:** build ufw argument vectors for rules
+- **cli:** add the break-glass firewall rollback
+- **web:** compare firewall snapshots
+- **firewall:** read UFW's configured state
+- **firewall:** walk filter chains for a packet
+- **firewall:** build the guard's protected flows
+- **firewall:** take and load repair before-images
+- **web:** mount the firewall pages
+- **firewall:** evaluate netfilter rule matches
+- **firewall:** route the guard's protected flows
+- **firewall:** store logical snapshots
+- **firewall:** render the files UFW writes
+- **firewall:** read the loaded netfilter tables
+- **firewall:** walk every hook with NAT and routing
+- **firewall:** treat source port 0 as unknown
+- **firewall:** report the firewall lockout guard
+- **firewall:** capture logical snapshots
+- **firewall:** parse ufw argument vectors
+- **firewall:** parse nft table listings
+- **firewall:** predict UFW's sysctl effect
+- **firewall:** compare two loaded states
+- **firewall:** translate UFW's files into rules
+- **firewall:** track packet and connection marks
+- **firewall:** observe the resources of effects
+- **firewall:** report foreign netfilter hooks
+- **firewall:** simulate one ufw command
+- **firewall:** predict UFW's transitions
+- **firewall:** journal ufw, file and sysctl effects
+- **firewall:** read the supported sysctl values
+- **firewall:** refuse IPV6=no over foreign rules
+- **firewall:** restore snapshots crash-safely
+- **firewall:** undo effects from the journal
+- **firewall:** revert changes from their snapshots
+- **firewall:** wire the module's host functions
+- **firewall:** describe a change of the firewall
+- **firewall:** check UFW and iptables tools
+- **firewall:** compare the host with its configuration
+- **firewall:** report the firewall's status
+- **firewall:** declare the module's host paths
+- **firewall:** predict where a change ends
+- **firewall:** plan a change of the firewall
+- **firewall:** refuse a plan that replaces a rule
+- **firewall:** share the handler of every change
+- **firewall:** enable, disable, defaults, logging
+- **firewall:** add and delete one rule
+- **firewall:** apply a batch of rules
+- **firewall:** restore a snapshot
+- **firewall:** list and compare snapshots
+- **firewall:** repair the firewall
+- **firewall:** remove rules on uninstall
+- **firewall:** register the actions and resources
+- **firewall:** predict the sysctl values of a change
+- **listen:** read bound and unbound listeners at once
+- **firewall:** let the guard list host routes
+- **firewall:** add the verify chain comparison
+- **firewall:** list the rules eval cannot model
+- **firewall:** record the kind of a restore
+- **dockerfw:** add settings and container facts
+- **loaded:** read one iptables variant
+- **eval:** name the deciding rule of a verdict
+- **exposure:** add source classes and cuts
+- **exposure:** add address and port atoms
+- **web:** add Docker and exposure firewall types
+- **web:** confirm manual rules in the change dialog
+- **firewall:** add container bindings and rules
+- **firewall:** add exposure verdicts per class
+- **firewall:** detect supported Docker setups
+- **firewall:** propose exemptions for forwards
+- **firewall:** add the Docker client seam
+- **web:** edit private sources and exemptions
+- **web:** add the firewall exposure page
+- **firewall:** render the Docker block
+- **firewall:** predict block files and cleanup
+- **web:** add container Allow and Deny
+- **firewall:** store the Docker integration state
+- **dockerfw:** realize container rules
+- **firewall:** add Docker integration health
+- **firewall:** add DOCKER-USER restore inputs
+- **firewall:** compute UFW container rule ops
+- **firewall:** journal Docker state as effects
+- **firewall:** undo the Docker effects
+- **firewall:** snapshot the Docker state
+- **web:** add the firewall Docker panel
+- **firewall:** restore the Docker state
+- **firewall:** gather the Docker state
+- **firewall:** show Docker changes in plans
+- **firewall:** refuse foreign DOCKER-USER rules
+- **firewall:** add the firewall.docker resource
+- **firewall:** add the firewall.exposure resource
+- **firewall:** keep foreign DOCKER-USER rules
+- **firewall:** clean up the Docker chains
+- **firewall:** run Docker changes in order
+- **firewall:** clean Docker chains on uninstall
+- **firewall:** keep foreign rules in reverts
+- **firewall:** map container rule ops to ufw ops
+- **firewall:** enable and disable the Docker integration
+- **firewall:** add container allow, deny and apply
+- **firewall:** write the block on enable, clean up on disable
+- **firewall:** restore the Docker state with a snapshot
+- **firewall:** repair with the Docker integration
+- **firewall:** add docker repair action
+- **firewall:** add docker set-sources action
+- **firewall:** add the reconcile task
+- **firewall:** register the Docker surface
+- **docker:** add dstate effect state documents
+- **docker:** parse resolved Compose config
+- **docker:** add client seam and test host
+- **tailnet:** add convergent policy edits
+- **cloudflare:** add tunnel ingress rule editing
+- **web:** add Docker types, fixtures and stream reader
+- **web:** add tailnet types and capability list
+- **web:** add Cloudflare types and change dialog
+- **docker:** add log secret masking filter
+- **tailnet:** add account and key tables and store
+- **cloudflare:** add controller tables and store
+- **docker:** add preflight and docker.engine
+- **docker:** add effect journaling and observation
+- **docker:** add list resources and usage summary
+- **web:** add Docker network, volume, project tabs
+- **web:** add container logs and stats panels
+- **web:** add the tailnet account panel
+- **web:** add the Cloudflare account panel
+- **web:** add tailnet devices and auth keys pages
+- **docker:** refuse unsupported Compose configurations
+- **docker:** add the logs and stats streams
+- **docker:** record Compose projects
+- **docker:** add container start, stop, restart
+- **docker:** add container remove action
+- **docker:** add image remove and prune actions
+- **docker:** add network and volume actions
+- **docker:** connect and disconnect networks
+- **cloudflare:** add the API client and wire shapes
+- **web:** add the Docker page, containers and images
+- **web:** add tailnet policy editor
+- **web:** add Cloudflare tunnel pages
+- **docker:** add container read actions
+- **docker:** add image pull and pull stream
+- **docker:** add Compose project checks
+- **tailnet:** add API client and token cache
+- **web:** add the Docker container page
+- **docker:** run Compose up, down, pull, restart
+- **tailnet:** connect and disconnect the account
+- **cloudflare:** connect and disconnect account
+- **docker:** register actions, resources, streams
+- **tailnet:** add device list and approvals
+- **tailnet:** add device expire and delete
+- **cloudflare:** add tunnel create and delete
+- **cloudflare:** add tunnel list, token, adopt
+- **tailnet:** add auth key create and list
+- **tailnet:** add the auth key sweep service
+- **tailnet:** add policy get and set
+- **cloudflare:** add the hostname add action
+- **cloudflare:** list hostnames and check their health
+- **tailnet:** add policy.patch
+- **cloudflare:** add hostname.remove
+- **tailnet:** register the tailnet actions
+- **cloudflare:** register actions and service
+- **transport:** parse the dpb2 bootstrap bundle
+- **tailscale:** add a STUN binding client
+- **tailscale:** add the link guard rules
+- **web:** add tailscale types and change dialog
+- **listen:** serve the Tailscale web certificate
+- **core:** add host create join fields and bundle
+- **coreactions:** join tailnet at host create
+- **tailscale:** add module seam and test host
+- **tailnet:** create enroll keys for host join
+- **web:** join the tailnet from the Add host dialog
+- **web:** tailscale status, peers and latency panels
+- **web:** tailscale preferences, node and package controls
+- **tailscale:** add the status resource
+- **tailscale:** add the latency resource
+- **tailscale:** add cert.get internal read
+- **tailscale:** add the link guard's host facts
+- **tailnet:** settle enroll keys in the sweep
+- **web:** add the Tailscale host page
+- **tailscale:** add package.install action
+- **tailscale:** add prefs.set action
+- **tailscale:** add node login and logout
+- **tailscale:** add package.update action
+- **tailscale:** add package.pin transaction
+- **tailscale:** add uninstall step
+- **tailscale:** add installer join entry point
+- **tailscale:** add prefs.repair action
+- **tailscale:** add package.unpin action
+- **tailscale:** add pin undo and recovery
+- **install:** join the tailnet from a bundle
+- **tailscale:** register actions and resources
+- **tailnet:** add the node.join composite
+- **derp:** add the derper version and manifest
+- **update:** download a verified release asset
+- **tailnet:** export the policy and device reads
+- **web:** add DERP types, fixtures and change dialog
+- **derp:** add the server unit, flags and pin rules
+- **release:** build derper and its manifest
+- **derp:** fetch a verified derper release
+- **web:** add DERP deploy and region dialogs
+- **web:** add DERP servers table and probe panel
+- **web:** add the DERP page and its routes
+- **derp:** add module seam, store and test host
+- **derp:** add derp.server.install
+- **derp:** add the derp.binary.update transaction
+- **derp:** add derp.server.status read
+- **derp:** add derp.node.probe read
+- **derp:** add derp.server.uninstall
+- **derp:** add derp.cert.renew
+- **derp:** add deploy and upgrade composites
+- **derp:** add region and rotate composites
+- **derp:** add the server.remove composite
+- **derp:** recover an interrupted binary update
+- **derp:** add the server.probe read
+- **derp:** add the servers service and list read
+- **derp:** add the fallback.check internal read
+- **derp:** add the region.edits internal read
+- **derp:** register actions, service, schemas
+- **npm:** pin the NPM image by digest
+- **docker:** add log-secret registration
+- **web:** add npm types, fixtures and change dialogs
+- **npm:** add NPM API client and fake server
+- **web:** add the NPM page and instance panel
+- **npm:** add proxy location and target rules
+- **web:** add NPM proxy host, list and cert tabs
+- **web:** add NPM expose action and banner
+- **npm:** add module seam, store and test host
+- **npm:** add instance deploy with bootstrap
+- **npm:** add instance status and confirm-public
+- **npm:** add instance.remove
+- **npm:** add network attach and detach claims
+- **npm:** add proxyhost.add with reservations
+- **npm:** add accesslist.add and accesslist.remove
+- **npm:** add certificate.request and certificate.remove
+- **npm:** add proxy host, access list and certificate reads
+- **npm:** add proxyhost update and remove
+- **npm:** add admin password reveal
+- **npm:** add instance upgrade transaction
+- **npm:** add instance check and list reads
+- **npm:** add upgrade undo and recovery
+- **npm:** add deploy and expose composites
+- **npm:** add admin expose composites
+- **npm:** register actions and schemas
+- **web:** add the Cloudflare connectors page
+- **cloudflare:** pin the cloudflared image by digest
+- **cloudflare:** add the agent connector seam
+- **cloudflare:** add connector.run
+- **cloudflare:** add connector.list
+- **cloudflare:** mask the tunnel token in logs
+- **cloudflare:** add connector.deploy composite
+- **cloudflare:** add expose composites
+- **cloudflare:** add network.attach
+- **web:** expose a container via a tunnel
+- **cloudflare:** add connector.stop
+- **cloudflare:** add network.detach
+- **cloudflare:** register connector actions
+- **backup:** add the encrypted backup format
+- **backup:** add durable ops and crash wrapper
+- **backup:** add backup config and test fixtures
+- **backup:** add the restore journal
+- **server:** give the backup its config
+- **backup:** add restore preconditions and lock
+- **store:** add restore quarantine schema
+- **backup:** add restore quarantine marking
+- **backup:** add quarantine routes
+- **cli:** add controller quarantine commands
+- **backup:** add staged and installed checks
+- **backup:** stream the encrypted backup
+- **backup:** add the quarantine resolve route
+- **backup:** add the crash-safe restore
+- **backup:** recover an unfinished restore
+- **backup:** mount the backup and quarantine routes
+- **cli:** add controller backup and restore
+- **install:** run restore recovery at start
+- **lifecycle:** retire exposures per composite step
+- **panel:** add exposure wire types and store
+- **web:** add the panel exposure page and banner
+- **panel:** add network and connector actions
+- **panel:** add listener open, revoke and status
+- **backup:** mark and verify panel exposures
+- **panel:** add the exposure.add composite
+- **panel:** add the exposure.remove composite
+- **panel:** register the panel actions
+- **web:** add a11y test helpers and page titles
+- **fuzz:** add the parser inventory and runner
+- **apidocs:** generate the API reference
+- **cmd:** add the harness --state-dir flag
+- **derp:** carry edits warnings in outputs
+- **listen:** record a listener's public binding
+- **firewall:** partition the internet by prefixes
+- **firewall:** predict live ufw commands
+- **firewall:** build Docker chains restore input
+- **netstat:** add lookup selectors and dump retry
+- **netstat:** dump policy routing rules
+
+### Fixes
+
+- **adr:** use host id in local actor format
+- **adr:** harden checker edge cases and add tests
+- **store:** refuse % paths and roll back on panic
+- **core:** deny unknown required scope
+- **coretest:** reject trailing } or ] in input
+- **core:** reject stray closing brackets in decode
+- **store:** keep the new backup and clean up failed ones
+- **store:** record binary version when idle
+- **core:** refuse names that clash as CLI commands
+- **store:** prune backups of empty versions
+- **store:** refuse clashing module set names
+- **platform:** refuse marker lines with whitespace
+- **schema:** refuse symlinks when writing snapshots
+- **secret:** refuse FIFO keys, unlink before fsync
+- **secret:** redact on an uncompilable pattern
+- **lifecycle:** wait for timer reverts in Close
+- **platform:** kill whole process group on stop
+- **platform:** key owned blocks by module
+- **platform:** forget paths whose directory is gone
+- **platform:** serialise edits of one declared path
+- **lifecycle:** check locks before the snapshot
+- **schema:** assert the format keyword
+- **lifecycle:** redact the output of reads
+- **lifecycle:** show internal errors by title only
+- **lifecycle:** log the cause of a failed revert
+- **lifecycle:** serialise purge with apply
+- **auth:** keep a failure's own limiter keys
+- **auth:** make last-seen throttle atomic
+- **listen:** skip free-bind test on ENOPROTOOPT
+- **listen:** prefix web authority write errors
+- **listen:** log shutdown and retry address saves
+- **api:** replace only refused controller sockets
+- **api:** mark nullable output fields in schemas
+- **cli:** escape U+061C in sanitize
+- **auth:** revoke API tokens on password reset
+- **coreactions:** reset-password revokes tokens
+- **cli:** return printChange write errors
+- **dispatch:** keep applied flag when change may exist
+- **dispatch:** refuse views of another change
+- **cli:** refuse noncanonical TOTP secrets
+- **auth:** count and audit faults after password
+- **api:** drop Set-Cookie when a handler panics
+- **api:** hide break-glass changes on the network
+- **lifecycle:** keep VerifyTimeout below write limit
+- **cli:** keep connection flags in activate hint
+- **server:** stop Run when a server stops serving
+- **serve:** let a second interrupt end serve
+- **web:** keep audit entries when a page fails
+- **web:** name the sidebar brand Darkpanel
+- **web:** name each revoke button by its token
+- **web:** stop polling the listener state
+- **web:** replan a dead revoke plan and lock while busy
+- **web:** refresh the CSRF token after a rejection
+- **api:** refuse an overlong controller socket path
+- **harness:** bound Reboot and match names literally
+- **server:** log the controller migration backup
+- **harness:** prove the killed panel stopped
+- **dispatch:** serialize concurrent applies of a plan
+- **dispatch:** release the plan lock on a panic
+- **cli:** send the file token only to its server
+- **harness:** start ufw.service after enabling UFW
+- **harness:** bound each boot_id probe in Reboot
+- **cli:** refuse a token to non-lowercase localhost
+- **harness:** bound the reboot command in Reboot
+- **harness:** bound closing a stuck SSH session
+- **harness:** reconnect after a timed-out Run
+- **dispatch:** type a cancelled plan-lock wait
+- **cli:** hint at a withheld token, compare servers exactly
+- **install:** reject newlines in addresses
+- **dispatch:** greet generation 0, refuse nil clients
+- **dispatch:** lock each host separately for Hello
+- **install:** read the release index by member name
+- **install:** avoid A && B || C in read_token
+- **release:** tie the tag to the built commit
+- **release:** disable Go caches in release jobs
+- **release:** make publish re-runnable
+- **release:** check the minisign module hash
+- **release:** resolve signers and tag by full ref
+- **release:** drop the pnpm cache from release build
+- **transport:** retry accept and unify open errors
+- **transport:** close the session on accept errors
+- **update:** report signature fetch failures
+- **update:** bound the release download
+- **update:** bound the runner start wait
+- **update:** warn when a deadline timer stays armed
+- **fleet:** map only refusals to token_invalid
+- **install-sh:** harden token reading and cleanup
+- **install-sh:** trap before disabling echo
+- **install:** restore key mode on rerun
+- **install:** hold the agent lock while removing data
+- **install:** keep module data with --keep-data
+- **install:** never run a module without a sealer
+- **install-sh:** verify under the script temp dir
+- **install:** drop doubled install error prefixes
+- **daemon:** keep newer credential generations
+- **audit:** prefix an ingest timeout once
+- **fleet:** wait for renewals on server close
+- **fleet:** share one enrollment deadline
+- **daemon:** stop a renewal from undoing an enroll
+- **fleet:** answer 503 to a renewal after Close
+- **coreactions:** bound each host's online check
+- **rollout:** mark applies sent; fail gone hosts
+- **daemon:** serialise credential saves
+- **release:** harden the release workflow
+- **harness:** freeze the runner before the reboot
+- **update:** read controller.db without creating it
+- **update:** refuse flags rollback --direct ignores
+- **update:** hide the machine-only rollback flags
+- **store:** let fs.WalkDir walk the harness union
+- **release:** sign install.sh through checksums.txt
+- **update:** stop the runner once its record moved
+- **update:** protect the break-glass rollback
+- **agent:** exit 3 when agent check cannot run
+- **agent:** exit 3 when agent check refuses --local
+- **cli:** name the socket when a local request hangs
+- **cli:** say a timed-out local apply is unknown
+- **go:** bump toolchain to go1.27.3
+- **store:** tighten Write rollback and file modes
+- **secret:** refuse an uninitialised sealer
+- **store:** make backup pruning safe and non-fatal
+- **store:** match keepTo against the backup label
+- **make:** stamp web-deps and run checks on host
+- **dispatch:** harden Hello and apply checks
+- **lifecycle:** order ids across clock steps
+- **server:** report a failed backup prune
+- **audit:** refuse journal sequences below 1
+- **api:** restore headers after a handler panic
+- **audit:** report ingestion health per host
+- **web:** show token field errors and blank names
+- **web:** highlight Hosts on host pages
+- **web:** show ingestion error as visible text
+- **web:** ignore session answers from before re-login
+- **web:** re-probe past a probe from before re-login
+- **web:** log out without a next page; show role
+- **audit:** store client-safe ingestion errors
+- **web:** keep one anchor so nav links keep focus
+- **lifecycle:** compare JSON numbers exactly
+- **lifecycle:** give settle writes their own budget
+- **lifecycle:** bound revert records, keep apply error
+- **lifecycle:** match Post by state after an undo
+- **lifecycle:** bound the resolution's record
+- **lifecycle:** reuse effectTerminal in release
+- **dispatch:** share the plan index insert
+- **cli:** wait for an applying local change
+- **lifecycle:** resume composite unwind and drop lock
+- **lifecycle:** keep waking after a failed lookup
+- **lifecycle:** let the runner advance a repair
+- **lifecycle:** refuse input on a retry repair
+- **lifecycle:** interrupt changes of gone actions
+- **lifecycle:** log a failed long-running apply
+- **lifecycle:** gate a recover retry on its unit
+- **lifecycle:** close two uninstall barrier gaps
+- **lifecycle:** advance a forward step past a repair
+- **lifecycle:** give unregistered changes an exit
+- **lifecycle:** keep a task change owned on Close
+- **lifecycle:** check the barrier in composite intents
+- **lifecycle:** log a failed run of any apply
+- **lifecycle:** bound a composite runner's failures
+- **lifecycle:** stop retrying a refused child undo
+- **lifecycle:** retry a revert timer's failed read
+- **agent:** refuse task actions on a dev agent
+- **ci:** name the repository for the probe job
+- **install:** let watchdog exits restart cleanly
+- **api:** end HEAD event streams at once
+- **events:** skip unparsable change rows
+- **core:** refuse the root as an owned path
+- **schema:** tag optional address fields omitzero
+- **api:** require admin for unregistered changes
+- **web:** reopen a closed event stream
+- **install:** stop module units before files
+- **core:** drop core word in stream CLI clash
+- **dispatch:** drop zones from the whole guard
+- **runtime:** back off a failing watch
+- **controller:** re-push enablement after a failure
+- **daemon:** release the lock once a stream opens
+- **events:** hide break-glass changes from events
+- **api:** authorize repair at its action's scope
+- **events:** publish a reset for a lost event
+- **agent:** refuse HEAD on the module stream route
+- **api:** end relayed streams on shutdown
+- **api:** log stream lines the relay cannot read
+- **cli:** escape terminal controls in follow
+- **dispatch:** take stream slots before discovery
+- **cli:** compact followed events before printing
+- **runtime:** warn of tasks skipped for long
+- **install:** refuse abort while agent restarts
+- **web:** refetch on an event that cannot be read
+- **web:** refetch once per reopened event stream
+- **api:** end a relay whose recheck fails
+- **web:** type a step action as a string
+- **web:** keep the plan shown while overrides replan
+- **server:** log service failures at shutdown
+- **api:** refuse catch-all extension routes
+- **api:** match stream routes on the network mux
+- **listen:** renew the leaf without TLS endpoints
+- **api:** validate the OpenAPI document in New
+- **web:** keep the release report on the change page
+- **cli:** refuse hand-written alias clashes
+- **listen:** rebind runtime listeners that stop
+- **api:** stop and end contributed streams
+- **cloud:** confine request paths and redirects
+- **web:** stop failing resolved changes
+- **web:** harden the change dialog
+- **web:** surface missing tokens and host errors
+- **web:** keep the resolve dialog across updates
+- **platform:** prefix the table open error
+- **platform:** report a log frame cut after its header
+- **platform:** wrap route lookup and dump errors
+- **platform:** refuse image reference with trailing colon
+- **platform:** harden dockerapi client edge cases
+- **platform:** harden tslocal prefs and cert pair
+- **platform:** harden netfilter parse results
+- **platform:** harden netstat netlink and sockets
+- **netstat:** fail when no socket table exists
+- **netstat:** bound netlink answers by a deadline
+- **core:** accept revertible repair actions
+- **firewall:** refuse tuple interfaces with many bangs
+- **lifecycle:** report revertible repair outcome
+- **web:** keep rule delete dialog mounted when empty
+- **web:** clear manual consent when a restore is cancelled
+- **netfilter:** keep mark spellings iptables refuses
+- **controller:** log dropped guard addresses
+- **firewall:** reject shell lines UFW reads two ways
+- **firewall:** match every protocol for -p 0
+- **firewall:** keep nf_tables unloaded on legacy hosts
+- **firewall:** refine guard interface eligibility
+- **firewall:** require a tailnet route back for the shortcut
+- **firewall:** close fail-open mark paths
+- **firewall:** unknown source port for new flows
+- **firewall:** refuse an add that replaces a rule
+- **firewall:** refuse an IPV6=no restore over foreign rules
+- **firewall:** keep manual sysctl edits on undo
+- **firewall:** refuse IPV6=no before writing files
+- **firewall:** count copies of a duplicated manual rule
+- **firewall:** drop plan-time replace refusal
+- **firewall:** keep a snapshot through its restore
+- **firewall:** always record UFW's sysctl file
+- **firewall:** verify the sysctl values of a start
+- **netfilter:** read ICMP types as iptables does
+- **platform:** refuse sysctl reads without procfs
+- **firewall:** read the loopback sysctl values
+- **firewall:** let a repair restore manual rules
+- **firewall:** list unreadable values of modelled matches
+- **firewall:** validate the batch label once
+- **server:** wait for runtime listeners in topology
+- **firewall:** leave unsafe comments off vectors
+- **firewall:** predict built-in rules on reload
+- **firewall:** pass packet marks to guard routes
+- **netfilter:** read REJECT and LOG names as iptables does
+- **firewall:** verify every built-in chain
+- **firewall:** refuse unmodelled mangle rules
+- **server:** mark the topology incomplete on shutdown
+- **firewall:** protect the controller's listeners
+- **firewall:** fail a proxyless runtime listener
+- **firewall:** guard IPv6 forwarding and RA routes
+- **firewall:** finish a cut-off emergency restore
+- **netfilter:** print limit rates as iptables does
+- **firewall:** restore over a cut-off restore
+- **firewall:** fail a restore on unreadable chains
+- **firewall:** load the image after the inverses
+- **firewall:** keep a manual edit over the image
+- **firewall:** let state actions confirm manual rules
+- **install:** start the agent after the firewall programs
+- **firewall:** read UFW settings in load order
+- **firewall:** own only bare jumps in the image
+- **firewall:** exclude chains jumping to nothing
+- **firewall:** reinsert a rule in snapshot order
+- **firewall:** refuse an undo with a null before
+- **firewall:** flag unread state in an override
+- **firewall:** let every mutation confirm manual
+- **firewall:** cap the IPv6 refusal detail
+- **firewall:** skip a missing global sysctl key
+- **firewall:** restore a file whose mode drifted
+- **firewall:** refuse an image with a line break
+- **firewall:** fail an uninstall leaving a rule
+- **firewall:** fail verify on an unreadable effect
+- **firewall:** log the sysctl keys a restore skips
+- **firewall:** unpin repaired snapshots on prune
+- **platform:** refuse a dashed nft table name
+- **firewall:** refuse a foreign snapshot path
+- **firewall:** cap a rules.apply batch at 256
+- **test:** harden the fixture capture scripts
+- **firewall:** keep a restore's pin on its snapshot
+- **firewall:** correct exposure under-reporting
+- **firewall:** tighten Docker detection checks
+- **web:** strip leading slash from container name
+- **dockerfw:** agree with Render on mapped addresses
+- **firewall:** row a [::] listener as IPv4 too
+- **firewall:** keep foreign rules a repeat finds
+- **firewall:** clean up Docker chains first
+- **firewall:** reload UFW only when it is installed
+- **firewall:** undo a cleanup's chains after files
+- **firewall:** run revert cleanups unjournaled
+- **firewall:** disable Docker without the daemon
+- **firewall:** let an exposure container be null
+- **harness:** register the apply wait late
+- **harness:** retry a failed exposure read
+- **firewall:** end a change's cleanup on revert
+- **firewall:** fail undo on unreadable state
+- **firewall:** allowlist Docker bridge names
+- **harness:** retry a failed scan in eventually
+- **firewall:** verify an image with a foreign rule
+- **firewall:** keep rules a failed revert recorded
+- **dockerfw:** harden the capture script
+- **firewall:** keep each copy of a foreign rule
+- **firewall:** reconcile only filter-table chains
+- **firewall:** warn when reconcile lacks Docker
+- **firewall:** name bad markers on repair verify
+- **firewall:** skip a binding without a host port
+- **harness:** quote the probe and reach commands
+- **firewall:** refuse a non-block file before run
+- **firewall:** adopt a cleanup record on revert
+- **firewall:** keep live foreign rules on recovery
+- **firewall:** keep the DNAT gate on cleanup end
+- **dockerapi:** reject empty ids and wrap negotiation error
+- **web:** reset useStream state on key change
+- **web:** return readonly tuple from cloudflareKey
+- **docker:** keep test binaries off the host socket
+- **docker:** bound the preflight's daemon call
+- **web:** clear the tailnet connect form on close
+- **docker:** refuse owned container references
+- **docker:** bound the project config hash read
+- **docker:** keep a partial prune error uncertain
+- **docker:** count stopped containers as network users
+- **cloudflare:** filter the zones list by account
+- **web:** correct the tunnel counts in the page test
+- **web:** tell the user when the policy edit is replaced
+- **docker:** end the pull stream with an error for a dropped reader
+- **docker:** refuse writable Compose project paths
+- **tailnet:** hide token errors from the status re-coding
+- **docker:** announce the stopped containers a restart starts
+- **docker:** logs live param and nullable outputs
+- **tailnet:** settle auth key undo 404 and empty id
+- **tailnet:** sweep keys by their current row
+- **cloudflare:** accept own rule and gone tunnel
+- **tailnet:** reuse read in policy patch verify
+- **cloudflare:** settle hostname remove edge cases
+- **tailnet:** nullable account in account status
+- **cloudflare:** nullable pointer outputs
+- **harness:** pull Docker live image from ghcr.io
+- **cloudflare:** read every page and refuse empty ids
+- **cloudflare:** refuse names that reach the panel
+- **cloudflare:** mark unread tunnel connections
+- **tailnet:** keep swept auth key rows deleted
+- **tailnet:** refuse credentials at the token step
+- **tailnet:** refuse dot names and keyless answers
+- **docker:** trust only root or owner ancestors
+- **docker:** redact secrets in commands and labels
+- **harness:** never delete a program in shim setup
+- **docker:** widen the inspect secret masking
+- **docker:** mask whole NAME=value secrets
+- **docker:** resolve id prefixes and skip gone ones
+- **docker:** keep goldens when a capture fails
+- **docker:** redact command secrets by token
+- **web:** show a failed modules read as an error
+- **web:** refuse blank tokens and fix route wording
+- **docker:** refuse a shadowing Compose plugin
+- **docker:** fail closed when masking commands
+- **docker:** show only the program of foreign commands
+- **docker:** list shown labels by exact key
+- **listen:** back off reads of a due certificate
+- **web:** retry a failed latency measurement
+- **tailscale:** observe absent objects as no match
+- **tailscale:** resolve exit node addresses to peer ids
+- **tailscale:** resume an interrupted pin rollback safely
+- **harness:** retry the pin plan past the cache
+- **tailscale:** refuse a login apply in NoState
+- **tailscale:** fail the link guard on an unknown kind
+- **tailscale:** fail the guard on a bad exposure path
+- **transport:** refuse a bundle with a duplicate key
+- **tailscale:** bound the latency probe URL
+- **tailscale:** pin zoned literal skip in probe URLs
+- **web:** label region report lists by severity
+- **derp:** observe the unit through its enablement link
+- **derp:** bound each health poll to the update window
+- **derp:** drop the controller dial-address gate
+- **derp:** log failed server region lookups
+- **derp:** probe only checked, pinned addresses
+- **derp:** refuse an IPv4-mapped address in ip mode
+- **derp:** check the agent's report before set edits
+- **derp:** remove only the server's own grant
+- **derp:** refuse a rotation whose pin cannot publish
+- **derp:** degrade a server whose region is unknown
+- **derp:** find the region of an unrecorded server
+- **release:** fail releasetool derper without checksums
+- **derp:** bound the node probe's regionId in schema
+- **derp:** refuse a renewal whose key file is missing
+- **derp:** name the renewal wait's last failure
+- **harness:** key the derper cache on its build inputs
+- **stun:** send the request form derper answers
+- **npm:** read numeric upstream hosts as nginx does
+- **npm:** scope proxyhost removal reservations
+- **npm:** cap upgrade archive reads at 256 MiB
+- **npm:** log hosts the instance list omits
+- **npm:** refuse NPM names with a network suffix
+- **npm:** refuse a composite step output with no id
+- **npm:** reset the NPM page when the host changes
+- **harness:** run ACME images by default entrypoint
+- **web:** show connectors while tunnels load
+- **cloudflare:** cap the pages a list reads
+- **cloudflare:** resolve service names on add only
+- **docker:** check shadow plugin directory owners
+- **docker:** digest label values in effect docs
+- **cloudflare:** fix network.attach test defects
+- **cloudflare:** refuse unlabelled connector names
+- **cloudflare:** name both ways to release a claim
+- **cloudflare:** close deferred review minors
+- **backup:** audit a backup that fails early
+- **backup:** refuse untrusted recovery inputs
+- **cli:** remove the partial backup on interrupt
+- **backup:** refuse a journal the service could write
+- **backup:** drop only restores' set-aside files
+- **backup:** report a finished restore on cleanup error
+- **cli:** say never means the record was never applied
+- **harness:** re-enroll the agent with agent enroll
+- **cloudflare:** check connector label and address
+- **npm:** release only the owner's reservations
+- **panel:** repair a listener whose cleanup failed
+- **server:** hide step events of hidden composites
+- **web:** warn when the panel status read fails
+- **panel:** name attached containers on network removal
+- **panel:** name the listener cleanup call that failed
+- **panel:** agree the TOTP refusal with one user
+- **cloudflare:** list conflicting addresses as text
+- **panel:** drop the doubled removal error prefix
+- **web:** keep the panel dialog title while closing
+- **tslocal:** keep one spelling of a prefs key
+- **firewall:** refuse a tag comment with a bare space
+- **tailscale:** read dpkg status words by space
+- **release:** order huge numeric prerelease ids
+- **cloud:** refuse an overflowing Retry-After
+- **cli:** escape DEL in streamed events
+- **web:** page titles and axe fixes for core pages
+- **web:** name role-less fields in focusedName
+- **web:** announce and focus the change flow
+- **web:** keep focus in the firewall change flow
+- **web:** keep focus in the docker firewall flow
+- **web:** keep focus after container changes
+- **web:** title the module global pages
+- **web:** return focus after a container deny
+- **web:** meet contrast and reflow in both themes
+- **web:** scope contrast overrides to the defaults
+- **fuzz:** fail the inventory on a scan error
+- **cli:** refuse a relative --state-dir
+- **apidocs:** refuse a schema no table describes
+- **web:** move focus only from the body on close
+- **web:** show a late revert deadline at once
+- **harness:** raise the agent memory budget to 50 MB
+- **cmd:** exit 0 when a signal ends startup
+- **cloud:** treat a nil probe Read as missing
+- **server:** bound the runtime listeners' shutdown
+- **firewall:** trim iptables version output
+- **web:** confirm composites awaiting confirmation
+- **web:** label secrets and keep audit focus
+- **derp:** bound the binary update rollback
+- **derp:** bound passes and refuse stale regions
+- **derp:** refuse status facts it cannot read
+- **derp:** bound probe reads and name failures
+- **derp:** refuse unknown modes and file names
+- **tailscale:** roll back a failed pin detached
+- **tailnet:** share one token cache
+- **tailnet:** refuse edits to repeated names
+- **dispatch:** retire availability after an apply
+- **npm:** restore a failed upgrade by its branch
+- **npm:** report a hung upgrade probe as a timeout
+- **npm:** tighten proxy, claim and list checks
+- **npm:** harden status, login and store reads
+- **npm:** bound host ids and exposure domains
+- **cloudflare:** mark connector reads Definite
+- **web:** validate NPM list reads and keep panels
+- **web:** correct DERP dialogs and connector deploy
+- **store:** accept service audit phases
+- **firewall:** lock host-state reads and writes
+- **firewall:** lock the repair foreign-rule list
+- **listen:** normalise the stored public host
+- **derp:** record the service user after useradd
+- **derp:** harden artifact and derper checks
+- **release:** pin GOTOOLCHAIN for the derper build
+- **tailscale:** restrict DERP probe host names
+- **npm:** bound and drain NPM API answers
+- **npm:** honour denied sources in public check
+- **npm:** list unreadable hosts, stop on cancel
+- **npm:** delete upgrade archives on removal
+- **npm:** mark only a first-step read definite
+- **backup:** secure staged files through one fd
+- **backup:** guard the backup copy and key read
+- **cli:** harden controller backup and restore
+- **web:** warn when NPM hosts cannot be checked
+- **web:** keep NPM data when a refetch fails
+- **docker:** report Compose failures by status
+- **docker:** suggest the exact quoted Compose command
+- **tailscale:** detach early pin rollbacks
+- **lifecycle:** pass read outputs to composers
+- **npm:** reserve every port of NPM's own names
+- **npm:** resolve forward hosts at plan and apply
+- **npm:** match network-qualified container names
+- **npm:** protect proxy host config in effects
+- **npm:** drop NPM answer text from errors
+- **npm:** remove instance on bootstrap conflict
+- **docker:** mask every inspect command argument
+- **docker:** keep label values out of plans and effects
+- **derp:** read certificate files without links
+- **cli:** accept nested secret inputs
+- **derp:** refuse private probe targets and raw errors
+- **derp:** report failed server probe sources as failed
+- **auth:** lock a username per source prefix
+- **firewall:** guard an NPM exposure's public leg
+- **firewall:** check internet flows in every cell
+- **firewall:** drop unused IPv4 ranges from cells
+- **firewall:** refuse only cells a change blocks
+- **backup:** set the copy's mode on its descriptor
+- **npm:** mark only a first refusal as definite
+- **firewall:** guard every address of a wildcard bind
+- **firewall:** cut internet cells at route boundaries
+- **firewall:** cut cells only at unicast routes
+- **firewall:** keep throw routes as cell cuts
+- **firewall:** skip throw cells only if no reply
+- **firewall:** cut cells at every route type
+- **firewall:** check the NPM reply before a skip
+- **firewall:** keep a skip off marked replies
+- **docker:** put the Compose command last, unquoted
+- **npm:** return a transient lookup as retryable
+- **derp:** name a certificate file the read refuses
+- **derp:** log the controller probe's raw error
+- **firewall:** read restore input rules from text
+- **firewall:** apply rule changes without reload
+- **firewall:** load Docker chains without reload
+- **firewall:** revert live changes from an image
+- **firewall:** tolerate foreign built-in drift
+- **firewall:** revert Docker chains without reload
+- **firewall:** keep block when undoing a repair
+- **firewall:** image no-transition changes
+- **firewall:** skip the chain load with UFW off
+- **firewall:** check wildcard binds on all addresses
+- **firewall:** keep every forwarded reply
+- **firewall:** bound cells, match longest routes
+- **firewall:** route before-state by its sysctls
+- **firewall:** read policy rules in the guard
+- **firewall:** refuse flows on unread policy rules
+- **firewall:** guard both legs of a public binding
+- **netstat:** reject rule prefixes of bad length
+- **npm:** restore locations the undo cannot check
+- **npm:** treat only a held admin as a conflict
+- **derp:** refuse internal probe address forms
+- **derp:** name and refuse more probe forms
+- **derp:** allow host links above the cert dir
+- **derp:** refuse a link at the cert dir
+- **tailscale:** remove repo files of a failed step
+- **controller:** validate stored bindings and copies
+- **web:** show one NPM expose read failure
+- **firewall:** count the before-state in the cost
+- **firewall:** count the before-state in the cost
+- **derp:** refuse .. in certificate names
+- **npm:** keep wrapper text on a joined mark
+- **firewall:** say a missing file stops prediction
+- **backup:** name the hard-link refusal correctly
+- **web:** show one alert on the expose form
+- **web:** keep a closed question from cancelling
+- **go:** bump toolchain to go1.27.4
+
+### Performance
+
+- **schema:** cache output schemas in Redact
+- **firewall:** cut cells only by matching rules
+
+### Refactoring
+
+- **web:** move non-component exports out of tsx
+- **dispatch:** read agent clients from a source
+- **listen:** share the Tailscale watcher
+- **core:** move systemd contract into core
+- **core:** pass plan options to every plan
+- **server:** rename the restart delay floor
+- **transport:** name backoff bounds Min first
+- **firewall:** skip config reads for images
+- **firewall:** drop the unused restoreIntent
+- **harness:** prefix the port entry parser
+- **tailnet:** share key row decoding
+- **web:** share the byte formatter in the Docker tabs
+- **npm:** reuse creation identity in list reads
+- **panel:** share one exposure label helper
+- **web:** read panel route labels from ROUTES
+- **web:** share the global not-found view
+- **firewall:** share the guard's flow wording
+- **firewall:** share the origdst parser
+- **docker:** share the inspect mask loop
+
+### Documentation
+
+- **plan:** add product spec, roadmap and registers
+- **plan:** mark M0 discovery rows done
+- **plan:** resolve M0 audit inconsistencies
+- **plan:** close M0 discovery
+- **adr:** add M1 architecture decisions epic spec
+- **adr:** switch ADR epic to parallel execution
+- **adr:** revise ADR spec after Fable and Codex review
+- **plan:** add M1 ADR implementation plan
+- **plan:** record web UI direction A for skeleton
+- **adr:** mark ADR register rows in flight
+- **adr:** add ADR index and structure checker
+- **adr:** tighten checker error and status handling
+- **adr:** add ADR 0003 agent protocol
+- **adr:** add ADR 0002 module contract
+- **adr:** add ADR 0004 change lifecycle
+- **adr:** add ADR 0005 storage and secrets
+- **adr:** add ADR 0006 API and CLI
+- **adr:** add ADR 0007 release and update
+- **adr:** add ADR 0008 test harness
+- **adr:** add ADR 0009 host execution safety
+- **adr:** add ADR 0001 stack and layout
+- **adr:** add shared contracts pointer to 0001
+- **adr:** add requirement traceability table
+- **adr:** reconcile ADRs with spec and each other
+- **adr:** use host id in local actor format
+- **adr:** split ADR 0006 consequences into bullets
+- **adr:** rewrap ADR 0009 and move contracts note
+- **adr:** correct consequence and index wording
+- **adr:** mark ADR register rows for verify
+- **plans:** complete m1-architecture-decisions
+- **findings:** add Fable review of the M1 ADRs
+- **spec:** amend R12, R13 and R34 to match ADRs
+- **adr:** apply accepted ADR review fixes
+- **registers:** settle the M1 ADR design questions
+- **registers:** accept the revised M1 ADRs
+- **adr:** accept the M1 ADRs and close the epic
+- **spec:** add M1 repository and tooling design
+- **spec:** split make targets per CI job
+- **spec:** embed UI via version and add rulings
+- **plan:** add M1 repository and tooling plan
+- **register:** mark M1 tooling rows in progress
+- **repo:** add license, readme and policies
+- **gates:** declare project gates
+- **plans:** complete m1-repository-tooling
+- **registers:** close the M1 repository tooling epic
+- **spec:** add M1 platform core design
+- **findings:** add Fable review of M1 platform core
+- **spec:** apply Fable review to M1 platform core
+- **spec:** split M1 platform core into six plans
+- **plan:** add the M1 platform foundation plan
+- **register:** mark foundation rows in flight
+- **adr:** add ADRs 0010 and 0011
+- **store:** say that Write is not re-entrant
+- **plans:** complete m1-platform-foundation
+- **notes:** keep m1-platform-foundation amendments
+- **plans:** add m1-framework-libraries plan
+- **core:** note recovery verifies without output
+- **plans:** complete m1-framework-libraries
+- **plans:** draft m1-identity-and-api plan
+- **plans:** review m1-identity-and-api plan
+- **registers:** mark m1 identity rows in flight
+- **registers:** file plan 3 owner decisions and carry-overs
+- **plans:** complete m1-identity-and-api
+- **registers:** file owner rulings on rows 65-68
+- **plans:** draft m1-dispatch-cli-and-assembly
+- **registers:** assign plan 4 rows and defer six
+- **plans:** apply plan 4 review rounds 1 and 2
+- **registers:** mark plan 4 rows doing
+- **adr:** narrow ADR 0010's Ed25519 claim
+- **readme:** document serve and the CLI token
+- **readme:** install the binary as darkpanel
+- **plans:** complete m1 dispatch cli assembly
+- **plans:** add m1 web ui plan
+- **registers:** mark web UI rows in progress
+- **plans:** complete m1-web-ui
+- **plans:** draft m1-harness plan
+- **plans:** finish the m1-harness plan review
+- **registers:** mark the harness rows doing
+- **gates:** count only ESLint errors as lint findings
+- **plans:** complete m1-harness
+- **registers:** mark the m1 harness row done
+- **specs:** add the m2 fleet and lifecycle design
+- **specs:** fold the m2 spec panel round 1 findings
+- **plans:** add m1-cleanup plan
+- **registers:** mark m1-cleanup rows in flight
+- **registers:** resolve m1-cleanup rows
+- **plans:** complete m1-cleanup
+- **specs:** fold the m2 spec panel round 2 findings
+- **specs:** fold the m2 spec panel round 3 findings
+- **specs:** record owner approval of the m2 spec
+- **m1:** record owner decisions on rows 16 19 29 122
+- **gates:** require ESLint to print no findings
+- **registers:** resolve row 122
+- **registers:** remove conflict markers from row 122
+- **plans:** add the m2 release workflow plan
+- **plans:** add the m2 foundation plan
+- **registers:** mark m2 foundation rows in flight
+- **adr:** add ADR 0012 for M2 contracts and layout
+- **adr:** state index, reservation and exec scopes
+- **lifecycle:** say ReserveAll excludes keyed changes
+- **cli:** note LocalFallbacks has no runner yet
+- **register:** track keyless changes under reservation
+- **plans:** complete m2-foundation
+- **registers:** mark m2 release workflow row in flight
+- **versioning:** add the versioning policy
+- **release:** complete the owner setup steps
+- **plans:** complete m2-release-workflow
+- **plans:** add m2-security-libraries plan
+- **plans:** complete m2-security-libraries
+- **plans:** add m2-agent-api-and-install
+- **register:** mark install rows in flight
+- **register:** add install follow-ups
+- **register:** move install rows to verify
+- **plans:** complete m2-agent-api-and-install
+- **plans:** add m2-services
+- **register:** mark m2-services rows doing
+- **daemon:** correct two stale comments
+- **register:** record m2-services follow-ups
+- **notes:** keep m2-services amendments
+- **plans:** complete m2-services
+- **register:** assign rows to the assembly plan
+- **plans:** add the m2 assembly and harness plan
+- **register:** defer the assembly dry-run minors
+- **register:** mark the assembly rows doing
+- describe install, fleet and break-glass use
+- **spec:** record the assembly amendments
+- **gates:** record the measured harness budget
+- **daemon:** name the lock enroll saves under
+- **readme:** verify install.sh before running it
+- **readme:** recover an interrupted rollback
+- **spec:** drop the agent epoch migration from P10
+- **gates:** name the measured harness run
+- **plans:** complete m2-assembly-and-harness
+- **register:** record the tls resumption constraint
+- **register:** close five verified m2-services rows
+- **plans:** add m2-release-and-break-glass-fixes
+- **register:** mark rows 95-97 in flight
+- **spec:** rewrap the agent check exit statuses
+- **plans:** complete m2-release-break-glass
+- **plans:** add m2-local-timeout-and-readme plan
+- **readme:** compare the signed version before install
+- **register:** mark rows 100 and 101 done
+- **plans:** complete m2-local-timeout-readme
+- **register:** mark row 104 done
+- **register:** mark rows 102 and 118 done
+- **register:** move M1 epics 3-6 to verify
+- **register:** reopen M1 rows from the audit
+- **adr:** record the go1.27.3 bump in ADR 0013
+- **register:** record the M1 browser check
+- **specs:** design the M1 audit fixes
+- **specs:** record the audit-fix review rulings
+- **plans:** plan the M1 audit fixes
+- **plans:** apply the audit-fix plan review
+- **register:** start the M1 audit fixes
+- **register:** move audit-fix rows to verify
+- **store:** say the prune runs before migrations
+- **plans:** complete m1-audit-fixes
+- **roadmap:** close M1 Foundations
+- **register:** exclude .superpowers locally
+- **spec:** design v1 completion programme
+- **register:** open v1 completion register
+- **spec:** revise v1 completion after review round 1
+- **spec:** revise v1 completion after review round 2
+- **spec:** revise v1 completion after review round 3
+- **spec:** revise v1 completion core after round 4
+- **spec:** revise v1 modules after round 4
+- **spec:** merge module revisions after round 4
+- **spec:** align core contracts with module revisions
+- **spec:** define wave 0 lifecycle contracts
+- **spec:** define wave 0 core surfaces
+- **spec:** merge wave 0 core surfaces
+- **spec:** integrate revision 6 cross-references
+- **spec:** simplify the lifecycle core
+- **spec:** fix wave 0 surface contracts
+- **spec:** merge wave 0 surface fixes
+- **spec:** integrate revision 7 names
+- **spec:** close lifecycle gaps in the simplified core
+- **spec:** align surfaces and modules with the lifecycle
+- **spec:** merge revision 8 surface alignment
+- **spec:** integrate revision 8 names
+- **spec:** plan wave 0 as three sequential plans
+- **spec:** order the wave 0 plan decision
+- **spec:** carry the call context in a header
+- **register:** plan the w0a lifecycle rows
+- **spec:** assign the change UI and watchdog hazard
+- **spec:** align dry-run plans and final ack
+- **plan:** plan the w0a lifecycle core
+- **register:** mark the w0a lifecycle row in flight
+- **plans:** complete w0a lifecycle core
+- **spec:** undo compares observations by State only
+- **plans:** add w0b platform and surfaces plan
+- **spec:** units restart after watchdog exits
+- **registers:** add w0b final review deferrals
+- **plans:** complete w0b platform surfaces
+- **plans:** draft w0c extensions and web plan
+- **plans:** finish and review the w0c plan
+- **registers:** mark w0c rows in progress
+- **adr:** record the v1 core extensions
+- **server:** correct quarantine and ticket notes
+- **plans:** complete w0c extensions and web
+- **plans:** plan wave 0b host clients
+- **registers:** start w0b host clients
+- **plans:** complete w0b host clients
+- **spec:** record wave 1 owner rulings R1-R3
+- **spec:** add GuardContext.Complete to 1.5
+- **spec:** narrow tailnet flow eligibility in 2.3
+- **register:** defer tc ingress marks (row 289)
+- **spec:** use the generated snapshot restore form
+- **plan:** assemble the wave 1 firewall plan draft
+- **plan:** fold the review fixes into wave 1 plan
+- **register:** mark the wave 1 firewall rows doing
+- **firewall:** correct the schema pattern comment
+- **firewall:** note a comm match fails closed
+- **firewall:** say which sysctl keys Vanished lists
+- **firewall:** put TestTargetRestore's comment back
+- **plan:** complete v1-w1-firewall-core
+- **notes:** record the w1 firewall rulings and followups
+- **plan:** start the v1-w2 firewall docker plan
+- **plan:** draft the v1-w2 firewall docker tasks
+- **plan:** split, score and wave the w2 tasks
+- **spec:** name the sources action set-sources
+- **plan:** review the v1-w2 firewall docker plan
+- **register:** start the v1-w2 firewall docker rows
+- **dockerfw:** note the IPv6 capture gap
+- **plans:** complete v1-w2-firewall-docker
+- **plans:** add v1-w3 plan header and task index
+- **plans:** draft and assign the v1-w3 tasks
+- **plans:** apply v1-w3 plan review round 1 fixes
+- **plans:** revise v1-w3 Tasks 1 and 60
+- **plans:** record the v1-w3 plan review
+- **registers:** mark v1-w3 rows in flight
+- **spec:** record the tailnet and cloudflare contracts
+- **spec:** flag warnings-only validate as open
+- **spec:** define token verify endpoint fallback
+- **tailnet:** say read actions take no lock
+- **plans:** complete v1-w3-docker-tailnet
+- **plans:** start v1-w4 tailscale node plan header
+- **plans:** join v1-w4 task drafts
+- **plans:** score v1-w4 tasks and add items
+- **plans:** fix v1-w4 plan review round 1
+- **plans:** record v1-w4 plan review round 2
+- **spec:** record the tailscale node contract
+- **tailscale:** say a new unpin change finishes it
+- **plans:** complete v1-w4-tailscale-node
+- **plans:** add v1-w5-derp header and contracts
+- **plans:** add v1-w5-derp tasks and scores
+- **plans:** apply v1-w5-derp plan review fixes
+- **registers:** mark v1 wave 5 rows in flight
+- **spec:** record the derp contract
+- **spec:** name derper's sanitized cert files
+- **register:** reopen M3 docker rows 7-10 and 13
+- **plans:** complete v1-w5-derp
+- **plans:** add v1-w6a-npm plan header
+- **plans:** add npm shared contracts to w6a plan
+- **plans:** rename npm fleet read in w6a plan
+- **plans:** complete v1-w6a-npm task bodies
+- **registers:** mark w6a npm rows in flight
+- **notes:** add the v1-w6a NPM spike
+- **spec:** record the NPM spike results
+- **spec:** correct NPM certificate and login rules
+- **plans:** complete v1-w6a-npm
+- **plans:** draft v1-w6b cloudflare connector plan
+- **plans:** review v1-w6b cloudflare connector plan
+- **notes:** add the v1-w6b cloudflare spike
+- **register:** defer w6b final review follow-ups
+- **plans:** complete v1-w6b-cloudflare
+- **plans:** draft v1-w7 backup and restore plan
+- **plans:** finish the v1-w7 backup restore plan
+- **register:** add the audit phase check row
+- **register:** mark the w7 backup rows doing
+- **spec:** add the wave 7 rulings
+- **register:** add the exposure marking row
+- **register:** add the startup-stop exit defect row
+- **plans:** complete v1-w7-backup-restore
+- **plans:** add v1-w8-panel-exposure plan
+- **register:** mark w8 panel exposure rows doing
+- **spec:** add the wave 8 rulings to section 8
+- **register:** add the panel removal hazard row
+- **register:** note the named containers in row 401
+- **spec:** accept the leftover panel certificate
+- **register:** defer the w8 final review minors
+- **plans:** complete v1-w8-panel-exposure
+- **plans:** draft v1-w9-hardening
+- **plans:** complete v1-w9-hardening
+- **register:** mark w9 rows in flight
+- **user:** add install, admin and recovery pages
+- **user:** add hostinfo to tailnet module pages
+- **user:** correct firewall and docker module pages
+- **user:** add derp, npm, cloudflare, panel pages
+- **dev:** add the module developer guide
+- **accessibility:** add browser pass screenshots
+- **accessibility:** refresh browser pass screenshots
+- **accessibility:** add the WCAG conformance record
+- **spec:** add the wave 9 rulings to section 9
+- **register:** record four wave 9 findings
+- **register:** record the composite confirm gap
+- correct rollback, guide and a11y wording
+- **web:** note DockerSources' fallbackFocus prop
+- **register:** file the wave 9 final review rows
+- **plans:** complete v1-w9-hardening
+- **plans:** draft v1-w10a known fixes plan
+- **plans:** finish v1-w10a known fixes plan
+- **registers:** mark w10a rows in flight
+- **dev:** say what the registry checks
+- **spec:** record the wave 10a rulings
+- **security:** add the threat model
+- **security:** correct threat model citations
+- **runbook:** add the recovery runbook
+- **runbook:** re-enroll agents before release
+- **runbook:** revoke enrolled hosts before host token
+- **runbook:** correct recovery and re-enroll text
+- **security:** cite code for two mitigations
+- **cmd:** correct the unit exit status comment
+- **plans:** complete v1-w10a-known-fixes
+- **plans:** draft v1-w10b security fixes plan
+- **plans:** review and finish v1-w10b plan
+- **spec:** record the wave 10b plan rulings
+- **versioning:** state the 0.x reinstall boundary
+- **npm:** fix the bootstrap conflict recovery text
+- **spec:** narrow the wild-source cell rule
+- **registers:** record the UFW reload window
+- **security:** update threat model after review
+- **registers:** record the re-review findings
+- **registers:** assign rows 24 and 25 to w10b
+- **registers:** record the panel 2 outcome
+- **firewall:** state when a cell yields no probe
+- **security:** list the lockout guard residuals
+- **spec:** cut cells at routes, check wildcards
+- **registers:** record the final review follow-ups
+- **plans:** complete v1-w10b-security-fixes-rc
+- **plans:** draft v1-w11a-live-apply
+- **plans:** fix w11a plan review round 2
+- **plans:** fix w11a plan review round 3
+- **spec:** add the wave 11 plan rulings
+- **security:** record live ufw and residuals
+- **user:** describe live Docker repair
+- **firewall:** correct stale reload comments
+- **plans:** complete v1-w11a-live-apply
+- **plans:** add v1-w11b-lockout-guard plan
+- **plans:** apply w11b plan review round 1
+- **security:** record the wave 11b guard rulings
+- **security:** state the guard's remaining limits
+- **plans:** complete v1-w11b-lockout-guard
+- **plans:** add v1-w11c module fixes plan
+- **npm:** limit the conflict paragraph to 4xx
+- **security:** record the wave 11c rulings
+- **security:** record the write paths' link limit
+- **registers:** record wave 11c follow-up rows
+- **plans:** complete v1-w11c-module-fixes
+- **plans:** add v1-w11d-followups
+- **registers:** rule wave 11c follow-up rows
+- **security:** list probe refusals as mitigations
+- **npm:** state what a joined mark keeps
+- **plans:** complete v1-w11d-followups
+- **registers:** record the release signing setup

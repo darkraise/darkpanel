@@ -1,0 +1,141 @@
+{
+  "name": "npm.instance.list",
+  "version": 1,
+  "class": "read",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/InstanceListInput",
+    "$defs": {
+      "InstanceListInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/InstancesOutput",
+    "$defs": {
+      "AdminExposure": {
+        "properties": {
+          "hostname": {
+            "type": "string"
+          },
+          "proxyHostId": {
+            "type": "integer"
+          },
+          "certificateId": {
+            "type": "integer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hostname",
+          "proxyHostId",
+          "certificateId"
+        ]
+      },
+      "HostInstance": {
+        "properties": {
+          "hostId": {
+            "type": "string"
+          },
+          "hostName": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/$defs/InstanceStatus"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hostId",
+          "hostName",
+          "status"
+        ]
+      },
+      "InstanceStatus": {
+        "properties": {
+          "deployed": {
+            "type": "boolean"
+          },
+          "containerId": {
+            "type": "string"
+          },
+          "image": {
+            "type": "string"
+          },
+          "pinnedImage": {
+            "type": "string"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "apiReady": {
+            "type": "boolean"
+          },
+          "public": {
+            "type": "string",
+            "enum": [
+              "no",
+              "confirmed"
+            ]
+          },
+          "adminEmail": {
+            "type": "string"
+          },
+          "adminExposure": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/AdminExposure"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "upgradeAvailable": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "deployed",
+          "containerId",
+          "image",
+          "pinnedImage",
+          "running",
+          "apiReady",
+          "public",
+          "adminEmail",
+          "adminExposure",
+          "upgradeAvailable"
+        ]
+      },
+      "InstancesOutput": {
+        "properties": {
+          "instances": {
+            "items": {
+              "$ref": "#/$defs/HostInstance"
+            },
+            "type": "array"
+          },
+          "unreadable": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "instances",
+          "unreadable"
+        ]
+      }
+    }
+  }
+}

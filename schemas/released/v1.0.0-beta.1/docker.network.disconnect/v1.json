@@ -1,0 +1,72 @@
+{
+  "name": "docker.network.disconnect",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/DisconnectInput",
+    "$defs": {
+      "DisconnectInput": {
+        "properties": {
+          "network": {
+            "type": "string"
+          },
+          "container": {
+            "type": "string"
+          },
+          "force": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "network",
+          "container"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/EndpointView",
+    "$defs": {
+      "EndpointView": {
+        "properties": {
+          "network": {
+            "type": "string"
+          },
+          "networkId": {
+            "type": "string"
+          },
+          "container": {
+            "type": "string"
+          },
+          "endpointId": {
+            "type": "string"
+          },
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "ipv4": {
+            "type": "string"
+          },
+          "ipv6": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "network",
+          "networkId",
+          "container"
+        ]
+      }
+    }
+  }
+}

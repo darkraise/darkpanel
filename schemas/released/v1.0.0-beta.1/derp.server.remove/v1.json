@@ -1,0 +1,56 @@
+{
+  "name": "derp.server.remove",
+  "version": 1,
+  "class": "composite",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ServerRemoveInput",
+    "$defs": {
+      "ServerRemoveInput": {
+        "properties": {
+          "hostId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Id of the host running the server."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "hostId"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ServerRemoved",
+    "$defs": {
+      "ServerRemoved": {
+        "properties": {
+          "removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The effect resources removed, in order."
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Warnings of the step that computed the policy edits to withdraw the server's region, such as a visibility grant that stays in the policy; empty when there are none."
+          }
+        },
+        "type": "object",
+        "required": [
+          "removed",
+          "warnings"
+        ]
+      }
+    }
+  }
+}

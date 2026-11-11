@@ -1,0 +1,149 @@
+{
+  "name": "firewall.docker.repair",
+  "version": 1,
+  "class": "revertible",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/DockerRepairInput",
+    "$defs": {
+      "DockerRepairInput": {
+        "properties": {
+          "guard": {
+            "$ref": "#/$defs/GuardContext"
+          },
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "discardForeign": {
+            "type": "boolean",
+            "description": "Discards the foreign rules DOCKER-USER holds; the plan lists each. Needs manual: true."
+          },
+          "manual": {
+            "type": "boolean",
+            "description": "Confirms discardForeign."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "GuardContext": {
+        "properties": {
+          "client": {
+            "$ref": "#/$defs/Peer"
+          },
+          "via": {
+            "$ref": "#/$defs/ProxyPath"
+          },
+          "panelListen": {
+            "items": {
+              "type": "string",
+              "format": "ip-address-port"
+            },
+            "type": "array"
+          },
+          "agentListen": {
+            "items": {
+              "type": "string",
+              "format": "ip-address-port"
+            },
+            "type": "array"
+          },
+          "agentPeers": {
+            "items": {
+              "type": "string",
+              "format": "ip-address"
+            },
+            "type": "array"
+          },
+          "complete": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "Peer": {
+        "properties": {
+          "addr": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "port": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "addr",
+          "port"
+        ]
+      },
+      "ProxyPath": {
+        "properties": {
+          "exposureId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "proxyAddr": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "listenerAddr": {
+            "type": "string",
+            "format": "ip-address-port"
+          },
+          "public": {
+            "items": {
+              "type": "string",
+              "format": "ip-address-port"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "exposureId",
+          "kind",
+          "proxyAddr",
+          "listenerAddr",
+          "public"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ChangeOutput",
+    "$defs": {
+      "ChangeOutput": {
+        "properties": {
+          "snapshot": {
+            "type": "string"
+          },
+          "rules": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "repairOutcome": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "snapshot"
+        ]
+      }
+    }
+  }
+}

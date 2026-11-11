@@ -1,0 +1,75 @@
+{
+  "name": "npm.expose.container",
+  "version": 1,
+  "class": "composite",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ExposeInput",
+    "$defs": {
+      "ExposeInput": {
+        "properties": {
+          "hostId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "container": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer",
+            "maximum": 65535,
+            "minimum": 1
+          },
+          "network": {
+            "type": "string"
+          },
+          "domains": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "minItems": 1
+          },
+          "websockets": {
+            "type": "boolean"
+          },
+          "accessListId": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "hostId",
+          "container",
+          "port",
+          "network",
+          "domains"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ExposeOutput",
+    "$defs": {
+      "ExposeOutput": {
+        "properties": {
+          "proxyHostId": {
+            "type": "integer"
+          },
+          "certificateId": {
+            "type": "integer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "proxyHostId",
+          "certificateId"
+        ]
+      }
+    }
+  }
+}

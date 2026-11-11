@@ -1,0 +1,46 @@
+{
+  "name": "cloudflare.connector.stop",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ConnectorStopInput",
+    "$defs": {
+      "ConnectorStopInput": {
+        "properties": {
+          "tunnel": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "tunnel"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ConnectorStopped",
+    "$defs": {
+      "ConnectorStopped": {
+        "properties": {
+          "tunnel": {
+            "type": "string"
+          },
+          "removed": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tunnel",
+          "removed"
+        ]
+      }
+    }
+  }
+}

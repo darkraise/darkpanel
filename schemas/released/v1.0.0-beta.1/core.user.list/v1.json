@@ -1,0 +1,67 @@
+{
+  "name": "core.user.list",
+  "version": 1,
+  "class": "read",
+  "side": "controller",
+  "breakGlass": true,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/NoInput",
+    "$defs": {
+      "NoInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/UserList",
+    "$defs": {
+      "User": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "username",
+          "role",
+          "state",
+          "createdAt"
+        ]
+      },
+      "UserList": {
+        "properties": {
+          "users": {
+            "items": {
+              "$ref": "#/$defs/User"
+            },
+            "type": "array",
+            "description": "Every user, sorted by username."
+          }
+        },
+        "type": "object",
+        "required": [
+          "users"
+        ]
+      }
+    }
+  }
+}

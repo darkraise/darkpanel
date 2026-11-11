@@ -1,0 +1,54 @@
+{
+  "name": "derp.region.remove",
+  "version": 1,
+  "class": "composite",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/RegionRemoveInput",
+    "$defs": {
+      "RegionRemoveInput": {
+        "properties": {
+          "regionId": {
+            "type": "integer",
+            "maximum": 999,
+            "minimum": 900,
+            "description": "The region id, 900 to 999."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "regionId"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/RegionChanged",
+    "$defs": {
+      "RegionChanged": {
+        "properties": {
+          "etag": {
+            "type": "string",
+            "description": "The policy's ETag after the change; empty when nothing changed."
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Warnings of the step that computed the policy edits, such as a visibility grant that stays in the policy; empty when there are none."
+          }
+        },
+        "type": "object",
+        "required": [
+          "etag",
+          "warnings"
+        ]
+      }
+    }
+  }
+}

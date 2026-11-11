@@ -1,0 +1,63 @@
+{
+  "name": "docker.volumes",
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/VolumeList",
+    "$defs": {
+      "Volume": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "driver": {
+            "type": "string"
+          },
+          "mountpoint": {
+            "type": "string"
+          },
+          "created": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "containers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "owner": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "driver",
+          "mountpoint",
+          "created",
+          "containers"
+        ]
+      },
+      "VolumeList": {
+        "properties": {
+          "volumes": {
+            "items": {
+              "$ref": "#/$defs/Volume"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "volumes"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "name": "docker.image.pull",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ImagePullInput",
+    "$defs": {
+      "ImagePullInput": {
+        "properties": {
+          "image": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "image"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/PulledImage",
+    "$defs": {
+      "PulledImage": {
+        "properties": {
+          "image": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "digests": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "image",
+          "id",
+          "digests"
+        ]
+      }
+    }
+  }
+}

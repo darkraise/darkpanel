@@ -1,0 +1,304 @@
+{
+  "name": "firewall.docker",
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/DockerStatus",
+    "$defs": {
+      "Binding": {
+        "properties": {
+          "selector": {
+            "type": "string"
+          },
+          "hostAddr": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "hostPort": {
+            "type": "integer"
+          },
+          "proto": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "selector",
+          "hostPort",
+          "proto"
+        ]
+      },
+      "ContainerRule": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "binding": {
+            "$ref": "#/$defs/Binding"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string",
+            "format": "ip-prefix"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "binding",
+          "kind"
+        ]
+      },
+      "DockerBinding": {
+        "properties": {
+          "binding": {
+            "$ref": "#/$defs/Binding"
+          },
+          "id": {
+            "type": "string"
+          },
+          "containers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "containerPort": {
+            "type": "integer"
+          },
+          "allowed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "denied": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "proxied": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "privateReach": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "binding",
+          "id",
+          "containers",
+          "containerPort",
+          "allowed",
+          "denied"
+        ]
+      },
+      "DockerNetwork": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "bridge": {
+            "type": "string"
+          },
+          "subnets": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "protected": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "id",
+          "bridge",
+          "subnets",
+          "protected"
+        ]
+      },
+      "DockerStatus": {
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "driver": {
+            "type": "string"
+          },
+          "dockerVariant": {
+            "type": "string"
+          },
+          "ufwVariant": {
+            "type": "string"
+          },
+          "rawProtection": {
+            "type": "boolean"
+          },
+          "supported": {
+            "type": "boolean"
+          },
+          "unsupported": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "health": {
+            "type": "string"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/$defs/Issue"
+            },
+            "type": "array"
+          },
+          "foreignRules": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "foreignForwards": {
+            "items": {
+              "$ref": "#/$defs/Exemption"
+            },
+            "type": "array"
+          },
+          "manualRoutes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "networks": {
+            "items": {
+              "$ref": "#/$defs/DockerNetwork"
+            },
+            "type": "array"
+          },
+          "settings": {
+            "$ref": "#/$defs/Settings"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/$defs/ContainerRule"
+            },
+            "type": "array"
+          },
+          "bindings": {
+            "items": {
+              "$ref": "#/$defs/DockerBinding"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "available",
+          "rawProtection",
+          "supported",
+          "enabled",
+          "health",
+          "networks",
+          "settings",
+          "rules",
+          "bindings"
+        ]
+      },
+      "Exemption": {
+        "properties": {
+          "inInterface": {
+            "type": "string"
+          },
+          "origDestination": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "origPort": {
+            "type": "integer"
+          },
+          "destination": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "proto": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "origDestination",
+          "destination",
+          "proto"
+        ]
+      },
+      "Issue": {
+        "properties": {
+          "level": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "level",
+          "reason"
+        ]
+      },
+      "Settings": {
+        "properties": {
+          "privateSources": {
+            "items": {
+              "type": "string",
+              "format": "ip-prefix"
+            },
+            "type": "array"
+          },
+          "forwardExemptions": {
+            "items": {
+              "$ref": "#/$defs/Exemption"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "privateSources",
+          "forwardExemptions"
+        ]
+      }
+    }
+  }
+}
