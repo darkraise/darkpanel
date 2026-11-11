@@ -105,3 +105,47 @@ test("UX-12: each rollout's host table scrolls inside its own container", async 
   const table = await screen.findByRole("table")
   expect(table.closest(".overflow-x-auto")).not.toBeNull()
 })
+
+test("UX-10, UX-11: a cancel without force sends force false and keeps its result once the rollout is cancelled", async () => {
+  let cancelled = false
+  const calls = stubFetch({
+    [ROLLOUTS]: () => ({ body: { output: { rollouts: [rollout({ state: cancelled ? "cancelled" : "running" })] } } }),
+    [HOSTS]: { body: { output: { hosts: [] } } },
+    [CANCEL_PLAN]: { body: makePlan("core.update.rollout-cancel") },
+    [CANCEL_APPLY]: () => {
+      cancelled = true
+      return { body: makeChange("core.update.rollout-cancel", rollout({ state: "cancelled" })) }
+    },
+  })
+  renderWithProviders(<RolloutsPage />)
+  const user = userEvent.setup()
+  await user.click(await screen.findByRole("button", { name: "Cancel rollout" }))
+  await user.click(screen.getByRole("button", { name: "Continue" }))
+  const dialog = await screen.findByRole("dialog")
+  await user.click(await within(dialog).findByRole("button", { name: "Apply" }))
+  await within(dialog).findByText("completed")
+  expect(calls.find((c) => c.path.endsWith("cancel/v1/plan"))?.body).toEqual({ input: { rolloutId: "r1", force: false } })
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Cancel rollout" })).toBeNull())
+  within(screen.getByRole("dialog")).getByText("completed")
+  await user.keyboard("{Escape}")
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("heading", { name: "1.2.3 (stable)" })))
+})
+
+test("UX-10: a failed cancel does not refresh the rollouts", async () => {
+  stubFetch({
+    [ROLLOUTS]: { body: { output: { rollouts: [rollout()] } } },
+    [HOSTS]: { body: { output: { hosts: [] } } },
+    [CANCEL_PLAN]: { body: makePlan("core.update.rollout-cancel") },
+    [CANCEL_APPLY]: { body: makeChange("core.update.rollout-cancel", null, { state: "failed", error: { code: "change.failed", message: "The controller refused the change." } }) },
+  })
+  const { client } = renderWithProviders(<RolloutsPage />)
+  const invalidate = vi.spyOn(client, "invalidateQueries")
+  const user = userEvent.setup()
+  await user.click(await screen.findByRole("button", { name: "Cancel rollout" }))
+  await user.click(screen.getByRole("button", { name: "Continue" }))
+  const dialog = await screen.findByRole("dialog")
+  await user.click(await within(dialog).findByRole("button", { name: "Apply" }))
+  await within(dialog).findByText("failed")
+  expect(invalidate).not.toHaveBeenCalled()
+})

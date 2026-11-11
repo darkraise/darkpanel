@@ -62,3 +62,21 @@ test("UX-11: Escape closes the form and returns focus to Update now", async () =
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
   await waitFor(() => expect(document.activeElement).toBe(button))
 })
+
+test("UX-7: a failed update neither links to the rollout nor refreshes", async () => {
+  stubFetch({
+    [PLAN]: { body: makePlan("core.update.rollout") },
+    [APPLY]: { body: makeChange("core.update.rollout", null, { state: "failed", error: { code: "change.failed", message: "The controller refused the change." } }) },
+  })
+  const { client } = renderWithProviders(<UpdateNowButton host={makeHost({ id: "h1" })} />)
+  const invalidate = vi.spyOn(client, "invalidateQueries")
+  const user = userEvent.setup()
+  await user.click(screen.getByRole("button", { name: "Update now" }))
+  await user.type(screen.getByLabelText("Version"), "1.2.3")
+  await user.click(screen.getByRole("button", { name: "Continue" }))
+  const dialog = await screen.findByRole("dialog")
+  await user.click(await within(dialog).findByRole("button", { name: "Apply" }))
+  await within(dialog).findByText("failed")
+  expect(screen.queryByRole("link", { name: "Follow the rollout" })).toBeNull()
+  expect(invalidate).not.toHaveBeenCalled()
+})

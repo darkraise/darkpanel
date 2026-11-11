@@ -52,3 +52,17 @@ test("UX-6, UX-11: a schedule with no day or a bad time is refused by the field"
   expect(document.activeElement).toBe(screen.getByRole("checkbox", { name: "Monday" }))
   expect(calls).toHaveLength(0)
 })
+
+test("UX-6, UX-11: with a day chosen, a bad time moves focus to the time field", async () => {
+  const calls = stubFetch({})
+  renderWithProviders(<UpdatePolicyButton host={makeHost()} />)
+  const user = userEvent.setup()
+  await user.click(screen.getByRole("button", { name: "Change update policy" }))
+  await user.click(screen.getByRole("checkbox", { name: "Update on a schedule" }))
+  await user.click(screen.getByRole("checkbox", { name: "Monday" }))
+  await user.type(screen.getByLabelText("Time (UTC)"), "25:00")
+  await user.click(screen.getByRole("button", { name: "Continue" }))
+  screen.getByText("Enter a UTC time such as 03:00.")
+  expect(document.activeElement).toBe(screen.getByLabelText("Time (UTC)"))
+  expect(calls).toHaveLength(0)
+})
