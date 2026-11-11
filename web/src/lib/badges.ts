@@ -9,9 +9,15 @@ export function stateVariant(state: string): BadgeVariant {
     case "running":
     case "draining":
     case "waiting":
+    case "pending":
+    case "downloading":
+    case "staged":
+    case "swapped":
+    case "rolling-back":
       return "secondary"
     case "failed":
     case "quarantined":
+    case "rolled-back":
       return "destructive"
     default:
       return "outline"

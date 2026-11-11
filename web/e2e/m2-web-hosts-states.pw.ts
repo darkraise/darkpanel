@@ -50,6 +50,18 @@ interface State {
 
 const none = async () => {}
 
+const TX_STATES = ["pending", "downloading", "staged", "swapped", "rolling-back", "rolled-back", "committed", "failed"]
+const TRANSACTIONS = TX_STATES.map((state, i) => {
+  const at = new Date(Date.UTC(2026, 10, 11, 8 - i)).toISOString()
+  const failed = state === "rolled-back" || state === "failed"
+  return {
+    id: `tx-${i}`, operationId: `tx-${i}`, parentId: null, kind: "update",
+    fromVersion: "1.0.0", toVersion: `1.1.${i}`, targetVersion: `1.1.${i}`, state,
+    error: failed ? { code: "update.health_failed", message: "the health check failed" } : null,
+    startedAt: at, updatedAt: at,
+  }
+})
+
 const STATES: State[] = [
   { id: "UX-1", state: "loading", path: "/", worstCase: true, setup: (p) => answerRead(p, "core.host.list", "hang"), shows: (p) => p.getByLabel("Loading the hosts") },
   { id: "UX-1", state: "error", path: "/", worstCase: true, setup: (p) => answerRead(p, "core.host.list", "fail"), shows: (p) => p.getByRole("alert").filter({ hasText: FAILURE }) },
@@ -61,6 +73,7 @@ const STATES: State[] = [
   { id: "UX-2", state: "history-error", path: `/hosts/${HOST_ID}`, worstCase: true, setup: (p) => answerRead(p, "core.update.status", "fail"), shows: (p) => p.getByRole("alert").filter({ hasText: FAILURE }) },
   { id: "UX-2", state: "history-empty", path: `/hosts/${HOST_ID}`, worstCase: false, setup: none, shows: (p) => p.getByText("No updates yet") },
   { id: "UX-2", state: "history", path: `/hosts/${HOST_ID}`, worstCase: true, setup: none, shows: (p) => p.getByRole("table", { name: "Update history" }) },
+  { id: "UI-4", state: "transactions", path: `/hosts/${HOST_ID}`, worstCase: true, setup: (p) => answerRead(p, "core.update.status", { output: { transactions: TRANSACTIONS } }), shows: (p) => p.getByRole("table", { name: "Update history" }) },
   { id: "UX-2", state: "offline", path: `/hosts/${PENDING_HOST_ID}`, worstCase: true, setup: none, shows: (p) => p.getByText("The update history is unavailable while the host is offline.") },
   { id: "UI-3", state: "failed", path: "/rollouts", worstCase: true, setup: none, shows: (p) => p.getByRole("region", { name: "1.2.9 (beta)" }).getByText("web-1 failed its health check").first() },
   { id: "UX-8", state: "loading", path: "/rollouts", worstCase: true, setup: (p) => answerRead(p, "core.update.rollouts", "hang"), shows: (p) => p.getByLabel("Loading the rollouts") },
@@ -96,8 +109,13 @@ for (const theme of THEMES) {
           const shown = s.shows(page)
           await expect(shown).toBeVisible()
           if (s.state === "disabled") await expect(shown).toBeDisabled()
+          if (s.state === "transactions") {
+            for (const t of TX_STATES) await expect(shown.getByText(t, { exact: true })).toBeVisible()
+            await expectNoAxeViolations(page, "transactions")
+          }
           await shown.scrollIntoViewIfNeeded()
-          await page.screenshot({ path: `${EVIDENCE}/${s.id}-${tag}-${s.state}.png` })
+          if (s.state === "transactions") await shown.getByText("rolled-back", { exact: true }).scrollIntoViewIfNeeded()
+          await page.screenshot({ path: `${EVIDENCE}/${s.id}-${tag}-${s.state}.png`, fullPage: s.state === "transactions" })
         })
       }
 
