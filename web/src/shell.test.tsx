@@ -97,6 +97,7 @@ test("shows the navigation with the current page marked", async () => {
   expect(audit?.getAttribute("aria-current")).toBe("page")
   expect(screen.getAllByRole("link", { name: "Hosts" })[0]?.getAttribute("href")).toBe("/")
   expect(screen.getAllByRole("link", { name: "API tokens" })[0]?.getAttribute("href")).toBe("/settings/tokens")
+  expect(screen.getByRole("link", { name: "Rollouts" }).getAttribute("href")).toBe("/rollouts")
 })
 
 const webHost: Host = {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { Outlet } from "react-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { History, KeyRound, Server } from "lucide-react"
+import { History, KeyRound, RefreshCw, Server } from "lucide-react"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
 import { SidebarLayout, type NavGroup, type NavItem } from "darkraise-ui/layout"
 import { HOSTS_QUERY_KEY, errorMessage, getListenerState, listHosts } from "@/api/client"
@@ -32,6 +32,7 @@ function navigation(hosts: Host[]): NavGroup[] {
       items: [
         { label: "Hosts", href: "/", icon: Server, children: hostItems },
         { label: "Audit log", href: "/audit", icon: History },
+        { label: "Rollouts", href: "/rollouts", icon: RefreshCw },
       ],
     },
     ...(globals.length === 0 ? [] : [{ label: "Network", items: globals }]),
