@@ -113,6 +113,7 @@ for (const theme of THEMES) {
           const shown = s.shows(page)
           await expect(shown).toBeVisible()
           if (s.state === "history" || s.state === "transactions") {
+            // Only at 1440 is the history card at least 40rem wide (about 1,110 px; about 438 at 768), so the viewport stands in for the container query.
             const narrow = vp.width < 1440
             await expect(page.locator(narrow ? "ul[aria-label='Update history']" : "table[aria-label='Update history']")).toBeVisible()
             await expect(page.locator(narrow ? "table[aria-label='Update history']" : "ul[aria-label='Update history']")).toBeHidden()
@@ -125,7 +126,9 @@ for (const theme of THEMES) {
             }
             if (!narrow) {
               const rows = page.locator("table[aria-label='Update history'] tbody tr")
-              for (const cell of [...(await rows.locator("td:nth-child(2)").all()), ...(await rows.locator("[data-variant]").all())]) {
+              const cells = [...(await rows.locator("td:nth-child(2)").all()), ...(await rows.locator("[data-variant]").all())]
+              expect(cells.length, "a Kind cell and a State badge per row").toBe(2 * (await rows.count()))
+              for (const cell of cells) {
                 expect(await cell.evaluate((n) => { const r = document.createRange(); r.selectNodeContents(n); return r.getClientRects().length === 1 }), "the cell text stays whole").toBe(true)
               }
             }
