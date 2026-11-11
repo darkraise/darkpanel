@@ -1,8 +1,8 @@
 # UI proof: M2 narrow update history
 
 **Contract:** touch
-**Fingerprint:** 14236694165f4977
-**Judge:** ship 14236694165f4977 — docs/dforge/ui-ux/proofs/2026-11-12-m2-history-narrow.judge.md
+**Fingerprint:** df18143e4c1c3978
+**Judge:** ship df18143e4c1c3978 — docs/dforge/ui-ux/proofs/2026-11-12-m2-history-narrow.judge.md
 **Platform:** web
 **Viewports:** 375x812, 768x1024, 1440x900
 **Themes:** light, dark
