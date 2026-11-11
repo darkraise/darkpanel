@@ -2,9 +2,9 @@
 
 package trustedkeys
 
-// keys is empty until the owner adds the production release key; until then
-// every update and install.sh refuses to verify a release.
-var keys = []Key{}
+var keys = []Key{
+	{ID: "A4259AE92D6E34B3", PublicKey: "RWSzNG4t6ZolpDM4L5T1FSoHx6mhW0Y8fVMFW9rHFOmUiYzQkDyJbErp"},
+}
 
 const (
 	testBuild = false

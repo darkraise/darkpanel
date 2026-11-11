@@ -25,7 +25,7 @@
 #   does not pass the variable through by default.
 set -eu
 
-KEYS=''
+KEYS='A4259AE92D6E34B3:b3346e2de99a25a4:MCowBQYDK2VwAyEAMzgvlPUVKgfHqaFbRjx9UwVb2scU6ZSJjNCQPIlsSuk='
 DEFAULT_BASE_URL='https://github.com/Darkraise/darkpanel/releases/download'
 
 ROOT=${DARKPANEL_INSTALL_ROOT:-}
