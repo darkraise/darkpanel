@@ -60,6 +60,41 @@ func TestCompare(t *testing.T) {
 	}
 }
 
+// A field of any value, such as a json.RawMessage, reflects to the boolean
+// schema true rather than to an object.
+func TestCompareBooleanSchemaFields(t *testing.T) {
+	withID := func(id string) []byte {
+		return []byte(strings.Replace(string(readFixture(t, "base")), `"id": {"type": "string"}`, `"id": `+id, 1))
+	}
+	tests := []struct {
+		name       string
+		prev, next string
+		want       string
+	}{
+		{"unchanged", `true`, `true`, ""},
+		{"became-false", `true`, `false`, "output/id: changed schema from true to false"},
+		{"became-object", `true`, `{"type": "string"}`, `output/id: changed schema from true to {"type":"string"}`},
+		{"became-true", `{"type": "string"}`, `true`, `output/id: changed schema from {"type":"string"} to true`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := Compare(withID(tt.prev), withID(tt.next))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tt.want == "" {
+				if len(got) != 0 {
+					t.Errorf("violations = %q, want none", got)
+				}
+				return
+			}
+			if len(got) != 1 || got[0] != tt.want {
+				t.Errorf("violations = %q, want [%q]", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCompareRefusesDifferentActions(t *testing.T) {
 	other := strings.Replace(string(readFixture(t, "base")), `"demo.item.add"`, `"demo.item.remove"`, 1)
 	if _, err := Compare(readFixture(t, "base"), []byte(other)); err == nil {

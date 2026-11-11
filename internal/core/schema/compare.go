@@ -246,7 +246,7 @@ func (c *comparer) compareProperties(path string, prev, next map[string]any) {
 	preq, nreq := stringSet(prev["required"]), stringSet(next["required"])
 	for _, name := range slices.Sorted(maps.Keys(pp)) {
 		at := path + "/" + name
-		ns, ok := np[name].(map[string]any)
+		nv, ok := np[name]
 		if !ok {
 			c.fail(at, "field removed")
 			continue
@@ -254,7 +254,15 @@ func (c *comparer) compareProperties(path string, prev, next map[string]any) {
 		if preq[name] != nreq[name] {
 			c.fail(at, "required changed from %t to %t", preq[name], nreq[name])
 		}
-		ps, _ := pp[name].(map[string]any)
+		// A field of any value is the boolean schema true, not an object.
+		ps, pok := pp[name].(map[string]any)
+		ns, nok := nv.(map[string]any)
+		if !pok || !nok {
+			if !reflect.DeepEqual(pp[name], nv) {
+				c.fail(at, "changed schema from %s to %s", render(pp[name]), render(nv))
+			}
+			continue
+		}
 		c.compare(at, ps, ns)
 	}
 	for _, name := range slices.Sorted(maps.Keys(np)) {
