@@ -62,6 +62,7 @@ const STATES: State[] = [
   { id: "UX-2", state: "history-empty", path: `/hosts/${HOST_ID}`, worstCase: false, setup: none, shows: (p) => p.getByText("No updates yet") },
   { id: "UX-2", state: "history", path: `/hosts/${HOST_ID}`, worstCase: true, setup: none, shows: (p) => p.getByRole("table", { name: "Update history" }) },
   { id: "UX-2", state: "offline", path: `/hosts/${PENDING_HOST_ID}`, worstCase: true, setup: none, shows: (p) => p.getByText("The update history is unavailable while the host is offline.") },
+  { id: "UI-3", state: "failed", path: "/rollouts", worstCase: true, setup: none, shows: (p) => p.getByRole("region", { name: "1.2.9 (beta)" }).getByText("web-1 failed its health check").first() },
   { id: "UX-8", state: "loading", path: "/rollouts", worstCase: true, setup: (p) => answerRead(p, "core.update.rollouts", "hang"), shows: (p) => p.getByLabel("Loading the rollouts") },
   { id: "UX-8", state: "error", path: "/rollouts", worstCase: true, setup: (p) => answerRead(p, "core.update.rollouts", "fail"), shows: (p) => p.getByRole("alert").filter({ hasText: FAILURE }) },
   { id: "UX-8", state: "empty", path: "/rollouts", worstCase: false, setup: none, shows: (p) => p.getByText("No rollouts yet") },

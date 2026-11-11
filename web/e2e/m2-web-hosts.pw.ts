@@ -106,6 +106,9 @@ for (const theme of THEMES) {
         await tabTo(page, dialog.getByRole("button", { name: "Apply" }))
         await page.keyboard.press("Enter")
         await expect(page).toHaveURL(url("/"))
+        await expect(page.getByRole("table").getByRole("link", { name: "node-45" })).toBeVisible()
+        await expect(page.getByRole("table").getByRole("link", { name: "old-1" })).toHaveCount(0)
+        await page.screenshot({ path: `${EVIDENCE}/UX-4-${tag}-deleted.png` })
         expect(fixtures.unhandled).toEqual([])
       })
 
@@ -191,10 +194,36 @@ for (const theme of THEMES) {
         await expect(page.getByRole("dialog").getByRole("button", { name: "Continue" })).toBeInViewport()
         await page.keyboard.press("Space")
         await tabTo(page, page.getByLabel("Version"))
-        await page.keyboard.type("1.3.0")
+        await page.keyboard.type("1.4.0")
         await tabTo(page, page.getByRole("button", { name: "Continue" }))
         await page.keyboard.press("Enter")
         await applyByKeyboard(page, null)
+        await page.keyboard.press("Escape")
+        await expect(page.getByRole("dialog")).toHaveCount(0)
+        await expect(page.getByRole("region", { name: /\((stable|beta)\)$/ }).first()).toHaveAccessibleName("1.4.0 (stable)")
+        await page.screenshot({ path: `${EVIDENCE}/UX-9-${tag}-started.png` })
+        expect(fixtures.unhandled).toEqual([])
+      })
+
+      test(`UX-11: Escape closes each form dialog and returns focus ${tag}`, async ({ page }) => {
+        const fixtures = await open(page, theme, `/hosts/${HOST_ID}`)
+        for (const [path, name] of [
+          [`/hosts/${HOST_ID}`, "Update now"],
+          [`/hosts/${HOST_ID}`, "Change update policy"],
+          [`/hosts/${PENDING_HOST_ID}`, "New enrollment token"],
+          ["/rollouts", "Start rollout"],
+          ["/rollouts", "Cancel rollout"],
+        ] as const) {
+          await page.goto(url(path))
+          const button = page.getByRole("button", { name }).first()
+          await expect(button).toBeEnabled()
+          await tabTo(page, button)
+          await page.keyboard.press("Enter")
+          await expect(page.getByRole("dialog")).toBeVisible()
+          await page.keyboard.press("Escape")
+          await expect(page.getByRole("dialog"), name).toHaveCount(0)
+          await expect(button, name).toBeFocused()
+        }
         expect(fixtures.unhandled).toEqual([])
       })
 

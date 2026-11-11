@@ -365,12 +365,21 @@ const STREAM = /^\/api\/v1\/hosts\/[^/]+\/streams\/docker\/(logs|stats)$/
 const AVAILABILITY = /^\/api\/v1\/hosts\/[^/]+\/modules\/([^/]+)\/availability$/
 const CHANGE = /^\/api\/v1\/changes\/([^/]+)(?:\/(confirm|revert|steps))?$/
 
-const READS: Record<string, (worstCase: boolean, revoked: Set<string>) => unknown> = {
-  "core.host.list": (worstCase, revoked) => ({
-    hosts: (worstCase ? worstHosts : hosts).map((h) => (revoked.has(h.id) ? { ...h, state: "revoked" } : h)),
+// Changes applied during a test, so the reads after them show their effect.
+interface Applied {
+  revoked: Set<string>
+  deleted: Set<string>
+  rollouts: Rollout[]
+}
+
+const READS: Record<string, (worstCase: boolean, applied: Applied) => unknown> = {
+  "core.host.list": (worstCase, applied) => ({
+    hosts: (worstCase ? worstHosts : hosts)
+      .filter((h) => !applied.deleted.has(h.id))
+      .map((h) => (applied.revoked.has(h.id) ? { ...h, state: "revoked" } : h)),
   }),
   "core.update.status": (worstCase) => ({ transactions: worstCase ? worstTransactions : [] }),
-  "core.update.rollouts": (worstCase) => ({ rollouts: worstCase ? worstRollouts : [] }),
+  "core.update.rollouts": (worstCase, applied) => ({ rollouts: [...applied.rollouts, ...(worstCase ? worstRollouts : [])] }),
   "npm.instance.list": () => ({ instances: [], unreadable: [] }),
   "panel.exposure.status": () => ({ exposed: false }),
   "npm.instance.status": () => npmStatus,
@@ -519,7 +528,7 @@ export async function mockApi(page: Page, opts: { signedIn: boolean; worstCase?:
   const fixtures: Fixtures = { unhandled: [] }
   const changes = new Map<string, Change>()
   const planned = new Map<string, Record<string, unknown>>()
-  const revoked = new Set<string>()
+  const applied: Applied = { revoked: new Set(), deleted: new Set(), rollouts: [] }
   const worstCase = opts.worstCase ?? false
   await page.route(
     (url) => url.pathname.startsWith("/api/"),
@@ -527,7 +536,7 @@ export async function mockApi(page: Page, opts: { signedIn: boolean; worstCase?:
       const request = route.request()
       const method = request.method()
       const path = new URL(request.url()).pathname
-      const reply = answer(method, path, route, opts.signedIn, changes, planned, revoked, worstCase)
+      const reply = answer(method, path, route, opts.signedIn, changes, planned, applied, worstCase)
       if (reply === null) {
         fixtures.unhandled.push(`${method} ${path}`)
         await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify(problem(404, "not_found", "No fixture").json) })
@@ -556,7 +565,7 @@ function answer(
   signedIn: boolean,
   changes: Map<string, Change>,
   planned: Map<string, Record<string, unknown>>,
-  revoked: Set<string>,
+  applied: Applied,
   worstCase: boolean,
 ): Reply | null {
   if (path === "/api/v1/auth/session") {
@@ -575,7 +584,7 @@ function answer(
     switch (action[3]) {
       case "read": {
         const read = READS[name]
-        return read === undefined ? null : { json: { output: read(worstCase, revoked) } }
+        return read === undefined ? null : { json: { output: read(worstCase, applied) } }
       }
       case "plan": {
         const input = bodyOf(route).input ?? {}
@@ -584,8 +593,11 @@ function answer(
       }
       default: {
         const input = planned.get(name) ?? {}
-        if (name === "core.host.revoke" && typeof input.hostId === "string") revoked.add(input.hostId)
-        return applies(name, changes, input, fleet)
+        const reply = applies(name, changes, input, fleet)
+        if (name === "core.host.revoke" && typeof input.hostId === "string") applied.revoked.add(input.hostId)
+        if (name === "core.host.delete" && typeof input.hostId === "string") applied.deleted.add(input.hostId)
+        if (name === "core.update.rollout") applied.rollouts.unshift(coreOutput(name, input, fleet) as Rollout)
+        return reply
       }
     }
   }
