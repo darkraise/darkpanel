@@ -697,3 +697,31 @@ func TestUninstallLeavesRestoreAndSysctl(t *testing.T) {
 		t.Errorf("the restore file holds %q, want it untouched", got)
 	}
 }
+
+func TestUninstallKeepsAUserItDidNotCreate(t *testing.T) {
+	for _, role := range []Role{RoleController, RoleAgent} {
+		h := newTestHost(t)
+		h.users.users[ServiceUser] = [2]int{1500, 1500}
+		cfg := h.config(role)
+		if role == RoleAgent {
+			cfg.Token = "dpe1.t"
+		}
+		if err := Install(context.Background(), cfg); err != nil {
+			t.Fatalf("%s: Install: %v\n%s", role, err, h.out)
+		}
+		if role == RoleAgent {
+			h.systemd.missing["darkpanel-controller.service"] = true
+		}
+		ucfg := h.uninstallConfig(&demoModule{l: h.layout}, false)
+		ucfg.Modules = nil
+		if out, err := runUninstall(t, ucfg); err != nil {
+			t.Fatalf("%s: Run: %v\n%s", role, err, out)
+		}
+		if got := h.runner.commands(); slices.Contains(got, "/usr/sbin/userdel "+ServiceUser) {
+			t.Errorf("%s: commands %v, want the pre-existing user %s kept", role, got, ServiceUser)
+		}
+		if _, _, found, _ := h.users.Lookup(ServiceUser); !found {
+			t.Errorf("%s: the pre-existing user %s was removed", role, ServiceUser)
+		}
+	}
+}

@@ -206,18 +206,19 @@ func TestInstallRerunAfterEachCheckpoint(t *testing.T) {
 	boom := errors.New("boom")
 	const agentRestart = "Restart darkpanel-agent.service"
 	tests := []struct {
-		name   string
-		step   string // the step the injected failure stops
-		inject func(h *testHost)
-		fix    func(h *testHost)
+		name           string
+		step           string // the step the injected failure stops
+		inject         func(h *testHost)
+		fix            func(h *testHost)
+		userUnrecorded bool
 	}{
-		{"useradd fails", "directories", func(h *testHost) { h.runner.exit = 1 }, func(h *testHost) { h.runner.exit = 0 }},
-		{"chown fails", "directories", nil, nil},
-		{"reload fails", "units", func(h *testHost) { h.systemd.failOn("Reload", boom) }, func(h *testHost) { h.systemd.failOn("Reload", nil) }},
-		{"controller start fails", "controller", func(h *testHost) { h.systemd.failOn("Restart", boom) }, func(h *testHost) { h.systemd.failOn("Restart", nil) }},
-		{"controller never healthy", "controller", func(h *testHost) { h.controller.unhealthy = 1 << 30 }, func(h *testHost) { h.controller.unhealthy = 0 }},
-		{"enrollment fails", "enrollment", func(h *testHost) { h.agent.enrollErr = boom }, func(h *testHost) { h.agent.enrollErr = nil }},
-		{"agent start fails", "agent", func(h *testHost) { h.systemd.failOn(agentRestart, boom) }, func(h *testHost) { h.systemd.failOn(agentRestart, nil) }},
+		{"useradd fails", "directories", func(h *testHost) { h.runner.exit = 1 }, func(h *testHost) { h.runner.exit = 0 }, false},
+		{"chown fails", "directories", nil, nil, true},
+		{"reload fails", "units", func(h *testHost) { h.systemd.failOn("Reload", boom) }, func(h *testHost) { h.systemd.failOn("Reload", nil) }, false},
+		{"controller start fails", "controller", func(h *testHost) { h.systemd.failOn("Restart", boom) }, func(h *testHost) { h.systemd.failOn("Restart", nil) }, false},
+		{"controller never healthy", "controller", func(h *testHost) { h.controller.unhealthy = 1 << 30 }, func(h *testHost) { h.controller.unhealthy = 0 }, false},
+		{"enrollment fails", "enrollment", func(h *testHost) { h.agent.enrollErr = boom }, func(h *testHost) { h.agent.enrollErr = nil }, false},
+		{"agent start fails", "agent", func(h *testHost) { h.systemd.failOn(agentRestart, boom) }, func(h *testHost) { h.systemd.failOn(agentRestart, nil) }, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -249,7 +250,11 @@ func TestInstallRerunAfterEachCheckpoint(t *testing.T) {
 			if err := Install(ctx, cfg); err != nil {
 				t.Fatalf("rerun: %v\n%s", err, h.out)
 			}
-			if got, want := manifest(t, h.layout), wantManifest(h.layout, RoleController); !reflect.DeepEqual(got, want) {
+			want := wantManifest(h.layout, RoleController)
+			if tt.userUnrecorded {
+				want = slices.DeleteFunc(want, func(s string) bool { return s == core.OwnedUser+" "+ServiceUser })
+			}
+			if got := manifest(t, h.layout); !reflect.DeepEqual(got, want) {
 				t.Errorf("manifest\n got %v\nwant %v", got, want)
 			}
 			if _, err := os.Lstat(h.layout.Paths.AgentTLSCurrent()); err != nil {
@@ -586,5 +591,35 @@ func TestIjPlainTokenIsNotJoined(t *testing.T) {
 	}
 	if !strings.Contains(h.out.String(), "enrollment: enrolled") {
 		t.Errorf("output lacks the plain enrollment line:\n%s", h.out)
+	}
+}
+
+func TestInstallKeepsAUserItDidNotCreate(t *testing.T) {
+	h := newTestHost(t)
+	h.users.users[ServiceUser] = [2]int{1500, 1500}
+	if err := Install(context.Background(), h.config(RoleController)); err != nil {
+		t.Fatalf("Install: %v\n%s", err, h.out)
+	}
+	if got := h.runner.commands(); len(got) != 0 {
+		t.Errorf("commands %v, want no useradd for an existing user", got)
+	}
+	if got := manifest(t, h.layout); slices.Contains(got, "user "+ServiceUser) {
+		t.Errorf("manifest records the user %s it did not create: %v", ServiceUser, got)
+	}
+	if ids, _ := h.chowns.of(h.layout.Paths.ControllerDir); ids != [2]int{1500, 1500} {
+		t.Errorf("controller directory owned by %v, want the existing user's ids", ids)
+	}
+}
+
+func TestInstallRerunKeepsTheUserItCreated(t *testing.T) {
+	h := newTestHost(t)
+	ctx := context.Background()
+	for range 2 {
+		if err := Install(ctx, h.config(RoleController)); err != nil {
+			t.Fatalf("Install: %v\n%s", err, h.out)
+		}
+	}
+	if got := manifest(t, h.layout); !slices.Contains(got, "user "+ServiceUser) {
+		t.Errorf("manifest after a rerun lacks the user %s the first run created: %v", ServiceUser, got)
 	}
 }

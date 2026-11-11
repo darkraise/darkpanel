@@ -131,7 +131,8 @@ func PlanUninstall(ctx context.Context, cfg UninstallConfig) (*Uninstall, error)
 }
 
 // load opens agent.db and the agent key when they exist and collects the
-// entries to remove.
+// entries to remove. The service user is removed only when the manifest
+// records it, never because a role declares it.
 func (u *Uninstall) load(ctx context.Context) error {
 	p := u.cfg.Layout.Paths
 	if _, err := os.Lstat(p.AgentDB()); err == nil {
@@ -146,6 +147,9 @@ func (u *Uninstall) load(ctx context.Context) error {
 		return err
 	}
 	for _, op := range OwnedPaths(u.cfg.Layout, RoleController) {
+		if op.Kind == core.OwnedUser {
+			continue
+		}
 		e := core.OwnedEntry{Path: op.Path, Module: core.ModuleIDCore, Kind: op.Kind}
 		if !slices.ContainsFunc(u.entries, func(x core.OwnedEntry) bool { return x.Path == e.Path && x.Module == e.Module && x.BlockID == "" }) {
 			u.entries = append(u.entries, e)

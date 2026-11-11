@@ -178,8 +178,9 @@ func (c Config) bootstrap() (*transport.Bundle, error) {
 
 // installer is one run of system install.
 type installer struct {
-	cfg      Config
-	uid, gid int // the service user's, controller role only
+	cfg         Config
+	uid, gid    int  // the service user's, controller role only
+	createdUser bool // this run's useradd created the service user
 }
 
 // Install installs role on this host. Every step works out from the host
@@ -291,7 +292,7 @@ func (in *installer) chown(path string, service bool) error {
 }
 
 // ensureUser creates the service user unless it exists, and remembers its
-// ids.
+// ids and whether this run created it.
 func (in *installer) ensureUser(ctx context.Context) error {
 	uid, gid, found, err := in.cfg.Users.Lookup(ServiceUser)
 	if err != nil {
@@ -314,6 +315,7 @@ func (in *installer) ensureUser(ctx context.Context) error {
 		if !found {
 			return fmt.Errorf("useradd succeeded but there is no user %s", ServiceUser)
 		}
+		in.createdUser = true
 	}
 	in.uid, in.gid = uid, gid
 	return nil
@@ -363,7 +365,8 @@ func (in *installer) keys(context.Context) (string, error) {
 
 // database migrates agent.db as the agent would and records every path this
 // role creates in the ownership manifest. Recording an entry again changes
-// nothing.
+// nothing. The service user is recorded only when this run created it, so
+// uninstall never removes an account Darkpanel did not make.
 func (in *installer) database(ctx context.Context) (string, error) {
 	p := in.cfg.Layout.Paths
 	db, err := store.Open(ctx, p.AgentDB())
@@ -396,14 +399,18 @@ func (in *installer) database(ctx context.Context) (string, error) {
 	}
 	own := platform.NewOwnership(db)
 	now := in.cfg.Clock.Now().UTC()
-	owned := OwnedPaths(in.cfg.Layout, in.cfg.Role)
-	for _, op := range owned {
+	recorded := 0
+	for _, op := range OwnedPaths(in.cfg.Layout, in.cfg.Role) {
+		if op.Kind == core.OwnedUser && !in.createdUser {
+			continue
+		}
 		e := core.OwnedEntry{Path: op.Path, Module: core.ModuleIDCore, Kind: op.Kind, CreatedAt: now}
 		if err := own.Record(ctx, e); err != nil {
 			return "", err
 		}
+		recorded++
 	}
-	return fmt.Sprintf("agent.db migrated, %d owned paths recorded", len(owned)), nil
+	return fmt.Sprintf("agent.db migrated, %d owned paths recorded", recorded), nil
 }
 
 // units writes the unit files that differ, reloads systemd and enables the
