@@ -55,6 +55,22 @@ test("UX-8: the list re-reads every 5 seconds only while a rollout is running", 
   expect(n).toBe(2)
 })
 
+test("UX-8: the list keeps re-reading while a rollout is draining", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  let n = 0
+  stubFetch({
+    [ROLLOUTS]: () => ({ body: { output: { rollouts: [rollout({ state: n++ < 2 ? "draining" : "cancelled" })] } } }),
+    [HOSTS]: { body: { output: { hosts: [] } } },
+  })
+  renderWithProviders(<RolloutsPage />)
+  await screen.findByText("draining")
+  await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+  await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+  await screen.findByText("cancelled")
+  await act(async () => { await vi.advanceTimersByTimeAsync(15000) })
+  expect(n).toBe(3)
+})
+
 test("UX-10: cancelling a running rollout sends force and refreshes", async () => {
   const calls = stubFetch({
     [ROLLOUTS]: { body: { output: { rollouts: [rollout()] } } },

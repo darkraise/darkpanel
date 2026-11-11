@@ -111,7 +111,19 @@ for (const theme of THEMES) {
         await page.keyboard.press("Enter")
         // The change dialog closes as the token dialog opens (Task 6), so no "completed" is awaited here.
         await expect(page.getByLabel("Enrollment token for new-1")).toHaveValue("dpe_fixture_token")
+        // Wait for the change dialog's exit animation, so the screenshot shows the grant alone.
+        await expect(page.getByRole("dialog")).toHaveCount(1)
+        const grant = page.getByRole("dialog")
+        await expect(grant).toHaveAttribute("data-state", "open")
+        await expect(grant.getByRole("button", { name: "Copy" })).toBeVisible()
+        await expect(grant.getByText(/run sudo darkpanel agent enroll and paste the token before /)).toBeVisible()
+        await expect(grant).toBeInViewport({ ratio: 1 })
+        await page.waitForFunction(() => document.getAnimations().length === 0)
         await page.screenshot({ path: `${EVIDENCE}/UX-5-${tag}.png` })
+        await page.keyboard.press("Escape")
+        await expect(page.getByRole("dialog")).toHaveCount(0)
+        await expect(page.getByText("dpe_fixture_token")).toHaveCount(0)
+        await expect(page.getByLabel("Enrollment token for new-1")).toHaveCount(0)
         expect(fixtures.unhandled).toEqual([])
       })
 
