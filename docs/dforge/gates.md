@@ -34,7 +34,10 @@ Why: the Go linker drops an embed.FS that no code reads, so a build can succeed 
 
 ## 5. Vulnerabilities
 Command: `make vuln`
-Green: `No vulnerabilities found.`
+Green: `No vulnerabilities found.`, or `Your code is affected by 0 vulnerabilities.` when every
+  module-level finding is listed here. Owner ruling 2026-11-11: GO-2026-5932 (the unmaintained
+  golang.org/x/crypto/openpgp package, which no Darkpanel package imports) is accepted while x/crypto
+  has no tagged release with the fix (v0.58.0 is the latest); revisit at the next x/crypto release
 Evidence: output
 Applies: always
 Why: govulncheck reports known vulnerabilities in the code the binaries actually reach
