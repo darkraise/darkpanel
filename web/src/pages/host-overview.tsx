@@ -11,6 +11,7 @@ import type { Host, HostState, UpdateStatus } from "@/api/types"
 import { stateVariant } from "@/lib/badges"
 import { formatTime } from "@/lib/format"
 import { HostRemoval } from "./host-removal"
+import { UpdateNowButton } from "./update-now-dialog"
 import { UpdatePolicyButton } from "./update-policy-dialog"
 
 const STATE_LABEL: Record<HostState, string> = { pending: "Pending", enrolled: "Enrolled", revoked: "Revoked" }
@@ -112,6 +113,7 @@ export function HostOverview({ host }: { host: Host }) {
       </OverviewCard>
       <OverviewCard title="Updates">
         <div className="flex flex-wrap gap-2">
+          <UpdateNowButton host={host} />
           <UpdatePolicyButton host={host} />
         </div>
         {host.online ? (
