@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	agentruntime "github.com/darkraise/darkpanel/internal/agent/runtime"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
@@ -365,10 +367,29 @@ func (in *installer) keys(context.Context) (string, error) {
 
 // database migrates agent.db as the agent would and records every path this
 // role creates in the ownership manifest. Recording an entry again changes
-// nothing. The service user is recorded only when this run created it, so
-// uninstall never removes an account Darkpanel did not make.
+// nothing. It first stops a running agent and then works under the agent
+// lock, so no agent runs against a half-migrated database. The service user
+// is recorded only when this run created it, so uninstall never removes an
+// account Darkpanel did not make.
 func (in *installer) database(ctx context.Context) (string, error) {
 	p := in.cfg.Layout.Paths
+	st, err := in.cfg.Systemd.State(ctx, update.AgentUnit)
+	if err != nil {
+		return "", err
+	}
+	if st.LoadState != "not-found" && st.ActiveState != "inactive" && st.ActiveState != "failed" {
+		if err := in.cfg.Systemd.Stop(ctx, update.AgentUnit); err != nil {
+			return "", err
+		}
+		if err := waitStopped(ctx, in.cfg.Systemd, update.AgentUnit, in.cfg.PollInterval, StopTimeout); err != nil {
+			return "", err
+		}
+	}
+	fd, err := lockAgentDir(p.AgentDir)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = unix.Close(fd) }()
 	db, err := store.Open(ctx, p.AgentDB())
 	if err != nil {
 		return "", err

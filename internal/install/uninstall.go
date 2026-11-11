@@ -531,22 +531,7 @@ func (u *Uninstall) stopServices(ctx context.Context, units []string) (string, e
 }
 
 func (u *Uninstall) waitStopped(ctx context.Context, unit string) error {
-	wait, cancel := context.WithTimeout(ctx, u.cfg.StopTimeout)
-	defer cancel()
-	for {
-		st, err := u.cfg.Systemd.State(wait, unit)
-		if err != nil {
-			return err
-		}
-		if st.ActiveState == "inactive" || st.ActiveState == "failed" {
-			return nil
-		}
-		select {
-		case <-wait.Done():
-			return fmt.Errorf("%s is still %s after %s", unit, st.ActiveState, u.cfg.StopTimeout)
-		case <-time.After(u.cfg.PollInterval):
-		}
-	}
+	return waitStopped(ctx, u.cfg.Systemd, unit, u.cfg.PollInterval, u.cfg.StopTimeout)
 }
 
 // takeAgentLock holds the lock a running agent holds, so nothing below
@@ -556,17 +541,9 @@ func (u *Uninstall) takeAgentLock(context.Context) (string, error) {
 	if _, err := os.Lstat(dir); errors.Is(err, fs.ErrNotExist) {
 		return "no agent directory", nil
 	}
-	path := filepath.Join(dir, AgentLockName)
-	fd, err := unix.Open(path, unix.O_RDWR|unix.O_CREAT|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0o600)
+	fd, err := lockAgentDir(dir)
 	if err != nil {
-		return "", fmt.Errorf("open %s: %w", path, err)
-	}
-	if err := unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB); err != nil {
-		_ = unix.Close(fd)
-		if errors.Is(err, unix.EWOULDBLOCK) {
-			return "", fmt.Errorf("an agent still runs and holds %s; stop it first", path)
-		}
-		return "", fmt.Errorf("lock %s: %w", path, err)
+		return "", err
 	}
 	u.lockFD = fd
 	return "no agent runs", nil

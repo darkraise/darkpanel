@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/core/store"
@@ -621,5 +623,70 @@ func TestInstallRerunKeepsTheUserItCreated(t *testing.T) {
 	}
 	if got := manifest(t, h.layout); !slices.Contains(got, "user "+ServiceUser) {
 		t.Errorf("manifest after a rerun lacks the user %s the first run created: %v", ServiceUser, got)
+	}
+}
+
+// holdAgentLock takes the agent lock on h as a running agent would and
+// returns its release.
+func holdAgentLock(t *testing.T, h *testHost) (string, func()) {
+	t.Helper()
+	path := filepath.Join(h.layout.Paths.AgentDir, AgentLockName)
+	fd, err := unix.Open(path, unix.O_RDWR|unix.O_CREAT|unix.O_CLOEXEC, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		_ = unix.Close(fd)
+		t.Fatalf("lock %s: %v", path, err)
+	}
+	return path, func() { _ = unix.Close(fd) }
+}
+
+func TestInstallRerunStopsTheAgentForTheMigration(t *testing.T) {
+	h := newTestHost(t)
+	ctx := context.Background()
+	if err := Install(ctx, h.config(RoleController)); err != nil {
+		t.Fatalf("Install: %v\n%s", err, h.out)
+	}
+	h.systemd.calls = nil
+	if err := Install(ctx, h.config(RoleController)); err != nil {
+		t.Fatalf("rerun: %v\n%s", err, h.out)
+	}
+	want := []string{
+		"Stop darkpanel-agent.service", "Reload",
+		"Enable darkpanel-controller.service darkpanel-agent.service darkpanel-update-recover.service",
+		"Restart darkpanel-controller.service", "Restart darkpanel-agent.service",
+	}
+	if got := h.systemd.recorded(); !reflect.DeepEqual(got, want) {
+		t.Errorf("systemd calls\n got %v\nwant %v", got, want)
+	}
+	_, release := holdAgentLock(t, h)
+	release()
+}
+
+func TestInstallRefusesAnAgentItCannotStop(t *testing.T) {
+	h := newTestHost(t)
+	ctx := context.Background()
+	if err := Install(ctx, h.config(RoleController)); err != nil {
+		t.Fatalf("Install: %v\n%s", err, h.out)
+	}
+	path, release := holdAgentLock(t, h)
+	defer release()
+	db := h.layout.Paths.AgentDB()
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		if err := os.Remove(db + suffix); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			t.Fatal(err)
+		}
+	}
+	h.systemd.calls = nil
+	err := Install(ctx, h.config(RoleController))
+	if exists(t, db) {
+		t.Errorf("the refused install opened %s before it held the agent lock", db)
+	}
+	if want := "install: database: an agent still runs and holds " + path + "; stop it first"; err == nil || err.Error() != want {
+		t.Fatalf("Install = %v, want %q", err, want)
+	}
+	if got := h.systemd.recorded(); slices.Contains(got, "Reload") || slices.Contains(got, "Restart darkpanel-agent.service") {
+		t.Errorf("systemd calls %v: the refused install went on past the database step", got)
 	}
 }
