@@ -1032,6 +1032,14 @@ milestone closes, the rule ADRs 0010 and 0011 follow for M1.
   "No updates yet" when empty, and "The update history is unavailable while
   the host is offline." when the host is offline (the read is not sent).
   A read error shows its message in a destructive alert inside the card.
+  Where the history's container is narrower than the table's 40rem minimum,
+  it renders instead as a list labelled "Update history", one item per
+  transaction, newest first: the state badge and "<from> → <to>" on the
+  first line, the started time and kind ("<time> · <kind>") on the second
+  in `text-xs text-muted-foreground`, and "Error: <message>" on a third
+  line when the transaction has an error; nothing scrolls sideways. At
+  40rem and wider the table shows unchanged. (Narrow layout chosen by the
+  owner 2026-11-12, core register row 121.)
 - **UX-3** — Flow "revoke a host": "Revoke host" (shown when `state` is
   not `revoked` and the host is not the controller's own) opens
   `ChangeDialog` for `core.host.revoke/v1` with `{hostId}`; the plan asks
