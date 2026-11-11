@@ -33,15 +33,19 @@ export function HostRemoval({ host }: { host: Host }) {
   const [grantMissing, setGrantMissing] = useState(false)
   const addressRef = useRef<HTMLInputElement>(null)
   const opener = useRef<HTMLButtonElement | null>(null)
+  const tokenButton = useRef<HTMLButtonElement>(null)
+  const deleteButton = useRef<HTMLButtonElement>(null)
 
   const removable = !host.isLocal && (host.state === "pending" || host.state === "revoked")
   const revocable = !host.isLocal && host.state !== "revoked"
 
   // A flow of several dialogs ends in a dialog other than the one its button
-  // opened, whose own focus return lands on an element already gone.
+  // opened, whose own focus return lands on an element already gone. A revoke
+  // removes its own button, and the revoked host's controls take focus instead.
   useEffect(() => {
     if (phase !== "closed" || opener.current === null) return
-    if (opener.current.isConnected) opener.current.focus()
+    const target = [opener.current, tokenButton.current, deleteButton.current].find((b) => b?.isConnected === true)
+    target?.focus()
     opener.current = null
   }, [phase])
 
@@ -82,9 +86,9 @@ export function HostRemoval({ host }: { host: Host }) {
 
   return (
     <>
-      {removable && <Button variant="outline" onClick={(e) => open("token-form", e.currentTarget)}>New enrollment token</Button>}
+      {removable && <Button ref={tokenButton} variant="outline" onClick={(e) => open("token-form", e.currentTarget)}>New enrollment token</Button>}
       {revocable && <Button variant="destructive" onClick={(e) => open("revoke", e.currentTarget)}>Revoke host</Button>}
-      {removable && <Button variant="destructive" onClick={(e) => open("delete", e.currentTarget)}>Delete host</Button>}
+      {removable && <Button ref={deleteButton} variant="destructive" onClick={(e) => open("delete", e.currentTarget)}>Delete host</Button>}
       <ChangeDialog
         open={phase === "revoke"}
         onOpenChange={(next) => (next ? undefined : reset())}
