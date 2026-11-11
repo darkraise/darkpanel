@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent } from "react"
+import { useId, useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { PageHeader } from "darkraise-ui/layout"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
@@ -16,18 +16,24 @@ import type { Rollout } from "@/api/types"
 import { ChangeDialog } from "@/components/change-dialog"
 import { stateVariant } from "@/lib/badges"
 import { formatTime } from "@/lib/format"
+import { useReturnFocus } from "@/lib/return-focus"
 import { focusableScroller } from "@/lib/table"
 import { usePageTitle } from "@/lib/page-title"
-import { StartRolloutButton } from "./start-rollout-dialog"
+import { StartRolloutFlow, StartRolloutTrigger } from "./start-rollout-dialog"
 
 const ACTIVE = new Set(["running", "draining"])
 
 type Phase = "closed" | "form" | "plan"
 
-function CancelRollout({ rollout }: { rollout: Rollout }) {
+// Only the button depends on the rollout's state: the dialogs stay mounted, so
+// the refresh after a cancel, or a poll that finds the rollout finished, cannot
+// unmount an open dialog. Focus falls back to the card's title once the button
+// is gone.
+function CancelRollout({ rollout, active, fallback }: { rollout: Rollout; active: boolean; fallback: RefObject<HTMLElement | null> }) {
   const client = useQueryClient()
   const [phase, setPhase] = useState<Phase>("closed")
   const [force, setForce] = useState(false)
+  const opener = useReturnFocus(phase !== "closed", fallback)
 
   function reset() {
     setPhase("closed")
@@ -41,9 +47,11 @@ function CancelRollout({ rollout }: { rollout: Rollout }) {
 
   return (
     <>
-      <Button variant="outline" onClick={() => setPhase("form")}>
-        Cancel rollout
-      </Button>
+      {active && (
+        <Button ref={opener} variant="outline" onClick={() => setPhase("form")}>
+          Cancel rollout
+        </Button>
+      )}
       <Dialog open={phase === "form"} onOpenChange={(next) => (next ? undefined : reset())}>
         <DialogContent>
           <DialogHeader>
@@ -77,19 +85,20 @@ function CancelRollout({ rollout }: { rollout: Rollout }) {
 
 function RolloutCard({ rollout, names }: { rollout: Rollout; names: Map<string, string> }) {
   const id = useId()
+  const title = useRef<HTMLHeadingElement>(null)
   return (
     <section aria-labelledby={id}>
       <Card>
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <CardTitle>
-              <h2 id={id} className="break-all">{`${rollout.version} (${rollout.channel})`}</h2>
+              <h2 id={id} ref={title} tabIndex={-1} className="break-all">{`${rollout.version} (${rollout.channel})`}</h2>
             </CardTitle>
             <Badge variant={stateVariant(rollout.state)} size="sm">
               {rollout.state}
             </Badge>
           </div>
-          {ACTIVE.has(rollout.state) && <CancelRollout rollout={rollout} />}
+          <CancelRollout rollout={rollout} active={ACTIVE.has(rollout.state)} fallback={title} />
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <p className="text-xs text-muted-foreground">
@@ -103,7 +112,7 @@ function RolloutCard({ rollout, names }: { rollout: Rollout; names: Map<string, 
           <div className="overflow-x-auto">
             {/* darkraise-ui lets table cells break anywhere, so without a minimum width
                 a narrow table squeezes its words apart instead of scrolling. */}
-            <Table className="min-w-[32rem]" ref={focusableScroller(`Hosts of the ${rollout.version} rollout`)}>
+            <Table className="min-w-[32rem]" ref={focusableScroller(`Hosts of the ${rollout.version} rollout created ${formatTime(rollout.createdAt)}`)}>
               <TableHeader>
                 <TableRow>
                   <TableHead>#</TableHead>
@@ -134,7 +143,7 @@ function RolloutCard({ rollout, names }: { rollout: Rollout; names: Map<string, 
   )
 }
 
-function RolloutsBody() {
+function RolloutsBody({ startAction }: { startAction: ReactNode }) {
   const rollouts = useQuery({
     queryKey: ROLLOUTS_QUERY_KEY,
     queryFn: listRollouts,
@@ -155,7 +164,7 @@ function RolloutsBody() {
     return (
       <>
         <h2 className="sr-only">Rollout list</h2>
-        <EmptyState title="No rollouts yet" action={<StartRolloutButton />} />
+        <EmptyState title="No rollouts yet" action={startAction} />
       </>
     )
   }
@@ -169,19 +178,30 @@ function RolloutsBody() {
   )
 }
 
+// The page owns the one start flow both buttons open, above the switch from
+// the empty state to the list, so the refresh after the first rollout starts
+// cannot unmount it; focus falls back to the header's button.
 export function RolloutsPage() {
   usePageTitle("Rollouts")
+  const [starting, setStarting] = useState(false)
+  const header = useRef<HTMLButtonElement>(null)
+  const openerRef = useReturnFocus(starting, header)
+  const start = (button: HTMLButtonElement) => {
+    openerRef.current = button
+    setStarting(true)
+  }
   return (
     <>
       <PageHeader
         title="Rollouts"
         actions={
           <div className="flex flex-wrap gap-2">
-            <StartRolloutButton />
+            <StartRolloutTrigger ref={header} onOpen={start} />
           </div>
         }
       />
-      <RolloutsBody />
+      <RolloutsBody startAction={<StartRolloutTrigger onOpen={start} />} />
+      {starting && <StartRolloutFlow onClose={() => setStarting(false)} />}
     </>
   )
 }
