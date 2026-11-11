@@ -38,3 +38,4 @@
 - 2026-11-10 `docs/dforge/plans/2026-11-09-v1-w11b-lockout-guard.md` — merged into `main` at 7838ba4
 - 2026-11-10 `docs/dforge/plans/2026-11-10-v1-w11c-module-fixes.md` — merged into `main` at 1f72920
 - 2026-11-10 `docs/dforge/plans/2026-11-10-v1-w11d-followups.md` — merged into `main` at 5d6bc27
+- 2026-11-11 `docs/dforge/plans/2026-11-11-m2-audit-gaps.md` — merged into `main` at 65f4ea7
