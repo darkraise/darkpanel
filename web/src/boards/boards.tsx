@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "darkraise-ui/component
 import { EmptyState } from "darkraise-ui/components/empty-state"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
+import { stateVariant } from "@/lib/badges"
 import { formatTime } from "@/lib/format"
 import { Providers } from "@/providers"
 import "../styles/globals.css"
@@ -60,13 +61,6 @@ interface BoardRollout {
 const LONG_NAME = `web-${"x".repeat(59)}`
 const LONG_VERSION = `1.0.0-beta.1+${"a".repeat(27)}`
 const SEEN = "2026-11-11T08:00:00Z"
-
-function stateVariant(state: string): BadgeVariant {
-  if (state === "committed" || state === "succeeded") return "default"
-  if (state === "updating" || state === "running" || state === "draining" || state === "waiting") return "secondary"
-  if (state === "failed" || state === "quarantined") return "destructive"
-  return "outline"
-}
 
 function host(over: Partial<BoardHost>): BoardHost {
   return {
