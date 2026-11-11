@@ -5,6 +5,6 @@
 
 | # | Item | Assigned | Acceptance | State | Note |
 |---|---|---|---|---|---|
-| 1 | Controller-agent fleet | docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md | R22-R28 | verify | core rows resolved after the m2-audit-gaps plan (65f4ea7) and owner check of core #36; awaiting the milestone audit |
+| 1 | Controller-agent fleet | docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md | R22-R28 | open | audit 2026-11-11 1175996: GAP — core row 6 (R27) is a GAP: the web hosts page shows no last seen or versions; report .dforge/milestone-M2-audit-report.md |
 | 2 | Install, service and uninstall | docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md | R29-R31 | verify | core rows resolved after the m2-audit-gaps plan (65f4ea7) and owner check of core #36; awaiting the milestone audit |
 | 3 | Self-update | docs/dforge/specs/2026-10-19-m2-fleet-lifecycle-design.md | R32-R36 | verify | core rows resolved after the m2-audit-gaps plan (65f4ea7) and owner check of core #36; awaiting the milestone audit |
