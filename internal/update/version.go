@@ -46,6 +46,14 @@ func ParseVersion(s string) (Version, error) {
 	return v, nil
 }
 
+func (v Version) String() string {
+	s := fmt.Sprintf("%d.%d.%d", v.Major, v.Minor, v.Patch)
+	if v.Pre != "" {
+		s += "-" + v.Pre
+	}
+	return s
+}
+
 // Compare orders v and w by semantic version precedence: -1 when v is lower,
 // 0 when they are equal, 1 when v is higher.
 func (v Version) Compare(w Version) int {
