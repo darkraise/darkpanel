@@ -8,7 +8,7 @@
 |---|---|---|---|---|---|
 | M0 | Discovery | brief, requirements and non-goals approved by the owner | docs/dforge/registers/2026-10-17-m0-discovery.md | closed | audit 2026-10-17 7a91299: 4 MET, 0 deferred |
 | M1 | Foundations | ADRs recorded; one binary serves the host-info module through UI, API and CLI behind TOTP login; CI and gates green; harness boots all four OS VMs | docs/dforge/registers/2026-10-17-m1-foundations.md | closed | audit 2026-10-21 c955987: 180 MET, 83 deferred |
-| M2 | Fleet and lifecycle | controller manages itself and one enrolled agent over mTLS; signed update and automatic rollback demonstrated in the harness | docs/dforge/registers/2026-10-17-m2-fleet-lifecycle.md | open | - |
+| M2 | Fleet and lifecycle | controller manages itself and one enrolled agent over mTLS; signed update and automatic rollback demonstrated in the harness | docs/dforge/registers/2026-10-17-m2-fleet-lifecycle.md | closed | audit 2026-11-12 eb57e9e: 128 MET, 64 deferred |
 | M3 | Firewall | UFW, safe apply, Docker integration and exposure view pass S1-S3 in the harness on all four OS | docs/dforge/registers/2026-10-17-m3-firewall.md | open | - |
 | M4 | Docker | every Docker requirement demonstrated on a managed agent, including allow and deny from a container view | docs/dforge/registers/2026-10-17-m4-docker.md | open | - |
 | M5 | Tailscale | node and tailnet management demonstrated; a Darkpanel-deployed DERP region carries traffic between two tailnet nodes | docs/dforge/registers/2026-10-17-m5-tailscale.md | open | - |
