@@ -17,7 +17,7 @@ import type {
   TokenList,
 } from "./types"
 
-export const CSRF_HEADER = "X-CSRF-Token"
+const CSRF_HEADER = "X-CSRF-Token"
 
 export const HOSTS_QUERY_KEY = ["hosts"] as const
 export const ROLLOUTS_QUERY_KEY = ["rollouts"] as const

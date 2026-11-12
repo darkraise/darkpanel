@@ -11,7 +11,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 )
 
-func TestRequiredScope(t *testing.T) {
+func TestDefaultScope(t *testing.T) {
 	const unknownClass, unknownSide = core.Class("bogus"), core.Side("bogus")
 	want := map[core.Class]map[core.Side]core.Scope{
 		core.ClassRead: {
@@ -41,11 +41,11 @@ func TestRequiredScope(t *testing.T) {
 	}
 	for class, sides := range want {
 		for side, need := range sides {
-			if got := RequiredScope(class, side); got != need {
+			if got := core.DefaultScope(class, side); got != need {
 				t.Errorf("RequiredScope(%s, %s) = %s, want %s", class, side, got, need)
 			}
 			for scope, ok := range satisfies {
-				err := authorize(core.Principal{Actor: "token:t1", Scope: scope}, RequiredScope(class, side))
+				err := authorize(core.Principal{Actor: "token:t1", Scope: scope}, core.DefaultScope(class, side))
 				if ok[need] != (err == nil) {
 					t.Errorf("scope %q, class %s, side %s: authorize = %v, want allowed %v", scope, class, side, err, ok[need])
 				}

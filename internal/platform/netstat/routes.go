@@ -20,10 +20,8 @@ var ErrNoRoute = errors.New("netstat: no route")
 // The route protocols (RTPROT_*) callers test for.
 const (
 	RouteProtoKernel uint8 = 2
-	RouteProtoBoot   uint8 = 3
 	RouteProtoStatic uint8 = 4
 	RouteProtoRA     uint8 = 9 // learned from IPv6 router advertisements
-	RouteProtoDHCP   uint8 = 16
 )
 
 // routeTypes are the kernel's route types (RTN_*), by number.
@@ -38,7 +36,6 @@ type RouteQuery struct {
 	Dst  netip.Addr // required
 	Src  netip.Addr // optional: the packet's source address
 	IIF  string     // optional: look up as for a packet received on this interface
-	OIF  string     // optional: only routes through this interface
 	Mark uint32     // optional: the packet's firewall mark
 	// Proto is the packet's IP protocol (optional). The kernel answers a
 	// lookup only for TCP, UDP and, per family, ICMP or ICMPv6, and refuses
@@ -73,18 +70,15 @@ func RouteGet(q RouteQuery) (Route, error) {
 	if !q.Dst.IsValid() {
 		return Route{}, errors.New("netstat: route lookup without a destination")
 	}
-	var index [2]uint32
-	for i, name := range []string{q.IIF, q.OIF} {
-		if name == "" {
-			continue
-		}
-		ifc, err := net.InterfaceByName(name)
+	var iif uint32
+	if q.IIF != "" {
+		ifc, err := net.InterfaceByName(q.IIF)
 		if err != nil {
-			return Route{}, fmt.Errorf("netstat: interface %s: %w", name, err)
+			return Route{}, fmt.Errorf("netstat: interface %s: %w", q.IIF, err)
 		}
-		index[i] = uint32(ifc.Index) //nolint:gosec // G115: the kernel numbers interfaces from 1 as int32
+		iif = uint32(ifc.Index) //nolint:gosec // G115: the kernel numbers interfaces from 1 as int32
 	}
-	body, err := routeRequest(q, index[0], index[1])
+	body, err := routeRequest(q, iif)
 	if err != nil {
 		return Route{}, err
 	}
@@ -115,9 +109,9 @@ func routeLookupResult(dst netip.Addr, msgs [][]byte, err error) (Route, error) 
 }
 
 // routeRequest encodes q as an RTM_GETROUTE body: struct rtmsg, then the
-// destination, source, input and output interface indexes (0: none), mark,
-// IP protocol and ports as attributes.
-func routeRequest(q RouteQuery, iif, oif uint32) ([]byte, error) {
+// destination, source, input interface index (0: none), mark, IP protocol
+// and ports as attributes.
+func routeRequest(q RouteQuery, iif uint32) ([]byte, error) {
 	dst, src := q.Dst.Unmap(), q.Src.Unmap()
 	family, bits := familyOf(dst)
 	attrs := nlAttr(unix.RTA_DST, dst.AsSlice())
@@ -131,9 +125,6 @@ func routeRequest(q RouteQuery, iif, oif uint32) ([]byte, error) {
 	}
 	if iif != 0 {
 		attrs = append(attrs, nlAttr(unix.RTA_IIF, nlUint32(iif))...)
-	}
-	if oif != 0 {
-		attrs = append(attrs, nlAttr(unix.RTA_OIF, nlUint32(oif))...)
 	}
 	if q.Mark != 0 {
 		attrs = append(attrs, nlAttr(unix.RTA_MARK, nlUint32(q.Mark))...)

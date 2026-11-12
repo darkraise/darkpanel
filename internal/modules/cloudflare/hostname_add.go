@@ -36,14 +36,12 @@ func (c cf) hostnameAdd() core.ActionDef {
 type hostnameAddHandler struct{ hostnameHandler }
 
 // hostnameAddition is what an add found: the account's api, the tunnel row,
-// the hostname's zone, the configuration read and the one to write, and the
-// zone's records for the hostname.
+// the hostname's zone, and the configuration read and the one to write.
 type hostnameAddition struct {
 	a         *api
 	tunnel    tunnelRow
 	zone      Zone
 	cfg, next ingress.Config
-	recordIDs []string
 }
 
 // hostnameInvalid is the Definite refusal of an input field.
@@ -179,23 +177,18 @@ func (h hostnameAddHandler) inspect(ctx context.Context, env core.Env, in Hostna
 	if err != nil {
 		return hostnameAddition{}, err
 	}
-	ids := make([]string, 0, len(records))
-	for _, r := range records {
-		ids = append(ids, r.ID)
-	}
-	if len(ids) > 0 {
+	if len(records) > 0 {
 		return hostnameAddition{}, hostnameInvalid("/hostname",
-			fmt.Sprintf("zone %s already has %d DNS records for %s", zone.Name, len(ids), in.Hostname))
+			fmt.Sprintf("zone %s already has %d DNS records for %s", zone.Name, len(records), in.Hostname))
 	}
-	return hostnameAddition{a: a, tunnel: tunnel, zone: zone, cfg: cfg, next: next, recordIDs: ids}, nil
+	return hostnameAddition{a: a, tunnel: tunnel, zone: zone, cfg: cfg, next: next}, nil
 }
 
 // stateHash is the hex SHA-256 of what the add read, so an apply after
 // another client changed the configuration or the records fails with
 // plan.state_changed.
 func (ad hostnameAddition) stateHash() string {
-	parts := append([]string{ad.tunnel.ID, ingress.Hash(ad.cfg), ad.zone.ID}, ad.recordIDs...)
-	sum := sha256.Sum256([]byte(strings.Join(parts, "|")))
+	sum := sha256.Sum256([]byte(strings.Join([]string{ad.tunnel.ID, ingress.Hash(ad.cfg), ad.zone.ID}, "|")))
 	return hex.EncodeToString(sum[:])
 }
 

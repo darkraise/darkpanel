@@ -267,7 +267,7 @@ func TestRouteGetRefusals(t *testing.T) {
 	if _, err := RouteGet(q); err == nil || !strings.Contains(err.Error(), "mixes address families") {
 		t.Fatalf("mixed families err = %v", err)
 	}
-	q = RouteQuery{Dst: netip.MustParseAddr("192.0.2.1"), OIF: "no-such-if0"}
+	q = RouteQuery{Dst: netip.MustParseAddr("192.0.2.1"), IIF: "no-such-if0"}
 	if _, err := RouteGet(q); err == nil || !strings.Contains(err.Error(), "no-such-if0") {
 		t.Fatalf("unknown interface err = %v", err)
 	}
@@ -276,7 +276,7 @@ func TestRouteGetRefusals(t *testing.T) {
 func TestRouteRequest(t *testing.T) {
 	q := RouteQuery{Dst: netip.MustParseAddr("::ffff:192.0.2.1"), Src: netip.MustParseAddr("192.0.2.2"), Mark: 0x40000,
 		Proto: unix.IPPROTO_TCP, SrcPort: 443, DstPort: 8443}
-	b, err := routeRequest(q, 7, 9)
+	b, err := routeRequest(q, 7)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +293,6 @@ func TestRouteRequest(t *testing.T) {
 		unix.RTA_DST:      {192, 0, 2, 1},
 		unix.RTA_SRC:      {192, 0, 2, 2},
 		unix.RTA_IIF:      nlUint32(7),
-		unix.RTA_OIF:      nlUint32(9),
 		unix.RTA_MARK:     nlUint32(0x40000),
 		unix.RTA_IP_PROTO: {unix.IPPROTO_TCP},
 		unix.RTA_SPORT:    {0x01, 0xbb},
@@ -302,7 +301,7 @@ func TestRouteRequest(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("attributes = %v, want %v", got, want)
 	}
-	b, err = routeRequest(RouteQuery{Dst: netip.MustParseAddr("2001:db8::1")}, 0, 0)
+	b, err = routeRequest(RouteQuery{Dst: netip.MustParseAddr("2001:db8::1")}, 0)
 	if err != nil || b[0] != unix.AF_INET6 || b[1] != 128 || b[2] != 0 || len(b) != unix.SizeofRtMsg+unix.SizeofRtAttr+16 {
 		t.Fatalf("IPv6 request = %v, %v", b, err)
 	}

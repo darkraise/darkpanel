@@ -47,32 +47,3 @@ func TestPxTarget(t *testing.T) {
 		})
 	}
 }
-
-func TestPxFirstTargetNetwork(t *testing.T) {
-	for _, tc := range []struct {
-		name      string
-		endpoints map[string]Endpoint
-		want      string
-		ok        bool
-	}{
-		{"the first supported network in name order", map[string]Endpoint{
-			"zeta": {Driver: "bridge", UserDefined: true}, "alpha": {Driver: "bridge", UserDefined: true}, "bridge": {Driver: "bridge"},
-		}, "alpha", true},
-		{"unsupported networks sort first but are skipped", map[string]Endpoint{
-			"0-overlay": {Driver: "overlay", UserDefined: true}, "1-host": {Driver: "host"}, "b-net": {Driver: "bridge", UserDefined: true}, "a-bridge": {Driver: "bridge"},
-		}, "b-net", true},
-		{"only the default bridge", map[string]Endpoint{"bridge": {Driver: "bridge"}}, "", false},
-		{"no endpoints", map[string]Endpoint{}, "", false},
-		{"a nil map", nil, "", false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got, ok := FirstTargetNetwork(tc.endpoints)
-			if got != tc.want || ok != tc.ok {
-				t.Errorf("FirstTargetNetwork = %q, %t; want %q, %t", got, ok, tc.want, tc.ok)
-			}
-			if ok && Target(tc.endpoints, got) != nil {
-				t.Errorf("the network %q it picked is refused by Target", got)
-			}
-		})
-	}
-}

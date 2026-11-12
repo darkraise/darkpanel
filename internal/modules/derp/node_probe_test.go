@@ -288,7 +288,7 @@ func TestNpProbeOnce(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newDPHost(t)
 			h.tls, h.stun = tc.tls, tc.stun
-			gotTLS, gotSTUN := h.dp().probeOnce(context.Background(), tc.target, tc.stunAddr)
+			gotTLS, gotSTUN := h.dp().probeOnceLogged(context.Background(), nil, tc.target, tc.stunAddr)
 			if gotTLS != tc.wantTLS || gotSTUN != tc.wantSTUN {
 				t.Errorf("tls %+v and stun %+v, want %+v and %+v", gotTLS, gotSTUN, tc.wantTLS, tc.wantSTUN)
 			}

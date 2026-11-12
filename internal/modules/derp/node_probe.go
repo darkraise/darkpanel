@@ -296,12 +296,8 @@ func (d dp) target(ctx context.Context, s ServerStatus) (probeTarget, netip.Addr
 	}
 }
 
-// probeOnce takes one TLS and then one STUN measurement of a server, and logs nothing.
-func (d dp) probeOnce(ctx context.Context, t probeTarget, stunAddr netip.AddrPort) (tlsResult, stunResult ProbeResult) {
-	return d.probeOnceLogged(ctx, nil, t, stunAddr)
-}
-
-// probeOnceLogged is probeOnce that logs the raw error of each failed measurement to log at debug level.
+// probeOnceLogged takes one TLS and then one STUN measurement of a server, and logs the raw error
+// of each failed measurement to log at debug level; a nil log logs nothing.
 func (d dp) probeOnceLogged(ctx context.Context, log *slog.Logger, t probeTarget, stunAddr netip.AddrPort) (tlsResult, stunResult ProbeResult) {
 	tlsResult = d.nodeProbeTLS(ctx, log, t)
 	stunResult = d.nodeProbeSTUN(ctx, log, stunAddr)

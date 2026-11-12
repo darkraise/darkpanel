@@ -183,7 +183,7 @@ func TestV1r16ProbeErrorsUseTheFixedVocabulary(t *testing.T) {
 		h := newDPHost(t)
 		h.tls = map[string]dpProbe{"203.0.113.9": {d: time.Millisecond, err: tlsErr}}
 		h.stun = map[netip.AddrPort]dpProbe{stunAddr: {d: time.Millisecond, err: stunErr}}
-		return h.dp().probeOnce(context.Background(), probeTarget{HostName: "203.0.113.9", Port: 443}, stunAddr)
+		return h.dp().probeOnceLogged(context.Background(), nil, probeTarget{HostName: "203.0.113.9", Port: 443}, stunAddr)
 	}
 	check := func(t *testing.T, got ProbeResult, want string) {
 		t.Helper()
@@ -257,7 +257,7 @@ func TestV1r16RealTLSFailuresUseTheVocabulary(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		got, _ := d.probeOnce(ctx, probeTarget{HostName: host, Port: port, CertName: pin}, netip.AddrPortFrom(netip.MustParseAddr(host), server.STUNPort))
+		got, _ := d.probeOnceLogged(ctx, nil, probeTarget{HostName: host, Port: port, CertName: pin}, netip.AddrPortFrom(netip.MustParseAddr(host), server.STUNPort))
 		return got
 	}
 	tlsServer := func(status int) (hostPort, pin string) {
@@ -362,7 +362,7 @@ func TestV1r16PinnedLeafFailuresUseTheVocabulary(t *testing.T) {
 			h := newDPHost(t)
 			h.tls = map[string]dpProbe{"203.0.113.9": {err: fmt.Errorf("derp: probe 203.0.113.9: %w", err)}}
 			h.stun = map[netip.AddrPort]dpProbe{stunAddr: {d: time.Millisecond}}
-			got, _ := h.dp().probeOnce(context.Background(), probeTarget{HostName: "203.0.113.9", Port: 443}, stunAddr)
+			got, _ := h.dp().probeOnceLogged(context.Background(), nil, probeTarget{HostName: "203.0.113.9", Port: 443}, stunAddr)
 			if got.OK || got.Error != tc.want {
 				t.Errorf("result %+v, want a failure %q", got, tc.want)
 			}

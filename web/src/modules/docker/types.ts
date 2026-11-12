@@ -148,11 +148,6 @@ export interface ContainerDetail {
   owner?: string
 }
 
-export interface LogLine {
-  stream: "stdout" | "stderr"
-  text: string
-}
-
 export interface LogEvent {
   stream: "stdout" | "stderr"
   text: string

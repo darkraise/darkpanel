@@ -20,24 +20,6 @@ const DialTimeout = 30 * time.Second
 // certificate.
 var ErrRefused = errors.New("daemon: the controller refused this agent's credentials")
 
-// Agent is install.Agent over the credentials in TLSDir (Paths.AgentTLSDir).
-type Agent struct {
-	TLSDir string
-}
-
-var _ install.Agent = Agent{}
-
-// Check is darkpanel agent check.
-func (a Agent) Check(ctx context.Context) (install.CheckResult, error) {
-	return Check(ctx, a.TLSDir)
-}
-
-// Enroll consumes token and saves a new credential generation.
-func (a Agent) Enroll(ctx context.Context, token string) error {
-	_, err := Enroll(ctx, a.TLSDir, token)
-	return err
-}
-
 // Check is darkpanel agent check: one mTLS handshake with
 // the current credentials of dir. Without credentials it answers
 // CheckRefused, because only a new enrollment helps; credentials that cannot

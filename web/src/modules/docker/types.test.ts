@@ -10,7 +10,6 @@ import {
   type EndpointView,
   type EnvVar,
   type LogEvent,
-  type LogLine,
   type Pruned,
   type PullEvent,
   type StatsEvent,
@@ -40,12 +39,11 @@ test("the smaller wire types carry every member the agent sends", () => {
   const env: EnvVar = { name: "TOKEN", value: "[redacted]" }
   const mount: DockerMount = { type: "volume", name: "data", source: "/var/lib/docker/volumes/data/_data", destination: "/data", rw: true }
   const endpoint: EndpointView = { network: "bridge", networkId: "n1", container: "web", endpointId: "e1", aliases: ["web"], ipv4: "172.17.0.2", ipv6: "fd00::2" }
-  const line: LogLine = { stream: "stdout", text: "ready" }
   const log: LogEvent = { stream: "stderr", text: "failed" }
   const stats: StatsEvent = { read: "2026-10-30T00:00:00Z", cpuPercent: 1, memUsage: 2, memLimit: 3, netRx: 4, netTx: 5, pids: 6 }
   const pull: PullEvent = { status: "Downloading", id: "layer", progress: "[=>  ]", current: 1, total: 2 }
   const pullFailed: PullEvent = { status: "error", error: "denied" }
   const pruned: Pruned = { images: [{ id: "sha256:aa", tags: ["old:1"], size: 10 }], reclaimed: 10 }
-  expect([port, usage, state, env, mount, endpoint, line, log, stats, pull, pullFailed, pruned]).toHaveLength(12)
+  expect([port, usage, state, env, mount, endpoint, log, stats, pull, pullFailed, pruned]).toHaveLength(11)
   expect(JSON.parse(JSON.stringify(stats)) as StatsEvent).toEqual(stats)
 })

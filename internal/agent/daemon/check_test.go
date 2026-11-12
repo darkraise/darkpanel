@@ -51,7 +51,7 @@ func enrolled(t *testing.T) (*testController, string) {
 	ctrl := newTestController(t, time.Now().UTC().Truncate(time.Second))
 	ctrl.addHost("H1", "pending")
 	dir := filepath.Join(t.TempDir(), "agent")
-	if err := (Agent{TLSDir: dir}).Enroll(context.Background(), ctrl.token("H1")); err != nil {
+	if _, err := Enroll(context.Background(), dir, ctrl.token("H1")); err != nil {
 		t.Fatalf("Enroll: %v", err)
 	}
 	return ctrl, dir
@@ -78,7 +78,7 @@ func TestCheck(t *testing.T) {
 		t.Errorf("Check without credentials = %d, %v; want refused", res, err)
 	}
 	ctrl, dir := enrolled(t)
-	if res, err := (Agent{TLSDir: dir}).Check(ctx); res != install.CheckAccepted || err != nil {
+	if res, err := Check(ctx, dir); res != install.CheckAccepted || err != nil {
 		t.Fatalf("Check = %d, %v; want accepted", res, err)
 	}
 	if s := ctrl.agentSessions(); len(s) != 1 || s[0].hostID != "H1" {

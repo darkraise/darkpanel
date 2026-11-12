@@ -1,6 +1,6 @@
 import { useBrandStore } from "darkraise-ui/layout"
 
-export const APP_NAME = "Darkpanel"
+const APP_NAME = "Darkpanel"
 
 // The sidebar header reads its name from darkraise-ui's brand store, which
 // defaults to "App".

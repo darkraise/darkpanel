@@ -370,7 +370,7 @@ func TestRunConnectsAndRedials(t *testing.T) {
 	ctrl := newTestController(t, time.Now().UTC().Truncate(time.Second))
 	ctrl.addHost("H1", "pending")
 	h := newAgentHost(t)
-	if err := (Agent{TLSDir: h.layout.Paths.AgentTLSDir}).Enroll(context.Background(), ctrl.token("H1")); err != nil {
+	if _, err := Enroll(context.Background(), h.layout.Paths.AgentTLSDir, ctrl.token("H1")); err != nil {
 		t.Fatal(err)
 	}
 	h.start(h.config())
@@ -413,7 +413,7 @@ func TestRunNeverConnected(t *testing.T) {
 	ctrl := newTestController(t, time.Now().UTC().Truncate(time.Second))
 	ctrl.addHost("H1", "pending")
 	h := newAgentHost(t)
-	if err := (Agent{TLSDir: h.layout.Paths.AgentTLSDir}).Enroll(context.Background(), ctrl.token("H1")); err != nil {
+	if _, err := Enroll(context.Background(), h.layout.Paths.AgentTLSDir, ctrl.token("H1")); err != nil {
 		t.Fatal(err)
 	}
 	cfg := h.config()
@@ -438,7 +438,7 @@ func TestRunTakesUpAnEnrollment(t *testing.T) {
 	if before.HostID != UnenrolledHostID {
 		t.Fatalf("Hello before the enrollment = %+v", before)
 	}
-	if err := (Agent{TLSDir: h.layout.Paths.AgentTLSDir}).Enroll(context.Background(), ctrl.token("H1")); err != nil {
+	if _, err := Enroll(context.Background(), h.layout.Paths.AgentTLSDir, ctrl.token("H1")); err != nil {
 		t.Fatal(err)
 	}
 	h.waitClock("the agent to dial as H1", func() bool { return len(ctrl.agentSessions()) == 1 })
