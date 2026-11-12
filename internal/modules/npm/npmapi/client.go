@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"syscall"
 )
 
 const (
@@ -185,7 +186,9 @@ func (c *Client) DeleteCertificate(ctx context.Context, id int) error {
 }
 
 // do sends one request. A 2xx answer is decoded into out when out is not nil and otherwise dropped; any other status
-// becomes an *APIError, which never keeps the answer's text.
+// becomes an *APIError, which never keeps the answer's text. A request without a usable answer, or a 2xx answer that
+// does not decode, fails with the method, the path and a fixed reason, because Go's transport and JSON errors quote
+// bytes of the answer.
 func (c *Client) do(ctx context.Context, method, path, query string, body, out any) error {
 	var rd io.Reader
 	if body != nil {
@@ -212,7 +215,7 @@ func (c *Client) do(ctx context.Context, method, path, query string, body, out a
 	}
 	res, err := c.hc.Do(req)
 	if err != nil {
-		return fmt.Errorf("npmapi: %w", err)
+		return fmt.Errorf("npmapi: %s %s: %w", method, path, unanswered(err))
 	}
 	// A short remainder is drained so the connection can be reused; a longer one is abandoned and the connection
 	// closed, so a hostile NPM cannot keep the client reading.
@@ -228,13 +231,13 @@ func (c *Client) do(ctx context.Context, method, path, query string, body, out a
 	}
 	b, err := io.ReadAll(io.LimitReader(res.Body, answerBodyLimit+1))
 	if err != nil {
-		return fmt.Errorf("npmapi: read %s answer: %w", path, err)
+		return fmt.Errorf("npmapi: read %s answer: %w", path, unanswered(err))
 	}
 	if len(b) > answerBodyLimit {
 		return fmt.Errorf("npmapi: %s answer exceeds %d bytes", path, answerBodyLimit)
 	}
 	if err := json.Unmarshal(b, out); err != nil {
-		return fmt.Errorf("npmapi: decode %s answer: %w", path, err)
+		return fmt.Errorf("npmapi: decode %s answer: not the expected JSON", path)
 	}
 	return nil
 }
@@ -254,4 +257,25 @@ func apiError(res *http.Response) *APIError {
 		}
 	}
 	return ae
+}
+
+// errNoAnswer and errRefused are the fixed reasons of a request that got no usable answer.
+var (
+	errNoAnswer = errors.New("no usable answer")
+	errRefused  = errors.New("connection refused")
+)
+
+// unanswered classifies a failed exchange with a fixed reason. It never wraps or formats err, whose text can quote
+// bytes NPM sent; the context sentinels are returned as they are, so errors.Is still finds them.
+func unanswered(err error) error {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return context.Canceled
+	case errors.Is(err, context.DeadlineExceeded):
+		return context.DeadlineExceeded
+	case errors.Is(err, syscall.ECONNREFUSED):
+		return errRefused
+	default:
+		return errNoAnswer
+	}
 }

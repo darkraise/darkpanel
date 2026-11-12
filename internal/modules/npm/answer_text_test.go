@@ -86,3 +86,31 @@ func TestV1r11MutationFailureCarriesNoNPMText(t *testing.T) {
 		v1r11Chain(t, answered, "placeholder-token", "placeholder-secret", "app.example.com")
 	}
 }
+
+// TestW12aLoginRedirectCarriesNoNPMText: an NPM that answers the login with a redirect whose Location quotes the
+// password it was sent fails the login as npm.unhealthy, and no error of the chain carries the password.
+func TestW12aLoginRedirectCarriesNoNPMText(t *testing.T) {
+	h := newTHHost(t)
+	inst := h.deployed()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var login struct {
+			Secret string `json:"secret"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&login)
+		w.Header().Set("Location", "http://["+login.Secret)
+		w.WriteHeader(http.StatusFound)
+	}))
+	t.Cleanup(srv.Close)
+	hc := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	n := h.nm()
+	n.d.api = apiVia(func() *npmapi.Client { return npmapi.New(srv.URL, hc) })
+	_, err := n.d.api(context.Background(), h.env(""))
+	var coded *errcode.Error
+	if !errors.As(err, &coded) || coded.Code != errcode.NPMUnhealthy {
+		t.Fatalf("error %v, want %s", err, errcode.NPMUnhealthy)
+	}
+	if !strings.Contains(err.Error(), "npmapi: POST /api/tokens: no usable answer") {
+		t.Errorf("error %q does not name the failed login", err.Error())
+	}
+	v1r11Chain(t, err, inst.Password)
+}
