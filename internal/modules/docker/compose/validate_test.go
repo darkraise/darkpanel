@@ -83,14 +83,14 @@ func TestCVValidateRefuses(t *testing.T) {
 		}, cvFacts(nil, nil), owned, "volume data sets the darkpanel.module label"},
 		{"container name of an owned container", "shop", func(c *Config) {
 			cvService(c, "web", func(s *Service) { s.ContainerName = "npm-app" })
-		}, cvFacts(nil, map[string]string{"container npm-app": "npm"}), owned, "container npm-app belongs to module npm"},
+		}, cvFacts(nil, map[string]string{"container npm-app": "npm"}), owned, "service web: container_name names a container of module npm"},
 		{"network of an owned network", "shop", nil,
-			cvFacts(nil, map[string]string{"network shop_default": "panel"}), owned, "network shop_default belongs to module panel"},
+			cvFacts(nil, map[string]string{"network shop_default": "panel"}), owned, "network default names a network of module panel"},
 		{"volume of an owned volume", "shop", nil,
-			cvFacts(nil, map[string]string{"volume shop_data": "npm"}), owned, "volume shop_data belongs to module npm"},
+			cvFacts(nil, map[string]string{"volume shop_data": "npm"}), owned, "volume data names a volume of module npm"},
 		{"network without a resolved name uses the project prefix", "shop", func(c *Config) {
 			c.Networks["default"] = Object{Keys: []string{}}
-		}, cvFacts(nil, map[string]string{"network shop_default": "panel"}), owned, "network shop_default belongs to module panel"},
+		}, cvFacts(nil, map[string]string{"network shop_default": "panel"}), owned, "network default names a network of module panel"},
 		{"provider service", "shop", func(c *Config) {
 			c.Services["llm"] = Service{Keys: []string{"provider"}, Provider: true}
 		}, cvFacts(nil, nil), unavailable, "service llm uses a provider, which would run a program on the host"},
@@ -122,7 +122,7 @@ func TestCVValidateRefuses(t *testing.T) {
 		}, cvFacts([]string{"nginx:1.27"}, nil), unavailable, "service web builds image shop-web, which is not present locally; Compose is run with --no-build"},
 		{"build with a named image that is not present", "shop", func(c *Config) {
 			cvService(c, "web", func(s *Service) { s.Keys = []string{"build", "image"}; s.Image = "app:1"; s.Build = true })
-		}, cvFacts([]string{"shop-web"}, nil), unavailable, "service web builds image app:1, which is not present locally; Compose is run with --no-build"},
+		}, cvFacts([]string{"shop-web"}, nil), unavailable, "service web builds the image its image member names, which is not present locally; Compose is run with --no-build"},
 		{"build with no facts about images", "shop", func(c *Config) {
 			cvService(c, "web", func(s *Service) { s.Keys = []string{"build"}; s.Image = ""; s.Build = true })
 		}, Facts{}, unavailable, "service web builds image shop-web, which is not present locally; Compose is run with --no-build"},
@@ -133,7 +133,7 @@ func TestCVValidateRefuses(t *testing.T) {
 		{"ownership is checked before the other refusals", "shop", func(c *Config) {
 			c.Services["llm"] = Service{Keys: []string{"provider"}, Provider: true}
 			cvService(c, "web", func(s *Service) { s.ContainerName = "npm-app" })
-		}, cvFacts(nil, map[string]string{"container npm-app": "npm"}), owned, "container npm-app belongs to module npm"},
+		}, cvFacts(nil, map[string]string{"container npm-app": "npm"}), owned, "service web: container_name names a container of module npm"},
 	}
 	for _, r := range rows {
 		t.Run(r.name, func(t *testing.T) {
@@ -213,10 +213,10 @@ func TestCVValidateContainerRefs(t *testing.T) {
 	refuses := []struct{ name, in, detail string }{
 		{"an owned container through network_mode",
 			`{"name":"shop","services":{"web":{"image":"nginx:1.27","network_mode":"container:npm-app"}}}`,
-			"container npm-app belongs to module npm"},
+			"service web refers to a container of module npm"},
 		{"an owned container through volumes_from, after an unowned container_name",
 			`{"name":"shop","services":{"web":{"image":"nginx:1.27","container_name":"shop-web","volumes_from":["db","container:npm-data:ro"]}}}`,
-			"container npm-data belongs to module npm"},
+			"service web refers to a container of module npm"},
 	}
 	for _, r := range refuses {
 		t.Run(r.name, func(t *testing.T) {
@@ -307,5 +307,54 @@ func TestCVKeyListsAreTheSchemasMinusHostPrograms(t *testing.T) {
 				t.Errorf("%s lists the extension key %q; extension keys are accepted by prefix", r.name, k)
 			}
 		}
+	}
+}
+
+// TestW12aRefusalsQuoteNoResolvedValue: Compose interpolates values from the
+// project's environment, so a refusal of a resolved configuration names the
+// service, the object key and the member, never a value, which can hold a
+// secret.
+func TestW12aRefusalsQuoteNoResolvedValue(t *testing.T) {
+	const secret = "placeholder-secret"
+	rows := []struct {
+		name   string
+		in     string
+		owners map[string]string
+		code   errcode.Code
+		detail string
+	}{
+		{"the image of a build service",
+			`{"name":"shop","services":{"web":{"build":{"context":"."},"image":"app:placeholder-secret"}}}`,
+			nil, errcode.DockerComposeUnavailable,
+			"service web builds the image its image member names, which is not present locally; Compose is run with --no-build"},
+		{"an owned container_name",
+			`{"name":"shop","services":{"web":{"image":"nginx:1.27","container_name":"app-placeholder-secret"}}}`,
+			map[string]string{"container app-placeholder-secret": "npm"}, errcode.DockerOwned,
+			"service web: container_name names a container of module npm"},
+		{"an owned container through volumes_from",
+			`{"name":"shop","services":{"web":{"image":"nginx:1.27","volumes_from":["container:app-placeholder-secret"]}}}`,
+			map[string]string{"container app-placeholder-secret": "npm"}, errcode.DockerOwned,
+			"service web refers to a container of module npm"},
+		{"an owned network name",
+			`{"name":"shop","services":{"web":{"image":"nginx:1.27"}},"networks":{"backend":{"name":"net-placeholder-secret"}}}`,
+			map[string]string{"network net-placeholder-secret": "panel"}, errcode.DockerOwned,
+			"network backend names a network of module panel"},
+		{"an owned volume name",
+			`{"name":"shop","services":{"web":{"image":"nginx:1.27"}},"volumes":{"data":{"name":"vol-placeholder-secret"}}}`,
+			map[string]string{"volume vol-placeholder-secret": "npm"}, errcode.DockerOwned,
+			"volume data names a volume of module npm"},
+	}
+	for _, r := range rows {
+		t.Run(r.name, func(t *testing.T) {
+			c, err := Parse([]byte(r.in))
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = Validate("shop", c, cvFacts(nil, r.owners))
+			cvRefusal(t, err, r.code, r.detail)
+			if strings.Contains(err.Error(), secret) {
+				t.Errorf("refusal %q quotes the resolved value", err.Error())
+			}
+		})
 	}
 }

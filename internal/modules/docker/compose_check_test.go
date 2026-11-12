@@ -525,7 +525,7 @@ func TestCCPrepareAppliesTheConfigurationRefusals(t *testing.T) {
 		{"build with the built image present", ccBuild, func(h *dkHost) { h.docker.putImage(dkImage("shop-web", 1)) }, "", nil},
 		{"external owned network", ccOwnedNet, func(h *dkHost) {
 			h.docker.putNetwork(dkNetwork("npm_net", func(n *dockerapi.Network) { n.Labels = map[string]string{core.LabelModule: "npm"} }))
-		}, errcode.DockerOwned, []string{"npm_net", "npm"}},
+		}, errcode.DockerOwned, []string{"network npm names a network of module npm"}},
 		{"external network of nobody", ccOwnedNet, func(h *dkHost) { h.docker.putNetwork(dkNetwork("npm_net")) }, "", nil},
 		{"engine down while the owners are read", ccOwnedNet, func(h *dkHost) { h.docker.fail("ListNetworks", dockerapi.ErrUnavailable) }, errcode.DockerEngineUnavailable, nil},
 	}

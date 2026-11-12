@@ -59,8 +59,10 @@ func (f Facts) owner(kind, name string) string {
 // darkpanel* or a configuration naming an owned container, network or volume;
 // docker.compose_unavailable for a provider service, a key outside the
 // allowlists, or a service with a build member whose ImageName is not present.
-// The detail names the service, key or object. It returns the first refusal
-// in a fixed order, and nil when there is none.
+// The detail names the service, the object key or the member, never a
+// resolved value, which Compose may have interpolated from the project's
+// environment. It returns the first refusal in a fixed order, and nil when
+// there is none.
 func Validate(project string, c Config, f Facts) error {
 	if strings.HasPrefix(strings.ToLower(project), "darkpanel") {
 		return refuse(errcode.DockerOwned, "project %s is reserved for Darkpanel modules", project)
@@ -74,12 +76,12 @@ func Validate(project string, c Config, f Facts) error {
 		}
 		if s.ContainerName != "" {
 			if id := f.owner("container", s.ContainerName); id != "" {
-				return refuse(errcode.DockerOwned, "container %s belongs to module %s", s.ContainerName, id)
+				return refuse(errcode.DockerOwned, "service %s: container_name names a container of module %s", name, id)
 			}
 		}
 		for _, ref := range s.ContainerRefs {
 			if id := f.owner("container", ref); id != "" {
-				return refuse(errcode.DockerOwned, "container %s belongs to module %s", ref, id)
+				return refuse(errcode.DockerOwned, "service %s refers to a container of module %s", name, id)
 			}
 		}
 	}
@@ -97,7 +99,7 @@ func Validate(project string, c Config, f Facts) error {
 				name = project + "_" + key
 			}
 			if id := f.owner(g.kind, name); id != "" {
-				return refuse(errcode.DockerOwned, "%s %s belongs to module %s", g.kind, name, id)
+				return refuse(errcode.DockerOwned, "%s %s names a %s of module %s", g.kind, key, g.kind, id)
 			}
 		}
 	}
@@ -139,6 +141,9 @@ func Validate(project string, c Config, f Facts) error {
 			continue
 		}
 		if ref := ImageName(project, name, s); !f.imagePresent(ref) {
+			if s.Image != "" {
+				return refuse(errcode.DockerComposeUnavailable, "service %s builds the image its image member names, which is not present locally; Compose is run with --no-build", name)
+			}
 			return refuse(errcode.DockerComposeUnavailable, "service %s builds image %s, which is not present locally; Compose is run with --no-build", name, ref)
 		}
 	}
