@@ -268,3 +268,23 @@ func wantField(t *testing.T, err error, path string) {
 		t.Fatalf("fields = %+v, want one at %s", e.Fields, path)
 	}
 }
+
+// verify reports whether password matches phc, using the parameters stored in
+// phc. A malformed phc is an error.
+func (h *hasher) verify(ctx context.Context, phc, password string) (bool, error) {
+	if _, _, _, err := parsePHC(phc); err != nil {
+		return false, err
+	}
+	if err := h.acquire(ctx); err != nil {
+		return false, err
+	}
+	defer h.release()
+	return h.verifyHeld(phc, password)
+}
+
+// verifyDummy runs one verification against a hash no password matches, so a
+// login for an unknown username costs what a real one costs.
+func (h *hasher) verifyDummy(ctx context.Context, password string) error {
+	_, err := h.verify(ctx, h.dummy, password)
+	return err
+}

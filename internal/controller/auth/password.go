@@ -99,19 +99,6 @@ func (h *hasher) hash(ctx context.Context, password string) (string, error) {
 	return h.encode([]byte(password)), nil
 }
 
-// verify reports whether password matches phc, using the parameters stored in
-// phc. A malformed phc is an error.
-func (h *hasher) verify(ctx context.Context, phc, password string) (bool, error) {
-	if _, _, _, err := parsePHC(phc); err != nil {
-		return false, err
-	}
-	if err := h.acquire(ctx); err != nil {
-		return false, err
-	}
-	defer h.release()
-	return h.verifyHeld(phc, password)
-}
-
 // verifyHeld is verify for a caller that already holds a slot.
 func (h *hasher) verifyHeld(phc, password string) (bool, error) {
 	p, salt, want, err := parsePHC(phc)
@@ -120,13 +107,6 @@ func (h *hasher) verifyHeld(phc, password string) (bool, error) {
 	}
 	got := h.compute([]byte(password), salt, p)
 	return subtle.ConstantTimeCompare(got, want) == 1, nil
-}
-
-// verifyDummy runs one verification against a hash no password matches, so a
-// login for an unknown username costs what a real one costs.
-func (h *hasher) verifyDummy(ctx context.Context, password string) error {
-	_, err := h.verify(ctx, h.dummy, password)
-	return err
 }
 
 // verifyDummyHeld is verifyDummy for a caller that already holds a slot.

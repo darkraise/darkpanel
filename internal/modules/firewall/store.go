@@ -382,18 +382,6 @@ type restoreRecord struct {
 	Emergency  json.RawMessage // nil for a normal restore
 }
 
-// beginRestore records a normal restore of snapshot id with transition tr,
-// in place of any unfinished restore.
-func beginRestore(ctx context.Context, db *store.DB, id string, tr fwstate.Transition, now time.Time) error {
-	return beginRestoreRecord(ctx, db, id, restoreRecord{Transition: tr}, now)
-}
-
-// beginRestoreRecord records a restore of snapshot id, in place of any
-// unfinished restore.
-func beginRestoreRecord(ctx context.Context, db *store.DB, id string, rec restoreRecord, now time.Time) error {
-	return beginRestoreWith(ctx, db, id, rec, now, nil)
-}
-
 // beginRestoreWith is beginRestoreRecord that also runs logical, when not
 // nil, in the same transaction, so the record and the restore's logical
 // writes commit together or not at all.

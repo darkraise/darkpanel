@@ -91,13 +91,6 @@ func roleScope(role string) (core.Scope, bool) {
 	return "", false
 }
 
-// authenticateSession resolves a session cookie value. An unknown, malformed
-// or expired id, or a user that is not active, is auth.required. It moves
-// last_seen_at forward when it is a minute or more old.
-func (s *Service) authenticateSession(ctx context.Context, id, source string) (Identity, error) {
-	return s.checkSession(ctx, id, source, true)
-}
-
 // checkSession is authenticateSession; without touch it leaves last_seen_at
 // as it is, so the session's idle limit runs on.
 func (s *Service) checkSession(ctx context.Context, id, source string, touch bool) (Identity, error) {

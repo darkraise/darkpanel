@@ -458,3 +458,15 @@ func TestAxRestoreRecordMigrationKeepsOldRows(t *testing.T) {
 		t.Errorf("a record written before the kind column = %+v, %v, %v, want a normal reload", rec, ok, err)
 	}
 }
+
+// beginRestore records a normal restore of snapshot id with transition tr,
+// in place of any unfinished restore.
+func beginRestore(ctx context.Context, db *store.DB, id string, tr fwstate.Transition, now time.Time) error {
+	return beginRestoreRecord(ctx, db, id, restoreRecord{Transition: tr}, now)
+}
+
+// beginRestoreRecord records a restore of snapshot id, in place of any
+// unfinished restore.
+func beginRestoreRecord(ctx context.Context, db *store.DB, id string, rec restoreRecord, now time.Time) error {
+	return beginRestoreWith(ctx, db, id, rec, now, nil)
+}

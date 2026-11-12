@@ -141,16 +141,6 @@ func exemptionAddrProblem(a netip.Addr) string {
 	return ""
 }
 
-// Private returns the first private source range that holds a.
-func (s Settings) Private(a netip.Addr) (netip.Prefix, bool) {
-	for _, p := range s.PrivateSources {
-		if p.Contains(a) {
-			return p, true
-		}
-	}
-	return netip.Prefix{}, false
-}
-
 // Family is the IP family of the exemption's destination.
 func (e Exemption) Family() fwstate.Family {
 	if e.Destination.Is6() {

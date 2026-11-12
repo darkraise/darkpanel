@@ -130,15 +130,6 @@ func SaveJournal(ops Ops, path string, j Journal) error {
 	return nil
 }
 
-// ReadJournal reads the journal at path; a format other than 1 or an unknown phase is an error.
-func ReadJournal(path string) (Journal, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // G304: the path is a journal in the controller directory
-	if err != nil {
-		return Journal{}, fmt.Errorf("backup: read journal: %w", err)
-	}
-	return decodeJournal(path, data)
-}
-
 // decodeJournal decodes the journal read from path; a format other than 1 or an unknown phase is an
 // error.
 func decodeJournal(path string, data []byte) (Journal, error) {

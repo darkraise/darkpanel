@@ -23,18 +23,6 @@ type listeners struct {
 	serveFailed chan error
 }
 
-// Listeners are the network listeners currently bound.
-func (s *Server) Listeners() []listen.Bound { return s.listenService.State().Listeners }
-
-// AgentListeners are the agent listener's bound sockets: none with the
-// embedded agent, and none after Shutdown.
-func (s *Server) AgentListeners() []listen.Bound {
-	if s.agentListen == nil {
-		return nil
-	}
-	return s.agentListen.Bound()
-}
-
 // startListeners loads or creates the web authority, builds the API with
 // the controller contributions' routes, starts the network listeners with
 // it, serves the controller socket and then starts the contributed services.

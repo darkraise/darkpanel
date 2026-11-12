@@ -156,12 +156,6 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 	return s, nil
 }
 
-// LocalHostID is the id of this host's core_hosts row.
-func (s *Server) LocalHostID() string { return s.localHostID }
-
-// SocketPath is the controller socket's path.
-func (s *Server) SocketPath() string { return s.opts.Paths.ControllerSocket }
-
 // onShutdown registers a step for Shutdown, which runs the steps in reverse.
 func (s *Server) onShutdown(name string, stop func(ctx context.Context) error) {
 	s.mu.Lock()

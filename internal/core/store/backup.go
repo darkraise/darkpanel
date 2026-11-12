@@ -28,7 +28,7 @@ var chmod = os.Chmod
 // directory. Characters other than letters, digits, dot and underscore in
 // from and to become underscores, and an empty one becomes "unknown", so
 // retention always recognizes the name. It returns the new backup's
-// directory and deletes no older backup; PruneBackups does. Backups are for
+// directory and deletes no older backup; Migrate prunes them. Backups are for
 // disaster recovery only; nothing restores them automatically (ADR 0005).
 func Backup(ctx context.Context, db *DB, root, from, to string, now time.Time) (string, error) {
 	name := fmt.Sprintf("%s-%s-%s", versionLabel(from), versionLabel(to), now.UTC().Format(backupTimeLayout))
@@ -57,21 +57,18 @@ func versionLabel(v string) string {
 	return unsafeVersionChars.ReplaceAllString(v, "_")
 }
 
-// PruneBackups deletes the oldest backups under root beyond the newest keep,
+// pruneBackups deletes the oldest backups under root beyond the newest keep,
 // ranked by the time in their names. A backup is a directory named as Backup
 // names one that holds dbName as a regular file, so an unrelated directory, a
 // symlink or a directory without the database is never counted or deleted.
 // A root that does not exist holds no backups. A directory that cannot be
 // deleted does not stop the others; every failure is returned.
-func PruneBackups(root, dbName string, keep int) error {
-	return pruneBackups(root, dbName, "", "", keep)
-}
-
-// pruneBackups is PruneBackups that never deletes the backup named current
-// or the newest backup made for version keepTo, and counts them first. A
-// clock set back would otherwise rank the backup taken before an upgrade
-// among the oldest, on the run that took it or on any restart after it. An
-// empty current or keepTo protects nothing.
+//
+// It never deletes the backup named current or the newest backup made for
+// version keepTo, and counts them first. A clock set back would otherwise
+// rank the backup taken before an upgrade among the oldest, on the run that
+// took it or on any restart after it. An empty current or keepTo protects
+// nothing.
 func pruneBackups(root, dbName, current, keepTo string, keep int) error {
 	if keep < 1 {
 		return fmt.Errorf("store: backups kept = %d, want at least 1", keep)

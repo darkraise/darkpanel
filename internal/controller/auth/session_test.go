@@ -250,3 +250,10 @@ func TestPassiveAuthenticationLeavesTheIdleClock(t *testing.T) {
 	_, err = s.Authenticate(ctx, Credentials{Session: id, Passive: true})
 	wantCode(t, err, errcode.AuthRequired)
 }
+
+// authenticateSession resolves a session cookie value. An unknown, malformed
+// or expired id, or a user that is not active, is auth.required. It moves
+// last_seen_at forward when it is a minute or more old.
+func (s *Service) authenticateSession(ctx context.Context, id, source string) (Identity, error) {
+	return s.checkSession(ctx, id, source, true)
+}

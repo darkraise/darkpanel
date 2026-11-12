@@ -65,9 +65,6 @@ type services struct {
 	purgeClosed bool
 }
 
-// Registry is the server's registry, built with its services.
-func (s *Server) Registry() *core.Registry { return s.registry }
-
 // startServices builds the services over the migrated stores, in the order
 // that the controller's foreign keys and recovery need: the embedded agent
 // says Hello (seeding the local host's module rows from DefaultEnabled)

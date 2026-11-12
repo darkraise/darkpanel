@@ -29,7 +29,7 @@ type MigrationSet struct {
 type MigrateOptions struct {
 	Side          string    // "controller" or "agent"; recorded in core_migrations
 	BinaryVersion string    // the running binary; the backup's "to" and core_meta binary_version
-	BackupRoot    string    // directory for Backup and PruneBackups
+	BackupRoot    string    // directory for Backup and its pruning
 	Keep          int       // backups kept, at least 1; 5 in production
 	Now           time.Time // the backup timestamp
 }

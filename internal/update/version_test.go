@@ -2,6 +2,7 @@ package update
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -186,4 +187,12 @@ func TestStepsKeepTheEntryChannel(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Steps = %+v, want %+v", got, want)
 	}
+}
+
+func (v Version) String() string {
+	s := fmt.Sprintf("%d.%d.%d", v.Major, v.Minor, v.Patch)
+	if v.Pre != "" {
+		s += "-" + v.Pre
+	}
+	return s
 }

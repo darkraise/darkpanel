@@ -91,8 +91,8 @@ func TestPruneBackupsKeepsNewest(t *testing.T) {
 			t.Fatalf("Backup %d: %v", i, err)
 		}
 	}
-	if err := PruneBackups(root, "test.db", 5); err != nil {
-		t.Fatalf("PruneBackups: %v", err)
+	if err := pruneBackups(root, "test.db", "", "", 5); err != nil {
+		t.Fatalf("pruneBackups: %v", err)
 	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -131,8 +131,8 @@ func TestPruneBackupsRecognizesEmptyVersions(t *testing.T) {
 			t.Errorf("backup dir = %s, want unknown-unknown-20261017T000000Z", filepath.Base(dir))
 		}
 	}
-	if err := PruneBackups(root, "test.db", 5); err != nil {
-		t.Fatalf("PruneBackups: %v", err)
+	if err := pruneBackups(root, "test.db", "", "", 5); err != nil {
+		t.Fatalf("pruneBackups: %v", err)
 	}
 	entries, err := os.ReadDir(root)
 	if err != nil || len(entries) != 5 {
@@ -213,8 +213,8 @@ func TestPruneBackupsCountsOnlyDirectoriesHoldingTheDatabase(t *testing.T) {
 	if err := os.Symlink(filepath.Join(root, "a-b-20261017T000000Z", "test.db"), filepath.Join(linked, "test.db")); err != nil {
 		t.Fatal(err)
 	}
-	if err := PruneBackups(root, "test.db", 2); err != nil {
-		t.Fatalf("PruneBackups: %v", err)
+	if err := pruneBackups(root, "test.db", "", "", 2); err != nil {
+		t.Fatalf("pruneBackups: %v", err)
 	}
 	want := []string{"a-b-20200101T000000Z", "a-b-20200101T000001Z", "a-b-20261017T000001Z", "a-b-20261017T000002Z"}
 	if got := entryNames(t, root); fmt.Sprint(got) != fmt.Sprint(want) {
@@ -231,8 +231,8 @@ func TestPruneBackupsIgnoresSymlinks(t *testing.T) {
 	}
 	makeBackup(t, root, "a-b-20261017T000000Z")
 	makeBackup(t, root, "a-b-20261017T000001Z")
-	if err := PruneBackups(root, "test.db", 1); err != nil {
-		t.Fatalf("PruneBackups: %v", err)
+	if err := pruneBackups(root, "test.db", "", "", 1); err != nil {
+		t.Fatalf("pruneBackups: %v", err)
 	}
 	want := []string{"a-b-20200101T000000Z", "a-b-20261017T000001Z"}
 	if got := entryNames(t, root); fmt.Sprint(got) != fmt.Sprint(want) {
@@ -247,8 +247,8 @@ func TestPruneBackupsRefusesKeepBelowOne(t *testing.T) {
 	root := t.TempDir()
 	makeBackup(t, root, "a-b-20261017T000000Z")
 	for _, keep := range []int{0, -1} {
-		if err := PruneBackups(root, "test.db", keep); err == nil {
-			t.Errorf("PruneBackups with keep %d succeeded, want an error", keep)
+		if err := pruneBackups(root, "test.db", "", "", keep); err == nil {
+			t.Errorf("pruneBackups with keep %d succeeded, want an error", keep)
 		}
 	}
 	if got := entryNames(t, root); len(got) != 1 {
@@ -257,8 +257,8 @@ func TestPruneBackupsRefusesKeepBelowOne(t *testing.T) {
 }
 
 func TestPruneBackupsWithoutRoot(t *testing.T) {
-	if err := PruneBackups(filepath.Join(t.TempDir(), "missing"), "test.db", 5); err != nil {
-		t.Errorf("PruneBackups of a missing root = %v, want nil", err)
+	if err := pruneBackups(filepath.Join(t.TempDir(), "missing"), "test.db", "", "", 5); err != nil {
+		t.Errorf("pruneBackups of a missing root = %v, want nil", err)
 	}
 }
 

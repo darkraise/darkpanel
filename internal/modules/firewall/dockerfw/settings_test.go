@@ -298,3 +298,13 @@ func TestSetBridge(t *testing.T) {
 		t.Errorf("Bridge = %q: a Linux interface name holds at most 15 bytes", got)
 	}
 }
+
+// Private returns the first private source range that holds a.
+func (s Settings) Private(a netip.Addr) (netip.Prefix, bool) {
+	for _, p := range s.PrivateSources {
+		if p.Contains(a) {
+			return p, true
+		}
+	}
+	return netip.Prefix{}, false
+}
