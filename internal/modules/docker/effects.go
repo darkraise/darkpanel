@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -70,8 +69,7 @@ func (k dk) run(ctx context.Context, env core.Env, e core.Effect, do func(ctx co
 	}
 	resource, err := do(ctx)
 	if err != nil {
-		var refused *dockerapi.APIError
-		if !errors.As(err, &refused) || refused.StatusCode < http.StatusBadRequest || refused.StatusCode >= http.StatusInternalServerError {
+		if !dockerapi.IsClientError(err) {
 			return err
 		}
 		if skipErr := env.Effects.Skipped(ctx, seq); skipErr != nil {

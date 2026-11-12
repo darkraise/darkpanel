@@ -5,9 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
-	"errors"
 	"fmt"
-	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -219,8 +217,7 @@ func (v composeVerbUndo) Inverse(ctx context.Context, _ core.Env, e core.Effect)
 		return core.InverseResult{}, fmt.Errorf("docker: %q is not a container", e.Resource)
 	}
 	failed := func(err error) (core.InverseResult, error) {
-		var refused *dockerapi.APIError
-		if errors.As(err, &refused) && refused.StatusCode >= http.StatusBadRequest && refused.StatusCode < http.StatusInternalServerError {
+		if dockerapi.IsClientError(err) {
 			return core.InverseResult{}, core.Definite(engineError("container", id, err))
 		}
 		return core.InverseResult{}, engineError("container", id, err)

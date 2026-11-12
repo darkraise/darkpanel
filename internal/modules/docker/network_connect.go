@@ -5,9 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"net/http"
 	"net/netip"
 	"regexp"
 	"slices"
@@ -169,8 +167,7 @@ func endpointAddr(s string) (netip.Addr, error) {
 // endpointInverseErr marks a 4xx answer Definite, because the daemon refused
 // before changing anything; any other failure leaves the undo uncertain.
 func endpointInverseErr(err error) error {
-	var refused *dockerapi.APIError
-	if errors.As(err, &refused) && refused.StatusCode >= http.StatusBadRequest && refused.StatusCode < http.StatusInternalServerError {
+	if dockerapi.IsClientError(err) {
 		return core.Definite(err)
 	}
 	return err

@@ -5,9 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -189,8 +187,7 @@ func (h runHandler) Inverse(ctx context.Context, _ core.Env, e core.Effect) (cor
 	if err == nil {
 		return core.InverseResult{}, nil
 	}
-	var refused *dockerapi.APIError
-	if errors.As(err, &refused) && refused.StatusCode >= http.StatusBadRequest && refused.StatusCode < http.StatusInternalServerError {
+	if dockerapi.IsClientError(err) {
 		return core.InverseResult{}, core.Definite(engineError("container", id, err))
 	}
 	return core.InverseResult{}, engineError("container", id, err)

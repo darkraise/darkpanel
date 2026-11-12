@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"net/netip"
 	"slices"
 	"strings"
@@ -62,8 +61,7 @@ func networkReadFailed(what string, err error) error {
 
 // networkRefused reports whether err is an Engine answer that proves the call committed nothing: a 4xx.
 func networkRefused(err error) bool {
-	var answer *dockerapi.APIError
-	return errors.As(err, &answer) && answer.StatusCode >= http.StatusBadRequest && answer.StatusCode < http.StatusInternalServerError
+	return dockerapi.IsClientError(err)
 }
 
 // networkHash is the hex SHA-256 of the JSON document of v.

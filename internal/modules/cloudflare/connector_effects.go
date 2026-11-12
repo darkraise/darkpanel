@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"net/http"
 	"strings"
 	"time"
 
@@ -62,8 +61,7 @@ func connectorEffect(kind core.EffectKind, resource string, before json.RawMessa
 
 // refused reports whether err is an answer that proves the call committed nothing: a 4xx of the Engine.
 func refused(err error) bool {
-	var answer *dockerapi.APIError
-	return errors.As(err, &answer) && answer.StatusCode >= http.StatusBadRequest && answer.StatusCode < http.StatusInternalServerError
+	return dockerapi.IsClientError(err)
 }
 
 // journal journals one call: it records e as intended, makes the call, and records it made with the state observe

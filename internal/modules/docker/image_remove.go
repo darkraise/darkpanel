@@ -5,9 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -32,8 +30,7 @@ func imageCallError(kind, name string, err error) error {
 		return nil
 	}
 	mapped := engineError(kind, name, err)
-	var refused *dockerapi.APIError
-	if errors.As(err, &refused) && refused.StatusCode >= http.StatusBadRequest && refused.StatusCode < http.StatusInternalServerError {
+	if dockerapi.IsClientError(err) {
 		return core.Definite(mapped)
 	}
 	return mapped

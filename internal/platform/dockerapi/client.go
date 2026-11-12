@@ -78,6 +78,13 @@ func IsNotFound(err error) bool { return statusIs(err, http.StatusNotFound) }
 // use, a name taken).
 func IsConflict(err error) bool { return statusIs(err, http.StatusConflict) }
 
+// IsClientError reports whether err is a 4xx answer of the daemon, which
+// proves the call changed nothing.
+func IsClientError(err error) bool {
+	var e *APIError
+	return errors.As(err, &e) && e.StatusCode >= http.StatusBadRequest && e.StatusCode < http.StatusInternalServerError
+}
+
 func statusIs(err error, code int) bool {
 	var e *APIError
 	return errors.As(err, &e) && e.StatusCode == code

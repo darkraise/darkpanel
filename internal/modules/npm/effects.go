@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"slices"
 	"strings"
 	"time"
@@ -64,11 +63,7 @@ func npmEffect(kind core.EffectKind, resource string, before json.RawMessage, wa
 
 // refused reports whether err is an answer that proves the call committed nothing: a 4xx of the Engine or of NPM.
 func refused(err error) bool {
-	var answer *dockerapi.APIError
-	if errors.As(err, &answer) && answer.StatusCode >= http.StatusBadRequest && answer.StatusCode < http.StatusInternalServerError {
-		return true
-	}
-	return npmapi.IsClientError(err)
+	return dockerapi.IsClientError(err) || npmapi.IsClientError(err)
 }
 
 // unmarkedError keeps an outer wrapper's text after withoutDefiniteMark strips a definite mark beneath it.

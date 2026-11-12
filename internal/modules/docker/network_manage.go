@@ -5,10 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"maps"
-	"net/http"
 	"net/netip"
 	"regexp"
 	"slices"
@@ -251,8 +249,7 @@ func (h networkCreateHandler) Inverse(ctx context.Context, _ core.Env, e core.Ef
 	if err == nil || dockerapi.IsNotFound(err) {
 		return core.InverseResult{}, nil
 	}
-	var refused *dockerapi.APIError
-	if errors.As(err, &refused) && refused.StatusCode >= http.StatusBadRequest && refused.StatusCode < http.StatusInternalServerError {
+	if dockerapi.IsClientError(err) {
 		return core.InverseResult{}, core.Definite(engineError("network", n.Name, err))
 	}
 	return core.InverseResult{}, engineError("network", n.Name, err)

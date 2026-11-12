@@ -3,9 +3,7 @@ package docker
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"net/http"
 	"slices"
 	"strings"
 
@@ -148,8 +146,7 @@ func (h volumeCreateHandler) Inverse(ctx context.Context, _ core.Env, e core.Eff
 	if err == nil || dockerapi.IsNotFound(err) {
 		return core.InverseResult{}, nil
 	}
-	var refused *dockerapi.APIError
-	if errors.As(err, &refused) && refused.StatusCode >= http.StatusBadRequest && refused.StatusCode < http.StatusInternalServerError {
+	if dockerapi.IsClientError(err) {
 		return core.InverseResult{}, core.Definite(engineError("volume", name, err))
 	}
 	return core.InverseResult{}, engineError("volume", name, err)
