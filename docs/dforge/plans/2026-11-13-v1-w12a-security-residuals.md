@@ -20,9 +20,11 @@
 
 **CI:** `.github/workflows/ci.yml .github/workflows/fuzz.yml .github/workflows/harness.yml .github/workflows/release.yml .github/workflows/runner-probe.yml` — platforms: ubuntu-24.04, self-hosted — local: `make test-adr`; `make lint-sh test-release`; `make lint-go test-go vuln`; `make lint-web test-web`; `make build verify-build` — uncovered: none
 
+**Plan review:** 2026-11-13 — dforge:judge-opus — executability 16 / coherence 17 / coverage 14 / assumptions 14 (round 1)
+
 ## Global Constraints
 
-- Scope is security register rows 1, 6, 10, 12, 14 and 15 (`docs/dforge/registers/2026-11-06-v1-security-review.md`), as the rulings under Assumptions narrow them. Only Task 1 edits the spec, and only Task 9 edits `docs/security/threat-model.md`.
+- Scope is security register rows 1, 6, 10, 12, 14 and 15 (`docs/dforge/registers/2026-11-06-v1-security-review.md`), as the rulings under Assumptions narrow them, plus one threat-model residual-risk bullet the owner's brief adds (Task 9, see Assumptions). Only Task 1 edits the spec, and only Task 9 edits `docs/security/threat-model.md`.
 - Host safety (absolute). This host is live: it runs an installed `darkpanel-agent`, `darkpanel-controller` and a Docker daemon. No unit test or command of this plan talks to the Docker daemon, D-Bus or systemd; runs `systemctl`, `docker`, `ufw`, `iptables`, `nft` or `nmap`; binds an address other than `127.0.0.1` (port 0); or reads or writes `/var/lib/darkpanel`, `/etc/darkpanel`, `/etc/ufw`, `/run/darkpanel*`, or `/proc` of another process. The npm, docker and firewall tests run on the fakes of their packages (`internal/modules/npm/testhost_test.go`, `internal/modules/docker/compose`, the guard package's fixtures).
 - Every `go`, `golangci-lint` and `make` command runs with `GOTOOLCHAIN=local`, an explicit `timeout`, and `TMPDIR=/root/.cache/w12a-tmp/<task number>`, also where a step's command omits one of them. Run `mkdir -p` on that directory first and remove it when the task ends.
 - No task runs `go clean -cache` or `go clean -testcache`: the build cache is shared with other sessions on this host.
@@ -64,6 +66,7 @@ Rulings (owner, 2026-11-13; Task 1 writes them into the spec as W12a-R1 to W12a-
 
 - **Row 1 (W12a-R1).** One guard fixes both the attach path and the upgrade path; pinning NPM's address is not chosen. The undo of a detach is the same reconnect with an Engine-picked address and is guarded too.
 - **Row 1, upgrade (W12a-R1).** An upgrade now needs NPM's API to read the proxy hosts and is refused with `npm.unhealthy` when it cannot; accepted, because letting it proceed would reopen the hole for anyone able to stop NPM. Recorded as residual risks in the threat model (Task 9), not fixed: the rollback or undo of an upgrade recreates the old container without the check (a refusing rollback would leave NPM down); NPM's dynamic address may drift on a container or host restart (unknown until the harness settles it); an address another container held at check time can be freed before NPM connects.
+- **Row 1, attach and undo (W12a-R1; session ruling 2026-11-13 at plan review, on the owner's upgrade reasoning).** An attach that connects NPM and the undo of a detach also read the proxy hosts, so they too are refused with `npm.unhealthy` while NPM's API cannot list them; an operator who detached a stopped NPM undoes the detach after starting it. Task 2 pins this with a refusal row.
 - **Row 6 (W12a-R2).** The client flow is not compared with the before-change rules, as for direct panel clients. Tunnel exposures need no change: the browser reaches only Cloudflare's edge.
 - **Row 10 (W12a-R3).** A failed request keeps its method, path and a fixed reason only; `errors.Is` on context errors keeps working.
 - **Row 12 (W12a-R4).** Refusals name service, key or member; Compose's default `<project>-<service>` image name may still be quoted. Compose validation's raw Docker daemon errors (`engineError`) are not traced here: security register row 131 (open, medium, unverified) records them, unscheduled.
@@ -92,7 +95,7 @@ Row 6, NPM client flow (Task 4):
 - The internet cells leave out RFC 1918, CGNAT and IPv6 outside `2000::/3`: `internal/modules/firewall/eval/cells.go:17-40`. A concrete-source flow is checked as it is, with no cells and no before-state: `internal/modules/firewall/guard/cells.go:39-41`; `checkFlow` sets `prior` only for `wildSrc`.
 - A concrete flow to an unspecified destination is probed on every host address its route back prefers and then the rest (`route.go` `probes`/`wildcardDsts`), which gives the `10.0.0.1:443 on eth1` and `192.0.2.1:443 on eth0` messages. Verified 2026-11-13 by the drafter in a private copy at `8f8aba2`: the guard package passes with the fix; without the `npmClientFlows` call the three positive rows and the `TestBuildFlows` row fail with Task 4's Step 2 messages; without the `fromHere` skip the `a client address of this host` row fails. `timeout 900 go test -count=1 ./internal/modules/firewall/...` passed there.
 - `ckIfaces` has no `tailscale0`, so the CGNAT and ULA rows exercise the plain private-source path (`internal/modules/firewall/guard/route.go:306-308`, `fromTailnet`); no row covers a real `tailscale0`.
-- Docker's userland proxy makes NPM see the bridge gateway, an address of this host, as the client, which the `fromHere` skip drops: inference from Docker's documented `docker-proxy` behaviour, unverified on this host. The tunnel reasoning (browser to Cloudflare, connector outbound to the edge) is unverified against a live tunnel.
+- Docker's userland proxy makes NPM see the bridge gateway, an address of this host, as the client, which the `fromHere` skip drops: an accepted inference from Docker's `docker-proxy` behaviour, unverified on this host. No task depends on it for correctness: the skip mirrors `panelFlows`, and the row only pins that a host address adds no flow. The tunnel reasoning (browser to Cloudflare, connector outbound to the edge) is unverified against a live tunnel.
 - `internal/controller/dispatch` and `internal/controller/api` were not run by the drafter; Task 4 changes neither, and the Integration check runs them.
 
 Rows 10 and 12, answer text and Compose values (Tasks 5 and 6):
@@ -102,7 +105,7 @@ Rows 10 and 12, answer text and Compose values (Tasks 5 and 6):
 - Callers inspect npmapi errors only through `*APIError`, `IsNotFound`, `IsClientError` and `errors.Is(err, context.Canceled)`: `rg -n 'errors\.(Is|As)' internal/modules/npm --glob '!*_test.go'` on 2026-11-13; `internal/modules/npm/instance_status.go:89`; `TestApTransportAndDecodeFailuresAreNotAPIErrors` pins the cancel case. The module's client never follows redirects (`internal/modules/npm/deps.go:164-167`); the agent logs the cause of a 5xx-class error (`internal/agent/api/handler.go:870-873`).
 - Both tasks' Step 1 tests fail on `8f8aba2` as stated, and prototypes of their Step 3 passed `./internal/modules/npm/... ./internal/agent/...` and `./internal/modules/docker/...` (2026-11-13, overlay; npm took 291 s at load 8). Without Task 6's `compose_check_test.go` row change, `TestCCPrepareAppliesTheConfigurationRefusals/external_owned_network` fails with `detail "network npm names a network of module npm" does not contain "npm_net"`.
 - Only `validate_test.go` and that one `compose_check_test.go` row pin the changed Compose details: `rg -n 'belongs to module|which is not present locally|builds image'` on 2026-11-13; the other hits (`internal/modules/docker/owned.go`, the cloudflare module) quote names the caller typed. `docs/user/modules/docker.md:193` describes the refusal without quoting it. The project name passed to `Validate` is the registered `row.Name` (`internal/modules/docker/compose_check.go:156`).
-- Compose does not interpolate map keys (service, network, volume keys): unverified — Task 6 relies on it for the key-naming details; compose-spec interpolation applies to values.
+- Compose does not interpolate map keys (service, network, volume keys), which Task 6's key-naming details rely on: "Interpolation applies only to YAML values, not to keys." (https://docs.docker.com/reference/compose-file/interpolation/, read 2026-11-13).
 - Not in these tasks: the `compose.Parse` error stays a cause (`compose_check.go:150-153`); its messages name paths and keys, and a wrapped JSON error could quote a number literal only if a member is decoded into an integer type, which was not checked. Other modules that copy a stderr line into errors stand as the earlier review listed them.
 
 Rows 14 and 15, bootstrap and "/" location (Tasks 7 and 8):
@@ -114,9 +117,13 @@ Rows 14 and 15, bootstrap and "/" location (Tasks 7 and 8):
 - Task 8's merge drops whitespace-only lines, merges only the first "/" location (further "/" locations are still dropped), and keeps an operator line that only resembles a module line beside the module's line. No line is shown for the module's own lines written again or for kept host-level configuration and other locations (W11-R13).
 - Whether NPM 2.16.0 answers a lost first-user race with 400 or 403 is unverified; the pinned image was not inspected. Task 7 does not depend on it, and Task 9's residual risk covers the 400 case.
 
+Threat model (Task 9):
+
+- The UDP residual-risk bullet is outside rows 1-15 by design: the owner's planning brief (2026-11-13) puts it here because the M3 audit-gaps plan's full-range scan is TCP only. It describes the harness as it already is: `m3dExpoCheck` scans the listed TCP and UDP ports (`test/harness/m3_docker_exposure_test.go:455-484`) and `m3dExpoUDPAnswers` probes two listed UDP ports with a DNS query (`:599-620`).
+
 Process:
 
-- The plan review has not run yet; the `**Plan review:**` header line is added when it does.
+- Plan review round 1 (2026-11-13): four Important findings fixed (user guide for the attach, undo and upgrade refusals; the attach and undo need for NPM's API, ruled and pinned; the UDP bullet's source; Compose key interpolation evidence) and three Minors; no Critical and no score of 8 or below, so no round 2.
 
 ## Task index
 
@@ -158,7 +165,7 @@ Expected: PASS, `ok  	github.com/darkraise/darkpanel/internal/docs`.
 
 ```markdown
 - **Plan rulings (wave 12a).** Wave 12a (plan `v1-w12a-security-residuals`) closes the residuals the 2026-11-12 re-review left in security register rows 1, 6, 10, 12, 14 and 15:
-  - **W12a-R1 NPM address guard (row 1).** Extends W10b-R2. `npm.network.attach`, at plan and again at apply, and the undo of `npm.network.detach` refuse with `npm.reserved` when a proxy host or custom location forwards to an address NPM could take on the network. That address is the static IPv4 address the attach asks for, or any address of the network's pool that no endpoint holds and that is not its gateway, when the Engine picks the IPv4 or IPv6 address. A forward host that is a name counts with the addresses it resolves to, resolved as W10b-R3 says; a name with no answer adds nothing. A network that reports no subnet for an address family counts every unheld address of that family. `npm.instance.upgrade`, at plan and again at apply, before it changes anything, makes the same check for every network NPM is on. It counts the addresses NPM holds there as free, because the old container releases them, and it counts a static IPv4 address only on networks other than `darkpanel-npm`. An upgrade therefore needs NPM's API and is refused with `npm.unhealthy` when it cannot read the proxy hosts; letting it proceed would reopen the path for anyone able to stop NPM. NPM's address is not pinned. The rollback or undo of an upgrade recreates the original container without the check, because a rollback that refused would leave NPM down; that, an address that changes on a container or host restart (whether Docker keeps a dynamic address there is unknown), and an address another container frees between the check and the connect are residual risks, which the threat model records.
+  - **W12a-R1 NPM address guard (row 1).** Extends W10b-R2. `npm.network.attach`, at plan and again at apply, and the undo of `npm.network.detach` refuse with `npm.reserved` when a proxy host or custom location forwards to an address NPM could take on the network. That address is the static IPv4 address the attach asks for, or any address of the network's pool that no endpoint holds and that is not its gateway, when the Engine picks the IPv4 or IPv6 address. A forward host that is a name counts with the addresses it resolves to, resolved as W10b-R3 says; a name with no answer adds nothing. A network that reports no subnet for an address family counts every unheld address of that family. `npm.instance.upgrade`, at plan and again at apply, before it changes anything, makes the same check for every network NPM is on. It counts the addresses NPM holds there as free, because the old container releases them, and it counts a static IPv4 address only on networks other than `darkpanel-npm`. An attach that connects NPM, the undo of a detach and an upgrade therefore need NPM's API and are refused with `npm.unhealthy` when they cannot read the proxy hosts; letting them proceed would reopen the path for anyone able to stop NPM. NPM's address is not pinned. The rollback or undo of an upgrade recreates the original container without the check, because a rollback that refused would leave NPM down; that, an address that changes on a container or host restart (whether Docker keeps a dynamic address there is unknown), and an address another container frees between the check and the connect are residual risks, which the threat model records.
   - **W12a-R2 NPM client flow (row 6).** Protected flow 3 of 2.3, for NPM, runs from an internet address, and from `Client.Addr` when the request carries one, to each `Via.Public` port of that address's family (both families for a `[::]` binding) through `nat` and `FORWARD` to the NPM container. The client flow has a concrete source, so it is not compared with the rules before the change, as for a direct panel client, and a client address of this host adds none. Tunnel exposures need no client flow: the browser reaches only Cloudflare's edge, and this host carries only the connector's outbound legs to public addresses.
   - **W12a-R3 NPM transport errors (row 10).** Extends W10b-R8. A request that gets no usable answer, or a 2xx answer that does not decode, fails with the method, the path and a fixed reason (context canceled, context deadline exceeded, connection refused, no usable answer, not the expected JSON); Go's transport and JSON errors, which quote bytes of the answer, are never kept. `errors.Is` still finds a cancelled or expired context.
   - **W12a-R4 Compose refusals (row 12).** Extends W10b-R14. A refusal of a resolved configuration names the service, the object key and the member, never a value Compose resolved, which can hold an interpolated secret; the only name it quotes is Compose's default image name `<project>-<service>`. Raw Docker daemon errors of the validation are not covered; security register row 131 tracks them.
@@ -223,7 +230,7 @@ func (d *thDocker) attached(n dockerapi.Network) map[string]dockerapi.NetworkCon
 }
 ```
 
-1b. In `internal/modules/npm/network_claims_test.go`, add `"github.com/darkraise/darkpanel/internal/modules/npm/npmapi"` to the imports, after the `.../core/schema` line.
+1b. In `internal/modules/npm/network_claims_test.go`, add `"net/http"` to the standard-library imports, and `"github.com/darkraise/darkpanel/internal/modules/npm/fake"` and `"github.com/darkraise/darkpanel/internal/modules/npm/npmapi"` after the `.../core/schema` line.
 
 1c. Extend the test `internal/modules/npm/network_claims_test.go::TestNwAttachPlan`. Insert these rows directly after the row `{name: "claim whose attachment is gone", ...}` (they pin what must still pass, so an over-broad guard fails them):
 
@@ -278,6 +285,10 @@ func (d *thDocker) attached(n dockerapi.Network) map[string]dockerapi.NetworkCon
 		{name: "a forwarded address on a network that reports no subnet", setup: func(_ *testing.T, h *thHost, _ dockerapi.Network) {
 			w12aSeed(h, "10.9.0.7", 3000)
 		}, code: errcode.NPMReserved, has: "proxy host 1 forwards to 10.9.0.7, an address darkpanel-npm could take on network appnet"},
+		{name: "an NPM API that cannot list the proxy hosts", setup: func(t *testing.T, h *thHost, user dockerapi.Network) {
+			w12aSubnet(t, h, user)
+			h.npm.Fail(http.MethodGet, "/api/nginx/proxy-hosts", fake.Fault{Status: http.StatusInternalServerError})
+		}, code: errcode.NPMUnhealthy, has: "Nginx Proxy Manager did not answer"},
 ```
 
 1e. Append to `internal/modules/npm/network_claims_test.go` (`v1r09Resolver` is defined in `internal/modules/npm/proxyhost_resolve_test.go`, same package):
@@ -377,7 +388,7 @@ func TestW12aUndoOfADetachRefusesAForwardedAddress(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `GOTOOLCHAIN=local timeout 600 go test -count=1 -run 'TestNwAttachPlan|TestW12a' ./internal/modules/npm/`
-Expected: FAIL. The six new `TestNwAttachPlanRefusals` subtests, `TestW12aAttachChecksTheProxyHostsAgainAtApply`, `TestW12aAttachResolvesForwardHostNames` and `TestW12aUndoOfADetachRefusesAForwardedAddress` each fail with `error <nil>, want code npm.reserved`. `TestNwAttachPlan`, its new rows included, and `TestNwAttachPlanStateHash` PASS.
+Expected: FAIL. The seven new `TestNwAttachPlanRefusals` subtests (the last one wants `npm.unhealthy`), `TestW12aAttachChecksTheProxyHostsAgainAtApply`, `TestW12aAttachResolvesForwardHostNames` and `TestW12aUndoOfADetachRefusesAForwardedAddress` each fail with `error <nil>, want code npm.reserved`. `TestNwAttachPlan`, its new rows included, and `TestNwAttachPlanStateHash` PASS.
 
 - [ ] **Step 3: Implement**
 
@@ -393,7 +404,7 @@ All code goes in `internal/modules/npm/network_claims.go`.
    - When `proxy.LiteralAddr(host)` reports an address, append it. That address is already unmapped and zone-free, so nginx forms like `10.9.0.07` and `0x0a.9.0.7` count.
    - Otherwise resolve the name as `checkForward` does (`proxyhost_add.go:380-398`). Call `n.dockerAnswers(ctx, host)`. If that reports no answer, call `n.d.resolve` under `context.WithTimeout(ctx, resolveTimeout)`.
    - Unlike `checkForward`, a lookup error or an empty answer adds nothing and is not a refusal. A name that does not resolve now can reach NPM only after it is re-pointed, which is the accepted W10b-R3 residual.
-   - Return `ctx.Err()` when the context has ended. Return a `dockerAnswers` error as `fmt.Errorf("npm: resolve forward host %s: %w", host, err)`.
+   - After a `dockerAnswers` or `resolve` failure, and before treating it as no answer, return `ctx.Err()` when it is set, so a cancellation never reads as "no targets". Return a `dockerAnswers` error as `fmt.Errorf("npm: resolve forward host %s: %w", host, err)`.
    - Unmap the answers, drop their zones, sort them, compact them, and append one target per answer with `name: true`.
 
 3. **`func networkAssignable(network dockerapi.Network, addr netip.Addr, staticV4 bool) bool`** reports whether the Engine could give NPM the address `addr` when NPM joins `network`. Check these in order:
@@ -438,6 +449,7 @@ git commit -m "fix(npm): refuse attach to a forwarded address"
 
 **Files:**
 - Modify: `internal/modules/npm/instance_upgrade.go` (`instanceUpgradeHandler.Plan`, `instanceUpgradeHandler.Apply`; new `instanceUpgradeHandler.forwardCheck`)
+- Modify: `docs/user/modules/npm.md` (the Upgrade section, the `npm.reserved` and `npm.unhealthy` rows of the error table; it documents Task 2's attach and undo refusals too)
 - Test: `internal/modules/npm/instance_upgrade_test.go`
 
 **Interfaces:**
@@ -464,7 +476,7 @@ The addresses NPM holds now are counted as free in (b), because the old containe
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `internal/modules/npm/instance_upgrade_test.go`. It already imports `npmapi`, `errcode`, `core`, `json` and `context`. `w12aSeed` and `nwRefused` are in `network_claims_test.go` (same package). This is a new table test rather than rows of `TestUpRefusals`, because that table's rows are positional and do not check the detail.
+Append to `internal/modules/npm/instance_upgrade_test.go`. It already imports `npmapi`, `errcode`, `core`, `json` and `context`; add `"net/http"` to the standard-library imports and `"github.com/darkraise/darkpanel/internal/modules/npm/fake"` after the `.../core/errcode` line. `w12aSeed` and `nwRefused` are in `network_claims_test.go` (same package). This is a new table test rather than rows of `TestUpRefusals`, because that table's rows are positional and do not check the detail.
 
 ```go
 // w12aUpSetup is an upgrade setup whose two networks report their subnets, as the Engine does: darkpanel-npm, where
@@ -530,12 +542,25 @@ func TestW12aUpgradeAllowsForwardsNPMCannotTake(t *testing.T) {
 		t.Fatalf("apply: %v", err)
 	}
 }
+
+// TestW12aUpgradeNeedsNPMsAPI: an upgrade that cannot read the proxy hosts cannot show that the new container takes no
+// forwarded address, so it is refused with npm.unhealthy before anything changes.
+func TestW12aUpgradeNeedsNPMsAPI(t *testing.T) {
+	ctx := context.Background()
+	s := w12aUpSetup(t)
+	s.h.npm.Fail(http.MethodGet, "/api/nginx/proxy-hosts", fake.Fault{Status: http.StatusInternalServerError})
+	_, err := s.n.instanceUpgrade().Handler.Plan(ctx, s.h.env(""), json.RawMessage(`{}`))
+	nwRefused(t, err, errcode.NPMUnhealthy)
+	if len(s.effects()) != 0 || s.phase() != "no row" || s.dock.counts["StopContainer"] != 0 || len(s.dock.created) != 0 {
+		t.Error("a refused upgrade journaled an effect, recorded a phase, stopped NPM or created a container")
+	}
+}
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `GOTOOLCHAIN=local timeout 600 go test -count=1 -run 'TestW12aUpgrade|TestUp' ./internal/modules/npm/`
-Expected: FAIL. The three subtests of `TestW12aUpgradeRefusesAForwardedAddress` each fail at the plan with `error <nil>, want code npm.reserved`. `TestW12aUpgradeAllowsForwardsNPMCannotTake` and every `TestUp*` test PASS.
+Expected: FAIL. The three subtests of `TestW12aUpgradeRefusesAForwardedAddress` each fail at the plan with `error <nil>, want code npm.reserved`, and `TestW12aUpgradeNeedsNPMsAPI` fails with `error <nil>, want code npm.unhealthy`. `TestW12aUpgradeAllowsForwardsNPMCannotTake` and every `TestUp*` test PASS.
 
 - [ ] **Step 3: Implement**
 
@@ -551,16 +576,34 @@ All code goes in `internal/modules/npm/instance_upgrade.go`.
 3. **`Apply`**: right after the same `precheck` call and its error return, and before `h.pull`, call `h.forwardCheck(ctx, env, c)` and return its error. A refusal therefore journals nothing, records no upgrade row and stops nothing.
 4. The check sits in `Plan` and `Apply`, not inside `precheck`, so `Inverse` and `Recover` do not run it. Add the import `net/netip`.
 5. Must not change: `rollback`, `restore`, `resume`, `Inverse`, `Recover`, `instanceUpgradeConfig`, `endpointOf`, the plan diff and the state hash. Add no wire field, so `make generate` changes nothing.
+6. `docs/user/modules/npm.md`, section `### Upgrade`: after the first paragraph (the one ending `exceed 256 MiB makes the upgrade fail.`), insert this paragraph:
+
+   ```
+   Before it stops anything, at plan and again at apply, the upgrade reads NPM's
+   proxy hosts. It refuses with `npm.reserved` while a proxy host or custom
+   location forwards to an address the new container could take on one of NPM's
+   networks, and with `npm.unhealthy` when NPM's API cannot list the proxy hosts:
+   start a stopped instance before you upgrade it.
+   ```
+
+7. Same file, error table: replace the `npm.reserved` row with:
+
+   ```
+   | `npm.reserved` | The change would touch an object that the admin or panel exposure owns, or point a proxy host at the local host, NPM's admin port or the panel network. `npm instance remove` gives the same code while an exposure reserves objects. Attaching NPM to a network, undoing a detach, and upgrading NPM give it while a proxy host or custom location forwards to an address NPM could take on that network; the message names the proxy host. | Change the object through its exposure, or remove the exposure first. For an attach, an undone detach or an upgrade, point the proxy host the message names at another address, or remove it. |
+   ```
+
+   and in the `npm.unhealthy` row, replace `or an upgrade's new container did not answer.` with `an upgrade's new container did not answer, or NPM's API could not list the proxy hosts that an attach, an undone detach or an upgrade checks first.`
+8. Check the page with `rg -n 'W1[0-9]a?-R|wave [0-9]|task [0-9]|rows? [0-9]' docs/user/modules/npm.md` (no output).
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `GOTOOLCHAIN=local timeout 900 go test -count=1 ./internal/modules/npm/... && GOTOOLCHAIN=local timeout 300 go vet ./internal/modules/npm/`
+Run: `GOTOOLCHAIN=local timeout 900 go test -count=1 ./internal/modules/npm/... ./internal/docs/... && GOTOOLCHAIN=local timeout 300 go vet ./internal/modules/npm/`
 Expected: PASS, every package `ok`, and no vet output.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add internal/modules/npm/instance_upgrade.go internal/modules/npm/instance_upgrade_test.go
+git add internal/modules/npm/instance_upgrade.go internal/modules/npm/instance_upgrade_test.go docs/user/modules/npm.md
 git commit -m "fix(npm): refuse upgrade onto a forwarded address"
 ```
 
@@ -1168,7 +1211,7 @@ Expected: FAIL in five subtests; the other three PASS:
    `npm.setup_failed`.
    ```
 
-   Keep the rest of that paragraph (`The message says whether the removal succeeded. ...` through `... for each effect it lists as unresolved.`) as it is.
+   In the rest of that paragraph, replace `The message says whether the removal succeeded. Find out who can reach port 81 on the host, then deploy again.` with `The message says whether the removal succeeded. If NPM already had an administrator or refused the creation, find out who can reach port 81 on the host. Then deploy again.`, and keep the sentences after it (`Do not undo the failed change:` through `... for each effect it lists as unresolved.`) as they are.
 7. Same file, error table: replace the `npm.setup_failed` row with:
 
    ```
@@ -1310,7 +1353,7 @@ Make exactly these edits in `docs/security/threat-model.md`; change nothing else
 5. **Firewall, Residual risk**, append two bullets after the wildcard-bind bullet:
    - `- The guard protects the NPM path of the client making the request only. Another private or tailnet client of the same exposure is covered only by the any-address flow, which leaves its range out.`
    - `- The harness probes UDP only on the ports the exposure view lists. A scan cannot tell a silent open UDP port from a filtered one, so a UDP listener the view does not list and that answers no probe is not caught (\`test/harness\`).`
-6. **Exposure, Mitigations**: after the bullet that ends `each custom location it can check (\`internal/modules/npm/proxy\`, \`internal/modules/npm\`).`, insert the bullet `- Attaching NPM to a network, undoing a detach, and upgrading NPM are refused with \`npm.reserved\` while a proxy host or custom location forwards to an address NPM could take on a network it joins: the static address it asks for, or a free address of the network's pool when the Engine picks one. An upgrade counts the addresses NPM holds as free, and is refused when NPM's API cannot list the proxy hosts. A forward host that is a name is resolved as for a proxy host, and a name with no answer is not counted (\`internal/modules/npm/network_claims.go\`, \`internal/modules/npm/instance_upgrade.go\`).`
+6. **Exposure, Mitigations**: after the bullet that ends `each custom location it can check (\`internal/modules/npm/proxy\`, \`internal/modules/npm\`).`, insert the bullet `- Attaching NPM to a network, undoing a detach, and upgrading NPM are refused with \`npm.reserved\` while a proxy host or custom location forwards to an address NPM could take on a network it joins: the static address it asks for, or a free address of the network's pool when the Engine picks one. Each is refused with \`npm.unhealthy\` when NPM's API cannot list the proxy hosts, and an upgrade counts the addresses NPM holds as free. A forward host that is a name is resolved as for a proxy host, and a name with no answer is not counted (\`internal/modules/npm/network_claims.go\`, \`internal/modules/npm/instance_upgrade.go\`).`
 7. **Exposure, Mitigations**, the bullet that begins `- The agent's NPM client limits the size of every answer`: replace its second sentence `It keeps only the status and an allowlisted error code of a refusal, so NPM's message text never reaches an error, a log line or a change record (\`internal/modules/npm/npmapi\`).` with `It keeps only the status and an allowlisted error code of a refusal, and only the method, the path and a fixed reason of a request that got no usable answer or a 2xx answer that did not decode, so NPM's text never reaches an error, a log line or a change record (\`internal/modules/npm/npmapi\`).`
 8. **Exposure, Mitigations**, replace the bullet that begins `- When the creation of NPM's first administrator finds one` with `- When the creation of NPM's first administrator finds one that Darkpanel did not create, or fails before NPM accepted it for any reason but a 400 answer (a refusal, a server error, no answer, NPM not answering within 120 seconds, or the change cancelled first), the deploy stops and removes the container, the data volumes and the network it created before it fails (\`internal/modules/npm\`).`
 9. **Exposure, Residual risk**, append two bullets after the bullet that begins `- A container on a network joined through the NPM attach action`:
