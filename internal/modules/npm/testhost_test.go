@@ -624,12 +624,20 @@ func (d *thDocker) ListNetworks(_ context.Context, f dockerapi.Filters) ([]docke
 	return out, nil
 }
 
-// attached returns the endpoints of containers on network n, keyed by container id.
+// attached returns the endpoints of containers on network n, keyed by container id, with their addresses as the Engine
+// reports them.
 func (d *thDocker) attached(n dockerapi.Network) map[string]dockerapi.NetworkContainer {
 	out := map[string]dockerapi.NetworkContainer{}
 	for _, c := range d.containers {
 		if ep := c.NetworkSettings.Networks[n.Name]; ep != nil {
-			out[c.ID] = dockerapi.NetworkContainer{Name: strings.TrimPrefix(c.Name, "/"), EndpointID: ep.EndpointID}
+			nc := dockerapi.NetworkContainer{Name: strings.TrimPrefix(c.Name, "/"), EndpointID: ep.EndpointID}
+			if ep.IPAddress.IsValid() {
+				nc.IPv4Address = netip.PrefixFrom(ep.IPAddress, ep.IPAddress.BitLen())
+			}
+			if ep.GlobalIPv6Address.IsValid() {
+				nc.IPv6Address = netip.PrefixFrom(ep.GlobalIPv6Address, ep.GlobalIPv6Address.BitLen())
+			}
+			out[c.ID] = nc
 		}
 	}
 	return out

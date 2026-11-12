@@ -1,18 +1,23 @@
 package npm
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"unicode"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/modules/npm/npmapi"
 	"github.com/darkraise/darkpanel/internal/modules/npm/proxy"
 	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
 )
@@ -302,6 +307,12 @@ func (h networkAttachHandler) check(ctx context.Context, env core.Env, in Attach
 		return networkAttachCheck{}, core.Definite(err)
 	}
 	ck := networkAttachCheck{network: network, container: c, endpoint: ep, targetID: targetID, claims: all, connect: ep == nil, claim: true}
+	// Only a join can hand NPM a new address: the addresses it holds are already reserved against proxy hosts.
+	if ck.connect {
+		if err := h.n.forwardGuard(ctx, env, network, in.Address); err != nil {
+			return networkAttachCheck{}, err
+		}
+	}
 	// Claims that disagree on the mark take the answer under which a detach never removes NPM from a network it may
 	// have been on before the first claim.
 	ck.preexisting = len(all) == 0 && ep != nil
@@ -670,7 +681,7 @@ func (c networkClaims) Inverse(ctx context.Context, env core.Env, e core.Effect)
 	case noun == nounEndpoint && e.InverseRecovery == nil:
 		return core.InverseResult{}, c.networkUndoConnect(ctx, env, e, name)
 	case noun == nounEndpoint:
-		return c.networkUndoDisconnect(ctx, name)
+		return c.networkUndoDisconnect(ctx, env, name)
 	default:
 		return core.InverseResult{}, fmt.Errorf("npm: %s %s is not an effect of a network claim", e.Kind, e.Resource)
 	}
@@ -750,10 +761,25 @@ func (c networkClaims) networkUndoConnect(ctx context.Context, env core.Env, e c
 }
 
 // networkUndoDisconnect reconnects NPM to the network e left. The Engine assigns the address; a static address the
-// endpoint had is not restored. A refused reconnect while NPM is on the network is done: an earlier run whose answer
-// was lost already made it.
-func (c networkClaims) networkUndoDisconnect(ctx context.Context, network string) (core.InverseResult, error) {
-	err := c.n.d.docker.ConnectNetwork(ctx, network, containerName, nil)
+// endpoint had is not restored. The reconnect is refused while a proxy host forwards to an address the Engine could
+// pick there. A refused reconnect while NPM is on the network is done: an earlier run whose answer was lost already
+// made it.
+func (c networkClaims) networkUndoDisconnect(ctx context.Context, env core.Env, network string) (core.InverseResult, error) {
+	on, err := c.npmOnNetwork(ctx, network)
+	if err != nil {
+		return core.InverseResult{}, fmt.Errorf("npm: inspect container %s: %w", containerName, engineCoded(err))
+	}
+	if on {
+		return core.InverseResult{Resource: resourceOf(nounEndpoint, network)}, nil
+	}
+	nw, err := c.n.d.docker.InspectNetwork(ctx, network)
+	if err != nil {
+		return core.InverseResult{}, fmt.Errorf("npm: inspect network %s: %w", network, engineCoded(err))
+	}
+	if err := c.n.forwardGuard(ctx, env, nw, netip.Addr{}); err != nil {
+		return core.InverseResult{}, err
+	}
+	err = c.n.d.docker.ConnectNetwork(ctx, network, containerName, nil)
 	switch {
 	case err == nil:
 		return core.InverseResult{Resource: resourceOf(nounEndpoint, network)}, nil
@@ -777,4 +803,129 @@ func (c networkClaims) npmOnNetwork(ctx context.Context, network string) (bool, 
 		return false, err
 	}
 	return ct.NetworkSettings.Networks[network] != nil, nil
+}
+
+// forwardTarget is one address a proxy host or custom location forwards to. where names the forward: "proxy host <id>"
+// or "location <path> of proxy host <id>". host is the forward host as NPM holds it; name is true when it is a name and
+// addr one of its answers.
+type forwardTarget struct {
+	where string
+	host  string
+	name  bool
+	addr  netip.Addr
+}
+
+// forwardTargets reads every address NPM's proxy hosts and their custom locations forward to, in proxy host order. A
+// name is resolved as checkForward resolves it; a name with no answer adds nothing, since it can reach NPM only after
+// it is re-pointed.
+func (n nm) forwardTargets(ctx context.Context, env core.Env) ([]forwardTarget, error) {
+	api, err := n.d.api(ctx, env)
+	if err != nil {
+		return nil, err
+	}
+	hosts, err := api.ProxyHosts(ctx)
+	if err != nil {
+		return nil, proxyhostAddAnswer(err)
+	}
+	slices.SortFunc(hosts, func(a, b npmapi.ProxyHost) int { return cmp.Compare(a.ID, b.ID) })
+	var out []forwardTarget
+	for _, ph := range hosts {
+		id := strconv.Itoa(ph.ID)
+		forwards := []struct{ where, host string }{{"proxy host " + id, ph.ForwardHost}}
+		for _, l := range ph.Locations {
+			forwards = append(forwards, struct{ where, host string }{"location " + l.Path + " of proxy host " + id, l.ForwardHost})
+		}
+		for _, f := range forwards {
+			if f.host == "" {
+				continue
+			}
+			if a, ok := proxy.LiteralAddr(f.host); ok {
+				out = append(out, forwardTarget{where: f.where, host: f.host, addr: a})
+				continue
+			}
+			answers, ok, err := n.dockerAnswers(ctx, f.host)
+			if err != nil {
+				if ctx.Err() != nil {
+					return nil, ctx.Err()
+				}
+				return nil, fmt.Errorf("npm: resolve forward host %s: %w", f.host, err)
+			}
+			if !ok {
+				lookupCtx, cancel := context.WithTimeout(ctx, resolveTimeout)
+				answers, err = n.d.resolve(lookupCtx, f.host)
+				cancel()
+				if ctx.Err() != nil {
+					return nil, ctx.Err()
+				}
+				if err != nil {
+					continue
+				}
+			}
+			plain := make([]netip.Addr, 0, len(answers))
+			for _, a := range answers {
+				plain = append(plain, a.Unmap().WithZone(""))
+			}
+			slices.SortFunc(plain, netip.Addr.Compare)
+			for _, a := range slices.Compact(plain) {
+				out = append(out, forwardTarget{where: f.where, host: f.host, name: true, addr: a})
+			}
+		}
+	}
+	return out, nil
+}
+
+// networkAssignable reports whether the Engine could give NPM the address addr when NPM joins network. staticV4 means
+// NPM asks for a static IPv4 address, so no other IPv4 address is handed out; an IPv6 address is still assigned
+// dynamically, because the attach input takes IPv4 only. A network that reports no subnet of addr's family counts every
+// unheld address, so missing data is never trusted.
+func networkAssignable(network dockerapi.Network, addr netip.Addr, staticV4 bool) bool {
+	if addr.Is4() && (staticV4 || (network.EnableIPv4 != nil && !*network.EnableIPv4)) {
+		return false
+	}
+	if addr.Is6() && !network.EnableIPv6 {
+		return false
+	}
+	for _, held := range network.Containers {
+		if held.IPv4Address.Addr() == addr || held.IPv6Address.Addr() == addr {
+			return false
+		}
+	}
+	subnets := false
+	for _, c := range network.IPAM.Config {
+		if !c.Subnet.IsValid() || c.Subnet.Addr().Is4() != addr.Is4() {
+			continue
+		}
+		subnets = true
+		pool := c.Subnet
+		if c.IPRange.IsValid() {
+			pool = c.IPRange
+		}
+		if pool.Contains(addr) && addr != c.Gateway {
+			return true
+		}
+	}
+	return !subnets
+}
+
+// forwardGuard refuses with npm.reserved when a proxy host or custom location forwards to an address NPM could take on
+// joining network: static, the IPv4 address NPM asks for, or an address the Engine could assign. Every failure is
+// Definite, since the guard changes nothing.
+func (n nm) forwardGuard(ctx context.Context, env core.Env, network dockerapi.Network, static netip.Addr) error {
+	targets, err := n.forwardTargets(ctx, env)
+	if err != nil {
+		return core.Definite(err)
+	}
+	for _, t := range targets {
+		taken := (static.IsValid() && t.addr == static) || networkAssignable(network, t.addr, static.IsValid())
+		if !taken {
+			continue
+		}
+		detail := fmt.Sprintf("%s forwards to %s, an address %s could take on network %s", t.where, t.addr, containerName, network.Name)
+		if t.name {
+			detail = fmt.Sprintf("%s forwards to %s, which resolves to %s, an address %s could take on network %s",
+				t.where, t.host, t.addr, containerName, network.Name)
+		}
+		return core.Definite(errcode.New(errcode.NPMReserved, detail))
+	}
+	return nil
 }

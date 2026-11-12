@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"net/netip"
 	"reflect"
 	"slices"
@@ -14,6 +15,8 @@ import (
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/core/schema"
+	"github.com/darkraise/darkpanel/internal/modules/npm/fake"
+	"github.com/darkraise/darkpanel/internal/modules/npm/npmapi"
 	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
 )
 
@@ -208,6 +211,31 @@ func TestNwAttachPlan(t *testing.T) {
 		{name: "claim whose attachment is gone", setup: func(t *testing.T, h *thHost, _ dockerapi.Network) {
 			nwClaim(t, h, nwNet, nwClaimant, "c0", false)
 		}, diff: []core.DiffLine{join}},
+		{name: "a forwarded address another container holds", setup: func(t *testing.T, h *thHost, user dockerapi.Network) {
+			w12aSubnet(t, h, user)
+			h.docker.putContainer(thContainer("db", thEndpoint(nwNet, "10.9.0.7")))
+			w12aSeed(h, "10.9.0.7", 3000)
+		}, diff: []core.DiffLine{join, claim}},
+		{name: "a forwarded gateway", setup: w12aForwardsTo("10.9.0.1", 8080), diff: []core.DiffLine{join, claim}},
+		{name: "a forwarded address outside the subnet", setup: w12aForwardsTo("10.10.0.7", 3000), diff: []core.DiffLine{join, claim}},
+		{name: "a forwarded address outside the IP range", setup: func(_ *testing.T, h *thHost, _ dockerapi.Network) {
+			h.docker.putNetwork(thNetwork(nwNet, func(n *dockerapi.Network) {
+				n.IPAM.Config = []dockerapi.IPAMConfig{{Subnet: netip.MustParsePrefix("10.9.0.0/24"),
+					IPRange: netip.MustParsePrefix("10.9.0.128/25"), Gateway: netip.MustParseAddr("10.9.0.1")}}
+			}))
+			w12aSeed(h, "10.9.0.7", 3000)
+		}, diff: []core.DiffLine{join, claim}},
+		{name: "a static address no proxy host forwards to", setup: w12aForwardsTo("10.9.0.7", 3000),
+			mod:  func(in *AttachInput) { in.Address = netip.MustParseAddr("10.9.0.2") },
+			diff: []core.DiffLine{join, {Op: "+", Text: "ipv4 10.9.0.2"}, claim}},
+		{name: "a forwarded IPv6 address on a network without IPv6", setup: w12aForwardsTo("fd00:9::7", 3000),
+			diff: []core.DiffLine{join, claim}},
+		{name: "a forwarded address while NPM is already on the network", setup: func(t *testing.T, h *thHost, user dockerapi.Network) {
+			w12aSubnet(t, h, user)
+			nwConnect(t, h, user, nwStatic("10.9.0.5"))
+			nwClaim(t, h, nwNet, nwOther, "c0", false)
+			w12aSeed(h, "10.9.0.7", 3000)
+		}, diff: []core.DiffLine{claim}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -293,6 +321,30 @@ func TestNwAttachPlanRefusals(t *testing.T) {
 		{name: "address differs from the existing endpoint", setup: func(t *testing.T, h *thHost, user dockerapi.Network) {
 			nwConnect(t, h, user, nwStatic("10.9.0.5"))
 		}, mod: func(in *AttachInput) { in.Address = netip.MustParseAddr("10.9.0.2") }, code: errcode.InvalidInput, field: "/address"},
+		{name: "an address a proxy host forwards to", setup: w12aForwardsTo("10.9.0.7", 3000),
+			mod:  func(in *AttachInput) { in.Address = netip.MustParseAddr("10.9.0.7") },
+			code: errcode.NPMReserved, has: "proxy host 1 forwards to 10.9.0.7, an address darkpanel-npm could take on network appnet"},
+		{name: "a free address the Engine could assign", setup: w12aForwardsTo("10.9.0.7", 81),
+			code: errcode.NPMReserved, has: "proxy host 1 forwards to 10.9.0.7, an address darkpanel-npm could take on network appnet"},
+		{name: "a forward host in nginx's address form", setup: w12aForwardsTo("10.9.0.07", 3000),
+			code: errcode.NPMReserved, has: "proxy host 1 forwards to 10.9.0.7, an address darkpanel-npm could take on network appnet"},
+		{name: "an address a custom location forwards to", setup: func(t *testing.T, h *thHost, user dockerapi.Network) {
+			w12aSubnet(t, h, user)
+			w12aSeed(h, "web", 8080, npmapi.Location{Path: "/api", ForwardScheme: "http", ForwardHost: "10.9.0.7", ForwardPort: 3000})
+		}, code: errcode.NPMReserved, has: "location /api of proxy host 1 forwards to 10.9.0.7, an address darkpanel-npm could take on network appnet"},
+		{name: "an IPv6 address the Engine assigns beside a static IPv4 address", setup: func(_ *testing.T, h *thHost, _ dockerapi.Network) {
+			h.docker.putNetwork(thNetwork(nwNet, thSubnet("10.9.0.0/24", "10.9.0.1"), thSubnet("fd00:9::/64", "fd00:9::1"),
+				func(n *dockerapi.Network) { n.EnableIPv6 = true }))
+			w12aSeed(h, "fd00:9::7", 3000)
+		}, mod: func(in *AttachInput) { in.Address = netip.MustParseAddr("10.9.0.2") },
+			code: errcode.NPMReserved, has: "proxy host 1 forwards to fd00:9::7, an address darkpanel-npm could take on network appnet"},
+		{name: "a forwarded address on a network that reports no subnet", setup: func(_ *testing.T, h *thHost, _ dockerapi.Network) {
+			w12aSeed(h, "10.9.0.7", 3000)
+		}, code: errcode.NPMReserved, has: "proxy host 1 forwards to 10.9.0.7, an address darkpanel-npm could take on network appnet"},
+		{name: "an NPM API that cannot list the proxy hosts", setup: func(t *testing.T, h *thHost, user dockerapi.Network) {
+			w12aSubnet(t, h, user)
+			h.npm.Fail(http.MethodGet, "/api/nginx/proxy-hosts", fake.Fault{Status: http.StatusInternalServerError})
+		}, code: errcode.NPMUnhealthy, has: "Nginx Proxy Manager did not answer"},
 		{name: "NPM container missing", setup: func(t *testing.T, h *thHost, _ dockerapi.Network) {
 			err := h.docker.RemoveContainer(ctx, containerName, dockerapi.RemoveContainerOptions{Force: true})
 			if err != nil {
@@ -991,5 +1043,95 @@ func TestW10NvAttachFollowsEveryClaimsPreexistingMark(t *testing.T) {
 		if c.Claimant == nwClaimant && !c.Preexisting {
 			t.Errorf("the new claim %+v was recorded as not preexisting", c)
 		}
+	}
+}
+
+// w12aSubnet gives appnet the subnet 10.9.0.0/24 with the gateway 10.9.0.1, as the Engine reports a bridge network.
+func w12aSubnet(_ *testing.T, h *thHost, _ dockerapi.Network) {
+	h.docker.putNetwork(thNetwork(nwNet, thSubnet("10.9.0.0/24", "10.9.0.1")))
+}
+
+// w12aSeed adds to NPM a proxy host that forwards to host:port, with the custom locations.
+func w12aSeed(h *thHost, host string, port int, locations ...npmapi.Location) {
+	h.npm.SeedProxyHost(npmapi.ProxyHost{DomainNames: []string{"x.example.com"}, ForwardScheme: "http", ForwardHost: host,
+		ForwardPort: port, Locations: locations})
+}
+
+// w12aForwardsTo gives appnet its subnet and adds a proxy host that forwards to host:port.
+func w12aForwardsTo(host string, port int) nwSetupFunc {
+	return func(t *testing.T, h *thHost, user dockerapi.Network) {
+		w12aSubnet(t, h, user)
+		w12aSeed(h, host, port)
+	}
+}
+
+// TestW12aAttachChecksTheProxyHostsAgainAtApply: a proxy host added after the plan, forwarding to the address the attach
+// asks for, refuses the apply before NPM joins the network.
+func TestW12aAttachChecksTheProxyHostsAgainAtApply(t *testing.T) {
+	ctx := context.Background()
+	h, user := nwSetup(t)
+	w12aSubnet(t, h, user)
+	in := AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web", Address: netip.MustParseAddr("10.9.0.7")}
+	if _, err := h.nm().networkAttach().Handler.Plan(ctx, h.env(""), nwJSON(t, in)); err != nil {
+		t.Fatal(err)
+	}
+	w12aSeed(h, "10.9.0.7", 3000)
+	_, err := nwApplyAttach(t, h, "c1", in)
+	coded := nwRefused(t, err, errcode.NPMReserved)
+	if want := "proxy host 1 forwards to 10.9.0.7, an address darkpanel-npm could take on network appnet"; coded.Detail != want {
+		t.Errorf("detail %q, want %q", coded.Detail, want)
+	}
+	if nwCalls(h, "ConnectNetwork") != 0 || nwEndpoint(t, h, user.ID) != nil || len(nwClaims(t, h, nwNet)) != 0 || len(h.journal.effects()) != 0 {
+		t.Error("a refused apply connected NPM, recorded a claim or journaled an effect")
+	}
+}
+
+// TestW12aAttachResolvesForwardHostNames: a forward host that is a name counts with each address it resolves to; a
+// name that does not resolve adds nothing.
+func TestW12aAttachResolvesForwardHostNames(t *testing.T) {
+	ctx := context.Background()
+	h, user := nwSetup(t)
+	w12aSubnet(t, h, user)
+	w12aSeed(h, "app.example.net", 3000)
+	in := nwJSON(t, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"})
+	n := h.nm()
+	n.d.resolve = v1r09Resolver("203.0.113.9", "10.9.0.7")
+	_, err := n.networkAttach().Handler.Plan(ctx, h.env(""), in)
+	coded := nwRefused(t, err, errcode.NPMReserved)
+	if want := "proxy host 1 forwards to app.example.net, which resolves to 10.9.0.7, an address darkpanel-npm could take on network appnet"; coded.Detail != want {
+		t.Errorf("detail %q, want %q", coded.Detail, want)
+	}
+	n.d.resolve = func(context.Context, string) ([]netip.Addr, error) {
+		return nil, errors.New("lookup app.example.net: no such host")
+	}
+	if _, err := n.networkAttach().Handler.Plan(ctx, h.env(""), in); err != nil {
+		t.Errorf("plan with a name that does not resolve: %v, want it to pass", err)
+	}
+}
+
+// TestW12aUndoOfADetachRefusesAForwardedAddress: the undo of a detach reconnects NPM with an address the Engine picks,
+// so it is refused while a proxy host forwards to a free address of the network.
+func TestW12aUndoOfADetachRefusesAForwardedAddress(t *testing.T) {
+	ctx := context.Background()
+	h, user := nwSetup(t)
+	w12aSubnet(t, h, user)
+	nwSeedAttached(t, h, user, nwClaimant, false)
+	if _, err := nwApplyDetach(t, h, "c2", DetachInput{Network: nwNet, Claimant: nwClaimant}); err != nil {
+		t.Fatal(err)
+	}
+	var endpoint core.Effect
+	for _, e := range h.journal.effects() {
+		if e.Kind == core.EffectModify {
+			endpoint = e
+		}
+	}
+	w12aSeed(h, "10.9.0.7", 3000)
+	_, err := h.nm().networkDetach().Handler.Inverse(ctx, h.env("u1"), endpoint)
+	coded := nwRefused(t, err, errcode.NPMReserved)
+	if want := "proxy host 1 forwards to 10.9.0.7, an address darkpanel-npm could take on network appnet"; coded.Detail != want {
+		t.Errorf("detail %q, want %q", coded.Detail, want)
+	}
+	if nwEndpoint(t, h, user.ID) != nil {
+		t.Error("the refused undo reconnected NPM")
 	}
 }
