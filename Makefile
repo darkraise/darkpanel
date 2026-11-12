@@ -74,7 +74,7 @@ lint-web: web-deps
 	pnpm -C web typecheck
 
 lint-sh:
-	shellcheck release/*.sh $(wildcard install.sh) scripts/fuzz.sh scripts/fuzz.test.sh internal/modules/firewall/testdata/capture.sh \
+	shellcheck release/*.sh $(wildcard install.sh) scripts/check-adrs.sh scripts/check-adrs.test.sh scripts/fuzz.sh scripts/fuzz.test.sh internal/modules/firewall/testdata/capture.sh \
 		internal/modules/firewall/eval/testdata/docker28/capture.sh internal/platform/netfilter/testdata/ufw/capture.sh \
 		internal/modules/firewall/dockerfw/testdata/capture/capture.sh
 

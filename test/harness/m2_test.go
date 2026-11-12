@@ -53,7 +53,6 @@ const (
 	versionCrash     = "0.3.2"
 	versionReboot    = "0.3.3"
 	versionMigration = "0.3.4"
-	releaseChannel   = "stable"
 )
 
 var m2Versions = []string{versionN, versionGood, versionBroken, versionCrash, versionReboot, versionMigration}

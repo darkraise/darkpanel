@@ -14,6 +14,8 @@ import (
 	"github.com/darkraise/darkpanel/test/harness/release"
 )
 
+const releaseChannel = "stable"
+
 const (
 	// upgBaseline is the version of the first source, which every later
 	// release must still update from.
