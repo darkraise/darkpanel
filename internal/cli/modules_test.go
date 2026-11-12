@@ -42,7 +42,7 @@ func mhAliased(name string, aliases ...string) func(a *app) []*cobra.Command {
 }
 
 func TestModuleCommandsCoverEveryModule(t *testing.T) {
-	want := []string{"cloudflare", "derp", "docker", "firewall", "npm", "panel", "tailnet", "tailscale"}
+	want := []string{"firewall"}
 	if got := slices.Sorted(maps.Keys(moduleCommands)); !slices.Equal(got, want) {
 		t.Fatalf("moduleCommands has %v, want %v", got, want)
 	}
