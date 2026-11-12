@@ -12,6 +12,7 @@ import (
 	"io"
 	"io/fs"
 	"maps"
+	"net/netip"
 	"slices"
 	"strings"
 	"time"
@@ -104,10 +105,39 @@ func (h instanceUpgradeHandler) precheck(ctx context.Context, env core.Env) (ins
 // waitText is the API wait as the plan and the errors state it.
 func waitText() string { return fmt.Sprintf("%d s", int(instanceUpgradeAPIWait/time.Second)) }
 
+// forwardCheck refuses the upgrade while a proxy host forwards to an address the recreated container could take on one
+// of the networks c is on. The addresses c holds count as free, because the old container releases them; a static
+// IPv4 address counts only off darkpanel-npm, where the new container is created without one. Rollback and recovery
+// do not run it: a rollback that refused would leave NPM down.
+func (h instanceUpgradeHandler) forwardCheck(ctx context.Context, env core.Env, c dockerapi.ContainerJSON) error {
+	for _, name := range slices.Sorted(maps.Keys(c.NetworkSettings.Networks)) {
+		ep := c.NetworkSettings.Networks[name]
+		if ep == nil {
+			continue
+		}
+		nw, err := h.n.d.docker.InspectNetwork(ctx, name)
+		if err != nil {
+			return core.Definite(fmt.Errorf("npm: inspect network %s: %w", name, engineCoded(err)))
+		}
+		delete(nw.Containers, c.ID)
+		var static netip.Addr
+		if name != networkName && ep.IPAMConfig != nil {
+			static = ep.IPAMConfig.IPv4Address
+		}
+		if err := h.n.forwardGuard(ctx, env, nw, static); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Plan checks the instance and lists the image change. It changes nothing.
 func (h instanceUpgradeHandler) Plan(ctx context.Context, env core.Env, _ UpgradeInput) (core.PlanOutcome, error) {
 	row, c, err := h.precheck(ctx, env)
 	if err != nil {
+		return core.PlanOutcome{}, err
+	}
+	if err := h.forwardCheck(ctx, env, c); err != nil {
 		return core.PlanOutcome{}, err
 	}
 	sum := sha256.Sum256([]byte(c.ID + "\n" + row.Image + "\n" + Image))
@@ -168,6 +198,9 @@ func instanceUpgradeConfig(c dockerapi.ContainerJSON) containerConfig {
 func (h instanceUpgradeHandler) Apply(ctx context.Context, env core.Env, _ UpgradeInput) (Upgraded, error) {
 	row, c, err := h.precheck(ctx, env)
 	if err != nil {
+		return Upgraded{}, err
+	}
+	if err := h.forwardCheck(ctx, env, c); err != nil {
 		return Upgraded{}, err
 	}
 	if err := h.pull(ctx, Image); err != nil {

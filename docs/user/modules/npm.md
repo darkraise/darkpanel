@@ -274,6 +274,12 @@ up to 120 seconds for its API. It keeps the three newest sets of archives, and
 any set that an unfinished upgrade still needs. A volume whose archive would
 exceed 256 MiB makes the upgrade fail.
 
+Before it stops anything, at plan and again at apply, the upgrade reads NPM's
+proxy hosts. It refuses with `npm.reserved` while a proxy host or custom
+location forwards to an address the new container could take on one of NPM's
+networks, and with `npm.unhealthy` when NPM's API cannot list the proxy hosts:
+start a stopped instance before you upgrade it.
+
 If a step fails, the upgrade restores the original container and volumes from
 the archives. When the new container's API does not answer in time, the change
 fails with `npm.unhealthy`. A cut-off upgrade is rolled back when the agent
@@ -321,9 +327,9 @@ an object of those names lacks the module's label.
 |---|---|---|
 | `npm.not_public` | The instance is not deployed, or is not confirmed public: the confirmation is missing, and the Docker integration does not allow ports 80 and 443 from any source. | Open the ports, check them from outside, then run `npm instance confirm-public`. |
 | `npm.unsupported_target` | The container is not on a user-defined bridge network that you named. | Connect the container to a user-defined network, then plan again. |
-| `npm.reserved` | The change would touch an object that the admin or panel exposure owns, or point a proxy host at the local host, NPM's admin port or the panel network. `npm instance remove` gives the same code while an exposure reserves objects. | Change the object through its exposure, or remove the exposure first. |
+| `npm.reserved` | The change would touch an object that the admin or panel exposure owns, or point a proxy host at the local host, NPM's admin port or the panel network. `npm instance remove` gives the same code while an exposure reserves objects. Attaching NPM to a network, undoing a detach, and upgrading NPM give it while a proxy host or custom location forwards to an address NPM could take on that network; the message names the proxy host. | Change the object through its exposure, or remove the exposure first. For an attach, an undone detach or an upgrade, point the proxy host the message names at another address, or remove it. |
 | `npm.setup_failed` | The administrator could not be created: NPM did not answer within 120 seconds, already had an administrator, or did not create the administrator or accept its login. A deploy that found another administrator has already removed what it created. | Run `darkpanel change undo <id>`, which removes the container, both volumes and the network, then deploy again. If the deploy found another administrator, do not undo: deploy again, as the Deploy section says. |
-| `npm.unhealthy` | The instance does not answer as expected. Among other causes: its container is missing or stopped, its API is unreachable, NPM refused the stored administrator's login, or an upgrade's new container did not answer. | Read the message. Run `npm instance status`, start the container with the docker module if it stopped, and for a failed upgrade check that the original was restored. |
+| `npm.unhealthy` | The instance does not answer as expected. Among other causes: its container is missing or stopped, its API is unreachable, NPM refused the stored administrator's login, an upgrade's new container did not answer, or NPM's API could not list the proxy hosts that an attach, an undone detach or an upgrade checks first. | Read the message. Run `npm instance status`, start the container with the docker module if it stopped, and for a failed upgrade check that the original was restored. |
 | `derp.port_in_use` | A program listens on port 80 or 443, or a DERP server is installed on the host. | Stop the program, remove the DERP server, or use another host. |
 | `module.unavailable` | The host runs Docker older than 28.0, or the raw-table protection is not loaded. | Update Docker or load its protection, then plan again. |
 | `docker.in_use` | A Docker object of the module's names exists before a deploy, or another container uses the network or a volume you remove. | Remove or rename the object, or disconnect the container the message names. |

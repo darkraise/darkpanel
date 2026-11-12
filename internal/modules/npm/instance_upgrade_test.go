@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
 	"net/netip"
 	"os"
 	"reflect"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/modules/npm/fake"
 	"github.com/darkraise/darkpanel/internal/modules/npm/npmapi"
 	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
 )
@@ -1183,4 +1185,81 @@ func TestW10NuHungProbeIsReportedAsATimeout(t *testing.T) {
 		t.Errorf("detail %q, want %q", coded.Detail, want)
 	}
 	s.wantRestored()
+}
+
+// w12aUpSetup is an upgrade setup whose two networks report their subnets, as the Engine does: darkpanel-npm, where
+// NPM holds 172.20.0.2 without a static address, and app-net, where it holds the static 172.30.0.9.
+func w12aUpSetup(t *testing.T) *upSetup {
+	t.Helper()
+	s := upNewSetup(t, upFromImage, true)
+	s.h.docker.putNetwork(thNetwork(networkName, thNetLabels(map[string]string{core.LabelModule: ID}), thSubnet("172.20.0.0/16", "172.20.0.1")))
+	s.h.docker.putNetwork(thNetwork(upAppNet, thSubnet("172.30.0.0/24", "172.30.0.1")))
+	return s
+}
+
+// TestW12aUpgradeRefusesAForwardedAddress: the recreated container joins every network again, so the upgrade is
+// refused at plan and at apply, before anything changes, while a proxy host or location forwards to an address it
+// could take there.
+func TestW12aUpgradeRefusesAForwardedAddress(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name string
+		seed func(s *upSetup)
+		want string
+	}{
+		{"a free address of NPM's own network", func(s *upSetup) { w12aSeed(s.h, "172.20.0.9", 3000) },
+			"proxy host 1 forwards to 172.20.0.9, an address darkpanel-npm could take on network darkpanel-npm"},
+		{"the address NPM releases on its own network", func(s *upSetup) { w12aSeed(s.h, "172.20.0.2", 81) },
+			"proxy host 1 forwards to 172.20.0.2, an address darkpanel-npm could take on network darkpanel-npm"},
+		{"NPM's static address on another network", func(s *upSetup) {
+			w12aSeed(s.h, "app.example.net", 8080, npmapi.Location{Path: "/api", ForwardScheme: "http", ForwardHost: "172.30.0.9", ForwardPort: 3000})
+		}, "location /api of proxy host 1 forwards to 172.30.0.9, an address darkpanel-npm could take on network app-net"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := w12aUpSetup(t)
+			tc.seed(s)
+			_, err := s.n.instanceUpgrade().Handler.Plan(ctx, s.h.env(""), json.RawMessage(`{}`))
+			if coded := nwRefused(t, err, errcode.NPMReserved); coded.Detail != tc.want {
+				t.Errorf("plan detail %q, want %q", coded.Detail, tc.want)
+			}
+			_, err = s.apply()
+			if coded := nwRefused(t, err, errcode.NPMReserved); coded.Detail != tc.want {
+				t.Errorf("apply detail %q, want %q", coded.Detail, tc.want)
+			}
+			if len(s.effects()) != 0 || s.phase() != "no row" || s.dock.counts["StopContainer"] != 0 || len(s.dock.created) != 0 {
+				t.Error("a refused upgrade journaled an effect, recorded a phase, stopped NPM or created a container")
+			}
+		})
+	}
+}
+
+// TestW12aUpgradeAllowsForwardsNPMCannotTake: an address another container holds, a gateway, a free address of a
+// network where NPM's address is static, and an address outside NPM's networks leave the upgrade alone.
+func TestW12aUpgradeAllowsForwardsNPMCannotTake(t *testing.T) {
+	ctx := context.Background()
+	s := w12aUpSetup(t)
+	s.h.docker.putContainer(thContainer("db", thEndpoint(networkName, "172.20.0.7")))
+	w12aSeed(s.h, "172.20.0.7", 5432)
+	w12aSeed(s.h, "172.20.0.1", 8080)
+	w12aSeed(s.h, "172.30.0.20", 3000)
+	w12aSeed(s.h, "10.99.0.7", 3000)
+	if _, err := s.n.instanceUpgrade().Handler.Plan(ctx, s.h.env(""), json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if _, err := s.apply(); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+}
+
+// TestW12aUpgradeNeedsNPMsAPI: an upgrade that cannot read the proxy hosts cannot show that the new container takes no
+// forwarded address, so it is refused with npm.unhealthy before anything changes.
+func TestW12aUpgradeNeedsNPMsAPI(t *testing.T) {
+	ctx := context.Background()
+	s := w12aUpSetup(t)
+	s.h.npm.Fail(http.MethodGet, "/api/nginx/proxy-hosts", fake.Fault{Status: http.StatusInternalServerError})
+	_, err := s.n.instanceUpgrade().Handler.Plan(ctx, s.h.env(""), json.RawMessage(`{}`))
+	_ = nwRefused(t, err, errcode.NPMUnhealthy)
+	if len(s.effects()) != 0 || s.phase() != "no row" || s.dock.counts["StopContainer"] != 0 || len(s.dock.created) != 0 {
+		t.Error("a refused upgrade journaled an effect, recorded a phase, stopped NPM or created a container")
+	}
 }
