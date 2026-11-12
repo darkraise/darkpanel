@@ -115,6 +115,10 @@ func (r *m5dRun) unitAndProcess(t *testing.T) {
 		if state := unitState(ctx, v, server.UnitName); state != "active" {
 			return fmt.Errorf("%s is %q", server.UnitName, state)
 		}
+		// Type=simple turns the unit active at exec, before derper has written its key file.
+		if _, err := v.Run(ctx, "sudo test -e "+server.KeyPath); err != nil {
+			return fmt.Errorf("%s not written yet: %w", server.KeyPath, err)
+		}
 		return nil
 	})
 	if err != nil {
