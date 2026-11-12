@@ -252,7 +252,9 @@ func panelFlows(s *flowSet, ctxs []*core.GuardContext, local map[netip.Addr]bool
 // composite has retired it. A public address that is not one of this
 // host's arrives through upstream address translation (a cloud's 1:1 NAT),
 // so its packets reach the host's own address and the destination is left
-// unspecified for routing to resolve.
+// unspecified for routing to resolve. For NPM, the concrete client of the
+// request is also checked against each public binding of its family, since
+// the internet cells leave out private and special-purpose sources.
 func viaFlows(s *flowSet, ctxs []*core.GuardContext, retired []string, local map[netip.Addr]bool) {
 	for _, g := range ctxs {
 		v := g.Via
@@ -275,6 +277,7 @@ func viaFlows(s *flowSet, ctxs []*core.GuardContext, retired []string, local map
 			for _, pub := range v.Public {
 				npmPublicFlows(s, label, v, pub, local)
 			}
+			npmClientFlows(s, label, g.Client, v.Public, local)
 		case "tunnel":
 			for _, out := range []struct {
 				proto string
@@ -323,6 +326,30 @@ func npmPublicFlows(s *flowSet, label string, v *core.ProxyPath, pub netip.AddrP
 	}
 	src := anyAddr(pub.Addr())
 	s.add(flow{label: label + " public", pkt: newPacket("input", src, unknownPort, dst, pub.Port(), "tcp"), wild: wildSrc, fwdReplies: replies(src)})
+}
+
+// npmClientFlows adds the flow from the concrete client of a request that
+// came through an NPM exposure to each public binding that takes the
+// client's family. The flow has a concrete source, so it is not compared
+// with the rules before the change.
+func npmClientFlows(s *flowSet, label string, client *core.Peer, public []netip.AddrPort, local map[netip.Addr]bool) {
+	if client == nil || !client.Addr.IsValid() || fromHere(client.Addr, local) {
+		return
+	}
+	src := client.Addr.Unmap()
+	for _, pub := range public {
+		dst := pub.Addr().Unmap()
+		switch {
+		case pub.Addr() == netip.IPv6Unspecified():
+			dst = anyAddr(src)
+		case dst.Is4() != src.Is4():
+			continue
+		case dst.IsUnspecified() || local[dst]:
+		default:
+			dst = anyAddr(dst)
+		}
+		s.add(flow{label: label + " client", pkt: newPacket("input", src, unknownPort, dst, pub.Port(), "tcp")})
+	}
 }
 
 // anyAddr is the unspecified address of a's family.

@@ -93,3 +93,53 @@ func TestW11b09IPv6LegOfADualStackBinding(t *testing.T) {
 		t.Errorf("guard = %+v, want OK: a host without an IPv6 route has nothing to protect on that leg", g)
 	}
 }
+
+// w12aClientPlan is w11b09Plan(bind) of a request whose NPM exposure
+// named client in its client header.
+func w12aClientPlan(bind, client string) *core.GuardContext {
+	g := w11b09Plan(bind)
+	g.Client = &core.Peer{Addr: netip.MustParseAddr(client)}
+	return g
+}
+
+func TestW12aBlockedNPMClientOutsideTheInternetCellsIsRefused(t *testing.T) {
+	routes := append(v1r21HostRoutes(), v1r21Route("unicast", "::/0", "eth0", "2001:db8::1", 254))
+	for _, tc := range []struct {
+		name, bind, client string
+		v4, v6             []string // the drop that cuts the client, in each family's filter table
+		want               string   // "" when the change must pass
+	}{
+		{"an RFC 1918 client", "0.0.0.0:443", "10.0.0.50",
+			[]string{"-A FORWARD -s 10.0.0.50/32 -d 172.30.0.2/32 -p tcp -m tcp --dport 443 -j DROP"}, nil,
+			"exposure exp1 client from 10.0.0.50 to 10.0.0.1:443 on eth1: drop"},
+		{"a CGNAT client on the IPv4 leg of a dual-stack binding", "[::]:443", "100.101.102.103",
+			[]string{"-A FORWARD -s 100.101.102.103/32 -d 172.30.0.2/32 -p tcp -m tcp --dport 443 -j DROP"}, nil,
+			"exposure exp1 client from 100.101.102.103 to 192.0.2.1:443 on eth0: drop"},
+		{"a ULA client on the IPv6 leg of a dual-stack binding", "[::]:443", "fd7a:115c:a1e0::5",
+			nil, []string{"-A INPUT -s fd7a:115c:a1e0::5/128 -p tcp -m tcp --dport 443 -j DROP"},
+			"exposure exp1 client from fd7a:115c:a1e0::5 to [2001:db8::1]:443 on eth0: drop"},
+		{"an IPv6 client of an IPv4-only binding", "0.0.0.0:443", "fd7a:115c:a1e0::5",
+			nil, []string{"-A INPUT -s fd7a:115c:a1e0::5/128 -p tcp -m tcp --dport 443 -j DROP"}, ""},
+		// Docker's userland proxy names the bridge gateway, an address of this host.
+		{"a client address of this host", "0.0.0.0:443", "172.30.0.1",
+			[]string{"-A FORWARD -s 172.30.0.1/32 -d 172.30.0.2/32 -p tcp -m tcp --dport 443 -j DROP"}, nil, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			check := func(v4, v6 []string) core.Guard {
+				t.Helper()
+				h := v1r21Fib{&gHost{ifaces: ckIfaces(), table: routes}}
+				return v1r21CheckHost(t, h, v1r21State(t, w11b09Nat+v1r21Table(v4...), v1r21Table(v6...)), w12aClientPlan(tc.bind, tc.client))
+			}
+			g := check(tc.v4, tc.v6)
+			switch {
+			case tc.want == "" && !g.OK:
+				t.Errorf("guard = %+v, want OK: no client flow applies", g)
+			case tc.want != "" && (g.OK || !strings.Contains(g.Message, tc.want)):
+				t.Errorf("guard = %+v, want a refusal containing %q", g, tc.want)
+			}
+			if g := check(nil, nil); !g.OK {
+				t.Errorf("guard = %+v, want OK without the drop", g)
+			}
+		})
+	}
+}

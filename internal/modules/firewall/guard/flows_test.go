@@ -139,6 +139,8 @@ func TestBuildFlows(t *testing.T) {
 				{label: "exposure exp1 public", pkt: flPkt("input", "::", 0, "2001:db8::1", 443, "tcp"), wild: wildSrc},
 				{label: "exposure exp1 public", pkt: flPkt("input", "0.0.0.0", 0, "0.0.0.0", 443, "tcp"), wild: wildSrc, fwdReplies: []netip.Addr{npm.ProxyAddr}},
 				{label: "exposure exp1 public", pkt: flPkt("input", "::", 0, "::", 443, "tcp"), wild: wildSrc},
+				{label: "exposure exp1 client", pkt: flPkt("input", "203.0.113.7", 0, "192.0.2.1", 443, "tcp")},
+				{label: "exposure exp1 client", pkt: flPkt("input", "203.0.113.7", 0, "0.0.0.0", 443, "tcp")},
 			},
 		},
 		{
