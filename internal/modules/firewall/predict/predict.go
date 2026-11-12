@@ -76,7 +76,7 @@ func Predict(cfg fwstate.Config, cur fwstate.Loaded, tr fwstate.Transition) (fws
 		Variant: cur.Variant, V4: cloneRuleset(cur.V4), V6: cloneRuleset(cur.V6),
 		Sysctl: maps.Clone(cur.Sysctl), Unsupported: slices.Clone(cur.Unsupported),
 	}
-	start := false
+	var start bool
 	switch tr {
 	case fwstate.TransNone:
 		return out, nil

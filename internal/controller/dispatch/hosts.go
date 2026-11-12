@@ -288,7 +288,7 @@ func (h *Hosts) usable(ctx context.Context, hostID, moduleID string) error {
 	err := h.cfg.DB.Read().QueryRowContext(ctx,
 		"SELECT enabled, available, reason FROM core_module_state WHERE host_id = ? AND module_id = ?",
 		hostID, moduleID).Scan(&enabled, &available, &reason)
-	why := ""
+	var why string
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		why = coreactions.ReasonNotReported

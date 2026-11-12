@@ -25,7 +25,6 @@ const (
 type serviceRunnerConfig struct {
 	Services  []ext.Service
 	Suspended func(ctx context.Context) (bool, error) // nil: never suspended
-	Poll      time.Duration                           // how often a suspended runner re-checks; 0 means 10 s
 	Clock     core.Clock                              // nil: core.SystemClock{}
 	Log       *slog.Logger                            // nil discards
 }
@@ -47,9 +46,6 @@ type serviceRunner struct {
 // restart, and an error from it counts as suspended, so a restored
 // controller never starts a service it cannot prove is released.
 func startServiceRunner(cfg serviceRunnerConfig) *serviceRunner {
-	if cfg.Poll <= 0 {
-		cfg.Poll = serviceDefaultPoll
-	}
 	if cfg.Clock == nil {
 		cfg.Clock = core.SystemClock{}
 	}
@@ -139,7 +135,7 @@ func (r *serviceRunner) waitReleased(name string) bool {
 		if !suspended {
 			return true
 		}
-		if !r.sleep(r.cfg.Poll) {
+		if !r.sleep(serviceDefaultPoll) {
 			return false
 		}
 	}

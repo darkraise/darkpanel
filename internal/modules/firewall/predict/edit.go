@@ -399,7 +399,6 @@ func (e editor) setRule(v vector, fam model.Family, position int) error {
 			if (last.dapp == "" && last.sapp == "" && count > 1) || (current.dapp == "" && current.sapp == "") || last != current {
 				inserted = true
 				newRules = append(newRules, r)
-				last = appKey{}
 			} else {
 				position++
 			}

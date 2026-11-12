@@ -153,7 +153,7 @@ func (h authkeyHandler) Resolved(ctx context.Context, tx *sql.Tx, e core.Effect,
 	if err != nil {
 		return err
 	}
-	state, keyID := "", ""
+	var state, keyID string
 	switch e.State {
 	case core.EffectAccepted:
 		state = "retired"

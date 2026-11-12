@@ -146,8 +146,6 @@ func revert(ctx context.Context, env core.Env, d deps, snapBytes []byte) (core.R
 				logVanished(env, rep.Vanished)
 				if len(rep.Interleaved) > 0 {
 					err = interleavedError(rep.Interleaved)
-				} else if cleanupErr == nil {
-					return core.RevertOutcome{Effects: undoneOutcomes(made, nil)}, nil
 				}
 			}
 			writeErr = err
@@ -162,7 +160,10 @@ func revert(ctx context.Context, env core.Env, d deps, snapBytes []byte) (core.R
 
 	pin(ctx, env, snap.ID)
 	st, err := d.readLoaded(ctx, env)
-	ok, why := false, ""
+	var (
+		ok  bool
+		why string
+	)
 	if err != nil {
 		why = "the loaded state cannot be read: " + err.Error()
 	} else if ok, why, err = d.lockout(ctx, env, st, snap.State.Guard); err != nil {

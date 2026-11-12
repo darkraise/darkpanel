@@ -38,7 +38,7 @@ type imagePullHandler struct {
 // pullRefError refuses a reference the Engine client would refuse, so a
 // pull never reaches it.
 func pullRefError(ref string) error {
-	msg := ""
+	var msg string
 	switch {
 	case ref == "":
 		msg = "image is required"
