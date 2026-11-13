@@ -460,7 +460,8 @@ func m6pULAHTTPSRule(add bool) string {
 	return "sudo ufw delete " + rule
 }
 
-// m6pULAAdmits accepts the manual rule m6pULAHTTPSRule adds.
+// m6pULAAdmits matches only the allow m6pULAHTTPSRule adds, by its source, so
+// the guard step plans the delete of the ULA client's own way in and no other 443 allow.
 func m6pULAAdmits(r model.Rule) bool {
 	return r.Origin == model.OriginManual && r.Action == model.ActionAllow && r.Direction == model.DirIn &&
 		r.ToPort == "443" && r.From == m6pULANet && r.InIface == "" && r.Raw == ""
