@@ -11,6 +11,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/modules/npm/fake"
+	"github.com/darkraise/darkpanel/internal/modules/npm/npmapi"
 )
 
 const (
@@ -36,44 +37,76 @@ func v1r12Removals(h *thHost) []string {
 	return got[slices.Index(got, "StartContainer")+1:]
 }
 
+// w12aHalt is the unauthenticated NPM client of a deploy that is cancelled while it waits for NPM to answer.
+type w12aHalt struct {
+	npmAPI
+	cancel context.CancelFunc
+}
+
+func (s w12aHalt) Health(ctx context.Context) (npmapi.Health, error) {
+	s.cancel()
+	return s.npmAPI.Health(ctx)
+}
+
 func TestV1r12BootstrapConflictRemovesTheInstance(t *testing.T) {
 	cases := []struct {
-		name    string
-		arrange func(h *thHost, n *nm)
-		foreign bool // the administrator in NPM is the intruder's
-		removed bool
+		name      string
+		arrange   func(h *thHost, n *nm, cancel context.CancelFunc)
+		foreign   bool // the administrator in NPM is the intruder's
+		removed   bool
+		cancelled bool // the apply's context ends during the bootstrap
 	}{
-		{"an administrator exists before the deploy creates one", func(h *thHost, _ *nm) {
+		{"an administrator exists before the deploy creates one", func(h *thHost, _ *nm, _ context.CancelFunc) {
 			h.npm.SeedAdmin(v1r12Intruder, v1r12IntruderPassword)
-		}, true, true},
-		{"an administrator appears between the status read and the creation", func(h *thHost, n *nm) {
+		}, true, true, false},
+		{"an administrator appears between the status read and the creation", func(h *thHost, n *nm, _ context.CancelFunc) {
 			live := n.d.anon()
 			n.d.anon = func() npmAPI {
 				return v1r12Racer{npmAPI: live, win: func() { h.npm.SeedAdmin(v1r12Intruder, v1r12IntruderPassword) }}
 			}
-		}, true, true},
-		{"NPM refuses to create the administrator", func(h *thHost, _ *nm) {
+		}, true, true, false},
+		{"NPM refuses to create the administrator", func(h *thHost, _ *nm, _ context.CancelFunc) {
 			h.npm.Fail(http.MethodPost, "/api/users", fake.Fault{Status: http.StatusForbidden})
-		}, false, true},
-		{"NPM fails while it creates the administrator", func(h *thHost, _ *nm) {
+		}, false, true, false},
+		{"NPM fails while it creates the administrator", func(h *thHost, _ *nm, _ context.CancelFunc) {
 			h.npm.Fail(http.MethodPost, "/api/users", fake.Fault{Status: http.StatusInternalServerError})
-		}, false, false},
-		{"the answer to the creation is lost", func(h *thHost, _ *nm) {
+		}, false, true, false},
+		{"the answer to the creation is lost", func(h *thHost, _ *nm, _ context.CancelFunc) {
 			h.npm.Fail(http.MethodPost, "/api/users", fake.Fault{AfterCommit: true})
-		}, false, false},
+		}, false, true, false},
+		{"NPM does not answer within the wait", func(_ *thHost, n *nm, _ context.CancelFunc) {
+			probe := &dpHealth{npmAPI: n.d.anon(), failing: -1}
+			n.d.anon = func() npmAPI { return probe }
+		}, false, true, false},
+		{"the deploy is cancelled while it creates the administrator", func(_ *thHost, n *nm, cancel context.CancelFunc) {
+			live := n.d.anon()
+			n.d.anon = func() npmAPI { return v1r12Racer{npmAPI: live, win: cancel} }
+		}, false, true, true},
+		{"the deploy is cancelled while it waits for NPM", func(_ *thHost, n *nm, cancel context.CancelFunc) {
+			live := n.d.anon()
+			n.d.anon = func() npmAPI { return w12aHalt{npmAPI: live, cancel: cancel} }
+		}, false, true, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			h := newTHHost(t)
 			n := h.nm()
-			c.arrange(h, &n)
-			_, err := dpApply(h, n, "c1")
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+			c.arrange(h, &n, cancel)
+			var err error
+			dpDrive(t, h, deployPoll, func() {
+				_, err = n.instanceDeploy().Handler.Apply(ctx, h.env("c1"), dpInput(dpEmail))
+			})
 			var coded *errcode.Error
 			if err == nil || !errors.As(err, &coded) || coded.Code != errcode.NPMSetupFailed {
 				t.Fatalf("error %v, want npm.setup_failed", err)
 			}
 			if core.IsDefinite(err) {
 				t.Error("the failure is Definite: effects of the deploy were made")
+			}
+			if got := errors.Is(err, context.Canceled); got != c.cancelled {
+				t.Errorf("error %v carries the cancellation: %t, want %t", err, got, c.cancelled)
 			}
 			for _, secret := range []string{dpPassword, v1r12IntruderPassword} {
 				if strings.Contains(err.Error(), secret) {

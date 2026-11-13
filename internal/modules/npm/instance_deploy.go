@@ -33,6 +33,8 @@ const (
 	deployReady = 120 * time.Second
 	// deployStop is the stop grace of the undo of the container's start.
 	deployStop = 30 * time.Second
+	// deployCancelledWait is the detail of a deploy cancelled before NPM answered its status read.
+	deployCancelledWait = "the deploy was cancelled while it waited for Nginx Proxy Manager to answer"
 	// deployMinMajor is the oldest Docker major version that loads the raw-table protection.
 	deployMinMajor = 28
 	// deployDERPUnit is the derp module's unit file. An installed but stopped DERP server holds no listener, yet it
@@ -284,8 +286,8 @@ func (h deployHandler) Apply(ctx context.Context, env core.Env, in DeployInput) 
 	if err != nil {
 		return Deployed{}, fmt.Errorf("npm: journal %s: %w", e.Resource, err)
 	}
-	conflict, err := h.bootstrap(ctx, env, email, password)
-	if conflict {
+	discard, err := h.bootstrap(ctx, env, email, password)
+	if discard {
 		return Deployed{}, h.discardDeploy(ctx, containerID, err)
 	}
 	if err != nil {
@@ -410,12 +412,11 @@ func (h deployHandler) createEngineObjects(ctx context.Context, env core.Env) (s
 }
 
 // bootstrap waits for NPM to answer and creates its administrator, then proves the login works. A failure is
-// npm.setup_failed and not Definite: the container runs and the administrator may exist. conflict is true only when
-// an administrator the deploy did not create exists: NPM reported one before the deploy created its own, or refused
-// the creation with a 4xx other than 400. A poll that times out, a 400, a 5xx or a lost answer to the creation, a
-// missing setup flag after it and a refused login are no conflict, since no other administrator was found or the
-// administrator may hold the sealed password.
-func (h deployHandler) bootstrap(ctx context.Context, env core.Env, email, password string) (conflict bool, err error) {
+// npm.setup_failed and not Definite: the container runs and the administrator may exist. discard is true for every
+// failure before NPM accepted the creation of the administrator except a 400 answer to it, because the deploy cannot
+// then show that the administrator NPM holds is its own. A 400 and the failures after the creation (a missing setup
+// flag, a refused login) are not discarded: the administrator may hold the sealed password.
+func (h deployHandler) bootstrap(ctx context.Context, env core.Env, email, password string) (discard bool, err error) {
 	api := h.n.d.anon()
 	deadline := env.Clock.Now().Add(deployReady)
 	for {
@@ -427,19 +428,22 @@ func (h deployHandler) bootstrap(ctx context.Context, env core.Env, email, passw
 			break
 		}
 		if cerr := ctx.Err(); cerr != nil {
-			return false, cerr
+			return true, errcode.Wrap(errcode.NPMSetupFailed, cerr, deployCancelledWait)
 		}
 		if !env.Clock.Now().Before(deadline) {
-			return false, deploySetupFailed(ctx, err, fmt.Sprintf("did not answer within %s", deployReady))
+			return true, deploySetupFailed(ctx, err, fmt.Sprintf("did not answer within %s", deployReady))
 		}
 		if err := deploySleep(ctx, env.Clock, deployPoll); err != nil {
-			return false, err
+			return true, errcode.Wrap(errcode.NPMSetupFailed, err, deployCancelledWait)
 		}
 	}
 	if err := api.CreateAdmin(ctx, email, password); err != nil {
+		if cerr := ctx.Err(); cerr != nil {
+			return true, errcode.Wrap(errcode.NPMSetupFailed, cerr,
+				"the deploy was cancelled before Nginx Proxy Manager answered the creation of the administrator")
+		}
 		var answer *npmapi.APIError
-		return npmapi.IsClientError(err) && errors.As(err, &answer) && answer.Status != 400 && ctx.Err() == nil,
-			deploySetupFailed(ctx, err, "did not create the administrator")
+		return !errors.As(err, &answer) || answer.Status != 400, deploySetupFailed(ctx, err, "did not create the administrator")
 	}
 	health, err := api.Health(ctx)
 	if err != nil {

@@ -169,19 +169,22 @@ image if the host lacks it, creates the network and the volumes, starts the
 container, waits up to 120 seconds for NPM to answer, creates the administrator
 and proves that its login works.
 
-If the administrator cannot be created for any reason but an existing
-administrator, the change fails with `npm.setup_failed`: the container runs and
-the administrator may exist. Run `darkpanel change undo <id>`. The undo removes
-the container, both volumes and the network, and forgets the instance. Then
-deploy again.
+If NPM answers the request that creates the administrator with status 400, or
+fails after it created the administrator, the change fails with
+`npm.setup_failed`: the container runs and the administrator may exist. Run
+`darkpanel change undo <id>`. The undo removes the container, both volumes and
+the network, and forgets the instance. Then deploy again.
 
-If NPM already has an administrator when the deploy reaches that step, or
-answers a 4xx status other than 400 to the request that creates the first one,
-the deploy treats it as another administrator having got there first. The deploy
-then removes the container, both volumes and the network it created, so that no
-instance keeps running under another administrator, and the change fails with
-`npm.setup_failed`. The message says whether the removal succeeded. Find out who
-can reach port 81 on the host, then deploy again. Do not undo the failed change:
+If NPM already has an administrator when the deploy reaches that step, does
+not answer within 120 seconds, answers the request that creates the first
+administrator with an error status other than 400, gives no answer to that
+request, or the change is cancelled before NPM answers it, the deploy cannot
+show that the administrator is its own. The deploy then removes the
+container, both volumes and the network it created, so that no instance keeps
+running under another administrator, and the change fails with
+`npm.setup_failed`. The message says whether the removal succeeded. If NPM
+already had an administrator or refused the creation, find out who can reach
+port 81 on the host. Then deploy again. Do not undo the failed change:
 what it created is already gone, so the undo ends in `needs_repair` and holds the
 change's locks. If you undid it, run `darkpanel change effects <id>`, then
 `darkpanel change resolve <id> accept --effect <n>` for each effect it lists as
@@ -328,7 +331,7 @@ an object of those names lacks the module's label.
 | `npm.not_public` | The instance is not deployed, or is not confirmed public: the confirmation is missing, and the Docker integration does not allow ports 80 and 443 from any source. | Open the ports, check them from outside, then run `npm instance confirm-public`. |
 | `npm.unsupported_target` | The container is not on a user-defined bridge network that you named. | Connect the container to a user-defined network, then plan again. |
 | `npm.reserved` | The change would touch an object that the admin or panel exposure owns, or point a proxy host at the local host, NPM's admin port or the panel network. `npm instance remove` gives the same code while an exposure reserves objects. Attaching NPM to a network, undoing a detach, and upgrading NPM give it while a proxy host or custom location forwards to an address NPM could take on that network; the message names the proxy host. | Change the object through its exposure, or remove the exposure first. For an attach, an undone detach or an upgrade, point the proxy host the message names at another address, or remove it. |
-| `npm.setup_failed` | The administrator could not be created: NPM did not answer within 120 seconds, already had an administrator, or did not create the administrator or accept its login. A deploy that found another administrator has already removed what it created. | Run `darkpanel change undo <id>`, which removes the container, both volumes and the network, then deploy again. If the deploy found another administrator, do not undo: deploy again, as the Deploy section says. |
+| `npm.setup_failed` | The administrator could not be created: NPM did not answer within 120 seconds, already had an administrator, refused or failed the creation, gave no answer to it, or did not accept the new administrator's login, or the change was cancelled first. When the message says the deploy removed what it created, the deploy could not show that NPM's administrator is its own. | If the message says the deploy removed what it created, do not undo: deploy again, as the Deploy section says. Otherwise run `darkpanel change undo <id>`, which removes the container, both volumes and the network, then deploy again. |
 | `npm.unhealthy` | The instance does not answer as expected. Among other causes: its container is missing or stopped, its API is unreachable, NPM refused the stored administrator's login, an upgrade's new container did not answer, or NPM's API could not list the proxy hosts that an attach, an undone detach or an upgrade checks first. | Read the message. Run `npm instance status`, start the container with the docker module if it stopped, and for a failed upgrade check that the original was restored. |
 | `derp.port_in_use` | A program listens on port 80 or 443, or a DERP server is installed on the host. | Stop the program, remove the DERP server, or use another host. |
 | `module.unavailable` | The host runs Docker older than 28.0, or the raw-table protection is not loaded. | Update Docker or load its protection, then plan again. |
