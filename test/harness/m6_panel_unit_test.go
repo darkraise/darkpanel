@@ -288,6 +288,15 @@ func TestM6pUnitCheckStatus(t *testing.T) {
 	}
 }
 
+func TestM6pUnitIPv6HTTPSRule(t *testing.T) {
+	if got, want := m6pIPv6HTTPSRule(true), "sudo ufw allow proto tcp from ::/0 to any port 443"; got != want {
+		t.Errorf("m6pIPv6HTTPSRule(true) = %q, want %q", got, want)
+	}
+	if got, want := m6pIPv6HTTPSRule(false), "sudo ufw delete allow proto tcp from ::/0 to any port 443"; got != want {
+		t.Errorf("m6pIPv6HTTPSRule(false) = %q, want %q", got, want)
+	}
+}
+
 func TestM6pUnitAgentPortCommand(t *testing.T) {
 	if got, want := m6pAgentPortCommand(), "sudo ufw allow 7443/tcp"; got != want {
 		t.Errorf("m6pAgentPortCommand = %q, want %q", got, want)

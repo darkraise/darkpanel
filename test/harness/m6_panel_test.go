@@ -402,6 +402,18 @@ func m6pListening(out, addr string) bool {
 	return false
 }
 
+// m6pIPv6HTTPSRule adds, or deletes, a ufw rule that admits HTTPS from every
+// IPv6 source. NPM's networks are IPv4 only, so Docker's userland proxy serves
+// its published port on [::]:443 as a socket of the host: an IPv6 client goes
+// through ufw's INPUT rules, which deny it by default, while an IPv4 client is
+// forwarded by Docker's DNAT around them.
+func m6pIPv6HTTPSRule(add bool) string {
+	if add {
+		return "sudo ufw allow proto tcp from ::/0 to any port 443"
+	}
+	return "sudo ufw delete allow proto tcp from ::/0 to any port 443"
+}
+
 // m6pAgentPortCommand admits the controller's agent port on every interface
 // of its host. Provisioning admits it only on dppriv, but under the loose
 // rp_filter the distributions default to, firewall.lockout checks the agent
@@ -835,6 +847,12 @@ func (r *m6pRun) ipv6Client(t *testing.T) {
 	f := r.f
 	m3dAddSource(r.ctx, t, f.scanner, netip.MustParsePrefix(m6pULAScanner+"/64"), m3dTrafficIface)
 	m3dAddSource(r.ctx, t, f.controller, netip.MustParsePrefix(m6pULATarget+"/64"), m3dTrafficIface)
+	m3Run(r.ctx, t, f.controller, m6pIPv6HTTPSRule(true))
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		_, _ = f.controller.Run(ctx, m6pIPv6HTTPSRule(false))
+	})
 	err := eventually(r.ctx, 30*time.Second, func(ctx context.Context) error {
 		out, err := f.controller.Run(ctx, m3dxShell("ping", "-6", "-c", "1", "-W", "2", m6pULAScanner))
 		if err != nil {
