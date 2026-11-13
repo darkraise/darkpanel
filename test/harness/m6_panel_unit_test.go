@@ -15,6 +15,7 @@ import (
 
 	"github.com/darkraise/darkpanel/internal/controller/auth"
 	"github.com/darkraise/darkpanel/internal/controller/coreactions"
+	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/modules/panel"
 )
 
@@ -419,5 +420,34 @@ func TestM6pUnitCurlCode(t *testing.T) {
 	}
 	if get := m6pCurlCode("2001:db8:d0::20", "2001:db8:d0::10", "GET", "/healthz", ""); strings.Contains(get, "--data") || strings.Contains(get, "Content-Type") {
 		t.Errorf("a GET without a body sends one: %q", get)
+	}
+}
+
+func TestM6pUnitBodyAndCode(t *testing.T) {
+	body, code, err := m6pBodyAndCode("{\"csrfToken\":\"abc\"}\n200")
+	if err != nil || body != `{"csrfToken":"abc"}` || code != "200" {
+		t.Errorf("m6pBodyAndCode = %q, %q, %v; want the body and 200", body, code, err)
+	}
+	if _, _, err := m6pBodyAndCode(""); err == nil {
+		t.Error("m6pBodyAndCode of no output succeeded, want an error")
+	}
+}
+
+func TestM6pUnitHiddenGuard(t *testing.T) {
+	refused := []core.Guard{{ID: "firewall.lockout", OK: false, Message: "the change would cut exposure c1 hidden client from fd00:d0::-fd00:d0::f to [2001:db8:d0::10]:443 on dpinet: drop"}}
+	if err := m6pHiddenGuard(refused, false); err != nil {
+		t.Errorf("a refusal of the hidden client: %v, want it accepted", err)
+	}
+	if err := m6pHiddenGuard([]core.Guard{{ID: "firewall.lockout", OK: true}}, false); err == nil {
+		t.Error("a passing guard where a refusal was due: accepted, want an error")
+	}
+	if err := m6pHiddenGuard([]core.Guard{{ID: "firewall.lockout", OK: false, Message: "the change would cut ssh: drop"}}, false); err == nil {
+		t.Error("a refusal of another flow: accepted, want an error")
+	}
+	if err := m6pHiddenGuard([]core.Guard{{ID: "firewall.lockout", OK: true}}, true); err != nil {
+		t.Errorf("a passing guard where one was due: %v, want it accepted", err)
+	}
+	if err := m6pHiddenGuard(nil, true); err == nil {
+		t.Error("no firewall.lockout guard: accepted, want an error")
 	}
 }

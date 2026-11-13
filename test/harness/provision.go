@@ -20,11 +20,21 @@ apt_get() { apt-get -o DPkg::Lock::Timeout=600 -y "$@"; }
 `
 
 // fetchFunc downloads a pinned .deb into $pkgdir and checks its SHA-256. A
-// pinned file that has left its repository fails with the spec's message
-// instead of letting apt pick another version.
+// pinned file that has left its repository (404 or 410) fails with the spec's
+// message instead of letting apt pick another version; any other failure names
+// curl's exit status and the HTTP status, so an outage is not read as a stale
+// pin.
 const fetchFunc = `fetch() {
-  if ! curl -fsL --retry 3 -o "$pkgdir/$1.deb" "$3"; then
-    echo "pinned package $1=$2 missing; update the harness pins" >&2
+  if status=$(curl -fsSL --retry 3 -w '%{http_code}' -o "$pkgdir/$1.deb" "$3"); then
+    rc=0
+  else
+    rc=$?
+  fi
+  if [ "$rc" -ne 0 ]; then
+    case "$status" in
+    404 | 410) echo "pinned package $1=$2 missing; update the harness pins" >&2 ;;
+    *) echo "could not download pinned package $1=$2 (curl exit $rc, HTTP ${status:-000})" >&2 ;;
+    esac
     exit 1
   fi
   got=$(sha256sum "$pkgdir/$1.deb" | cut -d' ' -f1)

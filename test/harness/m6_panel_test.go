@@ -219,6 +219,40 @@ func m6pCurlCode(src, dst, method, path, body string) string {
 	return m3dxShell(args...) + " || true"
 }
 
+// m6pBodyAndCode splits the output of curl -w '\n%{http_code}' into the body
+// and the status curl printed on the last line.
+func m6pBodyAndCode(out string) (body, code string, err error) {
+	out = strings.TrimRight(out, "\n")
+	if strings.TrimSpace(out) == "" {
+		return "", "", errors.New("harness: curl printed no status")
+	}
+	i := strings.LastIndexByte(out, '\n')
+	if i < 0 {
+		return "", out, nil
+	}
+	return out[:i], out[i+1:], nil
+}
+
+// m6pHiddenGuard checks the firewall.lockout guard of a plan: with wantOK it
+// must pass; otherwise it must refuse for the hidden client NPM names by a
+// host address, whose cells start at the ULA prefix of the probe.
+func m6pHiddenGuard(guards []core.Guard, wantOK bool) error {
+	i := slices.IndexFunc(guards, func(g core.Guard) bool { return g.ID == "firewall.lockout" })
+	if i < 0 {
+		return errors.New("harness: the plan reports no firewall.lockout guard")
+	}
+	g := guards[i]
+	switch {
+	case wantOK && !g.OK:
+		return fmt.Errorf("harness: firewall.lockout refused a change that keeps the hidden client: %s", g.Message)
+	case !wantOK && g.OK:
+		return errors.New("harness: firewall.lockout passed a change that cuts the hidden client")
+	case !wantOK && !strings.Contains(g.Message, " hidden client from fd00:d0::"):
+		return fmt.Errorf("harness: firewall.lockout refused, but not for the hidden client: %s", g.Message)
+	}
+	return nil
+}
+
 // m6pReply is the line m6pClientScript prints.
 type m6pReply struct {
 	Status int    `json:"status"`
@@ -667,6 +701,7 @@ func TestM6Panel(t *testing.T) {
 		{"expose", true, r.expose},
 		{"login", true, r.login},
 		{"ipv6-client", false, r.ipv6Client},
+		{"ipv6-client-guard", false, r.ipv6ClientGuard},
 		{"banner", false, r.banner},
 		{"spoofed-clients", false, r.spoofedClients},
 		{"plain-http", false, r.plainHTTP},
@@ -884,6 +919,79 @@ func (r *m6pRun) ipv6Client(t *testing.T) {
 	}
 	sources, _ := m6pLoginSources(list.Entries, m6pUserULA)
 	t.Logf("harness: outcome host-address: the audit log records the login of %s from %q", m6pUserULA, sources)
+}
+
+// ipv6ClientGuard: an admin session opened from the scanner's ULA source,
+// which NPM names by a host address, plans a rule that would drop that source's
+// HTTPS and one that would not. The guard must refuse the first for the hidden
+// client and pass the second. Nothing is applied.
+func (r *m6pRun) ipv6ClientGuard(t *testing.T) {
+	f := r.f
+	const jar = "/tmp/m6p-ula.jar"
+	m3dAddSource(r.ctx, t, f.scanner, netip.MustParsePrefix(m6pULAScanner+"/64"), m3dTrafficIface)
+	m3dAddSource(r.ctx, t, f.controller, netip.MustParsePrefix(m6pULATarget+"/64"), m3dTrafficIface)
+	m3Run(r.ctx, t, f.controller, m6pIPv6HTTPSRule(true))
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		_, _ = f.controller.Run(ctx, m6pIPv6HTTPSRule(false))
+		_, _ = f.scanner.Run(ctx, m3dxShell("rm", "-f", jar))
+	})
+	send := func(path string, cookies []string, header []string, body any) (string, string) {
+		t.Helper()
+		raw, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		args := []string{"curl", "-sk", "--max-time", "30", "--interface", m6pULAScanner,
+			"--resolve", m6pHost + ":443:[" + m6pULATarget + "]", "-w", "\n%{http_code}", "-X", http.MethodPost,
+			"-H", "Content-Type: application/json"}
+		args = append(args, cookies...)
+		args = append(args, header...)
+		args = append(args, "--data-raw", string(raw), "https://"+m6pHost+path)
+		answer, code, err := m6pBodyAndCode(m3Run(r.ctx, t, f.scanner, m3dxShell(args...)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return answer, code
+	}
+	login := map[string]string{"username": adminName, "password": f.password, "code": nextCode(r.ctx, t, f)}
+	answer, code := send("/api/v1/auth/login", []string{"-c", jar}, nil, login)
+	if code != "200" {
+		t.Fatalf("harness: the admin login from %s to [%s] answered %s", m6pULAScanner, m6pULATarget, code)
+	}
+	var session struct {
+		CSRFToken string `json:"csrfToken"`
+	}
+	if err := json.Unmarshal([]byte(answer), &session); err != nil || session.CSRFToken == "" {
+		t.Fatalf("harness: the admin login answered no CSRF token: %v", err)
+	}
+	path, err := actionPath(f.localID, "firewall.rule.add/v1", "plan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := func(input map[string]any) []core.Guard {
+		t.Helper()
+		answer, code := send(path, []string{"-b", jar}, []string{"-H", "X-CSRF-Token: " + session.CSRFToken}, map[string]any{"input": input})
+		if code != "200" {
+			t.Fatalf("harness: the plan of firewall.rule.add answered %s: %s", code, answer)
+		}
+		var p struct {
+			Guards []core.Guard `json:"guards"`
+		}
+		if err := json.Unmarshal([]byte(answer), &p); err != nil {
+			t.Fatalf("harness: the plan of firewall.rule.add: %v", err)
+		}
+		return p.Guards
+	}
+	cut := map[string]any{"rule": model.Rule{Action: model.ActionDeny, Direction: model.DirIn, Proto: model.ProtoTCP,
+		From: "fd00:d0::/64", To: model.Any, ToPort: "443", Family: model.FamilyV6, Comment: "m6p ula"}}
+	if err := m6pHiddenGuard(plan(cut), false); err != nil {
+		t.Error(err)
+	}
+	if err := m6pHiddenGuard(plan(m3PortRule(8094)), true); err != nil {
+		t.Error(err)
+	}
 }
 
 // banner: panel.exposure.status, the banner's data, reports the exposure both

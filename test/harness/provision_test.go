@@ -5,6 +5,8 @@ package harness
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -103,10 +105,25 @@ func TestFetchChecksThePins(t *testing.T) {
 	if want := "pinned package docker-ce=1.0-1 has SHA-256 " + good + ", want " + wrong + "; update the harness pins"; err == nil || out != want {
 		t.Errorf("fetch with a wrong checksum: %v, %q; want a failure saying %q", err, out, want)
 	}
-	out, err = fetch("file://"+filepath.Join(src, "gone.deb"), good)
-	if want := "pinned package docker-ce=1.0-1 missing; update the harness pins"; err == nil || out != want {
-		t.Errorf("fetch of a missing package: %v, %q; want a failure saying %q", err, out, want)
+	gone := httptest.NewServer(http.NotFoundHandler())
+	defer gone.Close()
+	out, err = fetch(gone.URL+"/docker-ce.deb", good)
+	if want := "pinned package docker-ce=1.0-1 missing; update the harness pins"; err == nil || lastLine(out) != want {
+		t.Errorf("fetch of a package its repository no longer has: %v, %q; want a failure ending %q", err, out, want)
 	}
+	out, err = fetch("http://127.0.0.1:1/docker-ce.deb", good)
+	if want := "could not download pinned package docker-ce=1.0-1 (curl exit 7, HTTP 000)"; err == nil || lastLine(out) != want {
+		t.Errorf("fetch from a server that is down: %v, %q; want a failure ending %q", err, out, want)
+	}
+	out, err = fetch("file://"+filepath.Join(src, "gone.deb"), good)
+	if want := "could not download pinned package docker-ce=1.0-1 (curl exit 37, HTTP 000)"; err == nil || lastLine(out) != want {
+		t.Errorf("fetch of a missing file: %v, %q; want a failure ending %q", err, out, want)
+	}
+}
+
+func lastLine(s string) string {
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	return lines[len(lines)-1]
 }
 
 func TestPullScript(t *testing.T) {
