@@ -58,6 +58,12 @@ const (
 	m6pUserAttached = "m6p-attached"
 	m6pUserPlain    = "m6p-plain"
 	m6pUserAfter    = "m6p-after"
+	m6pUserULA      = "m6p-ula"
+
+	// The unique local addresses of the IPv6 client probe, added beside the
+	// lab's own addresses on the traffic interface.
+	m6pULAScanner = "fd00:d0::20"
+	m6pULATarget  = "fd00:d0::10"
 
 	// m6pWrongPassword and m6pWrongCode are what every refused login sends.
 	m6pWrongPassword = "wrong-password-0000" //nolint:gosec // G101: a wrong password the test sends on purpose
@@ -132,6 +138,85 @@ func m6pCheckAudit(entries []coreactions.AuditEntry, want map[string]string, abs
 		}
 	}
 	return nil
+}
+
+// m6pHostAddrs returns the local member of every addr_info entry of raw, the
+// output of ip -j addr show, in order.
+func m6pHostAddrs(raw []byte) ([]string, error) {
+	var ifaces []struct {
+		AddrInfo []struct {
+			Local string `json:"local"`
+		} `json:"addr_info"`
+	}
+	if err := json.Unmarshal(raw, &ifaces); err != nil {
+		return nil, fmt.Errorf("harness: the output of ip -j addr show: %w", err)
+	}
+	var addrs []string
+	for _, i := range ifaces {
+		for _, a := range i.AddrInfo {
+			addrs = append(addrs, a.Local)
+		}
+	}
+	return addrs, nil
+}
+
+// m6pLoginSources returns the sources of the login rows of entries whose
+// input names user.
+func m6pLoginSources(entries []coreactions.AuditEntry, user string) ([]string, error) {
+	var sources []string
+	for _, e := range entries {
+		if e.Action != auth.AuditLoginAction {
+			continue
+		}
+		var in struct {
+			Username string `json:"username"`
+		}
+		if err := json.Unmarshal([]byte(e.Input), &in); err != nil {
+			return nil, fmt.Errorf("harness: the input %.80q of audit entry %s: %w", e.Input, e.ID, err)
+		}
+		if in.Username != user {
+			continue
+		}
+		src := ""
+		if e.Source != nil {
+			src = *e.Source
+		}
+		sources = append(sources, src)
+	}
+	return sources, nil
+}
+
+// m6pHiddenClient passes when the audit log records a login of user from an
+// address of the controller's host via proxy: the client NPM names when
+// Docker's userland proxy carries an IPv6 client to it.
+func m6pHiddenClient(entries []coreactions.AuditEntry, user, proxy string, host []string) error {
+	sources, err := m6pLoginSources(entries, user)
+	if err != nil {
+		return err
+	}
+	if len(sources) == 0 {
+		return fmt.Errorf("harness: outcome no-request: the audit log holds no login of %s; the probe is inconclusive", user)
+	}
+	for _, src := range sources {
+		addr, via, ok := strings.Cut(src, " via ")
+		if ok && via == proxy && slices.Contains(host, addr) {
+			return nil
+		}
+	}
+	return fmt.Errorf("harness: outcome other-address: the audit log records %q for %s, not an address of the controller's host via %s; stop the plan and return row 6 to the owner", sources[0], user, proxy)
+}
+
+// m6pCurlCode is a command for the scanner that prints only the HTTP status
+// curl got from https://m6pHost<path> resolved to [dst]:443, sent from src.
+// A refused connection prints 000.
+func m6pCurlCode(src, dst, method, path, body string) string {
+	args := []string{"curl", "-sk", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "15",
+		"--interface", src, "--resolve", m6pHost + ":443:[" + dst + "]", "-X", method}
+	if body != "" {
+		args = append(args, "-H", "Content-Type: application/json", "--data-raw", body)
+	}
+	args = append(args, "https://"+m6pHost+path)
+	return m3dxShell(args...) + " || true"
 }
 
 // m6pReply is the line m6pClientScript prints.
@@ -569,6 +654,7 @@ func TestM6Panel(t *testing.T) {
 		{"public", true, r.public},
 		{"expose", true, r.expose},
 		{"login", true, r.login},
+		{"ipv6-client", false, r.ipv6Client},
 		{"banner", false, r.banner},
 		{"spoofed-clients", false, r.spoofedClients},
 		{"plain-http", false, r.plainHTTP},
@@ -739,6 +825,47 @@ func (r *m6pRun) login(t *testing.T) {
 	if err := r.x.Login(r.ctx, adminName, f.password, nextCode(r.ctx, t, f)); err != nil {
 		t.Fatalf("the admin's login through the exposure: %v", err)
 	}
+}
+
+// ipv6Client sends a refused login over IPv6 from a unique local address of
+// the scanner to one of the controller's host, and reads which client the
+// audit log records for it. Docker's userland proxy carries an IPv6 client to
+// NPM, so NPM names the client by an address of the controller's host.
+func (r *m6pRun) ipv6Client(t *testing.T) {
+	f := r.f
+	m3dAddSource(r.ctx, t, f.scanner, netip.MustParsePrefix(m6pULAScanner+"/64"), m3dTrafficIface)
+	m3dAddSource(r.ctx, t, f.controller, netip.MustParsePrefix(m6pULATarget+"/64"), m3dTrafficIface)
+	err := eventually(r.ctx, 30*time.Second, func(ctx context.Context) error {
+		out, err := f.controller.Run(ctx, m3dxShell("ping", "-6", "-c", "1", "-W", "2", m6pULAScanner))
+		if err != nil {
+			return fmt.Errorf("%w\n%s", err, out)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("harness: outcome no-request: the controller's host cannot reach %s: %v", m6pULAScanner, err)
+	}
+	if code := strings.TrimSpace(m3Run(r.ctx, t, f.scanner, m6pCurlCode(scannerIPv6, targetIPv6, http.MethodGet, "/healthz", ""))); code != "200" {
+		t.Fatalf("harness: outcome no-request: GET https://%s/healthz from %s to [%s] answered %q, want 200", m6pHost, scannerIPv6, targetIPv6, code)
+	}
+	login := m6pCurlCode(m6pULAScanner, m6pULATarget, http.MethodPost, "/api/v1/auth/login", string(m6pLoginBody(m6pUserULA)))
+	if code := strings.TrimSpace(m3Run(r.ctx, t, f.scanner, login)); code != "401" {
+		t.Fatalf("harness: outcome no-request: the login from %s to [%s] answered %q, want 401", m6pULAScanner, m6pULATarget, code)
+	}
+	var list coreactions.AuditList
+	in := coreactions.AuditListInput{Action: auth.AuditLoginAction, Limit: coreactions.MaxAuditLimit}
+	if err := f.api.Read(r.ctx, "", "core.audit.list/v1", in, &list); err != nil {
+		t.Fatal(err)
+	}
+	host, err := m6pHostAddrs([]byte(m3Run(r.ctx, t, f.controller, "ip -j addr show")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m6pHiddenClient(list.Entries, m6pUserULA, r.out.Proxy.String(), host); err != nil {
+		t.Fatal(err)
+	}
+	sources, _ := m6pLoginSources(list.Entries, m6pUserULA)
+	t.Logf("harness: outcome host-address: the audit log records the login of %s from %q", m6pUserULA, sources)
 }
 
 // banner: panel.exposure.status, the banner's data, reports the exposure both

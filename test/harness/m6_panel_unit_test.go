@@ -7,11 +7,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/darkraise/darkpanel/internal/controller/auth"
 	"github.com/darkraise/darkpanel/internal/controller/coreactions"
 	"github.com/darkraise/darkpanel/internal/modules/panel"
 )
@@ -347,5 +349,66 @@ func TestM6pUnitForwardedProtoLine(t *testing.T) {
 		if err := m6pForwardedProtoLine(tc.out); (err != nil) != tc.err {
 			t.Errorf("%s: m6pForwardedProtoLine = %v, want error %v", tc.name, err, tc.err)
 		}
+	}
+}
+
+func TestM6pUnitHostAddrs(t *testing.T) {
+	raw := []byte(`[{"ifname":"lo","addr_info":[{"family":"inet","local":"127.0.0.1"},{"family":"inet6","local":"::1"}]},` +
+		`{"ifname":"dpinet","addr_info":[{"family":"inet","local":"198.18.0.10"},{"family":"inet6","local":"2001:db8:d0::10"},{"family":"inet6","local":"fd00:d0::10"}]},` +
+		`{"ifname":"darkpanel-npm","addr_info":[{"family":"inet","local":"172.20.0.1"}]}]`)
+	got, err := m6pHostAddrs(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"127.0.0.1", "::1", "198.18.0.10", "2001:db8:d0::10", "fd00:d0::10", "172.20.0.1"}
+	if !slices.Equal(got, want) {
+		t.Errorf("m6pHostAddrs = %q, want %q", got, want)
+	}
+	if _, err := m6pHostAddrs([]byte("not json")); err == nil {
+		t.Error("m6pHostAddrs of text that is not JSON succeeded, want an error")
+	}
+}
+
+func TestM6pUnitHiddenClient(t *testing.T) {
+	login := func(user, source string) coreactions.AuditEntry {
+		return coreactions.AuditEntry{ID: "e-" + user, Action: auth.AuditLoginAction, Input: coreactions.AuditInput(`{"username":"` + user + `"}`), Source: &source}
+	}
+	host := []string{"127.0.0.1", "198.18.0.10", "172.20.0.1"}
+	const proxy = "172.21.0.2"
+	for _, tc := range []struct {
+		name    string
+		entries []coreactions.AuditEntry
+		want    string // "" when the probe passes
+	}{
+		{"a host address", []coreactions.AuditEntry{login(m6pUserULA, "172.20.0.1 via "+proxy)}, ""},
+		{"a host address among other logins", []coreactions.AuditEntry{login(m6pUserPublic, "198.18.0.20 via "+proxy), login(m6pUserULA, "198.18.0.10 via "+proxy)}, ""},
+		{"the real client", []coreactions.AuditEntry{login(m6pUserULA, "fd00:d0::20 via "+proxy)},
+			`harness: outcome other-address: the audit log records "fd00:d0::20 via 172.21.0.2" for m6p-ula, not an address of the controller's host via 172.21.0.2; stop the plan and return row 6 to the owner`},
+		{"a host address through another proxy", []coreactions.AuditEntry{login(m6pUserULA, "172.20.0.1 via 172.21.0.9")},
+			`harness: outcome other-address: the audit log records "172.20.0.1 via 172.21.0.9" for m6p-ula, not an address of the controller's host via 172.21.0.2; stop the plan and return row 6 to the owner`},
+		{"no login of the user", []coreactions.AuditEntry{login(m6pUserPublic, "198.18.0.20 via "+proxy)},
+			"harness: outcome no-request: the audit log holds no login of m6p-ula; the probe is inconclusive"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := m6pHiddenClient(tc.entries, m6pUserULA, proxy, host)
+			switch {
+			case tc.want == "" && err != nil:
+				t.Errorf("m6pHiddenClient = %v, want nil", err)
+			case tc.want != "" && (err == nil || err.Error() != tc.want):
+				t.Errorf("m6pHiddenClient = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestM6pUnitCurlCode(t *testing.T) {
+	cmd := m6pCurlCode("fd00:d0::20", "fd00:d0::10", "POST", "/api/v1/auth/login", `{"username":"m6p-ula"}`)
+	for _, part := range []string{"curl", "--interface", "fd00:d0::20", "panel.example.test:443:[fd00:d0::10]", "https://panel.example.test/api/v1/auth/login", "%{http_code}", "POST", `"username":"m6p-ula"`} {
+		if !strings.Contains(cmd, part) {
+			t.Errorf("command %q lacks %q", cmd, part)
+		}
+	}
+	if get := m6pCurlCode("2001:db8:d0::20", "2001:db8:d0::10", "GET", "/healthz", ""); strings.Contains(get, "--data") || strings.Contains(get, "Content-Type") {
+		t.Errorf("a GET without a body sends one: %q", get)
 	}
 }
