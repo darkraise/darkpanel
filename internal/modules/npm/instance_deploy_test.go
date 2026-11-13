@@ -683,14 +683,21 @@ func TestDpApplyFailsAtEachStep(t *testing.T) {
 
 func TestDpBootstrap(t *testing.T) {
 	ctx := context.Background()
-	failed := func(t *testing.T, h *thHost, err error) *errcode.Error {
+	// kept is whether the deploy leaves its objects for the operator to undo, rather than removing them itself.
+	failed := func(t *testing.T, h *thHost, err error, kept bool) *errcode.Error {
 		t.Helper()
 		var coded *errcode.Error
 		if err == nil || !errors.As(err, &coded) || coded.Code != errcode.NPMSetupFailed {
 			t.Fatalf("error %v, want npm.setup_failed", err)
 		}
 		if core.IsDefinite(err) {
-			t.Error("a failed bootstrap is Definite: the container runs and the administrator may exist")
+			t.Error("a failed bootstrap is Definite: effects of the deploy were made")
+		}
+		if _, container := h.docker.container(containerName); container != kept {
+			t.Errorf("the container is present: %t, want %t", container, kept)
+		}
+		if removed := strings.Contains(coded.Detail, "the deploy removed what it created"); removed == kept {
+			t.Errorf("detail %q says the deploy removed its objects: %t, want %t", coded.Detail, removed, !kept)
 		}
 		if strings.Contains(err.Error(), dpPassword) || strings.Contains(coded.Detail, dpPassword) {
 			t.Error("the error holds the password")
@@ -701,7 +708,7 @@ func TestDpBootstrap(t *testing.T) {
 		}
 		for i, e := range effs[:5] {
 			if e.State != core.EffectMade {
-				t.Errorf("effect %d is %s, want made: the operator undoes them", i+1, e.State)
+				t.Errorf("effect %d is %s, want made: the journal keeps what the deploy did", i+1, e.State)
 			}
 		}
 		if effs[5].State != core.EffectIntended {
@@ -719,17 +726,19 @@ func TestDpBootstrap(t *testing.T) {
 		name   string
 		fail   func(h *thHost)
 		detail string
+		kept   bool
 	}{
-		{"the user is refused", func(h *thHost) { h.npm.Fail(http.MethodPost, "/api/users", fake.Fault{Status: 500}) }, "(HTTP 500)"},
-		{"the user answer is lost", func(h *thHost) { h.npm.Fail(http.MethodPost, "/api/users", fake.Fault{AfterCommit: true}) }, ""},
-		{"the token is refused", func(h *thHost) { h.npm.Fail(http.MethodPost, "/api/tokens", fake.Fault{Status: 503}) }, "(HTTP 503)"},
-		{"an administrator already exists", func(h *thHost) { h.npm.SeedAdmin("someone@darkpanel.dev", "another-password-0123456789") }, ""},
+		{"the user is refused", func(h *thHost) { h.npm.Fail(http.MethodPost, "/api/users", fake.Fault{Status: 500}) }, "(HTTP 500)", false},
+		{"the user is a bad request", func(h *thHost) { h.npm.Fail(http.MethodPost, "/api/users", fake.Fault{Status: 400}) }, "(HTTP 400)", true},
+		{"the user answer is lost", func(h *thHost) { h.npm.Fail(http.MethodPost, "/api/users", fake.Fault{AfterCommit: true}) }, "", false},
+		{"the token is refused", func(h *thHost) { h.npm.Fail(http.MethodPost, "/api/tokens", fake.Fault{Status: 503}) }, "(HTTP 503)", true},
+		{"an administrator already exists", func(h *thHost) { h.npm.SeedAdmin("someone@darkpanel.dev", "another-password-0123456789") }, "", false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			h := newTHHost(t)
 			c.fail(h)
 			_, err := dpApply(h, h.nm(), "c1")
-			coded := failed(t, h, err)
+			coded := failed(t, h, err, c.kept)
 			if !strings.Contains(coded.Detail, c.detail) {
 				t.Errorf("detail %q, want it to say %q", coded.Detail, c.detail)
 			}
@@ -739,7 +748,7 @@ func TestDpBootstrap(t *testing.T) {
 		h := newTHHost(t)
 		h.npm.SeedAdmin("someone@darkpanel.dev", "another-password-0123456789")
 		_, err := dpApply(h, h.nm(), "c1")
-		_ = failed(t, h, err)
+		_ = failed(t, h, err, false)
 		for _, r := range h.npm.Requests() {
 			if r.Method == http.MethodPost {
 				t.Errorf("NPM was sent %s %s", r.Method, r.Path)
@@ -770,7 +779,7 @@ func TestDpBootstrap(t *testing.T) {
 		n, _ := dpFlaky(h, -1)
 		var err error
 		dpDrive(t, h, deployPoll, func() { _, err = dpApply(h, n, "c1") })
-		coded := failed(t, h, err)
+		coded := failed(t, h, err, false)
 		if !strings.Contains(coded.Detail, "(HTTP 502)") || !strings.Contains(coded.Detail, deployReady.String()) {
 			t.Errorf("detail %q, want the last status and the wait", coded.Detail)
 		}
@@ -797,9 +806,11 @@ func TestDpBootstrap(t *testing.T) {
 			}
 		}
 		cancel()
-		if err := <-errc; !errors.Is(err, context.Canceled) {
+		err := <-errc
+		if !errors.Is(err, context.Canceled) {
 			t.Errorf("error %v, want the cancellation", err)
 		}
+		_ = failed(t, h, err, false)
 		if h.clock.Pending() != 0 {
 			t.Error("a timer is still armed")
 		}

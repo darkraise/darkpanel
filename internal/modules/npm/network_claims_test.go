@@ -1134,4 +1134,16 @@ func TestW12aUndoOfADetachRefusesAForwardedAddress(t *testing.T) {
 	if nwEndpoint(t, h, user.ID) != nil {
 		t.Error("the refused undo reconnected NPM")
 	}
+	// A repeat after a reconnect whose answer was lost finds NPM on the network and is done, whatever proxy hosts
+	// forward to.
+	if err := h.docker.ConnectNetwork(ctx, nwNet, containerName, nil); err != nil {
+		t.Fatal(err)
+	}
+	res, err := h.nm().networkDetach().Handler.Inverse(ctx, h.env("u1"), endpoint)
+	if err != nil {
+		t.Fatalf("the repeated undo with NPM on the network: %v, want done", err)
+	}
+	if want := resourceOf(nounEndpoint, nwNet); res.Resource != want {
+		t.Errorf("the repeated undo returned resource %q, want %q", res.Resource, want)
+	}
 }
