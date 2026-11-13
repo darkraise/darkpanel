@@ -65,7 +65,6 @@ type compositeRun struct {
 	hasProxied bool
 }
 
-// newCompositeRun is the run of a request made with ctx by p.
 func newCompositeRun(ctx context.Context, p core.Principal, opts core.ApplyOptions) *compositeRun {
 	run := &compositeRun{P: p, Opts: opts}
 	run.client, run.hasClient = core.ClientPeer(ctx)
@@ -73,7 +72,8 @@ func newCompositeRun(ctx context.Context, p core.Principal, opts core.ApplyOptio
 	return run
 }
 
-// stepContext is ctx with the requester's client and proxy path restored.
+// stepContext restores the requester's client and proxy path, which the run
+// context does not carry: a step's guard must see the request that started it.
 func (run *compositeRun) stepContext(ctx context.Context) context.Context {
 	if run.hasClient {
 		ctx = core.WithClientPeer(ctx, run.client)

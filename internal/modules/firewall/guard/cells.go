@@ -69,7 +69,11 @@ func (r *router) cellFlows(fl flow, before *fwstate.Loaded) []flow {
 	}
 	rules := flowRules(fl, rs, brs)
 	if limit, over := overCellLimit(len(cells), rules); over {
-		fl.unknown = fmt.Sprintf("the rules and routes split the internet into %d ranges for this flow; checking them against %d rules is more than the guard evaluates (limit %d)", len(cells), rules, limit)
+		space := "the internet"
+		if fl.unicast {
+			space = "the unicast address space"
+		}
+		fl.unknown = fmt.Sprintf("the rules and routes split %s into %d ranges for this flow; checking them against %d rules is more than the guard evaluates (limit %d)", space, len(cells), rules, limit)
 		return []flow{fl}
 	}
 	refused := slices.DeleteFunc(slices.Clone(routes.noPath), func(p netip.Prefix) bool {
@@ -95,7 +99,6 @@ func (r *router) cellFlows(fl flow, before *fwstate.Loaded) []flow {
 	return out
 }
 
-// hostAddrs are the host's own addresses of one family.
 func (r *router) hostAddrs(v6 bool) []netip.Addr {
 	var out []netip.Addr
 	for a := range r.local {

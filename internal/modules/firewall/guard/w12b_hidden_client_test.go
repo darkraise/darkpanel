@@ -140,7 +140,7 @@ func TestW12bHiddenClientOverTheCellLimitIsUnknown(t *testing.T) {
 	st := v1r21State(t, w11b09Nat+v1r21Table(v1r21Bans(2300, "FORWARD", " -d 172.30.0.2/32 -p tcp -m tcp --dport 443")...), v1r21Table())
 	before := st
 	g := w12bCheck(t, h, &before, st, "0.0.0.0:443", "172.30.0.1", "")
-	if g.OK || !strings.Contains(g.Message, "exposure exp1 hidden client: unknown (the rules and routes split") {
+	if g.OK || !strings.Contains(g.Message, "exposure exp1 hidden client: unknown (the rules and routes split the unicast address space into ") {
 		t.Errorf("guard = %+v, want the hidden-client flow unknown over the cell limit", g)
 	}
 }

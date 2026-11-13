@@ -66,7 +66,8 @@ type flow struct {
 }
 
 // flowSet collects flows in order without duplicates. Two flows with the
-// same packet are one flow, whichever label came first. It keeps every
+// same packet, wild end and source space are one flow, whichever label came
+// first. It keeps every
 // forwarded reply, as checking every reply only skips fewer cells.
 type flowSet struct {
 	flows []flow
