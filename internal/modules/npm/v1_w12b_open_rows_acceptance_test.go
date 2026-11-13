@@ -587,12 +587,42 @@ func a17Deploy(t *testing.T, ctx context.Context, end func(context.Context) erro
 	return coded
 }
 
+// a17Expiring is a context whose deadline passes when expire is called, so that the deadline falls inside the wait
+// however slow the setup before it runs.
+type a17Expiring struct {
+	context.Context
+	mu   sync.Mutex
+	done chan struct{}
+	err  error
+}
+
+func newA17Expiring() *a17Expiring {
+	return &a17Expiring{Context: context.Background(), done: make(chan struct{})}
+}
+
+func (c *a17Expiring) Done() <-chan struct{} { return c.done }
+
+func (c *a17Expiring) Err() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.err
+}
+
+func (c *a17Expiring) expire() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.err == nil {
+		c.err = context.DeadlineExceeded
+		close(c.done)
+	}
+}
+
 func TestA17_ADeployWhoseWaitPassedItsDeadlineSaysItRanOutOfTime(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
-	defer cancel()
-	coded := a17Deploy(t, ctx, func(ctx context.Context) error {
-		<-ctx.Done()
-		return ctx.Err()
+	ctx := newA17Expiring()
+	coded := a17Deploy(t, ctx, func(inner context.Context) error {
+		ctx.expire()
+		<-inner.Done()
+		return inner.Err()
 	})
 	const want = "the deploy ran out of time while it waited for Nginx Proxy Manager to start"
 	if !strings.Contains(coded.Detail, want) {
