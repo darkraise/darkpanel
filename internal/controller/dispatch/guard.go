@@ -25,8 +25,9 @@ type Topology struct {
 
 // guardContext is the guard context of a call now: the client peer the API
 // stored in ctx, the exposure path of a request that came through a runtime
-// listener, and the configured topology. A composite's children run on the
-// engine's context and so carry neither. Every address loses its
+// listener, and the configured topology. A composite's steps carry the client
+// and exposure path of the request that applied or repaired it, which the
+// engine keeps for them. Every address loses its
 // IPv6 zone: a zone names an interface of the controller, so it means nothing
 // on the agent's host and two addresses that differ only by zone must compare
 // equal. The topology's slices are copied, never changed. The context is
