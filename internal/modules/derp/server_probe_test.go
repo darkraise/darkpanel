@@ -632,24 +632,26 @@ func TestM3gProbeWarnsOnlyWhereTailscaleRuns(t *testing.T) {
 	const charlie = "the tailscale status of host charlie could not be read, so its node use is not reported"
 	type state struct {
 		enabled, available int
-		reason             any // nil stores NULL
+		reason             any    // nil stores NULL
+		module             string // "" is tailscale
 	}
 	cases := []struct {
 		name   string
-		state  *state // h3's core_module_state row for tailscale; nil for none
+		state  *state // h3's core_module_state row; nil for none
 		refuse error  // h3's answer to tailscale.status
 		read   bool   // whether the probe reads h3's tailscale.status
 		warned bool   // whether the warnings name charlie
 	}{
-		{"module disabled", &state{0, 1, nil}, errors.New("dpHost: no resource tailscale.status"), false, false},
-		{"module unavailable", &state{1, 0, "tailscale: the architecture 386 is not supported; amd64 or arm64 is needed"},
+		{"module disabled", &state{0, 1, nil, ""}, errors.New("dpHost: no resource tailscale.status"), false, false},
+		{"module unavailable", &state{1, 0, "tailscale: the architecture 386 is not supported; amd64 or arm64 is needed", ""},
 			errors.New("dpHost: no resource tailscale.status"), false, false},
 		{"agent lacks the module", nil, errcode.New(errcode.NotFound, "no resource tailscale.status"), true, false},
 		{"agent refuses the module", nil, errcode.New(errcode.ModuleUnavailable,
 			"module tailscale is unavailable: the module's agent migrations failed; see the service log"), true, false},
-		{"module usable, read fails", &state{1, 1, nil}, errors.New("dpHost: no resource tailscale.status"), true, true},
+		{"module usable, read fails", &state{1, 1, nil, ""}, errors.New("dpHost: no resource tailscale.status"), true, true},
+		{"another module disabled, read fails", &state{0, 1, nil, "docker"}, errors.New("dpHost: no resource tailscale.status"), true, true},
 		{"no state row, read fails", nil, errors.New("dpHost: no resource tailscale.status"), true, true},
-		{"tailscaled does not answer", &state{1, 1, nil},
+		{"tailscaled does not answer", &state{1, 1, nil, ""},
 			errcode.New(errcode.TailscaleUnavailable, "tailscaled does not answer on its socket"), true, true},
 	}
 	for _, c := range cases {
@@ -658,10 +660,14 @@ func TestM3gProbeWarnsOnlyWhereTailscaleRuns(t *testing.T) {
 			h.tailnet = false
 			pbNodeWorld(h)
 			if c.state != nil {
+				module := c.state.module
+				if module == "" {
+					module = tailscale.ID
+				}
 				if _, err := h.ctlDB.Writer().ExecContext(context.Background(),
 					`INSERT INTO core_module_state (host_id, module_id, enabled, available, reason, checked_at)
 					 VALUES ('h3', ?, ?, ?, ?, ?)`,
-					tailscale.ID, c.state.enabled, c.state.available, c.state.reason, storeTime(h.clock.Now())); err != nil {
+					module, c.state.enabled, c.state.available, c.state.reason, storeTime(h.clock.Now())); err != nil {
 					t.Fatal(err)
 				}
 			}
