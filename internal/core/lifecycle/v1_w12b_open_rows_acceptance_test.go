@@ -226,6 +226,8 @@ func TestA6_TheCompositesRowsHoldNeitherTheClientNorTheExposurePath(t *testing.T
 	if done := f.await(v.ID, core.StateCompleted, core.StateReverted, core.StateFailed, core.StateNeedsRepair); done.State != core.StateCompleted {
 		t.Fatalf("composite = %s, want completed", done.State)
 	}
+	// Close waits for the run goroutine, which may still be recording when the change turns completed.
+	f.ctrl.Close()
 	for _, table := range []string{"core_composites", "core_composite_steps"} {
 		for _, s := range []string{"198.51.100.7", "exp9", "listener", "proxy_addr", "ProxyAddr"} {
 			if a6Holds(t, f, table, s) {
