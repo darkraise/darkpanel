@@ -3,7 +3,12 @@ package docker
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"io/fs"
+	"net/url"
 	"reflect"
 	"strings"
 	"testing"
@@ -651,5 +656,69 @@ func TestCCPrepareChecksTheShadowPluginDirectories(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+const (
+	w12bMarker      = "w12bsecretmarker"
+	w12bImageConfig = `{"name":"shop","services":{"web":{"build":{"context":"/srv/shop"},"image":"reg.example/` + w12bMarker + `/web"}}}`
+	w12bVolConfig   = `{"name":"shop","volumes":{"data":{"name":"vol-` + w12bMarker + `"}},"services":{"web":{"image":"nginx:1.27","volumes":[{"type":"volume","source":"data","target":"/d"}]}}}`
+	w12bNetConfig   = `{"name":"shop","networks":{"edge":{"name":"net-` + w12bMarker + `","external":true}},"services":{"web":{"image":"nginx:1.27","networks":{"edge":null}}}}`
+)
+
+func TestW12bValidationErrorsCarryNoConfigurationValue(t *testing.T) {
+	var decodeErr error
+	{
+		var v struct{}
+		decodeErr = json.Unmarshal([]byte("{"), &v)
+	}
+	transport := &url.Error{Op: "Get", URL: "http://docker/images/reg.example/" + w12bMarker + "/web/json", Err: io.ErrUnexpectedEOF}
+	for _, tc := range []struct {
+		name, config, method string
+		fail                 error
+		code                 errcode.Code
+		detail               string
+	}{
+		{"an HTTP error answer while an image is checked", w12bImageConfig, "InspectImage",
+			&dockerapi.APIError{StatusCode: 500, Message: "reg.example/" + w12bMarker + "/web: server error"},
+			errcode.Unavailable, "the Docker Engine answered HTTP 500 while checking the image of web"},
+		{"an answer that does not decode while an image is checked", w12bImageConfig, "InspectImage",
+			fmt.Errorf("dockerapi: decode GET /images/reg.example/%s/web/json: %w", w12bMarker, decodeErr),
+			errcode.Unavailable, "the Docker Engine gave an answer that did not decode while checking the image of web"},
+		{"a transport failure while an image is checked", w12bImageConfig, "InspectImage",
+			fmt.Errorf("dockerapi: GET /images/reg.example/%s/web/json: %w", w12bMarker, transport),
+			errcode.DockerEngineUnavailable, "the Docker Engine is not reachable"},
+		{"an unreachable engine while a volume is checked", w12bVolConfig, "InspectVolume",
+			fmt.Errorf("dockerapi: GET /volumes/vol-%s: %w", w12bMarker, dockerapi.ErrUnavailable),
+			errcode.DockerEngineUnavailable, "the Docker Engine is not reachable"},
+		{"an HTTP error answer while a volume is checked", w12bVolConfig, "InspectVolume",
+			&dockerapi.APIError{StatusCode: 500, Message: "vol-" + w12bMarker + ": server error"},
+			errcode.Unavailable, "the Docker Engine answered HTTP 500 while checking the volume of data"},
+		{"an HTTP error answer while an unnamed volume is checked", `{"name":"shop","volumes":{"data":{}},"services":{"web":{"image":"nginx:1.27","volumes":[{"type":"volume","source":"data","target":"/d"}]}}}`, "InspectVolume",
+			&dockerapi.APIError{StatusCode: 500, Message: "server error"},
+			errcode.Unavailable, "the Docker Engine answered HTTP 500 while checking the volume of data"},
+		{"an HTTP error answer while a network is checked", w12bNetConfig, "ListNetworks",
+			&dockerapi.APIError{StatusCode: 500, Message: "net-" + w12bMarker + ": server error"},
+			errcode.Unavailable, "the Docker Engine answered HTTP 500 while checking the network of edge"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newDKHost(t)
+			p := ccProject(t, h, "shop")
+			ccConfig(h, p, nil, tc.config)
+			h.docker.fail(tc.method, tc.fail)
+			_, err := ccPrepare(h, "shop", nil)
+			if err == nil {
+				t.Fatal("prepareCompose succeeded, want a refusal")
+			}
+			coded := errcode.From(err)
+			if coded.Code != tc.code || coded.Detail != tc.detail {
+				t.Errorf("error %s %q, want %s %q", coded.Code, coded.Detail, tc.code, tc.detail)
+			}
+			for chain := error(err); chain != nil; chain = errors.Unwrap(chain) {
+				if strings.Contains(chain.Error(), w12bMarker) {
+					t.Errorf("the error chain carries the configuration value: %q", chain.Error())
+				}
+			}
+		})
 	}
 }

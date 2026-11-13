@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -461,9 +462,73 @@ func (k dk) validateConfig(ctx context.Context, project string, cfg compose.Conf
 	}
 	err := compose.Validate(project, cfg, facts)
 	if engineErr != nil {
-		return engineError(errKind, errName, engineErr)
+		return validationEngineError(errKind, composeKey(project, cfg, errKind, errName), engineErr)
 	}
 	return core.Definite(err)
+}
+
+// validationEngineError keeps no cause: the Engine's errors quote the image
+// reference or object name, which Compose may have interpolated from the
+// project's environment.
+func validationEngineError(kind, key string, err error) error {
+	checking := "a " + kind
+	if key != "" {
+		checking = "the " + kind + " of " + key
+	}
+	var (
+		ae *dockerapi.APIError
+		se *json.SyntaxError
+		te *json.UnmarshalTypeError
+	)
+	switch {
+	case errors.Is(err, dockerapi.ErrUnavailable):
+	case errors.As(err, &ae):
+		return errcode.New(errcode.Unavailable, fmt.Sprintf("the Docker Engine answered HTTP %d while checking %s", ae.StatusCode, checking))
+	case errors.As(err, &se), errors.As(err, &te):
+		return errcode.New(errcode.Unavailable, "the Docker Engine gave an answer that did not decode while checking "+checking)
+	}
+	return errcode.New(errcode.DockerEngineUnavailable, "the Docker Engine is not reachable")
+}
+
+// composeKey returns the key in cfg of the object of kind that compose.Validate
+// asked the Engine about by name, "" when none matches.
+func composeKey(project string, cfg compose.Config, kind, name string) string {
+	services := slices.Sorted(maps.Keys(cfg.Services))
+	switch kind {
+	case "image":
+		for _, key := range services {
+			s := cfg.Services[key]
+			if s.Build && compose.ImageName(project, key, s) == name {
+				return key
+			}
+		}
+	case "container":
+		for _, key := range services {
+			if cfg.Services[key].ContainerName == name {
+				return key
+			}
+		}
+		for _, key := range services {
+			if slices.Contains(cfg.Services[key].ContainerRefs, name) {
+				return key
+			}
+		}
+	case "network", "volume":
+		objects := cfg.Networks
+		if kind == "volume" {
+			objects = cfg.Volumes
+		}
+		for _, key := range slices.Sorted(maps.Keys(objects)) {
+			resolved := objects[key].Name
+			if resolved == "" {
+				resolved = project + "_" + key
+			}
+			if resolved == name {
+				return key
+			}
+		}
+	}
+	return ""
 }
 
 // composeObjectLabels returns the labels of the Engine object of kind named
