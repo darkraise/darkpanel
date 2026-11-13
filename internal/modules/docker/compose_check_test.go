@@ -728,3 +728,11 @@ func TestW12bValidationErrorsCarryNoConfigurationValue(t *testing.T) {
 		})
 	}
 }
+
+func TestW12bValidationEngineErrorWithoutAKey(t *testing.T) {
+	err := validationEngineError("image", "", &dockerapi.APIError{StatusCode: 500, Message: "server error"})
+	coded := errcode.From(err)
+	if want := "the Docker Engine answered HTTP 500 while checking an object of kind image"; coded.Code != errcode.Unavailable || coded.Detail != want {
+		t.Errorf("error %s %q, want %s %q", coded.Code, coded.Detail, errcode.Unavailable, want)
+	}
+}
