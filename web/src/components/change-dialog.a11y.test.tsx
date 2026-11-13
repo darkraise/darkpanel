@@ -80,6 +80,28 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+// cdaLate answers as handler does, one second of the fake clock late. Under
+// shouldAdvanceTime real time moves the fake clock, so this is what a loaded
+// test host does to the seconds spent opening, planning and applying.
+function cdaLate(handler: StubHandler): StubHandler {
+  return (call) => {
+    vi.setSystemTime(Date.now() + 1000)
+    return typeof handler === "function" ? handler(call) : handler
+  }
+}
+
+// cdaPendingAnswer answers with a pending change whose revert deadline is
+// offset ms past the fake clock at its first answer, and with that same change
+// after. A deadline fixed before the dialog opens would lose to the countdown
+// whatever time the clock gains while the dialog opens, plans and applies.
+function cdaPendingAnswer(offset: number): StubHandler {
+  let pending: Change | undefined
+  return () => {
+    pending ??= cdaChange({ state: "pending", revertDeadline: new Date(Date.now() + offset).toISOString() })
+    return { body: pending }
+  }
+}
+
 test("a planned change with a failed guard and a typed confirmation has no violations", async () => {
   const { dialog } = await cdaOpen({ [PLAN]: { body: cdaPlan({ guards: [cdaGuard()], confirmation: "web-1" }) } })
   await within(dialog).findByRole("checkbox", { name: "Override ssh-session" })
@@ -193,9 +215,9 @@ test("the typed-confirmation and revert-timeout fields have labels and the timeo
 test("the countdown announces itself politely at fixed points, not every second", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
   vi.setSystemTime(new Date("2026-10-23T08:00:00Z"))
-  const pending = cdaChange({ state: "pending", revertDeadline: "2026-10-23T08:01:00Z" })
+  const pending = cdaPendingAnswer(60_000)
   const { dialog, user } = await cdaOpen(
-    { [PLAN]: { body: cdaPlan() }, [APPLY]: { body: pending }, "GET /api/v1/changes/c1": { body: pending } },
+    { [PLAN]: { body: cdaPlan() }, [APPLY]: cdaLate(pending), "GET /api/v1/changes/c1": pending },
     {},
     { advanceTimers: vi.advanceTimersByTime },
   )
@@ -223,9 +245,9 @@ test("the countdown announces itself politely at fixed points, not every second"
 test("a countdown one second from its end is announced in the singular", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
   vi.setSystemTime(new Date("2026-10-23T08:00:00Z"))
-  const pending = cdaChange({ state: "pending", revertDeadline: "2026-10-23T08:00:01Z" })
+  const pending = cdaPendingAnswer(1000)
   const { dialog, user } = await cdaOpen(
-    { [PLAN]: { body: cdaPlan() }, [APPLY]: { body: pending }, "GET /api/v1/changes/c1": { body: pending } },
+    { [PLAN]: { body: cdaPlan() }, [APPLY]: cdaLate(pending), "GET /api/v1/changes/c1": pending },
     {},
     { advanceTimers: vi.advanceTimersByTime },
   )
@@ -238,9 +260,9 @@ test("a tick that skips past both points is announced once", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
   const start = new Date("2026-10-23T08:00:00Z").getTime()
   vi.setSystemTime(start)
-  const pending = cdaChange({ state: "pending", revertDeadline: "2026-10-23T08:01:00Z" })
+  const pending = cdaPendingAnswer(60_000)
   const { dialog, user } = await cdaOpen(
-    { [PLAN]: { body: cdaPlan() }, [APPLY]: { body: pending }, "GET /api/v1/changes/c1": { body: pending } },
+    { [PLAN]: { body: cdaPlan() }, [APPLY]: cdaLate(pending), "GET /api/v1/changes/c1": pending },
     {},
     { advanceTimers: vi.advanceTimersByTime },
   )
@@ -267,9 +289,9 @@ test("a revert deadline that arrives after the apply shows its countdown at once
   vi.useFakeTimers({ shouldAdvanceTime: true })
   vi.setSystemTime(new Date("2026-10-23T08:00:00Z"))
   const applying = cdaChange({ state: "applying" })
-  const pending = cdaChange({ state: "pending", revertDeadline: "2026-10-23T08:01:00Z" })
+  const pending = cdaPendingAnswer(60_000)
   const { dialog, user } = await cdaOpen(
-    { [PLAN]: { body: cdaPlan() }, [APPLY]: { status: 202, body: applying }, "GET /api/v1/changes/c1": { body: pending } },
+    { [PLAN]: { body: cdaPlan() }, [APPLY]: cdaLate({ status: 202, body: applying }), "GET /api/v1/changes/c1": pending },
     {},
     { advanceTimers: vi.advanceTimersByTime },
   )
