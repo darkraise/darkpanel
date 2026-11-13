@@ -2810,8 +2810,8 @@ Resource `firewall.status` (configured and loaded state, rules with origin,
 
 - **Prediction.** The plan computes the configured state after the change
   and the loaded state UFW will produce from it, for the transition the
-  action causes (rule change with reload, enable, disable, reload after a
-  file change):
+  action causes (a live change on an active UFW that stays active, W11-R2;
+  enable; disable; a reload where W11-R3 keeps one):
   - with UFW active and `IPV6=yes`: the UFW chains (`ufw-before-*`,
     `ufw-user-*`, `ufw-after-*`, logging and policy chains, and the IPv6
     `ufw6-*` equivalents) rendered from the files using UFW's translation,
@@ -2821,6 +2821,13 @@ Resource `firewall.status` (configured and loaded state, rules with origin,
     `INPUT`, `FORWARD` and `OUTPUT`, only `lo` accepted, and every other IPv6
     filter chain removed (Docker's and tailscaled's included). The predicted
     IPv6 state for enable, reload and restore is exactly that table;
+  - for a live change (`fwstate.TransLive`): in IPv4, and in IPv6 when
+    IPv6 is enabled and ip6tables is present, the three user logging
+    chains are flushed and every chain the family's user rules file
+    declares is loaded as `iptables-restore -n` loads it, and the logging
+    chains are rebuilt after a `ufw logging` command; the built-in
+    policies, every other chain and the sysctl values are unchanged. The
+    Docker block's chains are loaded by Darkpanel's own `-n` restore (2.6);
   - for disable: UFW flushes its secondary chains but keeps its empty
     primary chains and their built-in jumps (to preserve their positions),
     and sets the built-in policies to `ACCEPT`; a host on which UFW was
@@ -3163,7 +3170,11 @@ Revert; the CLI behaves as in 1.13.
   removed. Reconcile reports a new foreign DNAT rule as health `degraded`
   naming it.
 - **Block (R44).** `firewall.docker.enable` (revertible) writes marked block
-  `docker` into `/etc/ufw/after.rules` and `after6.rules` and reloads UFW.
+  `docker` into `/etc/ufw/after.rules` and `after6.rules`. On an active UFW
+  it runs no `ufw reload`: it loads the block's chains with one
+  `iptables-restore -n` per family that declares `DOCKER-USER` and
+  Darkpanel's own chains, never `ufw-user-forward` (W11-R2); UFW loads the
+  block from the files when it next starts.
   The block is a self-contained filter section written from Docker's and
   UFW's documented behaviour (no code or text from GPL ufw-docker). UFW loads
   `after.rules` before it creates its user chains (`ufw_start` in
@@ -3339,7 +3350,10 @@ Revert; the CLI behaves as in 1.13.
   loaded incoming policy is `DROP` or `REJECT`; that no non-Docker `br-*`
   interface exists; and that every Docker network is covered. Anything else sets
   health `broken` or `degraded` with the reason; the UI offers
-  `firewall.docker.repair` (revertible), which rewrites and reloads.
+  `firewall.docker.repair` (revertible), which rewrites the block and loads
+  Darkpanel's chains live as `firewall.docker.enable` does, and restarts UFW
+  with `ufw reload` only when its differences reach a chain outside
+  Darkpanel's own (W11-R3).
 - **Cleanup of loaded chains.** Removing the block from the files does not
   remove its loaded chains. `firewall.docker.disable`, uninstall,
   `firewall.state.disable` while the integration is on, and restoring a
@@ -4785,7 +4799,13 @@ a spec change.
   whose `revoke` step plans an empty diff (the listener is already
   revoked; the action is `ForwardOnly` and `Converges`, 1.3) and whose
   later steps complete the removal. An interrupted break-glass revoke is
-  completed by running the action again (it has `Converges`).
+  completed by running the action again (it has `Converges`). The network
+  change routes and event stream show a composite step whose child they
+  hide (a break-glass action, or a controller-side action no longer
+  registered) with an empty child change id and no earlier child change
+  ids, so the web UI renders it without a link; a removal stopped at a
+  revoke child in needs_repair is given up with a release of the removal,
+  which releases the child, and is then run again.
   `panel.not_exposed` refuses a removal when no exposure exists.
 
 - **Wave 8 rulings.** Wave 8 (plan `v1-w8-panel-exposure`) settles these
@@ -4823,10 +4843,13 @@ a spec change.
     socket; the wording above that named a `--local` form is replaced.
   - **W8-R9 network.** `panel.network.create` picks the highest /29 in
     `172.31.255.0/24` that overlaps no IPv4 subnet of any Docker network on
-    the host, creates `darkpanel-panel` with `EnableIPv6` false and exactly
-    that one IPAM config, and refuses `panel.already_exposed` when a network
-    named `darkpanel-panel` exists. `panel.network.remove` refuses
-    `docker.owned` for a `darkpanel-panel` network without
+    the host, no IPv4 route of the host of /8 or longer (in any table) and
+    no IPv4 address of the host's interfaces, and refuses with a plain
+    definite error naming what takes the range when none is free; the range
+    is fixed for v1. It creates `darkpanel-panel` with `EnableIPv6` false
+    and exactly that one IPAM config, and refuses `panel.already_exposed`
+    when a network named `darkpanel-panel` exists. `panel.network.remove`
+    refuses `docker.owned` for a `darkpanel-panel` network without
     `darkpanel.module=panel`.
   - **W8-R10 add refusals.** In `Steps`, in this order: input validation;
     `panel.wrong_host` unless `hostId` is the `is_local` host;
@@ -5465,7 +5488,7 @@ a spec change.
     stderr.
 - **Plan rulings (wave 11a).** Wave 11a (plan `v1-w11a-live-apply`) settles these points:
   - **W11-R1 three plans.** Wave 11 fixes every row left open after wave 10 (owner, 2026-11-08). It runs as three sequential plans: `v1-w11a-live-apply` (rows 437, 438), `v1-w11b-lockout-guard` (security-review rows 27, 28, 46, 47, 48, 51, 53) and `v1-w11c-module-fixes` (security-review rows 26, 30-45, 49, 50, 52, 54, 55, 56, 57, 58, 78; v1-completion rows 447-451, 453, 454, 457, 458, 460, 464-466).
-  - **W11-R2 live apply.** On an active UFW that stays active, Darkpanel runs no `ufw reload`. UFW applies rule and logging commands live. The Docker block is written to `after.rules` and `after6.rules` and its chains load through one `iptables-restore -n` per family that declares DOCKER-USER and Darkpanel's own chains, never `ufw-user-forward`, and removes Darkpanel chains the block no longer has. The prediction is `TransLive` (Contracts). Owner decision 2026-11-08.
+  - **W11-R2 live apply.** On an active UFW that stays active, Darkpanel runs no `ufw reload`. UFW applies rule and logging commands live. The Docker block is written to `after.rules` and `after6.rules` and its chains load through one `iptables-restore -n` per family that declares DOCKER-USER and Darkpanel's own chains, never `ufw-user-forward`, and removes Darkpanel chains the block no longer has. The prediction is `TransLive`, defined in the Contracts of plan `docs/dforge/plans/2026-11-08-v1-w11a-live-apply.md` and in 2.3's prediction list. Owner decision 2026-11-08.
   - **W11-R3 where UFW still restarts.** `state.enable`, `state.disable`, `state.repair`, a `firewall.docker.repair` whose differences reach a chain outside Darkpanel's own, and snapshot restore keep their UFW transition. Their revert keeps it too.
   - **W11-R4 default policies.** `ufw default` restarts an active UFW itself, so `firewall.defaults.set` keeps a window in which the built-in policies are ACCEPT for about a second. Darkpanel adds no reload of its own after it: a change with a `default` command predicts `TransReload` and runs no `ufw reload` command. The threat model records the window as a residual.
   - **W11-R5 revert.** The snapshot taken before a change that UFW applies live, and before a `default` change on an active UFW, carries the loaded-state before-image, marked live. Reverting such a change whole restores the files and loads that image with `iptables-restore -n` per family, as a repair snapshot is restored, and removes Darkpanel chains the image lacks. An effect-by-effect revert runs the inverse ufw commands live, loads the Docker chains from the image, and loads no other part of it. Neither runs `ufw reload` while UFW stays active; an effect-by-effect revert of a `default` command restarts UFW only through `ufw default` itself. An uninstall restores its baseline snapshot without a live image, with the transition it chooses today.
