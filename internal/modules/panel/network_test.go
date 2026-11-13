@@ -20,6 +20,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/schema"
 	"github.com/darkraise/darkpanel/internal/modules/docker/dstate"
 	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
+	"github.com/darkraise/darkpanel/internal/platform/netstat"
 )
 
 const nwChange = "01JC0000000000000000000009"
@@ -85,9 +86,30 @@ func nwEnv(j *nwJournal) core.Env {
 	return env
 }
 
-// nwDeps points the agent actions at the fake Engine.
-func nwDeps(d *fdDocker) agentDeps {
-	return agentDeps{docker: func() (panelDocker, error) { return d, nil }}
+// nwDeps points the agent actions at the fake Engine, on a host with no IPv4 route or address.
+func nwDeps(d *fdDocker) agentDeps { return nwHostDeps(d, nil, nil) }
+
+// nwHostDeps points the agent actions at the fake Engine, on a host whose IPv4 routes have the destinations routes and
+// whose one interface has the addresses addrs. A read of the IPv6 routes fails, because the actions need only IPv4.
+func nwHostDeps(d *fdDocker, routes, addrs []string) agentDeps {
+	var rs []netstat.Route
+	for _, r := range routes {
+		rs = append(rs, netstat.Route{Type: "unicast", Table: 254, Dst: netip.MustParsePrefix(r), OutIface: "eth0", OutIndex: 2})
+	}
+	ifc := netstat.Interface{Index: 2, Name: "eth0", Up: true, Running: true}
+	for _, a := range addrs {
+		ifc.Addrs = append(ifc.Addrs, netip.MustParsePrefix(a))
+	}
+	return agentDeps{
+		docker: func() (panelDocker, error) { return d, nil },
+		routes: func(f netstat.Family) ([]netstat.Route, error) {
+			if f != netstat.IPv4 {
+				return nil, fmt.Errorf("fake: routes of family %d", f)
+			}
+			return rs, nil
+		},
+		interfaces: func() ([]netstat.Interface, error) { return []netstat.Interface{ifc}, nil },
+	}
 }
 
 func nwJSON(t *testing.T, v any) json.RawMessage {
@@ -159,7 +181,8 @@ func nwApplyCreate(t *testing.T, d *fdDocker, j *nwJournal) (NetworkView, error)
 }
 
 // TestNwCreatePlanPicksSubnet: the plan takes the highest /29 of 172.31.255.0/24 that overlaps no IPv4 subnet of any
-// network, gives the gateway the first host address and the proxy the second, and refuses when none is free.
+// network and no IPv4 route of /8 or longer or address of the host, gives the gateway the first host address and the
+// proxy the second, and refuses when none is free, naming what takes the range.
 func TestNwCreatePlanPicksSubnet(t *testing.T) {
 	// takeFrom8 occupies every /29 above the lowest two: .8 up to .255.
 	takeFrom8 := func(d *fdDocker) {
@@ -167,10 +190,13 @@ func TestNwCreatePlanPicksSubnet(t *testing.T) {
 			d.AddNetwork(nwNet(fmt.Sprintf("taken%d", i), nil, s))
 		}
 	}
+	const taken = "every one overlaps a Docker network's subnet or a host route or address"
 	tests := []struct {
-		name   string
-		setup  func(d *fdDocker)
-		subnet string // "" when none is free
+		name          string
+		setup         func(d *fdDocker)
+		routes, addrs []string // the host's IPv4 route destinations and interface addresses
+		subnet        string   // "" when none is free
+		why           string   // what the refusal names, when set
 	}{
 		{name: "empty host", subnet: "172.31.255.248/29"},
 		{name: "top block taken", setup: func(d *fdDocker) { d.AddNetwork(nwNet("a", nil, "172.31.255.248/29")) }, subnet: "172.31.255.240/29"},
@@ -191,6 +217,19 @@ func TestNwCreatePlanPicksSubnet(t *testing.T) {
 			takeFrom8(d)
 			d.AddNetwork(nwNet("last", nil, "172.31.255.0/29"))
 		}},
+		{name: "a host route over the top block", routes: []string{"172.31.255.248/29"}, subnet: "172.31.255.240/29"},
+		{name: "a VPN route over the upper half", routes: []string{"172.31.255.128/25"}, subnet: "172.31.255.120/29"},
+		{name: "a LAN address inside the range", addrs: []string{"172.31.255.200/26"}, subnet: "172.31.255.184/29"},
+		{name: "a host address of one address", addrs: []string{"172.31.255.250/32"}, subnet: "172.31.255.240/29"},
+		{name: "the default route", routes: []string{"0.0.0.0/0"}, subnet: "172.31.255.248/29"},
+		{name: "a default route split in halves", routes: []string{"0.0.0.0/1", "128.0.0.0/1"}, subnet: "172.31.255.248/29"},
+		{name: "a /7 route over the range", routes: []string{"172.0.0.0/7"}, subnet: "172.31.255.248/29"},
+		{name: "routes and addresses outside the range", routes: []string{"10.0.0.0/8", "192.168.1.0/24"},
+			addrs: []string{"127.0.0.1/8", "192.168.1.10/24", "fd00::1/64"}, subnet: "172.31.255.248/29"},
+		{name: "a /8 route over the range", routes: []string{"172.0.0.0/8"}, why: taken + " (172.0.0.0/8)"},
+		{name: "a VPN route covering the range", routes: []string{"172.16.0.0/12"}, why: taken + " (172.16.0.0/12)"},
+		{name: "Docker and the host together", setup: takeFrom8, routes: []string{"172.31.255.8/29"}, addrs: []string{"172.31.255.3/29"},
+			why: taken + " (172.31.255.0/29, 172.31.255.8/29, 172.31.255.16/28, 172.31.255.32/27, 172.31.255.64/26, 172.31.255.128/25)"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -198,11 +237,13 @@ func TestNwCreatePlanPicksSubnet(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(d)
 			}
-			out, err := networkCreateAction(nwDeps(d)).Handler.Plan(context.Background(), nwEnv(nil), nwJSON(t, NetworkCreateInput{}))
+			out, err := networkCreateAction(nwHostDeps(d, tt.routes, tt.addrs)).Handler.Plan(context.Background(), nwEnv(nil),
+				nwJSON(t, NetworkCreateInput{}))
 			if tt.subnet == "" {
 				var coded *errcode.Error
-				if err == nil || !strings.Contains(err.Error(), "no free /29") || errors.As(err, &coded) || !core.IsDefinite(err) {
-					t.Fatalf("error %v, want a definite plain error naming that no /29 is free", err)
+				if err == nil || !strings.Contains(err.Error(), "panel: no free /29 is left in 172.31.255.0/24: ") ||
+					!strings.Contains(err.Error(), tt.why) || errors.As(err, &coded) || !core.IsDefinite(err) {
+					t.Fatalf("error %v, want a definite plain error naming that no /29 is free and %q", err, tt.why)
 				}
 				return
 			}
@@ -286,6 +327,27 @@ func TestNwCreatePlanRefusals(t *testing.T) {
 			tt.setup(d)
 			_, err := networkCreateAction(nwDeps(d)).Handler.Plan(context.Background(), nwEnv(nil), nwJSON(t, NetworkCreateInput{}))
 			_ = nwRefusal(t, err, tt.code)
+			if len(d.Created) != 0 {
+				t.Error("a refused plan created a network")
+			}
+		})
+	}
+	for _, tc := range []struct{ name, want string }{
+		{"host routes cannot be read", "panel: read the host's IPv4 routes: fake: netlink refused"},
+		{"host addresses cannot be read", "panel: read the host's interface addresses: fake: netlink refused"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := fdNewDocker()
+			deps := nwDeps(d)
+			if strings.Contains(tc.name, "routes") {
+				deps.routes = func(netstat.Family) ([]netstat.Route, error) { return nil, errors.New("fake: netlink refused") }
+			} else {
+				deps.interfaces = func() ([]netstat.Interface, error) { return nil, errors.New("fake: netlink refused") }
+			}
+			_, err := networkCreateAction(deps).Handler.Plan(context.Background(), nwEnv(nil), nwJSON(t, NetworkCreateInput{}))
+			if err == nil || err.Error() != tc.want || !core.IsDefinite(err) {
+				t.Errorf("error %v, want the definite error %q", err, tc.want)
+			}
 			if len(d.Created) != 0 {
 				t.Error("a refused plan created a network")
 			}

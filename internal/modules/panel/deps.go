@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
+	"github.com/darkraise/darkpanel/internal/platform/netstat"
 )
 
 // depsAbsentSocket is the socket a test binary dials instead of the host's. Test binaries that link the module open a
@@ -23,7 +24,9 @@ type panelDocker interface {
 
 // agentDeps are the host dependencies of the agent actions; tests replace them.
 type agentDeps struct {
-	docker func() (panelDocker, error) // a client over the Engine socket; tests return the fake
+	docker     func() (panelDocker, error)                   // a client over the Engine socket; tests return the fake
+	routes     func(netstat.Family) ([]netstat.Route, error) // the host's routes of one family, every table
+	interfaces func() ([]netstat.Interface, error)           // the host's interfaces and their addresses
 }
 
 // productionAgent wires the agent actions to the host's Docker daemon.
@@ -33,5 +36,9 @@ func productionAgent() agentDeps {
 		socket = depsAbsentSocket
 	}
 	client := dockerapi.New(socket)
-	return agentDeps{docker: func() (panelDocker, error) { return client, nil }}
+	return agentDeps{
+		docker:     func() (panelDocker, error) { return client, nil },
+		routes:     netstat.Routes,
+		interfaces: netstat.Interfaces,
+	}
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/modules/docker/dstate"
 	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
+	"github.com/darkraise/darkpanel/internal/platform/netstat"
 )
 
 const (
@@ -29,6 +30,9 @@ const (
 	networkCommitWait = 2 * time.Minute
 	// networkBlockBits is the prefix length of the panel network's subnet.
 	networkBlockBits = 29
+	// networkRouteMinBits is the shortest host route the subnet choice avoids. A shorter route stands in for a default
+	// route (OpenVPN's def1 splits 0.0.0.0/0 into two /1s) and names no network of hosts a /29 could shadow.
+	networkRouteMinBits = 8
 )
 
 // networkResource is the effect resource of the panel network that identity names.
@@ -174,9 +178,37 @@ type networkChoice struct {
 	gateway, proxy netip.Addr
 }
 
+// networkHostTaken returns the IPv4 prefixes the host already uses: the destination of every route of /8 or longer in
+// any table and of any type (a Tailscale subnet route lives in table 52, a blackhole route holds its range too),
+// followed by the address of every interface, up or down.
+func networkHostTaken(d agentDeps) ([]netip.Prefix, error) {
+	routes, err := d.routes(netstat.IPv4)
+	if err != nil {
+		return nil, core.Definite(fmt.Errorf("panel: read the host's IPv4 routes: %w", err))
+	}
+	ifaces, err := d.interfaces()
+	if err != nil {
+		return nil, core.Definite(fmt.Errorf("panel: read the host's interface addresses: %w", err))
+	}
+	var taken []netip.Prefix
+	for _, r := range routes {
+		if r.Dst.IsValid() && r.Dst.Addr().Is4() && r.Dst.Bits() >= networkRouteMinBits {
+			taken = append(taken, r.Dst)
+		}
+	}
+	for _, ifc := range ifaces {
+		for _, a := range ifc.Addrs {
+			if a.IsValid() && a.Addr().Is4() {
+				taken = append(taken, a)
+			}
+		}
+	}
+	return taken, nil
+}
+
 // networkChoose refuses an existing panel network and picks the highest /29 of PanelRange that overlaps no IPv4 subnet
-// of any network on the host.
-func networkChoose(ctx context.Context, docker panelDocker) (networkChoice, error) {
+// of any network on the host, no IPv4 route of the host of /8 or longer and no IPv4 address of its interfaces.
+func networkChoose(ctx context.Context, d agentDeps, docker panelDocker) (networkChoice, error) {
 	list, err := docker.ListNetworks(ctx, nil)
 	if err != nil {
 		return networkChoice{}, networkReadFailed("list networks", err)
@@ -193,6 +225,11 @@ func networkChoose(ctx context.Context, docker panelDocker) (networkChoice, erro
 			}
 		}
 	}
+	host, err := networkHostTaken(d)
+	if err != nil {
+		return networkChoice{}, err
+	}
+	taken = append(taken, host...)
 	base := PanelRange.Masked().Addr().As4()
 	first := binary.BigEndian.Uint32(base[:])
 	size := uint32(1) << (32 - networkBlockBits)
@@ -206,8 +243,26 @@ func networkChoose(ctx context.Context, docker panelDocker) (networkChoice, erro
 		gateway := block.Addr().Next()
 		return networkChoice{subnet: block, gateway: gateway, proxy: gateway.Next()}, nil
 	}
-	return networkChoice{}, core.Definite(fmt.Errorf("panel: no free /%d is left in %s: every one overlaps a subnet of another network",
-		networkBlockBits, PanelRange))
+	var inRange []netip.Prefix
+	for _, p := range taken {
+		if p.Overlaps(PanelRange) {
+			inRange = append(inRange, p.Masked())
+		}
+	}
+	slices.SortFunc(inRange, func(a, b netip.Prefix) int {
+		if c := a.Addr().Compare(b.Addr()); c != 0 {
+			return c
+		}
+		return a.Bits() - b.Bits()
+	})
+	inRange = slices.Compact(inRange)
+	names := make([]string, len(inRange))
+	for i, p := range inRange {
+		names[i] = p.String()
+	}
+	return networkChoice{}, core.Definite(fmt.Errorf(
+		"panel: no free /%d is left in %s: every one overlaps a Docker network's subnet or a host route or address (%s)",
+		networkBlockBits, PanelRange, strings.Join(names, ", ")))
 }
 
 // Plan reports the subnet the network would take; the hash covers only that subnet.
@@ -216,7 +271,7 @@ func (h networkCreateHandler) Plan(ctx context.Context, _ core.Env, _ NetworkCre
 	if err != nil {
 		return core.PlanOutcome{}, err
 	}
-	c, err := networkChoose(ctx, docker)
+	c, err := networkChoose(ctx, h.d, docker)
 	if err != nil {
 		return core.PlanOutcome{}, err
 	}
@@ -237,7 +292,7 @@ func (h networkCreateHandler) Apply(ctx context.Context, env core.Env, _ Network
 	if err != nil {
 		return NetworkView{}, err
 	}
-	c, err := networkChoose(ctx, docker)
+	c, err := networkChoose(ctx, h.d, docker)
 	if err != nil {
 		return NetworkView{}, err
 	}

@@ -114,8 +114,11 @@ undoes the earlier ones.
    public; for `tunnel`, that the connector runs on the host.
 2. It creates the Docker network `darkpanel-panel`, with the bridge `dp-panel`.
    The subnet is the highest free /29 of `172.31.255.0/24` that overlaps no
-   subnet of any Docker network on the host. The gateway is the first host
-   address of the subnet, and the proxy the second.
+   subnet of any Docker network on the host, no route of the host of /8 or
+   longer, and no address of the host's interfaces, so a LAN or VPN already on
+   that range keeps its addresses. If none is free, the add refuses and names
+   what takes the range. The gateway is the first host address of the subnet,
+   and the proxy the second.
 3. It attaches the proxy, the NPM container or the tunnel's connector, to that
    network at the proxy address.
 4. The controller opens a listener on the gateway address and the port. It
