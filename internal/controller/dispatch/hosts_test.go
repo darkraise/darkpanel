@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -409,5 +410,82 @@ func TestUnknownAndOfflineHosts(t *testing.T) {
 				t.Errorf("Hello detail = %q, want %q", e.Detail, tt.detail)
 			}
 		})
+	}
+}
+
+// TestM3gALockWaitEndsWithItsContext: a reach of a host whose Hello hangs under another caller returns its own
+// context's error once that context ends, and says no Hello of its own; a waiter whose context outlives the hung
+// Hello shares that one Hello.
+func TestM3gALockWaitEndsWithItsContext(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("h2")
+	var hellos atomic.Int32
+	started := make(chan struct{})
+	release := make(chan struct{})
+	h.clients.Add("h2", &coretest.FakeAgent{HelloFunc: func(context.Context) (core.AgentHello, error) {
+		if hellos.Add(1) == 1 {
+			close(started)
+			<-release
+		}
+		return core.AgentHello{ProtocolVersion: 1, HostID: "h2"}, nil
+	}})
+	released := false
+	releaseOnce := func() {
+		if !released {
+			released = true
+			close(release)
+		}
+	}
+	defer releaseOnce()
+	holder := make(chan error, 1)
+	go func() {
+		_, err := h.hosts.Agent(context.Background(), "h2")
+		holder <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the Hello of h2 never started")
+	}
+
+	short, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	bounded := make(chan error, 1)
+	go func() {
+		_, err := h.hosts.Agent(short, "h2")
+		bounded <- err
+	}()
+	select {
+	case err := <-bounded:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("Agent(h2) with a 50 ms deadline = %v, want an error wrapping context.DeadlineExceeded", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Agent(h2) with a 50 ms deadline still waits for the host lock after 5 s")
+	}
+
+	waiter := make(chan error, 1)
+	go func() {
+		_, err := h.hosts.Agent(context.Background(), "h2")
+		waiter <- err
+	}()
+	select {
+	case err := <-waiter:
+		t.Fatalf("Agent(h2) returned %v while the Hello of h2 hangs; want it to wait for that Hello", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	releaseOnce()
+	for name, ch := range map[string]chan error{"the holder": holder, "the waiter": waiter} {
+		select {
+		case err := <-ch:
+			if err != nil {
+				t.Errorf("%s: Agent(h2) after the Hello returned: %v", name, err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Errorf("%s: Agent(h2) did not return after the Hello was released", name)
+		}
+	}
+	if n := hellos.Load(); n != 1 {
+		t.Errorf("Hello calls = %d, want 1: the callers of one host share one Hello", n)
 	}
 }

@@ -44,9 +44,11 @@ type HostsConfig struct {
 type Hosts struct {
 	cfg HostsConfig
 
-	mu      sync.Mutex             // guards greeted and locks; never held across I/O
-	greeted map[string]greeting    // each host's last Hello, while no later one has failed
-	locks   map[string]*sync.Mutex // one per host, held across the client lookup and Hello
+	mu      sync.Mutex          // guards greeted and locks; never held across I/O
+	greeted map[string]greeting // each host's last Hello, while no later one has failed
+	// locks holds one per host, held across the client lookup and Hello: a
+	// one-slot semaphore rather than a mutex, so that a wait ends with its context.
+	locks map[string]chan struct{}
 }
 
 // greeting is a host's last successful Hello and the client generation that
@@ -67,13 +69,13 @@ func NewHosts(cfg HostsConfig) *Hosts {
 	if cfg.Clients == nil {
 		panic("dispatch: HostsConfig.Clients is required")
 	}
-	return &Hosts{cfg: cfg, greeted: map[string]greeting{}, locks: map[string]*sync.Mutex{}}
+	return &Hosts{cfg: cfg, greeted: map[string]greeting{}, locks: map[string]chan struct{}{}}
 }
 
 // Agent returns hostID's client, after the first successful Hello of its
 // current generation. An id with no core_hosts row is not_found; a host
 // without a client answers host.offline. A Hello that hangs delays only the
-// calls for its own host.
+// calls for its own host, each only until its own context ends.
 func (h *Hosts) Agent(ctx context.Context, hostID string) (core.AgentClient, error) {
 	unlock, err := h.lockHost(ctx, hostID)
 	if err != nil {
@@ -130,7 +132,8 @@ func (h *Hosts) Hello(ctx context.Context, hostID string) error {
 // lockHost takes hostID's lock once core_hosts has the host, so that a
 // mistyped id stays not_found without growing the lock table and only a known
 // host is reported offline. Holding the lock across the client lookup and
-// Hello keeps concurrent calls for one host to a single Hello.
+// Hello keeps concurrent calls for one host to a single Hello. A wait for the
+// lock ends with ctx and answers ctx's error wrapped.
 func (h *Hosts) lockHost(ctx context.Context, hostID string) (unlock func(), err error) {
 	var one int
 	err = h.cfg.DB.Read().QueryRowContext(ctx, "SELECT 1 FROM core_hosts WHERE id = ?", hostID).Scan(&one)
@@ -143,12 +146,16 @@ func (h *Hosts) lockHost(ctx context.Context, hostID string) (unlock func(), err
 	h.mu.Lock()
 	l, ok := h.locks[hostID]
 	if !ok {
-		l = &sync.Mutex{}
+		l = make(chan struct{}, 1)
 		h.locks[hostID] = l
 	}
 	h.mu.Unlock()
-	l.Lock()
-	return l.Unlock, nil
+	select {
+	case l <- struct{}{}:
+		return func() { <-l }, nil
+	case <-ctx.Done():
+		return nil, fmt.Errorf("dispatch: wait for host %s: %w", hostID, ctx.Err())
+	}
 }
 
 // forget drops hostID's last Hello: one that failed since no longer
