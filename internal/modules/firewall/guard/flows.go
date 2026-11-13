@@ -61,6 +61,7 @@ type flow struct {
 	standIn    bool         // a missing route skips it rather than failing: a wild destination with no route of its family, or a wild source in a cell of a route without a path that no reply reaches, has nothing to protect
 	blackhole  bool         // the cell lies in a blackhole route, whose lookup the kernel answers with EINVAL
 	fwdReplies []netip.Addr // the DNAT targets that answer this flow; their replies are routed with those sources, arriving on panelBridge
+	unicast    bool         // the wild end ranges over the whole unicast space, private and special-purpose ranges included, rather than the internet's
 	unknown    string
 }
 
@@ -75,11 +76,12 @@ type flowSet struct {
 type flowKey struct {
 	pkt            fwstate.Packet
 	wild           wildEnd
+	unicast        bool
 	label, unknown string // set only for a flow that is not evaluated
 }
 
 func (s *flowSet) add(f flow) {
-	k := flowKey{pkt: f.pkt, wild: f.wild}
+	k := flowKey{pkt: f.pkt, wild: f.wild, unicast: f.unicast}
 	if f.unknown != "" {
 		k = flowKey{label: f.label, unknown: f.unknown}
 	}
@@ -275,9 +277,9 @@ func viaFlows(s *flowSet, ctxs []*core.GuardContext, retired []string, local map
 				s.add(flow{label: label + " public", unknown: "the exposure has no public bindings"})
 			}
 			for _, pub := range v.Public {
-				npmPublicFlows(s, label, v, pub, local)
+				npmPublicFlows(s, label+" public", false, v, pub, local)
 			}
-			npmClientFlows(s, label, g.Client, v.Public, local)
+			npmClientFlows(s, label, g.Client, v, local)
 		case "tunnel":
 			for _, out := range []struct {
 				proto string
@@ -293,10 +295,11 @@ func viaFlows(s *flowSet, ctxs []*core.GuardContext, retired []string, local map
 	}
 }
 
-// npmPublicFlows adds the flows of one public binding of an NPM exposure. A
+// npmPublicFlows adds the flows of one public binding of an NPM exposure,
+// with label, their wild source over the unicast space when unicast is set. A
 // forwarded reply is kept only on a flow of the proxy's family, so a reply
 // lookup never mixes families.
-func npmPublicFlows(s *flowSet, label string, v *core.ProxyPath, pub netip.AddrPort, local map[netip.Addr]bool) {
+func npmPublicFlows(s *flowSet, label string, unicast bool, v *core.ProxyPath, pub netip.AddrPort, local map[netip.Addr]bool) {
 	replies := func(a netip.Addr) []netip.Addr {
 		if a.Unmap().Is4() == v.ProxyAddr.Unmap().Is4() {
 			return []netip.Addr{v.ProxyAddr}
@@ -305,12 +308,12 @@ func npmPublicFlows(s *flowSet, label string, v *core.ProxyPath, pub netip.AddrP
 	}
 	if pub.Addr() == netip.IPv6Unspecified() {
 		v4, v6 := netip.IPv4Unspecified(), netip.IPv6Unspecified()
-		s.add(flow{label: label + " public", pkt: newPacket("input", v4, unknownPort, v4, pub.Port(), "tcp"), wild: wildSrc, fwdReplies: replies(v4)})
+		s.add(flow{label: label, pkt: newPacket("input", v4, unknownPort, v4, pub.Port(), "tcp"), wild: wildSrc, fwdReplies: replies(v4), unicast: unicast})
 		// The record cannot say whether Docker publishes the port on IPv6, so a
 		// host without an IPv6 route skips those cells.
 		for a := range local {
 			if a.Is6() && !a.IsLoopback() && !a.IsLinkLocalUnicast() {
-				s.add(flow{label: label + " public", pkt: newPacket("input", v6, unknownPort, v6, pub.Port(), "tcp"), wild: wildSrc, standIn: true, fwdReplies: replies(v6)})
+				s.add(flow{label: label, pkt: newPacket("input", v6, unknownPort, v6, pub.Port(), "tcp"), wild: wildSrc, standIn: true, fwdReplies: replies(v6), unicast: unicast})
 				break
 			}
 		}
@@ -325,19 +328,29 @@ func npmPublicFlows(s *flowSet, label string, v *core.ProxyPath, pub netip.AddrP
 		dst = netip.IPv6Unspecified()
 	}
 	src := anyAddr(pub.Addr())
-	s.add(flow{label: label + " public", pkt: newPacket("input", src, unknownPort, dst, pub.Port(), "tcp"), wild: wildSrc, fwdReplies: replies(src)})
+	s.add(flow{label: label, pkt: newPacket("input", src, unknownPort, dst, pub.Port(), "tcp"), wild: wildSrc, fwdReplies: replies(src), unicast: unicast})
 }
 
 // npmClientFlows adds the flow from the concrete client of a request that
 // came through an NPM exposure to each public binding that takes the
 // client's family. The flow has a concrete source, so it is not compared
-// with the rules before the change.
-func npmClientFlows(s *flowSet, label string, client *core.Peer, public []netip.AddrPort, local map[netip.Addr]bool) {
-	if client == nil || !client.Addr.IsValid() || fromHere(client.Addr, local) {
+// with the rules before the change. A client that is an address of this host
+// is what NPM records when Docker's userland proxy carries the real client to
+// it, as it does for IPv6: the real client is then unknown, so each binding
+// gets the public leg's flows over the whole unicast space instead, and a
+// change that blocks any source there the rules did not block before fails.
+func npmClientFlows(s *flowSet, label string, client *core.Peer, v *core.ProxyPath, local map[netip.Addr]bool) {
+	if client == nil || !client.Addr.IsValid() {
+		return
+	}
+	if fromHere(client.Addr, local) {
+		for _, pub := range v.Public {
+			npmPublicFlows(s, label+" hidden client", true, v, pub, local)
+		}
 		return
 	}
 	src := client.Addr.Unmap()
-	for _, pub := range public {
+	for _, pub := range v.Public {
 		dst := pub.Addr().Unmap()
 		switch {
 		case pub.Addr() == netip.IPv6Unspecified():

@@ -180,3 +180,42 @@ func TestV1r20CellsPartitionThePublicSpace(t *testing.T) {
 		}
 	}
 }
+
+func TestW12bUnicastCellsLeaveOutHostAndSpecialAddresses(t *testing.T) {
+	in := func(cells []Cell, a string) bool {
+		x := netip.MustParseAddr(a)
+		for _, c := range cells {
+			if c.From.Compare(x) <= 0 && x.Compare(c.To) <= 0 {
+				return true
+			}
+		}
+		return false
+	}
+	v4 := UnicastCells(nil, false, []netip.Addr{netip.MustParseAddr("192.0.2.1"), netip.MustParseAddr("10.0.0.1")})
+	for _, a := range []string{"10.0.0.2", "172.16.0.1", "100.64.0.1", "169.254.1.1", "192.0.2.2", "8.8.8.8"} {
+		if !in(v4, a) {
+			t.Errorf("IPv4 unicast cells leave out %s, want it in a cell", a)
+		}
+	}
+	for _, a := range []string{"0.1.2.3", "127.0.0.1", "224.0.0.1", "240.0.0.1", "255.255.255.255", "192.0.2.1", "10.0.0.1"} {
+		if in(v4, a) {
+			t.Errorf("IPv4 unicast cells hold %s, want it left out", a)
+		}
+	}
+	v6 := UnicastCells(nil, true, []netip.Addr{netip.MustParseAddr("2001:db8::1")})
+	for _, a := range []string{"fd00:d0::20", "fd7a:115c:a1e0::5", "fe80::1", "2001:db8::2", "2600::1"} {
+		if !in(v6, a) {
+			t.Errorf("IPv6 unicast cells leave out %s, want it in a cell", a)
+		}
+	}
+	for _, a := range []string{"::", "::1", "ff02::1", "2001:db8::1"} {
+		if in(v6, a) {
+			t.Errorf("IPv6 unicast cells hold %s, want it left out", a)
+		}
+	}
+	for _, c := range append(v4, v6...) {
+		if !in([]Cell{c}, c.Rep.String()) {
+			t.Errorf("cell %s-%s is represented by %s, outside it", c.From, c.To, c.Rep)
+		}
+	}
+}

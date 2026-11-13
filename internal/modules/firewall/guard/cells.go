@@ -22,7 +22,8 @@ import (
 // cut cells, and so does every route of the host's family outside the local
 // table that sends or refuses a range (routeCutters) and every prefix of a
 // policy rule, since a rule that matches an interface sets apart the addresses
-// routed through it. A flow to
+// routed through it. A unicast flow ranges over the unicast space less the
+// host's own addresses (eval.UnicastCells) instead of the internet. A flow to
 // any internet address needs every cell to pass. A flow from any internet
 // address, given a before-state, fails only on a cell the before-state
 // neither drops nor rejects, so its cells are cut by the prefixes of both
@@ -60,7 +61,12 @@ func (r *router) cellFlows(fl flow, before *fwstate.Loaded) []flow {
 	if fl.wild == wildSrc && brs != nil {
 		cut = joinTables(cut, cutters(brs, v6, fl.pkt.Proto, fl.pkt.DstPort))
 	}
-	cells := eval.InternetCells(joinTables(cut, routes.rs), v6)
+	var cells []eval.Cell
+	if fl.unicast {
+		cells = eval.UnicastCells(joinTables(cut, routes.rs), v6, r.hostAddrs(v6))
+	} else {
+		cells = eval.InternetCells(joinTables(cut, routes.rs), v6)
+	}
 	rules := flowRules(fl, rs, brs)
 	if limit, over := overCellLimit(len(cells), rules); over {
 		fl.unknown = fmt.Sprintf("the rules and routes split the internet into %d ranges for this flow; checking them against %d rules is more than the guard evaluates (limit %d)", len(cells), rules, limit)
@@ -85,6 +91,17 @@ func (r *router) cellFlows(fl flow, before *fwstate.Loaded) []flow {
 		cf.blackhole = n >= 0 && n >= path && n >= longestContaining(refused, c.Rep)
 		cf.span = c.From.String() + "-" + c.To.String()
 		out = append(out, cf)
+	}
+	return out
+}
+
+// hostAddrs are the host's own addresses of one family.
+func (r *router) hostAddrs(v6 bool) []netip.Addr {
+	var out []netip.Addr
+	for a := range r.local {
+		if a.Is6() == v6 {
+			out = append(out, a)
+		}
 	}
 	return out
 }

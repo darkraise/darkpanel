@@ -37,17 +37,55 @@ var (
 	holes6 = []netip.Prefix{
 		netip.MustParsePrefix("2001:db8::/32"),
 	}
+
+	unicastSpace6 = netip.MustParsePrefix("::/0")
+
+	unicastHoles4 = []netip.Prefix{
+		netip.MustParsePrefix("0.0.0.0/8"),
+		netip.MustParsePrefix("127.0.0.0/8"),
+		netip.MustParsePrefix("224.0.0.0/4"),
+		netip.MustParsePrefix("240.0.0.0/4"),
+	}
+	unicastHoles6 = []netip.Prefix{
+		netip.MustParsePrefix("::/128"),
+		netip.MustParsePrefix("::1/128"),
+		netip.MustParsePrefix("ff00::/8"),
+	}
 )
 
 // InternetCells partitions the public unicast space of one family by
 // every address prefix any rule of rs matches on.
 func InternetCells(rs *netfilter.Ruleset, v6 bool) []Cell {
-	space := space4
-	holes := holes4
 	if v6 {
-		space = space6
-		holes = holes6
+		return partition(rs, v6, space6, holes6, false)
 	}
+	return partition(rs, v6, space4, holes4, false)
+}
+
+// UnicastCells partitions the unicast space of one family, private and
+// special-purpose ranges included, by every address prefix any rule of rs
+// matches on. It leaves out the unspecified, loopback, multicast and
+// reserved ranges and every address of host, the addresses a packet from
+// this host's own stack would carry.
+func UnicastCells(rs *netfilter.Ruleset, v6 bool, host []netip.Addr) []Cell {
+	space, holes := space4, unicastHoles4
+	if v6 {
+		space, holes = unicastSpace6, unicastHoles6
+	}
+	holes = slices.Clone(holes)
+	for _, a := range host {
+		if a = a.Unmap(); a.IsValid() && a.Is6() == v6 {
+			holes = append(holes, netip.PrefixFrom(a, a.BitLen()))
+		}
+	}
+	return partition(rs, v6, space, holes, true)
+}
+
+// partition splits space at every address prefix any rule of rs matches on
+// and trims each cell's ends out of holes. A cell may still span a hole
+// between its ends unless cutHoles also splits space at every hole, which
+// leaves the holes in no cell.
+func partition(rs *netfilter.Ruleset, v6 bool, space netip.Prefix, holes []netip.Prefix, cutHoles bool) []Cell {
 	spaceFirst := space.Addr()
 	spaceLast := lastAddr(space)
 
@@ -83,6 +121,12 @@ func InternetCells(rs *netfilter.Ruleset, v6 bool) []Cell {
 					}
 				}
 			}
+		}
+	}
+
+	if cutHoles {
+		for _, h := range holes {
+			addPrefix(h)
 		}
 	}
 
