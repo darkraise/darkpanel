@@ -5,14 +5,18 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/netip"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 	"unicode"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -816,8 +820,9 @@ type forwardTarget struct {
 }
 
 // forwardTargets reads every address NPM's proxy hosts and their custom locations forward to, in proxy host order. A
-// name is resolved as checkForward resolves it; a name with no answer adds nothing, since it can reach NPM only after
-// it is re-pointed.
+// forward host is read up to its first "/", as nginx reads a proxy_pass host. A name is resolved as checkForward
+// resolves it; a name with no answer adds nothing, since it can reach NPM only after it is re-pointed, and a host
+// holding an nginx variable is resolved by nginx per request, so no address can be read from it.
 func (n nm) forwardTargets(ctx context.Context, env core.Env) ([]forwardTarget, error) {
 	api, err := n.d.api(ctx, env)
 	if err != nil {
@@ -825,53 +830,147 @@ func (n nm) forwardTargets(ctx context.Context, env core.Env) ([]forwardTarget, 
 	}
 	hosts, err := api.ProxyHosts(ctx)
 	if err != nil {
-		return nil, proxyhostAddAnswer(err)
+		return nil, npmListingAnswer(err)
 	}
 	slices.SortFunc(hosts, func(a, b npmapi.ProxyHost) int { return cmp.Compare(a.ID, b.ID) })
-	var out []forwardTarget
+	type forward struct{ where, host string }
+	var forwards []forward
 	for _, ph := range hosts {
 		id := strconv.Itoa(ph.ID)
-		forwards := []struct{ where, host string }{{"proxy host " + id, ph.ForwardHost}}
+		forwards = append(forwards, forward{"proxy host " + id, ph.ForwardHost})
 		for _, l := range ph.Locations {
-			forwards = append(forwards, struct{ where, host string }{"location " + l.Path + " of proxy host " + id, l.ForwardHost})
+			forwards = append(forwards, forward{"location " + l.Path + " of proxy host " + id, l.ForwardHost})
 		}
-		for _, f := range forwards {
-			if f.host == "" {
-				continue
-			}
-			if a, ok := proxy.LiteralAddr(f.host); ok {
-				out = append(out, forwardTarget{where: f.where, host: f.host, addr: a})
-				continue
-			}
-			answers, ok, err := n.dockerAnswers(ctx, f.host)
-			if err != nil {
-				if ctx.Err() != nil {
-					return nil, ctx.Err()
-				}
-				return nil, fmt.Errorf("npm: resolve forward host %s: %w", f.host, err)
-			}
-			if !ok {
-				lookupCtx, cancel := context.WithTimeout(ctx, resolveTimeout)
-				answers, err = n.d.resolve(lookupCtx, f.host)
-				cancel()
-				if ctx.Err() != nil {
-					return nil, ctx.Err()
-				}
-				if err != nil {
-					continue
-				}
-			}
-			plain := make([]netip.Addr, 0, len(answers))
-			for _, a := range answers {
-				plain = append(plain, a.Unmap().WithZone(""))
-			}
-			slices.SortFunc(plain, netip.Addr.Compare)
-			for _, a := range slices.Compact(plain) {
-				out = append(out, forwardTarget{where: f.where, host: f.host, name: true, addr: a})
-			}
+	}
+	var names []string
+	for i, f := range forwards {
+		host, _, _ := strings.Cut(f.host, "/")
+		forwards[i].host = host
+		if _, ok := proxy.LiteralAddr(host); ok || host == "" || strings.Contains(host, "$") {
+			continue
+		}
+		if !slices.Contains(names, host) {
+			names = append(names, host)
+		}
+	}
+	answers, err := n.forwardAnswers(ctx, names)
+	if err != nil {
+		return nil, err
+	}
+	var out []forwardTarget
+	for _, f := range forwards {
+		if a, ok := proxy.LiteralAddr(f.host); ok {
+			out = append(out, forwardTarget{where: f.where, host: f.host, addr: a})
+			continue
+		}
+		for _, a := range answers[f.host] {
+			out = append(out, forwardTarget{where: f.where, host: f.host, name: true, addr: a})
 		}
 	}
 	return out, nil
+}
+
+const forwardResolvers = 8
+
+// forwardAnswers returns the sorted answers of each name, none for a name that does not exist. Docker's names are read
+// first; the rest go to the host's resolver concurrently under one deadline, so a listing of many names that do not
+// answer costs one resolveTimeout, not one per name.
+func (n nm) forwardAnswers(ctx context.Context, names []string) (map[string][]netip.Addr, error) {
+	out := make(map[string][]netip.Addr, len(names))
+	var lookups []string
+	for _, name := range names {
+		answers, ok, err := n.dockerAnswers(ctx, name)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return nil, fmt.Errorf("npm: resolve forward host %s: %w", name, err)
+		}
+		if ok {
+			out[name] = plainAddrs(answers)
+		} else {
+			lookups = append(lookups, name)
+		}
+	}
+	if len(lookups) == 0 {
+		return out, nil
+	}
+	type result struct {
+		answers []netip.Addr
+		err     error
+	}
+	lookupCtx, cancel := context.WithTimeout(ctx, resolveTimeout+time.Second)
+	defer cancel()
+	var (
+		mu      sync.Mutex
+		results = make(map[string]result, len(lookups))
+		wg      sync.WaitGroup
+		slots   = make(chan struct{}, forwardResolvers)
+	)
+	for _, name := range lookups {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			select {
+			case slots <- struct{}{}:
+			case <-lookupCtx.Done():
+				return
+			}
+			defer func() { <-slots }()
+			answers, err := n.d.resolve(lookupCtx, name)
+			mu.Lock()
+			results[name] = result{answers, err}
+			mu.Unlock()
+		}()
+	}
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-lookupCtx.Done():
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	for _, name := range lookups {
+		r, ok := results[name]
+		if !ok || transientLookup(r.err) {
+			return nil, core.Definite(errcode.New(errcode.Unavailable,
+				"forward host "+name+" could not be resolved: the resolver did not answer; retry"))
+		}
+		if r.err == nil {
+			out[name] = plainAddrs(r.answers)
+		}
+	}
+	return out, nil
+}
+
+func plainAddrs(answers []netip.Addr) []netip.Addr {
+	plain := make([]netip.Addr, 0, len(answers))
+	for _, a := range answers {
+		plain = append(plain, a.Unmap().WithZone(""))
+	}
+	slices.SortFunc(plain, netip.Addr.Compare)
+	return slices.Compact(plain)
+}
+
+// npmListingAnswer maps a failed listing of NPM's proxy hosts to npm.unhealthy: a guard that cannot read the forwards
+// must not pass, and no answer of NPM's, a 4xx included, is the caller's input to correct.
+func npmListingAnswer(err error) error {
+	var answer *npmapi.APIError
+	switch {
+	case errors.As(err, &answer):
+		return errcode.Wrap(errcode.NPMUnhealthy, err, fmt.Sprintf("Nginx Proxy Manager answered HTTP %d", answer.Status))
+	case errors.Is(err, npmapi.ErrUndecodable):
+		return errcode.Wrap(errcode.NPMUnhealthy, err, "Nginx Proxy Manager gave an answer that did not decode")
+	default:
+		return errcode.Wrap(errcode.NPMUnhealthy, err, "Nginx Proxy Manager did not answer")
+	}
 }
 
 // networkAssignable reports whether the Engine could give NPM the address addr when NPM joins network. staticV4 means
@@ -900,11 +999,31 @@ func networkAssignable(network dockerapi.Network, addr netip.Addr, staticV4 bool
 		if c.IPRange.IsValid() {
 			pool = c.IPRange
 		}
-		if pool.Contains(addr) && addr != c.Gateway {
+		if pool.Contains(addr) && addr != c.Gateway && !engineReserved(c.Subnet, addr) {
 			return true
 		}
 	}
 	return !subnets
+}
+
+// engineReserved reports whether the Engine's IPAM keeps addr of subnet out of every allocation: the network address
+// of any subnet but an IPv4 /31 or /32, and the broadcast address of an IPv4 subnet shorter than /31 (moby
+// defaultipam newPoolData).
+func engineReserved(subnet netip.Prefix, addr netip.Addr) bool {
+	subnet = subnet.Masked()
+	if subnet.Addr().Is4() && subnet.Bits() >= 31 {
+		return false
+	}
+	if addr == subnet.Addr() {
+		return true
+	}
+	if !subnet.Addr().Is4() {
+		return false
+	}
+	b := subnet.Addr().As4()
+	last := binary.BigEndian.Uint32(b[:]) | (1<<(32-subnet.Bits()) - 1)
+	binary.BigEndian.PutUint32(b[:], last)
+	return addr == netip.AddrFrom4(b)
 }
 
 // forwardGuard refuses with npm.reserved when a proxy host or custom location forwards to an address NPM could take on

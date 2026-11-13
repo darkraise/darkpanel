@@ -5,12 +5,15 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/netip"
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
@@ -344,7 +347,19 @@ func TestNwAttachPlanRefusals(t *testing.T) {
 		{name: "an NPM API that cannot list the proxy hosts", setup: func(t *testing.T, h *thHost, user dockerapi.Network) {
 			w12aSubnet(t, h, user)
 			h.npm.Fail(http.MethodGet, "/api/nginx/proxy-hosts", fake.Fault{Status: http.StatusInternalServerError})
-		}, code: errcode.NPMUnhealthy, has: "Nginx Proxy Manager did not answer"},
+		}, code: errcode.NPMUnhealthy, has: "Nginx Proxy Manager answered HTTP 500"},
+		{name: "an NPM API that refuses the listing", setup: func(t *testing.T, h *thHost, user dockerapi.Network) {
+			w12aSubnet(t, h, user)
+			h.npm.Fail(http.MethodGet, "/api/nginx/proxy-hosts", fake.Fault{Status: http.StatusUnauthorized})
+		}, code: errcode.NPMUnhealthy, has: "Nginx Proxy Manager answered HTTP 401"},
+		{name: "a forward to the subnet's network address", setup: w12aForwardsTo("10.9.0.0", 3000)},
+		{name: "a forward to the subnet's broadcast address", setup: w12aForwardsTo("10.9.0.255", 3000)},
+		{name: "an NPM API whose listing does not decode", setup: func(t *testing.T, h *thHost, user dockerapi.Network) {
+			w12aSubnet(t, h, user)
+			h.npm.Fail(http.MethodGet, "/api/nginx/proxy-hosts", fake.Fault{Status: http.StatusOK, Body: "{"})
+		}, code: errcode.NPMUnhealthy, has: "Nginx Proxy Manager gave an answer that did not decode"},
+		{name: "a forward host with a path", setup: w12aForwardsTo("10.9.0.7/x", 3000),
+			code: errcode.NPMReserved, has: "proxy host 1 forwards to 10.9.0.7, an address darkpanel-npm could take on network appnet"},
 		{name: "NPM container missing", setup: func(t *testing.T, h *thHost, _ dockerapi.Network) {
 			err := h.docker.RemoveContainer(ctx, containerName, dockerapi.RemoveContainerOptions{Force: true})
 			if err != nil {
@@ -367,6 +382,12 @@ func TestNwAttachPlanRefusals(t *testing.T) {
 			}
 			connects := nwCalls(h, "ConnectNetwork")
 			_, err := h.nm().networkAttach().Handler.Plan(ctx, h.env(""), nwJSON(t, in))
+			if tt.code == "" {
+				if err != nil {
+					t.Fatalf("plan: %v, want it to pass", err)
+				}
+				return
+			}
 			coded := nwRefused(t, err, tt.code)
 			if tt.field != "" && !slices.ContainsFunc(coded.Fields, func(f errcode.FieldError) bool { return f.Path == tt.field }) {
 				t.Errorf("fields %v, want one at %s", coded.Fields, tt.field)
@@ -1145,5 +1166,97 @@ func TestW12aUndoOfADetachRefusesAForwardedAddress(t *testing.T) {
 	}
 	if want := resourceOf(nounEndpoint, nwNet); res.Resource != want {
 		t.Errorf("the repeated undo returned resource %q, want %q", res.Resource, want)
+	}
+}
+
+func TestW12bForwardTargets(t *testing.T) {
+	ctx := context.Background()
+	t.Run("each distinct name is resolved once, all under one deadline", func(t *testing.T) {
+		h, user := nwSetup(t)
+		w12aSubnet(t, h, user)
+		for i := range 20 {
+			w12aSeed(h, fmt.Sprintf("slow%d.example.net", i), 3000)
+		}
+		w12aSeed(h, "slow0.example.net", 3001)
+		var mu sync.Mutex
+		calls := map[string]int{}
+		n := h.nm()
+		n.d.resolve = func(ctx context.Context, host string) ([]netip.Addr, error) {
+			mu.Lock()
+			calls[host]++
+			mu.Unlock()
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		in := nwJSON(t, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"})
+		start := time.Now()
+		_, err := n.networkAttach().Handler.Plan(ctx, h.env(""), in)
+		if took := time.Since(start); took > resolveTimeout+2*time.Second {
+			t.Errorf("the check took %s, want at most resolveTimeout plus one second", took)
+		}
+		coded := nwRefused(t, err, errcode.Unavailable)
+		if !strings.HasPrefix(coded.Detail, "forward host slow") || !strings.HasSuffix(coded.Detail, " could not be resolved: the resolver did not answer; retry") {
+			t.Errorf("detail %q, want the transient resolver failure of a forward host", coded.Detail)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		for host, c := range calls {
+			if c != 1 {
+				t.Errorf("%s was resolved %d times, want once", host, c)
+			}
+		}
+	})
+	t.Run("a forward host holding an nginx variable is not counted", func(t *testing.T) {
+		h, user := nwSetup(t)
+		w12aSubnet(t, h, user)
+		w12aSeed(h, "$upstream", 3000)
+		n := h.nm()
+		n.d.resolve = v1r09Resolver("10.9.0.7")
+		in := nwJSON(t, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"})
+		if _, err := n.networkAttach().Handler.Plan(ctx, h.env(""), in); err != nil {
+			t.Errorf("plan with a variable forward host: %v, want it to pass", err)
+		}
+	})
+	t.Run("the undo of a detach reports a refused listing", func(t *testing.T) {
+		h, user := nwSetup(t)
+		w12aSubnet(t, h, user)
+		nwSeedAttached(t, h, user, nwClaimant, false)
+		if _, err := nwApplyDetach(t, h, "c2", DetachInput{Network: nwNet, Claimant: nwClaimant}); err != nil {
+			t.Fatal(err)
+		}
+		var endpoint core.Effect
+		for _, e := range h.journal.effects() {
+			if e.Kind == core.EffectModify {
+				endpoint = e
+			}
+		}
+		h.npm.Fail(http.MethodGet, "/api/nginx/proxy-hosts", fake.Fault{Status: http.StatusUnauthorized})
+		_, err := h.nm().networkDetach().Handler.Inverse(ctx, h.env("u1"), endpoint)
+		if coded := nwRefused(t, err, errcode.NPMUnhealthy); coded.Detail != "Nginx Proxy Manager answered HTTP 401" {
+			t.Errorf("detail %q, want the refused listing", coded.Detail)
+		}
+	})
+}
+
+func TestW12bNetworkAssignable(t *testing.T) {
+	n24 := thNetwork(nwNet, thSubnet("10.9.0.0/24", "10.9.0.1"))
+	n31 := thNetwork(nwNet, thSubnet("10.9.1.0/31", "10.9.1.1"))
+	for _, tc := range []struct {
+		name string
+		nw   dockerapi.Network
+		addr string
+		want bool
+	}{
+		{"a free address", n24, "10.9.0.7", true},
+		{"the network address", n24, "10.9.0.0", false},
+		{"the broadcast address", n24, "10.9.0.255", false},
+		{"the gateway", n24, "10.9.0.1", false},
+		{"the first address of a /31", n31, "10.9.1.0", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := networkAssignable(tc.nw, netip.MustParseAddr(tc.addr), false); got != tc.want {
+				t.Errorf("networkAssignable(%s) = %v, want %v", tc.addr, got, tc.want)
+			}
+		})
 	}
 }

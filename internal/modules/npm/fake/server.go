@@ -27,10 +27,12 @@ type Request = cloudfake.Request
 
 // Fault is one injected failure for the next request that matches a method and a path. Status answers with that
 // status without running the handler. AfterCommit runs the handler, so the write commits, and then closes the
-// connection without an answer; it wins when both are set.
+// connection without an answer; it wins when both are set. Body, with Status, is the raw body answered in place of
+// NPM's error body.
 type Fault struct {
 	Status      int
 	AfterCommit bool
+	Body        string
 }
 
 // Server is the fake NPM API. It is safe for concurrent use.
@@ -86,8 +88,12 @@ func (s *Server) Fail(method, path string, f Fault) {
 	case f.AfterCommit:
 		s.cloud.Fail(method, path, cloudfake.Fault{LoseResponse: true})
 	case f.Status != 0:
-		body, _ := json.Marshal(errorBody(f.Status, http.StatusText(f.Status)))
-		s.cloud.Fail(method, path, cloudfake.Fault{Status: f.Status, Body: string(body)})
+		body := f.Body
+		if body == "" {
+			b, _ := json.Marshal(errorBody(f.Status, http.StatusText(f.Status)))
+			body = string(b)
+		}
+		s.cloud.Fail(method, path, cloudfake.Fault{Status: f.Status, Body: body})
 	default:
 		s.tb.Fatalf("fake: a fault needs a Status or AfterCommit")
 	}

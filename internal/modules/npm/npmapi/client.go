@@ -237,7 +237,7 @@ func (c *Client) do(ctx context.Context, method, path, query string, body, out a
 		return fmt.Errorf("npmapi: %s %s answer exceeds %d bytes", method, path, answerBodyLimit)
 	}
 	if err := json.Unmarshal(b, out); err != nil {
-		return fmt.Errorf("npmapi: decode %s %s answer: not the expected JSON", method, path)
+		return fmt.Errorf("npmapi: decode %s %s answer: %w", method, path, ErrUndecodable)
 	}
 	return nil
 }
@@ -258,6 +258,9 @@ func apiError(res *http.Response) *APIError {
 	}
 	return ae
 }
+
+// ErrUndecodable marks a 2xx answer whose body is not the JSON the call expects.
+var ErrUndecodable = errors.New("not the expected JSON")
 
 // errNoAnswer and errRefused are the fixed reasons of a request that got no usable answer.
 var (
