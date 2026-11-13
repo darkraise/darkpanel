@@ -137,7 +137,6 @@ test("keeps the exposure warnings and adds the could-not-check warning when a re
   expect(screen.getByText(BN_WEB1)).toBeTruthy()
 })
 
-
 test("the fleet read is kept for 60 seconds before a new mount reads it again", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
   try {

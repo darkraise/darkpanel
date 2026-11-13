@@ -202,8 +202,8 @@ func (s *Server) engineConfig(reg *core.Registry) lifecycle.Config {
 // change the network listeners hide, or whose change cannot be read, is
 // dropped, since the event stream must not show what the change routes hide,
 // and the child of a step whose child the network hides, or whose child
-// cannot be read, is left out of the event. It reads s.engine when an event arrives because engineConfig runs before
-// s.engine is assigned.
+// cannot be read, is left out of the event. It reads s.engine when an event
+// arrives because engineConfig runs before s.engine is assigned.
 func (s *Server) publishEngineEvent(eventType string, data any) {
 	if step, ok := data.(lifecycle.StepEvent); ok && eventType == lifecycle.EventCompositeStep {
 		view, err := s.engine.Change(context.Background(), step.ChangeID)
