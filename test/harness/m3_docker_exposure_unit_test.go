@@ -5,6 +5,7 @@ package harness
 import (
 	"net/netip"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -291,6 +292,72 @@ func TestM3xExpoUDPAnswer(t *testing.T) {
 	for _, c := range cases {
 		if err := m3dxUDPAnswer(scanned, c.port, c.answers); (err == nil) != c.ok {
 			t.Errorf("m3dxUDPAnswer(%d, answers %v) = %v, want ok %v", c.port, c.answers, err, c.ok)
+		}
+	}
+}
+
+func TestM3dxUnitUnlisted(t *testing.T) {
+	const inet4, inet6 = "198.18.0.11", "2001:db8:d0::11"
+	rows := []m3dRow{
+		{Proto: "tcp", Addr: "0.0.0.0", Family: "v4", Port: 22, Verdict: "open"},
+		{Proto: "tcp", Addr: "::", Family: "v6", Port: 22, Verdict: "open"},
+		{Proto: "tcp", Addr: "127.0.0.1", Family: "v4", Port: 8080, Verdict: "closed"},
+		{Proto: "tcp", Addr: "::", Family: "v6", Port: 8443, Verdict: "open"},
+		{Proto: "tcp", Addr: "198.18.0.11", Family: "v4", Port: 9100, Verdict: "open"},
+		{Proto: "tcp", Addr: "10.77.0.11", Family: "v4", Port: 7443, Verdict: "open"},
+		{Proto: "tcp", Addr: "0.0.0.0", Family: "v4", Port: 18302, Verdict: "partial", Allowed: []string{"198.18.0.20/32"}},
+		{Proto: "tcp", Addr: "0.0.0.0", Family: "v4", Port: 18303, Verdict: "filtered"},
+		{Proto: "udp", Addr: "0.0.0.0", Family: "v4", Port: 18304, Verdict: "open"},
+		{Proto: "tcp", Addr: "0.0.0.0", Family: "v4", Port: 18310, Verdict: "unknown"},
+	}
+	open := func(port uint16) PortState { return PortState{Port: port, Proto: "tcp", State: "open"} }
+	scan4 := func(extra ...PortState) []PortState {
+		return append([]PortState{open(22), open(9100), open(18302)}, extra...)
+	}
+	twoRows := append(slices.Clone(rows), m3dRow{Proto: "tcp", Addr: "198.18.0.11", Family: "v4", Port: 18303, Verdict: "partial"})
+	shut := append(slices.Clone(rows), m3dRow{Proto: "tcp", Addr: "198.18.0.11", Family: "v4", Port: 18303, Verdict: "closed"})
+	cases := []struct {
+		name    string
+		rows    []m3dRow
+		scanned []PortState
+		family  string
+		want    []string
+	}{
+		{"every open port listed, IPv4", rows, scan4(), "v4", nil},
+		{"every open port listed, IPv6", rows, []PortState{open(22), open(8443)}, "v6", nil},
+		{"UDP entries are not compared", rows, scan4(PortState{Port: 18399, Proto: "udp", State: "open"}), "v4", nil},
+		{"an open port without a row", rows, scan4(open(18399)), "v4",
+			[]string{"tcp/18399 on 198.18.0.11 is open, and the view lists no row for it"}},
+		{"a row bound to another address", rows, scan4(open(7443)), "v4",
+			[]string{"tcp/7443 on 198.18.0.11 is open, and the view lists no row for it"}},
+		{"a row bound to loopback", rows, scan4(open(8080)), "v4",
+			[]string{"tcp/8080 on 198.18.0.11 is open, and the view lists no row for it"}},
+		{"a row of the other family", rows, scan4(open(8443)), "v4",
+			[]string{"tcp/8443 on 198.18.0.11 is open, and the view lists no row for it"}},
+		{"an IPv4-only row under the IPv6 scan", rows, []PortState{open(22), open(8443), open(18302)}, "v6",
+			[]string{"tcp/18302 on 2001:db8:d0::11 is open, and the view lists no row for it"}},
+		{"a filtered verdict scanned open", rows, scan4(open(18303)), "v4",
+			[]string{"tcp/18303 on 198.18.0.11 is open, and the view's internet verdict is filtered"}},
+		{"an unknown verdict scanned open", rows, scan4(open(18310)), "v4",
+			[]string{"tcp/18310 on 198.18.0.11 is open, and the view's internet verdict is unknown"}},
+		{"one of two rows partial", twoRows, scan4(open(18303)), "v4", nil},
+		{"neither of two rows open", shut, scan4(open(18303)), "v4",
+			[]string{"tcp/18303 on 198.18.0.11 is open, and the view's internet verdict is filtered, closed"}},
+		{"an open row the scan found closed", rows, []PortState{{Port: 22, Proto: "tcp", State: "closed"}, open(9100)}, "v4",
+			[]string{"tcp/22 on 198.18.0.11 has internet verdict open, and the full scan did not find it open"}},
+		{"a scan that found nothing open", rows, []PortState{}, "v4", []string{
+			"tcp/22 on 198.18.0.11 has internet verdict open, and the full scan did not find it open",
+			"tcp/9100 on 198.18.0.11 has internet verdict open, and the full scan did not find it open",
+		}},
+		{"both directions at once", rows, []PortState{open(9100), open(18399)}, "v4", []string{
+			"tcp/18399 on 198.18.0.11 is open, and the view lists no row for it",
+			"tcp/22 on 198.18.0.11 has internet verdict open, and the full scan did not find it open",
+		}},
+	}
+	for _, c := range cases {
+		got := m3dxUnlisted(c.rows, c.scanned, c.family, inet4, inet6)
+		if !slices.Equal(got, c.want) {
+			t.Errorf("%s: m3dxUnlisted = %q, want %q", c.name, got, c.want)
 		}
 	}
 }

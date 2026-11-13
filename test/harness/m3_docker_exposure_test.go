@@ -271,6 +271,62 @@ func m3dxExpoTarget(addr, family, inet4, inet6 string) (string, bool) {
 	return target, true
 }
 
+// m3dxUnlisted compares a full-range TCP scan of one host address with that
+// host's view and returns one message per disagreement, in both directions:
+// an open port the view does not list as open or partial, and a port the view
+// lists open that the scan did not find open. A partial row counts as listed,
+// because the default scanner source may be inside or outside its allowed
+// set. UDP is out of scope: a UDP scan cannot tell an open silent port from a
+// filtered one.
+func m3dxUnlisted(rows []m3dRow, scanned []PortState, family, inet4, inet6 string) []string {
+	target := inet6
+	if family == "v4" {
+		target = inet4
+	}
+	var considered []m3dRow
+	for _, r := range rows {
+		if r.Proto != "tcp" || r.Family != family {
+			continue
+		}
+		if _, ok := m3dxExpoTarget(r.Addr, r.Family, inet4, inet6); ok {
+			considered = append(considered, r)
+		}
+	}
+	var msgs []string
+	open := map[uint16]bool{}
+	for _, p := range scanned {
+		if p.Proto != "tcp" || p.State != "open" {
+			continue
+		}
+		open[p.Port] = true
+		var verdicts []string
+		listed := false
+		for _, r := range considered {
+			if r.Port != p.Port {
+				continue
+			}
+			verdicts = append(verdicts, r.Verdict)
+			if r.Verdict == "open" || r.Verdict == "partial" {
+				listed = true
+			}
+		}
+		switch {
+		case len(verdicts) == 0:
+			msgs = append(msgs, fmt.Sprintf("tcp/%d on %s is open, and the view lists no row for it", p.Port, target))
+		case !listed:
+			msgs = append(msgs, fmt.Sprintf("tcp/%d on %s is open, and the view's internet verdict is %s",
+				p.Port, target, strings.Join(verdicts, ", ")))
+		}
+	}
+	for _, r := range considered {
+		if r.Verdict == "open" && !open[r.Port] {
+			msgs = append(msgs, fmt.Sprintf("tcp/%d on %s has internet verdict open, and the full scan did not find it open",
+				r.Port, target))
+		}
+	}
+	return msgs
+}
+
 // m3dxExpoVerdicts checks the internet class of rows against want, which maps
 // <proto>/<family>/<port> to a verdict. It reports, in key order, every key
 // without a row, every key whose verdict differs and every key whose rows
@@ -408,8 +464,14 @@ func m3dxExpoWorkflow(yml string, deadline time.Duration) error {
 // the decoded view, or an error when it cannot be read or decoded, so that a
 // caller inside eventually can retry.
 func m3dExpoRead(ctx context.Context, f *fleet) ([]byte, m3dExpoView, error) {
+	return m3dExpoReadHost(ctx, f, f.agentID)
+}
+
+// m3dExpoReadHost reads firewall.exposure of host (a host id) and returns its
+// JSON and the decoded view, or an error when it cannot be read or decoded.
+func m3dExpoReadHost(ctx context.Context, f *fleet, host string) ([]byte, m3dExpoView, error) {
 	var raw json.RawMessage
-	if err := f.api.Resource(ctx, f.agentID, "firewall.exposure", &raw); err != nil {
+	if err := f.api.Resource(ctx, host, "firewall.exposure", &raw); err != nil {
 		return nil, m3dExpoView{}, fmt.Errorf("harness: firewall.exposure: %w", err)
 	}
 	view, err := m3dExpoDecode(raw)
@@ -586,6 +648,44 @@ func m3dExpoScan(ctx context.Context, t *testing.T, f *fleet) {
 	// challenge test server answers, makes the allowed port scan as open.
 	m3dExpoUDPAnswers(ctx, t, f, 18304, true)
 	m3dExpoUDPAnswers(ctx, t, f, 18305, false)
+	m3dExpoFullScan(ctx, t, f)
+}
+
+// m3dExpoFullScan is spec S2's full-range check: a TCP scan of every port of
+// the agent's and the controller host's internet addresses, IPv4 and IPv6,
+// must agree with that host's firewall.exposure in both directions. It runs
+// while m3dExpoScan's containers are published, since ports Docker publishes
+// outside UFW's INPUT chain are where an under-reporting view is most likely.
+func m3dExpoFullScan(ctx context.Context, t *testing.T, f *fleet) {
+	hosts := []struct{ name, id, inet4, inet6 string }{
+		{"agent", f.agentID, agentIPv4, agentIPv6},
+		{"controller", f.localID, targetIPv4, targetIPv6},
+	}
+	for _, h := range hosts {
+		families := []struct{ name, flag, addr string }{
+			{"v4", "-4", h.inet4},
+			{"v6", "-6", h.inet6},
+		}
+		for _, fam := range families {
+			t.Run("full-scan-"+h.name+"-"+fam.name, func(t *testing.T) {
+				scanned := m3dScan(ctx, t, f.scanner, ScanOpts{Family: fam.flag, Target: fam.addr})
+				raw, view, err := m3dExpoReadHost(ctx, f, h.id)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(view.Notes) > 0 {
+					t.Logf("%s exposure notes: %q", h.name, view.Notes)
+				}
+				rows, err := m3dxRows(raw)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, msg := range m3dxUnlisted(rows, scanned, fam.name, h.inet4, h.inet6) {
+					t.Errorf("%s: %s", h.name, msg)
+				}
+			})
+		}
+	}
 }
 
 // m3dExpoDNSQuery is a DNS query for the A record of example.com.

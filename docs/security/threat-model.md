@@ -217,7 +217,7 @@ This page is the written threat model of Darkpanel. It states what the product p
 - A snapshot is taken before every change, and a break-glass rollback and restore through the agent socket work without the controller (`internal/cli`, `internal/modules/firewall`).
 - The module holds one read-write lock per instance. Every path that changes UFW's files, the loaded rules or the Docker block takes it for writing, and every status read and plan preparation takes it for reading, so a plan or a status read never sees a state between a file write and the chain load or reload that follows it (`internal/modules/firewall`).
 - The Docker integration is a marked block with its own implementation that pins a container's allowance to its published binding (`internal/modules/firewall/dockerfw`).
-- The exposure view computes reachability per port and the harness checks it against an external scanner. The parsers of UFW files and ruleset output are fuzzed (`internal/modules/firewall`, `internal/modules/firewall/exposure`, `test/harness`).
+- The exposure view computes reachability per port, and the harness checks it against an external scanner: a full-range TCP scan of the controller's and an agent's internet addresses, IPv4 and IPv6, must find open every port the host's view lists open and no open port the view does not list as open or partial, and every UDP port the agent's view lists is probed. The parsers of UFW files and ruleset output are fuzzed (`internal/modules/firewall`, `internal/modules/firewall/exposure`, `test/harness`).
 
 #### Residual risk
 
