@@ -95,7 +95,7 @@ func (e *Engine) repairComposite(ctx context.Context, p core.Principal, id strin
 	case err != nil:
 		return core.RepairResult{}, err
 	default:
-		run := &compositeRun{P: p}
+		run := newCompositeRun(ctx, p, core.ApplyOptions{})
 		e.goRun(func() { e.runComposite(id, run) })
 	}
 	v, err := e.Change(ctx, id)

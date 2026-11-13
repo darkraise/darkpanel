@@ -50,12 +50,38 @@ func stepOutputAD(id, stepID string) string {
 }
 
 // compositeRun is what a live runner has and recovery does not: the
-// principal that plans and applies the children, and the options of the
-// composite's apply, which reach its revertible step. A nil *compositeRun is
-// recovery, which never plans a step.
+// principal that plans and applies the children, the options of the
+// composite's apply, which reach its revertible step, and the client and
+// proxy path of the request that started the run. The runner works on the
+// engine's run context, which carries neither, so each step's plan and apply
+// get them back and its guard protects the requester's own path. Neither is
+// stored: recovery, a nil *compositeRun, never plans a step.
 type compositeRun struct {
-	P    core.Principal
-	Opts core.ApplyOptions
+	P          core.Principal
+	Opts       core.ApplyOptions
+	client     core.Peer
+	hasClient  bool
+	proxied    core.Proxied
+	hasProxied bool
+}
+
+// newCompositeRun is the run of a request made with ctx by p.
+func newCompositeRun(ctx context.Context, p core.Principal, opts core.ApplyOptions) *compositeRun {
+	run := &compositeRun{P: p, Opts: opts}
+	run.client, run.hasClient = core.ClientPeer(ctx)
+	run.proxied, run.hasProxied = core.ProxiedFrom(ctx)
+	return run
+}
+
+// stepContext is ctx with the requester's client and proxy path restored.
+func (run *compositeRun) stepContext(ctx context.Context) context.Context {
+	if run.hasClient {
+		ctx = core.WithClientPeer(ctx, run.client)
+	}
+	if run.hasProxied {
+		ctx = core.WithProxied(ctx, run.proxied)
+	}
+	return ctx
 }
 
 // compositeRow is a composite's change row with its core_composites row.
@@ -543,6 +569,7 @@ func (e *Engine) startStep(ctx context.Context, c compositeRow, steps []stepRow,
 	}
 	call := e.stepCall(c, s)
 	call.Retired = stepRetired(steps, s)
+	stepCtx := run.stepContext(ctx)
 	if s.State == core.StepPending {
 		if err := e.setStep(ctx, c.ID, s.ID, []string{core.StepPending}, stepUpdate{State: core.StepPlanning}); err != nil {
 			return err
@@ -561,7 +588,7 @@ func (e *Engine) startStep(ctx context.Context, c compositeRow, steps []stepRow,
 		if err != nil {
 			return fmt.Errorf("lifecycle: seal the input of step %s of %s: %w", s.ID, c.ID, err)
 		}
-		v, err := kids.Plan(ctx, run.P, s.Host, s.Action, input, core.PlanOptions{Call: call})
+		v, err := kids.Plan(stepCtx, run.P, s.Host, s.Action, input, core.PlanOptions{Call: call})
 		if err != nil {
 			return e.stepNotApplied(ctx, c, s, err)
 		}
@@ -580,7 +607,7 @@ func (e *Engine) startStep(ctx context.Context, c compositeRow, steps []stepRow,
 		stepUpdate{State: core.StepApplying, Attempt: s.Attempt + 1, ChildDeadline: &deadline}); err != nil {
 		return err
 	}
-	v, applyErr := kids.Apply(ctx, run.P, s.Host, s.Action, s.PlanID, opts)
+	v, applyErr := kids.Apply(stepCtx, run.P, s.Host, s.Action, s.PlanID, opts)
 	u := stepUpdate{State: core.StepApplying}
 	switch {
 	case applyErr != nil:
@@ -1053,7 +1080,7 @@ func (e *Engine) applyComposite(ctx context.Context, p core.Principal, planID st
 	if err != nil {
 		return core.ChangeView{}, err
 	}
-	run := &compositeRun{P: p, Opts: opts}
+	run := newCompositeRun(ctx, p, opts)
 	e.goRun(func() { e.runComposite(id, run) })
 	return v, nil
 }

@@ -466,6 +466,26 @@ type inprocChildren struct {
 	lose        map[string]bool
 	refuse      map[string]error
 	calls       []string // "<method> <host>", in call order
+	requests    []string // "<method> <client> <exposure>" of each step call (Call.ParentChangeID set)
+}
+
+func (c *inprocChildren) record(ctx context.Context, method string) {
+	client, exposure := "-", "-"
+	if p, ok := core.ClientPeer(ctx); ok {
+		client = p.Addr.String()
+	}
+	if px, ok := core.ProxiedFrom(ctx); ok {
+		exposure = px.Path.ExposureID
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.requests = append(c.requests, method+" "+client+" "+exposure)
+}
+
+func (c *inprocChildren) stepRequests() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.requests)
 }
 
 func (c *inprocChildren) setRefusal(method string, err error) {
@@ -534,6 +554,9 @@ func (c *inprocChildren) Plan(ctx context.Context, p core.Principal, hostID stri
 	if err != nil {
 		return core.PlanView{}, err
 	}
+	if opts.Call != nil && opts.Call.ParentChangeID != "" {
+		c.record(ctx, "Plan")
+	}
 	v, err := e.Plan(ctx, p, a, input, opts)
 	if err = c.answer("Plan", err); err != nil {
 		return core.PlanView{}, err
@@ -545,6 +568,9 @@ func (c *inprocChildren) Apply(ctx context.Context, p core.Principal, hostID str
 	e, err := c.on("Apply", hostID)
 	if err != nil {
 		return core.ChangeView{}, err
+	}
+	if opts.Call != nil && opts.Call.ParentChangeID != "" {
+		c.record(ctx, "Apply")
 	}
 	v, err := e.Apply(ctx, p, planID, opts)
 	if err = c.answer("Apply", err); err != nil {
