@@ -12,7 +12,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/platform/netstat"
 )
 
-// a27Hosts are the layouts the acceptance tests run the guard on.
+// a27Layout is the interfaces, routes and rp_filter mode of the host the guard runs against.
 type a27Layout struct {
 	ifaces []netstat.Interface
 	routes []netstat.Route
