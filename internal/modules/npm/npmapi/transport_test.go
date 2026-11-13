@@ -72,7 +72,7 @@ func TestW12aFailuresKeepNoAnswerText(t *testing.T) {
 			"npmapi: POST /api/tokens: context deadline exceeded", context.DeadlineExceeded},
 		{"a number NPM chose in a 2xx answer", t.Context(),
 			w12aRaw(t, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"id\":31415926535897932384626433}"),
-			read, "31415926535897932384626433", "npmapi: decode /api/nginx/proxy-hosts/1 answer: not the expected JSON", nil},
+			read, "31415926535897932384626433", "npmapi: decode GET /api/nginx/proxy-hosts/1 answer: not the expected JSON", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.call(tc.ctx, tc.base)

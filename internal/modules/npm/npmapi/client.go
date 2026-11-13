@@ -231,13 +231,13 @@ func (c *Client) do(ctx context.Context, method, path, query string, body, out a
 	}
 	b, err := io.ReadAll(io.LimitReader(res.Body, answerBodyLimit+1))
 	if err != nil {
-		return fmt.Errorf("npmapi: read %s answer: %w", path, unanswered(err))
+		return fmt.Errorf("npmapi: read %s %s answer: %w", method, path, unanswered(err))
 	}
 	if len(b) > answerBodyLimit {
-		return fmt.Errorf("npmapi: %s answer exceeds %d bytes", path, answerBodyLimit)
+		return fmt.Errorf("npmapi: %s %s answer exceeds %d bytes", method, path, answerBodyLimit)
 	}
 	if err := json.Unmarshal(b, out); err != nil {
-		return fmt.Errorf("npmapi: decode %s answer: not the expected JSON", path)
+		return fmt.Errorf("npmapi: decode %s %s answer: not the expected JSON", method, path)
 	}
 	return nil
 }
