@@ -1,7 +1,7 @@
 # v1 security review register
 
 **Source:** R73 security review of `main` at dc91aa2 on 2026-11-06 by the owner's two-reviewer panel (`dforge:judge-fable` and Codex `gpt-6-astra`, one shared brief `docs/dforge/notes/v1-security-review-brief.md`); reviews `docs/dforge/notes/v1-security-review-fable.md` (Fable, F-numbers) and `docs/dforge/notes/v1-security-review-codex.md` (Codex, C-numbers); the Codex-only findings were verified by `dforge:judge-opus` the same day. Spec 9: every critical and high finding is fixed and re-reviewed; medium and low are fixed or deferred by the owner.
-**Covers:** docs/dforge/specs/2026-10-21-v1-completion-design.md
+**Covers:** docs/dforge/specs/2026-10-21-v1-completion-design.md, docs/dforge/specs/2026-11-13-v1-w12b-open-rows-design.md
 
 | # | Item | Assigned | Acceptance | State | Note |
 |---|---|---|---|---|---|
@@ -156,3 +156,4 @@
 | 149 | low (w12a, deferred minor): the deployCancelledWait comment named only the status read; internal/modules/npm/instance_deploy.go | - | - | done | fixed in 4172841 (docs(npm): correct the upgrade and wait comments) |
 | 150 | low (w12a, deferred minor): no unit test pinned OperatorConfig's untrimmed comparison or blank-line drop; internal/modules/npm/proxy/location.go | - | - | done | fixed in 15a3a32 (TestW12aOperatorConfig) |
 | 151 | low (w12a, deferred minor): OperatorConfig dropped an operator's exact proxy_read_timeout 3600s line on a host the update rewrites; internal/modules/npm/proxy/location.go | - | - | done | fixed in 15a3a32 per the final review's ruling pc-1 |
+| 152 | medium (w12b spec review, Fable, inference): the leg from Docker's userland proxy to NPM's container (bridge gateway to the container's IPv4 address, on the host's output path) is not a protected guard flow, so a change that blocks that output (a default-deny outgoing policy on a host with no tailscaled) cuts every IPv6 client of the default NPM deployment and passes the guard; internal/modules/firewall/guard/flows.go | - | - | open | recorded as a residual risk by docs/dforge/specs/2026-11-13-v1-w12b-open-rows-design.md; not fixed by w12b; needs an owner ruling |
