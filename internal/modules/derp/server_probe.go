@@ -237,7 +237,8 @@ func probeTailscaleOff(ctx context.Context, env core.Env) (map[string]bool, erro
 // most serverProbeParallel at once and each within serverProbeReadWait. selves holds the hosts whose node has an
 // address; a host whose node has none is in neither result, nor is a host whose read is refused as not_found or
 // module.unavailable (its agent lacks or refuses the module), and one whose status cannot be read otherwise is in
-// unreadable, in host order. Only the caller's own cancellation fails the read.
+// unreadable, in host order. Only a failed read of the module state, or the caller's own cancellation, fails the
+// read.
 func probeSelves(ctx context.Context, env core.Env, hosts []probeHost) (selves map[string]tailscale.Status, unreadable []probeHost, err error) {
 	off, err := probeTailscaleOff(ctx, env)
 	if err != nil {
