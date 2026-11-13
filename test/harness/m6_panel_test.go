@@ -64,6 +64,7 @@ const (
 	// lab's own addresses on the traffic interface.
 	m6pULAScanner = "fd00:d0::20"
 	m6pULATarget  = "fd00:d0::10"
+	m6pULANet     = "fd00:d0::/64"
 
 	// m6pWrongPassword and m6pWrongCode are what every refused login sends.
 	m6pWrongPassword = "wrong-password-0000" //nolint:gosec // G101: a wrong password the test sends on purpose
@@ -446,6 +447,23 @@ func m6pIPv6HTTPSRule(add bool) string {
 		return "sudo ufw allow proto tcp from ::/0 to any port 443"
 	}
 	return "sudo ufw delete allow proto tcp from ::/0 to any port 443"
+}
+
+// m6pULAHTTPSRule adds or deletes the controller's allow of HTTPS from the
+// harness's ULA range alone. UFW denies IPv6 443 by default, so deleting it
+// newly drops exactly that range.
+func m6pULAHTTPSRule(add bool) string {
+	rule := "allow proto tcp from " + m6pULANet + " to any port 443"
+	if add {
+		return "sudo ufw " + rule
+	}
+	return "sudo ufw delete " + rule
+}
+
+// m6pULAAdmits accepts the manual rule m6pULAHTTPSRule adds.
+func m6pULAAdmits(r model.Rule) bool {
+	return r.Origin == model.OriginManual && r.Action == model.ActionAllow && r.Direction == model.DirIn &&
+		r.ToPort == "443" && r.From == m6pULANet && r.InIface == "" && r.Raw == ""
 }
 
 // m6pAgentPortCommand admits the controller's agent port on every interface
@@ -922,19 +940,21 @@ func (r *m6pRun) ipv6Client(t *testing.T) {
 }
 
 // ipv6ClientGuard: an admin session opened from the scanner's ULA source,
-// which NPM names by a host address, plans a rule that would drop that source's
-// HTTPS and one that would not. The guard must refuse the first for the hidden
-// client and pass the second. Nothing is applied.
+// which NPM names by a host address, plans a change that would drop that
+// source's HTTPS and one that would not. The guard must refuse the first for
+// the hidden client and pass the second. Nothing is applied. The drop is the
+// deletion of the manual rule that admits the ULA range: firewall.rule.add
+// appends, so a deny it adds lands behind any allow and blocks nothing new.
 func (r *m6pRun) ipv6ClientGuard(t *testing.T) {
 	f := r.f
 	const jar = "/tmp/m6p-ula.jar"
 	m3dAddSource(r.ctx, t, f.scanner, netip.MustParsePrefix(m6pULAScanner+"/64"), m3dTrafficIface)
 	m3dAddSource(r.ctx, t, f.controller, netip.MustParsePrefix(m6pULATarget+"/64"), m3dTrafficIface)
-	m3Run(r.ctx, t, f.controller, m6pIPv6HTTPSRule(true))
+	m3Run(r.ctx, t, f.controller, m6pULAHTTPSRule(true))
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
-		_, _ = f.controller.Run(ctx, m6pIPv6HTTPSRule(false))
+		_, _ = f.controller.Run(ctx, m6pULAHTTPSRule(false))
 		_, _ = f.scanner.Run(ctx, m3dxShell("rm", "-f", jar))
 	})
 	send := func(path string, cookies []string, header []string, body any) (string, string) {
@@ -966,30 +986,34 @@ func (r *m6pRun) ipv6ClientGuard(t *testing.T) {
 	if err := json.Unmarshal([]byte(answer), &session); err != nil || session.CSRFToken == "" {
 		t.Fatalf("harness: the admin login answered no CSRF token: %v", err)
 	}
-	path, err := actionPath(f.localID, "firewall.rule.add/v1", "plan")
-	if err != nil {
-		t.Fatal(err)
-	}
-	plan := func(input map[string]any) []core.Guard {
+	plan := func(action string, input map[string]any) []core.Guard {
 		t.Helper()
+		path, err := actionPath(f.localID, action+"/v1", "plan")
+		if err != nil {
+			t.Fatal(err)
+		}
 		answer, code := send(path, []string{"-b", jar}, []string{"-H", "X-CSRF-Token: " + session.CSRFToken}, map[string]any{"input": input})
 		if code != "200" {
-			t.Fatalf("harness: the plan of firewall.rule.add answered %s: %s", code, answer)
+			t.Fatalf("harness: the plan of %s answered %s: %s", action, code, answer)
 		}
 		var p struct {
 			Guards []core.Guard `json:"guards"`
 		}
 		if err := json.Unmarshal([]byte(answer), &p); err != nil {
-			t.Fatalf("harness: the plan of firewall.rule.add: %v", err)
+			t.Fatalf("harness: the plan of %s: %v", action, err)
 		}
 		return p.Guards
 	}
-	cut := map[string]any{"rule": model.Rule{Action: model.ActionDeny, Direction: model.DirIn, Proto: model.ProtoTCP,
-		From: "fd00:d0::/64", To: model.Any, ToPort: "443", Family: model.FamilyV6, Comment: "m6p ula"}}
-	if err := m6pHiddenGuard(plan(cut), false); err != nil {
+	st := m3WaitStatus(r.ctx, t, f.api, f.localID, time.Minute, m3Healthy)
+	admit, ok := m3FindRule(st.Rules, m6pULAAdmits)
+	if !ok {
+		t.Fatalf("harness: the controller host lists no manual allow of %s to 443/tcp: %s", m6pULANet, m3JSON(st.Rules))
+	}
+	cut := map[string]any{"id": admit.ID, "manual": true}
+	if err := m6pHiddenGuard(plan("firewall.rule.delete", cut), false); err != nil {
 		t.Error(err)
 	}
-	if err := m6pHiddenGuard(plan(m3PortRule(8094)), true); err != nil {
+	if err := m6pHiddenGuard(plan("firewall.rule.add", m3PortRule(8094)), true); err != nil {
 		t.Error(err)
 	}
 }

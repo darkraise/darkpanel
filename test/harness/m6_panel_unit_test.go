@@ -16,6 +16,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/controller/auth"
 	"github.com/darkraise/darkpanel/internal/controller/coreactions"
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/model"
 	"github.com/darkraise/darkpanel/internal/modules/panel"
 )
 
@@ -449,5 +450,20 @@ func TestM6pUnitHiddenGuard(t *testing.T) {
 	}
 	if err := m6pHiddenGuard(nil, true); err == nil {
 		t.Error("no firewall.lockout guard: accepted, want an error")
+	}
+}
+
+func TestM6pUnitULAAdmits(t *testing.T) {
+	tuple, err := model.ParseTuple("### tuple ### allow tcp 443 ::/0 any "+m6pULANet+" in", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule, ok := tuple.Rule()
+	if !ok || !m6pULAAdmits(rule) {
+		t.Errorf("the tuple of %q gives %+v (%v), want m6pULAAdmits to accept it", m6pULAHTTPSRule(true), rule, ok)
+	}
+	rule.ToPort = "80"
+	if m6pULAAdmits(rule) {
+		t.Error("m6pULAAdmits accepted an allow of port 80")
 	}
 }
