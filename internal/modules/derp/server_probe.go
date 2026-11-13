@@ -209,27 +209,64 @@ func probeAgents(hosts []probeHost, in ServerProbeInput) ([]probeHost, error) {
 	return agents, nil
 }
 
-// probeSelves reads every host's tailscale.status, at most serverProbeParallel at once and each within
-// serverProbeReadWait. selves holds the hosts whose node has an address; a host whose node has none is in neither
-// result, and one whose status cannot be read is in unreadable, in host order. Only the caller's own cancellation
-// fails the read.
+// probeTailscaleOff returns the ids of the hosts whose tailscale module the controller records as disabled or
+// unavailable. The agent does not refuse a disabled module's resource, so core_module_state is the authority on
+// enablement; a host with no row is not in the map.
+func probeTailscaleOff(ctx context.Context, env core.Env) (map[string]bool, error) {
+	rows, err := env.DB.Read().QueryContext(ctx,
+		`SELECT host_id FROM core_module_state WHERE module_id = ? AND (enabled = 0 OR available = 0)`, tailscale.ID)
+	if err != nil {
+		return nil, fmt.Errorf("derp: read the tailscale module state: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	off := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("derp: read the tailscale module state: %w", err)
+		}
+		off[id] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("derp: read the tailscale module state: %w", err)
+	}
+	return off, nil
+}
+
+// probeSelves reads the tailscale.status of every host whose tailscale module is not disabled or unavailable, at
+// most serverProbeParallel at once and each within serverProbeReadWait. selves holds the hosts whose node has an
+// address; a host whose node has none is in neither result, nor is a host whose read is refused as not_found or
+// module.unavailable (its agent lacks or refuses the module), and one whose status cannot be read otherwise is in
+// unreadable, in host order. Only the caller's own cancellation fails the read.
 func probeSelves(ctx context.Context, env core.Env, hosts []probeHost) (selves map[string]tailscale.Status, unreadable []probeHost, err error) {
+	off, err := probeTailscaleOff(ctx, env)
+	if err != nil {
+		return nil, nil, err
+	}
+	var running []probeHost
+	for _, h := range hosts {
+		if !off[h.ID] {
+			running = append(running, h)
+		}
+	}
 	type result struct {
 		st  tailscale.Status
 		err error
 	}
-	results := serverProbeEach(len(hosts), func(i int) result {
-		st, err := probeSelf(ctx, env, hosts[i].ID)
+	results := serverProbeEach(len(running), func(i int) result {
+		st, err := probeSelf(ctx, env, running[i].ID)
 		return result{st: st, err: err}
 	})
 	if cerr := ctx.Err(); cerr != nil {
 		return nil, nil, cerr
 	}
 	selves = map[string]tailscale.Status{}
-	for i, h := range hosts {
+	for i, h := range running {
 		r := results[i]
 		if r.err != nil {
-			unreadable = append(unreadable, h)
+			if code := errcode.From(r.err).Code; code != errcode.NotFound && code != errcode.ModuleUnavailable {
+				unreadable = append(unreadable, h)
+			}
 			continue
 		}
 		if r.st.Self != nil && len(r.st.Self.Addresses) > 0 {
@@ -239,14 +276,15 @@ func probeSelves(ctx context.Context, env core.Env, hosts []probeHost) (selves m
 	return selves, unreadable, nil
 }
 
-// probeSelf reads host hostID's tailscale.status resource through its agent, within serverProbeReadWait.
+// probeSelf reads host hostID's tailscale.status resource through its agent; the agent lookup and the read share
+// one serverProbeReadWait bound.
 func probeSelf(ctx context.Context, env core.Env, hostID string) (tailscale.Status, error) {
-	agent, err := env.Agents.Agent(ctx, hostID)
+	bounded, cancel := serverProbeBounded(ctx, env)
+	defer cancel()
+	agent, err := env.Agents.Agent(bounded, hostID)
 	if err != nil {
 		return tailscale.Status{}, err
 	}
-	bounded, cancel := serverProbeBounded(ctx, env)
-	defer cancel()
 	raw, err := agent.Resource(bounded, env.Principal, probeTailscaleState)
 	if err != nil {
 		return tailscale.Status{}, err

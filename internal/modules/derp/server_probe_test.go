@@ -623,3 +623,127 @@ func TestW10SpProbeWarnsAboutAHostWhoseTailscaleStatusCannotBeRead(t *testing.T)
 		}
 	}
 }
+
+// TestM3gProbeWarnsOnlyWhereTailscaleRuns: a host whose tailscale module core_module_state marks disabled or
+// unavailable is not read and not warned about, nor is a host whose agent refuses tailscale.status as not_found or
+// module.unavailable; a host where the module is usable, or has no state row, still gets the warning when the read
+// fails.
+func TestM3gProbeWarnsOnlyWhereTailscaleRuns(t *testing.T) {
+	const charlie = "the tailscale status of host charlie could not be read, so its node use is not reported"
+	type state struct {
+		enabled, available int
+		reason             any // nil stores NULL
+	}
+	cases := []struct {
+		name   string
+		state  *state // h3's core_module_state row for tailscale; nil for none
+		refuse error  // h3's answer to tailscale.status
+		read   bool   // whether the probe reads h3's tailscale.status
+		warned bool   // whether the warnings name charlie
+	}{
+		{"module disabled", &state{0, 1, nil}, errors.New("dpHost: no resource tailscale.status"), false, false},
+		{"module unavailable", &state{1, 0, "tailscale: the architecture 386 is not supported; amd64 or arm64 is needed"},
+			errors.New("dpHost: no resource tailscale.status"), false, false},
+		{"agent lacks the module", nil, errcode.New(errcode.NotFound, "no resource tailscale.status"), true, false},
+		{"agent refuses the module", nil, errcode.New(errcode.ModuleUnavailable,
+			"module tailscale is unavailable: the module's agent migrations failed; see the service log"), true, false},
+		{"module usable, read fails", &state{1, 1, nil}, errors.New("dpHost: no resource tailscale.status"), true, true},
+		{"no state row, read fails", nil, errors.New("dpHost: no resource tailscale.status"), true, true},
+		{"tailscaled does not answer", &state{1, 1, nil},
+			errcode.New(errcode.TailscaleUnavailable, "tailscaled does not answer on its socket"), true, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			h := pbWorld(t)
+			h.tailnet = false
+			pbNodeWorld(h)
+			if c.state != nil {
+				if _, err := h.ctlDB.Writer().ExecContext(context.Background(),
+					`INSERT INTO core_module_state (host_id, module_id, enabled, available, reason, checked_at)
+					 VALUES ('h3', ?, ?, ?, ?, ?)`,
+					tailscale.ID, c.state.enabled, c.state.available, c.state.reason, storeTime(h.clock.Now())); err != nil {
+					t.Fatal(err)
+				}
+			}
+			env := h.ctlEnv("")
+			var reads atomic.Int32
+			fake := h.agent("h3").fake()
+			resource := fake.ResourceFunc
+			fake.ResourceFunc = func(ctx context.Context, p core.Principal, name string) (json.RawMessage, error) {
+				if name != "tailscale.status" {
+					return resource(ctx, p, name)
+				}
+				reads.Add(1)
+				return nil, c.refuse
+			}
+			env.Agents.(coretest.MapHosts)["h3"] = fake
+			got, err := h.dp().probeServer(context.Background(), env, ServerProbeInput{HostID: "h1"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if read := reads.Load() > 0; read != c.read {
+				t.Errorf("tailscale.status of h3 read %v, want %v", read, c.read)
+			}
+			if named := slices.Contains(got.Warnings, charlie); named != c.warned {
+				t.Errorf("warnings %q: charlie named %v, want %v", got.Warnings, named, c.warned)
+			}
+		})
+	}
+}
+
+// m3gHangingHosts is a host directory whose lookup of host hang blocks until the caller's context ends, as
+// dispatch.Hosts does while another caller's Hello of that host hangs.
+type m3gHangingHosts struct {
+	core.HostDirectory
+	hang string
+}
+
+func (d m3gHangingHosts) Agent(ctx context.Context, hostID string) (core.AgentClient, error) {
+	if hostID == d.hang {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	return d.HostDirectory.Agent(ctx, hostID)
+}
+
+// TestM3gProbeBoundsTheTailscaleReadsHostLookup: a tailscale status read whose host lookup hangs fails once 30 s have
+// passed on the controller's clock, and the probe answers with that host named in the warnings.
+func TestM3gProbeBoundsTheTailscaleReadsHostLookup(t *testing.T) {
+	h := pbWorld(t)
+	h.tailnet = false
+	pbNodeWorld(h)
+	env := h.ctlEnv("")
+	env.Agents = m3gHangingHosts{HostDirectory: env.Agents, hang: "h3"}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	done := make(chan struct{})
+	var got ServerProbe
+	var err error
+	go func() {
+		defer close(done)
+		got, err = h.dp().probeServer(ctx, env, ServerProbeInput{HostID: "h1"})
+	}()
+	timeout := time.After(10 * time.Second)
+wait:
+	for {
+		select {
+		case <-done:
+			break wait
+		case <-timeout:
+			t.Fatal("the probe of a host whose lookup hangs did not end")
+		default:
+			if h.clock.Pending() > 0 {
+				h.clock.Advance(30 * time.Second)
+			} else {
+				time.Sleep(time.Millisecond)
+			}
+		}
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	const charlie = "the tailscale status of host charlie could not be read, so its node use is not reported"
+	if !slices.Contains(got.Warnings, charlie) {
+		t.Errorf("warnings %q, want %q", got.Warnings, charlie)
+	}
+}
