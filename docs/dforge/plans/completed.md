@@ -43,3 +43,4 @@
 - 2026-11-12 `docs/dforge/plans/2026-11-11-m2-badge-states.md` — merged into `main` at e5c04bb
 - 2026-11-12 `docs/dforge/plans/2026-11-12-m2-history-narrow.md` — merged into `main` at 4565d0f
 - 2026-11-13 `docs/dforge/plans/2026-11-13-v1-w12a-security-residuals.md` — merged into `main` at 4172841
+- 2026-11-13 `docs/dforge/plans/2026-11-13-m3-audit-gaps.md` — merged into `main` at 8406936a
