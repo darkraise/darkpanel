@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"maps"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -471,7 +473,7 @@ func (k dk) validateConfig(ctx context.Context, project string, cfg compose.Conf
 // reference or object name, which Compose may have interpolated from the
 // project's environment.
 func validationEngineError(kind, key string, err error) error {
-	checking := "a " + kind
+	checking := "an object of kind " + kind
 	if key != "" {
 		checking = "the " + kind + " of " + key
 	}
@@ -479,12 +481,13 @@ func validationEngineError(kind, key string, err error) error {
 		ae *dockerapi.APIError
 		se *json.SyntaxError
 		te *json.UnmarshalTypeError
+		ue *url.Error
 	)
 	switch {
-	case errors.Is(err, dockerapi.ErrUnavailable):
+	case errors.Is(err, dockerapi.ErrUnavailable), errors.As(err, &ue):
 	case errors.As(err, &ae):
 		return errcode.New(errcode.Unavailable, fmt.Sprintf("the Docker Engine answered HTTP %d while checking %s", ae.StatusCode, checking))
-	case errors.As(err, &se), errors.As(err, &te):
+	case errors.As(err, &se), errors.As(err, &te), errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
 		return errcode.New(errcode.Unavailable, "the Docker Engine gave an answer that did not decode while checking "+checking)
 	}
 	return errcode.New(errcode.DockerEngineUnavailable, "the Docker Engine is not reachable")
