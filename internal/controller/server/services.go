@@ -21,6 +21,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/controller/quarantine"
 	"github.com/darkraise/darkpanel/internal/controller/rollout"
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/core/lifecycle"
 	"github.com/darkraise/darkpanel/internal/core/schema"
 	"github.com/darkraise/darkpanel/internal/install"
@@ -199,8 +200,9 @@ func (s *Server) engineConfig(reg *core.Registry) lifecycle.Config {
 
 // publishEngineEvent is the engine's Publish. A composite.step event of a
 // change the network listeners hide, or whose change cannot be read, is
-// dropped, since the event stream must not show what the change routes hide.
-// It reads s.engine when an event arrives because engineConfig runs before
+// dropped, since the event stream must not show what the change routes hide,
+// and the child of a step whose child the network hides, or whose child
+// cannot be read, is left out of the event. It reads s.engine when an event arrives because engineConfig runs before
 // s.engine is assigned.
 func (s *Server) publishEngineEvent(eventType string, data any) {
 	if step, ok := data.(lifecycle.StepEvent); ok && eventType == lifecycle.EventCompositeStep {
@@ -211,6 +213,21 @@ func (s *Server) publishEngineEvent(eventType string, data any) {
 		}
 		if !s.networkVisible(view) {
 			return
+		}
+		if step.ChildChangeID != "" {
+			child, err := s.engine.Change(context.Background(), step.ChildChangeID)
+			var coded *errcode.Error
+			switch {
+			case errors.As(err, &coded) && coded.Code == errcode.ChangeNotFound:
+				// The controller holds no row for an agent's change, and an agent-side action is never break-glass.
+			case err != nil:
+				s.log.Warn("server: composite step event: its child is unreadable; the child id is left out",
+					"change", step.ChangeID, "child", step.ChildChangeID, "error", err)
+				step.ChildChangeID = ""
+			case !s.networkVisible(child):
+				step.ChildChangeID = ""
+			}
+			data = step
 		}
 	}
 	s.events.Publish(eventType, data)

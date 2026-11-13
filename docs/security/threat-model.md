@@ -80,7 +80,7 @@ This page is the written threat model of Darkpanel. It states what the product p
 - A login rate limit applies a lock by source address and a lock on the pair of user name and source, where the source is the client's IPv4 address or the /64 of its IPv6 address. Behind a runtime listener the source is the client address the listener parsed, not the text the audit log keeps. A flood of new keys cannot clear a running lock (`internal/controller/auth`, `internal/controller/api`).
 - Sessions have an idle and an absolute lifetime and only their hash is stored. API tokens carry a `read`, `operate` or `admin` scope and an expiry, and only their hash is stored (`internal/controller/auth`).
 - One authentication middleware on every listener applies to every method and denies unless the route is public. Cookies are SameSite=Strict and HttpOnly, a CSRF token guards unsafe methods, and runtime listeners check the Origin (`internal/controller/api`).
-- Break-glass user commands run only on the controller socket, which is root-only through `SO_PEERCRED` (`internal/controller/api`).
+- Break-glass user commands run only on the controller socket, which is root-only through `SO_PEERCRED` (`internal/controller/api`). The network routes and event stream hide break-glass changes, including the child change ids of composite steps that run a break-glass action (`internal/controller/api`, `internal/controller/server`).
 - Every action leaves an audit entry (`internal/controller/audit`), including the rows the system services (the Cloudflare hostname driver and the tailnet key sweep) write, which the audit table accepts because its phase check lists the phases those services use (`internal/core/store/migrations/controller`).
 
 #### Residual risk

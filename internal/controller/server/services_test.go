@@ -654,7 +654,9 @@ func svStepChange(t *testing.T, s *Server, id, action string) {
 }
 
 // TestSvStepEventsHideBreakGlassComposites: the engine's Publish drops the composite.step events of a change the
-// network listeners hide, and of a change it cannot read, and passes every other event on unchanged.
+// network listeners hide, and of a change it cannot read, and passes every other event on unchanged, except that it
+// blanks the child of a step whose child the network listeners hide. A child the controller does not hold is an
+// agent's, which is never break-glass, and is kept.
 func TestSvStepEventsHideBreakGlassComposites(t *testing.T) {
 	s := start(t, embeddedOptions(t))
 	ch, _ := s.events.Subscribe(t.Context())
@@ -670,4 +672,12 @@ func TestSvStepEventsHideBreakGlassComposites(t *testing.T) {
 
 	pubWant(t, ch, events.TypeCompositeStep, lifecycle.StepEvent{ChangeID: shown, StepID: "s1", State: core.StepApplied})
 	pubWant(t, ch, events.TypeHost, events.HostEvent{HostID: "h1", Online: true})
+
+	const agentChild = "01SVAGENTCHILD000000000000"
+	for _, child := range []string{hidden, shown, agentChild} {
+		publish(lifecycle.EventCompositeStep, lifecycle.StepEvent{ChangeID: shown, StepID: "s2", State: core.StepApplied, ChildChangeID: child})
+	}
+	for _, child := range []string{"", shown, agentChild} {
+		pubWant(t, ch, events.TypeCompositeStep, lifecycle.StepEvent{ChangeID: shown, StepID: "s2", State: core.StepApplied, ChildChangeID: child})
+	}
 }
