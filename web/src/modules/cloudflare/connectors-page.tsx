@@ -40,7 +40,7 @@ function ErrorAlert({ error }: { error: unknown }) {
 
 function ConnectorsTable({ connectors, tunnels, onPlan }: { connectors: Connector[]; tunnels: TunnelView[]; onPlan: (pending: Pending) => void }) {
   return (
-    <Table aria-label="Connectors">
+    <Table aria-label="Connectors" className="min-w-[40rem]">
       <TableHeader>
         <TableRow>
           <TableHead>Tunnel</TableHead>
@@ -56,10 +56,12 @@ function ConnectorsTable({ connectors, tunnels, onPlan }: { connectors: Connecto
           const label = tunnelLabel(c.tunnel, tunnels)
           return (
             <TableRow key={c.tunnel}>
-              <TableCell>{label}</TableCell>
-              <TableCell className="font-mono">{c.container}</TableCell>
-              <TableCell>
-                <Badge variant={c.state === "running" ? "default" : "secondary"}>{c.state}</Badge>
+              <TableCell className="wrap-anywhere">{label}</TableCell>
+              <TableCell className="font-mono wrap-anywhere">{c.container}</TableCell>
+              <TableCell className="whitespace-nowrap">
+                <Badge size="sm" variant={c.state === "running" ? "default" : "secondary"}>
+                  {c.state}
+                </Badge>
               </TableCell>
               <TableCell>
                 <div className="flex justify-end">
@@ -225,9 +227,11 @@ function HostChoice({ hosts, value, onChange }: { hosts: Host[]; value: string; 
       <CardContent>
         <RadioGroup value={value} onValueChange={onChange} aria-label="Host" className="flex flex-wrap gap-4">
           {hosts.map((h, i) => (
-            <div key={h.id} className="flex items-center gap-2">
+            <div key={h.id} className="flex min-w-0 items-center gap-2 wrap-anywhere">
               <RadioGroupItem id={`${base}-host${i}`} value={h.id} />
-              <Label htmlFor={`${base}-host${i}`}>{h.name}</Label>
+              <Label htmlFor={`${base}-host${i}`} className="min-w-0 wrap-anywhere">
+                {h.name}
+              </Label>
             </div>
           ))}
         </RadioGroup>

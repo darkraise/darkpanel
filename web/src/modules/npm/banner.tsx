@@ -43,8 +43,8 @@ export function AdminExposureBanner() {
       {exposed.map(({ instance, hostname }) => (
         <Alert key={instance.hostId} variant="warning" role="status" className="mb-4">
           <AlertTitle>Admin interface exposed</AlertTitle>
-          <AlertDescription>{`The NPM admin interface of ${instance.hostName} is exposed at https://${hostname}.`}</AlertDescription>
-          <Link to={`/hosts/${encodeURIComponent(instance.hostId)}/npm`} className="text-sm underline-offset-4 hover:underline">
+          <AlertDescription className="wrap-anywhere">{`The NPM admin interface of ${instance.hostName} is exposed at https://${hostname}.`}</AlertDescription>
+          <Link to={`/hosts/${encodeURIComponent(instance.hostId)}/npm`} className="text-sm underline underline-offset-4 wrap-anywhere">
             {`Open Nginx Proxy Manager on ${instance.hostName}`}
           </Link>
         </Alert>
