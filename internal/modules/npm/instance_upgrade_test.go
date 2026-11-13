@@ -1255,11 +1255,108 @@ func TestW12aUpgradeAllowsForwardsNPMCannotTake(t *testing.T) {
 // forwarded address, so it is refused with npm.unhealthy before anything changes.
 func TestW12aUpgradeNeedsNPMsAPI(t *testing.T) {
 	ctx := context.Background()
-	s := w12aUpSetup(t)
-	s.h.npm.Fail(http.MethodGet, "/api/nginx/proxy-hosts", fake.Fault{Status: http.StatusInternalServerError})
-	_, err := s.n.instanceUpgrade().Handler.Plan(ctx, s.h.env(""), json.RawMessage(`{}`))
-	_ = nwRefused(t, err, errcode.NPMUnhealthy)
-	if len(s.effects()) != 0 || s.phase() != "no row" || s.dock.counts["StopContainer"] != 0 || len(s.dock.created) != 0 {
-		t.Error("a refused upgrade journaled an effect, recorded a phase, stopped NPM or created a container")
+	for _, tc := range []struct {
+		name  string
+		setup func(t *testing.T, s *upSetup)
+	}{
+		{"NPM running", func(*testing.T, *upSetup) {}},
+		{"NPM stopped", func(t *testing.T, s *upSetup) {
+			if _, err := s.h.docker.StopContainer(ctx, containerName, 0); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"NPM on no network", func(t *testing.T, s *upSetup) {
+			for _, nw := range []string{networkName, upAppNet} {
+				if err := s.h.docker.DisconnectNetwork(ctx, nw, containerName, true); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := w12aUpSetup(t)
+			tc.setup(t, s)
+			for range 2 {
+				s.h.npm.Fail(http.MethodGet, "/api/nginx/proxy-hosts", fake.Fault{Status: http.StatusInternalServerError})
+			}
+			_, err := s.n.instanceUpgrade().Handler.Plan(ctx, s.h.env(""), json.RawMessage(`{}`))
+			coded := nwRefused(t, err, errcode.NPMUnhealthy)
+			if !strings.HasSuffix(coded.Detail, "; start Nginx Proxy Manager and retry, or remove and redeploy the instance") {
+				t.Errorf("plan detail %q, want the way out", coded.Detail)
+			}
+			_, err = s.apply()
+			_ = nwRefused(t, err, errcode.NPMUnhealthy)
+			if len(s.effects()) != 0 || s.phase() != "no row" || s.dock.counts["StopContainer"] > 1 || len(s.dock.created) != 0 {
+				t.Error("a refused upgrade journaled an effect, recorded a phase, stopped NPM or created a container")
+			}
+		})
 	}
+}
+
+func TestW12bUpgradeForwardCheck(t *testing.T) {
+	ctx := context.Background()
+	t.Run("the proxy hosts are listed once", func(t *testing.T) {
+		s := w12aUpSetup(t)
+		w12aSeed(s.h, "10.99.0.7", 3000)
+		listings := func() int {
+			n := 0
+			for _, q := range s.h.npm.Requests() {
+				if q.Method == http.MethodGet && q.Path == "/api/nginx/proxy-hosts" {
+					n++
+				}
+			}
+			return n
+		}
+		before := listings()
+		if _, err := s.n.instanceUpgrade().Handler.Plan(ctx, s.h.env(""), json.RawMessage(`{}`)); err != nil {
+			t.Fatal(err)
+		}
+		if got := listings() - before; got != 1 {
+			t.Errorf("the plan listed the proxy hosts %d times, want once", got)
+		}
+	})
+	t.Run("darkpanel-npm is checked when NPM is not on it", func(t *testing.T) {
+		s := w12aUpSetup(t)
+		if err := s.h.docker.DisconnectNetwork(ctx, networkName, containerName, true); err != nil {
+			t.Fatal(err)
+		}
+		w12aSeed(s.h, "172.20.0.9", 3000)
+		_, err := s.n.instanceUpgrade().Handler.Plan(ctx, s.h.env(""), json.RawMessage(`{}`))
+		if coded := nwRefused(t, err, errcode.NPMReserved); coded.Detail != "proxy host 1 forwards to 172.20.0.9, an address darkpanel-npm could take on network darkpanel-npm" {
+			t.Errorf("detail %q", coded.Detail)
+		}
+	})
+	t.Run("a missing darkpanel-npm network", func(t *testing.T) {
+		s := w12aUpSetup(t)
+		if err := s.h.docker.DisconnectNetwork(ctx, networkName, containerName, true); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.h.docker.RemoveNetwork(ctx, networkName); err != nil {
+			t.Fatal(err)
+		}
+		_, err := s.n.instanceUpgrade().Handler.Plan(ctx, s.h.env(""), json.RawMessage(`{}`))
+		if coded := nwRefused(t, err, errcode.NotFound); coded.Detail != "network darkpanel-npm is missing" {
+			t.Errorf("detail %q, want the missing network named", coded.Detail)
+		}
+	})
+	t.Run("a refused listing", func(t *testing.T) {
+		s := w12aUpSetup(t)
+		s.h.npm.Fail(http.MethodGet, "/api/nginx/proxy-hosts", fake.Fault{Status: http.StatusUnauthorized})
+		_, err := s.n.instanceUpgrade().Handler.Plan(ctx, s.h.env(""), json.RawMessage(`{}`))
+		if coded := nwRefused(t, err, errcode.NPMUnhealthy); !strings.HasPrefix(coded.Detail, "Nginx Proxy Manager answered HTTP 401") {
+			t.Errorf("detail %q, want the refused listing", coded.Detail)
+		}
+	})
+	t.Run("a transient resolver failure", func(t *testing.T) {
+		s := w12aUpSetup(t)
+		w12aSeed(s.h, "slow.example.net", 3000)
+		s.n.d.resolve = func(ctx context.Context, _ string) ([]netip.Addr, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		_, err := s.n.instanceUpgrade().Handler.Plan(ctx, s.h.env(""), json.RawMessage(`{}`))
+		if coded := nwRefused(t, err, errcode.Unavailable); coded.Detail != "forward host slow.example.net could not be resolved: the resolver did not answer; retry" {
+			t.Errorf("detail %q", coded.Detail)
+		}
+	})
 }

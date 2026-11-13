@@ -106,25 +106,39 @@ func (h instanceUpgradeHandler) precheck(ctx context.Context, env core.Env) (ins
 func waitText() string { return fmt.Sprintf("%d s", int(instanceUpgradeAPIWait/time.Second)) }
 
 // forwardCheck refuses the upgrade while a proxy host forwards to an address the recreated container could take on one
-// of the networks c is on. The addresses c holds count as free, because the old container releases them. On
-// darkpanel-npm the whole pool is counted, so a static address there needs no check of its own; off it, a static IPv4
-// address is checked alone. Rollback and recovery do not run it: a rollback that refused would leave NPM down.
+// of the networks c is on, or on darkpanel-npm, which the recreated container joins even when c has left it. The
+// addresses c holds count as free, because the old container releases them. On darkpanel-npm the whole pool is
+// counted, so a static address there needs no check of its own; off it, a static IPv4 address is checked alone.
+// Rollback and recovery do not run it: a rollback that refused would leave NPM down.
 func (h instanceUpgradeHandler) forwardCheck(ctx context.Context, env core.Env, c dockerapi.ContainerJSON) error {
-	for _, name := range slices.Sorted(maps.Keys(c.NetworkSettings.Networks)) {
-		ep := c.NetworkSettings.Networks[name]
-		if ep == nil {
-			continue
+	targets, err := h.n.forwardTargets(ctx, env)
+	if err != nil {
+		if coded := errcode.From(err); coded.Code == errcode.NPMUnhealthy {
+			err = errcode.Wrap(errcode.NPMUnhealthy, err, coded.Detail+"; start Nginx Proxy Manager and retry, or remove and redeploy the instance")
 		}
+		return core.Definite(err)
+	}
+	names := []string{networkName}
+	for name, ep := range c.NetworkSettings.Networks {
+		if ep != nil && name != networkName {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	for _, name := range names {
 		nw, err := h.n.d.docker.InspectNetwork(ctx, name)
-		if err != nil {
+		switch {
+		case name == networkName && dockerapi.IsNotFound(err):
+			return core.Definite(errcode.New(errcode.NotFound, "network "+networkName+" is missing"))
+		case err != nil:
 			return core.Definite(fmt.Errorf("npm: inspect network %s: %w", name, engineCoded(err)))
 		}
 		delete(nw.Containers, c.ID)
-		var static netip.Addr
-		if name != networkName && ep.IPAMConfig != nil {
-			static = ep.IPAMConfig.IPv4Address
+		var static []netip.Addr
+		if ep := c.NetworkSettings.Networks[name]; name != networkName && ep != nil && ep.IPAMConfig != nil && ep.IPAMConfig.IPv4Address.IsValid() {
+			static = []netip.Addr{ep.IPAMConfig.IPv4Address}
 		}
-		if err := h.n.forwardGuard(ctx, env, nw, static); err != nil {
+		if err := forwardTaken(targets, nw, static); err != nil {
 			return err
 		}
 	}

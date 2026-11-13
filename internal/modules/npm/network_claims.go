@@ -1038,15 +1038,26 @@ func (n nm) forwardGuard(ctx context.Context, env core.Env, network dockerapi.Ne
 	if err != nil {
 		return core.Definite(err)
 	}
+	var statics []netip.Addr
+	if static.IsValid() {
+		statics = []netip.Addr{static}
+	}
+	return forwardTaken(targets, network, statics)
+}
+
+// forwardTaken refuses with a Definite npm.reserved the first target NPM could take on joining nw: one of static, the
+// addresses NPM asks for, or an address the Engine could assign. An IPv4 address in static means the Engine assigns
+// NPM no other IPv4 address.
+func forwardTaken(targets []forwardTarget, nw dockerapi.Network, static []netip.Addr) error {
+	staticV4 := slices.ContainsFunc(static, netip.Addr.Is4)
 	for _, t := range targets {
-		taken := (static.IsValid() && t.addr == static) || networkAssignable(network, t.addr, static.IsValid())
-		if !taken {
+		if !slices.Contains(static, t.addr) && !networkAssignable(nw, t.addr, staticV4) {
 			continue
 		}
-		detail := fmt.Sprintf("%s forwards to %s, an address %s could take on network %s", t.where, t.addr, containerName, network.Name)
+		detail := fmt.Sprintf("%s forwards to %s, an address %s could take on network %s", t.where, t.addr, containerName, nw.Name)
 		if t.name {
 			detail = fmt.Sprintf("%s forwards to %s, which resolves to %s, an address %s could take on network %s",
-				t.where, t.host, t.addr, containerName, network.Name)
+				t.where, t.host, t.addr, containerName, nw.Name)
 		}
 		return core.Definite(errcode.New(errcode.NPMReserved, detail))
 	}
