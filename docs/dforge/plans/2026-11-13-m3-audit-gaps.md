@@ -180,8 +180,8 @@ The spec's prose wraps near 76 columns: match each quoted passage across its lin
 
 - [ ] **Step 4: Run the existing checks after the change**
 
-Run: `timeout 300 go test -count=1 ./internal/docs/... && rg -c 'TransLive' docs/dforge/specs/2026-10-21-v1-completion-design.md && rg -n 'reloads UFW\.|rewrites and reloads|TransLive` \(Contracts\)' docs/dforge/specs/2026-10-21-v1-completion-design.md`
-Expected: PASS, `ok  	github.com/darkraise/darkpanel/internal/docs`; the `TransLive` count is at least 3; the last `rg` prints nothing and exits 1.
+Run: `timeout 300 go test -count=1 ./internal/docs/... && rg -c 'TransLive' docs/dforge/specs/2026-10-21-v1-completion-design.md && ! rg -n 'reloads UFW\.|rewrites and reloads|TransLive` \(Contracts\)' docs/dforge/specs/2026-10-21-v1-completion-design.md`
+Expected: PASS, `ok  	github.com/darkraise/darkpanel/internal/docs`; the `TransLive` count is at least 3; the negated `rg` prints nothing, so the whole command exits 0.
 
 - [ ] **Step 5: Commit**
 
