@@ -249,7 +249,12 @@ export function ConnectorsPage() {
   }
   const eligible = hosts.data.hosts.filter(runsCloudflare)
   if (eligible.length === 0) {
-    return <EmptyState title="No host runs the Cloudflare module" description="Enable the module on a host to run a connector there." />
+    return (
+      <>
+        {hosts.isError && <ErrorAlert error={hosts.error} />}
+        <EmptyState title="No host runs the Cloudflare module" description="Enable the module on a host to run a connector there." />
+      </>
+    )
   }
   const host = eligible.length === 1 ? eligible[0] : eligible.find((h) => h.id === chosen)
 

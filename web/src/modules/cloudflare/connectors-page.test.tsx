@@ -294,6 +294,24 @@ describe("ConnectorsPage", () => {
     expect(dialog.isConnected).toBe(true)
   })
 
+  test("shows the reason beside the empty state when a refetch of hosts without the module fails", async () => {
+    let failing = false
+    const { client } = cnRender([], {
+      [HOSTS]: () =>
+        failing
+          ? { status: 503, body: { type: "about:blank", title: "Unavailable", status: 503, detail: "the database is busy", code: "unavailable" } }
+          : { body: { output: { hosts: [cnHost("h1", "web-1", false)] } } },
+    })
+    await screen.findByText("No host runs the Cloudflare module")
+    failing = true
+    await client.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
+    expect((await screen.findByRole("alert")).textContent).toBe("the database is busy")
+    expect(screen.getByText("No host runs the Cloudflare module")).toBeTruthy()
+    failing = false
+    await client.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull())
+    expect(screen.getByText("No host runs the Cloudflare module")).toBeTruthy()
+  })
 
   test("has no accessibility violations", async () => {
     const { container } = cnRender([cnHost("h1", "web-1"), cnHost("h2", "web-2")])
