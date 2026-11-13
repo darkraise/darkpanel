@@ -1,46 +1,38 @@
 ## Verdict
-verdict: ship 8aa66e72f4d98806
-scores: coverage 17 / fidelity 17 / states 16 / deviations 16
+verdict: ship 701a2622098b36c9
+scores: coverage 17 / fidelity 17 / states 16 / deviations 17
 
-## What I opened
+## Basis
 
-- The criteria, the report (Delta and Results), and the test file `web/e2e/m3g-held-data.pw.ts` in full.
-- The two components under proof, `web/src/modules/npm/banner.tsx` (read in full) and `web/src/modules/cloudflare/connectors-page.tsx` (searched for the query-state branches).
-- All 16 screenshots the report cites: UI-1 (4), UI-2 (3), UX-1 (3), UI-3 (3), UI-4 (3). Another 20 uncited screenshots exist in the directory; I did not open them.
-- I could not run the specs, so "24 of 24 pass twice" and "fails before the fix" are the report's claims, not something I observed. I scored them from the test code and the screenshots.
-
-## Per-item findings
-
-- UI-1 (connectors refetch fails): confirmed at 1440x900 light and dark, 768x1024 dark and 375x812 light.
-  - The "Connectors on web-1" card shows the 230-character error text in a destructive alert, with the held table below it (header, 2 rows, the 64-character tunnel name).
-  - At 375 the screenshot is cut off after the alert, as the report says. The held table and the deploy form's omission of `darkpanel-c1` are shown only by the test: it asserts 3 rows, the long tunnel cell, alert above the table, `darkpanel-c1` absent from the deploy radios, and the alert gone after the next good read.
-  - The component matches: `connectors.isError && <ErrorAlert>` sits above the table, and `taken` is built from `connectors.data`.
-- UI-2 (host-list refetch fails): confirmed at 1440 light, 768 light and 375 dark. The destructive alert sits above the Host card, and the Host radios and "Connectors on web-1" remain. The test asserts the alert is above the radiogroup and clears on the next read.
-- UX-1 (dialog stays open): the three screenshots show the "Stop the connector of darkpanel-c1" dialog open over the page, with the host-list alert visible behind it and focus on the close button.
-  - The no-remount claim rests on the `data-m3g-marker` attribute, which the test sets before the failure and checks afterwards.
-  - Opening by keyboard (focus, then Enter), Escape closing the dialog, and focus returning to the same Stop button are covered by the test only; no screenshot follows Escape. The test code does assert each step.
-- UI-3 (NPM fleet refetch fails): confirmed at 375 dark, 768 light and 1440 dark. Three warnings are stacked: "Admin interface exposed" with its link text, "…exposed on: db-1.", and the generic "Could not check whether the NPM admin UI is exposed." The test asserts the link href and that the generic warning clears. The banner code matches (the `fleet.data === undefined` guard, then `fleet.isError` adds the generic warning).
-- UI-4 (first reads fail):
-  - 768 light and 375 dark connectors: the alert is shown, no table, and a generic could-not-check banner on top.
-  - 1440 dark hosts: the alert alone, no Host card.
-  - The tests also assert `toHaveCount(0)` for the table and the exposed warning.
-- OP-1: test-only evidence, which the criteria allow. The tests run axe (WCAG 2.1 A and AA), check `scrollWidth <= clientWidth`, and assert console errors are empty (apart from lines starting "Failed to load resource") and no unhandled API request. The UI-1, UI-2/UX-1 and UI-3 tests run them at all six pairs. UI-4 only checks sideways scroll, which the Delta does not require of it. No screenshot is needed for these checks.
-
-## Criteria
-
-- coverage 17: every Delta item has a row, and the cited screenshots show the claimed state. The shortfalls are that the held table at 375 and the deploy-form filter are shown only by assertion, and that focus return after Escape has no screenshot.
-- fidelity 17: the components are destructive and warning `Alert`s in the design system, with theme-appropriate colours in both modes and the error message shown verbatim. Layout holds at all three widths.
-- states 16: refetch-failed, first-read-failed, dialog-open and clearing on the next good read are covered at six viewport and theme pairs by tests, with screenshots at a spread of pairs. The keyboard walk is in the test. The Delta lists no loading, empty, hover or pending states.
-- deviations 16: the report marks no row as a deviation. It lists three pre-existing layout defects under adjacent findings and does not mark them pass. I accepted this because the Delta is about held data and the defects are in markup this change did not touch. They are not cited to any user answer or accessibility need, and a strict reading of this criterion could dock for that.
+I read the criteria, the report's Delta and Results, the Playwright spec `web/e2e/m3g-held-data.pw.ts`, and the relevant lines of `connectors-page.tsx` and `banner.tsx`. I opened all 20 screenshots the report cites. I could not run the tests (no shell), so "30 of 30 pass" is the report's claim, not something I saw. My scores rest on what the spec asserts and what the screenshots show.
 
 ## Disputed items
 
 None.
 
-## Notes outside the contract
+## Evidence by item
 
-- The adjacent defects the report lists are visible in the screenshots. The State badge breaks as "ru/nni/ng" at 375 and 768, and the 63-character host name overflows the radio label and the banner link at 375.
-- In the NPM banner, "Open Nginx Proxy Manager on <host>" has no underline or colour at rest (`underline-offset-4 hover:underline`). It reads as plain text in every UI-3 screenshot, so it is hard to tell it is a link. This is existing styling and not in the Delta.
-- The pre-fix failure comparison and the repeat runs could not be checked from the files.
+- UI-1: The six cited screenshots show a destructive alert at the top of the "Connectors on web-1" card with the 230-character message, and the held table below it with its header and two rows, including the 64-character tunnel. This holds at 375 light, 768 dark and 1440 dark and light. The deploy-form crops at 375 light and 1440 dark offer "Create a new tunnel" and darkpanel-c3 only. The spec asserts alert text equals the message, three rows, alert above table, c1 and the long tunnel absent from the form, and the alert gone after the next good read.
+- UI-2: The 375 dark, 768 light and 1440 light screenshots show a destructive alert above the Host card, with the Host radios and the "Connectors on web-1" card still shown. The spec asserts the alert is above the radiogroup and clears on the next good read. After Escape, the first Stop button shows a focus ring in the 375 dark and 1440 light screenshots.
+- UX-1: The three dialog screenshots show the "Stop the connector of darkpanel-c1" dialog open over the page, with the host-list alert visible behind it. The spec opens it with Enter from the focused Stop button, sets a `data-m3g-marker` attribute on the dialog before the failure and asserts it is still there, then presses Escape, expects the dialog gone, and expects the Stop button focused.
+- UI-3: The 375 dark, 768 light and 1440 dark screenshots show three stacked warnings in the order exposed, "on: db-1", generic "Could not check whether the NPM admin UI is exposed." The spec asserts the link's href and that the generic warning clears. `banner.tsx` line 53 renders the generic warning in addition to the others when `fleet.isError`.
+- UI-4: The 768 light connectors screenshot shows the alert and no table. The 375 dark screenshot shows only the generic warning from the fleet. The 1440 dark hosts screenshot shows the alert alone with no Host choice. The spec asserts each of these.
+- UI-5: The 768 dark and 1440 light screenshots show the destructive alert above "No host runs the Cloudflare module". The spec asserts the alert is above the empty state and clears. `connectors-page.tsx` lines 254-255 match.
+- OP-1: This is spec-only evidence. The spec runs axe (WCAG 2.1 A and AA) in the refetch-failed state for the UI-1, UI-2/UX-1, UI-3 and UI-5 tests, checks `scrollWidth <= clientWidth`, and asserts no console error other than "Failed to load resource" and no unhandled API request. All of this is run at six viewport and theme pairs through the loop over `THEMES` and `VIEWPORTS`.
 
-Verdict: ship 8aa66e72f4d98806
+## Notes on the report
+
+- UI-1 note: the report says the table sits below the fold at 375. The cited 375 screenshot actually shows the table and both Stop buttons. The "Connectors on web-1" heading is clipped at the top edge. The note is wrong, but the evidence is better than the note says.
+- UI-2 note: "Full-page screenshots" is loose. The app scrolls an inner container, so the captures are viewport-sized (1440x900, 768x1024).
+- UX-1: the keyboard path starts at `stop.focus()` and Enter, not a Tab walk to the button. The contract only asks for opening by keyboard, Escape, and focus return, and the spec evidences those. The assertion message "was not remounted" for the Stop button is stronger than a `toBeFocused` check on a locator proves, but the dialog marker proves the dialog was not remounted, which is what the contract states.
+- Only the refetch-failed states are checked with axe, console and network assertions. The UI-4 first-read test checks overflow only. The contract's OP-1 does not ask for more.
+- Adjacent findings: the report discloses three layout defects in unchanged markup, visible in the cited screenshots: State badge text breaking across lines, long names overflowing the Host radio label, and the banner link at 375. I confirmed all three in UI-2 375 dark and UI-3 375 dark. They are outside this delta, so I did not count them against it. They are real and have no forcing decision cited, so they need their own follow-up. The Cloudflare banner showing a host id instead of a name is also disclosed and explained.
+
+## Criteria reasoning
+
+- coverage 17: every item has a row, cited screenshots that show the item, and a named spec test at all six pairs. Held back slightly because OP-1 and the clear-on-next-read behaviour rest on the spec alone, and I could not see a test result.
+- fidelity 17: the destructive alert, held table, Host card, dialog, warning stack and empty state all match the contract, with the contract's copy in the code and screenshots. The pre-existing overflow defects are disclosed and outside the delta.
+- states 16: refetch-failed, first-read-failed, clear-on-recovery and the open-dialog case are covered at all six pairs. The loading state is not in this delta. The keyboard evidence starts from a programmatic focus.
+- deviations 17: the report marks no deviations. The differences I found are the disclosed adjacent findings and the two loose notes above.
+
+Verdict: ship 701a2622098b36c9
