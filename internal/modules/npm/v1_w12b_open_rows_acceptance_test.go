@@ -570,7 +570,7 @@ func (a a17Halt) Health(ctx context.Context) (npmapi.Health, error) {
 	return npmapi.Health{}, a.end(ctx)
 }
 
-func a17Deploy(t *testing.T, ctx context.Context, end func(context.Context) error) *errcode.Error {
+func a17Deploy(ctx context.Context, t *testing.T, end func(context.Context) error) *errcode.Error {
 	t.Helper()
 	h := newTHHost(t)
 	n := h.nm()
@@ -619,7 +619,7 @@ func (c *a17Expiring) expire() {
 
 func TestA17_ADeployWhoseWaitPassedItsDeadlineSaysItRanOutOfTime(t *testing.T) {
 	ctx := newA17Expiring()
-	coded := a17Deploy(t, ctx, func(inner context.Context) error {
+	coded := a17Deploy(ctx, t, func(inner context.Context) error {
 		ctx.expire()
 		<-inner.Done()
 		return inner.Err()
@@ -633,7 +633,7 @@ func TestA17_ADeployWhoseWaitPassedItsDeadlineSaysItRanOutOfTime(t *testing.T) {
 func TestA17_ACancelledWaitKeepsItsDetail(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	coded := a17Deploy(t, ctx, func(context.Context) error {
+	coded := a17Deploy(ctx, t, func(context.Context) error {
 		cancel()
 		return context.Canceled
 	})

@@ -12,7 +12,7 @@ import (
 )
 
 func TestA16_AnAnswerShorterThanItsLengthIsNoUsableAnswer(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		conn, buf, err := w.(http.Hijacker).Hijack()
 		if err != nil {
 			t.Errorf("hijack: %v", err)

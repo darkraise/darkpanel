@@ -82,7 +82,7 @@ func a5Fixture(t *testing.T) (*cfxFixture, *a5Kids) {
 	return f, k
 }
 
-func a5Apply(t *testing.T, f *cfxFixture, ctx context.Context, ref core.ActionRef) core.ChangeView {
+func a5Apply(ctx context.Context, t *testing.T, f *cfxFixture, ref core.ActionRef) core.ChangeView {
 	t.Helper()
 	pl, err := f.planC(ref, `{"name":"web"}`)
 	if err != nil {
@@ -121,7 +121,7 @@ func a5Want(t *testing.T, calls []a5Call, client, exposure string, steps ...stri
 
 func TestA5_ACompositeAppliedThroughAnExposureGuardsEachStepWithTheRequester(t *testing.T) {
 	f, k := a5Fixture(t)
-	v := a5Apply(t, f, a5Via("198.51.100.7", "exp9"), refCfxAdd)
+	v := a5Apply(a5Via("198.51.100.7", "exp9"), t, f, refCfxAdd)
 	if done := f.await(v.ID, core.StateCompleted, core.StateReverted, core.StateFailed, core.StateNeedsRepair); done.State != core.StateCompleted {
 		t.Fatalf("composite = %s, want completed", done.State)
 	}
@@ -133,7 +133,7 @@ func TestA5_ARepairThatStartsARunCarriesTheRepairer(t *testing.T) {
 	f.host.setItem("web-a", "1")
 	f.host.setItem("web-b", "2")
 	f.host.failNext("web-b", 1)
-	v := a5Apply(t, f, a5Via("198.51.100.7", "exp9"), refCfxRemove)
+	v := a5Apply(a5Via("198.51.100.7", "exp9"), t, f, refCfxRemove)
 	if done := f.await(v.ID, core.StateNeedsRepair, core.StateCompleted, core.StateFailed); done.State != core.StateNeedsRepair {
 		t.Fatalf("composite = %s, want needs_repair", done.State)
 	}
@@ -158,7 +158,7 @@ func TestA5_ARepairThatStartsARunCarriesTheRepairer(t *testing.T) {
 func TestA5_ADirectPanelClientIsCarriedWithoutAnExposure(t *testing.T) {
 	f, k := a5Fixture(t)
 	ctx := core.WithClientPeer(context.Background(), core.Peer{Addr: netip.MustParseAddr("192.0.2.44")})
-	v := a5Apply(t, f, ctx, refCfxAdd)
+	v := a5Apply(ctx, t, f, refCfxAdd)
 	if done := f.await(v.ID, core.StateCompleted, core.StateReverted, core.StateFailed, core.StateNeedsRepair); done.State != core.StateCompleted {
 		t.Fatalf("composite = %s, want completed", done.State)
 	}
@@ -169,7 +169,7 @@ func TestA5_AStepRefusedByItsGuardFailsTheCompositeNamingTheStepAndTheFlow(t *te
 	const cut = "the change would cut exposure exp9 client from 198.51.100.7 to 192.0.2.1:443 on eth0: drop"
 	f, k := a5Fixture(t)
 	k.refuse["b"] = cut
-	v := a5Apply(t, f, a5Via("198.51.100.7", "exp9"), refCfxAdd)
+	v := a5Apply(a5Via("198.51.100.7", "exp9"), t, f, refCfxAdd)
 	done := f.await(v.ID, core.StateReverted, core.StateFailed, core.StateNeedsRepair, core.StateCompleted)
 	if done.State != core.StateReverted {
 		t.Fatalf("a reverse composite whose step b was refused is %s, want reverted", done.State)
@@ -182,7 +182,7 @@ func TestA5_AStepRefusedByItsGuardFailsTheCompositeNamingTheStepAndTheFlow(t *te
 	}
 	// The same step through a request that reaches no exposure is not refused.
 	f2, _ := a5Fixture(t)
-	v2 := a5Apply(t, f2, context.Background(), refCfxAdd)
+	v2 := a5Apply(context.Background(), t, f2, refCfxAdd)
 	if done := f2.await(v2.ID, core.StateCompleted, core.StateReverted, core.StateFailed, core.StateNeedsRepair); done.State != core.StateCompleted {
 		t.Errorf("composite without an exposure = %s, want completed", done.State)
 	}
@@ -222,7 +222,7 @@ func a6Holds(t *testing.T, f *cfxFixture, table, s string) bool {
 
 func TestA6_TheCompositesRowsHoldNeitherTheClientNorTheExposurePath(t *testing.T) {
 	f, _ := a5Fixture(t)
-	v := a5Apply(t, f, a5Via("198.51.100.7", "exp9"), refCfxAdd)
+	v := a5Apply(a5Via("198.51.100.7", "exp9"), t, f, refCfxAdd)
 	if done := f.await(v.ID, core.StateCompleted, core.StateReverted, core.StateFailed, core.StateNeedsRepair); done.State != core.StateCompleted {
 		t.Fatalf("composite = %s, want completed", done.State)
 	}
@@ -240,7 +240,7 @@ func TestA6_TheCompositesRowsHoldNeitherTheClientNorTheExposurePath(t *testing.T
 func TestA6_ACompositeResumedAfterARestartStartsNoStep(t *testing.T) {
 	f := newCfxFixture(t)
 	cut := cutAt(f, "b", core.StepPlanning, false)
-	a5Apply(t, f, a5Via("198.51.100.7", "exp9"), refCfxAdd)
+	a5Apply(a5Via("198.51.100.7", "exp9"), t, f, refCfxAdd)
 	restartAfter(t, f, cut)
 	plans := f.agentPlans()
 	calls := len(f.kids.callLog())

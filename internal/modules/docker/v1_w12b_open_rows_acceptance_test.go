@@ -68,7 +68,7 @@ func a7Failures() []a7Failure {
 
 // a7Run runs a Compose verb of project shop on a host whose Engine fails the
 // check of one object kind, and returns the error and the host's log.
-func a7Run(t *testing.T, k a7Kind, f a7Failure, apply bool) (error, string) {
+func a7Run(t *testing.T, k a7Kind, f a7Failure, apply bool) (string, error) {
 	t.Helper()
 	h := newDKHost(t)
 	p := ccProject(t, h, "shop")
@@ -93,7 +93,7 @@ func a7Run(t *testing.T, k a7Kind, f a7Failure, apply bool) (error, string) {
 		// The agent logs the whole chain of an error that answers 5xx.
 		log.Error("api: request failed", "code", errcode.From(err).Code, "err", err)
 	}
-	return err, logs.String()
+	return logs.String(), err
 }
 
 func TestA7_AFailedObjectCheckWritesNoConfigurationValueAnywhere(t *testing.T) {
@@ -101,7 +101,7 @@ func TestA7_AFailedObjectCheckWritesNoConfigurationValueAnywhere(t *testing.T) {
 		for _, f := range a7Failures() {
 			for _, apply := range []bool{false, true} {
 				t.Run(fmt.Sprintf("%s %s apply=%v", k.name, f.name, apply), func(t *testing.T) {
-					err, logs := a7Run(t, k, f, apply)
+					logs, err := a7Run(t, k, f, apply)
 					if err == nil {
 						t.Fatal("the verb succeeded, want a refusal")
 					}
@@ -127,7 +127,7 @@ func TestA8_AFailedObjectCheckReportsTheKindTheKeyAndTheClass(t *testing.T) {
 		for _, f := range a7Failures() {
 			for _, apply := range []bool{false, true} {
 				t.Run(fmt.Sprintf("%s %s apply=%v", k.name, f.name, apply), func(t *testing.T) {
-					err, logs := a7Run(t, k, f, apply)
+					logs, err := a7Run(t, k, f, apply)
 					if err == nil {
 						t.Fatal("the verb succeeded, want a refusal")
 					}
