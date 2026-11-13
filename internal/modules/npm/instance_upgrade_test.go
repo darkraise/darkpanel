@@ -1276,6 +1276,7 @@ func TestW12aUpgradeNeedsNPMsAPI(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s := w12aUpSetup(t)
 			tc.setup(t, s)
+			stops := s.dock.counts["StopContainer"]
 			for range 2 {
 				s.h.npm.Fail(http.MethodGet, "/api/nginx/proxy-hosts", fake.Fault{Status: http.StatusInternalServerError})
 			}
@@ -1286,7 +1287,7 @@ func TestW12aUpgradeNeedsNPMsAPI(t *testing.T) {
 			}
 			_, err = s.apply()
 			_ = nwRefused(t, err, errcode.NPMUnhealthy)
-			if len(s.effects()) != 0 || s.phase() != "no row" || s.dock.counts["StopContainer"] > 1 || len(s.dock.created) != 0 {
+			if len(s.effects()) != 0 || s.phase() != "no row" || s.dock.counts["StopContainer"] != stops || len(s.dock.created) != 0 {
 				t.Error("a refused upgrade journaled an effect, recorded a phase, stopped NPM or created a container")
 			}
 		})

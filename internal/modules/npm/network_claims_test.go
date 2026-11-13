@@ -1172,7 +1172,39 @@ func TestW12aUndoOfADetachRefusesAForwardedAddress(t *testing.T) {
 
 func TestW12bForwardTargets(t *testing.T) {
 	ctx := context.Background()
-	t.Run("each distinct name is resolved once, all under one deadline", func(t *testing.T) {
+	t.Run("each distinct name is resolved once", func(t *testing.T) {
+		h, user := nwSetup(t)
+		w12aSubnet(t, h, user)
+		names := []string{"a.example.net", "b.example.net", "c.example.net"}
+		for i, name := range names {
+			w12aSeed(h, name, 3000)
+			w12aSeed(h, name, 3001+i)
+		}
+		var mu sync.Mutex
+		calls := map[string]int{}
+		n := h.nm()
+		n.d.resolve = func(_ context.Context, host string) ([]netip.Addr, error) {
+			mu.Lock()
+			calls[host]++
+			mu.Unlock()
+			return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+		}
+		in := nwJSON(t, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"})
+		if _, err := n.networkAttach().Handler.Plan(ctx, h.env(""), in); err != nil {
+			t.Fatalf("plan with names that do not exist: %v, want it to pass", err)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		for _, name := range names {
+			if calls[name] != 1 {
+				t.Errorf("%s was resolved %d times, want once", name, calls[name])
+			}
+		}
+		if len(calls) != len(names) {
+			t.Errorf("resolved %v, want only %v", calls, names)
+		}
+	})
+	t.Run("all names resolve under one deadline", func(t *testing.T) {
 		h, user := nwSetup(t)
 		w12aSubnet(t, h, user)
 		for i := range 20 {
