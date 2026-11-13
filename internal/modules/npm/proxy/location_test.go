@@ -50,3 +50,17 @@ func TestPxLocationNeverEmitsAHeaderTheTemplateSets(t *testing.T) {
 		}
 	}
 }
+
+func TestW12aOperatorConfig(t *testing.T) {
+	for _, c := range []struct{ name, in, want string }{
+		{"the panel's read timeout is the operator's on an updated host", clientHeaderLine + "\n" + panelTimeoutLine, panelTimeoutLine},
+		{"an indented module line is the operator's and blank lines go", clientHeaderLine + "\n  " + clientHeaderLine + "\n\n \nallow 10.0.0.0/8;", "  " + clientHeaderLine + "\nallow 10.0.0.0/8;"},
+		{"only the module's line", clientHeaderLine, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := OperatorConfig(c.in); got != c.want {
+				t.Errorf("OperatorConfig(%q) = %q, want %q", c.in, got, c.want)
+			}
+		})
+	}
+}

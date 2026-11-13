@@ -32,14 +32,16 @@ func Location(forwardScheme, forwardHost string, forwardPort int, panel bool) np
 	}
 }
 
-// OperatorConfig returns the lines of a "/" location's advanced configuration that Location does not write, in
-// order and joined by "\n", or "" when none remain. Empty and whitespace-only lines are dropped.
+// OperatorConfig returns the lines of a "/" location's advanced configuration other than the X-Darkpanel-Client line
+// that Location writes for every host, in order and joined by "\n", or "" when none remain. The panel's read timeout
+// is kept: npm.proxyhost.update never writes the panel's host, so on any host it updates that line is the operator's.
+// Empty and whitespace-only lines are dropped.
 func OperatorConfig(advancedConfig string) string {
 	var kept []string
 	for _, l := range strings.Split(advancedConfig, "\n") {
 		// Whole lines are compared untrimmed: an indented copy of a module line inside an operator's block is the
 		// operator's.
-		if l == clientHeaderLine || l == panelTimeoutLine || strings.TrimSpace(l) == "" {
+		if l == clientHeaderLine || strings.TrimSpace(l) == "" {
 			continue
 		}
 		kept = append(kept, l)
