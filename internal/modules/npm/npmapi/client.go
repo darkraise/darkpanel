@@ -234,7 +234,7 @@ func (c *Client) do(ctx context.Context, method, path, query string, body, out a
 		return fmt.Errorf("npmapi: read %s %s answer: %w", method, path, unanswered(err))
 	}
 	if len(b) > answerBodyLimit {
-		return fmt.Errorf("npmapi: %s %s answer exceeds %d bytes", method, path, answerBodyLimit)
+		return fmt.Errorf("npmapi: %s %s answer exceeds %d bytes: %w", method, path, answerBodyLimit, ErrUndecodable)
 	}
 	if err := json.Unmarshal(b, out); err != nil {
 		return fmt.Errorf("npmapi: decode %s %s answer: %w", method, path, ErrUndecodable)
@@ -259,7 +259,7 @@ func apiError(res *http.Response) *APIError {
 	return ae
 }
 
-// ErrUndecodable marks a 2xx answer whose body is not the JSON the call expects.
+// ErrUndecodable marks a 2xx answer whose body is not the JSON the call expects, or is too large to read.
 var ErrUndecodable = errors.New("not the expected JSON")
 
 // errNoAnswer and errRefused are the fixed reasons of a request that got no usable answer.

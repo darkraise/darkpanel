@@ -439,5 +439,8 @@ func TestW10NcAnswerOverTheLimitIsRefused(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("Health error %v, want one that says the answer %s", err, want)
 		}
+		if !errors.Is(err, ErrUndecodable) {
+			t.Errorf("Health error %v, want it marked ErrUndecodable", err)
+		}
 	})
 }
