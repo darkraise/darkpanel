@@ -317,3 +317,50 @@ func TestOpenAPIDocumentsChangeOperations(t *testing.T) {
 		t.Errorf("Change state enum %v and class enum %v lack the lifecycle values", states, classes)
 	}
 }
+
+// TestChangeStepsHideBreakGlassChildren: the steps of a change the network shows keep their child change ids,
+// except a step whose action the network hides (a break-glass action, or a controller-side action no longer
+// registered), whose child and earlier children are blanked, so the web UI renders it without a link that would
+// answer change.not_found.
+func TestChangeStepsHideBreakGlassChildren(t *testing.T) {
+	h := newHarness(t)
+	var last call
+	h.stubDispatcher(&last)
+	step := func(id, host, action, child string, earlier ...string) core.StepView {
+		var ref core.ActionRef
+		if err := ref.UnmarshalText([]byte(action)); err != nil {
+			t.Fatal(err)
+		}
+		return core.StepView{ID: id, Host: host, Action: ref, State: core.StepApplied, Attempt: 1, ChildChangeID: child,
+			EarlierChildChangeIDs: append([]string{}, earlier...)}
+	}
+	h.disp.StepsFunc = func(context.Context, core.Principal, string) ([]core.StepView, error) {
+		return []core.StepView{
+			step("add", "h1", "demo.item.add/v1", "k1", "k0"),
+			step("remove", "", "demo.item.remove/v1", "k2"),
+			step("reset", "", "demo.secret.reset/v1", "k3", "k3a"),
+			step("gone", "", "demo.gone.away/v1", "k4"),
+			step("other", "h1", "other.item.set/v1", "k5"),
+		}, nil
+	}
+	rec := h.serve(withToken(request("GET", "/api/v1/changes/c7/steps", ""), h.token(core.ScopeRead)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("steps: %d %s", rec.Code, rec.Body)
+	}
+	var got stepsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"add": "k1 [k0]", "remove": "k2 []", "reset": " []", "gone": " []", "other": "k5 []"}
+	if len(got.Steps) != len(want) {
+		t.Fatalf("steps %+v, want %d", got.Steps, len(want))
+	}
+	for _, s := range got.Steps {
+		if g := fmt.Sprintf("%s %v", s.ChildChangeID, s.EarlierChildChangeIDs); g != want[s.ID] {
+			t.Errorf("step %s: child and earlier children %q, want %q", s.ID, g, want[s.ID])
+		}
+	}
+	if strings.Contains(rec.Body.String(), `"k3`) || strings.Contains(rec.Body.String(), `"k4"`) {
+		t.Errorf("the answer names a hidden child: %s", rec.Body)
+	}
+}

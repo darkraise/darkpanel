@@ -269,5 +269,22 @@ func (s *Server) handleSteps(w http.ResponseWriter, r *http.Request) {
 	if steps == nil {
 		steps = []core.StepView{}
 	}
+	hideStepChildren(s.cfg.Registry, steps)
 	writeJSON(w, s.log, http.StatusOK, stepsResponse{Steps: steps})
+}
+
+// hideStepChildren blanks, in place, the child and earlier children of every
+// step whose child change the network hides. A step's child runs the step's
+// action on the step's host (a controller-side step stores host "", as a
+// controller-side change does), so this is the rule handleChange applies when
+// the link is followed. The step's state, attempt, deadline and error stay.
+func hideStepChildren(reg *core.Registry, steps []core.StepView) {
+	for i := range steps {
+		st := &steps[i]
+		if NetworkVisible(reg, core.ChangeView{Action: st.Action.Name, Version: st.Action.Version, HostID: st.Host}) {
+			continue
+		}
+		st.ChildChangeID = ""
+		st.EarlierChildChangeIDs = []string{}
+	}
 }

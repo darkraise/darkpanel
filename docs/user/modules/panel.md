@@ -148,6 +148,10 @@ add's. If a step fails, the exposure stays but is revoked, so the panel is
 unreachable through it. The banner then says that the removal has not finished,
 or that the exposure needs repair. Run the removal again, or
 `darkpanel change repair <change-id>`.
+The web UI shows the removal's revoke step without a link to its change,
+because the network API hides break-glass changes; if that step needs repair,
+give the removal up with `darkpanel change release <change-id> --reason <why>`,
+which releases the revoke change with it, and run the removal again.
 
 The certificate stays in NPM, and `npm certificate remove` deletes it. Repeated
 adds and removals for one hostname count against Let's Encrypt's limit on
