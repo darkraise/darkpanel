@@ -54,8 +54,13 @@ func TestPxLocationNeverEmitsAHeaderTheTemplateSets(t *testing.T) {
 func TestW12aOperatorConfig(t *testing.T) {
 	for _, c := range []struct{ name, in, want string }{
 		{"the panel's read timeout is the operator's on an updated host", clientHeaderLine + "\n" + panelTimeoutLine, panelTimeoutLine},
-		{"an indented module line is the operator's and blank lines go", clientHeaderLine + "\n  " + clientHeaderLine + "\n\n \nallow 10.0.0.0/8;", "  " + clientHeaderLine + "\nallow 10.0.0.0/8;"},
+		{"an indented module line goes and blank lines go", clientHeaderLine + "\n  " + clientHeaderLine + "\n\n \nallow 10.0.0.0/8;", "allow 10.0.0.0/8;"},
 		{"only the module's line", clientHeaderLine, ""},
+		{"an operator line in another case", "Proxy_Set_Header X-DARKPANEL-CLIENT $remote_addr;\nallow 10.0.0.0/8;", "allow 10.0.0.0/8;"},
+		{"a tab and repeated spaces", "proxy_set_header\tX-Darkpanel-Client   $remote_addr;", ""},
+		{"a quoted header name", `proxy_set_header "X-Darkpanel-Client" $remote_addr; # set by hand`, ""},
+		{"a line holding more than the directive is kept", "proxy_set_header X-Darkpanel-Client $x; }", "proxy_set_header X-Darkpanel-Client $x; }"},
+		{"another header is kept", "proxy_set_header X-Darkpanel-Clients $x;", "proxy_set_header X-Darkpanel-Clients $x;"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if got := OperatorConfig(c.in); got != c.want {

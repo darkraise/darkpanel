@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -51,6 +54,13 @@ func TestW12aFailuresKeepNoAnswerText(t *testing.T) {
 	closed.srv.Close()
 	passed, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
 	defer cancel()
+	refused := func(ctx context.Context, _ string) error {
+		hc := &http.Client{Transport: &http.Transport{DialContext: func(context.Context, string, string) (net.Conn, error) {
+			return nil, &net.OpError{Op: "dial", Net: "tcp", Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)}
+		}}}
+		_, err := New("http://npm.invalid", hc).Token(ctx, "admin@example.com", "placeholder-password")
+		return err
+	}
 	for _, tc := range []struct {
 		name   string
 		ctx    context.Context
@@ -67,12 +77,15 @@ func TestW12aFailuresKeepNoAnswerText(t *testing.T) {
 			login, "placeholder-secret", "npmapi: POST /api/tokens: no usable answer", nil},
 		{"a header line without a colon", t.Context(), w12aRaw(t, "HTTP/1.1 200 OK\r\nplaceholder-secret\r\n\r\n"),
 			login, "placeholder-secret", "npmapi: POST /api/tokens: no usable answer", nil},
-		{"a refused connection", t.Context(), closedURL, login, "", "npmapi: POST /api/tokens: connection refused", nil},
+		{"a refused connection", t.Context(), "", refused, "", "npmapi: POST /api/tokens: connection refused", nil},
 		{"a deadline that has passed", passed, closedURL, login, "",
 			"npmapi: POST /api/tokens: context deadline exceeded", context.DeadlineExceeded},
 		{"a number NPM chose in a 2xx answer", t.Context(),
 			w12aRaw(t, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"id\":31415926535897932384626433}"),
 			read, "31415926535897932384626433", "npmapi: decode GET /api/nginx/proxy-hosts/1 answer: not the expected JSON", nil},
+		{"an answer shorter than its length", t.Context(),
+			w12aRaw(t, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 100\r\nConnection: close\r\n\r\n{\"id\":1"),
+			read, "", "npmapi: read GET /api/nginx/proxy-hosts/1 answer: no usable answer", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.call(tc.ctx, tc.base)

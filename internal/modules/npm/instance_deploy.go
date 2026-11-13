@@ -33,9 +33,11 @@ const (
 	deployReady = 120 * time.Second
 	// deployStop is the stop grace of the undo of the container's start.
 	deployStop = 30 * time.Second
-	// deployCancelledWait is the detail of a deploy whose context ended while it waited for NPM: during a status read
-	// or the pause between two. An expired deadline gives it too.
+	// deployCancelledWait is the detail of a deploy whose context was cancelled while it waited for NPM: during a
+	// status read or the pause between two.
 	deployCancelledWait = "the deploy was cancelled while it waited for Nginx Proxy Manager to answer"
+	// deployTimedOutWait is the detail of a deploy whose deadline passed while it waited for NPM.
+	deployTimedOutWait = "the deploy ran out of time while it waited for Nginx Proxy Manager to start"
 	// deployMinMajor is the oldest Docker major version that loads the raw-table protection.
 	deployMinMajor = 28
 	// deployDERPUnit is the derp module's unit file. An installed but stopped DERP server holds no listener, yet it
@@ -429,13 +431,13 @@ func (h deployHandler) bootstrap(ctx context.Context, env core.Env, email, passw
 			break
 		}
 		if cerr := ctx.Err(); cerr != nil {
-			return true, errcode.Wrap(errcode.NPMSetupFailed, cerr, deployCancelledWait)
+			return true, errcode.Wrap(errcode.NPMSetupFailed, cerr, deployWaitDetail(cerr))
 		}
 		if !env.Clock.Now().Before(deadline) {
 			return true, deploySetupFailed(ctx, err, fmt.Sprintf("did not answer within %s", deployReady))
 		}
 		if err := deploySleep(ctx, env.Clock, deployPoll); err != nil {
-			return true, errcode.Wrap(errcode.NPMSetupFailed, err, deployCancelledWait)
+			return true, errcode.Wrap(errcode.NPMSetupFailed, err, deployWaitDetail(err))
 		}
 	}
 	if err := api.CreateAdmin(ctx, email, password); err != nil {
@@ -640,4 +642,12 @@ func (h deployHandler) Inverse(ctx context.Context, env core.Env, e core.Effect)
 	default:
 		return core.InverseResult{}, err
 	}
+}
+
+// deployWaitDetail is the detail of a wait for NPM that ended with err: a cancelled deploy, or one out of time.
+func deployWaitDetail(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return deployTimedOutWait
+	}
+	return deployCancelledWait
 }
