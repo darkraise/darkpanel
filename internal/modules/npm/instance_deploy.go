@@ -33,7 +33,8 @@ const (
 	deployReady = 120 * time.Second
 	// deployStop is the stop grace of the undo of the container's start.
 	deployStop = 30 * time.Second
-	// deployCancelledWait is the detail of a deploy cancelled before NPM answered its status read.
+	// deployCancelledWait is the detail of a deploy whose context ended while it waited for NPM: during a status read
+	// or the pause between two. An expired deadline gives it too.
 	deployCancelledWait = "the deploy was cancelled while it waited for Nginx Proxy Manager to answer"
 	// deployMinMajor is the oldest Docker major version that loads the raw-table protection.
 	deployMinMajor = 28

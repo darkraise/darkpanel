@@ -106,9 +106,9 @@ func (h instanceUpgradeHandler) precheck(ctx context.Context, env core.Env) (ins
 func waitText() string { return fmt.Sprintf("%d s", int(instanceUpgradeAPIWait/time.Second)) }
 
 // forwardCheck refuses the upgrade while a proxy host forwards to an address the recreated container could take on one
-// of the networks c is on. The addresses c holds count as free, because the old container releases them; a static
-// IPv4 address counts only off darkpanel-npm, where the new container is created without one. Rollback and recovery
-// do not run it: a rollback that refused would leave NPM down.
+// of the networks c is on. The addresses c holds count as free, because the old container releases them. On
+// darkpanel-npm the whole pool is counted, so a static address there needs no check of its own; off it, a static IPv4
+// address is checked alone. Rollback and recovery do not run it: a rollback that refused would leave NPM down.
 func (h instanceUpgradeHandler) forwardCheck(ctx context.Context, env core.Env, c dockerapi.ContainerJSON) error {
 	for _, name := range slices.Sorted(maps.Keys(c.NetworkSettings.Networks)) {
 		ep := c.NetworkSettings.Networks[name]
