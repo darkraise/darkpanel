@@ -14,6 +14,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/modules/npm/npmapi"
+	"github.com/darkraise/darkpanel/internal/modules/npm/proxy"
 )
 
 // proxyHostEditRemoval maps each owning composite to the composite whose children may remove what it reserved.
@@ -89,18 +90,35 @@ func proxyHostEditDoc(env core.Env, h npmapi.ProxyHost) core.StateDoc {
 	return core.StateDoc{State: proxyHostEditState(env, proxyHostEditBody(h)), Version: version}
 }
 
-// proxyHostEditKeep is body with what the operator wrote in NPM kept from host: the host's advanced configuration, and
-// every location whose path is not "/", in NPM's order and unchanged, after the module's own "/" location. Kept locations
-// are written back unchecked: a custom location is the operator's and the update only keeps what NPM held.
+// proxyHostEditKeep is body with what the operator wrote in NPM kept from host: the host's advanced configuration, the
+// operator's lines of the "/" location's advanced configuration after the module's own lines, and every location whose
+// path is not "/", in NPM's order and unchanged, after the module's own "/" location. Kept locations and lines are
+// written back unchecked: they are the operator's and the update only keeps what NPM held.
 func proxyHostEditKeep(body npmapi.ProxyHostBody, host npmapi.ProxyHost) npmapi.ProxyHostBody {
 	body.AdvancedConfig = host.AdvancedConfig
 	body.Locations = slices.Clone(body.Locations)
+	if op := proxyHostEditRootConfig(host.Locations); op != "" {
+		if i := slices.IndexFunc(body.Locations, func(l npmapi.Location) bool { return l.Path == "/" }); i >= 0 {
+			body.Locations[i].AdvancedConfig += "\n" + op
+		}
+	}
 	for _, l := range host.Locations {
 		if l.Path != "/" {
 			body.Locations = append(body.Locations, l)
 		}
 	}
 	return body
+}
+
+// proxyHostEditRootConfig is the operator's lines of the advanced configuration of the first "/" location in locations,
+// or "" when there is none.
+func proxyHostEditRootConfig(locations []npmapi.Location) string {
+	for _, l := range locations {
+		if l.Path == "/" {
+			return proxy.OperatorConfig(l.AdvancedConfig)
+		}
+	}
+	return ""
 }
 
 // proxyHostEditKey is the sorted domains joined by ",", the identity a recreated proxy host is found by.
@@ -331,7 +349,8 @@ func (h proxyHostUpdateHandler) check(ctx context.Context, env core.Env, in Prox
 	return api, host, proxyHostEditKeep(proxyHostBody(in.ProxyHostInput, env.Call.ParentAction), host), resolved, nil
 }
 
-// proxyHostEditDiff is a "-" and a "+" line for each shown member that differs between from and to.
+// proxyHostEditDiff is a "-" and a "+" line for each shown member that differs between from and to, and a kept line
+// when to's "/" location keeps advanced configuration the operator wrote in NPM.
 func proxyHostEditDiff(from, to npmapi.ProxyHostBody) []core.DiffLine {
 	diff := []core.DiffLine{}
 	line := func(name, old, next string) {
@@ -361,6 +380,10 @@ func proxyHostEditDiff(from, to npmapi.ProxyHostBody) []core.DiffLine {
 	line("force SSL", onOff(from.SSLForced), onOff(to.SSLForced))
 	line("HSTS", onOff(from.HSTSEnabled), onOff(to.HSTSEnabled))
 	line("websockets", onOff(from.AllowWebsocketUpgrade), onOff(to.AllowWebsocketUpgrade))
+	// Only the fact is shown: the operator's lines can hold credentials.
+	if proxyHostEditRootConfig(to.Locations) != "" {
+		diff = append(diff, core.DiffLine{Op: " ", Text: "location /: keeps the advanced configuration written in NPM"})
+	}
 	return diff
 }
 

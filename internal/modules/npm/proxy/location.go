@@ -2,7 +2,11 @@
 // the upstreams reserved for the admin and panel exposures, and the networks a proxy target may use.
 package proxy
 
-import "github.com/darkraise/darkpanel/internal/modules/npm/npmapi"
+import (
+	"strings"
+
+	"github.com/darkraise/darkpanel/internal/modules/npm/npmapi"
+)
 
 const (
 	clientHeaderLine = "proxy_set_header X-Darkpanel-Client $realip_remote_addr;"
@@ -26,4 +30,19 @@ func Location(forwardScheme, forwardHost string, forwardPort int, panel bool) np
 		ForwardPort:    forwardPort,
 		AdvancedConfig: cfg,
 	}
+}
+
+// OperatorConfig returns the lines of a "/" location's advanced configuration that Location does not write, in
+// order and joined by "\n", or "" when none remain. Empty and whitespace-only lines are dropped.
+func OperatorConfig(advancedConfig string) string {
+	var kept []string
+	for _, l := range strings.Split(advancedConfig, "\n") {
+		// Whole lines are compared untrimmed: an indented copy of a module line inside an operator's block is the
+		// operator's.
+		if l == clientHeaderLine || l == panelTimeoutLine || strings.TrimSpace(l) == "" {
+			continue
+		}
+		kept = append(kept, l)
+	}
+	return strings.Join(kept, "\n")
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -155,18 +156,44 @@ func TestV1r10UpdateEffectsHoldFingerprintsAndTheSealedBody(t *testing.T) {
 func TestV1r10UpdateKeepsTheOperatorsAdvancedConfig(t *testing.T) {
 	ctx := context.Background()
 	h, host := v1r10Seed(t)
-	h.addChange("c1", "npm.proxyhost.update")
+	// The operator replaced the module's "/" configuration in NPM with rules of its own.
+	rootRules := "allow 10.0.0.0/8;\ndeny all;\nproxy_set_header X-Root-Key " + v1r10LocSecret + ";"
+	api, err := h.nm().d.api(ctx, h.env(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited := puBodyOf(host)
+	edited.Locations = append([]npmapi.Location(nil), host.Locations...)
+	edited.Locations[0].AdvancedConfig = rootRules
+	if host, err = api.UpdateProxyHost(ctx, host.ID, edited); err != nil {
+		t.Fatal(err)
+	}
 	next := puInput(func(in *ProxyHostInput) { in.ForwardPort = 9090 })
 	def := h.nm().proxyhostUpdate()
-	if _, err := def.Handler.Apply(ctx, h.env("c1"), puJSON(t, ProxyHostUpdateInput{ID: host.ID, ProxyHostInput: next})); err != nil {
+	raw := puJSON(t, ProxyHostUpdateInput{ID: host.ID, ProxyHostInput: next})
+	plan, err := def.Handler.Plan(ctx, h.env(""), raw)
+	if err != nil {
 		t.Fatal(err)
+	}
+	v1r10NoSecret(t, "plan", plan)
+	kept := core.DiffLine{Op: " ", Text: "location /: keeps the advanced configuration written in NPM"}
+	if !slices.Contains(plan.Diff, kept) {
+		t.Errorf("plan diff %+v, want the line %+v", plan.Diff, kept)
 	}
 	want := proxyHostBody(next, "")
 	want.AdvancedConfig = host.AdvancedConfig
+	want.Locations[0].AdvancedConfig += "\n" + rootRules
 	want.Locations = append(want.Locations, host.Locations[1])
-	hosts := puHosts(t, h)
-	if len(hosts) != 1 || !reflect.DeepEqual(puBodyOf(hosts[0]), want) {
-		t.Errorf("NPM holds %+v, want the module's / location for the new port and the operator's advanced configuration and /api location kept: %+v", hosts, want)
+	// A second update of the same input must not repeat the module's own line.
+	for _, id := range []string{"c1", "c2"} {
+		h.addChange(id, "npm.proxyhost.update")
+		if _, err := def.Handler.Apply(ctx, h.env(id), raw); err != nil {
+			t.Fatal(err)
+		}
+		hosts := puHosts(t, h)
+		if len(hosts) != 1 || !reflect.DeepEqual(puBodyOf(hosts[0]), want) {
+			t.Errorf("after change %s NPM holds %+v, want the module's / location for the new port followed by the operator's / rules, and the operator's advanced configuration and /api location kept: %+v", id, hosts, want)
+		}
 	}
 }
 
