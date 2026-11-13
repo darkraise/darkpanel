@@ -298,26 +298,45 @@ func (n nm) reservedSet(ctx context.Context, env core.Env) (proxy.Reserved, erro
 }
 
 // dockerAnswers returns the addresses Docker's embedded DNS gives host on the user-defined networks of the NPM
-// container, and whether any container there answers to it. Docker's DNS serves no default network, and holds no record
-// for an endpoint without an address, so neither answers. A member answers to each of its names and to each followed by
-// "." and the network's name, as Docker's DNS does (moby Sandbox.ResolveName).
+// container, and whether any container there answers to it.
 func (n nm) dockerAnswers(ctx context.Context, host string) ([]netip.Addr, bool, error) {
+	members, err := n.dockerMembers(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	answers := members.answers(host)
+	return answers, len(answers) > 0, nil
+}
+
+// dockerMember is one endpoint of another container on a user-defined network of the NPM container: the names Docker's
+// DNS answers to there and the endpoint's addresses.
+type dockerMember struct {
+	network string
+	names   []string
+	addrs   []netip.Addr
+}
+
+type dockerMembers []dockerMember
+
+// dockerMembers reads the endpoints Docker's embedded DNS serves to the NPM container. Docker's DNS serves no default
+// network, and holds no record for an endpoint without an address, so neither is read. A missing NPM container has
+// none.
+func (n nm) dockerMembers(ctx context.Context) (dockerMembers, error) {
 	c, err := n.d.docker.InspectContainer(ctx, containerName)
 	switch {
 	case dockerapi.IsNotFound(err):
-		return nil, false, nil
+		return nil, nil
 	case err != nil:
-		return nil, false, engineCoded(err)
+		return nil, engineCoded(err)
 	}
-	name := strings.TrimSuffix(host, ".")
-	var answers []netip.Addr
+	var out dockerMembers
 	for network := range c.NetworkSettings.Networks {
 		if network == "bridge" || network == "host" || network == "none" {
 			continue
 		}
 		nw, err := n.d.docker.InspectNetwork(ctx, network)
 		if err != nil {
-			return nil, false, engineCoded(err)
+			return nil, engineCoded(err)
 		}
 		for id := range nw.Containers {
 			if id == c.ID {
@@ -328,31 +347,42 @@ func (n nm) dockerAnswers(ctx context.Context, host string) ([]netip.Addr, bool,
 			case dockerapi.IsNotFound(err):
 				continue
 			case err != nil:
-				return nil, false, engineCoded(err)
+				return nil, engineCoded(err)
 			}
 			ep := member.NetworkSettings.Networks[network]
 			if ep == nil {
 				continue
 			}
-			names := []string{strings.TrimPrefix(member.Name, "/"), member.ID}
+			m := dockerMember{network: network, names: []string{strings.TrimPrefix(member.Name, "/"), member.ID}}
 			if len(member.ID) > 12 {
-				names = append(names, member.ID[:12])
+				m.names = append(m.names, member.ID[:12])
 			}
-			names = append(names, ep.Aliases...)
-			names = append(names, ep.DNSNames...)
-			if !slices.ContainsFunc(names, func(held string) bool {
-				return held != "" && (strings.EqualFold(held, name) || strings.EqualFold(held+"."+network, name))
-			}) {
-				continue
-			}
+			m.names = append(m.names, ep.Aliases...)
+			m.names = append(m.names, ep.DNSNames...)
 			for _, a := range []netip.Addr{ep.IPAddress, ep.GlobalIPv6Address} {
 				if a.IsValid() {
-					answers = append(answers, a)
+					m.addrs = append(m.addrs, a)
 				}
 			}
+			out = append(out, m)
 		}
 	}
-	return answers, len(answers) > 0, nil
+	return out, nil
+}
+
+// answers returns the addresses of the members that answer to host. A member answers to each of its names and to each
+// followed by "." and the network's name, as Docker's DNS does (moby Sandbox.ResolveName).
+func (ms dockerMembers) answers(host string) []netip.Addr {
+	name := strings.TrimSuffix(host, ".")
+	var out []netip.Addr
+	for _, m := range ms {
+		if slices.ContainsFunc(m.names, func(held string) bool {
+			return held != "" && (strings.EqualFold(held, name) || strings.EqualFold(held+"."+m.network, name))
+		}) {
+			out = append(out, m.addrs...)
+		}
+	}
+	return out
 }
 
 // resolveTimeout bounds one lookup of a forward host with the host's resolver, so that a DNS server that does not

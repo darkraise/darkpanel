@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
 	"regexp"
 	"slices"
@@ -873,34 +874,35 @@ func (n nm) forwardTargets(ctx context.Context, env core.Env) ([]forwardTarget, 
 const forwardResolvers = 8
 
 // forwardAnswers returns the sorted answers of each name, none for a name that does not exist. Docker's names are read
-// first; the rest go to the host's resolver concurrently under one deadline, so a listing of many names that do not
-// answer costs one resolveTimeout, not one per name.
+// in one pass; the rest go to the host's resolver concurrently, and both run under one deadline, so a listing of many
+// names that do not answer costs one resolveTimeout, not one per name. Only an answer that the name does not exist
+// skips it: any other failure leaves the name's addresses unknown, and the guard must not pass on that.
 func (n nm) forwardAnswers(ctx context.Context, names []string) (map[string][]netip.Addr, error) {
 	out := make(map[string][]netip.Addr, len(names))
+	if len(names) == 0 {
+		return out, nil
+	}
+	lookupCtx, cancel := context.WithTimeout(ctx, resolveTimeout+time.Second)
+	defer cancel()
+	members, err := n.dockerMembers(lookupCtx)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, fmt.Errorf("npm: read Docker's names of the forward hosts: %w", err)
+	}
 	var lookups []string
 	for _, name := range names {
-		answers, ok, err := n.dockerAnswers(ctx, name)
-		if err != nil {
-			if ctx.Err() != nil {
-				return nil, ctx.Err()
-			}
-			return nil, fmt.Errorf("npm: resolve forward host %s: %w", name, err)
-		}
-		if ok {
+		if answers := members.answers(name); len(answers) > 0 {
 			out[name] = plainAddrs(answers)
 		} else {
 			lookups = append(lookups, name)
 		}
 	}
-	if len(lookups) == 0 {
-		return out, nil
-	}
 	type result struct {
 		answers []netip.Addr
 		err     error
 	}
-	lookupCtx, cancel := context.WithTimeout(ctx, resolveTimeout+time.Second)
-	defer cancel()
 	var (
 		mu      sync.Mutex
 		results = make(map[string]result, len(lookups))
@@ -939,12 +941,14 @@ func (n nm) forwardAnswers(ctx context.Context, names []string) (map[string][]ne
 	defer mu.Unlock()
 	for _, name := range lookups {
 		r, ok := results[name]
-		if !ok || transientLookup(r.err) {
+		var dnsErr *net.DNSError
+		switch {
+		case ok && r.err == nil:
+			out[name] = plainAddrs(r.answers)
+		case ok && errors.As(r.err, &dnsErr) && dnsErr.IsNotFound:
+		default:
 			return nil, core.Definite(errcode.New(errcode.Unavailable,
 				"forward host "+name+" could not be resolved: the resolver did not answer; retry"))
-		}
-		if r.err == nil {
-			out[name] = plainAddrs(r.answers)
 		}
 	}
 	return out, nil

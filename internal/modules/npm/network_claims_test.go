@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/netip"
 	"reflect"
@@ -1122,8 +1123,8 @@ func TestW12aAttachResolvesForwardHostNames(t *testing.T) {
 	if want := "proxy host 1 forwards to app.example.net, which resolves to 10.9.0.7, an address darkpanel-npm could take on network appnet"; coded.Detail != want {
 		t.Errorf("detail %q, want %q", coded.Detail, want)
 	}
-	n.d.resolve = func(context.Context, string) ([]netip.Addr, error) {
-		return nil, errors.New("lookup app.example.net: no such host")
+	n.d.resolve = func(_ context.Context, host string) ([]netip.Addr, error) {
+		return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
 	}
 	if _, err := n.networkAttach().Handler.Plan(ctx, h.env(""), in); err != nil {
 		t.Errorf("plan with a name that does not resolve: %v, want it to pass", err)
@@ -1215,6 +1216,53 @@ func TestW12bForwardTargets(t *testing.T) {
 		in := nwJSON(t, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"})
 		if _, err := n.networkAttach().Handler.Plan(ctx, h.env(""), in); err != nil {
 			t.Errorf("plan with a variable forward host: %v, want it to pass", err)
+		}
+	})
+	t.Run("a resolver failure that is not an answer of no such name refuses", func(t *testing.T) {
+		h, user := nwSetup(t)
+		w12aSubnet(t, h, user)
+		w12aSeed(h, "odd.example.net", 3000)
+		n := h.nm()
+		n.d.resolve = func(context.Context, string) ([]netip.Addr, error) { return nil, errors.New("x") }
+		in := nwJSON(t, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"})
+		_, err := n.networkAttach().Handler.Plan(ctx, h.env(""), in)
+		if coded := nwRefused(t, err, errcode.Unavailable); coded.Detail != "forward host odd.example.net could not be resolved: the resolver did not answer; retry" {
+			t.Errorf("detail %q, want the unresolved forward host", coded.Detail)
+		}
+	})
+	t.Run("a name that does not exist is skipped", func(t *testing.T) {
+		h, user := nwSetup(t)
+		w12aSubnet(t, h, user)
+		w12aSeed(h, "gone.example.net", 3000)
+		n := h.nm()
+		n.d.resolve = func(_ context.Context, host string) ([]netip.Addr, error) {
+			return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+		}
+		in := nwJSON(t, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"})
+		if _, err := n.networkAttach().Handler.Plan(ctx, h.env(""), in); err != nil {
+			t.Errorf("plan with a forward host that does not exist: %v, want it to pass", err)
+		}
+	})
+	t.Run("Docker's names are read once however many names are listed", func(t *testing.T) {
+		inspections := func(names int) int {
+			h, user := nwSetup(t)
+			w12aSubnet(t, h, user)
+			for i := range names {
+				w12aSeed(h, fmt.Sprintf("gone%d.example.net", i), 3000)
+			}
+			n := h.nm()
+			n.d.resolve = func(_ context.Context, host string) ([]netip.Addr, error) {
+				return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+			}
+			in := nwJSON(t, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"})
+			before := nwCalls(h, "InspectContainer")
+			if _, err := n.networkAttach().Handler.Plan(ctx, h.env(""), in); err != nil {
+				t.Fatal(err)
+			}
+			return nwCalls(h, "InspectContainer") - before
+		}
+		if one, five := inspections(1), inspections(5); one != five {
+			t.Errorf("the plan inspected containers %d times for one name and %d times for five", one, five)
 		}
 	})
 	t.Run("the undo of a detach reports a refused listing", func(t *testing.T) {
