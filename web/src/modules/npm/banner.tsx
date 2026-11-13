@@ -23,13 +23,16 @@ function NotCheckedAlert({ text }: { text: string }) {
 // AdminExposureBanner warns on every page about each host whose NPM admin
 // interface is exposed. It also warns when the exposure of a host could not
 // be checked, or when the whole fleet read failed, so that a missing warning
-// never hides an unchecked host. It shows nothing while the read is pending.
+// never hides an unchecked host. It shows nothing while the first read is
+// pending. When a later read fails, it keeps the warnings of the last
+// successful read and adds the could-not-check warning beside them.
 export function AdminExposureBanner() {
   const fleet = useQuery({ queryKey: npmFleetKey, queryFn: readInstances, staleTime: 60_000 })
-  const unreadable = fleet.isSuccess ? fleet.data.unreadable : []
+  const unreadable = fleet.data?.unreadable ?? []
   const hosts = useQuery({ queryKey: HOSTS_QUERY_KEY, queryFn: listHosts, enabled: unreadable.length > 0 })
-  if (fleet.isError) return <NotCheckedAlert text="Could not check whether the NPM admin UI is exposed." />
-  if (!fleet.isSuccess) return null
+  if (fleet.data === undefined) {
+    return fleet.isError ? <NotCheckedAlert text="Could not check whether the NPM admin UI is exposed." /> : null
+  }
   const exposed = fleet.data.instances.flatMap((i) => {
     const exposure = i.status.adminExposure
     return exposure === null || exposure === undefined ? [] : [{ instance: i, hostname: exposure.hostname }]
@@ -47,6 +50,7 @@ export function AdminExposureBanner() {
         </Alert>
       ))}
       {names.length > 0 && <NotCheckedAlert text={`Could not check whether the NPM admin UI is exposed on: ${names.join(", ")}.`} />}
+      {fleet.isError && <NotCheckedAlert text="Could not check whether the NPM admin UI is exposed." />}
     </>
   )
 }

@@ -2,8 +2,10 @@ import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, test } from "vitest"
 import { axe } from "vitest-axe"
+import { HOSTS_QUERY_KEY } from "@/api/client"
 import type { Change, Host, Plan } from "@/api/types"
 import { renderWithProviders, stubFetch, type FetchCall, type StubHandler } from "@/test/utils"
+import { connectorListKey } from "./connector-types"
 import { ConnectorsPage } from "./connectors-page"
 import { cfConnector, cfTunnel } from "./fixtures"
 
@@ -237,6 +239,61 @@ describe("ConnectorsPage", () => {
     expect(within(form).getAllByRole("radio")).toHaveLength(1)
     expect(within(form).getByRole("radio", { name: "Create a new tunnel" })).toBeTruthy()
   })
+
+  test("keeps the connectors and shows the reason when a refetch of them fails", async () => {
+    let failing = false
+    const { client } = cnRender([cnHost("h1", "web-1")], {
+      [cnList("h1")]: () =>
+        failing
+          ? {
+              status: 503,
+              body: { type: "about:blank", title: "Unavailable", status: 503, detail: "the Docker Engine is not reachable", code: "docker.engine_unavailable" },
+            }
+          : { body: { output: { connectors: [cfConnector({ tunnel: "t1", container: "darkpanel-cloudflared-t1" })] } } },
+    })
+    await cnTable()
+    failing = true
+    await client.invalidateQueries({ queryKey: connectorListKey("h1") })
+    expect((await screen.findByRole("alert")).textContent).toBe("the Docker Engine is not reachable")
+    const rows = within(screen.getByRole("table", { name: "Connectors" })).getAllByRole("row").slice(1)
+    expect(rows.map((r) => within(r).getAllByRole("cell").slice(0, 3).map((c) => c.textContent))).toEqual([
+      ["darkpanel-c1", "darkpanel-cloudflared-t1", "running"],
+    ])
+    const form = screen.getByRole("form", { name: "Deploy a connector" })
+    expect(within(form).queryByRole("radio", { name: "darkpanel-c1" })).toBeNull()
+    failing = false
+    await client.invalidateQueries({ queryKey: connectorListKey("h1") })
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull())
+    expect(screen.getByRole("table", { name: "Connectors" })).toBeTruthy()
+  })
+
+  test("keeps the page and an open change dialog and shows the reason when a refetch of the hosts fails", async () => {
+    let failing = false
+    const { client } = cnRender([], {
+      [HOSTS]: () =>
+        failing
+          ? { status: 503, body: { type: "about:blank", title: "Unavailable", status: 503, detail: "the database is busy", code: "unavailable" } }
+          : { body: { output: { hosts: [cnHost("h1", "web-1")] } } },
+      "POST /api/v1/hosts/h1/actions/cloudflare.connector.stop/v1/plan": { body: cnPlan("cloudflare.connector.stop", "h1") },
+    })
+    const user = userEvent.setup()
+    await cnTable()
+    await user.click(screen.getByRole("button", { name: "Stop the connector of darkpanel-c1" }))
+    const dialog = await screen.findByRole("dialog", { name: "Stop the connector of darkpanel-c1" })
+    await within(dialog).findByLabelText("Planned changes")
+    failing = true
+    await client.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
+    // The open dialog hides the page from the accessibility tree, so the alert is found by its text.
+    expect((await screen.findByText("the database is busy")).closest('[role="alert"]')).not.toBeNull()
+    expect(dialog.isConnected).toBe(true)
+    expect(screen.getByRole("dialog", { name: "Stop the connector of darkpanel-c1" })).toBe(dialog)
+    expect(screen.getByText("Connectors on web-1")).toBeTruthy()
+    failing = false
+    await client.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
+    await waitFor(() => expect(screen.queryByText("the database is busy")).toBeNull())
+    expect(dialog.isConnected).toBe(true)
+  })
+
 
   test("has no accessibility violations", async () => {
     const { container } = cnRender([cnHost("h1", "web-1"), cnHost("h2", "web-2")])

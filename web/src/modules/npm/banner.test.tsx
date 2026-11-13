@@ -112,6 +112,32 @@ test("warns that the check failed when the answer lacks the unreadable hosts", a
   expect(screen.queryByText(BN_WEB1)).toBeNull()
 })
 
+test("keeps the exposure warnings and adds the could-not-check warning when a refetch fails", async () => {
+  let failing = false
+  const { client } = bnRender(
+    () =>
+      failing
+        ? { status: 503, body: { type: "about:blank", title: "Unavailable", status: 503, detail: "the database is busy", code: "unavailable" } }
+        : bnFleet([bnExposed("h1", "web-1", "npm.example.com")], ["h2"]),
+    <AdminExposureBanner />,
+    { [BN_HOSTS]: bnHosts(bnHost("h2", "web-2")) },
+  )
+  expect(await screen.findByText(BN_WEB1)).toBeTruthy()
+  await screen.findByText("Could not check whether the NPM admin UI is exposed on: web-2.")
+  failing = true
+  await client.invalidateQueries({ queryKey: npmFleetKey })
+  expect(await screen.findByText(BN_UNCHECKED)).toBeTruthy()
+  expect(client.getQueryState(npmFleetKey)?.status).toBe("error")
+  expect(screen.getByText(BN_WEB1)).toBeTruthy()
+  expect(screen.getByRole("link", { name: "Open Nginx Proxy Manager on web-1" }).getAttribute("href")).toBe("/hosts/h1/npm")
+  expect(screen.getByText("Could not check whether the NPM admin UI is exposed on: web-2.")).toBeTruthy()
+  failing = false
+  await client.invalidateQueries({ queryKey: npmFleetKey })
+  await waitFor(() => expect(screen.queryByText(BN_UNCHECKED)).toBeNull())
+  expect(screen.getByText(BN_WEB1)).toBeTruthy()
+})
+
+
 test("the fleet read is kept for 60 seconds before a new mount reads it again", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
   try {

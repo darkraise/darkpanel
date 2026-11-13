@@ -97,15 +97,22 @@ function ConnectorsCard({
       <CardHeader>
         <CardTitle>{`Connectors on ${host.name}`}</CardTitle>
       </CardHeader>
-      <CardContent>
-        {connectors.isError ? (
-          <ErrorAlert error={connectors.error} />
-        ) : connectors.isPending ? (
-          <Spinner aria-label="Loading the connectors" />
-        ) : connectors.data.connectors.length === 0 ? (
-          <EmptyState title="No connectors on this host" description="Deploy a connector to serve a tunnel from this host." />
+      <CardContent className="flex flex-col gap-4">
+        {connectors.data === undefined ? (
+          connectors.isPending ? (
+            <Spinner aria-label="Loading the connectors" />
+          ) : (
+            <ErrorAlert error={connectors.error} />
+          )
         ) : (
-          <ConnectorsTable connectors={connectors.data.connectors} tunnels={tunnels.data?.tunnels ?? []} onPlan={onPlan} />
+          <>
+            {connectors.isError && <ErrorAlert error={connectors.error} />}
+            {connectors.data.connectors.length === 0 ? (
+              <EmptyState title="No connectors on this host" description="Deploy a connector to serve a tunnel from this host." />
+            ) : (
+              <ConnectorsTable connectors={connectors.data.connectors} tunnels={tunnels.data?.tunnels ?? []} onPlan={onPlan} />
+            )}
+          </>
         )}
       </CardContent>
     </Card>
@@ -237,8 +244,9 @@ export function ConnectorsPage() {
   })
   const [chosen, setChosen] = useState("")
 
-  if (hosts.isPending) return <Spinner aria-label="Loading the hosts" />
-  if (hosts.isError) return <ErrorAlert error={hosts.error} />
+  if (hosts.data === undefined) {
+    return hosts.isPending ? <Spinner aria-label="Loading the hosts" /> : <ErrorAlert error={hosts.error} />
+  }
   const eligible = hosts.data.hosts.filter(runsCloudflare)
   if (eligible.length === 0) {
     return <EmptyState title="No host runs the Cloudflare module" description="Enable the module on a host to run a connector there." />
@@ -247,6 +255,7 @@ export function ConnectorsPage() {
 
   return (
     <div className="flex flex-col gap-6">
+      {hosts.isError && <ErrorAlert error={hosts.error} />}
       {eligible.length > 1 && <HostChoice hosts={eligible} value={chosen} onChange={setChosen} />}
       {host !== undefined && <HostConnectors key={host.id} host={host} tunnels={tunnels} />}
     </div>
