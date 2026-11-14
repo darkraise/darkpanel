@@ -46,3 +46,4 @@
 - 2026-11-13 `docs/dforge/plans/2026-11-13-m3-audit-gaps.md` — merged into `main` at 8406936a
 - 2026-11-14 `docs/dforge/plans/2026-11-13-v1-w12b-open-rows.md` — merged into `main` at 06a76cc
 - 2026-11-14 `docs/dforge/plans/2026-11-14-v1-w12c-ipv6-npm.md` — merged into `main` at 0dd9eeb
+- 2026-11-15 `docs/dforge/plans/2026-11-14-v1-w12e-security-residuals.md` — merged into `main` at ba88152
