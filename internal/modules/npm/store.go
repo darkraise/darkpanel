@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/netip"
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/core/store"
@@ -201,11 +202,35 @@ func dropClaim(ctx context.Context, tx *sql.Tx, network, claimant string) error 
 }
 
 // containerConfig is the create configuration of the container an upgrade replaces. Name is kept beside Create
-// because ContainerCreate.Name is not part of its JSON; Networks holds every endpoint beyond darkpanel-npm.
+// because ContainerCreate.Name is not part of its JSON; Networks holds every endpoint beyond darkpanel-npm. Targets
+// are the forward targets of the upgrade's late check, which every later start of an NPM container is verified
+// against; nil is a row written before the list was kept, which tells it apart from a list with no target.
 type containerConfig struct {
 	Create   dockerapi.ContainerCreate
 	Name     string
 	Networks map[string]*dockerapi.EndpointSettings
+	Targets  *[]recordedTarget `json:"targets,omitempty"`
+}
+
+// recordedTarget is a forwardTarget as an upgrade row keeps it.
+type recordedTarget struct {
+	Where string     `json:"where"`
+	Host  string     `json:"host"`
+	Name  bool       `json:"name"`
+	Addr  netip.Addr `json:"addr"`
+}
+
+// recordTargets is ts as an upgrade row keeps it; no target is an empty list, never nil.
+func recordTargets(ts []forwardTarget) *[]recordedTarget {
+	out := make([]recordedTarget, 0, len(ts))
+	for _, t := range ts {
+		out = append(out, recordedTarget{Where: t.where, Host: t.host, Name: t.name, Addr: t.addr})
+	}
+	return &out
+}
+
+func (r recordedTarget) target() forwardTarget {
+	return forwardTarget{where: r.Where, host: r.Host, name: r.Name, addr: r.Addr}
 }
 
 // archiveRef is one verified volume archive of an upgrade; File is a bare managed-file name inside backupDir.

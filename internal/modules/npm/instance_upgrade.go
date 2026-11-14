@@ -105,22 +105,30 @@ func (h instanceUpgradeHandler) precheck(ctx context.Context, env core.Env) (ins
 // waitText is the API wait as the plan and the errors state it.
 func waitText() string { return fmt.Sprintf("%d s", int(instanceUpgradeAPIWait/time.Second)) }
 
-// forwardCheck refuses the upgrade while a proxy host forwards to an address the recreated container could take on one
-// of the networks c is on, or on darkpanel-npm, which the recreated container joins even when c has left it. The
-// addresses c holds count as free, because the old container releases them. On darkpanel-npm the whole pool is
-// counted, so a static address there needs no check of its own; off it, a static IPv4 address is checked alone.
-// Rollback and recovery do not run it: a rollback that refused would leave NPM down.
-func (h instanceUpgradeHandler) forwardCheck(ctx context.Context, env core.Env, c dockerapi.ContainerJSON) error {
+// forwardCheck refuses the upgrade while a proxy host forwards to an address the recreated container could take, and
+// returns the targets it checked. Apply runs it once more after the pull, which narrows the window in which the
+// holder of a forwarded address can let it go before the new container starts; it cannot close it, since the targets
+// are read through NPM's API, which the stopped container no longer serves. The verification after every start
+// closes it. Rollback and recovery do not run it: a rollback that refused would leave NPM down.
+func (h instanceUpgradeHandler) forwardCheck(ctx context.Context, env core.Env, c dockerapi.ContainerJSON) ([]forwardTarget, error) {
 	targets, err := h.n.forwardTargets(ctx, env)
 	if err != nil {
 		if coded := errcode.From(err); coded.Code == errcode.NPMUnhealthy {
 			err = errcode.Wrap(errcode.NPMUnhealthy, err, coded.Detail+"; start Nginx Proxy Manager and retry, or remove and redeploy the instance")
 		}
-		return core.Definite(err)
+		return nil, core.Definite(err)
 	}
+	return targets, h.forwardCheckConfig(ctx, env, instanceUpgradeConfig(c), targets, c.ID)
+}
+
+// forwardCheckConfig refuses, Definite, while one of targets is an address a container created from cfg could take on
+// darkpanel-npm, which it joins even when the original had left it, or on one of cfg's networks. The addresses of
+// container freeID count as free, because that container releases them. On darkpanel-npm the whole pool is counted,
+// so a static address there needs no check of its own; off it, a static IPv4 address is checked alone.
+func (h instanceUpgradeHandler) forwardCheckConfig(ctx context.Context, _ core.Env, cfg containerConfig, targets []forwardTarget, freeID string) error {
 	names := []string{networkName}
-	for name, ep := range c.NetworkSettings.Networks {
-		if ep != nil && name != networkName {
+	for name := range cfg.Networks {
+		if name != networkName {
 			names = append(names, name)
 		}
 	}
@@ -130,12 +138,14 @@ func (h instanceUpgradeHandler) forwardCheck(ctx context.Context, env core.Env, 
 		switch {
 		case name == networkName && dockerapi.IsNotFound(err):
 			return core.Definite(errcode.New(errcode.NotFound, "network "+networkName+" is missing"))
+		case dockerapi.IsNotFound(err):
+			return core.Definite(errcode.New(errcode.NotFound, "network "+name+" of the original container no longer exists"))
 		case err != nil:
 			return core.Definite(fmt.Errorf("npm: inspect network %s: %w", name, engineCoded(err)))
 		}
-		delete(nw.Containers, c.ID)
+		delete(nw.Containers, freeID)
 		var static []netip.Addr
-		if ep := c.NetworkSettings.Networks[name]; name != networkName && ep != nil && ep.IPAMConfig != nil && ep.IPAMConfig.IPv4Address.IsValid() {
+		if ep := cfg.Networks[name]; name != networkName && ep != nil && ep.IPAMConfig != nil && ep.IPAMConfig.IPv4Address.IsValid() {
 			static = []netip.Addr{ep.IPAMConfig.IPv4Address}
 		}
 		if err := forwardTaken(targets, nw, static); err != nil {
@@ -151,7 +161,7 @@ func (h instanceUpgradeHandler) Plan(ctx context.Context, env core.Env, _ Upgrad
 	if err != nil {
 		return core.PlanOutcome{}, err
 	}
-	if err := h.forwardCheck(ctx, env, c); err != nil {
+	if _, err := h.forwardCheck(ctx, env, c); err != nil {
 		return core.PlanOutcome{}, err
 	}
 	sum := sha256.Sum256([]byte(c.ID + "\n" + row.Image + "\n" + Image))
@@ -214,13 +224,18 @@ func (h instanceUpgradeHandler) Apply(ctx context.Context, env core.Env, _ Upgra
 	if err != nil {
 		return Upgraded{}, err
 	}
-	if err := h.forwardCheck(ctx, env, c); err != nil {
+	if _, err := h.forwardCheck(ctx, env, c); err != nil {
 		return Upgraded{}, err
 	}
 	if err := h.pull(ctx, Image); err != nil {
 		return Upgraded{}, core.Definite(err)
 	}
+	targets, err := h.forwardCheck(ctx, env, c)
+	if err != nil {
+		return Upgraded{}, err
+	}
 	config := instanceUpgradeConfig(c)
+	config.Targets = recordTargets(targets)
 
 	after := instanceUpgradeImage(Image)
 	e := core.Effect{Kind: core.EffectModify, Resource: instanceUpgradeResource(), Local: true, Before: instanceUpgradeImage(row.Image), After: &after}
@@ -250,7 +265,11 @@ func (h instanceUpgradeHandler) Apply(ctx context.Context, env core.Env, _ Upgra
 // restored and, for the wait for the new container, whether the wait ran out or was interrupted. Nothing it returns
 // is definite, because the step had already changed the host, whatever its cause.
 func (h instanceUpgradeHandler) fail(ctx context.Context, env core.Env, step string, cause error) error {
-	cause = notDefinite(cause)
+	if errcode.From(cause).Code == errcode.NPMReserved {
+		cause = withoutDefiniteMark(cause)
+	} else {
+		cause = notDefinite(cause)
+	}
 	interrupted := ctx.Err() != nil
 	ctx = context.WithoutCancel(ctx)
 	u, ok, rbErr := loadUpgrade(ctx, env.DB.Read(), env.ChangeID)
@@ -336,6 +355,22 @@ func (h instanceUpgradeHandler) steps(ctx context.Context, env core.Env, row ins
 	if _, err := docker.StartContainer(ctx, id); err != nil {
 		return "recreate", fmt.Errorf("npm: start container %s: %w", containerName, engineCoded(err))
 	}
+	var targets []forwardTarget
+	if config.Targets != nil {
+		for _, r := range *config.Targets {
+			targets = append(targets, r.target())
+		}
+	}
+	held, err := h.verifyHeld(ctx, env, id, targets)
+	if err == nil {
+		err = held.Unverified
+	}
+	if err == nil {
+		err = held.Hit
+	}
+	if err != nil {
+		return "verify", err
+	}
 
 	if err := phase("waiting"); err != nil {
 		return "wait", err
@@ -397,6 +432,117 @@ func (h instanceUpgradeHandler) connect(ctx context.Context, id string, networks
 		}
 	}
 	return nil
+}
+
+// heldCheck is what verifyHeld found in a started NPM container.
+type heldCheck struct {
+	Dropped    []string // networks the container was disconnected from, in name order
+	Hit        error    // the first hit, every hit disconnected; nil when the container held no target
+	Unverified error    // the inspection or a name lookup failed; nothing after it was compared or disconnected
+}
+
+// verifyHeld compares the addresses the started container containerID holds on each network with targets, and takes
+// the container off every network other than darkpanel-npm where it holds one. Literal addresses are compared first,
+// since they need no lookup; the forwarded names are then resolved again, because the nginx that just started resolved
+// them now, not when targets were read. A failed lookup leaves the disconnects of the literal hits in Dropped. The
+// error is set only for a hit that cannot be dropped: a hit on darkpanel-npm, the network NPM must not leave, and a
+// hit whose disconnect fails, after which the container is stopped. It runs under WithoutCancel: a container left
+// running at a forwarded address publishes NPM's API there.
+func (h instanceUpgradeHandler) verifyHeld(ctx context.Context, _ core.Env, containerID string, targets []forwardTarget) (heldCheck, error) {
+	ctx = context.WithoutCancel(ctx)
+	docker := h.n.d.docker
+	var res heldCheck
+	result := func(err error) (heldCheck, error) {
+		slices.Sort(res.Dropped)
+		return res, err
+	}
+	c, err := docker.InspectContainer(ctx, containerID)
+	if err != nil {
+		res.Unverified = fmt.Errorf("npm: inspect the started container %s: %w", containerName, engineCoded(err))
+		return result(nil)
+	}
+	held := map[string][]netip.Addr{}
+	for network, ep := range c.NetworkSettings.Networks {
+		if ep == nil {
+			continue
+		}
+		for _, a := range []netip.Addr{ep.IPAddress, ep.GlobalIPv6Address} {
+			if a.IsValid() {
+				held[network] = append(held[network], a.Unmap())
+			}
+		}
+	}
+	check := func(where string, addr netip.Addr) error {
+		for _, network := range slices.Sorted(maps.Keys(held)) {
+			if !slices.Contains(held[network], addr.Unmap()) {
+				continue
+			}
+			text := fmt.Sprintf("%s forwards to %s, which %s took on network %s when it started", where, addr, containerName, network)
+			if network == networkName {
+				return errcode.New(errcode.NPMReserved, text+"; it stays on "+networkName)
+			}
+			if err := h.dropNetwork(ctx, containerID, network); err != nil {
+				errs := []error{errors.New(text), errors.New("npm: disconnect it from network " + network + ": " + err.Error())}
+				if _, stopErr := docker.StopContainer(ctx, containerID, instanceUpgradeStop); stopErr != nil {
+					errs = append(errs, errors.New("npm: stop container "+containerName+": "+stopErr.Error()))
+				}
+				return errors.Join(errs...)
+			}
+			delete(held, network)
+			res.Dropped = append(res.Dropped, network)
+			if res.Hit == nil {
+				res.Hit = errcode.New(errcode.NPMReserved, text+"; it was disconnected from "+network)
+			}
+		}
+		return nil
+	}
+	var names []string
+	for _, t := range targets {
+		if t.name {
+			if !slices.Contains(names, t.host) {
+				names = append(names, t.host)
+			}
+			continue
+		}
+		if err := check(t.where, t.addr); err != nil {
+			return result(err)
+		}
+	}
+	answers, err := h.n.forwardAnswers(ctx, names)
+	if err != nil {
+		res.Unverified = fmt.Errorf("npm: resolve the forward hosts again after the start: %w", err)
+		return result(nil)
+	}
+	seen := map[string]bool{}
+	for _, t := range targets {
+		if !t.name || seen[t.where] {
+			continue
+		}
+		seen[t.where] = true
+		for _, a := range answers[t.host] {
+			if err := check(t.where, a); err != nil {
+				return result(err)
+			}
+		}
+	}
+	return result(nil)
+}
+
+// dropNetwork takes the container id off network; a container no longer on it counts as done.
+func (h instanceUpgradeHandler) dropNetwork(ctx context.Context, id, network string) error {
+	ctx, cancel := context.WithTimeout(ctx, nginxDisconnectWait)
+	defer cancel()
+	docker := h.n.d.docker
+	err := docker.DisconnectNetwork(ctx, network, id, false)
+	switch {
+	case err == nil, dockerapi.IsNotFound(err):
+		return nil
+	case refused(err):
+		if c, inspectErr := docker.InspectContainer(ctx, id); inspectErr == nil && c.NetworkSettings.Networks[network] == nil {
+			return nil
+		}
+	}
+	return err
 }
 
 // pull makes the image ref available: it pulls it unless the Engine already has it.
