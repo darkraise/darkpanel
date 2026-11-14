@@ -2,7 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { expect, test } from "vitest"
 import { axe } from "vitest-axe"
-import { fwDocker } from "@/modules/firewall/fixtures"
+import { fwDocker, fwStatus } from "@/modules/firewall/fixtures"
 import { renderWithProviders, stubFetch, type FetchCall, type StubHandler } from "@/test/utils"
 import { npInstance } from "./fixtures"
 import { InstancePanel } from "./instance-panel"
@@ -11,10 +11,12 @@ import { npmKey, type InstanceStatus } from "./types"
 const IP_HOST = "/api/v1/hosts/h1"
 const IP_STATUS = `POST ${IP_HOST}/actions/npm.instance.status/v1/read`
 const IP_DOCKER = `GET ${IP_HOST}/resources/firewall/docker`
+const IP_FWSTATUS = `GET ${IP_HOST}/resources/firewall/status`
 const IP_REVEAL = `POST ${IP_HOST}/actions/npm.admin.reveal-password/v1/reveal`
 const IP_IMAGE = "jc21/nginx-proxy-manager:2.13.5@sha256:" + "a".repeat(64)
 const IP_ON = "The Docker firewall integration is on: ports 80 and 443 are opened for the NPM container."
 const IP_OFF = "The Docker firewall integration is off: open ports 80 and 443 to the internet yourself, then confirm that the instance is public."
+const IP_OFF_FW = "The Docker firewall integration is off: the deploy allows ports 80 and 443 in the firewall as its last step. Then check them from outside and confirm that the instance is public."
 
 function ipPlan(call: FetchCall) {
   const parts = call.path.split("/")
@@ -38,6 +40,7 @@ const IP_PLANS = [
   `POST ${IP_HOST}/actions/npm.instance.upgrade/v1/plan`,
   `POST ${IP_HOST}/actions/npm.instance.remove/v1/plan`,
   "POST /api/v1/actions/npm.instance.deploy-public/v1/plan",
+  "POST /api/v1/actions/npm.instance.deploy-public/v2/plan",
   "POST /api/v1/actions/npm.admin.expose/v1/plan",
   "POST /api/v1/actions/npm.admin.unexpose/v1/plan",
 ]
@@ -65,6 +68,7 @@ function ipRender(status: InstanceStatus, routes: Record<string, StubHandler> = 
   const calls = stubFetch({
     [IP_STATUS]: { body: { output: status } },
     [IP_DOCKER]: { body: fwDocker() },
+    [IP_FWSTATUS]: { body: fwStatus() },
     [`GET ${IP_HOST}/modules/npm/availability`]: { body: { module: "npm", available: true, reason: null, actions: [] } },
     ...Object.fromEntries(IP_PLANS.map((key) => [key, ipPlan])),
     ...routes,
@@ -114,11 +118,13 @@ test("says when the container is stopped, the API is not ready and public access
 })
 
 test.each([
-  ["on", fwDocker({ enabled: true, supported: true }), true, IP_ON],
-  ["off", fwDocker({ enabled: false, supported: true }), false, IP_OFF],
-  ["unsupported", fwDocker({ enabled: true, supported: false, unsupported: ["rules"] }), false, IP_OFF],
-])("deploys with the integration flag read from firewall.docker when it is %s", async (_, docker, integration, hint) => {
-  const { calls } = ipRender(ipNotDeployed(), { [IP_DOCKER]: { body: docker } })
+  ["on", fwDocker({ enabled: true, supported: true }), fwStatus(), true, true, true, IP_ON],
+  ["off", fwDocker({ enabled: false, supported: true }), fwStatus(), false, true, true, IP_OFF_FW],
+  ["off without IPv6", fwDocker({ enabled: false, supported: true }), fwStatus({ configured: { ...fwStatus().configured, ipv6: false } }), false, true, false, IP_OFF_FW],
+  ["off on a host whose firewall Darkpanel cannot manage", fwDocker({ enabled: false, supported: true }), fwStatus({ supported: false, unsupported: ["rules"] }), false, false, true, IP_OFF],
+  ["unsupported", fwDocker({ enabled: true, supported: false, unsupported: ["rules"] }), fwStatus(), false, true, true, IP_OFF_FW],
+])("deploys with the integration flag read from firewall.docker when it is %s", async (_, docker, status, integration, firewall, ipv6, hint) => {
+  const { calls } = ipRender(ipNotDeployed(), { [IP_DOCKER]: { body: docker }, [IP_FWSTATUS]: { body: status } })
   const user = userEvent.setup()
   const form = await screen.findByRole("form", { name: "Deploy" })
   const plan = within(form).getByRole("button", { name: "Plan" })
@@ -130,8 +136,19 @@ test.each([
   await user.click(plan)
   const dialog = await screen.findByRole("dialog", { name: "Deploy Nginx Proxy Manager" })
   await within(dialog).findByLabelText("Planned changes")
-  expect(ipPlanPath(calls)).toBe("/api/v1/actions/npm.instance.deploy-public/v1/plan")
-  expect(ipPlanBodies(calls)).toEqual([{ input: { hostId: "h1", acmeEmail: "ops@example.com", integration } }])
+  expect(ipPlanPath(calls)).toBe("/api/v1/actions/npm.instance.deploy-public/v2/plan")
+  expect(ipPlanBodies(calls)).toEqual([{ input: { hostId: "h1", acmeEmail: "ops@example.com", integration, firewall, ipv6 } }])
+})
+
+test("keeps Plan off and shows the reason while firewall.status cannot be read", async () => {
+  ipRender(ipNotDeployed(), {
+    [IP_FWSTATUS]: { status: 503, body: { type: "about:blank", title: "Unavailable", status: 503, detail: "the firewall status cannot be read", code: "module.unavailable" } },
+  })
+  const user = userEvent.setup()
+  const form = await screen.findByRole("form", { name: "Deploy" })
+  await within(form).findByText("the firewall status cannot be read")
+  await user.type(within(form).getByLabelText("Let's Encrypt email"), "ops@example.com")
+  expect(within(form).getByRole("button", { name: "Plan" }).hasAttribute("disabled")).toBe(true)
 })
 
 test("keeps Plan off and shows the reason while firewall.docker cannot be read", async () => {

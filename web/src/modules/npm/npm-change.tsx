@@ -36,6 +36,7 @@ export function NpmChange({ hostId, action, title, input, onClose, onApplied }: 
 
 export interface NpmControllerChangeProps {
   action: string // a composite action, such as "npm.expose.container"
+  version?: number
   title: string
   input: Record<string, unknown> | null // null keeps the dialog closed
   onClose: () => void
@@ -45,7 +46,7 @@ export interface NpmControllerChangeProps {
 // controller. On close it refetches the fleet read the banner uses and, when
 // the input names a host, that host's resources, because a composite changes
 // what that host's NPM page reads.
-export function NpmControllerChange({ action, title, input, onClose }: NpmControllerChangeProps) {
+export function NpmControllerChange({ action, version = NPM_ACTION_VERSION, title, input, onClose }: NpmControllerChangeProps) {
   const client = useQueryClient()
   const hostId = input !== null && typeof input.hostId === "string" ? input.hostId : null
   return (
@@ -58,7 +59,7 @@ export function NpmControllerChange({ action, title, input, onClose }: NpmContro
         if (hostId !== null) void client.invalidateQueries({ queryKey: ["resource", hostId] })
       }}
       title={title}
-      target={{ name: action, version: NPM_ACTION_VERSION }}
+      target={{ name: action, version }}
       input={input ?? undefined}
     />
   )

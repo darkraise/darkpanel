@@ -8,12 +8,12 @@ import { Input } from "darkraise-ui/components/input"
 import { Label } from "darkraise-ui/components/label"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { readResource, request } from "@/api/client"
-import { dockerQueryKey, FIREWALL_MODULE, type DockerStatus } from "@/modules/firewall/types"
+import { dockerQueryKey, FIREWALL_MODULE, statusQueryKey, type DockerStatus, type FirewallStatus } from "@/modules/firewall/types"
 import { NpmChange, NpmControllerChange } from "./npm-change"
 import { messageOf, readInstanceStatus } from "./status"
-import { npmKey, type AdminPassword, type InstanceStatus } from "./types"
+import { NPM_DEPLOY_PUBLIC_VERSION, npmKey, type AdminPassword, type InstanceStatus } from "./types"
 
-type Pending = null | { scope: "host" | "controller"; action: string; title: string; input: Record<string, unknown> }
+type Pending = null | { scope: "host" | "controller"; action: string; version?: number; title: string; input: Record<string, unknown> }
 
 type PlanChange = (pending: NonNullable<Pending>) => void
 
@@ -23,9 +23,11 @@ function isAdminPassword(v: unknown): v is AdminPassword {
   return typeof v === "object" && v !== null && typeof (v as AdminPassword).email === "string" && typeof (v as AdminPassword).password === "string"
 }
 
-// DeployForm deploys NPM through npm.instance.deploy-public. The composite
-// opens ports 80 and 443 only when the host's Docker firewall integration is
-// on, so the form reads it first and sends what it read.
+// DeployForm deploys NPM through npm.instance.deploy-public v2. The composite
+// opens ports 80 and 443 for the NPM container when the host's Docker firewall
+// integration is on, and otherwise as UFW rules when Darkpanel can manage the
+// host's firewall, for IPv6 too when UFW's IPv6 setting is on. So the form
+// reads firewall.docker and firewall.status first and sends what it read.
 function DeployForm({ hostId, onPlan }: { hostId: string; onPlan: PlanChange }) {
   const base = useId()
   const [email, setEmail] = useState("")
@@ -33,8 +35,13 @@ function DeployForm({ hostId, onPlan }: { hostId: string; onPlan: PlanChange }) 
     queryKey: dockerQueryKey(hostId),
     queryFn: () => readResource<DockerStatus>(hostId, FIREWALL_MODULE, "docker"),
   })
+  const status = useQuery({
+    queryKey: statusQueryKey(hostId),
+    queryFn: () => readResource<FirewallStatus>(hostId, FIREWALL_MODULE, "status"),
+  })
   const integration = docker.isSuccess && docker.data.enabled && docker.data.supported
-  const ready = email.trim() !== "" && docker.isSuccess
+  const firewall = status.isSuccess && status.data.supported
+  const ready = email.trim() !== "" && docker.isSuccess && status.isSuccess
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -42,8 +49,9 @@ function DeployForm({ hostId, onPlan }: { hostId: string; onPlan: PlanChange }) 
     onPlan({
       scope: "controller",
       action: "npm.instance.deploy-public",
+      version: NPM_DEPLOY_PUBLIC_VERSION,
       title: "Deploy Nginx Proxy Manager",
-      input: { hostId, acmeEmail: email.trim(), integration },
+      input: { hostId, acmeEmail: email.trim(), integration, firewall, ipv6: status.data.configured.ipv6 },
     })
   }
 
@@ -55,18 +63,23 @@ function DeployForm({ hostId, onPlan }: { hostId: string; onPlan: PlanChange }) 
           <Label htmlFor={`${base}-email`}>Let&apos;s Encrypt email</Label>
           <Input id={`${base}-email`} type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} />
         </div>
-        <div>
-          {docker.isPending && <Spinner aria-label="Loading the Docker integration" />}
-          {docker.isError && (
-            <Alert variant="destructive" role="alert">
-              <AlertDescription>{messageOf(docker.error)}</AlertDescription>
-            </Alert>
+        <div className="flex flex-col gap-2">
+          {(docker.isPending || status.isPending) && <Spinner aria-label="Loading the firewall state" />}
+          {[docker, status].map(
+            (read, i) =>
+              read.isError && (
+                <Alert key={i} variant="destructive" role="alert">
+                  <AlertDescription>{messageOf(read.error)}</AlertDescription>
+                </Alert>
+              ),
           )}
-          {docker.isSuccess && (
+          {docker.isSuccess && status.isSuccess && (
             <p className="text-sm text-muted-foreground">
               {integration
                 ? "The Docker firewall integration is on: ports 80 and 443 are opened for the NPM container."
-                : "The Docker firewall integration is off: open ports 80 and 443 to the internet yourself, then confirm that the instance is public."}
+                : firewall
+                  ? "The Docker firewall integration is off: the deploy allows ports 80 and 443 in the firewall as its last step. Then check them from outside and confirm that the instance is public."
+                  : "The Docker firewall integration is off: open ports 80 and 443 to the internet yourself, then confirm that the instance is public."}
             </p>
           )}
         </div>
@@ -299,7 +312,7 @@ export function InstancePanel({ hostId }: { hostId: string }) {
         <NpmChange hostId={hostId} action={pending.action} title={pending.title} input={pending.input} onClose={() => setPending(null)} />
       )}
       {pending?.scope === "controller" && (
-        <NpmControllerChange action={pending.action} title={pending.title} input={pending.input} onClose={() => setPending(null)} />
+        <NpmControllerChange action={pending.action} version={pending.version} title={pending.title} input={pending.input} onClose={() => setPending(null)} />
       )}
     </div>
   )

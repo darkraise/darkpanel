@@ -1,5 +1,6 @@
 export const NPM_MODULE = "npm"
 export const NPM_ACTION_VERSION = 1
+export const NPM_DEPLOY_PUBLIC_VERSION = 2
 
 export function npmKey(hostId: string, name: string): unknown[] {
   return ["resource", hostId, "npm." + name]
