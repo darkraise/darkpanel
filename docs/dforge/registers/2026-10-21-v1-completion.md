@@ -1,7 +1,7 @@
 # v1 completion register
 
 **Source:** owner request 2026-10-21 "let resolve them all, one spec cover all items and issues, then one plan and keep executing until we can release the final first version"; M3–M8 roadmap epics (R37–R81); ADR 0005 deferred controller backup and restore
-**Covers:** docs/dforge/specs/2026-10-21-v1-completion-design.md, docs/dforge/specs/2026-11-13-v1-w12b-open-rows-design.md, docs/dforge/specs/2026-11-14-v1-w12c-ipv6-npm-design.md
+**Covers:** docs/dforge/specs/2026-10-21-v1-completion-design.md, docs/dforge/specs/2026-11-13-v1-w12b-open-rows-design.md, docs/dforge/specs/2026-11-14-v1-w12c-ipv6-npm-design.md, docs/dforge/specs/2026-11-14-v1-w12e-security-residuals-design.md
 
 | # | Item | Assigned | Acceptance | State | Note |
 |---|---|---|---|---|---|
