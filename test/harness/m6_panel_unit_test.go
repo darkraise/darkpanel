@@ -290,12 +290,24 @@ func TestM6pUnitCheckStatus(t *testing.T) {
 	}
 }
 
-func TestM6pUnitIPv6HTTPSRule(t *testing.T) {
-	if got, want := m6pIPv6HTTPSRule(true), "sudo ufw allow proto tcp from ::/0 to any port 443"; got != want {
-		t.Errorf("m6pIPv6HTTPSRule(true) = %q, want %q", got, want)
-	}
-	if got, want := m6pIPv6HTTPSRule(false), "sudo ufw delete allow proto tcp from ::/0 to any port 443"; got != want {
-		t.Errorf("m6pIPv6HTTPSRule(false) = %q, want %q", got, want)
+func TestM6pRelayRefusalUnit(t *testing.T) {
+	npm := netip.MustParseAddr("172.18.0.2")
+	for _, tc := range []struct {
+		name   string
+		guards []core.Guard
+		ok     bool
+	}{
+		{"refused for the relay", []core.Guard{{ID: "firewall.lockout", OK: false, Message: "the change would cut exposure 01J IPv6 relay to 172.18.0.2:443 from 172.18.0.1 to 172.18.0.2:443 out darkpanel-npm: blocked"}}, true},
+		{"refused for the relay of another address", []core.Guard{{ID: "firewall.lockout", OK: false, Message: "the change would cut exposure 01J IPv6 relay to 172.19.0.2:443 from 172.19.0.1 to 172.19.0.2:443: blocked"}}, false},
+		{"refused for another flow", []core.Guard{{ID: "firewall.lockout", OK: false, Message: "the change would cut ssh from 0.0.0.0 to 0.0.0.0:22"}}, false},
+		{"passed", []core.Guard{{ID: "firewall.lockout", OK: true}}, false},
+		{"no lockout guard", nil, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := m6pRelayRefused(tc.guards, npm); (err == nil) != tc.ok {
+				t.Errorf("m6pRelayRefused = %v, want ok %v", err, tc.ok)
+			}
+		})
 	}
 }
 

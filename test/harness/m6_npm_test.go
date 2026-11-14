@@ -556,9 +556,11 @@ func (r *m6nRun) prepare(t *testing.T) {
 	m3dDocker(r.ctx, t, v, "rm", "m6n-ca")
 }
 
-// deploy deploys NPM through npm.instance.deploy-public. The lab leaves the
-// Docker integration of the firewall off, so the composite has no ports step
-// and the instance is public only after npm.instance.confirm-public.
+// deploy deploys NPM through npm.instance.deploy-public v2. The lab leaves the
+// Docker integration of the firewall off and Darkpanel manages the host's UFW,
+// so the composite's ports step allows 80 and 443 as UFW rules, for IPv6 too
+// when UFW's IPv6 setting is on, and the step confirms that revertible change.
+// The instance is public only after npm.instance.confirm-public.
 func (r *m6nRun) deploy(t *testing.T) {
 	var fd struct {
 		Enabled   bool `json:"enabled"`
@@ -570,14 +572,27 @@ func (r *m6nRun) deploy(t *testing.T) {
 	if fd.Enabled {
 		t.Fatal("the lab's Docker integration is enabled, which this scenario does not expect")
 	}
-	ch := m4ApplyAsync(r.ctx, t, r.f.api, "", "npm.instance.deploy-public",
-		npm.DeployPublicInput{HostID: r.f.agentID, AcmeEmail: m6nAcmeEmail, Integration: false})
+	var fs struct {
+		Supported  bool `json:"supported"`
+		Configured struct {
+			IPv6 bool `json:"ipv6"`
+		} `json:"configured"`
+	}
+	if err := r.f.api.Resource(r.ctx, r.f.agentID, "firewall.status", &fs); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("firewall.status of %s: %+v", r.f.agentID, fs)
+	if !fs.Supported {
+		t.Fatal("Darkpanel cannot manage the lab's firewall, which this scenario does not expect")
+	}
+	ch := m6pApplyThroughVersion(r.ctx, t, r.f.api, r.f.api, "npm.instance.deploy-public", 2,
+		npm.DeployPublicInputV2{HostID: r.f.agentID, AcmeEmail: m6nAcmeEmail, Integration: false, Firewall: true, IPv6: fs.Configured.IPv6})
 	var out npm.DeployPublicOutput
 	if err := json.Unmarshal(ch.Output, &out); err != nil {
 		t.Fatalf("output of npm.instance.deploy-public: %v", err)
 	}
-	if out.ContainerID == "" || out.PortsOpened {
-		t.Errorf("deploy-public output %+v, want a container id and no ports step", out)
+	if out.ContainerID == "" || !out.PortsOpened {
+		t.Errorf("deploy-public output %+v, want a container id and the ports opened", out)
 	}
 }
 

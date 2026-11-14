@@ -477,18 +477,6 @@ func m6pNPMAddr(ctx context.Context, t *testing.T, f *fleet) netip.Addr {
 	return a
 }
 
-// m6pIPv6HTTPSRule adds, or deletes, a ufw rule that admits HTTPS from every
-// IPv6 source. NPM's networks are IPv4 only, so Docker's userland proxy serves
-// its published port on [::]:443 as a socket of the host: an IPv6 client goes
-// through ufw's INPUT rules, which deny it by default, while an IPv4 client is
-// forwarded by Docker's DNAT around them.
-func m6pIPv6HTTPSRule(add bool) string {
-	if add {
-		return "sudo ufw allow proto tcp from ::/0 to any port 443"
-	}
-	return "sudo ufw delete allow proto tcp from ::/0 to any port 443"
-}
-
 // m6pULAHTTPSRule adds or deletes the controller's allow of HTTPS from the
 // harness's ULA range alone. UFW denies IPv6 443 by default, so deleting it
 // newly drops exactly that range.
@@ -633,11 +621,18 @@ func m6pSettleConfirmed(ctx context.Context, api *API, id string) (Change, error
 // settle with m6pSettleConfirmed, and fails the test unless it completed.
 func m6pApplyThrough(ctx context.Context, t *testing.T, via, settle *API, action string, input any) Change {
 	t.Helper()
-	p, err := m4Plan(ctx, via, "", action, input)
+	return m6pApplyThroughVersion(ctx, t, via, settle, action, 1, input)
+}
+
+// m6pApplyThroughVersion is m6pApplyThrough for version version of action.
+func m6pApplyThroughVersion(ctx context.Context, t *testing.T, via, settle *API, action string, version int, input any) Change {
+	t.Helper()
+	v := "/v" + strconv.Itoa(version)
+	p, err := m4PlanVersion(ctx, via, "", action, version, input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	path, err := actionPath("", action+"/v1", "apply")
+	path, err := actionPath("", action+v, "apply")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -798,7 +793,8 @@ func (r *m6pRun) verify(t *testing.T) {
 	if h, ok := localHost(hosts); !ok || h.ID != f.localID {
 		t.Errorf("the host list %+v has no local host %s", hosts, f.localID)
 	}
-	if _, err := m4Plan(r.ctx, f.api, "", "npm.instance.deploy-public", npm.DeployPublicInput{HostID: f.localID, AcmeEmail: m6nAcmeEmail}); err != nil {
+	if _, err := m4PlanVersion(r.ctx, f.api, "", "npm.instance.deploy-public", 2,
+		npm.DeployPublicInputV2{HostID: f.localID, AcmeEmail: m6nAcmeEmail, Firewall: true, IPv6: true}); err != nil {
 		t.Errorf("npm.instance.deploy-public on the local host: %v", err)
 	}
 
@@ -998,12 +994,6 @@ func (r *m6pRun) ipv6Client(t *testing.T) {
 	f := r.f
 	m3dAddSource(r.ctx, t, f.scanner, netip.MustParsePrefix(m6pULAScanner+"/64"), m3dTrafficIface)
 	m3dAddSource(r.ctx, t, f.controller, netip.MustParsePrefix(m6pULATarget+"/64"), m3dTrafficIface)
-	m3Run(r.ctx, t, f.controller, m6pIPv6HTTPSRule(true))
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-		defer cancel()
-		_, _ = f.controller.Run(ctx, m6pIPv6HTTPSRule(false))
-	})
 	err := eventually(r.ctx, 30*time.Second, func(ctx context.Context) error {
 		out, err := f.controller.Run(ctx, m3dxShell("ping", "-6", "-c", "1", "-W", "2", m6pULAScanner))
 		if err != nil {
@@ -1040,20 +1030,37 @@ func (r *m6pRun) ipv6Client(t *testing.T) {
 // ipv6ClientGuard: an admin session opened from the scanner's ULA source,
 // which NPM names by a host address, plans a change that would drop that
 // source's HTTPS and one that would not. The guard must refuse the first for
-// the hidden client and pass the second. Nothing is applied. The drop is the
-// deletion of the manual rule that admits the ULA range: firewall.rule.add
-// appends, so a deny it adds lands behind any allow and blocks nothing new.
+// the hidden client and pass the second. Then it plans a change that would cut
+// Docker's userland proxy off from NPM, which the guard must refuse for the
+// relay (A14). Nothing of these is applied. The drop is the deletion of the
+// manual rule that admits the ULA range: firewall.rule.add appends, so a deny
+// it adds lands behind any allow and blocks nothing new. The deploy's 443/v6
+// allow would admit the ULA source whatever that rule says, so it is deleted
+// for the step and added back after it.
 func (r *m6pRun) ipv6ClientGuard(t *testing.T) {
 	f := r.f
 	const jar = "/tmp/m6p-ula.jar"
 	m3dAddSource(r.ctx, t, f.scanner, netip.MustParsePrefix(m6pULAScanner+"/64"), m3dTrafficIface)
 	m3dAddSource(r.ctx, t, f.controller, netip.MustParsePrefix(m6pULATarget+"/64"), m3dTrafficIface)
+	ch, err := f.api.m3Apply(r.ctx, f.localID, "firewall.rules.apply", firewall.RulesApplyInput{Delete: []string{npm.PortRule443V6}}, 300)
+	m3RequirePending(t, ch, err)
+	if _, err := f.api.m3dDockConfirm(r.ctx, ch.ID); err != nil {
+		t.Fatalf("confirm the delete of the deploy's 443/v6 rule: %v", err)
+	}
 	m3Run(r.ctx, t, f.controller, m6pULAHTTPSRule(true))
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		_, _ = f.controller.Run(ctx, m6pULAHTTPSRule(false))
 		_, _ = f.scanner.Run(ctx, m3dxShell("rm", "-f", jar))
+		add := firewall.RulesApplyInput{Label: npm.PortsLabel, Add: []model.Rule{npm.PortRules(true)[3]}}
+		ch, err := f.api.m3Apply(ctx, f.localID, "firewall.rules.apply", add, 300)
+		if err == nil {
+			_, err = f.api.m3dDockConfirm(ctx, ch.ID)
+		}
+		if err != nil {
+			t.Logf("harness: add the deploy's 443/v6 rule back: %v", err)
+		}
 	})
 	send := func(path string, cookies []string, header []string, body any) (string, string) {
 		t.Helper()
@@ -1114,6 +1121,22 @@ func (r *m6pRun) ipv6ClientGuard(t *testing.T) {
 	if err := m6pHiddenGuard(plan("firewall.rule.add", m3PortRule(8094)), true); err != nil {
 		t.Error(err)
 	}
+	if err := m6pRelayRefused(plan("firewall.defaults.set", map[string]any{"outgoing": "DROP"}), m6pNPMAddr(r.ctx, t, f)); err != nil {
+		t.Error(err)
+	}
+}
+
+// m6pRelayRefused accepts guards only when the lockout guard refuses the change
+// for the userland proxy's IPv6 relay to npm's port 443. The guard joins every
+// flow it would cut into one message, so the relay is named among the others.
+func m6pRelayRefused(guards []core.Guard, npm netip.Addr) error {
+	want := "IPv6 relay to " + netip.AddrPortFrom(npm, 443).String()
+	for _, g := range guards {
+		if g.ID == "firewall.lockout" && !g.OK && strings.Contains(g.Message, want) {
+			return nil
+		}
+	}
+	return fmt.Errorf("harness: no firewall.lockout refusal names %q among the guards %s", want, m3JSON(guards))
 }
 
 // banner: panel.exposure.status, the banner's data, reports the exposure both

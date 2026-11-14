@@ -60,7 +60,12 @@ func (e *m4UndoError) Error() string {
 // m4Plan plans version 1 of action on host with input. A refusal of the plan
 // is returned wrapped, so errors.As still finds its *APIError.
 func m4Plan(ctx context.Context, api *API, host, action string, input any) (m4PlanView, error) {
-	path, err := actionPath(host, action+"/v1", "plan")
+	return m4PlanVersion(ctx, api, host, action, 1, input)
+}
+
+// m4PlanVersion plans version version of action on host, as m4Plan plans version 1.
+func m4PlanVersion(ctx context.Context, api *API, host, action string, version int, input any) (m4PlanView, error) {
+	path, err := actionPath(host, action+"/v"+strconv.Itoa(version), "plan")
 	if err != nil {
 		return m4PlanView{}, err
 	}
