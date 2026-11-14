@@ -310,7 +310,7 @@ func TestA13_NoRelayFlowOutsideAnNPMExposureOfTheControllersHost(t *testing.T) {
 		run  qa12cRun
 	}{
 		{"a request that came directly", qa12cRun{plan: direct, before: accept, st: deny}},
-		{"a request through a tunnel exposure", qa12cRun{plan: qa12cPlanFor("tunnel"), before: accept, st: deny}},
+		{"a request through a tunnel exposure", qa12cRun{plan: qa12cPlanFor("tunnel", "[::]:443"), before: accept, st: deny}},
 		{"a retired exposure", qa12cRun{plan: qa12cPlanFor("npm", "[::]:443"), retired: []string{"exp1"}, before: accept, st: deny}},
 		{"a host that is not the controller's", qa12cRun{plan: qa12cPlanFor("npm", "[::]:443"), noControl: true, before: accept, st: deny}},
 	} {
