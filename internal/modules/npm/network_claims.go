@@ -831,6 +831,9 @@ func (n nm) forwardTargets(ctx context.Context, env core.Env) ([]forwardTarget, 
 	}
 	hosts, err := api.ProxyHosts(ctx)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, npmListingAnswer(err)
 	}
 	slices.SortFunc(hosts, func(a, b npmapi.ProxyHost) int { return cmp.Compare(a.ID, b.ID) })
@@ -888,6 +891,10 @@ func (n nm) forwardAnswers(ctx context.Context, names []string) (map[string][]ne
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
+		}
+		if lookupCtx.Err() != nil {
+			return nil, core.Definite(errcode.New(errcode.Unavailable,
+				"Docker's names of the forward hosts could not be read in time; retry"))
 		}
 		return nil, fmt.Errorf("npm: read Docker's names of the forward hosts: %w", err)
 	}
