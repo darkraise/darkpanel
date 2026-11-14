@@ -848,7 +848,7 @@ func (c networkClaims) reloadBeforeJoin(ctx context.Context, env core.Env, netwo
 // could not be made it disconnects NPM again and refuses. The refusal is Definite once NPM is off the network; when
 // the disconnect fails, NPM stays joined, so the refusal carries neither the Definite mark nor an errcode cause.
 func (c networkClaims) afterJoin(ctx context.Context, env core.Env, network string) error {
-	problem, refusal := c.joinedProblem(ctx, env, network)
+	refusal, problem := c.joinedProblem(ctx, env, network)
 	if problem == nil {
 		return nil
 	}
@@ -866,10 +866,10 @@ func (c networkClaims) afterJoin(ctx context.Context, env core.Env, network stri
 
 // joinedProblem is why NPM may not stay on network, nil when it may. refusal is true for a forwarded address or an
 // unconfirmed reload, false for a check that could not be made, whose problem wraps the cause.
-func (c networkClaims) joinedProblem(ctx context.Context, env core.Env, network string) (problem error, refusal bool) {
+func (c networkClaims) joinedProblem(ctx context.Context, env core.Env, network string) (refusal bool, problem error) {
 	ct, err := c.n.d.docker.InspectContainer(ctx, containerName)
 	if err != nil {
-		return fmt.Errorf("inspect container %s: %w", containerName, engineCoded(err)), false
+		return false, fmt.Errorf("inspect container %s: %w", containerName, engineCoded(err))
 	}
 	var held []netip.Addr
 	if ep := ct.NetworkSettings.Networks[network]; ep != nil {
@@ -881,22 +881,22 @@ func (c networkClaims) joinedProblem(ctx context.Context, env core.Env, network 
 	}
 	targets, err := c.n.forwardTargets(ctx, env)
 	if err != nil {
-		return fmt.Errorf("read the forward hosts of NPM's proxy hosts: %w", err), false
+		return false, fmt.Errorf("read the forward hosts of NPM's proxy hosts: %w", err)
 	}
 	for _, t := range targets {
 		if !slices.Contains(held, t.addr.Unmap()) {
 			continue
 		}
 		if t.name {
-			return fmt.Errorf("%s forwards to %s, which resolves to %s, the address %s took on network %s",
-				t.where, t.host, t.addr, containerName, network), true
+			return true, fmt.Errorf("%s forwards to %s, which resolves to %s, the address %s took on network %s",
+				t.where, t.host, t.addr, containerName, network)
 		}
-		return fmt.Errorf("%s forwards to %s, the address %s took on network %s", t.where, t.addr, containerName, network), true
+		return true, fmt.Errorf("%s forwards to %s, the address %s took on network %s", t.where, t.addr, containerName, network)
 	}
 	if _, err := c.n.reloadNginx(ctx, env); err != nil {
-		return fmt.Errorf("nginx could not be reloaded after %s joined network %s: %s", containerName, network, err), true
+		return true, fmt.Errorf("nginx could not be reloaded after %s joined network %s: %w", containerName, network, err)
 	}
-	return nil, false
+	return false, nil
 }
 
 // disconnectAgain takes NPM off network; NPM already off it counts as done.
