@@ -94,7 +94,7 @@ A12. [test, high] A relay whose command line cannot be read or names no containe
 A13. [test, neg, high] A request that did not come through an NPM exposure, a retired exposure, and a host other than the controller's get no relay flow.
 A14. [test, high] Harness: on every OS, planning a default-deny outgoing policy through the exposure from the IPv6 client is refused naming `IPv6 relay to <NPM's darkpanel-npm IPv4 address>:443`; nothing is applied.
 A15. [test, high] After a fix, the m3g-held-data spec passes 10 consecutive full runs at host load below 6 with no retries; or, when the time box ends without a cause, the ledger holds the traces of the 10 instrumented runs, no test is changed and row 482 stays open.
-A16. [demo, high] `docs/user/modules/npm.md` and `docs/api/npm.md` describe v2: the integration-off ports step, its confirmation window and undo, why IPv6 needs it, the rule ids, the out-of-sync refusal, the agent version and the rules an operator of an earlier instance adds; `docs/security/threat-model.md` describes the relay flow as guarded, its fail-closed cases and the Docker release it was verified on, in place of the residual-risk line; `CHANGELOG.md` records v2 and `keepManual`.
+A16. [demo, high] `docs/user/modules/npm.md` describes v2, and the generated `docs/api/npm.md` gives its summary, input and output: the integration-off ports step, its confirmation window and undo, why IPv6 needs it, the rule ids, the out-of-sync refusal, the agent version and the rules an operator of an earlier instance adds; `docs/security/threat-model.md` describes the relay flow as guarded, its fail-closed cases and the Docker release it was verified on, in place of the residual-risk line; `CHANGELOG.md` records v2 and `keepManual`.
 A17. [test, neg, high] With the integration off and `firewall` false, the plan of v2 holds v1's step list and no firewall step; `portsOpened` is false.
 A18. [test, high] With `ipv6` false, the ports step adds the two IPv4 rules only.
 A19. [test, high] The check step refuses a v2 change with `plan.state_changed` when the host's `firewall` or `ipv6` differs from the input.
@@ -149,6 +149,7 @@ Fable spec review, round 1, 2026-11-14: 20 rulings, 1 undecided, open 0 Blocker,
 - [Nit] A leftover Darkpanel rule of another id with the same tuple is replaced as today.
 - [Nit] `CHANGELOG.md` entries; versioned harness helpers.
 - [Ruling, w12c Task 9] A16's prose (the ports step, its confirmation window, why IPv6 needs the allow, the rule ids) lives in `docs/user/modules/npm.md`; the generated `docs/api/npm.md` covers v2's input, output and summary, since `docs/api` is generated from the registry and is not edited by hand.
+- [Ruling, owner 2026-11-14, M3 audit] The Task 9 ruling stands and A16 is amended to say so; the agent-written UI proof (A6) and the judges' reading of the docs (A16) count as the demo observations.
 - [Holds] Critic High 1 (before-state comparison).
 - [Holds] Critic High 2 (fixed ids).
 - [Holds] Critic High 3 (`firewall` input), in substance.
