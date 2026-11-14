@@ -41,7 +41,7 @@ func hkMutation(f fw, build buildFunc) mutation[hkInput] {
 			}
 			return nil
 		},
-		finish: func(_ context.Context, _ core.Env, _ hkInput, out *ChangeOutput) error {
+		finish: func(_ context.Context, _ core.Env, _ hkInput, _ fwstate.Config, out *ChangeOutput) error {
 			out.Rules = []string{planRuleID}
 			return nil
 		},

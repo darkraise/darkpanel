@@ -63,7 +63,7 @@ func (f fw) stateRepair() core.ActionDef {
 			}
 			return nil
 		},
-		finish: func(ctx context.Context, env core.Env, in RepairInput, out *ChangeOutput) error {
+		finish: func(ctx context.Context, env core.Env, in RepairInput, _ fwstate.Config, out *ChangeOutput) error {
 			if env.Call.RepairOf == "" {
 				return nil
 			}

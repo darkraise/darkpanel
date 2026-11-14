@@ -9678,6 +9678,10 @@
           "guard": {
             "$ref": "#/components/schemas/firewall.rules.apply.v1.input.GuardContext"
           },
+          "keepManual": {
+            "description": "Leaves out an added rule that a manual rule with another comment already holds in every family it covers.",
+            "type": "boolean"
+          },
           "label": {
             "description": "The comment of every added rule, after the Darkpanel tag.",
             "pattern": "^[A-Za-z0-9 :._/-]{0,64}$",

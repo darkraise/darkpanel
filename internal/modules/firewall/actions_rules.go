@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/model"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/predict"
 )
 
 // RulesApplyInput is the input of firewall.rules.apply (v1): Darkpanel
@@ -19,10 +21,11 @@ import (
 // with the same input it plans an empty diff (Converges).
 type RulesApplyInput struct {
 	core.Guarded
-	Label  string       `json:"label,omitempty" jsonschema:"pattern=^[A-Za-z0-9 :._/-]{0\\,64}$" jsonschema_description:"The comment of every added rule, after the Darkpanel tag."`
-	Add    []model.Rule `json:"add,omitempty" jsonschema:"maxItems=256" jsonschema_description:"Rules to add, each with its id and without a comment."`
-	Delete []string     `json:"delete,omitempty" jsonschema:"maxItems=256" jsonschema_description:"Ids of rules to delete."`
-	Manual bool         `json:"manual,omitempty" jsonschema_description:"Confirms deleting manual rules (spec 2.2)."`
+	Label      string       `json:"label,omitempty" jsonschema:"pattern=^[A-Za-z0-9 :._/-]{0\\,64}$" jsonschema_description:"The comment of every added rule, after the Darkpanel tag."`
+	Add        []model.Rule `json:"add,omitempty" jsonschema:"maxItems=256" jsonschema_description:"Rules to add, each with its id and without a comment."`
+	Delete     []string     `json:"delete,omitempty" jsonschema:"maxItems=256" jsonschema_description:"Ids of rules to delete."`
+	Manual     bool         `json:"manual,omitempty" jsonschema_description:"Confirms deleting manual rules (spec 2.2)."`
+	KeepManual bool         `json:"keepManual,omitempty" jsonschema_description:"Leaves out an added rule that a manual rule with another comment already holds in every family it covers."`
 }
 
 // maxBatch is the most rules one rules.apply adds, and the most it
@@ -124,8 +127,21 @@ func (f fw) rulesApply() core.ActionDef {
 				return func(cfg fwstate.Config, _ fwstate.Loaded) (change, error) { return f.batchChange(cfg, in) }
 			},
 			check: func(_ context.Context, _ core.Env, in RulesApplyInput, cfg fwstate.Config) error {
-				for _, r := range in.Add {
-					if n := len(findRules(cfg, r.ID)); n != 1 {
+				var rules []model.Rule
+				if in.KeepManual {
+					var err error
+					if rules, err = batch(in); err != nil {
+						return err
+					}
+				}
+				for i, r := range in.Add {
+					n := len(findRules(cfg, r.ID))
+					if n == 0 && in.KeepManual {
+						if _, held := manualHolder(cfg, rules[i]); held {
+							continue
+						}
+					}
+					if n != 1 {
 						return mismatch("%d rules carry the id %s after the change, not 1", n, r.ID)
 					}
 				}
@@ -136,9 +152,11 @@ func (f fw) rulesApply() core.ActionDef {
 				}
 				return nil
 			},
-			finish: func(_ context.Context, _ core.Env, in RulesApplyInput, out *ChangeOutput) error {
+			finish: func(_ context.Context, _ core.Env, in RulesApplyInput, cfg fwstate.Config, out *ChangeOutput) error {
 				for _, r := range in.Add {
-					out.Rules = append(out.Rules, r.ID)
+					if len(findRules(cfg, r.ID)) > 0 {
+						out.Rules = append(out.Rules, r.ID)
+					}
 				}
 				return nil
 			},
@@ -147,7 +165,8 @@ func (f fw) rulesApply() core.ActionDef {
 
 // batchChange adds, in order, each rule not present yet, then deletes each
 // rule still present. A rule present under its id with another definition
-// is refused.
+// is refused. With keepManual, a rule that manual rules hold in every
+// family it covers is left out and named in the plan instead.
 func (f fw) batchChange(cfg fwstate.Config, in RulesApplyInput) (change, error) {
 	rules, err := batch(in)
 	if err != nil {
@@ -162,6 +181,12 @@ func (f fw) batchChange(cfg fwstate.Config, in RulesApplyInput) (change, error) 
 		case len(groups) > 0:
 			return change{}, &errcode.Error{Code: errcode.InvalidInput, Detail: fmt.Sprintf("rule %s exists with another definition", r.ID),
 				Fields: []errcode.FieldError{{Path: path, Message: "a rule with this id exists with another definition"}}}
+		}
+		if in.KeepManual {
+			if manual, held := manualHolder(cfg, r); held {
+				c.held = append(c.held, core.DiffLine{Op: " ", Text: fmt.Sprintf("rule %s left out: manual rule %s already allows it", r.ID, manual)})
+				continue
+			}
 		}
 		op, next, err := f.addOp(cfg, r, path)
 		if err != nil {
@@ -184,4 +209,35 @@ func (f fw) batchChange(cfg fwstate.Config, in RulesApplyInput) (change, error) 
 		c.ops, cfg = append(c.ops, op), next
 	}
 	return c, nil
+}
+
+// manualHolder returns the id of the manual rule that holds r, with
+// another comment only, in every family r covers; held is false when one
+// of those families has no such rule.
+func manualHolder(cfg fwstate.Config, r model.Rule) (id string, held bool) {
+	fams := []model.Family{r.Family}
+	if r.Family == model.FamilyBoth {
+		fams = []model.Family{model.FamilyV4, model.FamilyV6}
+	}
+	groups := ruleGroups(cfg)
+	for _, fam := range fams {
+		rules := cfg.Rules4
+		if fam == model.FamilyV6 {
+			rules = cfg.Rules6
+		}
+		t, ok := predict.ManualHolder(rules, r, fam)
+		if !ok {
+			return "", false
+		}
+		i := slices.Index(rules, t)
+		for _, g := range groups {
+			if (fam == model.FamilyV6 && g.I6 == i) || (fam != model.FamilyV6 && g.I4 == i) {
+				if id == "" {
+					id = g.Rule.ID
+				}
+				break
+			}
+		}
+	}
+	return id, id != ""
 }

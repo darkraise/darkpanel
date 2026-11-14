@@ -365,6 +365,33 @@ func matchTuple(x, y model.Tuple) int {
 	return -1
 }
 
+// ManualHolder returns the first manual tuple of rules that holds r's tuple
+// for fam with another comment only, which UFW's set_rule would replace
+// with r.
+func ManualHolder(rules []model.Tuple, r model.Rule, fam model.Family) (model.Tuple, bool) {
+	v, err := parseVector(model.AddArgs(r))
+	if err != nil || v.kind != vecRule {
+		return model.Tuple{}, false
+	}
+	rt, err := forFamily(v.rule, fam)
+	if err != nil {
+		return model.Tuple{}, false
+	}
+	for _, t := range rules {
+		if mr, _ := t.Rule(); mr.Origin != model.OriginManual {
+			continue
+		}
+		n, err := normalizeTuple(t)
+		if err != nil {
+			continue
+		}
+		if matchTuple(n, rt) == -2 {
+			return t, true
+		}
+	}
+	return model.Tuple{}, false
+}
+
 // setRule is the backend's set_rule for one family: the new list is built
 // as UFW builds it (an insert skipped when the rule exists, an add that
 // only changes the action, log type or comment replacing the rule, a

@@ -737,6 +737,7 @@ Sent in the `input` field of the request body.
 | `guard.via.listenerAddr` | string (ip-address-port) | yes |  |
 | `guard.via.proxyAddr` | string (ip-address) | yes |  |
 | `guard.via.public` | array of string (ip-address-port) | yes |  |
+| `keepManual` | boolean | no | Leaves out an added rule that a manual rule with another comment already holds in every family it covers. |
 | `label` | string | no | The comment of every added rule, after the Darkpanel tag. |
 | `manual` | boolean | no | Confirms deleting manual rules (spec 2.2). |
 | `overrides` | array of string | no |  |

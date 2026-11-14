@@ -31,6 +31,7 @@ type change struct {
 	cleanup    bool                     // run the owned-chain cleanup before the transition commands
 	reload     bool                     // the Docker block's files changed, so its chains load, live or by UFW's restart
 	notes      []core.DiffLine          // extra plan lines a builder adds
+	held       []core.DiffLine          // rules.apply's adds a manual rule already holds, which it leaves out
 	// discardForeign is true only for a change that discards the foreign
 	// DOCKER-USER rules on purpose (firewall.docker.repair with
 	// DiscardForeign and Manual both set); prepare then skips

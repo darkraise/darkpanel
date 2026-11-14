@@ -248,6 +248,10 @@
           "manual": {
             "type": "boolean",
             "description": "Confirms deleting manual rules (spec 2.2)."
+          },
+          "keepManual": {
+            "type": "boolean",
+            "description": "Leaves out an added rule that a manual rule with another comment already holds in every family it covers."
           }
         },
         "additionalProperties": false,

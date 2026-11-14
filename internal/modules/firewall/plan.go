@@ -112,7 +112,7 @@ func (f fw) plan(ctx context.Context, env core.Env, req planReq) (core.PlanOutco
 		return core.PlanOutcome{}, errcode.New(errcode.FirewallManualRequired,
 			fmt.Sprintf("the change removes or adds manual rules %s; set manual: true to change them", strings.Join(ids, ", ")))
 	}
-	out := core.PlanOutcome{Diff: stateDiff(from, to)}
+	out := core.PlanOutcome{Diff: append(stateDiff(from, to), p.c.held...)}
 	docker, err := dockerLines(ctx, env, p.cfg0, p.c)
 	if err != nil {
 		return core.PlanOutcome{}, err

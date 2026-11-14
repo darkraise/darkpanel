@@ -115,7 +115,7 @@ func (f fw) ruleAdd() core.ActionDef {
 			}
 			return nil
 		},
-		finish: func(_ context.Context, env core.Env, _ RuleAddInput, out *ChangeOutput) error {
+		finish: func(_ context.Context, env core.Env, _ RuleAddInput, _ fwstate.Config, out *ChangeOutput) error {
 			out.Rules = []string{env.ChangeID}
 			return nil
 		},

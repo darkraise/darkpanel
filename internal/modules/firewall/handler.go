@@ -47,8 +47,8 @@ type mutation[In any] struct {
 	// change, run before the comparison; nil means none.
 	check func(ctx context.Context, env core.Env, in In, cfg fwstate.Config) error
 	// finish fills the action's own output fields after a successful
-	// apply; nil means none.
-	finish func(ctx context.Context, env core.Env, in In, out *ChangeOutput) error
+	// apply from the configuration after the change; nil means none.
+	finish func(ctx context.Context, env core.Env, in In, cfg fwstate.Config, out *ChangeOutput) error
 	// keep names a snapshot the apply reads; nil means none.
 	keep func(in In) string
 }
@@ -142,7 +142,11 @@ func (m mutation[In]) Apply(ctx context.Context, env core.Env, in In) (ChangeOut
 	}
 	out := ChangeOutput{Snapshot: id}
 	if m.finish != nil {
-		if err := m.finish(ctx, env, in, &out); err != nil {
+		cfg, err := m.f.d.readConfig(m.f.d.root)
+		if err != nil {
+			return ChangeOutput{}, fmt.Errorf("firewall: read the configured state after the change: %w", err)
+		}
+		if err := m.finish(ctx, env, in, cfg, &out); err != nil {
 			return ChangeOutput{}, err
 		}
 	}

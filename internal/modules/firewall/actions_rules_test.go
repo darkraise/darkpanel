@@ -2,15 +2,18 @@ package firewall
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/core/schema"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/model"
 )
 
@@ -179,5 +182,175 @@ func TestRulesApplyLabel(t *testing.T) {
 	}
 	if _, err := f.rulesApply().Handler.Plan(ctx, env, json.RawMessage(`{"label":"npm: web.1","delete":["`+fhTag+`"]}`)); err != nil {
 		t.Errorf("plan with a valid label = %v", err)
+	}
+}
+
+// The NPM port rule ids (Contracts, NPM port rules), as literals: this task
+// runs before Task 4 adds them.
+const (
+	kmID80V4  = "0CGS78T46E9GTMW1GWTK2TV0T5"
+	kmID443V4 = "0GCPW66GP51CA48ZNYH48M71YX"
+	kmID80V6  = "0QSMKDEJA5YXDMQM1MNS2FXN05"
+	kmID443V6 = "0XZS5RBT87XEQW3BMX0WTC6YQW"
+
+	kmManual4 = "### tuple ### allow tcp 443 0.0.0.0/0 any 0.0.0.0/0 in"
+	kmManual6 = "### tuple ### allow tcp 443 ::/0 any ::/0 in"
+	kmDeny4   = "### tuple ### deny tcp 443 0.0.0.0/0 any 0.0.0.0/0 in"
+)
+
+var kmRules = []struct {
+	id, port string
+	fam      model.Family
+}{{kmID80V4, "80", model.FamilyV4}, {kmID443V4, "443", model.FamilyV4}, {kmID80V6, "80", model.FamilyV6}, {kmID443V6, "443", model.FamilyV6}}
+
+// kmTuple is the tuple UFW writes in fam's file for an incoming TCP allow to
+// port from anywhere with the given comment.
+func kmTuple(port string, fam model.Family, comment string) string {
+	all := "0.0.0.0/0"
+	if fam == model.FamilyV6 {
+		all = "::/0"
+	}
+	return "### tuple ### allow tcp " + port + " " + all + " any " + all + " in comment=" + hex.EncodeToString([]byte(comment))
+}
+
+func kmRule(id, port string, fam model.Family) string {
+	return `{"id":"` + id + `","action":"allow","direction":"in","proto":"tcp","from":"any","to":"any","toPort":"` + port + `","family":"` + string(fam) + `"}`
+}
+
+// kmHost is ruHost with only rules4 and rules6 in UFW's files and IPv6 on,
+// whose ufw adds each NPM port rule with label "npm" as UFW does: the tagged
+// tuple replaces an uncommented tuple of the same port in its family (a
+// manual allow or deny, which UFW's set_rule replaces), else it is appended.
+func kmHost(t *testing.T, rules4, rules6 []string) (*fakeHost, fw, core.Env) {
+	t.Helper()
+	h, f, env := ruHost(t)
+	h.setState(fhState{Enabled: true, LogLevel: "low", IPv6: true, Input: "DROP", Output: "ACCEPT", Forward: "DROP", Rules4: rules4, Rules6: rules6})
+	for _, k := range kmRules {
+		r := model.Rule{ID: k.id, Action: model.ActionAllow, Direction: model.DirIn, Proto: model.ProtoTCP, From: model.Any,
+			To: model.Any, ToPort: k.port, Family: k.fam, Comment: "npm"}
+		h.ufw[strings.Join(model.AddArgs(r), " ")] = func(s *fhState) int {
+			lines := &s.Rules4
+			if k.fam == model.FamilyV6 {
+				lines = &s.Rules6
+			}
+			tagged := kmTuple(k.port, k.fam, model.Tag(k.id, "npm"))
+			for i, l := range *lines {
+				if strings.Contains(l, " tcp "+k.port+" ") && !strings.Contains(l, "comment=") {
+					(*lines)[i] = tagged
+					return 0
+				}
+			}
+			*lines = append(*lines, tagged)
+			return 0
+		}
+	}
+	env.ChangeID = ruChange
+	return h, f, env
+}
+
+// kmManualID is the id model.Merge gives the manual rule to port 443.
+func kmManualID(t *testing.T, h *fakeHost) string {
+	t.Helper()
+	cfg := h.config()
+	for _, r := range model.Merge(cfg.Rules4, cfg.Rules6) {
+		if r.Origin == model.OriginManual && r.ToPort == "443" {
+			return r.ID
+		}
+	}
+	t.Fatal("no manual rule to port 443")
+	return ""
+}
+
+func TestW12cKeepManual(t *testing.T) {
+	ctx := context.Background()
+	batch := `{"label":"npm","add":[` + kmRule(kmID80V4, "80", model.FamilyV4) + `,` + kmRule(kmID443V4, "443", model.FamilyV4) + `,` + kmRule(kmID443V6, "443", model.FamilyV6) + `]`
+	plan := func(t *testing.T, f fw, env core.Env, raw string) (core.PlanOutcome, error) {
+		t.Helper()
+		env.ChangeID = ""
+		return f.rulesApply().Handler.Plan(ctx, env, json.RawMessage(raw))
+	}
+
+	t.Run("without keepManual the add replaces the manual rule and is refused", func(t *testing.T) {
+		_, f, env := kmHost(t, []string{kmManual4}, []string{kmManual6})
+		_, err := plan(t, f, env, batch+`}`)
+		if errcode.From(err).Code != errcode.FirewallManualRequired {
+			t.Fatalf("plan = %v, want manual required", err)
+		}
+	})
+	t.Run("keepManual leaves the held rules out and names the manual rule", func(t *testing.T) {
+		h, f, env := kmHost(t, []string{kmManual4}, []string{kmManual6})
+		manual := kmManualID(t, h)
+		out, res := ruApply(t, env, f.rulesApply(), batch+`,"keepManual":true}`)
+		want := []string{
+			"+ rule " + kmID80V4 + ": allow in proto tcp from 0.0.0.0/0 to 0.0.0.0/0 port 80 comment \"npm\"",
+			"  rule " + kmID443V4 + " left out: manual rule " + manual + " already allows it",
+			"  rule " + kmID443V6 + " left out: manual rule " + manual + " already allows it",
+		}
+		if !reflect.DeepEqual(acDiff(out), want) {
+			t.Errorf("diff\n%q\nwant\n%q", acDiff(out), want)
+		}
+		if !slices.Equal(res.Rules, []string{kmID80V4}) {
+			t.Errorf("output rules %v, want only %s", res.Rules, kmID80V4)
+		}
+		if got := kmManualID(t, h); got != manual {
+			t.Errorf("manual rule after the change %s, want %s unchanged", got, manual)
+		}
+		if n := len(findRules(h.config(), kmID443V4)) + len(findRules(h.config(), kmID443V6)); n != 0 {
+			t.Errorf("%d held rules were added", n)
+		}
+	})
+	t.Run("a manual deny of the same tuple is still refused", func(t *testing.T) {
+		_, f, env := kmHost(t, []string{kmDeny4}, nil)
+		_, err := plan(t, f, env, `{"label":"npm","add":[`+kmRule(kmID443V4, "443", model.FamilyV4)+`],"keepManual":true}`)
+		if errcode.From(err).Code != errcode.FirewallManualRequired {
+			t.Fatalf("plan = %v, want manual required", err)
+		}
+	})
+	t.Run("a manual rule of one family does not hold a rule of the other", func(t *testing.T) {
+		_, f, env := kmHost(t, []string{kmManual4}, nil)
+		out, err := plan(t, f, env, `{"label":"npm","add":[`+kmRule(kmID443V6, "443", model.FamilyV6)+`],"keepManual":true}`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if diff := strings.Join(acDiff(out), "\n"); strings.Contains(diff, "left out") || !strings.Contains(diff, "+ rule "+kmID443V6+": ") {
+			t.Errorf("diff\n%s\nwants the IPv6 rule added", diff)
+		}
+	})
+	t.Run("the four rules already present plan no change (A3)", func(t *testing.T) {
+		var rules4, rules6 []string
+		var add []string
+		for _, k := range kmRules {
+			tuple := kmTuple(k.port, k.fam, model.Tag(k.id, "npm"))
+			if k.fam == model.FamilyV6 {
+				rules6 = append(rules6, tuple)
+			} else {
+				rules4 = append(rules4, tuple)
+			}
+			add = append(add, kmRule(k.id, k.port, k.fam))
+		}
+		_, f, env := kmHost(t, rules4, rules6)
+		out, err := plan(t, f, env, `{"label":"npm","add":[`+strings.Join(add, ",")+`],"keepManual":true}`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(out.Diff) != 0 {
+			t.Errorf("diff %q, want none", acDiff(out))
+		}
+	})
+}
+
+// TestW12cKeepManualOutOfSync: keepManual does not open the out-of-sync
+// path; the plan's guard is still the hard refusal (A26).
+func TestW12cKeepManualOutOfSync(t *testing.T) {
+	h, f, env := kmHost(t, []string{kmManual4}, nil)
+	h.diffs = []fwstate.ChainDiff{{Family: fwstate.V4, Table: "filter", Chain: "ufw-user-input", OnlyB: []string{"-p tcp -m tcp --dport 22 -j ACCEPT"}}}
+	env.ChangeID = ""
+	raw := `{"label":"npm","add":[` + kmRule(kmID80V4, "80", model.FamilyV4) + `,` + kmRule(kmID443V4, "443", model.FamilyV4) + `],"keepManual":true}`
+	out, err := f.rulesApply().Handler.Plan(context.Background(), env, json.RawMessage(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Guards) != 1 || out.Guards[0].OK || out.Guards[0].Overridden || !strings.Contains(out.Guards[0].Message, "out of sync") {
+		t.Errorf("guards %+v, want the hard out-of-sync refusal", out.Guards)
 	}
 }
