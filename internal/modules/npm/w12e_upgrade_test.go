@@ -258,7 +258,10 @@ func TestW12eUpgradeUndoChecksForwards(t *testing.T) {
 		w12eListing(f, func(context.Context, npmAPI) ([]npmapi.ProxyHost, error) {
 			return nil, errors.New("npmapi: connection refused")
 		})
-		_ = nwRefused(t, f.inverse(urResource), errcode.NPMUnhealthy)
+		coded := nwRefused(t, f.inverse(urResource), errcode.NPMUnhealthy)
+		if !strings.HasSuffix(coded.Detail, "; start Nginx Proxy Manager and retry, or remove and redeploy the instance") {
+			t.Errorf("detail %q does not say how to get out", coded.Detail)
+		}
 		if f.phase() != "done" {
 			t.Errorf("phase %q, want done", f.phase())
 		}

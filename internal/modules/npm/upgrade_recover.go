@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/darkraise/darkpanel/internal/core"
-	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
 )
 
@@ -70,12 +69,9 @@ func (h instanceUpgradeHandler) undoForwardCheck(ctx context.Context, env core.E
 		}
 		return h.forwardCheckConfig(ctx, env, u.Config, targets, "")
 	}
-	targets, err := h.n.forwardTargets(ctx, env)
+	targets, err := h.checkedTargets(ctx, env)
 	if err != nil {
-		if coded := errcode.From(err); coded.Code == errcode.NPMUnhealthy {
-			err = errcode.Wrap(errcode.NPMUnhealthy, err, coded.Detail+"; start Nginx Proxy Manager and retry, or remove and redeploy the instance")
-		}
-		return core.Definite(err)
+		return err
 	}
 	return h.forwardCheckConfig(ctx, env, u.Config, targets, freeID)
 }

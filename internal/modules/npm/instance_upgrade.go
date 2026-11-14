@@ -111,6 +111,16 @@ func waitText() string { return fmt.Sprintf("%d s", int(instanceUpgradeAPIWait/t
 // are read through NPM's API, which the stopped container no longer serves. The verification after every start
 // closes it. Rollback and recovery do not run it: a rollback that refused would leave NPM down.
 func (h instanceUpgradeHandler) forwardCheck(ctx context.Context, env core.Env, c dockerapi.ContainerJSON) ([]forwardTarget, error) {
+	targets, err := h.checkedTargets(ctx, env)
+	if err != nil {
+		return nil, err
+	}
+	return targets, h.forwardCheckConfig(ctx, env, instanceUpgradeConfig(c), targets, c.ID)
+}
+
+// checkedTargets lists the forward targets for a check that refuses the upgrade or its undo; every failure is
+// Definite, and an NPM that does not answer says how to get out.
+func (h instanceUpgradeHandler) checkedTargets(ctx context.Context, env core.Env) ([]forwardTarget, error) {
 	targets, err := h.n.forwardTargets(ctx, env)
 	if err != nil {
 		if coded := errcode.From(err); coded.Code == errcode.NPMUnhealthy {
@@ -118,7 +128,7 @@ func (h instanceUpgradeHandler) forwardCheck(ctx context.Context, env core.Env, 
 		}
 		return nil, core.Definite(err)
 	}
-	return targets, h.forwardCheckConfig(ctx, env, instanceUpgradeConfig(c), targets, c.ID)
+	return targets, nil
 }
 
 // forwardCheckConfig refuses, Definite, while one of targets is an address a container created from cfg could take on
