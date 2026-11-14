@@ -286,10 +286,15 @@ func (h instanceUpgradeHandler) fail(ctx context.Context, env core.Env, step str
 	if rbErr == nil && !ok {
 		rbErr = fmt.Errorf("npm: upgrade %s is not recorded", env.ChangeID)
 	}
+	var dropped []string
 	if rbErr == nil {
-		rbErr = h.rollback(ctx, env, u)
+		dropped, rbErr = h.rollback(ctx, env, u)
 	}
 	rbErr = notDefinite(rbErr)
+	without := ""
+	if len(dropped) > 0 {
+		without = " without network " + strings.Join(dropped, ", ")
+	}
 	if step == "wait" {
 		lead := "the new Nginx Proxy Manager container did not answer within " + waitText()
 		if interrupted {
@@ -299,12 +304,12 @@ func (h instanceUpgradeHandler) fail(ctx context.Context, env core.Env, step str
 			return errcode.Wrap(errcode.NPMUnhealthy, errors.Join(cause, fmt.Errorf("npm: roll back the upgrade: %w", rbErr)),
 				lead+"; restoring the original failed and the instance needs repair")
 		}
-		return errcode.Wrap(errcode.NPMUnhealthy, cause, lead+"; the original container and volumes were restored")
+		return errcode.Wrap(errcode.NPMUnhealthy, cause, lead+"; the original container and volumes were restored"+without)
 	}
 	if rbErr != nil {
 		return fmt.Errorf("npm: upgrade step %s failed: %w; the rollback failed and the instance needs repair: %w", step, cause, rbErr)
 	}
-	return fmt.Errorf("npm: upgrade step %s failed: %w; the original instance was restored", step, cause)
+	return fmt.Errorf("npm: upgrade step %s failed: %w; the original instance was restored%s", step, cause, without)
 }
 
 // notDefinite returns err with its text but without the definite mark anywhere in its chain; an error that carries
@@ -687,40 +692,79 @@ func (h instanceUpgradeHandler) prune(ctx context.Context, env core.Env) error {
 // restores the original from u's configuration and verified archives. A failed u takes the branch of the phase its
 // rollback failed in; one that failed before that phase was recorded is restored. It works from u alone and records
 // no phase while it runs, so it can run again; it ends in phase rolled_back, or failed with the error returned and
-// the phase it failed in.
-func (h instanceUpgradeHandler) rollback(ctx context.Context, env core.Env, u upgradeRow) error {
+// the phase it failed in. dropped are the networks the started original was taken off.
+func (h instanceUpgradeHandler) rollback(ctx context.Context, env core.Env, u upgradeRow) (dropped []string, err error) {
 	from := u.Phase
-	var err error
 	if u.Phase == "failed" {
 		if from, err = loadUpgradeFailedFrom(ctx, env.DB.Read(), u.ChangeID); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	switch from {
 	case "rolled_back":
-		return nil
+		return nil, nil
 	case "recorded", "stopped", "archiving", "archived":
 		resumed := u
 		resumed.Phase = from
-		err = h.resume(ctx, env, resumed)
+		dropped, err = h.resume(ctx, env, resumed)
 	case "recreating", "waiting", "done", "":
-		err = h.restore(ctx, env, u)
+		dropped, err = h.restore(ctx, env, u)
 	default:
 		err = fmt.Errorf("npm: upgrade %s is in the unknown phase %q", u.ChangeID, from)
 	}
 	if err == nil {
-		err = setUpgradePhase(ctx, env.DB, u.ChangeID, "rolled_back", "", nil, env.Clock.Now())
+		err = setUpgradePhase(ctx, env.DB, u.ChangeID, "rolled_back", droppedResult(dropped), nil, env.Clock.Now())
 	}
 	if err == nil {
 		err = h.skipIntended(ctx, env)
 	}
 	if err != nil {
 		if phaseErr := setUpgradeFailed(ctx, env.DB, u.ChangeID, from, upgradeResult(err), env.Clock.Now()); phaseErr != nil {
-			return errors.Join(err, phaseErr)
+			return dropped, errors.Join(err, phaseErr)
 		}
-		return err
+		return dropped, err
 	}
-	return nil
+	return dropped, nil
+}
+
+// droppedResult is the result of phase rolled_back: "" when the started original held no forwarded address.
+func droppedResult(dropped []string) string {
+	if len(dropped) == 0 {
+		return ""
+	}
+	return "the started container held a forwarded address and left network " + strings.Join(dropped, ", ")
+}
+
+// unverifiedStart is verifyStart's failure for a started original whose targets could not be read. It is its own type
+// so that recovery can tell it from a hit, and carries no errcode cause, so the step stays not definite.
+type unverifiedStart string
+
+func (e unverifiedStart) Error() string { return string(e) }
+
+// verifyStart verifies the original container id that a rollback or a recovery of u has started, against the targets u
+// records. A row written before the list was kept reads them through NPM's API once it answers; when it does not, the
+// container is left running and the start is reported unverified, since stopping it would leave NPM down. An
+// unverified inspection or lookup is logged and NPM stays up, for the same reason.
+func (h instanceUpgradeHandler) verifyStart(ctx context.Context, env core.Env, u upgradeRow, id string) ([]string, error) {
+	var targets []forwardTarget
+	if u.Config.Targets != nil {
+		for _, r := range *u.Config.Targets {
+			targets = append(targets, r.target())
+		}
+	} else {
+		err := h.await(ctx, env)
+		if err == nil {
+			targets, err = h.n.forwardTargets(ctx, env)
+		}
+		if err != nil {
+			return nil, unverifiedStart("the original Nginx Proxy Manager container was started but its addresses are unverified: " + err.Error())
+		}
+	}
+	held, err := h.verifyHeld(ctx, env, id, targets)
+	if held.Unverified != nil && env.Log != nil {
+		env.Log.Warn("npm: the started original's addresses are unverified", "error", held.Unverified)
+	}
+	return held.Dropped, err
 }
 
 // upgradeResult is the result a failed transaction records: the first line of err, at most instanceUpgradeResultMax
@@ -751,23 +795,23 @@ func (h instanceUpgradeHandler) skipIntended(ctx context.Context, env core.Env) 
 
 // resume takes back an upgrade that has not removed the original container: it deletes the archives a cut-off
 // archiving may have left half written and starts the original container again.
-func (h instanceUpgradeHandler) resume(ctx context.Context, env core.Env, u upgradeRow) error {
+func (h instanceUpgradeHandler) resume(ctx context.Context, env core.Env, u upgradeRow) (dropped []string, err error) {
 	if u.Phase == "archiving" {
 		if err := h.dropPartialArchives(ctx, env, u.ChangeID); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	row, ok, err := loadInstance(ctx, env.DB.Read())
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !ok {
-		return errors.New("npm: no Nginx Proxy Manager instance is recorded")
+		return nil, errors.New("npm: no Nginx Proxy Manager instance is recorded")
 	}
 	if _, err := h.n.d.docker.StartContainer(ctx, row.ContainerID); err != nil {
-		return fmt.Errorf("npm: start container %s: %w", containerName, engineCoded(err))
+		return nil, fmt.Errorf("npm: start container %s: %w", containerName, engineCoded(err))
 	}
-	return nil
+	return h.verifyStart(ctx, env, u, row.ContainerID)
 }
 
 // dropPartialArchives removes every archive the upgrade of changeID may have written, so that none a cut-off
@@ -814,46 +858,49 @@ func (h instanceUpgradeHandler) restoreArchives(u upgradeRow) ([][]byte, error) 
 // restore puts the original instance back after its container was removed: it verifies the archives and makes the
 // original image available before touching anything, removes the instance's container, recreates both volumes from
 // the archives and recreates and starts the original container from u's configuration.
-func (h instanceUpgradeHandler) restore(ctx context.Context, env core.Env, u upgradeRow) error {
+func (h instanceUpgradeHandler) restore(ctx context.Context, env core.Env, u upgradeRow) (dropped []string, err error) {
 	data, err := h.restoreArchives(u)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// Once the original container is gone its image is unused and may have been pruned since.
 	if err := h.pull(ctx, u.Config.Create.Image); err != nil {
-		return err
+		return nil, err
 	}
 	docker := h.n.d.docker
 	err = docker.RemoveContainer(ctx, containerName, dockerapi.RemoveContainerOptions{Force: true})
 	if err != nil && !dockerapi.IsNotFound(err) {
-		return fmt.Errorf("npm: remove container %s: %w", containerName, engineCoded(err))
+		return nil, fmt.Errorf("npm: remove container %s: %w", containerName, engineCoded(err))
 	}
 	for _, v := range instanceUpgradeVolumes {
 		if err := docker.RemoveVolume(ctx, v.volume, true); err != nil && !dockerapi.IsNotFound(err) {
-			return fmt.Errorf("npm: remove volume %s: %w", v.volume, engineCoded(err))
+			return nil, fmt.Errorf("npm: remove volume %s: %w", v.volume, engineCoded(err))
 		}
 		if _, err := docker.CreateVolume(ctx, dockerapi.VolumeCreate{Name: v.volume, Labels: map[string]string{core.LabelModule: ID}}); err != nil {
-			return fmt.Errorf("npm: create volume %s: %w", v.volume, engineCoded(err))
+			return nil, fmt.Errorf("npm: create volume %s: %w", v.volume, engineCoded(err))
 		}
 	}
 	create := u.Config.Create
 	create.Name = u.Config.Name
 	id, err := docker.CreateContainer(ctx, create)
 	if err != nil {
-		return fmt.Errorf("npm: create container %s: %w", u.Config.Name, engineCoded(err))
+		return nil, fmt.Errorf("npm: create container %s: %w", u.Config.Name, engineCoded(err))
 	}
 	if err := h.connect(ctx, id, u.Config.Networks); err != nil {
-		return err
+		return nil, err
 	}
 	for i, v := range instanceUpgradeVolumes {
 		if err := docker.CopyToContainer(ctx, id, v.to, bytes.NewReader(data[i])); err != nil {
-			return fmt.Errorf("npm: copy the archive of %s into container %s: %w", v.volume, u.Config.Name, engineCoded(err))
+			return nil, fmt.Errorf("npm: copy the archive of %s into container %s: %w", v.volume, u.Config.Name, engineCoded(err))
 		}
 	}
 	if _, err := docker.StartContainer(ctx, id); err != nil {
-		return fmt.Errorf("npm: start container %s: %w", u.Config.Name, engineCoded(err))
+		return nil, fmt.Errorf("npm: start container %s: %w", u.Config.Name, engineCoded(err))
 	}
-	return env.DB.Write(ctx, func(tx *sql.Tx) error {
+	if dropped, err = h.verifyStart(ctx, env, u, id); err != nil {
+		return dropped, err
+	}
+	return dropped, env.DB.Write(ctx, func(tx *sql.Tx) error {
 		row, ok, err := loadInstance(ctx, tx)
 		if err != nil {
 			return err

@@ -90,6 +90,13 @@ func TestW12eStartVerifiesHeldAddresses(t *testing.T) {
 		if u.Config.Targets == nil || len(*u.Config.Targets) == 0 {
 			t.Errorf("the row recorded targets %v, want the late check's list", u.Config.Targets)
 		}
+		c, ok := s.h.docker.container(containerName)
+		if !ok || !c.State.Running || c.Config.Image != upFromImage || c.NetworkSettings.Networks[upAppNet] != nil {
+			t.Errorf("container %+v (found %v), want the original running without app-net", c, ok)
+		}
+		if want := "the started container held a forwarded address and left network app-net"; u.Result != want {
+			t.Errorf("result %q, want %q", u.Result, want)
+		}
 	})
 	t.Run("an upgrade whose new container holds no target", func(t *testing.T) {
 		s := w12eUpSetup(t)
@@ -130,6 +137,131 @@ func TestW12eStartVerifiesHeldAddresses(t *testing.T) {
 		}
 		if got := s.phase(); got == "done" {
 			t.Errorf("phase %q, want the upgrade failed and rolled back", got)
+		}
+	})
+	t.Run("resume after a failed archive", func(t *testing.T) {
+		s := w12eUpSetup(t)
+		started := false
+		s.dock.trace = func(call string) {
+			if call != "StartContainer" || started {
+				return
+			}
+			// The archive failed before any new container, so this start is resume's restart of the original; the
+			// Engine hands it the address db freed.
+			started = true
+			if err := s.h.docker.RemoveContainer(context.Background(), "db", dockerapi.RemoveContainerOptions{Force: true}); err != nil {
+				t.Error(err)
+			}
+			c, _ := s.h.docker.container(s.inst.ContainerID)
+			c.NetworkSettings.Networks[upAppNet].IPAddress = netip.MustParseAddr("172.30.0.20")
+			s.h.docker.putContainer(c)
+		}
+		s.dock.fail = func(call string, _ int) error {
+			if strings.HasPrefix(call, "CopyFromContainer") {
+				return errors.New("the archive was cut off")
+			}
+			return nil
+		}
+		_, err := s.apply()
+		if err == nil || !strings.Contains(err.Error(), "the original instance was restored without network app-net") {
+			t.Fatalf("error %v, want the restored original named without app-net", err)
+		}
+		c, _ := s.h.docker.container(s.inst.ContainerID)
+		if !started || !c.State.Running || c.NetworkSettings.Networks[upAppNet] != nil {
+			t.Errorf("container %+v (restarted %v), want the original running without app-net", c, started)
+		}
+		if want := "the started container held a forwarded address and left network app-net"; s.upgrade().Result != want {
+			t.Errorf("result %q, want %q", s.upgrade().Result, want)
+		}
+	})
+	t.Run("undo of a finished upgrade", func(t *testing.T) {
+		f := urSetup(t)
+		f.replace(urTo)
+		w12eDone(t, f, w12eAppNet(), &[]recordedTarget{{Where: "proxy host 1", Host: "172.30.0.20", Addr: netip.MustParseAddr("172.30.0.20")}})
+		f.h.docker.pin(upAppNet, netip.MustParseAddr("172.30.0.20"))
+		if err := f.inverse(urResource); err != nil {
+			t.Fatal(err)
+		}
+		f.restored()
+		c, _ := f.h.docker.container(containerName)
+		if c.NetworkSettings.Networks[upAppNet] != nil {
+			t.Error("the restored original stayed on app-net at a forwarded address")
+		}
+	})
+	t.Run("recovery rollback from recreating", func(t *testing.T) {
+		f := urSetup(t)
+		f.replace(urTo)
+		w12eDone(t, f, w12eAppNet(), &[]recordedTarget{{Where: "proxy host 1", Host: "172.30.0.20", Addr: netip.MustParseAddr("172.30.0.20")}})
+		if err := setUpgradePhase(context.Background(), f.h.db, urChange, "recreating", "", f.archives(), f.h.clock.Now()); err != nil {
+			t.Fatal(err)
+		}
+		f.h.docker.pin(upAppNet, netip.MustParseAddr("172.30.0.20"))
+		out, err := f.recover()
+		if err != nil || out.State != core.RecoveryRolledBack {
+			t.Fatalf("recovery %+v, error %v; want rolled back", out, err)
+		}
+		c, _ := f.h.docker.container(containerName)
+		if !c.State.Running || c.NetworkSettings.Networks[upAppNet] != nil {
+			t.Errorf("container %+v, want the original running without app-net", c)
+		}
+	})
+	t.Run("restart of the original from a recorded list", func(t *testing.T) {
+		f := urSetup(t)
+		w12eDone(t, f, w12eAppNet(), &[]recordedTarget{{Where: "proxy host 1", Host: "172.30.0.20", Addr: netip.MustParseAddr("172.30.0.20")}})
+		if err := setUpgradePhase(context.Background(), f.h.db, urChange, "stopped", "", nil, f.h.clock.Now()); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.h.docker.ConnectNetwork(context.Background(), upAppNet, f.inst.ContainerID, nwStatic("172.30.0.20")); err != nil {
+			t.Fatal(err)
+		}
+		f.setRunning(f.inst.ContainerID, false)
+		out, err := f.recover()
+		if err != nil || out.State != core.RecoveryRolledBack {
+			t.Fatalf("recovery %+v, error %v; want rolled back", out, err)
+		}
+		c, _ := f.h.docker.container(f.inst.ContainerID)
+		if !c.State.Running || c.NetworkSettings.Networks[upAppNet] != nil {
+			t.Errorf("container %+v, want the original running without app-net", c)
+		}
+	})
+	t.Run("restart of the original from a row written before w12e", func(t *testing.T) {
+		f := urSetup(t)
+		w12eDone(t, f, w12eAppNet(), nil)
+		if err := setUpgradePhase(context.Background(), f.h.db, urChange, "stopped", "", nil, f.h.clock.Now()); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.h.docker.ConnectNetwork(context.Background(), upAppNet, f.inst.ContainerID, nwStatic("172.30.0.20")); err != nil {
+			t.Fatal(err)
+		}
+		w12aSeed(f.h, "172.30.0.20", 3000)
+		f.setRunning(f.inst.ContainerID, false)
+		out, err := f.recover()
+		if err != nil || out.State != core.RecoveryRolledBack {
+			t.Fatalf("recovery %+v, error %v; want rolled back", out, err)
+		}
+		c, _ := f.h.docker.container(f.inst.ContainerID)
+		if c.NetworkSettings.Networks[upAppNet] != nil {
+			t.Error("the original stayed on app-net at an address NPM's API names as forwarded")
+		}
+	})
+	t.Run("a row written before w12e whose API does not answer", func(t *testing.T) {
+		f := urSetup(t)
+		w12eDone(t, f, w12eAppNet(), nil)
+		if err := setUpgradePhase(context.Background(), f.h.db, urChange, "stopped", "", nil, f.h.clock.Now()); err != nil {
+			t.Fatal(err)
+		}
+		f.setRunning(f.inst.ContainerID, false)
+		w12eListing(f, func(context.Context, npmAPI) ([]npmapi.ProxyHost, error) {
+			return nil, errors.New("npmapi: connection refused")
+		})
+		var out core.RecoveryOutcome
+		var err error
+		upDrive(t, f.h, func() { out, err = f.recover() })
+		if err != nil || out.State != core.RecoveryNeedsRepair || !strings.Contains(out.Reason, "unverified") {
+			t.Fatalf("recovery %+v, error %v; want needs repair naming the unverified start", out, err)
+		}
+		if c, _ := f.h.docker.container(f.inst.ContainerID); !c.State.Running {
+			t.Error("the original was not left running")
 		}
 	})
 }

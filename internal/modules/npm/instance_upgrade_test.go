@@ -1000,7 +1000,7 @@ func TestW10NuRollbackOfAFailedRowKeepsItsBranch(t *testing.T) {
 				t.Fatalf("failed_from %q, want %q", got, tc.failedFrom)
 			}
 			s.dock.fail, s.files.failWrite = nil, nil
-			if err := (instanceUpgradeHandler{n: s.n}).rollback(context.Background(), s.env, s.upgrade()); err != nil {
+			if _, err := (instanceUpgradeHandler{n: s.n}).rollback(context.Background(), s.env, s.upgrade()); err != nil {
 				t.Fatalf("rollback of the failed row: %v", err)
 			}
 			if got := s.phase(); got != "rolled_back" {
@@ -1058,7 +1058,7 @@ func TestW10NuRollbackFailuresAreRecordedWithTheirPhase(t *testing.T) {
 			if err != nil || !ok {
 				t.Fatalf("upgrade row: found %v, error %v", ok, err)
 			}
-			err = (instanceUpgradeHandler{n: f.n}).rollback(ctx, f.h.env(urChange), u)
+			_, err = (instanceUpgradeHandler{n: f.n}).rollback(ctx, f.h.env(urChange), u)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("rollback = %v, want an error containing %q", err, tc.want)
 			}

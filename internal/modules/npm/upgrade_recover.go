@@ -3,6 +3,7 @@ package npm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -39,7 +40,7 @@ func (h instanceUpgradeHandler) Inverse(ctx context.Context, env core.Env, e cor
 		if err := h.undoForwardCheck(ctx, env, u); err != nil {
 			return core.InverseResult{}, err
 		}
-		if err := h.rollback(ctx, env, u); err != nil {
+		if _, err := h.rollback(ctx, env, u); err != nil {
 			return core.InverseResult{}, err
 		}
 		return core.InverseResult{}, nil
@@ -110,7 +111,7 @@ func (h instanceUpgradeHandler) Recover(ctx context.Context, env core.Env) (core
 	case "recreating", "waiting":
 		// The rollback runs even when the container named darkpanel-npm already runs the original image, because it
 		// may still be the replacement.
-		if err := h.rollback(ctx, env, u); err != nil {
+		if _, err := h.rollback(ctx, env, u); err != nil {
 			return core.RecoveryOutcome{State: core.RecoveryNeedsRepair,
 				Reason: "the rollback of the upgrade to " + u.ToImage + " failed: " + err.Error()}, nil
 		}
@@ -144,7 +145,16 @@ func (h instanceUpgradeHandler) recoverOriginal(ctx context.Context, env core.En
 			return core.RecoveryOutcome{}, fmt.Errorf("npm: start container %s: %w", containerName, engineCoded(err))
 		}
 	}
-	if err := setUpgradePhase(ctx, env.DB, env.ChangeID, "rolled_back", "", nil, env.Clock.Now()); err != nil {
+	// An original that already runs is verified too: the cut-off run may have started it and not got further.
+	dropped, err := h.verifyStart(ctx, env, u, c.ID)
+	var unverified unverifiedStart
+	if errors.As(err, &unverified) {
+		return core.RecoveryOutcome{State: core.RecoveryNeedsRepair, Reason: err.Error()}, nil
+	}
+	if err != nil {
+		return core.RecoveryOutcome{}, err
+	}
+	if err := setUpgradePhase(ctx, env.DB, env.ChangeID, "rolled_back", droppedResult(dropped), nil, env.Clock.Now()); err != nil {
 		return core.RecoveryOutcome{}, err
 	}
 	return core.RecoveryOutcome{State: core.RecoveryRolledBack}, nil
