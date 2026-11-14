@@ -479,7 +479,7 @@ func TestInterfacesBridgePort(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			if tc.brport {
-				if err := os.MkdirAll(filepath.Join(dir, "lo", "brport"), 0o755); err != nil {
+				if err := os.MkdirAll(filepath.Join(dir, "lo", "brport"), 0o750); err != nil {
 					t.Fatal(err)
 				}
 			}
