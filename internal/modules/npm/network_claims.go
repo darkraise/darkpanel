@@ -847,27 +847,27 @@ func (c networkClaims) reloadBeforeJoin(ctx context.Context, env core.Env, netwo
 // the disconnect fails, NPM stays joined, so the refusal carries neither the Definite mark nor an errcode cause.
 func (c networkClaims) afterJoin(ctx context.Context, env core.Env, network string) error {
 	problem, refusal := c.joinedProblem(ctx, env, network)
-	if problem == "" {
+	if problem == nil {
 		return nil
 	}
 	dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), nginxDisconnectWait)
 	defer cancel()
 	if err := c.disconnectAgain(dctx, network); err != nil {
 		return fmt.Errorf("npm: %s stays on network %s: %w", containerName, network,
-			errors.New(problem+"; disconnecting it again failed: "+err.Error()))
+			errors.New(problem.Error()+"; disconnecting it again failed: "+err.Error()))
 	}
 	if refusal {
-		return core.Definite(errcode.New(errcode.NPMReserved, problem+"; it was disconnected again"))
+		return core.Definite(errcode.New(errcode.NPMReserved, problem.Error()+"; it was disconnected again"))
 	}
-	return core.Definite(fmt.Errorf("npm: %s; it was disconnected again", problem))
+	return core.Definite(fmt.Errorf("npm: %w; it was disconnected again", problem))
 }
 
-// joinedProblem is why NPM may not stay on network, "" when it may. refusal is true for a forwarded address or an
-// unconfirmed reload, false for a check that could not be made.
-func (c networkClaims) joinedProblem(ctx context.Context, env core.Env, network string) (problem string, refusal bool) {
+// joinedProblem is why NPM may not stay on network, nil when it may. refusal is true for a forwarded address or an
+// unconfirmed reload, false for a check that could not be made, whose problem wraps the cause.
+func (c networkClaims) joinedProblem(ctx context.Context, env core.Env, network string) (problem error, refusal bool) {
 	ct, err := c.n.d.docker.InspectContainer(ctx, containerName)
 	if err != nil {
-		return fmt.Sprintf("inspect container %s: %v", containerName, engineCoded(err)), false
+		return fmt.Errorf("inspect container %s: %w", containerName, engineCoded(err)), false
 	}
 	var held []netip.Addr
 	if ep := ct.NetworkSettings.Networks[network]; ep != nil {
@@ -879,22 +879,22 @@ func (c networkClaims) joinedProblem(ctx context.Context, env core.Env, network 
 	}
 	targets, err := c.n.forwardTargets(ctx, env)
 	if err != nil {
-		return fmt.Sprintf("read the forward hosts of NPM's proxy hosts: %v", err), false
+		return fmt.Errorf("read the forward hosts of NPM's proxy hosts: %w", err), false
 	}
 	for _, t := range targets {
 		if !slices.Contains(held, t.addr.Unmap()) {
 			continue
 		}
 		if t.name {
-			return fmt.Sprintf("%s forwards to %s, which resolves to %s, the address %s took on network %s",
+			return fmt.Errorf("%s forwards to %s, which resolves to %s, the address %s took on network %s",
 				t.where, t.host, t.addr, containerName, network), true
 		}
-		return fmt.Sprintf("%s forwards to %s, the address %s took on network %s", t.where, t.addr, containerName, network), true
+		return fmt.Errorf("%s forwards to %s, the address %s took on network %s", t.where, t.addr, containerName, network), true
 	}
 	if _, err := c.n.reloadNginx(ctx, env); err != nil {
-		return fmt.Sprintf("nginx could not be reloaded after %s joined network %s: %s", containerName, network, err), true
+		return fmt.Errorf("nginx could not be reloaded after %s joined network %s: %s", containerName, network, err), true
 	}
-	return "", false
+	return nil, false
 }
 
 // disconnectAgain takes NPM off network; NPM already off it counts as done.

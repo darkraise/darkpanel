@@ -254,6 +254,25 @@ func TestW12eAttachUnconfirmedReloadDisconnects(t *testing.T) {
 			w12eNoChange(t, h, user, 1)
 		})
 	}
+	t.Run("the check after the join cannot be made", func(t *testing.T) {
+		h, user := nwSetup(t)
+		w12aSubnet(t, h, user)
+		w12aSeed(h, "up.invalid", 81)
+		n := h.nm()
+		n.d.resolve = w12eAnswer("203.0.113.9")
+		n.d.docker = w12eConnectHook{h.docker, func() {
+			for range 8 {
+				h.npm.Fail(http.MethodGet, "/api/nginx/proxy-hosts", fake.Fault{Status: http.StatusBadGateway})
+			}
+		}}
+		h.addChange("c1", "npm.network.attach")
+		_, err := n.networkAttach().Handler.Apply(ctx, h.env("c1"), nwJSON(t, in))
+		_ = nwRefused(t, err, errcode.NPMUnhealthy)
+		if !strings.HasSuffix(err.Error(), "; it was disconnected again") {
+			t.Errorf("error %q does not say NPM was disconnected again", err)
+		}
+		w12eNoChange(t, h, user, 1)
+	})
 	t.Run("the disconnect fails", func(t *testing.T) {
 		h, user := nwSetup(t)
 		w12aSubnet(t, h, user)
