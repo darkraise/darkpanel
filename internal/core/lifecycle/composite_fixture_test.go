@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -125,6 +126,7 @@ type cstIn struct {
 	Value  string `json:"value,omitempty"`
 	Secret string `json:"secret,omitempty" secret:"true"`
 	Remote bool   `json:"remote,omitempty"` // the add's effect is not Local
+	Peer   string `json:"peer,omitempty"`   // ignored; stands in for the guard context dispatch adds per request
 }
 
 type cstOut struct {
@@ -474,6 +476,7 @@ type inprocChildren struct {
 	refuse      map[string]error
 	calls       []string // "<method> <host>", in call order
 	requests    []string // "<method> <client> <exposure>" of each step call (Call.ParentChangeID set)
+	peers       int      // when above zero, each Plan sets the input's peer to the next number, as dispatch sets a request's guard context
 }
 
 func (c *inprocChildren) record(ctx context.Context, method string) {
@@ -564,11 +567,30 @@ func (c *inprocChildren) Plan(ctx context.Context, p core.Principal, hostID stri
 	if opts.Call != nil && opts.Call.ParentChangeID != "" {
 		c.record(ctx, "Plan")
 	}
+	if input, err = c.stampPeer(input); err != nil {
+		return core.PlanView{}, err
+	}
 	v, err := e.Plan(ctx, p, a, input, opts)
 	if err = c.answer("Plan", err); err != nil {
 		return core.PlanView{}, err
 	}
 	return v, nil
+}
+
+// stampPeer sets input's peer to the next number once peers is above zero.
+func (c *inprocChildren) stampPeer(input json.RawMessage) (json.RawMessage, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.peers == 0 {
+		return input, nil
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(input, &obj); err != nil {
+		return nil, err
+	}
+	obj["peer"] = json.RawMessage(strconv.Quote(strconv.Itoa(c.peers)))
+	c.peers++
+	return json.Marshal(obj)
 }
 
 func (c *inprocChildren) Apply(ctx context.Context, p core.Principal, hostID string, _ core.ActionRef, planID string, opts core.ApplyOptions) (core.ChangeView, error) {

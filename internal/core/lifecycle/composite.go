@@ -73,7 +73,7 @@ type plannedStep struct {
 // result, resolves ${input...}, and dry-runs every step without an output
 // reference as p. The dry-runs' guards join the composite's, prefixed with
 // the step id, and their diff lines carry "[<step id>]". The state hash is
-// SHA-256 over the input and each dry-run's input hash, diff and guards,
+// SHA-256 over the input and each dry-run's step input, diff and guards,
 // which stand for its state hash because a plan view does not carry one;
 // a guard enters by its id, outcome and override, never its message.
 // Dry-run plans are never applied; they expire unused.
@@ -135,11 +135,15 @@ func (e *Engine) compositePlan(ctx context.Context, p core.Principal, def core.A
 			for _, g := range v.Guards {
 				guards = append(guards, guardPrint{g.ID, g.OK, g.Overridden})
 			}
+			// The step's own input stands for the child's: dispatch adds the
+			// guard context of each request to a guarded child's input, client
+			// port included, so the child's input hash differs between plan
+			// and apply on an unchanged host.
 			fp, err := json.Marshal(struct {
-				InputHash string
-				Diff      []core.DiffLine
-				Guards    []guardPrint
-			}{v.InputHash, v.Diff, guards})
+				Input  json.RawMessage
+				Diff   []core.DiffLine
+				Guards []guardPrint
+			}{final, v.Diff, guards})
 			if err != nil {
 				return core.PlanOutcome{}, nil, fmt.Errorf("lifecycle: encode the dry-run of step %s: %w", s.Step.ID, err)
 			}

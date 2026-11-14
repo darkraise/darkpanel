@@ -106,6 +106,24 @@ func TestCompositeApplyAfterAGuardMessageChange(t *testing.T) {
 	}
 }
 
+// TestCompositeApplyAfterAPerRequestChildInput: dispatch gives a guarded
+// child's input the guard context of each request, client port included, so
+// the child's input differs between plan and apply on an unchanged host. That
+// does not refuse the apply.
+func TestCompositeApplyAfterAPerRequestChildInput(t *testing.T) {
+	f := newCfxFixture(t)
+	f.kids.mu.Lock()
+	f.kids.peers = 1
+	f.kids.mu.Unlock()
+	pl, err := f.planC(refCfxAdd, `{"name":"web"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.ctrl.Apply(context.Background(), cfxRoot, pl.PlanID, core.ApplyOptions{}); err != nil {
+		t.Fatalf("Apply = %v, want the apply to start", err)
+	}
+}
+
 func TestCompositePlanCarriesFailedGuards(t *testing.T) {
 	f := newCfxFixture(t)
 	f.host.setBlocked(true)
