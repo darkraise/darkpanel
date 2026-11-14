@@ -51,10 +51,12 @@ func (h instanceUpgradeHandler) Inverse(ctx context.Context, env core.Env, e cor
 }
 
 // undoForwardCheck refuses, Definite, the undo of the finished upgrade u while the original, recreated from u's
-// configuration, could take a forwarded address; the upgraded container's addresses count as free. Unlike a failed
-// upgrade's rollback, a requested undo may refuse: NPM keeps running the upgraded container. When that container is
-// gone (an undo cut off after the restore removed it), the targets come from the list u records, since NPM's API is
-// down with it; a row with no list reads them through the API.
+// configuration, could take a forwarded address; the addresses of the container named darkpanel-npm count as free,
+// because the restore removes it. Unlike a failed upgrade's rollback, a requested undo may refuse: NPM keeps running
+// the upgraded container. Only the upgraded container, the one the instance row names, serves NPM's API, so only then
+// are the targets read through it. Otherwise an earlier undo was cut off after the restore removed that container, and
+// the targets come from the list u records; a row with no list is not checked here, since the verification after the
+// restored original starts reads them through its API.
 func (h instanceUpgradeHandler) undoForwardCheck(ctx context.Context, env core.Env, u upgradeRow) error {
 	c, err := h.n.d.docker.InspectContainer(ctx, containerName)
 	var freeID string
@@ -63,16 +65,24 @@ func (h instanceUpgradeHandler) undoForwardCheck(ctx context.Context, env core.E
 		freeID = c.ID
 	case !dockerapi.IsNotFound(err):
 		return core.Definite(fmt.Errorf("npm: inspect container %s: %w", containerName, engineCoded(err)))
-	case u.Config.Targets != nil:
-		targets := make([]forwardTarget, 0, len(*u.Config.Targets))
-		for _, r := range *u.Config.Targets {
-			targets = append(targets, r.target())
-		}
-		return h.forwardCheckConfig(ctx, env, u.Config, targets, "")
 	}
-	targets, err := h.checkedTargets(ctx, env)
+	row, ok, err := loadInstance(ctx, env.DB.Read())
 	if err != nil {
-		return err
+		return core.Definite(err)
+	}
+	if freeID != "" && ok && freeID == row.ContainerID {
+		targets, err := h.checkedTargets(ctx, env)
+		if err != nil {
+			return err
+		}
+		return h.forwardCheckConfig(ctx, env, u.Config, targets, freeID)
+	}
+	if u.Config.Targets == nil {
+		return nil
+	}
+	targets := make([]forwardTarget, 0, len(*u.Config.Targets))
+	for _, r := range *u.Config.Targets {
+		targets = append(targets, r.target())
 	}
 	return h.forwardCheckConfig(ctx, env, u.Config, targets, freeID)
 }

@@ -2,6 +2,7 @@ package npm
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -311,7 +312,8 @@ func TestW12eVerifyHeldFailures(t *testing.T) {
 }
 
 // w12eDone records change urChange as a finished upgrade whose original container joined networks with the targets,
-// and puts app-net with its subnet on the Engine.
+// with the instance row naming the upgraded container urNewID as a finished upgrade leaves it, and puts app-net with its
+// subnet on the Engine.
 func w12eDone(t *testing.T, f *urFixture, networks map[string]*dockerapi.EndpointSettings, targets *[]recordedTarget) {
 	t.Helper()
 	ctx := context.Background()
@@ -323,6 +325,17 @@ func w12eDone(t *testing.T, f *urFixture, networks map[string]*dockerapi.Endpoin
 		t.Fatal(err)
 	}
 	if err := setUpgradePhase(ctx, f.h.db, urChange, "done", "", f.archives(), f.h.clock.Now()); err != nil {
+		t.Fatal(err)
+	}
+	err = f.h.db.Write(ctx, func(tx *sql.Tx) error {
+		row, _, err := loadInstance(ctx, tx)
+		if err != nil {
+			return err
+		}
+		row.ContainerID, row.Image = urNewID, urTo
+		return saveInstance(ctx, tx, row)
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 }
@@ -473,4 +486,73 @@ func TestW12eVerifyHeldNames(t *testing.T) {
 			t.Errorf("hit %v, dropped %v after %d disconnects; want nothing compared", res.Hit, res.Dropped, nwCalls(s.h, "DisconnectNetwork"))
 		}
 	})
+}
+
+// w12eHalfRestored puts a created, never started original under the NPM container's name, holding addr on app-net, as
+// an undo cut off between the restore's create and its start leaves the host; NPM's API answers only while the
+// container of that name runs.
+func w12eHalfRestored(f *urFixture, addr string) {
+	f.h.docker.putContainer(thContainer(containerName, thEndpoint(upAppNet, addr), func(c *dockerapi.ContainerJSON) {
+		c.ID, c.Image, c.Config.Image = "orig2", urFrom, urFrom
+	}))
+	w12eListing(f, func(ctx context.Context, live npmAPI) ([]npmapi.ProxyHost, error) {
+		if c, ok := f.h.docker.container(containerName); !ok || !c.State.Running {
+			return nil, errors.New("npmapi: connection refused")
+		}
+		return live.ProxyHosts(ctx)
+	})
+}
+
+// TestW12eUndoRetryAfterTheUpgradedContainerLeft: a retry of a cut-off undo checks the recorded list whenever the
+// container named darkpanel-npm is not the upgraded one, and a row written before w12e is not checked before the
+// restore; neither is refused for NPM's API being down.
+func TestW12eUndoRetryAfterTheUpgradedContainerLeft(t *testing.T) {
+	held := &[]recordedTarget{{Where: "proxy host 1", Host: "172.30.0.20", Addr: netip.MustParseAddr("172.30.0.20")}}
+	t.Run("a half-restored original and a recorded list", func(t *testing.T) {
+		f := urSetup(t)
+		f.replace("")
+		w12eDone(t, f, w12eAppNet(), held)
+		w12eHalfRestored(f, "172.30.0.20")
+		// The address the half-restored original holds counts as free: the restore removes that container.
+		coded := nwRefused(t, f.inverse(urResource), errcode.NPMReserved)
+		if want := "proxy host 1 forwards to 172.30.0.20, an address darkpanel-npm could take on network app-net"; coded.Detail != want {
+			t.Errorf("detail %q, want %q", coded.Detail, want)
+		}
+		if f.phase() != "done" {
+			t.Errorf("phase %q, want done", f.phase())
+		}
+	})
+	t.Run("a half-restored original and an empty recorded list", func(t *testing.T) {
+		f := urSetup(t)
+		f.replace("")
+		w12eDone(t, f, w12eAppNet(), &[]recordedTarget{})
+		w12eHalfRestored(f, "172.30.0.20")
+		if err := f.inverse(urResource); err != nil {
+			t.Fatal(err)
+		}
+		f.restored()
+	})
+	for _, tc := range []struct {
+		name string
+		half bool
+	}{
+		{"a row written before w12e with a half-restored original", true},
+		{"a row written before w12e with no container", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := urSetup(t)
+			f.replace("")
+			w12eDone(t, f, w12eAppNet(), nil)
+			w12eHalfRestored(f, "172.30.0.20")
+			if !tc.half {
+				if err := f.h.docker.RemoveContainer(context.Background(), "orig2", dockerapi.RemoveContainerOptions{Force: true}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := f.inverse(urResource); err != nil {
+				t.Fatal(err)
+			}
+			f.restored()
+		})
+	}
 }
