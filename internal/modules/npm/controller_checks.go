@@ -61,6 +61,20 @@ func (n nm) instanceCheckRead(ctx context.Context, env core.Env, in CheckInput) 
 		return refuse(errcode.PlanStateChanged, fmt.Sprintf(
 			"the host's Docker firewall integration is now %s and was %s when the plan was made", ctlOnOff(on), ctlOnOff(in.Integration)))
 	}
+	if in.Firewall != nil || in.IPv6 != nil {
+		st, err := ctlFirewallStatus(ctx, env, in.HostID)
+		if err != nil {
+			return core.Revealed[CheckResult]{}, err
+		}
+		if in.Firewall != nil && st.Supported != *in.Firewall {
+			return refuse(errcode.PlanStateChanged, fmt.Sprintf(
+				"the host's firewall support is now %s and was %s when the plan was made", ctlOnOff(st.Supported), ctlOnOff(*in.Firewall)))
+		}
+		if in.IPv6 != nil && st.Configured.IPv6 != *in.IPv6 {
+			return refuse(errcode.PlanStateChanged, fmt.Sprintf(
+				"the host's UFW IPv6 setting is now %s and was %s when the plan was made", ctlOnOff(st.Configured.IPv6), ctlOnOff(*in.IPv6)))
+		}
+	}
 	return core.Revealed[CheckResult]{
 		Identity: "NPM instance check for host " + in.HostID,
 		Value:    CheckResult{Integration: in.Integration},
@@ -163,6 +177,26 @@ func ctlDockerStatus(ctx context.Context, env core.Env, hostID string) (firewall
 		return fail(err)
 	}
 	return d, nil
+}
+
+// ctlFirewallStatus reads the host's firewall.status resource, with the errors of ctlDockerStatus.
+func ctlFirewallStatus(ctx context.Context, env core.Env, hostID string) (firewall.Status, error) {
+	fail := func(err error) (firewall.Status, error) {
+		return firewall.Status{}, fmt.Errorf("npm: read the firewall status of host %s: %w", hostID, err)
+	}
+	agent, err := env.Agents.Agent(ctx, hostID)
+	if err != nil {
+		return fail(err)
+	}
+	raw, err := agent.Resource(ctx, env.Principal, "firewall.status")
+	if err != nil {
+		return fail(err)
+	}
+	var st firewall.Status
+	if err := json.Unmarshal(raw, &st); err != nil {
+		return fail(err)
+	}
+	return st, nil
 }
 
 // ctlInstanceStatus reads the host's npm.instance.status, with the errors of ctlDockerStatus.

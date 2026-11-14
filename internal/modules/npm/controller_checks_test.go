@@ -24,10 +24,12 @@ const ckHost = "h7"
 // ckAgent is what one host's agent answers to the controller: the firewall.docker resource and the
 // npm.instance.status read. It records what was asked.
 type ckAgent struct {
-	docker    firewall.DockerStatus
-	dockerErr error
-	status    InstanceStatus
-	statusErr error
+	docker      firewall.DockerStatus
+	dockerErr   error
+	status      InstanceStatus
+	statusErr   error
+	fwStatus    firewall.Status // the firewall.status resource
+	fwStatusErr error
 
 	mu        sync.Mutex
 	reads     []string // "<action>/v<version> <input>"
@@ -52,13 +54,19 @@ func (a *ckAgent) fake() *coretest.FakeAgent {
 			a.mu.Lock()
 			a.resources = append(a.resources, name)
 			a.mu.Unlock()
-			if name != "firewall.docker" {
-				return nil, fmt.Errorf("ckAgent: no resource %s", name)
+			switch name {
+			case "firewall.docker":
+				if a.dockerErr != nil {
+					return nil, a.dockerErr
+				}
+				return json.Marshal(a.docker)
+			case "firewall.status":
+				if a.fwStatusErr != nil {
+					return nil, a.fwStatusErr
+				}
+				return json.Marshal(a.fwStatus)
 			}
-			if a.dockerErr != nil {
-				return nil, a.dockerErr
-			}
-			return json.Marshal(a.docker)
+			return nil, fmt.Errorf("ckAgent: no resource %s", name)
 		},
 	}
 }
@@ -349,4 +357,44 @@ func TestCkPublicCheckReadErrors(t *testing.T) {
 	if err := run(&ckAgent{status: InstanceStatus{Deployed: true, Public: "confirmed"}, dockerErr: boom}); err != nil {
 		t.Errorf("a confirmed mark with a failing firewall read: %v, want an answer", err)
 	}
+}
+
+func TestW12cCheckComparesFirewallAndIPv6(t *testing.T) {
+	yes, no := true, false
+	for _, tc := range []struct {
+		name          string
+		supported, v6 bool
+		statusErr     error
+		in            CheckInput
+		want          string // "" when the check passes
+	}{
+		{"no new fields reads no firewall status", true, true, errors.New("boom"), CheckInput{HostID: ckHost, Integration: true}, ""},
+		{"both as planned", true, true, nil, CheckInput{HostID: ckHost, Integration: true, Firewall: &yes, IPv6: &yes}, ""},
+		{"firewall support changed", false, true, nil, CheckInput{HostID: ckHost, Integration: true, Firewall: &yes, IPv6: &yes},
+			"the host's firewall support is now off and was on when the plan was made"},
+		{"IPv6 setting changed", true, false, nil, CheckInput{HostID: ckHost, Integration: true, Firewall: &yes, IPv6: &yes},
+			"the host's UFW IPv6 setting is now off and was on when the plan was made"},
+		{"IPv6 turned on", true, true, nil, CheckInput{HostID: ckHost, Integration: true, Firewall: &yes, IPv6: &no},
+			"the host's UFW IPv6 setting is now on and was off when the plan was made"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := &ckAgent{docker: ckDockerOK(), fwStatus: firewall.Status{Supported: tc.supported, Configured: firewall.Configured{IPv6: tc.v6}}, fwStatusErr: tc.statusErr}
+			h := ckWorld(t, a)
+			_, err := ckRun[CheckResult](t, h.nm().instanceCheck(), h.ctlEnv(""), tc.in)
+			switch {
+			case tc.want == "" && err != nil:
+				t.Fatalf("check = %v, want a pass", err)
+			case tc.want != "" && (ckCode(err) != errcode.PlanStateChanged || ckDetail(err) != tc.want):
+				t.Fatalf("check = %v, want plan.state_changed %q", err, tc.want)
+			}
+		})
+	}
+	t.Run("a failed status read fails the check", func(t *testing.T) {
+		a := &ckAgent{docker: ckDockerOK(), fwStatusErr: errors.New("boom")}
+		h := ckWorld(t, a)
+		_, err := ckRun[CheckResult](t, h.nm().instanceCheck(), h.ctlEnv(""), CheckInput{HostID: ckHost, Integration: true, Firewall: &yes, IPv6: &yes})
+		if err == nil || !strings.Contains(err.Error(), "npm: read the firewall status of host "+ckHost) {
+			t.Fatalf("check = %v, want the status read error", err)
+		}
+	})
 }

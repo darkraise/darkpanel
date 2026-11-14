@@ -201,6 +201,8 @@ type Upgraded struct {
 type CheckInput struct {
 	HostID      string `json:"hostId" jsonschema:"minLength=1"`
 	Integration bool   `json:"integration"`
+	Firewall    *bool  `json:"firewall,omitempty" jsonschema_description:"The host's firewall support (firewall.status supported) when the plan was made; compared only when present."`
+	IPv6        *bool  `json:"ipv6,omitempty" jsonschema_description:"The host's UFW IPv6 setting (firewall.status configured.ipv6) when the plan was made; compared only when present."`
 }
 
 // CheckResult is the output of npm.instance.check.
