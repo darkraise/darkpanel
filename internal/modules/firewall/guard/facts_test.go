@@ -18,17 +18,21 @@ import (
 // lookup to its answer; a lookup it does not hold fails with ErrNoRoute.
 // Routes lists the entries of table of the family asked, none by default.
 type gHost struct {
-	sockets    []netstat.Socket
-	socketsErr error
-	ifaces     []netstat.Interface
-	ifacesErr  error
-	routes     map[netstat.RouteQuery]netstat.Route
-	routeErrs  map[netstat.RouteQuery]error
-	table      []netstat.Route
-	pid        int
-	lookups    []netstat.RouteQuery
-	rules      []netstat.Rule
+	sockets     []netstat.Socket
+	socketsErr  error
+	ifaces      []netstat.Interface
+	ifacesErr   error
+	routes      map[netstat.RouteQuery]netstat.Route
+	routeErrs   map[netstat.RouteQuery]error
+	table       []netstat.Route
+	pid         int
+	lookups     []netstat.RouteQuery
+	rules       []netstat.Rule
+	cmdlines    map[int][]string
+	cmdlineErrs map[int]error
 }
+
+var _ cmdliner = LiveHost{}
 
 func (h *gHost) Sockets() ([]netstat.Socket, error) { return h.sockets, h.socketsErr }
 
@@ -66,6 +70,16 @@ func (h *gHost) Rules(family netstat.Family) ([]netstat.Rule, error) {
 }
 
 func (h *gHost) PID() int { return h.pid }
+
+func (h *gHost) Cmdline(pid int) ([]string, error) {
+	if err, ok := h.cmdlineErrs[pid]; ok {
+		return nil, err
+	}
+	if args, ok := h.cmdlines[pid]; ok {
+		return args, nil
+	}
+	return nil, os.ErrNotExist
+}
 
 // gFiles is the fake FileWriter: it answers ReadSysctl from errs, then
 // sysctl, and panics on any other method.

@@ -1,8 +1,12 @@
 package guard
 
 import (
+	"errors"
+	"fmt"
 	"net/netip"
 	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
@@ -62,6 +66,7 @@ type flow struct {
 	blackhole  bool         // the cell lies in a blackhole route, whose lookup the kernel answers with EINVAL
 	fwdReplies []netip.Addr // the DNAT targets that answer this flow; their replies are routed with those sources, arriving on panelBridge
 	unicast    bool         // the wild end ranges over the whole unicast space, private and special-purpose ranges included, rather than the internet's
+	compared   bool         // compared with the before-state as a wild-source flow is: a flow the rules already cut does not refuse a change
 	unknown    string
 }
 
@@ -78,11 +83,12 @@ type flowKey struct {
 	pkt            fwstate.Packet
 	wild           wildEnd
 	unicast        bool
+	compared       bool
 	label, unknown string // set only for a flow that is not evaluated
 }
 
 func (s *flowSet) add(f flow) {
-	k := flowKey{pkt: f.pkt, wild: f.wild, unicast: f.unicast}
+	k := flowKey{pkt: f.pkt, wild: f.wild, unicast: f.unicast, compared: f.compared}
 	if f.unknown != "" {
 		k = flowKey{label: f.label, unknown: f.unknown}
 	}
@@ -116,6 +122,7 @@ func buildFlows(in Input, f facts) []flow {
 	if f.controller != 0 || listensHere(ctxs, local) {
 		panelFlows(s, ctxs, local)
 		viaFlows(s, ctxs, in.Retired, local)
+		relayFlows(s, ctxs, in.Retired, f)
 		agentLinkFlows(s, ctxs, local)
 	}
 	controllerSessionFlows(s, f, local)
@@ -295,6 +302,99 @@ func viaFlows(s *flowSet, ctxs []*core.GuardContext, retired []string, local map
 			s.add(flow{label: label, unknown: "the exposure kind " + v.Kind + " is not npm or tunnel"})
 		}
 	}
+}
+
+// relayFlows is the leg of an NPM exposure's IPv6 visitors from Docker's
+// userland proxy to NPM's container. NPM's networks are IPv4 only, so
+// docker-proxy accepts an IPv6 visitor on the host's socket and opens a new
+// connection to the container's IPv4 address, which leaves on the host's
+// output path. The target is read from the holder's command line. The flow
+// is compared with the before-state, so a relay the rules already cut does
+// not refuse an unrelated change.
+func relayFlows(s *flowSet, ctxs []*core.GuardContext, retired []string, f facts) {
+	for _, g := range ctxs {
+		v := g.Via
+		if v == nil || v.Kind != "npm" || slices.Contains(retired, v.ExposureID) {
+			continue
+		}
+		label := "exposure " + v.ExposureID + " IPv6 relay"
+		for _, pub := range v.Public {
+			if a := pub.Addr(); !a.Is6() || a.Is4In6() {
+				continue
+			}
+			if so, ok := relayListener(f.sockets, pub); ok {
+				relayFlow(s, label, so, f.cmdlines)
+			}
+		}
+	}
+}
+
+// relayListener is the listening TCP socket that serves pub: on its port, at
+// [::] or at pub's own address.
+func relayListener(socks []netstat.Socket, pub netip.AddrPort) (netstat.Socket, bool) {
+	for _, so := range socks {
+		if so.Proto == netstat.ProtoTCP && so.State == netstat.StateListen && so.Local.Port() == pub.Port() &&
+			(so.Local.Addr() == netip.IPv6Unspecified() || so.Local.Addr() == pub.Addr()) {
+			return so, true
+		}
+	}
+	return netstat.Socket{}, false
+}
+
+// errNoCmdline stands for a command line the host cannot read at all.
+var errNoCmdline = errors.New("the host cannot read command lines")
+
+// relayFlow adds the relay of the first docker-proxy that holds so. An IPv6
+// target needs no relay over IPv4, so it gives no flow.
+func relayFlow(s *flowSet, label string, so netstat.Socket, cmdlines map[int]cmdline) {
+	var comms []string
+	for _, p := range so.Processes {
+		if p.Comm != dockerProxy {
+			comms = append(comms, p.Comm)
+			continue
+		}
+		c, ok := cmdlines[p.PID]
+		if !ok {
+			c.err = errNoCmdline
+		}
+		if c.err != nil {
+			s.add(flow{label: label, unknown: fmt.Sprintf("the command line of docker-proxy (pid %d) cannot be read: %v", p.PID, c.err)})
+			return
+		}
+		target, ok := relayTarget(c.args)
+		switch {
+		case !ok:
+			s.add(flow{label: label, unknown: fmt.Sprintf("docker-proxy (pid %d) names no container address and port", p.PID)})
+		case target.Addr().Is4():
+			s.add(flow{label: label + " to " + target.String(), compared: true,
+				pkt: newPacket("output", netip.IPv4Unspecified(), unknownPort, target.Addr(), target.Port(), "tcp")})
+		}
+		return
+	}
+	s.add(flow{label: label, unknown: fmt.Sprintf("the listener on %s is held by %s, not docker-proxy", so.Local, strings.Join(comms, ", "))})
+}
+
+// relayTarget reads the container address and port of a docker-proxy
+// command line.
+func relayTarget(args []string) (netip.AddrPort, bool) {
+	var addr, port string
+	for i := 0; i+1 < len(args); i++ {
+		switch args[i] {
+		case "-container-ip":
+			addr = args[i+1]
+		case "-container-port":
+			port = args[i+1]
+		}
+	}
+	a, err := netip.ParseAddr(addr)
+	if err != nil {
+		return netip.AddrPort{}, false
+	}
+	p, err := strconv.ParseUint(port, 10, 16)
+	if err != nil || p == 0 {
+		return netip.AddrPort{}, false
+	}
+	return netip.AddrPortFrom(a.Unmap(), uint16(p)), true
 }
 
 // npmPublicFlows adds the flows of one public binding of an NPM exposure,

@@ -11,7 +11,9 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/platform/netstat"
@@ -57,6 +59,38 @@ func (LiveHost) RouteGet(q netstat.RouteQuery) (netstat.Route, error) { return n
 // PID is os.Getpid.
 func (LiveHost) PID() int { return os.Getpid() }
 
+// cmdliner is implemented by a Host that reads a process's command line. It
+// is optional: without it, where Docker's userland proxy relays is unknown.
+type cmdliner interface {
+	Cmdline(pid int) ([]string, error)
+}
+
+// Cmdline reads the NUL-separated command line of pid under ProcRoot.
+func (h LiveHost) Cmdline(pid int) ([]string, error) {
+	root := h.ProcRoot
+	if root == "" {
+		root = "/proc"
+	}
+	b, err := os.ReadFile(filepath.Join(root, strconv.Itoa(pid), "cmdline")) //nolint:gosec // G304: the proc root and a process id name the file
+	if err != nil {
+		return nil, err
+	}
+	args := strings.Split(string(b), "\x00")
+	if n := len(args); args[n-1] == "" {
+		args = args[:n-1]
+	}
+	return args, nil
+}
+
+// dockerProxy is the comm of Docker's userland proxy.
+const dockerProxy = "docker-proxy"
+
+// cmdline is a process's command line, or why it could not be read.
+type cmdline struct {
+	args []string
+	err  error
+}
+
 // facts are the live facts one guard check uses.
 type facts struct {
 	sockets    []netstat.Socket
@@ -64,6 +98,7 @@ type facts struct {
 	rpFilter   map[string]int      // live net/ipv4/conf/<name>/rp_filter for "all" and every up, non-loopback interface
 	controller int                 // MainPID of a running local darkpanel-controller.service; 0 when none
 	pid        int                 // the agent's own process id
+	cmdlines   map[int]cmdline     // the command line of each docker-proxy that holds a listening TCP socket
 }
 
 // gatherFacts reads the socket table, the interfaces, the live rp_filter
@@ -72,7 +107,9 @@ type facts struct {
 // proc root without socket tables (netstat.ErrNoSocketTables) is not a host
 // without sessions. The one exception is an interface whose rp_filter key
 // no longer exists: it vanished after the interfaces were listed, so no
-// packet can arrive on it, and it is left out.
+// packet can arrive on it, and it is left out. A docker-proxy command line
+// that cannot be read is kept as its error: the flow it would give is then
+// unknown rather than the whole check failing.
 func gatherFacts(ctx context.Context, env core.Env, h Host) (facts, error) {
 	if env.Files == nil || env.Units == nil {
 		return facts{}, errors.New("firewall: the guard needs the file writer and the unit client")
@@ -86,6 +123,23 @@ func gatherFacts(ctx context.Context, env core.Env, h Host) (facts, error) {
 		return facts{}, fmt.Errorf("firewall: read the interfaces: %w", err)
 	}
 	f := facts{sockets: socks, rpFilter: map[string]int{}, pid: h.PID()}
+	if c, ok := h.(cmdliner); ok {
+		for _, so := range socks {
+			if so.Proto != netstat.ProtoTCP || so.State != netstat.StateListen {
+				continue
+			}
+			for _, p := range so.Processes {
+				if _, done := f.cmdlines[p.PID]; done || p.Comm != dockerProxy {
+					continue
+				}
+				if f.cmdlines == nil {
+					f.cmdlines = map[int]cmdline{}
+				}
+				args, err := c.Cmdline(p.PID)
+				f.cmdlines[p.PID] = cmdline{args: args, err: err}
+			}
+		}
+	}
 	if f.rpFilter["all"], err = readRPFilter(ctx, env, "all"); err != nil {
 		return facts{}, err
 	}
