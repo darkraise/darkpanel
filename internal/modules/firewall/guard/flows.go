@@ -167,14 +167,15 @@ func newPacket(path string, src netip.Addr, sport uint16, dst netip.Addr, dport 
 }
 
 // listenFor is the destination a client at src reaches a listener on l
-// through, or false when the listener does not take src's family or is an
-// address of another host. An unspecified IPv6 listener is dual-stack, as
-// Go's listeners are; the unspecified destination stays for routing to
-// resolve.
+// through, or false when the listener does not take src's family, is an
+// address of another host, or is a loopback address src is not on: the
+// kernel drops a loopback destination arriving on any other interface. An
+// unspecified IPv6 listener is dual-stack, as Go's listeners are; the
+// unspecified destination stays for routing to resolve.
 func listenFor(src, l netip.Addr, local map[netip.Addr]bool) (netip.Addr, bool) {
 	src, l = src.Unmap(), l.Unmap()
 	switch {
-	case !l.IsUnspecified() && !local[l]:
+	case !l.IsUnspecified() && !local[l], l.IsLoopback() && !src.IsLoopback():
 		return netip.Addr{}, false
 	case l.IsUnspecified() && l.Is6() && src.Is4():
 		return netip.IPv4Unspecified(), true

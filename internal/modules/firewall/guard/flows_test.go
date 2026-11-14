@@ -184,6 +184,15 @@ func TestBuildFlows(t *testing.T) {
 			},
 		},
 		{
+			name: "agent links skip loopback listeners",
+			in: Input{Plan: &core.GuardContext{AgentListen: flAddrPorts("127.0.0.1:7443", "[::1]:7443", "192.0.2.1:7443"), Complete: true,
+				AgentPeers: []netip.Addr{netip.MustParseAddr("10.77.0.11"), netip.MustParseAddr("2001:db8:7::7")}}},
+			f: facts{ifaces: gIfaces(), controller: 4242},
+			want: []flow{
+				{label: "agent link", pkt: flPkt("input", "10.77.0.11", 0, "192.0.2.1", 7443, "tcp")},
+			},
+		},
+		{
 			name: "local controller sessions from live facts",
 			f: facts{ifaces: gIfaces(), controller: 4242, sockets: []netstat.Socket{
 				flSock(tcp, listen, "[::]:443", "", "darkpanel-contr", 4242),
