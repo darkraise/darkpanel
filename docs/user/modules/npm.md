@@ -51,8 +51,14 @@ and refuse with `npm.not_public` otherwise.
   - With the integration on, `npm instance deploy-public` allows the container's
     ports 80 and 443 as its last step. That step waits for your confirmation, so
     check from outside that the ports answer before you confirm.
-  - With the integration off, the ports are already reachable if your network
-    allows them. After you check that, `npm instance confirm-public` records it.
+  - With the integration off and a firewall Darkpanel can manage, the deploy
+    allows ports 80 and 443 as UFW rules in its last step, for IPv6 too when
+    UFW's IPv6 setting is on. That step waits for your confirmation too.
+  - With the integration off on a host whose firewall Darkpanel cannot manage,
+    open the ports yourself.
+
+  In every case, check from outside that the ports answer, then run
+  `npm instance confirm-public` to record it.
 
 ## Use it in the web UI
 
@@ -64,9 +70,10 @@ to this page.
 The page has four tabs.
 
 - **Instance** shows the deploy form while no instance exists. The form asks for
-  the **Let's Encrypt email** and tells you whether the Docker integration is on,
-  so you know whether the deploy opens the ports. **Plan** shows the plan of
-  `npm.instance.deploy-public`. Once an instance exists, the tab lists its
+  the **Let's Encrypt email**. It reads the Docker integration and the firewall
+  status of the host and says how the ports will be opened: by the integration,
+  by UFW rules the deploy adds, or by you. **Plan** shows the plan of
+  `npm.instance.deploy-public` version 2 with what the form read. Once an instance exists, the tab lists its
   status, whether its API answers, its image and the image this release pins,
   the admin email, whether it is public, and its admin interface. It warns while
   public access is not confirmed. Its buttons are **Confirm public** (until
@@ -131,7 +138,7 @@ it with `darkpanel change repair <id>`, which repeats the steps.
 | `npm.certificate.list` | `darkpanel npm certificate list` | Lists the certificates of Nginx Proxy Manager. | Nothing; it only reads. |
 | `npm.admin.reveal-password` | `darkpanel npm admin reveal-password` | Reveals the Nginx Proxy Manager administrator's password. | Nothing; it only reads, needs the `admin` scope and shows the password once. |
 | `npm.instance.list` | `darkpanel npm instance list` | Lists the Nginx Proxy Manager instance status of every host. | Nothing; it only reads. |
-| `npm.instance.deploy-public` | `darkpanel npm instance deploy-public` | Deploys Nginx Proxy Manager and, when the host's Docker firewall integration is on, opens ports 80 and 443 for it. | Your confirmation of the firewall change, when the integration is on. |
+| `npm.instance.deploy-public` | `darkpanel npm instance deploy-public` | Deploys Nginx Proxy Manager and opens ports 80 and 443 for it: through the host's Docker firewall integration when it is on, otherwise as UFW rules when Darkpanel manages the host's firewall. | Your confirmation of the firewall change, when the deploy opens the ports. |
 | `npm.expose.container` | `darkpanel npm expose container` | Attaches the proxy to a container's network, requests a certificate and adds a proxy host that forwards to the container. | Nothing. |
 | `npm.admin.expose` | `darkpanel npm admin expose` | Publishes Nginx Proxy Manager's admin UI over HTTPS on a hostname, with a certificate, forced SSL and HSTS. | Nothing. |
 | `npm.expose.remove` | `darkpanel npm expose remove` | Removes an exposed container's proxy host and its network claims. | Nothing. |
@@ -149,16 +156,28 @@ controller cannot be reached. Input that is a list of objects, such as the
 `clients` of an access list, has no flag; give it with `--input`.
 
 ```sh
-darkpanel npm instance deploy-public --host-id <host-id> --acme-email <acme-email> --integration
+darkpanel npm instance deploy-public --host-id <host-id> --acme-email <acme-email> --firewall --ipv6
 darkpanel npm instance status --host <host>
 darkpanel npm expose container --host-id <host-id> --container web --network app \
   --port 8080 --domains app.example.com
 darkpanel npm admin reveal-password --host <host>
 ```
 
-`--integration` says that the host's Docker firewall integration is on. Give it
-only when it is. The change refuses with `plan.state_changed` if the state of the
-integration differs from what you gave.
+The command runs version 2 of the action. Its three flags say what the host is
+like, and the change refuses with `plan.state_changed` when the host differs
+from what you gave:
+
+- `--integration`: the host's Docker firewall integration is on (`enabled` and
+  `supported` in `darkpanel firewall docker get`).
+- `--firewall`: Darkpanel can manage the host's firewall (`supported` in
+  `darkpanel firewall status get`).
+- `--ipv6`: UFW's IPv6 setting is on (`configured.ipv6` in
+  `darkpanel firewall status get`).
+
+Version 2 needs the host's agent at the controller's version. An older agent
+does not know the `keepManual` input of `firewall.rules.apply`, so it refuses
+the ports step with `request.invalid_input`; update the agent first. Version 1
+of the action stays as it was: it opens the ports only through the integration.
 
 ### Deploy
 
@@ -192,9 +211,35 @@ unresolved.
 
 `npm instance deploy-public` is the checked form that the web UI uses. Its first
 step checks that the host runs Docker 28.0 or later with the raw-table
-protection, and that the integration is as you planned. The next step deploys.
-With the integration on, the last step allows the container's ports 80 and 443
-from any source and waits for your confirmation:
+protection, and that the integration, the firewall support and UFW's IPv6
+setting are as you planned. The next step deploys. The last step, `ports`,
+opens ports 80 and 443 from any source:
+
+- With the integration on, it allows the container's ports through the
+  integration.
+- With the integration off and `--firewall`, it runs `firewall.rules.apply`
+  with the label `npm`, which becomes the rules' comment, and these four rules,
+  whose ids are the same on every host:
+
+  | Rule | Id |
+  |---|---|
+  | allow in tcp port 80, IPv4 | `0CGS78T46E9GTMW1GWTK2TV0T5` |
+  | allow in tcp port 443, IPv4 | `0GCPW66GP51CA48ZNYH48M71YX` |
+  | allow in tcp port 80, IPv6 (only with `--ipv6`) | `0QSMKDEJA5YXDMQM1MNS2FXN05` |
+  | allow in tcp port 443, IPv6 (only with `--ipv6`) | `0XZS5RBT87XEQW3BMX0WTC6YQW` |
+
+  IPv4 visitors reach NPM through Docker's DNAT, around UFW. IPv6 visitors do
+  not: NPM's network is IPv4 only, so Docker's userland proxy serves `[::]:80`
+  and `[::]:443` as sockets of the host, and UFW's INPUT rules decide whether an
+  IPv6 visitor gets in. That is why the IPv6 rules are needed. A manual rule
+  that already allows a port, such as one `ufw allow 443/tcp` added, is kept,
+  and the plan names it in a line of this form:
+  `rule <id> left out: manual rule <manual id> already allows it`. A host
+  whose UFW is out of sync fails the firewall's lockout guard until
+  `darkpanel firewall state repair` brings it back.
+
+The plan shows the step, the firewall's guards check it, and it waits for your
+confirmation:
 
 ```sh
 darkpanel change confirm <change-id>
@@ -202,6 +247,11 @@ darkpanel change confirm <change-id>
 
 If the firewall's window passes, 60 seconds by default, the firewall change
 reverts and the composite undoes the deploy.
+
+An instance deployed before version 2, with the integration off, has no IPv6
+rule, so IPv6 visitors cannot reach it. Add the rule yourself with
+`sudo ufw allow proto tcp from ::/0 to any port 443` (and port 80 for HTTP), or
+remove the instance and deploy it again.
 
 ### Expose a container
 
@@ -306,8 +356,9 @@ reuse a certificate, so you decide.
 - The Docker network `darkpanel-npm`, the volumes `darkpanel-npm-data` and
   `darkpanel-npm-letsencrypt`, and the container `darkpanel-npm`. Each carries
   the label `darkpanel.module=npm`, so the docker module refuses to change them.
-- With the Docker integration on, the allowances for the container's ports 80
-  and 443 that `npm instance deploy-public` adds through the firewall module.
+- The allowances for ports 80 and 443 that `npm instance deploy-public` adds
+  through the firewall module: the container's ports with the Docker
+  integration on, otherwise the UFW rules labelled `npm` listed under Deploy.
 - The directory `/var/lib/darkpanel/agent/npm-backups`, with two archives named
   after the change for each upgrade, `<change id>-data.tar` and
   `<change id>-letsencrypt.tar`, in lower case.
@@ -337,4 +388,4 @@ an object of those names lacks the module's label.
 | `module.unavailable` | The host runs Docker older than 28.0, or the raw-table protection is not loaded. | Update Docker or load its protection, then plan again. |
 | `docker.in_use` | A Docker object of the module's names exists before a deploy, or another container uses the network or a volume you remove. | Remove or rename the object, or disconnect the container the message names. |
 | `request.invalid_input` | An input is wrong: for example the `acmeEmail`, a domain, a rule of an access list, an instance that already exists, or an object that proxy hosts still use. | The message names the field. Correct it. |
-| `plan.state_changed` | The Docker firewall integration changed between your plan and the apply. | Plan again with `--integration` set as the host is now. |
+| `plan.state_changed` | The Docker firewall integration, the host's firewall support or UFW's IPv6 setting changed between your plan and the apply. The message says which: for example "the host's firewall support is now off and was on when the plan was made", or "the host's UFW IPv6 setting is now on and was off when the plan was made". | Plan again with `--integration`, `--firewall` and `--ipv6` set as the host is now. |

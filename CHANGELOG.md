@@ -2,6 +2,14 @@
 
 All notable changes to Darkpanel. Versions follow docs/versioning.md.
 
+## Unreleased
+
+### Features
+
+- **npm:** `npm.instance.deploy-public` version 2 opens ports 80 and 443 as UFW rules, for IPv6 too, when the Docker firewall integration is off
+- **firewall:** `firewall.rules.apply` takes `keepManual`, which leaves out an added rule that a manual rule already allows
+- **guard:** protect the userland proxy's IPv6 relay to NPM
+
 ## 1.0.0-beta.1 - 2026-11-11
 
 ### Features

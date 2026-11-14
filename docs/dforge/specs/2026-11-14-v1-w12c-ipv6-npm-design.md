@@ -148,6 +148,7 @@ Fable spec review, round 1, 2026-11-14: 20 rulings, 1 undecided, open 0 Blocker,
 - [Nit] A1, A2 and A17 name `ipv6` and `portsOpened`.
 - [Nit] A leftover Darkpanel rule of another id with the same tuple is replaced as today.
 - [Nit] `CHANGELOG.md` entries; versioned harness helpers.
+- [Ruling, w12c Task 9] A16's prose (the ports step, its confirmation window, why IPv6 needs the allow, the rule ids) lives in `docs/user/modules/npm.md`; the generated `docs/api/npm.md` covers v2's input, output and summary, since `docs/api` is generated from the registry and is not edited by hand.
 - [Holds] Critic High 1 (before-state comparison).
 - [Holds] Critic High 2 (fixed ids).
 - [Holds] Critic High 3 (`firewall` input), in substance.
