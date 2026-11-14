@@ -306,3 +306,16 @@ func TestW12eAttachDeadlines(t *testing.T) {
 		t.Errorf("two reloads of %v and a disconnect of %v exceed the attach's 45s", nginxReloadWait, nginxDisconnectWait)
 	}
 }
+
+// TestW12eDetachDeadline: the undo of a detach joins as the attach does, so the detach's budget covers a forward guard,
+// two reloads, the listing after the join, each listing's lookups, and a disconnect.
+func TestW12eDetachDeadline(t *testing.T) {
+	h, _ := nwSetup(t)
+	got := h.nm().networkDetach().Spec.ApplyTimeout
+	if got != 45*time.Second {
+		t.Errorf("ApplyTimeout %v, want 45s", got)
+	}
+	if need := 2*(resolveTimeout+time.Second) + 2*nginxReloadWait + nginxDisconnectWait; need > got {
+		t.Errorf("two lookup passes, two reloads and a disconnect take up to %v, more than the detach's %v", need, got)
+	}
+}

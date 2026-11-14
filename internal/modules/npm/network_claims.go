@@ -56,6 +56,8 @@ func (n nm) networkDetach() core.ActionDef {
 		Side:      core.SideAgent,
 		LockKeys:  []string{lockKey},
 		Converges: true,
+		// The undo of a detach runs the attach's join: a forward guard, two reloads, a second listing and a disconnect.
+		ApplyTimeout: 45 * time.Second,
 	}, networkDetachHandler{networkClaims{n: n}})
 }
 
