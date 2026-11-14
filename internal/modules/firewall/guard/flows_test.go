@@ -70,9 +70,13 @@ func TestBuildFlows(t *testing.T) {
 		ListenerAddr: netip.MustParseAddrPort("172.30.0.1:8080"), Public: flAddrPorts("[::]:443")}
 	npmIPv6Proxy := &core.ProxyPath{ExposureID: "exp1", Kind: "npm", ProxyAddr: netip.MustParseAddr("fd00::2"),
 		ListenerAddr: netip.MustParseAddrPort("[fd00::1]:8080"), Public: flAddrPorts("[::]:443")}
-	noGlobalIPv6 := []netstat.Interface{
+	linkLocalIPv6 := []netstat.Interface{
 		{Index: 1, Name: "lo", Up: true, Running: true, Loopback: true, Addrs: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/8"), netip.MustParsePrefix("::1/128")}},
 		{Index: 2, Name: "eth0", Up: true, Running: true, Addrs: []netip.Prefix{netip.MustParsePrefix("192.0.2.1/24"), netip.MustParsePrefix("fe80::1/64")}},
+	}
+	noIPv6 := []netstat.Interface{
+		{Index: 1, Name: "lo", Up: true, Running: true, Loopback: true, Addrs: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/8"), netip.MustParsePrefix("::1/128")}},
+		{Index: 2, Name: "eth0", Up: true, Running: true, Addrs: []netip.Prefix{netip.MustParsePrefix("192.0.2.1/24")}},
 	}
 	for _, tc := range []struct {
 		name string
@@ -316,9 +320,19 @@ func TestBuildFlows(t *testing.T) {
 			},
 		},
 		{
-			name: "an unspecified IPv6 binding is IPv4 only on a host without routable IPv6",
+			name: "an unspecified IPv6 binding is both families on a host with only link-local IPv6",
 			in:   Input{Plan: &core.GuardContext{Via: npmDual, Complete: true}},
-			f:    facts{ifaces: noGlobalIPv6, controller: 4242},
+			f:    facts{ifaces: linkLocalIPv6, controller: 4242},
+			want: []flow{
+				{label: "exposure exp1 proxy", pkt: flOn("dp-panel", flPkt("input", "172.30.0.2", 0, "172.30.0.1", 8080, "tcp"))},
+				{label: "exposure exp1 public", pkt: flPkt("input", "0.0.0.0", 0, "0.0.0.0", 443, "tcp"), wild: wildSrc, fwdReplies: []netip.Addr{npmDual.ProxyAddr}},
+				{label: "exposure exp1 public", pkt: flPkt("input", "::", 0, "::", 443, "tcp"), wild: wildSrc, standIn: true},
+			},
+		},
+		{
+			name: "an unspecified IPv6 binding is IPv4 only on a host without IPv6",
+			in:   Input{Plan: &core.GuardContext{Via: npmDual, Complete: true}},
+			f:    facts{ifaces: noIPv6, controller: 4242},
 			want: []flow{
 				{label: "exposure exp1 proxy", pkt: flOn("dp-panel", flPkt("input", "172.30.0.2", 0, "172.30.0.1", 8080, "tcp"))},
 				{label: "exposure exp1 public", pkt: flPkt("input", "0.0.0.0", 0, "0.0.0.0", 443, "tcp"), wild: wildSrc, fwdReplies: []netip.Addr{npmDual.ProxyAddr}},

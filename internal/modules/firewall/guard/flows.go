@@ -415,10 +415,14 @@ func npmPublicFlows(s *flowSet, label string, unicast bool, v *core.ProxyPath, p
 	if pub.Addr() == netip.IPv6Unspecified() {
 		v4, v6 := netip.IPv4Unspecified(), netip.IPv6Unspecified()
 		s.add(flow{label: label, pkt: newPacket("input", v4, unknownPort, v4, pub.Port(), "tcp"), wild: wildSrc, fwdReplies: replies(v4), unicast: unicast})
-		// The record cannot say whether Docker publishes the port on IPv6, so a
-		// host without an IPv6 route skips those cells.
+		// The record cannot say whether Docker publishes the port on IPv6. The
+		// leg is a stand-in whose cells are skipped when their reply has no
+		// route, so any non-loopback IPv6 address, link-local included, is
+		// enough to build it: a host whose only IPv6 addresses are link-local
+		// still accepts IPv6 clients on the local link or after it learns a
+		// default route.
 		for a := range local {
-			if a.Is6() && !a.IsLoopback() && !a.IsLinkLocalUnicast() {
+			if a.Is6() && !a.IsLoopback() {
 				s.add(flow{label: label, pkt: newPacket("input", v6, unknownPort, v6, pub.Port(), "tcp"), wild: wildSrc, standIn: true, fwdReplies: replies(v6), unicast: unicast})
 				break
 			}

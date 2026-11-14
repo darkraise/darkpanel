@@ -27,7 +27,7 @@ func w12bCheck(t *testing.T, h Host, before *fwstate.Loaded, st fwstate.Loaded, 
 	if value == "" {
 		value = "0"
 	}
-	for _, name := range []string{"docker0", "tailscale0"} {
+	for _, name := range []string{"docker0", "tailscale0", "veth1", "veth2"} {
 		files.sysctl["net/ipv4/conf/"+name+"/rp_filter"] = value
 	}
 	if rpFilter != "" {
