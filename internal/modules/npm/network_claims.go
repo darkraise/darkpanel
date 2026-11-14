@@ -837,20 +837,27 @@ func (n nm) forwardTargets(ctx context.Context, env core.Env) ([]forwardTarget, 
 		return nil, npmListingAnswer(err)
 	}
 	slices.SortFunc(hosts, func(a, b npmapi.ProxyHost) int { return cmp.Compare(a.ID, b.ID) })
-	type forward struct{ where, host string }
+	type forward struct {
+		where, host string
+		literal     netip.Addr
+	}
 	var forwards []forward
 	for _, ph := range hosts {
 		id := strconv.Itoa(ph.ID)
-		forwards = append(forwards, forward{"proxy host " + id, ph.ForwardHost})
+		forwards = append(forwards, forward{where: "proxy host " + id, host: ph.ForwardHost})
 		for _, l := range ph.Locations {
-			forwards = append(forwards, forward{"location " + l.Path + " of proxy host " + id, l.ForwardHost})
+			forwards = append(forwards, forward{where: "location " + l.Path + " of proxy host " + id, host: l.ForwardHost})
 		}
 	}
 	var names []string
 	for i, f := range forwards {
 		host, _, _ := strings.Cut(f.host, "/")
 		forwards[i].host = host
-		if _, ok := proxy.LiteralAddr(host); ok || host == "" || strings.Contains(host, "$") {
+		if a, ok := proxy.LiteralAddr(host); ok {
+			forwards[i].literal = a
+			continue
+		}
+		if host == "" || strings.Contains(host, "$") {
 			continue
 		}
 		if !slices.Contains(names, host) {
@@ -863,8 +870,8 @@ func (n nm) forwardTargets(ctx context.Context, env core.Env) ([]forwardTarget, 
 	}
 	var out []forwardTarget
 	for _, f := range forwards {
-		if a, ok := proxy.LiteralAddr(f.host); ok {
-			out = append(out, forwardTarget{where: f.where, host: f.host, addr: a})
+		if f.literal.IsValid() {
+			out = append(out, forwardTarget{where: f.where, host: f.host, addr: f.literal})
 			continue
 		}
 		for _, a := range answers[f.host] {
