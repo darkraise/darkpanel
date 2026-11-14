@@ -4,7 +4,7 @@
 
 **Goal:** Close the residuals the 2026-11-14 panel re-review left on security rows 1 and 6 (rows 142, 176-179): nginx is reloaded around every join of NPM, every NPM start Darkpanel makes is verified, the undo of a finished upgrade is checked, the guard protects the IPv6 leg on a link-local-only host, the Tailscale link guard sees an exposure's tailnet client, and a restored location is cut at `/`.
 
-**Architecture:** Task 1 gathers the evidence the riskiest assumptions need (route lookups on this IPv4-only host, the pinned NPM image's reload path) and gates Tasks 4 and 6. Tasks 2-4 are the small guard and restore fixes (D6, D5, D4). Tasks 5-6 are D1: the NPM client learns `enabled` and `meta.nginx_online`, then attach and the undo of a detach reload nginx before and after the join. Tasks 7-9 are D3 and D2: the upgrade's late check and recorded target list, the undo of a finished upgrade's check, and the verification after every start. Task 10 brings the threat model and the registers.
+**Architecture:** Task 1 gathers the evidence the riskiest assumptions need (route lookups on this IPv4-only host, the pinned NPM image's reload path) and gates Task 4 and Tasks 5-6. Tasks 2-4 are the small guard and restore fixes (D6, D5, D4). Tasks 5-6 are D1: the NPM client learns `enabled` and `meta.nginx_online`, then attach and the undo of a detach reload nginx before and after the join. Tasks 7-9 are D3 and D2: the upgrade's late check and recorded target list, the undo of a finished upgrade's check, and the verification after every start. Task 10 brings the threat model and the registers.
 
 **Tech Stack:** Go 1.27.4, Markdown.
 
@@ -20,6 +20,8 @@
 
 **CI:** `.github/workflows/ci.yml .github/workflows/fuzz.yml .github/workflows/harness.yml .github/workflows/release.yml .github/workflows/runner-probe.yml` — platforms: ubuntu-24.04, self-hosted — local: `make test-adr`; `make lint-sh test-release`; `make lint-go test-go vuln`; `make lint-web test-web`; `make build verify-build` — uncovered: none
 
+**Plan review:** 2026-11-15 — dforge:judge-opus — executability 14 / coherence 16 / coverage 16 / assumptions 15 (round 2)
+
 ## Global Constraints
 
 - Scope is the rows this plan cites: security register (`docs/dforge/registers/2026-11-06-v1-security-review.md`) rows 1, 6, 142, 176, 177, 178, 179 and the new hidden-tailnet-client row Task 10 records; completion register (`docs/dforge/registers/2026-10-21-v1-completion.md`) row 37. Out of scope (spec, Out of scope): the accepted `forward host` DNS risk (D7), the hidden tailnet client's own flow, NPM's admin hardening, the confirm window, a harness change (D8).
@@ -32,7 +34,7 @@
 
 ## Contracts
 
-- **Evidence note (Task 1, read by Tasks 4, 6 and 10).** `docs/dforge/notes/w12e-evidence.md` with two sections. `## Route capture (<date>)`: the verbatim output of `ip -6 addr`, `ip -6 route`, and one line per `netstat.RouteGet` lookup, `<dst> from <src|-> -> <route or error text>`, for the lookups of the spec's Riskiest assumption. `## NPM 2.16.0 image`: for each question of Task 1 Step 3, the answer, the file path inside the image, and the quoted lines.
+- **Evidence note (Task 1, read by Tasks 4, 6 and 10).** `docs/dforge/notes/w12e-evidence.md` with three sections; the third, `## Not run on this host`, states in two sentences that the A3a demo and the R32 disconnect try on the pinned Engine were not run because this host forbids Docker, and names what stands in for each (Assumptions). `## Route capture (<date>)`: the verbatim output of `ip -6 addr`, `ip -6 route`, and one line per `netstat.RouteGet` lookup, `<dst> from <src|-> -> <route or error text>`, for the lookups of the spec's Riskiest assumption. `## NPM 2.16.0 image`: for each question of Task 1 Step 3, the answer, the file path inside the image, and the quoted lines.
 - **NPM client (Task 5, consumed by Tasks 6 and 9).** In `internal/modules/npm/npmapi/types.go`: `ProxyHost` gains `Enabled Flag \`json:"enabled"\`` and `Meta ProxyHostMeta \`json:"meta"\``; `type Flag bool` decodes a JSON `true`/`false` or the numbers `1`/`0` and encodes as a boolean; `type ProxyHostMeta struct { NginxOnline *bool \`json:"nginx_online,omitempty"\`; NginxErr *string \`json:"nginx_err,omitempty"\` }`. `ProxyHostBody` does not change. In `internal/modules/npm/fake`: `func (s *Server) SetNginxOnline(online bool, errText string)` — from then on every proxy-host create and update answers `meta.nginx_online` = online and, when false, `meta.nginx_err` = errText (default true, no error); `func (s *Server) DisableProxyHost(id int)` — the host answers `enabled: false`; every other created or seeded host answers `enabled: true`.
 - **Reload (Task 6, consumed by Task 9's docs only).** New file `internal/modules/npm/nginx_reload.go`: `func (n nm) reloadNginx(ctx context.Context, env core.Env) (reloaded bool, err error)`. It lists the proxy hosts, takes the enabled host with the lowest id (none: `false, nil` with no write), and sends `UpdateProxyHost(id, proxyHostEditBody(host))` unchanged. A success whose `meta.nginx_online` is not false is `true, nil`. Otherwise the error's text is the reason: `meta.nginx_err`, or `nginx did not come online` when NPM gave none, or the client's error when the API did not answer. Constant `nginxReloadWait = 10 * time.Second` bounds each call.
 - **Attach and the undo of a detach (Task 6).** `npm.network.attach` declares `ApplyTimeout: 45 * time.Second`. The order is today's check, then `reloadNginx`, connect, the held-address check, `reloadNginx`. Refusals carry code `npm.reserved`:
@@ -42,9 +44,18 @@
   The disconnect runs under `context.WithoutCancel` with `nginxDisconnectWait = 10 * time.Second`. A refusal returned after a failed disconnect carries no Definite mark and no 4xx cause (wrap it with `fmt.Errorf("...: %w", errors.New(text))`, never `errcode.New`).
 - **Docker fake (Task 6, consumed by Tasks 7-9).** In `internal/modules/npm/testhost_test.go`: `func (d *thDocker) pin(network string, addr netip.Addr)`. Every later endpoint on that network without a static IPv4 address, made by `ConnectNetwork` or by `CreateContainer`'s networking config, gets `IPAddress = addr`. `pin(network, netip.Addr{})` clears the pin.
 - **Recorded targets (Task 7, consumed by Tasks 8 and 9).** In `internal/modules/npm/store.go`: `type recordedTarget struct { Where, Host string; Name bool; Addr netip.Addr }` with JSON names `where`, `host`, `name`, `addr`; `containerConfig` gains `Targets *[]recordedTarget \`json:"targets,omitempty"\`` (nil = a row written before w12e; a pointer to an empty slice = no target). `func recordTargets(ts []forwardTarget) *[]recordedTarget` and `func (r recordedTarget) target() forwardTarget`. `containerConfig`'s other fields keep their encoding, so old rows still load.
-- **Upgrade checks (Task 7, consumed by Tasks 8 and 9).** In `internal/modules/npm/instance_upgrade.go`: `func (h instanceUpgradeHandler) forwardCheckConfig(ctx context.Context, env core.Env, cfg containerConfig, targets []forwardTarget, freeID string) error` checks `darkpanel-npm` (whole pool) and every network of `cfg.Networks` with its static IPv4 address, counting container `freeID`'s addresses as free. A network of `cfg.Networks` that no longer exists is a Definite `errcode.NotFound` with detail `network <net> of the original container no longer exists`. `forwardCheck(ctx, env, c)` becomes `forwardCheck(ctx, env, c) ([]forwardTarget, error)`: it lists the targets and calls `forwardCheckConfig(instanceUpgradeConfig(c), targets, c.ID)`.
-- **Start verification (Task 7, consumed by Task 9).** `func (h instanceUpgradeHandler) verifyHeld(ctx context.Context, env core.Env, containerID string, targets []forwardTarget) (dropped []string, err error)`. It inspects the container. Literal-address targets are compared first, then the forwarded names, re-resolved with `n.forwardAnswers`. Every network whose held IPv4 or IPv6 address is a target is disconnected, and its name is returned in `dropped` in name order. `err` is a non-Definite error with code `npm.reserved` (`withoutDefiniteMark` over `errcode.New`) and detail `<where> forwards to <addr>, which darkpanel-npm took on network <net> when it started; it was disconnected from <net>`, the first hit's. A hit on `darkpanel-npm` is not disconnected; its detail ends `; it stays on darkpanel-npm` and the caller treats it as a failure. A hit whose disconnect fails stops the container, and `err` joins the disconnect error. An inspection or lookup error is returned as it is, with no `dropped`. It runs under `context.WithoutCancel`.
-- **Row result (Task 9).** When `restore`, `resume` or `recoverOriginal` drops networks, the upgrade row's result (`setUpgradePhase`'s result argument) is `the started container held a forwarded address and left network <net>[, <net>...]`, and `fail`'s error names the same networks.
+- **Upgrade checks (Task 7, consumed by Tasks 8 and 9).** In `internal/modules/npm/instance_upgrade.go`: `func (h instanceUpgradeHandler) forwardCheckConfig(ctx context.Context, env core.Env, cfg containerConfig, targets []forwardTarget, freeID string) error` checks `darkpanel-npm` (whole pool) and every network of `cfg.Networks` as today's `forwardCheck` does: its static IPv4 address alone when it has one, and the network's whole free pool otherwise, counting container `freeID`'s addresses as free. A network of `cfg.Networks` that no longer exists is a Definite `errcode.NotFound` with detail `network <net> of the original container no longer exists`. `forwardCheck(ctx, env, c)` becomes `forwardCheck(ctx, env, c) ([]forwardTarget, error)`: it lists the targets and calls `forwardCheckConfig(instanceUpgradeConfig(c), targets, c.ID)`.
+- **Start verification (Task 7, consumed by Task 9).** In `internal/modules/npm/instance_upgrade.go`:
+  ```go
+  type heldCheck struct {
+  	Dropped    []string // networks the container was disconnected from, in name order
+  	Hit        error    // the first hit, every hit disconnected; nil when the container held no target
+  	Unverified error    // the inspection or a name lookup failed; nothing was compared or disconnected
+  }
+  func (h instanceUpgradeHandler) verifyHeld(ctx context.Context, env core.Env, containerID string, targets []forwardTarget) (heldCheck, error)
+  ```
+  It runs under `context.WithoutCancel`. It inspects the container, compares the literal-address targets first, then re-resolves the forwarded names with `n.forwardAnswers` (up to 6 s) and compares them. Every network other than `darkpanel-npm` whose held IPv4 or IPv6 address is a target is disconnected ("not connected" counts as done) and named in `Dropped`. `Hit` is a non-Definite error with code `npm.reserved` (`withoutDefiniteMark` over `errcode.New`) and the first hit's detail `<where> forwards to <addr>, which darkpanel-npm took on network <net> when it started; it was disconnected from <net>`. The returned `error` is non-nil only for the two hits that cannot be dropped, and then the check is a failure for every caller: a hit on `darkpanel-npm` is not disconnected, and the error is a non-Definite error with code `npm.reserved` (`withoutDefiniteMark` over `errcode.New`: the container has been started, so the step changed something) and detail `<where> forwards to <addr>, which darkpanel-npm took on network darkpanel-npm when it started; it stays on darkpanel-npm`; a hit whose disconnect fails stops the container, and the error joins that hit's text, the disconnect error and any stop error, with no Definite mark and no errcode cause. Callers: the upgrade's own `verify` step fails with the error, else `Unverified`, else `Hit`; `restore`, `resume` and `recoverOriginal` return the error, log `Unverified` with `env.Log` and carry on with NPM up (W12a-R1), and carry on after a `Hit`, keeping `Dropped`.
+- **Row result (Task 9).** `func (h instanceUpgradeHandler) restore(ctx context.Context, env core.Env, u upgradeRow) (dropped []string, err error)`, `func (h instanceUpgradeHandler) resume(ctx context.Context, env core.Env, u upgradeRow) (dropped []string, err error)` and `func (h instanceUpgradeHandler) rollback(ctx context.Context, env core.Env, u upgradeRow) (dropped []string, err error)` return the `Dropped` of their start's `heldCheck` (nil when there was none). When `dropped` is not empty, `rollback`, and `recoverOriginal` itself, write the result of phase `rolled_back` (`setUpgradePhase`'s result argument) as `the started container held a forwarded address and left network <net>[, <net>...]`; and `fail`, after a successful rollback, ends its error `; the original instance was restored without network <net>[, <net>...]` instead of `; the original instance was restored` (the `wait` branch: `; the original container and volumes were restored without network <net>[, <net>...]`). `Inverse` and `Recover` ignore `dropped`: the row records it.
 
 ## Assumptions (evidence)
 
@@ -56,6 +67,10 @@
 - `run` records an effect skipped when `do` returns a Definite error or a 4xx cause (`internal/modules/npm/effects.go:64-67`, `:117-126`); the connect and its follow-up run inside one `do` (spec D1, R23).
 - The test Engine assigns an address only when it is static (`testhost_test.go:528-530`, `:728-730`), so Task 6 adds `pin`.
 - The upgrade and every proxy-host write take the `npm` key (`instance_upgrade.go:60`, `proxyhost_add.go:50`, `proxyhost_edit.go:34,46`), so the target list of the late check holds until the start (R27).
+- Spec R32 asks the plan's NPM task to try a disconnect from `darkpanel-npm` on the pinned Engine. That needs a Docker daemon, which Host safety forbids on this host, and D8 rules out a harness change. Substitution, for the owner to accept: Task 7's `TestW12eVerifyHeldFailures` pins the behaviour against the test Engine (no disconnect of `darkpanel-npm`, the check fails), and the evidence note and the threat model state that the live try was not run.
+- Spec A3a is a demo run from the pinned image. It needs a running NPM, which Host safety forbids here. Substitution, for the owner to accept: Task 1 Step 3 reads the image's reload path (answers 1-3), and Tasks 5-6 pin the client's reading of `meta.nginx_online` against the fake. A failed test answers `nginx_online: false`, and an enabled host is chosen. The re-resolution after a success rests on answer 1's quoted lines (a reload re-reads the static `proxy_pass` names), not on a run; the evidence note says so.
+- The Task 4 fixture `v1r21Fib` routes by destination only (`internet_cells_test.go:633-663`) and ignores the lookup's source. That matches the capture as long as Gate D4 holds: every global lookup, with or without a source, answers one of the errnos that `netstat.RouteGet` wraps as `ErrNoRoute` (`netstat/routes.go:101-106`). Task 4's `TestW12eFixtureMatchesCapture` replays the captured lookups against the fixture, so an answer that depends on the source fails that test instead of passing unseen.
+- `fail` keeps the code only of an `npm.reserved` cause (Task 7). Every other step error still loses its code through `notDefinite`, as today, so the existing `TestUp*` tests keep their expectations (spec R31 names only `npm.reserved`).
 
 ## Task index
 
@@ -98,8 +113,12 @@ Run `ip -6 addr`, `ip -6 route`, `ip -6 route get 2001:db8::1`, `ip -6 route get
 package netstat
 
 import (
+	"errors"
+	"fmt"
 	"net/netip"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestW12eCapture(t *testing.T) {
@@ -115,24 +134,28 @@ func TestW12eCapture(t *testing.T) {
 			}
 		}
 	}
+	class := func(err error) string {
+		return fmt.Sprintf("noroute=%v enetunreach=%v ehostunreach=%v eacces=%v", errors.Is(err, ErrNoRoute),
+			errors.Is(err, unix.ENETUNREACH), errors.Is(err, unix.EHOSTUNREACH), errors.Is(err, unix.EACCES))
+	}
 	dsts := []string{"2001:db8::1", "2606:4700::1111", "fe80::1"}
 	for _, d := range dsts {
 		dst := netip.MustParseAddr(d)
 		r, err := RouteGet(RouteQuery{Dst: dst})
-		t.Logf("%s from - -> %+v %v", dst, r, err)
+		t.Logf("%s from - -> %+v %v [%s]", dst, r, err, class(err))
 		for _, s := range srcs {
 			r, err := RouteGet(RouteQuery{Dst: dst, Src: s})
-			t.Logf("%s from %s -> %+v %v", dst, s, r, err)
+			t.Logf("%s from %s -> %+v %v [%s]", dst, s, r, err, class(err))
 		}
 	}
 	if r, err := RouteGet(RouteQuery{Dst: netip.MustParseAddr("fe80::1")}); err == nil && r.PrefSrc.IsValid() {
 		r2, err2 := RouteGet(RouteQuery{Dst: netip.MustParseAddr("fe80::1"), Src: r.PrefSrc})
-		t.Logf("fe80::1 from preferred %s -> %+v %v", r.PrefSrc, r2, err2)
+		t.Logf("fe80::1 from preferred %s -> %+v %v [%s]", r.PrefSrc, r2, err2, class(err2))
 	}
 }
 ```
 
-Run `GOTOOLCHAIN=local TMPDIR=/root/.cache/w12e-tmp/1 timeout 120 go test -tags w12ecapture -run TestW12eCapture -v ./internal/platform/netstat/` and paste each logged line into the note. Classify each global lookup's error with `errors.Is` against `unix.ENETUNREACH`, `unix.EHOSTUNREACH`, `unix.EACCES` (as `netstat/routes.go` does).
+Its imports are `errors`, `fmt`, `net/netip`, `testing` and `golang.org/x/sys/unix`. Run `GOTOOLCHAIN=local TMPDIR=/root/.cache/w12e-tmp/1 timeout 120 go test -tags w12ecapture -run TestW12eCapture -v ./internal/platform/netstat/` and paste each logged line into the note. Each line's bracket gives the `errors.Is` classes that the gate below reads.
 
 **Gate (D4):** if any global lookup (`2001:db8::1`, `2606:4700::1111`, with or without a source) answers anything other than one of those three errnos or `netstat.ErrNoRoute`, stop the plan before Task 4, record the line `Gate D4: <answer>` in the ledger, and return D4 to the owner.
 
@@ -146,6 +169,8 @@ In the scratchpad, in a new empty directory: get an anonymous pull token (`curl 
 4. Does NPM reload nginx on a timer (`ip_ranges.js` or similar), and on certificate requests?
 5. Does nginx fail to start (not only to reload) when a static `proxy_pass` name has no answer (`nginx -t` behaviour with `host not found in upstream`)? Spec F13: if yes, write it in the note; Task 7's late check already refuses a name with no answer only when it can resolve, so the note says what the threat model states.
 6. Does the proxy configuration buffer a request body before it connects upstream (`proxy_request_buffering`)?
+
+Then write the note's `## Not run on this host` section (Contracts, Evidence note).
 
 **Gate (D1):** if question 1 shows that an unchanged update does not test and reload nginx, or that a failed test is not distinguishable from success in the answer, stop before Task 5, record `Gate D1: <finding>` in the ledger, and return D1 to the owner.
 
@@ -195,6 +220,7 @@ Expected: FAIL in the two reserved-upstream rows (the undo restores them).
 
 1. In `checkRestoredLocation`, cut `l.ForwardHost` at its first `/` (as `forwardTargets` does at `network_claims.go:854-862`, `strings.Cut`) before the empty and `$` tests, and check the part before the cut.
 2. An empty host after the cut, or one holding `$`, is written back unchecked as today.
+3. The undo of an update (`proxyHostUpdateHandler.Inverse`, `proxyhost_edit.go:463`) and of a removal (`proxyHostRemoveHandler.Inverse`, `:676`) both reach this function through `checkRestored`, so the update rows of Step 1 cover the removal's undo too (spec A11); neither caller changes.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -317,18 +343,60 @@ git commit -m "fix(tailscale): guard an NPM exposure's tailnet client"
 
 - [ ] **Step 1: Write the failing test**
 
-Before writing it, compare the addresses below with the note's `## Route capture`; where the captured eth0 or docker0 link-local address differs, use the captured one. The fake `v1r21Fib` answers a global lookup with no matching route `netstat.ErrNoRoute`, which stands for the errnos the gate accepted.
+Before writing it, compare the addresses below with the note's `## Route capture`; where the captured eth0 or docker0 link-local address differs, use the captured one. The fake `v1r21Fib` answers a global lookup with no matching route `netstat.ErrNoRoute`, which stands for the errnos the gate accepted. `w12eCaptured` is the capture as data, one row per lookup of spec R14 and nothing else. For each global destination (`2001:db8::1`, `2606:4700::1111`), take the lookup with no source and the lookups from `::1`, the eth0 address and the docker0 address. For `fe80::1`, take the lookup with no source and the one from its preferred address. Copy each row's captured answer. A row with `noRoute` true is a line whose bracket reads `noroute=true`; otherwise `iface` and `pref` are the captured route's `OutIface` and `PrefSrc`. The fixture calls the capture's `docker0` `dp-panel`: write `dp-panel` where the capture says `docker0`, and `w12eDocker0LL` for its address. The rows below are what the planning run of 2026-11-14 predicts; the capture overrides them. **Gate (D4 fixture):** if a copied row still fails `TestW12eFixtureMatchesCapture` (an answer that depends on its source, or another interface), stop before Step 3, record `Gate D4 fixture: <row>` in the ledger, and return D4 to the owner; do not change the fixture or drop the row.
 
 ```go
 package guard
 
 import (
+	"errors"
 	"net/netip"
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/platform/netstat"
 )
+
+// w12eCaptured are the route lookups of the evidence note's Route capture: destination, source ("" for none), and the
+// answer.
+var w12eCaptured = []struct {
+	dst, src    string
+	noRoute     bool
+	iface, pref string
+}{
+	{"2001:db8::1", "", true, "", ""},
+	{"2001:db8::1", w12eEth0LL, true, "", ""},
+	{"2001:db8::1", w12eDocker0LL, true, "", ""},
+	{"2001:db8::1", "::1", true, "", ""},
+	{"2606:4700::1111", "", true, "", ""},
+	{"2606:4700::1111", w12eEth0LL, true, "", ""},
+	{"2606:4700::1111", w12eDocker0LL, true, "", ""},
+	{"2606:4700::1111", "::1", true, "", ""},
+	{"fe80::1", "", false, "eth0", w12eEth0LL},
+	{"fe80::1", w12eEth0LL, false, "eth0", w12eEth0LL},
+}
+
+// w12eRange is how a refusal names a blocked cell: the span of its addresses, "<from>-<to>".
+var w12eRange = regexp.MustCompile(`[0-9a-f:]+:[0-9a-f:]*-[0-9a-f:]*:[0-9a-f:]+`)
+
+// TestW12eFixtureMatchesCapture: the link-local fixture answers every captured lookup as the host did.
+func TestW12eFixtureMatchesCapture(t *testing.T) {
+	h := w12eLinkLocalHost(false)
+	for _, c := range w12eCaptured {
+		q := netstat.RouteQuery{Dst: netip.MustParseAddr(c.dst)}
+		if c.src != "" {
+			q.Src = netip.MustParseAddr(c.src)
+		}
+		r, err := h.RouteGet(q)
+		switch {
+		case c.noRoute && !errors.Is(err, netstat.ErrNoRoute):
+			t.Errorf("%s from %q: %+v %v, want no route", c.dst, c.src, r, err)
+		case !c.noRoute && (err != nil || r.OutIface != c.iface || r.PrefSrc != netip.MustParseAddr(c.pref)):
+			t.Errorf("%s from %q: %+v %v, want dev %s src %s", c.dst, c.src, r, err, c.iface, c.pref)
+		}
+	}
+}
 
 const (
 	w12eEth0LL    = "fe80::be24:11ff:fedb:56d4"
@@ -388,13 +456,15 @@ func TestW12eLinkLocalOnlyHostGuardsIPv6443(t *testing.T) {
 				t.Errorf("guard = %+v, want OK", g)
 			case tc.want != "" && (g.OK || !strings.Contains(g.Message, tc.want)):
 				t.Errorf("guard = %+v, want a refusal containing %q", g, tc.want)
+			case tc.want != "" && !w12eRange.MatchString(g.Message):
+				t.Errorf("refusal %q names no blocked IPv6 range", g.Message)
 			}
 		})
 	}
 }
 
 // TestW12eLinkLocalAddressesAddNoProbes: on a dual-stack host, link-local addresses on docker0 and two veths leave
-// the number of route lookups of an unrelated change as it is without them.
+// the number of route lookups of an unrelated IPv6 change as it is without them.
 func TestW12eLinkLocalAddressesAddNoProbes(t *testing.T) {
 	lookups := func(extra bool) int {
 		ifaces := ckIfaces()
@@ -406,13 +476,17 @@ func TestW12eLinkLocalAddressesAddNoProbes(t *testing.T) {
 		}
 		h := v1r21Fib{&gHost{ifaces: ifaces, table: w12bRoutes()}}
 		before := v1r21State(t, w11b09Nat+v1r21Table(), v1r21Table())
-		st := v1r21State(t, w11b09Nat+v1r21Table(w12bOtherPort), v1r21Table())
+		st := v1r21State(t, w11b09Nat+v1r21Table(), v1r21Table(w12bOtherPort))
 		if g := w12bCheck(t, h, &before, st, "[::]:443", "10.0.0.50", ""); !g.OK {
 			t.Fatalf("guard = %+v, want OK", g)
 		}
 		return len(h.lookups)
 	}
-	if without, with := lookups(false), lookups(true); with != without {
+	without, with := lookups(false), lookups(true)
+	if without == 0 {
+		t.Fatal("the IPv6 change made no route lookup, so the count cannot show an added probe")
+	}
+	if with != without {
 		t.Errorf("%d route lookups with link-local veths, %d without; want the same", with, without)
 	}
 }
@@ -421,7 +495,7 @@ func TestW12eLinkLocalAddressesAddNoProbes(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `GOTOOLCHAIN=local TMPDIR=/root/.cache/w12e-tmp/4 timeout 300 go test -count=1 -run 'TestW12eLinkLocal' ./internal/modules/firewall/guard/`
-Expected: FAIL in the two hidden-client refusal rows and the two default-route rows (no IPv6 leg is built).
+Expected: FAIL in the two hidden-client refusal rows and the two default-route rows (no IPv6 leg is built). `TestW12eFixtureMatchesCapture` passes already, because it checks the fixture and not the change. If it fails, the D4 fixture gate in Step 1 applies. `TestW12eLinkLocalAddressesAddNoProbes` passes before and after the change (A8 guards against a regression); if it fails on its zero-lookup check, record a Ruling in the ledger rather than weakening it.
 
 - [ ] **Step 3: Implement**
 
@@ -556,10 +630,13 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/modules/npm/fake"
 	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
 )
 
@@ -738,13 +815,40 @@ func TestW12eAttachUnconfirmedReloadDisconnects(t *testing.T) {
 		}
 		w12eNoChange(t, h, user)
 	})
-	t.Run("the held address is forwarded", func(t *testing.T) {
+	t.Run("NPM's API does not answer the second reload", func(t *testing.T) {
 		h, user := nwSetup(t)
 		w12aSubnet(t, h, user)
 		w12aSeed(h, "up.invalid", 81)
 		n := h.nm()
 		n.d.resolve = w12eAnswer("203.0.113.9")
-		n.d.docker = w12eConnectHook{h.docker, func() { n.d.resolve = w12eAnswer("10.9.0.7") }}
+		n.d.docker = w12eConnectHook{h.docker, func() { h.npm.Fail(http.MethodPut, "/api/nginx/proxy-hosts/1", fake.Fault{Status: 500}) }}
+		h.addChange("c1", "npm.network.attach")
+		_, err := n.networkAttach().Handler.Apply(ctx, h.env("c1"), nwJSON(t, in))
+		coded := nwRefused(t, err, errcode.NPMReserved)
+		if !strings.HasPrefix(coded.Detail, "nginx could not be reloaded after darkpanel-npm joined network appnet: ") ||
+			!strings.HasSuffix(coded.Detail, "; it was disconnected again") {
+			t.Errorf("detail %q, want the unanswered reload after the join named", coded.Detail)
+		}
+		w12eNoChange(t, h, user)
+	})
+	t.Run("the held address is forwarded", func(t *testing.T) {
+		h, user := nwSetup(t)
+		w12aSubnet(t, h, user)
+		w12aSeed(h, "up.invalid", 81)
+		n := h.nm()
+		// The handler holds its own copy of n, so the hook changes the answer the resolver reads, not n.d.resolve.
+		var mu sync.Mutex
+		answer := "203.0.113.9"
+		n.d.resolve = func(context.Context, string) ([]netip.Addr, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			return []netip.Addr{netip.MustParseAddr(answer)}, nil
+		}
+		n.d.docker = w12eConnectHook{h.docker, func() {
+			mu.Lock()
+			defer mu.Unlock()
+			answer = "10.9.0.7"
+		}}
 		h.addChange("c1", "npm.network.attach")
 		_, err := n.networkAttach().Handler.Apply(ctx, h.env("c1"), nwJSON(t, in))
 		coded := nwRefused(t, err, errcode.NPMReserved)
@@ -775,6 +879,17 @@ func TestW12eAttachUnconfirmedReloadDisconnects(t *testing.T) {
 		}
 	})
 }
+
+// TestW12eAttachDeadlines: the attach's budget covers its two reloads, the connect and a disconnect.
+func TestW12eAttachDeadlines(t *testing.T) {
+	h, _ := nwSetup(t)
+	if got := h.nm().networkAttach().ApplyTimeout; got != 45*time.Second {
+		t.Errorf("ApplyTimeout %v, want 45s", got)
+	}
+	if 2*nginxReloadWait+nginxDisconnectWait > 45*time.Second {
+		t.Errorf("two reloads of %v and a disconnect of %v exceed the attach's 45s", nginxReloadWait, nginxDisconnectWait)
+	}
+}
 ```
 
 Also add `pin` to `testhost_test.go` (Contracts, Docker fake): a `pinned map[string]netip.Addr` initialised in `newTHDocker`; in `ConnectNetwork` and in `CreateContainer`'s endpoint loop, an endpoint whose `IPAMConfig` holds no valid IPv4 address gets `e.IPAddress = d.pinned[n.Name]` when one is pinned. The test file needs `nwSeedAttached` (already in `network_claims_test.go`).
@@ -782,11 +897,11 @@ Also add `pin` to `testhost_test.go` (Contracts, Docker fake): a `pinned map[str
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `GOTOOLCHAIN=local TMPDIR=/root/.cache/w12e-tmp/6 timeout 600 go test -count=1 -run 'TestW12eAttach' ./internal/modules/npm/`
-Expected: FAIL (no reload is made; the before-join case connects).
+Expected: FAIL to compile (`nginxReloadWait`, `nginxDisconnectWait` and `pin` undefined); once those three exist as Contracts states, FAIL because no reload is made and the before-join case connects.
 
 - [ ] **Step 3: Implement**
 
-1. `nginx_reload.go`: `reloadNginx` as Contracts states, each NPM call under `context.WithTimeout(ctx, nginxReloadWait)`; enabled is `bool(host.Enabled)`.
+1. `nginx_reload.go`: `reloadNginx` as Contracts states, one `context.WithTimeout(ctx, nginxReloadWait)` covering the whole call (the listing and the PUT together); enabled is `bool(host.Enabled)`.
 2. `networkAttachHandler.Apply`: after `h.check` and before `h.n.run` of the connect, when `ck.connect` is set, call `reloadNginx`; an error or `meta.nginx_online` false is the first refusal (Definite). Inside the connect's `do`, after `ConnectNetwork`: inspect NPM (`networkEndpointOf`), compare its address on the network with `forwardTargets` (re-listed), then call `reloadNginx` again; on a hit or an unconfirmed reload disconnect (`DisconnectNetwork`, "not connected" counts as done, under `context.WithoutCancel` and `nginxDisconnectWait`) and return the Definite `npm.reserved` refusal; when the disconnect fails, return the refusal's text joined with the disconnect error without the Definite mark and without an errcode cause (Contracts).
 3. `networkAttach()`: `ApplyTimeout: 45 * time.Second`.
 4. `networkUndoDisconnect`: the same sequence around its `ConnectNetwork`; the already-on-the-network answer (`on == true`, both places) first runs the held-address check and one `reloadNginx`, refusing and disconnecting as above.
@@ -829,10 +944,12 @@ package npm
 
 import (
 	"context"
+	"errors"
 	"net/netip"
 	"strings"
 	"testing"
 
+	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
 )
@@ -926,22 +1043,96 @@ func TestW12eStartVerifiesHeldAddresses(t *testing.T) {
 			t.Error("the row recorded no target list; want an empty or full one, not none")
 		}
 	})
+	t.Run("a hit on darkpanel-npm fails the upgrade", func(t *testing.T) {
+		s := w12eUpSetup(t)
+		s.h.docker.putContainer(thContainer("db2", thEndpoint(networkName, "172.20.0.30")))
+		w12aSeed(s.h, "172.20.0.30", 5432)
+		stopped := false
+		s.dock.trace = func(call string) {
+			switch {
+			case call == "StopContainer" && !stopped:
+				stopped = true
+				if err := s.h.docker.RemoveContainer(context.Background(), "db2", dockerapi.RemoveContainerOptions{Force: true}); err != nil {
+					t.Error(err)
+				}
+				s.h.docker.pin(networkName, netip.MustParseAddr("172.20.0.30"))
+			case call == "StartContainer":
+				// The new container was created with the pinned address; the restored original must not get it.
+				s.h.docker.pin(networkName, netip.Addr{})
+			}
+		}
+		_, err := s.apply()
+		if err == nil || errcode.From(err).Code != errcode.NPMReserved || !strings.Contains(err.Error(), "it stays on darkpanel-npm") {
+			t.Fatalf("error %v, want npm.reserved naming the hit on darkpanel-npm", err)
+		}
+		if nwCalls(s.h, "DisconnectNetwork") != 0 {
+			t.Error("a network was disconnected; a hit on darkpanel-npm fails the step without a disconnect")
+		}
+		if got := s.phase(); got == "done" {
+			t.Errorf("phase %q, want the upgrade failed and rolled back", got)
+		}
+	})
+}
+
+// TestW12eVerifyHeldFailures: the two hits that cannot be dropped fail the check for every caller. A hit on
+// darkpanel-npm is not disconnected; a hit whose disconnect fails stops the container.
+func TestW12eVerifyHeldFailures(t *testing.T) {
+	ctx := context.Background()
+	target := func(addr string) []forwardTarget {
+		return []forwardTarget{{where: "proxy host 1", host: addr, addr: netip.MustParseAddr(addr)}}
+	}
+	t.Run("a hit on darkpanel-npm", func(t *testing.T) {
+		s := w12aUpSetup(t)
+		res, err := instanceUpgradeHandler{n: s.n}.verifyHeld(ctx, s.env, s.inst.ContainerID, target("172.20.0.2"))
+		var coded *errcode.Error
+		if !errors.As(err, &coded) || coded.Code != errcode.NPMReserved || core.IsDefinite(err) {
+			t.Fatalf("error %v, want npm.reserved without the definite mark", err)
+		}
+		if want := "proxy host 1 forwards to 172.20.0.2, which darkpanel-npm took on network darkpanel-npm when it started; it stays on darkpanel-npm"; coded.Detail != want {
+			t.Errorf("detail %q, want %q", coded.Detail, want)
+		}
+		if nwCalls(s.h, "DisconnectNetwork") != 0 || len(res.Dropped) != 0 {
+			t.Errorf("%d disconnects, dropped %v; want darkpanel-npm kept", nwCalls(s.h, "DisconnectNetwork"), res.Dropped)
+		}
+	})
+	t.Run("a disconnect that fails", func(t *testing.T) {
+		s := w12aUpSetup(t)
+		s.h.docker.Fail("DisconnectNetwork", errors.New("engine down"))
+		_, err := instanceUpgradeHandler{n: s.n}.verifyHeld(ctx, s.env, s.inst.ContainerID, target("172.30.0.9"))
+		if err == nil || !strings.Contains(err.Error(), "engine down") || core.IsDefinite(err) {
+			t.Fatalf("error %v, want a failure that joins the disconnect error and is not definite", err)
+		}
+		if c, _ := s.h.docker.container(s.inst.ContainerID); c.State.Running {
+			t.Error("the container still runs at a forwarded address it could not leave")
+		}
+	})
+	t.Run("an ordinary hit", func(t *testing.T) {
+		s := w12aUpSetup(t)
+		res, err := instanceUpgradeHandler{n: s.n}.verifyHeld(ctx, s.env, s.inst.ContainerID, target("172.30.0.9"))
+		if err != nil || res.Unverified != nil {
+			t.Fatalf("error %v, unverified %v; want neither", err, res.Unverified)
+		}
+		if code := errcode.From(res.Hit).Code; code != errcode.NPMReserved || len(res.Dropped) != 1 || res.Dropped[0] != upAppNet {
+			t.Errorf("hit %v (code %s), dropped %v; want npm.reserved and app-net", res.Hit, code, res.Dropped)
+		}
+	})
 }
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `GOTOOLCHAIN=local TMPDIR=/root/.cache/w12e-tmp/7 timeout 600 go test -count=1 -run 'TestW12eUpgradeLateForwardCheck|TestW12eStartVerifiesHeldAddresses' ./internal/modules/npm/`
-Expected: FAIL to compile (`Config.Targets` undefined), then, once it compiles, in both tests.
+Run: `GOTOOLCHAIN=local TMPDIR=/root/.cache/w12e-tmp/7 timeout 600 go test -count=1 -run 'TestW12eUpgradeLateForwardCheck|TestW12eStartVerifiesHeldAddresses|TestW12eVerifyHeldFailures' ./internal/modules/npm/`
+Expected: FAIL to compile (`Config.Targets`, `verifyHeld` undefined), then, once it compiles, in all three tests.
 
 - [ ] **Step 3: Implement**
 
 1. `store.go`: `recordedTarget`, `recordTargets`, `target()` and `containerConfig.Targets` as Contracts states.
 2. `instance_upgrade.go`: split `forwardCheck` into `forwardCheckConfig` (Contracts) and the listing; `forwardCheck` returns the targets.
 3. `Apply`: keep the early check; after `h.pull` and before `env.Effects.Intend`, run `forwardCheck` again (the late check) and return its Definite refusal as it is; put `recordTargets(targets)` of the late check into `config.Targets` before `insertUpgrade`.
-4. `steps`: right after `StartContainer` of the new container and before `phase("waiting")`, run `verifyHeld(id, targets)` (Contracts, Start verification) as its own step `verify`; a hit or an error fails that step.
-5. `fail`: keep the step error's code: replace `notDefinite(cause)` with `withoutDefiniteMark(cause)` where the cause carries an errcode, so `errcode.From` finds `npm.reserved` through `fail`'s `%w`; the `wait` branch is unchanged.
-6. Rewrite the comment above `forwardCheck`: the late check narrows the window, the verification after the start closes it.
+4. `verifyHeld` and `heldCheck` exactly as Contracts (Start verification) states. The disconnect runs under `nginxDisconnectWait` (Task 6's constant); the stop after a failed disconnect uses the same `StopContainer` call and timeout as the upgrade's own stop of the original.
+5. `steps`: right after `StartContainer` of the new container and before `phase("waiting")`, run `verifyHeld(id, targets)` as its own step `verify`. The step fails with the returned error, else `Unverified`, else `Hit`; with none of them it goes on to `waiting`.
+6. `fail`: when `errcode.From(cause).Code == errcode.NPMReserved`, use `withoutDefiniteMark(cause)` instead of `notDefinite(cause)`, so `errcode.From` finds `npm.reserved` through `fail`'s `%w`. Every other cause goes through `notDefinite` as today (Assumptions), and the `wait` branch is unchanged.
+7. Rewrite the comment above `forwardCheck`: the late check narrows the window, the verification after the start closes it.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -974,7 +1165,7 @@ git commit -m "fix(npm): verify the upgraded NPM's addresses at start"
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `internal/modules/npm/w12e_upgrade_test.go` (add `errors`, `fmt`, `github.com/darkraise/darkpanel/internal/core` and `github.com/darkraise/darkpanel/internal/modules/npm/npmapi` to its imports):
+Append to `internal/modules/npm/w12e_upgrade_test.go` (add `fmt` and `github.com/darkraise/darkpanel/internal/modules/npm/npmapi` to its imports; Task 7 already imports `errors` and `core`):
 
 ```go
 // w12eDone records change urChange as a finished upgrade whose original container joined networks with the targets,
@@ -1016,9 +1207,13 @@ func TestW12eUpgradeUndoChecksForwards(t *testing.T) {
 		f.replace(urTo)
 		w12eDone(t, f, w12eAppNet(), &[]recordedTarget{})
 		w12aSeed(f.h, "172.30.0.20", 3000)
+		mark := f.mark()
 		sawPull := false
 		w12eListing(f, func(ctx context.Context, live npmAPI) ([]npmapi.ProxyHost, error) {
-			sawPull = urCalled(f.h.docker.calls(), "InspectImage")
+			// The original image is made available by an inspection of it, or a pull when it is missing; either comes
+			// after the mark and before this listing.
+			since := f.callsSince(mark)
+			sawPull = urCalled(since, "InspectImage") || urCalled(since, "PullImage")
 			return live.ProxyHosts(ctx)
 		})
 		coded := nwRefused(t, f.inverse(urResource), errcode.NPMReserved)
@@ -1043,7 +1238,7 @@ func TestW12eUpgradeUndoChecksForwards(t *testing.T) {
 			t.Errorf("detail %q, want %q", coded.Detail, want)
 		}
 		if urCalled(f.callsSince(mark), "RemoveContainer") || f.phase() != "done" {
-			t.Error("the refused undo removed a container or left phase done")
+			t.Errorf("the refused undo removed a container or changed phase done to %q", f.phase())
 		}
 	})
 	t.Run("NPM's API does not answer", func(t *testing.T) {
@@ -1114,12 +1309,13 @@ git commit -m "fix(npm): check forwards before undoing an upgrade"
 
 **Files:**
 - Modify: `internal/modules/npm/instance_upgrade.go` (`restore`, `resume`, `rollback`, `fail`)
-- Modify: `internal/modules/npm/upgrade_recover.go` (`recoverOriginal`)
+- Modify: `internal/modules/npm/upgrade_recover.go` (`recoverOriginal`, `Inverse`, `Recover`)
+- Modify: `internal/modules/npm/instance_upgrade_test.go` (the two direct `rollback` calls, `if err := (instanceUpgradeHandler{n: s.n}).rollback(` and `err = (instanceUpgradeHandler{n: f.n}).rollback(`, which take `_, err :=` / `_, err =`; nothing else in them changes)
 - Test: `internal/modules/npm/w12e_upgrade_test.go`
 
 **Interfaces:**
-- Consumes: Contracts, Start verification and Recorded targets (Task 7); Docker fake (Task 6).
-- Produces: Contracts, Row result.
+- Consumes: Contracts, Start verification (`verifyHeld`, `heldCheck`) and Recorded targets (Task 7); Docker fake (Task 6).
+- Produces: Contracts, Row result (the new `restore`, `resume` and `rollback` signatures).
 
 **Items:** 2026-11-06-v1-security-review#142
 
@@ -1143,6 +1339,41 @@ Add at the end of the `upgrade` subtest, after `u := s.upgrade()` and its check:
 Add these subtests to the same test:
 
 ```go
+	t.Run("resume after a failed archive", func(t *testing.T) {
+		s := w12eUpSetup(t)
+		started := false
+		s.dock.trace = func(call string) {
+			if call != "StartContainer" || started {
+				return
+			}
+			// The archive failed before any new container, so this start is resume's restart of the original; the
+			// Engine hands it the address db freed.
+			started = true
+			if err := s.h.docker.RemoveContainer(context.Background(), "db", dockerapi.RemoveContainerOptions{Force: true}); err != nil {
+				t.Error(err)
+			}
+			c, _ := s.h.docker.container(s.inst.ContainerID)
+			c.NetworkSettings.Networks[upAppNet].IPAddress = netip.MustParseAddr("172.30.0.20")
+			s.h.docker.putContainer(c)
+		}
+		s.dock.fail = func(call string, _ int) error {
+			if strings.HasPrefix(call, "CopyFromContainer") {
+				return errors.New("the archive was cut off")
+			}
+			return nil
+		}
+		_, err := s.apply()
+		if err == nil || !strings.Contains(err.Error(), "the original instance was restored without network app-net") {
+			t.Fatalf("error %v, want the restored original named without app-net", err)
+		}
+		c, _ := s.h.docker.container(s.inst.ContainerID)
+		if !started || !c.State.Running || c.NetworkSettings.Networks[upAppNet] != nil {
+			t.Errorf("container %+v (restarted %v), want the original running without app-net", c, started)
+		}
+		if want := "the started container held a forwarded address and left network app-net"; s.upgrade().Result != want {
+			t.Errorf("result %q, want %q", s.upgrade().Result, want)
+		}
+	})
 	t.Run("undo of a finished upgrade", func(t *testing.T) {
 		f := urSetup(t)
 		f.replace(urTo)
@@ -1238,14 +1469,15 @@ Add these subtests to the same test:
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `GOTOOLCHAIN=local TMPDIR=/root/.cache/w12e-tmp/9 timeout 600 go test -count=1 -run TestW12eStartVerifiesHeldAddresses ./internal/modules/npm/`
-Expected: FAIL in the extended `upgrade` subtest and the five new subtests (the original keeps app-net).
+Expected: FAIL in the extended `upgrade` subtest and the six new subtests (the original keeps app-net).
 
 - [ ] **Step 3: Implement**
 
-1. `restore`: right after `StartContainer` of the original, run `verifyHeld(id, targets)` with the row's recorded list. A hit is not a failure: the function goes on to save the instance row and returns the dropped networks to `rollback`. A failed inspection or lookup is logged with `env.Log` and NPM stays up (W12a-R1). A hit on `darkpanel-npm`, or a hit that could not be disconnected, is returned as an error.
-2. `resume` and `recoverOriginal`: the same after their `StartContainer` (in `recoverOriginal` also when the original already runs).
-3. A row with `Config.Targets == nil`: after the start, wait for NPM's API (`await`, bounded by `instanceUpgradeAPIWait`), list `forwardTargets`, then verify; in `recoverOriginal` and the recovery rollback, an API that does not answer in time is `RecoveryNeedsRepair` with reason `the original Nginx Proxy Manager container was started but its addresses are unverified: <cause>`, and the container is left running.
-4. `rollback` writes the Row result (Contracts) as the result of phase `rolled_back` when networks were dropped; `fail`'s message after a restored original names them (`...; the original instance was restored without network app-net`).
+1. Change `restore`, `resume` and `rollback` to the signatures of Contracts (Row result), and update their three call sites: `fail` (`instance_upgrade.go`), `Inverse` and `Recover` (`upgrade_recover.go`). `Inverse` and `Recover` discard `dropped`.
+2. `restore`: right after `StartContainer` of the original, run `verifyHeld(id, targets)` with the targets of the row's recorded list (`target()` of each). Handle its outcome as Contracts (Start verification) states for `restore`: return the error; log `Unverified` with `env.Log`; after a `Hit`, go on to save the instance row and return `Dropped`.
+3. `resume`: the same after its `StartContainer`. `recoverOriginal`: the same after its `StartContainer`, and also when the original already runs. It writes the Row result itself, as the result of phase `rolled_back`.
+4. A row with `Config.Targets == nil` (written before w12e): after the start, wait for NPM's API (`await`, bounded by `instanceUpgradeAPIWait`), list `forwardTargets`, then verify. In `recoverOriginal` and the recovery rollback, an API that does not answer in time, or a `forwardTargets` listing that fails after it answered, gives `RecoveryNeedsRepair` with reason `the original Nginx Proxy Manager container was started but its addresses are unverified: <cause>`, and the container is left running.
+5. `rollback`: when `dropped` is not empty, pass the Row result text as the result argument of its `setUpgradePhase(..., "rolled_back", ...)`. `fail`: end its message with the Row result's wording (`; the original instance was restored without network app-net`, and the `wait` branch's form).
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -1255,7 +1487,7 @@ Expected: PASS, including every `TestUr*` test (A6b: a start that holds no targe
 - [ ] **Step 5: Commit**
 
 ```bash
-git add internal/modules/npm/instance_upgrade.go internal/modules/npm/upgrade_recover.go internal/modules/npm/w12e_upgrade_test.go
+git add internal/modules/npm/instance_upgrade.go internal/modules/npm/upgrade_recover.go internal/modules/npm/instance_upgrade_test.go internal/modules/npm/w12e_upgrade_test.go
 git commit -m "fix(npm): verify the original NPM's addresses at start"
 ```
 
@@ -1266,6 +1498,7 @@ git commit -m "fix(npm): verify the original NPM's addresses at start"
 **Files:**
 - Modify: `docs/security/threat-model.md`
 - Modify: `docs/dforge/registers/2026-11-06-v1-security-review.md`
+- Modify: `docs/dforge/registers/2026-10-21-v1-completion.md` (row 37's note)
 
 **Interfaces:**
 - Consumes: the evidence note (Task 1); the behaviour of Tasks 2-9.
@@ -1283,10 +1516,10 @@ git commit -m "fix(npm): verify the original NPM's addresses at start"
 Make `docs/security/threat-model.md` say only what the code now holds (spec A13):
 
 1. Lines 215 and 229: the `[::]` binding's IPv6 leg is built on a host whose only IPv6 addresses are link-local, probed at the reply route's preferred address only.
-2. Line 281: a join of NPM is preceded and followed by a confirmed nginx reload. Two residuals remain: workers of the old configuration finish requests they accepted, each once (owner-accepted, U4); and a confirmed reload may not be applied by the master if a name loses its answer between the test and the reload (a race).
+2. Line 281: a join of NPM is preceded and followed by a confirmed nginx reload. Two residuals remain: workers of the old configuration finish requests they accepted, each once (owner-accepted, U4); and a confirmed reload may not be applied by the master if a name loses its answer between the test and the reload (a race). Name a third: the reload re-sends a proxy host's body read just before, so an edit made in NPM's own UI between that read and the PUT is reverted, and that PUT is not journaled (the `npm` lock covers only Darkpanel's own writes).
 3. Lines 292 and 295: every start of NPM that Darkpanel makes is verified against the forward targets, leaving the start-to-inspection time. Line 292 keeps its sentence for starts Darkpanel does not make (the restart policy, an Engine or host restart). The upgrade checks again after the pull.
 4. Line 298: the undo of a finished upgrade is checked; it cannot run while NPM's API does not answer, unless the container is gone and the row's recorded list is used.
-5. Known residual risks: the hidden tailnet client of an NPM exposure (every IPv6 tailnet client while NPM's networks are IPv4 only); D7's sentence next to the `forward host` risk; the start-to-inspection window; the old-worker requests; what the evidence note's answer 5 says about nginx failing to start on a name with no answer.
+5. Known residual risks: the hidden tailnet client of an NPM exposure (every IPv6 tailnet client while NPM's networks are IPv4 only); D7's sentence next to the `forward host` risk; the start-to-inspection window; the old-worker requests; what the evidence note's answer 5 says about nginx failing to start on a name with no answer; and that the A3a demo and the R32 disconnect try on the pinned Engine were not run (the evidence note's `## Not run on this host`).
 
 - [ ] **Step 3: Read it back against the code**
 
@@ -1294,11 +1527,37 @@ Read each edited paragraph next to the code it describes (`network_claims.go`, `
 
 - [ ] **Step 4: Registers**
 
-Add the hidden tailnet client as a new low row of the security register, using the spec's D5 wording, and set it `deferred` with the note `w12e D5: accepted residual; a stand-in tailnet flow needs its own design`. Then set rows 142, 176, 177, 178 and 179 to `verify` with `bash <plugin-root>/scripts/register set ... verify`, keeping each note: read the row's last cell and put `w12e <commit>: ` in front of it, since `--note` replaces the cell. Rows 1 and 6 stay as the panel re-review leaves them, and the w12e plan is named in their notes the same way.
+Run this from the repository root. Every row keeps its state: the spec sets `verify` only once the branch is merged and re-reviewed, which happens after this plan. `--note` replaces the cell, so each new note starts with the w12e text and ends with the old cell after `earlier: `. `C` is Task 9's commit, which is HEAD before this task commits.
+
+```bash
+REG=/root/.claude-alt2/plugins/cache/darkraise/dforge/4.17.1/scripts/register
+PLAN=docs/dforge/plans/2026-11-14-v1-w12e-security-residuals.md
+SEC=docs/dforge/registers/2026-11-06-v1-security-review.md
+DONE=docs/dforge/registers/2026-10-21-v1-completion.md
+C=$(git rev-parse --short HEAD)
+renote() { # file id text
+  line=$(awk -v id="$2" 'index($0, "| " id " |") == 1' "$1")
+  state=$(printf '%s\n' "$line" | awk -F' [|] ' '{print $(NF-1)}')
+  old=$(printf '%s\n' "$line" | awk -F' [|] ' '{print $NF}' | sed 's/ |$//')
+  bash "$REG" set "$1" "$2" "$state" --note "$3; earlier: $old"
+}
+for id in 1 6 142 176 177 178 179; do
+  renote "$SEC" "$id" "w12e $C (branch v1-w12e-security-residuals, $PLAN): fixed with named regression tests; awaiting the merge and the panel re-review"
+done
+renote "$DONE" 37 "w12e $C: security rows 1, 6, 142, 176-179 fixed on branch v1-w12e-security-residuals; the row stays open until the merge and the panel re-review close them"
+bash "$REG" add "$SEC" "low (w12e D5, 2026-11-14): the Tailscale link guard gives no flow to the hidden client of an NPM exposure, a tailnet client that Docker's userland proxy carries so that it reaches NPM from a host address; every IPv6 tailnet client is hidden while NPM's networks are IPv4 only (internal/modules/firewall/guard/flows.go:307-310), the usual path for a MagicDNS name; a stand-in tailnet flow per binding needs its own design in internal/modules/tailscale/linkguard.go" \
+  --assigned "$PLAN" --acceptance "named as a residual in docs/security/threat-model.md" --state deferred \
+  --note "w12e D5: accepted residual; a stand-in tailnet flow needs its own design"
+bash "$REG" check "$SEC" && bash "$REG" check "$DONE"
+```
+
+Before running it, read the ledger's ruling on the R32 and A3a substitutions (Assumptions). The owner's answer was asked for at plan review: append to the loop's note text above `; R32 and A3a substitutions <accepted|rejected> by the owner <date>`, quoting the ledger. If the ledger has no answer, append `; R32 and A3a substitutions awaiting the owner's answer` instead.
+
+Expected: both `check` runs exit 0. Every row of `$SEC` and `$DONE` other than these nine (the eight rows and the new one) is unchanged in `git diff`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add docs/security/threat-model.md docs/dforge/registers/2026-11-06-v1-security-review.md
+git add docs/security/threat-model.md docs/dforge/registers/2026-11-06-v1-security-review.md docs/dforge/registers/2026-10-21-v1-completion.md
 git commit -m "docs(security): record the w12e residual fixes"
 ```
