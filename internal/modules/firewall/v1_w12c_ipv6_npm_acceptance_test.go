@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -17,10 +19,10 @@ import (
 
 // The four ids of a deploy-public v2 style batch: ports 80 and 443, IPv4 and IPv6.
 const (
-	qa12cID80V4  = "01JW12C0000000000000000V80"
-	qa12cID443V4 = "01JW12C0000000000000000V43"
-	qa12cID80V6  = "01JW12C0000000000000000W80"
-	qa12cID443V6 = "01JW12C0000000000000000W43"
+	qa12cID80V4  = "0CGS78T46E9GTMW1GWTK2TV0T5"
+	qa12cID443V4 = "0GCPW66GP51CA48ZNYH48M71YX"
+	qa12cID80V6  = "0QSMKDEJA5YXDMQM1MNS2FXN05"
+	qa12cID443V6 = "0XZS5RBT87XEQW3BMX0WTC6YQW"
 
 	qa12cManualAllow4   = "### tuple ### allow tcp 443 0.0.0.0/0 any 0.0.0.0/0 in"
 	qa12cManualAllow6   = "### tuple ### allow tcp 443 ::/0 any ::/0 in"
@@ -130,6 +132,17 @@ func qa12cManualID(t *testing.T, h *fakeHost) string {
 	return ""
 }
 
+// qa12cV2Ports is the batch npm.instance.deploy-public v2's ports step sends with IPv6 on; the npm module's
+// TestA25_V2PortsStepSendsTheFirewallFixture holds v2 to it.
+func qa12cV2Ports(t *testing.T) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", "w12d-deploy-public-v2-ports.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
 func TestA3_FourPresentAllowancesPlanNoRule(t *testing.T) {
 	var r4, r6 []string
 	for _, p := range qa12cPorts {
@@ -141,7 +154,7 @@ func TestA3_FourPresentAllowancesPlanNoRule(t *testing.T) {
 	}
 	h, f, env := qa12cHost(t, r4, r6)
 	n := len(h.calls)
-	out, err := qa12cPlan(t, f, env, qa12cBatch(qa12cPorts, `,"keepManual":true`))
+	out, err := qa12cPlan(t, f, env, qa12cV2Ports(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +226,7 @@ func TestA24_WithoutKeepManualTheBatchIsRefusedAndADenyStaysRefused(t *testing.T
 func TestA25_ManualAllowOf443LeavesThePort80RulesOnly(t *testing.T) {
 	h, f, env := qa12cHost(t, []string{qa12cManualAllow4}, []string{qa12cManualAllow6})
 	manual := qa12cManualID(t, h)
-	out, res := ruApply(t, env, f.rulesApply(), qa12cBatch(qa12cPorts, `,"keepManual":true`))
+	out, res := ruApply(t, env, f.rulesApply(), qa12cV2Ports(t))
 
 	var added []string
 	named := false

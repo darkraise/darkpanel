@@ -1,0 +1,6 @@
+{"label":"npm","keepManual":true,"add":[
+{"id":"0CGS78T46E9GTMW1GWTK2TV0T5","action":"allow","direction":"in","proto":"tcp","from":"any","to":"any","toPort":"80","family":"v4"},
+{"id":"0GCPW66GP51CA48ZNYH48M71YX","action":"allow","direction":"in","proto":"tcp","from":"any","to":"any","toPort":"443","family":"v4"},
+{"id":"0QSMKDEJA5YXDMQM1MNS2FXN05","action":"allow","direction":"in","proto":"tcp","from":"any","to":"any","toPort":"80","family":"v6"},
+{"id":"0XZS5RBT87XEQW3BMX0WTC6YQW","action":"allow","direction":"in","proto":"tcp","from":"any","to":"any","toPort":"443","family":"v6"}
+]}

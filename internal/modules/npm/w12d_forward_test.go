@@ -2,9 +2,13 @@ package npm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -74,5 +78,38 @@ func TestW12dDockerNamesPastTheDeadline(t *testing.T) {
 	coded := nwRefused(t, err, errcode.Unavailable)
 	if want := "Docker's names of the forward hosts could not be read in time; retry"; coded.Detail != want {
 		t.Errorf("detail %q, want %q", coded.Detail, want)
+	}
+}
+
+// TestA25_V2PortsStepSendsTheFirewallFixture: with the integration off, v2's ports step sends exactly the batch in
+// the firewall module's fixture, the batch the firewall's A3 and A25 tests plan, so their proof holds for v2's own
+// input.
+func TestA25_V2PortsStepSendsTheFirewallFixture(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "firewall", "testdata", "w12d-deploy-public-v2-ports.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want any
+	if err := json.Unmarshal(raw, &want); err != nil {
+		t.Fatal(err)
+	}
+	in, _ := json.Marshal(qa12cIn(qa12cB(false), qa12cB(true), qa12cB(true)))
+	var def core.ActionDef
+	for _, a := range Module().Manifest().Actions {
+		if a.Spec.Name == "npm.instance.deploy-public" && a.Spec.Version == 2 {
+			def = a
+		}
+	}
+	steps, err := def.Handler.Steps(context.Background(), core.Env{}, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := steps[len(steps)-1]
+	var got any
+	if err := json.Unmarshal(last.Input, &got); err != nil {
+		t.Fatal(err)
+	}
+	if last.ID != "ports" || !reflect.DeepEqual(got, want) {
+		t.Errorf("step %s sends %s, want the fixture %s", last.ID, last.Input, raw)
 	}
 }
