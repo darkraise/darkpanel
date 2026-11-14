@@ -371,7 +371,11 @@ func relayFlow(s *flowSet, label string, so netstat.Socket, cmdlines map[int]cmd
 		}
 		return
 	}
-	s.add(flow{label: label, unknown: fmt.Sprintf("the listener on %s is held by %s, not docker-proxy", so.Local, strings.Join(comms, ", "))})
+	holder := "no process the agent can see"
+	if len(comms) > 0 {
+		holder = strings.Join(comms, ", ")
+	}
+	s.add(flow{label: label, unknown: fmt.Sprintf("the listener on %s is held by %s, not docker-proxy", so.Local, holder)})
 }
 
 // relayTarget reads the container address and port of a docker-proxy

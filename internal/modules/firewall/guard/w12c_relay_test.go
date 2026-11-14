@@ -69,6 +69,8 @@ func TestW12cRelayGuard(t *testing.T) {
 			nil, []string{w12cOtherPort}, false, "docker-proxy (pid 900) names no container address and port"},
 		{"a listener held by another process only is unknown", []netstat.Process{{PID: 800, Comm: "dockerd"}}, nil, nil,
 			nil, []string{w12cOtherPort}, false, "the listener on [::]:443 is held by dockerd, not docker-proxy"},
+		{"a listener with no visible holder is unknown", nil, nil, nil,
+			nil, []string{w12cOtherPort}, false, "the listener on [::]:443 is held by no process the agent can see, not docker-proxy"},
 		{"a docker-proxy beside dockerd is read", []netstat.Process{{PID: 800, Comm: "dockerd"}, {PID: 900, Comm: "docker-proxy"}}, map[int][]string{900: w12cProxyArgs("172.17.0.2", "443")}, nil,
 			nil, []string{w12cCutRelay}, false, w12cRelayLabel},
 	} {
@@ -96,6 +98,13 @@ func TestW12cRelayFlowsOnlyWhereTheyApply(t *testing.T) {
 	relay := func(args []string) facts {
 		return facts{ifaces: gIfaces(), controller: 4242, sockets: []netstat.Socket{sock}, cmdlines: map[int]cmdline{900: {args: args}}}
 	}
+	listener := func(at string) facts {
+		f := relay(w12cProxyArgs("172.17.0.2", "443"))
+		so := sock
+		so.Local = netip.MustParseAddrPort(at)
+		f.sockets = []netstat.Socket{so}
+		return f
+	}
 	v4bind := w11b09Plan("0.0.0.0:443")
 	tunnel := &core.GuardContext{Via: &core.ProxyPath{ExposureID: "exp2", Kind: "tunnel", ProxyAddr: netip.MustParseAddr("172.30.0.3"), ListenerAddr: netip.MustParseAddrPort("172.30.0.1:8080")}, Complete: true}
 	for _, tc := range []struct {
@@ -107,6 +116,12 @@ func TestW12cRelayFlowsOnlyWhereTheyApply(t *testing.T) {
 		{"an IPv4 target on [::]", Input{Plan: w11b09Plan("[::]:443")}, relay(w12cProxyArgs("172.17.0.2", "443")), 1},
 		{"an IPv6 target", Input{Plan: w11b09Plan("[::]:443")}, relay(w12cProxyArgs("fd00::2", "443")), 0},
 		{"no listener on the binding", Input{Plan: w11b09Plan("[::]:443")}, facts{ifaces: gIfaces(), controller: 4242}, 0},
+		{"a listener on another port", Input{Plan: w11b09Plan("[::]:443")}, listener("[::]:8443"), 0},
+		{"a listener at another address than [::]", Input{Plan: w11b09Plan("[::]:443")}, listener("[2001:db8::9]:443"), 0},
+		{"a binding at an address served by its own listener", Input{Plan: w11b09Plan("[2001:db8::9]:443")}, listener("[2001:db8::9]:443"), 1},
+		{"a binding at an address served by [::]", Input{Plan: w11b09Plan("[2001:db8::9]:443")}, listener("[::]:443"), 1},
+		{"a binding at an address with another address's listener", Input{Plan: w11b09Plan("[2001:db8::9]:443")}, listener("[2001:db8::8]:443"), 0},
+		{"an IPv4-mapped binding", Input{Plan: w11b09Plan("[::ffff:198.51.100.7]:443")}, listener("[::ffff:198.51.100.7]:443"), 0},
 		{"an IPv4 binding", Input{Plan: v4bind}, relay(w12cProxyArgs("172.17.0.2", "443")), 0},
 		{"no exposure", Input{Plan: &core.GuardContext{Complete: true}}, relay(w12cProxyArgs("172.17.0.2", "443")), 0},
 		{"a tunnel exposure", Input{Plan: tunnel}, relay(w12cProxyArgs("172.17.0.2", "443")), 0},
@@ -123,6 +138,18 @@ func TestW12cRelayFlowsOnlyWhereTheyApply(t *testing.T) {
 				t.Errorf("relay flow %+v, want %q, output, source left to routing, compared", got[0], w12cRelayLabel)
 			}
 		})
+	}
+}
+
+// TestW12cRelayFlowWithoutCmdlines: a host that cannot read command lines
+// at all gives an unknown relay flow, never none.
+func TestW12cRelayFlowWithoutCmdlines(t *testing.T) {
+	sock := netstat.Socket{Proto: netstat.ProtoTCP, Family: netstat.IPv6, State: netstat.StateListen, Local: netip.MustParseAddrPort("[::]:443"),
+		Processes: []netstat.Process{{PID: 900, Comm: "docker-proxy"}}}
+	got := w12cRelayFlows(Input{Plan: w11b09Plan("[::]:443")}, facts{ifaces: gIfaces(), controller: 4242, sockets: []netstat.Socket{sock}})
+	want := "the command line of docker-proxy (pid 900) cannot be read: " + errNoCmdline.Error()
+	if len(got) != 1 || got[0].unknown != want {
+		t.Errorf("relay flows %+v, want one unknown flow %q", got, want)
 	}
 }
 
