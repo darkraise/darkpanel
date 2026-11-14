@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -106,7 +107,7 @@ func TestA1_ANameWithoutAnAnswerRefusesTheJoinBeforeAnyConnect(t *testing.T) {
 			n := h.nm()
 			n.d.resolve = qaNoAnswer
 			err := qaApplyAttach(t, n, h, "c1", qaAttachInput(h, static))
-			nwRefused(t, err, errcode.NPMReserved)
+			_ = nwRefused(t, err, errcode.NPMReserved)
 			if got := nwCalls(h, "ConnectNetwork"); got != 0 {
 				t.Errorf("the refused attach made %d ConnectNetwork calls, want none", got)
 			}
@@ -466,15 +467,6 @@ func qaOnce(calls []string, f func()) func(string) {
 	}
 }
 
-func qaOnNetwork(t *testing.T, h *thHost, network string) bool {
-	t.Helper()
-	c, ok := h.docker.container(containerName)
-	if !ok {
-		t.Fatal("the NPM container is missing")
-	}
-	return c.NetworkSettings.Networks[network] != nil
-}
-
 // qaDone runs the upgrade of c1 to the end and returns its journaled effect.
 func qaDone(t *testing.T, s *upSetup) core.Effect {
 	t.Helper()
@@ -586,7 +578,7 @@ func TestA4_TheUndoOfAFinishedUpgradeIsCheckedAgainstTheForwards(t *testing.T) {
 		s.n.d.api = func(ctx context.Context, env core.Env) (npmAPI, error) { note(); return api(ctx, env) }
 		s.n.d.anon = func() npmAPI { note(); return anon() }
 		pulls := s.dock.counts["PullImage"]
-		nwRefused(t, s.undo(e), errcode.NPMReserved)
+		_ = nwRefused(t, s.undo(e), errcode.NPMReserved)
 		if pulledAtFirstUse < 0 {
 			t.Fatal("the undo never asked NPM's API about the forwards")
 		}
@@ -628,7 +620,7 @@ func TestA4_TheUndoOfAFinishedUpgradeIsCheckedAgainstTheForwards(t *testing.T) {
 		e := qaDone(t, s)
 		qaListFails(s.h, 12)
 		removes := tl.count("RemoveContainer")
-		nwRefused(t, s.undo(e), errcode.NPMUnhealthy)
+		_ = nwRefused(t, s.undo(e), errcode.NPMUnhealthy)
 		if tl.count("RemoveContainer") != removes {
 			t.Error("the refused undo removed a container")
 		}
@@ -659,7 +651,7 @@ func TestA4a_ARetriedUndoUsesTheRecordedTargetList(t *testing.T) {
 		if err := s.h.docker.RemoveContainer(ctx, "db", dockerapi.RemoveContainerOptions{Force: true}); err != nil {
 			t.Fatal(err)
 		}
-		nwRefused(t, s.undo(e), errcode.NPMReserved)
+		_ = nwRefused(t, s.undo(e), errcode.NPMReserved)
 		if _, ok := s.h.docker.container(containerName); ok {
 			t.Error("the refused retry created the original container")
 		}
@@ -738,7 +730,7 @@ func TestA6_AHolderStoppedDuringThePullRefusesTheUpgradeAtTheLateCheck(t *testin
 		qaRelease(t, s.h, "db")
 	})
 	_, err := s.apply()
-	nwRefused(t, err, errcode.NPMReserved)
+	_ = nwRefused(t, err, errcode.NPMReserved)
 	if s.dock.counts["PullImage"] == 0 {
 		t.Fatal("the upgrade never pulled the image, so the holder was never stopped")
 	}
@@ -1052,17 +1044,22 @@ func TestA12_EveryFixHasItsNamedRegressionTest(t *testing.T) {
 	}
 	for dir, names := range want {
 		fset := token.NewFileSet()
-		pkgs, err := parser.ParseDir(fset, dir, func(fi os.FileInfo) bool { return strings.HasSuffix(fi.Name(), "_test.go") }, 0)
+		entries, err := os.ReadDir(dir)
 		if err != nil {
 			t.Fatal(err)
 		}
 		declared := map[string]bool{}
-		for _, pkg := range pkgs {
-			for _, f := range pkg.Files {
-				for _, d := range f.Decls {
-					if fn, ok := d.(*ast.FuncDecl); ok && fn.Recv == nil {
-						declared[fn.Name.Name] = true
-					}
+		for _, entry := range entries {
+			if !strings.HasSuffix(entry.Name(), "_test.go") {
+				continue
+			}
+			f, err := parser.ParseFile(fset, filepath.Join(dir, entry.Name()), nil, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, d := range f.Decls {
+				if fn, ok := d.(*ast.FuncDecl); ok && fn.Recv == nil {
+					declared[fn.Name.Name] = true
 				}
 			}
 		}
