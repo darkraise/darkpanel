@@ -327,17 +327,39 @@ up to 120 seconds for its API. It keeps the three newest sets of archives, and
 any set that an unfinished upgrade still needs. A volume whose archive would
 exceed 256 MiB makes the upgrade fail.
 
-Before it stops anything, at plan and again at apply, the upgrade reads NPM's
-proxy hosts. It refuses with `npm.reserved` while a proxy host or custom
-location forwards to an address the new container could take on one of NPM's
-networks, and with `npm.unhealthy` when NPM's API cannot list the proxy hosts:
-start a stopped instance before you upgrade it.
+Before it stops anything, the upgrade reads NPM's proxy hosts: at plan, and at
+apply both before and after it pulls the image. It refuses with `npm.reserved`
+while a proxy host or custom location forwards to an address the new container
+could take on one of NPM's networks, and with `npm.unhealthy` when NPM's API
+cannot list the proxy hosts: start a stopped instance before you upgrade it. The
+upgrade records the forward targets it read after the pull.
+
+Every time the upgrade, its rollback, a recovery or an undo starts NPM's
+container, it compares the addresses the container took with those targets,
+resolving the forwarded names again. A container that holds a forwarded address
+is taken off that network. For the new container this fails the upgrade with `npm.reserved`
+and rolls it back; a restored original stays up without that network, and the
+upgrade's result names it. A hit on `darkpanel-npm`, which NPM must not leave,
+fails the start, and a hit that cannot be disconnected stops the container.
 
 If a step fails, the upgrade restores the original container and volumes from
 the archives. When the new container's API does not answer in time, the change
 fails with `npm.unhealthy`. A cut-off upgrade is rolled back when the agent
-starts again. `darkpanel change undo <id>` restores a finished upgrade,
-provided the archives still match the checksums recorded for them.
+starts again.
+
+`darkpanel change undo <id>` restores a finished upgrade. Before it changes
+anything it checks that the archives still match the checksums recorded for
+them, makes the original image available, and checks the forward targets as an
+upgrade does. It refuses with `npm.reserved` while the original could take a
+forwarded address, with `not_found` when a network the original was on no longer
+exists, and with `npm.unhealthy` when NPM's API cannot list the proxy hosts. A
+refused undo changes nothing, and NPM keeps running the upgraded container. When
+an undo was cut off after it removed the upgraded container, NPM's API is down,
+so a retry checks the targets the upgrade recorded instead. An upgrade made
+before this release recorded none: its retry checks the restored original's
+addresses once its API answers, and if the API does not answer within 120
+seconds the original stays running and the undo fails with its addresses
+unverified.
 
 ### Changes that become unresolved
 
@@ -381,9 +403,9 @@ an object of those names lacks the module's label.
 |---|---|---|
 | `npm.not_public` | The instance is not deployed, or is not confirmed public: the confirmation is missing, and the Docker integration does not allow ports 80 and 443 from any source. | Open the ports, check them from outside, then run `npm instance confirm-public`. |
 | `npm.unsupported_target` | The container is not on a user-defined bridge network that you named. | Connect the container to a user-defined network, then plan again. |
-| `npm.reserved` | The change would touch an object that the admin or panel exposure owns, or point a proxy host at the local host, NPM's admin port or the panel network. `npm instance remove` gives the same code while an exposure reserves objects. Attaching NPM to a network, undoing a detach, and upgrading NPM give it while a proxy host or custom location forwards to an address NPM could take on that network; the message names the proxy host. | Change the object through its exposure, or remove the exposure first. For an attach, an undone detach or an upgrade, point the proxy host the message names at another address, or remove it. |
+| `npm.reserved` | The change would touch an object that the admin or panel exposure owns, or point a proxy host at the local host, NPM's admin port or the panel network. `npm instance remove` gives the same code while an exposure reserves objects. Attaching NPM to a network, undoing a detach, upgrading NPM and undoing an upgrade give it while a proxy host or custom location forwards to an address NPM could take on that network, and an upgrade gives it when its new container took such an address, as does a rollback or an undo whose restored original took one on `darkpanel-npm`; the message names the proxy host. Attaching NPM and undoing a detach also give it when nginx cannot be reloaded before or after the join: nginx's configuration test failed, or NPM did not answer the reload. That message names no proxy host. | Change the object through its exposure, or remove the exposure first. For an attach, an undone detach, an upgrade or its undo, point the proxy host the message names at another address, or remove it. When nginx could not be reloaded, fix or remove the custom location whose forward host no longer resolves, which fails nginx's configuration test, or start NPM if it does not answer, then retry. |
 | `npm.setup_failed` | The administrator could not be created: NPM did not answer within 120 seconds, already had an administrator, refused or failed the creation, gave no answer to it, or did not accept the new administrator's login, or the change was cancelled first. When the message says the deploy removed what it created, the deploy could not show that NPM's administrator is its own. | If the message says the deploy removed what it created, do not undo: deploy again, as the Deploy section says. If it says the deploy could not remove what it created, do not undo either: remove the Docker container, volumes and network whose names start with darkpanel-npm, then deploy again, as the Deploy section says. Otherwise run `darkpanel change undo <id>`, which removes the container, both volumes and the network, then deploy again. |
-| `npm.unhealthy` | The instance does not answer as expected. Among other causes: its container is missing or stopped, its API is unreachable, NPM refused the stored administrator's login, an upgrade's new container did not answer, or NPM's API could not list the proxy hosts that an attach, an undone detach or an upgrade checks first. | Read the message. Run `npm instance status`, start the container with the docker module if it stopped, and for a failed upgrade check that the original was restored. |
+| `npm.unhealthy` | The instance does not answer as expected. Among other causes: its container is missing or stopped, its API is unreachable, NPM refused the stored administrator's login, an upgrade's new container did not answer, or NPM's API could not list the proxy hosts that an attach, an undone detach, an upgrade or the undo of a finished upgrade checks first. | Read the message. Run `npm instance status`, start the container with the docker module if it stopped, and for a failed upgrade check that the original was restored. For a refused upgrade or undo, start NPM and retry, or remove and redeploy the instance. |
 | `derp.port_in_use` | A program listens on port 80 or 443, or a DERP server is installed on the host. | Stop the program, remove the DERP server, or use another host. |
 | `module.unavailable` | The host runs Docker older than 28.0, or the raw-table protection is not loaded. | Update Docker or load its protection, then plan again. |
 | `docker.in_use` | A Docker object of the module's names exists before a deploy, or another container uses the network or a volume you remove. | Remove or rename the object, or disconnect the container the message names. |
