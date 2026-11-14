@@ -18,6 +18,7 @@ import (
 	"net/http/cookiejar"
 	"net/netip"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -437,6 +438,45 @@ func m6pListening(out, addr string) bool {
 	return false
 }
 
+// m6pRelayNetwork is the Docker network on which the userland proxy is
+// expected to reach NPM's container.
+const m6pRelayNetwork = "darkpanel-npm"
+
+// m6pRelayTarget reads the container address and port that a space-joined
+// docker-proxy command line relays to.
+func m6pRelayTarget(cmdline string) (netip.AddrPort, bool) {
+	var addr, port string
+	words := strings.Fields(cmdline)
+	for i := 0; i+1 < len(words); i++ {
+		switch words[i] {
+		case "-container-ip":
+			addr = words[i+1]
+		case "-container-port":
+			port = words[i+1]
+		}
+	}
+	a, err := netip.ParseAddr(addr)
+	if err != nil {
+		return netip.AddrPort{}, false
+	}
+	p, err := strconv.ParseUint(port, 10, 16)
+	if err != nil || p == 0 {
+		return netip.AddrPort{}, false
+	}
+	return netip.AddrPortFrom(a, uint16(p)), true
+}
+
+// m6pNPMAddr reads the IPv4 address of NPM's container on m6pRelayNetwork.
+func m6pNPMAddr(ctx context.Context, t *testing.T, f *fleet) netip.Addr {
+	t.Helper()
+	out := strings.TrimSpace(m3Run(ctx, t, f.controller, "sudo docker inspect -f '{{(index .NetworkSettings.Networks \""+m6pRelayNetwork+"\").IPAddress}}' darkpanel-npm"))
+	a, err := netip.ParseAddr(out)
+	if err != nil {
+		t.Fatalf("harness: NPM's address on network %s is %q: %v", m6pRelayNetwork, out, err)
+	}
+	return a
+}
+
 // m6pIPv6HTTPSRule adds, or deletes, a ufw rule that admits HTTPS from every
 // IPv6 source. NPM's networks are IPv4 only, so Docker's userland proxy serves
 // its published port on [::]:443 as a socket of the host: an IPv6 client goes
@@ -715,6 +755,7 @@ func TestM6Panel(t *testing.T) {
 		{"verify", true, r.verify},
 		{"prepare", true, r.n.prepare},
 		{"deploy", true, r.n.deploy},
+		{"relay-probe", false, r.relayProbe},
 		{"harness-settings", true, r.harnessSettings},
 		{"public", true, r.public},
 		{"expose", true, r.expose},
@@ -788,6 +829,62 @@ func (r *m6pRun) verify(t *testing.T) {
 	if out, err := f.controller.Run(r.ctx, "sudo test -f "+m3Quote(paths.Production().AgentDB())); err != nil {
 		t.Errorf("the local agent's database is not at %s: %v\n%s", paths.Production().AgentDB(), err, out)
 	}
+}
+
+// m6pPIDPattern matches a process id in the users field of ss -p.
+var m6pPIDPattern = regexp.MustCompile(`pid=(\d+)`)
+
+// relayProbe reads, on the controller's host, which process holds NPM's
+// published port 443 and where it relays to: the lockout guard's relay flow
+// rests on docker-proxy naming NPM's container address on its command line.
+// It passes when a docker-proxy holder of a wildcard IPv6 listener relays to
+// NPM's address on m6pRelayNetwork; its failure message names the outcome.
+func (r *m6pRun) relayProbe(t *testing.T) {
+	f := r.f
+	listeners := m3Run(r.ctx, t, f.controller, "sudo ss -H -ltnp 'sport = :443'")
+	t.Logf("listeners on port 443:\n%s", listeners)
+	type holder struct {
+		listen, pid, comm, cmdline string
+	}
+	var holders []holder
+	for _, line := range strings.Split(listeners, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+		for _, m := range m6pPIDPattern.FindAllStringSubmatch(line, -1) {
+			pid := m[1]
+			comm := strings.TrimSpace(m3Run(r.ctx, t, f.controller, "sudo cat /proc/"+pid+"/comm"))
+			cmdline := strings.TrimSpace(m3Run(r.ctx, t, f.controller, "sudo tr '\\0' ' ' < /proc/"+pid+"/cmdline"))
+			t.Logf("holder of %s: pid %s, comm %s, command line %q", fields[3], pid, comm, cmdline)
+			holders = append(holders, holder{listen: fields[3], pid: pid, comm: comm, cmdline: cmdline})
+		}
+	}
+	t.Logf("NPM's networks: %s", m3Run(r.ctx, t, f.controller, "sudo docker inspect -f '{{json .NetworkSettings.Networks}}' darkpanel-npm"))
+	npmAddr := m6pNPMAddr(r.ctx, t, f)
+	want := netip.AddrPortFrom(npmAddr, 443)
+	var other []string
+	for _, h := range holders {
+		if h.comm != "docker-proxy" {
+			continue
+		}
+		target, ok := m6pRelayTarget(h.cmdline)
+		if !ok {
+			continue
+		}
+		host := h.listen[:max(strings.LastIndex(h.listen, ":"), 0)]
+		if target == want && (host == "[::]" || host == "*") {
+			t.Logf("docker-proxy (pid %s) on %s relays to NPM at %s", h.pid, h.listen, target)
+			return
+		}
+		if target.Addr().Is4() && target.Addr() != npmAddr {
+			other = append(other, target.String())
+		}
+	}
+	if len(other) > 0 {
+		t.Fatalf("harness: outcome other-network %s: NPM's address on %s is %s; holders %+v", strings.Join(other, ", "), m6pRelayNetwork, npmAddr, holders)
+	}
+	t.Fatalf("harness: outcome no-relay: no docker-proxy holder of a wildcard IPv6 listener on port 443 relays to %s; holders %+v", want, holders)
 }
 
 // harnessSettings is m6nRun.harnessSettings on the controller's host, then

@@ -467,3 +467,29 @@ func TestM6pUnitULAAdmits(t *testing.T) {
 		t.Error("m6pULAAdmits accepted an allow of port 80")
 	}
 }
+
+func TestM6pRelayTargetUnit(t *testing.T) {
+	for _, tc := range []struct {
+		name, cmdline string
+		want          string // "" when no target is read
+	}{
+		{"docker 28 form", "/usr/bin/docker-proxy -proto tcp -host-ip :: -host-port 443 -container-ip 172.18.0.2 -container-port 443 -use-listen-fd", "172.18.0.2:443"},
+		{"no listen fd", "/usr/bin/docker-proxy -proto tcp -host-ip 0.0.0.0 -host-port 80 -container-ip 172.18.0.2 -container-port 80", "172.18.0.2:80"},
+		{"an IPv6 target", "/usr/bin/docker-proxy -proto tcp -host-ip :: -host-port 443 -container-ip fd00::2 -container-port 443", "[fd00::2]:443"},
+		{"no container port", "/usr/bin/docker-proxy -proto tcp -container-ip 172.18.0.2", ""},
+		{"no container address", "/usr/bin/docker-proxy -proto tcp -container-port 443", ""},
+		{"a bad address", "/usr/bin/docker-proxy -container-ip nope -container-port 443", ""},
+		{"a bad port", "/usr/bin/docker-proxy -container-ip 172.18.0.2 -container-port 70000", ""},
+		{"empty", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := m6pRelayTarget(tc.cmdline)
+			switch {
+			case tc.want == "" && ok:
+				t.Errorf("m6pRelayTarget(%q) = %s, want none", tc.cmdline, got)
+			case tc.want != "" && (!ok || got.String() != tc.want):
+				t.Errorf("m6pRelayTarget(%q) = %s, %v, want %s", tc.cmdline, got, ok, tc.want)
+			}
+		})
+	}
+}
