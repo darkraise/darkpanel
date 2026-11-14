@@ -68,6 +68,10 @@ The accepted `forward host` residual risk (D7); the hidden tailnet client of D5;
 
 - Placeholders: none; each file and symbol was read this session or by the critic.
 - Contradictions: none after the critic's round; D3 no longer touches locks.
+- Ambiguity: A1 to A3 say when the reload runs and what an unconfirmed one does; A4 and A5 split the undo of a finished upgrade from rollback and recovery; A6 names the late check's failure path.
+- Scope: six fixes in three modules plus the threat model; no migration (D1 holds no record after U1).
+- Acceptance: A13 is `demo` because no script reads the threat model; A9 is high after the owner's U3 answer; the NPM template question (whether a proxy host's own forward host is resolved per request, so only custom locations hold stale addresses) is settled: Darkpanel writes every forward into a "/" custom location with a static `proxy_pass` (R1); the plan's NPM task re-reads the templates, `nginx.js` and `ip_ranges.js` inside the pinned image, since Fable read upstream v2.16.0, and checks whether nginx fails to start while a static location's name has no answer (Fable F13; if so, `forwardCheck` refuses the upgrade up front).
+- Riskiest assumption: the one above; the plan verifies it first.
 
 ## Self-review (round 2, after the owner's answers)
 
@@ -77,10 +81,6 @@ The accepted `forward host` residual risk (D7); the hidden tailnet client of D5;
 - Scope: D3 grew to cover `restore`, `resume` and `recoverOriginal`; the migration is gone.
 - Acceptance: A6a and A6b added; A9 raised to high; A12's test names follow D1 and D3.
 - Riskiest assumption: unchanged for D4; D1 adds a second unknown (the reload call), checked in the plan's NPM task.
-- Ambiguity: A1 to A3 say when the reload runs and what an unconfirmed one does; A4 and A5 split the undo of a finished upgrade from rollback and recovery; A6 names the late check's failure path.
-- Scope: six fixes in three modules plus the threat model; no migration (D1 holds no record after U1).
-- Acceptance: A13 is `demo` because no script reads the threat model; A9 is high after the owner's U3 answer; the NPM template question (whether a proxy host's own forward host is resolved per request, so only custom locations hold stale addresses) is settled: Darkpanel writes every forward into a "/" custom location with a static `proxy_pass` (R1); the plan's NPM task re-reads the templates, `nginx.js` and `ip_ranges.js` inside the pinned image, since Fable read upstream v2.16.0, and checks whether nginx fails to start while a static location's name has no answer (Fable F13; if so, `forwardCheck` refuses the upgrade up front).
-- Riskiest assumption: the one above; the plan verifies it first.
 
 ## Critic findings
 
