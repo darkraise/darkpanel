@@ -22,7 +22,10 @@ type Iface struct {
 	Loopback bool
 	Tailnet  bool // tailscale0
 	Bridge   bool // a Docker bridge
-	Addrs    []netip.Addr
+	// BridgePort is an interface enslaved to a bridge, such as a container's
+	// veth: the IP layer sees its packets arrive on the bridge, never on it.
+	BridgePort bool
+	Addrs      []netip.Addr
 }
 
 // Class is one source class a port can be reached from.

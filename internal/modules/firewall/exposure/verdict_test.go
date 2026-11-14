@@ -186,6 +186,14 @@ func TestExEvaluate(t *testing.T) {
 			},
 		},
 		{
+			name: "a container's veth is no way in", lines: "-A ufw-user-input -i eth0 -p tcp -m tcp --dport 22 -j ACCEPT\n",
+			edit: func(in *Input) {
+				in.Ifaces = append(in.Ifaces, Iface{Name: "veth1a2b3c", Up: true, BridgePort: true})
+			},
+			target: Target{Proto: "tcp", Addr: netip.MustParseAddr("192.0.2.10"), Port: 22},
+			want:   exWant("open", "tailnet", "filtered"),
+		},
+		{
 			name: "allowed on one of two interfaces", lines: "-A ufw-user-input -i eth1 -p tcp -m tcp --dport 22 -j ACCEPT\n",
 			edit: func(in *Input) {
 				in.Ifaces = append(in.Ifaces, Iface{Name: "eth1", Up: true, Addrs: []netip.Addr{netip.MustParseAddr("198.51.100.7")}})

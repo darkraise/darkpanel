@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -465,5 +466,37 @@ func TestW11b01RoutesRetriesAnInterruptedDump(t *testing.T) {
 	})
 	if !errors.Is(err, errDumpInterrupted) || calls != 3 || !strings.Contains(err.Error(), "netstat: route dump:") {
 		t.Fatalf("routesFrom = %v after %d calls, want the wrapped interruption after 3", err, calls)
+	}
+}
+
+// TestInterfacesBridgePort: an interface whose sysfs directory holds brport
+// is a bridge port; one without it is not.
+func TestInterfacesBridgePort(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		brport bool
+	}{{"an enslaved interface", true}, {"a free interface", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if tc.brport {
+				if err := os.MkdirAll(filepath.Join(dir, "lo", "brport"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			old := sysClassNet
+			sysClassNet = dir
+			t.Cleanup(func() { sysClassNet = old })
+			ifs, err := Interfaces()
+			if err != nil {
+				t.Fatal(err)
+			}
+			i := slices.IndexFunc(ifs, func(i Interface) bool { return i.Name == "lo" })
+			if i < 0 {
+				t.Skip("no lo interface on this host")
+			}
+			if ifs[i].BridgePort != tc.brport {
+				t.Errorf("lo BridgePort = %v, want %v", ifs[i].BridgePort, tc.brport)
+			}
+		})
 	}
 }

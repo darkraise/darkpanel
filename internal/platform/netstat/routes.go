@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -16,6 +17,9 @@ import (
 // ErrNoRoute is a lookup the kernel answers with an unreachable,
 // prohibited or missing route.
 var ErrNoRoute = errors.New("netstat: no route")
+
+// sysClassNet is where the kernel lists the interfaces in sysfs.
+var sysClassNet = "/sys/class/net"
 
 // The route protocols (RTPROT_*) callers test for.
 const (
@@ -204,7 +208,9 @@ type Interface struct {
 	Up       bool // administratively up (IFF_UP)
 	Running  bool // operationally up (IFF_RUNNING)
 	Loopback bool
-	Addrs    []netip.Prefix
+	// BridgePort is set for an interface enslaved to a bridge (sysfs brport).
+	BridgePort bool
+	Addrs      []netip.Prefix
 }
 
 // Interfaces lists the host's interfaces. The standard library reads them
@@ -226,6 +232,9 @@ func Interfaces() ([]Interface, error) {
 			Up:       ifc.Flags&net.FlagUp != 0,
 			Running:  ifc.Flags&net.FlagRunning != 0,
 			Loopback: ifc.Flags&net.FlagLoopback != 0,
+		}
+		if _, err := os.Stat(filepath.Join(sysClassNet, ifc.Name, "brport")); err == nil {
+			i.BridgePort = true
 		}
 		for _, a := range addrs {
 			ipn, ok := a.(*net.IPNet)

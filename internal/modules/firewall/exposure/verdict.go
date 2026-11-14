@@ -332,7 +332,7 @@ func (r *evRun) points(c Class) []evPoint {
 			if !i.Tailnet {
 				continue
 			}
-		} else if i.Loopback || i.Tailnet || i.Bridge {
+		} else if i.Loopback || i.Tailnet || i.Bridge || i.BridgePort {
 			continue
 		}
 		if concrete {

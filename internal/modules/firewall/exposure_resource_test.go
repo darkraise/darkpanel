@@ -520,3 +520,15 @@ func TestXvViewJSON(t *testing.T) {
 		t.Errorf("host with a row: %s, want classes listed and no null", got)
 	}
 }
+
+// TestW12dEvalIfacesKeepBridgePorts: the exposure input marks a container's
+// veth as a bridge port, so the view never probes it as a way in.
+func TestW12dEvalIfacesKeepBridgePorts(t *testing.T) {
+	got := xvEvalIfaces([]netstat.Interface{
+		{Name: "eth0", Up: true},
+		{Name: "veth1a2b3c", Up: true, BridgePort: true},
+	}, nil)
+	if len(got) != 2 || got[0].BridgePort || !got[1].BridgePort {
+		t.Errorf("xvEvalIfaces = %+v, want only veth1a2b3c a bridge port", got)
+	}
+}

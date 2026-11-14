@@ -251,7 +251,7 @@ func xvEvalIfaces(ifaces []netstat.Interface, nets []dockerfw.Network) []exposur
 	}
 	out := make([]exposure.Iface, 0, len(ifaces))
 	for _, i := range ifaces {
-		e := exposure.Iface{Name: i.Name, Up: i.Up, Loopback: i.Loopback, Tailnet: i.Name == "tailscale0", Bridge: bridges[i.Name]}
+		e := exposure.Iface{Name: i.Name, Up: i.Up, Loopback: i.Loopback, Tailnet: i.Name == "tailscale0", Bridge: bridges[i.Name], BridgePort: i.BridgePort}
 		for _, p := range i.Addrs {
 			if a := p.Addr().Unmap(); !a.IsLinkLocalUnicast() {
 				e.Addrs = append(e.Addrs, a)
