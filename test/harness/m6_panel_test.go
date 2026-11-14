@@ -1042,6 +1042,17 @@ func (r *m6pRun) ipv6ClientGuard(t *testing.T) {
 	const jar = "/tmp/m6p-ula.jar"
 	m3dAddSource(r.ctx, t, f.scanner, netip.MustParsePrefix(m6pULAScanner+"/64"), m3dTrafficIface)
 	m3dAddSource(r.ctx, t, f.controller, netip.MustParsePrefix(m6pULATarget+"/64"), m3dTrafficIface)
+	var fs struct {
+		Configured struct {
+			IPv6 bool `json:"ipv6"`
+		} `json:"configured"`
+	}
+	if err := f.api.Resource(r.ctx, f.localID, "firewall.status", &fs); err != nil {
+		t.Fatal(err)
+	}
+	if !fs.Configured.IPv6 {
+		t.Fatal("harness: UFW's IPv6 setting is off on the controller host, so the deploy added no 443/v6 rule for this step to delete")
+	}
 	ch, err := f.api.m3Apply(r.ctx, f.localID, "firewall.rules.apply", firewall.RulesApplyInput{Delete: []string{npm.PortRule443V6}}, 300)
 	m3RequirePending(t, ch, err)
 	if _, err := f.api.m3dDockConfirm(r.ctx, ch.ID); err != nil {
@@ -1059,7 +1070,7 @@ func (r *m6pRun) ipv6ClientGuard(t *testing.T) {
 			_, err = f.api.m3dDockConfirm(ctx, ch.ID)
 		}
 		if err != nil {
-			t.Logf("harness: add the deploy's 443/v6 rule back: %v", err)
+			t.Errorf("harness: add the deploy's 443/v6 rule back: %v", err)
 		}
 	})
 	send := func(path string, cookies []string, header []string, body any) (string, string) {
