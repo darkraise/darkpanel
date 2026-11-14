@@ -1,6 +1,7 @@
 package fake
 
 import (
+	"encoding/json"
 	"net/http"
 	"reflect"
 	"strings"
@@ -60,7 +61,10 @@ func TestFkProxyHostKeepsWhatItWasGiven(t *testing.T) {
 	want := npmapi.ProxyHost{
 		ID: created.ID, CreatedOn: created.CreatedOn, ModifiedOn: created.ModifiedOn, DomainNames: body.DomainNames, ForwardScheme: "https", ForwardHost: "web",
 		ForwardPort: 8443, CertificateID: 7, AccessListID: 3, SSLForced: true, HSTSEnabled: true, AllowWebsocketUpgrade: true,
-		Locations: body.Locations, AdvancedConfig: "client_max_body_size 1m;",
+		Locations: body.Locations, AdvancedConfig: "client_max_body_size 1m;", Enabled: true, Meta: created.Meta,
+	}
+	if created.Meta.NginxOnline == nil || !*created.Meta.NginxOnline || created.Meta.NginxErr != nil {
+		t.Errorf("created meta %+v, want nginx online with no error", created.Meta)
 	}
 	if !reflect.DeepEqual(created, want) {
 		t.Errorf("created %+v, want %+v", created, want)
@@ -262,5 +266,43 @@ func TestFkStampsObjectsWithItsClock(t *testing.T) {
 	cert, err := c.CreateCertificate(ctx, npmapi.CertificateBody{DomainNames: []string{"a.example.com"}})
 	if err != nil || cert.CreatedOn != second || cert.ExpiresOn != "2027-01-31T10:01:00.123Z" {
 		t.Errorf("certificate created at %q, expiring %q (%v), want %q and 2027-01-31T10:01:00.123Z", cert.CreatedOn, cert.ExpiresOn, err, second)
+	}
+}
+
+func TestW12eNginxOnlineAndEnabled(t *testing.T) {
+	s := New(t)
+	c, _ := fkLogin(t, s)
+	ctx := t.Context()
+	a, err := c.CreateProxyHost(ctx, fkHost("a.example.com"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bool(a.Enabled) || a.Meta.NginxOnline == nil || !*a.Meta.NginxOnline {
+		t.Errorf("created %+v, want enabled and nginx online", a)
+	}
+	s.SetNginxOnline(false, `host not found in upstream "up.invalid"`)
+	b, err := c.UpdateProxyHost(ctx, a.ID, fkHost("a.example.com"))
+	if err != nil {
+		t.Fatalf("an update whose nginx test fails is still a success: %v", err)
+	}
+	if b.Meta.NginxOnline == nil || *b.Meta.NginxOnline || b.Meta.NginxErr == nil || *b.Meta.NginxErr != `host not found in upstream "up.invalid"` {
+		t.Errorf("updated %+v, want nginx offline with the reason", b.Meta)
+	}
+	s.DisableProxyHost(a.ID)
+	hosts, err := c.ProxyHosts(ctx)
+	if err != nil || len(hosts) != 1 || bool(hosts[0].Enabled) {
+		t.Errorf("hosts %+v, error %v; want the one host disabled", hosts, err)
+	}
+	for _, tc := range []struct {
+		raw  string
+		want bool
+	}{{`{"enabled":true}`, true}, {`{"enabled":false}`, false}, {`{"enabled":1}`, true}, {`{"enabled":0}`, false}} {
+		var h npmapi.ProxyHost
+		if err := json.Unmarshal([]byte(tc.raw), &h); err != nil || bool(h.Enabled) != tc.want {
+			t.Errorf("%s decodes to %v (error %v), want %v", tc.raw, h.Enabled, err, tc.want)
+		}
+	}
+	if raw, err := json.Marshal(npmapi.ProxyHost{Enabled: true}); err != nil || !strings.Contains(string(raw), `"enabled":true`) {
+		t.Errorf("encoded %s (error %v), want enabled as a boolean", raw, err)
 	}
 }

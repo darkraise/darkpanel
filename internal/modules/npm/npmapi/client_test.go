@@ -100,6 +100,7 @@ var (
 		ID: 3, CreatedOn: apCreatedOn, ModifiedOn: "2026-11-02T10:00:01.000Z", DomainNames: []string{"app.example.com"},
 		ForwardScheme: "http", ForwardHost: "web", ForwardPort: 8080, CertificateID: 4, SSLForced: true, HSTSEnabled: true,
 		Locations: []Location{{Path: "/", ForwardScheme: "http", ForwardHost: "web", ForwardPort: 8080, AdvancedConfig: apLocation}},
+		Enabled:   true,
 	}
 	apHostIn = ProxyHostBody{
 		DomainNames: []string{"app.example.com"}, ForwardScheme: "http", ForwardHost: "web", ForwardPort: 8080, CertificateID: 4,

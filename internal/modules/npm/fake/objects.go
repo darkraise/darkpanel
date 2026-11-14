@@ -79,11 +79,42 @@ func (s *Server) SeedProxyHost(h npmapi.ProxyHost) npmapi.ProxyHost {
 	h = cloneHost(h)
 	s.hostSeq++
 	h.ID = s.hostSeq
+	h.Enabled = true
 	if h.CreatedOn == "" {
 		h.CreatedOn = s.stamp(s.now())
 	}
 	s.hosts = append(s.hosts, h)
 	return cloneHost(h)
+}
+
+// SetNginxOnline sets what every later proxy-host create and update answers in meta: nginx_online, and when it is
+// false, nginx_err as errText. A new server answers nginx online with no error.
+func (s *Server) SetNginxOnline(online bool, errText string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nginxOffline, s.nginxErr = !online, errText
+}
+
+// DisableProxyHost makes the proxy host with id answer enabled false; an unknown id fails the test.
+func (s *Server) DisableProxyHost(id int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := s.hostIndex(id)
+	if i < 0 {
+		s.tb.Fatalf("fake npm: no proxy host %d to disable", id)
+	}
+	s.hosts[i].Enabled = false
+}
+
+// nginxMeta is the meta a proxy-host create or update answers; the caller holds the lock.
+func (s *Server) nginxMeta() npmapi.ProxyHostMeta {
+	online := !s.nginxOffline
+	m := npmapi.ProxyHostMeta{NginxOnline: &online}
+	if s.nginxOffline {
+		reason := s.nginxErr
+		m.NginxErr = &reason
+	}
+	return m
 }
 
 // SeedAccessList stores l under the next id, ignoring l.ID, without validation, and returns the stored copy. An empty
@@ -119,6 +150,14 @@ func (s *Server) SeedCertificate(c npmapi.Certificate) npmapi.Certificate {
 func cloneHost(h npmapi.ProxyHost) npmapi.ProxyHost {
 	h.DomainNames = slices.Clone(h.DomainNames)
 	h.Locations = slices.Clone(h.Locations)
+	if h.Meta.NginxOnline != nil {
+		online := *h.Meta.NginxOnline
+		h.Meta.NginxOnline = &online
+	}
+	if h.Meta.NginxErr != nil {
+		reason := *h.Meta.NginxErr
+		h.Meta.NginxErr = &reason
+	}
 	return h
 }
 
@@ -169,6 +208,7 @@ func (s *Server) createHost(_ *http.Request, body []byte) (int, any) {
 	now := s.stamp(s.now())
 	h := hostOf(in)
 	h.ID, h.CreatedOn, h.ModifiedOn = s.hostSeq, now, now
+	h.Enabled, h.Meta = true, s.nginxMeta()
 	s.hosts = append(s.hosts, h)
 	return http.StatusCreated, cloneHost(h)
 }
@@ -190,6 +230,7 @@ func (s *Server) updateHost(r *http.Request, body []byte) (int, any) {
 	}
 	h := hostOf(in)
 	h.ID, h.CreatedOn, h.ModifiedOn = id, s.hosts[i].CreatedOn, s.stamp(s.now())
+	h.Enabled, h.Meta = s.hosts[i].Enabled, s.nginxMeta()
 	s.hosts[i] = h
 	return http.StatusOK, cloneHost(h)
 }
