@@ -1,0 +1,68 @@
+{
+  "name": "npm.instance.deploy-public",
+  "version": 2,
+  "class": "composite",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/DeployPublicInputV2",
+    "$defs": {
+      "DeployPublicInputV2": {
+        "properties": {
+          "hostId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "acmeEmail": {
+            "type": "string",
+            "maxLength": 254,
+            "minLength": 3
+          },
+          "integration": {
+            "type": "boolean",
+            "description": "The host's Docker firewall integration is on: the ports are opened through it."
+          },
+          "firewall": {
+            "type": "boolean",
+            "description": "Darkpanel manages the host's firewall (firewall.status supported): with the integration off, the ports are opened as UFW rules."
+          },
+          "ipv6": {
+            "type": "boolean",
+            "description": "UFW's IPv6 setting (firewall.status configured.ipv6): the UFW rules admit IPv6 visitors too."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "hostId",
+          "acmeEmail",
+          "integration",
+          "firewall",
+          "ipv6"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/DeployPublicOutput",
+    "$defs": {
+      "DeployPublicOutput": {
+        "properties": {
+          "containerId": {
+            "type": "string"
+          },
+          "portsOpened": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "containerId",
+          "portsOpened"
+        ]
+      }
+    }
+  }
+}

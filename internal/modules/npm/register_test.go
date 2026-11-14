@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -24,6 +25,7 @@ import (
 // regAction is one row of the table of the actions spec 6 gives the module.
 type regAction struct {
 	name      string
+	version   int // 0 for version 1
 	class     core.Class
 	side      core.Side
 	long      bool          // LongRunning
@@ -40,6 +42,25 @@ type regAction struct {
 }
 
 func regType[T any]() reflect.Type { return reflect.TypeFor[T]() }
+
+func (a regAction) ver() int {
+	if a.version == 0 {
+		return 1
+	}
+	return a.version
+}
+
+// key is the action's name for version 1, else its name and version, as regDefs keys its definitions.
+func (a regAction) key() string {
+	return regKey(a.name, a.ver())
+}
+
+func regKey(name string, version int) string {
+	if version == 1 {
+		return name
+	}
+	return fmt.Sprintf("%s/v%d", name, version)
+}
 
 var regActions = []regAction{
 	{name: "npm.instance.deploy", class: core.ClassCompensable, side: core.SideAgent, long: true, apply: 20 * time.Minute, available: true, undoer: true, in: regType[DeployInput](), out: regType[Deployed]()},
@@ -64,6 +85,7 @@ var regActions = []regAction{
 	{name: "npm.public.check", class: core.ClassRead, side: core.SideController, internal: true, in: regType[PublicInput](), out: regType[PublicResult]()},
 	{name: "npm.instance.list", class: core.ClassRead, side: core.SideController, out: regType[InstancesOutput]()},
 	{name: "npm.instance.deploy-public", class: core.ClassComposite, side: core.SideController, unwind: core.UnwindReverse, in: regType[DeployPublicInput](), out: regType[DeployPublicOutput]()},
+	{name: "npm.instance.deploy-public", version: 2, class: core.ClassComposite, side: core.SideController, unwind: core.UnwindReverse, in: regType[DeployPublicInputV2](), out: regType[DeployPublicOutput]()},
 	{name: "npm.expose.container", class: core.ClassComposite, side: core.SideController, unwind: core.UnwindReverse, in: regType[ExposeInput](), out: regType[ExposeOutput]()},
 	{name: "npm.admin.expose", class: core.ClassComposite, side: core.SideController, unwind: core.UnwindReverse, in: regType[AdminExposeInput](), out: regType[AdminExposeOutput]()},
 	{name: "npm.expose.remove", class: core.ClassComposite, side: core.SideController, unwind: core.UnwindForward, in: regType[ExposeRemoveInput](), out: regType[ExposeRemoveOutput]()},
@@ -79,10 +101,11 @@ func regDefs(t *testing.T, m core.Module) map[string]core.ActionDef {
 	t.Helper()
 	defs := map[string]core.ActionDef{}
 	for _, a := range m.Manifest().Actions {
-		if _, dup := defs[a.Spec.Name]; dup {
-			t.Errorf("%s is declared twice", a.Spec.Name)
+		key := regKey(a.Spec.Name, a.Spec.Version)
+		if _, dup := defs[key]; dup {
+			t.Errorf("%s is declared twice", key)
 		}
-		defs[a.Spec.Name] = a
+		defs[key] = a
 	}
 	return defs
 }
@@ -100,7 +123,7 @@ func regScope(a regAction) core.Scope {
 	}
 }
 
-// TestRegManifestDeclaresTheActions: the module declares the 26 actions of the table, all version 1,
+// TestRegManifestDeclaresTheActions: the module declares the actions of the table, version 1 but for deploy-public's v2,
 // each on its side, the agent mutations under the npm lock, the composites under composite:npm and the reads under
 // none, with the class, scope, handlers, availability check, deadline and unwind policy of the table.
 func TestRegManifestDeclaresTheActions(t *testing.T) {
@@ -111,12 +134,12 @@ func TestRegManifestDeclaresTheActions(t *testing.T) {
 	}
 	got := regDefs(t, m)
 	for _, want := range regActions {
-		a, ok := got[want.name]
+		a, ok := got[want.key()]
 		if !ok {
-			t.Errorf("%s is not declared", want.name)
+			t.Errorf("%s is not declared", want.key())
 			continue
 		}
-		delete(got, want.name)
+		delete(got, want.key())
 		s := a.Spec
 		wantLocks := []string{"npm"}
 		switch want.class {
@@ -125,7 +148,7 @@ func TestRegManifestDeclaresTheActions(t *testing.T) {
 		case core.ClassComposite:
 			wantLocks = []string{"composite:npm"}
 		}
-		if s.Version != 1 || s.Class != want.class || s.Side != want.side || !slices.Equal(s.LockKeys, wantLocks) ||
+		if s.Version != want.ver() || s.Class != want.class || s.Side != want.side || !slices.Equal(s.LockKeys, wantLocks) ||
 			core.RequiredScope(s) != regScope(want) || s.LongRunning != want.long || s.Internal != want.internal || s.Reveal != want.reveal ||
 			s.Converges != want.converges || s.Unwind != want.unwind || s.RepairedBy != "" || s.BreakGlass || len(s.Guards) != 0 {
 			t.Errorf("%s: spec %+v; want class %s on the %s, locks %v, scope %s, long-running %v, internal %v, reveal %v, converges %v, unwind %q, no guard",
@@ -199,32 +222,33 @@ func TestRegManifestDeclaresTheRest(t *testing.T) {
 // regSample is a fully populated input value for the action, so that it is valid whichever of its members the
 // schema requires.
 var regSamples = map[string]any{
-	"npm.instance.deploy":         DeployInput{AcmeEmail: "ops@example.com"},
-	"npm.instance.status":         StatusInput{},
-	"npm.instance.confirm-public": ConfirmPublicInput{},
-	"npm.instance.remove":         RemoveInput{},
-	"npm.instance.upgrade":        UpgradeInput{},
-	"npm.network.attach":          AttachInput{Network: "appnet", Claimant: "expose:app.example.com", Target: "web"},
-	"npm.network.detach":          DetachInput{Network: "appnet", Claimant: "expose:app.example.com"},
-	"npm.proxyhost.add":           ProxyHostInput{Domains: []string{"app.example.com"}, ForwardScheme: "http", ForwardHost: "web", ForwardPort: 8080, CertificateID: 3, AccessListID: 2, SSLForced: true, HSTS: true, Websockets: true},
-	"npm.proxyhost.update":        ProxyHostUpdateInput{ID: 5, ProxyHostInput: ProxyHostInput{Domains: []string{"app.example.com"}, ForwardScheme: "https", ForwardHost: "web", ForwardPort: 8443}},
-	"npm.proxyhost.remove":        ProxyHostRemoveInput{Domain: "app.example.com"},
-	"npm.proxyhost.list":          ProxyHostListInput{},
-	"npm.accesslist.add":          AccessListInput{SatisfyAny: true, Clients: []AccessClientInput{{Address: "203.0.113.0/24", Directive: "allow"}}},
-	"npm.accesslist.remove":       AccessListRemoveInput{ID: 2},
-	"npm.accesslist.list":         AccessListListInput{},
-	"npm.certificate.request":     CertificateInput{Domains: []string{"app.example.com"}},
-	"npm.certificate.remove":      CertificateRemoveInput{ID: 3},
-	"npm.certificate.list":        CertificateListInput{},
-	"npm.admin.reveal-password":   RevealInput{},
-	"npm.instance.check":          CheckInput{HostID: "h1", Integration: true},
-	"npm.public.check":            PublicInput{HostID: "h1"},
-	"npm.instance.list":           struct{}{},
-	"npm.instance.deploy-public":  DeployPublicInput{HostID: "h1", AcmeEmail: "ops@example.com", Integration: true},
-	"npm.expose.container":        ExposeInput{HostID: "h1", Container: "web", Port: 8080, Network: "appnet", Domains: []string{"app.example.com"}, Websockets: true, AccessListID: 2},
-	"npm.admin.expose":            AdminExposeInput{HostID: "h1", Hostname: "npm.example.com", AccessListID: 2},
-	"npm.expose.remove":           ExposeRemoveInput{HostID: "h1", Domain: "app.example.com"},
-	"npm.admin.unexpose":          AdminUnexposeInput{HostID: "h1", Hostname: "npm.example.com"},
+	"npm.instance.deploy":           DeployInput{AcmeEmail: "ops@example.com"},
+	"npm.instance.status":           StatusInput{},
+	"npm.instance.confirm-public":   ConfirmPublicInput{},
+	"npm.instance.remove":           RemoveInput{},
+	"npm.instance.upgrade":          UpgradeInput{},
+	"npm.network.attach":            AttachInput{Network: "appnet", Claimant: "expose:app.example.com", Target: "web"},
+	"npm.network.detach":            DetachInput{Network: "appnet", Claimant: "expose:app.example.com"},
+	"npm.proxyhost.add":             ProxyHostInput{Domains: []string{"app.example.com"}, ForwardScheme: "http", ForwardHost: "web", ForwardPort: 8080, CertificateID: 3, AccessListID: 2, SSLForced: true, HSTS: true, Websockets: true},
+	"npm.proxyhost.update":          ProxyHostUpdateInput{ID: 5, ProxyHostInput: ProxyHostInput{Domains: []string{"app.example.com"}, ForwardScheme: "https", ForwardHost: "web", ForwardPort: 8443}},
+	"npm.proxyhost.remove":          ProxyHostRemoveInput{Domain: "app.example.com"},
+	"npm.proxyhost.list":            ProxyHostListInput{},
+	"npm.accesslist.add":            AccessListInput{SatisfyAny: true, Clients: []AccessClientInput{{Address: "203.0.113.0/24", Directive: "allow"}}},
+	"npm.accesslist.remove":         AccessListRemoveInput{ID: 2},
+	"npm.accesslist.list":           AccessListListInput{},
+	"npm.certificate.request":       CertificateInput{Domains: []string{"app.example.com"}},
+	"npm.certificate.remove":        CertificateRemoveInput{ID: 3},
+	"npm.certificate.list":          CertificateListInput{},
+	"npm.admin.reveal-password":     RevealInput{},
+	"npm.instance.check":            CheckInput{HostID: "h1", Integration: true},
+	"npm.public.check":              PublicInput{HostID: "h1"},
+	"npm.instance.list":             struct{}{},
+	"npm.instance.deploy-public":    DeployPublicInput{HostID: "h1", AcmeEmail: "ops@example.com", Integration: true},
+	"npm.instance.deploy-public/v2": DeployPublicInputV2{HostID: "h1", AcmeEmail: "ops@example.com", Integration: true, Firewall: true, IPv6: true},
+	"npm.expose.container":          ExposeInput{HostID: "h1", Container: "web", Port: 8080, Network: "appnet", Domains: []string{"app.example.com"}, Websockets: true, AccessListID: 2},
+	"npm.admin.expose":              AdminExposeInput{HostID: "h1", Hostname: "npm.example.com", AccessListID: 2},
+	"npm.expose.remove":             ExposeRemoveInput{HostID: "h1", Domain: "app.example.com"},
+	"npm.admin.unexpose":            AdminUnexposeInput{HostID: "h1", Hostname: "npm.example.com"},
 }
 
 // regMembers marshals a sample into its JSON members.
@@ -254,12 +278,12 @@ func TestRegInputsAcceptTheirSampleAndRefuseUnknownMembers(t *testing.T) {
 	defs := regDefs(t, regModule(t))
 	v := schema.NewValidator()
 	for _, want := range regActions {
-		def, ok := defs[want.name]
+		def, ok := defs[want.key()]
 		if !ok {
-			t.Errorf("%s is not declared", want.name)
+			t.Errorf("%s is not declared", want.key())
 			continue
 		}
-		sample, ok := regSamples[want.name]
+		sample, ok := regSamples[want.key()]
 		if !ok {
 			t.Errorf("%s has no sample input", want.name)
 			continue
@@ -321,9 +345,9 @@ func TestRegInputsRefuseWhatTheWireTypesRequire(t *testing.T) {
 func TestRegOnlyTheRevealedPasswordIsSecret(t *testing.T) {
 	defs := regDefs(t, regModule(t))
 	for _, want := range regActions {
-		def, ok := defs[want.name]
+		def, ok := defs[want.key()]
 		if !ok {
-			t.Errorf("%s is not declared", want.name)
+			t.Errorf("%s is not declared", want.key())
 			continue
 		}
 		in, err := schema.Input(def.InputType)
@@ -348,8 +372,9 @@ func TestRegOnlyTheRevealedPasswordIsSecret(t *testing.T) {
 func TestRegSnapshotsAreCommitted(t *testing.T) {
 	dir := filepath.Join("..", "..", "..", "schemas")
 	for _, a := range regActions {
-		if _, err := os.Stat(filepath.Join(dir, a.name, "v1.json")); err != nil {
-			t.Errorf("schemas/%s/v1.json: %v; run make schemas", a.name, err)
+		file := fmt.Sprintf("v%d.json", a.ver())
+		if _, err := os.Stat(filepath.Join(dir, a.name, file)); err != nil {
+			t.Errorf("schemas/%s/%s: %v; run make schemas", a.name, file, err)
 		}
 	}
 	dirs, err := filepath.Glob(filepath.Join(dir, "npm.*"))
@@ -374,8 +399,8 @@ func TestRegRegistryAcceptsTheModule(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, a := range regActions {
-			if _, ok := reg.Action(core.ActionRef{Name: a.name, Version: 1}); !ok {
-				t.Errorf("the registry has no %s", a.name)
+			if _, ok := reg.Action(core.ActionRef{Name: a.name, Version: a.ver()}); !ok {
+				t.Errorf("the registry has no %s", a.key())
 			}
 		}
 	}

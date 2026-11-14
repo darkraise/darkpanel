@@ -17,6 +17,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/schema"
 	"github.com/darkraise/darkpanel/internal/modules/firewall"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/dockerfw"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/model"
 )
 
 // cxHost is the NPM host of these tests; the test host's own id ("h1") is deliberately another.
@@ -471,5 +472,86 @@ func TestW10NbExposeContainerRefusesNoDomains(t *testing.T) {
 	one.Domains = []string{"app.example.com"}
 	if err := v.ValidateInput(def, cxJSON(t, one)); err != nil {
 		t.Errorf("input with one domain: %v, want it accepted", err)
+	}
+}
+
+func TestW12cDeployPublicV2Steps(t *testing.T) {
+	type tc struct {
+		name                       string
+		integration, firewall, ip6 bool
+		wantIDs                    []string
+		wantRules                  []string // ids of the ports step's rules.apply input; nil for none
+		opened                     bool
+	}
+	for _, c := range []tc{
+		{"integration on", true, true, true, []string{"check", "deploy", "ports"}, nil, true},
+		{"off with IPv6", false, true, true, []string{"check", "deploy", "ports"}, []string{PortRule80V4, PortRule443V4, PortRule80V6, PortRule443V6}, true},
+		{"off without IPv6", false, true, false, []string{"check", "deploy", "ports"}, []string{PortRule80V4, PortRule443V4}, true},
+		{"off on a host without firewall support", false, false, false, []string{"check", "deploy"}, nil, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			def := newTHHost(t).nm().instanceDeployPublicV2()
+			in := DeployPublicInputV2{HostID: cxHost, AcmeEmail: "ops@example.com", Integration: c.integration, Firewall: c.firewall, IPv6: c.ip6}
+			steps, err := cxSteps(t, def, in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(cxIDs(steps), c.wantIDs) {
+				t.Fatalf("steps %v, want %v", cxIDs(steps), c.wantIDs)
+			}
+			check := cxStrict[CheckInput](t, cxResolve(t, steps[0].Input, in, nil))
+			if check.HostID != cxHost || check.Integration != c.integration || check.Firewall == nil || *check.Firewall != c.firewall || check.IPv6 == nil || *check.IPv6 != c.ip6 {
+				t.Errorf("check input %+v, want host, integration %v, firewall %v, ipv6 %v", check, c.integration, c.firewall, c.ip6)
+			}
+			again, err := cxSteps(t, def, in)
+			if err != nil || !reflect.DeepEqual(again, steps) {
+				t.Errorf("a second Steps call differs (%v): the apply would refuse with plan.state_changed", err)
+			}
+			if c.integration {
+				cxWantStep(t, steps[2], "ports", cxHost, "firewall.containers.apply/v1", []string{"deploy"})
+				return
+			}
+			if c.wantRules == nil {
+				return
+			}
+			cxWantStep(t, steps[2], "ports", cxHost, "firewall.rules.apply/v1", []string{"deploy"})
+			ports := cxStrict[firewall.RulesApplyInput](t, steps[2].Input)
+			var ids []string
+			for _, r := range ports.Add {
+				ids = append(ids, r.ID)
+				if r.Action != model.ActionAllow || r.Direction != model.DirIn || r.Proto != model.ProtoTCP || r.From != model.Any || r.To != model.Any || r.Comment != "" {
+					t.Errorf("rule %+v, want an allow in of TCP from any to any with no comment", r)
+				}
+			}
+			if !slices.Equal(ids, c.wantRules) || ports.Label != PortsLabel || !ports.KeepManual {
+				t.Errorf("ports input label %q keepManual %v ids %v, want %q, true, %v", ports.Label, ports.KeepManual, ids, PortsLabel, c.wantRules)
+			}
+			rules := cxAction(t, firewall.Module(), "firewall.rules.apply")
+			if err := schema.NewValidator().ValidateInput(rules, steps[2].Input); err != nil {
+				t.Errorf("ports input %s is invalid for firewall.rules.apply: %v", steps[2].Input, err)
+			}
+		})
+	}
+}
+
+func TestW12cDeployPublicV2Output(t *testing.T) {
+	def := newTHHost(t).nm().instanceDeployPublicV2()
+	if s := def.Spec; s.Name != "npm.instance.deploy-public" || s.Version != 2 || s.Unwind != core.UnwindReverse || !slices.Equal(s.LockKeys, []string{"composite:npm"}) {
+		t.Errorf("spec %+v, want npm.instance.deploy-public version 2, unwind reverse, lock composite:npm", s)
+	}
+	deployed := cxJSON(t, Deployed{ContainerID: "abc123", Image: "jc21/nginx-proxy-manager:2.13.5", AdminEmail: "ops@example.com"})
+	for _, c := range []struct{ integration, firewall, want bool }{{true, false, true}, {false, true, true}, {false, false, false}} {
+		steps := map[string]json.RawMessage{"deploy": deployed}
+		if c.want {
+			steps["ports"] = json.RawMessage(`{}`)
+		}
+		in := cxJSON(t, DeployPublicInputV2{HostID: cxHost, AcmeEmail: "ops@example.com", Integration: c.integration, Firewall: c.firewall})
+		out, err := def.Handler.Output(context.Background(), core.Env{}, in, steps)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := cxStrict[DeployPublicOutput](t, out), (DeployPublicOutput{ContainerID: "abc123", PortsOpened: c.want}); got != want {
+			t.Errorf("integration %v firewall %v: output %+v, want %+v", c.integration, c.firewall, got, want)
+		}
 	}
 }

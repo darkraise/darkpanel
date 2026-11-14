@@ -399,6 +399,38 @@ Returned in the `output` field of the change that apply returns.
 | `containerId` | string | yes |  |
 | `portsOpened` | boolean | yes |  |
 
+## npm.instance.deploy-public v2
+
+Deploy Nginx Proxy Manager and open ports 80 and 443 for it: through the Docker firewall integration when it is on, else as UFW rules when Darkpanel manages the host's firewall.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/actions/npm.instance.deploy-public/v2/plan` |
+| apply | `POST /api/v1/actions/npm.instance.deploy-public/v2/apply` |
+
+Minimum scope: `admin`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `acmeEmail` | string | yes |  |
+| `firewall` | boolean | yes | Darkpanel manages the host's firewall (firewall.status supported): with the integration off, the ports are opened as UFW rules. |
+| `hostId` | string | yes |  |
+| `integration` | boolean | yes | The host's Docker firewall integration is on: the ports are opened through it. |
+| `ipv6` | boolean | yes | UFW's IPv6 setting (firewall.status configured.ipv6): the UFW rules admit IPv6 visitors too. |
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `containerId` | string | yes |  |
+| `portsOpened` | boolean | yes |  |
+
 ## npm.instance.deploy v1
 
 Deploy Nginx Proxy Manager in a Darkpanel-owned container and create its administrator.

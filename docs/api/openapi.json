@@ -11559,6 +11559,61 @@
         ],
         "type": "object"
       },
+      "npm.instance.deploy-public.v2.input": {
+        "$ref": "#/components/schemas/npm.instance.deploy-public.v2.input.DeployPublicInputV2"
+      },
+      "npm.instance.deploy-public.v2.input.DeployPublicInputV2": {
+        "additionalProperties": false,
+        "properties": {
+          "acmeEmail": {
+            "maxLength": 254,
+            "minLength": 3,
+            "type": "string"
+          },
+          "firewall": {
+            "description": "Darkpanel manages the host's firewall (firewall.status supported): with the integration off, the ports are opened as UFW rules.",
+            "type": "boolean"
+          },
+          "hostId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "integration": {
+            "description": "The host's Docker firewall integration is on: the ports are opened through it.",
+            "type": "boolean"
+          },
+          "ipv6": {
+            "description": "UFW's IPv6 setting (firewall.status configured.ipv6): the UFW rules admit IPv6 visitors too.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "hostId",
+          "acmeEmail",
+          "integration",
+          "firewall",
+          "ipv6"
+        ],
+        "type": "object"
+      },
+      "npm.instance.deploy-public.v2.output": {
+        "$ref": "#/components/schemas/npm.instance.deploy-public.v2.output.DeployPublicOutput"
+      },
+      "npm.instance.deploy-public.v2.output.DeployPublicOutput": {
+        "properties": {
+          "containerId": {
+            "type": "string"
+          },
+          "portsOpened": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "containerId",
+          "portsOpened"
+        ],
+        "type": "object"
+      },
       "npm.instance.deploy.v1.input": {
         "$ref": "#/components/schemas/npm.instance.deploy.v1.input.DeployInput"
       },
@@ -18092,6 +18147,93 @@
           }
         ],
         "summary": "Deploy Nginx Proxy Manager and, when the host's Docker firewall integration is on, open ports 80 and 443 for it."
+      }
+    },
+    "/api/v1/actions/npm.instance.deploy-public/v2/apply": {
+      "post": {
+        "operationId": "npm.instance.deploy-public.v2.apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Deploy Nginx Proxy Manager and open ports 80 and 443 for it: through the Docker firewall integration when it is on, else as UFW rules when Darkpanel manages the host's firewall."
+      }
+    },
+    "/api/v1/actions/npm.instance.deploy-public/v2/plan": {
+      "post": {
+        "operationId": "npm.instance.deploy-public.v2.plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/npm.instance.deploy-public.v2.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Deploy Nginx Proxy Manager and open ports 80 and 443 for it: through the Docker firewall integration when it is on, else as UFW rules when Darkpanel manages the host's firewall."
       }
     },
     "/api/v1/actions/npm.instance.list/v1/read": {

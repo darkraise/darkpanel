@@ -392,3 +392,21 @@ func TestW10SfResourceRuleMatchesCore(t *testing.T) {
 		}
 	}
 }
+
+// TestW12cDeployPublicCommandIsV2: the generated npm instance deploy-public
+// command takes the latest version, so it has v2's --firewall and --ipv6.
+func TestW12cDeployPublicCommandIsV2(t *testing.T) {
+	root, err := cli.NewRoot(cli.Options{Registry: built(t), Commands: []*cobra.Command{{Use: "serve"}, {Use: "version"}}})
+	if err != nil {
+		t.Fatalf("cli.NewRoot: %v", err)
+	}
+	cmd, ok := cli.FindCommand(root, "npm.instance.deploy-public")
+	if !ok {
+		t.Fatal("npm.instance.deploy-public has no command")
+	}
+	for _, flag := range []string{"host-id", "acme-email", "integration", "firewall", "ipv6"} {
+		if cmd.Flags().Lookup(flag) == nil {
+			t.Errorf("%s has no --%s", cmd.CommandPath(), flag)
+		}
+	}
+}

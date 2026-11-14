@@ -15,6 +15,6 @@ func (n nm) actions() []core.ActionDef {
 		n.certificateRequest(), n.certificateRemove(), n.certificateList(),
 		n.adminRevealPassword(),
 		n.instanceCheck(), n.publicCheck(), n.instanceList(),
-		n.instanceDeployPublic(), n.exposeContainer(), n.adminExpose(), n.exposeRemove(), n.adminUnexpose(),
+		n.instanceDeployPublic(), n.instanceDeployPublicV2(), n.exposeContainer(), n.adminExpose(), n.exposeRemove(), n.adminUnexpose(),
 	}
 }

@@ -24,6 +24,15 @@ func (n nm) instanceDeployPublic() core.ActionDef {
 	}, deployPublicComposer{})
 }
 
+// instanceDeployPublicV2 declares npm.instance.deploy-public v2: v1, and with the integration off on a host whose
+// firewall Darkpanel manages, ports 80 and 443 opened as UFW rules.
+func (n nm) instanceDeployPublicV2() core.ActionDef {
+	return core.DefineComposite[DeployPublicInputV2, DeployPublicOutput](core.ActionSpec{
+		Name: ID + ".instance.deploy-public", Version: 2, Unwind: core.UnwindReverse,
+		Summary: "Deploy Nginx Proxy Manager and open ports 80 and 443 for it: through the Docker firewall integration when it is on, else as UFW rules when Darkpanel manages the host's firewall.",
+	}, deployPublicComposerV2{})
+}
+
 // exposeContainer declares npm.expose.container: a container served on its domains through the host's public NPM
 // instance. A failed step undoes the earlier ones in reverse.
 func (n nm) exposeContainer() core.ActionDef {
@@ -75,7 +84,57 @@ type deployPublicComposer struct{}
 
 // Steps returns the deployment's steps for in.
 func (deployPublicComposer) Steps(_ context.Context, _ core.Env, in DeployPublicInput) ([]core.Step, error) {
-	check, err := exposeStepInput(map[string]any{"hostId": "${input.hostId}", "integration": in.Integration})
+	steps, err := deployPublicSteps(in.HostID, map[string]any{"hostId": "${input.hostId}", "integration": in.Integration})
+	if err != nil || !in.Integration {
+		return steps, err
+	}
+	ports, err := containerPortsStep(in.HostID)
+	if err != nil {
+		return nil, err
+	}
+	return append(steps, ports), nil
+}
+
+// Output is the deployed container and whether the ports were opened.
+func (deployPublicComposer) Output(_ context.Context, _ core.Env, in DeployPublicInput, steps map[string]json.RawMessage) (DeployPublicOutput, error) {
+	return deployPublicOutput(steps, in.Integration)
+}
+
+// deployPublicComposerV2 is deployPublicComposer, which with the integration off opens the ports as UFW rules on a
+// host whose firewall Darkpanel manages.
+type deployPublicComposerV2 struct{}
+
+// Steps returns the deployment's steps for in.
+func (deployPublicComposerV2) Steps(_ context.Context, _ core.Env, in DeployPublicInputV2) ([]core.Step, error) {
+	steps, err := deployPublicSteps(in.HostID, map[string]any{
+		"hostId": "${input.hostId}", "integration": in.Integration, "firewall": in.Firewall, "ipv6": in.IPv6,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var ports core.Step
+	switch {
+	case in.Integration:
+		ports, err = containerPortsStep(in.HostID)
+	case in.Firewall:
+		ports, err = ufwPortsStep(in.HostID, in.IPv6)
+	default:
+		return steps, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return append(steps, ports), nil
+}
+
+// Output is the deployed container and whether the ports were opened.
+func (deployPublicComposerV2) Output(_ context.Context, _ core.Env, in DeployPublicInputV2, steps map[string]json.RawMessage) (DeployPublicOutput, error) {
+	return deployPublicOutput(steps, in.Integration || in.Firewall)
+}
+
+// deployPublicSteps are the check of the host, with check as its input, and the deployment after it.
+func deployPublicSteps(hostID string, check map[string]any) ([]core.Step, error) {
+	checkIn, err := exposeStepInput(check)
 	if err != nil {
 		return nil, err
 	}
@@ -83,16 +142,17 @@ func (deployPublicComposer) Steps(_ context.Context, _ core.Env, in DeployPublic
 	if err != nil {
 		return nil, err
 	}
-	steps := []core.Step{
-		{ID: "check", Action: core.ActionRef{Name: ID + ".instance.check", Version: 1}, Input: check},
+	return []core.Step{
+		{ID: "check", Action: core.ActionRef{Name: ID + ".instance.check", Version: 1}, Input: checkIn},
 		{
-			ID: "deploy", Host: in.HostID, Action: core.ActionRef{Name: ID + ".instance.deploy", Version: 1},
+			ID: "deploy", Host: hostID, Action: core.ActionRef{Name: ID + ".instance.deploy", Version: 1},
 			Input: deploy, After: []string{"check"},
 		},
-	}
-	if !in.Integration {
-		return steps, nil
-	}
+	}, nil
+}
+
+// containerPortsStep opens ports 80 and 443 through the Docker firewall integration.
+func containerPortsStep(hostID string) (core.Step, error) {
 	allow := func(port uint16) firewall.ContainerOp {
 		return firewall.ContainerOp{Op: "allow", Binding: &dockerfw.Binding{Selector: containerName, HostPort: port, Proto: "tcp"}}
 	}
@@ -100,18 +160,33 @@ func (deployPublicComposer) Steps(_ context.Context, _ core.Env, in DeployPublic
 		Ops []firewall.ContainerOp `json:"ops"`
 	}{[]firewall.ContainerOp{allow(80), allow(443)}})
 	if err != nil {
-		return nil, fmt.Errorf("npm: %w", err)
+		return core.Step{}, fmt.Errorf("npm: %w", err)
 	}
 	// firewall.containers.apply is revertible, and the engine accepts a
 	// revertible step only as a composite's last.
-	return append(steps, core.Step{
-		ID: "ports", Host: in.HostID, Action: core.ActionRef{Name: "firewall.containers.apply", Version: 1},
+	return core.Step{
+		ID: "ports", Host: hostID, Action: core.ActionRef{Name: "firewall.containers.apply", Version: 1},
 		Input: ports, After: []string{"deploy"},
-	}), nil
+	}, nil
 }
 
-// Output is the deployed container and whether the ports were opened.
-func (deployPublicComposer) Output(_ context.Context, _ core.Env, in DeployPublicInput, steps map[string]json.RawMessage) (DeployPublicOutput, error) {
+// ufwPortsStep opens ports 80 and 443 as UFW rules, for IPv6 visitors too when ipv6. A manual rule that already
+// admits a port is kept rather than replaced.
+func ufwPortsStep(hostID string, ipv6 bool) (core.Step, error) {
+	ports, err := json.Marshal(firewall.RulesApplyInput{Label: PortsLabel, Add: PortRules(ipv6), KeepManual: true})
+	if err != nil {
+		return core.Step{}, fmt.Errorf("npm: %w", err)
+	}
+	// firewall.rules.apply is revertible, and the engine accepts a
+	// revertible step only as a composite's last.
+	return core.Step{
+		ID: "ports", Host: hostID, Action: core.ActionRef{Name: "firewall.rules.apply", Version: 1},
+		Input: ports, After: []string{"deploy"},
+	}, nil
+}
+
+// deployPublicOutput is the output of a deployment: the deploy step's container, and whether the ports were opened.
+func deployPublicOutput(steps map[string]json.RawMessage, opened bool) (DeployPublicOutput, error) {
 	raw, ok := steps["deploy"]
 	if !ok {
 		return DeployPublicOutput{}, errors.New("npm: the deployment has no output of its deploy step")
@@ -120,7 +195,7 @@ func (deployPublicComposer) Output(_ context.Context, _ core.Env, in DeployPubli
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return DeployPublicOutput{}, fmt.Errorf("npm: the deployment's deploy output: %w", err)
 	}
-	return DeployPublicOutput{ContainerID: out.ContainerID, PortsOpened: in.Integration}, nil
+	return DeployPublicOutput{ContainerID: out.ContainerID, PortsOpened: opened}, nil
 }
 
 // exposeContainerComposer exposes a container: it requires a public instance, attaches the proxy to the container's

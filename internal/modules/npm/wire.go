@@ -242,6 +242,16 @@ type DeployPublicInput struct {
 	Integration bool   `json:"integration"`
 }
 
+// DeployPublicInputV2 is the input of npm.instance.deploy-public v2: what the plan found on the host, which the check
+// step compares at apply.
+type DeployPublicInputV2 struct {
+	HostID      string `json:"hostId" jsonschema:"minLength=1"`
+	AcmeEmail   string `json:"acmeEmail" jsonschema:"minLength=3,maxLength=254"`
+	Integration bool   `json:"integration" jsonschema_description:"The host's Docker firewall integration is on: the ports are opened through it."`
+	Firewall    bool   `json:"firewall" jsonschema_description:"Darkpanel manages the host's firewall (firewall.status supported): with the integration off, the ports are opened as UFW rules."`
+	IPv6        bool   `json:"ipv6" jsonschema_description:"UFW's IPv6 setting (firewall.status configured.ipv6): the UFW rules admit IPv6 visitors too."`
+}
+
 // ExposeInput is the input of npm.expose.container: the container's port to serve on Domains, reached over Network.
 type ExposeInput struct {
 	HostID       string   `json:"hostId" jsonschema:"minLength=1"`
