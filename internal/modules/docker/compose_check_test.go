@@ -750,3 +750,17 @@ func TestW12dComposeKeyFollowsValidateOrder(t *testing.T) {
 		t.Errorf("composeKey = %q, want api, the service Validate asks about first", got)
 	}
 }
+
+// TestW12dCancelledCheckIsNotAnOutage: a check whose caller went away is
+// answered with the caller's own error, not as an unreachable Engine.
+func TestW12dCancelledCheckIsNotAnOutage(t *testing.T) {
+	h := newDKHost(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	h.docker.fail("InspectImage", fmt.Errorf("dockerapi: GET /images/shop-web/json: %w", &url.Error{Op: "Get", URL: "http://docker/images/shop-web/json", Err: context.Canceled}))
+	cfg := compose.Config{Services: map[string]compose.Service{"web": {Build: true}}}
+	err := h.dk().validateConfig(ctx, "shop", cfg)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("validateConfig = %v, want the caller's context.Canceled", err)
+	}
+}

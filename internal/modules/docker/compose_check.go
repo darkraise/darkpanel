@@ -463,6 +463,9 @@ func (k dk) validateConfig(ctx context.Context, project string, cfg compose.Conf
 		},
 	}
 	err := compose.Validate(project, cfg, facts)
+	if engineErr != nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if engineErr != nil {
 		return validationEngineError(errKind, composeKey(project, cfg, errKind, errName), engineErr)
 	}
