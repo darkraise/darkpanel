@@ -299,7 +299,8 @@ func (r *router) inputProbes(fl flow, p fwstate.Packet) []probe {
 
 // eligible lists the in-interfaces an incoming packet may arrive on: every
 // up, non-loopback interface, except that for IPv4 an interface under
-// strict reverse-path filtering takes only packets whose route back to the
+// strict reverse-path filtering, or under any reverse-path filtering while
+// it holds no IPv4 address, takes only packets whose route back to the
 // source leaves through it. A source in a tailnet range arrives only on
 // tailscale0 while that interface is up and the route back to the source
 // leaves through it.
@@ -319,7 +320,12 @@ func (r *router) eligible(p fwstate.Packet) ([]string, error) {
 			if err != nil {
 				return nil, err
 			}
-			if rp == 1 {
+			// The kernel's source check (__fib_validate_source) falls back to
+			// rejecting a source whose route back leaves elsewhere when the
+			// interface holds no IPv4 address, in loose mode too: the lookup
+			// fails with EXDEV. A container veth's host side is such an
+			// interface.
+			if rp == 1 || (rp != 0 && !hasIPv4(i)) {
 				if !looked {
 					q := netstat.RouteQuery{Dst: p.Src, Mark: p.Mark}
 					if r.local[p.Dst] {
@@ -339,6 +345,11 @@ func (r *router) eligible(p fwstate.Packet) ([]string, error) {
 		out = append(out, i.Name)
 	}
 	return out, nil
+}
+
+// hasIPv4 reports whether i holds an IPv4 address.
+func hasIPv4(i netstat.Interface) bool {
+	return slices.ContainsFunc(i.Addrs, func(p netip.Prefix) bool { return p.Addr().Is4() })
 }
 
 // fromTailnet reports whether src is a tailnet address, tailscale0 is up

@@ -43,6 +43,15 @@ func rtFacts(all, eth0, eth1 int) facts {
 	return facts{ifaces: gIfaces(), rpFilter: map[string]int{"all": all, "eth0": eth0, "eth1": eth1}}
 }
 
+// rtFactsNoAddr are rtFacts(rp, 0, 0) with an up veth1 that holds an IPv6
+// link-local address only, as the host side of a container's veth does.
+func rtFactsNoAddr(rp int) facts {
+	f := rtFacts(rp, 0, 0)
+	f.ifaces = append(f.ifaces, netstat.Interface{Index: 7, Name: "veth1", Up: true, Running: true, Addrs: []netip.Prefix{netip.MustParsePrefix("fe80::1/64")}})
+	f.rpFilter["veth1"] = 0
+	return f
+}
+
 // rtFactsWithPanel are rtFacts(1, 1, 1) with an up dp-panel bridge at
 // 172.30.0.1/16.
 func rtFactsWithPanel() facts {
@@ -97,6 +106,18 @@ func TestProbes(t *testing.T) {
 			name: "loose rp_filter excludes nothing",
 			fl:   flow{label: "ssh", pkt: ssh4}, f: rtFacts(0, 2, 2),
 			want: []probe{rtProbe(sshDesc+" on eth0", ssh4, "eth0", ""), rtProbe(sshDesc+" on eth1", ssh4, "eth1", "")},
+		},
+		{
+			name: "loose rp_filter keeps an interface without IPv4 addresses only for the route back",
+			fl:   flow{label: "ssh", pkt: ssh4}, f: rtFactsNoAddr(2),
+			routes:  map[netstat.RouteQuery]netstat.Route{rtQuery("203.0.113.7", "192.0.2.1", ""): rtVia("eth0", "192.0.2.1")},
+			want:    []probe{rtProbe(sshDesc+" on eth0", ssh4, "eth0", ""), rtProbe(sshDesc+" on eth1", ssh4, "eth1", "")},
+			lookups: []netstat.RouteQuery{rtQuery("203.0.113.7", "192.0.2.1", "")},
+		},
+		{
+			name: "no rp_filter keeps an interface without IPv4 addresses",
+			fl:   flow{label: "ssh", pkt: ssh4}, f: rtFactsNoAddr(0),
+			want: []probe{rtProbe(sshDesc+" on eth0", ssh4, "eth0", ""), rtProbe(sshDesc+" on eth1", ssh4, "eth1", ""), rtProbe(sshDesc+" on veth1", ssh4, "veth1", "")},
 		},
 		{
 			name: "the checked state's rp_filter wins over the live value",
